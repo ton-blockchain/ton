@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "tl_jni_object.h"
 
@@ -30,12 +30,6 @@ namespace jni {
 
 thread_local bool parse_error;
 
-static jclass BooleanClass;
-static jclass IntegerClass;
-static jclass LongClass;
-static jclass DoubleClass;
-static jclass StringClass;
-static jclass ObjectClass;
 jmethodID GetConstructorID;
 jmethodID BooleanGetValueMethodID;
 jmethodID IntegerGetValueMethodID;

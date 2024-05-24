@@ -1,4 +1,4 @@
-/* 
+/*
     This file is part of TON Blockchain source code.
 
     TON Blockchain is free software; you can redistribute it and/or
@@ -14,16 +14,16 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 
-    In addition, as a special exception, the copyright holders give permission 
-    to link the code of portions of this program with the OpenSSL library. 
-    You must obey the GNU General Public License in all respects for all 
-    of the code used other than OpenSSL. If you modify file(s) with this 
-    exception, you may extend this exception to your version of the file(s), 
-    but you are not obligated to do so. If you do not wish to do so, delete this 
-    exception statement from your version. If you delete this exception statement 
+    In addition, as a special exception, the copyright holders give permission
+    to link the code of portions of this program with the OpenSSL library.
+    You must obey the GNU General Public License in all respects for all
+    of the code used other than OpenSSL. If you modify file(s) with this
+    exception, you may extend this exception to your version of the file(s),
+    but you are not obligated to do so. If you do not wish to do so, delete this
+    exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include <cassert>
 #include <algorithm>
@@ -47,6 +47,7 @@
 #include "fift/Fift.h"
 #include "fift/Dictionary.h"
 #include "fift/SourceLookup.h"
+#include "fift/IntCtx.h"
 #include "fift/words.h"
 
 #include "td/utils/logging.h"
@@ -59,6 +60,12 @@
 #include "block-parse.h"
 #include "block-auto.h"
 #include "mc-config.h"
+#include "git.h"
+
+#if defined(_INTERNAL_COMPILE) || defined(_TONLIB_COMPILE)
+#define WITH_TONLIB
+#include "tonlib/keys/Mnemonic.h"
+#endif
 
 #define PDO(__op) \
   if (!(__op)) {  \
@@ -266,6 +273,10 @@ td::RefInt256 create_smartcontract(td::RefInt256 smc_addr, Ref<vm::Cell> code, R
   PDO(sgn(balance) >= 0);
   THRERR("balance cannot be negative");
   if (!mode) {
+    if (verbosity > 2) {
+      std::cerr << "StateInit used for computing address: ";
+      block::gen::t_StateInit.print_ref(std::cerr, state_init);
+    }
     return smc_addr;  // compute address only
   }
   auto it = smart_contracts.find(addr);
@@ -298,7 +309,7 @@ td::RefInt256 create_smartcontract(td::RefInt256 smc_addr, Ref<vm::Cell> code, R
   THRERR("cannot create smart-contract AccountStorage");
   Ref<vm::DataCell> storage = cb.finalize();
   vm::CellStorageStat stats;
-  PDO(stats.compute_used_storage(Ref<vm::Cell>(storage)));
+  PDO(stats.compute_used_storage(Ref<vm::Cell>(storage)).is_ok());
   if (verbosity > 2) {
     std::cerr << "storage is:\n";
     vm::load_cell_slice(storage).print_rec(std::cerr);
@@ -594,6 +605,18 @@ void interpret_set_config_param(vm::Stack& stack) {
   }
 }
 
+void interpret_check_config_param(vm::Stack& stack) {
+  int x = stack.pop_smallint_range(0x7fffffff, 0x80000000);
+  Ref<vm::Cell> value = stack.pop_cell();
+  if (verbosity > 2 && x >= 0) {
+    std::cerr << "checking validity as configuration parameter #" << x << " of ";
+    // vm::load_cell_slice(value).print_rec(std::cerr);
+    block::gen::ConfigParam{x}.print_ref(std::cerr, value);
+    std::cerr << std::endl;
+  }
+  stack.push_bool(x < 0 || block::gen::ConfigParam{x}.validate_ref(value));
+}
+
 void interpret_is_shard_state(vm::Stack& stack) {
   Ref<vm::Cell> cell = stack.pop_cell();
   if (verbosity > 4) {
@@ -616,7 +639,49 @@ void interpret_is_workchain_descr(vm::Stack& stack) {
   stack.push_bool(block::gen::t_WorkchainDescr.validate_ref(std::move(cell)));
 }
 
+void interpret_add_extra_currencies(vm::Stack& stack) {
+  Ref<vm::Cell> y = stack.pop_maybe_cell(), x = stack.pop_maybe_cell(), res;
+  bool ok = block::add_extra_currency(std::move(x), std::move(y), res);
+  if (ok) {
+    stack.push_maybe_cell(std::move(res));
+  }
+  stack.push_bool(ok);
+}
+
+void interpret_sub_extra_currencies(vm::Stack& stack) {
+  Ref<vm::Cell> y = stack.pop_maybe_cell(), x = stack.pop_maybe_cell(), res;
+  bool ok = block::sub_extra_currency(std::move(x), std::move(y), res);
+  if (ok) {
+    stack.push_maybe_cell(std::move(res));
+  }
+  stack.push_bool(ok);
+}
+
+void interpret_allocated_balance(vm::Stack& stack) {
+  stack.push_int(total_smc_balance);
+}
+
+#ifdef WITH_TONLIB
+void interpret_mnemonic_to_privkey(vm::Stack& stack, int mode) {
+  td::SecureString str{td::Slice{stack.pop_string()}};
+  auto res = tonlib::Mnemonic::create(std::move(str), td::SecureString());
+  if (res.is_error()) {
+    throw fift::IntError{res.move_as_error().to_string()};
+  }
+  auto privkey = res.move_as_ok().to_private_key();
+  td::SecureString key;
+  if (mode & 1) {
+    auto pub = privkey.get_public_key();
+    key = pub.move_as_ok().as_octet_string();
+  } else {
+    key = privkey.as_octet_string();
+  }
+  stack.push_bytes(key.as_slice());
+}
+#endif
+
 void init_words_custom(fift::Dictionary& d) {
+  using namespace std::placeholders;
   d.def_stack_word("verb@ ", interpret_get_verbosity);
   d.def_stack_word("verb! ", interpret_set_verbosity);
   d.def_stack_word("wcid@ ", interpret_get_workchain);
@@ -625,12 +690,20 @@ void init_words_custom(fift::Dictionary& d) {
   d.def_stack_word("globalid! ", interpret_set_global_id);
   d.def_stack_word("config@ ", interpret_get_config_param);
   d.def_stack_word("config! ", interpret_set_config_param);
+  d.def_stack_word("config-valid? ", interpret_check_config_param);
   d.def_stack_word("(configdict) ", interpret_get_config_dict);
   d.def_stack_word("register_smc ", interpret_register_smartcontract);
   d.def_stack_word("set_config_smc ", interpret_set_config_smartcontract);
   d.def_stack_word("create_state ", interpret_create_state);
   d.def_stack_word("isShardState? ", interpret_is_shard_state);
   d.def_stack_word("isWorkchainDescr? ", interpret_is_workchain_descr);
+  d.def_stack_word("CC+? ", interpret_add_extra_currencies);
+  d.def_stack_word("CC-? ", interpret_sub_extra_currencies);
+  d.def_stack_word("allocated-balance ", interpret_allocated_balance);
+#ifdef WITH_TONLIB
+  d.def_stack_word("mnemo>priv ", std::bind(interpret_mnemonic_to_privkey, _1, 0));
+  d.def_stack_word("mnemo>pub ", std::bind(interpret_mnemonic_to_privkey, _1, 1));
+#endif
 }
 
 tlb::TypenameLookup tlb_dict;
@@ -697,14 +770,19 @@ void interpret_tlb_skip(vm::Stack& stack) {
 void interpret_tlb_validate_skip(vm::Stack& stack) {
   auto tp = pop_tlb_type(stack);
   auto cs = stack.pop_cellslice();
-  bool ok = (*tp)->validate_skip(cs.write());
+  bool ok = (*tp)->validate_skip_upto(1048576, cs.write());
   if (ok) {
     stack.push(std::move(cs));
   }
   stack.push_bool(ok);
 }
 
+void interpret_tlb_type_const(vm::Stack& stack, const tlb::TLB* ptr) {
+  stack.push_make_object<tlb::TlbTypeHolder>(ptr);
+}
+
 void init_words_tlb(fift::Dictionary& d) {
+  using namespace std::placeholders;
   tlb_dict.register_types(block::gen::register_simple_types);
   d.def_stack_word("tlb-type-lookup ", interpret_tlb_type_lookup);
   d.def_stack_word("tlb-type-name ", interpret_tlb_type_name);
@@ -713,6 +791,8 @@ void init_words_tlb(fift::Dictionary& d) {
   d.def_stack_word("(tlb-dump-str?) ", interpret_tlb_dump_to_str);
   d.def_stack_word("tlb-skip ", interpret_tlb_skip);
   d.def_stack_word("tlb-validate-skip ", interpret_tlb_validate_skip);
+  d.def_stack_word("ExtraCurrencyCollection",
+                   std::bind(interpret_tlb_type_const, _1, &block::tlb::t_ExtraCurrencyCollection));
 }
 
 void usage(const char* progname) {
@@ -726,7 +806,8 @@ void usage(const char* progname) {
                "\t-I<source-search-path>\tSets colon-separated library source include path. If not indicated, "
                "$FIFTPATH is used instead.\n"
                "\t-L<library-fif-file>\tPre-loads a library source file\n"
-               "\t-v<verbosity-level>\tSet verbosity level\n";
+               "\t-v<verbosity-level>\tSet verbosity level\n"
+               "\t-V<version>\tShow create-state build information\n";
   std::exit(2);
 }
 
@@ -764,7 +845,7 @@ int main(int argc, char* const argv[]) {
 
   int i;
   int new_verbosity_level = VERBOSITY_NAME(INFO);
-  while (!script_mode && (i = getopt(argc, argv, "hinsI:L:v:")) != -1) {
+  while (!script_mode && (i = getopt(argc, argv, "hinsI:L:v:V")) != -1) {
     switch (i) {
       case 'i':
         interactive = true;
@@ -785,6 +866,11 @@ int main(int argc, char* const argv[]) {
         break;
       case 'v':
         new_verbosity_level = VERBOSITY_NAME(FATAL) + (verbosity = td::to_integer<int>(td::Slice(optarg)));
+        break;
+      case 'V':
+        std::cout << "create-state build information: [ Commit: " << GitMetadata::CommitSHA1()
+                  << ", Date: " << GitMetadata::CommitDate() << "]\n";
+        std::exit(0);
         break;
       case 'h':
       default:

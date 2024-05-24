@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/utils/tests.h"
 
@@ -23,7 +23,6 @@
 #include "td/utils/Slice.h"
 #include "td/utils/StringBuilder.h"
 
-#include <tuple>
 #include <utility>
 
 REGISTER_TESTS(json)
@@ -60,8 +59,8 @@ TEST(JSON, object) {
   StringBuilder sb(MutableSlice{tmp, sizeof(tmp)});
   JsonBuilder jb(std::move(sb));
   auto c = jb.enter_object();
-  c << std::tie("key", "value");
-  c << std::make_pair("1", 2);
+  c("key", "value");
+  c("1", 2);
   c.leave();
   ASSERT_EQ(jb.string_builder().is_error(), false);
   auto encoded = jb.string_builder().as_cslice().str();

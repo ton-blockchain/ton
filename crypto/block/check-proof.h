@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -25,7 +25,7 @@ namespace block {
 using td::Ref;
 
 td::Status check_block_header_proof(td::Ref<vm::Cell> root, ton::BlockIdExt blkid,
-                                    ton::Bits256* store_shard_hash_to = nullptr, bool check_state_hash = false,
+                                    ton::Bits256* store_state_hash_to = nullptr, bool check_state_hash = false,
                                     td::uint32* save_utime = nullptr, ton::LogicalTime* save_lt = nullptr);
 td::Status check_shard_proof(ton::BlockIdExt blk, ton::BlockIdExt shard_blk, td::Slice shard_proof);
 td::Status check_account_proof(td::Slice proof, ton::BlockIdExt shard_blk, const block::StdAddress& addr,
@@ -44,10 +44,11 @@ struct AccountState {
   td::BufferSlice shard_proof;
   td::BufferSlice proof;
   td::BufferSlice state;
+  bool is_virtualized{false};
 
   struct Info {
-    td::Ref<vm::Cell> root;
-    ton::LogicalTime last_trans_lt = 0;
+    td::Ref<vm::Cell> root, true_root;
+    ton::LogicalTime last_trans_lt{0};
     ton::Bits256 last_trans_hash;
     ton::LogicalTime gen_lt{0};
     td::uint32 gen_utime{0};
@@ -85,6 +86,38 @@ struct TransactionList {
   };
 
   td::Result<Info> validate() const;
+};
+
+struct BlockTransaction {
+  ton::BlockIdExt blkid;
+  td::Ref<vm::Cell> root;
+  td::Ref<vm::Cell> proof;
+
+  struct Info {
+    ton::BlockIdExt blkid;
+    td::uint32 now;
+    ton::LogicalTime lt;
+    ton::Bits256 hash;
+    td::Ref<vm::Cell> transaction;
+  };
+  td::Result<Info> validate(bool check_proof) const;
+};
+
+struct BlockTransactionList {
+  ton::BlockIdExt blkid;
+  td::BufferSlice transactions_boc;
+  td::BufferSlice proof_boc;
+  ton::LogicalTime start_lt;
+  td::Bits256 start_addr;
+  bool reverse_mode;
+  int req_count;
+
+  struct Info {
+    ton::BlockIdExt blkid;
+    std::vector<BlockTransaction::Info> transactions;
+  };
+
+  td::Result<Info> validate(bool check_proof) const;
 };
 
 }  // namespace block

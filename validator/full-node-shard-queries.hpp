@@ -1,7 +1,26 @@
+/*
+    This file is part of TON Blockchain Library.
+
+    TON Blockchain Library is free software: you can redistribute it and/or modify
+    it under the terms of the GNU Lesser General Public License as published by
+    the Free Software Foundation, either version 2 of the License, or
+    (at your option) any later version.
+
+    TON Blockchain Library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU Lesser General Public License for more details.
+
+    You should have received a copy of the GNU Lesser General Public License
+    along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
+
+    Copyright 2017-2020 Telegram Systems LLP
+*/
 #pragma once
 
 #include "validator/validator.h"
 #include "ton/ton-tl.hpp"
+#include "full-node-serializer.hpp"
 
 namespace ton {
 
@@ -20,8 +39,8 @@ class BlockFullSender : public td::actor::Actor {
     stop();
   }
   void finish_query() {
-    promise_.set_value(create_serialize_tl_object<ton_api::tonNode_dataFull>(
-        create_tl_block_id(block_id_), std::move(proof_), std::move(data_), is_proof_link_));
+    promise_.set_result(
+        serialize_block_full(block_id_, proof_, data_, is_proof_link_, false));  // compression_enabled = false
     stop();
   }
   void start_up() override {

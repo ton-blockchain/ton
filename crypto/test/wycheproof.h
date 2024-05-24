@@ -1,3 +1,21 @@
+/*
+    This file is part of TON Blockchain Library.
+
+    TON Blockchain Library is free software: you can redistribute it and/or modify
+    it under the terms of the GNU Lesser General Public License as published by
+    the Free Software Foundation, either version 2 of the License, or
+    (at your option) any later version.
+
+    TON Blockchain Library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU Lesser General Public License for more details.
+
+    You should have received a copy of the GNU Lesser General Public License
+    along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
+
+    Copyright 2017-2020 Telegram Systems LLP
+*/
 #pragma once
 
 #include <string>
@@ -288,7 +306,8 @@ std::string wycheproof_ed25519() {
           "sig" : "7c38e026f29e14aabd059a0f2db8b0cd783040609a8be684db12f82a27774ab07a9155711ecfaf7f99f277bad0c6ae7e39d4eef676573336a5c51eb6f946b30d2020",
           "result" : "invalid",
           "flags" : []
-        },)abcd" R"abcd(
+        },)abcd"
+      R"abcd(
         {
           "tcId" : 34,
           "comment" : "include pk in signature",
@@ -570,7 +589,8 @@ std::string wycheproof_ed25519() {
           "flags" : [
             "SignatureMalleability"
           ]
-        },)abcd" R"abcd(
+        },)abcd"
+      R"abcd(
         {
           "tcId" : 68,
           "comment" : "checking malleability ",
@@ -858,7 +878,8 @@ std::string wycheproof_ed25519() {
           "flags" : []
         }
       ]
-    },)abcd" R"abcd(
+    },)abcd"
+      R"abcd(
     {
       "key" : {
         "curve" : "edwards25519",

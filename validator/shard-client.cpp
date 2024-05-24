@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "shard-client.hpp"
 #include "ton/ton-io.hpp"
@@ -98,8 +98,8 @@ void ShardClient::start_up_init_mode() {
       });
 
       td::actor::create_actor<DownloadShardState>("downloadstate", shard->top_block_id(),
-                                                  masterchain_block_handle_->id(), 2, manager_, td::Timestamp::in(3600),
-                                                  std::move(P))
+                                                  masterchain_block_handle_->id(), 2, manager_,
+                                                  td::Timestamp::in(3600 * 3), std::move(P))
           .release();
     }
   }
@@ -107,9 +107,6 @@ void ShardClient::start_up_init_mode() {
 
 void ShardClient::applied_all_shards() {
   LOG(DEBUG) << "shardclient: " << masterchain_block_handle_->id() << " finished";
-
-  masterchain_state_.clear();
-
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
     R.ensure();
     td::actor::send_closure(SelfId, &ShardClient::saved_to_db);
@@ -121,7 +118,8 @@ void ShardClient::applied_all_shards() {
 void ShardClient::saved_to_db() {
   CHECK(masterchain_block_handle_);
   td::actor::send_closure(manager_, &ValidatorManager::update_shard_client_block_handle, masterchain_block_handle_,
-                          [](td::Unit) {});
+                          std::move(masterchain_state_), [](td::Unit) {});
+  masterchain_state_.clear();
   if (promise_) {
     promise_.set_value(td::Unit());
   }

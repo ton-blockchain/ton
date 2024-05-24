@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 #include "td/actor/actor.h"
@@ -22,15 +22,20 @@
 #include "adnl/adnl-ext-client.h"
 
 namespace tonlib {
-class ExtClientLazy {
+class ExtClientLazy : public ton::adnl::AdnlExtClient {
  public:
   class Callback {
    public:
     virtual ~Callback() {
     }
   };
-  static td::actor::ActorOwn<ton::adnl::AdnlExtClient> create(ton::adnl::AdnlNodeIdFull dst, td::IPAddress dst_addr,
-                                                              td::unique_ptr<Callback> callback);
+
+  virtual void force_change_liteserver() = 0;
+
+  static td::actor::ActorOwn<ExtClientLazy> create(ton::adnl::AdnlNodeIdFull dst, td::IPAddress dst_addr,
+                                                   td::unique_ptr<Callback> callback);
+  static td::actor::ActorOwn<ExtClientLazy> create(
+      std::vector<std::pair<ton::adnl::AdnlNodeIdFull, td::IPAddress>> servers, td::unique_ptr<Callback> callback);
 };
 
 }  // namespace tonlib

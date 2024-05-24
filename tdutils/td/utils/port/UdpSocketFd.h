@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -96,8 +96,8 @@ class UdpSocketFd {
 #endif
 
  private:
-  static constexpr uint32 default_udp_max_snd_buffer_size = (1 << 24);
-  static constexpr uint32 default_udp_max_rcv_buffer_size = (1 << 24);
+  static constexpr uint32 DEFAULT_UDP_MAX_SND_BUFFER_SIZE = (1 << 24);
+  static constexpr uint32 DEFAULT_UDP_MAX_RCV_BUFFER_SIZE = (1 << 24);
   std::unique_ptr<detail::UdpSocketFdImpl, detail::UdpSocketFdImplDeleter> impl_;
   explicit UdpSocketFd(unique_ptr<detail::UdpSocketFdImpl> impl);
 };

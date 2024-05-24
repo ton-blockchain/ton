@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -23,6 +23,7 @@
 //#include "ton-node-slave.h"
 #include "interfaces/proof.h"
 #include "interfaces/shard.h"
+#include "full-node-private-overlay.hpp"
 
 #include <map>
 #include <set>
@@ -42,7 +43,19 @@ class FullNodeImpl : public FullNode {
   void add_permanent_key(PublicKeyHash key, td::Promise<td::Unit> promise) override;
   void del_permanent_key(PublicKeyHash key, td::Promise<td::Unit> promise) override;
 
+  void sign_shard_overlay_certificate(ShardIdFull shard_id, PublicKeyHash signed_key,
+                                      td::uint32 expiry_at, td::uint32 max_size,
+                                      td::Promise<td::BufferSlice> promise) override;
+  void import_shard_overlay_certificate(ShardIdFull shard_id, PublicKeyHash signed_key,
+                                        std::shared_ptr<ton::overlay::Certificate> cert,
+                                        td::Promise<td::Unit> promise) override;
+
   void update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promise<td::Unit> promise) override;
+  void set_config(FullNodeConfig config) override;
+
+  void add_ext_msg_overlay(std::vector<adnl::AdnlNodeIdShort> nodes, std::map<adnl::AdnlNodeIdShort, int> senders,
+                           std::string name, td::Promise<td::Unit> promise) override;
+  void del_ext_msg_overlay(std::string name, td::Promise<td::Unit> promise) override;
 
   void add_shard(ShardIdFull shard);
   void del_shard(ShardIdFull shard);
@@ -67,16 +80,15 @@ class FullNodeImpl : public FullNode {
   void download_archive(BlockSeqno masterchain_seqno, std::string tmp_dir, td::Timestamp timeout,
                         td::Promise<std::string> promise);
 
-  void got_key_block_proof(td::Ref<ProofLink> proof);
-  void got_zero_block_state(td::Ref<ShardState> state);
+  void got_key_block_state(td::Ref<ShardState> state);
   void new_key_block(BlockHandle handle);
 
   void start_up() override;
 
   FullNodeImpl(PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash,
-               td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-               td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<dht::Dht> dht,
-               td::actor::ActorId<overlay::Overlays> overlays,
+               FullNodeConfig config, td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
+               td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
+               td::actor::ActorId<dht::Dht> dht, td::actor::ActorId<overlay::Overlays> overlays,
                td::actor::ActorId<ValidatorManagerInterface> validator_manager,
                td::actor::ActorId<adnl::AdnlExtClient> client, std::string db_root);
 
@@ -93,6 +105,7 @@ class FullNodeImpl : public FullNode {
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;
   td::actor::ActorId<rldp::Rldp> rldp_;
+  td::actor::ActorId<rldp2::Rldp> rldp2_;
   td::actor::ActorId<dht::Dht> dht_;
   td::actor::ActorId<overlay::Overlays> overlays_;
   td::actor::ActorId<ValidatorManagerInterface> validator_manager_;
@@ -102,8 +115,26 @@ class FullNodeImpl : public FullNode {
 
   PublicKeyHash sign_cert_by_;
   std::vector<PublicKeyHash> all_validators_;
+  std::map<PublicKeyHash, adnl::AdnlNodeIdShort> current_validators_;
 
   std::set<PublicKeyHash> local_keys_;
+  FullNodeConfig config_;
+
+  std::map<PublicKeyHash, td::actor::ActorOwn<FullNodePrivateBlockOverlay>> private_block_overlays_;
+  bool private_block_overlays_enable_compression_ = false;
+
+  struct ExtMsgOverlayInfo {
+    std::vector<adnl::AdnlNodeIdShort> nodes_;
+    std::map<adnl::AdnlNodeIdShort, int> senders_;
+    std::map<adnl::AdnlNodeIdShort, td::actor::ActorOwn<FullNodeCustomOverlay>>
+        actors_;  // our local id -> actor
+  };
+  std::map<std::string, ExtMsgOverlayInfo> private_custom_overlays_;
+
+  void update_private_overlays();
+  void set_private_block_overlays_enable_compression(bool value);
+  void create_private_block_overlay(PublicKeyHash key);
+  void update_ext_msg_overlay(const std::string& name, ExtMsgOverlayInfo& overlay);
 };
 
 }  // namespace fullnode

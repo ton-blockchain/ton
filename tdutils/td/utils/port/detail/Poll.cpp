@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/utils/port/detail/Poll.h"
 
@@ -27,6 +27,8 @@ char disable_linker_warning_about_empty_file_poll_cpp TD_UNUSED;
 #include "td/utils/misc.h"
 #include "td/utils/ScopeGuard.h"
 #include "td/utils/Status.h"
+
+#include <cerrno>
 
 namespace td {
 namespace detail {

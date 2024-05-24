@@ -14,11 +14,14 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "func.h"
 #include "td/utils/crypto.h"
-#include <fstream>
+#include "common/refint.h"
+#include "openssl/digest.hpp"
+#include "block/block.h"
+#include "block-parse.h"
 
 namespace sym {
 
@@ -62,7 +65,7 @@ inline bool is_special_ident(sym_idx_t idx) {
  */
 
 // TE ::= TA | TA -> TE
-// TA ::= int | ... | cont | var | _ | () | ( TE { , TE } )
+// TA ::= int | ... | cont | var | _ | () | ( TE { , TE } ) | [ TE { , TE } ]
 TypeExpr* parse_type(Lexer& lex);
 
 TypeExpr* parse_type1(Lexer& lex) {
@@ -99,14 +102,21 @@ TypeExpr* parse_type1(Lexer& lex) {
       lex.cur().error_at("`", "` is not a type identifier");
     }
   }
-  lex.expect('(');
-  if (lex.tp() == ')') {
+  int c;
+  if (lex.tp() == '[') {
     lex.next();
-    return TypeExpr::new_unit();
+    c = ']';
+  } else {
+    lex.expect('(');
+    c = ')';
+  }
+  if (lex.tp() == c) {
+    lex.next();
+    return c == ')' ? TypeExpr::new_unit() : TypeExpr::new_tuple({});
   }
   auto t1 = parse_type(lex);
-  if (lex.tp() != ',') {
-    lex.expect(')');
+  if (lex.tp() == ')') {
+    lex.expect(c);
     return t1;
   }
   std::vector<TypeExpr*> tlist{1, t1};
@@ -114,8 +124,8 @@ TypeExpr* parse_type1(Lexer& lex) {
     lex.next();
     tlist.push_back(parse_type(lex));
   }
-  lex.expect(')');
-  return TypeExpr::new_tensor(std::move(tlist));
+  lex.expect(c);
+  return c == ')' ? TypeExpr::new_tensor(std::move(tlist)) : TypeExpr::new_tuple(std::move(tlist));
 }
 
 TypeExpr* parse_type(Lexer& lex) {
@@ -162,6 +172,10 @@ FormalArg parse_formal_arg(Lexer& lex, int fa_idx) {
     lex.expect(_Ident, "formal parameter name");
   }
   loc = lex.cur().loc;
+  if (prohibited_var_names.count(sym::symbols.get_name(lex.cur().val))) {
+    throw src::ParseError{
+        loc, PSTRING() << "symbol `" << sym::symbols.get_name(lex.cur().val) << "` cannot be redefined as a variable"};
+  }
   SymDef* new_sym_def = sym::define_symbol(lex.cur().val, true, loc);
   if (!new_sym_def) {
     lex.cur().error_at("cannot define symbol `", "`");
@@ -221,6 +235,98 @@ void parse_global_var_decl(Lexer& lex) {
   lex.next();
 }
 
+extern int const_cnt;
+Expr* parse_expr(Lexer& lex, CodeBlob& code, bool nv = false);
+
+void parse_const_decl(Lexer& lex) {
+  SrcLocation loc = lex.cur().loc;
+  int wanted_type = Expr::_None;
+  if (lex.tp() == _Int) {
+    wanted_type = Expr::_Const;
+    lex.next();
+  } else if (lex.tp() == _Slice) {
+    wanted_type = Expr::_SliceConst;
+    lex.next();
+  }
+  if (lex.tp() != _Ident) {
+    lex.expect(_Ident, "constant name");
+  }
+  loc = lex.cur().loc;
+  SymDef* sym_def = sym::define_global_symbol(lex.cur().val, false, loc);
+  if (!sym_def) {
+    lex.cur().error_at("cannot define global symbol `", "`");
+  }
+  Lexem ident = lex.cur();
+  lex.next();
+  if (lex.tp() != '=') {
+    lex.cur().error_at("expected = instead of ", "");
+  }
+  lex.next();
+  CodeBlob code;
+  if (pragma_allow_post_modification.enabled()) {
+    code.flags |= CodeBlob::_AllowPostModification;
+  }
+  if (pragma_compute_asm_ltr.enabled()) {
+    code.flags |= CodeBlob::_ComputeAsmLtr;
+  }
+  // Handles processing and resolution of literals and consts
+  auto x = parse_expr(lex, code, false); // also does lex.next() !
+  if (x->flags != Expr::_IsRvalue) {
+    lex.cur().error("expression is not strictly Rvalue");
+  }
+  if ((wanted_type == Expr::_Const) && (x->cls == Expr::_Apply))
+    wanted_type = Expr::_None; // Apply is additionally checked to result in an integer
+  if ((wanted_type != Expr::_None) && (x->cls != wanted_type)) {
+    lex.cur().error("expression type does not match wanted type");
+  }
+  SymValConst* new_value = nullptr;
+  if (x->cls == Expr::_Const) { // Integer constant
+    new_value = new SymValConst{const_cnt++, x->intval};
+  } else if (x->cls == Expr::_SliceConst) { // Slice constant (string)
+    new_value = new SymValConst{const_cnt++, x->strval};
+  } else if (x->cls == Expr::_Apply) {
+    code.emplace_back(loc, Op::_Import, std::vector<var_idx_t>());
+    auto tmp_vars = x->pre_compile(code);
+    code.emplace_back(loc, Op::_Return, std::move(tmp_vars));
+    code.emplace_back(loc, Op::_Nop); // This is neccessary to prevent SIGSEGV!
+    // It is REQUIRED to execute "optimizations" as in func.cpp
+    code.simplify_var_types();
+    code.prune_unreachable_code();
+    code.split_vars(true);
+    for (int i = 0; i < 16; i++) {
+      code.compute_used_code_vars();
+      code.fwd_analyze();
+      code.prune_unreachable_code();
+    }
+    code.mark_noreturn();
+    AsmOpList out_list(0, &code.vars);
+    code.generate_code(out_list);
+    if (out_list.list_.size() != 1) {
+      lex.cur().error("precompiled expression must result in single operation");
+    }
+    auto op = out_list.list_[0];
+    if (!op.is_const()) {
+      lex.cur().error("precompiled expression must result in compilation time constant");
+    }
+    if (op.origin.is_null() || !op.origin->is_valid()) {
+      lex.cur().error("precompiled expression did not result in a valid integer constant");
+    }
+    new_value = new SymValConst{const_cnt++, op.origin};
+  } else {
+    lex.cur().error("integer or slice literal or constant expected");
+  }
+  if (sym_def->value) {
+    SymValConst* old_value = dynamic_cast<SymValConst*>(sym_def->value);
+    Keyword new_type = new_value->get_type();
+    if (!old_value || old_value->get_type() != new_type ||
+        (new_type == _Int && *old_value->get_int_value() != *new_value->get_int_value()) ||
+        (new_type == _Slice && old_value->get_str_value() != new_value->get_str_value())) {
+      ident.error_at("global symbol `", "` already exists");
+    }
+  }
+  sym_def->value = new_value;
+}
+
 FormalArgList parse_formal_args(Lexer& lex) {
   FormalArgList args;
   lex.expect('(', "formal argument list");
@@ -236,6 +342,18 @@ FormalArgList parse_formal_args(Lexer& lex) {
   }
   lex.expect(')');
   return args;
+}
+
+void parse_const_decls(Lexer& lex) {
+  lex.expect(_Const);
+  while (true) {
+    parse_const_decl(lex);
+    if (lex.tp() != ',') {
+      break;
+    }
+    lex.expect(',');
+  }
+  lex.expect(';');
 }
 
 TypeExpr* extract_total_arg_type(const FormalArgList& arg_list) {
@@ -281,9 +399,9 @@ bool check_global_func(const Lexem& cur, sym_idx_t func_name = 0) {
     cur.loc.show_error(std::string{"undefined function `"} + symbols.get_name(func_name) +
                        "`, defining a global function of unknown type");
     def = sym::define_global_symbol(func_name, 0, cur.loc);
-    assert(def && "cannot define global function");
+    func_assert(def && "cannot define global function");
     ++undef_func_cnt;
-    make_new_glob_func(def, TypeExpr::new_hole());  // was: ... ::new_func()
+    make_new_glob_func(def, TypeExpr::new_func());  // was: ... ::new_func()
     return true;
   }
   SymVal* val = dynamic_cast<SymVal*>(def->value);
@@ -301,7 +419,7 @@ bool check_global_func(const Lexem& cur, sym_idx_t func_name = 0) {
 Expr* make_func_apply(Expr* fun, Expr* x) {
   Expr* res;
   if (fun->cls == Expr::_Glob) {
-    if (x->cls == Expr::_Tuple) {
+    if (x->cls == Expr::_Tensor) {
       res = new Expr{Expr::_Apply, fun->sym, x->args};
     } else {
       res = new Expr{Expr::_Apply, fun->sym, {x}};
@@ -314,30 +432,36 @@ Expr* make_func_apply(Expr* fun, Expr* x) {
   return res;
 }
 
-Expr* parse_expr(Lexer& lex, CodeBlob& code, bool nv = false);
-
-// parse ( E { , E } ) | () | id | num | _
+// parse ( E { , E } ) | () | [ E { , E } ] | [] | id | num | _
 Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
-  if (lex.tp() == '(') {
+  if (lex.tp() == '(' || lex.tp() == '[') {
+    bool tf = (lex.tp() == '[');
+    int clbr = (tf ? ']' : ')');
     SrcLocation loc{lex.cur().loc};
     lex.next();
-    if (lex.tp() == ')') {
+    if (lex.tp() == clbr) {
       lex.next();
-      Expr* res = new Expr{Expr::_Tuple, {}};
+      Expr* res = new Expr{Expr::_Tensor, {}};
       res->flags = Expr::_IsRvalue;
       res->here = loc;
       res->e_type = TypeExpr::new_unit();
+      if (tf) {
+        res = new Expr{Expr::_MkTuple, {res}};
+        res->flags = Expr::_IsRvalue;
+        res->here = loc;
+        res->e_type = TypeExpr::new_tuple(res->args.at(0)->e_type);
+      }
       return res;
     }
     Expr* res = parse_expr(lex, code, nv);
-    if (lex.tp() != ',') {
-      lex.expect(')');
+    if (lex.tp() == ')') {
+      lex.expect(clbr);
       return res;
     }
     std::vector<TypeExpr*> type_list;
     type_list.push_back(res->e_type);
     int f = res->flags;
-    res = new Expr{Expr::_Tuple, {res}};
+    res = new Expr{Expr::_Tensor, {res}};
     while (lex.tp() == ',') {
       lex.next();
       auto x = parse_expr(lex, code, nv);
@@ -350,8 +474,14 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
     }
     res->here = loc;
     res->flags = f;
-    res->e_type = TypeExpr::new_tensor(std::move(type_list));
-    lex.expect(')');
+    res->e_type = TypeExpr::new_tensor(std::move(type_list), !tf);
+    if (tf) {
+      res = new Expr{Expr::_MkTuple, {res}};
+      res->flags = f;
+      res->here = loc;
+      res->e_type = TypeExpr::new_tuple(res->args.at(0)->e_type);
+    }
+    lex.expect(clbr);
     return res;
   }
   int t = lex.tp();
@@ -359,10 +489,91 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
     Expr* res = new Expr{Expr::_Const, lex.cur().loc};
     res->flags = Expr::_IsRvalue;
     res->intval = td::string_to_int256(lex.cur().str);
-    if (res->intval.is_null()) {
+    if (res->intval.is_null() || !res->intval->signed_fits_bits(257)) {
       lex.cur().error_at("invalid integer constant `", "`");
     }
     res->e_type = TypeExpr::new_atomic(_Int);
+    lex.next();
+    return res;
+  }
+  if (t == Lexem::String) {
+    std::string str = lex.cur().str;
+    int str_type = lex.cur().val;
+    Expr* res;
+    switch (str_type) {
+      case 0:
+      case 's':
+      case 'a':
+      {
+        res = new Expr{Expr::_SliceConst, lex.cur().loc};
+        res->e_type = TypeExpr::new_atomic(_Slice);
+        break;
+      }
+      case 'u':
+      case 'h':
+      case 'H':
+      case 'c':
+      {
+        res = new Expr{Expr::_Const, lex.cur().loc};
+        res->e_type = TypeExpr::new_atomic(_Int);
+        break;
+      }
+      default:
+      {
+        res = new Expr{Expr::_Const, lex.cur().loc};
+        res->e_type = TypeExpr::new_atomic(_Int);
+        lex.cur().error("invalid string type `" + std::string(1, static_cast<char>(str_type)) + "`");
+        return res;
+      }
+    }
+    res->flags = Expr::_IsRvalue;
+    switch (str_type) {
+      case 0: {
+        res->strval = td::hex_encode(str);
+        break;
+      }
+      case 's': {
+        res->strval = str;
+        unsigned char buff[128];
+        int bits = (int)td::bitstring::parse_bitstring_hex_literal(buff, sizeof(buff), str.data(), str.data() + str.size());
+        if (bits < 0) {
+          lex.cur().error_at("Invalid hex bitstring constant `", "`");
+        }
+        break;
+      }
+      case 'a': {  // MsgAddressInt
+        block::StdAddress a;
+        if (a.parse_addr(str)) {
+          res->strval = block::tlb::MsgAddressInt().pack_std_address(a)->as_bitslice().to_hex();
+        } else {
+          lex.cur().error_at("invalid standard address `", "`");
+        }
+        break;
+      }
+      case 'u': {
+        res->intval = td::hex_string_to_int256(td::hex_encode(str));
+        if (!str.size()) {
+          lex.cur().error("empty integer ascii-constant");
+        }
+        if (res->intval.is_null()) {
+          lex.cur().error_at("too long integer ascii-constant `", "`");
+        }
+        break;
+      }
+      case 'h':
+      case 'H':
+      {
+        unsigned char hash[32];
+        digest::hash_str<digest::SHA256>(hash, str.data(), str.size());
+        res->intval = td::bits_to_refint(hash, (str_type == 'h') ? 32 : 256, false);
+        break;
+      }
+      case 'c':
+      {
+        res->intval = td::make_refint(td::crc32(td::Slice{str}));
+        break;
+      }
+    }
     lex.next();
     return res;
   }
@@ -381,7 +592,7 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
     lex.next();
     return res;
   }
-  if (t == _Int || t == _Cell || t == _Slice || t == _Builder || t == _Cont || t == _Type) {
+  if (t == _Int || t == _Cell || t == _Slice || t == _Builder || t == _Cont || t == _Type || t == _Tuple) {
     Expr* res = new Expr{Expr::_Type, lex.cur().loc};
     res->flags = Expr::_IsType;
     res->e_type = TypeExpr::new_atomic(t);
@@ -404,6 +615,25 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
       res->e_type = val->get_type();
       res->sym = sym;
       res->flags = Expr::_IsLvalue | Expr::_IsRvalue | Expr::_IsImpure;
+      lex.next();
+      return res;
+    }
+    if (sym && dynamic_cast<SymValConst*>(sym->value)) {
+      auto val = dynamic_cast<SymValConst*>(sym->value);
+      Expr* res = new Expr{Expr::_None, lex.cur().loc};
+      res->flags = Expr::_IsRvalue;
+      if (val->type == _Int) {
+        res->cls = Expr::_Const;
+        res->intval = val->get_int_value();
+      }
+      else if (val->type == _Slice) {
+        res->cls = Expr::_SliceConst;
+        res->strval = val->get_str_value();
+      }
+      else {
+        lex.cur().error("Invalid symbolic constant type");
+      }
+      res->e_type = TypeExpr::new_atomic(val->type);
       lex.next();
       return res;
     }
@@ -457,7 +687,7 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
 // parse E { E }
 Expr* parse_expr90(Lexer& lex, CodeBlob& code, bool nv) {
   Expr* res = parse_expr100(lex, code, nv);
-  while (lex.tp() == '(' || (lex.tp() == _Ident && !is_special_ident(lex.cur().val))) {
+  while (lex.tp() == '(' || lex.tp() == '[' || (lex.tp() == _Ident && !is_special_ident(lex.cur().val))) {
     if (res->is_type()) {
       Expr* x = parse_expr100(lex, code, true);
       x->chk_lvalue(lex.cur());  // chk_lrvalue() ?
@@ -522,7 +752,7 @@ Expr* parse_expr80(Lexer& lex, CodeBlob& code, bool nv) {
     lex.next();
     auto x = parse_expr100(lex, code, false);
     x->chk_rvalue(lex.cur());
-    if (x->cls == Expr::_Tuple) {
+    if (x->cls == Expr::_Tensor) {
       res = new Expr{Expr::_Apply, name, {obj}};
       res->args.insert(res->args.end(), x->args.begin(), x->args.end());
     } else {
@@ -880,6 +1110,37 @@ blk_fl::val parse_do_stmt(Lexer& lex, CodeBlob& code) {
   return res & ~blk_fl::empty;
 }
 
+blk_fl::val parse_try_catch_stmt(Lexer& lex, CodeBlob& code) {
+  code.require_callxargs = true;
+  lex.expect(_Try);
+  Op& try_catch_op = code.emplace_back(lex.cur().loc, Op::_TryCatch);
+  code.push_set_cur(try_catch_op.block0);
+  blk_fl::val res0 = parse_block_stmt(lex, code);
+  code.close_pop_cur(lex.cur().loc);
+  lex.expect(_Catch);
+  code.push_set_cur(try_catch_op.block1);
+  sym::open_scope(lex);
+  Expr* expr = parse_expr(lex, code, true);
+  expr->chk_lvalue(lex.cur());
+  TypeExpr* tvm_error_type = TypeExpr::new_tensor(TypeExpr::new_var(), TypeExpr::new_atomic(_Int));
+  try {
+    unify(expr->e_type, tvm_error_type);
+  } catch (UnifyError& ue) {
+    std::ostringstream os;
+    os << "`catch` arguments have incorrect type " << expr->e_type << ": " << ue;
+    lex.cur().error(os.str());
+  }
+  expr->predefine_vars();
+  expr->define_new_vars(code);
+  try_catch_op.left = expr->pre_compile(code);
+  func_assert(try_catch_op.left.size() == 2 || try_catch_op.left.size() == 1);
+  blk_fl::val res1 = parse_block_stmt(lex, code);
+  sym::close_scope(lex);
+  code.close_pop_cur(lex.cur().loc);
+  blk_fl::combine_parallel(res0, res1);
+  return res0;
+}
+
 blk_fl::val parse_if_stmt(Lexer& lex, CodeBlob& code, int first_lex = _If) {
   SrcLocation loc{lex.cur().loc};
   lex.expect(first_lex);
@@ -943,6 +1204,8 @@ blk_fl::val parse_stmt(Lexer& lex, CodeBlob& code) {
       return parse_do_stmt(lex, code);
     case _While:
       return parse_while_stmt(lex, code);
+    case _Try:
+      return parse_try_catch_stmt(lex, code);
     default: {
       auto expr = parse_expr(lex, code);
       expr->chk_rvalue(lex.cur());
@@ -956,6 +1219,12 @@ blk_fl::val parse_stmt(Lexer& lex, CodeBlob& code) {
 CodeBlob* parse_func_body(Lexer& lex, FormalArgList arg_list, TypeExpr* ret_type) {
   lex.expect('{');
   CodeBlob* blob = new CodeBlob{ret_type};
+  if (pragma_allow_post_modification.enabled()) {
+    blob->flags |= CodeBlob::_AllowPostModification;
+  }
+  if (pragma_compute_asm_ltr.enabled()) {
+    blob->flags |= CodeBlob::_ComputeAsmLtr;
+  }
   blob->import_params(std::move(arg_list));
   blk_fl::val res = blk_fl::init;
   bool warned = false;
@@ -1027,7 +1296,7 @@ SymValAsmFunc* parse_asm_func_body(Lexer& lex, TypeExpr* func_type, const Formal
         }
         lex.next();
       }
-      assert(arg_order.size() == (unsigned)tot_width);
+      func_assert(arg_order.size() == (unsigned)tot_width);
     }
     if (lex.tp() == _Mapsto) {
       lex.expect(_Mapsto);
@@ -1048,19 +1317,48 @@ SymValAsmFunc* parse_asm_func_body(Lexer& lex, TypeExpr* func_type, const Formal
     lex.expect(')');
   }
   while (lex.tp() == _String) {
-    asm_ops.push_back(AsmOp::Parse(lex.cur().str, cnt, width));
-    lex.next();
-    if (asm_ops.back().is_custom()) {
-      cnt = width;
+    std::string ops = lex.cur().str; // <op>\n<op>\n...
+    std::string op;
+    for (const char& c : ops) {
+      if (c == '\n') {
+        if (!op.empty()) {
+          asm_ops.push_back(AsmOp::Parse(op, cnt, width));
+          if (asm_ops.back().is_custom()) {
+            cnt = width;
+          }
+          op.clear();
+        }
+      } else {
+        op.push_back(c);
+      }
     }
+    if (!op.empty()) {
+      asm_ops.push_back(AsmOp::Parse(op, cnt, width));
+      if (asm_ops.back().is_custom()) {
+        cnt = width;
+      }
+    }
+    lex.next();
   }
   if (asm_ops.empty()) {
     throw src::ParseError{lex.cur().loc, "string with assembler instruction expected"};
   }
   lex.expect(';');
+  std::string crc_s;
+  for (const AsmOp& asm_op : asm_ops) {
+    crc_s += asm_op.op;
+  }
+  crc_s.push_back(impure);
+  for (const int& x : arg_order) {
+    crc_s += std::string((const char*) (&x), (const char*) (&x + 1));
+  }
+  for (const int& x : ret_order) {
+    crc_s += std::string((const char*) (&x), (const char*) (&x + 1));
+  }
   auto res = new SymValAsmFunc{func_type, asm_ops, impure};
   res->arg_order = std::move(arg_order);
   res->ret_order = std::move(ret_order);
+  res->crc = td::crc64(crc_s);
   return res;
 }
 
@@ -1076,8 +1374,12 @@ std::vector<TypeExpr*> parse_type_var_list(Lexer& lex) {
       throw src::ParseError{lex.cur().loc, "free type identifier expected"};
     }
     auto loc = lex.cur().loc;
+    if (prohibited_var_names.count(sym::symbols.get_name(lex.cur().val))) {
+      throw src::ParseError{loc, PSTRING() << "symbol `" << sym::symbols.get_name(lex.cur().val)
+                                           << "` cannot be redefined as a variable"};
+    }
     SymDef* new_sym_def = sym::define_symbol(lex.cur().val, true, loc);
-    if (new_sym_def->value) {
+    if (!new_sym_def || new_sym_def->value) {
       lex.cur().error_at("redefined type variable `", "`");
     }
     auto var = TypeExpr::new_var(idx);
@@ -1186,7 +1488,7 @@ void parse_func_def(Lexer& lex) {
     std::cerr << "function " << func_name.str << " : " << func_type << std::endl;
   }
   SymDef* func_sym = sym::define_global_symbol(func_name.val, 0, loc);
-  assert(func_sym);
+  func_assert(func_sym);
   SymValFunc* func_sym_val = dynamic_cast<SymValFunc*>(func_sym->value);
   if (func_sym->value) {
     if (func_sym->value->type != SymVal::_Func || !func_sym_val) {
@@ -1226,16 +1528,22 @@ void parse_func_def(Lexer& lex) {
     // code->print(std::cerr);  // !!!DEBUG!!!
     func_sym_code->code = code;
   } else {
+    Lexem asm_lexem = lex.cur();
+    SymValAsmFunc* asm_func = parse_asm_func_body(lex, func_type, arg_list, ret_type, impure);
     if (func_sym_val) {
       if (dynamic_cast<SymValCodeFunc*>(func_sym_val)) {
-        lex.cur().error("function `"s + func_name.str + "` was already declared as an ordinary function");
+        asm_lexem.error("function `"s + func_name.str + "` was already declared as an ordinary function");
       }
-      if (dynamic_cast<SymValAsmFunc*>(func_sym_val)) {
-        lex.cur().error("redefinition of built-in assembler function `"s + func_name.str + "`");
+      SymValAsmFunc* asm_func_old = dynamic_cast<SymValAsmFunc*>(func_sym_val);
+      if (asm_func_old) {
+        if (asm_func->crc != asm_func_old->crc) {
+          asm_lexem.error("redefinition of built-in assembler function `"s + func_name.str + "`");
+        }
+      } else {
+        asm_lexem.error("redefinition of previously (somehow) defined function `"s + func_name.str + "`");
       }
-      lex.cur().error("redefinition of previously (somehow) defined function `"s + func_name.str + "`");
     }
-    func_sym->value = parse_asm_func_body(lex, func_type, arg_list, ret_type, impure);
+    func_sym->value = asm_func;
   }
   if (method_id.not_null()) {
     auto val = dynamic_cast<SymVal*>(func_sym->value);
@@ -1244,8 +1552,9 @@ void parse_func_def(Lexer& lex) {
     }
     if (val->method_id.is_null()) {
       val->method_id = std::move(method_id);
-    } else if (val->method_id != method_id) {
-      lex.cur().error("integer method identifier for `"s + func_name.str + "` changed to a different value");
+    } else if (td::cmp(val->method_id, method_id) != 0) {
+      lex.cur().error("integer method identifier for `"s + func_name.str + "` changed from " +
+                      val->method_id->to_dec_string() + " to a different value " + method_id->to_dec_string());
     }
   }
   if (f) {
@@ -1265,12 +1574,179 @@ void parse_func_def(Lexer& lex) {
   sym::close_scope(lex);
 }
 
-bool parse_source(std::istream* is, const src::FileDescr* fdescr) {
+std::string func_ver_test = func_version;
+
+void parse_pragma(Lexer& lex) {
+  auto pragma = lex.cur();
+  lex.next();
+  if (lex.tp() != _Ident) {
+    lex.expect(_Ident, "pragma name expected");
+  }
+  auto pragma_name = lex.cur().str;
+  lex.next();
+  if (!pragma_name.compare("version") || !pragma_name.compare("not-version")) {
+    bool negate = !pragma_name.compare("not-version");
+    char op = '='; bool eq = false;
+    int sem_ver[3] = {0, 0, 0};
+    char segs = 1;
+    auto stoi = [&](const std::string& s) {
+      auto R = td::to_integer_safe<int>(s);
+      if (R.is_error()) {
+        lex.cur().error("invalid semver format");
+      }
+      return R.move_as_ok();
+    };
+    if (lex.tp() == _Number) {
+      sem_ver[0] = stoi(lex.cur().str);
+    } else if (lex.tp() == _Ident) {
+      auto id1 = lex.cur().str;
+      char ch1 = id1[0];
+      if ((ch1 == '>') || (ch1 == '<') || (ch1 == '=') || (ch1 == '^')) {
+        op = ch1;
+      } else {
+        lex.cur().error("unexpected comparator operation");
+      }
+      if (id1.length() < 2) {
+        lex.cur().error("expected number after comparator");
+      }
+      if (id1[1] == '=') {
+        eq = true;
+        if (id1.length() < 3) {
+          lex.cur().error("expected number after comparator");
+        }
+        sem_ver[0] = stoi(id1.substr(2));
+      } else {
+        sem_ver[0] = stoi(id1.substr(1));
+      }
+    } else {
+      lex.cur().error("expected semver with optional comparator");
+    }
+    lex.next();
+    if (lex.tp() != ';') {
+      if (lex.tp() != _Ident || lex.cur().str[0] != '.') {
+        lex.cur().error("invalid semver format");
+      }
+      sem_ver[1] = stoi(lex.cur().str.substr(1));
+      segs = 2;
+      lex.next();
+    }
+    if (lex.tp() != ';') {
+      if (lex.tp() != _Ident || lex.cur().str[0] != '.') {
+        lex.cur().error("invalid semver format");
+      }
+      sem_ver[2] = stoi(lex.cur().str.substr(1));
+      segs = 3;
+      lex.next();
+    }
+    // End reading semver from source code
+    int func_ver[3] = {0, 0, 0};
+    std::istringstream iss(func_ver_test);
+    std::string s;
+    for (int idx = 0; idx < 3; idx++) {
+      std::getline(iss, s, '.');
+      func_ver[idx] = stoi(s);
+    }
+    // End parsing embedded semver
+    std::string semver_expr;
+    if (negate) {
+      semver_expr += '!';
+    }
+    semver_expr += op;
+    if (eq) {
+      semver_expr += '=';
+    }
+    for (int idx = 0; idx < 3; idx++) {
+      semver_expr += std::to_string(sem_ver[idx]);
+      if (idx < 2)
+        semver_expr += '.';
+    }
+    bool match = true;
+    switch (op) {
+      case '=':
+        if ((func_ver[0] != sem_ver[0]) ||
+            (func_ver[1] != sem_ver[1]) ||
+            (func_ver[2] != sem_ver[2])) {
+          match = false;
+        }
+        break;
+      case '>':
+        if ( ((func_ver[0] == sem_ver[0]) && (func_ver[1] == sem_ver[1]) && (func_ver[2] == sem_ver[2]) && !eq) ||
+             ((func_ver[0] == sem_ver[0]) && (func_ver[1] == sem_ver[1]) && (func_ver[2] < sem_ver[2])) ||
+             ((func_ver[0] == sem_ver[0]) && (func_ver[1] < sem_ver[1])) ||
+             ((func_ver[0] < sem_ver[0])) ) {
+          match = false;
+        }
+        break;
+      case '<':
+        if ( ((func_ver[0] == sem_ver[0]) && (func_ver[1] == sem_ver[1]) && (func_ver[2] == sem_ver[2]) && !eq) ||
+             ((func_ver[0] == sem_ver[0]) && (func_ver[1] == sem_ver[1]) && (func_ver[2] > sem_ver[2])) ||
+             ((func_ver[0] == sem_ver[0]) && (func_ver[1] > sem_ver[1])) ||
+             ((func_ver[0] > sem_ver[0])) ) {
+          match = false;
+        }
+        break;
+      case '^':
+        if ( ((segs == 3) && ((func_ver[0] != sem_ver[0]) || (func_ver[1] != sem_ver[1]) || (func_ver[2] < sem_ver[2])))
+          || ((segs == 2) && ((func_ver[0] != sem_ver[0]) || (func_ver[1] < sem_ver[1])))
+          || ((segs == 1) && ((func_ver[0] < sem_ver[0]))) ) {
+          match = false;
+        }
+        break;
+    }
+    if ((match && negate) || (!match && !negate)) {
+      pragma.error(std::string("FunC version ") + func_ver_test + " does not satisfy condition " + semver_expr);
+    }
+  } else if (!pragma_name.compare("test-version-set")) {
+    if (lex.tp() != _String) {
+      lex.cur().error("version string expected");
+    }
+    func_ver_test = lex.cur().str;
+    lex.next();
+  } else if (pragma_name == pragma_allow_post_modification.name()) {
+    pragma_allow_post_modification.enable(lex.cur().loc);
+  } else if (pragma_name == pragma_compute_asm_ltr.name()) {
+    pragma_compute_asm_ltr.enable(lex.cur().loc);
+  } else {
+    lex.cur().error(std::string{"unknown pragma `"} + pragma_name + "`");
+  }
+  lex.expect(';');
+}
+
+std::vector<const src::FileDescr*> source_fdescr;
+
+std::map<std::string, src::FileDescr*> source_files;
+std::stack<src::SrcLocation> inclusion_locations;
+
+void parse_include(Lexer& lex, const src::FileDescr* fdescr) {
+  auto include = lex.cur();
+  lex.expect(_IncludeHashtag);
+  if (lex.tp() != _String) {
+    lex.expect(_String, "source file name");
+  }
+  std::string val = lex.cur().str;
+  std::string parent_dir = fdescr->filename;
+  if (parent_dir.rfind('/') != std::string::npos) {
+    val = parent_dir.substr(0, parent_dir.rfind('/') + 1) + val;
+  }
+  lex.next();
+  lex.expect(';');
+  if (!parse_source_file(val.c_str(), include, false)) {
+    include.error(std::string{"failed parsing included file `"} + val + "`");
+  }
+}
+
+bool parse_source(std::istream* is, src::FileDescr* fdescr) {
   src::SourceReader reader{is, fdescr};
-  Lexer lex{reader, true};
+  Lexer lex{reader, true, ";,()[] ~."};
   while (lex.tp() != _Eof) {
-    if (lex.tp() == _Global) {
+    if (lex.tp() == _PragmaHashtag) {
+      parse_pragma(lex);
+    } else if (lex.tp() == _IncludeHashtag) {
+      parse_include(lex, fdescr);
+    } else if (lex.tp() == _Global) {
       parse_global_var_decls(lex);
+    } else if (lex.tp() == _Const) {
+      parse_const_decls(lex);
     } else {
       parse_func_def(lex);
     }
@@ -1278,20 +1754,65 @@ bool parse_source(std::istream* is, const src::FileDescr* fdescr) {
   return true;
 }
 
-bool parse_source_file(const char* filename) {
+bool parse_source_file(const char* filename, src::Lexem lex, bool is_main) {
   if (!filename || !*filename) {
-    throw src::Fatal{"source file name is an empty string"};
+    auto msg = "source file name is an empty string";
+    if (lex.tp) {
+      lex.error(msg);
+    } else {
+      throw src::Fatal{msg};
+    }
   }
+
+  auto path_res = read_callback(ReadCallback::Kind::Realpath, filename);
+  if (path_res.is_error()) {
+    auto error = path_res.move_as_error();
+    lex.error(error.message().c_str());
+    return false;
+  }
+  std::string real_filename = path_res.move_as_ok();
+  auto it = source_files.find(real_filename);
+  if (it != source_files.end()) {
+    it->second->is_main |= is_main;
+    if (verbosity >= 2) {
+      if (lex.tp) {
+        lex.loc.show_warning(std::string{"skipping file "} + real_filename + " because it was already included");
+      } else {
+        std::cerr << "warning: skipping file " << real_filename << " because it was already included" << std::endl;
+      }
+    }
+    return true;
+  }
+  if (lex.tp) { // included
+    funC::generated_from += std::string{"incl:"};
+  }
+  funC::generated_from += std::string{"`"} + filename + "` ";
   src::FileDescr* cur_source = new src::FileDescr{filename};
-  std::ifstream ifs{filename};
-  if (ifs.fail()) {
-    throw src::Fatal{std::string{"cannot open source file `"} + filename + "`"};
+  source_files[real_filename] = cur_source;
+  cur_source->is_main = is_main;
+  source_fdescr.push_back(cur_source);
+  auto file_res = read_callback(ReadCallback::Kind::ReadFile, filename);
+  if (file_res.is_error()) {
+    auto msg = file_res.move_as_error().message().str();
+    if (lex.tp) {
+      lex.error(msg);
+    } else {
+      throw src::Fatal{msg};
+    }
   }
-  return parse_source(&ifs, cur_source);
+  auto file_str = file_res.move_as_ok();
+  std::stringstream ss{file_str};
+  inclusion_locations.push(lex.loc);
+  bool res = parse_source(&ss, cur_source);
+  inclusion_locations.pop();
+  return res;
 }
 
 bool parse_source_stdin() {
-  return parse_source(&std::cin, new src::FileDescr{"stdin", true});
+  src::FileDescr* cur_source = new src::FileDescr{"stdin", true};
+  cur_source->is_main = true;
+  source_fdescr.push_back(cur_source);
+  return parse_source(&std::cin, cur_source);
 }
 
 }  // namespace funC

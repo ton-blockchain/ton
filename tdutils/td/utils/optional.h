@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -59,9 +59,11 @@ class optional {
     return impl_.is_ok();
   }
   T &value() {
+    DCHECK(*this);
     return impl_.ok_ref();
   }
   const T &value() const {
+    DCHECK(*this);
     return impl_.ok_ref();
   }
   T &operator*() {
@@ -72,6 +74,13 @@ class optional {
     auto res = std::move(value());
     impl_ = {};
     return res;
+  }
+
+  td::optional<T> copy() const {
+    if (*this) {
+      return value();
+    }
+    return {};
   }
 
   template <class... ArgsT>

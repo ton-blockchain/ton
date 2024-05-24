@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -33,27 +33,30 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
     return init_block_id_;
   }
   bool need_monitor(ShardIdFull shard) const override {
-    return check_shard_(shard, ShardCheckMode::m_monitor);
+    return check_shard_(shard, 0, ShardCheckMode::m_monitor);
   }
-  bool need_validate(ShardIdFull shard) const override {
-    return check_shard_(shard, ShardCheckMode::m_validate);
+  bool need_validate(ShardIdFull shard, CatchainSeqno cc_seqno) const override {
+    return check_shard_(shard, cc_seqno, ShardCheckMode::m_validate);
   }
   bool allow_blockchain_init() const override {
     return allow_blockchain_init_;
   }
-  td::ClocksBase::Duration sync_blocks_before() const override {
+  double sync_blocks_before() const override {
     return sync_blocks_before_;
   }
-  td::ClocksBase::Duration block_ttl() const override {
+  double block_ttl() const override {
     return block_ttl_;
   }
-  td::ClocksBase::Duration state_ttl() const override {
+  double state_ttl() const override {
     return state_ttl_;
   }
-  td::ClocksBase::Duration archive_ttl() const override {
+  double max_mempool_num() const override {
+    return max_mempool_num_;
+  }
+  double archive_ttl() const override {
     return archive_ttl_;
   }
-  td::ClocksBase::Duration key_proof_ttl() const override {
+  double key_proof_ttl() const override {
     return key_proof_ttl_;
   }
   bool initial_sync_disabled() const override {
@@ -88,8 +91,43 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   std::vector<BlockIdExt> get_hardforks() const override {
     return hardforks_;
   }
-  td::uint32 get_filedb_depth() const override {
-    return db_depth_;
+  bool check_unsafe_resync_allowed(CatchainSeqno seqno) const override {
+    return unsafe_catchains_.count(seqno) > 0;
+  }
+  td::uint32 check_unsafe_catchain_rotate(BlockSeqno seqno, CatchainSeqno cc_seqno) const override {
+    auto it = unsafe_catchain_rotates_.find(cc_seqno);
+    if (it == unsafe_catchain_rotates_.end()) {
+      return 0;
+    } else {
+      return it->second.first <= seqno ? it->second.second : 0;
+    }
+  }
+  bool need_db_truncate() const override {
+    return truncate_ > 0;
+  }
+  BlockSeqno get_truncate_seqno() const override {
+    return truncate_;
+  }
+  BlockSeqno sync_upto() const override {
+    return sync_upto_;
+  }
+  std::string get_session_logs_file() const override {
+    return session_logs_file_;
+  }
+  td::uint32 get_celldb_compress_depth() const override {
+    return celldb_compress_depth_;
+  }
+  size_t get_max_open_archive_files() const override {
+    return max_open_archive_files_;
+  }
+  double get_archive_preload_period() const override {
+    return archive_preload_period_;
+  }
+  bool get_disable_rocksdb_stats() const override {
+    return disable_rocksdb_stats_;
+  }
+  bool nonfinal_ls_queries_enabled() const override {
+    return nonfinal_ls_queries_enabled_;
   }
 
   void set_zero_block_id(BlockIdExt block_id) override {
@@ -98,25 +136,28 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   void set_init_block_id(BlockIdExt block_id) override {
     init_block_id_ = block_id;
   }
-  void set_shard_check_function(std::function<bool(ShardIdFull, ShardCheckMode)> check_shard) override {
+  void set_shard_check_function(std::function<bool(ShardIdFull, CatchainSeqno, ShardCheckMode)> check_shard) override {
     check_shard_ = std::move(check_shard);
   }
   void set_allow_blockchain_init(bool value) override {
     allow_blockchain_init_ = value;
   }
-  void set_sync_blocks_before(td::ClocksBase::Duration value) override {
+  void set_sync_blocks_before(double value) override {
     sync_blocks_before_ = value;
   }
-  void set_block_ttl(td::ClocksBase::Duration value) override {
+  void set_block_ttl(double value) override {
     block_ttl_ = value;
   }
-  void set_state_ttl(td::ClocksBase::Duration value) override {
+  void set_state_ttl(double value) override {
     state_ttl_ = value;
   }
-  void set_archive_ttl(td::ClocksBase::Duration value) override {
+  void set_max_mempool_num(double value) override {
+    max_mempool_num_ = value;
+  }
+  void set_archive_ttl(double value) override {
     archive_ttl_ = value;
   }
-  void set_key_proof_ttl(td::ClocksBase::Duration value) override {
+  void set_key_proof_ttl(double value) override {
     key_proof_ttl_ = value;
   }
   void set_initial_sync_disabled(bool value) override {
@@ -125,9 +166,36 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   void set_hardforks(std::vector<BlockIdExt> vec) override {
     hardforks_ = std::move(vec);
   }
-  void set_filedb_depth(td::uint32 value) override {
-    CHECK(value <= 32);
-    db_depth_ = value;
+  void add_unsafe_resync_catchain(CatchainSeqno seqno) override {
+    unsafe_catchains_.insert(seqno);
+  }
+  void add_unsafe_catchain_rotate(BlockSeqno seqno, CatchainSeqno cc_seqno, td::uint32 value) override {
+    VLOG(INFO) << "Add unsafe catchain rotation: Master block seqno " << seqno<<" Catchain seqno " << cc_seqno << " New value "<< value;
+    unsafe_catchain_rotates_[cc_seqno] = std::make_pair(seqno, value);
+  }
+  void truncate_db(BlockSeqno seqno) override {
+    truncate_ = seqno;
+  }
+  void set_sync_upto(BlockSeqno seqno) override {
+    sync_upto_ = seqno;
+  }
+  void set_session_logs_file(std::string f) override {
+    session_logs_file_ = std::move(f);
+  }
+  void set_celldb_compress_depth(td::uint32 value) override {
+    celldb_compress_depth_ = value;
+  }
+  void set_max_open_archive_files(size_t value) override {
+    max_open_archive_files_ = value;
+  }
+  void set_archive_preload_period(double value) override {
+    archive_preload_period_ = value;
+  }
+  void set_disable_rocksdb_stats(bool value) override {
+    disable_rocksdb_stats_ = value;
+  }
+  void set_nonfinal_ls_queries_enabled(bool value) override {
+    nonfinal_ls_queries_enabled_ = value;
   }
 
   ValidatorManagerOptionsImpl *make_copy() const override {
@@ -135,10 +203,11 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   }
 
   ValidatorManagerOptionsImpl(BlockIdExt zero_block_id, BlockIdExt init_block_id,
-                              std::function<bool(ShardIdFull, ShardCheckMode)> check_shard, bool allow_blockchain_init,
-                              td::ClocksBase::Duration sync_blocks_before, td::ClocksBase::Duration block_ttl,
-                              td::ClocksBase::Duration state_ttl, td::ClocksBase::Duration archive_ttl,
-                              td::ClocksBase::Duration key_proof_ttl, bool initial_sync_disabled)
+                              std::function<bool(ShardIdFull, CatchainSeqno, ShardCheckMode)> check_shard,
+                              bool allow_blockchain_init, double sync_blocks_before,
+                              double block_ttl, double state_ttl, double max_mempool_num,
+                              double archive_ttl, double key_proof_ttl,
+                              bool initial_sync_disabled)
       : zero_block_id_(zero_block_id)
       , init_block_id_(init_block_id)
       , check_shard_(std::move(check_shard))
@@ -146,6 +215,7 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
       , sync_blocks_before_(sync_blocks_before)
       , block_ttl_(block_ttl)
       , state_ttl_(state_ttl)
+      , max_mempool_num_(max_mempool_num)
       , archive_ttl_(archive_ttl)
       , key_proof_ttl_(key_proof_ttl)
       , initial_sync_disabled_(initial_sync_disabled) {
@@ -154,16 +224,26 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
  private:
   BlockIdExt zero_block_id_;
   BlockIdExt init_block_id_;
-  std::function<bool(ShardIdFull, ShardCheckMode)> check_shard_;
+  std::function<bool(ShardIdFull, CatchainSeqno, ShardCheckMode)> check_shard_;
   bool allow_blockchain_init_;
-  td::ClocksBase::Duration sync_blocks_before_;
-  td::ClocksBase::Duration block_ttl_;
-  td::ClocksBase::Duration state_ttl_;
-  td::ClocksBase::Duration archive_ttl_;
-  td::ClocksBase::Duration key_proof_ttl_;
+  double sync_blocks_before_;
+  double block_ttl_;
+  double state_ttl_;
+  double max_mempool_num_;
+  double archive_ttl_;
+  double key_proof_ttl_;
   bool initial_sync_disabled_;
   std::vector<BlockIdExt> hardforks_;
-  td::uint32 db_depth_ = 2;
+  std::set<CatchainSeqno> unsafe_catchains_;
+  std::map<CatchainSeqno, std::pair<BlockSeqno, td::uint32>> unsafe_catchain_rotates_;
+  BlockSeqno truncate_{0};
+  BlockSeqno sync_upto_{0};
+  std::string session_logs_file_;
+  td::uint32 celldb_compress_depth_{0};
+  size_t max_open_archive_files_ = 0;
+  double archive_preload_period_ = 0.0;
+  bool disable_rocksdb_stats_;
+  bool nonfinal_ls_queries_enabled_ = false;
 };
 
 }  // namespace validator

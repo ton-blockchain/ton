@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -32,7 +32,10 @@ class WaitBlockState : public td::actor::Actor {
       , priority_(priority)
       , manager_(manager)
       , timeout_(timeout)
-      , promise_(std::move(promise)) {
+      , promise_(std::move(promise))
+      , perf_timer_("waitstate", 1.0, [manager](double duration) {
+          send_closure(manager, &ValidatorManager::add_perf_timer_stat, "waitstate", duration);
+        }) {
   }
 
   void abort_query(td::Status reason);
@@ -42,11 +45,9 @@ class WaitBlockState : public td::actor::Actor {
   void force_read_from_db();
 
   void start_up() override;
-  void got_block_handle(BlockHandle handle);
   void start();
   void got_state_from_db(td::Ref<ShardState> data);
   void got_state_from_static_file(td::Ref<ShardState> state, td::BufferSlice data);
-  void failed_to_get_state_from_db(td::Status reason);
   void got_prev_state(td::Ref<ShardState> state);
   void failed_to_get_prev_state(td::Status reason);
   void got_block_data(td::Ref<BlockData> data);
@@ -54,6 +55,8 @@ class WaitBlockState : public td::actor::Actor {
   void got_state_from_net(td::BufferSlice data);
   void failed_to_get_zero_state();
   void failed_to_get_state_from_net(td::Status reason);
+  void got_proof_link(td::BufferSlice data);
+  void got_proof(td::BufferSlice data);
   void apply();
   void written_state(td::Ref<ShardState> upd_state);
   void written_state_file();
@@ -61,6 +64,22 @@ class WaitBlockState : public td::actor::Actor {
     timeout_ = timeout;
     alarm_timestamp() = timeout_;
     priority_ = priority;
+  }
+
+  // These two methods can be called from ValidatorManagerImpl::written_handle
+  void after_get_proof_link() {
+    if (!waiting_proof_link_) {
+      return;
+    }
+    waiting_proof_link_ = false;
+    start();
+  }
+  void after_get_proof() {
+    if (!waiting_proof_) {
+      return;
+    }
+    waiting_proof_ = false;
+    start();
   }
 
  private:
@@ -76,9 +95,11 @@ class WaitBlockState : public td::actor::Actor {
   td::Ref<BlockData> block_;
 
   bool reading_from_db_ = false;
+  bool waiting_proof_link_ = false;
+  bool waiting_proof_ = false;
   td::Timestamp next_static_file_attempt_;
 
-  //td::PerfWarningTimer perf_timer_{"waitstate", 1.0};
+  td::PerfWarningTimer perf_timer_;
 };
 
 }  // namespace validator

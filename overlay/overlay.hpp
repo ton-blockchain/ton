@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -79,12 +79,50 @@ class OverlayPeer {
   td::int32 get_version() const {
     return node_.version();
   }
+  void on_ping_result(bool success) {
+    if (success) {
+      missed_pings_ = 0;
+      last_ping_at_ = td::Timestamp::now();
+      is_alive_ = true;
+    } else {
+      ++missed_pings_;
+      if (missed_pings_ >= 3 && last_ping_at_.is_in_past(td::Timestamp::in(-15.0))) {
+        is_alive_ = false;
+      }
+    }
+  }
+  bool is_alive() const {
+    return is_alive_;
+  }
+
+  td::uint32 throughput_out_bytes = 0;
+  td::uint32 throughput_in_bytes = 0;
+  
+  td::uint32 throughput_out_packets = 0;
+  td::uint32 throughput_in_packets = 0;
+  
+  td::uint32 throughput_out_bytes_ctr = 0;
+  td::uint32 throughput_in_bytes_ctr = 0;
+  
+  td::uint32 throughput_out_packets_ctr = 0;
+  td::uint32 throughput_in_packets_ctr = 0;
+  
+  td::uint32 broadcast_errors = 0;
+  td::uint32 fec_broadcast_errors = 0;
+ 
+  td::Timestamp last_in_query_at = td::Timestamp::now();
+  td::Timestamp last_out_query_at = td::Timestamp::now();
+  
+  td::string ip_addr_str = "undefined";
 
  private:
   OverlayNode node_;
   adnl::AdnlNodeIdShort id_;
 
   bool is_neighbour_ = false;
+  size_t missed_pings_ = 0;
+  bool is_alive_ = true;
+  td::Timestamp last_ping_at_ = td::Timestamp::now();
 };
 
 class OverlayImpl : public Overlay {
@@ -93,7 +131,7 @@ class OverlayImpl : public Overlay {
               td::actor::ActorId<OverlayManager> manager, td::actor::ActorId<dht::Dht> dht_node,
               adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id, bool pub,
               std::vector<adnl::AdnlNodeIdShort> nodes, std::unique_ptr<Overlays::Callback> callback,
-              OverlayPrivacyRules rules);
+              OverlayPrivacyRules rules, td::string scope = "{ \"type\": \"undefined\" }", OverlayOptions opts = {});
   void update_dht_node(td::actor::ActorId<dht::Dht> dht) override {
     dht_node_ = dht;
   }
@@ -109,13 +147,17 @@ class OverlayImpl : public Overlay {
 
   void alarm() override;
   void start_up() override {
+    update_throughput_at_ = td::Timestamp::in(50.0);
+    last_throughput_update_ = td::Timestamp::now();
+    
     if (public_) {
       update_db_at_ = td::Timestamp::in(60.0);
     }
     alarm_timestamp() = td::Timestamp::in(1);
   }
 
-  void receive_random_peers(adnl::AdnlNodeIdShort src, td::BufferSlice data);
+  void on_ping_result(adnl::AdnlNodeIdShort peer, bool success);
+  void receive_random_peers(adnl::AdnlNodeIdShort src, td::Result<td::BufferSlice> R);
   void send_random_peers(adnl::AdnlNodeIdShort dst, td::Promise<td::BufferSlice> promise);
   void send_random_peers_cont(adnl::AdnlNodeIdShort dst, OverlayNode node, td::Promise<td::BufferSlice> promise);
   void get_overlay_random_peers(td::uint32 max_peers, td::Promise<std::vector<adnl::AdnlNodeIdShort>> promise) override;
@@ -144,8 +186,13 @@ class OverlayImpl : public Overlay {
   void print(td::StringBuilder &sb) override;
 
   td::Status check_date(td::uint32 date);
-  td::Status check_source_eligible(PublicKey source, const Certificate *cert, td::uint32 size);
+  BroadcastCheckResult check_source_eligible(PublicKey source, const Certificate *cert, td::uint32 size, bool is_fec);
   td::Status check_delivered(BroadcastHash hash);
+
+  void broadcast_checked(Overlay::BroadcastHash hash, td::Result<td::Unit> R);
+  void check_broadcast(PublicKeyHash src, td::BufferSlice data, td::Promise<td::Unit> promise);
+
+  void update_peer_err_ctr(adnl::AdnlNodeIdShort peer_id, bool is_fec);
 
   BroadcastFec *get_fec_broadcast(BroadcastHash hash);
   void register_fec_broadcast(std::unique_ptr<BroadcastFec> bcast);
@@ -164,7 +211,7 @@ class OverlayImpl : public Overlay {
     } else {
       std::vector<adnl::AdnlNodeIdShort> vec;
       for (td::uint32 i = 0; i < max_size; i++) {
-        vec.push_back(neighbours_[td::Random::fast(0, static_cast<td::int32>(neighbours_.size()))]);
+        vec.push_back(neighbours_[td::Random::fast(0, static_cast<td::int32>(neighbours_.size()) - 1)]);
       }
       return vec;
     }
@@ -186,6 +233,41 @@ class OverlayImpl : public Overlay {
   }
   std::shared_ptr<Certificate> get_certificate(PublicKeyHash local_id);
   td::Result<Encryptor *> get_encryptor(PublicKey source);
+
+  void get_stats(td::Promise<tl_object_ptr<ton_api::engine_validator_overlayStats>> promise) override;
+  
+  void update_throughput_out_ctr(adnl::AdnlNodeIdShort peer_id, td::uint32 msg_size, bool is_query) override {
+    auto out_peer = peers_.get(peer_id);
+    if(out_peer) {
+      out_peer->throughput_out_bytes_ctr += msg_size;
+      out_peer->throughput_out_packets_ctr++;
+      
+      if(is_query)
+      {
+        out_peer->last_out_query_at = td::Timestamp::now();
+      }
+    }
+  }
+  
+  void update_throughput_in_ctr(adnl::AdnlNodeIdShort peer_id, td::uint32 msg_size, bool is_query) override {
+    auto in_peer = peers_.get(peer_id);
+    if(in_peer) {
+      in_peer->throughput_in_bytes_ctr += msg_size;
+      in_peer->throughput_in_packets_ctr++;
+      
+      if(is_query)
+      {
+        in_peer->last_in_query_at = td::Timestamp::now();
+      }
+    }
+  }
+  
+  void update_peer_ip_str(adnl::AdnlNodeIdShort peer_id, td::string ip_str) override {
+    auto fpeer = peers_.get(peer_id);
+    if(fpeer) {
+      fpeer->ip_addr_str = ip_str;
+    }
+  }
 
  private:
   template <class T>
@@ -218,7 +300,18 @@ class OverlayImpl : public Overlay {
   void add_peers(std::vector<OverlayNode> nodes);
   void del_some_peers();
   void del_peer(adnl::AdnlNodeIdShort id);
-  OverlayPeer *get_random_peer();
+  OverlayPeer *get_random_peer(bool only_alive = false);
+
+  void finish_dht_query() {
+    if (!next_dht_store_query_) {
+      next_dht_store_query_ = td::Timestamp::in(td::Random::fast(60.0, 100.0));
+    }
+    if (frequent_dht_lookup_ && peers_.size() == bad_peers_.size()) {
+      next_dht_query_ = td::Timestamp::in(td::Random::fast(6.0, 10.0));
+    } else {
+      next_dht_query_ = next_dht_store_query_;
+    }
+  }
 
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;
@@ -230,7 +323,12 @@ class OverlayImpl : public Overlay {
 
   td::DecTree<adnl::AdnlNodeIdShort, OverlayPeer> peers_;
   td::Timestamp next_dht_query_ = td::Timestamp::in(1.0);
+  td::Timestamp next_dht_store_query_ = td::Timestamp::in(1.0);
   td::Timestamp update_db_at_;
+  td::Timestamp update_throughput_at_;
+  td::Timestamp last_throughput_update_;
+  std::set<adnl::AdnlNodeIdShort> bad_peers_;
+  adnl::AdnlNodeIdShort next_bad_peer_ = adnl::AdnlNodeIdShort::zero();
 
   std::unique_ptr<Overlays::Callback> callback_;
 
@@ -286,6 +384,9 @@ class OverlayImpl : public Overlay {
   bool public_;
   bool semi_public_ = false;
   OverlayPrivacyRules rules_;
+  td::string scope_;
+  bool announce_self_ = true;
+  bool frequent_dht_lookup_ = false;
   std::map<PublicKeyHash, std::shared_ptr<Certificate>> certs_;
 
   class CachedEncryptor : public td::ListNode {

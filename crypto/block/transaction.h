@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 #include "common/refcnt.hpp"
@@ -29,13 +29,17 @@
 #include "ton/ton-types.h"
 #include "block/block.h"
 #include "block/mc-config.h"
+#include "precompiled-smc/PrecompiledSmartContract.h"
 
 namespace block {
 using td::Ref;
 using LtCellRef = std::pair<ton::LogicalTime, Ref<vm::Cell>>;
 
 struct Account;
+
+namespace transaction {
 struct Transaction;
+}  // namespace transaction
 
 struct CollatorError {
   std::string msg;
@@ -65,10 +69,10 @@ struct NewOutMsg {
   NewOutMsg(ton::LogicalTime _lt, Ref<vm::Cell> _msg, Ref<vm::Cell> _trans)
       : lt(_lt), msg(std::move(_msg)), trans(std::move(_trans)) {
   }
-  bool operator<(const NewOutMsg& other) const & {
+  bool operator<(const NewOutMsg& other) const& {
     return lt < other.lt || (lt == other.lt && msg->get_hash() < other.msg->get_hash());
   }
-  bool operator>(const NewOutMsg& other) const & {
+  bool operator>(const NewOutMsg& other) const& {
     return lt > other.lt || (lt == other.lt && other.msg->get_hash() < msg->get_hash());
   }
 };
@@ -77,6 +81,8 @@ struct StoragePhaseConfig {
   const std::vector<block::StoragePrices>* pricing{nullptr};
   td::RefInt256 freeze_due_limit;
   td::RefInt256 delete_due_limit;
+  bool enable_due_payment{false};
+  int global_version = 0;
   StoragePhaseConfig() = default;
   StoragePhaseConfig(const std::vector<block::StoragePrices>* _pricing, td::RefInt256 freeze_limit = {},
                      td::RefInt256 delete_limit = {})
@@ -100,18 +106,28 @@ struct ComputePhaseConfig {
   td::uint64 gas_credit;
   td::uint64 flat_gas_limit = 0;
   td::uint64 flat_gas_price = 0;
+  bool special_gas_full = false;
+  block::GasLimitsPrices mc_gas_prices;
   static constexpr td::uint64 gas_infty = (1ULL << 63) - 1;
   td::RefInt256 gas_price256;
   td::RefInt256 max_gas_threshold;
   std::unique_ptr<vm::Dictionary> libraries;
   Ref<vm::Cell> global_config;
   td::BitArray<256> block_rand_seed;
-  ComputePhaseConfig(td::uint64 _gas_price = 0, td::uint64 _gas_limit = 0, td::uint64 _gas_credit = 0)
-      : gas_price(_gas_price), gas_limit(_gas_limit), special_gas_limit(_gas_limit), gas_credit(_gas_credit) {
-    compute_threshold();
-  }
-  ComputePhaseConfig(td::uint64 _gas_price, td::uint64 _gas_limit, td::uint64 _spec_gas_limit, td::uint64 _gas_credit)
-      : gas_price(_gas_price), gas_limit(_gas_limit), special_gas_limit(_spec_gas_limit), gas_credit(_gas_credit) {
+  bool ignore_chksig{false};
+  bool with_vm_log{false};
+  td::uint16 max_vm_data_depth = 512;
+  int global_version = 0;
+  Ref<vm::Tuple> prev_blocks_info;
+  Ref<vm::Tuple> unpacked_config_tuple;
+  std::unique_ptr<vm::Dictionary> suspended_addresses;
+  SizeLimitsConfig size_limits;
+  int vm_log_verbosity = 0;
+  bool stop_on_accept_message = false;
+  PrecompiledContractsConfig precompiled_contracts;
+  bool dont_run_precompiled_ = false;
+
+  ComputePhaseConfig() : gas_price(0), gas_limit(0), special_gas_limit(0), gas_credit(0) {
     compute_threshold();
   }
   void compute_threshold();
@@ -130,13 +146,24 @@ struct ComputePhaseConfig {
   }
   bool parse_GasLimitsPrices(Ref<vm::CellSlice> cs, td::RefInt256& freeze_due_limit, td::RefInt256& delete_due_limit);
   bool parse_GasLimitsPrices(Ref<vm::Cell> cell, td::RefInt256& freeze_due_limit, td::RefInt256& delete_due_limit);
+  bool is_address_suspended(ton::WorkchainId wc, td::Bits256 addr) const;
+
+ private:
+  bool parse_GasLimitsPrices_internal(Ref<vm::CellSlice> cs, td::RefInt256& freeze_due_limit,
+                                      td::RefInt256& delete_due_limit, td::uint64 flat_gas_limit = 0,
+                                      td::uint64 flat_gas_price = 0);
 };
 
 struct ActionPhaseConfig {
   int max_actions{255};
+  int bounce_msg_body{0};  // usually 0 or 256 bits
   MsgPrices fwd_std;
   MsgPrices fwd_mc;  // from/to masterchain
+  SizeLimitsConfig size_limits;
   const WorkchainSet* workchains{nullptr};
+  bool action_fine_enabled{false};
+  bool bounce_on_fail_enabled{false};
+  td::optional<td::Bits256> mc_blackhole_addr;
   const MsgPrices& fetch_msg_prices(bool is_masterchain) const {
     return is_masterchain ? fwd_mc : fwd_std;
   }
@@ -145,12 +172,10 @@ struct ActionPhaseConfig {
 struct CreditPhase {
   td::RefInt256 due_fees_collected;
   block::CurrencyCollection credit;
-  // td::RefInt256 credit;
-  // Ref<vm::Cell> credit_extra;
 };
 
 struct ComputePhase {
-  enum { sk_none, sk_no_state, sk_bad_state, sk_no_gas };
+  enum { sk_none, sk_no_state, sk_bad_state, sk_no_gas, sk_suspended };
   int skip_reason{sk_none};
   bool success{false};
   bool msg_state_used{false};
@@ -167,6 +192,8 @@ struct ComputePhase {
   Ref<vm::Cell> in_msg;
   Ref<vm::Cell> new_data;
   Ref<vm::Cell> actions;
+  std::string vm_log;
+  td::optional<td::uint64> precompiled_gas_usage;
 };
 
 struct ActionPhase {
@@ -176,6 +203,7 @@ struct ActionPhase {
   bool code_changed{false};
   bool action_list_invalid{false};
   bool acc_delete_req{false};
+  bool state_exceeds_limits{false};
   enum { acst_unchanged = 0, acst_frozen = 2, acst_deleted = 3 };
   int acc_status_change{acst_unchanged};
   td::RefInt256 total_fwd_fees;     // all fees debited from the account
@@ -189,14 +217,13 @@ struct ActionPhase {
   Ref<vm::Cell> new_code;
   td::BitArray<256> action_list_hash;
   block::CurrencyCollection remaining_balance, reserved_balance;
-  // td::RefInt256 remaining_balance;
-  // Ref<vm::Cell> remaining_extra;
-  // td::RefInt256 reserved_balance;
-  // Ref<vm::Cell> reserved_extra;
   std::vector<Ref<vm::Cell>> action_list;  // processed in reverse order
   std::vector<Ref<vm::Cell>> out_msgs;
   ton::LogicalTime end_lt;
   unsigned long long tot_msg_bits{0}, tot_msg_cells{0};
+  td::RefInt256 action_fine;
+  bool need_bounce_on_fail = false;
+  bool bounce = false;
 };
 
 struct BouncePhase {
@@ -213,17 +240,16 @@ struct Account {
   bool is_special{false};
   bool tick{false};
   bool tock{false};
-  bool created{false};
   bool split_depth_set_{false};
   unsigned char split_depth_{0};
   int verbosity{3 * 0};
   ton::UnixTime now_{0};
   ton::WorkchainId workchain{ton::workchainInvalid};
   td::BitArray<32> addr_rewrite;     // rewrite (anycast) data, split_depth bits
-  ton::StdSmcAddress addr;           // rewritten address (by replacing a prefix of `addr_orig` with `addr_rewrite`)
-  ton::StdSmcAddress addr_orig;      // address indicated in smart-contract data
-  Ref<vm::CellSlice> my_addr;        // address as stored in the smart contract (MsgAddressInt)
-  Ref<vm::CellSlice> my_addr_exact;  // exact address without anycast info
+  ton::StdSmcAddress addr;           // rewritten address (by replacing a prefix of `addr_orig` with `addr_rewrite`); it is the key in ShardAccounts
+  ton::StdSmcAddress addr_orig;      // address indicated in smart-contract data (must coincide with hash of StateInit)
+  Ref<vm::CellSlice> my_addr;        // address as stored in the smart contract (MsgAddressInt); corresponds to `addr_orig` + anycast info
+  Ref<vm::CellSlice> my_addr_exact;  // exact address without anycast info; corresponds to `addr` and has no anycast (rewrite) info
   ton::LogicalTime last_trans_end_lt_;
   ton::LogicalTime last_trans_lt_;
   ton::Bits256 last_trans_hash_;
@@ -231,11 +257,10 @@ struct Account {
   ton::UnixTime last_paid;
   vm::CellStorageStat storage_stat;
   block::CurrencyCollection balance;
-  // td::RefInt256 balance;
-  // Ref<vm::Cell> extra_balance;
   td::RefInt256 due_payment;
   Ref<vm::Cell> orig_total_state;  // ^Account
   Ref<vm::Cell> total_state;       // ^Account
+  Ref<vm::CellSlice> storage;      // AccountStorage
   Ref<vm::CellSlice> inner_state;  // StateInit
   ton::Bits256 state_hash;         // hash of StateInit for frozen accounts
   Ref<vm::Cell> code, data, library, orig_library;
@@ -250,8 +275,9 @@ struct Account {
     return balance;
   }
   bool set_address(ton::WorkchainId wc, td::ConstBitPtr new_addr);
-  bool unpack(Ref<vm::CellSlice> account, Ref<vm::CellSlice> extra, ton::UnixTime now, bool special = false);
+  bool unpack(Ref<vm::CellSlice> account, ton::UnixTime now, bool special);
   bool init_new(ton::UnixTime now);
+  bool deactivate();
   bool recompute_tmp_addr(Ref<vm::CellSlice>& tmp_addr, int split_depth, td::ConstBitPtr orig_addr_rewrite) const;
   td::RefInt256 compute_storage_fees(ton::UnixTime now, const std::vector<block::StoragePrices>& pricing) const;
   bool is_masterchain() const {
@@ -267,9 +293,10 @@ struct Account {
   bool create_account_block(vm::CellBuilder& cb);  // stores an AccountBlock with all transactions
 
  protected:
-  friend struct Transaction;
+  friend struct transaction::Transaction;
   bool set_split_depth(int split_depth);
   bool check_split_depth(int split_depth) const;
+  bool forget_split_depth();
   bool init_rewrite_addr(int split_depth, td::ConstBitPtr orig_addr_rewrite);
 
  private:
@@ -281,8 +308,9 @@ struct Account {
   bool compute_my_addr(bool force = false);
 };
 
+namespace transaction {
 struct Transaction {
-  static constexpr unsigned max_msg_bits = (1 << 21), max_msg_cells = (1 << 13);
+  static constexpr unsigned max_allowed_merkle_depth = 2;
   enum {
     tr_none,
     tr_ord,
@@ -314,17 +342,17 @@ struct Transaction {
   const Account& account;                     // only `commit` method modifies the account
   Ref<vm::CellSlice> my_addr, my_addr_exact;  // almost the same as in account.*
   ton::LogicalTime start_lt, end_lt;
-  block::CurrencyCollection balance;
+  block::CurrencyCollection balance, original_balance;
   block::CurrencyCollection msg_balance_remaining;
   td::RefInt256 due_payment;
   td::RefInt256 in_fwd_fee, msg_fwd_fees;
   block::CurrencyCollection total_fees{0};
+  block::CurrencyCollection blackhole_burned{0};
   ton::UnixTime last_paid;
   Ref<vm::Cell> root;
   Ref<vm::Cell> new_total_state;
+  Ref<vm::CellSlice> new_storage;
   Ref<vm::CellSlice> new_inner_state;
-  // Ref<vm::Cell> extra_balance;
-  // Ref<vm::Cell> msg_extra;
   Ref<vm::Cell> new_code, new_data, new_library;
   Ref<vm::Cell> in_msg, in_msg_state;
   Ref<vm::CellSlice> in_msg_body;
@@ -338,17 +366,21 @@ struct Transaction {
   std::unique_ptr<ActionPhase> action_phase;
   std::unique_ptr<BouncePhase> bounce_phase;
   vm::CellStorageStat new_storage_stat;
+  bool gas_limit_overridden{false};
   Transaction(const Account& _account, int ttype, ton::LogicalTime req_start_lt, ton::UnixTime _now,
               Ref<vm::Cell> _inmsg = {});
   bool unpack_input_msg(bool ihr_delivered, const ActionPhaseConfig* cfg);
   bool check_in_msg_state_hash();
-  bool prepare_storage_phase(const StoragePhaseConfig& cfg, bool force_collect = true);
+  bool prepare_storage_phase(const StoragePhaseConfig& cfg, bool force_collect = true, bool adjust_msg_value = false);
   bool prepare_credit_phase();
+  td::uint64 gas_bought_for(const ComputePhaseConfig& cfg, td::RefInt256 nanograms);
   bool compute_gas_limits(ComputePhase& cp, const ComputePhaseConfig& cfg);
   Ref<vm::Stack> prepare_vm_stack(ComputePhase& cp);
   std::vector<Ref<vm::Cell>> compute_vm_libraries(const ComputePhaseConfig& cfg);
+  bool run_precompiled_contract(const ComputePhaseConfig& cfg, precompiled::PrecompiledSmartContract& precompiled);
   bool prepare_compute_phase(const ComputePhaseConfig& cfg);
   bool prepare_action_phase(const ActionPhaseConfig& cfg);
+  td::Status check_state_limits(const SizeLimitsConfig& size_limits, bool update_storage_stat = true);
   bool prepare_bounce_phase(const ActionPhaseConfig& cfg);
   bool compute_state();
   bool serialize();
@@ -358,9 +390,7 @@ struct Transaction {
 
   td::Result<vm::NewCellStorageStat::Stat> estimate_block_storage_profile_incr(
       const vm::NewCellStorageStat& store_stat, const vm::CellUsageTree* usage_tree) const;
-  bool update_block_storage_profile(vm::NewCellStorageStat& store_stat, const vm::CellUsageTree* usage_tree) const;
-  bool would_fit(unsigned cls, const block::BlockLimitStatus& blk_lim_st) const;
-  bool update_limits(block::BlockLimitStatus& blk_lim_st) const;
+  bool update_limits(block::BlockLimitStatus& blk_lim_st, bool with_gas = true, bool with_size = true) const;
 
   Ref<vm::Cell> commit(Account& _account);  // _account should point to the same account
   LtCellRef extract_out_msg(unsigned i);
@@ -382,7 +412,23 @@ struct Transaction {
   bool serialize_compute_phase(vm::CellBuilder& cb);
   bool serialize_action_phase(vm::CellBuilder& cb);
   bool serialize_bounce_phase(vm::CellBuilder& cb);
-  bool unpack_msg_state(bool lib_only = false);
+  bool unpack_msg_state(const ComputePhaseConfig& cfg, bool lib_only = false, bool forbid_public_libs = false);
+};
+}  // namespace transaction
+
+struct FetchConfigParams {
+  static td::Status fetch_config_params(const block::ConfigInfo& config, Ref<vm::Cell>* old_mparams,
+                                        std::vector<block::StoragePrices>* storage_prices,
+                                        StoragePhaseConfig* storage_phase_cfg, td::BitArray<256>* rand_seed,
+                                        ComputePhaseConfig* compute_phase_cfg, ActionPhaseConfig* action_phase_cfg,
+                                        td::RefInt256* masterchain_create_fee, td::RefInt256* basechain_create_fee,
+                                        ton::WorkchainId wc, ton::UnixTime now);
+  static td::Status fetch_config_params(const block::Config& config, Ref<vm::Tuple> prev_blocks_info,
+                                        Ref<vm::Cell>* old_mparams, std::vector<block::StoragePrices>* storage_prices,
+                                        StoragePhaseConfig* storage_phase_cfg, td::BitArray<256>* rand_seed,
+                                        ComputePhaseConfig* compute_phase_cfg, ActionPhaseConfig* action_phase_cfg,
+                                        td::RefInt256* masterchain_create_fee, td::RefInt256* basechain_create_fee,
+                                        ton::WorkchainId wc, ton::UnixTime now);
 };
 
 }  // namespace block

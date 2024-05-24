@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 #include "vm/dispatch.h"
@@ -57,6 +57,9 @@ class OpcodeInstr {
   std::pair<unsigned, unsigned> get_opcode_range() const {
     return {min_opcode, max_opcode};
   }
+
+  OpcodeInstr* require_version(int required_version);
+
   //static OpcodeInstr* mksimple(unsigned opcode, unsigned opc_bits, std::string _name, exec_instr_func_t exec);
   static OpcodeInstr* mksimple(unsigned opcode, unsigned opc_bits, std::string _name, exec_simple_instr_func_t exec);
   static OpcodeInstr* mkfixed(unsigned opcode, unsigned opc_bits, unsigned arg_bits, dump_arg_instr_func_t dump,
@@ -186,6 +189,21 @@ class OpcodeInstrExt : public OpcodeInstr {
   int dispatch(VmState* st, CellSlice& cs, unsigned opcode, unsigned bits) const override;
   std::string dump(CellSlice& cs, unsigned opcode, unsigned bits) const override;
   int instr_len(const CellSlice& cs, unsigned opcode, unsigned bits) const override;
+};
+
+class OpcodeInstrWithVersion : public OpcodeInstr {
+ public:
+  OpcodeInstrWithVersion() = delete;
+  OpcodeInstrWithVersion(OpcodeInstr* instr, int required_version) :
+      OpcodeInstr(instr->get_opcode_min(), instr->get_opcode_max()), instr(instr), required_version(required_version) {
+  }
+  ~OpcodeInstrWithVersion() override = default;
+  int dispatch(VmState* st, CellSlice& cs, unsigned opcode, unsigned bits) const override;
+  std::string dump(CellSlice& cs, unsigned opcode, unsigned bits) const override;
+  int instr_len(const CellSlice& cs, unsigned opcode, unsigned bits) const override;
+ private:
+  OpcodeInstr* instr;
+  int required_version;
 };
 
 }  // namespace vm

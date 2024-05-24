@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 #include "ton/ton-types.h"
@@ -51,12 +51,22 @@ struct OutputQueueMerger {
     bool unpack_node(td::ConstBitPtr key_pfx, int key_pfx_len, Ref<vm::Cell> node);
     bool split(MsgKeyValue& second);
   };
+  struct Neighbor {
+    ton::BlockIdExt block_id_;
+    td::Ref<vm::Cell> outmsg_root_;
+    bool disabled_;
+    Neighbor() = default;
+    Neighbor(ton::BlockIdExt block_id, td::Ref<vm::Cell> outmsg_root, bool disabled = false)
+        : block_id_(block_id), outmsg_root_(std::move(outmsg_root)), disabled_(disabled) {
+    }
+  };
   //
   ton::ShardIdFull queue_for;
   std::vector<std::unique_ptr<MsgKeyValue>> msg_list;
-  std::vector<block::McShardDescr> neighbors;
+  std::vector<Neighbor> neighbors;
 
  public:
+  OutputQueueMerger(ton::ShardIdFull _queue_for, std::vector<Neighbor> _neighbors);
   OutputQueueMerger(ton::ShardIdFull _queue_for, std::vector<block::McShardDescr> _neighbors);
   bool is_eof() const {
     return eof;

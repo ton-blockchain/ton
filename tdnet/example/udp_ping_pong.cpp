@@ -23,11 +23,11 @@
     exception statement from your version. If you delete this exception statement 
     from all source files in the program, then also delete it here.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/actor/actor.h"
 
-#include "td/utils/OptionsParser.h"
+#include "td/utils/OptionParser.h"
 #include "td/utils/Observer.h"
 #include "td/utils/port/UdpSocketFd.h"
 
@@ -113,21 +113,15 @@ class PingPong : public td::actor::Actor {
 };
 
 int main(int argc, char *argv[]) {
-  td::OptionsParser options_parser;
+  td::OptionParser options_parser;
   options_parser.set_description("Udp ping server/client (8083 <-> 8084) (based on td::actors2)");
 
   int from_port = 8083;
   int to_port = 8084;
   bool is_client = false;
   bool use_tcp = false;
-  options_parser.add_option('c', "client", "Work as client (server by default)", [&]() {
-    is_client = true;
-    return td::Status::OK();
-  });
-  options_parser.add_option('t', "tcp", "Use tcp (udp by default)", [&]() {
-    use_tcp = true;
-    return td::Status::OK();
-  });
+  options_parser.add_option('c', "client", "Work as client (server by default)", [&]() { is_client = true; });
+  options_parser.add_option('t', "tcp", "Use tcp (udp by default)", [&]() { use_tcp = true; });
   auto status = options_parser.run(argc, argv);
   if (status.is_error()) {
     LOG(ERROR) << status.error();

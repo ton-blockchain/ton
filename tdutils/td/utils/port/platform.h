@@ -14,11 +14,16 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
 // clang-format off
+
+/*** Determine emscripten ***/
+#if defined(__EMSCRIPTEN__)
+  #define TD_EMSCRIPTEN 1
+#endif
 
 /*** Platform macros ***/
 #if defined(_WIN32) || defined(_WINDOWS) // _WINDOWS is defined by CMake
@@ -63,10 +68,11 @@
   #define TD_NETBSD 1
 #elif defined(__CYGWIN__)
   #define TD_CYGWIN 1
-#elif defined(__EMSCRIPTEN__)
-  #define TD_EMSCRIPTEN 1
-#elif defined(__unix__)  // all unices not caught above
-  #warning "Probably unsupported Unix platform. Feel free to try to compile"
+#elif defined(__unix__) // all unices not caught above
+  // supress if emscripten
+  #if !TD_EMSCRIPTEN
+    #warning "Probably unsupported Unix platform. Feel free to try to compile"
+  #endif
   #define TD_CYGWIN 1
 #else
   #error "Probably unsupported platform. Feel free to remove the error and try to recompile"

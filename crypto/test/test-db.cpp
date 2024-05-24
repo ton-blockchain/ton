@@ -14,15 +14,15 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "vm/boc.h"
 #include "vm/cellslice.h"
 #include "vm/cells.h"
 #include "common/AtomicRef.h"
+#include "vm/cells/CellString.h"
 #include "vm/cells/MerkleProof.h"
 #include "vm/cells/MerkleUpdate.h"
-#include "vm/db/BlobView.h"
 #include "vm/db/CellStorage.h"
 #include "vm/db/CellHashTable.h"
 #include "vm/db/TonDb.h"
@@ -33,6 +33,7 @@
 #include "td/utils/crypto.h"
 #include "td/utils/Random.h"
 #include "td/utils/Slice.h"
+#include "td/utils/Span.h"
 #include "td/utils/Status.h"
 #include "td/utils/Timer.h"
 #include "td/utils/filesystem.h"
@@ -44,13 +45,19 @@
 #include "td/utils/tl_parsers.h"
 #include "td/utils/tl_helpers.h"
 
+#include "td/db/utils/BlobView.h"
 #include "td/db/RocksDb.h"
 #include "td/db/MemoryKeyValue.h"
+#include "td/db/utils/CyclicBuffer.h"
+
+#include "td/fec/fec.h"
 
 #include <set>
 #include <map>
 
 #include <openssl/sha.h>
+
+#include "openssl/digest.hpp"
 
 namespace vm {
 
@@ -120,12 +127,12 @@ class BenchSha256Low : public td::Benchmark {
 
   void run(int n) override {
     int res = 0;
-    SHA256_CTX ctx;
+    td::Sha256State ctx;
     for (int i = 0; i < n; i++) {
-      SHA256_Init(&ctx);
-      SHA256_Update(&ctx, "abcd", 4);
+      ctx.init();
+      ctx.feed("abcd");
       unsigned char buf[32];
-      SHA256_Final(buf, &ctx);
+      ctx.extract(td::MutableSlice{buf, 32});
       res += buf[0];
     }
     td::do_not_optimize_away(res);
@@ -431,17 +438,10 @@ class RandomBagOfCells {
   };
 };
 
-template <class T>
-void random_shuffle(td::MutableSpan<T> v, td::Random::Xorshift128plus &rnd) {
-  for (std::size_t i = 1; i < v.size(); i++) {
-    auto pos = static_cast<std::size_t>(rnd() % (i + 1));
-    std::swap(v[i], v[pos]);
-  }
-}
 Ref<Cell> gen_random_cell(int size, td::Random::Xorshift128plus &rnd, bool with_prunned_branches = true,
                           std::vector<Ref<Cell>> cells = {}) {
   if (!cells.empty()) {
-    random_shuffle(td::MutableSpan<Ref<Cell>>(cells), rnd);
+    td::random_shuffle(as_mutable_span(cells), rnd);
     cells.resize(cells.size() % rnd());
   }
   return RandomBagOfCells(size, rnd, with_prunned_branches, std::move(cells)).get_root();
@@ -449,7 +449,7 @@ Ref<Cell> gen_random_cell(int size, td::Random::Xorshift128plus &rnd, bool with_
 std::vector<Ref<Cell>> gen_random_cells(int roots, int size, td::Random::Xorshift128plus &rnd,
                                         bool with_prunned_branches = true, std::vector<Ref<Cell>> cells = {}) {
   if (!cells.empty()) {
-    random_shuffle(td::MutableSpan<Ref<Cell>>(cells), rnd);
+    td::random_shuffle(as_mutable_span(cells), rnd);
     cells.resize(cells.size() % rnd());
   }
   return RandomBagOfCells(size, rnd, with_prunned_branches, std::move(cells)).get_random_roots(roots, rnd);
@@ -694,6 +694,32 @@ TEST(TonDb, BenchCellBuilder3) {
   td::bench(BenchCellBuilder3());
 }
 
+TEST(TonDb, BocFuzz) {
+  vm::std_boc_deserialize(td::base64_decode("te6ccgEBAQEAAgAoAAA=").move_as_ok()).ensure_error();
+  vm::std_boc_deserialize(td::base64_decode("te6ccgQBQQdQAAAAAAEAte6ccgQBB1BBAAAAAAEAAAAAAP/"
+                                            "wAACJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJicmJiYmJiYmJiYmJiQ0NDQ0NDQ0NDQ0NDQ0ND"
+                                            "Q0NiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiQAA//AAAO4=")
+                              .move_as_ok());
+  vm::std_boc_deserialize(td::base64_decode("SEkh/w==").move_as_ok()).ensure_error();
+  vm::std_boc_deserialize(
+      td::base64_decode(
+          "te6ccqwBMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMAKCEAAAAgAQ==")
+          .move_as_ok())
+      .ensure_error();
+}
+void test_parse_prefix(td::Slice boc) {
+  for (size_t i = 0; i <= boc.size(); i++) {
+    auto prefix = boc.substr(0, i);
+    vm::BagOfCells::Info info;
+    auto res = info.parse_serialized_header(prefix);
+    if (res > 0) {
+      break;
+    }
+    CHECK(res != 0);
+    CHECK(-res > (int)i);
+  }
+}
+
 TEST(TonDb, Boc) {
   td::Random::Xorshift128plus rnd{123};
   for (int t = 0; t < 1000; t++) {
@@ -703,6 +729,8 @@ TEST(TonDb, Boc) {
 
     auto serialized = serialize_boc(std::move(cell), mode);
     CHECK(serialized.size() != 0);
+
+    test_parse_prefix(serialized);
 
     auto loaded_cell = deserialize_boc(serialized);
     ASSERT_EQ(cell_hash, loaded_cell->get_hash());
@@ -758,7 +786,7 @@ TEST(TonDb, DynamicBoc) {
     old_root_serialization = serialize_boc(cell);
 
     // Check that DynamicBagOfCells properly loads cells
-    cell = vm::StaticBagOfCellsDbLazy::create(vm::BufferSliceBlobView::create(td::BufferSlice(old_root_serialization)))
+    cell = vm::StaticBagOfCellsDbLazy::create(td::BufferSliceBlobView::create(td::BufferSlice(old_root_serialization)))
                .move_as_ok()
                ->get_root_cell(0)
                .move_as_ok();
@@ -1512,6 +1540,7 @@ template <class DeserializerT>
 class BenchBocDeserializer : public td::Benchmark {
  public:
   BenchBocDeserializer(std::string name, BenchBocDeserializerConfig config) : name_(std::move(name)), config_(config) {
+    td::PerfWarningTimer perf("A", 1);
     fast_array_ = vm::FastCompactArray(array_size);
     td::Random::Xorshift128plus rnd{123};
     for (td::uint32 i = 0; i < array_size; i++) {
@@ -1568,11 +1597,11 @@ class BenchBocDeserializer : public td::Benchmark {
     auto blob = [&] {
       switch (config_.blob_type) {
         case BenchBocDeserializerConfig::File:
-          return vm::FileBlobView::create("serialization").move_as_ok();
+          return td::FileBlobView::create("serialization").move_as_ok();
         case BenchBocDeserializerConfig::Memory:
-          return vm::BufferSliceBlobView::create(serialization_.clone());
+          return td::BufferSliceBlobView::create(serialization_.clone());
         case BenchBocDeserializerConfig::FileMemoryMap:
-          return vm::FileMemoryMappingBlobView::create("serialization").move_as_ok();
+          return td::FileMemoryMappingBlobView::create("serialization").move_as_ok();
         default:
           UNREACHABLE();
       }
@@ -2050,222 +2079,6 @@ TEST(Ref, AtomicRef) {
   }
   nodes.clear();
   LOG(ERROR) << String::total_strings.sum();
-}
-
-class FileMerkleTree {
- public:
-  FileMerkleTree(size_t chunks_count, td::Ref<vm::Cell> root = {}) {
-    log_n_ = 0;
-    while ((size_t(1) << log_n_) < chunks_count) {
-      log_n_++;
-    }
-    n_ = size_t(1) << log_n_;
-    mark_.resize(n_ * 2);
-    proof_.resize(n_ * 2);
-
-    CHECK(n_ == chunks_count);  // TODO: support other chunks_count
-    //auto x = vm::CellBuilder().finalize();
-    root_ = std::move(root);
-  }
-
-  struct Chunk {
-    td::size_t index{0};
-    td::Slice hash;
-  };
-
-  void remove_chunk(td::size_t index) {
-    CHECK(index < n_);
-    index += n_;
-    while (proof_[index].not_null()) {
-      proof_[index] = {};
-      index /= 2;
-    }
-  }
-
-  bool has_chunk(td::size_t index) const {
-    CHECK(index < n_);
-    index += n_;
-    return proof_[index].not_null();
-  }
-
-  void add_chunk(td::size_t index, td::Slice hash) {
-    CHECK(hash.size() == 32);
-    CHECK(index < n_);
-    index += n_;
-    auto cell = vm::CellBuilder().store_bytes(hash).finalize();
-    CHECK(proof_[index].is_null());
-    proof_[index] = std::move(cell);
-    for (index /= 2; index != 0; index /= 2) {
-      CHECK(proof_[index].is_null());
-      auto &left = proof_[index * 2];
-      auto &right = proof_[index * 2 + 1];
-      if (left.not_null() && right.not_null()) {
-        proof_[index] = vm::CellBuilder().store_ref(left).store_ref(right).finalize();
-      } else {
-        mark_[index] = mark_id_;
-      }
-    }
-  }
-
-  td::Status validate_proof(td::Ref<vm::Cell> new_root) {
-    // TODO: check structure
-    return td::Status::OK();
-  }
-
-  td::Status add_proof(td::Ref<vm::Cell> new_root) {
-    TRY_STATUS(validate_proof(new_root));
-    auto combined = vm::MerkleProof::combine_fast_raw(root_, new_root);
-    if (combined.is_null()) {
-      return td::Status::Error("Can't combine proofs");
-    }
-    root_ = std::move(combined);
-    return td::Status::OK();
-  }
-
-  td::Status try_add_chunks(td::Span<Chunk> chunks) {
-    for (auto chunk : chunks) {
-      if (has_chunk(chunk.index)) {
-        return td::Status::Error("Already has chunk");
-      }
-    }
-    mark_id_++;
-    for (auto chunk : chunks) {
-      add_chunk(chunk.index, chunk.hash);
-    }
-    auto r_new_root = merge(root_, 1);
-    if (r_new_root.is_error()) {
-      for (auto chunk : chunks) {
-        remove_chunk(chunk.index);
-      }
-      return r_new_root.move_as_error();
-    }
-    root_ = r_new_root.move_as_ok();
-    return td::Status::OK();
-  }
-
-  td::Result<td::Ref<vm::Cell>> merge(td::Ref<vm::Cell> root, size_t index) {
-    const auto &down = proof_[index];
-    if (down.not_null()) {
-      if (down->get_hash() != root->get_hash(0)) {
-        return td::Status::Error("Hash mismatch");
-      }
-      return down;
-    }
-
-    if (mark_[index] != mark_id_) {
-      return root;
-    }
-
-    vm::CellSlice cs(vm::NoVm(), root);
-    if (cs.is_special()) {
-      return td::Status::Error("Proof is not enough to validate chunks");
-    }
-
-    CHECK(cs.size_refs() == 2);
-    vm::CellBuilder cb;
-    cb.store_bits(cs.fetch_bits(cs.size()));
-    TRY_RESULT(left, merge(cs.fetch_ref(), index * 2));
-    TRY_RESULT(right, merge(cs.fetch_ref(), index * 2 + 1));
-    cb.store_ref(std::move(left)).store_ref(std::move(right));
-    return cb.finalize();
-  }
-
-  void init_proof() {
-    CHECK(proof_[1].not_null());
-    root_ = proof_[1];
-  }
-
-  td::Result<td::Ref<vm::Cell>> gen_proof(size_t l, size_t r) {
-    auto usage_tree = std::make_shared<vm::CellUsageTree>();
-    auto usage_cell = vm::UsageCell::create(root_, usage_tree->root_ptr());
-    TRY_STATUS(do_gen_proof(std::move(usage_cell), 0, n_ - 1, l, r));
-    auto res = vm::MerkleProof::generate_raw(root_, usage_tree.get());
-    CHECK(res.not_null());
-    return res;
-  }
-
- private:
-  td::size_t n_;  // n = 2^log_n
-  td::size_t log_n_;
-  td::size_t mark_id_{0};
-  std::vector<td::size_t> mark_;          // n_ * 2
-  std::vector<td::Ref<vm::Cell>> proof_;  // n_ * 2
-  td::Ref<vm::Cell> root_;
-
-  td::Status do_gen_proof(td::Ref<vm::Cell> node, size_t il, size_t ir, size_t l, size_t r) {
-    if (ir < l || il > r) {
-      return td::Status::OK();
-    }
-    if (l <= il && ir <= r) {
-      return td::Status::OK();
-    }
-    vm::CellSlice cs(vm::NoVm(), std::move(node));
-    if (cs.is_special()) {
-      return td::Status::Error("Can't generate a proof");
-    }
-    CHECK(cs.size_refs() == 2);
-    auto ic = (il + ir) / 2;
-    TRY_STATUS(do_gen_proof(cs.fetch_ref(), il, ic, l, r));
-    TRY_STATUS(do_gen_proof(cs.fetch_ref(), ic + 1, ir, l, r));
-    return td::Status::OK();
-  }
-};
-
-TEST(FileMerkleTree, Manual) {
-  // create big random file
-  size_t chunk_size = 768;
-  // for simplicity numer of chunks in a file is a power of two
-  size_t chunks_count = 1 << 16;
-  size_t file_size = chunk_size * chunks_count;
-  td::Timer timer;
-  LOG(INFO) << "Generate random string";
-  const auto file = td::rand_string('a', 'z', td::narrow_cast<int>(file_size));
-  LOG(INFO) << timer;
-
-  timer = {};
-  LOG(INFO) << "Calculate all hashes";
-  std::vector<td::UInt256> hashes(chunks_count);
-  for (size_t i = 0; i < chunks_count; i++) {
-    td::sha256(td::Slice(file).substr(i * chunk_size, chunk_size), hashes[i].as_slice());
-  }
-  LOG(INFO) << timer;
-
-  timer = {};
-  LOG(INFO) << "Init merkle tree";
-  FileMerkleTree tree(chunks_count);
-  for (size_t i = 0; i < chunks_count; i++) {
-    tree.add_chunk(i, hashes[i].as_slice());
-  }
-  tree.init_proof();
-  LOG(INFO) << timer;
-
-  auto root_proof = tree.gen_proof(0, chunks_count - 1).move_as_ok();
-
-  // first download each chunk one by one
-
-  for (size_t stride : {1 << 6, 1}) {
-    timer = {};
-    LOG(INFO) << "Gen all proofs, stride = " << stride;
-    for (size_t i = 0; i < chunks_count; i += stride) {
-      tree.gen_proof(i, i + stride - 1).move_as_ok();
-    }
-    LOG(INFO) << timer;
-    timer = {};
-    LOG(INFO) << "Proof size: " << vm::std_boc_serialize(tree.gen_proof(0, stride - 1).move_as_ok()).ok().size();
-    LOG(INFO) << "Download file, stride = " << stride;
-    {
-      FileMerkleTree new_tree(chunks_count, root_proof);
-      for (size_t i = 0; i < chunks_count; i += stride) {
-        new_tree.add_proof(tree.gen_proof(i, i + stride - 1).move_as_ok()).ensure();
-        std::vector<FileMerkleTree::Chunk> chunks;
-        for (size_t j = 0; j < stride; j++) {
-          chunks.push_back({i + j, hashes[i + j].as_slice()});
-        }
-        new_tree.try_add_chunks(chunks).ensure();
-      }
-    }
-    LOG(INFO) << timer;
-  }
 }
 
 //TEST(Tmp, Boc) {

@@ -1,22 +1,25 @@
-cmake_minimum_required(VERSION 3.0.2 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
 
 if (NOT OPENSSL_FOUND)
   find_package(OpenSSL REQUIRED)
 endif()
 
 set(VALIDATOR_SESSION_SOURCE
+  candidate-serializer.cpp
   persistent-vector.cpp
   validator-session-description.cpp
   validator-session-state.cpp
   validator-session.cpp
+  validator-session-round-attempt-state.cpp
 
+  candidate-serializer.h
   persistent-vector.h
   validator-session-description.h
   validator-session-description.hpp
   validator-session-state.h
   validator-session.h
   validator-session.hpp
-)
+  validator-session-round-attempt-state.h)
 
 add_library(validatorsession STATIC ${VALIDATOR_SESSION_SOURCE})
 

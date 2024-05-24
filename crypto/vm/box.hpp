@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 #include "vm/stack.hpp"
@@ -30,7 +30,7 @@ class Box : public td::CntObject {
   Box(const Box&) = default;
   Box(Box&&) = default;
   template <typename... Args>
-  Box(Args... args) : data_{std::move(args...)} {
+  Box(Args&&... args) : data_{std::forward<Args>(args)...} {
   }
   ~Box() override = default;
   Box(const StackEntry& data) : data_(data) {

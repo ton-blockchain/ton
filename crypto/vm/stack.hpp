@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -34,6 +34,8 @@
 #include "vm/excno.hpp"
 
 #include "td/utils/Span.h"
+
+#include <functional>
 
 namespace td {
 extern template class td::Cnt<std::string>;
@@ -101,6 +103,9 @@ class StackEntry {
   }
   StackEntry(td::RefInt256 int_ref) : ref(std::move(int_ref)), tp(t_int) {
   }
+  StackEntry(Ref<Cnt<std::string>> str_ref, bool bytes = false)
+      : ref(std::move(str_ref)), tp(bytes ? t_bytes : t_string) {
+  }
   StackEntry(std::string str, bool bytes = false) : ref(), tp(bytes ? t_bytes : t_string) {
     ref = Ref<Cnt<std::string>>{true, std::move(str)};
   }
@@ -147,6 +152,15 @@ class StackEntry {
   bool is_atom() const {
     return tp == t_atom;
   }
+  bool is_int() const {
+    return tp == t_int;
+  }
+  bool is_cell() const {
+    return tp == t_cell;
+  }
+  bool is_null() const {
+    return tp == t_null;
+  }
   bool is(int wanted) const {
     return tp == wanted;
   }
@@ -177,7 +191,7 @@ class StackEntry {
  private:
   static bool is_list(const StackEntry* se);
   template <typename T, Type tag>
-  Ref<T> dynamic_as() const & {
+  Ref<T> dynamic_as() const& {
     return tp == tag ? static_cast<Ref<T>>(ref) : td::Ref<T>{};
   }
   template <typename T, Type tag>
@@ -189,7 +203,7 @@ class StackEntry {
     return tp == tag ? static_cast<Ref<T>>(std::move(ref)) : td::Ref<T>{};
   }
   template <typename T, Type tag>
-  Ref<T> as() const & {
+  Ref<T> as() const& {
     return tp == tag ? Ref<T>{td::static_cast_ref(), ref} : td::Ref<T>{};
   }
   template <typename T, Type tag>
@@ -221,31 +235,31 @@ class StackEntry {
       return ref;
     }
   }
-  td::RefInt256 as_int() const & {
+  td::RefInt256 as_int() const& {
     return as<td::CntInt256, t_int>();
   }
   td::RefInt256 as_int() && {
     return move_as<td::CntInt256, t_int>();
   }
-  Ref<Cell> as_cell() const & {
+  Ref<Cell> as_cell() const& {
     return as<Cell, t_cell>();
   }
   Ref<Cell> as_cell() && {
     return move_as<Cell, t_cell>();
   }
-  Ref<CellBuilder> as_builder() const & {
+  Ref<CellBuilder> as_builder() const& {
     return as<CellBuilder, t_builder>();
   }
   Ref<CellBuilder> as_builder() && {
     return move_as<CellBuilder, t_builder>();
   }
-  Ref<CellSlice> as_slice() const & {
+  Ref<CellSlice> as_slice() const& {
     return as<CellSlice, t_slice>();
   }
   Ref<CellSlice> as_slice() && {
     return move_as<CellSlice, t_slice>();
   }
-  Ref<Continuation> as_cont() const &;
+  Ref<Continuation> as_cont() const&;
   Ref<Continuation> as_cont() &&;
   Ref<Cnt<std::string>> as_string_ref() const {
     return as<Cnt<std::string>, t_string>();
@@ -260,24 +274,26 @@ class StackEntry {
   std::string as_bytes() const {
     return tp == t_bytes ? *as_bytes_ref() : "";
   }
-  Ref<Box> as_box() const &;
+  Ref<Box> as_box() const&;
   Ref<Box> as_box() &&;
-  Ref<Tuple> as_tuple() const &;
+  Ref<Tuple> as_tuple() const&;
   Ref<Tuple> as_tuple() &&;
-  Ref<Tuple> as_tuple_range(unsigned max_len = 255, unsigned min_len = 0) const &;
+  Ref<Tuple> as_tuple_range(unsigned max_len = 255, unsigned min_len = 0) const&;
   Ref<Tuple> as_tuple_range(unsigned max_len = 255, unsigned min_len = 0) &&;
-  Ref<Atom> as_atom() const &;
+  Ref<Atom> as_atom() const&;
   Ref<Atom> as_atom() &&;
   template <class T>
-  Ref<T> as_object() const & {
+  Ref<T> as_object() const& {
     return dynamic_as<T, t_object>();
   }
   template <class T>
   Ref<T> as_object() && {
     return dynamic_move_as<T, t_object>();
   }
-  void dump(std::ostream& os) const;
-  void print_list(std::ostream& os) const;
+  bool for_each_scalar(const std::function<bool(const StackEntry&)>& func) const;
+  void for_each_scalar(const std::function<void(const StackEntry&)>& func) const;
+  void dump(std::ostream& os, bool verbose = false) const;
+  void print_list(std::ostream& os, bool verbose = false) const;
   std::string to_string() const;
   std::string to_lisp_string() const;
 
@@ -289,7 +305,7 @@ inline void swap(StackEntry& se1, StackEntry& se2) {
   se1.swap(se2);
 }
 
-const StackEntry& tuple_index(const Tuple& tup, unsigned idx);
+const StackEntry& tuple_index(const Ref<Tuple>& tup, unsigned idx);
 StackEntry tuple_extend_index(const Ref<Tuple>& tup, unsigned idx);
 unsigned tuple_extend_set_index(Ref<Tuple>& tup, unsigned idx, StackEntry&& value, bool force = false);
 
@@ -307,7 +323,7 @@ class Stack : public td::CntObject {
   Stack(const Stack& old_stack, unsigned copy_elem, unsigned skip_top);
   Stack(Stack&& old_stack, unsigned copy_elem, unsigned skip_top);
   td::CntObject* make_copy() const override {
-    std::cerr << "copy stack at " << (const void*)this << " (" << depth() << " entries)\n";
+    //std::cerr << "copy stack at " << (const void*)this << " (" << depth() << " entries)\n";
     return new Stack{stack};
   }
   void push_from_stack(const Stack& old_stack, unsigned copy_elem, unsigned skip_top = 0);
@@ -347,6 +363,10 @@ class Stack : public td::CntObject {
   }
   void pop_many(int count) {
     stack.resize(stack.size() - count);
+  }
+  void pop_many(int count, int offs) {
+    std::move(stack.cend() - offs, stack.cend(), stack.end() - (count + offs));
+    pop_many(count);
   }
   void drop_bottom(int count) {
     std::move(stack.cbegin() + count, stack.cend(), stack.begin());
@@ -428,6 +448,12 @@ class Stack : public td::CntObject {
       set_contents(*ref);
     }
     return *this;
+  }
+  std::vector<StackEntry> extract_contents() const& {
+    return stack;
+  }
+  std::vector<StackEntry> extract_contents() && {
+    return std::move(stack);
   }
   template <typename... Args>
   const Stack& check_underflow(Args... args) const {
@@ -530,7 +556,9 @@ class Stack : public td::CntObject {
       push(std::move(val));
     }
   }
-  // mode: +1 = add eoln, +2 = Lisp-style lists
+  bool for_each_scalar(const std::function<bool(const StackEntry&)>& func) const;
+  void for_each_scalar(const std::function<void(const StackEntry&)>& func) const;
+  // mode: +1 = add eoln, +2 = Lisp-style lists, +4 = serialized bocs
   void dump(std::ostream& os, int mode = 1) const;
   bool serialize(vm::CellBuilder& cb, int mode = 0) const;
   bool deserialize(vm::CellSlice& cs, int mode = 0);

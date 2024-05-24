@@ -14,15 +14,15 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include <functional>
 #include "vm/arithops.h"
 #include "vm/log.h"
 #include "vm/opctable.h"
 #include "vm/stack.hpp"
-#include "vm/continuation.h"
 #include "vm/excno.hpp"
+#include "vm/vm.h"
 #include "common/bigint.hpp"
 #include "common/refint.h"
 
@@ -38,8 +38,8 @@ int exec_push_tinyint4(VmState* st, unsigned args) {
 
 std::string dump_push_tinyint4(CellSlice&, unsigned args) {
   int x = (int)((args + 5) & 15) - 5;
-  std::ostringstream os{"PUSHINT "};
-  os << x;
+  std::ostringstream os;
+  os << "PUSHINT " << x;
   return os.str();
 }
 
@@ -53,8 +53,8 @@ int exec_push_tinyint8(VmState* st, unsigned args) {
 
 std::string dump_op_tinyint8(const char* op_prefix, CellSlice&, unsigned args) {
   int x = (signed char)args;
-  std::ostringstream os{op_prefix};
-  os << x;
+  std::ostringstream os;
+  os << op_prefix << x;
   return os.str();
 }
 
@@ -68,8 +68,8 @@ int exec_push_smallint(VmState* st, unsigned args) {
 
 std::string dump_push_smallint(CellSlice&, unsigned args) {
   int x = (short)args;
-  std::ostringstream os{"PUSHINT "};
-  os << x;
+  std::ostringstream os;
+  os << "PUSHINT " << x;
   return os.str();
 }
 
@@ -93,8 +93,8 @@ std::string dump_push_int(CellSlice& cs, unsigned args, int pfx_bits) {
   }
   cs.advance(pfx_bits);
   td::RefInt256 x = cs.fetch_int256(3 + l * 8);
-  std::ostringstream os{"PUSHINT "};
-  os << x;
+  std::ostringstream os;
+  os << "PUSHINT " << x;
   return os.str();
 }
 
@@ -265,26 +265,45 @@ void register_add_mul_ops(OpcodeTable& cp0) {
 
 int exec_divmod(VmState* st, unsigned args, int quiet) {
   int round_mode = (int)(args & 3) - 1;
-  if (!(args & 12) || round_mode == 2) {
+  unsigned d = (args >> 2) & 3;
+  bool add = false;
+  if (d == 0 && st->get_global_version() >= 4) {
+    d = 3;
+    add = true;
+  }
+  if (d == 0 || round_mode == 2) {
     throw VmError{Excno::inv_opcode};
   }
   Stack& stack = st->get_stack();
   VM_LOG(st) << "execute DIV/MOD " << (args & 15);
-  stack.check_underflow(2);
+  stack.check_underflow(add ? 3 : 2);
   auto y = stack.pop_int();
+  auto w = add ? stack.pop_int() : td::RefInt256{};
   auto x = stack.pop_int();
-  switch ((args >> 2) & 3) {
-    case 1:
-      stack.push_int_quiet(td::div(std::move(x), std::move(y), round_mode), quiet);
-      break;
-    case 2:
-      stack.push_int_quiet(td::mod(std::move(x), std::move(y), round_mode), quiet);
-      break;
-    case 3: {
-      auto dm = td::divmod(std::move(x), std::move(y), round_mode);
-      stack.push_int_quiet(std::move(dm.first), quiet);
-      stack.push_int_quiet(std::move(dm.second), quiet);
-      break;
+  if (add) {
+    CHECK(d == 3);
+    typename td::BigInt256::DoubleInt tmp{*x}, quot;
+    tmp += *w;
+    tmp.mod_div(*y, quot, round_mode);
+    auto q = td::make_refint(quot), r = td::make_refint(tmp);
+    q.write().normalize();
+    r.write().normalize();
+    stack.push_int_quiet(std::move(q), quiet);
+    stack.push_int_quiet(std::move(r), quiet);
+  } else {
+    switch (d) {
+      case 1:
+        stack.push_int_quiet(td::div(std::move(x), std::move(y), round_mode), quiet);
+        break;
+      case 2:
+        stack.push_int_quiet(td::mod(std::move(x), std::move(y), round_mode), quiet);
+        break;
+      case 3: {
+        auto dm = td::divmod(std::move(x), std::move(y), round_mode);
+        stack.push_int_quiet(std::move(dm.first), quiet);
+        stack.push_int_quiet(std::move(dm.second), quiet);
+        break;
+      }
     }
   }
   return 0;
@@ -292,17 +311,26 @@ int exec_divmod(VmState* st, unsigned args, int quiet) {
 
 std::string dump_divmod(CellSlice&, unsigned args, bool quiet) {
   int round_mode = (int)(args & 3);
-  if (!(args & 12) || round_mode == 3) {
+  unsigned d = (args >> 2) & 3;
+  bool add = false;
+  if (d == 0) {
+    d = 3;
+    add = true;
+  }
+  if (round_mode == 3) {
     return "";
   }
-  std::string s = (args & 4) ? "DIV" : "";
-  if (args & 8) {
+  std::string s = add ? "ADD" : "";
+  if (d & 1) {
+    s += "DIV";
+  }
+  if (d & 2) {
     s += "MOD";
   }
   if (quiet) {
     s = "Q" + s;
   }
-  return s + "FRC"[round_mode];
+  return round_mode ? s + "FRC"[round_mode] : s;
 }
 
 int exec_shrmod(VmState* st, unsigned args, int mode) {
@@ -312,32 +340,50 @@ int exec_shrmod(VmState* st, unsigned args, int mode) {
     args >>= 8;
   }
   int round_mode = (int)(args & 3) - 1;
-  if (!(args & 12) || round_mode == 2) {
+  unsigned d = (args >> 2) & 3;
+  bool add = false;
+  if (d == 0 && st->get_global_version() >= 4) {
+    d = 3;
+    add = true;
+  }
+  if (d == 0 || round_mode == 2) {
     throw VmError{Excno::inv_opcode};
   }
   Stack& stack = st->get_stack();
   VM_LOG(st) << "execute SHR/MOD " << (args & 15) << ',' << y;
   if (!(mode & 2)) {
-    stack.check_underflow(2);
+    stack.check_underflow(add ? 3 : 2);
     y = stack.pop_smallint_range(256);
   } else {
-    stack.check_underflow(1);
+    stack.check_underflow(add ? 2 : 1);
   }
   if (!y) {
     round_mode = -1;
   }
+  auto w = add ? stack.pop_int() : td::RefInt256{};
   auto x = stack.pop_int();
-  switch ((args >> 2) & 3) {
-    case 1:
-      stack.push_int_quiet(td::rshift(std::move(x), y, round_mode), mode & 1);
-      break;
-    case 3:
-      stack.push_int_quiet(td::rshift(x, y, round_mode), mode & 1);
-      // fallthrough
-    case 2:
-      x.write().mod_pow2(y, round_mode).normalize();
-      stack.push_int_quiet(std::move(x), mode & 1);
-      break;
+  if (add) {
+    CHECK(d == 3);
+    typename td::BigInt256::DoubleInt tmp{*x}, quot;
+    tmp += *w;
+    typename td::BigInt256::DoubleInt tmp2{tmp};
+    tmp2.rshift(y, round_mode).normalize();
+    stack.push_int_quiet(td::make_refint(tmp2), mode & 1);
+    tmp.normalize().mod_pow2(y, round_mode).normalize();
+    stack.push_int_quiet(td::make_refint(tmp), mode & 1);
+  } else {
+    switch (d) {
+      case 1:
+        stack.push_int_quiet(td::rshift(std::move(x), y, round_mode), mode & 1);
+        break;
+      case 3:
+        stack.push_int_quiet(td::rshift(x, y, round_mode), mode & 1);
+        // fallthrough
+      case 2:
+        x.write().mod_pow2(y, round_mode).normalize();
+        stack.push_int_quiet(std::move(x), mode & 1);
+        break;
+    }
   }
   return 0;
 }
@@ -349,59 +395,76 @@ std::string dump_shrmod(CellSlice&, unsigned args, int mode) {
     args >>= 8;
   }
   int round_mode = (int)(args & 3);
-  if (!(args & 12) || round_mode == 3) {
+  if (round_mode == 3) {
     return "";
   }
-  std::string s;
+  std::ostringstream os;
+  if (mode & 1) {
+    os << 'Q';
+  }
+  std::string end;
   switch (args & 12) {
     case 4:
-      s = "RSHIFT";
+      os << "RSHIFT";
       break;
     case 8:
-      s = "MODPOW2";
+      os << "MODPOW2";
       break;
     case 12:
-      s = "RSHIFTMOD";
+      os << "RSHIFT";
+      end = "MOD";
+      break;
+    case 0:
+      os << "ADDRSHIFT";
+      end = "MOD";
       break;
   }
-  if (mode & 1) {
-    s = "Q" + s;
+  if (!(mode & 2)) {
+    os << end;
   }
-  s += "FRC"[round_mode];
+  if (round_mode) {
+    os << "FRC"[round_mode];
+  }
   if (mode & 2) {
-    char buff[8];
-    sprintf(buff, " %d", y);
-    s += buff;
+    os << "#" << end << ' ' << y;
   }
-  return s;
+  return os.str();
 }
 
 int exec_muldivmod(VmState* st, unsigned args, int quiet) {
   int round_mode = (int)(args & 3) - 1;
-  if (!(args & 12) || round_mode == 2) {
+  unsigned d = (args >> 2) & 3;
+  bool add = false;
+  if (d == 0 && st->get_global_version() >= 4) {
+    d = 3;
+    add = true;
+  }
+  if (d == 0 || round_mode == 2) {
     throw VmError{Excno::inv_opcode};
   }
   Stack& stack = st->get_stack();
   VM_LOG(st) << "execute MULDIV/MOD " << (args & 15);
-  stack.check_underflow(3);
+  stack.check_underflow(add ? 4 : 3);
   auto z = stack.pop_int();
+  auto w = add ? stack.pop_int() : td::RefInt256{};
   auto y = stack.pop_int();
   auto x = stack.pop_int();
-  typename td::BigInt256::DoubleInt tmp{0};
+  typename td::BigInt256::DoubleInt tmp{0}, quot;
+  if (add) {
+    tmp = *w;
+  }
   tmp.add_mul(*x, *y);
-  auto q = td::RefInt256{true};
-  tmp.mod_div(*z, q.unique_write(), round_mode);
-  switch ((args >> 2) & 3) {
+  auto q = td::make_refint();
+  tmp.mod_div(*z, quot, round_mode);
+  switch (d) {
     case 1:
-      q.unique_write().normalize();
-      stack.push_int_quiet(std::move(q), quiet);
+      stack.push_int_quiet(td::make_refint(quot.normalize()), quiet);
       break;
     case 3:
-      q.unique_write().normalize();
-      stack.push_int_quiet(std::move(q), quiet);
+      stack.push_int_quiet(td::make_refint(quot.normalize()), quiet);
       // fallthrough
     case 2:
-      stack.push_int_quiet(td::RefInt256{true, tmp}, quiet);
+      stack.push_int_quiet(td::make_refint(tmp), quiet);
       break;
   }
   return 0;
@@ -409,17 +472,26 @@ int exec_muldivmod(VmState* st, unsigned args, int quiet) {
 
 std::string dump_muldivmod(CellSlice&, unsigned args, bool quiet) {
   int round_mode = (int)(args & 3);
-  if (!(args & 12) || round_mode == 3) {
+  unsigned d = (args >> 2) & 3;
+  bool add = false;
+  if (d == 0) {
+    d = 3;
+    add = true;
+  }
+  if (round_mode == 3) {
     return "";
   }
-  std::string s = (args & 4) ? "MULDIV" : "MUL";
-  if (args & 8) {
+  std::string s = add ? "MULADD" : "MUL";
+  if (d & 1) {
+    s += "DIV";
+  }
+  if (d & 2) {
     s += "MOD";
   }
   if (quiet) {
     s = "Q" + s;
   }
-  return s + "FRC"[round_mode];
+  return round_mode ? s + "FRC"[round_mode] : s;
 }
 
 int exec_mulshrmod(VmState* st, unsigned args, int mode) {
@@ -429,38 +501,48 @@ int exec_mulshrmod(VmState* st, unsigned args, int mode) {
     args >>= 8;
   }
   int round_mode = (int)(args & 3) - 1;
-  if (!(args & 12) || round_mode == 2) {
+  unsigned d = (args >> 2) & 3;
+  bool add = false;
+  if (d == 0 && st->get_global_version() >= 4) {
+    d = 3;
+    add = true;
+  }
+  if (d == 0 || round_mode == 2) {
     throw VmError{Excno::inv_opcode};
   }
   Stack& stack = st->get_stack();
   VM_LOG(st) << "execute MULSHR/MOD " << (args & 15) << ',' << z;
   if (!(mode & 2)) {
-    stack.check_underflow(3);
+    stack.check_underflow(add ? 4 : 3);
     z = stack.pop_smallint_range(256);
   } else {
-    stack.check_underflow(2);
+    stack.check_underflow(add ? 3 : 2);
   }
   if (!z) {
     round_mode = -1;
   }
+  auto w = add ? stack.pop_int() : td::RefInt256{};
   auto y = stack.pop_int();
   auto x = stack.pop_int();
   typename td::BigInt256::DoubleInt tmp{0};
-  tmp.add_mul(*x, *y);
-  switch ((args >> 2) & 3) {
+  if (add) {
+    tmp = *w;
+  }
+  tmp.add_mul(*x, *y).normalize();
+  switch (d) {
     case 1:
       tmp.rshift(z, round_mode).normalize();
-      stack.push_int_quiet(td::RefInt256{true, tmp}, mode & 1);
+      stack.push_int_quiet(td::make_refint(tmp), mode & 1);
       break;
     case 3: {
       typename td::BigInt256::DoubleInt tmp2{tmp};
       tmp2.rshift(z, round_mode).normalize();
-      stack.push_int_quiet(td::RefInt256{true, tmp2}, mode & 1);
+      stack.push_int_quiet(td::make_refint(tmp2), mode & 1);
     }
       // fallthrough
     case 2:
-      tmp.mod_pow2(z, round_mode).normalize();
-      stack.push_int_quiet(td::RefInt256{true, tmp}, mode & 1);
+      tmp.normalize().mod_pow2(z, round_mode).normalize();
+      stack.push_int_quiet(td::make_refint(tmp), mode & 1);
       break;
   }
   return 0;
@@ -473,31 +555,41 @@ std::string dump_mulshrmod(CellSlice&, unsigned args, int mode) {
     args >>= 8;
   }
   int round_mode = (int)(args & 3);
-  if (!(args & 12) || round_mode == 3) {
+  if (round_mode == 3) {
     return "";
   }
-  std::string s;
+  std::ostringstream os;
+  if (mode & 1) {
+    os << 'Q';
+  }
+  std::string end;
   switch (args & 12) {
     case 4:
-      s = "MULRSHIFT";
+      os << "MULRSHIFT";
       break;
     case 8:
-      s = "MULMODPOW2";
+      os << "MULMODPOW2";
       break;
     case 12:
-      s = "MULRSHIFTMOD";
+      os << "MULRSHIFT";
+      end = "MOD";
+      break;
+    case 0:
+      os << "MULADDRSHIFT";
+      end = "MOD";
       break;
   }
-  if (mode & 1) {
-    s = "Q" + s;
+  if (round_mode) {
+    os << "FRC"[round_mode];
   }
-  s += "FRC"[round_mode];
   if (mode & 2) {
-    char buff[8];
-    sprintf(buff, " %d", y);
-    s += buff;
+    os << "#";
   }
-  return s;
+  os << end;
+  if (mode & 2) {
+    os << ' ' << y;
+  }
+  return os.str();
 }
 
 int exec_shldivmod(VmState* st, unsigned args, int mode) {
@@ -507,60 +599,92 @@ int exec_shldivmod(VmState* st, unsigned args, int mode) {
     args >>= 8;
   }
   int round_mode = (int)(args & 3) - 1;
-  if (!(args & 12) || round_mode == 2) {
+  unsigned d = (args >> 2) & 3;
+  bool add = false;
+  if (d == 0 && st->get_global_version() >= 4) {
+    d = 3;
+    add = true;
+  }
+  if (d == 0 || round_mode == 2) {
     throw VmError{Excno::inv_opcode};
   }
   Stack& stack = st->get_stack();
   VM_LOG(st) << "execute SHLDIV/MOD " << (args & 15) << ',' << y;
   if (!(mode & 2)) {
-    stack.check_underflow(3);
+    stack.check_underflow(add ? 4 : 3);
     y = stack.pop_smallint_range(256);
   } else {
-    stack.check_underflow(2);
+    stack.check_underflow(add ? 3 : 2);
   }
   auto z = stack.pop_int();
+  auto w = add ? stack.pop_int() : td::RefInt256{};
   auto x = stack.pop_int();
-  typename td::BigInt256::DoubleInt tmp{*x};
+  typename td::BigInt256::DoubleInt tmp{*x}, quot;
   tmp <<= y;
-  switch ((args >> 2) & 3) {
+  if (add) {
+    tmp += *w;
+  }
+  switch (d) {
     case 1: {
-      auto q = td::RefInt256{true};
-      tmp.mod_div(*z, q.unique_write(), round_mode);
-      q.unique_write().normalize();
-      stack.push_int_quiet(std::move(q), mode & 1);
+      tmp.mod_div(*z, quot, round_mode);
+      stack.push_int_quiet(td::make_refint(quot.normalize()), mode & 1);
       break;
     }
     case 3: {
-      auto q = td::RefInt256{true};
-      tmp.mod_div(*z, q.unique_write(), round_mode);
-      q.unique_write().normalize();
-      stack.push_int_quiet(std::move(q), mode & 1);
-      stack.push_int_quiet(td::RefInt256{true, tmp}, mode & 1);
+      tmp.mod_div(*z, quot, round_mode);
+      stack.push_int_quiet(td::make_refint(quot.normalize()), mode & 1);
+      stack.push_int_quiet(td::make_refint(tmp), mode & 1);
       break;
     }
     case 2: {
       typename td::BigInt256::DoubleInt tmp2;
       tmp.mod_div(*z, tmp2, round_mode);
-      stack.push_int_quiet(td::RefInt256{true, tmp}, mode & 1);
+      stack.push_int_quiet(td::make_refint(tmp), mode & 1);
       break;
     }
   }
   return 0;
 }
 
-std::string dump_shldivmod(CellSlice&, unsigned args, bool quiet) {
+std::string dump_shldivmod(CellSlice&, unsigned args, int mode) {
+  int y = -1;
+  if (mode & 2) {
+    y = (args & 0xff) + 1;
+    args >>= 8;
+  }
   int round_mode = (int)(args & 3);
-  if (!(args & 12) || round_mode == 3) {
+  if (round_mode == 3) {
     return "";
   }
-  std::string s = (args & 4) ? "LSHIFTDIV" : "LSHIFT";
-  if (args & 8) {
-    s += "MOD";
+  std::ostringstream os;
+  if (mode & 1) {
+    os << "Q";
   }
-  if (quiet) {
-    s = "Q" + s;
+  os << "LSHIFT";
+  if (mode & 2) {
+    os << "#";
   }
-  return s + "FRC"[round_mode];
+  switch (args & 12) {
+    case 4:
+      os << "DIV";
+      break;
+    case 8:
+      os << "MOD";
+      break;
+    case 12:
+      os << "DIVMOD";
+      break;
+    case 0:
+      os << "ADDDIVMOD";
+      break;
+  }
+  if (round_mode) {
+    os << "FRC"[round_mode];
+  }
+  if (y >= 0) {
+    os << ' ' << y;
+  }
+  return os.str();
 }
 
 void register_div_ops(OpcodeTable& cp0) {
@@ -740,7 +864,7 @@ int exec_bitsize(VmState* st, bool sgnd, bool quiet) {
   } else if (!quiet) {
     throw VmError{Excno::range_chk, "CHKSIZE for negative integer"};
   } else {
-    stack.push_int_quiet(td::RefInt256{true}, quiet);
+    stack.push_int_quiet(td::make_refint(), quiet);
   }
   return 0;
 }
@@ -789,7 +913,7 @@ void register_shift_logic_ops(OpcodeTable& cp0) {
 
 int exec_minmax(VmState* st, int mode) {
   Stack& stack = st->get_stack();
-  VM_LOG(st) << "execute MINMAXOP " << mode;
+  VM_LOG(st) << "execute " << (mode & 1 ? "Q" : "") << (mode & 2 ? "MIN" : "") << (mode & 4 ? "MAX" : "");
   stack.check_underflow(2);
   auto x = stack.pop_int();
   auto y = stack.pop_int();
@@ -811,7 +935,7 @@ int exec_minmax(VmState* st, int mode) {
 
 int exec_abs(VmState* st, bool quiet) {
   Stack& stack = st->get_stack();
-  VM_LOG(st) << "execute ABS";
+  VM_LOG(st) << "execute " << (quiet ? "QABS" : "ABS");
   stack.check_underflow(1);
   auto x = stack.pop_int();
   if (x->is_valid() && x->sgn() < 0) {
@@ -855,7 +979,9 @@ int exec_cmp(VmState* st, int mode, bool quiet, const char* name) {
   auto y = stack.pop_int();
   auto x = stack.pop_int();
   if (!x->is_valid() || !y->is_valid()) {
-    stack.push_int_quiet(std::move(x), quiet);
+    td::RefInt256 r{true};
+    r.unique_write().invalidate();
+    stack.push_int_quiet(std::move(r), quiet);
   } else {
     int z = td::cmp(std::move(x), std::move(y));
     stack.push_smallint(((mode >> (4 + z * 4)) & 15) - 8);
@@ -942,5 +1068,27 @@ void register_arith_ops(OpcodeTable& cp0) {
   register_other_arith_ops(cp0);
   register_int_cmp_ops(cp0);
 }
+
+namespace util {
+
+const td::RefInt256& check_signed_fits(const td::RefInt256& x, int bits) {
+  if (!x->signed_fits_bits(bits)) {
+    throw VmError{Excno::int_ov};
+  }
+  return x;
+}
+
+const td::RefInt256& check_unsigned_fits(const td::RefInt256& x, int bits) {
+  if (!x->unsigned_fits_bits(bits)) {
+    throw VmError{Excno::int_ov};
+  }
+  return x;
+}
+
+const td::RefInt256& check_finite(const td::RefInt256& x) {
+  return check_signed_fits(x, 257);
+}
+
+}  // namespace util
 
 }  // namespace vm

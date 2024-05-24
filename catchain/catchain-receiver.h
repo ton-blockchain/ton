@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -44,9 +44,6 @@ class CatChainReceiver : public CatChainReceiverInterface {
     CatChainSessionId instance_;
     PublicKeyHash local_id_;
   };
-  td::uint32 get_max_neighbours() const {
-    return 5;
-  }
   virtual PrintId print_id() const = 0;
   virtual CatChainReceivedBlock *create_block(tl_object_ptr<ton_api::catchain_block> block,
                                               td::SharedSlice payload) = 0;
@@ -59,16 +56,19 @@ class CatChainReceiver : public CatChainReceiverInterface {
   virtual void run_block(CatChainReceivedBlock *block) = 0;
   virtual void deliver_block(CatChainReceivedBlock *block) = 0;
   virtual td::uint32 add_fork() = 0;
-  virtual void add_prepared_event(td::BufferSlice data) = 0;
+  virtual void on_found_fork_proof(td::uint32 source_id, td::BufferSlice data) = 0;
   virtual void on_blame(td::uint32 source_id) = 0;
 
   virtual const CatChainOptions &opts() const = 0;
 
-  virtual td::Status validate_block_sync(tl_object_ptr<ton_api::catchain_block_dep> &dep) = 0;
-  virtual td::Status validate_block_sync(tl_object_ptr<ton_api::catchain_block> &block, td::Slice payload) = 0;
+  virtual td::Status validate_block_sync(const tl_object_ptr<ton_api::catchain_block_dep> &dep) const = 0;
+  virtual td::Status validate_block_sync(const tl_object_ptr<ton_api::catchain_block> &block,
+                                         const td::Slice &payload) const = 0;
 
   virtual ~CatChainReceiver() = default;
 };
+
+td::uint64 get_max_block_height(const CatChainOptions& opts, size_t sources_cnt);
 
 }  // namespace catchain
 

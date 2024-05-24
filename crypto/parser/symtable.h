@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 #include "srcread.h"
@@ -32,7 +32,7 @@ namespace sym {
 typedef int var_idx_t;
 
 struct SymValBase {
-  enum { _Param, _Var, _Func, _Typename, _GlobVar };
+  enum { _Param, _Var, _Func, _Typename, _GlobVar, _Const };
   int type;
   int idx;
   SymValBase(int _type, int _idx) : type(_type), idx(_idx) {
@@ -161,8 +161,8 @@ struct SymDef {
   }
 };
 
-extern SymDef* sym_def[symbols.hprime];
-extern SymDef* global_sym_def[symbols.hprime];
+extern SymDef* sym_def[symbols.hprime + 1];
+extern SymDef* global_sym_def[symbols.hprime + 1];
 extern std::vector<std::pair<int, SymDef>> symbol_stack;
 extern std::vector<src::SrcLocation> scope_opened_at;
 

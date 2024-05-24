@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -73,7 +73,7 @@ class MutableSlice {
   char &back();
   char &operator[](size_t i);
 
-  static const size_t npos = string::npos;
+  static const size_t npos = static_cast<size_t>(-1);
 };
 
 class Slice {
@@ -138,7 +138,7 @@ class Slice {
   char back() const;
   char operator[](size_t i) const;
 
-  static const size_t npos = string::npos;
+  static const size_t npos = static_cast<size_t>(-1);
 };
 
 bool operator==(const Slice &a, const Slice &b);

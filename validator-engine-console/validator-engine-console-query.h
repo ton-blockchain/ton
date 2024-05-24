@@ -23,7 +23,7 @@
     exception statement from your version. If you delete this exception statement 
     from all source files in the program, then also delete it here.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -33,6 +33,7 @@
 #include "td/utils/SharedSlice.h"
 #include "td/utils/port/IPAddress.h"
 #include "td/actor/actor.h"
+#include "ton/ton-types.h"
 
 #include "keys/keys.hpp"
 
@@ -99,6 +100,19 @@ inline td::Result<ton::PublicKeyHash> Tokenizer::get_token() {
   TRY_RESULT(F, td::hex_decode(S));
   if (F.size() == 32) {
     return ton::PublicKeyHash{td::Slice{F}};
+  } else {
+    return td::Status::Error("cannot parse keyhash: bad length");
+  }
+}
+
+template <>
+inline td::Result<td::Bits256> Tokenizer::get_token() {
+  TRY_RESULT(S, get_raw_token());
+  TRY_RESULT(F, td::hex_decode(S));
+  if (F.size() == 32) {
+    td::Bits256 v;
+    v.as_slice().copy_from(F);
+    return v;
   } else {
     return td::Status::Error("cannot parse keyhash: bad length");
   }
@@ -179,6 +193,20 @@ class Query : public td::actor::Actor {
   }
   virtual std::string name() const = 0;
   void handle_error(td::Status error);
+
+  static std::string time_to_human(int unixtime) {
+    char time_buffer[80];
+    time_t rawtime = unixtime;
+    struct tm tInfo;
+#if defined(_WIN32) || defined(_WIN64)
+    struct tm* timeinfo = localtime_s(&tInfo, &rawtime) ? nullptr : &tInfo;
+#else
+    struct tm* timeinfo = localtime_r(&rawtime, &tInfo);
+#endif
+    assert(timeinfo == &tInfo);
+    strftime(time_buffer, 80, "%c", timeinfo);
+    return std::string(time_buffer);
+  }
 
  protected:
   td::actor::ActorId<ValidatorEngineConsole> console_;
@@ -782,7 +810,7 @@ class AddNetworkProxyAddressQuery : public Query {
     return "addproxyaddr";
   }
   static std::string get_help() {
-    return "addproxyaddr <inip> <outid> <secret> {cats...} {priocats...}\tadds ip address to address list";
+    return "addproxyaddr <inip> <outip> <id> <secret> {cats...} {priocats...}\tadds ip address to address list";
   }
   std::string name() const override {
     return get_name();
@@ -791,6 +819,7 @@ class AddNetworkProxyAddressQuery : public Query {
  private:
   td::IPAddress in_addr_;
   td::IPAddress out_addr_;
+  td::Bits256 id_;
   td::BufferSlice shared_secret_;
   std::vector<td::int32> cats_;
   std::vector<td::int32> prio_cats_;
@@ -821,6 +850,53 @@ class CreateElectionBidQuery : public Query {
   std::string fname_;
 };
 
+class CreateProposalVoteQuery : public Query {
+ public:
+  CreateProposalVoteQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "createproposalvote";
+  }
+  static std::string get_help() {
+    return "createproposalvote <data> <fname>\tcreate proposal vote";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  std::string data_;
+  std::string fname_;
+};
+
+class CreateComplaintVoteQuery : public Query {
+ public:
+  CreateComplaintVoteQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "createcomplaintvote";
+  }
+  static std::string get_help() {
+    return "createcomplaintvote <election-id> <data> <fname>\tcreate proposal vote";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  td::uint32 election_id_;
+  std::string data_;
+  std::string fname_;
+};
+
 class CheckDhtServersQuery : public Query {
  public:
   CheckDhtServersQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
@@ -841,4 +917,293 @@ class CheckDhtServersQuery : public Query {
 
  private:
   ton::PublicKeyHash id_;
+};
+
+class GetOverlaysStatsQuery : public Query {
+ public:
+  GetOverlaysStatsQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "getoverlaysstats";
+  }
+  static std::string get_help() {
+    return "getoverlaysstats\tgets stats for all overlays";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+};
+
+class GetOverlaysStatsJsonQuery : public Query {
+ public:
+  GetOverlaysStatsJsonQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "getoverlaysstatsjson";
+  }
+  static std::string get_help() {
+    return "getoverlaysstatsjson <outfile>\tgets stats for all overlays and writes to json file";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+  
+private:
+ std::string file_name_;
+};
+
+class SignCertificateQuery : public Query {
+ public:
+  SignCertificateQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "signcert";
+  }
+  static std::string get_help() {
+    return "signcert <overlayid> <adnlid> <expireat> <maxsize> <signwith> <outfile>\tsign overlay certificate by <signwith> key";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+  void receive_pubkey(td::BufferSlice R);
+  void receive_signature(td::BufferSlice R);
+
+
+ private:
+   void save_certificate();
+
+  td::Bits256 overlay_;
+  td::Bits256 id_;
+  td::int32 expire_at_;
+  td::uint32 max_size_;
+  std::string out_file_;
+  ton::PublicKeyHash signer_;
+  td::BufferSlice signature_;
+  std::unique_ptr<ton::ton_api::PublicKey> pubkey_;
+  bool has_signature_{0};
+  bool has_pubkey_{0};
+};
+
+class ImportCertificateQuery : public Query {
+ public:
+  ImportCertificateQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "importcert";
+  }
+  static std::string get_help() {
+    return "importcert <overlayid> <adnlid> <key> <certfile>\timport overlay certificate for specific key";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  td::Bits256 overlay_;
+  td::Bits256 id_;
+  ton::PublicKeyHash kh_;
+  std::string in_file_;
+};
+
+class SignShardOverlayCertificateQuery : public Query {
+ public:
+  SignShardOverlayCertificateQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "signshardoverlaycert";
+  }
+  static std::string get_help() {
+    return "signshardoverlaycert <workchain> <shardprefix> <key> <expireat> <maxsize> <outfile>\tsign certificate for <key> in currently active shard overlay";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+
+  td::int32 wc_;
+  td::int64 shard_;
+  td::int32 expire_at_;
+  ton::PublicKeyHash key_;
+  td::uint32 max_size_;
+  std::string out_file_;
+};
+
+
+class ImportShardOverlayCertificateQuery : public Query {
+ public:
+  ImportShardOverlayCertificateQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "importshardoverlaycert";
+  }
+  static std::string get_help() {
+    return "importshardoverlaycert <workchain> <shardprefix> <key> <certfile>\timport certificate for <key> in currently active shard overlay";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+
+  td::int32 wc_;
+  td::int64 shard_;
+  ton::PublicKeyHash key_;
+  std::string in_file_;
+};
+
+class GetPerfTimerStatsJsonQuery : public Query {
+ public:
+  GetPerfTimerStatsJsonQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "getperftimerstatsjson";
+  }
+  static std::string get_help() {
+    return "getperftimerstatsjson <outfile>\tgets min, average and max event processing time for last 60, 300 and 3600 seconds and writes to json file";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  std::string file_name_;
+};
+
+class GetShardOutQueueSizeQuery : public Query {
+ public:
+  GetShardOutQueueSizeQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "getshardoutqueuesize";
+  }
+  static std::string get_help() {
+    return "getshardoutqueuesize <wc> <shard> <seqno> [<dest_wc> <dest_shard>]\treturns number of messages in the "
+           "queue of the given shard. Destination shard is optional.";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  ton::BlockId block_id_;
+  td::optional<ton::ShardIdFull> dest_;
+};
+
+class SetExtMessagesBroadcastDisabledQuery : public Query {
+ public:
+  SetExtMessagesBroadcastDisabledQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "setextmessagesbroadcastdisabled";
+  }
+  static std::string get_help() {
+    return "setextmessagesbroadcastdisabled <value>\tdisable broadcasting and rebroadcasting ext messages; value is 0 "
+           "or 1.";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  bool value;
+};
+
+class AddCustomOverlayQuery : public Query {
+ public:
+  AddCustomOverlayQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "addcustomoverlay";
+  }
+  static std::string get_help() {
+    return "addcustomoverlay <filename>\tadd custom overlay with config from file <filename>";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  std::string file_name_;
+};
+
+class DelCustomOverlayQuery : public Query {
+ public:
+  DelCustomOverlayQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "delcustomoverlay";
+  }
+  static std::string get_help() {
+    return "delcustomoverlay <name>\tdelete custom overlay with name <name>";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  std::string name_;
+};
+
+class ShowCustomOverlaysQuery : public Query {
+ public:
+  ShowCustomOverlaysQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "showcustomoverlays";
+  }
+  static std::string get_help() {
+    return "showcustomoverlays\tshow all custom overlays";
+  }
+  std::string name() const override {
+    return get_name();
+  }
 };

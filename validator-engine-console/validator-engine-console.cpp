@@ -1,4 +1,4 @@
-/* 
+/*
     This file is part of TON Blockchain source code.
 
     TON Blockchain is free software; you can redistribute it and/or
@@ -14,23 +14,23 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 
-    In addition, as a special exception, the copyright holders give permission 
-    to link the code of portions of this program with the OpenSSL library. 
-    You must obey the GNU General Public License in all respects for all 
-    of the code used other than OpenSSL. If you modify file(s) with this 
-    exception, you may extend this exception to your version of the file(s), 
-    but you are not obligated to do so. If you do not wish to do so, delete this 
-    exception statement from your version. If you delete this exception statement 
+    In addition, as a special exception, the copyright holders give permission
+    to link the code of portions of this program with the OpenSSL library.
+    You must obey the GNU General Public License in all respects for all
+    of the code used other than OpenSSL. If you modify file(s) with this
+    exception, you may extend this exception to your version of the file(s),
+    but you are not obligated to do so. If you do not wish to do so, delete this
+    exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "validator-engine-console.h"
 #include "adnl/adnl-ext-client.h"
 #include "tl-utils/lite-utils.hpp"
 #include "auto/tl/ton_api_json.h"
 #include "auto/tl/lite_api.h"
-#include "td/utils/OptionsParser.h"
+#include "td/utils/OptionParser.h"
 #include "td/utils/Time.h"
 #include "td/utils/filesystem.h"
 #include "td/utils/format.h"
@@ -59,6 +59,7 @@
 #endif
 #include <iostream>
 #include <sstream>
+#include "git.h"
 
 int verbosity;
 
@@ -92,7 +93,7 @@ void ValidatorEngineConsole::run() {
    private:
     td::actor::ActorId<ValidatorEngineConsole> id_;
   };
-  io_ = td::TerminalIO::create("> ", readline_enabled_, std::make_unique<Cb>(actor_id(this)));
+  io_ = td::TerminalIO::create("> ", readline_enabled_, ex_mode_, std::make_unique<Cb>(actor_id(this)));
   td::actor::send_closure(io_, &td::TerminalIO::set_log_interface);
 
   td::TerminalIO::out() << "connecting to " << remote_addr_ << "\n";
@@ -130,7 +131,21 @@ void ValidatorEngineConsole::run() {
   add_query_runner(std::make_unique<QueryRunnerImpl<AddNetworkAddressQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<AddNetworkProxyAddressQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<CreateElectionBidQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<CreateProposalVoteQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<CreateComplaintVoteQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<CheckDhtServersQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<SignCertificateQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<ImportCertificateQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<GetOverlaysStatsQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<GetOverlaysStatsJsonQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<ImportShardOverlayCertificateQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<SignShardOverlayCertificateQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<GetPerfTimerStatsJsonQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<GetShardOutQueueSizeQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<SetExtMessagesBroadcastDisabledQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<AddCustomOverlayQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<DelCustomOverlayQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<ShowCustomOverlaysQuery>>());
 }
 
 bool ValidatorEngineConsole::envelope_send_query(td::BufferSlice query, td::Promise<td::BufferSlice> promise) {
@@ -159,7 +174,10 @@ bool ValidatorEngineConsole::envelope_send_query(td::BufferSlice query, td::Prom
   return true;
 }
 
-void ValidatorEngineConsole::got_result() {
+void ValidatorEngineConsole::got_result(bool success) {
+  if (!success && ex_mode_) {
+    std::_Exit(2);
+  }
   running_queries_--;
   if (!running_queries_ && ex_queries_.size() > 0) {
     auto data = std::move(ex_queries_[0]);
@@ -245,7 +263,7 @@ int main(int argc, char* argv[]) {
 
   td::actor::ActorOwn<ValidatorEngineConsole> x;
 
-  td::OptionsParser p;
+  td::OptionParser p;
   p.set_description("console for validator for TON Blockchain");
   p.add_option('h', "help", "prints_help", [&]() {
     char b[10240];
@@ -253,9 +271,13 @@ int main(int argc, char* argv[]) {
     sb << p;
     std::cout << sb.as_cslice().c_str();
     std::exit(2);
-    return td::Status::OK();
   });
-  p.add_option('a', "address", "server address", [&](td::Slice arg) {
+  p.add_option('V', "version", "shows validator-engine-console build information", [&]() {
+    std::cout << "validator-engine-console build information: [ Commit: " << GitMetadata::CommitSHA1()
+              << ", Date: " << GitMetadata::CommitDate() << "]\n";
+    std::exit(0);
+  });
+  p.add_checked_option('a', "address", "server address", [&](td::Slice arg) {
     td::IPAddress addr;
     TRY_STATUS(addr.init_host_port(arg.str()));
     td::actor::send_closure(x, &ValidatorEngineConsole::set_remote_addr, addr);
@@ -263,33 +285,25 @@ int main(int argc, char* argv[]) {
   });
   p.add_option('k', "key", "private key", [&](td::Slice arg) {
     td::actor::send_closure(x, &ValidatorEngineConsole::set_private_key, td::BufferSlice{arg});
-    return td::Status::OK();
   });
   p.add_option('p', "pub", "server public key", [&](td::Slice arg) {
     td::actor::send_closure(x, &ValidatorEngineConsole::set_public_key, td::BufferSlice{arg});
-    return td::Status::OK();
   });
-  p.add_option('r', "disable-readline", "disable readline", [&]() {
-    td::actor::send_closure(x, &ValidatorEngineConsole::set_readline_enabled, false);
-    return td::Status::OK();
-  });
-  p.add_option('R', "enable-readline", "enable readline", [&]() {
-    td::actor::send_closure(x, &ValidatorEngineConsole::set_readline_enabled, true);
-    return td::Status::OK();
-  });
-  p.add_option('v', "verbosity", "set verbosity level", [&](td::Slice arg) {
+  p.add_option('r', "disable-readline", "disable readline",
+               [&]() { td::actor::send_closure(x, &ValidatorEngineConsole::set_readline_enabled, false); });
+  p.add_option('R', "enable-readline", "enable readline",
+               [&]() { td::actor::send_closure(x, &ValidatorEngineConsole::set_readline_enabled, true); });
+  p.add_checked_option('v', "verbosity", "set verbosity level", [&](td::Slice arg) {
     verbosity = td::to_integer<int>(arg);
     SET_VERBOSITY_LEVEL(VERBOSITY_NAME(FATAL) + verbosity);
     return (verbosity >= 0 && verbosity <= 9) ? td::Status::OK() : td::Status::Error("verbosity must be 0..9");
   });
   p.add_option('c', "cmd", "schedule command", [&](td::Slice arg) {
     td::actor::send_closure(x, &ValidatorEngineConsole::add_cmd, td::BufferSlice{arg});
-    return td::Status::OK();
   });
   p.add_option('t', "timeout", "timeout in batch mode", [&](td::Slice arg) {
     auto d = td::to_double(arg);
     td::actor::send_closure(x, &ValidatorEngineConsole::set_fail_timeout, td::Timestamp::in(d));
-    return td::Status::OK();
   });
   td::actor::Scheduler scheduler({2});
 

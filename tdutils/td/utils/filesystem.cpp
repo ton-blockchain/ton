@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/utils/filesystem.h"
 
@@ -60,7 +60,7 @@ Result<T> read_file_impl(CSlice path, int64 size, int64 offset) {
   if (size == -1) {
     size = file_size - offset;
   } else if (size >= 0) {
-    if (size + offset > file_size) {
+    if (size > file_size - offset) {
       size = file_size - offset;
     }
   }

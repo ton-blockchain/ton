@@ -14,12 +14,15 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "vm/stack.hpp"
 #include "vm/continuation.h"
 #include "vm/box.hpp"
 #include "vm/atom.h"
+#include "vm/vmstate.h"
+#include "vm/boc.h"
+#include "td/utils/misc.h"
 
 namespace td {
 template class td::Cnt<std::string>;
@@ -80,7 +83,7 @@ std::string StackEntry::to_lisp_string() const {
   return std::move(os).str();
 }
 
-void StackEntry::dump(std::ostream& os) const {
+void StackEntry::dump(std::ostream& os, bool verbose) const {
   switch (tp) {
     case t_null:
       os << "(null)";
@@ -89,15 +92,36 @@ void StackEntry::dump(std::ostream& os) const {
       os << dec_string(as_int());
       break;
     case t_cell:
-      os << "C{" << static_cast<Ref<Cell>>(ref)->get_hash().to_hex() << "}";
+      if (ref.not_null()) {
+        if (verbose) {
+          std::string serialized = "???";
+          auto boc = vm::std_boc_serialize(as_cell());
+          if (boc.is_ok()) {
+            serialized = td::buffer_to_hex(boc.move_as_ok().as_slice());
+          }
+          os << "C{" << serialized << "}";
+        } else {
+          os << "C{" << *as_cell() << "}";
+        }
+      } else {
+        os << "C{null}";
+      }
       break;
     case t_builder:
-      os << "BC{" << static_cast<Ref<CellBuilder>>(ref)->to_hex() << "}";
+      if (ref.not_null()) {
+        os << "BC{" << *as_builder() << "}";
+      } else {
+        os << "BC{null}";
+      }
       break;
     case t_slice: {
-      os << "CS{";
-      static_cast<Ref<CellSlice>>(ref)->dump(os, 1, false);
-      os << '}';
+      if (ref.not_null()) {
+        os << "CS{";
+        static_cast<Ref<CellSlice>>(ref)->dump(os, 1, false);
+        os << '}';
+      } else {
+        os << "CS{null}";
+      }
       break;
     }
     case t_string:
@@ -136,12 +160,24 @@ void StackEntry::dump(std::ostream& os) const {
       os << "Object{" << (const void*)&*ref << "}";
       break;
     }
+    case t_vmcont: {
+      if (ref.not_null()) {
+        if (verbose) {
+          os << "Cont{" << *as_cont() << "}";
+        } else {
+          os << "Cont{" << as_cont()->type() << "}";
+        }
+      } else {
+        os << "Cont{null}";
+      }
+      break;
+    }
     default:
       os << "???";
   }
 }
 
-void StackEntry::print_list(std::ostream& os) const {
+void StackEntry::print_list(std::ostream& os, bool verbose) const {
   switch (tp) {
     case t_null:
       os << "()";
@@ -150,7 +186,7 @@ void StackEntry::print_list(std::ostream& os) const {
       const auto& tuple = *static_cast<Ref<Tuple>>(ref);
       if (is_list()) {
         os << '(';
-        tuple[0].print_list(os);
+        tuple[0].print_list(os, verbose);
         print_list_tail(os, &tuple[1]);
         break;
       }
@@ -159,7 +195,7 @@ void StackEntry::print_list(std::ostream& os) const {
         os << "[]";
       } else if (n == 1) {
         os << "[";
-        tuple[0].print_list(os);
+        tuple[0].print_list(os, verbose);
         os << "]";
       } else {
         os << "[";
@@ -168,14 +204,14 @@ void StackEntry::print_list(std::ostream& os) const {
           if (c++) {
             os << " ";
           }
-          entry.print_list(os);
+          entry.print_list(os, verbose);
         }
         os << ']';
       }
       break;
     }
     default:
-      dump(os);
+      dump(os, verbose);
   }
 }
 
@@ -221,7 +257,7 @@ StackEntry::StackEntry(Ref<Stack> stack_ref) : ref(std::move(stack_ref)), tp(t_s
 StackEntry::StackEntry(Ref<Continuation> cont_ref) : ref(std::move(cont_ref)), tp(t_vmcont) {
 }
 
-Ref<Continuation> StackEntry::as_cont() const & {
+Ref<Continuation> StackEntry::as_cont() const& {
   return as<Continuation, t_vmcont>();
 }
 
@@ -232,7 +268,7 @@ Ref<Continuation> StackEntry::as_cont() && {
 StackEntry::StackEntry(Ref<Box> box_ref) : ref(std::move(box_ref)), tp(t_box) {
 }
 
-Ref<Box> StackEntry::as_box() const & {
+Ref<Box> StackEntry::as_box() const& {
   return as<Box, t_box>();
 }
 
@@ -251,7 +287,7 @@ StackEntry::StackEntry(std::vector<StackEntry>&& tuple_components)
     : ref(Ref<Tuple>{true, std::move(tuple_components)}), tp(t_tuple) {
 }
 
-Ref<Tuple> StackEntry::as_tuple() const & {
+Ref<Tuple> StackEntry::as_tuple() const& {
   return as<Tuple, t_tuple>();
 }
 
@@ -259,7 +295,7 @@ Ref<Tuple> StackEntry::as_tuple() && {
   return move_as<Tuple, t_tuple>();
 }
 
-Ref<Tuple> StackEntry::as_tuple_range(unsigned max_len, unsigned min_len) const & {
+Ref<Tuple> StackEntry::as_tuple_range(unsigned max_len, unsigned min_len) const& {
   auto t = as<Tuple, t_tuple>();
   if (t.not_null() && t->size() <= max_len && t->size() >= min_len) {
     return t;
@@ -280,7 +316,7 @@ Ref<Tuple> StackEntry::as_tuple_range(unsigned max_len, unsigned min_len) && {
 StackEntry::StackEntry(Ref<Atom> atom_ref) : ref(std::move(atom_ref)), tp(t_atom) {
 }
 
-Ref<Atom> StackEntry::as_atom() const & {
+Ref<Atom> StackEntry::as_atom() const& {
   return as<Atom, t_atom>();
 }
 
@@ -288,7 +324,32 @@ Ref<Atom> StackEntry::as_atom() && {
   return move_as<Atom, t_atom>();
 }
 
-const StackEntry& tuple_index(const Tuple& tup, unsigned idx) {
+bool StackEntry::for_each_scalar(const std::function<bool(const StackEntry&)>& func) const {
+  auto t = as<Tuple, t_tuple>();
+  if (t.not_null()) {
+    for (const auto& entry : *t) {
+      if (!entry.for_each_scalar(func)) {
+        return false;
+      }
+    }
+    return true;
+  } else {
+    return func(*this);
+  }
+}
+
+void StackEntry::for_each_scalar(const std::function<void(const StackEntry&)>& func) const {
+  auto t = as<Tuple, t_tuple>();
+  if (t.not_null()) {
+    for (const auto& entry : *t) {
+      entry.for_each_scalar(func);
+    }
+  } else {
+    func(*this);
+  }
+}
+
+const StackEntry& tuple_index(const Ref<Tuple>& tup, unsigned idx) {
   if (idx >= tup->size()) {
     throw VmError{Excno::range_chk, "tuple index out of range"};
   }
@@ -555,7 +616,7 @@ void Stack::push_int_quiet(td::RefInt256 val, bool quiet) {
     if (!quiet) {
       throw VmError{Excno::int_ov};
     } else if (val->is_valid()) {
-      push(td::RefInt256{true});
+      push(td::make_refint());
       return;
     }
   }
@@ -591,7 +652,7 @@ void Stack::push_builder(Ref<CellBuilder> cb) {
 }
 
 void Stack::push_smallint(long long val) {
-  push(td::RefInt256{true, val});
+  push(td::make_refint(val));
 }
 
 void Stack::push_bool(bool val) {
@@ -649,12 +710,12 @@ void Stack::dump(std::ostream& os, int mode) const {
   os << " [ ";
   if (mode & 2) {
     for (const auto& x : stack) {
-      x.print_list(os);
+      x.print_list(os, mode & 4);
       os << ' ';
     }
   } else {
     for (const auto& x : stack) {
-      x.dump(os);
+      x.dump(os, mode & 4);
       os << ' ';
     }
   }
@@ -671,6 +732,21 @@ void Stack::push_maybe_cellslice(Ref<CellSlice> cs) {
   push_maybe(std::move(cs));
 }
 
+bool Stack::for_each_scalar(const std::function<bool(const StackEntry&)>& func) const {
+  for (const auto& v : stack) {
+    if (!v.for_each_scalar(func)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+void Stack::for_each_scalar(const std::function<void(const StackEntry&)>& func) const {
+  for (const auto& v : stack) {
+    v.for_each_scalar(func);
+  }
+}
+
 /*
  *
  *   SERIALIZE/DESERIALIZE STACK VALUES
@@ -678,6 +754,10 @@ void Stack::push_maybe_cellslice(Ref<CellSlice> cs) {
  */
 
 bool StackEntry::serialize(vm::CellBuilder& cb, int mode) const {
+  auto* vsi = VmStateInterface::get();
+  if (vsi && !vsi->register_op()) {
+    return false;
+  }
   switch (tp) {
     case t_null:
       return cb.store_long_bool(0, 8);  // vm_stk_null#00 = VmStackValue;
@@ -739,6 +819,10 @@ bool StackEntry::serialize(vm::CellBuilder& cb, int mode) const {
 }
 
 bool StackEntry::deserialize(CellSlice& cs, int mode) {
+  auto* vsi = VmStateInterface::get();
+  if (vsi && !vsi->register_op()) {
+    return false;
+  }
   clear();
   int t = (mode & 0xf000) ? ((mode >> 12) & 15) : (int)cs.prefetch_ulong(8);
   switch (t) {
@@ -754,7 +838,7 @@ bool StackEntry::deserialize(CellSlice& cs, int mode) {
       t = (int)cs.prefetch_ulong(16) & 0x1ff;
       if (t == 0xff) {
         // vm_stk_nan#02ff = VmStackValue;
-        return cs.advance(16) && set_int(td::RefInt256{true});
+        return cs.advance(16) && set_int(td::make_refint());
       } else {
         // vm_stk_int#0201_ value:int257 = VmStackValue;
         td::RefInt256 val;
@@ -824,7 +908,7 @@ bool StackEntry::deserialize(CellSlice& cs, int mode) {
           return false;
         }
       } else if (n == 1) {
-        return cs.have_refs() && t[0].deserialize(cs.fetch_ref(), mode);
+        return cs.have_refs() && t[0].deserialize(cs.fetch_ref(), mode) && set(t_tuple, std::move(tuple));
       }
       return set(t_tuple, std::move(tuple));
     }
@@ -843,26 +927,40 @@ bool StackEntry::deserialize(Ref<Cell> cell, int mode) {
 }
 
 bool Stack::serialize(vm::CellBuilder& cb, int mode) const {
-  // vm_stack#_ depth:(## 24) stack:(VmStackList depth) = VmStack;
-  unsigned n = depth();
-  if (!cb.store_ulong_rchk_bool(n, 24)) {  // vm_stack#_ depth:(## 24)
+  auto* vsi = VmStateInterface::get();
+  if (vsi && !vsi->register_op()) {
     return false;
   }
-  if (!n) {
-    return true;
-  }
-  vm::CellBuilder cb2;
-  Ref<vm::Cell> rest = cb2.finalize();  // vm_stk_nil#_ = VmStackList 0;
-  for (unsigned i = 0; i < n - 1; i++) {
-    // vm_stk_cons#_ {n:#} rest:^(VmStackList n) tos:VmStackValue = VmStackList (n + 1);
-    if (!(cb2.store_ref_bool(std::move(rest)) && stack[i].serialize(cb2, mode) && cb2.finalize_to(rest))) {
+  try {
+    // vm_stack#_ depth:(## 24) stack:(VmStackList depth) = VmStack;
+    unsigned n = depth();
+    if (!cb.store_ulong_rchk_bool(n, 24)) {  // vm_stack#_ depth:(## 24)
       return false;
     }
+    if (!n) {
+      return true;
+    }
+    vm::CellBuilder cb2;
+    Ref<vm::Cell> rest = cb2.finalize();  // vm_stk_nil#_ = VmStackList 0;
+    for (unsigned i = 0; i < n - 1; i++) {
+      // vm_stk_cons#_ {n:#} rest:^(VmStackList n) tos:VmStackValue = VmStackList (n + 1);
+      if (!(cb2.store_ref_bool(std::move(rest)) && stack[i].serialize(cb2, mode) && cb2.finalize_to(rest))) {
+        return false;
+      }
+    }
+    return cb.store_ref_bool(std::move(rest)) && stack[n - 1].serialize(cb, mode);
+  } catch (CellBuilder::CellCreateError) {
+    return false;
+  } catch (CellBuilder::CellWriteError) {
+    return false;
   }
-  return cb.store_ref_bool(std::move(rest)) && stack[n - 1].serialize(cb, mode);
 }
 
 bool Stack::deserialize(vm::CellSlice& cs, int mode) {
+  auto* vsi = VmStateInterface::get();
+  if (vsi && !vsi->register_op()) {
+    return false;
+  }
   clear();
   // vm_stack#_ depth:(## 24) stack:(VmStackList depth) = VmStack;
   int n;

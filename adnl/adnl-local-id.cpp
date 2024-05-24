@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/utils/crypto.h"
 #include "td/utils/Random.h"
@@ -40,13 +40,15 @@ AdnlAddressList AdnlLocalId::get_addr_list() const {
   return addr_list_;
 }
 
-void AdnlLocalId::receive(td::BufferSlice data) {
+void AdnlLocalId::receive(td::IPAddress addr, td::BufferSlice data) {
   auto P = td::PromiseCreator::lambda(
-      [peer_table = peer_table_, dst = short_id_, id = print_id()](td::Result<AdnlPacket> R) {
+      [peer_table = peer_table_, dst = short_id_, addr, id = print_id()](td::Result<AdnlPacket> R) {
         if (R.is_error()) {
           VLOG(ADNL_WARNING) << id << ": dropping IN message: cannot decrypt: " << R.move_as_error();
         } else {
-          td::actor::send_closure(peer_table, &AdnlPeerTable::receive_decrypted_packet, dst, R.move_as_ok());
+          auto packet = R.move_as_ok();
+          packet.set_remote_addr(addr);
+          td::actor::send_closure(peer_table, &AdnlPeerTable::receive_decrypted_packet, dst, std::move(packet));
         }
       });
 
@@ -77,7 +79,9 @@ void AdnlLocalId::deliver_query(AdnlNodeIdShort src, td::BufferSlice data, td::P
   }
   VLOG(ADNL_INFO) << this << ": dropping IN message from " << src
                   << ": no callbacks for custom query. firstint=" << td::TlParser(s.as_slice()).fetch_int();
-  promise.set_error(td::Status::Error(ErrorCode::warning, "no callbacks for query"));
+  promise.set_error(td::Status::Error(ErrorCode::warning, PSTRING() << "dropping IN message from " << src
+                                                                    << ": no callbacks for custom query. firstint="
+                                                                    << td::TlParser(s.as_slice()).fetch_int()));
 }
 
 void AdnlLocalId::subscribe(std::string prefix, std::unique_ptr<AdnlPeerTable::Callback> callback) {
@@ -117,7 +121,7 @@ void AdnlLocalId::update_address_list(AdnlAddressList addr_list) {
 }
 
 void AdnlLocalId::publish_address_list() {
-  if (dht_node_.empty() || addr_list_.empty()) {
+  if (dht_node_.empty() || addr_list_.empty() || (addr_list_.size() == 0 && !addr_list_.has_reverse())) {
     VLOG(ADNL_NOTICE) << this << ": skipping public addr list, because localid (or dht node) not fully initialized";
     return;
   }
@@ -171,19 +175,33 @@ void AdnlLocalId::publish_address_list() {
 
   td::actor::send_closure(keyring_, &keyring::Keyring::sign_message, short_id_.pubkey_hash(), std::move(B),
                           std::move(P));
+
+  if (addr_list_.has_reverse()) {
+    td::actor::send_closure(
+        dht_node_, &dht::Dht::register_reverse_connection, id_, [print_id = print_id()](td::Result<td::Unit> R) {
+          if (R.is_error()) {
+            VLOG(ADNL_NOTICE) << print_id << ": failed to register reverse connection in DHT: " << R.move_as_error();
+          } else {
+            VLOG(ADNL_INFO) << print_id << ": registered reverse connection";
+          }
+        });
+  }
 }
 
-AdnlLocalId::AdnlLocalId(AdnlNodeIdFull id, AdnlAddressList addr_list, td::actor::ActorId<AdnlPeerTable> peer_table,
-                         td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<dht::Dht> dht_node) {
-  id_ = std::move(id);
+AdnlLocalId::AdnlLocalId(AdnlNodeIdFull id, AdnlAddressList addr_list, td::uint32 mode,
+                         td::actor::ActorId<AdnlPeerTable> peer_table, td::actor::ActorId<keyring::Keyring> keyring,
+                         td::actor::ActorId<dht::Dht> dht_node)
+    : peer_table_(std::move(peer_table))
+    , keyring_(std::move(keyring))
+    , dht_node_(std::move(dht_node))
+    , addr_list_(std::move(addr_list))
+    , id_(std::move(id))
+    , mode_(mode) {
   short_id_ = id_.compute_short_id();
-  addr_list_ = std::move(addr_list);
-  if (addr_list_.addrs().size() > 0) {
+  if (!addr_list_.empty()) {
+    addr_list_.set_reinit_date(Adnl::adnl_start_time());
     addr_list_.set_version(static_cast<td::int32>(td::Clocks::system()));
   }
-  peer_table_ = peer_table;
-  keyring_ = keyring;
-  dht_node_ = dht_node;
 
   VLOG(ADNL_INFO) << this << ": created local id " << short_id_;
 }

@@ -51,7 +51,7 @@ variable order#   order# 0!
   orders ! order# 1+!
 } : add-order
 // b body -- b'
-{ tuck <s 2dup s-fits? not rot over 1 i, -rot
+{ tuck <s 2dup 1 s-fits-with? not rot over 1 i, -rot
   { drop swap ref, } { s, nip } cond
 } : append-msg-body
 // ng wc addr bounce body -- c

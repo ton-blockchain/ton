@@ -23,7 +23,7 @@
     exception statement from your version. If you delete this exception statement 
     from all source files in the program, then also delete it here.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -32,6 +32,8 @@
 #include "vm/cellops.h"
 #include "td/utils/Random.h"
 #include "block/block.h"
+
+extern bool local_scripts;
 
 class HttpAnswer {
  public:

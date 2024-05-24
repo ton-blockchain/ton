@@ -1,0 +1,396 @@
+name: Create release
+
+on: [workflow_dispatch]
+
+permissions: write-all
+
+jobs:
+  create-release:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Download Linux x86-64 artifacts
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          workflow: ton-x86-64-linux.yml
+          path: artifacts
+          workflow_conclusion: success
+          skip_unpack: true
+
+      - name: Download and unzip Linux x86-64 artifacts
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          workflow: ton-x86-64-linux.yml
+          path: artifacts
+          workflow_conclusion: success
+          skip_unpack: false
+
+      - name: Download Mac x86-64 artifacts
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          workflow: ton-x86-64-macos.yml
+          path: artifacts
+          workflow_conclusion: success
+          skip_unpack: true
+
+      - name: Download and unzip Mac x86-64 artifacts
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          workflow: ton-x86-64-macos.yml
+          path: artifacts
+          workflow_conclusion: success
+          skip_unpack: false
+
+      - name: Download Windows artifacts
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          workflow: ton-x86-64-windows.yml
+          path: artifacts
+          workflow_conclusion: success
+          skip_unpack: true
+
+      - name: Download and unzip Windows artifacts
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          workflow: ton-x86-64-windows.yml
+          path: artifacts
+          workflow_conclusion: success
+          skip_unpack: false
+
+      - name: Download WASM artifacts
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          workflow: build-ton-wasm-emscripten.yml
+          path: artifacts
+          workflow_conclusion: success
+          skip_unpack: true
+
+      - name: Show all artifacts
+        run: |
+          tree artifacts
+      
+
+      # create release
+
+      - name: Read Changelog.md and use it as a body of new release
+        id: read_release
+        shell: bash
+        run: |
+          r=$(cat recent_changelog.md)
+          r="${r//'%'/'%25'}"
+          r="${r//$'\n'/'%0A'}"
+          r="${r//$'\r'/'%0D'}"
+          echo "::set-output name=CHANGELOG_BODY::$r"
+
+      - name: Get next tag
+        id: tag
+        run: |
+          git fetch --all --tags
+          git tag -l
+          NEW_TAG=v$(date +'%Y.%m')
+          FOUND=$(git tag -l | grep $NEW_TAG | wc -l)
+          if [ $FOUND -eq 0 ]; then
+            echo "TAG=$NEW_TAG" >> $GITHUB_OUTPUT
+          else
+            echo "TAG=$NEW_TAG-$FOUND" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Get registration token
+        id: getRegToken
+        run: |
+          curl -X POST -H \"Accept: application/vnd.github+json\"  -H 'Authorization: token ${{ secrets.GITHUB_TOKEN }}' https://api.github.com/repos/ton-blockchain/ton/actions/runners/registration-token
+
+      - name: Create release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.tag.outputs.TAG }}
+          release_name: TON ${{ steps.tag.outputs.TAG }}
+          body: |
+            ${{ steps.read_release.outputs.CHANGELOG_BODY }}
+          draft: false
+          prerelease: false
+
+      # upload
+
+      # win
+
+      - name: Upload Windows 2019 artifacts
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-win-binaries.zip
+          asset_name: ton-win-x86-64.zip
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Windows 2019 single artifact - fift
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-win-binaries/fift.exe
+          asset_name: fift.exe
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Windows 2019 single artifact - func
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-win-binaries/func.exe
+          asset_name: func.exe
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Windows 2019 single artifact - lite-client
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-win-binaries/lite-client.exe
+          asset_name: lite-client.exe
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Windows 2019 single artifact - rldp-http-proxy
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-win-binaries/rldp-http-proxy.exe
+          asset_name: rldp-http-proxy.exe
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Windows 2019 single artifact - http-proxy
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-win-binaries/http-proxy.exe
+          asset_name: http-proxy.exe
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Windows 2019 single artifact - storage-daemon-cli
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-win-binaries/storage-daemon-cli.exe
+          asset_name: storage-daemon-cli.exe
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Windows 2019 single artifact - storage-daemon
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-win-binaries/storage-daemon.exe
+          asset_name: storage-daemon.exe
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Windows 2019 single artifact - tonlibjson
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-win-binaries/tonlibjson.dll
+          asset_name: tonlibjson.dll
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Windows 2019 single artifact - libemulator
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-win-binaries/emulator.dll
+          asset_name: libemulator.dll
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Windows 2019 single artifact - tonlib-cli
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-win-binaries/tonlib-cli.exe
+          asset_name: tonlib-cli.exe
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      # mac x86-64
+
+      - name: Upload Mac x86-64 artifacts
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-macos-binaries.zip
+          asset_name: ton-mac-x86-64.zip
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Mac x86-64 single artifact - fift
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-macos-binaries/fift
+          asset_name: fift-mac-x86-64
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Mac x86-64 single artifact - func
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-macos-binaries/func
+          asset_name: func-mac-x86-64
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Mac x86-64 single artifact - lite-client
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-macos-binaries/lite-client
+          asset_name: lite-client-mac-x86-64
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Mac x86-64 single artifact - rldp-http-proxy
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-macos-binaries/rldp-http-proxy
+          asset_name: rldp-http-proxy-mac-x86-64
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Mac x86-64 single artifact - http-proxy
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-macos-binaries/http-proxy
+          asset_name: http-proxy-mac-x86-64
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Mac x86-64 single artifact - storage-daemon-cli
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-macos-binaries/storage-daemon-cli
+          asset_name: storage-daemon-cli-mac-x86-64
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Mac x86-64 single artifact - storage-daemon
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-macos-binaries/storage-daemon
+          asset_name: storage-daemon-mac-x86-64
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Mac x86-64 single artifact - tonlibjson
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-macos-binaries/libtonlibjson.dylib
+          asset_name: tonlibjson-mac-x86-64.dylib
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Mac x86-64 single artifact - libemulator
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-macos-binaries/libemulator.dylib
+          asset_name: libemulator-mac-x86-64.dylib
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Mac x86-64 single artifact - tonlib-cli
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-macos-binaries/tonlib-cli
+          asset_name: tonlib-cli-mac-x86-64
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      # linux x86-64
+
+      - name: Upload Linux x86-64 artifacts
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-linux-binaries.zip
+          asset_name: ton-linux-x86_64.zip
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Linux x86-64 single artifact - fift
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-linux-binaries/fift
+          asset_name: fift-linux-x86_64
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Linux x86-64 single artifact - func
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-linux-binaries/func
+          asset_name: func-linux-x86_64
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Linux x86-64 single artifact - lite-client
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-linux-binaries/lite-client
+          asset_name: lite-client-linux-x86_64
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Linux x86-64 single artifact - rldp-http-proxy
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-linux-binaries/rldp-http-proxy
+          asset_name: rldp-http-proxy-linux-x86_64
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Linux x86-64 single artifact - http-proxy
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-linux-binaries/http-proxy
+          asset_name: http-proxy-linux-x86_64
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Linux x86-64 single artifact - storage-daemon-cli
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-linux-binaries/storage-daemon-cli
+          asset_name: storage-daemon-cli-linux-x86_64
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Linux x86-64 single artifact - storage-daemon
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-linux-binaries/storage-daemon
+          asset_name: storage-daemon-linux-x86_64
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Linux x86-64 single artifact - tonlibjson
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-linux-binaries/libtonlibjson.so
+          asset_name: tonlibjson-linux-x86_64.so
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Linux x86-64 single artifact - libemulator
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-linux-binaries/libemulator.so
+          asset_name: libemulator-linux-x86_64.so
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Linux x86-64 single artifact - tonlib-cli
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-linux-binaries/tonlib-cli
+          asset_name: tonlib-cli-linux-x86_64
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload WASM artifacts
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-wasm-binaries.zip
+          asset_name: ton-wasm-binaries.zip
+          tag: ${{ steps.tag.outputs.TAG }}

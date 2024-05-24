@@ -1,4 +1,4 @@
-/* 
+/*
     This file is part of TON Blockchain source code.
 
     TON Blockchain is free software; you can redistribute it and/or
@@ -14,23 +14,23 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 
-    In addition, as a special exception, the copyright holders give permission 
-    to link the code of portions of this program with the OpenSSL library. 
-    You must obey the GNU General Public License in all respects for all 
-    of the code used other than OpenSSL. If you modify file(s) with this 
-    exception, you may extend this exception to your version of the file(s), 
-    but you are not obligated to do so. If you do not wish to do so, delete this 
-    exception statement from your version. If you delete this exception statement 
+    In addition, as a special exception, the copyright holders give permission
+    to link the code of portions of this program with the OpenSSL library.
+    You must obey the GNU General Public License in all respects for all
+    of the code used other than OpenSSL. If you modify file(s) with this
+    exception, you may extend this exception to your version of the file(s),
+    but you are not obligated to do so. If you do not wish to do so, delete this
+    exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "dht-server.hpp"
 
 #include "td/utils/filesystem.h"
 #include "td/actor/MultiPromise.h"
 #include "td/utils/overloaded.h"
-#include "td/utils/OptionsParser.h"
+#include "td/utils/OptionParser.h"
 #include "td/utils/port/path.h"
 #include "td/utils/port/user.h"
 #include "td/utils/port/signals.h"
@@ -48,6 +48,7 @@
 #include <sstream>
 #include <cstdlib>
 #include <set>
+#include "git.h"
 
 Config::Config() {
   out_port = 3278;
@@ -70,8 +71,12 @@ Config::Config(ton::ton_api::engine_validator_config &config) {
             [&](const ton::ton_api::engine_addr &obj) {
               in_ip.init_ipv4_port(td::IPAddress::ipv4_to_str(obj.ip_), static_cast<td::uint16>(obj.port_)).ensure();
               out_ip = in_ip;
-              categories = obj.categories_;
-              priority_categories = obj.priority_categories_;
+              for (auto &cat : obj.categories_) {
+                categories.push_back(td::narrow_cast<td::uint8>(cat));
+              }
+              for (auto &cat : obj.priority_categories_) {
+                priority_categories.push_back(td::narrow_cast<td::uint8>(cat));
+              }
             },
             [&](const ton::ton_api::engine_addrProxy &obj) {
               in_ip.init_ipv4_port(td::IPAddress::ipv4_to_str(obj.in_ip_), static_cast<td::uint16>(obj.in_port_))
@@ -82,15 +87,19 @@ Config::Config(ton::ton_api::engine_validator_config &config) {
                 auto R = ton::adnl::AdnlProxy::create(*obj.proxy_type_.get());
                 R.ensure();
                 proxy = R.move_as_ok();
-                categories = obj.categories_;
-                priority_categories = obj.priority_categories_;
+                for (auto &cat : obj.categories_) {
+                  categories.push_back(td::narrow_cast<td::uint8>(cat));
+                }
+                for (auto &cat : obj.priority_categories_) {
+                  priority_categories.push_back(td::narrow_cast<td::uint8>(cat));
+                }
               }
             }));
 
     config_add_network_addr(in_ip, out_ip, std::move(proxy), categories, priority_categories).ensure();
   }
   for (auto &adnl : config.adnl_) {
-    config_add_adnl_addr(ton::PublicKeyHash{adnl->id_}, adnl->category_).ensure();
+    config_add_adnl_addr(ton::PublicKeyHash{adnl->id_}, td::narrow_cast<td::uint8>(adnl->category_)).ensure();
   }
   for (auto &dht : config.dht_) {
     config_add_dht_node(ton::PublicKeyHash{dht->id_}).ensure();
@@ -161,7 +170,7 @@ ton::tl_object_ptr<ton::ton_api::engine_validator_config> Config::tl() const {
   return ton::create_tl_object<ton::ton_api::engine_validator_config>(
       out_port, std::move(addrs_vec), std::move(adnl_vec), std::move(dht_vec), std::move(val_vec),
       ton::PublicKeyHash::zero().tl(), std::move(full_node_slaves_vec), std::move(full_node_masters_vec),
-      std::move(liteserver_vec), std::move(control_vec), std::move(gc_vec));
+      nullptr, std::move(liteserver_vec), std::move(control_vec), std::move(gc_vec));
 }
 
 td::Result<bool> Config::config_add_network_addr(td::IPAddress in_ip, td::IPAddress out_ip,
@@ -448,7 +457,7 @@ void DhtServer::load_empty_local_config(td::Promise<td::Unit> promise) {
   ig.add_promise(std::move(ret_promise));
 
   for (auto &addr : addrs_) {
-    config_.config_add_network_addr(addr, addr, nullptr, std::vector<td::int32>{0, 1, 2, 3}, std::vector<td::int32>{})
+    config_.config_add_network_addr(addr, addr, nullptr, std::vector<td::int8>{0, 1, 2, 3}, std::vector<td::int8>{})
         .ensure();
   }
 
@@ -501,7 +510,7 @@ void DhtServer::load_local_config(td::Promise<td::Unit> promise) {
   ig.add_promise(std::move(ret_promise));
 
   for (auto &addr : addrs_) {
-    config_.config_add_network_addr(addr, addr, nullptr, std::vector<td::int32>{0, 1, 2, 3}, std::vector<td::int32>{})
+    config_.config_add_network_addr(addr, addr, nullptr, std::vector<td::int8>{0, 1, 2, 3}, std::vector<td::int8>{})
         .ensure();
   }
 
@@ -564,6 +573,12 @@ void DhtServer::load_config(td::Promise<td::Unit> promise) {
   }
   auto conf_data_R = td::read_file(config_file_);
   if (conf_data_R.is_error()) {
+    conf_data_R = td::read_file(temp_config_file());
+    if (conf_data_R.is_ok()) {
+      td::rename(temp_config_file(), config_file_).ensure();
+    }
+  }
+  if (conf_data_R.is_error()) {
     auto P = td::PromiseCreator::lambda(
         [name = local_config_, new_name = config_file_, promise = std::move(promise)](td::Result<td::Unit> R) {
           if (R.is_error()) {
@@ -611,12 +626,15 @@ void DhtServer::load_config(td::Promise<td::Unit> promise) {
 void DhtServer::write_config(td::Promise<td::Unit> promise) {
   auto s = td::json_encode<std::string>(td::ToJson(*config_.tl().get()), true);
 
-  auto S = td::write_file(config_file_, s);
-  if (S.is_ok()) {
-    promise.set_value(td::Unit());
-  } else {
+  auto S = td::write_file(temp_config_file(), s);
+  if (S.is_error()) {
+    td::unlink(temp_config_file()).ignore();
     promise.set_error(std::move(S));
+    return;
   }
+  td::unlink(config_file_).ignore();
+  TRY_STATUS_PROMISE(promise, td::rename(temp_config_file(), config_file_));
+  promise.set_value(td::Unit());
 }
 
 td::Promise<ton::PublicKey> DhtServer::get_key_promise(td::MultiPromise::InitGuard &ig) {
@@ -656,12 +674,20 @@ void DhtServer::start_adnl() {
 }
 
 void DhtServer::add_addr(const Config::Addr &addr, const Config::AddrCats &cats) {
+  ton::adnl::AdnlCategoryMask cat_mask;
+  for (auto cat : cats.cats) {
+    cat_mask[cat] = true;
+  }
+  for (auto cat : cats.priority_cats) {
+    cat_mask[cat] = true;
+  }
   if (!cats.proxy) {
     td::actor::send_closure(adnl_network_manager_, &ton::adnl::AdnlNetworkManager::add_self_addr, addr.addr,
-                            cats.cats.size() ? 0 : 1);
+                            std::move(cat_mask), cats.cats.size() ? 0 : 1);
   } else {
-    td::actor::send_closure(adnl_network_manager_, &ton::adnl::AdnlNetworkManager::add_proxy_addr, addr.addr,
-                            cats.proxy, cats.cats.size() ? 0 : 1);
+    td::actor::send_closure(adnl_network_manager_, &ton::adnl::AdnlNetworkManager::add_proxy_addr, cats.in_addr,
+                            static_cast<td::uint16>(addr.addr.get_port()), cats.proxy, std::move(cat_mask),
+                            cats.cats.size() ? 0 : 1);
   }
 
   td::uint32 ts = static_cast<td::uint32>(td::Clocks::system());
@@ -687,7 +713,7 @@ void DhtServer::add_addr(const Config::Addr &addr, const Config::AddrCats &cats)
 void DhtServer::add_adnl(ton::PublicKeyHash id, AdnlCategory cat) {
   CHECK(addr_lists_[cat].size() > 0);
   CHECK(keys_.count(id) > 0);
-  td::actor::send_closure(adnl_, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{keys_[id]}, addr_lists_[cat]);
+  td::actor::send_closure(adnl_, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{keys_[id]}, addr_lists_[cat], cat);
 }
 
 void DhtServer::started_adnl() {
@@ -738,7 +764,7 @@ void DhtServer::start_control_interface() {
 
   for (auto &s : config_.controls) {
     td::actor::send_closure(adnl_, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{keys_[s.second.key]},
-                            ton::adnl::AdnlAddressList{});
+                            ton::adnl::AdnlAddressList{}, static_cast<td::uint8>(255));
     td::actor::send_closure(adnl_, &ton::adnl::Adnl::subscribe, ton::adnl::AdnlNodeIdShort{s.second.key},
                             std::string(""), std::make_unique<Callback>(actor_id(this)));
 
@@ -785,7 +811,7 @@ void DhtServer::add_adnl_node(ton::PublicKey key, AdnlCategory cat, td::Promise<
   }
 
   if (!adnl_.empty()) {
-    td::actor::send_closure(adnl_, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{key}, addr_lists_[cat]);
+    td::actor::send_closure(adnl_, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{key}, addr_lists_[cat], cat);
   }
 
   write_config(std::move(promise));
@@ -970,23 +996,25 @@ void DhtServer::run_control_query(ton::ton_api::engine_validator_addAdnlId &quer
     return;
   }
 
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), cat = query.category_,
-                                       promise = std::move(promise)](td::Result<ton::PublicKey> R) mutable {
-    if (R.is_error()) {
-      promise.set_value(create_control_query_error(R.move_as_error_prefix("failed to get public key: ")));
-      return;
-    }
-    auto pub = R.move_as_ok();
-    auto P = td::PromiseCreator::lambda([promise = std::move(promise)](td::Result<td::Unit> R) mutable {
-      if (R.is_error()) {
-        promise.set_value(create_control_query_error(R.move_as_error_prefix("failed to add adnl node: ")));
-      } else {
-        promise.set_value(
-            ton::serialize_tl_object(ton::create_tl_object<ton::ton_api::engine_validator_success>(), true));
-      }
-    });
-    td::actor::send_closure(SelfId, &DhtServer::add_adnl_node, pub, cat, std::move(P));
-  });
+  TRY_RESULT_PROMISE(promise, cat, td::narrow_cast_safe<td::uint8>(query.category_));
+
+  auto P = td::PromiseCreator::lambda(
+      [SelfId = actor_id(this), cat, promise = std::move(promise)](td::Result<ton::PublicKey> R) mutable {
+        if (R.is_error()) {
+          promise.set_value(create_control_query_error(R.move_as_error_prefix("failed to get public key: ")));
+          return;
+        }
+        auto pub = R.move_as_ok();
+        auto P = td::PromiseCreator::lambda([promise = std::move(promise)](td::Result<td::Unit> R) mutable {
+          if (R.is_error()) {
+            promise.set_value(create_control_query_error(R.move_as_error_prefix("failed to add adnl node: ")));
+          } else {
+            promise.set_value(
+                ton::serialize_tl_object(ton::create_tl_object<ton::ton_api::engine_validator_success>(), true));
+          }
+        });
+        td::actor::send_closure(SelfId, &DhtServer::add_adnl_node, pub, cat, std::move(P));
+      });
 
   td::actor::send_closure(keyring_, &ton::keyring::Keyring::get_public_key, ton::PublicKeyHash{query.key_hash_},
                           std::move(P));
@@ -1158,12 +1186,15 @@ int main(int argc, char *argv[]) {
 
   std::vector<std::function<void()>> acts;
 
-  td::OptionsParser p;
+  td::OptionParser p;
   p.set_description("dht server for TON DHT network");
   p.add_option('v', "verbosity", "set verbosity level", [&](td::Slice arg) {
     int v = VERBOSITY_NAME(FATAL) + (td::to_integer<int>(arg));
     SET_VERBOSITY_LEVEL(v);
-    return td::Status::OK();
+  });
+  p.add_option('V', "version", "shows dht-server build information", [&]() {
+    std::cout << "dht-server build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
+    std::exit(0);
   });
   p.add_option('h', "help", "prints_help", [&]() {
     char b[10240];
@@ -1171,17 +1202,14 @@ int main(int argc, char *argv[]) {
     sb << p;
     std::cout << sb.as_cslice().c_str();
     std::exit(2);
-    return td::Status::OK();
   });
   p.add_option('C', "global-config", "file to read global config", [&](td::Slice fname) {
     acts.push_back([&x, fname = fname.str()]() { td::actor::send_closure(x, &DhtServer::set_global_config, fname); });
-    return td::Status::OK();
   });
   p.add_option('c', "local-config", "file to read local config", [&](td::Slice fname) {
     acts.push_back([&x, fname = fname.str()]() { td::actor::send_closure(x, &DhtServer::set_local_config, fname); });
-    return td::Status::OK();
   });
-  p.add_option('I', "ip", "ip:port of instance", [&](td::Slice arg) {
+  p.add_checked_option('I', "ip", "ip:port of instance", [&](td::Slice arg) {
     td::IPAddress addr;
     TRY_STATUS(addr.init_host_port(arg.str()));
     acts.push_back([&x, addr]() { td::actor::send_closure(x, &DhtServer::add_ip, addr); });
@@ -1189,7 +1217,6 @@ int main(int argc, char *argv[]) {
   });
   p.add_option('D', "db", "root for dbs", [&](td::Slice fname) {
     acts.push_back([&x, fname = fname.str()]() { td::actor::send_closure(x, &DhtServer::set_db_root, fname); });
-    return td::Status::OK();
   });
   p.add_option('d', "daemonize", "set SIGHUP", [&]() {
 #if TD_DARWIN || TD_LINUX
@@ -1197,28 +1224,27 @@ int main(int argc, char *argv[]) {
     setsid();
 #endif
     td::set_signal_handler(td::SignalType::HangUp, force_rotate_logs).ensure();
-    return td::Status::OK();
   });
   p.add_option('l', "logname", "log to file", [&](td::Slice fname) {
     logger_ = td::TsFileLog::create(fname.str()).move_as_ok();
     td::log_interface = logger_.get();
-    return td::Status::OK();
   });
   td::uint32 threads = 7;
-  p.add_option('t', "threads", PSTRING() << "number of threads (default=" << threads << ")", [&](td::Slice fname) {
-    td::int32 v;
-    try {
-      v = std::stoi(fname.str());
-    } catch (...) {
-      return td::Status::Error(ton::ErrorCode::error, "bad value for --threads: not a number");
-    }
-    if (v < 1 || v > 256) {
-      return td::Status::Error(ton::ErrorCode::error, "bad value for --threads: should be in range [1..256]");
-    }
-    threads = v;
-    return td::Status::OK();
-  });
-  p.add_option('u', "user", "change user", [&](td::Slice user) { return td::change_user(user); });
+  p.add_checked_option(
+      't', "threads", PSTRING() << "number of threads (default=" << threads << ")", [&](td::Slice fname) {
+        td::int32 v;
+        try {
+          v = std::stoi(fname.str());
+        } catch (...) {
+          return td::Status::Error(ton::ErrorCode::error, "bad value for --threads: not a number");
+        }
+        if (v < 1 || v > 256) {
+          return td::Status::Error(ton::ErrorCode::error, "bad value for --threads: should be in range [1..256]");
+        }
+        threads = v;
+        return td::Status::OK();
+      });
+  p.add_checked_option('u', "user", "change user", [&](td::Slice user) { return td::change_user(user.str()); });
   p.run(argc, argv).ensure();
 
   td::set_runtime_signal_handler(1, need_stats).ensure();

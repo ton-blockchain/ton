@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/net/TcpListener.h"
 
@@ -46,9 +46,11 @@ void TcpListener::start_up() {
 }
 
 void TcpListener::tear_down() {
-  // unsubscribe from socket updates
-  // nb: interface will be changed
-  td::actor::SchedulerContext::get()->get_poll().unsubscribe(server_socket_fd_.get_poll_info().get_pollable_fd_ref());
+  if (!server_socket_fd_.empty()) {
+    // unsubscribe from socket updates
+    // nb: interface will be changed
+    td::actor::SchedulerContext::get()->get_poll().unsubscribe(server_socket_fd_.get_poll_info().get_pollable_fd_ref());
+  }
 }
 
 void TcpListener::loop() {

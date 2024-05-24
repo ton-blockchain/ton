@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "accept-block.hpp"
 #include "adnl/utils.hpp"
@@ -53,7 +53,10 @@ AcceptBlockQuery::AcceptBlockQuery(BlockIdExt id, td::Ref<BlockData> data, std::
     , is_fork_(false)
     , send_broadcast_(send_broadcast)
     , manager_(manager)
-    , promise_(std::move(promise)) {
+    , promise_(std::move(promise))
+    , perf_timer_("acceptblock", 0.1, [manager](double duration) {
+        send_closure(manager, &ValidatorManager::add_perf_timer_stat, "acceptblock", duration);
+      }) {
   state_keep_old_hash_.clear();
   state_old_hash_.clear();
   state_hash_.clear();
@@ -71,7 +74,10 @@ AcceptBlockQuery::AcceptBlockQuery(AcceptBlockQuery::IsFake fake, BlockIdExt id,
     , is_fork_(false)
     , send_broadcast_(false)
     , manager_(manager)
-    , promise_(std::move(promise)) {
+    , promise_(std::move(promise))
+    , perf_timer_("acceptblock", 0.1, [manager](double duration) {
+        send_closure(manager, &ValidatorManager::add_perf_timer_stat, "acceptblock", duration);
+      }) {
   state_keep_old_hash_.clear();
   state_old_hash_.clear();
   state_hash_.clear();
@@ -86,7 +92,10 @@ AcceptBlockQuery::AcceptBlockQuery(ForceFork ffork, BlockIdExt id, td::Ref<Block
     , is_fork_(true)
     , send_broadcast_(false)
     , manager_(manager)
-    , promise_(std::move(promise)) {
+    , promise_(std::move(promise))
+    , perf_timer_("acceptblock", 0.1, [manager](double duration) {
+        send_closure(manager, &ValidatorManager::add_perf_timer_stat, "acceptblock", duration);
+      }) {
   state_keep_old_hash_.clear();
   state_old_hash_.clear();
   state_hash_.clear();
@@ -216,6 +225,9 @@ bool AcceptBlockQuery::create_new_proof() {
   }
   // 5. finish constructing Merkle proof from visited cells
   auto proof = vm::MerkleProof::generate(block_root_, usage_tree.get());
+  if (proof.is_null()) {
+    return fatal_error("cannot create proof");
+  }
   proof_roots_.push_back(proof);
   // 6. extract some information from state update
   state_old_hash_ = upd_cs.prefetch_ref(0)->get_hash(0).bits();
@@ -262,9 +274,9 @@ bool AcceptBlockQuery::create_new_proof() {
   } else {  // FAKE
     vm::CellBuilder cb2;
     if (!(cb2.store_long_bool(0x11, 8)  // block_signatures#11
-          && cb2.store_long_bool(validator_set_->get_validator_set_hash(),
+          && cb2.store_long_bool(validator_set_.not_null() ? validator_set_->get_validator_set_hash() : 0,
                                  32)  // validator_info$_ validator_set_hash_short:uint32
-          && cb2.store_long_bool(validator_set_->get_catchain_seqno(),
+          && cb2.store_long_bool(validator_set_.not_null() ? validator_set_->get_catchain_seqno() : 0,
                                  32)     //   validator_set_ts:uint32 = ValidatorInfo
           && cb2.store_long_bool(0, 32)  // sig_count:uint32
           && cb2.store_long_bool(0, 64)  // sig_weight:uint32
@@ -355,7 +367,7 @@ void AcceptBlockQuery::start_up() {
   VLOG(VALIDATOR_DEBUG) << "start_up()";
   alarm_timestamp() = timeout_;
 
-  if (validator_set_.is_null()) {
+  if (!is_fork_ && validator_set_.is_null()) {
     fatal_error("no real ValidatorSet passed to AcceptBlockQuery");
     return;
   }

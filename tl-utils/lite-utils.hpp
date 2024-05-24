@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -46,4 +46,6 @@ template <class Tp, std::enable_if_t<std::is_base_of<lite_api::Object, Tp>::valu
 td::Bits256 get_tl_object_sha_bits256(const Tp &T) {
   return get_tl_object_sha_bits256(static_cast<const lite_api::Object *>(&T));
 }
+
+std::string lite_query_name_by_id(int id);
 }  // namespace ton

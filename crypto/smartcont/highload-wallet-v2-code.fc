@@ -3,6 +3,22 @@
 ;; this version does not use seqno for replay protection; instead, it remembers all recent query_ids
 ;; in this way several external messages with different query_id can be sent in parallel
 
+
+;; Note, when dealing with highload-wallet the following limits need to be checked and taken into account:
+;; 1) Storage size limit. Currently, size of contract storage should be less than 65535 cells. If size of 
+;; old_queries will grow above this limit, exception in ActionPhase will be thrown and transaction will fail.
+;; Failed transaction may be replayed.
+;; 2) Gas limit. Currently, gas limit is 1'000'000 gas units, that means that there is a limit of how much
+;; old queries may be cleaned in one tx. If number of expired queries will be higher, contract will stuck.
+
+;; That means that it is not recommended to set too high expiration date:
+;; number of queries during expiration timespan should not exceed 1000.
+;; Also, number of expired queries cleaned in one transaction should be below 100.
+
+;; Such precautions are not easy to follow, so it is recommended to use highload contract
+;; only when strictly necessary and the developer understands the above details.
+
+
 () recv_internal(slice in_msg) impure {
   ;; do nothing for internal messages
 }
@@ -62,4 +78,10 @@ int processed?(int query_id) method_id {
   ds.end_parse();
   (_, var found) = old_queries.udict_get?(64, query_id);
   return found ? true : - (query_id <= last_cleaned);
+}
+
+int get_public_key() method_id {
+  var cs = get_data().begin_parse();
+  cs~load_uint(32 + 64);
+  return cs.preload_uint(256);
 }

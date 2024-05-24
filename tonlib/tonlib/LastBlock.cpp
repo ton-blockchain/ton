@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "tonlib/LastBlock.h"
 #include "tonlib/LastConfig.h"
@@ -374,6 +374,7 @@ void LastBlock::on_sync_error(td::Status status) {
     promise.set_error(status.clone());
   }
   promises_.clear();
+  client_.force_change_liteserver();
 }
 void LastBlock::on_fatal_error(td::Status status) {
   VLOG(last_block) << "sync: fatal error " << status;

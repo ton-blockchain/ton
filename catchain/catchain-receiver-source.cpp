@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "catchain-receiver-source.hpp"
 #include "common/errorlog.h"
@@ -24,10 +24,10 @@ namespace ton {
 namespace catchain {
 
 td::uint32 CatChainReceiverSourceImpl::add_fork() {
-  if (fork_ids_.size() > 0) {
+  if (!fork_ids_.empty()) {
     blame();
   }
-  auto F = chain_->add_fork();
+  td::uint32 F = chain_->add_fork();
   CHECK(F > 0);
 
   fork_ids_.push_back(F);
@@ -60,21 +60,22 @@ td::Result<std::unique_ptr<CatChainReceiverSource>> CatChainReceiverSource::crea
 
 void CatChainReceiverSourceImpl::blame(td::uint32 fork, CatChainBlockHeight height) {
   blame();
-  if (blamed_heights_.size() > 0) {
-    if (blamed_heights_.size() <= fork) {
-      blamed_heights_.resize(fork + 1, 0);
-    }
-    if (blamed_heights_[fork] == 0 || blamed_heights_[fork] > height) {
-      VLOG(CATCHAIN_INFO) << this << ": blamed at " << fork << " " << height;
-      blamed_heights_[fork] = height;
-    }
+  // if (!blamed_heights_.empty()) {
+  if (blamed_heights_.size() <= fork) {
+    blamed_heights_.resize(fork + 1, 0);
   }
+  if (blamed_heights_[fork] == 0 || blamed_heights_[fork] > height) {
+    VLOG(CATCHAIN_INFO) << this << ": blamed at " << fork << " " << height;
+    blamed_heights_[fork] = height;
+  }
+  // }
 }
 
 void CatChainReceiverSourceImpl::blame() {
   if (!blamed_) {
     LOG(ERROR) << this << ": CATCHAIN: blaming source " << id_;
     blocks_.clear();
+    delivered_height_ = 0;
     chain_->on_blame(id_);
   }
   blamed_ = true;
@@ -129,19 +130,6 @@ void CatChainReceiverSourceImpl::block_delivered(CatChainBlockHeight height) {
   }
 }
 
-td::Status CatChainReceiverSourceImpl::validate_dep_sync(tl_object_ptr<ton_api::catchain_block_dep> &dep) {
-  auto S = std::move(dep->signature_);
-  auto str = serialize_tl_object(dep, true);
-  dep->signature_ = std::move(S);
-
-  auto R = encryptor_sync_->check_signature(str.as_slice(), dep->signature_.as_slice());
-  if (R.is_error()) {
-    return R.move_as_error();
-  }
-
-  return td::Status::OK();
-}
-
 void CatChainReceiverSourceImpl::on_new_block(CatChainReceivedBlock *block) {
   if (fork_is_found()) {
     return;
@@ -156,7 +144,7 @@ void CatChainReceiverSourceImpl::on_new_block(CatChainReceivedBlock *block) {
       on_found_fork_proof(create_serialize_tl_object<ton_api::catchain_block_data_fork>(block->export_tl_dep(),
                                                                                         it->second->export_tl_dep())
                               .as_slice());
-      chain_->add_prepared_event(fork_proof());
+      chain_->on_found_fork_proof(id_, fork_proof());
     }
     blame();
     return;
@@ -164,7 +152,7 @@ void CatChainReceiverSourceImpl::on_new_block(CatChainReceivedBlock *block) {
   blocks_[block->get_height()] = block;
 }
 
-void CatChainReceiverSourceImpl::on_found_fork_proof(td::Slice proof) {
+void CatChainReceiverSourceImpl::on_found_fork_proof(const td::Slice &proof) {
   if (!fork_is_found()) {
     fetch_tl_object<ton_api::catchain_block_data_fork>(proof, true).ensure();
     fork_proof_ = td::SharedSlice{proof};
@@ -172,6 +160,15 @@ void CatChainReceiverSourceImpl::on_found_fork_proof(td::Slice proof) {
                                       << " found fork. hash=" << sha256_bits256(fork_proof_.as_slice()).to_hex());
     errorlog::ErrorLog::log_file(fork_proof_.clone_as_buffer_slice());
   }
+}
+
+bool CatChainReceiverSourceImpl::allow_send_block(CatChainBlockHash hash) {
+  td::uint32 count = ++block_requests_count_[hash];
+  if (count > MAX_BLOCK_REQUESTS) {
+    VLOG(CATCHAIN_INFO) << this << ": node requested block " << hash << " " << count << " times";
+    return false;
+  }
+  return true;
 }
 
 }  // namespace catchain

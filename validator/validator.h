@@ -14,11 +14,12 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
 #include <vector>
+#include <deque>
 
 #include "td/actor/actor.h"
 
@@ -34,6 +35,7 @@
 #include "interfaces/proof.h"
 #include "interfaces/shard.h"
 #include "catchain/catchain-types.h"
+#include "interfaces/external-message.h"
 
 namespace ton {
 
@@ -44,6 +46,11 @@ class DownloadToken {
   virtual ~DownloadToken() = default;
 };
 
+struct PerfTimerStats {
+  std::string name;
+  std::deque<std::pair<double, double>> stats; // <Time::now(), duration>
+};
+
 struct ValidatorManagerOptions : public td::CntObject {
  public:
   enum class ShardCheckMode { m_monitor, m_validate };
@@ -51,43 +58,66 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual BlockIdExt zero_block_id() const = 0;
   virtual BlockIdExt init_block_id() const = 0;
   virtual bool need_monitor(ShardIdFull shard) const = 0;
-  virtual bool need_validate(ShardIdFull shard) const = 0;
+  virtual bool need_validate(ShardIdFull shard, CatchainSeqno cc_seqno) const = 0;
   virtual bool allow_blockchain_init() const = 0;
-  virtual td::ClocksBase::Duration sync_blocks_before() const = 0;
-  virtual td::ClocksBase::Duration block_ttl() const = 0;
-  virtual td::ClocksBase::Duration state_ttl() const = 0;
-  virtual td::ClocksBase::Duration archive_ttl() const = 0;
-  virtual td::ClocksBase::Duration key_proof_ttl() const = 0;
+  virtual double sync_blocks_before() const = 0;
+  virtual double block_ttl() const = 0;
+  virtual double state_ttl() const = 0;
+  virtual double max_mempool_num() const = 0;
+  virtual double archive_ttl() const = 0;
+  virtual double key_proof_ttl() const = 0;
   virtual bool initial_sync_disabled() const = 0;
   virtual bool is_hardfork(BlockIdExt block_id) const = 0;
   virtual td::uint32 get_vertical_seqno(BlockSeqno seqno) const = 0;
   virtual td::uint32 get_maximal_vertical_seqno() const = 0;
   virtual td::uint32 get_last_fork_masterchain_seqno() const = 0;
   virtual std::vector<BlockIdExt> get_hardforks() const = 0;
-  virtual td::uint32 get_filedb_depth() const = 0;
   virtual td::uint32 key_block_utime_step() const {
     return 86400;
   }
+  virtual bool check_unsafe_resync_allowed(CatchainSeqno seqno) const = 0;
+  virtual td::uint32 check_unsafe_catchain_rotate(BlockSeqno seqno, CatchainSeqno cc_seqno) const = 0;
+  virtual bool need_db_truncate() const = 0;
+  virtual BlockSeqno get_truncate_seqno() const = 0;
+  virtual BlockSeqno sync_upto() const = 0;
+  virtual std::string get_session_logs_file() const = 0;
+  virtual td::uint32 get_celldb_compress_depth() const = 0;
+  virtual size_t get_max_open_archive_files() const = 0;
+  virtual double get_archive_preload_period() const = 0;
+  virtual bool get_disable_rocksdb_stats() const = 0;
+  virtual bool nonfinal_ls_queries_enabled() const = 0;
 
   virtual void set_zero_block_id(BlockIdExt block_id) = 0;
   virtual void set_init_block_id(BlockIdExt block_id) = 0;
-  virtual void set_shard_check_function(std::function<bool(ShardIdFull, ShardCheckMode)> check_shard) = 0;
+  virtual void set_shard_check_function(
+      std::function<bool(ShardIdFull, CatchainSeqno, ShardCheckMode)> check_shard) = 0;
   virtual void set_allow_blockchain_init(bool value) = 0;
-  virtual void set_sync_blocks_before(td::ClocksBase::Duration value) = 0;
-  virtual void set_block_ttl(td::ClocksBase::Duration value) = 0;
-  virtual void set_state_ttl(td::ClocksBase::Duration value) = 0;
-  virtual void set_archive_ttl(td::ClocksBase::Duration value) = 0;
-  virtual void set_key_proof_ttl(td::ClocksBase::Duration value) = 0;
+  virtual void set_sync_blocks_before(double value) = 0;
+  virtual void set_block_ttl(double value) = 0;
+  virtual void set_state_ttl(double value) = 0;
+  virtual void set_max_mempool_num(double value) = 0;
+  virtual void set_archive_ttl(double value) = 0;
+  virtual void set_key_proof_ttl(double value) = 0;
   virtual void set_initial_sync_disabled(bool value) = 0;
   virtual void set_hardforks(std::vector<BlockIdExt> hardforks) = 0;
-  virtual void set_filedb_depth(td::uint32 value) = 0;
+  virtual void add_unsafe_resync_catchain(CatchainSeqno seqno) = 0;
+  virtual void add_unsafe_catchain_rotate(BlockSeqno seqno, CatchainSeqno cc_seqno, td::uint32 value) = 0;
+  virtual void truncate_db(BlockSeqno seqno) = 0;
+  virtual void set_sync_upto(BlockSeqno seqno) = 0;
+  virtual void set_session_logs_file(std::string f) = 0;
+  virtual void set_celldb_compress_depth(td::uint32 value) = 0;
+  virtual void set_max_open_archive_files(size_t value) = 0;
+  virtual void set_archive_preload_period(double value) = 0;
+  virtual void set_disable_rocksdb_stats(bool value) = 0;
+  virtual void set_nonfinal_ls_queries_enabled(bool value) = 0;
 
   static td::Ref<ValidatorManagerOptions> create(
       BlockIdExt zero_block_id, BlockIdExt init_block_id,
-      std::function<bool(ShardIdFull, ShardCheckMode)> check_shard = [](ShardIdFull, ShardCheckMode) { return true; },
-      bool allow_blockchain_init = false, td::ClocksBase::Duration sync_blocks_before = 300,
-      td::ClocksBase::Duration block_ttl = 86400 * 7, td::ClocksBase::Duration state_ttl = 3600,
-      td::ClocksBase::Duration archive_ttl = 86400 * 365, td::ClocksBase::Duration key_proof_ttl = 86400 * 3650,
+      std::function<bool(ShardIdFull, CatchainSeqno, ShardCheckMode)> check_shard = [](ShardIdFull, CatchainSeqno,
+                                                                                       ShardCheckMode) { return true; },
+      bool allow_blockchain_init = false, double sync_blocks_before = 86400, double block_ttl = 86400 * 7,
+      double state_ttl = 3600, double archive_ttl = 86400 * 365, double key_proof_ttl = 86400 * 3650,
+      double max_mempool_num = 999999,
       bool initial_sync_disabled = false);
 };
 
@@ -146,6 +176,8 @@ class ValidatorManagerInterface : public td::actor::Actor {
   virtual void get_top_masterchain_block(td::Promise<BlockIdExt> promise) = 0;
   virtual void get_top_masterchain_state_block(
       td::Promise<std::pair<td::Ref<MasterchainState>, BlockIdExt>> promise) = 0;
+  virtual void get_last_liteserver_state_block(
+      td::Promise<std::pair<td::Ref<MasterchainState>, BlockIdExt>> promise) = 0;
 
   virtual void get_block_data(BlockHandle handle, td::Promise<td::BufferSlice> promise) = 0;
   virtual void check_zero_state_exists(BlockIdExt block_id, td::Promise<bool> promise) = 0;
@@ -166,7 +198,8 @@ class ValidatorManagerInterface : public td::actor::Actor {
   virtual void get_next_block(BlockIdExt block_id, td::Promise<BlockHandle> promise) = 0;
   virtual void write_handle(BlockHandle handle, td::Promise<td::Unit> promise) = 0;
 
-  virtual void new_external_message(td::BufferSlice data) = 0;
+  virtual void new_external_message(td::BufferSlice data, int priority) = 0;
+  virtual void check_external_message(td::BufferSlice data, td::Promise<td::Ref<ExtMessage>> promise) = 0;
   virtual void new_ihr_message(td::BufferSlice data) = 0;
   virtual void new_shard_block(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) = 0;
 
@@ -200,6 +233,11 @@ class ValidatorManagerInterface : public td::actor::Actor {
 
   virtual void run_ext_query(td::BufferSlice data, td::Promise<td::BufferSlice> promise) = 0;
   virtual void prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise) = 0;
+
+  virtual void prepare_perf_timer_stats(td::Promise<std::vector<PerfTimerStats>> promise) = 0;
+  virtual void add_perf_timer_stat(std::string name, double duration) = 0;
+  virtual void get_out_msg_queue_size(BlockIdExt block_id, td::Promise<td::uint32> promise) = 0;
+
 };
 
 }  // namespace validator

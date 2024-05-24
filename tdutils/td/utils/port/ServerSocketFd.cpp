@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/utils/port/ServerSocketFd.h"
 
@@ -22,10 +22,12 @@
 
 #include "td/utils/common.h"
 #include "td/utils/logging.h"
+#include "td/utils/port/detail/skip_eintr.h"
 #include "td/utils/port/IPAddress.h"
 #include "td/utils/port/PollFlags.h"
 
 #if TD_PORT_POSIX
+#include <cerrno>
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -34,7 +36,6 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
-
 #endif
 
 #if TD_PORT_WINDOWS
@@ -252,25 +253,9 @@ class ServerSocketFdImpl {
     }
 
     auto error = Status::PosixError(accept_errno, PSLICE() << "Accept from " << get_native_fd() << " has failed");
-    switch (accept_errno) {
-      case EBADF:
-      case EFAULT:
-      case EINVAL:
-      case ENOTSOCK:
-      case EOPNOTSUPP:
-        LOG(FATAL) << error;
-        UNREACHABLE();
-        break;
-      default:
-        LOG(ERROR) << error;
-      // fallthrough
-      case EMFILE:
-      case ENFILE:
-      case ECONNABORTED:  //???
-        get_poll_info().clear_flags(PollFlags::Read());
-        get_poll_info().add_flags(PollFlags::Close());
-        return std::move(error);
-    }
+    get_poll_info().clear_flags(PollFlags::Read());
+    get_poll_info().add_flags(PollFlags::Close());
+    return std::move(error);
   }
 
   Status get_pending_error() {

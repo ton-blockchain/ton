@@ -14,14 +14,14 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
+#include "td/utils/common.h"
 #include "td/utils/Span.h"
 
 #include <utility>
-#include <vector>
 
 namespace td {
 
@@ -30,7 +30,7 @@ class VectorQueue {
  public:
   template <class S>
   void push(S &&s) {
-    vector_.push_back(std::forward<S>(s));
+    vector_.emplace_back(std::forward<S>(s));
   }
   template <class... Args>
   void emplace(Args &&... args) {
@@ -50,27 +50,33 @@ class VectorQueue {
   T &back() {
     return vector_.back();
   }
+  const T &front() const {
+    return vector_[read_pos_];
+  }
+  const T &back() const {
+    return vector_.back();
+  }
   bool empty() const {
     return size() == 0;
   }
   size_t size() const {
     return vector_.size() - read_pos_;
   }
-  T *data() {
+  const T *data() const {
     return vector_.data() + read_pos_;
   }
-  const T *data() const {
+  T *data() {
     return vector_.data() + read_pos_;
   }
   Span<T> as_span() const {
     return {data(), size()};
   }
   MutableSpan<T> as_mutable_span() {
-    return {data(), size()};
+    return {vector_.data() + read_pos_, size()};
   }
 
  private:
-  std::vector<T> vector_;
+  vector<T> vector_;
   size_t read_pos_{0};
 
   void try_shrink() {

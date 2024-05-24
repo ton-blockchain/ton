@@ -14,18 +14,20 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/utils/bits.h"
 #include "block/block.h"
 #include "block/block-auto.h"
 #include "block/block-parse.h"
+#include "block/mc-config.h"
 #include "ton/ton-shard.h"
 #include "common/bigexp.h"
 #include "common/util.h"
 #include "td/utils/crypto.h"
 #include "td/utils/tl_storers.h"
 #include "td/utils/misc.h"
+#include "td/utils/Random.h"
 
 namespace block {
 using namespace std::literals::string_literals;
@@ -368,14 +370,14 @@ std::unique_ptr<MsgProcessedUptoCollection> MsgProcessedUptoCollection::unpack(t
   return v && v->valid ? std::move(v) : std::unique_ptr<MsgProcessedUptoCollection>{};
 }
 
-bool MsgProcessedUpto::contains(const MsgProcessedUpto& other) const & {
+bool MsgProcessedUpto::contains(const MsgProcessedUpto& other) const& {
   return ton::shard_is_ancestor(shard, other.shard) && mc_seqno >= other.mc_seqno &&
          (last_inmsg_lt > other.last_inmsg_lt ||
           (last_inmsg_lt == other.last_inmsg_lt && !(last_inmsg_hash < other.last_inmsg_hash)));
 }
 
 bool MsgProcessedUpto::contains(ton::ShardId other_shard, ton::LogicalTime other_lt, td::ConstBitPtr other_hash,
-                                ton::BlockSeqno other_mc_seqno) const & {
+                                ton::BlockSeqno other_mc_seqno) const& {
   return ton::shard_is_ancestor(shard, other_shard) && mc_seqno >= other_mc_seqno &&
          (last_inmsg_lt > other_lt || (last_inmsg_lt == other_lt && !(last_inmsg_hash < other_hash)));
 }
@@ -577,6 +579,15 @@ bool MsgProcessedUptoCollection::already_processed(const EnqueuedMsgDescr& msg) 
   return false;
 }
 
+bool MsgProcessedUptoCollection::can_check_processed() const {
+  for (const auto& entry : list) {
+    if (!entry.can_check_processed()) {
+      return false;
+    }
+  }
+  return true;
+}
+
 bool MsgProcessedUptoCollection::for_each_mcseqno(std::function<bool(ton::BlockSeqno)> func) const {
   for (const auto& entry : list) {
     if (!func(entry.mc_seqno)) {
@@ -584,6 +595,36 @@ bool MsgProcessedUptoCollection::for_each_mcseqno(std::function<bool(ton::BlockS
     }
   }
   return true;
+}
+
+std::ostream& MsgProcessedUpto::print(std::ostream& os) const {
+  return os << "[" << ton::shard_to_str(shard) << "," << mc_seqno << "," << last_inmsg_lt << ","
+            << last_inmsg_hash.to_hex() << "]";
+}
+
+std::ostream& MsgProcessedUptoCollection::print(std::ostream& os) const {
+  os << "MsgProcessedUptoCollection of " << owner.to_str() << " = {";
+  int i = 0;
+  for (const auto& entry : list) {
+    if (i++) {
+      os << ", ";
+    }
+    os << entry;
+  }
+  os << "}";
+  return os;
+}
+
+std::string MsgProcessedUpto::to_str() const {
+  std::ostringstream os;
+  print(os);
+  return os.str();
+}
+
+std::string MsgProcessedUptoCollection::to_str() const {
+  std::ostringstream os;
+  print(os);
+  return os.str();
 }
 
 // unpacks some fields from EnqueuedMsg
@@ -674,7 +715,7 @@ td::uint64 BlockLimitStatus::estimate_block_size(const vm::NewCellStorageStat::S
     sum += *extra;
   }
   return 2000 + (sum.bits >> 3) + sum.cells * 12 + sum.internal_refs * 3 + sum.external_refs * 40 + accounts * 200 +
-         transactions * 200 + (extra ? 200 : 0);
+         transactions * 200 + (extra ? 200 : 0) + extra_out_msgs * 300 + public_library_diff * 700;
 }
 
 int BlockLimitStatus::classify() const {
@@ -813,11 +854,11 @@ td::Status ShardState::unpack_out_msg_queue_info(Ref<vm::Cell> out_msg_queue_inf
     LOG(DEBUG) << "unpacking ProcessedUpto of our previous block " << id_.to_str();
     block::gen::t_ProcessedInfo.print(std::cerr, qinfo.proc_info);
   }
-  if (!block::gen::t_ProcessedInfo.validate_csr(qinfo.proc_info)) {
+  if (!block::gen::t_ProcessedInfo.validate_csr(1024, qinfo.proc_info)) {
     return td::Status::Error(
         -666, "ProcessedInfo in the state of "s + id_.to_str() + " is invalid according to automated validity checks");
   }
-  if (!block::gen::t_IhrPendingInfo.validate_csr(qinfo.ihr_pending)) {
+  if (!block::gen::t_IhrPendingInfo.validate_csr(1024, qinfo.ihr_pending)) {
     return td::Status::Error(
         -666, "IhrPendingInfo in the state of "s + id_.to_str() + " is invalid according to automated validity checks");
   }
@@ -968,8 +1009,8 @@ td::Status ShardState::merge_with(ShardState& sib) {
   return td::Status::OK();
 }
 
-td::Result<std::unique_ptr<vm::AugmentedDictionary>> ShardState::compute_split_out_msg_queue(
-    ton::ShardIdFull subshard) {
+td::Result<std::unique_ptr<vm::AugmentedDictionary>> ShardState::compute_split_out_msg_queue(ton::ShardIdFull subshard,
+                                                                                             td::uint32* queue_size) {
   auto shard = id_.shard_full();
   if (!ton::shard_is_parent(shard, subshard)) {
     return td::Status::Error(-666, "cannot split subshard "s + subshard.to_str() + " from state of " + id_.to_str() +
@@ -977,7 +1018,7 @@ td::Result<std::unique_ptr<vm::AugmentedDictionary>> ShardState::compute_split_o
   }
   CHECK(out_msg_queue_);
   auto subqueue = std::make_unique<vm::AugmentedDictionary>(*out_msg_queue_);
-  int res = block::filter_out_msg_queue(*subqueue, shard, subshard);
+  int res = block::filter_out_msg_queue(*subqueue, shard, subshard, queue_size);
   if (res < 0) {
     return td::Status::Error(-666, "error splitting OutMsgQueue of "s + id_.to_str());
   }
@@ -999,7 +1040,7 @@ td::Result<std::shared_ptr<block::MsgProcessedUptoCollection>> ShardState::compu
   return std::move(sub_processed_upto);
 }
 
-td::Status ShardState::split(ton::ShardIdFull subshard) {
+td::Status ShardState::split(ton::ShardIdFull subshard, td::uint32* queue_size) {
   if (!ton::shard_is_parent(id_.shard_full(), subshard)) {
     return td::Status::Error(-666, "cannot split subshard "s + subshard.to_str() + " from state of " + id_.to_str() +
                                        " because it is not a parent");
@@ -1017,7 +1058,7 @@ td::Status ShardState::split(ton::ShardIdFull subshard) {
   auto shard1 = id_.shard_full();
   CHECK(ton::shard_is_parent(shard1, subshard));
   CHECK(out_msg_queue_);
-  int res1 = block::filter_out_msg_queue(*out_msg_queue_, shard1, subshard);
+  int res1 = block::filter_out_msg_queue(*out_msg_queue_, shard1, subshard, queue_size);
   if (res1 < 0) {
     return td::Status::Error(-666, "error splitting OutMsgQueue of "s + id_.to_str());
   }
@@ -1036,7 +1077,7 @@ td::Status ShardState::split(ton::ShardIdFull subshard) {
   LOG(DEBUG) << "splitting total_balance";
   auto old_total_balance = total_balance_;
   auto accounts_extra = account_dict_->get_root_extra();
-  if (!(accounts_extra.write().advance(5) && total_balance_.validate_unpack(accounts_extra))) {
+  if (!(accounts_extra.write().advance(5) && total_balance_.validate_unpack(accounts_extra, 1024))) {
     LOG(ERROR) << "cannot unpack CurrencyCollection from the root of newly-split accounts dictionary";
     return td::Status::Error(
         -666, "error splitting total balance in account dictionary of shardchain state "s + id_.to_str());
@@ -1057,8 +1098,12 @@ td::Status ShardState::split(ton::ShardIdFull subshard) {
   return td::Status::OK();
 }
 
-int filter_out_msg_queue(vm::AugmentedDictionary& out_queue, ton::ShardIdFull old_shard, ton::ShardIdFull subshard) {
-  return out_queue.filter([subshard, old_shard](vm::CellSlice& cs, td::ConstBitPtr key, int key_len) -> int {
+int filter_out_msg_queue(vm::AugmentedDictionary& out_queue, ton::ShardIdFull old_shard, ton::ShardIdFull subshard,
+                         td::uint32* queue_size) {
+  if (queue_size) {
+    *queue_size = 0;
+  }
+  return out_queue.filter([=](vm::CellSlice& cs, td::ConstBitPtr key, int key_len) -> int {
     CHECK(key_len == 352);
     LOG(DEBUG) << "scanning OutMsgQueue entry with key " << key.to_hex(key_len);
     block::tlb::MsgEnvelope::Record_std env;
@@ -1081,20 +1126,24 @@ int filter_out_msg_queue(vm::AugmentedDictionary& out_queue, ton::ShardIdFull ol
                  << " does not contain current address belonging to shard " << old_shard.to_str();
       return -1;
     }
-    return ton::shard_contains(subshard, cur_prefix);
+    bool res = ton::shard_contains(subshard, cur_prefix);
+    if (res && queue_size) {
+      ++*queue_size;
+    }
+    return res;
   });
 }
 
-bool CurrencyCollection::validate() const {
-  return is_valid() && td::sgn(grams) >= 0 && validate_extra();
+bool CurrencyCollection::validate(int max_cells) const {
+  return is_valid() && td::sgn(grams) >= 0 && validate_extra(max_cells);
 }
 
-bool CurrencyCollection::validate_extra() const {
+bool CurrencyCollection::validate_extra(int max_cells) const {
   if (extra.is_null()) {
     return true;
   }
   vm::CellBuilder cb;
-  return cb.store_maybe_ref(extra) && block::tlb::t_ExtraCurrencyCollection.validate_ref(cb.finalize());
+  return cb.store_maybe_ref(extra) && block::tlb::t_ExtraCurrencyCollection.validate_ref(max_cells, cb.finalize());
 }
 
 bool CurrencyCollection::add(const CurrencyCollection& a, const CurrencyCollection& b, CurrencyCollection& c) {
@@ -1265,8 +1314,8 @@ bool CurrencyCollection::unpack(Ref<vm::CellSlice> csr) {
   return unpack_CurrencyCollection(std::move(csr), grams, extra) || invalidate();
 }
 
-bool CurrencyCollection::validate_unpack(Ref<vm::CellSlice> csr) {
-  return (csr.not_null() && block::tlb::t_CurrencyCollection.validate(*csr) &&
+bool CurrencyCollection::validate_unpack(Ref<vm::CellSlice> csr, int max_cells) {
+  return (csr.not_null() && block::tlb::t_CurrencyCollection.validate_upto(max_cells, *csr) &&
           unpack_CurrencyCollection(std::move(csr), grams, extra)) ||
          invalidate();
 }
@@ -1323,42 +1372,61 @@ std::ostream& operator<<(std::ostream& os, const CurrencyCollection& cc) {
 bool ValueFlow::set_zero() {
   return from_prev_blk.set_zero() && to_next_blk.set_zero() && imported.set_zero() && exported.set_zero() &&
          fees_collected.set_zero() && fees_imported.set_zero() && recovered.set_zero() && created.set_zero() &&
-         minted.set_zero();
+         minted.set_zero() && burned.set_zero();
 }
 
 bool ValueFlow::validate() const {
   return is_valid() && from_prev_blk + imported + fees_imported + created + minted + recovered ==
-                           to_next_blk + exported + fees_collected;
+                           to_next_blk + exported + fees_collected + burned;
 }
 
 bool ValueFlow::store(vm::CellBuilder& cb) const {
   vm::CellBuilder cb2;
-  return cb.store_long_bool(block::gen::ValueFlow::cons_tag[0], 32)  // value_flow ^[
-         && from_prev_blk.store(cb2)                                 //   from_prev_blk:CurrencyCollection
-         && to_next_blk.store(cb2)                                   //   to_next_blk:CurrencyCollection
-         && imported.store(cb2)                                      //   imported:CurrencyCollection
-         && exported.store(cb2)                                      //   exported:CurrencyCollection
-         && cb.store_ref_bool(cb2.finalize())                        // ]
-         && fees_collected.store(cb)                                 // fees_collected:CurrencyCollection
-         && fees_imported.store(cb2)                                 // ^[ fees_imported:CurrencyCollection
-         && recovered.store(cb2)                                     //    recovered:CurrencyCollection
-         && created.store(cb2)                                       //    created:CurrencyCollection
-         && minted.store(cb2)                                        //    minted:CurrencyCollection
-         && cb.store_ref_bool(cb2.finalize());                       // ] = ValueFlow;
+  auto type = burned.is_zero() ? block::gen::ValueFlow::value_flow : block::gen::ValueFlow::value_flow_v2;
+  return cb.store_long_bool(block::gen::ValueFlow::cons_tag[type], 32)  // ^[
+         && from_prev_blk.store(cb2)                                    //   from_prev_blk:CurrencyCollection
+         && to_next_blk.store(cb2)                                      //   to_next_blk:CurrencyCollection
+         && imported.store(cb2)                                         //   imported:CurrencyCollection
+         && exported.store(cb2)                                         //   exported:CurrencyCollection
+         && cb.store_ref_bool(cb2.finalize())                           // ]
+         && fees_collected.store(cb)                                    // fees_collected:CurrencyCollection
+         && (burned.is_zero() || burned.store(cb))            // fees_burned:CurrencyCollection
+         && fees_imported.store(cb2)                                    // ^[ fees_imported:CurrencyCollection
+         && recovered.store(cb2)                                        //    recovered:CurrencyCollection
+         && created.store(cb2)                                          //    created:CurrencyCollection
+         && minted.store(cb2)                                           //    minted:CurrencyCollection
+         && cb.store_ref_bool(cb2.finalize());                          // ] = ValueFlow;
 }
 
 bool ValueFlow::fetch(vm::CellSlice& cs) {
-  block::gen::ValueFlow::Record f;
-  if (!(tlb::unpack(cs, f) && from_prev_blk.validate_unpack(std::move(f.r1.from_prev_blk)) &&
-        to_next_blk.validate_unpack(std::move(f.r1.to_next_blk)) &&
-        imported.validate_unpack(std::move(f.r1.imported)) && exported.validate_unpack(std::move(f.r1.exported)) &&
-        fees_collected.validate_unpack(std::move(f.fees_collected)) &&
-        fees_imported.validate_unpack(std::move(f.r2.fees_imported)) &&
-        recovered.validate_unpack(std::move(f.r2.recovered)) && created.validate_unpack(std::move(f.r2.created)) &&
-        minted.validate_unpack(std::move(f.r2.minted)))) {
+  if (cs.size() < 32) {
     return invalidate();
   }
-  return true;
+  auto tag = cs.prefetch_ulong(32);
+  block::gen::ValueFlow::Record_value_flow f1;
+  if (tag == block::gen::ValueFlow::cons_tag[block::gen::ValueFlow::value_flow] && tlb::unpack(cs, f1) &&
+      from_prev_blk.validate_unpack(std::move(f1.r1.from_prev_blk)) &&
+      to_next_blk.validate_unpack(std::move(f1.r1.to_next_blk)) &&
+      imported.validate_unpack(std::move(f1.r1.imported)) && exported.validate_unpack(std::move(f1.r1.exported)) &&
+      fees_collected.validate_unpack(std::move(f1.fees_collected)) && burned.set_zero() &&
+      fees_imported.validate_unpack(std::move(f1.r2.fees_imported)) &&
+      recovered.validate_unpack(std::move(f1.r2.recovered)) && created.validate_unpack(std::move(f1.r2.created)) &&
+      minted.validate_unpack(std::move(f1.r2.minted))) {
+    return true;
+  }
+  block::gen::ValueFlow::Record_value_flow_v2 f2;
+  if (tag == block::gen::ValueFlow::cons_tag[block::gen::ValueFlow::value_flow_v2] && tlb::unpack(cs, f2) &&
+      from_prev_blk.validate_unpack(std::move(f2.r1.from_prev_blk)) &&
+      to_next_blk.validate_unpack(std::move(f2.r1.to_next_blk)) &&
+      imported.validate_unpack(std::move(f2.r1.imported)) && exported.validate_unpack(std::move(f2.r1.exported)) &&
+      fees_collected.validate_unpack(std::move(f2.fees_collected)) &&
+      burned.validate_unpack(std::move(f2.burned)) &&
+      fees_imported.validate_unpack(std::move(f2.r2.fees_imported)) &&
+      recovered.validate_unpack(std::move(f2.r2.recovered)) && created.validate_unpack(std::move(f2.r2.created)) &&
+      minted.validate_unpack(std::move(f2.r2.minted))) {
+    return true;
+  }
+  return invalidate();
 }
 
 bool ValueFlow::unpack(Ref<vm::CellSlice> csr) {
@@ -1383,7 +1451,8 @@ bool ValueFlow::show(std::ostream& os) const {
           show_one(os, " to_next_blk:", to_next_blk) && show_one(os, " imported:", imported) &&
           show_one(os, " exported:", exported) && show_one(os, " fees_collected:", fees_collected) &&
           show_one(os, " fees_imported:", fees_imported) && show_one(os, " recovered:", recovered) &&
-          show_one(os, " created:", created) && show_one(os, " minted:", minted) && say(os, ")")) ||
+          show_one(os, " created:", created) && show_one(os, " minted:", minted) &&
+          (burned.is_zero() || show_one(os, " burned:", burned)) && say(os, ")")) ||
          (say(os, "...<invalid-value-flow>)") && false);
 }
 
@@ -1507,6 +1576,89 @@ bool unpack_CreatorStats(Ref<vm::CellSlice> cs, DiscountedCounter& mc_cnt, Disco
 }
 
 /*
+ *
+ *    Monte Carlo simulator for computing the share of shardchain blocks generated by each validator
+ *
+ */
+
+bool MtCarloComputeShare::compute() {
+  ok = false;
+  if (W.size() >= (1U << 31) || W.empty()) {
+    return false;
+  }
+  K = std::min(K, N);
+  if (K <= 0 || iterations <= 0) {
+    return false;
+  }
+  double tot_weight = 0., acc = 0.;
+  for (int i = 0; i < N; i++) {
+    if (W[i] <= 0.) {
+      return false;
+    }
+    tot_weight += W[i];
+  }
+  CW.resize(N);
+  RW.resize(N);
+  for (int i = 0; i < N; i++) {
+    CW[i] = acc;
+    acc += W[i] /= tot_weight;
+    RW[i] = 0.;
+  }
+  R0 = 0.;
+  H.resize(N);
+  A.resize(K);
+  for (long long it = 0; it < iterations; ++it) {
+    gen_vset();
+  }
+  for (int i = 0; i < N; i++) {
+    RW[i] = W[i] * (RW[i] + R0) / (double)iterations;
+  }
+  return ok = true;
+}
+
+void MtCarloComputeShare::gen_vset() {
+  double total_wt = 1.;
+  int hc = 0;
+  for (int i = 0; i < K; i++) {
+    CHECK(total_wt > 0);
+    double inv_wt = 1. / total_wt;
+    R0 += inv_wt;
+    for (int j = 0; j < i; j++) {
+      RW[A[j]] -= inv_wt;
+    }
+    // double p = drand48() * total_wt;
+    double p = (double)td::Random::fast_uint64() * total_wt / (1. * (1LL << 32) * (1LL << 32));
+    for (int h = 0; h < hc; h++) {
+      if (p < H[h].first) {
+        break;
+      }
+      p += H[h].second;
+    }
+    int a = -1, b = N, c;
+    while (b - a > 1) {
+      c = ((a + b) >> 1);
+      if (CW[c] <= p) {
+        a = c;
+      } else {
+        b = c;
+      }
+    }
+    CHECK(a >= 0 && a < N);
+    CHECK(total_wt >= W[a]);
+    total_wt -= W[a];
+    double x = CW[a];
+    c = hc++;
+    while (c > 0 && H[c - 1].first > x) {
+      H[c] = H[c - 1];
+      --c;
+    }
+    H[c].first = x;
+    H[c].second = W[a];
+    A[i] = a;
+  }
+}
+
+/*
  * 
  *    Other block-related functions
  * 
@@ -1593,7 +1745,7 @@ bool check_one_config_param(Ref<vm::CellSlice> cs_ref, td::ConstBitPtr key, td::
   } else if (idx < 0) {
     return true;
   }
-  bool ok = block::gen::ConfigParam{idx}.validate_ref(std::move(cell));
+  bool ok = block::gen::ConfigParam{idx}.validate_ref(1024, std::move(cell));
   if (!ok) {
     LOG(ERROR) << "configuration parameter #" << idx << " is invalid";
   }
@@ -1602,33 +1754,50 @@ bool check_one_config_param(Ref<vm::CellSlice> cs_ref, td::ConstBitPtr key, td::
 
 const int mandatory_config_params[] = {18, 20, 21, 22, 23, 24, 25, 28, 34};
 
-bool valid_config_data(Ref<vm::Cell> cell, const td::BitArray<256>& addr, bool catch_errors, bool relax_par0) {
+bool valid_config_data(Ref<vm::Cell> cell, const td::BitArray<256>& addr, bool catch_errors, bool relax_par0,
+                       Ref<vm::Cell> old_mparams) {
   using namespace std::placeholders;
   if (cell.is_null()) {
     return false;
   }
-  if (!catch_errors) {
-    vm::Dictionary dict{std::move(cell), 32};
-    for (int x : mandatory_config_params) {
-      if (!dict.int_key_exists(x)) {
-        LOG(ERROR) << "mandatory configuration parameter #" << x << " is missing";
-        return false;
-      }
+  if (catch_errors) {
+    try {
+      return valid_config_data(std::move(cell), addr, false, relax_par0, std::move(old_mparams));
+    } catch (vm::VmError&) {
+      return false;
     }
-    return dict.check_for_each(std::bind(check_one_config_param, _1, _2, addr.cbits(), relax_par0));
   }
-  try {
-    vm::Dictionary dict{std::move(cell), 32};
-    for (int x : mandatory_config_params) {
-      if (!dict.int_key_exists(x)) {
-        LOG(ERROR) << "mandatory configuration parameter #" << x << " is missing";
-        return false;
-      }
-    }
-    return dict.check_for_each(std::bind(check_one_config_param, _1, _2, addr.cbits(), relax_par0));
-  } catch (vm::VmError&) {
+  vm::Dictionary dict{std::move(cell), 32};
+  if (!dict.check_for_each(std::bind(check_one_config_param, _1, _2, addr.cbits(), relax_par0))) {
     return false;
   }
+  for (int x : mandatory_config_params) {
+    if (!dict.int_key_exists(x)) {
+      LOG(ERROR) << "mandatory configuration parameter #" << x << " is missing";
+      return false;
+    }
+  }
+  return config_params_present(dict, dict.lookup_ref(td::BitArray<32>{9})) &&
+         config_params_present(dict, std::move(old_mparams));
+}
+
+bool config_params_present(vm::Dictionary& dict, Ref<vm::Cell> param_dict_root) {
+  auto res = block::Config::unpack_param_dict(std::move(param_dict_root));
+  if (res.is_error()) {
+    LOG(ERROR)
+        << "invalid mandatory parameters dictionary while checking existence of all mandatory configuration parameters";
+    return false;
+  }
+  for (int x : res.move_as_ok()) {
+    // LOG(DEBUG) << "checking whether mandatory configuration parameter #" << x << " exists";
+    if (!dict.int_key_exists(x)) {
+      LOG(ERROR) << "configuration parameter #" << x
+                 << " (declared as mandatory in configuration parameter #9) is missing";
+      return false;
+    }
+  }
+  // LOG(DEBUG) << "all mandatory configuration parameters present";
+  return true;
 }
 
 bool add_extra_currency(Ref<vm::Cell> extra1, Ref<vm::Cell> extra2, Ref<vm::Cell>& res) {
@@ -1651,7 +1820,7 @@ bool sub_extra_currency(Ref<vm::Cell> extra1, Ref<vm::Cell> extra2, Ref<vm::Cell
     res.clear();
     return false;
   } else {
-    return block::tlb::t_ExtraCurrencyCollection.sub_values_ref(res, std::move(extra1), std::move(extra2));
+    return block::tlb::t_ExtraCurrencyCollection.sub_values_ref(res, std::move(extra1), std::move(extra2)) >= 0;
   }
 }
 
@@ -1666,7 +1835,7 @@ ton::AccountIdPrefixFull interpolate_addr(const ton::AccountIdPrefixFull& src, c
     unsigned long long mask = (std::numeric_limits<td::uint64>::max() >> (d - 32));
     return ton::AccountIdPrefixFull{dest.workchain, (dest.account_id_prefix & ~mask) | (src.account_id_prefix & mask)};
   } else {
-    int mask = (-1 >> d);
+    int mask = (int)(~0U >> d);
     return ton::AccountIdPrefixFull{(dest.workchain & ~mask) | (src.workchain & mask), src.account_id_prefix};
   }
 }

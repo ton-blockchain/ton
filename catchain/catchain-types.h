@@ -14,12 +14,13 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
 #include "td/utils/int_types.h"
 #include "adnl/adnl-node-id.hpp"
+#include "ton/ton-types.h"
 
 namespace ton {
 
@@ -33,13 +34,6 @@ using CatChainSessionId = td::Bits256;
 struct CatChainNode {
   adnl::AdnlNodeIdShort adnl_id;
   PublicKey pub_key;
-};
-
-struct CatChainOptions {
-  td::Clocks::Duration idle_timeout = 16.0;
-  td::uint32 max_deps = 4;
-
-  bool debug_disable_db = false;
 };
 
 }  // namespace catchain

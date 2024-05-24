@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/utils/port/wstring_convert.h"
 
@@ -33,10 +33,7 @@ Result<std::wstring> to_wstring(CSlice slice) {
     return Status::Error("Wrong encoding");
   }
 
-  size_t wstring_len = 0;
-  for (auto c : slice) {
-    wstring_len += ((c & 0xc0) != 0x80) + ((c & 0xf8) == 0xf0);
-  }
+  size_t wstring_len = utf8_utf16_length(slice);
 
   std::wstring result(wstring_len, static_cast<wchar_t>(0));
   if (wstring_len) {

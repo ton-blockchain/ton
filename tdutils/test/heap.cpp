@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/utils/tests.h"
 
@@ -22,26 +22,23 @@
 #include "td/utils/Heap.h"
 #include "td/utils/Random.h"
 
-#include <algorithm>
 #include <cstdio>
-#include <cstdlib>
 #include <set>
 #include <utility>
 
 REGISTER_TESTS(heap)
 
-using namespace td;
-
 TEST(Heap, sort_random_perm) {
   int n = 1000000;
-  std::vector<int> v(n);
+
+  td::vector<int> v(n);
   for (int i = 0; i < n; i++) {
     v[i] = i;
   }
-  std::srand(123);
-  std::random_shuffle(v.begin(), v.end());
-  std::vector<HeapNode> nodes(n);
-  KHeap<int> kheap;
+  td::Random::Xorshift128plus rnd(123);
+  td::random_shuffle(td::as_mutable_span(v), rnd);
+  std::vector<td::HeapNode> nodes(n);
+  td::KHeap<int> kheap;
   for (int i = 0; i < n; i++) {
     kheap.insert(v[i], &nodes[i]);
   }
@@ -62,7 +59,7 @@ class CheckedHeap {
       nodes[i].value = i;
     }
   }
-  static void xx(int key, const HeapNode *heap_node) {
+  static void xx(int key, const td::HeapNode *heap_node) {
     const Node *node = static_cast<const Node *>(heap_node);
     std::fprintf(stderr, "(%d;%d)", node->key, node->value);
   }
@@ -77,9 +74,9 @@ class CheckedHeap {
   }
   int random_id() const {
     CHECK(!empty());
-    return ids[Random::fast(0, static_cast<int>(ids.size() - 1))];
+    return ids[td::Random::fast(0, static_cast<int>(ids.size() - 1))];
   }
-  size_t size() const {
+  std::size_t size() const {
     return ids.size();
   }
   bool empty() const {
@@ -151,19 +148,19 @@ class CheckedHeap {
   }
 
  private:
-  struct Node : public HeapNode {
+  struct Node : public td::HeapNode {
     Node() = default;
     Node(int key, int value) : key(key), value(value) {
     }
     int key = 0;
     int value = 0;
   };
-  vector<int> ids;
-  vector<int> rev_ids;
-  vector<int> free_ids;
-  vector<Node> nodes;
+  td::vector<int> ids;
+  td::vector<int> rev_ids;
+  td::vector<int> free_ids;
+  td::vector<Node> nodes;
   std::set<std::pair<int, int>> set_heap;
-  KHeap<int> kheap;
+  td::KHeap<int> kheap;
 };
 
 TEST(Heap, random_events) {
@@ -174,11 +171,11 @@ TEST(Heap, random_events) {
       heap.top_key();
     }
 
-    int x = Random::fast(0, 4);
+    int x = td::Random::fast(0, 4);
     if (heap.empty() || (x < 2 && heap.size() < 1000)) {
-      heap.insert(Random::fast(0, 99));
+      heap.insert(td::Random::fast(0, 99));
     } else if (x < 3) {
-      heap.fix_key(Random::fast(0, 99), heap.random_id());
+      heap.fix_key(td::Random::fast(0, 99), heap.random_id());
     } else if (x < 4) {
       heap.erase(heap.random_id());
     } else if (x < 5) {

@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "token-manager.h"
 
@@ -67,11 +67,10 @@ void TokenManager::download_token_cleared(size_t download_size, td::uint32 prior
 }
 
 void TokenManager::alarm() {
-  for (auto it = pending_.begin(); it != pending_.end(); it++) {
+  for (auto it = pending_.begin(); it != pending_.end();) {
     if (it->second.timeout.is_in_past()) {
       it->second.promise.set_error(td::Status::Error(ErrorCode::timeout, "timeout in wait download token"));
-      auto it2 = it++;
-      pending_.erase(it2);
+      it = pending_.erase(it);
     } else {
       it++;
     }

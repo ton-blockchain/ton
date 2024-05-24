@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/utils/JsonBuilder.h"
 
@@ -603,6 +603,15 @@ bool has_json_object_field(const JsonObject &object, Slice name) {
     }
   }
   return false;
+}
+
+JsonValue get_json_object_field_force(JsonObject &object, Slice name) {
+  for (auto &field_value : object) {
+    if (field_value.first == name) {
+      return std::move(field_value.second);
+    }
+  }
+  return JsonValue();
 }
 
 Result<JsonValue> get_json_object_field(JsonObject &object, Slice name, JsonValue::Type type, bool is_optional) {

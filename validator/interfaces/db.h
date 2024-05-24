@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -50,9 +50,13 @@ class Db : public td::actor::Actor {
   virtual void store_block_state(BlockHandle handle, td::Ref<ShardState> state,
                                  td::Promise<td::Ref<ShardState>> promise) = 0;
   virtual void get_block_state(ConstBlockHandle handle, td::Promise<td::Ref<ShardState>> promise) = 0;
+  virtual void get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) = 0;
 
   virtual void store_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::BufferSlice state,
                                            td::Promise<td::Unit> promise) = 0;
+  virtual void store_persistent_state_file_gen(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+                                               std::function<td::Status(td::FileFd&)> write_data,
+                                               td::Promise<td::Unit> promise) = 0;
   virtual void get_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id,
                                          td::Promise<td::BufferSlice> promise) = 0;
   virtual void get_persistent_state_file_slice(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::int64 offset,
@@ -101,7 +105,7 @@ class Db : public td::actor::Actor {
 
   virtual void prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise) = 0;
 
-  virtual void truncate(td::Ref<MasterchainState> state, td::Promise<td::Unit> promise) = 0;
+  virtual void truncate(BlockSeqno seqno, ConstBlockHandle handle, td::Promise<td::Unit> promise) = 0;
 
   virtual void add_key_block_proof(td::Ref<Proof> proof, td::Promise<td::Unit> promise) = 0;
   virtual void add_key_block_proof_link(td::Ref<ProofLink> proof_link, td::Promise<td::Unit> promise) = 0;
@@ -115,7 +119,7 @@ class Db : public td::actor::Actor {
                                  td::Promise<td::BufferSlice> promise) = 0;
   virtual void set_async_mode(bool mode, td::Promise<td::Unit> promise) = 0;
 
-  virtual void run_gc(UnixTime ts) = 0;
+  virtual void run_gc(UnixTime mc_ts, UnixTime gc_ts, UnixTime archive_ttl) = 0;
 };
 
 }  // namespace validator

@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -45,6 +45,7 @@ const char* get_exception_msg(Excno exc_no);
 
 class VmError {
   Excno exc_no;
+  bool msg_alloc = false;
   const char* msg;
   long long arg;
 
@@ -55,6 +56,18 @@ class VmError {
   }
   VmError(Excno _excno, const char* _msg, long long _arg) : exc_no(_excno), msg(_msg), arg(_arg) {
   }
+  VmError(Excno _excno, std::string _msg, long long _arg = 0) : exc_no(_excno), msg_alloc(true), arg(_arg) {
+    msg_alloc = true;
+    char* p = (char*)malloc(_msg.size() + 1);
+    memcpy(p, _msg.data(), _msg.size());
+    p[_msg.size()] = 0;
+    msg = p;
+  }
+  ~VmError() {
+    if (msg_alloc) {
+      free(const_cast<char*>(msg));
+    }
+  }
   int get_errno() const {
     return static_cast<int>(exc_no);
   }
@@ -63,6 +76,13 @@ class VmError {
   }
   long long get_arg() const {
     return arg;
+  }
+  td::Status as_status() const {
+    return td::Status::Error(td::Slice{get_msg()});
+  }
+  template <typename T>
+  td::Status as_status(T pfx) const {
+    return td::Status::Error(PSLICE() << pfx << get_msg());
   }
 };
 
@@ -76,6 +96,13 @@ struct VmNoGas {
   }
   operator VmError() const {
     return VmError{Excno::out_of_gas, "out of gas"};
+  }
+  td::Status as_status() const {
+    return td::Status::Error(td::Slice{get_msg()});
+  }
+  template <typename T>
+  td::Status as_status(T pfx) const {
+    return td::Status::Error(PSLICE() << pfx << get_msg());
   }
 };
 
@@ -93,6 +120,13 @@ struct VmVirtError {
   operator VmError() const {
     return VmError{Excno::virt_err, "prunned branch", virtualization};
   }
+  td::Status as_status() const {
+    return td::Status::Error(td::Slice{get_msg()});
+  }
+  template <typename T>
+  td::Status as_status(T pfx) const {
+    return td::Status::Error(PSLICE() << pfx << get_msg());
+  }
 };
 
 struct VmFatal {};
@@ -101,12 +135,12 @@ template <class F>
 auto try_f(F&& f) noexcept -> decltype(f()) {
   try {
     return f();
-  } catch (vm::VmError error) {
-    return td::Status::Error(PSLICE() << "Got a vm exception: " << error.get_msg());
-  } catch (vm::VmVirtError error) {
-    return td::Status::Error(PSLICE() << "Got a vm virtualization exception: " << error.get_msg());
-  } catch (vm::VmNoGas error) {
-    return td::Status::Error(PSLICE() << "Got a vm no gas exception: " << error.get_msg());
+  } catch (vm::VmError& error) {
+    return error.as_status("Got a vm exception: ");
+  } catch (vm::VmVirtError& error) {
+    return error.as_status("Got a vm virtualization exception: ");
+  } catch (vm::VmNoGas& error) {
+    return error.as_status("Got a vm no gas exception: ");
   }
 }
 

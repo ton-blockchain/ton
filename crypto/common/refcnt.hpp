@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -83,6 +83,7 @@ class CntObject {
   void assert_unique() const {
     assert(is_unique());
   }
+  Ref<CntObject> clone() const;
 };
 
 typedef Ref<CntObject> RefAny;
@@ -159,6 +160,7 @@ struct static_cast_ref {};
 namespace detail {
 void safe_delete(const CntObject* ptr);
 }
+
 template <class T>
 class Ref {
   T* ptr;

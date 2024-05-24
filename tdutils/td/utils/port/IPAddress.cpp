@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #define _WINSOCK_DEPRECATED_NO_WARNINGS  // we need to use inet_addr instead of inet_pton
 
@@ -279,11 +279,11 @@ uint32 IPAddress::get_ipv4() const {
   return htonl(ipv4_addr_.sin_addr.s_addr);
 }
 
-Slice IPAddress::get_ipv6() const {
+string IPAddress::get_ipv6() const {
   static_assert(sizeof(ipv6_addr_.sin6_addr) == 16, "ipv6 size == 16");
   CHECK(is_valid());
   CHECK(!is_ipv4());
-  return Slice(ipv6_addr_.sin6_addr.s6_addr, 16);
+  return Slice(ipv6_addr_.sin6_addr.s6_addr, 16).str();
 }
 
 IPAddress IPAddress::get_any_addr() const {
@@ -320,7 +320,12 @@ void IPAddress::init_ipv6_any() {
 Status IPAddress::init_ipv6_port(CSlice ipv6, int port) {
   is_valid_ = false;
   if (port <= 0 || port >= (1 << 16)) {
-    return Status::Error(PSLICE() << "Invalid [port=" << port << "]");
+    return Status::Error(PSLICE() << "Invalid [IPv6 address port=" << port << "]");
+  }
+  string ipv6_plain;
+  if (ipv6.size() > 2 && ipv6[0] == '[' && ipv6.back() == ']') {
+    ipv6_plain.assign(ipv6.begin() + 1, ipv6.size() - 2);
+    ipv6 = ipv6_plain;
   }
   std::memset(&ipv6_addr_, 0, sizeof(ipv6_addr_));
   ipv6_addr_.sin6_family = AF_INET6;
@@ -342,7 +347,7 @@ Status IPAddress::init_ipv6_as_ipv4_port(CSlice ipv4, int port) {
 Status IPAddress::init_ipv4_port(CSlice ipv4, int port) {
   is_valid_ = false;
   if (port <= 0 || port >= (1 << 16)) {
-    return Status::Error(PSLICE() << "Invalid [port=" << port << "]");
+    return Status::Error(PSLICE() << "Invalid [IPv4 address port=" << port << "]");
   }
   std::memset(&ipv4_addr_, 0, sizeof(ipv4_addr_));
   ipv4_addr_.sin_family = AF_INET;
@@ -355,6 +360,18 @@ Status IPAddress::init_ipv4_port(CSlice ipv4, int port) {
   }
   is_valid_ = true;
   return Status::OK();
+}
+
+Result<IPAddress> IPAddress::get_ip_address(CSlice host) {
+  auto r_address = get_ipv4_address(host);
+  if (r_address.is_ok()) {
+    return r_address.move_as_ok();
+  }
+  r_address = get_ipv6_address(host);
+  if (r_address.is_ok()) {
+    return r_address.move_as_ok();
+  }
+  return Status::Error("Not a valid IP address");
 }
 
 Result<IPAddress> IPAddress::get_ipv4_address(CSlice host) {
@@ -384,6 +401,10 @@ Result<IPAddress> IPAddress::get_ipv6_address(CSlice host) {
 }
 
 Status IPAddress::init_host_port(CSlice host, int port, bool prefer_ipv6) {
+  if (host.size() > 2 && host[0] == '[' && host.back() == ']') {
+    return init_ipv6_port(host, port == 0 ? 1 : port);
+  }
+
   return init_host_port(host, PSLICE() << port, prefer_ipv6);
 }
 
@@ -398,7 +419,12 @@ Status IPAddress::init_host_port(CSlice host, CSlice port, bool prefer_ipv6) {
   }
 #endif
   TRY_RESULT(ascii_host, idn_to_ascii(host));
-  host = ascii_host;
+  host = ascii_host;  // assign string to CSlice
+
+  if (host[0] == '[' && host.back() == ']') {
+    auto port_int = to_integer<int>(port);
+    return init_ipv6_port(host, port_int == 0 ? 1 : port_int);
+  }
 
   // some getaddrinfo implementations use inet_pton instead of inet_aton and support only decimal-dotted IPv4 form,
   // and so doesn't recognize 0x12.0x34.0x56.0x78, or 0x12345678, or 0x7f.001 as valid IPv4 addresses
@@ -413,7 +439,7 @@ Status IPAddress::init_host_port(CSlice host, CSlice port, bool prefer_ipv6) {
   hints.ai_family = AF_UNSPEC;
   hints.ai_socktype = SOCK_STREAM;
   hints.ai_protocol = IPPROTO_TCP;
-  LOG(DEBUG + 10) << "Try to init IP address of " << host << " with port " << port;
+  LOG(DEBUG + 10) << "Trying to init IP address of " << host << " with port " << port;
   auto err = getaddrinfo(host.c_str(), port.c_str(), &hints, &info);
   if (err != 0) {
 #if TD_WINDOWS
@@ -506,19 +532,19 @@ Status IPAddress::init_peer_address(const SocketFd &socket_fd) {
   return Status::OK();
 }
 
-CSlice IPAddress::ipv4_to_str(uint32 ipv4) {
+string IPAddress::ipv4_to_str(uint32 ipv4) {
   ipv4 = ntohl(ipv4);
-  return ::td::get_ip_str(AF_INET, &ipv4);
+  return ::td::get_ip_str(AF_INET, &ipv4).str();
 }
 
-CSlice IPAddress::ipv6_to_str(Slice ipv6) {
+string IPAddress::ipv6_to_str(Slice ipv6) {
   CHECK(ipv6.size() == 16);
-  return ::td::get_ip_str(AF_INET6, ipv6.ubegin());
+  return ::td::get_ip_str(AF_INET6, ipv6.ubegin()).str();
 }
 
-Slice IPAddress::get_ip_str() const {
+CSlice IPAddress::get_ip_str() const {
   if (!is_valid()) {
-    return Slice("0.0.0.0");
+    return CSlice("0.0.0.0");
   }
 
   switch (get_address_family()) {
@@ -528,7 +554,23 @@ Slice IPAddress::get_ip_str() const {
       return ::td::get_ip_str(AF_INET, &ipv4_addr_.sin_addr);
     default:
       UNREACHABLE();
-      return Slice();
+      return CSlice();
+  }
+}
+
+string IPAddress::get_ip_host() const {
+  if (!is_valid()) {
+    return "0.0.0.0";
+  }
+
+  switch (get_address_family()) {
+    case AF_INET6:
+      return PSTRING() << '[' << ::td::get_ip_str(AF_INET6, &ipv6_addr_.sin6_addr) << ']';
+    case AF_INET:
+      return ::td::get_ip_str(AF_INET, &ipv4_addr_.sin_addr).str();
+    default:
+      UNREACHABLE();
+      return string();
   }
 }
 
@@ -611,12 +653,7 @@ StringBuilder &operator<<(StringBuilder &builder, const IPAddress &address) {
   if (!address.is_valid()) {
     return builder << "[invalid]";
   }
-  if (address.get_address_family() == AF_INET) {
-    return builder << "[" << address.get_ip_str() << ":" << address.get_port() << "]";
-  } else {
-    CHECK(address.get_address_family() == AF_INET6);
-    return builder << "[[" << address.get_ip_str() << "]:" << address.get_port() << "]";
-  }
+  return builder << "[" << address.get_ip_host() << ":" << address.get_port() << "]";
 }
 
 }  // namespace td

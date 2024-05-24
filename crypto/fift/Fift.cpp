@@ -14,10 +14,10 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "Fift.h"
-
+#include "IntCtx.h"
 #include "words.h"
 
 #include "td/utils/PathView.h"
@@ -37,40 +37,46 @@ td::Result<int> Fift::interpret_file(std::string fname, std::string current_dir,
     return td::Status::Error("cannot locate file `" + fname + "`");
   }
   auto file = r_file.move_as_ok();
-  IntCtx ctx;
   std::stringstream ss(file.data);
-  ctx.input_stream = &ss;
-  ctx.filename = td::PathView(file.path).file_name().str();
-  ctx.currentd_dir = td::PathView(file.path).parent_dir().str();
-  ctx.include_depth = is_interactive ? 0 : 1;
-  return do_interpret(ctx);
+  IntCtx ctx{ss, td::PathView(file.path).file_name().str(), td::PathView(file.path).parent_dir().str(),
+             (int)!is_interactive};
+  return do_interpret(ctx, is_interactive);
 }
 
 td::Result<int> Fift::interpret_istream(std::istream& stream, std::string current_dir, bool is_interactive) {
-  IntCtx ctx;
-  ctx.input_stream = &stream;
-  ctx.filename = "stdin";
-  ctx.currentd_dir = current_dir;
-  ctx.include_depth = is_interactive ? 0 : 1;
-  return do_interpret(ctx);
+  IntCtx ctx{stream, "stdin", current_dir, (int)!is_interactive};
+  return do_interpret(ctx, is_interactive);
 }
 
-td::Result<int> Fift::do_interpret(IntCtx& ctx) {
+td::Result<int> Fift::do_interpret(IntCtx& ctx, bool is_interactive) {
   ctx.ton_db = &config_.ton_db;
   ctx.source_lookup = &config_.source_lookup;
-  ctx.dictionary = &config_.dictionary;
+  ctx.dictionary = ctx.main_dictionary = ctx.context = config_.dictionary;
   ctx.output_stream = config_.output_stream;
   ctx.error_stream = config_.error_stream;
   if (!ctx.output_stream) {
     return td::Status::Error("Cannot run interpreter without output_stream");
   }
-  try {
-    return funny_interpret_loop(ctx);
-  } catch (fift::IntError ab) {
-    return td::Status::Error(ab.msg);
-  } catch (fift::Quit q) {
-    return q.res;
+  while (true) {
+    auto res = ctx.run(td::make_ref<InterpretCont>());
+    if (res.is_error()) {
+      res = ctx.add_error_loc(res.move_as_error());
+      if (config_.show_backtrace) {
+        std::ostringstream os;
+        ctx.print_error_backtrace(os);
+        LOG(ERROR) << os.str();
+      }
+      if (is_interactive) {
+        LOG(ERROR) << res.move_as_error().message();
+        ctx.top_ctx();
+        ctx.clear_error();
+        ctx.stack.clear();
+        ctx.parser->load_next_line();
+        continue;
+      }
+    }
+    return res;
   }
-  return 0;
 }
+
 }  // namespace fift

@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "func.h"
 
@@ -165,7 +165,7 @@ void Stack::push_new_const(var_idx_t idx, const_idx_t cidx) {
 
 void Stack::assign_var(var_idx_t new_idx, var_idx_t old_idx) {
   int i = find(old_idx);
-  assert(i >= 0 && "variable not found in stack");
+  func_assert(i >= 0 && "variable not found in stack");
   if (new_idx != old_idx) {
     at(i).first = new_idx;
     modified();
@@ -174,10 +174,10 @@ void Stack::assign_var(var_idx_t new_idx, var_idx_t old_idx) {
 
 void Stack::do_copy_var(var_idx_t new_idx, var_idx_t old_idx) {
   int i = find(old_idx);
-  assert(i >= 0 && "variable not found in stack");
+  func_assert(i >= 0 && "variable not found in stack");
   if (find(old_idx, i + 1) < 0) {
     issue_push(i);
-    assert(at(0).first == old_idx);
+    func_assert(at(0).first == old_idx);
   }
   assign_var(new_idx, old_idx);
 }
@@ -199,21 +199,21 @@ void Stack::enforce_state(const StackLayout& req_stack) {
       j = 0;
     }
     issue_xchg(j, depth() - i - 1);
-    assert(s[i].first == x);
+    func_assert(s[i].first == x);
   }
   while (depth() > k) {
     issue_pop(0);
   }
-  assert(depth() == k);
+  func_assert(depth() == k);
   for (int i = 0; i < k; i++) {
-    assert(s[i].first == req_stack[i]);
+    func_assert(s[i].first == req_stack[i]);
   }
 }
 
 void Stack::merge_const(const Stack& req_stack) {
-  assert(s.size() == req_stack.s.size());
+  func_assert(s.size() == req_stack.s.size());
   for (std::size_t i = 0; i < s.size(); i++) {
-    assert(s[i].first == req_stack.s[i].first);
+    func_assert(s[i].first == req_stack.s[i].first);
     if (s[i].second != req_stack.s[i].second) {
       s[i].second = not_const;
     }
@@ -251,15 +251,15 @@ void Stack::rearrange_top(const StackLayout& top, std::vector<bool> last) {
     if (last[i]) {
       // rearrange x to be at s(ss-1)
       issue_xchg(--ss, j);
-      assert(get(ss).first == x);
+      func_assert(get(ss).first == x);
     } else {
       // create a new copy of x
       issue_push(j);
       issue_xchg(0, ss);
-      assert(get(ss).first == x);
+      func_assert(get(ss).first == x);
     }
   }
-  assert(!ss);
+  func_assert(!ss);
 }
 
 void Stack::rearrange_top(var_idx_t top, bool last) {
@@ -269,25 +269,28 @@ void Stack::rearrange_top(var_idx_t top, bool last) {
   } else {
     issue_push(i);
   }
-  assert(get(0).first == top);
+  func_assert(get(0).first == top);
 }
 
 bool Op::generate_code_step(Stack& stack) {
   stack.opt_show();
   stack.drop_vars_except(var_info);
   stack.opt_show();
-  const auto& next_var_info = next->var_info;
+  bool inline_func = stack.mode & Stack::_InlineFunc;
   switch (cl) {
     case _Nop:
     case _Import:
       return true;
     case _Return: {
       stack.enforce_state(left);
+      if (stack.o.retalt_ && (stack.mode & Stack::_NeedRetAlt)) {
+        stack.o << "RETALT";
+      }
       stack.opt_show();
       return false;
     }
     case _IntConst: {
-      auto p = next_var_info[left[0]];
+      auto p = next->var_info[left[0]];
       if (!p || p->is_unused()) {
         return true;
       }
@@ -297,16 +300,25 @@ bool Op::generate_code_step(Stack& stack) {
         stack.o << push_const(int_const);
         stack.push_new_const(left[0], cidx);
       } else {
-        assert(stack.at(i).second == cidx);
+        func_assert(stack.at(i).second == cidx);
         stack.do_copy_var(left[0], stack[i]);
       }
+      return true;
+    }
+    case _SliceConst: {
+      auto p = next->var_info[left[0]];
+      if (!p || p->is_unused()) {
+        return true;
+      }
+      stack.o << AsmOp::Const("x{" + str_const + "} PUSHSLICE");
+      stack.push_new_var(left[0]);
       return true;
     }
     case _GlobVar:
       if (dynamic_cast<const SymValGlobVar*>(fun_ref->value)) {
         bool used = false;
         for (auto i : left) {
-          auto p = next_var_info[i];
+          auto p = next->var_info[i];
           if (p && !p->is_unused()) {
             used = true;
           }
@@ -317,16 +329,16 @@ bool Op::generate_code_step(Stack& stack) {
         std::string name = sym::symbols.get_name(fun_ref->sym_idx);
         stack.o << AsmOp::Custom(name + " GETGLOB", 0, 1);
         if (left.size() != 1) {
-          assert(left.size() <= 15);
-          stack.o << exec_arg_op("UNTUPLE", (int)left.size(), 1, (int)left.size());
+          func_assert(left.size() <= 15);
+          stack.o << AsmOp::UnTuple((int)left.size());
         }
         for (auto i : left) {
           stack.push_new_var(i);
         }
         return true;
       } else {
-        assert(left.size() == 1);
-        auto p = next_var_info[left[0]];
+        func_assert(left.size() == 1);
+        auto p = next->var_info[left[0]];
         if (!p || p->is_unused() || disabled()) {
           return true;
         }
@@ -337,17 +349,17 @@ bool Op::generate_code_step(Stack& stack) {
           // TODO: create and compile a true lambda instead of this (so that arg_order and ret_order would work correctly)
           std::vector<VarDescr> args0, res;
           TypeExpr::remove_indirect(func->sym_type);
-          assert(func->get_type()->is_map());
+          func_assert(func->get_type()->is_map());
           auto wr = func->get_type()->args.at(0)->get_width();
           auto wl = func->get_type()->args.at(1)->get_width();
-          assert(wl >= 0 && wr >= 0);
+          func_assert(wl >= 0 && wr >= 0);
           for (int i = 0; i < wl; i++) {
             res.emplace_back(0);
           }
           for (int i = 0; i < wr; i++) {
             args0.emplace_back(0);
           }
-          func->compile(stack.o, res, args0);  // compile res := f (args0)
+          func->compile(stack.o, res, args0, where);  // compile res := f (args0)
         } else {
           std::string name = sym::symbols.get_name(fun_ref->sym_idx);
           stack.o << AsmOp::Custom(name + " CALLDICT", (int)right.size(), (int)left.size());
@@ -358,14 +370,14 @@ bool Op::generate_code_step(Stack& stack) {
         return true;
       }
     case _Let: {
-      assert(left.size() == right.size());
+      func_assert(left.size() == right.size());
       int i = 0;
       std::vector<bool> active;
       active.reserve(left.size());
 	  int unused = 0;
       for (std::size_t k = 0; k < left.size(); k++) {
         var_idx_t y = left[k];  // "y" = "x"
-        auto p = next_var_info[y];
+        auto p = next->var_info[y];
         active.push_back(p && !p->is_unused());
 		if (p && p->is_unused() && !p->is_replaced())
           ++unused;
@@ -409,6 +421,32 @@ bool Op::generate_code_step(Stack& stack) {
       }
       return true;
     }
+    case _Tuple:
+    case _UnTuple: {
+      if (disabled()) {
+        return true;
+      }
+      std::vector<bool> last;
+      for (var_idx_t x : right) {
+        last.push_back(var_info[x] && var_info[x]->is_last());
+      }
+      stack.rearrange_top(right, std::move(last));
+      stack.opt_show();
+      int k = (int)stack.depth() - (int)right.size();
+      func_assert(k >= 0);
+      if (cl == _Tuple) {
+        stack.o << AsmOp::Tuple((int)right.size());
+        func_assert(left.size() == 1);
+      } else {
+        stack.o << AsmOp::UnTuple((int)left.size());
+        func_assert(right.size() == 1);
+      }
+      stack.s.resize(k);
+      for (int i = 0; i < (int)left.size(); i++) {
+        stack.push_new_var(left.at(i));
+      }
+      return true;
+    }
     case _Call:
     case _CallInd: {
       if (disabled()) {
@@ -427,16 +465,16 @@ bool Op::generate_code_step(Stack& stack) {
       SymValFunc* func = (fun_ref ? dynamic_cast<SymValFunc*>(fun_ref->value) : nullptr);
       auto arg_order = (func ? func->get_arg_order() : nullptr);
       auto ret_order = (func ? func->get_ret_order() : nullptr);
-      assert(!arg_order || arg_order->size() == right.size());
-      assert(!ret_order || ret_order->size() == left.size());
+      func_assert(!arg_order || arg_order->size() == right.size());
+      func_assert(!ret_order || ret_order->size() == left.size());
       std::vector<var_idx_t> right1;
       if (args.size()) {
-        assert(args.size() == right.size());
+        func_assert(args.size() == right.size());
         for (int i = 0; i < (int)right.size(); i++) {
           int j = arg_order ? arg_order->at(i) : i;
           const VarDescr& arg = args.at(j);
           if (!arg.is_unused()) {
-            assert(var_info[arg.idx] && !var_info[arg.idx]->is_unused());
+            func_assert(var_info[arg.idx] && !var_info[arg.idx]->is_unused());
             right1.push_back(arg.idx);
           }
         }
@@ -454,17 +492,25 @@ bool Op::generate_code_step(Stack& stack) {
       stack.rearrange_top(right1, std::move(last));
       stack.opt_show();
       int k = (int)stack.depth() - (int)right1.size();
-      assert(k >= 0);
+      func_assert(k >= 0);
       for (int i = 0; i < (int)right1.size(); i++) {
         if (stack.s[k + i].first != right1[i]) {
           std::cerr << stack.o;
         }
-        assert(stack.s[k + i].first == right1[i]);
+        func_assert(stack.s[k + i].first == right1[i]);
       }
+      auto exec_callxargs = [&](int args, int ret) {
+        if (args <= 15 && ret <= 15) {
+          stack.o << exec_arg2_op("CALLXARGS", args, ret, args + 1, ret);
+        } else {
+          func_assert(args <= 254 && ret <= 254);
+          stack.o << AsmOp::Const(PSTRING() << args << " PUSHINT");
+          stack.o << AsmOp::Const(PSTRING() << ret << " PUSHINT");
+          stack.o << AsmOp::Custom("CALLXVARARGS", args + 3, ret);
+        }
+      };
       if (cl == _CallInd) {
-        // TODO: replace with exec_arg2_op()
-        stack.o << exec_arg2_op("CALLXARGS", (int)right.size() - 1, (int)left.size(), (int)right.size(),
-                                (int)left.size());
+        exec_callxargs((int)right.size() - 1, (int)left.size());
       } else {
         auto func = dynamic_cast<const SymValAsmFunc*>(fun_ref->value);
         if (func) {
@@ -473,13 +519,19 @@ bool Op::generate_code_step(Stack& stack) {
           for (var_idx_t i : left) {
             res.emplace_back(i);
           }
-          func->compile(stack.o, res, args);  // compile res := f (args)
+          func->compile(stack.o, res, args, where);  // compile res := f (args)
         } else {
           auto fv = dynamic_cast<const SymValCodeFunc*>(fun_ref->value);
           std::string name = sym::symbols.get_name(fun_ref->sym_idx);
           bool is_inline = (fv && (fv->flags & 3));
-          stack.o << AsmOp::Custom(name + (is_inline ? " INLINECALLDICT" : " CALLDICT"), (int)right.size(),
-                                   (int)left.size());
+          if (is_inline) {
+            stack.o << AsmOp::Custom(name + " INLINECALLDICT", (int)right.size(), (int)left.size());
+          } else if (fv && fv->code && fv->code->require_callxargs) {
+            stack.o << AsmOp::Custom(name + (" PREPAREDICT"), 0, 2);
+            exec_callxargs((int)right.size() + 1, (int)left.size());
+          } else {
+            stack.o << AsmOp::Custom(name + " CALLDICT", (int)right.size(), (int)left.size());
+          }
         }
       }
       stack.s.resize(k);
@@ -490,7 +542,7 @@ bool Op::generate_code_step(Stack& stack) {
       return true;
     }
     case _SetGlob: {
-      assert(fun_ref && dynamic_cast<const SymValGlobVar*>(fun_ref->value));
+      func_assert(fun_ref && dynamic_cast<const SymValGlobVar*>(fun_ref->value));
       std::vector<bool> last;
       for (var_idx_t x : right) {
         last.push_back(var_info[x] && var_info[x]->is_last());
@@ -498,15 +550,15 @@ bool Op::generate_code_step(Stack& stack) {
       stack.rearrange_top(right, std::move(last));
       stack.opt_show();
       int k = (int)stack.depth() - (int)right.size();
-      assert(k >= 0);
+      func_assert(k >= 0);
       for (int i = 0; i < (int)right.size(); i++) {
         if (stack.s[k + i].first != right[i]) {
           std::cerr << stack.o;
         }
-        assert(stack.s[k + i].first == right[i]);
+        func_assert(stack.s[k + i].first == right[i]);
       }
       if (right.size() > 1) {
-        stack.o << exec_arg_op("TUPLE", (int)right.size(), (int)right.size(), 1);
+        stack.o << AsmOp::Tuple((int)right.size());
       }
       if (!right.empty()) {
         std::string name = sym::symbols.get_name(fun_ref->sym_idx);
@@ -520,81 +572,65 @@ bool Op::generate_code_step(Stack& stack) {
         return true;
       }
       if (!next->noreturn() && (block0->noreturn() != block1->noreturn())) {
-        // simple fix of unbalanced returns in if/else branches
-        // (to be replaced with a finer condition working in loop bodies)
-        throw src::ParseError{where, "`if` and `else` branches should both return or both not return"};
+        stack.o.retalt_ = true;
       }
       var_idx_t x = left[0];
       stack.rearrange_top(x, var_info[x] && var_info[x]->is_last());
-      assert(stack[0] == x);
+      func_assert(stack[0] == x);
       stack.opt_show();
       stack.s.pop_back();
       stack.modified();
-      if (block1->is_empty()) {
+      if (inline_func && (block0->noreturn() || block1->noreturn())) {
+        bool is0 = block0->noreturn();
+        Op* block_noreturn = is0 ? block0.get() : block1.get();
+        Op* block_other = is0 ? block1.get() : block0.get();
+        stack.mode &= ~Stack::_InlineFunc;
+        stack.o << (is0 ? "IF:<{" : "IFNOT:<{");
+        stack.o.indent();
+        Stack stack_copy{stack};
+        block_noreturn->generate_code_all(stack_copy);
+        stack.o.undent();
+        stack.o << "}>ELSE<{";
+        stack.o.indent();
+        block_other->generate_code_all(stack);
+        if (!block_other->noreturn()) {
+          next->generate_code_all(stack);
+        }
+        stack.o.undent();
+        stack.o << "}>";
+        return false;
+      }
+      if (block1->is_empty() || block0->is_empty()) {
+        bool is0 = block1->is_empty();
+        Op* block = is0 ? block0.get() : block1.get();
         // if (left) block0; ...
-        if (block0->noreturn()) {
-          stack.o << "IFJMP:<{";
-          stack.o.indent();
-          Stack stack_copy{stack};
-          block0->generate_code_all(stack_copy);
-          stack.o.undent();
-          stack.o << "}>";
-          return true;
-        }
-        stack.o << "IF:<{";
-        stack.o.indent();
-        Stack stack_copy{stack}, stack_target{stack};
-        stack_target.disable_output();
-        stack_target.drop_vars_except(next->var_info);
-        block0->generate_code_all(stack_copy);
-        stack_copy.drop_vars_except(var_info);
-        stack_copy.opt_show();
-        if (stack_copy == stack) {
-          stack.o.undent();
-          stack.o << "}>";
-          return true;
-        }
-        // stack_copy.drop_vars_except(next->var_info);
-        stack_copy.enforce_state(stack_target.vars());
-        stack_copy.opt_show();
-        if (stack_copy.vars() == stack.vars()) {
-          stack.o.undent();
-          stack.o << "}>";
-          stack.merge_const(stack_copy);
-          return true;
-        }
-        stack.o.undent();
-        stack.o << "}>ELSE<{";
-        stack.o.indent();
-        stack.merge_state(stack_copy);
-        stack.opt_show();
-        stack.o.undent();
-        stack.o << "}>";
-        return true;
-      }
-      if (block0->is_empty()) {
         // if (!left) block1; ...
-        if (block1->noreturn()) {
-          stack.o << "IFNOTJMP:<{";
+        if (block->noreturn()) {
+          stack.o << (is0 ? "IFJMP:<{" : "IFNOTJMP:<{");
           stack.o.indent();
           Stack stack_copy{stack};
-          block1->generate_code_all(stack_copy);
+          stack_copy.mode &= ~Stack::_InlineFunc;
+          stack_copy.mode |= next->noreturn() ? 0 : Stack::_NeedRetAlt;
+          block->generate_code_all(stack_copy);
           stack.o.undent();
           stack.o << "}>";
           return true;
         }
-        stack.o << "IFNOT:<{";
+        stack.o << (is0 ? "IF:<{" : "IFNOT:<{");
         stack.o.indent();
         Stack stack_copy{stack}, stack_target{stack};
         stack_target.disable_output();
         stack_target.drop_vars_except(next->var_info);
-        block1->generate_code_all(stack_copy);
+        stack_copy.mode &= ~Stack::_InlineFunc;
+        block->generate_code_all(stack_copy);
         stack_copy.drop_vars_except(var_info);
         stack_copy.opt_show();
-        if (stack_copy.vars() == stack.vars()) {
+        if ((is0 && stack_copy == stack) || (!is0 && stack_copy.vars() == stack.vars())) {
           stack.o.undent();
           stack.o << "}>";
-          stack.merge_const(stack_copy);
+          if (!is0) {
+            stack.merge_const(stack_copy);
+          }
           return true;
         }
         // stack_copy.drop_vars_except(next->var_info);
@@ -615,33 +651,32 @@ bool Op::generate_code_step(Stack& stack) {
         stack.o << "}>";
         return true;
       }
-      if (block0->noreturn()) {
-        stack.o << "IFJMP:<{";
+      if (block0->noreturn() || block1->noreturn()) {
+        bool is0 = block0->noreturn();
+        Op* block_noreturn = is0 ? block0.get() : block1.get();
+        Op* block_other = is0 ? block1.get() : block0.get();
+        stack.o << (is0 ? "IFJMP:<{" : "IFNOTJMP:<{");
         stack.o.indent();
         Stack stack_copy{stack};
-        block0->generate_code_all(stack_copy);
+        stack_copy.mode &= ~Stack::_InlineFunc;
+        stack_copy.mode |= (block_other->noreturn() || next->noreturn()) ? 0 : Stack::_NeedRetAlt;
+        block_noreturn->generate_code_all(stack_copy);
         stack.o.undent();
         stack.o << "}>";
-        return block1->generate_code_all(stack);
-      }
-      if (block1->noreturn()) {
-        stack.o << "IFNOTJMP:<{";
-        stack.o.indent();
-        Stack stack_copy{stack};
-        block1->generate_code_all(stack_copy);
-        stack.o.undent();
-        stack.o << "}>";
-        return block0->generate_code_all(stack);
+        block_other->generate_code_all(stack);
+        return !block_other->noreturn();
       }
       stack.o << "IF:<{";
       stack.o.indent();
       Stack stack_copy{stack};
+      stack_copy.mode &= ~Stack::_InlineFunc;
       block0->generate_code_all(stack_copy);
       stack_copy.drop_vars_except(next->var_info);
       stack_copy.opt_show();
       stack.o.undent();
       stack.o << "}>ELSE<{";
       stack.o.indent();
+      stack.mode &= ~Stack::_InlineFunc;
       block1->generate_code_all(stack);
       stack.merge_state(stack_copy);
       stack.opt_show();
@@ -653,18 +688,31 @@ bool Op::generate_code_step(Stack& stack) {
       var_idx_t x = left[0];
       //stack.drop_vars_except(block0->var_info, x);
       stack.rearrange_top(x, var_info[x] && var_info[x]->is_last());
-      assert(stack[0] == x);
+      func_assert(stack[0] == x);
       stack.opt_show();
       stack.s.pop_back();
       stack.modified();
+      if (block0->noreturn()) {
+        stack.o.retalt_ = true;
+      }
       if (true || !next->is_empty()) {
         stack.o << "REPEAT:<{";
         stack.o.indent();
         stack.forget_const();
-        StackLayout layout1 = stack.vars();
-        block0->generate_code_all(stack);
-        stack.enforce_state(std::move(layout1));
-        stack.opt_show();
+        if (block0->noreturn()) {
+          Stack stack_copy{stack};
+          StackLayout layout1 = stack.vars();
+          stack_copy.mode &= ~Stack::_InlineFunc;
+          stack_copy.mode |= Stack::_NeedRetAlt;
+          block0->generate_code_all(stack_copy);
+        } else {
+          StackLayout layout1 = stack.vars();
+          stack.mode &= ~Stack::_InlineFunc;
+          stack.mode |= Stack::_NeedRetAlt;
+          block0->generate_code_all(stack);
+          stack.enforce_state(std::move(layout1));
+          stack.opt_show();
+        }
         stack.o.undent();
         stack.o << "}>";
         return true;
@@ -681,11 +729,16 @@ bool Op::generate_code_step(Stack& stack) {
     case _Again: {
       stack.drop_vars_except(block0->var_info);
       stack.opt_show();
-      if (!next->is_empty()) {
+      if (block0->noreturn()) {
+        stack.o.retalt_ = true;
+      }
+      if (!next->is_empty() || inline_func) {
         stack.o << "AGAIN:<{";
         stack.o.indent();
         stack.forget_const();
         StackLayout layout1 = stack.vars();
+        stack.mode &= ~Stack::_InlineFunc;
+        stack.mode |= Stack::_NeedRetAlt;
         block0->generate_code_all(stack);
         stack.enforce_state(std::move(layout1));
         stack.opt_show();
@@ -705,11 +758,16 @@ bool Op::generate_code_step(Stack& stack) {
     case _Until: {
       // stack.drop_vars_except(block0->var_info);
       // stack.opt_show();
+      if (block0->noreturn()) {
+        stack.o.retalt_ = true;
+      }
       if (true || !next->is_empty()) {
         stack.o << "UNTIL:<{";
         stack.o.indent();
         stack.forget_const();
         auto layout1 = stack.vars();
+        stack.mode &= ~Stack::_InlineFunc;
+        stack.mode |= Stack::_NeedRetAlt;
         block0->generate_code_all(stack);
         layout1.push_back(left[0]);
         stack.enforce_state(std::move(layout1));
@@ -737,9 +795,14 @@ bool Op::generate_code_step(Stack& stack) {
       stack.opt_show();
       StackLayout layout1 = stack.vars();
       bool next_empty = false && next->is_empty();
+      if (block0->noreturn()) {
+        stack.o.retalt_ = true;
+      }
       stack.o << "WHILE:<{";
       stack.o.indent();
       stack.forget_const();
+      stack.mode &= ~Stack::_InlineFunc;
+      stack.mode |= Stack::_NeedRetAlt;
       block0->generate_code_all(stack);
       stack.rearrange_top(x, !next->var_info[x] && !block1->var_info[x]);
       stack.opt_show();
@@ -763,27 +826,101 @@ bool Op::generate_code_step(Stack& stack) {
         return false;
       }
     }
+    case _TryCatch: {
+      if (block0->is_empty() && block1->is_empty()) {
+        return true;
+      }
+      if (block0->noreturn() || block1->noreturn()) {
+        stack.o.retalt_ = true;
+      }
+      Stack catch_stack{stack.o};
+      std::vector<var_idx_t> catch_vars;
+      std::vector<bool> catch_last;
+      for (const VarDescr& var : block1->var_info.list) {
+        if (stack.find(var.idx) >= 0) {
+          catch_vars.push_back(var.idx);
+          catch_last.push_back(!block0->var_info[var.idx]);
+        }
+      }
+      const size_t block_size = 255;
+      for (size_t begin = catch_vars.size(), end = begin; end > 0; end = begin) {
+        begin = end >= block_size ? end - block_size : 0;
+        for (size_t i = begin; i < end; ++i) {
+          catch_stack.push_new_var(catch_vars[i]);
+        }
+      }
+      catch_stack.push_new_var(left[0]);
+      catch_stack.push_new_var(left[1]);
+      stack.rearrange_top(catch_vars, catch_last);
+      stack.opt_show();
+      stack.o << "c4 PUSH";
+      stack.o << "c5 PUSH";
+      stack.o << "c7 PUSH";
+      stack.o << "<{";
+      stack.o.indent();
+      if (block1->noreturn()) {
+        catch_stack.mode |= Stack::_NeedRetAlt;
+      }
+      block1->generate_code_all(catch_stack);
+      catch_stack.drop_vars_except(next->var_info);
+      catch_stack.opt_show();
+      stack.o.undent();
+      stack.o << "}>CONT";
+      stack.o << "c7 SETCONT";
+      stack.o << "c5 SETCONT";
+      stack.o << "c4 SETCONT";
+      for (size_t begin = catch_vars.size(), end = begin; end > 0; end = begin) {
+        begin = end >= block_size ? end - block_size : 0;
+        stack.o << std::to_string(end - begin) + " PUSHINT";
+        stack.o << "-1 PUSHINT";
+        stack.o << "SETCONTVARARGS";
+      }
+      stack.s.erase(stack.s.end() - catch_vars.size(), stack.s.end());
+      stack.modified();
+      stack.o << "<{";
+      stack.o.indent();
+      if (block0->noreturn()) {
+        stack.mode |= Stack::_NeedRetAlt;
+      }
+      block0->generate_code_all(stack);
+      if (block0->noreturn()) {
+        stack.s = std::move(catch_stack.s);
+      } else if (!block1->noreturn()) {
+        stack.merge_state(catch_stack);
+      }
+      stack.opt_show();
+      stack.o.undent();
+      stack.o << "}>CONT";
+      stack.o << "c1 PUSH";
+      stack.o << "COMPOSALT";
+      stack.o << "SWAP";
+      stack.o << "TRY";
+      return true;
+    }
     default:
       std::cerr << "fatal: unknown operation <??" << cl << ">\n";
       throw src::ParseError{where, "unknown operation in generate_code()"};
   }
 }
 
-bool Op::generate_code_all(Stack& stack) {
-  if (generate_code_step(stack) && next) {
-    return next->generate_code_all(stack);
-  } else {
-    return false;
+void Op::generate_code_all(Stack& stack) {
+  int saved_mode = stack.mode;
+  auto cont = generate_code_step(stack);
+  stack.mode = (stack.mode & ~Stack::_ModeSave) | (saved_mode & Stack::_ModeSave);
+  if (cont && next) {
+    next->generate_code_all(stack);
   }
 }
 
 void CodeBlob::generate_code(AsmOpList& out, int mode) {
   Stack stack{out, mode};
-  assert(ops && ops->cl == Op::_Import);
+  func_assert(ops && ops->cl == Op::_Import);
+  auto args = (int)ops->left.size();
   for (var_idx_t x : ops->left) {
     stack.push_new_var(x);
   }
   ops->generate_code_all(stack);
+  stack.apply_wrappers(require_callxargs && (mode & Stack::_InlineAny) ? args : -1);
   if (!(mode & Stack::_DisableOpt)) {
     optimize_code(out);
   }

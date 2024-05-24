@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "func.h"
 
@@ -37,6 +37,9 @@ TmpVar::TmpVar(var_idx_t _idx, int _cls, TypeExpr* _type, SymDef* sym, const Src
   }
   if (!_type) {
     v_type = TypeExpr::new_hole();
+  }
+  if (cls == _Named) {
+    undefined = true;
   }
 }
 
@@ -138,7 +141,7 @@ void VarDescr::show(std::ostream& os, const char* name) const {
 }
 
 void VarDescr::set_const(long long value) {
-  return set_const(td::RefInt256{true, value});
+  return set_const(td::make_refint(value));
 }
 
 void VarDescr::set_const(td::RefInt256 value) {
@@ -158,9 +161,9 @@ void VarDescr::set_const(td::RefInt256 value) {
   } else if (s > 0) {
     val |= _NonZero | _Pos | _Finite;
   } else if (!s) {
-    if (*int_const == 1) {
-      val |= _Bit;
-    }
+    //if (*int_const == 1) {
+    //  val |= _Bit;
+    //}
     val |= _Zero | _Neg | _Pos | _Finite | _Bool | _Bit;
   }
   if (val & _Finite) {
@@ -168,13 +171,18 @@ void VarDescr::set_const(td::RefInt256 value) {
   }
 }
 
+void VarDescr::set_const(std::string value) {
+  str_const = value;
+  val = _Const;
+}
+
 void VarDescr::set_const_nan() {
-  set_const(td::RefInt256{true});
+  set_const(td::make_refint());
 }
 
 void VarDescr::operator|=(const VarDescr& y) {
   val &= y.val;
-  if (is_int_const() && cmp(int_const, y.int_const) != 0) {
+  if (is_int_const() && y.is_int_const() && cmp(int_const, y.int_const) != 0) {
     val &= ~_Const;
   }
   if (!(val & _Const)) {
@@ -324,10 +332,29 @@ void Op::show(std::ostream& os, const std::vector<TmpVar>& vars, std::string pfx
       show_var_list(os, right, vars);
       os << std::endl;
       break;
+    case _Tuple:
+      os << pfx << dis << "MKTUPLE ";
+      show_var_list(os, left, vars);
+      os << " := ";
+      show_var_list(os, right, vars);
+      os << std::endl;
+      break;
+    case _UnTuple:
+      os << pfx << dis << "UNTUPLE ";
+      show_var_list(os, left, vars);
+      os << " := ";
+      show_var_list(os, right, vars);
+      os << std::endl;
+      break;
     case _IntConst:
       os << pfx << dis << "CONST ";
       show_var_list(os, left, vars);
       os << " := " << int_const << std::endl;
+      break;
+    case _SliceConst:
+      os << pfx << dis << "SCONST ";
+      show_var_list(os, left, vars);
+      os << " := " << str_const << std::endl;
       break;
     case _Import:
       os << pfx << dis << "IMPORT ";

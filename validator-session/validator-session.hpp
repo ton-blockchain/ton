@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -73,12 +73,15 @@ class ValidatorSessionImpl : public ValidatorSession {
   ValidatorSessionCandidateId signed_block_;
   td::BufferSlice signature_;
 
-  std::array<std::map<ValidatorSessionCandidateId, tl_object_ptr<ton_api::validatorSession_candidate>>, 100> blocks_;
+  std::map<ValidatorSessionCandidateId, tl_object_ptr<ton_api::validatorSession_candidate>> blocks_;
+  // src_round_candidate_[src_id][round] -> candidate id
+  std::vector<std::map<td::uint32, ValidatorSessionCandidateId>> src_round_candidate_;
 
   catchain::CatChainSessionId unique_hash_;
 
   std::unique_ptr<Callback> callback_;
   std::string db_root_;
+  std::string db_suffix_;
 
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;
@@ -108,13 +111,15 @@ class ValidatorSessionImpl : public ValidatorSession {
       void preprocess_block(catchain::CatChainBlock *block) override {
         td::actor::send_closure(id_, &ValidatorSessionImpl::preprocess_block, block);
       }
-      void process_broadcast(PublicKeyHash src, td::BufferSlice data) override {
-        td::actor::send_closure(id_, &ValidatorSessionImpl::process_broadcast, src, std::move(data));
+      void process_broadcast(const PublicKeyHash &src, td::BufferSlice data) override {
+        td::actor::send_closure(id_, &ValidatorSessionImpl::process_broadcast, src, std::move(data),
+                                td::optional<ValidatorSessionCandidateId>(), true);
       }
-      void process_message(PublicKeyHash src, td::BufferSlice data) override {
+      void process_message(const PublicKeyHash &src, td::BufferSlice data) override {
         td::actor::send_closure(id_, &ValidatorSessionImpl::process_message, src, std::move(data));
       }
-      void process_query(PublicKeyHash src, td::BufferSlice data, td::Promise<td::BufferSlice> promise) override {
+      void process_query(const PublicKeyHash &src, td::BufferSlice data,
+                         td::Promise<td::BufferSlice> promise) override {
         td::actor::send_closure(id_, &ValidatorSessionImpl::process_query, src, std::move(data), std::move(promise));
       }
       void started() override {
@@ -150,23 +155,37 @@ class ValidatorSessionImpl : public ValidatorSession {
 
   bool started_ = false;
   bool catchain_started_ = false;
+  bool allow_unsafe_self_blocks_resync_;
+  bool compress_block_candidates_ = false;
+
+  ValidatorSessionStats cur_stats_;
+  void stats_init();
+  void stats_add_round();
+  void stats_set_candidate_status(td::uint32 round, PublicKeyHash src, ValidatorSessionCandidateId candidate_id,
+                                  int status, std::string comment = "");
 
  public:
   ValidatorSessionImpl(catchain::CatChainSessionId session_id, ValidatorSessionOptions opts, PublicKeyHash local_id,
                        std::vector<ValidatorSessionNode> nodes, std::unique_ptr<Callback> callback,
                        td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
                        td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays,
-                       std::string db_root);
+                       std::string db_root, std::string db_suffix, bool allow_unsafe_self_blocks_resync);
   void start_up() override;
   void alarm() override;
 
   void start() override;
   void destroy() override;
+  void get_current_stats(td::Promise<ValidatorSessionStats> promise) override;
+  void get_validator_group_info_for_litequery(
+      td::uint32 cur_round,
+      td::Promise<std::vector<tl_object_ptr<lite_api::liteServer_nonfinal_candidateInfo>>> promise) override;
 
   void process_blocks(std::vector<catchain::CatChainBlock *> blocks);
   void finished_processing();
   void preprocess_block(catchain::CatChainBlock *block);
-  void process_broadcast(PublicKeyHash src, td::BufferSlice data);
+  bool ensure_candidate_unique(td::uint32 src_idx, td::uint32 round, ValidatorSessionCandidateId block_id);
+  void process_broadcast(PublicKeyHash src, td::BufferSlice data, td::optional<ValidatorSessionCandidateId> expected_id,
+                         bool is_overlay_broadcast);
   void process_message(PublicKeyHash src, td::BufferSlice data);
   void process_query(PublicKeyHash src, td::BufferSlice data, td::Promise<td::BufferSlice> promise);
 
@@ -174,9 +193,9 @@ class ValidatorSessionImpl : public ValidatorSession {
   void try_sign();
 
   void candidate_decision_fail(td::uint32 round, ValidatorSessionCandidateId hash, std::string result,
-                               td::BufferSlice proof);
+                               td::uint32 src, td::BufferSlice proof);
   void candidate_decision_ok(td::uint32 round, ValidatorSessionCandidateId hash, RootHash root_hash, FileHash file_hash,
-                             td::uint32 ok_from);
+                             td::uint32 src, td::uint32 ok_from);
   void candidate_approved_signed(td::uint32 round, ValidatorSessionCandidateId hash, td::uint32 ok_from,
                                  td::BufferSlice signature);
 
@@ -193,6 +212,13 @@ class ValidatorSessionImpl : public ValidatorSession {
   PrintId print_id() const override {
     return PrintId{unique_hash_, description_->get_source_id(description_->get_self_idx())};
   }
+
+ private:
+  static const size_t MAX_REJECT_REASON_SIZE = 1024;
+  static const td::int32 MAX_FUTURE_ROUND_BLOCK = 100;
+  static const td::int32 MAX_PAST_ROUND_BLOCK = 20;
+  constexpr static const double REQUEST_BROADCAST_P2P_DELAY = 2.0;
+  static const td::uint32 MAX_CANDIDATE_EXTRA_SIZE = 1024;
 };
 
 }  // namespace validatorsession

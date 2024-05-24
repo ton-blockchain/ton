@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -57,12 +57,24 @@
     }                                                \
   }
 
+#define TRY_STATUS_PROMISE_PREFIX(promise_name, status, prefix)        \
+  {                                                                    \
+    auto try_status = (status);                                        \
+    if (try_status.is_error()) {                                       \
+      promise_name.set_error(try_status.move_as_error_prefix(prefix)); \
+      return;                                                          \
+    }                                                                  \
+  }
+
 #define TRY_RESULT(name, result) TRY_RESULT_IMPL(TD_CONCAT(TD_CONCAT(r_, name), __LINE__), auto name, result)
 
 #define TRY_RESULT_PROMISE(promise_name, name, result) \
   TRY_RESULT_PROMISE_IMPL(promise_name, TD_CONCAT(TD_CONCAT(r_, name), __LINE__), auto name, result)
 
-#define TRY_RESULT_ASSIGN(name, result) TRY_RESULT_IMPL(TD_CONCAT(TD_CONCAT(r_, name), __LINE__), name, result)
+#define TRY_RESULT_ASSIGN(name, result) TRY_RESULT_IMPL(TD_CONCAT(r_response, __LINE__), name, result)
+
+#define TRY_RESULT_PROMISE_ASSIGN(promise_name, name, result) \
+  TRY_RESULT_PROMISE_IMPL(promise_name, TD_CONCAT(TD_CONCAT(r_, name), __LINE__), name, result)
 
 #define TRY_RESULT_PREFIX(name, result, prefix) \
   TRY_RESULT_PREFIX_IMPL(TD_CONCAT(TD_CONCAT(r_, name), __LINE__), auto name, result, prefix)
@@ -121,19 +133,19 @@
 
 #if TD_PORT_POSIX
 #define OS_ERROR(message)                                    \
-  [&]() {                                                    \
+  [&] {                                                      \
     auto saved_errno = errno;                                \
     return ::td::Status::PosixError(saved_errno, (message)); \
   }()
 #define OS_SOCKET_ERROR(message) OS_ERROR(message)
 #elif TD_PORT_WINDOWS
 #define OS_ERROR(message)                                      \
-  [&]() {                                                      \
+  [&] {                                                        \
     auto saved_error = ::GetLastError();                       \
     return ::td::Status::WindowsError(saved_error, (message)); \
   }()
 #define OS_SOCKET_ERROR(message)                               \
-  [&]() {                                                      \
+  [&] {                                                        \
     auto saved_error = ::WSAGetLastError();                    \
     return ::td::Status::WindowsError(saved_error, (message)); \
   }()
@@ -150,7 +162,7 @@ string winerror_to_string(int code);
 #endif
 
 class Status {
-  enum class ErrorType : int8 { general, os };
+  enum class ErrorType : int8 { General, Os };
 
  public:
   Status() = default;
@@ -175,7 +187,7 @@ class Status {
   }
 
   static Status Error(int err, Slice message = Slice()) TD_WARN_UNUSED_RESULT {
-    return Status(false, ErrorType::general, err, message);
+    return Status(false, ErrorType::General, err, message);
   }
 
   static Status Error(Slice message) TD_WARN_UNUSED_RESULT {
@@ -184,13 +196,13 @@ class Status {
 
 #if TD_PORT_WINDOWS
   static Status WindowsError(int saved_error, Slice message) TD_WARN_UNUSED_RESULT {
-    return Status(false, ErrorType::os, saved_error, message);
+    return Status(false, ErrorType::Os, saved_error, message);
   }
 #endif
 
 #if TD_PORT_POSIX
   static Status PosixError(int32 saved_errno, Slice message) TD_WARN_UNUSED_RESULT {
-    return Status(false, ErrorType::os, saved_errno, message);
+    return Status(false, ErrorType::Os, saved_errno, message);
   }
 #endif
 
@@ -200,7 +212,7 @@ class Status {
 
   template <int Code>
   static Status Error() {
-    static Status status(true, ErrorType::general, Code, "");
+    static Status status(true, ErrorType::General, Code, "");
     return status.clone_static();
   }
 
@@ -210,10 +222,10 @@ class Status {
     }
     Info info = get_info();
     switch (info.error_type) {
-      case ErrorType::general:
+      case ErrorType::General:
         sb << "[Error";
         break;
-      case ErrorType::os:
+      case ErrorType::Os:
 #if TD_PORT_POSIX
         sb << "[PosixError : " << strerror_safe(info.error_code);
 #elif TD_PORT_WINDOWS
@@ -292,9 +304,9 @@ class Status {
     }
     Info info = get_info();
     switch (info.error_type) {
-      case ErrorType::general:
+      case ErrorType::General:
         return message().str();
-      case ErrorType::os:
+      case ErrorType::Os:
 #if TD_PORT_POSIX
         return strerror_safe(info.error_code).str();
 #elif TD_PORT_WINDOWS
@@ -331,10 +343,10 @@ class Status {
     CHECK(is_error());
     Info info = get_info();
     switch (info.error_type) {
-      case ErrorType::general:
-        return Error(code(), PSLICE() << prefix << " " << message());
-      case ErrorType::os:
-        return Status(false, ErrorType::os, code(), PSLICE() << prefix << " " << message());
+      case ErrorType::General:
+        return Error(code(), PSLICE() << prefix << message());
+      case ErrorType::Os:
+        return Status(false, ErrorType::Os, code(), PSLICE() << prefix << message());
       default:
         UNREACHABLE();
         return {};
@@ -344,10 +356,10 @@ class Status {
     CHECK(is_error());
     Info info = get_info();
     switch (info.error_type) {
-      case ErrorType::general:
-        return Error(code(), PSLICE() << message() << " " << suffix);
-      case ErrorType::os:
-        return Status(false, ErrorType::os, code(), PSLICE() << message() << " " << suffix);
+      case ErrorType::General:
+        return Error(code(), PSLICE() << message() << suffix);
+      case ErrorType::Os:
+        return Status(false, ErrorType::Os, code(), PSLICE() << message() << suffix);
       default:
         UNREACHABLE();
         return {};
@@ -434,6 +446,7 @@ class Status {
 template <class T = Unit>
 class Result {
  public:
+  using ValueT = T;
   Result() : status_(Status::Error<-1>()) {
   }
   template <class S, std::enable_if_t<!std::is_same<std::decay_t<S>, Result>::value, int> = 0>
@@ -567,6 +580,22 @@ class Result {
   }
   void clear() {
     *this = Result<T>();
+  }
+
+  template <class F>
+  td::Result<decltype(std::declval<F>()(std::declval<T>()))> move_map(F &&f) {
+    if (is_error()) {
+      return move_as_error();
+    }
+    return f(move_as_ok());
+  }
+
+  template <class F>
+  decltype(std::declval<F>()(std::declval<T>())) move_fmap(F &&f) {
+    if (is_error()) {
+      return move_as_error();
+    }
+    return f(move_as_ok());
   }
 
  private:

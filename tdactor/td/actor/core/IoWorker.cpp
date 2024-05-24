@@ -14,11 +14,12 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/actor/core/IoWorker.h"
 
 #include "td/actor/core/ActorExecutor.h"
+#include "td/actor/core/Scheduler.h"
 
 namespace td {
 namespace actor {
@@ -36,12 +37,13 @@ void IoWorker::tear_down() {
 #endif
 }
 
-bool IoWorker::run_once(double timeout) {
+bool IoWorker::run_once(double timeout, bool skip_timeouts) {
   auto &dispatcher = *SchedulerContext::get();
 #if TD_PORT_POSIX
   auto &poll = SchedulerContext::get()->get_poll();
 #endif
   auto &heap = SchedulerContext::get()->get_heap();
+  auto &debug = SchedulerContext::get()->get_debug();
 
   auto now = Time::now();  // update Time::now_cached()
   while (!heap.empty() && heap.top_key() <= now) {
@@ -49,6 +51,7 @@ bool IoWorker::run_once(double timeout) {
     auto *actor_info = ActorInfo::from_heap_node(heap_node);
 
     auto id = actor_info->unpin();
+    auto lock = debug.start(actor_info->get_name());
     ActorExecutor executor(*actor_info, dispatcher, ActorExecutor::Options().with_has_poll(true));
     if (executor.can_send_immediate()) {
       executor.send_immediate(ActorSignals::one(ActorSignals::Alarm));
@@ -68,6 +71,7 @@ bool IoWorker::run_once(double timeout) {
       dispatcher.set_alarm_timestamp(message);
       continue;
     }
+    auto lock = debug.start(message->get_name());
     ActorExecutor executor(*message, dispatcher, ActorExecutor::Options().with_from_queue().with_has_poll(true));
   }
   queue_.reader_flush();
@@ -82,6 +86,14 @@ bool IoWorker::run_once(double timeout) {
     timeout_ms = static_cast<int>(wakeup_timestamp.in() * 1000) + 1;
     if (timeout_ms < 0) {
       timeout_ms = 0;
+    }
+
+    if (timeout_ms > 0 && skip_timeouts) {
+      timeout_ms = 0;
+      //auto *heap_node = heap.top();
+      //auto *actor_info = ActorInfo::from_heap_node(heap_node);
+      //LOG(ERROR) << "Jump: " << wakeup_timestamp.at() << " " << actor_info->get_name();
+      Time::jump_in_future(wakeup_timestamp.at() + 1e-9);
     }
     //const int thirty_seconds = 30 * 1000;
     //if (timeout_ms > thirty_seconds) {

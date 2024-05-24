@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "fift/words.h"
 #include "fift/Fift.h"
@@ -33,9 +33,14 @@ std::string load_test(std::string name) {
   return td::read_file_str(current_dir() + "fift/" + name).move_as_ok();
 }
 
-td::Status run_fift(std::string name, bool preload_fift = true) {
-  TRY_RESULT(res, fift::mem_run_fift(load_test(name)));
-  REGRESSION_VERIFY(res.output);
+td::Status run_fift(std::string name, bool expect_error = false) {
+  auto res = fift::mem_run_fift(load_test(name));
+  if (expect_error) {
+    res.ensure_error();
+    return td::Status::OK();
+  }
+  res.ensure();
+  REGRESSION_VERIFY(res.ok().output);
   return td::Status::OK();
 }
 
@@ -79,7 +84,7 @@ TEST(Fift, testvmprog) {
   run_fift("testvmprog.fif");
 }
 TEST(Fift, bug) {
-  run_fift("bug.fif");
+  run_fift("bug.fif", true);
 }
 TEST(Fift, contfrac) {
   run_fift("contfrac.fif");
@@ -109,4 +114,56 @@ TEST(Fift, test_sort) {
 
 TEST(Fift, test_sort2) {
   run_fift("sort2.fif");
+}
+
+TEST(Fift, test_hmap) {
+  run_fift("hmap.fif");
+}
+
+TEST(Fift, test_disasm) {
+  run_fift("disasm.fif");
+}
+
+TEST(Fift, test_fiftext) {
+  run_fift("fift-ext.fif");
+}
+
+TEST(Fift, test_namespaces) {
+  run_fift("namespaces.fif");
+}
+
+TEST(Fift, test_asm_nested_program) {
+  run_fift("asm-nested-program.fif");
+}
+
+TEST(Fift, test_adddiv) {
+  run_fift("adddiv.fif");
+}
+
+TEST(Fift, test_tvm_runvm) {
+  run_fift("tvm_runvm.fif");
+}
+
+TEST(Fift, test_hash_ext) {
+  run_fift("hash_ext.fif");
+}
+
+TEST(Fift, test_deep_stack_ops) {
+  run_fift("deep_stack_ops.fif");
+}
+
+TEST(Fift, test_rist255) {
+  run_fift("rist255.fif");
+}
+
+TEST(Fift, test_bls) {
+  run_fift("bls.fif");
+}
+
+TEST(Fift, test_bls_ops) {
+  run_fift("bls_ops.fif");
+}
+
+TEST(Fift, test_levels) {
+  run_fift("levels.fif");
 }

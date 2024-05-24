@@ -1,0 +1,19 @@
+int foo(int x) inline method_id(1) {
+  if (x == 1) {
+    return 111;
+  } else {
+    x *= 2;
+  }
+  return x + 1;
+}
+(int, int) main(int x) {
+  return (foo(x), 222);
+}
+
+{-
+   method_id | in | out
+TESTCASE | 1 | 1  | 111
+TESTCASE | 1 | 3  | 7
+TESTCASE | 0 | 1  | 111 222
+TESTCASE | 0 | 3  | 7 222
+-}

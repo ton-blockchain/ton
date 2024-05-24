@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -35,6 +35,8 @@ class ExtMessage : public td::CntObject {
   virtual td::BufferSlice serialize() const = 0;
   virtual td::Ref<vm::Cell> root_cell() const = 0;
   virtual Hash hash() const = 0;
+  virtual ton::WorkchainId wc() const = 0;
+  virtual ton::StdSmcAddress addr() const = 0;
 };
 
 }  // namespace validator

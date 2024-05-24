@@ -14,18 +14,19 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "shard.hpp"
 #include "message-queue.hpp"
 #include "validator-set.hpp"
 #include "vm/boc.h"
-#include "vm/db/BlobView.h"
+#include "td/db/utils/BlobView.h"
 #include "vm/db/StaticBagOfCellsDb.h"
 #include "vm/cellslice.h"
 #include "vm/cells/MerkleUpdate.h"
 #include "block/block-parse.h"
 #include "block/block-auto.h"
+#include "td/utils/filesystem.h"
 
 #define LAZY_STATE_DESERIALIZE 1
 
@@ -86,7 +87,7 @@ td::Status ShardStateQ::init() {
 #if LAZY_STATE_DESERIALIZE
     vm::StaticBagOfCellsDbLazy::Options options;
     options.check_crc32c = true;
-    auto res = vm::StaticBagOfCellsDbLazy::create(vm::BufferSliceBlobView::create(data.clone()), options);
+    auto res = vm::StaticBagOfCellsDbLazy::create(td::BufferSliceBlobView::create(data.clone()), options);
     if (res.is_error()) {
       return res.move_as_error();
     }
@@ -127,6 +128,15 @@ td::Status ShardStateQ::init() {
     return td::Status::Error(-668, "header of unpacked shardchain state for block "s + blkid.id.to_str() +
                                        " contains BlockId " + hdr_id.to_str() +
                                        " different from the one originally required");
+  }
+  if (info.r1.master_ref.write().fetch_long(1)) {
+    BlockIdExt mc_id;
+    if (!block::tlb::t_ExtBlkRef.unpack(info.r1.master_ref, mc_id, nullptr)) {
+      return td::Status::Error(-668, "cannot unpack master_ref in shardchain state of "s + blkid.to_str());
+    }
+    master_ref = mc_id;
+  } else {
+    master_ref = {};
   }
   return td::Status::OK();
 }
@@ -299,6 +309,30 @@ td::Result<td::BufferSlice> ShardStateQ::serialize() const {
   // data = st_res.move_as_ok();
   // return data.clone();
   return st_res.move_as_ok();
+}
+
+td::Status ShardStateQ::serialize_to_file(td::FileFd& fd) const {
+  td::PerfWarningTimer perf_timer_{"serializestate", 0.1};
+  if (!data.is_null()) {
+    auto cur_data = data.clone();
+    while (cur_data.size() > 0) {
+      TRY_RESULT(s, fd.write(cur_data.as_slice()));
+      cur_data.confirm_read(s);
+    }
+    return td::Status::OK();
+  }
+  if (root.is_null()) {
+    return td::Status::Error(-666, "cannot serialize an uninitialized state");
+  }
+  vm::BagOfCells new_boc;
+  new_boc.set_root(root);
+  TRY_STATUS(new_boc.import_cells());
+  auto st_res = new_boc.serialize_to_file(fd, 31);
+  if (st_res.is_error()) {
+    LOG(ERROR) << "cannot serialize a shardchain state";
+    return st_res.move_as_error();
+  }
+  return td::Status::OK();
 }
 
 MasterchainStateQ::MasterchainStateQ(const BlockIdExt& _id, td::BufferSlice _data)

@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "terminal.hpp"
 #include "td/utils/port/StdStreams.h"
@@ -29,11 +29,11 @@
 namespace td {
 
 void TerminalLogInterface::append(CSlice slice, int log_level) {
-  auto instance_ = TerminalIOImpl::instance();
-  if (!instance_) {
+  auto instance = TerminalIOImpl::instance();
+  if (!instance) {
     default_log_interface->append(slice, log_level);
   } else {
-    instance_->deactivate_readline();
+    instance->deactivate_readline();
     std::string color;
     if (log_level == 0 || log_level == 1) {
       color = TC_RED;
@@ -43,7 +43,7 @@ void TerminalLogInterface::append(CSlice slice, int log_level) {
       color = TC_GREEN;
     }
     td::TsCerr() << color << slice << TC_EMPTY;
-    instance_->reactivate_readline();
+    instance->reactivate_readline();
     if (log_level == VERBOSITY_NAME(FATAL)) {
       process_fatal_error(slice);
     }
@@ -82,6 +82,16 @@ void TerminalIOImpl::output_line(std::string line) {
   reactivate_readline();
 }
 
+void TerminalIOImpl::output_line_stderr(std::string line) {
+  deactivate_readline();
+  if (use_readline_) {
+    Stdout().write(line).ensure();
+  } else {
+    Stderr().write(line).ensure();
+  }
+  reactivate_readline();
+}
+
 void TerminalIOImpl::start_up() {
   instance_ = this;
   self_ = actor_id(this);
@@ -103,9 +113,11 @@ void TerminalIOImpl::start_up() {
   }
 #endif
 
-  td::actor::SchedulerContext::get()->get_poll().subscribe(stdin_.get_poll_info().extract_pollable_fd(this),
-                                                           td::PollFlags::Read());
-  loop();
+  if (!no_input_) {
+    td::actor::SchedulerContext::get()->get_poll().subscribe(stdin_.get_poll_info().extract_pollable_fd(this),
+                                                             td::PollFlags::Read());
+    loop();
+  }
 }
 
 void TerminalIOImpl::tear_down() {
@@ -206,17 +218,17 @@ void TerminalIOImpl::s_line(char *line) {
     LOG(FATAL) << "Closed";
     return;
   }
-  CHECK(instance_);
+  CHECK(instance);
   if (*line) {
     add_history(line);
   }
-  instance_->line_cb(line);
+  instance()->line_cb(line);
   rl_free(line);
 #endif
 }
 
 int TerminalIOImpl::s_stdin_getc(FILE *) {
-  return instance_->stdin_getc();
+  return instance()->stdin_getc();
 }
 
 void TerminalIOImpl::set_log_interface() {
@@ -240,40 +252,89 @@ void TerminalIOImpl::line_cb(std::string cmd) {
   cmd_queue_.push(td::BufferSlice{std::move(cmd)});
 }
 
-void TerminalIO::output(std::string line) {
-  auto instance_ = TerminalIOImpl::instance();
-  if (!instance_) {
-    std::cout << line;
-  } else {
-    instance_->deactivate_readline();
-    td::TsCerr() << line;
-    instance_->reactivate_readline();
+void TerminalIO::output_stdout(td::Slice slice, double max_wait) {
+  auto &fd = td::Stdout();
+  if (fd.empty()) {
+    return;
+  }
+  double end_time = 0;
+  while (!slice.empty()) {
+    auto res = fd.write(slice);
+    if (res.is_error()) {
+      if (res.error().code() == EPIPE) {
+        break;
+      }
+      // Resource temporary unavailable
+      if (end_time == 0) {
+        end_time = Time::now() + max_wait;
+      } else if (Time::now() > end_time) {
+        break;
+      }
+      continue;
+    }
+    slice.remove_prefix(res.ok());
   }
 }
 
+void TerminalIO::output(std::string line) {
+  output(td::Slice(line));
+}
+
 void TerminalIO::output(td::Slice line) {
-  auto instance_ = TerminalIOImpl::instance();
-  if (!instance_) {
+  auto instance = TerminalIOImpl::instance();
+  if (!instance) {
+    output_stdout(line, 10.0);
+  } else {
+    instance->deactivate_readline();
+    output_stdout(line, 10.0);
+    instance->reactivate_readline();
+  }
+}
+
+void TerminalIO::output_stderr(std::string line) {
+  output_stderr(td::Slice(line));
+}
+
+void TerminalIO::output_stderr(td::Slice line) {
+  auto instance = TerminalIOImpl::instance();
+  if (!instance) {
     td::TsCerr() << line;
   } else {
-    instance_->deactivate_readline();
-    td::TsCerr() << line;
-    instance_->reactivate_readline();
+    if (instance->readline_used()) {
+      instance->deactivate_readline();
+      output_stdout(line, 0.01);
+      instance->reactivate_readline();
+    } else {
+      td::TsCerr() << line;
+    }
+  }
+}
+
+void TerminalIOOutputter::flush() {
+  if (buffer_) {
+    CHECK(sb_);
+    if (!sb_->as_cslice().empty()) {
+      if (is_err_) {
+        TerminalIO::output_stderr(sb_->as_cslice());
+      } else {
+        TerminalIO::output(sb_->as_cslice());
+      }
+    }
+    sb_->clear();
   }
 }
 
 TerminalIOOutputter::~TerminalIOOutputter() {
   if (buffer_) {
-    CHECK(sb_);
-    TerminalIO::output(sb_->as_cslice());
+    flush();
     delete[] buffer_;
   }
 }
 
-td::actor::ActorOwn<TerminalIO> TerminalIO::create(std::string prompt, bool use_readline,
+td::actor::ActorOwn<TerminalIO> TerminalIO::create(std::string prompt, bool use_readline, bool no_input,
                                                    std::unique_ptr<Callback> callback) {
   return actor::create_actor<TerminalIOImpl>(actor::ActorOptions().with_name("terminal io").with_poll(), prompt,
-                                             use_readline, std::move(callback));
+                                             use_readline, no_input, std::move(callback));
 }
 
 TerminalIOImpl *TerminalIOImpl::instance_ = nullptr;

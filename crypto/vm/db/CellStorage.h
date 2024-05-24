@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 #include "td/db/KeyValue.h"
@@ -45,19 +45,21 @@ class CellLoader {
 
     Ref<DataCell> cell_;
     td::int32 refcnt_{0};
+    bool stored_boc_{false};
   };
-  CellLoader(std::shared_ptr<KeyValueReader> reader);
+  CellLoader(std::shared_ptr<KeyValueReader> reader, std::function<void(const LoadResult &)> on_load_callback = {});
   td::Result<LoadResult> load(td::Slice hash, bool need_data, ExtCellCreator &ext_cell_creator);
 
  private:
   std::shared_ptr<KeyValueReader> reader_;
+  std::function<void(const LoadResult &)> on_load_callback_;
 };
 
 class CellStorer {
  public:
   CellStorer(KeyValue &kv);
   td::Status erase(td::Slice hash);
-  td::Status set(td::int32 refcnt, const DataCell &cell);
+  td::Status set(td::int32 refcnt, const td::Ref<DataCell> &cell, bool as_boc);
 
  private:
   KeyValue &kv_;

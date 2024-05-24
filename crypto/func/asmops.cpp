@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "parser/srcread.h"
 #include "func.h"
@@ -55,10 +55,10 @@ std::ostream& operator<<(std::ostream& os, AsmOp::SReg stack_reg) {
   }
 }
 
-AsmOp AsmOp::Const(int arg, std::string push_op) {
+AsmOp AsmOp::Const(int arg, std::string push_op, td::RefInt256 origin) {
   std::ostringstream os;
   os << arg << ' ' << push_op;
-  return AsmOp::Const(os.str());
+  return AsmOp::Const(os.str(), origin);
 }
 
 AsmOp AsmOp::make_stk2(int a, int b, const char* str, int delta) {
@@ -121,32 +121,72 @@ AsmOp AsmOp::BlkDrop(int a) {
   return AsmOp::Custom(os.str(), a, 0);
 }
 
+AsmOp AsmOp::BlkDrop2(int a, int b) {
+  if (!b) {
+    return BlkDrop(a);
+  }
+  std::ostringstream os;
+  os << a << " " << b << " BLKDROP2";
+  return AsmOp::Custom(os.str(), a + b, b);
+}
+
 AsmOp AsmOp::BlkReverse(int a, int b) {
   std::ostringstream os;
   os << a << " " << b << " REVERSE";
   return AsmOp::Custom(os.str(), a + b, a + b);
 }
 
+AsmOp AsmOp::Tuple(int a) {
+  switch (a) {
+    case 1:
+      return AsmOp::Custom("SINGLE", 1, 1);
+    case 2:
+      return AsmOp::Custom("PAIR", 2, 1);
+    case 3:
+      return AsmOp::Custom("TRIPLE", 3, 1);
+  }
+  std::ostringstream os;
+  os << a << " TUPLE";
+  return AsmOp::Custom(os.str(), a, 1);
+}
+
+AsmOp AsmOp::UnTuple(int a) {
+  switch (a) {
+    case 1:
+      return AsmOp::Custom("UNSINGLE", 1, 1);
+    case 2:
+      return AsmOp::Custom("UNPAIR", 1, 2);
+    case 3:
+      return AsmOp::Custom("UNTRIPLE", 1, 3);
+  }
+  std::ostringstream os;
+  os << a << " UNTUPLE";
+  return AsmOp::Custom(os.str(), 1, a);
+}
+
 AsmOp AsmOp::IntConst(td::RefInt256 x) {
   if (x->signed_fits_bits(8)) {
-    return AsmOp::Const(dec_string(std::move(x)) + " PUSHINT");
+    return AsmOp::Const(dec_string(x) + " PUSHINT", x);
   }
   if (!x->is_valid()) {
-    return AsmOp::Const("PUSHNAN");
+    return AsmOp::Const("PUSHNAN", x);
   }
   int k = is_pos_pow2(x);
   if (k >= 0) {
-    return AsmOp::Const(k, "PUSHPOW2");
+    return AsmOp::Const(k, "PUSHPOW2", x);
   }
   k = is_pos_pow2(x + 1);
   if (k >= 0) {
-    return AsmOp::Const(k, "PUSHPOW2DEC");
+    return AsmOp::Const(k, "PUSHPOW2DEC", x);
   }
   k = is_pos_pow2(-x);
   if (k >= 0) {
-    return AsmOp::Const(k, "PUSHNEGPOW2");
+    return AsmOp::Const(k, "PUSHNEGPOW2", x);
   }
-  return AsmOp::Const(dec_string(std::move(x)) + " PUSHINT");
+  if (!x->mod_pow2_short(23)) {
+    return AsmOp::Const(dec_string(x) + " PUSHINTX", x);
+  }
+  return AsmOp::Const(dec_string(x) + " PUSHINT", x);
 }
 
 AsmOp AsmOp::BoolConst(bool f) {
@@ -325,6 +365,8 @@ bool apply_op(StackTransform& trans, const AsmOp& op) {
       return trans.apply_pop(op.a);
     case AsmOp::a_const:
       return !op.a && op.b == 1 && trans.apply_push_newconst();
+    case AsmOp::a_custom:
+      return op.is_gconst() && trans.apply_push_newconst();
     default:
       return false;
   }

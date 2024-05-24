@@ -14,132 +14,63 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-
-#include <functional>
-#include <map>
-
-#include "IntCtx.h"
+#include "Continuation.h"
+#include "HashMap.h"
+#include "vm/box.hpp"
 
 namespace fift {
 using td::Ref;
+
+struct IntCtx;
+
 /*
  *
  *    WORD CLASSES
  *
  */
 
-typedef std::function<void(vm::Stack&)> StackWordFunc;
-typedef std::function<void(IntCtx&)> CtxWordFunc;
-
-class WordDef : public td::CntObject {
- public:
-  WordDef() = default;
-  virtual ~WordDef() override = default;
-  virtual Ref<WordDef> run_tail(IntCtx& ctx) const = 0;
-  void run(IntCtx& ctx) const;
-  virtual bool is_list() const {
-    return false;
-  }
-  virtual long long list_size() const {
-    return -1;
-  }
-  virtual const std::vector<Ref<WordDef>>* get_list() const {
-    return nullptr;
-  }
-};
-
-class StackWord : public WordDef {
-  StackWordFunc f;
+class DictEntry {
+  Ref<FiftCont> def;
+  bool active{false};
 
  public:
-  StackWord(StackWordFunc _f) : f(std::move(_f)) {
+  DictEntry() = default;
+  DictEntry(const DictEntry& ref) = default;
+  DictEntry(DictEntry&& ref) = default;
+  DictEntry(Ref<FiftCont> _def, bool _act = false) : def(std::move(_def)), active(_act) {
   }
-  ~StackWord() override = default;
-  Ref<WordDef> run_tail(IntCtx& ctx) const override;
-};
-
-class CtxWord : public WordDef {
-  CtxWordFunc f;
-
- public:
-  CtxWord(CtxWordFunc _f) : f(std::move(_f)) {
+  DictEntry(StackWordFunc func);
+  DictEntry(CtxWordFunc func, bool _act = false);
+  DictEntry(CtxTailWordFunc func, bool _act = false);
+  //DictEntry(const std::vector<Ref<FiftCont>>& word_list);
+  //DictEntry(std::vector<Ref<FiftCont>>&& word_list);
+  DictEntry& operator=(const DictEntry&) = default;
+  DictEntry& operator=(DictEntry&&) = default;
+  static DictEntry create_from(vm::StackEntry se);
+  explicit operator vm::StackEntry() const&;
+  explicit operator vm::StackEntry() &&;
+  Ref<FiftCont> get_def() const& {
+    return def;
   }
-  ~CtxWord() override = default;
-  Ref<WordDef> run_tail(IntCtx& ctx) const override;
-};
-
-typedef std::function<Ref<WordDef>(IntCtx&)> CtxTailWordFunc;
-
-class CtxTailWord : public WordDef {
-  CtxTailWordFunc f;
-
- public:
-  CtxTailWord(CtxTailWordFunc _f) : f(std::move(_f)) {
+  Ref<FiftCont> get_def() && {
+    return std::move(def);
   }
-  ~CtxTailWord() override = default;
-  Ref<WordDef> run_tail(IntCtx& ctx) const override;
-};
-
-class WordList : public WordDef {
-  std::vector<Ref<WordDef>> list;
-
- public:
-  ~WordList() override = default;
-  WordList() = default;
-  WordList(std::vector<Ref<WordDef>>&& _list);
-  WordList(const std::vector<Ref<WordDef>>& _list);
-  WordList& push_back(Ref<WordDef> word_def);
-  WordList& push_back(WordDef& wd);
-  Ref<WordDef> run_tail(IntCtx& ctx) const override;
-  void close();
-  bool is_list() const override {
-    return true;
+  bool is_active() const {
+    return active;
   }
-  long long list_size() const override {
-    return (long long)list.size();
+  bool empty() const {
+    return def.is_null();
   }
-  const std::vector<Ref<WordDef>>* get_list() const override {
-    return &list;
+  explicit operator bool() const {
+    return def.not_null();
   }
-  WordList& append(const std::vector<Ref<WordDef>>& other);
-  WordList* make_copy() const override {
-    return new WordList(list);
+  bool operator!() const {
+    return def.is_null();
   }
 };
-
-class WordRef {
-  Ref<WordDef> def;
-  bool active;
-
- public:
-  WordRef() = delete;
-  WordRef(const WordRef& ref) = default;
-  WordRef(WordRef&& ref) = default;
-  WordRef(Ref<WordDef> _def, bool _act = false);
-  WordRef(StackWordFunc func);
-  WordRef(CtxWordFunc func, bool _act = false);
-  WordRef(CtxTailWordFunc func, bool _act = false);
-  //WordRef(const std::vector<Ref<WordDef>>& word_list);
-  //WordRef(std::vector<Ref<WordDef>>&& word_list);
-  WordRef& operator=(const WordRef&) = default;
-  WordRef& operator=(WordRef&&) = default;
-  Ref<WordDef> get_def() const &;
-  Ref<WordDef> get_def() &&;
-  void operator()(IntCtx& ctx) const;
-  bool is_active() const;
-  ~WordRef() = default;
-};
-
-/*
-WordRef::WordRef(const std::vector<Ref<WordDef>>& word_list) : def(Ref<WordList>{true, word_list}) {
-}
-
-WordRef::WordRef(std::vector<Ref<WordDef>>&& word_list) : def(Ref<WordList>{true, std::move(word_list)}) {
-}
-*/
 
 /*
  *
@@ -149,34 +80,52 @@ WordRef::WordRef(std::vector<Ref<WordDef>>&& word_list) : def(Ref<WordList>{true
 
 class Dictionary {
  public:
-  WordRef* lookup(td::Slice name);
+  Dictionary() : box_(true) {
+  }
+  Dictionary(Ref<vm::Box> box) : box_(std::move(box)) {
+  }
+  Dictionary(Ref<Hashmap> hmap) : box_(true, vm::from_object, std::move(hmap)) {
+  }
+
+  DictEntry lookup(std::string name) const;
   void def_ctx_word(std::string name, CtxWordFunc func);
   void def_ctx_tail_word(std::string name, CtxTailWordFunc func);
   void def_active_word(std::string name, CtxWordFunc func);
   void def_stack_word(std::string name, StackWordFunc func);
-  void def_word(std::string name, WordRef word);
-  void undef_word(td::Slice name);
-
+  void def_word(std::string name, DictEntry word);
+  void undef_word(std::string name);
+  bool lookup_def(const FiftCont* cont, std::string* word_ptr = nullptr) const;
+  bool lookup_def(Ref<FiftCont> cont, std::string* word_ptr = nullptr) const {
+    return lookup_def(cont.get(), word_ptr);
+  }
   auto begin() const {
-    return words_.begin();
+    return words().begin();
   }
   auto end() const {
-    return words_.end();
+    return words().end();
+  }
+  HashmapKeeper words() const {
+    if (box_->empty()) {
+      return {};
+    } else {
+      return box_->get().as_object<Hashmap>();
+    }
+  }
+  Ref<vm::Box> get_box() const {
+    return box_;
+  }
+  void set_words(Ref<Hashmap> new_words) {
+    box_->set(vm::StackEntry{vm::from_object, std::move(new_words)});
+  }
+  bool operator==(const Dictionary& other) const {
+    return box_ == other.box_;
+  }
+  bool operator!=(const Dictionary& other) const {
+    return box_ != other.box_;
   }
 
-  static Ref<WordDef> nop_word_def;
-
  private:
-  std::map<std::string, WordRef, std::less<>> words_;
+  Ref<vm::Box> box_;
 };
 
-/*
- *
- *      AUX FUNCTIONS FOR WORD DEFS
- *
- */
-
-Ref<WordDef> pop_exec_token(vm::Stack& stack);
-Ref<WordList> pop_word_list(vm::Stack& stack);
-void push_argcount(vm::Stack& stack, int args);
 }  // namespace fift

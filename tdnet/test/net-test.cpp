@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/actor/actor.h"
 #include "td/net/UdpServer.h"
@@ -158,9 +158,11 @@ void run_server(int from_port, int to_port, bool is_first, bool use_tcp) {
 
 TEST(Net, PingPong) {
   SET_VERBOSITY_LEVEL(VERBOSITY_NAME(ERROR));
+  int port1 = td::Random::fast(10000, 10999);
+  int port2 = td::Random::fast(11000, 11999);
   for (auto use_tcp : {false, true}) {
-    auto a = td::thread([use_tcp] { run_server(8091, 8092, true, use_tcp); });
-    auto b = td::thread([use_tcp] { run_server(8092, 8091, false, use_tcp); });
+    auto a = td::thread([=] { run_server(port1, port2, true, use_tcp); });
+    auto b = td::thread([=] { run_server(port2, port1, false, use_tcp); });
     a.join();
     b.join();
   }

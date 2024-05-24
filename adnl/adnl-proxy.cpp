@@ -1,4 +1,4 @@
-/* 
+/*
     This file is part of TON Blockchain source code.
 
     TON Blockchain is free software; you can redistribute it and/or
@@ -14,33 +14,36 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 
-    In addition, as a special exception, the copyright holders give permission 
-    to link the code of portions of this program with the OpenSSL library. 
-    You must obey the GNU General Public License in all respects for all 
-    of the code used other than OpenSSL. If you modify file(s) with this 
-    exception, you may extend this exception to your version of the file(s), 
-    but you are not obligated to do so. If you do not wish to do so, delete this 
-    exception statement from your version. If you delete this exception statement 
+    In addition, as a special exception, the copyright holders give permission
+    to link the code of portions of this program with the OpenSSL library.
+    You must obey the GNU General Public License in all respects for all
+    of the code used other than OpenSSL. If you modify file(s) with this
+    exception, you may extend this exception to your version of the file(s),
+    but you are not obligated to do so. If you do not wish to do so, delete this
+    exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/actor/actor.h"
 #include "td/utils/buffer.h"
 #include "td/utils/port/IPAddress.h"
 #include "td/net/UdpServer.h"
 #include "td/utils/port/signals.h"
-#include "td/utils/OptionsParser.h"
+#include "td/utils/OptionParser.h"
 #include "td/utils/FileLog.h"
 #include "td/utils/port/path.h"
 #include "td/utils/port/user.h"
 #include "td/utils/filesystem.h"
+#include "td/utils/overloaded.h"
 #include "common/checksum.h"
 #include "common/errorcode.h"
 #include "tl-utils/tl-utils.hpp"
 #include "auto/tl/ton_api_json.h"
 #include "adnl-proxy-types.h"
+#include "adnl-received-mask.h"
 #include <map>
+#include "git.h"
 
 #if TD_DARWIN || TD_LINUX
 #include <unistd.h>
@@ -50,12 +53,19 @@ namespace ton {
 
 namespace adnl {
 
+namespace {
+td::int32 start_time() {
+  static td::int32 t = static_cast<td::int32>(td::Clocks::system());
+  return t;
+}
+}  // namespace
+
 class Receiver : public td::actor::Actor {
  public:
   void start_up() override;
-  void receive_common(td::BufferSlice data);
-  void receive_from_client(td::BufferSlice data);
-  void receive_to_client(td::BufferSlice data);
+  void receive_common(td::IPAddress addr, td::BufferSlice data);
+  void receive_from_client(td::IPAddress addr, td::BufferSlice data);
+  void receive_to_client(td::IPAddress addr, td::BufferSlice data);
 
   Receiver(td::uint16 in_port, td::uint16 out_port, std::shared_ptr<AdnlProxy> proxy, td::IPAddress client_addr)
       : in_port_(in_port), out_port_(out_port), proxy_(std::move(proxy)), addr_(client_addr) {
@@ -68,6 +78,10 @@ class Receiver : public td::actor::Actor {
   td::IPAddress addr_;
   td::actor::ActorOwn<td::UdpServer> out_udp_server_;
   td::actor::ActorOwn<td::UdpServer> in_udp_server_;
+
+  td::int32 client_start_time_{0};
+  td::uint64 out_seqno_{0};
+  AdnlReceivedMaskVersion received_;
 };
 
 void Receiver::start_up() {
@@ -81,15 +95,18 @@ void Receiver::start_up() {
     const td::uint32 mode_;
     void on_udp_message(td::UdpMessage udp_message) override {
       if (udp_message.error.is_error()) {
-        LOG(DEBUG) << udp_message.error;
+        LOG(INFO) << "receifed udp message with error: " << udp_message.error;
         return;
       }
       if (mode_ == 0) {
-        td::actor::send_closure_later(manager_, &Receiver::receive_common, std::move(udp_message.data));
+        td::actor::send_closure_later(manager_, &Receiver::receive_common, udp_message.address,
+                                      std::move(udp_message.data));
       } else if (mode_ == 1) {
-        td::actor::send_closure_later(manager_, &Receiver::receive_from_client, std::move(udp_message.data));
+        td::actor::send_closure_later(manager_, &Receiver::receive_from_client, udp_message.address,
+                                      std::move(udp_message.data));
       } else {
-        td::actor::send_closure_later(manager_, &Receiver::receive_to_client, std::move(udp_message.data));
+        td::actor::send_closure_later(manager_, &Receiver::receive_to_client, udp_message.address,
+                                      std::move(udp_message.data));
       }
     }
   };
@@ -108,46 +125,151 @@ void Receiver::start_up() {
   }
 }
 
-void Receiver::receive_common(td::BufferSlice data) {
+void Receiver::receive_common(td::IPAddress addr, td::BufferSlice data) {
   if (data.size() <= 32) {
+    LOG(INFO) << "dropping too short packet: size=" << data.size();
     return;
   }
 
-  td::Bits256 id;
-  id.as_slice().copy_from(data.as_slice().truncate(32));
-
-  if (id.is_zero()) {
-    receive_from_client(std::move(data));
+  if (proxy_->id().as_slice() == data.as_slice().truncate(32)) {
+    receive_from_client(addr, std::move(data));
   } else {
-    receive_to_client(std::move(data));
+    receive_to_client(addr, std::move(data));
   }
 }
 
-void Receiver::receive_from_client(td::BufferSlice data) {
+void Receiver::receive_from_client(td::IPAddress addr, td::BufferSlice data) {
   auto F = proxy_->decrypt(std::move(data));
   if (F.is_error()) {
+    LOG(INFO) << "proxy: failed to decrypt message from client: " << F.move_as_error();
     return;
   }
   auto f = F.move_as_ok();
+  if (f.flags & (1 << 16)) {
+    LOG(INFO) << "proxy: dropping message from client: flag 16 is set";
+    return;
+  }
+
+  if (f.date) {
+    if (f.date + 60.0 < td::Clocks::system() || f.date - 60.0 > td::Clocks::system()) {
+      LOG(INFO) << "proxy: dropping message from client: date mismatch";
+      return;
+    }
+  }
+
+  if ((f.flags & 6) == 6) {
+    if (received_.packet_is_delivered(f.adnl_start_time, f.seqno)) {
+      LOG(INFO) << "proxy: dropping message from client: duplicate packet (or old seqno/start_time)";
+      return;
+    }
+    received_.deliver_packet(f.adnl_start_time, f.seqno);
+  }
+
+  if (f.flags & (1 << 17)) {
+    auto F = fetch_tl_object<ton_api::adnl_ProxyControlPacket>(std::move(f.data), true);
+    if (F.is_error()) {
+      LOG(INFO) << this << ": dropping proxy packet: bad control packet: " << F.move_as_error();
+      return;
+    }
+    ton_api::downcast_call(*F.move_as_ok().get(),
+                           td::overloaded(
+                               [&](const ton_api::adnl_proxyControlPacketPing &f) {
+                                 auto data = create_serialize_tl_object<ton_api::adnl_proxyControlPacketPong>(f.id_);
+                                 AdnlProxy::Packet p;
+                                 p.flags = 6 | (1 << 16) | (1 << 17);
+                                 if (addr.is_valid() && addr.is_ipv4()) {
+                                   p.flags |= 1;
+                                   p.ip = addr.get_ipv4();
+                                   p.port = static_cast<td::uint16>(addr.get_port());
+                                 } else {
+                                   p.ip = 0;
+                                   p.port = 0;
+                                 }
+                                 p.data = std::move(data);
+                                 p.adnl_start_time = start_time();
+                                 p.seqno = out_seqno_;
+
+                                 auto enc = proxy_->encrypt(std::move(p));
+
+                                 td::UdpMessage M;
+                                 M.address = addr;
+                                 M.data = std::move(enc);
+
+                                 td::actor::send_closure(
+                                     in_udp_server_.empty() ? out_udp_server_.get() : in_udp_server_.get(),
+                                     &td::UdpServer::send, std::move(M));
+                               },
+                               [&](const ton_api::adnl_proxyControlPacketPong &f) {},
+                               [&](const ton_api::adnl_proxyControlPacketRegister &f) {
+                                 if (f.ip_ == 0 && f.port_ == 0) {
+                                   if (addr.is_valid() && addr.is_ipv4()) {
+                                     addr_ = addr;
+                                   }
+                                 } else {
+                                   td::IPAddress a;
+                                   auto S = a.init_host_port(td::IPAddress::ipv4_to_str(f.ip_), f.port_);
+                                   if (S.is_ok()) {
+                                     addr_ = a;
+                                   } else {
+                                     LOG(INFO) << "failed to init remote addr: " << S.move_as_error();
+                                   }
+                                 }
+                               }));
+    return;
+  }
+
+  if (!(f.flags & 1)) {
+    LOG(INFO) << this << ": dropping proxy packet: no destination";
+    return;
+  }
 
   td::IPAddress a;
   if (a.init_ipv4_port(td::IPAddress::ipv4_to_str(f.ip), f.port).is_error()) {
+    LOG(INFO) << this << ": dropping proxy packet: invalid destination";
+    return;
+  }
+  if (!a.is_valid()) {
+    LOG(INFO) << this << ": dropping proxy packet: invalid destination";
     return;
   }
 
   td::UdpMessage M;
   M.address = a;
   M.data = std::move(f.data);
+  LOG(DEBUG) << this << ": proxying DOWN packet of length " << M.data.size() << " to " << a;
 
   td::actor::send_closure(out_udp_server_.empty() ? in_udp_server_.get() : out_udp_server_.get(), &td::UdpServer::send,
                           std::move(M));
 }
 
-void Receiver::receive_to_client(td::BufferSlice data) {
+void Receiver::receive_to_client(td::IPAddress addr, td::BufferSlice data) {
   LOG(DEBUG) << "proxying to " << addr_;
+  if (!addr_.is_valid() || !addr_.is_ipv4() || !addr_.get_ipv4()) {
+    LOG(INFO) << this << ": dropping external packet: client not inited";
+    return;
+  }
+
+  AdnlProxy::Packet p;
+  p.flags = (1 << 16);
+  if (addr.is_valid() && addr.is_ipv4()) {
+    p.flags |= 1;
+    p.ip = addr.get_ipv4();
+    p.port = static_cast<td::uint16>(addr.get_port());
+  } else {
+    p.ip = 0;
+    p.port = 0;
+  }
+  p.flags |= 2;
+  p.adnl_start_time = start_time();
+  p.flags |= 4;
+  p.seqno = ++out_seqno_;
+  p.data = std::move(data);
+
+  LOG(DEBUG) << this << ": proxying UP packet of length " << p.data.size() << " to " << addr_;
+
   td::UdpMessage M;
   M.address = addr_;
-  M.data = std::move(data);
+  M.data = proxy_->encrypt(std::move(p));
 
   td::actor::send_closure(in_udp_server_.empty() ? out_udp_server_.get() : in_udp_server_.get(), &td::UdpServer::send,
                           std::move(M));
@@ -175,12 +297,15 @@ int main(int argc, char *argv[]) {
 
   std::string config = "/var/ton-work/etc/adnl-proxy.conf.json";
 
-  td::OptionsParser p;
+  td::OptionParser p;
   p.set_description("validator or full node for TON network");
   p.add_option('v', "verbosity", "set verbosity level", [&](td::Slice arg) {
     int v = VERBOSITY_NAME(FATAL) + (td::to_integer<int>(arg));
     SET_VERBOSITY_LEVEL(v);
-    return td::Status::OK();
+  });
+  p.add_option('V', "version", "shows adnl-proxy build information", [&]() {
+    std::cout << "adnl-proxy build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
+    std::exit(0);
   });
   p.add_option('h', "help", "prints_help", [&]() {
     char b[10240];
@@ -188,42 +313,38 @@ int main(int argc, char *argv[]) {
     sb << p;
     std::cout << sb.as_cslice().c_str();
     std::exit(2);
-    return td::Status::OK();
   });
-  p.add_option('c', "config", "config file", [&](td::Slice arg) {
-    config = arg.str();
-    return td::Status::OK();
-  });
+  p.add_option('c', "config", "config file", [&](td::Slice arg) { config = arg.str(); });
   p.add_option('d', "daemonize", "set SIGHUP", [&]() {
 #if TD_DARWIN || TD_LINUX
     close(0);
     setsid();
 #endif
     td::set_signal_handler(td::SignalType::HangUp, force_rotate_logs).ensure();
-    return td::Status::OK();
   });
-  p.add_option('l', "logname", "log to file", [&](td::Slice fname) {
+  p.add_checked_option('l', "logname", "log to file", [&](td::Slice fname) {
     auto F = std::make_unique<td::FileLog>();
-    TRY_STATUS(F->init(fname.str(), std::numeric_limits<td::uint64>::max(), true));
+    TRY_STATUS(F->init(fname.str(), std::numeric_limits<td::int64>::max(), true));
     logger_ = std::move(F);
     td::log_interface = logger_.get();
     return td::Status::OK();
   });
   td::uint32 threads = 7;
-  p.add_option('t', "threads", PSTRING() << "number of threads (default=" << threads << ")", [&](td::Slice fname) {
-    td::int32 v;
-    try {
-      v = std::stoi(fname.str());
-    } catch (...) {
-      return td::Status::Error(ton::ErrorCode::error, "bad value for --threads: not a number");
-    }
-    if (v < 1 || v > 256) {
-      return td::Status::Error(ton::ErrorCode::error, "bad value for --threads: should be in range [1..256]");
-    }
-    threads = v;
-    return td::Status::OK();
-  });
-  p.add_option('u', "user", "change user", [&](td::Slice user) { return td::change_user(user); });
+  p.add_checked_option(
+      't', "threads", PSTRING() << "number of threads (default=" << threads << ")", [&](td::Slice fname) {
+        td::int32 v;
+        try {
+          v = std::stoi(fname.str());
+        } catch (...) {
+          return td::Status::Error(ton::ErrorCode::error, "bad value for --threads: not a number");
+        }
+        if (v < 1 || v > 256) {
+          return td::Status::Error(ton::ErrorCode::error, "bad value for --threads: should be in range [1..256]");
+        }
+        threads = v;
+        return td::Status::OK();
+      });
+  p.add_checked_option('u', "user", "change user", [&](td::Slice user) { return td::change_user(user.str()); });
 
   p.run(argc, argv).ensure();
 
@@ -248,7 +369,9 @@ int main(int argc, char *argv[]) {
       }
       TRY_RESULT(proxy, ton::adnl::AdnlProxy::create(*y->proxy_type_.get()));
       td::IPAddress a;
-      a.init_ipv4_port(td::IPAddress::ipv4_to_str(y->dst_ip_), static_cast<td::uint16>(y->dst_port_)).ensure();
+      if (y->dst_ip_ || y->dst_port_) {
+        a.init_ipv4_port(td::IPAddress::ipv4_to_str(y->dst_ip_), static_cast<td::uint16>(y->dst_port_)).ensure();
+      }
 
       scheduler.run_in_context([&] {
         x.push_back(td::actor::create_actor<ton::adnl::Receiver>("adnl-proxy", in_port, out_port, std::move(proxy), a));

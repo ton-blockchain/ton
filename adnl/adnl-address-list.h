@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -24,6 +24,8 @@
 namespace ton {
 
 namespace adnl {
+
+class Adnl;
 
 class AdnlAddressImpl : public td::CntObject {
  public:
@@ -35,8 +37,11 @@ class AdnlAddressImpl : public td::CntObject {
   virtual td::uint32 serialized_size() const = 0;
   virtual tl_object_ptr<ton_api::adnl_Address> tl() const = 0;
   virtual td::actor::ActorOwn<AdnlNetworkConnection> create_connection(
-      td::actor::ActorId<AdnlNetworkManager> network_manager,
+      td::actor::ActorId<AdnlNetworkManager> network_manager, td::actor::ActorId<Adnl> adnl,
       std::unique_ptr<AdnlNetworkConnection::Callback> callback) const = 0;
+  virtual bool is_reverse() const {
+    return false;
+  }
 
   static td::Ref<AdnlAddressImpl> create(const tl_object_ptr<ton_api::adnl_Address> &addr);
 };
@@ -52,6 +57,7 @@ class AdnlAddressList {
   td::int32 priority_;
   td::int32 expire_at_;
   std::vector<AdnlAddress> addrs_;
+  bool has_reverse_{false};
 
  public:
   static constexpr td::uint32 max_serialized_size() {
@@ -88,9 +94,10 @@ class AdnlAddressList {
   void add_addr(AdnlAddress addr) {
     addrs_.push_back(addr);
   }
+  void update(td::IPAddress addr);
   bool public_only() const;
   td::uint32 size() const {
-    return static_cast<td::uint32>(addrs_.size());
+    return td::narrow_cast<td::uint32>(addrs_.size());
   }
   td::uint32 serialized_size() const;
   tl_object_ptr<ton_api::adnl_addressList> tl() const;
@@ -98,6 +105,14 @@ class AdnlAddressList {
   }
 
   static td::Result<AdnlAddressList> create(const tl_object_ptr<ton_api::adnl_addressList> &addr_list);
+  td::Status add_udp_address(td::IPAddress addr);
+
+  void set_reverse(bool x = true) {
+    has_reverse_ = x;
+  }
+  bool has_reverse() const {
+    return has_reverse_;
+  }
 };
 
 }  // namespace adnl

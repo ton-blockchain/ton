@@ -14,11 +14,12 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "vm/cells/CellSlice.h"
 #include "vm/excno.hpp"
 #include "td/utils/bits.h"
+#include "td/utils/misc.h"
 
 namespace vm {
 
@@ -47,7 +48,7 @@ Cell::LoadedCell load_cell_nothrow(const Ref<Cell>& ref) {
   auto res = ref->load_cell();
   if (res.is_ok()) {
     auto ld = res.move_as_ok();
-    CHECK(ld.virt.get_virtualization() == 0 || ld.data_cell->special_type() != Cell::SpecialType::PrunnedBranch);
+    //CHECK(ld.virt.get_virtualization() == 0 || ld.data_cell->special_type() != Cell::SpecialType::PrunnedBranch);
     return ld;
   }
   return {};
@@ -57,7 +58,7 @@ Cell::LoadedCell load_cell_nothrow(const Ref<Cell>& ref, int mode) {
   auto res = ref->load_cell();
   if (res.is_ok()) {
     auto ld = res.move_as_ok();
-    CHECK(ld.virt.get_virtualization() == 0 || ld.data_cell->special_type() != Cell::SpecialType::PrunnedBranch);
+    //CHECK(ld.virt.get_virtualization() == 0 || ld.data_cell->special_type() != Cell::SpecialType::PrunnedBranch);
     if ((mode >> (ld.data_cell->is_special() ? 1 : 0)) & 1) {
       return ld;
     }
@@ -594,8 +595,7 @@ td::RefInt256 CellSlice::fetch_int256(unsigned bits, bool sgnd) {
   if (!have(bits)) {
     return {};
   } else if (bits < td::BigInt256::word_shift) {
-    long long val = sgnd ? fetch_long(bits) : fetch_ulong(bits);
-    return td::RefInt256{true, val};
+    return td::make_refint(td::int64(sgnd ? fetch_long(bits) : fetch_ulong(bits)));
   } else {
     td::RefInt256 res{true};
     res.unique_write().import_bits(data_bits(), bits, sgnd);
@@ -608,8 +608,7 @@ td::RefInt256 CellSlice::prefetch_int256(unsigned bits, bool sgnd) const {
   if (!have(bits)) {
     return {};
   } else if (bits < td::BigInt256::word_shift) {
-    long long val = sgnd ? prefetch_long(bits) : prefetch_ulong(bits);
-    return td::RefInt256{true, val};
+    return td::make_refint(td::int64(sgnd ? prefetch_long(bits) : prefetch_ulong(bits)));
   } else {
     td::RefInt256 res{true};
     res.unique_write().import_bits(data_bits(), bits, sgnd);
@@ -619,15 +618,15 @@ td::RefInt256 CellSlice::prefetch_int256(unsigned bits, bool sgnd) const {
 
 td::RefInt256 CellSlice::prefetch_int256_zeroext(unsigned bits, bool sgnd) const {
   if (bits > 256u + sgnd) {
-    return td::RefInt256{false};
+    return td::make_refint();
   } else {
     unsigned ld_bits = std::min(bits, size());
     if (bits < td::BigInt256::word_shift) {
       long long val = sgnd ? prefetch_long(ld_bits) : prefetch_ulong(ld_bits);
       val <<= bits - ld_bits;
-      return td::RefInt256{true, val};
+      return td::make_refint(val);
     } else {
-      td::RefInt256 res{true};
+      auto res = td::make_refint();
       res.unique_write().import_bits(data_bits(), ld_bits, sgnd);
       res <<= bits - ld_bits;
       return res;
@@ -721,6 +720,10 @@ bool CellSlice::prefetch_bytes(unsigned char* buffer, unsigned bytes) const {
   }
 }
 
+bool CellSlice::fetch_bytes(td::MutableSlice slice) {
+  return fetch_bytes(slice.ubegin(), td::narrow_cast<unsigned>(slice.size()));
+}
+
 bool CellSlice::fetch_bytes(unsigned char* buffer, unsigned bytes) {
   if (prefetch_bytes(buffer, bytes)) {
     advance(bytes * 8);
@@ -728,6 +731,10 @@ bool CellSlice::fetch_bytes(unsigned char* buffer, unsigned bytes) {
   } else {
     return false;
   }
+}
+
+bool CellSlice::prefetch_bytes(td::MutableSlice slice) const {
+  return prefetch_bytes(slice.ubegin(), td::narrow_cast<unsigned>(slice.size()));
 }
 
 Ref<Cell> CellSlice::prefetch_ref(unsigned offset) const {
@@ -774,6 +781,14 @@ bool CellSlice::fetch_maybe_ref(Ref<vm::Cell>& res) {
   } else {
     return z == 1 && prefetch_ref_to(res) && advance_ext(1, 1);
   }
+}
+
+td::uint16 CellSlice::get_depth() const {
+  int d = 0;
+  for (unsigned i = 0; i < size_refs(); ++i) {
+    d = std::max(d, prefetch_ref(i)->get_depth() + 1);
+  }
+  return static_cast<td::uint16>(d);
 }
 
 bool CellSlice::begins_with(unsigned bits, unsigned long long value) const {
@@ -980,13 +995,18 @@ void CellSlice::dump_hex(std::ostream& os, int mode, bool endl) const {
   }
 }
 
-void CellSlice::print_rec(std::ostream& os, int indent) const {
+bool CellSlice::print_rec(std::ostream& os, int* limit, int indent) const {
   for (int i = 0; i < indent; i++) {
     os << ' ';
   }
+  if (!limit || *limit <= 0) {
+    os << "<cell output limit reached>" << std::endl;
+    return false;
+  }
+  --*limit;
   if (cell.is_null()) {
     os << "NULL" << std::endl;
-    return;
+    return true;
   }
   if (is_special()) {
     os << "SPECIAL ";
@@ -994,8 +1014,20 @@ void CellSlice::print_rec(std::ostream& os, int indent) const {
   os << "x{" << as_bitslice().to_hex() << '}' << std::endl;
   for (unsigned i = 0; i < size_refs(); i++) {
     CellSlice cs{NoVm(), prefetch_ref(i)};
-    cs.print_rec(os, indent + 1);
+    if (!cs.print_rec(os, limit, indent + 1)) {
+      return false;
+    }
   }
+  return true;
+}
+
+bool CellSlice::print_rec(std::ostream& os, int indent) const {
+  int limit = default_recursive_print_limit;
+  return print_rec(os, &limit, indent);
+}
+
+bool CellSlice::print_rec(int limit, std::ostream& os, int indent) const {
+  return print_rec(os, &limit, indent);
 }
 
 td::StringBuilder& operator<<(td::StringBuilder& sb, const CellSlice& cs) {
@@ -1023,44 +1055,54 @@ std::ostream& operator<<(std::ostream& os, Ref<CellSlice> cs_ref) {
 
 // If can_be_special is not null, then it is allowed to load special cell
 // Flag whether loaded cell is actually special will be stored into can_be_special
-VirtualCell::LoadedCell load_cell_slice_impl(const Ref<Cell>& cell, bool* can_be_special) {
+VirtualCell::LoadedCell load_cell_slice_impl(Ref<Cell> cell, bool* can_be_special) {
   auto* vm_state_interface = VmStateInterface::get();
-  if (vm_state_interface) {
-    vm_state_interface->register_cell_load();
-  }
-  auto r_loaded_cell = cell->load_cell();
-  if (r_loaded_cell.is_error()) {
-    throw VmError{Excno::cell_und, "failed to load cell"};
-  }
-  auto loaded_cell = r_loaded_cell.move_as_ok();
-  if (loaded_cell.data_cell->special_type() == DataCell::SpecialType::PrunnedBranch) {
-    auto virtualization = loaded_cell.virt.get_virtualization();
-    if (virtualization != 0) {
-      throw VmVirtError{virtualization};
+  bool library_loaded = false;
+  while (true) {
+    if (vm_state_interface && !library_loaded) {
+      vm_state_interface->register_cell_load(cell->get_hash());
     }
-  }
-  if (can_be_special) {
-    *can_be_special = loaded_cell.data_cell->is_special();
-  } else if (loaded_cell.data_cell->is_special()) {
-    if (loaded_cell.data_cell->special_type() == DataCell::SpecialType::Library) {
-      if (vm_state_interface) {
-        CellSlice cs(std::move(loaded_cell));
-        DCHECK(cs.size() == Cell::hash_bits + 8);
-        auto library_cell = vm_state_interface->load_library(cs.data_bits() + 8);
-        if (library_cell.not_null()) {
-          //TODO: fix infinity loop
-          return load_cell_slice_impl(library_cell, nullptr);
-        }
-        throw VmError{Excno::cell_und, "failed to load library cell"};
+    auto r_loaded_cell = cell->load_cell();
+    if (r_loaded_cell.is_error()) {
+      throw VmError{Excno::cell_und, "failed to load cell"};
+    }
+    auto loaded_cell = r_loaded_cell.move_as_ok();
+    if (loaded_cell.data_cell->special_type() == DataCell::SpecialType::PrunnedBranch) {
+      auto virtualization = loaded_cell.virt.get_virtualization();
+      if (virtualization != 0) {
+        throw VmVirtError{virtualization};
       }
-      throw VmError{Excno::cell_und, "failed to load library cell (no vm_state_interface available)"};
-    } else if (loaded_cell.data_cell->special_type() == DataCell::SpecialType::PrunnedBranch) {
-      CHECK(loaded_cell.virt.get_virtualization() == 0);
-      throw VmError{Excno::cell_und, "trying to load prunned cell"};
     }
-    throw VmError{Excno::cell_und, "unexpected special cell"};
+    if (can_be_special) {
+      *can_be_special = loaded_cell.data_cell->is_special();
+    } else if (loaded_cell.data_cell->is_special()) {
+      if (loaded_cell.data_cell->special_type() == DataCell::SpecialType::Library) {
+        if (vm_state_interface) {
+          if (vm_state_interface->get_global_version() >= 5) {
+            if (library_loaded) {
+              throw VmError{Excno::cell_und, "failed to load library cell: recursive library cells are not allowed"};
+            }
+            library_loaded = true;
+          }
+          CellSlice cs(std::move(loaded_cell));
+          DCHECK(cs.size() == Cell::hash_bits + 8);
+          auto library_cell = vm_state_interface->load_library(cs.data_bits() + 8);
+          if (library_cell.not_null()) {
+            cell = library_cell;
+            can_be_special = nullptr;
+            continue;
+          }
+          throw VmError{Excno::cell_und, "failed to load library cell"};
+        }
+        throw VmError{Excno::cell_und, "failed to load library cell (no vm_state_interface available)"};
+      } else if (loaded_cell.data_cell->special_type() == DataCell::SpecialType::PrunnedBranch) {
+        CHECK(loaded_cell.virt.get_virtualization() == 0);
+        throw VmError{Excno::cell_und, "trying to load prunned cell"};
+      }
+      throw VmError{Excno::cell_und, "unexpected special cell"};
+    }
+    return loaded_cell;
   }
-  return loaded_cell;
 }
 
 CellSlice load_cell_slice(const Ref<Cell>& cell) {

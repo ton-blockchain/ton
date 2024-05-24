@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.0.2 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
 
 if (NOT OPENSSL_FOUND)
   find_package(OpenSSL REQUIRED)
@@ -43,6 +43,7 @@ set(VALIDATOR_HEADERS
   fabric.h
   interfaces/db.h
   interfaces/external-message.h
+  interfaces/liteserver.h
   interfaces/proof.h
   interfaces/shard.h
   interfaces/signature-set.h
@@ -52,6 +53,7 @@ set(VALIDATOR_HEADERS
   invariants.hpp
   
   import-db-slice.hpp
+  queue-size-counter.hpp
 
   manager-disk.h
   manager-disk.hpp
@@ -77,6 +79,7 @@ set(VALIDATOR_SOURCE
   validator-full-id.cpp
   validator-group.cpp
   validator-options.cpp
+  queue-size-counter.cpp
 
   downloaders/wait-block-data.cpp
   downloaders/wait-block-state.cpp
@@ -98,7 +101,8 @@ set(DISK_VALIDATOR_SOURCE
   validator-full-id.cpp
   validator-group.cpp
   validator-options.cpp
-  
+  queue-size-counter.cpp
+
   downloaders/wait-block-data-disk.cpp
   downloaders/wait-block-state.cpp
   downloaders/wait-block-state-merge.cpp
@@ -106,6 +110,26 @@ set(DISK_VALIDATOR_SOURCE
 
   manager-init.cpp
   manager-disk.cpp
+
+  ${VALIDATOR_DB_SOURCE}
+)
+
+set(HARDFORK_VALIDATOR_SOURCE
+  apply-block.cpp
+  block-handle.cpp
+  shard-client.cpp
+  validator-full-id.cpp
+  validator-group.cpp
+  validator-options.cpp
+  queue-size-counter.cpp
+
+  downloaders/wait-block-data-disk.cpp
+  downloaders/wait-block-state.cpp
+  downloaders/wait-block-state-merge.cpp
+  downloaders/download-state.cpp
+
+  manager-init.cpp
+  manager-hardfork.cpp
 
   ${VALIDATOR_DB_SOURCE}
 )
@@ -120,7 +144,11 @@ set(FULL_NODE_SOURCE
   full-node-master.h
   full-node-master.hpp
   full-node-master.cpp
-  
+  full-node-private-overlay.hpp
+  full-node-private-overlay.cpp
+  full-node-serializer.hpp
+  full-node-serializer.cpp
+
   net/download-block.hpp
   net/download-block.cpp
   net/download-block-new.hpp
@@ -139,6 +167,7 @@ set(FULL_NODE_SOURCE
 
 add_library(validator STATIC ${VALIDATOR_SOURCE})
 add_library(validator-disk STATIC ${DISK_VALIDATOR_SOURCE})
+add_library(validator-hardfork STATIC ${HARDFORK_VALIDATOR_SOURCE})
 add_library(full-node STATIC ${FULL_NODE_SOURCE})
 
 target_include_directories(validator PUBLIC 
@@ -149,6 +178,13 @@ target_include_directories(validator PUBLIC
 )
 
 target_include_directories(validator-disk PUBLIC 
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}> 
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/.. 
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/../crypto 
+  ${OPENSSL_INCLUDE_DIR}
+  )
+
+target_include_directories(validator-hardfork PUBLIC 
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}> 
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/.. 
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/../crypto 
@@ -168,5 +204,8 @@ target_link_libraries(validator PRIVATE tdutils tdactor adnl rldp tl_api dht tdf
 target_link_libraries(validator-disk PRIVATE tdutils tdactor adnl rldp tl_api dht tdfec
   overlay catchain validatorsession ton_crypto ton_block ton_db)
 
-target_link_libraries(full-node PRIVATE tdutils tdactor adnl rldp tl_api dht tdfec
+target_link_libraries(validator-hardfork PRIVATE tdutils tdactor adnl rldp tl_api dht tdfec
+  overlay catchain validatorsession ton_crypto ton_block ton_db)
+
+target_link_libraries(full-node PRIVATE tdutils tdactor adnl rldp rldp2 tl_api dht tdfec
   overlay catchain validatorsession ton_crypto ton_block ton_db)

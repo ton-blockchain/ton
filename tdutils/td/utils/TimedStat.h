@@ -14,11 +14,12 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
 #include "td/utils/common.h"
+#include "td/utils/optional.h"
 
 #include <utility>
 
@@ -79,5 +80,28 @@ class TimedStat {
     }
   }
 };
+
+template <class T, class Cmp>
+struct MinMaxStat {
+ public:
+  using Event = T;
+  void on_event(Event event) {
+    if (!best_ || Cmp()(event, best_.value())) {
+      best_ = event;
+    }
+  }
+  td::optional<T> get_stat() const {
+    return best_.copy();
+  }
+
+ private:
+  td::optional<T> best_;
+};
+
+template <class T>
+using MinStat = MinMaxStat<T, std::less<>>;
+
+template <class T>
+using MaxStat = MinMaxStat<T, std::greater<>>;
 
 }  // namespace td

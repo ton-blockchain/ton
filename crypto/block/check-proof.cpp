@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "check-proof.h"
 #include "block/block.h"
@@ -25,13 +25,13 @@
 #include "ton/ton-shard.h"
 
 #include "vm/cells/MerkleProof.h"
-#include "openssl/digest.h"
+#include "openssl/digest.hpp"
 #include "Ed25519.h"
 
 namespace block {
 using namespace std::literals::string_literals;
 
-td::Status check_block_header_proof(td::Ref<vm::Cell> root, ton::BlockIdExt blkid, ton::Bits256* store_shard_hash_to,
+td::Status check_block_header_proof(td::Ref<vm::Cell> root, ton::BlockIdExt blkid, ton::Bits256* store_state_hash_to,
                                     bool check_state_hash, td::uint32* save_utime, ton::LogicalTime* save_lt) {
   ton::RootHash vhash{root->get_hash().bits()};
   if (vhash != blkid.root_hash) {
@@ -53,7 +53,7 @@ td::Status check_block_header_proof(td::Ref<vm::Cell> root, ton::BlockIdExt blki
   if (save_lt) {
     *save_lt = info.end_lt;
   }
-  if (store_shard_hash_to) {
+  if (store_state_hash_to) {
     vm::CellSlice upd_cs{vm::NoVmSpec(), blk.state_update};
     if (!(upd_cs.is_special() && upd_cs.prefetch_long(8) == 4  // merkle update
           && upd_cs.size_ext() == 0x20228)) {
@@ -61,11 +61,11 @@ td::Status check_block_header_proof(td::Ref<vm::Cell> root, ton::BlockIdExt blki
     }
     auto upd_hash = upd_cs.prefetch_ref(1)->get_hash(0);
     if (!check_state_hash) {
-      *store_shard_hash_to = upd_hash.bits();
-    } else if (store_shard_hash_to->compare(upd_hash.bits())) {
+      *store_state_hash_to = upd_hash.bits();
+    } else if (store_state_hash_to->compare(upd_hash.bits())) {
       return td::Status::Error(PSTRING() << "state hash mismatch in block header of " << blkid.to_str()
                                          << " : header declares " << upd_hash.bits().to_hex(256) << " expected "
-                                         << store_shard_hash_to->to_hex());
+                                         << store_state_hash_to->to_hex());
     }
   }
   return td::Status::OK();
@@ -219,7 +219,17 @@ td::Status check_account_proof(td::Slice proof, ton::BlockIdExt shard_blk, const
 }
 
 td::Result<AccountState::Info> AccountState::validate(ton::BlockIdExt ref_blk, block::StdAddress addr) const {
-  TRY_RESULT_PREFIX(root, vm::std_boc_deserialize(state.as_slice(), true), "cannot deserialize account state");
+  TRY_RESULT_PREFIX(true_root, vm::std_boc_deserialize(state.as_slice(), true), "cannot deserialize account state");
+  Ref<vm::Cell> root;
+
+  if (is_virtualized && true_root.not_null()) {
+    root = vm::MerkleProof::virtualize(true_root, 1);
+    if (root.is_null()) {
+      return td::Status::Error("account state proof is invalid");
+    }
+  } else {
+    root = true_root;
+  }
 
   if (blk != ref_blk && ref_blk.id.seqno != ~0U) {
     return td::Status::Error(PSLICE() << "obtained getAccountState() for a different reference block " << blk.to_str()
@@ -241,6 +251,7 @@ td::Result<AccountState::Info> AccountState::validate(ton::BlockIdExt ref_blk, b
   TRY_STATUS(block::check_account_proof(proof.as_slice(), shard_blk, addr, root, &res.last_trans_lt,
                                         &res.last_trans_hash, &res.gen_utime, &res.gen_lt));
   res.root = std::move(root);
+  res.true_root = std::move(true_root);
 
   return res;
 }
@@ -304,6 +315,113 @@ td::Result<TransactionList::Info> TransactionList::validate() const {
   return std::move(res);
 }
 
+td::Result<BlockTransaction::Info> BlockTransaction::validate(bool check_proof) const {
+  if (root.is_null()) {
+    return td::Status::Error("transactions are expected to be non-empty");
+  }
+  if (check_proof && proof->get_hash().bits().compare(root->get_hash().bits(), 256)) {
+    return td::Status::Error(PSLICE() << "transaction hash mismatch: Merkle proof expects "
+                                      << proof->get_hash().bits().to_hex(256)
+                                      << " but received data has " << root->get_hash().bits().to_hex(256));
+  }
+  block::gen::Transaction::Record trans;
+  if (!tlb::unpack_cell(root, trans)) {
+    return td::Status::Error("cannot unpack transaction cell");
+  }
+  Info res;
+  res.blkid = blkid;
+  res.now = trans.now;
+  res.lt = trans.lt;
+  res.hash = root->get_hash().bits();
+  res.transaction = root;
+  return std::move(res);
+}
+
+td::Result<BlockTransactionList::Info> BlockTransactionList::validate(bool check_proof) const {
+  constexpr int max_answer_transactions = 256;
+
+  TRY_RESULT_PREFIX(list, vm::std_boc_deserialize_multi(std::move(transactions_boc)), "cannot deserialize transactions boc: ");  
+  std::vector<td::Ref<vm::Cell>> tx_proofs(list.size());
+
+  if (check_proof) {
+    try {
+      TRY_RESULT(proof_cell, vm::std_boc_deserialize(std::move(proof_boc)));
+      auto virt_root = vm::MerkleProof::virtualize(proof_cell, 1);
+
+      if (blkid.root_hash != virt_root->get_hash().bits()) {
+        return td::Status::Error("Invalid block proof root hash");
+      }
+      block::gen::Block::Record blk;
+      block::gen::BlockExtra::Record extra;
+      if (!(tlb::unpack_cell(virt_root, blk) && tlb::unpack_cell(std::move(blk.extra), extra))) {
+        return td::Status::Error("Error unpacking proof cell");
+      }
+      vm::AugmentedDictionary acc_dict{vm::load_cell_slice_ref(extra.account_blocks), 256,
+                  block::tlb::aug_ShardAccountBlocks};
+
+      bool eof = false;
+      ton::LogicalTime reverse = reverse_mode ? ~0ULL : 0;
+      ton::LogicalTime trans_lt = static_cast<ton::LogicalTime>(start_lt);
+      td::Bits256 cur_addr = start_addr;
+      bool allow_same = true;
+      int count = 0;
+      while (!eof && count < req_count && count < max_answer_transactions) {
+        auto value = acc_dict.extract_value(
+              acc_dict.vm::DictionaryFixed::lookup_nearest_key(cur_addr.bits(), 256, !reverse, allow_same));
+        if (value.is_null()) {
+          eof = true;
+          break;
+        }
+        allow_same = false;
+        if (cur_addr != start_addr) {
+          trans_lt = reverse;
+        }
+
+        block::gen::AccountBlock::Record acc_blk;
+        if (!tlb::csr_unpack(std::move(value), acc_blk) || acc_blk.account_addr != cur_addr) {
+          return td::Status::Error("Error unpacking proof account block");
+        }
+        vm::AugmentedDictionary trans_dict{vm::DictNonEmpty(), std::move(acc_blk.transactions), 64,
+                    block::tlb::aug_AccountTransactions};
+        td::BitArray<64> cur_trans{(long long)trans_lt};
+        while (count < req_count && count < max_answer_transactions) {
+          auto tvalue = trans_dict.extract_value_ref(
+                trans_dict.vm::DictionaryFixed::lookup_nearest_key(cur_trans.bits(), 64, !reverse));
+          if (tvalue.is_null()) {
+            trans_lt = reverse;
+            break;
+          }
+          if (static_cast<size_t>(count) < tx_proofs.size()) {
+            tx_proofs[count] = std::move(tvalue);
+          }
+          count++;
+        }
+      }
+      if (static_cast<size_t>(count) != list.size()) {
+        return td::Status::Error(PSLICE() << "Txs count mismatch in proof (" << count << ") and response (" << list.size() << ")");
+      }
+    } catch (vm::VmError& err) {
+      return err.as_status("Couldn't verify proof: ");
+    } catch (vm::VmVirtError& err) {
+      return err.as_status("Couldn't verify proof: ");
+    } catch (...) {
+      return td::Status::Error("Unknown exception raised while verifying proof");
+    }
+  }
+
+  Info res;
+  for (int i = 0; i < static_cast<int>(list.size()); i++) {
+    auto& root = list[i];
+    BlockTransaction transaction;
+    transaction.root = root;
+    transaction.blkid = blkid;
+    transaction.proof = tx_proofs[i];
+    TRY_RESULT(info, transaction.validate(check_proof));
+    res.transactions.push_back(std::move(info));
+  }
+  return std::move(res);
+}
+
 td::Status BlockProofLink::validate(td::uint32* save_utime) const {
   if (save_utime) {
     *save_utime = 0;
@@ -351,7 +469,7 @@ td::Status BlockProofLink::validate(td::uint32* save_utime) const {
     if (to.seqno()) {
       TRY_STATUS(check_block_header(vd_root, to));
       if (!(tlb::unpack_cell(vd_root, blk) && tlb::unpack_cell(blk.info, info))) {
-        return td::Status::Error("cannot unpack header for block "s + from.to_str());
+        return td::Status::Error("cannot unpack header for block "s + to.to_str());
       }
       if (info.key_block != is_key) {
         return td::Status::Error(PSTRING() << "incorrect is_key_block value " << is_key << " for destination block "

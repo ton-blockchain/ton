@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -32,7 +32,7 @@ namespace fullnode {
 
 class DownloadProof : public td::actor::Actor {
  public:
-  DownloadProof(BlockIdExt block_id, bool allow_partial_proof, adnl::AdnlNodeIdShort local_id,
+  DownloadProof(BlockIdExt block_id, bool allow_partial_proof, bool is_key_block, adnl::AdnlNodeIdShort local_id,
                 overlay::OverlayIdShort overlay_id, adnl::AdnlNodeIdShort download_from, td::uint32 priority,
                 td::Timestamp timeout, td::actor::ActorId<ValidatorManagerInterface> validator_manager,
                 td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays,
@@ -54,6 +54,7 @@ class DownloadProof : public td::actor::Actor {
  private:
   BlockIdExt block_id_;
   bool allow_partial_proof_;
+  bool is_key_block_;
   adnl::AdnlNodeIdShort local_id_;
   overlay::OverlayIdShort overlay_id_;
 

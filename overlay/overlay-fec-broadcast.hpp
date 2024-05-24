@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -82,13 +82,17 @@ class BroadcastFec : public td::ListNode {
     }
   }
 
-  td::Status add_part(td::uint32 seqno, td::BufferSlice data) {
+  td::Status add_part(td::uint32 seqno, td::BufferSlice data,
+                      td::BufferSlice serialized_fec_part_short,
+                      td::BufferSlice serialized_fec_part) {
     CHECK(decoder_);
     td::fec::Symbol s;
     s.id = seqno;
     s.data = std::move(data);
 
     decoder_->add_symbol(std::move(s));
+    parts_[seqno] = std::pair<td::BufferSlice, td::BufferSlice>(std::move(serialized_fec_part_short),
+                                                                std::move(serialized_fec_part));
 
     return td::Status::OK();
   }
@@ -106,6 +110,7 @@ class BroadcastFec : public td::ListNode {
     CHECK(encoder_ != nullptr);
     ready_ = true;
     decoder_ = nullptr;
+    data_ = D.data.clone();
     return std::move(D.data);
   }
 
@@ -185,6 +190,16 @@ class BroadcastFec : public td::ListNode {
     }
   }
 
+  void broadcast_checked(td::Result<td::Unit> R);
+  void set_overlay(OverlayImpl *overlay) {
+    overlay_ = overlay;
+  }
+  void set_src_peer_id(adnl::AdnlNodeIdShort src_peer_id) {
+    src_peer_id_ = src_peer_id;
+  }
+
+  td::Status distribute_part(td::uint32 seqno);
+
  private:
   bool ready_ = false;
 
@@ -205,6 +220,11 @@ class BroadcastFec : public td::ListNode {
 
   td::uint32 next_seqno_ = 0;
   td::uint64 received_parts_ = 0;
+
+  std::map<td::uint32, std::pair<td::BufferSlice, td::BufferSlice>> parts_;
+  OverlayImpl *overlay_;
+  adnl::AdnlNodeIdShort src_peer_id_ = adnl::AdnlNodeIdShort::zero();
+  td::BufferSlice data_;
 };
 
 class OverlayFecBroadcastPart : public td::ListNode {
@@ -225,9 +245,11 @@ class OverlayFecBroadcastPart : public td::ListNode {
   td::BufferSlice signature_;
 
   bool is_short_;
+  bool untrusted_{false};
 
   BroadcastFec *bcast_;
   OverlayImpl *overlay_;
+  adnl::AdnlNodeIdShort src_peer_id_ = adnl::AdnlNodeIdShort::zero();
 
   td::Status check_time();
   td::Status check_duplicate();
@@ -243,7 +265,7 @@ class OverlayFecBroadcastPart : public td::ListNode {
                           std::shared_ptr<Certificate> cert, Overlay::BroadcastDataHash data_hash, td::uint32 data_size,
                           td::uint32 flags, Overlay::BroadcastDataHash part_data_hash, td::BufferSlice data,
                           td::uint32 seqno, fec::FecType fec_type, td::uint32 date, td::BufferSlice signature,
-                          bool is_short, BroadcastFec *bcast, OverlayImpl *overlay)
+                          bool is_short, BroadcastFec *bcast, OverlayImpl *overlay, adnl::AdnlNodeIdShort src_peer_id)
       : broadcast_hash_(broadcast_hash)
       , part_hash_(part_hash)
       , source_(std::move(source))
@@ -259,7 +281,8 @@ class OverlayFecBroadcastPart : public td::ListNode {
       , signature_(std::move(signature))
       , is_short_(is_short)
       , bcast_(bcast)
-      , overlay_(overlay) {
+      , overlay_(overlay) 
+      , src_peer_id_(src_peer_id) {
   }
 
   td::uint32 data_size() const {
@@ -277,7 +300,7 @@ class OverlayFecBroadcastPart : public td::ListNode {
     signature_ = std::move(signature);
   }
   void update_overlay(OverlayImpl *overlay);
-
+  
   tl_object_ptr<ton_api::overlay_broadcastFec> export_tl();
   tl_object_ptr<ton_api::overlay_broadcastFecShort> export_tl_short();
   td::BufferSlice export_serialized();
@@ -287,12 +310,14 @@ class OverlayFecBroadcastPart : public td::ListNode {
   td::Status run() {
     TRY_STATUS(run_checks());
     TRY_STATUS(apply());
-    TRY_STATUS(distribute());
+    if(!untrusted_) {
+      TRY_STATUS(distribute());
+    }
     return td::Status::OK();
   }
 
-  static td::Status create(OverlayImpl *overlay, tl_object_ptr<ton_api::overlay_broadcastFec> broadcast);
-  static td::Status create(OverlayImpl *overlay, tl_object_ptr<ton_api::overlay_broadcastFecShort> broadcast);
+  static td::Status create(OverlayImpl *overlay, adnl::AdnlNodeIdShort src_peer_id, tl_object_ptr<ton_api::overlay_broadcastFec> broadcast);
+  static td::Status create(OverlayImpl *overlay, adnl::AdnlNodeIdShort src_peer_id, tl_object_ptr<ton_api::overlay_broadcastFecShort> broadcast);
   static td::Status create_new(OverlayImpl *overlay, td::actor::ActorId<OverlayImpl> overlay_actor_id,
                                PublicKeyHash local_id, Overlay::BroadcastDataHash data_hash, td::uint32 size,
                                td::uint32 flags, td::BufferSlice part, td::uint32 seqno, fec::FecType fec_type,
@@ -311,4 +336,3 @@ class OverlayFecBroadcastPart : public td::ListNode {
 }  // namespace overlay
 
 }  // namespace ton
-

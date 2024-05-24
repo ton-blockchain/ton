@@ -14,11 +14,13 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
 #include "td/utils/StringBuilder.h"
+
+#include <functional>
 
 namespace td {
 
@@ -44,7 +46,7 @@ class Timer {
 
 class PerfWarningTimer {
  public:
-  explicit PerfWarningTimer(string name, double max_duration = 0.1);
+  explicit PerfWarningTimer(string name, double max_duration = 0.1, std::function<void(double)>&& callback = {});
   PerfWarningTimer(const PerfWarningTimer &) = delete;
   PerfWarningTimer &operator=(const PerfWarningTimer &) = delete;
   PerfWarningTimer(PerfWarningTimer &&other);
@@ -56,6 +58,7 @@ class PerfWarningTimer {
   string name_;
   double start_at_{0};
   double max_duration_{0};
+  std::function<void(double)> callback_;
 };
 
 }  // namespace td

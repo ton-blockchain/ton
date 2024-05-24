@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -50,20 +50,33 @@ class ValidatorSessionDescriptionImpl : public ValidatorSessionDescription {
   td::uint32 self_idx_;
 
   static constexpr td::uint32 cache_size = (1 << 20);
+  static constexpr size_t mem_chunk_size_perm = (1 << 27);
+  static constexpr size_t mem_chunk_size_temp = (1 << 27);
 
   struct Cached {
     const RootObject *ptr;
   };
   std::array<std::atomic<Cached>, cache_size> cache_;
-  //std::array<std::atomic<Cached>, cache_size> temp_cache_;
 
-  td::uint8 *pdata_temp_;
-  size_t pdata_temp_ptr_;
-  size_t pdata_temp_size_;
+ public:
+  class MemPool {
+   public:
+    explicit MemPool(size_t chunk_size);
+    ~MemPool();
+    void *alloc(size_t size, size_t align);
+    void clear();
+    bool contains(const void* ptr) const;
 
-  size_t pdata_perm_size_;
-  std::vector<td::uint8 *> pdata_perm_;
-  size_t pdata_perm_ptr_;
+   private:
+    size_t chunk_size_;
+    std::vector<td::uint8 *> data_;
+    size_t ptr_ = 0;
+  };
+
+ private:
+  MemPool mem_perm_ = MemPool(mem_chunk_size_perm);
+  MemPool mem_temp_ = MemPool(mem_chunk_size_temp);
+
   std::atomic<td::uint64> reuse_{0};
 
  public:
@@ -116,7 +129,7 @@ class ValidatorSessionDescriptionImpl : public ValidatorSessionDescription {
   void update_hash(const RootObject *obj, HashType hash) override;
   void *alloc(size_t size, size_t align, bool temp) override;
   void clear_temp_memory() override {
-    pdata_temp_ptr_ = 0;
+    mem_temp_.clear();
   }
   bool is_persistent(const void *ptr) const override;
   HashType compute_hash(td::Slice data) const override;
@@ -143,7 +156,7 @@ class ValidatorSessionDescriptionImpl : public ValidatorSessionDescription {
                                      td::uint32 src_idx, td::Slice signature) const override;
   double get_delay(td::uint32 priority) const override;
   double get_empty_block_delay() const override {
-    return get_delay(get_max_priority() + 1);
+    return std::max(get_delay(get_max_priority() + 1), 1.0);
   }
   td::uint32 get_vote_for_author(td::uint32 attempt_seqno) const override;
   std::vector<PublicKeyHash> export_nodes() const;
@@ -151,12 +164,6 @@ class ValidatorSessionDescriptionImpl : public ValidatorSessionDescription {
   std::vector<PublicKey> export_full_nodes() const;
   const ValidatorSessionOptions &opts() const override {
     return opts_;
-  }
-  ~ValidatorSessionDescriptionImpl() {
-    delete[] pdata_temp_;
-    for (auto &x : pdata_perm_) {
-      delete[] x;
-    }
   }
 };
 

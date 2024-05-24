@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/utils/logging.h"
 
@@ -23,9 +23,11 @@
 #include "td/utils/port/thread_local.h"
 #include "td/utils/Slice.h"
 #include "td/utils/Time.h"
+#include "td/utils/date.h"
 
 #include <atomic>
 #include <cstdlib>
+#include <mutex>
 
 #if TD_ANDROID
 #include <android/log.h>
@@ -57,9 +59,14 @@ TD_THREAD_LOCAL const char *Logger::tag2_ = nullptr;
 Logger::Logger(LogInterface &log, const LogOptions &options, int log_level, Slice file_name, int line_num,
                Slice comment)
     : Logger(log, options, log_level) {
+  if (log_level == VERBOSITY_NAME(PLAIN) && &options == &log_options) {
+    return;
+  }
   if (!options_.add_info) {
     return;
   }
+
+  using namespace date;
 
   // log level
   sb_ << '[';
@@ -77,7 +84,8 @@ Logger::Logger(LogInterface &log, const LogOptions &options, int log_level, Slic
   sb_ << thread_id << ']';
 
   // timestamp
-  sb_ << '[' << StringBuilder::FixedDouble(Clocks::system(), 9) << ']';
+  //sb_ << '[' << StringBuilder::FixedDouble(Clocks::system(), 9) << ']';
+  sb_ << '[' << date::format("%F %T", std::chrono::system_clock::now()) << ']';
 
   // file : line
   if (!file_name.empty()) {
@@ -270,6 +278,28 @@ void process_fatal_error(CSlice message) {
     callback(message);
   }
   std::abort();
+}
+
+namespace {
+std::mutex sdl_mutex;
+int sdl_cnt = 0;
+int sdl_verbosity = 0;
+
+}  // namespace
+ScopedDisableLog::ScopedDisableLog() {
+  std::unique_lock<std::mutex> guard(sdl_mutex);
+  if (sdl_cnt == 0) {
+    sdl_verbosity = set_verbosity_level(std::numeric_limits<int>::min());
+  }
+  sdl_cnt++;
+}
+
+ScopedDisableLog::~ScopedDisableLog() {
+  std::unique_lock<std::mutex> guard(sdl_mutex);
+  sdl_cnt--;
+  if (sdl_cnt == 0) {
+    set_verbosity_level(sdl_verbosity);
+  }
 }
 
 }  // namespace td

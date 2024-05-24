@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -23,6 +23,7 @@
 #include "catchain-receiver-source.h"
 #include "catchain-receiver.h"
 #include "catchain-received-block.h"
+#include <queue>
 
 namespace ton {
 
@@ -78,11 +79,23 @@ class CatChainReceiverSourceImpl : public CatChainReceiverSource {
   CatChainBlockHeight received_height() const override {
     return received_height_;
   }
+  bool has_unreceived() const override {
+    if (blamed()) {
+      return true;
+    }
+    if (blocks_.empty()) {
+      return false;
+    }
+    CHECK(blocks_.rbegin()->second->get_height() >= received_height_);
+    return blocks_.rbegin()->second->get_height() > received_height_;
+  }
+  bool has_undelivered() const override {
+    return delivered_height_ < received_height_;
+  }
   CatChainReceivedBlock *get_block(CatChainBlockHeight height) const override;
 
-  td::Status validate_dep_sync(tl_object_ptr<ton_api::catchain_block_dep> &dep) override;
   void on_new_block(CatChainReceivedBlock *block) override;
-  void on_found_fork_proof(td::Slice proof) override;
+  void on_found_fork_proof(const td::Slice &proof) override;
   bool fork_is_found() const override {
     return !fork_proof_.empty();
   }
@@ -90,13 +103,15 @@ class CatChainReceiverSourceImpl : public CatChainReceiverSource {
     if (!fork_proof_.empty()) {
       return fork_proof_.clone_as_buffer_slice();
     } else {
-      return td::BufferSlice();
+      return {};
     }
   }
 
   CatChainReceiver *get_chain() const override {
     return chain_;
   }
+
+  bool allow_send_block(CatChainBlockHash hash) override;
 
   CatChainReceiverSourceImpl(CatChainReceiver *chain, PublicKey source, adnl::AdnlNodeIdShort adnl_id, td::uint32 id);
 
@@ -117,6 +132,11 @@ class CatChainReceiverSourceImpl : public CatChainReceiverSource {
 
   CatChainBlockHeight delivered_height_ = 0;
   CatChainBlockHeight received_height_ = 0;
+
+  std::map<CatChainBlockHash, td::uint32> block_requests_count_;
+  // One block can be sent to one node up to 5 times
+
+  static const td::uint32 MAX_BLOCK_REQUESTS = 5;
 };
 
 }  // namespace catchain

@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "common/bitstring.h"
 #include <cstring>
@@ -22,7 +22,7 @@
 #include "td/utils/as.h"
 #include "td/utils/bits.h"
 #include "td/utils/misc.h"
-#include "crypto/openssl/digest.h"
+#include "crypto/openssl/digest.hpp"
 
 namespace td {
 
@@ -130,7 +130,7 @@ void bits_memcpy(unsigned char* to, int to_offs, const unsigned char* from, int 
   from_offs &= 7;
   to_offs &= 7;
   //fprintf(stderr, "bits_memcpy: from=%p (%02x) to=%p (%02x) from_offs=%d to_offs=%d count=%lu\n", from, *from, to, *to, from_offs, to_offs, bit_count);
-  int sz = (int)bit_count;
+  int sz = static_cast<int>(bit_count);
   bit_count += from_offs;
   if (from_offs == to_offs) {
     if (bit_count < 8) {
@@ -191,7 +191,7 @@ void bits_memcpy(unsigned char* to, int to_offs, const unsigned char* from, int 
       *to++ = (unsigned char)(acc >> b);
     }
     if (b > 0) {
-      *to = (unsigned char)((*to & (0xff >> b)) | ((int)acc << (8 - b)));
+      *to = (unsigned char)((*to & (0xff >> b)) | ((unsigned)acc << (8 - b)));
     }
   }
 }
@@ -206,7 +206,7 @@ void bits_memset(unsigned char* to, int to_offs, bool val, std::size_t bit_count
   }
   to += (to_offs >> 3);
   to_offs &= 7;
-  int sz = (int)bit_count;
+  int sz = static_cast<int>(bit_count);
   bit_count += to_offs;
   int c = *to;
   if (bit_count <= 8) {
@@ -301,7 +301,7 @@ std::size_t bits_memscan(const unsigned char* ptr, int offs, std::size_t bit_cou
     ptr++;
   }
   while (rem >= 8 && !td::is_aligned_pointer<8>(ptr)) {
-    v = ((*ptr++ ^ xor_val) << 24);
+    v = ((unsigned)(*ptr++ ^ xor_val) << 24);
     // std::cerr << "[B] rem=" << rem << " ptr=" << (const void*)(ptr - 1) << " v=" << std::hex << v << std::dec << std::endl;
     if (v) {
       return bit_count - rem + td::count_leading_zeroes_non_zero32(v);
@@ -319,7 +319,7 @@ std::size_t bits_memscan(const unsigned char* ptr, int offs, std::size_t bit_cou
     rem -= 64;
   }
   while (rem >= 8) {
-    v = ((*ptr++ ^ xor_val) << 24);
+    v = ((unsigned)(*ptr++ ^ xor_val) << 24);
     // std::cerr << "[D] rem=" << rem << " ptr=" << (const void*)(ptr - 1) << " v=" << std::hex << v << std::dec << std::endl;
     if (v) {
       return bit_count - rem + td::count_leading_zeroes_non_zero32(v);
@@ -327,7 +327,7 @@ std::size_t bits_memscan(const unsigned char* ptr, int offs, std::size_t bit_cou
     rem -= 8;
   }
   if (rem > 0) {
-    v = ((*ptr ^ xor_val) << 24);
+    v = ((unsigned)(*ptr ^ xor_val) << 24);
     // std::cerr << "[E] rem=" << rem << " ptr=" << (const void*)ptr << " v=" << std::hex << v << std::dec << std::endl;
     c = td::count_leading_zeroes32(v);
     return c < rem ? bit_count - rem + c : bit_count;
@@ -505,7 +505,7 @@ unsigned long long bits_load_long_top(ConstBitPtr from, unsigned top_bits) {
 }
 
 unsigned long long bits_load_ulong(ConstBitPtr from, unsigned bits) {
-  return bits_load_long_top(from, bits) >> (64 - bits);
+  return bits == 0 ? 0 : bits_load_long_top(from, bits) >> (64 - bits);
 }
 
 long long bits_load_long(ConstBitPtr from, unsigned bits) {
@@ -596,7 +596,7 @@ long parse_bitstring_hex_literal(unsigned char* buff, std::size_t buff_size, con
   unsigned char* ptr = buff;
   const char* rptr = str;
   while (rptr < str_end) {
-    int c = *rptr++;
+    char c = *rptr++;
     if (c == ' ' || c == '\t') {
       continue;
     }
@@ -627,14 +627,14 @@ long parse_bitstring_hex_literal(unsigned char* buff, std::size_t buff_size, con
   if (cmpl && bits) {
     int t = (hex_digits_count & 1) ? (0x100 + *ptr) >> 4 : (0x100 + *--ptr);
     while (bits > 0) {
+      if (t == 1) {
+        t = 0x100 + *--ptr;
+      }
       --bits;
       if (t & 1) {
         break;
       }
       t >>= 1;
-      if (t == 1) {
-        t = 0x100 + *--ptr;
-      }
     }
   }
   return bits;

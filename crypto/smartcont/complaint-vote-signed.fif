@@ -1,0 +1,44 @@
+#!/usr/bin/fift -s
+"TonUtil.fif" include
+"GetOpt.fif" include
+
+"vote-query.boc" =: savefile
+
+{ ."usage: " @' $0 type ." <validator-idx> <elect-id> <complaint-hash> <validator-pubkey> <validator-signature> [<savefile>]" cr
+  ."Creates an internal message body to be sent from any smart contract residing in the masterchain to the elections smart contract containing a signed request to vote for complaint <complaint-hash> (decimal; prefix with '0x' if needed) of past validator set <elect-id> on behalf of current validator with zero-based index <validator-idx> and (Base64) public key <validator-pubkey> in current validator set (as stored in configuration parameter 34)" cr
+  ."<validator-signature> must be the base64 representation of Ed25519 signature of the previously generated unsigned request by means of <validator-pubkey>" cr
+  ."The result is saved into <savefile> (" savefile type ." by default), to be embedded later into an internal message" cr 1 halt
+} : usage
+
+$# dup 5 < swap 6 > or ' usage if
+6 :$1..n
+
+$1 parse-int dup =: val-idx
+  16 ufits not abort"validator index out of range"
+$2 parse-int dup =: elect-id
+  32 ufits not abort"invalid election id"
+$3 parse-int dup =: compl-hash
+  256 ufits not abort"invalid complaint hash"
+$4 base64>B dup Blen 36 <> abort"validator Ed25519 public key must be exactly 36 bytes long"
+  32 B>u@+ 0xC6B41348 <> abort"invalid Ed25519 public key: unknown magic number"
+  =: pubkey
+$5 base64>B dup Blen 64 <> abort"validator Ed25519 signature must be exactly 64 bytes long"
+  =: signature
+$6 savefile replace-if-null =: savefile
+
+."Creating the body of an internal message to be sent to the elections smart contract" cr
+."containing a signed request to vote for complaint 0x" compl-hash 64x. ."of past validator set " elect-id .
+."on behalf of current validator with index " val-idx . "and public key" pubkey Bx. cr
+
+B{56744350} val-idx 16 u>B B+ elect-id 32 u>B B+ compl-hash 256 u>B B+ dup =: to_sign
+."String to sign is " Bx. cr
+
+to_sign signature pubkey ed25519_chksign not abort"Ed25519 signature is invalid"
+."Provided a valid Ed25519 signature " signature Bx. ." with validator public key " pubkey Bx. cr
+
+now 32 << compl-hash 32 1<< mod + =: query-id
+
+<b x{56744370} s, query-id 64 u, signature B, to_sign B, b>
+."Internal message body is " dup <s csr. cr
+
+2 boc+>B savefile tuck B>file ."Saved to file " type cr

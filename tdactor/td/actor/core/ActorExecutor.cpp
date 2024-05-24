@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/actor/core/ActorExecutor.h"
 
@@ -81,7 +81,7 @@ void ActorExecutor::start() noexcept {
     return;
   }
 
-  ActorSignals signals;
+  ActorSignals signals{options_.signals};
   SCOPE_EXIT {
     pending_signals_.add_signals(signals);
   };
@@ -209,6 +209,7 @@ bool ActorExecutor::flush_one_signal(ActorSignals &signals) {
     case ActorSignals::Alarm:
       if (actor_execute_context_.get_alarm_timestamp() && actor_execute_context_.get_alarm_timestamp().is_in_past()) {
         actor_execute_context_.alarm_timestamp() = Timestamp::never();
+        actor_info_.set_alarm_timestamp(Timestamp::never());
         actor_info_.actor().alarm();
       }
       break;

@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -27,19 +27,10 @@
 #include "td/utils/StringBuilder.h"
 
 #include <new>
-#include <tuple>
 #include <type_traits>
 #include <utility>
 
 namespace td {
-
-template <class... Args>
-std::tuple<const Args &...> ctie(const Args &... args) TD_WARN_UNUSED_RESULT;
-
-template <class... Args>
-std::tuple<const Args &...> ctie(const Args &... args) {
-  return std::tie(args...);
-}
 
 class JsonTrue {
  public:
@@ -210,8 +201,11 @@ class JsonBuilder {
     return offset_ >= 0;
   }
   void print_offset() {
-    for (int x = 0; x < offset_; x++) {
-      sb_ << "   ";
+    if (offset_ >= 0) {
+      sb_ << '\n';
+      for (int x = 0; x < offset_; x++) {
+        sb_ << "   ";
+      }
     }
   }
   void dec_offset() {
@@ -307,9 +301,7 @@ class JsonScope {
     *sb_ << x;
     return *this;
   }
-  JsonScope &operator<<(bool x) {
-    return *this << JsonBool(x);
-  }
+  JsonScope &operator<<(bool x) = delete;
   JsonScope &operator<<(int32 x) {
     return *this << JsonInt(x);
   }
@@ -319,16 +311,11 @@ class JsonScope {
   JsonScope &operator<<(double x) {
     return *this << JsonFloat(x);
   }
-  template <class T>
-  JsonScope &operator<<(const T *x);  // not implemented
   template <size_t N>
   JsonScope &operator<<(const char (&x)[N]) {
     return *this << JsonString(Slice(x));
   }
   JsonScope &operator<<(const char *x) {
-    return *this << JsonString(Slice(x));
-  }
-  JsonScope &operator<<(const string &x) {
     return *this << JsonString(Slice(x));
   }
   JsonScope &operator<<(Slice x) {
@@ -376,7 +363,6 @@ class JsonArrayScope : public JsonScope {
   void leave() {
     jb_->dec_offset();
     if (jb_->is_pretty()) {
-      *sb_ << "\n";
       jb_->print_offset();
     }
     *sb_ << "]";
@@ -398,7 +384,6 @@ class JsonArrayScope : public JsonScope {
       is_first_ = true;
     }
     if (jb_->is_pretty()) {
-      *sb_ << "\n";
       jb_->print_offset();
     }
     return jb_->enter_value();
@@ -423,21 +408,12 @@ class JsonObjectScope : public JsonScope {
   void leave() {
     jb_->dec_offset();
     if (jb_->is_pretty()) {
-      *sb_ << "\n";
       jb_->print_offset();
     }
     *sb_ << "}";
   }
-  template <class S, class T>
-  JsonObjectScope &operator<<(std::tuple<S, T> key_value) {
-    return (*this)(std::get<0>(key_value), std::get<1>(key_value));
-  }
-  template <class S, class T>
-  JsonObjectScope &operator<<(std::pair<S, T> key_value) {
-    return (*this)(key_value.first, key_value.second);
-  }
-  template <class S, class T>
-  JsonObjectScope &operator()(S &&key, T &&value) {
+  template <class T>
+  JsonObjectScope &operator()(Slice key, T &&value) {
     CHECK(is_active());
     if (is_first_) {
       *sb_ << ",";
@@ -445,7 +421,6 @@ class JsonObjectScope : public JsonScope {
       is_first_ = true;
     }
     if (jb_->is_pretty()) {
-      *sb_ << "\n";
       jb_->print_offset();
     }
     jb_->enter_value() << key;
@@ -624,7 +599,7 @@ class JsonValue : public Jsonable {
       case Type::Object: {
         auto object = scope->enter_object();
         for (auto &key_value : get_object()) {
-          object << ctie(JsonString(key_value.first), key_value.second);
+          object(key_value.first, key_value.second);
         }
         break;
       }
@@ -846,6 +821,7 @@ class JsonObjectImpl : Jsonable {
  private:
   F f_;
 };
+
 template <class F>
 auto json_object(F &&f) {
   return JsonObjectImpl<F>(std::forward<F>(f));
@@ -880,6 +856,8 @@ auto json_array(const A &a, F &&f) {
 }
 
 bool has_json_object_field(const JsonObject &object, Slice name);
+
+JsonValue get_json_object_field_force(JsonObject &object, Slice name) TD_WARN_UNUSED_RESULT;
 
 Result<JsonValue> get_json_object_field(JsonObject &object, Slice name, JsonValue::Type type,
                                         bool is_optional = true) TD_WARN_UNUSED_RESULT;

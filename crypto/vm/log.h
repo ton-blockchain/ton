@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -31,8 +31,14 @@ namespace vm {
 struct VmLog {
   td::LogInterface *log_interface{td::log_interface};
   td::LogOptions log_options{td::log_options};
-  enum { DumpStack = 2 };
+  enum { DumpStack = 2, ExecLocation = 4, GasRemaining = 8, DumpStackVerbose = 16 };
   int log_mask{1};
+  static VmLog Null() {
+    VmLog res;
+    res.log_options.level = 0;
+    res.log_mask = 0;
+    return res;
+  }
 };
 
 template <class State>

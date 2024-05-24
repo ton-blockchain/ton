@@ -1,0 +1,32 @@
+name: Tonlib Android
+
+on: [push,workflow_dispatch,workflow_call]
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Check out repository
+      uses: actions/checkout@v3
+      with:      
+        submodules: 'recursive'
+
+    - name: Install system libraries
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential git cmake ninja-build automake libtool texinfo autoconf libgflags-dev \
+        zlib1g-dev libssl-dev libreadline-dev libmicrohttpd-dev pkg-config libgsl-dev python3 python3-dev \
+        libtool autoconf libsodium-dev libsecp256k1-dev liblz4-dev
+
+    - name: Build TON
+      run: |
+        cp assembly/android/build-android-tonlib.sh .
+        chmod +x build-android-tonlib.sh
+        ./build-android-tonlib.sh -a
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@master
+      with:
+        name: tonlib-android
+        path: artifacts

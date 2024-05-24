@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -115,7 +115,7 @@ class Bignum {
     return set_hex_str(hs.str);
   }
   Bignum& swap(Bignum& x) {
-    BN_swap(val, x.val);
+    std::swap(val, x.val);
     return *this;
   }
   BIGNUM* bn_ptr() {
@@ -335,7 +335,7 @@ const Bignum sqr(const Bignum& x);
 std::ostream& operator<<(std::ostream& os, const Bignum& x);
 std::istream& operator>>(std::istream& is, Bignum& x);
 
-bool is_prime(const Bignum& p, int nchecks = 64, bool trial_div = true);
+bool is_prime(const Bignum& p);
 
 inline int cmp(const Bignum& x, const Bignum& y) {
   return BN_cmp(x.bn_ptr(), y.bn_ptr());

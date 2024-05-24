@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "apply-block.hpp"
 #include "adnl/utils.hpp"
@@ -97,25 +97,11 @@ void ApplyBlock::got_block_handle(BlockHandle handle) {
     written_block_data();
     return;
   }
-  if (handle_->id().is_masterchain() && !handle_->inited_proof()) {
-    abort_query(td::Status::Error(ErrorCode::notready, "proof is absent"));
-    return;
-  }
-  if (!handle_->id().is_masterchain() && !handle_->inited_proof_link()) {
-    abort_query(td::Status::Error(ErrorCode::notready, "proof link is absent"));
-    return;
-  }
 
   if (handle_->is_archived()) {
     finish_query();
     return;
   }
-
-  CHECK(handle_->inited_merge_before());
-  CHECK(handle_->inited_split_after());
-  CHECK(handle_->inited_prev());
-  CHECK(handle_->inited_state_root_hash());
-  CHECK(handle_->inited_logical_time());
 
   if (handle_->received()) {
     written_block_data();
@@ -149,6 +135,25 @@ void ApplyBlock::got_block_handle(BlockHandle handle) {
 
 void ApplyBlock::written_block_data() {
   VLOG(VALIDATOR_DEBUG) << "apply block: written block data for " << id_;
+  if (!handle_->id().seqno()) {
+    CHECK(handle_->inited_split_after());
+    CHECK(handle_->inited_state_root_hash());
+    CHECK(handle_->inited_logical_time());
+  } else {
+    if (handle_->id().is_masterchain() && !handle_->inited_proof()) {
+      abort_query(td::Status::Error(ErrorCode::notready, "proof is absent"));
+      return;
+    }
+    if (!handle_->id().is_masterchain() && !handle_->inited_proof_link()) {
+      abort_query(td::Status::Error(ErrorCode::notready, "proof link is absent"));
+      return;
+    }
+    CHECK(handle_->inited_merge_before());
+    CHECK(handle_->inited_split_after());
+    CHECK(handle_->inited_prev());
+    CHECK(handle_->inited_state_root_hash());
+    CHECK(handle_->inited_logical_time());
+  }
   if (handle_->is_applied() && handle_->processed()) {
     finish_query();
   } else {

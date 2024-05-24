@@ -1,9 +1,26 @@
+/*
+    This file is part of TON Blockchain Library.
+
+    TON Blockchain Library is free software: you can redistribute it and/or modify
+    it under the terms of the GNU Lesser General Public License as published by
+    the Free Software Foundation, either version 2 of the License, or
+    (at your option) any later version.
+
+    TON Blockchain Library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU Lesser General Public License for more details.
+
+    You should have received a copy of the GNU Lesser General Public License
+    along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
+
+    Copyright 2019-2020 Telegram Systems LLP
+*/
 #include "archive-slice.hpp"
 
 #include "td/actor/MultiPromise.h"
 #include "validator/fabric.h"
 #include "td/db/RocksDb.h"
-#include "ton/ton-io.hpp"
 #include "td/utils/port/path.h"
 #include "common/delay.h"
 #include "files-async.hpp"
@@ -12,28 +29,161 @@ namespace ton {
 
 namespace validator {
 
+class PackageStatistics {
+  public:
+  void record_open(uint64_t count = 1) {
+    open_count.fetch_add(count, std::memory_order_relaxed);
+  }
+
+  void record_close(uint64_t count = 1) {
+    close_count.fetch_add(count, std::memory_order_relaxed);
+  }
+  
+  void record_read(double time, uint64_t bytes) {
+    read_bytes.fetch_add(bytes, std::memory_order_relaxed);
+    std::lock_guard<std::mutex> guard(read_mutex);
+    read_time.insert(time);
+    read_time_sum += time;
+  }
+
+  void record_write(double time, uint64_t bytes) {
+    write_bytes.fetch_add(bytes, std::memory_order_relaxed);
+    std::lock_guard<std::mutex> guard(write_mutex);
+    write_time.insert(time);
+    write_time_sum += time;
+  }
+
+  std::string to_string_and_reset() {
+    std::stringstream ss;
+    ss.setf(std::ios::fixed);
+    ss.precision(6);
+    
+    ss << "ton.pack.open COUNT : " << open_count.exchange(0, std::memory_order_relaxed) << "\n";
+    ss << "ton.pack.close COUNT : " << close_count.exchange(0, std::memory_order_relaxed) << "\n";
+    
+    ss << "ton.pack.read.bytes COUNT : " << read_bytes.exchange(0, std::memory_order_relaxed) << "\n";
+    ss << "ton.pack.write.bytes COUNT : " << write_bytes.exchange(0, std::memory_order_relaxed) << "\n";
+
+    std::multiset<double> temp_read_time;
+    double temp_read_time_sum;
+    {
+      std::lock_guard<std::mutex> guard(read_mutex);
+      temp_read_time = std::move(read_time);
+      read_time.clear();
+      temp_read_time_sum = read_time_sum;
+      read_time_sum = 0;
+    }
+    auto read_stats = calculate_statistics(temp_read_time);
+    ss << "ton.pack.read.micros P50 : " << read_stats[0] << 
+                              " P95 : " << read_stats[1] << 
+                              " P99 : " << read_stats[2] << 
+                              " P100 : " << read_stats[3] << 
+                              " COUNT : " << temp_read_time.size() << 
+                              " SUM : " << temp_read_time_sum << "\n";
+
+    std::multiset<double> temp_write_time;
+    double temp_write_time_sum;
+    {
+      std::lock_guard<std::mutex> guard(write_mutex);
+      temp_write_time = std::move(write_time);
+      write_time.clear();
+      temp_write_time_sum = write_time_sum;
+      write_time_sum = 0;
+    }
+    auto write_stats = calculate_statistics(temp_write_time);
+    ss << "ton.pack.write.micros P50 : " << write_stats[0] << 
+                               " P95 : " << write_stats[1] << 
+                               " P99 : " << write_stats[2] << 
+                               " P100 : " << write_stats[3] << 
+                               " COUNT : " << temp_write_time.size() << 
+                               " SUM : " << temp_write_time_sum << "\n";
+
+    return ss.str();
+  }
+
+  private:
+  std::atomic_uint64_t open_count;
+  std::atomic_uint64_t close_count;
+  std::multiset<double> read_time;
+  std::atomic_uint64_t read_bytes;
+  std::multiset<double> write_time;
+  std::atomic_uint64_t write_bytes;
+  double read_time_sum;
+  double write_time_sum;
+
+  mutable std::mutex read_mutex;
+  mutable std::mutex write_mutex;
+
+  std::vector<double> calculate_statistics(const std::multiset<double>& data) const {
+    if (data.empty()) return {0, 0, 0, 0};
+
+    auto size = data.size();
+    auto calc_percentile = [&](double p) -> double {
+      auto it = data.begin();
+      std::advance(it, static_cast<int>(std::ceil(p * double(size)) - 1));
+      return *it;
+    };
+
+    return {calc_percentile(0.5), calc_percentile(0.95), calc_percentile(0.99), *data.rbegin()};
+  }
+};
+
+void DbStatistics::init() {
+  rocksdb_statistics = td::RocksDb::create_statistics();
+  pack_statistics = std::make_shared<PackageStatistics>();
+}
+
+std::string DbStatistics::to_string_and_reset() {
+  std::stringstream ss;
+  ss << td::RocksDb::statistics_to_string(rocksdb_statistics) << pack_statistics->to_string_and_reset();
+  td::RocksDb::reset_statistics(rocksdb_statistics);
+  return ss.str();
+}
+
 void PackageWriter::append(std::string filename, td::BufferSlice data,
                            td::Promise<std::pair<td::uint64, td::uint64>> promise) {
-  auto offset = package_->append(std::move(filename), std::move(data), !async_mode_);
-  auto size = package_->size();
-
+  td::uint64 offset, size;
+  auto data_size = data.size();
+  td::Timestamp start, end;
+  {
+    auto p = package_.lock();
+    if (!p) {
+      promise.set_error(td::Status::Error("Package is closed"));
+      return;
+    }
+    start = td::Timestamp::now();
+    offset = p->append(std::move(filename), std::move(data), !async_mode_);  
+    end = td::Timestamp::now();
+    size = p->size();
+  }
+  if (statistics_) {
+    statistics_->record_write((end.at() - start.at()) * 1e6, data_size);
+  }
   promise.set_value(std::pair<td::uint64, td::uint64>{offset, size});
 }
 
 class PackageReader : public td::actor::Actor {
  public:
   PackageReader(std::shared_ptr<Package> package, td::uint64 offset,
-                td::Promise<std::pair<std::string, td::BufferSlice>> promise)
-      : package_(std::move(package)), offset_(offset), promise_(std::move(promise)) {
+                td::Promise<std::pair<std::string, td::BufferSlice>> promise, std::shared_ptr<PackageStatistics> statistics)
+      : package_(std::move(package)), offset_(offset), promise_(std::move(promise)), statistics_(std::move(statistics)) {
   }
-  void start_up() {
-    promise_.set_result(package_->read(offset_));
+  void start_up() override {
+    auto start = td::Timestamp::now();
+    auto result = package_->read(offset_);
+    if (statistics_ && result.is_ok()) {
+      statistics_->record_read((td::Timestamp::now().at() - start.at()) * 1e6, result.ok_ref().second.size());
+    }
+    package_ = {};
+    promise_.set_result(std::move(result));
+    stop();
   }
 
  private:
   std::shared_ptr<Package> package_;
   td::uint64 offset_;
   td::Promise<std::pair<std::string, td::BufferSlice>> promise_;
+  std::shared_ptr<PackageStatistics> statistics_;
 };
 
 void ArchiveSlice::add_handle(BlockHandle handle, td::Promise<td::Unit> promise) {
@@ -45,6 +195,7 @@ void ArchiveSlice::add_handle(BlockHandle handle, td::Promise<td::Unit> promise)
     update_handle(std::move(handle), std::move(promise));
     return;
   }
+  before_query();
   CHECK(!key_blocks_only_);
   CHECK(!temp_);
   CHECK(handle->inited_unix_time());
@@ -127,6 +278,7 @@ void ArchiveSlice::update_handle(BlockHandle handle, td::Promise<td::Unit> promi
     promise.set_value(td::Unit());
     return;
   }
+  before_query();
   CHECK(!key_blocks_only_);
 
   begin_transaction();
@@ -143,11 +295,17 @@ void ArchiveSlice::update_handle(BlockHandle handle, td::Promise<td::Unit> promi
   promise.set_value(td::Unit());
 }
 
-void ArchiveSlice::add_file(FileReference ref_id, td::BufferSlice data, td::Promise<td::Unit> promise) {
+void ArchiveSlice::add_file(BlockHandle handle, FileReference ref_id, td::BufferSlice data,
+                            td::Promise<td::Unit> promise) {
   if (destroyed_) {
     promise.set_error(td::Status::Error(ErrorCode::notready, "package already gc'd"));
     return;
   }
+  before_query();
+  TRY_RESULT_PROMISE(
+      promise, p,
+      choose_package(
+          handle ? handle->id().is_masterchain() ? handle->id().seqno() : handle->masterchain_ref_block() : 0, true));
   std::string value;
   auto R = kv_->get(ref_id.hash().to_hex(), value);
   R.ensure();
@@ -155,29 +313,36 @@ void ArchiveSlice::add_file(FileReference ref_id, td::BufferSlice data, td::Prom
     promise.set_value(td::Unit());
     return;
   }
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), ref_id, promise = std::move(promise)](
+  promise = begin_async_query(std::move(promise));
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), idx = p->idx, ref_id, promise = std::move(promise)](
                                           td::Result<std::pair<td::uint64, td::uint64>> R) mutable {
     if (R.is_error()) {
       promise.set_error(R.move_as_error());
       return;
     }
     auto v = R.move_as_ok();
-    td::actor::send_closure(SelfId, &ArchiveSlice::add_file_cont, std::move(ref_id), v.first, v.second,
+    td::actor::send_closure(SelfId, &ArchiveSlice::add_file_cont, idx, std::move(ref_id), v.first, v.second,
                             std::move(promise));
   });
 
-  td::actor::send_closure(writer_, &PackageWriter::append, ref_id.filename(), std::move(data), std::move(P));
+  td::actor::send_closure(p->writer, &PackageWriter::append, ref_id.filename(), std::move(data), std::move(P));
 }
 
-void ArchiveSlice::add_file_cont(FileReference ref_id, td::uint64 offset, td::uint64 size,
+void ArchiveSlice::add_file_cont(size_t idx, FileReference ref_id, td::uint64 offset, td::uint64 size,
                                  td::Promise<td::Unit> promise) {
   if (destroyed_) {
     promise.set_error(td::Status::Error(ErrorCode::notready, "package already gc'd"));
     return;
   }
   begin_transaction();
-  kv_->set("status", td::to_string(size)).ensure();
-  kv_->set(ref_id.hash().to_hex(), td::to_string(offset)).ensure();
+  if (sliced_mode_) {
+    kv_->set(PSTRING() << "status." << idx, td::to_string(size)).ensure();
+    kv_->set(ref_id.hash().to_hex(), td::to_string(offset)).ensure();
+  } else {
+    CHECK(!idx);
+    kv_->set("status", td::to_string(size)).ensure();
+    kv_->set(ref_id.hash().to_hex(), td::to_string(offset)).ensure();
+  }
   commit_transaction();
   promise.set_value(td::Unit());
 }
@@ -187,6 +352,7 @@ void ArchiveSlice::get_handle(BlockIdExt block_id, td::Promise<BlockHandle> prom
     promise.set_error(td::Status::Error(ErrorCode::notready, "package already gc'd"));
     return;
   }
+  before_query();
   CHECK(!key_blocks_only_);
   std::string value;
   auto R = kv_->get(get_db_key_block_info(block_id), value);
@@ -209,6 +375,7 @@ void ArchiveSlice::get_temp_handle(BlockIdExt block_id, td::Promise<ConstBlockHa
     promise.set_error(td::Status::Error(ErrorCode::notready, "package already gc'd"));
     return;
   }
+  before_query();
   CHECK(!key_blocks_only_);
   std::string value;
   auto R = kv_->get(get_db_key_block_info(block_id), value);
@@ -226,11 +393,12 @@ void ArchiveSlice::get_temp_handle(BlockIdExt block_id, td::Promise<ConstBlockHa
   promise.set_value(std::move(handle));
 }
 
-void ArchiveSlice::get_file(FileReference ref_id, td::Promise<td::BufferSlice> promise) {
+void ArchiveSlice::get_file(ConstBlockHandle handle, FileReference ref_id, td::Promise<td::BufferSlice> promise) {
   if (destroyed_) {
     promise.set_error(td::Status::Error(ErrorCode::notready, "package already gc'd"));
     return;
   }
+  before_query();
   std::string value;
   auto R = kv_->get(ref_id.hash().to_hex(), value);
   R.ensure();
@@ -239,6 +407,11 @@ void ArchiveSlice::get_file(FileReference ref_id, td::Promise<td::BufferSlice> p
     return;
   }
   auto offset = td::to_integer<td::uint64>(value);
+  TRY_RESULT_PROMISE(
+      promise, p,
+      choose_package(
+          handle ? handle->id().is_masterchain() ? handle->id().seqno() : handle->masterchain_ref_block() : 0, false));
+  promise = begin_async_query(std::move(promise));
   auto P = td::PromiseCreator::lambda(
       [promise = std::move(promise)](td::Result<std::pair<std::string, td::BufferSlice>> R) mutable {
         if (R.is_error()) {
@@ -247,7 +420,7 @@ void ArchiveSlice::get_file(FileReference ref_id, td::Promise<td::BufferSlice> p
           promise.set_value(std::move(R.move_as_ok().second));
         }
       });
-  td::actor::create_actor<PackageReader>("reader", package_, offset, std::move(P)).release();
+  td::actor::create_actor<PackageReader>("reader", p->package, offset, std::move(P), statistics_.pack_statistics).release();
 }
 
 void ArchiveSlice::get_block_common(AccountIdPrefixFull account_id,
@@ -258,6 +431,7 @@ void ArchiveSlice::get_block_common(AccountIdPrefixFull account_id,
     promise.set_error(td::Status::Error(ErrorCode::notready, "package already gc'd"));
     return;
   }
+  before_query();
   bool f = false;
   BlockIdExt block_id;
   td::uint32 ls = 0;
@@ -275,10 +449,10 @@ void ArchiveSlice::get_block_common(AccountIdPrefixFull account_id,
       }
     }
     f = true;
-    auto G = fetch_tl_object<ton_api::db_lt_desc_value>(td::BufferSlice{value}, true);
+    auto G = fetch_tl_object<ton_api::db_lt_desc_value>(value, true);
     G.ensure();
     auto g = G.move_as_ok();
-    if (compare_desc(*g.get()) > 0) {
+    if (compare_desc(*g) > 0) {
       continue;
     }
     td::uint32 l = g->first_idx_ - 1;
@@ -294,7 +468,7 @@ void ArchiveSlice::get_block_common(AccountIdPrefixFull account_id,
       auto E = fetch_tl_object<ton_api::db_lt_el_value>(td::BufferSlice{value}, true);
       E.ensure();
       auto e = E.move_as_ok();
-      int cmp_val = compare(*e.get());
+      int cmp_val = compare(*e);
 
       if (cmp_val < 0) {
         rseq = create_block_id(e->id_);
@@ -308,9 +482,7 @@ void ArchiveSlice::get_block_common(AccountIdPrefixFull account_id,
       }
     }
     if (rseq.is_valid()) {
-      if (!block_id.is_valid()) {
-        block_id = rseq;
-      } else if (block_id.id.seqno > rseq.id.seqno) {
+      if (!block_id.is_valid() || block_id.id.seqno > rseq.id.seqno) {
         block_id = rseq;
       }
     }
@@ -390,32 +562,135 @@ td::BufferSlice ArchiveSlice::get_db_key_block_info(BlockIdExt block_id) {
   return create_serialize_tl_object<ton_api::db_blockdb_key_value>(create_tl_block_id(block_id));
 }
 
-void ArchiveSlice::get_slice(td::uint64 offset, td::uint32 limit, td::Promise<td::BufferSlice> promise) {
-  td::actor::create_actor<db::ReadFile>("readfile", prefix_ + ".pack", offset, limit, 0, std::move(promise)).release();
-}
-
-void ArchiveSlice::start_up() {
-  auto R = Package::open(prefix_ + ".pack", false, true);
-  if (R.is_error()) {
-    LOG(FATAL) << "failed to open/create archive '" << prefix_ << ".pack"
-               << "': " << R.move_as_error();
+void ArchiveSlice::get_slice(td::uint64 archive_id, td::uint64 offset, td::uint32 limit,
+                             td::Promise<td::BufferSlice> promise) {
+  if (static_cast<td::uint32>(archive_id) != archive_id_) {
+    promise.set_error(td::Status::Error(ErrorCode::error, "bad archive id"));
     return;
   }
-  package_ = std::make_shared<Package>(R.move_as_ok());
-  kv_ = std::make_shared<td::RocksDb>(td::RocksDb::open(prefix_ + ".index").move_as_ok());
+  before_query();
+  auto value = static_cast<td::uint32>(archive_id >> 32);
+  TRY_RESULT_PROMISE(promise, p, choose_package(value, false));
+  promise = begin_async_query(std::move(promise));
+  td::actor::create_actor<db::ReadFile>("readfile", p->path, offset, limit, 0, std::move(promise)).release();
+}
 
-  std::string value;
-  auto R2 = kv_->get("status", value);
-  R2.ensure();
-
-  if (R2.move_as_ok() == td::KeyValue::GetStatus::Ok) {
-    auto len = td::to_integer<td::uint64>(value);
-    package_->truncate(len);
+void ArchiveSlice::get_archive_id(BlockSeqno masterchain_seqno, td::Promise<td::uint64> promise) {
+  before_query();
+  if (!sliced_mode_) {
+    promise.set_result(archive_id_);
   } else {
-    package_->truncate(0);
+    TRY_RESULT_PROMISE(promise, p, choose_package(masterchain_seqno, false));
+    promise.set_result(p->id * (1ull << 32) + archive_id_);
   }
+}
 
-  writer_ = td::actor::create_actor<PackageWriter>("writer", package_);
+void ArchiveSlice::before_query() {
+  if (status_ == st_closed) {
+    LOG(DEBUG) << "Opening archive slice " << db_path_;
+    kv_ = std::make_unique<td::RocksDb>(td::RocksDb::open(db_path_, statistics_.rocksdb_statistics).move_as_ok());
+    std::string value;
+    auto R2 = kv_->get("status", value);
+    R2.ensure();
+    sliced_mode_ = false;
+    slice_size_ = 100;
+
+    if (R2.move_as_ok() == td::KeyValue::GetStatus::Ok) {
+      if (value == "sliced") {
+        sliced_mode_ = true;
+        R2 = kv_->get("slices", value);
+        R2.ensure();
+        auto tot = td::to_integer<td::uint32>(value);
+        R2 = kv_->get("slice_size", value);
+        R2.ensure();
+        slice_size_ = td::to_integer<td::uint32>(value);
+        CHECK(slice_size_ > 0);
+        for (td::uint32 i = 0; i < tot; i++) {
+          R2 = kv_->get(PSTRING() << "status." << i, value);
+          R2.ensure();
+          auto len = td::to_integer<td::uint64>(value);
+          R2 = kv_->get(PSTRING() << "version." << i, value);
+          R2.ensure();
+          td::uint32 ver = 0;
+          if (R2.move_as_ok() == td::KeyValue::GetStatus::Ok) {
+            ver = td::to_integer<td::uint32>(value);
+          }
+          auto v = archive_id_ + slice_size_ * i;
+          add_package(v, len, ver);
+        }
+      } else {
+        auto len = td::to_integer<td::uint64>(value);
+        add_package(archive_id_, len, 0);
+      }
+    } else {
+      if (!temp_ && !key_blocks_only_) {
+        sliced_mode_ = true;
+        kv_->begin_transaction().ensure();
+        kv_->set("status", "sliced").ensure();
+        kv_->set("slices", "1").ensure();
+        kv_->set("slice_size", td::to_string(slice_size_)).ensure();
+        kv_->set("status.0", "0").ensure();
+        kv_->set("version.0", td::to_string(default_package_version())).ensure();
+        kv_->commit_transaction().ensure();
+        add_package(archive_id_, 0, default_package_version());
+      } else {
+        kv_->begin_transaction().ensure();
+        kv_->set("status", "0").ensure();
+        kv_->commit_transaction().ensure();
+        add_package(archive_id_, 0, 0);
+      }
+    }
+  }
+  status_ = st_open;
+  if (!archive_lru_.empty()) {
+    td::actor::send_closure(archive_lru_, &ArchiveLru::on_query, actor_id(this), p_id_,
+                            packages_.size() + ESTIMATED_DB_OPEN_FILES);
+  }
+}
+
+void ArchiveSlice::open_files() {
+  before_query();
+}
+
+void ArchiveSlice::close_files() {
+  if (status_ == st_open) {
+    if (active_queries_ == 0) {
+      do_close();
+    } else {
+      status_ = st_want_close;
+    }
+  }
+}
+
+void ArchiveSlice::do_close() {
+  if (destroyed_) {
+    return;
+  }
+  CHECK(status_ != st_closed && active_queries_ == 0);
+  LOG(DEBUG) << "Closing archive slice " << db_path_;
+  status_ = st_closed;
+  kv_ = {};
+  if (statistics_.pack_statistics) {
+    statistics_.pack_statistics->record_close(packages_.size());
+  }
+  packages_.clear();
+}
+
+template<typename T>
+td::Promise<T> ArchiveSlice::begin_async_query(td::Promise<T> promise) {
+  ++active_queries_;
+  return [SelfId = actor_id(this), promise = std::move(promise)](td::Result<T> R) mutable {
+    td::actor::send_closure(SelfId, &ArchiveSlice::end_async_query);
+    promise.set_result(std::move(R));
+  };
+}
+
+void ArchiveSlice::end_async_query() {
+  CHECK(active_queries_ > 0);
+  --active_queries_;
+  if (active_queries_ == 0 && status_ == st_want_close) {
+    do_close();
+  }
 }
 
 void ArchiveSlice::begin_transaction() {
@@ -439,17 +714,82 @@ void ArchiveSlice::commit_transaction() {
 
 void ArchiveSlice::set_async_mode(bool mode, td::Promise<td::Unit> promise) {
   async_mode_ = mode;
-  if (!async_mode_ && huge_transaction_started_) {
+  if (!async_mode_ && huge_transaction_started_ && kv_) {
     kv_->commit_transaction().ensure();
     huge_transaction_size_ = 0;
     huge_transaction_started_ = false;
   }
 
-  td::actor::send_closure(writer_, &PackageWriter::set_async_mode, mode, std::move(promise));
+  td::MultiPromise mp;
+  auto ig = mp.init_guard();
+  ig.add_promise(std::move(promise));
+
+  for (auto &p : packages_) {
+    td::actor::send_closure(p.writer, &PackageWriter::set_async_mode, mode, ig.get_promise());
+  }
 }
 
-ArchiveSlice::ArchiveSlice(bool key_blocks_only, bool temp, std::string prefix)
-    : key_blocks_only_(key_blocks_only), temp_(temp), prefix_(std::move(prefix)) {
+ArchiveSlice::ArchiveSlice(td::uint32 archive_id, bool key_blocks_only, bool temp, bool finalized, std::string db_root,
+                           td::actor::ActorId<ArchiveLru> archive_lru, DbStatistics statistics)
+    : archive_id_(archive_id)
+    , key_blocks_only_(key_blocks_only)
+    , temp_(temp)
+    , finalized_(finalized)
+    , p_id_(archive_id_, key_blocks_only_, temp_)
+    , db_root_(std::move(db_root))
+    , archive_lru_(std::move(archive_lru))
+    , statistics_(statistics) {
+  db_path_ = PSTRING() << db_root_ << p_id_.path() << p_id_.name() << ".index";
+}
+
+td::Result<ArchiveSlice::PackageInfo *> ArchiveSlice::choose_package(BlockSeqno masterchain_seqno, bool force) {
+  if (temp_ || key_blocks_only_ || !sliced_mode_) {
+    return &packages_[0];
+  }
+  if (masterchain_seqno < archive_id_) {
+    return td::Status::Error(ErrorCode::notready, "too small masterchain seqno");
+  }
+  auto v = (masterchain_seqno - archive_id_) / slice_size_;
+  if (v >= packages_.size()) {
+    if (!force) {
+      return td::Status::Error(ErrorCode::notready, "too big masterchain seqno");
+    }
+    CHECK(v == packages_.size());
+    begin_transaction();
+    kv_->set("slices", td::to_string(v + 1)).ensure();
+    kv_->set(PSTRING() << "status." << v, "0").ensure();
+    kv_->set(PSTRING() << "version." << v, td::to_string(default_package_version())).ensure();
+    commit_transaction();
+    CHECK((masterchain_seqno - archive_id_) % slice_size_ == 0);
+    add_package(masterchain_seqno, 0, default_package_version());
+    return &packages_[v];
+  } else {
+    return &packages_[v];
+  }
+}
+
+void ArchiveSlice::add_package(td::uint32 seqno, td::uint64 size, td::uint32 version) {
+  PackageId p_id{seqno, key_blocks_only_, temp_};
+  std::string path = PSTRING() << db_root_ << p_id.path() << p_id.name() << ".pack";
+  auto R = Package::open(path, false, true);
+  if (R.is_error()) {
+    LOG(FATAL) << "failed to open/create archive '" << path << "': " << R.move_as_error();
+    return;
+  }
+  if (statistics_.pack_statistics) {
+    statistics_.pack_statistics->record_open();
+  }
+  auto idx = td::narrow_cast<td::uint32>(packages_.size());
+  if (finalized_) {
+    packages_.emplace_back(nullptr, td::actor::ActorOwn<PackageWriter>(), seqno, path, idx, version);
+    return;
+  }
+  auto pack = std::make_shared<Package>(R.move_as_ok());
+  if (version >= 1) {
+    pack->truncate(size).ensure();
+  }
+  auto writer = td::actor::create_actor<PackageWriter>("writer", pack, async_mode_, statistics_.pack_statistics);
+  packages_.emplace_back(std::move(pack), std::move(writer), seqno, path, idx, version);
 }
 
 namespace {
@@ -472,20 +812,286 @@ void destroy_db(std::string name, td::uint32 attempt, td::Promise<td::Unit> prom
 }  // namespace
 
 void ArchiveSlice::destroy(td::Promise<td::Unit> promise) {
+  before_query();
   td::MultiPromise mp;
   auto ig = mp.init_guard();
   ig.add_promise(std::move(promise));
   destroyed_ = true;
 
-  writer_.reset();
-  package_ = nullptr;
+  for (auto &p : packages_) {
+    td::unlink(p.path).ensure();
+  }
+  if (statistics_.pack_statistics) {
+    statistics_.pack_statistics->record_close(packages_.size());
+  }
+  packages_.clear();
   kv_ = nullptr;
 
-  td::unlink(prefix_ + ".pack").ensure();
-
-  delay_action([name = prefix_ + ".index", attempt = 0,
+  PackageId p_id{archive_id_, key_blocks_only_, temp_};
+  std::string db_path = PSTRING() << db_root_ << p_id.path() << p_id.name() << ".index";
+  delay_action([name = db_path, attempt = 0,
                 promise = ig.get_promise()]() mutable { destroy_db(name, attempt, std::move(promise)); },
                td::Timestamp::in(0.0));
+}
+
+BlockSeqno ArchiveSlice::max_masterchain_seqno() {
+  auto key = get_db_key_lt_desc(ShardIdFull{masterchainId});
+  std::string value;
+  auto F = kv_->get(key, value);
+  F.ensure();
+  if (F.move_as_ok() == td::KeyValue::GetStatus::NotFound) {
+    return 0;
+  }
+  auto G = fetch_tl_object<ton_api::db_lt_desc_value>(value, true);
+  G.ensure();
+  auto g = G.move_as_ok();
+  if (g->first_idx_ == g->last_idx_) {
+    return 0;
+  }
+  auto last_idx = g->last_idx_ - 1;
+  auto db_key = get_db_key_lt_el(ShardIdFull{masterchainId}, last_idx);
+  F = kv_->get(db_key, value);
+  F.ensure();
+  CHECK(F.move_as_ok() == td::KeyValue::GetStatus::Ok);
+  auto E = fetch_tl_object<ton_api::db_lt_el_value>(td::BufferSlice{value}, true);
+  E.ensure();
+  auto e = E.move_as_ok();
+  return e->id_->seqno_;
+}
+
+void ArchiveSlice::delete_file(FileReference ref_id) {
+  std::string value;
+  auto R = kv_->get(ref_id.hash().to_hex(), value);
+  R.ensure();
+  if (R.move_as_ok() == td::KeyValue::GetStatus::NotFound) {
+    return;
+  }
+  kv_->erase(ref_id.hash().to_hex());
+}
+
+void ArchiveSlice::delete_handle(ConstBlockHandle handle) {
+  delete_file(fileref::Proof{handle->id()});
+  delete_file(fileref::ProofLink{handle->id()});
+  delete_file(fileref::Block{handle->id()});
+  kv_->erase(get_db_key_block_info(handle->id()));
+}
+
+void ArchiveSlice::move_file(FileReference ref_id, Package *old_pack, Package *pack) {
+  LOG(DEBUG) << "moving " << ref_id.filename_short();
+  std::string value;
+  auto R = kv_->get(ref_id.hash().to_hex(), value);
+  R.ensure();
+  if (R.move_as_ok() == td::KeyValue::GetStatus::NotFound) {
+    return;
+  }
+  auto offset = td::to_integer<td::uint64>(value);
+  auto V = old_pack->read(offset);
+  V.ensure();
+  auto data = std::move(V.move_as_ok().second);
+  auto r = pack->append(ref_id.filename(), std::move(data), false);
+  kv_->set(ref_id.hash().to_hex(), td::to_string(r));
+}
+
+void ArchiveSlice::move_handle(ConstBlockHandle handle, Package *old_pack, Package *pack) {
+  move_file(fileref::Proof{handle->id()}, old_pack, pack);
+  move_file(fileref::ProofLink{handle->id()}, old_pack, pack);
+  move_file(fileref::Block{handle->id()}, old_pack, pack);
+}
+
+bool ArchiveSlice::truncate_block(BlockSeqno masterchain_seqno, BlockIdExt block_id, td::uint32 cutoff_idx,
+                                  Package *pack) {
+  std::string value;
+  auto R = kv_->get(get_db_key_block_info(block_id), value);
+  R.ensure();
+  CHECK(R.move_as_ok() == td::KeyValue::GetStatus::Ok);
+  auto E = create_block_handle(value);
+  E.ensure();
+  auto handle = E.move_as_ok();
+  auto seqno = handle->id().is_masterchain() ? handle->id().seqno() : handle->masterchain_ref_block();
+  if (seqno > masterchain_seqno) {
+    delete_handle(std::move(handle));
+    return false;
+  }
+
+  auto S = choose_package(seqno, false);
+  S.ensure();
+  auto p = S.move_as_ok();
+  CHECK(p->idx <= cutoff_idx);
+  if (p->idx == cutoff_idx) {
+    move_handle(std::move(handle), p->package.get(), pack);
+  }
+
+  return true;
+}
+
+void ArchiveSlice::truncate_shard(BlockSeqno masterchain_seqno, ShardIdFull shard, td::uint32 cutoff_idx,
+                                  Package *pack) {
+  auto key = get_db_key_lt_desc(shard);
+  std::string value;
+  auto F = kv_->get(key, value);
+  F.ensure();
+  if (F.move_as_ok() == td::KeyValue::GetStatus::NotFound) {
+    return;
+  }
+  auto G = fetch_tl_object<ton_api::db_lt_desc_value>(value, true);
+  G.ensure();
+  auto g = G.move_as_ok();
+  if (g->first_idx_ == g->last_idx_) {
+    return;
+  }
+
+  int new_last_idx = g->first_idx_;
+  for (int i = g->first_idx_; i < g->last_idx_; i++) {
+    auto db_key = get_db_key_lt_el(shard, i);
+    F = kv_->get(db_key, value);
+    F.ensure();
+    CHECK(F.move_as_ok() == td::KeyValue::GetStatus::Ok);
+    auto E = fetch_tl_object<ton_api::db_lt_el_value>(value, true);
+    E.ensure();
+    auto e = E.move_as_ok();
+
+    if (truncate_block(masterchain_seqno, create_block_id(e->id_), cutoff_idx, pack)) {
+      CHECK(new_last_idx == i);
+      new_last_idx = i + 1;
+    }
+  }
+
+  if (g->last_idx_ != new_last_idx) {
+    g->last_idx_ = new_last_idx;
+    kv_->set(key, serialize_tl_object(g, true)).ensure();
+  }
+}
+
+void ArchiveSlice::truncate(BlockSeqno masterchain_seqno, ConstBlockHandle handle, td::Promise<td::Unit> promise) {
+  if (temp_ || archive_id_ > masterchain_seqno) {
+    destroy(std::move(promise));
+    return;
+  }
+  before_query();
+  LOG(INFO) << "TRUNCATE: slice " << archive_id_ << " maxseqno= " << max_masterchain_seqno()
+            << " truncate_upto=" << masterchain_seqno;
+  if (max_masterchain_seqno() <= masterchain_seqno) {
+    promise.set_value(td::Unit());
+    return;
+  }
+
+  auto cutoff = choose_package(masterchain_seqno, false);
+  cutoff.ensure();
+  auto pack = cutoff.move_as_ok();
+  CHECK(pack);
+
+  auto pack_r = Package::open(pack->path + ".new", false, true);
+  pack_r.ensure();
+  auto new_package = std::make_shared<Package>(pack_r.move_as_ok());
+  new_package->truncate(0).ensure();
+
+  std::string value;
+  auto status_key = create_serialize_tl_object<ton_api::db_lt_status_key>();
+  auto R = kv_->get(status_key, value);
+  R.ensure();
+
+  auto F = fetch_tl_object<ton_api::db_lt_status_value>(value, true);
+  F.ensure();
+  auto f = F.move_as_ok();
+
+  kv_->begin_transaction().ensure();
+  for (int i = 0; i < f->total_shards_; i++) {
+    auto shard_key = create_serialize_tl_object<ton_api::db_lt_shard_key>(i);
+    R = kv_->get(shard_key, value);
+    R.ensure();
+    CHECK(R.move_as_ok() == td::KeyValue::GetStatus::Ok);
+
+    auto G = fetch_tl_object<ton_api::db_lt_shard_value>(value, true);
+    G.ensure();
+    auto g = G.move_as_ok();
+
+    truncate_shard(masterchain_seqno, ShardIdFull{g->workchain_, static_cast<td::uint64>(g->shard_)}, pack->idx,
+                   new_package.get());
+  }
+
+  if (!sliced_mode_) {
+    kv_->set("status", td::to_string(new_package->size())).ensure();
+  } else {
+    kv_->set(PSTRING() << "status." << pack->idx, td::to_string(new_package->size())).ensure();
+    for (size_t i = pack->idx + 1; i < packages_.size(); i++) {
+      kv_->erase(PSTRING() << "status." << i);
+      kv_->erase(PSTRING() << "version." << i);
+    }
+    kv_->set("slices", td::to_string(pack->idx + 1));
+  }
+
+  pack->package = new_package;
+  pack->writer.reset();
+  td::unlink(pack->path).ensure();
+  td::rename(pack->path + ".new", pack->path).ensure();
+  pack->writer = td::actor::create_actor<PackageWriter>("writer", new_package, async_mode_);
+
+  for (auto idx = pack->idx + 1; idx < packages_.size(); idx++) {
+    td::unlink(packages_[idx].path).ensure();
+  }
+  if (statistics_.pack_statistics) {
+    statistics_.pack_statistics->record_close(packages_.size() - pack->idx - 1);
+  }
+  packages_.erase(packages_.begin() + pack->idx + 1, packages_.end());
+
+  kv_->commit_transaction().ensure();
+
+  promise.set_value(td::Unit());
+}
+
+static std::tuple<td::uint32, bool, bool> to_tuple(const PackageId &id) {
+  return {id.id, id.temp, id.key};
+}
+
+void ArchiveLru::on_query(td::actor::ActorId<ArchiveSlice> slice, PackageId id, size_t files_count) {
+  SliceInfo &info = slices_[to_tuple(id)];
+  if (info.opened_idx != 0) {
+    total_files_ -= info.files_count;
+    lru_.erase(info.opened_idx);
+  }
+  info.actor = std::move(slice);
+  total_files_ += (info.files_count = files_count);
+  info.opened_idx = current_idx_++;
+  if (!info.is_permanent) {
+    lru_.emplace(info.opened_idx, id);
+  }
+  enforce_limit();
+}
+
+void ArchiveLru::set_permanent_slices(std::vector<PackageId> ids) {
+  for (auto id : permanent_slices_) {
+    SliceInfo &info = slices_[to_tuple(id)];
+    if (!info.is_permanent) {
+      continue;
+    }
+    info.is_permanent = false;
+    if (info.opened_idx) {
+      lru_.emplace(info.opened_idx, id);
+    }
+  }
+  permanent_slices_ = std::move(ids);
+  for (auto id : permanent_slices_) {
+    SliceInfo &info = slices_[to_tuple(id)];
+    if (info.is_permanent) {
+      continue;
+    }
+    info.is_permanent = true;
+    if (info.opened_idx) {
+      lru_.erase(info.opened_idx);
+    }
+  }
+  enforce_limit();
+}
+
+void ArchiveLru::enforce_limit() {
+  while (total_files_ > max_total_files_ && lru_.size() > 1) {
+    auto it = lru_.begin();
+    auto it2 = slices_.find(to_tuple(it->second));
+    lru_.erase(it);
+    total_files_ -= it2->second.files_count;
+    td::actor::send_closure(it2->second.actor, &ArchiveSlice::close_files);
+    it2->second.opened_idx = 0;
+  }
 }
 
 }  // namespace validator

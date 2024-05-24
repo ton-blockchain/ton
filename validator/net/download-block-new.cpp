@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "download-block-new.hpp"
 #include "ton/ton-tl.hpp"
@@ -23,6 +23,7 @@
 #include "td/utils/overloaded.h"
 #include "ton/ton-io.hpp"
 #include "validator/full-node.h"
+#include "full-node-serializer.hpp"
 
 namespace ton {
 
@@ -201,12 +202,12 @@ void DownloadBlockNew::got_node_to_download(adnl::AdnlNodeIdShort node) {
   }
   if (client_.empty()) {
     td::actor::send_closure(overlays_, &overlay::Overlays::send_query_via, download_from_, local_id_, overlay_id_,
-                            "get_proof", std::move(P), td::Timestamp::in(3.0), std::move(q),
+                            "get_proof", std::move(P), td::Timestamp::in(15.0), std::move(q),
                             FullNode::max_proof_size() + FullNode::max_block_size() + 128, rldp_);
   } else {
     td::actor::send_closure(client_, &adnl::AdnlExtClient::send_query, "get_prepare",
                             create_serialize_tl_object_suffix<ton_api::tonNode_query>(std::move(q)),
-                            td::Timestamp::in(1.0), std::move(P));
+                            td::Timestamp::in(15.0), std::move(P));
   }
 }
 
@@ -219,52 +220,54 @@ void DownloadBlockNew::got_data(td::BufferSlice data) {
   }
 
   auto f = F.move_as_ok();
+  if (f->get_id() == ton_api::tonNode_dataFullEmpty::ID) {
+    abort_query(td::Status::Error(ErrorCode::notready, "node doesn't have this block"));
+    return;
+  }
+  BlockIdExt id;
+  td::BufferSlice proof, block_data;
+  bool is_link;
+  td::Status S = deserialize_block_full(*f, id, proof, block_data, is_link, overlay::Overlays::max_fec_broadcast_size());
+  if (S.is_error()) {
+    abort_query(S.move_as_error_prefix("cannot deserialize block: "));
+    return;
+  }
 
-  ton_api::downcast_call(
-      *f.get(),
-      td::overloaded(
-          [&](ton_api::tonNode_dataFullEmpty &x) {
-            abort_query(td::Status::Error(ErrorCode::notready, "node doesn't have this block"));
-          },
-          [&, self = this](ton_api::tonNode_dataFull &x) {
-            if (!allow_partial_proof_ && x.is_link_) {
-              abort_query(td::Status::Error(ErrorCode::notready, "node doesn't have proof for this block"));
-              return;
-            }
-            auto id = create_block_id(x.id_);
-            if (block_id_.is_valid() && id != block_id_) {
-              abort_query(td::Status::Error(ErrorCode::notready, "received data for wrong block"));
-              return;
-            }
-            block_.id = id;
-            block_.data = std::move(x.block_);
-            if (td::sha256_bits256(block_.data.as_slice()) != id.file_hash) {
-              abort_query(td::Status::Error(ErrorCode::notready, "received data with bad hash"));
-              return;
-            }
+  if (!allow_partial_proof_ && is_link) {
+    abort_query(td::Status::Error(ErrorCode::notready, "node doesn't have proof for this block"));
+    return;
+  }
+  if (block_id_.is_valid() && id != block_id_) {
+    abort_query(td::Status::Error(ErrorCode::notready, "received data for wrong block"));
+    return;
+  }
+  block_.id = id;
+  block_.data = std::move(block_data);
+  if (td::sha256_bits256(block_.data.as_slice()) != id.file_hash) {
+    abort_query(td::Status::Error(ErrorCode::notready, "received data with bad hash"));
+    return;
+  }
 
-            auto P = td::PromiseCreator::lambda([SelfId = actor_id(self)](td::Result<td::Unit> R) {
-              if (R.is_error()) {
-                td::actor::send_closure(SelfId, &DownloadBlockNew::abort_query,
-                                        R.move_as_error_prefix("received bad proof: "));
-              } else {
-                td::actor::send_closure(SelfId, &DownloadBlockNew::checked_block_proof);
-              }
-            });
-            if (block_id_.is_valid()) {
-              if (x.is_link_) {
-                td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::validate_block_proof_link,
-                                        block_id_, std::move(x.proof_), std::move(P));
-              } else {
-                td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::validate_block_proof, block_id_,
-                                        std::move(x.proof_), std::move(P));
-              }
-            } else {
-              CHECK(!x.is_link_);
-              td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::validate_block_is_next_proof,
-                                      prev_id_, id, std::move(x.proof_), std::move(P));
-            }
-          }));
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
+    if (R.is_error()) {
+      td::actor::send_closure(SelfId, &DownloadBlockNew::abort_query, R.move_as_error_prefix("received bad proof: "));
+    } else {
+      td::actor::send_closure(SelfId, &DownloadBlockNew::checked_block_proof);
+    }
+  });
+  if (block_id_.is_valid()) {
+    if (is_link) {
+      td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::validate_block_proof_link, block_id_,
+                              std::move(proof), std::move(P));
+    } else {
+      td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::validate_block_proof, block_id_,
+                              std::move(proof), std::move(P));
+    }
+  } else {
+    CHECK(!is_link);
+    td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::validate_block_is_next_proof, prev_id_, id,
+                            std::move(proof), std::move(P));
+  }
 }
 
 void DownloadBlockNew::got_data_from_db(td::BufferSlice data) {

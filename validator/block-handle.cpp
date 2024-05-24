@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "block-handle.hpp"
 #include "adnl/utils.hpp"
@@ -42,8 +42,8 @@ td::BufferSlice BlockHandleImpl::serialize() const {
       (flags & dbf_inited_masterchain_ref_block) ? masterchain_ref_seqno_ : 0);
 }
 
-BlockHandleImpl::BlockHandleImpl(td::BufferSlice data) {
-  auto obj = fetch_tl_object<ton_api::db_block_info>(std::move(data), true).move_as_ok();
+BlockHandleImpl::BlockHandleImpl(td::Slice data) {
+  auto obj = fetch_tl_object<ton_api::db_block_info>(data, true).move_as_ok();
   flags_ = obj->flags_ & ~(Flags::dbf_processed | Flags::dbf_moved_handle);
   id_ = create_block_id(obj->id_);
   prev_[0] = (flags_ & dbf_inited_prev_left) ? create_block_id(obj->prev_left_) : BlockIdExt{};

@@ -14,13 +14,13 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
 #include "td/utils/common.h"
-#include "td/utils/misc.h"
 
+#include <limits>
 #include <map>
 #include <tuple>
 
@@ -32,7 +32,8 @@ class Enumerator {
   using Key = int32;
 
   Key add(ValueT v) {
-    int32 next_id = narrow_cast<int32>(arr_.size() + 1);
+    CHECK(arr_.size() < static_cast<size_t>(std::numeric_limits<int32>::max() - 1));
+    int32 next_id = static_cast<int32>(arr_.size() + 1);
     bool was_inserted;
     decltype(map_.begin()) it;
     std::tie(it, was_inserted) = map_.emplace(std::move(v), next_id);

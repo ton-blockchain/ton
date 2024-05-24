@@ -23,14 +23,14 @@
     exception statement from your version. If you delete this exception statement 
     from all source files in the program, then also delete it here.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "adnl/adnl.h"
 #include "adnl/utils.hpp"
 #include "adnl/adnl-test-loopback-implementation.h"
 #include "dht/dht.h"
 #include "overlay/overlays.h"
-#include "td/utils/OptionsParser.h"
+#include "td/utils/OptionParser.h"
 #include "td/utils/Time.h"
 #include "td/utils/filesystem.h"
 #include "td/utils/format.h"
@@ -122,15 +122,17 @@ class CatChainInst : public td::actor::Actor {
 
   void start_up() override {
     alarm_timestamp() = td::Timestamp::in(0.1);
-    ton::catchain::CatChainOptions opts;
+    ton::CatChainOptions opts;
     opts.debug_disable_db = true;
+    //opts.block_hash_covers_data = true;
 
     std::vector<ton::catchain::CatChainNode> nodes;
     for (auto &n : nodes_) {
       nodes.push_back(ton::catchain::CatChainNode{n.adnl_id, n.id_full});
     }
-    catchain_ = ton::catchain::CatChain::create(make_callback(), opts, keyring_, adnl_, overlay_manager_,
-                                                std::move(nodes), nodes_[idx_].id, unique_hash_, std::string(""));
+    catchain_ =
+        ton::catchain::CatChain::create(make_callback(), opts, keyring_, adnl_, overlay_manager_, std::move(nodes),
+                                        nodes_[idx_].id, unique_hash_, std::string(""), "", false);
   }
 
   CatChainInst(td::actor::ActorId<ton::keyring::Keyring> keyring, td::actor::ActorId<ton::adnl::Adnl> adnl,
@@ -156,13 +158,14 @@ class CatChainInst : public td::actor::Actor {
       void preprocess_block(ton::catchain::CatChainBlock *block) override {
         td::actor::send_closure(id_, &CatChainInst::preprocess_block, std::move(block));
       }
-      void process_broadcast(ton::PublicKeyHash src, td::BufferSlice data) override {
+      void process_broadcast(const ton::PublicKeyHash &src, td::BufferSlice data) override {
         UNREACHABLE();
       }
-      void process_message(ton::PublicKeyHash src, td::BufferSlice data) override {
+      void process_message(const ton::PublicKeyHash &src, td::BufferSlice data) override {
         UNREACHABLE();
       }
-      void process_query(ton::PublicKeyHash src, td::BufferSlice data, td::Promise<td::BufferSlice> promise) override {
+      void process_query(const ton::PublicKeyHash &src, td::BufferSlice data,
+                         td::Promise<td::BufferSlice> promise) override {
         UNREACHABLE();
       }
       void started() override {
@@ -183,6 +186,7 @@ class CatChainInst : public td::actor::Actor {
 
   void create_fork() {
     auto height = height_ - 1;  //td::Random::fast(0, height_ - 1);
+    LOG(WARNING) << "Creating fork, source_id=" << idx_ << ", height=" << height;
 
     auto sum = prev_values_[height] + 1;
     td::uint64 x[2];
@@ -216,7 +220,7 @@ int main(int argc, char *argv[]) {
   SET_VERBOSITY_LEVEL(verbosity_INFO);
   td::set_default_failure_signal_handler().ensure();
 
-  std::string db_root_ = "tmp-ee";
+  std::string db_root_ = "tmp-dir-test-catchain";
   td::rmrf(db_root_).ignore();
   td::mkdir(db_root_).ensure();
 
@@ -238,7 +242,8 @@ int main(int argc, char *argv[]) {
     td::actor::send_closure(adnl, &ton::adnl::Adnl::register_network_manager, network_manager.get());
   });
 
-  for (td::uint32 att = 0; att < 10; att++) {
+  for (td::uint32 att = 0; att < 20; att++) {
+    LOG(WARNING) << "Test #" << att;
     nodes.resize(total_nodes);
 
     scheduler.run_in_context([&] {
@@ -250,7 +255,8 @@ int main(int argc, char *argv[]) {
         n.adnl_id_full = ton::adnl::AdnlNodeIdFull{pub1};
         n.adnl_id = ton::adnl::AdnlNodeIdShort{pub1.compute_short_id()};
         td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk1), true, [](td::Unit) {});
-        td::actor::send_closure(adnl, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{pub1}, addr);
+        td::actor::send_closure(adnl, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{pub1}, addr,
+                                static_cast<td::uint8>(0));
         td::actor::send_closure(network_manager, &ton::adnl::TestLoopbackNetworkManager::add_node_id, n.adnl_id, true,
                                 true);
 
@@ -270,8 +276,6 @@ int main(int argc, char *argv[]) {
       }
     });
 
-    auto t = td::Timestamp::in(1.0);
-
     ton::catchain::CatChainSessionId unique_id;
     td::Random::secure_bytes(unique_id.as_slice());
 
@@ -283,7 +287,7 @@ int main(int argc, char *argv[]) {
       }
     });
 
-    t = td::Timestamp::in(10.0);
+    auto t = td::Timestamp::in(10.0);
     while (scheduler.run(1)) {
       if (t.is_in_past()) {
         break;
@@ -294,9 +298,12 @@ int main(int argc, char *argv[]) {
       std::cout << "value=" << n.get_actor_unsafe().value() << std::endl;
     }
 
-    scheduler.run_in_context([&] { td::actor::send_closure(inst[0], &CatChainInst::create_fork); });
+    td::uint32 fork_cnt = att < 10 ? 1 : (att - 10) / 5 + 2;
+    for (td::uint32 idx = 0; idx < fork_cnt; ++idx) {
+      scheduler.run_in_context([&] { td::actor::send_closure(inst[idx], &CatChainInst::create_fork); });
+    }
 
-    t = td::Timestamp::in(10.0);
+    t = td::Timestamp::in(1.0);
     while (scheduler.run(1)) {
       if (t.is_in_past()) {
         break;

@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -103,8 +103,8 @@ class CatChainBlockImpl : public CatChainBlock {
 
   bool is_descendant_of(CatChainBlock *block) override;
 
-  CatChainBlockImpl(td::uint32 src, td::uint32 fork, PublicKeyHash src_hash, CatChainBlockHeight height,
-                    CatChainBlockHash hash, td::SharedSlice payload, CatChainBlock *prev,
+  CatChainBlockImpl(td::uint32 src, td::uint32 fork, const PublicKeyHash &src_hash, CatChainBlockHeight height,
+                    const CatChainBlockHash &hash, td::SharedSlice payload, CatChainBlock *prev,
                     std::vector<CatChainBlock *> deps, std::vector<CatChainBlockHeight> vt);
 };
 

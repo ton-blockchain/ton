@@ -14,14 +14,13 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
 #include "overlay/overlays.h"
 #include "ton/ton-types.h"
 #include "validator/validator.h"
-#include "rldp/rldp.h"
 #include "adnl/adnl-ext-client.h"
 
 namespace ton {
@@ -35,7 +34,7 @@ class DownloadState : public td::actor::Actor {
   DownloadState(BlockIdExt block_id, BlockIdExt masterchain_block_id, adnl::AdnlNodeIdShort local_id,
                 overlay::OverlayIdShort overlay_id, adnl::AdnlNodeIdShort download_from, td::uint32 priority,
                 td::Timestamp timeout, td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-                td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays,
+                td::actor::ActorId<adnl::AdnlSenderInterface> rldp, td::actor::ActorId<overlay::Overlays> overlays,
                 td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<adnl::AdnlExtClient> client,
                 td::Promise<td::BufferSlice> promise);
 
@@ -62,7 +61,7 @@ class DownloadState : public td::actor::Actor {
 
   td::Timestamp timeout_;
   td::actor::ActorId<ValidatorManagerInterface> validator_manager_;
-  td::actor::ActorId<rldp::Rldp> rldp_;
+  td::actor::ActorId<adnl::AdnlSenderInterface> rldp_;
   td::actor::ActorId<overlay::Overlays> overlays_;
   td::actor::ActorId<adnl::Adnl> adnl_;
   td::actor::ActorId<adnl::AdnlExtClient> client_;
@@ -72,6 +71,9 @@ class DownloadState : public td::actor::Actor {
   td::BufferSlice state_;
   std::vector<td::BufferSlice> parts_;
   td::uint64 sum_ = 0;
+
+  td::uint64 prev_logged_sum_ = 0;
+  td::Timer prev_logged_timer_;
 };
 
 }  // namespace fullnode

@@ -1,0 +1,78 @@
+#pragma allow-post-modification;
+
+forall X -> tuple unsafe_tuple(X x) asm "NOP";
+
+(int, int) inc(int x, int y) {
+  return (x + y, y * 10);
+}
+
+(int, int, int, int, int, int, int) test_return(int x) method_id(11) {
+  return (x, x~inc(x / 20), x, x = x * 2, x, x += 1, x);
+}
+
+(int, int, int, int, int, int, int) test_assign(int x) method_id(12) {
+  (int x1, int x2, int x3, int x4, int x5, int x6, int x7) = (x, x~inc(x / 20), x, x = x * 2, x, x += 1, x);
+  return (x1, x2, x3, x4, x5, x6, x7);
+}
+
+tuple test_tuple(int x) method_id(13) {
+  tuple t = unsafe_tuple([x, x~inc(x / 20), x, x = x * 2, x, x += 1, x]);
+  return t;
+}
+
+(int, int, int, int, int, int, int) test_tuple_assign(int x) method_id(14) {
+  [int x1, int x2, int x3, int x4, int x5, int x6, int x7] = [x, x~inc(x / 20), x, x = x * 2, x, x += 1, x];
+  return (x1, x2, x3, x4, x5, x6, x7);
+}
+
+(int, int, int, int, int, int, int) foo1(int x1, int x2, int x3, int x4, int x5, int x6, int x7) {
+  return (x1, x2, x3, x4, x5, x6, x7);
+}
+
+(int, int, int, int, int, int, int) test_call_1(int x) method_id(15) {
+  return foo1(x, x~inc(x / 20), x, x = x * 2, x, x += 1, x);
+}
+
+(int, int, int, int, int, int, int) foo2(int x1, int x2, (int, int, int, int) x3456, int x7) {
+  (int x3, int x4, int x5, int x6) = x3456;
+  return (x1, x2, x3, x4, x5, x6, x7);
+}
+
+(int, int, int, int, int, int, int) test_call_2(int x) method_id(16) {
+  return foo2(x, x~inc(x / 20), (x, x = x * 2, x, x += 1), x);
+}
+
+(int, int, int, int, int, int, int) asm_func(int x1, int x2, int x3, int x4, int x5, int x6, int x7) asm
+        (x4 x5 x6 x7 x1 x2 x3 -> 0 1 2 3 4 5 6) "NOP";
+
+(int, int, int, int, int, int, int) test_call_asm_old(int x) method_id(17) {
+  return asm_func(x, x += 1, x, x, x~inc(x / 20), x, x = x * 2);
+}
+
+#pragma compute-asm-ltr;
+
+(int, int, int, int, int, int, int) test_call_asm_new(int x) method_id(18) {
+  return asm_func(x, x~inc(x / 20), x, x = x * 2, x, x += 1, x);
+}
+
+global int xx;
+(int, int, int, int, int, int, int) test_global(int x) method_id(19) {
+  xx = x;
+  return (xx, xx~inc(xx / 20), xx, xx = xx * 2, xx, xx += 1, xx);
+}
+
+() main() {
+}
+
+{-
+    method_id | in  | out
+TESTCASE | 11 | 100 | 100 50 105 210 210 211 211
+TESTCASE | 12 | 100 | 100 50 105 210 210 211 211
+TESTCASE | 13 | 100 | [ 100 50 105 210 210 211 211 ]
+TESTCASE | 14 | 100 | 100 50 105 210 210 211 211
+TESTCASE | 15 | 100 | 100 50 105 210 210 211 211
+TESTCASE | 16 | 100 | 100 50 105 210 210 211 211
+TESTCASE | 17 | 100 | 100 50 105 210 210 211 211
+TESTCASE | 18 | 100 | 210 210 211 211 100 50 105
+TESTCASE | 19 | 100 | 100 50 105 210 210 211 211
+-}

@@ -1,3 +1,21 @@
+/*
+    This file is part of TON Blockchain Library.
+
+    TON Blockchain Library is free software: you can redistribute it and/or modify
+    it under the terms of the GNU Lesser General Public License as published by
+    the Free Software Foundation, either version 2 of the License, or
+    (at your option) any later version.
+
+    TON Blockchain Library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU Lesser General Public License for more details.
+
+    You should have received a copy of the GNU Lesser General Public License
+    along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
+
+    Copyright 2019-2020 Telegram Systems LLP
+*/
 #include "package.hpp"
 #include "common/errorcode.h"
 
@@ -46,8 +64,14 @@ td::uint64 Package::append(std::string filename, td::Slice data, bool sync) {
   size += 8;
   CHECK(fd_.pwrite(filename, size).move_as_ok() == filename.size());
   size += filename.size();
-  CHECK(fd_.pwrite(data, size).move_as_ok() == data.size());
-  size += data.size();
+  while (data.size() != 0) {
+    auto R = fd_.pwrite(data, size);
+    R.ensure();
+    auto x = R.move_as_ok();
+    CHECK(x > 0);
+    size += x;
+    data.remove_prefix(x);
+  }
   if (sync) {
     fd_.sync().ensure();
   }
@@ -71,7 +95,8 @@ td::Result<std::pair<std::string, td::BufferSlice>> Package::read(td::uint64 off
     return td::Status::Error(ErrorCode::notready, "too short read");
   }
   if ((header[0] & 0xffff) != entry_header_magic()) {
-    return td::Status::Error(ErrorCode::notready, "bad entry magic");
+    return td::Status::Error(ErrorCode::notready,
+                             PSTRING() << "bad entry magic " << (header[0] & 0xffff) << " offset=" << offset);
   }
   offset += 8;
   auto fname_size = header[0] >> 16;

@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -28,6 +28,7 @@
 #include "catchain/catchain-types.h"
 
 #include "validator-session-types.h"
+#include "auto/tl/lite_api.h"
 
 namespace ton {
 
@@ -79,7 +80,8 @@ class ValidatorSession : public td::actor::Actor {
     virtual void on_block_committed(td::uint32 round, PublicKey source, ValidatorSessionRootHash root_hash,
                                     ValidatorSessionFileHash file_hash, td::BufferSlice data,
                                     std::vector<std::pair<PublicKeyHash, td::BufferSlice>> signatures,
-                                    std::vector<std::pair<PublicKeyHash, td::BufferSlice>> approve_signatures) = 0;
+                                    std::vector<std::pair<PublicKeyHash, td::BufferSlice>> approve_signatures,
+                                    ValidatorSessionStats stats) = 0;
     virtual void on_block_skipped(td::uint32 round) = 0;
     virtual void get_approved_candidate(PublicKey source, ValidatorSessionRootHash root_hash,
                                         ValidatorSessionFileHash file_hash,
@@ -90,12 +92,17 @@ class ValidatorSession : public td::actor::Actor {
 
   virtual void start() = 0;
   virtual void destroy() = 0;
+  virtual void get_current_stats(td::Promise<ValidatorSessionStats> promise) = 0;
+  virtual void get_validator_group_info_for_litequery(
+      td::uint32 cur_round,
+      td::Promise<std::vector<tl_object_ptr<lite_api::liteServer_nonfinal_candidateInfo>>> promise) = 0;
 
   static td::actor::ActorOwn<ValidatorSession> create(
       catchain::CatChainSessionId session_id, ValidatorSessionOptions opts, PublicKeyHash local_id,
       std::vector<ValidatorSessionNode> nodes, std::unique_ptr<Callback> callback,
       td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-      td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays, std::string db_root);
+      td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays, std::string db_root,
+      std::string db_suffix, bool allow_unsafe_self_blocks_resync);
   virtual ~ValidatorSession() = default;
 };
 

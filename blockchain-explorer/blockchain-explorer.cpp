@@ -23,12 +23,12 @@
     from all source files in the program, then also delete it here.
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "adnl/adnl-ext-client.h"
 #include "adnl/utils.hpp"
 #include "auto/tl/ton_api_json.h"
-#include "td/utils/OptionsParser.h"
+#include "td/utils/OptionParser.h"
 #include "td/utils/Time.h"
 #include "td/utils/filesystem.h"
 #include "td/utils/format.h"
@@ -52,8 +52,7 @@
 #include "vm/boc.h"
 #include "vm/cellops.h"
 #include "vm/cells/MerkleProof.h"
-#include "vm/continuation.h"
-#include "vm/cp0.h"
+#include "vm/vm.h"
 
 #include "auto/tl/lite_api.h"
 #include "ton/lite-tl.hpp"
@@ -104,23 +103,24 @@ class HttpQueryRunner {
         Self->finish(nullptr);
       }
     });
-    mutex_.lock();
     scheduler_ptr->run_in_context_external([&]() { func(std::move(P)); });
   }
   void finish(MHD_Response* response) {
+    std::unique_lock<std::mutex> lock(mutex_);
     response_ = response;
-    mutex_.unlock();
+    cond.notify_all();
   }
   MHD_Response* wait() {
-    mutex_.lock();
-    mutex_.unlock();
+    std::unique_lock<std::mutex> lock(mutex_);
+    cond.wait(lock, [&]() { return response_ != nullptr; });
     return response_;
   }
 
  private:
   std::function<void(td::Promise<MHD_Response*>)> func_;
-  MHD_Response* response_;
+  MHD_Response* response_ = nullptr;
   std::mutex mutex_;
+  std::condition_variable cond;
 };
 
 class CoreActor : public CoreActorInterface {
@@ -261,7 +261,7 @@ class CoreActor : public CoreActorInterface {
   CoreActor() {
   }
 
-  static int get_arg_iterate(void* cls, enum MHD_ValueKind kind, const char* key, const char* value) {
+  static MHD_RESULT get_arg_iterate(void* cls, enum MHD_ValueKind kind, const char* key, const char* value) {
     auto X = static_cast<std::map<std::string, std::string>*>(cls);
     if (key && value && std::strlen(key) > 0 && std::strlen(value) > 0) {
       X->emplace(key, urldecode(td::Slice{value}, false));
@@ -278,7 +278,7 @@ class CoreActor : public CoreActorInterface {
     ~HttpRequestExtra() {
       MHD_destroy_post_processor(postprocessor);
     }
-    static int iterate_post(void* coninfo_cls, enum MHD_ValueKind kind, const char* key, const char* filename,
+    static MHD_RESULT iterate_post(void* coninfo_cls, enum MHD_ValueKind kind, const char* key, const char* filename,
                             const char* content_type, const char* transfer_encoding, const char* data, uint64_t off,
                             size_t size) {
       auto ptr = static_cast<HttpRequestExtra*>(coninfo_cls);
@@ -306,10 +306,10 @@ class CoreActor : public CoreActorInterface {
     }
   }
 
-  static int process_http_request(void* cls, struct MHD_Connection* connection, const char* url, const char* method,
+  static MHD_RESULT process_http_request(void* cls, struct MHD_Connection* connection, const char* url, const char* method,
                                   const char* version, const char* upload_data, size_t* upload_data_size, void** ptr) {
     struct MHD_Response* response = nullptr;
-    int ret;
+    MHD_RESULT ret;
 
     bool is_post = false;
     if (std::strcmp(method, "GET") == 0) {
@@ -592,9 +592,9 @@ int main(int argc, char* argv[]) {
 
   td::actor::ActorOwn<CoreActor> x;
 
-  td::OptionsParser p;
+  td::OptionParser p;
   p.set_description("TON Blockchain explorer");
-  p.add_option('h', "help", "prints_help", [&]() {
+  p.add_checked_option('h', "help", "prints_help", [&]() {
     char b[10240];
     td::StringBuilder sb(td::MutableSlice{b, 10000});
     sb << p;
@@ -602,31 +602,31 @@ int main(int argc, char* argv[]) {
     std::exit(2);
     return td::Status::OK();
   });
-  p.add_option('I', "hide-ips", "hides ips from status", [&]() {
+  p.add_checked_option('I', "hide-ips", "hides ips from status", [&]() {
     td::actor::send_closure(x, &CoreActor::set_hide_ips, true);
     return td::Status::OK();
   });
-  p.add_option('u', "user", "change user", [&](td::Slice user) { return td::change_user(user); });
-  p.add_option('C', "global-config", "file to read global config", [&](td::Slice fname) {
+  p.add_checked_option('u', "user", "change user", [&](td::Slice user) { return td::change_user(user.str()); });
+  p.add_checked_option('C', "global-config", "file to read global config", [&](td::Slice fname) {
     td::actor::send_closure(x, &CoreActor::set_global_config, fname.str());
     return td::Status::OK();
   });
-  p.add_option('a', "addr", "connect to ip:port", [&](td::Slice arg) {
+  p.add_checked_option('a', "addr", "connect to ip:port", [&](td::Slice arg) {
     td::IPAddress addr;
     TRY_STATUS(addr.init_host_port(arg.str()));
     td::actor::send_closure(x, &CoreActor::set_remote_addr, addr);
     return td::Status::OK();
   });
-  p.add_option('p', "pub", "remote public key", [&](td::Slice arg) {
+  p.add_checked_option('p', "pub", "remote public key", [&](td::Slice arg) {
     td::actor::send_closure(x, &CoreActor::set_remote_public_key, td::BufferSlice{arg});
     return td::Status::OK();
   });
-  p.add_option('v', "verbosity", "set verbosity level", [&](td::Slice arg) {
+  p.add_checked_option('v', "verbosity", "set verbosity level", [&](td::Slice arg) {
     verbosity = td::to_integer<int>(arg);
     SET_VERBOSITY_LEVEL(VERBOSITY_NAME(FATAL) + verbosity);
     return (verbosity >= 0 && verbosity <= 9) ? td::Status::OK() : td::Status::Error("verbosity must be 0..9");
   });
-  p.add_option('d', "daemonize", "set SIGHUP", [&]() {
+  p.add_checked_option('d', "daemonize", "set SIGHUP", [&]() {
     td::set_signal_handler(td::SignalType::HangUp, [](int sig) {
 #if TD_DARWIN || TD_LINUX
       close(0);
@@ -635,12 +635,16 @@ int main(int argc, char* argv[]) {
     }).ensure();
     return td::Status::OK();
   });
-  p.add_option('H', "http-port", "listen on http port", [&](td::Slice arg) {
+  p.add_checked_option('H', "http-port", "listen on http port", [&](td::Slice arg) {
     td::actor::send_closure(x, &CoreActor::set_http_port, td::to_integer<td::uint32>(arg));
     return td::Status::OK();
   });
+  p.add_checked_option('L', "local-scripts", "use local copy of ajax/bootstrap/... JS", [&]() {
+    local_scripts = true;
+    return td::Status::OK();
+  });
 #if TD_DARWIN || TD_LINUX
-  p.add_option('l', "logname", "log to file", [&](td::Slice fname) {
+  p.add_checked_option('l', "logname", "log to file", [&](td::Slice fname) {
     auto FileLog = td::FileFd::open(td::CSlice(fname.str().c_str()),
                                     td::FileFd::Flags::Create | td::FileFd::Flags::Append | td::FileFd::Flags::Write)
                        .move_as_ok();
@@ -651,7 +655,7 @@ int main(int argc, char* argv[]) {
   });
 #endif
 
-  vm::init_op_cp0();
+  vm::init_vm().ensure();
 
   td::actor::Scheduler scheduler({2});
   scheduler_ptr = &scheduler;

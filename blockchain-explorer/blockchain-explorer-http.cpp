@@ -23,7 +23,7 @@
     exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "blockchain-explorer-http.hpp"
 #include "block/block-db.h"
@@ -35,6 +35,37 @@
 #include "vm/cells/MerkleProof.h"
 #include "block/mc-config.h"
 #include "ton/ton-shard.h"
+#include "td/utils/date.h"
+
+bool local_scripts{false};
+
+static std::string time_to_human(unsigned ts) {
+  td::StringBuilder sb;
+  sb << date::format("%F %T",
+                     std::chrono::time_point<std::chrono::system_clock, std::chrono::seconds>{std::chrono::seconds(ts)})
+     << ", ";
+  auto now = (unsigned)td::Clocks::system();
+  bool past = now >= ts;
+  unsigned x = past ? now - ts : ts - now;
+  if (!past) {
+    sb << "in ";
+  }
+  if (x < 60) {
+    sb << x << "s";
+  } else if (x < 3600) {
+    sb << x / 60 << "m " << x % 60 << "s";
+  } else if (x < 3600 * 24) {
+    x /= 60;
+    sb << x / 60 << "h " << x % 60 << "m";
+  } else {
+    x /= 3600;
+    sb << x / 24 << "d " << x % 24 << "h";
+  }
+  if (past) {
+    sb << " ago";
+  }
+  return sb.as_cslice().str();
+}
 
 HttpAnswer& HttpAnswer::operator<<(AddressCell addr_c) {
   ton::WorkchainId wc;
@@ -82,7 +113,7 @@ HttpAnswer& HttpAnswer::operator<<(MessageCell msg) {
             << "<tr><th>source</th><td>" << AddressCell{info.src} << "</td></tr>\n"
             << "<tr><th>destination</th><td>NONE</td></tr>\n"
             << "<tr><th>lt</th><td>" << info.created_lt << "</td></tr>\n"
-            << "<tr><th>time</th><td>" << info.created_at << "</td></tr>\n";
+            << "<tr><th>time</th><td>" << info.created_at << " (" << time_to_human(info.created_at) << ")</td></tr>\n";
       break;
     }
     case block::gen::CommonMsgInfo::int_msg_info: {
@@ -101,7 +132,7 @@ HttpAnswer& HttpAnswer::operator<<(MessageCell msg) {
             << "<tr><th>source</th><td>" << AddressCell{info.src} << "</td></tr>\n"
             << "<tr><th>destination</th><td>" << AddressCell{info.dest} << "</td></tr>\n"
             << "<tr><th>lt</th><td>" << info.created_lt << "</td></tr>\n"
-            << "<tr><th>time</th><td>" << info.created_at << "</td></tr>\n"
+            << "<tr><th>time</th><td>" << info.created_at << " (" << time_to_human(info.created_at) << ")</td></tr>\n"
             << "<tr><th>value</th><td>" << value << "</td></tr>\n";
       break;
     }
@@ -275,7 +306,7 @@ HttpAnswer& HttpAnswer::operator<<(TransactionCell trans_c) {
         << "<tr><th>account</th><td>" << trans_c.addr.rserialize(true) << "</td></tr>"
         << "<tr><th>hash</th><td>" << trans_c.root->get_hash().to_hex() << "</td></tr>\n"
         << "<tr><th>lt</th><td>" << trans.lt << "</td></tr>\n"
-        << "<tr><th>time</th><td>" << trans.now << "</td></tr>\n"
+        << "<tr><th>time</th><td>" << trans.now << " (" << time_to_human(trans.now) << ")</td></tr>\n"
         << "<tr><th>out messages</th><td>";
   vm::Dictionary dict{trans.r1.out_msgs, 15};
   for (td::int32 i = 0; i < trans.outmsg_cnt; i++) {
@@ -386,7 +417,7 @@ HttpAnswer& HttpAnswer::operator<<(AccountCell acc_c) {
         << "<input type=\"text\" class=\"form-control mr-2\" name=\"method\" placeholder=\"method\">"
         << "</div>\n"
         << "<div class=\"form-group col-lg-4 col-md-6\">"
-        << "<input type=\"text\" class=\"form-control mr-2\" name=\"params\" placeholder=\"paramerers\"></div>"
+        << "<input type=\"text\" class=\"form-control mr-2\" name=\"params\" placeholder=\"parameters\"></div>"
         << "<input type=\"hidden\" name=\"account\" value=\"" << acc_c.addr.rserialize(true) << "\">"
         << "<input type=\"hidden\" name=\"workchain\" value=\"" << block_id.id.workchain << "\">"
         << "<input type=\"hidden\" name=\"shard\" value=\"" << ton::shard_to_str(block_id.id.shard) << "\">"
@@ -425,7 +456,7 @@ HttpAnswer& HttpAnswer::operator<<(AccountCell acc_c) {
 
 HttpAnswer& HttpAnswer::operator<<(BlockHeaderCell head_c) {
   *this << "<div>";
-  vm::CellSlice cs{vm::NoVm{}, head_c.root};
+  vm::CellSlice cs{vm::NoVm(), head_c.root};
   auto block_id = head_c.block_id;
   try {
     auto virt_root = vm::MerkleProof::virtualize(head_c.root, 1);
@@ -454,7 +485,7 @@ HttpAnswer& HttpAnswer::operator<<(BlockHeaderCell head_c) {
           << "<tr><th>block</th><td>" << block_id.id.to_str() << "</td></tr>\n"
           << "<tr><th>roothash</th><td>" << block_id.root_hash.to_hex() << "</td></tr>\n"
           << "<tr><th>filehash</th><td>" << block_id.file_hash.to_hex() << "</td></tr>\n"
-          << "<tr><th>time</th><td>" << info.gen_utime << "</td></tr>\n"
+          << "<tr><th>time</th><td>" << info.gen_utime << " (" << time_to_human(info.gen_utime) << ")</td></tr>\n"
           << "<tr><th>lt</th><td>" << info.start_lt << " .. " << info.end_lt << "</td></tr>\n"
           << "<tr><th>global_id</th><td>" << blk.global_id << "</td></tr>\n"
           << "<tr><th>version</th><td>" << info.version << "</td></tr>\n"
@@ -541,7 +572,8 @@ HttpAnswer& HttpAnswer::operator<<(BlockShardsCell shards_c) {
       ton::ShardIdFull shard{id.workchain, id.shard};
       if (ref.not_null()) {
         *this << "<td>" << shard.to_str() << "</td><td><a href=\"" << HttpAnswer::BlockLink{ref->top_block_id()}
-              << "\">" << ref->top_block_id().id.seqno << "</a></td><td>" << ref->created_at() << "</td>"
+              << "\">" << ref->top_block_id().id.seqno << "</a></td><td><span title=\""
+              << time_to_human(ref->created_at()) << "\">" << ref->created_at() << "</span></td>"
               << "<td>" << ref->want_split_ << "</td>"
               << "<td>" << ref->want_merge_ << "</td>"
               << "<td>" << ref->before_split_ << "</td>"
@@ -676,13 +708,17 @@ std::string HttpAnswer::header() {
            "maximum-scale=1.0, user-scalable=no\" />\n"
         << "<meta name=\"format-detection\" content=\"telephone=no\" />\n"
         << "<!-- Latest compiled and minified CSS -->\n"
-        << "<link rel=\"stylesheet\" href=\"https://maxcdn.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css\">\n"
+        << "<link rel=\"stylesheet\" href=\"" << (local_scripts ? "/" : "https://")
+        << "maxcdn.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css\">\n"
         << "<!-- jQuery library -->"
-        << "<script src=\"https://ajax.googleapis.com/ajax/libs/jquery/3.4.0/jquery.min.js\"></script>\n"
+        << "<script src=\"" << (local_scripts ? "/" : "https://")
+        << "ajax.googleapis.com/ajax/libs/jquery/3.4.0/jquery.min.js\"></script>\n"
         << "<!-- Popper JS -->\n"
-        << "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js\"></script>\n"
+        << "<script src=\"" << (local_scripts ? "/" : "https://")
+        << "cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js\"></script>\n"
         << "<!-- Latest compiled JavaScript -->\n"
-        << "<script src=\"https://maxcdn.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js\"></script>\n"
+        << "<script src=\"" << (local_scripts ? "/" : "https://")
+        << "maxcdn.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js\"></script>\n"
         << "</head><body>\n"
         << "<div class=\"container-fluid\">\n"
         << "<nav class=\"navbar navbar-expand px-0 mt-1 flex-wrap\">\n"

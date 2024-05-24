@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/net/UdpServer.h"
 #include "td/net/FdListener.h"
@@ -53,6 +53,7 @@ class UdpServerImpl : public UdpServer {
 };
 
 void UdpServerImpl::send(td::UdpMessage &&message) {
+  //LOG(WARNING) << "TO: " << message.address;
   fd_.send(std::move(message));
   loop();  // TODO: some yield logic
 }
@@ -107,6 +108,7 @@ void UdpServerImpl::loop() {
       if (!o_message) {
         return Status::OK();
       }
+      //LOG(WARNING) << "FROM" << o_message.value().address;
       callback_->on_udp_message(std::move(*o_message));
     }
     return Status::OK();

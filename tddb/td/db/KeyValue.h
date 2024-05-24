@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 #include "td/utils/Status.h"
@@ -55,6 +55,10 @@ class KeyValue : public KeyValueReader {
   virtual Status set(Slice key, Slice value) = 0;
   virtual Status erase(Slice key) = 0;
 
+  virtual Status begin_write_batch() = 0;
+  virtual Status commit_write_batch() = 0;
+  virtual Status abort_write_batch() = 0;
+
   virtual Status begin_transaction() = 0;
   virtual Status commit_transaction() = 0;
   virtual Status abort_transaction() = 0;
@@ -84,6 +88,16 @@ class PrefixedKeyValue : public KeyValue {
   }
   Status erase(Slice key) override {
     return kv_->erase(PSLICE() << prefix_ << key);
+  }
+
+  Status begin_write_batch() override {
+    return kv_->begin_write_batch();
+  }
+  Status commit_write_batch() override {
+    return kv_->commit_write_batch();
+  }
+  Status abort_write_batch() override {
+    return kv_->abort_write_batch();
   }
 
   Status begin_transaction() override {

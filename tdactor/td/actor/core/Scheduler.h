@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -31,6 +31,7 @@
 #include "td/actor/core/SchedulerId.h"
 #include "td/actor/core/SchedulerMessage.h"
 
+#include "td/utils/AtomicRead.h"
 #include "td/utils/Closure.h"
 #include "td/utils/common.h"
 #include "td/utils/format.h"
@@ -38,9 +39,11 @@
 #include "td/utils/List.h"
 #include "td/utils/logging.h"
 #include "td/utils/MpmcQueue.h"
+#include "td/utils/StealingQueue.h"
 #include "td/utils/MpmcWaiter.h"
 #include "td/utils/MpscLinkQueue.h"
 #include "td/utils/MpscPollableQueue.h"
+#include "td/utils/optional.h"
 #include "td/utils/port/Poll.h"
 #include "td/utils/port/detail/Iocp.h"
 #include "td/utils/port/thread.h"
@@ -63,19 +66,104 @@ namespace actor {
 namespace core {
 class IoWorker;
 
+struct DebugInfo {
+  bool is_active{false};
+  double start_at{0};
+  static constexpr size_t name_size{32};
+  char name[name_size] = {};
+  void set_name(td::Slice from) {
+    from.truncate(name_size - 1);
+    std::memcpy(name, from.data(), from.size());
+    name[from.size()] = 0;
+  }
+};
+
+void set_debug(bool flag);
+bool need_debug();
+
+struct Debug {
+ public:
+  bool is_on() const {
+    return need_debug();
+  }
+  struct Destructor {
+    void operator()(Debug *info) {
+      info->info_.lock().value().is_active = false;
+    }
+  };
+
+  void read(DebugInfo &info) {
+    info_.read(info);
+  }
+
+  std::unique_ptr<Debug, Destructor> start(td::Slice name) {
+    if (!is_on()) {
+      return {};
+    }
+    {
+      auto lock = info_.lock();
+      auto &value = lock.value();
+      value.is_active = true;
+      value.start_at = Time::now();
+      value.set_name(name);
+    }
+    return std::unique_ptr<Debug, Destructor>(this);
+  }
+
+ private:
+  AtomicRead<DebugInfo> info_;
+};
+
 struct WorkerInfo {
   enum class Type { Io, Cpu } type{Type::Io};
   WorkerInfo() = default;
-  explicit WorkerInfo(Type type, bool allow_shared) : type(type), actor_info_creator(allow_shared) {
+  explicit WorkerInfo(Type type, bool allow_shared, CpuWorkerId cpu_worker_id)
+      : type(type), actor_info_creator(allow_shared), cpu_worker_id(cpu_worker_id) {
   }
   ActorInfoCreator actor_info_creator;
+  CpuWorkerId cpu_worker_id;
+  Debug debug;
+};
+
+template <class T>
+struct LocalQueue {
+ public:
+  template <class F>
+  bool push(T value, F &&overflow_f) {
+    auto res = std::move(next_);
+    next_ = std::move(value);
+    if (res) {
+      queue_.local_push(res.unwrap(), overflow_f);
+      return true;
+    }
+    return false;
+  }
+  bool try_pop(T &message) {
+    if (!next_) {
+      return queue_.local_pop(message);
+    }
+    message = next_.unwrap();
+    return true;
+  }
+  bool steal(T &message, LocalQueue<T> &other) {
+    return queue_.steal(message, other.queue_);
+  }
+
+ private:
+  td::optional<T> next_;
+  StealingQueue<T> queue_;
+  char pad[TD_CONCURRENCY_PAD - sizeof(optional<T>)];
 };
 
 struct SchedulerInfo {
   SchedulerId id;
   // will be read by all workers is any thread
-  std::unique_ptr<MpmcQueue<SchedulerMessage>> cpu_queue;
+  std::unique_ptr<MpmcQueue<SchedulerMessage::Raw *>> cpu_queue;
   std::unique_ptr<MpmcWaiter> cpu_queue_waiter;
+
+  std::vector<LocalQueue<SchedulerMessage::Raw *>> cpu_local_queue;
+  //std::vector<td::StealingQueue<SchedulerMessage>> cpu_stealing_queue;
+
   // only scheduler itself may read from io_queue_
   std::unique_ptr<MpscPollableQueue<SchedulerMessage>> io_queue;
   size_t cpu_threads_count{0};
@@ -112,7 +200,8 @@ class Scheduler {
     return thread_id;
   }
 
-  Scheduler(std::shared_ptr<SchedulerGroupInfo> scheduler_group_info, SchedulerId id, size_t cpu_threads_count);
+  Scheduler(std::shared_ptr<SchedulerGroupInfo> scheduler_group_info, SchedulerId id, size_t cpu_threads_count,
+            bool skip_timeouts = false);
 
   Scheduler(const Scheduler &) = delete;
   Scheduler &operator=(const Scheduler &) = delete;
@@ -153,14 +242,16 @@ class Scheduler {
   Poll poll_;
   KHeap<double> heap_;
   std::unique_ptr<IoWorker> io_worker_;
+  bool skip_timeouts_{false};
 
   class ContextImpl : public SchedulerContext {
    public:
-    ContextImpl(ActorInfoCreator *creator, SchedulerId scheduler_id, SchedulerGroupInfo *scheduler_group, Poll *poll,
-                KHeap<double> *heap);
+    ContextImpl(ActorInfoCreator *creator, SchedulerId scheduler_id, CpuWorkerId cpu_worker_id,
+                SchedulerGroupInfo *scheduler_group, Poll *poll, KHeap<double> *heap, Debug *debug);
 
     SchedulerId get_scheduler_id() const override;
     void add_to_queue(ActorInfoPtr actor_info_ptr, SchedulerId scheduler_id, bool need_poll) override;
+
     ActorInfoCreator &get_actor_info_creator() override;
 
     bool has_poll() override;
@@ -168,6 +259,8 @@ class Scheduler {
 
     bool has_heap() override;
     KHeap<double> &get_heap() override;
+
+    Debug &get_debug() override;
 
     void set_alarm_timestamp(const ActorInfoPtr &actor_info_ptr) override;
 
@@ -181,10 +274,13 @@ class Scheduler {
 
     ActorInfoCreator *creator_;
     SchedulerId scheduler_id_;
+    CpuWorkerId cpu_worker_id_;
     SchedulerGroupInfo *scheduler_group_;
     Poll *poll_;
 
     KHeap<double> *heap_;
+
+    Debug *debug_;
   };
 
   template <class F>
@@ -193,8 +289,9 @@ class Scheduler {
     td::detail::Iocp::Guard iocp_guard(&scheduler_group_info_->iocp);
 #endif
     bool is_io_worker = worker_info.type == WorkerInfo::Type::Io;
-    ContextImpl context(&worker_info.actor_info_creator, info_->id, scheduler_group_info_.get(),
-                        is_io_worker ? &poll_ : nullptr, is_io_worker ? &heap_ : nullptr);
+    ContextImpl context(&worker_info.actor_info_creator, info_->id, worker_info.cpu_worker_id,
+                        scheduler_group_info_.get(), is_io_worker ? &poll_ : nullptr, is_io_worker ? &heap_ : nullptr,
+                        &worker_info.debug);
     SchedulerContext::Guard guard(&context);
     f();
   }

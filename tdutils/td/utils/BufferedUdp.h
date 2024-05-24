@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -76,7 +76,8 @@ class UdpReaderHelper {
   }
 
  private:
-  enum : size_t { MAX_PACKET_SIZE = 2048, RESERVED_SIZE = MAX_PACKET_SIZE * 8 };
+  static constexpr size_t MAX_PACKET_SIZE = 2048;
+  static constexpr size_t RESERVED_SIZE = MAX_PACKET_SIZE * 8;
   UdpMessage message_;
   BufferSlice buffer_;
 };
@@ -105,12 +106,13 @@ class UdpReader {
     }
     if (status.is_error() && !UdpSocketFd::is_critical_read_error(status)) {
       queue.push(UdpMessage{{}, {}, std::move(status)});
+      return td::Status::OK();
     }
     return status;
   }
 
  private:
-  enum : size_t { BUFFER_SIZE = 16 };
+  static constexpr size_t BUFFER_SIZE = 16;
   std::array<UdpSocketFd::InboundMessage, BUFFER_SIZE> messages_;
   std::array<UdpReaderHelper, BUFFER_SIZE> helpers_;
 };

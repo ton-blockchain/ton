@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/utils/port/SocketFd.h"
 
@@ -22,6 +22,7 @@
 #include "td/utils/format.h"
 #include "td/utils/logging.h"
 #include "td/utils/misc.h"
+#include "td/utils/port/detail/skip_eintr.h"
 #include "td/utils/port/PollFlags.h"
 
 #if TD_PORT_WINDOWS
@@ -32,6 +33,8 @@
 #endif
 
 #if TD_PORT_POSIX
+#include <cerrno>
+
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <netinet/in.h>
@@ -227,11 +230,11 @@ class SocketFdImpl : private Iocp::Callback {
       return;
     }
     std::memset(&write_overlapped_, 0, sizeof(write_overlapped_));
-    constexpr size_t buf_size = 20;
-    WSABUF buf[buf_size];
+    constexpr size_t BUF_SIZE = 20;
+    WSABUF buf[BUF_SIZE];
     auto it = output_reader_.clone();
     size_t buf_i;
-    for (buf_i = 0; buf_i < buf_size; buf_i++) {
+    for (buf_i = 0; buf_i < BUF_SIZE; buf_i++) {
       auto src = it.prepare_read();
       if (src.empty()) {
         break;

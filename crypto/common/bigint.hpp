@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 #include <vector>
@@ -174,6 +174,7 @@ class AnyIntView {
  public:
   enum { word_bits = Tr::word_bits, word_shift = Tr::word_shift };
   typedef typename Tr::word_t word_t;
+  typedef typename Tr::uword_t uword_t;
   int& n_;
   PropagateConstSpan<word_t> digits;
 
@@ -262,15 +263,18 @@ class AnyIntView {
     return digits[size() - 1];
   }
   double top_double() const {
-    return size() > 1 ? (double)digits[size() - 1] + (double)digits[size() - 2] * (1.0 / Tr::Base)
+    return size() > 1 ? (double)digits[size() - 1] + (double)digits[size() - 2] * Tr::InvBase
                       : (double)digits[size() - 1];
+  }
+  bool is_odd_any() const {
+    return size() > 0 && (digits[0] & 1);
   }
   word_t to_long_any() const;
   int parse_hex_any(const char* str, int str_len, int* frac = nullptr);
   int parse_binary_any(const char* str, int str_len, int* frac = nullptr);
   std::string to_dec_string_destroy_any();
   std::string to_dec_string_slow_destroy_any();
-  std::string to_hex_string_any(bool upcase = false) const;
+  std::string to_hex_string_any(bool upcase = false, int zero_pad = 0) const;
   std::string to_hex_string_slow_destroy_any();
   std::string to_binary_string_any() const;
 
@@ -284,6 +288,7 @@ class BigIntG {
  public:
   enum { word_bits = Tr::word_bits, word_shift = Tr::word_shift, max_bits = len, word_cnt = len / word_shift + 1 };
   typedef typename Tr::word_t word_t;
+  typedef typename Tr::uword_t uword_t;
   typedef Tr Traits;
   typedef BigIntG<len * 2, Tr> DoubleInt;
 
@@ -306,7 +311,34 @@ class BigIntG {
   BigIntG() : n(0) {
   }
   explicit BigIntG(word_t x) : n(1) {
-    digits[0] = x;
+    if (x >= -Tr::Half && x < Tr::Half) {
+      digits[0] = x;
+    } else if (len <= 1) {
+      digits[0] = x;
+      normalize_bool();
+    } else {
+      digits[0] = ((x ^ Tr::Half) & (Tr::Base - 1)) - Tr::Half;
+      digits[n++] = (x >> Tr::word_shift) + (digits[0] < 0);
+    }
+  }
+  explicit BigIntG(uword_t x) : n(1) {
+    if (x < (uword_t)Tr::Half) {
+      digits[0] = x;
+    } else if (len <= 1) {
+      digits[0] = x;
+      normalize_bool();
+    } else {
+      digits[0] = ((x ^ Tr::Half) & (Tr::Base - 1)) - Tr::Half;
+      digits[n++] = (x >> Tr::word_shift) + (digits[0] < 0);
+    }
+  }
+  explicit BigIntG(unsigned x) : BigIntG(uword_t(x)) {
+  }
+  explicit BigIntG(int x) : BigIntG(word_t(x)) {
+  }
+  explicit BigIntG(unsigned long x) : BigIntG(uword_t(x)) {
+  }
+  explicit BigIntG(long x) : BigIntG(word_t(x)) {
   }
   BigIntG(const BigIntG& x) : n(x.n) {
     std::memcpy(digits, x.digits, n * sizeof(word_t));
@@ -644,13 +676,22 @@ class BigIntG {
   std::string to_dec_string_destroy();
   std::string to_dec_string_slow() const;
   std::string to_hex_string_slow() const;
-  std::string to_hex_string(bool upcase = false) const;
+  std::string to_hex_string(bool upcase = false, int zero_pad = 0) const;
   std::string to_binary_string() const;
   double to_double() const {
     return is_valid() ? ldexp(top_double(), (n - 1) * word_shift) : NAN;
   }
   word_t to_long() const {
     return as_any_int().to_long_any();
+  }
+  bool is_odd() const {
+    return n > 0 && (digits[0] & 1);
+  }
+  bool is_even() const {
+    return n > 0 && !(digits[0] & 1);
+  }
+  word_t mod_pow2_short(int pow) const {
+    return n > 0 ? digits[0] & ((1ULL << pow) - 1) : 0;
   }
 
  private:
@@ -739,7 +780,7 @@ bool AnyIntView<Tr>::add_pow2_any(int exponent, int factor) {
   while (size() <= k) {
     digits[inc_size()] = 0;
   }
-  digits[k] += (factor << dm.rem);
+  digits[k] += factor * ((word_t)1 << dm.rem);
   return true;
 }
 
@@ -944,7 +985,7 @@ bool AnyIntView<Tr>::add_mul_any(const AnyIntView<Tr>& yp, const AnyIntView<Tr>&
     if (hi && hi != -1) {
       return invalidate_bool();
     }
-    digits[size() - 1] += (hi << word_shift);
+    digits[size() - 1] += ((uword_t)hi << word_shift);
   }
   return true;
 }
@@ -989,7 +1030,7 @@ int AnyIntView<Tr>::sgn_un_any() const {
     }
     int i = size() - 2;
     do {
-      v <<= word_shift;
+      v *= Tr::Base;
       word_t w = digits[i];
       if (w >= -v + Tr::MaxDenorm) {
         return 1;
@@ -1034,7 +1075,7 @@ typename Tr::word_t AnyIntView<Tr>::to_long_any() const {
   } else if (size() == 1) {
     return digits[0];
   } else {
-    word_t v = digits[0] + (digits[1] << word_shift);  // approximation mod 2^64
+    word_t v = (uword_t)digits[0] + ((uword_t)digits[1] << word_shift);  // approximation mod 2^64
     word_t w = (v & (Tr::Base - 1)) - digits[0];
     w >>= word_shift;
     w += (v >> word_shift);  // excess of approximation divided by Tr::Base
@@ -1069,12 +1110,16 @@ int AnyIntView<Tr>::cmp_any(const AnyIntView<Tr>& yp) const {
 
 template <class Tr>
 int AnyIntView<Tr>::cmp_any(word_t y) const {
-  if (size() > 1) {
-    return top_word() < 0 ? -1 : 1;
-  } else if (size() == 1) {
+  if (size() == 1) {
     return digits[0] < y ? -1 : (digits[0] > y ? 1 : 0);
-  } else {
+  } else if (!size()) {
     return 0x80000000;
+  } else if (size() == 2 && (y >= Tr::Half || y < -Tr::Half)) {
+    word_t x0 = digits[0] & (Tr::Base - 1), y0 = y & (Tr::Base - 1);
+    word_t x1 = digits[1] + (digits[0] >> Tr::word_shift), y1 = (y >> Tr::word_shift);
+    return x1 < y1 ? -1 : (x1 > y1 ? 1 : (x0 < y0 ? -1 : (x0 > y0 ? 1 : 0)));
+  } else {
+    return top_word() < 0 ? -1 : 1;
   }
 }
 
@@ -1091,7 +1136,7 @@ int AnyIntView<Tr>::cmp_un_any(const AnyIntView<Tr>& yp) const {
       return -1;
     }
     while (xn > yn) {
-      v <<= word_shift;
+      v *= Tr::Base;
       word_t w = T::eval(digits[--xn]);
       if (w >= -v + Tr::MaxDenorm) {
         return 1;
@@ -1108,7 +1153,7 @@ int AnyIntView<Tr>::cmp_un_any(const AnyIntView<Tr>& yp) const {
       return -1;
     }
     while (yn > xn) {
-      v <<= word_shift;
+      v *= Tr::Base;
       word_t w = yp.digits[--yn];
       if (w <= v - Tr::MaxDenorm) {
         return 1;
@@ -1121,7 +1166,7 @@ int AnyIntView<Tr>::cmp_un_any(const AnyIntView<Tr>& yp) const {
     v = 0;
   }
   while (--xn >= 0) {
-    v <<= word_shift;
+    v *= Tr::Base;
     word_t w = T::eval(digits[xn]) - yp.digits[xn];
     if (w >= -v + Tr::MaxDenorm) {
       return 1;
@@ -1168,7 +1213,7 @@ int AnyIntView<Tr>::divmod_tiny_any(int y) {
   }
   int rem = 0;
   for (int i = size() - 1; i >= 0; i--) {
-    auto divmod = std::div(digits[i] + ((word_t)rem << word_shift), (word_t)y);
+    auto divmod = std::div(digits[i] + ((uword_t)rem << word_shift), (word_t)y);
     digits[i] = divmod.quot;
     rem = (int)divmod.rem;
     if ((rem ^ y) < 0 && rem) {
@@ -1238,7 +1283,7 @@ bool AnyIntView<Tr>::mul_add_short_any(word_t y, word_t z) {
   z += (digits[size() - 1] >> word_shift);
   digits[size() - 1] &= Tr::Base - 1;
   if (!z || z == -1) {
-    digits[size() - 1] += (z << word_shift);
+    digits[size() - 1] += ((uword_t)z << word_shift);
     return true;
   } else {
     return false;
@@ -1294,14 +1339,14 @@ bool AnyIntView<Tr>::mod_div_any(const AnyIntView<Tr>& yp, AnyIntView<Tr>& quot,
       if (k > quot.max_size()) {
         return invalidate_bool();
       }
-      quot.set_size(k);
+      quot.set_size(std::max(k, 1));
+      quot.digits[0] = 0;
     } else {
       if (k >= quot.max_size()) {
         return invalidate_bool();
       }
       quot.set_size(k + 1);
-      double x_top = top_double();
-      word_t q = std::llrint(x_top * y_inv * Tr::InvBase);
+      word_t q = std::llrint(top_double() * y_inv * Tr::InvBase);
       quot.digits[k] = q;
       int i = yp.size() - 1;
       word_t hi = 0;
@@ -1309,31 +1354,33 @@ bool AnyIntView<Tr>::mod_div_any(const AnyIntView<Tr>& yp, AnyIntView<Tr>& quot,
       while (--i >= 0) {
         Tr::sub_mul(&digits[k + i + 1], &digits[k + i], q, yp.digits[i]);
       }
-      digits[size() - 1] += (hi << word_shift);
+      digits[size() - 1] += ((uword_t)hi << word_shift);
     }
   } else {
     quot.set_size(1);
     quot.digits[0] = 0;
   }
   while (--k >= 0) {
-    double x_top = top_double();
-    word_t q = std::llrint(x_top * y_inv);
+    word_t q = std::llrint(top_double() * y_inv);
     quot.digits[k] = q;
     for (int i = yp.size() - 1; i >= 0; --i) {
       Tr::sub_mul(&digits[k + i + 1], &digits[k + i], q, yp.digits[i]);
     }
     dec_size();
-    digits[size() - 1] += (digits[size()] << word_shift);
+    digits[size() - 1] += ((uword_t)digits[size()] << word_shift);
   }
-  if (size() >= yp.size()) {
-    assert(size() == yp.size());
-    double x_top = top_double();
-    double t = x_top * y_inv * Tr::InvBase;
+  if (size() >= yp.size() - 1) {
+    assert(size() <= yp.size());
+    bool grow = (size() < yp.size());
+    double t = top_double() * y_inv * (grow ? Tr::InvBase * Tr::InvBase : Tr::InvBase);
     if (round_mode >= 0) {
       t += (round_mode ? 1 : 0.5);
     }
     word_t q = std::llrint(std::floor(t));
     if (q) {
+      if (grow) {
+        digits[inc_size()] = 0;
+      }
       for (int i = 0; i < size(); i++) {
         digits[i] -= q * yp.digits[i];
       }
@@ -1390,6 +1437,7 @@ bool AnyIntView<Tr>::mod_div_any(const AnyIntView<Tr>& yp, AnyIntView<Tr>& quot,
   return normalize_bool_any();
 }
 
+// works for almost-normalized numbers (digits -Base+1 .. Base-1, top non-zero), result also almost-normalized
 template <class Tr>
 bool AnyIntView<Tr>::mod_pow2_any(int exponent) {
   if (!is_valid()) {
@@ -1423,7 +1471,7 @@ bool AnyIntView<Tr>::mod_pow2_any(int exponent) {
     dec_size();
     q += word_shift;
   }
-  word_t pow = ((word_t)1 << q);
+  uword_t pow = ((uword_t)1 << q);
   word_t v = digits[size() - 1] & (pow - 1);
   if (!v) {
     int k = size() - 1;
@@ -1441,25 +1489,21 @@ bool AnyIntView<Tr>::mod_pow2_any(int exponent) {
     if (exponent >= max_size() * word_shift) {
       return invalidate_bool();
     }
-    if (q - word_shift >= 0) {
+    if (q - word_shift >= 0) {  // original top digit was a non-zero multiple of Base, impossible(?)
       digits[size() - 1] = 0;
       digits[inc_size()] = ((word_t)1 << (q - word_shift));
-    }
-    if (q - word_shift == -1 && size() < max_size() - 1) {
+    } else if (q - word_shift == -1 && size() < max_size()) {
       digits[size() - 1] = -Tr::Half;
       digits[inc_size()] = 1;
     } else {
       digits[size() - 1] = pow;
     }
     return true;
-  } else if (v >= Tr::Half) {
-    if (size() == max_size() - 1) {
-      return invalidate_bool();
-    } else {
-      digits[size() - 1] = v | -Tr::Half;
-      digits[inc_size()] = ((word_t)1 << (q - word_shift));
-      return true;
-    }
+  } else if (v >= Tr::Half && size() < max_size()) {
+    word_t w = (((v >> (word_shift - 1)) + 1) >> 1);
+    digits[size() - 1] = (uword_t)v - ((uword_t)w << word_shift);
+    digits[inc_size()] = w;
+    return true;
   } else {
     digits[size() - 1] = v;
     return true;
@@ -1595,7 +1639,7 @@ bool AnyIntView<Tr>::lshift_any(int exponent) {
     } else if (v != -1) {
       return invalidate_bool();
     } else {
-      digits[size() - 1] += (v << word_shift);
+      digits[size() - 1] += ((uword_t)v << word_shift);
     }
   }
   if (q) {
@@ -1722,7 +1766,7 @@ int AnyIntView<Tr>::bit_size_any(bool sgnd) const {
     int k = size() - 1;
     word_t q = digits[k];
     if (k > 0 && q < Tr::MaxDenorm / 2) {
-      q <<= word_shift;
+      q *= Tr::Base;
       q += digits[--k];
     }
     if (!k) {
@@ -1738,7 +1782,7 @@ int AnyIntView<Tr>::bit_size_any(bool sgnd) const {
       } else if (q <= -Tr::MaxDenorm / 2) {
         return s;
       }
-      q <<= word_shift;
+      q *= Tr::Base;
       q += digits[--k];
     }
     return q >= 0 ? s + 1 : s;
@@ -1746,7 +1790,7 @@ int AnyIntView<Tr>::bit_size_any(bool sgnd) const {
     int k = size() - 1;
     word_t q = digits[k];
     if (k > 0 && q > -Tr::MaxDenorm / 2) {
-      q <<= word_shift;
+      q *= Tr::Base;
       q += digits[--k];
     }
     if (!k) {
@@ -1762,7 +1806,7 @@ int AnyIntView<Tr>::bit_size_any(bool sgnd) const {
       } else if (q <= -Tr::MaxDenorm / 2) {
         return s + 1;
       }
-      q <<= word_shift;
+      q *= Tr::Base;
       q += digits[--k];
     }
     return q >= 0 ? s : s + 1;
@@ -1789,7 +1833,7 @@ bool AnyIntView<Tr>::export_bytes_any(unsigned char* buff, std::size_t buff_size
   for (int i = 0; i < size(); i++) {
     if ((word_shift & 7) && word_shift + 8 >= word_bits && k >= word_bits - word_shift - 1) {
       int k1 = 8 - k;
-      v += (digits[i] << k) & 0xff;
+      v += ((uword_t)digits[i] << k) & 0xff;
       if (ptr > buff) {
         *--ptr = (unsigned char)(v & 0xff);
       } else if ((unsigned char)(v & 0xff) != s) {
@@ -1799,7 +1843,7 @@ bool AnyIntView<Tr>::export_bytes_any(unsigned char* buff, std::size_t buff_size
       v += (digits[i] >> k1);
       k += word_shift - 8;
     } else {
-      v += (digits[i] << k);
+      v += ((uword_t)digits[i] << k);
       k += word_shift;
     }
     while (k >= 8) {
@@ -1840,7 +1884,7 @@ bool AnyIntView<Tr>::export_bytes_lsb_any(unsigned char* buff, std::size_t buff_
   for (int i = 0; i < size(); i++) {
     if ((word_shift & 7) && word_shift + 8 >= word_bits && k >= word_bits - word_shift - 1) {
       int k1 = 8 - k;
-      v += (digits[i] << k) & 0xff;
+      v += ((uword_t)digits[i] << k) & 0xff;
       if (buff < end) {
         *buff++ = (unsigned char)(v & 0xff);
       } else if ((unsigned char)(v & 0xff) != s) {
@@ -1850,7 +1894,7 @@ bool AnyIntView<Tr>::export_bytes_lsb_any(unsigned char* buff, std::size_t buff_
       v += (digits[i] >> k1);
       k += word_shift - 8;
     } else {
-      v += (digits[i] << k);
+      v += ((uword_t)digits[i] << k);
       k += word_shift;
     }
     while (k >= 8) {
@@ -1894,7 +1938,7 @@ bool AnyIntView<Tr>::export_bits_any(unsigned char* buff, int offs, unsigned bit
           return false;
         }
       }
-      td::bitstring::bits_store_long_top(buff, offs, v << (64 - bits), bits);
+      td::bitstring::bits_store_long_top(buff, offs, (unsigned long long)v << (64 - bits), bits);
     } else {
       if (!sgnd && v < 0) {
         return false;
@@ -1917,7 +1961,7 @@ bool AnyIntView<Tr>::export_bits_any(unsigned char* buff, int offs, unsigned bit
   for (int i = 0; i < size(); i++) {
     if (word_shift + 8 >= word_bits && k >= word_bits - word_shift - 1) {
       int k1 = 8 - k;
-      v += (digits[i] << k) & 0xff;
+      v += ((uword_t)digits[i] << k) & 0xff;
       if (ptr > buff) {
         if (--ptr > buff) {
           *ptr = (unsigned char)(v & 0xff);
@@ -1935,7 +1979,7 @@ bool AnyIntView<Tr>::export_bits_any(unsigned char* buff, int offs, unsigned bit
       v += (digits[i] >> k1);
       k += word_shift - 8;
     } else {
-      v += (digits[i] << k);
+      v += ((uword_t)digits[i] << k);
       k += word_shift;
     }
     while (k >= 8) {
@@ -2000,7 +2044,7 @@ bool AnyIntView<Tr>::import_bytes_any(const unsigned char* buff, std::size_t buf
         return invalidate_bool();
       }
     }
-    v |= (((word_t) * --ptr) << k);
+    v |= (((uword_t) * --ptr) << k);
     k += 8;
   }
   if (s) {
@@ -2015,7 +2059,9 @@ bool AnyIntView<Tr>::import_bits_any(const unsigned char* buff, int offs, unsign
   if (bits < word_shift) {
     set_size(1);
     unsigned long long val = td::bitstring::bits_load_long_top(buff, offs, bits);
-    if (sgnd) {
+    if (bits == 0) {
+      digits[0] = 0;
+    } else if (sgnd) {
       digits[0] = ((long long)val >> (64 - bits));
     } else {
       digits[0] = (val >> (64 - bits));
@@ -2284,16 +2330,19 @@ std::string AnyIntView<Tr>::to_hex_string_slow_destroy_any() {
 }
 
 template <class Tr>
-std::string AnyIntView<Tr>::to_hex_string_any(bool upcase) const {
+std::string AnyIntView<Tr>::to_hex_string_any(bool upcase, int zero_pad) const {
   if (!is_valid()) {
     return "NaN";
   }
   int s = sgn(), k = 0;
   if (!s) {
+    if (zero_pad > 0) {
+      return std::string(zero_pad, '0');
+    }
     return "0";
   }
   std::string x;
-  x.reserve(((size() * word_shift + word_bits) >> 2) + 2);
+  x.reserve(2 + std::max((size() * word_shift + word_bits) >> 2, zero_pad));
   assert(word_shift < word_bits - 4);
   const char* hex_digs = (upcase ? HEX_digits : hex_digits);
   word_t v = 0;
@@ -2310,6 +2359,11 @@ std::string AnyIntView<Tr>::to_hex_string_any(bool upcase) const {
   while (v > 0) {
     x += hex_digs[v & 15];
     v >>= 4;
+  }
+  if (zero_pad > 0) {
+    while (x.size() < (unsigned)zero_pad) {
+      x += '0';
+    }
   }
   if (s < 0) {
     x += '-';
@@ -2492,8 +2546,8 @@ std::string BigIntG<len, Tr>::to_hex_string_slow() const {
 }
 
 template <int len, class Tr>
-std::string BigIntG<len, Tr>::to_hex_string(bool upcase) const {
-  return as_any_int().to_hex_string_any(upcase);
+std::string BigIntG<len, Tr>::to_hex_string(bool upcase, int zero_pad) const {
+  return as_any_int().to_hex_string_any(upcase, zero_pad);
 }
 
 template <int len, class Tr>
@@ -2514,6 +2568,11 @@ std::ostream& operator<<(std::ostream& os, BigIntG<len, Tr>&& x) {
 extern template class AnyIntView<BigIntInfo>;
 extern template class BigIntG<257, BigIntInfo>;
 typedef BigIntG<257, BigIntInfo> BigInt256;
+
+template <int n = 257>
+BigIntG<n, BigIntInfo> make_bigint(long long x) {
+  return BigIntG<n, BigIntInfo>{x};
+}
 
 namespace literals {
 

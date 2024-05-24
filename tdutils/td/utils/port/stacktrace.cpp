@@ -14,14 +14,18 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/utils/port/stacktrace.h"
 
 #include "td/utils/port/signals.h"
 
-#if __GLIBC__
+#if TD_WINDOWS
+#include <DbgHelp.h>
+#else
+#if TD_DARWIN || __GLIBC__
 #include <execinfo.h>
+#endif
 #endif
 
 #if TD_LINUX || TD_FREEBSD
@@ -39,12 +43,47 @@ namespace td {
 namespace {
 
 void print_backtrace(void) {
-#if __GLIBC__
+#if TD_WINDOWS
+  void *stack[100];
+  HANDLE process = GetCurrentProcess();
+  SymInitialize(process, nullptr, 1);
+  unsigned frames = CaptureStackBackTrace(0, 100, stack, nullptr);
+  signal_safe_write("------- Stack Backtrace -------\n", false);
+  for (unsigned i = 0; i < frames; i++) {
+    td::uint8 symbol_buf[sizeof(SYMBOL_INFO) + 256];
+    auto symbol = (SYMBOL_INFO *)symbol_buf;
+    memset(symbol_buf, 0, sizeof(symbol_buf));
+    symbol->MaxNameLen = 255;
+    symbol->SizeOfStruct = sizeof(SYMBOL_INFO);
+    SymFromAddr(process, (DWORD64)(stack[i]), nullptr, symbol);
+    // Don't use sprintf here because it is not signal-safe
+    char buf[256 + 32];
+    char* buf_ptr = buf;
+    if (frames - i - 1 < 10) {
+      strcpy(buf_ptr, " ");
+      buf_ptr += strlen(buf_ptr);
+    }
+    _itoa(frames - i - 1, buf_ptr, 10);
+    buf_ptr += strlen(buf_ptr);
+    strcpy(buf_ptr, ": [");
+    buf_ptr += strlen(buf_ptr);
+    _ui64toa(td::uint64(symbol->Address), buf_ptr, 16);
+    buf_ptr += strlen(buf_ptr);
+    strcpy(buf_ptr, "] ");
+    buf_ptr += strlen(buf_ptr);
+    strcpy(buf_ptr, symbol->Name);
+    buf_ptr += strlen(buf_ptr);
+    strcpy(buf_ptr, "\n");
+    signal_safe_write(td::Slice{buf, strlen(buf)}, false);
+  }
+#else
+#if TD_DARWIN || __GLIBC__
   void *buffer[128];
   int nptrs = backtrace(buffer, 128);
   signal_safe_write("------- Stack Backtrace -------\n", false);
   backtrace_symbols_fd(buffer, nptrs, 2);
   signal_safe_write("-------------------------------\n", false);
+#endif
 #endif
 }
 
@@ -65,10 +104,12 @@ void print_backtrace_gdb(void) {
     name_buf[res] = 0;
 
 #if TD_LINUX
+#if defined(PR_SET_DUMPABLE)
     if (prctl(PR_SET_DUMPABLE, 1, 0, 0, 0) < 0) {
       signal_safe_write("Can't set dumpable\n");
       return;
     }
+#endif
 #if defined(PR_SET_PTRACER)
     // We can't use event fd because we are in a signal handler
     int fds[2];
@@ -120,10 +161,18 @@ void print_backtrace_gdb(void) {
 }  // namespace
 
 void Stacktrace::print_to_stderr(const PrintOptions &options) {
+  print_backtrace();
   if (options.use_gdb) {
     print_backtrace_gdb();
   }
-  print_backtrace();
+}
+
+void Stacktrace::init() {
+#if TD_DARWIN || __GLIBC__
+  // backtrace needs to be called once to ensure that next calls are async-signal-safe
+  void *buffer[1];
+  backtrace(buffer, 1);
+#endif
 }
 
 }  // namespace td

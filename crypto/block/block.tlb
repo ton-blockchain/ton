@@ -113,7 +113,10 @@ var_uint$_ {n:#} len:(#< n) value:(uint (len * 8))
          = VarUInteger n;
 var_int$_ {n:#} len:(#< n) value:(int (len * 8)) 
         = VarInteger n;
-nanograms$_ amount:(VarUInteger 16) = Grams;  
+nanograms$_ amount:(VarUInteger 16) = Grams;
+
+_ grams:Grams = Coins;
+
 //
 extra_currencies$_ dict:(HashmapE 32 (VarUInteger 32)) 
                  = ExtraCurrencyCollection;
@@ -140,8 +143,13 @@ tick_tock$_ tick:Bool tock:Bool = TickTock;
 
 _ split_depth:(Maybe (## 5)) special:(Maybe TickTock)
   code:(Maybe ^Cell) data:(Maybe ^Cell)
-  library:(HashmapE 256 SimpleLib) = StateInit;
-  
+  library:(Maybe ^Cell) = StateInit;
+
+// StateInitWithLibs is used to validate sent and received messages
+_ split_depth:(Maybe (## 5)) special:(Maybe TickTock)
+  code:(Maybe ^Cell) data:(Maybe ^Cell)
+  library:(HashmapE 256 SimpleLib) = StateInitWithLibs;
+
 simple_lib$_ public:Bool root:^Cell = SimpleLib;
 
 message$_ {X:Type} info:CommonMsgInfo
@@ -151,6 +159,9 @@ message$_ {X:Type} info:CommonMsgInfo
 message$_ {X:Type} info:CommonMsgInfoRelaxed
   init:(Maybe (Either StateInit ^StateInit))
   body:(Either X ^X) = MessageRelaxed X;
+  
+_ (Message Any) = MessageAny;
+
 //
 interm_addr_regular$0 use_dest_bits:(#<= 96) 
   = IntermediateAddress;
@@ -190,7 +201,10 @@ msg_export_new$001 out_msg:^MsgEnvelope
     transaction:^Transaction = OutMsg;
 msg_export_tr$011  out_msg:^MsgEnvelope 
     imported:^InMsg = OutMsg;
-msg_export_deq$110 out_msg:^MsgEnvelope  // out_msg_hash:bits256 ?
+msg_export_deq$1100 out_msg:^MsgEnvelope
+    import_block_lt:uint63 = OutMsg;
+msg_export_deq_short$1101 msg_env_hash:bits256
+    next_workchain:int32 next_addr_pfx:uint64
     import_block_lt:uint64 = OutMsg;
 msg_export_tr_req$111 out_msg:^MsgEnvelope 
     imported:^InMsg = OutMsg;
@@ -266,6 +280,7 @@ transaction$0111 account_addr:bits256 lt:uint64
   old:^X new:^X = MERKLE_UPDATE X;
 update_hashes#72 {X:Type} old_hash:bits256 new_hash:bits256
   = HASH_UPDATE X;
+!merkle_proof#03 {X:Type} virtual_hash:bits256 depth:uint16 virtual_root:^X = MERKLE_PROOF X;
 
 acc_trans#5 account_addr:bits256
             transactions:(HashmapAug 64 ^Transaction CurrencyCollection)
@@ -299,6 +314,7 @@ tr_phase_compute_vm$1 success:Bool msg_state_used:Bool
 cskip_no_state$00 = ComputeSkipReason;
 cskip_bad_state$01 = ComputeSkipReason;
 cskip_no_gas$10 = ComputeSkipReason;
+cskip_suspended$110 = ComputeSkipReason;
 
 tr_phase_action$_ success:Bool valid:Bool no_funds:Bool
   status_change:AccStatusChange
@@ -355,7 +371,7 @@ trans_merge_install$0111 split_info:SplitMergeInfo
 smc_info#076ef1ea actions:uint16 msgs_sent:uint16
   unixtime:uint32 block_lt:uint64 trans_lt:uint64 
   rand_seed:bits256 balance_remaining:CurrencyCollection
-  myself:MsgAddressInt = SmartContractInfo;
+  myself:MsgAddressInt global_config:(Maybe Cell) = SmartContractInfo;
 //
 //
 out_list_empty$_ = OutList 0;
@@ -368,7 +384,7 @@ action_reserve_currency#36e6b809 mode:(## 8)
   currency:CurrencyCollection = OutAction;
 libref_hash$0 lib_hash:bits256 = LibRef;
 libref_ref$1 library:^Cell = LibRef;
-action_change_library#26fa1dd4 mode:(## 7) { mode <= 2 }
+action_change_library#26fa1dd4 mode:(## 7)
   libref:LibRef = OutAction;
 
 out_list_node$_ prev:^Cell action:OutAction = OutListNode;
@@ -414,7 +430,7 @@ block_info#9bc7a987 version:uint32
   after_split:(## 1) 
   want_split:Bool want_merge:Bool
   key_block:Bool vert_seqno_incr:(## 1)
-  flags:(## 8)
+  flags:(## 8) { flags <= 1 }
   seq_no:# vert_seq_no:# { vert_seq_no >= vert_seqno_incr } 
   { prev_seq_no:# } { ~prev_seq_no + 1 = seq_no } 
   shard:ShardIdent gen_utime:uint32
@@ -423,6 +439,7 @@ block_info#9bc7a987 version:uint32
   gen_catchain_seqno:uint32
   min_ref_mc_seqno:uint32
   prev_key_block_seqno:uint32
+  gen_software:flags . 0?GlobalVersion
   master_ref:not_master?^BlkMasterInfo 
   prev_ref:^(BlkPrevInfo after_merge)
   prev_vert_ref:vert_seqno_incr?^(BlkPrevInfo 0)
@@ -443,11 +460,24 @@ block_extra in_msg_descr:^InMsgDescr
   created_by:bits256
   custom:(Maybe ^McBlockExtra) = BlockExtra;
 //
-value_flow ^[ from_prev_blk:CurrencyCollection 
+value_flow#b8e48dfb ^[ from_prev_blk:CurrencyCollection 
   to_next_blk:CurrencyCollection
   imported:CurrencyCollection
   exported:CurrencyCollection ]
   fees_collected:CurrencyCollection
+  ^[
+  fees_imported:CurrencyCollection
+  recovered:CurrencyCollection
+  created:CurrencyCollection
+  minted:CurrencyCollection
+  ] = ValueFlow;
+
+value_flow_v2#3ebf98b7 ^[ from_prev_blk:CurrencyCollection
+  to_next_blk:CurrencyCollection
+  imported:CurrencyCollection
+  exported:CurrencyCollection ]
+  fees_collected:CurrencyCollection
+  burned:CurrencyCollection
   ^[
   fees_imported:CurrencyCollection
   recovered:CurrencyCollection
@@ -476,6 +506,18 @@ shard_descr#b seq_no:uint32 reg_mc_seqno:uint32
   split_merge_at:FutureSplitMerge
   fees_collected:CurrencyCollection
   funds_created:CurrencyCollection = ShardDescr;
+
+shard_descr_new#a seq_no:uint32 reg_mc_seqno:uint32
+  start_lt:uint64 end_lt:uint64
+  root_hash:bits256 file_hash:bits256 
+  before_split:Bool before_merge:Bool
+  want_split:Bool want_merge:Bool
+  nx_cc_updated:Bool flags:(## 3) { flags = 0 }
+  next_catchain_seqno:uint32 next_validator_shard:uint64
+  min_ref_mc_seqno:uint32 gen_utime:uint32
+  split_merge_at:FutureSplitMerge
+  ^[ fees_collected:CurrencyCollection
+     funds_created:CurrencyCollection ] = ShardDescr;
 
 _ (HashmapE 32 ^(BinTree ShardDescr)) = ShardHashes;
 
@@ -566,12 +608,28 @@ _ minter_addr:bits256 = ConfigParam 2;  // ConfigParam 0 is used if absent
 _ fee_collector_addr:bits256 = ConfigParam 3;  // ConfigParam 1 is used if absent
 _ dns_root_addr:bits256 = ConfigParam 4;  // root TON DNS resolver
 
+burning_config#01
+  blackhole_addr:(Maybe bits256)
+  fee_burn_num:# fee_burn_denom:# { fee_burn_num <= fee_burn_denom } { fee_burn_denom >= 1 } = BurningConfig;
+_ BurningConfig = ConfigParam 5;
+
 _ mint_new_price:Grams mint_add_price:Grams = ConfigParam 6;
 _ to_mint:ExtraCurrencyCollection = ConfigParam 7;
 
 capabilities#c4 version:uint32 capabilities:uint64 = GlobalVersion;
 _ GlobalVersion = ConfigParam 8;  // all zero if absent
 _ mandatory_params:(Hashmap 32 True) = ConfigParam 9;
+_ critical_params:(Hashmap 32 True) = ConfigParam 10;
+
+cfg_vote_cfg#36 min_tot_rounds:uint8 max_tot_rounds:uint8 min_wins:uint8 max_losses:uint8 min_store_sec:uint32 max_store_sec:uint32 bit_price:uint32 cell_price:uint32 = ConfigProposalSetup;
+cfg_vote_setup#91 normal_params:^ConfigProposalSetup critical_params:^ConfigProposalSetup = ConfigVotingSetup;
+_ ConfigVotingSetup = ConfigParam 11;
+
+cfg_proposal#f3 param_id:int32 param_value:(Maybe ^Cell) if_hash_equal:(Maybe uint256) 
+  = ConfigProposal;
+cfg_proposal_status#ce expires:uint32 proposal:^ConfigProposal is_critical:Bool
+  voters:(HashmapE 16 True) remaining_weight:int64 validator_set_id:uint256 
+  rounds_remaining:uint8 wins:uint8 losses:uint8 = ConfigProposalStatus;
 
 wfmt_basic#1 vm_version:int32 vm_mode:uint64 = WorkchainFormat 1;
 wfmt_ext#0 min_addr_len:(## 12) max_addr_len:(## 12) addr_len_step:(## 12)
@@ -580,16 +638,33 @@ wfmt_ext#0 min_addr_len:(## 12) max_addr_len:(## 12) addr_len_step:(## 12)
   workchain_type_id:(## 32) { workchain_type_id >= 1 }
   = WorkchainFormat 0;
 
-workchain#a6 enabled_since:uint32 actual_min_split:(## 8) 
-  min_split:(## 8) max_split:(## 8) { actual_min_split <= min_split }
+wc_split_merge_timings#0
+  split_merge_delay:uint32 split_merge_interval:uint32
+  min_split_merge_interval:uint32 max_split_merge_delay:uint32
+  = WcSplitMergeTimings;
+
 //workchain#a5 enabled_since:uint32 min_split:(## 8) max_split:(## 8)
 //  { min_split <= max_split } { max_split <= 60 }
+
+workchain#a6 enabled_since:uint32 actual_min_split:(## 8) 
+  min_split:(## 8) max_split:(## 8) { actual_min_split <= min_split }
   basic:(## 1) active:Bool accept_msgs:Bool flags:(## 13) { flags = 0 }
   zerostate_root_hash:bits256 zerostate_file_hash:bits256
   version:uint32 format:(WorkchainFormat basic)
   = WorkchainDescr;
 
+workchain_v2#a7 enabled_since:uint32 actual_min_split:(## 8)
+  min_split:(## 8) max_split:(## 8) { actual_min_split <= min_split }
+  basic:(## 1) active:Bool accept_msgs:Bool flags:(## 13) { flags = 0 }
+  zerostate_root_hash:bits256 zerostate_file_hash:bits256
+  version:uint32 format:(WorkchainFormat basic)
+  split_merge_timings:WcSplitMergeTimings
+  = WorkchainDescr;
+
 _ workchains:(HashmapE 32 WorkchainDescr) = ConfigParam 12;
+
+complaint_prices#1a deposit:Grams bit_price:Grams cell_price:Grams = ComplaintPricing; 
+_ ComplaintPricing = ConfigParam 13;
 
 block_grams_created#6b masterchain_block_fee:Grams basechain_block_fee:Grams
   = BlockCreateFees;
@@ -610,6 +685,8 @@ _ min_stake:Grams max_stake:Grams min_total_stake:Grams max_stake_factor:uint32 
 _#cc utime_since:uint32 bit_price_ps:uint64 cell_price_ps:uint64 
   mc_bit_price_ps:uint64 mc_cell_price_ps:uint64 = StoragePrices;
 _ (Hashmap 32 StoragePrices) = ConfigParam 18;
+
+_ global_id:int32 = ConfigParam 19;
 
 gas_prices#dd gas_price:uint64 gas_limit:uint64 gas_credit:uint64 
   block_gas_limit:uint64 freeze_due_limit:uint64 delete_due_limit:uint64 
@@ -646,10 +723,35 @@ config_fwd_prices#_ MsgForwardPrices = ConfigParam 25;
 
 catchain_config#c1 mc_catchain_lifetime:uint32 shard_catchain_lifetime:uint32 
   shard_validators_lifetime:uint32 shard_validators_num:uint32 = CatchainConfig;
+
+catchain_config_new#c2 flags:(## 7) { flags = 0 } shuffle_mc_validators:Bool
+  mc_catchain_lifetime:uint32 shard_catchain_lifetime:uint32
+  shard_validators_lifetime:uint32 shard_validators_num:uint32 = CatchainConfig;
+
 consensus_config#d6 round_candidates:# { round_candidates >= 1 }
   next_candidate_delay_ms:uint32 consensus_timeout_ms:uint32
   fast_attempts:uint32 attempt_duration:uint32 catchain_max_deps:uint32
   max_block_bytes:uint32 max_collated_bytes:uint32 = ConsensusConfig;
+
+consensus_config_new#d7 flags:(## 7) { flags = 0 } new_catchain_ids:Bool
+  round_candidates:(## 8) { round_candidates >= 1 }
+  next_candidate_delay_ms:uint32 consensus_timeout_ms:uint32
+  fast_attempts:uint32 attempt_duration:uint32 catchain_max_deps:uint32
+  max_block_bytes:uint32 max_collated_bytes:uint32 = ConsensusConfig;
+
+consensus_config_v3#d8 flags:(## 7) { flags = 0 } new_catchain_ids:Bool
+  round_candidates:(## 8) { round_candidates >= 1 }
+  next_candidate_delay_ms:uint32 consensus_timeout_ms:uint32
+  fast_attempts:uint32 attempt_duration:uint32 catchain_max_deps:uint32
+  max_block_bytes:uint32 max_collated_bytes:uint32 
+  proto_version:uint16 = ConsensusConfig;
+
+consensus_config_v4#d9 flags:(## 7) { flags = 0 } new_catchain_ids:Bool
+  round_candidates:(## 8) { round_candidates >= 1 }
+  next_candidate_delay_ms:uint32 consensus_timeout_ms:uint32
+  fast_attempts:uint32 attempt_duration:uint32 catchain_max_deps:uint32
+  max_block_bytes:uint32 max_collated_bytes:uint32
+  proto_version:uint16 catchain_max_blocks_coeff:uint32 = ConsensusConfig;
 
 _ CatchainConfig = ConfigParam 28;
 _ ConsensusConfig = ConfigParam 29;
@@ -665,6 +767,50 @@ _ next_temp_validators:ValidatorSet = ConfigParam 37;
 validator_temp_key#3 adnl_addr:bits256 temp_public_key:SigPubKey seqno:# valid_until:uint32 = ValidatorTempKey;
 signed_temp_key#4 key:^ValidatorTempKey signature:CryptoSignature = ValidatorSignedTempKey;
 _ (HashmapE 256 ValidatorSignedTempKey) = ConfigParam 39;
+
+misbehaviour_punishment_config_v1#01 
+  default_flat_fine:Grams default_proportional_fine:uint32
+  severity_flat_mult:uint16 severity_proportional_mult:uint16
+  unpunishable_interval:uint16
+  long_interval:uint16 long_flat_mult:uint16 long_proportional_mult:uint16
+  medium_interval:uint16 medium_flat_mult:uint16 medium_proportional_mult:uint16
+   = MisbehaviourPunishmentConfig;
+_ MisbehaviourPunishmentConfig = ConfigParam 40;
+
+size_limits_config#01 max_msg_bits:uint32 max_msg_cells:uint32 max_library_cells:uint32 max_vm_data_depth:uint16
+  max_ext_msg_size:uint32 max_ext_msg_depth:uint16 = SizeLimitsConfig;
+size_limits_config_v2#02 max_msg_bits:uint32 max_msg_cells:uint32 max_library_cells:uint32 max_vm_data_depth:uint16
+  max_ext_msg_size:uint32 max_ext_msg_depth:uint16 max_acc_state_cells:uint32 max_acc_state_bits:uint32
+  max_acc_public_libraries:uint32 = SizeLimitsConfig;
+_ SizeLimitsConfig = ConfigParam 43;
+
+// key is [ wc:int32 addr:uint256 ]
+suspended_address_list#00 addresses:(HashmapE 288 Unit) suspended_until:uint32 = SuspendedAddressList;
+_ SuspendedAddressList = ConfigParam 44;
+
+precompiled_smc#b0 gas_usage:uint64 = PrecompiledSmc;
+precompiled_contracts_config#c0 list:(HashmapE 256 PrecompiledSmc) = PrecompiledContractsConfig;
+_ PrecompiledContractsConfig = ConfigParam 45;
+
+oracle_bridge_params#_ bridge_address:bits256 oracle_mutlisig_address:bits256 oracles:(HashmapE 256 uint256) external_chain_address:bits256 = OracleBridgeParams;
+_ OracleBridgeParams = ConfigParam 71; // Ethereum bridge
+_ OracleBridgeParams = ConfigParam 72; // Binance Smart Chain bridge
+_ OracleBridgeParams = ConfigParam 73; // Polygon bridge
+
+// Note that chains in which bridge, minter and jetton-wallet operate are fixated
+jetton_bridge_prices#_ bridge_burn_fee:Coins bridge_mint_fee:Coins 
+                       wallet_min_tons_for_storage:Coins
+                       wallet_gas_consumption:Coins
+                       minter_min_tons_for_storage:Coins
+                       discover_gas_consumption:Coins = JettonBridgePrices;
+
+jetton_bridge_params_v0#00 bridge_address:bits256 oracles_address:bits256 oracles:(HashmapE 256 uint256) state_flags:uint8 burn_bridge_fee:Coins = JettonBridgeParams;
+jetton_bridge_params_v1#01 bridge_address:bits256 oracles_address:bits256 oracles:(HashmapE 256 uint256) state_flags:uint8 prices:^JettonBridgePrices external_chain_address:bits256 = JettonBridgeParams;
+
+_ JettonBridgeParams = ConfigParam 79; // ETH->TON token bridge
+_ JettonBridgeParams = ConfigParam 81; // BNB->TON token bridge
+_ JettonBridgeParams = ConfigParam 82; // Polygon->TON token bridge
+
 
 //
 //  PROOFS
@@ -683,6 +829,16 @@ top_block_descr#d5 proof_for:BlockIdExt signatures:(Maybe ^BlockSignatures)
 //  COLLATED DATA
 //
 top_block_descr_set#4ac789f3 collection:(HashmapE 96 ^TopBlockDescr) = TopBlockDescrSet;
+
+//
+//  VALIDATOR MISBEHAVIOR COMPLAINTS
+//
+prod_info#34 utime:uint32 mc_blk_ref:ExtBlkRef state_proof:^(MERKLE_PROOF Block)
+  prod_proof:^(MERKLE_PROOF ShardState) = ProducerInfo;
+no_blk_gen from_utime:uint32 prod_info:^ProducerInfo = ComplaintDescr;
+no_blk_gen_diff prod_info_old:^ProducerInfo prod_info_new:^ProducerInfo = ComplaintDescr;
+validator_complaint#bc validator_pubkey:bits256 description:^ComplaintDescr created_at:uint32 severity:uint8 reward_addr:uint256 paid:Grams suggested_fine:Grams suggested_fine_part:uint32 = ValidatorComplaint;
+complaint_status#2d complaint:^ValidatorComplaint voters:(HashmapE 16 True) vset_id:uint256 weight_remaining:int64 = ValidatorComplaintStatus;
 
 //
 //  TVM REFLECTION
@@ -731,7 +887,7 @@ vmc_pushint$1111 value:int32 next:^VmCont = VmCont;
 //
 //  DNS RECORDS
 //
-_ (HashmapE 16 ^DNSRecord) = DNS_RecordSet;
+_ (HashmapE 256 ^DNSRecord) = DNS_RecordSet;
 
 chunk_ref$_ {n:#} ref:^(TextChunks (n + 1)) = TextChunkRef (n + 1);
 chunk_ref_empty$_ = TextChunkRef 0;
@@ -757,3 +913,30 @@ cap_method_pubkey#71f4 = SmcCapability;
 cap_is_wallet#2177 = SmcCapability;
 cap_name#ff name:Text = SmcCapability;
 
+dns_storage_address#7473 bag_id:bits256 = DNSRecord;
+
+//
+// PAYMENT CHANNELS
+//
+
+chan_config$_  init_timeout:uint32 close_timeout:uint32 a_key:bits256 b_key:bits256 
+  a_addr:^MsgAddressInt b_addr:^MsgAddressInt channel_id:uint64 min_A_extra:Grams = ChanConfig;
+
+chan_state_init$000  signed_A:Bool signed_B:Bool min_A:Grams min_B:Grams expire_at:uint32 A:Grams B:Grams = ChanState;
+chan_state_close$001 signed_A:Bool signed_B:Bool promise_A:Grams promise_B:Grams expire_at:uint32 A:Grams B:Grams = ChanState;
+chan_state_payout$010 A:Grams B:Grams = ChanState;
+
+chan_promise$_ channel_id:uint64 promise_A:Grams promise_B:Grams = ChanPromise;
+chan_signed_promise#_ sig:(Maybe ^bits512) promise:ChanPromise = ChanSignedPromise;
+
+chan_msg_init#27317822 inc_A:Grams inc_B:Grams min_A:Grams min_B:Grams channel_id:uint64 = ChanMsg;
+chan_msg_close#f28ae183 extra_A:Grams extra_B:Grams promise:ChanSignedPromise  = ChanMsg;
+chan_msg_timeout#43278a28 = ChanMsg;
+chan_msg_payout#37fe7810 = ChanMsg;
+
+chan_signed_msg$_ sig_A:(Maybe ^bits512) sig_B:(Maybe ^bits512) msg:ChanMsg = ChanSignedMsg;
+
+chan_op_cmd#912838d1 msg:ChanSignedMsg = ChanOp;
+
+
+chan_data$_ config:^ChanConfig state:^ChanState = ChanData;

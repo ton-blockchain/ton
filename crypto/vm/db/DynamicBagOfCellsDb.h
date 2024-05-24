@@ -14,13 +14,14 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 #include "vm/cells.h"
 
 #include "td/utils/Slice.h"
 #include "td/utils/Status.h"
+#include "td/actor/PromiseFuture.h"
 
 namespace vm {
 class CellLoader;
@@ -32,6 +33,12 @@ class ExtCellCreator {
  public:
   virtual ~ExtCellCreator() = default;
   virtual td::Result<Ref<Cell>> ext_cell(Cell::LevelMask level_mask, td::Slice hash, td::Slice depth) = 0;
+};
+
+class CellDbReader {
+ public:
+  virtual ~CellDbReader() = default;
+  virtual td::Result<Ref<DataCell>> load_cell(td::Slice hash) = 0;
 };
 
 class DynamicBagOfCellsDb {
@@ -52,11 +59,25 @@ class DynamicBagOfCellsDb {
   virtual td::Status prepare_commit() = 0;
   virtual Stats get_stats_diff() = 0;
   virtual td::Status commit(CellStorer &) = 0;
+  virtual std::shared_ptr<CellDbReader> get_cell_db_reader() = 0;
 
   // restart with new loader will also reset stats_diff
   virtual td::Status set_loader(std::unique_ptr<CellLoader> loader) = 0;
 
+  virtual void set_celldb_compress_depth(td::uint32 value) = 0;
+  virtual vm::ExtCellCreator& as_ext_cell_creator() = 0;
+
   static std::unique_ptr<DynamicBagOfCellsDb> create();
+
+  class AsyncExecutor {
+   public:
+    virtual ~AsyncExecutor() {}
+    virtual void execute_async(std::function<void()> f) = 0;
+    virtual void execute_sync(std::function<void()> f) = 0;
+  };
+
+  virtual void load_cell_async(td::Slice hash, std::shared_ptr<AsyncExecutor> executor,
+                               td::Promise<Ref<DataCell>> promise) = 0;
 };
 
 }  // namespace vm

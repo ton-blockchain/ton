@@ -14,7 +14,7 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 #include "common/refcnt.hpp"
@@ -50,7 +50,7 @@ struct ValidatorDescr {
       : pubkey(_pubkey), weight(_weight), cum_weight(_cum_weight) {
     adnl_addr.set_zero();
   }
-  bool operator<(td::uint64 wt_pos) const & {
+  bool operator<(td::uint64 wt_pos) const& {
     return cum_weight < wt_pos;
   }
 };
@@ -71,6 +71,12 @@ struct ValidatorSet {
   }
   const ValidatorDescr& at_weight(td::uint64 weight_pos) const;
   std::vector<ton::ValidatorDescr> export_validator_set() const;
+  std::map<ton::Bits256, int> compute_validator_map() const;
+  std::vector<double> export_scaled_validator_weights() const;
+  int lookup_public_key(td::ConstBitPtr pubkey) const;
+  int lookup_public_key(const td::Bits256& pubkey) const {
+    return lookup_public_key(pubkey.bits());
+  }
 };
 
 #pragma pack(push, 1)
@@ -273,6 +279,7 @@ struct McShardHash : public McShardHashI {
   bool pack(vm::CellBuilder& cb) const;
   static Ref<McShardHash> unpack(vm::CellSlice& cs, ton::ShardIdFull id);
   static Ref<McShardHash> from_block(Ref<vm::Cell> block_root, const ton::FileHash& _fhash, bool init_fees = false);
+  static bool extract_cc_seqno(vm::CellSlice& cs, ton::CatchainSeqno* cc);
   McShardHash* make_copy() const override {
     return new McShardHash(*this);
   }
@@ -343,7 +350,11 @@ struct GasLimitsPrices {
   td::uint64 freeze_due_limit{0};
   td::uint64 delete_due_limit{0};
 
-  td::RefInt256 compute_gas_price(td::uint64 gas_used) const;
+  td::RefInt256 compute_gas_price(td::uint64 gas_used) const {
+    return gas_used <= flat_gas_limit
+               ? td::make_refint(flat_gas_price)
+               : td::rshift(td::make_refint(gas_price) * (gas_used - flat_gas_limit), 16, 1) + flat_gas_price;
+  }
 };
 
 // msg_fwd_fees = (lump_price + ceil((bit_price * msg.bits + cell_price * msg.cells)/2^16)) nanograms
@@ -358,6 +369,7 @@ struct MsgPrices {
   td::uint32 first_frac;
   td::uint32 next_frac;
   td::uint64 compute_fwd_fees(td::uint64 cells, td::uint64 bits) const;
+  td::RefInt256 compute_fwd_fees256(td::uint64 cells, td::uint64 bits) const;
   std::pair<td::uint64, td::uint64> compute_fwd_ihr_fees(td::uint64 cells, td::uint64 bits,
                                                          bool ihr_disabled = false) const;
   MsgPrices() = default;
@@ -369,13 +381,32 @@ struct MsgPrices {
   td::RefInt256 get_next_part(td::RefInt256 total) const;
 };
 
+struct SizeLimitsConfig {
+  // Default values are used when not present in global config
+  struct ExtMsgLimits {
+    td::uint32 max_size = 65535;
+    td::uint16 max_depth = 512;
+  };
+  td::uint32 max_msg_bits = 1 << 21;
+  td::uint32 max_msg_cells = 1 << 13;
+  td::uint32 max_library_cells = 1000;
+  td::uint16 max_vm_data_depth = 512;
+  ExtMsgLimits ext_msg_limits;
+  td::uint32 max_acc_state_cells = 1 << 16;
+  td::uint32 max_acc_state_bits = (1 << 16) * 1023;
+  td::uint32 max_acc_public_libraries = 256;
+};
+
 struct CatchainValidatorsConfig {
   td::uint32 mc_cc_lifetime, shard_cc_lifetime, shard_val_lifetime, shard_val_num;
-  CatchainValidatorsConfig(td::uint32 mc_cc_lt_, td::uint32 sh_cc_lt_, td::uint32 sh_val_lt_, td::uint32 sh_val_num_)
+  bool shuffle_mc_val;
+  CatchainValidatorsConfig(td::uint32 mc_cc_lt_, td::uint32 sh_cc_lt_, td::uint32 sh_val_lt_, td::uint32 sh_val_num_,
+                           bool shuffle_mc = false)
       : mc_cc_lifetime(mc_cc_lt_)
       , shard_cc_lifetime(sh_cc_lt_)
       , shard_val_lifetime(sh_val_lt_)
-      , shard_val_num(sh_val_num_) {
+      , shard_val_num(sh_val_num_)
+      , shuffle_mc_val(shuffle_mc) {
   }
 };
 
@@ -392,6 +423,13 @@ struct WorkchainInfo : public td::CntObject {
   ton::RootHash zerostate_root_hash;
   ton::FileHash zerostate_file_hash;
   int min_addr_len, max_addr_len, addr_len_step;
+
+  // Default values are used when split_merge_timings is not set in config
+  unsigned split_merge_delay = 100;       // prepare (delay) split/merge for 100 seconds
+  unsigned split_merge_interval = 100;    // split/merge is enabled during 60 second interval
+  unsigned min_split_merge_interval = 30; // split/merge interval must be at least 30 seconds
+  unsigned max_split_merge_delay = 1000;  // end of split/merge interval must be at most 1000 seconds in the future
+
   bool is_valid() const {
     return workchain != ton::workchainInvalid;
   }
@@ -472,6 +510,31 @@ class ShardConfig {
   bool set_shard_info(ton::ShardIdFull shard, Ref<vm::Cell> value);
 };
 
+struct BurningConfig {
+  td::optional<td::Bits256> blackhole_addr;
+  td::uint32 fee_burn_num = 0, fee_burn_denom = 1;
+
+  td::RefInt256 calculate_burned_fees(const td::RefInt256& x) const {
+    if (x.is_null()) {
+      return x;
+    }
+    return x * fee_burn_num / td::make_refint(fee_burn_denom);
+  }
+
+  CurrencyCollection calculate_burned_fees(const CurrencyCollection& x) const {
+    return CurrencyCollection{calculate_burned_fees(x.grams)};
+  }
+};
+
+struct PrecompiledContractsConfig {
+  struct Contract {
+    td::uint64 gas_usage;
+  };
+  vm::Dictionary list{256};
+
+  td::optional<Contract> get_contract(td::Bits256 code_hash) const;
+};
+
 class Config {
   enum {
     default_mc_catchain_lifetime = 200,
@@ -534,14 +597,32 @@ class Config {
   bool create_stats_enabled() const {
     return has_capability(ton::capCreateStatsEnabled);
   }
+  std::unique_ptr<vm::Dictionary> get_param_dict(int idx) const;
+  td::Result<std::vector<int>> unpack_param_list(int idx) const;
+  std::unique_ptr<vm::Dictionary> get_mandatory_param_dict() const {
+    return get_param_dict(9);
+  }
+  std::unique_ptr<vm::Dictionary> get_critical_param_dict() const {
+    return get_param_dict(10);
+  }
+  td::Result<std::vector<int>> get_mandatory_param_list() const {
+    return unpack_param_list(9);
+  }
+  td::Result<std::vector<int>> get_critical_param_list() const {
+    return unpack_param_list(10);
+  }
+  bool all_mandatory_params_defined(int* bad_idx_ptr = nullptr) const;
+  td::Result<ton::StdSmcAddress> get_dns_root_addr() const;
   bool set_block_id_ext(const ton::BlockIdExt& block_id_ext);
   td::Result<std::vector<ton::StdSmcAddress>> get_special_smartcontracts(bool without_config = false) const;
   bool is_special_smartcontract(const ton::StdSmcAddress& addr) const;
   static td::Result<std::unique_ptr<ValidatorSet>> unpack_validator_set(Ref<vm::Cell> valset_root);
   td::Result<std::vector<StoragePrices>> get_storage_prices() const;
+  static td::Result<StoragePrices> do_get_one_storage_prices(vm::CellSlice cs);
   td::Result<GasLimitsPrices> get_gas_limits_prices(bool is_masterchain = false) const;
-  static td::Result<GasLimitsPrices> do_get_gas_limits_prices(td::Ref<vm::Cell> cell, int id);
+  static td::Result<GasLimitsPrices> do_get_gas_limits_prices(vm::CellSlice cs, int id);
   td::Result<MsgPrices> get_msg_prices(bool is_masterchain = false) const;
+  static td::Result<MsgPrices> do_get_msg_prices(vm::CellSlice cs, int id);
   static CatchainValidatorsConfig unpack_catchain_validators_config(Ref<vm::Cell> cell);
   CatchainValidatorsConfig get_catchain_validators_config() const;
   td::Status visit_validator_params() const;
@@ -567,6 +648,12 @@ class Config {
   std::vector<ton::ValidatorDescr> compute_validator_set(ton::ShardIdFull shard, ton::UnixTime time,
                                                          ton::CatchainSeqno cc_seqno) const;
   std::vector<ton::ValidatorDescr> compute_total_validator_set(int next) const;
+  td::Result<SizeLimitsConfig> get_size_limits_config() const;
+  static td::Result<SizeLimitsConfig> do_get_size_limits_config(td::Ref<vm::CellSlice> cs);
+  std::unique_ptr<vm::Dictionary> get_suspended_addresses(ton::UnixTime now) const;
+  BurningConfig get_burning_config() const;
+  td::Ref<vm::Tuple> get_unpacked_config_tuple(ton::UnixTime now) const;
+  PrecompiledContractsConfig get_precompiled_contracts_config() const;
   static std::vector<ton::ValidatorDescr> do_compute_validator_set(const block::CatchainValidatorsConfig& ccv_conf,
                                                                    ton::ShardIdFull shard,
                                                                    const block::ValidatorSet& vset, ton::UnixTime time,
@@ -579,8 +666,9 @@ class Config {
   static td::Result<std::unique_ptr<Config>> extract_from_state(Ref<vm::Cell> mc_state_root, int mode = 0);
   static td::Result<std::unique_ptr<Config>> extract_from_key_block(Ref<vm::Cell> key_block_root, int mode = 0);
   static td::Result<std::pair<ton::UnixTime, ton::UnixTime>> unpack_validator_set_start_stop(Ref<vm::Cell> root);
+  static td::Result<std::vector<int>> unpack_param_dict(vm::Dictionary& dict);
+  static td::Result<std::vector<int>> unpack_param_dict(Ref<vm::Cell> dict_root);
 
- protected:
   Config(int _mode) : mode(_mode) {
     config_addr.set_zero();
   }
@@ -670,6 +758,7 @@ class ConfigInfo : public Config, public ShardConfig {
                                                             ton::CatchainSeqno* cc_seqno_delta = nullptr) const;
   std::vector<ton::ValidatorDescr> compute_validator_set_cc(ton::ShardIdFull shard, ton::UnixTime time,
                                                             ton::CatchainSeqno* cc_seqno_delta = nullptr) const;
+  td::Result<Ref<vm::Tuple>> get_prev_blocks_info() const;
   static td::Result<std::unique_ptr<ConfigInfo>> extract_config(std::shared_ptr<vm::StaticBagOfCellsDb> static_boc,
                                                                 int mode = 0);
   static td::Result<std::unique_ptr<ConfigInfo>> extract_config(Ref<vm::Cell> mc_state_root, int mode = 0);

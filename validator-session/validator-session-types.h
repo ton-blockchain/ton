@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -27,6 +27,12 @@ namespace ton {
 
 namespace validatorsession {
 
+constexpr int VERBOSITY_NAME(VALIDATOR_SESSION_WARNING) = verbosity_WARNING;
+constexpr int VERBOSITY_NAME(VALIDATOR_SESSION_NOTICE) = verbosity_DEBUG;
+constexpr int VERBOSITY_NAME(VALIDATOR_SESSION_INFO) = verbosity_DEBUG;
+constexpr int VERBOSITY_NAME(VALIDATOR_SESSION_DEBUG) = verbosity_DEBUG;
+constexpr int VERBOSITY_NAME(VALIDATOR_SESSION_EXTRA_DEBUG) = verbosity_DEBUG + 1;
+
 using ValidatorSessionRootHash = td::Bits256;
 using ValidatorSessionFileHash = td::Bits256;
 using ValidatorSessionCollatedDataFileHash = td::Bits256;
@@ -37,19 +43,22 @@ inline ValidatorSessionCandidateId skip_round_candidate_id() {
 }
 
 struct ValidatorSessionOptions {
-  ValidatorSessionOptions() {
-  }
-  ValidatorSessionOptions(const ValidatorSessionConfig &conf);
-  td::Clocks::Duration catchain_idle_timeout = 16.0;
-  td::uint32 catchain_max_deps = 4;
+  ValidatorSessionOptions() = default;
+  explicit ValidatorSessionOptions(const ValidatorSessionConfig &conf);
+
+  CatChainOptions catchain_opts;
 
   td::uint32 round_candidates = 3;
-  td::Clocks::Duration next_candidate_delay = 2.0;
+  double next_candidate_delay = 2.0;
   td::uint32 round_attempt_duration = 16;
   td::uint32 max_round_attempts = 4;
 
   td::uint32 max_block_size = 4 << 20;
   td::uint32 max_collated_data_size = 4 << 20;
+
+  bool new_catchain_ids = false;
+
+  td::uint32 proto_version = 0;
 
   td::Bits256 get_hash() const;
 };
@@ -58,6 +67,38 @@ struct ValidatorSessionNode {
   PublicKey pub_key;
   adnl::AdnlNodeIdShort adnl_id;
   ValidatorWeight weight;
+};
+
+struct ValidatorSessionStats {
+  enum { status_none = 0, status_received = 1, status_rejected = 2, status_approved = 3 };
+
+  struct Producer {
+    PublicKeyHash id = PublicKeyHash::zero();
+    ValidatorSessionCandidateId candidate_id = ValidatorSessionCandidateId::zero();
+    int block_status = status_none;
+    td::uint64 block_timestamp = 0;
+    std::string comment;
+  };
+  struct Round {
+    td::uint64 timestamp = 0;
+    std::vector<Producer> producers;
+  };
+
+  td::uint32 first_round;
+  std::vector<Round> rounds;
+
+  bool success = false;
+  ValidatorSessionId session_id = ValidatorSessionId::zero();
+  CatchainSeqno cc_seqno = 0;
+  td::uint64 timestamp = 0;
+  PublicKeyHash self = PublicKeyHash::zero();
+  PublicKeyHash creator = PublicKeyHash::zero();
+  td::uint32 total_validators = 0;
+  ValidatorWeight total_weight = 0;
+  td::uint32 signatures = 0;
+  ValidatorWeight signatures_weight = 0;
+  td::uint32 approve_signatures = 0;
+  ValidatorWeight approve_signatures_weight = 0;
 };
 
 }  // namespace validatorsession

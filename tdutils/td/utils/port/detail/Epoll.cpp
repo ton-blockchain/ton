@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/utils/port/detail/Epoll.h"
 
@@ -25,6 +25,8 @@ char disable_linker_warning_about_empty_file_epoll_cpp TD_UNUSED;
 #include "td/utils/format.h"
 #include "td/utils/logging.h"
 #include "td/utils/Status.h"
+
+#include <cerrno>
 
 #include <unistd.h>
 
@@ -82,7 +84,8 @@ void Epoll::unsubscribe(PollableFdRef fd_ref) {
   int err = epoll_ctl(epoll_fd_.fd(), EPOLL_CTL_DEL, native_fd, nullptr);
   auto epoll_ctl_errno = errno;
   LOG_IF(FATAL, err == -1) << Status::PosixError(epoll_ctl_errno, "epoll_ctl DEL failed")
-                           << ", epoll_fd = " << epoll_fd_.fd() << ", fd = " << native_fd << fd.native_fd().validate();
+                           << ", epoll_fd = " << epoll_fd_.fd() << ", fd = " << native_fd
+                           << ", status = " << fd.native_fd().validate();
 }
 
 void Epoll::unsubscribe_before_close(PollableFdRef fd) {
@@ -109,6 +112,7 @@ void Epoll::run(int timeout_ms) {
 #ifdef EPOLLRDHUP
     if (event->events & EPOLLRDHUP) {
       event->events &= ~EPOLLRDHUP;
+      flags = flags | PollFlags::Close();
       //      flags |= Fd::Close;
       // TODO
     }

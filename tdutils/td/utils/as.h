@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -40,7 +40,7 @@ class As {
   }
   ~As() = default;
 
-  As &operator=(T new_value) && {
+  As &operator=(const T &new_value) && {
     std::memcpy(ptr_, &new_value, sizeof(T));
     return *this;
   }
@@ -76,12 +76,7 @@ class ConstAs {
 
 }  // namespace detail
 
-// no std::is_trivially_copyable in libstdc++ before 5.0
-#if __GLIBCXX__
-#define TD_IS_TRIVIALLY_COPYABLE(T) __has_trivial_copy(T)
-#else
 #define TD_IS_TRIVIALLY_COPYABLE(T) std::is_trivially_copyable<T>::value
-#endif
 
 template <class ToT, class FromT,
           std::enable_if_t<TD_IS_TRIVIALLY_COPYABLE(ToT) && TD_IS_TRIVIALLY_COPYABLE(FromT), int> = 0>

@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/utils/common.h"
 #include "td/utils/logging.h"
@@ -27,6 +27,8 @@
 #include "td/utils/port/thread_local.h"
 #include "td/utils/Slice.h"
 #include "td/utils/tests.h"
+
+#include <set>
 
 using namespace td;
 
@@ -51,44 +53,38 @@ TEST(Port, files) {
   int cnt = 0;
   const int ITER_COUNT = 1000;
   for (int i = 0; i < ITER_COUNT; i++) {
-    walk_path(main_dir,
-              [&](CSlice name, WalkPath::Type type) {
-                if (type == WalkPath::Type::NotDir) {
-                  ASSERT_TRUE(name == fd_path || name == fd2_path);
-                }
-                cnt++;
-              })
-        .ensure();
+    walk_path(main_dir, [&](CSlice name, WalkPath::Type type) {
+      if (type == WalkPath::Type::NotDir) {
+        ASSERT_TRUE(name == fd_path || name == fd2_path);
+      }
+      cnt++;
+    }).ensure();
   }
   ASSERT_EQ((5 * 2 + 2) * ITER_COUNT, cnt);
   bool was_abort = false;
-  walk_path(main_dir,
-            [&](CSlice name, WalkPath::Type type) {
-              CHECK(!was_abort);
-              if (type == WalkPath::Type::EnterDir && ends_with(name, PSLICE() << TD_DIR_SLASH << "B")) {
-                was_abort = true;
-                return WalkPath::Action::Abort;
-              }
-              return WalkPath::Action::Continue;
-            })
-      .ensure();
+  walk_path(main_dir, [&](CSlice name, WalkPath::Type type) {
+    CHECK(!was_abort);
+    if (type == WalkPath::Type::EnterDir && ends_with(name, PSLICE() << TD_DIR_SLASH << "B")) {
+      was_abort = true;
+      return WalkPath::Action::Abort;
+    }
+    return WalkPath::Action::Continue;
+  }).ensure();
   CHECK(was_abort);
 
   cnt = 0;
   bool is_first_dir = true;
-  walk_path(main_dir,
-            [&](CSlice name, WalkPath::Type type) {
-              cnt++;
-              if (type == WalkPath::Type::EnterDir) {
-                if (is_first_dir) {
-                  is_first_dir = false;
-                } else {
-                  return WalkPath::Action::SkipDir;
-                }
-              }
-              return WalkPath::Action::Continue;
-            })
-      .ensure();
+  walk_path(main_dir, [&](CSlice name, WalkPath::Type type) {
+    cnt++;
+    if (type == WalkPath::Type::EnterDir) {
+      if (is_first_dir) {
+        is_first_dir = false;
+      } else {
+        return WalkPath::Action::SkipDir;
+      }
+    }
+    return WalkPath::Action::Continue;
+  }).ensure();
   ASSERT_EQ(6, cnt);
 
   ASSERT_EQ(0u, fd.get_size().move_as_ok());
@@ -109,6 +105,22 @@ TEST(Port, files) {
   fd.seek(0).ensure();
   ASSERT_EQ(13u, fd.read(buf_slice.substr(0, 13)).move_as_ok());
   ASSERT_STREQ("Habcd world?!", buf_slice.substr(0, 13));
+}
+
+TEST(Port, SparseFiles) {
+  CSlice path = "sparse.txt";
+  unlink(path).ignore();
+  auto fd = FileFd::open(path, FileFd::Write | FileFd::CreateNew).move_as_ok();
+  ASSERT_EQ(0, fd.get_size().move_as_ok());
+  // ASSERT_EQ(0, fd.get_real_size().move_as_ok());
+  int64 offset = 100000000;
+  fd.pwrite("a", offset).ensure();
+  ASSERT_EQ(offset + 1, fd.get_size().move_as_ok());
+  auto real_size = fd.get_real_size().move_as_ok();
+  if (real_size >= offset + 1) {
+    LOG(ERROR) << "File system doesn't support sparse files, rewind during streaming can be slow";
+  }
+  unlink(path).ensure();
 }
 
 TEST(Port, Writev) {

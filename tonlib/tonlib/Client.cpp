@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "Client.h"
 
@@ -101,6 +101,7 @@ class Client::Impl final {
     scheduler_.run_in_context_external([] { td::actor::SchedulerContext::get()->stop(); });
     LOG(ERROR) << "join";
     scheduler_thread_.join();
+    LOG(ERROR) << "join - done";
   }
 
  private:

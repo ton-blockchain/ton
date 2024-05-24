@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 #include "adnl/adnl-node-id.hpp"
@@ -29,7 +29,9 @@ struct Config {
   };
   ton::BlockIdExt zero_state_id;
   ton::BlockIdExt init_block_id;
+  std::vector<ton::BlockIdExt> hardforks;
   std::vector<LiteClient> lite_clients;
+  std::string name;
   static td::Result<Config> parse(std::string str);
 };
 }  // namespace tonlib

@@ -14,18 +14,30 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
+#pragma once
 #include "vm/cells.h"
+
+#include "td/utils/Span.h"
 
 namespace ton {
 class SmartContractCode {
  public:
   static td::Result<td::Ref<vm::Cell>> load(td::Slice name);
-  static td::Ref<vm::Cell> multisig();
-  static td::Ref<vm::Cell> wallet();
-  static td::Ref<vm::Cell> simple_wallet();
-  static td::Ref<vm::Cell> simple_wallet_ext();
-  static td::Ref<vm::Cell> highload_wallet();
+
+  enum Type {
+    WalletV3 = 4,
+    HighloadWalletV1,
+    HighloadWalletV2,
+    ManualDns,
+    Multisig,
+    PaymentChannel,
+    RestrictedWallet,
+    WalletV4
+  };
+  static td::Span<int> get_revisions(Type type);
+  static td::Result<int> validate_revision(Type type, int revision);
+  static td::Ref<vm::Cell> get_code(Type type, int revision = 0);
 };
 }  // namespace ton

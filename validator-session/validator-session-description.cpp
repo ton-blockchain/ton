@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "validator-session.hpp"
 #include "td/utils/Random.h"
@@ -50,13 +50,6 @@ ValidatorSessionDescriptionImpl::ValidatorSessionDescriptionImpl(ValidatorSessio
   auto it = rev_sources_.find(local_id);
   CHECK(it != rev_sources_.end());
   self_idx_ = it->second;
-
-  pdata_temp_ptr_ = 0;
-  pdata_temp_size_ = 1 << 30;
-  pdata_temp_ = new td::uint8[pdata_temp_size_];
-
-  pdata_perm_size_ = 1ull << 30;
-  pdata_perm_ptr_ = 0;
 
   for (auto &el : cache_) {
     Cached v{nullptr};
@@ -134,7 +127,7 @@ std::vector<PublicKey> ValidatorSessionDescriptionImpl::export_full_nodes() cons
 }
 
 double ValidatorSessionDescriptionImpl::get_delay(td::uint32 priority) const {
-  return priority * opts_.next_candidate_delay;
+  return ((sources_.size() >= 5 ? 0 : 1) + priority) * opts_.next_candidate_delay;
 }
 
 td::uint32 ValidatorSessionDescriptionImpl::get_vote_for_author(td::uint32 attempt_seqno) const {
@@ -162,40 +155,68 @@ void ValidatorSessionDescriptionImpl::update_hash(const RootObject *obj, HashTyp
 }
 
 void *ValidatorSessionDescriptionImpl::alloc(size_t size, size_t align, bool temp) {
-  if (temp) {
-    auto s = pdata_temp_ptr_;
-    pdata_temp_ptr_ += size;
-    CHECK(s + size <= pdata_temp_size_);
-    return static_cast<void *>(pdata_temp_ + s);
-  } else {
-    while (true) {
-      auto s = pdata_perm_ptr_;
-      pdata_perm_ptr_ += size;
-
-      if (pdata_perm_ptr_ <= pdata_perm_.size() * pdata_perm_size_) {
-        return static_cast<void *>(pdata_perm_[s / pdata_perm_size_] + (s % pdata_perm_size_));
-      }
-
-      pdata_perm_.push_back(new td::uint8[pdata_perm_size_]);
-    }
-  }
+  return (temp ? mem_temp_ : mem_perm_).alloc(size, align);
 }
 
 bool ValidatorSessionDescriptionImpl::is_persistent(const void *ptr) const {
-  if (ptr == nullptr) {
-    return true;
-  }
-  for (auto &v : pdata_perm_) {
-    if (ptr >= v && ptr <= v + pdata_perm_size_) {
-      return true;
-    }
-  }
-  return false;
+  return mem_perm_.contains(ptr);
 }
 
 std::unique_ptr<ValidatorSessionDescription> ValidatorSessionDescription::create(
     ValidatorSessionOptions opts, std::vector<ValidatorSessionNode> &nodes, PublicKeyHash local_id) {
   return std::make_unique<ValidatorSessionDescriptionImpl>(std::move(opts), nodes, local_id);
+}
+
+ValidatorSessionDescriptionImpl::MemPool::MemPool(size_t chunk_size) : chunk_size_(chunk_size) {
+}
+
+ValidatorSessionDescriptionImpl::MemPool::~MemPool() {
+  for (auto &v : data_) {
+    delete[] v;
+  }
+}
+
+void *ValidatorSessionDescriptionImpl::MemPool::alloc(size_t size, size_t align) {
+  CHECK(align && !(align & (align - 1)));  // align should be a power of 2
+  CHECK(size + align <= chunk_size_);
+  auto get_padding = [&](const uint8_t* ptr) {
+    return (-(size_t)ptr) & (align - 1);
+  };
+  while (true) {
+    size_t idx = ptr_ / chunk_size_;
+    if (idx < data_.size()) {
+      auto ptr = data_[idx] + (ptr_ % chunk_size_);
+      ptr_ += get_padding(ptr);
+      ptr += get_padding(ptr);
+      ptr_ += size;
+      if (ptr_ <= data_.size() * chunk_size_) {
+        return static_cast<void *>(ptr);
+      } else {
+        ptr_ = data_.size() * chunk_size_;
+      }
+    }
+    data_.push_back(new td::uint8[chunk_size_]);
+  }
+}
+
+void ValidatorSessionDescriptionImpl::MemPool::clear() {
+  while (data_.size() > 1) {
+    delete[] data_.back();
+    data_.pop_back();
+  }
+  ptr_ = 0;
+}
+
+bool ValidatorSessionDescriptionImpl::MemPool::contains(const void* ptr) const {
+  if (ptr == nullptr) {
+    return true;
+  }
+  for (auto &v : data_) {
+    if (ptr >= v && ptr <= v + chunk_size_) {
+      return true;
+    }
+  }
+  return false;
 }
 
 }  // namespace validatorsession

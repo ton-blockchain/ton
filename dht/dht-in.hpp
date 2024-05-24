@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -46,6 +46,7 @@ class DhtMemberImpl : public DhtMember {
   DhtKeyId key_;
   td::uint32 k_;
   td::uint32 a_;
+  td::int32 network_id_{-1};
   td::uint32 max_cache_time_ = 60;
   td::uint32 max_cache_size_ = 100;
 
@@ -66,6 +67,15 @@ class DhtMemberImpl : public DhtMember {
 
   DhtKeyId last_republish_key_ = DhtKeyId::zero();
   DhtKeyId last_check_key_ = DhtKeyId::zero();
+  adnl::AdnlNodeIdShort last_check_reverse_conn_ = adnl::AdnlNodeIdShort::zero();
+
+  struct ReverseConnection {
+    adnl::AdnlNodeIdShort dht_node_;
+    DhtKeyId key_id_;
+    td::Timestamp ttl_;
+  };
+  std::map<adnl::AdnlNodeIdShort, ReverseConnection> reverse_connections_;
+  std::set<adnl::AdnlNodeIdShort> our_reverse_connections_;
 
   class Callback : public adnl::Adnl::Callback {
    public:
@@ -94,6 +104,8 @@ class DhtMemberImpl : public DhtMember {
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;
 
+  bool client_only_{false};
+
   td::uint64 ping_queries_{0};
   td::uint64 find_node_queries_{0};
   td::uint64 find_value_queries_{0};
@@ -120,17 +132,30 @@ class DhtMemberImpl : public DhtMember {
   void process_query(adnl::AdnlNodeIdShort src, ton_api::dht_store &query, td::Promise<td::BufferSlice> promise);
   void process_query(adnl::AdnlNodeIdShort src, ton_api::dht_getSignedAddressList &query,
                      td::Promise<td::BufferSlice> promise);
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::dht_registerReverseConnection &query,
+                     td::Promise<td::BufferSlice> promise);
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::dht_requestReversePing &query,
+                     td::Promise<td::BufferSlice> promise);
 
  public:
   DhtMemberImpl(adnl::AdnlNodeIdShort id, std::string db_root, td::actor::ActorId<keyring::Keyring> keyring,
-                td::actor::ActorId<adnl::Adnl> adnl, td::uint32 k, td::uint32 a = 3)
-      : id_(id), key_{id_}, k_(k), a_(a), db_root_(db_root), keyring_(keyring), adnl_(adnl) {
+                td::actor::ActorId<adnl::Adnl> adnl, td::int32 network_id, td::uint32 k, td::uint32 a = 3,
+                bool client_only = false)
+      : id_(id)
+      , key_{id_}
+      , k_(k)
+      , a_(a)
+      , network_id_(network_id)
+      , db_root_(db_root)
+      , keyring_(keyring)
+      , adnl_(adnl)
+      , client_only_(client_only) {
     for (size_t i = 0; i < 256; i++) {
       buckets_.emplace_back(k_);
     }
   }
 
-  void add_full_node(DhtKeyId id, DhtNode node) override;
+  void add_full_node(DhtKeyId id, DhtNode node, bool set_active) override;
 
   adnl::AdnlNodeIdShort get_id() const override {
     return id_;
@@ -140,6 +165,12 @@ class DhtMemberImpl : public DhtMember {
 
   void set_value(DhtValue key_value, td::Promise<td::Unit> result) override;
   td::uint32 distance(DhtKeyId key_id, td::uint32 max_value);
+
+  void register_reverse_connection(adnl::AdnlNodeIdFull client, td::Promise<td::Unit> promise) override;
+  void request_reverse_ping(adnl::AdnlNode target, adnl::AdnlNodeIdShort client,
+                            td::Promise<td::Unit> promise) override;
+  void request_reverse_ping_cont(adnl::AdnlNode target, td::BufferSlice signature, adnl::AdnlNodeIdShort client,
+                                 td::Promise<td::Unit> promise);
 
   td::Status store_in(DhtValue value) override;
   void send_store(DhtValue value, td::Promise<td::Unit> promise);

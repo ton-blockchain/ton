@@ -23,7 +23,7 @@
     exception statement from your version. If you delete this exception statement 
     from all source files in the program, then also delete it here.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 #include "adnl/adnl-ext-client.h"
@@ -112,7 +112,7 @@ class ValidatorEngineConsole : public td::actor::Actor {
   }
 
   bool envelope_send_query(td::BufferSlice query, td::Promise<td::BufferSlice> promise);
-  void got_result();
+  void got_result(bool success = true);
   void show_help(std::string command, td::Promise<td::BufferSlice> promise);
   void show_license(td::Promise<td::BufferSlice> promise);
 

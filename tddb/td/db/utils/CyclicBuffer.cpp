@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "CyclicBuffer.h"
 
@@ -61,7 +61,7 @@ class CyclicBuffer : public StreamWriterInterface, public StreamReaderInterface 
   }
   Span<IoSlice> prepare_readv() override {
     reader_.io_slice_ = as_io_slice(prepare_read());
-    return Span<IoSlice>(&reader_.io_slice_, 1);
+    return span_one(reader_.io_slice_);
   }
   void confirm_read(size_t size) override {
     reader_.pos_.store(reader_.pos_.load(std::memory_order_relaxed) + size);

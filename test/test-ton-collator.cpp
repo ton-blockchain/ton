@@ -23,14 +23,14 @@
     exception statement from your version. If you delete this exception statement 
     from all source files in the program, then also delete it here.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "adnl/adnl.h"
 #include "adnl/utils.hpp"
 #include "auto/tl/ton_api_json.h"
 #include "dht/dht.h"
 #include "overlay/overlays.h"
-#include "td/utils/OptionsParser.h"
+#include "td/utils/OptionParser.h"
 #include "td/utils/Time.h"
 #include "td/utils/filesystem.h"
 #include "td/utils/format.h"
@@ -43,9 +43,14 @@
 #include "td/utils/filesystem.h"
 #include "td/utils/port/path.h"
 
+#include "ton/ton-types.h"
+#include "ton/ton-tl.hpp"
+#include "ton/ton-io.hpp"
+
+
 #include "validator/fabric.h"
 #include "validator/impl/collator.h"
-#include "crypto/vm/cp0.h"
+#include "crypto/vm/vm.h"
 #include "crypto/block/block-db.h"
 
 #include "common/errorlog.h"
@@ -76,6 +81,9 @@ class TestNode : public td::actor::Actor {
   td::actor::ActorOwn<ton::validator::ValidatorManagerInterface> validator_manager_;
 
   std::string db_root_ = "/var/ton-work/db/";
+  std::string global_config_;
+  td::Ref<ton::validator::ValidatorManagerOptions> opts_;
+
   ton::ZeroStateIdExt zero_id_;
   td::BufferSlice bs_;
   std::vector<td::BufferSlice> ext_msgs_;
@@ -92,6 +100,10 @@ class TestNode : public td::actor::Actor {
   void set_db_root(std::string db_root) {
     db_root_ = db_root;
   }
+  void set_global_config_path(std::string path) {
+    global_config_ = path;
+  }
+
   void set_zero_root_hash(td::Bits256 hash) {
     zero_id_.root_hash = hash;
   }
@@ -218,6 +230,54 @@ class TestNode : public td::actor::Actor {
     }
   }
 
+  td::Status create_validator_options() {
+    if(!global_config_.length()) {
+      LOG(INFO) << "no global config file passed. Using zero-init config";
+      opts_ = ton::validator::ValidatorManagerOptions::create(
+        ton::BlockIdExt{ton::masterchainId, ton::shardIdAll, 0, ton::RootHash::zero(), ton::FileHash::zero()},
+        ton::BlockIdExt{ton::masterchainId, ton::shardIdAll, 0, ton::RootHash::zero(), ton::FileHash::zero()});
+     return td::Status::OK();
+    }
+    TRY_RESULT_PREFIX(conf_data, td::read_file(global_config_), "failed to read: ");
+    TRY_RESULT_PREFIX(conf_json, td::json_decode(conf_data.as_slice()), "failed to parse json: ");
+
+    ton::ton_api::config_global conf;
+    TRY_STATUS_PREFIX(ton::ton_api::from_json(conf, conf_json.get_object()), "json does not fit TL scheme: ");
+
+    auto zero_state = ton::create_block_id(conf.validator_->zero_state_);
+    ton::BlockIdExt init_block;
+    if (!conf.validator_->init_block_) {
+      LOG(INFO) << "no init block in config. using zero state";
+      init_block = zero_state;
+    } else {
+      init_block = ton::create_block_id(conf.validator_->init_block_);
+    }
+    opts_ = ton::validator::ValidatorManagerOptions::create(zero_state, init_block);
+    std::vector<ton::BlockIdExt> h;
+    for (auto &x : conf.validator_->hardforks_) {
+      auto b = ton::create_block_id(x);
+       if (!b.is_masterchain()) {
+        return td::Status::Error(ton::ErrorCode::error,
+                                 "[validator/hardforks] section contains not masterchain block id");
+      }
+      if (!b.is_valid_full()) {
+        return td::Status::Error(ton::ErrorCode::error, "[validator/hardforks] section contains invalid block_id");
+      }
+      for (auto &y : h) {
+        if (y.is_valid() && y.seqno() >= b.seqno()) {
+          y.invalidate();
+        }
+      }
+      h.push_back(b);
+    }
+    opts_.write().set_hardforks(std::move(h));
+
+
+    LOG(INFO) << "Hardforks num in config: "<< opts_->get_hardforks().size();
+    return td::Status::OK();
+  }
+
+
   void run() {
     zero_id_.workchain = ton::masterchainId;
     td::mkdir(db_root_).ensure();
@@ -227,15 +287,20 @@ class TestNode : public td::actor::Actor {
       do_save_file();
     }
 
-    auto opts = ton::validator::ValidatorManagerOptions::create(
-        ton::BlockIdExt{ton::masterchainId, ton::shardIdAll, 0, zero_id_.root_hash, zero_id_.file_hash},
-        ton::BlockIdExt{ton::masterchainId, ton::shardIdAll, 0, zero_id_.root_hash, zero_id_.file_hash});
+    auto Sr = create_validator_options();
+    if (Sr.is_error()) {
+      LOG(ERROR) << "failed to load global config'" << global_config_ << "': " << Sr;
+      std::_Exit(2);
+    }
+
+    auto opts = opts_;
+
     opts.write().set_initial_sync_disabled(true);
     validator_manager_ = ton::validator::ValidatorManagerDiskFactory::create(ton::PublicKeyHash::zero(), opts, shard_,
                                                                              shard_top_block_id_, db_root_);
     for (auto &msg : ext_msgs_) {
       td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManager::new_external_message,
-                              std::move(msg));
+                              std::move(msg), 0);
     }
     for (auto &topmsg : top_shard_descrs_) {
       td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManager::new_shard_block, ton::BlockIdExt{},
@@ -343,11 +408,11 @@ int main(int argc, char *argv[]) {
   SET_VERBOSITY_LEVEL(verbosity_INFO);
   td::set_default_failure_signal_handler().ensure();
 
-  CHECK(vm::init_op_cp0());
+  vm::init_vm().ensure();
 
   td::actor::ActorOwn<TestNode> x;
 
-  td::OptionsParser p;
+  td::OptionParser p;
   p.set_description("test collate block");
   p.add_option('h', "help", "prints_help", [&]() {
     char b[10240];
@@ -355,39 +420,28 @@ int main(int argc, char *argv[]) {
     sb << p;
     std::cout << sb.as_cslice().c_str();
     std::exit(2);
-    return td::Status::OK();
   });
   p.add_option('Z', "zero-root-hash", "zero state root hash (base64url-encoded)", [&](td::Slice fname) {
     td::actor::send_closure(x, &TestNode::set_zero_root_hash, get_uint256(fname).move_as_ok());
-    return td::Status::OK();
   });
   p.add_option('F', "zero-file-hash", "zero state file hash (base64url-encoded)", [&](td::Slice fname) {
     td::actor::send_closure(x, &TestNode::set_zero_file_hash, get_uint256(fname).move_as_ok());
-    return td::Status::OK();
   });
-  p.add_option('z', "zero-state-file", "zero state file", [&](td::Slice fname) {
-    td::actor::send_closure(x, &TestNode::set_zero_file, fname.str());
-    return td::Status::OK();
-  });
-  p.add_option('D', "db", "root for dbs", [&](td::Slice fname) {
-    td::actor::send_closure(x, &TestNode::set_db_root, fname.str());
-    return td::Status::OK();
-  });
-  p.add_option('m', "ext-message", "binary file with serialized inbound external message", [&](td::Slice fname) {
-    td::actor::send_closure(x, &TestNode::load_ext_message, fname.str());
-    return td::Status::OK();
-  });
+  p.add_option('z', "zero-state-file", "zero state file",
+               [&](td::Slice fname) { td::actor::send_closure(x, &TestNode::set_zero_file, fname.str()); });
+  p.add_option('D', "db", "root for dbs",
+               [&](td::Slice fname) { td::actor::send_closure(x, &TestNode::set_db_root, fname.str()); });
+  p.add_option('C', "config", "global config path",
+               [&](td::Slice fname) { td::actor::send_closure(x, &TestNode::set_global_config_path, fname.str()); });
+  p.add_option('m', "ext-message", "binary file with serialized inbound external message",
+               [&](td::Slice fname) { td::actor::send_closure(x, &TestNode::load_ext_message, fname.str()); });
   p.add_option('M', "top-shard-message", "binary file with serialized shard top block description",
-               [&](td::Slice fname) {
-                 td::actor::send_closure(x, &TestNode::load_shard_block_message, fname.str());
-                 return td::Status::OK();
-               });
+               [&](td::Slice fname) { td::actor::send_closure(x, &TestNode::load_shard_block_message, fname.str()); });
   p.add_option('v', "verbosity", "set verbosity level", [&](td::Slice arg) {
     int v = VERBOSITY_NAME(FATAL) + (verbosity = td::to_integer<int>(arg));
     SET_VERBOSITY_LEVEL(v);
-    return td::Status::OK();
   });
-  p.add_option('w', "workchain", "<workchain>[:<shard>]\tcollate block in this workchain", [&](td::Slice arg) {
+  p.add_checked_option('w', "workchain", "<workchain>[:<shard>]\tcollate block in this workchain", [&](td::Slice arg) {
     ton::ShardId shard = 0;
     auto pos = std::min(arg.find(':'), arg.size());
     TRY_RESULT(workchain, td::to_integer_safe<int>(arg.substr(0, pos)));
@@ -403,31 +457,24 @@ int main(int argc, char *argv[]) {
     td::actor::send_closure(x, &TestNode::set_shard, ton::ShardIdFull{workchain, shard ? shard : ton::shardIdAll});
     return td::Status::OK();
   });
-  p.add_option('S', "want-split", "forces setting want_split in the header of new shard block", [&]() {
-    td::actor::send_closure(x, &TestNode::set_collator_flags, 1);
-    return td::Status::OK();
-  });
-  p.add_option('G', "want-merge", "forces setting want_merge in the header of new shard block", [&]() {
-    td::actor::send_closure(x, &TestNode::set_collator_flags, 2);
-    return td::Status::OK();
-  });
+  p.add_option('S', "want-split", "forces setting want_split in the header of new shard block",
+               [&]() { td::actor::send_closure(x, &TestNode::set_collator_flags, 1); });
+  p.add_option('G', "want-merge", "forces setting want_merge in the header of new shard block",
+               [&]() { td::actor::send_closure(x, &TestNode::set_collator_flags, 2); });
   p.add_option('s', "save-top-descr", "saves generated shard top block description into files with specified prefix",
-               [&](td::Slice arg) {
-                 td::actor::send_closure(x, &TestNode::set_top_descr_prefix, arg.str());
-                 return td::Status::OK();
-               });
-  p.add_option('T', "top-block", "BlockIdExt of top block (new block will be generated atop of it)",
-               [&](td::Slice arg) {
-                 ton::BlockIdExt block_id;
-                 if (block::parse_block_id_ext(arg, block_id)) {
-                   LOG(INFO) << "setting previous block to " << block_id.to_str();
-                   td::actor::send_closure(x, &TestNode::set_shard_top_block, block_id);
+               [&](td::Slice arg) { td::actor::send_closure(x, &TestNode::set_top_descr_prefix, arg.str()); });
+  p.add_checked_option('T', "top-block", "BlockIdExt of top block (new block will be generated atop of it)",
+                       [&](td::Slice arg) {
+                         ton::BlockIdExt block_id;
+                         if (block::parse_block_id_ext(arg, block_id)) {
+                           LOG(INFO) << "setting previous block to " << block_id.to_str();
+                           td::actor::send_closure(x, &TestNode::set_shard_top_block, block_id);
 
-                   return td::Status::OK();
-                 } else {
-                   return td::Status::Error("cannot parse BlockIdExt");
-                 }
-               });
+                           return td::Status::OK();
+                         } else {
+                           return td::Status::Error("cannot parse BlockIdExt");
+                         }
+                       });
   p.add_option('d', "daemonize", "set SIGHUP", [&]() {
     td::set_signal_handler(td::SignalType::HangUp, [](int sig) {
 #if TD_DARWIN || TD_LINUX
@@ -435,7 +482,6 @@ int main(int argc, char *argv[]) {
       setsid();
 #endif
     }).ensure();
-    return td::Status::OK();
   });
 
   td::actor::Scheduler scheduler({7});

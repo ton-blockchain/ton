@@ -14,13 +14,12 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/utils/Timer.h"
 
 #include "td/utils/format.h"
 #include "td/utils/logging.h"
-//#include  "td/utils/Slice.h"  // TODO move StringBuilder implementation to cpp, remove header
 #include "td/utils/Time.h"
 
 namespace td {
@@ -61,12 +60,12 @@ StringBuilder &operator<<(StringBuilder &string_builder, const Timer &timer) {
   return string_builder << format::as_time(timer.elapsed());
 }
 
-PerfWarningTimer::PerfWarningTimer(string name, double max_duration)
-    : name_(std::move(name)), start_at_(Time::now()), max_duration_(max_duration) {
+PerfWarningTimer::PerfWarningTimer(string name, double max_duration, std::function<void(double)>&& callback)
+    : name_(std::move(name)), start_at_(Time::now()), max_duration_(max_duration), callback_(std::move(callback)) {
 }
 
 PerfWarningTimer::PerfWarningTimer(PerfWarningTimer &&other)
-    : name_(std::move(other.name_)), start_at_(other.start_at_), max_duration_(other.max_duration_) {
+    : name_(std::move(other.name_)), start_at_(other.start_at_), max_duration_(other.max_duration_), callback_(std::move(other.callback_)) {
   other.start_at_ = 0;
 }
 
@@ -79,8 +78,12 @@ void PerfWarningTimer::reset() {
     return;
   }
   double duration = Time::now() - start_at_;
-  LOG_IF(WARNING, duration > max_duration_)
-      << "SLOW: " << tag("name", name_) << tag("duration", format::as_time(duration));
+  if (callback_) {
+    callback_(duration);
+  } else {
+    LOG_IF(WARNING, duration > max_duration_)
+        << "SLOW: " << tag("name", name_) << tag("duration", format::as_time(duration));
+  }
   start_at_ = 0;
 }
 

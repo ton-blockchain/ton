@@ -14,18 +14,28 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
-#include "crypto/vm/db/TonDb.h"  // FIXME
 #include "crypto/vm/stack.hpp"
+#include "crypto/vm/box.hpp"
 #include "crypto/common/bitstring.h"
+
+#include "td/utils/Status.h"
+
+#include "Dictionary.h"
+#include "Continuation.h"
 
 #include <cstdint>
 #include <cstring>
 #include <iostream>
 #include <string>
+
+namespace vm {
+class TonDbImpl;  // from crypto/vm/db/TonDb.h
+using TonDb = std::unique_ptr<TonDbImpl>;
+}  // namespace vm
 
 namespace fift {
 class Dictionary;
@@ -63,32 +73,34 @@ class CharClassifier {
   }
 };
 
-struct IntCtx {
-  vm::Stack stack;
-  int state{0};
+struct ParseCtx {
   int include_depth{0};
   int line_no{0};
   bool need_line{true};
   std::string filename;
   std::string currentd_dir;
   std::istream* input_stream{nullptr};
-  std::ostream* output_stream{nullptr};
-  std::ostream* error_stream{nullptr};
-
-  vm::TonDb* ton_db{nullptr};
-  Dictionary* dictionary{nullptr};
-  SourceLookup* source_lookup{nullptr};
-  int* now{nullptr};
+  std::unique_ptr<std::istream> input_stream_holder;
+  std::string word;
 
  private:
   std::string str;
-  const char* input_ptr;
+  const char* input_ptr = nullptr;
 
  public:
-  IntCtx() = default;
-
-  operator vm::Stack&() {
-    return stack;
+  ParseCtx() = default;
+  ParseCtx(std::istream& _istream, std::string _filename, std::string _curdir = "", int _depth = 0)
+      : include_depth(_depth)
+      , filename(std::move(_filename))
+      , currentd_dir(std::move(_curdir))
+      , input_stream(&_istream) {
+  }
+  ParseCtx(std::unique_ptr<std::istream> _istream_ptr, std::string _filename, std::string _curdir = "", int _depth = 0)
+      : include_depth(_depth)
+      , filename(std::move(_filename))
+      , currentd_dir(std::move(_curdir))
+      , input_stream(_istream_ptr.get())
+      , input_stream_holder(std::move(_istream_ptr)) {
   }
 
   td::Slice scan_word_to(char delim, bool err_endl = true);
@@ -123,31 +135,79 @@ struct IntCtx {
 
   bool is_sb() const;
 
+  std::ostream& show_context(std::ostream& os) const;
+};
+
+struct IntCtx {
+  vm::Stack stack;
+  Ref<FiftCont> next, exc_handler;
+  Ref<FiftCont> exc_cont, exc_next;
+  int state{0};
+  int exit_code{0};
+  td::Status error;
+
+  std::unique_ptr<ParseCtx> parser;
+  std::vector<std::unique_ptr<ParseCtx>> parser_save_stack;
+
+  std::ostream* output_stream{nullptr};  // move to OutCtx?
+  std::ostream* error_stream{nullptr};
+
+  vm::TonDb* ton_db{nullptr};
+  SourceLookup* source_lookup{nullptr};
+  int* now{nullptr};
+
+  Dictionary dictionary, main_dictionary, context;
+
+ public:
+  IntCtx() = default;
+  IntCtx(std::istream& _istream, std::string _filename, std::string _curdir = "", int _depth = 0) {
+    parser = std::make_unique<ParseCtx>(_istream, _filename, _curdir, _depth);
+  }
+  IntCtx(std::unique_ptr<std::istream> _istream, std::string _filename, std::string _curdir = "", int _depth = 0) {
+    parser = std::make_unique<ParseCtx>(std::move(_istream), _filename, _curdir, _depth);
+  }
+
+  bool enter_ctx(std::unique_ptr<ParseCtx> new_ctx);
+  bool enter_ctx(std::string new_filename, std::string new_current_dir, std::unique_ptr<std::istream> new_input_stream);
+  bool leave_ctx();
+  bool top_ctx();
+  int include_depth() const {
+    return parser ? parser->include_depth : -1;
+  }
+
+  operator vm::Stack &() {
+    return stack;
+  }
+
   void clear() {
     state = 0;
     stack.clear();
   }
-  class Savepoint {
-    IntCtx& ctx;
-    int old_line_no;
-    bool old_need_line;
-    std::string old_filename;
-    std::string old_current_dir;
-    std::istream* old_input_stream;
-    std::string old_curline;
-    std::ptrdiff_t old_curpos;
 
-   public:
-    Savepoint(IntCtx& _ctx, std::string new_filename, std::string new_current_dir, std::istream* new_input_stream);
-    ~Savepoint();
-  };
+  void check_compile() const;
+  void check_execute() const;
+  void check_not_int_exec() const;
+  void check_int_exec() const;
+
+  bool print_error_backtrace(std::ostream& os) const;
+  bool print_backtrace(std::ostream& os, Ref<FiftCont> cont) const;
+
+  td::Status add_error_loc(td::Status err) const;
+
+  void set_exit_code(int err_code) {
+    exit_code = err_code;
+  }
+  int get_exit_code() const {
+    return exit_code;
+  }
+
+  void clear_error();
+  td::Result<int> get_result();
+
+  Ref<FiftCont> throw_exception(td::Status err, Ref<FiftCont> cur = {});
+  td::Result<int> run(Ref<FiftCont> cont);
 };
 
-void check_compile(const IntCtx& ctx);
-void check_execute(const IntCtx& ctx);
-void check_not_int_exec(const IntCtx& ctx);
-void check_int_exec(const IntCtx& ctx);
-
-td::StringBuilder& operator<<(td::StringBuilder& os, const IntCtx& ctx);
-std::ostream& operator<<(std::ostream& os, const IntCtx& ctx);
+td::StringBuilder& operator<<(td::StringBuilder& os, const ParseCtx& ctx);
+std::ostream& operator<<(std::ostream& os, const ParseCtx& ctx);
 }  // namespace fift

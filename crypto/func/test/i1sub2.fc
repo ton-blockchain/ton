@@ -1,0 +1,10 @@
+;; DO NOT COMPILE DIRECTLY!
+;; Compile i1.fc
+
+#include "./i1sub1.fc";
+
+() sub2() impure {
+  sub1();
+  sub0();
+  i = 2;
+}

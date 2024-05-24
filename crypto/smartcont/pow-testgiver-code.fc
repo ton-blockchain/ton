@@ -1,0 +1,158 @@
+;; Advanced TestGiver smart contract with Proof-of-Work verification
+
+int ufits(int x, int bits) impure asm "UFITSX";
+
+() recv_internal(slice in_msg) impure {
+  ;; do nothing for internal messages
+}
+
+() check_proof_of_work(slice cs) impure inline_ref {
+  var hash = slice_hash(cs);
+  var ds = get_data().begin_parse();
+  var (stored_seqno_sw, public_key, seed, pow_complexity) = (ds~load_uint(64), ds~load_uint(256), ds~load_uint(128), ds~load_uint(256));
+  throw_unless(24, hash < pow_complexity);  ;; hash problem NOT solved
+  var (op, flags, expire, whom, rdata1, rseed, rdata2) = (cs~load_uint(32), cs~load_int(8), cs~load_uint(32), cs~load_uint(256), cs~load_uint(256), cs~load_uint(128), cs~load_uint(256));
+  cs.end_parse();
+  ufits(expire - now(), 10);
+  throw_unless(25, (rseed == seed) & (rdata1 == rdata2));
+  ;; Proof of Work correct
+  accept_message();
+  randomize_lt();
+  randomize(rdata1);
+  var (last_success, xdata) = (ds~load_uint(32), ds~load_ref());
+  ds.end_parse();
+  ds = xdata.begin_parse();
+  var (amount, target_delta, min_cpl, max_cpl) = (ds~load_grams(), ds~load_uint(32), ds~load_uint(8), ds~load_uint(8));
+  ds.end_parse();
+  ;; recompute complexity
+  int delta = now() - last_success;
+  if (delta > 0) {
+    int factor = muldivr(delta, 1 << 128, target_delta);
+    factor = min(max(factor, 7 << 125), 9 << 125);  ;; factor must be in range 7/8 .. 9/8
+    pow_complexity = muldivr(pow_complexity, factor, 1 << 128);  ;; rescale complexity
+    pow_complexity = min(max(pow_complexity, 1 << min_cpl), 1 << max_cpl);
+  }
+  ;; update data
+  set_data(begin_cell()
+    .store_uint(stored_seqno_sw, 64)
+    .store_uint(public_key, 256)
+    .store_uint(random() >> 128, 128)  ;; new seed
+    .store_uint(pow_complexity, 256)
+    .store_uint(now(), 32)   ;; new last_success
+    .store_ref(xdata)
+    .end_cell());
+  commit();
+  ;; create outbound message
+  send_raw_message(begin_cell()
+    .store_uint(((flags & 1) << 6) | 0x84, 9)
+    .store_int(flags >> 2, 8)
+    .store_uint(whom, 256)
+    .store_grams(amount)
+    .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+  .end_cell(), 3);
+}
+
+() rescale_complexity(slice cs) impure inline_ref {
+  var (op, expire) = (cs~load_uint(32), cs~load_uint(32));
+  cs.end_parse();
+  int time = now();
+  throw_unless(28, time > expire);
+  var ds = get_data().begin_parse();
+  var (skipped_data, pow_complexity, last_success, xdata) = (ds~load_bits(64 + 256 + 128), ds~load_uint(256), ds~load_uint(32), ds~load_ref());
+  ds.end_parse();
+  throw_unless(29, expire > last_success);
+  ds = xdata.begin_parse();
+  var (amount, target_delta) = (ds~load_grams(), ds~load_uint(32));
+  int delta = time - last_success;
+  throw_unless(30, delta >= target_delta * 16);
+  accept_message();
+  var (min_cpl, max_cpl) = (ds~load_uint(8), ds~load_uint(8));
+  ds.end_parse();
+  int factor = muldivr(delta, 1 << 128, target_delta);
+  int max_complexity = (1 << max_cpl);
+  int max_factor = muldiv(max_complexity, 1 << 128, pow_complexity);
+  pow_complexity = (max_factor < factor ? max_complexity : muldivr(pow_complexity, factor, 1 << 128));
+  last_success = time - target_delta;
+  set_data(begin_cell()
+    .store_slice(skipped_data)
+    .store_uint(pow_complexity, 256)
+    .store_uint(last_success, 32)   ;; new last_success
+    .store_ref(xdata)
+    .end_cell());
+}
+
+(slice, ()) ~update_params(slice ds, cell pref) inline_ref {
+  var cs = pref.begin_parse();
+  var reset_cpl = cs~load_uint(8);
+  var (seed, pow_complexity, last_success) = (ds~load_uint(128), ds~load_uint(256), ds~load_uint(32));
+  if (reset_cpl) {
+    randomize(seed);
+    pow_complexity = (1 << reset_cpl);
+    seed = (random() >> 128);
+  }
+  var c = begin_cell()
+    .store_uint(seed, 128)
+    .store_uint(pow_complexity, 256)
+    .store_uint(now(), 32)
+    .store_ref(begin_cell().store_slice(cs).end_cell())
+    .end_cell();
+  return (begin_parse(c), ());
+}
+
+() recv_external(slice in_msg) impure {
+  var op = in_msg.preload_uint(32);
+  if (op == 0x4d696e65) {
+    ;; Mine = Obtain test grams by presenting valid proof of work
+    return check_proof_of_work(in_msg);
+  }
+  if (op == 0x5253636c) {
+    ;; RScl = Rescale complexity if no success for long time
+    return rescale_complexity(in_msg);
+  }
+  var signature = in_msg~load_bits(512);
+  var cs = in_msg;
+  var (subwallet_id, valid_until, msg_seqno) = (cs~load_uint(32), cs~load_uint(32), cs~load_uint(32));
+  throw_if(35, valid_until <= now());
+  var ds = get_data().begin_parse();
+  var (stored_seqno, stored_subwallet, public_key) = (ds~load_uint(32), ds~load_uint(32), ds~load_uint(256));
+  throw_unless(33, msg_seqno == stored_seqno);
+  throw_unless(34, (subwallet_id == stored_subwallet) | (subwallet_id == 0));
+  throw_unless(35, check_signature(slice_hash(in_msg), signature, public_key));
+  accept_message();
+  cs~touch();
+  while (cs.slice_refs()) {
+    var ref = cs~load_ref();
+    var mode = cs~load_uint(8);
+    if (mode < 0xff) {
+      send_raw_message(ref, mode);
+    } else {
+      ds~update_params(ref);
+    }
+  }
+  set_data(begin_cell()
+    .store_uint(stored_seqno + 1, 32)
+    .store_uint(stored_subwallet, 32)
+    .store_uint(public_key, 256)
+    .store_slice(ds)
+    .end_cell());
+}
+
+;; Get methods
+
+int seqno() method_id {
+  return get_data().begin_parse().preload_uint(32);
+}
+
+;; gets (seed, pow_complexity, amount, interval)
+(int, int, int, int) get_pow_params() method_id {
+  var ds = get_data().begin_parse().skip_bits(32 + 32 + 256);
+  var (seed, pow_complexity, xdata) = (ds~load_uint(128), ds~load_uint(256), ds.preload_ref());
+  ds = xdata.begin_parse();
+  return (seed, pow_complexity, ds~load_grams(), ds.preload_uint(32));
+}
+
+int get_public_key() method_id {
+  var ds = get_data().begin_parse();
+  ds~load_uint(32 + 32);
+  return ds.preload_uint(256);
+}

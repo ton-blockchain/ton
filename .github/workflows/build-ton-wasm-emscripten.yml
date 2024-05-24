@@ -1,0 +1,30 @@
+name: Emscripten TON build (wasm)
+
+on: [push,workflow_dispatch,workflow_call]
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Check out repository
+      uses: actions/checkout@v3
+      with:
+        submodules: 'recursive'
+
+    - name: Install system libraries
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential git openssl cmake ninja-build zlib1g-dev libssl-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev liblz4-dev
+
+    - name: Build TON WASM artifacts
+      run: |
+        cd assembly/wasm
+        chmod +x fift-func-wasm-build-ubuntu.sh
+        ./fift-func-wasm-build-ubuntu.sh -a
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@master
+      with:
+        name: ton-wasm-binaries
+        path: artifacts

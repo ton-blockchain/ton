@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "vm/cells/MerkleProof.h"
 #include "vm/cells/CellBuilder.h"
@@ -39,7 +39,13 @@ class MerkleProofImpl {
       dfs_usage_tree(cell, usage_tree_->root_id());
       is_prunned_ = [this](const Ref<Cell> &cell) { return visited_cells_.count(cell->get_hash()) == 0; };
     }
-    return dfs(cell, cell->get_level());
+    try {
+      return dfs(cell, cell->get_level());
+    } catch (CellBuilder::CellWriteError &) {
+      return {};
+    } catch (CellBuilder::CellCreateError &) {
+      return {};
+    }
   }
 
  private:
@@ -119,6 +125,9 @@ Ref<Cell> MerkleProof::generate(Ref<Cell> cell, CellUsageTree *usage_tree) {
     return {};
   }
   auto raw = generate_raw(std::move(cell), usage_tree);
+  if (raw.is_null()) {
+    return {};
+  }
   return CellBuilder::create_merkle_proof(std::move(raw));
 }
 
@@ -148,6 +157,11 @@ class MerkleProofCombineFast {
   MerkleProofCombineFast(Ref<Cell> a, Ref<Cell> b) : a_(std::move(a)), b_(std::move(b)) {
   }
   td::Result<Ref<Cell>> run() {
+    if (a_.is_null()) {
+      return b_;
+    } else if (b_.is_null()) {
+      return a_;
+    }
     TRY_RESULT_ASSIGN(a_, unpack_proof(a_));
     TRY_RESULT_ASSIGN(b_, unpack_proof(b_));
     TRY_RESULT(res, run_raw());
@@ -204,6 +218,11 @@ class MerkleProofCombine {
   MerkleProofCombine(Ref<Cell> a, Ref<Cell> b) : a_(std::move(a)), b_(std::move(b)) {
   }
   td::Result<Ref<Cell>> run() {
+    if (a_.is_null()) {
+      return b_;
+    } else if (b_.is_null()) {
+      return a_;
+    }
     TRY_RESULT_ASSIGN(a_, unpack_proof(a_));
     TRY_RESULT_ASSIGN(b_, unpack_proof(b_));
     TRY_RESULT(res, run_raw());
@@ -323,12 +342,20 @@ Ref<Cell> MerkleProof::combine(Ref<Cell> a, Ref<Cell> b) {
   return res.move_as_ok();
 }
 
+td::Result<Ref<Cell>> MerkleProof::combine_status(Ref<Cell> a, Ref<Cell> b) {
+  return MerkleProofCombine(std::move(a), std::move(b)).run();
+}
+
 Ref<Cell> MerkleProof::combine_fast(Ref<Cell> a, Ref<Cell> b) {
   auto res = MerkleProofCombineFast(std::move(a), std::move(b)).run();
   if (res.is_error()) {
     return {};
   }
   return res.move_as_ok();
+}
+
+td::Result<Ref<Cell>> MerkleProof::combine_fast_status(Ref<Cell> a, Ref<Cell> b) {
+  return MerkleProofCombineFast(std::move(a), std::move(b)).run();
 }
 
 Ref<Cell> MerkleProof::combine_raw(Ref<Cell> a, Ref<Cell> b) {
@@ -366,21 +393,29 @@ bool MerkleProofBuilder::clear() {
   return true;
 }
 
-Ref<Cell> MerkleProofBuilder::extract_proof() const {
-  return MerkleProof::generate(orig_root, usage_tree.get());
+td::Result<Ref<Cell>> MerkleProofBuilder::extract_proof() const {
+  Ref<Cell> proof = MerkleProof::generate(orig_root, usage_tree.get());
+  if (proof.is_null()) {
+    return td::Status::Error("cannot create Merkle proof");
+  }
+  return proof;
 }
 
 bool MerkleProofBuilder::extract_proof_to(Ref<Cell> &proof_root) const {
-  return orig_root.not_null() && (proof_root = extract_proof()).not_null();
+  if (orig_root.is_null()) {
+    return false;
+  }
+  auto R = extract_proof();
+  if (R.is_error()) {
+    return false;
+  }
+  proof_root = R.move_as_ok();
+  return true;
 }
 
 td::Result<td::BufferSlice> MerkleProofBuilder::extract_proof_boc() const {
-  Ref<Cell> proof_root = extract_proof();
-  if (proof_root.is_null()) {
-    return td::Status::Error("cannot create Merkle proof");
-  } else {
-    return std_boc_serialize(std::move(proof_root));
-  }
+  TRY_RESULT(proof_root, extract_proof());
+  return std_boc_serialize(std::move(proof_root));
 }
 
 }  // namespace vm

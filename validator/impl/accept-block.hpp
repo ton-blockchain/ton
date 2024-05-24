@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -126,7 +126,7 @@ class AcceptBlockQuery : public td::actor::Actor {
   td::BufferSlice top_block_descr_data_;
   Ref<ShardTopBlockDescription> top_block_descr_;
 
-  td::PerfWarningTimer perf_timer_{"acceptblock", 0.1};
+  td::PerfWarningTimer perf_timer_;
 
   bool fatal_error(std::string msg, int code = -666);
   static bool check_send_error(td::actor::ActorId<AcceptBlockQuery> SelfId, td::Status error);

@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "common/refint.h"
 #include <utility>
@@ -38,6 +38,11 @@ RefInt256 operator+(RefInt256 x, long long y) {
   return x;
 }
 
+RefInt256 operator+(RefInt256 x, const BigInt256& y) {
+  (x.write() += y).normalize();
+  return x;
+}
+
 RefInt256 operator-(RefInt256 x, RefInt256 y) {
   (x.write() -= *y).normalize();
   return x;
@@ -45,6 +50,11 @@ RefInt256 operator-(RefInt256 x, RefInt256 y) {
 
 RefInt256 operator-(RefInt256 x, long long y) {
   x.write().add_tiny(-y).normalize();
+  return x;
+}
+
+RefInt256 operator-(RefInt256 x, const BigInt256& y) {
+  (x.write() -= y).normalize();
   return x;
 }
 
@@ -67,6 +77,12 @@ RefInt256 operator*(RefInt256 x, RefInt256 y) {
 RefInt256 operator*(RefInt256 x, long long y) {
   x.write().mul_short_opt(y).normalize();
   return x;
+}
+
+RefInt256 operator*(RefInt256 x, const BigInt256& y) {
+  RefInt256 z{true, 0};
+  z.write().add_mul(*x, y).normalize();
+  return z;
 }
 
 RefInt256 operator/(RefInt256 x, RefInt256 y) {
@@ -100,6 +116,22 @@ std::pair<RefInt256, RefInt256> divmod(RefInt256 x, RefInt256 y, int round_mode)
   x.write().mod_div(*y, quot.write(), round_mode);
   quot.write().normalize();
   return std::make_pair(std::move(quot), std::move(x));
+}
+
+RefInt256 muldiv(RefInt256 x, RefInt256 y, RefInt256 z, int round_mode) {
+  typename td::BigInt256::DoubleInt tmp{0};
+  tmp.add_mul(*x, *y);
+  RefInt256 quot{true};
+  tmp.mod_div(*z, quot.unique_write(), round_mode);
+  quot.write().normalize();
+  return quot;
+}
+
+std::pair<RefInt256, RefInt256> muldivmod(RefInt256 x, RefInt256 y, RefInt256 z, int round_mode) {
+  typename td::BigInt256::DoubleInt tmp{0}, quot;
+  tmp.add_mul(*x, *y);
+  tmp.mod_div(*z, quot, round_mode);
+  return std::make_pair(td::make_refint(quot.normalize()), td::make_refint(tmp));
 }
 
 RefInt256 operator&(RefInt256 x, RefInt256 y) {
@@ -142,6 +174,11 @@ RefInt256& operator+=(RefInt256& x, long long y) {
   return x;
 }
 
+RefInt256& operator+=(RefInt256& x, const BigInt256& y) {
+  (x.write() += y).normalize();
+  return x;
+}
+
 RefInt256& operator-=(RefInt256& x, RefInt256 y) {
   (x.write() -= *y).normalize();
   return x;
@@ -149,6 +186,11 @@ RefInt256& operator-=(RefInt256& x, RefInt256 y) {
 
 RefInt256& operator-=(RefInt256& x, long long y) {
   x.write().add_tiny(-y).normalize();
+  return x;
+}
+
+RefInt256& operator-=(RefInt256& x, const BigInt256& y) {
+  (x.write() -= y).normalize();
   return x;
 }
 
@@ -161,6 +203,12 @@ RefInt256& operator*=(RefInt256& x, RefInt256 y) {
 RefInt256& operator*=(RefInt256& x, long long y) {
   x.write().mul_short_opt(y).normalize();
   return x;
+}
+
+RefInt256& operator*=(RefInt256& x, const BigInt256& y) {
+  RefInt256 z{true, 0};
+  z.write().add_mul(*x, y).normalize();
+  return x = z;
 }
 
 RefInt256& operator/=(RefInt256& x, RefInt256 y) {
@@ -213,10 +261,16 @@ int sgn(RefInt256 x) {
   return x->sgn();
 }
 
-extern RefInt256 make_refint(long long x) {
-  auto xx = td::RefInt256{true, x};
-  xx.unique_write().normalize();
-  return xx;
+RefInt256 zero_refint() {
+  //  static RefInt256 Zero = td::RefInt256{true, 0};
+  //  return Zero;
+  return td::RefInt256{true, 0};
+}
+
+RefInt256 bits_to_refint(td::ConstBitPtr bits, int n, bool sgnd) {
+  td::RefInt256 x{true};
+  x.unique_write().import_bits(bits, n, sgnd);
+  return x;
 }
 
 std::string dec_string(RefInt256 x) {
@@ -227,8 +281,8 @@ std::string dec_string2(RefInt256&& x) {
   return x.is_null() ? "(null)" : (x.is_unique() ? x.unique_write().to_dec_string_destroy() : x->to_dec_string());
 }
 
-std::string hex_string(RefInt256 x, bool upcase) {
-  return x.is_null() ? "(null)" : x->to_hex_string(upcase);
+std::string hex_string(RefInt256 x, bool upcase, int zero_pad) {
+  return x.is_null() ? "(null)" : x->to_hex_string(upcase, zero_pad);
 }
 
 std::string binary_string(RefInt256 x) {

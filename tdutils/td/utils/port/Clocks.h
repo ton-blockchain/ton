@@ -14,27 +14,18 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
 namespace td {
 
-class ClocksBase {
- public:
-  using Duration = double;
+struct Clocks {
+  static double monotonic();
+
+  static double system();
+
+  static int tz_offset();
 };
-
-// TODO: (maybe) write system specific functions.
-class ClocksDefault {
- public:
-  using Duration = ClocksBase::Duration;
-
-  static Duration monotonic();
-
-  static Duration system();
-};
-
-using Clocks = ClocksDefault;
 
 }  // namespace td

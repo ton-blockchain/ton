@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -36,6 +36,15 @@ inline size_t utf8_length(Slice str) {
   size_t result = 0;
   for (auto c : str) {
     result += is_utf8_character_first_code_unit(c);
+  }
+  return result;
+}
+
+/// returns length of UTF-8 string in UTF-16 code units
+inline size_t utf8_utf16_length(Slice str) {
+  size_t result = 0;
+  for (auto c : str) {
+    result += is_utf8_character_first_code_unit(c) + ((c & 0xf8) == 0xf0);
   }
   return result;
 }
@@ -92,6 +101,9 @@ T utf8_utf16_truncate(T str, size_t length) {
 
 template <class T>
 T utf8_substr(T str, size_t offset) {
+  if (offset == 0) {
+    return str;
+  }
   auto offset_pos = utf8_truncate(str, offset).size();
   return str.substr(offset_pos);
 }
@@ -103,6 +115,9 @@ T utf8_substr(T str, size_t offset, size_t length) {
 
 template <class T>
 T utf8_utf16_substr(T str, size_t offset) {
+  if (offset == 0) {
+    return str;
+  }
   auto offset_pos = utf8_utf16_truncate(str, offset).size();
   return str.substr(offset_pos);
 }

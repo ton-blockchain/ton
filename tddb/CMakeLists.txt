@@ -1,13 +1,8 @@
-cmake_minimum_required(VERSION 3.0.2 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
 
 #SOURCE SETS
-set(TDDB_SOURCE
-  td/db/MemoryKeyValue.cpp
-
-  td/db/KeyValue.h
-  td/db/KeyValueAsync.h
-  td/db/MemoryKeyValue.h
-
+set(TDDB_UTILS_SOURCE
+  td/db/utils/BlobView.cpp
   td/db/utils/ChainBuffer.cpp
   td/db/utils/CyclicBuffer.cpp
   td/db/utils/FileSyncState.cpp
@@ -15,12 +10,21 @@ set(TDDB_SOURCE
   td/db/utils/StreamToFileActor.cpp
   td/db/utils/FileToStreamActor.cpp
 
+  td/db/utils/BlobView.h
   td/db/utils/ChainBuffer.h
   td/db/utils/CyclicBuffer.h
   td/db/utils/FileSyncState.h
   td/db/utils/StreamInterface.h
   td/db/utils/StreamToFileActor.h
   td/db/utils/FileToStreamActor.h
+)
+
+set(TDDB_SOURCE
+  td/db/MemoryKeyValue.cpp
+
+  td/db/KeyValue.h
+  td/db/KeyValueAsync.h
+  td/db/MemoryKeyValue.h
 
   td/db/binlog/Binlog.cpp
   td/db/binlog/BinlogReaderHelper.cpp
@@ -44,10 +48,13 @@ set(TDDB_TEST_SOURCE
 #RULES
 
 #LIBRARIES
+add_library(tddb_utils STATIC ${TDDB_UTILS_SOURCE})
+target_include_directories(tddb_utils PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
+target_link_libraries(tddb_utils PUBLIC tdutils tdactor)
 
 add_library(tddb STATIC ${TDDB_SOURCE})
 target_include_directories(tddb PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
-target_link_libraries(tddb PUBLIC tdutils tdactor)
+target_link_libraries(tddb PUBLIC tdutils tdactor tddb_utils)
 
 if (TDDB_USE_ROCKSDB)
   target_sources(tddb PRIVATE ${TDDB_ROCKSDB_SOURCE})
@@ -63,7 +70,7 @@ target_link_libraries(io-bench tdutils tdactor tddb)
 #add_subdirectory(benchmark)
 
 # END-INTERNAL
-install(TARGETS tddb EXPORT TdTargets
+install(TARGETS tddb tddb_utils EXPORT TdTargets
   LIBRARY DESTINATION lib
   ARCHIVE DESTINATION lib
   RUNTIME DESTINATION bin

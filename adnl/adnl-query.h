@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -48,6 +48,7 @@ class AdnlQuery : public td::actor::Actor {
   }
   void alarm() override;
   void result(td::BufferSlice data);
+  void set_error(td::Status error);
   void start_up() override {
     alarm_timestamp() = timeout_;
   }

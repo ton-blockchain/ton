@@ -14,126 +14,69 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "Dictionary.h"
+#include "IntCtx.h"
 
 namespace fift {
 
 //
-// WordDef
+// DictEntry
 //
-void WordDef::run(IntCtx& ctx) const {
-  auto next = run_tail(ctx);
-  while (next.not_null()) {
-    next = next->run_tail(ctx);
+
+DictEntry::DictEntry(StackWordFunc func) : def(Ref<StackWord>{true, std::move(func)}), active(false) {
+}
+
+DictEntry::DictEntry(CtxWordFunc func, bool _act) : def(Ref<CtxWord>{true, std::move(func)}), active(_act) {
+}
+
+DictEntry::DictEntry(CtxTailWordFunc func, bool _act) : def(Ref<CtxTailWord>{true, std::move(func)}), active(_act) {
+}
+
+DictEntry DictEntry::create_from(vm::StackEntry se) {
+  if (se.is_tuple()) {
+    auto& tuple = *se.as_tuple();
+    if (tuple.size() == 1) {
+      auto def = tuple[0].as_object<FiftCont>();
+      if (def.not_null()) {
+        return DictEntry{std::move(def), true};
+      }
+    }
+  } else {
+    auto def = std::move(se).as_object<FiftCont>();
+    if (def.not_null()) {
+      return DictEntry{std::move(def)};
+    }
   }
-}
-
-//
-// StackWord
-//
-Ref<WordDef> StackWord::run_tail(IntCtx& ctx) const {
-  f(ctx.stack);
   return {};
 }
 
-//
-// CtxWord
-//
-Ref<WordDef> CtxWord::run_tail(IntCtx& ctx) const {
-  f(ctx);
-  return {};
-}
-
-//
-// CtxTailWord
-//
-Ref<WordDef> CtxTailWord::run_tail(IntCtx& ctx) const {
-  return f(ctx);
-}
-
-//
-// WordList
-//
-WordList::WordList(std::vector<Ref<WordDef>>&& _list) : list(std::move(_list)) {
-}
-
-WordList::WordList(const std::vector<Ref<WordDef>>& _list) : list(_list) {
-}
-
-WordList& WordList::push_back(Ref<WordDef> word_def) {
-  list.push_back(std::move(word_def));
-  return *this;
-}
-
-WordList& WordList::push_back(WordDef& wd) {
-  list.emplace_back(&wd);
-  return *this;
-}
-
-Ref<WordDef> WordList::run_tail(IntCtx& ctx) const {
-  if (list.empty()) {
+DictEntry::operator vm::StackEntry() const& {
+  if (def.is_null()) {
     return {};
+  } else if (active) {
+    return vm::make_tuple_ref(vm::StackEntry{vm::from_object, def});
+  } else {
+    return {vm::from_object, def};
   }
-  auto it = list.cbegin(), it2 = list.cend() - 1;
-  while (it < it2) {
-    (*it)->run(ctx);
-    ++it;
+}
+
+DictEntry::operator vm::StackEntry() && {
+  if (def.is_null()) {
+    return {};
+  } else if (active) {
+    return vm::make_tuple_ref(vm::StackEntry{vm::from_object, std::move(def)});
+  } else {
+    return {vm::from_object, std::move(def)};
   }
-  return *it;
-}
-
-void WordList::close() {
-  list.shrink_to_fit();
-}
-
-WordList& WordList::append(const std::vector<Ref<WordDef>>& other) {
-  list.insert(list.end(), other.begin(), other.end());
-  return *this;
-}
-
-//
-// WordRef
-//
-
-WordRef::WordRef(Ref<WordDef> _def, bool _act) : def(std::move(_def)), active(_act) {
-}
-
-WordRef::WordRef(StackWordFunc func) : def(Ref<StackWord>{true, std::move(func)}), active(false) {
-}
-
-WordRef::WordRef(CtxWordFunc func, bool _act) : def(Ref<CtxWord>{true, std::move(func)}), active(_act) {
-}
-
-WordRef::WordRef(CtxTailWordFunc func, bool _act) : def(Ref<CtxTailWord>{true, std::move(func)}), active(_act) {
-}
-
-Ref<WordDef> WordRef::get_def() const & {
-  return def;
-}
-
-Ref<WordDef> WordRef::get_def() && {
-  return std::move(def);
-}
-
-void WordRef::operator()(IntCtx& ctx) const {
-  def->run(ctx);
-}
-
-bool WordRef::is_active() const {
-  return active;
 }
 
 //
 // Dictionary
 //
-WordRef* Dictionary::lookup(td::Slice name) {
-  auto it = words_.find(name);
-  if (it == words_.end()) {
-    return nullptr;
-  }
-  return &it->second;
+DictEntry Dictionary::lookup(std::string name) const {
+  return DictEntry::create_from(words().get(name));
 }
 
 void Dictionary::def_ctx_word(std::string name, CtxWordFunc func) {
@@ -141,7 +84,7 @@ void Dictionary::def_ctx_word(std::string name, CtxWordFunc func) {
 }
 
 void Dictionary::def_active_word(std::string name, CtxWordFunc func) {
-  Ref<WordDef> wdef = Ref<CtxWord>{true, std::move(func)};
+  Ref<FiftCont> wdef = Ref<CtxWord>{true, std::move(func)};
   def_word(std::move(name), {std::move(wdef), true});
 }
 
@@ -153,48 +96,33 @@ void Dictionary::def_ctx_tail_word(std::string name, CtxTailWordFunc func) {
   def_word(std::move(name), std::move(func));
 }
 
-void Dictionary::def_word(std::string name, WordRef word) {
-  auto res = words_.emplace(name, std::move(word));
-  LOG_IF(FATAL, !res.second) << "Cannot redefine word: " << name;
+void Dictionary::def_word(std::string name, DictEntry word) {
+  auto dict = words();
+  dict.set(std::move(name), vm::StackEntry(std::move(word)));
+  set_words(dict);
 }
 
-void Dictionary::undef_word(td::Slice name) {
-  auto it = words_.find(name);
-  if (it == words_.end()) {
-    return;
+void Dictionary::undef_word(std::string name) {
+  auto dict = words();
+  if (dict.remove(name)) {
+    set_words(dict);
   }
-  words_.erase(it);
 }
 
-void interpret_nop(vm::Stack& stack) {
-}
-
-Ref<WordDef> Dictionary::nop_word_def = Ref<StackWord>{true, interpret_nop};
-
-//
-// functions for wordef
-//
-Ref<WordDef> pop_exec_token(vm::Stack& stack) {
-  stack.check_underflow(1);
-  auto wd_ref = stack.pop().as_object<WordDef>();
-  if (wd_ref.is_null()) {
-    throw IntError{"execution token expected"};
+bool Dictionary::lookup_def(const FiftCont* cont, std::string* word_ptr) const {
+  if (!cont) {
+    return false;
   }
-  return wd_ref;
-}
-
-Ref<WordList> pop_word_list(vm::Stack& stack) {
-  stack.check_underflow(1);
-  auto wl_ref = stack.pop().as_object<WordList>();
-  if (wl_ref.is_null()) {
-    throw IntError{"word list expected"};
+  for (auto entry : words()) {
+    auto val = DictEntry::create_from(entry.value());
+    if (val.get_def().get() == cont && entry.key().is_string()) {
+      if (word_ptr) {
+        *word_ptr = vm::StackEntry(entry.key()).as_string();
+      }
+      return true;
+    }
   }
-  return wl_ref;
-}
-
-void push_argcount(vm::Stack& stack, int args) {
-  stack.push_smallint(args);
-  stack.push({vm::from_object, Dictionary::nop_word_def});
+  return false;
 }
 
 }  // namespace fift

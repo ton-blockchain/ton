@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 #include "vm/cells/Cell.h"
@@ -34,7 +34,7 @@ class DataCell : public Cell {
     td::bitstring::bits_store_long(dest, depth, depth_bits);
   }
   static td::uint16 load_depth(const td::uint8* src) {
-    return td::bitstring::bits_load_ulong(src, depth_bits) & 0xff;
+    return td::bitstring::bits_load_ulong(src, depth_bits) & 0xffff;
   }
 
  protected:

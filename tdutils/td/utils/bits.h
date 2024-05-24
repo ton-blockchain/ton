@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -57,6 +57,15 @@ inline uint32 lower_bit32(uint32 x) {
 
 inline uint64 lower_bit64(uint64 x) {
   return x & bits_negate64(x);
+}
+
+inline uint64 host_to_big_endian64(uint64 x) {
+  // NB: works only for little-endian systems
+  return bswap64(x);
+}
+inline uint64 big_endian_to_host64(uint64 x) {
+  // NB: works only for little-endian systems
+  return bswap64(x);
 }
 
 //TODO: optimize
@@ -145,7 +154,6 @@ inline int32 count_bits32(uint32 x) {
   x = (x + (x >> 4)) & 0x0F0F0F0F;
   x += x >> 8;
   return (x + (x >> 16)) & 0x3F;
-  //return __popcnt(x);
 }
 
 inline int32 count_bits64(uint64 x) {
@@ -215,11 +223,15 @@ inline uint64 bswap64(uint64 x) {
 }
 
 inline int32 count_bits32(uint32 x) {
-  return _popcnt32(static_cast<int>(x));
+  x -= (x >> 1) & 0x55555555;
+  x = (x & 0x33333333) + ((x >> 2) & 0x33333333);
+  x = (x + (x >> 4)) & 0x0F0F0F0F;
+  x += x >> 8;
+  return (x + (x >> 16)) & 0x3F;
 }
 
 inline int32 count_bits64(uint64 x) {
-  return _popcnt64(static_cast<__int64>(x));
+  return count_bits32(static_cast<uint32>(x >> 32)) + count_bits32(static_cast<uint32>(x));
 }
 
 #else
@@ -269,5 +281,41 @@ inline int32 count_bits64(uint64 x) {
 }
 
 #endif
+
+struct BitsRange {
+  td::uint64 bits{0};
+  mutable td::int32 pos{-1};
+
+  explicit BitsRange(td::uint64 bits = 0) : bits{bits}, pos{-1} {
+  }
+
+  BitsRange begin() const {
+    return *this;
+  }
+
+  BitsRange end() const {
+    return BitsRange{};
+  }
+
+  td::int32 operator*() const {
+    if (pos == -1) {
+      pos = td::count_trailing_zeroes64(bits);
+    }
+    return pos;
+  }
+
+  bool operator!=(const BitsRange &other) const {
+    return bits != other.bits;
+  }
+
+  BitsRange &operator++() {
+    auto i = **this;
+    if (i != 64) {
+      bits ^= 1ull << i;
+    }
+    pos = -1;
+    return *this;
+  }
+};
 
 }  // namespace td

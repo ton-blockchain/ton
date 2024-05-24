@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "rootdb.hpp"
 #include "validator/fabric.h"
@@ -270,10 +270,21 @@ void RootDb::get_block_state(ConstBlockHandle handle, td::Promise<td::Ref<ShardS
   }
 }
 
+void RootDb::get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) {
+  td::actor::send_closure(cell_db_, &CellDb::get_cell_db_reader, std::move(promise));
+}
+
 void RootDb::store_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::BufferSlice state,
                                          td::Promise<td::Unit> promise) {
   td::actor::send_closure(archive_db_, &ArchiveManager::add_persistent_state, block_id, masterchain_block_id,
                           std::move(state), std::move(promise));
+}
+
+void RootDb::store_persistent_state_file_gen(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+                                             std::function<td::Status(td::FileFd&)> write_data,
+                                             td::Promise<td::Unit> promise) {
+  td::actor::send_closure(archive_db_, &ArchiveManager::add_persistent_state_gen, block_id, masterchain_block_id,
+                          std::move(write_data), std::move(promise));
 }
 
 void RootDb::get_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id,
@@ -386,10 +397,10 @@ void RootDb::get_hardforks(td::Promise<std::vector<BlockIdExt>> promise) {
 }
 
 void RootDb::start_up() {
-  cell_db_ = td::actor::create_actor<CellDb>("celldb", actor_id(this), root_path_ + "/celldb/");
+  cell_db_ = td::actor::create_actor<CellDb>("celldb", actor_id(this), root_path_ + "/celldb/", opts_);
   state_db_ = td::actor::create_actor<StateDb>("statedb", actor_id(this), root_path_ + "/state/");
   static_files_db_ = td::actor::create_actor<StaticFilesDb>("staticfilesdb", actor_id(this), root_path_ + "/static/");
-  archive_db_ = td::actor::create_actor<ArchiveManager>("archive", actor_id(this), root_path_);
+  archive_db_ = td::actor::create_actor<ArchiveManager>("archive", actor_id(this), root_path_, opts_);
 }
 
 void RootDb::archive(BlockHandle handle, td::Promise<td::Unit> promise) {
@@ -409,10 +420,13 @@ void RootDb::prepare_stats(td::Promise<std::vector<std::pair<std::string, std::s
   auto merger = StatsMerger::create(std::move(promise));
 }
 
-void RootDb::truncate(td::Ref<MasterchainState> state, td::Promise<td::Unit> promise) {
+void RootDb::truncate(BlockSeqno seqno, ConstBlockHandle handle, td::Promise<td::Unit> promise) {
   td::MultiPromise mp;
   auto ig = mp.init_guard();
   ig.add_promise(std::move(promise));
+
+  td::actor::send_closure(archive_db_, &ArchiveManager::truncate, seqno, handle, ig.get_promise());
+  td::actor::send_closure(state_db_, &StateDb::truncate, seqno, handle, ig.get_promise());
 }
 
 void RootDb::add_key_block_proof(td::Ref<Proof> proof, td::Promise<td::Unit> promise) {
@@ -483,8 +497,8 @@ void RootDb::set_async_mode(bool mode, td::Promise<td::Unit> promise) {
   td::actor::send_closure(archive_db_, &ArchiveManager::set_async_mode, mode, std::move(promise));
 }
 
-void RootDb::run_gc(UnixTime ts) {
-  td::actor::send_closure(archive_db_, &ArchiveManager::run_gc, ts);
+void RootDb::run_gc(UnixTime mc_ts, UnixTime gc_ts, UnixTime archive_ttl) {
+  td::actor::send_closure(archive_db_, &ArchiveManager::run_gc, mc_ts, gc_ts, archive_ttl);
 }
 
 }  // namespace validator

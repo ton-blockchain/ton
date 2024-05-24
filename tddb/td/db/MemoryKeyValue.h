@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 #include "td/db/KeyValue.h"
@@ -28,6 +28,10 @@ class MemoryKeyValue : public KeyValue {
   Status set(Slice key, Slice value) override;
   Status erase(Slice key) override;
   Result<size_t> count(Slice prefix) override;
+
+  Status begin_write_batch() override;
+  Status commit_write_batch() override;
+  Status abort_write_batch() override;
 
   Status begin_transaction() override;
   Status commit_transaction() override;

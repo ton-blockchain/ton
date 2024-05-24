@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -53,11 +53,16 @@ class CatChainReceiverSource {
   virtual void block_received(CatChainBlockHeight height) = 0;
   virtual void block_delivered(CatChainBlockHeight height) = 0;
 
-  virtual td::Status validate_dep_sync(tl_object_ptr<ton_api::catchain_block_dep> &dep) = 0;
+  virtual bool has_unreceived() const = 0;
+  virtual bool has_undelivered() const = 0;
+
   virtual void on_new_block(CatChainReceivedBlock *block) = 0;
-  virtual void on_found_fork_proof(td::Slice fork) = 0;
+  virtual void on_found_fork_proof(const td::Slice &fork) = 0;
   virtual td::BufferSlice fork_proof() const = 0;
   virtual bool fork_is_found() const = 0;
+
+  // One block can be sent to one node only a limited number of times to prevent DoS
+  virtual bool allow_send_block(CatChainBlockHash hash) = 0;
 
   static td::Result<std::unique_ptr<CatChainReceiverSource>> create(CatChainReceiver *chain, PublicKey pub_key,
                                                                     adnl::AdnlNodeIdShort adnl_id, td::uint32 id);

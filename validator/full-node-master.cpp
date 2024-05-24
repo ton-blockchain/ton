@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/utils/SharedSlice.h"
 #include "full-node-master.hpp"
@@ -144,6 +144,35 @@ void FullNodeMasterImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNo
                           create_block_id(query.block_), false, std::move(P));
 }
 
+void FullNodeMasterImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_prepareKeyBlockProof &query,
+                                       td::Promise<td::BufferSlice> promise) {
+  if (query.block_->seqno_ == 0) {
+    promise.set_error(td::Status::Error(ErrorCode::protoviolation, "cannot download proof for zero state"));
+    return;
+  }
+  auto P = td::PromiseCreator::lambda(
+      [allow_partial = query.allow_partial_, promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
+        if (R.is_error()) {
+          auto x = create_serialize_tl_object<ton_api::tonNode_preparedProofEmpty>();
+          promise.set_value(std::move(x));
+        } else if (allow_partial) {
+          auto x = create_serialize_tl_object<ton_api::tonNode_preparedProofLink>();
+          promise.set_value(std::move(x));
+        } else {
+          auto x = create_serialize_tl_object<ton_api::tonNode_preparedProof>();
+          promise.set_value(std::move(x));
+        }
+      });
+
+  if (query.allow_partial_) {
+    td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_key_block_proof_link,
+                            create_block_id(query.block_), std::move(P));
+  } else {
+    td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_key_block_proof,
+                            create_block_id(query.block_), std::move(P));
+  }
+}
+
 void FullNodeMasterImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadBlockProof &query,
                                        td::Promise<td::BufferSlice> promise) {
   auto P = td::PromiseCreator::lambda(
@@ -188,6 +217,42 @@ void FullNodeMasterImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNo
 
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_block_handle,
                           create_block_id(query.block_), false, std::move(P));
+}
+
+void FullNodeMasterImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadKeyBlockProof &query,
+                                       td::Promise<td::BufferSlice> promise) {
+  if (query.block_->seqno_ == 0) {
+    promise.set_error(td::Status::Error(ErrorCode::protoviolation, "cannot download proof for zero state"));
+    return;
+  }
+  auto P = td::PromiseCreator::lambda([promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
+    if (R.is_error()) {
+      promise.set_error(td::Status::Error(ErrorCode::protoviolation, "unknown block proof"));
+    } else {
+      promise.set_value(R.move_as_ok());
+    }
+  });
+
+  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_key_block_proof,
+                          create_block_id(query.block_), std::move(P));
+}
+
+void FullNodeMasterImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadKeyBlockProofLink &query,
+                                       td::Promise<td::BufferSlice> promise) {
+  if (query.block_->seqno_ == 0) {
+    promise.set_error(td::Status::Error(ErrorCode::protoviolation, "cannot download proof for zero state"));
+    return;
+  }
+  auto P = td::PromiseCreator::lambda([promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
+    if (R.is_error()) {
+      promise.set_error(td::Status::Error(ErrorCode::protoviolation, "unknown block proof"));
+    } else {
+      promise.set_value(R.move_as_ok());
+    }
+  });
+
+  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_key_block_proof_link,
+                          create_block_id(query.block_), std::move(P));
 }
 
 void FullNodeMasterImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_prepareZeroState &query,

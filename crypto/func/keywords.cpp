@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "func.h"
 
@@ -46,6 +46,8 @@ void define_keywords() {
       .add_kw_char(';')
       .add_kw_char('(')
       .add_kw_char(')')
+      .add_kw_char('[')
+      .add_kw_char(']')
       .add_kw_char('{')
       .add_kw_char('}')
       .add_kw_char('=')
@@ -95,6 +97,8 @@ void define_keywords() {
       .add_keyword("do", Kw::_Do)
       .add_keyword("while", Kw::_While)
       .add_keyword("until", Kw::_Until)
+      .add_keyword("try", Kw::_Try)
+      .add_keyword("catch", Kw::_Catch)
       .add_keyword("if", Kw::_If)
       .add_keyword("ifnot", Kw::_Ifnot)
       .add_keyword("then", Kw::_Then)
@@ -118,11 +122,16 @@ void define_keywords() {
       .add_keyword("impure", Kw::_Impure)
       .add_keyword("inline", Kw::_Inline)
       .add_keyword("inline_ref", Kw::_InlineRef)
+      .add_keyword("auto_apply", Kw::_AutoApply)
       .add_keyword("method_id", Kw::_MethodId)
       .add_keyword("operator", Kw::_Operator)
       .add_keyword("infix", Kw::_Infix)
       .add_keyword("infixl", Kw::_Infixl)
-      .add_keyword("infixr", Kw::_Infixr);
+      .add_keyword("infixr", Kw::_Infixr)
+      .add_keyword("const", Kw::_Const);
+
+  sym::symbols.add_keyword("#pragma", Kw::_PragmaHashtag)
+      .add_keyword("#include", Kw::_IncludeHashtag);
 }
 
 }  // namespace funC

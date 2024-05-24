@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">tonlib</string>
+    <!-- add your wallet mnemonic word. By default it is wallet.v3 with revision=1 -->
+    <!-- <string name="wallet_mnemonic_words">...</string> -->
 </resources>

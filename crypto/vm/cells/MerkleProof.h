@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 #include "vm/cells/Cell.h"
@@ -38,7 +38,9 @@ class MerkleProof {
   static Ref<Cell> virtualize(Ref<Cell> cell, int virtualization);
 
   static Ref<Cell> combine(Ref<Cell> a, Ref<Cell> b);
+  static td::Result<Ref<Cell>> combine_status(Ref<Cell> a, Ref<Cell> b);
   static Ref<Cell> combine_fast(Ref<Cell> a, Ref<Cell> b);
+  static td::Result<Ref<Cell>> combine_fast_status(Ref<Cell> a, Ref<Cell> b);
 
   // works with upwrapped proofs
   // works fine with cell of non-zero level, but this is not supported (yet?) in MerkeProof special cell
@@ -61,7 +63,7 @@ class MerkleProofBuilder {
   Ref<Cell> root() const {
     return usage_root;
   }
-  Ref<Cell> extract_proof() const;
+  td::Result<Ref<Cell>> extract_proof() const;
   bool extract_proof_to(Ref<Cell> &proof_root) const;
   td::Result<td::BufferSlice> extract_proof_boc() const;
 };

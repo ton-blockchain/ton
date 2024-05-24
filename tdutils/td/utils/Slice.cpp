@@ -14,9 +14,11 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
+
 #include "td/utils/Slice.h"
+
 #if TD_HAVE_OPENSSL
 #include <openssl/crypto.h>
 #endif
@@ -26,16 +28,18 @@ namespace td {
 void MutableSlice::fill(char c) {
   std::memset(data(), c, size());
 }
+
 void MutableSlice::fill_zero() {
-  fill(0);
+  fill('\0');
 }
+
 void MutableSlice::fill_zero_secure() {
 #if TD_HAVE_OPENSSL
   OPENSSL_cleanse(begin(), size());
 #else
   volatile char *ptr = begin();
   for (size_t i = 0; i < size(); i++) {
-    ptr[i] = 0;
+    ptr[i] = '\0';
   }
 #endif
 }

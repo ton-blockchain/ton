@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "func.h"
 
@@ -27,10 +27,14 @@ using namespace std::literals::string_literals;
  * 
  */
 
-int glob_func_cnt, undef_func_cnt, glob_var_cnt;
+int glob_func_cnt, undef_func_cnt, glob_var_cnt, const_cnt;
 std::vector<SymDef*> glob_func, glob_vars;
+std::set<std::string> prohibited_var_names;
 
 SymDef* predefine_builtin_func(std::string name, TypeExpr* func_type) {
+  if (name.back() == '_') {
+    prohibited_var_names.insert(name);
+  }
   sym_idx_t name_idx = sym::symbols.lookup(name, 1);
   if (sym::symbols.is_keyword(name_idx)) {
     std::cerr << "fatal: global function `" << name << "` already defined as a keyword" << std::endl;
@@ -82,9 +86,10 @@ SymDef* define_builtin_const(std::string name, TypeExpr* const_type, Args&&... a
       define_builtin_func(name, TypeExpr::new_map(TypeExpr::new_unit(), const_type), std::forward<Args>(args)...));
 }
 
-bool SymValAsmFunc::compile(AsmOpList& dest, std::vector<VarDescr>& out, std::vector<VarDescr>& in) const {
+bool SymValAsmFunc::compile(AsmOpList& dest, std::vector<VarDescr>& out, std::vector<VarDescr>& in,
+                            const SrcLocation& where) const {
   if (simple_compile) {
-    return dest.append(simple_compile(out, in));
+    return dest.append(simple_compile(out, in, where));
   } else if (ext_compile) {
     return ext_compile(dest, out, in);
   } else {
@@ -173,6 +178,83 @@ int emulate_mul(int a, int b) {
   return r;
 }
 
+int emulate_and(int a, int b) {
+  int both = a & b, any = a | b;
+  int r = VarDescr::_Int;
+  if (any & VarDescr::_Nan) {
+    return r | VarDescr::_Nan;
+  }
+  r |= VarDescr::_Finite;
+  if (any & VarDescr::_Zero) {
+    return VarDescr::ConstZero;
+  }
+  r |= both & (VarDescr::_Even | VarDescr::_Odd);
+  r |= both & (VarDescr::_Bit | VarDescr::_Bool);
+  if (both & VarDescr::_Odd) {
+    r |= VarDescr::_NonZero;
+  }
+  return r;
+}
+
+int emulate_or(int a, int b) {
+  if (b & VarDescr::_Zero) {
+    return a;
+  } else if (a & VarDescr::_Zero) {
+    return b;
+  }
+  int both = a & b, any = a | b;
+  int r = VarDescr::_Int;
+  if (any & VarDescr::_Nan) {
+    return r | VarDescr::_Nan;
+  }
+  r |= VarDescr::_Finite;
+  r |= any & VarDescr::_NonZero;
+  r |= any & VarDescr::_Odd;
+  r |= both & VarDescr::_Even;
+  return r;
+}
+
+int emulate_xor(int a, int b) {
+  if (b & VarDescr::_Zero) {
+    return a;
+  } else if (a & VarDescr::_Zero) {
+    return b;
+  }
+  int both = a & b, any = a | b;
+  int r = VarDescr::_Int;
+  if (any & VarDescr::_Nan) {
+    return r | VarDescr::_Nan;
+  }
+  r |= VarDescr::_Finite;
+  r |= both & VarDescr::_Even;
+  if (both & VarDescr::_Odd) {
+    r |= VarDescr::_Even;
+  }
+  return r;
+}
+
+int emulate_not(int a) {
+  if ((a & VarDescr::ConstZero) == VarDescr::ConstZero) {
+    return VarDescr::ConstTrue;
+  }
+  if ((a & VarDescr::ConstTrue) == VarDescr::ConstTrue) {
+    return VarDescr::ConstZero;
+  }
+  int a2 = a;
+  int f = VarDescr::_Even | VarDescr::_Odd;
+  if ((a2 & f) && (~a2 & f)) {
+    a2 ^= f;
+  }
+  a2 &= ~(VarDescr::_Zero | VarDescr::_NonZero | VarDescr::_Bit | VarDescr::_Pos | VarDescr::_Neg);
+  if ((a & VarDescr::_Neg) && (a & VarDescr::_NonZero)) {
+    a2 |= VarDescr::_Pos;
+  }
+  if (a & VarDescr::_Pos) {
+    a2 |= VarDescr::_Neg;
+  }
+  return a2;
+}
+
 int emulate_lshift(int a, int b) {
   if (((a | b) & VarDescr::_Nan) || !(~b & (VarDescr::_Neg | VarDescr::_NonZero))) {
     return VarDescr::_Int | VarDescr::_Nan;
@@ -189,7 +271,7 @@ int emulate_div(int a, int b) {
   if ((b & (VarDescr::_NonZero | VarDescr::_Bit)) == (VarDescr::_NonZero | VarDescr::_Bit)) {
     return a;
   } else if ((b & (VarDescr::_NonZero | VarDescr::_Bool)) == (VarDescr::_NonZero | VarDescr::_Bool)) {
-    return emulate_negate(b);
+    return emulate_negate(a);
   }
   if (b & VarDescr::_Zero) {
     return VarDescr::_Int | VarDescr::_Nan;
@@ -346,11 +428,14 @@ AsmOp push_const(td::RefInt256 x) {
   return AsmOp::IntConst(std::move(x));
 }
 
-AsmOp compile_add(std::vector<VarDescr>& res, std::vector<VarDescr>& args) {
-  assert(res.size() == 1 && args.size() == 2);
+AsmOp compile_add(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation& where) {
+  func_assert(res.size() == 1 && args.size() == 2);
   VarDescr &r = res[0], &x = args[0], &y = args[1];
   if (x.is_int_const() && y.is_int_const()) {
     r.set_const(x.int_const + y.int_const);
+    if (!r.int_const->is_valid()) {
+      throw src::ParseError(where, "integer overflow");
+    }
     x.replaced();
     y.replaced();
     return push_const(r.int_const);
@@ -385,11 +470,14 @@ AsmOp compile_add(std::vector<VarDescr>& res, std::vector<VarDescr>& args) {
   return exec_op("ADD", 2);
 }
 
-AsmOp compile_sub(std::vector<VarDescr>& res, std::vector<VarDescr>& args) {
-  assert(res.size() == 1 && args.size() == 2);
+AsmOp compile_sub(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation& where) {
+  func_assert(res.size() == 1 && args.size() == 2);
   VarDescr &r = res[0], &x = args[0], &y = args[1];
   if (x.is_int_const() && y.is_int_const()) {
     r.set_const(x.int_const - y.int_const);
+    if (!r.int_const->is_valid()) {
+      throw src::ParseError(where, "integer overflow");
+    }
     x.replaced();
     y.replaced();
     return push_const(r.int_const);
@@ -415,11 +503,14 @@ AsmOp compile_sub(std::vector<VarDescr>& res, std::vector<VarDescr>& args) {
   return exec_op("SUB", 2);
 }
 
-AsmOp compile_negate(std::vector<VarDescr>& res, std::vector<VarDescr>& args) {
-  assert(res.size() == 1 && args.size() == 1);
+AsmOp compile_negate(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation& where) {
+  func_assert(res.size() == 1 && args.size() == 1);
   VarDescr &r = res[0], &x = args[0];
   if (x.is_int_const()) {
     r.set_const(-x.int_const);
+    if (!r.int_const->is_valid()) {
+      throw src::ParseError(where, "integer overflow");
+    }
     x.replaced();
     return push_const(r.int_const);
   }
@@ -427,11 +518,63 @@ AsmOp compile_negate(std::vector<VarDescr>& res, std::vector<VarDescr>& args) {
   return exec_op("NEGATE", 1);
 }
 
-AsmOp compile_mul(std::vector<VarDescr>& res, std::vector<VarDescr>& args) {
-  assert(res.size() == 1 && args.size() == 2);
+AsmOp compile_and(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation& where) {
+  func_assert(res.size() == 1 && args.size() == 2);
   VarDescr &r = res[0], &x = args[0], &y = args[1];
   if (x.is_int_const() && y.is_int_const()) {
+    r.set_const(x.int_const & y.int_const);
+    x.replaced();
+    y.replaced();
+    return push_const(r.int_const);
+  }
+  r.val = emulate_and(x.val, y.val);
+  return exec_op("AND", 2);
+}
+
+AsmOp compile_or(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation& where) {
+  func_assert(res.size() == 1 && args.size() == 2);
+  VarDescr &r = res[0], &x = args[0], &y = args[1];
+  if (x.is_int_const() && y.is_int_const()) {
+    r.set_const(x.int_const | y.int_const);
+    x.replaced();
+    y.replaced();
+    return push_const(r.int_const);
+  }
+  r.val = emulate_or(x.val, y.val);
+  return exec_op("OR", 2);
+}
+
+AsmOp compile_xor(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation& where) {
+  func_assert(res.size() == 1 && args.size() == 2);
+  VarDescr &r = res[0], &x = args[0], &y = args[1];
+  if (x.is_int_const() && y.is_int_const()) {
+    r.set_const(x.int_const ^ y.int_const);
+    x.replaced();
+    y.replaced();
+    return push_const(r.int_const);
+  }
+  r.val = emulate_xor(x.val, y.val);
+  return exec_op("XOR", 2);
+}
+
+AsmOp compile_not(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation& where) {
+  func_assert(res.size() == 1 && args.size() == 1);
+  VarDescr &r = res[0], &x = args[0];
+  if (x.is_int_const()) {
+    r.set_const(~x.int_const);
+    x.replaced();
+    return push_const(r.int_const);
+  }
+  r.val = emulate_not(x.val);
+  return exec_op("NOT", 1);
+}
+
+AsmOp compile_mul_internal(VarDescr& r, VarDescr& x, VarDescr& y, const SrcLocation& where) {
+  if (x.is_int_const() && y.is_int_const()) {
     r.set_const(x.int_const * y.int_const);
+    if (!r.int_const->is_valid()) {
+      throw src::ParseError(where, "integer overflow");
+    }
     x.replaced();
     y.replaced();
     return push_const(r.int_const);
@@ -444,6 +587,7 @@ AsmOp compile_mul(std::vector<VarDescr>& res, std::vector<VarDescr>& args) {
       if (y.always_zero() && x.always_finite()) {
         // dubious optimization: NaN * 0 = ?
         r.set_const(y.int_const);
+        x.replaced();
         return push_const(r.int_const);
       }
       if (*y.int_const == 1 && x.always_finite()) {
@@ -470,6 +614,7 @@ AsmOp compile_mul(std::vector<VarDescr>& res, std::vector<VarDescr>& args) {
       if (x.always_zero() && y.always_finite()) {
         // dubious optimization: NaN * 0 = ?
         r.set_const(x.int_const);
+        y.replaced();
         return push_const(r.int_const);
       }
       if (*x.int_const == 1 && y.always_finite()) {
@@ -492,18 +637,23 @@ AsmOp compile_mul(std::vector<VarDescr>& res, std::vector<VarDescr>& args) {
   return exec_op("MUL", 2);
 }
 
-AsmOp compile_lshift(std::vector<VarDescr>& res, std::vector<VarDescr>& args) {
-  assert(res.size() == 1 && args.size() == 2);
+AsmOp compile_mul(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation& where) {
+  func_assert(res.size() == 1 && args.size() == 2);
+  return compile_mul_internal(res[0], args[0], args[1], where);
+}
+
+AsmOp compile_lshift(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation& where) {
+  func_assert(res.size() == 1 && args.size() == 2);
   VarDescr &r = res[0], &x = args[0], &y = args[1];
   if (y.is_int_const()) {
     auto yv = y.int_const->to_long();
     if (yv < 0 || yv > 256) {
-      r.set_const_nan();
-      x.replaced();
-      y.replaced();
-      return push_const(r.int_const);
+      throw src::ParseError(where, "lshift argument is out of range");
     } else if (x.is_int_const()) {
       r.set_const(x.int_const << (int)yv);
+      if (!r.int_const->is_valid()) {
+        throw src::ParseError(where, "integer overflow");
+      }
       x.replaced();
       y.replaced();
       return push_const(r.int_const);
@@ -528,22 +678,20 @@ AsmOp compile_lshift(std::vector<VarDescr>& res, std::vector<VarDescr>& args) {
     }
     if (xv == -1) {
       x.replaced();
-      return exec_op("NEGPOW2", 1);
+      return exec_op("-1 PUSHINT SWAP LSHIFT", 1);
     }
   }
   return exec_op("LSHIFT", 2);
 }
 
-AsmOp compile_rshift(std::vector<VarDescr>& res, std::vector<VarDescr>& args, int round_mode) {
-  assert(res.size() == 1 && args.size() == 2);
+AsmOp compile_rshift(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation& where,
+                     int round_mode) {
+  func_assert(res.size() == 1 && args.size() == 2);
   VarDescr &r = res[0], &x = args[0], &y = args[1];
   if (y.is_int_const()) {
     auto yv = y.int_const->to_long();
     if (yv < 0 || yv > 256) {
-      r.set_const_nan();
-      x.replaced();
-      y.replaced();
-      return push_const(r.int_const);
+      throw src::ParseError(where, "rshift argument is out of range");
     } else if (x.is_int_const()) {
       r.set_const(td::rshift(x.int_const, (int)yv, round_mode));
       x.replaced();
@@ -566,11 +714,12 @@ AsmOp compile_rshift(std::vector<VarDescr>& res, std::vector<VarDescr>& args, in
   return exec_op(rshift, 2);
 }
 
-AsmOp compile_div(std::vector<VarDescr>& res, std::vector<VarDescr>& args, int round_mode) {
-  assert(res.size() == 1 && args.size() == 2);
-  VarDescr &r = res[0], &x = args[0], &y = args[1];
+AsmOp compile_div_internal(VarDescr& r, VarDescr& x, VarDescr& y, const SrcLocation& where, int round_mode) {
   if (x.is_int_const() && y.is_int_const()) {
     r.set_const(div(x.int_const, y.int_const, round_mode));
+    if (!r.int_const->is_valid()) {
+      throw src::ParseError(where, *y.int_const == 0 ? "division by zero" : "integer overflow");
+    }
     x.replaced();
     y.replaced();
     return push_const(r.int_const);
@@ -578,10 +727,7 @@ AsmOp compile_div(std::vector<VarDescr>& res, std::vector<VarDescr>& args, int r
   r.val = emulate_div(x.val, y.val);
   if (y.is_int_const()) {
     if (*y.int_const == 0) {
-      x.replaced();
-      y.replaced();
-      r.set_const(div(y.int_const, y.int_const));
-      return push_const(r.int_const);
+      throw src::ParseError(where, "division by zero");
     }
     if (*y.int_const == 1 && x.always_finite()) {
       y.replaced();
@@ -608,11 +754,20 @@ AsmOp compile_div(std::vector<VarDescr>& res, std::vector<VarDescr>& args, int r
   return exec_op(op, 2);
 }
 
-AsmOp compile_mod(std::vector<VarDescr>& res, std::vector<VarDescr>& args, int round_mode) {
-  assert(res.size() == 1 && args.size() == 2);
+AsmOp compile_div(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation& where, int round_mode) {
+  func_assert(res.size() == 1 && args.size() == 2);
+  return compile_div_internal(res[0], args[0], args[1], where, round_mode);
+}
+
+AsmOp compile_mod(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const src::SrcLocation& where,
+                  int round_mode) {
+  func_assert(res.size() == 1 && args.size() == 2);
   VarDescr &r = res[0], &x = args[0], &y = args[1];
   if (x.is_int_const() && y.is_int_const()) {
     r.set_const(mod(x.int_const, y.int_const, round_mode));
+    if (!r.int_const->is_valid()) {
+      throw src::ParseError(where, *y.int_const == 0 ? "division by zero" : "integer overflow");
+    }
     x.replaced();
     y.replaced();
     return push_const(r.int_const);
@@ -620,15 +775,12 @@ AsmOp compile_mod(std::vector<VarDescr>& res, std::vector<VarDescr>& args, int r
   r.val = emulate_mod(x.val, y.val);
   if (y.is_int_const()) {
     if (*y.int_const == 0) {
-      x.replaced();
-      y.replaced();
-      r.set_const(mod(y.int_const, y.int_const));
-      return push_const(r.int_const);
+      throw src::ParseError(where, "division by zero");
     }
     if ((*y.int_const == 1 || *y.int_const == -1) && x.always_finite()) {
       x.replaced();
       y.replaced();
-      r.set_const(td::RefInt256{true, 0});
+      r.set_const(td::zero_refint());
       return push_const(r.int_const);
     }
     int k = is_pos_pow2(y.int_const);
@@ -646,6 +798,87 @@ AsmOp compile_mod(std::vector<VarDescr>& res, std::vector<VarDescr>& args, int r
     op += (round_mode > 0 ? 'C' : 'R');
   }
   return exec_op(op, 2);
+}
+
+AsmOp compile_muldiv(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation& where,
+                     int round_mode) {
+  func_assert(res.size() == 1 && args.size() == 3);
+  VarDescr &r = res[0], &x = args[0], &y = args[1], &z = args[2];
+  if (x.is_int_const() && y.is_int_const() && z.is_int_const()) {
+    r.set_const(muldiv(x.int_const, y.int_const, z.int_const, round_mode));
+    if (!r.int_const->is_valid()) {
+      throw src::ParseError(where, *z.int_const == 0 ? "division by zero" : "integer overflow");
+    }
+    x.replaced();
+    y.replaced();
+    z.replaced();
+    return push_const(r.int_const);
+  }
+  if (x.always_zero() || y.always_zero()) {
+    // dubious optimization for z=0...
+    x.replaced();
+    y.replaced();
+    z.replaced();
+    r.set_const(td::make_refint(0));
+    return push_const(r.int_const);
+  }
+  char c = (round_mode < 0) ? 0 : (round_mode > 0 ? 'C' : 'R');
+  r.val = emulate_div(emulate_mul(x.val, y.val), z.val);
+  if (z.is_int_const()) {
+    if (*z.int_const == 0) {
+      throw src::ParseError(where, "division by zero");
+    }
+    if (*z.int_const == 1) {
+      z.unused();
+      return compile_mul_internal(r, x, y, where);
+    }
+  }
+  if (y.is_int_const() && *y.int_const == 1) {
+    y.replaced();
+    return compile_div_internal(r, x, z, where, round_mode);
+  }
+  if (x.is_int_const() && *x.int_const == 1) {
+    x.replaced();
+    return compile_div_internal(r, y, z, where, round_mode);
+  }
+  if (z.is_int_const()) {
+    int k = is_pos_pow2(z.int_const);
+    if (k > 0) {
+      z.replaced();
+      std::string op = "MULRSHIFT";
+      if (c) {
+        op += c;
+      }
+      return exec_arg_op(op + '#', k, 2);
+    }
+  }
+  if (y.is_int_const()) {
+    int k = is_pos_pow2(y.int_const);
+    if (k > 0) {
+      y.replaced();
+      std::string op = "LSHIFT#DIV";
+      if (c) {
+        op += c;
+      }
+      return exec_arg_op(op, k, 2);
+    }
+  }
+  if (x.is_int_const()) {
+    int k = is_pos_pow2(x.int_const);
+    if (k > 0) {
+      x.replaced();
+      std::string op = "LSHIFT#DIV";
+      if (c) {
+        op += c;
+      }
+      return exec_arg_op(op, k, 2);
+    }
+  }
+  std::string op = "MULDIV";
+  if (c) {
+    op += c;
+  }
+  return exec_op(op, 3);
 }
 
 int compute_compare(td::RefInt256 x, td::RefInt256 y, int mode) {
@@ -690,8 +923,8 @@ int compute_compare(const VarDescr& x, const VarDescr& y, int mode) {
 }
 
 AsmOp compile_cmp_int(std::vector<VarDescr>& res, std::vector<VarDescr>& args, int mode) {
-  assert(mode >= 1 && mode <= 7);
-  assert(res.size() == 1 && args.size() == 2);
+  func_assert(mode >= 1 && mode <= 7);
+  func_assert(res.size() == 1 && args.size() == 2);
   VarDescr &r = res[0], &x = args[0], &y = args[1];
   if (x.is_int_const() && y.is_int_const()) {
     int v = compute_compare(x.int_const, y.int_const, mode);
@@ -702,7 +935,7 @@ AsmOp compile_cmp_int(std::vector<VarDescr>& res, std::vector<VarDescr>& args, i
   }
   int v = compute_compare(x, y, mode);
   // std::cerr << "compute_compare(" << x << ", " << y << ", " << mode << ") = " << v << std::endl;
-  assert(v);
+  func_assert(v);
   if (!(v & (v - 1))) {
     r.set_const(v - (v >> 2) - 2);
     x.replaced();
@@ -737,8 +970,8 @@ AsmOp compile_cmp_int(std::vector<VarDescr>& res, std::vector<VarDescr>& args, i
   return exec_op(cmp_names[mode], 2);
 }
 
-AsmOp compile_throw(std::vector<VarDescr>& res, std::vector<VarDescr>& args) {
-  assert(res.empty() && args.size() == 1);
+AsmOp compile_throw(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation&) {
+  func_assert(res.empty() && args.size() == 1);
   VarDescr& x = args[0];
   if (x.is_int_const() && x.int_const->unsigned_fits_bits(11)) {
     x.replaced();
@@ -749,7 +982,7 @@ AsmOp compile_throw(std::vector<VarDescr>& res, std::vector<VarDescr>& args) {
 }
 
 AsmOp compile_cond_throw(std::vector<VarDescr>& res, std::vector<VarDescr>& args, bool mode) {
-  assert(res.empty() && args.size() == 2);
+  func_assert(res.empty() && args.size() == 2);
   VarDescr &x = args[0], &y = args[1];
   std::string suff = (mode ? "IF" : "IFNOT");
   bool skip_cond = false;
@@ -765,12 +998,44 @@ AsmOp compile_cond_throw(std::vector<VarDescr>& res, std::vector<VarDescr>& args
     x.replaced();
     return skip_cond ? exec_arg_op("THROW", x.int_const, 0, 0) : exec_arg_op("THROW"s + suff, x.int_const, 1, 0);
   } else {
-    return skip_cond ? exec_op("THROWANY", 1, 0) : exec_arg_op("THROWANY"s + suff, 2, 0);
+    return skip_cond ? exec_op("THROWANY", 1, 0) : exec_op("THROWANY"s + suff, 2, 0);
+  }
+}
+
+AsmOp compile_throw_arg(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation&) {
+  func_assert(res.empty() && args.size() == 2);
+  VarDescr &x = args[1];
+  if (x.is_int_const() && x.int_const->unsigned_fits_bits(11)) {
+    x.replaced();
+    return exec_arg_op("THROWARG", x.int_const, 1, 0);
+  } else {
+    return exec_op("THROWARGANY", 2, 0);
+  }
+}
+
+AsmOp compile_cond_throw_arg(std::vector<VarDescr>& res, std::vector<VarDescr>& args, bool mode) {
+  func_assert(res.empty() && args.size() == 3);
+  VarDescr &x = args[1], &y = args[2];
+  std::string suff = (mode ? "IF" : "IFNOT");
+  bool skip_cond = false;
+  if (y.always_true() || y.always_false()) {
+    y.replaced();
+    skip_cond = true;
+    if (y.always_true() != mode) {
+      x.replaced();
+      return AsmOp::Nop();
+    }
+  }
+  if (x.is_int_const() && x.int_const->unsigned_fits_bits(11)) {
+    x.replaced();
+    return skip_cond ? exec_arg_op("THROWARG", x.int_const, 1, 0) : exec_arg_op("THROWARG"s + suff, x.int_const, 2, 0);
+  } else {
+    return skip_cond ? exec_op("THROWARGANY", 2, 0) : exec_op("THROWARGANY"s + suff, 3, 0);
   }
 }
 
 AsmOp compile_bool_const(std::vector<VarDescr>& res, std::vector<VarDescr>& args, bool val) {
-  assert(res.size() == 1 && args.empty());
+  func_assert(res.size() == 1 && args.empty());
   VarDescr& r = res[0];
   r.set_const(val ? -1 : 0);
   return AsmOp::Const(val ? "TRUE" : "FALSE");
@@ -781,7 +1046,7 @@ AsmOp compile_bool_const(std::vector<VarDescr>& res, std::vector<VarDescr>& args
 // int preload_int(slice s, int len) asm "PLDIX";
 // int preload_uint(slice s, int len) asm "PLDUX";
 AsmOp compile_fetch_int(std::vector<VarDescr>& res, std::vector<VarDescr>& args, bool fetch, bool sgnd) {
-  assert(args.size() == 2 && res.size() == 1 + (unsigned)fetch);
+  func_assert(args.size() == 2 && res.size() == 1 + (unsigned)fetch);
   auto &y = args[1], &r = res.back();
   r.val = (sgnd ? VarDescr::FiniteInt : VarDescr::FiniteUInt);
   int v = -1;
@@ -804,7 +1069,7 @@ AsmOp compile_fetch_int(std::vector<VarDescr>& res, std::vector<VarDescr>& args,
 // builder store_uint(builder b, int x, int len) asm(x b len) "STUX";
 // builder store_int(builder b, int x, int len) asm(x b len) "STIX";
 AsmOp compile_store_int(std::vector<VarDescr>& res, std::vector<VarDescr>& args, bool sgnd) {
-  assert(args.size() == 3 && res.size() == 1);
+  func_assert(args.size() == 3 && res.size() == 1);
   auto& z = args[2];
   if (z.is_int_const() && z.int_const > 0 && z.int_const <= 256) {
     z.replaced();
@@ -814,7 +1079,7 @@ AsmOp compile_store_int(std::vector<VarDescr>& res, std::vector<VarDescr>& args,
 }
 
 AsmOp compile_fetch_slice(std::vector<VarDescr>& res, std::vector<VarDescr>& args, bool fetch) {
-  assert(args.size() == 2 && res.size() == 1 + (unsigned)fetch);
+  func_assert(args.size() == 2 && res.size() == 1 + (unsigned)fetch);
   auto& y = args[1];
   int v = -1;
   if (y.is_int_const() && y.int_const > 0 && y.int_const <= 256) {
@@ -828,8 +1093,8 @@ AsmOp compile_fetch_slice(std::vector<VarDescr>& res, std::vector<VarDescr>& arg
 }
 
 // <type> <type>_at(tuple t, int index) asm "INDEXVAR";
-AsmOp compile_tuple_at(std::vector<VarDescr>& res, std::vector<VarDescr>& args) {
-  assert(args.size() == 2 && res.size() == 1);
+AsmOp compile_tuple_at(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation&) {
+  func_assert(args.size() == 2 && res.size() == 1);
   auto& y = args[1];
   if (y.is_int_const() && y.int_const >= 0 && y.int_const < 16) {
     y.replaced();
@@ -839,8 +1104,8 @@ AsmOp compile_tuple_at(std::vector<VarDescr>& res, std::vector<VarDescr>& args) 
 }
 
 // int null?(X arg)
-AsmOp compile_is_null(std::vector<VarDescr>& res, std::vector<VarDescr>& args) {
-  assert(args.size() == 1 && res.size() == 1);
+AsmOp compile_is_null(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation&) {
+  func_assert(args.size() == 1 && res.size() == 1);
   auto &x = args[0], &r = res[0];
   if (x.always_null() || x.always_not_null()) {
     x.replaced();
@@ -853,7 +1118,7 @@ AsmOp compile_is_null(std::vector<VarDescr>& res, std::vector<VarDescr>& args) {
 
 bool compile_run_method(AsmOpList& code, std::vector<VarDescr>& res, std::vector<VarDescr>& args, int n,
                         bool has_value) {
-  assert(args.size() == (unsigned)n + 1 && res.size() == (unsigned)has_value);
+  func_assert(args.size() == (unsigned)n + 1 && res.size() == (unsigned)has_value);
   auto& x = args[0];
   if (x.is_int_const() && x.int_const->unsigned_fits_bits(14)) {
     x.replaced();
@@ -894,47 +1159,50 @@ void define_builtins() {
   auto fetch_slice_op = TypeExpr::new_map(SliceInt, TypeExpr::new_tensor({Slice, Slice}));
   auto prefetch_slice_op = TypeExpr::new_map(SliceInt, Slice);
   //auto arith_null_op = TypeExpr::new_map(TypeExpr::new_unit(), Int);
+  auto throw_arg_op = TypeExpr::new_forall({X}, TypeExpr::new_map(TypeExpr::new_tensor({X, Int}), Unit));
+  auto cond_throw_arg_op = TypeExpr::new_forall({X}, TypeExpr::new_map(TypeExpr::new_tensor({X, Int, Int}), Unit));
   define_builtin_func("_+_", arith_bin_op, compile_add);
   define_builtin_func("_-_", arith_bin_op, compile_sub);
   define_builtin_func("-_", arith_un_op, compile_negate);
   define_builtin_func("_*_", arith_bin_op, compile_mul);
-  define_builtin_func("_/_", arith_bin_op, std::bind(compile_div, _1, _2, -1));
-  define_builtin_func("_~/_", arith_bin_op, std::bind(compile_div, _1, _2, 0));
-  define_builtin_func("_^/_", arith_bin_op, std::bind(compile_div, _1, _2, 1));
-  define_builtin_func("_%_", arith_bin_op, std::bind(compile_mod, _1, _2, -1));
-  define_builtin_func("_~%_", arith_bin_op, std::bind(compile_mod, _1, _2, 0));
-  define_builtin_func("_^%_", arith_bin_op, std::bind(compile_mod, _1, _2, 1));
+  define_builtin_func("_/_", arith_bin_op, std::bind(compile_div, _1, _2, _3, -1));
+  define_builtin_func("_~/_", arith_bin_op, std::bind(compile_div, _1, _2, _3, 0));
+  define_builtin_func("_^/_", arith_bin_op, std::bind(compile_div, _1, _2, _3, 1));
+  define_builtin_func("_%_", arith_bin_op, std::bind(compile_mod, _1, _2, _3, -1));
+  define_builtin_func("_~%_", arith_bin_op, std::bind(compile_mod, _1, _2, _3, 0));
+  define_builtin_func("_^%_", arith_bin_op, std::bind(compile_mod, _1, _2, _3, 1));
   define_builtin_func("_/%_", TypeExpr::new_map(Int2, Int2), AsmOp::Custom("DIVMOD", 2, 2));
   define_builtin_func("divmod", TypeExpr::new_map(Int2, Int2), AsmOp::Custom("DIVMOD", 2, 2));
   define_builtin_func("~divmod", TypeExpr::new_map(Int2, Int2), AsmOp::Custom("DIVMOD", 2, 2));
   define_builtin_func("moddiv", TypeExpr::new_map(Int2, Int2), AsmOp::Custom("DIVMOD", 2, 2), {}, {1, 0});
   define_builtin_func("~moddiv", TypeExpr::new_map(Int2, Int2), AsmOp::Custom("DIVMOD", 2, 2), {}, {1, 0});
   define_builtin_func("_<<_", arith_bin_op, compile_lshift);
-  define_builtin_func("_>>_", arith_bin_op, std::bind(compile_rshift, _1, _2, -1));
-  define_builtin_func("_~>>_", arith_bin_op, std::bind(compile_rshift, _1, _2, 0));
-  define_builtin_func("_^>>_", arith_bin_op, std::bind(compile_rshift, _1, _2, 1));
-  define_builtin_func("_&_", arith_bin_op, AsmOp::Custom("AND", 2));
-  define_builtin_func("_|_", arith_bin_op, AsmOp::Custom("OR", 2));
-  define_builtin_func("_^_", arith_bin_op, AsmOp::Custom("XOR", 2));
-  define_builtin_func("~_", arith_un_op, AsmOp::Custom("NOT", 1));
+  define_builtin_func("_>>_", arith_bin_op, std::bind(compile_rshift, _1, _2, _3, -1));
+  define_builtin_func("_~>>_", arith_bin_op, std::bind(compile_rshift, _1, _2, _3, 0));
+  define_builtin_func("_^>>_", arith_bin_op, std::bind(compile_rshift, _1, _2, _3, 1));
+  define_builtin_func("_&_", arith_bin_op, compile_and);
+  define_builtin_func("_|_", arith_bin_op, compile_or);
+  define_builtin_func("_^_", arith_bin_op, compile_xor);
+  define_builtin_func("~_", arith_un_op, compile_not);
   define_builtin_func("^_+=_", arith_bin_op, compile_add);
   define_builtin_func("^_-=_", arith_bin_op, compile_sub);
   define_builtin_func("^_*=_", arith_bin_op, compile_mul);
-  define_builtin_func("^_/=_", arith_bin_op, std::bind(compile_div, _1, _2, -1));
-  define_builtin_func("^_~/=_", arith_bin_op, std::bind(compile_div, _1, _2, 0));
-  define_builtin_func("^_^/=_", arith_bin_op, std::bind(compile_div, _1, _2, 1));
-  define_builtin_func("^_%=_", arith_bin_op, std::bind(compile_mod, _1, _2, -1));
-  define_builtin_func("^_~%=_", arith_bin_op, std::bind(compile_mod, _1, _2, 0));
-  define_builtin_func("^_^%=_", arith_bin_op, std::bind(compile_mod, _1, _2, 1));
+  define_builtin_func("^_/=_", arith_bin_op, std::bind(compile_div, _1, _2, _3, -1));
+  define_builtin_func("^_~/=_", arith_bin_op, std::bind(compile_div, _1, _2, _3, 0));
+  define_builtin_func("^_^/=_", arith_bin_op, std::bind(compile_div, _1, _2, _3, 1));
+  define_builtin_func("^_%=_", arith_bin_op, std::bind(compile_mod, _1, _2, _3, -1));
+  define_builtin_func("^_~%=_", arith_bin_op, std::bind(compile_mod, _1, _2, _3, 0));
+  define_builtin_func("^_^%=_", arith_bin_op, std::bind(compile_mod, _1, _2, _3, 1));
   define_builtin_func("^_<<=_", arith_bin_op, compile_lshift);
-  define_builtin_func("^_>>=_", arith_bin_op, std::bind(compile_rshift, _1, _2, -1));
-  define_builtin_func("^_~>>=_", arith_bin_op, std::bind(compile_rshift, _1, _2, 0));
-  define_builtin_func("^_^>>=_", arith_bin_op, std::bind(compile_rshift, _1, _2, 1));
-  define_builtin_func("^_&=_", arith_bin_op, AsmOp::Custom("AND", 2));
-  define_builtin_func("^_|=_", arith_bin_op, AsmOp::Custom("OR", 2));
-  define_builtin_func("^_^=_", arith_bin_op, AsmOp::Custom("XOR", 2));
-  define_builtin_func("muldivr", TypeExpr::new_map(Int3, Int), AsmOp::Custom("MULDIVR", 3));
-  define_builtin_func("muldiv", TypeExpr::new_map(Int3, Int), AsmOp::Custom("MULDIV", 3));
+  define_builtin_func("^_>>=_", arith_bin_op, std::bind(compile_rshift, _1, _2, _3, -1));
+  define_builtin_func("^_~>>=_", arith_bin_op, std::bind(compile_rshift, _1, _2, _3, 0));
+  define_builtin_func("^_^>>=_", arith_bin_op, std::bind(compile_rshift, _1, _2, _3, 1));
+  define_builtin_func("^_&=_", arith_bin_op, compile_and);
+  define_builtin_func("^_|=_", arith_bin_op, compile_or);
+  define_builtin_func("^_^=_", arith_bin_op, compile_xor);
+  define_builtin_func("muldiv", TypeExpr::new_map(Int3, Int), std::bind(compile_muldiv, _1, _2, _3, -1));
+  define_builtin_func("muldivr", TypeExpr::new_map(Int3, Int), std::bind(compile_muldiv, _1, _2, _3, 0));
+  define_builtin_func("muldivc", TypeExpr::new_map(Int3, Int), std::bind(compile_muldiv, _1, _2, _3, 1));
   define_builtin_func("muldivmod", TypeExpr::new_map(Int3, Int2), AsmOp::Custom("MULDIVMOD", 3, 2));
   define_builtin_func("_==_", arith_bin_op, std::bind(compile_cmp_int, _1, _2, 2));
   define_builtin_func("_!=_", arith_bin_op, std::bind(compile_cmp_int, _1, _2, 5));
@@ -952,6 +1220,9 @@ void define_builtins() {
   define_builtin_func("throw", impure_un_op, compile_throw, true);
   define_builtin_func("throw_if", impure_bin_op, std::bind(compile_cond_throw, _1, _2, true), true);
   define_builtin_func("throw_unless", impure_bin_op, std::bind(compile_cond_throw, _1, _2, false), true);
+  define_builtin_func("throw_arg", throw_arg_op, compile_throw_arg, true);
+  define_builtin_func("throw_arg_if", cond_throw_arg_op, std::bind(compile_cond_throw_arg, _1, _2, true), true);
+  define_builtin_func("throw_arg_unless", cond_throw_arg_op, std::bind(compile_cond_throw_arg, _1, _2, false), true);
   define_builtin_func("load_int", fetch_int_op, std::bind(compile_fetch_int, _1, _2, true, true), {}, {1, 0});
   define_builtin_func("load_uint", fetch_int_op, std::bind(compile_fetch_int, _1, _2, true, false), {}, {1, 0});
   define_builtin_func("preload_int", prefetch_int_op, std::bind(compile_fetch_int, _1, _2, false, true));
@@ -975,16 +1246,20 @@ void define_builtins() {
                       AsmOp::Nop());
   define_builtin_func("~dump", TypeExpr::new_forall({X}, TypeExpr::new_map(X, TypeExpr::new_tensor({X, Unit}))),
                       AsmOp::Custom("s0 DUMP", 1, 1), true);
-  define_builtin_func("run_method0", TypeExpr::new_map(Int, Unit),
-                      [](auto a, auto b, auto c) { return compile_run_method(a, b, c, 0, false); }, true);
-  define_builtin_func("run_method1", TypeExpr::new_forall({X}, TypeExpr::new_map(TypeExpr::new_tensor({Int, X}), Unit)),
-                      [](auto a, auto b, auto c) { return compile_run_method(a, b, c, 1, false); }, {1, 0}, {}, true);
+  define_builtin_func("~strdump", TypeExpr::new_forall({X}, TypeExpr::new_map(X, TypeExpr::new_tensor({X, Unit}))),
+                      AsmOp::Custom("STRDUMP", 1, 1), true);
+  define_builtin_func(
+      "run_method0", TypeExpr::new_map(Int, Unit),
+      [](AsmOpList& a, auto b, auto c) { return compile_run_method(a, b, c, 0, false); }, true);
+  define_builtin_func(
+      "run_method1", TypeExpr::new_forall({X}, TypeExpr::new_map(TypeExpr::new_tensor({Int, X}), Unit)),
+      [](AsmOpList& a, auto b, auto c) { return compile_run_method(a, b, c, 1, false); }, {1, 0}, {}, true);
   define_builtin_func(
       "run_method2", TypeExpr::new_forall({X, Y}, TypeExpr::new_map(TypeExpr::new_tensor({Int, X, Y}), Unit)),
-      [](auto a, auto b, auto c) { return compile_run_method(a, b, c, 2, false); }, {1, 2, 0}, {}, true);
+      [](AsmOpList& a, auto b, auto c) { return compile_run_method(a, b, c, 2, false); }, {1, 2, 0}, {}, true);
   define_builtin_func(
       "run_method3", TypeExpr::new_forall({X, Y, Z}, TypeExpr::new_map(TypeExpr::new_tensor({Int, X, Y, Z}), Unit)),
-      [](auto a, auto b, auto c) { return compile_run_method(a, b, c, 3, false); }, {1, 2, 3, 0}, {}, true);
+      [](AsmOpList& a, auto b, auto c) { return compile_run_method(a, b, c, 3, false); }, {1, 2, 3, 0}, {}, true);
 }
 
 }  // namespace funC

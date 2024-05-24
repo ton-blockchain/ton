@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "rldp-in.hpp"
 #include "auto/tl/ton_api.h"
@@ -116,9 +116,9 @@ void RldpIn::process_message_part(adnl::AdnlNodeIdShort source, adnl::AdnlNodeId
     }
     auto ite = max_size_.find(part.transfer_id_);
     if (ite == max_size_.end()) {
-      if (static_cast<td::uint64>(part.total_size_) > default_mtu()) {
+      if (static_cast<td::uint64>(part.total_size_) > default_mtu_) {
         VLOG(RLDP_NOTICE) << "dropping too big rldp packet of size=" << part.total_size_
-                          << " default_mtu=" << default_mtu();
+                          << " default_mtu=" << default_mtu_;
         return;
       }
     } else {
@@ -134,11 +134,11 @@ void RldpIn::process_message_part(adnl::AdnlNodeIdShort source, adnl::AdnlNodeId
     }
     auto P = td::PromiseCreator::lambda(
         [SelfId = actor_id(this), source, local_id, transfer_id = part.transfer_id_](td::Result<td::BufferSlice> R) {
+          td::actor::send_closure(SelfId, &RldpIn::in_transfer_completed, transfer_id, R.is_ok());
           if (R.is_error()) {
             VLOG(RLDP_INFO) << "failed to receive: " << R.move_as_error();
             return;
           }
-          td::actor::send_closure(SelfId, &RldpIn::in_transfer_completed, transfer_id);
           td::actor::send_closure(SelfId, &RldpIn::receive_message, source, local_id, transfer_id, R.move_as_ok());
         });
 
@@ -228,8 +228,9 @@ void RldpIn::transfer_completed(TransferId transfer_id) {
   VLOG(RLDP_DEBUG) << "rldp: completed transfer " << transfer_id << "; " << senders_.size() << " out transfer pending ";
 }
 
-void RldpIn::in_transfer_completed(TransferId transfer_id) {
-  if (lru_set_.count(transfer_id) == 1) {
+void RldpIn::in_transfer_completed(TransferId transfer_id, bool success) {
+  receivers_.erase(transfer_id);
+  if (!success || lru_set_.count(transfer_id) == 1) {
     return;
   }
   while (lru_size_ >= lru_size()) {
@@ -257,6 +258,10 @@ void RldpIn::add_id(adnl::AdnlNodeIdShort local_id) {
   }
 
   local_ids_.insert(local_id);
+}
+
+void RldpIn::get_conn_ip_str(adnl::AdnlNodeIdShort l_id, adnl::AdnlNodeIdShort p_id, td::Promise<td::string> promise) {  
+  td::actor::send_closure(adnl_, &adnl::AdnlPeerTable::get_conn_ip_str, l_id, p_id, std::move(promise));
 }
 
 std::unique_ptr<adnl::Adnl::Callback> RldpIn::make_adnl_callback() {

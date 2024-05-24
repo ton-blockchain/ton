@@ -1,0 +1,67 @@
+(int) equal_slices (slice s1, slice s2) asm "SDEQ";
+
+() recv_internal(cell in_msg_cell, slice in_msg) {
+  
+  ;; Parse message
+  var cs = in_msg_cell.begin_parse();
+  var flags = cs~load_uint(4);  ;; int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool
+  slice s_addr = cs~load_msg_addr();
+
+  ;; Parse data
+  var ds = get_data().begin_parse();
+  slice address_0 = ds~load_msg_addr();
+  slice address_1 = ds~load_msg_addr();
+  ds~skip_bits(64);
+  ds.end_parse();
+
+  ;; Resolve addresses address
+  slice src = null();
+  slice dst = null();
+  if (equal_slices(s_addr, address_0)) {
+        src = address_0;
+        dst = address_1;
+  } elseif (equal_slices(s_addr, address_1)) {
+        src = address_1;
+        dst = address_0;
+  }
+
+  ;; Bounce while keeping storage fee on unknown
+  ;; Useful fro deploy
+  if (null?(src)) {
+      raw_reserve(1000000000, 2);
+      var msg = begin_cell()
+        .store_uint(0x10, 6)
+        .store_slice(s_addr)
+        .store_grams(0)
+        .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+      .end_cell();
+      send_raw_message(msg, 128);
+      return ();
+  }
+
+  ;; Process messages
+  raw_reserve(1000000000, 2);
+  var msg = begin_cell()
+    .store_uint(flags, 4)
+    .store_uint(0, 2)
+    .store_slice(dst)
+    .store_grams(0)
+    .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1);
+
+  ;; Content
+  if(msg.builder_bits() + 1 + in_msg.slice_bits() > 1023) {
+    msg = msg.store_uint(1,1)
+             .store_ref(begin_cell().store_slice(in_msg).end_cell());
+  } else {
+    msg = msg.store_uint(0,1)
+             .store_slice(in_msg);
+  }
+
+  ;; Send message
+  send_raw_message(msg.end_cell(), 128);
+}
+
+() recv_external(slice in_msg) impure {
+    ;; Do not accept external messages
+    throw(72);
+}

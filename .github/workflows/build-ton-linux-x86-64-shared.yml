@@ -1,0 +1,40 @@
+name: Ubuntu TON build (shared, x86-64)
+
+on: [push,workflow_dispatch,workflow_call]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-20.04, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - name: Check out repository
+      uses: actions/checkout@v3
+      with:      
+        submodules: 'recursive'
+
+    - name: Install system libraries
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential git cmake ninja-build zlib1g-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev liblz4-dev
+
+    - name: Install clang-16
+      run: |
+        wget https://apt.llvm.org/llvm.sh
+        chmod +x llvm.sh
+        sudo ./llvm.sh 16 all
+
+    - name: Build TON
+      run: |
+        cp assembly/native/build-ubuntu-shared.sh .
+        chmod +x build-ubuntu-shared.sh
+        ./build-ubuntu-shared.sh -t -a
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@master
+      with:
+        name: ton-binaries-${{ matrix.os }}
+        path: artifacts

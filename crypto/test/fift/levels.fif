@@ -1,0 +1,75 @@
+"Asm.fif" include
+"FiftExt.fif" include
+
+{
+  dup
+  ."Cell " .dump cr
+  dup [[ <{ CLEVEL }>s ]] 0 runvmx abort"exitcode != 0" ."Level = " . cr
+  dup [[ <{ CLEVELMASK }>s ]] 0 runvmx abort"exitcode != 0" ."Level mask = 0b" b. cr
+  dup dup [[ <{ 0 CHASHI DUP ROT 0 INT CHASHIX EQUAL 55 THROWIFNOT }>s ]] 0 runvmx abort"exitcode != 0" ."Hash_0 = " X. cr
+  dup dup [[ <{ 1 CHASHI DUP ROT 1 INT CHASHIX EQUAL 55 THROWIFNOT }>s ]] 0 runvmx abort"exitcode != 0" ."Hash_1 = " X. cr
+  dup dup [[ <{ 2 CHASHI DUP ROT 2 INT CHASHIX EQUAL 55 THROWIFNOT }>s ]] 0 runvmx abort"exitcode != 0" ."Hash_2 = " X. cr
+  dup dup [[ <{ 3 CHASHI DUP ROT 3 INT CHASHIX EQUAL 55 THROWIFNOT }>s ]] 0 runvmx abort"exitcode != 0" ."Hash_3 = " X. cr
+  dup dup [[ <{ 0 CDEPTHI DUP ROT 0 INT CDEPTHIX EQUAL 55 THROWIFNOT }>s ]] 0 runvmx abort"exitcode != 0" ."Depth_0 = " . cr
+  dup dup [[ <{ 1 CDEPTHI DUP ROT 1 INT CDEPTHIX EQUAL 55 THROWIFNOT }>s ]] 0 runvmx abort"exitcode != 0" ."Depth_1 = " . cr
+  dup dup [[ <{ 2 CDEPTHI DUP ROT 2 INT CDEPTHIX EQUAL 55 THROWIFNOT }>s ]] 0 runvmx abort"exitcode != 0" ."Depth_2 = " . cr
+  dup dup [[ <{ 3 CDEPTHI DUP ROT 3 INT CDEPTHIX EQUAL 55 THROWIFNOT }>s ]] 0 runvmx abort"exitcode != 0" ."Depth_3 = " . cr
+  drop
+  cr
+} : print-all
+
+// Ordinary cell of level 0
+<b
+  123 32 u,
+  <b <b 22 32 u, b> ref, b> ref,
+  <b b> ref,
+b>
+print-all
+
+// Prunned branch of level 1
+<b
+  1 8 u,
+  1 8 u,
+  0xabcd1111abcd1111abcd1111abcd1111abcd1111abcd1111abcd1111abcd1111 256 u,
+  14 16 u,
+b>spec
+print-all
+
+// Prunned branch of level 3
+<b
+  1 8 u,
+  7 8 u,
+  0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 256 u,
+  0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb 256 u,
+  0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc 256 u,
+  55 16 u,
+  44 16 u,
+  33 16 u,
+b>spec
+print-all
+
+// Prunned branch of level 3, mask 0b101
+<b
+  1 8 u,
+  5 8 u,
+  0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 256 u,
+  0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc 256 u,
+  55 16 u,
+  33 16 u,
+b>spec
+print-all
+
+// Tree with the previous cell inside
+<b
+  <b
+    <b
+      1 8 u,
+      5 8 u,
+      0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 256 u,
+      0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc 256 u,
+      55 16 u,
+      33 16 u,
+    b>spec ref,
+  b> ref,
+b>
+print-all

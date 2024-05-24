@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -132,6 +132,9 @@ class AdnlPacket {
   auto signature() const {
     return signature_.clone();
   }
+  auto remote_addr() const {
+    return remote_addr_;
+  }
 
   void init_random();
 
@@ -188,6 +191,10 @@ class AdnlPacket {
     flags_ |= Flags::f_reinit_date;
   }
 
+  void set_remote_addr(td::IPAddress addr) {
+    remote_addr_ = addr;
+  }
+
  private:
   td::BufferSlice rand1_;
   td::uint32 flags_{0};
@@ -204,6 +211,8 @@ class AdnlPacket {
   td::int32 dst_reinit_date_{0};
   td::BufferSlice signature_;
   td::BufferSlice rand2_;
+
+  td::IPAddress remote_addr_;
 };
 
 }  // namespace adnl

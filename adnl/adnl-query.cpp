@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "adnl-query.h"
 #include "common/errorcode.h"
@@ -25,11 +25,14 @@ namespace ton {
 namespace adnl {
 
 void AdnlQuery::alarm() {
-  promise_.set_error(td::Status::Error(ErrorCode::timeout, "adnl query timeout"));
-  stop();
+  set_error(td::Status::Error(ErrorCode::timeout, "adnl query timeout"));
 }
 void AdnlQuery::result(td::BufferSlice data) {
   promise_.set_value(std::move(data));
+  stop();
+}
+void AdnlQuery::set_error(td::Status error) {
+  promise_.set_error(std::move(error));
   stop();
 }
 

@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -63,6 +63,13 @@ class CellHashTable {
   }
   size_t size() const {
     return set_.size();
+  }
+  InfoT* get_if_exists(td::Slice hash) {
+    auto it = set_.find(hash);
+    if (it != set_.end()) {
+      return &const_cast<InfoT &>(*it);
+    }
+    return nullptr;
   }
 
  private:

@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "symtable.h"
 #include <sstream>
@@ -32,8 +32,8 @@ int scope_level;
 
 SymTable<100003> symbols;
 
-SymDef* sym_def[symbols.hprime];
-SymDef* global_sym_def[symbols.hprime];
+SymDef* sym_def[symbols.hprime + 1];
+SymDef* global_sym_def[symbols.hprime + 1];
 std::vector<std::pair<int, SymDef>> symbol_stack;
 std::vector<src::SrcLocation> scope_opened_at;
 

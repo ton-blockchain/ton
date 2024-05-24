@@ -34,8 +34,11 @@ library TonUtil // TON Blockchain Fift Library
   1 and 0= 
 } : parse-smc-addr
 
+// ( x -- ) Displays a 64-digit hex number
+{ 64 0x. } : 64x.
+{ 64 0X. } : 64X.
 // ( wc addr -- )  Show address in <workchain>:<account> form
-{ swap ._ .":" 64 0x. } : .addr
+{ swap ._ .":" 64x. } : .addr
 // ( wc addr flags -- )  Show address in base64url form
 { smca>$ type } : .Addr
 // ( wc addr fname -- )  Save address to file in 36-byte format
@@ -67,20 +70,25 @@ library TonUtil // TON Blockchain Fift Library
 
 // ( b wc addr -- b' )  Serializes address into Builder b
 { -rot 8 i, swap 256 u, } : addr, 
+{ over 8 fits { rot b{100} s, -rot addr, } {
+  rot b{110} s, 256 9 u, rot 32 i, swap 256 u, } cond
+} : Addr,
 
 // Gram utilities
 1000000000 constant Gram
 { Gram swap */r } : Gram*/
 { Gram * } : Gram*
+{ (number) dup { 1- ' Gram*/ ' Gram* cond true } if
+} : $>GR?
 // ( S -- nanograms )
-{ (number) ?dup 0= abort"not a valid Gram amount"
-1- ' Gram*/ ' Gram* cond
+{ $>GR? not abort"not a valid Gram amount"
 } : $>GR
 { bl word $>GR 1 'nop } ::_ GR$
 // ( nanograms -- S )
 { dup abs <# ' # 9 times char . hold #s rot sign #>
 nip -trailing0 } : (.GR)
-{ (.GR) ."GR$" type space } : .GR
+{ (.GR) ."GR$" type } : .GR_
+{ .GR_ space } : .GR
 
 // b x -- b'  ( serializes a Gram amount )
 { -1 { 1+ 2dup 8 * ufits } until
@@ -100,18 +108,65 @@ nip -trailing0 } : (.GR)
 ' VarUInt32, : val,
 ' VarUInt32@ : val@
 // d k v -- d'
-{ <b swap val, b> <s swap rot cc-key-bits idict! not abort"cannot add key-value to CurrencyCollection" } : +ccpair
+{ <b swap val, b> <s swap rot cc-key-bits idict!+ not abort"cannot add key-value to CurrencyCollection"
+} : +newccpair
+{ dup { -rot tuck swap cc-key-bits idict@- { val@ 2swap -rot + } { swap rot } cond +newccpair
+  } { 2drop } cond
+} : +ccpair
 dictnew constant cc0   // zero currency collection
 // ( v k -- d )  Creates currency collection representing v units of currency k
 { cc0 swap rot +ccpair } : of-cc
 { dictnew { over null? not } { swap uncons -rot unpair +ccpair } while nip } : list>cc
-{ dup null? { ."(null) " drop } { val@ . } cond } dup : .maybeVarUInt32 : .val
-{ cc-key-bits { swap 32 1<< rmod . ."-> " .val ."; " true } dictforeach drop cr } : .cc
+{ dup null? { ."(null)" drop } { val@ ._ } cond } dup : .maybeVarUInt32 : .val
+{ swap cc-key-bits { rot { ."+" } if .val ."*$" ._ true true } idictforeach drop } : (.cc)
+{ false (.cc) { ."0" } ifnot } : .cc_
+{ .cc_ space } : .cc
+{ true (.cc) drop } : .+cc_
+{ .+cc_ space } : .+cc
 { cc-key-bits { rot . ."-> " swap .val .val ."; " true } dictdiff drop cr } : show-cc-diff
 { cc-key-bits { val@ swap val@ + val, true } dictmerge } : cc+
-{ null swap cc-key-bits { val@ pair swap cons true } dictforeach drop } : cc>list-rev
+{ null swap cc-key-bits { val@ pair swap cons true } idictforeach drop } : cc>list-rev
 { cc>list-rev list-reverse } : cc>list
 forget val,  forget val@  forget .val
+
+// ( S -- x -1 or 0 )
+{ (number) dup 2 = { -rot 2drop } if 1 = } : int?
+{ int? dup { drop dup 0< { drop false } { true } cond } if } : pos-int?
+// ( S -- k v -1 or 0 )  Parses expression <value>*<currency> or <value>*$<currency>
+{ dup "*" $pos dup 0< { 2drop false } {
+  $| dup $len 2 < { 2drop false } {
+  1 $| nip dup 1 $| swap "$" $= { swap } if drop
+  int? dup { over 32 fits { 2drop false } ifnot } if
+  not { drop false } {
+  swap pos-int? not { drop false } {
+  true
+  } cond } cond } cond } cond
+} : cc-key-value?
+// ( S -- D -1 or 0 )  Parses an extra currency collection
+// e.g. "10000*$3+7777*$-11" means "10000 units of currency #3 and 7777 units of currency #-11"
+{ dictnew {  // S D
+    swap dup "+" $pos dup 0< { drop null -rot } { $| 1 $| nip -rot } cond
+    cc-key-value? { +ccpair over null? dup { rot drop true } if } { 2drop false true } cond
+  } until
+} : $>xcc?
+{ $>xcc? not abort"invalid extra currency collection" } : $>xcc
+{ char } word dup $len { $>xcc } { drop dictnew } cond 1 'nop } ::_ CX{
+
+// complete currency collections
+{ $>xcc? { true } { drop false } cond } : end-parse-cc
+// ( S -- x D -1 or 0 )  Parses a currency collection
+// e.g. "1.2+300*$2" means "1200000000ng plus 300 units of currency #2"
+{ 0 swap dup "+" $pos dup 0< { drop dup
+      $>GR? { nip nip dictnew true } { end-parse-cc } cond
+    } { over swap $| swap $>GR? { 2swap 2drop swap 1 $| nip } { drop
+  } cond end-parse-cc } cond
+} : $>cc?
+{ $>cc? not abort"invalid currency collection" } : $>cc
+{ char } word dup $len { $>cc } { drop 0 dictnew } cond 2 'nop } ::_ CC{
+// ( x D -- )
+{ swap ?dup { .GR_ .+cc_ } { .cc_ } cond } : .GR+cc_
+{ .GR+cc_ space } : .GR+cc
+{ -rot Gram, swap dict, } : Gram+cc,
 
 // Libraries
 // ( -- D )  New empty library collection
@@ -150,3 +205,177 @@ recursive append-long-bytes {
 // ( x -- S )  serialize public key
 { 256 u>B B{3ee6} swap B+ dup crc16 16 u>B B+ B>base64 } : pubkey>$
 { pubkey>$ type } : .pubkey
+
+// ( S -- x )  parse validator-encoded public key
+{ base64>B dup Blen 36 <> abort"public key with magic must be 36 bytes long"
+  4 B| swap 32 B>u@ 0xC6B41348 <> abort"unknown magic for public key (not Ed25519)"
+} : parse-val-pubkey
+{ bl word parse-val-pubkey 1 'nop } ::_ VPK'
+{ char } word base64>B 1 'nop } ::_ B64{
+
+// adnl address parser
+{ 256 u>B B{2D} swap B+ dup crc16 16 u>B B+ } : adnl-preconv
+{ swap 32 /mod dup 26 < { 65 } { 24 } cond + rot swap hold } : Base32#
+{ <# ' Base32# 8 times #> } : Base32#*8
+{ "" over Blen 5 / { swap 40 B>u@+ Base32#*8 nip rot swap $+ } swap times nip } : B>Base32
+
+// ( x -- S )  Converts an adnl-address from a 256-bit integer to a string
+{ adnl-preconv B>Base32 1 $| nip } : adnl>$
+
+{ 65 - dup 0>= { -33 and dup 26 < } { 41 + dup 25 > over 32 < and } cond ?dup nip } : Base32-digit?
+{ Base32-digit? not abort"not a Base32 digit" } : Base32-digit
+{ 0 { over $len } { swap 1 $| -rot (char) Base32-digit swap 5 << + } while nip } : Base32-number
+{ B{} { over $len } { swap 8 $| -rot Base32-number 40 u>B B+ } while nip } : Base32>B
+
+// ( S -- x )  Converts an adnl address from a string to 256-bit integer
+{ dup $len 55 <> abort"not 55 alphanumeric characters" "F" swap $+ Base32>B
+  33 B| 16 B>u@ over crc16 <> abort"crc16 checksum mismatch"
+  8 B>u@+ 0x2D <> abort"not a valid adnl address" 256 B>u@ } : $>adnl
+
+{ 65 - dup 0>= { -33 and 10 + dup 16 < } { 17 + dup 0>= over 10 < and } cond ?dup nip } : hex-digit?
+// ( S -- x -1 or 0 )  Parses a hexadecimal integer
+{ dup $len {
+    0 {
+      4 << swap 1 $| -rot (char) hex-digit?  // S a d -1 or S a 0
+      { + over $len 0= } { drop -1 true } cond
+    } until
+    dup 0< { 2drop false } { nip true } cond
+  } { drop false } cond
+} : hex$>u?
+// ( S -- x )
+{ hex$>u? not abort"not a hexadecimal number" } : hex$>u
+
+{ dup $len 64 = { hex$>u } {
+  dup $len 55 = { $>adnl } {
+    true abort"invalid adnl address"
+  } cond } cond
+} : parse-adnl-addr
+{ adnl>$ type } : .adnl
+{ bl word parse-adnl-addr 1 'nop } ::_ adnl:
+
+// ( x a b -- a<=x<=b )
+{ 2 pick >= -rot >= and } : in-range?
+
+// ( c i -- ? )  Checks whether c is a valid value for config param #i
+def? config-valid? {
+  { nip 0>= { ."warning: cannot check validity of configuration parameter value, use create-state instead of fift to check validity" cr } if
+    true } : config-valid?
+} ifnot
+
+{ dup -1000 = { drop <s ref@ <s 12 u@ 0xFF0 = } {
+  dup -1001 = { drop <s ref@ <s 12 u@ 0xFF0 = } {
+  over null? { 2drop true } {
+  config-valid?
+  } cond } cond } cond
+} : is-valid-config?
+
+
+// Get anycast depth / rewrite_pfx or return 0
+// ( S -- x y S )
+{
+    // maybe
+    1 u@+ swap 0 >
+    {
+        // anycast_info$_ depth:(#<= 30) { depth >= 1 }
+        //    rewrite_pfx:(bits depth) = Anycast;
+        30 u@+ swap // get depth
+
+        dup 1 > {
+            dup 2 roll swap u@+ // get rewrite_pfx
+            // return depth, rewrite_pfx, slice
+        }
+        {
+            drop // drop depth (<=1)
+            0 0 2 roll // set anycast to none
+        } cond
+    }
+    {
+        0 0 2 roll // set anycast to none
+    } cond
+} : maybe-anycast
+
+// Rewrite first bits of addr with anycast info
+{ // input: anycast depth, rewrite_pfx, workchain, slice, address length
+    4 -roll
+    3 roll dup dup 0 = { 2drop 2 roll drop }
+    {
+        rot swap u@+ swap drop
+        3 roll
+        <b swap 3 roll u, b> <s swap |+
+    } cond // rewrite first bits of address with rewrite_pfx
+    2 roll
+    u@+ // get address
+} : parse-address-with-anycast
+
+// Parse Slice S and return:
+// 0 `addr_none S - if addr_none$00 is parsed
+// addr `addr_extern S - if addr_extern$01 is parsed
+// wc addr `addr_std S - if addr_std$10 is parsed
+// wc addr `addr_var S - if addr_var$11 is parsed
+// ( S -- 0 A S or addr A S or wc addr A S )
+{ 2 u@+ swap dup 0>  // Get addr: addr_none$00 / addr_extern$01 / addr_std$10 / addr_var$11
+    { // if greater that zero
+       dup 1 >
+       {
+            2 =
+            {
+                // if addr_std$10
+                // anycast:(Maybe Anycast)
+                // workchain_id:int8
+                // address:bits256  = MsgAddressInt;
+                maybe-anycast // get anycast depth, bits, slice
+                8 i@+ // get workchain
+                256 parse-address-with-anycast
+                `addr-std swap
+            }
+
+            {
+                // if addr_var$11
+                // anycast:(Maybe Anycast)
+                // addr_len:(## 9)
+                // workchain_id:int32
+                // address:(bits addr_len) = MsgAddressInt;
+                maybe-anycast // get anycast depth, bits, slice
+                9 u@+  // get addr_len
+                32 i@+ // get workchain
+                swap 2 -roll // move workchain to neede position
+                swap parse-address-with-anycast
+                `addr-var swap
+            } cond
+
+       }
+       {
+            drop // drop header (dup for statment upper)
+            // if addr_extern$01
+            // addr_extern$01 len:(## 9)
+            // external_address:(bits len)
+            9 u@+ swap  // bit len
+            u@+ // external_address
+            `addr-extern swap
+       } cond
+    }
+    {
+        swap
+        // if addr_none$00
+        `addr-none swap
+    } cond
+} : addr@+
+
+{ addr@+ drop } : addr@
+
+// User-friendly prints output of addr@
+// (0 A or addr A or wc addr A -- )
+{
+    dup `addr-none eq?
+    { 2drop ."addr_none" }
+    {
+        `addr-extern eq?
+        { (dump) type }
+        { (x.) swap (dump) ":" $+ swap $+ type }
+        cond
+    }
+    cond
+} : print-addr // print addr with workchain
+
+forget maybe-anycast
+forget parse-address-with-anycast

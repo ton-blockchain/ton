@@ -1,4 +1,4 @@
-/* 
+/*
     This file is part of TON Blockchain source code.
 
     TON Blockchain is free software; you can redistribute it and/or
@@ -14,215 +14,205 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 
-    In addition, as a special exception, the copyright holders give permission 
-    to link the code of portions of this program with the OpenSSL library. 
-    You must obey the GNU General Public License in all respects for all 
-    of the code used other than OpenSSL. If you modify file(s) with this 
-    exception, you may extend this exception to your version of the file(s), 
-    but you are not obligated to do so. If you do not wish to do so, delete this 
-    exception statement from your version. If you delete this exception statement 
+    In addition, as a special exception, the copyright holders give permission
+    to link the code of portions of this program with the OpenSSL library.
+    You must obey the GNU General Public License in all respects for all
+    of the code used other than OpenSSL. If you modify file(s) with this
+    exception, you may extend this exception to your version of the file(s),
+    but you are not obligated to do so. If you do not wish to do so, delete this
+    exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "func.h"
 #include "parser/srcread.h"
 #include "parser/lexer.h"
-#include "parser/symtable.h"
 #include <getopt.h>
+#include "git.h"
 #include <fstream>
+#include "td/utils/port/path.h"
 
 namespace funC {
 
 int verbosity, indent, opt_level = 2, warn_unused;
 bool stack_layout_comments, op_rewrite_comments, program_envelope, asm_preamble;
-std::ostream* outs = &std::cout;
+bool interactive = false;
+GlobalPragma pragma_allow_post_modification{"allow-post-modification"};
+GlobalPragma pragma_compute_asm_ltr{"compute-asm-ltr"};
 std::string generated_from, boc_output_filename;
+ReadCallback::Callback read_callback;
 
-/*
- * 
- *   OUTPUT CODE GENERATOR
- * 
- */
-
-void generate_output_func(SymDef* func_sym) {
-  SymValCodeFunc* func_val = dynamic_cast<SymValCodeFunc*>(func_sym->value);
-  assert(func_val);
-  std::string name = sym::symbols.get_name(func_sym->sym_idx);
-  if (verbosity >= 2) {
-    std::cerr << "\n\n=========================\nfunction " << name << " : " << func_val->get_type() << std::endl;
-  }
-  if (!func_val->code) {
-    std::cerr << "( function `" << name << "` undefined )\n";
-  } else {
-    CodeBlob& code = *(func_val->code);
-    if (verbosity >= 3) {
-      code.print(std::cerr, 9);
-    }
-    code.simplify_var_types();
-    if (verbosity >= 5) {
-      std::cerr << "after simplify_var_types: \n";
-      code.print(std::cerr, 0);
-    }
-    code.prune_unreachable_code();
-    if (verbosity >= 5) {
-      std::cerr << "after prune_unreachable: \n";
-      code.print(std::cerr, 0);
-    }
-    code.split_vars(true);
-    if (verbosity >= 5) {
-      std::cerr << "after split_vars: \n";
-      code.print(std::cerr, 0);
-    }
-    for (int i = 0; i < 8; i++) {
-      code.compute_used_code_vars();
-      if (verbosity >= 4) {
-        std::cerr << "after compute_used_vars: \n";
-        code.print(std::cerr, 6);
+td::Result<std::string> fs_read_callback(ReadCallback::Kind kind, const char* query) {
+  switch (kind) {
+    case ReadCallback::Kind::ReadFile: {
+      std::ifstream ifs{query};
+      if (ifs.fail()) {
+        auto msg = std::string{"cannot open source file `"} + query + "`";
+        return td::Status::Error(msg);
       }
-      code.fwd_analyze();
-      if (verbosity >= 5) {
-        std::cerr << "after fwd_analyze: \n";
-        code.print(std::cerr, 6);
-      }
-      code.prune_unreachable_code();
-      if (verbosity >= 5) {
-        std::cerr << "after prune_unreachable: \n";
-        code.print(std::cerr, 6);
-      }
+      std::stringstream ss;
+      ss << ifs.rdbuf();
+      return ss.str();
     }
-    code.mark_noreturn();
-    if (verbosity >= 3) {
-      code.print(std::cerr, 15);
+    case ReadCallback::Kind::Realpath: {
+      return td::realpath(td::CSlice(query));
     }
-    if (verbosity >= 2) {
-      std::cerr << "\n---------- resulting code for " << name << " -------------\n";
-    }
-    bool inline_ref = (func_val->flags & 2);
-    *outs << std::string(indent * 2, ' ') << name << " PROC" << (inline_ref ? "REF" : "") << ":<{\n";
-    code.generate_code(
-        *outs,
-        (stack_layout_comments ? Stack::_StkCmt | Stack::_CptStkCmt : 0) | (opt_level < 2 ? Stack::_DisableOpt : 0),
-        indent + 1);
-    *outs << std::string(indent * 2, ' ') << "}>\n";
-    if (verbosity >= 2) {
-      std::cerr << "--------------\n";
+    default: {
+      return td::Status::Error("Unknown query kind");
     }
   }
 }
 
-int generate_output() {
-  if (asm_preamble) {
-    *outs << "\"Asm.fif\" include\n";
+/*
+ *
+ *   OUTPUT CODE GENERATOR
+ *
+ */
+
+void generate_output_func(SymDef* func_sym, std::ostream &outs, std::ostream &errs) {
+  SymValCodeFunc* func_val = dynamic_cast<SymValCodeFunc*>(func_sym->value);
+  func_assert(func_val);
+  std::string name = sym::symbols.get_name(func_sym->sym_idx);
+  if (verbosity >= 2) {
+    errs << "\n\n=========================\nfunction " << name << " : " << func_val->get_type() << std::endl;
   }
-  *outs << "// automatically generated from " << generated_from << std::endl;
+  if (!func_val->code) {
+    errs << "( function `" << name << "` undefined )\n";
+    throw src::ParseError(func_sym->loc, name);
+  } else {
+    CodeBlob& code = *(func_val->code);
+    if (verbosity >= 3) {
+      code.print(errs, 9);
+    }
+    code.simplify_var_types();
+    if (verbosity >= 5) {
+      errs << "after simplify_var_types: \n";
+      code.print(errs, 0);
+    }
+    code.prune_unreachable_code();
+    if (verbosity >= 5) {
+      errs << "after prune_unreachable: \n";
+      code.print(errs, 0);
+    }
+    code.split_vars(true);
+    if (verbosity >= 5) {
+      errs << "after split_vars: \n";
+      code.print(errs, 0);
+    }
+    for (int i = 0; i < 8; i++) {
+      code.compute_used_code_vars();
+      if (verbosity >= 4) {
+        errs << "after compute_used_vars: \n";
+        code.print(errs, 6);
+      }
+      code.fwd_analyze();
+      if (verbosity >= 5) {
+        errs << "after fwd_analyze: \n";
+        code.print(errs, 6);
+      }
+      code.prune_unreachable_code();
+      if (verbosity >= 5) {
+        errs << "after prune_unreachable: \n";
+        code.print(errs, 6);
+      }
+    }
+    code.mark_noreturn();
+    if (verbosity >= 3) {
+      code.print(errs, 15);
+    }
+    if (verbosity >= 2) {
+      errs << "\n---------- resulting code for " << name << " -------------\n";
+    }
+    bool inline_func = (func_val->flags & 1);
+    bool inline_ref = (func_val->flags & 2);
+    const char* modifier = "";
+    if (inline_func) {
+      modifier = "INLINE";
+    } else if (inline_ref) {
+      modifier = "REF";
+    }
+    outs << std::string(indent * 2, ' ') << name << " PROC" << modifier << ":<{\n";
+    int mode = 0;
+    if (stack_layout_comments) {
+      mode |= Stack::_StkCmt | Stack::_CptStkCmt;
+    }
+    if (opt_level < 2) {
+      mode |= Stack::_DisableOpt;
+    }
+    auto fv = dynamic_cast<const SymValCodeFunc*>(func_sym->value);
+    // Flags: 1 - inline, 2 - inline_ref
+    if (fv && (fv->flags & 1) && code.ops->noreturn()) {
+      mode |= Stack::_InlineFunc;
+    }
+    if (fv && (fv->flags & 3)) {
+      mode |= Stack::_InlineAny;
+    }
+    code.generate_code(outs, mode, indent + 1);
+    outs << std::string(indent * 2, ' ') << "}>\n";
+    if (verbosity >= 2) {
+      errs << "--------------\n";
+    }
+  }
+}
+
+int generate_output(std::ostream &outs, std::ostream &errs) {
+  if (asm_preamble) {
+    outs << "\"Asm.fif\" include\n";
+  }
+  outs << "// automatically generated from " << generated_from << std::endl;
   if (program_envelope) {
-    *outs << "PROGRAM{\n";
+    outs << "PROGRAM{\n";
   }
   for (SymDef* func_sym : glob_func) {
     SymValCodeFunc* func_val = dynamic_cast<SymValCodeFunc*>(func_sym->value);
-    assert(func_val);
+    func_assert(func_val);
     std::string name = sym::symbols.get_name(func_sym->sym_idx);
-    *outs << std::string(indent * 2, ' ');
+    outs << std::string(indent * 2, ' ');
     if (func_val->method_id.is_null()) {
-      *outs << "DECLPROC " << name << "\n";
+      outs << "DECLPROC " << name << "\n";
     } else {
-      *outs << func_val->method_id << " DECLMETHOD " << name << "\n";
+      outs << func_val->method_id << " DECLMETHOD " << name << "\n";
     }
   }
   for (SymDef* gvar_sym : glob_vars) {
-    assert(dynamic_cast<SymValGlobVar*>(gvar_sym->value));
+    func_assert(dynamic_cast<SymValGlobVar*>(gvar_sym->value));
     std::string name = sym::symbols.get_name(gvar_sym->sym_idx);
-    *outs << std::string(indent * 2, ' ') << "DECLGLOBVAR " << name << "\n";
+    outs << std::string(indent * 2, ' ') << "DECLGLOBVAR " << name << "\n";
   }
   int errors = 0;
   for (SymDef* func_sym : glob_func) {
     try {
-      generate_output_func(func_sym);
+      generate_output_func(func_sym, outs, errs);
     } catch (src::Error& err) {
-      std::cerr << "cannot generate code for function `" << sym::symbols.get_name(func_sym->sym_idx) << "`:\n"
+      errs << "cannot generate code for function `" << sym::symbols.get_name(func_sym->sym_idx) << "`:\n"
                 << err << std::endl;
       ++errors;
     }
   }
   if (program_envelope) {
-    *outs << "}END>c\n";
+    outs << "}END>c\n";
   }
   if (!boc_output_filename.empty()) {
-    *outs << "2 boc+>B \"" << boc_output_filename << "\" B>file\n";
+    outs << "2 boc+>B \"" << boc_output_filename << "\" B>file\n";
   }
   return errors;
 }
 
-}  // namespace funC
-
-void usage(const char* progname) {
-  std::cerr
-      << "usage: " << progname
-      << " [-vIAPSR][-O<level>][-i<indent-spc>][-o<output-filename>][-W<boc-filename>] {<func-source-filename> ...}\n"
-         "\tGenerates Fift TVM assembler code from a funC source\n"
-         "-I\tEnables interactive mode (parse stdin)\n"
-         "-o<fift-output-filename>\tWrites generated code into specified file instead of stdout\n"
-         "-v\tIncreases verbosity level (extra information output into stderr)\n"
-         "-i<indent>\tSets indentation for the output code (in two-space units)\n"
-         "-A\tPrefix code with `\"Asm.fif\" include` preamble\n"
-         "-O<level>\tSets optimization level (2 by default)\n"
-         "-P\tEnvelope code into PROGRAM{ ... }END>c\n"
-         "-S\tInclude stack layout comments in the output code\n"
-         "-R\tInclude operation rewrite comments in the output code\n"
-         "-W<output-boc-file>\tInclude Fift code to serialize and save generated code into specified BoC file. Enables "
-         "-A and -P.\n"
-		 "-u\tEnable warnings about unused calls and variables (once for assigns, twice also for calls)\n";
-  std::exit(2);
-}
-
-std::string output_filename;
-
-int main(int argc, char* const argv[]) {
-  int i;
-  bool interactive = false;
-  while ((i = getopt(argc, argv, "Ahi:Io:O:PRSuvW:")) != -1) {
-    switch (i) {
-      case 'A':
-        funC::asm_preamble = true;
-        break;
-      case 'I':
-        interactive = true;
-        break;
-      case 'i':
-        funC::indent = std::max(0, atoi(optarg));
-        break;
-      case 'o':
-        output_filename = optarg;
-        break;
-      case 'O':
-        funC::opt_level = std::max(0, atoi(optarg));
-        break;
-      case 'P':
-        funC::program_envelope = true;
-        break;
-      case 'R':
-        funC::op_rewrite_comments = true;
-        break;
-      case 'S':
-        funC::stack_layout_comments = true;
-        break;
-      case 'u':
-        ++funC::warn_unused;
-        break;
-      case 'v':
-        ++funC::verbosity;
-        break;
-      case 'W':
-        funC::boc_output_filename = optarg;
-        funC::asm_preamble = funC::program_envelope = true;
-        break;
-      case 'h':
-      default:
-        usage(argv[0]);
+void output_inclusion_stack(std::ostream &errs) {
+  while (!funC::inclusion_locations.empty()) {
+    src::SrcLocation loc = funC::inclusion_locations.top();
+    funC::inclusion_locations.pop();
+    if (loc.fdescr) {
+      errs << "note: included from ";
+      loc.show(errs);
+      errs << std::endl;
     }
   }
+}
 
+
+int func_proceed(const std::vector<std::string> &sources, std::ostream &outs, std::ostream &errs) {
   if (funC::program_envelope && !funC::indent) {
     funC::indent = 1;
   }
@@ -232,12 +222,11 @@ int main(int argc, char* const argv[]) {
 
   int ok = 0, proc = 0;
   try {
-    while (optind < argc) {
-      funC::generated_from += std::string{"`"} + argv[optind] + "` ";
-      ok += funC::parse_source_file(argv[optind++]);
+    for (auto src : sources) {
+      ok += funC::parse_source_file(src.c_str(), {}, true);
       proc++;
     }
-    if (interactive) {
+    if (funC::interactive) {
       funC::generated_from += "stdin ";
       ok += funC::parse_source_stdin();
       proc++;
@@ -248,26 +237,26 @@ int main(int argc, char* const argv[]) {
     if (!proc) {
       throw src::Fatal{"no source files, no output"};
     }
-    std::unique_ptr<std::fstream> fs;
-    if (!output_filename.empty()) {
-      fs = std::make_unique<std::fstream>(output_filename, fs->trunc | fs->out);
-      if (!fs->is_open()) {
-        std::cerr << "failed to create output file " << output_filename << '\n';
-        return 2;
-      }
-      funC::outs = fs.get();
-    }
-    funC::generate_output();
+    pragma_allow_post_modification.check_enable_in_libs();
+    pragma_compute_asm_ltr.check_enable_in_libs();
+    return funC::generate_output(outs, errs);
   } catch (src::Fatal& fatal) {
-    std::cerr << "fatal: " << fatal << std::endl;
-    std::exit(1);
+    errs << "fatal: " << fatal << std::endl;
+    output_inclusion_stack(errs);
+    return 2;
   } catch (src::Error& error) {
-    std::cerr << error << std::endl;
-    std::exit(1);
+    errs << error << std::endl;
+    output_inclusion_stack(errs);
+    return 2;
   } catch (funC::UnifyError& unif_err) {
-    std::cerr << "fatal: ";
-    unif_err.print_message(std::cerr);
-    std::cerr << std::endl;
-    std::exit(1);
+    errs << "fatal: ";
+    unif_err.print_message(errs);
+    errs << std::endl;
+    output_inclusion_stack(errs);
+    return 2;
   }
+
+  return 0;
 }
+
+}  // namespace funC
