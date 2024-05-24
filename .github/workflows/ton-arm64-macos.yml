@@ -33,5 +33,5 @@ jobs:
     - name: Upload artifacts
       uses: actions/upload-artifact@master
       with:
-        name: ton-x86_64-macos-binaries
+        name: ton-arm64-macos-binaries
         path: artifacts
