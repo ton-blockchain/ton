@@ -17,7 +17,7 @@ pkgs.llvmPackages_14.stdenv.mkDerivation {
 
   buildInputs = with pkgs;
    lib.forEach [
-        secp256k1 libsodium.dev libmicrohttpd.dev gmp.dev nettle.dev libtasn1.dev libidn2.dev libunistring.dev gettext (gnutls.override { withP11-kit = false; }).dev
+        secp256k1 libsodium.dev libmicrohttpd.dev gmp.dev nettle.dev libtasn1.dev libidn2.dev libunistring.dev gettext jemalloc (gnutls.override { withP11-kit = false; }).dev
       ]
       (x: x.overrideAttrs(oldAttrs: rec { configureFlags = (oldAttrs.configureFlags or []) ++ [ "--enable-static" "--disable-shared" "--disable-tests" ]; dontDisableStatic = true; }))
     ++ [
@@ -38,13 +38,13 @@ pkgs.llvmPackages_14.stdenv.mkDerivation {
   cmakeFlags = [
     "-DTON_USE_ABSEIL=OFF"
     "-DNIX=ON"
+    "-DTON_USE_JEMALLOC=ON"
     "-DCMAKE_CROSSCOMPILING=OFF"
     "-DCMAKE_LINK_SEARCH_START_STATIC=ON"
     "-DCMAKE_LINK_SEARCH_END_STATIC=ON"
     "-DBUILD_SHARED_LIBS=OFF"
     "-DCMAKE_CXX_FLAGS=-stdlib=libc++"
     "-DCMAKE_OSX_DEPLOYMENT_TARGET:STRING=11.3"
-    "-DCMAKE_CTEST_ARGUMENTS=--timeout;1800"
   ];
 
   LDFLAGS = [
