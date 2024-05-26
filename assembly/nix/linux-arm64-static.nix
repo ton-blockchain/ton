@@ -57,6 +57,6 @@ stdenv.mkDerivation {
   doCheck = testing;
 
   LDFLAGS = [
-    "-static-libgcc" "-static-libstdc++" "-fPIC"
+    "-static-libgcc" "-static-libstdc++" "-static"
   ];
 }
