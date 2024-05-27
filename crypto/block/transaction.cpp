@@ -1831,7 +1831,7 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
   for (int i = n - 1; i >= 0; --i) {
     ap.result_arg = n - 1 - i;
     if (!block::gen::t_OutListNode.validate_ref(ap.action_list[i])) {
-      if (cfg.check_mode_on_invalid_message_enabled) {
+      if (cfg.message_skip_enabled) {
         // try to read mode from action_send_msg even if out_msg scheme is violated
         // action should at least contain 40 bits: 32bit tag and 8 bit mode
         // if (mode & 2), that is ignore error mode, skip action even for invelid message
@@ -2304,6 +2304,15 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     return -1;
   }
   bool skip_invalid = (act_rec.mode & 2);
+  auto check_skip_invalid = [&](unsigned error_code) -> unsigned int {
+    if(skip_invalid) {
+      if(cfg.message_skip_enabled) {
+        ap.skipped_actions ++;
+      }
+      return 0;
+    }
+    return error_code;
+  };
   // try to parse suggested message in act_rec.out_msg
   td::RefInt256 fwd_fee, ihr_fee;
   block::gen::MessageRelaxed::Record msg;
@@ -2387,7 +2396,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
   bool to_mc = false;
   if (!check_rewrite_dest_addr(info.dest, cfg, &to_mc)) {
     LOG(DEBUG) << "invalid destination address in a proposed outbound message";
-    return skip_invalid ? 0 : 36;  // invalid destination address
+    return check_skip_invalid(36);  // invalid destination address
   }
 
   // fetch message pricing info
@@ -2402,7 +2411,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     if (!ext_msg && !(act_rec.mode & 0x80) && !(act_rec.mode & 1)) {
       if (!block::tlb::t_CurrencyCollection.validate_csr(info.value)) {
         LOG(DEBUG) << "invalid value:CurrencyCollection in proposed outbound message";
-        return skip_invalid ? 0 : 37;
+        return check_skip_invalid(37);
       }
       block::CurrencyCollection value;
       CHECK(value.unpack(info.value));
@@ -2419,7 +2428,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
         if (new_funds->sgn() < 0) {
           LOG(DEBUG)
               << "not enough value to transfer with the message: all of the inbound message value has been consumed";
-          return skip_invalid ? 0 : 37;
+          return check_skip_invalid(37);
         }
       }
       funds = std::min(funds, new_funds);
@@ -2457,17 +2466,17 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
   if (sstat.cells > max_cells && max_cells < cfg.size_limits.max_msg_cells) {
     LOG(DEBUG) << "not enough funds to process a message (max_cells=" << max_cells << ")";
     collect_fine();
-    return skip_invalid ? 0 : 40;
+    return check_skip_invalid(40);
   }
   if (sstat.bits > cfg.size_limits.max_msg_bits || sstat.cells > max_cells) {
     LOG(DEBUG) << "message too large, invalid";
     collect_fine();
-    return skip_invalid ? 0 : 40;
+    return check_skip_invalid(40);
   }
   if (max_merkle_depth > max_allowed_merkle_depth) {
     LOG(DEBUG) << "message has too big merkle depth, invalid";
     collect_fine();
-    return skip_invalid ? 0 : 40;
+    return check_skip_invalid(40);
   }
   LOG(DEBUG) << "storage paid for a message: " << sstat.cells << " cells, " << sstat.bits << " bits";
 
@@ -2499,7 +2508,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     if (!block::tlb::t_CurrencyCollection.validate_csr(info.value)) {
       LOG(DEBUG) << "invalid value:CurrencyCollection in proposed outbound message";
       collect_fine();
-      return skip_invalid ? 0 : 37;
+      return check_skip_invalid(37);
     }
     if (info.ihr_disabled) {
       // if IHR is disabled, IHR fees will be always zero
@@ -2526,7 +2535,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
           LOG(DEBUG)
               << "not enough value to transfer with the message: all of the inbound message value has been consumed";
           collect_fine();
-          return skip_invalid ? 0 : 37;
+          return check_skip_invalid(37);
         }
       }
     }
@@ -2542,7 +2551,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
       LOG(DEBUG) << "not enough value attached to the message to pay forwarding fees : have " << req.grams << ", need "
                  << fees_total;
       collect_fine();
-      return skip_invalid ? 0 : 37;  // not enough grams
+      return check_skip_invalid(37);  // not enough grams
     } else {
       // decrease message value
       req.grams -= fees_total;
@@ -2553,7 +2562,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
       LOG(DEBUG) << "not enough grams to transfer with the message : remaining balance is "
                  << ap.remaining_balance.to_str() << ", need " << req_grams_brutto << " (including forwarding fees)";
       collect_fine();
-      return skip_invalid ? 0 : 37;  // not enough grams
+      return check_skip_invalid(37);  // not enough grams
     }
 
     Ref<vm::Cell> new_extra;
@@ -2563,7 +2572,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
                  << block::CurrencyCollection{0, req.extra}.to_str() << " required, only "
                  << block::CurrencyCollection{0, ap.remaining_balance.extra}.to_str() << " available";
       collect_fine();
-      return skip_invalid ? 0 : 38;  // not enough (extra) funds
+      return check_skip_invalid(38);  // not enough (extra) funds
     }
     if (ap.remaining_balance.extra.not_null() || req.extra.not_null()) {
       LOG(DEBUG) << "subtracting extra currencies: "
@@ -2587,7 +2596,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
       LOG(DEBUG) << "outbound message does not fit into a cell after rewriting";
       if (redoing == 2) {
         collect_fine();
-        return skip_invalid ? 0 : 39;
+        return check_skip_invalid(39);
       }
       return -2;
     }
@@ -2612,7 +2621,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     if (ap.remaining_balance.grams < fwd_fee) {
       LOG(DEBUG) << "not enough funds to pay for an outbound external message";
       collect_fine();
-      return skip_invalid ? 0 : 37;  // not enough grams
+      return check_skip_invalid(37);  // not enough grams
     }
     // repack message
     // ext_out_msg_info$11 constructor of CommonMsgInfo
@@ -2627,7 +2636,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
       LOG(DEBUG) << "outbound message does not fit into a cell after rewriting";
       if (redoing == 2) {
         collect_fine();
-        return (skip_invalid ? 0 : 39);
+        return check_skip_invalid(39);
       }
       return -2;
     }
@@ -3731,7 +3740,7 @@ td::Status FetchConfigParams::fetch_config_params(
     action_phase_cfg->size_limits = size_limits;
     action_phase_cfg->action_fine_enabled = config.get_global_version() >= 4;
     action_phase_cfg->bounce_on_fail_enabled = config.get_global_version() >= 4;
-    action_phase_cfg->check_mode_on_invalid_message_enabled = config.get_global_version() >= 8;
+    action_phase_cfg->message_skip_enabled = config.get_global_version() >= 8;
     action_phase_cfg->mc_blackhole_addr = config.get_burning_config().blackhole_addr;
   }
   {
