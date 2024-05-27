@@ -1604,12 +1604,22 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
     cp.skip_reason = in_msg_state.not_null() ? ComputePhase::sk_bad_state : ComputePhase::sk_no_state;
     return true;
   } else if (in_msg_state.not_null()) {
+    if(cfg.allow_external_unfreeze) {
+      if (in_msg_extern && account.addr != in_msg_state->get_hash().bits()) {
+        // only for external messages with non-zero initstate in active accounts
+        LOG(DEBUG) << "in_msg_state hash mismatch in external message";
+        cp.skip_reason = ComputePhase::sk_bad_state;
+        return true;
+      }
+    }
     unpack_msg_state(cfg, true);  // use only libraries
   }
-  if (in_msg_extern && in_msg_state.not_null() && account.addr != in_msg_state->get_hash().bits()) {
-    LOG(DEBUG) << "in_msg_state hash mismatch in external message";
-    cp.skip_reason = ComputePhase::sk_bad_state;
-    return true;
+  if(!cfg.allow_external_unfreeze) {
+    if (in_msg_extern && in_msg_state.not_null() && account.addr != in_msg_state->get_hash().bits()) {
+      LOG(DEBUG) << "in_msg_state hash mismatch in external message";
+      cp.skip_reason = ComputePhase::sk_bad_state;
+      return true;
+    }
   }
 
   td::optional<PrecompiledContractsConfig::Contract> precompiled;
@@ -3717,6 +3727,7 @@ td::Status FetchConfigParams::fetch_config_params(
     compute_phase_cfg->suspended_addresses = config.get_suspended_addresses(now);
     compute_phase_cfg->size_limits = size_limits;
     compute_phase_cfg->precompiled_contracts = config.get_precompiled_contracts_config();
+    compute_phase_cfg->allow_external_unfreeze = compute_phase_cfg->global_version >= 8;
   }
   {
     // compute action_phase_cfg

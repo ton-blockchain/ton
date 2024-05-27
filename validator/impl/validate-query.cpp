@@ -967,6 +967,7 @@ bool ValidateQuery::fetch_config_params() {
     compute_phase_cfg_.suspended_addresses = config_->get_suspended_addresses(now_);
     compute_phase_cfg_.size_limits = size_limits;
     compute_phase_cfg_.precompiled_contracts = config_->get_precompiled_contracts_config();
+    compute_phase_cfg_.allow_external_unfreeze = compute_phase_cfg_.global_version >= 8;
   }
   {
     // compute action_phase_cfg

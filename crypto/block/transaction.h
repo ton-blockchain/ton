@@ -126,6 +126,7 @@ struct ComputePhaseConfig {
   bool stop_on_accept_message = false;
   PrecompiledContractsConfig precompiled_contracts;
   bool dont_run_precompiled_ = false;
+  bool allow_external_unfreeze{false};
 
   ComputePhaseConfig() : gas_price(0), gas_limit(0), special_gas_limit(0), gas_credit(0) {
     compute_threshold();
