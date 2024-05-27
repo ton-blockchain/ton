@@ -1827,6 +1827,7 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
 
   ap.tot_actions = n;
   ap.spec_actions = ap.skipped_actions = 0;
+  std::vector<Ref<vm::Cell>> non_skipped_action_list;
   for (int i = n - 1; i >= 0; --i) {
     ap.result_arg = n - 1 - i;
     if (!block::gen::t_OutListNode.validate_ref(ap.action_list[i])) {
@@ -1839,6 +1840,7 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
         if(!special) {
           if((cs.size() >= 40) && ((int)cs.fetch_ulong(32) == 0x0ec3c86d)) {
             if((int)cs.fetch_ulong(8) & 2) {
+              ap.skipped_actions++;
               continue;
             }
           }
@@ -1849,8 +1851,12 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
       LOG(DEBUG) << "invalid action " << ap.result_arg << " found while preprocessing action list: error code "
                  << ap.result_code;
       return true;
+    } else {
+      non_skipped_action_list.push_back(ap.action_list[i]);
     }
   }
+  ap.action_list = std::move(non_skipped_action_list);
+  n -= ap.skipped_actions;
   ap.valid = true;
   for (int i = n - 1; i >= 0; --i) {
     ap.result_arg = n - 1 - i;
