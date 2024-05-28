@@ -86,24 +86,18 @@ td::Result<Ref<ExtMessageQ>> ExtMessageQ::create_ext_message(td::BufferSlice dat
   return Ref<ExtMessageQ>{true, std::move(data), std::move(ext_msg), dest_prefix, wc, addr};
 }
 
-void ExtMessageQ::run_message(td::BufferSlice data, block::SizeLimitsConfig::ExtMsgLimits limits,
-                              td::actor::ActorId<ton::validator::ValidatorManager> manager,
+void ExtMessageQ::run_message(td::Ref<ExtMessage> message, td::actor::ActorId<ton::validator::ValidatorManager> manager,
                               td::Promise<td::Ref<ExtMessage>> promise) {
-  auto R = create_ext_message(std::move(data), limits);
-  if (R.is_error()) {
-    return promise.set_error(R.move_as_error_prefix("failed to parse external message "));
-  }
-  auto M = R.move_as_ok();
-  auto root = M->root_cell();
+  auto root = message->root_cell();
   block::gen::CommonMsgInfo::Record_ext_in_msg_info info;
   tlb::unpack_cell_inexact(root, info);  // checked in create message
-  ton::StdSmcAddress addr = M->addr();
-  ton::WorkchainId wc = M->wc();
+  ton::StdSmcAddress addr = message->addr();
+  ton::WorkchainId wc = message->wc();
 
   run_fetch_account_state(
       wc, addr, manager,
-      [promise = std::move(promise), msg_root = root, wc, addr,
-       M](td::Result<std::tuple<td::Ref<vm::CellSlice>, UnixTime, LogicalTime, std::unique_ptr<block::ConfigInfo>>>
+      [promise = std::move(promise), msg_root = root, wc, addr, message](
+          td::Result<std::tuple<td::Ref<vm::CellSlice>, UnixTime, LogicalTime, std::unique_ptr<block::ConfigInfo>>>
               res) mutable {
         if (res.is_error()) {
           promise.set_error(td::Status::Error(PSLICE() << "Failed to get account state"));
@@ -120,7 +114,7 @@ void ExtMessageQ::run_message(td::BufferSlice data, block::SizeLimitsConfig::Ext
           } else {
             auto status = run_message_on_account(wc, &acc, utime, lt + 1, msg_root, std::move(config));
             if (status.is_ok()) {
-              promise.set_value(std::move(M));
+              promise.set_value(std::move(message));
             } else {
               promise.set_error(td::Status::Error(PSLICE() << "External message was not accepted\n"
                                                            << status.message()));
