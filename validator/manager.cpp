@@ -438,7 +438,7 @@ void ValidatorManagerImpl::check_external_message(td::BufferSlice data, td::Prom
       return;
     }
     td::actor::send_lambda(SelfId, [=, promise = std::move(promise), message = R.move_as_ok()]() mutable {
-      if (self->checked_ext_msg_counter_.inc_msg_count(wc, addr) > max_ext_msg_per_addr_time_window()) {
+      if (self->checked_ext_msg_counter_.inc_msg_count(wc, addr) > max_ext_msg_per_addr()) {
         promise.set_error(
             td::Status::Error(PSTRING() << "too many external messages to address " << wc << ":" << addr.to_hex()));
         return;
@@ -2620,6 +2620,16 @@ void ValidatorManagerImpl::alarm() {
     log_ls_stats_at_ = td::Timestamp::in(60.0);
   }
   alarm_timestamp().relax(log_ls_stats_at_);
+  if (cleanup_mempool_at_.is_in_past()) {
+    if (is_validator()) {
+      get_external_messages(ShardIdFull{masterchainId, shardIdAll},
+                            [](td::Result<std::vector<std::pair<td::Ref<ExtMessage>, int>>>) {});
+      get_external_messages(ShardIdFull{basechainId, shardIdAll},
+                            [](td::Result<std::vector<std::pair<td::Ref<ExtMessage>, int>>>) {});
+    }
+    cleanup_mempool_at_ = td::Timestamp::in(250.0);
+  }
+  alarm_timestamp().relax(cleanup_mempool_at_);
 }
 
 void ValidatorManagerImpl::update_shard_client_state(BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise) {

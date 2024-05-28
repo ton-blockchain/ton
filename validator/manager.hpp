@@ -241,6 +241,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   };
   std::map<int, ExtMessages> ext_msgs_;  // priority -> messages
   std::map<ExtMessage::Hash, std::pair<int, MessageId<ExtMessage>>> ext_messages_hashes_;  // hash -> priority
+  td::Timestamp cleanup_mempool_at_;
   // IHR ?
   std::map<MessageId<IhrMessage>, std::unique_ptr<MessageExt<IhrMessage>>> ihr_messages_;
   std::map<IhrMessage::Hash, MessageId<IhrMessage>> ihr_messages_hashes_;
@@ -688,10 +689,10 @@ class ValidatorManagerImpl : public ValidatorManager {
     return 128;
   }
   static double max_ext_msg_per_addr_time_window() {
-    return 60;
+    return 10.0;
   }
   static size_t max_ext_msg_per_addr() {
-    return 3 * 60;
+    return 3 * 10;
   }
 
  private:
