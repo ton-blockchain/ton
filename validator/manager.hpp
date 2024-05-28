@@ -241,9 +241,19 @@ class ValidatorManagerImpl : public ValidatorManager {
   };
   std::map<int, ExtMessages> ext_msgs_;  // priority -> messages
   std::map<ExtMessage::Hash, std::pair<int, MessageId<ExtMessage>>> ext_messages_hashes_;  // hash -> priority
+  td::Timestamp cleanup_mempool_at_;
   // IHR ?
   std::map<MessageId<IhrMessage>, std::unique_ptr<MessageExt<IhrMessage>>> ihr_messages_;
   std::map<IhrMessage::Hash, MessageId<IhrMessage>> ihr_messages_hashes_;
+
+  struct CheckedExtMsgCounter {
+    std::map<std::pair<WorkchainId, StdSmcAddress>, size_t> counter_cur_, counter_prev_;
+    td::Timestamp cleanup_at_ = td::Timestamp::now();
+
+    size_t get_msg_count(WorkchainId wc, StdSmcAddress addr);
+    size_t inc_msg_count(WorkchainId wc, StdSmcAddress addr);
+    void before_query();
+  } checked_ext_msg_counter_;
 
  private:
   // VALIDATOR GROUPS
@@ -677,6 +687,12 @@ class ValidatorManagerImpl : public ValidatorManager {
   }
   size_t max_cached_candidates() const {
     return 128;
+  }
+  static double max_ext_msg_per_addr_time_window() {
+    return 10.0;
+  }
+  static size_t max_ext_msg_per_addr() {
+    return 3 * 10;
   }
 
  private:

@@ -412,14 +412,42 @@ void ValidatorManagerImpl::add_external_message(td::Ref<ExtMessage> msg, int pri
   ext_messages_hashes_[id.hash] = {priority, id};
 }
 void ValidatorManagerImpl::check_external_message(td::BufferSlice data, td::Promise<td::Ref<ExtMessage>> promise) {
-  ++ls_stats_check_ext_messages_;
   auto state = do_get_last_liteserver_state();
   if (state.is_null()) {
     promise.set_error(td::Status::Error(ErrorCode::notready, "not ready"));
     return;
   }
-  run_check_external_message(std::move(data), state->get_ext_msg_limits(), actor_id(this),
-                             std::move(promise));
+  auto R = create_ext_message(std::move(data), state->get_ext_msg_limits());
+  if (R.is_error()) {
+    promise.set_error(R.move_as_error_prefix("failed to parse external message: "));
+    return;
+  }
+  auto message = R.move_as_ok();
+  WorkchainId wc = message->wc();
+  StdSmcAddress addr = message->addr();
+  if (checked_ext_msg_counter_.get_msg_count(wc, addr) >= max_ext_msg_per_addr()) {
+    promise.set_error(
+        td::Status::Error(PSTRING() << "too many external messages to address " << wc << ":" << addr.to_hex()));
+    return;
+  }
+
+  promise = [self = this, wc, addr, promise = std::move(promise),
+             SelfId = actor_id(this)](td::Result<td::Ref<ExtMessage>> R) mutable {
+    if (R.is_error()) {
+      promise.set_error(R.move_as_error());
+      return;
+    }
+    td::actor::send_lambda(SelfId, [=, promise = std::move(promise), message = R.move_as_ok()]() mutable {
+      if (self->checked_ext_msg_counter_.inc_msg_count(wc, addr) > max_ext_msg_per_addr()) {
+        promise.set_error(
+            td::Status::Error(PSTRING() << "too many external messages to address " << wc << ":" << addr.to_hex()));
+        return;
+      }
+      promise.set_result(std::move(message));
+    });
+  };
+  ++ls_stats_check_ext_messages_;
+  run_check_external_message(std::move(message), actor_id(this), std::move(promise));
 }
 
 void ValidatorManagerImpl::new_ihr_message(td::BufferSlice data) {
@@ -2592,6 +2620,16 @@ void ValidatorManagerImpl::alarm() {
     log_ls_stats_at_ = td::Timestamp::in(60.0);
   }
   alarm_timestamp().relax(log_ls_stats_at_);
+  if (cleanup_mempool_at_.is_in_past()) {
+    if (is_validator()) {
+      get_external_messages(ShardIdFull{masterchainId, shardIdAll},
+                            [](td::Result<std::vector<std::pair<td::Ref<ExtMessage>, int>>>) {});
+      get_external_messages(ShardIdFull{basechainId, shardIdAll},
+                            [](td::Result<std::vector<std::pair<td::Ref<ExtMessage>, int>>>) {});
+    }
+    cleanup_mempool_at_ = td::Timestamp::in(250.0);
+  }
+  alarm_timestamp().relax(cleanup_mempool_at_);
 }
 
 void ValidatorManagerImpl::update_shard_client_state(BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise) {
@@ -3100,6 +3138,29 @@ td::actor::ActorOwn<ValidatorManagerInterface> ValidatorManagerFactory::create(
     td::actor::ActorId<overlay::Overlays> overlays) {
   return td::actor::create_actor<validator::ValidatorManagerImpl>("manager", std::move(opts), db_root, keyring, adnl,
                                                                   rldp, overlays);
+}
+
+size_t ValidatorManagerImpl::CheckedExtMsgCounter::get_msg_count(WorkchainId wc, StdSmcAddress addr) {
+  before_query();
+  auto it1 = counter_cur_.find({wc, addr});
+  auto it2 = counter_prev_.find({wc, addr});
+  return (it1 == counter_cur_.end() ? 0 : it1->second) + (it2 == counter_prev_.end() ? 0 : it2->second);
+}
+size_t ValidatorManagerImpl::CheckedExtMsgCounter::inc_msg_count(WorkchainId wc, StdSmcAddress addr) {
+  before_query();
+  auto it2 = counter_prev_.find({wc, addr});
+  return (it2 == counter_prev_.end() ? 0 : it2->second) + ++counter_cur_[{wc, addr}];
+}
+void ValidatorManagerImpl::CheckedExtMsgCounter::before_query() {
+  while (cleanup_at_.is_in_past()) {
+    counter_prev_ = std::move(counter_cur_);
+    counter_cur_.clear();
+    if (counter_prev_.empty()) {
+      cleanup_at_ = td::Timestamp::in(max_ext_msg_per_addr_time_window() / 2.0);
+      break;
+    }
+    cleanup_at_ += max_ext_msg_per_addr_time_window() / 2.0;
+  }
 }
 
 }  // namespace validator
