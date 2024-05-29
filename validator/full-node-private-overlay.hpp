@@ -27,7 +27,11 @@ class FullNodePrivateBlockOverlay : public td::actor::Actor {
   void process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query);
 
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast &query);
+
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcast &query);
+  void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcastCompressed &query);
+  void process_block_candidate_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query);
+
   template <class T>
   void process_broadcast(PublicKeyHash, T &) {
     VLOG(FULL_NODE_WARNING) << "dropping unknown broadcast";
@@ -101,7 +105,11 @@ class FullNodeCustomOverlay : public td::actor::Actor {
   void process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query);
 
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_externalMessageBroadcast &query);
+
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcast &query);
+  void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcastCompressed &query);
+  void process_block_candidate_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query);
+
   template <class T>
   void process_broadcast(PublicKeyHash, T &) {
     VLOG(FULL_NODE_WARNING) << "dropping unknown broadcast";
