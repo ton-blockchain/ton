@@ -684,7 +684,7 @@ bool BlockLimits::deserialize(vm::CellSlice& cs) {
   if (!ok) {
     return false;
   }
-  if (tag == 0x5d) {
+  if (tag == 0x5e) {
     return collated_data.deserialize(cs) &&     // collated_data:ParamLimits
            imported_msg_queue.deserialize(cs);  // imported_msg_queue:ImportedMsgQueueLimits
   } else {
