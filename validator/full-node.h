@@ -88,6 +88,8 @@ class FullNode : public td::actor::Actor {
   virtual void del_custom_overlay(std::string name, td::Promise<td::Unit> promise) = 0;
 
   virtual void process_block_broadcast(BlockBroadcast broadcast) = 0;
+  virtual void process_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
+                                                 td::uint32 validator_set_hash, td::BufferSlice data) = 0;
 
   static constexpr td::uint32 max_block_size() {
     return 4 << 20;

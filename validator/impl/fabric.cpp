@@ -119,10 +119,9 @@ td::Result<td::Ref<ExtMessage>> create_ext_message(td::BufferSlice data,
   return std::move(res);
 }
 
-void run_check_external_message(td::BufferSlice data, block::SizeLimitsConfig::ExtMsgLimits limits,
-                                td::actor::ActorId<ValidatorManager> manager,
+void run_check_external_message(Ref<ExtMessage> message, td::actor::ActorId<ValidatorManager> manager,
                                 td::Promise<td::Ref<ExtMessage>> promise) {
-  ExtMessageQ::run_message(std::move(data), limits, std::move(manager), std::move(promise));
+  ExtMessageQ::run_message(std::move(message), std::move(manager), std::move(promise));
 }
 
 td::Result<td::Ref<IhrMessage>> create_ihr_message(td::BufferSlice data) {

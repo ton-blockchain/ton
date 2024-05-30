@@ -17,6 +17,8 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include "manager.hpp"
+#include "checksum.h"
+#include "td/utils/buffer.h"
 #include "validator-group.hpp"
 #include "downloaders/wait-block-state.hpp"
 #include "downloaders/wait-block-state-merge.hpp"
@@ -412,14 +414,42 @@ void ValidatorManagerImpl::add_external_message(td::Ref<ExtMessage> msg, int pri
   ext_messages_hashes_[id.hash] = {priority, id};
 }
 void ValidatorManagerImpl::check_external_message(td::BufferSlice data, td::Promise<td::Ref<ExtMessage>> promise) {
-  ++ls_stats_check_ext_messages_;
   auto state = do_get_last_liteserver_state();
   if (state.is_null()) {
     promise.set_error(td::Status::Error(ErrorCode::notready, "not ready"));
     return;
   }
-  run_check_external_message(std::move(data), state->get_ext_msg_limits(), actor_id(this),
-                             std::move(promise));
+  auto R = create_ext_message(std::move(data), state->get_ext_msg_limits());
+  if (R.is_error()) {
+    promise.set_error(R.move_as_error_prefix("failed to parse external message: "));
+    return;
+  }
+  auto message = R.move_as_ok();
+  WorkchainId wc = message->wc();
+  StdSmcAddress addr = message->addr();
+  if (checked_ext_msg_counter_.get_msg_count(wc, addr) >= max_ext_msg_per_addr()) {
+    promise.set_error(
+        td::Status::Error(PSTRING() << "too many external messages to address " << wc << ":" << addr.to_hex()));
+    return;
+  }
+
+  promise = [self = this, wc, addr, promise = std::move(promise),
+             SelfId = actor_id(this)](td::Result<td::Ref<ExtMessage>> R) mutable {
+    if (R.is_error()) {
+      promise.set_error(R.move_as_error());
+      return;
+    }
+    td::actor::send_lambda(SelfId, [=, promise = std::move(promise), message = R.move_as_ok()]() mutable {
+      if (self->checked_ext_msg_counter_.inc_msg_count(wc, addr) > max_ext_msg_per_addr()) {
+        promise.set_error(
+            td::Status::Error(PSTRING() << "too many external messages to address " << wc << ":" << addr.to_hex()));
+        return;
+      }
+      promise.set_result(std::move(message));
+    });
+  };
+  ++ls_stats_check_ext_messages_;
+  run_check_external_message(std::move(message), actor_id(this), std::move(promise));
 }
 
 void ValidatorManagerImpl::new_ihr_message(td::BufferSlice data) {
@@ -464,6 +494,17 @@ void ValidatorManagerImpl::new_shard_block(BlockIdExt block_id, CatchainSeqno cc
   });
   run_validate_shard_block_description(std::move(data), last_masterchain_block_handle_, last_masterchain_state_,
                                        actor_id(this), td::Timestamp::in(2.0), std::move(P));
+}
+
+void ValidatorManagerImpl::new_block_candidate(BlockIdExt block_id, td::BufferSlice data) {
+  if (!last_masterchain_block_handle_) {
+    VLOG(VALIDATOR_DEBUG) << "dropping top shard block broadcast: not inited";
+    return;
+  }
+  if (!started_) {
+    return;
+  }
+  add_cached_block_candidate(ReceivedBlock{block_id, std::move(data)});
 }
 
 void ValidatorManagerImpl::add_shard_block_description(td::Ref<ShardTopBlockDescription> desc) {
@@ -532,6 +573,36 @@ void ValidatorManagerImpl::loaded_msg_queue_to_masterchain(td::Ref<ShardTopBlock
     }
     info.ready_desc = desc;
     cached_msg_queue_to_masterchain_[desc->block_id()] = std::move(res);
+  }
+}
+
+void ValidatorManagerImpl::add_cached_block_candidate(ReceivedBlock block) {
+  BlockIdExt id = block.id;
+  if (block.id.is_masterchain()) {
+    return;
+  }
+  if (cached_block_candidates_.emplace(id, std::move(block)).second) {
+    cached_block_candidates_lru_.push_back(id);
+    {
+      auto it = wait_block_data_.find(id);
+      if (it != wait_block_data_.end()) {
+        auto r_block = create_block(cached_block_candidates_[id].clone());
+        if (r_block.is_ok()) {
+          td::actor::send_closure(it->second.actor_, &WaitBlockData::got_block_data_from_net, r_block.move_as_ok());
+        }
+      }
+    }
+    {
+      auto it = wait_state_.find(id);
+      if (it != wait_state_.end()) {
+        // Proof link is not ready at this point, but this will force WaitBlockState to redo send_get_proof_link_request
+        td::actor::send_closure(it->second.actor_, &WaitBlockState::after_get_proof_link);
+      }
+    }
+  }
+  if (cached_block_candidates_lru_.size() > max_cached_candidates()) {
+    CHECK(cached_block_candidates_.erase(cached_block_candidates_lru_.front()));
+    cached_block_candidates_lru_.pop_front();
   }
 }
 
@@ -1303,10 +1374,15 @@ void ValidatorManagerImpl::set_next_block(BlockIdExt block_id, BlockIdExt next, 
   get_block_handle(block_id, true, std::move(P));
 }
 
-void ValidatorManagerImpl::set_block_candidate(BlockIdExt id, BlockCandidate candidate, td::Promise<td::Unit> promise) {
+void ValidatorManagerImpl::set_block_candidate(BlockIdExt id, BlockCandidate candidate, CatchainSeqno cc_seqno,
+                                               td::uint32 validator_set_hash, td::Promise<td::Unit> promise) {
   if (!candidates_buffer_.empty()) {
     td::actor::send_closure(candidates_buffer_, &CandidatesBuffer::add_new_candidate, id,
                             PublicKey{pubkeys::Ed25519{candidate.pubkey.as_bits256()}}, candidate.collated_file_hash);
+  }
+  if (!id.is_masterchain()) {
+    add_cached_block_candidate(ReceivedBlock{id, candidate.data.clone()});
+    callback_->send_block_candidate(id, cc_seqno, validator_set_hash, candidate.data.clone());
   }
   td::actor::send_closure(db_, &Db::store_block_candidate, std::move(candidate), std::move(promise));
 }
@@ -1564,6 +1640,13 @@ void ValidatorManagerImpl::get_last_liteserver_state_block(
 
 void ValidatorManagerImpl::send_get_block_request(BlockIdExt id, td::uint32 priority,
                                                   td::Promise<ReceivedBlock> promise) {
+  {
+    auto it = cached_block_candidates_.find(id);
+    if (it != cached_block_candidates_.end()) {
+      LOG(DEBUG) << "send_get_block_request: got result from candidates cache for " << id.to_str();
+      return promise.set_value(it->second.clone());
+    }
+  }
   callback_->download_block(id, priority, td::Timestamp::in(10.0), std::move(promise));
 }
 
@@ -1586,6 +1669,20 @@ void ValidatorManagerImpl::send_get_block_proof_request(BlockIdExt block_id, td:
 
 void ValidatorManagerImpl::send_get_block_proof_link_request(BlockIdExt block_id, td::uint32 priority,
                                                              td::Promise<td::BufferSlice> promise) {
+  if (!block_id.is_masterchain()) {
+    auto it = cached_block_candidates_.find(block_id);
+    if (it != cached_block_candidates_.end()) {
+      // Proof link can be created from the cached block candidate
+      LOG(DEBUG) << "send_get_block_proof_link_request: creating proof link from cached caniddate for "
+                 << block_id.to_str();
+      TRY_RESULT_PROMISE_PREFIX(promise, block_root, vm::std_boc_deserialize(it->second.data),
+                                "failed to create proof link: ");
+      TRY_RESULT_PROMISE_PREFIX(promise, proof_link, WaitBlockData::generate_proof_link(it->second.id, block_root),
+                                "failed to create proof link: ");
+      promise.set_result(std::move(proof_link));
+      return;
+    }
+  }
   callback_->download_block_proof_link(block_id, priority, td::Timestamp::in(10.0), std::move(promise));
 }
 
@@ -2702,6 +2799,16 @@ void ValidatorManagerImpl::alarm() {
     log_ls_stats_at_ = td::Timestamp::in(60.0);
   }
   alarm_timestamp().relax(log_ls_stats_at_);
+  if (cleanup_mempool_at_.is_in_past()) {
+    if (is_validator()) {
+      get_external_messages(ShardIdFull{masterchainId, shardIdAll},
+                            [](td::Result<std::vector<std::pair<td::Ref<ExtMessage>, int>>>) {});
+      get_external_messages(ShardIdFull{basechainId, shardIdAll},
+                            [](td::Result<std::vector<std::pair<td::Ref<ExtMessage>, int>>>) {});
+    }
+    cleanup_mempool_at_ = td::Timestamp::in(250.0);
+  }
+  alarm_timestamp().relax(cleanup_mempool_at_);
 }
 
 void ValidatorManagerImpl::update_shard_client_state(BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise) {
@@ -3358,6 +3465,29 @@ td::actor::ActorOwn<ValidatorManagerInterface> ValidatorManagerFactory::create(
     td::actor::ActorId<overlay::Overlays> overlays) {
   return td::actor::create_actor<validator::ValidatorManagerImpl>("manager", std::move(opts), db_root, keyring, adnl,
                                                                   rldp, overlays);
+}
+
+size_t ValidatorManagerImpl::CheckedExtMsgCounter::get_msg_count(WorkchainId wc, StdSmcAddress addr) {
+  before_query();
+  auto it1 = counter_cur_.find({wc, addr});
+  auto it2 = counter_prev_.find({wc, addr});
+  return (it1 == counter_cur_.end() ? 0 : it1->second) + (it2 == counter_prev_.end() ? 0 : it2->second);
+}
+size_t ValidatorManagerImpl::CheckedExtMsgCounter::inc_msg_count(WorkchainId wc, StdSmcAddress addr) {
+  before_query();
+  auto it2 = counter_prev_.find({wc, addr});
+  return (it2 == counter_prev_.end() ? 0 : it2->second) + ++counter_cur_[{wc, addr}];
+}
+void ValidatorManagerImpl::CheckedExtMsgCounter::before_query() {
+  while (cleanup_at_.is_in_past()) {
+    counter_prev_ = std::move(counter_cur_);
+    counter_cur_.clear();
+    if (counter_prev_.empty()) {
+      cleanup_at_ = td::Timestamp::in(max_ext_msg_per_addr_time_window() / 2.0);
+      break;
+    }
+    cleanup_at_ += max_ext_msg_per_addr_time_window() / 2.0;
+  }
 }
 
 }  // namespace validator

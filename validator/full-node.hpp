@@ -69,6 +69,8 @@ class FullNodeImpl : public FullNode {
   void send_ihr_message(AccountIdPrefixFull dst, td::BufferSlice data);
   void send_ext_message(AccountIdPrefixFull dst, td::BufferSlice data);
   void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqnp, td::BufferSlice data);
+  void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
+                            td::BufferSlice data);
   void send_broadcast(BlockBroadcast broadcast, bool custom_overlays_only);
   void download_block(BlockIdExt id, td::uint32 priority, td::Timestamp timeout, td::Promise<ReceivedBlock> promise);
   void download_zero_state(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
@@ -90,6 +92,8 @@ class FullNodeImpl : public FullNode {
   void new_key_block(BlockHandle handle);
 
   void process_block_broadcast(BlockBroadcast broadcast) override;
+  void process_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
+                                         td::BufferSlice data) override;
 
   void start_up() override;
 
@@ -147,6 +151,7 @@ class FullNodeImpl : public FullNode {
   void set_private_block_overlays_enable_compression(bool value);
   void create_private_block_overlay(PublicKeyHash key);
   */
+  bool broadcast_block_candidates_in_public_overlay_ = false;
 
   struct CustomOverlayInfo {
     CustomOverlayParams params_;
@@ -158,10 +163,11 @@ class FullNodeImpl : public FullNode {
 
   void update_private_overlays();
   // void set_private_block_overlays_enable_compression(bool value);
-
+  // void create_private_block_overlay(PublicKeyHash key);
   void update_custom_overlay(CustomOverlayInfo& overlay);
   void send_block_broadcast_to_custom_overlays(const BlockBroadcast& broadcast);
-
+  void send_block_candidate_broadcast_to_custom_overlays(const BlockIdExt& block_id, CatchainSeqno cc_seqno,
+                                                         td::uint32 validator_set_hash, const td::BufferSlice& data);
   FullNodePrivateBlockOverlays private_block_overlays_;
 };
 

@@ -231,7 +231,7 @@ void OverlayImpl::update_neighbours(td::uint32 nodes_to_change) {
       continue;
     }
 
-    if (X->get_version() <= td::Clocks::system() - Overlays::overlay_peer_ttl()) {
+    if (public_ && X->get_version() <= td::Clocks::system() - Overlays::overlay_peer_ttl()) {
       if (X->is_neighbour()) {
         bool found = false;
         for (auto &n : neighbours_) {
@@ -303,7 +303,7 @@ void OverlayImpl::get_overlay_random_peers(td::uint32 max_peers,
   auto t = td::Clocks::system();
   while (v.size() < max_peers && v.size() < peers_.size() - bad_peers_.size()) {
     auto P = peers_.get_random();
-    if (P->get_version() + 3600 < t) {
+    if (public_ && P->get_version() + 3600 < t) {
       VLOG(OVERLAY_INFO) << this << ": deleting outdated peer " << P->get_id();
       del_peer(P->get_id());
     } else if (P->is_alive()) {

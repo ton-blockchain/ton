@@ -27,6 +27,11 @@ class FullNodePrivateOverlayV2 : public td::actor::Actor {
   void process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast& query);
 
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast& query);
+
+  void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcast &query);
+  void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcastCompressed &query);
+  void process_block_candidate_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query);
+
   template <class T>
   void process_broadcast(PublicKeyHash, T&) {
     VLOG(FULL_NODE_WARNING) << "dropping unknown broadcast";
@@ -35,6 +40,8 @@ class FullNodePrivateOverlayV2 : public td::actor::Actor {
 
   void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data);
   void send_broadcast(BlockBroadcast broadcast);
+  void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
+                            td::BufferSlice data);
 
   void start_up() override;
   void tear_down() override;

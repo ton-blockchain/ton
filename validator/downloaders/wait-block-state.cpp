@@ -206,7 +206,8 @@ void WaitBlockState::got_proof_link(td::BufferSlice data) {
       td::actor::send_closure(SelfId, &WaitBlockState::after_get_proof_link);
     } else {
       LOG(INFO) << "received bad proof link: " << R.move_as_error();
-      td::actor::send_closure(SelfId, &WaitBlockState::after_get_proof_link);
+      delay_action([SelfId]() { td::actor::send_closure(SelfId, &WaitBlockState::after_get_proof_link); },
+                   td::Timestamp::in(0.1));
     }
   });
   run_check_proof_link_query(handle_->id(), R.move_as_ok(), manager_, timeout_, std::move(P));

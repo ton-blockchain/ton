@@ -346,6 +346,10 @@ struct BlockSignature {
 struct ReceivedBlock {
   BlockIdExt id;
   td::BufferSlice data;
+
+  ReceivedBlock clone() const {
+    return ReceivedBlock{id, data.clone()};
+  }
 };
 
 struct BlockBroadcast {

@@ -17,10 +17,14 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include "wait-block-data.hpp"
+
+#include "block-parse.h"
+#include "block-auto.h"
 #include "fabric.h"
 #include "adnl/utils.hpp"
 #include "ton/ton-io.hpp"
 #include "common/delay.h"
+#include "vm/cells/MerkleProof.h"
 
 namespace ton {
 
@@ -108,7 +112,7 @@ void WaitBlockData::start() {
         td::actor::send_closure(SelfId, &WaitBlockData::failed_to_get_block_data_from_net,
                                 R.move_as_error_prefix("net error: "));
       } else {
-        td::actor::send_closure(SelfId, &WaitBlockData::got_block_data_from_net, R.move_as_ok());
+        td::actor::send_closure(SelfId, &WaitBlockData::got_data_from_net, R.move_as_ok());
       }
     });
 
@@ -133,13 +137,49 @@ void WaitBlockData::failed_to_get_block_data_from_net(td::Status reason) {
                td::Timestamp::in(0.1));
 }
 
-void WaitBlockData::got_block_data_from_net(ReceivedBlock block) {
+void WaitBlockData::got_data_from_net(ReceivedBlock block) {
   auto X = create_block(std::move(block));
   if (X.is_error()) {
     failed_to_get_block_data_from_net(X.move_as_error_prefix("bad block from net: "));
     return;
   }
-  data_ = X.move_as_ok();
+  got_block_data_from_net(X.move_as_ok());
+}
+
+void WaitBlockData::got_block_data_from_net(td::Ref<BlockData> block) {
+  if (data_.not_null()) {
+    return;
+  }
+  data_ = std::move(block);
+  if (handle_->received()) {
+    finish_query();
+    return;
+  }
+  if (!handle_->id().is_masterchain() && !handle_->inited_proof_link()) {
+    // This can happen if we get block from candidates cache.
+    // Proof link can be derived from the block (but not for masterchain block).
+    auto r_proof_link = generate_proof_link(handle_->id(), data_->root_cell());
+    if (r_proof_link.is_error()) {
+      abort_query(r_proof_link.move_as_error_prefix("failed to create proof link for block: "));
+      return;
+    }
+    td::actor::send_closure(manager_, &ValidatorManager::validate_block_proof_link, handle_->id(),
+                            r_proof_link.move_as_ok(),
+                            [id = handle_->id().id, SelfId = actor_id(this)](td::Result<td::Unit> R) {
+                              if (R.is_error()) {
+                                td::actor::send_closure(SelfId, &WaitBlockData::abort_query,
+                                                        R.move_as_error_prefix("validate proof link error: "));
+                                return;
+                              }
+                              LOG(DEBUG) << "Created and validated proof link for " << id.to_str();
+                              td::actor::send_closure(SelfId, &WaitBlockData::checked_proof_link);
+                            });
+    return;
+  }
+  checked_proof_link();
+}
+
+void WaitBlockData::checked_proof_link() {
   CHECK(handle_->id().is_masterchain() ? handle_->inited_proof() : handle_->inited_proof_link());
   if (!handle_->received()) {
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
@@ -196,6 +236,41 @@ void WaitBlockData::got_static_file(td::BufferSlice data) {
     }
   });
   run_hardfork_accept_block_query(handle_->id(), data_, manager_, std::move(P));
+}
+
+td::Result<td::BufferSlice> WaitBlockData::generate_proof_link(BlockIdExt id, td::Ref<vm::Cell> block_root) {
+  // Creating proof link. Similar to accept-block.cpp
+  if (id.is_masterchain()) {
+    return td::Status::Error("cannot create proof link for masterchain block");
+  }
+  auto usage_tree = std::make_shared<vm::CellUsageTree>();
+  auto usage_cell = vm::UsageCell::create(block_root, usage_tree->root_ptr());
+
+  block::gen::Block::Record blk;
+  block::gen::BlockInfo::Record info;
+  block::gen::BlockExtra::Record extra;
+  block::gen::ExtBlkRef::Record mcref{};  // _ ExtBlkRef = BlkMasterInfo;
+  ShardIdFull shard;
+  if (!(tlb::unpack_cell(usage_cell, blk) && tlb::unpack_cell(blk.info, info) && !info.version &&
+        block::tlb::t_ShardIdent.unpack(info.shard.write(), shard) &&
+        block::gen::BlkPrevInfo{info.after_merge}.validate_ref(info.prev_ref) &&
+        tlb::unpack_cell(std::move(blk.extra), extra) && block::gen::t_ValueFlow.force_validate_ref(blk.value_flow) &&
+        (!info.not_master || tlb::unpack_cell(info.master_ref, mcref)))) {
+    return td::Status::Error("cannot unpack block header");
+  }
+  vm::CellSlice upd_cs{vm::NoVmSpec(), blk.state_update};
+
+  auto proof = vm::MerkleProof::generate(block_root, usage_tree.get());
+  vm::CellBuilder cb;
+  td::Ref<vm::Cell> bs_cell;
+  if (!(cb.store_long_bool(0xc3, 8)               // block_proof#c3
+        && block::tlb::t_BlockIdExt.pack(cb, id)  // proof_for:BlockIdExt
+        && cb.store_ref_bool(std::move(proof))    // proof:^Cell
+        && cb.store_bool_bool(false)              // signatures:(Maybe ^BlockSignatures)
+        && cb.finalize_to(bs_cell))) {
+    return td::Status::Error("cannot serialize BlockProof");
+  }
+  return std_boc_serialize(bs_cell, 0);
 }
 
 }  // namespace validator
