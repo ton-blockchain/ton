@@ -504,6 +504,10 @@ void ValidatorManagerImpl::new_block_candidate(BlockIdExt block_id, td::BufferSl
   if (!started_) {
     return;
   }
+  if (!need_monitor(block_id.shard_full())) {
+    VLOG(VALIDATOR_DEBUG) << "dropping block candidate broadcast: not monitoring shard";
+    return;
+  }
   add_cached_block_candidate(ReceivedBlock{block_id, std::move(data)});
 }
 

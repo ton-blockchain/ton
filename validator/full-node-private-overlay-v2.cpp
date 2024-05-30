@@ -239,7 +239,7 @@ void FullNodePrivateOverlayV2::get_stats_extra(td::Promise<std::string> promise)
   promise.set_result(td::json_encode<std::string>(td::ToJson(*res), true));
 }
 
-td::actor::ActorId<FullNodePrivateOverlayV2> FullNodePrivateBlockOverlays::choose_overlay(ShardIdFull shard) {
+td::actor::ActorId<FullNodePrivateOverlayV2> FullNodePrivateBlockOverlaysV2::choose_overlay(ShardIdFull shard) {
   for (auto &p : id_to_overlays_) {
     auto &overlays = p.second.overlays_;
     ShardIdFull cur_shard = shard;
@@ -257,7 +257,7 @@ td::actor::ActorId<FullNodePrivateOverlayV2> FullNodePrivateBlockOverlays::choos
   return {};
 }
 
-void FullNodePrivateBlockOverlays::update_overlays(
+void FullNodePrivateBlockOverlaysV2::update_overlays(
     td::Ref<MasterchainState> state, std::set<adnl::AdnlNodeIdShort> my_adnl_ids, const FileHash &zero_state_file_hash,
     const td::actor::ActorId<keyring::Keyring> &keyring, const td::actor::ActorId<adnl::Adnl> &adnl,
     const td::actor::ActorId<rldp::Rldp> &rldp, const td::actor::ActorId<rldp2::Rldp> &rldp2,
@@ -274,10 +274,10 @@ void FullNodePrivateBlockOverlays::update_overlays(
   struct OverlayInfo {
     std::vector<adnl::AdnlNodeIdShort> nodes, senders;
   };
-  std::map<ShardIdFull, OverlayInfo> pverlay_infos;
+  std::map<ShardIdFull, OverlayInfo> overlay_infos;
 
   // Masterchain overlay: all validators + collators
-  OverlayInfo &mc_overlay = pverlay_infos[ShardIdFull(masterchainId)];
+  OverlayInfo &mc_overlay = overlay_infos[ShardIdFull(masterchainId)];
   for (const auto &x : all_validators->export_vector()) {
     td::Bits256 addr = x.addr.is_zero() ? ValidatorFullId(x.key).compute_short_id().bits256_value() : x.addr;
     mc_overlay.nodes.emplace_back(addr);
@@ -311,14 +311,14 @@ void FullNodePrivateBlockOverlays::update_overlays(
     auto val_set = state->get_validator_set(shard);
     td::uint32 min_split = state->monitor_min_split_depth(shard.workchain);
     OverlayInfo &overlay =
-        pverlay_infos[shard_prefix_length(shard) <= min_split ? shard : shard_prefix(shard, min_split)];
+        overlay_infos[shard_prefix_length(shard) <= min_split ? shard : shard_prefix(shard, min_split)];
     for (const auto &x : val_set->export_vector()) {
       td::Bits256 addr = x.addr.is_zero() ? ValidatorFullId(x.key).compute_short_id().bits256_value() : x.addr;
       overlay.nodes.emplace_back(addr);
       overlay.senders.emplace_back(addr);
     }
   }
-  for (auto &p : pverlay_infos) {
+  for (auto &p : overlay_infos) {
     ShardIdFull shard = p.first;
     OverlayInfo &overlay = p.second;
     if (!shard.is_masterchain()) {
@@ -338,7 +338,7 @@ void FullNodePrivateBlockOverlays::update_overlays(
   std::map<adnl::AdnlNodeIdShort, Overlays> old_private_block_overlays = std::move(id_to_overlays_);
   id_to_overlays_.clear();
 
-  for (const auto &p : pverlay_infos) {
+  for (const auto &p : overlay_infos) {
     ShardIdFull shard = p.first;
     const OverlayInfo &new_overlay_info = p.second;
     for (adnl::AdnlNodeIdShort local_id : new_overlay_info.nodes) {
@@ -356,8 +356,9 @@ void FullNodePrivateBlockOverlays::update_overlays(
         new_overlay.senders_ = new_overlay_info.senders;
         new_overlay.is_sender_ = std::binary_search(new_overlay.senders_.begin(), new_overlay.senders_.end(), local_id);
         new_overlay.overlay_ = td::actor::create_actor<FullNodePrivateOverlayV2>(
-            "BlocksPrivateOverlay", local_id, shard, new_overlay.nodes_, new_overlay.senders_, zero_state_file_hash,
-            keyring, adnl, rldp, rldp2, overlays, validator_manager, full_node);
+            PSTRING() << "BlocksPrivateOverlay" << shard.to_str(), local_id, shard, new_overlay.nodes_,
+            new_overlay.senders_, zero_state_file_hash, keyring, adnl, rldp, rldp2, overlays, validator_manager,
+            full_node);
       }
     }
   }
@@ -370,9 +371,14 @@ void FullNodePrivateBlockOverlays::update_overlays(
       }
       td::actor::ActorId<FullNodePrivateOverlayV2> id = x.second.overlay_.release();
       delay_action([id = std::move(id)]() { td::actor::send_closure(id, &FullNodePrivateOverlayV2::destroy); },
-                   td::Timestamp::in(60.0));
+                   td::Timestamp::in(30.0));
     }
   }
 }
+
+void FullNodePrivateBlockOverlaysV2::destroy_overlays() {
+  id_to_overlays_.clear();
+}
+
 
 }  // namespace ton::validator::fullnode

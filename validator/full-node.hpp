@@ -144,14 +144,14 @@ class FullNodeImpl : public FullNode {
   td::Promise<td::Unit> started_promise_;
   FullNodeConfig config_;
 
-  // TODO: Decide what to do with old private overlays. Maybe use old or new depending on some flag in config.
-  /*
-  std::map<PublicKeyHash, td::actor::ActorOwn<FullNodePrivateOverlay>> private_block_overlays_;
+  // Private overlays:
+  // Old overlays - one overlay for all validators
+  // New overlays (v2) - overlay per shard (monitor_min_split depth).
+  bool use_old_private_overlays_ = false;  // TODO: set from config
+  std::map<PublicKeyHash, td::actor::ActorOwn<FullNodePrivateBlockOverlay>> private_block_overlays_;
   bool private_block_overlays_enable_compression_ = false;
-  void set_private_block_overlays_enable_compression(bool value);
-  void create_private_block_overlay(PublicKeyHash key);
-  */
   bool broadcast_block_candidates_in_public_overlay_ = false;
+  FullNodePrivateBlockOverlaysV2 private_block_overlays_v2_;
 
   struct CustomOverlayInfo {
     CustomOverlayParams params_;
@@ -162,13 +162,12 @@ class FullNodeImpl : public FullNode {
   std::queue<BlockIdExt> custom_overlays_sent_broadcasts_lru_;
 
   void update_private_overlays();
-  // void set_private_block_overlays_enable_compression(bool value);
-  // void create_private_block_overlay(PublicKeyHash key);
+  void set_private_block_overlays_enable_compression(bool value);
+  void create_private_block_overlay(PublicKeyHash key);
   void update_custom_overlay(CustomOverlayInfo& overlay);
   void send_block_broadcast_to_custom_overlays(const BlockBroadcast& broadcast);
   void send_block_candidate_broadcast_to_custom_overlays(const BlockIdExt& block_id, CatchainSeqno cc_seqno,
                                                          td::uint32 validator_set_hash, const td::BufferSlice& data);
-  FullNodePrivateBlockOverlays private_block_overlays_;
 };
 
 }  // namespace fullnode

@@ -96,7 +96,7 @@ class FullNodePrivateOverlayV2 : public td::actor::Actor {
   void get_stats_extra(td::Promise<std::string> promise);
 };
 
-class FullNodePrivateBlockOverlays {
+class FullNodePrivateBlockOverlaysV2 {
  public:
   td::actor::ActorId<FullNodePrivateOverlayV2> choose_overlay(ShardIdFull shard);
   void update_overlays(td::Ref<MasterchainState> state, std::set<adnl::AdnlNodeIdShort> my_adnl_ids,
@@ -106,6 +106,7 @@ class FullNodePrivateBlockOverlays {
                        const td::actor::ActorId<overlay::Overlays>& overlays,
                        const td::actor::ActorId<ValidatorManagerInterface>& validator_manager,
                        const td::actor::ActorId<FullNode>& full_node);
+  void destroy_overlays();
 
  private:
   struct Overlays {
