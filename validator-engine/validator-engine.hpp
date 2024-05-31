@@ -90,6 +90,8 @@ struct Config {
   std::map<td::int32, Control> controls;
   std::set<ton::PublicKeyHash> gc;
 
+  bool state_serializer_enabled = true;
+
   void decref(ton::PublicKeyHash key);
   void incref(ton::PublicKeyHash key) {
     keys_refcnt[key]++;
@@ -472,6 +474,8 @@ class ValidatorEngine : public td::actor::Actor {
   void run_control_query(ton::ton_api::engine_validator_delCustomOverlay &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_showCustomOverlays &query, td::BufferSlice data,
+                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_setStateSerializerEnabled &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   template <class T>
   void run_control_query(T &query, td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,

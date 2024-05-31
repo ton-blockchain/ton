@@ -483,6 +483,9 @@ class ValidatorManagerImpl : public ValidatorManager {
       td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroups>> promise) override {
     promise.set_result(td::Status::Error("not implemented"));
   }
+  void update_options(td::Ref<ValidatorManagerOptions> opts) override {
+    opts_ = std::move(opts);
+  }
 
  private:
   td::Ref<ValidatorManagerOptions> opts_;

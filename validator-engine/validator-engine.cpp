@@ -73,6 +73,7 @@
 #include "block-parse.h"
 #include "common/delay.h"
 #include "block/precompiled-smc/PrecompiledSmartContract.h"
+#include "interfaces/validator-manager.h"
 
 Config::Config() {
   out_port = 3278;
@@ -155,6 +156,11 @@ Config::Config(ton::ton_api::engine_validator_config &config) {
   if (config.fullnodeconfig_) {
     full_node_config = ton::validator::fullnode::FullNodeConfig(config.fullnodeconfig_);
   }
+  if (config.extraconfig_) {
+    state_serializer_enabled = config.extraconfig_->state_serializer_enabled_;
+  } else {
+    state_serializer_enabled = true;
+  }
 
   for (auto &serv : config.liteservers_) {
     config_add_lite_server(ton::PublicKeyHash{serv->id_}, serv->port_).ensure();
@@ -231,6 +237,12 @@ ton::tl_object_ptr<ton::ton_api::engine_validator_config> Config::tl() const {
     full_node_config_obj = full_node_config.tl();
   }
 
+  ton::tl_object_ptr<ton::ton_api::engine_validator_extraConfig> extra_config_obj = {};
+  if (!state_serializer_enabled) {
+    // Non-default values
+    extra_config_obj = ton::create_tl_object<ton::ton_api::engine_validator_extraConfig>(state_serializer_enabled);
+  }
+
   std::vector<ton::tl_object_ptr<ton::ton_api::engine_liteServer>> liteserver_vec;
   for (auto &x : liteservers) {
     liteserver_vec.push_back(ton::create_tl_object<ton::ton_api::engine_liteServer>(x.second.tl(), x.first));
@@ -253,7 +265,7 @@ ton::tl_object_ptr<ton::ton_api::engine_validator_config> Config::tl() const {
   return ton::create_tl_object<ton::ton_api::engine_validator_config>(
       out_port, std::move(addrs_vec), std::move(adnl_vec), std::move(dht_vec), std::move(val_vec), full_node.tl(),
       std::move(full_node_slaves_vec), std::move(full_node_masters_vec), std::move(full_node_config_obj),
-      std::move(liteserver_vec), std::move(control_vec), std::move(gc_vec));
+      std::move(extra_config_obj), std::move(liteserver_vec), std::move(control_vec), std::move(gc_vec));
 }
 
 td::Result<bool> Config::config_add_network_addr(td::IPAddress in_ip, td::IPAddress out_ip,
@@ -1399,6 +1411,7 @@ td::Status ValidatorEngine::load_global_config() {
     h.push_back(b);
   }
   validator_options_.write().set_hardforks(std::move(h));
+  validator_options_.write().set_state_serializer_enabled(config_.state_serializer_enabled);
 
   return td::Status::OK();
 }
@@ -3640,6 +3653,34 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_showCusto
 
   promise.set_value(ton::serialize_tl_object<ton::ton_api::engine_validator_customOverlaysConfig>(
       custom_overlays_config_, true));
+}
+
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_setStateSerializerEnabled &query,
+                                        td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
+                                        td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_modify)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+  if (!started_) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "not started")));
+    return;
+  }
+  if (query.enabled_ == validator_options_->get_state_serializer_enabled()) {
+    promise.set_value(ton::create_serialize_tl_object<ton::ton_api::engine_validator_success>());
+    return;
+  }
+  validator_options_.write().set_state_serializer_enabled(query.enabled_);
+  td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::update_options,
+                          validator_options_);
+  config_.state_serializer_enabled = query.enabled_;
+  write_config([promise = std::move(promise)](td::Result<td::Unit> R) mutable {
+    if (R.is_error()) {
+      promise.set_value(create_control_query_error(R.move_as_error()));
+    } else {
+      promise.set_value(ton::create_serialize_tl_object<ton::ton_api::engine_validator_success>());
+    }
+  });
 }
 
 void ValidatorEngine::process_control_query(td::uint16 port, ton::adnl::AdnlNodeIdShort src,

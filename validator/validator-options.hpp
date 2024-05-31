@@ -141,6 +141,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   td::optional<double> get_catchain_max_block_delay() const override {
     return catchain_max_block_delay_;
   }
+  bool get_state_serializer_enabled() const override {
+    return state_serializer_enabled_;
+  }
 
   void set_zero_block_id(BlockIdExt block_id) override {
     zero_block_id_ = block_id;
@@ -221,6 +224,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   void set_catchain_max_block_delay(double value) override {
     catchain_max_block_delay_ = value;
   }
+  void set_state_serializer_enabled(bool value) override {
+    state_serializer_enabled_ = value;
+  }
 
   ValidatorManagerOptionsImpl *make_copy() const override {
     return new ValidatorManagerOptionsImpl(*this);
@@ -272,6 +278,7 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   bool celldb_direct_io_ = false;
   bool celldb_preload_all_ = false;
   td::optional<double> catchain_max_block_delay_;
+  bool state_serializer_enabled_ = true;
 };
 
 }  // namespace validator
