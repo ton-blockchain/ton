@@ -146,6 +146,7 @@ void ValidatorEngineConsole::run() {
   add_query_runner(std::make_unique<QueryRunnerImpl<AddCustomOverlayQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<DelCustomOverlayQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<ShowCustomOverlaysQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<SetStateSerializerEnabledQuery>>());
 }
 
 bool ValidatorEngineConsole::envelope_send_query(td::BufferSlice query, td::Promise<td::BufferSlice> promise) {

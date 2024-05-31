@@ -90,6 +90,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual bool get_celldb_direct_io() const = 0;
   virtual bool get_celldb_preload_all() const = 0;
   virtual td::optional<double> get_catchain_max_block_delay() const = 0;
+  virtual bool get_state_serializer_enabled() const = 0;
 
   virtual void set_zero_block_id(BlockIdExt block_id) = 0;
   virtual void set_init_block_id(BlockIdExt block_id) = 0;
@@ -118,6 +119,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual void set_celldb_direct_io(bool value) = 0;
   virtual void set_celldb_preload_all(bool value) = 0;
   virtual void set_catchain_max_block_delay(double value) = 0;
+  virtual void set_state_serializer_enabled(bool value) = 0;
 
   static td::Ref<ValidatorManagerOptions> create(
       BlockIdExt zero_block_id, BlockIdExt init_block_id,
@@ -249,6 +251,7 @@ class ValidatorManagerInterface : public td::actor::Actor {
   virtual void add_perf_timer_stat(std::string name, double duration) = 0;
   virtual void get_out_msg_queue_size(BlockIdExt block_id, td::Promise<td::uint32> promise) = 0;
 
+  virtual void update_options(td::Ref<ValidatorManagerOptions> opts) = 0;
 };
 
 }  // namespace validator

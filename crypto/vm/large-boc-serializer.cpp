@@ -33,7 +33,8 @@ class LargeBocSerializer {
  public:
   using Hash = Cell::Hash;
 
-  explicit LargeBocSerializer(std::shared_ptr<CellDbReader> reader) : reader(std::move(reader)) {
+  explicit LargeBocSerializer(std::shared_ptr<CellDbReader> reader, td::CancellationToken cancellation_token = {})
+      : reader(std::move(reader)), cancellation_token(std::move(cancellation_token)) {
   }
 
   void add_root(Hash root);
@@ -84,6 +85,7 @@ class LargeBocSerializer {
   int revisit(int cell_idx, int force = 0);
   td::uint64 compute_sizes(int mode, int& r_size, int& o_size);
 
+  td::CancellationToken cancellation_token;
   td::Timestamp log_speed_at_;
   size_t processed_cells_ = 0;
   static constexpr double LOG_SPEED_PERIOD = 120.0;
@@ -112,6 +114,9 @@ td::Result<int> LargeBocSerializer::import_cell(Hash hash, int depth) {
     return td::Status::Error("error while importing a cell into a bag of cells: cell depth too large");
   }
   ++processed_cells_;
+  if (processed_cells_ % 1000 == 0) {
+    TRY_STATUS(cancellation_token.check());
+  }
   if (log_speed_at_.is_in_past()) {
     log_speed_at_ += LOG_SPEED_PERIOD;
     LOG(WARNING) << "serializer: import_cells " << (double)processed_cells_ / LOG_SPEED_PERIOD << " cells/s";
@@ -408,6 +413,9 @@ td::Status LargeBocSerializer::serialize(td::FileFd& fd, int mode) {
       store_ref(k);
     }
     ++processed_cells_;
+    if (processed_cells_ % 1000 == 0) {
+      TRY_STATUS(cancellation_token.check());
+    }
     if (log_speed_at_.is_in_past()) {
       log_speed_at_ += LOG_SPEED_PERIOD;
       LOG(WARNING) << "serializer: serialize " << (double)processed_cells_ / LOG_SPEED_PERIOD << " cells/s";
@@ -428,10 +436,10 @@ td::Status LargeBocSerializer::serialize(td::FileFd& fd, int mode) {
 }  // namespace
 
 td::Status std_boc_serialize_to_file_large(std::shared_ptr<CellDbReader> reader, Cell::Hash root_hash, td::FileFd& fd,
-                                           int mode) {
+                                           int mode, td::CancellationToken cancellation_token) {
   td::Timer timer;
   CHECK(reader != nullptr)
-  LargeBocSerializer serializer(reader);
+  LargeBocSerializer serializer(reader, std::move(cancellation_token));
   serializer.add_root(root_hash);
   TRY_STATUS(serializer.import_cells());
   TRY_STATUS(serializer.serialize(fd, mode));

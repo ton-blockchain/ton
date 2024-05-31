@@ -3132,6 +3132,14 @@ void ValidatorManagerImpl::get_validator_groups_info_for_litequery(
   td::actor::create_actor<Actor>("get-validator-groups-info", std::move(groups), std::move(promise)).release();
 }
 
+void ValidatorManagerImpl::update_options(td::Ref<ValidatorManagerOptions> opts) {
+  // Currently options can be updated only to change state_serializer_enabled flag
+  if (!serializer_.empty()) {
+    td::actor::send_closure(serializer_, &AsyncStateSerializer::update_options, opts);
+  }
+  opts_ = std::move(opts);
+}
+
 td::actor::ActorOwn<ValidatorManagerInterface> ValidatorManagerFactory::create(
     td::Ref<ValidatorManagerOptions> opts, std::string db_root, td::actor::ActorId<keyring::Keyring> keyring,
     td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp,
