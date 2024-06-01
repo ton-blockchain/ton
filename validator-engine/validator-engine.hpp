@@ -211,9 +211,9 @@ class ValidatorEngine : public td::actor::Actor {
   double archive_preload_period_ = 0.0;
   bool disable_rocksdb_stats_ = false;
   bool nonfinal_ls_queries_enabled_ = false;
-  td::optional<td::uint64> celldb_cache_size_ = 50LL << 30;
-  bool celldb_direct_io_ = true;
-  bool celldb_preload_all_ = true;
+  td::optional<td::uint64> celldb_cache_size_ = 1LL << 30;
+  bool celldb_direct_io_ = false;
+  bool celldb_preload_all_ = false;
   td::optional<double> catchain_max_block_delay_;
   bool read_config_ = false;
   bool started_keyring_ = false;
