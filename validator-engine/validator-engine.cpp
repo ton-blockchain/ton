@@ -3897,7 +3897,7 @@ int main(int argc, char *argv[]) {
     acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_max_mempool_num, v); });
     return td::Status::OK();
   });
-  p.add_checked_option('b', "block-ttl", "blocks will be gc'd after this time (in seconds) default=7*86400",
+  p.add_checked_option('b', "block-ttl", "blocks will be gc'd after this time (in seconds) default=86400",
                        [&](td::Slice fname) {
                          auto v = td::to_double(fname);
                          if (v <= 0) {
@@ -3907,7 +3907,7 @@ int main(int argc, char *argv[]) {
                          return td::Status::OK();
                        });
   p.add_checked_option(
-      'A', "archive-ttl", "archived blocks will be deleted after this time (in seconds) default=365*86400",
+      'A', "archive-ttl", "archived blocks will be deleted after this time (in seconds) default=7*86400",
       [&](td::Slice fname) {
         auto v = td::to_double(fname);
         if (v <= 0) {
@@ -4020,7 +4020,7 @@ int main(int argc, char *argv[]) {
     acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_nonfinal_ls_queries_enabled); });
   });
   p.add_checked_option(
-      '\0', "celldb-cache-size", "block cache size for RocksDb in CellDb, in bytes (default: 50G)",
+      '\0', "celldb-cache-size", "block cache size for RocksDb in CellDb, in bytes (default: 1G)",
       [&](td::Slice s) -> td::Status {
         TRY_RESULT(v, td::to_integer_safe<td::uint64>(s));
         if (v == 0) {
@@ -4030,12 +4030,12 @@ int main(int argc, char *argv[]) {
         return td::Status::OK();
       });
   p.add_option(
-      '\0', "celldb-no-direct-io", "disable direct I/O mode for RocksDb in CellDb (forced when celldb cache is < 30G)",
-      [&]() { acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_celldb_direct_io, false); }); });
+      '\0', "celldb-direct-io", "enable direct I/O mode for RocksDb in CellDb (doesn't apply when celldb cache is < 30G)",
+      [&]() { acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_celldb_direct_io, true); }); });
   p.add_option(
-      '\0', "celldb-no-preload-all",
-      "disable preloading all cells from CellDb on startup (enabled by default)",
-      [&]() { acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_celldb_preload_all, false); }); });
+      '\0', "celldb-preload-all",
+      "preload all cells from CellDb on startup (recommended to use with big enough celldb-cache-size and celldb-direct-io)",
+      [&]() { acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_celldb_preload_all, true); }); });
   p.add_checked_option(
       '\0', "catchain-max-block-delay", "delay before creating a new catchain block, in seconds (default: 0.5)",
       [&](td::Slice s) -> td::Status {
