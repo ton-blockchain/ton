@@ -369,14 +369,12 @@ td::actor::ActorId<FullNodeShard> FullNodeImpl::get_shard(AccountIdPrefixFull ds
   return get_shard(shard_prefix(dst, 60));
 }
 
-void FullNodeImpl::got_key_block_state(td::Ref<ShardState> state) {
-  auto m = td::Ref<MasterchainState>{std::move(state)};
-
+void FullNodeImpl::got_key_block_config(td::Ref<ConfigHolder> config) {
   PublicKeyHash l = PublicKeyHash::zero();
   std::vector<PublicKeyHash> keys;
   std::map<PublicKeyHash, adnl::AdnlNodeIdShort> current_validators;
   for (td::int32 i = -1; i <= 1; i++) {
-    auto r = m->get_total_validator_set(i < 0 ? i : 1 - i);
+    auto r = config->get_total_validator_set(i < 0 ? i : 1 - i);
     if (r.not_null()) {
       auto vec = r->export_vector();
       for (auto &el : vec) {
@@ -391,8 +389,6 @@ void FullNodeImpl::got_key_block_state(td::Ref<ShardState> state) {
       }
     }
   }
-
-  set_private_block_overlays_enable_compression(m->get_consensus_config().proto_version >= 3);
 
   if (current_validators != current_validators_) {
     current_validators_ = std::move(current_validators);
@@ -413,15 +409,31 @@ void FullNodeImpl::got_key_block_state(td::Ref<ShardState> state) {
 }
 
 void FullNodeImpl::new_key_block(BlockHandle handle) {
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
-    if (R.is_error()) {
-      VLOG(FULL_NODE_WARNING) << "failed to get key block state: " << R.move_as_error();
-    } else {
-      td::actor::send_closure(SelfId, &FullNodeImpl::got_key_block_state, R.move_as_ok());
-    }
-  });
-  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_shard_state_from_db, handle,
-                          std::move(P));
+  if (handle->id().seqno() == 0) {
+    auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
+      if (R.is_error()) {
+        VLOG(FULL_NODE_WARNING) << "failed to get zero state: " << R.move_as_error();
+      } else {
+        auto s = td::Ref<MasterchainState>{R.move_as_ok()};
+        CHECK(s.not_null());
+        td::actor::send_closure(SelfId, &FullNodeImpl::got_key_block_config, s->get_config_holder().move_as_ok());
+      }
+    });
+    td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_shard_state_from_db, handle,
+                            std::move(P));
+  } else {
+    CHECK(handle->is_key_block());
+    auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<ProofLink>> R) {
+      if (R.is_error()) {
+        VLOG(FULL_NODE_WARNING) << "failed to get key block proof: " << R.move_as_error();
+      } else {
+        td::actor::send_closure(SelfId, &FullNodeImpl::got_key_block_config,
+                                R.ok()->get_key_block_config().move_as_ok());
+      }
+    });
+    td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_block_proof_link_from_db, handle,
+                            std::move(P));
+  }
 }
 
 void FullNodeImpl::process_block_broadcast(BlockBroadcast broadcast) {
@@ -549,16 +561,6 @@ void FullNodeImpl::update_private_overlays() {
   }
 }
 
-void FullNodeImpl::set_private_block_overlays_enable_compression(bool value) {
-  if (private_block_overlays_enable_compression_ == value) {
-    return;
-  }
-  private_block_overlays_enable_compression_ = true;
-  for (auto &p : private_block_overlays_) {
-    td::actor::send_closure(p.second, &FullNodePrivateBlockOverlay::set_enable_compression, value);
-  }
-}
-
 void FullNodeImpl::create_private_block_overlay(PublicKeyHash key) {
   CHECK(local_keys_.count(key));
   if (current_validators_.count(key)) {
@@ -567,9 +569,8 @@ void FullNodeImpl::create_private_block_overlay(PublicKeyHash key) {
       nodes.push_back(p.second);
     }
     private_block_overlays_[key] = td::actor::create_actor<FullNodePrivateBlockOverlay>(
-        "BlocksPrivateOverlay", current_validators_[key], std::move(nodes), zero_state_file_hash_, config_,
-        private_block_overlays_enable_compression_, keyring_, adnl_, rldp_, rldp2_, overlays_, validator_manager_,
-        actor_id(this));
+        "BlocksPrivateOverlay", current_validators_[key], std::move(nodes), zero_state_file_hash_, config_, keyring_,
+        adnl_, rldp_, rldp2_, overlays_, validator_manager_, actor_id(this));
   }
 }
 

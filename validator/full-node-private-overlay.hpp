@@ -47,15 +47,11 @@ class FullNodePrivateBlockOverlay : public td::actor::Actor {
     config_ = std::move(config);
   }
 
-  void set_enable_compression(bool value) {
-    enable_compression_ = value;
-  }
-
   void start_up() override;
   void tear_down() override;
 
   FullNodePrivateBlockOverlay(adnl::AdnlNodeIdShort local_id, std::vector<adnl::AdnlNodeIdShort> nodes,
-                              FileHash zero_state_file_hash, FullNodeConfig config, bool enable_compression,
+                              FileHash zero_state_file_hash, FullNodeConfig config,
                               td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
                               td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
                               td::actor::ActorId<overlay::Overlays> overlays,
@@ -65,7 +61,6 @@ class FullNodePrivateBlockOverlay : public td::actor::Actor {
       , nodes_(std::move(nodes))
       , zero_state_file_hash_(zero_state_file_hash)
       , config_(config)
-      , enable_compression_(enable_compression)
       , keyring_(keyring)
       , adnl_(adnl)
       , rldp_(rldp)
@@ -80,7 +75,7 @@ class FullNodePrivateBlockOverlay : public td::actor::Actor {
   std::vector<adnl::AdnlNodeIdShort> nodes_;
   FileHash zero_state_file_hash_;
   FullNodeConfig config_;
-  bool enable_compression_;
+  bool enable_compression_ = true;
 
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;
