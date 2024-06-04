@@ -37,6 +37,7 @@ class AsyncStateSerializer : public td::actor::Actor {
   bool saved_to_db_ = true;
 
   td::Ref<ValidatorManagerOptions> opts_;
+  td::CancellationTokenSource cancellation_token_source_;
 
   td::actor::ActorId<ValidatorManager> manager_;
 
@@ -91,9 +92,7 @@ class AsyncStateSerializer : public td::actor::Actor {
   void fail_handler_cont();
   void success_handler();
 
-  void update_options(td::Ref<ValidatorManagerOptions> opts) {
-    opts_ = std::move(opts);
-  }
+  void update_options(td::Ref<ValidatorManagerOptions> opts);
 };
 
 }  // namespace validator

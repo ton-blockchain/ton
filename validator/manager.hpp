@@ -615,6 +615,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   void log_validator_session_stats(BlockIdExt block_id, validatorsession::ValidatorSessionStats stats) override;
   void log_new_validator_group_stats(validatorsession::NewValidatorGroupStats stats) override;
 
+  void update_options(td::Ref<ValidatorManagerOptions> opts) override;
+
   void get_validator_sessions_info(
       td::Promise<tl_object_ptr<ton_api::engine_validator_validatorSessionsInfo>> promise) override;
 
@@ -627,7 +629,6 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   void add_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) override;
   void del_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) override;
-  void update_options(td::Ref<ValidatorManagerOptions> opts) override;
 
   void get_out_msg_queue_size(BlockIdExt block_id, td::Promise<td::uint32> promise) override {
     if (last_masterchain_state_.is_null()) {

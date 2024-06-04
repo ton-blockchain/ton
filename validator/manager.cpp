@@ -3334,6 +3334,22 @@ void ValidatorManagerImpl::get_validator_groups_info_for_litequery(
   td::actor::create_actor<Actor>("get-validator-groups-info", std::move(groups), std::move(promise)).release();
 }
 
+void ValidatorManagerImpl::update_options(td::Ref<ValidatorManagerOptions> opts) {
+  if (!shard_client_.empty()) {
+    td::actor::send_closure(shard_client_, &ShardClient::update_options, opts);
+  }
+  if (!serializer_.empty()) {
+    td::actor::send_closure(serializer_, &AsyncStateSerializer::update_options, opts);
+  }
+  if (!out_msg_queue_importer_.empty()) {
+    td::actor::send_closure(out_msg_queue_importer_, &OutMsgQueueImporter::update_options, opts);
+  }
+  if (!queue_size_counter_.empty()) {
+    td::actor::send_closure(queue_size_counter_, &QueueSizeCounter::update_options, opts);
+  }
+  opts_ = std::move(opts);
+}
+
 void ValidatorManagerImpl::get_validator_sessions_info(
     td::Promise<tl_object_ptr<ton_api::engine_validator_validatorSessionsInfo>> promise) {
   std::vector<td::actor::ActorId<ValidatorGroup>> groups;
@@ -3398,22 +3414,6 @@ void ValidatorManagerImpl::del_collator(adnl::AdnlNodeIdShort id, ShardIdFull sh
   } else {
     td::actor::send_closure(it->second.actor, &CollatorNode::del_shard, shard);
   }
-}
-
-void ValidatorManagerImpl::update_options(td::Ref<ValidatorManagerOptions> opts) {
-  if (!shard_client_.empty()) {
-    td::actor::send_closure(shard_client_, &ShardClient::update_options, opts);
-  }
-  if (!serializer_.empty()) {
-    td::actor::send_closure(serializer_, &AsyncStateSerializer::update_options, opts);
-  }
-  if (!out_msg_queue_importer_.empty()) {
-    td::actor::send_closure(out_msg_queue_importer_, &OutMsgQueueImporter::update_options, opts);
-  }
-  if (!queue_size_counter_.empty()) {
-    td::actor::send_closure(queue_size_counter_, &QueueSizeCounter::update_options, opts);
-  }
-  opts_ = std::move(opts);
 }
 
 void ValidatorManagerImpl::add_persistent_state_description(td::Ref<PersistentStateDescription> desc) {
