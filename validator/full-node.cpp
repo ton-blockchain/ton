@@ -395,9 +395,10 @@ void FullNodeImpl::got_key_block_config(td::Ref<ConfigHolder> config) {
     update_private_overlays();
   }
 
-  if (keys == all_validators_) {
-    return;
-  }
+  // Let's turn off this optimization, since keyblocks are rare enough to update on each keyblock
+  // if (keys == all_validators_) {
+  //   return;
+  // }
 
   all_validators_ = keys;
   sign_cert_by_ = l;
