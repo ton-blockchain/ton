@@ -82,7 +82,7 @@ class FullNodeImpl : public FullNode {
   void download_archive(BlockSeqno masterchain_seqno, std::string tmp_dir, td::Timestamp timeout,
                         td::Promise<std::string> promise);
 
-  void got_key_block_state(td::Ref<ShardState> state);
+  void got_key_block_config(td::Ref<ConfigHolder> config);
   void new_key_block(BlockHandle handle);
 
   void process_block_broadcast(BlockBroadcast broadcast) override;
@@ -127,7 +127,6 @@ class FullNodeImpl : public FullNode {
   FullNodeConfig config_;
 
   std::map<PublicKeyHash, td::actor::ActorOwn<FullNodePrivateBlockOverlay>> private_block_overlays_;
-  bool private_block_overlays_enable_compression_ = false;
   bool broadcast_block_candidates_in_public_overlay_ = false;
 
   struct CustomOverlayInfo {
@@ -139,7 +138,6 @@ class FullNodeImpl : public FullNode {
   std::queue<BlockIdExt> custom_overlays_sent_broadcasts_lru_;
 
   void update_private_overlays();
-  void set_private_block_overlays_enable_compression(bool value);
   void create_private_block_overlay(PublicKeyHash key);
   void update_custom_overlay(CustomOverlayInfo& overlay);
   void send_block_broadcast_to_custom_overlays(const BlockBroadcast& broadcast);

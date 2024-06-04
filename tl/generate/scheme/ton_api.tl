@@ -399,6 +399,8 @@ tonNode.newShardBlockBroadcast block:tonNode.newShardBlock = tonNode.Broadcast;
 // signature may be empty, at least for now
 tonNode.newBlockCandidateBroadcast id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int
               collator_signature:tonNode.blockSignature data:bytes = tonNode.Broadcast;
+tonNode.newBlockCandidateBroadcastCompressed id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int
+              collator_signature:tonNode.blockSignature flags:# compressed:bytes = tonNode.Broadcast;
 
 tonNode.shardPublicOverlayId workchain:int shard:long zero_state_file_hash:int256 = tonNode.ShardPublicOverlayId;
 
@@ -590,11 +592,13 @@ engine.dht.config dht:(vector engine.dht) gc:engine.gc = engine.dht.Config;
 engine.validator.fullNodeMaster port:int adnl:int256 = engine.validator.FullNodeMaster;
 engine.validator.fullNodeSlave ip:int port:int adnl:PublicKey = engine.validator.FullNodeSlave;
 engine.validator.fullNodeConfig ext_messages_broadcast_disabled:Bool = engine.validator.FullNodeConfig;
-engine.validator.config out_port:int addrs:(vector engine.Addr) adnl:(vector engine.adnl) 
+engine.validator.extraConfig state_serializer_enabled:Bool = engine.validator.ExtraConfig;
+engine.validator.config out_port:int addrs:(vector engine.Addr) adnl:(vector engine.adnl)
         dht:(vector engine.dht)
         validators:(vector engine.validator) fullnode:int256 fullnodeslaves:(vector engine.validator.fullNodeSlave)
         fullnodemasters:(vector engine.validator.fullNodeMaster)
         fullnodeconfig:engine.validator.fullNodeConfig
+        extraconfig:engine.validator.extraConfig
         liteservers:(vector engine.liteServer) control:(vector engine.controlInterface)
         gc:engine.gc = engine.validator.Config;
 
@@ -708,6 +712,8 @@ engine.validator.setExtMessagesBroadcastDisabled disabled:Bool = engine.validato
 engine.validator.addCustomOverlay overlay:engine.validator.customOverlay = engine.validator.Success;
 engine.validator.delCustomOverlay name:string = engine.validator.Success;
 engine.validator.showCustomOverlays = engine.validator.CustomOverlaysConfig;
+
+engine.validator.setStateSerializerEnabled enabled:Bool = engine.validator.Success;
 
 ---types---
 

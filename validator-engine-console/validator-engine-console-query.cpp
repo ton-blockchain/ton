@@ -1180,3 +1180,26 @@ td::Status ShowCustomOverlaysQuery::receive(td::BufferSlice data) {
   }
   return td::Status::OK();
 }
+
+td::Status SetStateSerializerEnabledQuery::run() {
+  TRY_RESULT(value, tokenizer_.get_token<int>());
+  if (value != 0 && value != 1) {
+    return td::Status::Error("expected 0 or 1");
+  }
+  TRY_STATUS(tokenizer_.check_endl());
+  enabled_ = value;
+  return td::Status::OK();
+}
+
+td::Status SetStateSerializerEnabledQuery::send() {
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_setStateSerializerEnabled>(enabled_);
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status SetStateSerializerEnabledQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  td::TerminalIO::out() << "success\n";
+  return td::Status::OK();
+}
