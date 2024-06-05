@@ -270,8 +270,8 @@ class HardforkCreator : public td::actor::Actor {
       void get_next_key_blocks(ton::BlockIdExt block_id, td::Timestamp timeout,
                                td::Promise<std::vector<ton::BlockIdExt>> promise) override {
       }
-      void download_archive(ton::BlockSeqno masterchain_seqno, std::string tmp_dir, td::Timestamp timeout,
-                            td::Promise<std::string> promise) override {
+      void download_archive(ton::BlockSeqno masterchain_seqno, ton::ShardIdFull shard_prefix, std::string tmp_dir,
+                            td::Timestamp timeout, td::Promise<std::string> promise) override {
       }
       void download_out_msg_queue_proof(
           ton::ShardIdFull dst_shard, std::vector<ton::BlockIdExt> blocks, block::ImportedMsgQueueLimits limits,

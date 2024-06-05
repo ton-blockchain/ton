@@ -1729,6 +1729,12 @@ void ValidatorManagerImpl::send_get_out_msg_queue_proof_request(
                                           std::move(promise));
 }
 
+void ValidatorManagerImpl::send_download_archive_request(BlockSeqno mc_seqno, ShardIdFull shard_prefix,
+                                                         std::string tmp_dir, td::Timestamp timeout,
+                                                         td::Promise<std::string> promise) {
+  callback_->download_archive(mc_seqno, shard_prefix, std::move(tmp_dir), timeout, std::move(promise));
+}
+
 void ValidatorManagerImpl::start_up() {
   db_ = create_db_actor(actor_id(this), db_root_, opts_);
   lite_server_cache_ = create_liteserver_cache_actor(actor_id(this), db_root_);
@@ -1763,7 +1769,6 @@ void ValidatorManagerImpl::start_up() {
       if (fname.substr(fname.size() - 5) != ".pack") {
         return;
       }
-      fname = fname.substr(0, fname.size() - 5);
       if (fname.substr(0, 8) != "archive.") {
         return;
       }
@@ -1772,13 +1777,18 @@ void ValidatorManagerImpl::start_up() {
       while (fname.size() > 1 && fname[0] == '0') {
         fname.remove_prefix(1);
       }
+      auto i = fname.find('.');
+      if (i == td::Slice::npos) {
+        return;
+      }
+      fname = fname.substr(0, i);
       auto v = td::to_integer_safe<BlockSeqno>(fname);
       if (v.is_error()) {
         return;
       }
-      auto pos = v.move_as_ok();
-      LOG(INFO) << "found archive slice '" << cfname << "' for position " << pos;
-      to_import_[pos] = std::make_pair(cfname.str(), true);
+      auto seqno = v.move_as_ok();
+      LOG(INFO) << "found archive slice '" << cfname << "' for seqno " << seqno;
+      to_import_[seqno].push_back(cfname.str());
     }
   });
   if (S.is_error()) {
@@ -1926,8 +1936,7 @@ bool ValidatorManagerImpl::out_of_sync() {
 void ValidatorManagerImpl::prestart_sync() {
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
     R.ensure();
-    // Don't download archives
-    td::actor::send_closure(SelfId, &ValidatorManagerImpl::finish_prestart_sync);
+    td::actor::send_closure(SelfId, &ValidatorManagerImpl::download_next_archive);
   });
   td::actor::send_closure(db_, &Db::set_async_mode, false, std::move(P));
 }
@@ -1939,61 +1948,35 @@ void ValidatorManagerImpl::download_next_archive() {
   }
 
   auto seqno = std::min(last_masterchain_seqno_, shard_client_handle_->id().seqno());
+  std::vector<std::string> to_import_files;
   auto it = to_import_.upper_bound(seqno + 1);
   if (it != to_import_.begin()) {
-    it--;
-    if (it->second.second) {
-      it->second.second = false;
-      downloaded_archive_slice(it->second.first, false);
-      return;
-    }
+    --it;
+    to_import_files = std::move(it->second);
+    it->second.clear();
   }
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<std::string> R) {
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<std::pair<BlockSeqno, BlockSeqno>> R) {
     if (R.is_error()) {
-      LOG(INFO) << "failed to download archive slice: " << R.error();
+      LOG(INFO) << "failed to download and import archive slice: " << R.error();
       delay_action([SelfId]() { td::actor::send_closure(SelfId, &ValidatorManagerImpl::download_next_archive); },
                    td::Timestamp::in(2.0));
     } else {
-      td::actor::send_closure(SelfId, &ValidatorManagerImpl::downloaded_archive_slice, R.move_as_ok(), true);
+      td::actor::send_closure(SelfId, &ValidatorManagerImpl::checked_archive_slice, R.ok().first, R.ok().second);
     }
   });
-  callback_->download_archive(seqno + 1, db_root_ + "/tmp/", td::Timestamp::in(36000.0), std::move(P));
-}
-
-void ValidatorManagerImpl::downloaded_archive_slice(std::string name, bool is_tmp) {
-  LOG(INFO) << "downloaded archive slice: " << name;
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), name, is_tmp](td::Result<std::vector<BlockSeqno>> R) {
-    if (is_tmp) {
-      td::unlink(name).ensure();
-    }
-    if (R.is_error()) {
-      LOG(INFO) << "failed to check downloaded archive slice: " << R.error();
-      delay_action([SelfId]() { td::actor::send_closure(SelfId, &ValidatorManagerImpl::download_next_archive); },
-                   td::Timestamp::in(2.0));
-    } else {
-      td::actor::send_closure(SelfId, &ValidatorManagerImpl::checked_archive_slice, R.move_as_ok());
-    }
-  });
-
-  auto seqno = std::min(last_masterchain_seqno_, shard_client_handle_->id().seqno());
-
-  td::actor::create_actor<ArchiveImporter>("archiveimport", name, last_masterchain_state_, seqno, opts_, actor_id(this),
-                                           std::move(P))
+  td::actor::create_actor<ArchiveImporter>("archiveimport", db_root_, last_masterchain_state_, seqno, opts_,
+                                           actor_id(this), std::move(to_import_files), std::move(P))
       .release();
 }
 
-void ValidatorManagerImpl::checked_archive_slice(std::vector<BlockSeqno> seqno) {
-  CHECK(seqno.size() == 2);
-  LOG(INFO) << "checked downloaded archive slice: mc_top_seqno=" << seqno[0] << " shard_top_seqno_=" << seqno[1];
-  CHECK(seqno[0] <= last_masterchain_seqno_);
-  CHECK(seqno[1] <= last_masterchain_seqno_);
+void ValidatorManagerImpl::checked_archive_slice(BlockSeqno new_last_mc_seqno, BlockSeqno new_shard_client_seqno) {
+  LOG(INFO) << "checked downloaded archive slice: mc_top_seqno=" << new_last_mc_seqno
+            << " shard_top_seqno_=" << new_shard_client_seqno;
+  CHECK(new_last_mc_seqno <= last_masterchain_seqno_);
+  CHECK(new_shard_client_seqno <= last_masterchain_seqno_);
 
-  BlockIdExt b;
-  if (seqno[1] < last_masterchain_seqno_) {
-    CHECK(last_masterchain_state_->get_old_mc_block_id(seqno[1], b));
-  } else {
-    b = last_masterchain_block_id_;
-  }
+  BlockIdExt shard_client_block_id;
+  CHECK(last_masterchain_state_->get_old_mc_block_id(new_shard_client_seqno, shard_client_block_id));
 
   auto P = td::PromiseCreator::lambda(
       [SelfId = actor_id(this), db = db_.get(), client = shard_client_.get()](td::Result<BlockHandle> R) {
@@ -2009,7 +1992,7 @@ void ValidatorManagerImpl::checked_archive_slice(std::vector<BlockSeqno> seqno) 
         });
         td::actor::send_closure(db, &Db::get_block_state, std::move(handle), std::move(P));
       });
-  get_block_handle(b, true, std::move(P));
+  get_block_handle(shard_client_block_id, true, std::move(P));
 }
 
 void ValidatorManagerImpl::finish_prestart_sync() {
@@ -2844,12 +2827,13 @@ void ValidatorManagerImpl::try_get_static_file(FileHash file_hash, td::Promise<t
   td::actor::send_closure(db_, &Db::try_get_static_file, file_hash, std::move(promise));
 }
 
-void ValidatorManagerImpl::get_archive_id(BlockSeqno masterchain_seqno, td::Promise<td::uint64> promise) {
+void ValidatorManagerImpl::get_archive_id(BlockSeqno masterchain_seqno, ShardIdFull shard_prefix,
+                                          td::Promise<td::uint64> promise) {
   if (masterchain_seqno > last_masterchain_seqno_) {
     promise.set_error(td::Status::Error(ErrorCode::notready, "masterchain seqno too big"));
     return;
   }
-  td::actor::send_closure(db_, &Db::get_archive_id, masterchain_seqno, std::move(promise));
+  td::actor::send_closure(db_, &Db::get_archive_id, masterchain_seqno, shard_prefix, std::move(promise));
 }
 
 void ValidatorManagerImpl::get_archive_slice(td::uint64 archive_id, td::uint64 offset, td::uint32 limit,

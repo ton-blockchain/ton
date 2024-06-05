@@ -96,10 +96,10 @@ class ArchiveLru;
 
 class ArchiveSlice : public td::actor::Actor {
  public:
-  ArchiveSlice(td::uint32 archive_id, bool key_blocks_only, bool temp, bool finalized, std::string db_root,
-               td::actor::ActorId<ArchiveLru> archive_lru, DbStatistics statistics = {});
+  ArchiveSlice(td::uint32 archive_id, bool key_blocks_only, bool temp, bool finalized, td::uint32 shard_split_depth,
+               std::string db_root, td::actor::ActorId<ArchiveLru> archive_lru, DbStatistics statistics = {});
 
-  void get_archive_id(BlockSeqno masterchain_seqno, td::Promise<td::uint64> promise);
+  void get_archive_id(BlockSeqno masterchain_seqno, ShardIdFull shard_prefix, td::Promise<td::uint64> promise);
 
   void add_handle(BlockHandle handle, td::Promise<td::Unit> promise);
   void update_handle(BlockHandle handle, td::Promise<td::Unit> promise);
@@ -159,6 +159,7 @@ class ArchiveSlice : public td::actor::Actor {
   bool sliced_mode_{false};
   td::uint32 huge_transaction_size_ = 0;
   td::uint32 slice_size_{100};
+  td::uint32 shard_split_depth_ = 0;
 
   enum Status {
     st_closed, st_open, st_want_close
@@ -171,28 +172,31 @@ class ArchiveSlice : public td::actor::Actor {
   std::unique_ptr<td::KeyValue> kv_;
 
   struct PackageInfo {
-    PackageInfo(std::shared_ptr<Package> package, td::actor::ActorOwn<PackageWriter> writer, BlockSeqno id,
+    PackageInfo(std::shared_ptr<Package> package, td::actor::ActorOwn<PackageWriter> writer, BlockSeqno seqno, ShardIdFull shard_prefix,
                 std::string path, td::uint32 idx, td::uint32 version)
         : package(std::move(package))
         , writer(std ::move(writer))
-        , id(id)
+        , seqno(seqno)
+        , shard_prefix(shard_prefix)
         , path(std::move(path))
         , idx(idx)
         , version(version) {
     }
     std::shared_ptr<Package> package;
     td::actor::ActorOwn<PackageWriter> writer;
-    BlockSeqno id;
+    BlockSeqno seqno;
+    ShardIdFull shard_prefix;
     std::string path;
     td::uint32 idx;
     td::uint32 version;
   };
   std::vector<PackageInfo> packages_;
+  std::map<std::pair<BlockSeqno, ShardIdFull>, td::uint32> id_to_package_;
 
-  td::Result<PackageInfo *> choose_package(BlockSeqno masterchain_seqno, bool force);
-  void add_package(BlockSeqno masterchain_seqno, td::uint64 size, td::uint32 version);
-  void truncate_shard(BlockSeqno masterchain_seqno, ShardIdFull shard, td::uint32 cutoff_idx, Package *pack);
-  bool truncate_block(BlockSeqno masterchain_seqno, BlockIdExt block_id, td::uint32 cutoff_idx, Package *pack);
+  td::Result<PackageInfo *> choose_package(BlockSeqno masterchain_seqno, ShardIdFull shard_prefix, bool force);
+  void add_package(BlockSeqno masterchain_seqno, ShardIdFull shard_prefix, td::uint64 size, td::uint32 version);
+  void truncate_shard(BlockSeqno masterchain_seqno, ShardIdFull shard, td::uint32 cutoff_seqno, Package *pack);
+  bool truncate_block(BlockSeqno masterchain_seqno, BlockIdExt block_id, td::uint32 cutoff_seqno, Package *pack);
 
   void delete_handle(ConstBlockHandle handle);
   void delete_file(FileReference ref_id);

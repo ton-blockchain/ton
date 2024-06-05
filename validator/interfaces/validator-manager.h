@@ -135,6 +135,8 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void send_get_out_msg_queue_proof_request(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
                                                     block::ImportedMsgQueueLimits limits,
                                                     td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise) = 0;
+  virtual void send_download_archive_request(BlockSeqno mc_seqno, ShardIdFull shard_prefix, std::string tmp_dir,
+                                             td::Timestamp timeout, td::Promise<std::string> promise) = 0;
 
   virtual void update_shard_client_state(BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise) = 0;
   virtual void get_shard_client_state(bool from_db, td::Promise<BlockIdExt> promise) = 0;

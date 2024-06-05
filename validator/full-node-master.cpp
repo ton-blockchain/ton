@@ -386,7 +386,7 @@ void FullNodeMasterImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNo
         }
       });
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_archive_id, query.masterchain_seqno_,
-                          std::move(P));
+                          ShardIdFull{masterchainId}, std::move(P));
 }
 
 void FullNodeMasterImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getArchiveSlice &query,

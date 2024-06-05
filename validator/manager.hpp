@@ -337,8 +337,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void applied_hardfork();
   void prestart_sync();
   void download_next_archive();
-  void downloaded_archive_slice(std::string name, bool is_tmp);
-  void checked_archive_slice(std::vector<BlockSeqno> seqno);
+  void checked_archive_slice(BlockSeqno new_last_mc_seqno, BlockSeqno new_shard_client_seqno);
   void finish_prestart_sync();
   void completed_prestart_sync();
 
@@ -516,6 +515,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   void send_get_out_msg_queue_proof_request(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
                                             block::ImportedMsgQueueLimits limits,
                                             td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise) override;
+  void send_download_archive_request(BlockSeqno mc_seqno, ShardIdFull shard_prefix, std::string tmp_dir,
+                                     td::Timestamp timeout, td::Promise<std::string> promise) override;
 
   void update_shard_client_state(BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise) override;
   void get_shard_client_state(bool from_db, td::Promise<BlockIdExt> promise) override;
@@ -532,7 +533,7 @@ class ValidatorManagerImpl : public ValidatorManager {
                             std::move(promise));
   }
 
-  void get_archive_id(BlockSeqno masterchain_seqno, td::Promise<td::uint64> promise) override;
+  void get_archive_id(BlockSeqno masterchain_seqno, ShardIdFull shard_prefix, td::Promise<td::uint64> promise) override;
   void get_archive_slice(td::uint64 archive_id, td::uint64 offset, td::uint32 limit,
                          td::Promise<td::BufferSlice> promise) override;
 
@@ -712,7 +713,7 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   td::actor::ActorOwn<AsyncStateSerializer> serializer_;
 
-  std::map<BlockSeqno, std::pair<std::string, bool>> to_import_;
+  std::map<BlockSeqno, std::vector<std::string>> to_import_;
 
  private:
   std::unique_ptr<Callback> callback_;

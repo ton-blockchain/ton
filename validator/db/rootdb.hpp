@@ -129,7 +129,7 @@ class RootDb : public Db {
   void check_key_block_proof_exists(BlockIdExt block_id, td::Promise<bool> promise) override;
   void check_key_block_proof_link_exists(BlockIdExt block_id, td::Promise<bool> promise) override;
 
-  void get_archive_id(BlockSeqno masterchain_seqno, td::Promise<td::uint64> promise) override;
+  void get_archive_id(BlockSeqno masterchain_seqno, ShardIdFull shard_prefix, td::Promise<td::uint64> promise) override;
   void get_archive_slice(td::uint64 archive_id, td::uint64 offset, td::uint32 limit,
                          td::Promise<td::BufferSlice> promise) override;
   void set_async_mode(bool mode, td::Promise<td::Unit> promise) override;

@@ -643,7 +643,24 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
       });
   VLOG(FULL_NODE_DEBUG) << "Got query getArchiveInfo " << query.masterchain_seqno_ << " from " << src;
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_archive_id, query.masterchain_seqno_,
-                          std::move(P));
+                          ShardIdFull{masterchainId}, std::move(P));
+}
+
+void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getShardArchiveInfo &query,
+                                      td::Promise<td::BufferSlice> promise) {
+  auto P = td::PromiseCreator::lambda(
+      [SelfId = actor_id(this), promise = std::move(promise)](td::Result<td::uint64> R) mutable {
+        if (R.is_error()) {
+          promise.set_value(create_serialize_tl_object<ton_api::tonNode_archiveNotFound>());
+        } else {
+          promise.set_value(create_serialize_tl_object<ton_api::tonNode_archiveInfo>(R.move_as_ok()));
+        }
+      });
+  ShardIdFull shard_prefix = create_shard_id(query.shard_prefix_);
+  VLOG(FULL_NODE_DEBUG) << "Got query getShardArchiveInfo " << query.masterchain_seqno_ << " " << shard_prefix.to_str()
+                        << " from " << src;
+  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_archive_id, query.masterchain_seqno_,
+                          shard_prefix, std::move(P));
 }
 
 void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getArchiveSlice &query,
@@ -965,13 +982,13 @@ void FullNodeShardImpl::get_next_key_blocks(BlockIdExt block_id, td::Timestamp t
       .release();
 }
 
-void FullNodeShardImpl::download_archive(BlockSeqno masterchain_seqno, std::string tmp_dir, td::Timestamp timeout,
-                                         td::Promise<std::string> promise) {
+void FullNodeShardImpl::download_archive(BlockSeqno masterchain_seqno, ShardIdFull shard_prefix, std::string tmp_dir,
+                                         td::Timestamp timeout, td::Promise<std::string> promise) {
   auto &b = choose_neighbour(true);
   td::actor::create_actor<DownloadArchiveSlice>(
-      "archive", masterchain_seqno, std::move(tmp_dir), adnl_id_, overlay_id_, b.adnl_id, timeout, validator_manager_,
-      b.use_rldp2() ? (td::actor::ActorId<adnl::AdnlSenderInterface>)rldp2_ : rldp_, overlays_, adnl_, client_,
-      create_neighbour_promise(b, std::move(promise)))
+      "archive", masterchain_seqno, shard_prefix, std::move(tmp_dir), adnl_id_, overlay_id_, b.adnl_id, timeout,
+      validator_manager_, b.use_rldp2() ? (td::actor::ActorId<adnl::AdnlSenderInterface>)rldp2_ : rldp_, overlays_,
+      adnl_, client_, create_neighbour_promise(b, std::move(promise)))
       .release();
 }
 

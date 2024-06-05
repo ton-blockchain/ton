@@ -152,6 +152,8 @@ class FullNodeShardImpl : public FullNodeShard {
                      td::Promise<td::BufferSlice> promise);
   void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getArchiveInfo &query,
                      td::Promise<td::BufferSlice> promise);
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getShardArchiveInfo &query,
+                     td::Promise<td::BufferSlice> promise);
   void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getArchiveSlice &query,
                      td::Promise<td::BufferSlice> promise);
   void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getOutMsgQueueProof &query,
@@ -198,8 +200,8 @@ class FullNodeShardImpl : public FullNodeShard {
                                  td::Promise<td::BufferSlice> promise) override;
   void get_next_key_blocks(BlockIdExt block_id, td::Timestamp timeout,
                            td::Promise<std::vector<BlockIdExt>> promise) override;
-  void download_archive(BlockSeqno masterchain_seqno, std::string tmp_dir, td::Timestamp timeout,
-                        td::Promise<std::string> promise) override;
+  void download_archive(BlockSeqno masterchain_seqno, ShardIdFull shard_prefix, std::string tmp_dir,
+                        td::Timestamp timeout, td::Promise<std::string> promise) override;
   void download_out_msg_queue_proof(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
                                     block::ImportedMsgQueueLimits limits, td::Timestamp timeout,
                                     td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise) override;

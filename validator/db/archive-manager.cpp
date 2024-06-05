@@ -600,8 +600,8 @@ void ArchiveManager::load_package(PackageId id) {
     }
   }
 
-  desc.file =
-      td::actor::create_actor<ArchiveSlice>("slice", id.id, id.key, id.temp, false, db_root_, archive_lru_.get(), statistics_);
+  desc.file = td::actor::create_actor<ArchiveSlice>("slice", id.id, id.key, id.temp, false, 0, db_root_,
+                                                    archive_lru_.get(), statistics_);
 
   m.emplace(id, std::move(desc));
   update_permanent_slices();
@@ -635,8 +635,9 @@ const ArchiveManager::FileDescription *ArchiveManager::add_file_desc(ShardIdFull
   FileDescription new_desc{id, false};
   td::mkdir(db_root_ + id.path()).ensure();
   std::string prefix = PSTRING() << db_root_ << id.path() << id.name();
-  new_desc.file =
-      td::actor::create_actor<ArchiveSlice>("slice", id.id, id.key, id.temp, false, db_root_, archive_lru_.get(), statistics_);
+  new_desc.file = td::actor::create_actor<ArchiveSlice>("slice", id.id, id.key, id.temp, false,
+                                                        id.key || id.temp ? 0 : cur_shard_split_depth_, db_root_,
+                                                        archive_lru_.get(), statistics_);
   const FileDescription &desc = f.emplace(id, std::move(new_desc));
   if (!id.temp) {
     update_desc(f, desc, shard, seqno, ts, lt);
@@ -1091,14 +1092,16 @@ PackageId ArchiveManager::get_package_id_force(BlockSeqno masterchain_seqno, Sha
   return it->first;
 }
 
-void ArchiveManager::get_archive_id(BlockSeqno masterchain_seqno, td::Promise<td::uint64> promise) {
+void ArchiveManager::get_archive_id(BlockSeqno masterchain_seqno, ShardIdFull shard_prefix,
+                                    td::Promise<td::uint64> promise) {
   auto F = get_file_desc_by_seqno(ShardIdFull{masterchainId}, masterchain_seqno, false);
   if (!F) {
     promise.set_error(td::Status::Error(ErrorCode::notready, "archive not found"));
     return;
   }
 
-  td::actor::send_closure(F->file_actor_id(), &ArchiveSlice::get_archive_id, masterchain_seqno, std::move(promise));
+  td::actor::send_closure(F->file_actor_id(), &ArchiveSlice::get_archive_id, masterchain_seqno, shard_prefix,
+                          std::move(promise));
 }
 
 void ArchiveManager::get_archive_slice(td::uint64 archive_id, td::uint64 offset, td::uint32 limit,

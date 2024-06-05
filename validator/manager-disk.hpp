@@ -265,6 +265,10 @@ class ValidatorManagerImpl : public ValidatorManager {
                                             td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise) override {
     UNREACHABLE();
   }
+  void send_download_archive_request(BlockSeqno mc_seqno, ShardIdFull shard_prefix, std::string tmp_dir,
+                                     td::Timestamp timeout, td::Promise<std::string> promise) override {
+    UNREACHABLE();
+  }
 
   void update_shard_client_state(BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise) override;
   void get_shard_client_state(bool from_db, td::Promise<BlockIdExt> promise) override;
@@ -285,7 +289,8 @@ class ValidatorManagerImpl : public ValidatorManager {
     promise.set_error(td::Status::Error(ErrorCode::error, "download disabled"));
   }
 
-  void get_archive_id(BlockSeqno masterchain_seqno, td::Promise<td::uint64> promise) override {
+  void get_archive_id(BlockSeqno masterchain_seqno, ShardIdFull shard_prefix,
+                      td::Promise<td::uint64> promise) override {
     UNREACHABLE();
   }
   void get_archive_slice(td::uint64 archive_id, td::uint64 offset, td::uint32 limit,
