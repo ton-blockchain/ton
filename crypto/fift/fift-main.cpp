@@ -62,7 +62,7 @@ void usage(const char* progname) {
       << " [-i] [-n] [-I <source-include-path>] {-L <library-fif-file>} <source-file1-fif> <source-file2-fif> ...\n";
   std::cerr << "\t-n\tDo not preload standard preamble file `Fift.fif`\n"
                "\t-i\tForce interactive mode even if explicit source file names are indicated\n"
-               "\t-I<source-search-path>\tSets colon-separated library source include path. If not indicated, "
+               "\t-I<source-search-path>\tSets colon-separated (unix) or at-separated (windows) library source include path. If not indicated, "
                "$FIFTPATH is used instead.\n"
                "\t-L<library-fif-file>\tPre-loads a library source file\n"
                "\t-d<ton-db-path>\tUse a ton database\n"
@@ -75,11 +75,16 @@ void usage(const char* progname) {
 void parse_include_path_set(std::string include_path_set, std::vector<std::string>& res) {
   td::Parser parser(include_path_set);
   while (!parser.empty()) {
-    auto path = parser.read_till_nofail(':');
+    #if TD_WINDOWS
+    auto path_separator = '@';
+    #else
+    auto path_separator = ':';
+    #endif
+    auto path = parser.read_till_nofail(path_separator);
     if (!path.empty()) {
       res.push_back(path.str());
     }
-    parser.skip_nofail(':');
+    parser.skip_nofail(path_separator);
   }
 }
 
