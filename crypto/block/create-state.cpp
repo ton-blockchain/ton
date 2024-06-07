@@ -814,11 +814,16 @@ void usage(const char* progname) {
 void parse_include_path_set(std::string include_path_set, std::vector<std::string>& res) {
   td::Parser parser(include_path_set);
   while (!parser.empty()) {
-    auto path = parser.read_till_nofail(':');
+    #if TD_WINDOWS
+    auto path_separator = '@';
+    #else
+    auto path_separator = ':';
+    #endif
+    auto path = parser.read_till_nofail(path_separator);
     if (!path.empty()) {
       res.push_back(path.str());
     }
-    parser.skip_nofail(':');
+    parser.skip_nofail(path_separator);
   }
 }
 
