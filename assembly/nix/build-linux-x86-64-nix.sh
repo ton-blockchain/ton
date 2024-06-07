@@ -15,8 +15,6 @@ while getopts 't' flag; do
 done
 
 cp assembly/nix/linux-x86-64* .
-cp assembly/nix/microhttpd.nix .
-cp assembly/nix/openssl.nix .
 export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.05.tar.gz
 
 if [ "$with_tests" = true ]; then
@@ -30,7 +28,9 @@ cp ./result/bin/* artifacts/
 test $? -eq 0 || { echo "No artifacts have been built..."; exit 1; }
 chmod +x artifacts/*
 rm -rf result
+
 nix-build linux-x86-64-tonlib.nix
+
 cp ./result/lib/libtonlibjson.so.0.5 artifacts/libtonlibjson.so
 cp ./result/lib/libemulator.so artifacts/
 cp ./result/lib/fift/* artifacts/lib/
