@@ -79,12 +79,15 @@ echo Using secp256k1...
 
 
 if not exist "libsodium" (
-curl  -Lo libsodium-1.0.20-stable-msvc.zip https://download.libsodium.org/libsodium/releases/libsodium-1.0.20-stable-msvc.zip
+gti clone https://github.com/jedisct1/libsodium.git
+cd libsodium\builds\msvc\vs2022\libsodium
+msbuild libsodium.vcxproj /p:Configuration=Release /p:platform=x64 -p:PlatformToolset=v143
+dir /s
 IF %errorlevel% NEQ 0 (
   echo Can't download libsodium
   exit /b %errorlevel%
 )
-unzip libsodium-1.0.20-stable-msvc.zip
+cd ..\..\..\..\..
 ) else (
 echo Using libsodium...
 )
