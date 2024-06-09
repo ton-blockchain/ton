@@ -79,7 +79,7 @@ echo Using secp256k1...
 
 
 if not exist "libsodium" (
-gti clone https://github.com/jedisct1/libsodium.git
+git clone https://github.com/jedisct1/libsodium.git
 cd libsodium\builds\msvc\vs2022\libsodium
 msbuild libsodium.vcxproj /p:Configuration=Release /p:platform=x64 -p:PlatformToolset=v143
 dir /s
