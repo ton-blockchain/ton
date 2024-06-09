@@ -79,12 +79,12 @@ echo Using secp256k1...
 
 
 if not exist "libsodium" (
-curl  -Lo libsodium-1.0.18-stable-msvc.zip https://download.libsodium.org/libsodium/releases/libsodium-1.0.18-stable-msvc.zip
+curl  -Lo libsodium-1.0.20-stable-msvc.zip https://download.libsodium.org/libsodium/releases/libsodium-1.0.20-stable-msvc.zip
 IF %errorlevel% NEQ 0 (
   echo Can't download libsodium
   exit /b %errorlevel%
 )
-unzip libsodium-1.0.18-stable-msvc.zip
+unzip libsodium-1.0.20-stable-msvc.zip
 ) else (
 echo Using libsodium...
 )
