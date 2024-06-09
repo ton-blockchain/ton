@@ -5012,12 +5012,13 @@ bool Collator::create_block_candidate() {
   }
   // 4. save block candidate
   LOG(INFO) << "saving new BlockCandidate";
-  td::actor::send_closure_later(manager, &ValidatorManager::set_block_candidate, block_candidate->id,
-                                block_candidate->clone(), [self = get_self()](td::Result<td::Unit> saved) -> void {
-                                  LOG(DEBUG) << "got answer to set_block_candidate";
-                                  td::actor::send_closure_later(std::move(self), &Collator::return_block_candidate,
-                                                                std::move(saved));
-                                });
+  td::actor::send_closure_later(
+      manager, &ValidatorManager::set_block_candidate, block_candidate->id, block_candidate->clone(),
+      validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash(),
+      [self = get_self()](td::Result<td::Unit> saved) -> void {
+        LOG(DEBUG) << "got answer to set_block_candidate";
+        td::actor::send_closure_later(std::move(self), &Collator::return_block_candidate, std::move(saved));
+      });
   // 5. communicate about bad and delayed external messages
   if (!bad_ext_msgs_.empty() || !delay_ext_msgs_.empty()) {
     LOG(INFO) << "sending complete_external_messages() to Manager";

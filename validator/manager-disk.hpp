@@ -130,6 +130,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   }
   void new_ihr_message(td::BufferSlice data) override;
   void new_shard_block(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) override;
+  void new_block_candidate(BlockIdExt block_id, td::BufferSlice data) override {
+  }
 
   void add_ext_server_id(adnl::AdnlNodeIdShort id) override {
     UNREACHABLE();
@@ -177,7 +179,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   void wait_block_signatures_short(BlockIdExt id, td::Timestamp timeout,
                                    td::Promise<td::Ref<BlockSignatureSet>> promise) override;
 
-  void set_block_candidate(BlockIdExt id, BlockCandidate candidate, td::Promise<td::Unit> promise) override;
+  void set_block_candidate(BlockIdExt id, BlockCandidate candidate, CatchainSeqno cc_seqno,
+                           td::uint32 validator_set_hash, td::Promise<td::Unit> promise) override;
 
   void wait_block_state_merge(BlockIdExt left_id, BlockIdExt right_id, td::uint32 priority, td::Timestamp timeout,
                               td::Promise<td::Ref<ShardState>> promise) override;
@@ -251,7 +254,7 @@ class ValidatorManagerImpl : public ValidatorManager {
     new_ihr_message(message->serialize());
   }
   void send_top_shard_block_description(td::Ref<ShardTopBlockDescription> desc) override;
-  void send_block_broadcast(BlockBroadcast broadcast) override {
+  void send_block_broadcast(BlockBroadcast broadcast, bool custom_overlays_only) override {
   }
 
   void update_shard_client_state(BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise) override;
@@ -378,6 +381,9 @@ class ValidatorManagerImpl : public ValidatorManager {
   void log_validator_session_stats(BlockIdExt block_id, validatorsession::ValidatorSessionStats stats) override {
     UNREACHABLE();
   }
+  void log_new_validator_group_stats(validatorsession::NewValidatorGroupStats stats) override {
+    UNREACHABLE();
+  }
   void get_out_msg_queue_size(BlockIdExt block_id, td::Promise<td::uint32> promise) override {
     if (queue_size_counter_.empty()) {
       queue_size_counter_ =
@@ -414,6 +420,10 @@ class ValidatorManagerImpl : public ValidatorManager {
       td::optional<ShardIdFull> shard,
       td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroups>> promise) override {
     promise.set_result(td::Status::Error("not implemented"));
+  }
+
+  void update_options(td::Ref<ValidatorManagerOptions> opts) override {
+    opts_ = std::move(opts);
   }
 
  private:

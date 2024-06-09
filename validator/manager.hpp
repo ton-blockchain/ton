@@ -18,10 +18,14 @@
 */
 #pragma once
 
+#include "common/refcnt.hpp"
 #include "interfaces/validator-manager.h"
 #include "interfaces/db.h"
 #include "td/actor/PromiseFuture.h"
+#include "td/utils/SharedSlice.h"
+#include "td/utils/buffer.h"
 #include "td/utils/port/Poll.h"
+#include "td/utils/port/StdStreams.h"
 #include "validator-group.hpp"
 #include "shard-client.hpp"
 #include "manager-init.h"
@@ -220,6 +224,10 @@ class ValidatorManagerImpl : public ValidatorManager {
   };
   // DATA FOR COLLATOR
   std::map<ShardTopBlockDescriptionId, td::Ref<ShardTopBlockDescription>> shard_blocks_;
+
+  std::map<BlockIdExt, ReceivedBlock> cached_block_candidates_;
+  std::list<BlockIdExt> cached_block_candidates_lru_;
+
   struct ExtMessages {
     std::map<MessageId<ExtMessage>, std::unique_ptr<MessageExt<ExtMessage>>> ext_messages_;
     std::map<std::pair<ton::WorkchainId, ton::StdSmcAddress>, std::map<ExtMessage::Hash, MessageId<ExtMessage>>>
@@ -233,9 +241,19 @@ class ValidatorManagerImpl : public ValidatorManager {
   };
   std::map<int, ExtMessages> ext_msgs_;  // priority -> messages
   std::map<ExtMessage::Hash, std::pair<int, MessageId<ExtMessage>>> ext_messages_hashes_;  // hash -> priority
+  td::Timestamp cleanup_mempool_at_;
   // IHR ?
   std::map<MessageId<IhrMessage>, std::unique_ptr<MessageExt<IhrMessage>>> ihr_messages_;
   std::map<IhrMessage::Hash, MessageId<IhrMessage>> ihr_messages_hashes_;
+
+  struct CheckedExtMsgCounter {
+    std::map<std::pair<WorkchainId, StdSmcAddress>, size_t> counter_cur_, counter_prev_;
+    td::Timestamp cleanup_at_ = td::Timestamp::now();
+
+    size_t get_msg_count(WorkchainId wc, StdSmcAddress addr);
+    size_t inc_msg_count(WorkchainId wc, StdSmcAddress addr);
+    void before_query();
+  } checked_ext_msg_counter_;
 
  private:
   // VALIDATOR GROUPS
@@ -365,6 +383,7 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   void new_ihr_message(td::BufferSlice data) override;
   void new_shard_block(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) override;
+  void new_block_candidate(BlockIdExt block_id, td::BufferSlice data) override;
 
   void add_ext_server_id(adnl::AdnlNodeIdShort id) override;
   void add_ext_server_port(td::uint16 port) override;
@@ -409,7 +428,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   void wait_block_signatures_short(BlockIdExt id, td::Timestamp timeout,
                                    td::Promise<td::Ref<BlockSignatureSet>> promise) override;
 
-  void set_block_candidate(BlockIdExt id, BlockCandidate candidate, td::Promise<td::Unit> promise) override;
+  void set_block_candidate(BlockIdExt id, BlockCandidate candidate, CatchainSeqno cc_seqno,
+                           td::uint32 validator_set_hash, td::Promise<td::Unit> promise) override;
 
   void wait_block_state_merge(BlockIdExt left_id, BlockIdExt right_id, td::uint32 priority, td::Timestamp timeout,
                               td::Promise<td::Ref<ShardState>> promise) override;
@@ -473,7 +493,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void send_external_message(td::Ref<ExtMessage> message) override;
   void send_ihr_message(td::Ref<IhrMessage> message) override;
   void send_top_shard_block_description(td::Ref<ShardTopBlockDescription> desc) override;
-  void send_block_broadcast(BlockBroadcast broadcast) override;
+  void send_block_broadcast(BlockBroadcast broadcast, bool custom_overlays_only) override;
 
   void update_shard_client_state(BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise) override;
   void get_shard_client_state(bool from_db, td::Promise<BlockIdExt> promise) override;
@@ -503,6 +523,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   }
 
   void add_shard_block_description(td::Ref<ShardTopBlockDescription> desc);
+  void add_cached_block_candidate(ReceivedBlock block);
 
   void register_block_handle(BlockHandle handle);
 
@@ -565,6 +586,9 @@ class ValidatorManagerImpl : public ValidatorManager {
   void wait_shard_client_state(BlockSeqno seqno, td::Timestamp timeout, td::Promise<td::Unit> promise) override;
 
   void log_validator_session_stats(BlockIdExt block_id, validatorsession::ValidatorSessionStats stats) override;
+  void log_new_validator_group_stats(validatorsession::NewValidatorGroupStats stats) override;
+
+  void update_options(td::Ref<ValidatorManagerOptions> opts) override;
 
   void get_out_msg_queue_size(BlockIdExt block_id, td::Promise<td::uint32> promise) override {
     if (queue_size_counter_.empty()) {
@@ -662,6 +686,15 @@ class ValidatorManagerImpl : public ValidatorManager {
   }
   double max_mempool_num() const {
     return opts_->max_mempool_num();
+  }
+  size_t max_cached_candidates() const {
+    return 128;
+  }
+  static double max_ext_msg_per_addr_time_window() {
+    return 10.0;
+  }
+  static size_t max_ext_msg_per_addr() {
+    return 3 * 10;
   }
 
  private:

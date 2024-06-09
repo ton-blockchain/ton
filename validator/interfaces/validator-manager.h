@@ -93,7 +93,8 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void wait_block_signatures_short(BlockIdExt id, td::Timestamp timeout,
                                            td::Promise<td::Ref<BlockSignatureSet>> promise) = 0;
 
-  virtual void set_block_candidate(BlockIdExt id, BlockCandidate candidate, td::Promise<td::Unit> promise) = 0;
+  virtual void set_block_candidate(BlockIdExt id, BlockCandidate candidate, CatchainSeqno cc_seqno,
+                                   td::uint32 validator_set_hash, td::Promise<td::Unit> promise) = 0;
 
   virtual void wait_block_state_merge(BlockIdExt left_id, BlockIdExt right_id, td::uint32 priority,
                                       td::Timestamp timeout, td::Promise<td::Ref<ShardState>> promise) = 0;
@@ -133,7 +134,7 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void send_external_message(td::Ref<ExtMessage> message) = 0;
   virtual void send_ihr_message(td::Ref<IhrMessage> message) = 0;
   virtual void send_top_shard_block_description(td::Ref<ShardTopBlockDescription> desc) = 0;
-  virtual void send_block_broadcast(BlockBroadcast broadcast) = 0;
+  virtual void send_block_broadcast(BlockBroadcast broadcast, bool custom_overlays_only) = 0;
 
   virtual void update_shard_client_state(BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise) = 0;
   virtual void get_shard_client_state(bool from_db, td::Promise<BlockIdExt> promise) = 0;
@@ -171,6 +172,7 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void wait_shard_client_state(BlockSeqno seqno, td::Timestamp timeout, td::Promise<td::Unit> promise) = 0;
 
   virtual void log_validator_session_stats(BlockIdExt block_id, validatorsession::ValidatorSessionStats stats) = 0;
+  virtual void log_new_validator_group_stats(validatorsession::NewValidatorGroupStats stats) = 0;
 
   virtual void get_block_handle_for_litequery(BlockIdExt block_id, td::Promise<ConstBlockHandle> promise) = 0;
   virtual void get_block_data_for_litequery(BlockIdExt block_id, td::Promise<td::Ref<BlockData>> promise) = 0;

@@ -88,8 +88,15 @@ void CellDbIn::start_up() {
     statistics_ = td::RocksDb::create_statistics();
     statistics_flush_at_ = td::Timestamp::in(60.0);
   }
-  cell_db_ = std::make_shared<td::RocksDb>(td::RocksDb::open(path_, statistics_).move_as_ok());
-  
+  td::RocksDbOptions db_options;
+  db_options.statistics = statistics_;
+  if (opts_->get_celldb_cache_size()) {
+    db_options.block_cache = td::RocksDb::create_cache(opts_->get_celldb_cache_size().value());
+    LOG(WARNING) << "Set CellDb block cache size to " << td::format::as_size(opts_->get_celldb_cache_size().value());
+  }
+  db_options.use_direct_reads = opts_->get_celldb_direct_io();
+  cell_db_ = std::make_shared<td::RocksDb>(td::RocksDb::open(path_, std::move(db_options)).move_as_ok());
+
 
   boc_ = vm::DynamicBagOfCellsDb::create();
   boc_->set_celldb_compress_depth(opts_->get_celldb_compress_depth());
@@ -104,6 +111,27 @@ void CellDbIn::start_up() {
     cell_db_->begin_write_batch().ensure();
     set_block(empty, std::move(e));
     cell_db_->commit_write_batch().ensure();
+  }
+
+  if (opts_->get_celldb_preload_all()) {
+    // Iterate whole DB in a separate thread
+    delay_action([snapshot = cell_db_->snapshot()]() {
+      LOG(WARNING) << "CellDb: pre-loading all keys";
+      td::uint64 total = 0;
+      td::Timer timer;
+      auto S = snapshot->for_each([&](td::Slice, td::Slice) {
+        ++total;
+        if (total % 1000000 == 0) {
+          LOG(INFO) << "CellDb: iterated " << total << " keys";
+        }
+        return td::Status::OK();
+      });
+      if (S.is_error()) {
+        LOG(ERROR) << "CellDb: pre-load failed: " << S.move_as_error();
+      } else {
+      LOG(WARNING) << "CellDb: iterated " << total << " keys in " << timer.elapsed() << "s";
+      }
+    }, td::Timestamp::now());
   }
 }
 
@@ -155,6 +183,9 @@ void CellDbIn::store_cell(BlockIdExt block_id, td::Ref<vm::Cell> cell, td::Promi
   td::actor::send_closure(parent_, &CellDb::update_snapshot, cell_db_->snapshot());
 
   promise.set_result(boc_->load_cell(cell->get_hash().as_slice()));
+  if (!opts_->get_disable_rocksdb_stats()) {
+    cell_db_statistics_.store_cell_time_.insert(timer.elapsed() * 1e6);
+  }
 }
 
 void CellDbIn::get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) {
@@ -162,8 +193,9 @@ void CellDbIn::get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>>
 }
 
 void CellDbIn::flush_db_stats() {
-  auto stats = td::RocksDb::statistics_to_string(statistics_);
-  auto to_file_r = td::FileFd::open(path_ + "/db_stats.txt", td::FileFd::Truncate | td::FileFd::Create | td::FileFd::Write, 0644);
+  auto stats = td::RocksDb::statistics_to_string(statistics_) + cell_db_statistics_.to_string();
+  auto to_file_r =
+      td::FileFd::open(path_ + "/db_stats.txt", td::FileFd::Truncate | td::FileFd::Create | td::FileFd::Write, 0644);
   if (to_file_r.is_error()) {
     LOG(ERROR) << "Failed to open db_stats.txt: " << to_file_r.move_as_error();
     return;
@@ -176,6 +208,7 @@ void CellDbIn::flush_db_stats() {
     return;
   }
   td::RocksDb::reset_statistics(statistics_);
+  cell_db_statistics_.clear();
 }
 
 void CellDbIn::alarm() {
@@ -278,6 +311,9 @@ void CellDbIn::gc_cont2(BlockHandle handle) {
   td::actor::send_closure(parent_, &CellDb::update_snapshot, cell_db_->snapshot());
 
   DCHECK(get_block(key_hash).is_error());
+  if (!opts_->get_disable_rocksdb_stats()) {
+    cell_db_statistics_.gc_cell_time_.insert(timer.elapsed() * 1e6);
+  }
 }
 
 void CellDbIn::skip_gc() {
@@ -439,6 +475,14 @@ CellDbIn::DbEntry::DbEntry(tl_object_ptr<ton_api::db_celldb_value> entry)
 
 td::BufferSlice CellDbIn::DbEntry::release() {
   return create_serialize_tl_object<ton_api::db_celldb_value>(create_tl_block_id(block_id), prev, next, root_hash);
+}
+
+std::string CellDbIn::CellDbStatistics::to_string() {
+  td::StringBuilder ss;
+  ss << "ton.celldb.store_cell.micros " << store_cell_time_.to_string() << "\n";
+  ss << "ton.celldb.gc_cell.micros " << gc_cell_time_.to_string() << "\n";
+  ss << "ton.celldb.total_time.micros : " << (td::Timestamp::now().at() - stats_start_time_.at()) * 1e6 << "\n";
+  return ss.as_cslice().str();
 }
 
 }  // namespace validator

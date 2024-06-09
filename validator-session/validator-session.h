@@ -56,6 +56,12 @@ class ValidatorSession : public td::actor::Actor {
     td::BufferSlice proof() const {
       return proof_.clone();
     }
+    bool is_cached() const {
+      return is_cached_;
+    }
+    void set_is_cached(bool value = true) {
+      is_cached_ = value;
+    }
     CandidateDecision(td::uint32 ok_from) {
       ok_ = true;
       ok_from_ = ok_from;
@@ -69,6 +75,12 @@ class ValidatorSession : public td::actor::Actor {
     td::uint32 ok_from_ = 0;
     std::string reason_;
     td::BufferSlice proof_;
+    bool is_cached_ = false;
+  };
+
+  struct GeneratedCandidate {
+    BlockCandidate candidate;
+    bool is_cached = false;
   };
 
   class Callback {
@@ -76,7 +88,7 @@ class ValidatorSession : public td::actor::Actor {
     virtual void on_candidate(td::uint32 round, PublicKey source, ValidatorSessionRootHash root_hash,
                               td::BufferSlice data, td::BufferSlice collated_data,
                               td::Promise<CandidateDecision> promise) = 0;
-    virtual void on_generate_slot(td::uint32 round, td::Promise<BlockCandidate> promise) = 0;
+    virtual void on_generate_slot(td::uint32 round, td::Promise<GeneratedCandidate> promise) = 0;
     virtual void on_block_committed(td::uint32 round, PublicKey source, ValidatorSessionRootHash root_hash,
                                     ValidatorSessionFileHash file_hash, td::BufferSlice data,
                                     std::vector<std::pair<PublicKeyHash, td::BufferSlice>> signatures,
@@ -96,6 +108,7 @@ class ValidatorSession : public td::actor::Actor {
   virtual void get_validator_group_info_for_litequery(
       td::uint32 cur_round,
       td::Promise<std::vector<tl_object_ptr<lite_api::liteServer_nonfinal_candidateInfo>>> promise) = 0;
+  virtual void set_catchain_max_block_delay(double value) = 0;
 
   static td::actor::ActorOwn<ValidatorSession> create(
       catchain::CatChainSessionId session_id, ValidatorSessionOptions opts, PublicKeyHash local_id,

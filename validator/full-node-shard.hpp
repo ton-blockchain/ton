@@ -18,6 +18,7 @@
 */
 #pragma once
 
+#include "auto/tl/ton_api.h"
 #include "full-node-shard.h"
 #include "td/actor/PromiseFuture.h"
 #include "td/utils/port/Poll.h"
@@ -152,12 +153,19 @@ class FullNodeShardImpl : public FullNodeShard {
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_ihrMessageBroadcast &query);
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_externalMessageBroadcast &query);
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast &query);
+
+  void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcast &query);
+  void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcastCompressed &query);
+  void process_block_candidate_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query);
+
   void receive_broadcast(PublicKeyHash src, td::BufferSlice query);
   void check_broadcast(PublicKeyHash src, td::BufferSlice query, td::Promise<td::Unit> promise);
 
   void send_ihr_message(td::BufferSlice data) override;
   void send_external_message(td::BufferSlice data) override;
   void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) override;
+  void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
+                            td::BufferSlice data) override;
   void send_broadcast(BlockBroadcast broadcast) override;
 
   void download_block(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
@@ -214,7 +222,7 @@ class FullNodeShardImpl : public FullNodeShard {
                     td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp,
                     td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<overlay::Overlays> overlays,
                     td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-                    td::actor::ActorId<adnl::AdnlExtClient> client);
+                    td::actor::ActorId<adnl::AdnlExtClient> client, td::actor::ActorId<FullNode> full_node);
 
  private:
   bool use_new_download() const {
@@ -236,6 +244,7 @@ class FullNodeShardImpl : public FullNodeShard {
   td::actor::ActorId<overlay::Overlays> overlays_;
   td::actor::ActorId<ValidatorManagerInterface> validator_manager_;
   td::actor::ActorId<adnl::AdnlExtClient> client_;
+  td::actor::ActorId<FullNode> full_node_;
 
   td::uint32 attempt_ = 0;
 

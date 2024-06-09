@@ -347,7 +347,10 @@ class TestNode : public td::actor::Actor {
           }
         }
       }
-      void send_broadcast(ton::BlockBroadcast broadcast) override {
+      void send_block_candidate(ton::BlockIdExt block_id, ton::CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
+                                td::BufferSlice data) override {
+      }
+      void send_broadcast(ton::BlockBroadcast broadcast, bool custom_overlays_only) override {
       }
       void download_block(ton::BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
                           td::Promise<ton::ReceivedBlock> promise) override {

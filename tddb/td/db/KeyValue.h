@@ -19,6 +19,7 @@
 #pragma once
 #include "td/utils/Status.h"
 #include "td/utils/logging.h"
+#include <functional>
 namespace td {
 class KeyValueReader {
  public:
@@ -27,6 +28,9 @@ class KeyValueReader {
 
   virtual Result<GetStatus> get(Slice key, std::string &value) = 0;
   virtual Result<size_t> count(Slice prefix) = 0;
+  virtual Status for_each(std::function<Status(Slice, Slice)> f) {
+    return Status::Error("for_each is not supported");
+  }
 };
 
 class PrefixedKeyValueReader : public KeyValueReader {

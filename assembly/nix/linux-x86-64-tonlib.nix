@@ -7,20 +7,35 @@
 , stdenv ? pkgs.stdenv
 }:
 let
-      system = builtins.currentSystem;
+  system = builtins.currentSystem;
 
-          nixos1909 = (import (builtins.fetchTarball {
-            url = "https://channels.nixos.org/nixos-19.09/nixexprs.tar.xz";
-            sha256 = "1vp1h2gkkrckp8dzkqnpcc6xx5lph5d2z46sg2cwzccpr8ay58zy";
-          }) { inherit system; });
-          glibc227 = nixos1909.glibc // { pname = "glibc"; };
-          stdenv227 = let
-            cc = pkgs.wrapCCWith {
-              cc = nixos1909.buildPackages.gcc-unwrapped;
-              libc = glibc227;
-              bintools = pkgs.binutils.override { libc = glibc227; };
-            };
-          in (pkgs.overrideCC pkgs.stdenv cc);
+  staticOptions = pkg: pkg.overrideAttrs(oldAttrs: {
+    dontDisableStatic = true;
+    enableSharedExecutables = false;
+    configureFlags = (oldAttrs.configureFlags or []) ++ [ "--without-shared" "--disable-shared" "--disable-tests" ];
+  });
+
+  secp256k1Static = (staticOptions pkgs.secp256k1);
+  libsodiumStatic = (staticOptions pkgs.libsodium);
+
+  microhttpdStatic = pkgs.libmicrohttpd.overrideAttrs(oldAttrs: {
+    dontDisableStatic = true;
+    enableSharedExecutables = false;
+    configureFlags = (oldAttrs.configureFlags or []) ++ [ "--enable-static" "--disable-tests" "--disable-benchmark" "--disable-shared" "--disable-https" "--with-pic" ];
+  });
+
+  nixos1909 = (import (builtins.fetchTarball {
+    url = "https://channels.nixos.org/nixos-19.09/nixexprs.tar.xz";
+    sha256 = "1vp1h2gkkrckp8dzkqnpcc6xx5lph5d2z46sg2cwzccpr8ay58zy";
+  }) { inherit system; });
+  glibc227 = nixos1909.glibc // { pname = "glibc"; };
+  stdenv227 = let
+    cc = pkgs.wrapCCWith {
+      cc = nixos1909.buildPackages.gcc-unwrapped;
+      libc = glibc227;
+      bintools = pkgs.binutils.override { libc = glibc227; };
+    };
+  in (pkgs.overrideCC pkgs.stdenv cc);
 
 in
 stdenv227.mkDerivation {
@@ -34,7 +49,12 @@ stdenv227.mkDerivation {
 
   buildInputs = with pkgs;
     [
-      pkgsStatic.openssl pkgsStatic.zlib pkgsStatic.libmicrohttpd.dev pkgsStatic.libsodium.dev pkgsStatic.secp256k1 pkgsStatic.lz4
+      (openssl.override { static = true; }).dev
+      microhttpdStatic.dev
+      (zlib.override { shared = false; }).dev
+      (lz4.override { enableStatic = true; enableShared = false; }).dev
+      secp256k1Static
+      libsodiumStatic.dev
     ];
 
   dontAddStaticConfigureFlags = false;

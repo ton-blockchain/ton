@@ -832,7 +832,10 @@ void ArchiveManager::start_up() {
   if (!opts_->get_disable_rocksdb_stats()) {
     statistics_.init();
   }
-  index_ = std::make_shared<td::RocksDb>(td::RocksDb::open(db_root_ + "/files/globalindex", statistics_.rocksdb_statistics).move_as_ok());
+  td::RocksDbOptions db_options;
+  db_options.statistics = statistics_.rocksdb_statistics;
+  index_ = std::make_shared<td::RocksDb>(
+      td::RocksDb::open(db_root_ + "/files/globalindex", std::move(db_options)).move_as_ok());
   std::string value;
   auto v = index_->get(create_serialize_tl_object<ton_api::db_files_index_key>().as_slice(), value);
   v.ensure();

@@ -6330,7 +6330,8 @@ bool ValidateQuery::save_candidate() {
     }
   });
 
-  td::actor::send_closure(manager, &ValidatorManager::set_block_candidate, id_, block_candidate.clone(), std::move(P));
+  td::actor::send_closure(manager, &ValidatorManager::set_block_candidate, id_, block_candidate.clone(),
+                          validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash(), std::move(P));
   return true;
 }
 

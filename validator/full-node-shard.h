@@ -41,6 +41,8 @@ class FullNodeShard : public td::actor::Actor {
   virtual void send_ihr_message(td::BufferSlice data) = 0;
   virtual void send_external_message(td::BufferSlice data) = 0;
   virtual void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) = 0;
+  virtual void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
+                                    td::BufferSlice data) = 0;
   virtual void send_broadcast(BlockBroadcast broadcast) = 0;
 
   virtual void sign_overlay_certificate(PublicKeyHash signed_key, td::uint32 expiry_at, td::uint32 max_size, td::Promise<td::BufferSlice> promise) = 0;
@@ -72,7 +74,7 @@ class FullNodeShard : public td::actor::Actor {
       FullNodeConfig config, td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
       td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
       td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-      td::actor::ActorId<adnl::AdnlExtClient> client);
+      td::actor::ActorId<adnl::AdnlExtClient> client, td::actor::ActorId<FullNode> full_node);
 };
 
 }  // namespace fullnode

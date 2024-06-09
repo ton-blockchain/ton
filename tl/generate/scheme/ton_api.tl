@@ -396,6 +396,11 @@ tonNode.blockBroadcastCompressed id:tonNode.blockIdExt catchain_seqno:int valida
 tonNode.ihrMessageBroadcast message:tonNode.ihrMessage = tonNode.Broadcast;
 tonNode.externalMessageBroadcast message:tonNode.externalMessage = tonNode.Broadcast;
 tonNode.newShardBlockBroadcast block:tonNode.newShardBlock = tonNode.Broadcast;
+// signature may be empty, at least for now
+tonNode.newBlockCandidateBroadcast id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int
+              collator_signature:tonNode.blockSignature data:bytes = tonNode.Broadcast;
+tonNode.newBlockCandidateBroadcastCompressed id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int
+              collator_signature:tonNode.blockSignature flags:# compressed:bytes = tonNode.Broadcast;
 
 tonNode.shardPublicOverlayId workchain:int shard:long zero_state_file_hash:int256 = tonNode.ShardPublicOverlayId;
 
@@ -587,15 +592,17 @@ engine.dht.config dht:(vector engine.dht) gc:engine.gc = engine.dht.Config;
 engine.validator.fullNodeMaster port:int adnl:int256 = engine.validator.FullNodeMaster;
 engine.validator.fullNodeSlave ip:int port:int adnl:PublicKey = engine.validator.FullNodeSlave;
 engine.validator.fullNodeConfig ext_messages_broadcast_disabled:Bool = engine.validator.FullNodeConfig;
-engine.validator.config out_port:int addrs:(vector engine.Addr) adnl:(vector engine.adnl) 
+engine.validator.extraConfig state_serializer_enabled:Bool = engine.validator.ExtraConfig;
+engine.validator.config out_port:int addrs:(vector engine.Addr) adnl:(vector engine.adnl)
         dht:(vector engine.dht)
         validators:(vector engine.validator) fullnode:int256 fullnodeslaves:(vector engine.validator.fullNodeSlave)
         fullnodemasters:(vector engine.validator.fullNodeMaster)
         fullnodeconfig:engine.validator.fullNodeConfig
+        extraconfig:engine.validator.extraConfig
         liteservers:(vector engine.liteServer) control:(vector engine.controlInterface)
         gc:engine.gc = engine.validator.Config;
 
-engine.validator.customOverlayNode adnl_id:int256 msg_sender:Bool msg_sender_priority:int = engine.validator.CustomOverlayNode;
+engine.validator.customOverlayNode adnl_id:int256 msg_sender:Bool msg_sender_priority:int block_sender:Bool = engine.validator.CustomOverlayNode;
 engine.validator.customOverlay name:string nodes:(vector engine.validator.customOverlayNode) = engine.validator.CustomOverlay;
 engine.validator.customOverlaysConfig overlays:(vector engine.validator.customOverlay) = engine.validator.CustomOverlaysConfig;
 
@@ -706,6 +713,8 @@ engine.validator.addCustomOverlay overlay:engine.validator.customOverlay = engin
 engine.validator.delCustomOverlay name:string = engine.validator.Success;
 engine.validator.showCustomOverlays = engine.validator.CustomOverlaysConfig;
 
+engine.validator.setStateSerializerEnabled enabled:Bool = engine.validator.Success;
+
 ---types---
 
 storage.pong = storage.Pong;
@@ -752,14 +761,25 @@ http.server.config dhs:(vector http.server.dnsEntry) local_hosts:(vector http.se
 
 ---types---
 
-validatorSession.statsProducer id:int256 candidate_id:int256 block_status:int block_timestamp:long comment:string = validatorSession.StatsProducer;
+validatorSession.statsProducer id:int256 candidate_id:int256 block_status:int comment:string
+  block_timestamp:double is_accepted:Bool is_ours:Bool got_submit_at:double
+  collation_time:double collated_at:double collation_cached:Bool
+  validation_time:double validated_at:double validation_cached:Bool
+  gen_utime:double
+  approved_weight:long approved_33pct_at:double approved_66pct_at:double
+  signed_weight:long signed_33pct_at:double signed_66pct_at:double
+  serialize_time:double deserialize_time:double serialized_size:int = validatorSession.StatsProducer;
 
-validatorSession.statsRound timestamp:long producers:(vector validatorSession.statsProducer) = validatorSession.StatsRound;
+validatorSession.statsRound timestamp:double producers:(vector validatorSession.statsProducer) = validatorSession.StatsRound;
 
-validatorSession.stats success:Bool id:tonNode.blockIdExt timestamp:long self:int256 session_id:int256 cc_seqno:int
+validatorSession.stats success:Bool id:tonNode.blockIdExt timestamp:double self:int256 session_id:int256 cc_seqno:int
     creator:int256 total_validators:int total_weight:long
     signatures:int signatures_weight:long approve_signatures:int approve_signatures_weight:long
     first_round:int rounds:(vector validatorSession.statsRound) = validatorSession.Stats;
+
+validatorSession.newValidatorGroupStats.node id:int256 weight:long = validatorSession.newValidatorGroupStats.Node;
+validatorSession.newValidatorGroupStats session_id:int256 workchain:int shard:long cc_seqno:int timestamp:double
+    self_idx:int nodes:(vector validatorSession.newValidatorGroupStats.node) = validatorSession.NewValidatorGroupStats;
 
 ---functions---
 

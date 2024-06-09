@@ -311,22 +311,14 @@ class HttpQueryRunMethod : public HttpQueryCommon {
                      std::vector<vm::StackEntry> params, std::string prefix, td::Promise<MHD_Response *> promise);
   HttpQueryRunMethod(std::map<std::string, std::string> opts, std::string prefix, td::Promise<MHD_Response *> promise);
 
-  void finish_query();
-
   void start_up_query() override;
-  void got_account(td::BufferSlice result);
+  void got_result(td::BufferSlice result);
 
  private:
   ton::BlockIdExt block_id_;
   block::StdAddress addr_;
-
   std::string method_name_;
   std::vector<vm::StackEntry> params_;
-
-  td::BufferSlice data_;
-  td::BufferSlice proof_;
-  td::BufferSlice shard_proof_;
-  ton::BlockIdExt res_block_id_;
 };
 
 class HttpQueryStatus : public HttpQueryCommon {

@@ -90,6 +90,8 @@ struct Config {
   std::map<td::int32, Control> controls;
   std::set<ton::PublicKeyHash> gc;
 
+  bool state_serializer_enabled = true;
+
   void decref(ton::PublicKeyHash key);
   void incref(ton::PublicKeyHash key) {
     keys_refcnt[key]++;
@@ -209,6 +211,10 @@ class ValidatorEngine : public td::actor::Actor {
   double archive_preload_period_ = 0.0;
   bool disable_rocksdb_stats_ = false;
   bool nonfinal_ls_queries_enabled_ = false;
+  td::optional<td::uint64> celldb_cache_size_ = 1LL << 30;
+  bool celldb_direct_io_ = false;
+  bool celldb_preload_all_ = false;
+  td::optional<double> catchain_max_block_delay_;
   bool read_config_ = false;
   bool started_keyring_ = false;
   bool started_ = false;
@@ -280,6 +286,18 @@ class ValidatorEngine : public td::actor::Actor {
   }
   void set_nonfinal_ls_queries_enabled() {
     nonfinal_ls_queries_enabled_ = true;
+  }
+  void set_celldb_cache_size(td::uint64 value) {
+    celldb_cache_size_ = value;
+  }
+  void set_celldb_direct_io(bool value) {
+    celldb_direct_io_ = value;
+  }
+  void set_celldb_preload_all(bool value) {
+    celldb_preload_all_ = value;
+  }
+  void set_catchain_max_block_delay(double value) {
+    catchain_max_block_delay_ = value;
   }
   void start_up() override;
   ValidatorEngine() {
@@ -456,6 +474,8 @@ class ValidatorEngine : public td::actor::Actor {
   void run_control_query(ton::ton_api::engine_validator_delCustomOverlay &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_showCustomOverlays &query, td::BufferSlice data,
+                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_setStateSerializerEnabled &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   template <class T>
   void run_control_query(T &query, td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,

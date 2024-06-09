@@ -35,10 +35,26 @@ jobs:
           workflow_conclusion: success
           skip_unpack: true
 
+      - name: Download Mac arm64 artifacts
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          workflow: ton-arm64-macos.yml
+          path: artifacts
+          workflow_conclusion: success
+          skip_unpack: true
+
       - name: Download and unzip Mac x86-64 artifacts
         uses: dawidd6/action-download-artifact@v2
         with:
           workflow: ton-x86-64-macos.yml
+          path: artifacts
+          workflow_conclusion: success
+          skip_unpack: false
+
+      - name: Download and unzip arm64 artifacts
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          workflow: ton-arm64-macos.yml
           path: artifacts
           workflow_conclusion: success
           skip_unpack: false
@@ -295,6 +311,97 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: artifacts/ton-x86_64-macos-binaries/tonlib-cli
           asset_name: tonlib-cli-mac-x86-64
+          tag: ${{ steps.tag.outputs.TAG }}
+
+
+      # mac arm64
+
+      - name: Upload Mac arm64 artifacts
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-arm64-macos-binaries.zip
+          asset_name: ton-mac-arm64.zip
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Mac arm64 single artifact - fift
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-arm64-macos-binaries/fift
+          asset_name: fift-mac-arm64
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Mac arm64 single artifact - func
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-arm64-macos-binaries/func
+          asset_name: func-mac-arm64
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Mac arm64 single artifact - lite-client
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-arm64-macos-binaries/lite-client
+          asset_name: lite-client-mac-arm64
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Mac arm64 single artifact - rldp-http-proxy
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-arm64-macos-binaries/rldp-http-proxy
+          asset_name: rldp-http-proxy-mac-arm64
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Mac arm64 single artifact - http-proxy
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-arm64-macos-binaries/http-proxy
+          asset_name: http-proxy-mac-arm64
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Mac arm64 single artifact - storage-daemon-cli
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-arm64-macos-binaries/storage-daemon-cli
+          asset_name: storage-daemon-cli-mac-arm64
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Mac arm64 single artifact - storage-daemon
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-arm64-macos-binaries/storage-daemon
+          asset_name: storage-daemon-mac-arm64
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Mac arm64 single artifact - tonlibjson
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-arm64-macos-binaries/libtonlibjson.dylib
+          asset_name: tonlibjson-mac-arm64.dylib
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Mac arm64 single artifact - libemulator
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-arm64-macos-binaries/libemulator.dylib
+          asset_name: libemulator-mac-arm64.dylib
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Mac arm64 single artifact - tonlib-cli
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-arm64-macos-binaries/tonlib-cli
+          asset_name: tonlib-cli-mac-arm64
           tag: ${{ steps.tag.outputs.TAG }}
 
       # linux x86-64
