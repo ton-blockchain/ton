@@ -80,8 +80,9 @@ echo Using secp256k1...
 
 if not exist "libsodium" (
 git clone https://github.com/jedisct1/libsodium.git
+git checkout 1.0.20-RELEASE
 cd libsodium\builds\msvc\vs2022\libsodium
-msbuild libsodium.vcxproj /p:Configuration=Release /p:platform=x64 -p:PlatformToolset=v143
+msbuild libsodium.vcxproj /p:Configuration=ReleaseLIB /p:platform=x64 -p:PlatformToolset=v143
 dir /s
 IF %errorlevel% NEQ 0 (
   echo Can't download libsodium
@@ -135,6 +136,10 @@ cd build
 cmake -GNinja  -DCMAKE_BUILD_TYPE=Release ^
 -DPORTABLE=1 ^
 -DSODIUM_USE_STATIC_LIBS=1 ^
+-DSODIUM_FOUND=1 ^
+-DSODIUM_LIBRARY_RELEASE=%root%\libsodium\bin\x64\Release\v143\static\libsodium.lib ^
+-DSODIUM_LIBRARY_DEBUG=%root%\libsodium\bin\x64\Release\v143\static\libsodium.lib ^
+-DSODIUM_INCLUDE_DIR=%root%\libsodium\src\libsodium\include ^
 -DSECP256K1_FOUND=1 ^
 -DSECP256K1_INCLUDE_DIR=%root%\secp256k1\include ^
 -DSECP256K1_LIBRARY=%root%\secp256k1\build\src\Release\libsecp256k1.lib ^
