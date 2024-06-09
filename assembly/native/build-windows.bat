@@ -48,7 +48,7 @@ cd lz4
 git checkout v1.9.4
 cd build\VS2017\liblz4
 msbuild liblz4.vcxproj /p:Configuration=Release /p:platform=x64 -p:PlatformToolset=v143
-dir /s
+
 IF %errorlevel% NEQ 0 (
   echo Can't install lz4
   exit /b %errorlevel%
@@ -82,10 +82,10 @@ if not exist "libsodium" (
 git clone https://github.com/jedisct1/libsodium.git
 cd libsodium
 git fetch -a
-git checkout 1.0.20-RELEASE
+git checkout 1.0.19-RELEASE
 cd builds\msvc\vs2022\libsodium
 msbuild libsodium.vcxproj /p:Configuration=ReleaseLIB /p:platform=x64 -p:PlatformToolset=v143
-dir /s
+
 IF %errorlevel% NEQ 0 (
   echo Can't download libsodium
   exit /b %errorlevel%
