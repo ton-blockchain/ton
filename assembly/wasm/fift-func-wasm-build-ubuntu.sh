@@ -52,7 +52,7 @@ cd secp256k1
 SECP256K1_DIR=`pwd`
 cd ..
 
-git clone https://github.com/jedisct1/libsodium --branch stable
+git clone https://github.com/jedisct1/libsodium --branch 1.0.20-RELEASE
 cd libsodium
 SODIUM_DIR=`pwd`
 cd ..
