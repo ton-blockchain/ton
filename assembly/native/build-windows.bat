@@ -80,8 +80,10 @@ echo Using secp256k1...
 
 if not exist "libsodium" (
 git clone https://github.com/jedisct1/libsodium.git
-git checkout 1.0.20-RELEASE
-cd libsodium\builds\msvc\vs2022\libsodium
+cd libsodium
+git fetch -a
+git checkout 1.0.18-RELEASE
+cd builds\msvc\vs2022\libsodium
 msbuild libsodium.vcxproj /p:Configuration=ReleaseLIB /p:platform=x64 -p:PlatformToolset=v143
 dir /s
 IF %errorlevel% NEQ 0 (
