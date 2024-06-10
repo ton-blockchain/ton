@@ -422,6 +422,10 @@ class ValidatorManagerImpl : public ValidatorManager {
     promise.set_result(td::Status::Error("not implemented"));
   }
 
+  void update_options(td::Ref<ValidatorManagerOptions> opts) override {
+    opts_ = std::move(opts);
+  }
+
  private:
   PublicKeyHash local_id_;
 

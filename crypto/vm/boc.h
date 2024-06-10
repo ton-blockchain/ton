@@ -17,6 +17,8 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
+#include "td/utils/CancellationToken.h"
+
 #include <set>
 #include <map>
 #include "vm/db/DynamicBagOfCellsDb.h"
@@ -331,7 +333,7 @@ td::Result<std::vector<Ref<Cell>>> std_boc_deserialize_multi(td::Slice data,
                                                              int max_roots = BagOfCells::default_max_roots);
 td::Result<td::BufferSlice> std_boc_serialize_multi(std::vector<Ref<Cell>> root, int mode = 0);
 
-td::Status std_boc_serialize_to_file_large(std::shared_ptr<CellDbReader> reader, Cell::Hash root_hash,
-                                           td::FileFd& fd, int mode = 0);
+td::Status std_boc_serialize_to_file_large(std::shared_ptr<CellDbReader> reader, Cell::Hash root_hash, td::FileFd& fd,
+                                           int mode = 0, td::CancellationToken cancellation_token = {});
 
 }  // namespace vm

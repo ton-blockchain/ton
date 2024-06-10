@@ -1207,3 +1207,25 @@ class ShowCustomOverlaysQuery : public Query {
     return get_name();
   }
 };
+
+class SetStateSerializerEnabledQuery : public Query {
+ public:
+  SetStateSerializerEnabledQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "setstateserializerenabled";
+  }
+  static std::string get_help() {
+    return "setstateserializerenabled <value>\tdisable or enable persistent state serializer; value is 0 or 1";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  bool enabled_;
+};
