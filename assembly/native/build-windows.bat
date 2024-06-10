@@ -62,7 +62,7 @@ if not exist "secp256k1" (
 git clone https://github.com/bitcoin-core/secp256k1.git
 cd secp256k1
 git checkout v0.3.2
-cmake -G "Visual Studio 14 2019" -A x64 -S . -B build -DSECP256K1_ENABLE_MODULE_RECOVERY=ON -DBUILD_SHARED_LIBS=OFF
+cmake -G "Visual Studio 16 2019" -A x64 -S . -B build -DSECP256K1_ENABLE_MODULE_RECOVERY=ON -DBUILD_SHARED_LIBS=OFF
 IF %errorlevel% NEQ 0 (
   echo Can't configure secp256k1
   exit /b %errorlevel%
