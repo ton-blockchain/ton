@@ -31,7 +31,7 @@ git clone https://github.com/madler/zlib.git
 cd zlib
 git checkout v1.3.1
 cd contrib\vstudio\vc14
-msbuild zlibstat.vcxproj /p:Configuration=ReleaseWithoutAsm /p:platform=x64 -p:PlatformToolset=v143
+msbuild zlibstat.vcxproj /p:Configuration=ReleaseWithoutAsm /p:platform=x64 -p:PlatformToolset=v142
 
 IF %errorlevel% NEQ 0 (
   echo Can't install zlib
@@ -47,7 +47,7 @@ git clone https://github.com/lz4/lz4.git
 cd lz4
 git checkout v1.9.4
 cd build\VS2017\liblz4
-msbuild liblz4.vcxproj /p:Configuration=Release /p:platform=x64 -p:PlatformToolset=v143
+msbuild liblz4.vcxproj /p:Configuration=Release /p:platform=x64 -p:PlatformToolset=v142
 
 IF %errorlevel% NEQ 0 (
   echo Can't install lz4
@@ -132,8 +132,8 @@ cmake -GNinja  -DCMAKE_BUILD_TYPE=Release ^
 -DPORTABLE=1 ^
 -DSODIUM_USE_STATIC_LIBS=1 ^
 -DSODIUM_FOUND=1 ^
--DSODIUM_LIBRARY_RELEASE=%root%\libsodium\x64\Release\v143\static\libsodium.lib ^
--DSODIUM_LIBRARY_DEBUG=%root%\libsodium\x64\Release\v143\static\libsodium.lib ^
+-DSODIUM_LIBRARY_RELEASE=%root%\libsodium\x64\Release\v142\static\libsodium.lib ^
+-DSODIUM_LIBRARY_DEBUG=%root%\libsodium\x64\Release\v142\static\libsodium.lib ^
 -DSODIUM_INCLUDE_DIR=%root%\libsodium\include ^
 -DSECP256K1_FOUND=1 ^
 -DSECP256K1_INCLUDE_DIR=%root%\secp256k1\include ^
