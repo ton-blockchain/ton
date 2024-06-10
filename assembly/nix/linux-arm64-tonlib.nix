@@ -5,9 +5,21 @@
 , stdenv ? pkgs.stdenv
 }:
 let
-     microhttpdmy = (import ./microhttpd.nix) {};
+  staticOptions = pkg: pkg.overrideAttrs(oldAttrs: {
+    dontDisableStatic = true;
+    enableSharedExecutables = false;
+    configureFlags = (oldAttrs.configureFlags or []) ++ [ "--without-shared" "--disable-shared" "--disable-tests" ];
+  });
+
+  secp256k1Static = (staticOptions pkgs.secp256k1);
+  libsodiumStatic = (staticOptions pkgs.libsodium);
+
+  microhttpdStatic = pkgs.libmicrohttpd.overrideAttrs(oldAttrs: {
+    dontDisableStatic = true;
+    enableSharedExecutables = false;
+    configureFlags = (oldAttrs.configureFlags or []) ++ [ "--enable-static" "--disable-tests" "--disable-benchmark" "--disable-shared" "--disable-https" "--with-pic" ];
+  });
 in
-with import microhttpdmy;
 pkgs.llvmPackages_16.stdenv.mkDerivation {
   pname = "ton";
   version = "dev-lib";
@@ -21,7 +33,12 @@ pkgs.llvmPackages_16.stdenv.mkDerivation {
 
   buildInputs = with pkgs;
     [
-      pkgsStatic.openssl microhttpdmy pkgsStatic.zlib pkgsStatic.libsodium.dev pkgsStatic.secp256k1 pkgsStatic.lz4
+      (openssl.override { static = true; }).dev
+      microhttpdStatic.dev
+      (zlib.override { shared = false; }).dev
+      (lz4.override { enableStatic = true; enableShared = false; }).dev
+      secp256k1Static
+      libsodiumStatic.dev
     ];
 
   dontAddStaticConfigureFlags = false;
@@ -29,9 +46,6 @@ pkgs.llvmPackages_16.stdenv.mkDerivation {
   cmakeFlags = [
     "-DTON_USE_ABSEIL=OFF"
     "-DNIX=ON"
-    "-DMHD_FOUND=1"
-    "-DMHD_INCLUDE_DIR=${microhttpdmy}/usr/local/include"
-    "-DMHD_LIBRARY=${microhttpdmy}/usr/local/lib/libmicrohttpd.a"
   ];
 
   LDFLAGS = [
