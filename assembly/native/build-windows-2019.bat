@@ -1,4 +1,4 @@
-REM execute this script inside elevated (Run as Administrator) console "x64 Native Tools Command Prompt for VS 2022"
+REM execute this script inside elevated (Run as Administrator) console "x64 Native Tools Command Prompt for VS 2019"
 
 echo off
 
@@ -31,7 +31,7 @@ git clone https://github.com/madler/zlib.git
 cd zlib
 git checkout v1.3.1
 cd contrib\vstudio\vc14
-msbuild zlibstat.vcxproj /p:Configuration=ReleaseWithoutAsm /p:platform=x64 -p:PlatformToolset=v143
+msbuild zlibstat.vcxproj /p:Configuration=ReleaseWithoutAsm /p:platform=x64 -p:PlatformToolset=v142
 
 IF %errorlevel% NEQ 0 (
   echo Can't install zlib
@@ -47,8 +47,8 @@ git clone https://github.com/lz4/lz4.git
 cd lz4
 git checkout v1.9.4
 cd build\VS2017\liblz4
-msbuild liblz4.vcxproj /p:Configuration=Release /p:platform=x64 -p:PlatformToolset=v143
-dir /s
+msbuild liblz4.vcxproj /p:Configuration=Release /p:platform=x64 -p:PlatformToolset=v142
+
 IF %errorlevel% NEQ 0 (
   echo Can't install lz4
   exit /b %errorlevel%
@@ -62,7 +62,7 @@ if not exist "secp256k1" (
 git clone https://github.com/bitcoin-core/secp256k1.git
 cd secp256k1
 git checkout v0.3.2
-cmake -G "Visual Studio 17 2022" -A x64 -S . -B build -DSECP256K1_ENABLE_MODULE_RECOVERY=ON -DBUILD_SHARED_LIBS=OFF
+cmake -G "Visual Studio 16 2019" -A x64 -S . -B build -DSECP256K1_ENABLE_MODULE_RECOVERY=ON -DBUILD_SHARED_LIBS=OFF
 IF %errorlevel% NEQ 0 (
   echo Can't configure secp256k1
   exit /b %errorlevel%
@@ -78,7 +78,6 @@ echo Using secp256k1...
 )
 
 
-if not exist "libsodium" (
 curl  -Lo libsodium-1.0.18-stable-msvc.zip https://download.libsodium.org/libsodium/releases/libsodium-1.0.18-stable-msvc.zip
 IF %errorlevel% NEQ 0 (
   echo Can't download libsodium
