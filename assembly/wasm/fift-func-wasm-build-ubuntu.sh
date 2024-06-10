@@ -57,7 +57,7 @@ cd ..
 
 git clone https://github.com/jedisct1/libsodium
 cd libsodium
-git checkout 1.0.19-RELEASE
+git checkout 1.0.18-RELEASE
 SODIUM_DIR=`pwd`
 cd ..
 
