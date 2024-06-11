@@ -1844,14 +1844,18 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
       if (cfg.message_skip_enabled) {
         // try to read mode from action_send_msg even if out_msg scheme is violated
         // action should at least contain 40 bits: 32bit tag and 8 bit mode
-        // if (mode & 2), that is ignore error mode, skip action even for invelid message
+        // if (mode & 2), that is ignore error mode, skip action even for invalid message
+        // if there is no (mode & 2) but (mode & 16) presents - enable bounce if possible
         bool special = true;
         auto cs = load_cell_slice_special(ap.action_list[i], special);
         if(!special) {
           if((cs.size() >= 40) && ((int)cs.fetch_ulong(32) == 0x0ec3c86d)) {
-            if((int)cs.fetch_ulong(8) & 2) {
+            int mode = (int)cs.fetch_ulong(8);
+            if( mode & 2) {
               ap.skipped_actions++;
               continue;
+            } else if( (mode & 16) && cfg.bounce_on_fail_enabled) {
+              ap.bounce = true;
             }
           }
         }
