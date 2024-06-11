@@ -97,3 +97,15 @@ Operations for working with Merkle proofs, where cells can have non-zero level a
 ### Other changes
 * `GLOBALID` gets `ConfigParam 19` from the tuple, not from the config dict. This decreases gas usage.
 * `SENDMSG` gets `ConfigParam 24/25` (message prices) from the tuple, not from the config dict, and also uses `ConfigParam 43` to get max_msg_cells.
+
+
+## Version 7
+
+[Explicitly nullify](https://github.com/ton-blockchain/ton/pull/957/files) `due_payment` after due reimbursment.
+
+## Version 8
+
+- Check mode on invalid `action_send_msg`. Ignore action if `IGNORE_ERROR` (+2) bit is set, bounce if `BOUNCE_ON_FAIL` (+16) bit is set.
+- Slightly change random seed generation to fix mix of `addr_rewrite` and `addr`.
+- Fill in `skipped_actions` for both invalid and valid messages with `IGNORE_ERROR` mode that can't be sent.
+- Allow unfreeze through external messages.
