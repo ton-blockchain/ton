@@ -1604,7 +1604,7 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
     cp.skip_reason = in_msg_state.not_null() ? ComputePhase::sk_bad_state : ComputePhase::sk_no_state;
     return true;
   } else if (in_msg_state.not_null()) {
-    if(cfg.allow_external_unfreeze) {
+    if (cfg.allow_external_unfreeze) {
       if (in_msg_extern && account.addr != in_msg_state->get_hash().bits()) {
         // only for external messages with non-zero initstate in active accounts
         LOG(DEBUG) << "in_msg_state hash mismatch in external message";
@@ -1614,7 +1614,7 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
     }
     unpack_msg_state(cfg, true);  // use only libraries
   }
-  if(!cfg.allow_external_unfreeze) {
+  if (!cfg.allow_external_unfreeze) {
     if (in_msg_extern && in_msg_state.not_null() && account.addr != in_msg_state->get_hash().bits()) {
       LOG(DEBUG) << "in_msg_state hash mismatch in external message";
       cp.skip_reason = ComputePhase::sk_bad_state;
@@ -1848,13 +1848,13 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
         // if there is no (mode & 2) but (mode & 16) presents - enable bounce if possible
         bool special = true;
         auto cs = load_cell_slice_special(ap.action_list[i], special);
-        if(!special) {
-          if((cs.size() >= 40) && ((int)cs.fetch_ulong(32) == 0x0ec3c86d)) {
+        if (!special) {
+          if ((cs.size() >= 40) && ((int)cs.fetch_ulong(32) == 0x0ec3c86d)) {
             int mode = (int)cs.fetch_ulong(8);
-            if( mode & 2) {
+            if (mode & 2) {
               ap.skipped_actions++;
               continue;
-            } else if( (mode & 16) && cfg.bounce_on_fail_enabled) {
+            } else if ((mode & 16) && cfg.bounce_on_fail_enabled) {
               ap.bounce = true;
             }
           }
@@ -2319,9 +2319,9 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
   }
   bool skip_invalid = (act_rec.mode & 2);
   auto check_skip_invalid = [&](unsigned error_code) -> unsigned int {
-    if(skip_invalid) {
-      if(cfg.message_skip_enabled) {
-        ap.skipped_actions ++;
+    if (skip_invalid) {
+      if (cfg.message_skip_enabled) {
+        ap.skipped_actions++;
       }
       return 0;
     }
