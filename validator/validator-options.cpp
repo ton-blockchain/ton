@@ -20,9 +20,25 @@
 
 #include "ton/ton-shard.h"
 
+#include <ton/ton-tl.hpp>
+
 namespace ton {
 
 namespace validator {
+
+void CollatorsList::unpack(const ton_api::engine_validator_collatorsList& obj) {
+  shards.clear();
+  self_collate = obj.self_collate_;
+  use_config_41 = obj.use_config_41_;
+  for (const auto& shard_obj : obj.shards_) {
+    shards.emplace_back();
+    Shard& shard = shards.back();
+    shard.shard_id = create_shard_id(shard_obj->shard_id_);
+    for (const auto& collator : shard_obj->collators_) {
+      shard.collators.push_back({adnl::AdnlNodeIdShort{collator->adnl_id_}, collator->trusted_});
+    }
+  }
+}
 
 td::Ref<ValidatorManagerOptions> ValidatorManagerOptions::create(
     BlockIdExt zero_block_id, BlockIdExt init_block_id,

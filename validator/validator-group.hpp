@@ -66,13 +66,18 @@ class ValidatorGroup : public td::actor::Actor {
 
   void get_session_info(td::Promise<tl_object_ptr<ton_api::engine_validator_validatorSessionInfo>> promise);
 
+  void update_options(td::Ref<ValidatorManagerOptions> opts, bool apply_blocks) {
+    opts_ = std::move(opts);
+    apply_blocks_ = apply_blocks;
+  }
+
   ValidatorGroup(ShardIdFull shard, PublicKeyHash local_id, ValidatorSessionId session_id,
                  td::Ref<ValidatorSet> validator_set, block::CollatorConfig collator_config,
                  validatorsession::ValidatorSessionOptions config,
                  td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
                  td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays,
                  std::string db_root, td::actor::ActorId<ValidatorManager> validator_manager, bool create_session,
-                 bool allow_unsafe_self_blocks_resync, td::Ref<ValidatorManagerOptions> opts)
+                 bool allow_unsafe_self_blocks_resync, td::Ref<ValidatorManagerOptions> opts, bool apply_blocks)
       : shard_(shard)
       , local_id_(std::move(local_id))
       , session_id_(session_id)
@@ -87,14 +92,16 @@ class ValidatorGroup : public td::actor::Actor {
       , manager_(validator_manager)
       , init_(create_session)
       , allow_unsafe_self_blocks_resync_(allow_unsafe_self_blocks_resync)
-      , opts_(std::move(opts)) {
+      , opts_(std::move(opts))
+      , apply_blocks_(apply_blocks) {
   }
 
  private:
   std::unique_ptr<validatorsession::ValidatorSession::Callback> make_validator_session_callback();
-  void send_collate_query(td::uint32 round_id, td::Timestamp timeout, td::Promise<BlockCandidate> promise,
+  void collate_block(td::uint32 round_id, td::Timestamp timeout, td::Promise<BlockCandidate> promise,
                           unsigned max_retries = 4);
-  void receive_collate_query_response(td::uint32 round_id, td::BufferSlice data, td::Promise<BlockCandidate> promise);
+  void receive_collate_query_response(td::uint32 round_id, td::BufferSlice data, bool trusted_collator,
+                                      td::Promise<BlockCandidate> promise);
 
   struct PostponedAccept {
     RootHash root_hash;
@@ -134,6 +141,7 @@ class ValidatorGroup : public td::actor::Actor {
   bool allow_unsafe_self_blocks_resync_;
   td::Ref<ValidatorManagerOptions> opts_;
   td::uint32 last_known_round_id_ = 0;
+  bool apply_blocks_ = true;
 
   struct CachedCollatedBlock {
     td::optional<BlockCandidate> result;

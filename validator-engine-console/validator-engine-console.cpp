@@ -152,6 +152,9 @@ void ValidatorEngineConsole::run() {
   add_query_runner(std::make_unique<QueryRunnerImpl<AddShardQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<DelShardQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<DelCollatorQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<SetCollatorsListQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<ClearCollatorsListQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<ShowCollatorsListQuery>>());
 }
 
 bool ValidatorEngineConsole::envelope_send_query(td::BufferSlice query, td::Promise<td::BufferSlice> promise) {

@@ -1342,3 +1342,63 @@ class DelShardQuery : public Query {
   td::int32 wc_;
   td::int64 shard_;
 };
+
+class SetCollatorsListQuery : public Query {
+ public:
+  SetCollatorsListQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "setcollatorslist";
+  }
+  static std::string get_help() {
+    return "setcollatorslist <filename>\tset list of collators from file <filename>";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  std::string file_name_;
+};
+
+class ClearCollatorsListQuery : public Query {
+ public:
+  ClearCollatorsListQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "clearcollatorslist";
+  }
+  static std::string get_help() {
+    return "clearcollatorslist\tclear list of collators";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+};
+
+class ShowCollatorsListQuery : public Query {
+ public:
+  ShowCollatorsListQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "showcollatorslist";
+  }
+  static std::string get_help() {
+    return "showcollatorslist\tshow list of collators";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+};

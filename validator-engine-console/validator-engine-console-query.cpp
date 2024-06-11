@@ -1316,3 +1316,80 @@ td::Status DelShardQuery::receive(td::BufferSlice data) {
   td::TerminalIO::out() << "successfully removed shard\n";
   return td::Status::OK();
 }
+
+td::Status SetCollatorsListQuery::run() {
+  TRY_RESULT_ASSIGN(file_name_, tokenizer_.get_token<std::string>());
+  TRY_STATUS(tokenizer_.check_endl());
+  return td::Status::OK();
+}
+
+td::Status SetCollatorsListQuery::send() {
+  TRY_RESULT(data, td::read_file(file_name_));
+  TRY_RESULT(json, td::json_decode(data.as_slice()));
+  auto list = ton::create_tl_object<ton::ton_api::engine_validator_collatorsList>();
+  TRY_STATUS(ton::ton_api::from_json(*list, json.get_object()));
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_setCollatorsList>(std::move(list));
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status SetCollatorsListQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  td::TerminalIO::out() << "success\n";
+  return td::Status::OK();
+}
+
+td::Status ClearCollatorsListQuery::run() {
+  TRY_STATUS(tokenizer_.check_endl());
+  return td::Status::OK();
+}
+
+td::Status ClearCollatorsListQuery::send() {
+  auto list = ton::create_tl_object<ton::ton_api::engine_validator_collatorsList>();
+  list->self_collate_ = true;
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_setCollatorsList>(std::move(list));
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status ClearCollatorsListQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  td::TerminalIO::out() << "success\n";
+  return td::Status::OK();
+}
+
+td::Status ShowCollatorsListQuery::run() {
+  TRY_STATUS(tokenizer_.check_endl());
+  return td::Status::OK();
+}
+
+td::Status ShowCollatorsListQuery::send() {
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_showCollatorsList>();
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status ShowCollatorsListQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(list, ton::fetch_tl_object<ton::ton_api::engine_validator_collatorsList>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  td::TerminalIO::out() << "Collators list:\n";
+  if (list->self_collate_) {
+    td::TerminalIO::out() << "self_collate = true\n";
+  }
+  if (list->use_config_41_) {
+    td::TerminalIO::out() << "use_config_41 = true\n";
+  }
+  if (list->shards_.empty()) {
+    td::TerminalIO::out() << "Shard list is empty\n";
+    return td::Status::OK();
+  }
+  for (const auto &shard : list->shards_) {
+    td::TerminalIO::out() << "Shard " << create_shard_id(shard->shard_id_).to_str() << "\n";
+    for (const auto &collator : shard->collators_) {
+      td::TerminalIO::out() << "  Collator " << collator->adnl_id_ << (collator->trusted_ ? " (trusted)" : "") << "\n";
+    }
+  }
+  return td::Status::OK();
+}

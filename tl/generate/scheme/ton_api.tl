@@ -626,6 +626,12 @@ engine.validator.customOverlayNode adnl_id:int256 msg_sender:Bool msg_sender_pri
 engine.validator.customOverlay name:string nodes:(vector engine.validator.customOverlayNode) = engine.validator.CustomOverlay;
 engine.validator.customOverlaysConfig overlays:(vector engine.validator.customOverlay) = engine.validator.CustomOverlaysConfig;
 
+engine.validator.collatorsList.collator adnl_id:int256 trusted:Bool = engine.validator.collatorsList.Collator;
+engine.validator.collatorsList.shard shard_id:tonNode.shardId collators:(vector engine.validator.collatorsList.collator)
+    = engine.validator.collatorsList.Shard;
+engine.validator.collatorsList self_collate:Bool use_config_41:Bool shards:(vector engine.validator.collatorsList.shard)
+    = engine.validator.CollatorsList;
+
 ---functions---
 ---types---
 
@@ -751,6 +757,9 @@ engine.validator.addCollator adnl_id:int256 shard:tonNode.shardId = engine.valid
 engine.validator.addShard shard:tonNode.shardId = engine.validator.Success;
 engine.validator.delCollator adnl_id:int256 shard:tonNode.shardId = engine.validator.Success;
 engine.validator.delShard shard:tonNode.shardId = engine.validator.Success;
+
+engine.validator.setCollatorsList list:engine.validator.collatorsList = engine.validator.Success;
+engine.validator.showCollatorsList = engine.validator.CollatorsList;
 
 ---types---
 

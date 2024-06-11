@@ -82,7 +82,6 @@ ValidateQuery::ValidateQuery(ShardIdFull shard, BlockIdExt min_masterchain_block
     , timeout(timeout)
     , main_promise(std::move(promise))
     , is_fake_(mode & ValidateMode::fake)
-    , full_collated_data_(mode & ValidateMode::full_collated_data)
     , shard_pfx_(shard_.shard)
     , shard_pfx_len_(ton::shard_prefix_length(shard_))
     , perf_timer_("validateblock", 0.1, [manager](double duration) {
@@ -258,7 +257,6 @@ void ValidateQuery::finish_query() {
  */
 void ValidateQuery::start_up() {
   LOG(WARNING) << "validate query for " << block_candidate.id.to_str() << " started";
-  LOG(DEBUG) << "full_collated_data is " << full_collated_data_;
   alarm_timestamp() = timeout;
   rand_seed_.set_zero();
   created_by_ = block_candidate.pubkey;
@@ -359,11 +357,16 @@ void ValidateQuery::start_up() {
                                   td::actor::send_closure_later(
                                       std::move(self), &ValidateQuery::after_get_latest_mc_state, std::move(res));
                                 });
-  // 3. load state(s) corresponding to previous block(s) (not full-collaoted-data or masterchain)
+  // 3. unpack block candidate (while necessary data is being loaded)
+  if (!unpack_block_candidate()) {
+    reject_query("error unpacking block candidate");
+    return;
+  }
+  // 4. load state(s) corresponding to previous block(s) (not full-collated-data or masterchain)
   prev_states.resize(prev_blocks.size());
   if  (is_masterchain() || !full_collated_data_) {
     for (int i = 0; (unsigned)i < prev_blocks.size(); i++) {
-      // 3.1. load state
+      // 4.1. load state
       LOG(DEBUG) << "sending wait_block_state() query #" << i << " for " << prev_blocks[i].to_str() << " to Manager";
       ++pending;
       td::actor::send_closure_later(manager, &ValidatorManager::wait_block_state_short, prev_blocks[i], priority(),
@@ -373,11 +376,6 @@ void ValidateQuery::start_up() {
                                           std::move(self), &ValidateQuery::after_get_shard_state, i, std::move(res));
                                     });
     }
-  }
-  // 4. unpack block candidate (while necessary data is being loaded)
-  if (!unpack_block_candidate()) {
-    reject_query("error unpacking block candidate");
-    return;
   }
   // 5. request masterchain state referred to in the block
   if (!is_masterchain()) {
@@ -629,6 +627,7 @@ bool ValidateQuery::extract_collated_data_from(Ref<vm::Cell> croot, int idx) {
     if (!ins.second) {
       return reject_query("Merkle proof with duplicate virtual root hash "s + virt_hash.to_hex());
     }
+    full_collated_data_ = true;
     return true;
   }
   if (block::gen::t_TopBlockDescrSet.has_valid_tag(cs)) {
@@ -665,6 +664,9 @@ bool ValidateQuery::extract_collated_data() {
     } catch (vm::VmVirtError& err) {
       return reject_query(PSTRING() << "virtualization error " << err.get_msg());
     }
+  }
+  if (full_collated_data_) {
+    LOG(INFO) << "full_collated_data = true";
   }
   return true;
 }

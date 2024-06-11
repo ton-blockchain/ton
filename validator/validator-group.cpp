@@ -57,14 +57,7 @@ void ValidatorGroup::generate_block_candidate(
                                    cache = cached_collated_block_](td::Result<BlockCandidate> R) {
     td::actor::send_closure(SelfId, &ValidatorGroup::generated_block_candidate, std::move(cache), std::move(R));
   };
-  if (opts_->validator_mode() == ValidatorManagerOptions::validator_lite_all ||
-      (opts_->validator_mode() == ValidatorManagerOptions::validator_lite_shards && !shard_.is_masterchain())) {
-    send_collate_query(round_id, td::Timestamp::in(10.0), std::move(P));
-    return;
-  }
-  run_collate_query(shard_, min_masterchain_block_id_, prev_block_ids_,
-                    Ed25519_PublicKey{local_id_full_.ed25519_value().raw()}, validator_set_, manager_,
-                    td::Timestamp::in(10.0), std::move(P));
+  collate_block(round_id, td::Timestamp::in(10.0), std::move(P));
 }
 
 void ValidatorGroup::generated_block_candidate(std::shared_ptr<CachedCollatedBlock> cache,
@@ -142,8 +135,7 @@ void ValidatorGroup::validate_block_candidate(td::uint32 round_id, BlockCandidat
   }
   VLOG(VALIDATOR_DEBUG) << "validating block candidate " << next_block_id;
   run_validate_query(shard_, min_masterchain_block_id_, prev_block_ids_, std::move(block), validator_set_, manager_,
-                     td::Timestamp::in(15.0), std::move(P),
-                     collator_config_.full_collated_data ? ValidateMode::full_collated_data : 0);
+                     td::Timestamp::in(15.0), std::move(P));
 }
 
 void ValidatorGroup::update_approve_cache(CacheKey key, UnixTime value) {
@@ -204,10 +196,8 @@ void ValidatorGroup::accept_block_query(BlockIdExt block_id, td::Ref<BlockData> 
     }
   });
 
-  run_accept_block_query(
-      block_id, std::move(block), std::move(prev), validator_set_, std::move(sig_set), std::move(approve_sig_set),
-      send_broadcast, shard_.is_masterchain() || opts_->validator_mode() == ValidatorManagerOptions::validator_normal,
-      manager_, std::move(P));
+  run_accept_block_query(block_id, std::move(block), std::move(prev), validator_set_, std::move(sig_set),
+                         std::move(approve_sig_set), send_broadcast, apply_blocks_, manager_, std::move(P));
 }
 
 void ValidatorGroup::skip_round(td::uint32 round_id) {
@@ -480,25 +470,55 @@ void ValidatorGroup::get_session_info(
   td::actor::send_closure(session_, &validatorsession::ValidatorSession::get_session_info, std::move(P));
 }
 
-void ValidatorGroup::send_collate_query(td::uint32 round_id, td::Timestamp timeout, td::Promise<BlockCandidate> promise,
-                                        unsigned max_retries) {
+void ValidatorGroup::collate_block(td::uint32 round_id, td::Timestamp timeout, td::Promise<BlockCandidate> promise,
+                                   unsigned max_retries) {
   if (round_id < last_known_round_id_) {
     promise.set_error(td::Status::Error("too old"));
     return;
   }
   BlockId next_block_id = create_next_block_id_simple();
-  adnl::AdnlNodeIdShort collator = adnl::AdnlNodeIdShort::zero();
-  // TODO: some way to choose node (similar to "unreliability" in full-node)
-  int cnt = 0;
-  for (const block::CollatorNodeDescr &c : collator_config_.collator_nodes) {
-    if (shard_intersects(shard_, c.shard)) {
-      if (td::Random::fast(0, cnt) == 0) {
-        collator = adnl::AdnlNodeIdShort(c.adnl_id);
+  adnl::AdnlNodeIdShort collator_adnl_id = adnl::AdnlNodeIdShort::zero();
+  bool self_collate = false;
+  bool trusted_collator = false;
+
+  if (shard_.is_masterchain()) {
+    self_collate = true;
+  } else {
+    for (const auto &s : opts_->get_collators_list()->shards) {
+      if (!shard_intersects(s.shard_id, shard_)) {
+        continue;
       }
-      ++cnt;
+      if (!s.collators.empty()) {
+        const CollatorsList::Collator &col = s.collators[td::Random::fast(0, s.collators.size() - 1)];
+        collator_adnl_id = col.adnl_id;
+        trusted_collator = col.trusted;
+        break;
+      }
+    }
+    if (collator_adnl_id.is_zero()) {
+      if (opts_->get_collators_list()->self_collate) {
+        self_collate = true;
+      } else if (opts_->get_collators_list()->use_config_41) {
+        // TODO: some way to choose node (similar to "unreliability" in full-node)
+        int cnt = 0;
+        for (const block::CollatorNodeDescr &c : collator_config_.collator_nodes) {
+          if (shard_intersects(shard_, c.shard)) {
+            if (td::Random::fast(0, cnt) == 0) {
+              collator_adnl_id = adnl::AdnlNodeIdShort(c.adnl_id);
+            }
+            ++cnt;
+          }
+        }
+      }
     }
   }
-  if (collator.is_zero()) {
+  if (self_collate) {
+    run_collate_query(shard_, min_masterchain_block_id_, prev_block_ids_,
+                      Ed25519_PublicKey{local_id_full_.ed25519_value().raw()}, validator_set_, manager_,
+                      td::Timestamp::in(10.0), std::move(promise));
+    return;
+  }
+  if (collator_adnl_id.is_zero()) {
     promise.set_error(td::Status::Error(PSTRING() << "no collator for shard " << shard_.to_str()));
     return;
   }
@@ -514,7 +534,7 @@ void ValidatorGroup::send_collate_query(td::uint32 round_id, td::Timestamp timeo
     LOG(WARNING) << "collate query for " << next_block_id.to_str() << ": " << R.error() << ", time=" << timer.elapsed()
                  << "s, " << (retry ? "retrying" : "giving up");
     if (retry) {
-      td::actor::send_closure(SelfId, &ValidatorGroup::send_collate_query, round_id, timeout, std::move(promise),
+      td::actor::send_closure(SelfId, &ValidatorGroup::collate_block, round_id, timeout, std::move(promise),
                               max_retries - 1);
     } else {
       promise.set_result(td::Status::Error(ErrorCode::timeout, "timeout"));
@@ -530,23 +550,23 @@ void ValidatorGroup::send_collate_query(td::uint32 round_id, td::Timestamp timeo
       local_id_full_.ed25519_value().raw());
 
   auto P = td::PromiseCreator::lambda(
-      [SelfId = actor_id(this), round_id, promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
+      [=, SelfId = actor_id(this), promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
         if (R.is_error()) {
           promise.set_error(R.move_as_error_prefix("rldp query failed: "));
           return;
         }
         td::actor::send_closure(SelfId, &ValidatorGroup::receive_collate_query_response, round_id, R.move_as_ok(),
-                                std::move(promise));
+                                trusted_collator, std::move(promise));
       });
-  LOG(INFO) << "sending collate query for " << next_block_id.to_str() << ": send to " << collator;
+  LOG(INFO) << "sending collate query for " << next_block_id.to_str() << ": send to " << collator_adnl_id;
   size_t max_answer_size = config_.max_block_size + config_.max_collated_data_size + 1024;
   td::Timestamp query_timeout = td::Timestamp::in(10.0);
   query_timeout.relax(timeout);
-  td::actor::send_closure(rldp_, &rldp::Rldp::send_query_ex, local_adnl_id_, collator, "collatequery", std::move(P),
-                          timeout, std::move(query), max_answer_size);
+  td::actor::send_closure(rldp_, &rldp::Rldp::send_query_ex, local_adnl_id_, collator_adnl_id, "collatequery",
+                          std::move(P), timeout, std::move(query), max_answer_size);
 }
 
-void ValidatorGroup::receive_collate_query_response(td::uint32 round_id, td::BufferSlice data,
+void ValidatorGroup::receive_collate_query_response(td::uint32 round_id, td::BufferSlice data, bool trusted_collator,
                                                     td::Promise<BlockCandidate> promise) {
   if (round_id < last_known_round_id_) {
     promise.set_error(td::Status::Error("too old"));
@@ -574,6 +594,10 @@ void ValidatorGroup::receive_collate_query_response(td::uint32 round_id, td::Buf
     return;
   }
 
+  if (trusted_collator) {
+    promise.set_result(std::move(candidate));
+    return;
+  }
   auto P = td::PromiseCreator::lambda(
       [candidate = candidate.clone(), promise = std::move(promise)](td::Result<std::pair<UnixTime, bool>> R) mutable {
         if (R.is_error()) {

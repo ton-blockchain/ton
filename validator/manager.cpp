@@ -373,7 +373,8 @@ void ValidatorManagerImpl::get_key_block_proof_link(BlockIdExt block_id, td::Pro
 }
 
 void ValidatorManagerImpl::new_external_message(td::BufferSlice data, int priority) {
-  if (!is_collator()) {
+  if (!validating_masterchain() && collator_nodes_.empty() &&
+      (!is_validator() || !opts_->get_collators_list()->self_collate)) {
     return;
   }
   if (last_masterchain_state_.is_null()) {
@@ -453,7 +454,7 @@ void ValidatorManagerImpl::check_external_message(td::BufferSlice data, td::Prom
 }
 
 void ValidatorManagerImpl::new_ihr_message(td::BufferSlice data) {
-  if (!is_collator()) {
+  if (collator_nodes_.empty() && (!is_validator() || !opts_->get_collators_list()->self_collate)) {
     return;
   }
   auto R = create_ihr_message(std::move(data));
@@ -470,7 +471,7 @@ void ValidatorManagerImpl::new_ihr_message(td::BufferSlice data) {
 }
 
 void ValidatorManagerImpl::new_shard_block(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) {
-  if (!is_collator() && !is_validator()) {
+  if (!is_validator()) {
     return;
   }
   if (!last_masterchain_block_handle_) {
@@ -533,7 +534,7 @@ void ValidatorManagerImpl::add_shard_block_description(td::Ref<ShardTopBlockDesc
       });
       wait_block_state_short(desc->block_id(), 0, td::Timestamp::in(60.0), std::move(P));
     }
-    if (collating_masterchain()) {
+    if (validating_masterchain()) {
       preload_msg_queue_to_masterchain(desc);
     }
   }
@@ -542,7 +543,8 @@ void ValidatorManagerImpl::add_shard_block_description(td::Ref<ShardTopBlockDesc
 void ValidatorManagerImpl::preload_msg_queue_to_masterchain(td::Ref<ShardTopBlockDescription> desc) {
   auto id = ShardTopBlockDescriptionId{desc->block_id().shard_full(), desc->catchain_seqno()};
   auto it = shard_blocks_.find(id);
-  if (!collating_masterchain() || it == shard_blocks_.end() || it->second.latest_desc->block_id() != desc->block_id()) {
+  if (!validating_masterchain() || it == shard_blocks_.end() ||
+      it->second.latest_desc->block_id() != desc->block_id()) {
     return;
   }
   wait_neighbor_msg_queue_proofs(
@@ -2031,9 +2033,9 @@ void ValidatorManagerImpl::new_masterchain_block() {
     td::actor::send_closure(shard_client_, &ShardClient::new_masterchain_block_notification,
                             last_masterchain_block_handle_, last_masterchain_state_);
   }
-  if (is_collator()) {
+  if (validating_masterchain() || !collator_nodes_.empty()) {
     std::set<ShardIdFull> collating_shards;
-    if (collating_masterchain()) {
+    if (validating_masterchain()) {
       collating_shards.emplace(masterchainId);
     }
     for (const auto &collator : collator_nodes_) {
@@ -2398,7 +2400,8 @@ td::actor::ActorOwn<ValidatorGroup> ValidatorManagerImpl::create_validator_group
     auto G = td::actor::create_actor<ValidatorGroup>(
         "validatorgroup", shard, validator_id, session_id, validator_set,
         last_masterchain_state_->get_collator_config(true), opts, keyring_, adnl_, rldp_, overlays_, db_root_,
-        actor_id(this), init_session, opts_->check_unsafe_resync_allowed(validator_set->get_catchain_seqno()), opts_);
+        actor_id(this), init_session, opts_->check_unsafe_resync_allowed(validator_set->get_catchain_seqno()), opts_,
+        opts_->need_monitor(shard, last_masterchain_state_));
     return G;
   }
 }
@@ -2845,25 +2848,10 @@ bool ValidatorManagerImpl::is_validator() {
   return temp_keys_.size() > 0 || permanent_keys_.size() > 0;
 }
 
-bool ValidatorManagerImpl::is_collator() {
-  return !collator_nodes_.empty() ||
-         (opts_->validator_mode() != ValidatorManagerOptions::validator_lite_all && is_validator());
-}
-
 bool ValidatorManagerImpl::validating_masterchain() {
   return !get_validator(ShardIdFull(masterchainId),
                         last_masterchain_state_->get_validator_set(ShardIdFull(masterchainId)))
               .is_zero();
-}
-
-bool ValidatorManagerImpl::collating_masterchain() {
-  if (masterchain_collators_) {
-    return true;
-  }
-  if (opts_->validator_mode() == ValidatorManagerOptions::validator_lite_all) {
-    return false;
-  }
-  return validating_masterchain();
 }
 
 PublicKeyHash ValidatorManagerImpl::get_validator(ShardIdFull shard, td::Ref<ValidatorSet> val_set) {
@@ -3331,6 +3319,14 @@ void ValidatorManagerImpl::update_options(td::Ref<ValidatorManagerOptions> opts)
   if (!queue_size_counter_.empty()) {
     td::actor::send_closure(queue_size_counter_, &QueueSizeCounter::update_options, opts);
   }
+  for (auto &group : validator_groups_) {
+    td::actor::send_closure(group.second.actor, &ValidatorGroup::update_options, opts,
+                            opts->need_monitor(group.second.shard, last_masterchain_state_));
+  }
+  for (auto &group : next_validator_groups_) {
+    td::actor::send_closure(group.second.actor, &ValidatorGroup::update_options, opts,
+                            opts->need_monitor(group.second.shard, last_masterchain_state_));
+  }
   opts_ = std::move(opts);
 }
 
@@ -3376,9 +3372,6 @@ void ValidatorManagerImpl::add_collator(adnl::AdnlNodeIdShort id, ShardIdFull sh
   if (!it->second.shards.insert(shard).second) {
     return;
   }
-  if (shard.is_masterchain()) {
-    ++masterchain_collators_;
-  }
   td::actor::send_closure(it->second.actor, &CollatorNode::add_shard, shard);
 }
 
@@ -3389,9 +3382,6 @@ void ValidatorManagerImpl::del_collator(adnl::AdnlNodeIdShort id, ShardIdFull sh
   }
   if (!it->second.shards.erase(shard)) {
     return;
-  }
-  if (shard.is_masterchain()) {
-    --masterchain_collators_;
   }
   if (it->second.shards.empty()) {
     collator_nodes_.erase(it);

@@ -1472,7 +1472,6 @@ td::Status ValidatorEngine::load_global_config() {
   }
   validator_options_.write().set_hardforks(std::move(h));
   validator_options_.write().set_state_serializer_enabled(config_.state_serializer_enabled);
-  validator_options_.write().set_validator_mode(validator_mode_);
 
   return td::Status::OK();
 }
@@ -1500,6 +1499,31 @@ void ValidatorEngine::set_shard_check_function() {
           return false;
         });
   }
+}
+
+void ValidatorEngine::load_collators_list() {
+  collators_list_ = {};
+  auto data_R = td::read_file(collators_list_file());
+  if (data_R.is_error()) {
+    return;
+  }
+  auto data = data_R.move_as_ok();
+  auto json_R = td::json_decode(data.as_slice());
+  if (json_R.is_error()) {
+    LOG(ERROR) << "Failed to parse collators list: " << json_R.move_as_error();
+    return;
+  }
+  auto json = json_R.move_as_ok();
+  collators_list_ = ton::create_tl_object<ton::ton_api::engine_validator_collatorsList>();
+  auto S = ton::ton_api::from_json(*collators_list_, json.get_object());
+  if (S.is_error()) {
+    LOG(ERROR) << "Failed to parse collators list: " << S;
+    collators_list_ = {};
+    return;
+  }
+  td::Ref<ton::validator::CollatorsList> list{true};
+  list.write().unpack(*collators_list_);
+  validator_options_.write().set_collators_list(std::move(list));
 }
 
 void ValidatorEngine::load_empty_local_config(td::Promise<td::Unit> promise) {
@@ -1794,6 +1818,7 @@ void ValidatorEngine::got_key(ton::PublicKey key) {
 
 void ValidatorEngine::start() {
   set_shard_check_function();
+  load_collators_list();
   read_config_ = true;
   start_adnl();
 }
@@ -3792,6 +3817,52 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_setStateS
   });
 }
 
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_setCollatorsList &query, td::BufferSlice data,
+                                        ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_modify)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+  if (!started_) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "not started")));
+    return;
+  }
+
+  auto s = td::json_encode<std::string>(td::ToJson(*query.list_), true);
+  auto S = td::write_file(collators_list_file(), s);
+  if (S.is_error()) {
+    promise.set_value(create_control_query_error(std::move(S)));
+    return;
+  }
+
+  collators_list_ = std::move(query.list_);
+  td::Ref<ton::validator::CollatorsList> list{true};
+  list.write().unpack(*collators_list_);
+  validator_options_.write().set_collators_list(std::move(list));
+  td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::update_options,
+                          validator_options_);
+  promise.set_value(ton::serialize_tl_object(ton::create_tl_object<ton::ton_api::engine_validator_success>(), true));
+}
+
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_showCollatorsList &query, td::BufferSlice data,
+                                        ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_default)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+  if (!started_) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "not started")));
+    return;
+  }
+  if (collators_list_) {
+    promise.set_value(ton::serialize_tl_object(collators_list_, true));
+  } else {
+    auto list = ton::create_tl_object<ton::ton_api::engine_validator_collatorsList>();
+    list->self_collate_ = true;
+    promise.set_value(ton::serialize_tl_object(list, true));
+  }
+}
+
 void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getValidatorSessionsInfo &query,
                                         td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
                                         td::Promise<td::BufferSlice> promise) {
@@ -4260,20 +4331,6 @@ int main(int argc, char *argv[]) {
   p.add_option('M', "not-all-shards", "monitor only a necessary set of shards instead of all", [&]() {
     acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_not_all_shards); });
   });
-  p.add_option('\0', "lite-validator-shards",
-               "lite-mode validator for shard blocks (don't collate blocks, use collator nodes instead)", [&]() {
-                 acts.push_back([&x]() {
-                   td::actor::send_closure(x, &ValidatorEngine::set_validator_mode,
-                                           ton::validator::ValidatorManagerOptions::validator_lite_shards);
-                 });
-               });
-  p.add_option('\0', "lite-validator-all",
-               "lite-mode validator for all blocks (don't collate blocks, use collator nodes instead)", [&]() {
-                 acts.push_back([&x]() {
-                   td::actor::send_closure(x, &ValidatorEngine::set_validator_mode,
-                                           ton::validator::ValidatorManagerOptions::validator_lite_all);
-                 });
-               });
   td::uint32 threads = 7;
   p.add_checked_option(
       't', "threads", PSTRING() << "number of threads (default=" << threads << ")", [&](td::Slice fname) {

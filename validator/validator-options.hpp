@@ -142,8 +142,8 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   bool get_state_serializer_enabled() const override {
     return state_serializer_enabled_;
   }
-  ValidatorMode validator_mode() const override {
-    return validator_mode_;
+  td::Ref<CollatorsList> get_collators_list() const override {
+    return collators_list_;
   }
 
   void set_zero_block_id(BlockIdExt block_id) override {
@@ -228,8 +228,8 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   void set_state_serializer_enabled(bool value) override {
     state_serializer_enabled_ = value;
   }
-  void set_validator_mode(ValidatorMode value) override {
-    validator_mode_ = value;
+  void set_collators_list(td::Ref<CollatorsList> list) override {
+    collators_list_ = std::move(list);
   }
 
   ValidatorManagerOptionsImpl *make_copy() const override {
@@ -281,7 +281,7 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   bool celldb_preload_all_ = false;
   td::optional<double> catchain_max_block_delay_;
   bool state_serializer_enabled_ = true;
-  ValidatorMode validator_mode_ = validator_normal;
+  td::Ref<CollatorsList> collators_list_{true, CollatorsList{}};
 };
 
 }  // namespace validator
