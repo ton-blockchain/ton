@@ -588,8 +588,12 @@ dummyworkchain0.config.global zero_state_hash:int256 = dummyworkchain0.config.Gl
 validator.config.global zero_state:tonNode.blockIdExt init_block:tonNode.blockIdExt hardforks:(vector tonNode.blockIdExt) = validator.config.Global;
 config.global adnl:adnl.config.global dht:dht.config.Global validator:validator.config.global = config.Global;
 
+liteserver.descV2.sliceSimple shards:(vector tonNode.shardId) = liteserver.descV2.Slice;
+liteserver.descV2.shardInfo shard_id:tonNode.shardId seqno:int utime:int lt:long = liteserver.descV2.ShardInfo;
+liteserver.descV2.sliceTimed shards_from:(vector liteserver.descV2.shardInfo) shards_to:(vector liteserver.descV2.shardInfo) = liteserver.descV2.Slice;
+
 liteserver.desc id:PublicKey ip:int port:int = liteserver.Desc;
-liteserver.descV2 id:PublicKey ip:int port:int shards:(vector tonNode.shardId) = liteserver.DescV2;
+liteserver.descV2 id:PublicKey ip:int port:int slices:(vector liteserver.descV2.Slice) = liteserver.DescV2;
 liteclient.config.global liteservers:(vector liteserver.desc) liteservers_v2:(vector liteserver.descV2) validator:validator.config.global = liteclient.config.Global;
 
 engine.adnl id:int256 category:int = engine.Adnl;

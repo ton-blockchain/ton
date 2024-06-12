@@ -1541,7 +1541,7 @@ class TonlibCli : public td::actor::Actor {
           CHECK(!raw_client_.empty());
           snd_bytes_ += update->data_.size();
           send_closure(raw_client_, &liteclient::ExtClient::send_query, "query", td::BufferSlice(update->data_),
-                       ton::ShardIdFull(update->workchain_, update->shard_), td::Timestamp::in(5),
+                       td::Timestamp::in(5),
                        [actor_id = actor_id(this), id = update->id_](td::Result<td::BufferSlice> res) {
                          send_closure(actor_id, &TonlibCli::on_adnl_result, id, std::move(res));
                        });

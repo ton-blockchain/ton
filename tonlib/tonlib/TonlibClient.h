@@ -401,7 +401,7 @@ class TonlibClient : public td::actor::Actor {
   td::Status do_request(const tonlib_api::getConfigAll& request,
                         td::Promise<object_ptr<tonlib_api::configInfo>>&& promise);
 
-  void proxy_request(td::int64 query_id, std::string data, ton::ShardIdFull shard);
+  void proxy_request(td::int64 query_id, std::string data);
 
   void load_libs_from_disk();
   void store_libs_to_disk();

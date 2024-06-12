@@ -18,29 +18,24 @@
 #include "td/actor/actor.h"
 #include "ton/ton-types.h"
 #include "adnl/adnl-ext-client.h"
+#include "query-utils.hpp"
 
 namespace liteclient {
 class ExtClient : public td::actor::Actor {
  public:
-  struct LiteServer {
-    ton::adnl::AdnlNodeIdFull adnl_id;
-    td::IPAddress address;
-    bool is_full = true;
-    std::vector<ton::ShardIdFull> shards;
-  };
-
   class Callback {
    public:
-    virtual ~Callback() {
-    }
+    virtual ~Callback() = default;
   };
 
-  virtual void send_query(std::string name, td::BufferSlice data, ton::ShardIdFull shard, td::Timestamp timeout,
+  virtual void send_query(std::string name, td::BufferSlice data, td::Timestamp timeout,
                           td::Promise<td::BufferSlice> promise) = 0;
-  virtual void force_change_liteserver() = 0;
+  virtual void reset_servers() {
+  }
 
   static td::actor::ActorOwn<ExtClient> create(ton::adnl::AdnlNodeIdFull dst, td::IPAddress dst_addr,
                                                td::unique_ptr<Callback> callback);
-  static td::actor::ActorOwn<ExtClient> create(std::vector<LiteServer> servers, td::unique_ptr<Callback> callback);
+  static td::actor::ActorOwn<ExtClient> create(std::vector<LiteServerConfig> liteservers,
+                                               td::unique_ptr<Callback> callback);
 };
 }  // namespace liteclient

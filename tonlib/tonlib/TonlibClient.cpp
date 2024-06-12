@@ -2078,9 +2078,8 @@ ExtClientRef TonlibClient::get_client_ref() {
   return ref;
 }
 
-void TonlibClient::proxy_request(td::int64 query_id, std::string data, ton::ShardIdFull shard) {
-  on_update(
-      tonlib_api::make_object<tonlib_api::updateSendLiteServerQuery>(query_id, data, shard.workchain, shard.shard));
+void TonlibClient::proxy_request(td::int64 query_id, std::string data) {
+  on_update(tonlib_api::make_object<tonlib_api::updateSendLiteServerQuery>(query_id, data));
 }
 
 void TonlibClient::init_ext_client() {
@@ -2091,9 +2090,9 @@ void TonlibClient::init_ext_client() {
           : parent_(std::move(parent)), config_generation_(config_generation) {
       }
 
-      void request(td::int64 id, std::string data, ton::ShardIdFull shard) override {
-        send_closure(parent_, &TonlibClient::proxy_request, (id << 16) | (config_generation_ & 0xffff), std::move(data),
-                     shard);
+      void request(td::int64 id, std::string data) override {
+        send_closure(parent_, &TonlibClient::proxy_request, (id << 16) | (config_generation_ & 0xffff),
+                     std::move(data));
       }
 
      private:
@@ -2106,17 +2105,8 @@ void TonlibClient::init_ext_client() {
     ext_client_outbound_ = client.get();
     raw_client_ = std::move(client);
   } else {
-    class Callback : public liteclient::ExtClient::Callback {
-     public:
-      explicit Callback(td::actor::ActorShared<> parent) : parent_(std::move(parent)) {
-      }
-
-     private:
-      td::actor::ActorShared<> parent_;
-    };
     ext_client_outbound_ = {};
-    ref_cnt_++;
-    raw_client_ = liteclient::ExtClient::create(config_.lite_servers, td::make_unique<Callback>(td::actor::actor_shared()));
+    raw_client_ = liteclient::ExtClient::create(config_.lite_servers, nullptr);
   }
 }
 
@@ -4491,8 +4481,8 @@ void deep_library_search(std::set<td::Bits256>& set, std::set<vm::Cell::Hash>& v
     }
     return;
   }
-  for (unsigned int i = 0; i < loaded_cell.data_cell->get_refs_cnt(); i++) {
-    deep_library_search(set, visited, libs, loaded_cell.data_cell->get_ref(i), depth - 1);
+  for (unsigned int i=0; i<loaded_cell.data_cell->get_refs_cnt(); i++) {
+    deep_library_search(set, visited, libs, loaded_cell.data_cell->get_ref(i), depth - 1, max_libs);
   }
 }
 

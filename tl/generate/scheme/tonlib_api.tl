@@ -190,7 +190,7 @@ smc.libraryQueryExt.one hash:int256 = smc.LibraryQueryExt;
 smc.libraryQueryExt.scanBoc boc:bytes max_libs:int32 = smc.LibraryQueryExt;
 smc.libraryResultExt dict_boc:bytes libs_ok:(vector int256) libs_not_found:(vector int256) = smc.LibraryResultExt;
 
-updateSendLiteServerQuery id:int64 data:bytes workchain:int32 shard:int64 = Update;
+updateSendLiteServerQuery id:int64 data:bytes = Update;
 updateSyncState sync_state:SyncState = Update;
 
 //@class LogStream @description Describes a stream to which tonlib internal log is written

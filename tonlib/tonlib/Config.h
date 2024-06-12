@@ -24,11 +24,10 @@
 
 namespace tonlib {
 struct Config {
-  using LiteServer = liteclient::ExtClient::LiteServer;
   ton::BlockIdExt zero_state_id;
   ton::BlockIdExt init_block_id;
   std::vector<ton::BlockIdExt> hardforks;
-  std::vector<LiteServer> lite_servers;
+  std::vector<liteclient::LiteServerConfig> lite_servers;
   std::string name;
   static td::Result<Config> parse(std::string str);
 };

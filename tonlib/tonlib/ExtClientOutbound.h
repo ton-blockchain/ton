@@ -27,9 +27,8 @@ class ExtClientOutbound : public liteclient::ExtClient {
    public:
     virtual ~Callback() {
     }
-    virtual void request(td::int64 id, std::string data, ton::ShardIdFull shard) = 0;
+    virtual void request(td::int64 id, std::string data) = 0;
   };
-
   virtual void on_query_result(td::int64 id, td::Result<td::BufferSlice> r_data, td::Promise<td::Unit> promise) = 0;
   static td::actor::ActorOwn<ExtClientOutbound> create(td::unique_ptr<Callback> callback);
 };

@@ -19,6 +19,7 @@
 #include "Config.h"
 #include "adnl/adnl-node-id.hpp"
 #include "td/utils/JsonBuilder.h"
+#include "auto/tl/ton_api_json.h"
 
 namespace tonlib {
 td::Result<ton::BlockIdExt> parse_block_id_ext(td::JsonObject &obj) {
@@ -65,67 +66,11 @@ td::Result<Config> Config::parse(std::string str) {
   if (json.type() != td::JsonValue::Type::Object) {
     return td::Status::Error("Invalid config (1)");
   }
-  td::JsonArray empty_array;
-  TRY_RESULT(lite_servers_obj,
-             td::get_json_object_field(json.get_object(), "liteservers", td::JsonValue::Type::Array, true));
-  auto &lite_servers =
-      lite_servers_obj.type() == td::JsonValue::Type::Array ? lite_servers_obj.get_array() : empty_array;
-  TRY_RESULT(lite_servers_v2_obj,
-             td::get_json_object_field(json.get_object(), "liteservers_v2", td::JsonValue::Type::Array, true));
-  auto &lite_servers_v2 =
-      lite_servers_v2_obj.type() == td::JsonValue::Type::Array ? lite_servers_v2_obj.get_array() : empty_array;
-
-  auto parse_desc = [&](td::JsonValue &value) -> td::Result<Config::LiteServer> {
-    if (value.type() != td::JsonValue::Type::Object) {
-      return td::Status::Error("Invalid config (2)");
-    }
-    auto &object = value.get_object();
-
-    TRY_RESULT(ip, td::get_json_object_long_field(object, "ip", false));
-    TRY_RESULT(port, td::get_json_object_int_field(object, "port", false));
-    Config::LiteServer server;
-    TRY_STATUS(server.address.init_host_port(td::IPAddress::ipv4_to_str(static_cast<td::int32>(ip)), port));
-
-    TRY_RESULT(id_obj, td::get_json_object_field(object, "id", td::JsonValue::Type::Object, false));
-    auto &id = id_obj.get_object();
-    TRY_RESULT(id_type, td::get_json_object_string_field(id, "@type", false));
-    if (id_type != "pub.ed25519") {
-      return td::Status::Error("Invalid config (3)");
-    }
-    TRY_RESULT(key_base64, td::get_json_object_string_field(id, "key", false));
-    TRY_RESULT(key, td::base64_decode(key_base64));
-    if (key.size() != 32) {
-      return td::Status::Error("Invalid config (4)");
-    }
-
-    server.adnl_id = ton::adnl::AdnlNodeIdFull(ton::pubkeys::Ed25519(td::Bits256(td::Slice(key).ubegin())));
-    return server;
-  };
 
   Config res;
-  for (auto &value : lite_servers) {
-    TRY_RESULT(server, parse_desc(value));
-    res.lite_servers.push_back(std::move(server));
-  }
-  for (auto &value : lite_servers_v2) {
-    TRY_RESULT(server, parse_desc(value));
-    server.is_full = false;
-    TRY_RESULT(shards_obj, td::get_json_object_field(value.get_object(), "shards", td::JsonValue::Type::Array, false));
-    for (auto &shard : shards_obj.get_array()) {
-      if (shard.type() != td::JsonValue::Type::Object) {
-        return td::Status::Error("Invalid config (5)");
-      }
-      auto &shard_obj = shard.get_object();
-      TRY_RESULT(workchain, td::get_json_object_int_field(shard_obj, "workchain", false));
-      TRY_RESULT(shard_id, td::get_json_object_long_field(shard_obj, "shard", false));
-      if (shard_id == 0) {
-        return td::Status::Error("Invalid config (6)");
-      }
-      server.shards.emplace_back(workchain, shard_id);
-    }
-
-    res.lite_servers.push_back(std::move(server));
-  }
+  ton::ton_api::liteclient_config_global conf;
+  TRY_STATUS(ton::ton_api::from_json(conf, json.get_object()));
+  TRY_RESULT_ASSIGN(res.lite_servers, liteclient::LiteServerConfig::parse_global_config(conf));
 
   TRY_RESULT(validator_obj,
              td::get_json_object_field(json.get_object(), "validator", td::JsonValue::Type::Object, false));

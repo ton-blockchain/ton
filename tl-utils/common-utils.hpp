@@ -148,6 +148,39 @@ td::Result<tl_object_ptr<std::enable_if_t<!std::is_constructible<T>::value, T>>>
   }
 }
 
+template <typename T>
+td::Result<tl_object_ptr<std::enable_if_t<std::is_constructible<T>::value, T>>> fetch_tl_prefix(td::Slice &data,
+                                                                                                bool boxed) {
+  td::TlParser p(data);
+  tl_object_ptr<T> R;
+  if (boxed) {
+    R = TlFetchBoxed<TlFetchObject<T>, T::ID>::parse(p);
+  } else {
+    R = move_tl_object_as<T>(T::fetch(p));
+  }
+  if (p.get_status().is_ok()) {
+    data.remove_prefix(data.size() - p.get_left_len());
+    return std::move(R);
+  } else {
+    return p.get_status();
+  }
+}
+
+template <typename T>
+td::Result<tl_object_ptr<std::enable_if_t<!std::is_constructible<T>::value, T>>> fetch_tl_prefix(td::Slice &data,
+                                                                                                 bool boxed) {
+  CHECK(boxed);
+  td::TlParser p(data);
+  tl_object_ptr<T> R;
+  R = move_tl_object_as<T>(T::fetch(p));
+  if (p.get_status().is_ok()) {
+    data.remove_prefix(data.size() - p.get_left_len());
+    return std::move(R);
+  } else {
+    return p.get_status();
+  }
+}
+
 template <class T>
 [[deprecated]] tl_object_ptr<T> clone_tl_object(const tl_object_ptr<T> &obj) {
   auto B = serialize_tl_object(obj, true);

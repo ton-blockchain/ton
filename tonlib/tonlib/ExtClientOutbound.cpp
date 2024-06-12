@@ -28,14 +28,11 @@ class ExtClientOutboundImpl : public ExtClientOutbound {
   ExtClientOutboundImpl(td::unique_ptr<ExtClientOutbound::Callback> callback) : callback_(std::move(callback)) {
   }
 
-  void send_query(std::string name, td::BufferSlice data, ton::ShardIdFull shard, td::Timestamp timeout,
+  void send_query(std::string name, td::BufferSlice data, td::Timestamp timeout,
                   td::Promise<td::BufferSlice> promise) override {
     auto query_id = next_query_id_++;
     queries_[query_id] = std::move(promise);
-    callback_->request(query_id, data.as_slice().str(), shard);
-  }
-
-  void force_change_liteserver() override {
+    callback_->request(query_id, data.as_slice().str());
   }
 
   void on_query_result(td::int64 id, td::Result<td::BufferSlice> r_data, td::Promise<td::Unit> promise) override {

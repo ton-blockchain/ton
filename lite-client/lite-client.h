@@ -26,6 +26,7 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
+#include "ext-client.h"
 #include "adnl/adnl-ext-client.h"
 #include "tl-utils/tl-utils.hpp"
 #include "ton/ton-types.h"
@@ -46,35 +47,19 @@ class TestNode : public td::actor::Actor {
     min_ls_version = 0x101,
     min_ls_capabilities = 1
   };  // server version >= 1.1, capabilities at least +1 = build proof chains
+  td::actor::ActorOwn<liteclient::ExtClient> client_;
   td::actor::ActorOwn<td::TerminalIO> io_;
-
-  struct LiteServer {
-    td::IPAddress addr;
-    ton::PublicKey public_key;
-    bool is_full = true;
-    std::vector<ton::ShardIdFull> shards;
-
-    td::actor::ActorOwn<ton::adnl::AdnlExtClient> client;
-    bool client_ready = false;
-    std::vector<td::Promise<td::Unit>> wait_client_ready;
-
-    bool supports(ton::ShardIdFull shard) const;
-  };
-  std::vector<LiteServer> servers_;
+  bool ready_ = false;
 
   td::int32 single_liteserver_idx_ = -1;
   td::IPAddress single_remote_addr_;
   ton::PublicKey single_remote_public_key_;
-
-  std::map<ton::ShardIdFull, td::int32> shard_server_idx_cached_;
 
   bool readline_enabled_ = true;
   int print_limit_ = 1024;
 
   std::string db_root_;
 
-  // mc_server is the server for queries to masterchain
-  int mc_server_idx_ = -1;
   int mc_server_time_ = 0;
   int mc_server_time_got_at_ = 0;
   int mc_server_version_ = 0;
@@ -443,18 +428,7 @@ class TestNode : public td::actor::Actor {
 
   void got_result(td::Result<td::BufferSlice> R, td::Promise<td::BufferSlice> promise);
   void after_got_result(bool ok);
-  bool envelope_send_query_to_any(td::BufferSlice query, td::Promise<td::BufferSlice> promise);
-  bool envelope_send_query_to_shard(ton::ShardIdFull shard, td::BufferSlice query,
-                                    td::Promise<td::BufferSlice> promise);
-  bool envelope_send_query_to_account(ton::AccountIdPrefixFull prefix, td::BufferSlice query,
-                                      td::Promise<td::BufferSlice> promise);
-
-  bool envelope_send_query_to_server(td::int32 server_idx, td::BufferSlice query, td::Promise<td::BufferSlice> promise);
-
-  void start_client(int server_idx);
-  void conn_ready(int server_idx);
-  void conn_closed(int server_idx);
-
+  bool envelope_send_query(td::BufferSlice query, td::Promise<td::BufferSlice> promise);
   void parse_line(td::BufferSlice data);
 
   TestNode() = default;
