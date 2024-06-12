@@ -126,6 +126,7 @@ struct ComputePhaseConfig {
   bool stop_on_accept_message = false;
   PrecompiledContractsConfig precompiled_contracts;
   bool dont_run_precompiled_ = false;
+  bool allow_external_unfreeze{false};
 
   ComputePhaseConfig() : gas_price(0), gas_limit(0), special_gas_limit(0), gas_credit(0) {
     compute_threshold();
@@ -163,6 +164,7 @@ struct ActionPhaseConfig {
   const WorkchainSet* workchains{nullptr};
   bool action_fine_enabled{false};
   bool bounce_on_fail_enabled{false};
+  bool message_skip_enabled{false};
   td::optional<td::Bits256> mc_blackhole_addr;
   const MsgPrices& fetch_msg_prices(bool is_masterchain) const {
     return is_masterchain ? fwd_mc : fwd_std;

@@ -976,6 +976,7 @@ bool ValidateQuery::fetch_config_params() {
     compute_phase_cfg_.suspended_addresses = config_->get_suspended_addresses(now_);
     compute_phase_cfg_.size_limits = size_limits;
     compute_phase_cfg_.precompiled_contracts = config_->get_precompiled_contracts_config();
+    compute_phase_cfg_.allow_external_unfreeze = compute_phase_cfg_.global_version >= 8;
   }
   {
     // compute action_phase_cfg
@@ -999,6 +1000,7 @@ bool ValidateQuery::fetch_config_params() {
     action_phase_cfg_.size_limits = size_limits;
     action_phase_cfg_.action_fine_enabled = config_->get_global_version() >= 4;
     action_phase_cfg_.bounce_on_fail_enabled = config_->get_global_version() >= 4;
+    action_phase_cfg_.message_skip_enabled = config_->get_global_version() >= 8;
     action_phase_cfg_.mc_blackhole_addr = config_->get_burning_config().blackhole_addr;
   }
   {
