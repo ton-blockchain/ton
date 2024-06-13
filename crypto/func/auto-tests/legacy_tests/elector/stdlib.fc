@@ -1,5 +1,6 @@
 // Standard library for funC
 //
+#pragma version >=0.5.0;
 
 forall X -> tuple cons(X head, tuple tail) pure asm "CONS";
 forall X -> (X, tuple) uncons(tuple list) pure asm "UNCONS";
