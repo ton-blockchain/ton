@@ -286,25 +286,17 @@ std::vector<var_idx_t> pre_compile_tensor(const std::vector<Expr *> args, CodeBl
     res_lists[i] = args[i]->pre_compile(code, lval_globs);
     for (size_t j = 0; j < res_lists[i].size(); ++j) {
       TmpVar& var = code.vars.at(res_lists[i][j]);
-      if (code.flags & CodeBlob::_AllowPostModification) {
-        if (!lval_globs && (var.cls & TmpVar::_Named)) {
-          Op *op = &code.emplace_back(nullptr, Op::_Let, std::vector<var_idx_t>(), std::vector<var_idx_t>());
-          op->flags |= Op::_Disabled;
-          var.on_modification.push_back([modified_vars, i, j, op, done = false](const SrcLocation &here) mutable {
-            if (!done) {
-              done = true;
-              modified_vars->push_back({i, j, op});
-            }
-          });
-        } else {
-          var.on_modification.push_back([](const SrcLocation &) {
-          });
-        }
-      } else {
-        var.on_modification.push_back([name = var.to_string()](const SrcLocation &here) {
-            throw src::ParseError{here, PSTRING() << "Modifying local variable " << name
-                                                  << " after using it in the same expression"};
+      if (!lval_globs && (var.cls & TmpVar::_Named)) {
+        Op* op = &code.emplace_back(nullptr, Op::_Let, std::vector<var_idx_t>(), std::vector<var_idx_t>());
+        op->flags |= Op::_Disabled;
+        var.on_modification.push_back([modified_vars, i, j, op, done = false](const SrcLocation& here) mutable {
+          if (!done) {
+            done = true;
+            modified_vars->push_back({i, j, op});
+          }
         });
+      } else {
+        var.on_modification.push_back([](const SrcLocation&) {});
       }
     }
   }
@@ -342,12 +334,7 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, std::vector<std::pair<S
       func_assert(sym);
       auto func = dynamic_cast<SymValFunc*>(sym->value);
       std::vector<var_idx_t> res;
-      if (func && func->arg_order.size() == args.size() && !(code.flags & CodeBlob::_ComputeAsmLtr)) {
-        //std::cerr << "!!! reordering " << args.size() << " arguments of " << sym->name() << std::endl;
-        res = pre_compile_tensor(args, code, lval_globs, func->arg_order);
-      } else {
-        res = pre_compile_tensor(args, code, lval_globs, {});
-      }
+      res = pre_compile_tensor(args, code, lval_globs, {});
       auto rvect = new_tmp_vect(code);
       auto& op = code.emplace_back(here, Op::_Call, rvect, std::move(res), sym);
       if (flags & _IsImpure) {

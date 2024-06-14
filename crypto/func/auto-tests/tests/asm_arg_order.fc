@@ -15,47 +15,6 @@ int foo(int x) {
   return x * 10;
 }
 
-(tuple, tuple) test_old_1() method_id(11) {
-  t = empty_tuple();
-  tuple t2 = asm_func_1(foo(11), foo(22), foo(33));
-  return (t, t2);
-}
-
-(tuple, tuple) test_old_2() method_id(12) {
-  t = empty_tuple();
-  tuple t2 = asm_func_2(foo(11), foo(22), foo(33));
-  return (t, t2);
-}
-
-(tuple, tuple) test_old_3() method_id(13) {
-  t = empty_tuple();
-  tuple t2 = asm_func_3(foo(11), foo(22), foo(33));
-  return (t, t2);
-}
-
-(tuple, tuple) test_old_4() method_id(14) {
-  t = empty_tuple();
-  tuple t2 = empty_tuple();
-  ;; This actually computes left-to-right even without compute-asm-ltr
-  tuple t2 = asm_func_4(foo(11), (foo(22), (foo(33), foo(44))), foo(55));
-  return (t, t2);
-}
-
-(tuple, tuple) test_old_modify() method_id(15) {
-  t = empty_tuple();
-  tuple t2 = empty_tuple();
-  t2~asm_func_modify(foo(22), foo(33));
-  return (t, t2);
-}
-
-(tuple, tuple) test_old_dot() method_id(16) {
-  t = empty_tuple();
-  tuple t2 = foo(11).asm_func_3(foo(22), foo(33));
-  return (t, t2);
-}
-
-#pragma compute-asm-ltr;
-
 (tuple, tuple) test_new_1() method_id(21) {
   t = empty_tuple();
   tuple t2 = asm_func_1(foo(11), foo(22), foo(33));
@@ -98,12 +57,6 @@ int foo(int x) {
 
 {-
     method_id | in | out
-TESTCASE | 11 |    | [ 11 22 33 ] [ 110 220 330 ]
-TESTCASE | 12 |    | [ 33 22 11 ] [ 330 220 110 ]
-TESTCASE | 13 |    | [ 22 33 11 ] [ 220 330 110 ]
-TESTCASE | 14 |    | [ 11 22 33 44 55 ] [ 220 330 440 110 550 ]
-TESTCASE | 15 |    | [ 33 22 ] [ 220 330 ]
-TESTCASE | 16 |    | [ 22 33 11 ] [ 220 330 110 ]
 TESTCASE | 21 |    | [ 11 22 33 ] [ 110 220 330 ]
 TESTCASE | 22 |    | [ 11 22 33 ] [ 330 220 110 ]
 TESTCASE | 23 |    | [ 11 22 33 ] [ 220 330 110 ]

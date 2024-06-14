@@ -263,12 +263,6 @@ void parse_const_decl(Lexer& lex) {
   }
   lex.next();
   CodeBlob code;
-  if (pragma_allow_post_modification.enabled()) {
-    code.flags |= CodeBlob::_AllowPostModification;
-  }
-  if (pragma_compute_asm_ltr.enabled()) {
-    code.flags |= CodeBlob::_ComputeAsmLtr;
-  }
   // Handles processing and resolution of literals and consts
   auto x = parse_expr(lex, code, false); // also does lex.next() !
   if (x->flags != Expr::_IsRvalue) {
@@ -300,7 +294,7 @@ void parse_const_decl(Lexer& lex) {
     }
     code.mark_noreturn();
     AsmOpList out_list(0, &code.vars);
-    code.generate_code(out_list);
+    code.generate_code(out_list, Stack::_ConstDecl);
     if (out_list.list_.size() != 1) {
       lex.cur().error("precompiled expression must result in single operation");
     }
@@ -396,13 +390,8 @@ bool check_global_func(const Lexem& cur, sym_idx_t func_name = 0) {
   }
   SymDef* def = sym::lookup_symbol(func_name);
   if (!def) {
-    cur.loc.show_error(std::string{"undefined function `"} + symbols.get_name(func_name) +
-                       "`, defining a global function of unknown type");
-    def = sym::define_global_symbol(func_name, 0, cur.loc);
-    func_assert(def && "cannot define global function");
-    ++undef_func_cnt;
-    make_new_glob_func(def, TypeExpr::new_func());  // was: ... ::new_func()
-    return true;
+    cur.error(PSTRING() << "undefined symbol `" << symbols.get_name(func_name) << "`");
+    return false;
   }
   SymVal* val = dynamic_cast<SymVal*>(def->value);
   if (!val) {
@@ -1219,12 +1208,6 @@ blk_fl::val parse_stmt(Lexer& lex, CodeBlob& code) {
 CodeBlob* parse_func_body(Lexer& lex, FormalArgList arg_list, TypeExpr* ret_type) {
   lex.expect('{');
   CodeBlob* blob = new CodeBlob{ret_type};
-  if (pragma_allow_post_modification.enabled()) {
-    blob->flags |= CodeBlob::_AllowPostModification;
-  }
-  if (pragma_compute_asm_ltr.enabled()) {
-    blob->flags |= CodeBlob::_ComputeAsmLtr;
-  }
   blob->import_params(std::move(arg_list));
   blk_fl::val res = blk_fl::init;
   bool warned = false;
@@ -1443,8 +1426,17 @@ void parse_func_def(Lexer& lex) {
   Lexem func_name = lex.cur();
   lex.next();
   FormalArgList arg_list = parse_formal_args(lex);
-  bool impure = (lex.tp() == _Impure);
-  if (impure) {
+  bool impure = true;
+  if (lex.tp() == _Impure) {
+    static bool warning_shown = false;
+    if (!warning_shown) {
+      lex.cur().loc.show_warning(
+          "`impure` specifier is deprecated. All functions are impure by default, use `pure` to mark function as pure");
+      warning_shown = true;
+    }
+    lex.next();
+  } else if (lex.tp() == _Pure) {
+    impure = false;
     lex.next();
   }
   int f = 0;
@@ -1702,12 +1694,13 @@ void parse_pragma(Lexer& lex) {
     }
     func_ver_test = lex.cur().str;
     lex.next();
-  } else if (pragma_name == pragma_allow_post_modification.name()) {
-    pragma_allow_post_modification.enable(lex.cur().loc);
-  } else if (pragma_name == pragma_compute_asm_ltr.name()) {
-    pragma_compute_asm_ltr.enable(lex.cur().loc);
   } else {
-    lex.cur().error(std::string{"unknown pragma `"} + pragma_name + "`");
+    GlobalPragma* pragma = pragma_by_name(pragma_name);
+    if (pragma != nullptr) {
+      pragma->enable(lex.cur().loc);
+    } else {
+      lex.cur().error(std::string{"unknown pragma `"} + pragma_name + "`");
+    }
   }
   lex.expect(';');
 }
