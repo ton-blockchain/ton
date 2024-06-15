@@ -6042,6 +6042,24 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getShardBlockProof&
   return td::Status::OK();
 }
 
+td::Status TonlibClient::do_request(const tonlib_api::blocks_getOutMsgQueueSizes& request,
+                                    td::Promise<object_ptr<tonlib_api::blocks_outMsgQueueSizes>>&& promise) {
+  client_.send_query(ton::lite_api::liteServer_getOutMsgQueueSizes(request.mode_, request.wc_, request.shard_),
+                     promise.wrap([](lite_api_ptr<ton::lite_api::liteServer_outMsgQueueSizes>&& queue_sizes) {
+    tonlib_api::blocks_outMsgQueueSizes result;
+    result.ext_msg_queue_size_limit_ = queue_sizes->ext_msg_queue_size_limit_;
+    for (auto &x : queue_sizes->shards_) {
+      tonlib_api::blocks_outMsgQueueSize shard;
+      shard.id_ = to_tonlib_api(*x->id_);
+      shard.size_ = x->size_;
+      result.shards_.push_back(tonlib_api::make_object<tonlib_api::blocks_outMsgQueueSize>(std::move(shard)));
+    }
+    return tonlib_api::make_object<tonlib_api::blocks_outMsgQueueSizes>(std::move(result));
+  }));
+
+  return td::Status::OK();
+}
+
 void TonlibClient::load_libs_from_disk() {
   LOG(DEBUG) << "loading libraries from disk cache";
   auto r_data = kv_->get("tonlib.libcache");
