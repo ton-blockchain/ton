@@ -4360,6 +4360,17 @@ td::Status TonlibClient::do_request(const tonlib_api::smc_getState& request,
   return td::Status::OK();
 }
 
+td::Status TonlibClient::do_request(const tonlib_api::smc_getRawFullAccountState& request,
+                                    td::Promise<object_ptr<tonlib_api::raw_fullAccountState>>&& promise) {
+  auto it = smcs_.find(request.id_);
+  if (it == smcs_.end()) {
+    return TonlibError::InvalidSmcId();
+  }
+  auto& acc = it->second;
+  promise.set_result(acc->to_raw_fullAccountState());
+  return td::Status::OK();
+}
+
 bool is_list(vm::StackEntry entry) {
   while (true) {
     if (entry.type() == vm::StackEntry::Type::t_null) {

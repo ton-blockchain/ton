@@ -309,6 +309,7 @@ smc.forget id:int53 = Ok;
 smc.getCode id:int53 = tvm.Cell;
 smc.getData id:int53 = tvm.Cell;
 smc.getState id:int53 = tvm.Cell;
+smc.getRawFullAccountState id:int53 = raw.FullAccountState;
 smc.runGetMethod id:int53 method:smc.MethodId stack:vector<tvm.StackEntry> = smc.RunResult;
 
 smc.getLibraries library_list:(vector int256) = smc.LibraryResult;
