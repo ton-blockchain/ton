@@ -193,6 +193,7 @@ class Collator final : public td::actor::Actor {
   std::priority_queue<NewOutMsg, std::vector<NewOutMsg>, std::greater<NewOutMsg>> new_msgs;
   std::pair<ton::LogicalTime, ton::Bits256> last_proc_int_msg_, first_unproc_int_msg_;
   std::unique_ptr<vm::AugmentedDictionary> in_msg_dict, out_msg_dict, out_msg_queue_, sibling_out_msg_queue_;
+  std::map<StdSmcAddress, size_t> unprocessed_deferred_messages_;  // number of messages from dispatch queue in new_msgs
   td::uint64 out_msg_queue_size_ = 0;
   bool have_out_msg_queue_size_in_state_ = false;
   std::unique_ptr<vm::Dictionary> ihr_pending;
@@ -208,7 +209,7 @@ class Collator final : public td::actor::Actor {
   std::unique_ptr<vm::AugmentedDictionary> dispatch_queue_;
   std::map<StdSmcAddress, td::uint32> sender_generated_messages_count_;
   unsigned dispatch_queue_ops_{0};
-  std::map<StdSmcAddress, LogicalTime> last_enqueued_deferred_lt_;
+  std::map<StdSmcAddress, LogicalTime> last_deferred_lt_;
   bool have_unprocessed_account_dispatch_queue_ = true;
 
   bool msg_metadata_enabled_ = false;
@@ -301,8 +302,8 @@ class Collator final : public td::actor::Actor {
   int process_external_message(Ref<vm::Cell> msg);
   bool process_dispatch_queue();
   bool process_deferred_message(Ref<vm::CellSlice> enq_msg, StdSmcAddress src_addr, LogicalTime lt);
-  bool enqueue_message(block::NewOutMsg msg, td::RefInt256 fwd_fees_remaining, ton::LogicalTime enqueued_lt,
-                       StdSmcAddress src_addr, bool defer = false);
+  bool enqueue_message(block::NewOutMsg msg, td::RefInt256 fwd_fees_remaining, StdSmcAddress src_addr,
+                       bool defer = false);
   bool enqueue_transit_message(Ref<vm::Cell> msg, Ref<vm::Cell> old_msg_env, ton::AccountIdPrefixFull prev_prefix,
                                ton::AccountIdPrefixFull cur_prefix, ton::AccountIdPrefixFull dest_prefix,
                                td::RefInt256 fwd_fee_remaining, td::optional<block::MsgMetadata> msg_metadata,

@@ -228,6 +228,7 @@ class ValidateQuery : public td::actor::Actor {
   bool inbound_queues_empty_{false};
 
   std::vector<std::tuple<Bits256, LogicalTime, LogicalTime>> msg_proc_lt_;
+  std::vector<std::tuple<Bits256, LogicalTime, LogicalTime>> msg_deferred_lt_;
 
   std::vector<std::tuple<Bits256, Bits256, bool>> lib_publishers_, lib_publishers2_;
 

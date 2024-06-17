@@ -3752,8 +3752,10 @@ bool ValidateQuery::check_in_msg(td::ConstBitPtr key, Ref<vm::CellSlice> in_msg)
       return reject_query("inbound internal message with hash "s + key.to_hex(256) + " has destination address " +
                           dest_prefix.to_str() + "... not in this shard, but it is processed nonetheless");
     }
-    // if a message is not processed by a transaction, its final destination must be outside this shard
-    if (transaction.is_null() && ton::shard_contains(shard_, dest_prefix)) {
+    // if a message is not processed by a transaction, its final destination must be outside this shard,
+    // or it is a deferred message (dispatch queue -> out msg queue)
+    if (tag != block::gen::InMsg::msg_import_deferred_tr && transaction.is_null() &&
+        ton::shard_contains(shard_, dest_prefix)) {
       return reject_query("inbound internal message with hash "s + key.to_hex(256) + " has destination address " +
                           dest_prefix.to_str() + "... in this shard, but it is not processed by a transaction");
     }
@@ -3786,13 +3788,30 @@ bool ValidateQuery::check_in_msg(td::ConstBitPtr key, Ref<vm::CellSlice> in_msg)
       return reject_query(PSTRING() << "deferred InMsg with src_addr=" << src_addr.to_hex() << ", lt=" << lt
                                     << " was not removed from the dispatch queue");
     }
-    Ref<vm::Cell> expexted_msg_env = it->second;
-    if (expexted_msg_env->get_hash() != msg_env->get_hash()) {
+    // InMsg msg_import_deferred_* has deferred_lt in MessageEnv, but this deferred_lt is not present in DispatchQueue
+    Ref<vm::Cell> dispatched_msg_env = it->second;
+    td::Ref<vm::Cell> expected_msg_env;
+    if (!env.deferred_lt) {
+      return reject_query(PSTRING() << "no dispatch_lt in deferred InMsg with src_addr=" << src_addr.to_hex()
+                                    << ", lt=" << lt);
+    }
+    auto deferred_lt = env.deferred_lt.value();
+    if (deferred_lt < start_lt_ || deferred_lt > end_lt_) {
+      return reject_query(PSTRING() << "dispatch_lt in deferred InMsg with src_addr=" << src_addr.to_hex()
+                                    << ", lt=" << lt << " is not between start and end of the block");
+    }
+    auto env2 = env;
+    env2.deferred_lt = {};
+    CHECK(block::tlb::pack_cell(expected_msg_env, env2));
+    if (dispatched_msg_env->get_hash() != expected_msg_env->get_hash()) {
       return reject_query(PSTRING() << "deferred InMsg with src_addr=" << src_addr.to_hex() << ", lt=" << lt
-                                    << " msg envelope hasg mismatch: " << msg_env->get_hash().to_hex() << " in InMsg, "
-                                    << expexted_msg_env->get_hash().to_hex() << " in DispatchQueue");
+                                    << " msg envelope hasg mismatch: " << dispatched_msg_env->get_hash().to_hex()
+                                    << " in DispatchQueue, " << expected_msg_env->get_hash().to_hex() << " expected");
     }
     removed_dispatch_queue_messages_.erase(it);
+    if (tag == block::gen::InMsg::msg_import_deferred_fin) {
+      msg_deferred_lt_.emplace_back(src_addr, lt, env.deferred_lt.value());
+    }
   }
 
   if (transaction.not_null()) {
@@ -4012,6 +4031,12 @@ bool ValidateQuery::check_in_msg(td::ConstBitPtr key, Ref<vm::CellSlice> in_msg)
                       << (env.metadata ? env.metadata.value().to_str() : "<none>") << " in in_msg, but "
                       << (tr_env.metadata ? tr_env.metadata.value().to_str() : "<none>") << " in out_msg");
       }
+      if (tr_env.deferred_lt != env.deferred_lt) {
+        return reject_query(
+            PSTRING() << "InMsg for transit message with hash " << key.to_hex(256) << " contains invalid deferred_lt: "
+                      << (env.deferred_lt ? td::to_string(env.deferred_lt.value()) : "<none>") << " in in_msg, but "
+                      << (tr_env.deferred_lt ? td::to_string(tr_env.deferred_lt.value()) : "<none>") << " in out_msg");
+      }
       if (tr_msg_env->get_hash() != out_msg_env->get_hash()) {
         return reject_query(
             "InMsg for transit message with hash "s + key.to_hex(256) +
@@ -4094,7 +4119,7 @@ bool ValidateQuery::check_out_msg(td::ConstBitPtr key, Ref<vm::CellSlice> out_ms
   int tag = block::gen::t_OutMsg.get_tag(*out_msg);
   CHECK(tag >= 0);  // NB: the block has been already checked to be valid TL-B in try_validate()
   ton::StdSmcAddress src_addr;
-  ton::WorkchainId wc;
+  ton::WorkchainId src_wc;
   Ref<vm::CellSlice> src, dest;
   Ref<vm::Cell> transaction;
   Ref<vm::Cell> msg, msg_env, tr_msg_env, reimport;
@@ -4138,7 +4163,7 @@ bool ValidateQuery::check_out_msg(td::ConstBitPtr key, Ref<vm::CellSlice> out_ms
                             src_prefix.to_str() + "... not in this shard");
       }
       src = std::move(info_ext.src);
-      if (!block::tlb::t_MsgAddressInt.extract_std_address(src, wc, src_addr)) {
+      if (!block::tlb::t_MsgAddressInt.extract_std_address(src, src_wc, src_addr)) {
         return reject_query("cannot unpack source address of outbound external message with hash "s + key.to_hex(256));
       }
       break;
@@ -4238,6 +4263,14 @@ bool ValidateQuery::check_out_msg(td::ConstBitPtr key, Ref<vm::CellSlice> out_ms
       reimport = std::move(out.imported);
       in_tag = block::gen::InMsg::msg_import_deferred_tr;
       mode = 2;  // added to OutMsgQueue
+      if (!env.deferred_lt) {
+        return reject_query(PSTRING() << "msg_export_deferred_tr deferred lt for OutMsg with key " << key.to_hex(256)
+                                      << " does not have deferred lt");
+      }
+      if (env.deferred_lt.value() < start_lt_ || env.deferred_lt.value() > end_lt_) {
+        return reject_query(PSTRING() << "deferred lt for msg_export_deferred_tr with key " << key.to_hex(256)
+                                      << " is not between start and end lt of the block");
+      }
       // ...
       break;
     }
@@ -4315,7 +4348,7 @@ bool ValidateQuery::check_out_msg(td::ConstBitPtr key, Ref<vm::CellSlice> out_ms
     src = std::move(info.src);
     dest = std::move(info.dest);
     // unpack complete source address if it is inside this shard
-    if (transaction.not_null() && !block::tlb::t_MsgAddressInt.extract_std_address(src, wc, src_addr)) {
+    if (!block::tlb::t_MsgAddressInt.extract_std_address(src, src_wc, src_addr)) {
       return reject_query("cannot unpack source address of outbound internal message with hash "s + key.to_hex(256) +
                           " created in this shard");
     }
@@ -4377,11 +4410,11 @@ bool ValidateQuery::check_out_msg(td::ConstBitPtr key, Ref<vm::CellSlice> out_ms
       return reject_query(PSTRING() << "new deferred OutMsg with src_addr=" << src_addr.to_hex()
                                     << ", lt=" << created_lt << " was not added to the dispatch queue");
     }
-    Ref<vm::Cell> expexted_msg_env = it->second;
-    if (expexted_msg_env->get_hash() != msg_env->get_hash()) {
+    Ref<vm::Cell> expected_msg_env = it->second;
+    if (expected_msg_env->get_hash() != msg_env->get_hash()) {
       return reject_query(PSTRING() << "new deferred OutMsg with src_addr=" << src_addr.to_hex() << ", lt="
                                     << created_lt << " msg envelope hasg mismatch: " << msg_env->get_hash().to_hex()
-                                    << " in OutMsg, " << expexted_msg_env->get_hash().to_hex() << " in DispatchQueue");
+                                    << " in OutMsg, " << expected_msg_env->get_hash().to_hex() << " in DispatchQueue");
     }
     new_dispatch_queue_messages_.erase(it);
   } else {
@@ -4669,6 +4702,24 @@ bool ValidateQuery::check_out_msg(td::ConstBitPtr key, Ref<vm::CellSlice> out_ms
     }
     default:
       return fatal_error(PSTRING() << "unknown OutMsg tag " << tag);
+  }
+
+  if (tag == block::gen::OutMsg::msg_export_imm || tag == block::gen::OutMsg::msg_export_deq_imm ||
+      tag == block::gen::OutMsg::msg_export_new || tag == block::gen::OutMsg::msg_export_deferred_tr) {
+    if (src_wc != workchain()) {
+      return true;
+    }
+    if (tag == block::gen::OutMsg::msg_export_imm && is_special_in_msg(vm::load_cell_slice(reimport))) {
+      return true;
+    }
+    unsigned long long created_lt;
+    auto cs = vm::load_cell_slice(env.msg);
+    if (!block::tlb::t_Message.get_created_lt(cs, created_lt)) {
+      return reject_query(PSTRING() << "cannot get created_lt for OutMsg with key " << key.to_hex(256)
+                                    << ", tag=" << tag);
+    }
+    auto created_or_deferred_lt = env.deferred_lt ? env.deferred_lt.value() : created_lt;
+    msg_deferred_lt_.emplace_back(src_addr, created_lt, created_or_deferred_lt);
   }
 
   return true;
@@ -5129,8 +5180,22 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
                                       << " processed inbound message created later at logical time "
                                       << info.created_lt);
       }
+      LogicalTime created_or_deferred_lt = info.created_lt;  // See ValidateQuery::check_message_processing_order
+      if (in_msg_tag == block::gen::InMsg::msg_import_imm || in_msg_tag == block::gen::InMsg::msg_import_fin ||
+          in_msg_tag == block::gen::InMsg::msg_import_deferred_fin) {
+        block::tlb::MsgEnvelope::Record_std msg_env;
+        if (!block::tlb::unpack_cell(in_descr_cs->prefetch_ref(), msg_env)) {
+          return reject_query(PSTRING() << "InMsg record for inbound message with hash "
+                                        << in_msg_root->get_hash().to_hex() << " of transaction " << lt
+                                        << " of account " << addr.to_hex() << " does not have a valid MsgEnvelope");
+        }
+        in_msg_metadata = std::move(msg_env.metadata);
+        if (msg_env.deferred_lt) {
+          created_or_deferred_lt = msg_env.deferred_lt.value();
+        }
+      }
       if (info.created_lt != start_lt_ || !is_special_tx) {
-        msg_proc_lt_.emplace_back(addr, lt, info.created_lt);
+        msg_proc_lt_.emplace_back(addr, lt, created_or_deferred_lt);
       }
       dest = std::move(info.dest);
       CHECK(money_imported.validate_unpack(info.value));
@@ -5153,16 +5218,6 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
       return reject_query(PSTRING() << "InMsg record for inbound message with hash " << in_msg_root->get_hash().to_hex()
                                     << " of transaction " << lt << " of account " << addr.to_hex()
                                     << " refers to a different processing transaction");
-    }
-    if (in_msg_tag == block::gen::InMsg::msg_import_imm || in_msg_tag == block::gen::InMsg::msg_import_fin ||
-        in_msg_tag == block::gen::InMsg::msg_import_deferred_fin) {
-      block::tlb::MsgEnvelope::Record_std msg_env;
-      if (!block::tlb::unpack_cell(in_descr_cs->prefetch_ref(), msg_env)) {
-        return reject_query(PSTRING() << "InMsg record for inbound message with hash "
-                                      << in_msg_root->get_hash().to_hex() << " of transaction " << lt << " of account "
-                                      << addr.to_hex() << " does not have a valid MsgEnvelope");
-      }
-      in_msg_metadata = std::move(msg_env.metadata);
     }
   }
   // check output messages
@@ -5731,12 +5786,9 @@ bool ValidateQuery::check_all_ticktock_processed() {
 bool ValidateQuery::check_message_processing_order() {
   // Old rule: if messages m1 and m2 with the same destination generate transactions t1 and t2,
   // then (m1.created_lt < m2.created_lt) => (t1.lt < t2.lt).
-  // This no longer holds when DispatchQueue is added.
   // New rule:
-  // If an account sends two messages m1, m2, m1.created_lt < m2.created_lt
-  // then they are processed (enqueued in OutMsgQueue or generate transaction) in the same order.
-
-  /* std::sort(msg_proc_lt_.begin(), msg_proc_lt_.end());
+  // If message was deferred, instead of created_lt use deferred_lt
+  std::sort(msg_proc_lt_.begin(), msg_proc_lt_.end());
   for (std::size_t i = 1; i < msg_proc_lt_.size(); i++) {
     auto &a = msg_proc_lt_[i - 1], &b = msg_proc_lt_[i];
     if (std::get<0>(a) == std::get<0>(b) && std::get<2>(a) > std::get<2>(b)) {
@@ -5746,7 +5798,21 @@ bool ValidateQuery::check_message_processing_order() {
                                     << std::get<0>(a).to_hex()
                                     << ") processes an earlier message created at logical time " << std::get<2>(b));
     }
-  } */
+  }
+
+  // Check that if messages m1 and m2 with the same source have m1.created_lt < m2.created_lt then
+  // m1.created_or_deferred_lt < m2.created_or_deferred_lt
+  std::sort(msg_deferred_lt_.begin(), msg_deferred_lt_.end());
+  for (std::size_t i = 1; i < msg_deferred_lt_.size(); i++) {
+    auto &a = msg_deferred_lt_[i - 1], &b = msg_deferred_lt_[i];
+    if (std::get<0>(a) == std::get<0>(b) && std::get<2>(a) >= std::get<2>(b)) {
+      return reject_query(PSTRING() << "incorrect deferred message processing order for sender "
+                                    << std::get<0>(a).to_hex() << ": message with created_lt " << std::get<1>(a)
+                                    << " has created_or_deferred_lt " << std::get<2>(a)
+                                    << ", but message with created_lt " << std::get<1>(b)
+                                    << " has created_or_deferred_lt " << std::get<2>(b));
+    }
+  }
   return true;
 }
 
