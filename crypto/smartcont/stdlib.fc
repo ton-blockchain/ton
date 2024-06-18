@@ -19,7 +19,7 @@
 {-
   # Tuple manipulation primitives
   The names and the types are mostly self-explaining.
-  See [polymorhism with forall](https://ton.org/docs/#/func/functions?id=polymorphism-with-forall)
+  See [polymorhism with forall](https://docs.ton.org/develop/func/functions#polymorphism-with-forall)
   for more info on the polymorphic functions.
 
   Note that currently values of atomic type `tuple` can't be cast to composite tuple type (e.g. `[int, cell]`)
