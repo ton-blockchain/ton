@@ -3490,6 +3490,9 @@ bool Collator::process_inbound_message(Ref<vm::CellSlice> enq_msg, ton::LogicalT
  * @returns True if the processing was successful, false otherwise.
  */
 bool Collator::process_inbound_internal_messages() {
+  if (have_unprocessed_account_dispatch_queue_) {
+    return true;
+  }
   while (!block_full_ && !nb_out_msgs_->is_eof()) {
     block_full_ = !block_limit_status_->fits(block::ParamLimits::cl_normal);
     if (block_full_) {
@@ -4026,7 +4029,7 @@ bool Collator::process_new_messages(bool enqueue_only) {
     block::NewOutMsg msg = new_msgs.top();
     new_msgs.pop();
     block_limit_status_->extra_out_msgs--;
-    if (block_full_ && !enqueue_only) {
+    if ((block_full_ || have_unprocessed_account_dispatch_queue_) && !enqueue_only) {
       LOG(INFO) << "BLOCK FULL, enqueue all remaining new messages";
       enqueue_only = true;
     }
