@@ -2706,12 +2706,14 @@ bool Collator::create_ticktock_transaction(const ton::StdSmcAddress& smc_addr, t
  *
  * @param msg_root The root of the message to be processed serialized using Message TLB-scheme.
  * @param msg_metadata Metadata of the inbound message.
+ * @param after_lt Transaction lt will be grater than after_lt. Used for deferred messages.
  * @param is_special_tx True if creating a special transaction (mint/recover), false otherwise.
  *
  * @returns The root of the serialized transaction, or an empty reference if the transaction creation fails.
  */
 Ref<vm::Cell> Collator::create_ordinary_transaction(Ref<vm::Cell> msg_root,
-                                                    td::optional<block::MsgMetadata> msg_metadata, bool is_special_tx) {
+                                                    td::optional<block::MsgMetadata> msg_metadata, LogicalTime after_lt,
+                                                    bool is_special_tx) {
   ton::StdSmcAddress addr;
   auto cs = vm::load_cell_slice(msg_root);
   bool external;
@@ -2755,13 +2757,12 @@ Ref<vm::Cell> Collator::create_ordinary_transaction(Ref<vm::Cell> msg_root,
   block::Account* acc = acc_res.move_as_ok();
   assert(acc);
 
-  LogicalTime after_lt = 0;
   if (external) {
-    after_lt = last_proc_int_msg_.first;
+    after_lt = std::max(after_lt, last_proc_int_msg_.first);
   }
   auto it = last_deferred_lt_.find(acc->addr);
   if (it != last_deferred_lt_.end()) {
-    after_lt = it->second;
+    after_lt = std::max(after_lt, it->second);
   }
   auto res = impl_create_ordinary_transaction(msg_root, acc, now_, start_lt, &storage_phase_cfg_, &compute_phase_cfg_,
                                               &action_phase_cfg_, external, after_lt);
@@ -3094,7 +3095,7 @@ int Collator::process_one_new_message(block::NewOutMsg msg, bool enqueue_only, R
     return -1;
   }
   // 1. create a Transaction processing this Message
-  auto trans_root = create_ordinary_transaction(msg.msg, msg.metadata, is_special != nullptr);
+  auto trans_root = create_ordinary_transaction(msg.msg, msg.metadata, msg.lt, is_special != nullptr);
   if (trans_root.is_null()) {
     fatal_error("cannot create transaction for re-processing output message");
     return -1;
@@ -3450,7 +3451,7 @@ bool Collator::process_inbound_message(Ref<vm::CellSlice> enq_msg, ton::LogicalT
   // process the message by an ordinary transaction similarly to process_one_new_message()
   //
   // 8. create a Transaction processing this Message
-  auto trans_root = create_ordinary_transaction(env.msg, env.metadata);
+  auto trans_root = create_ordinary_transaction(env.msg, env.metadata, 0);
   if (trans_root.is_null()) {
     return fatal_error("cannot create transaction for processing inbound message");
   }
@@ -3601,7 +3602,7 @@ int Collator::process_external_message(Ref<vm::Cell> msg) {
   }
   // process message by a transaction in this block:
   // 1. create a Transaction processing this Message
-  auto trans_root = create_ordinary_transaction(msg, /* metadata = */ {});
+  auto trans_root = create_ordinary_transaction(msg, /* metadata = */ {}, 0);
   if (trans_root.is_null()) {
     if (busy_) {
       // transaction rejected by account
@@ -3787,7 +3788,7 @@ bool Collator::process_deferred_message(Ref<vm::CellSlice> enq_msg, StdSmcAddres
     return false;
   }
   // 5. calculate deferred_lt
-  LogicalTime deferred_lt = std::max(start_lt, last_deferred_lt_[src_addr] + 1);
+  LogicalTime deferred_lt = std::max(start_lt, last_deferred_lt_[src_addr]) + 1;
   auto it = accounts.find(src_addr);
   if (it != accounts.end()) {
     deferred_lt = std::max(deferred_lt, it->second->last_trans_end_lt_ + 1);
