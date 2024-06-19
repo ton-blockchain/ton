@@ -2528,8 +2528,8 @@ void TestNode::got_block_transactions(
         out << "    metadata: <none>" << std::endl;
       } else {
         out << "    metadata: "
-            << block::MsgMetadata{meta->depth_, meta->initiator_->workchain_, meta->initiator_->id_,
-                                  meta->initiator_lt_}
+            << block::MsgMetadata{(td::uint32)meta->depth_, meta->initiator_->workchain_, meta->initiator_->id_,
+                                  (ton::LogicalTime)meta->initiator_lt_}
                    .to_str()
             << std::endl;
       }
