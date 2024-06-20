@@ -826,7 +826,7 @@ bool MsgEnvelope::validate_skip(int* ops, vm::CellSlice& cs, bool weak) const {
              && t_IntermediateAddress.validate_skip(ops, cs, weak)       // next_addr:IntermediateAddress
              && t_Grams.validate_skip(ops, cs, weak)                     // fwd_fee_remaining:Grams
              && t_Ref_Message.validate_skip(ops, cs, weak)               // msg:^Message
-             && Maybe<UInt>(64).validate_skip(ops, cs, weak)             // deferred_lt:(Maybe uint64)
+             && Maybe<UInt>(64).validate_skip(ops, cs, weak)             // emitted_lt:(Maybe uint64)
              && Maybe<gen::MsgMetadata>().validate_skip(ops, cs, weak);  // metadata:(Maybe MsgMetadata)
     default:
       return false;
@@ -847,7 +847,7 @@ bool MsgEnvelope::skip(vm::CellSlice& cs) const {
              && t_IntermediateAddress.skip(cs)       // next_addr:IntermediateAddress
              && t_Grams.skip(cs)                     // fwd_fee_remaining:Grams
              && t_Ref_Message.skip(cs)               // msg:^Message
-             && Maybe<UInt>(64).skip(cs)             // deferred_lt:(Maybe uint64)
+             && Maybe<UInt>(64).skip(cs)             // emitted_lt:(Maybe uint64)
              && Maybe<gen::MsgMetadata>().skip(cs);  // metadata:(Maybe MsgMetadata)
     default:
       return false;
@@ -872,7 +872,7 @@ bool MsgEnvelope::unpack(vm::CellSlice& cs, MsgEnvelope::Record& data) const {
              && t_IntermediateAddress.fetch_to(cs, data.next_addr)  // next_addr:IntermediateAddress
              && t_Grams.fetch_to(cs, data.fwd_fee_remaining)        // fwd_fee_remaining:Grams
              && cs.fetch_ref_to(data.msg)                           // msg:^Message
-             && Maybe<UInt>(64).skip(cs)                            // deferred_lt:(Maybe uint64)
+             && Maybe<UInt>(64).skip(cs)                            // emitted_lt:(Maybe uint64)
              && Maybe<gen::MsgMetadata>().skip(cs);                 // metadata:(Maybe MsgMetadata)
     default:
       return false;
@@ -880,7 +880,7 @@ bool MsgEnvelope::unpack(vm::CellSlice& cs, MsgEnvelope::Record& data) const {
 }
 
 bool MsgEnvelope::unpack(vm::CellSlice& cs, MsgEnvelope::Record_std& data) const {
-  data.deferred_lt = {};
+  data.emitted_lt = {};
   data.metadata = {};
   switch (get_tag(cs)) {
     case 4:
@@ -890,14 +890,14 @@ bool MsgEnvelope::unpack(vm::CellSlice& cs, MsgEnvelope::Record_std& data) const
              && t_Grams.as_integer_skip_to(cs, data.fwd_fee_remaining)   // fwd_fee_remaining:Grams
              && cs.fetch_ref_to(data.msg);                               // msg:^Message
     case 5: {
-      bool with_metadata, with_deferred_lt;
+      bool with_metadata, with_emitted_lt;
       return cs.fetch_ulong(4) == 5                                      // msg_envelope_v2#5
              && t_IntermediateAddress.fetch_regular(cs, data.cur_addr)   // cur_addr:IntermediateAddress
              && t_IntermediateAddress.fetch_regular(cs, data.next_addr)  // next_addr:IntermediateAddress
              && t_Grams.as_integer_skip_to(cs, data.fwd_fee_remaining)   // fwd_fee_remaining:Grams
              && cs.fetch_ref_to(data.msg)                                // msg:^Message
-             && cs.fetch_bool_to(with_deferred_lt) &&
-             (!with_deferred_lt || cs.fetch_uint_to(64, data.deferred_lt.value_force()))  // deferred_lt:(Maybe uint64)
+             && cs.fetch_bool_to(with_emitted_lt) &&
+             (!with_emitted_lt || cs.fetch_uint_to(64, data.emitted_lt.value_force()))  // emitted_lt:(Maybe uint64)
              && cs.fetch_bool_to(with_metadata) &&
              (!with_metadata || data.metadata.value_force().unpack(cs));  // metadata:(Maybe MsgMetadata)
     }
@@ -907,7 +907,7 @@ bool MsgEnvelope::unpack(vm::CellSlice& cs, MsgEnvelope::Record_std& data) const
 }
 
 bool MsgEnvelope::pack(vm::CellBuilder& cb, const Record_std& data) const {
-  bool v2 = (bool)data.metadata || (bool)data.deferred_lt;
+  bool v2 = (bool)data.metadata || (bool)data.emitted_lt;
   if (!(cb.store_long_bool(v2 ? 5 : 4, 4) &&                      // msg_envelope#4 / msg_envelope_v2#5
         cb.store_long_bool(data.cur_addr, 8) &&                   // cur_addr:IntermediateAddress
         cb.store_long_bool(data.next_addr, 8) &&                  // next_addr:IntermediateAddress
@@ -916,8 +916,8 @@ bool MsgEnvelope::pack(vm::CellBuilder& cb, const Record_std& data) const {
     return false;
   }
   if (v2) {
-    if (!(cb.store_bool_bool((bool)data.deferred_lt) &&
-          (!data.deferred_lt || cb.store_long_bool(data.deferred_lt.value(), 64)))) {  // deferred_lt:(Maybe uint64)
+    if (!(cb.store_bool_bool((bool)data.emitted_lt) &&
+          (!data.emitted_lt || cb.store_long_bool(data.emitted_lt.value(), 64)))) {  // emutted_lt:(Maybe uint64)
       return false;
     }
     if (!(cb.store_bool_bool((bool)data.metadata) &&
@@ -933,27 +933,27 @@ bool MsgEnvelope::pack_cell(td::Ref<vm::Cell>& cell, const Record_std& data) con
   return pack(cb, data) && cb.finalize_to(cell);
 }
 
-bool MsgEnvelope::get_created_lt(const vm::CellSlice& cs, unsigned long long& created_lt) const {
+bool MsgEnvelope::get_emitted_lt(const vm::CellSlice& cs, unsigned long long& emitted_lt) const {
+  // Emitted lt is emnitted_lt from MsgEnvelope (if present), otherwise created_lt
   if (!cs.size_refs()) {
     return false;
   }
   if (get_tag(cs) == 5) {
-    // Possibly deferred_lt
     vm::CellSlice cs2 = cs;
     // msg_envelope_v2#5 cur_addr:IntermediateAddress
     //   next_addr:IntermediateAddress fwd_fee_remaining:Grams
-    //   msg:^(Message Any) deferred_lt:(Maybe uint64) ...
-    bool have_deferred_lt;
+    //   msg:^(Message Any) emitted_lt:(Maybe uint64) ...
+    bool have_emitted_lt;
     if (!(cs2.skip_first(4) && t_IntermediateAddress.skip(cs2) && t_IntermediateAddress.skip(cs2) &&
-          t_Grams.skip(cs2) && t_Ref_Message.skip(cs2) && cs2.fetch_bool_to(have_deferred_lt))) {
+          t_Grams.skip(cs2) && t_Ref_Message.skip(cs2) && cs2.fetch_bool_to(have_emitted_lt))) {
       return false;
     }
-    if (have_deferred_lt) {
-      return cs2.fetch_ulong_bool(64, created_lt);
+    if (have_emitted_lt) {
+      return cs2.fetch_ulong_bool(64, emitted_lt);
     }
   }
   auto msg_cs = load_cell_slice(cs.prefetch_ref());
-  return t_Message.get_created_lt(msg_cs, created_lt);
+  return t_Message.get_created_lt(msg_cs, emitted_lt);
 }
 
 const MsgEnvelope t_MsgEnvelope;
@@ -2088,12 +2088,12 @@ bool OutMsg::get_export_value(vm::CellBuilder& cb, vm::CellSlice& cs) const {
   return false;
 }
 
-bool OutMsg::get_created_lt(vm::CellSlice& cs, unsigned long long& created_lt) const {
+bool OutMsg::get_emitted_lt(vm::CellSlice& cs, unsigned long long& emitted_lt) const {
   switch (get_tag(cs)) {
     case msg_export_ext:
       if (cs.have(3, 1)) {
         auto msg_cs = load_cell_slice(cs.prefetch_ref());
-        return t_Message.get_created_lt(msg_cs, created_lt);
+        return t_Message.get_created_lt(msg_cs, emitted_lt);
       } else {
         return false;
       }
@@ -2108,7 +2108,7 @@ bool OutMsg::get_created_lt(vm::CellSlice& cs, unsigned long long& created_lt) c
     case msg_export_deferred_tr:
       if (cs.have(3, 1)) {
         auto out_msg_cs = load_cell_slice(cs.prefetch_ref());
-        return t_MsgEnvelope.get_created_lt(out_msg_cs, created_lt);
+        return t_MsgEnvelope.get_emitted_lt(out_msg_cs, emitted_lt);
       } else {
         return false;
       }
@@ -2139,9 +2139,9 @@ bool Aug_OutMsgQueue::eval_empty(vm::CellBuilder& cb) const {
 
 bool Aug_OutMsgQueue::eval_leaf(vm::CellBuilder& cb, vm::CellSlice& cs) const {
   Ref<vm::Cell> msg_env;
-  unsigned long long created_lt;
-  return cs.fetch_ref_to(msg_env) && t_MsgEnvelope.get_created_lt(load_cell_slice(std::move(msg_env)), created_lt) &&
-         cb.store_ulong_rchk_bool(created_lt, 64);
+  unsigned long long emitted_lt;
+  return cs.fetch_ref_to(msg_env) && t_MsgEnvelope.get_emitted_lt(load_cell_slice(std::move(msg_env)), emitted_lt) &&
+         cb.store_ulong_rchk_bool(emitted_lt, 64);
 }
 
 bool Aug_DispatchQueue::eval_fork(vm::CellBuilder& cb, vm::CellSlice& left_cs, vm::CellSlice& right_cs) const {

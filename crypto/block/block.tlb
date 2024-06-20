@@ -176,7 +176,7 @@ msg_metadata#0 depth:uint32 initiator_addr:MsgAddressInt initiator_lt:uint64 = M
 msg_envelope_v2#5 cur_addr:IntermediateAddress
   next_addr:IntermediateAddress fwd_fee_remaining:Grams
   msg:^(Message Any)
-  deferred_lt:(Maybe uint64)
+  emitted_lt:(Maybe uint64)
   metadata:(Maybe MsgMetadata) = MsgEnvelope;
 //
 msg_import_ext$000 msg:^(Message Any) transaction:^Transaction 

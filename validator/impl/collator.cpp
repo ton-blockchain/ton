@@ -2654,8 +2654,8 @@ bool Collator::create_ticktock_transaction(const ton::StdSmcAddress& smc_addr, t
     return true;
   }
   req_start_lt = std::max(req_start_lt, start_lt + 1);
-  auto it = last_deferred_lt_.find(acc->addr);
-  if (it != last_deferred_lt_.end()) {
+  auto it = last_dispatch_queue_emitted_lt_.find(acc->addr);
+  if (it != last_dispatch_queue_emitted_lt_.end()) {
     req_start_lt = std::max(req_start_lt, it->second + 1);
   }
   if (acc->last_trans_end_lt_ >= start_lt && acc->transactions.empty()) {
@@ -2760,8 +2760,8 @@ Ref<vm::Cell> Collator::create_ordinary_transaction(Ref<vm::Cell> msg_root,
   if (external) {
     after_lt = std::max(after_lt, last_proc_int_msg_.first);
   }
-  auto it = last_deferred_lt_.find(acc->addr);
-  if (it != last_deferred_lt_.end()) {
+  auto it = last_dispatch_queue_emitted_lt_.find(acc->addr);
+  if (it != last_dispatch_queue_emitted_lt_.end()) {
     after_lt = std::max(after_lt, it->second);
   }
   auto res = impl_create_ordinary_transaction(msg_root, acc, now_, start_lt, &storage_phase_cfg_, &compute_phase_cfg_,
@@ -2833,7 +2833,7 @@ td::Result<std::unique_ptr<block::transaction::Transaction>> Collator::impl_crea
   }
   auto trans_min_lt = lt;
   // transactions processing external messages must have lt larger than all processed internal messages
-  // if account has deferred message processed in this block, the next transaction should have lt > deferred_lt
+  // if account has deferred message processed in this block, the next transaction should have lt > emitted_lt
   trans_min_lt = std::max(trans_min_lt, after_lt);
 
   std::unique_ptr<block::transaction::Transaction> trans = std::make_unique<block::transaction::Transaction>(
@@ -3079,7 +3079,7 @@ int Collator::process_one_new_message(block::NewOutMsg msg, bool enqueue_only, R
       CHECK(block::tlb::unpack_cell(msg_env, env));
       auto src_prefix = block::tlb::MsgAddressInt::get_prefix(src);
       auto dest_prefix = block::tlb::MsgAddressInt::get_prefix(dest);
-      CHECK(env.deferred_lt && env.deferred_lt.value() == msg.lt);
+      CHECK(env.emitted_lt && env.emitted_lt.value() == msg.lt);
       ok = enqueue_transit_message(std::move(msg.msg), std::move(msg_env), src_prefix, src_prefix, dest_prefix,
                                    std::move(env.fwd_fee_remaining), std::move(env.metadata), msg.lt);
     } else {
@@ -3105,7 +3105,7 @@ int Collator::process_one_new_message(block::NewOutMsg msg, bool enqueue_only, R
                                                   .next_addr = 0x60,
                                                   .fwd_fee_remaining = fwd_fees,
                                                   .msg = msg.msg,
-                                                  .deferred_lt = {},
+                                                  .emitted_lt = {},
                                                   .metadata = msg.metadata};
   Ref<vm::Cell> msg_env;
   CHECK(block::tlb::pack_cell(msg_env, msg_env_rec));
@@ -3119,7 +3119,7 @@ int Collator::process_one_new_message(block::NewOutMsg msg, bool enqueue_only, R
     auto msg_env = msg.msg_env_from_dispatch_queue;
     block::tlb::MsgEnvelope::Record_std env;
     CHECK(block::tlb::unpack_cell(msg_env, env));
-    CHECK(env.deferred_lt && env.deferred_lt.value() == msg.lt);
+    CHECK(env.emitted_lt && env.emitted_lt.value() == msg.lt);
     CHECK(cb.store_long_bool(0b00100, 5)                                         // msg_import_deferred_fin$00100
           && cb.store_ref_bool(msg_env)                                          // in_msg:^MsgEnvelope
           && cb.store_ref_bool(trans_root)                                       // transaction:^Transaction
@@ -3175,7 +3175,7 @@ int Collator::process_one_new_message(block::NewOutMsg msg, bool enqueue_only, R
  * @param dest_prefix The prefix of the destination account ID.
  * @param fwd_fee_remaining The remaining forward fee.
  * @param msg_metadata Metadata of the message.
- * @param deferred_lt If present - the message was taken from DispatchQueue, and msg_env will have this deferred_lt.
+ * @param emitted_lt If present - the message was taken from DispatchQueue, and msg_env will have this emitted_lt.
  *
  * @returns True if the transit message is successfully enqueued, false otherwise.
  */
@@ -3183,11 +3183,11 @@ bool Collator::enqueue_transit_message(Ref<vm::Cell> msg, Ref<vm::Cell> old_msg_
                                        ton::AccountIdPrefixFull prev_prefix, ton::AccountIdPrefixFull cur_prefix,
                                        ton::AccountIdPrefixFull dest_prefix, td::RefInt256 fwd_fee_remaining,
                                        td::optional<block::MsgMetadata> msg_metadata,
-                                       td::optional<LogicalTime> deferred_lt) {
-  bool from_dispatch_queue = (bool)deferred_lt;
+                                       td::optional<LogicalTime> emitted_lt) {
+  bool from_dispatch_queue = (bool)emitted_lt;
   if (from_dispatch_queue) {
     LOG(DEBUG) << "enqueueing message from dispatch queue " << msg->get_hash().bits().to_hex(256)
-               << ", deferred_lt=" << deferred_lt.value();
+               << ", emitted_lt=" << emitted_lt.value();
   } else {
     LOG(DEBUG) << "enqueueing transit message " << msg->get_hash().bits().to_hex(256);
   }
@@ -3207,7 +3207,7 @@ bool Collator::enqueue_transit_message(Ref<vm::Cell> msg, Ref<vm::Cell> old_msg_
                                                   .next_addr = route_info.second,
                                                   .fwd_fee_remaining = fwd_fee_remaining,
                                                   .msg = msg,
-                                                  .deferred_lt = deferred_lt,
+                                                  .emitted_lt = emitted_lt,
                                                   .metadata = std::move(msg_metadata)};
   Ref<vm::Cell> msg_env;
   CHECK(block::tlb::t_MsgEnvelope.pack_cell(msg_env, msg_env_rec));
@@ -3251,8 +3251,8 @@ bool Collator::enqueue_transit_message(Ref<vm::Cell> msg, Ref<vm::Cell> old_msg_
     return fatal_error("cannot insert a new InMsg into InMsgDescr");
   }
   // 5. create EnqueuedMsg
-  CHECK(cb.store_long_bool(from_dispatch_queue ? deferred_lt.value() : start_lt)  // _ enqueued_lt:uint64
-        && cb.store_ref_bool(msg_env));                                           // out_msg:^MsgEnvelope = EnqueuedMsg;
+  CHECK(cb.store_long_bool(from_dispatch_queue ? emitted_lt.value() : start_lt)  // _ enqueued_lt:uint64
+        && cb.store_ref_bool(msg_env));                                          // out_msg:^MsgEnvelope = EnqueuedMsg;
   // 6. insert EnqueuedMsg into OutMsgQueue
   // NB: we use here cur_prefix instead of src_prefix; should we check that route_info.first >= next_addr.use_dest_bits of the old envelope?
   auto next_hop = block::interpolate_addr(cur_prefix, dest_prefix, route_info.second);
@@ -3354,12 +3354,12 @@ bool Collator::process_inbound_message(Ref<vm::CellSlice> enq_msg, ton::LogicalT
     LOG(ERROR) << "cannot unpack CommonMsgInfo of an inbound internal message";
     return false;
   }
-  if (!env.deferred_lt && info.created_lt != lt) {
+  if (!env.emitted_lt && info.created_lt != lt) {
     LOG(ERROR) << "inbound internal message has an augmentation value in source OutMsgQueue distinct from the one in "
                   "its contents (CommonMsgInfo)";
     return false;
   }
-  if (env.deferred_lt && env.deferred_lt.value() != lt) {
+  if (env.emitted_lt && env.emitted_lt.value() != lt) {
     LOG(ERROR) << "inbound internal message has an augmentation value in source OutMsgQueue distinct from the one in "
                   "its contents (deferred_it in MsgEnvelope)";
     return false;
@@ -3425,7 +3425,7 @@ bool Collator::process_inbound_message(Ref<vm::CellSlice> enq_msg, ton::LogicalT
   bool to_us = ton::shard_contains(shard_, dest_prefix);
 
   block::EnqueuedMsgDescr enq_msg_descr{cur_prefix, next_prefix,
-                                        env.deferred_lt ? env.deferred_lt.value() : info.created_lt, enqueued_lt,
+                                        env.emitted_lt ? env.emitted_lt.value() : info.created_lt, enqueued_lt,
                                         env.msg->get_hash().bits()};
   if (processed_upto_->already_processed(enq_msg_descr)) {
     LOG(DEBUG) << "inbound internal message with lt=" << enq_msg_descr.lt_ << " hash=" << enq_msg_descr.hash_.to_hex()
@@ -3629,12 +3629,31 @@ int Collator::process_external_message(Ref<vm::Cell> msg) {
 /**
  * Processes messages from dispatch queue
  *
+ * Messages from dispatch queue are taken in three steps:
+ * 1. Take one message from each account (in the order of lt)
+ * 2. Take up to 10 per account (including from p.1), up to 20 per initiator, up to 150 in total
+ * 3. Take up to X messages per initiator, up to 150 in total. X depends on out msg queue size
+ *
  * @returns True if the processing was successful, false otherwise.
  */
 bool Collator::process_dispatch_queue() {
   have_unprocessed_account_dispatch_queue_ = true;
-  for (int iter = 0; iter < 2; ++iter) {
+  size_t max_total_count[3] = {1 << 30, 150, 150};
+  size_t max_per_initiator[3] = {1 << 30, 20, 0};
+  if (out_msg_queue_size_ <= 256) {
+    max_per_initiator[2] = 10;
+  } else if (out_msg_queue_size_ <= 512) {
+    max_per_initiator[2] = 2;
+  } else if (out_msg_queue_size_ <= 2048) {
+    max_per_initiator[2] = 1;
+  }
+  for (int iter = 0; iter < 3; ++iter) {
+    if (max_per_initiator[iter] == 0) {
+      continue;
+    }
     vm::AugmentedDictionary cur_dispatch_queue{dispatch_queue_->get_root(), 256, block::tlb::aug_DispatchQueue};
+    std::map<std::tuple<WorkchainId, StdSmcAddress, LogicalTime>, size_t> count_per_initiator;
+    size_t total_count = 0;
     while (!cur_dispatch_queue.is_empty()) {
       block_full_ = !block_limit_status_->fits(block::ParamLimits::cl_normal);
       if (block_full_) {
@@ -3651,11 +3670,6 @@ bool Collator::process_dispatch_queue() {
       if (account_dispatch_queue.is_null()) {
         return fatal_error("invalid dispatch queue in shard state");
       }
-      if (iter == 1 && sender_generated_messages_count_[src_addr] >= DEFER_MESSAGES_AFTER &&
-          deferring_messages_enabled_) {
-        cur_dispatch_queue.lookup_delete(src_addr);
-        continue;
-      }
       vm::Dictionary dict{64};
       size_t dict_size;
       if (!block::unpack_account_dispatch_queue(account_dispatch_queue, dict, dict_size)) {
@@ -3665,9 +3679,15 @@ bool Collator::process_dispatch_queue() {
       Ref<vm::CellSlice> enqueued_msg = dict.extract_minmax_key(key.bits(), 64, false, false);
       LogicalTime lt = key.to_ulong();
 
+      td::optional<block::MsgMetadata> msg_metadata;
+      if (!process_deferred_message(std::move(enqueued_msg), src_addr, lt, msg_metadata)) {
+        return fatal_error(PSTRING() << "error processing internal message from dispatch queue: account="
+                                     << src_addr.to_hex() << ", lt=" << lt);
+      }
+
       // Remove message from DispatchQueue
       bool ok;
-      if (iter == 0) {
+      if (iter == 0 || (iter == 1 && sender_generated_messages_count_[src_addr] >= DEFER_MESSAGES_AFTER)) {
         ok = cur_dispatch_queue.lookup_delete(src_addr).not_null();
       } else {
         dict.lookup_delete(key);
@@ -3680,10 +3700,17 @@ bool Collator::process_dispatch_queue() {
         return fatal_error(PSTRING() << "error processing internal message from dispatch queue: account="
                                      << src_addr.to_hex() << ", lt=" << lt);
       }
-
-      if (!process_deferred_message(std::move(enqueued_msg), src_addr, lt)) {
-        return fatal_error(PSTRING() << "error processing internal message from dispatch queue: account="
-                                     << src_addr.to_hex() << ", lt=" << lt);
+      if (msg_metadata) {
+        auto initiator = std::make_tuple(msg_metadata.value().initiator_wc, msg_metadata.value().initiator_addr,
+                                         msg_metadata.value().initiator_lt);
+        size_t initiator_count = ++count_per_initiator[initiator];
+        if (initiator_count >= max_per_initiator[iter]) {
+          cur_dispatch_queue.lookup_delete(src_addr);
+        }
+      }
+      ++total_count;
+      if (total_count >= max_total_count[iter]) {
+        break;
       }
     }
     if (iter == 0) {
@@ -3702,10 +3729,12 @@ bool Collator::process_dispatch_queue() {
  * @param enq_msg The internal message serialized using EnqueuedMsg TLB-scheme.
  * @param src_addr 256-bit address of the sender.
  * @param lt The logical time of the message.
+ * @param msg_metadata Reference to store msg_metadata
  *
  * @returns True if the message was processed successfully, false otherwise.
  */
-bool Collator::process_deferred_message(Ref<vm::CellSlice> enq_msg, StdSmcAddress src_addr, LogicalTime lt) {
+bool Collator::process_deferred_message(Ref<vm::CellSlice> enq_msg, StdSmcAddress src_addr, LogicalTime lt,
+                                        td::optional<block::MsgMetadata>& msg_metadata) {
   if (!block::remove_dispatch_queue_entry(*dispatch_queue_, src_addr, lt)) {
     return fatal_error(PSTRING() << "failed to delete message from DispatchQueue: address=" << src_addr.to_hex()
                                  << ", lt=" << lt);
@@ -3787,28 +3816,29 @@ bool Collator::process_deferred_message(Ref<vm::CellSlice> enq_msg, StdSmcAddres
     LOG(ERROR) << "internal message in DispatchQueue is expected to have zero cur_addr and next_addr";
     return false;
   }
-  // 5. calculate deferred_lt
-  LogicalTime deferred_lt = std::max(start_lt, last_deferred_lt_[src_addr]) + 1;
+  // 5. calculate emitted_lt
+  LogicalTime emitted_lt = std::max(start_lt, last_dispatch_queue_emitted_lt_[src_addr]) + 1;
   auto it = accounts.find(src_addr);
   if (it != accounts.end()) {
-    deferred_lt = std::max(deferred_lt, it->second->last_trans_end_lt_ + 1);
+    emitted_lt = std::max(emitted_lt, it->second->last_trans_end_lt_ + 1);
   }
-  last_deferred_lt_[src_addr] = deferred_lt;
-  update_max_lt(deferred_lt + 1);
+  last_dispatch_queue_emitted_lt_[src_addr] = emitted_lt;
+  update_max_lt(emitted_lt + 1);
 
-  env.deferred_lt = deferred_lt;
+  env.emitted_lt = emitted_lt;
   if (!block::tlb::pack_cell(msg_env, env)) {
     return fatal_error("cannot pack msg envelope");
   }
 
   // 6. create NewOutMsg
-  block::NewOutMsg new_msg{deferred_lt, env.msg, {}, 0};
+  block::NewOutMsg new_msg{emitted_lt, env.msg, {}, 0};
   new_msg.metadata = env.metadata;
   new_msg.msg_env_from_dispatch_queue = msg_env;
   ++unprocessed_deferred_messages_[src_addr];
   LOG(INFO) << "delivering deferred message from account " << src_addr.to_hex() << ", lt=" << lt
-            << ", deferred_lt=" << deferred_lt;
+            << ", emitted_lt=" << emitted_lt;
   register_new_msg(std::move(new_msg));
+  msg_metadata = std::move(env.metadata);
   return true;
 }
 
@@ -3944,7 +3974,7 @@ bool Collator::enqueue_message(block::NewOutMsg msg, td::RefInt256 fwd_fees_rema
                                                   .next_addr = defer ? 0 : route_info.second,
                                                   .fwd_fee_remaining = fwd_fees_remaining,
                                                   .msg = msg.msg,
-                                                  .deferred_lt = {},
+                                                  .emitted_lt = {},
                                                   .metadata = msg.metadata};
   Ref<vm::Cell> msg_env;
   CHECK(block::tlb::pack_cell(msg_env, msg_env_rec));

@@ -644,7 +644,7 @@ bool EnqueuedMsgDescr::unpack(vm::CellSlice& cs) {
   cur_prefix_ = interpolate_addr(src_prefix_, dest_prefix_, env.cur_addr);
   next_prefix_ = interpolate_addr(src_prefix_, dest_prefix_, env.next_addr);
   unsigned long long lt;
-  if (!tlb::t_MsgEnvelope.get_created_lt(vm::load_cell_slice(enq.out_msg), lt)) {
+  if (!tlb::t_MsgEnvelope.get_emitted_lt(vm::load_cell_slice(enq.out_msg), lt)) {
     return invalidate();
   }
   lt_ = lt;

@@ -470,14 +470,14 @@ struct MsgEnvelope final : TLB_Complex {
     int cur_addr, next_addr;
     td::RefInt256 fwd_fee_remaining;
     Ref<vm::Cell> msg;
-    td::optional<ton::LogicalTime> deferred_lt;
+    td::optional<ton::LogicalTime> emitted_lt;
     td::optional<MsgMetadata> metadata;
   };
   bool unpack(vm::CellSlice& cs, Record& data) const;
   bool unpack(vm::CellSlice& cs, Record_std& data) const;
   bool pack(vm::CellBuilder& cb, const Record_std& data) const;
   bool pack_cell(td::Ref<vm::Cell>& cell, const Record_std& data) const;
-  bool get_created_lt(const vm::CellSlice& cs, unsigned long long& created_lt) const;
+  bool get_emitted_lt(const vm::CellSlice& cs, unsigned long long& emitted_lt) const;
   int get_tag(const vm::CellSlice& cs) const override {
     return (int)cs.prefetch_ulong(4);
   }
@@ -852,7 +852,7 @@ struct OutMsg final : TLB_Complex {
     return t;
   }
   bool get_export_value(vm::CellBuilder& cb, vm::CellSlice& cs) const;
-  bool get_created_lt(vm::CellSlice& cs, unsigned long long& created_lt) const;
+  bool get_emitted_lt(vm::CellSlice& cs, unsigned long long& emitted_lt) const;
 };
 
 extern const OutMsg t_OutMsg;

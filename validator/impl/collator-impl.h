@@ -209,7 +209,7 @@ class Collator final : public td::actor::Actor {
   std::unique_ptr<vm::AugmentedDictionary> dispatch_queue_;
   std::map<StdSmcAddress, td::uint32> sender_generated_messages_count_;
   unsigned dispatch_queue_ops_{0};
-  std::map<StdSmcAddress, LogicalTime> last_deferred_lt_;
+  std::map<StdSmcAddress, LogicalTime> last_dispatch_queue_emitted_lt_;
   bool have_unprocessed_account_dispatch_queue_ = true;
 
   bool msg_metadata_enabled_ = false;
@@ -301,13 +301,14 @@ class Collator final : public td::actor::Actor {
   bool process_inbound_external_messages();
   int process_external_message(Ref<vm::Cell> msg);
   bool process_dispatch_queue();
-  bool process_deferred_message(Ref<vm::CellSlice> enq_msg, StdSmcAddress src_addr, LogicalTime lt);
+  bool process_deferred_message(Ref<vm::CellSlice> enq_msg, StdSmcAddress src_addr, LogicalTime lt,
+                                td::optional<block::MsgMetadata>& msg_metadata);
   bool enqueue_message(block::NewOutMsg msg, td::RefInt256 fwd_fees_remaining, StdSmcAddress src_addr,
                        bool defer = false);
   bool enqueue_transit_message(Ref<vm::Cell> msg, Ref<vm::Cell> old_msg_env, ton::AccountIdPrefixFull prev_prefix,
                                ton::AccountIdPrefixFull cur_prefix, ton::AccountIdPrefixFull dest_prefix,
                                td::RefInt256 fwd_fee_remaining, td::optional<block::MsgMetadata> msg_metadata,
-                               td::optional<LogicalTime> deferred_lt = {});
+                               td::optional<LogicalTime> emitted_lt = {});
   bool delete_out_msg_queue_msg(td::ConstBitPtr key);
   bool insert_in_msg(Ref<vm::Cell> in_msg);
   bool insert_out_msg(Ref<vm::Cell> out_msg);
