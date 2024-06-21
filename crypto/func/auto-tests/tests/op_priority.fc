@@ -1,35 +1,44 @@
 int justTrue() { return true; }
 
 int test1(int x, int y, int z) method_id(101) {
-    return x > 0 & y > 0 & z > 0;
+    return (x > 0) & (y > 0) & (z > 0);
 }
 
 int test2(int x, int y, int z) method_id(102) {
-    return x > (0 & y > 0 & z > 0);
+    return x > (0 & (y > 0) & (z > 0));
 }
 
 int test3(int x, int y, int z) method_id(103) {
-    if (x < 0 | y < 0) {
+    if ((x < 0) | (y < 0)) {
         return z < 0;
     }
-    return x > 0 & y > 0;
+    return (x > 0) & (y > 0);
 }
 
 int test4(int x, int y, int mode) method_id(104) {
     if (mode == 1) {
-        return x == 10 | (y == 20);
+        return (x == 10) | (y == 20);
     } if (mode == 2) {
-        return x == 10 | y == 20;
+        return (x == 10) | (y == 20);
     } else {
         return x == (10 | (y == 20));
     }
 }
 
 int test5(int status) method_id(105) {
-  return justTrue() & status == 1 & (justTrue() & status) == 1;
+  return justTrue() & (status == 1) & ((justTrue() & status) == 1);
 }
 
-() main() { }
+int _<p(_ a, _ b) { return true; }
+
+() main() {
+    ;; ok to parse
+    var c = [
+        (3 & 3) > 0, 3 & (3 > 0), 3 & (_<_(3, 0)),
+        3 & _<p(3, 0), (1 & 2) ^ (3 | 4),
+        1 & ((1) == 1)
+    ];
+}
 
 {-
 TESTCASE | 101 | 1 2 3 | -1

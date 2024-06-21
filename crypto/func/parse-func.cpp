@@ -58,6 +58,109 @@ inline bool is_special_ident(sym_idx_t idx) {
   return symbols.get_subclass(idx) != IdSc::undef;
 }
 
+// given Expr::_Apply (a function call / a variable call), determine whether it's <, or >, or similar
+// (an expression `1 < 2` is expressed as `_<_(1,2)`, see builtins.cpp)
+static bool is_comparison_binary_op(const Expr* e_apply) {
+  const std::string& name = e_apply->sym->name();
+  const size_t len = name.size();
+  if (len < 3 || len > 5 || name[0] != '_' || name[len-1] != '_') {
+    return false; // not "_<_" and similar
+  }
+
+  char c1 = name[1];
+  char c2 = name[2];
+  // < > <= != == >= <=>
+  return (len == 3 && (c1 == '<' || c1 == '>')) ||
+         (len == 4 && (c1 == '<' || c1 == '>' || c1 == '!' || c1 == '=') && c2 == '=') ||
+         (len == 5 && (c1 == '<' && c2 == '=' && name[3] == '>'));
+}
+
+// same as above, but to detect bitwise operators: & | ^
+// (in FunC, they are used as logical ones due to absence of a boolean type and && || operators)
+static bool is_bitwise_binary_op(const Expr* e_apply) {
+  const std::string& name = e_apply->sym->name();
+  const size_t len = name.size();
+  if (len != 3 || name[0] != '_' || name[len-1] != '_') {
+    return false;
+  }
+
+  char c1 = name[1];
+  return c1 == '&' || c1 == '|' || c1 == '^';
+}
+
+// same as above, but to detect addition/subtraction
+static bool is_add_or_sub_binary_op(const Expr* e_apply) {
+  const std::string& name = e_apply->sym->name();
+  const size_t len = name.size();
+  if (len != 3 || name[0] != '_' || name[len-1] != '_') {
+    return false;
+  }
+
+  char c1 = name[1];
+  return c1 == '+' || c1 == '-';
+}
+
+static inline std::string get_builtin_operator_name(sym_idx_t sym_builtin) {
+  std::string underscored = symbols.get_name(sym_builtin);
+  return underscored.substr(1, underscored.size() - 2);
+}
+
+// fire an error for a case "flags & 0xFF != 0" (equivalent to "flags & 1", probably unexpected)
+// it would better be a warning, but we decided to make it a strict error
+[[gnu::cold]] static void fire_error_lower_precedence(const SrcLocation& loc, sym_idx_t op_lower, sym_idx_t op_higher) {
+  std::string name_lower = get_builtin_operator_name(op_lower);
+  std::string name_higher = get_builtin_operator_name(op_higher);
+  throw src::ParseError(loc, name_lower + " has lower precedence than " + name_higher +
+                                 ", probably this code won't work as you expected.  "
+                                 "Use parenthesis: either (... " + name_lower + " ...) to evaluate it first, or (... " + name_higher + " ...) to suppress this error.");
+}
+
+// fire an error for a case "arg1 & arg2 | arg3"
+[[gnu::cold]] static void fire_error_mix_bitwise_and_or(const SrcLocation& loc, sym_idx_t op1, sym_idx_t op2) {
+  std::string name1 = get_builtin_operator_name(op1);
+  std::string name2 = get_builtin_operator_name(op2);
+  throw src::ParseError(loc, "mixing " + name1 + " with " + name2 + " without parenthesis"
+                                 ", probably this code won't work as you expected.  "
+                                 "Use parenthesis to emphasize operator precedence.");
+}
+
+// diagnose when bitwise operators are used in a probably wrong way due to tricky precedence
+// example: "flags & 0xFF != 0" is equivalent to "flags & 1", most likely it's unexpected
+// the only way to suppress this error for the programmer is to use parenthesis
+static void diagnose_bitwise_precedence(const SrcLocation& loc, sym_idx_t bitwise_sym, const Expr* lhs, const Expr* rhs) {
+  // handle "0 != flags & 0xFF" (lhs = "0 != flags")
+  if (!lhs->is_inside_parenthesis() &&
+    lhs->cls == Expr::_Apply && lhs->e_type->is_int() &&  // fast false if 100% not
+    is_comparison_binary_op(lhs)) {
+    fire_error_lower_precedence(loc, bitwise_sym, lhs->sym->sym_idx);
+    // there is a tiny bug: "flags & _!=_(0xFF,0)" will also suggest to wrap rhs into parenthesis
+  }
+
+  // handle "flags & 0xFF != 0" (rhs = "0xFF != 0")
+  if (!rhs->is_inside_parenthesis() &&
+    rhs->cls == Expr::_Apply && rhs->e_type->is_int() &&
+    is_comparison_binary_op(rhs)) {
+    fire_error_lower_precedence(loc, bitwise_sym, rhs->sym->sym_idx);
+  }
+
+  // handle "arg1 & arg2 | arg3" (lhs = "arg1 & arg2")
+  if (!lhs->is_inside_parenthesis() &&
+    lhs->cls == Expr::_Apply && lhs->e_type->is_int() &&
+    is_bitwise_binary_op(lhs) &&
+    lhs->sym->sym_idx != bitwise_sym) {
+    fire_error_mix_bitwise_and_or(loc, lhs->sym->sym_idx, bitwise_sym);
+  }
+}
+
+// diagnose "a << 8 + 1" (equivalent to "a << 9", probably unexpected)
+static void diagnose_addition_in_bitshift(const SrcLocation& loc, sym_idx_t bitshift_sym, const Expr* rhs) {
+  if (!rhs->is_inside_parenthesis() &&
+    rhs->cls == Expr::_Apply && rhs->e_type->is_int() &&
+    is_add_or_sub_binary_op(rhs)) {
+    fire_error_lower_precedence(loc, bitshift_sym, rhs->sym->sym_idx);
+  }
+}
+
 /*
  * 
  *   PARSE SOURCE
@@ -268,7 +371,7 @@ void parse_const_decl(Lexer& lex) {
   CodeBlob code;
   // Handles processing and resolution of literals and consts
   auto x = parse_expr(lex, code, false); // also does lex.next() !
-  if (x->flags != Expr::_IsRvalue) {
+  if (!x->is_rvalue()) {
     lex.cur().error("expression is not strictly Rvalue");
   }
   if ((wanted_type == Expr::_Const) && (x->cls == Expr::_Apply))
@@ -447,6 +550,7 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
     }
     Expr* res = parse_expr(lex, code, nv);
     if (lex.tp() == ')') {
+      res->flags |= Expr::_IsInsideParenthesis;
       lex.expect(clbr);
       return res;
     }
@@ -858,6 +962,7 @@ Expr* parse_expr17(Lexer& lex, CodeBlob& code, bool nv) {
     lex.next();
     auto x = parse_expr20(lex, code, false);
     x->chk_rvalue(lex.cur());
+    diagnose_addition_in_bitshift(loc, name, x);
     res = new Expr{Expr::_Apply, name, {res, x}};
     res->here = loc;
     res->set_val(t);
@@ -901,6 +1006,9 @@ Expr* parse_expr14(Lexer& lex, CodeBlob& code, bool nv) {
     lex.next();
     auto x = parse_expr15(lex, code, false);
     x->chk_rvalue(lex.cur());
+    // diagnose tricky bitwise precedence, like "flags & 0xFF != 0" (& has lower precedence)
+    diagnose_bitwise_precedence(loc, name, res, x);
+
     res = new Expr{Expr::_Apply, name, {res, x}};
     res->here = loc;
     res->set_val(t);

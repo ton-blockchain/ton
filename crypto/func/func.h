@@ -946,7 +946,7 @@ struct Expr {
   };
   ExprCls cls;
   int val{0};
-  enum { _IsType = 1, _IsRvalue = 2, _IsLvalue = 4, _IsImpure = 32 };
+  enum { _IsType = 1, _IsRvalue = 2, _IsLvalue = 4, _IsImpure = 32, _IsInsideParenthesis = 64 };
   int flags{0};
   SrcLocation here;
   td::RefInt256 intval;
@@ -987,6 +987,9 @@ struct Expr {
   }
   bool is_type() const {
     return flags & _IsType;
+  }
+  bool is_inside_parenthesis() const {
+    return flags & _IsInsideParenthesis;
   }
   bool is_type_apply() const {
     return cls == _TypeApply;
