@@ -120,6 +120,11 @@ class Lexer {
  private:
   void set_spec(std::array<int, 3>& arr, std::string setup);
   bool is_multiline_quote(const char* begin, const char* end);
+
+  // this class (like all sources in /ton/crypto/parser) is shared between FunC and tlbc
+  // (in the future, I'll implement lexer from scratch, FunC/TL lexers would have nothing in common)
+  bool is_FunC() const { return cmt_op2[1] == 47; }
+  bool is_TLB() const { return !is_FunC(); }
 };
 
 }  // namespace src

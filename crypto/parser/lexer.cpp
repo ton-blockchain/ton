@@ -311,11 +311,15 @@ const Lexem& Lexer::next() {
     return lexem;
   }
   int len = 0, pc = -0x100;
+  bool starts_with_excl = false;
   while (end < src.get_end_ptr()) {
     c = *end;
     bool repeated = (c == pc && is_repeatable(c));
     if (c == ' ' || c == 9 || (len && is_left_active(c) && !repeated)) {
       break;
+    }
+    if (c == '!' && !len) {
+      starts_with_excl = true;
     }
     ++len;
     ++end;
@@ -325,6 +329,9 @@ const Lexem& Lexer::next() {
     pc = c;
   }
   lexem.set(std::string{src.get_ptr(), end}, src.here());
+  if (starts_with_excl && is_FunC() && lexem.str != "!=") {
+    throw ParseError(lexem.loc, "'!' is reserved for the future, don't use it in FunC code");
+  }
   src.set_ptr(end);
   // std::cerr << lexem.name_str() << ' ' << lexem.str << std::endl;
   return lexem;

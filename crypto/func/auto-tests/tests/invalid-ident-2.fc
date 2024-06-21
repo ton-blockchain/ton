@@ -1,0 +1,11 @@
+_ main() {
+    var x = false;
+    var b = ! x;
+    return b;
+}
+
+{-
+@compilation_should_fail
+@stderr var b = ! x;
+@stderr '!' is reserved for the future
+-}

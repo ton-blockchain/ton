@@ -1,0 +1,15 @@
+;; this is allowed, lexer doesn't stop on it
+int get_false!() { return false; }
+
+_ main() {
+    var x = false;
+    if (!x) {
+        return 1;
+    }
+    return 0;
+}
+
+{-
+@compilation_should_fail
+@stderr '!' is reserved for the future
+-}

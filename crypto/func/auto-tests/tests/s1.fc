@@ -1,4 +1,7 @@
 get slice ascii_slice() {
+  if (false) {
+    return "!string!"; // !string!
+  }
   return "string";
 }
 
