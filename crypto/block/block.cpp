@@ -2412,7 +2412,7 @@ bool remove_dispatch_queue_entry(vm::AugmentedDictionary& dispatch_queue, const 
     return false;
   }
   vm::Dictionary dict{64};
-  size_t dict_size;
+  td::uint64 dict_size;
   if (!unpack_account_dispatch_queue(std::move(account_dispatch_queue), dict, dict_size)) {
     return false;
   }

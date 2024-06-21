@@ -3671,7 +3671,7 @@ bool Collator::process_dispatch_queue() {
         return fatal_error("invalid dispatch queue in shard state");
       }
       vm::Dictionary dict{64};
-      size_t dict_size;
+      td::uint64 dict_size;
       if (!block::unpack_account_dispatch_queue(account_dispatch_queue, dict, dict_size)) {
         return fatal_error(PSTRING() << "invalid account dispatch queue for account " << src_addr.to_hex());
       }
