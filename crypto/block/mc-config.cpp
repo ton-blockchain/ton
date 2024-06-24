@@ -249,6 +249,17 @@ td::Status Config::unpack() {
     return td::Status::Error("configuration root not set");
   }
   config_dict = std::make_unique<vm::Dictionary>(config_root, 32);
+
+  if (config_addr.is_zero()) {
+    auto cell = get_config_param(0);
+    if (cell.not_null()) {
+      auto cs = load_cell_slice(std::move(cell));
+      if (!cs.fetch_bits_to(config_addr.bits(), 256)) {
+        return td::Status::Error("cannot extract config address configuration parameter #0");
+      }
+    }
+  }
+
   if (mode & needValidatorSet) {
     auto vset_res = unpack_validator_set(get_config_param(35, 34));
     if (vset_res.is_error()) {
