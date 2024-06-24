@@ -78,7 +78,7 @@ echo Using secp256k1...
 )
 
 
-curl  -Lo libsodium-1.0.18-stable-msvc.zip https://download.libsodium.org/libsodium/releases/libsodium-1.0.18-stable-msvc.zip
+curl --retry 5 --retry-delay 10 -Lo libsodium-1.0.18-stable-msvc.zip https://download.libsodium.org/libsodium/releases/libsodium-1.0.18-stable-msvc.zip
 IF %errorlevel% NEQ 0 (
   echo Can't download libsodium
   exit /b %errorlevel%
