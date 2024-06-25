@@ -9,7 +9,7 @@ defaults:
 jobs:
   build:
 
-    runs-on: windows-2022
+    runs-on: windows-2019
 
     steps:
       - name: Get Current OS version
@@ -23,9 +23,9 @@ jobs:
 
       - name: Build TON
         run: |
-          copy assembly\native\build-windows-github.bat .
-          copy assembly\native\build-windows.bat .
-          build-windows-github.bat Enterprise
+          copy assembly\native\build-windows-github-2019.bat .
+          copy assembly\native\build-windows-2019.bat .
+          build-windows-github-2019.bat Enterprise
 
       - name: Upload artifacts
         uses: actions/upload-artifact@master
