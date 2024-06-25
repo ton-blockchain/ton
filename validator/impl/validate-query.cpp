@@ -2215,7 +2215,7 @@ bool ValidateQuery::prepare_out_msg_queue_size() {
   for (size_t i = 0; i < prev_blocks.size(); ++i) {
     ++pending;
     send_closure_later(manager, &ValidatorManager::get_out_msg_queue_size, prev_blocks[i],
-                       [self = get_self(), i](td::Result<td::uint32> res) {
+                       [self = get_self(), i](td::Result<td::uint64> res) {
                          td::actor::send_closure(std::move(self), &ValidateQuery::got_out_queue_size, i,
                                                  std::move(res));
                        });
@@ -2231,14 +2231,14 @@ bool ValidateQuery::prepare_out_msg_queue_size() {
  * @param i The index of the previous block (0 or 1).
  * @param res The result object containing the size of the queue.
  */
-void ValidateQuery::got_out_queue_size(size_t i, td::Result<td::uint32> res) {
+void ValidateQuery::got_out_queue_size(size_t i, td::Result<td::uint64> res) {
   --pending;
   if (res.is_error()) {
     fatal_error(
         res.move_as_error_prefix(PSTRING() << "failed to get message queue size from prev block #" << i << ": "));
     return;
   }
-  td::uint32 size = res.move_as_ok();
+  td::uint64 size = res.move_as_ok();
   LOG(DEBUG) << "got outbound queue size from prev block #" << i << ": " << size;
   old_out_msg_queue_size_ += size;
   try_validate();

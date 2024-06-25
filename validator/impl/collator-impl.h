@@ -244,7 +244,7 @@ class Collator final : public td::actor::Actor {
   bool fix_one_processed_upto(block::MsgProcessedUpto& proc, const ton::ShardIdFull& owner);
   bool fix_processed_upto(block::MsgProcessedUptoCollection& upto);
   void got_neighbor_out_queue(int i, td::Result<Ref<MessageQueue>> res);
-  void got_out_queue_size(size_t i, td::Result<td::uint32> res);
+  void got_out_queue_size(size_t i, td::Result<td::uint64> res);
   bool adjust_shard_config();
   bool store_shard_fees(ShardIdFull shard, const block::CurrencyCollection& fees,
                         const block::CurrencyCollection& created);
