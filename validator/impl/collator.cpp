@@ -77,7 +77,7 @@ static inline bool dbg(int c) {
 Collator::Collator(ShardIdFull shard, bool is_hardfork, BlockIdExt min_masterchain_block_id,
                    std::vector<BlockIdExt> prev, td::Ref<ValidatorSet> validator_set, Ed25519_PublicKey collator_id,
                    td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
-                   td::Promise<BlockCandidate> promise, unsigned mode)
+                   td::Promise<BlockCandidate> promise, td::CancellationToken cancellation_token, unsigned mode)
     : shard_(shard)
     , is_hardfork_(is_hardfork)
     , min_mc_block_id{min_masterchain_block_id}
@@ -92,9 +92,11 @@ Collator::Collator(ShardIdFull shard, bool is_hardfork, BlockIdExt min_mastercha
     , medium_timeout_(td::Timestamp::at(timeout.at() - 1.5))
     , main_promise(std::move(promise))
     , mode_(mode)
-    , perf_timer_("collate", 0.1, [manager](double duration) {
-      send_closure(manager, &ValidatorManager::add_perf_timer_stat, "collate", duration);
-    }) {
+    , perf_timer_("collate", 0.1,
+                  [manager](double duration) {
+                    send_closure(manager, &ValidatorManager::add_perf_timer_stat, "collate", duration);
+                  })
+    , cancellation_token_(std::move(cancellation_token)) {
 }
 
 /**
@@ -382,6 +384,9 @@ bool Collator::fatal_error(std::string err_msg, int err_code) {
  */
 void Collator::check_pending() {
   // LOG(DEBUG) << "pending = " << pending;
+  if (!check_cancelled()) {
+    return;
+  }
   if (!pending) {
     step = 2;
     try {
@@ -2423,6 +2428,9 @@ bool Collator::out_msg_queue_cleanup() {
         LOG(WARNING) << "cleaning up outbound queue takes too long, ending";
         break;
       }
+      if (!check_cancelled()) {
+        return false;
+      }
       if (i == queue_parts.size()) {
         i = 0;
       }
@@ -3516,6 +3524,9 @@ bool Collator::process_inbound_internal_messages() {
       LOG(WARNING) << "soft timeout reached, stop processing inbound internal messages";
       break;
     }
+    if (!check_cancelled()) {
+      return false;
+    }
     LOG(DEBUG) << "processing inbound message with (lt,hash)=(" << kv->lt << "," << kv->key.to_hex()
                << ") from neighbor #" << kv->source;
     if (verbosity > 2) {
@@ -3564,6 +3575,9 @@ bool Collator::process_inbound_external_messages() {
     if (medium_timeout_.is_in_past(td::Timestamp::now())) {
       LOG(WARNING) << "medium timeout reached, stop processing inbound external messages";
       break;
+    }
+    if (!check_cancelled()) {
+      return false;
     }
     auto ext_msg = ext_msg_struct.cell;
     ton::Bits256 hash{ext_msg->get_hash().bits()};
@@ -3818,6 +3832,9 @@ bool Collator::process_new_messages(bool enqueue_only) {
     if (block_full_ && !enqueue_only) {
       LOG(INFO) << "BLOCK FULL, enqueue all remaining new messages";
       enqueue_only = true;
+    }
+    if (!check_cancelled()) {
+      return false;
     }
     LOG(DEBUG) << "have message with lt=" << msg.lt;
     int res = process_one_new_message(std::move(msg), enqueue_only);
@@ -5358,6 +5375,18 @@ void Collator::after_get_external_messages(td::Result<std::vector<std::pair<Ref<
   LOG(WARNING) << "got " << vect.size() << " external messages from mempool, " << bad_ext_msgs_.size()
                << " bad messages";
   check_pending();
+}
+
+/**
+ * Checks if collation was cancelled via cancellation token
+ *
+ * @returns false if the collation was cancelled, true otherwise
+ */
+bool Collator::check_cancelled() {
+  if (cancellation_token_) {
+    return fatal_error(td::Status::Error(ErrorCode::cancelled, "cancelled"));
+  }
+  return true;
 }
 
 td::uint32 Collator::get_skip_externals_queue_size() {

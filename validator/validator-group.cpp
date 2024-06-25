@@ -546,7 +546,7 @@ void ValidatorGroup::collate_block(td::uint32 round_id, td::Timestamp timeout, t
     prev_blocks.push_back(create_tl_block_id(p));
   }
   td::BufferSlice query = create_serialize_tl_object<ton_api::collatorNode_generateBlock>(
-      shard_.workchain, shard_.shard, create_tl_block_id(min_masterchain_block_id_), std::move(prev_blocks),
+      create_tl_shard_id(shard_), validator_set_->get_catchain_seqno(), std::move(prev_blocks),
       local_id_full_.ed25519_value().raw());
 
   auto P = td::PromiseCreator::lambda(

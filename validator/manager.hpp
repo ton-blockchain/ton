@@ -372,6 +372,7 @@ class ValidatorManagerImpl : public ValidatorManager {
                                 td::Promise<td::Unit> promise) override;
   void validate_block(ReceivedBlock block, td::Promise<BlockHandle> promise) override;
   void prevalidate_block(BlockBroadcast broadcast, td::Promise<td::Unit> promise) override;
+  void validated_block_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno);
 
   //void create_validate_block(BlockId block, td::BufferSlice data, td::Promise<Block> promise) = 0;
   void sync_complete(td::Promise<td::Unit> promise) override;
@@ -562,6 +563,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   bool is_validator();
   bool validating_masterchain();
   PublicKeyHash get_validator(ShardIdFull shard, td::Ref<ValidatorSet> val_set);
+  bool is_shard_collator(ShardIdFull shard);
 
   ValidatorManagerImpl(td::Ref<ValidatorManagerOptions> opts, std::string db_root,
                        td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
@@ -763,6 +765,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   struct Collator {
     td::actor::ActorOwn<CollatorNode> actor;
     std::set<ShardIdFull> shards;
+
+    bool can_collate_shard(ShardIdFull shard) const;
   };
   std::map<adnl::AdnlNodeIdShort, Collator> collator_nodes_;
 

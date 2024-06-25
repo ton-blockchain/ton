@@ -34,12 +34,10 @@ class CollatorNode : public td::actor::Actor {
   void del_shard(ShardIdFull shard);
 
   void new_masterchain_block_notification(td::Ref<MasterchainState> state);
+  void update_validator_group_info(ShardIdFull shard, std::vector<BlockIdExt> prev, CatchainSeqno cc_seqno);
 
  private:
   void receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data, td::Promise<td::BufferSlice> promise);
-  void receive_query_cont(ShardIdFull shard, td::Ref<MasterchainState> min_mc_state,
-                          std::vector<BlockIdExt> prev_blocks, Ed25519_PublicKey creator,
-                          td::Promise<BlockCandidate> promise);
 
   bool can_collate_shard(ShardIdFull shard) const;
 
@@ -47,33 +45,39 @@ class CollatorNode : public td::actor::Actor {
   td::actor::ActorId<ValidatorManager> manager_;
   td::actor::ActorId<adnl::Adnl> adnl_;
   td::actor::ActorId<rldp::Rldp> rldp_;
-  std::vector<ShardIdFull> shards_;
-  std::set<adnl::AdnlNodeIdShort> validators_;
-
-  BlockIdExt last_masterchain_block_{};
-  std::map<ShardIdFull, BlockIdExt> last_top_blocks_;
+  std::vector<ShardIdFull> collating_shards_;
+  std::set<adnl::AdnlNodeIdShort> validator_adnl_ids_;
 
   struct CacheEntry {
     bool started = false;
+    BlockSeqno block_seqno = 0;
     td::optional<BlockCandidate> result;
+    td::CancellationTokenSource cancellation_token_source;
     std::vector<td::Promise<BlockCandidate>> promises;
+
+    void cancel(td::Status reason);
   };
-  std::map<std::tuple<BlockSeqno, ShardIdFull, std::vector<BlockIdExt>>, std::shared_ptr<CacheEntry>> cache_;
+  struct ValidatorGroupInfo {
+    CatchainSeqno cc_seqno{0};
+    std::vector<BlockIdExt> prev;
+    BlockSeqno next_block_seqno{0};
+    std::map<std::vector<BlockIdExt>, std::shared_ptr<CacheEntry>> cache;
 
-  td::optional<BlockIdExt> get_shard_top_block(ShardIdFull shard) const {
-    auto it = last_top_blocks_.lower_bound(shard);
-    if (it != last_top_blocks_.end() && shard_intersects(it->first, shard)) {
-      return it->second;
-    }
-    if (it != last_top_blocks_.begin()) {
-      --it;
-      if (shard_intersects(it->first, shard)) {
-        return it->second;
-      }
-    }
-    return {};
-  }
+    void cleanup();
+  };
+  struct FutureValidatorGroup {
+    std::vector<std::vector<BlockIdExt>> pending_blocks;
+    std::vector<td::Promise<td::Unit>> promises;
+  };
+  std::map<ShardIdFull, ValidatorGroupInfo> validator_groups_;
+  std::map<std::pair<ShardIdFull, CatchainSeqno>, FutureValidatorGroup> future_validator_groups_;
 
+  td::Ref<MasterchainState> last_masterchain_state_;
+
+  td::Result<FutureValidatorGroup*> get_future_validator_group(ShardIdFull shard, CatchainSeqno cc_seqno);
+
+  void generate_block(ShardIdFull shard, CatchainSeqno cc_seqno, std::vector<BlockIdExt> prev_blocks,
+                      td::Timestamp timeout, td::Promise<BlockCandidate> promise);
   void process_result(std::shared_ptr<CacheEntry> cache_entry, td::Result<BlockCandidate> R);
 
  public:

@@ -575,8 +575,8 @@ td::Result<bool> Config::config_add_control_process(ton::PublicKeyHash key, td::
 }
 
 td::Result<bool> Config::config_add_shard(ton::ShardIdFull shard) {
-  if (!shard.is_valid_ext()) {
-    return td::Status::Error(PSTRING() << "invalid shard " << shard.to_str());
+  if (!shard.is_valid_ext() || shard.is_masterchain()) {
+    return td::Status::Error(PSTRING() << "invalid shard to collate " << shard.to_str());
   }
   if (std::find(shards_to_monitor.begin(), shards_to_monitor.end(), shard) != shards_to_monitor.end()) {
     return false;

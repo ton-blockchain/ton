@@ -837,7 +837,7 @@ validatorSession.newValidatorGroupStats session_id:int256 workchain:int shard:lo
     self_idx:int nodes:(vector validatorSession.newValidatorGroupStats.node) = validatorSession.NewValidatorGroupStats;
 
 ---functions---
-collatorNode.generateBlock workchain:int shard:long min_mc_id:tonNode.blockIdExt prev_blocks:(vector tonNode.blockIdExt)
+collatorNode.generateBlock shard:tonNode.shardId cc_seqno:int prev_blocks:(vector tonNode.blockIdExt)
     creator:int256 = collatorNode.GenerateBlockResult;
 
 ---types---

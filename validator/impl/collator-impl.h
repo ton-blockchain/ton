@@ -87,9 +87,9 @@ class Collator final : public td::actor::Actor {
   static constexpr bool shard_splitting_enabled = true;
 
  public:
-  Collator(ShardIdFull shard, bool is_hardfork, BlockIdExt min_masterchain_block_id,
-           std::vector<BlockIdExt> prev, Ref<ValidatorSet> validator_set, Ed25519_PublicKey collator_id,
-           td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout, td::Promise<BlockCandidate> promise,
+  Collator(ShardIdFull shard, bool is_hardfork, BlockIdExt min_masterchain_block_id, std::vector<BlockIdExt> prev,
+           Ref<ValidatorSet> validator_set, Ed25519_PublicKey collator_id, td::actor::ActorId<ValidatorManager> manager,
+           td::Timestamp timeout, td::Promise<BlockCandidate> promise, td::CancellationToken cancellation_token,
            unsigned mode);
   ~Collator() override = default;
   bool is_busy() const {
@@ -342,6 +342,9 @@ class Collator final : public td::actor::Actor {
   bool create_block_candidate();
   void return_block_candidate(td::Result<td::Unit> saved);
   bool update_last_proc_int_msg(const std::pair<ton::LogicalTime, ton::Bits256>& new_lt_hash);
+
+  td::CancellationToken cancellation_token_;
+  bool check_cancelled();
 
  public:
   static td::uint32 get_skip_externals_queue_size();
