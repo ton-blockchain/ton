@@ -38,22 +38,26 @@ cd ..
 
 git clone https://github.com/madler/zlib.git
 cd zlib
+git checkout v1.3.1
 ZLIB_DIR=`pwd`
 cd ..
 
 git clone https://github.com/lz4/lz4.git
 cd lz4
+git checkout v1.9.4
 LZ4_DIR=`pwd`
 cd ..
 
 git clone https://github.com/bitcoin-core/secp256k1.git
 cd secp256k1
+git checkout v0.3.2
 ./autogen.sh
 SECP256K1_DIR=`pwd`
 cd ..
 
-git clone https://github.com/jedisct1/libsodium --branch stable
+git clone https://github.com/jedisct1/libsodium
 cd libsodium
+git checkout 1.0.18-RELEASE
 SODIUM_DIR=`pwd`
 cd ..
 
