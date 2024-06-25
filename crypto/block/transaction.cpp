@@ -1853,6 +1853,7 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
             int mode = (int)cs.fetch_ulong(8);
             if (mode & 2) {
               ap.skipped_actions++;
+              non_skipped_action_list.push_back({});
               continue;
             } else if ((mode & 16) && cfg.bounce_on_fail_enabled) {
               ap.bounce = true;
@@ -1869,10 +1870,14 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
       non_skipped_action_list.push_back(ap.action_list[i]);
     }
   }
+  std::reverse(non_skipped_action_list.begin(), non_skipped_action_list.end());
   ap.action_list = std::move(non_skipped_action_list);
   n -= ap.skipped_actions;
   ap.valid = true;
   for (int i = n - 1; i >= 0; --i) {
+    if(ap.action_list[i].is_null()) {
+      continue;
+    }
     ap.result_arg = n - 1 - i;
     vm::CellSlice cs = load_cell_slice(ap.action_list[i]);
     CHECK(cs.fetch_ref().not_null());
@@ -1910,7 +1915,7 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
         ap.no_funds = true;
       }
       LOG(DEBUG) << "invalid action " << ap.result_arg << " in action list: error code " << ap.result_code;
-      // This is reuqired here because changes to libraries are applied even if actipn phase fails
+      // This is required here because changes to libraries are applied even if actipn phase fails
       enforce_state_limits();
       if (cfg.action_fine_enabled) {
         ap.action_fine = std::min(ap.action_fine, balance.grams);
