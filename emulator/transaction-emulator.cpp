@@ -130,32 +130,28 @@ td::Result<TransactionEmulator::EmulationSuccess> TransactionEmulator::emulate_t
     }
 
     TRY_RESULT(emulation, emulate_transaction(std::move(account), msg_root, utime, lt, trans_type));
-
-    auto emulation_result_ptr = dynamic_cast<EmulationSuccess*>(emulation.get());
     
-    if (emulation_result_ptr == nullptr) {
-      auto emulation_not_accepted_ptr = dynamic_cast<EmulationExternalNotAccepted*>(emulation.get());
-      
-      if (emulation_not_accepted_ptr == nullptr) {
-        return td::Status::Error("emulation failed");
-      } else {
-        return td::Status::Error( PSTRING()
-          << "VM Log: " << emulation_not_accepted_ptr->vm_log 
-          << ", VM Exit Code: " << emulation_not_accepted_ptr->vm_exit_code 
-          << ", Elapsed Time: " << emulation_not_accepted_ptr->elapsed_time);
+    if (auto emulation_result_ptr = dynamic_cast<EmulationSuccess*>(emulation.get())) {
+      auto& emulation_result = *emulation_result_ptr;     
+    
+      if (td::Bits256(emulation_result.transaction->get_hash().bits()) != td::Bits256(original_trans->get_hash().bits())) {
+        return td::Status::Error("transaction hash mismatch");
       }
-    }
-    auto& emulation_result = *emulation_result_ptr;
 
-    if (td::Bits256(emulation_result.transaction->get_hash().bits()) != td::Bits256(original_trans->get_hash().bits())) {
-      return td::Status::Error("transaction hash mismatch");
-    }
+      if (!check_state_update(emulation_result.account, record_trans)) {
+        return td::Status::Error("account hash mismatch");
+      }
 
-    if (!check_state_update(emulation_result.account, record_trans)) {
-      return td::Status::Error("account hash mismatch");
-    }
+      return emulation_result;
 
-    return emulation_result;
+    } else if (auto emulation_not_accepted_ptr = dynamic_cast<EmulationExternalNotAccepted*>(emulation.get())) {
+      return td::Status::Error( PSTRING()
+        << "VM Log: " << emulation_not_accepted_ptr->vm_log 
+        << ", VM Exit Code: " << emulation_not_accepted_ptr->vm_exit_code 
+        << ", Elapsed Time: " << emulation_not_accepted_ptr->elapsed_time);
+    } else {
+       return td::Status::Error("emulation failed");
+    }
 }
 
 td::Result<TransactionEmulator::EmulationChain> TransactionEmulator::emulate_transactions_chain(block::Account&& account, std::vector<td::Ref<vm::Cell>>&& original_transactions) {
