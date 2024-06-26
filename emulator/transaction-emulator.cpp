@@ -133,7 +133,17 @@ td::Result<TransactionEmulator::EmulationSuccess> TransactionEmulator::emulate_t
 
     auto emulation_result_ptr = dynamic_cast<EmulationSuccess*>(emulation.get());
     if (emulation_result_ptr == nullptr) {
-      return td::Status::Error("emulation failed");
+      auto emulation_not_accepted_ptr = dynamic_cast<EmulationExternalNotAccepted*>(emulation.get());
+        if (emulation_not_accepted_ptr == nullptr) {
+          return td::Status::Error("emulation failed");
+        }
+        else {
+          return td::Status::Error( PSTRING()
+            << "VM Log: " << emulation_not_accepted_ptr->vm_log 
+            << ", VM Exit Code: " << emulation_not_accepted_ptr->vm_exit_code 
+            << ", Elapsed Time: " << emulation_not_accepted_ptr->elapsed_time);
+  }
+     
     }
     auto& emulation_result = *emulation_result_ptr;
 
