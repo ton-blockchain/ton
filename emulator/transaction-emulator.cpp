@@ -137,7 +137,6 @@ td::Result<TransactionEmulator::EmulationSuccess> TransactionEmulator::emulate_t
     }
     auto& emulation_result = *emulation_result_ptr;
 
-    auto emulation_result = dynamic_cast<EmulationSuccess&>(*emulation);
     if (td::Bits256(emulation_result.transaction->get_hash().bits()) != td::Bits256(original_trans->get_hash().bits())) {
       return td::Status::Error("transaction hash mismatch");
     }
