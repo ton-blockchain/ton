@@ -138,8 +138,7 @@ td::Result<TransactionEmulator::EmulationSuccess> TransactionEmulator::emulate_t
       
       if (emulation_not_accepted_ptr == nullptr) {
         return td::Status::Error("emulation failed");
-      }
-      else {
+      } else {
         return td::Status::Error( PSTRING()
           << "VM Log: " << emulation_not_accepted_ptr->vm_log 
           << ", VM Exit Code: " << emulation_not_accepted_ptr->vm_exit_code 
