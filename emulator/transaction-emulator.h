@@ -9,7 +9,7 @@
 
 namespace emulator {
 class TransactionEmulator {
-  block::Config config_;
+  std::shared_ptr<block::Config> config_;
   vm::Dictionary libraries_;
   int vm_log_verbosity_;
   ton::UnixTime unixtime_;
@@ -20,7 +20,7 @@ class TransactionEmulator {
   td::Ref<vm::Tuple> prev_blocks_info_;
 
 public:
-  TransactionEmulator(block::Config&& config, int vm_log_verbosity = 0) :
+  TransactionEmulator(std::shared_ptr<block::Config> config, int vm_log_verbosity = 0) :
     config_(std::move(config)), libraries_(256), vm_log_verbosity_(vm_log_verbosity),
     unixtime_(0), lt_(0), rand_seed_(td::BitArray<256>::zero()), ignore_chksig_(false), debug_enabled_(false) {
   }
@@ -57,7 +57,7 @@ public:
   };
 
   const block::Config& get_config() {
-    return config_;
+    return *config_;
   }
 
   ton::UnixTime get_unixtime() {
@@ -74,7 +74,7 @@ public:
   void set_lt(ton::LogicalTime lt);
   void set_rand_seed(td::BitArray<256>& rand_seed);
   void set_ignore_chksig(bool ignore_chksig);
-  void set_config(block::Config &&config);
+  void set_config(std::shared_ptr<block::Config> config);
   void set_libs(vm::Dictionary &&libs);
   void set_debug_enabled(bool debug_enabled);
   void set_prev_blocks_info(td::Ref<vm::Tuple> prev_blocks_info);
