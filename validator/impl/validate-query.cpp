@@ -5226,10 +5226,7 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
   td::optional<block::MsgMetadata> new_msg_metadata;
   if (msg_metadata_enabled_) {
     if (external || is_special_tx || tag != block::gen::TransactionDescr::trans_ord) {
-      new_msg_metadata = block::MsgMetadata{.depth = 0,
-                                            .initiator_wc = account.workchain,
-                                            .initiator_addr = account.addr,
-                                            .initiator_lt = (LogicalTime)trans.lt};
+      new_msg_metadata = block::MsgMetadata{0, account.workchain, account.addr, (LogicalTime)trans.lt};
     } else if (in_msg_metadata) {
       new_msg_metadata = std::move(in_msg_metadata);
       ++new_msg_metadata.value().depth;

@@ -2695,8 +2695,7 @@ bool Collator::create_ticktock_transaction(const ton::StdSmcAddress& smc_addr, t
         td::Status::Error(-666, std::string{"cannot commit new transaction for smart contract "} + smc_addr.to_hex()));
   }
   update_max_lt(acc->last_trans_end_lt_);
-  block::MsgMetadata new_msg_metadata{
-      .depth = 0, .initiator_wc = acc->workchain, .initiator_addr = acc->addr, .initiator_lt = trans->start_lt};
+  block::MsgMetadata new_msg_metadata{0, acc->workchain, acc->addr, trans->start_lt};
   register_new_msgs(*trans, std::move(new_msg_metadata));
   return true;
 }
@@ -2791,8 +2790,7 @@ Ref<vm::Cell> Collator::create_ordinary_transaction(Ref<vm::Cell> msg_root,
 
   td::optional<block::MsgMetadata> new_msg_metadata;
   if (external || is_special_tx) {
-    new_msg_metadata = block::MsgMetadata{
-        .depth = 0, .initiator_wc = acc->workchain, .initiator_addr = acc->addr, .initiator_lt = trans->start_lt};
+    new_msg_metadata = block::MsgMetadata{0, acc->workchain, acc->addr, trans->start_lt};
   } else if (msg_metadata) {
     new_msg_metadata = std::move(msg_metadata);
     ++new_msg_metadata.value().depth;
@@ -3101,12 +3099,7 @@ int Collator::process_one_new_message(block::NewOutMsg msg, bool enqueue_only, R
     return -1;
   }
   // 2. create a MsgEnvelope enveloping this Message
-  block::tlb::MsgEnvelope::Record_std msg_env_rec{.cur_addr = 0x60,
-                                                  .next_addr = 0x60,
-                                                  .fwd_fee_remaining = fwd_fees,
-                                                  .msg = msg.msg,
-                                                  .emitted_lt = {},
-                                                  .metadata = msg.metadata};
+  block::tlb::MsgEnvelope::Record_std msg_env_rec{0x60, 0x60, fwd_fees, msg.msg, {}, msg.metadata};
   Ref<vm::Cell> msg_env;
   CHECK(block::tlb::pack_cell(msg_env, msg_env_rec));
   if (verbosity > 2) {
@@ -3203,12 +3196,8 @@ bool Collator::enqueue_transit_message(Ref<vm::Cell> msg, Ref<vm::Cell> old_msg_
   fwd_fee_remaining -= transit_fee;
   CHECK(td::sgn(transit_fee) >= 0 && td::sgn(fwd_fee_remaining) >= 0);
   // 3. create a new MsgEnvelope
-  block::tlb::MsgEnvelope::Record_std msg_env_rec{.cur_addr = route_info.first,
-                                                  .next_addr = route_info.second,
-                                                  .fwd_fee_remaining = fwd_fee_remaining,
-                                                  .msg = msg,
-                                                  .emitted_lt = emitted_lt,
-                                                  .metadata = std::move(msg_metadata)};
+  block::tlb::MsgEnvelope::Record_std msg_env_rec{route_info.first, route_info.second,      fwd_fee_remaining, msg,
+                                                  emitted_lt,       std::move(msg_metadata)};
   Ref<vm::Cell> msg_env;
   CHECK(block::tlb::t_MsgEnvelope.pack_cell(msg_env, msg_env_rec));
   // 4. create InMsg
@@ -3970,12 +3959,8 @@ bool Collator::enqueue_message(block::NewOutMsg msg, td::RefInt256 fwd_fees_rema
     return fatal_error("cannot perform hypercube routing for a new outbound message");
   }
   // 2. create a new MsgEnvelope
-  block::tlb::MsgEnvelope::Record_std msg_env_rec{.cur_addr = defer ? 0 : route_info.first,
-                                                  .next_addr = defer ? 0 : route_info.second,
-                                                  .fwd_fee_remaining = fwd_fees_remaining,
-                                                  .msg = msg.msg,
-                                                  .emitted_lt = {},
-                                                  .metadata = msg.metadata};
+  block::tlb::MsgEnvelope::Record_std msg_env_rec{
+      defer ? 0 : route_info.first, defer ? 0 : route_info.second, fwd_fees_remaining, msg.msg, {}, msg.metadata};
   Ref<vm::Cell> msg_env;
   CHECK(block::tlb::pack_cell(msg_env, msg_env_rec));
   // 3. create a new OutMsg
