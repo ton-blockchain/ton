@@ -2,8 +2,23 @@ library TVM_Disasm
 // simple TVM Disassembler
 "Lists.fif" include
 
+variable @vmlibs dictnew @vmlibs !
+{ 256 u@ dup @vmlibs @ 256 udict@ } : vmlib@
+{ 8 u@+ swap 2 = } : libspecial?
+
 variable 'disasm
 { 'disasm @ execute } : disasm  // disassemble a slice
+{ <spec {
+    libspecial? {
+         vmlib@ {
+            ."// LIB: " swap X. cr ref@ <s disasm
+          } {
+            drop // Lib not found
+         } cond
+    } {
+        drop // Only library special cell supported
+    } cond
+ } { disasm } cond } : disasmc  // disassemble a cell
 // usage: x{74B0} disasm
 
 variable @dismode  @dismode 0!
@@ -11,7 +26,6 @@ variable @dismode  @dismode 0!
 { -2 0 @dismode andxor! } : stack-disasm  // output 's1 s4 XCHG'
 { -2 1 @dismode andxor! } : std-disasm    // output 'XCHG s1, s4'
 { -3 2 @dismode andxor! } : show-vm-code
-{ -3 0 @dismode andxor! } : hide-vm-code
 { @dismode @ 1 and 0= } : stack-disasm?
 
 variable @indent  @indent 0!
@@ -45,7 +59,7 @@ variable @indent  @indent 0!
     drop dup count 2 = stack-disasm? and { second `LSHIFT# swap pair } if } {
   dup `RSHIFT eq? {
     drop dup count 2 = stack-disasm? and { second `RSHIFT# swap pair } if } {
-  drop 
+  drop
   } cond } cond } cond
 } : adjust-op
 
@@ -56,12 +70,32 @@ variable @contX  variable @contY  variable @cdict
 { atom>$ type } : .atom
 { dup first .atom dup count 1 > { space 0 over count 2- { 1+ 2dup [] type .", " } swap times 1+ [] type } { drop } cond } : std-show-op
 { 0 over count 1- { 1+ 2dup [] type space } swap times drop first .atom } : stk-show-op
-{ @dismode @ 2 and { .indent ."// " @curop @ csr. } if } : .curop?
+
+{ ."// LIB: " swap X. cr ref@ <s +indent +indent disasm -indent -indent  } : .ilib-disasm
+{
+  @curop @ dup 8 u@
+  dup dup dup 0x88 = swap 0x89 = rot 0x8A = or or { // PUSHREF, PUSHREFSLICE, PUSHREFCONT
+    drop ref@ <spec { libspecial? { vmlib@ { .ilib-disasm }
+        { drop } cond
+     } { drop } cond
+    } { drop } cond
+  }
+  { // add IFREFELSE, ... opcodes if needed
+    2drop
+  } cond
+} : lib-disasm
+{
+  @dismode @ 2 and { .indent ."// " @curop @ csr. } if
+  lib-disasm
+} : .curop?
 { .curop? .indent @dismode @ 1 and ' std-show-op ' stk-show-op cond cr
 } : show-simple-op
 { dup 4 u@ 9 = { 8 u@+ swap 15 and 3 << s@ } {
   dup 7 u@ 0x47 = { 7 u@+ nip 2 u@+ 7 u@+ -rot 3 << swap sr@ } {
-  dup 8 u@ 0x8A = { ref@ <s } {
+  dup 8 u@ 0x8A = { ref@ <spec {
+    libspecial? {
+        vmlib@ { swap drop <s } { abort"Lib not found" } cond
+    } { abort"Invalid special cell" } } if  } {
   abort"invalid PUSHCONT"
   } cond } cond } cond
 } : get-cont-body
@@ -104,7 +138,7 @@ variable @contX  variable @contY  variable @cdict
   .indent type ." {" cr +indent @cdict @ @cdict null! unpair
   rot {
     swap .indent . ."=> <{" cr +indent disasm -indent .indent ."}>" cr true
-  } swap ' idictforeach ' dictforeach cond drop 
+  } swap ' idictforeach ' dictforeach cond drop
   -indent .indent ."}" cr
 } : show-const-dict-op
 
