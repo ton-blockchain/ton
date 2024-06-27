@@ -917,7 +917,7 @@ bool MsgEnvelope::pack(vm::CellBuilder& cb, const Record_std& data) const {
   }
   if (v2) {
     if (!(cb.store_bool_bool((bool)data.emitted_lt) &&
-          (!data.emitted_lt || cb.store_long_bool(data.emitted_lt.value(), 64)))) {  // emutted_lt:(Maybe uint64)
+          (!data.emitted_lt || cb.store_long_bool(data.emitted_lt.value(), 64)))) {  // emitted_lt:(Maybe uint64)
       return false;
     }
     if (!(cb.store_bool_bool((bool)data.metadata) &&
@@ -934,7 +934,7 @@ bool MsgEnvelope::pack_cell(td::Ref<vm::Cell>& cell, const Record_std& data) con
 }
 
 bool MsgEnvelope::get_emitted_lt(const vm::CellSlice& cs, unsigned long long& emitted_lt) const {
-  // Emitted lt is emnitted_lt from MsgEnvelope (if present), otherwise created_lt
+  // Emitted lt is emitted_lt from MsgEnvelope (if present), otherwise created_lt
   if (!cs.size_refs()) {
     return false;
   }

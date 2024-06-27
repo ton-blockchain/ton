@@ -2433,7 +2433,7 @@ bool remove_dispatch_queue_entry(vm::AugmentedDictionary& dispatch_queue, const 
 }
 
 bool MsgMetadata::unpack(vm::CellSlice& cs) {
-  // msg_metadata#01 depth:uint32 initiator_addr:MsgAddressInt initiator_lt:uint64 = MsgMetadata;
+  // msg_metadata#0 depth:uint32 initiator_addr:MsgAddressInt initiator_lt:uint64 = MsgMetadata;
   int tag;
   return cs.fetch_int_to(4, tag) && tag == 0 && cs.fetch_uint_to(32, depth) &&
          cs.prefetch_ulong(3) == 0b100 &&  // std address, no anycast
