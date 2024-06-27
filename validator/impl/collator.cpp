@@ -552,7 +552,7 @@ bool Collator::preprocess_prev_mc_state() {
 /**
  * Callback function called after retrieving the Masterchain state.
  *
- * @param res The retreived masterchain state.
+ * @param res The retrieved masterchain state.
  */
 void Collator::after_get_mc_state(td::Result<std::pair<Ref<MasterchainState>, BlockIdExt>> res) {
   LOG(WARNING) << "in Collator::after_get_mc_state()";
@@ -620,7 +620,7 @@ void Collator::after_get_shard_state(int idx, td::Result<Ref<ShardState>> res) {
  * Callback function called after retrieving block data for a previous block.
  *
  * @param idx The index of the previous block (0 or 1).
- * @param res The retreived block data.
+ * @param res The retreved block data.
  */
 void Collator::after_get_block_data(int idx, td::Result<Ref<BlockData>> res) {
   LOG(DEBUG) << "in Collator::after_get_block_data(" << idx << ")";
@@ -2637,7 +2637,7 @@ bool Collator::create_special_transactions() {
  *
  * @param smc_addr The address of the smart contract.
  * @param req_start_lt The requested start logical time for the transaction.
- * @param mask The value indicating wheter the thansaction is tick (mask == 2) or tock (mask == 1).
+ * @param mask The value indicating whether the thansaction is tick (mask == 2) or tock (mask == 1).
  *
  * @returns True if the transaction was created successfully, false otherwise.
  */
@@ -2934,7 +2934,7 @@ bool Collator::update_last_proc_int_msg(const std::pair<ton::LogicalTime, ton::B
  * Creates ticktock transactions for special accounts.
  * Used in masterchain collator.
  *
- * @param mask The value indicating wheter the thansactions are tick (mask == 2) or tock (mask == 1).
+ * @param mask The value indicating whether the thansactions are tick (mask == 2) or tock (mask == 1).
  *
  * @returns True if all ticktock transactions were successfully created, false otherwise.
  */

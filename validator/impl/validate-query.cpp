@@ -1707,7 +1707,7 @@ void ValidateQuery::after_get_aux_shard_state(ton::BlockIdExt blkid, td::Result<
  * @param wc_info The workchain information.
  * @param ccvc The Catchain validators configuration.
  *
- * @returns True if the validation wasa successful, false othewise.
+ * @returns True if the validation wasa successful, false otherwise.
  */
 bool ValidateQuery::check_one_shard(const block::McShardHash& info, const block::McShardHash* sibling,
                                     const block::WorkchainInfo* wc_info, const block::CatchainValidatorsConfig& ccvc) {
