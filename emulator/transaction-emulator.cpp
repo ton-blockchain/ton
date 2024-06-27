@@ -238,7 +238,9 @@ td::Result<std::unique_ptr<block::transaction::Transaction>> TransactionEmulator
     return td::Status::Error(-669,"cannot create action phase of a new transaction for smart contract "s + acc->addr.to_hex());
   }
 
-  if (trans->bounce_enabled && !trans->compute_phase->success && !trans->prepare_bounce_phase(*action_phase_cfg)) {
+  if (trans->bounce_enabled
+  && (!trans->compute_phase->success || trans->action_phase->state_exceeds_limits || trans->action_phase->bounce)
+  && !trans->prepare_bounce_phase(*action_phase_cfg)) {
     return td::Status::Error(-669,"cannot create bounce phase of a new transaction for smart contract "s + acc->addr.to_hex());
   }
 
