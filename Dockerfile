@@ -24,7 +24,7 @@ RUN mkdir build && \
 
 FROM ubuntu:22.04
 RUN apt-get update && \
-    apt-get install -y wget libatomic1 openssl libsecp256k1-dev libsodium-dev libmicrohttpd-dev liblz4-dev libjemalloc-dev htop net-tools netcat iptraf-ng jq && \
+    apt-get install -y wget curl libatomic1 openssl libsecp256k1-dev libsodium-dev libmicrohttpd-dev liblz4-dev libjemalloc-dev htop net-tools netcat iptraf-ng jq tcpdump  && \
     rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /var/ton-work/db /var/ton-work/scripts

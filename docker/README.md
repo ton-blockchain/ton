@@ -18,9 +18,9 @@ Below is the list of supported arguments and their default values:
 |:---------------|:------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:----------:|:-------------------------------------------------------:|
 | PUBLIC_IP      | This will be a public IP address of your TON node. Normally it is the same IP address as your server's external IP. This also can be your proxy server or load balancer IP address. |    yes     |                                                         |
 | GCONFURL       | TON mainnet global configuration file.                                                                                                                                              |     no     | https://api.tontech.io/ton/wallet-mainnet.autoconf.json |
-| VALIDATOR_PORT | UDP port that must be available from the outside. Used for communication with other nodes.                                                                                          |            |                          43677                          |
-| CONSOLE_PORT   | This TCP port is used to access validator's console. Not necessarily to be opened for external access.                                                                              |     no     |                          43678                          |
-| LITE_PORT      | Lite-server's TCP port. Used by lite-client.                                                                                                                                        |     no     |                          43679                          |
+| VALIDATOR_PORT | UDP port that must be available from the outside. Used for communication with other nodes.                                                                                          |            |                          30001                          |
+| CONSOLE_PORT   | This TCP port is used to access validator's console. Not necessarily to be opened for external access.                                                                              |     no     |                          30002                          |
+| LITE_PORT      | Lite-server's TCP port. Used by lite-client.                                                                                                                                        |     no     |                          30003                          |
 | LITESERVER     | true or false. Set to true if you want up and running lite-server.                                                                                                                  |     no     |                          false                          |
 | STATE_TTL      | Node's state will be gc'd after this time (in seconds).                                                                                                                             |     no     |                          86400                          |
 | ARCHIVE_TTL    | Node's archived blocks will be deleted after this time (in seconds).                                                                                                                |     no     |                          86400                          |
@@ -37,7 +37,12 @@ This approach simplifies networking configuration for the container, and usually
 
 Keep in mind that this option can also introduce security concerns because the container has access to the host's network interfaces directly, which might not be desirable in a multi-tenant environment.
 
-Check your firewall configuration and make sure that at least UDP port 43677 is publicly available.  
+Check your firewall configuration and make sure that at least UDP port 43677 is publicly available.
+Find out your PUBLIC_IP:
+```
+curl -4 ifconfig.me
+```
+and put in the command below:
 ```
 docker run -d --name ton-node -v /data/db:/var/ton-work/db \
 -e "HOST_IP=<YOUR_PUBLIC_IP>" \
@@ -69,9 +74,11 @@ Adjust ports per your need.
 Check your firewall configuration and make sure that customized ports (443/udp, 88/tcp and 443/tcp in this example) are publicly available.
 
 ### Test if TON node operating correctly
+After executing above command check the log files:
+
 ```docker logs ton-node```
 
-This is totally fine if in the log output for some time (up to 30 minutes) you see messages like below:
+This is totally fine if in the log output for some time (up to 15 minutes) you see messages like:
 
 ```log
 failed to download proof link: [Error : 651 : no nodes]
@@ -125,12 +132,12 @@ If you can't make it working, refer to the **Troubleshooting** section below.
 ### Use validator-engine-console
 ```docker exec -ti ton-node /bin/bash```
 
-```validator-engine-console -k /var/ton-work/keys/client -p /var/ton-work/keys/server.pub -a 127.0.0.1:$(jq .control[].port <<< cat /var/ton-work/db/config.json)```
+```validator-engine-console -k client -p server.pub -a 127.0.0.1:$(jq .control[].port <<< cat /var/ton-work/db/config.json)```
 
 ### Use lite-client
 ```docker exec -ti ton-node /bin/bash```
 
-```lite-client -p /var/ton-work/keys/liteserver.pub -a 127.0.0.1:$(jq .liteservers[].port <<< cat /var/ton-work/db/config.json)```
+```lite-client -p liteserver.pub -a 127.0.0.1:$(jq .liteservers[].port <<< cat /var/ton-work/db/config.json)```
 
 If you use lite-client outside the Docker container, copy the **liteserver.pub** from the container:
 
@@ -138,13 +145,99 @@ If you use lite-client outside the Docker container, copy the **liteserver.pub**
 
 ```lite-client -p /your/path/liteserver.pub -a <PUBLIC_IP>:<LITE_PORT>```
 
+### Stop TON docker container
+```
+docker stop ton-node
+```
+
 ## Kubernetes
-todo
+### Run the pod - the quick way
+If the nodes within your kubernetes cluster have external IPs, 
+make sure that the PUBLIC_IP used for validator-engine matches the node's external IP.
+If all Kubernetes nodes are inside DMZ - skip this section.
+
+If you are using **flannel** network driver you can find node's IP this way: 
+```yaml
+kubectl get nodes
+kubectl describe node <YOUR_NODE_NAME> | grep public-ip
+```
+for **calico** driver use:
+```yaml
+kubectl describe node <YOUR_NODE_NAME> | grep IPv4Address
+```
+Double check if your Kubernetes node's external IP coincides with the host's IP address:
+```
+curl -4 ifconfig.me
+```
+If IPs do not match, refer to the section **Run the pod - the secured way**.
+
+Add a label to this particular node. By this label our pod will know where to be deployed:  
+```
+kubectl label nodes <YOUR_NODE_NAME> node_type=ton-validator
+```
+replace _<YOUR_NODE_PUBLIC_IP>_ (and ports if needed) in file **ton-node-port.yaml** and deploy the pod. 
+If you change the ports, make sure you specify appropriate env vars in Pod section.
+```yaml
+kubectl apply -f ton-node-port.yaml
+```
+this deployment uses host's network stack (**hostNetwork: true**) option and service of **NodePort** type.
+Actually you can also use service of type **LoadBalancer**.
+This way your service will get public IP assigned to the endpoints.
+
+See if service endpoints were correctly created:
+
+```yaml
+kubectl get endpoints
+
+NAME                   ENDPOINTS
+validator-engine-srv   <YOUR_NODE_PUBLIC_IP>:30002,<YOUR_NODE_PUBLIC_IP>:30001,<YOUR_NODE_PUBLIC_IP>:30003
+```
+Check the logs for the deployment status:
+```yaml
+kubectl logs validator-engine-pod
+```
+or go inside the pod and check if blockchain size is growing:
+```yaml
+cdu -h .
+```
+### Run the pod - the secured way
+
+Often Kubernetes cluster is located in DMZ, is behind corporate firewall and access is controlled via proxy configuration.
+In this case we can't use  host's network stack (**hostNetwork: true**) within a Pod and must manually proxy the access to the pod.
+
+A **LoadBalancer** service type automatically provisions an external load balancer (such as those provided by cloud providers like AWS, GCP, Azure) and assigns a public IP address to your service. In a non-cloud environment or in a DMZ setup, you need to manually configure the load balancer.
+
+If you are running your Kubernetes cluster on-premises or in an environment where an external load balancer is not automatically provided, you can use a load balancer implementation like MetalLB.
+### Install and Configure MetalLB (if not using cloud provider)
+
+#### Install MetalLB
+```yaml
+kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.14.5/config/manifests/metallb-native.yaml
+```
+
+#### Configure MetalLB
+Create a configuration map to define the IP address range that MetalLB can use for external load balancer services.
+```yaml
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: first-pool
+  namespace: metallb-system
+spec:
+  addresses:
+    - 10.244.1.0/24 <-- your CIDR address
+```
+apply configuration
+```yaml
+kubectl apply -f metallb-config.yaml
+```
+WIP
+
 ## Troubleshooting
 
 ### TON node cannot synchronize, constantly see messages [Error : 651 : no nodes] in the log
 
-Get inside the container:
+Start the new container without starting validator-engine:
 
 ```
 docker run -it -v /data/db:/var/ton-work/db \
@@ -159,22 +252,25 @@ ghcr.io/ton-blockchain/ton
 ```
 identify your PUBLIC_IP:
 ```
-wget -qO - icanhazip.com
+curl -4 ifconfig.me
 ```
 compare if resulted IP coincides with your <PUBLIC_IP>. 
 If it doesn't, exit container and launch it with the correct public IP.
 Then open UDP port (inside the container) you plan to allocate for TON node using netcat utility:
 ```
-nc -ul 43677
+nc -ul 30001
 ```
 and from any **other** linux machine check if you can reach this UDP port by sending a test message to that port:
 ```
-other-server> echo "test" | nc -u <PUBLIC_IP> 43677
+other-server>echo "test" | nc -u <PUBLIC_IP> 30001  
 ```
 as a result inside the container you have to receive the "test" message.
 
-If you don't get the message inside the docker container, that means that either your firewall, NAT or proxy is blocking it.
+If you don't get the message inside the docker container, that means that either your firewall, LoadBalancer, NAT or proxy is blocking it.
 Ask your system administrator for assistance. 
+
+### Standalone TON docker container works fine, but in Kubernetes fails to synchronize
+todo
 
 ### Can't connect to lite-server
 * check if lite-server was enabled on start by passing **"LITESERVER=true"** argument;
@@ -187,7 +283,7 @@ There is available a traffic monitoring utility inside the container, just execu
 ```
 iptraf-ng
 ```
-Other tools like **nc**, **wget**, **ifconfig** and **netstat** are also available.
+Other tools like **tcpdump**, **nc**, **wget**, **curl**, **ifconfig** and **netstat** are also available.
 
 ### How to build TON docker image from sources?
 ```

@@ -10,7 +10,7 @@ else
 fi
 
 if [ -z "$VALIDATOR_PORT" ]; then
-    VALIDATOR_PORT=43677
+    VALIDATOR_PORT=30001
     echo -e "\e[1;33m[=]\e[0m Using default VALIDATOR_PORT $VALIDATOR_PORT udp"
 else
     echo -e "\e[1;33m[=]\e[0m Using VALIDATOR_PORT $VALIDATOR_PORT udp"
@@ -60,7 +60,7 @@ else
 fi
 
 if [ -z "$CONSOLE_PORT" ]; then
-    CONSOLE_PORT=43678
+    CONSOLE_PORT=30002
     echo -e "\e[1;33m[=]\e[0m Using default CONSOLE_PORT $CONSOLE_PORT tcp"
 else
     echo -e "\e[1;33m[=]\e[0m Using CONSOLE_PORT $CONSOLE_PORT tcp"
@@ -102,7 +102,7 @@ else
         cp liteserver /var/ton-work/db/keyring/$LITESERVER_ID1
 
         if [ -z "$LITE_PORT" ]; then
-            LITE_PORT=43679
+            LITE_PORT=30003
             echo -e "\e[1;33m[=]\e[0m Using default LITE_PORT $LITE_PORT tcp"
         else
             echo -e "\e[1;33m[=]\e[0m Using LITE_PORT $LITE_PORT tcp"
