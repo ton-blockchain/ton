@@ -45,8 +45,8 @@ curl -4 ifconfig.me
 and put in the command below:
 ```
 docker run -d --name ton-node -v /data/db:/var/ton-work/db \
--e "HOST_IP=<YOUR_PUBLIC_IP>" \
--e "PUBLIC_IP=<YOUR_PUBLIC_IP>" \
+-e "HOST_IP=<PUBLIC_IP>" \
+-e "PUBLIC_IP=<PUBLIC_IP>" \
 -e "LITESERVER=true" \
 --network host \
 -it ghcr.io/ton-blockchain/ton
@@ -59,8 +59,8 @@ When you use port mapping, Docker allocates a specific port on the host to forwa
 This is ideal for running multiple containers with isolated networks on the same host.
 ```
 docker run -d --name ton-node -v /data/db:/var/ton-work/db \
--e "HOST_IP=<YOUR_PUBLIC_IP>" \
--e "PUBLIC_IP=<YOUR_PUBLIC_IP>" \
+-e "HOST_IP=<PUBLIC_IP>" \
+-e "PUBLIC_IP=<PUBLIC_IP>" \
 -e "VALIDATOR_PORT=443" \
 -e "CONSOLE_PORT=88" \
 -e "LITE_PORT=443" \
@@ -159,11 +159,11 @@ If all Kubernetes nodes are inside DMZ - skip this section.
 If you are using **flannel** network driver you can find node's IP this way: 
 ```yaml
 kubectl get nodes
-kubectl describe node <YOUR_NODE_NAME> | grep public-ip
+kubectl describe node <NODE_NAME> | grep public-ip
 ```
 for **calico** driver use:
 ```yaml
-kubectl describe node <YOUR_NODE_NAME> | grep IPv4Address
+kubectl describe node <NODE_NAME> | grep IPv4Address
 ```
 Double check if your Kubernetes node's external IP coincides with the host's IP address:
 ```
@@ -173,16 +173,18 @@ If IPs do not match, refer to the section **Run the pod - the secured way**.
 
 Add a label to this particular node. By this label our pod will know where to be deployed:  
 ```
-kubectl label nodes <YOUR_NODE_NAME> node_type=ton-validator
+kubectl label nodes <NODE_NAME> node_type=ton-validator
 ```
-replace _<YOUR_NODE_PUBLIC_IP>_ (and ports if needed) in file **ton-node-port.yaml** and deploy the pod. 
+replace _<NODE_PUBLIC_IP>_ (and ports if needed) in file **ton-node-port.yaml** and deploy the pod. 
 If you change the ports, make sure you specify appropriate env vars in Pod section.
+
 ```yaml
 kubectl apply -f ton-node-port.yaml
 ```
+
 this deployment uses host's network stack (**hostNetwork: true**) option and service of **NodePort** type.
 Actually you can also use service of type **LoadBalancer**.
-This way your service will get public IP assigned to the endpoints.
+This way the service will get public IP assigned to the endpoints.
 
 See if service endpoints were correctly created:
 
@@ -190,7 +192,7 @@ See if service endpoints were correctly created:
 kubectl get endpoints
 
 NAME                   ENDPOINTS
-validator-engine-srv   <YOUR_NODE_PUBLIC_IP>:30002,<YOUR_NODE_PUBLIC_IP>:30001,<YOUR_NODE_PUBLIC_IP>:30003
+validator-engine-srv   <NODE_PUBLIC_IP>:30002,<NODE_PUBLIC_IP>:30001,<NODE_PUBLIC_IP>:30003
 ```
 Check the logs for the deployment status:
 ```yaml
@@ -208,14 +210,14 @@ In this case we can't use  host's network stack (**hostNetwork: true**) within a
 A **LoadBalancer** service type automatically provisions an external load balancer (such as those provided by cloud providers like AWS, GCP, Azure) and assigns a public IP address to your service. In a non-cloud environment or in a DMZ setup, you need to manually configure the load balancer.
 
 If you are running your Kubernetes cluster on-premises or in an environment where an external load balancer is not automatically provided, you can use a load balancer implementation like MetalLB.
-### Install and Configure MetalLB (if not using cloud provider)
+#### Installation when your Kubernetes cluster runs on-premises (not using cloud provider)
 
-#### Install MetalLB
+* Install MetalLB
 ```yaml
 kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.14.5/config/manifests/metallb-native.yaml
 ```
 
-#### Configure MetalLB
+* Configure MetalLB
 Create a configuration map to define the IP address range that MetalLB can use for external load balancer services.
 ```yaml
 apiVersion: metallb.io/v1beta1
@@ -231,7 +233,49 @@ apply configuration
 ```yaml
 kubectl apply -f metallb-config.yaml
 ```
-WIP
+* Install TON docker container
+
+Update <PUBLIC_IP> fields and specify address from CIDR range in **ton-metal-lb.yaml** and Deploy TON docker container:
+
+```yaml
+kubectl apply -f ton-metal-lb.yaml
+```
+Assume your network CIDR (**--pod-network-cidr**) within cluster is 10.244.1.0/24, then you can compare the your output with the one below:
+```yaml
+kubectl get service
+
+NAME                   TYPE           CLUSTER-IP       EXTERNAL-IP   PORT(S)                                           AGE
+kubernetes             ClusterIP      <NOT_IMPORTANT>  <none>        443/TCP                                           28h
+validator-engine-srv   LoadBalancer   <NOT_IMPORTANT>  10.244.1.1    30001:30001/UDP,30002:30002/TCP,30003:30003/TCP   60m
+```
+you can see that endpoints are pointing to metal-LB subnet:
+```
+kubectl get endpoints
+
+NAME                   ENDPOINTS
+kubernetes             <IP>:6443
+validator-engine-srv   10.244.1.10:30002,10.244.1.10:30001,10.244.1.10:30003
+```
+and metal-LB itself operates with the right endpoint:
+```
+kubectl describe service metallb-webhook-service -n metallb-system
+
+Name:              metallb-webhook-service
+Namespace:         metallb-system
+Selector:          component=controller
+Type:              ClusterIP
+IP:                <NOT_IMPORTANT_IP>
+IPs:               <NOT_IMPORTANT_IP>
+Port:              <unset>  443/TCP
+TargetPort:        9443/TCP
+Endpoints:         10.244.2.3:9443  <-- CIDR
+```
+
+Use the commands from the previous chapter to see if node operates properly.
+
+#### Installation when your Kubernetes cluster runs within cloud provider
+
+todo
 
 ## Troubleshooting
 

@@ -5,24 +5,14 @@ metadata:
   labels:
     name: validator-engine-pod
 spec:
-  affinity:
-    nodeAffinity:
-      requiredDuringSchedulingIgnoredDuringExecution:
-        nodeSelectorTerms:
-          - matchExpressions:
-              - key: node_type
-                operator: In
-                values:
-                  - ton-validator
-  hostNetwork: true
   containers:
     - name: validator-engine-container
       image: ghcr.io/neodix42/ton:latest
       env:
         - name: HOST_IP
-          value: "<NODE_PUBLIC_IP>"
+          value: "<PUBLIC_IP>"
         - name: PUBLIC_IP
-          value: "<NODE_PUBLIC_IP>"
+          value: "<PUBLIC_IP>"
         - name: LITESERVER
           value: "true"
 ---
@@ -30,8 +20,10 @@ kind: Service
 apiVersion: v1
 metadata:
   name: validator-engine-srv
+  annotations:
+    metallb.universe.tf/address-pool: first-pool
 spec:
-  type: NodePort # can also be LoadBalancer
+  type: LoadBalancer
   ports:
     - name: validator-engine-public-udp-port
       nodePort: 30001
