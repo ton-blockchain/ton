@@ -57,7 +57,10 @@ enum GlobalCapabilities {
   capBounceMsgBody = 4,
   capReportVersion = 8,
   capSplitMergeTransactions = 16,
-  capShortDequeue = 32
+  capShortDequeue = 32,
+  capStoreOutMsgQueueSize = 64,
+  capMsgMetadata = 128,
+  capDeferMessages = 256
 };
 
 inline int shard_pfx_len(ShardId shard) {

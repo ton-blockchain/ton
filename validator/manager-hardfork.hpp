@@ -446,7 +446,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void log_new_validator_group_stats(validatorsession::NewValidatorGroupStats stats) override {
     UNREACHABLE();
   }
-  void get_out_msg_queue_size(BlockIdExt block_id, td::Promise<td::uint32> promise) override {
+  void get_out_msg_queue_size(BlockIdExt block_id, td::Promise<td::uint64> promise) override {
     if (queue_size_counter_.empty()) {
       queue_size_counter_ =
           td::actor::create_actor<QueueSizeCounter>("queuesizecounter", td::Ref<MasterchainState>{}, actor_id(this));
