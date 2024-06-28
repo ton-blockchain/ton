@@ -2297,9 +2297,14 @@ bool ValidateQuery::prepare_out_msg_queue_size() {
   if (ps_.out_msg_queue_size_) {
     // if after_split then out_msg_queue_size is always present, since it is calculated during split
     old_out_msg_queue_size_ = ps_.out_msg_queue_size_.value();
+    out_msg_queue_size_known_ = true;
+    return true;
+  }
+  if (!store_out_msg_queue_size_) {  // Don't need it
     return true;
   }
   old_out_msg_queue_size_ = 0;
+  out_msg_queue_size_known_ = true;
   for (size_t i = 0; i < prev_blocks.size(); ++i) {
     ++pending;
     send_closure_later(manager, &ValidatorManager::get_out_msg_queue_size, prev_blocks[i],
@@ -3363,7 +3368,9 @@ bool ValidateQuery::precheck_message_queue_update() {
     return reject_query("invalid OutMsgQueue dictionary difference between the old and the new state: "s +
                         err.get_msg());
   }
-  LOG(INFO) << "outbound message queue size: " << old_out_msg_queue_size_ << " -> " << new_out_msg_queue_size_;
+  if (out_msg_queue_size_known_) {
+    LOG(INFO) << "outbound message queue size: " << old_out_msg_queue_size_ << " -> " << new_out_msg_queue_size_;
+  }
   if (store_out_msg_queue_size_) {
     if (!ns_.out_msg_queue_size_) {
       return reject_query(PSTRING() << "outbound message queue size in the new state is not correct (expected: "

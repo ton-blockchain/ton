@@ -236,6 +236,7 @@ class ValidateQuery : public td::actor::Actor {
   std::map<std::pair<StdSmcAddress, td::uint64>, Ref<vm::Cell>> new_dispatch_queue_messages_;
   std::set<StdSmcAddress> account_expected_defer_all_messages_;
   td::uint64 old_out_msg_queue_size_ = 0, new_out_msg_queue_size_ = 0;
+  bool out_msg_queue_size_known_ = false;
 
   bool msg_metadata_enabled_ = false;
   bool deferring_messages_enabled_ = false;
