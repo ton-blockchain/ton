@@ -191,9 +191,7 @@ void CollatorNode::update_validator_group_info(ShardIdFull shard, std::vector<Bl
           }
           ++cache_it;
         }
-        if (do_pregen_) {
-          generate_block(shard, cc_seqno, info.prev, td::Timestamp::in(10.0), [](td::Result<BlockCandidate>) {});
-        }
+        generate_block(shard, cc_seqno, info.prev, td::Timestamp::in(10.0), [](td::Result<BlockCandidate>) {});
       }
       return;
     }

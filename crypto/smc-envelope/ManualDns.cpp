@@ -105,7 +105,7 @@ td::Result<td::Ref<vm::Cell>> DnsInterface::EntryData::as_cell() const {
     return error;
   }
   if (res.is_null()) {
-    return td::Status::Error("Entry data is emtpy");
+    return td::Status::Error("Entry data is empty");
   }
   return res;
   //dns_text#1eda _:Text = DNSRecord;

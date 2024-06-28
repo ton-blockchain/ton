@@ -69,9 +69,7 @@ static td::Result<std::vector<td::int32>> process_queue(
   std::vector<block::OutputQueueMerger::Neighbor> neighbors;
   for (auto& b : blocks) {
     TRY_STATUS_PREFIX(check_no_prunned(*b.second.proc_info), "invalid proc_info proof: ")
-    TRY_STATUS_PREFIX(check_no_prunned(*b.second.ihr_pending), "invalid ihr_pending proof: ")
     dfs_cs(*b.second.proc_info);
-    dfs_cs(*b.second.ihr_pending);
     neighbors.emplace_back(b.first, b.second.out_queue->prefetch_ref());
   }
 

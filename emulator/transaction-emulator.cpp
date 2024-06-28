@@ -130,17 +130,28 @@ td::Result<TransactionEmulator::EmulationSuccess> TransactionEmulator::emulate_t
     }
 
     TRY_RESULT(emulation, emulate_transaction(std::move(account), msg_root, utime, lt, trans_type));
+    
+    if (auto emulation_result_ptr = dynamic_cast<EmulationSuccess*>(emulation.get())) {
+      auto& emulation_result = *emulation_result_ptr;     
+    
+      if (td::Bits256(emulation_result.transaction->get_hash().bits()) != td::Bits256(original_trans->get_hash().bits())) {
+        return td::Status::Error("transaction hash mismatch");
+      }
 
-    auto emulation_result = dynamic_cast<EmulationSuccess&>(*emulation);
-    if (td::Bits256(emulation_result.transaction->get_hash().bits()) != td::Bits256(original_trans->get_hash().bits())) {
-      return td::Status::Error("transaction hash mismatch");
+      if (!check_state_update(emulation_result.account, record_trans)) {
+        return td::Status::Error("account hash mismatch");
+      }
+
+      return emulation_result;
+
+    } else if (auto emulation_not_accepted_ptr = dynamic_cast<EmulationExternalNotAccepted*>(emulation.get())) {
+      return td::Status::Error( PSTRING()
+        << "VM Log: " << emulation_not_accepted_ptr->vm_log 
+        << ", VM Exit Code: " << emulation_not_accepted_ptr->vm_exit_code 
+        << ", Elapsed Time: " << emulation_not_accepted_ptr->elapsed_time);
+    } else {
+       return td::Status::Error("emulation failed");
     }
-
-    if (!check_state_update(emulation_result.account, record_trans)) {
-      return td::Status::Error("account hash mismatch");
-    }
-
-    return emulation_result;
 }
 
 td::Result<TransactionEmulator::EmulationChain> TransactionEmulator::emulate_transactions_chain(block::Account&& account, std::vector<td::Ref<vm::Cell>>&& original_transactions) {
@@ -227,7 +238,9 @@ td::Result<std::unique_ptr<block::transaction::Transaction>> TransactionEmulator
     return td::Status::Error(-669,"cannot create action phase of a new transaction for smart contract "s + acc->addr.to_hex());
   }
 
-  if (trans->bounce_enabled && !trans->compute_phase->success && !trans->prepare_bounce_phase(*action_phase_cfg)) {
+  if (trans->bounce_enabled
+  && (!trans->compute_phase->success || trans->action_phase->state_exceeds_limits || trans->action_phase->bounce)
+  && !trans->prepare_bounce_phase(*action_phase_cfg)) {
     return td::Status::Error(-669,"cannot create bounce phase of a new transaction for smart contract "s + acc->addr.to_hex());
   }
 

@@ -256,7 +256,9 @@ class TestNode : public td::actor::Actor {
   bool get_block_transactions(ton::BlockIdExt blkid, int mode, unsigned count, ton::Bits256 acc_addr,
                               ton::LogicalTime lt);
   void got_block_transactions(ton::BlockIdExt blkid, int mode, unsigned req_count, bool incomplete,
-                              std::vector<TransId> trans, td::BufferSlice proof);
+                              std::vector<TransId> trans,
+                              std::vector<ton::tl_object_ptr<ton::lite_api::liteServer_transactionMetadata>> metadata,
+                              td::BufferSlice proof);
   bool get_block_proof(ton::BlockIdExt from, ton::BlockIdExt to, int mode);
   void got_block_proof(ton::BlockIdExt from, ton::BlockIdExt to, int mode, td::BufferSlice res);
   bool get_creator_stats(ton::BlockIdExt blkid, int mode, unsigned req_count, ton::Bits256 start_after,

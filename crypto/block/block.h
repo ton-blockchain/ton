@@ -431,6 +431,8 @@ struct ShardState {
   std::unique_ptr<vm::Dictionary> ihr_pending_;
   std::unique_ptr<vm::Dictionary> block_create_stats_;
   std::shared_ptr<block::MsgProcessedUptoCollection> processed_upto_;
+  std::unique_ptr<vm::AugmentedDictionary> dispatch_queue_;
+  td::optional<td::uint64> out_msg_queue_size_;
 
   bool is_valid() const {
     return id_.is_valid();
@@ -447,11 +449,10 @@ struct ShardState {
                               ton::BlockSeqno prev_mc_block_seqno, bool after_split, bool clear_history,
                               std::function<bool(ton::BlockSeqno)> for_each_mcseqno);
   td::Status merge_with(ShardState& sib);
-  td::Result<std::unique_ptr<vm::AugmentedDictionary>> compute_split_out_msg_queue(ton::ShardIdFull subshard,
-                                                                                   td::uint32* queue_size = nullptr);
+  td::Result<std::unique_ptr<vm::AugmentedDictionary>> compute_split_out_msg_queue(ton::ShardIdFull subshard);
   td::Result<std::shared_ptr<block::MsgProcessedUptoCollection>> compute_split_processed_upto(
       ton::ShardIdFull subshard);
-  td::Status split(ton::ShardIdFull subshard, td::uint32* queue_size = nullptr);
+  td::Status split(ton::ShardIdFull subshard);
   td::Status unpack_out_msg_queue_info(Ref<vm::Cell> out_msg_queue_info);
   bool clear_load_history() {
     overload_history_ = underload_history_ = 0;
@@ -672,7 +673,7 @@ class MtCarloComputeShare {
 };
 
 int filter_out_msg_queue(vm::AugmentedDictionary& out_queue, ton::ShardIdFull old_shard, ton::ShardIdFull subshard,
-                         td::uint32* queue_size = nullptr);
+                         td::uint64* queue_size = nullptr);
 
 std::ostream& operator<<(std::ostream& os, const ShardId& shard_id);
 
@@ -762,5 +763,26 @@ bool parse_hex_hash(td::Slice str, td::Bits256& hash);
 
 bool parse_block_id_ext(const char* str, const char* end, ton::BlockIdExt& blkid);
 bool parse_block_id_ext(td::Slice str, ton::BlockIdExt& blkid);
+
+bool unpack_account_dispatch_queue(Ref<vm::CellSlice> csr, vm::Dictionary& dict, td::uint64& dict_size);
+Ref<vm::CellSlice> pack_account_dispatch_queue(const vm::Dictionary& dict, td::uint64 dict_size);
+Ref<vm::CellSlice> get_dispatch_queue_min_lt_account(const vm::AugmentedDictionary& dispatch_queue,
+                                                     ton::StdSmcAddress& addr);
+bool remove_dispatch_queue_entry(vm::AugmentedDictionary& dispatch_queue, const ton::StdSmcAddress& addr,
+                                 ton::LogicalTime lt);
+
+struct MsgMetadata {
+  td::uint32 depth;
+  ton::WorkchainId initiator_wc;
+  ton::StdSmcAddress initiator_addr;
+  ton::LogicalTime initiator_lt;
+
+  bool unpack(vm::CellSlice& cs);
+  bool pack(vm::CellBuilder& cb) const;
+  std::string to_str() const;
+
+  bool operator==(const MsgMetadata& other) const;
+  bool operator!=(const MsgMetadata& other) const;
+};
 
 }  // namespace block

@@ -66,8 +66,11 @@ struct NewOutMsg {
   ton::LogicalTime lt;
   Ref<vm::Cell> msg;
   Ref<vm::Cell> trans;
-  NewOutMsg(ton::LogicalTime _lt, Ref<vm::Cell> _msg, Ref<vm::Cell> _trans)
-      : lt(_lt), msg(std::move(_msg)), trans(std::move(_trans)) {
+  unsigned msg_idx;
+  td::optional<MsgMetadata> metadata;
+  td::Ref<vm::Cell> msg_env_from_dispatch_queue;  // Not null if from dispatch queue; in this case lt is emitted_lt
+  NewOutMsg(ton::LogicalTime _lt, Ref<vm::Cell> _msg, Ref<vm::Cell> _trans, unsigned _msg_idx)
+      : lt(_lt), msg(std::move(_msg)), trans(std::move(_trans)), msg_idx(_msg_idx) {
   }
   bool operator<(const NewOutMsg& other) const& {
     return lt < other.lt || (lt == other.lt && msg->get_hash() < other.msg->get_hash());

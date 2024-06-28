@@ -23,8 +23,8 @@
 
 namespace ton::validator {
 
-static td::Result<td::uint32> calc_queue_size(const td::Ref<ShardState> &state) {
-  td::uint32 size = 0;
+static td::Result<td::uint64> calc_queue_size(const td::Ref<ShardState> &state) {
+  td::uint64 size = 0;
   TRY_RESULT(outq_descr, state->message_queue());
   block::gen::OutMsgQueueInfo::Record qinfo;
   if (!tlb::unpack_cell(outq_descr->root_cell(), qinfo)) {
@@ -41,8 +41,8 @@ static td::Result<td::uint32> calc_queue_size(const td::Ref<ShardState> &state) 
   return size;
 }
 
-static td::Result<td::uint32> recalc_queue_size(const td::Ref<ShardState> &state, const td::Ref<ShardState> &prev_state,
-                                                td::uint32 prev_size) {
+static td::Result<td::uint64> recalc_queue_size(const td::Ref<ShardState> &state, const td::Ref<ShardState> &prev_state,
+                                                td::uint64 prev_size) {
   TRY_RESULT(outq_descr, state->message_queue());
   block::gen::OutMsgQueueInfo::Record qinfo;
   if (!tlb::unpack_cell(outq_descr->root_cell(), qinfo)) {
@@ -56,7 +56,7 @@ static td::Result<td::uint32> recalc_queue_size(const td::Ref<ShardState> &state
     return td::Status::Error("invalid message queue");
   }
   vm::AugmentedDictionary prev_queue{prev_qinfo.out_queue->prefetch_ref(0), 352, block::tlb::aug_OutMsgQueue};
-  td::uint32 add = 0, rem = 0;
+  td::uint64 add = 0, rem = 0;
   bool ok = prev_queue.scan_diff(
       queue, [&](td::ConstBitPtr, int, td::Ref<vm::CellSlice> prev_val, td::Ref<vm::CellSlice> new_val) -> bool {
         if (prev_val.not_null()) {
@@ -88,11 +88,11 @@ void QueueSizeCounter::start_up() {
   alarm();
 }
 
-void QueueSizeCounter::get_queue_size(BlockIdExt block_id, td::Promise<td::uint32> promise) {
+void QueueSizeCounter::get_queue_size(BlockIdExt block_id, td::Promise<td::uint64> promise) {
   get_queue_size_ex(block_id, simple_mode_ || is_block_too_old(block_id), std::move(promise));
 }
 
-void QueueSizeCounter::get_queue_size_ex(ton::BlockIdExt block_id, bool calc_whole, td::Promise<td::uint32> promise) {
+void QueueSizeCounter::get_queue_size_ex(ton::BlockIdExt block_id, bool calc_whole, td::Promise<td::uint64> promise) {
   Entry &entry = results_[block_id];
   if (entry.done_) {
     promise.set_result(entry.queue_size_);
@@ -152,12 +152,12 @@ void QueueSizeCounter::get_queue_size_cont(BlockHandle handle, td::Ref<ShardStat
   }
 
   auto prev_block_id = handle->one_prev(true);
-  get_queue_size(prev_block_id, [=, SelfId = actor_id(this), manager = manager_](td::Result<td::uint32> R) {
+  get_queue_size(prev_block_id, [=, SelfId = actor_id(this), manager = manager_](td::Result<td::uint64> R) {
     if (R.is_error()) {
       td::actor::send_closure(SelfId, &QueueSizeCounter::on_error, state->get_block_id(), R.move_as_error());
       return;
     }
-    td::uint32 prev_size = R.move_as_ok();
+    td::uint64 prev_size = R.move_as_ok();
     td::actor::send_closure(
         manager, &ValidatorManager::wait_block_state_short, prev_block_id, 0, td::Timestamp::in(10.0),
         [=](td::Result<td::Ref<ShardState>> R) {
@@ -171,7 +171,7 @@ void QueueSizeCounter::get_queue_size_cont(BlockHandle handle, td::Ref<ShardStat
 }
 
 void QueueSizeCounter::get_queue_size_cont2(td::Ref<ShardState> state, td::Ref<ShardState> prev_state,
-                                            td::uint32 prev_size) {
+                                            td::uint64 prev_size) {
   BlockIdExt block_id = state->get_block_id();
   Entry &entry = results_[block_id];
   CHECK(entry.started_);
@@ -254,7 +254,7 @@ void QueueSizeCounter::process_top_shard_blocks_cont(td::Ref<MasterchainState> s
 
 void QueueSizeCounter::get_queue_size_ex_retry(BlockIdExt block_id, bool calc_whole, td::Promise<td::Unit> promise) {
   get_queue_size_ex(block_id, calc_whole,
-                    [=, promise = std::move(promise), SelfId = actor_id(this)](td::Result<td::uint32> R) mutable {
+                    [=, promise = std::move(promise), SelfId = actor_id(this)](td::Result<td::uint64> R) mutable {
                       if (R.is_error()) {
                         LOG(WARNING) << "Failed to calculate queue size for block " << block_id.to_str() << ": "
                                      << R.move_as_error();

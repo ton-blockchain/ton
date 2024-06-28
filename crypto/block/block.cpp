@@ -28,6 +28,7 @@
 #include "td/utils/tl_storers.h"
 #include "td/utils/misc.h"
 #include "td/utils/Random.h"
+#include "vm/fmt.hpp"
 
 namespace block {
 using namespace std::literals::string_literals;
@@ -642,7 +643,11 @@ bool EnqueuedMsgDescr::unpack(vm::CellSlice& cs) {
   }
   cur_prefix_ = interpolate_addr(src_prefix_, dest_prefix_, env.cur_addr);
   next_prefix_ = interpolate_addr(src_prefix_, dest_prefix_, env.next_addr);
-  lt_ = info.created_lt;
+  unsigned long long lt;
+  if (!tlb::t_MsgEnvelope.get_emitted_lt(vm::load_cell_slice(enq.out_msg), lt)) {
+    return invalidate();
+  }
+  lt_ = lt;
   enqueued_lt_ = enq.enqueued_lt;
   hash_ = env.msg->get_hash().bits();
   msg_ = std::move(env.msg);
@@ -888,12 +893,20 @@ td::Status ShardState::unpack_out_msg_queue_info(Ref<vm::Cell> out_msg_queue_inf
     return td::Status::Error(
         -666, "ProcessedInfo in the state of "s + id_.to_str() + " is invalid according to automated validity checks");
   }
-  if (!block::gen::t_IhrPendingInfo.validate_csr(1024, qinfo.ihr_pending)) {
-    return td::Status::Error(
-        -666, "IhrPendingInfo in the state of "s + id_.to_str() + " is invalid according to automated validity checks");
-  }
   processed_upto_ = block::MsgProcessedUptoCollection::unpack(ton::ShardIdFull(id_), std::move(qinfo.proc_info));
-  ihr_pending_ = std::make_unique<vm::Dictionary>(std::move(qinfo.ihr_pending), 320);
+  ihr_pending_ = std::make_unique<vm::Dictionary>(320);
+  if (qinfo.extra.write().fetch_long(1)) {
+    block::gen::OutMsgQueueExtra::Record extra;
+    if (!block::tlb::csr_unpack(qinfo.extra, extra)) {
+      return td::Status::Error(-666, "cannot unpack OutMsgQueueExtre in the state of "s + id_.to_str());
+    }
+    dispatch_queue_ = std::make_unique<vm::AugmentedDictionary>(extra.dispatch_queue, 256, tlb::aug_DispatchQueue);
+    if (extra.out_queue_size.write().fetch_long(1)) {
+      out_msg_queue_size_ = extra.out_queue_size->prefetch_ulong(48);
+    }
+  } else {
+    dispatch_queue_ = std::make_unique<vm::AugmentedDictionary>(256, tlb::aug_DispatchQueue);
+  }
   auto shard1 = id_.shard_full();
   td::BitArray<64> pfx{(long long)shard1.shard};
   int pfx_len = shard_prefix_length(shard1);
@@ -1024,6 +1037,17 @@ td::Status ShardState::merge_with(ShardState& sib) {
   underload_history_ = overload_history_ = 0;
   // 10. compute vert_seqno
   vert_seqno_ = std::max(vert_seqno_, sib.vert_seqno_);
+  // 11. merge dispatch_queue (same as account dict)
+  if (!dispatch_queue_->combine_with(*sib.dispatch_queue_)) {
+    return td::Status::Error(-666, "cannot merge dispatch queues of the two ancestors");
+  }
+  sib.dispatch_queue_.reset();
+  // 11. merge out_msg_queue_size
+  if (out_msg_queue_size_ && sib.out_msg_queue_size_) {
+    out_msg_queue_size_.value() += sib.out_msg_queue_size_.value();
+  } else {
+    out_msg_queue_size_ = {};
+  }
   // Anything else? add here
   // ...
 
@@ -1039,8 +1063,8 @@ td::Status ShardState::merge_with(ShardState& sib) {
   return td::Status::OK();
 }
 
-td::Result<std::unique_ptr<vm::AugmentedDictionary>> ShardState::compute_split_out_msg_queue(ton::ShardIdFull subshard,
-                                                                                             td::uint32* queue_size) {
+td::Result<std::unique_ptr<vm::AugmentedDictionary>> ShardState::compute_split_out_msg_queue(
+    ton::ShardIdFull subshard) {
   auto shard = id_.shard_full();
   if (!ton::shard_is_parent(shard, subshard)) {
     return td::Status::Error(-666, "cannot split subshard "s + subshard.to_str() + " from state of " + id_.to_str() +
@@ -1048,7 +1072,7 @@ td::Result<std::unique_ptr<vm::AugmentedDictionary>> ShardState::compute_split_o
   }
   CHECK(out_msg_queue_);
   auto subqueue = std::make_unique<vm::AugmentedDictionary>(*out_msg_queue_);
-  int res = block::filter_out_msg_queue(*subqueue, shard, subshard, queue_size);
+  int res = block::filter_out_msg_queue(*subqueue, shard, subshard);
   if (res < 0) {
     return td::Status::Error(-666, "error splitting OutMsgQueue of "s + id_.to_str());
   }
@@ -1070,7 +1094,7 @@ td::Result<std::shared_ptr<block::MsgProcessedUptoCollection>> ShardState::compu
   return std::move(sub_processed_upto);
 }
 
-td::Status ShardState::split(ton::ShardIdFull subshard, td::uint32* queue_size) {
+td::Status ShardState::split(ton::ShardIdFull subshard) {
   if (!ton::shard_is_parent(id_.shard_full(), subshard)) {
     return td::Status::Error(-666, "cannot split subshard "s + subshard.to_str() + " from state of " + id_.to_str() +
                                        " because it is not a parent");
@@ -1088,10 +1112,12 @@ td::Status ShardState::split(ton::ShardIdFull subshard, td::uint32* queue_size) 
   auto shard1 = id_.shard_full();
   CHECK(ton::shard_is_parent(shard1, subshard));
   CHECK(out_msg_queue_);
-  int res1 = block::filter_out_msg_queue(*out_msg_queue_, shard1, subshard, queue_size);
+  td::uint64 queue_size;
+  int res1 = block::filter_out_msg_queue(*out_msg_queue_, shard1, subshard, &queue_size);
   if (res1 < 0) {
     return td::Status::Error(-666, "error splitting OutMsgQueue of "s + id_.to_str());
   }
+  out_msg_queue_size_ = queue_size;
   LOG(DEBUG) << "split counters: " << res1;
   // 3. processed_upto
   LOG(DEBUG) << "splitting ProcessedUpto";
@@ -1121,6 +1147,11 @@ td::Status ShardState::split(ton::ShardIdFull subshard, td::uint32* queue_size) 
   // NB: if total_fees_extra will be allowed to be non-empty, split it here too
   // 7. reset overload/underload history
   overload_history_ = underload_history_ = 0;
+  // 8. split dispatch_queue (same as account dict)
+  LOG(DEBUG) << "splitting dispatch_queue";
+  CHECK(dispatch_queue_);
+  CHECK(dispatch_queue_->cut_prefix_subdict(pfx.bits(), pfx_len));
+  CHECK(dispatch_queue_->has_common_prefix(pfx.bits(), pfx_len));
   // 999. anything else?
   id_.id.shard = subshard.shard;
   id_.file_hash.set_zero();
@@ -1129,7 +1160,7 @@ td::Status ShardState::split(ton::ShardIdFull subshard, td::uint32* queue_size) 
 }
 
 int filter_out_msg_queue(vm::AugmentedDictionary& out_queue, ton::ShardIdFull old_shard, ton::ShardIdFull subshard,
-                         td::uint32* queue_size) {
+                         td::uint64* queue_size) {
   if (queue_size) {
     *queue_size = 0;
   }
@@ -1420,7 +1451,7 @@ bool ValueFlow::store(vm::CellBuilder& cb) const {
          && exported.store(cb2)                                         //   exported:CurrencyCollection
          && cb.store_ref_bool(cb2.finalize())                           // ]
          && fees_collected.store(cb)                                    // fees_collected:CurrencyCollection
-         && (burned.is_zero() || burned.store(cb))            // fees_burned:CurrencyCollection
+         && (burned.is_zero() || burned.store(cb))                      // fees_burned:CurrencyCollection
          && fees_imported.store(cb2)                                    // ^[ fees_imported:CurrencyCollection
          && recovered.store(cb2)                                        //    recovered:CurrencyCollection
          && created.store(cb2)                                          //    created:CurrencyCollection
@@ -1449,8 +1480,7 @@ bool ValueFlow::fetch(vm::CellSlice& cs) {
       from_prev_blk.validate_unpack(std::move(f2.r1.from_prev_blk)) &&
       to_next_blk.validate_unpack(std::move(f2.r1.to_next_blk)) &&
       imported.validate_unpack(std::move(f2.r1.imported)) && exported.validate_unpack(std::move(f2.r1.exported)) &&
-      fees_collected.validate_unpack(std::move(f2.fees_collected)) &&
-      burned.validate_unpack(std::move(f2.burned)) &&
+      fees_collected.validate_unpack(std::move(f2.fees_collected)) && burned.validate_unpack(std::move(f2.burned)) &&
       fees_imported.validate_unpack(std::move(f2.r2.fees_imported)) &&
       recovered.validate_unpack(std::move(f2.r2.recovered)) && created.validate_unpack(std::move(f2.r2.created)) &&
       minted.validate_unpack(std::move(f2.r2.minted))) {
@@ -2334,5 +2364,133 @@ bool parse_block_id_ext(const char* str, const char* end, ton::BlockIdExt& blkid
 bool parse_block_id_ext(td::Slice str, ton::BlockIdExt& blkid) {
   return parse_block_id_ext(str.begin(), str.end(), blkid);
 }
+
+bool unpack_account_dispatch_queue(Ref<vm::CellSlice> csr, vm::Dictionary& dict, td::uint64& dict_size) {
+  if (csr.not_null()) {
+    block::gen::AccountDispatchQueue::Record rec;
+    if (!block::tlb::csr_unpack(std::move(csr), rec)) {
+      return false;
+    }
+    dict = vm::Dictionary{rec.messages, 64};
+    dict_size = rec.count;
+    if (dict_size == 0 || dict.is_empty()) {
+      return false;
+    }
+  } else {
+    dict = vm::Dictionary{64};
+    dict_size = 0;
+  }
+  return true;
+}
+
+Ref<vm::CellSlice> pack_account_dispatch_queue(const vm::Dictionary& dict, td::uint64 dict_size) {
+  if (dict_size == 0) {
+    return {};
+  }
+  // _ messages:(HashmapE 64 EnqueuedMsg) count:uint48 = AccountDispatchQueue;
+  vm::CellBuilder cb;
+  CHECK(dict.append_dict_to_bool(cb));
+  cb.store_long(dict_size, 48);
+  return cb.as_cellslice_ref();
+}
+
+Ref<vm::CellSlice> get_dispatch_queue_min_lt_account(const vm::AugmentedDictionary& dispatch_queue,
+                                                     ton::StdSmcAddress& addr) {
+  // TODO: This can be done more effectively
+  vm::AugmentedDictionary queue{dispatch_queue.get_root(), 256, tlb::aug_DispatchQueue};
+  if (queue.is_empty()) {
+    return {};
+  }
+  auto root_extra = queue.get_root_extra();
+  if (root_extra.is_null()) {
+    return {};
+  }
+  ton::LogicalTime min_lt = root_extra->prefetch_long(64);
+  while (true) {
+    td::Bits256 key;
+    int pfx_len = queue.get_common_prefix(key.bits(), 256);
+    if (pfx_len < 0) {
+      return {};
+    }
+    if (pfx_len == 256) {
+      addr = key;
+      return queue.lookup(key);
+    }
+    key[pfx_len] = false;
+    vm::AugmentedDictionary queue_cut{queue.get_root(), 256, tlb::aug_DispatchQueue};
+    if (!queue_cut.cut_prefix_subdict(key.bits(), pfx_len + 1)) {
+      return {};
+    }
+    root_extra = queue_cut.get_root_extra();
+    if (root_extra.is_null()) {
+      return {};
+    }
+    ton::LogicalTime cut_min_lt = root_extra->prefetch_long(64);
+    if (cut_min_lt != min_lt) {
+      key[pfx_len] = true;
+    }
+    if (!queue.cut_prefix_subdict(key.bits(), pfx_len + 1)) {
+      return {};
+    }
+  }
+}
+
+bool remove_dispatch_queue_entry(vm::AugmentedDictionary& dispatch_queue, const ton::StdSmcAddress& addr,
+                                 ton::LogicalTime lt) {
+  auto account_dispatch_queue = dispatch_queue.lookup(addr);
+  if (account_dispatch_queue.is_null()) {
+    return false;
+  }
+  vm::Dictionary dict{64};
+  td::uint64 dict_size;
+  if (!unpack_account_dispatch_queue(std::move(account_dispatch_queue), dict, dict_size)) {
+    return false;
+  }
+  td::BitArray<64> key;
+  key.store_ulong(lt);
+  auto entry = dict.lookup_delete(key);
+  if (entry.is_null()) {
+    return false;
+  }
+  --dict_size;
+  account_dispatch_queue = pack_account_dispatch_queue(dict, dict_size);
+  if (account_dispatch_queue.not_null()) {
+    dispatch_queue.set(addr, account_dispatch_queue);
+  } else {
+    dispatch_queue.lookup_delete(addr);
+  }
+  return true;
+}
+
+bool MsgMetadata::unpack(vm::CellSlice& cs) {
+  // msg_metadata#0 depth:uint32 initiator_addr:MsgAddressInt initiator_lt:uint64 = MsgMetadata;
+  int tag;
+  return cs.fetch_int_to(4, tag) && tag == 0 && cs.fetch_uint_to(32, depth) &&
+         cs.prefetch_ulong(3) == 0b100 &&  // std address, no anycast
+         tlb::t_MsgAddressInt.extract_std_address(cs, initiator_wc, initiator_addr) &&
+         cs.fetch_uint_to(64, initiator_lt);
+}
+
+bool MsgMetadata::pack(vm::CellBuilder& cb) const {
+  // msg_metadata#0 depth:uint32 initiator_addr:MsgAddressInt initiator_lt:uint64 = MsgMetadata;
+  return cb.store_long_bool(0, 4) && cb.store_long_bool(depth, 32) &&
+         tlb::t_MsgAddressInt.store_std_address(cb, initiator_wc, initiator_addr) &&
+         cb.store_long_bool(initiator_lt, 64);
+}
+
+std::string MsgMetadata::to_str() const {
+  return PSTRING() << "[ depth=" << depth << " init=" << initiator_wc << ":" << initiator_addr.to_hex() << ":"
+                   << initiator_lt << " ]";
+}
+
+bool MsgMetadata::operator==(const MsgMetadata& other) const {
+  return depth == other.depth && initiator_wc == other.initiator_wc && initiator_addr == other.initiator_addr &&
+         initiator_lt == other.initiator_lt;
+}
+
+bool MsgMetadata::operator!=(const MsgMetadata& other) const {
+  return !(*this == other);
+}
+
 
 }  // namespace block
