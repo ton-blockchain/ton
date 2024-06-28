@@ -1,0 +1,46 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: validator-engine-pod
+  labels:
+    name: validator-engine-pod
+spec:
+  containers:
+    - name: validator-engine-container
+      image: ghcr.io/neodix42/ton:latest
+      env:
+        - name: HOST_IP
+          value: "<PUBLIC_IP>"
+        - name: PUBLIC_IP
+          value: "<PUBLIC_IP>"
+        - name: LITESERVER
+          value: "true"
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: validator-engine-srv
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: external
+    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+    service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
+spec:
+  type: LoadBalancer
+  ports:
+    - name: validator-engine-public-udp-port
+      nodePort: 30001
+      port: 30001
+      targetPort: 30001
+      protocol: UDP
+    - name: validator-console-tcp-port
+      nodePort: 30002
+      port: 30002
+      targetPort: 30002
+      protocol: TCP
+    - name: lite-server-tcp-port
+      nodePort: 30003
+      port: 30003
+      targetPort: 30003
+      protocol: TCP
+  selector:
+    name: validator-engine-pod

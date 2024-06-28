@@ -118,7 +118,7 @@ server version is too old (at least 1.1 with capabilities 1 required), some quer
 fatal error executing command-line queries, skipping the rest
 ```
 it means that the lite-server is up, but the node is not synchronized yet.
-Once the node is syncrhonized, the output of **last** command will be similar to this one:
+Once the node is synchronized, the output of **last** command will be similar to this one:
 
 ```
 conn ready
@@ -200,9 +200,10 @@ kubectl logs validator-engine-pod
 ```
 or go inside the pod and check if blockchain size is growing:
 ```yaml
-cdu -h .
+kubectl exec --stdin --tty validator-engine-pod -- /bin/bash
+du -h .
 ```
-### Run the pod - the secured way
+### Run the pod - on-premises with metalLB load balancer 
 
 Often Kubernetes cluster is located in DMZ, is behind corporate firewall and access is controlled via proxy configuration.
 In this case we can't use  host's network stack (**hostNetwork: true**) within a Pod and must manually proxy the access to the pod.
@@ -273,12 +274,25 @@ Endpoints:         10.244.2.3:9443  <-- CIDR
 
 Use the commands from the previous chapter to see if node operates properly.
 
-#### Installation when your Kubernetes cluster runs within cloud provider
+### Run the pod - AWS cloud (Amazon)
+
+#### Prerequisites
+* AWS EKS is configured with worker nodes with selected add-ons:
+  * CoreDNS - Enable service discovery within your cluster.
+  * kube-proxy - Enable service networking within your cluster.
+  * Amazon VPC CNI - Enable pod networking within your cluster.
+* AWS Load Balancer is installed and available ([instructions](https://docs.aws.amazon.com/eks/latest/userguide/lbc-helm.html))
+
+#### Installation
+Open and update PUBLIC_IP in ton-aws.yaml before deployment. The quickest way to identify public IP is to execute ```curl -4 ifconfig.me``` inside the pod.
+
+```kubectl apply -f ton-aws.yaml```
+
+### Run the pod - Google Cloud
 
 todo
-
 ## Troubleshooting
-
+## Docker 
 ### TON node cannot synchronize, constantly see messages [Error : 651 : no nodes] in the log
 
 Start the new container without starting validator-engine:
@@ -306,15 +320,17 @@ nc -ul 30001
 ```
 and from any **other** linux machine check if you can reach this UDP port by sending a test message to that port:
 ```
-other-server>echo "test" | nc -u <PUBLIC_IP> 30001  
+echo "test" | nc -u <PUBLIC_IP> 30001  
 ```
 as a result inside the container you have to receive the "test" message.
 
 If you don't get the message inside the docker container, that means that either your firewall, LoadBalancer, NAT or proxy is blocking it.
 Ask your system administrator for assistance. 
 
-### Standalone TON docker container works fine, but in Kubernetes fails to synchronize
-todo
+In the same way you can check if TCP port is available:
+
+Execute inside the container ```nc -l 30003``` and test connection from another server
+```nc -vz <PUBLIC_IP> 30003```
 
 ### Can't connect to lite-server
 * check if lite-server was enabled on start by passing **"LITESERVER=true"** argument;
@@ -335,3 +351,47 @@ git clone --recursive https://github.com/ton-blockchain/ton.git
 cd ton
 docker build .
 ```
+
+## Kubernetes
+### AWS
+#### After installing AWS LB, load balancer is still not available (pending):
+```
+kubectl get deployment -n kube-system aws-load-balancer-controller
+```
+Solution:
+
+Try to install AWS LoadBalancer using ```Helm``` way.
+
+#### After installing AWS LB and running ton node, service shows error:
+
+```k describe service validator-engine-srv```
+
+```log
+Failed build model due to unable to resolve at least one subnet (0 match VPC and tags: [kubernetes.io/role/elb])
+```
+Solution:
+
+You haven't labeled the AWS subnets with the correct resource tags.
+
+* Public Subnets should be resource tagged with: kubernetes.io/role/elb: 1
+* Private Subnets should be tagged with: kubernetes.io/role/internal-elb: 1
+* Both private and public subnets should be tagged with: kubernetes.io/cluster/${your-cluster-name}: owned
+* or if the subnets are also used by non-EKS resources kubernetes.io/cluster/${your-cluster-name}: shared
+
+So create tags for at least one subnet:
+```
+kubernetes.io/role/elb: 1
+kubernetes.io/cluster/<YOUR_CLUSTER_NAME>: owner
+```
+
+#### AWS Load Balancer works, but I still see ```[no nodes]``` in validator's log
+It is required to add the security group for the EC2 instances to the load balancer along with the default security group. 
+It's a misleading that the default security group has "everything open."
+
+Add security group (default name is usually something like 'launch-wizard-1'), everything works fine.
+And make sure you allow the ports you specified or default ports 30001/udp, 30002/tcp and 30003/tcp.
+
+You can also set inbound and outbound rules of new security group to allow ALL ports and for ALL protocols and for source CIDR 0.0.0.0/0 for testing purposes.
+
+### Google Cloud
+to do
