@@ -5,44 +5,61 @@ metadata:
   labels:
     name: validator-engine-pod
 spec:
-  affinity:
-    nodeAffinity:
-      requiredDuringSchedulingIgnoredDuringExecution:
-        nodeSelectorTerms:
-          - matchExpressions:
-              - key: node_type
-                operator: In
-                values:
-                  - ton-validator
-  hostNetwork: true
   containers:
     - name: validator-engine-container
       image: ghcr.io/neodix42/ton:latest
       env:
         - name: HOST_IP
-          value: "<NODE_PUBLIC_IP>"
+          value: "<PUBLIC_IP>"
         - name: PUBLIC_IP
-          value: "<NODE_PUBLIC_IP>"
+          value: "<PUBLIC_IP>"
         - name: LITESERVER
           value: "true"
+
 ---
 kind: Service
 apiVersion: v1
 metadata:
   name: validator-engine-srv
+  annotations:
 spec:
-  type: NodePort
+  type: LoadBalancer
+  loadBalancerIP: <PUBLIC_IP>
   ports:
-    - name: validator-engine-public-udp-port
+    - name: validator-engine-udp-port
       nodePort: 30001
       port: 30001
       targetPort: 30001
       protocol: UDP
+  selector:
+    name: validator-engine-pod
+
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: validator-engine-console-srv
+spec:
+  type: LoadBalancer
+  loadBalancerIP: <PUBLIC_IP>
+  ports:
     - name: validator-console-tcp-port
       nodePort: 30002
       port: 30002
       targetPort: 30002
       protocol: TCP
+  selector:
+    name: validator-engine-pod
+
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: lite-server-srv
+spec:
+  type: LoadBalancer
+  loadBalancerIP: <PUBLIC_IP>
+  ports:
     - name: lite-server-tcp-port
       nodePort: 30003
       port: 30003

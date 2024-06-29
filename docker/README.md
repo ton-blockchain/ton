@@ -1,10 +1,17 @@
 # Official TON Docker image
+
+1. [Docker](##docker)
+2. [Kubernetes - On-premises](##k8s-onprem)
+3. [Kubernetes - AWS](##k8s-aws)
+4. [Kubernetes - GCP](##k8s-gcp)
 ## Prerequisites
 
 The TON node, whether it is validator or fullnode, requires a public IP address. 
 If your server is within an internal network or kubernetes you have to make sure that the required ports are available from the outside.
 
-## Docker
+It is recommended to everyone to read Docker chapter first in order to get a better understanding about TON Docker image and its parameters.  
+
+## Docker <a name="docker"></a>
 
 ### Installation
 ```docker pull ghcr.io/ton-blockchain/ton:latest```
@@ -42,7 +49,7 @@ Find out your PUBLIC_IP:
 ```
 curl -4 ifconfig.me
 ```
-and put in the command below:
+and replace it in the command below:
 ```
 docker run -d --name ton-node -v /data/db:/var/ton-work/db \
 -e "HOST_IP=<PUBLIC_IP>" \
@@ -73,7 +80,7 @@ docker run -d --name ton-node -v /data/db:/var/ton-work/db \
 Adjust ports per your need. 
 Check your firewall configuration and make sure that customized ports (443/udp, 88/tcp and 443/tcp in this example) are publicly available.
 
-### Test if TON node operating correctly
+### Test if TON node is operating correctly
 After executing above command check the log files:
 
 ```docker logs ton-node```
@@ -151,7 +158,7 @@ docker stop ton-node
 ```
 
 ## Kubernetes
-### Run the pod - the quick way
+### Run the pod - the quick way (without load balancer) <a name="k8s-onprem"></a>
 If the nodes within your kubernetes cluster have external IPs, 
 make sure that the PUBLIC_IP used for validator-engine matches the node's external IP.
 If all Kubernetes nodes are inside DMZ - skip this section.
@@ -175,7 +182,7 @@ Add a label to this particular node. By this label our pod will know where to be
 ```
 kubectl label nodes <NODE_NAME> node_type=ton-validator
 ```
-replace _<NODE_PUBLIC_IP>_ (and ports if needed) in file **ton-node-port.yaml** and deploy the pod. 
+replace _<NODE_PUBLIC_IP>_ (and ports if needed) in file [ton-node-port.yaml](ton-node-port.yaml) and deploy the pod. 
 If you change the ports, make sure you specify appropriate env vars in Pod section.
 
 ```yaml
@@ -236,12 +243,12 @@ kubectl apply -f metallb-config.yaml
 ```
 * Install TON docker container
 
-Update <PUBLIC_IP> fields and specify address from CIDR range in **ton-metal-lb.yaml** and Deploy TON docker container:
+Update <PUBLIC_IP> fields and specify address from CIDR range in [ton-metal-lb.yaml](ton-metal-lb.yaml) and Deploy TON docker container:
 
 ```yaml
 kubectl apply -f ton-metal-lb.yaml
 ```
-Assume your network CIDR (**--pod-network-cidr**) within cluster is 10.244.1.0/24, then you can compare the your output with the one below:
+Assume your network CIDR (**--pod-network-cidr**) within cluster is 10.244.1.0/24, then you can compare the output with the one below:
 ```yaml
 kubectl get service
 
@@ -274,23 +281,32 @@ Endpoints:         10.244.2.3:9443  <-- CIDR
 
 Use the commands from the previous chapter to see if node operates properly.
 
-### Run the pod - AWS cloud (Amazon)
+### Run the pod - AWS cloud (Amazon Web Services) <a name="k8s-aws"></a>
 
 #### Prerequisites
 * AWS EKS is configured with worker nodes with selected add-ons:
   * CoreDNS - Enable service discovery within your cluster.
   * kube-proxy - Enable service networking within your cluster.
   * Amazon VPC CNI - Enable pod networking within your cluster.
-* AWS Load Balancer is installed and available ([instructions](https://docs.aws.amazon.com/eks/latest/userguide/lbc-helm.html))
+* AWS **Network** (it preserves the IP address) Load Balancer is installed and available ([instructions](https://docs.aws.amazon.com/eks/latest/userguide/lbc-helm.html)). Later you can assign Elastic IP address.
 
 #### Installation
-Open and update PUBLIC_IP in ton-aws.yaml before deployment. The quickest way to identify public IP is to execute ```curl -4 ifconfig.me``` inside the pod.
+Open and update PUBLIC_IP in [ton-aws.yaml](ton-aws.yaml) before deployment. The quickest way to identify public IP is to execute ```curl -4 ifconfig.me``` inside the pod.
 
 ```kubectl apply -f ton-aws.yaml```
 
-### Run the pod - Google Cloud
+### Run the pod - GCP (Google Cloud Platform) <a name="k8s-gcp"></a>
 
-todo
+#### Prerequisites
+* Kubernetes cluster of type Standard (not Autopilot).
+* Premium static IP address. It will automatically be attached to one Kubernetes services.
+* Load Balancers will be created automatically according to Kubernetes services in yaml file. 
+
+#### Installation
+Open and update PUBLIC_IP in [ton-gcp.yaml](ton-gcp.yaml) before deployment. 
+
+```kubectl apply -f ton-gcp.yaml```
+
 ## Troubleshooting
 ## Docker 
 ### TON node cannot synchronize, constantly see messages [Error : 651 : no nodes] in the log
@@ -394,4 +410,18 @@ And make sure you allow the ports you specified or default ports 30001/udp, 3000
 You can also set inbound and outbound rules of new security group to allow ALL ports and for ALL protocols and for source CIDR 0.0.0.0/0 for testing purposes.
 
 ### Google Cloud
-to do
+#### Load Balancer cannot obtain external IP (pending)
+
+```
+kubectl describe service validator-engine-srv
+
+Events:
+Type     Reason                                 Age                  From                Message
+  ----     ------                                 ----                 ----                -------
+Warning  LoadBalancerMixedProtocolNotSupported  7m8s                 g-cloudprovider     LoadBalancers with multiple protocols are not supported.
+Normal   EnsuringLoadBalancer                   113s (x7 over 7m8s)  service-controller  Ensuring load balancer
+Warning  SyncLoadBalancerFailed                 113s (x7 over 7m8s)  service-controller  Error syncing load balancer: failed to ensure load balancer: mixed protocol is not supported for LoadBalancer
+```
+Solution:
+
+Create static IP address of type Premium in GCP console and use it as a value for field ```loadBalancerIP``` in Kubernetes service.
