@@ -176,7 +176,7 @@ Double check if your Kubernetes node's external IP coincides with the host's IP 
 ```
 curl -4 ifconfig.me
 ```
-If IPs do not match, refer to the section **Run the pod - the secured way**.
+If IPs do not match, refer to the sections where load balancers are used.
 
 Add a label to this particular node. By this label our pod will know where to be deployed:  
 ```
@@ -218,7 +218,7 @@ In this case we can't use  host's network stack (**hostNetwork: true**) within a
 A **LoadBalancer** service type automatically provisions an external load balancer (such as those provided by cloud providers like AWS, GCP, Azure) and assigns a public IP address to your service. In a non-cloud environment or in a DMZ setup, you need to manually configure the load balancer.
 
 If you are running your Kubernetes cluster on-premises or in an environment where an external load balancer is not automatically provided, you can use a load balancer implementation like MetalLB.
-#### Installation when your Kubernetes cluster runs on-premises (not using cloud provider)
+#### Installation
 
 * Install MetalLB
 ```yaml
@@ -241,7 +241,7 @@ apply configuration
 ```yaml
 kubectl apply -f metallb-config.yaml
 ```
-* Install TON docker container
+* Install the Pod with TON validator
 
 Update <PUBLIC_IP> fields and specify address from CIDR range in [ton-metal-lb.yaml](ton-metal-lb.yaml) and Deploy TON docker container:
 
