@@ -1,9 +1,9 @@
 # Official TON Docker image
 
 1. [Docker](##docker)
-2. [Kubernetes - On-premises](##k8s-onprem)
-3. [Kubernetes - AWS](##k8s-aws)
-4. [Kubernetes - GCP](##k8s-gcp)
+2. [Kubernetes - On-premises](#run-the-pod---the-quick-way-without-load-balancer-a-namek8s-onprema)
+3. [Kubernetes - AWS](#run-the-pod---aws-cloud-amazon-web-services-a-namek8s-awsa)
+4. [Kubernetes - GCP](#run-the-pod---gcp-google-cloud-platform-a-namek8s-gcpa)
 ## Prerequisites
 
 The TON node, whether it is validator or fullnode, requires a public IP address. 
@@ -80,7 +80,7 @@ docker run -d --name ton-node -v /data/db:/var/ton-work/db \
 Adjust ports per your need. 
 Check your firewall configuration and make sure that customized ports (443/udp, 88/tcp and 443/tcp in this example) are publicly available.
 
-### Test if TON node is operating correctly
+### Verify if TON node is operating correctly
 After executing above command check the log files:
 
 ```docker logs ton-node```
@@ -135,7 +135,7 @@ last masterchain block is (-1,8000000000000000,20435927):47A517265B25CE4F2C8B305
 server time is 1719306580 (delta 0)
 zerostate id set to -1:823F81F306FF02694F935CF5021548E3CE2B86B529812AF6A12148879E95A128:67E20AC184B9E039A62667ACC3F9C00F90F359A76738233379EFA47604980CE8
 ```
-If you can't make it working, refer to the **Troubleshooting** section below.
+If you can't make it working, refer to the [Troubleshooting](#troubleshooting) section below.
 ### Use validator-engine-console
 ```docker exec -ti ton-node /bin/bash```
 
@@ -163,6 +163,7 @@ If the nodes within your kubernetes cluster have external IPs,
 make sure that the PUBLIC_IP used for validator-engine matches the node's external IP.
 If all Kubernetes nodes are inside DMZ - skip this section.
 
+#### Prepare
 If you are using **flannel** network driver you can find node's IP this way: 
 ```yaml
 kubectl get nodes
@@ -174,17 +175,21 @@ kubectl describe node <NODE_NAME> | grep IPv4Address
 ```
 Double check if your Kubernetes node's external IP coincides with the host's IP address:
 ```
+kubectl run -i --tty --image=ghcr.io/ton-blockchain/ton:latest validator-engine-pod --env="HOST_IP=1.1.1.1" --env="PUBLIC_IP=1.1.1.1"
 curl -4 ifconfig.me
 ```
 If IPs do not match, refer to the sections where load balancers are used.
 
-Add a label to this particular node. By this label our pod will know where to be deployed:  
+Now do the following:
+* Add a label to this particular node. By this label our pod will know where to be deployed:  
 ```
 kubectl label nodes <NODE_NAME> node_type=ton-validator
 ```
-replace _<NODE_PUBLIC_IP>_ (and ports if needed) in file [ton-node-port.yaml](ton-node-port.yaml) and deploy the pod. 
-If you change the ports, make sure you specify appropriate env vars in Pod section.
+* Replace **<PUBLIC_IP>** (and ports if needed) in file [ton-node-port.yaml](ton-node-port.yaml).
+* Replace **<LOCAL_STORAGE_PATH>** with a real path on host for Persistent Volume.
+* If you change the ports, make sure you specify appropriate env vars in Pod section.
 
+#### Install
 ```yaml
 kubectl apply -f ton-node-port.yaml
 ```
@@ -193,13 +198,14 @@ this deployment uses host's network stack (**hostNetwork: true**) option and ser
 Actually you can also use service of type **LoadBalancer**.
 This way the service will get public IP assigned to the endpoints.
 
+#### Verify installation
 See if service endpoints were correctly created:
 
 ```yaml
 kubectl get endpoints
 
 NAME                   ENDPOINTS
-validator-engine-srv   <NODE_PUBLIC_IP>:30002,<NODE_PUBLIC_IP>:30001,<NODE_PUBLIC_IP>:30003
+validator-engine-srv   <PUBLIC_IP>:30002,<PUBLIC_IP>:30001,<PUBLIC_IP>:30003
 ```
 Check the logs for the deployment status:
 ```yaml
@@ -218,8 +224,15 @@ In this case we can't use  host's network stack (**hostNetwork: true**) within a
 A **LoadBalancer** service type automatically provisions an external load balancer (such as those provided by cloud providers like AWS, GCP, Azure) and assigns a public IP address to your service. In a non-cloud environment or in a DMZ setup, you need to manually configure the load balancer.
 
 If you are running your Kubernetes cluster on-premises or in an environment where an external load balancer is not automatically provided, you can use a load balancer implementation like MetalLB.
-#### Installation
 
+#### Prepare
+Select the node where persistent storage will be located for TON validator.
+* Add a label to this particular node. By this label our pod will know where to be deployed:
+```
+kubectl label nodes <NODE_NAME> node_type=ton-validator
+```
+* Replace **<PUBLIC_IP>** (and ports if needed) in file [ton-metal-lb.yaml](ton-metal-lb.yaml).
+* Replace **<LOCAL_STORAGE_PATH>** with a real path on host for Persistent Volume.
 * Install MetalLB
 ```yaml
 kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.14.5/config/manifests/metallb-native.yaml
@@ -241,13 +254,14 @@ apply configuration
 ```yaml
 kubectl apply -f metallb-config.yaml
 ```
-* Install the Pod with TON validator
-
-Update <PUBLIC_IP> fields and specify address from CIDR range in [ton-metal-lb.yaml](ton-metal-lb.yaml) and Deploy TON docker container:
+#### Install
 
 ```yaml
 kubectl apply -f ton-metal-lb.yaml
 ```
+We do not use Pod Node Affinity here, since the Pod will remember the host with local storage it was bound to.
+
+#### Verify installation
 Assume your network CIDR (**--pod-network-cidr**) within cluster is 10.244.1.0/24, then you can compare the output with the one below:
 ```yaml
 kubectl get service
@@ -283,29 +297,69 @@ Use the commands from the previous chapter to see if node operates properly.
 
 ### Run the pod - AWS cloud (Amazon Web Services) <a name="k8s-aws"></a>
 
-#### Prerequisites
+#### Prepare
 * AWS EKS is configured with worker nodes with selected add-ons:
   * CoreDNS - Enable service discovery within your cluster.
   * kube-proxy - Enable service networking within your cluster.
   * Amazon VPC CNI - Enable pod networking within your cluster.
 * AWS **Network** (it preserves the IP address) Load Balancer is installed and available ([instructions](https://docs.aws.amazon.com/eks/latest/userguide/lbc-helm.html)). Later you can assign Elastic IP address.
 
-#### Installation
-Open and update PUBLIC_IP in [ton-aws.yaml](ton-aws.yaml) before deployment. The quickest way to identify public IP is to execute ```curl -4 ifconfig.me``` inside the pod.
+Select the node where persistent storage will be located for TON validator.
+* Add a label to this particular node. By this label our pod will know what Persistent Volume to use.
+```
+kubectl label nodes <NODE_NAME> node_type=ton-validator
+```
+* Replace **<PUBLIC_IP>** (and ports if needed) in file [ton-aws.yaml](ton-aws.yaml). 
+The quickest way to identify public IP is to execute ```curl -4 ifconfig.me``` inside the pod:
+```
+kubectl run --image=ghcr.io/ton-neodix/ton:latest validator-engine-pod --env="HOST_IP=1.1.1.1" --env="PUBLIC_IP=1.1.1.1"
+kubectl exec -it validator-engine-pod -- curl -4 ifconfig.me
+kubectl delete pod validator-engine-pod
+```
+or to take a look at AWS Console for VPC information.
+* Replace **<NODE_STORAGE_PATH>** with a real path on host for Persistent Volume.
+  * SSH to node and execute (adjust the path per your needs):
+```yaml
+sudo mkdir -p /data/ton/db
+sudo chown -R 1000:1000 /data/ton/db
+sudo chmod -R 755 /data/ton/db
+```  
+
+#### Install
 
 ```kubectl apply -f ton-aws.yaml```
 
+#### Verify installation
+Use instructions from the previous sections. 
+
 ### Run the pod - GCP (Google Cloud Platform) <a name="k8s-gcp"></a>
 
-#### Prerequisites
+#### Prepare
 * Kubernetes cluster of type Standard (not Autopilot).
 * Premium static IP address. It will automatically be attached to one Kubernetes services.
-* Load Balancers will be created automatically according to Kubernetes services in yaml file. 
+Replace **<PUBLIC_IP>** (and ports if needed) in file [ton-gcp.yaml](ton-gcp.yaml).
+* Load Balancers will be created automatically according to Kubernetes services in yaml file.
+* Select the node where persistent storage will be located for TON validator.
+  * Add a label to this particular node. By this label our pod will know what Persistent Volume to use.
+```
+kubectl label nodes <NODE_NAME> node_type=ton-validator
+```
 
-#### Installation
+* Replace **<NODE_STORAGE_PATH>** with a real path on host for Persistent Volume.
+  * SSH to node and execute (adjust the path per your needs):
+```yaml
+gcloud compute ssh <LABELED_NODE_NAME> --zone <ZONE_ID>
+sudo mkdir -p /mnt/stateful_partition/data/ton/db
+sudo chown -R 1000:1000 /mnt/stateful_partition/data/ton/db
+sudo chmod -R 755 /mnt/stateful_partition/data/ton/db
+```  
+#### Install
 Open and update PUBLIC_IP in [ton-gcp.yaml](ton-gcp.yaml) before deployment. 
 
 ```kubectl apply -f ton-gcp.yaml```
+
+#### Verify installation
+Use instructions from the previous sections.
 
 ## Troubleshooting
 ## Docker 

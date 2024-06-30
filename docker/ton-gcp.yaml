@@ -5,6 +5,10 @@ metadata:
   labels:
     name: validator-engine-pod
 spec:
+  volumes:
+    - name: validator-engine-pv
+      persistentVolumeClaim:
+        claimName: validator-engine-pvc
   containers:
     - name: validator-engine-container
       image: ghcr.io/neodix42/ton:latest
@@ -15,7 +19,9 @@ spec:
           value: "<PUBLIC_IP>"
         - name: LITESERVER
           value: "true"
-
+      volumeMounts:
+        - mountPath: "/var/ton-work/db"
+          name: validator-engine-pv
 ---
 kind: Service
 apiVersion: v1
@@ -33,7 +39,6 @@ spec:
       protocol: UDP
   selector:
     name: validator-engine-pod
-
 ---
 kind: Service
 apiVersion: v1
@@ -50,7 +55,6 @@ spec:
       protocol: TCP
   selector:
     name: validator-engine-pod
-
 ---
 kind: Service
 apiVersion: v1
@@ -67,3 +71,47 @@ spec:
       protocol: TCP
   selector:
     name: validator-engine-pod
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: local-storage
+provisioner: kubernetes.io/no-provisioner
+volumeBindingMode: WaitForFirstConsumer
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: validator-engine-pv
+  labels:
+    type: local
+spec:
+  storageClassName: local-storage
+  capacity:
+    storage: 400Gi
+  accessModes:
+    - ReadWriteOnce
+    - ReadOnlyMany
+  persistentVolumeReclaimPolicy: Retain
+  local:
+    path: <NODE_STORAGE_PATH>
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: node_type
+              operator: In
+              values:
+                - ton-validator
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: validator-engine-pvc
+spec:
+  storageClassName: local-storage
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 400Gi
