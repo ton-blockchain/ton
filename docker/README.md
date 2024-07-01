@@ -305,25 +305,18 @@ Use the commands from the previous chapter to see if node operates properly.
 * AWS **Network** (it preserves the IP address) Load Balancer is installed and available ([instructions](https://docs.aws.amazon.com/eks/latest/userguide/lbc-helm.html)). Later you can assign Elastic IP address.
 
 Select the node where persistent storage will be located for TON validator.
-* Add a label to this particular node. By this label our pod will know what Persistent Volume to use.
+* Add a label to this particular node. 
 ```
 kubectl label nodes <NODE_NAME> node_type=ton-validator
 ```
 * Replace **<PUBLIC_IP>** (and ports if needed) in file [ton-aws.yaml](ton-aws.yaml). 
 The quickest way to identify public IP is to execute ```curl -4 ifconfig.me``` inside the pod:
 ```
-kubectl run --image=ghcr.io/ton-neodix/ton:latest validator-engine-pod --env="HOST_IP=1.1.1.1" --env="PUBLIC_IP=1.1.1.1"
+kubectl run --image=ghcr.io/neodix42/ton:latest validator-engine-pod --env="HOST_IP=1.1.1.1" --env="PUBLIC_IP=1.1.1.1"
 kubectl exec -it validator-engine-pod -- curl -4 ifconfig.me
 kubectl delete pod validator-engine-pod
 ```
 or to take a look at AWS Console for VPC information.
-* Replace **<NODE_STORAGE_PATH>** with a real path on host for Persistent Volume.
-  * SSH to node and execute (adjust the path per your needs):
-```yaml
-sudo mkdir -p /data/ton/db
-sudo chown -R 1000:1000 /data/ton/db
-sudo chmod -R 755 /data/ton/db
-```  
 
 #### Install
 
@@ -336,26 +329,12 @@ Use instructions from the previous sections.
 
 #### Prepare
 * Kubernetes cluster of type Standard (not Autopilot).
-* Premium static IP address. It will automatically be attached to one Kubernetes services.
+* Premium static IP address. It will automatically be attached to one of Kubernetes services.
+* Adjust firewall rules to allow ports 30001/udp, 30002/tcp and 30003/tcp (default ones).
 Replace **<PUBLIC_IP>** (and ports if needed) in file [ton-gcp.yaml](ton-gcp.yaml).
 * Load Balancers will be created automatically according to Kubernetes services in yaml file.
-* Select the node where persistent storage will be located for TON validator.
-  * Add a label to this particular node. By this label our pod will know what Persistent Volume to use.
-```
-kubectl label nodes <NODE_NAME> node_type=ton-validator
-```
 
-* Replace **<NODE_STORAGE_PATH>** with a real path on host for Persistent Volume.
-  * SSH to node and execute (adjust the path per your needs):
-```yaml
-gcloud compute ssh <LABELED_NODE_NAME> --zone <ZONE_ID>
-sudo mkdir -p /mnt/stateful_partition/data/ton/db
-sudo chown -R 1000:1000 /mnt/stateful_partition/data/ton/db
-sudo chmod -R 755 /mnt/stateful_partition/data/ton/db
-```  
 #### Install
-Open and update PUBLIC_IP in [ton-gcp.yaml](ton-gcp.yaml) before deployment. 
-
 ```kubectl apply -f ton-gcp.yaml```
 
 #### Verify installation
@@ -432,6 +411,8 @@ Solution:
 
 Try to install AWS LoadBalancer using ```Helm``` way.
 
+---
+
 #### After installing AWS LB and running ton node, service shows error:
 
 ```k describe service validator-engine-srv```
@@ -453,7 +434,7 @@ So create tags for at least one subnet:
 kubernetes.io/role/elb: 1
 kubernetes.io/cluster/<YOUR_CLUSTER_NAME>: owner
 ```
-
+---
 #### AWS Load Balancer works, but I still see ```[no nodes]``` in validator's log
 It is required to add the security group for the EC2 instances to the load balancer along with the default security group. 
 It's a misleading that the default security group has "everything open."
@@ -463,6 +444,36 @@ And make sure you allow the ports you specified or default ports 30001/udp, 3000
 
 You can also set inbound and outbound rules of new security group to allow ALL ports and for ALL protocols and for source CIDR 0.0.0.0/0 for testing purposes.
 
+---
+
+#### Pending PersistentVolumeClaim ```Waiting for a volume to be created either by the external provisioner 'ebs.csi.aws.com' or manually by the system administrator.```
+
+Solution: 
+
+Configure Amazon EBS CSI driver for working PersistentVolumes in EKS.
+
+1. Enable IAM OIDC provider
+```
+eksctl utils associate-iam-oidc-provider --region=us-west-2 --cluster=k8s-my --approve
+```
+
+2. Create Amazon EBS CSI driver IAM role
+```
+eksctl create iamserviceaccount \
+--region us-west-2 \
+--name ebs-csi-controller-sa \
+--namespace kube-system \
+--cluster k8s-my \
+--attach-policy-arn arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy \
+--approve \
+--role-only \
+--role-name AmazonEKS_EBS_CSI_DriverRole
+```
+
+3. Add the Amazon EBS CSI add-on
+```yaml
+eksctl create addon --name aws-ebs-csi-driver --cluster k8s-my --service-account-role-arn arn:aws:iam::$(aws sts get-caller-identity --query Account --output text):role/AmazonEKS_EBS_CSI_DriverRole --force
+```
 ### Google Cloud
 #### Load Balancer cannot obtain external IP (pending)
 
