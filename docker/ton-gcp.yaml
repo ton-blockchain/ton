@@ -19,11 +19,11 @@ spec:
   replicas: 1
   selector:
     matchLabels:
-      name: validator-engine-srv
+      name: validator-engine-pod
   template:
     metadata:
       labels:
-        name: validator-engine-srv
+        name: validator-engine-pod
     spec:
       containers:
         - name: validator-engine-container
@@ -33,7 +33,7 @@ spec:
               value: "<PUBLIC_IP>"
             - name: PUBLIC_IP
               value: "<PUBLIC_IP>"
-            - name: LITESERVER
+            - name: LIESERVER
               value: "true"
           volumeMounts:
             - mountPath: "/var/ton-work/db"
@@ -48,9 +48,7 @@ spec:
   type: LoadBalancer
   loadBalancerIP: <PUBLIC_IP>
   ports:
-    - name: validator-engine-udp-port
-      nodePort: 30001
-      port: 30001
+    - port: 30001
       targetPort: 30001
       protocol: UDP
   selector:
@@ -64,9 +62,7 @@ spec:
   type: LoadBalancer
   loadBalancerIP: <PUBLIC_IP>
   ports:
-    - name: validator-console-tcp-port
-      nodePort: 30002
-      port: 30002
+    - port: 30002
       targetPort: 30002
       protocol: TCP
   selector:
@@ -80,9 +76,7 @@ spec:
   type: LoadBalancer
   loadBalancerIP: <PUBLIC_IP>
   ports:
-    - name: lite-server-tcp-port
-      nodePort: 30003
-      port: 30003
+    - port: 30003
       targetPort: 30003
       protocol: TCP
   selector:
@@ -95,15 +89,15 @@ metadata:
 spec:
   clusterIP: None
   ports:
-    - name: validator-engine-public-udp-port
+    - name: validator-udp
       port: 30001
       targetPort: 30001
       protocol: UDP
-    - name: validator-console-tcp-port
+    - name: console-tcp
       port: 30002
       targetPort: 30002
       protocol: TCP
-    - name: lite-server-tcp-port
+    - name: ls-tcp
       port: 30003
       targetPort: 30003
       protocol: TCP
