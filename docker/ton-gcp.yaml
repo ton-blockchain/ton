@@ -33,7 +33,7 @@ spec:
               value: "<PUBLIC_IP>"
             - name: PUBLIC_IP
               value: "<PUBLIC_IP>"
-            - name: LIESERVER
+            - name: LITESERVER
               value: "true"
           volumeMounts:
             - mountPath: "/var/ton-work/db"
