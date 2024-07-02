@@ -87,8 +87,17 @@ void *transaction_emulator_create(const char *config_params_boc, int vm_log_verb
     LOG(ERROR) << global_config_res.move_as_error().message();
     return nullptr;
   }
+  auto global_config = std::make_shared<block::Config>(global_config_res.move_as_ok());
+  return new emulator::TransactionEmulator(std::move(global_config), vm_log_verbosity);
+}
 
-  return new emulator::TransactionEmulator(global_config_res.move_as_ok(), vm_log_verbosity);
+void *emulator_config_create(const char *config_params_boc) {
+  auto config = decode_config(config_params_boc);
+  if (config.is_error()) {
+    LOG(ERROR) << "Error decoding config: " << config.move_as_error();
+    return nullptr;
+  }
+  return new block::Config(config.move_as_ok());
 }
 
 const char *transaction_emulator_emulate_transaction(void *transaction_emulator, const char *shard_account_boc, const char *message_boc) {
@@ -330,7 +339,21 @@ bool transaction_emulator_set_config(void *transaction_emulator, const char* con
     return false;
   }
 
-  emulator->set_config(global_config_res.move_as_ok());
+  emulator->set_config(std::make_shared<block::Config>(global_config_res.move_as_ok()));
+
+  return true;
+}
+
+void config_deleter(block::Config* ptr) {
+    // We do not delete the config object, since ownership management is delegated to the caller
+}
+
+bool transaction_emulator_set_config_object(void *transaction_emulator, void* config) {
+  auto emulator = static_cast<emulator::TransactionEmulator *>(transaction_emulator);
+  
+  std::shared_ptr<block::Config> config_ptr(static_cast<block::Config *>(config), config_deleter);
+  
+  emulator->set_config(config_ptr);
 
   return true;
 }
@@ -469,6 +492,13 @@ bool tvm_emulator_set_c7(void *tvm_emulator, const char *address, uint32_t unixt
 
   emulator->set_c7(std_address.move_as_ok(), unixtime, balance, rand_seed, std::const_pointer_cast<const block::Config>(global_config));
   
+  return true;
+}
+
+bool tvm_emulator_set_config_object(void* tvm_emulator, void* config) {
+  auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
+  auto global_config = std::shared_ptr<block::Config>(static_cast<block::Config *>(config), config_deleter);
+  emulator->set_config(global_config);
   return true;
 }
 
@@ -682,4 +712,8 @@ const char *tvm_emulator_send_internal_message(void *tvm_emulator, const char *m
 
 void tvm_emulator_destroy(void *tvm_emulator) {
   delete static_cast<emulator::TvmEmulator *>(tvm_emulator);
+}
+
+void emulator_config_destroy(void *config) {
+  delete static_cast<block::Config *>(config);
 }
