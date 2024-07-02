@@ -65,7 +65,18 @@ const char *external_not_accepted_response(std::string&& vm_log, int vm_exit_cod
 
 td::Result<block::Config> decode_config(const char* config_boc) {
   TRY_RESULT_PREFIX(config_params_cell, boc_b64_to_cell(config_boc), "Can't deserialize config params boc: ");
-  auto global_config = block::Config(config_params_cell, td::Bits256::zero(), block::Config::needWorkchainInfo | block::Config::needSpecialSmc | block::Config::needCapabilities);
+  auto config_dict = std::make_unique<vm::Dictionary>(config_params_cell, 32);
+  auto config_addr_cell = config_dict->lookup_ref(td::BitArray<32>::zero());
+  if (config_addr_cell.is_null()) {
+    return td::Status::Error("Can't find config address (param 0) is missing in config params");
+  }
+  auto config_addr_cs = vm::load_cell_slice(std::move(config_addr_cell));
+  if (config_addr_cs.size() != 0x100) {
+    return td::Status::Error(PSLICE() << "configuration parameter 0 with config address has wrong size");
+  }
+  ton::StdSmcAddress config_addr;
+  config_addr_cs.fetch_bits_to(config_addr);
+  auto global_config = block::Config(config_params_cell, std::move(config_addr), block::Config::needWorkchainInfo | block::Config::needSpecialSmc | block::Config::needCapabilities);
   TRY_STATUS_PREFIX(global_config.unpack(), "Can't unpack config params: ");
   return global_config;
 }
