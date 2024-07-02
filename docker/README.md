@@ -311,15 +311,9 @@ Use the commands from the previous chapter to see if node operates properly.
   * CoreDNS - Enable service discovery within your cluster.
   * kube-proxy - Enable service networking within your cluster.
   * Amazon VPC CNI - Enable pod networking within your cluster.
-* AWS **Network** (it preserves the IP address) Load Balancer is installed and available ([instructions](https://docs.aws.amazon.com/eks/latest/userguide/lbc-helm.html)). Later you can assign Elastic IP address.
-*  Adjust firewall rules and security groups to allow ports 30001/udp, 30002/tcp and 30003/tcp (default ones).
-* Replace **<PUBLIC_IP>** (and ports if needed) in file [ton-aws.yaml](ton-aws.yaml). 
-The quickest way to identify public IP is to execute ```curl -4 ifconfig.me``` inside the pod:
-```
-kubectl run --image=ghcr.io/neodix42/ton:latest validator-engine-pod --env="HOST_IP=1.1.1.1" --env="PUBLIC_IP=1.1.1.1"
-kubectl exec -it validator-engine-pod -- curl -4 ifconfig.me
-kubectl delete pod validator-engine-pod
-```
+* Allocate Elastic IP.
+* Replace **<PUBLIC_IP>** with the newly created Elastic IP in [ton-aws.yaml](ton-aws.yaml)
+* Replace **<ELASTIC_IP_ID>** with Elastic IP allocation ID (see in AWS console).
 * Adjust StorageClass name. Make sure you are providing fast storage.
 
 #### Install

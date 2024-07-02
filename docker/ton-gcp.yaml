@@ -35,6 +35,13 @@ spec:
               value: "<PUBLIC_IP>"
             - name: LITESERVER
               value: "true"
+          ports:
+            - containerPort: 30001
+              protocol: UDP
+            - containerPort: 30002
+              protocol: TCP
+            - containerPort: 30003
+              protocol: TCP
           volumeMounts:
             - mountPath: "/var/ton-work/db"
               name: validator-engine-pvc
