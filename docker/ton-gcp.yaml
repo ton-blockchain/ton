@@ -38,6 +38,13 @@ spec:
           volumeMounts:
             - mountPath: "/var/ton-work/db"
               name: validator-engine-pvc
+          resources:
+            requests:
+              memory: "64Gi"
+              cpu: "16"
+            limits:
+              memory: "128Gi"
+              cpu: "32"
 ---
 kind: Service
 apiVersion: v1

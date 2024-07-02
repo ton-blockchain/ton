@@ -9,6 +9,8 @@
 The TON node, whether it is validator or fullnode, requires a public IP address. 
 If your server is within an internal network or kubernetes you have to make sure that the required ports are available from the outside.
 
+Also pay attention at [hardware requirements](https://docs.ton.org/participate/run-nodes/full-node) for TON fullnodes and validators. Pods and StatefulSets in this guide imply these requirements. 
+
 It is recommended to everyone to read Docker chapter first in order to get a better understanding about TON Docker image and its parameters.  
 
 ## Docker <a name="docker"></a>
@@ -175,19 +177,22 @@ kubectl describe node <NODE_NAME> | grep IPv4Address
 ```
 Double check if your Kubernetes node's external IP coincides with the host's IP address:
 ```
-kubectl run -i --tty --image=ghcr.io/ton-blockchain/ton:latest validator-engine-pod --env="HOST_IP=1.1.1.1" --env="PUBLIC_IP=1.1.1.1"
-curl -4 ifconfig.me
+kubectl run --image=ghcr.io/neodix42/ton:latest validator-engine-pod --env="HOST_IP=1.1.1.1" --env="PUBLIC_IP=1.1.1.1"
+kubectl exec -it validator-engine-pod -- curl -4 ifconfig.me
+kubectl delete pod validator-engine-pod
 ```
 If IPs do not match, refer to the sections where load balancers are used.
 
 Now do the following:
-* Add a label to this particular node. By this label our pod will know where to be deployed:  
+* Add a label to this particular node. 
+* By this label our pod will know where to be deployed and what storage to use:  
 ```
 kubectl label nodes <NODE_NAME> node_type=ton-validator
 ```
 * Replace **<PUBLIC_IP>** (and ports if needed) in file [ton-node-port.yaml](ton-node-port.yaml).
 * Replace **<LOCAL_STORAGE_PATH>** with a real path on host for Persistent Volume.
 * If you change the ports, make sure you specify appropriate env vars in Pod section.
+* If you want to use dynamic storage provisioning via volumeClaimTemplates, feel free to create own StorageClass. 
 
 #### Install
 ```yaml
@@ -233,6 +238,9 @@ kubectl label nodes <NODE_NAME> node_type=ton-validator
 ```
 * Replace **<PUBLIC_IP>** (and ports if needed) in file [ton-metal-lb.yaml](ton-metal-lb.yaml).
 * Replace **<LOCAL_STORAGE_PATH>** with a real path on host for Persistent Volume.
+* If you change the ports, make sure you specify appropriate env vars in Pod section.
+* If you want to use dynamic storage provisioning via volumeClaimTemplates, feel free to create own StorageClass.
+
 * Install MetalLB
 ```yaml
 kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.14.5/config/manifests/metallb-native.yaml
@@ -303,12 +311,7 @@ Use the commands from the previous chapter to see if node operates properly.
   * kube-proxy - Enable service networking within your cluster.
   * Amazon VPC CNI - Enable pod networking within your cluster.
 * AWS **Network** (it preserves the IP address) Load Balancer is installed and available ([instructions](https://docs.aws.amazon.com/eks/latest/userguide/lbc-helm.html)). Later you can assign Elastic IP address.
-
-Select the node where persistent storage will be located for TON validator.
-* Add a label to this particular node. 
-```
-kubectl label nodes <NODE_NAME> node_type=ton-validator
-```
+*  Adjust firewall rules and security groups to allow ports 30001/udp, 30002/tcp and 30003/tcp (default ones).
 * Replace **<PUBLIC_IP>** (and ports if needed) in file [ton-aws.yaml](ton-aws.yaml). 
 The quickest way to identify public IP is to execute ```curl -4 ifconfig.me``` inside the pod:
 ```
@@ -316,7 +319,7 @@ kubectl run --image=ghcr.io/neodix42/ton:latest validator-engine-pod --env="HOST
 kubectl exec -it validator-engine-pod -- curl -4 ifconfig.me
 kubectl delete pod validator-engine-pod
 ```
-or to take a look at AWS Console for VPC information.
+* Adjust StorageClass name. Make sure you are providing fast storage.
 
 #### Install
 
@@ -329,10 +332,12 @@ Use instructions from the previous sections.
 
 #### Prepare
 * Kubernetes cluster of type Standard (not Autopilot).
-* Premium static IP address. It will automatically be attached to one of Kubernetes services.
-* Adjust firewall rules to allow ports 30001/udp, 30002/tcp and 30003/tcp (default ones).
-Replace **<PUBLIC_IP>** (and ports if needed) in file [ton-gcp.yaml](ton-gcp.yaml).
-* Load Balancers will be created automatically according to Kubernetes services in yaml file.
+* Premium static IP address. 
+* Adjust firewall rules and security groups to allow ports 30001/udp, 30002/tcp and 30003/tcp (default ones).
+* Replace **<PUBLIC_IP>** (and ports if needed) in file [ton-gcp.yaml](ton-gcp.yaml).
+* Adjust StorageClass name. Make sure you are providing fast storage.
+
+* Load Balancer will be created automatically according to Kubernetes service in yaml file.
 
 #### Install
 ```kubectl apply -f ton-gcp.yaml```
@@ -369,7 +374,7 @@ nc -ul 30001
 ```
 and from any **other** linux machine check if you can reach this UDP port by sending a test message to that port:
 ```
-echo "test" | nc -u <PUBLIC_IP> 30001  
+echo "test" | nc -u <PUBLIC_IP> 30001
 ```
 as a result inside the container you have to receive the "test" message.
 
@@ -439,7 +444,7 @@ kubernetes.io/cluster/<YOUR_CLUSTER_NAME>: owner
 It is required to add the security group for the EC2 instances to the load balancer along with the default security group. 
 It's a misleading that the default security group has "everything open."
 
-Add security group (default name is usually something like 'launch-wizard-1'), everything works fine.
+Add security group (default name is usually something like 'launch-wizard-1').
 And make sure you allow the ports you specified or default ports 30001/udp, 30002/tcp and 30003/tcp.
 
 You can also set inbound and outbound rules of new security group to allow ALL ports and for ALL protocols and for source CIDR 0.0.0.0/0 for testing purposes.
