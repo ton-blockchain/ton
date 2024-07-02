@@ -1,9 +1,10 @@
 # Official TON Docker image
 
-1. [Docker](##docker)
-2. [Kubernetes - On-premises](#run-the-pod---the-quick-way-without-load-balancer-a-namek8s-onprema)
-3. [Kubernetes - AWS](#run-the-pod---aws-cloud-amazon-web-services-a-namek8s-awsa)
-4. [Kubernetes - GCP](#run-the-pod---gcp-google-cloud-platform-a-namek8s-gcpa)
+1. [Docker](#docker)
+2. [Kubernetes deployment on-premises](#deploy-on-premises-with-metallb-load-balancer-)
+3. [Kubernetes deployment on AWS](#deploy-on-aws-cloud-amazon-web-services)
+4. [Kubernetes deployment on GCP](#deploy-on-gcp-google-cloud-platform)
+5. [Troubleshooting](#troubleshooting)
 ## Prerequisites
 
 The TON node, whether it is validator or fullnode, requires a public IP address. 
@@ -13,7 +14,7 @@ Also pay attention at [hardware requirements](https://docs.ton.org/participate/r
 
 It is recommended to everyone to read Docker chapter first in order to get a better understanding about TON Docker image and its parameters.  
 
-## Docker <a name="docker"></a>
+## Docker
 
 ### Installation
 ```docker pull ghcr.io/ton-blockchain/ton:latest```
@@ -160,7 +161,7 @@ docker stop ton-node
 ```
 
 ## Kubernetes
-### Run the pod - the quick way (without load balancer) <a name="k8s-onprem"></a>
+### Deploy in a quick way (without load balancer)
 If the nodes within your kubernetes cluster have external IPs, 
 make sure that the PUBLIC_IP used for validator-engine matches the node's external IP.
 If all Kubernetes nodes are inside DMZ - skip this section.
@@ -221,7 +222,7 @@ or go inside the pod and check if blockchain size is growing:
 kubectl exec --stdin --tty validator-engine-pod -- /bin/bash
 du -h .
 ```
-### Run the pod - on-premises with metalLB load balancer 
+### Deploy on-premises with metalLB load balancer 
 
 Often Kubernetes cluster is located in DMZ, is behind corporate firewall and access is controlled via proxy configuration.
 In this case we can't use  host's network stack (**hostNetwork: true**) within a Pod and must manually proxy the access to the pod.
@@ -303,7 +304,7 @@ Endpoints:         10.244.2.3:9443  <-- CIDR
 
 Use the commands from the previous chapter to see if node operates properly.
 
-### Run the pod - AWS cloud (Amazon Web Services) <a name="k8s-aws"></a>
+### Deploy on AWS cloud (Amazon Web Services)
 
 #### Prepare
 * AWS EKS is configured with worker nodes with selected add-ons:
@@ -328,7 +329,7 @@ kubectl delete pod validator-engine-pod
 #### Verify installation
 Use instructions from the previous sections. 
 
-### Run the pod - GCP (Google Cloud Platform) <a name="k8s-gcp"></a>
+### Deploy on GCP (Google Cloud Platform)
 
 #### Prepare
 * Kubernetes cluster of type Standard (not Autopilot).
