@@ -25,7 +25,7 @@ td::Result<std::unique_ptr<TransactionEmulator::EmulationResult>> TransactionEmu
       utime = (unsigned)std::time(nullptr);
     }
 
-    auto fetch_res = block::FetchConfigParams::fetch_config_params(config_, prev_blocks_info_, &old_mparams,
+    auto fetch_res = block::FetchConfigParams::fetch_config_params(*config_, prev_blocks_info_, &old_mparams,
                                                                    &storage_prices, &storage_phase_cfg,
                                                                    &rand_seed_, &compute_phase_cfg,
                                                                    &action_phase_cfg, &masterchain_create_fee,
@@ -263,8 +263,8 @@ void TransactionEmulator::set_ignore_chksig(bool ignore_chksig) {
   ignore_chksig_ = ignore_chksig;
 }
 
-void TransactionEmulator::set_config(block::Config &&config) {
-  config_ = std::forward<block::Config>(config);
+void TransactionEmulator::set_config(std::shared_ptr<block::Config> config) {
+  config_ = std::move(config);
 }
 
 void TransactionEmulator::set_libs(vm::Dictionary &&libs) {

@@ -1970,7 +1970,7 @@ class RunEmulator : public TonlibQueryActor {
         check(r_config.move_as_error());
         return;
       }
-      std::unique_ptr<block::ConfigInfo> config = r_config.move_as_ok();
+      std::shared_ptr<block::ConfigInfo> config = r_config.move_as_ok();
 
       auto r_shard_account = account_state_->to_shardAccountCellSlice();
       if (r_shard_account.is_error()) {
@@ -1994,7 +1994,7 @@ class RunEmulator : public TonlibQueryActor {
         return;
       }
       vm::Dictionary libraries = global_libraries_;
-      emulator::TransactionEmulator trans_emulator(std::move(*config));
+      emulator::TransactionEmulator trans_emulator(config);
       trans_emulator.set_prev_blocks_info(prev_blocks_info.move_as_ok());
       trans_emulator.set_libs(std::move(libraries));
       trans_emulator.set_rand_seed(block_id_.rand_seed);
