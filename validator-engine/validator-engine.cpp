@@ -1411,7 +1411,6 @@ td::Status ValidatorEngine::load_global_config() {
     h.push_back(b);
   }
   validator_options_.write().set_hardforks(std::move(h));
-  validator_options_.write().set_state_serializer_enabled(config_.state_serializer_enabled);
 
   return td::Status::OK();
 }
@@ -1823,6 +1822,8 @@ void ValidatorEngine::started_overlays() {
 
 void ValidatorEngine::start_validator() {
   validator_options_.write().set_allow_blockchain_init(config_.validators.size() > 0);
+  validator_options_.write().set_state_serializer_enabled(config_.state_serializer_enabled);
+
   validator_manager_ = ton::validator::ValidatorManagerFactory::create(
       validator_options_, db_root_, keyring_.get(), adnl_.get(), rldp_.get(), overlay_manager_.get());
 
