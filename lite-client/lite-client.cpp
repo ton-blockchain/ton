@@ -949,8 +949,8 @@ bool TestNode::show_help(std::string command) {
          "lasttrans[dump] <account-id> <trans-lt> <trans-hash> [<count>]\tShows or dumps specified transaction and "
          "several preceding "
          "ones\n"
-         "listblocktrans[rev] <block-id-ext> <count> [<start-account-id> <start-trans-lt>]\tLists block transactions, "
-         "starting immediately after or before the specified one\n"
+         "listblocktrans[rev][meta] <block-id-ext> <count> [<start-account-id> <start-trans-lt>]\tLists block "
+         "transactions, starting immediately after or before the specified one\n"
          "blkproofchain[step] <from-block-id-ext> [<to-block-id-ext>]\tDownloads and checks proof of validity of the "
          "second "
          "indicated block (or the last known masterchain block) starting from given block\n"
@@ -1071,6 +1071,13 @@ bool TestNode::do_parse_line() {
   } else if (word == "listblocktrans" || word == "listblocktransrev") {
     lt = 0;
     int mode = (word == "listblocktrans" ? 7 : 0x47);
+    return parse_block_id_ext(blkid) && parse_uint32(count) &&
+           (seekeoln() || (parse_hash(hash) && parse_lt(lt) && (mode |= 128) && seekeoln())) &&
+           get_block_transactions(blkid, mode, count, hash, lt);
+  } else if (word == "listblocktransmeta" || word == "listblocktransrevmeta") {
+    lt = 0;
+    int mode = (word == "listblocktransmeta" ? 7 : 0x47);
+    mode |= 256;
     return parse_block_id_ext(blkid) && parse_uint32(count) &&
            (seekeoln() || (parse_hash(hash) && parse_lt(lt) && (mode |= 128) && seekeoln())) &&
            get_block_transactions(blkid, mode, count, hash, lt);
@@ -2493,23 +2500,40 @@ bool TestNode::get_block_transactions(ton::BlockIdExt blkid, int mode, unsigned 
     } else {
       auto f = F.move_as_ok();
       std::vector<TransId> transactions;
+      std::vector<ton::tl_object_ptr<ton::lite_api::liteServer_transactionMetadata>> metadata;
       for (auto& id : f->ids_) {
         transactions.emplace_back(id->account_, id->lt_, id->hash_);
+        metadata.push_back(std::move(id->metadata_));
       }
       td::actor::send_closure_later(Self, &TestNode::got_block_transactions, ton::create_block_id(f->id_), mode,
-                                    f->req_count_, f->incomplete_, std::move(transactions), std::move(f->proof_));
+                                    f->req_count_, f->incomplete_, std::move(transactions), std::move(metadata),
+                                    std::move(f->proof_));
     }
   });
 }
 
-void TestNode::got_block_transactions(ton::BlockIdExt blkid, int mode, unsigned req_count, bool incomplete,
-                                      std::vector<TestNode::TransId> trans, td::BufferSlice proof) {
+void TestNode::got_block_transactions(
+    ton::BlockIdExt blkid, int mode, unsigned req_count, bool incomplete, std::vector<TestNode::TransId> trans,
+    std::vector<ton::tl_object_ptr<ton::lite_api::liteServer_transactionMetadata>> metadata, td::BufferSlice proof) {
   LOG(INFO) << "got up to " << req_count << " transactions from block " << blkid.to_str();
   auto out = td::TerminalIO::out();
   int count = 0;
-  for (auto& t : trans) {
+  for (size_t i = 0; i < trans.size(); ++i) {
+    auto& t = trans[i];
     out << "transaction #" << ++count << ": account " << t.acc_addr.to_hex() << " lt " << t.trans_lt << " hash "
         << t.trans_hash.to_hex() << std::endl;
+    if (mode & 256) {
+      auto& meta = metadata.at(i);
+      if (meta == nullptr) {
+        out << "    metadata: <none>" << std::endl;
+      } else {
+        out << "    metadata: "
+            << block::MsgMetadata{(td::uint32)meta->depth_, meta->initiator_->workchain_, meta->initiator_->id_,
+                                  (ton::LogicalTime)meta->initiator_lt_}
+                   .to_str()
+            << std::endl;
+      }
+    }
   }
   out << (incomplete ? "(block transaction list incomplete)" : "(end of block transaction list)") << std::endl;
 }

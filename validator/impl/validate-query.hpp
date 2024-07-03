@@ -112,7 +112,8 @@ class ValidateQuery : public td::actor::Actor {
     return SUPPORTED_VERSION;
   }
   static constexpr long long supported_capabilities() {
-    return ton::capCreateStatsEnabled | ton::capBounceMsgBody | ton::capReportVersion | ton::capShortDequeue;
+    return ton::capCreateStatsEnabled | ton::capBounceMsgBody | ton::capReportVersion | ton::capShortDequeue |
+           ton::capStoreOutMsgQueueSize | ton::capMsgMetadata | ton::capDeferMessages;
   }
 
  public:
@@ -227,8 +228,20 @@ class ValidateQuery : public td::actor::Actor {
   bool inbound_queues_empty_{false};
 
   std::vector<std::tuple<Bits256, LogicalTime, LogicalTime>> msg_proc_lt_;
+  std::vector<std::tuple<Bits256, LogicalTime, LogicalTime>> msg_emitted_lt_;
 
   std::vector<std::tuple<Bits256, Bits256, bool>> lib_publishers_, lib_publishers2_;
+
+  std::map<std::pair<StdSmcAddress, td::uint64>, Ref<vm::Cell>> removed_dispatch_queue_messages_;
+  std::map<std::pair<StdSmcAddress, td::uint64>, Ref<vm::Cell>> new_dispatch_queue_messages_;
+  std::set<StdSmcAddress> account_expected_defer_all_messages_;
+  td::uint64 old_out_msg_queue_size_ = 0, new_out_msg_queue_size_ = 0;
+
+  bool msg_metadata_enabled_ = false;
+  bool deferring_messages_enabled_ = false;
+  bool store_out_msg_queue_size_ = false;
+
+  bool have_unprocessed_account_dispatch_queue_ = false;
 
   td::PerfWarningTimer perf_timer_;
 
@@ -309,6 +322,8 @@ class ValidateQuery : public td::actor::Actor {
   bool check_cur_validator_set();
   bool check_mc_validator_info(bool update_mc_cc);
   bool check_utime_lt();
+  bool prepare_out_msg_queue_size();
+  void got_out_queue_size(size_t i, td::Result<td::uint64> res);
 
   bool fix_one_processed_upto(block::MsgProcessedUpto& proc, ton::ShardIdFull owner, bool allow_cur = false);
   bool fix_processed_upto(block::MsgProcessedUptoCollection& upto, bool allow_cur = false);
@@ -330,6 +345,9 @@ class ValidateQuery : public td::actor::Actor {
   bool precheck_one_message_queue_update(td::ConstBitPtr out_msg_id, Ref<vm::CellSlice> old_value,
                                          Ref<vm::CellSlice> new_value);
   bool precheck_message_queue_update();
+  bool check_account_dispatch_queue_update(td::Bits256 addr, Ref<vm::CellSlice> old_queue_csr,
+                                           Ref<vm::CellSlice> new_queue_csr);
+  bool unpack_dispatch_queue_update();
   bool update_max_processed_lt_hash(ton::LogicalTime lt, const ton::Bits256& hash);
   bool update_min_enqueued_lt_hash(ton::LogicalTime lt, const ton::Bits256& hash);
   bool check_imported_message(Ref<vm::Cell> msg_env);
@@ -338,6 +356,7 @@ class ValidateQuery : public td::actor::Actor {
   bool check_in_msg_descr();
   bool check_out_msg(td::ConstBitPtr key, Ref<vm::CellSlice> out_msg);
   bool check_out_msg_descr();
+  bool check_dispatch_queue_update();
   bool check_processed_upto();
   bool check_neighbor_outbound_message(Ref<vm::CellSlice> enq_msg, ton::LogicalTime lt, td::ConstBitPtr key,
                                        const block::McShardDescr& src_nb, bool& unprocessed);

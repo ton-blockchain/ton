@@ -813,19 +813,45 @@ int IntermediateAddress::get_size(const vm::CellSlice& cs) const {
 const IntermediateAddress t_IntermediateAddress;
 
 bool MsgEnvelope::validate_skip(int* ops, vm::CellSlice& cs, bool weak) const {
-  return cs.fetch_ulong(4) == 4                                 // msg_envelope#4
-         && t_IntermediateAddress.validate_skip(ops, cs, weak)  // cur_addr:IntermediateAddress
-         && t_IntermediateAddress.validate_skip(ops, cs, weak)  // next_addr:IntermediateAddress
-         && t_Grams.validate_skip(ops, cs, weak)                // fwd_fee_remaining:Grams
-         && t_Ref_Message.validate_skip(ops, cs, weak);         // msg:^Message
+  switch (get_tag(cs)) {
+    case 4:
+      return cs.fetch_ulong(4) == 4                                 // msg_envelope#4
+             && t_IntermediateAddress.validate_skip(ops, cs, weak)  // cur_addr:IntermediateAddress
+             && t_IntermediateAddress.validate_skip(ops, cs, weak)  // next_addr:IntermediateAddress
+             && t_Grams.validate_skip(ops, cs, weak)                // fwd_fee_remaining:Grams
+             && t_Ref_Message.validate_skip(ops, cs, weak);         // msg:^Message
+    case 5:
+      return cs.fetch_ulong(4) == 5                                      // msg_envelope_v2#5
+             && t_IntermediateAddress.validate_skip(ops, cs, weak)       // cur_addr:IntermediateAddress
+             && t_IntermediateAddress.validate_skip(ops, cs, weak)       // next_addr:IntermediateAddress
+             && t_Grams.validate_skip(ops, cs, weak)                     // fwd_fee_remaining:Grams
+             && t_Ref_Message.validate_skip(ops, cs, weak)               // msg:^Message
+             && Maybe<UInt>(64).validate_skip(ops, cs, weak)             // emitted_lt:(Maybe uint64)
+             && Maybe<gen::MsgMetadata>().validate_skip(ops, cs, weak);  // metadata:(Maybe MsgMetadata)
+    default:
+      return false;
+  }
 }
 
 bool MsgEnvelope::skip(vm::CellSlice& cs) const {
-  return cs.advance(4)                      // msg_envelope#4
-         && t_IntermediateAddress.skip(cs)  // cur_addr:IntermediateAddress
-         && t_IntermediateAddress.skip(cs)  // next_addr:IntermediateAddress
-         && t_Grams.skip(cs)                // fwd_fee_remaining:Grams
-         && t_Ref_Message.skip(cs);         // msg:^Message
+  switch (get_tag(cs)) {
+    case 4:
+      return cs.advance(4)                      // msg_envelope#4
+             && t_IntermediateAddress.skip(cs)  // cur_addr:IntermediateAddress
+             && t_IntermediateAddress.skip(cs)  // next_addr:IntermediateAddress
+             && t_Grams.skip(cs)                // fwd_fee_remaining:Grams
+             && t_Ref_Message.skip(cs);         // msg:^Message
+    case 5:
+      return cs.advance(4)                           // msg_envelope_v2#5
+             && t_IntermediateAddress.skip(cs)       // cur_addr:IntermediateAddress
+             && t_IntermediateAddress.skip(cs)       // next_addr:IntermediateAddress
+             && t_Grams.skip(cs)                     // fwd_fee_remaining:Grams
+             && t_Ref_Message.skip(cs)               // msg:^Message
+             && Maybe<UInt>(64).skip(cs)             // emitted_lt:(Maybe uint64)
+             && Maybe<gen::MsgMetadata>().skip(cs);  // metadata:(Maybe MsgMetadata)
+    default:
+      return false;
+  }
 }
 
 bool MsgEnvelope::extract_fwd_fees_remaining(vm::CellSlice& cs) const {
@@ -833,34 +859,101 @@ bool MsgEnvelope::extract_fwd_fees_remaining(vm::CellSlice& cs) const {
 }
 
 bool MsgEnvelope::unpack(vm::CellSlice& cs, MsgEnvelope::Record& data) const {
-  return cs.fetch_ulong(4) == 4                                 // msg_envelope#4
-         && t_IntermediateAddress.fetch_to(cs, data.cur_addr)   // cur_addr:IntermediateAddress
-         && t_IntermediateAddress.fetch_to(cs, data.next_addr)  // next_addr:IntermediateAddress
-         && t_Grams.fetch_to(cs, data.fwd_fee_remaining)        // fwd_fee_remaining:Grams
-         && cs.fetch_ref_to(data.msg);                          // msg:^Message
+  switch (get_tag(cs)) {
+    case 4:
+      return cs.fetch_ulong(4) == 4                                 // msg_envelope#4
+             && t_IntermediateAddress.fetch_to(cs, data.cur_addr)   // cur_addr:IntermediateAddress
+             && t_IntermediateAddress.fetch_to(cs, data.next_addr)  // next_addr:IntermediateAddress
+             && t_Grams.fetch_to(cs, data.fwd_fee_remaining)        // fwd_fee_remaining:Grams
+             && cs.fetch_ref_to(data.msg);                          // msg:^Message
+    case 5:
+      return cs.fetch_ulong(4) == 5                                 // msg_envelope_v2#5
+             && t_IntermediateAddress.fetch_to(cs, data.cur_addr)   // cur_addr:IntermediateAddress
+             && t_IntermediateAddress.fetch_to(cs, data.next_addr)  // next_addr:IntermediateAddress
+             && t_Grams.fetch_to(cs, data.fwd_fee_remaining)        // fwd_fee_remaining:Grams
+             && cs.fetch_ref_to(data.msg)                           // msg:^Message
+             && Maybe<UInt>(64).skip(cs)                            // emitted_lt:(Maybe uint64)
+             && Maybe<gen::MsgMetadata>().skip(cs);                 // metadata:(Maybe MsgMetadata)
+    default:
+      return false;
+  }
 }
 
 bool MsgEnvelope::unpack(vm::CellSlice& cs, MsgEnvelope::Record_std& data) const {
-  return cs.fetch_ulong(4) == 4                                      // msg_envelope#4
-         && t_IntermediateAddress.fetch_regular(cs, data.cur_addr)   // cur_addr:IntermediateAddress
-         && t_IntermediateAddress.fetch_regular(cs, data.next_addr)  // next_addr:IntermediateAddress
-         && t_Grams.as_integer_skip_to(cs, data.fwd_fee_remaining)   // fwd_fee_remaining:Grams
-         && cs.fetch_ref_to(data.msg);                               // msg:^Message
+  data.emitted_lt = {};
+  data.metadata = {};
+  switch (get_tag(cs)) {
+    case 4:
+      return cs.fetch_ulong(4) == 4                                      // msg_envelope#4
+             && t_IntermediateAddress.fetch_regular(cs, data.cur_addr)   // cur_addr:IntermediateAddress
+             && t_IntermediateAddress.fetch_regular(cs, data.next_addr)  // next_addr:IntermediateAddress
+             && t_Grams.as_integer_skip_to(cs, data.fwd_fee_remaining)   // fwd_fee_remaining:Grams
+             && cs.fetch_ref_to(data.msg);                               // msg:^Message
+    case 5: {
+      bool with_metadata, with_emitted_lt;
+      return cs.fetch_ulong(4) == 5                                      // msg_envelope_v2#5
+             && t_IntermediateAddress.fetch_regular(cs, data.cur_addr)   // cur_addr:IntermediateAddress
+             && t_IntermediateAddress.fetch_regular(cs, data.next_addr)  // next_addr:IntermediateAddress
+             && t_Grams.as_integer_skip_to(cs, data.fwd_fee_remaining)   // fwd_fee_remaining:Grams
+             && cs.fetch_ref_to(data.msg)                                // msg:^Message
+             && cs.fetch_bool_to(with_emitted_lt) &&
+             (!with_emitted_lt || cs.fetch_uint_to(64, data.emitted_lt.value_force()))  // emitted_lt:(Maybe uint64)
+             && cs.fetch_bool_to(with_metadata) &&
+             (!with_metadata || data.metadata.value_force().unpack(cs));  // metadata:(Maybe MsgMetadata)
+    }
+    default:
+      return false;
+  }
 }
 
-bool MsgEnvelope::unpack_std(vm::CellSlice& cs, int& cur_a, int& nhop_a, Ref<vm::Cell>& msg) const {
-  return cs.fetch_ulong(4) == 4                              // msg_envelope#4
-         && t_IntermediateAddress.fetch_regular(cs, cur_a)   // cur_addr:IntermediateAddress
-         && t_IntermediateAddress.fetch_regular(cs, nhop_a)  // next_addr:IntermediateAddress
-         && cs.fetch_ref_to(msg);
+bool MsgEnvelope::pack(vm::CellBuilder& cb, const Record_std& data) const {
+  bool v2 = (bool)data.metadata || (bool)data.emitted_lt;
+  if (!(cb.store_long_bool(v2 ? 5 : 4, 4) &&                      // msg_envelope#4 / msg_envelope_v2#5
+        cb.store_long_bool(data.cur_addr, 8) &&                   // cur_addr:IntermediateAddress
+        cb.store_long_bool(data.next_addr, 8) &&                  // next_addr:IntermediateAddress
+        t_Grams.store_integer_ref(cb, data.fwd_fee_remaining) &&  // fwd_fee_remaining:Grams
+        cb.store_ref_bool(data.msg))) {                           // msg:^Message
+    return false;
+  }
+  if (v2) {
+    if (!(cb.store_bool_bool((bool)data.emitted_lt) &&
+          (!data.emitted_lt || cb.store_long_bool(data.emitted_lt.value(), 64)))) {  // emitted_lt:(Maybe uint64)
+      return false;
+    }
+    if (!(cb.store_bool_bool((bool)data.metadata) &&
+          (!data.metadata || data.metadata.value().pack(cb)))) {  // metadata:(Maybe MsgMetadata)
+      return false;
+    }
+  }
+  return true;
 }
 
-bool MsgEnvelope::get_created_lt(const vm::CellSlice& cs, unsigned long long& created_lt) const {
+bool MsgEnvelope::pack_cell(td::Ref<vm::Cell>& cell, const Record_std& data) const {
+  vm::CellBuilder cb;
+  return pack(cb, data) && cb.finalize_to(cell);
+}
+
+bool MsgEnvelope::get_emitted_lt(const vm::CellSlice& cs, unsigned long long& emitted_lt) const {
+  // Emitted lt is emitted_lt from MsgEnvelope (if present), otherwise created_lt
   if (!cs.size_refs()) {
     return false;
   }
+  if (get_tag(cs) == 5) {
+    vm::CellSlice cs2 = cs;
+    // msg_envelope_v2#5 cur_addr:IntermediateAddress
+    //   next_addr:IntermediateAddress fwd_fee_remaining:Grams
+    //   msg:^(Message Any) emitted_lt:(Maybe uint64) ...
+    bool have_emitted_lt;
+    if (!(cs2.skip_first(4) && t_IntermediateAddress.skip(cs2) && t_IntermediateAddress.skip(cs2) &&
+          t_Grams.skip(cs2) && t_Ref_Message.skip(cs2) && cs2.fetch_bool_to(have_emitted_lt))) {
+      return false;
+    }
+    if (have_emitted_lt) {
+      return cs2.fetch_ulong_bool(64, emitted_lt);
+    }
+  }
   auto msg_cs = load_cell_slice(cs.prefetch_ref());
-  return t_Message.get_created_lt(msg_cs, created_lt);
+  return t_Message.get_created_lt(msg_cs, emitted_lt);
 }
 
 const MsgEnvelope t_MsgEnvelope;
@@ -1692,6 +1785,15 @@ bool InMsg::skip(vm::CellSlice& cs) const {
              && cs.advance(64)              // transaction_id:uint64
              && t_Grams.skip(cs)            // fwd_fee:Grams
              && t_RefCell.skip(cs);         // proof_delivered:^Cell
+    case msg_import_deferred_fin:
+      return cs.advance(5)                  // msg_import_deferred_fin$00100
+             && t_Ref_MsgEnvelope.skip(cs)  // in_msg:^MsgEnvelope
+             && t_Ref_Transaction.skip(cs)  // transaction:^Transaction
+             && t_Grams.skip(cs);           // fwd_fee:Grams
+    case msg_import_deferred_tr:
+      return cs.advance(5)                   // msg_import_deferred_tr$00101
+             && t_Ref_MsgEnvelope.skip(cs)   // in_msg:^MsgEnvelope
+             && t_Ref_MsgEnvelope.skip(cs);  // out_msg:^MsgEnvelope
   }
   return false;
 }
@@ -1734,12 +1836,22 @@ bool InMsg::validate_skip(int* ops, vm::CellSlice& cs, bool weak) const {
              && cs.advance(64)                                  // transaction_id:uint64
              && t_Grams.validate_skip(ops, cs, weak)            // fwd_fee:Grams
              && t_RefCell.validate_skip(ops, cs, weak);         // proof_delivered:^Cell
+    case msg_import_deferred_fin:
+      return cs.advance(5)                                      // msg_import_deferred_fin$00100
+             && t_Ref_MsgEnvelope.validate_skip(ops, cs, weak)  // in_msg:^MsgEnvelope
+             && t_Ref_Transaction.validate_skip(ops, cs, weak)  // transaction:^Transaction
+             && t_Grams.validate_skip(ops, cs, weak);           // fwd_fee:Grams
+    case msg_import_deferred_tr:
+      return cs.advance(5)                                       // msg_import_deferred_tr$00101
+             && t_Ref_MsgEnvelope.validate_skip(ops, cs, weak)   // in_msg:^MsgEnvelope
+             && t_Ref_MsgEnvelope.validate_skip(ops, cs, weak);  // out_msg:^MsgEnvelope
   }
   return false;
 }
 
 bool InMsg::get_import_fees(vm::CellBuilder& cb, vm::CellSlice& cs) const {
-  switch (get_tag(cs)) {
+  int tag = get_tag(cs);
+  switch (tag) {
     case msg_import_ext:                   // inbound external message
       return t_ImportFees.null_value(cb);  // external messages have no value and no import fees
     case msg_import_ihr:                   // IHR-forwarded internal message to its final destination
@@ -1765,8 +1877,9 @@ bool InMsg::get_import_fees(vm::CellBuilder& cb, vm::CellSlice& cs) const {
                && t_CurrencyCollection.null_value(cb);      // value_imported := 0
       }
       return false;
-    case msg_import_fin:  // internal message delivered to its final destination in this block
-      if (cs.advance(3) && cs.size_refs() >= 2) {
+    case msg_import_fin:           // internal message delivered to its final destination in this block
+    case msg_import_deferred_fin:  // internal message from DispatchQueue to its final destination in this block
+      if (cs.advance(tag == msg_import_fin ? 3 : 5) && cs.size_refs() >= 2) {
         auto msg_env_cs = load_cell_slice(cs.fetch_ref());
         MsgEnvelope::Record in_msg;
         td::RefInt256 fwd_fee, fwd_fee_remaining, value_grams, ihr_fee;
@@ -1787,13 +1900,14 @@ bool InMsg::get_import_fees(vm::CellBuilder& cb, vm::CellSlice& cs) const {
                    msg_info.value.write());  // value_imported = msg.value + msg.ihr_fee + fwd_fee_remaining
       }
       return false;
-    case msg_import_tr:  // transit internal message
-      if (cs.advance(3) && cs.size_refs() >= 2) {
+    case msg_import_tr:           // transit internal message
+    case msg_import_deferred_tr:  // internal message from DispatchQueue to OutMsgQueue
+      if (cs.advance(tag == msg_import_tr ? 3 : 5) && cs.size_refs() >= 2) {
         auto msg_env_cs = load_cell_slice(cs.fetch_ref());
         MsgEnvelope::Record in_msg;
-        td::RefInt256 transit_fee, fwd_fee_remaining, value_grams, ihr_fee;
+        td::RefInt256 transit_fee = td::zero_refint(), fwd_fee_remaining, value_grams, ihr_fee;
         if (!(t_MsgEnvelope.unpack(msg_env_cs, in_msg) && cs.fetch_ref().not_null() &&
-              t_Grams.as_integer_skip_to(cs, transit_fee) &&
+              (tag == msg_import_deferred_tr || t_Grams.as_integer_skip_to(cs, transit_fee)) &&
               (fwd_fee_remaining = t_Grams.as_integer(in_msg.fwd_fee_remaining)).not_null() &&
               cmp(transit_fee, fwd_fee_remaining) <= 0)) {
           return false;
@@ -1871,6 +1985,14 @@ bool OutMsg::skip(vm::CellSlice& cs) const {
       return cs.advance(3)                  // msg_export_tr_req$111
              && t_Ref_MsgEnvelope.skip(cs)  // out_msg:^MsgEnvelope
              && RefTo<InMsg>{}.skip(cs);    // imported:^InMsg
+    case msg_export_new_defer:
+      return cs.advance(5)                   // msg_export_new_defer$10100
+             && t_Ref_MsgEnvelope.skip(cs)   // out_msg:^MsgEnvelope
+             && t_Ref_Transaction.skip(cs);  // transaction:^Transaction
+    case msg_export_deferred_tr:
+      return cs.advance(5)                  // msg_export_deferred_tr$10101
+             && t_Ref_MsgEnvelope.skip(cs)  // out_msg:^MsgEnvelope
+             && RefTo<InMsg>{}.skip(cs);    // imported:^InMsg
   }
   return false;
 }
@@ -1910,12 +2032,21 @@ bool OutMsg::validate_skip(int* ops, vm::CellSlice& cs, bool weak) const {
       return cs.advance(3)                                      // msg_export_tr_req$111
              && t_Ref_MsgEnvelope.validate_skip(ops, cs, weak)  // out_msg:^MsgEnvelope
              && RefTo<InMsg>{}.validate_skip(ops, cs, weak);    // imported:^InMsg
+    case msg_export_new_defer:
+      return cs.advance(5)                                       // msg_export_new_defer$10100
+             && t_Ref_MsgEnvelope.validate_skip(ops, cs, weak)   // out_msg:^MsgEnvelope
+             && t_Ref_Transaction.validate_skip(ops, cs, weak);  // transaction:^Transaction
+    case msg_export_deferred_tr:
+      return cs.advance(5)                                      // msg_export_deferred_tr$10101
+             && t_Ref_MsgEnvelope.validate_skip(ops, cs, weak)  // out_msg:^MsgEnvelope
+             && RefTo<InMsg>{}.validate_skip(ops, cs, weak);    // imported:^InMsg
   }
   return false;
 }
 
 bool OutMsg::get_export_value(vm::CellBuilder& cb, vm::CellSlice& cs) const {
-  switch (get_tag(cs)) {
+  auto tag = get_tag(cs);
+  switch (tag) {
     case msg_export_ext:  // external outbound message carries no value
       if (cs.have(3, 2)) {
         return t_CurrencyCollection.null_value(cb);
@@ -1929,10 +2060,13 @@ bool OutMsg::get_export_value(vm::CellBuilder& cb, vm::CellSlice& cs) const {
       return cs.have(4 + 63, 1) && t_CurrencyCollection.null_value(cb);
     case msg_export_deq_short:  // dequeueing record for outbound message, no exported value
       return cs.have(4 + 256 + 32 + 64 + 64) && t_CurrencyCollection.null_value(cb);
-    case msg_export_new:     // newly-generated outbound internal message, queued
-    case msg_export_tr:      // transit internal message, queued
-    case msg_export_tr_req:  // transit internal message, re-queued from this shardchain
-      if (cs.advance(3) && cs.size_refs() >= 2) {
+    case msg_export_new:          // newly-generated outbound internal message, queued
+    case msg_export_tr:           // transit internal message, queued
+    case msg_export_tr_req:       // transit internal message, re-queued from this shardchain
+    case msg_export_new_defer:    // newly-generated outbound internal message, deferred
+    case msg_export_deferred_tr:  // internal message from DispatchQueue, queued
+      int tag_len = (tag == msg_export_new_defer || tag == msg_export_deferred_tr) ? 5 : 3;
+      if (cs.advance(tag_len) && cs.size_refs() >= 2) {
         auto msg_env_cs = load_cell_slice(cs.fetch_ref());
         MsgEnvelope::Record out_msg;
         if (!(cs.fetch_ref().not_null() && t_MsgEnvelope.unpack(msg_env_cs, out_msg))) {
@@ -1954,12 +2088,12 @@ bool OutMsg::get_export_value(vm::CellBuilder& cb, vm::CellSlice& cs) const {
   return false;
 }
 
-bool OutMsg::get_created_lt(vm::CellSlice& cs, unsigned long long& created_lt) const {
+bool OutMsg::get_emitted_lt(vm::CellSlice& cs, unsigned long long& emitted_lt) const {
   switch (get_tag(cs)) {
     case msg_export_ext:
       if (cs.have(3, 1)) {
         auto msg_cs = load_cell_slice(cs.prefetch_ref());
-        return t_Message.get_created_lt(msg_cs, created_lt);
+        return t_Message.get_created_lt(msg_cs, emitted_lt);
       } else {
         return false;
       }
@@ -1970,9 +2104,11 @@ bool OutMsg::get_created_lt(vm::CellSlice& cs, unsigned long long& created_lt) c
     case msg_export_deq_short:
     case msg_export_deq_imm:
     case msg_export_tr_req:
+    case msg_export_new_defer:
+    case msg_export_deferred_tr:
       if (cs.have(3, 1)) {
         auto out_msg_cs = load_cell_slice(cs.prefetch_ref());
-        return t_MsgEnvelope.get_created_lt(out_msg_cs, created_lt);
+        return t_MsgEnvelope.get_emitted_lt(out_msg_cs, emitted_lt);
       } else {
         return false;
       }
@@ -2003,26 +2139,53 @@ bool Aug_OutMsgQueue::eval_empty(vm::CellBuilder& cb) const {
 
 bool Aug_OutMsgQueue::eval_leaf(vm::CellBuilder& cb, vm::CellSlice& cs) const {
   Ref<vm::Cell> msg_env;
-  unsigned long long created_lt;
-  return cs.fetch_ref_to(msg_env) && t_MsgEnvelope.get_created_lt(load_cell_slice(std::move(msg_env)), created_lt) &&
-         cb.store_ulong_rchk_bool(created_lt, 64);
+  unsigned long long emitted_lt;
+  return cs.fetch_ref_to(msg_env) && t_MsgEnvelope.get_emitted_lt(load_cell_slice(std::move(msg_env)), emitted_lt) &&
+         cb.store_ulong_rchk_bool(emitted_lt, 64);
+}
+
+bool Aug_DispatchQueue::eval_fork(vm::CellBuilder& cb, vm::CellSlice& left_cs, vm::CellSlice& right_cs) const {
+  unsigned long long x, y;
+  return left_cs.fetch_ulong_bool(64, x) && right_cs.fetch_ulong_bool(64, y) &&
+         cb.store_ulong_rchk_bool(std::min(x, y), 64);
+}
+
+bool Aug_DispatchQueue::eval_empty(vm::CellBuilder& cb) const {
+  return cb.store_long_bool(0, 64);
+}
+
+bool Aug_DispatchQueue::eval_leaf(vm::CellBuilder& cb, vm::CellSlice& cs) const {
+  Ref<vm::Cell> messages_root;
+  if (!cs.fetch_maybe_ref(messages_root)) {
+    return false;
+  }
+  vm::Dictionary messages{std::move(messages_root), 64};
+  td::BitArray<64> key_buffer;
+  td::uint64 key;
+  if (messages.get_minmax_key(key_buffer.bits(), 64).is_null()) {
+    key = (td::uint64)-1;
+  } else {
+    key = key_buffer.to_ulong();
+  }
+  return cb.store_long_bool(key, 64);
 }
 
 const Aug_OutMsgQueue aug_OutMsgQueue;
+const Aug_DispatchQueue aug_DispatchQueue;
 const OutMsgQueue t_OutMsgQueue;
 
 const ProcessedUpto t_ProcessedUpto;
 const HashmapE t_ProcessedInfo{96, t_ProcessedUpto};
 const HashmapE t_IhrPendingInfo{256, t_uint128};
 
-// _ out_queue:OutMsgQueue proc_info:ProcessedInfo = OutMsgQueueInfo;
+// _ out_queue:OutMsgQueue proc_info:ProcessedInfo extra:(Maybe OutMsgQueueExtra) = OutMsgQueueInfo;
 bool OutMsgQueueInfo::skip(vm::CellSlice& cs) const {
-  return t_OutMsgQueue.skip(cs) && t_ProcessedInfo.skip(cs) && t_IhrPendingInfo.skip(cs);
+  return t_OutMsgQueue.skip(cs) && t_ProcessedInfo.skip(cs) && Maybe<gen::OutMsgQueueExtra>().skip(cs);
 }
 
 bool OutMsgQueueInfo::validate_skip(int* ops, vm::CellSlice& cs, bool weak) const {
   return t_OutMsgQueue.validate_skip(ops, cs, weak) && t_ProcessedInfo.validate_skip(ops, cs, weak) &&
-         t_IhrPendingInfo.validate_skip(ops, cs, weak);
+         Maybe<gen::OutMsgQueueExtra>().validate_skip(ops, cs, weak);
 }
 
 const OutMsgQueueInfo t_OutMsgQueueInfo;
