@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 
 # global config
-if [ ! -z "$GCONFURL" ]; then
+if [ ! -z "$GLOBAL_CONFIG_URL" ]; then
     echo -e "\e[1;32m[+]\e[0m Downloading provided global config."
-    wget -q $GCONFURL -O /var/ton-work/db/ton-global.config
+    wget -q $GLOBAL_CONFIG_URL -O /var/ton-work/db/ton-global.config
 else
-    echo -e "\e[1;33m[=]\e[0m No global config provided, downloading default."
+    echo -e "\e[1;33m[=]\e[0m No global config provided, downloading mainnet default."
     wget -q https://api.tontech.io/ton/wallet-mainnet.autoconf.json -O /var/ton-work/db/ton-global.config
 fi
 
@@ -29,6 +29,22 @@ if [ ! -f "/var/ton-work/db/config.json" ]; then
   echo validator-engine -C /var/ton-work/db/ton-global.config --db /var/ton-work/db --ip "$PUBLIC_IP:$VALIDATOR_PORT"
   validator-engine -C /var/ton-work/db/ton-global.config --db /var/ton-work/db --ip "$PUBLIC_IP:$VALIDATOR_PORT"
   test $? -eq 0 || { echo "Cannot initialize validator-engine"; exit 2; }
+fi
+
+if [ ! -z "$DUMP_URL" ]; then
+    echo -e "\e[1;32m[+]\e[0m Using provided dump $DUMP_URL"
+    if [ ! -f "dump_downloaded" ]; then
+      if grep -q zfs <<<"$DUMP_URL"; then
+        echo -e "\e[1;32m[+]\e[0m Downloading provided ZFS dump."
+        curl --retry 10 --retry-delay 30 -Ls $DUMP_URL | pv | plzip -d -n8 | zfs recv $ZFS_POOL_NAME
+      else
+        echo -e "\e[1;32m[+]\e[0m Downloading provided dump."
+        curl --retry 10 --retry-delay 30 -Ls $DUMP_URL | pv | plzip -d -n8 | tar -xC /var/ton-work/db
+      fi
+      touch dump_downloaded
+    else
+      echo -e "\e[1;32m[+]\e[0m Dump has been already used."
+    fi
 fi
 
 if [ -z "$STATE_TTL" ]; then

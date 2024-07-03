@@ -13,12 +13,28 @@ spec:
     - name: validator-engine-container
       image: ghcr.io/neodix42/ton:latest
       env:
-        - name: HOST_IP
-          value: "<PUBLIC_IP>"
         - name: PUBLIC_IP
           value: "<PUBLIC_IP>"
+        - name: GLOBAL_CONFIG_URL
+          value: "https://api.tontech.io/ton/wallet-mainnet.autoconf.json"
+        - name: DUMP_URL
+          value: "https://dump.ton.org/dumps/latest.tar.lz"
         - name: LITESERVER
           value: "true"
+        - name: VALIDATOR_PORT
+          value: 30001
+        - name: CONSOLE_PORT
+          value: 30002
+        - name: LITE_PORT
+          value: 30003
+        - name: STATE_TTL
+          value: 86400
+        - name: ARCHIVE_TTL
+          value: 86400
+        - name: THREADS
+          value: 8
+        - name: VERBOSITY
+          value: 3
       volumeMounts:
         - mountPath: "/var/ton-work/db"
           name: validator-engine-pv
@@ -73,7 +89,7 @@ metadata:
 spec:
   storageClassName: local-storage
   capacity:
-    storage: 400Gi
+    storage: 800Gi
   accessModes:
     - ReadWriteOnce
     - ReadOnlyMany
@@ -99,4 +115,4 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 400Gi
+      storage: 800Gi

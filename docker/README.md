@@ -24,19 +24,21 @@ TON validator-engine supports number of command line parameters,
 these parameters can be handed over to the container via environment variables. 
 Below is the list of supported arguments and their default values:
 
-| Argument       | Description                                                                                                                                                                         | Mandatory? |                      Default value                      |
-|:---------------|:------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:----------:|:-------------------------------------------------------:|
-| PUBLIC_IP      | This will be a public IP address of your TON node. Normally it is the same IP address as your server's external IP. This also can be your proxy server or load balancer IP address. |    yes     |                                                         |
-| GCONFURL       | TON mainnet global configuration file.                                                                                                                                              |     no     | https://api.tontech.io/ton/wallet-mainnet.autoconf.json |
-| VALIDATOR_PORT | UDP port that must be available from the outside. Used for communication with other nodes.                                                                                          |            |                          30001                          |
-| CONSOLE_PORT   | This TCP port is used to access validator's console. Not necessarily to be opened for external access.                                                                              |     no     |                          30002                          |
-| LITE_PORT      | Lite-server's TCP port. Used by lite-client.                                                                                                                                        |     no     |                          30003                          |
-| LITESERVER     | true or false. Set to true if you want up and running lite-server.                                                                                                                  |     no     |                          false                          |
-| STATE_TTL      | Node's state will be gc'd after this time (in seconds).                                                                                                                             |     no     |                          86400                          |
-| ARCHIVE_TTL    | Node's archived blocks will be deleted after this time (in seconds).                                                                                                                |     no     |                          86400                          |
-| THREADS        | Number of threads used by validator-engine.                                                                                                                                         |     no     |                            8                            |
-| VERBOSITY      | Verbosity level.                                                                                                                                                                    |     no     |                            3                            |
-| CUSTOM_ARG     | validator-engine might have some undocumented arguments. This is reserved for the test purposes.<br/>For example you can pass **--logname /var/ton-work/log** in order to have log files.|     no     |                                                         |
+| Argument          | Description                                                                                                                                                                               | Mandatory? |                      Default value                      |
+|:------------------|:------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:----------:|:-------------------------------------------------------:|
+| PUBLIC_IP         | This will be a public IP address of your TON node. Normally it is the same IP address as your server's external IP. This also can be your proxy server or load balancer IP address.       |    yes     |                                                         |
+| GLOBAL_CONFIG_URL | TON global configuration file.                                                                                                                                                            |     no     | https://api.tontech.io/ton/wallet-mainnet.autoconf.json |
+| DUMP_URL          | URL to TON dump. Specify dump from https://dump.ton.org. If you are using testnet dump, make sure to download global config for testnet.                                                  |     no     |                                                         |
+| ZFS_POOL_NAME     | In case you are using ZFS archive dump, you need to specify target ZFS pool name for extraction (zfs recv).                                                                               |     no     |                                                         |
+| VALIDATOR_PORT    | UDP port that must be available from the outside. Used for communication with other nodes.                                                                                                |     no     |                          30001                          |
+| CONSOLE_PORT      | This TCP port is used to access validator's console. Not necessarily to be opened for external access.                                                                                    |     no     |                          30002                          |
+| LITE_PORT         | Lite-server's TCP port. Used by lite-client.                                                                                                                                              |     no     |                          30003                          |
+| LITESERVER        | true or false. Set to true if you want up and running lite-server.                                                                                                                        |     no     |                          false                          |
+| STATE_TTL         | Node's state will be gc'd after this time (in seconds).                                                                                                                                   |     no     |                          86400                          |
+| ARCHIVE_TTL       | Node's archived blocks will be deleted after this time (in seconds).                                                                                                                      |     no     |                          86400                          |
+| THREADS           | Number of threads used by validator-engine.                                                                                                                                               |     no     |                            8                            |
+| VERBOSITY         | Verbosity level.                                                                                                                                                                          |     no     |                            3                            |
+| CUSTOM_ARG        | validator-engine might have some undocumented arguments. This is reserved for the test purposes.<br/>For example you can pass **--logname /var/ton-work/log** in order to have log files. |     no     |                                                         |
 
 ### Run the node - the quick way
 The below command runs docker container with a TON node, that will start synchronization process.
@@ -55,9 +57,9 @@ curl -4 ifconfig.me
 and replace it in the command below:
 ```
 docker run -d --name ton-node -v /data/db:/var/ton-work/db \
--e "HOST_IP=<PUBLIC_IP>" \
 -e "PUBLIC_IP=<PUBLIC_IP>" \
 -e "LITESERVER=true" \
+-e "DUMP_URL=https://dump.ton.org/dumps/latest.tar.lz" \
 --network host \
 -it ghcr.io/ton-blockchain/ton
 ```
@@ -69,8 +71,8 @@ When you use port mapping, Docker allocates a specific port on the host to forwa
 This is ideal for running multiple containers with isolated networks on the same host.
 ```
 docker run -d --name ton-node -v /data/db:/var/ton-work/db \
--e "HOST_IP=<PUBLIC_IP>" \
 -e "PUBLIC_IP=<PUBLIC_IP>" \
+-e "DUMP_URL=https://dump.ton.org/dumps/latest.tar.lz" \
 -e "VALIDATOR_PORT=443" \
 -e "CONSOLE_PORT=88" \
 -e "LITE_PORT=443" \
@@ -178,7 +180,7 @@ kubectl describe node <NODE_NAME> | grep IPv4Address
 ```
 Double check if your Kubernetes node's external IP coincides with the host's IP address:
 ```
-kubectl run --image=ghcr.io/neodix42/ton:latest validator-engine-pod --env="HOST_IP=1.1.1.1" --env="PUBLIC_IP=1.1.1.1"
+kubectl run --image=ghcr.io/ton-blockchain/ton:latest validator-engine-pod --env="HOST_IP=1.1.1.1" --env="PUBLIC_IP=1.1.1.1"
 kubectl exec -it validator-engine-pod -- curl -4 ifconfig.me
 kubectl delete pod validator-engine-pod
 ```
@@ -392,7 +394,7 @@ There is available a traffic monitoring utility inside the container, just execu
 ```
 iptraf-ng
 ```
-Other tools like **tcpdump**, **nc**, **wget**, **curl**, **ifconfig** and **netstat** are also available.
+Other tools like **tcpdump**, **nc**, **wget**, **curl**, **ifconfig**, **pv**, **plzip**, **jq** and **netstat** are also available.
 
 ### How to build TON docker image from sources?
 ```
