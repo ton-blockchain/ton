@@ -71,6 +71,7 @@ class Collator final : public td::actor::Actor {
   std::vector<Ref<ShardState>> prev_states;
   std::vector<Ref<BlockData>> prev_block_data;
   Ed25519_PublicKey created_by_;
+  Ref<CollatorOptions> collator_opts_;
   Ref<ValidatorSet> validator_set_;
   td::actor::ActorId<ValidatorManager> manager;
   td::Timestamp timeout;
@@ -90,7 +91,8 @@ class Collator final : public td::actor::Actor {
  public:
   Collator(ShardIdFull shard, bool is_hardfork, td::uint32 min_ts, BlockIdExt min_masterchain_block_id,
            std::vector<BlockIdExt> prev, Ref<ValidatorSet> validator_set, Ed25519_PublicKey collator_id,
-           td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout, td::Promise<BlockCandidate> promise);
+           Ref<CollatorOptions> collator_opts, td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
+           td::Promise<BlockCandidate> promise);
   ~Collator() override = default;
   bool is_busy() const {
     return busy_;

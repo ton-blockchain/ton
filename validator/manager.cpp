@@ -3133,9 +3133,15 @@ void ValidatorManagerImpl::get_validator_groups_info_for_litequery(
 }
 
 void ValidatorManagerImpl::update_options(td::Ref<ValidatorManagerOptions> opts) {
-  // Currently options can be updated only to change state_serializer_enabled flag
+  // Currently options can be updated only to change state_serializer_enabled flag and collator_options
   if (!serializer_.empty()) {
     td::actor::send_closure(serializer_, &AsyncStateSerializer::update_options, opts);
+  }
+  for (auto &group : validator_groups_) {
+    td::actor::send_closure(group.second.actor, &ValidatorGroup::update_options, opts);
+  }
+  for (auto &group : next_validator_groups_) {
+    td::actor::send_closure(group.second.actor, &ValidatorGroup::update_options, opts);
   }
   opts_ = std::move(opts);
 }

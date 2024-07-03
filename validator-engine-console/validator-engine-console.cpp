@@ -147,6 +147,8 @@ void ValidatorEngineConsole::run() {
   add_query_runner(std::make_unique<QueryRunnerImpl<DelCustomOverlayQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<ShowCustomOverlaysQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<SetStateSerializerEnabledQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<SetCollatorOptionsJsonQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<ResetCollatorOptionsQuery>>());
 }
 
 bool ValidatorEngineConsole::envelope_send_query(td::BufferSlice query, td::Promise<td::BufferSlice> promise) {

@@ -64,6 +64,10 @@ class ValidatorGroup : public td::actor::Actor {
   void get_validator_group_info_for_litequery(
       td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroupInfo>> promise);
 
+  void update_options(td::Ref<ValidatorManagerOptions> opts) {
+    opts_ = std::move(opts);
+  }
+
   ValidatorGroup(ShardIdFull shard, PublicKeyHash local_id, ValidatorSessionId session_id,
                  td::Ref<ValidatorSet> validator_set, validatorsession::ValidatorSessionOptions config,
                  td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
