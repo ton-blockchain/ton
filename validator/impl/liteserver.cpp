@@ -287,6 +287,9 @@ void LiteQuery::perform() {
           [&](lite_api::liteServer_getOutMsgQueueSizes& q) {
             this->perform_getOutMsgQueueSizes(q.mode_ & 1 ? ShardIdFull(q.wc_, q.shard_) : td::optional<ShardIdFull>());
           },
+          [&](lite_api::liteServer_getBlockOutMsgQueueSize& q) {
+            this->perform_getBlockOutMsgQueueSize(q.mode_, create_block_id(q.id_));
+          },
           [&](auto& obj) { this->abort_query(td::Status::Error(ErrorCode::protoviolation, "unknown query")); }));
 }
 
@@ -2376,6 +2379,45 @@ void LiteQuery::perform_listBlockTransactions(BlockIdExt blkid, int mode, int co
   request_block_data(blkid);
 }
 
+static td::Result<tl_object_ptr<lite_api::liteServer_transactionMetadata>> get_in_msg_metadata(
+    const Ref<vm::Cell>& in_msg_descr_root, const Ref<vm::Cell>& trans_root) {
+  vm::AugmentedDictionary in_msg_descr{vm::load_cell_slice_ref(in_msg_descr_root), 256, block::tlb::aug_InMsgDescr};
+  block::gen::Transaction::Record transaction;
+  if (!block::tlb::unpack_cell(trans_root, transaction)) {
+    return td::Status::Error("invalid Transaction in block");
+  }
+  Ref<vm::Cell> msg = transaction.r1.in_msg->prefetch_ref();
+  if (msg.is_null()) {
+    return nullptr;
+  }
+  td::Bits256 in_msg_hash = msg->get_hash().bits();
+  Ref<vm::CellSlice> in_msg = in_msg_descr.lookup(in_msg_hash);
+  if (in_msg.is_null()) {
+    return td::Status::Error(PSTRING() << "no InMsg in InMsgDescr for message with hash " << in_msg_hash.to_hex());
+  }
+  int tag = block::gen::t_InMsg.get_tag(*in_msg);
+  if (tag != block::gen::InMsg::msg_import_imm && tag != block::gen::InMsg::msg_import_fin &&
+      tag != block::gen::InMsg::msg_import_deferred_fin) {
+    return nullptr;
+  }
+  Ref<vm::Cell> msg_env = in_msg->prefetch_ref();
+  if (msg_env.is_null()) {
+    return td::Status::Error(PSTRING() << "no MsgEnvelope in InMsg for message with hash " << in_msg_hash.to_hex());
+  }
+  block::tlb::MsgEnvelope::Record_std env;
+  if (!block::tlb::unpack_cell(std::move(msg_env), env)) {
+    return td::Status::Error(PSTRING() << "failed to unpack MsgEnvelope for message with hash " << in_msg_hash.to_hex());
+  }
+  if (!env.metadata) {
+    return nullptr;
+  }
+  block::MsgMetadata& metadata = env.metadata.value();
+  return create_tl_object<lite_api::liteServer_transactionMetadata>(
+      0, metadata.depth,
+      create_tl_object<lite_api::liteServer_accountId>(metadata.initiator_wc, metadata.initiator_addr),
+      metadata.initiator_lt);
+}
+
 void LiteQuery::finish_listBlockTransactions(int mode, int req_count) {
   LOG(INFO) << "completing a listBlockTransactions(" << base_blk_id_.to_str() << ", " << mode << ", " << req_count
             << ", " << acc_addr_.to_hex() << ", " << trans_lt_ << ") liteserver query";
@@ -2395,6 +2437,8 @@ void LiteQuery::finish_listBlockTransactions(int mode, int req_count) {
     acc_addr_.set_ones();
     trans_lt_ = ~0ULL;
   }
+  bool with_metadata = mode & 256;
+  mode &= ~256;
   std::vector<tl_object_ptr<lite_api::liteServer_transactionId>> result;
   bool eof = false;
   ton::LogicalTime reverse = (mode & 64) ? ~0ULL : 0;
@@ -2448,8 +2492,18 @@ void LiteQuery::finish_listBlockTransactions(int mode, int req_count) {
           trans_lt_ = reverse;
           break;
         }
-        result.push_back(create_tl_object<lite_api::liteServer_transactionId>(mode, cur_addr, cur_trans.to_long(),
-                                                                              tvalue->get_hash().bits()));
+        tl_object_ptr<lite_api::liteServer_transactionMetadata> metadata;
+        if (with_metadata) {
+          auto r_metadata = get_in_msg_metadata(extra.in_msg_descr, tvalue);
+          if (r_metadata.is_error()) {
+            fatal_error(r_metadata.move_as_error());
+            return;
+          }
+          metadata = r_metadata.move_as_ok();
+        }
+        result.push_back(create_tl_object<lite_api::liteServer_transactionId>(
+            mode | (metadata ? 256 : 0), cur_addr, cur_trans.to_long(), tvalue->get_hash().bits(),
+            std::move(metadata)));
         ++count;
       }
     }
@@ -2484,6 +2538,36 @@ void LiteQuery::perform_listBlockTransactionsExt(BlockIdExt blkid, int mode, int
   request_block_data(blkid);
 }
 
+static td::Status process_all_in_msg_metadata(const Ref<vm::Cell>& in_msg_descr_root,
+                                              const std::vector<Ref<vm::Cell>>& trans_roots) {
+  vm::AugmentedDictionary in_msg_descr{vm::load_cell_slice_ref(in_msg_descr_root), 256, block::tlb::aug_InMsgDescr};
+  for (const Ref<vm::Cell>& trans_root : trans_roots) {
+    block::gen::Transaction::Record transaction;
+    if (!block::tlb::unpack_cell(trans_root, transaction)) {
+      return td::Status::Error("invalid Transaction in block");
+    }
+    Ref<vm::Cell> msg = transaction.r1.in_msg->prefetch_ref();
+    if (msg.is_null()) {
+      continue;
+    }
+    td::Bits256 in_msg_hash = msg->get_hash().bits();
+    Ref<vm::CellSlice> in_msg = in_msg_descr.lookup(in_msg_hash);
+    if (in_msg.is_null()) {
+      return td::Status::Error(PSTRING() << "no InMsg in InMsgDescr for message with hash " << in_msg_hash.to_hex());
+    }
+    int tag = block::gen::t_InMsg.get_tag(*in_msg);
+    if (tag == block::gen::InMsg::msg_import_imm || tag == block::gen::InMsg::msg_import_fin ||
+        tag == block::gen::InMsg::msg_import_deferred_fin) {
+      Ref<vm::Cell> msg_env = in_msg->prefetch_ref();
+      if (msg_env.is_null()) {
+        return td::Status::Error(PSTRING() << "no MsgEnvelope in InMsg for message with hash " << in_msg_hash.to_hex());
+      }
+      vm::load_cell_slice(msg_env);
+    }
+  }
+  return td::Status::OK();
+}
+
 void LiteQuery::finish_listBlockTransactionsExt(int mode, int req_count) {
   LOG(INFO) << "completing a listBlockTransactionsExt(" << base_blk_id_.to_str() << ", " << mode << ", " << req_count
             << ", " << acc_addr_.to_hex() << ", " << trans_lt_ << ") liteserver query";
@@ -2495,6 +2579,10 @@ void LiteQuery::finish_listBlockTransactionsExt(int mode, int req_count) {
   CHECK(rhash == base_blk_id_.root_hash);
   vm::MerkleProofBuilder pb;
   auto virt_root = block_root;
+  if (mode & 256) {
+    // with msg metadata in proof
+    mode |= 32;
+  }
   if (mode & 32) {
     // proof requested
     virt_root = pb.init(std::move(virt_root));
@@ -2558,6 +2646,13 @@ void LiteQuery::finish_listBlockTransactionsExt(int mode, int req_count) {
         }
         trans_roots.push_back(std::move(tvalue));
         ++count;
+      }
+    }
+    if (mode & 256) {
+      td::Status S = process_all_in_msg_metadata(extra.in_msg_descr, trans_roots);
+      if (S.is_error()) {
+        fatal_error(S.move_as_error());
+        return;
       }
     }
   } catch (vm::VmError err) {
@@ -3252,7 +3347,7 @@ void LiteQuery::continue_getOutMsgQueueSizes(td::optional<ShardIdFull> shard, Re
   auto ig = mp.init_guard();
   for (size_t i = 0; i < blocks.size(); ++i) {
     td::actor::send_closure(manager_, &ValidatorManager::get_out_msg_queue_size, blocks[i],
-                            [promise = ig.get_promise(), res, i, id = blocks[i]](td::Result<td::uint32> R) mutable {
+                            [promise = ig.get_promise(), res, i, id = blocks[i]](td::Result<td::uint64> R) mutable {
                               TRY_RESULT_PROMISE(promise, value, std::move(R));
                               res->at(i) = create_tl_object<lite_api::liteServer_outMsgQueueSize>(
                                   create_tl_lite_block_id(id), value);
@@ -3270,6 +3365,73 @@ void LiteQuery::continue_getOutMsgQueueSizes(td::optional<ShardIdFull> shard, Re
                             false);
   });
 }
+
+void LiteQuery::perform_getBlockOutMsgQueueSize(int mode, BlockIdExt blkid) {
+  LOG(INFO) << "started a getBlockOutMsgQueueSize(" << blkid.to_str() << ", " << mode << ") liteserver query";
+  mode_ = mode;
+  if (!blkid.is_valid_full()) {
+    fatal_error("invalid BlockIdExt");
+    return;
+  }
+  set_continuation([=]() -> void { finish_getBlockOutMsgQueueSize(); });
+  request_block_data_state(blkid);
+}
+
+void LiteQuery::finish_getBlockOutMsgQueueSize() {
+  LOG(INFO) << "completing getBlockOutNsgQueueSize() query";
+  bool with_proof = mode_ & 1;
+  Ref<vm::Cell> state_root = state_->root_cell();
+  vm::MerkleProofBuilder pb;
+  if (with_proof) {
+    pb = vm::MerkleProofBuilder{state_root};
+    state_root = pb.root();
+  }
+  block::gen::ShardStateUnsplit::Record sstate;
+  block::gen::OutMsgQueueInfo::Record out_msg_queue_info;
+  if (!tlb::unpack_cell(state_root, sstate) || !tlb::unpack_cell(sstate.out_msg_queue_info, out_msg_queue_info)) {
+    fatal_error("cannot unpack shard state");
+    return;
+  }
+  vm::CellSlice& extra_slice = out_msg_queue_info.extra.write();
+  if (extra_slice.fetch_long(1) == 0) {
+    fatal_error("no out_msg_queue_size in shard state");
+    return;
+  }
+  block::gen::OutMsgQueueExtra::Record out_msg_queue_extra;
+  if (!tlb::unpack(extra_slice, out_msg_queue_extra)) {
+    fatal_error("cannot unpack OutMsgQueueExtra");
+    return;
+  }
+  vm::CellSlice& size_slice = out_msg_queue_extra.out_queue_size.write();
+  if (size_slice.fetch_long(1) == 0) {
+    fatal_error("no out_msg_queue_size in shard state");
+    return;
+  }
+  td::uint64 size = size_slice.prefetch_ulong(48);
+
+  td::BufferSlice proof;
+  if (with_proof) {
+    Ref<vm::Cell> proof1, proof2;
+    if (!make_state_root_proof(proof1)) {
+      return;
+    }
+    if (!pb.extract_proof_to(proof2)) {
+      fatal_error("unknown error creating Merkle proof");
+      return;
+    }
+    auto r_proof = vm::std_boc_serialize_multi({std::move(proof1), std::move(proof2)});
+    if (r_proof.is_error()) {
+      fatal_error(r_proof.move_as_error());
+      return;
+    }
+    proof = r_proof.move_as_ok();
+  }
+  LOG(INFO) << "getBlockOutMsgQueueSize(" << blk_id_.to_str() << ", " << mode_ << ") query completed";
+  auto b = ton::create_serialize_tl_object<ton::lite_api::liteServer_blockOutMsgQueueSize>(
+      mode_, ton::create_tl_lite_block_id(blk_id_), size, std::move(proof));
+  finish_query(std::move(b));
+}
+
 
 void LiteQuery::perform_nonfinal_getCandidate(td::Bits256 source, BlockIdExt blkid, td::Bits256 collated_data_hash) {
   LOG(INFO) << "started a nonfinal.getCandidate liteserver query";

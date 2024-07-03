@@ -1411,7 +1411,6 @@ td::Status ValidatorEngine::load_global_config() {
     h.push_back(b);
   }
   validator_options_.write().set_hardforks(std::move(h));
-  validator_options_.write().set_state_serializer_enabled(config_.state_serializer_enabled);
 
   return td::Status::OK();
 }
@@ -1823,6 +1822,8 @@ void ValidatorEngine::started_overlays() {
 
 void ValidatorEngine::start_validator() {
   validator_options_.write().set_allow_blockchain_init(config_.validators.size() > 0);
+  validator_options_.write().set_state_serializer_enabled(config_.state_serializer_enabled);
+
   validator_manager_ = ton::validator::ValidatorManagerFactory::create(
       validator_options_, db_root_, keyring_.get(), adnl_.get(), rldp_.get(), overlay_manager_.get());
 
@@ -3492,7 +3493,7 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getShardO
         if (!dest) {
           td::actor::send_closure(
               manager, &ton::validator::ValidatorManagerInterface::get_out_msg_queue_size, handle->id(),
-              [promise = std::move(promise)](td::Result<td::uint32> R) mutable {
+              [promise = std::move(promise)](td::Result<td::uint64> R) mutable {
                 if (R.is_error()) {
                   promise.set_value(create_control_query_error(R.move_as_error_prefix("failed to get queue size: ")));
                 } else {

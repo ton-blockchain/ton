@@ -590,7 +590,7 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   void update_options(td::Ref<ValidatorManagerOptions> opts) override;
 
-  void get_out_msg_queue_size(BlockIdExt block_id, td::Promise<td::uint32> promise) override {
+  void get_out_msg_queue_size(BlockIdExt block_id, td::Promise<td::uint64> promise) override {
     if (queue_size_counter_.empty()) {
       if (last_masterchain_state_.is_null()) {
         promise.set_error(td::Status::Error(ErrorCode::notready, "not ready"));

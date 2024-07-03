@@ -26,7 +26,7 @@ class QueueSizeCounter : public td::actor::Actor {
   }
 
   void start_up() override;
-  void get_queue_size(BlockIdExt block_id, td::Promise<td::uint32> promise);
+  void get_queue_size(BlockIdExt block_id, td::Promise<td::uint64> promise);
   void alarm() override;
 
  private:
@@ -42,14 +42,14 @@ class QueueSizeCounter : public td::actor::Actor {
     bool started_ = false;
     bool done_ = false;
     bool calc_whole_ = false;
-    td::uint32 queue_size_ = 0;
-    std::vector<td::Promise<td::uint32>> promises_;
+    td::uint64 queue_size_ = 0;
+    std::vector<td::Promise<td::uint64>> promises_;
   };
   std::map<BlockIdExt, Entry> results_;
 
-  void get_queue_size_ex(BlockIdExt block_id, bool calc_whole, td::Promise<td::uint32> promise);
+  void get_queue_size_ex(BlockIdExt block_id, bool calc_whole, td::Promise<td::uint64> promise);
   void get_queue_size_cont(BlockHandle handle, td::Ref<ShardState> state);
-  void get_queue_size_cont2(td::Ref<ShardState> state, td::Ref<ShardState> prev_state, td::uint32 prev_size);
+  void get_queue_size_cont2(td::Ref<ShardState> state, td::Ref<ShardState> prev_state, td::uint64 prev_size);
   void on_error(BlockIdExt block_id, td::Status error);
 
   void process_top_shard_blocks();
