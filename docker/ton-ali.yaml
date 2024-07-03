@@ -9,12 +9,12 @@ spec:
     - metadata:
         name: validator-engine-pvc
       spec:
-        storageClassName: standard-rwo
+        storageClassName: alicloud-disk-ssd
         accessModes:
           - ReadWriteOnce
         resources:
           requests:
-            storage: 800Gi
+            storage: 20Gi
   serviceName: validator-engine-srv-headless
   replicas: 1
   selector:
@@ -63,49 +63,36 @@ spec:
               name: validator-engine-pvc
           resources:
             requests:
-              memory: "64Gi"
-              cpu: "16"
+              memory: "4Gi"
+              cpu: "1"
             limits:
-              memory: "128Gi"
-              cpu: "32"
+              memory: "4Gi"
+              cpu: "1"
 ---
 kind: Service
 apiVersion: v1
 metadata:
   name: validator-engine-srv
+  annotations:
+    service.beta.kubernetes.io/alibaba-cloud-loadbalancer-eip-ids: "<ELASTIC_IP_ID>"
+    service.beta.kubernetes.io/alibaba-cloud-loadbalancer-address-type: "intranet"
 spec:
   type: LoadBalancer
-  loadBalancerIP: <PUBLIC_IP>
+  externalTrafficPolicy: Local
   ports:
-    - port: 30001
+    - name: validator-udp
+      nodePort: 30001
+      port: 30001
       targetPort: 30001
       protocol: UDP
-  selector:
-    name: validator-engine-pod
----
-kind: Service
-apiVersion: v1
-metadata:
-  name: validator-engine-console-srv
-spec:
-  type: LoadBalancer
-  loadBalancerIP: <PUBLIC_IP>
-  ports:
-    - port: 30002
+    - name: console-tcp
+      nodePort: 30002
+      port: 30002
       targetPort: 30002
       protocol: TCP
-  selector:
-    name: validator-engine-pod
----
-kind: Service
-apiVersion: v1
-metadata:
-  name: lite-server-srv
-spec:
-  type: LoadBalancer
-  loadBalancerIP: <PUBLIC_IP>
-  ports:
-    - port: 30003
+    - name: ls-tcp
+      nodePort: 30003
+      port: 30003
       targetPort: 30003
       protocol: TCP
   selector:

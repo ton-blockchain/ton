@@ -38,19 +38,19 @@ spec:
             - name: LITESERVER
               value: "true"
             - name: VALIDATOR_PORT
-              value: 30001
+              value: "30001"
             - name: CONSOLE_PORT
-              value: 30002
+              value: "30002"
             - name: LITE_PORT
-              value: 30003
+              value: "30003"
             - name: STATE_TTL
-              value: 86400
+              value: "86400"
             - name: ARCHIVE_TTL
-              value: 86400
+              value: "86400"
             - name: THREADS
-              value: 8
+              value: "8"
             - name: VERBOSITY
-              value: 3
+              value: "3"
           ports:
             - containerPort: 30001
               protocol: UDP
