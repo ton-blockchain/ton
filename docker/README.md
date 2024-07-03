@@ -1,10 +1,11 @@
 # Official TON Docker image
 
-1. [Docker](#docker)
+1. [Dockerfile](#docker)
 2. [Kubernetes deployment on-premises](#deploy-on-premises-with-metallb-load-balancer-)
 3. [Kubernetes deployment on AWS](#deploy-on-aws-cloud-amazon-web-services)
 4. [Kubernetes deployment on GCP](#deploy-on-gcp-google-cloud-platform)
-5. [Troubleshooting](#troubleshooting)
+5. [Kubernetes deployment on AliCloud](#deploy-on-ali-cloud)
+6. [Troubleshooting](#troubleshooting)
 ## Prerequisites
 
 The TON node, whether it is validator or fullnode, requires a public IP address. 
@@ -27,9 +28,9 @@ Below is the list of supported arguments and their default values:
 | Argument          | Description                                                                                                                                                                               | Mandatory? |                      Default value                      |
 |:------------------|:------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:----------:|:-------------------------------------------------------:|
 | PUBLIC_IP         | This will be a public IP address of your TON node. Normally it is the same IP address as your server's external IP. This also can be your proxy server or load balancer IP address.       |    yes     |                                                         |
-| GLOBAL_CONFIG_URL | TON global configuration file.                                                                                                                                                            |     no     | https://api.tontech.io/ton/wallet-mainnet.autoconf.json |
+| GLOBAL_CONFIG_URL | TON global configuration file. Mainnet - https://ton.org/global-config.json, Testnet - https://ton.org/testnet-global.config.json                                                         |     no     | https://api.tontech.io/ton/wallet-mainnet.autoconf.json |
 | DUMP_URL          | URL to TON dump. Specify dump from https://dump.ton.org. If you are using testnet dump, make sure to download global config for testnet.                                                  |     no     |                                                         |
-| ZFS_POOL_NAME     | In case you are using ZFS archive dump, you need to specify target ZFS pool name for extraction (e.g. zfs recv data/ton-work).                                                            |     no     |                                                         |
+| ZFS_POOL_NAME     | In case you are using ZFS archive dump, you need to specify target ZFS pool name for extraction (e.g. ```zfs recv data/ton-work```).                                                      |     no     |                                                         |
 | VALIDATOR_PORT    | UDP port that must be available from the outside. Used for communication with other nodes.                                                                                                |     no     |                          30001                          |
 | CONSOLE_PORT      | This TCP port is used to access validator's console. Not necessarily to be opened for external access.                                                                                    |     no     |                          30002                          |
 | LITE_PORT         | Lite-server's TCP port. Used by lite-client.                                                                                                                                              |     no     |                          30003                          |
@@ -517,7 +518,9 @@ Create static IP address of type Premium in GCP console and use it as a value fo
 Client got error [PosixError : Connection reset by peer : 104 : Error on [fd:45]]
 [!NetworkManager][&ADNL_WARNING]  [networkmanager]: received too small proxy packet of size 21
 ```
-
 Solution:
+
+The node is sychnronizing, but very slow though.
+Try to use Network Load Balancer (NLB) instead of default CLB.
 
 
