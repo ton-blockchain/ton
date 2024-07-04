@@ -260,7 +260,7 @@ TEST(Emulator, wallet_int_and_ext_msg) {
     CHECK(transaction_boc.is_ok());
     auto trans_cell = vm::std_boc_deserialize(transaction_boc.move_as_ok());
     CHECK(trans_cell.is_ok());
-    auto trans_hash = trans_cell.ok()->get_hash().bits();
+    td::Bits256 trans_hash = trans_cell.ok()->get_hash().bits();
     block::gen::Transaction::Record trans;
     block::gen::TransactionDescr::Record_trans_ord trans_descr;
     CHECK(tlb::unpack_cell(trans_cell.move_as_ok(), trans) && tlb::unpack_cell(trans.description, trans_descr));
@@ -315,7 +315,7 @@ TEST(Emulator, wallet_int_and_ext_msg) {
     CHECK(ext_transaction_boc.is_ok());
     auto ext_trans_cell = vm::std_boc_deserialize(ext_transaction_boc.move_as_ok());
     CHECK(ext_trans_cell.is_ok());
-    auto ext_trans_hash = ext_trans_cell.ok()->get_hash().bits();
+    td::Bits256 ext_trans_hash = ext_trans_cell.ok()->get_hash().bits();
     block::gen::Transaction::Record ext_trans;
     block::gen::TransactionDescr::Record_trans_ord ext_trans_descr;
     CHECK(tlb::unpack_cell(ext_trans_cell.move_as_ok(), ext_trans) && tlb::unpack_cell(ext_trans.description, ext_trans_descr));
