@@ -142,6 +142,17 @@ set(TON_CRYPTO_SOURCE
   vm/vm.h
   vm/bls.h)
 
+set(TON_DB_SOURCE
+  vm/db/DynamicBagOfCellsDb.cpp
+  vm/db/CellStorage.cpp
+  vm/db/TonDb.cpp
+
+  vm/db/DynamicBagOfCellsDb.h
+  vm/db/CellHashTable.h
+  vm/db/CellStorage.h
+  vm/db/TonDb.h
+)
+
 set(FIFT_SOURCE
   fift/Dictionary.cpp
   fift/Fift.cpp
@@ -336,21 +347,31 @@ endif()
 target_include_directories(ton_crypto_core PUBLIC $<BUILD_INTERFACE:${SODIUM_INCLUDE_DIR}>)
 target_link_libraries(ton_crypto PUBLIC ${SODIUM_LIBRARY_RELEASE})
 
+add_library(ton_db STATIC ${TON_DB_SOURCE})
+target_include_directories(ton_db PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+	$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
+target_link_libraries(ton_db PUBLIC tdutils tddb ton_crypto)
+
 add_executable(test-ed25519-crypto test/test-ed25519-crypto.cpp)
 target_include_directories(test-ed25519-crypto PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
 target_link_libraries(test-ed25519-crypto PUBLIC ton_crypto)
 
 add_library(fift-lib STATIC ${FIFT_SOURCE})
 target_include_directories(fift-lib PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
-target_link_libraries(fift-lib PUBLIC ton_crypto tdutils ton_block)
+target_link_libraries(fift-lib PUBLIC ton_crypto ton_db tdutils ton_block)
+
+add_library(fift-lib-no-db STATIC ${FIFT_SOURCE})
+target_include_directories(fift-lib-no-db PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
+target_link_libraries(fift-lib-no-db PUBLIC ton_crypto tdutils ton_block)
+
 if (USE_EMSCRIPTEN)
-  target_link_options(fift-lib PRIVATE -fexceptions)
-  target_compile_options(fift-lib PRIVATE -fexceptions)
+  target_link_options(fift-lib-no-db PRIVATE -fexceptions)
+  target_compile_options(fift-lib-no-db PRIVATE -fexceptions)
 endif()
-set_target_properties(fift-lib PROPERTIES OUTPUT_NAME fift)
+set_target_properties(fift-lib-no-db PROPERTIES OUTPUT_NAME fift)
 
 add_executable(fift fift/fift-main.cpp)
-target_link_libraries(fift PUBLIC fift-lib git)
+target_link_libraries(fift PUBLIC fift-lib-no-db git)
 if (WINGETOPT_FOUND)
   target_link_libraries_system(fift wingetopt)
 endif()
@@ -378,7 +399,7 @@ endif()
 if (USE_EMSCRIPTEN)
   add_executable(funcfiftlib funcfiftlib/funcfiftlib.cpp ${FUNC_LIB_SOURCE})
   target_include_directories(funcfiftlib PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
-  target_link_libraries(funcfiftlib PUBLIC fift-lib src_parser git)
+  target_link_libraries(funcfiftlib PUBLIC fift-lib-no-db src_parser git)
   target_link_options(funcfiftlib PRIVATE -sEXPORTED_RUNTIME_METHODS=FS,ccall,cwrap,UTF8ToString,stringToUTF8,lengthBytesUTF8,addFunction,removeFunction,setValue)
   target_link_options(funcfiftlib PRIVATE -sEXPORTED_FUNCTIONS=_func_compile,_version,_malloc,_free,_setThrew)
   target_link_options(funcfiftlib PRIVATE -sEXPORT_NAME=CompilerModule)
