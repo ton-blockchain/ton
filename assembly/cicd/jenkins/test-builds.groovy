@@ -12,7 +12,7 @@ pipeline {
                             sh '''
                                 cp assembly/native/build-ubuntu-shared.sh .
                                 chmod +x build-ubuntu-shared.sh
-                                ./build-ubuntu-shared.sh -t -a
+                                ./build-ubuntu-shared.sh -a
                             '''
                             sh '''
                                 cd artifacts
@@ -31,7 +31,7 @@ pipeline {
                             sh '''
                                 cp assembly/nix/build-linux-x86-64-nix.sh .
                                 chmod +x build-linux-x86-64-nix.sh
-                                ./build-linux-x86-64-nix.sh -t
+                                ./build-linux-x86-64-nix.sh
                             '''
                             sh '''
                                 cd artifacts
@@ -50,7 +50,7 @@ pipeline {
                             sh '''
                                 cp assembly/native/build-ubuntu-shared.sh .
                                 chmod +x build-ubuntu-shared.sh
-                                ./build-ubuntu-shared.sh -t -a
+                                ./build-ubuntu-shared.sh -a
                             '''
                             sh '''
                                 cd artifacts
@@ -69,7 +69,7 @@ pipeline {
                             sh '''
                                 cp assembly/nix/build-linux-arm64-nix.sh .
                                 chmod +x build-linux-arm64-nix.sh
-                                ./build-linux-arm64-nix.sh -t
+                                ./build-linux-arm64-nix.sh
                             '''
                             sh '''
                                 cd artifacts
@@ -88,7 +88,7 @@ pipeline {
                             sh '''
                                 cp assembly/native/build-macos-shared.sh .
                                 chmod +x build-macos-shared.sh
-                                ./build-macos-shared.sh -t -a
+                                ./build-macos-shared.sh -a
                             '''
                             sh '''
                                 cd artifacts
@@ -107,7 +107,7 @@ pipeline {
                             sh '''
                                 cp assembly/nix/build-macos-nix.sh .
                                 chmod +x build-macos-nix.sh
-                                ./build-macos-nix.sh -t
+                                ./build-macos-nix.sh
                             '''
                             sh '''
                                 cd artifacts
@@ -126,7 +126,7 @@ pipeline {
                             sh '''
                                 cp assembly/native/build-macos-shared.sh .
                                 chmod +x build-macos-shared.sh
-                                ./build-macos-shared.sh -t -a
+                                ./build-macos-shared.sh -a
                             '''
                             sh '''
                                 cd artifacts
@@ -145,7 +145,7 @@ pipeline {
                             sh '''
                                 cp assembly/nix/build-macos-nix.sh .
                                 chmod +x build-macos-nix.sh
-                                ./build-macos-nix.sh -t
+                                ./build-macos-nix.sh
                             '''
                             sh '''
                                 cd artifacts
@@ -164,7 +164,7 @@ pipeline {
                             sh '''
                                 cp assembly/native/build-macos-shared.sh .
                                 chmod +x build-macos-shared.sh
-                                ./build-macos-shared.sh -t -a
+                                ./build-macos-shared.sh -a
                             '''
                             sh '''
                                 cd artifacts
@@ -182,7 +182,7 @@ pipeline {
                         timeout(time: 180, unit: 'MINUTES') {
                             bat '''
                                 copy assembly\\native\\build-windows.bat .
-                                build-windows.bat -t
+                                build-windows.bat
                             '''
                             bat '''
                                 cd artifacts
