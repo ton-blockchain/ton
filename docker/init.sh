@@ -34,13 +34,8 @@ fi
 if [ ! -z "$DUMP_URL" ]; then
     echo -e "\e[1;32m[+]\e[0m Using provided dump $DUMP_URL"
     if [ ! -f "dump_downloaded" ]; then
-      if grep -q zfs <<<"$DUMP_URL"; then
-        echo -e "\e[1;32m[+]\e[0m Downloading ZFS dump..."
-        curl --retry 10 --retry-delay 30 -Ls $DUMP_URL | pv | plzip -d -n8 | zfs recv $ZFS_POOL_NAME
-      else
-        echo -e "\e[1;32m[+]\e[0m Downloading dump..."
-        curl --retry 10 --retry-delay 30 -Ls $DUMP_URL | pv | plzip -d -n8 | tar -xC /var/ton-work/db
-      fi
+      echo -e "\e[1;32m[+]\e[0m Downloading dump..."
+      curl --retry 10 --retry-delay 30 -Ls $DUMP_URL | pv | plzip -d -n8 | tar -xC /var/ton-work/db
       touch dump_downloaded
     else
       echo -e "\e[1;32m[+]\e[0m Dump has been already used."
