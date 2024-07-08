@@ -607,7 +607,7 @@ engine.validator.customOverlay name:string nodes:(vector engine.validator.custom
 engine.validator.customOverlaysConfig overlays:(vector engine.validator.customOverlay) = engine.validator.CustomOverlaysConfig;
 
 engine.validator.collatorOptions
-  deferring_enabled:Bool defer_messages_after:int
+  deferring_enabled:Bool defer_messages_after:int defer_out_queue_size_limit:long
   dispatch_phase_2_max_total:int dispatch_phase_3_max_total:int
   dispatch_phase_2_max_per_initiator:int dispatch_phase_3_max_per_initiator:int = engine.validator.CollatorOptions;
 

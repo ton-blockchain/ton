@@ -1971,6 +1971,8 @@ bool Collator::fetch_config_params() {
     return fatal_error(res.move_as_error());
   }
   compute_phase_cfg_.libraries = std::make_unique<vm::Dictionary>(config_->get_libraries_root(), 256);
+  defer_out_queue_size_limit_ = std::max<td::uint64>(collator_opts_->defer_out_queue_size_limit,
+                                                     compute_phase_cfg_.size_limits.defer_out_queue_size_limit);
   return true;
 }
 
@@ -3056,7 +3058,8 @@ int Collator::process_one_new_message(block::NewOutMsg msg, bool enqueue_only, R
   if (!from_dispatch_queue) {
     if (deferring_messages_enabled_ && collator_opts_->deferring_enabled && !is_special && !is_special_account &&
         msg.msg_idx != 0) {
-      if (++sender_generated_messages_count_[src_addr] >= collator_opts_->defer_messages_after) {
+      if (++sender_generated_messages_count_[src_addr] >= collator_opts_->defer_messages_after ||
+          out_msg_queue_size_ > defer_out_queue_size_limit_) {
         defer = true;
       }
     }
@@ -3628,6 +3631,9 @@ int Collator::process_external_message(Ref<vm::Cell> msg) {
  * @returns True if the processing was successful, false otherwise.
  */
 bool Collator::process_dispatch_queue() {
+  if (out_msg_queue_size_ > defer_out_queue_size_limit_) {
+    return true;
+  }
   have_unprocessed_account_dispatch_queue_ = true;
   size_t max_total_count[3] = {1 << 30, collator_opts_->dispatch_phase_2_max_total,
                                collator_opts_->dispatch_phase_3_max_total};
@@ -3638,7 +3644,7 @@ bool Collator::process_dispatch_queue() {
     max_per_initiator[2] = 10;
   } else if (out_msg_queue_size_ <= 512) {
     max_per_initiator[2] = 2;
-  } else if (out_msg_queue_size_ <= 2048) {
+  } else if (out_msg_queue_size_ <= 1500) {
     max_per_initiator[2] = 1;
   }
   for (int iter = 0; iter < 3; ++iter) {

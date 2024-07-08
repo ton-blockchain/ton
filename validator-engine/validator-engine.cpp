@@ -2422,6 +2422,7 @@ static td::Result<td::Ref<ton::validator::CollatorOptions>> parse_collator_optio
   // Set default values (from_json leaves missing fields as is)
   ton::ton_api::engine_validator_collatorOptions f;
   f.deferring_enabled_ = opts.deferring_enabled;
+  f.defer_out_queue_size_limit_ = opts.defer_out_queue_size_limit;
   f.defer_messages_after_ = opts.defer_messages_after;
   f.dispatch_phase_2_max_total_ = opts.dispatch_phase_2_max_total;
   f.dispatch_phase_3_max_total_ = opts.dispatch_phase_3_max_total;
@@ -2435,6 +2436,9 @@ static td::Result<td::Ref<ton::validator::CollatorOptions>> parse_collator_optio
   if (f.defer_messages_after_ <= 0) {
     return td::Status::Error("defer_messages_after should be positive");
   }
+  if (f.defer_out_queue_size_limit_ < 0) {
+    return td::Status::Error("defer_out_queue_size_limit should be non-negative");
+  }
   if (f.dispatch_phase_2_max_total_ < 0) {
     return td::Status::Error("dispatch_phase_2_max_total should be non-negative");
   }
@@ -2447,6 +2451,7 @@ static td::Result<td::Ref<ton::validator::CollatorOptions>> parse_collator_optio
 
   opts.deferring_enabled = f.deferring_enabled_;
   opts.defer_messages_after = f.defer_messages_after_;
+  opts.defer_out_queue_size_limit = f.defer_out_queue_size_limit_;
   opts.dispatch_phase_2_max_total = f.dispatch_phase_2_max_total_;
   opts.dispatch_phase_3_max_total = f.dispatch_phase_3_max_total_;
   opts.dispatch_phase_2_max_per_initiator = f.dispatch_phase_2_max_per_initiator_;

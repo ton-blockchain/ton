@@ -213,6 +213,7 @@ class Collator final : public td::actor::Actor {
   unsigned dispatch_queue_ops_{0};
   std::map<StdSmcAddress, LogicalTime> last_dispatch_queue_emitted_lt_;
   bool have_unprocessed_account_dispatch_queue_ = true;
+  td::uint64 defer_out_queue_size_limit_;
 
   bool msg_metadata_enabled_ = false;
   bool deferring_messages_enabled_ = false;

@@ -56,6 +56,8 @@ struct CollatorOptions : public td::CntObject {
 
   // Defer messages from account after Xth message in block (excluding first messages from transactions)
   td::uint32 defer_messages_after = 10;
+  // Defer all messages if out msg queue size is greater than X (excluding first messages from transactions)
+  td::uint64 defer_out_queue_size_limit = 2048;
 
   // See Collator::process_dispatch_queue
   td::uint32 dispatch_phase_2_max_total = 150;
