@@ -129,7 +129,7 @@ test $? -eq 0 || { echo "Can't compile libsodium with emmake "; exit 1; }
 
 cd ../build
 
-emcmake cmake -DUSE_EMSCRIPTEN=ON -TON_USE_ROCKSDB=OFF -DCMAKE_BUILD_TYPE=Release \
+emcmake cmake -DUSE_EMSCRIPTEN=ON -DTON_USE_ROCKSDB=OFF -DCMAKE_BUILD_TYPE=Release \
 -DZLIB_FOUND=1 \
 -DZLIB_LIBRARIES=$ZLIB_DIR/libz.a \
 -DZLIB_INCLUDE_DIR=$ZLIB_DIR \
