@@ -40,8 +40,9 @@ jobs:
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:test
 
       - name: Test
+        timeout-minutes: 5
         run: |
-          docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:test
+          docker run --rm -e "PUBLIC_IP=1.1.1.1" --network host ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:test
 
       - name: Get next tag
         id: tag
