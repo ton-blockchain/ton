@@ -3,7 +3,8 @@
 if [ ! -z "$TEST" ]; then
   echo -e "Running simple validator-engine test..."
   validator-engine -h
-  test $? -eq 2 || { echo "validator-engine works"; exit 0; }
+  test $? -eq 2 || { echo "simple validator-engine test failed"; exit 1; }
+  exit 0;
 fi
 
 # global config
