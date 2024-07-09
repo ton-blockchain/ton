@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
 
+if [ ! -z "$TEST" ]; then
+  echo -e "Running simple validator-engine test..."
+  validator-engine -h
+  exit $?
+fi
+
 # global config
 if [ ! -z "$GLOBAL_CONFIG_URL" ]; then
     echo -e "\e[1;32m[+]\e[0m Downloading provided global config."
