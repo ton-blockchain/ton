@@ -197,6 +197,7 @@ class Collator final : public td::actor::Actor {
   std::unique_ptr<vm::AugmentedDictionary> in_msg_dict, out_msg_dict, out_msg_queue_, sibling_out_msg_queue_;
   std::map<StdSmcAddress, size_t> unprocessed_deferred_messages_;  // number of messages from dispatch queue in new_msgs
   td::uint64 out_msg_queue_size_ = 0;
+  td::uint64 old_out_msg_queue_size_ = 0;
   bool have_out_msg_queue_size_in_state_ = false;
   std::unique_ptr<vm::Dictionary> ihr_pending;
   std::shared_ptr<block::MsgProcessedUptoCollection> processed_upto_, sibling_processed_upto_;
@@ -214,6 +215,7 @@ class Collator final : public td::actor::Actor {
   std::map<StdSmcAddress, LogicalTime> last_dispatch_queue_emitted_lt_;
   bool have_unprocessed_account_dispatch_queue_ = true;
   td::uint64 defer_out_queue_size_limit_;
+  td::uint64 hard_defer_out_queue_size_limit_;
 
   bool msg_metadata_enabled_ = false;
   bool deferring_messages_enabled_ = false;

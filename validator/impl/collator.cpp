@@ -1787,6 +1787,7 @@ bool Collator::try_collate() {
   last_proc_int_msg_.second.set_zero();
   first_unproc_int_msg_.first = ~0ULL;
   first_unproc_int_msg_.second.set_ones();
+  old_out_msg_queue_size_ = out_msg_queue_size_;
   if (is_masterchain()) {
     LOG(DEBUG) << "getting the list of special smart contracts";
     auto res = config_->get_special_smartcontracts();
@@ -1973,6 +1974,8 @@ bool Collator::fetch_config_params() {
   compute_phase_cfg_.libraries = std::make_unique<vm::Dictionary>(config_->get_libraries_root(), 256);
   defer_out_queue_size_limit_ = std::max<td::uint64>(collator_opts_->defer_out_queue_size_limit,
                                                      compute_phase_cfg_.size_limits.defer_out_queue_size_limit);
+  // This one is checked in validate-query
+  hard_defer_out_queue_size_limit_ = compute_phase_cfg_.size_limits.defer_out_queue_size_limit;
   return true;
 }
 
@@ -3631,7 +3634,7 @@ int Collator::process_external_message(Ref<vm::Cell> msg) {
  * @returns True if the processing was successful, false otherwise.
  */
 bool Collator::process_dispatch_queue() {
-  if (out_msg_queue_size_ > defer_out_queue_size_limit_) {
+  if (out_msg_queue_size_ > defer_out_queue_size_limit_ && old_out_msg_queue_size_ > hard_defer_out_queue_size_limit_) {
     return true;
   }
   have_unprocessed_account_dispatch_queue_ = true;
