@@ -2392,8 +2392,12 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     if (!tlb::csr_unpack(msg.info, info) || !block::tlb::t_CurrencyCollection.validate_csr(info.value)) {
       return -1;
     }
-    fwd_fee = block::tlb::t_Grams.as_integer(info.fwd_fee);
-    ihr_fee = block::tlb::t_Grams.as_integer(info.ihr_fee);
+    if (cfg.disable_custom_fess) {
+      fwd_fee = ihr_fee = td::zero_refint();
+    } else {
+      fwd_fee = block::tlb::t_Grams.as_integer(info.fwd_fee);
+      ihr_fee = block::tlb::t_Grams.as_integer(info.ihr_fee);
+    }
   }
   // set created_at and created_lt to correct values
   info.created_at = now;
@@ -3755,6 +3759,7 @@ td::Status FetchConfigParams::fetch_config_params(
     action_phase_cfg->action_fine_enabled = config.get_global_version() >= 4;
     action_phase_cfg->bounce_on_fail_enabled = config.get_global_version() >= 4;
     action_phase_cfg->message_skip_enabled = config.get_global_version() >= 8;
+    action_phase_cfg->disable_custom_fess = config.get_global_version() >= 8;
     action_phase_cfg->mc_blackhole_addr = config.get_burning_config().blackhole_addr;
   }
   {

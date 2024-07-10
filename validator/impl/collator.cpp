@@ -50,7 +50,6 @@ static const td::uint32 SPLIT_MAX_QUEUE_SIZE = 100000;
 static const td::uint32 MERGE_MAX_QUEUE_SIZE = 2047;
 static const td::uint32 SKIP_EXTERNALS_QUEUE_SIZE = 8000;
 static const int HIGH_PRIORITY_EXTERNAL = 10;  // don't skip high priority externals when queue is big
-static const int DEFER_MESSAGES_AFTER = 10;  // 10'th and later messages from address will be deferred
 
 #define DBG(__n) dbg(__n)&&
 #define DSTART int __dcnt = 0;
@@ -71,19 +70,22 @@ static inline bool dbg(int c) {
  * @param prev A vector of BlockIdExt representing the previous blocks.
  * @param validator_set A reference to the ValidatorSet.
  * @param collator_id The public key of the block creator.
+ * @param collator_opts A reference to CollatorOptions.
  * @param manager The ActorId of the ValidatorManager.
  * @param timeout The timeout for the collator.
  * @param promise The promise to return the result.
  */
 Collator::Collator(ShardIdFull shard, bool is_hardfork, BlockIdExt min_masterchain_block_id,
                    std::vector<BlockIdExt> prev, td::Ref<ValidatorSet> validator_set, Ed25519_PublicKey collator_id,
-                   td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
-                   td::Promise<BlockCandidate> promise, td::CancellationToken cancellation_token, unsigned mode)
+                   Ref<CollatorOptions> collator_opts, td::actor::ActorId<ValidatorManager> manager,
+                   td::Timestamp timeout, td::Promise<BlockCandidate> promise, td::CancellationToken cancellation_token,
+                   unsigned mode)
     : shard_(shard)
     , is_hardfork_(is_hardfork)
     , min_mc_block_id{min_masterchain_block_id}
     , prev_blocks(std::move(prev))
     , created_by_(collator_id)
+    , collator_opts_(collator_opts)
     , validator_set_(std::move(validator_set))
     , manager(manager)
     , timeout(timeout)
@@ -1868,6 +1870,7 @@ bool Collator::try_collate() {
   last_proc_int_msg_.second.set_zero();
   first_unproc_int_msg_.first = ~0ULL;
   first_unproc_int_msg_.second.set_ones();
+  old_out_msg_queue_size_ = out_msg_queue_size_;
   if (is_masterchain()) {
     LOG(DEBUG) << "getting the list of special smart contracts";
     auto res = config_->get_special_smartcontracts();
@@ -2052,6 +2055,10 @@ bool Collator::fetch_config_params() {
     return fatal_error(res.move_as_error());
   }
   compute_phase_cfg_.libraries = std::make_unique<vm::Dictionary>(config_->get_libraries_root(), 256);
+  defer_out_queue_size_limit_ = std::max<td::uint64>(collator_opts_->defer_out_queue_size_limit,
+                                                     compute_phase_cfg_.size_limits.defer_out_queue_size_limit);
+  // This one is checked in validate-query
+  hard_defer_out_queue_size_limit_ = compute_phase_cfg_.size_limits.defer_out_queue_size_limit;
   return true;
 }
 
@@ -3176,8 +3183,10 @@ int Collator::process_one_new_message(block::NewOutMsg msg, bool enqueue_only, R
   bool is_special_account = is_masterchain() && config_->is_special_smartcontract(src_addr);
   bool defer = false;
   if (!from_dispatch_queue) {
-    if (deferring_messages_enabled_ && !is_special && !is_special_account && msg.msg_idx != 0) {
-      if (++sender_generated_messages_count_[src_addr] >= DEFER_MESSAGES_AFTER) {
+    if (deferring_messages_enabled_ && collator_opts_->deferring_enabled && !is_special && !is_special_account &&
+        msg.msg_idx != 0) {
+      if (++sender_generated_messages_count_[src_addr] >= collator_opts_->defer_messages_after ||
+          out_msg_queue_size_ > defer_out_queue_size_limit_) {
         defer = true;
       }
     }
@@ -3776,18 +3785,24 @@ int Collator::process_external_message(Ref<vm::Cell> msg) {
  * @returns True if the processing was successful, false otherwise.
  */
 bool Collator::process_dispatch_queue() {
+  if (out_msg_queue_size_ > defer_out_queue_size_limit_ && old_out_msg_queue_size_ > hard_defer_out_queue_size_limit_) {
+    return true;
+  }
   have_unprocessed_account_dispatch_queue_ = true;
-  size_t max_total_count[3] = {1 << 30, 150, 150};
-  size_t max_per_initiator[3] = {1 << 30, 20, 0};
-  if (out_msg_queue_size_ <= 256) {
+  size_t max_total_count[3] = {1 << 30, collator_opts_->dispatch_phase_2_max_total,
+                               collator_opts_->dispatch_phase_3_max_total};
+  size_t max_per_initiator[3] = {1 << 30, collator_opts_->dispatch_phase_2_max_per_initiator, 0};
+  if (collator_opts_->dispatch_phase_3_max_per_initiator) {
+    max_per_initiator[2] = collator_opts_->dispatch_phase_3_max_per_initiator.value();
+  } else if (out_msg_queue_size_ <= 256) {
     max_per_initiator[2] = 10;
   } else if (out_msg_queue_size_ <= 512) {
     max_per_initiator[2] = 2;
-  } else if (out_msg_queue_size_ <= 2048) {
+  } else if (out_msg_queue_size_ <= 1500) {
     max_per_initiator[2] = 1;
   }
   for (int iter = 0; iter < 3; ++iter) {
-    if (max_per_initiator[iter] == 0) {
+    if (max_per_initiator[iter] == 0 || max_total_count[iter] == 0) {
       continue;
     }
     vm::AugmentedDictionary cur_dispatch_queue{dispatch_queue_->get_root(), 256, block::tlb::aug_DispatchQueue};
@@ -3826,7 +3841,8 @@ bool Collator::process_dispatch_queue() {
 
       // Remove message from DispatchQueue
       bool ok;
-      if (iter == 0 || (iter == 1 && sender_generated_messages_count_[src_addr] >= DEFER_MESSAGES_AFTER)) {
+      if (iter == 0 ||
+          (iter == 1 && sender_generated_messages_count_[src_addr] >= collator_opts_->defer_messages_after)) {
         ok = cur_dispatch_queue.lookup_delete(src_addr).not_null();
       } else {
         dict.lookup_delete(key);

@@ -26,9 +26,14 @@
 
 namespace ton::validator {
 
-CollatorNode::CollatorNode(adnl::AdnlNodeIdShort local_id, td::actor::ActorId<ValidatorManager> manager,
-                           td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp)
-    : local_id_(local_id), manager_(std::move(manager)), adnl_(std::move(adnl)), rldp_(std::move(rldp)) {
+CollatorNode::CollatorNode(adnl::AdnlNodeIdShort local_id, td::Ref<ValidatorManagerOptions> opts,
+                           td::actor::ActorId<ValidatorManager> manager, td::actor::ActorId<adnl::Adnl> adnl,
+                           td::actor::ActorId<rldp::Rldp> rldp)
+    : local_id_(local_id)
+    , opts_(std::move(opts))
+    , manager_(std::move(manager))
+    , adnl_(std::move(adnl))
+    , rldp_(std::move(rldp)) {
 }
 
 void CollatorNode::start_up() {
@@ -383,7 +388,7 @@ void CollatorNode::generate_block(ShardIdFull shard, CatchainSeqno cc_seqno, std
   cache_entry->block_seqno = block_seqno;
   run_collate_query(
       shard, last_masterchain_state_->get_block_id(), std::move(prev_blocks), Ed25519_PublicKey{td::Bits256::zero()},
-      last_masterchain_state_->get_validator_set(shard), manager_, timeout,
+      last_masterchain_state_->get_validator_set(shard), opts_->get_collator_options(), manager_, timeout,
       [=, SelfId = actor_id(this), timer = td::Timer{}](td::Result<BlockCandidate> R) {
         LOG(INFO) << "generate block result"
                   << ": shard=" << shard.to_str() << ", cc_seqno=" << cc_seqno << ", next_block_seqno=" << block_seqno

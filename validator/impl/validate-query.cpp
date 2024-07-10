@@ -1004,6 +1004,7 @@ bool ValidateQuery::fetch_config_params() {
     action_phase_cfg_.action_fine_enabled = config_->get_global_version() >= 4;
     action_phase_cfg_.bounce_on_fail_enabled = config_->get_global_version() >= 4;
     action_phase_cfg_.message_skip_enabled = config_->get_global_version() >= 8;
+    action_phase_cfg_.disable_custom_fess = config_->get_global_version() >= 8;
     action_phase_cfg_.mc_blackhole_addr = config_->get_burning_config().blackhole_addr;
   }
   {
@@ -2298,6 +2299,7 @@ bool ValidateQuery::prepare_out_msg_queue_size() {
     // if after_split then out_msg_queue_size is always present, since it is calculated during split
     old_out_msg_queue_size_ = ps_.out_msg_queue_size_.value();
     out_msg_queue_size_known_ = true;
+    have_out_msg_queue_size_in_state_ = true;
     return true;
   }
   if (!store_out_msg_queue_size_) {  // Don't need it
@@ -3499,7 +3501,7 @@ bool ValidateQuery::check_account_dispatch_queue_update(td::Bits256 addr, Ref<vm
     }
   }
   if (old_dict_size > 0 && max_removed_lt == 0) {
-    have_unprocessed_account_dispatch_queue_ = true;
+    ++processed_account_dispatch_queues_;
   }
   return true;
 }
@@ -3525,6 +3527,28 @@ bool ValidateQuery::unpack_dispatch_queue_update() {
         3 /* check augmentation of changed nodes */);
     if (!res) {
       return reject_query("invalid DispatchQueue dictionary in the new state");
+    }
+
+    if (have_out_msg_queue_size_in_state_ &&
+        old_out_msg_queue_size_ <= compute_phase_cfg_.size_limits.defer_out_queue_size_limit) {
+      // Check that at least one message was taken from each AccountDispatchQueue
+      try {
+        have_unprocessed_account_dispatch_queue_ = false;
+        td::uint64 total_account_dispatch_queues = 0;
+        ps_.dispatch_queue_->check_for_each([&](Ref<vm::CellSlice>, td::ConstBitPtr, int n) -> bool {
+          assert(n == 352);
+          ++total_account_dispatch_queues;
+          if (total_account_dispatch_queues > processed_account_dispatch_queues_) {
+            return false;
+          }
+          return true;
+        });
+        have_unprocessed_account_dispatch_queue_ =
+            (total_account_dispatch_queues != processed_account_dispatch_queues_);
+      } catch (vm::VmVirtError&) {
+        // VmVirtError can happen if we have only a proof of ShardState
+        have_unprocessed_account_dispatch_queue_ = true;
+      }
     }
   } catch (vm::VmError& err) {
     return reject_query("invalid DispatchQueue dictionary difference between the old and the new state: "s +
@@ -3788,7 +3812,8 @@ bool ValidateQuery::check_in_msg(td::ConstBitPtr key, Ref<vm::CellSlice> in_msg)
   }
   if (have_unprocessed_account_dispatch_queue_ && tag != block::gen::InMsg::msg_import_ext &&
       tag != block::gen::InMsg::msg_import_deferred_tr && tag != block::gen::InMsg::msg_import_deferred_fin) {
-    // Collator is requeired to take at least one message from each AccountDispatchQueue (unless the block is full)
+    // Collator is requeired to take at least one message from each AccountDispatchQueue
+    // (unless the block is full or unless out_msg_queue_size is big)
     // If some AccountDispatchQueue is unporcessed then it's not allowed to import other messages except for externals
     return reject_query("required DispatchQueue processing is not done, but some other internal messages are imported");
   }

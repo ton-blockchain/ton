@@ -70,6 +70,7 @@ class Collator final : public td::actor::Actor {
   std::vector<Ref<ShardState>> prev_states;
   std::vector<Ref<BlockData>> prev_block_data;
   Ed25519_PublicKey created_by_;
+  Ref<CollatorOptions> collator_opts_;
   Ref<ValidatorSet> validator_set_;
   td::actor::ActorId<ValidatorManager> manager;
   td::Timestamp timeout;
@@ -89,9 +90,9 @@ class Collator final : public td::actor::Actor {
 
  public:
   Collator(ShardIdFull shard, bool is_hardfork, BlockIdExt min_masterchain_block_id, std::vector<BlockIdExt> prev,
-           Ref<ValidatorSet> validator_set, Ed25519_PublicKey collator_id, td::actor::ActorId<ValidatorManager> manager,
-           td::Timestamp timeout, td::Promise<BlockCandidate> promise, td::CancellationToken cancellation_token,
-           unsigned mode);
+           Ref<ValidatorSet> validator_set, Ed25519_PublicKey collator_id, Ref<CollatorOptions> collator_opts,
+           td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout, td::Promise<BlockCandidate> promise,
+           td::CancellationToken cancellation_token, unsigned mode);
   ~Collator() override = default;
   bool is_busy() const {
     return busy_;
@@ -199,6 +200,7 @@ class Collator final : public td::actor::Actor {
       sibling_out_msg_queue_;
   std::map<StdSmcAddress, size_t> unprocessed_deferred_messages_;  // number of messages from dispatch queue in new_msgs
   td::uint64 out_msg_queue_size_ = 0;
+  td::uint64 old_out_msg_queue_size_ = 0;
   bool have_out_msg_queue_size_in_state_ = false;
   std::unique_ptr<vm::Dictionary> ihr_pending;
   std::shared_ptr<block::MsgProcessedUptoCollection> processed_upto_, sibling_processed_upto_;
@@ -219,6 +221,8 @@ class Collator final : public td::actor::Actor {
   unsigned dispatch_queue_ops_{0};
   std::map<StdSmcAddress, LogicalTime> last_dispatch_queue_emitted_lt_;
   bool have_unprocessed_account_dispatch_queue_ = true;
+  td::uint64 defer_out_queue_size_limit_;
+  td::uint64 hard_defer_out_queue_size_limit_;
 
   bool msg_metadata_enabled_ = false;
   bool deferring_messages_enabled_ = false;

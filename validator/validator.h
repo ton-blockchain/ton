@@ -52,6 +52,21 @@ struct PerfTimerStats {
   std::deque<std::pair<double, double>> stats; // <Time::now(), duration>
 };
 
+struct CollatorOptions : public td::CntObject {
+  bool deferring_enabled = true;
+
+  // Defer messages from account after Xth message in block (excluding first messages from transactions)
+  td::uint32 defer_messages_after = 10;
+  // Defer all messages if out msg queue size is greater than X (excluding first messages from transactions)
+  td::uint64 defer_out_queue_size_limit = 2048;
+
+  // See Collator::process_dispatch_queue
+  td::uint32 dispatch_phase_2_max_total = 150;
+  td::uint32 dispatch_phase_3_max_total = 150;
+  td::uint32 dispatch_phase_2_max_per_initiator = 20;
+  td::optional<td::uint32> dispatch_phase_3_max_per_initiator;  // Default - depends on out msg queue size
+};
+
 struct CollatorsList : public td::CntObject {
   struct Collator {
     adnl::AdnlNodeIdShort adnl_id;
@@ -105,6 +120,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual bool get_celldb_preload_all() const = 0;
   virtual td::optional<double> get_catchain_max_block_delay() const = 0;
   virtual bool get_state_serializer_enabled() const = 0;
+  virtual td::Ref<CollatorOptions> get_collator_options() const = 0;
   virtual td::Ref<CollatorsList> get_collators_list() const = 0;
 
   virtual void set_zero_block_id(BlockIdExt block_id) = 0;
@@ -134,6 +150,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual void set_celldb_preload_all(bool value) = 0;
   virtual void set_catchain_max_block_delay(double value) = 0;
   virtual void set_state_serializer_enabled(bool value) = 0;
+  virtual void set_collator_options(td::Ref<CollatorOptions> value) = 0;
   virtual void set_collators_list(td::Ref<CollatorsList> list) = 0;
 
   static td::Ref<ValidatorManagerOptions> create(

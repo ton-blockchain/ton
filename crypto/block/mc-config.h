@@ -395,6 +395,7 @@ struct SizeLimitsConfig {
   td::uint32 max_acc_state_cells = 1 << 16;
   td::uint32 max_acc_state_bits = (1 << 16) * 1023;
   td::uint32 max_acc_public_libraries = 256;
+  td::uint32 defer_out_queue_size_limit = 256;
 };
 
 struct CatchainValidatorsConfig {

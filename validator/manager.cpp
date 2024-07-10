@@ -3365,6 +3365,9 @@ void ValidatorManagerImpl::update_options(td::Ref<ValidatorManagerOptions> opts)
     td::actor::send_closure(group.second.actor, &ValidatorGroup::update_options, opts,
                             opts->need_monitor(group.second.shard, last_masterchain_state_));
   }
+  for (auto &collator : collator_nodes_) {
+    td::actor::send_closure(collator.second.actor, &CollatorNode::update_options, opts);
+  }
   opts_ = std::move(opts);
 }
 
@@ -3409,7 +3412,7 @@ void ValidatorManagerImpl::add_collator(adnl::AdnlNodeIdShort id, ShardIdFull sh
   auto it = collator_nodes_.find(id);
   if (it == collator_nodes_.end()) {
     it = collator_nodes_.emplace(id, Collator()).first;
-    it->second.actor = td::actor::create_actor<CollatorNode>("collatornode", id, actor_id(this), adnl_, rldp_);
+    it->second.actor = td::actor::create_actor<CollatorNode>("collatornode", id, opts_, actor_id(this), adnl_, rldp_);
   }
   if (!it->second.shards.insert(shard).second) {
     return;

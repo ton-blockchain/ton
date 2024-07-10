@@ -630,6 +630,11 @@ engine.validator.customOverlayNode adnl_id:int256 msg_sender:Bool msg_sender_pri
 engine.validator.customOverlay name:string nodes:(vector engine.validator.customOverlayNode) = engine.validator.CustomOverlay;
 engine.validator.customOverlaysConfig overlays:(vector engine.validator.customOverlay) = engine.validator.CustomOverlaysConfig;
 
+engine.validator.collatorOptions
+  deferring_enabled:Bool defer_messages_after:int defer_out_queue_size_limit:long
+  dispatch_phase_2_max_total:int dispatch_phase_3_max_total:int
+  dispatch_phase_2_max_per_initiator:int dispatch_phase_3_max_per_initiator:int = engine.validator.CollatorOptions;
+
 engine.validator.collatorsList.collator adnl_id:int256 trusted:Bool = engine.validator.collatorsList.Collator;
 engine.validator.collatorsList.shard shard_id:tonNode.shardId collators:(vector engine.validator.collatorsList.collator)
     = engine.validator.collatorsList.Shard;
@@ -754,6 +759,8 @@ engine.validator.delCustomOverlay name:string = engine.validator.Success;
 engine.validator.showCustomOverlays = engine.validator.CustomOverlaysConfig;
 
 engine.validator.setStateSerializerEnabled enabled:Bool = engine.validator.Success;
+
+engine.validator.setCollatorOptionsJson json:string = engine.validator.Success;
 
 engine.validator.getValidatorSessionsInfo = engine.validator.ValidatorSessionsInfo;
 

@@ -1230,6 +1230,47 @@ class SetStateSerializerEnabledQuery : public Query {
   bool enabled_;
 };
 
+class SetCollatorOptionsJsonQuery : public Query {
+ public:
+  SetCollatorOptionsJsonQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "setcollatoroptionsjson";
+  }
+  static std::string get_help() {
+    return "setcollatoroptionsjson <filename>\tset collator options from file <filename>";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  std::string file_name_;
+};
+
+class ResetCollatorOptionsQuery : public Query {
+ public:
+  ResetCollatorOptionsQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "resetcollatoroptions";
+  }
+  static std::string get_help() {
+    return "resetcollatoroptions\tset collator options to default values";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+};
+
 class GetValidatorSessionsInfoQuery : public Query {
  public:
   GetValidatorSessionsInfoQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)

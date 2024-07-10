@@ -237,11 +237,13 @@ class ValidateQuery : public td::actor::Actor {
   std::set<StdSmcAddress> account_expected_defer_all_messages_;
   td::uint64 old_out_msg_queue_size_ = 0, new_out_msg_queue_size_ = 0;
   bool out_msg_queue_size_known_ = false;
+  bool have_out_msg_queue_size_in_state_ = false;
 
   bool msg_metadata_enabled_ = false;
   bool deferring_messages_enabled_ = false;
   bool store_out_msg_queue_size_ = false;
 
+  td::uint64 processed_account_dispatch_queues_ = 0;
   bool have_unprocessed_account_dispatch_queue_ = false;
 
   td::PerfWarningTimer perf_timer_;

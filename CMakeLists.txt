@@ -573,6 +573,7 @@ add_test(test-cells test-cells ${TEST_OPTIONS})
 add_test(test-smartcont test-smartcont)
 add_test(test-net test-net)
 add_test(test-actors test-tdactor)
+add_test(test-emulator test-emulator)
 
 #BEGIN tonlib
 add_test(test-tdutils test-tdutils)

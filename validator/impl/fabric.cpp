@@ -214,8 +214,9 @@ void run_validate_query(ShardIdFull shard, BlockIdExt min_masterchain_block_id,
 
 void run_collate_query(ShardIdFull shard, const BlockIdExt& min_masterchain_block_id, std::vector<BlockIdExt> prev,
                        Ed25519_PublicKey creator, td::Ref<ValidatorSet> validator_set,
-                       td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
-                       td::Promise<BlockCandidate> promise, td::CancellationToken cancellation_token, unsigned mode) {
+                       td::Ref<CollatorOptions> collator_opts, td::actor::ActorId<ValidatorManager> manager,
+                       td::Timestamp timeout, td::Promise<BlockCandidate> promise,
+                       td::CancellationToken cancellation_token, unsigned mode) {
   BlockSeqno seqno = 0;
   for (auto& p : prev) {
     if (p.seqno() > seqno) {
@@ -224,8 +225,8 @@ void run_collate_query(ShardIdFull shard, const BlockIdExt& min_masterchain_bloc
   }
   td::actor::create_actor<Collator>(PSTRING() << "collate" << shard.to_str() << ":" << (seqno + 1), shard, false,
                                     min_masterchain_block_id, std::move(prev), std::move(validator_set), creator,
-                                    std::move(manager), timeout, std::move(promise), std::move(cancellation_token),
-                                    mode)
+                                    std::move(collator_opts), std::move(manager), timeout, std::move(promise),
+                                    std::move(cancellation_token), mode)
       .release();
 }
 
@@ -240,8 +241,8 @@ void run_collate_hardfork(ShardIdFull shard, const BlockIdExt& min_masterchain_b
   }
   td::actor::create_actor<Collator>(PSTRING() << "collate" << shard.to_str() << ":" << (seqno + 1), shard, true,
                                     min_masterchain_block_id, std::move(prev), td::Ref<ValidatorSet>{},
-                                    Ed25519_PublicKey{Bits256::zero()}, std::move(manager), timeout, std::move(promise),
-                                    td::CancellationToken{}, 0)
+                                    Ed25519_PublicKey{Bits256::zero()}, td::Ref<CollatorOptions>{true},
+                                    std::move(manager), timeout, std::move(promise), td::CancellationToken{}, 0)
       .release();
 }
 

@@ -26,8 +26,9 @@ class ValidatorManager;
 
 class CollatorNode : public td::actor::Actor {
  public:
-  CollatorNode(adnl::AdnlNodeIdShort local_id, td::actor::ActorId<ValidatorManager> manager,
-               td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp);
+  CollatorNode(adnl::AdnlNodeIdShort local_id, td::Ref<ValidatorManagerOptions> opts,
+               td::actor::ActorId<ValidatorManager> manager, td::actor::ActorId<adnl::Adnl> adnl,
+               td::actor::ActorId<rldp::Rldp> rldp);
   void start_up() override;
   void tear_down() override;
   void add_shard(ShardIdFull shard);
@@ -36,12 +37,17 @@ class CollatorNode : public td::actor::Actor {
   void new_masterchain_block_notification(td::Ref<MasterchainState> state);
   void update_validator_group_info(ShardIdFull shard, std::vector<BlockIdExt> prev, CatchainSeqno cc_seqno);
 
+  void update_options(td::Ref<ValidatorManagerOptions> opts) {
+    opts_ = std::move(opts);
+  }
+
  private:
   void receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data, td::Promise<td::BufferSlice> promise);
 
   bool can_collate_shard(ShardIdFull shard) const;
 
   adnl::AdnlNodeIdShort local_id_;
+  td::Ref<ValidatorManagerOptions> opts_;
   td::actor::ActorId<ValidatorManager> manager_;
   td::actor::ActorId<adnl::Adnl> adnl_;
   td::actor::ActorId<rldp::Rldp> rldp_;

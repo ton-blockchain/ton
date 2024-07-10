@@ -408,6 +408,9 @@ class ValidatorEngine : public td::actor::Actor {
   std::string custom_overlays_config_file() const {
     return db_root_ + "/custom-overlays.json";
   }
+  std::string collator_options_file() const {
+    return db_root_ + "/collator-options.json";
+  }
   std::string collators_list_file() const {
     return db_root_ + "/collators-list.json";
   }
@@ -417,6 +420,7 @@ class ValidatorEngine : public td::actor::Actor {
   void add_custom_overlay_to_config(
       ton::tl_object_ptr<ton::ton_api::engine_validator_customOverlay> overlay, td::Promise<td::Unit> promise);
   void del_custom_overlay_from_config(std::string name, td::Promise<td::Unit> promise);
+  void load_collator_options();
 
   void check_key(ton::PublicKeyHash id, td::Promise<td::Unit> promise);
 
@@ -513,6 +517,8 @@ class ValidatorEngine : public td::actor::Actor {
   void run_control_query(ton::ton_api::engine_validator_showCustomOverlays &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_setStateSerializerEnabled &query, td::BufferSlice data,
+                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_setCollatorOptionsJson &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_setCollatorsList &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);

@@ -514,8 +514,8 @@ void ValidatorGroup::collate_block(td::uint32 round_id, td::Timestamp timeout, t
   }
   if (self_collate) {
     run_collate_query(shard_, min_masterchain_block_id_, prev_block_ids_,
-                      Ed25519_PublicKey{local_id_full_.ed25519_value().raw()}, validator_set_, manager_,
-                      td::Timestamp::in(10.0), std::move(promise));
+                      Ed25519_PublicKey{local_id_full_.ed25519_value().raw()}, validator_set_,
+                      opts_->get_collator_options(), manager_, td::Timestamp::in(10.0), std::move(promise));
     return;
   }
   if (collator_adnl_id.is_zero()) {
