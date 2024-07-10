@@ -14,7 +14,7 @@ spec:
           - ReadWriteOnce
         resources:
           requests:
-            storage: 20Gi
+            storage: 800Gi
   serviceName: validator-engine-srv-headless
   replicas: 1
   selector:
@@ -63,11 +63,11 @@ spec:
               name: validator-engine-pvc
           resources:
             requests:
-              memory: "4Gi"
-              cpu: "1"
+              memory: "64Gi"
+              cpu: "16"
             limits:
-              memory: "4Gi"
-              cpu: "1"
+              memory: "128Gi"
+              cpu: "32"
 ---
 kind: Service
 apiVersion: v1
