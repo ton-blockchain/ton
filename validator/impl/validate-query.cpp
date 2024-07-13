@@ -3404,7 +3404,7 @@ bool ValidateQuery::check_account_dispatch_queue_update(td::Bits256 addr, Ref<vm
       account_expected_defer_all_messages_.insert(addr);
     }
   }
-  if (old_dict_size > 0 && max_removed_lt == 0) {
+  if (old_dict_size > 0 && max_removed_lt != 0) {
     ++processed_account_dispatch_queues_;
   }
   return true;
@@ -3439,7 +3439,6 @@ bool ValidateQuery::unpack_dispatch_queue_update() {
         have_unprocessed_account_dispatch_queue_ = false;
         td::uint64 total_account_dispatch_queues = 0;
         ps_.dispatch_queue_->check_for_each([&](Ref<vm::CellSlice>, td::ConstBitPtr, int n) -> bool {
-          assert(n == 352);
           ++total_account_dispatch_queues;
           if (total_account_dispatch_queues > processed_account_dispatch_queues_) {
             return false;
