@@ -70,19 +70,13 @@ void ShardClient::got_init_handle_from_db(BlockHandle handle) {
 }
 
 void ShardClient::got_init_state_from_db(td::Ref<MasterchainState> state) {
-  masterchain_state_ = std::move(state);
-  build_shard_overlays();
-  masterchain_state_.clear();
-
   saved_to_db();
 }
 
 void ShardClient::start_up_init_mode() {
-  build_shard_overlays();
-
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
     R.ensure();
-    td::actor::send_closure(SelfId, &ShardClient::applied_all_shards);
+    td::actor::send_closure(SelfId, &ShardClient::apply_all_shards);
   });
 
   td::MultiPromise mp;
@@ -166,7 +160,6 @@ void ShardClient::download_masterchain_state() {
 
 void ShardClient::got_masterchain_block_state(td::Ref<MasterchainState> state) {
   masterchain_state_ = std::move(state);
-  build_shard_overlays();
   if (started_) {
     apply_all_shards();
   }
@@ -189,7 +182,9 @@ void ShardClient::apply_all_shards() {
   ig.add_promise(std::move(P));
 
   auto vec = masterchain_state_->get_shards();
+  std::set<WorkchainId> workchains;
   for (auto &shard : vec) {
+    workchains.insert(shard->shard().workchain);
     if (opts_->need_monitor(shard->shard(), masterchain_state_)) {
       auto Q = td::PromiseCreator::lambda([SelfId = actor_id(this), promise = ig.get_promise(),
                                            shard = shard->shard()](td::Result<td::Ref<ShardState>> R) mutable {
@@ -200,6 +195,21 @@ void ShardClient::apply_all_shards() {
         }
       });
       td::actor::send_closure(manager_, &ValidatorManager::wait_block_state_short, shard->top_block_id(),
+                              shard_client_priority(), td::Timestamp::in(1500), std::move(Q));
+    }
+  }
+  for (const auto &[wc, desc] : masterchain_state_->get_workchain_list()) {
+    if (!workchains.count(wc) && desc->active && opts_->need_monitor(ShardIdFull{wc, shardIdAll}, masterchain_state_)) {
+      auto Q = td::PromiseCreator::lambda(
+          [SelfId = actor_id(this), promise = ig.get_promise(), wc](td::Result<td::Ref<ShardState>> R) mutable {
+            if (R.is_error()) {
+              promise.set_error(R.move_as_error_prefix(PSTRING() << "workchain " << wc << ": "));
+            } else {
+              td::actor::send_closure(SelfId, &ShardClient::downloaded_shard_state, R.move_as_ok(), std::move(promise));
+            }
+          });
+      td::actor::send_closure(manager_, &ValidatorManager::wait_block_state_short,
+                              BlockIdExt{wc, shardIdAll, 0, desc->zerostate_root_hash, desc->zerostate_file_hash},
                               shard_client_priority(), td::Timestamp::in(1500), std::move(Q));
     }
   }
@@ -223,7 +233,6 @@ void ShardClient::new_masterchain_block_notification(BlockHandle handle, td::Ref
   masterchain_block_handle_ = std::move(handle);
   masterchain_state_ = std::move(state);
   waiting_ = false;
-  build_shard_overlays();
 
   apply_all_shards();
 }
@@ -241,42 +250,6 @@ void ShardClient::get_processed_masterchain_block_id(td::Promise<BlockIdExt> pro
     promise.set_result(masterchain_block_handle_->id());
   } else {
     promise.set_error(td::Status::Error(ErrorCode::notready, "shard client not started"));
-  }
-}
-
-void ShardClient::build_shard_overlays() {
-  std::set<ShardIdFull> new_shards_to_monitor;
-  std::set<WorkchainId> workchains;
-  auto cur_time = masterchain_state_->get_unix_time();
-  new_shards_to_monitor.insert(ShardIdFull(masterchainId));
-  for (const auto &info : masterchain_state_->get_shards()) {
-    auto shard = info->shard();
-    workchains.insert(shard.workchain);
-    if (opts_->need_monitor(shard, masterchain_state_)) {
-      new_shards_to_monitor.insert(shard);
-    }
-  }
-
-  std::vector<BlockIdExt> new_workchains;
-  for (const auto &wpair : masterchain_state_->get_workchain_list()) {
-    ton::WorkchainId wc = wpair.first;
-    const block::WorkchainInfo *winfo = wpair.second.get();
-    auto shard = ShardIdFull(wc);
-    if (workchains.count(wc) == 0 && winfo->active && winfo->enabled_since <= cur_time &&
-        opts_->need_monitor(shard, masterchain_state_)) {
-      new_shards_to_monitor.insert(shard);
-      if (shards_to_monitor_.count(shard) == 0) {
-        new_workchains.push_back(BlockIdExt(wc, shardIdAll, 0, winfo->zerostate_root_hash, winfo->zerostate_file_hash));
-      }
-    }
-  }
-
-  td::actor::send_closure(manager_, &ValidatorManager::update_shard_configuration, masterchain_state_,
-                          new_shards_to_monitor);
-  shards_to_monitor_ = std::move(new_shards_to_monitor);
-  for (BlockIdExt block_id : new_workchains) {
-    td::actor::send_closure(manager_, &ValidatorManager::wait_block_state_short, block_id, shard_client_priority(),
-                            td::Timestamp::in(60.0), [](td::Result<td::Ref<ShardState>>) {});
   }
 }
 
@@ -310,7 +283,6 @@ void ShardClient::force_update_shard_client_ex(BlockHandle handle, td::Ref<Maste
   masterchain_block_handle_ = std::move(handle);
   masterchain_state_ = std::move(state);
   promise_ = std::move(promise);
-  build_shard_overlays();
   applied_all_shards();
 }
 

@@ -101,6 +101,8 @@ struct Config {
   std::vector<ton::ShardIdFull> shards_to_monitor;
 
   bool state_serializer_enabled = true;
+  std::vector<std::pair<ton::adnl::AdnlNodeIdShort, ton::overlay::OverlayMemberCertificate>>
+      fast_sync_member_certificates;
 
   void decref(ton::PublicKeyHash key);
   void incref(ton::PublicKeyHash key) {
@@ -523,6 +525,10 @@ class ValidatorEngine : public td::actor::Actor {
   void run_control_query(ton::ton_api::engine_validator_setCollatorsList &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_showCollatorsList &query, td::BufferSlice data,
+                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_signOverlayMemberCertificate &query, td::BufferSlice data,
+                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_importFastSyncMemberCertificate &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   template <class T>
   void run_control_query(T &query, td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,

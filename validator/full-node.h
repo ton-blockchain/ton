@@ -92,6 +92,9 @@ class FullNode : public td::actor::Actor {
   virtual void process_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
                                                  td::uint32 validator_set_hash, td::BufferSlice data) = 0;
 
+  virtual void import_fast_sync_member_certificate(adnl::AdnlNodeIdShort local_id,
+                                                    overlay::OverlayMemberCertificate cert) = 0;
+
   static constexpr td::uint32 max_block_size() {
     return 4 << 20;
   }

@@ -1740,6 +1740,7 @@ void ValidatorManagerImpl::send_top_shard_block_description(td::Ref<ShardTopBloc
   } else {
     out_shard_blocks_[ShardTopBlockDescriptionId{desc->block_id().shard_full(), desc->catchain_seqno()}] = desc;
     callback_->send_shard_block_info(desc->block_id(), desc->catchain_seqno(), desc->serialize());
+    add_shard_block_description(desc);
   }
 }
 
@@ -1826,6 +1827,14 @@ void ValidatorManagerImpl::start_up() {
   alarm_timestamp().relax(check_waiters_at_);
 }
 
+void ValidatorManagerImpl::init_last_masterchain_state(td::Ref<MasterchainState> state) {
+  if (last_masterchain_state_.not_null()) {
+    return;
+  }
+  last_masterchain_state_ = std::move(state);
+  update_shard_overlays();
+}
+
 void ValidatorManagerImpl::started(ValidatorManagerInitResult R) {
   CHECK(R.handle);
   CHECK(R.state.not_null());
@@ -1873,6 +1882,7 @@ void ValidatorManagerImpl::started(ValidatorManagerInitResult R) {
         }
       });
   td::actor::send_closure(db_, &Db::get_persistent_state_descriptions, std::move(Q));
+  update_shard_overlays();
 }
 
 void ValidatorManagerImpl::read_gc_list(std::vector<ValidatorSessionId> list) {
@@ -2049,6 +2059,7 @@ void ValidatorManagerImpl::new_masterchain_block() {
     }
   }
 
+  update_shard_overlays();
   update_shards();
   update_shard_blocks();
 
@@ -2079,6 +2090,26 @@ void ValidatorManagerImpl::new_masterchain_block() {
   if (last_masterchain_seqno_ % 1024 == 0) {
     LOG(WARNING) << "applied masterchain block " << last_masterchain_block_id_;
   }
+}
+
+void ValidatorManagerImpl::update_shard_overlays() {
+  CHECK(last_masterchain_state_.not_null());
+  std::set<ShardIdFull> shards_to_monitor;
+  shards_to_monitor.insert(ShardIdFull{masterchainId});
+  std::set<WorkchainId> workchains;
+  for (const auto& shard : last_masterchain_state_->get_shards()) {
+    workchains.insert(shard->shard().workchain);
+    if (opts_->need_monitor(shard->shard(),last_masterchain_state_)) {
+      shards_to_monitor.insert(shard->shard());
+    }
+  }
+  for (const auto &[wc, desc] : last_masterchain_state_->get_workchain_list()) {
+    if (!workchains.count(wc) && desc->active &&
+        opts_->need_monitor(ShardIdFull{wc, shardIdAll}, last_masterchain_state_)) {
+      shards_to_monitor.insert(ShardIdFull{wc, shardIdAll});
+    }
+  }
+  callback_->on_new_masterchain_block(last_masterchain_state_, std::move(shards_to_monitor), extra_active_shards_);
 }
 
 void ValidatorManagerImpl::update_shards() {
@@ -2834,11 +2865,6 @@ void ValidatorManagerImpl::get_shard_client_state(bool from_db, td::Promise<Bloc
   } else {
     td::actor::send_closure(db_, &Db::get_shard_client_state, std::move(promise));
   }
-}
-
-void ValidatorManagerImpl::update_shard_configuration(td::Ref<MasterchainState> state,
-                                                      std::set<ShardIdFull> shards_to_monitor) {
-  callback_->update_shard_configuration(std::move(state), std::move(shards_to_monitor), extra_active_shards_);
 }
 
 void ValidatorManagerImpl::update_async_serializer_state(AsyncSerializerState state, td::Promise<td::Unit> promise) {

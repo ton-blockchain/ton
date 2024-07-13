@@ -20,7 +20,7 @@
 
 namespace ton::validator::fullnode {
 
-class FullNodePrivateOverlayV2 : public td::actor::Actor {
+class FullNodeFastSyncOverlay : public td::actor::Actor {
  public:
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcast& query);
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressed& query);
@@ -28,9 +28,9 @@ class FullNodePrivateOverlayV2 : public td::actor::Actor {
 
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast& query);
 
-  void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcast &query);
-  void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcastCompressed &query);
-  void process_block_candidate_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query);
+  void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcast& query);
+  void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcastCompressed& query);
+  void process_block_candidate_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast& query);
 
   template <class T>
   void process_broadcast(PublicKeyHash, T&) {
@@ -46,26 +46,26 @@ class FullNodePrivateOverlayV2 : public td::actor::Actor {
   void start_up() override;
   void tear_down() override;
 
-  void destroy() {
-    stop();
-  }
+  void set_validators(std::vector<PublicKeyHash> root_public_keys,
+                      std::vector<adnl::AdnlNodeIdShort> current_validators_adnl);
+  void set_member_certificate(overlay::OverlayMemberCertificate member_certificate);
 
-  FullNodePrivateOverlayV2(adnl::AdnlNodeIdShort local_id, ShardIdFull shard, std::vector<adnl::AdnlNodeIdShort> nodes,
-                           std::vector<adnl::AdnlNodeIdShort> senders, FileHash zero_state_file_hash,
-                           td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-                           td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
-                           td::actor::ActorId<overlay::Overlays> overlays,
-                           td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-                           td::actor::ActorId<FullNode> full_node)
+  FullNodeFastSyncOverlay(adnl::AdnlNodeIdShort local_id, ShardIdFull shard, FileHash zero_state_file_hash,
+                          std::vector<PublicKeyHash> root_public_keys,
+                          std::vector<adnl::AdnlNodeIdShort> current_validators_adnl,
+                          overlay::OverlayMemberCertificate member_certificate,
+                          td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
+                          td::actor::ActorId<overlay::Overlays> overlays,
+                          td::actor::ActorId<ValidatorManagerInterface> validator_manager,
+                          td::actor::ActorId<FullNode> full_node)
       : local_id_(local_id)
       , shard_(shard)
-      , nodes_(std::move(nodes))
-      , senders_(std::move(senders))
+      , root_public_keys_(std::move(root_public_keys))
+      , current_validators_adnl_(std::move(current_validators_adnl))
+      , member_certificate_(std::move(member_certificate))
       , zero_state_file_hash_(zero_state_file_hash)
       , keyring_(keyring)
       , adnl_(adnl)
-      , rldp_(rldp)
-      , rldp2_(rldp2)
       , overlays_(overlays)
       , validator_manager_(validator_manager)
       , full_node_(full_node) {
@@ -74,14 +74,13 @@ class FullNodePrivateOverlayV2 : public td::actor::Actor {
  private:
   adnl::AdnlNodeIdShort local_id_;
   ShardIdFull shard_;
-  std::vector<adnl::AdnlNodeIdShort> nodes_;
-  std::vector<adnl::AdnlNodeIdShort> senders_;
+  std::vector<PublicKeyHash> root_public_keys_;
+  std::vector<adnl::AdnlNodeIdShort> current_validators_adnl_;
+  overlay::OverlayMemberCertificate member_certificate_;
   FileHash zero_state_file_hash_;
 
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;
-  td::actor::ActorId<rldp::Rldp> rldp_;
-  td::actor::ActorId<rldp2::Rldp> rldp2_;
   td::actor::ActorId<overlay::Overlays> overlays_;
   td::actor::ActorId<ValidatorManagerInterface> validator_manager_;
   td::actor::ActorId<FullNode> full_node_;
@@ -96,29 +95,30 @@ class FullNodePrivateOverlayV2 : public td::actor::Actor {
   void get_stats_extra(td::Promise<std::string> promise);
 };
 
-class FullNodePrivateBlockOverlaysV2 {
+class FullNodeFastSyncOverlays {
  public:
-  td::actor::ActorId<FullNodePrivateOverlayV2> choose_overlay(ShardIdFull shard);
+  td::actor::ActorId<FullNodeFastSyncOverlay> choose_overlay(ShardIdFull shard);
   void update_overlays(td::Ref<MasterchainState> state, std::set<adnl::AdnlNodeIdShort> my_adnl_ids,
-                       const FileHash& zero_state_file_hash, const td::actor::ActorId<keyring::Keyring>& keyring,
-                       const td::actor::ActorId<adnl::Adnl>& adnl, const td::actor::ActorId<rldp::Rldp>& rldp,
-                       const td::actor::ActorId<rldp2::Rldp>& rldp2,
+                       std::set<ShardIdFull> monitoring_shards, const FileHash& zero_state_file_hash,
+                       const td::actor::ActorId<keyring::Keyring>& keyring, const td::actor::ActorId<adnl::Adnl>& adnl,
                        const td::actor::ActorId<overlay::Overlays>& overlays,
                        const td::actor::ActorId<ValidatorManagerInterface>& validator_manager,
                        const td::actor::ActorId<FullNode>& full_node);
-  void destroy_overlays();
+  void add_member_certificate(adnl::AdnlNodeIdShort local_id, overlay::OverlayMemberCertificate member_certificate);
 
  private:
   struct Overlays {
-    struct ShardOverlay {
-      td::actor::ActorOwn<FullNodePrivateOverlayV2> overlay_;
-      std::vector<adnl::AdnlNodeIdShort> nodes_, senders_;
-      bool is_sender_ = false;
-    };
-    std::map<ShardIdFull, ShardOverlay> overlays_;
+    std::map<ShardIdFull, td::actor::ActorOwn<FullNodeFastSyncOverlay>> overlays_;
+    overlay::OverlayMemberCertificate current_certificate_;
+    bool is_validator_{false};
   };
 
   std::map<adnl::AdnlNodeIdShort, Overlays> id_to_overlays_;  // local_id -> overlays
+  std::map<adnl::AdnlNodeIdShort, std::vector<overlay::OverlayMemberCertificate>> member_certificates_;
+
+  td::optional<BlockSeqno> last_key_block_seqno_;
+  std::vector<PublicKeyHash> root_public_keys_;
+  std::vector<adnl::AdnlNodeIdShort> current_validators_adnl_;
 };
 
 }  // namespace ton::validator::fullnode

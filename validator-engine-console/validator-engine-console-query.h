@@ -1443,3 +1443,55 @@ class ShowCollatorsListQuery : public Query {
     return get_name();
   }
 };
+
+class SignOverlayMemberCertificateQuery : public Query {
+ public:
+  SignOverlayMemberCertificateQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "signoverlaymembercertificate";
+  }
+  static std::string get_help() {
+    return "signoverlaymembercertificate <key_hash> <adnl_id> <slot> <expire_at> <filename>\tsign overlay member "
+           "certificate for <adnl_id> (hex) with <key_hash> (hex) in slot <slot>, valid until <expire_at>, "
+           "save to <filename>";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  td::Bits256 key_hash_;
+  td::Bits256 adnl_id_;
+  int slot_;
+  ton::UnixTime expire_at_;
+  std::string file_name_;
+};
+
+class ImportFastSyncMemberCertificateQuery : public Query {
+ public:
+  ImportFastSyncMemberCertificateQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "importfastsyncmembercertificate";
+  }
+  static std::string get_help() {
+    return "importfastsyncmembercertificate <adnl_id> <filename>\timport member certificate for fast sync overlay "
+           "for <adnl_id> (hex) from <filename>";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  td::Bits256 adnl_id_;
+  std::string file_name_;
+};

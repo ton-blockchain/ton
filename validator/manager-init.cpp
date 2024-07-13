@@ -268,6 +268,7 @@ void ValidatorManagerMasterchainReiniter::downloaded_masterchain_state(td::Ref<S
   CHECK(handle_->received_state());
   CHECK(handle_->is_applied());
   LOG(INFO) << "downloaded masterchain state";
+  td::actor::send_closure(manager_, &ValidatorManager::init_last_masterchain_state, state_);
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
     R.ensure();
     td::actor::send_closure(SelfId, &ValidatorManagerMasterchainReiniter::downloaded_all_shards);

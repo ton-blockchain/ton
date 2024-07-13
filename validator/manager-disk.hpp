@@ -272,8 +272,6 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   void update_shard_client_state(BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise) override;
   void get_shard_client_state(bool from_db, td::Promise<BlockIdExt> promise) override;
-  void update_shard_configuration(td::Ref<MasterchainState> state, std::set<ShardIdFull> shards_to_monitor) override {
-  }
 
   void update_async_serializer_state(AsyncSerializerState state, td::Promise<td::Unit> promise) override {
     UNREACHABLE();

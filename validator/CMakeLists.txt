@@ -153,8 +153,8 @@ set(FULL_NODE_SOURCE
   full-node-private-overlay.cpp
   full-node-serializer.hpp
   full-node-serializer.cpp
-  full-node-private-overlay-v2.hpp
-  full-node-private-overlay-v2.cpp
+  full-node-fast-sync-overlays.hpp
+  full-node-fast-sync-overlays.cpp
 
   net/download-block.hpp
   net/download-block.cpp

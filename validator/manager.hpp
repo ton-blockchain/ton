@@ -319,6 +319,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   std::vector<PerfTimerStats> perf_timer_stats;
 
   void new_masterchain_block();
+  void update_shard_overlays();
   void update_shards();
   void update_shard_blocks();
   void written_destroyed_validator_sessions(std::vector<td::actor::ActorId<ValidatorGroup>> groups);
@@ -521,7 +522,6 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   void update_shard_client_state(BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise) override;
   void get_shard_client_state(bool from_db, td::Promise<BlockIdExt> promise) override;
-  void update_shard_configuration(td::Ref<MasterchainState> state, std::set<ShardIdFull> shards_to_monitor) override;
 
   void update_async_serializer_state(AsyncSerializerState state, td::Promise<td::Unit> promise) override;
   void get_async_serializer_state(td::Promise<AsyncSerializerState> promise) override;
@@ -557,6 +557,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void finished_wait_data(BlockHandle handle, td::Result<td::Ref<BlockData>> R);
 
   void start_up() override;
+  void init_last_masterchain_state(td::Ref<MasterchainState> state) override;
   void started(ValidatorManagerInitResult result);
   void read_gc_list(std::vector<ValidatorSessionId> list);
 

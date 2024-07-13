@@ -1432,3 +1432,51 @@ td::Status ShowCollatorsListQuery::receive(td::BufferSlice data) {
   }
   return td::Status::OK();
 }
+
+td::Status SignOverlayMemberCertificateQuery::run() {
+  TRY_RESULT_ASSIGN(key_hash_, tokenizer_.get_token<td::Bits256>());
+  TRY_RESULT_ASSIGN(adnl_id_, tokenizer_.get_token<td::Bits256>());
+  TRY_RESULT_ASSIGN(slot_, tokenizer_.get_token<int>());
+  TRY_RESULT_ASSIGN(expire_at_, tokenizer_.get_token<int>());
+  TRY_RESULT_ASSIGN(file_name_, tokenizer_.get_token<std::string>());
+  TRY_STATUS(tokenizer_.check_endl());
+  return td::Status::OK();
+}
+
+td::Status SignOverlayMemberCertificateQuery::send() {
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_signOverlayMemberCertificate>(
+      key_hash_, adnl_id_, slot_, expire_at_);
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status SignOverlayMemberCertificateQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::overlay_MemberCertificate>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  TRY_STATUS(td::write_file(file_name_, data));
+  td::TerminalIO::out() << "success\n";
+  return td::Status::OK();
+}
+
+td::Status ImportFastSyncMemberCertificateQuery::run() {
+  TRY_RESULT_ASSIGN(adnl_id_, tokenizer_.get_token<td::Bits256>());
+  TRY_RESULT_ASSIGN(file_name_, tokenizer_.get_token<std::string>());
+  TRY_STATUS(tokenizer_.check_endl());
+  return td::Status::OK();
+}
+
+td::Status ImportFastSyncMemberCertificateQuery::send() {
+  TRY_RESULT(data, td::read_file(file_name_));
+  TRY_RESULT(certificate, ton::fetch_tl_object<ton::ton_api::overlay_MemberCertificate>(data, true));
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_importFastSyncMemberCertificate>(
+      adnl_id_, std::move(certificate));
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status ImportFastSyncMemberCertificateQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  td::TerminalIO::out() << "success\n";
+  return td::Status::OK();
+}

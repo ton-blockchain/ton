@@ -1419,9 +1419,9 @@ td::actor::ActorOwn<FullNodeShard> FullNodeShard::create(
     td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
     td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<ValidatorManagerInterface> validator_manager,
     td::actor::ActorId<adnl::AdnlExtClient> client, td::actor::ActorId<FullNode> full_node, FullNodeShardMode mode) {
-  return td::actor::create_actor<FullNodeShardImpl>("tonnode", shard, local_id, adnl_id, zero_state_file_hash, config,
-                                                    keyring, adnl, rldp, rldp2, overlays, validator_manager, client,
-                                                    full_node, mode);
+  return td::actor::create_actor<FullNodeShardImpl>(PSTRING() << "tonnode" << shard.to_str(), shard, local_id, adnl_id,
+                                                    zero_state_file_hash, config, keyring, adnl, rldp, rldp2, overlays,
+                                                    validator_manager, client, full_node, mode);
 }
 
 }  // namespace fullnode

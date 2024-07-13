@@ -157,6 +157,8 @@ void ValidatorEngineConsole::run() {
   add_query_runner(std::make_unique<QueryRunnerImpl<SetCollatorsListQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<ClearCollatorsListQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<ShowCollatorsListQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<SignOverlayMemberCertificateQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<ImportFastSyncMemberCertificateQuery>>());
 }
 
 bool ValidatorEngineConsole::envelope_send_query(td::BufferSlice query, td::Promise<td::BufferSlice> promise) {

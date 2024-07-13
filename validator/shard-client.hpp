@@ -42,8 +42,6 @@ class ShardClient : public td::actor::Actor {
 
   td::Promise<td::Unit> promise_;
 
-  std::set<ShardIdFull> shards_to_monitor_ = {ShardIdFull(masterchainId)};
-
  public:
   ShardClient(td::Ref<ValidatorManagerOptions> opts, BlockHandle masterchain_block_handle,
               td::Ref<MasterchainState> masterchain_state, td::actor::ActorId<ValidatorManager> manager,
@@ -63,8 +61,6 @@ class ShardClient : public td::actor::Actor {
   static constexpr td::uint32 shard_client_priority() {
     return 2;
   }
-
-  void build_shard_overlays();
 
   void start_up() override;
   void start_up_init_mode();

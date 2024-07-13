@@ -209,10 +209,15 @@ dht.query node:dht.node = True;
 ---types---
 
 overlay.node.toSign id:adnl.id.short overlay:int256 version:int = overlay.node.ToSign;
+overlay.node.toSignEx id:adnl.id.short overlay:int256 flags:int version:int = overlay.node.ToSign;
 overlay.node id:PublicKey overlay:int256 version:int signature:bytes = overlay.Node;
+overlay.nodeV2 id:PublicKey overlay:int256 flags:int version:int signature:bytes certificate:overlay.MemberCertificate = overlay.NodeV2;
 overlay.nodes nodes:(vector overlay.node) = overlay.Nodes;
+overlay.nodesV2 nodes:(vector overlay.NodeV2) = overlay.NodesV2;
 
+overlay.messageExtra flags:# certificate:flags.0?overlay.MemberCertificate = overlay.MessageExtra;
 overlay.message overlay:int256 = overlay.Message;
+overlay.messageWithExtra overlay:int256 extra:overlay.messageExtra = overlay.Message;
 //overlay.randomPeers peers:(vector adnl.node) = overlay.RandomPeers;
 overlay.broadcastList hashes:(vector int256) = overlay.BroadcastList;
 
@@ -225,6 +230,9 @@ overlay.broadcastFec.partId broadcast_hash:int256 data_hash:int256 seqno:int = o
 
 overlay.broadcast.toSign hash:int256 date:int = overlay.broadcast.ToSign;
 
+overlay.memberCertificateId node:adnl.id.short flags:int slot:int expire_at:int = overlay.MemberCertificateId;
+overlay.memberCertificate issued_by:PublicKey flags:int slot:int expire_at:int signature:bytes = overlay.MemberCertificate;
+overlay.emptyMemberCertificate = overlay.MemberCertificate;
 overlay.certificate issued_by:PublicKey expire_at:int max_size:int signature:bytes = overlay.Certificate;
 overlay.certificateV2 issued_by:PublicKey expire_at:int max_size:int flags:int signature:bytes = overlay.Certificate;
 overlay.emptyCertificate = overlay.Certificate;
@@ -242,13 +250,16 @@ overlay.broadcastNotFound = overlay.Broadcast;
 ---functions---
 
 overlay.getRandomPeers peers:overlay.nodes = overlay.Nodes;
+overlay.getRandomPeersV2 peers:overlay.NodesV2 = overlay.NodesV2;
 
 overlay.query overlay:int256 = True;
+overlay.queryWithExtra overlay:int256 extra:overlay.messageExtra = True;
 overlay.getBroadcast hash:int256 = overlay.Broadcast;
 overlay.getBroadcastList list:overlay.broadcastList = overlay.BroadcastList;
 
 ---types---
 
+overlay.db.nodesV2 nodes:overlay.nodesV2 = overlay.db.Nodes;
 overlay.db.nodes nodes:overlay.nodes = overlay.db.Nodes;
 overlay.db.key.nodes local_id:int256 overlay:int256 = overlay.db.Key;
 
@@ -407,7 +418,7 @@ tonNode.shardPublicOverlayId workchain:int shard:long zero_state_file_hash:int25
 
 tonNode.privateBlockOverlayId zero_state_file_hash:int256 nodes:(vector int256) = tonNode.PrivateBlockOverlayId;
 tonNode.customOverlayId zero_state_file_hash:int256 name:string nodes:(vector int256) = tonNode.CustomOverlayId;
-tonNode.privateBlockOverlayIdV2 zero_state_file_hash:int256 workchain:int shard:long nodes:(vector int256) senders:(vector int256) = tonNode.PrivateBlockOverlayIdV2;
+tonNode.fastSyncOverlayId zero_state_file_hash:int256 shard:tonNode.shardId = tonNode.FastSyncOverlayId;
 
 tonNode.keyBlocks blocks:(vector tonNode.blockIdExt) incomplete:Bool error:Bool = tonNode.KeyBlocks;
 
@@ -614,7 +625,9 @@ engine.dht.config dht:(vector engine.dht) gc:engine.gc = engine.dht.Config;
 engine.validator.fullNodeMaster port:int adnl:int256 = engine.validator.FullNodeMaster;
 engine.validator.fullNodeSlave ip:int port:int adnl:PublicKey = engine.validator.FullNodeSlave;
 engine.validator.fullNodeConfig ext_messages_broadcast_disabled:Bool = engine.validator.FullNodeConfig;
-engine.validator.extraConfig state_serializer_enabled:Bool = engine.validator.ExtraConfig;
+engine.validator.fastSyncMemberCertificate adnl_id:int256 certificate:overlay.MemberCertificate = engine.validator.FastSyncMemberCertificate;
+engine.validator.extraConfig state_serializer_enabled:Bool fast_sync_member_certificates:(vector engine.validator.fastSyncMemberCertificate)
+    = engine.validator.ExtraConfig;
 engine.validator.config out_port:int addrs:(vector engine.Addr) adnl:(vector engine.adnl)
         dht:(vector engine.dht)
         validators:(vector engine.validator) collators:(vector engine.collator)
@@ -688,7 +701,8 @@ engine.validator.shardOverlayStats.neighbour id:string verison_major:int version
     roundtrip:double unreliability:double has_state:string = engine.validator.shardOverlayStats.Neighbour;
 engine.validator.shardOverlayStats shard:string mode:string
     neighbours:(vector engine.validator.shardOverlayStats.neighbour) = engine.validator.ShardOverlayStats;
-engine.validator.privateBlockOverlayV2Stats shard:string nodes:(vector int256) senders:(vector int256) created_at:int = engine.validator.PrivateBlockOverlayV2Stats;
+engine.validator.fastSyncOverlayStats shard:string validators_adnl:(vector int256) root_public_keys:(vector int256)
+    member_certificate:overlay.MemberCertificate = engine.validator.FastSyncOverlayStats;
 
 engine.validator.onePerfTimerStat time:int min:double avg:double max:double = engine.validator.OnePerfTimerStat;
 engine.validator.perfTimerStatsByName name:string stats:(vector engine.validator.OnePerfTimerStat) = engine.validator.PerfTimerStatsByName;
@@ -771,6 +785,9 @@ engine.validator.delShard shard:tonNode.shardId = engine.validator.Success;
 
 engine.validator.setCollatorsList list:engine.validator.collatorsList = engine.validator.Success;
 engine.validator.showCollatorsList = engine.validator.CollatorsList;
+
+engine.validator.signOverlayMemberCertificate sign_by:int256 adnl_id:int256 slot:int expire_at:int = overlay.MemberCertificate;
+engine.validator.importFastSyncMemberCertificate adnl_id:int256 certificate:overlay.MemberCertificate = engine.validator.Success;
 
 ---types---
 

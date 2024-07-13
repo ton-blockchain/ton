@@ -57,6 +57,8 @@ using ValidateCandidateResult = td::Variant<UnixTime, CandidateReject>;
 
 class ValidatorManager : public ValidatorManagerInterface {
  public:
+  virtual void init_last_masterchain_state(td::Ref<MasterchainState> state) {
+  }
   virtual void set_block_state(BlockHandle handle, td::Ref<ShardState> state,
                                td::Promise<td::Ref<ShardState>> promise) = 0;
   virtual void get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) = 0;
@@ -140,7 +142,6 @@ class ValidatorManager : public ValidatorManagerInterface {
 
   virtual void update_shard_client_state(BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise) = 0;
   virtual void get_shard_client_state(bool from_db, td::Promise<BlockIdExt> promise) = 0;
-  virtual void update_shard_configuration(td::Ref<MasterchainState> state, std::set<ShardIdFull> shards_to_monitor) = 0;
 
   virtual void update_async_serializer_state(AsyncSerializerState state, td::Promise<td::Unit> promise) = 0;
   virtual void get_async_serializer_state(td::Promise<AsyncSerializerState> promise) = 0;
