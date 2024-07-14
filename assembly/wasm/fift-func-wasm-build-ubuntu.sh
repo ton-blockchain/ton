@@ -167,8 +167,7 @@ emcmake cmake -DUSE_EMSCRIPTEN=ON -DTON_USE_ROCKSDB=OFF -DCMAKE_BUILD_TYPE=Relea
 -DOPENSSL_INCLUDE_DIR=$OPENSSL_DIR/include \
 -DOPENSSL_CRYPTO_LIBRARY=$OPENSSL_DIR/libcrypto.a \
 -DCMAKE_TOOLCHAIN_FILE=$EMSDK_DIR/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake \
--DCMAKE_CXX_FLAGS="-sUSE_ZLIB=1 -fexceptions -fno-stack-protector -pthread -matomics -mbulk-memory" \
--DCMAKE_EXE_LINKER_FLAGS="-pthread -matomics" \
+-DCMAKE_CXX_FLAGS="-sUSE_ZLIB=1 -fexceptions -fno-stack-protector" \
 -DSECP256K1_INCLUDE_DIR=$SECP256K1_DIR/include \
 -DSECP256K1_LIBRARY=$SECP256K1_DIR/.libs/libsecp256k1.a \
 -DSODIUM_INCLUDE_DIR=$SODIUM_DIR/src/libsodium/include \
