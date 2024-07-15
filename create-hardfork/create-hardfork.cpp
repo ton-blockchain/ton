@@ -236,6 +236,10 @@ class HardforkCreator : public td::actor::Actor {
         td::actor::send_closure(id_, &ton::validator::ValidatorManager::sync_complete,
                                 td::PromiseCreator::lambda([](td::Unit) {}));
       }
+      void on_new_masterchain_block(td::Ref<ton::validator::MasterchainState> state,
+                                    std::set<ton::ShardIdFull> shards_to_monitor,
+                                    std::set<ton::ShardIdFull> temporary_shards) override {
+      }
       void send_ihr_message(ton::AccountIdPrefixFull dst, td::BufferSlice data) override {
       }
       void send_ext_message(ton::AccountIdPrefixFull dst, td::BufferSlice data) override {
