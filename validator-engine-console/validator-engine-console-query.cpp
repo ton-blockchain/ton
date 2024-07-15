@@ -1242,3 +1242,24 @@ td::Status ResetCollatorOptionsQuery::receive(td::BufferSlice data) {
   td::TerminalIO::out() << "success\n";
   return td::Status::OK();
 }
+
+td::Status GetCollatorOptionsJsonQuery::run() {
+  TRY_RESULT_ASSIGN(file_name_, tokenizer_.get_token<std::string>());
+  TRY_STATUS(tokenizer_.check_endl());
+  return td::Status::OK();
+}
+
+td::Status GetCollatorOptionsJsonQuery::send() {
+  auto b =
+      ton::create_serialize_tl_object<ton::ton_api::engine_validator_getCollatorOptionsJson>();
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status GetCollatorOptionsJsonQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_jsonConfig>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  TRY_STATUS(td::write_file(file_name_, f->data_));
+  td::TerminalIO::out() << "saved config to " << file_name_ << "\n";
+  return td::Status::OK();
+}
