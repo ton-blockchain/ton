@@ -216,7 +216,7 @@ void OverlayImpl::add_peer(OverlayNode node) {
     CHECK(X);
 
     if (peer_list_.neighbours_.size() < max_neighbours() &&
-        !(X->get_node()->flags() & OverlayMemberFlags::DoNotReceiveBroadcasts)) {
+        !(X->get_node()->flags() & OverlayMemberFlags::DoNotReceiveBroadcasts) && X->get_id() != local_id_) {
       peer_list_.neighbours_.push_back(X->get_id());
       X->set_neighbour(true);
     }
@@ -622,9 +622,17 @@ std::vector<adnl::AdnlNodeIdShort> OverlayImpl::get_neighbours(td::uint32 max_si
     return peer_list_.neighbours_;
   } else {
     std::vector<adnl::AdnlNodeIdShort> vec;
+    std::vector<td::uint32> ul;
     for (td::uint32 i = 0; i < max_size; i++) {
-      vec.push_back(
-          peer_list_.neighbours_[td::Random::fast(0, static_cast<td::int32>(peer_list_.neighbours_.size()) - 1)]);
+      td::uint32 t = td::Random::fast(0, static_cast<td::int32>(peer_list_.neighbours_.size()) - 1 - i);
+      td::uint32 j;
+      for (j = 0; j < i; j++) {
+        if (ul[j] <= t) {
+          t++;
+        }
+      }
+      ul.emplace(ul.begin() + j, t);
+      vec.push_back(peer_list_.neighbours_[t]);
     }
     return vec;
   }
