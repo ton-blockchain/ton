@@ -415,7 +415,7 @@ if (USE_EMSCRIPTEN)
   target_link_options(funcfiftlib PRIVATE --embed-file ${CMAKE_CURRENT_SOURCE_DIR}/fift/lib@/fiftlib)
   target_link_options(funcfiftlib PRIVATE --pre-js ${CMAKE_CURRENT_SOURCE_DIR}/funcfiftlib/funcfiftlib-prejs.js)
   target_link_options(funcfiftlib PRIVATE -fexceptions)
-  target_link_options(funcfiftlib PRIVATE -fexceptions -fno-stack-protector)
+  target_compile_options(funcfiftlib PRIVATE -fexceptions -fno-stack-protector)
 endif()
 
 add_executable(tlbc tl/tlbc.cpp)
