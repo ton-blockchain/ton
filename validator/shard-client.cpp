@@ -200,14 +200,14 @@ void ShardClient::apply_all_shards() {
   }
   for (const auto &[wc, desc] : masterchain_state_->get_workchain_list()) {
     if (!workchains.count(wc) && desc->active && opts_->need_monitor(ShardIdFull{wc, shardIdAll}, masterchain_state_)) {
-      auto Q = td::PromiseCreator::lambda(
-          [SelfId = actor_id(this), promise = ig.get_promise(), wc](td::Result<td::Ref<ShardState>> R) mutable {
-            if (R.is_error()) {
-              promise.set_error(R.move_as_error_prefix(PSTRING() << "workchain " << wc << ": "));
-            } else {
-              td::actor::send_closure(SelfId, &ShardClient::downloaded_shard_state, R.move_as_ok(), std::move(promise));
-            }
-          });
+      auto Q = td::PromiseCreator::lambda([SelfId = actor_id(this), promise = ig.get_promise(),
+                                           workchain = wc](td::Result<td::Ref<ShardState>> R) mutable {
+        if (R.is_error()) {
+          promise.set_error(R.move_as_error_prefix(PSTRING() << "workchain " << workchain << ": "));
+        } else {
+          td::actor::send_closure(SelfId, &ShardClient::downloaded_shard_state, R.move_as_ok(), std::move(promise));
+        }
+      });
       td::actor::send_closure(manager_, &ValidatorManager::wait_block_state_short,
                               BlockIdExt{wc, shardIdAll, 0, desc->zerostate_root_hash, desc->zerostate_file_hash},
                               shard_client_priority(), td::Timestamp::in(1500), std::move(Q));
