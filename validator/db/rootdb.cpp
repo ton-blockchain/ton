@@ -317,6 +317,12 @@ void RootDb::check_zero_state_file_exists(BlockIdExt block_id, td::Promise<bool>
   td::actor::send_closure(archive_db_, &ArchiveManager::check_zero_state, block_id, std::move(promise));
 }
 
+void RootDb::get_previous_persistent_state_files(
+    BlockSeqno cur_mc_seqno, td::Promise<std::vector<std::pair<std::string, ShardIdFull>>> promise) {
+  td::actor::send_closure(archive_db_, &ArchiveManager::get_previous_persistent_state_files, cur_mc_seqno,
+                          std::move(promise));
+}
+
 void RootDb::store_block_handle(BlockHandle handle, td::Promise<td::Unit> promise) {
   td::actor::send_closure(archive_db_, &ArchiveManager::update_handle, std::move(handle), std::move(promise));
 }
