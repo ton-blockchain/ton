@@ -318,14 +318,14 @@ void FullNodeFastSyncOverlays::update_overlays(td::Ref<MasterchainState> state,
       for (const ValidatorDescr &val : val_set->export_vector()) {
         PublicKeyHash public_key_hash = ValidatorFullId{val.key}.compute_short_id();
         root_public_keys_.push_back(public_key_hash);
-        if (i == 0) {
-          current_validators_adnl_.emplace_back(val.addr.is_zero() ? public_key_hash.bits256_value() : val.addr);
-        }
+        current_validators_adnl_.emplace_back(val.addr.is_zero() ? public_key_hash.bits256_value() : val.addr);
       }
     }
     std::sort(root_public_keys_.begin(), root_public_keys_.end());
     root_public_keys_.erase(std::unique(root_public_keys_.begin(), root_public_keys_.end()), root_public_keys_.end());
     std::sort(current_validators_adnl_.begin(), current_validators_adnl_.end());
+    current_validators_adnl_.erase(std::unique(current_validators_adnl_.begin(), current_validators_adnl_.end()),
+                                   current_validators_adnl_.end());
 
     for (auto &[local_id, overlays_info] : id_to_overlays_) {
       overlays_info.is_validator_ =
