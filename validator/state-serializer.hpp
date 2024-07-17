@@ -38,6 +38,7 @@ class AsyncStateSerializer : public td::actor::Actor {
 
   td::Ref<ValidatorManagerOptions> opts_;
   td::CancellationTokenSource cancellation_token_source_;
+  UnixTime last_known_key_block_ts_ = 0;
 
   td::actor::ActorId<ValidatorManager> manager_;
 
@@ -48,6 +49,11 @@ class AsyncStateSerializer : public td::actor::Actor {
   bool have_masterchain_state_ = false;
 
   std::vector<BlockIdExt> shards_;
+  std::vector<std::pair<std::string, ShardIdFull>> previous_state_files_;
+  std::shared_ptr<std::map<td::Bits256, td::Ref<vm::Cell>>> previous_state_cache_;
+  std::vector<ShardIdFull> previous_state_cur_shards_;
+
+  void prepare_previous_state_cache(ShardIdFull shard);
 
  public:
   AsyncStateSerializer(BlockIdExt block_id, td::Ref<ValidatorManagerOptions> opts,
@@ -60,12 +66,15 @@ class AsyncStateSerializer : public td::actor::Actor {
   }
 
   bool need_serialize(BlockHandle handle);
+  bool have_newer_persistent_state(UnixTime cur_ts);
 
   void alarm() override;
   void start_up() override;
   void got_self_state(AsyncSerializerState state);
   void got_init_handle(BlockHandle handle);
 
+  void request_previous_state_files();
+  void got_previous_state_files(std::vector<std::pair<std::string, ShardIdFull>> files);
   void request_masterchain_state();
   void request_shard_state(BlockIdExt shard);
 
@@ -80,6 +89,10 @@ class AsyncStateSerializer : public td::actor::Actor {
 
   void get_masterchain_seqno(td::Promise<BlockSeqno> promise) {
     promise.set_result(last_block_id_.id.seqno);
+  }
+
+  void update_last_known_key_block_ts(UnixTime ts) {
+    last_known_key_block_ts_ = std::max(last_known_key_block_ts_, ts);
   }
 
   void saved_to_db() {

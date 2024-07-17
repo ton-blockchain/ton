@@ -47,9 +47,6 @@ struct Neighbour {
   void query_failed();
   void update_roundtrip(double t);
 
-  bool use_rldp2() const {
-    return std::make_pair(version_major, version_minor) >= std::make_pair<td::uint32, td::uint32>(2, 2);
-  }
   bool has_state() const {
     return !(flags & FLAG_NO_STATE);
   }

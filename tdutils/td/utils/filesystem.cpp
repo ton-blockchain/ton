@@ -68,9 +68,14 @@ Result<T> read_file_impl(CSlice path, int64 size, int64 offset) {
     return Status::Error("Failed to read file: invalid size");
   }
   auto content = create_empty<T>(narrow_cast<size_t>(size));
-  TRY_RESULT(got_size, from_file.pread(as_mutable_slice(content), offset));
-  if (got_size != static_cast<size_t>(size)) {
-    return Status::Error("Failed to read file");
+  MutableSlice slice = as_mutable_slice(content);
+  while (!slice.empty()) {
+    TRY_RESULT(got_size, from_file.pread(slice, offset));
+    if (got_size == 0) {
+      return Status::Error("Failed to read file");
+    }
+    offset += got_size;
+    slice.remove_prefix(got_size);
   }
   from_file.close();
   return std::move(content);
@@ -103,9 +108,15 @@ Status write_file(CSlice to, Slice data, WriteFileOptions options) {
     TRY_STATUS(to_file.lock(FileFd::LockFlags::Write, to.str(), 10));
     TRY_STATUS(to_file.truncate_to_current_position(0));
   }
-  TRY_RESULT(written, to_file.write(data));
-  if (written != size) {
-    return Status::Error(PSLICE() << "Failed to write file: written " << written << " bytes instead of " << size);
+  size_t total_written = 0;
+  while (!data.empty()) {
+    TRY_RESULT(written, to_file.write(data));
+    if (written == 0) {
+      return Status::Error(PSLICE() << "Failed to write file: written " << total_written << " bytes instead of "
+                                    << size);
+    }
+    total_written += written;
+    data.remove_prefix(written);
   }
   if (options.need_sync) {
     TRY_STATUS(to_file.sync());

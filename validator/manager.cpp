@@ -326,6 +326,11 @@ void ValidatorManagerImpl::get_persistent_state_slice(BlockIdExt block_id, Block
                           std::move(promise));
 }
 
+void ValidatorManagerImpl::get_previous_persistent_state_files(
+    BlockSeqno cur_mc_seqno, td::Promise<std::vector<std::pair<std::string, ShardIdFull>>> promise) {
+  td::actor::send_closure(db_, &Db::get_previous_persistent_state_files, cur_mc_seqno, std::move(promise));
+}
+
 void ValidatorManagerImpl::get_block_proof(BlockHandle handle, td::Promise<td::BufferSlice> promise) {
   auto P = td::PromiseCreator::lambda([promise = std::move(promise)](td::Result<td::Ref<Proof>> R) mutable {
     if (R.is_error()) {
@@ -1894,6 +1899,8 @@ void ValidatorManagerImpl::read_gc_list(std::vector<ValidatorSessionId> list) {
 
   serializer_ =
       td::actor::create_actor<AsyncStateSerializer>("serializer", last_key_block_handle_->id(), opts_, actor_id(this));
+  td::actor::send_closure(serializer_, &AsyncStateSerializer::update_last_known_key_block_ts,
+                          last_key_block_handle_->unix_time());
 
   if (last_masterchain_block_handle_->inited_next_left()) {
     auto b = last_masterchain_block_handle_->one_next(true);
@@ -2057,6 +2064,8 @@ void ValidatorManagerImpl::new_masterchain_block() {
       last_known_key_block_handle_ = last_key_block_handle_;
       callback_->new_key_block(last_key_block_handle_);
     }
+    td::actor::send_closure(serializer_, &AsyncStateSerializer::update_last_known_key_block_ts,
+                            last_key_block_handle_->unix_time());
   }
 
   update_shard_overlays();

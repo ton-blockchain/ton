@@ -113,6 +113,9 @@ td::Result<Ref<DataCell>> DataCell::create(td::ConstBitPtr data, unsigned bits, 
       if (bits != 8 + hash_bytes * 8) {
         return td::Status::Error("Not enouch data for a Library special cell");
       }
+      if (!refs.empty()) {
+        return td::Status::Error("Library special cell has a cell reference");
+      }
       break;
     }
 

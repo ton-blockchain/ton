@@ -116,6 +116,10 @@ class ValidatorManagerImpl : public ValidatorManager {
                                   td::int64 max_length, td::Promise<td::BufferSlice> promise) override {
     UNREACHABLE();
   }
+  void get_previous_persistent_state_files(
+      BlockSeqno cur_mc_seqno, td::Promise<std::vector<std::pair<std::string, ShardIdFull>>> promise) override {
+    UNREACHABLE();
+  }
   void get_block_proof(BlockHandle handle, td::Promise<td::BufferSlice> promise) override;
   void get_block_proof_link(BlockHandle block_id, td::Promise<td::BufferSlice> promise) override {
     UNREACHABLE();
