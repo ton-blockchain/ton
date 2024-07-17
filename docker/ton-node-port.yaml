@@ -1,0 +1,126 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: validator-engine-pod
+  labels:
+    name: validator-engine-pod
+spec:
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: node_type
+                operator: In
+                values:
+                  - ton-validator
+  hostNetwork: true
+  volumes:
+    - name: validator-engine-pv
+      persistentVolumeClaim:
+        claimName: validator-engine-pvc
+  containers:
+    - name: validator-engine-container
+      image: ghcr.io/neodix42/ton:latest
+      env:
+        - name: PUBLIC_IP
+          value: "<PUBLIC_IP>"
+        - name: GLOBAL_CONFIG_URL
+          value: "https://api.tontech.io/ton/wallet-mainnet.autoconf.json"
+        - name: DUMP_URL
+          value: "https://dump.ton.org/dumps/latest.tar.lz"
+        - name: LITESERVER
+          value: "true"
+        - name: VALIDATOR_PORT
+          value: "30001"
+        - name: CONSOLE_PORT
+          value: "30002"
+        - name: LITE_PORT
+          value: "30003"
+        - name: STATE_TTL
+          value: "86400"
+        - name: ARCHIVE_TTL
+          value: "86400"
+        - name: THREADS
+          value: "8"
+        - name: VERBOSITY
+          value: "3"
+      volumeMounts:
+        - mountPath: "/var/ton-work/db"
+          name: validator-engine-pv
+      resources:
+        requests:
+          memory: "64Gi"
+          cpu: "16"
+        limits:
+          memory: "128Gi"
+          cpu: "32"
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: validator-engine-srv
+spec:
+  type: NodePort
+  ports:
+    - name: validator-engine-public-udp-port
+      nodePort: 30001
+      port: 30001
+      targetPort: 30001
+      protocol: UDP
+    - name: validator-console-tcp-port
+      nodePort: 30002
+      port: 30002
+      targetPort: 30002
+      protocol: TCP
+    - name: lite-server-tcp-port
+      nodePort: 30003
+      port: 30003
+      targetPort: 30003
+      protocol: TCP
+  selector:
+    name: validator-engine-pod
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: local-storage
+provisioner: kubernetes.io/no-provisioner
+volumeBindingMode: WaitForFirstConsumer
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: validator-engine-pv
+  labels:
+    type: local
+spec:
+  storageClassName: local-storage
+  capacity:
+    storage: 800Gi
+  accessModes:
+    - ReadWriteOnce
+    - ReadOnlyMany
+  persistentVolumeReclaimPolicy: Retain
+  local:
+    path: <LOCAL_STORAGE_PATH>
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: node_type
+              operator: In
+              values:
+                - ton-validator
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: validator-engine-pvc
+spec:
+  storageClassName: local-storage
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 800Gi

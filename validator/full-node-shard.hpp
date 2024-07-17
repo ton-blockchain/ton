@@ -46,10 +46,6 @@ struct Neighbour {
   void query_failed();
   void update_roundtrip(double t);
 
-  bool use_rldp2() const {
-    return std::make_pair(proto_version, capabilities) >= std::make_pair<td::uint32, td::uint64>(2, 2);
-  }
-
   static Neighbour zero;
 };
 

@@ -832,8 +832,7 @@ void FullNodeShardImpl::download_persistent_state(BlockIdExt id, BlockIdExt mast
   auto &b = choose_neighbour();
   td::actor::create_actor<DownloadState>(PSTRING() << "downloadstatereq" << id.id.to_str(), id, masterchain_block_id,
                                          adnl_id_, overlay_id_, b.adnl_id, priority, timeout, validator_manager_,
-                                         b.use_rldp2() ? (td::actor::ActorId<adnl::AdnlSenderInterface>)rldp2_ : rldp_,
-                                         overlays_, adnl_, client_, std::move(promise))
+                                         rldp2_, overlays_, adnl_, client_, std::move(promise))
       .release();
 }
 
@@ -867,10 +866,9 @@ void FullNodeShardImpl::get_next_key_blocks(BlockIdExt block_id, td::Timestamp t
 void FullNodeShardImpl::download_archive(BlockSeqno masterchain_seqno, std::string tmp_dir, td::Timestamp timeout,
                                          td::Promise<std::string> promise) {
   auto &b = choose_neighbour();
-  td::actor::create_actor<DownloadArchiveSlice>(
-      "archive", masterchain_seqno, std::move(tmp_dir), adnl_id_, overlay_id_, b.adnl_id, timeout, validator_manager_,
-      b.use_rldp2() ? (td::actor::ActorId<adnl::AdnlSenderInterface>)rldp2_ : rldp_, overlays_, adnl_, client_,
-      create_neighbour_promise(b, std::move(promise)))
+  td::actor::create_actor<DownloadArchiveSlice>("archive", masterchain_seqno, std::move(tmp_dir), adnl_id_, overlay_id_,
+                                                b.adnl_id, timeout, validator_manager_, rldp2_, overlays_, adnl_,
+                                                client_, create_neighbour_promise(b, std::move(promise)))
       .release();
 }
 

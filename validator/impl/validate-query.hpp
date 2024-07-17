@@ -241,6 +241,7 @@ class ValidateQuery : public td::actor::Actor {
   bool deferring_messages_enabled_ = false;
   bool store_out_msg_queue_size_ = false;
 
+  td::uint64 processed_account_dispatch_queues_ = 0;
   bool have_unprocessed_account_dispatch_queue_ = false;
 
   td::PerfWarningTimer perf_timer_;

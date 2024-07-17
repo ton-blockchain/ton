@@ -213,8 +213,8 @@ void run_validate_query(ShardIdFull shard, UnixTime min_ts, BlockIdExt min_maste
 
 void run_collate_query(ShardIdFull shard, td::uint32 min_ts, const BlockIdExt& min_masterchain_block_id,
                        std::vector<BlockIdExt> prev, Ed25519_PublicKey collator_id, td::Ref<ValidatorSet> validator_set,
-                       td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
-                       td::Promise<BlockCandidate> promise) {
+                       td::Ref<CollatorOptions> collator_opts, td::actor::ActorId<ValidatorManager> manager,
+                       td::Timestamp timeout, td::Promise<BlockCandidate> promise) {
   BlockSeqno seqno = 0;
   for (auto& p : prev) {
     if (p.seqno() > seqno) {
@@ -223,7 +223,8 @@ void run_collate_query(ShardIdFull shard, td::uint32 min_ts, const BlockIdExt& m
   }
   td::actor::create_actor<Collator>(PSTRING() << "collate" << shard.to_str() << ":" << (seqno + 1), shard, false,
                                     min_ts, min_masterchain_block_id, std::move(prev), std::move(validator_set),
-                                    collator_id, std::move(manager), timeout, std::move(promise))
+                                    collator_id, std::move(collator_opts), std::move(manager), timeout,
+                                    std::move(promise))
       .release();
 }
 
@@ -238,7 +239,8 @@ void run_collate_hardfork(ShardIdFull shard, const BlockIdExt& min_masterchain_b
   }
   td::actor::create_actor<Collator>(PSTRING() << "collate" << shard.to_str() << ":" << (seqno + 1), shard, true, 0,
                                     min_masterchain_block_id, std::move(prev), td::Ref<ValidatorSet>{},
-                                    Ed25519_PublicKey{Bits256::zero()}, std::move(manager), timeout, std::move(promise))
+                                    Ed25519_PublicKey{Bits256::zero()}, td::Ref<CollatorOptions>{true},
+                                    std::move(manager), timeout, std::move(promise))
       .release();
 }
 
