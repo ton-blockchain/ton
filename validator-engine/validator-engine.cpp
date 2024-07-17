@@ -3775,6 +3775,26 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_setCollat
   promise.set_value(ton::create_serialize_tl_object<ton::ton_api::engine_validator_success>());
 }
 
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getCollatorOptionsJson &query,
+                                        td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
+                                        td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_default)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+  if (!started_) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "not started")));
+    return;
+  }
+  auto r_data = td::read_file(collator_options_file());
+  if (r_data.is_error()) {
+    promise.set_value(ton::create_serialize_tl_object<ton::ton_api::engine_validator_jsonConfig>("{}"));
+  } else {
+    promise.set_value(
+        ton::create_serialize_tl_object<ton::ton_api::engine_validator_jsonConfig>(r_data.ok().as_slice().str()));
+  }
+}
+
 void ValidatorEngine::process_control_query(td::uint16 port, ton::adnl::AdnlNodeIdShort src,
                                             ton::adnl::AdnlNodeIdShort dst, td::BufferSlice data,
                                             td::Promise<td::BufferSlice> promise) {

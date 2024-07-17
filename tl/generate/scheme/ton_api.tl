@@ -721,6 +721,7 @@ engine.validator.showCustomOverlays = engine.validator.CustomOverlaysConfig;
 engine.validator.setStateSerializerEnabled enabled:Bool = engine.validator.Success;
 
 engine.validator.setCollatorOptionsJson json:string = engine.validator.Success;
+engine.validator.getCollatorOptionsJson = engine.validator.JsonConfig;
 
 ---types---
 

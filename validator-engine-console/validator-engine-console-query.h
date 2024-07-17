@@ -1270,3 +1270,25 @@ class ResetCollatorOptionsQuery : public Query {
     return get_name();
   }
 };
+
+class GetCollatorOptionsJsonQuery : public Query {
+ public:
+  GetCollatorOptionsJsonQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "getcollatoroptionsjson";
+  }
+  static std::string get_help() {
+    return "getcollatoroptionsjson <filename>\tsave current collator options to file <filename>";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  std::string file_name_;
+};
