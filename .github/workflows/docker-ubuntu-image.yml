@@ -20,22 +20,49 @@ jobs:
           submodules: 'recursive'
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v1
+        uses: docker/setup-qemu-action@v3
         
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v1
+        uses: docker/setup-buildx-action@v3
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v1
+        uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Build and export to Docker
+        uses: docker/build-push-action@v6
+        with:
+          load: true
+          context: ./
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:test
+
+      - name: Test
+        run: |
+          docker run --rm -e "TEST=1" ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:test
+
+      - name: Get next tag
+        id: tag
+        run: |
+          git fetch --all --tags
+          git tag -l
+          NEW_TAG=v$(date +'%Y.%m')
+          FOUND=$(git tag -l | grep $NEW_TAG | wc -l)
+          if [ $FOUND -eq 0 ]; then
+            echo "TAG=$NEW_TAG" >> $GITHUB_OUTPUT
+          else
+            echo "TAG=$NEW_TAG-$FOUND" >> $GITHUB_OUTPUT
+          fi
+
       - name: Build and push
         id: docker_build
-        uses: docker/build-push-action@v2
+        uses: docker/build-push-action@v6
         with:
+          platforms: linux/amd64,linux/arm64
           push: true
           context: ./
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.TAG }}

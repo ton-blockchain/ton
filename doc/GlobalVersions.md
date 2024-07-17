@@ -109,3 +109,4 @@ Operations for working with Merkle proofs, where cells can have non-zero level a
 - Slightly change random seed generation to fix mix of `addr_rewrite` and `addr`.
 - Fill in `skipped_actions` for both invalid and valid messages with `IGNORE_ERROR` mode that can't be sent.
 - Allow unfreeze through external messages.
+- Don't use user-provided `fwd_fee` and `ihr_fee` for internal messages.

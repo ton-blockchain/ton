@@ -801,7 +801,7 @@ size_limits_config#01 max_msg_bits:uint32 max_msg_cells:uint32 max_library_cells
   max_ext_msg_size:uint32 max_ext_msg_depth:uint16 = SizeLimitsConfig;
 size_limits_config_v2#02 max_msg_bits:uint32 max_msg_cells:uint32 max_library_cells:uint32 max_vm_data_depth:uint16
   max_ext_msg_size:uint32 max_ext_msg_depth:uint16 max_acc_state_cells:uint32 max_acc_state_bits:uint32
-  max_acc_public_libraries:uint32 = SizeLimitsConfig;
+  max_acc_public_libraries:uint32 defer_out_queue_size_limit:uint32 = SizeLimitsConfig;
 _ SizeLimitsConfig = ConfigParam 43;
 
 // key is [ wc:int32 addr:uint256 ]
