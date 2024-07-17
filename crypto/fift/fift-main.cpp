@@ -96,7 +96,7 @@ int main(int argc, char* const argv[]) {
 
   int i;
   int new_verbosity_level = VERBOSITY_NAME(INFO);
-  while (!script_mode && (i = getopt(argc, argv, "hinI:L:d:sv:V")) != -1) {
+  while (!script_mode && (i = getopt(argc, argv, "hinI:L:sv:V")) != -1) {
     switch (i) {
       case 'i':
         interactive = true;
