@@ -49,11 +49,12 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
   void set_validators(std::vector<PublicKeyHash> root_public_keys,
                       std::vector<adnl::AdnlNodeIdShort> current_validators_adnl);
   void set_member_certificate(overlay::OverlayMemberCertificate member_certificate);
+  void set_receive_broadcasts(bool value);
 
   FullNodeFastSyncOverlay(adnl::AdnlNodeIdShort local_id, ShardIdFull shard, FileHash zero_state_file_hash,
                           std::vector<PublicKeyHash> root_public_keys,
                           std::vector<adnl::AdnlNodeIdShort> current_validators_adnl,
-                          overlay::OverlayMemberCertificate member_certificate,
+                          overlay::OverlayMemberCertificate member_certificate, bool receive_broadcasts,
                           td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
                           td::actor::ActorId<overlay::Overlays> overlays,
                           td::actor::ActorId<ValidatorManagerInterface> validator_manager,
@@ -63,6 +64,7 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
       , root_public_keys_(std::move(root_public_keys))
       , current_validators_adnl_(std::move(current_validators_adnl))
       , member_certificate_(std::move(member_certificate))
+      , receive_broadcasts_(receive_broadcasts)
       , zero_state_file_hash_(zero_state_file_hash)
       , keyring_(keyring)
       , adnl_(adnl)
@@ -77,6 +79,7 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
   std::vector<PublicKeyHash> root_public_keys_;
   std::vector<adnl::AdnlNodeIdShort> current_validators_adnl_;
   overlay::OverlayMemberCertificate member_certificate_;
+  bool receive_broadcasts_;
   FileHash zero_state_file_hash_;
 
   td::actor::ActorId<keyring::Keyring> keyring_;

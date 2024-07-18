@@ -201,8 +201,8 @@ void FullNodeFastSyncOverlay::init() {
                       current_validators_adnl_.end();
   if (!shard_.is_masterchain()) {
     options.default_permanent_members_flags_ = overlay::OverlayMemberFlags::DoNotReceiveBroadcasts;
-    options.local_overlay_member_flags_ = is_validator ? overlay::OverlayMemberFlags::DoNotReceiveBroadcasts : 0;
   }
+  options.local_overlay_member_flags_ = receive_broadcasts_ ? 0 : overlay::OverlayMemberFlags::DoNotReceiveBroadcasts;
   options.max_slaves_in_semiprivate_overlay_ = 100000;  // TODO: set lower limit (high limit for testing)
   td::actor::send_closure(overlays_, &overlay::Overlays::create_semiprivate_overlay, local_id_,
                           overlay_id_full_.clone(), current_validators_adnl_, root_public_keys_, member_certificate_,
@@ -232,6 +232,17 @@ void FullNodeFastSyncOverlay::set_member_certificate(overlay::OverlayMemberCerti
   if (inited_) {
     td::actor::send_closure(overlays_, &overlay::Overlays::update_member_certificate, local_id_, overlay_id_,
                             member_certificate_);
+  }
+}
+
+void FullNodeFastSyncOverlay::set_receive_broadcasts(bool value) {
+  if (value == receive_broadcasts_) {
+    return;
+  }
+  receive_broadcasts_ = value;
+  if (inited_) {
+    td::actor::send_closure(overlays_, &ton::overlay::Overlays::delete_overlay, local_id_, overlay_id_);
+    init();
   }
 }
 
@@ -278,19 +289,21 @@ void FullNodeFastSyncOverlays::update_overlays(td::Ref<MasterchainState> state,
   monitoring_shards.insert(ShardIdFull{masterchainId});
   std::set<ShardIdFull> all_shards;
   all_shards.insert(ShardIdFull{masterchainId});
-  td::uint32 monitor_min_split = state->monitor_min_split_depth(basechainId);
-  for (td::uint64 i = 0; i < (1ULL << monitor_min_split); ++i) {
-    all_shards.insert(ShardIdFull{basechainId, (i * 2 + 1) << (63 - monitor_min_split)});
+  for (const auto& desc : state->get_shards()) {
+    ShardIdFull shard = desc->shard();
+    td::uint32 monitor_min_split = state->monitor_min_split_depth(shard.workchain);
+    if (shard.pfx_len() > monitor_min_split) {
+      shard = shard_prefix(shard, monitor_min_split);
+    }
+    all_shards.insert(shard);
   }
 
   // Remove overlays for removed adnl ids and shards
   for (auto it = id_to_overlays_.begin(); it != id_to_overlays_.end();) {
     if (my_adnl_ids.count(it->first)) {
       auto &overlays_info = it->second;
-      ;
-      auto &current_shards = overlays_info.is_validator_ ? all_shards : monitoring_shards;
       for (auto it2 = overlays_info.overlays_.begin(); it2 != overlays_info.overlays_.end();) {
-        if (current_shards.count(it2->first)) {
+        if (all_shards.count(it2->first)) {
           ++it2;
         } else {
           it2 = overlays_info.overlays_.erase(it2);
@@ -330,7 +343,7 @@ void FullNodeFastSyncOverlays::update_overlays(td::Ref<MasterchainState> state,
     for (auto &[local_id, overlays_info] : id_to_overlays_) {
       overlays_info.is_validator_ =
           std::binary_search(current_validators_adnl_.begin(), current_validators_adnl_.end(), local_id);
-      for (auto &[_, overlay] : overlays_info.overlays_) {
+      for (auto &[shard, overlay] : overlays_info.overlays_) {
         td::actor::send_closure(overlay, &FullNodeFastSyncOverlay::set_validators, root_public_keys_,
                                 current_validators_adnl_);
       }
@@ -388,17 +401,20 @@ void FullNodeFastSyncOverlays::update_overlays(td::Ref<MasterchainState> state,
     }
 
     // Update shard overlays
-    auto &current_shards = overlays_info.is_validator_ ? all_shards : monitoring_shards;
-    for (ShardIdFull shard_id : current_shards) {
-      auto &overlay = overlays_info.overlays_[shard_id];
+    for (ShardIdFull shard : all_shards) {
+      bool receive_broadcasts = overlays_info.is_validator_ ? shard.is_masterchain() : monitoring_shards.count(shard);
+      auto &overlay = overlays_info.overlays_[shard];
       if (overlay.empty()) {
         overlay = td::actor::create_actor<FullNodeFastSyncOverlay>(
-            PSTRING() << "FastSyncOv" << shard_id.to_str(), local_id, shard_id, zero_state_file_hash,
-            root_public_keys_, current_validators_adnl_, overlays_info.current_certificate_, keyring, adnl, overlays,
+            PSTRING() << "FastSyncOv" << shard.to_str(), local_id, shard, zero_state_file_hash, root_public_keys_,
+            current_validators_adnl_, overlays_info.current_certificate_, receive_broadcasts, keyring, adnl, overlays,
             validator_manager, full_node);
-      } else if (changed_certificate) {
-        td::actor::send_closure(overlay, &FullNodeFastSyncOverlay::set_member_certificate,
-                                overlays_info.current_certificate_);
+      } else {
+        td::actor::send_closure(overlay, &FullNodeFastSyncOverlay::set_receive_broadcasts, receive_broadcasts);
+        if (changed_certificate) {
+          td::actor::send_closure(overlay, &FullNodeFastSyncOverlay::set_member_certificate,
+                                  overlays_info.current_certificate_);
+        }
       }
     }
   }
