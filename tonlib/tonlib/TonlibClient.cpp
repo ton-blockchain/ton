@@ -5558,8 +5558,13 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_lookupBlock& reques
   auto lite_block = ton::lite_api::make_object<ton::lite_api::tonNode_blockId>((*request.id_).workchain_, (*request.id_).shard_, (*request.id_).seqno_);
   auto blkid = ton::BlockId(request.id_->workchain_, request.id_->shard_, request.id_->seqno_);
   client_.with_last_block(
-    [self = this, blkid, lite_block = std::move(lite_block), mode = request.mode_, lt = (td::uint64)request.lt_,
+    [self = this, blkid, lite_block = std::move(lite_block), mode = request.mode_, lt = (td::uint64)request.lt_, 
     utime = (td::uint32)request.utime_, promise = std::move(promise)](td::Result<LastBlockState> r_last_block) mutable {
+      if (r_last_block.is_error()) {
+        promise.set_error(r_last_block.move_as_error_prefix(TonlibError::Internal("get last block failed ")));
+        return;
+      }
+
       self->client_.send_query(ton::lite_api::liteServer_lookupBlockWithProof(mode, std::move(lite_block), ton::create_tl_lite_block_id(r_last_block.ok().last_block_id), lt, utime),
         promise.wrap([blkid, mode, utime, lt, last_block = r_last_block.ok().last_block_id](lite_api_ptr<ton::lite_api::liteServer_lookupBlockResult>&& result)
                                           -> td::Result<object_ptr<tonlib_api::ton_blockIdExt>> {

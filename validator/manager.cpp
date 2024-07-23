@@ -2064,8 +2064,10 @@ void ValidatorManagerImpl::new_masterchain_block() {
       last_known_key_block_handle_ = last_key_block_handle_;
       callback_->new_key_block(last_key_block_handle_);
     }
-    td::actor::send_closure(serializer_, &AsyncStateSerializer::update_last_known_key_block_ts,
-                            last_key_block_handle_->unix_time());
+    if (!serializer_.empty()) {
+      td::actor::send_closure(serializer_, &AsyncStateSerializer::update_last_known_key_block_ts,
+                              last_key_block_handle_->unix_time());
+    }
   }
 
   update_shard_overlays();
