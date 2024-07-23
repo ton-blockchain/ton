@@ -3714,6 +3714,7 @@ bool Collator::process_dispatch_queue() {
       }
       ++total_count;
       if (total_count >= max_total_count[iter]) {
+        dispatch_queue_total_limit_reached_ = true;
         break;
       }
     }
@@ -4660,7 +4661,21 @@ bool Collator::check_block_overload() {
             << " lt_delta=" << block_limit_status_->cur_lt - block_limit_status_->limits.start_lt
             << " size_estimate=" << block_size_estimate_;
   auto cl = block_limit_status_->classify();
-  if (cl <= block::ParamLimits::cl_underload) {
+  if (cl >= block::ParamLimits::cl_soft || dispatch_queue_total_limit_reached_) {
+    std::string message = "block is overloaded ";
+    if (cl >= block::ParamLimits::cl_soft) {
+      message += PSTRING() << "(category " << cl << ")";
+    } else {
+      message += "(long dispatch queue processing)";
+    }
+    if (out_msg_queue_size_ > SPLIT_MAX_QUEUE_SIZE) {
+      LOG(INFO) << message << ", but don't set overload history because out_msg_queue size is too big to split ("
+                << out_msg_queue_size_ << " > " << SPLIT_MAX_QUEUE_SIZE << ")";
+    } else {
+      overload_history_ |= 1;
+      LOG(INFO) << message;
+    }
+  } else if (cl <= block::ParamLimits::cl_underload) {
     if (out_msg_queue_size_ > MERGE_MAX_QUEUE_SIZE) {
       LOG(INFO)
           << "block is underloaded, but don't set underload history because out_msg_queue size is too big to merge ("
@@ -4668,15 +4683,6 @@ bool Collator::check_block_overload() {
     } else {
       underload_history_ |= 1;
       LOG(INFO) << "block is underloaded";
-    }
-  } else if (cl >= block::ParamLimits::cl_soft) {
-    if (out_msg_queue_size_ > SPLIT_MAX_QUEUE_SIZE) {
-      LOG(INFO) << "block is overloaded (category " << cl
-                << "), but don't set overload history because out_msg_queue size is too big to split ("
-                << out_msg_queue_size_ << " > " << SPLIT_MAX_QUEUE_SIZE << ")";
-    } else {
-      overload_history_ |= 1;
-      LOG(INFO) << "block is overloaded (category " << cl << ")";
     }
   } else {
     LOG(INFO) << "block is loaded normally";
