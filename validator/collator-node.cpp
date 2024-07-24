@@ -256,7 +256,8 @@ static td::BufferSlice serialize_error(td::Status error) {
   return create_serialize_tl_object<ton_api::collatorNode_generateBlockError>(error.code(), error.message().c_str());
 }
 
-static BlockCandidate change_creator(BlockCandidate block, Ed25519_PublicKey creator) {
+static BlockCandidate change_creator(BlockCandidate block, Ed25519_PublicKey creator, CatchainSeqno* cc_seqno = nullptr,
+                                     td::uint32* val_set_hash = nullptr) {
   CHECK(!block.id.is_masterchain());
   if (block.pubkey == creator) {
     return block;
@@ -264,8 +265,10 @@ static BlockCandidate change_creator(BlockCandidate block, Ed25519_PublicKey cre
   auto root = vm::std_boc_deserialize(block.data).move_as_ok();
   block::gen::Block::Record blk;
   block::gen::BlockExtra::Record extra;
+  block::gen::BlockInfo::Record info;
   CHECK(tlb::unpack_cell(root, blk));
   CHECK(tlb::unpack_cell(blk.extra, extra));
+  CHECK(tlb::unpack_cell(blk.info, info));
   extra.created_by = creator.as_bits256();
   CHECK(tlb::pack_cell(blk.extra, extra));
   CHECK(tlb::pack_cell(root, blk));
@@ -274,6 +277,13 @@ static BlockCandidate change_creator(BlockCandidate block, Ed25519_PublicKey cre
   block.id.root_hash = root->get_hash().bits();
   block.id.file_hash = block::compute_file_hash(block.data.as_slice());
   block.pubkey = creator;
+
+  if (cc_seqno) {
+    *cc_seqno = info.gen_catchain_seqno;
+  }
+  if (val_set_hash) {
+    *val_set_hash = info.gen_validator_list_hash_short;
+  }
   return block;
 }
 
@@ -304,9 +314,16 @@ void CollatorNode::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data
     prev_blocks.push_back(create_block_id(b));
   }
   Ed25519_PublicKey creator(f->creator_);
-  new_promise = [new_promise = std::move(new_promise), creator](td::Result<BlockCandidate> R) mutable {
+  new_promise = [new_promise = std::move(new_promise), creator,
+                 manager = manager_](td::Result<BlockCandidate> R) mutable {
     TRY_RESULT_PROMISE(new_promise, block, std::move(R));
-    new_promise.set_value(change_creator(std::move(block), creator));
+    CatchainSeqno cc_seqno;
+    td::uint32 val_set_hash;
+    block = change_creator(std::move(block), creator, &cc_seqno, &val_set_hash);
+    td::Promise<td::Unit> P =
+        new_promise.wrap([block = block.clone()](td::Unit&&) mutable -> BlockCandidate { return std::move(block); });
+    td::actor::send_closure(manager, &ValidatorManager::set_block_candidate, block.id, std::move(block), cc_seqno,
+                            val_set_hash, std::move(P));
   };
   if (!shard.is_valid_ext()) {
     new_promise.set_error(td::Status::Error(PSTRING() << "invalid shard " << shard.to_str()));

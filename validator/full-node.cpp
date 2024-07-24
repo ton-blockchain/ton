@@ -352,9 +352,9 @@ void FullNodeImpl::send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_s
     td::actor::send_closure(private_block_overlays_.begin()->second,
                             &FullNodePrivateBlockOverlay::send_shard_block_info, block_id, cc_seqno, data.clone());
   }
-  auto private_overlay = fast_sync_overlays_.choose_overlay(ShardIdFull(masterchainId));
-  if (!private_overlay.empty()) {
-    td::actor::send_closure(private_overlay, &FullNodeFastSyncOverlay::send_shard_block_info, block_id, cc_seqno,
+  auto fast_sync_overlay = fast_sync_overlays_.choose_overlay(ShardIdFull(masterchainId));
+  if (!fast_sync_overlay.empty()) {
+    td::actor::send_closure(fast_sync_overlay, &FullNodeFastSyncOverlay::send_shard_block_info, block_id, cc_seqno,
                             data.clone());
   }
   td::actor::send_closure(shard, &FullNodeShard::send_shard_block_info, block_id, cc_seqno, std::move(data));
@@ -372,9 +372,9 @@ void FullNodeImpl::send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_se
     td::actor::send_closure(private_block_overlays_.begin()->second, &FullNodePrivateBlockOverlay::send_block_candidate,
                             block_id, cc_seqno, validator_set_hash, data.clone());
   }
-  auto private_overlay = fast_sync_overlays_.choose_overlay(block_id.shard_full());
-  if (!private_overlay.empty()) {
-    td::actor::send_closure(private_overlay, &FullNodeFastSyncOverlay::send_block_candidate, block_id, cc_seqno,
+  auto fast_sync_overlay = fast_sync_overlays_.choose_overlay(block_id.shard_full());
+  if (!fast_sync_overlay.empty()) {
+    td::actor::send_closure(fast_sync_overlay, &FullNodeFastSyncOverlay::send_block_candidate, block_id, cc_seqno,
                             validator_set_hash, data.clone());
   }
   if (broadcast_block_candidates_in_public_overlay_) {
@@ -393,13 +393,15 @@ void FullNodeImpl::send_broadcast(BlockBroadcast broadcast, bool custom_overlays
     VLOG(FULL_NODE_WARNING) << "dropping OUT broadcast to unknown shard";
     return;
   }
-  if (broadcast.block_id.is_masterchain() && !private_block_overlays_.empty()) {
-    td::actor::send_closure(private_block_overlays_.begin()->second, &FullNodePrivateBlockOverlay::send_broadcast,
-                            broadcast.clone());
-  }
-  auto private_overlay = fast_sync_overlays_.choose_overlay(broadcast.block_id.shard_full());
-  if (!private_overlay.empty()) {
-    td::actor::send_closure(private_overlay, &FullNodeFastSyncOverlay::send_broadcast, broadcast.clone());
+  if (broadcast.block_id.is_masterchain()) {
+    if (!private_block_overlays_.empty()) {
+      td::actor::send_closure(private_block_overlays_.begin()->second, &FullNodePrivateBlockOverlay::send_broadcast,
+                              broadcast.clone());
+    }
+    auto fast_sync_overlay = fast_sync_overlays_.choose_overlay(broadcast.block_id.shard_full());
+    if (!fast_sync_overlay.empty()) {
+      td::actor::send_closure(fast_sync_overlay, &FullNodeFastSyncOverlay::send_broadcast, broadcast.clone());
+    }
   }
   td::actor::send_closure(shard, &FullNodeShard::send_broadcast, std::move(broadcast));
 }
