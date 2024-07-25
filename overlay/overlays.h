@@ -206,7 +206,10 @@ class OverlayMemberCertificate {
     return expire_at_ < cur_time - 3;
   }
 
-  auto tl() const {
+  tl_object_ptr<ton_api::overlay_MemberCertificate> tl() const {
+    if (empty()) {
+      return create_tl_object<ton_api::overlay_emptyMemberCertificate>();
+    }
     return create_tl_object<ton_api::overlay_memberCertificate>(signed_by_.tl(), flags_, slot_, expire_at_,
                                                                 signature_.clone_as_buffer_slice());
   }

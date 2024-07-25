@@ -503,8 +503,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   void update_options(td::Ref<ValidatorManagerOptions> opts) override {
     opts_ = std::move(opts);
   }
-  void validated_new_block(BlockIdExt block_id) override {
-  }
   void add_persistent_state_description(td::Ref<PersistentStateDescription> desc) override {
   }
   void get_validator_sessions_info(

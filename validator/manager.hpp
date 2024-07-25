@@ -624,11 +624,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   void get_validator_sessions_info(
       td::Promise<tl_object_ptr<ton_api::engine_validator_validatorSessionsInfo>> promise) override;
 
-  void validated_new_block(BlockIdExt block_id) override {
-    BlockSeqno &last = last_validated_blocks_[block_id.shard_full()];
-    last = std::max(last, block_id.seqno());
-  }
-
   void add_persistent_state_description(td::Ref<PersistentStateDescription> desc) override;
 
   void add_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) override;
@@ -745,8 +740,6 @@ class ValidatorManagerImpl : public ValidatorManager {
     return 3 * 10;
   }
 
-  void cleanup_last_validated_blocks(BlockId new_block);
-
   void got_persistent_state_descriptions(std::vector<td::Ref<PersistentStateDescription>> descs);
   void add_persistent_state_description_impl(td::Ref<PersistentStateDescription> desc);
   td::Ref<PersistentStateDescription> get_block_persistent_state(BlockIdExt block_id);
@@ -772,9 +765,6 @@ class ValidatorManagerImpl : public ValidatorManager {
     bool can_collate_shard(ShardIdFull shard) const;
   };
   std::map<adnl::AdnlNodeIdShort, Collator> collator_nodes_;
-
-  std::set<ShardIdFull> extra_active_shards_;
-  std::map<ShardIdFull, BlockSeqno> last_validated_blocks_;
 
   std::map<BlockSeqno, td::Ref<PersistentStateDescription>> persistent_state_descriptions_;
   std::map<BlockIdExt, td::Ref<PersistentStateDescription>> persistent_state_blocks_;

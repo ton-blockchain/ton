@@ -177,9 +177,6 @@ void ValidatorGroup::accept_block_candidate(td::uint32 round_id, PublicKeyHash s
 void ValidatorGroup::accept_block_query(BlockIdExt block_id, td::Ref<BlockData> block, std::vector<BlockIdExt> prev,
                                         td::Ref<BlockSignatureSet> sig_set, td::Ref<BlockSignatureSet> approve_sig_set,
                                         bool send_broadcast, td::Promise<td::Unit> promise, bool is_retry) {
-  if (!is_retry) {
-    td::actor::send_closure(manager_, &ValidatorManager::validated_new_block, block_id);
-  }
   auto P = td::PromiseCreator::lambda([=, SelfId = actor_id(this),
                                        promise = std::move(promise)](td::Result<td::Unit> R) mutable {
     if (R.is_error()) {
@@ -197,7 +194,7 @@ void ValidatorGroup::accept_block_query(BlockIdExt block_id, td::Ref<BlockData> 
   });
 
   run_accept_block_query(block_id, std::move(block), std::move(prev), validator_set_, std::move(sig_set),
-                         std::move(approve_sig_set), send_broadcast, apply_blocks_, manager_, std::move(P));
+                         std::move(approve_sig_set), send_broadcast, monitoring_shard_, manager_, std::move(P));
 }
 
 void ValidatorGroup::skip_round(td::uint32 round_id) {

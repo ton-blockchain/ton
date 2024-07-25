@@ -68,7 +68,7 @@ class ValidatorGroup : public td::actor::Actor {
 
   void update_options(td::Ref<ValidatorManagerOptions> opts, bool apply_blocks) {
     opts_ = std::move(opts);
-    apply_blocks_ = apply_blocks;
+    monitoring_shard_ = apply_blocks;
   }
 
   ValidatorGroup(ShardIdFull shard, PublicKeyHash local_id, ValidatorSessionId session_id,
@@ -77,7 +77,7 @@ class ValidatorGroup : public td::actor::Actor {
                  td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
                  td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays,
                  std::string db_root, td::actor::ActorId<ValidatorManager> validator_manager, bool create_session,
-                 bool allow_unsafe_self_blocks_resync, td::Ref<ValidatorManagerOptions> opts, bool apply_blocks)
+                 bool allow_unsafe_self_blocks_resync, td::Ref<ValidatorManagerOptions> opts, bool monitoring_shard)
       : shard_(shard)
       , local_id_(std::move(local_id))
       , session_id_(session_id)
@@ -93,7 +93,7 @@ class ValidatorGroup : public td::actor::Actor {
       , init_(create_session)
       , allow_unsafe_self_blocks_resync_(allow_unsafe_self_blocks_resync)
       , opts_(std::move(opts))
-      , apply_blocks_(apply_blocks) {
+      , monitoring_shard_(monitoring_shard) {
   }
 
  private:
@@ -141,7 +141,7 @@ class ValidatorGroup : public td::actor::Actor {
   bool allow_unsafe_self_blocks_resync_;
   td::Ref<ValidatorManagerOptions> opts_;
   td::uint32 last_known_round_id_ = 0;
-  bool apply_blocks_ = true;
+  bool monitoring_shard_ = true;
 
   struct CachedCollatedBlock {
     td::optional<BlockCandidate> result;
@@ -151,7 +151,7 @@ class ValidatorGroup : public td::actor::Actor {
 
   void generated_block_candidate(std::shared_ptr<CachedCollatedBlock> cache, td::Result<BlockCandidate> R);
 
-  typedef std::tuple<td::Bits256, BlockIdExt, FileHash, FileHash> CacheKey;
+  using CacheKey = std::tuple<td::Bits256, BlockIdExt, FileHash, FileHash>;
   std::map<CacheKey, UnixTime> approved_candidates_cache_;
 
   void update_approve_cache(CacheKey key, UnixTime value);

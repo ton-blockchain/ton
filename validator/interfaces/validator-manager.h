@@ -195,8 +195,6 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void add_lite_query_stats(int lite_query_id) {
   }
 
-  virtual void validated_new_block(BlockIdExt block_id) = 0;
-
   virtual void add_persistent_state_description(td::Ref<PersistentStateDescription> desc) = 0;
 
   static bool is_persistent_state(UnixTime ts, UnixTime prev_ts) {

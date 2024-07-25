@@ -255,7 +255,9 @@ void FullNodeFastSyncOverlay::get_stats_extra(td::Promise<std::string> promise) 
   for (const auto &x : root_public_keys_) {
     res->root_public_keys_.push_back(x.bits256_value());
   }
-  res->member_certificate_ = member_certificate_.tl();
+  if (!member_certificate_.empty()) {
+    res->member_certificate_ = member_certificate_.tl();
+  }
   promise.set_result(td::json_encode<std::string>(td::ToJson(*res), true));
 }
 

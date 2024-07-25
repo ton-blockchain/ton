@@ -28,12 +28,6 @@ namespace validator {
 
 namespace fullnode {
 
-enum FullNodeShardMode {
-  active,       // Node can answer queries about the shard
-  active_temp,  // Like 'active', but queries about shard state are not allowed (only blocks)
-  inactive      // Node is not a part of the overlay
-};
-
 class FullNodeShard : public td::actor::Actor {
  public:
   virtual ~FullNodeShard() = default;
@@ -42,7 +36,7 @@ class FullNodeShard : public td::actor::Actor {
   virtual ShardIdFull get_shard_full() const = 0;
 
   virtual void update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promise<td::Unit> promise) = 0;
-  virtual void set_mode(FullNodeShardMode mode) = 0;
+  virtual void set_active(bool active) = 0;
   virtual void set_config(FullNodeConfig config) = 0;
 
   virtual void send_ihr_message(td::BufferSlice data) = 0;
@@ -85,8 +79,7 @@ class FullNodeShard : public td::actor::Actor {
       FullNodeConfig config, td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
       td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
       td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-      td::actor::ActorId<adnl::AdnlExtClient> client, td::actor::ActorId<FullNode> full_node,
-      FullNodeShardMode mode = FullNodeShardMode::active);
+      td::actor::ActorId<adnl::AdnlExtClient> client, td::actor::ActorId<FullNode> full_node, bool active);
 };
 
 }  // namespace fullnode

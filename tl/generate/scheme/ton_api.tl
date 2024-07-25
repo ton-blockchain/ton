@@ -698,8 +698,8 @@ engine.validator.overlayStats overlay_id:int256 overlay_id_full:PublicKey adnl_i
 engine.validator.overlaysStats overlays:(vector engine.validator.overlayStats) = engine.validator.OverlaysStats;
 
 engine.validator.shardOverlayStats.neighbour id:string verison_major:int version_minor:int flags:#
-    roundtrip:double unreliability:double has_state:string = engine.validator.shardOverlayStats.Neighbour;
-engine.validator.shardOverlayStats shard:string mode:string
+    roundtrip:double unreliability:double = engine.validator.shardOverlayStats.Neighbour;
+engine.validator.shardOverlayStats shard:string active:Bool
     neighbours:(vector engine.validator.shardOverlayStats.neighbour) = engine.validator.ShardOverlayStats;
 engine.validator.fastSyncOverlayStats shard:string validators_adnl:(vector int256) root_public_keys:(vector int256)
     member_certificate:overlay.MemberCertificate = engine.validator.FastSyncOverlayStats;

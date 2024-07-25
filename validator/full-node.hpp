@@ -59,8 +59,7 @@ class FullNodeImpl : public FullNode {
   void add_custom_overlay(CustomOverlayParams params, td::Promise<td::Unit> promise) override;
   void del_custom_overlay(std::string name, td::Promise<td::Unit> promise) override;
 
-  void on_new_masterchain_block(td::Ref<MasterchainState> state, std::set<ShardIdFull> shards_to_monitor,
-                                  std::set<ShardIdFull> temporary_shards);
+  void on_new_masterchain_block(td::Ref<MasterchainState> state, std::set<ShardIdFull> shards_to_monitor);
 
   void sync_completed();
 
@@ -111,13 +110,12 @@ class FullNodeImpl : public FullNode {
 
  private:
   struct ShardInfo {
-    bool exists = false;
     td::actor::ActorOwn<FullNodeShard> actor;
-    FullNodeShardMode mode = FullNodeShardMode::inactive;
+    bool active = false;
     td::Timestamp delete_at = td::Timestamp::never();
   };
 
-  void add_shard_actor(ShardIdFull shard, FullNodeShardMode mode);
+  void update_shard_actor(ShardIdFull shard, bool active);
 
   PublicKeyHash local_id_;
   adnl::AdnlNodeIdShort adnl_id_;

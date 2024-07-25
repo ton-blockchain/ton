@@ -104,7 +104,7 @@ void FullNodeShardImpl::create_overlay() {
     td::actor::ActorId<FullNodeShardImpl> node_;
   };
   overlay::OverlayOptions opts;
-  opts.announce_self_ = is_active();
+  opts.announce_self_ = active_;
   td::actor::send_closure(overlays_, &overlay::Overlays::create_public_overlay_ex, adnl_id_, overlay_id_full_.clone(),
                           std::make_unique<Callback>(actor_id(this)), rules_,
                           PSTRING() << "{ \"type\": \"shard\", \"shard_id\": " << get_shard()
@@ -119,7 +119,7 @@ void FullNodeShardImpl::create_overlay() {
 }
 
 void FullNodeShardImpl::check_broadcast(PublicKeyHash src, td::BufferSlice broadcast, td::Promise<td::Unit> promise) {
-  if (mode_ != FullNodeShardMode::active) {
+  if (!active_) {
     return promise.set_error(td::Status::Error("cannot check broadcast: shard is not active"));
   }
   auto B = fetch_tl_object<ton_api::tonNode_externalMessageBroadcast>(std::move(broadcast), true);
@@ -161,16 +161,16 @@ void FullNodeShardImpl::update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promis
   create_overlay();
 }
 
-void FullNodeShardImpl::set_mode(FullNodeShardMode mode) {
+void FullNodeShardImpl::set_active(bool active) {
   if (shard_.is_masterchain()) {
     return;
   }
-  bool was_active = is_active();
-  mode_ = mode;
-  if (was_active != is_active()) {
-    td::actor::send_closure(overlays_, &ton::overlay::Overlays::delete_overlay, adnl_id_, overlay_id_);
-    create_overlay();
+  if (active_ == active) {
+    return;
   }
+  active_ = active;
+  td::actor::send_closure(overlays_, &ton::overlay::Overlays::delete_overlay, adnl_id_, overlay_id_);
+  create_overlay();
 }
 
 void FullNodeShardImpl::try_get_next_block(td::Timestamp timeout, td::Promise<ReceivedBlock> promise) {
@@ -219,7 +219,6 @@ void FullNodeShardImpl::got_next_block(td::Result<BlockHandle> R) {
 }
 
 void FullNodeShardImpl::get_next_block() {
-  //return;
   attempt_++;
   auto P = td::PromiseCreator::lambda([validator_manager = validator_manager_, attempt = attempt_,
                                        block_id = handle_->id(), SelfId = actor_id(this)](td::Result<ReceivedBlock> R) {
@@ -623,12 +622,8 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
 void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getCapabilities &query,
                                       td::Promise<td::BufferSlice> promise) {
   VLOG(FULL_NODE_DEBUG) << "Got query getCapabilities from " << src;
-  td::uint32 flags = 0;
-  if (mode_ != FullNodeShardMode::active) {
-    flags |= Neighbour::FLAG_NO_STATE;
-  }
   promise.set_value(
-      create_serialize_tl_object<ton_api::tonNode_capabilities>(proto_version_major(), proto_version_minor(), flags));
+      create_serialize_tl_object<ton_api::tonNode_capabilities>(proto_version_major(), proto_version_minor(), 0));
 }
 
 void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getArchiveInfo &query,
@@ -717,7 +712,7 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
 
 void FullNodeShardImpl::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice query,
                                       td::Promise<td::BufferSlice> promise) {
-  if (!is_active()) {
+  if (!active_) {
     td::actor::send_closure(overlays_, &overlay::Overlays::send_message, src, adnl_id_, overlay_id_,
                             create_serialize_tl_object<ton_api::tonNode_forgetPeer>());
     promise.set_error(td::Status::Error("shard is inactive"));
@@ -811,7 +806,7 @@ void FullNodeShardImpl::process_block_broadcast(PublicKeyHash src, ton_api::tonN
 }
 
 void FullNodeShardImpl::receive_broadcast(PublicKeyHash src, td::BufferSlice broadcast) {
-  if (!is_active()) {
+  if (!active_) {
     return;
   }
   auto B = fetch_tl_object<ton_api::tonNode_Broadcast>(std::move(broadcast), true);
@@ -983,7 +978,7 @@ void FullNodeShardImpl::get_next_key_blocks(BlockIdExt block_id, td::Timestamp t
 
 void FullNodeShardImpl::download_archive(BlockSeqno masterchain_seqno, ShardIdFull shard_prefix, std::string tmp_dir,
                                          td::Timestamp timeout, td::Promise<std::string> promise) {
-  auto &b = choose_neighbour(true);
+  auto &b = choose_neighbour();
   td::actor::create_actor<DownloadArchiveSlice>(
       "archive", masterchain_seqno, shard_prefix, std::move(tmp_dir), adnl_id_, overlay_id_, b.adnl_id, timeout,
       validator_manager_, rldp2_, overlays_, adnl_, client_, create_neighbour_promise(b, std::move(promise)))
@@ -994,7 +989,7 @@ void FullNodeShardImpl::download_out_msg_queue_proof(ShardIdFull dst_shard, std:
                                                      block::ImportedMsgQueueLimits limits, td::Timestamp timeout,
                                                      td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise) {
   // TODO: maybe more complex download (like other requests here)
-  auto &b = choose_neighbour(true);
+  auto &b = choose_neighbour();
   if (b.adnl_id == adnl::AdnlNodeIdShort::zero()) {
     promise.set_error(td::Status::Error(ErrorCode::notready, "no nodes"));
     return;
@@ -1213,22 +1208,11 @@ void FullNodeShardImpl::got_neighbours(std::vector<adnl::AdnlNodeIdShort> vec) {
       continue;
     }
     if (neighbours_.size() == max_neighbours()) {
-      td::uint32 neighbours_with_state = 0;
-      for (const auto &n : neighbours_) {
-        if (n.second.has_state_known() && n.second.has_state()) {
-          ++neighbours_with_state;
-        }
-      }
-
       adnl::AdnlNodeIdShort a = adnl::AdnlNodeIdShort::zero();
       adnl::AdnlNodeIdShort b = adnl::AdnlNodeIdShort::zero();
       td::uint32 cnt = 0;
       double u = 0;
       for (auto &n : neighbours_) {
-        if (neighbours_with_state <= min_neighbours_with_state() && n.second.has_state_known() &&
-            n.second.has_state()) {
-          continue;
-        }
         if (n.second.unreliability > u) {
           u = n.second.unreliability;
           a = n.first;
@@ -1252,7 +1236,7 @@ void FullNodeShardImpl::got_neighbours(std::vector<adnl::AdnlNodeIdShort> vec) {
   }
 }
 
-const Neighbour &FullNodeShardImpl::choose_neighbour(bool require_state) const {
+const Neighbour &FullNodeShardImpl::choose_neighbour() const {
   if (neighbours_.size() == 0) {
     return Neighbour::zero;
   }
@@ -1261,40 +1245,30 @@ const Neighbour &FullNodeShardImpl::choose_neighbour(bool require_state) const {
   for (auto &x : neighbours_) {
     min_unreliability = std::min(min_unreliability, x.second.unreliability);
   }
-  for (int attempt = 0; attempt < (require_state ? 2 : 1); ++attempt) {
-    const Neighbour *best = nullptr;
-    td::uint32 sum = 0;
+  const Neighbour *best = nullptr;
+  td::uint32 sum = 0;
 
-    for (auto &x : neighbours_) {
-      if (require_state) {
-        if (attempt == 0 && !(x.second.has_state_known() && x.second.has_state())) {
-          continue;
-        }
-        if (attempt == 1 && x.second.has_state_known()) {
-          continue;
-        }
-      }
-      auto unr = static_cast<td::uint32>(x.second.unreliability - min_unreliability);
+  for (auto &x : neighbours_) {
+    auto unr = static_cast<td::uint32>(x.second.unreliability - min_unreliability);
 
-      if (x.second.version_major < proto_version_major()) {
-        unr += 4;
-      } else if (x.second.version_major == proto_version_major() && x.second.version_minor < proto_version_minor()) {
-        unr += 2;
-      }
+    if (x.second.version_major < proto_version_major()) {
+      unr += 4;
+    } else if (x.second.version_major == proto_version_major() && x.second.version_minor < proto_version_minor()) {
+      unr += 2;
+    }
 
-      auto f = static_cast<td::uint32>(fail_unreliability());
+    auto f = static_cast<td::uint32>(fail_unreliability());
 
-      if (unr <= f) {
-        auto w = 1 << (f - unr);
-        sum += w;
-        if (td::Random::fast(0, sum - 1) <= w - 1) {
-          best = &x.second;
-        }
+    if (unr <= f) {
+      auto w = 1 << (f - unr);
+      sum += w;
+      if (td::Random::fast(0, sum - 1) <= w - 1) {
+        best = &x.second;
       }
     }
-    if (best) {
-      return *best;
-    }
+  }
+  if (best) {
+    return *best;
   }
   return Neighbour::zero;
 }
@@ -1361,17 +1335,7 @@ void FullNodeShardImpl::ping_neighbours() {
 void FullNodeShardImpl::get_stats_extra(td::Promise<std::string> promise) {
   auto res = create_tl_object<ton_api::engine_validator_shardOverlayStats>();
   res->shard_ = shard_.to_str();
-  switch (mode_) {
-    case active:
-      res->mode_ = "active";
-      break;
-    case active_temp:
-      res->mode_ = "active_temp";
-      break;
-    case inactive:
-      res->mode_ = "inactive";
-      break;
-  }
+  res->active_ = active_;
   for (const auto &p : neighbours_) {
     const auto &n = p.second;
     auto f = create_tl_object<ton_api::engine_validator_shardOverlayStats_neighbour>();
@@ -1381,7 +1345,6 @@ void FullNodeShardImpl::get_stats_extra(td::Promise<std::string> promise) {
     f->flags_ = n.flags;
     f->roundtrip_ = n.roundtrip;
     f->unreliability_ = n.unreliability;
-    f->has_state_ = (n.has_state_known() ? (n.has_state() ? "true" : "false") : "undefined");
     res->neighbours_.push_back(std::move(f));
   }
   promise.set_result(td::json_encode<std::string>(td::ToJson(*res), true));
@@ -1394,7 +1357,7 @@ FullNodeShardImpl::FullNodeShardImpl(ShardIdFull shard, PublicKeyHash local_id, 
                                      td::actor::ActorId<overlay::Overlays> overlays,
                                      td::actor::ActorId<ValidatorManagerInterface> validator_manager,
                                      td::actor::ActorId<adnl::AdnlExtClient> client,
-                                     td::actor::ActorId<FullNode> full_node, FullNodeShardMode mode)
+                                     td::actor::ActorId<FullNode> full_node, bool active)
     : shard_(shard)
     , local_id_(local_id)
     , adnl_id_(adnl_id)
@@ -1407,7 +1370,7 @@ FullNodeShardImpl::FullNodeShardImpl(ShardIdFull shard, PublicKeyHash local_id, 
     , validator_manager_(validator_manager)
     , client_(client)
     , full_node_(full_node)
-    , mode_(mode)
+    , active_(active)
     , config_(config) {
 }
 
@@ -1416,10 +1379,10 @@ td::actor::ActorOwn<FullNodeShard> FullNodeShard::create(
     FullNodeConfig config, td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
     td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
     td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-    td::actor::ActorId<adnl::AdnlExtClient> client, td::actor::ActorId<FullNode> full_node, FullNodeShardMode mode) {
+    td::actor::ActorId<adnl::AdnlExtClient> client, td::actor::ActorId<FullNode> full_node, bool active) {
   return td::actor::create_actor<FullNodeShardImpl>(PSTRING() << "tonnode" << shard.to_str(), shard, local_id, adnl_id,
                                                     zero_state_file_hash, config, keyring, adnl, rldp, rldp2, overlays,
-                                                    validator_manager, client, full_node, mode);
+                                                    validator_manager, client, full_node, active);
 }
 
 }  // namespace fullnode

@@ -437,8 +437,6 @@ class ValidatorManagerImpl : public ValidatorManager {
       td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroups>> promise) override {
     promise.set_result(td::Status::Error("not implemented"));
   }
-  void validated_new_block(BlockIdExt block_id) override {
-  }
   void add_persistent_state_description(td::Ref<PersistentStateDescription> desc) override {
   }
 

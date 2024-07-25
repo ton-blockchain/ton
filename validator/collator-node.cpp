@@ -256,8 +256,8 @@ static td::BufferSlice serialize_error(td::Status error) {
   return create_serialize_tl_object<ton_api::collatorNode_generateBlockError>(error.code(), error.message().c_str());
 }
 
-static BlockCandidate change_creator(BlockCandidate block, Ed25519_PublicKey creator, CatchainSeqno* cc_seqno = nullptr,
-                                     td::uint32* val_set_hash = nullptr) {
+static BlockCandidate change_creator(BlockCandidate block, Ed25519_PublicKey creator, CatchainSeqno& cc_seqno,
+                                     td::uint32& val_set_hash) {
   CHECK(!block.id.is_masterchain());
   if (block.pubkey == creator) {
     return block;
@@ -278,12 +278,8 @@ static BlockCandidate change_creator(BlockCandidate block, Ed25519_PublicKey cre
   block.id.file_hash = block::compute_file_hash(block.data.as_slice());
   block.pubkey = creator;
 
-  if (cc_seqno) {
-    *cc_seqno = info.gen_catchain_seqno;
-  }
-  if (val_set_hash) {
-    *val_set_hash = info.gen_validator_list_hash_short;
-  }
+  cc_seqno = info.gen_catchain_seqno;
+  val_set_hash = info.gen_validator_list_hash_short;
   return block;
 }
 
@@ -305,8 +301,9 @@ void CollatorNode::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data
   };
   if (!validator_adnl_ids_.count(src)) {
     new_promise.set_error(td::Status::Error("src is not a validator"));
+    return;
   }
-  TRY_RESULT_PROMISE(new_promise, f, fetch_tl_object<ton_api::collatorNode_generateBlock>(std::move(data), true));
+  TRY_RESULT_PROMISE(new_promise, f, fetch_tl_object<ton_api::collatorNode_generateBlock>(data, true));
   ShardIdFull shard = create_shard_id(f->shard_);
   CatchainSeqno cc_seqno = f->cc_seqno_;
   std::vector<BlockIdExt> prev_blocks;
@@ -319,7 +316,7 @@ void CollatorNode::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data
     TRY_RESULT_PROMISE(new_promise, block, std::move(R));
     CatchainSeqno cc_seqno;
     td::uint32 val_set_hash;
-    block = change_creator(std::move(block), creator, &cc_seqno, &val_set_hash);
+    block = change_creator(std::move(block), creator, cc_seqno, val_set_hash);
     td::Promise<td::Unit> P =
         new_promise.wrap([block = block.clone()](td::Unit&&) mutable -> BlockCandidate { return std::move(block); });
     td::actor::send_closure(manager, &ValidatorManager::set_block_candidate, block.id, std::move(block), cc_seqno,

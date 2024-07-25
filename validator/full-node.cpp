@@ -198,81 +198,56 @@ void FullNodeImpl::initial_read_complete(BlockHandle top_handle) {
   td::actor::send_closure(it->second.actor, &FullNodeShard::set_handle, top_handle, std::move(P));
 }
 
-void FullNodeImpl::on_new_masterchain_block(td::Ref<MasterchainState> state, std::set<ShardIdFull> shards_to_monitor,
-                                            std::set<ShardIdFull> temporary_shards) {
+void FullNodeImpl::on_new_masterchain_block(td::Ref<MasterchainState> state, std::set<ShardIdFull> shards_to_monitor) {
   CHECK(shards_to_monitor.count(ShardIdFull(masterchainId)));
-  std::set<ShardIdFull> new_shards;
-  std::map<ShardIdFull, FullNodeShardMode> new_active;
-  new_shards.insert(ShardIdFull(masterchainId));
+  bool join_all_overlays = !sign_cert_by_.is_zero();
+  std::set<ShardIdFull> all_shards;
+  std::set<ShardIdFull> new_active;
+  all_shards.insert(ShardIdFull(masterchainId));
   std::set<WorkchainId> workchains;
   auto cut_shard = [&](ShardIdFull shard) -> ShardIdFull {
     int min_split = state->monitor_min_split_depth(shard.workchain);
     return min_split < shard.pfx_len() ? shard_prefix(shard, min_split) : shard;
   };
-  auto set_active = [&](ShardIdFull shard, FullNodeShardMode mode) {
-    while (new_active.emplace(shard, mode).second && shard.pfx_len() > 0) {
+  auto set_active = [&](ShardIdFull shard) {
+    while (new_active.emplace(shard).second && shard.pfx_len() > 0) {
       shard = shard_parent(shard);
     }
   };
   for (auto &info : state->get_shards()) {
     workchains.insert(info->shard().workchain);
-    new_shards.insert(cut_shard(info->shard()));
+    all_shards.insert(cut_shard(info->shard()));
   }
   for (const auto &wpair : state->get_workchain_list()) {
     ton::WorkchainId wc = wpair.first;
     const block::WorkchainInfo *winfo = wpair.second.get();
     if (workchains.count(wc) == 0 && winfo->active && winfo->enabled_since <= state->get_unix_time()) {
-      new_shards.insert(ShardIdFull(wc));
+      all_shards.insert(ShardIdFull(wc));
     }
   }
   for (ShardIdFull shard : shards_to_monitor) {
-    set_active(cut_shard(shard), FullNodeShardMode::active);
-  }
-  for (ShardIdFull shard : temporary_shards) {
-    set_active(cut_shard(shard), FullNodeShardMode::active_temp);
+    set_active(cut_shard(shard));
   }
 
-  auto info_set_mode = [&](ShardIdFull shard, ShardInfo &info, FullNodeShardMode mode) {
-    if (info.mode == mode) {
-      return;
-    }
-    if (info.actor.empty()) {
-      add_shard_actor(shard, mode);
-      return;
-    }
-    info.mode = mode;
-    td::actor::send_closure(info.actor, &FullNodeShard::set_mode, mode);
-    info.delete_at =
-        mode != FullNodeShardMode::inactive ? td::Timestamp::never() : td::Timestamp::in(INACTIVE_SHARD_TTL);
-  };
-
-  for (auto shard : new_shards) {
-    auto &info = shards_[shard];
-    info.exists = true;
-  }
-
-  for (auto &p : shards_) {
-    ShardIdFull shard = p.first;
-    ShardInfo &info = p.second;
-    info.exists = new_shards.count(shard);
-    auto it = new_active.find(shard);
-    info_set_mode(shard, info, it == new_active.end() ? FullNodeShardMode::inactive : it->second);
-  }
-
-  for (const auto &s : new_active) {
-    info_set_mode(s.first, shards_[s.first], s.second);
-  }
-
-  auto it = shards_.begin();
-  while (it != shards_.end()) {
-    if (it->second.mode == FullNodeShardMode::inactive && it->second.delete_at && it->second.delete_at.is_in_past()) {
-      it->second.actor.reset();
-      it->second.delete_at = td::Timestamp::never();
-    }
-    if (!it->second.exists && it->second.actor.empty()) {
-      it = shards_.erase(it);
-    } else {
+  for (auto it = shards_.begin(); it != shards_.end(); ) {
+    if (all_shards.count(it->first)) {
       ++it;
+    } else {
+      it = shards_.erase(it);
+    }
+  }
+  for (ShardIdFull shard : all_shards) {
+    bool active = new_active.count(shard);
+    bool overlay_exists = !shards_[shard].actor.empty();
+    if (active || join_all_overlays || overlay_exists) {
+      update_shard_actor(shard, active);
+    }
+  }
+
+  for (auto &[_, shard_info] : shards_) {
+    if (!shard_info.active && shard_info.delete_at && shard_info.delete_at.is_in_past() && !join_all_overlays) {
+      shard_info.actor = {};
+      shard_info.delete_at = td::Timestamp::never();
     }
   }
 
@@ -298,18 +273,19 @@ void FullNodeImpl::on_new_masterchain_block(td::Ref<MasterchainState> state, std
   }
 }
 
-void FullNodeImpl::add_shard_actor(ShardIdFull shard, FullNodeShardMode mode) {
+void FullNodeImpl::update_shard_actor(ShardIdFull shard, bool active) {
   ShardInfo &info = shards_[shard];
-  if (!info.actor.empty()) {
-    return;
+  if (info.actor.empty()) {
+    info.actor = FullNodeShard::create(shard, local_id_, adnl_id_, zero_state_file_hash_, config_, keyring_, adnl_, rldp_,
+                                       rldp2_, overlays_, validator_manager_, client_, actor_id(this), active);
+    if (!all_validators_.empty()) {
+      td::actor::send_closure(info.actor, &FullNodeShard::update_validators, all_validators_, sign_cert_by_);
+    }
+  } else if (info.active != active) {
+    td::actor::send_closure(info.actor, &FullNodeShard::set_active, active);
   }
-  info.actor = FullNodeShard::create(shard, local_id_, adnl_id_, zero_state_file_hash_, config_, keyring_, adnl_, rldp_,
-                                     rldp2_, overlays_, validator_manager_, client_, actor_id(this), mode);
-  info.mode = mode;
-  info.delete_at = mode != FullNodeShardMode::inactive ? td::Timestamp::never() : td::Timestamp::in(INACTIVE_SHARD_TTL);
-  if (all_validators_.size() > 0) {
-    td::actor::send_closure(info.actor, &FullNodeShard::update_validators, all_validators_, sign_cert_by_);
-  }
+  info.active = active;
+  info.delete_at = active ? td::Timestamp::never() : td::Timestamp::in(INACTIVE_SHARD_TTL);
 }
 
 void FullNodeImpl::sync_completed() {
@@ -506,15 +482,11 @@ void FullNodeImpl::download_out_msg_queue_proof(ShardIdFull dst_shard, std::vect
 }
 
 td::actor::ActorId<FullNodeShard> FullNodeImpl::get_shard(ShardIdFull shard) {
-  ShardIdFull shard0 = shard;
   while (true) {
     auto it = shards_.find(shard);
-    if (it != shards_.end() && it->second.exists) {
+    if (it != shards_.end()) {
       if (it->second.actor.empty()) {
-        add_shard_actor(shard, FullNodeShardMode::inactive);
-      }
-      if (it->second.mode == FullNodeShardMode::inactive) {
-        it->second.delete_at = td::Timestamp::in(INACTIVE_SHARD_TTL);
+        update_shard_actor(shard, false);
       }
       return it->second.actor.get();
     }
@@ -523,19 +495,8 @@ td::actor::ActorId<FullNodeShard> FullNodeImpl::get_shard(ShardIdFull shard) {
     }
     shard = shard_parent(shard);
   }
-  shard = shard0;
-  auto it = shards_.find(shard);
-  if (it == shards_.end()) {
-    it = shards_.emplace(shard = ShardIdFull(shard.workchain), ShardInfo{}).first;
-  }
-  auto &info = it->second;
-  if (info.actor.empty()) {
-    add_shard_actor(shard, FullNodeShardMode::inactive);
-  }
-  if (info.mode == FullNodeShardMode::inactive) {
-    info.delete_at = td::Timestamp::in(INACTIVE_SHARD_TTL);
-  }
-  return info.actor.get();
+  update_shard_actor(shard, false);
+  return shards_[shard].actor.get();
 }
 
 td::actor::ActorId<FullNodeShard> FullNodeImpl::get_shard(AccountIdPrefixFull dst) {
@@ -635,7 +596,7 @@ void FullNodeImpl::process_block_candidate_broadcast(BlockIdExt block_id, Catcha
 }
 
 void FullNodeImpl::start_up() {
-  add_shard_actor(ShardIdFull{masterchainId}, FullNodeShardMode::active);
+  update_shard_actor(ShardIdFull{masterchainId}, true);
   if (local_id_.is_zero()) {
     if (adnl_id_.is_zero()) {
       auto pk = ton::PrivateKey{ton::privkeys::Ed25519::random()};
@@ -651,10 +612,9 @@ void FullNodeImpl::start_up() {
     void initial_read_complete(BlockHandle handle) override {
       td::actor::send_closure(id_, &FullNodeImpl::initial_read_complete, handle);
     }
-    void on_new_masterchain_block(td::Ref<MasterchainState> state, std::set<ShardIdFull> shards_to_monitor,
-                                  std::set<ShardIdFull> temporary_shards) override {
+    void on_new_masterchain_block(td::Ref<MasterchainState> state, std::set<ShardIdFull> shards_to_monitor) override {
       td::actor::send_closure(id_, &FullNodeImpl::on_new_masterchain_block, std::move(state),
-                              std::move(shards_to_monitor), std::move(temporary_shards));
+                              std::move(shards_to_monitor));
     }
     void send_ihr_message(AccountIdPrefixFull dst, td::BufferSlice data) override {
       td::actor::send_closure(id_, &FullNodeImpl::send_ihr_message, dst, std::move(data));
@@ -716,7 +676,7 @@ void FullNodeImpl::start_up() {
       td::actor::send_closure(id_, &FullNodeImpl::new_key_block, std::move(handle));
     }
 
-    Callback(td::actor::ActorId<FullNodeImpl> id) : id_(id) {
+    explicit Callback(td::actor::ActorId<FullNodeImpl> id) : id_(id) {
     }
 
    private:
