@@ -254,4 +254,8 @@ const char *run_get_method(const char *params, const char* stack, const char* co
     return output;
 }
 
+const char *version() {
+  return emulator_version();
+}
+
 }
