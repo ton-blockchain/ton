@@ -1361,10 +1361,10 @@ class TonlibCli : public td::actor::Actor {
     }
     if (l >= 3 && (str[0] == 'x' || str[0] == 'b') && str[1] == '{' && str.back() == '}') {
       unsigned char buff[128];
-      int bits =
-          (str[0] == 'x')
-              ? (int)td::bitstring::parse_bitstring_hex_literal(buff, sizeof(buff), str.begin() + 2, str.end() - 1)
-              : (int)td::bitstring::parse_bitstring_binary_literal(buff, sizeof(buff), str.begin() + 2, str.end() - 1);
+      int bits = (str[0] == 'x') ? (int)td::bitstring::parse_bitstring_hex_literal(buff, sizeof(buff), str.begin() + 2,
+                                                                                   str.end() - 1)
+                                 : (int)td::bitstring::parse_bitstring_binary_literal(buff, sizeof(buff) * 8,
+                                                                                      str.begin() + 2, str.end() - 1);
       if (bits < 0) {
         return td::Status::Error("Failed to parse slice");
       }

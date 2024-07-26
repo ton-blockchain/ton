@@ -2077,23 +2077,23 @@ void interpret_bitstring_hex_literal(IntCtx& ctx) {
   auto s = ctx.parser->scan_word_to('}');
   unsigned char buff[128];
   int bits = (int)td::bitstring::parse_bitstring_hex_literal(buff, sizeof(buff), s.begin(), s.end());
-  if (bits < 0) {
+  vm::CellBuilder cb;
+  if (bits < 0 || !cb.store_bits_bool(td::ConstBitPtr{buff}, bits)) {
     throw IntError{"Invalid hex bitstring constant"};
   }
-  auto cs = Ref<vm::CellSlice>{true, vm::CellBuilder().store_bits(td::ConstBitPtr{buff}, bits).finalize()};
-  ctx.stack.push(std::move(cs));
+  ctx.stack.push(cb.as_cellslice_ref());
   push_argcount(ctx, 1);
 }
 
 void interpret_bitstring_binary_literal(IntCtx& ctx) {
   auto s = ctx.parser->scan_word_to('}');
   unsigned char buff[128];
-  int bits = (int)td::bitstring::parse_bitstring_binary_literal(buff, sizeof(buff), s.begin(), s.end());
-  if (bits < 0) {
+  int bits = (int)td::bitstring::parse_bitstring_binary_literal(buff, sizeof(buff) * 8, s.begin(), s.end());
+  vm::CellBuilder cb;
+  if (bits < 0 || !cb.store_bits_bool(td::ConstBitPtr{buff}, bits)) {
     throw IntError{"Invalid binary bitstring constant"};
   }
-  auto cs = Ref<vm::CellSlice>{true, vm::CellBuilder().store_bits(td::ConstBitPtr{buff}, bits).finalize()};
-  ctx.stack.push(std::move(cs));
+  ctx.stack.push(cb.as_cellslice_ref());
   push_argcount(ctx, 1);
 }
 

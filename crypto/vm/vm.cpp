@@ -529,6 +529,13 @@ int VmState::run() {
       res = vmoog.get_errno();  // no ~ for unhandled exceptions (to make their faking impossible)
     }
     if (!parent) {
+      if ((log.log_mask & VmLog::DumpC5) && cstate.committed) {
+        std::stringstream ss;
+        ss << "final c5: ";
+        StackEntry::maybe<Cell>(cstate.c5).dump(ss, true);
+        ss << "\n";
+        VM_LOG(this) << ss.str();
+      }
       return res;
     }
     restore_parent = true;

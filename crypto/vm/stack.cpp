@@ -83,6 +83,14 @@ std::string StackEntry::to_lisp_string() const {
   return std::move(os).str();
 }
 
+static std::string cell_to_hex(const td::Ref<vm::Cell> &cell) {
+  auto boc = vm::std_boc_serialize(cell);
+  if (boc.is_ok()) {
+    return td::buffer_to_hex(boc.move_as_ok().as_slice());
+  }
+  return "???";
+}
+
 void StackEntry::dump(std::ostream& os, bool verbose) const {
   switch (tp) {
     case t_null:
@@ -94,12 +102,7 @@ void StackEntry::dump(std::ostream& os, bool verbose) const {
     case t_cell:
       if (ref.not_null()) {
         if (verbose) {
-          std::string serialized = "???";
-          auto boc = vm::std_boc_serialize(as_cell());
-          if (boc.is_ok()) {
-            serialized = td::buffer_to_hex(boc.move_as_ok().as_slice());
-          }
-          os << "C{" << serialized << "}";
+          os << "C{" << cell_to_hex(as_cell()) << "}";
         } else {
           os << "C{" << *as_cell() << "}";
         }
@@ -109,7 +112,12 @@ void StackEntry::dump(std::ostream& os, bool verbose) const {
       break;
     case t_builder:
       if (ref.not_null()) {
-        os << "BC{" << *as_builder() << "}";
+        if (verbose) {
+          Ref<CellBuilder> cb = as_builder();
+          os << "BC{" << cell_to_hex(cb.write().finalize_novm()) << "}";
+        } else {
+          os << "BC{" << *as_builder() << "}";
+        }
       } else {
         os << "BC{null}";
       }
@@ -117,7 +125,13 @@ void StackEntry::dump(std::ostream& os, bool verbose) const {
     case t_slice: {
       if (ref.not_null()) {
         os << "CS{";
-        static_cast<Ref<CellSlice>>(ref)->dump(os, 1, false);
+        if (verbose) {
+          CellBuilder cb;
+          cb.append_cellslice(as_slice());
+          os << cell_to_hex(cb.finalize_novm());
+        } else {
+          static_cast<Ref<CellSlice>>(ref)->dump(os, 1, false);
+        }
         os << '}';
       } else {
         os << "CS{null}";

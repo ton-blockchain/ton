@@ -1661,7 +1661,12 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
   std::unique_ptr<StringLoggerTail> logger;
   auto vm_log = vm::VmLog();
   if (cfg.with_vm_log) {
-    size_t log_max_size = cfg.vm_log_verbosity > 0 ? 1024 * 1024 : 256;
+    size_t log_max_size = 256;
+    if (cfg.vm_log_verbosity > 4) {
+      log_max_size = 32 << 20;
+    } else if (cfg.vm_log_verbosity > 0) {
+      log_max_size = 1 << 20;
+    }
     logger = std::make_unique<StringLoggerTail>(log_max_size);
     vm_log.log_interface = logger.get();
     vm_log.log_options = td::LogOptions(VERBOSITY_NAME(DEBUG), true, false);
@@ -1673,6 +1678,7 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
           vm_log.log_mask |= vm::VmLog::DumpStack;
           if (cfg.vm_log_verbosity > 4) {
             vm_log.log_mask |= vm::VmLog::DumpStackVerbose;
+            vm_log.log_mask |= vm::VmLog::DumpC5;
           }
         }
       }
