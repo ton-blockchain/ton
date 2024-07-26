@@ -33,6 +33,7 @@
 #include "td/utils/Status.h"
 #include <sstream>
 #include <iomanip>
+#include "vm/boc.h"
 
 td::Result<std::string> compile_internal(char *config_json) {
   TRY_RESULT(input_json, td::json_decode(td::MutableSlice(config_json)))

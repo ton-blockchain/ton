@@ -219,7 +219,7 @@ pipeline {
                     steps {
                         timeout(time: 180, unit: 'MINUTES') {
                             sh '''
-                                cd assembly/wasm
+                                cp assembly/wasm/fift-func-wasm-build-ubuntu.sh .
                                 chmod +x fift-func-wasm-build-ubuntu.sh
                                 ./fift-func-wasm-build-ubuntu.sh -a
                             '''
