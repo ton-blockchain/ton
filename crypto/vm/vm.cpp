@@ -441,10 +441,16 @@ int VmState::step() {
     if (log.log_mask & vm::VmLog::DumpStackVerbose) {
       mode += 4;
     }
+    std::unique_ptr<VmStateInterface> tmp_ctx;
+    // install temporary dummy vm state interface to prevent charging for cell load operations during dump
+    VmStateInterface::Guard guard(tmp_ctx.get());
     stack->dump(ss, mode);
     VM_LOG(this) << "stack:" << ss.str();
   }
   if (stack_trace) {
+    std::unique_ptr<VmStateInterface> tmp_ctx;
+    // install temporary dummy vm state interface to prevent charging for cell load operations during dump
+    VmStateInterface::Guard guard(tmp_ctx.get());
     stack->dump(std::cerr, 3);
   }
   ++steps;
@@ -523,6 +529,13 @@ int VmState::run() {
       res = vmoog.get_errno();  // no ~ for unhandled exceptions (to make their faking impossible)
     }
     if (!parent) {
+      if ((log.log_mask & VmLog::DumpC5) && cstate.committed) {
+        std::stringstream ss;
+        ss << "final c5: ";
+        StackEntry::maybe<Cell>(cstate.c5).dump(ss, true);
+        ss << "\n";
+        VM_LOG(this) << ss.str();
+      }
       return res;
     }
     restore_parent = true;

@@ -18,6 +18,7 @@
 */
 #pragma once
 #include "td/utils/Status.h"
+#include "td/utils/Time.h"
 #include "td/utils/logging.h"
 #include <functional>
 namespace td {

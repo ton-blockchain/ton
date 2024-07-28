@@ -84,11 +84,13 @@ void CellDbIn::start_up() {
   };
 
   CellDbBase::start_up();
+  td::RocksDbOptions db_options;
   if (!opts_->get_disable_rocksdb_stats()) {
     statistics_ = td::RocksDb::create_statistics();
     statistics_flush_at_ = td::Timestamp::in(60.0);
+    snapshot_statistics_ = std::make_shared<td::RocksDbSnapshotStatistics>();
+    db_options.snapshot_statistics = snapshot_statistics_;
   }
-  td::RocksDbOptions db_options;
   db_options.statistics = statistics_;
   if (opts_->get_celldb_cache_size()) {
     db_options.block_cache = td::RocksDb::create_cache(opts_->get_celldb_cache_size().value());
@@ -193,7 +195,11 @@ void CellDbIn::get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>>
 }
 
 void CellDbIn::flush_db_stats() {
-  auto stats = td::RocksDb::statistics_to_string(statistics_) + cell_db_statistics_.to_string();
+  if (opts_->get_disable_rocksdb_stats()) {
+    return;
+  }
+  auto stats = td::RocksDb::statistics_to_string(statistics_) + snapshot_statistics_->to_string() +
+               cell_db_statistics_.to_string();
   auto to_file_r =
       td::FileFd::open(path_ + "/db_stats.txt", td::FileFd::Truncate | td::FileFd::Create | td::FileFd::Write, 0644);
   if (to_file_r.is_error()) {
