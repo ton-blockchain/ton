@@ -26,6 +26,12 @@
 #include "td/utils/Status.h"
 #include "td/utils/optional.h"
 
+#include "td/utils/Time.h"
+
+#include <map>
+#include <mutex>
+#include <set>
+
 namespace rocksdb {
 class Cache;
 class OptimisticTransactionDB;
@@ -36,10 +42,22 @@ class Statistics;
 }  // namespace rocksdb
 
 namespace td {
+struct RocksDbSnapshotStatistics {
+  void begin_snapshot(const rocksdb::Snapshot *snapshot);
+  void end_snapshot(const rocksdb::Snapshot *snapshot);
+  td::Timestamp oldest_snapshot_timestamp() const;
+  std::string to_string() const;
+
+ private:
+  mutable std::mutex mutex_;
+  std::map<std::uintptr_t, double> id_to_ts_;
+  std::set<std::pair<double, std::uintptr_t>> by_ts_;
+};
 
 struct RocksDbOptions {
   std::shared_ptr<rocksdb::Statistics> statistics = nullptr;
   std::shared_ptr<rocksdb::Cache> block_cache;  // Default - one 1G cache for all RocksDb
+  std::shared_ptr<RocksDbSnapshotStatistics> snapshot_statistics = nullptr;
   bool use_direct_reads = false;
 };
 

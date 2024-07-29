@@ -43,8 +43,6 @@
 #include "vm/box.hpp"
 #include "vm/atom.h"
 
-#include "vm/db/TonDb.h"  // only for interpret_db_run_vm{,_parallel}
-
 #include "block/block.h"
 #include "common/global-version.h"
 
@@ -2077,23 +2075,23 @@ void interpret_bitstring_hex_literal(IntCtx& ctx) {
   auto s = ctx.parser->scan_word_to('}');
   unsigned char buff[128];
   int bits = (int)td::bitstring::parse_bitstring_hex_literal(buff, sizeof(buff), s.begin(), s.end());
-  if (bits < 0) {
+  vm::CellBuilder cb;
+  if (bits < 0 || !cb.store_bits_bool(td::ConstBitPtr{buff}, bits)) {
     throw IntError{"Invalid hex bitstring constant"};
   }
-  auto cs = Ref<vm::CellSlice>{true, vm::CellBuilder().store_bits(td::ConstBitPtr{buff}, bits).finalize()};
-  ctx.stack.push(std::move(cs));
+  ctx.stack.push(cb.as_cellslice_ref());
   push_argcount(ctx, 1);
 }
 
 void interpret_bitstring_binary_literal(IntCtx& ctx) {
   auto s = ctx.parser->scan_word_to('}');
   unsigned char buff[128];
-  int bits = (int)td::bitstring::parse_bitstring_binary_literal(buff, sizeof(buff), s.begin(), s.end());
-  if (bits < 0) {
+  int bits = (int)td::bitstring::parse_bitstring_binary_literal(buff, sizeof(buff) * 8, s.begin(), s.end());
+  vm::CellBuilder cb;
+  if (bits < 0 || !cb.store_bits_bool(td::ConstBitPtr{buff}, bits)) {
     throw IntError{"Invalid binary bitstring constant"};
   }
-  auto cs = Ref<vm::CellSlice>{true, vm::CellBuilder().store_bits(td::ConstBitPtr{buff}, bits).finalize()};
-  ctx.stack.push(std::move(cs));
+  ctx.stack.push(cb.as_cellslice_ref());
   push_argcount(ctx, 1);
 }
 
@@ -2719,114 +2717,6 @@ void interpret_vmop_dump(vm::Stack& stack) {
   auto dump = dispatch->dump_instr(cs.write());
   stack.push_cellslice(std::move(cs));
   stack.push_string(std::move(dump));
-}
-
-void do_interpret_db_run_vm_parallel(std::ostream* stream, vm::Stack& stack, vm::TonDb* ton_db_ptr, int threads_n,
-                                     int tasks_n) {
-  if (!ton_db_ptr || !*ton_db_ptr) {
-    throw vm::VmError{vm::Excno::fatal, "Ton database is not available"};
-  }
-  auto& ton_db = *ton_db_ptr;
-  auto txn = ton_db->begin_transaction();
-  auto txn_abort = td::ScopeExit() + [&] { ton_db->abort_transaction(std::move(txn)); };
-
-  struct Task {
-    vm::Ref<vm::CellSlice> code;
-    vm::SmartContractDb smart;
-    td::optional<vm::SmartContractDiff> diff;
-    td::unique_ptr<td::Guard> guard;
-    Ref<vm::Stack> stack;
-    int res{0};
-    Ref<vm::Cell> data;
-    std::string log;
-  };
-  std::vector<Task> tasks(tasks_n);
-  std::vector<td::thread> threads(threads_n);
-
-  for (auto& task : tasks) {
-    task.code = stack.pop_cellslice();
-    auto smart_hash = td::serialize(stack.pop_smallint_range(1000000000));
-    task.smart = txn->begin_smartcontract(smart_hash);
-    task.guard = td::create_lambda_guard([&] { txn->abort_smartcontract(std::move(task.smart)); });
-    auto argsn = stack.pop_smallint_range(100);
-    task.stack = stack.split_top(argsn);
-  }
-
-  std::atomic<int> next_task_i{0};
-  auto run_tasks = [&] {
-    while (true) {
-      auto task_i = next_task_i++;
-      if (task_i >= tasks_n) {
-        break;
-      }
-      auto& task = tasks[task_i];
-      auto data = task.smart->get_root();
-
-      StringLogger logger;
-      vm::VmLog log = create_vm_log(stream ? &logger : nullptr);
-
-      task.res = vm::run_vm_code(task.code, task.stack, 3, &data, std::move(log));
-      task.smart->set_root(data);
-      task.diff = vm::SmartContractDiff(std::move(task.smart));
-      task.data = std::move(data);
-      task.log = std::move(logger.res);
-    }
-  };
-
-  td::Timer timer;
-  for (auto& thread : threads) {
-    thread = td::thread(run_tasks);
-  }
-  run_tasks();
-  for (auto& thread : threads) {
-    thread.join();
-  }
-
-  if (stream) {
-    int id = 0;
-    for (auto& task : tasks) {
-      id++;
-      *stream << "Task #" << id << " vm_log begin" << std::endl;
-      *stream << task.log;
-      *stream << "Task #" << id << " vm_log end" << std::endl;
-    }
-  }
-
-  LOG(ERROR) << timer;
-  timer = {};
-
-  for (auto& task : tasks) {
-    auto retn = task.stack.write().pop_smallint_range(100, -1);
-    if (retn == -1) {
-      retn = task.stack->depth();
-    }
-    stack.push_from_stack(std::move(*task.stack), retn);
-    stack.push_smallint(task.res);
-    stack.push_cell(std::move(task.data));
-    task.guard->dismiss();
-    if (task.diff) {
-      txn->commit_smartcontract(std::move(task.diff.value()));
-    } else {
-      txn->commit_smartcontract(std::move(task.smart));
-    }
-  }
-  LOG(ERROR) << timer;
-  timer = {};
-
-  txn_abort.dismiss();
-  ton_db->commit_transaction(std::move(txn));
-  timer = {};
-  LOG(INFO) << "TonDB stats: \n" << ton_db->stats();
-}
-
-void interpret_db_run_vm(IntCtx& ctx) {
-  do_interpret_db_run_vm_parallel(ctx.error_stream, ctx.stack, ctx.ton_db, 0, 1);
-}
-
-void interpret_db_run_vm_parallel(IntCtx& ctx) {
-  auto threads_n = ctx.stack.pop_smallint_range(32, 0);
-  auto tasks_n = ctx.stack.pop_smallint_range(1000000000);
-  do_interpret_db_run_vm_parallel(ctx.error_stream, ctx.stack, ctx.ton_db, threads_n, tasks_n);
 }
 
 void interpret_store_vm_cont(vm::Stack& stack) {
@@ -3518,8 +3408,6 @@ void init_words_vm(Dictionary& d, bool enable_debug) {
   // d.def_ctx_word("runvmcode ", std::bind(interpret_run_vm, _1, 0x40));
   // d.def_ctx_word("runvm ", std::bind(interpret_run_vm, _1, 0x45));
   d.def_ctx_word("runvmx ", std::bind(interpret_run_vm, _1, -1));
-  d.def_ctx_word("dbrunvm ", interpret_db_run_vm);
-  d.def_ctx_word("dbrunvm-parallel ", interpret_db_run_vm_parallel);
   d.def_stack_word("vmcont, ", interpret_store_vm_cont);
   d.def_stack_word("vmcont@ ", interpret_fetch_vm_cont);
   d.def_stack_word("(vmoplen) ", interpret_vmop_len);

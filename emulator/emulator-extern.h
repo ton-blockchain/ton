@@ -307,6 +307,10 @@ EMULATOR_EXPORT void tvm_emulator_destroy(void *tvm_emulator);
  */
 EMULATOR_EXPORT void emulator_config_destroy(void *config);
 
+/**
+ * @brief Get git commit hash and date of the library
+ */
+EMULATOR_EXPORT const char* emulator_version();
 
 #ifdef __cplusplus
 }  // extern "C"

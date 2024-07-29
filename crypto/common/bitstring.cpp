@@ -640,11 +640,11 @@ long parse_bitstring_hex_literal(unsigned char* buff, std::size_t buff_size, con
   return bits;
 }
 
-long parse_bitstring_binary_literal(BitPtr buff, std::size_t buff_size, const char* str, const char* str_end) {
+long parse_bitstring_binary_literal(BitPtr buff, std::size_t buff_size_bits, const char* str, const char* str_end) {
   const char* ptr = str;
-  while (ptr < str_end && buff_size && (*ptr == '0' || *ptr == '1')) {
+  while (ptr < str_end && buff_size_bits && (*ptr == '0' || *ptr == '1')) {
     *buff++ = (bool)(*ptr++ & 1);
-    --buff_size;
+    --buff_size_bits;
   }
   return td::narrow_cast<long>(ptr == str_end ? ptr - str : str - ptr - 1);
 }

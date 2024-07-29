@@ -358,7 +358,8 @@ target_link_libraries(test-ed25519-crypto PUBLIC ton_crypto)
 
 add_library(fift-lib STATIC ${FIFT_SOURCE})
 target_include_directories(fift-lib PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
-target_link_libraries(fift-lib PUBLIC ton_crypto ton_db tdutils ton_block)
+target_link_libraries(fift-lib PUBLIC ton_crypto tdutils ton_block)
+
 if (USE_EMSCRIPTEN)
   target_link_options(fift-lib PRIVATE -fexceptions)
   target_compile_options(fift-lib PRIVATE -fexceptions)

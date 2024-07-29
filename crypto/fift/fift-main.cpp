@@ -46,8 +46,6 @@
 #include "SourceLookup.h"
 #include "words.h"
 
-#include "vm/db/TonDb.h"
-
 #include "td/utils/logging.h"
 #include "td/utils/misc.h"
 #include "td/utils/Parser.h"
@@ -65,7 +63,6 @@ void usage(const char* progname) {
                "\t-I<source-search-path>\tSets colon-separated (unix) or at-separated (windows) library source include path. If not indicated, "
                "$FIFTPATH is used instead.\n"
                "\t-L<library-fif-file>\tPre-loads a library source file\n"
-               "\t-d<ton-db-path>\tUse a ton database\n"
                "\t-s\tScript mode: use first argument as a fift source file and import remaining arguments as $n)\n"
                "\t-v<verbosity-level>\tSet verbosity level\n"
                "\t-V<version>\tShow fift build information\n";
@@ -94,13 +91,12 @@ int main(int argc, char* const argv[]) {
   bool script_mode = false;
   std::vector<std::string> library_source_files, source_list;
   std::vector<std::string> source_include_path;
-  std::string ton_db_path;
 
   fift::Fift::Config config;
 
   int i;
   int new_verbosity_level = VERBOSITY_NAME(INFO);
-  while (!script_mode && (i = getopt(argc, argv, "hinI:L:d:sv:V")) != -1) {
+  while (!script_mode && (i = getopt(argc, argv, "hinI:L:sv:V")) != -1) {
     switch (i) {
       case 'i':
         interactive = true;
@@ -114,9 +110,6 @@ int main(int argc, char* const argv[]) {
         break;
       case 'L':
         library_source_files.emplace_back(optarg);
-        break;
-      case 'd':
-        ton_db_path = optarg;
         break;
       case 's':
         script_mode = true;
@@ -156,16 +149,6 @@ int main(int argc, char* const argv[]) {
   config.source_lookup = fift::SourceLookup(std::make_unique<fift::OsFileLoader>());
   for (auto& path : source_include_path) {
     config.source_lookup.add_include_path(path);
-  }
-
-  if (!ton_db_path.empty()) {
-    auto r_ton_db = vm::TonDbImpl::open(ton_db_path);
-    if (r_ton_db.is_error()) {
-      LOG(ERROR) << "Error opening ton database: " << r_ton_db.error().to_string();
-      std::exit(2);
-    }
-    config.ton_db = r_ton_db.move_as_ok();
-    // FIXME //std::atexit([&] { config.ton_db.reset(); });
   }
 
   fift::init_words_common(config.dictionary);

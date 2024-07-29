@@ -9,6 +9,7 @@
 #include "tvm-emulator.hpp"
 #include "crypto/vm/stack.hpp"
 #include "crypto/vm/memo.h"
+#include "git.h"
 
 td::Result<td::Ref<vm::Cell>> boc_b64_to_cell(const char *boc) {
   TRY_RESULT_PREFIX(boc_decoded, td::base64_decode(td::Slice(boc)), "Can't decode base64 boc: ");
@@ -716,4 +717,13 @@ void tvm_emulator_destroy(void *tvm_emulator) {
 
 void emulator_config_destroy(void *config) {
   delete static_cast<block::Config *>(config);
+}
+
+const char* emulator_version() {
+  auto version_json = td::JsonBuilder();
+  auto obj = version_json.enter_object();
+  obj("emulatorLibCommitHash", GitMetadata::CommitSHA1());
+  obj("emulatorLibCommitDate", GitMetadata::CommitDate());
+  obj.leave();
+  return strdup(version_json.string_builder().as_cslice().c_str());
 }

@@ -35,7 +35,7 @@ else()
   add_library(emulator STATIC ${EMULATOR_SOURCE} ${EMULATOR_HEADERS})
 endif()
 
-target_link_libraries(emulator PUBLIC emulator_static)
+target_link_libraries(emulator PUBLIC emulator_static git)
 generate_export_header(emulator EXPORT_FILE_NAME ${CMAKE_CURRENT_BINARY_DIR}/emulator_export.h)
 target_include_directories(emulator PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
@@ -48,7 +48,7 @@ if (USE_EMSCRIPTEN)
   add_executable(emulator-emscripten ${EMULATOR_EMSCRIPTEN_SOURCE})
   target_link_libraries(emulator-emscripten PUBLIC emulator)
   target_link_options(emulator-emscripten PRIVATE -sEXPORTED_RUNTIME_METHODS=_malloc,free,UTF8ToString,stringToUTF8,allocate,ALLOC_NORMAL,lengthBytesUTF8)
-  target_link_options(emulator-emscripten PRIVATE -sEXPORTED_FUNCTIONS=_emulate,_free,_run_get_method,_create_emulator,_destroy_emulator,_emulate_with_emulator)
+  target_link_options(emulator-emscripten PRIVATE -sEXPORTED_FUNCTIONS=_emulate,_free,_run_get_method,_create_emulator,_destroy_emulator,_emulate_with_emulator,_version)
   target_link_options(emulator-emscripten PRIVATE -sEXPORT_NAME=EmulatorModule)
   target_link_options(emulator-emscripten PRIVATE -sERROR_ON_UNDEFINED_SYMBOLS=0)
   target_link_options(emulator-emscripten PRIVATE -Oz)
