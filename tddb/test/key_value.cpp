@@ -60,7 +60,8 @@ TEST(KeyValue, simple) {
   ensure_value(as_slice(x), as_slice(x));
 
   kv.reset();
-  td::RocksDbOptions options{.snapshot_statistics = std::make_shared<td::RocksDbSnapshotStatistics>()};
+  td::RocksDbOptions options;
+  options.snapshot_statistics = std::make_shared<td::RocksDbSnapshotStatistics>();
   kv = std::make_unique<td::RocksDb>(td::RocksDb::open(db_name.str(), options).move_as_ok());
   ensure_value("A", "HELLO");
   ensure_value(as_slice(x), as_slice(x));
