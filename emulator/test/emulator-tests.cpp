@@ -9,7 +9,6 @@
 #include "td/utils/base64.h"
 #include "td/utils/crypto.h"
 #include "td/utils/JsonBuilder.h"
-#include "td/utils/Time.h"
 
 #include "smc-envelope/WalletV3.h"
 
@@ -225,7 +224,7 @@ TEST(Emulator, wallet_int_and_ext_msg) {
         msg_info.ihr_fee = cb.as_cellslice_ref();
       }
       msg_info.created_lt = 0;
-      msg_info.created_at = static_cast<uint32_t>(td::Time::now());
+      msg_info.created_at = static_cast<uint32_t>(utime);
       tlb::csr_pack(message.info, msg_info);
       message.init = vm::CellBuilder()
                             .store_ones(1)
@@ -242,6 +241,7 @@ TEST(Emulator, wallet_int_and_ext_msg) {
     auto int_msg_boc = td::base64_encode(std_boc_serialize(int_msg).move_as_ok());
 
     std::string int_emu_res = transaction_emulator_emulate_transaction(emulator, none_shard_account_boc.c_str(), int_msg_boc.c_str());
+    LOG(ERROR) << "int_emu_res = " << int_emu_res;
 
     auto int_result_json = td::json_decode(td::MutableSlice(int_emu_res));
     CHECK(int_result_json.is_ok());
@@ -293,11 +293,12 @@ TEST(Emulator, wallet_int_and_ext_msg) {
   
   // emulate external message
   {
-    auto ext_body = wallet->make_a_gift_message(priv_key, static_cast<uint32_t>(td::Time::now()) + 60, {ton::WalletV3::Gift{block::StdAddress(0, ton::StdSmcAddress()), 1 * Ton}});
+    auto ext_body = wallet->make_a_gift_message(priv_key, utime + 60, {ton::WalletV3::Gift{block::StdAddress(0, ton::StdSmcAddress()), 1 * Ton}});
     CHECK(ext_body.is_ok());
     auto ext_msg = ton::GenericAccount::create_ext_message(address, {}, ext_body.move_as_ok());
     auto ext_msg_boc = td::base64_encode(std_boc_serialize(ext_msg).move_as_ok());
     std::string ext_emu_res = transaction_emulator_emulate_transaction(emulator, shard_account_after_boc_b64.c_str(), ext_msg_boc.c_str());
+    LOG(ERROR) << "ext_emu_res = " << ext_emu_res;
 
     auto ext_result_json = td::json_decode(td::MutableSlice(ext_emu_res));
     CHECK(ext_result_json.is_ok());
@@ -371,9 +372,10 @@ TEST(Emulator, tvm_emulator) {
   CHECK(wallet->get_address().rserialize_to(addr_buffer));
 
   auto rand_seed = std::string(64, 'F');
-  CHECK(tvm_emulator_set_c7(tvm_emulator, addr_buffer, static_cast<uint32_t>(td::Time::now()), 10 * Ton, rand_seed.c_str(), config_boc));
+  CHECK(tvm_emulator_set_c7(tvm_emulator, addr_buffer, 1337, 10 * Ton, rand_seed.c_str(), config_boc));
   std::string tvm_res = tvm_emulator_run_get_method(tvm_emulator, method_id, stack_boc.c_str());
-  
+  LOG(ERROR) << "tvm_res = " << tvm_res;
+
   auto result_json = td::json_decode(td::MutableSlice(tvm_res));
   CHECK(result_json.is_ok());
   auto result = result_json.move_as_ok();
