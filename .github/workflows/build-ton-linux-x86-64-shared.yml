@@ -1,4 +1,13 @@
-name: Ubuntu TON build (shared, x86-64)
+            - isim: İlk etkileşim
+  kullanımlar: actions/first-interaction@v1.3.0
+  ile:
+    # Depo için belirteç. {{ secrets.GITHUB_TOKEN }} kullanılarak geçirilebilir
+    depo-token:
+    # Bir bireyin ilk sorununa yorum yazın
+    sorun-iletisi: # isteğe bağlı
+    # Bir bireyin ilk çekme isteğine yorum yazın
+    pr-message: # isteğe bağlı
+          name: Ubuntu TON build (shared, x86-64)
 
 on: [push,workflow_dispatch,workflow_call]
 
