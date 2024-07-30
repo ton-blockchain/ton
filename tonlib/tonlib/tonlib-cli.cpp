@@ -1423,8 +1423,7 @@ class TonlibCli : public td::actor::Actor {
                                if (r_cell.is_error()) {
                                  sb << "<INVALID_CELL>";
                                }
-                               bool spec = true;
-                               auto cs = vm::load_cell_slice_special(r_cell.move_as_ok(), spec);
+                               auto cs = vm::load_cell_slice(r_cell.move_as_ok());
                                std::stringstream ss;
                                cs.print_rec(ss);
                                sb << ss.str();

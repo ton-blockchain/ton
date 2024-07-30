@@ -25,8 +25,6 @@ set(VALIDATOR_DB_SOURCE
   db/statedb.cpp
   db/staticfilesdb.cpp
   db/staticfilesdb.hpp
-  db/db-utils.cpp
-  db/db-utils.h
 
   db/package.hpp
   db/package.cpp

@@ -53,7 +53,6 @@ class PerfWarningTimer {
   PerfWarningTimer &operator=(PerfWarningTimer &&) = delete;
   ~PerfWarningTimer();
   void reset();
-  double elapsed() const;
 
  private:
   string name_;

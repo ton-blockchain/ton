@@ -6,23 +6,9 @@
 , testing ? false
 }:
 let
-  staticOptions = pkg: pkg.overrideAttrs(oldAttrs: {
-    dontDisableStatic = true;
-    enableSharedExecutables = false;
-    configureFlags = (oldAttrs.configureFlags or []) ++ [ "--without-shared" "--disable-shared" "--disable-tests" ];
-  });
-
-  secp256k1Static = (staticOptions pkgs.secp256k1);
-  libsodiumStatic = (staticOptions pkgs.libsodium);
-  jemallocStatic = (staticOptions pkgs.jemalloc);
-
-  microhttpdStatic = pkgs.libmicrohttpd.overrideAttrs(oldAttrs: {
-    dontDisableStatic = true;
-    enableSharedExecutables = false;
-    configureFlags = (oldAttrs.configureFlags or []) ++ [ "--enable-static" "--disable-tests" "--disable-benchmark" "--disable-shared" "--disable-https" "--with-pic" ];
-  });
-
+  microhttpdmy = (import ./microhttpd.nix) {};
 in
+with import microhttpdmy;
 stdenv.mkDerivation {
   pname = "ton";
   version = "dev-bin";
@@ -30,19 +16,17 @@ stdenv.mkDerivation {
   src = ./.;
 
   nativeBuildInputs = with pkgs;
-    [  cmake ninja git pkg-config ];
+    [
+      cmake ninja git pkg-config
+    ];
 
   buildInputs = with pkgs;
     [
-      (openssl.override { static = true; }).dev
-      microhttpdStatic.dev
-      (zlib.override { shared = false; }).dev
-      (lz4.override { enableStatic = true; enableShared = false; }).dev
-      jemallocStatic
-      secp256k1Static
-      libsodiumStatic.dev
-      glibc.static
+      pkgsStatic.openssl microhttpdmy pkgsStatic.zlib pkgsStatic.libsodium.dev pkgsStatic.secp256k1 glibc.static pkgsStatic.lz4
     ];
+
+  makeStatic = true;
+  doCheck = testing;
 
   cmakeFlags = [
     "-DTON_USE_ABSEIL=OFF"
@@ -50,13 +34,13 @@ stdenv.mkDerivation {
     "-DBUILD_SHARED_LIBS=OFF"
     "-DCMAKE_LINK_SEARCH_START_STATIC=ON"
     "-DCMAKE_LINK_SEARCH_END_STATIC=ON"
-    "-DTON_USE_JEMALLOC=ON"
+    "-DMHD_FOUND=1"
+    "-DMHD_INCLUDE_DIR=${microhttpdmy}/usr/local/include"
+    "-DMHD_LIBRARY=${microhttpdmy}/usr/local/lib/libmicrohttpd.a"
+    "-DCMAKE_CTEST_ARGUMENTS=--timeout;1800"
   ];
 
-  makeStatic = true;
-  doCheck = testing;
-
   LDFLAGS = [
-    "-static-libgcc" "-static-libstdc++" "-static"
+     "-static-libgcc" "-static-libstdc++" "-static"
   ];
 }
