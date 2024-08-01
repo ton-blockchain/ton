@@ -1,4 +1,4 @@
-/* 
+/*
     This file is part of TON Blockchain source code.
 
     TON Blockchain is free software; you can redistribute it and/or
@@ -910,8 +910,22 @@ td::Status GetOverlaysStatsJsonQuery::receive(td::BufferSlice data) {
       } else {
         tail = true;
       }
-      
-      sb << "   {\n    \"adnl_id\": \"" << n->adnl_id_ << "\",\n    \"ip_addr\": \"" << n->ip_addr_ << "\",\n    \"broadcast_errors\": " << n->bdcst_errors_ << ",\n    \"fec_broadcast_errors\": " << n->fec_bdcst_errors_ << ",\n    \"last_in_query_unix\": " << n->last_in_query_ << ",\n    \"last_in_query_human\": \"" << time_to_human(n->last_in_query_) << "\",\n" << "    \"last_out_query_unix\": " << n->last_out_query_ << ",\n    \"last_out_query_human\": \"" << time_to_human(n->last_out_query_) << "\",\n" << "\n    \"throughput\": { \"out_bytes_sec\": " << n->t_out_bytes_ << ", \"out_pckts_sec\": " << n->t_out_pckts_ << ", \"in_bytes_sec\": " << n->t_in_bytes_ << ", \"in_pckts_sec\": " << n->t_in_pckts_ << " }\n   }";
+
+      sb << "   {\n";
+      sb << R"(    "adnl_id": ")" << n->adnl_id_ << "\",\n";
+      sb << R"(    "ip_addr": ")" << n->ip_addr_ << "\",\n";
+      sb << R"(    "is_neighbour": )" << (n->is_neighbour_ ? "true" : "false") << ",\n";
+      sb << R"(    "is_alive": )" << (n->is_alive_ ? "true" : "false") << ",\n";
+      sb << R"(    "node_flags": )" << n->node_flags_ << ",\n";
+      sb << R"(    "broadcast_errors": )" << n->bdcst_errors_ << ",\n";
+      sb << R"(    "fec_broadcast_errors": )" << n->fec_bdcst_errors_ << ",\n";
+      sb << R"(    "last_in_query_unix": )" << n->last_in_query_ << ",\n";
+      sb << R"(    "last_in_query_human": ")" << time_to_human(n->last_in_query_) << "\",\n";
+      sb << R"(    "last_out_query_unix": )" << n->last_out_query_ << ",\n";
+      sb << R"(    "last_out_query_human": ")" << time_to_human(n->last_out_query_) << "\",\n\n";
+      sb << R"(    "throughput": { "out_bytes_sec": )" << n->t_out_bytes_ << R"(, "out_pckts_sec": )" << n->t_out_pckts_
+         << R"(, "in_bytes_sec": )" << n->t_in_bytes_ << R"(, "in_pckts_sec": )" << n->t_in_pckts_ << " }\n";
+      sb << "   }";
       
       overlay_t_out_bytes += n->t_out_bytes_;
       overlay_t_out_pckts += n->t_out_pckts_;
@@ -920,8 +934,10 @@ td::Status GetOverlaysStatsJsonQuery::receive(td::BufferSlice data) {
       overlay_t_in_pckts += n->t_in_pckts_;
     }
     sb << "  ],\n";
-    
-    sb << "  \"total_throughput\": { \"out_bytes_sec\": " << overlay_t_out_bytes << ", \"out_pckts_sec\": " << overlay_t_out_pckts << ", \"in_bytes_sec\": " << overlay_t_in_bytes << ", \"in_pckts_sec\": " << overlay_t_in_pckts << " },\n";
+
+    sb << "  \"total_throughput\": { \"out_bytes_sec\": " << overlay_t_out_bytes
+       << ", \"out_pckts_sec\": " << overlay_t_out_pckts << ", \"in_bytes_sec\": " << overlay_t_in_bytes
+       << ", \"in_pckts_sec\": " << overlay_t_in_pckts << " },\n";
      
     sb << "  \"stats\": {\n";
     

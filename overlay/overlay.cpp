@@ -726,6 +726,10 @@ void OverlayImpl::get_stats(td::Promise<tl_object_ptr<ton_api::engine_validator_
     node_obj->bdcst_errors_ = peer.broadcast_errors;
     node_obj->fec_bdcst_errors_ = peer.fec_broadcast_errors;
 
+    node_obj->is_neighbour_ = peer.is_neighbour();
+    node_obj->is_alive_ = peer.is_alive();
+    node_obj->node_flags_ = peer.get_node()->flags();
+
     res->nodes_.push_back(std::move(node_obj));
   });
 
