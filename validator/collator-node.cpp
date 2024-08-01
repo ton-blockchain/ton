@@ -149,7 +149,7 @@ void CollatorNode::new_masterchain_block_notification(td::Ref<MasterchainState> 
     }
   }
 
-  for (auto it = future_validator_groups_.begin(); it != future_validator_groups_.end(); ++it) {
+  for (auto it = future_validator_groups_.begin(); it != future_validator_groups_.end();) {
     if (get_future_validator_group(it->first.first, it->first.second).is_ok()) {
       ++it;
     } else {

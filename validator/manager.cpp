@@ -622,7 +622,7 @@ void ValidatorManagerImpl::add_cached_block_candidate(ReceivedBlock block) {
       if (it != wait_block_data_.end()) {
         auto r_block = create_block(cached_block_candidates_[id].clone());
         if (r_block.is_ok()) {
-          td::actor::send_closure(it->second.actor_, &WaitBlockData::got_block_data_from_net, r_block.move_as_ok());
+          td::actor::send_closure(it->second.actor_, &WaitBlockData::loaded_block_data, r_block.move_as_ok());
         }
       }
     }
@@ -852,7 +852,8 @@ void ValidatorManagerImpl::wait_block_data(BlockHandle handle, td::uint32 priori
       td::actor::send_closure(SelfId, &ValidatorManagerImpl::finished_wait_data, handle, std::move(R));
     });
     auto id = td::actor::create_actor<WaitBlockData>("waitdata", handle, priority, actor_id(this),
-                                                     td::Timestamp::at(timeout.at() + 10.0), std::move(P))
+                                                     td::Timestamp::at(timeout.at() + 10.0),
+                                                     is_shard_collator(handle->id().shard_full()), std::move(P))
                   .release();
     wait_block_data_[handle->id()].actor_ = id;
     it = wait_block_data_.find(handle->id());
@@ -1177,6 +1178,16 @@ void ValidatorManagerImpl::get_block_candidate_from_db(PublicKey source, BlockId
   td::actor::send_closure(db_, &Db::get_block_candidate, source, id, collated_data_file_hash, std::move(promise));
 }
 
+void ValidatorManagerImpl::get_candidate_data_by_block_id_from_db(BlockIdExt id, td::Promise<td::BufferSlice> promise) {
+  auto it = cached_block_candidates_.find(id);
+  if (it != cached_block_candidates_.end()) {
+    promise.set_result(it->second.data.clone());
+    return;
+  }
+  td::actor::send_closure(db_, &Db::get_block_candidate_by_block_id, id,
+                          promise.wrap([](BlockCandidate &&b) { return std::move(b.data); }));
+}
+
 void ValidatorManagerImpl::get_block_proof_from_db(ConstBlockHandle handle, td::Promise<td::Ref<Proof>> promise) {
   td::actor::send_closure(db_, &Db::get_block_proof, std::move(handle), std::move(promise));
 }
@@ -1289,9 +1300,9 @@ void ValidatorManagerImpl::finished_wait_data(BlockHandle handle, td::Result<td:
         auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), handle](td::Result<td::Ref<BlockData>> R) {
           td::actor::send_closure(SelfId, &ValidatorManagerImpl::finished_wait_data, handle, std::move(R));
         });
-        auto id =
-            td::actor::create_actor<WaitBlockData>("waitdata", handle, X.second, actor_id(this), X.first, std::move(P))
-                .release();
+        auto id = td::actor::create_actor<WaitBlockData>("waitdata", handle, X.second, actor_id(this), X.first,
+                                                         is_shard_collator(handle->id().shard_full()), std::move(P))
+                      .release();
         it->second.actor_ = id;
         return;
       }
