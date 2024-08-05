@@ -107,6 +107,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual td::optional<double> get_catchain_max_block_delay() const = 0;
   virtual bool get_state_serializer_enabled() const = 0;
   virtual td::Ref<CollatorOptions> get_collator_options() const = 0;
+  virtual bool get_fast_state_serializer_enabled() const = 0;
 
   virtual void set_zero_block_id(BlockIdExt block_id) = 0;
   virtual void set_init_block_id(BlockIdExt block_id) = 0;
@@ -137,6 +138,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual void set_catchain_max_block_delay(double value) = 0;
   virtual void set_state_serializer_enabled(bool value) = 0;
   virtual void set_collator_options(td::Ref<CollatorOptions> value) = 0;
+  virtual void set_fast_state_serializer_enabled(bool value) = 0;
 
   static td::Ref<ValidatorManagerOptions> create(
       BlockIdExt zero_block_id, BlockIdExt init_block_id,

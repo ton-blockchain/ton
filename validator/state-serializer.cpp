@@ -253,6 +253,9 @@ class CachedCellDbReader : public vm::CellDbReader {
 };
 
 void AsyncStateSerializer::prepare_previous_state_cache(ShardIdFull shard) {
+  if (!opts_->get_fast_state_serializer_enabled()) {
+    return;
+  }
   std::vector<ShardIdFull> prev_shards;
   for (const auto& [_, prev_shard] : previous_state_files_) {
     if (shard_intersects(shard, prev_shard)) {
