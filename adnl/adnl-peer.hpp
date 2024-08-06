@@ -214,6 +214,7 @@ class AdnlPeerPairImpl : public AdnlPeerPair {
   pubkeys::Ed25519 channel_pub_;
   td::int32 channel_pk_date_;
   td::actor::ActorOwn<AdnlChannel> channel_;
+  td::Timestamp respond_to_channel_create_after_;
 
   td::uint64 in_seqno_ = 0;
   td::uint64 out_seqno_ = 0;
