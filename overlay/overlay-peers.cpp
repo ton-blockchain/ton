@@ -255,12 +255,10 @@ void OverlayImpl::on_ping_result(adnl::AdnlNodeIdShort peer, bool success) {
   }
   if (OverlayPeer *p = peer_list_.peers_.get(peer)) {
     p->on_ping_result(success);
-    if (!p->is_permanent_member()) {
-      if (p->is_alive()) {
-        peer_list_.bad_peers_.erase(peer);
-      } else {
-        peer_list_.bad_peers_.insert(peer);
-      }
+    if (p->is_alive()) {
+      peer_list_.bad_peers_.erase(peer);
+    } else {
+      peer_list_.bad_peers_.insert(peer);
     }
   }
 }
