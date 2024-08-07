@@ -504,6 +504,12 @@ void AdnlPeerPairImpl::create_channel(pubkeys::Ed25519 pub, td::uint32 date) {
 
 void AdnlPeerPairImpl::process_message(const adnlmessage::AdnlMessageCreateChannel &message) {
   create_channel(message.key(), message.date());
+  if (respond_to_channel_create_after_.is_in_past()) {
+    respond_to_channel_create_after_ = td::Timestamp::in(td::Random::fast(1.0, 2.0));
+    std::vector<OutboundAdnlMessage> messages;
+    messages.emplace_back(adnlmessage::AdnlMessageNop{}, 0);
+    send_messages(std::move(messages));
+  }
 }
 
 void AdnlPeerPairImpl::process_message(const adnlmessage::AdnlMessageConfirmChannel &message) {

@@ -287,6 +287,7 @@ void RocksDbSnapshotStatistics::begin_snapshot(const rocksdb::Snapshot *snapshot
 }
 
 void RocksDbSnapshotStatistics::end_snapshot(const rocksdb::Snapshot *snapshot) {
+  auto lock = std::unique_lock<std::mutex>(mutex_);
   auto id = reinterpret_cast<std::uintptr_t>(snapshot);
   auto it = id_to_ts_.find(id);
   CHECK(it != id_to_ts_.end());

@@ -237,6 +237,7 @@ class ValidatorEngine : public td::actor::Actor {
   bool started_ = false;
   ton::BlockSeqno truncate_seqno_{0};
   std::string session_logs_file_;
+  bool fast_state_serializer_enabled_ = false;
   bool not_all_shards_ = false;
 
   std::set<ton::CatchainSeqno> unsafe_catchains_;
@@ -316,6 +317,9 @@ class ValidatorEngine : public td::actor::Actor {
   }
   void set_catchain_max_block_delay(double value) {
     catchain_max_block_delay_ = value;
+  }
+  void set_fast_state_serializer_enabled(bool value) {
+    fast_state_serializer_enabled_ = value;
   }
   void set_not_all_shards() {
     not_all_shards_ = true;

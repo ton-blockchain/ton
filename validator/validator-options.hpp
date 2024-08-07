@@ -145,6 +145,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   td::Ref<CollatorOptions> get_collator_options() const override {
     return collator_options_;
   }
+  bool get_fast_state_serializer_enabled() const override {
+    return fast_state_serializer_enabled_;
+  }
   td::Ref<CollatorsList> get_collators_list() const override {
     return collators_list_;
   }
@@ -234,6 +237,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   void set_collator_options(td::Ref<CollatorOptions> value) override {
     collator_options_ = std::move(value);
   }
+  void set_fast_state_serializer_enabled(bool value) override {
+    fast_state_serializer_enabled_ = value;
+  }
   void set_collators_list(td::Ref<CollatorsList> list) override {
     collators_list_ = std::move(list);
   }
@@ -288,6 +294,7 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   td::optional<double> catchain_max_block_delay_;
   bool state_serializer_enabled_ = true;
   td::Ref<CollatorOptions> collator_options_{true};
+  bool fast_state_serializer_enabled_ = false;
   td::Ref<CollatorsList> collators_list_{true, CollatorsList{}};
 };
 

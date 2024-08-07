@@ -75,6 +75,10 @@
 #include "block/precompiled-smc/PrecompiledSmartContract.h"
 #include "interfaces/validator-manager.h"
 
+#if TON_USE_JEMALLOC
+#include <jemalloc/jemalloc.h>
+#endif
+
 Config::Config() {
   out_port = 3278;
   full_node = ton::PublicKeyHash::zero();
@@ -1261,6 +1265,55 @@ class CheckDhtServerStatusQuery : public td::actor::Actor {
   td::Promise<td::BufferSlice> promise_;
 };
 
+#if TON_USE_JEMALLOC
+class JemallocStatsWriter : public td::actor::Actor {
+ public:
+  void start_up() override {
+    alarm();
+  }
+
+  void alarm() override {
+    alarm_timestamp() = td::Timestamp::in(60.0);
+    auto r_stats = get_stats();
+    if (r_stats.is_error()) {
+      LOG(WARNING) << "Jemalloc stats error : " << r_stats.move_as_error();
+    } else {
+      auto s = r_stats.move_as_ok();
+      LOG(WARNING) << "JEMALLOC_STATS : [ timestamp=" << (ton::UnixTime)td::Clocks::system()
+                   << " allocated=" << s.allocated << " active=" << s.active << " metadata=" << s.metadata
+                   << " resident=" << s.resident << " ]";
+    }
+  }
+
+ private:
+  struct JemallocStats {
+    size_t allocated, active, metadata, resident;
+  };
+
+  static td::Result<JemallocStats> get_stats() {
+    size_t sz = sizeof(size_t);
+    static size_t epoch = 1;
+    if (mallctl("epoch", &epoch, &sz, &epoch, sz)) {
+      return td::Status::Error("Failed to refrash stats");
+    }
+    JemallocStats stats;
+    if (mallctl("stats.allocated", &stats.allocated, &sz, nullptr, 0)) {
+      return td::Status::Error("Cannot get stats.allocated");
+    }
+    if (mallctl("stats.active", &stats.active, &sz, nullptr, 0)) {
+      return td::Status::Error("Cannot get stats.active");
+    }
+    if (mallctl("stats.metadata", &stats.metadata, &sz, nullptr, 0)) {
+      return td::Status::Error("Cannot get stats.metadata");
+    }
+    if (mallctl("stats.resident", &stats.resident, &sz, nullptr, 0)) {
+      return td::Status::Error("Cannot get stats.resident");
+    }
+    return stats;
+  }
+};
+#endif
+
 void ValidatorEngine::set_local_config(std::string str) {
   local_config_ = str;
 }
@@ -1284,6 +1337,9 @@ void ValidatorEngine::schedule_shutdown(double at) {
 }
 void ValidatorEngine::start_up() {
   alarm_timestamp() = td::Timestamp::in(1.0 + td::Random::fast(0, 100) * 0.01);
+#if TON_USE_JEMALLOC
+  td::actor::create_actor<JemallocStatsWriter>("mem-stat").release();
+#endif
 }
 
 void ValidatorEngine::alarm() {
@@ -1484,6 +1540,18 @@ td::Status ValidatorEngine::load_global_config() {
     h.push_back(b);
   }
   validator_options_.write().set_hardforks(std::move(h));
+
+  auto r_total_ram = td::get_total_ram();
+  if (r_total_ram.is_error()) {
+    LOG(ERROR) << "Failed to get total RAM size: " << r_total_ram.move_as_error();
+  } else {
+    td::uint64 total_ram = r_total_ram.move_as_ok();
+    LOG(WARNING) << "Total RAM = " << td::format::as_size(total_ram);
+    if (total_ram >= (90ULL << 30)) {
+      fast_state_serializer_enabled_ = true;
+    }
+  }
+  validator_options_.write().set_fast_state_serializer_enabled(fast_state_serializer_enabled_);
 
   return td::Status::OK();
 }
@@ -4365,7 +4433,7 @@ void need_scheduler_status(int sig) {
   need_scheduler_status_flag.store(true);
 }
 
-void dump_memory_stats() {
+void dump_memprof_stats() {
   if (!is_memprof_on()) {
     return;
   }
@@ -4390,8 +4458,20 @@ void dump_memory_stats() {
   LOG(WARNING) << td::tag("fast_backtrace_success_rate", get_fast_backtrace_success_rate());
 }
 
+void dump_jemalloc_prof() {
+#if TON_USE_JEMALLOC
+  const char *filename = "/tmp/validator-jemalloc.dump";
+  if (mallctl("prof.dump", nullptr, nullptr, &filename, sizeof(const char *)) == 0) {
+    LOG(ERROR) << "Written jemalloc dump to " << filename;
+  } else {
+    LOG(ERROR) << "Failed to write jemalloc dump to " << filename;
+  }
+#endif
+}
+
 void dump_stats() {
-  dump_memory_stats();
+  dump_memprof_stats();
+  dump_jemalloc_prof();
   LOG(WARNING) << td::NamedThreadSafeCounter::get_default();
 }
 
@@ -4631,6 +4711,13 @@ int main(int argc, char *argv[]) {
         }
         acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_catchain_max_block_delay, v); });
         return td::Status::OK();
+      });
+  p.add_option(
+      '\0', "fast-state-serializer",
+      "faster persistent state serializer, but requires more RAM (enabled automatically on machines with >= 90GB RAM)",
+      [&]() {
+        acts.push_back(
+            [&x]() { td::actor::send_closure(x, &ValidatorEngine::set_fast_state_serializer_enabled, true); });
       });
   auto S = p.run(argc, argv);
   if (S.is_error()) {
