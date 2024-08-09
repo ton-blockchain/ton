@@ -417,7 +417,36 @@ void AcceptBlockQuery::got_block_handle(BlockHandle handle) {
                         : handle_->inited_proof_link())) {
     finish_query();
     return;
+                        }
+  if (data_.is_null()) {
+    td::actor::send_closure(manager_, &ValidatorManager::get_candidate_data_by_block_id_from_db, id_, [SelfId = actor_id(this)](td::Result<td::BufferSlice> R) {
+      if (R.is_ok()) {
+        td::actor::send_closure(SelfId, &AcceptBlockQuery::got_block_candidate_data, R.move_as_ok());
+      } else {
+        td::actor::send_closure(SelfId, &AcceptBlockQuery::got_block_handle_cont);
+      }
+    });
+  } else {
+    got_block_handle_cont();
   }
+}
+
+void AcceptBlockQuery::got_block_candidate_data(td::BufferSlice data) {
+  auto r_block = create_block(id_, std::move(data));
+  if (r_block.is_error()) {
+    fatal_error("invalid block candidate data in db: " + r_block.error().to_string());
+    return;
+  }
+  data_ = r_block.move_as_ok();
+  VLOG(VALIDATOR_DEBUG) << "got block candidate data from db";
+  if (data_.not_null() && !precheck_header()) {
+    fatal_error("invalid block header in AcceptBlock");
+    return;
+  }
+  got_block_handle_cont();
+}
+
+void AcceptBlockQuery::got_block_handle_cont() {
   if (data_.not_null() && !handle_->received()) {
     td::actor::send_closure(
         manager_, &ValidatorManager::set_block_data, handle_, data_, [SelfId = actor_id(this)](td::Result<td::Unit> R) {
