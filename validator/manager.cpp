@@ -2841,7 +2841,7 @@ void ValidatorManagerImpl::alarm() {
   }
   alarm_timestamp().relax(log_ls_stats_at_);
   if (cleanup_mempool_at_.is_in_past()) {
-    if (is_validator()) {
+    if (is_validator() || !collator_nodes_.empty()) {
       get_external_messages(ShardIdFull{masterchainId, shardIdAll},
                             [](td::Result<std::vector<std::pair<td::Ref<ExtMessage>, int>>>) {});
       get_external_messages(ShardIdFull{basechainId, shardIdAll},
