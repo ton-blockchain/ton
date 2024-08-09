@@ -413,4 +413,52 @@ Result<CpuStat> cpu_stat() {
 #endif
 }
 
+Result<uint64> get_total_ram() {
+#if TD_LINUX
+  TRY_RESULT(fd, FileFd::open("/proc/meminfo", FileFd::Read));
+  SCOPE_EXIT {
+    fd.close();
+  };
+  constexpr int TMEM_SIZE = 10000;
+  char mem[TMEM_SIZE];
+  TRY_RESULT(size, fd.read(MutableSlice(mem, TMEM_SIZE - 1)));
+  if (size >= TMEM_SIZE - 1) {
+    return Status::Error("Failed for read /proc/meminfo");
+  }
+  mem[size] = 0;
+  const char* s = mem;
+  while (*s) {
+    const char *name_begin = s;
+    while (*s != 0 && *s != '\n') {
+      s++;
+    }
+    auto name_end = name_begin;
+    while (is_alpha(*name_end)) {
+      name_end++;
+    }
+    Slice name(name_begin, name_end);
+    if (name == "MemTotal") {
+      Slice value(name_end, s);
+      if (!value.empty() && value[0] == ':') {
+        value.remove_prefix(1);
+      }
+      value = trim(value);
+      value = split(value).first;
+      TRY_RESULT_PREFIX(mem, to_integer_safe<uint64>(value), "Invalid value of MemTotal");
+      if (mem >= 1ULL << (64 - 10)) {
+        return Status::Error("Invalid value of MemTotal");
+      }
+      return mem * 1024;
+    }
+    if (*s == 0) {
+      break;
+    }
+    s++;
+  }
+  return Status::Error("No MemTotal in /proc/meminfo");
+#else
+  return Status::Error("Not supported");
+#endif
+}
+
 }  // namespace td

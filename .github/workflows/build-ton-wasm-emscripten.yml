@@ -19,7 +19,7 @@ jobs:
 
     - name: Build TON WASM artifacts
       run: |
-        cd assembly/wasm
+        cp assembly/wasm/fift-func-wasm-build-ubuntu.sh .
         chmod +x fift-func-wasm-build-ubuntu.sh
         ./fift-func-wasm-build-ubuntu.sh -a
 

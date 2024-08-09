@@ -172,6 +172,12 @@ interm_addr_ext$11 workchain_id:int32 addr_pfx:uint64
 msg_envelope#4 cur_addr:IntermediateAddress 
   next_addr:IntermediateAddress fwd_fee_remaining:Grams 
   msg:^(Message Any) = MsgEnvelope;
+msg_metadata#0 depth:uint32 initiator_addr:MsgAddressInt initiator_lt:uint64 = MsgMetadata;
+msg_envelope_v2#5 cur_addr:IntermediateAddress
+  next_addr:IntermediateAddress fwd_fee_remaining:Grams
+  msg:^(Message Any)
+  emitted_lt:(Maybe uint64)
+  metadata:(Maybe MsgMetadata) = MsgEnvelope;
 //
 msg_import_ext$000 msg:^(Message Any) transaction:^Transaction 
               = InMsg;
@@ -187,6 +193,9 @@ msg_discard_fin$110 in_msg:^MsgEnvelope transaction_id:uint64
     fwd_fee:Grams = InMsg;
 msg_discard_tr$111 in_msg:^MsgEnvelope transaction_id:uint64 
     fwd_fee:Grams proof_delivered:^Cell = InMsg;
+msg_import_deferred_fin$00100 in_msg:^MsgEnvelope
+    transaction:^Transaction fwd_fee:Grams = InMsg;
+msg_import_deferred_tr$00101 in_msg:^MsgEnvelope out_msg:^MsgEnvelope = InMsg;
 //
 import_fees$_ fees_collected:Grams 
   value_imported:CurrencyCollection = ImportFees;
@@ -210,6 +219,10 @@ msg_export_tr_req$111 out_msg:^MsgEnvelope
     imported:^InMsg = OutMsg;
 msg_export_deq_imm$100 out_msg:^MsgEnvelope 
     reimport:^InMsg = OutMsg;
+msg_export_new_defer$10100 out_msg:^MsgEnvelope
+    transaction:^Transaction = OutMsg;
+msg_export_deferred_tr$10101  out_msg:^MsgEnvelope
+    imported:^InMsg = OutMsg;
 
 _ enqueued_lt:uint64 out_msg:^MsgEnvelope = EnqueuedMsg;
 
@@ -224,8 +237,15 @@ _ (HashmapE 96 ProcessedUpto) = ProcessedInfo;
 ihr_pending$_ import_lt:uint64 = IhrPendingSince;
 _ (HashmapE 320 IhrPendingSince) = IhrPendingInfo;
 
+// key - created_lt
+_ messages:(HashmapE 64 EnqueuedMsg) count:uint48 = AccountDispatchQueue;
+// key - sender address, aug - min created_lt
+_ (HashmapAugE 256 AccountDispatchQueue uint64) = DispatchQueue;
+
+out_msg_queue_extra#0 dispatch_queue:DispatchQueue out_queue_size:(Maybe uint48) = OutMsgQueueExtra;
+
 _ out_queue:OutMsgQueue proc_info:ProcessedInfo
-  ihr_pending:IhrPendingInfo = OutMsgQueueInfo;
+  extra:(Maybe OutMsgQueueExtra) = OutMsgQueueInfo;
 //
 storage_used$_ cells:(VarUInteger 7) bits:(VarUInteger 7) 
   public_cells:(VarUInteger 7) = StorageUsed;
@@ -781,7 +801,7 @@ size_limits_config#01 max_msg_bits:uint32 max_msg_cells:uint32 max_library_cells
   max_ext_msg_size:uint32 max_ext_msg_depth:uint16 = SizeLimitsConfig;
 size_limits_config_v2#02 max_msg_bits:uint32 max_msg_cells:uint32 max_library_cells:uint32 max_vm_data_depth:uint16
   max_ext_msg_size:uint32 max_ext_msg_depth:uint16 max_acc_state_cells:uint32 max_acc_state_bits:uint32
-  max_acc_public_libraries:uint32 = SizeLimitsConfig;
+  max_acc_public_libraries:uint32 defer_out_queue_size_limit:uint32 = SizeLimitsConfig;
 _ SizeLimitsConfig = ConfigParam 43;
 
 // key is [ wc:int32 addr:uint256 ]

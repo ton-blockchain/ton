@@ -230,6 +230,8 @@ blocks.blockSignatures id:ton.blockIdExt signatures:(vector blocks.signature) = 
 blocks.shardBlockLink id:ton.blockIdExt proof:bytes = blocks.ShardBlockLink;
 blocks.blockLinkBack to_key_block:Bool from:ton.blockIdExt to:ton.blockIdExt dest_proof:bytes proof:bytes state_proof:bytes = blocks.BlockLinkBack;
 blocks.shardBlockProof from:ton.blockIdExt mc_id:ton.blockIdExt links:(vector blocks.shardBlockLink) mc_proof:(vector blocks.blockLinkBack) = blocks.ShardBlockProof;
+blocks.outMsgQueueSize id:ton.blockIdExt size:int32 = blocks.OutMsgQueueSize;
+blocks.outMsgQueueSizes shards:(vector blocks.outMsgQueueSize) ext_msg_queue_size_limit:int32 = blocks.OutMsgQueueSizes;
 
 configInfo config:tvm.cell = ConfigInfo;
 
@@ -309,6 +311,7 @@ smc.forget id:int53 = Ok;
 smc.getCode id:int53 = tvm.Cell;
 smc.getData id:int53 = tvm.Cell;
 smc.getState id:int53 = tvm.Cell;
+smc.getRawFullAccountState id:int53 = raw.FullAccountState;
 smc.runGetMethod id:int53 method:smc.MethodId stack:vector<tvm.StackEntry> = smc.RunResult;
 
 smc.getLibraries library_list:(vector int256) = smc.LibraryResult;
@@ -331,6 +334,7 @@ blocks.getTransactionsExt id:ton.blockIdExt mode:# count:# after:blocks.accountT
 blocks.getBlockHeader id:ton.blockIdExt = blocks.Header;
 blocks.getMasterchainBlockSignatures seqno:int32 = blocks.BlockSignatures;
 blocks.getShardBlockProof id:ton.blockIdExt mode:# from:mode.0?ton.blockIdExt = blocks.ShardBlockProof;
+blocks.getOutMsgQueueSizes mode:# wc:mode.0?int32 shard:mode.0?int64 = blocks.OutMsgQueueSizes;
 
 onLiteServerQueryResult id:int64 bytes:bytes = Ok;
 onLiteServerQueryError id:int64 error:error = Ok;

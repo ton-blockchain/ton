@@ -24,17 +24,21 @@ public:
   }
 
   void set_c7(block::StdAddress address, uint32_t unixtime, uint64_t balance, td::BitArray<256> rand_seed, std::shared_ptr<const block::Config> config) {
-    args_.set_address(address);
+    args_.set_address(std::move(address));
     args_.set_now(unixtime);
     args_.set_balance(balance);
-    args_.set_rand_seed(rand_seed);
+    args_.set_rand_seed(std::move(rand_seed));
     if (config) {
-      args_.set_config(config);
+      args_.set_config(std::move(config));
     }
   }
 
   void set_c7_raw(td::Ref<vm::Tuple> c7) {
     args_.set_c7(std::move(c7));
+  }
+
+  void set_config(std::shared_ptr<const block::Config> config) {
+    args_.set_config(std::move(config));
   }
 
   void set_prev_blocks_info(td::Ref<vm::Tuple> tuple) {
@@ -46,7 +50,8 @@ public:
   }
 
   Answer run_get_method(int method_id, td::Ref<vm::Stack> stack) {
-    return smc_.run_get_method(args_.set_stack(stack).set_method_id(method_id));
+    ton::SmartContract::Args args = args_;
+    return smc_.run_get_method(args.set_stack(stack).set_method_id(method_id));
   }
 
   Answer send_external_message(td::Ref<vm::Cell> message_body) {
@@ -54,7 +59,8 @@ public:
   }
 
   Answer send_internal_message(td::Ref<vm::Cell> message_body, uint64_t amount) {
-    return smc_.send_internal_message(message_body, args_.set_amount(amount));
+    ton::SmartContract::Args args = args_;
+    return smc_.send_internal_message(message_body, args.set_amount(amount));
   }
 };
 }

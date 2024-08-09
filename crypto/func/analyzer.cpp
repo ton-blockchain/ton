@@ -17,6 +17,7 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include "func.h"
+#include "vm/boc.h"
 
 namespace funC {
 

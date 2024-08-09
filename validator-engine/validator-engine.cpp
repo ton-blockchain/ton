@@ -75,6 +75,10 @@
 #include "block/precompiled-smc/PrecompiledSmartContract.h"
 #include "interfaces/validator-manager.h"
 
+#if TON_USE_JEMALLOC
+#include <jemalloc/jemalloc.h>
+#endif
+
 Config::Config() {
   out_port = 3278;
   full_node = ton::PublicKeyHash::zero();
@@ -1179,6 +1183,55 @@ class CheckDhtServerStatusQuery : public td::actor::Actor {
   td::Promise<td::BufferSlice> promise_;
 };
 
+#if TON_USE_JEMALLOC
+class JemallocStatsWriter : public td::actor::Actor {
+ public:
+  void start_up() override {
+    alarm();
+  }
+
+  void alarm() override {
+    alarm_timestamp() = td::Timestamp::in(60.0);
+    auto r_stats = get_stats();
+    if (r_stats.is_error()) {
+      LOG(WARNING) << "Jemalloc stats error : " << r_stats.move_as_error();
+    } else {
+      auto s = r_stats.move_as_ok();
+      LOG(WARNING) << "JEMALLOC_STATS : [ timestamp=" << (ton::UnixTime)td::Clocks::system()
+                   << " allocated=" << s.allocated << " active=" << s.active << " metadata=" << s.metadata
+                   << " resident=" << s.resident << " ]";
+    }
+  }
+
+ private:
+  struct JemallocStats {
+    size_t allocated, active, metadata, resident;
+  };
+
+  static td::Result<JemallocStats> get_stats() {
+    size_t sz = sizeof(size_t);
+    static size_t epoch = 1;
+    if (mallctl("epoch", &epoch, &sz, &epoch, sz)) {
+      return td::Status::Error("Failed to refrash stats");
+    }
+    JemallocStats stats;
+    if (mallctl("stats.allocated", &stats.allocated, &sz, nullptr, 0)) {
+      return td::Status::Error("Cannot get stats.allocated");
+    }
+    if (mallctl("stats.active", &stats.active, &sz, nullptr, 0)) {
+      return td::Status::Error("Cannot get stats.active");
+    }
+    if (mallctl("stats.metadata", &stats.metadata, &sz, nullptr, 0)) {
+      return td::Status::Error("Cannot get stats.metadata");
+    }
+    if (mallctl("stats.resident", &stats.resident, &sz, nullptr, 0)) {
+      return td::Status::Error("Cannot get stats.resident");
+    }
+    return stats;
+  }
+};
+#endif
+
 void ValidatorEngine::set_local_config(std::string str) {
   local_config_ = str;
 }
@@ -1202,6 +1255,9 @@ void ValidatorEngine::schedule_shutdown(double at) {
 }
 void ValidatorEngine::start_up() {
   alarm_timestamp() = td::Timestamp::in(1.0 + td::Random::fast(0, 100) * 0.01);
+#if TON_USE_JEMALLOC
+  td::actor::create_actor<JemallocStatsWriter>("mem-stat").release();
+#endif
 }
 
 void ValidatorEngine::alarm() {
@@ -1411,7 +1467,18 @@ td::Status ValidatorEngine::load_global_config() {
     h.push_back(b);
   }
   validator_options_.write().set_hardforks(std::move(h));
-  validator_options_.write().set_state_serializer_enabled(config_.state_serializer_enabled);
+
+  auto r_total_ram = td::get_total_ram();
+  if (r_total_ram.is_error()) {
+    LOG(ERROR) << "Failed to get total RAM size: " << r_total_ram.move_as_error();
+  } else {
+    td::uint64 total_ram = r_total_ram.move_as_ok();
+    LOG(WARNING) << "Total RAM = " << td::format::as_size(total_ram);
+    if (total_ram >= (90ULL << 30)) {
+      fast_state_serializer_enabled_ = true;
+    }
+  }
+  validator_options_.write().set_fast_state_serializer_enabled(fast_state_serializer_enabled_);
 
   return td::Status::OK();
 }
@@ -1823,6 +1890,9 @@ void ValidatorEngine::started_overlays() {
 
 void ValidatorEngine::start_validator() {
   validator_options_.write().set_allow_blockchain_init(config_.validators.size() > 0);
+  validator_options_.write().set_state_serializer_enabled(config_.state_serializer_enabled);
+  load_collator_options();
+
   validator_manager_ = ton::validator::ValidatorManagerFactory::create(
       validator_options_, db_root_, keyring_.get(), adnl_.get(), rldp_.get(), overlay_manager_.get());
 
@@ -2411,6 +2481,69 @@ void ValidatorEngine::del_custom_overlay_from_config(std::string name, td::Promi
     }
   }
   promise.set_error(td::Status::Error(PSTRING() << "no overlay \"" << name << "\" in config"));
+}
+
+static td::Result<td::Ref<ton::validator::CollatorOptions>> parse_collator_options(td::MutableSlice json_str) {
+  td::Ref<ton::validator::CollatorOptions> ref{true};
+  ton::validator::CollatorOptions& opts = ref.write();
+
+  // Set default values (from_json leaves missing fields as is)
+  ton::ton_api::engine_validator_collatorOptions f;
+  f.deferring_enabled_ = opts.deferring_enabled;
+  f.defer_out_queue_size_limit_ = opts.defer_out_queue_size_limit;
+  f.defer_messages_after_ = opts.defer_messages_after;
+  f.dispatch_phase_2_max_total_ = opts.dispatch_phase_2_max_total;
+  f.dispatch_phase_3_max_total_ = opts.dispatch_phase_3_max_total;
+  f.dispatch_phase_2_max_per_initiator_ = opts.dispatch_phase_2_max_per_initiator;
+  f.dispatch_phase_3_max_per_initiator_ =
+      opts.dispatch_phase_3_max_per_initiator ? opts.dispatch_phase_3_max_per_initiator.value() : -1;
+
+  TRY_RESULT_PREFIX(json, td::json_decode(json_str), "failed to parse json: ");
+  TRY_STATUS_PREFIX(ton::ton_api::from_json(f, json.get_object()), "json does not fit TL scheme: ");
+
+  if (f.defer_messages_after_ <= 0) {
+    return td::Status::Error("defer_messages_after should be positive");
+  }
+  if (f.defer_out_queue_size_limit_ < 0) {
+    return td::Status::Error("defer_out_queue_size_limit should be non-negative");
+  }
+  if (f.dispatch_phase_2_max_total_ < 0) {
+    return td::Status::Error("dispatch_phase_2_max_total should be non-negative");
+  }
+  if (f.dispatch_phase_3_max_total_ < 0) {
+    return td::Status::Error("dispatch_phase_3_max_total should be non-negative");
+  }
+  if (f.dispatch_phase_2_max_per_initiator_ < 0) {
+    return td::Status::Error("dispatch_phase_2_max_per_initiator should be non-negative");
+  }
+
+  opts.deferring_enabled = f.deferring_enabled_;
+  opts.defer_messages_after = f.defer_messages_after_;
+  opts.defer_out_queue_size_limit = f.defer_out_queue_size_limit_;
+  opts.dispatch_phase_2_max_total = f.dispatch_phase_2_max_total_;
+  opts.dispatch_phase_3_max_total = f.dispatch_phase_3_max_total_;
+  opts.dispatch_phase_2_max_per_initiator = f.dispatch_phase_2_max_per_initiator_;
+  if (f.dispatch_phase_3_max_per_initiator_ >= 0) {
+    opts.dispatch_phase_3_max_per_initiator = f.dispatch_phase_3_max_per_initiator_;
+  } else {
+    opts.dispatch_phase_3_max_per_initiator = {};
+  }
+
+  return ref;
+}
+
+void ValidatorEngine::load_collator_options() {
+  auto r_data = td::read_file(collator_options_file());
+  if (r_data.is_error()) {
+    return;
+  }
+  td::BufferSlice data = r_data.move_as_ok();
+  auto r_collator_options = parse_collator_options(data.as_slice());
+  if (r_collator_options.is_error()) {
+    LOG(ERROR) << "Failed to read collator options from file: " << r_collator_options.move_as_error();
+    return;
+  }
+  validator_options_.write().set_collator_options(r_collator_options.move_as_ok());
 }
 
 void ValidatorEngine::check_key(ton::PublicKeyHash id, td::Promise<td::Unit> promise) {
@@ -3492,7 +3625,7 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getShardO
         if (!dest) {
           td::actor::send_closure(
               manager, &ton::validator::ValidatorManagerInterface::get_out_msg_queue_size, handle->id(),
-              [promise = std::move(promise)](td::Result<td::uint32> R) mutable {
+              [promise = std::move(promise)](td::Result<td::uint64> R) mutable {
                 if (R.is_error()) {
                   promise.set_value(create_control_query_error(R.move_as_error_prefix("failed to get queue size: ")));
                 } else {
@@ -3683,6 +3816,53 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_setStateS
   });
 }
 
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_setCollatorOptionsJson &query,
+                                        td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
+                                        td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_modify)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+  if (!started_) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "not started")));
+    return;
+  }
+  auto r_collator_options = parse_collator_options(query.json_);
+  if (r_collator_options.is_error()) {
+    promise.set_value(create_control_query_error(r_collator_options.move_as_error_prefix("failed to parse json: ")));
+    return;
+  }
+  auto S = td::write_file(collator_options_file(), query.json_);
+  if (S.is_error()) {
+    promise.set_value(create_control_query_error(r_collator_options.move_as_error_prefix("failed to write file: ")));
+    return;
+  }
+  validator_options_.write().set_collator_options(r_collator_options.move_as_ok());
+  td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::update_options,
+                          validator_options_);
+  promise.set_value(ton::create_serialize_tl_object<ton::ton_api::engine_validator_success>());
+}
+
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getCollatorOptionsJson &query,
+                                        td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
+                                        td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_default)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+  if (!started_) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "not started")));
+    return;
+  }
+  auto r_data = td::read_file(collator_options_file());
+  if (r_data.is_error()) {
+    promise.set_value(ton::create_serialize_tl_object<ton::ton_api::engine_validator_jsonConfig>("{}"));
+  } else {
+    promise.set_value(
+        ton::create_serialize_tl_object<ton::ton_api::engine_validator_jsonConfig>(r_data.ok().as_slice().str()));
+  }
+}
+
 void ValidatorEngine::process_control_query(td::uint16 port, ton::adnl::AdnlNodeIdShort src,
                                             ton::adnl::AdnlNodeIdShort dst, td::BufferSlice data,
                                             td::Promise<td::BufferSlice> promise) {
@@ -3782,7 +3962,7 @@ void need_scheduler_status(int sig) {
   need_scheduler_status_flag.store(true);
 }
 
-void dump_memory_stats() {
+void dump_memprof_stats() {
   if (!is_memprof_on()) {
     return;
   }
@@ -3807,8 +3987,20 @@ void dump_memory_stats() {
   LOG(WARNING) << td::tag("fast_backtrace_success_rate", get_fast_backtrace_success_rate());
 }
 
+void dump_jemalloc_prof() {
+#if TON_USE_JEMALLOC
+  const char *filename = "/tmp/validator-jemalloc.dump";
+  if (mallctl("prof.dump", nullptr, nullptr, &filename, sizeof(const char *)) == 0) {
+    LOG(ERROR) << "Written jemalloc dump to " << filename;
+  } else {
+    LOG(ERROR) << "Failed to write jemalloc dump to " << filename;
+  }
+#endif
+}
+
 void dump_stats() {
-  dump_memory_stats();
+  dump_memprof_stats();
+  dump_jemalloc_prof();
   LOG(WARNING) << td::NamedThreadSafeCounter::get_default();
 }
 
@@ -4045,6 +4237,13 @@ int main(int argc, char *argv[]) {
         }
         acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_catchain_max_block_delay, v); });
         return td::Status::OK();
+      });
+  p.add_option(
+      '\0', "fast-state-serializer",
+      "faster persistent state serializer, but requires more RAM (enabled automatically on machines with >= 90GB RAM)",
+      [&]() {
+        acts.push_back(
+            [&x]() { td::actor::send_closure(x, &ValidatorEngine::set_fast_state_serializer_enabled, true); });
       });
   auto S = p.run(argc, argv);
   if (S.is_error()) {

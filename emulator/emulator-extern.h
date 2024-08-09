@@ -17,6 +17,13 @@ extern "C" {
 EMULATOR_EXPORT void *transaction_emulator_create(const char *config_params_boc, int vm_log_verbosity);
 
 /**
+ * @brief Creates Config object from base64 encoded BoC
+ * @param config_params_boc Base64 encoded BoC serialized Config dictionary (Hashmap 32 ^Cell)
+ * @return Pointer to Config object or nullptr in case of error
+ */
+EMULATOR_EXPORT void *emulator_config_create(const char *config_params_boc);
+
+/**
  * @brief Set unixtime for emulation
  * @param transaction_emulator Pointer to TransactionEmulator object
  * @param unixtime Unix timestamp
@@ -49,7 +56,7 @@ EMULATOR_EXPORT bool transaction_emulator_set_rand_seed(void *transaction_emulat
 EMULATOR_EXPORT bool transaction_emulator_set_ignore_chksig(void *transaction_emulator, bool ignore_chksig);
 
 /**
- * @brief Set unixtime for emulation
+ * @brief Set config for emulation
  * @param transaction_emulator Pointer to TransactionEmulator object
  * @param config_boc Base64 encoded BoC serialized Config dictionary (Hashmap 32 ^Cell) 
  * @return true in case of success, false in case of error
@@ -57,7 +64,15 @@ EMULATOR_EXPORT bool transaction_emulator_set_ignore_chksig(void *transaction_em
 EMULATOR_EXPORT bool transaction_emulator_set_config(void *transaction_emulator, const char* config_boc);
 
 /**
- * @brief Set unixtime for emulation
+ * @brief Set config for emulation
+ * @param transaction_emulator Pointer to TransactionEmulator object
+ * @param config Pointer to Config object
+ * @return true in case of success, false in case of error
+ */
+EMULATOR_EXPORT bool transaction_emulator_set_config_object(void *transaction_emulator, void* config);
+
+/**
+ * @brief Set libraries for emulation
  * @param transaction_emulator Pointer to TransactionEmulator object
  * @param libs_boc Base64 encoded BoC serialized shared libraries dictionary (HashmapE 256 ^Cell).
  * @return true in case of success, false in case of error
@@ -166,6 +181,14 @@ EMULATOR_EXPORT bool tvm_emulator_set_libraries(void *tvm_emulator, const char *
  * @return true in case of success, false in case of error 
  */
 EMULATOR_EXPORT bool tvm_emulator_set_c7(void *tvm_emulator, const char *address, uint32_t unixtime, uint64_t balance, const char *rand_seed_hex, const char *config);
+
+/**
+ * @brief Set config for TVM emulator
+ * @param tvm_emulator Pointer to TVM emulator
+ * @param config Pointer to Config object
+ * @return true in case of success, false in case of error
+ */
+EMULATOR_EXPORT bool tvm_emulator_set_config_object(void* tvm_emulator, void* config);
 
 /**
  * @brief Set tuple of previous blocks (13th element of c7)
@@ -277,6 +300,17 @@ EMULATOR_EXPORT const char *tvm_emulator_send_internal_message(void *tvm_emulato
  * @param tvm_emulator Pointer to TVM emulator object
  */
 EMULATOR_EXPORT void tvm_emulator_destroy(void *tvm_emulator);
+
+/**
+ * @brief Destroy Config object
+ * @param tvm_emulator Pointer to Config object
+ */
+EMULATOR_EXPORT void emulator_config_destroy(void *config);
+
+/**
+ * @brief Get git commit hash and date of the library
+ */
+EMULATOR_EXPORT const char* emulator_version();
 
 #ifdef __cplusplus
 }  // extern "C"

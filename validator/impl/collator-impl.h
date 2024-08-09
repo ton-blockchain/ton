@@ -44,7 +44,8 @@ class Collator final : public td::actor::Actor {
     return SUPPORTED_VERSION;
   }
   static constexpr long long supported_capabilities() {
-    return ton::capCreateStatsEnabled | ton::capBounceMsgBody | ton::capReportVersion | ton::capShortDequeue;
+    return ton::capCreateStatsEnabled | ton::capBounceMsgBody | ton::capReportVersion | ton::capShortDequeue |
+           ton::capStoreOutMsgQueueSize | ton::capMsgMetadata | ton::capDeferMessages;
   }
   using LtCellRef = block::LtCellRef;
   using NewOutMsg = block::NewOutMsg;
@@ -70,6 +71,7 @@ class Collator final : public td::actor::Actor {
   std::vector<Ref<ShardState>> prev_states;
   std::vector<Ref<BlockData>> prev_block_data;
   Ed25519_PublicKey created_by_;
+  Ref<CollatorOptions> collator_opts_;
   Ref<ValidatorSet> validator_set_;
   td::actor::ActorId<ValidatorManager> manager;
   td::Timestamp timeout;
@@ -89,7 +91,8 @@ class Collator final : public td::actor::Actor {
  public:
   Collator(ShardIdFull shard, bool is_hardfork, td::uint32 min_ts, BlockIdExt min_masterchain_block_id,
            std::vector<BlockIdExt> prev, Ref<ValidatorSet> validator_set, Ed25519_PublicKey collator_id,
-           td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout, td::Promise<BlockCandidate> promise);
+           Ref<CollatorOptions> collator_opts, td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
+           td::Promise<BlockCandidate> promise);
   ~Collator() override = default;
   bool is_busy() const {
     return busy_;
@@ -192,7 +195,10 @@ class Collator final : public td::actor::Actor {
   std::priority_queue<NewOutMsg, std::vector<NewOutMsg>, std::greater<NewOutMsg>> new_msgs;
   std::pair<ton::LogicalTime, ton::Bits256> last_proc_int_msg_, first_unproc_int_msg_;
   std::unique_ptr<vm::AugmentedDictionary> in_msg_dict, out_msg_dict, out_msg_queue_, sibling_out_msg_queue_;
-  td::uint32 out_msg_queue_size_ = 0;
+  std::map<StdSmcAddress, size_t> unprocessed_deferred_messages_;  // number of messages from dispatch queue in new_msgs
+  td::uint64 out_msg_queue_size_ = 0;
+  td::uint64 old_out_msg_queue_size_ = 0;
+  bool have_out_msg_queue_size_in_state_ = false;
   std::unique_ptr<vm::Dictionary> ihr_pending;
   std::shared_ptr<block::MsgProcessedUptoCollection> processed_upto_, sibling_processed_upto_;
   std::unique_ptr<vm::Dictionary> block_create_stats_;
@@ -202,6 +208,19 @@ class Collator final : public td::actor::Actor {
   Ref<vm::Cell> shard_account_blocks_;  // ShardAccountBlocks
   std::vector<Ref<vm::Cell>> collated_roots_;
   std::unique_ptr<ton::BlockCandidate> block_candidate;
+
+  std::unique_ptr<vm::AugmentedDictionary> dispatch_queue_;
+  std::map<StdSmcAddress, td::uint32> sender_generated_messages_count_;
+  unsigned dispatch_queue_ops_{0};
+  std::map<StdSmcAddress, LogicalTime> last_dispatch_queue_emitted_lt_;
+  bool have_unprocessed_account_dispatch_queue_ = false;
+  bool dispatch_queue_total_limit_reached_ = false;
+  td::uint64 defer_out_queue_size_limit_;
+  td::uint64 hard_defer_out_queue_size_limit_;
+
+  bool msg_metadata_enabled_ = false;
+  bool deferring_messages_enabled_ = false;
+  bool store_out_msg_queue_size_ = false;
 
   td::PerfWarningTimer perf_timer_;
   //
@@ -231,7 +250,7 @@ class Collator final : public td::actor::Actor {
   bool fix_one_processed_upto(block::MsgProcessedUpto& proc, const ton::ShardIdFull& owner);
   bool fix_processed_upto(block::MsgProcessedUptoCollection& upto);
   void got_neighbor_out_queue(int i, td::Result<Ref<MessageQueue>> res);
-  void got_out_queue_size(size_t i, td::Result<td::uint32> res);
+  void got_out_queue_size(size_t i, td::Result<td::uint64> res);
   bool adjust_shard_config();
   bool store_shard_fees(ShardIdFull shard, const block::CurrencyCollection& fees,
                         const block::CurrencyCollection& created);
@@ -249,7 +268,8 @@ class Collator final : public td::actor::Actor {
                                   Ref<vm::Cell>& in_msg);
   bool create_ticktock_transactions(int mask);
   bool create_ticktock_transaction(const ton::StdSmcAddress& smc_addr, ton::LogicalTime req_start_lt, int mask);
-  Ref<vm::Cell> create_ordinary_transaction(Ref<vm::Cell> msg_root, bool is_special_tx = false);
+  Ref<vm::Cell> create_ordinary_transaction(Ref<vm::Cell> msg_root, td::optional<block::MsgMetadata> msg_metadata,
+                                            LogicalTime after_lt, bool is_special_tx = false);
   bool check_cur_validator_set();
   bool unpack_last_mc_state();
   bool unpack_last_state();
@@ -278,7 +298,7 @@ class Collator final : public td::actor::Actor {
                                                   int priority);
   // td::Result<bool> register_external_message(td::Slice ext_msg_boc);
   void register_new_msg(block::NewOutMsg msg);
-  void register_new_msgs(block::transaction::Transaction& trans);
+  void register_new_msgs(block::transaction::Transaction& trans, td::optional<block::MsgMetadata> msg_metadata);
   bool process_new_messages(bool enqueue_only = false);
   int process_one_new_message(block::NewOutMsg msg, bool enqueue_only = false, Ref<vm::Cell>* is_special = nullptr);
   bool process_inbound_internal_messages();
@@ -286,10 +306,15 @@ class Collator final : public td::actor::Actor {
                                const block::McShardDescr& src_nb);
   bool process_inbound_external_messages();
   int process_external_message(Ref<vm::Cell> msg);
-  bool enqueue_message(block::NewOutMsg msg, td::RefInt256 fwd_fees_remaining, ton::LogicalTime enqueued_lt);
+  bool process_dispatch_queue();
+  bool process_deferred_message(Ref<vm::CellSlice> enq_msg, StdSmcAddress src_addr, LogicalTime lt,
+                                td::optional<block::MsgMetadata>& msg_metadata);
+  bool enqueue_message(block::NewOutMsg msg, td::RefInt256 fwd_fees_remaining, StdSmcAddress src_addr,
+                       bool defer = false);
   bool enqueue_transit_message(Ref<vm::Cell> msg, Ref<vm::Cell> old_msg_env, ton::AccountIdPrefixFull prev_prefix,
                                ton::AccountIdPrefixFull cur_prefix, ton::AccountIdPrefixFull dest_prefix,
-                               td::RefInt256 fwd_fee_remaining);
+                               td::RefInt256 fwd_fee_remaining, td::optional<block::MsgMetadata> msg_metadata,
+                               td::optional<LogicalTime> emitted_lt = {});
   bool delete_out_msg_queue_msg(td::ConstBitPtr key);
   bool insert_in_msg(Ref<vm::Cell> in_msg);
   bool insert_out_msg(Ref<vm::Cell> out_msg);

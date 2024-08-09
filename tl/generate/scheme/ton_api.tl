@@ -606,6 +606,11 @@ engine.validator.customOverlayNode adnl_id:int256 msg_sender:Bool msg_sender_pri
 engine.validator.customOverlay name:string nodes:(vector engine.validator.customOverlayNode) = engine.validator.CustomOverlay;
 engine.validator.customOverlaysConfig overlays:(vector engine.validator.customOverlay) = engine.validator.CustomOverlaysConfig;
 
+engine.validator.collatorOptions
+  deferring_enabled:Bool defer_messages_after:int defer_out_queue_size_limit:long
+  dispatch_phase_2_max_total:int dispatch_phase_3_max_total:int
+  dispatch_phase_2_max_per_initiator:int dispatch_phase_3_max_per_initiator:int = engine.validator.CollatorOptions;
+
 ---functions---
 ---types---
 
@@ -653,7 +658,7 @@ engine.validator.onePerfTimerStat time:int min:double avg:double max:double = en
 engine.validator.perfTimerStatsByName name:string stats:(vector engine.validator.OnePerfTimerStat) = engine.validator.PerfTimerStatsByName;
 engine.validator.perfTimerStats stats:(vector engine.validator.PerfTimerStatsByName) = engine.validator.PerfTimerStats;
 
-engine.validator.shardOutQueueSize size:int = engine.validator.ShardOutQueueSize;
+engine.validator.shardOutQueueSize size:long = engine.validator.ShardOutQueueSize;
 
 
 ---functions---
@@ -714,6 +719,9 @@ engine.validator.delCustomOverlay name:string = engine.validator.Success;
 engine.validator.showCustomOverlays = engine.validator.CustomOverlaysConfig;
 
 engine.validator.setStateSerializerEnabled enabled:Bool = engine.validator.Success;
+
+engine.validator.setCollatorOptionsJson json:string = engine.validator.Success;
+engine.validator.getCollatorOptionsJson = engine.validator.JsonConfig;
 
 ---types---
 

@@ -66,6 +66,12 @@ class optional {
     DCHECK(*this);
     return impl_.ok_ref();
   }
+  T &value_force() {
+    if (!*this) {
+      *this = T();
+    }
+    return value();
+  }
   T &operator*() {
     return value();
   }
@@ -86,6 +92,14 @@ class optional {
   template <class... ArgsT>
   void emplace(ArgsT &&... args) {
     impl_.emplace(std::forward<ArgsT>(args)...);
+  }
+
+  bool operator==(const optional& other) const {
+    return (bool)*this == (bool)other && (!(bool)*this || value() == other.value());
+  }
+
+  bool operator!=(const optional& other) const {
+    return !(*this == other);
   }
 
  private:

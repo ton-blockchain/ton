@@ -244,7 +244,7 @@ cont bless(slice s) impure asm "BLESS";
 ;;; In other words, the current smart contract agrees to buy some gas to finish the current transaction.
 ;;; This action is required to process external messages, which bring no value (hence no gas) with themselves.
 ;;;
-;;; For more details check [accept_message effects](https://ton.org/docs/#/smart-contracts/accept).
+;;; For more details check [accept_message effects](https://docs.ton.org/develop/smart-contracts/guidelines/accept).
 () accept_message() impure asm "ACCEPT";
 
 ;;; Sets current gas limit `gl` to the minimum of limit and `gm`, and resets the gas credit `gc` to zero.
@@ -282,10 +282,10 @@ int abs(int x) asm "ABS";
 
   It is said that a primitive _loads_ some data,
   if it returns the data and the remainder of the slice
-  (so it can also be used as [modifying method](https://ton.org/docs/#/func/statements?id=modifying-methods)).
+  (so it can also be used as [modifying method](https://docs.ton.org/develop/func/statements#modifying-methods)).
 
   It is said that a primitive _preloads_ some data, if it returns only the data
-  (it can be used as [non-modifying method](https://ton.org/docs/#/func/statements?id=non-modifying-methods)).
+  (it can be used as [non-modifying method](https://docs.ton.org/develop/func/statements#non-modifying-methods)).
 
   Unless otherwise stated, loading and preloading primitives read the data from a prefix of the slice.
 -}
@@ -416,7 +416,7 @@ int builder_depth(builder b) asm "BDEPTH";
   # Builder primitives
   It is said that a primitive _stores_ a value `x` into a builder `b`
   if it returns a modified version of the builder `b'` with the value `x` stored at the end of it.
-  It can be used as [non-modifying method](https://ton.org/docs/#/func/statements?id=non-modifying-methods).
+  It can be used as [non-modifying method](https://docs.ton.org/develop/func/statements#non-modifying-methods).
 
   All the primitives below first check whether there is enough space in the `builder`,
   and only then check the range of the value being serialized.

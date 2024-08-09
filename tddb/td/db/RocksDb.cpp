@@ -258,11 +258,17 @@ Status RocksDb::flush() {
 
 Status RocksDb::begin_snapshot() {
   snapshot_.reset(db_->GetSnapshot());
+  if (options_.snapshot_statistics) {
+    options_.snapshot_statistics->begin_snapshot(snapshot_.get());
+  }
   return td::Status::OK();
 }
 
 Status RocksDb::end_snapshot() {
   if (snapshot_) {
+    if (options_.snapshot_statistics) {
+      options_.snapshot_statistics->end_snapshot(snapshot_.get());
+    }
     db_->ReleaseSnapshot(snapshot_.release());
   }
   return td::Status::OK();
@@ -271,4 +277,42 @@ Status RocksDb::end_snapshot() {
 RocksDb::RocksDb(std::shared_ptr<rocksdb::OptimisticTransactionDB> db, RocksDbOptions options)
     : db_(std::move(db)), options_(options) {
 }
+
+void RocksDbSnapshotStatistics::begin_snapshot(const rocksdb::Snapshot *snapshot) {
+  auto lock = std::unique_lock<std::mutex>(mutex_);
+  auto id = reinterpret_cast<std::uintptr_t>(snapshot);
+  auto ts = td::Timestamp::now().at();
+  CHECK(id_to_ts_.emplace(id, ts).second);
+  CHECK(by_ts_.emplace(ts, id).second);
+}
+
+void RocksDbSnapshotStatistics::end_snapshot(const rocksdb::Snapshot *snapshot) {
+  auto lock = std::unique_lock<std::mutex>(mutex_);
+  auto id = reinterpret_cast<std::uintptr_t>(snapshot);
+  auto it = id_to_ts_.find(id);
+  CHECK(it != id_to_ts_.end());
+  auto ts = it->second;
+  CHECK(by_ts_.erase(std::make_pair(ts, id)) == 1u);
+  CHECK(id_to_ts_.erase(id) == 1u);
+}
+
+td::Timestamp RocksDbSnapshotStatistics::oldest_snapshot_timestamp() const {
+  auto lock = std::unique_lock<std::mutex>(mutex_);
+  if (by_ts_.empty()) {
+    return {};
+  }
+  return td::Timestamp::at(by_ts_.begin()->first);
+}
+
+std::string RocksDbSnapshotStatistics::to_string() const {
+  td::Timestamp oldest_snapshot = oldest_snapshot_timestamp();
+  double value;
+  if (oldest_snapshot) {
+    value = td::Timestamp::now().at() - oldest_snapshot.at();
+  } else {
+    value = -1;
+  }
+  return PSTRING() << "td.rocksdb.snapshot.oldest_snapshot_ago.seconds : " << value << "\n";
+}
+
 }  // namespace td

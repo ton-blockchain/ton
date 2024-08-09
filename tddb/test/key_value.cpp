@@ -60,9 +60,20 @@ TEST(KeyValue, simple) {
   ensure_value(as_slice(x), as_slice(x));
 
   kv.reset();
-  kv = std::make_unique<td::RocksDb>(td::RocksDb::open(db_name.str()).move_as_ok());
+  td::RocksDbOptions options;
+  options.snapshot_statistics = std::make_shared<td::RocksDbSnapshotStatistics>();
+  kv = std::make_unique<td::RocksDb>(td::RocksDb::open(db_name.str(), options).move_as_ok());
   ensure_value("A", "HELLO");
   ensure_value(as_slice(x), as_slice(x));
+
+  CHECK(!options.snapshot_statistics->oldest_snapshot_timestamp());
+  auto snapshot = kv->snapshot();
+  CHECK(options.snapshot_statistics->oldest_snapshot_timestamp());
+  auto snapshot2 = kv->snapshot();
+  snapshot.reset();
+  CHECK(options.snapshot_statistics->oldest_snapshot_timestamp());
+  snapshot2.reset();
+  CHECK(!options.snapshot_statistics->oldest_snapshot_timestamp());
 };
 
 TEST(KeyValue, async_simple) {

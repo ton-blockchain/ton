@@ -27,6 +27,7 @@
 #include "auto/tl/ton_api.h"
 #include "validator.h"
 #include "db-utils.h"
+#include "td/db/RocksDb.h"
 
 namespace rocksdb {
 class Statistics;
@@ -139,6 +140,7 @@ class CellDbIn : public CellDbBase {
   };
 
   std::shared_ptr<rocksdb::Statistics> statistics_;
+  std::shared_ptr<td::RocksDbSnapshotStatistics> snapshot_statistics_;
   CellDbStatistics cell_db_statistics_;
   td::Timestamp statistics_flush_at_ = td::Timestamp::never();
 

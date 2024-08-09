@@ -116,6 +116,10 @@ class ValidatorManagerImpl : public ValidatorManager {
                                   td::int64 max_length, td::Promise<td::BufferSlice> promise) override {
     UNREACHABLE();
   }
+  void get_previous_persistent_state_files(
+      BlockSeqno cur_mc_seqno, td::Promise<std::vector<std::pair<std::string, ShardIdFull>>> promise) override {
+    UNREACHABLE();
+  }
   void get_block_proof(BlockHandle handle, td::Promise<td::BufferSlice> promise) override;
   void get_block_proof_link(BlockHandle block_id, td::Promise<td::BufferSlice> promise) override {
     UNREACHABLE();
@@ -384,7 +388,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void log_new_validator_group_stats(validatorsession::NewValidatorGroupStats stats) override {
     UNREACHABLE();
   }
-  void get_out_msg_queue_size(BlockIdExt block_id, td::Promise<td::uint32> promise) override {
+  void get_out_msg_queue_size(BlockIdExt block_id, td::Promise<td::uint64> promise) override {
     if (queue_size_counter_.empty()) {
       queue_size_counter_ =
           td::actor::create_actor<QueueSizeCounter>("queuesizecounter", td::Ref<MasterchainState>{}, actor_id(this));

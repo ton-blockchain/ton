@@ -1971,7 +1971,7 @@ class RunEmulator : public TonlibQueryActor {
         check(r_config.move_as_error());
         return;
       }
-      std::unique_ptr<block::ConfigInfo> config = r_config.move_as_ok();
+      std::shared_ptr<block::ConfigInfo> config = r_config.move_as_ok();
 
       auto r_shard_account = account_state_->to_shardAccountCellSlice();
       if (r_shard_account.is_error()) {
@@ -1995,7 +1995,7 @@ class RunEmulator : public TonlibQueryActor {
         return;
       }
       vm::Dictionary libraries = global_libraries_;
-      emulator::TransactionEmulator trans_emulator(std::move(*config));
+      emulator::TransactionEmulator trans_emulator(config);
       trans_emulator.set_prev_blocks_info(prev_blocks_info.move_as_ok());
       trans_emulator.set_libs(std::move(libraries));
       trans_emulator.set_rand_seed(block_id_.rand_seed);
@@ -4360,6 +4360,17 @@ td::Status TonlibClient::do_request(const tonlib_api::smc_getState& request,
   return td::Status::OK();
 }
 
+td::Status TonlibClient::do_request(const tonlib_api::smc_getRawFullAccountState& request,
+                                    td::Promise<object_ptr<tonlib_api::raw_fullAccountState>>&& promise) {
+  auto it = smcs_.find(request.id_);
+  if (it == smcs_.end()) {
+    return TonlibError::InvalidSmcId();
+  }
+  auto& acc = it->second;
+  promise.set_result(acc->to_raw_fullAccountState());
+  return td::Status::OK();
+}
+
 bool is_list(vm::StackEntry entry) {
   while (true) {
     if (entry.type() == vm::StackEntry::Type::t_null) {
@@ -5563,6 +5574,11 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_lookupBlock& reques
   client_.with_last_block(
     [self = this, blkid, lite_block = std::move(lite_block), mode = request.mode_, lt = (td::uint64)request.lt_, 
     utime = (td::uint32)request.utime_, promise = std::move(promise)](td::Result<LastBlockState> r_last_block) mutable { 
+      if (r_last_block.is_error()) {
+        promise.set_error(r_last_block.move_as_error_prefix(TonlibError::Internal("get last block failed ")));
+        return;
+      }
+
       self->client_.send_query(ton::lite_api::liteServer_lookupBlockWithProof(mode, std::move(lite_block), ton::create_tl_lite_block_id(r_last_block.ok().last_block_id), lt, utime),
         promise.wrap([blkid, mode, utime, lt, last_block = r_last_block.ok().last_block_id](lite_api_ptr<ton::lite_api::liteServer_lookupBlockResult>&& result) 
                                           -> td::Result<object_ptr<tonlib_api::ton_blockIdExt>> {
@@ -6028,6 +6044,24 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getShardBlockProof&
   auto actor_id = actor_id_++;
   actors_[actor_id] = td::actor::create_actor<GetShardBlockProof>("GetShardBlockProof", client_.get_client(), id, from,
                                                                   actor_shared(this, actor_id), std::move(promise));
+  return td::Status::OK();
+}
+
+td::Status TonlibClient::do_request(const tonlib_api::blocks_getOutMsgQueueSizes& request,
+                                    td::Promise<object_ptr<tonlib_api::blocks_outMsgQueueSizes>>&& promise) {
+  client_.send_query(ton::lite_api::liteServer_getOutMsgQueueSizes(request.mode_, request.wc_, request.shard_),
+                     promise.wrap([](lite_api_ptr<ton::lite_api::liteServer_outMsgQueueSizes>&& queue_sizes) {
+    tonlib_api::blocks_outMsgQueueSizes result;
+    result.ext_msg_queue_size_limit_ = queue_sizes->ext_msg_queue_size_limit_;
+    for (auto &x : queue_sizes->shards_) {
+      tonlib_api::blocks_outMsgQueueSize shard;
+      shard.id_ = to_tonlib_api(*x->id_);
+      shard.size_ = x->size_;
+      result.shards_.push_back(tonlib_api::make_object<tonlib_api::blocks_outMsgQueueSize>(std::move(shard)));
+    }
+    return tonlib_api::make_object<tonlib_api::blocks_outMsgQueueSizes>(std::move(result));
+  }));
+
   return td::Status::OK();
 }
 

@@ -66,8 +66,11 @@ struct NewOutMsg {
   ton::LogicalTime lt;
   Ref<vm::Cell> msg;
   Ref<vm::Cell> trans;
-  NewOutMsg(ton::LogicalTime _lt, Ref<vm::Cell> _msg, Ref<vm::Cell> _trans)
-      : lt(_lt), msg(std::move(_msg)), trans(std::move(_trans)) {
+  unsigned msg_idx;
+  td::optional<MsgMetadata> metadata;
+  td::Ref<vm::Cell> msg_env_from_dispatch_queue;  // Not null if from dispatch queue; in this case lt is emitted_lt
+  NewOutMsg(ton::LogicalTime _lt, Ref<vm::Cell> _msg, Ref<vm::Cell> _trans, unsigned _msg_idx)
+      : lt(_lt), msg(std::move(_msg)), trans(std::move(_trans)), msg_idx(_msg_idx) {
   }
   bool operator<(const NewOutMsg& other) const& {
     return lt < other.lt || (lt == other.lt && msg->get_hash() < other.msg->get_hash());
@@ -126,6 +129,7 @@ struct ComputePhaseConfig {
   bool stop_on_accept_message = false;
   PrecompiledContractsConfig precompiled_contracts;
   bool dont_run_precompiled_ = false;
+  bool allow_external_unfreeze{false};
 
   ComputePhaseConfig() : gas_price(0), gas_limit(0), special_gas_limit(0), gas_credit(0) {
     compute_threshold();
@@ -163,6 +167,8 @@ struct ActionPhaseConfig {
   const WorkchainSet* workchains{nullptr};
   bool action_fine_enabled{false};
   bool bounce_on_fail_enabled{false};
+  bool message_skip_enabled{false};
+  bool disable_custom_fess{false};
   td::optional<td::Bits256> mc_blackhole_addr;
   const MsgPrices& fetch_msg_prices(bool is_masterchain) const {
     return is_masterchain ? fwd_mc : fwd_std;

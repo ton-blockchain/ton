@@ -9,6 +9,7 @@
 #include "tvm-emulator.hpp"
 #include "crypto/vm/stack.hpp"
 #include "crypto/vm/memo.h"
+#include "git.h"
 
 td::Result<td::Ref<vm::Cell>> boc_b64_to_cell(const char *boc) {
   TRY_RESULT_PREFIX(boc_decoded, td::base64_decode(td::Slice(boc)), "Can't decode base64 boc: ");
@@ -65,7 +66,18 @@ const char *external_not_accepted_response(std::string&& vm_log, int vm_exit_cod
 
 td::Result<block::Config> decode_config(const char* config_boc) {
   TRY_RESULT_PREFIX(config_params_cell, boc_b64_to_cell(config_boc), "Can't deserialize config params boc: ");
-  auto global_config = block::Config(config_params_cell, td::Bits256::zero(), block::Config::needWorkchainInfo | block::Config::needSpecialSmc | block::Config::needCapabilities);
+  auto config_dict = std::make_unique<vm::Dictionary>(config_params_cell, 32);
+  auto config_addr_cell = config_dict->lookup_ref(td::BitArray<32>::zero());
+  if (config_addr_cell.is_null()) {
+    return td::Status::Error("Can't find config address (param 0) is missing in config params");
+  }
+  auto config_addr_cs = vm::load_cell_slice(std::move(config_addr_cell));
+  if (config_addr_cs.size() != 0x100) {
+    return td::Status::Error(PSLICE() << "configuration parameter 0 with config address has wrong size");
+  }
+  ton::StdSmcAddress config_addr;
+  config_addr_cs.fetch_bits_to(config_addr);
+  auto global_config = block::Config(config_params_cell, std::move(config_addr), block::Config::needWorkchainInfo | block::Config::needSpecialSmc | block::Config::needCapabilities);
   TRY_STATUS_PREFIX(global_config.unpack(), "Can't unpack config params: ");
   return global_config;
 }
@@ -76,8 +88,17 @@ void *transaction_emulator_create(const char *config_params_boc, int vm_log_verb
     LOG(ERROR) << global_config_res.move_as_error().message();
     return nullptr;
   }
+  auto global_config = std::make_shared<block::Config>(global_config_res.move_as_ok());
+  return new emulator::TransactionEmulator(std::move(global_config), vm_log_verbosity);
+}
 
-  return new emulator::TransactionEmulator(global_config_res.move_as_ok(), vm_log_verbosity);
+void *emulator_config_create(const char *config_params_boc) {
+  auto config = decode_config(config_params_boc);
+  if (config.is_error()) {
+    LOG(ERROR) << "Error decoding config: " << config.move_as_error();
+    return nullptr;
+  }
+  return new block::Config(config.move_as_ok());
 }
 
 const char *transaction_emulator_emulate_transaction(void *transaction_emulator, const char *shard_account_boc, const char *message_boc) {
@@ -319,7 +340,21 @@ bool transaction_emulator_set_config(void *transaction_emulator, const char* con
     return false;
   }
 
-  emulator->set_config(global_config_res.move_as_ok());
+  emulator->set_config(std::make_shared<block::Config>(global_config_res.move_as_ok()));
+
+  return true;
+}
+
+void config_deleter(block::Config* ptr) {
+    // We do not delete the config object, since ownership management is delegated to the caller
+}
+
+bool transaction_emulator_set_config_object(void *transaction_emulator, void* config) {
+  auto emulator = static_cast<emulator::TransactionEmulator *>(transaction_emulator);
+  
+  std::shared_ptr<block::Config> config_ptr(static_cast<block::Config *>(config), config_deleter);
+  
+  emulator->set_config(config_ptr);
 
   return true;
 }
@@ -458,6 +493,13 @@ bool tvm_emulator_set_c7(void *tvm_emulator, const char *address, uint32_t unixt
 
   emulator->set_c7(std_address.move_as_ok(), unixtime, balance, rand_seed, std::const_pointer_cast<const block::Config>(global_config));
   
+  return true;
+}
+
+bool tvm_emulator_set_config_object(void* tvm_emulator, void* config) {
+  auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
+  auto global_config = std::shared_ptr<block::Config>(static_cast<block::Config *>(config), config_deleter);
+  emulator->set_config(global_config);
   return true;
 }
 
@@ -671,4 +713,17 @@ const char *tvm_emulator_send_internal_message(void *tvm_emulator, const char *m
 
 void tvm_emulator_destroy(void *tvm_emulator) {
   delete static_cast<emulator::TvmEmulator *>(tvm_emulator);
+}
+
+void emulator_config_destroy(void *config) {
+  delete static_cast<block::Config *>(config);
+}
+
+const char* emulator_version() {
+  auto version_json = td::JsonBuilder();
+  auto obj = version_json.enter_object();
+  obj("emulatorLibCommitHash", GitMetadata::CommitSHA1());
+  obj("emulatorLibCommitDate", GitMetadata::CommitDate());
+  obj.leave();
+  return strdup(version_json.string_builder().as_cslice().c_str());
 }

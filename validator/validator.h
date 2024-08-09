@@ -51,6 +51,21 @@ struct PerfTimerStats {
   std::deque<std::pair<double, double>> stats; // <Time::now(), duration>
 };
 
+struct CollatorOptions : public td::CntObject {
+  bool deferring_enabled = true;
+
+  // Defer messages from account after Xth message in block (excluding first messages from transactions)
+  td::uint32 defer_messages_after = 10;
+  // Defer all messages if out msg queue size is greater than X (excluding first messages from transactions)
+  td::uint64 defer_out_queue_size_limit = 2048;
+
+  // See Collator::process_dispatch_queue
+  td::uint32 dispatch_phase_2_max_total = 150;
+  td::uint32 dispatch_phase_3_max_total = 150;
+  td::uint32 dispatch_phase_2_max_per_initiator = 20;
+  td::optional<td::uint32> dispatch_phase_3_max_per_initiator;  // Default - depends on out msg queue size
+};
+
 struct ValidatorManagerOptions : public td::CntObject {
  public:
   enum class ShardCheckMode { m_monitor, m_validate };
@@ -91,6 +106,8 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual bool get_celldb_preload_all() const = 0;
   virtual td::optional<double> get_catchain_max_block_delay() const = 0;
   virtual bool get_state_serializer_enabled() const = 0;
+  virtual td::Ref<CollatorOptions> get_collator_options() const = 0;
+  virtual bool get_fast_state_serializer_enabled() const = 0;
 
   virtual void set_zero_block_id(BlockIdExt block_id) = 0;
   virtual void set_init_block_id(BlockIdExt block_id) = 0;
@@ -120,6 +137,8 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual void set_celldb_preload_all(bool value) = 0;
   virtual void set_catchain_max_block_delay(double value) = 0;
   virtual void set_state_serializer_enabled(bool value) = 0;
+  virtual void set_collator_options(td::Ref<CollatorOptions> value) = 0;
+  virtual void set_fast_state_serializer_enabled(bool value) = 0;
 
   static td::Ref<ValidatorManagerOptions> create(
       BlockIdExt zero_block_id, BlockIdExt init_block_id,
@@ -200,6 +219,8 @@ class ValidatorManagerInterface : public td::actor::Actor {
                                     td::Promise<td::BufferSlice> promise) = 0;
   virtual void get_persistent_state_slice(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::int64 offset,
                                           td::int64 max_length, td::Promise<td::BufferSlice> promise) = 0;
+  virtual void get_previous_persistent_state_files(
+      BlockSeqno cur_mc_seqno, td::Promise<std::vector<std::pair<std::string, ShardIdFull>>> promise) = 0;
   virtual void get_block_proof(BlockHandle handle, td::Promise<td::BufferSlice> promise) = 0;
   virtual void get_block_proof_link(BlockHandle handle, td::Promise<td::BufferSlice> promise) = 0;
   virtual void get_block_handle(BlockIdExt block_id, bool force, td::Promise<BlockHandle> promise) = 0;
@@ -249,7 +270,7 @@ class ValidatorManagerInterface : public td::actor::Actor {
 
   virtual void prepare_perf_timer_stats(td::Promise<std::vector<PerfTimerStats>> promise) = 0;
   virtual void add_perf_timer_stat(std::string name, double duration) = 0;
-  virtual void get_out_msg_queue_size(BlockIdExt block_id, td::Promise<td::uint32> promise) = 0;
+  virtual void get_out_msg_queue_size(BlockIdExt block_id, td::Promise<td::uint64> promise) = 0;
 
   virtual void update_options(td::Ref<ValidatorManagerOptions> opts) = 0;
 };

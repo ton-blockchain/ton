@@ -22,6 +22,8 @@
 #include "td/utils/filesystem.h"
 #include "td/utils/misc.h"
 #include "td/utils/port/path.h"
+#include "vm/boc.h"
+#include <map>
 
 namespace fift {
 namespace {

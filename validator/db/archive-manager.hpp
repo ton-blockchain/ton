@@ -54,6 +54,8 @@ class ArchiveManager : public td::actor::Actor {
                                   td::int64 max_size, td::Promise<td::BufferSlice> promise);
   void check_persistent_state(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::Promise<bool> promise);
   void check_zero_state(BlockIdExt block_id, td::Promise<bool> promise);
+  void get_previous_persistent_state_files(BlockSeqno cur_mc_seqno,
+                                           td::Promise<std::vector<std::pair<std::string, ShardIdFull>>> promise);
 
   void truncate(BlockSeqno masterchain_seqno, ConstBlockHandle handle, td::Promise<td::Unit> promise);
   //void truncate_continue(BlockSeqno masterchain_seqno, td::Promise<td::Unit> promise);
@@ -180,7 +182,7 @@ class ArchiveManager : public td::actor::Actor {
     return p.key ? key_files_ : p.temp ? temp_files_ : files_;
   }
 
-  std::map<FileHash, FileReferenceShort> perm_states_;
+  std::map<std::pair<BlockSeqno, FileHash>, FileReferenceShort> perm_states_;  // Mc block seqno, hash -> state
 
   void load_package(PackageId seqno);
   void delete_package(PackageId seqno, td::Promise<td::Unit> promise);
@@ -207,10 +209,10 @@ class ArchiveManager : public td::actor::Actor {
 
   void add_persistent_state_impl(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise,
                                  std::function<void(std::string, td::Promise<std::string>)> create_writer);
-  void written_perm_state(FileReferenceShort id);
+  void register_perm_state(FileReferenceShort id);
 
-  void persistent_state_gc(FileHash last);
-  void got_gc_masterchain_handle(ConstBlockHandle handle, FileHash hash);
+  void persistent_state_gc(std::pair<BlockSeqno, FileHash> last);
+  void got_gc_masterchain_handle(ConstBlockHandle handle, std::pair<BlockSeqno, FileHash> key);
 
   std::string db_root_;
   td::Ref<ValidatorManagerOptions> opts_;

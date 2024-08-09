@@ -1,0 +1,121 @@
+apiVersion: "apps/v1"
+kind: StatefulSet
+metadata:
+  name: validator-engine-pod
+  labels:
+    name: validator-engine-pod
+spec:
+  volumeClaimTemplates:
+    - metadata:
+        name: validator-engine-pvc
+      spec:
+        storageClassName: alicloud-disk-ssd
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 800Gi
+  serviceName: validator-engine-srv-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      name: validator-engine-pod
+  template:
+    metadata:
+      labels:
+        name: validator-engine-pod
+    spec:
+      containers:
+        - name: validator-engine-container
+          image: ghcr.io/neodix42/ton:latest
+          env:
+            - name: PUBLIC_IP
+              value: "<PUBLIC_IP>"
+            - name: GLOBAL_CONFIG_URL
+              value: "https://api.tontech.io/ton/wallet-mainnet.autoconf.json"
+            - name: DUMP_URL
+              value: "https://dump.ton.org/dumps/latest.tar.lz"
+            - name: LITESERVER
+              value: "true"
+            - name: VALIDATOR_PORT
+              value: "30001"
+            - name: CONSOLE_PORT
+              value: "30002"
+            - name: LITE_PORT
+              value: "30003"
+            - name: STATE_TTL
+              value: "86400"
+            - name: ARCHIVE_TTL
+              value: "86400"
+            - name: THREADS
+              value: "8"
+            - name: VERBOSITY
+              value: "3"
+          ports:
+            - containerPort: 30001
+              protocol: UDP
+            - containerPort: 30002
+              protocol: TCP
+            - containerPort: 30003
+              protocol: TCP
+          volumeMounts:
+            - mountPath: "/var/ton-work/db"
+              name: validator-engine-pvc
+          resources:
+            requests:
+              memory: "64Gi"
+              cpu: "16"
+            limits:
+              memory: "128Gi"
+              cpu: "32"
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: validator-engine-srv
+  annotations:
+    service.beta.kubernetes.io/alibaba-cloud-loadbalancer-eip-ids: "<ELASTIC_IP_ID>"
+    service.beta.kubernetes.io/alibaba-cloud-loadbalancer-address-type: "intranet"
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  ports:
+    - name: validator-udp
+      nodePort: 30001
+      port: 30001
+      targetPort: 30001
+      protocol: UDP
+    - name: console-tcp
+      nodePort: 30002
+      port: 30002
+      targetPort: 30002
+      protocol: TCP
+    - name: ls-tcp
+      nodePort: 30003
+      port: 30003
+      targetPort: 30003
+      protocol: TCP
+  selector:
+    name: validator-engine-pod
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: validator-engine-srv-headless
+spec:
+  clusterIP: None
+  ports:
+    - name: validator-udp
+      port: 30001
+      targetPort: 30001
+      protocol: UDP
+    - name: console-tcp
+      port: 30002
+      targetPort: 30002
+      protocol: TCP
+    - name: ls-tcp
+      port: 30003
+      targetPort: 30003
+      protocol: TCP
+  selector:
+    name: validator-engine-pod

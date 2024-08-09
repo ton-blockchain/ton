@@ -7,7 +7,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-20.04, ubuntu-22.04]
+        os: [ubuntu-20.04, ubuntu-22.04, ubuntu-24.04]
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -21,7 +21,7 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y build-essential git cmake ninja-build zlib1g-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev liblz4-dev libjemalloc-dev
 
-    - name: Install clang-16
+    - if: matrix.os != 'ubuntu-24.04'
       run: |
         wget https://apt.llvm.org/llvm.sh
         chmod +x llvm.sh
