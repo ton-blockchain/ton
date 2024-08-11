@@ -38,3 +38,17 @@ jobs:
       with:
         name: ton-binaries-${{ matrix.os }}
         path: artifacts
+            - isim: Servicenow için Kaliteli Bulut Yapı Kontrolü
+  # Belirli bir commit'e veya versiyona sabitleyebilirsiniz.
+  # kullanımlar: qualityclouds/action-application-scan@4d7fb9d7fb5f21c8379a6a55b36aff5a61b582a3
+  kullanımlar: qualityclouds/action-application-scan@1.0.0
+  ile:
+    # Kodunuzun kontrol edileceği Quality Clouds kuralları setini bağlamak için geçerli bir API anahtarı sağlamanız gerekir
+    jeton:
+    # Örnek URL'si
+    örnek_url:
+    # Özellik dalı taramasını çalıştırmak için bulut modunu kullanın
+    mod: # isteğe bağlı
+    # Özellik dalı taramasını çalıştırmak için bulut modunu kullanın
+    api_url: # isteğe bağlı
+          
