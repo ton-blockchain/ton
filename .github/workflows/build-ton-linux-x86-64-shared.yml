@@ -52,3 +52,23 @@ jobs:
     # Özellik dalı taramasını çalıştırmak için bulut modunu kullanın
     api_url: # isteğe bağlı
           
+            - name: Statik Dosyaları GCP Depolamasına Dağıt
+  # Belirli bir commit'e veya versiyona sabitleyebilirsiniz.
+  # kullanımlar: bitovi/github-actions-gcp-bucket@b80cbadca19a68e2283caf5f9d85eaa4017f6362
+  kullanımlar: bitovi/github-actions-gcp-bucket@first-release
+  ile:
+    # Bu eylemin kodu kontrol edip etmemesi gerektiğini belirtir
+    ödeme: # isteğe bağlı, varsayılanı doğrudur
+    # Kullanılacak GCP Depolama kovası. Varsayılanı `${org}-${repo}-{branch}-bucket`
+    bucket_name: # isteğe bağlı
+    # Kovaya yüklenecek dosyanın/dosyaların adı. Joker karakterler desteklenir. Yinelenen Dosyalar üzerine yazılacaktır.
+    dosya adı:
+    # GCP Hizmet Hesabı Anahtarı JSON'u GOOGLE_CREDENTIALS gizli anahtarı olarak ayarlandı.
+    gcp_access_key:
+    # Github sırlarından uygulama ile kullanılacak `.env` dosyası
+    dot_env: # isteğe bağlı
+    # Github değişkenlerinden uygulama ile kullanılacak `.env` dosyası
+    ghv_env: # isteğe bağlı
+    # Kovayı ve tüm alt dosyaları yok etmek için 'true' olarak ayarlayın.
+    bucket_destroy: # isteğe bağlı, varsayılanı false'tur
+          
