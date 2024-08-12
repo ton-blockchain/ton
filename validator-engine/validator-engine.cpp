@@ -68,6 +68,7 @@
 #include <cstdlib>
 #include <limits>
 #include <set>
+#include <cstdio>
 #include "git.h"
 #include "block-auto.h"
 #include "block-parse.h"
@@ -592,8 +593,11 @@ td::Result<bool> Config::config_add_control_process(ton::PublicKeyHash key, td::
 }
 
 td::Result<bool> Config::config_add_shard(ton::ShardIdFull shard) {
-  if (!shard.is_valid_ext() || shard.is_masterchain()) {
-    return td::Status::Error(PSTRING() << "invalid shard to collate " << shard.to_str());
+  if (shard.is_masterchain()) {
+    return td::Status::Error("masterchain is monitored by default");
+  }
+  if (!shard.is_valid_ext()) {
+    return td::Status::Error(PSTRING() << "invalid shard " << shard.to_str());
   }
   if (std::find(shards_to_monitor.begin(), shards_to_monitor.end(), shard) != shards_to_monitor.end()) {
     return false;
@@ -1647,6 +1651,14 @@ void ValidatorEngine::load_empty_local_config(td::Promise<td::Unit> promise) {
 }
 
 void ValidatorEngine::load_local_config(td::Promise<td::Unit> promise) {
+  for (ton::ShardIdFull shard : add_shard_cmds_) {
+    auto R = config_.config_add_shard(shard);
+    if (R.is_error()) {
+      LOG(WARNING) << "Cannot add shard " << shard.to_str() << " : " << R.move_as_error();
+    } else if (R.ok()) {
+      LOG(WARNING) << "Adding shard to monitor " << shard.to_str();
+    }
+  }
   if (local_config_.size() == 0) {
     load_empty_local_config(std::move(promise));
     return;
@@ -1860,6 +1872,15 @@ void ValidatorEngine::load_config(td::Promise<td::Unit> promise) {
 
   for (auto &key : config_.keys_refcnt) {
     td::actor::send_closure(keyring_, &ton::keyring::Keyring::add_key_short, key.first, get_key_promise(ig));
+  }
+
+  for (ton::ShardIdFull shard : add_shard_cmds_) {
+    auto R = config_.config_add_shard(shard);
+    if (R.is_error()) {
+      LOG(WARNING) << "Cannot add shard " << shard.to_str() << " : " << R.move_as_error();
+    } else if (R.ok()) {
+      LOG(WARNING) << "Adding shard to monitor " << shard.to_str();
+    }
   }
 
   write_config(ig.get_promise());
@@ -4629,6 +4650,20 @@ int main(int argc, char *argv[]) {
   p.add_option('M', "not-all-shards", "monitor only a necessary set of shards instead of all", [&]() {
     acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_not_all_shards); });
   });
+  p.add_checked_option(
+      '\0', "add-shard", "add shard to monitor (same as addshard in validator console), format: 0:8000000000000000",
+      [&](td::Slice arg) -> td::Status {
+        std::string str = arg.str();
+        int wc;
+        unsigned long long shard;
+        if (sscanf(str.c_str(), "%d:%016llx", &wc, &shard) != 2) {
+          return td::Status::Error(PSTRING() << "invalid shard " << str);
+        }
+        acts.push_back([=, &x]() {
+          td::actor::send_closure(x, &ValidatorEngine::add_shard_cmd, ton::ShardIdFull{wc, (ton::ShardId)shard});
+        });
+        return td::Status::OK();
+      });
   td::uint32 threads = 7;
   p.add_checked_option(
       't', "threads", PSTRING() << "number of threads (default=" << threads << ")", [&](td::Slice fname) {

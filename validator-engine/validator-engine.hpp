@@ -239,6 +239,7 @@ class ValidatorEngine : public td::actor::Actor {
   std::string session_logs_file_;
   bool fast_state_serializer_enabled_ = false;
   bool not_all_shards_ = false;
+  std::vector<ton::ShardIdFull> add_shard_cmds_;
 
   std::set<ton::CatchainSeqno> unsafe_catchains_;
   std::map<ton::BlockSeqno, std::pair<ton::CatchainSeqno, td::uint32>> unsafe_catchain_rotations_;
@@ -323,6 +324,9 @@ class ValidatorEngine : public td::actor::Actor {
   }
   void set_not_all_shards() {
     not_all_shards_ = true;
+  }
+  void add_shard_cmd(ton::ShardIdFull shard) {
+    add_shard_cmds_.push_back(shard);
   }
 
   void start_up() override;
