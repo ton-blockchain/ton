@@ -283,11 +283,14 @@ void OverlayImpl::alarm() {
     }
     if (next_dht_query_ && next_dht_query_.is_in_past()) {
       next_dht_query_ = td::Timestamp::never();
-      auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<dht::DhtValue> res) {
-        td::actor::send_closure(SelfId, &OverlayImpl::receive_dht_nodes, std::move(res), true);
-      });
-      td::actor::send_closure(dht_node_, &dht::Dht::get_value, dht::DhtKey{overlay_id_.pubkey_hash(), "nodes", 0},
-                              std::move(P));
+      std::function<void(dht::DhtValue)> callback = [SelfId = actor_id(this)](dht::DhtValue value) {
+        td::actor::send_closure(SelfId, &OverlayImpl::receive_dht_nodes, std::move(value));
+      };
+      td::Promise<td::Unit> on_finish = [SelfId = actor_id(this)](td::Result<td::Unit> R) {
+        td::actor::send_closure(SelfId, &OverlayImpl::dht_lookup_finished, R.move_as_status());
+      };
+      td::actor::send_closure(dht_node_, &dht::Dht::get_value_many, dht::DhtKey{overlay_id_.pubkey_hash(), "nodes", 0},
+                              std::move(callback), std::move(on_finish));
     }
     if (update_db_at_.is_in_past()) {
       if (peers_.size() > 0) {
@@ -311,30 +314,30 @@ void OverlayImpl::alarm() {
   }
 }
 
-void OverlayImpl::receive_dht_nodes(td::Result<dht::DhtValue> res, bool dummy) {
+void OverlayImpl::receive_dht_nodes(dht::DhtValue v) {
   CHECK(public_);
-  if (res.is_ok()) {
-    auto v = res.move_as_ok();
-    auto R = fetch_tl_object<ton_api::overlay_nodes>(v.value().clone(), true);
-    if (R.is_ok()) {
-      auto r = R.move_as_ok();
-      VLOG(OVERLAY_INFO) << this << ": received " << r->nodes_.size() << " nodes from overlay";
-      VLOG(OVERLAY_EXTRA_DEBUG) << this << ": nodes: " << ton_api::to_string(r);
-      std::vector<OverlayNode> nodes;
-      for (auto &n : r->nodes_) {
-        auto N = OverlayNode::create(n);
-        if (N.is_ok()) {
-          nodes.emplace_back(N.move_as_ok());
-        }
+  auto R = fetch_tl_object<ton_api::overlay_nodes>(v.value().clone(), true);
+  if (R.is_ok()) {
+    auto r = R.move_as_ok();
+    VLOG(OVERLAY_INFO) << this << ": received " << r->nodes_.size() << " nodes from overlay";
+    VLOG(OVERLAY_EXTRA_DEBUG) << this << ": nodes: " << ton_api::to_string(r);
+    std::vector<OverlayNode> nodes;
+    for (auto &n : r->nodes_) {
+      auto N = OverlayNode::create(n);
+      if (N.is_ok()) {
+        nodes.emplace_back(N.move_as_ok());
       }
-      add_peers(std::move(nodes));
-    } else {
-      VLOG(OVERLAY_WARNING) << this << ": incorrect value in DHT for overlay nodes: " << R.move_as_error();
     }
+    add_peers(std::move(nodes));
   } else {
-    VLOG(OVERLAY_NOTICE) << this << ": can not get value from DHT: " << res.move_as_error();
+    VLOG(OVERLAY_WARNING) << this << ": incorrect value in DHT for overlay nodes: " << R.move_as_error();
   }
+}
 
+void OverlayImpl::dht_lookup_finished(td::Status S) {
+  if (S.is_error()) {
+    VLOG(OVERLAY_NOTICE) << this << ": can not get value from DHT: " << S;
+  }
   if (!(next_dht_store_query_ && next_dht_store_query_.is_in_past())) {
     finish_dht_query();
     return;
