@@ -624,10 +624,8 @@ std::vector<adnl::AdnlNodeIdShort> OverlayImpl::get_neighbours(td::uint32 max_si
     for (td::uint32 i = 0; i < max_size; i++) {
       td::uint32 t = td::Random::fast(0, static_cast<td::int32>(peer_list_.neighbours_.size()) - 1 - i);
       td::uint32 j;
-      for (j = 0; j < i; j++) {
-        if (ul[j] <= t) {
-          t++;
-        }
+      for (j = 0; j < i && ul[j] <= t; j++) {
+        t++;
       }
       ul.emplace(ul.begin() + j, t);
       vec.push_back(peer_list_.neighbours_[t]);
