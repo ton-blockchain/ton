@@ -93,12 +93,13 @@ bool aggregate_verify(const std::vector<std::pair<P1, td::BufferSlice>> &pubs_ms
       return false;
     }
     std::unique_ptr<blst::Pairing> pairing = std::make_unique<blst::Pairing>(true, DST);
+    blst::P2_Affine p2_zero;
     for (const auto &p : pubs_msgs) {
       blst::P1_Affine p1(p.first.data(), P1_SIZE);
       if (!p1.in_group() || p1.is_inf()) {
         return false;
       }
-      pairing->aggregate(&p1, nullptr, (const td::uint8 *)p.second.data(), p.second.size());
+      pairing->aggregate(&p1, &p2_zero, (const td::uint8 *)p.second.data(), p.second.size());
     }
     pairing->commit();
     blst::P2_Affine p2(sig.data(), P2_SIZE);
