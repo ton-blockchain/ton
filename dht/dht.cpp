@@ -470,11 +470,26 @@ void DhtMemberImpl::get_value_in(DhtKeyId key, td::Promise<DhtValue> result) {
                                        network_id = network_id_, id = id_,
                                        client_only = client_only_](td::Result<DhtNode> R) mutable {
     R.ensure();
-    td::actor::create_actor<DhtQueryFindValue>("FindValueQuery", key, print_id, id, std::move(list), k, a, network_id,
+    td::actor::create_actor<DhtQueryFindValueSingle>("FindValueQuery", key, print_id, id, std::move(list), k, a, network_id,
                                                R.move_as_ok(), client_only, SelfId, adnl, std::move(promise))
         .release();
   });
 
+  get_self_node(std::move(P));
+}
+
+void DhtMemberImpl::get_value_many(DhtKey key, std::function<void(DhtValue)> callback, td::Promise<td::Unit> promise) {
+  DhtKeyId key_id = key.compute_key_id();
+  auto P = td::PromiseCreator::lambda(
+      [key = key_id, callback = std::move(callback), promise = std::move(promise), SelfId = actor_id(this),
+       print_id = print_id(), adnl = adnl_, list = get_nearest_nodes(key_id, k_ * 2), k = k_, a = a_,
+       network_id = network_id_, id = id_, client_only = client_only_](td::Result<DhtNode> R) mutable {
+        R.ensure();
+        td::actor::create_actor<DhtQueryFindValueMany>("FindValueManyQuery", key, print_id, id, std::move(list), k, a,
+                                                       network_id, R.move_as_ok(), client_only, SelfId, adnl,
+                                                       std::move(callback), std::move(promise))
+            .release();
+      });
   get_self_node(std::move(P));
 }
 

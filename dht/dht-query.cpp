@@ -210,8 +210,11 @@ void DhtQueryFindValue::on_result(td::Result<td::BufferSlice> R, adnl::AdnlNodeI
                   send_get_nodes = true;
                   return;
                 }
-                promise_.set_value(std::move(value));
-                need_stop = true;
+                if (on_value_found(std::move(value))) {
+                  send_get_nodes = true;
+                } else {
+                  need_stop = true;
+                }
               },
               [&](ton_api::dht_valueNotFound &v) {
                 add_nodes(DhtNodesList{std::move(v.nodes_), our_network_id()});
@@ -244,7 +247,32 @@ void DhtQueryFindValue::on_result_nodes(td::Result<td::BufferSlice> R, adnl::Adn
 }
 
 void DhtQueryFindValue::finish(DhtNodesList list) {
-  promise_.set_error(td::Status::Error(ErrorCode::notready, "dht key not found"));
+}
+
+bool DhtQueryFindValueSingle::on_value_found(DhtValue value) {
+  promise_.set_value(std::move(value));
+  found_ = true;
+  return false;
+}
+
+void DhtQueryFindValueSingle::tear_down() {
+  if (!found_) {
+    promise_.set_error(td::Status::Error(ErrorCode::notready, "dht key not found"));
+  }
+}
+
+bool DhtQueryFindValueMany::on_value_found(DhtValue value) {
+  callback_(std::move(value));
+  found_ = true;
+  return true;
+}
+
+void DhtQueryFindValueMany::tear_down() {
+  if (found_) {
+    promise_.set_value(td::Unit());
+  } else {
+    promise_.set_error(td::Status::Error(ErrorCode::notready, "dht key not found"));
+  }
 }
 
 DhtQueryStore::DhtQueryStore(DhtValue key_value, DhtMember::PrintId print_id, adnl::AdnlNodeIdShort src,

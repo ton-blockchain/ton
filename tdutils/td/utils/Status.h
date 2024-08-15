@@ -555,6 +555,12 @@ class Result {
     };
     return status_.move_as_error_suffix(suffix);
   }
+  Status move_as_status() TD_WARN_UNUSED_RESULT {
+    if (status_.is_error()) {
+      return move_as_error();
+    }
+    return Status::OK();
+  }
   const T &ok() const {
     LOG_CHECK(status_.is_ok()) << status_;
     return value_;

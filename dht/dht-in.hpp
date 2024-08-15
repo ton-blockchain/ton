@@ -179,6 +179,7 @@ class DhtMemberImpl : public DhtMember {
   void get_value(DhtKey key, td::Promise<DhtValue> result) override {
     get_value_in(key.compute_key_id(), std::move(result));
   }
+  void get_value_many(DhtKey key, std::function<void(DhtValue)> callback, td::Promise<td::Unit> promise) override;
 
   void alarm() override {
     alarm_timestamp() = td::Timestamp::in(1.0);
