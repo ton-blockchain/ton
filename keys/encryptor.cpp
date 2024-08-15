@@ -29,28 +29,6 @@
 
 namespace ton {
 
-td::Result<std::unique_ptr<Encryptor>> Encryptor::create(const ton_api::PublicKey *id) {
-  td::Result<std::unique_ptr<Encryptor>> res;
-  ton_api::downcast_call(
-      *const_cast<ton_api::PublicKey *>(id),
-      td::overloaded([&](const ton_api::pub_unenc &obj) { res = std::make_unique<EncryptorNone>(); },
-                     [&](const ton_api::pub_ed25519 &obj) { res = std::make_unique<EncryptorEd25519>(obj.key_); },
-                     [&](const ton_api::pub_overlay &obj) { res = std::make_unique<EncryptorOverlay>(); },
-                     [&](const ton_api::pub_aes &obj) { res = std::make_unique<EncryptorAES>(obj.key_); }));
-  return res;
-}
-
-td::Result<std::unique_ptr<Decryptor>> Decryptor::create(const ton_api::PrivateKey *id) {
-  td::Result<std::unique_ptr<Decryptor>> res;
-  ton_api::downcast_call(
-      *const_cast<ton_api::PrivateKey *>(id),
-      td::overloaded([&](const ton_api::pk_unenc &obj) { res = std::make_unique<DecryptorNone>(); },
-                     [&](const ton_api::pk_ed25519 &obj) { res = std::make_unique<DecryptorEd25519>(obj.key_); },
-                     [&](const ton_api::pk_overlay &obj) { res = std::make_unique<DecryptorFail>(); },
-                     [&](const ton_api::pk_aes &obj) { res = std::make_unique<DecryptorAES>(obj.key_); }));
-  return res;
-}
-
 td::Result<td::BufferSlice> EncryptorEd25519::encrypt(td::Slice data) {
   TRY_RESULT_PREFIX(pk, td::Ed25519::generate_private_key(), "failed to generate private key: ");
   TRY_RESULT_PREFIX(pubkey, pk.get_public_key(), "failed to get public key from private: ");
