@@ -122,6 +122,7 @@ class AdnlPeerPairImpl : public AdnlPeerPair {
   }
 
  private:
+  void respond_with_nop();
   void reinit(td::int32 date);
   td::Result<std::pair<td::actor::ActorId<AdnlNetworkConnection>, bool>> get_conn(bool direct_only);
   void create_channel(pubkeys::Ed25519 pub, td::uint32 date);
@@ -214,7 +215,7 @@ class AdnlPeerPairImpl : public AdnlPeerPair {
   pubkeys::Ed25519 channel_pub_;
   td::int32 channel_pk_date_;
   td::actor::ActorOwn<AdnlChannel> channel_;
-  td::Timestamp respond_to_channel_create_after_;
+  td::Timestamp respond_with_nop_after_;
 
   td::uint64 in_seqno_ = 0;
   td::uint64 out_seqno_ = 0;
