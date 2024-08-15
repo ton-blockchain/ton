@@ -126,16 +126,11 @@ class DhtQueryFindNodes : public DhtQuery {
 };
 
 class DhtQueryFindValue : public DhtQuery {
- private:
-  td::Promise<DhtValue> promise_;
-
  public:
   DhtQueryFindValue(DhtKeyId key, DhtMember::PrintId print_id, adnl::AdnlNodeIdShort src, DhtNodesList list,
                     td::uint32 k, td::uint32 a, td::int32 our_network_id, DhtNode self, bool client_only,
-                    td::actor::ActorId<DhtMember> node, td::actor::ActorId<adnl::Adnl> adnl,
-                    td::Promise<DhtValue> promise)
-      : DhtQuery(key, print_id, src, k, a, our_network_id, std::move(self), client_only, node, adnl)
-      , promise_(std::move(promise)) {
+                    td::actor::ActorId<DhtMember> node, td::actor::ActorId<adnl::Adnl> adnl)
+      : DhtQuery(key, print_id, src, k, a, our_network_id, std::move(self), client_only, node, adnl) {
     add_nodes(std::move(list));
   }
   void send_one_query(adnl::AdnlNodeIdShort id) override;
@@ -146,6 +141,48 @@ class DhtQueryFindValue : public DhtQuery {
   std::string get_name() const override {
     return "find value";
   }
+
+  virtual bool on_value_found(DhtValue value) = 0;
+};
+
+class DhtQueryFindValueSingle : public DhtQueryFindValue {
+ public:
+  DhtQueryFindValueSingle(DhtKeyId key, DhtMember::PrintId print_id, adnl::AdnlNodeIdShort src, DhtNodesList list,
+                          td::uint32 k, td::uint32 a, td::int32 our_network_id, DhtNode self, bool client_only,
+                          td::actor::ActorId<DhtMember> node, td::actor::ActorId<adnl::Adnl> adnl,
+                          td::Promise<DhtValue> promise)
+      : DhtQueryFindValue(key, print_id, src, std::move(list), k, a, our_network_id, std::move(self), client_only, node,
+                          adnl)
+      , promise_(std::move(promise)) {
+    add_nodes(std::move(list));
+  }
+  bool on_value_found(DhtValue value) override;
+  void tear_down() override;
+
+ private:
+  td::Promise<DhtValue> promise_;
+  bool found_ = false;
+};
+
+class DhtQueryFindValueMany : public DhtQueryFindValue {
+ public:
+  DhtQueryFindValueMany(DhtKeyId key, DhtMember::PrintId print_id, adnl::AdnlNodeIdShort src, DhtNodesList list,
+                         td::uint32 k, td::uint32 a, td::int32 our_network_id, DhtNode self, bool client_only,
+                         td::actor::ActorId<DhtMember> node, td::actor::ActorId<adnl::Adnl> adnl,
+                         std::function<void(DhtValue)> callback, td::Promise<td::Unit> promise)
+      : DhtQueryFindValue(key, print_id, src, std::move(list), k, a, our_network_id, std::move(self), client_only, node,
+                          adnl)
+      , callback_(std::move(callback))
+      , promise_(std::move(promise)) {
+    add_nodes(std::move(list));
+  }
+  bool on_value_found(DhtValue value) override;
+  void tear_down() override;
+
+ private:
+  std::function<void(DhtValue)> callback_;
+  td::Promise<td::Unit> promise_;
+  bool found_ = false;
 };
 
 class DhtQueryStore : public td::actor::Actor {

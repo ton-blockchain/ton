@@ -166,7 +166,8 @@ class OverlayImpl : public Overlay {
     certs_[key] = std::move(cert);
   }
 
-  void receive_dht_nodes(td::Result<dht::DhtValue> res, bool dummy);
+  void receive_dht_nodes(dht::DhtValue v);
+  void dht_lookup_finished(td::Status S);
   void update_dht_nodes(OverlayNode node);
 
   void update_neighbours(td::uint32 nodes_to_change);
