@@ -55,12 +55,12 @@ td::Result<KeyringImpl::PrivateKeyDescr *> KeyringImpl::load_key(PublicKeyHash k
 
   auto name = db_root_ + "/" + key_hash.bits256_value().to_hex();
 
-  auto R = td::read_file(td::CSlice{name});
+  auto R = td::read_file_secure(td::CSlice{name});
   if (R.is_error()) {
     return R.move_as_error_prefix("key not in db: ");
   }
   auto data = R.move_as_ok();
-  auto R2 = PrivateKey::import(td::SecureString(data));
+  auto R2 = PrivateKey::import(data);
   R2.ensure();
 
   auto key = R2.move_as_ok();

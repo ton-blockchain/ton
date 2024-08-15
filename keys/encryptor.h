@@ -31,7 +31,6 @@ class Encryptor {
   virtual td::Result<td::BufferSlice> encrypt(td::Slice data) = 0;
   virtual td::Status check_signature(td::Slice message, td::Slice signature) = 0;
   virtual ~Encryptor() = default;
-  static td::Result<std::unique_ptr<Encryptor>> create(const ton_api::PublicKey *id);
 };
 
 class Decryptor {
@@ -40,7 +39,6 @@ class Decryptor {
   virtual td::Result<td::BufferSlice> sign(td::Slice data) = 0;
   virtual std::vector<td::Result<td::BufferSlice>> sign_batch(std::vector<td::Slice> data);
   virtual ~Decryptor() = default;
-  static td::Result<std::unique_ptr<Decryptor>> create(const ton_api::PrivateKey *id);
 };
 
 class EncryptorAsync : public td::actor::Actor {
@@ -60,16 +58,6 @@ class EncryptorAsync : public td::actor::Actor {
   }
   void encrypt(td::BufferSlice data, td::Promise<td::BufferSlice> promise) {
     promise.set_result(encryptor_->encrypt(data.as_slice()));
-  }
-  template <class T>
-  static td::Result<td::actor::ActorOwn<EncryptorAsync>> create(T &id) {
-    TRY_RESULT(d, Encryptor::create(id));
-    return td::actor::create_actor<EncryptorAsync>("encryptor", std::move(d));
-  }
-  template <class T>
-  static td::Result<td::actor::ActorOwn<EncryptorAsync>> create(T *id) {
-    TRY_RESULT(d, Encryptor::create(id));
-    return td::actor::create_actor<EncryptorAsync>("encryptor", std::move(d));
   }
 };
 
@@ -93,16 +81,6 @@ class DecryptorAsync : public td::actor::Actor {
       v[i] = data[i].as_slice();
     }
     return decryptor_->sign_batch(v);
-  }
-  template <class T>
-  static td::Result<td::actor::ActorOwn<DecryptorAsync>> create(T &id) {
-    TRY_RESULT(d, Decryptor::create(id));
-    return td::actor::create_actor<DecryptorAsync>("decryptor", std::move(d));
-  }
-  template <class T>
-  static td::Result<td::actor::ActorOwn<DecryptorAsync>> create(T *id) {
-    TRY_RESULT(d, Decryptor::create(id));
-    return td::actor::create_actor<DecryptorAsync>("decryptor", std::move(d));
   }
 };
 
