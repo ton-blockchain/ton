@@ -1432,7 +1432,7 @@ void HttpQueryStatus::finish_query() {
       for (td::uint32 i = 0; i < results_.ips.size(); i++) {
         A << "<tr>";
         if (results_.ips[i].is_valid()) {
-          A << "<td>" << results_.ips[i] << "</td>";
+          A << "<td>" << results_.ips[i].get_ip_str() << ":" << results_.ips[i].get_port() << "</td>";
         } else {
           A << "<td>hidden</td>";
         }

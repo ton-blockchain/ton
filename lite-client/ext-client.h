@@ -30,12 +30,19 @@ class ExtClient : public td::actor::Actor {
 
   virtual void send_query(std::string name, td::BufferSlice data, td::Timestamp timeout,
                           td::Promise<td::BufferSlice> promise) = 0;
+  virtual void send_query_to_server(std::string name, td::BufferSlice data, size_t server_idx, td::Timestamp timeout,
+                                    td::Promise<td::BufferSlice> promise) {
+    promise.set_error(td::Status::Error("not supported"));
+  }
+  virtual void get_servers_status(td::Promise<std::vector<bool>> promise) {
+    promise.set_error(td::Status::Error("not supported"));
+  }
   virtual void reset_servers() {
   }
 
   static td::actor::ActorOwn<ExtClient> create(ton::adnl::AdnlNodeIdFull dst, td::IPAddress dst_addr,
                                                td::unique_ptr<Callback> callback);
   static td::actor::ActorOwn<ExtClient> create(std::vector<LiteServerConfig> liteservers,
-                                               td::unique_ptr<Callback> callback);
+                                               td::unique_ptr<Callback> callback, bool connect_to_all = false);
 };
 }  // namespace liteclient

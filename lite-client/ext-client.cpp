@@ -22,8 +22,8 @@ namespace liteclient {
 
 class ExtClientImpl : public ExtClient {
  public:
-  ExtClientImpl(std::vector<LiteServerConfig> liteservers, td::unique_ptr<Callback> callback)
-      : callback_(std::move(callback)) {
+  ExtClientImpl(std::vector<LiteServerConfig> liteservers, td::unique_ptr<Callback> callback, bool connect_to_all)
+      : callback_(std::move(callback)), connect_to_all_(connect_to_all) {
     CHECK(!liteservers.empty());
     servers_.resize(liteservers.size());
     for (size_t i = 0; i < servers_.size(); ++i) {
@@ -36,15 +36,65 @@ class ExtClientImpl : public ExtClient {
     LOG(INFO) << "Started ext client, " << servers_.size() << " liteservers";
     td::Random::Fast rnd;
     td::random_shuffle(td::as_mutable_span(servers_), rnd);
+    server_indices_.resize(servers_.size());
+    for (size_t i = 0; i < servers_.size(); ++i) {
+      server_indices_[servers_[i].idx] = i;
+    }
+
+    if (connect_to_all_) {
+      for (size_t i = 0; i < servers_.size(); ++i) {
+        prepare_server(i, nullptr);
+      }
+    }
   }
 
   void send_query(std::string name, td::BufferSlice data, td::Timestamp timeout,
                   td::Promise<td::BufferSlice> promise) override {
     QueryInfo query_info = get_query_info(data);
     TRY_RESULT_PROMISE(promise, server_idx, select_server(query_info));
+    send_query_internal(std::move(name), std::move(data), std::move(query_info), server_idx, timeout,
+                        std::move(promise));
+  }
+
+  void send_query_to_server(std::string name, td::BufferSlice data, size_t server_idx, td::Timestamp timeout,
+                            td::Promise<td::BufferSlice> promise) override {
+    if (server_idx >= servers_.size()) {
+      promise.set_error(td::Status::Error(PSTRING() << "server idx " << server_idx << " is too big"));
+      return;
+    }
+    server_idx = server_indices_[server_idx];
+    QueryInfo query_info = get_query_info(data);
+    prepare_server(server_idx, &query_info);
+    send_query_internal(std::move(name), std::move(data), std::move(query_info), server_idx, timeout,
+                        std::move(promise));
+  }
+
+  void get_servers_status(td::Promise<std::vector<bool>> promise) override {
+    std::vector<bool> status(servers_.size());
+    for (const Server& s : servers_) {
+      status[s.idx] = s.alive;
+    }
+    promise.set_result(std::move(status));
+  }
+
+  void reset_servers() override {
+    LOG(INFO) << "Force resetting all liteservers";
+    for (Server& server : servers_) {
+      server.alive = false;
+      server.timeout = {};
+      server.ignore_until = {};
+      server.client.reset();
+    }
+  }
+
+ private:
+  void send_query_internal(std::string name, td::BufferSlice data, QueryInfo query_info, size_t server_idx,
+                           td::Timestamp timeout, td::Promise<td::BufferSlice> promise) {
     auto& server = servers_[server_idx];
     CHECK(!server.client.empty());
-    alarm_timestamp().relax(server.timeout = td::Timestamp::in(MAX_NO_QUERIES_TIMEOUT));
+    if (!connect_to_all_) {
+      alarm_timestamp().relax(server.timeout = td::Timestamp::in(MAX_NO_QUERIES_TIMEOUT));
+    }
     td::Promise<td::BufferSlice> P = [SelfId = actor_id(this), server_idx,
                                       promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
       if (R.is_error() &&
@@ -59,17 +109,6 @@ class ExtClientImpl : public ExtClient {
                  std::move(P));
   }
 
-  void reset_servers() override {
-    LOG(INFO) << "Force resetting all liteservers";
-    for (Server& server : servers_) {
-      server.alive = false;
-      server.timeout = {};
-      server.ignore_until = {};
-      server.client.reset();
-    }
-  }
-
- private:
   td::Result<size_t> select_server(const QueryInfo& query_info) {
     for (size_t i = 0; i < servers_.size(); ++i) {
       if (servers_[i].alive && servers_[i].config.accepts_query(query_info)) {
@@ -101,12 +140,22 @@ class ExtClientImpl : public ExtClient {
     if (server_idx == servers_.size()) {
       return td::Status::Error(PSTRING() << "no liteserver for query " << query_info.to_str());
     }
+    prepare_server(server_idx, &query_info);
+    return server_idx;
+  }
+
+  void prepare_server(size_t server_idx, const QueryInfo* query_info) {
     Server& server = servers_[server_idx];
+    if (server.alive) {
+      return;
+    }
     server.alive = true;
     server.ignore_until = {};
-    alarm_timestamp().relax(server.timeout = td::Timestamp::in(MAX_NO_QUERIES_TIMEOUT));
+    if (!connect_to_all_) {
+      alarm_timestamp().relax(server.timeout = td::Timestamp::in(MAX_NO_QUERIES_TIMEOUT));
+    }
     if (!server.client.empty()) {
-      return server_idx;
+      return;
     }
 
     class Callback : public ton::adnl::AdnlExtClient::Callback {
@@ -124,10 +173,9 @@ class ExtClientImpl : public ExtClient {
       size_t idx_;
     };
     LOG(INFO) << "Connecting to liteserver #" << server.idx << " (" << server.config.addr.get_ip_str() << ":"
-              << server.config.addr.get_port() << ") for query " << query_info.to_str();
+              << server.config.addr.get_port() << ") for query " << (query_info ? query_info->to_str() : "[none]");
     server.client = ton::adnl::AdnlExtClient::create(server.config.adnl_id, server.config.addr,
                                                      std::make_unique<Callback>(actor_id(this), server_idx));
-    return server_idx;
   }
 
   struct Server {
@@ -139,12 +187,17 @@ class ExtClientImpl : public ExtClient {
     td::Timestamp ignore_until = td::Timestamp::never();
   };
   std::vector<Server> servers_;
+  std::vector<size_t> server_indices_;
 
   td::unique_ptr<Callback> callback_;
+  bool connect_to_all_ = false;
   static constexpr double MAX_NO_QUERIES_TIMEOUT = 100.0;
   static constexpr double BAD_SERVER_TIMEOUT = 30.0;
 
   void alarm() override {
+    if (connect_to_all_) {
+      return;
+    }
     for (Server& server : servers_) {
       if (server.timeout && server.timeout.is_in_past()) {
         LOG(INFO) << "Closing connection to liteserver #" << server.idx << " (" << server.config.addr.get_ip_str()
@@ -168,7 +221,8 @@ td::actor::ActorOwn<ExtClient> ExtClient::create(ton::adnl::AdnlNodeIdFull dst, 
 }
 
 td::actor::ActorOwn<ExtClient> ExtClient::create(std::vector<LiteServerConfig> liteservers,
-                                                 td::unique_ptr<Callback> callback) {
-  return td::actor::create_actor<ExtClientImpl>("ExtClient", std::move(liteservers), std::move(callback));
+                                                 td::unique_ptr<Callback> callback, bool connect_to_all) {
+  return td::actor::create_actor<ExtClientImpl>("ExtClient", std::move(liteservers), std::move(callback),
+                                                connect_to_all);
 }
 }  // namespace liteclient
