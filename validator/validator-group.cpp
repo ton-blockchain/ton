@@ -418,6 +418,16 @@ void ValidatorGroup::destroy() {
                               td::actor::send_closure(manager, &ValidatorManager::log_validator_session_stats, block_id,
                                                       std::move(stats));
                             });
+    td::actor::send_closure(session_, &validatorsession::ValidatorSession::get_end_stats,
+                            [manager = manager_](td::Result<validatorsession::EndValidatorGroupStats> R) {
+                              if (R.is_error()) {
+                                LOG(DEBUG) << "Failed to get validator session end stats: " << R.move_as_error();
+                                return;
+                              }
+                              auto stats = R.move_as_ok();
+                              td::actor::send_closure(manager, &ValidatorManager::log_end_validator_group_stats,
+                                                      std::move(stats));
+                            });
     auto ses = session_.release();
     delay_action([ses]() mutable { td::actor::send_closure(ses, &validatorsession::ValidatorSession::destroy); },
                  td::Timestamp::in(10.0));

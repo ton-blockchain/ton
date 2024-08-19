@@ -2902,7 +2902,31 @@ void ValidatorManagerImpl::log_new_validator_group_stats(validatorsession::NewVa
   file << s << "\n";
   file.close();
 
-  LOG(INFO) << "Writing new validator group stats for " << stats.shard.to_str();
+  LOG(INFO) << "Writing new validator group stats for " << stats.session_id << " shard=" << stats.shard.to_str()
+            << " cc_seqno=" << stats.cc_seqno;
+}
+
+void ValidatorManagerImpl::log_end_validator_group_stats(validatorsession::EndValidatorGroupStats stats) {
+  std::string fname = opts_->get_session_logs_file();
+  if (fname.empty()) {
+    return;
+  }
+  std::vector<tl_object_ptr<ton_api::validatorSession_endValidatorGroupStats_node>> nodes;
+  for (const auto &node : stats.nodes) {
+    nodes.push_back(create_tl_object<ton_api::validatorSession_endValidatorGroupStats_node>(node.id.bits256_value(),
+                                                                                            node.catchain_blocks));
+  }
+  auto obj = create_tl_object<ton_api::validatorSession_endValidatorGroupStats>(stats.session_id, stats.timestamp,
+                                                                                std::move(nodes));
+  auto s = td::json_encode<std::string>(td::ToJson(*obj.get()), false);
+  s.erase(std::remove_if(s.begin(), s.end(), [](char c) { return c == '\n' || c == '\r'; }), s.end());
+
+  std::ofstream file;
+  file.open(fname, std::ios_base::app);
+  file << s << "\n";
+  file.close();
+
+  LOG(INFO) << "Writing end validator group stats for " << stats.session_id;
 }
 
 void ValidatorManagerImpl::get_block_handle_for_litequery(BlockIdExt block_id, td::Promise<ConstBlockHandle> promise) {

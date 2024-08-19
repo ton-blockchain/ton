@@ -388,8 +388,8 @@ tonNode.newShardBlock block:tonNode.blockIdExt cc_seqno:int data:bytes = tonNode
 
 tonNode.blockBroadcastCompressed.data signatures:(vector tonNode.blockSignature) proof_data:bytes = tonNode.blockBroadcaseCompressed.Data;
 
-tonNode.blockBroadcast id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int 
-              signatures:(vector tonNode.blockSignature) 
+tonNode.blockBroadcast id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int
+              signatures:(vector tonNode.blockSignature)
               proof:bytes data:bytes = tonNode.Broadcast;
 tonNode.blockBroadcastCompressed id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int
               flags:# compressed:bytes = tonNode.Broadcast;
@@ -795,6 +795,10 @@ validatorSession.newValidatorGroupStats.node id:int256 weight:long = validatorSe
 validatorSession.newValidatorGroupStats session_id:int256 workchain:int shard:long cc_seqno:int
     last_key_block_seqno:int timestamp:double
     self_idx:int nodes:(vector validatorSession.newValidatorGroupStats.node) = validatorSession.NewValidatorGroupStats;
+
+validatorSession.endValidatorGroupStats.node id:int256 catchain_blocks:int = validatorSession.endValidatorGroupStats.Node;
+validatorSession.endValidatorGroupStats session_id:int256 timestamp:double
+    nodes:(vector validatorSession.endValidatorGroupStats.node) = validatorSession.EndValidatorGroupStats;
 
 ---functions---
 

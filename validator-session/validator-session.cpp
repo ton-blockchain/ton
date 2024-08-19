@@ -1003,6 +1003,29 @@ void ValidatorSessionImpl::get_current_stats(td::Promise<ValidatorSessionStats> 
   promise.set_result(cur_stats_);
 }
 
+void ValidatorSessionImpl::get_end_stats(td::Promise<EndValidatorGroupStats> promise) {
+  if (!started_) {
+    promise.set_error(td::Status::Error(ErrorCode::notready, "not started"));
+    return;
+  }
+  EndValidatorGroupStats stats;
+  stats.session_id = unique_hash_;
+  stats.timestamp = td::Clocks::system();
+  stats.nodes.resize(description().get_total_nodes());
+  for (size_t i = 0; i < stats.nodes.size(); ++i) {
+    stats.nodes[i].id = description().get_source_id(i);
+  }
+  td::actor::send_closure(catchain_, &catchain::CatChain::get_source_heights,
+                          [promise = std::move(promise),
+                           stats = std::move(stats)](td::Result<std::vector<catchain::CatChainBlockHeight>> R) mutable {
+                            TRY_RESULT_PROMISE(promise, heights, std::move(R));
+                            for (size_t i = 0; i < std::min(heights.size(), stats.nodes.size()); ++i) {
+                              stats.nodes[i].catchain_blocks = heights[i];
+                            }
+                            promise.set_result(std::move(stats));
+                          });
+}
+
 void ValidatorSessionImpl::get_validator_group_info_for_litequery(
     td::uint32 cur_round,
     td::Promise<std::vector<tl_object_ptr<lite_api::liteServer_nonfinal_candidateInfo>>> promise) {

@@ -167,6 +167,17 @@ struct NewValidatorGroupStats {
   std::vector<Node> nodes;
 };
 
+struct EndValidatorGroupStats {
+  struct Node {
+    PublicKeyHash id = PublicKeyHash::zero();
+    td::uint32 catchain_blocks = 0;
+  };
+
+  ValidatorSessionId session_id = ValidatorSessionId::zero();
+  double timestamp = -1.0;
+  std::vector<Node> nodes;
+};
+
 }  // namespace validatorsession
 
 }  // namespace ton

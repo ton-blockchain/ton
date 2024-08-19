@@ -4119,6 +4119,8 @@ bool Collator::process_new_messages(bool enqueue_only) {
     } else if (res == 3) {
       LOG(INFO) << "All remaining new messages must be enqueued (BLOCK FULL)";
       enqueue_only = true;
+      stats_.limits_log += PSTRING() << "NEW_MESSAGES: "
+                                     << block_full_comment(*block_limit_status_, block::ParamLimits::cl_normal) << "\n";
     }
   }
   return true;
