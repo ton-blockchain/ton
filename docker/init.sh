@@ -9,8 +9,10 @@ fi
 
 # global config
 if [ ! -z "$GLOBAL_CONFIG_URL" ]; then
-    echo -e "\e[1;32m[+]\e[0m Downloading provided global config."
-    wget -q $GLOBAL_CONFIG_URL -O /var/ton-work/db/ton-global.config
+#    echo -e "\e[1;32m[+]\e[0m Downloading provided global config."
+#    wget -q $GLOBAL_CONFIG_URL -O /var/ton-work/db/ton-global.config
+    echo -e "\e[1;31m[!]\e[0m Global config using exist path: $GLOBAL_CONFIG_URL"
+    cp $GLOBAL_CONFIG_URL /var/ton-work/db/ton-global.config
 else
     echo -e "\e[1;33m[=]\e[0m No global config provided, downloading mainnet default."
     wget -q https://api.tontech.io/ton/wallet-mainnet.autoconf.json -O /var/ton-work/db/ton-global.config

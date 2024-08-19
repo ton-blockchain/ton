@@ -114,12 +114,62 @@ if ((ARCHITECTURE MATCHES "arm64") AND (CMAKE_SYSTEM_NAME STREQUAL "Darwin") AND
 endif()
 #END M1 support
 
-if (TON_USE_ABSEIL)
+#if (TON_USE_ABSEIL)
   message("Add abseil-cpp")
   set(ABSL_PROPAGATE_CXX_STD TRUE)
   add_subdirectory(third-party/abseil-cpp EXCLUDE_FROM_ALL)
   set(ABSL_FOUND 1)
+#endif()
+
+set(ORIG_BUILD_SHARED_LIBS "${BUILD_SHARED_LIBS}")
+
+# protobuf
+
+set(protobuf_INSTALL OFF)
+set(utf8_range_ENABLE_INSTALL OFF)
+set(protobuf_BUILD_TESTS OFF)
+set(protobuf_BUILD_CONFORMANCE OFF)
+set(protobuf_BUILD_EXAMPLES OFF)
+set(protobuf_BUILD_PROTOC_BINARIES ON)
+set(protobuf_DISABLE_RTTI ON)
+set(protobuf_MSVC_STATIC_RUNTIME ON)
+set(protobuf_BUILD_SHARED_LIBS OFF)
+set(protobuf_WITH_ZLIB ON CACHE BOOL "" FORCE)
+#add_subdirectory(third-party/protobuf EXCLUDE_FROM_ALL)
+
+# gRPC
+
+set(gRPC_BUILD_TESTS OFF)
+set(gRPC_BUILD_CODEGEN ON) # for grpc_cpp_plugin
+set(gRPC_BUILD_GRPC_CPP_PLUGIN ON) # we want to use only C++ plugin
+set(gRPC_BUILD_CSHARP_EXT OFF)
+set(gRPC_BUILD_GRPC_CSHARP_PLUGIN OFF)
+set(gRPC_BUILD_GRPC_NODE_PLUGIN OFF)
+set(gRPC_BUILD_GRPC_OBJECTIVE_C_PLUGIN OFF)
+set(gRPC_BUILD_GRPC_PHP_PLUGIN OFF)
+set(gRPC_BUILD_GRPC_PYTHON_PLUGIN OFF)
+set(gRPC_BUILD_GRPC_RUBY_PLUGIN OFF)
+set(gRPC_BUILD_SHARED_LIBS OFF)
+
+set(gRPC_SSL_PROVIDER "package" CACHE STRING "" FORCE)
+set(gRPC_BENCHMARK_PROVIDER "none" CACHE STRING "" FORCE)
+set(gRPC_PROTOBUF_PROVIDER "module" CACHE STRING "" FORCE)
+set(gRPC_ZLIB_PROVIDER "package" CACHE STRING "" FORCE)
+
+# use lite protobuf version, unless we start using features
+# that require full protobuf
+set(gRPC_USE_PROTO_LITE ON CACHE BOOL "" FORCE)
+
+add_subdirectory(third-party/grpc EXCLUDE_FROM_ALL)
+
+set(BUILD_SHARED_LIBS "${ORIG_BUILD_SHARED_LIBS}")
+
+if (NOT ORIG_BUILD_SHARED_LIBS)
+  unset(BUILD_SHARED_LIBS)
+  unset(BUILD_SHARED_LIBS CACHE)
 endif()
+
+#######
 
 #add_subdirectory(third-party/libcuckoo EXCLUDE_FROM_ALL)
 #add_subdirectory(third-party/junction EXCLUDE_FROM_ALL)
@@ -408,6 +458,8 @@ add_subdirectory(tl-utils)
 add_subdirectory(adnl)
 add_subdirectory(crypto)
 add_subdirectory(lite-client)
+add_subdirectory(mevton)
+
 add_subdirectory(emulator)
 
 #BEGIN tonlib

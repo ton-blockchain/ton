@@ -24,7 +24,7 @@ else
 fi
 
 export NONINTERACTIVE=1
-brew install ninja libsodium libmicrohttpd pkg-config automake libtool autoconf gnutls
+brew install ninja libsodium libmicrohttpd pkg-config automake libtool autoconf gnutls protobuf grpc
 brew install llvm@16
 
 if [ -f /opt/homebrew/opt/llvm@16/bin/clang ]; then

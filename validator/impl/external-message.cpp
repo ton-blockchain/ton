@@ -87,7 +87,7 @@ td::Result<Ref<ExtMessageQ>> ExtMessageQ::create_ext_message(td::BufferSlice dat
 }
 
 void ExtMessageQ::run_message(td::Ref<ExtMessage> message, td::actor::ActorId<ton::validator::ValidatorManager> manager,
-                              td::Promise<td::Ref<ExtMessage>> promise) {
+                              Mevton* mevton, td::Promise<td::Ref<ExtMessage>> promise) {
   auto root = message->root_cell();
   block::gen::CommonMsgInfo::Record_ext_in_msg_info info;
   tlb::unpack_cell_inexact(root, info);  // checked in create message
@@ -96,7 +96,7 @@ void ExtMessageQ::run_message(td::Ref<ExtMessage> message, td::actor::ActorId<to
 
   run_fetch_account_state(
       wc, addr, manager,
-      [promise = std::move(promise), msg_root = root, wc, addr, message](
+      [promise = std::move(promise), msg_root = root, wc, addr, message, manager, mevton](
           td::Result<std::tuple<td::Ref<vm::CellSlice>, UnixTime, LogicalTime, std::unique_ptr<block::ConfigInfo>>>
               res) mutable {
         if (res.is_error()) {
@@ -112,7 +112,7 @@ void ExtMessageQ::run_message(td::Ref<ExtMessage> message, td::actor::ActorId<to
           if (!acc.unpack(shard_acc, utime, special)) {
             promise.set_error(td::Status::Error(PSLICE() << "Failed to unpack account state"));
           } else {
-            auto status = run_message_on_account(wc, &acc, utime, lt + 1, msg_root, std::move(config));
+            auto status = run_message_on_account(wc, &acc, utime, lt + 1, msg_root, std::move(config), std::move(manager), message, mevton);
             if (status.is_ok()) {
               promise.set_value(std::move(message));
             } else {
@@ -128,7 +128,10 @@ td::Status ExtMessageQ::run_message_on_account(ton::WorkchainId wc,
                                                block::Account* acc,
                                                UnixTime utime, LogicalTime lt,
                                                td::Ref<vm::Cell> msg_root,
-                                               std::unique_ptr<block::ConfigInfo> config) {
+                                               std::unique_ptr<block::ConfigInfo> config,
+                                               td::actor::ActorId<ton::validator::ValidatorManager> manager,
+                                               td::Ref<ExtMessage> message,
+                                               Mevton* mevton) {
 
    Ref<vm::Cell> old_mparams;
    std::vector<block::StoragePrices> storage_prices_;
@@ -168,6 +171,9 @@ td::Status ExtMessageQ::run_message_on_account(ton::WorkchainId wc,
      LOG(DEBUG) << "Cannot commit new transaction for smart contract";
      return td::Status::Error("Cannot commit new transaction for smart contract");
    }
+
+   mevton->SubmitExternalMessage(message, std::move(trans));
+
    return td::Status::OK();
 }
 

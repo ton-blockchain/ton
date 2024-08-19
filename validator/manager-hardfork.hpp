@@ -494,6 +494,10 @@ class ValidatorManagerImpl : public ValidatorManager {
     opts_ = std::move(opts);
   }
 
+  std::vector<MevtonBundle> get_mevton_bundles() override {
+    return {};
+  }
+
  private:
   td::Ref<ValidatorManagerOptions> opts_;
 

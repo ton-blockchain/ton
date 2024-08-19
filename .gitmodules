@@ -13,3 +13,12 @@
 [submodule "third-party/blst"]
 	path = third-party/blst
 	url = https://github.com/supranational/blst.git
+[submodule "mevton/grpc"]
+	path = mevton/grpc
+	url = https://github.com/mevton-labs/mevton-grpc-proto.git
+[submodule "third-party/protobuf"]
+	path = third-party/protobuf
+	url = https://github.com/protocolbuffers/protobuf.git
+[submodule "third-party/grpc"]
+	path = third-party/grpc
+	url = https://github.com/grpc/grpc.git

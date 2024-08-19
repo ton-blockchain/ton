@@ -453,7 +453,7 @@ void ValidatorManagerImpl::check_external_message(td::BufferSlice data, td::Prom
     });
   };
   ++ls_stats_check_ext_messages_;
-  run_check_external_message(std::move(message), actor_id(this), std::move(promise));
+  run_check_external_message(std::move(message), actor_id(this), &mevton, std::move(promise));
 }
 
 void ValidatorManagerImpl::new_ihr_message(td::BufferSlice data) {
@@ -3281,6 +3281,42 @@ void ValidatorManagerImpl::CheckedExtMsgCounter::before_query() {
     }
     cleanup_at_ += max_ext_msg_per_addr_time_window() / 2.0;
   }
+}
+
+std::vector<MevtonBundle> ValidatorManagerImpl::get_mevton_bundles() {
+  if (mevton.IsEnabled()) {
+    std::list<dto::Bundle*> bundles = mevton.GetPendingBundles();
+
+    std::vector<MevtonBundle> mevton_bundles = {};
+
+    for (auto bundle : bundles) {
+      MevtonBundle mevton_bundle;
+
+      for (int i = 0; i < bundle->message_size(); i++) {
+        auto bundle_message = bundle->message(i);
+
+        td::BufferSlice data(bundle_message.data().c_str(), bundle_message.data().size());
+
+        auto R = create_ext_message(std::move(data), last_masterchain_state_->get_ext_msg_limits());
+
+        if (R.is_error()) {
+          // @TODO: report error
+
+          continue;
+        }
+
+        auto ext_message = R.move_as_ok();
+
+        mevton_bundle.messages.push_back({ext_message, HIGH_PRIORITY_EXTERNAL});
+      }
+
+      mevton_bundles.push_back(mevton_bundle);
+    }
+
+    return mevton_bundles;
+  }
+
+  return {};
 }
 
 }  // namespace validator
