@@ -1291,26 +1291,6 @@ td::Status GetCollatorOptionsJsonQuery::receive(td::BufferSlice data) {
   return td::Status::OK();
 }
 
-td::Status GetValidatorSessionsInfoQuery::run() {
-  TRY_STATUS(tokenizer_.check_endl());
-  return td::Status::OK();
-}
-
-td::Status GetValidatorSessionsInfoQuery::send() {
-  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_getValidatorSessionsInfo>();
-  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
-  return td::Status::OK();
-}
-
-td::Status GetValidatorSessionsInfoQuery::receive(td::BufferSlice data) {
-  TRY_RESULT_PREFIX(
-      f, ton::fetch_tl_object<ton::ton_api::engine_validator_validatorSessionsInfo>(data.as_slice(), true),
-      "received incorrect answer: ");
-  std::string s = td::json_encode<std::string>(td::ToJson(*f), true);
-  td::TerminalIO::out() << "---------\n" << s << "--------\n";
-  return td::Status::OK();
-}
-
 td::Status AddCollatorQuery::run() {
   TRY_RESULT_ASSIGN(adnl_id_, tokenizer_.get_token<ton::PublicKeyHash>());
   TRY_RESULT_ASSIGN(wc_, tokenizer_.get_token<td::int32>());

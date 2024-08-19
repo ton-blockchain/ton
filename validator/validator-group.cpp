@@ -448,25 +448,6 @@ void ValidatorGroup::get_validator_group_info_for_litequery_cont(
   promise.set_result(std::move(result));
 }
 
-void ValidatorGroup::get_session_info(
-    td::Promise<tl_object_ptr<ton_api::engine_validator_validatorSessionInfo>> promise) {
-  if (session_.empty() || !started_) {
-    promise.set_error(td::Status::Error(ErrorCode::notready, "session not started"));
-  }
-  auto P = td::PromiseCreator::lambda(
-      [promise = std::move(promise), block_id = create_next_block_id_simple()](
-          td::Result<tl_object_ptr<ton_api::engine_validator_validatorSessionInfo>> R) mutable {
-        if (R.is_error()) {
-          promise.set_error(R.move_as_error());
-          return;
-        }
-        auto info = R.move_as_ok();
-        info->current_block_ = create_tl_block_id_simple(block_id);
-        promise.set_result(std::move(info));
-      });
-  td::actor::send_closure(session_, &validatorsession::ValidatorSession::get_session_info, std::move(P));
-}
-
 void ValidatorGroup::collate_block(td::uint32 round_id, td::Timestamp timeout, td::Promise<BlockCandidate> promise,
                                    unsigned max_retries) {
   if (round_id < last_known_round_id_) {

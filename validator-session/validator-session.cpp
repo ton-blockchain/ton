@@ -1206,18 +1206,6 @@ void ValidatorSessionImpl::stats_process_action(td::uint32 node_id, ton_api::val
                                      [](const auto &) {}));
 }
 
-void ValidatorSessionImpl::get_session_info(
-    td::Promise<tl_object_ptr<ton_api::engine_validator_validatorSessionInfo>> promise) {
-  std::vector<td::Bits256> next_producers;
-  for (td::uint32 round = cur_round_; round < cur_round_ + 20; ++round) {
-    td::uint32 node = description().get_node_by_priority(round, 0);
-    next_producers.push_back(description().get_source_id(node).bits256_value());
-  }
-  promise.set_result(create_tl_object<ton_api::engine_validator_validatorSessionInfo>(
-      create_tl_block_id_simple(BlockId{}), description().get_source_id(local_idx()).bits256_value(),
-      cur_round_, std::move(next_producers)));
-}
-
 td::actor::ActorOwn<ValidatorSession> ValidatorSession::create(
     catchain::CatChainSessionId session_id, ValidatorSessionOptions opts, PublicKeyHash local_id,
     std::vector<ValidatorSessionNode> nodes, std::unique_ptr<Callback> callback,

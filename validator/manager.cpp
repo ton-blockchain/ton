@@ -3394,39 +3394,6 @@ void ValidatorManagerImpl::update_options(td::Ref<ValidatorManagerOptions> opts)
   opts_ = std::move(opts);
 }
 
-void ValidatorManagerImpl::get_validator_sessions_info(
-    td::Promise<tl_object_ptr<ton_api::engine_validator_validatorSessionsInfo>> promise) {
-  std::vector<td::actor::ActorId<ValidatorGroup>> groups;
-  for (const auto& g : validator_groups_) {
-    groups.push_back(g.second.actor.get());
-  }
-  struct IntermediateData {
-    std::vector<td::actor::ActorId<ValidatorGroup>> groups;
-    std::vector<tl_object_ptr<ton_api::engine_validator_validatorSessionInfo>> result;
-    td::Promise<tl_object_ptr<ton_api::engine_validator_validatorSessionsInfo>> promise;
-
-    static void step(IntermediateData data) {
-      if (data.groups.empty()) {
-        data.promise.set_result(
-            create_tl_object<ton_api::engine_validator_validatorSessionsInfo>(std::move(data.result)));
-        return;
-      }
-      auto group = std::move(data.groups.back());
-      data.groups.pop_back();
-      auto P = td::PromiseCreator::lambda(
-          [data =
-               std::move(data)](td::Result<tl_object_ptr<ton_api::engine_validator_validatorSessionInfo>> R) mutable {
-            if (R.is_ok()) {
-              data.result.push_back(R.move_as_ok());
-            }
-            step(std::move(data));
-          });
-      td::actor::send_closure(group, &ValidatorGroup::get_session_info, std::move(P));
-    }
-  };
-  IntermediateData::step({std::move(groups), {}, std::move(promise)});
-}
-
 void ValidatorManagerImpl::add_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) {
   if (shard.is_masterchain() || !shard.is_valid_ext()) {
     LOG(WARNING) << "cannot collate shard " << shard.to_str();

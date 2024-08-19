@@ -712,10 +712,6 @@ engine.validator.perfTimerStats stats:(vector engine.validator.PerfTimerStatsByN
 
 engine.validator.shardOutQueueSize size:long = engine.validator.ShardOutQueueSize;
 
-engine.validator.validatorSessionInfo current_block:tonNode.blockId self:int256 current_round:int next_producers:(vector int256) = engine.validator.ValidatorSessionInfo;
-engine.validator.validatorSessionsInfo sessions:(vector engine.validator.validatorSessionInfo) = engine.validator.ValidatorSessionsInfo;
-
-engine.validator.requiredBlockCandidates block_ids:(vector tonNode.blockId) = engine.validator.RequiredBlockCandidates;
 
 ---functions---
 
@@ -778,8 +774,6 @@ engine.validator.setStateSerializerEnabled enabled:Bool = engine.validator.Succe
 
 engine.validator.setCollatorOptionsJson json:string = engine.validator.Success;
 engine.validator.getCollatorOptionsJson = engine.validator.JsonConfig;
-
-engine.validator.getValidatorSessionsInfo = engine.validator.ValidatorSessionsInfo;
 
 engine.validator.addCollator adnl_id:int256 shard:tonNode.shardId = engine.validator.Success;
 engine.validator.addShard shard:tonNode.shardId = engine.validator.Success;

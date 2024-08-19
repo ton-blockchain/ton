@@ -506,10 +506,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   }
   void add_persistent_state_description(td::Ref<PersistentStateDescription> desc) override {
   }
-  void get_validator_sessions_info(
-      td::Promise<tl_object_ptr<ton_api::engine_validator_validatorSessionsInfo>> promise) override {
-    UNREACHABLE();
-  }
 
   void add_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) override {
     UNREACHABLE();

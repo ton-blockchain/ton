@@ -1293,25 +1293,6 @@ class GetCollatorOptionsJsonQuery : public Query {
   std::string file_name_;
 };
 
-class GetValidatorSessionsInfoQuery : public Query {
- public:
-  GetValidatorSessionsInfoQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
-      : Query(console, std::move(tokenizer)) {
-  }
-  td::Status run() override;
-  td::Status send() override;
-  td::Status receive(td::BufferSlice data) override;
-  static std::string get_name() {
-    return "getvalidatorsessions";
-  }
-  static std::string get_help() {
-    return "getvalidatorsessions\tprint info about validator session";
-  }
-  std::string name() const override {
-    return get_name();
-  }
-};
-
 class AddCollatorQuery : public Query {
  public:
   AddCollatorQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)

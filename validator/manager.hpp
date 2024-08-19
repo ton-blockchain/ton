@@ -622,9 +622,6 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   void update_options(td::Ref<ValidatorManagerOptions> opts) override;
 
-  void get_validator_sessions_info(
-      td::Promise<tl_object_ptr<ton_api::engine_validator_validatorSessionsInfo>> promise) override;
-
   void add_persistent_state_description(td::Ref<PersistentStateDescription> desc) override;
 
   void add_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) override;
