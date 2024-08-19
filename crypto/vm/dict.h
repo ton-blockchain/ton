@@ -126,6 +126,9 @@ class DictionaryBase {
   DictionaryBase(Ref<Cell> cell, int _n, bool validate = true);
   DictionaryBase(DictNonEmpty, Ref<CellSlice> _root, int _n, bool validate = true);
   DictionaryBase(DictNonEmpty, const CellSlice& root_cs, int _n, bool validate = true);
+  DictionaryBase(const DictionaryBase& dictionary): root(dictionary.root.get()), root_cell(dictionary.root_cell.get()), key_bits(dictionary.key_bits), flags(dictionary.flags) {
+    ;
+  }
   virtual ~DictionaryBase() = default;
 
   static Ref<Cell> construct_root_from(const CellSlice& root_node_cs);
@@ -568,6 +571,7 @@ class AugmentedDictionary final : public DictionaryFixed {
   AugmentedDictionary(Ref<CellSlice> _root, int _n, const AugmentationData& _aug, bool validate = true);
   AugmentedDictionary(Ref<Cell> cell, int _n, const AugmentationData& _aug, bool validate = true);
   AugmentedDictionary(DictNonEmpty, Ref<CellSlice> _root, int _n, const AugmentationData& _aug, bool validate = true);
+  AugmentedDictionary(AugmentedDictionary& dictionary): DictionaryFixed(dictionary), aug(dictionary.aug) {}
   Ref<CellSlice> get_empty_dictionary() const;
   Ref<CellSlice> get_root() const;
   Ref<CellSlice> extract_root() &&;

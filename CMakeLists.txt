@@ -409,6 +409,7 @@ add_subdirectory(adnl)
 add_subdirectory(crypto)
 add_subdirectory(lite-client)
 add_subdirectory(emulator)
+add_subdirectory(mevton)
 
 #BEGIN tonlib
 add_subdirectory(tonlib)

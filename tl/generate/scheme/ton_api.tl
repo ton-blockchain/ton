@@ -570,7 +570,8 @@ adnl.config.global static_nodes:adnl.nodes = adnl.config.Global;
 catchain.config.global tag:int256 nodes:(vector PublicKey) = catchain.config.Global;
 dummyworkchain0.config.global zero_state_hash:int256 = dummyworkchain0.config.Global;
 validator.config.global zero_state:tonNode.blockIdExt init_block:tonNode.blockIdExt hardforks:(vector tonNode.blockIdExt) = validator.config.Global;
-config.global adnl:adnl.config.global dht:dht.config.Global validator:validator.config.global = config.Global;
+mevton.config.global enabled:Bool server_addr:string private_key:string = mevton.config.Global;
+config.global adnl:adnl.config.global dht:dht.config.Global validator:validator.config.global mevton:mevton.config.Global = config.Global;
 
 liteserver.desc id:PublicKey ip:int port:int = liteserver.Desc;
 liteclient.config.global liteservers:(vector liteserver.desc) validator:validator.config.global = liteclient.config.Global;

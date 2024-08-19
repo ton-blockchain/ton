@@ -151,6 +151,16 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
     return fast_state_serializer_enabled_;
   }
 
+  bool get_mevton_enabled() const override {
+    return mevton_enabled;
+  }
+  std::string get_mevton_addr() const override {
+    return mevton_addr;
+  }
+  std::string get_mevton_private_key() const override {
+    return mevton_private_key;
+  }
+
   void set_zero_block_id(BlockIdExt block_id) override {
     zero_block_id_ = block_id;
   }
@@ -240,6 +250,16 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
     fast_state_serializer_enabled_ = value;
   }
 
+  void set_mevton_enabled(bool value) override {
+    mevton_enabled = value;
+  }
+  void set_mevton_addr(std::string value) override {
+    mevton_addr = value;
+  }
+  void set_mevton_private_key(std::string value) override {
+    mevton_private_key = value;
+  }
+
   ValidatorManagerOptionsImpl *make_copy() const override {
     return new ValidatorManagerOptionsImpl(*this);
   }
@@ -293,6 +313,10 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   bool state_serializer_enabled_ = true;
   td::Ref<CollatorOptions> collator_options_{true};
   bool fast_state_serializer_enabled_ = false;
+
+  bool mevton_enabled;
+  std::string mevton_addr;
+  std::string mevton_private_key;
 };
 
 }  // namespace validator

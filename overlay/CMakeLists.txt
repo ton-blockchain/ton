@@ -28,5 +28,5 @@ target_include_directories(overlay PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/.. 
   ${OPENSSL_INCLUDE_DIR}
 )
-target_link_libraries(overlay PRIVATE tdutils tdactor adnl tl_api dht fec)
+target_link_libraries(overlay PRIVATE tdutils tdactor adnl tl_api dht fec mevton)
 

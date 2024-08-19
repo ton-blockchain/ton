@@ -39,6 +39,10 @@
 #include <set>
 #include <list>
 
+#include "mevton/mevton.h"
+
+static int HIGH_PRIORITY_EXTERNAL;
+
 namespace ton {
 
 namespace validator {
@@ -325,6 +329,9 @@ class ValidatorManagerImpl : public ValidatorManager {
   void finish_prestart_sync();
   void completed_prestart_sync();
 
+ private:
+  Mevton mevton;
+
  public:
   void install_callback(std::unique_ptr<Callback> new_callback, td::Promise<td::Unit> promise) override {
     callback_ = std::move(new_callback);
@@ -542,7 +549,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   ValidatorManagerImpl(td::Ref<ValidatorManagerOptions> opts, std::string db_root,
                        td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
                        td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays)
-      : opts_(std::move(opts)), db_root_(db_root), keyring_(keyring), adnl_(adnl), rldp_(rldp), overlays_(overlays) {
+      : opts_(std::move(opts)), db_root_(db_root), keyring_(keyring), adnl_(adnl), rldp_(rldp), overlays_(overlays),
+        mevton(opts_->get_mevton_enabled(), opts_->get_mevton_addr(), td::SecureString(td::Slice(opts_->get_mevton_private_key()))) {
   }
 
  public:
@@ -627,6 +635,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   void add_lite_query_stats(int lite_query_id) override {
     ++ls_stats_[lite_query_id];
   }
+
+  virtual std::vector<MevtonBundle> get_mevton_bundles() override;
 
  private:
   td::Timestamp resend_shard_blocks_at_;

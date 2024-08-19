@@ -35,6 +35,7 @@
 #include "top-shard-descr.hpp"
 #include <ctime>
 #include "td/utils/Random.h"
+#include "mevton/mevton.h"
 
 namespace ton {
 
@@ -2129,6 +2130,13 @@ bool Collator::do_collate() {
   LOG(INFO) << "process inbound internal messages";
   if (!process_inbound_internal_messages()) {
     return fatal_error("cannot process inbound internal messages");
+  }
+  // 4.5 MEVTON bundles
+  auto mevton_messages = manager.get_actor_unsafe().get_mevton_bundles();
+
+  LOG(INFO) << "process MEVTON bundles messages";
+  if (!process_mevton_external_messages(mevton_messages)) {
+    return fatal_error("cannot process MEVTON external messages");
   }
   // 5. import inbound external messages (if space&gas left)
   LOG(INFO) << "process inbound external messages";
@@ -5560,6 +5568,136 @@ void Collator::after_get_external_messages(td::Result<std::vector<std::pair<Ref<
 
 td::uint32 Collator::get_skip_externals_queue_size() {
   return SKIP_EXTERNALS_QUEUE_SIZE;
+}
+
+/**
+ * Processes MEVTON external messages.
+ * Messages are processed until the soft limit is reached, medium timeout is reached or there are no more messages.
+ *
+ * @returns True if the processing was successful, false otherwise.
+ */
+bool Collator::process_mevton_external_messages(std::vector<MevtonBundle> bundles) {
+  if (skip_extmsg_) {
+    LOG(INFO) << "skipping processing of mevton external messages";
+    return true;
+  }
+  if (out_msg_queue_size_ > SKIP_EXTERNALS_QUEUE_SIZE) {
+    LOG(INFO) << "skipping processing of mevton external messages (except for high-priority) because out_msg_queue is "
+                 "too big ("
+              << out_msg_queue_size_ << " > " << SKIP_EXTERNALS_QUEUE_SIZE << ")";
+  }
+
+  for (auto& bundle : bundles) {
+    // backup state variables
+    std::map<ton::Bits256, int> mevton_ext_msg_map = ext_msg_map;
+    std::vector<ExtMsg> mevton_ext_msg_list_ = ext_msg_list_;
+    vm::AugmentedDictionary mevton_in_msg_dict = *in_msg_dict;
+    std::map<ton::StdSmcAddress, block::Account> mevton_accounts;
+
+    for (auto const& it : accounts) {
+      mevton_accounts[it.first] = *it.second;
+    }
+
+    std::vector<ExtMessage::Hash> mevton_bad_ext_msgs_ = bad_ext_msgs_;
+    std::vector<ExtMessage::Hash> mevton_delay_ext_msgs_ = delay_ext_msgs_;
+    block::BlockLimitStatus mevton_block_limit_status_ = *block_limit_status_;
+    // finish
+
+    if (out_msg_queue_size_ + bundle.messages.size() > SKIP_EXTERNALS_QUEUE_SIZE) {
+      continue;
+    }
+
+    bool is_valid_bundle = convert_mevton_bundle_messages(bundle.messages);
+
+    if (! is_valid_bundle) {
+      LOG(WARNING) << "Got invalid bundle";
+
+      continue;
+    }
+
+    bool full = !block_limit_status_->fits(block::ParamLimits::cl_soft);
+
+    for (auto& ext_msg_struct : mevton_ext_msg_list_) {
+      if (full) {
+        LOG(INFO) << "BLOCK FULL, stop processing external messages";
+        break;
+      }
+      if (medium_timeout_.is_in_past(td::Timestamp::now())) {
+        LOG(WARNING) << "medium timeout reached, stop processing inbound external messages";
+        break;
+      }
+      auto ext_msg = ext_msg_struct.cell;
+      ton::Bits256 hash{ext_msg->get_hash().bits()};
+      int r = process_external_message(std::move(ext_msg));
+      if (r < 0) {
+        is_valid_bundle = false;
+        break;
+      }
+      if (!r) {
+        is_valid_bundle = false;
+        break;
+      }
+      if (r > 0) {
+        full = !block_limit_status_->fits(block::ParamLimits::cl_soft);
+      }
+      auto it = ext_msg_map.find(hash);
+      CHECK(it != ext_msg_map.end());
+      it->second = (r >= 1 ? 3 : -2);  // processed or skipped
+      if (r >= 3) {
+        is_valid_bundle = false;
+        break;
+      }
+    }
+
+    if (! is_valid_bundle) {
+      // recover last successful state if bundle failed!
+      ext_msg_map = mevton_ext_msg_map;
+      ext_msg_list_ = mevton_ext_msg_list_;
+      in_msg_dict = std::make_unique<vm::AugmentedDictionary>(mevton_in_msg_dict);
+      accounts.clear();
+      for (auto const& it : mevton_accounts) {
+        accounts[it.first] = std::make_unique<block::Account>(it.second);
+      }
+
+      bad_ext_msgs_ = mevton_bad_ext_msgs_;
+      delay_ext_msgs_ = mevton_delay_ext_msgs_;
+      block_limit_status_ = std::make_unique<block::BlockLimitStatus>(mevton_block_limit_status_);
+      // finish
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Callback function called after retrieving external messages.
+ *
+ * @param res The result of the external message retrieval operation.
+ */
+bool Collator::convert_mevton_bundle_messages(td::Result<std::vector<std::pair<Ref<ExtMessage>, int>>> res) {
+  if (res.is_error()) {
+    fatal_error(res.move_as_error());
+    return false;
+  }
+
+  auto vect = res.move_as_ok();
+  for (auto& p : vect) {
+    auto& ext_msg = p.first;
+    int priority = p.second;
+    Ref<vm::Cell> ext_msg_cell = ext_msg->root_cell();
+    bool err = ext_msg_cell.is_null();
+    if (!err) {
+      auto reg_res = register_external_message_cell(std::move(ext_msg_cell), ext_msg->hash(), priority);
+      if (reg_res.is_error() || !reg_res.move_as_ok()) {
+        LOG(WARNING) << "got invalid external message from mevton";
+
+        return false;
+      }
+    }
+  }
+  LOG(WARNING) << "got " << vect.size() << " external messages from mevton";
+
+  return true;
 }
 
 }  // namespace validator

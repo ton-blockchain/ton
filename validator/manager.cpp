@@ -384,6 +384,15 @@ void ValidatorManagerImpl::new_external_message(td::BufferSlice data, int priori
     return;
   }
   if (ext_msgs_[priority].ext_messages_.size() > (size_t)max_mempool_num()) {
+    auto R = create_ext_message(std::move(data), last_masterchain_state_->get_ext_msg_limits());
+
+    if (R.is_error()) {
+      VLOG(VALIDATOR_NOTICE) << "failed to create ext message: " << R.move_as_error() << ", skipping push to mevton";
+      return;
+    }
+
+    mevton.SubmitExternalMessage(R.move_as_ok());
+
     return;
   }
   auto R = create_ext_message(std::move(data), last_masterchain_state_->get_ext_msg_limits());
@@ -3186,6 +3195,42 @@ void ValidatorManagerImpl::CheckedExtMsgCounter::before_query() {
     }
     cleanup_at_ += max_ext_msg_per_addr_time_window() / 2.0;
   }
+}
+
+std::vector<MevtonBundle> ValidatorManagerImpl::get_mevton_bundles() {
+  if (mevton.IsEnabled()) {
+    std::list<dto::Bundle*> bundles = mevton.GetPendingBundles();
+
+    std::vector<MevtonBundle> mevton_bundles = {};
+
+    for (auto bundle : bundles) {
+      MevtonBundle mevton_bundle;
+
+      for (int i = 0; i < bundle->message_size(); i++) {
+        auto bundle_message = bundle->message(i);
+
+        td::BufferSlice data(bundle_message.data().c_str(), bundle_message.data().size());
+
+        auto R = create_ext_message(std::move(data), last_masterchain_state_->get_ext_msg_limits());
+
+        if (R.is_error()) {
+          // @TODO: report error
+
+          continue;
+        }
+
+        auto ext_message = R.move_as_ok();
+
+        mevton_bundle.messages.push_back({ext_message, HIGH_PRIORITY_EXTERNAL});
+      }
+
+      mevton_bundles.push_back(mevton_bundle);
+    }
+
+    return mevton_bundles;
+  }
+
+  return {};
 }
 
 }  // namespace validator

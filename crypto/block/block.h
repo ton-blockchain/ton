@@ -266,6 +266,11 @@ struct BlockLimitStatus {
   BlockLimitStatus(const BlockLimits& limits_, ton::LogicalTime lt = 0)
       : limits(limits_), cur_lt(std::max(limits_.start_lt, lt)) {
   }
+  BlockLimitStatus(std::unique_ptr<BlockLimitStatus>& block_limit_status)
+      : limits(block_limit_status->limits), cur_lt(block_limit_status->cur_lt), gas_used(block_limit_status->gas_used),
+      st_stat(block_limit_status->st_stat), accounts(block_limit_status->accounts), transactions(block_limit_status->transactions),
+      extra_out_msgs(block_limit_status->extra_out_msgs), public_library_diff(block_limit_status->public_library_diff) {
+  }
   void reset() {
     cur_lt = limits.start_lt;
     st_stat.set_zero();

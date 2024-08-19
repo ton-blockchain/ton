@@ -37,6 +37,8 @@
 #include "catchain/catchain-types.h"
 #include "interfaces/external-message.h"
 
+#include "mevton/mevton.h"
+
 namespace ton {
 
 namespace validator {
@@ -109,6 +111,10 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual td::Ref<CollatorOptions> get_collator_options() const = 0;
   virtual bool get_fast_state_serializer_enabled() const = 0;
 
+  virtual bool get_mevton_enabled() const = 0;
+  virtual std::string get_mevton_addr() const = 0;
+  virtual std::string get_mevton_private_key() const = 0;
+
   virtual void set_zero_block_id(BlockIdExt block_id) = 0;
   virtual void set_init_block_id(BlockIdExt block_id) = 0;
   virtual void set_shard_check_function(
@@ -140,6 +146,10 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual void set_collator_options(td::Ref<CollatorOptions> value) = 0;
   virtual void set_fast_state_serializer_enabled(bool value) = 0;
 
+  virtual void set_mevton_enabled(bool value) = 0;
+  virtual void set_mevton_addr(std::string value) = 0;
+  virtual void set_mevton_private_key(std::string value) = 0;
+
   static td::Ref<ValidatorManagerOptions> create(
       BlockIdExt zero_block_id, BlockIdExt init_block_id,
       std::function<bool(ShardIdFull, CatchainSeqno, ShardCheckMode)> check_shard = [](ShardIdFull, CatchainSeqno,
@@ -148,6 +158,10 @@ struct ValidatorManagerOptions : public td::CntObject {
       double state_ttl = 3600, double archive_ttl = 86400 * 7, double key_proof_ttl = 86400 * 3650,
       double max_mempool_num = 999999,
       bool initial_sync_disabled = false);
+};
+
+struct MevtonBundle {
+  std::vector<std::pair<td::Ref<ExtMessage>, int>> messages;
 };
 
 class ValidatorManagerInterface : public td::actor::Actor {
@@ -273,6 +287,8 @@ class ValidatorManagerInterface : public td::actor::Actor {
   virtual void get_out_msg_queue_size(BlockIdExt block_id, td::Promise<td::uint64> promise) = 0;
 
   virtual void update_options(td::Ref<ValidatorManagerOptions> opts) = 0;
+
+  virtual std::vector<MevtonBundle> get_mevton_bundles() = 0;
 };
 
 }  // namespace validator
