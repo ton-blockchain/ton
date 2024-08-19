@@ -77,6 +77,8 @@ struct ValidatorSessionStats {
     ValidatorSessionCandidateId candidate_id = ValidatorSessionCandidateId::zero();
     int block_status = status_none;
     double block_timestamp = -1.0;
+    td::Bits256 root_hash = td::Bits256::zero();
+    td::Bits256 file_hash = td::Bits256::zero();
     std::string comment;
 
     bool is_accepted = false;
@@ -159,6 +161,7 @@ struct NewValidatorGroupStats {
   ValidatorSessionId session_id = ValidatorSessionId::zero();
   ShardIdFull shard{masterchainId};
   CatchainSeqno cc_seqno = 0;
+  BlockSeqno last_key_block_seqno = 0;
   double timestamp = -1.0;
   td::uint32 self_idx = 0;
   std::vector<Node> nodes;

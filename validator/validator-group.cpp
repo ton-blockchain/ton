@@ -386,6 +386,7 @@ void ValidatorGroup::start(std::vector<BlockIdExt> prev, BlockIdExt min_masterch
   stats.session_id = session_id_;
   stats.shard = shard_;
   stats.cc_seqno = validator_set_->get_catchain_seqno();
+  stats.last_key_block_seqno = last_key_block_seqno_;
   stats.timestamp = td::Clocks::system();
   td::uint32 idx = 0;
   for (const auto& node : validator_set_->export_vector()) {

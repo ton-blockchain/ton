@@ -38,6 +38,7 @@
 #include <map>
 #include <set>
 #include <list>
+#include <queue>
 
 namespace ton {
 
@@ -261,7 +262,7 @@ class ValidatorManagerImpl : public ValidatorManager {
                                           BlockSeqno last_key_block_seqno,
                                           const validatorsession::ValidatorSessionOptions &opts);
   td::actor::ActorOwn<ValidatorGroup> create_validator_group(ValidatorSessionId session_id, ShardIdFull shard,
-                                                             td::Ref<ValidatorSet> validator_set,
+                                                             td::Ref<ValidatorSet> validator_set, BlockSeqno key_seqno,
                                                              validatorsession::ValidatorSessionOptions opts,
                                                              bool create_catchain);
   struct ValidatorGroupEntry {
@@ -708,6 +709,21 @@ class ValidatorManagerImpl : public ValidatorManager {
   td::uint32 ls_stats_check_ext_messages_{0};
 
   td::actor::ActorOwn<CandidatesBuffer> candidates_buffer_;
+
+  struct RecordedBlockStats {
+    double collator_work_time_ = -1.0;
+    double collator_cpu_work_time_ = -1.0;
+    td::optional<CollationStats> collator_stats_;
+    double validator_work_time_ = -1.0;
+    double validator_cpu_work_time_ = -1.0;
+  };
+  std::map<BlockIdExt, RecordedBlockStats> recorded_block_stats_;
+  std::queue<BlockIdExt> recorded_block_stats_lru_;
+
+  void record_collate_query_stats(BlockIdExt block_id, double work_time, double cpu_work_time,
+                                  CollationStats stats) override;
+  void record_validate_query_stats(BlockIdExt block_id, double work_time, double cpu_work_time) override;
+  RecordedBlockStats &new_block_stats_record(BlockIdExt block_id);
 };
 
 }  // namespace validator

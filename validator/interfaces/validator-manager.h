@@ -52,6 +52,16 @@ struct AsyncSerializerState {
   UnixTime last_written_block_ts;
 };
 
+struct CollationStats {
+  td::uint32 bytes, gas, lt_delta;
+  int cat_bytes, cat_gas, cat_lt_delta;
+  std::string limits_log;
+  td::uint32 ext_msgs_total = 0;
+  td::uint32 ext_msgs_filtered = 0;
+  td::uint32 ext_msgs_accepted = 0;
+  td::uint32 ext_msgs_rejected = 0;
+};
+
 using ValidateCandidateResult = td::Variant<UnixTime, CandidateReject>;
 
 class ValidatorManager : public ValidatorManagerInterface {
@@ -190,6 +200,12 @@ class ValidatorManager : public ValidatorManagerInterface {
       td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroups>> promise) = 0;
 
   virtual void add_lite_query_stats(int lite_query_id) {
+  }
+
+  virtual void record_collate_query_stats(BlockIdExt block_id, double work_time, double cpu_work_time,
+                                          CollationStats stats) {
+  }
+  virtual void record_validate_query_stats(BlockIdExt block_id, double work_time, double cpu_work_time) {
   }
 
   static bool is_persistent_state(UnixTime ts, UnixTime prev_ts) {
