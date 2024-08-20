@@ -369,6 +369,7 @@ void ValidatorGroup::start(std::vector<BlockIdExt> prev, BlockIdExt min_masterch
   stats.session_id = session_id_;
   stats.shard = shard_;
   stats.cc_seqno = validator_set_->get_catchain_seqno();
+  stats.last_key_block_seqno = last_key_block_seqno_;
   stats.timestamp = td::Clocks::system();
   td::uint32 idx = 0;
   for (const auto& node : validator_set_->export_vector()) {
@@ -398,6 +399,16 @@ void ValidatorGroup::destroy() {
                               }
                               stats.cc_seqno = cc_seqno;
                               td::actor::send_closure(manager, &ValidatorManager::log_validator_session_stats, block_id,
+                                                      std::move(stats));
+                            });
+    td::actor::send_closure(session_, &validatorsession::ValidatorSession::get_end_stats,
+                            [manager = manager_](td::Result<validatorsession::EndValidatorGroupStats> R) {
+                              if (R.is_error()) {
+                                LOG(DEBUG) << "Failed to get validator session end stats: " << R.move_as_error();
+                                return;
+                              }
+                              auto stats = R.move_as_ok();
+                              td::actor::send_closure(manager, &ValidatorManager::log_end_validator_group_stats,
                                                       std::move(stats));
                             });
     auto ses = session_.release();

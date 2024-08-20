@@ -115,6 +115,15 @@ class CatChainImpl : public CatChain {
     td::actor::send_closure(receiver_, &CatChainReceiverInterface::send_custom_query_data_via, dst, name,
                             std::move(promise), timeout, std::move(query), max_answer_size, via);
   }
+  void get_source_heights(td::Promise<std::vector<CatChainBlockHeight>> promise) override {
+    std::vector<CatChainBlockHeight> heights(top_source_blocks_.size(), 0);
+    for (size_t i = 0; i < top_source_blocks_.size(); ++i) {
+      if (top_source_blocks_[i]) {
+        heights[i] = top_source_blocks_[i]->height();
+      }
+    }
+    promise.set_result(std::move(heights));
+  }
   void destroy() override;
   CatChainImpl(std::unique_ptr<Callback> callback, const CatChainOptions &opts,
                td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,

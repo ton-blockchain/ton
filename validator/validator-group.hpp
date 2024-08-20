@@ -70,8 +70,8 @@ class ValidatorGroup : public td::actor::Actor {
   }
 
   ValidatorGroup(ShardIdFull shard, PublicKeyHash local_id, ValidatorSessionId session_id,
-                 td::Ref<ValidatorSet> validator_set, block::CollatorConfig collator_config,
-                 validatorsession::ValidatorSessionOptions config,
+                 td::Ref<ValidatorSet> validator_set, BlockSeqno last_key_block_seqno,
+                 block::CollatorConfig collator_config, validatorsession::ValidatorSessionOptions config,
                  td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
                  td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays,
                  std::string db_root, td::actor::ActorId<ValidatorManager> validator_manager, bool create_session,
@@ -80,6 +80,7 @@ class ValidatorGroup : public td::actor::Actor {
       , local_id_(std::move(local_id))
       , session_id_(session_id)
       , validator_set_(std::move(validator_set))
+      , last_key_block_seqno_(last_key_block_seqno)
       , collator_config_(std::move(collator_config))
       , config_(std::move(config))
       , keyring_(keyring)
@@ -122,6 +123,7 @@ class ValidatorGroup : public td::actor::Actor {
   BlockIdExt min_masterchain_block_id_;
 
   td::Ref<ValidatorSet> validator_set_;
+  BlockSeqno last_key_block_seqno_;
   block::CollatorConfig collator_config_;
   validatorsession::ValidatorSessionOptions config_;
 

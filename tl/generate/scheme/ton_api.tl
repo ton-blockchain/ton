@@ -400,8 +400,8 @@ tonNode.newShardBlock block:tonNode.blockIdExt cc_seqno:int data:bytes = tonNode
 
 tonNode.blockBroadcastCompressed.data signatures:(vector tonNode.blockSignature) proof_data:bytes = tonNode.blockBroadcaseCompressed.Data;
 
-tonNode.blockBroadcast id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int 
-              signatures:(vector tonNode.blockSignature) 
+tonNode.blockBroadcast id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int
+              signatures:(vector tonNode.blockSignature)
               proof:bytes data:bytes = tonNode.Broadcast;
 tonNode.blockBroadcastCompressed id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int
               flags:# compressed:bytes = tonNode.Broadcast;
@@ -832,13 +832,19 @@ http.server.config dhs:(vector http.server.dnsEntry) local_hosts:(vector http.se
 
 ---types---
 
-validatorSession.statsProducer id:int256 candidate_id:int256 block_status:int comment:string
-  block_timestamp:double is_accepted:Bool is_ours:Bool got_submit_at:double
+validatorSession.collationStats bytes:int gas:int lt_delta:int cat_bytes:int cat_gas:int cat_lt_delta:int
+  limits_log:string ext_msgs_total:int ext_msgs_filtered:int ext_msgs_accepted:int ext_msgs_rejected:int = validadorSession.CollationStats;
+
+validatorSession.statsProducer id:int256 candidate_id:int256 block_status:int root_hash:int256 file_hash:int256
+  comment:string block_timestamp:double is_accepted:Bool is_ours:Bool got_submit_at:double
   collation_time:double collated_at:double collation_cached:Bool
+  collation_work_time:double collation_cpu_work_time:double
+  collation_stats:validatorSession.collationStats
   validation_time:double validated_at:double validation_cached:Bool
+  validation_work_time:double validation_cpu_work_time:double
   gen_utime:double
-  approved_weight:long approved_33pct_at:double approved_66pct_at:double
-  signed_weight:long signed_33pct_at:double signed_66pct_at:double
+  approved_weight:long approved_33pct_at:double approved_66pct_at:double approvers:string
+  signed_weight:long signed_33pct_at:double signed_66pct_at:double signers:string
   serialize_time:double deserialize_time:double serialized_size:int = validatorSession.StatsProducer;
 
 validatorSession.statsRound timestamp:double producers:(vector validatorSession.statsProducer) = validatorSession.StatsRound;
@@ -854,8 +860,13 @@ collatorNode.generateBlockSuccess candidate:collatorNode.Candidate = collatorNod
 collatorNode.generateBlockError code:int message:string = collatorNode.GenerateBlockResult;
 
 validatorSession.newValidatorGroupStats.node id:int256 weight:long = validatorSession.newValidatorGroupStats.Node;
-validatorSession.newValidatorGroupStats session_id:int256 workchain:int shard:long cc_seqno:int timestamp:double
+validatorSession.newValidatorGroupStats session_id:int256 workchain:int shard:long cc_seqno:int
+    last_key_block_seqno:int timestamp:double
     self_idx:int nodes:(vector validatorSession.newValidatorGroupStats.node) = validatorSession.NewValidatorGroupStats;
+
+validatorSession.endValidatorGroupStats.node id:int256 catchain_blocks:int = validatorSession.endValidatorGroupStats.Node;
+validatorSession.endValidatorGroupStats session_id:int256 timestamp:double
+    nodes:(vector validatorSession.endValidatorGroupStats.node) = validatorSession.EndValidatorGroupStats;
 
 ---functions---
 collatorNode.generateBlock shard:tonNode.shardId cc_seqno:int prev_blocks:(vector tonNode.blockIdExt)

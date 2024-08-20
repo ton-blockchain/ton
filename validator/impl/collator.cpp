@@ -1855,6 +1855,12 @@ bool Collator::register_shard_block_creators(std::vector<td::Bits256> creator_li
  * @returns True if collation is successful, false otherwise.
  */
 bool Collator::try_collate() {
+  work_timer_.resume();
+  cpu_work_timer_.resume();
+  SCOPE_EXIT {
+    work_timer_.pause();
+    cpu_work_timer_.pause();
+  };
   if (!preinit_complete) {
     LOG(WARNING) << "running do_preinit()";
     if (!do_preinit()) {
@@ -3612,6 +3618,29 @@ bool Collator::process_inbound_message(Ref<vm::CellSlice> enq_msg, ton::LogicalT
 }
 
 /**
+ * Creates a string that explains which limit is exceeded. Used for collator stats.
+ *
+ * @param block_limit_status Status of block limits.
+ * @param cls Which limit class is exceeded.
+ *
+ * @returns String for collator stats.
+ */
+static std::string block_full_comment(const block::BlockLimitStatus& block_limit_status, unsigned cls) {
+  auto bytes = block_limit_status.estimate_block_size();
+  if (!block_limit_status.limits.bytes.fits(cls, bytes)) {
+    return PSTRING() << "block_full bytes " << bytes;
+  }
+  if (!block_limit_status.limits.gas.fits(cls, block_limit_status.gas_used)) {
+    return PSTRING() << "block_full gas " << block_limit_status.gas_used;
+  }
+  auto lt_delta = block_limit_status.cur_lt - block_limit_status.limits.start_lt;
+  if (!block_limit_status.limits.lt_delta.fits(cls, lt_delta)) {
+    return PSTRING() << "block_full lt_delta " << lt_delta;
+  }
+  return "";
+}
+
+/**
  * Processes inbound internal messages from message queues of the neighbors.
  * Messages are processed until the normal limit is reached, soft timeout is reached or there are no more messages.
  *
@@ -3642,11 +3671,14 @@ bool Collator::process_inbound_internal_messages() {
     }
     if (block_full_) {
       LOG(INFO) << "BLOCK FULL, stop processing inbound internal messages";
+      stats_.limits_log += PSTRING() << "INBOUND_INT_MESSAGES: "
+                                     << block_full_comment(*block_limit_status_, block::ParamLimits::cl_normal) << "\n";
       break;
     }
     if (soft_timeout_.is_in_past(td::Timestamp::now())) {
       block_full_ = true;
       LOG(WARNING) << "soft timeout reached, stop processing inbound internal messages";
+      stats_.limits_log += PSTRING() << "INBOUND_INT_MESSAGES: timeout\n";
       break;
     }
     if (!check_cancelled()) {
@@ -3695,10 +3727,13 @@ bool Collator::process_inbound_external_messages() {
     }
     if (full) {
       LOG(INFO) << "BLOCK FULL, stop processing external messages";
+      stats_.limits_log += PSTRING() << "INBOUND_EXT_MESSAGES: "
+                                     << block_full_comment(*block_limit_status_, block::ParamLimits::cl_soft) << "\n";
       break;
     }
     if (medium_timeout_.is_in_past(td::Timestamp::now())) {
       LOG(WARNING) << "medium timeout reached, stop processing inbound external messages";
+      stats_.limits_log += PSTRING() << "INBOUND_EXT_MESSAGES: timeout\n";
       break;
     }
     if (!check_cancelled()) {
@@ -3707,6 +3742,11 @@ bool Collator::process_inbound_external_messages() {
     auto ext_msg = ext_msg_struct.cell;
     ton::Bits256 hash{ext_msg->get_hash().bits()};
     int r = process_external_message(std::move(ext_msg));
+    if (r > 0) {
+      ++stats_.ext_msgs_accepted;
+    } else {
+      ++stats_.ext_msgs_rejected;
+    }
     if (r < 0) {
       bad_ext_msgs_.emplace_back(ext_msg_struct.hash);
       return false;
@@ -3812,11 +3852,15 @@ bool Collator::process_dispatch_queue() {
       block_full_ = !block_limit_status_->fits(block::ParamLimits::cl_normal);
       if (block_full_) {
         LOG(INFO) << "BLOCK FULL, stop processing dispatch queue";
+        stats_.limits_log += PSTRING() << "DISPATCH_QUEUE_STAGE_" << iter << ": "
+                                       << block_full_comment(*block_limit_status_, block::ParamLimits::cl_normal)
+                                       << "\n";
         return true;
       }
       if (soft_timeout_.is_in_past(td::Timestamp::now())) {
         block_full_ = true;
         LOG(WARNING) << "soft timeout reached, stop processing dispatch queue";
+        stats_.limits_log += PSTRING() << "DISPATCH_QUEUE_STAGE_" << iter << ": timeout\n";
         return true;
       }
       StdSmcAddress src_addr;
@@ -3866,6 +3910,7 @@ bool Collator::process_dispatch_queue() {
       ++total_count;
       if (total_count >= max_total_count[iter]) {
         dispatch_queue_total_limit_reached_ = true;
+        stats_.limits_log += PSTRING() << "DISPATCH_QUEUE_STAGE_" << iter << ": total limit reached\n";
         break;
       }
     }
@@ -4215,6 +4260,8 @@ bool Collator::process_new_messages(bool enqueue_only) {
     if ((block_full_ || have_unprocessed_account_dispatch_queue_) && !enqueue_only) {
       LOG(INFO) << "BLOCK FULL, enqueue all remaining new messages";
       enqueue_only = true;
+      stats_.limits_log += PSTRING() << "NEW_MESSAGES: "
+                                     << block_full_comment(*block_limit_status_, block::ParamLimits::cl_normal) << "\n";
     }
     if (!check_cancelled()) {
       return false;
@@ -4226,6 +4273,8 @@ bool Collator::process_new_messages(bool enqueue_only) {
     } else if (res == 3) {
       LOG(INFO) << "All remaining new messages must be enqueued (BLOCK FULL)";
       enqueue_only = true;
+      stats_.limits_log += PSTRING() << "NEW_MESSAGES: "
+                                     << block_full_comment(*block_limit_status_, block::ParamLimits::cl_normal) << "\n";
     }
   }
   return true;
@@ -5665,6 +5714,18 @@ bool Collator::create_block_candidate() {
     td::actor::send_closure_later(manager, &ValidatorManager::complete_external_messages, std::move(delay_ext_msgs_),
                                   std::move(bad_ext_msgs_));
   }
+
+  double work_time = work_timer_.elapsed();
+  double cpu_work_time = cpu_work_timer_.elapsed();
+  LOG(WARNING) << "Collate query work time = " << work_time << "s, cpu time = " << cpu_work_time << "s";
+  stats_.bytes = block_limit_status_->estimate_block_size();
+  stats_.gas = block_limit_status_->gas_used;
+  stats_.lt_delta = block_limit_status_->cur_lt - block_limit_status_->limits.start_lt;
+  stats_.cat_bytes = block_limit_status_->limits.classify_size(stats_.bytes);
+  stats_.cat_gas = block_limit_status_->limits.classify_gas(stats_.gas);
+  stats_.cat_lt_delta = block_limit_status_->limits.classify_lt(block_limit_status_->cur_lt);
+  td::actor::send_closure(manager, &ValidatorManager::record_collate_query_stats, block_candidate->id, work_time,
+                          cpu_work_time, std::move(stats_));
   return true;
 }
 
@@ -5770,6 +5831,7 @@ void Collator::after_get_external_messages(td::Result<std::vector<std::pair<Ref<
   }
   auto vect = res.move_as_ok();
   for (auto& p : vect) {
+    ++stats_.ext_msgs_total;
     auto& ext_msg = p.first;
     int priority = p.second;
     Ref<vm::Cell> ext_msg_cell = ext_msg->root_cell();
@@ -5781,6 +5843,7 @@ void Collator::after_get_external_messages(td::Result<std::vector<std::pair<Ref<
       }
     }
     if (err) {
+      ++stats_.ext_msgs_filtered;
       bad_ext_msgs_.emplace_back(ext_msg->hash());
     }
   }

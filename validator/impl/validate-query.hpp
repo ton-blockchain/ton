@@ -404,6 +404,10 @@ class ValidateQuery : public td::actor::Actor {
     }
     return true;
   }
+
+  td::Timer work_timer_{true};
+  td::ThreadCpuTimer cpu_work_timer_{true};
+  void record_stats();
 };
 
 }  // namespace validator

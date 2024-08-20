@@ -187,6 +187,7 @@ class ValidatorSessionImpl : public ValidatorSession {
   void start() override;
   void destroy() override;
   void get_current_stats(td::Promise<ValidatorSessionStats> promise) override;
+  void get_end_stats(td::Promise<EndValidatorGroupStats> promise) override;
   void get_validator_group_info_for_litequery(
       td::uint32 cur_round,
       td::Promise<std::vector<tl_object_ptr<lite_api::liteServer_nonfinal_candidateInfo>>> promise) override;

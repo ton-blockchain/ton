@@ -4639,15 +4639,19 @@ int main(int argc, char *argv[]) {
       });
   td::uint32 threads = 7;
   p.add_checked_option(
-      't', "threads", PSTRING() << "number of threads (default=" << threads << ")", [&](td::Slice fname) {
+      't', "threads", PSTRING() << "number of threads (default=" << threads << ")", [&](td::Slice arg) {
         td::int32 v;
         try {
-          v = std::stoi(fname.str());
+          v = std::stoi(arg.str());
         } catch (...) {
           return td::Status::Error(ton::ErrorCode::error, "bad value for --threads: not a number");
         }
-        if (v < 1 || v > 256) {
-          return td::Status::Error(ton::ErrorCode::error, "bad value for --threads: should be in range [1..256]");
+        if (v <= 0) {
+          return td::Status::Error(ton::ErrorCode::error, "bad value for --threads: should be > 0");
+        }
+        if (v > 127) {
+          LOG(WARNING) << "`--threads " << v << "` is too big, effective value will be 127";
+          v = 127;
         }
         threads = v;
         return td::Status::OK();
