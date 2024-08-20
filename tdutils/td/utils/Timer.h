@@ -62,4 +62,22 @@ class PerfWarningTimer {
   std::function<void(double)> callback_;
 };
 
+class ThreadCpuTimer {
+ public:
+  ThreadCpuTimer() : ThreadCpuTimer(false) {
+  }
+  explicit ThreadCpuTimer(bool is_paused);
+  ThreadCpuTimer(const ThreadCpuTimer &other) = default;
+  ThreadCpuTimer &operator=(const ThreadCpuTimer &other) = default;
+
+  double elapsed() const;
+  void pause();
+  void resume();
+
+ private:
+  double elapsed_{0};
+  double start_time_;
+  bool is_paused_{false};
+};
+
 }  // namespace td

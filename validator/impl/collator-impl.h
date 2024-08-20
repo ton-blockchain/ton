@@ -356,6 +356,11 @@ class Collator final : public td::actor::Actor {
 
  public:
   static td::uint32 get_skip_externals_queue_size();
+
+ private:
+  td::Timer work_timer_{true};
+  td::ThreadCpuTimer cpu_work_timer_{true};
+  CollationStats stats_;
 };
 
 }  // namespace validator

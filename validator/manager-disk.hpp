@@ -388,6 +388,9 @@ class ValidatorManagerImpl : public ValidatorManager {
   void log_new_validator_group_stats(validatorsession::NewValidatorGroupStats stats) override {
     UNREACHABLE();
   }
+  void log_end_validator_group_stats(validatorsession::EndValidatorGroupStats stats) override {
+    UNREACHABLE();
+  }
   void get_out_msg_queue_size(BlockIdExt block_id, td::Promise<td::uint64> promise) override {
     if (queue_size_counter_.empty()) {
       queue_size_counter_ =
