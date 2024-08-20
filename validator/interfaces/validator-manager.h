@@ -52,6 +52,16 @@ struct AsyncSerializerState {
   UnixTime last_written_block_ts;
 };
 
+struct CollationStats {
+  td::uint32 bytes, gas, lt_delta;
+  int cat_bytes, cat_gas, cat_lt_delta;
+  std::string limits_log;
+  td::uint32 ext_msgs_total = 0;
+  td::uint32 ext_msgs_filtered = 0;
+  td::uint32 ext_msgs_accepted = 0;
+  td::uint32 ext_msgs_rejected = 0;
+};
+
 using ValidateCandidateResult = td::Variant<UnixTime, CandidateReject>;
 
 class ValidatorManager : public ValidatorManagerInterface {
@@ -173,6 +183,7 @@ class ValidatorManager : public ValidatorManagerInterface {
 
   virtual void log_validator_session_stats(BlockIdExt block_id, validatorsession::ValidatorSessionStats stats) = 0;
   virtual void log_new_validator_group_stats(validatorsession::NewValidatorGroupStats stats) = 0;
+  virtual void log_end_validator_group_stats(validatorsession::EndValidatorGroupStats stats) = 0;
 
   virtual void get_block_handle_for_litequery(BlockIdExt block_id, td::Promise<ConstBlockHandle> promise) = 0;
   virtual void get_block_data_for_litequery(BlockIdExt block_id, td::Promise<td::Ref<BlockData>> promise) = 0;
@@ -190,6 +201,12 @@ class ValidatorManager : public ValidatorManagerInterface {
       td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroups>> promise) = 0;
 
   virtual void add_lite_query_stats(int lite_query_id) {
+  }
+
+  virtual void record_collate_query_stats(BlockIdExt block_id, double work_time, double cpu_work_time,
+                                          CollationStats stats) {
+  }
+  virtual void record_validate_query_stats(BlockIdExt block_id, double work_time, double cpu_work_time) {
   }
 
   static bool is_persistent_state(UnixTime ts, UnixTime prev_ts) {

@@ -91,4 +91,47 @@ double PerfWarningTimer::elapsed() const {
   return Time::now() - start_at_;
 }
 
+static double thread_cpu_clock() {
+#if defined(CLOCK_THREAD_CPUTIME_ID)
+  timespec ts;
+  int result = clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
+  CHECK(result == 0);
+  return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
+#else
+  return 0.0;  // TODO: MacOS and Windows support (currently cpu timer is used only in validators)
+#endif
+}
+
+ThreadCpuTimer::ThreadCpuTimer(bool is_paused) : is_paused_(is_paused) {
+  if (is_paused_) {
+    start_time_ = 0;
+  } else {
+    start_time_ = thread_cpu_clock();
+  }
+}
+
+void ThreadCpuTimer::pause() {
+  if (is_paused_) {
+    return;
+  }
+  elapsed_ += thread_cpu_clock() - start_time_;
+  is_paused_ = true;
+}
+
+void ThreadCpuTimer::resume() {
+  if (!is_paused_) {
+    return;
+  }
+  start_time_ = thread_cpu_clock();
+  is_paused_ = false;
+}
+
+double ThreadCpuTimer::elapsed() const {
+  double res = elapsed_;
+  if (!is_paused_) {
+    res += thread_cpu_clock() - start_time_;
+  }
+  return res;
+}
+
 }  // namespace td

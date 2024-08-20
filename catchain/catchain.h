@@ -96,6 +96,7 @@ class CatChain : public td::actor::Actor {
   virtual void send_query_via(const PublicKeyHash &dst, std::string name, td::Promise<td::BufferSlice> promise,
                               td::Timestamp timeout, td::BufferSlice query, td::uint64 max_answer_size,
                               td::actor::ActorId<adnl::AdnlSenderInterface> via) = 0;
+  virtual void get_source_heights(td::Promise<std::vector<CatChainBlockHeight>> promise) = 0;
   virtual void destroy() = 0;
 
   static td::actor::ActorOwn<CatChain> create(std::unique_ptr<Callback> callback, const CatChainOptions &opts,
