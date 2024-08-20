@@ -3429,9 +3429,7 @@ void TestNode::got_creator_stats(ton::BlockIdExt req_blkid, ton::BlockIdExt blki
         promise.set_error(td::Status::Error(PSLICE() << "invalid CreatorStats record with key " << key.to_hex()));
         return;
       }
-      if (mc_cnt.modified_since(min_utime) || shard_cnt.modified_since(min_utime)) {
-        func(key, mc_cnt, shard_cnt);
-      }
+      func(key, mc_cnt, shard_cnt);
       allow_eq = false;
     }
     if (complete) {
