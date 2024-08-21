@@ -120,8 +120,8 @@ class MasterchainStateQ : public MasterchainState, public ShardStateQ {
   bool has_workchain(WorkchainId workchain) const {
     return config_ && config_->has_workchain(workchain);
   }
+  td::uint32 monitor_min_split_depth(WorkchainId workchain_id) const override;
   td::uint32 min_split_depth(WorkchainId workchain_id) const override;
-  td::uint32 soft_min_split_depth(WorkchainId workchain_id) const override;
   BlockSeqno min_ref_masterchain_seqno() const override;
   td::Status prepare() override;
   ZeroStateIdExt get_zerostate_id() const {
@@ -137,6 +137,7 @@ class MasterchainStateQ : public MasterchainState, public ShardStateQ {
   BlockIdExt last_key_block_id() const override;
   BlockIdExt next_key_block_id(BlockSeqno seqno) const override;
   BlockIdExt prev_key_block_id(BlockSeqno seqno) const override;
+  bool is_key_state() const override;
   MasterchainStateQ* make_copy() const override;
 
   static td::Result<Ref<MasterchainStateQ>> fetch(const BlockIdExt& _id, td::BufferSlice _data,

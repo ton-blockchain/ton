@@ -51,7 +51,7 @@ class ValidatorGroup : public td::actor::Actor {
   BlockIdExt create_next_block_id(RootHash root_hash, FileHash file_hash) const;
   BlockId create_next_block_id_simple() const;
 
-  void start(std::vector<BlockIdExt> prev, BlockIdExt min_masterchain_block_id, UnixTime min_ts);
+  void start(std::vector<BlockIdExt> prev, BlockIdExt min_masterchain_block_id);
   void create_session();
   void destroy();
   void start_up() override {
@@ -114,7 +114,6 @@ class ValidatorGroup : public td::actor::Actor {
 
   std::vector<BlockIdExt> prev_block_ids_;
   BlockIdExt min_masterchain_block_id_;
-  UnixTime min_ts_;
 
   td::Ref<ValidatorSet> validator_set_;
   BlockSeqno last_key_block_seqno_;
@@ -142,7 +141,7 @@ class ValidatorGroup : public td::actor::Actor {
 
   void generated_block_candidate(std::shared_ptr<CachedCollatedBlock> cache, td::Result<BlockCandidate> R);
 
-  typedef std::tuple<td::Bits256, BlockIdExt, FileHash, FileHash> CacheKey;
+  using CacheKey = std::tuple<td::Bits256, BlockIdExt, FileHash, FileHash>;
   std::map<CacheKey, UnixTime> approved_candidates_cache_;
 
   void update_approve_cache(CacheKey key, UnixTime value);

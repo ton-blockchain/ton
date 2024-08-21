@@ -213,6 +213,28 @@ std::string CandidateShort::filename_short() const {
   return PSTRING() << "candidate_" << block_id.workchain << "_" << s << "_" << block_id.seqno << "_" << hash().to_hex();
 }
 
+CandidateRefShort CandidateRef::shortref() const {
+  return CandidateRefShort{block_id.id, hash()};
+}
+
+std::string CandidateRef::filename() const {
+  return PSTRING() << "candidateref_" << block_id.to_str();
+}
+
+std::string CandidateRef::filename_short() const {
+  char s[33];
+  sprintf(s, "%llx", static_cast<long long>(block_id.id.shard));
+  return PSTRING() << "candidateref_" << block_id.id.workchain << "_" << s << "_" << block_id.id.seqno << "_"
+                   << hash().to_hex();
+}
+
+std::string CandidateRefShort::filename_short() const {
+  char s[33];
+  sprintf(s, "%llx", static_cast<long long>(block_id.shard));
+  return PSTRING() << "candidateref_" << block_id.workchain << "_" << s << "_" << block_id.seqno << "_"
+                   << hash().to_hex();
+}
+
 BlockInfoShort BlockInfo::shortref() const {
   return BlockInfoShort{block_id.id, hash()};
 }
@@ -258,6 +280,9 @@ FileReference::FileReference(tl_object_ptr<ton_api::db_filedb_Key> key) {
           [&](const ton_api::db_filedb_key_candidate& key) {
             ref_ = fileref::Candidate{PublicKey{key.id_->source_}, create_block_id(key.id_->id_),
                                       key.id_->collated_data_file_hash_};
+          },
+          [&](const ton_api::db_filedb_key_candidateRef& key) {
+            ref_ = fileref::CandidateRef{create_block_id(key.id_)};
           },
           [&](const ton_api::db_filedb_key_blockInfo& key) {
             ref_ = fileref::BlockInfo{create_block_id(key.block_id_)};

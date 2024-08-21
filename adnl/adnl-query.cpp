@@ -25,7 +25,7 @@ namespace ton {
 namespace adnl {
 
 void AdnlQuery::alarm() {
-  set_error(td::Status::Error(ErrorCode::timeout, "adnl query timeout"));
+  set_error(td::Status::Error(ErrorCode::timeout, PSTRING() << "timeout for adnl query " << name_));
 }
 void AdnlQuery::result(td::BufferSlice data) {
   promise_.set_value(std::move(data));

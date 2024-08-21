@@ -177,21 +177,21 @@ void RootDb::get_block_proof_link(ConstBlockHandle handle, td::Promise<td::Ref<P
 }
 
 void RootDb::store_block_candidate(BlockCandidate candidate, td::Promise<td::Unit> promise) {
+  auto source = PublicKey{pubkeys::Ed25519{candidate.pubkey.as_bits256()}};
   auto obj = create_serialize_tl_object<ton_api::db_candidate>(
-      PublicKey{pubkeys::Ed25519{candidate.pubkey.as_bits256()}}.tl(), create_tl_block_id(candidate.id),
-      std::move(candidate.data), std::move(candidate.collated_data));
-
-  auto P = td::PromiseCreator::lambda([promise = std::move(promise)](td::Result<td::Unit> R) mutable {
-    if (R.is_error()) {
-      promise.set_error(R.move_as_error());
-    } else {
-      promise.set_value(td::Unit());
-    }
-  });
+      source.tl(), create_tl_block_id(candidate.id), std::move(candidate.data), std::move(candidate.collated_data));
+  auto P = td::PromiseCreator::lambda(
+      [archive_db = archive_db_.get(), promise = std::move(promise), block_id = candidate.id, source,
+       collated_file_hash = candidate.collated_file_hash](td::Result<td::Unit> R) mutable {
+        TRY_RESULT_PROMISE(promise, _, std::move(R));
+        td::actor::send_closure(archive_db, &ArchiveManager::add_temp_file_short, fileref::CandidateRef{block_id},
+                                create_serialize_tl_object<ton_api::db_candidate_id>(
+                                    source.tl(), create_tl_block_id(block_id), collated_file_hash),
+                                std::move(promise));
+      });
   td::actor::send_closure(archive_db_, &ArchiveManager::add_temp_file_short,
-                          fileref::Candidate{PublicKey{pubkeys::Ed25519{candidate.pubkey.as_bits256()}}, candidate.id,
-                                             candidate.collated_file_hash},
-                          std::move(obj), std::move(P));
+                          fileref::Candidate{source, candidate.id, candidate.collated_file_hash}, std::move(obj),
+                          std::move(P));
 }
 
 void RootDb::get_block_candidate(PublicKey source, BlockIdExt id, FileHash collated_data_file_hash,
@@ -213,6 +213,17 @@ void RootDb::get_block_candidate(PublicKey source, BlockIdExt id, FileHash colla
   });
   td::actor::send_closure(archive_db_, &ArchiveManager::get_temp_file_short,
                           fileref::Candidate{source, id, collated_data_file_hash}, std::move(P));
+}
+
+void RootDb::get_block_candidate_by_block_id(BlockIdExt id, td::Promise<BlockCandidate> promise) {
+  td::actor::send_closure(
+      archive_db_, &ArchiveManager::get_temp_file_short, fileref::CandidateRef{id},
+      [SelfId = actor_id(this), promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
+        TRY_RESULT_PROMISE(promise, data, std::move(R));
+        TRY_RESULT_PROMISE(promise, f, fetch_tl_object<ton_api::db_candidate_id>(data, true));
+        td::actor::send_closure(SelfId, &RootDb::get_block_candidate, PublicKey{f->source_}, create_block_id(f->id_),
+                                f->collated_data_file_hash_, std::move(promise));
+      });
 }
 
 void RootDb::store_block_state(BlockHandle handle, td::Ref<ShardState> state,

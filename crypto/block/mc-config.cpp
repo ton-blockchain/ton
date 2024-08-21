@@ -2075,7 +2075,7 @@ bool WorkchainInfo::unpack(ton::WorkchainId wc, vm::CellSlice& cs) {
   }
   auto unpack_v1 = [this](auto& info) {
     enabled_since = info.enabled_since;
-    actual_min_split = info.actual_min_split;
+    monitor_min_split = info.monitor_min_split;
     min_split = info.min_split;
     max_split = info.max_split;
     basic = info.basic;

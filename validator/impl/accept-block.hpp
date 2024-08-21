@@ -71,6 +71,8 @@ class AcceptBlockQuery : public td::actor::Actor {
   void written_block_data();
   void written_block_signatures();
   void got_block_handle(BlockHandle handle);
+  void got_block_candidate_data(td::BufferSlice data);
+  void got_block_handle_cont();
   void written_block_info();
   void got_block_data(td::Ref<BlockData> data);
   void got_prev_state(td::Ref<ShardState> state);
