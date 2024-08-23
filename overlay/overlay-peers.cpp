@@ -213,9 +213,7 @@ void OverlayImpl::add_peer(OverlayNode node) {
     peer_list_.peers_.insert(id, OverlayPeer(std::move(node)));
     del_some_peers();
     auto X = peer_list_.peers_.get(id);
-    CHECK(X);
-
-    if (peer_list_.neighbours_.size() < max_neighbours() &&
+    if (X != nullptr && peer_list_.neighbours_.size() < max_neighbours() &&
         !(X->get_node()->flags() & OverlayMemberFlags::DoNotReceiveBroadcasts) && X->get_id() != local_id_) {
       peer_list_.neighbours_.push_back(X->get_id());
       X->set_neighbour(true);
