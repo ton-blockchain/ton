@@ -58,7 +58,6 @@ std::string ErrorCtx::as_string() const {
  * Constructs a ValidateQuery object.
  *
  * @param shard The shard of the block being validated.
- * @param min_ts The minimum allowed UnixTime for the block.
  * @param min_masterchain_block_id The minimum allowed masterchain block reference for the block.
  * @param prev A vector of BlockIdExt representing the previous blocks.
  * @param candidate The BlockCandidate to be validated.
@@ -7056,6 +7055,7 @@ void ValidateQuery::written_candidate() {
 void ValidateQuery::record_stats() {
   double work_time = work_timer_.elapsed();
   double cpu_work_time = cpu_work_timer_.elapsed();
+  LOG(WARNING) << "validation took " << perf_timer_.elapsed() << "s";
   LOG(WARNING) << "Validate query work time = " << work_time << "s, cpu time = " << cpu_work_time << "s";
   td::actor::send_closure(manager, &ValidatorManager::record_validate_query_stats, block_candidate.id, work_time,
                           cpu_work_time);
