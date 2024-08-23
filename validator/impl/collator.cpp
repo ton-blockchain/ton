@@ -1,7 +1,7 @@
 /*
-  This file is part of TON Blockchain Library.
+    This file is part of TON Blockchain Library.
 
-  TON Blockchain Library is free software: you can redistribute it and/or modify
+    TON Blockchain Library is free software: you can redistribute it and/or modify
     it under the terms of the GNU Lesser General Public License as published by
     the Free Software Foundation, either version 2 of the License, or
     (at your option) any later version.
@@ -66,7 +66,6 @@ static inline bool dbg(int c) {
  *
  * @param shard The shard of the new block.
  * @param is_hardfork A boolean indicating whether the new block is a hardfork.
- * @param min_ts The minimum UnixTime for the new block.
  * @param min_masterchain_block_id The the minimum reference masterchain block.
  * @param prev A vector of BlockIdExt representing the previous blocks.
  * @param validator_set A reference to the ValidatorSet.
@@ -76,13 +75,12 @@ static inline bool dbg(int c) {
  * @param timeout The timeout for the collator.
  * @param promise The promise to return the result.
  */
-Collator::Collator(ShardIdFull shard, bool is_hardfork, UnixTime min_ts, BlockIdExt min_masterchain_block_id,
-                   std::vector<BlockIdExt> prev, Ref<ValidatorSet> validator_set, Ed25519_PublicKey collator_id,
+Collator::Collator(ShardIdFull shard, bool is_hardfork, BlockIdExt min_masterchain_block_id,
+                   std::vector<BlockIdExt> prev, td::Ref<ValidatorSet> validator_set, Ed25519_PublicKey collator_id,
                    Ref<CollatorOptions> collator_opts, td::actor::ActorId<ValidatorManager> manager,
                    td::Timestamp timeout, td::Promise<BlockCandidate> promise)
     : shard_(shard)
     , is_hardfork_(is_hardfork)
-    , min_ts(min_ts)
     , min_mc_block_id{min_masterchain_block_id}
     , prev_blocks(std::move(prev))
     , created_by_(collator_id)

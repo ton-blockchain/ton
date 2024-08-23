@@ -250,7 +250,7 @@ void ShardClient::build_shard_overlays() {
   for (auto &x : v) {
     auto shard = x->shard();
     if (opts_->need_monitor(shard)) {
-      auto d = masterchain_state_->soft_min_split_depth(shard.workchain);
+      auto d = masterchain_state_->monitor_min_split_depth(shard.workchain);
       auto l = shard_prefix_length(shard.shard);
       if (l > d) {
         shard = shard_prefix(shard, d);

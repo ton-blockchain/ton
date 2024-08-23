@@ -163,6 +163,18 @@ struct VmStorageStat {
   }
 };
 
+class ProofStorageStat {
+ public:
+  void add_cell(const Ref<DataCell>& cell);
+  td::uint64 estimate_proof_size() const;
+ private:
+  enum CellStatus {
+    c_none = 0, c_prunned = 1, c_loaded = 2
+  };
+  std::map<vm::Cell::Hash, CellStatus> cells_;
+  td::uint64 proof_size_ = 0;
+};
+
 struct CellSerializationInfo {
   bool special;
   Cell::LevelMask level_mask;

@@ -21,6 +21,7 @@
 #include "td/utils/crypto.h"
 #include "candidate-serializer.h"
 #include "td/utils/overloaded.h"
+#include "ton/ton-tl.hpp"
 
 namespace ton {
 

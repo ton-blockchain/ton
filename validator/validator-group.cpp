@@ -51,9 +51,9 @@ void ValidatorGroup::generate_block_candidate(
     return validatorsession::ValidatorSession::GeneratedCandidate{std::move(res), false};
   }));
   run_collate_query(
-      shard_, min_ts_, min_masterchain_block_id_, prev_block_ids_,
-      Ed25519_PublicKey{local_id_full_.ed25519_value().raw()}, validator_set_, opts_->get_collator_options(), manager_,
-      td::Timestamp::in(10.0), [SelfId = actor_id(this), cache = cached_collated_block_](td::Result<BlockCandidate> R) {
+      shard_, min_masterchain_block_id_, prev_block_ids_, Ed25519_PublicKey{local_id_full_.ed25519_value().raw()},
+      validator_set_, opts_->get_collator_options(), manager_, td::Timestamp::in(10.0),
+      [SelfId = actor_id(this), cache = cached_collated_block_](td::Result<BlockCandidate> R) {
         td::actor::send_closure(SelfId, &ValidatorGroup::generated_block_candidate, std::move(cache), std::move(R));
       });
 }
@@ -132,8 +132,8 @@ void ValidatorGroup::validate_block_candidate(td::uint32 round_id, BlockCandidat
   }
   VLOG(VALIDATOR_DEBUG) << "validating block candidate " << next_block_id;
   block.id = next_block_id;
-  run_validate_query(shard_, min_ts_, min_masterchain_block_id_, prev_block_ids_, std::move(block), validator_set_,
-                     manager_, td::Timestamp::in(15.0), std::move(P));
+  run_validate_query(shard_, min_masterchain_block_id_, prev_block_ids_, std::move(block), validator_set_, manager_,
+                     td::Timestamp::in(15.0), std::move(P));
 }
 
 void ValidatorGroup::update_approve_cache(CacheKey key, UnixTime value) {
@@ -357,10 +357,9 @@ void ValidatorGroup::create_session() {
   }
 }
 
-void ValidatorGroup::start(std::vector<BlockIdExt> prev, BlockIdExt min_masterchain_block_id, UnixTime min_ts) {
+void ValidatorGroup::start(std::vector<BlockIdExt> prev, BlockIdExt min_masterchain_block_id) {
   prev_block_ids_ = prev;
   min_masterchain_block_id_ = min_masterchain_block_id;
-  min_ts_ = min_ts;
   cached_collated_block_ = nullptr;
   approved_candidates_cache_.clear();
   started_ = true;
