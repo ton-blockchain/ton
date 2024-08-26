@@ -974,6 +974,7 @@ bool TestNode::show_help(std::string command) {
          "into files <filename-pfx><complaint-hash>.boc\n"
          "complaintprice <expires-in> <complaint-boc>\tComputes the price (in nanograms) for creating a complaint\n"
          "msgqueuesizes\tShows current sizes of outbound message queues in all shards\n"
+         "dispatchqueueinfo <block-id>\tShows dispatch queue of a block\n"
          "known\tShows the list of all known block ids\n"
          "knowncells\tShows the list of hashes of all known (cached) cells\n"
          "dumpcell <hex-hash-pfx>\nDumps a cached cell by a prefix of its hash\n"
@@ -1118,6 +1119,8 @@ bool TestNode::do_parse_line() {
            set_error(get_complaint_price(expire_in, filename));
   } else if (word == "msgqueuesizes") {
     return get_msg_queue_sizes();
+  } else if (word == "dispatchqueueinfo") {
+    return parse_block_id_ext(blkid) && seekeoln() && get_dispatch_queue_info(blkid);
   } else if (word == "known") {
     return eoln() && show_new_blkids(true);
   } else if (word == "knowncells") {
@@ -1643,6 +1646,41 @@ void TestNode::got_msg_queue_sizes(ton::tl_object_ptr<ton::lite_api::liteServer_
     td::TerminalIO::out() << ton::create_block_id(x->id_).id.to_str() << "    " << x->size_ << std::endl;
   }
   td::TerminalIO::out() << "External message queue size limit: " << f->ext_msg_queue_size_limit_ << std::endl;
+}
+
+bool TestNode::get_dispatch_queue_info(ton::BlockIdExt block_id) {
+  td::TerminalIO::out() << "Dispatch queue in block: " << block_id.id.to_str() << std::endl;
+  return get_dispatch_queue_info_cont(block_id, true, td::Bits256::zero());
+}
+
+bool TestNode::get_dispatch_queue_info_cont(ton::BlockIdExt block_id, bool first, td::Bits256 after_addr) {
+  auto q = ton::create_serialize_tl_object<ton::lite_api::liteServer_getDispatchQueueInfo>(
+      first ? 0 : 2, ton::create_tl_lite_block_id(block_id), after_addr, 256, false);
+  return envelope_send_query(std::move(q), [=, Self = actor_id(this)](td::Result<td::BufferSlice> res) -> void {
+    if (res.is_error()) {
+      LOG(ERROR) << "liteServer.getDispatchQueueInfo error: " << res.move_as_error();
+      return;
+    }
+    auto F = ton::fetch_tl_object<ton::lite_api::liteServer_dispatchQueueInfo>(res.move_as_ok(), true);
+    if (F.is_error()) {
+      LOG(ERROR) << "cannot parse answer to liteServer.getDispatchQueueInfo";
+      return;
+    }
+    td::actor::send_closure_later(Self, &TestNode::got_dispatch_queue_info, block_id, F.move_as_ok());
+  });
+}
+
+void TestNode::got_dispatch_queue_info(ton::BlockIdExt block_id,
+                                       ton::tl_object_ptr<ton::lite_api::liteServer_dispatchQueueInfo> info) {
+  for (auto& acc : info->account_dispatch_queues_) {
+    td::TerminalIO::out() << block_id.id.workchain << ":" << acc->addr_.to_hex() << " : size=" << acc->size_
+                          << " lt=" << acc->min_lt_ << ".." << acc->max_lt_ << std::endl;
+  }
+  if (info->complete_) {
+    td::TerminalIO::out() << "Done" << std::endl;
+    return;
+  }
+  get_dispatch_queue_info_cont(block_id, false, info->account_dispatch_queues_.back()->addr_);
 }
 
 bool TestNode::dns_resolve_start(ton::WorkchainId workchain, ton::StdSmcAddress addr, ton::BlockIdExt blkid,

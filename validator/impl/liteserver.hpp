@@ -172,6 +172,8 @@ class LiteQuery : public td::actor::Actor {
   void continue_getOutMsgQueueSizes(td::optional<ShardIdFull> shard, Ref<MasterchainState> state);
   void perform_getBlockOutMsgQueueSize(int mode, BlockIdExt blkid);
   void finish_getBlockOutMsgQueueSize();
+  void perform_getDispatchQueueInfo(int mode, BlockIdExt blkid, StdSmcAddress after_addr, int max_accounts);
+  void finish_getDispatchQueueInfo(StdSmcAddress after_addr, int max_accounts);
 
   void perform_nonfinal_getCandidate(td::Bits256 source, BlockIdExt blkid, td::Bits256 collated_data_hash);
   void perform_nonfinal_getValidatorGroups(int mode, ShardIdFull shard);

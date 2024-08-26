@@ -290,6 +290,9 @@ void LiteQuery::perform() {
           [&](lite_api::liteServer_getBlockOutMsgQueueSize& q) {
             this->perform_getBlockOutMsgQueueSize(q.mode_, create_block_id(q.id_));
           },
+          [&](lite_api::liteServer_getDispatchQueueInfo& q) {
+            this->perform_getDispatchQueueInfo(q.mode_, create_block_id(q.id_), q.after_addr_, q.max_accounts_);
+          },
           [&](auto& obj) { this->abort_query(td::Status::Error(ErrorCode::protoviolation, "unknown query")); }));
 }
 
@@ -3429,6 +3432,111 @@ void LiteQuery::finish_getBlockOutMsgQueueSize() {
   LOG(INFO) << "getBlockOutMsgQueueSize(" << blk_id_.to_str() << ", " << mode_ << ") query completed";
   auto b = ton::create_serialize_tl_object<ton::lite_api::liteServer_blockOutMsgQueueSize>(
       mode_, ton::create_tl_lite_block_id(blk_id_), size, std::move(proof));
+  finish_query(std::move(b));
+}
+
+void LiteQuery::perform_getDispatchQueueInfo(int mode, BlockIdExt blkid, StdSmcAddress after_addr, int max_accounts) {
+  LOG(INFO) << "started a getDispatchQueueInfo(" << blkid.to_str() << ", " << mode << ") liteserver query";
+  mode_ = mode;
+  if (!blkid.is_valid_full()) {
+    fatal_error("invalid BlockIdExt");
+    return;
+  }
+  if (max_accounts <= 0) {
+    fatal_error("invalid max_accounts");
+    return;
+  }
+  set_continuation([=]() -> void { finish_getDispatchQueueInfo(after_addr, max_accounts); });
+  request_block_data_state(blkid);
+}
+
+void LiteQuery::finish_getDispatchQueueInfo(StdSmcAddress after_addr, int max_accounts) {
+  LOG(INFO) << "completing getDispatchQueueInfo() query";
+  bool with_proof = mode_ & 1;
+  Ref<vm::Cell> state_root = state_->root_cell();
+  vm::MerkleProofBuilder pb;
+  if (with_proof) {
+    pb = vm::MerkleProofBuilder{state_root};
+    state_root = pb.root();
+  }
+
+  std::unique_ptr<vm::AugmentedDictionary> dispatch_queue;
+
+  block::gen::ShardStateUnsplit::Record sstate;
+  block::gen::OutMsgQueueInfo::Record out_msg_queue_info;
+  block::gen::OutMsgQueueExtra::Record out_msg_queue_extra;
+  if (!tlb::unpack_cell(state_root, sstate) || !tlb::unpack_cell(sstate.out_msg_queue_info, out_msg_queue_info)) {
+    fatal_error("cannot unpack shard state");
+    return;
+  }
+  vm::CellSlice& extra_slice = out_msg_queue_info.extra.write();
+  if (extra_slice.fetch_long(1)) {
+    if (!tlb::unpack(extra_slice, out_msg_queue_extra)) {
+      fatal_error("cannot unpack OutMsgQueueExtra");
+      return;
+    }
+    dispatch_queue = std::make_unique<vm::AugmentedDictionary>(out_msg_queue_extra.dispatch_queue, 256,
+                                                               block::tlb::aug_DispatchQueue);
+  } else {
+    dispatch_queue = std::make_unique<vm::AugmentedDictionary>(256, block::tlb::aug_DispatchQueue);
+  }
+
+  int remaining = std::min(max_accounts, 256);
+  bool complete = false;
+  std::vector<tl_object_ptr<lite_api::liteServer_accountDispatchQueueInfo>> result;
+  bool allow_eq;
+  if (mode_ & 2) {
+    allow_eq = false;
+  } else {
+    allow_eq = true;
+    after_addr = td::Bits256::zero();
+  }
+  while (true) {
+    auto value = dispatch_queue->extract_value(dispatch_queue->lookup_nearest_key(after_addr, true, allow_eq));
+    allow_eq = false;
+    if (value.is_null()) {
+      complete = true;
+      break;
+    }
+    if (remaining == 0) {
+      break;
+    }
+    --remaining;
+    StdSmcAddress addr = after_addr;
+    vm::Dictionary dict{64};
+    td::uint64 dict_size;
+    if (!block::unpack_account_dispatch_queue(value, dict, dict_size)) {
+      fatal_error(PSTRING() << "invalid account dispatch queue for account " << addr.to_hex());
+      return;
+    }
+    CHECK(dict_size > 0);
+    td::BitArray<64> min_lt, max_lt;
+    dict.extract_minmax_key(min_lt.bits(), 64, false, false);
+    dict.extract_minmax_key(max_lt.bits(), 64, true, false);
+    result.push_back(create_tl_object<lite_api::liteServer_accountDispatchQueueInfo>(addr, dict_size, min_lt.to_ulong(),
+                                                                                     max_lt.to_ulong()));
+  }
+
+  td::BufferSlice proof;
+  if (with_proof) {
+    Ref<vm::Cell> proof1, proof2;
+    if (!make_state_root_proof(proof1)) {
+      return;
+    }
+    if (!pb.extract_proof_to(proof2)) {
+      fatal_error("unknown error creating Merkle proof");
+      return;
+    }
+    auto r_proof = vm::std_boc_serialize_multi({std::move(proof1), std::move(proof2)});
+    if (r_proof.is_error()) {
+      fatal_error(r_proof.move_as_error());
+      return;
+    }
+    proof = r_proof.move_as_ok();
+  }
+  LOG(INFO) << "getDispatchQueueInfo(" << blk_id_.to_str() << ", " << mode_ << ") query completed";
+  auto b = ton::create_serialize_tl_object<ton::lite_api::liteServer_dispatchQueueInfo>(
+      mode_, ton::create_tl_lite_block_id(blk_id_), std::move(result), complete, std::move(proof));
   finish_query(std::move(b));
 }
 
