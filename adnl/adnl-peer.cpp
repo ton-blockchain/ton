@@ -26,6 +26,7 @@
 #include "td/utils/base64.h"
 #include "td/utils/Random.h"
 #include "auto/tl/ton_api.h"
+#include "td/utils/overloaded.h"
 
 namespace ton {
 
@@ -207,7 +208,9 @@ void AdnlPeerPairImpl::receive_packet_checked(AdnlPacket packet) {
   }
 }
 
-void AdnlPeerPairImpl::receive_packet_from_channel(AdnlChannelIdShort id, AdnlPacket packet) {
+void AdnlPeerPairImpl::receive_packet_from_channel(AdnlChannelIdShort id, AdnlPacket packet,
+                                                   td::uint64 serialized_size) {
+  add_packet_stats(serialized_size, /* in = */ true, /* channel = */ true);
   if (id != channel_in_id_) {
     VLOG(ADNL_NOTICE) << this << ": dropping IN message: outdated channel id" << id;
     return;
@@ -218,7 +221,8 @@ void AdnlPeerPairImpl::receive_packet_from_channel(AdnlChannelIdShort id, AdnlPa
   receive_packet_checked(std::move(packet));
 }
 
-void AdnlPeerPairImpl::receive_packet(AdnlPacket packet) {
+void AdnlPeerPairImpl::receive_packet(AdnlPacket packet, td::uint64 serialized_size) {
+  add_packet_stats(serialized_size, /* in = */ true, /* channel = */ false);
   packet.run_basic_checks().ensure();
 
   if (!encryptor_) {
@@ -407,6 +411,7 @@ void AdnlPeerPairImpl::send_packet_continue(AdnlPacket packet, td::actor::ActorI
   auto B = serialize_tl_object(packet.tl(), true);
   if (via_channel) {
     if (channel_ready_) {
+      add_packet_stats(B.size(), /* in = */ false, /* channel = */ true);
       td::actor::send_closure(channel_, &AdnlChannel::send_message, priority_, conn, std::move(B));
     } else {
       VLOG(ADNL_WARNING) << this << ": dropping OUT message [" << local_id_ << "->" << peer_id_short_
@@ -434,6 +439,7 @@ void AdnlPeerPairImpl::send_packet_continue(AdnlPacket packet, td::actor::ActorI
   S.remove_prefix(32);
   S.copy_from(X.as_slice());
 
+  add_packet_stats(B.size(), /* in = */ false, /* channel = */ false);
   td::actor::send_closure(conn, &AdnlNetworkConnection::send, local_id_, peer_id_short_, priority_, std::move(enc));
 }
 
@@ -787,6 +793,33 @@ void AdnlPeerPairImpl::get_conn_ip_str(td::Promise<td::string> promise) {
   promise.set_value("undefined");
 }
 
+void AdnlPeerPairImpl::get_stats(td::Promise<tl_object_ptr<ton_api::adnl_stats_peerPair>> promise) {
+  auto stats = create_tl_object<ton_api::adnl_stats_peerPair>();
+  stats->local_id_ = local_id_.bits256_value();
+  stats->peer_id_ = peer_id_short_.bits256_value();
+  for (const AdnlAddress &addr : addr_list_.addrs()) {
+    ton_api::downcast_call(*addr->tl(), td::overloaded(
+                                            [&](const ton_api::adnl_address_udp &obj) {
+                                              stats->ip_str_ = PSTRING() << td::IPAddress::ipv4_to_str(obj.ip_) << ":"
+                                                                         << obj.port_;
+                                            },
+                                            [&](const auto &) {}));
+    if (!stats->ip_str_.empty()) {
+      break;
+    }
+  }
+
+  prepare_packet_stats();
+  stats->last_in_packet_ts_ = last_in_packet_ts_;
+  stats->last_out_packet_ts_ = last_out_packet_ts_;
+  stats->packets_total_ = packet_stats_total_.tl();
+  stats->packets_total_->ts_start_ = started_ts_;
+  stats->packets_total_->ts_end_ = td::Clocks::system();
+  stats->packets_recent_ = packet_stats_prev_.tl();
+
+  promise.set_result(std::move(stats));
+}
+
 void AdnlPeerImpl::update_id(AdnlNodeIdFull id) {
   CHECK(id.compute_short_id() == peer_id_short_);
   if (!peer_id_.empty()) {
@@ -835,7 +868,7 @@ td::actor::ActorOwn<AdnlPeer> AdnlPeer::create(td::actor::ActorId<AdnlNetworkMan
 }
 
 void AdnlPeerImpl::receive_packet(AdnlNodeIdShort dst, td::uint32 dst_mode, td::actor::ActorId<AdnlLocalId> dst_actor,
-                                  AdnlPacket packet) {
+                                  AdnlPacket packet, td::uint64 serialized_size) {
   if (packet.inited_from()) {
     update_id(packet.from());
   }
@@ -853,7 +886,7 @@ void AdnlPeerImpl::receive_packet(AdnlNodeIdShort dst, td::uint32 dst_mode, td::
     }
   }
 
-  td::actor::send_closure(it->second.get(), &AdnlPeerPair::receive_packet, std::move(packet));
+  td::actor::send_closure(it->second.get(), &AdnlPeerPair::receive_packet, std::move(packet), serialized_size);
 }
 
 void AdnlPeerImpl::send_messages(AdnlNodeIdShort src, td::uint32 src_mode, td::actor::ActorId<AdnlLocalId> src_actor,
@@ -932,6 +965,56 @@ void AdnlPeerImpl::update_addr_list(AdnlNodeIdShort local_id, td::uint32 local_m
 
   td::actor::send_closure(it->second, &AdnlPeerPair::update_addr_list, std::move(addr_list));
 }
+
+void AdnlPeerImpl::get_stats(td::Promise<std::vector<tl_object_ptr<ton_api::adnl_stats_peerPair>>> promise) {
+  class Cb : public td::actor::Actor {
+   public:
+    explicit Cb(td::Promise<std::vector<tl_object_ptr<ton_api::adnl_stats_peerPair>>> promise)
+        : promise_(std::move(promise)) {
+    }
+
+    void got_peer_pair_stats(tl_object_ptr<ton_api::adnl_stats_peerPair> peer_pair) {
+      result_.push_back(std::move(peer_pair));
+      dec_pending();
+    }
+
+    void inc_pending() {
+      ++pending_;
+    }
+
+    void dec_pending() {
+      CHECK(pending_ > 0);
+      --pending_;
+      if (pending_ == 0) {
+        promise_.set_result(std::move(result_));
+        stop();
+      }
+    }
+
+   private:
+    td::Promise<std::vector<tl_object_ptr<ton_api::adnl_stats_peerPair>>> promise_;
+    size_t pending_ = 1;
+    std::vector<tl_object_ptr<ton_api::adnl_stats_peerPair>> result_;
+  };
+  auto callback = td::actor::create_actor<Cb>("adnlpeerstats", std::move(promise)).release();
+
+  for (auto &[local_id, peer_pair] : peer_pairs_) {
+    td::actor::send_closure(callback, &Cb::inc_pending);
+    td::actor::send_closure(peer_pair, &AdnlPeerPair::get_stats,
+                            [local_id = local_id, peer_id = peer_id_short_,
+                             callback](td::Result<tl_object_ptr<ton_api::adnl_stats_peerPair>> R) {
+                              if (R.is_error()) {
+                                VLOG(ADNL_NOTICE) << "failed to get stats for peer pair " << peer_id << "->" << local_id
+                                                  << " : " << R.move_as_error();
+                                td::actor::send_closure(callback, &Cb::dec_pending);
+                              } else {
+                                td::actor::send_closure(callback, &Cb::got_peer_pair_stats, R.move_as_ok());
+                              }
+                            });
+  }
+  td::actor::send_closure(callback, &Cb::dec_pending);
+}
+
 
 void AdnlPeerPairImpl::got_data_from_db(td::Result<AdnlDbItem> R) {
   received_from_db_ = false;
@@ -1014,6 +1097,56 @@ void AdnlPeerPairImpl::request_reverse_ping_result(td::Result<td::Unit> R) {
   } else {
     VLOG(ADNL_INFO) << this << ": failed to request reverse ping: " << R.move_as_error();
   }
+}
+
+void AdnlPeerPairImpl::add_packet_stats(td::uint64 bytes, bool in, bool channel) {
+  prepare_packet_stats();
+  auto add_stats = [&](PacketStats &stats) {
+    if (in) {
+      ++stats.in_packets;
+      stats.in_bytes += bytes;
+      if (channel) {
+        ++stats.in_packets_channel;
+        stats.in_bytes_channel += bytes;
+      }
+    } else {
+      ++stats.out_packets;
+      stats.out_bytes += bytes;
+      if (channel) {
+        ++stats.out_packets_channel;
+        stats.out_bytes_channel += bytes;
+      }
+    }
+  };
+  add_stats(packet_stats_cur_);
+  add_stats(packet_stats_total_);
+  if (in) {
+    last_in_packet_ts_ = td::Clocks::system();
+  } else {
+    last_out_packet_ts_ = td::Clocks::system();
+  }
+}
+
+void AdnlPeerPairImpl::prepare_packet_stats() {
+  double now = td::Clocks::system();
+  if (now >= packet_stats_cur_.ts_end) {
+    packet_stats_prev_ = std::move(packet_stats_cur_);
+    packet_stats_cur_ = {};
+    auto now_int = (int)td::Clocks::system();
+    packet_stats_cur_.ts_start = (double)(now_int / 60 * 60);
+    packet_stats_cur_.ts_end = packet_stats_cur_.ts_start + 60.0;
+    if (packet_stats_prev_.ts_end < now - 60.0) {
+      packet_stats_prev_ = {};
+      packet_stats_prev_.ts_end = packet_stats_cur_.ts_start;
+      packet_stats_prev_.ts_start = packet_stats_prev_.ts_end - 60.0;
+    }
+  }
+}
+
+tl_object_ptr<ton_api::adnl_stats_packets> AdnlPeerPairImpl::PacketStats::tl() const {
+  return create_tl_object<ton_api::adnl_stats_packets>(ts_start, ts_end, in_packets, in_bytes, in_packets_channel,
+                                                       in_bytes_channel, out_packets, out_bytes, out_packets_channel,
+                                                       out_bytes_channel);
 }
 
 }  // namespace adnl

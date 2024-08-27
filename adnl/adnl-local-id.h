@@ -55,6 +55,7 @@ class AdnlLocalId : public td::actor::Actor {
   void deliver(AdnlNodeIdShort src, td::BufferSlice data);
   void deliver_query(AdnlNodeIdShort src, td::BufferSlice data, td::Promise<td::BufferSlice> promise);
   void receive(td::IPAddress addr, td::BufferSlice data);
+  void decrypt_packet_done(td::IPAddress addr, bool ok);
 
   void subscribe(std::string prefix, std::unique_ptr<AdnlPeerTable::Callback> callback);
   void unsubscribe(std::string prefix);
@@ -76,6 +77,8 @@ class AdnlLocalId : public td::actor::Actor {
 
   void update_packet(AdnlPacket packet, bool update_id, bool sign, td::int32 update_addr_list_if,
                      td::int32 update_priority_addr_list_if, td::Promise<AdnlPacket> promise);
+
+  void get_stats(td::Promise<tl_object_ptr<ton_api::adnl_stats_localId>> promise);
 
   td::uint32 get_mode() {
     return mode_;
@@ -100,6 +103,17 @@ class AdnlLocalId : public td::actor::Actor {
   AdnlNodeIdShort short_id_;
 
   td::uint32 mode_;
+
+  std::map<td::IPAddress, td::uint64> currently_decrypting_packets_;
+  struct PacketStats {
+    double ts_start = 0.0, ts_end = 0.0;
+    std::map<td::IPAddress, td::uint64> decrypted_packets;
+    std::map<td::IPAddress, td::uint64> decrypt_errors;
+
+    tl_object_ptr<ton_api::adnl_stats_localIdPackets> tl() const;
+  } packet_stats_cur_, packet_stats_prev_, packet_stats_total_;
+  void add_decrypted_packet_stats(td::IPAddress addr, bool ok);
+  void prepare_packet_stats();
 
   void publish_address_list();
 };
