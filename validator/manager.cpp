@@ -2065,6 +2065,7 @@ void ValidatorManagerImpl::update_shards() {
     }
   }
 
+  bool validating_masterchain = false;
   if (allow_validate_) {
     for (auto &desc : new_shards) {
       auto shard = desc.first;
@@ -2081,6 +2082,9 @@ void ValidatorManagerImpl::update_shards() {
       auto validator_id = get_validator(shard, val_set);
 
       if (!validator_id.is_zero()) {
+        if (shard.is_masterchain()) {
+          validating_masterchain = true;
+        }
         auto val_group_id = get_validator_set_id(shard, val_set, opts_hash, key_seqno, opts);
 
         if (force_recover) {
@@ -2173,6 +2177,14 @@ void ValidatorManagerImpl::update_shards() {
       td::actor::send_closure(SelfId, &ValidatorManagerImpl::written_destroyed_validator_sessions, std::move(gc));
     });
     td::actor::send_closure(db_, &Db::update_destroyed_validator_sessions, gc_list_, std::move(P));
+
+    if (!serializer_.empty()) {
+      td::actor::send_closure(
+          serializer_, &AsyncStateSerializer::auto_disable_serializer,
+          validating_masterchain &&
+              last_masterchain_state_->get_validator_set(ShardIdFull{masterchainId})->export_vector().size() * 2 <=
+                  last_masterchain_state_->get_total_validator_set(0)->export_vector().size());
+    }
   }
 }  // namespace validator
 
