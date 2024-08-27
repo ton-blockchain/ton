@@ -37,6 +37,7 @@ class AsyncStateSerializer : public td::actor::Actor {
   bool saved_to_db_ = true;
 
   td::Ref<ValidatorManagerOptions> opts_;
+  bool auto_disabled_ = false;
   td::CancellationTokenSource cancellation_token_source_;
   UnixTime last_known_key_block_ts_ = 0;
 
@@ -49,11 +50,14 @@ class AsyncStateSerializer : public td::actor::Actor {
   bool have_masterchain_state_ = false;
 
   std::vector<BlockIdExt> shards_;
-  std::vector<std::pair<std::string, ShardIdFull>> previous_state_files_;
-  std::shared_ptr<std::map<td::Bits256, td::Ref<vm::Cell>>> previous_state_cache_;
-  std::vector<ShardIdFull> previous_state_cur_shards_;
+  struct PreviousStateCache {
+    std::vector<std::pair<std::string, ShardIdFull>> state_files;
+    std::shared_ptr<std::map<td::Bits256, td::Ref<vm::Cell>>> cache;
+    std::vector<ShardIdFull> cur_shards;
 
-  void prepare_previous_state_cache(ShardIdFull shard);
+    void prepare_cache(ShardIdFull shard);
+  };
+  std::shared_ptr<PreviousStateCache> previous_state_cache_;
 
  public:
   AsyncStateSerializer(BlockIdExt block_id, td::Ref<ValidatorManagerOptions> opts,
@@ -106,6 +110,7 @@ class AsyncStateSerializer : public td::actor::Actor {
   void success_handler();
 
   void update_options(td::Ref<ValidatorManagerOptions> opts);
+  void auto_disable_serializer(bool disabled);
 };
 
 }  // namespace validator
