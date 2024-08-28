@@ -697,12 +697,8 @@ void CatChainReceiverImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::cat
   } else {
     CatChainReceiverSource *S = get_source_by_adnl_id(src);
     CHECK(S != nullptr);
-    if (S->allow_send_block(it->second->get_hash())) {
-      promise.set_value(serialize_tl_object(create_tl_object<ton_api::catchain_blockResult>(it->second->export_tl()),
-                                            true, it->second->get_payload().as_slice()));
-    } else {
-      promise.set_error(td::Status::Error("block was requested too many times"));
-    }
+    promise.set_value(serialize_tl_object(create_tl_object<ton_api::catchain_blockResult>(it->second->export_tl()),
+                                          true, it->second->get_payload().as_slice()));
   }
 }
 
