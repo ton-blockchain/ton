@@ -2531,6 +2531,14 @@ static td::Result<td::Ref<ton::validator::CollatorOptions>> parse_collator_optio
   } else {
     opts.dispatch_phase_3_max_per_initiator = {};
   }
+  for (const std::string& s : f.whitelist_) {
+    TRY_RESULT(addr, block::StdAddress::parse(s));
+    opts.whitelist.emplace(addr.workchain, addr.addr);
+  }
+  for (const std::string& s : f.prioritylist_) {
+    TRY_RESULT(addr, block::StdAddress::parse(s));
+    opts.prioritylist.emplace(addr.workchain, addr.addr);
+  }
 
   return ref;
 }

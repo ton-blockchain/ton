@@ -628,7 +628,8 @@ engine.validator.customOverlaysConfig overlays:(vector engine.validator.customOv
 engine.validator.collatorOptions
   deferring_enabled:Bool defer_messages_after:int defer_out_queue_size_limit:long
   dispatch_phase_2_max_total:int dispatch_phase_3_max_total:int
-  dispatch_phase_2_max_per_initiator:int dispatch_phase_3_max_per_initiator:int = engine.validator.CollatorOptions;
+  dispatch_phase_2_max_per_initiator:int dispatch_phase_3_max_per_initiator:int
+  whitelist:(vector string) prioritylist:(vector string) = engine.validator.CollatorOptions;
 
 ---functions---
 ---types---

@@ -64,6 +64,11 @@ struct CollatorOptions : public td::CntObject {
   td::uint32 dispatch_phase_3_max_total = 150;
   td::uint32 dispatch_phase_2_max_per_initiator = 20;
   td::optional<td::uint32> dispatch_phase_3_max_per_initiator;  // Default - depends on out msg queue size
+
+  // Don't defer messages from these accounts
+  std::set<std::pair<WorkchainId, StdSmcAddress>> whitelist;
+  // Prioritize these accounts on each phase of process_dispatch_queue
+  std::set<std::pair<WorkchainId, StdSmcAddress>> prioritylist;
 };
 
 struct ValidatorManagerOptions : public td::CntObject {
