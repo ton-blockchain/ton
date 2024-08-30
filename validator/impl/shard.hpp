@@ -38,6 +38,7 @@ class ShardStateQ : virtual public ShardState {
   Ref<vm::Cell> root;
   LogicalTime lt{0};
   UnixTime utime{0};
+  td::int32 global_id_{0};
   bool before_split_{false};
   bool fake_split_{false};
   bool fake_merge_{false};
@@ -80,6 +81,9 @@ class ShardStateQ : virtual public ShardState {
   }
   LogicalTime get_logical_time() const override {
     return lt;
+  }
+  td::int32 get_global_id() const override {
+    return global_id_;
   }
   td::optional<BlockIdExt> get_master_ref() const override {
     return master_ref;

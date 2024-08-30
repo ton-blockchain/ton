@@ -1448,6 +1448,9 @@ td::Status ValidatorEngine::load_global_config() {
   if (catchain_max_block_delay_) {
     validator_options_.write().set_catchain_max_block_delay(catchain_max_block_delay_.value());
   }
+  if (catchain_max_block_delay_slow_) {
+    validator_options_.write().set_catchain_max_block_delay_slow(catchain_max_block_delay_slow_.value());
+  }
 
   std::vector<ton::BlockIdExt> h;
   for (auto &x : conf.validator_->hardforks_) {
@@ -4072,7 +4075,7 @@ int main(int argc, char *argv[]) {
     logger_ = td::TsFileLog::create(fname.str()).move_as_ok();
     td::log_interface = logger_.get();
   });
-  p.add_checked_option('s', "state-ttl", "state will be gc'd after this time (in seconds) default=3600",
+  p.add_checked_option('s', "state-ttl", "state will be gc'd after this time (in seconds) default=86400",
                        [&](td::Slice fname) {
                          auto v = td::to_double(fname);
                          if (v <= 0) {
@@ -4233,13 +4236,23 @@ int main(int argc, char *argv[]) {
       "preload all cells from CellDb on startup (recommended to use with big enough celldb-cache-size and celldb-direct-io)",
       [&]() { acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_celldb_preload_all, true); }); });
   p.add_checked_option(
-      '\0', "catchain-max-block-delay", "delay before creating a new catchain block, in seconds (default: 0.5)",
+      '\0', "catchain-max-block-delay", "delay before creating a new catchain block, in seconds (default: 0.4)",
       [&](td::Slice s) -> td::Status {
         auto v = td::to_double(s);
         if (v < 0) {
           return td::Status::Error("catchain-max-block-delay should be non-negative");
         }
         acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_catchain_max_block_delay, v); });
+        return td::Status::OK();
+      });
+  p.add_checked_option(
+      '\0', "catchain-max-block-delay-slow", "max extended catchain block delay (for too long rounds), (default: 1.0)",
+      [&](td::Slice s) -> td::Status {
+        auto v = td::to_double(s);
+        if (v < 0) {
+          return td::Status::Error("catchain-max-block-delay-slow should be non-negative");
+        }
+        acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_catchain_max_block_delay_slow, v); });
         return td::Status::OK();
       });
   p.add_option(

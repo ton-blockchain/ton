@@ -44,6 +44,7 @@ ShardStateQ::ShardStateQ(const ShardStateQ& other)
     , root(other.root)
     , lt(other.lt)
     , utime(other.utime)
+    , global_id_(other.global_id_)
     , before_split_(other.before_split_)
     , fake_split_(other.fake_split_)
     , fake_merge_(other.fake_merge_) {
@@ -121,6 +122,7 @@ td::Status ShardStateQ::init() {
   }
   lt = info.gen_lt;
   utime = info.gen_utime;
+  global_id_ = info.global_id;
   before_split_ = info.before_split;
   block::ShardId id{info.shard_id};
   ton::BlockId hdr_id{ton::ShardIdFull(id), info.seq_no};
