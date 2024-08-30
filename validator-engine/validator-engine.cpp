@@ -4236,7 +4236,7 @@ int main(int argc, char *argv[]) {
       "preload all cells from CellDb on startup (recommended to use with big enough celldb-cache-size and celldb-direct-io)",
       [&]() { acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_celldb_preload_all, true); }); });
   p.add_checked_option(
-      '\0', "catchain-max-block-delay", "delay before creating a new catchain block, in seconds (default: 0.5)",
+      '\0', "catchain-max-block-delay", "delay before creating a new catchain block, in seconds (default: 0.4)",
       [&](td::Slice s) -> td::Status {
         auto v = td::to_double(s);
         if (v < 0) {
@@ -4246,7 +4246,7 @@ int main(int argc, char *argv[]) {
         return td::Status::OK();
       });
   p.add_checked_option(
-      '\0', "catchain-max-block-delay-slow", "max extended catchain block delay (for too long rounds), (default: catchain-max-block-delay)",
+      '\0', "catchain-max-block-delay-slow", "max extended catchain block delay (for too long rounds), (default: 1.0)",
       [&](td::Slice s) -> td::Status {
         auto v = td::to_double(s);
         if (v < 0) {

@@ -90,8 +90,8 @@ class ValidatorSessionImpl : public ValidatorSession {
   td::actor::ActorOwn<catchain::CatChain> catchain_;
   std::unique_ptr<ValidatorSessionDescription> description_;
 
-  double catchain_max_block_delay_ = 0.5;
-  double catchain_max_block_delay_slow_ = 0.5;
+  double catchain_max_block_delay_ = 0.4;
+  double catchain_max_block_delay_slow_ = 1.0;
 
   void on_new_round(td::uint32 round);
   void on_catchain_started();
