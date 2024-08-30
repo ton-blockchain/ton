@@ -39,6 +39,7 @@ class ShardState : public td::CntObject {
 
   virtual UnixTime get_unix_time() const = 0;
   virtual LogicalTime get_logical_time() const = 0;
+  virtual td::int32 get_global_id() const = 0;
   virtual ShardIdFull get_shard() const = 0;
   virtual BlockSeqno get_seqno() const = 0;
   virtual BlockIdExt get_block_id() const = 0;
