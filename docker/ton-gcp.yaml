@@ -27,7 +27,7 @@ spec:
     spec:
       containers:
         - name: validator-engine-container
-          image: ghcr.io/neodix42/ton:latest
+          image: ghcr.io/ton-blockchain/ton:latest
           env:
             - name: PUBLIC_IP
               value: "<PUBLIC_IP>"

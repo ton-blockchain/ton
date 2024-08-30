@@ -85,7 +85,7 @@ cd ..
 if [ ! -f "openssl/openssl_em" ]; then
   cd openssl
   make clean
-  emconfigure ./Configure linux-generic32 no-shared no-dso no-engine no-unit-test
+  emconfigure ./Configure linux-generic32 no-shared no-dso no-engine no-unit-test no-tests no-fuzz-afl no-fuzz-libfuzzer
   sed -i 's/CROSS_COMPILE=.*/CROSS_COMPILE=/g' Makefile
   sed -i 's/-ldl//g' Makefile
   sed -i 's/-O3/-Os/g' Makefile

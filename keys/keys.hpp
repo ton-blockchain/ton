@@ -110,6 +110,7 @@ class Ed25519 {
   tl_object_ptr<ton_api::pub_ed25519> tl() const {
     return create_tl_object<ton_api::pub_ed25519>(data_);
   }
+  td::Result<std::unique_ptr<Encryptor>> create_encryptor() const;
   bool operator==(const Ed25519 &with) const {
     return data_ == with.data_;
   }
@@ -141,6 +142,7 @@ class AES {
   tl_object_ptr<ton_api::pub_aes> tl() const {
     return create_tl_object<ton_api::pub_aes>(data_);
   }
+  td::Result<std::unique_ptr<Encryptor>> create_encryptor() const;
   bool operator==(const AES &with) const {
     return data_ == with.data_;
   }
@@ -172,6 +174,7 @@ class Unenc {
   tl_object_ptr<ton_api::pub_unenc> tl() const {
     return create_tl_object<ton_api::pub_unenc>(data_.clone_as_buffer_slice());
   }
+  td::Result<std::unique_ptr<Encryptor>> create_encryptor() const;
   bool operator==(const Unenc &with) const {
     return data_.as_slice() == with.data_.as_slice();
   }
@@ -203,6 +206,7 @@ class Overlay {
   tl_object_ptr<ton_api::pub_overlay> tl() const {
     return create_tl_object<ton_api::pub_overlay>(data_.clone_as_buffer_slice());
   }
+  td::Result<std::unique_ptr<Encryptor>> create_encryptor() const;
   bool operator==(const Overlay &with) const {
     return data_.as_slice() == with.data_.as_slice();
   }
@@ -221,6 +225,9 @@ class PublicKey {
       UNREACHABLE();
     }
     td::uint32 serialized_size() const {
+      UNREACHABLE();
+    }
+    td::Result<std::unique_ptr<Encryptor>> create_encryptor() const {
       UNREACHABLE();
     }
     bool operator==(const Empty &with) const {
@@ -316,6 +323,7 @@ class Ed25519 {
   }
   tl_object_ptr<ton_api::PublicKey> pub_tl() const;
   pubkeys::Ed25519 pub() const;
+  td::Result<std::unique_ptr<Decryptor>> create_decryptor() const;
   static Ed25519 random();
 };
 
@@ -359,6 +367,7 @@ class AES {
   pubkeys::AES pub() const {
     return pubkeys::AES{data_};
   }
+  td::Result<std::unique_ptr<Decryptor>> create_decryptor() const;
 };
 
 class Unenc {
@@ -393,6 +402,7 @@ class Unenc {
   pubkeys::Unenc pub() const {
     return pubkeys::Unenc{data_.clone()};
   }
+  td::Result<std::unique_ptr<Decryptor>> create_decryptor() const;
 };
 
 class Overlay {
@@ -427,6 +437,7 @@ class Overlay {
   pubkeys::Overlay pub() const {
     return pubkeys::Overlay{data_.clone()};
   }
+  td::Result<std::unique_ptr<Decryptor>> create_decryptor() const;
 };
 
 }  // namespace privkeys
@@ -448,6 +459,9 @@ class PrivateKey {
       UNREACHABLE();
     }
     PublicKey pub() const {
+      UNREACHABLE();
+    }
+    td::Result<std::unique_ptr<Decryptor>> create_decryptor() const {
       UNREACHABLE();
     }
   };

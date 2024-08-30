@@ -30,12 +30,11 @@ namespace keyring {
 class KeyringImpl : public Keyring {
  private:
   struct PrivateKeyDescr {
-    td::actor::ActorOwn<DecryptorAsync> decryptor;
+    td::actor::ActorOwn<DecryptorAsync> decryptor_sign;
+    td::actor::ActorOwn<DecryptorAsync> decryptor_decrypt;
     PublicKey public_key;
     bool is_temp;
-    PrivateKeyDescr(td::actor::ActorOwn<DecryptorAsync> decryptor, PublicKey public_key, bool is_temp)
-        : decryptor(std::move(decryptor)), public_key(public_key), is_temp(is_temp) {
-    }
+    PrivateKeyDescr(PrivateKey private_key, bool is_temp);
   };
 
  public:

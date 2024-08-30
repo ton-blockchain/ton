@@ -270,6 +270,8 @@ void ValidatorSessionImpl::process_broadcast(PublicKeyHash src, td::BufferSlice 
     }
     stat->deserialize_time = deserialize_time;
     stat->serialized_size = data.size();
+    stat->root_hash = candidate->root_hash_;
+    stat->file_hash = file_hash;
   }
 
   if ((td::int32)block_round < (td::int32)cur_round_ - MAX_PAST_ROUND_BLOCK ||
@@ -468,6 +470,8 @@ void ValidatorSessionImpl::generated_block(td::uint32 round, ValidatorSessionCan
     stat->collated_at = td::Clocks::system();
     stat->block_timestamp = td::Clocks::system();
     stat->collation_cached = collation_cached;
+    stat->root_hash = root_hash;
+    stat->file_hash = file_hash;
   }
   if (round != cur_round_) {
     return;
@@ -602,6 +606,8 @@ void ValidatorSessionImpl::try_approve_block(const SentBlock *block) {
         if (stat->block_timestamp <= 0.0) {
           stat->block_timestamp = td::Clocks::system();
         }
+        stat->root_hash = B->root_hash_;
+        stat->file_hash = td::sha256_bits256(B->data_);
       }
 
       auto P = td::PromiseCreator::lambda([round = cur_round_, hash = block_id, root_hash = block->get_root_hash(),
@@ -995,6 +1001,29 @@ void ValidatorSessionImpl::destroy() {
 
 void ValidatorSessionImpl::get_current_stats(td::Promise<ValidatorSessionStats> promise) {
   promise.set_result(cur_stats_);
+}
+
+void ValidatorSessionImpl::get_end_stats(td::Promise<EndValidatorGroupStats> promise) {
+  if (!started_) {
+    promise.set_error(td::Status::Error(ErrorCode::notready, "not started"));
+    return;
+  }
+  EndValidatorGroupStats stats;
+  stats.session_id = unique_hash_;
+  stats.timestamp = td::Clocks::system();
+  stats.nodes.resize(description().get_total_nodes());
+  for (size_t i = 0; i < stats.nodes.size(); ++i) {
+    stats.nodes[i].id = description().get_source_id(i);
+  }
+  td::actor::send_closure(catchain_, &catchain::CatChain::get_source_heights,
+                          [promise = std::move(promise),
+                           stats = std::move(stats)](td::Result<std::vector<catchain::CatChainBlockHeight>> R) mutable {
+                            TRY_RESULT_PROMISE(promise, heights, std::move(R));
+                            for (size_t i = 0; i < std::min(heights.size(), stats.nodes.size()); ++i) {
+                              stats.nodes[i].catchain_blocks = heights[i];
+                            }
+                            promise.set_result(std::move(stats));
+                          });
 }
 
 void ValidatorSessionImpl::get_validator_group_info_for_litequery(

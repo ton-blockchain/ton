@@ -27,6 +27,16 @@ namespace ton {
 
 namespace keyring {
 
+KeyringImpl::PrivateKeyDescr::PrivateKeyDescr(PrivateKey private_key, bool is_temp)
+    : public_key(private_key.compute_public_key()), is_temp(is_temp) {
+  auto D = private_key.create_decryptor_async();
+  D.ensure();
+  decryptor_sign = D.move_as_ok();
+  D = private_key.create_decryptor_async();
+  D.ensure();
+  decryptor_decrypt = D.move_as_ok();
+}
+
 void KeyringImpl::start_up() {
   if (db_root_.size() > 0) {
     td::mkdir(db_root_).ensure();
@@ -45,23 +55,19 @@ td::Result<KeyringImpl::PrivateKeyDescr *> KeyringImpl::load_key(PublicKeyHash k
 
   auto name = db_root_ + "/" + key_hash.bits256_value().to_hex();
 
-  auto R = td::read_file(td::CSlice{name});
+  auto R = td::read_file_secure(td::CSlice{name});
   if (R.is_error()) {
     return R.move_as_error_prefix("key not in db: ");
   }
   auto data = R.move_as_ok();
-  auto R2 = PrivateKey::import(td::SecureString(data));
+  auto R2 = PrivateKey::import(data);
   R2.ensure();
 
   auto key = R2.move_as_ok();
-  auto pub = key.compute_public_key();
-  auto short_id = pub.compute_short_id();
+  auto desc = std::make_unique<PrivateKeyDescr>(key, false);
+  auto short_id = desc->public_key.compute_short_id();
   CHECK(short_id == key_hash);
-
-  auto D = key.create_decryptor_async();
-  D.ensure();
-
-  return map_.emplace(short_id, std::make_unique<PrivateKeyDescr>(D.move_as_ok(), pub, false)).first->second.get();
+  return map_.emplace(short_id, std::move(desc)).first->second.get();
 }
 
 void KeyringImpl::add_key(PrivateKey key, bool is_temp, td::Promise<td::Unit> promise) {
@@ -76,10 +82,7 @@ void KeyringImpl::add_key(PrivateKey key, bool is_temp, td::Promise<td::Unit> pr
   if (db_root_.size() == 0) {
     CHECK(is_temp);
   }
-  auto D = key.create_decryptor_async();
-  D.ensure();
-
-  map_.emplace(short_id, std::make_unique<PrivateKeyDescr>(D.move_as_ok(), pub, is_temp));
+  map_.emplace(short_id, std::make_unique<PrivateKeyDescr>(key, is_temp));
 
   if (!is_temp && key.exportable()) {
     auto S = key.export_as_slice();
@@ -139,7 +142,7 @@ void KeyringImpl::sign_message(PublicKeyHash key_hash, td::BufferSlice data, td:
   if (S.is_error()) {
     promise.set_error(S.move_as_error());
   } else {
-    td::actor::send_closure(S.move_as_ok()->decryptor, &DecryptorAsync::sign, std::move(data), std::move(promise));
+    td::actor::send_closure(S.move_as_ok()->decryptor_sign, &DecryptorAsync::sign, std::move(data), std::move(promise));
   }
 }
 
@@ -161,7 +164,7 @@ void KeyringImpl::sign_add_get_public_key(PublicKeyHash key_hash, td::BufferSlic
         }
         promise.set_value(std::pair<td::BufferSlice, PublicKey>{R.move_as_ok(), id});
       });
-  td::actor::send_closure(D->decryptor, &DecryptorAsync::sign, std::move(data), std::move(P));
+  td::actor::send_closure(D->decryptor_sign, &DecryptorAsync::sign, std::move(data), std::move(P));
 }
 
 void KeyringImpl::sign_messages(PublicKeyHash key_hash, std::vector<td::BufferSlice> data,
@@ -171,7 +174,7 @@ void KeyringImpl::sign_messages(PublicKeyHash key_hash, std::vector<td::BufferSl
   if (S.is_error()) {
     promise.set_error(S.move_as_error());
   } else {
-    td::actor::send_closure(S.move_as_ok()->decryptor, &DecryptorAsync::sign_batch, std::move(data),
+    td::actor::send_closure(S.move_as_ok()->decryptor_sign, &DecryptorAsync::sign_batch, std::move(data),
                             std::move(promise));
   }
 }
@@ -182,7 +185,8 @@ void KeyringImpl::decrypt_message(PublicKeyHash key_hash, td::BufferSlice data, 
   if (S.is_error()) {
     promise.set_error(S.move_as_error());
   } else {
-    td::actor::send_closure(S.move_as_ok()->decryptor, &DecryptorAsync::decrypt, std::move(data), std::move(promise));
+    td::actor::send_closure(S.move_as_ok()->decryptor_decrypt, &DecryptorAsync::decrypt, std::move(data),
+                            std::move(promise));
   }
 }
 

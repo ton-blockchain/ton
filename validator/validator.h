@@ -145,7 +145,7 @@ struct ValidatorManagerOptions : public td::CntObject {
       std::function<bool(ShardIdFull, CatchainSeqno, ShardCheckMode)> check_shard = [](ShardIdFull, CatchainSeqno,
                                                                                        ShardCheckMode) { return true; },
       bool allow_blockchain_init = false, double sync_blocks_before = 3600, double block_ttl = 86400,
-      double state_ttl = 3600, double archive_ttl = 86400 * 7, double key_proof_ttl = 86400 * 3650,
+      double state_ttl = 86400, double archive_ttl = 86400 * 7, double key_proof_ttl = 86400 * 3650,
       double max_mempool_num = 999999,
       bool initial_sync_disabled = false);
 };

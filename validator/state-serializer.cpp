@@ -95,7 +95,8 @@ void AsyncStateSerializer::request_previous_state_files() {
 }
 
 void AsyncStateSerializer::got_previous_state_files(std::vector<std::pair<std::string, ShardIdFull>> files) {
-  previous_state_files_ = std::move(files);
+  previous_state_cache_ = std::make_shared<PreviousStateCache>();
+  previous_state_cache_->state_files = std::move(files);
   request_masterchain_state();
 }
 
@@ -151,7 +152,10 @@ void AsyncStateSerializer::next_iteration() {
       need_serialize(masterchain_handle_)) {
     if (!have_masterchain_state_ && !opts_->get_state_serializer_enabled()) {
       LOG(ERROR) << "skipping serializing persistent state for " << masterchain_handle_->id().id.to_str()
-                 << ": serializer is disabled";
+                 << ": serializer is disabled (by user)";
+    } else if (!have_masterchain_state_ && auto_disabled_) {
+      LOG(ERROR) << "skipping serializing persistent state for " << masterchain_handle_->id().id.to_str()
+                 << ": serializer is disabled (automatically)";
     } else if (!have_masterchain_state_ && have_newer_persistent_state(masterchain_handle_->unix_time())) {
       LOG(ERROR) << "skipping serializing persistent state for " << masterchain_handle_->id().id.to_str()
                  << ": newer key block with ts=" << last_known_key_block_ts_ << " exists";
@@ -160,7 +164,7 @@ void AsyncStateSerializer::next_iteration() {
         LOG(ERROR) << "started serializing persistent state for " << masterchain_handle_->id().id.to_str();
         // block next attempts immediately, but send actual request later
         running_ = true;
-        double delay = td::Random::fast(0, 3600);
+        double delay = td::Random::fast(0, 3600 * 6);
         LOG(WARNING) << "serializer delay = " << delay << "s";
         delay_action(
             [SelfId = actor_id(this)]() {
@@ -182,9 +186,7 @@ void AsyncStateSerializer::next_iteration() {
     }
     last_key_block_ts_ = masterchain_handle_->unix_time();
     last_key_block_id_ = masterchain_handle_->id();
-    previous_state_files_ = {};
     previous_state_cache_ = {};
-    previous_state_cur_shards_ = {};
   }
   if (!saved_to_db_) {
     running_ = true;
@@ -252,27 +254,24 @@ class CachedCellDbReader : public vm::CellDbReader {
   td::uint64 cached_reqs_ = 0;
 };
 
-void AsyncStateSerializer::prepare_previous_state_cache(ShardIdFull shard) {
-  if (!opts_->get_fast_state_serializer_enabled()) {
-    return;
-  }
+void AsyncStateSerializer::PreviousStateCache::prepare_cache(ShardIdFull shard) {
   std::vector<ShardIdFull> prev_shards;
-  for (const auto& [_, prev_shard] : previous_state_files_) {
+  for (const auto& [_, prev_shard] : state_files) {
     if (shard_intersects(shard, prev_shard)) {
       prev_shards.push_back(prev_shard);
     }
   }
-  if (prev_shards == previous_state_cur_shards_) {
+  if (prev_shards == cur_shards) {
     return;
   }
-  previous_state_cur_shards_ = std::move(prev_shards);
-  previous_state_cache_ = {};
-  if (previous_state_cur_shards_.empty()) {
+  cur_shards = std::move(prev_shards);
+  cache = {};
+  if (cur_shards.empty()) {
     return;
   }
   td::Timer timer;
   LOG(WARNING) << "Preloading previous persistent state for shard " << shard.to_str() << " ("
-               << previous_state_cur_shards_.size() << " files)";
+               << cur_shards.size() << " files)";
   std::map<td::Bits256, td::Ref<vm::Cell>> cells;
   std::function<void(td::Ref<vm::Cell>)> dfs = [&](td::Ref<vm::Cell> cell) {
     td::Bits256 hash = cell->get_hash().bits();
@@ -285,7 +284,7 @@ void AsyncStateSerializer::prepare_previous_state_cache(ShardIdFull shard) {
       dfs(cs.prefetch_ref(i));
     }
   };
-  for (const auto& [file, prev_shard] : previous_state_files_) {
+  for (const auto& [file, prev_shard] : state_files) {
     if (!shard_intersects(shard, prev_shard)) {
       continue;
     }
@@ -300,22 +299,20 @@ void AsyncStateSerializer::prepare_previous_state_cache(ShardIdFull shard) {
       LOG(WARNING) << "Deserialize error : " << r_root.move_as_error();
       continue;
     }
-    r_data = {};
+    r_data.clear();
     dfs(r_root.move_as_ok());
   }
   LOG(WARNING) << "Preloaded previous state: " << cells.size() << " cells in " << timer.elapsed() << "s";
-  previous_state_cache_ = std::make_shared<std::map<td::Bits256, td::Ref<vm::Cell>>>(std::move(cells));
+  cache = std::make_shared<std::map<td::Bits256, td::Ref<vm::Cell>>>(std::move(cells));
 }
 
 void AsyncStateSerializer::got_masterchain_state(td::Ref<MasterchainState> state,
                                                  std::shared_ptr<vm::CellDbReader> cell_db_reader) {
-  if (!opts_->get_state_serializer_enabled()) {
+  if (!opts_->get_state_serializer_enabled() || auto_disabled_) {
     stored_masterchain_state();
     return;
   }
   LOG(ERROR) << "serializing masterchain state " << masterchain_handle_->id().id.to_str();
-  prepare_previous_state_cache(state->get_shard());
-  auto new_cell_db_reader = std::make_shared<CachedCellDbReader>(cell_db_reader, previous_state_cache_);
   have_masterchain_state_ = true;
   CHECK(next_idx_ == 0);
   CHECK(shards_.size() == 0);
@@ -325,10 +322,16 @@ void AsyncStateSerializer::got_masterchain_state(td::Ref<MasterchainState> state
     shards_.push_back(v->top_block_id());
   }
 
-  auto write_data = [hash = state->root_cell()->get_hash(), cell_db_reader = new_cell_db_reader,
+  auto write_data = [shard = state->get_shard(), hash = state->root_cell()->get_hash(), cell_db_reader,
+                     previous_state_cache = previous_state_cache_,
+                     fast_serializer_enabled = opts_->get_fast_state_serializer_enabled(),
                      cancellation_token = cancellation_token_source_.get_cancellation_token()](td::FileFd& fd) mutable {
-    auto res = vm::std_boc_serialize_to_file_large(cell_db_reader, hash, fd, 31, std::move(cancellation_token));
-    cell_db_reader->print_stats();
+    if (fast_serializer_enabled) {
+      previous_state_cache->prepare_cache(shard);
+    }
+    auto new_cell_db_reader = std::make_shared<CachedCellDbReader>(cell_db_reader, previous_state_cache->cache);
+    auto res = vm::std_boc_serialize_to_file_large(new_cell_db_reader, hash, fd, 31, std::move(cancellation_token));
+    new_cell_db_reader->print_stats();
     return res;
   };
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
@@ -375,17 +378,21 @@ void AsyncStateSerializer::got_shard_handle(BlockHandle handle) {
 
 void AsyncStateSerializer::got_shard_state(BlockHandle handle, td::Ref<ShardState> state,
                                            std::shared_ptr<vm::CellDbReader> cell_db_reader) {
-  if (!opts_->get_state_serializer_enabled()) {
+  if (!opts_->get_state_serializer_enabled() || auto_disabled_) {
     success_handler();
     return;
   }
   LOG(ERROR) << "serializing shard state " << handle->id().id.to_str();
-  prepare_previous_state_cache(state->get_shard());
-  auto new_cell_db_reader = std::make_shared<CachedCellDbReader>(cell_db_reader, previous_state_cache_);
-  auto write_data = [hash = state->root_cell()->get_hash(), cell_db_reader = new_cell_db_reader,
+  auto write_data = [shard = state->get_shard(), hash = state->root_cell()->get_hash(), cell_db_reader,
+                     previous_state_cache = previous_state_cache_,
+                     fast_serializer_enabled = opts_->get_fast_state_serializer_enabled(),
                      cancellation_token = cancellation_token_source_.get_cancellation_token()](td::FileFd& fd) mutable {
-    auto res = vm::std_boc_serialize_to_file_large(cell_db_reader, hash, fd, 31, std::move(cancellation_token));
-    cell_db_reader->print_stats();
+    if (fast_serializer_enabled) {
+      previous_state_cache->prepare_cache(shard);
+    }
+    auto new_cell_db_reader = std::make_shared<CachedCellDbReader>(cell_db_reader, previous_state_cache->cache);
+    auto res = vm::std_boc_serialize_to_file_large(new_cell_db_reader, hash, fd, 31, std::move(cancellation_token));
+    new_cell_db_reader->print_stats();
     return res;
   };
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), handle](td::Result<td::Unit> R) {
@@ -423,6 +430,13 @@ void AsyncStateSerializer::success_handler() {
 void AsyncStateSerializer::update_options(td::Ref<ValidatorManagerOptions> opts) {
   opts_ = std::move(opts);
   if (!opts_->get_state_serializer_enabled()) {
+    cancellation_token_source_.cancel();
+  }
+}
+
+void AsyncStateSerializer::auto_disable_serializer(bool disabled) {
+  auto_disabled_ = disabled;
+  if (auto_disabled_) {
     cancellation_token_source_.cancel();
   }
 }
