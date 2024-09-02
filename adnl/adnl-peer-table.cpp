@@ -421,6 +421,7 @@ void AdnlPeerTableImpl::get_stats(td::Promise<tl_object_ptr<ton_api::adnl_stats>
       --pending_;
       if (pending_ == 0) {
         auto stats = create_tl_object<ton_api::adnl_stats>();
+        stats->timestamp_ = td::Clocks::system();
         for (auto &[id, local_id_stats] : local_id_stats_) {
           stats->local_ids_.push_back(std::move(local_id_stats));
         }
