@@ -3866,6 +3866,28 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getCollat
   }
 }
 
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getAdnlStats &query, td::BufferSlice data,
+                                        ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_default)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+  if (adnl_.empty()) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "not started")));
+    return;
+  }
+  td::actor::send_closure(
+      adnl_, &ton::adnl::Adnl::get_stats,
+      [promise = std::move(promise)](td::Result<ton::tl_object_ptr<ton::ton_api::adnl_stats>> R) mutable {
+        if (R.is_ok()) {
+          promise.set_value(ton::serialize_tl_object(R.move_as_ok(), true));
+        } else {
+          promise.set_value(
+              create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "failed to get adnl stats")));
+        }
+      });
+}
+
 void ValidatorEngine::process_control_query(td::uint16 port, ton::adnl::AdnlNodeIdShort src,
                                             ton::adnl::AdnlNodeIdShort dst, td::BufferSlice data,
                                             td::Promise<td::BufferSlice> promise) {
