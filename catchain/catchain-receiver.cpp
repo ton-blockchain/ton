@@ -27,6 +27,8 @@
 
 #include "catchain-receiver.hpp"
 
+#include "td/utils/ThreadSafeCounter.h"
+
 namespace ton {
 
 namespace catchain {
@@ -685,6 +687,7 @@ void CatChainReceiverImpl::receive_query_from_overlay(adnl::AdnlNodeIdShort src,
     promise.set_error(td::Status::Error(ErrorCode::notready, "db not read"));
     return;
   }
+  TD_PERF_COUNTER(catchain_query_process);
   td::PerfWarningTimer t{"catchain query process", 0.05};
   auto F = fetch_tl_object<ton_api::Function>(data.clone(), true);
   if (F.is_error()) {

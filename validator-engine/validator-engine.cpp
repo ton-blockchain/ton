@@ -3540,6 +3540,31 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getOverla
                           });
 }
 
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getActorTextStats &query, td::BufferSlice data,
+                                        ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_default)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+
+  if (validator_manager_.empty()) {
+    promise.set_value(
+        create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "validator manager not started")));
+    return;
+  }
+
+  auto P = td::PromiseCreator::lambda([promise = std::move(promise)](td::Result<std::string> R) mutable {
+    if (R.is_error()) {
+      promise.set_value(create_control_query_error(R.move_as_error()));
+    } else {
+      auto r = R.move_as_ok();
+      promise.set_value(ton::create_serialize_tl_object<ton::ton_api::engine_validator_textStats>(std::move(r)));
+    }
+  });
+  td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::prepare_actor_stats,
+                          std::move(P));
+}
+
 void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getPerfTimerStats &query, td::BufferSlice data,
                                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise) {
   if (!(perm & ValidatorEnginePermissions::vep_default)) {
@@ -4319,7 +4344,9 @@ int main(int argc, char *argv[]) {
     }
     if (need_scheduler_status_flag.exchange(false)) {
       LOG(ERROR) << "DUMPING SCHEDULER STATISTICS";
-      scheduler.get_debug().dump();
+      td::StringBuilder sb;
+      scheduler.get_debug().dump(sb);
+      LOG(ERROR) << "GOT SCHEDULER STATISTICS\n" << sb.as_cslice();
     }
     if (rotate_logs_flags.exchange(false)) {
       if (td::log_interface) {

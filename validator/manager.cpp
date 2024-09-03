@@ -1622,6 +1622,7 @@ void ValidatorManagerImpl::send_block_broadcast(BlockBroadcast broadcast, bool c
 
 void ValidatorManagerImpl::start_up() {
   db_ = create_db_actor(actor_id(this), db_root_, opts_);
+  actor_stats_ = td::actor::create_actor<td::actor::ActorStats>("actor_stats");
   lite_server_cache_ = create_liteserver_cache_actor(actor_id(this), db_root_);
   token_manager_ = td::actor::create_actor<TokenManager>("tokenmanager");
   td::mkdir(db_root_ + "/tmp/").ensure();
@@ -2769,6 +2770,10 @@ void ValidatorManagerImpl::send_peek_key_block_request() {
   });
 
   send_get_next_key_blocks_request(last_known_key_block_handle_->id(), 1, std::move(P));
+}
+
+void ValidatorManagerImpl::prepare_actor_stats(td::Promise<std::string> promise) {
+  send_closure(actor_stats_, &td::actor::ActorStats::prepare_stats, std::move(promise));
 }
 
 void ValidatorManagerImpl::prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise) {

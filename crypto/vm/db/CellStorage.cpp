@@ -33,6 +33,7 @@ class RefcntCellStorer {
 
   template <class StorerT>
   void store(StorerT &storer) const {
+    TD_PERF_COUNTER(cell_store);
     using td::store;
     if (as_boc_) {
       td::int32 tag = -1;
@@ -151,6 +152,7 @@ CellLoader::CellLoader(std::shared_ptr<KeyValueReader> reader, std::function<voi
 
 td::Result<CellLoader::LoadResult> CellLoader::load(td::Slice hash, bool need_data, ExtCellCreator &ext_cell_creator) {
   //LOG(ERROR) << "Storage: load cell " << hash.size() << " " << td::base64_encode(hash);
+  TD_PERF_COUNTER(cell_load);
   LoadResult res;
   std::string serialized;
   TRY_RESULT(get_status, reader_->get(hash, serialized));

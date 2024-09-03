@@ -142,6 +142,7 @@ void CellDbIn::load_cell(RootHash hash, td::Promise<td::Ref<vm::DataCell>> promi
 }
 
 void CellDbIn::store_cell(BlockIdExt block_id, td::Ref<vm::Cell> cell, td::Promise<td::Ref<vm::DataCell>> promise) {
+  TD_PERF_COUNTER(celldb_store_cell);
   td::PerfWarningTimer timer{"storecell", 0.1};
   auto key_hash = get_key_hash(block_id);
   auto R = get_block(key_hash);
@@ -284,6 +285,7 @@ void CellDbIn::gc_cont(BlockHandle handle) {
 }
 
 void CellDbIn::gc_cont2(BlockHandle handle) {
+  TD_PERF_COUNTER(celldb_gc_cell);
   td::PerfWarningTimer timer{"gccell", 0.1};
 
   auto key_hash = get_key_hash(handle->id());
