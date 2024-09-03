@@ -148,14 +148,17 @@ adnl.db.node.value date:int id:PublicKey addr_list:adnl.addressList priority_add
 
 adnl.stats.packets ts_start:double ts_end:double
     in_packets:long in_bytes:long in_packets_channel:long in_bytes_channel:long
-    out_packets:long out_bytes:long out_packets_channel:long out_bytes_channel:long = adnl.stats.Packets;
+    out_packets:long out_bytes:long out_packets_channel:long out_bytes_channel:long
+    out_expired_messages:long out_expired_bytes:long = adnl.stats.Packets;
 adnl.stats.peerPair local_id:int256 peer_id:int256 ip_str:string
     packets_recent:adnl.stats.packets packets_total:adnl.stats.packets
     last_out_packet_ts:double last_in_packet_ts:double
+    connection_ready:Bool channel_status:int try_reinit_at:double
+    out_queue_messages:long out_queue_bytes:long
     = adnl.stats.PeerPair;
 adnl.stats.ipPackets ip_str:string packets:long = adnl.stats.IpPackets;
 adnl.stats.localIdPackets ts_start:double ts_end:double
-    decrypted_packets:(vector adnl.stats.ipPackets) decrypt_errors:(vector adnl.stats.ipPackets) = adnl.stats.LocalIdPackets;
+    decrypted_packets:(vector adnl.stats.ipPackets) dropped_packets:(vector adnl.stats.ipPackets) = adnl.stats.LocalIdPackets;
 adnl.stats.localId short_id:int256
     current_decrypt:(vector adnl.stats.ipPackets)
     packets_recent:adnl.stats.localIdPackets packets_total:adnl.stats.localIdPackets

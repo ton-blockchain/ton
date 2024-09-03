@@ -1355,9 +1355,9 @@ td::Status GetAdnlStatsQuery::receive(td::BufferSlice data) {
       sb << "\n";
     };
     print_local_id_packets("Decrypted packets (recent)", local_id->packets_recent_->decrypted_packets_);
-    print_local_id_packets("Decrypt errors    (recent)", local_id->packets_recent_->decrypt_errors_);
+    print_local_id_packets("Dropped packets   (recent)", local_id->packets_recent_->dropped_packets_);
     print_local_id_packets("Decrypted packets (total)", local_id->packets_total_->decrypted_packets_);
-    print_local_id_packets("Decrypt errors    (total)", local_id->packets_total_->decrypt_errors_);
+    print_local_id_packets("Dropped packets   (total)", local_id->packets_total_->dropped_packets_);
     sb << "  PEERS (" << local_id->peers_.size() << "):\n";
     std::sort(local_id->peers_.begin(), local_id->peers_.end(),
               [](const ton::tl_object_ptr<ton::ton_api::adnl_stats_peerPair> &a,
@@ -1368,6 +1368,20 @@ td::Status GetAdnlStatsQuery::receive(td::BufferSlice data) {
     for (auto &peer : local_id->peers_) {
       sb << "    PEER " << peer->peer_id_ << "\n";
       sb << "      Address: " << (peer->ip_str_.empty() ? "unknown" : peer->ip_str_) << "\n";
+      sb << "      Connection " << (peer->connection_ready_ ? "ready" : "not ready") << ", ";
+      switch (peer->channel_status_) {
+        case 0:
+          sb << "channel: none\n";
+          break;
+        case 1:
+          sb << "channel: inited\n";
+          break;
+        case 2:
+          sb << "channel: ready\n";
+          break;
+        default:
+          sb << "\n";
+      }
 
       auto print_packets = [&](const std::string &name,
                                const ton::tl_object_ptr<ton::ton_api::adnl_stats_packets> &obj) {
@@ -1380,6 +1394,10 @@ td::Status GetAdnlStatsQuery::receive(td::BufferSlice data) {
           sb << "      Out (" << name << "): " << obj->out_packets_ << " packets ("
              << td::format::as_size(obj->out_bytes_) << "), channel: " << obj->out_packets_channel_ << " packets ("
              << td::format::as_size(obj->out_bytes_channel_) << ")\n";
+        }
+        if (obj->out_expired_messages_) {
+          sb << "      Out expired (" << name << "): " << obj->out_expired_messages_ << " messages ("
+             << td::format::as_size(obj->out_expired_bytes_) << ")\n";
         }
       };
       print_packets("recent", peer->packets_recent_);
@@ -1398,6 +1416,10 @@ td::Status GetAdnlStatsQuery::receive(td::BufferSlice data) {
         sb << "never";
       }
       sb << "\n";
+      if (peer->out_queue_messages_) {
+        sb << "      Out message queue: " << peer->out_queue_messages_ << " messages ("
+           << td::format::as_size(peer->out_queue_bytes_) << ")\n";
+      }
     }
   }
   sb << "==============================================================================\n";
