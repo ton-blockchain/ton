@@ -3511,8 +3511,8 @@ void LiteQuery::finish_getDispatchQueueInfo(StdSmcAddress after_addr, int max_ac
     }
     CHECK(dict_size > 0);
     td::BitArray<64> min_lt, max_lt;
-    dict.extract_minmax_key(min_lt.bits(), 64, false, false);
-    dict.extract_minmax_key(max_lt.bits(), 64, true, false);
+    dict.get_minmax_key(min_lt.bits(), 64, false, false);
+    dict.get_minmax_key(max_lt.bits(), 64, true, false);
     result.push_back(create_tl_object<lite_api::liteServer_accountDispatchQueueInfo>(addr, dict_size, min_lt.to_ulong(),
                                                                                      max_lt.to_ulong()));
   }
