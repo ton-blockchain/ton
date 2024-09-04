@@ -974,7 +974,11 @@ bool TestNode::show_help(std::string command) {
          "into files <filename-pfx><complaint-hash>.boc\n"
          "complaintprice <expires-in> <complaint-boc>\tComputes the price (in nanograms) for creating a complaint\n"
          "msgqueuesizes\tShows current sizes of outbound message queues in all shards\n"
-         "dispatchqueueinfo <block-id>\tShows dispatch queue of a block\n"
+         "dispatchqueueinfo <block-id>\tShows list of account dispatch queue of a block\n"
+         "dispatchqueuemessages <block-id> <addr> [<after-lt>]\tShows deferred messages from account <addr>, lt > "
+         "<after_lt>\n"
+         "dispatchqueuemessagesall <block-id> [<after-addr> [<after-lt>]]\tShows messages from dispatch queue of a "
+         "block, starting after <after_addr>, <after-lt>\n"
          "known\tShows the list of all known block ids\n"
          "knowncells\tShows the list of hashes of all known (cached) cells\n"
          "dumpcell <hex-hash-pfx>\nDumps a cached cell by a prefix of its hash\n"
@@ -989,9 +993,9 @@ bool TestNode::show_help(std::string command) {
 bool TestNode::do_parse_line() {
   ton::WorkchainId workchain = ton::masterchainId;  // change to basechain later
   int addr_ext = 0;
-  ton::StdSmcAddress addr{};
+  ton::StdSmcAddress addr = ton::StdSmcAddress::zero();
   ton::BlockIdExt blkid{};
-  ton::LogicalTime lt{};
+  ton::LogicalTime lt = 0;
   ton::Bits256 hash{};
   ton::ShardIdFull shard{};
   ton::BlockSeqno seqno{};
@@ -1121,6 +1125,14 @@ bool TestNode::do_parse_line() {
     return get_msg_queue_sizes();
   } else if (word == "dispatchqueueinfo") {
     return parse_block_id_ext(blkid) && seekeoln() && get_dispatch_queue_info(blkid);
+  } else if (word == "dispatchqueuemessages" || word == "dispatchqueuemessagesall") {
+    bool one_account = word == "dispatchqueuemessages";
+    if (!parse_block_id_ext(blkid)) {
+      return false;
+    }
+    workchain = blkid.id.workchain;
+    return ((!one_account && seekeoln()) || parse_account_addr(workchain, addr)) && (seekeoln() || parse_lt(lt)) &&
+           seekeoln() && get_dispatch_queue_messages(blkid, workchain, addr, lt, one_account);
   } else if (word == "known") {
     return eoln() && show_new_blkids(true);
   } else if (word == "knowncells") {
@@ -1655,7 +1667,7 @@ bool TestNode::get_dispatch_queue_info(ton::BlockIdExt block_id) {
 
 bool TestNode::get_dispatch_queue_info_cont(ton::BlockIdExt block_id, bool first, td::Bits256 after_addr) {
   auto q = ton::create_serialize_tl_object<ton::lite_api::liteServer_getDispatchQueueInfo>(
-      first ? 0 : 2, ton::create_tl_lite_block_id(block_id), after_addr, 256, false);
+      first ? 0 : 2, ton::create_tl_lite_block_id(block_id), after_addr, 32, false);
   return envelope_send_query(std::move(q), [=, Self = actor_id(this)](td::Result<td::BufferSlice> res) -> void {
     if (res.is_error()) {
       LOG(ERROR) << "liteServer.getDispatchQueueInfo error: " << res.move_as_error();
@@ -1681,6 +1693,46 @@ void TestNode::got_dispatch_queue_info(ton::BlockIdExt block_id,
     return;
   }
   get_dispatch_queue_info_cont(block_id, false, info->account_dispatch_queues_.back()->addr_);
+}
+
+bool TestNode::get_dispatch_queue_messages(ton::BlockIdExt block_id, ton::WorkchainId wc, ton::StdSmcAddress addr,
+                                           ton::LogicalTime lt, bool one_account) {
+  if (wc != block_id.id.workchain) {
+    return set_error("workchain mismatch");
+  }
+  auto q = ton::create_serialize_tl_object<ton::lite_api::liteServer_getDispatchQueueMessages>(
+      one_account ? 2 : 0, ton::create_tl_lite_block_id(block_id), addr, lt, 64, false, one_account, false);
+  return envelope_send_query(std::move(q), [=, Self = actor_id(this)](td::Result<td::BufferSlice> res) -> void {
+    if (res.is_error()) {
+      LOG(ERROR) << "liteServer.getDispatchQueueMessages error: " << res.move_as_error();
+      return;
+    }
+    auto F = ton::fetch_tl_object<ton::lite_api::liteServer_dispatchQueueMessages>(res.move_as_ok(), true);
+    if (F.is_error()) {
+      LOG(ERROR) << "cannot parse answer to liteServer.getDispatchQueueMessages";
+      return;
+    }
+    td::actor::send_closure_later(Self, &TestNode::got_dispatch_queue_messages, F.move_as_ok());
+  });
+}
+
+void TestNode::got_dispatch_queue_messages(ton::tl_object_ptr<ton::lite_api::liteServer_dispatchQueueMessages> msgs) {
+  td::TerminalIO::out() << "Dispatch queue messages (" << msgs->messages_.size() << "):\n";
+  int count = 0;
+  for (auto& m : msgs->messages_) {
+    auto& meta = m->metadata_;
+    td::TerminalIO::out() << "Msg #" << ++count << ": " << msgs->id_->workchain_ << ":" << m->addr_.to_hex() << " "
+                          << m->lt_ << " : "
+                          << (meta->initiator_->workchain_ == ton::workchainInvalid
+                                  ? "[ no metadata ]"
+                                  : block::MsgMetadata{(td::uint32)meta->depth_, meta->initiator_->workchain_,
+                                                       meta->initiator_->id_, (ton::LogicalTime)meta->initiator_lt_}
+                                        .to_str())
+                          << "\n";
+  }
+  if (!msgs->complete_) {
+    td::TerminalIO::out() << "(incomplete list)\n";
+  }
 }
 
 bool TestNode::dns_resolve_start(ton::WorkchainId workchain, ton::StdSmcAddress addr, ton::BlockIdExt blkid,
@@ -4360,7 +4412,7 @@ int main(int argc, char* argv[]) {
   });
   p.add_option('V', "version", "shows lite-client build information", [&]() {
     std::cout << "lite-client build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
-    
+
     std::exit(0);
   });
   p.add_option('i', "idx", "set liteserver idx", [&](td::Slice arg) {
