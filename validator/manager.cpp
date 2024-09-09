@@ -2138,8 +2138,8 @@ void ValidatorManagerImpl::update_shards() {
         new_next_validator_groups_.emplace(val_group_id, std::move(it->second));
       } else {
         new_next_validator_groups_.emplace(
-            val_group_id,
-            ValidatorGroupEntry{create_validator_group(val_group_id, shard, val_set, key_seqno, opts, started_), shard});
+            val_group_id, ValidatorGroupEntry{
+                              create_validator_group(val_group_id, shard, val_set, key_seqno, opts, started_), shard});
       }
     }
   }
@@ -2808,6 +2808,9 @@ void ValidatorManagerImpl::prepare_stats(td::Promise<std::vector<std::pair<std::
                               promise.set_value(std::move(vec));
                             });
   }
+  td::NamedThreadSafeCounter::get_default().for_each([&](auto key, auto value) {
+    vec.emplace_back("counter." + key, PSTRING() << value);
+  });
 
   if (!shard_client_.empty()) {
     auto P = td::PromiseCreator::lambda([promise = merger.make_promise("")](td::Result<BlockSeqno> R) mutable {
@@ -3031,18 +3034,18 @@ void ValidatorManagerImpl::get_block_state_for_litequery(BlockIdExt block_id,
             promise.set_result(R.move_as_ok());
             return;
           }
-          td::actor::send_closure(manager, &ValidatorManagerImpl::get_block_handle_for_litequery,
-              block_id, [manager, promise = std::move(promise)](td::Result<ConstBlockHandle> R) mutable {
-                TRY_RESULT_PROMISE(promise, handle, std::move(R));
-                td::actor::send_closure_later(manager, &ValidatorManager::get_shard_state_from_db, std::move(handle),
-                                              std::move(promise));
-              });
+          td::actor::send_closure(manager, &ValidatorManagerImpl::get_block_handle_for_litequery, block_id,
+                                  [manager, promise = std::move(promise)](td::Result<ConstBlockHandle> R) mutable {
+                                    TRY_RESULT_PROMISE(promise, handle, std::move(R));
+                                    td::actor::send_closure_later(manager, &ValidatorManager::get_shard_state_from_db,
+                                                                  std::move(handle), std::move(promise));
+                                  });
         });
   }
 }
 
 void ValidatorManagerImpl::get_block_by_lt_for_litequery(AccountIdPrefixFull account, LogicalTime lt,
-                                                                 td::Promise<ConstBlockHandle> promise) {
+                                                         td::Promise<ConstBlockHandle> promise) {
   get_block_by_lt_from_db(
       account, lt, [=, SelfId = actor_id(this), promise = std::move(promise)](td::Result<ConstBlockHandle> R) mutable {
         if (R.is_ok() && R.ok()->is_applied()) {
@@ -3055,7 +3058,7 @@ void ValidatorManagerImpl::get_block_by_lt_for_litequery(AccountIdPrefixFull acc
 }
 
 void ValidatorManagerImpl::get_block_by_unix_time_for_litequery(AccountIdPrefixFull account, UnixTime ts,
-                                                                        td::Promise<ConstBlockHandle> promise) {
+                                                                td::Promise<ConstBlockHandle> promise) {
   get_block_by_unix_time_from_db(
       account, ts, [=, SelfId = actor_id(this), promise = std::move(promise)](td::Result<ConstBlockHandle> R) mutable {
         if (R.is_ok() && R.ok()->is_applied()) {
@@ -3068,7 +3071,7 @@ void ValidatorManagerImpl::get_block_by_unix_time_for_litequery(AccountIdPrefixF
 }
 
 void ValidatorManagerImpl::get_block_by_seqno_for_litequery(AccountIdPrefixFull account, BlockSeqno seqno,
-                                                                    td::Promise<ConstBlockHandle> promise) {
+                                                            td::Promise<ConstBlockHandle> promise) {
   get_block_by_seqno_from_db(
       account, seqno,
       [=, SelfId = actor_id(this), promise = std::move(promise)](td::Result<ConstBlockHandle> R) mutable {
