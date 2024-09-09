@@ -2057,7 +2057,6 @@ void ValidatorManagerImpl::update_shards() {
     }
   }
 
-  bool validating_masterchain = false;
   if (allow_validate_) {
     for (auto &desc : new_shards) {
       auto shard = desc.first;
@@ -2074,9 +2073,6 @@ void ValidatorManagerImpl::update_shards() {
       auto validator_id = get_validator(shard, val_set);
 
       if (!validator_id.is_zero()) {
-        if (shard.is_masterchain()) {
-          validating_masterchain = true;
-        }
         auto val_group_id = get_validator_set_id(shard, val_set, opts_hash, key_seqno, opts);
 
         if (force_recover) {
@@ -2171,16 +2167,14 @@ void ValidatorManagerImpl::update_shards() {
       td::actor::send_closure(SelfId, &ValidatorManagerImpl::written_destroyed_validator_sessions, std::move(gc));
     });
     td::actor::send_closure(db_, &Db::update_destroyed_validator_sessions, gc_list_, std::move(P));
-
-    if (!serializer_.empty()) {
-      td::actor::send_closure(
-          serializer_, &AsyncStateSerializer::auto_disable_serializer,
-          validating_masterchain &&
-              last_masterchain_state_->get_validator_set(ShardIdFull{masterchainId})->export_vector().size() * 2 <=
-                  last_masterchain_state_->get_total_validator_set(0)->export_vector().size());
-    }
   }
-}  // namespace validator
+
+  if (!serializer_.empty()) {
+    td::actor::send_closure(
+        serializer_, &AsyncStateSerializer::auto_disable_serializer,
+        !validator_groups_.empty() && last_masterchain_state_->get_global_id() == -239);  // mainnet only
+  }
+}
 
 void ValidatorManagerImpl::written_destroyed_validator_sessions(std::vector<td::actor::ActorId<ValidatorGroup>> list) {
   for (auto &v : list) {
@@ -2773,6 +2767,23 @@ void ValidatorManagerImpl::prepare_stats(td::Promise<std::vector<std::pair<std::
     vec.emplace_back("rotatemasterchainblock", last_rotate_block_id_.to_str());
     //vec.emplace_back("shardclientmasterchainseqno", td::to_string(min_confirmed_masterchain_seqno_));
     vec.emplace_back("stateserializermasterchainseqno", td::to_string(state_serializer_masterchain_seqno_));
+
+    td::actor::send_closure(db_, &Db::get_last_deleted_mc_state,
+                            [promise = merger.make_promise(""),
+                             gc_seqno = gc_masterchain_handle_->id().seqno()](td::Result<BlockSeqno> R) mutable {
+                              TRY_RESULT_PROMISE(promise, seqno, std::move(R));
+                              std::string s;
+                              if (seqno == 0) {
+                                s = "none";
+                              } else if (seqno <= gc_seqno) {
+                                s = PSTRING() << seqno << " (gc_seqno-" << (gc_seqno - seqno) << ")";
+                              } else {
+                                s = PSTRING() << seqno << " (gc_seqno+" << (seqno - gc_seqno) << ")";
+                              }
+                              std::vector<std::pair<std::string, std::string>> vec;
+                              vec.emplace_back("lastgcdmasterchainstate", std::move(s));
+                              promise.set_value(std::move(vec));
+                            });
   }
 
   if (!shard_client_.empty()) {

@@ -378,6 +378,7 @@ void AsyncStateSerializer::got_shard_handle(BlockHandle handle) {
 
 void AsyncStateSerializer::got_shard_state(BlockHandle handle, td::Ref<ShardState> state,
                                            std::shared_ptr<vm::CellDbReader> cell_db_reader) {
+  next_idx_++;
   if (!opts_->get_state_serializer_enabled() || auto_disabled_) {
     success_handler();
     return;
@@ -406,7 +407,6 @@ void AsyncStateSerializer::got_shard_state(BlockHandle handle, td::Ref<ShardStat
   });
   td::actor::send_closure(manager_, &ValidatorManager::store_persistent_state_file_gen, handle->id(),
                           masterchain_handle_->id(), write_data, std::move(P));
-  next_idx_++;
 }
 
 void AsyncStateSerializer::fail_handler(td::Status reason) {

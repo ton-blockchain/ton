@@ -150,6 +150,8 @@ void ValidatorEngineConsole::run() {
   add_query_runner(std::make_unique<QueryRunnerImpl<SetCollatorOptionsJsonQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<ResetCollatorOptionsQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<GetCollatorOptionsJsonQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<GetAdnlStatsJsonQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<GetAdnlStatsQuery>>());
 }
 
 bool ValidatorEngineConsole::envelope_send_query(td::BufferSlice query, td::Promise<td::BufferSlice> promise) {

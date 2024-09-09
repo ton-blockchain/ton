@@ -368,6 +368,12 @@ void CatChainReceiverImpl::add_block(td::BufferSlice payload, std::vector<CatCha
   }
 
   int height = prev->height_ + 1;
+  auto max_block_height = get_max_block_height(opts_, sources_.size());
+  if (height > max_block_height) {
+    VLOG(CATCHAIN_WARNING) << this << ": cannot create block: max height exceeded (" << max_block_height << ")";
+    active_send_ = false;
+    return;
+  }
   auto block_data = create_tl_object<ton_api::catchain_block_data>(std::move(prev), std::move(deps_arr));
   auto block = create_tl_object<ton_api::catchain_block>(incarnation_, local_idx_, height, std::move(block_data),
                                                          td::BufferSlice());

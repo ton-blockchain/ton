@@ -478,6 +478,14 @@ class ValidatorSessionState : public ValidatorSessionDescription::RootObject {
   auto get_ts(td::uint32 src_idx) const {
     return att_->at(src_idx);
   }
+  td::uint32 cur_attempt_in_round(const ValidatorSessionDescription& desc) const {
+    td::uint32 first_attempt = cur_round_->get_first_attempt(desc.get_self_idx());
+    td::uint32 cur_attempt = desc.get_attempt_seqno(desc.get_ts());
+    if (cur_attempt < first_attempt || first_attempt == 0) {
+      return 0;
+    }
+    return cur_attempt - first_attempt;
+  }
 
   const SentBlock* choose_block_to_sign(ValidatorSessionDescription& desc, td::uint32 src_idx, bool& found) const;
   const SentBlock* get_committed_block(ValidatorSessionDescription& desc, td::uint32 seqno) const;
