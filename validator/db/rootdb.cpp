@@ -285,6 +285,10 @@ void RootDb::get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> p
   td::actor::send_closure(cell_db_, &CellDb::get_cell_db_reader, std::move(promise));
 }
 
+void RootDb::get_last_deleted_mc_state(td::Promise<BlockSeqno> promise) {
+  td::actor::send_closure(cell_db_, &CellDb::get_last_deleted_mc_state, std::move(promise));
+}
+
 void RootDb::store_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::BufferSlice state,
                                          td::Promise<td::Unit> promise) {
   td::actor::send_closure(archive_db_, &ArchiveManager::add_persistent_state, block_id, masterchain_block_id,

@@ -870,7 +870,7 @@ void LiteQuery::perform_runSmcMethod(BlockIdExt blkid, WorkchainId workchain, St
       vm::FakeVmStateLimits fstate(1000);  // limit recursive (de)serialization calls
       vm::VmStateInterface::Guard guard(&fstate);
       auto cs = vm::load_cell_slice(res.move_as_ok());
-      if (!(vm::Stack::deserialize_to(cs, stack_, 0) && cs.empty_ext())) {
+      if (!(vm::Stack::deserialize_to(cs, stack_, 2 /* no continuations */) && cs.empty_ext())) {
         fatal_error("parameter list boc cannot be deserialized as a VmStack");
         return;
       }
