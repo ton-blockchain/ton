@@ -1293,6 +1293,50 @@ class GetCollatorOptionsJsonQuery : public Query {
   std::string file_name_;
 };
 
+class GetAdnlStatsJsonQuery : public Query {
+ public:
+  GetAdnlStatsJsonQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "getadnlstatsjson";
+  }
+  static std::string get_help() {
+    return "getadnlstatsjson <filename>\tsave adnl stats to <filename>";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  std::string file_name_;
+};
+
+class GetAdnlStatsQuery : public Query {
+ public:
+  GetAdnlStatsQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "getadnlstats";
+  }
+  static std::string get_help() {
+    return "getadnlstats\tdisplay adnl stats";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  std::string file_name_;
+};
+
 class AddCollatorQuery : public Query {
  public:
   AddCollatorQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)

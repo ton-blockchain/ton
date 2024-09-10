@@ -3720,10 +3720,10 @@ void TestNode::continue_check_validator_load3(std::unique_ptr<TestNode::Validato
           cnt_ok++;
         }
       }
-    } else if (std::min(p1, p2) < .001) {
+    } else if (std::min(p1, p2) < .005) {
       LOG(ERROR) << "validator #" << i << " with pubkey " << pk.to_hex()
                  << " : moderate misbehavior detected: created less than 90% of the expected amount of blocks with "
-                    "probability 99.9% : created ("
+                    "probability 99.5% : created ("
                  << x1 << "," << y1 << "), expected (" << xe << "," << ye << ") masterchain/shardchain blocks\n";
       if ((mode & 3) == 2) {
         auto st = write_val_create_proof(*info1, *info2, i, false, file_pfx, ++cnt);

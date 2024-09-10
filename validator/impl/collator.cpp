@@ -3190,7 +3190,7 @@ int Collator::process_one_new_message(block::NewOutMsg msg, bool enqueue_only, R
   bool defer = false;
   if (!from_dispatch_queue) {
     if (deferring_messages_enabled_ && collator_opts_->deferring_enabled && !is_special && !is_special_account &&
-        msg.msg_idx != 0) {
+        !collator_opts_->whitelist.count({src_wc, src_addr}) && msg.msg_idx != 0) {
       if (++sender_generated_messages_count_[src_addr] >= collator_opts_->defer_messages_after ||
           out_msg_queue_size_ > defer_out_queue_size_limit_) {
         defer = true;
@@ -3848,6 +3848,8 @@ bool Collator::process_dispatch_queue() {
     vm::AugmentedDictionary cur_dispatch_queue{dispatch_queue_->get_root(), 256, block::tlb::aug_DispatchQueue};
     std::map<std::tuple<WorkchainId, StdSmcAddress, LogicalTime>, size_t> count_per_initiator;
     size_t total_count = 0;
+    auto prioritylist = collator_opts_->prioritylist;
+    auto prioritylist_iter = prioritylist.begin();
     while (!cur_dispatch_queue.is_empty()) {
       block_full_ = !block_limit_status_->fits(block::ParamLimits::cl_normal);
       if (block_full_) {
@@ -3864,9 +3866,30 @@ bool Collator::process_dispatch_queue() {
         return true;
       }
       StdSmcAddress src_addr;
-      auto account_dispatch_queue = block::get_dispatch_queue_min_lt_account(cur_dispatch_queue, src_addr);
+      td::Ref<vm::CellSlice> account_dispatch_queue;
+      while (!prioritylist.empty()) {
+        if (prioritylist_iter == prioritylist.end()) {
+          prioritylist_iter = prioritylist.begin();
+        }
+        auto priority_addr = *prioritylist_iter;
+        if (priority_addr.first != workchain() || !is_our_address(priority_addr.second)) {
+          prioritylist_iter = prioritylist.erase(prioritylist_iter);
+          continue;
+        }
+        src_addr = priority_addr.second;
+        account_dispatch_queue = cur_dispatch_queue.lookup(src_addr);
+        if (account_dispatch_queue.is_null()) {
+          prioritylist_iter = prioritylist.erase(prioritylist_iter);
+        } else {
+          ++prioritylist_iter;
+          break;
+        }
+      }
       if (account_dispatch_queue.is_null()) {
-        return fatal_error("invalid dispatch queue in shard state");
+        account_dispatch_queue = block::get_dispatch_queue_min_lt_account(cur_dispatch_queue, src_addr);
+        if (account_dispatch_queue.is_null()) {
+          return fatal_error("invalid dispatch queue in shard state");
+        }
       }
       vm::Dictionary dict{64};
       td::uint64 dict_size;
@@ -3886,7 +3909,8 @@ bool Collator::process_dispatch_queue() {
       // Remove message from DispatchQueue
       bool ok;
       if (iter == 0 ||
-          (iter == 1 && sender_generated_messages_count_[src_addr] >= collator_opts_->defer_messages_after)) {
+          (iter == 1 && sender_generated_messages_count_[src_addr] >= collator_opts_->defer_messages_after &&
+           !collator_opts_->whitelist.count({workchain(), src_addr}))) {
         ok = cur_dispatch_queue.lookup_delete(src_addr).not_null();
       } else {
         dict.lookup_delete(key);

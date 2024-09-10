@@ -144,7 +144,26 @@ adnl.message.part hash:int256 total_size:int offset:int data:bytes = adnl.Messag
 ---types---
 
 adnl.db.node.key local_id:int256 peer_id:int256 = adnl.db.Key;
-adnl.db.node.value date:int id:PublicKey addr_list:adnl.addressList priority_addr_list:adnl.addressList = adnl.db.node.Value; 
+adnl.db.node.value date:int id:PublicKey addr_list:adnl.addressList priority_addr_list:adnl.addressList = adnl.db.node.Value;
+
+adnl.stats.packets ts_start:double ts_end:double
+    in_packets:long in_bytes:long in_packets_channel:long in_bytes_channel:long
+    out_packets:long out_bytes:long out_packets_channel:long out_bytes_channel:long
+    out_expired_messages:long out_expired_bytes:long = adnl.stats.Packets;
+adnl.stats.peerPair local_id:int256 peer_id:int256 ip_str:string
+    packets_recent:adnl.stats.packets packets_total:adnl.stats.packets
+    last_out_packet_ts:double last_in_packet_ts:double
+    connection_ready:Bool channel_status:int try_reinit_at:double
+    out_queue_messages:long out_queue_bytes:long
+    = adnl.stats.PeerPair;
+adnl.stats.ipPackets ip_str:string packets:long = adnl.stats.IpPackets;
+adnl.stats.localIdPackets ts_start:double ts_end:double
+    decrypted_packets:(vector adnl.stats.ipPackets) dropped_packets:(vector adnl.stats.ipPackets) = adnl.stats.LocalIdPackets;
+adnl.stats.localId short_id:int256
+    current_decrypt:(vector adnl.stats.ipPackets)
+    packets_recent:adnl.stats.localIdPackets packets_total:adnl.stats.localIdPackets
+    peers:(vector adnl.stats.peerPair) = adnl.stats.LocalId;
+adnl.stats timestamp:double local_ids:(vector adnl.stats.localId) = adnl.Stats;
 
 ---functions---
 
@@ -647,7 +666,8 @@ engine.validator.customOverlaysConfig overlays:(vector engine.validator.customOv
 engine.validator.collatorOptions
   deferring_enabled:Bool defer_messages_after:int defer_out_queue_size_limit:long
   dispatch_phase_2_max_total:int dispatch_phase_3_max_total:int
-  dispatch_phase_2_max_per_initiator:int dispatch_phase_3_max_per_initiator:int = engine.validator.CollatorOptions;
+  dispatch_phase_2_max_per_initiator:int dispatch_phase_3_max_per_initiator:int
+  whitelist:(vector string) prioritylist:(vector string) = engine.validator.CollatorOptions;
 
 engine.validator.collatorsList.collator adnl_id:int256 trusted:Bool = engine.validator.collatorsList.Collator;
 engine.validator.collatorsList.shard shard_id:tonNode.shardId collators:(vector engine.validator.collatorsList.collator)
@@ -774,6 +794,8 @@ engine.validator.setStateSerializerEnabled enabled:Bool = engine.validator.Succe
 
 engine.validator.setCollatorOptionsJson json:string = engine.validator.Success;
 engine.validator.getCollatorOptionsJson = engine.validator.JsonConfig;
+
+engine.validator.getAdnlStats = adnl.Stats;
 
 engine.validator.addCollator adnl_id:int256 shard:tonNode.shardId = engine.validator.Success;
 engine.validator.addShard shard:tonNode.shardId = engine.validator.Success;

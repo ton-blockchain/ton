@@ -1291,6 +1291,169 @@ td::Status GetCollatorOptionsJsonQuery::receive(td::BufferSlice data) {
   return td::Status::OK();
 }
 
+td::Status GetAdnlStatsJsonQuery::run() {
+  TRY_RESULT_ASSIGN(file_name_, tokenizer_.get_token<std::string>());
+  TRY_STATUS(tokenizer_.check_endl());
+  return td::Status::OK();
+}
+
+td::Status GetAdnlStatsJsonQuery::send() {
+  auto b =
+      ton::create_serialize_tl_object<ton::ton_api::engine_validator_getAdnlStats>();
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status GetAdnlStatsJsonQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::adnl_stats>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  auto s = td::json_encode<std::string>(td::ToJson(*f), true);
+  TRY_STATUS(td::write_file(file_name_, s));
+  td::TerminalIO::out() << "saved adnl stats to " << file_name_ << "\n";
+  return td::Status::OK();
+}
+
+td::Status GetAdnlStatsQuery::run() {
+  TRY_STATUS(tokenizer_.check_endl());
+  return td::Status::OK();
+}
+
+td::Status GetAdnlStatsQuery::send() {
+  auto b =
+      ton::create_serialize_tl_object<ton::ton_api::engine_validator_getAdnlStats>();
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status GetAdnlStatsQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(stats, ton::fetch_tl_object<ton::ton_api::adnl_stats>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  td::StringBuilder sb;
+  sb << "================================= ADNL STATS =================================\n";
+  bool first = true;
+  double now = td::Clocks::system();
+  for (auto &local_id : stats->local_ids_) {
+    if (first) {
+      first = false;
+    } else {
+      sb << "\n";
+    }
+    sb << "LOCAL ID " << local_id->short_id_ << "\n";
+    if (!local_id->current_decrypt_.empty()) {
+      std::sort(local_id->current_decrypt_.begin(), local_id->current_decrypt_.end(),
+                [](const ton::tl_object_ptr<ton::ton_api::adnl_stats_ipPackets> &a,
+                   const ton::tl_object_ptr<ton::ton_api::adnl_stats_ipPackets> &b) {
+                  return a->packets_ > b->packets_;
+                });
+      td::uint64 total = 0;
+      for (auto &x : local_id->current_decrypt_) {
+        total += x->packets_;
+      }
+      sb << "  Packets in decryptor: total=" << total;
+      for (auto &x : local_id->current_decrypt_) {
+        sb << " " << (x->ip_str_.empty() ? "unknown" : x->ip_str_) << "=" << x->packets_;
+      }
+      sb << "\n";
+    }
+    auto print_local_id_packets = [&](const std::string &name,
+                                      std::vector<ton::tl_object_ptr<ton::ton_api::adnl_stats_ipPackets>> &vec) {
+      if (vec.empty()) {
+        return;
+      }
+      std::sort(vec.begin(), vec.end(),
+                [](const ton::tl_object_ptr<ton::ton_api::adnl_stats_ipPackets> &a,
+                   const ton::tl_object_ptr<ton::ton_api::adnl_stats_ipPackets> &b) {
+                  return a->packets_ > b->packets_;
+                });
+      td::uint64 total = 0;
+      for (auto &x : vec) {
+        total += x->packets_;
+      }
+      sb << "  " << name << ": total=" << total;
+      int cnt = 0;
+      for (auto &x : vec) {
+        ++cnt;
+        if (cnt >= 8) {
+          sb << " ...";
+          break;
+        }
+        sb << " " << (x->ip_str_.empty() ? "unknown" : x->ip_str_) << "=" << x->packets_;
+      }
+      sb << "\n";
+    };
+    print_local_id_packets("Decrypted packets (recent)", local_id->packets_recent_->decrypted_packets_);
+    print_local_id_packets("Dropped packets   (recent)", local_id->packets_recent_->dropped_packets_);
+    print_local_id_packets("Decrypted packets (total)", local_id->packets_total_->decrypted_packets_);
+    print_local_id_packets("Dropped packets   (total)", local_id->packets_total_->dropped_packets_);
+    sb << "  PEERS (" << local_id->peers_.size() << "):\n";
+    std::sort(local_id->peers_.begin(), local_id->peers_.end(),
+              [](const ton::tl_object_ptr<ton::ton_api::adnl_stats_peerPair> &a,
+                 const ton::tl_object_ptr<ton::ton_api::adnl_stats_peerPair> &b) {
+                return a->packets_recent_->in_bytes_ + a->packets_recent_->out_bytes_ >
+                       b->packets_recent_->in_bytes_ + b->packets_recent_->out_bytes_;
+              });
+    for (auto &peer : local_id->peers_) {
+      sb << "    PEER " << peer->peer_id_ << "\n";
+      sb << "      Address: " << (peer->ip_str_.empty() ? "unknown" : peer->ip_str_) << "\n";
+      sb << "      Connection " << (peer->connection_ready_ ? "ready" : "not ready") << ", ";
+      switch (peer->channel_status_) {
+        case 0:
+          sb << "channel: none\n";
+          break;
+        case 1:
+          sb << "channel: inited\n";
+          break;
+        case 2:
+          sb << "channel: ready\n";
+          break;
+        default:
+          sb << "\n";
+      }
+
+      auto print_packets = [&](const std::string &name,
+                               const ton::tl_object_ptr<ton::ton_api::adnl_stats_packets> &obj) {
+        if (obj->in_packets_) {
+          sb << "      In  (" << name << "): " << obj->in_packets_ << " packets ("
+             << td::format::as_size(obj->in_bytes_) << "), channel: " << obj->in_packets_channel_ << " packets ("
+             << td::format::as_size(obj->in_bytes_channel_) << ")\n";
+        }
+        if (obj->out_packets_) {
+          sb << "      Out (" << name << "): " << obj->out_packets_ << " packets ("
+             << td::format::as_size(obj->out_bytes_) << "), channel: " << obj->out_packets_channel_ << " packets ("
+             << td::format::as_size(obj->out_bytes_channel_) << ")\n";
+        }
+        if (obj->out_expired_messages_) {
+          sb << "      Out expired (" << name << "): " << obj->out_expired_messages_ << " messages ("
+             << td::format::as_size(obj->out_expired_bytes_) << ")\n";
+        }
+      };
+      print_packets("recent", peer->packets_recent_);
+      print_packets("total", peer->packets_total_);
+
+      sb << "      Last in packet: ";
+      if (peer->last_in_packet_ts_) {
+        sb << now - peer->last_in_packet_ts_ << " s ago";
+      } else {
+        sb << "never";
+      }
+      sb << "    Last out packet: ";
+      if (peer->last_out_packet_ts_) {
+        sb << now - peer->last_out_packet_ts_ << " s ago";
+      } else {
+        sb << "never";
+      }
+      sb << "\n";
+      if (peer->out_queue_messages_) {
+        sb << "      Out message queue: " << peer->out_queue_messages_ << " messages ("
+           << td::format::as_size(peer->out_queue_bytes_) << ")\n";
+      }
+    }
+  }
+  sb << "==============================================================================\n";
+  td::TerminalIO::out() << sb.as_cslice();
+  return td::Status::OK();
+}
+
 td::Status AddCollatorQuery::run() {
   TRY_RESULT_ASSIGN(adnl_id_, tokenizer_.get_token<ton::PublicKeyHash>());
   TRY_RESULT_ASSIGN(wc_, tokenizer_.get_token<td::int32>());

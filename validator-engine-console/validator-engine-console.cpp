@@ -150,6 +150,8 @@ void ValidatorEngineConsole::run() {
   add_query_runner(std::make_unique<QueryRunnerImpl<SetCollatorOptionsJsonQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<ResetCollatorOptionsQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<GetCollatorOptionsJsonQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<GetAdnlStatsJsonQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<GetAdnlStatsQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<AddCollatorQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<AddShardQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<DelShardQuery>>());

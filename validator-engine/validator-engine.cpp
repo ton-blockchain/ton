@@ -1525,6 +1525,9 @@ td::Status ValidatorEngine::load_global_config() {
   if (catchain_max_block_delay_) {
     validator_options_.write().set_catchain_max_block_delay(catchain_max_block_delay_.value());
   }
+  if (catchain_max_block_delay_slow_) {
+    validator_options_.write().set_catchain_max_block_delay_slow(catchain_max_block_delay_slow_.value());
+  }
 
   std::vector<ton::BlockIdExt> h;
   for (auto &x : conf.validator_->hardforks_) {
@@ -2699,6 +2702,14 @@ static td::Result<td::Ref<ton::validator::CollatorOptions>> parse_collator_optio
     opts.dispatch_phase_3_max_per_initiator = f.dispatch_phase_3_max_per_initiator_;
   } else {
     opts.dispatch_phase_3_max_per_initiator = {};
+  }
+  for (const std::string& s : f.whitelist_) {
+    TRY_RESULT(addr, block::StdAddress::parse(s));
+    opts.whitelist.emplace(addr.workchain, addr.addr);
+  }
+  for (const std::string& s : f.prioritylist_) {
+    TRY_RESULT(addr, block::StdAddress::parse(s));
+    opts.prioritylist.emplace(addr.workchain, addr.addr);
   }
 
   return ref;
@@ -4035,6 +4046,28 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getCollat
   }
 }
 
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getAdnlStats &query, td::BufferSlice data,
+                                        ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_default)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+  if (adnl_.empty()) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "not started")));
+    return;
+  }
+  td::actor::send_closure(
+      adnl_, &ton::adnl::Adnl::get_stats,
+      [promise = std::move(promise)](td::Result<ton::tl_object_ptr<ton::ton_api::adnl_stats>> R) mutable {
+        if (R.is_ok()) {
+          promise.set_value(ton::serialize_tl_object(R.move_as_ok(), true));
+        } else {
+          promise.set_value(
+              create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "failed to get adnl stats")));
+        }
+      });
+}
+
 void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_setCollatorsList &query, td::BufferSlice data,
                                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise) {
   if (!(perm & ValidatorEnginePermissions::vep_modify)) {
@@ -4537,7 +4570,7 @@ int main(int argc, char *argv[]) {
     logger_ = td::TsFileLog::create(fname.str()).move_as_ok();
     td::log_interface = logger_.get();
   });
-  p.add_checked_option('s', "state-ttl", "state will be gc'd after this time (in seconds) default=3600",
+  p.add_checked_option('s', "state-ttl", "state will be gc'd after this time (in seconds) default=86400",
                        [&](td::Slice fname) {
                          auto v = td::to_double(fname);
                          if (v <= 0) {
@@ -4715,13 +4748,23 @@ int main(int argc, char *argv[]) {
       "preload all cells from CellDb on startup (recommended to use with big enough celldb-cache-size and celldb-direct-io)",
       [&]() { acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_celldb_preload_all, true); }); });
   p.add_checked_option(
-      '\0', "catchain-max-block-delay", "delay before creating a new catchain block, in seconds (default: 0.5)",
+      '\0', "catchain-max-block-delay", "delay before creating a new catchain block, in seconds (default: 0.4)",
       [&](td::Slice s) -> td::Status {
         auto v = td::to_double(s);
         if (v < 0) {
           return td::Status::Error("catchain-max-block-delay should be non-negative");
         }
         acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_catchain_max_block_delay, v); });
+        return td::Status::OK();
+      });
+  p.add_checked_option(
+      '\0', "catchain-max-block-delay-slow", "max extended catchain block delay (for too long rounds), (default: 1.0)",
+      [&](td::Slice s) -> td::Status {
+        auto v = td::to_double(s);
+        if (v < 0) {
+          return td::Status::Error("catchain-max-block-delay-slow should be non-negative");
+        }
+        acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_catchain_max_block_delay_slow, v); });
         return td::Status::OK();
       });
   p.add_option(

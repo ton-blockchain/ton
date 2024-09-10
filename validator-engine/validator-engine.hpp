@@ -231,7 +231,7 @@ class ValidatorEngine : public td::actor::Actor {
   td::optional<td::uint64> celldb_cache_size_ = 1LL << 30;
   bool celldb_direct_io_ = false;
   bool celldb_preload_all_ = false;
-  td::optional<double> catchain_max_block_delay_;
+  td::optional<double> catchain_max_block_delay_, catchain_max_block_delay_slow_;
   bool read_config_ = false;
   bool started_keyring_ = false;
   bool started_ = false;
@@ -318,6 +318,9 @@ class ValidatorEngine : public td::actor::Actor {
   }
   void set_catchain_max_block_delay(double value) {
     catchain_max_block_delay_ = value;
+  }
+  void set_catchain_max_block_delay_slow(double value) {
+    catchain_max_block_delay_slow_ = value;
   }
   void set_fast_state_serializer_enabled(bool value) {
     fast_state_serializer_enabled_ = value;
@@ -537,6 +540,8 @@ class ValidatorEngine : public td::actor::Actor {
   void run_control_query(ton::ton_api::engine_validator_importFastSyncMemberCertificate &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_getCollatorOptionsJson &query, td::BufferSlice data,
+                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_getAdnlStats &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   template <class T>
   void run_control_query(T &query, td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,

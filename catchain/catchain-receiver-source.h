@@ -61,7 +61,7 @@ class CatChainReceiverSource {
   virtual td::BufferSlice fork_proof() const = 0;
   virtual bool fork_is_found() const = 0;
 
-  // One block can be sent to one node only a limited number of times to prevent DoS
+  // One block can be sent to one node in catchain.getDifference only a limited number of times to prevent DoS
   virtual bool allow_send_block(CatChainBlockHash hash) = 0;
 
   static td::Result<std::unique_ptr<CatChainReceiverSource>> create(CatChainReceiver *chain, PublicKey pub_key,
