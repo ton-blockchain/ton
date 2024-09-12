@@ -2,12 +2,24 @@
 #include "td/actor/core/ActorTypeStat.h"
 #include "td/actor/core/Scheduler.h"
 #include "td/utils/port/thread_local.h"
-#include <cxxabi.h>
 #include <set>
 #include <map>
 #include <mutex>
 #include <typeindex>
 #include <typeinfo>
+#include <optional>
+#include "td/utils/port/platform.h"
+
+#ifdef __has_include
+#if __has_include(<cxxabi.h>)
+#include <cxxabi.h>
+#define CXXABI_AVAILABLE 1
+#else
+#define CXXABI_AVAILABLE 0
+#endif
+#else
+#define CXXABI_AVAILABLE 0
+#endif
 
 namespace td {
 namespace actor {
@@ -82,6 +94,7 @@ ActorTypeStatRef ActorTypeStatManager::get_actor_type_stat(td::uint32 id, Actor 
 }
 
 std::string ActorTypeStatManager::get_class_name(const char *name) {
+#if CXXABI_AVAILABLE
   int status;
   char *real_name = abi::__cxa_demangle(name, nullptr, nullptr, &status);
   if (status < 0) {
@@ -91,6 +104,9 @@ std::string ActorTypeStatManager::get_class_name(const char *name) {
   std::string result = real_name;
   std::free(real_name);
   return result;
+#else
+  return name;
+#endif
 }
 
 ActorTypeStats ActorTypeStatManager::get_stats(double inv_ticks_per_second) {

@@ -62,6 +62,7 @@
 #include "vm/dict.h"
 
 #include <numeric>
+#include <optional>
 
 namespace vm {
 
@@ -2010,7 +2011,7 @@ TEST(TonDb, CompactArrayOld) {
     SCOPE_EXIT {
       ton_db->commit_transaction(std::move(txn));
     };
-    auto smart = txn->begin_smartcontract("");
+    auto smart = txn->begin_smartcontract();
     SCOPE_EXIT {
       txn->commit_smartcontract(std::move(smart));
     };
@@ -2037,7 +2038,7 @@ TEST(TonDb, CompactArrayOld) {
     SCOPE_EXIT {
       ton_db->commit_transaction(std::move(txn));
     };
-    auto smart = txn->begin_smartcontract("");
+    auto smart = txn->begin_smartcontract();
     //smart->validate_meta();
     SCOPE_EXIT {
       txn->commit_smartcontract(std::move(smart));
@@ -2058,7 +2059,7 @@ TEST(TonDb, CompactArrayOld) {
     SCOPE_EXIT {
       ton_db->abort_transaction(std::move(txn));
     };
-    auto smart = txn->begin_smartcontract("");
+    auto smart = txn->begin_smartcontract();
     SCOPE_EXIT {
       txn->abort_smartcontract(std::move(smart));
     };
@@ -2219,7 +2220,7 @@ TEST(TonDb, CellStat) {
     ASSERT_EQ(stat.cells, new_stat.get_stat().cells);
     ASSERT_EQ(stat.bits, new_stat.get_stat().bits);
 
-    CHECK(usage_tree.unique());
+    CHECK(usage_tree.use_count() == 1);
     usage_tree.reset();
     td::Ref<vm::Cell> C, BC, C_proof;
     std::shared_ptr<vm::CellUsageTree> usage_tree_B;

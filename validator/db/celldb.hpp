@@ -29,6 +29,8 @@
 #include "db-utils.h"
 #include "td/db/RocksDb.h"
 
+#include <optional>
+
 namespace rocksdb {
 class Statistics;
 class DB;

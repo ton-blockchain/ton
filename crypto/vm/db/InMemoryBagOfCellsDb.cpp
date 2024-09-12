@@ -14,6 +14,8 @@
 #include "td/utils/HashMap.h"
 #include "td/utils/HashSet.h"
 
+#include <optional>
+
 #if TD_PORT_POSIX
 #include <sys/mman.h>
 #include <unistd.h>
@@ -98,7 +100,7 @@ class ArenaPrunnedCellCreator : public ExtCellCreator {
       }
 #else
       static std::unique_ptr<char, Deleter> alloc() {
-        auto ptr = reinterpret_cast<char *>(malloc(batch_size)));
+        auto ptr = reinterpret_cast<char *>(malloc(batch_size));
         CHECK(ptr != nullptr);
         return std::unique_ptr<char, Deleter>(ptr);
       }
@@ -292,7 +294,7 @@ struct CellInfoHashTableDense {
   }
   template <class Iterator>
   void init_from(Iterator begin, Iterator end) {
-    auto size = std::distance(begin, end);
+    auto size = td::narrow_cast<size_t>(std::distance(begin, end));
     dense_ht_buckets_ = std::max(size_t(1), size_t(size / 8));
 
     std::vector<size_t> offsets(dense_ht_buckets_ + 2);
@@ -438,16 +440,16 @@ class CellStorage {
       add_stat("ht.size", size);
       add_stat("ht.load", double(size) / std::max(1.0, double(capacity)));
     }
-    CHECK(stats.roots_total_count == local_roots_.size());
+    CHECK(td::narrow_cast<size_t>(stats.roots_total_count) == local_roots_.size());
     return stats;
   }
   void apply_stats_diff(DynamicBagOfCellsDb::Stats diff) {
     auto unique_access = local_access_.lock();
     stats_.apply_diff(diff);
-    CHECK(stats_.roots_total_count == local_roots_.size());
+    CHECK(td::narrow_cast<size_t>(stats_.roots_total_count) == local_roots_.size());
     size_t cells_count{0};
     for_each_bucket(0, [&](size_t bucket_id, auto &bucket) { cells_count += bucket.infos_.size(); });
-    CHECK(stats_.cells_total_count == cells_count);
+    CHECK(td::narrow_cast<size_t>(stats_.cells_total_count) == cells_count);
   }
 
   td::Result<Ref<DataCell>> load_cell(const CellHash &hash) const {
@@ -541,8 +543,8 @@ class CellStorage {
     DefaultPrunnedCellCreator default_pc_creator;
 
     auto timer = td::Timer();
-    size_t cell_count{0};
-    size_t desc_count{0};
+    td::int64 cell_count{0};
+    td::int64 desc_count{0};
     if (options.use_less_memory_during_creation) {
       auto [new_cell_count, new_desc_count] = parallel_scan_cells(
           default_pc_creator, options.use_arena,

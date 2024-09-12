@@ -113,7 +113,8 @@ class TonDbTransactionImpl;
 using TonDbTransaction = std::unique_ptr<TonDbTransactionImpl>;
 class TonDbTransactionImpl {
  public:
-  SmartContractDb begin_smartcontract(td::Slice hash = {});
+
+  SmartContractDb begin_smartcontract(td::Slice hash = std::string(32, '\0'));
 
   void commit_smartcontract(SmartContractDb txn);
   void commit_smartcontract(SmartContractDiff txn);
