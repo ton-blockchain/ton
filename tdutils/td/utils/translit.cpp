@@ -77,6 +77,7 @@ static void add_word_transliterations(vector<string> &result, Slice word, bool a
   }
   if (!s.empty()) {
     result.push_back(std::move(s));
+    // V1030 The 's' variable is used after it was moved. translit.cpp 80
     s.clear();
   }
 

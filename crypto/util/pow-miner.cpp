@@ -69,6 +69,7 @@ td::RefInt256 parse_bigint(std::string str, int bits) {
 td::RefInt256 parse_bigint_chk(std::string str, int bits) {
   auto x = parse_bigint(std::move(str), bits);
   if (x.is_null()) {
+    // V1030 The 'str' variable is used after it was moved. pow-miner.cpp 72
     std::cerr << "fatal: `" << str << "` is not an integer" << std::endl;
     usage();
   }

@@ -85,6 +85,7 @@ td::Result<td::BufferSlice> load_binary_file(std::string filename, td::int64 max
     if (r != static_cast<td::uint64>(size)) {
       return td::Status::Error(PSLICE() << "read " << r << " bytes out of " << size);
     }
+    // V828 Decreased performance. Moving a local object in a return statement prevents copy elision. block-db.cpp 88
     return std::move(res);
   }();
   LOG_IF(ERROR, res.is_error()) << "error reading file `" << filename << "` : " << res.error();

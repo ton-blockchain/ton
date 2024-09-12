@@ -61,6 +61,7 @@ td::Result<tl_object_ptr<std::enable_if_t<std::is_constructible<T>::value, T>>> 
   }
   p.fetch_end();
   if (p.get_status().is_ok()) {
+    // V828 Decreased performance. Moving a local object in a return statement prevents copy elision. common-utils.hpp 64
     return std::move(R);
   } else {
     return p.get_status();
@@ -76,6 +77,7 @@ td::Result<tl_object_ptr<std::enable_if_t<!std::is_constructible<T>::value, T>>>
   R = move_tl_object_as<T>(T::fetch(p));
   p.fetch_end();
   if (p.get_status().is_ok()) {
+    // V828 Decreased performance. Moving a local object in a return statement prevents copy elision. common-utils.hpp 79
     return std::move(R);
   } else {
     return p.get_status();
@@ -94,6 +96,7 @@ td::Result<tl_object_ptr<std::enable_if_t<std::is_constructible<T>::value, T>>> 
   }
   p.fetch_end();
   if (p.get_status().is_ok()) {
+    // V828 Decreased performance. Moving a local object in a return statement prevents copy elision. common-utils.hpp 97
     return std::move(R);
   } else {
     return p.get_status();
@@ -109,6 +112,7 @@ td::Result<tl_object_ptr<std::enable_if_t<!std::is_constructible<T>::value, T>>>
   R = move_tl_object_as<T>(T::fetch(p));
   p.fetch_end();
   if (p.get_status().is_ok()) {
+    // V828 Decreased performance. Moving a local object in a return statement prevents copy elision. common-utils.hpp 112
     return std::move(R);
   } else {
     return p.get_status();
@@ -127,6 +131,7 @@ td::Result<tl_object_ptr<std::enable_if_t<std::is_constructible<T>::value, T>>> 
   }
   if (p.get_status().is_ok()) {
     data.confirm_read(data.size() - p.get_left_len());
+    // V828 Decreased performance. Moving a local object in a return statement prevents copy elision. common-utils.hpp 130
     return std::move(R);
   } else {
     return p.get_status();
@@ -203,6 +208,7 @@ td::Result<typename T::ReturnType> fetch_result(td::Slice message, bool check_en
     return td::Status::Error(500, td::Slice(error));
   }
 
+  // V828 Decreased performance. Moving a local object in a return statement prevents copy elision. common-utils.hpp 206
   return std::move(result);
 }
 
@@ -220,6 +226,7 @@ td::Result<typename T::ReturnType> fetch_result(const td::BufferSlice &message, 
     return td::Status::Error(500, td::Slice(error));
   }
 
+  // V828 Decreased performance. Moving a local object in a return statement prevents copy elision. common-utils.hpp 223
   return std::move(result);
 }
 

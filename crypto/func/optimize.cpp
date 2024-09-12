@@ -633,6 +633,7 @@ AsmOpConsList optimize_code(AsmOpConsList op_list, int mode) {
   for (auto it = v.rbegin(); it < v.rend(); ++it) {
     op_list = AsmOpCons::cons(std::move(*it), std::move(op_list));
   }
+  // V828 Redundant code. Function parameter will be implicitly moved without calling the 'std::move' function. optimize.cpp 636
   return std::move(op_list);
 }
 

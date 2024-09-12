@@ -128,6 +128,7 @@ td::Status KeyStorage::delete_all_keys() {
     }
   });
   td::Status status;
+  // V836 Expression's value is copied at the 'key' variable declaration. The variable is never modified. Consider declaring it as a reference. KeyStorage.cpp 131
   for (auto key : keys) {
     LOG(WARNING) << "Delete private key stored at " << key;
     auto err = kv_->erase(key);

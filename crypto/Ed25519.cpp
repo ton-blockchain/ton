@@ -73,6 +73,7 @@ static Result<SecureString> X25519_key_from_PKEY(EVP_PKEY *pkey, bool is_private
   if (func(pkey, result.as_mutable_slice().ubegin(), &len) == 0) {
     return Status::Error("Failed to get raw key");
   }
+  // V828 Decreased performance. Moving a local object in a return statement prevents copy elision. Ed25519.cpp 76
   return std::move(result);
 }
 

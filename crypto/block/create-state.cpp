@@ -926,6 +926,7 @@ int main(int argc, char* const argv[]) {
     preload_preamble(fift, "CreateState.fif", false);
   }
 
+  // V836 Expression's value is copied at the 'source' variable declaration. The variable is never modified. Consider declaring it as a reference. create-state.cpp 929
   for (auto source : library_source_files) {
     auto status = fift.interpret_file(source, "");
     if (status.is_error()) {

@@ -226,6 +226,7 @@ td::Result<ton::WalletV3::InitData> to_init_data(const tonlib_api::wallet_v3_ini
   ton::WalletV3::InitData init_data;
   init_data.public_key = td::SecureString(key_bytes.key);
   init_data.wallet_id = static_cast<td::uint32>(wallet_state.wallet_id_);
+  // V828 Decreased performance. Moving a local object in a return statement prevents copy elision. TonlibClient.cpp 229
   return std::move(init_data);
 }
 
@@ -234,6 +235,7 @@ td::Result<ton::WalletV4::InitData> to_init_data(const tonlib_api::wallet_v4_ini
   ton::WalletV4::InitData init_data;
   init_data.public_key = td::SecureString(key_bytes.key);
   init_data.wallet_id = static_cast<td::uint32>(wallet_state.wallet_id_);
+  // V828 Decreased performance. Moving a local object in a return statement prevents copy elision. TonlibClient.cpp 237
   return std::move(init_data);
 }
 
@@ -244,6 +246,7 @@ td::Result<ton::RestrictedWallet::InitData> to_init_data(const tonlib_api::rwall
   init_data.init_key = td::SecureString(init_key_bytes.key);
   init_data.main_key = td::SecureString(key_bytes.key);
   init_data.wallet_id = static_cast<td::uint32>(rwallet_state.wallet_id_);
+  // V828 Decreased performance. Moving a local object in a return statement prevents copy elision. TonlibClient.cpp 247
   return std::move(init_data);
 }
 
@@ -276,6 +279,7 @@ td::Result<ton::pchan::Config> to_pchan_config(const tonlib_api::pchan_initialAc
   config.channel_id = pchan_state.config_->channel_id_;
   config.init_timeout = pchan_state.config_->init_timeout_;
   config.close_timeout = pchan_state.config_->close_timeout_;
+  // V828 Decreased performance. Moving a local object in a return statement prevents copy elision. TonlibClient.cpp 279
   return std::move(config);
 }
 

@@ -62,6 +62,7 @@ vector<string> Hints::get_words(Slice name, bool is_search) {
     if (code == ' ') {
       if (in_word) {
         words.push_back(std::move(word));
+        // V1030 The 'word' variable is used after it was moved. Hints.cpp 65
         word.clear();
         in_word = false;
       }
@@ -161,6 +162,7 @@ void Hints::add_search_results(vector<KeyT> &results, const string &word,
 vector<Hints::KeyT> Hints::search_word(const string &word) const {
   vector<KeyT> results;
   add_search_results(results, word, translit_word_to_keys_);
+  // V836 Expression's value is copied at the 'w' variable declaration. The variable is never modified. Consider declaring it as a reference. Hints.cpp 164
   for (auto w : get_word_transliterations(word, true)) {
     add_search_results(results, w, word_to_keys_);
   }

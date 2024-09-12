@@ -103,6 +103,7 @@ OverlayImpl::OverlayImpl(td::actor::ActorId<keyring::Keyring> keyring, td::actor
 
   update_root_member_list(std::move(nodes), std::move(root_public_keys), std::move(cert));
 
+  // V1030 The 'nodes' variable is used after it was moved. overlay.cpp 106
   update_neighbours(static_cast<td::uint32>(nodes.size()));
 }
 

@@ -107,6 +107,7 @@ Result<string> hex_decode(Slice hex) {
     }
     result[i] = static_cast<char>(high * 16 + low);  // TODO implementation-defined
   }
+  // V828 Decreased performance. Moving a local object in a return statement prevents copy elision. misc.cpp 110
   return std::move(result);
 }
 
