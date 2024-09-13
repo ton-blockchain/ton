@@ -193,8 +193,6 @@ cd ..
 if [ "$with_artifacts" = true ]; then
   rm -rf artifacts
   mkdir artifacts
-  cp crypto/fift/lib artifacts/
-  cp -R crypto/smartcont/ artifacts/
   mv build/tonlib/libtonlibjson.so.0.5 build/tonlib/libtonlibjson.so
   cp build/storage/storage-daemon/storage-daemon build/storage/storage-daemon/storage-daemon-cli \
      build/crypto/fift build/crypto/tlbc build/crypto/func build/crypto/create-state build/blockchain-explorer/blockchain-explorer \
@@ -204,9 +202,9 @@ if [ "$with_artifacts" = true ]; then
      build/utils/generate-random-id build/utils/json2tlo build/adnl/adnl-proxy build/emulator/libemulator.so \
      artifacts
   test $? -eq 0 || { echo "Can't copy final binaries"; exit 1; }
-  chmod +x artifacts/*
   cp -R crypto/smartcont artifacts
   cp -R crypto/fift/lib artifacts
+  chmod -R +x artifacts/*
 fi
 
 if [ "$with_tests" = true ]; then

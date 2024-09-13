@@ -112,9 +112,9 @@ if [ "$with_artifacts" = true ]; then
      build/utils/generate-random-id build/utils/json2tlo build/adnl/adnl-proxy build/emulator/libemulator.so \
      artifacts
   test $? -eq 0 || { echo "Can't copy final binaries"; exit 1; }
-  chmod +x artifacts/*
   cp -R crypto/smartcont artifacts
   cp -R crypto/fift/lib artifacts
+  chmod -R +x artifacts/*
 fi
 
 if [ "$with_tests" = true ]; then
