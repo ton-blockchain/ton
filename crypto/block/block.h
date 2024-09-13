@@ -240,7 +240,6 @@ struct ParamLimits {
   int classify(td::uint64 value) const;
   bool fits(unsigned cls, td::uint64 value) const;
 
- private:
   std::array<td::uint32, limits_cnt> limits_;
 };
 
