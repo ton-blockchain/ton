@@ -42,7 +42,7 @@ void ValidatorSessionImpl::process_blocks(std::vector<catchain::CatChainBlock *>
     on_new_round(real_state_->cur_round_seqno());
   }
 
-  td::uint32 cnt = 0;
+  [[maybe_unused]] td::uint32 cnt = 0;
   auto ts = description().get_ts();
   auto att = description().get_attempt_seqno(ts);
   std::vector<tl_object_ptr<ton_api::validatorSession_round_Message>> msgs;

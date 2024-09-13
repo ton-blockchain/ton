@@ -8,7 +8,6 @@
 #include <typeindex>
 #include <typeinfo>
 #include <optional>
-#include "td/utils/port/platform.h"
 
 #ifdef __has_include
 #if __has_include(<cxxabi.h>)

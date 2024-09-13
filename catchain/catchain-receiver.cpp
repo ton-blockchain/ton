@@ -371,7 +371,7 @@ void CatChainReceiverImpl::add_block(td::BufferSlice payload, std::vector<CatCha
 
   int height = prev->height_ + 1;
   auto max_block_height = get_max_block_height(opts_, sources_.size());
-  if (height > max_block_height) {
+  if (td::narrow_cast<td::uint64>(height) > max_block_height) {
     VLOG(CATCHAIN_WARNING) << this << ": cannot create block: max height exceeded (" << max_block_height << ")";
     active_send_ = false;
     return;

@@ -87,9 +87,23 @@ int get_random_serialization_mode(T &rnd) {
   return modes[rnd.fast(0, (int)modes.size() - 1)];
 }
 
-class BenchSha256 : public td::Benchmark {
+class BenchSha : public td::Benchmark {
  public:
+  explicit BenchSha(size_t n) : str_(n, 'a') {
+  }
   std::string get_description() const override {
+    return PSTRING() << get_name() << " length=" << str_.size();
+  }
+
+  virtual std::string get_name() const = 0;
+
+ protected:
+  std::string str_;
+};
+class BenchSha256 : public BenchSha {
+ public:
+  using BenchSha::BenchSha;
+  std::string get_name() const override {
     return "SHA256";
   }
 
@@ -97,7 +111,7 @@ class BenchSha256 : public td::Benchmark {
     int res = 0;
     for (int i = 0; i < n; i++) {
       digest::SHA256 hasher;
-      hasher.feed("abcd", 4);
+      hasher.feed(str_);
       unsigned char buf[32];
       hasher.extract(buf);
       res += buf[0];
@@ -105,10 +119,12 @@ class BenchSha256 : public td::Benchmark {
     td::do_not_optimize_away(res);
   }
 };
-class BenchSha256Reuse : public td::Benchmark {
+class BenchSha256Reuse : public BenchSha {
  public:
-  std::string get_description() const override {
-    return "SHA256 reuse";
+  using BenchSha::BenchSha;
+
+  std::string get_name() const override {
+    return "SHA256 reuse (used in DataCell)";
   }
 
   void run(int n) override {
@@ -116,7 +132,7 @@ class BenchSha256Reuse : public td::Benchmark {
     digest::SHA256 hasher;
     for (int i = 0; i < n; i++) {
       hasher.reset();
-      hasher.feed("abcd", 4);
+      hasher.feed(str_);
       unsigned char buf[32];
       hasher.extract(buf);
       res += buf[0];
@@ -124,18 +140,28 @@ class BenchSha256Reuse : public td::Benchmark {
     td::do_not_optimize_away(res);
   }
 };
-class BenchSha256Low : public td::Benchmark {
+class BenchSha256Low : public BenchSha {
  public:
-  std::string get_description() const override {
+  using BenchSha::BenchSha;
+
+  std::string get_name() const override {
     return "SHA256 low level";
   }
 
+// Use the old method to check for performance degradation
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#elif defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4996)  // Disable deprecated warning for MSVC
+#endif
   void run(int n) override {
     int res = 0;
     SHA256_CTX ctx;
     for (int i = 0; i < n; i++) {
       SHA256_Init(&ctx);
-      SHA256_Update(&ctx, "abcd", 4);
+      SHA256_Update(&ctx, str_.data(), str_.size());
       unsigned char buf[32];
       SHA256_Final(buf, &ctx);
       res += buf[0];
@@ -143,9 +169,17 @@ class BenchSha256Low : public td::Benchmark {
     td::do_not_optimize_away(res);
   }
 };
-class BenchSha256Tdlib : public td::Benchmark {
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
+#elif defined(_MSC_VER)
+#pragma warning(pop)
+#endif
+
+class BenchSha256Tdlib : public BenchSha {
  public:
-  std::string get_description() const override {
+  using BenchSha::BenchSha;
+
+  std::string get_name() const override {
     return "SHA256 TDLib";
   }
 
@@ -155,7 +189,7 @@ class BenchSha256Tdlib : public td::Benchmark {
     for (int i = 0; i < n; i++) {
       td::init_thread_local<td::Sha256State>(ctx);
       ctx->init();
-      ctx->feed("abcd");
+      ctx->feed(str_);
       unsigned char buf[32];
       ctx->extract(td::MutableSlice(buf, 32), false);
       res += buf[0];
@@ -180,7 +214,7 @@ void bench_threaded(F &&f) {
     void run(int n) override {
       std::atomic<int> task_i{0};
       int chunk_size = 1024;
-      size_t num_threads = 1;
+      int num_threads = 16;
       n *= num_threads;
       std::vector<td::thread> threads;
       for (int i = 0; i < num_threads; i++) {
@@ -204,16 +238,20 @@ void bench_threaded(F &&f) {
   bench(Threaded(std::forward<F>(f)));
 }
 TEST(Cell, sha_benchmark) {
-  bench(BenchSha256Tdlib());
-  bench(BenchSha256Low());
-  bench(BenchSha256Reuse());
-  bench(BenchSha256());
+  for (size_t n : {4, 64, 128}) {
+    bench(BenchSha256Tdlib(n));
+    bench(BenchSha256Low(n));
+    bench(BenchSha256Reuse(n));
+    bench(BenchSha256(n));
+  }
 }
 TEST(Cell, sha_benchmark_threaded) {
-  bench_threaded([] { return BenchSha256Tdlib(); });
-  bench_threaded([]() { return BenchSha256Low(); });
-  bench_threaded([]() { return BenchSha256Reuse(); });
-  bench_threaded([]() { return BenchSha256(); });
+  for (size_t n : {4, 64, 128}) {
+    bench_threaded([n] { return BenchSha256Tdlib(n); });
+    bench_threaded([n]() { return BenchSha256Low(n); });
+    bench_threaded([n]() { return BenchSha256Reuse(n); });
+    bench_threaded([n]() { return BenchSha256(n); });
+  }
 }
 
 std::string serialize_boc(Ref<Cell> cell, int mode = 31) {
@@ -814,12 +852,11 @@ TEST(TonDb, BocMultipleRoots) {
 };
 
 TEST(TonDb, InMemoryDynamicBocSimple) {
-  auto counter = [] {
-    return td::NamedThreadSafeCounter::get_default().get_counter("DataCell").sum();
-  };
+  auto counter = [] { return td::NamedThreadSafeCounter::get_default().get_counter("DataCell").sum(); };
   auto before = counter();
   SCOPE_EXIT {
-    LOG_CHECK(before == counter()) << before << " vs " << counter();;
+    LOG_CHECK(before == counter()) << before << " vs " << counter();
+    ;
   };
   td::Random::Xorshift128plus rnd{123};
   auto kv = std::make_shared<td::MemoryKeyValue>();
@@ -854,12 +891,11 @@ TEST(TonDb, InMemoryDynamicBocSimple) {
 }
 
 void test_dynamic_boc(std::optional<DynamicBagOfCellsDb::CreateInMemoryOptions> o_in_memory) {
-  auto counter = [] {
-    return td::NamedThreadSafeCounter::get_default().get_counter("DataCell").sum();
-  };
+  auto counter = [] { return td::NamedThreadSafeCounter::get_default().get_counter("DataCell").sum(); };
   auto before = counter();
   SCOPE_EXIT {
-    LOG_CHECK((o_in_memory && o_in_memory->use_arena) || before == counter()) << before << " vs " << counter();;
+    LOG_CHECK((o_in_memory && o_in_memory->use_arena) || before == counter()) << before << " vs " << counter();
+    ;
   };
   td::Random::Xorshift128plus rnd{123};
   std::string old_root_hash;
@@ -870,7 +906,7 @@ void test_dynamic_boc(std::optional<DynamicBagOfCellsDb::CreateInMemoryOptions> 
       auto res = DynamicBagOfCellsDb::create_in_memory(kv.get(), *o_in_memory);
       auto roots_n = old_root_hash.empty() ? 0 : 1;
       ASSERT_EQ(roots_n, res->get_stats().ok().roots_total_count);
-      return std::move(res);
+      return res;
     }
     return DynamicBagOfCellsDb::create();
   };
@@ -945,19 +981,17 @@ void test_dynamic_boc2(std::optional<DynamicBagOfCellsDb::CreateInMemoryOptions>
       auto stats = res->get_stats().move_as_ok();
       ASSERT_EQ(root_n, stats.roots_total_count);
       VLOG(boc) << "reset roots_n=" << stats.roots_total_count << " cells_n=" << stats.cells_total_count;
-      return std::move(res);
+      return res;
     }
     return DynamicBagOfCellsDb::create();
   };
   auto dboc = create_dboc(0);
   dboc->set_loader(std::make_unique<CellLoader>(kv));
 
-  auto counter = [] {
-    return td::NamedThreadSafeCounter::get_default().get_counter("DataCell").sum();
-  };
+  auto counter = [] { return td::NamedThreadSafeCounter::get_default().get_counter("DataCell").sum(); };
   auto before = counter();
   SCOPE_EXIT {
-    LOG_CHECK((o_in_memory && o_in_memory->use_arena) || before == counter()) << before << " vs " << counter();;
+    LOG_CHECK((o_in_memory && o_in_memory->use_arena) || before == counter()) << before << " vs " << counter();
   };
 
   std::vector<Ref<Cell>> roots(max_roots);
@@ -2257,7 +2291,6 @@ TEST(Ref, AtomicRef) {
   int threads_n = 10;
   std::vector<Node> nodes(threads_n);
   std::vector<td::thread> threads(threads_n);
-  int thread_id = 0;
   for (auto &thread : threads) {
     thread = td::thread([&] {
       for (int i = 0; i < 1000000; i++) {
@@ -2272,7 +2305,6 @@ TEST(Ref, AtomicRef) {
         }
       }
     });
-    thread_id++;
   }
   for (auto &thread : threads) {
     thread.join();
