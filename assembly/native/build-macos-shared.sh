@@ -140,9 +140,9 @@ if [ "$with_artifacts" = true ]; then
   cp build/utils/json2tlo artifacts/
   cp build/adnl/adnl-proxy artifacts/
   cp build/emulator/libemulator.dylib artifacts/
-  chmod +x artifacts/*
-  rsync -r crypto/smartcont artifacts/
-  rsync -r crypto/fift/lib artifacts/
+  cp -R crypto/smartcont artifacts/
+  cp -R crypto/fift/lib artifacts/
+  chmod -R +x artifacts/*
 fi
 
 if [ "$with_tests" = true ]; then

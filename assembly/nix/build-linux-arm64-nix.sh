@@ -35,3 +35,4 @@ cp ./result/lib/libtonlibjson.so.0.5 artifacts/libtonlibjson.so
 cp ./result/lib/libemulator.so artifacts/
 cp ./result/lib/fift/* artifacts/lib/
 cp -r ./result/share/ton/smartcont artifacts/
+chmod -R +x artifacts
