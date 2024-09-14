@@ -17,6 +17,7 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include "collator-impl.h"
+#include "errorlog.h"
 #include "vm/boc.h"
 #include "td/db/utils/BlobView.h"
 #include "vm/db/StaticBagOfCellsDb.h"
@@ -33,6 +34,9 @@
 #include "fabric.h"
 #include "validator-set.hpp"
 #include "top-shard-descr.hpp"
+#include "td/utils/JsonBuilder.h"
+#include "auto/tl/ton_api_json.h"
+
 #include <ctime>
 #include "td/utils/Random.h"
 
@@ -79,7 +83,7 @@ static inline bool dbg(int c) {
 Collator::Collator(ShardIdFull shard, bool is_hardfork, UnixTime min_ts, BlockIdExt min_masterchain_block_id,
                    std::vector<BlockIdExt> prev, Ref<ValidatorSet> validator_set, Ed25519_PublicKey collator_id,
                    Ref<CollatorOptions> collator_opts, td::actor::ActorId<ValidatorManager> manager,
-                   td::Timestamp timeout, td::Promise<BlockCandidate> promise)
+                   td::Timestamp timeout, td::Promise<BlockCandidate> promise, int repeating)
     : shard_(shard)
     , is_hardfork_(is_hardfork)
     , min_ts(min_ts)
@@ -95,6 +99,7 @@ Collator::Collator(ShardIdFull shard, bool is_hardfork, UnixTime min_ts, BlockId
     , soft_timeout_(td::Timestamp::at(timeout.at() - 3.0))
     , medium_timeout_(td::Timestamp::at(timeout.at() - 1.5))
     , main_promise(std::move(promise))
+    , repeating_(repeating)
     , perf_timer_("collate", 0.1, [manager](double duration) {
       send_closure(manager, &ValidatorManager::add_perf_timer_stat, "collate", duration);
     }) {
@@ -109,7 +114,7 @@ Collator::Collator(ShardIdFull shard, bool is_hardfork, UnixTime min_ts, BlockId
  * The results of these queries are handled by corresponding callback functions.
  */
 void Collator::start_up() {
-  LOG(WARNING) << "Collator for shard " << shard_.to_str() << " started";
+  LOG(WARNING) << "Collator for shard " << shard_.to_str() << " started" << (repeating_ ? " (REPEATING)" : "");
   LOG(DEBUG) << "Previous block #1 is " << prev_blocks.at(0).to_str();
   if (prev_blocks.size() > 1) {
     LOG(DEBUG) << "Previous block #2 is " << prev_blocks.at(1).to_str();
@@ -339,6 +344,10 @@ std::string show_shard(const ton::ShardIdFull blk_id) {
  * @returns False to indicate that a fatal error occurred.
  */
 bool Collator::fatal_error(td::Status error) {
+  if (!main_promise) {
+    stop();
+    return false;
+  }
   error.ensure_error();
   LOG(ERROR) << "cannot generate block candidate for " << show_shard(shard_) << " : " << error.to_string();
   if (busy_) {
@@ -714,9 +723,11 @@ bool Collator::unpack_last_mc_state() {
     return fatal_error(limits.move_as_error());
   }
   block_limits_ = limits.move_as_ok();
-  LOG(INFO) << "Half size limits";
-  for (auto& x : block_limits_->bytes.limits_) {
-    x /= 2;
+  if (repeating_) {
+    LOG(INFO) << "Lt delta limit = 2";
+    for (auto& x : block_limits_->lt_delta.limits_) {
+      x = 2;
+    }
   }
   LOG(DEBUG) << "block limits: bytes [" << block_limits_->bytes.underload() << ", " << block_limits_->bytes.soft()
              << ", " << block_limits_->bytes.hard() << "]";
@@ -5488,9 +5499,41 @@ bool Collator::create_block_candidate() {
   // 3.1 check block and collated data size
   auto consensus_config = config_->get_consensus_config();
   if (block_candidate->data.size() > consensus_config.max_block_size) {
-    return fatal_error(PSTRING() << "block size (" << block_candidate->data.size()
-                                 << ") exceeds the limit in consensus config (" << consensus_config.max_block_size
-                                 << ")");
+    std::string stats_str;
+    {
+      double work_time = work_timer_.elapsed();
+      double cpu_work_time = cpu_work_timer_.elapsed();
+      LOG(WARNING) << "Collate query work time = " << work_time << "s, cpu time = " << cpu_work_time << "s";
+      stats_.bytes = block_limit_status_->estimate_block_size();
+      stats_.gas = block_limit_status_->gas_used;
+      stats_.lt_delta = block_limit_status_->cur_lt - block_limit_status_->limits.start_lt;
+      stats_.cat_bytes = block_limit_status_->limits.classify_size(stats_.bytes);
+      stats_.cat_gas = block_limit_status_->limits.classify_gas(stats_.gas);
+      stats_.cat_lt_delta = block_limit_status_->limits.classify_lt(block_limit_status_->cur_lt);
+      auto collation_stats = create_tl_object<ton_api::validatorSession_collationStats>(
+          stats_.bytes, stats_.gas, stats_.lt_delta, stats_.cat_bytes, stats_.cat_gas, stats_.cat_lt_delta,
+          stats_.limits_log, stats_.ext_msgs_total, stats_.ext_msgs_filtered, stats_.ext_msgs_accepted,
+          stats_.ext_msgs_rejected);
+      auto s = td::json_encode<std::string>(td::ToJson(*collation_stats.get()), false);
+      s.erase(std::remove_if(s.begin(), s.end(), [](char c) { return c == '\n' || c == '\r'; }), s.end());
+      stats_str = std::move(s);
+    }
+    LOG(ERROR) << "block size (" << block_candidate->data.size() << ") exceeds the limit in consensus config ("
+               << consensus_config.max_block_size << "), dumping block, hash=" << block_candidate->id.file_hash.to_hex()
+               << " , repeating=" << repeating_ << ", stats = " << stats_str;
+    errorlog::ErrorLog::log_file(block_candidate->data.clone());
+    if (repeating_) {
+      return fatal_error(PSTRING() << "block size (" << block_candidate->data.size()
+                                   << ") exceeds the limit in consensus config (" << consensus_config.max_block_size
+                                   << ")");
+    } else {
+      LOG(ERROR) << "repeat collator";
+      run_collate_query(shard_, min_ts, min_mc_block_id, prev_blocks, created_by_, validator_set_, collator_opts_,
+                        manager, td::Timestamp::in(10.0), std::move(main_promise), 1);
+      main_promise = {};
+      stop();
+      return false;
+    }
   }
   if (block_candidate->collated_data.size() > consensus_config.max_collated_data_size) {
     return fatal_error(PSTRING() << "collated data size (" << block_candidate->collated_data.size()
