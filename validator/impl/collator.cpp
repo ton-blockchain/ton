@@ -716,7 +716,7 @@ bool Collator::unpack_last_mc_state() {
   block_limits_ = limits.move_as_ok();
   LOG(INFO) << "Half size limits";
   for (auto& x : block_limits_->bytes.limits_) {
-    x /= 2;
+    x /= 3;
   }
   LOG(DEBUG) << "block limits: bytes [" << block_limits_->bytes.underload() << ", " << block_limits_->bytes.soft()
              << ", " << block_limits_->bytes.hard() << "]";
