@@ -3927,6 +3927,7 @@ bool Collator::process_deferred_message(Ref<vm::CellSlice> enq_msg, StdSmcAddres
   ++unprocessed_deferred_messages_[src_addr];
   LOG(INFO) << "delivering deferred message from account " << src_addr.to_hex() << ", lt=" << lt
             << ", emitted_lt=" << emitted_lt;
+  block_limit_status_->add_cell(msg_env);
   register_new_msg(std::move(new_msg));
   msg_metadata = std::move(env.metadata);
   return true;
