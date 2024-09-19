@@ -433,6 +433,14 @@ if (WINGETOPT_FOUND)
   target_link_libraries_system(pow-miner wingetopt)
 endif()
 
+add_executable(mintless-proof-generator util/mintless-proof-generator.cpp)
+target_link_libraries(mintless-proof-generator PRIVATE ton_crypto ton_block git ${JEMALLOC_LIBRARIES})
+
+if (JEMALLOC_FOUND)
+  target_include_directories(mintless-proof-generator PRIVATE ${JEMALLOC_INCLUDE_DIR})
+  target_compile_definitions(mintless-proof-generator PRIVATE -DTON_USE_JEMALLOC=1)
+endif()
+
 set(TURN_OFF_LSAN cd .)
 if (TON_USE_ASAN AND NOT WIN32)
   set(TURN_OFF_LSAN export LSAN_OPTIONS=detect_leaks=0)

@@ -305,6 +305,13 @@ class TestNode : public td::actor::Actor {
                                           unsigned refs, td::Bits256 chash, std::string filename);
   bool get_msg_queue_sizes();
   void got_msg_queue_sizes(ton::tl_object_ptr<ton::lite_api::liteServer_outMsgQueueSizes> f);
+  bool get_dispatch_queue_info(ton::BlockIdExt block_id);
+  bool get_dispatch_queue_info_cont(ton::BlockIdExt block_id, bool first, td::Bits256 after_addr);
+  void got_dispatch_queue_info(ton::BlockIdExt block_id,
+                               ton::tl_object_ptr<ton::lite_api::liteServer_dispatchQueueInfo> info);
+  bool get_dispatch_queue_messages(ton::BlockIdExt block_id, ton::WorkchainId wc, ton::StdSmcAddress addr,
+                                   ton::LogicalTime lt, bool one_account);
+  void got_dispatch_queue_messages(ton::tl_object_ptr<ton::lite_api::liteServer_dispatchQueueMessages> msgs);
   bool cache_cell(Ref<vm::Cell> cell);
   bool list_cached_cells() const;
   bool dump_cached_cell(td::Slice hash_pfx, td::Slice type_name = {});
