@@ -216,6 +216,8 @@ QueryInfo get_query_info(const lite_api::Function& f) {
                        /* t_simple */
                      },
                      [&](const lite_api::liteServer_getBlockOutMsgQueueSize& q) { from_block_id(q.id_); },
+                     [&](const lite_api::liteServer_getDispatchQueueInfo& q) { from_block_id(q.id_); },
+                     [&](const lite_api::liteServer_getDispatchQueueMessages& q) { from_block_id(q.id_); },
                      [&](const auto&) { /* t_simple */ }));
   if (info.shard_id.workchain == masterchainId) {
     info.shard_id.shard = shardIdAll;
