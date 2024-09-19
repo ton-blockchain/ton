@@ -115,6 +115,22 @@ class StealingQueue {
     std::atomic_thread_fence(std::memory_order_seq_cst);
   }
 
+  size_t size() const {
+    while (true) {
+      auto head = head_.load();
+      auto tail = tail_.load(std::memory_order_acquire);
+
+      if (tail < head) {
+        continue;
+      }
+      size_t n = tail - head;
+      if (n > N) {
+        continue;
+      }
+      return n;
+    }
+  }
+
  private:
   std::atomic<td::int64> head_{0};
   std::atomic<td::int64> tail_{0};

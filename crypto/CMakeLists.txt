@@ -151,6 +151,7 @@ set(TON_DB_SOURCE
   vm/db/CellHashTable.h
   vm/db/CellStorage.h
   vm/db/TonDb.h
+  vm/db/InMemoryBagOfCellsDb.cpp
 )
 
 set(FIFT_SOURCE
@@ -541,7 +542,7 @@ target_include_directories(create-state PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT
 if (INTERNAL_COMPILE)
   target_link_libraries(create-state PUBLIC ton_crypto fift-lib ton_block tonlib git)
 else()
-  if (TONLIB_COMPILE) 
+  if (TONLIB_COMPILE)
     target_link_libraries(create-state PUBLIC ton_crypto fift-lib ton_block tonlib git)
   else()
     target_link_libraries(create-state PUBLIC ton_crypto fift-lib ton_block git)

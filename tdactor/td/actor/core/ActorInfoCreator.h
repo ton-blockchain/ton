@@ -46,10 +46,16 @@ class ActorInfoCreator {
       return *this;
     }
 
+    Options& with_actor_stat_id(td::uint32 new_id) {
+      actor_stat_id = new_id;
+      return *this;
+    }
+
    private:
     friend class ActorInfoCreator;
     Slice name;
     SchedulerId scheduler_id;
+    td::uint32 actor_stat_id{0};
     bool is_shared{true};
     bool in_queue{true};
     //TODO: rename
@@ -65,7 +71,7 @@ class ActorInfoCreator {
     flags.set_in_queue(args.in_queue);
     flags.set_signals(ActorSignals::one(ActorSignals::StartUp));
 
-    auto actor_info_ptr = pool_.alloc(std::move(actor), flags, args.name);
+    auto actor_info_ptr = pool_.alloc(std::move(actor), flags, args.name, args.actor_stat_id);
     actor_info_ptr->actor().set_actor_info_ptr(actor_info_ptr);
     return actor_info_ptr;
   }

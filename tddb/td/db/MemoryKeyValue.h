@@ -25,6 +25,8 @@ namespace td {
 class MemoryKeyValue : public KeyValue {
  public:
   Result<GetStatus> get(Slice key, std::string &value) override;
+  Status for_each(std::function<Status(Slice, Slice)> f) override;
+  Status for_each_in_range(Slice begin, Slice end, std::function<Status(Slice, Slice)> f) override;
   Status set(Slice key, Slice value) override;
   Status erase(Slice key) override;
   Result<size_t> count(Slice prefix) override;
