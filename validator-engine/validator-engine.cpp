@@ -1432,11 +1432,7 @@ td::Status ValidatorEngine::load_global_config() {
   if (!session_logs_file_.empty()) {
     validator_options_.write().set_session_logs_file(session_logs_file_);
   }
-  if (celldb_in_memory_) {
-    celldb_compress_depth_ = 0;
-  }
   validator_options_.write().set_celldb_compress_depth(celldb_compress_depth_);
-  validator_options_.write().set_celldb_in_memory(celldb_in_memory_);
   validator_options_.write().set_max_open_archive_files(max_open_archive_files_);
   validator_options_.write().set_archive_preload_period(archive_preload_period_);
   validator_options_.write().set_disable_rocksdb_stats(disable_rocksdb_stats_);
@@ -1475,11 +1471,11 @@ td::Status ValidatorEngine::load_global_config() {
   }
   validator_options_.write().set_hardforks(std::move(h));
 
-  auto r_total_mem_stat = td::get_total_mem_stat();
-  if (r_total_mem_stat.is_error()) {
-    LOG(ERROR) << "Failed to get total RAM size: " << r_total_mem_stat.move_as_error();
+  auto r_total_ram = td::get_total_ram();
+  if (r_total_ram.is_error()) {
+    LOG(ERROR) << "Failed to get total RAM size: " << r_total_ram.move_as_error();
   } else {
-    td::uint64 total_ram = r_total_mem_stat.ok().total_ram;
+    td::uint64 total_ram = r_total_ram.move_as_ok();
     LOG(WARNING) << "Total RAM = " << td::format::as_size(total_ram);
     if (total_ram >= (90ULL << 30)) {
       fast_state_serializer_enabled_ = true;
@@ -3544,31 +3540,6 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getOverla
                           });
 }
 
-void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getActorTextStats &query, td::BufferSlice data,
-                                        ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise) {
-  if (!(perm & ValidatorEnginePermissions::vep_default)) {
-    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
-    return;
-  }
-
-  if (validator_manager_.empty()) {
-    promise.set_value(
-        create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "validator manager not started")));
-    return;
-  }
-
-  auto P = td::PromiseCreator::lambda([promise = std::move(promise)](td::Result<std::string> R) mutable {
-    if (R.is_error()) {
-      promise.set_value(create_control_query_error(R.move_as_error()));
-    } else {
-      auto r = R.move_as_ok();
-      promise.set_value(ton::create_serialize_tl_object<ton::ton_api::engine_validator_textStats>(std::move(r)));
-    }
-  });
-  td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::prepare_actor_stats,
-                          std::move(P));
-}
-
 void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getPerfTimerStats &query, td::BufferSlice data,
                                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise) {
   if (!(perm & ValidatorEnginePermissions::vep_default)) {
@@ -3782,8 +3753,9 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_addCustom
       });
 }
 
-void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_delCustomOverlay &query, td::BufferSlice data,
-                                        ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise) {
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_delCustomOverlay &query,
+                                        td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
+                                        td::Promise<td::BufferSlice> promise) {
   if (!(perm & ValidatorEnginePermissions::vep_modify)) {
     promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
     return;
@@ -3823,8 +3795,8 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_showCusto
     return;
   }
 
-  promise.set_value(
-      ton::serialize_tl_object<ton::ton_api::engine_validator_customOverlaysConfig>(custom_overlays_config_, true));
+  promise.set_value(ton::serialize_tl_object<ton::ton_api::engine_validator_customOverlaysConfig>(
+      custom_overlays_config_, true));
 }
 
 void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_setStateSerializerEnabled &query,
@@ -4251,8 +4223,7 @@ int main(int argc, char *argv[]) {
                          return td::Status::OK();
                        });
   p.add_checked_option(
-      '\0', "max-archive-fd",
-      "limit for a number of open file descriptirs in archive manager. 0 is unlimited (default)",
+      '\0', "max-archive-fd", "limit for a number of open file descriptirs in archive manager. 0 is unlimited (default)",
       [&](td::Slice s) -> td::Status {
         TRY_RESULT(v, td::to_integer_safe<size_t>(s));
         acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_max_open_archive_files, v); });
@@ -4287,23 +4258,13 @@ int main(int argc, char *argv[]) {
         acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_celldb_cache_size, v); });
         return td::Status::OK();
       });
-  p.add_option('\0', "celldb-direct-io",
-               "enable direct I/O mode for RocksDb in CellDb (doesn't apply when celldb cache is < 30G)", [&]() {
-                 acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_celldb_direct_io, true); });
-               });
-  p.add_option('\0', "celldb-preload-all",
-               "preload all cells from CellDb on startup (recommended to use with big enough celldb-cache-size and "
-               "celldb-direct-io)",
-               [&]() {
-                 acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_celldb_preload_all, true); });
-               });
-
   p.add_option(
-      '\0', "celldb-in-memory",
-      "store all cells in-memory, much faster but requires a lot of RAM. RocksDb is still used as persistent storage",
-      [&]() {
-        acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_celldb_in_memory, true); });
-      });
+      '\0', "celldb-direct-io", "enable direct I/O mode for RocksDb in CellDb (doesn't apply when celldb cache is < 30G)",
+      [&]() { acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_celldb_direct_io, true); }); });
+  p.add_option(
+      '\0', "celldb-preload-all",
+      "preload all cells from CellDb on startup (recommended to use with big enough celldb-cache-size and celldb-direct-io)",
+      [&]() { acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_celldb_preload_all, true); }); });
   p.add_checked_option(
       '\0', "catchain-max-block-delay", "delay before creating a new catchain block, in seconds (default: 0.4)",
       [&](td::Slice s) -> td::Status {
@@ -4358,9 +4319,7 @@ int main(int argc, char *argv[]) {
     }
     if (need_scheduler_status_flag.exchange(false)) {
       LOG(ERROR) << "DUMPING SCHEDULER STATISTICS";
-      td::StringBuilder sb;
-      scheduler.get_debug().dump(sb);
-      LOG(ERROR) << "GOT SCHEDULER STATISTICS\n" << sb.as_cslice();
+      scheduler.get_debug().dump();
     }
     if (rotate_logs_flags.exchange(false)) {
       if (td::log_interface) {

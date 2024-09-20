@@ -170,9 +170,6 @@ td::Timestamp RldpConnection::run(ConnectionCallback &callback) {
   if (in_flight_count_ > congestion_window_) {
     bdw_stats_.on_pause(now);
   }
-  if (in_flight_count_ == 0) {
-    bdw_stats_.on_pause(now);
-  }
 
   for (auto &inbound : inbound_transfers_) {
     alarm_timestamp.relax(run(inbound.first, inbound.second));

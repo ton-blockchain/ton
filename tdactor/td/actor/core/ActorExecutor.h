@@ -24,7 +24,6 @@
 #include "td/actor/core/ActorMessage.h"
 #include "td/actor/core/ActorSignals.h"
 #include "td/actor/core/ActorState.h"
-#include "td/actor/core/ActorTypeStat.h"
 #include "td/actor/core/SchedulerContext.h"
 
 #include "td/utils/format.h"
@@ -96,7 +95,6 @@ class ActorExecutor {
   ActorInfo &actor_info_;
   SchedulerDispatcher &dispatcher_;
   Options options_;
-  ActorTypeStatRef actor_stats_;
   ActorLocker actor_locker_{&actor_info_.state(), ActorLocker::Options()
                                                       .with_can_execute_paused(options_.from_queue)
                                                       .with_is_shared(!options_.has_poll)

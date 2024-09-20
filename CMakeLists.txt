@@ -79,7 +79,7 @@ else()
   set(HAVE_SSE42 FALSE)
 endif()
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
 set(CMAKE_CXX_EXTENSIONS FALSE)
 
@@ -333,10 +333,6 @@ add_cxx_compiler_flag("-Wno-sign-conversion")
 add_cxx_compiler_flag("-Qunused-arguments")
 add_cxx_compiler_flag("-Wno-unused-private-field")
 add_cxx_compiler_flag("-Wno-redundant-move")
-
-#add_cxx_compiler_flag("-Wno-unused-function")
-#add_cxx_compiler_flag("-Wno-unused-variable")
-#add_cxx_compiler_flag("-Wno-shorten-64-to-32")
 #add_cxx_compiler_flag("-Werror")
 
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -isystem /usr/include/c++/v1")

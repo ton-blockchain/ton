@@ -130,20 +130,27 @@ struct LocalQueue {
  public:
   template <class F>
   bool push(T value, F &&overflow_f) {
-    queue_.local_push(std::move(value), overflow_f);
-    return true;
+    auto res = std::move(next_);
+    next_ = std::move(value);
+    if (res) {
+      queue_.local_push(res.unwrap(), overflow_f);
+      return true;
+    }
+    return false;
   }
   bool try_pop(T &message) {
-    return queue_.local_pop(message);
+    if (!next_) {
+      return queue_.local_pop(message);
+    }
+    message = next_.unwrap();
+    return true;
   }
-  bool steal(T &message, LocalQueue &other) {
+  bool steal(T &message, LocalQueue<T> &other) {
     return queue_.steal(message, other.queue_);
-  }
-  size_t size() const {
-    return queue_.size();
   }
 
  private:
+  td::optional<T> next_;
   StealingQueue<T> queue_;
   char pad[TD_CONCURRENCY_PAD - sizeof(optional<T>)];
 };
@@ -260,11 +267,10 @@ class Scheduler {
     bool is_stop_requested() override;
     void stop() override;
 
-    SchedulerGroupInfo *scheduler_group() const override {
+   private:
+    SchedulerGroupInfo *scheduler_group() const {
       return scheduler_group_;
     }
-
-   private:
 
     ActorInfoCreator *creator_;
     SchedulerId scheduler_id_;

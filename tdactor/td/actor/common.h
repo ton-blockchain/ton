@@ -19,7 +19,6 @@
 #pragma once
 #include "td/actor/core/Actor.h"
 #include "td/actor/core/ActorSignals.h"
-#include "td/actor/core/ActorTypeStat.h"
 #include "td/actor/core/SchedulerId.h"
 #include "td/actor/core/SchedulerContext.h"
 #include "td/actor/core/Scheduler.h"
@@ -69,7 +68,7 @@ using core::set_debug;
 struct Debug {
  public:
   Debug() = default;
-  Debug(core::SchedulerGroupInfo *group_info) : group_info_(group_info) {
+  Debug(std::shared_ptr<core::SchedulerGroupInfo> group_info) : group_info_(std::move(group_info)) {
   }
   template <class F>
   void for_each(F &&f) {
@@ -81,29 +80,18 @@ struct Debug {
     }
   }
 
-  void dump(td::StringBuilder &sb) {
-    sb << "list of active actors with names:\n";
-    for_each([&](core::Debug &debug) {
+  void dump() {
+    for_each([](core::Debug &debug) {
       core::DebugInfo info;
       debug.read(info);
       if (info.is_active) {
-        sb << "\t\"" << info.name << "\" is active for " << Time::now() - info.start_at << "s\n";
+        LOG(ERROR) << info.name << " " << td::format::as_time(Time::now() - info.start_at);
       }
     });
-    sb << "\nsizes of cpu local queues:\n";
-    for (auto &scheduler : group_info_->schedulers) {
-      for (size_t i = 0; i < scheduler.cpu_threads_count; i++) {
-        auto size = scheduler.cpu_local_queue[i].size();
-        if (size != 0) {
-          sb << "\tcpu#" << i << " queue.size() = " << size << "\n";
-        }
-      }
-    }
-    sb << "\n";
   }
 
  private:
-  core::SchedulerGroupInfo *group_info_;
+  std::shared_ptr<core::SchedulerGroupInfo> group_info_;
 };
 
 class Scheduler {
@@ -154,7 +142,7 @@ class Scheduler {
   }
 
   Debug get_debug() {
-    return Debug{group_info_.get()};
+    return Debug{group_info_};
   }
 
   bool run() {
@@ -211,10 +199,6 @@ class Scheduler {
     }
   }
 };
-
-using core::ActorTypeStat;
-using core::ActorTypeStatManager;
-using core::ActorTypeStats;
 
 // Some helper functions. Not part of public interface and not part
 // of namespace core
@@ -340,7 +324,7 @@ void send_closure_impl(ActorRef actor_ref, ClosureT &&closure) {
 }
 
 template <class... ArgsT>
-void send_closure(ActorRef actor_ref, ArgsT &&...args) {
+void send_closure(ActorRef actor_ref, ArgsT &&... args) {
   send_closure_impl(actor_ref, create_immediate_closure(std::forward<ArgsT>(args)...));
 }
 
@@ -381,7 +365,7 @@ void send_closure_with_promise_later(ActorRef actor_ref, ClosureT &&closure, Pro
 }
 
 template <class... ArgsT>
-void send_closure_later(ActorRef actor_ref, ArgsT &&...args) {
+void send_closure_later(ActorRef actor_ref, ArgsT &&... args) {
   send_closure_later_impl(actor_ref, create_delayed_closure(std::forward<ArgsT>(args)...));
 }
 
@@ -412,17 +396,15 @@ inline void send_signals_later(ActorRef actor_ref, ActorSignals signals) {
 
 inline void register_actor_info_ptr(core::ActorInfoPtr actor_info_ptr) {
   auto state = actor_info_ptr->state().get_flags_unsafe();
-  actor_info_ptr->on_add_to_queue();
   core::SchedulerContext::get()->add_to_queue(std::move(actor_info_ptr), state.get_scheduler_id(), !state.is_shared());
 }
 
 template <class T, class... ArgsT>
-core::ActorInfoPtr create_actor(core::ActorOptions &options, ArgsT &&...args) noexcept {
+core::ActorInfoPtr create_actor(core::ActorOptions &options, ArgsT &&... args) noexcept {
   auto *scheduler_context = core::SchedulerContext::get();
   if (!options.has_scheduler()) {
     options.on_scheduler(scheduler_context->get_scheduler_id());
   }
-  options.with_actor_stat_id(core::ActorTypeStatImpl::get_unique_id<T>());
   auto res =
       scheduler_context->get_actor_info_creator().create(std::make_unique<T>(std::forward<ArgsT>(args)...), options);
   register_actor_info_ptr(res);

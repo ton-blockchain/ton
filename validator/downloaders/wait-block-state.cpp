@@ -230,7 +230,6 @@ void WaitBlockState::got_block_data(td::Ref<BlockData> data) {
 }
 
 void WaitBlockState::apply() {
-  TD_PERF_COUNTER(apply_block_to_state);
   td::PerfWarningTimer t{"applyblocktostate", 0.1};
   auto S = prev_state_.write().apply_block(handle_->id(), block_);
   if (S.is_error()) {

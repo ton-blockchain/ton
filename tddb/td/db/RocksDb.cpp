@@ -65,16 +65,12 @@ Result<RocksDb> RocksDb::open(std::string path, RocksDbOptions options) {
     rocksdb::Options db_options;
 
     static auto default_cache = rocksdb::NewLRUCache(1 << 30);
-    if (!options.no_block_cache && options.block_cache == nullptr) {
+    if (options.block_cache == nullptr) {
       options.block_cache = default_cache;
     }
 
     rocksdb::BlockBasedTableOptions table_options;
-    if (options.no_block_cache) {
-      table_options.no_block_cache = true;
-    } else {
-      table_options.block_cache = options.block_cache;
-    }
+    table_options.block_cache = options.block_cache;
     db_options.table_factory.reset(rocksdb::NewBlockBasedTableFactory(table_options));
 
     db_options.use_direct_reads = options.use_direct_reads;
@@ -214,32 +210,6 @@ Status RocksDb::for_each(std::function<Status(Slice, Slice)> f) {
     return from_rocksdb(iterator->status());
   }
   return Status::OK();
-}
-
-Status RocksDb::for_each_in_range(Slice begin, Slice end, std::function<Status(Slice, Slice)> f) {
-  rocksdb::ReadOptions options;
-  options.snapshot = snapshot_.get();
-  std::unique_ptr<rocksdb::Iterator> iterator;
-  if (snapshot_ || !transaction_) {
-    iterator.reset(db_->NewIterator(options));
-  } else {
-    iterator.reset(transaction_->GetIterator(options));
-  }
-
-  auto comparator = rocksdb::BytewiseComparator();
-  iterator->Seek(to_rocksdb(begin));
-  for (; iterator->Valid(); iterator->Next()) {
-    auto key = from_rocksdb(iterator->key());
-    if (comparator->Compare(to_rocksdb(key), to_rocksdb(end)) >= 0) {
-      break;
-    }
-    auto value = from_rocksdb(iterator->value());
-    TRY_STATUS(f(key, value));
-  }
-  if (!iterator->status().ok()) {
-    return from_rocksdb(iterator->status());
-  }
-  return td::Status::OK();
 }
 
 Status RocksDb::begin_write_batch() {

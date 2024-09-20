@@ -127,12 +127,4 @@ struct Auto {
   }
 };
 
-struct NoCopyOrMove {
-  NoCopyOrMove() = default;
-  NoCopyOrMove(NoCopyOrMove &&) = delete;
-  NoCopyOrMove(const NoCopyOrMove &) = delete;
-  NoCopyOrMove &operator=(NoCopyOrMove &&) = delete;
-  NoCopyOrMove &operator=(const NoCopyOrMove &) = delete;
-};
-
 }  // namespace td

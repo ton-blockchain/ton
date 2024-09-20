@@ -29,12 +29,9 @@
 #include "db-utils.h"
 #include "td/db/RocksDb.h"
 
-#include <optional>
-
 namespace rocksdb {
 class Statistics;
-class DB;
-}  // namespace rocksdb
+}
 
 namespace ton {
 
@@ -61,7 +58,6 @@ class CellDbIn : public CellDbBase {
  public:
   using KeyHash = td::Bits256;
 
-  std::vector<std::pair<std::string, std::string>> prepare_stats();
   void load_cell(RootHash hash, td::Promise<td::Ref<vm::DataCell>> promise);
   void store_cell(BlockIdExt block_id, td::Ref<vm::Cell> cell, td::Promise<td::Ref<vm::DataCell>> promise);
   void get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise);
@@ -115,15 +111,13 @@ class CellDbIn : public CellDbBase {
   std::string path_;
   td::Ref<ValidatorManagerOptions> opts_;
 
-  std::shared_ptr<vm::DynamicBagOfCellsDb> boc_;
+  std::unique_ptr<vm::DynamicBagOfCellsDb> boc_;
   std::shared_ptr<vm::KeyValue> cell_db_;
-  std::shared_ptr<rocksdb::DB> rocks_db_;
 
   std::function<void(const vm::CellLoader::LoadResult&)> on_load_callback_;
   std::set<td::Bits256> cells_to_migrate_;
   td::Timestamp migrate_after_ = td::Timestamp::never();
   bool migration_active_ = false;
-  std::optional<double> in_memory_load_time_;
 
   struct MigrationStats {
     td::Timer start_;
@@ -139,10 +133,8 @@ class CellDbIn : public CellDbBase {
     PercentileStats store_cell_time_;
     PercentileStats gc_cell_time_;
     td::Timestamp stats_start_time_ = td::Timestamp::now();
-    std::optional<double> in_memory_load_time_;
-    std::optional<vm::DynamicBagOfCellsDb::Stats> boc_stats_;
 
-    std::vector<std::pair<std::string, std::string>> prepare_stats();
+    std::string to_string();
     void clear() {
       *this = CellDbStatistics{};
     }
@@ -170,24 +162,11 @@ class CellDbIn : public CellDbBase {
 
 class CellDb : public CellDbBase {
  public:
-  void prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise);
   void load_cell(RootHash hash, td::Promise<td::Ref<vm::DataCell>> promise);
   void store_cell(BlockIdExt block_id, td::Ref<vm::Cell> cell, td::Promise<td::Ref<vm::DataCell>> promise);
   void update_snapshot(std::unique_ptr<td::KeyValueReader> snapshot) {
-    CHECK(!opts_->get_celldb_in_memory());
-    if (!started_) {
-      alarm();
-    }
     started_ = true;
     boc_->set_loader(std::make_unique<vm::CellLoader>(std::move(snapshot), on_load_callback_)).ensure();
-  }
-  void set_in_memory_boc(std::shared_ptr<const vm::DynamicBagOfCellsDb> in_memory_boc) {
-    CHECK(opts_->get_celldb_in_memory());
-    if (!started_) {
-      alarm();
-    }
-    started_ = true;
-    in_memory_boc_ = std::move(in_memory_boc);
   }
   void get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise);
   void get_last_deleted_mc_state(td::Promise<BlockSeqno> promise);
@@ -206,14 +185,9 @@ class CellDb : public CellDbBase {
   td::actor::ActorOwn<CellDbIn> cell_db_;
 
   std::unique_ptr<vm::DynamicBagOfCellsDb> boc_;
-  std::shared_ptr<const vm::DynamicBagOfCellsDb> in_memory_boc_;
   bool started_ = false;
-  std::vector<std::pair<std::string, std::string>> prepared_stats_{{"started", "false"}};
 
   std::function<void(const vm::CellLoader::LoadResult&)> on_load_callback_;
-
-  void update_stats(td::Result<std::vector<std::pair<std::string, std::string>>> stats);
-  void alarm() override;
 };
 
 }  // namespace validator

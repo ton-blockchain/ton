@@ -35,7 +35,7 @@ void Atom::print_to(std::ostream& os) const {
 
 std::string Atom::make_name() const {
   char buffer[16];
-  snprintf(buffer, sizeof(buffer), "atom#%d", index_);
+  sprintf(buffer, "atom#%d", index_);
   return buffer;
 }
 

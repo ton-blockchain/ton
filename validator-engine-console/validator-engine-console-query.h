@@ -1076,28 +1076,6 @@ class ImportShardOverlayCertificateQuery : public Query {
   std::string in_file_;
 };
 
-class GetActorStatsQuery : public Query {
- public:
-  GetActorStatsQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
-      : Query(console, std::move(tokenizer)) {
-  }
-  td::Status run() override;
-  td::Status send() override;
-  td::Status receive(td::BufferSlice data) override;
-  static std::string get_name() {
-    return "getactorstats";
-  }
-  static std::string get_help() {
-    return "getactorstats [<outfile>]\tget actor stats and print it either in stdout or in <outfile>";
-  }
-  std::string name() const override {
-    return get_name();
-  }
-
- private:
-  std::string file_name_;
-};
-
 class GetPerfTimerStatsJsonQuery : public Query {
  public:
   GetPerfTimerStatsJsonQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)

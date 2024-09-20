@@ -214,7 +214,6 @@ class ValidatorEngine : public td::actor::Actor {
   td::optional<td::uint64> celldb_cache_size_ = 1LL << 30;
   bool celldb_direct_io_ = false;
   bool celldb_preload_all_ = false;
-  bool celldb_in_memory_ = false;
   td::optional<double> catchain_max_block_delay_, catchain_max_block_delay_slow_;
   bool read_config_ = false;
   bool started_keyring_ = false;
@@ -297,9 +296,6 @@ class ValidatorEngine : public td::actor::Actor {
   }
   void set_celldb_preload_all(bool value) {
     celldb_preload_all_ = value;
-  }
-  void set_celldb_in_memory(bool value) {
-    celldb_in_memory_ = value;
   }
   void set_catchain_max_block_delay(double value) {
     catchain_max_block_delay_ = value;
@@ -477,8 +473,6 @@ class ValidatorEngine : public td::actor::Actor {
   void run_control_query(ton::ton_api::engine_validator_importShardOverlayCertificate &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_getOverlaysStats &query, td::BufferSlice data,
-                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
-  void run_control_query(ton::ton_api::engine_validator_getActorTextStats &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_getPerfTimerStats &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);

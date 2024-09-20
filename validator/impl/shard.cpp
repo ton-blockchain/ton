@@ -290,7 +290,6 @@ td::Result<std::pair<td::Ref<ShardState>, td::Ref<ShardState>>> ShardStateQ::spl
 }
 
 td::Result<td::BufferSlice> ShardStateQ::serialize() const {
-  TD_PERF_COUNTER(serialize_state);
   td::PerfWarningTimer perf_timer_{"serializestate", 0.1};
   if (!data.is_null()) {
     return data.clone();
@@ -315,7 +314,6 @@ td::Result<td::BufferSlice> ShardStateQ::serialize() const {
 }
 
 td::Status ShardStateQ::serialize_to_file(td::FileFd& fd) const {
-  TD_PERF_COUNTER(serialize_state_to_file);
   td::PerfWarningTimer perf_timer_{"serializestate", 0.1};
   if (!data.is_null()) {
     auto cur_data = data.clone();
