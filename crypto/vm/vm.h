@@ -370,7 +370,11 @@ class VmState final : public VmStateInterface {
     throw VmFatal{};
   }
   int jump_to(Ref<Continuation> cont) {
-    return cont->is_unique() ? cont.unique_write().jump_w(this) : cont->jump(this);
+    int res = 0;
+    while (cont.not_null()) {
+      cont = cont->is_unique() ? cont.unique_write().jump_w(this, res) : cont->jump(this, res);
+    }
+    return res;
   }
   static Ref<CellSlice> convert_code_cell(Ref<Cell> code_cell);
   bool try_commit();

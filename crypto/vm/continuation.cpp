@@ -27,8 +27,8 @@
 
 namespace vm {
 
-int Continuation::jump_w(VmState* st) & {
-  return static_cast<const Continuation*>(this)->jump(st);
+td::Ref<Continuation> Continuation::jump_w(VmState* st, int& exitcode) & {
+  return static_cast<const Continuation*>(this)->jump(st, exitcode);
 }
 
 bool Continuation::has_c0() const {
@@ -286,7 +286,7 @@ std::string QuitCont::type() const {
   return "vmc_quit";
 }
 
-int ExcQuitCont::jump(VmState* st) const & {
+td::Ref<Continuation> ExcQuitCont::jump(VmState* st, int& exitcode) const& {
   int n = 0;
   try {
     n = st->get_stack().pop_smallint_range(0xffff);
@@ -294,7 +294,8 @@ int ExcQuitCont::jump(VmState* st) const & {
     n = vme.get_errno();
   }
   VM_LOG(st) << "default exception handler, terminating vm with exit code " << n;
-  return ~n;
+  exitcode = ~n;
+  return {};
 }
 
 std::string ExcQuitCont::type() const {
@@ -311,16 +312,16 @@ Ref<ExcQuitCont> ExcQuitCont::deserialize(CellSlice& cs, int mode) {
   return cs.fetch_ulong(4) == 9 ? Ref<ExcQuitCont>{true} : Ref<ExcQuitCont>{};
 }
 
-int PushIntCont::jump(VmState* st) const & {
+td::Ref<Continuation> PushIntCont::jump(VmState* st, int& exitcode) const& {
   VM_LOG(st) << "execute implicit PUSH " << push_val << " (slow)";
   st->get_stack().push_smallint(push_val);
-  return st->jump(next);
+  return next;
 }
 
-int PushIntCont::jump_w(VmState* st) & {
+td::Ref<Continuation> PushIntCont::jump_w(VmState* st, int& exitcode) & {
   VM_LOG(st) << "execute implicit PUSH " << push_val;
   st->get_stack().push_smallint(push_val);
-  return st->jump(std::move(next));
+  return std::move(next);
 }
 
 std::string PushIntCont::type() const {
@@ -345,20 +346,20 @@ Ref<PushIntCont> PushIntCont::deserialize(CellSlice& cs, int mode) {
   }
 }
 
-int ArgContExt::jump(VmState* st) const & {
+td::Ref<Continuation> ArgContExt::jump(VmState* st, int& exitcode) const& {
   st->adjust_cr(data.save);
   if (data.cp != -1) {
     st->force_cp(data.cp);
   }
-  return ext->jump(st);
+  return ext;
 }
 
-int ArgContExt::jump_w(VmState* st) & {
+td::Ref<Continuation> ArgContExt::jump_w(VmState* st, int& exitcode) & {
   st->adjust_cr(std::move(data.save));
   if (data.cp != -1) {
     st->force_cp(data.cp);
   }
-  return st->jump_to(std::move(ext));
+  return std::move(ext);
 }
 
 bool ArgContExt::serialize(CellBuilder& cb) const {
@@ -382,32 +383,32 @@ std::string ArgContExt::type() const {
   return "vmc_envelope";
 }
 
-int RepeatCont::jump(VmState* st) const & {
+td::Ref<Continuation> RepeatCont::jump(VmState* st, int& exitcode) const& {
   VM_LOG(st) << "repeat " << count << " more times (slow)\n";
   if (count <= 0) {
-    return st->jump(after);
+    return after;
   }
   if (body->has_c0()) {
-    return st->jump(body);
+    return body;
   }
   st->set_c0(Ref<RepeatCont>{true, body, after, count - 1});
-  return st->jump(body);
+  return body;
 }
 
-int RepeatCont::jump_w(VmState* st) & {
+td::Ref<Continuation> RepeatCont::jump_w(VmState* st, int& exitcode) & {
   VM_LOG(st) << "repeat " << count << " more times\n";
   if (count <= 0) {
     body.clear();
-    return st->jump(std::move(after));
+    return std::move(after);
   }
   if (body->has_c0()) {
     after.clear();
-    return st->jump(std::move(body));
+    return std::move(body);
   }
   // optimization: since this is unique, reuse *this instead of creating new object
   --count;
   st->set_c0(Ref<RepeatCont>{this});
-  return st->jump(body);
+  return body;
 }
 
 bool RepeatCont::serialize(CellBuilder& cb) const {
@@ -443,21 +444,21 @@ int VmState::repeat(Ref<Continuation> body, Ref<Continuation> after, long long c
   }
 }
 
-int AgainCont::jump(VmState* st) const & {
+td::Ref<Continuation> AgainCont::jump(VmState* st, int& exitcode) const& {
   VM_LOG(st) << "again an infinite loop iteration (slow)\n";
   if (!body->has_c0()) {
     st->set_c0(Ref<AgainCont>{this});
   }
-  return st->jump(body);
+  return body;
 }
 
-int AgainCont::jump_w(VmState* st) & {
+td::Ref<Continuation> AgainCont::jump_w(VmState* st, int& exitcode) & {
   VM_LOG(st) << "again an infinite loop iteration\n";
   if (!body->has_c0()) {
     st->set_c0(Ref<AgainCont>{this});
-    return st->jump(body);
+    return body;
   } else {
-    return st->jump(std::move(body));
+    return std::move(body);
   }
 }
 
@@ -485,31 +486,31 @@ int VmState::again(Ref<Continuation> body) {
   return jump(Ref<AgainCont>{true, std::move(body)});
 }
 
-int UntilCont::jump(VmState* st) const & {
+td::Ref<Continuation> UntilCont::jump(VmState* st, int& exitcode) const& {
   VM_LOG(st) << "until loop body end (slow)\n";
   if (st->get_stack().pop_bool()) {
     VM_LOG(st) << "until loop terminated\n";
-    return st->jump(after);
+    return after;
   }
   if (!body->has_c0()) {
     st->set_c0(Ref<UntilCont>{this});
   }
-  return st->jump(body);
+  return body;
 }
 
-int UntilCont::jump_w(VmState* st) & {
+td::Ref<Continuation> UntilCont::jump_w(VmState* st, int& exitcode) & {
   VM_LOG(st) << "until loop body end\n";
   if (st->get_stack().pop_bool()) {
     VM_LOG(st) << "until loop terminated\n";
     body.clear();
-    return st->jump(std::move(after));
+    return std::move(after);
   }
   if (!body->has_c0()) {
     st->set_c0(Ref<UntilCont>{this});
-    return st->jump(body);
+    return body;
   } else {
     after.clear();
-    return st->jump(std::move(body));
+    return std::move(body);
   }
 }
 
@@ -541,54 +542,54 @@ int VmState::until(Ref<Continuation> body, Ref<Continuation> after) {
   return jump(std::move(body));
 }
 
-int WhileCont::jump(VmState* st) const & {
+td::Ref<Continuation> WhileCont::jump(VmState* st, int& exitcode) const& {
   if (chkcond) {
     VM_LOG(st) << "while loop condition end (slow)\n";
     if (!st->get_stack().pop_bool()) {
       VM_LOG(st) << "while loop terminated\n";
-      return st->jump(after);
+      return after;
     }
     if (!body->has_c0()) {
       st->set_c0(Ref<WhileCont>{true, cond, body, after, false});
     }
-    return st->jump(body);
+    return body;
   } else {
     VM_LOG(st) << "while loop body end (slow)\n";
     if (!cond->has_c0()) {
       st->set_c0(Ref<WhileCont>{true, cond, body, after, true});
     }
-    return st->jump(cond);
+    return cond;
   }
 }
 
-int WhileCont::jump_w(VmState* st) & {
+td::Ref<Continuation> WhileCont::jump_w(VmState* st, int& exitcode) & {
   if (chkcond) {
     VM_LOG(st) << "while loop condition end\n";
     if (!st->get_stack().pop_bool()) {
       VM_LOG(st) << "while loop terminated\n";
       cond.clear();
       body.clear();
-      return st->jump(std::move(after));
+      return std::move(after);
     }
     if (!body->has_c0()) {
       chkcond = false;  // re-use current object since we hold the unique pointer to it
       st->set_c0(Ref<WhileCont>{this});
-      return st->jump(body);
+      return body;
     } else {
       cond.clear();
       after.clear();
-      return st->jump(std::move(body));
+      return std::move(body);
     }
   } else {
     VM_LOG(st) << "while loop body end\n";
     if (!cond->has_c0()) {
       chkcond = true;  // re-use current object
       st->set_c0(Ref<WhileCont>{this});
-      return st->jump(cond);
+      return cond;
     } else {
       body.clear();
       after.clear();
-      return st->jump(std::move(cond));
+      return std::move(cond);
     }
   }
 }
@@ -627,16 +628,16 @@ int VmState::loop_while(Ref<Continuation> cond, Ref<Continuation> body, Ref<Cont
   return jump(std::move(cond));
 }
 
-int OrdCont::jump(VmState* st) const & {
+td::Ref<Continuation> OrdCont::jump(VmState* st, int& exitcode) const& {
   st->adjust_cr(data.save);
   st->set_code(code, data.cp);
-  return 0;
+  return {};
 }
 
-int OrdCont::jump_w(VmState* st) & {
+td::Ref<Continuation> OrdCont::jump_w(VmState* st, int& exitcode) & {
   st->adjust_cr(std::move(data.save));
   st->set_code(std::move(code), data.cp);
-  return 0;
+  return {};
 }
 
 bool OrdCont::serialize(CellBuilder& cb) const {
