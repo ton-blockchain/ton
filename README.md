@@ -157,3 +157,9 @@ More examples for other platforms can be found under `assembly/nix`.
 ## Running tests
 
 Tests are executed by running `ctest` in the build directory. See `doc/Tests.md` for more information.
+  sudo apt-get update
+  sudo apt-get install -y build-essential git cmake ninja-build zlib1g-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev
+          
+  wget https://apt.llvm.org/llvm.sh
+  chmod +x llvm.sh
+  sudo ./llvm.sh 16 all
