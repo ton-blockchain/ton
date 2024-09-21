@@ -344,6 +344,7 @@ else()
   target_link_libraries(ton_crypto PUBLIC ${SECP256K1_LIBRARY})
 endif()
 
+target_link_libraries(ton_crypto_core PUBLIC ${SECP256K1_LIBRARY})
 target_include_directories(ton_crypto_core PUBLIC $<BUILD_INTERFACE:${SODIUM_INCLUDE_DIR}>)
 target_link_libraries(ton_crypto PUBLIC ${SODIUM_LIBRARY_RELEASE})
 
@@ -379,7 +380,7 @@ target_link_libraries(src_parser PUBLIC ton_crypto_core)
 add_library(ton_block STATIC ${BLOCK_SOURCE})
 target_include_directories(ton_block PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/block> $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
-target_link_libraries(ton_block PUBLIC ton_crypto tdutils tdactor tl_api)
+target_link_libraries(ton_block PUBLIC ton_crypto_core tdutils tdactor tl_api)
 if (USE_EMSCRIPTEN)
   target_link_options(ton_block PRIVATE -fexceptions)
   target_compile_options(ton_block PRIVATE -fexceptions)
