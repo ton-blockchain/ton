@@ -49,6 +49,7 @@ class CellLoader {
   };
   CellLoader(std::shared_ptr<KeyValueReader> reader, std::function<void(const LoadResult &)> on_load_callback = {});
   td::Result<LoadResult> load(td::Slice hash, bool need_data, ExtCellCreator &ext_cell_creator);
+  static td::Result<LoadResult> load(td::Slice hash, td::Slice value, bool need_data, ExtCellCreator &ext_cell_creator);
 
  private:
   std::shared_ptr<KeyValueReader> reader_;
@@ -60,6 +61,7 @@ class CellStorer {
   CellStorer(KeyValue &kv);
   td::Status erase(td::Slice hash);
   td::Status set(td::int32 refcnt, const td::Ref<DataCell> &cell, bool as_boc);
+  static std::string serialize_value(td::int32 refcnt, const td::Ref<DataCell> &cell, bool as_boc);
 
  private:
   KeyValue &kv_;

@@ -151,6 +151,7 @@ set(TON_DB_SOURCE
   vm/db/CellHashTable.h
   vm/db/CellStorage.h
   vm/db/TonDb.h
+  vm/db/InMemoryBagOfCellsDb.cpp
 )
 
 set(FIFT_SOURCE

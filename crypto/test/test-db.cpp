@@ -54,10 +54,15 @@
 
 #include <set>
 #include <map>
+#include <thread>
 
 #include <openssl/sha.h>
 
 #include "openssl/digest.hpp"
+#include "vm/dict.h"
+
+#include <numeric>
+#include <optional>
 
 namespace vm {
 
@@ -82,9 +87,23 @@ int get_random_serialization_mode(T &rnd) {
   return modes[rnd.fast(0, (int)modes.size() - 1)];
 }
 
-class BenchSha256 : public td::Benchmark {
+class BenchSha : public td::Benchmark {
  public:
+  explicit BenchSha(size_t n) : str_(n, 'a') {
+  }
   std::string get_description() const override {
+    return PSTRING() << get_name() << " length=" << str_.size();
+  }
+
+  virtual std::string get_name() const = 0;
+
+ protected:
+  std::string str_;
+};
+class BenchSha256 : public BenchSha {
+ public:
+  using BenchSha::BenchSha;
+  std::string get_name() const override {
     return "SHA256";
   }
 
@@ -92,7 +111,7 @@ class BenchSha256 : public td::Benchmark {
     int res = 0;
     for (int i = 0; i < n; i++) {
       digest::SHA256 hasher;
-      hasher.feed("abcd", 4);
+      hasher.feed(str_);
       unsigned char buf[32];
       hasher.extract(buf);
       res += buf[0];
@@ -100,10 +119,12 @@ class BenchSha256 : public td::Benchmark {
     td::do_not_optimize_away(res);
   }
 };
-class BenchSha256Reuse : public td::Benchmark {
+class BenchSha256Reuse : public BenchSha {
  public:
-  std::string get_description() const override {
-    return "SHA256 reuse";
+  using BenchSha::BenchSha;
+
+  std::string get_name() const override {
+    return "SHA256 reuse (used in DataCell)";
   }
 
   void run(int n) override {
@@ -111,7 +132,7 @@ class BenchSha256Reuse : public td::Benchmark {
     digest::SHA256 hasher;
     for (int i = 0; i < n; i++) {
       hasher.reset();
-      hasher.feed("abcd", 4);
+      hasher.feed(str_);
       unsigned char buf[32];
       hasher.extract(buf);
       res += buf[0];
@@ -119,28 +140,46 @@ class BenchSha256Reuse : public td::Benchmark {
     td::do_not_optimize_away(res);
   }
 };
-class BenchSha256Low : public td::Benchmark {
+class BenchSha256Low : public BenchSha {
  public:
-  std::string get_description() const override {
+  using BenchSha::BenchSha;
+
+  std::string get_name() const override {
     return "SHA256 low level";
   }
 
+// Use the old method to check for performance degradation
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#elif defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4996)  // Disable deprecated warning for MSVC
+#endif
   void run(int n) override {
     int res = 0;
-    td::Sha256State ctx;
+    SHA256_CTX ctx;
     for (int i = 0; i < n; i++) {
-      ctx.init();
-      ctx.feed("abcd");
+      SHA256_Init(&ctx);
+      SHA256_Update(&ctx, str_.data(), str_.size());
       unsigned char buf[32];
-      ctx.extract(td::MutableSlice{buf, 32});
+      SHA256_Final(buf, &ctx);
       res += buf[0];
     }
     td::do_not_optimize_away(res);
   }
 };
-class BenchSha256Tdlib : public td::Benchmark {
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
+#elif defined(_MSC_VER)
+#pragma warning(pop)
+#endif
+
+class BenchSha256Tdlib : public BenchSha {
  public:
-  std::string get_description() const override {
+  using BenchSha::BenchSha;
+
+  std::string get_name() const override {
     return "SHA256 TDLib";
   }
 
@@ -150,7 +189,7 @@ class BenchSha256Tdlib : public td::Benchmark {
     for (int i = 0; i < n; i++) {
       td::init_thread_local<td::Sha256State>(ctx);
       ctx->init();
-      ctx->feed("abcd");
+      ctx->feed(str_);
       unsigned char buf[32];
       ctx->extract(td::MutableSlice(buf, 32), false);
       res += buf[0];
@@ -158,11 +197,61 @@ class BenchSha256Tdlib : public td::Benchmark {
     td::do_not_optimize_away(res);
   }
 };
+
+template <class F>
+void bench_threaded(F &&f) {
+  class Threaded : public td::Benchmark {
+   public:
+    explicit Threaded(F &&f) : f_(std::move(f)), base(f_()) {
+    }
+    F f_;
+    std::decay_t<decltype(f_())> base;
+
+    std::string get_description() const override {
+      return base.get_description() + " threaded";
+    }
+
+    void run(int n) override {
+      std::atomic<int> task_i{0};
+      int chunk_size = 1024;
+      int num_threads = 16;
+      n *= num_threads;
+      std::vector<td::thread> threads;
+      for (int i = 0; i < num_threads; i++) {
+        threads.emplace_back([&]() mutable {
+          auto bench = f_();
+          while (true) {
+            i = task_i.fetch_add(chunk_size, std::memory_order_relaxed);
+            auto i_end = std::min(n, i + chunk_size);
+            if (i > n) {
+              break;
+            }
+            bench.run(i_end - i);
+          }
+        });
+      }
+      for (auto &thread : threads) {
+        thread.join();
+      }
+    };
+  };
+  bench(Threaded(std::forward<F>(f)));
+}
 TEST(Cell, sha_benchmark) {
-  bench(BenchSha256Tdlib());
-  bench(BenchSha256Low());
-  bench(BenchSha256Reuse());
-  bench(BenchSha256());
+  for (size_t n : {4, 64, 128}) {
+    bench(BenchSha256Tdlib(n));
+    bench(BenchSha256Low(n));
+    bench(BenchSha256Reuse(n));
+    bench(BenchSha256(n));
+  }
+}
+TEST(Cell, sha_benchmark_threaded) {
+  for (size_t n : {4, 64, 128}) {
+    bench_threaded([n] { return BenchSha256Tdlib(n); });
+    bench_threaded([n]() { return BenchSha256Low(n); });
+    bench_threaded([n]() { return BenchSha256Reuse(n); });
+    bench_threaded([n]() { return BenchSha256(n); });
+  }
 }
 
 std::string serialize_boc(Ref<Cell> cell, int mode = 31) {
@@ -762,16 +851,70 @@ TEST(TonDb, BocMultipleRoots) {
   }
 };
 
-TEST(TonDb, DynamicBoc) {
+TEST(TonDb, InMemoryDynamicBocSimple) {
+  auto counter = [] { return td::NamedThreadSafeCounter::get_default().get_counter("DataCell").sum(); };
+  auto before = counter();
+  SCOPE_EXIT {
+    LOG_CHECK(before == counter()) << before << " vs " << counter();
+    ;
+  };
+  td::Random::Xorshift128plus rnd{123};
+  auto kv = std::make_shared<td::MemoryKeyValue>();
+  CellStorer storer(*kv);
+
+  auto boc = DynamicBagOfCellsDb::create_in_memory(kv.get(), {});
+
+  auto empty_cell = vm::CellBuilder().finalize();
+  boc->inc(empty_cell);
+  boc->prepare_commit().ensure();
+  boc->commit(storer).ensure();
+  auto got_empty_cell = boc->load_cell(empty_cell->get_hash().as_slice()).move_as_ok();
+  ASSERT_EQ(empty_cell->get_hash(), got_empty_cell->get_hash());
+
+  boc->dec(empty_cell);
+
+  auto one_ref_cell = vm::CellBuilder().store_ref(empty_cell).finalize();
+  boc->inc(one_ref_cell);
+  boc->prepare_commit().ensure();
+  boc->commit(storer).ensure();
+  auto got_one_ref_cell = boc->load_cell(one_ref_cell->get_hash().as_slice()).move_as_ok();
+  ASSERT_EQ(one_ref_cell->get_hash(), got_one_ref_cell->get_hash());
+  boc = DynamicBagOfCellsDb::create_in_memory(kv.get(), {});
+
+  auto random_ref_cell = gen_random_cell(3, rnd);
+  boc->inc(random_ref_cell);
+  boc->prepare_commit().ensure();
+  boc->commit(storer).ensure();
+  auto got_random_ref_cell = boc->load_cell(random_ref_cell->get_hash().as_slice()).move_as_ok();
+  ASSERT_EQ(random_ref_cell->get_hash(), got_random_ref_cell->get_hash());
+  boc = DynamicBagOfCellsDb::create_in_memory(kv.get(), {});
+}
+
+void test_dynamic_boc(std::optional<DynamicBagOfCellsDb::CreateInMemoryOptions> o_in_memory) {
+  auto counter = [] { return td::NamedThreadSafeCounter::get_default().get_counter("DataCell").sum(); };
+  auto before = counter();
+  SCOPE_EXIT {
+    LOG_CHECK((o_in_memory && o_in_memory->use_arena) || before == counter()) << before << " vs " << counter();
+    ;
+  };
   td::Random::Xorshift128plus rnd{123};
   std::string old_root_hash;
   std::string old_root_serialization;
   auto kv = std::make_shared<td::MemoryKeyValue>();
-  auto dboc = DynamicBagOfCellsDb::create();
+  auto create_dboc = [&]() {
+    if (o_in_memory) {
+      auto res = DynamicBagOfCellsDb::create_in_memory(kv.get(), *o_in_memory);
+      auto roots_n = old_root_hash.empty() ? 0 : 1;
+      ASSERT_EQ(roots_n, res->get_stats().ok().roots_total_count);
+      return res;
+    }
+    return DynamicBagOfCellsDb::create();
+  };
+  auto dboc = create_dboc();
   dboc->set_loader(std::make_unique<CellLoader>(kv));
   for (int t = 1000; t >= 0; t--) {
     if (rnd() % 10 == 0) {
-      dboc = DynamicBagOfCellsDb::create();
+      dboc = create_dboc();
     }
     dboc->set_loader(std::make_unique<CellLoader>(kv));
     Ref<Cell> old_root;
@@ -795,29 +938,64 @@ TEST(TonDb, DynamicBoc) {
     if (t != 0) {
       dboc->inc(cell);
     }
-    dboc->prepare_commit();
+    dboc->prepare_commit().ensure();
     {
       CellStorer cell_storer(*kv);
-      dboc->commit(cell_storer);
+      dboc->commit(cell_storer).ensure();
     }
   }
   ASSERT_EQ(0u, kv->count("").ok());
+}
+
+template <class F>
+void with_all_boc_options(F &&f) {
+  LOG(INFO) << "Test dynamic boc";
+  LOG(INFO) << "\ton disk";
+  f({});
+  for (auto use_arena : {false, true}) {
+    for (auto less_memory : {false, true}) {
+      LOG(INFO) << "\tuse_arena=" << use_arena << " less_memory=" << less_memory;
+      f(DynamicBagOfCellsDb::CreateInMemoryOptions{.extra_threads = std::thread::hardware_concurrency(),
+                                                   .verbose = false,
+                                                   .use_arena = use_arena,
+                                                   .use_less_memory_during_creation = less_memory});
+    }
+  }
+}
+TEST(TonDb, DynamicBoc) {
+  with_all_boc_options(test_dynamic_boc);
 };
 
-TEST(TonDb, DynamicBoc2) {
+void test_dynamic_boc2(std::optional<DynamicBagOfCellsDb::CreateInMemoryOptions> o_in_memory) {
   int VERBOSITY_NAME(boc) = VERBOSITY_NAME(DEBUG) + 10;
   td::Random::Xorshift128plus rnd{123};
   int total_roots = 10000;
   int max_roots = 20;
-  std::vector<std::string> root_hashes(max_roots);
-  std::vector<Ref<Cell>> roots(max_roots);
   int last_commit_at = 0;
   int first_root_id = 0;
   int last_root_id = 0;
   auto kv = std::make_shared<td::MemoryKeyValue>();
-  auto dboc = DynamicBagOfCellsDb::create();
+  auto create_dboc = [&](td::int64 root_n) {
+    if (o_in_memory) {
+      auto res = DynamicBagOfCellsDb::create_in_memory(kv.get(), *o_in_memory);
+      auto stats = res->get_stats().move_as_ok();
+      ASSERT_EQ(root_n, stats.roots_total_count);
+      VLOG(boc) << "reset roots_n=" << stats.roots_total_count << " cells_n=" << stats.cells_total_count;
+      return res;
+    }
+    return DynamicBagOfCellsDb::create();
+  };
+  auto dboc = create_dboc(0);
   dboc->set_loader(std::make_unique<CellLoader>(kv));
 
+  auto counter = [] { return td::NamedThreadSafeCounter::get_default().get_counter("DataCell").sum(); };
+  auto before = counter();
+  SCOPE_EXIT {
+    LOG_CHECK((o_in_memory && o_in_memory->use_arena) || before == counter()) << before << " vs " << counter();
+  };
+
+  std::vector<Ref<Cell>> roots(max_roots);
+  std::vector<std::string> root_hashes(max_roots);
   auto add_root = [&](Ref<Cell> root) {
     dboc->inc(root);
     root_hashes[last_root_id % max_roots] = (root->get_hash().as_slice().str());
@@ -825,18 +1003,23 @@ TEST(TonDb, DynamicBoc2) {
     last_root_id++;
   };
 
-  auto get_root = [&](int root_id) {
+  auto get_root = [&](int root_id) -> Ref<Cell> {
     VLOG(boc) << "  from older root #" << root_id;
     auto from_root = roots[root_id % max_roots];
     if (from_root.is_null()) {
       VLOG(boc) << "  from db";
       auto from_root_hash = root_hashes[root_id % max_roots];
-      from_root = dboc->load_cell(from_root_hash).move_as_ok();
+      if (o_in_memory && (rnd() % 2 == 0)) {
+        from_root = dboc->load_root(from_root_hash).move_as_ok();
+      } else {
+        from_root = dboc->load_cell(from_root_hash).move_as_ok();
+      }
     } else {
       VLOG(boc) << "FROM MEMORY";
     }
     return from_root;
   };
+  std::map<CellHash, int> root_cnt;
   auto new_root = [&] {
     if (last_root_id == total_roots) {
       return;
@@ -850,7 +1033,9 @@ TEST(TonDb, DynamicBoc2) {
       from_root = get_root(rnd.fast(first_root_id, last_root_id - 1));
     }
     VLOG(boc) << "  ...";
-    add_root(gen_random_cell(rnd.fast(1, 20), from_root, rnd));
+    auto new_root = gen_random_cell(rnd.fast(1, 20), from_root, rnd);
+    root_cnt[new_root->get_hash()]++;
+    add_root(std::move(new_root));
     VLOG(boc) << "  OK";
   };
 
@@ -870,7 +1055,7 @@ TEST(TonDb, DynamicBoc2) {
   auto reset = [&] {
     VLOG(boc) << "reset";
     commit();
-    dboc = DynamicBagOfCellsDb::create();
+    dboc = create_dboc(td::int64(root_cnt.size()));
     dboc->set_loader(std::make_unique<CellLoader>(kv));
   };
 
@@ -879,7 +1064,15 @@ TEST(TonDb, DynamicBoc2) {
     if (first_root_id == last_root_id) {
       return;
     }
-    dboc->dec(get_root(first_root_id));
+    auto old_root = get_root(first_root_id);
+    auto it = root_cnt.find(old_root->get_hash());
+    it->second--;
+    CHECK(it->second >= 0);
+    if (it->second == 0) {
+      root_cnt.erase(it);
+    }
+
+    dboc->dec(std::move(old_root));
     first_root_id++;
     VLOG(boc) << "  OK";
   };
@@ -891,6 +1084,10 @@ TEST(TonDb, DynamicBoc2) {
   }
   commit();
   ASSERT_EQ(0u, kv->count("").ok());
+}
+
+TEST(TonDb, DynamicBoc2) {
+  with_all_boc_options(test_dynamic_boc2);
 }
 
 template <class BocDeserializerT>
@@ -1848,7 +2045,7 @@ TEST(TonDb, CompactArrayOld) {
     SCOPE_EXIT {
       ton_db->commit_transaction(std::move(txn));
     };
-    auto smart = txn->begin_smartcontract("");
+    auto smart = txn->begin_smartcontract();
     SCOPE_EXIT {
       txn->commit_smartcontract(std::move(smart));
     };
@@ -1875,7 +2072,7 @@ TEST(TonDb, CompactArrayOld) {
     SCOPE_EXIT {
       ton_db->commit_transaction(std::move(txn));
     };
-    auto smart = txn->begin_smartcontract("");
+    auto smart = txn->begin_smartcontract();
     //smart->validate_meta();
     SCOPE_EXIT {
       txn->commit_smartcontract(std::move(smart));
@@ -1896,7 +2093,7 @@ TEST(TonDb, CompactArrayOld) {
     SCOPE_EXIT {
       ton_db->abort_transaction(std::move(txn));
     };
-    auto smart = txn->begin_smartcontract("");
+    auto smart = txn->begin_smartcontract();
     SCOPE_EXIT {
       txn->abort_smartcontract(std::move(smart));
     };
@@ -1950,14 +2147,15 @@ TEST(TonDb, BocRespectsUsageCell) {
   ASSERT_STREQ(serialization, serialization_of_virtualized_cell);
 }
 
-TEST(TonDb, DynamicBocRespectsUsageCell) {
+void test_dynamic_boc_respectes_usage_cell(std::optional<vm::DynamicBagOfCellsDb::CreateInMemoryOptions> o_in_memory) {
   td::Random::Xorshift128plus rnd(123);
   auto cell = vm::gen_random_cell(20, rnd, true);
   auto usage_tree = std::make_shared<vm::CellUsageTree>();
   auto usage_cell = vm::UsageCell::create(cell, usage_tree->root_ptr());
 
   auto kv = std::make_shared<td::MemoryKeyValue>();
-  auto dboc = vm::DynamicBagOfCellsDb::create();
+  auto dboc = o_in_memory ? vm::DynamicBagOfCellsDb::create_in_memory(kv.get(), *o_in_memory)
+                          : vm::DynamicBagOfCellsDb::create();
   dboc->set_loader(std::make_unique<vm::CellLoader>(kv));
   dboc->inc(usage_cell);
   {
@@ -1970,6 +2168,42 @@ TEST(TonDb, DynamicBocRespectsUsageCell) {
   auto serialization_of_virtualized_cell = serialize_boc(virtualized_proof);
   auto serialization = serialize_boc(cell);
   ASSERT_STREQ(serialization, serialization_of_virtualized_cell);
+}
+
+TEST(TonDb, DynamicBocRespectsUsageCell) {
+  vm::with_all_boc_options(test_dynamic_boc_respectes_usage_cell);
+}
+
+TEST(TonDb, LargeBocSerializer) {
+  td::Random::Xorshift128plus rnd{123};
+  size_t n = 1000000;
+  std::vector<td::uint64> data(n);
+  std::iota(data.begin(), data.end(), 0);
+  vm::CompactArray arr(data);
+  auto root = arr.root();
+  std::string path = "serialization";
+  td::unlink(path).ignore();
+  auto fd = td::FileFd::open(path, td::FileFd::Flags::Create | td::FileFd::Flags::Truncate | td::FileFd::Flags::Write)
+                .move_as_ok();
+  std_boc_serialize_to_file(root, fd, 31);
+  fd.close();
+  auto a = td::read_file_str(path).move_as_ok();
+
+  auto kv = std::make_shared<td::MemoryKeyValue>();
+  auto dboc = vm::DynamicBagOfCellsDb::create();
+  dboc->set_loader(std::make_unique<vm::CellLoader>(kv));
+  dboc->inc(root);
+  dboc->prepare_commit();
+  vm::CellStorer cell_storer(*kv);
+  dboc->commit(cell_storer);
+  dboc->set_loader(std::make_unique<vm::CellLoader>(kv));
+  td::unlink(path).ignore();
+  fd = td::FileFd::open(path, td::FileFd::Flags::Create | td::FileFd::Flags::Truncate | td::FileFd::Flags::Write)
+           .move_as_ok();
+  std_boc_serialize_to_file_large(dboc->get_cell_db_reader(), root->get_hash(), fd, 31);
+  fd.close();
+  auto b = td::read_file_str(path).move_as_ok();
+  CHECK(a == b);
 }
 
 TEST(TonDb, DoNotMakeListsPrunned) {
@@ -2020,7 +2254,7 @@ TEST(TonDb, CellStat) {
     ASSERT_EQ(stat.cells, new_stat.get_stat().cells);
     ASSERT_EQ(stat.bits, new_stat.get_stat().bits);
 
-    CHECK(usage_tree.unique());
+    CHECK(usage_tree.use_count() == 1);
     usage_tree.reset();
     td::Ref<vm::Cell> C, BC, C_proof;
     std::shared_ptr<vm::CellUsageTree> usage_tree_B;
@@ -2057,7 +2291,6 @@ TEST(Ref, AtomicRef) {
   int threads_n = 10;
   std::vector<Node> nodes(threads_n);
   std::vector<td::thread> threads(threads_n);
-  int thread_id = 0;
   for (auto &thread : threads) {
     thread = td::thread([&] {
       for (int i = 0; i < 1000000; i++) {
@@ -2072,7 +2305,6 @@ TEST(Ref, AtomicRef) {
         }
       }
     });
-    thread_id++;
   }
   for (auto &thread : threads) {
     thread.join();

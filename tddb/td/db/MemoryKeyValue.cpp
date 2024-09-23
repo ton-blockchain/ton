@@ -29,6 +29,24 @@ Result<MemoryKeyValue::GetStatus> MemoryKeyValue::get(Slice key, std::string &va
   value = it->second;
   return GetStatus::Ok;
 }
+
+Status MemoryKeyValue::for_each(std::function<Status(Slice, Slice)> f) {
+  for (auto &it : map_) {
+    TRY_STATUS(f(it.first, it.second));
+  }
+  return Status::OK();
+}
+
+Status MemoryKeyValue::for_each_in_range(Slice begin, Slice end, std::function<Status(Slice, Slice)> f) {
+  for (auto it = map_.lower_bound(begin); it != map_.end(); it++) {
+    if (it->first < end) {
+      TRY_STATUS(f(it->first, it->second));
+    } else {
+      break;
+    }
+  }
+  return Status::OK();
+}
 Status MemoryKeyValue::set(Slice key, Slice value) {
   map_[key.str()] = value.str();
   return Status::OK();

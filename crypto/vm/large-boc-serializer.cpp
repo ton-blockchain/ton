@@ -33,10 +33,12 @@ class LargeBocSerializer {
  public:
   using Hash = Cell::Hash;
 
-  explicit LargeBocSerializer(std::shared_ptr<CellDbReader> reader, td::CancellationToken cancellation_token = {})
-      : reader(std::move(reader)), cancellation_token(std::move(cancellation_token)) {
+  explicit LargeBocSerializer(std::shared_ptr<CellDbReader> reader) : reader(std::move(reader)) {
   }
 
+  void set_logger(BagOfCellsLogger* logger_ptr) {
+    logger_ptr_ = logger_ptr;
+  }
   void add_root(Hash root);
   td::Status import_cells();
   td::Status serialize(td::FileFd& fd, int mode);
@@ -44,6 +46,7 @@ class LargeBocSerializer {
  private:
   std::shared_ptr<CellDbReader> reader;
   struct CellInfo {
+    Cell::Hash hash;
     std::array<int, 4> ref_idx;
     int idx;
     unsigned short serialized_size;
@@ -67,7 +70,7 @@ class LargeBocSerializer {
       return 4;
     }
   };
-  std::map<Hash, CellInfo> cells;
+  td::NodeHashMap<Hash, CellInfo> cells;
   std::vector<std::pair<const Hash, CellInfo>*> cell_list;
   struct RootInfo {
     RootInfo(Hash hash, int idx) : hash(hash), idx(idx) {
@@ -85,10 +88,7 @@ class LargeBocSerializer {
   int revisit(int cell_idx, int force = 0);
   td::uint64 compute_sizes(int mode, int& r_size, int& o_size);
 
-  td::CancellationToken cancellation_token;
-  td::Timestamp log_speed_at_;
-  size_t processed_cells_ = 0;
-  static constexpr double LOG_SPEED_PERIOD = 120.0;
+  BagOfCellsLogger* logger_ptr_{};
 };
 
 void LargeBocSerializer::add_root(Hash root) {
@@ -96,16 +96,18 @@ void LargeBocSerializer::add_root(Hash root) {
 }
 
 td::Status LargeBocSerializer::import_cells() {
-  td::Timer timer;
-  log_speed_at_ = td::Timestamp::in(LOG_SPEED_PERIOD);
-  processed_cells_ = 0;
+  if (logger_ptr_) {
+    logger_ptr_->start_stage("import_cells");
+  }
   for (auto& root : roots) {
     TRY_RESULT(idx, import_cell(root.hash));
     root.idx = idx;
   }
   reorder_cells();
   CHECK(!cell_list.empty());
-  LOG(ERROR) << "serializer: import_cells took " << timer.elapsed() << "s, " << cell_count << " cells";
+  if (logger_ptr_) {
+    logger_ptr_->finish_stage(PSLICE() << cell_count << " cells");
+  }
   return td::Status::OK();
 }
 
@@ -113,14 +115,8 @@ td::Result<int> LargeBocSerializer::import_cell(Hash hash, int depth) {
   if (depth > Cell::max_depth) {
     return td::Status::Error("error while importing a cell into a bag of cells: cell depth too large");
   }
-  ++processed_cells_;
-  if (processed_cells_ % 1000 == 0) {
-    TRY_STATUS(cancellation_token.check());
-  }
-  if (log_speed_at_.is_in_past()) {
-    log_speed_at_ += LOG_SPEED_PERIOD;
-    LOG(WARNING) << "serializer: import_cells " << (double)processed_cells_ / LOG_SPEED_PERIOD << " cells/s";
-    processed_cells_ = 0;
+  if (logger_ptr_) {
+    TRY_STATUS(logger_ptr_->on_cell_processed());
   }
   auto it = cells.find(hash);
   if (it != cells.end()) {
@@ -306,7 +302,6 @@ td::uint64 LargeBocSerializer::compute_sizes(int mode, int& r_size, int& o_size)
 }
 
 td::Status LargeBocSerializer::serialize(td::FileFd& fd, int mode) {
-  td::Timer timer;
   using Mode = BagOfCells::Mode;
   BagOfCells::Info info;
   if ((mode & Mode::WithCacheBits) && !(mode & Mode::WithIndex)) {
@@ -370,6 +365,9 @@ td::Status LargeBocSerializer::serialize(td::FileFd& fd, int mode) {
   DCHECK(writer.position() == info.index_offset);
   DCHECK((unsigned)cell_count == cell_list.size());
   if (info.has_index) {
+    if (logger_ptr_) {
+      logger_ptr_->start_stage("generate_index");
+    }
     std::size_t offs = 0;
     for (int i = cell_count - 1; i >= 0; --i) {
       const auto& dc_info = cell_list[i]->second;
@@ -387,13 +385,20 @@ td::Status LargeBocSerializer::serialize(td::FileFd& fd, int mode) {
         fixed_offset = offs * 2 + dc_info.should_cache;
       }
       store_offset(fixed_offset);
+      if (logger_ptr_) {
+        TRY_STATUS(logger_ptr_->on_cell_processed());
+      }
     }
     DCHECK(offs == info.data_size);
+    if (logger_ptr_) {
+      logger_ptr_->finish_stage("");
+    }
   }
   DCHECK(writer.position() == info.data_offset);
   size_t keep_position = writer.position();
-  log_speed_at_ = td::Timestamp::in(LOG_SPEED_PERIOD);
-  processed_cells_ = 0;
+  if (logger_ptr_) {
+    logger_ptr_->start_stage("serialize");
+  }
   for (int i = 0; i < cell_count; ++i) {
     auto hash = cell_list[cell_count - 1 - i]->first;
     const auto& dc_info = cell_list[cell_count - 1 - i]->second;
@@ -412,14 +417,8 @@ td::Status LargeBocSerializer::serialize(td::FileFd& fd, int mode) {
       DCHECK(k > i && k < cell_count);
       store_ref(k);
     }
-    ++processed_cells_;
-    if (processed_cells_ % 1000 == 0) {
-      TRY_STATUS(cancellation_token.check());
-    }
-    if (log_speed_at_.is_in_past()) {
-      log_speed_at_ += LOG_SPEED_PERIOD;
-      LOG(WARNING) << "serializer: serialize " << (double)processed_cells_ / LOG_SPEED_PERIOD << " cells/s";
-      processed_cells_ = 0;
+    if (logger_ptr_) {
+      TRY_STATUS(logger_ptr_->on_cell_processed());
     }
   }
   DCHECK(writer.position() - keep_position == info.data_size);
@@ -429,8 +428,9 @@ td::Status LargeBocSerializer::serialize(td::FileFd& fd, int mode) {
   }
   DCHECK(writer.empty());
   TRY_STATUS(writer.finalize());
-  LOG(ERROR) << "serializer: serialize took " << timer.elapsed() << "s, " << cell_count << " cells, "
-             << writer.position() << " bytes";
+  if (logger_ptr_) {
+    logger_ptr_->finish_stage(PSLICE() << cell_count << " cells, " << writer.position() << " bytes");
+  }
   return td::Status::OK();
 }
 }  // namespace
@@ -439,7 +439,9 @@ td::Status std_boc_serialize_to_file_large(std::shared_ptr<CellDbReader> reader,
                                            int mode, td::CancellationToken cancellation_token) {
   td::Timer timer;
   CHECK(reader != nullptr)
-  LargeBocSerializer serializer(reader, std::move(cancellation_token));
+  LargeBocSerializer serializer(reader);
+  BagOfCellsLogger logger(std::move(cancellation_token));
+  serializer.set_logger(&logger);
   serializer.add_root(root_hash);
   TRY_STATUS(serializer.import_cells());
   TRY_STATUS(serializer.serialize(fd, mode));

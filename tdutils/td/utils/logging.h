@@ -40,6 +40,7 @@
 #include "td/utils/Slice.h"
 #include "td/utils/StackAllocator.h"
 #include "td/utils/StringBuilder.h"
+#include "td/utils/port/Clocks.h"
 
 #include <atomic>
 #include <type_traits>
@@ -251,7 +252,8 @@ class Logger {
       , log_(log)
       , sb_(buffer_.as_slice())
       , options_(options)
-      , log_level_(log_level) {
+      , log_level_(log_level)
+      , start_at_(Clocks::rdtsc()) {
   }
 
   Logger(LogInterface &log, const LogOptions &options, int log_level, Slice file_name, int line_num, Slice comment);
@@ -283,6 +285,7 @@ class Logger {
   StringBuilder sb_;
   const LogOptions &options_;
   int log_level_;
+  td::uint64 start_at_;
 };
 
 namespace detail {
@@ -346,5 +349,4 @@ class TsLog : public LogInterface {
     lock_.clear(std::memory_order_release);
   }
 };
-
 }  // namespace td
