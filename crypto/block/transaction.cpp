@@ -1555,7 +1555,14 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
   // ...
   compute_phase = std::make_unique<ComputePhase>();
   ComputePhase& cp = *(compute_phase.get());
-  original_balance -= total_fees;
+  if (cfg.global_version >= 9) {
+    original_balance = balance;
+    if (msg_balance_remaining.is_valid()) {
+      original_balance -= msg_balance_remaining;
+    }
+  } else {
+    original_balance -= total_fees;
+  }
   if (td::sgn(balance.grams) <= 0) {
     // no gas
     cp.skip_reason = ComputePhase::sk_no_gas;
