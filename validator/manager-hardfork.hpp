@@ -445,6 +445,10 @@ class ValidatorManagerImpl : public ValidatorManager {
     UNREACHABLE();
   }
 
+ void prepare_actor_stats(td::Promise<std::string> promise) override {
+    UNREACHABLE();
+ }
+
   void prepare_perf_timer_stats(td::Promise<std::vector<PerfTimerStats>> promise) override {
     UNREACHABLE();
   }

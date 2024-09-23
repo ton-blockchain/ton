@@ -197,6 +197,7 @@ struct McShardHash : public McShardHashI {
       : blk_(blk), start_lt_(start_lt), end_lt_(end_lt) {
   }
   McShardHash(const McShardHash&) = default;
+  McShardHash& operator=(const McShardHash&) = default;
   bool is_valid() const {
     return blk_.is_valid();
   }
@@ -555,7 +556,10 @@ class Config {
   };
 
  public:
-  enum { needValidatorSet = 16, needSpecialSmc = 32, needWorkchainInfo = 256, needCapabilities = 512 };
+  static constexpr int needValidatorSet = 16;
+  static constexpr int needSpecialSmc = 32;
+  static constexpr int needWorkchainInfo = 256;
+  static constexpr int needCapabilities = 512;
   int mode{0};
   ton::BlockIdExt block_id;
 
@@ -693,14 +697,12 @@ class Config {
 
 class ConfigInfo : public Config, public ShardConfig {
  public:
-  enum {
-    needStateRoot = 1,
-    needLibraries = 2,
-    needStateExtraRoot = 4,
-    needShardHashes = 8,
-    needAccountsRoot = 64,
-    needPrevBlocks = 128
-  };
+  static constexpr int needStateRoot = 1;
+  static constexpr int needLibraries = 2;
+  static constexpr int needStateExtraRoot = 4;
+  static constexpr int needShardHashes = 8;
+  static constexpr int needAccountsRoot = 64;
+  static constexpr int needPrevBlocks = 128;
   ton::BlockSeqno vert_seqno{~0U};
   int global_id_{0};
   ton::UnixTime utime{0};

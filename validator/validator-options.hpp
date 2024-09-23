@@ -136,6 +136,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   bool get_celldb_preload_all() const override {
     return celldb_preload_all_;
   }
+  bool get_celldb_in_memory() const override {
+    return celldb_in_memory_;
+  }
   td::optional<double> get_catchain_max_block_delay() const override {
     return catchain_max_block_delay_;
   }
@@ -231,6 +234,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   void set_celldb_preload_all(bool value) override {
     celldb_preload_all_ = value;
   }
+  void set_celldb_in_memory(bool value) override {
+    celldb_in_memory_ = value;
+  }
   void set_catchain_max_block_delay(double value) override {
     catchain_max_block_delay_ = value;
   }
@@ -297,6 +303,7 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   td::optional<td::uint64> celldb_cache_size_;
   bool celldb_direct_io_ = false;
   bool celldb_preload_all_ = false;
+  bool celldb_in_memory_ = false;
   td::optional<double> catchain_max_block_delay_, catchain_max_block_delay_slow_;
   bool state_serializer_enabled_ = true;
   td::Ref<CollatorOptions> collator_options_{true};

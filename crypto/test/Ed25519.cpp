@@ -17,6 +17,8 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include "crypto/Ed25519.h"
+#include "ellcurve/Ed25519.h"
+
 #include "td/utils/logging.h"
 #include "td/utils/misc.h"
 #include "td/utils/Slice.h"
@@ -24,6 +26,8 @@
 #include "td/utils/JsonBuilder.h"
 
 #include "wycheproof.h"
+#include "keys/keys.hpp"
+#include "td/utils/benchmark.h"
 
 #include <string>
 #include <utility>
@@ -216,4 +220,37 @@ TEST(Crypto, almost_zero) {
       break;
     }
   }
+}
+
+BENCH(ed25519_sign, "ed25519_sign") {
+  auto private_key = td::Ed25519::generate_private_key().move_as_ok();
+  std::string hash_to_sign(32, 'a');
+  for (int i = 0; i < n; i++) {
+    private_key.sign(hash_to_sign).ensure();
+  }
+}
+
+BENCH(ed25519_shared_secret, "ed25519_shared_secret") {
+  auto private_key_a = td::Ed25519::generate_private_key().move_as_ok();
+  auto private_key_b = td::Ed25519::generate_private_key().move_as_ok();
+  auto public_key_b = private_key_a.get_public_key().move_as_ok();
+  for (int i = 0; i < n; i++) {
+    td::Ed25519::compute_shared_secret(public_key_b, private_key_a).ensure();
+  }
+}
+
+BENCH(ed25519_verify, "ed25519_verify") {
+  auto private_key = td::Ed25519::generate_private_key().move_as_ok();
+  std::string hash_to_sign(32, 'a');
+  auto public_key = private_key.get_public_key().move_as_ok();
+  auto signature = private_key.sign(hash_to_sign).move_as_ok();
+  for (int i = 0; i < n; i++) {
+    public_key.verify_signature(hash_to_sign, signature).ensure();
+  }
+}
+
+TEST(Crypto, ed25519_benchmark) {
+  bench(ed25519_signBench());
+  bench(ed25519_shared_secretBench());
+  bench(ed25519_verifyBench());
 }

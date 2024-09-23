@@ -4932,11 +4932,11 @@ bool Collator::check_block_overload() {
   }
   char buffer[17];
   if (history_weight(overload_history_) >= 0) {
-    sprintf(buffer, "%016llx", (unsigned long long)overload_history_);
+    snprintf(buffer, sizeof(buffer), "%016llx", (unsigned long long)overload_history_);
     LOG(INFO) << "want_split set because of overload history " << buffer;
     want_split_ = true;
   } else if (history_weight(underload_history_) >= 0) {
-    sprintf(buffer, "%016llx", (unsigned long long)underload_history_);
+    snprintf(buffer, sizeof(buffer), "%016llx", (unsigned long long)underload_history_);
     LOG(INFO) << "want_merge set because of underload history " << buffer;
     want_merge_ = true;
   }

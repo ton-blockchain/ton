@@ -441,6 +441,7 @@ void RootDb::allow_block_gc(BlockIdExt block_id, td::Promise<bool> promise) {
 
 void RootDb::prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise) {
   auto merger = StatsMerger::create(std::move(promise));
+  td::actor::send_closure(cell_db_, &CellDb::prepare_stats, merger.make_promise("celldb."));
 }
 
 void RootDb::truncate(BlockSeqno seqno, ConstBlockHandle handle, td::Promise<td::Unit> promise) {

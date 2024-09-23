@@ -52,7 +52,7 @@ class AsyncStateSerializer : public td::actor::Actor {
   std::vector<BlockIdExt> shards_;
   struct PreviousStateCache {
     std::vector<std::pair<std::string, ShardIdFull>> state_files;
-    std::shared_ptr<std::map<td::Bits256, td::Ref<vm::Cell>>> cache;
+    std::shared_ptr<vm::CellHashSet> cache;
     std::vector<ShardIdFull> cur_shards;
 
     void prepare_cache(ShardIdFull shard);

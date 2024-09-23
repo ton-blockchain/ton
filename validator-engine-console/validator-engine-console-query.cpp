@@ -1035,6 +1035,32 @@ td::Status ImportShardOverlayCertificateQuery::receive(td::BufferSlice data) {
   td::TerminalIO::out() << "successfully sent certificate to overlay manager\n";
   return td::Status::OK();
 }
+td::Status GetActorStatsQuery::run() {
+ auto r_file_name = tokenizer_.get_token<std::string>();
+ if (r_file_name.is_ok()) {
+    file_name_ = r_file_name.move_as_ok();
+ }
+ return td::Status::OK();
+}
+td::Status GetActorStatsQuery::send() {
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_getActorTextStats>();
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status GetActorStatsQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_textStats>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  if (file_name_.empty()) {
+    td::TerminalIO::out() << f->data_;
+  } else {
+    std::ofstream sb(file_name_);
+    sb << f->data_;
+    sb << std::flush;
+    td::TerminalIO::output(std::string("wrote stats to " + file_name_ + "\n"));
+  }
+  return td::Status::OK();
+}
 
 td::Status GetPerfTimerStatsJsonQuery::run() {
   TRY_RESULT_ASSIGN(file_name_, tokenizer_.get_token<std::string>());

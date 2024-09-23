@@ -32,6 +32,9 @@ class KeyValueReader {
   virtual Status for_each(std::function<Status(Slice, Slice)> f) {
     return Status::Error("for_each is not supported");
   }
+  virtual Status for_each_in_range (Slice begin, Slice end, std::function<Status(Slice, Slice)> f) {
+    return td::Status::Error("foreach_range is not supported");
+  }
 };
 
 class PrefixedKeyValueReader : public KeyValueReader {

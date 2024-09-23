@@ -21,6 +21,7 @@
 #include "ton/ton-io.hpp"
 #include "common/delay.h"
 #include "td/utils/filesystem.h"
+#include "td/utils/HashSet.h"
 
 namespace ton {
 
@@ -256,17 +257,17 @@ void AsyncStateSerializer::got_masterchain_handle(BlockHandle handle) {
 class CachedCellDbReader : public vm::CellDbReader {
  public:
   CachedCellDbReader(std::shared_ptr<vm::CellDbReader> parent,
-                     std::shared_ptr<std::map<td::Bits256, td::Ref<vm::Cell>>> cache)
+                     std::shared_ptr<vm::CellHashSet> cache)
       : parent_(std::move(parent)), cache_(std::move(cache)) {
   }
   td::Result<td::Ref<vm::DataCell>> load_cell(td::Slice hash) override {
     ++total_reqs_;
     DCHECK(hash.size() == 32);
     if (cache_) {
-      auto it = cache_->find(td::Bits256{(const unsigned char*)hash.data()});
+      auto it = cache_->find(hash);
       if (it != cache_->end()) {
         ++cached_reqs_;
-        TRY_RESULT(loaded_cell, it->second->load_cell());
+        TRY_RESULT(loaded_cell, (*it)->load_cell());
         return loaded_cell.data_cell;
       }
     }
@@ -277,7 +278,7 @@ class CachedCellDbReader : public vm::CellDbReader {
   }
  private:
   std::shared_ptr<vm::CellDbReader> parent_;
-  std::shared_ptr<std::map<td::Bits256, td::Ref<vm::Cell>>> cache_;
+  std::shared_ptr<vm::CellHashSet> cache_;
 
   td::uint64 total_reqs_ = 0;
   td::uint64 cached_reqs_ = 0;
@@ -301,10 +302,9 @@ void AsyncStateSerializer::PreviousStateCache::prepare_cache(ShardIdFull shard) 
   td::Timer timer;
   LOG(WARNING) << "Preloading previous persistent state for shard " << shard.to_str() << " ("
                << cur_shards.size() << " files)";
-  std::map<td::Bits256, td::Ref<vm::Cell>> cells;
+  vm::CellHashSet cells;
   std::function<void(td::Ref<vm::Cell>)> dfs = [&](td::Ref<vm::Cell> cell) {
-    td::Bits256 hash = cell->get_hash().bits();
-    if (!cells.emplace(hash, cell).second) {
+    if (!cells.insert(cell).second) {
       return;
     }
     bool is_special;
@@ -332,7 +332,7 @@ void AsyncStateSerializer::PreviousStateCache::prepare_cache(ShardIdFull shard) 
     dfs(r_root.move_as_ok());
   }
   LOG(WARNING) << "Preloaded previous state: " << cells.size() << " cells in " << timer.elapsed() << "s";
-  cache = std::make_shared<std::map<td::Bits256, td::Ref<vm::Cell>>>(std::move(cells));
+  cache = std::make_shared<vm::CellHashSet>(std::move(cells));
 }
 
 void AsyncStateSerializer::got_masterchain_state(td::Ref<MasterchainState> state,
@@ -353,15 +353,18 @@ void AsyncStateSerializer::got_masterchain_state(td::Ref<MasterchainState> state
     }
   }
 
-  auto write_data = [shard = state->get_shard(), hash = state->root_cell()->get_hash(), cell_db_reader,
+  auto write_data = [shard = state->get_shard(), root = state->root_cell(), cell_db_reader,
                      previous_state_cache = previous_state_cache_,
                      fast_serializer_enabled = opts_->get_fast_state_serializer_enabled(),
                      cancellation_token = cancellation_token_source_.get_cancellation_token()](td::FileFd& fd) mutable {
+    if (!cell_db_reader) {
+      return vm::std_boc_serialize_to_file(root, fd, 31, std::move(cancellation_token));
+    }
     if (fast_serializer_enabled) {
       previous_state_cache->prepare_cache(shard);
     }
     auto new_cell_db_reader = std::make_shared<CachedCellDbReader>(cell_db_reader, previous_state_cache->cache);
-    auto res = vm::std_boc_serialize_to_file_large(new_cell_db_reader, hash, fd, 31, std::move(cancellation_token));
+    auto res = vm::std_boc_serialize_to_file_large(new_cell_db_reader, root->get_hash(), fd, 31, std::move(cancellation_token));
     new_cell_db_reader->print_stats();
     return res;
   };
@@ -415,15 +418,18 @@ void AsyncStateSerializer::got_shard_state(BlockHandle handle, td::Ref<ShardStat
     return;
   }
   LOG(ERROR) << "serializing shard state " << handle->id().id.to_str();
-  auto write_data = [shard = state->get_shard(), hash = state->root_cell()->get_hash(), cell_db_reader,
+  auto write_data = [shard = state->get_shard(), root = state->root_cell(), cell_db_reader,
                      previous_state_cache = previous_state_cache_,
                      fast_serializer_enabled = opts_->get_fast_state_serializer_enabled(),
                      cancellation_token = cancellation_token_source_.get_cancellation_token()](td::FileFd& fd) mutable {
+    if (!cell_db_reader) {
+      return vm::std_boc_serialize_to_file(root, fd, 31, std::move(cancellation_token));
+    }
     if (fast_serializer_enabled) {
       previous_state_cache->prepare_cache(shard);
     }
     auto new_cell_db_reader = std::make_shared<CachedCellDbReader>(cell_db_reader, previous_state_cache->cache);
-    auto res = vm::std_boc_serialize_to_file_large(new_cell_db_reader, hash, fd, 31, std::move(cancellation_token));
+    auto res = vm::std_boc_serialize_to_file_large(new_cell_db_reader, root->get_hash(), fd, 31, std::move(cancellation_token));
     new_cell_db_reader->print_stats();
     return res;
   };

@@ -60,6 +60,20 @@ struct CellInfo {
   bool operator<(const CellInfo &other) const {
     return key() < other.key();
   }
+
+  struct Eq {
+    using is_transparent = void;  // Pred to use
+    bool operator()(const CellInfo &info, const CellInfo &other_info) const { return info.key() == other_info.key();}
+    bool operator()(const CellInfo &info, td::Slice hash) const { return info.key().as_slice() == hash;}
+    bool operator()(td::Slice hash, const CellInfo &info) const { return info.key().as_slice() == hash;}
+
+  };
+  struct Hash {
+    using is_transparent = void;  // Pred to use
+    using transparent_key_equal = Eq;
+    size_t operator()(td::Slice hash) const { return cell_hash_slice_hash(hash); }
+    size_t operator()(const CellInfo &info) const { return cell_hash_slice_hash(info.key().as_slice());}
+  };
 };
 
 bool operator<(const CellInfo &a, td::Slice b) {
@@ -85,6 +99,12 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
   td::Result<Ref<DataCell>> load_cell(td::Slice hash) override {
     TRY_RESULT(loaded_cell, get_cell_info_force(hash).cell->load_cell());
     return std::move(loaded_cell.data_cell);
+  }
+  td::Result<Ref<DataCell>> load_root(td::Slice hash) override {
+    return load_cell(hash);
+  }
+  td::Result<Ref<DataCell>> load_root_thread_safe(td::Slice hash) const override {
+    return td::Status::Error("Not implemented");
   }
   void load_cell_async(td::Slice hash, std::shared_ptr<AsyncExecutor> executor,
                        td::Promise<Ref<DataCell>> promise) override {
