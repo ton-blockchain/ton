@@ -83,6 +83,14 @@ jobs:
           workflow_conclusion: success
           skip_unpack: true
 
+      - name: Download Android Tonlib artifacts
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          workflow: build-ton-linux-android-tonlib.yml
+          path: artifacts
+          workflow_conclusion: success
+          skip_unpack: true
+
       - name: Show all artifacts
         run: |
           tree artifacts
@@ -500,4 +508,12 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: artifacts/ton-wasm-binaries.zip
           asset_name: ton-wasm-binaries.zip
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Android Tonlib artifacts
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-android-tonlib.zip
+          asset_name: ton-android-tonlib.zip
           tag: ${{ steps.tag.outputs.TAG }}

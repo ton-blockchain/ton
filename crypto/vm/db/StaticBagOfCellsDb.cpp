@@ -167,7 +167,7 @@ td::Result<Ref<Cell>> StaticBagOfCellsDb::create_ext_cell(Cell::LevelMask level_
 //
 class StaticBagOfCellsDbBaselineImpl : public StaticBagOfCellsDb {
  public:
-  StaticBagOfCellsDbBaselineImpl(std::vector<Ref<Cell>> roots) : roots_(std::move(roots)) {
+  explicit StaticBagOfCellsDbBaselineImpl(std::vector<Ref<Cell>> roots) : roots_(std::move(roots)) {
   }
   td::Result<size_t> get_root_count() override {
     return roots_.size();
@@ -233,7 +233,7 @@ class StaticBagOfCellsDbLazyImpl : public StaticBagOfCellsDb {
     return create_root_cell(std::move(data_cell));
   };
 
-  ~StaticBagOfCellsDbLazyImpl() {
+  ~StaticBagOfCellsDbLazyImpl() override {
     //LOG(ERROR) << deserialize_cell_cnt_ << " " << deserialize_cell_hash_cnt_;
     get_thread_safe_counter().add(-1);
   }
@@ -314,11 +314,11 @@ class StaticBagOfCellsDbLazyImpl : public StaticBagOfCellsDb {
     td::RwMutex::ReadLock guard;
     if (info_.has_index) {
       TRY_RESULT(new_offset_view, data_.view(td::MutableSlice(arr, info_.offset_byte_size),
-                                             info_.index_offset + idx * info_.offset_byte_size));
+                                             info_.index_offset + (td::int64)idx * info_.offset_byte_size));
       offset_view = new_offset_view;
     } else {
       guard = index_data_rw_mutex_.lock_read().move_as_ok();
-      offset_view = td::Slice(index_data_).substr(idx * info_.offset_byte_size, info_.offset_byte_size);
+      offset_view = td::Slice(index_data_).substr((td::int64)idx * info_.offset_byte_size, info_.offset_byte_size);
     }
 
     CHECK(offset_view.size() == (size_t)info_.offset_byte_size);
@@ -332,7 +332,7 @@ class StaticBagOfCellsDbLazyImpl : public StaticBagOfCellsDb {
     }
     char arr[8];
     TRY_RESULT(idx_view, data_.view(td::MutableSlice(arr, info_.ref_byte_size),
-                                    info_.roots_offset + root_i * info_.ref_byte_size));
+                                    info_.roots_offset + (td::int64)root_i * info_.ref_byte_size));
     CHECK(idx_view.size() == (size_t)info_.ref_byte_size);
     return info_.read_ref(idx_view.ubegin());
   }
