@@ -226,10 +226,6 @@ void CellDbIn::get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>>
   promise.set_result(boc_->get_cell_db_reader());
 }
 
-void CellDbIn::get_last_deleted_mc_state(td::Promise<BlockSeqno> promise) {
-  promise.set_result(last_deleted_mc_state_);
-}
-
 std::vector<std::pair<std::string, std::string>> CellDbIn::prepare_stats() {
   TD_PERF_COUNTER(celldb_prepare_stats);
   auto r_boc_stats = boc_->get_stats();
@@ -257,6 +253,7 @@ std::vector<std::pair<std::string, std::string>> CellDbIn::prepare_stats() {
                  double(celldb_size));
     add_stat("max_possible_ram_to_celldb_ratio", double(total_mem_stat.total_ram) / double(celldb_size));
   }
+  stats.emplace_back("last_deleted_mc_state", td::to_string(last_deleted_mc_state_));
 
   return stats;
   // do not clear statistics, it is needed for flush_db_stats
@@ -578,10 +575,6 @@ void CellDb::store_cell(BlockIdExt block_id, td::Ref<vm::Cell> cell, td::Promise
 
 void CellDb::get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) {
   td::actor::send_closure(cell_db_, &CellDbIn::get_cell_db_reader, std::move(promise));
-}
-
-void CellDb::get_last_deleted_mc_state(td::Promise<BlockSeqno> promise) {
-  td::actor::send_closure(cell_db_, &CellDbIn::get_last_deleted_mc_state, std::move(promise));
 }
 
 void CellDb::start_up() {
