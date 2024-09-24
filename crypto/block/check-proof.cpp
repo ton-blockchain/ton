@@ -93,6 +93,7 @@ td::Result<Ref<vm::Cell>> check_extract_state_proof(ton::BlockIdExt blkid, td::S
     if (state_hash != state_virt_root->get_hash().bits()) {
       return td::Status::Error("root hash mismatch in the shardchain state proof");
     }
+    // V828 Decreased performance. Moving a local object in a return statement prevents copy elision. check-proof.cpp 96
     return std::move(state_virt_root);
   } catch (vm::VmError& err) {
     return td::Status::Error(PSLICE() << "error scanning shard state proof: " << err.get_msg());

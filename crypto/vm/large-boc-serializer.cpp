@@ -200,6 +200,7 @@ void LargeBocSerializer::reorder_cells() {
   for (auto& root_info : roots) {
     auto& cell_info = cell_list[root_info.idx]->second;
     if (cell_info.is_root_cell) {
+      // V1048 The 'cell_info.is_root_cell' variable was assigned the same value. large-boc-serializer.cpp 203
       cell_info.is_root_cell = true;
       if (cell_info.wt) {
         top_hashes += cell_info.hcnt;

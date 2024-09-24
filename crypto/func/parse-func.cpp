@@ -1693,6 +1693,7 @@ void parse_pragma(Lexer& lex) {
         }
         break;
     }
+    // V728 An excessive check can be simplified. The '(A && B) || (!A && !B)' expression is equivalent to the 'bool(A) == bool(B)' expression. parse-func.cpp 1696
     if ((match && negate) || (!match && !negate)) {
       pragma.error(std::string("FunC version ") + func_ver_test + " does not satisfy condition " + semver_expr);
     }

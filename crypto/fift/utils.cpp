@@ -160,6 +160,7 @@ td::Result<fift::SourceLookup> create_source_lookup(std::string main, bool need_
   }
   auto res = fift::SourceLookup(std::move(loader));
   res.add_include_path("/");
+  // V828 Decreased performance. Moving a local object in a return statement prevents copy elision. utils.cpp 163
   return std::move(res);
 }
 
@@ -194,6 +195,7 @@ td::Result<FiftOutput> mem_run_fift(std::string source, std::vector<std::string>
   FiftOutput res;
   res.source_lookup = std::move(source_lookup);
   res.output = ss.str();
+  // V828 Decreased performance. Moving a local object in a return statement prevents copy elision. utils.cpp 197
   return std::move(res);
 }
 td::Result<FiftOutput> mem_run_fift(SourceLookup source_lookup, std::vector<std::string> args) {
@@ -202,6 +204,7 @@ td::Result<FiftOutput> mem_run_fift(SourceLookup source_lookup, std::vector<std:
   FiftOutput res;
   res.source_lookup = std::move(source_lookup);
   res.output = ss.str();
+  // V828 Decreased performance. Moving a local object in a return statement prevents copy elision. utils.cpp 205
   return std::move(res);
 }
 td::Result<fift::SourceLookup> create_mem_source_lookup(std::string main, std::string fift_dir, bool need_preamble,

@@ -2242,6 +2242,7 @@ td::Result<Ref<vm::Cell>> get_config_data_from_smc(Ref<vm::Cell> acc_root) {
         "configuration smart contract does not contain a valid configuration in the first reference of its persistent "
         "data");
   }
+  // V828 Decreased performance. Moving a local object in a return statement prevents copy elision. block.cpp 2245
   return std::move(res);
 }
 

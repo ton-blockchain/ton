@@ -3196,6 +3196,7 @@ bool Collator::enqueue_transit_message(Ref<vm::Cell> msg, Ref<vm::Cell> old_msg_
   } else {
     LOG(DEBUG) << "enqueueing transit message " << msg->get_hash().bits().to_hex(256);
   }
+  // V501 There are identical sub-expressions '!from_dispatch_queue' to the left and to the right of the '&&' operator. collator.cpp 3199
   bool requeue = !from_dispatch_queue && is_our_address(prev_prefix) && !from_dispatch_queue;
   // 1. perform hypercube routing
   auto route_info = block::perform_hypercube_routing(cur_prefix, dest_prefix, shard_);

@@ -1486,12 +1486,14 @@ int exec_parse_message_addr(VmState* st, bool quiet) {
 // replaces first bits of `addr` with those of `prefix`
 Ref<CellSlice> do_rewrite_addr(Ref<CellSlice> addr, Ref<CellSlice> prefix) {
   if (prefix.is_null() || !prefix->size()) {
+    // V828 Redundant code. Function parameter will be implicitly moved without calling the 'std::move' function. tonops.cpp 1489
     return std::move(addr);
   }
   if (prefix->size() > addr->size()) {
     return {};
   }
   if (prefix->size() == addr->size()) {
+    // V828 Redundant code. Function parameter will be implicitly moved without calling the 'std::move' function. tonops.cpp 1495
     return std::move(prefix);
   }
   vm::CellBuilder cb;

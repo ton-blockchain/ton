@@ -126,6 +126,7 @@ void run_check_external_message(Ref<ExtMessage> message, td::actor::ActorId<Vali
 
 td::Result<td::Ref<IhrMessage>> create_ihr_message(td::BufferSlice data) {
   TRY_RESULT(res, IhrMessageQ::create_ihr_message(std::move(data)));
+  // V828 Decreased performance. Moving a local object in a return statement prevents copy elision. fabric.cpp 129
   return std::move(res);
 }
 

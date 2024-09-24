@@ -303,6 +303,7 @@ void BagOfCells::reorder_cells() {
   for (auto& root_info : roots) {
     auto& cell_info = cell_list_[root_info.idx];
     if (cell_info.is_root_cell) {
+      // V1048 The 'cell_info.is_root_cell' variable was assigned the same value. boc.cpp 306
       cell_info.is_root_cell = true;
       if (cell_info.wt) {
         top_hashes += cell_info.hcnt;
@@ -676,6 +677,7 @@ long long BagOfCells::Info::parse_serialized_header(const td::Slice& slice) {
   }
   td::uint8 byte = ptr[4];
   if (magic == boc_generic) {
+    // V1064 The '(byte >> 7)' operand of the modulo operation is less than the '2' operand. The result is always equal to the left operand. boc.cpp 679
     has_index = (byte >> 7) % 2 == 1;
     has_crc32c = (byte >> 6) % 2 == 1;
     has_cache_bits = (byte >> 5) % 2 == 1;
@@ -975,6 +977,7 @@ td::Result<Ref<Cell>> std_boc_deserialize(td::Slice data, bool can_be_empty, boo
   if (!allow_nonzero_level && root->get_level() != 0) {
     return td::Status::Error("bag of cells has a root with non-zero level");
   }
+  // V828 Decreased performance. Moving a local object in a return statement prevents copy elision. boc.cpp 978
   return std::move(root);
 }
 
@@ -999,6 +1002,7 @@ td::Result<std::vector<Ref<Cell>>> std_boc_deserialize_multi(td::Slice data, int
     }
     roots.emplace_back(std::move(root));
   }
+  // V828 Decreased performance. Moving a local object in a return statement prevents copy elision. boc.cpp 1002
   return std::move(roots);
 }
 

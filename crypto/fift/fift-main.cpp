@@ -172,6 +172,7 @@ int main(int argc, char* const argv[]) {
     }
   }
 
+  // V836 Expression's value is copied at the 'source' variable declaration. The variable is never modified. Consider declaring it as a reference. fift-main.cpp 175
   for (auto source : library_source_files) {
     auto status = fift.interpret_file(source, "");
     if (status.is_error()) {

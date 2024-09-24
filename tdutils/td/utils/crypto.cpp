@@ -921,6 +921,7 @@ Result<BufferSlice> rsa_encrypt_pkcs1_oaep(Slice public_key, Slice data) {
 #endif
     return Status::Error("Cannot encrypt");
   }
+  // V828 Decreased performance. Moving a local object in a return statement prevents copy elision. crypto.cpp 924
   return std::move(res);
 }
 
@@ -977,6 +978,7 @@ Result<BufferSlice> rsa_decrypt_pkcs1_oaep(Slice private_key, Slice data) {
     return Status::Error("Cannot decrypt");
   }
 #endif
+  // V828 Decreased performance. Moving a local object in a return statement prevents copy elision. crypto.cpp 980
   return std::move(res);
 }
 

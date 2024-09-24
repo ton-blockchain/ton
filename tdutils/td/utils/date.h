@@ -1127,6 +1127,7 @@ trunc(T t) NOEXCEPT
     CONSTDATA auto max = I{1} << (digits-1);
     CONSTDATA auto min = -max;
     const auto negative = t < T{0};
+    // V501 There are identical sub-expressions to the left and to the right of the '==' operator: t == t date.h 1130
     if (min <= t && t <= max && t != 0 && t == t)
     {
         t = static_cast<T>(static_cast<I>(t));

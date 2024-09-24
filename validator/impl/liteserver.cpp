@@ -2149,6 +2149,7 @@ void LiteQuery::continue_lookupBlockWithProof_getHeaderProof(Ref<ton::validator:
 
 void LiteQuery::continue_lookupBlockWithProof_gotPrevBlockData(Ref<BlockData> prev_block, BlockSeqno masterchain_ref_seqno) {
   if (prev_block.not_null()) {
+    //V637 Two opposite conditions were encountered. The second condition is always false. Check lines: 2144, 2145. liteserver.cpp 2144
     CHECK(prev_block.not_null());
     if (prev_block->root_cell().is_null()) {
       fatal_error("block has no valid root cell");

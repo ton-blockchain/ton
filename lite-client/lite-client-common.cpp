@@ -92,6 +92,7 @@ td::Result<std::unique_ptr<block::BlockProofChain>> deserialize_proof_chain(
                << " signatures";
   }
   LOG(DEBUG) << "deserialized a BlkProofChain of " << chain->link_count() << " links";
+  // V828 Decreased performance. Moving a local object in a return statement prevents copy elision. lite-client-common.cpp 95
   return std::move(chain);
 }
 

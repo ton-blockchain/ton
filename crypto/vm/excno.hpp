@@ -57,6 +57,7 @@ class VmError {
   VmError(Excno _excno, const char* _msg, long long _arg) : exc_no(_excno), msg(_msg), arg(_arg) {
   }
   VmError(Excno _excno, std::string _msg, long long _arg = 0) : exc_no(_excno), msg_alloc(true), arg(_arg) {
+    // V1048 The 'msg_alloc' variable was assigned the same value. excno.hpp 60
     msg_alloc = true;
     char* p = (char*)malloc(_msg.size() + 1);
     memcpy(p, _msg.data(), _msg.size());

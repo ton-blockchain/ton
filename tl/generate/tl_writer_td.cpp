@@ -99,6 +99,7 @@ std::vector<std::string> TD_TL_writer::get_parsers() const {
 
 std::vector<std::string> TD_TL_writer::get_storers() const {
   std::vector<std::string> storers;
+  // V827 Maximum size of the 'storers' vector is known at compile time. Consider pre-allocating it by calling storers.reserve(3) tl_writer_td.cpp 101
   if (tl_name == "ton_api" || tl_name == "lite_api") {
     storers.push_back("td::TlStorerCalcLength");
     storers.push_back("td::TlStorerUnsafe");
