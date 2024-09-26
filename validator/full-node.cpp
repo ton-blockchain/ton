@@ -21,6 +21,7 @@
 #include "td/actor/MultiPromise.h"
 #include "full-node.h"
 #include "common/delay.h"
+#include "ton/ton-tl.hpp"
 
 namespace ton {
 
@@ -209,35 +210,28 @@ void FullNodeImpl::on_new_masterchain_block(td::Ref<MasterchainState> state, std
     int min_split = state->monitor_min_split_depth(shard.workchain);
     return min_split < shard.pfx_len() ? shard_prefix(shard, min_split) : shard;
   };
-  auto set_active = [&](ShardIdFull shard) {
-    while (new_active.emplace(shard).second && shard.pfx_len() > 0) {
-      shard = shard_parent(shard);
-    }
-  };
   for (auto &info : state->get_shards()) {
     workchains.insert(info->shard().workchain);
     all_shards.insert(cut_shard(info->shard()));
   }
-  for (const auto &wpair : state->get_workchain_list()) {
-    ton::WorkchainId wc = wpair.first;
-    const block::WorkchainInfo *winfo = wpair.second.get();
-    if (workchains.count(wc) == 0 && winfo->active && winfo->enabled_since <= state->get_unix_time()) {
+  for (const auto &[wc, winfo] : state->get_workchain_list()) {
+    if (!workchains.contains(wc) && winfo->active && winfo->enabled_since <= state->get_unix_time()) {
       all_shards.insert(ShardIdFull(wc));
     }
   }
   for (ShardIdFull shard : shards_to_monitor) {
-    set_active(cut_shard(shard));
+    new_active.insert(cut_shard(shard));
   }
 
   for (auto it = shards_.begin(); it != shards_.end(); ) {
-    if (all_shards.count(it->first)) {
+    if (all_shards.contains(it->first)) {
       ++it;
     } else {
       it = shards_.erase(it);
     }
   }
   for (ShardIdFull shard : all_shards) {
-    bool active = new_active.count(shard);
+    bool active = new_active.contains(shard);
     bool overlay_exists = !shards_[shard].actor.empty();
     if (active || join_all_overlays || overlay_exists) {
       update_shard_actor(shard, active);
@@ -254,8 +248,8 @@ void FullNodeImpl::on_new_masterchain_block(td::Ref<MasterchainState> state, std
   if (!use_old_private_overlays_) {
     std::set<adnl::AdnlNodeIdShort> my_adnl_ids;
     my_adnl_ids.insert(adnl_id_);
-    for (const auto &p : local_collator_nodes_) {
-      my_adnl_ids.insert(p.first);
+    for (const auto &[adnl_id, _] : local_collator_nodes_) {
+      my_adnl_ids.insert(adnl_id);
     }
     for (auto key : local_keys_) {
       auto it = current_validators_.find(key);
@@ -307,11 +301,12 @@ void FullNodeImpl::send_ext_message(AccountIdPrefixFull dst, td::BufferSlice dat
     VLOG(FULL_NODE_WARNING) << "dropping OUT ext message to unknown shard";
     return;
   }
-  for (auto &private_overlay : custom_overlays_) {
-    for (auto &actor : private_overlay.second.actors_) {
-      auto local_id = actor.first;
-      if (private_overlay.second.params_.msg_senders_.count(local_id)) {
-        td::actor::send_closure(actor.second, &FullNodeCustomOverlay::send_external_message, data.clone());
+  for (auto &[_, private_overlay] : custom_overlays_) {
+    if (private_overlay.params_.send_shard(dst.as_leaf_shard())) {
+      for (auto &[local_id, actor] : private_overlay.actors_) {
+        if (private_overlay.params_.msg_senders_.contains(local_id)) {
+          td::actor::send_closure(actor, &FullNodeCustomOverlay::send_external_message, data.clone());
+        }
       }
     }
   }
@@ -743,7 +738,7 @@ void FullNodeImpl::update_custom_overlay(CustomOverlayInfo &overlay) {
   }
 }
 
-void FullNodeImpl::send_block_broadcast_to_custom_overlays(const BlockBroadcast& broadcast) {
+void FullNodeImpl::send_block_broadcast_to_custom_overlays(const BlockBroadcast &broadcast) {
   if (!custom_overlays_sent_broadcasts_.insert(broadcast.block_id).second) {
     return;
   }
@@ -752,11 +747,12 @@ void FullNodeImpl::send_block_broadcast_to_custom_overlays(const BlockBroadcast&
     custom_overlays_sent_broadcasts_.erase(custom_overlays_sent_broadcasts_lru_.front());
     custom_overlays_sent_broadcasts_lru_.pop();
   }
-  for (auto &private_overlay : custom_overlays_) {
-    for (auto &actor : private_overlay.second.actors_) {
-      auto local_id = actor.first;
-      if (private_overlay.second.params_.block_senders_.count(local_id)) {
-        td::actor::send_closure(actor.second, &FullNodeCustomOverlay::send_broadcast, broadcast.clone());
+  for (auto &[_, private_overlay] : custom_overlays_) {
+    if (private_overlay.params_.send_shard(broadcast.block_id.shard_full())) {
+      for (auto &[local_id, actor] : private_overlay.actors_) {
+        if (private_overlay.params_.block_senders_.contains(local_id)) {
+          td::actor::send_closure(actor, &FullNodeCustomOverlay::send_broadcast, broadcast.clone());
+        }
       }
     }
   }
@@ -774,12 +770,13 @@ void FullNodeImpl::send_block_candidate_broadcast_to_custom_overlays(const Block
     custom_overlays_sent_broadcasts_.erase(custom_overlays_sent_broadcasts_lru_.front());
     custom_overlays_sent_broadcasts_lru_.pop();
   }
-  for (auto &private_overlay : custom_overlays_) {
-    for (auto &actor : private_overlay.second.actors_) {
-      auto local_id = actor.first;
-      if (private_overlay.second.params_.block_senders_.count(local_id)) {
-        td::actor::send_closure(actor.second, &FullNodeCustomOverlay::send_block_candidate, block_id, cc_seqno,
-                                validator_set_hash, data.clone());
+  for (auto &[_, private_overlay] : custom_overlays_) {
+    if (private_overlay.params_.send_shard(block_id.shard_full())) {
+      for (auto &[local_id, actor] : private_overlay.actors_) {
+        if (private_overlay.params_.block_senders_.contains(local_id)) {
+          td::actor::send_closure(actor, &FullNodeCustomOverlay::send_block_candidate, block_id, cc_seqno,
+                                  validator_set_hash, data.clone());
+        }
       }
     }
   }
@@ -834,17 +831,26 @@ bool FullNodeConfig::operator!=(const FullNodeConfig &rhs) const {
   return !(*this == rhs);
 }
 
+bool CustomOverlayParams::send_shard(const ShardIdFull &shard) const {
+  return sender_shards_.empty() || std::ranges::any_of(sender_shards_, [&](const ShardIdFull &our_shard) {
+           return shard_intersects(shard, our_shard);
+         });
+}
+
 CustomOverlayParams CustomOverlayParams::fetch(const ton_api::engine_validator_customOverlay& f) {
   CustomOverlayParams c;
   c.name_ = f.name_;
   for (const auto &node : f.nodes_) {
     c.nodes_.emplace_back(node->adnl_id_);
     if (node->msg_sender_) {
-      c.msg_senders_[ton::adnl::AdnlNodeIdShort{node->adnl_id_}] = node->msg_sender_priority_;
+      c.msg_senders_[adnl::AdnlNodeIdShort{node->adnl_id_}] = node->msg_sender_priority_;
     }
     if (node->block_sender_) {
       c.block_senders_.emplace(node->adnl_id_);
     }
+  }
+  for (const auto &shard : f.sender_shards_) {
+    c.sender_shards_.push_back(create_shard_id(shard));
   }
   return c;
 }

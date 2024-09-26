@@ -1229,6 +1229,12 @@ td::Status ShowCustomOverlaysQuery::receive(td::BufferSlice data) {
                                     : "")
                             << (node->block_sender_ ? " (block sender)" : "") << "\n";
     }
+    if (!overlay->sender_shards_.empty()) {
+      td::TerminalIO::out() << "Sender shards:\n";
+      for (const auto &shard : overlay->sender_shards_) {
+        td::TerminalIO::out() << "  " << ton::create_shard_id(shard).to_str() << "\n";
+      }
+    }
     td::TerminalIO::out() << "\n";
   }
   return td::Status::OK();
