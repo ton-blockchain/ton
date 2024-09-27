@@ -2178,20 +2178,10 @@ void ValidatorManagerImpl::update_shards() {
       td::actor::send_closure(SelfId, &ValidatorManagerImpl::written_destroyed_validator_sessions, std::move(gc));
     });
     td::actor::send_closure(db_, &Db::update_destroyed_validator_sessions, gc_list_, std::move(P));
-
-    if (!serializer_.empty()) {
-      td::actor::send_closure(
-          serializer_, &AsyncStateSerializer::auto_disable_serializer,
-          validating_masterchain &&
-              last_masterchain_state_->get_validator_set(ShardIdFull{masterchainId})->export_vector().size() * 2 <=
-                  last_masterchain_state_->get_total_validator_set(0)->export_vector().size());
-    }
   }
-
   if (!serializer_.empty()) {
-    td::actor::send_closure(
-        serializer_, &AsyncStateSerializer::auto_disable_serializer,
-        !validator_groups_.empty() && last_masterchain_state_->get_global_id() == -239);  // mainnet only
+    td::actor::send_closure(serializer_, &AsyncStateSerializer::auto_disable_serializer,
+                            is_validator() && last_masterchain_state_->get_global_id() == -239);  // mainnet only
   }
 }
 
