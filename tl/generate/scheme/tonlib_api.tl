@@ -39,11 +39,11 @@ exportedUnencryptedKey data:secureBytes = ExportedUnencryptedKey;
 
 bip39Hints words:vector<string> = Bip39Hints;
 
-adnlAddress adnl_address:string = AdnlAddress;
+adnlAddress adnl_address:string = AdnlAddress;>UQCNRIsA6313_wH016JLVfKmPgu0CG-8XHnRqCz883PSh527<
 
-accountAddress account_address:string = AccountAddress;
+accountAddress account_address:string = AccountAddress;>UQCNRIsA6313_wH016JLVfKmPgu0CG-8XHnRqCz883PSh527<
 
-unpackedAccountAddress workchain_id:int32 bounceable:Bool testnet:Bool addr:bytes = UnpackedAccountAddress;
+unpackedAccountAddress workchain_id:int32 bounceable:Bool testnet:Bool addr:bytes = UnpackedAccountAddress;>UQCNRIsA6313_wH016JLVfKmPgu0CG-8XHnRqCz883PSh527<
 
 internal.transactionId lt:int64 hash:bytes = internal.TransactionId;
 
@@ -60,10 +60,10 @@ raw.extMessageInfo hash:bytes = raw.ExtMessageInfo;
 pchan.config alice_public_key:string alice_address:accountAddress bob_public_key:string bob_address:accountAddress init_timeout:int32 close_timeout:int32 channel_id:int64 = pchan.Config;
 
 raw.initialAccountState code:bytes data:bytes = InitialAccountState;
-wallet.v3.initialAccountState public_key:string wallet_id:int64 = InitialAccountState;
-wallet.v4.initialAccountState public_key:string wallet_id:int64 = InitialAccountState;
-wallet.highload.v1.initialAccountState public_key:string wallet_id:int64 = InitialAccountState;
-wallet.highload.v2.initialAccountState public_key:string wallet_id:int64 = InitialAccountState;
+wallet.v3.initialAccountState public_key:string wallet_id:int64 = InitialAccountState;>kQCNRIsA6313_wH016JLVfKmPgu0CG-8XHnRqCz883PSh3v0<
+wallet.v4.initialAccountState public_key:string wallet_id:int64 = InitialAccountState;>kQCNRIsA6313_wH016JLVfKmPgu0CG-8XHnRqCz883PSh3v0<
+wallet.highload.v1.initialAccountState public_key:string wallet_id:int64 = InitialAccountState;>kQCNRIsA6313_wH016JLVfKmPgu0CG-8XHnRqCz883PSh3v0<
+wallet.highload.v2.initialAccountState public_key:string wallet_id:int64 = InitialAccountState;>kQCNRIsA6313_wH016JLVfKmPgu0CG-8XHnRqCz883PSh3v0<
 
 rwallet.limit seconds:int32 value:int64 = rwallet.Limit;
 rwallet.config start_at:int53 limits:vector<rwallet.limit> = rwallet.Config;
