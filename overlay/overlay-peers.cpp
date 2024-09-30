@@ -633,14 +633,9 @@ std::vector<adnl::AdnlNodeIdShort> OverlayImpl::get_neighbours(td::uint32 max_si
 }
 
 void OverlayImpl::send_message_to_neighbours(td::BufferSlice data) {
-  wait_neighbours_not_empty([this, data = std::move(data)](td::Result<td::Unit> R) {
-    if (R.is_error()) {
-      return;
-    }
-    for (auto &n : peer_list_.neighbours_) {
-      td::actor::send_closure(manager_, &OverlayManager::send_message, n, local_id_, overlay_id_, data.clone());
-    }
-  });
+  for (auto &n : peer_list_.neighbours_) {
+    td::actor::send_closure(manager_, &OverlayManager::send_message, n, local_id_, overlay_id_, data.clone());
+  }
 }
 
 size_t OverlayImpl::neighbours_cnt() const {

@@ -52,7 +52,6 @@ class Db : public td::actor::Actor {
                                  td::Promise<td::Ref<ShardState>> promise) = 0;
   virtual void get_block_state(ConstBlockHandle handle, td::Promise<td::Ref<ShardState>> promise) = 0;
   virtual void get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) = 0;
-  virtual void get_last_deleted_mc_state(td::Promise<BlockSeqno> promise) = 0;
 
   virtual void store_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::BufferSlice state,
                                            td::Promise<td::Unit> promise) = 0;

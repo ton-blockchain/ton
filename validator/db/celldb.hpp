@@ -65,7 +65,6 @@ class CellDbIn : public CellDbBase {
   void load_cell(RootHash hash, td::Promise<td::Ref<vm::DataCell>> promise);
   void store_cell(BlockIdExt block_id, td::Ref<vm::Cell> cell, td::Promise<td::Ref<vm::DataCell>> promise);
   void get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise);
-  void get_last_deleted_mc_state(td::Promise<BlockSeqno> promise);
 
   void migrate_cell(td::Bits256 hash);
 
@@ -190,7 +189,6 @@ class CellDb : public CellDbBase {
     in_memory_boc_ = std::move(in_memory_boc);
   }
   void get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise);
-  void get_last_deleted_mc_state(td::Promise<BlockSeqno> promise);
 
   CellDb(td::actor::ActorId<RootDb> root_db, std::string path, td::Ref<ValidatorManagerOptions> opts)
       : root_db_(root_db), path_(path), opts_(opts) {
