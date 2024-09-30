@@ -76,6 +76,7 @@ class Collator final : public td::actor::Actor {
   td::Timestamp timeout;
   td::Timestamp queue_cleanup_timeout_, soft_timeout_, medium_timeout_;
   td::Promise<BlockCandidate> main_promise;
+  unsigned mode_ = 0;
   int attempt_idx_;
   bool allow_repeat_collation_ = false;
   ton::BlockSeqno last_block_seqno{0};
@@ -93,7 +94,7 @@ class Collator final : public td::actor::Actor {
   Collator(ShardIdFull shard, bool is_hardfork, BlockIdExt min_masterchain_block_id, std::vector<BlockIdExt> prev,
            Ref<ValidatorSet> validator_set, Ed25519_PublicKey collator_id, Ref<CollatorOptions> collator_opts,
            td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout, td::Promise<BlockCandidate> promise,
-           int attempt_idx);
+           td::CancellationToken cancellation_token, unsigned mode, int attempt_idx);
   ~Collator() override = default;
   bool is_busy() const {
     return busy_;
@@ -352,9 +353,13 @@ class Collator final : public td::actor::Actor {
   bool create_block();
   Ref<vm::Cell> collate_shard_block_descr_set();
   bool create_collated_data();
+
   bool create_block_candidate();
   void return_block_candidate(td::Result<td::Unit> saved);
   bool update_last_proc_int_msg(const std::pair<ton::LogicalTime, ton::Bits256>& new_lt_hash);
+
+  td::CancellationToken cancellation_token_;
+  bool check_cancelled();
 
  public:
   static td::uint32 get_skip_externals_queue_size();

@@ -76,12 +76,15 @@ static inline bool dbg(int c) {
  * @param manager The ActorId of the ValidatorManager.
  * @param timeout The timeout for the collator.
  * @param promise The promise to return the result.
+ * @param cancellation_token Token to cancel collation.
+ * @param mode +1 - skip storing candidate to disk.
  * @param attempt_idx The index of the attempt, starting from 0. On later attempts collator decreases block limits and skips some steps.
  */
 Collator::Collator(ShardIdFull shard, bool is_hardfork, BlockIdExt min_masterchain_block_id,
                    std::vector<BlockIdExt> prev, td::Ref<ValidatorSet> validator_set, Ed25519_PublicKey collator_id,
                    Ref<CollatorOptions> collator_opts, td::actor::ActorId<ValidatorManager> manager,
-                   td::Timestamp timeout, td::Promise<BlockCandidate> promise, int attempt_idx)
+                   td::Timestamp timeout, td::Promise<BlockCandidate> promise, td::CancellationToken cancellation_token,
+                   unsigned mode, int attempt_idx)
     : shard_(shard)
     , is_hardfork_(is_hardfork)
     , min_mc_block_id{min_masterchain_block_id}
@@ -96,10 +99,13 @@ Collator::Collator(ShardIdFull shard, bool is_hardfork, BlockIdExt min_mastercha
     , soft_timeout_(td::Timestamp::at(timeout.at() - 3.0))
     , medium_timeout_(td::Timestamp::at(timeout.at() - 1.5))
     , main_promise(std::move(promise))
+    , mode_(mode)
     , attempt_idx_(attempt_idx)
-    , perf_timer_("collate", 0.1, [manager](double duration) {
-      send_closure(manager, &ValidatorManager::add_perf_timer_stat, "collate", duration);
-    }) {
+    , perf_timer_("collate", 0.1,
+                  [manager](double duration) {
+                    send_closure(manager, &ValidatorManager::add_perf_timer_stat, "collate", duration);
+                  })
+    , cancellation_token_(std::move(cancellation_token)) {
 }
 
 /**
@@ -113,6 +119,9 @@ Collator::Collator(ShardIdFull shard, bool is_hardfork, BlockIdExt min_mastercha
 void Collator::start_up() {
   LOG(WARNING) << "Collator for shard " << shard_.to_str() << " started"
                << (attempt_idx_ ? PSTRING() << " (attempt #" << attempt_idx_ << ")" : "");
+  if (!check_cancelled()) {
+    return;
+  }
   LOG(DEBUG) << "Previous block #1 is " << prev_blocks.at(0).to_str();
   if (prev_blocks.size() > 1) {
     LOG(DEBUG) << "Previous block #2 is " << prev_blocks.at(1).to_str();
@@ -345,10 +354,12 @@ bool Collator::fatal_error(td::Status error) {
   error.ensure_error();
   LOG(ERROR) << "cannot generate block candidate for " << show_shard(shard_) << " : " << error.to_string();
   if (busy_) {
-    if (allow_repeat_collation_ && attempt_idx_ + 1 < MAX_ATTEMPTS && !is_hardfork_ && !timeout.is_in_past()) {
+    if (allow_repeat_collation_ && error.code() != ErrorCode::cancelled && attempt_idx_ + 1 < MAX_ATTEMPTS &&
+        !is_hardfork_ && !timeout.is_in_past()) {
       LOG(WARNING) << "Repeating collation (attempt #" << attempt_idx_ + 1 << ")";
       run_collate_query(shard_, min_mc_block_id, prev_blocks, created_by_, validator_set_, collator_opts_, manager,
-                        td::Timestamp::in(10.0), std::move(main_promise), attempt_idx_ + 1);
+                        td::Timestamp::in(10.0), std::move(main_promise), std::move(cancellation_token_), mode_,
+                        attempt_idx_ + 1);
     } else {
       main_promise(std::move(error));
     }
@@ -393,6 +404,9 @@ bool Collator::fatal_error(std::string err_msg, int err_code) {
  */
 void Collator::check_pending() {
   // LOG(DEBUG) << "pending = " << pending;
+  if (!check_cancelled()) {
+    return;
+  }
   if (!pending) {
     step = 2;
     try {
@@ -2354,6 +2368,9 @@ bool Collator::out_msg_queue_cleanup() {
         LOG(WARNING) << "cleaning up outbound queue takes too long, ending";
         break;
       }
+      if (!check_cancelled()) {
+        return false;
+      }
       if (i == queue_parts.size()) {
         i = 0;
       }
@@ -3553,6 +3570,9 @@ bool Collator::process_inbound_internal_messages() {
       stats_.limits_log += PSTRING() << "INBOUND_INT_MESSAGES: timeout\n";
       break;
     }
+    if (!check_cancelled()) {
+      return false;
+    }
     auto kv = nb_out_msgs_->extract_cur();
     CHECK(kv && kv->msg.not_null());
     LOG(DEBUG) << "processing inbound message with (lt,hash)=(" << kv->lt << "," << kv->key.to_hex()
@@ -3610,6 +3630,9 @@ bool Collator::process_inbound_external_messages() {
       LOG(WARNING) << "medium timeout reached, stop processing inbound external messages";
       stats_.limits_log += PSTRING() << "INBOUND_EXT_MESSAGES: timeout\n";
       break;
+    }
+    if (!check_cancelled()) {
+      return false;
     }
     auto ext_msg = ext_msg_struct.cell;
     ton::Bits256 hash{ext_msg->get_hash().bits()};
@@ -4155,6 +4178,9 @@ bool Collator::process_new_messages(bool enqueue_only) {
       enqueue_only = true;
       stats_.limits_log += PSTRING() << "NEW_MESSAGES: "
                                      << block_full_comment(*block_limit_status_, block::ParamLimits::cl_normal) << "\n";
+    }
+    if (!check_cancelled()) {
+      return false;
     }
     LOG(DEBUG) << "have message with lt=" << msg.lt;
     int res = process_one_new_message(std::move(msg), enqueue_only);
@@ -5532,14 +5558,18 @@ bool Collator::create_block_candidate() {
                                  << consensus_config.max_collated_data_size << ")");
   }
   // 4. save block candidate
-  LOG(INFO) << "saving new BlockCandidate";
-  td::actor::send_closure_later(
-      manager, &ValidatorManager::set_block_candidate, block_candidate->id, block_candidate->clone(),
-      validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash(),
-      [self = get_self()](td::Result<td::Unit> saved) -> void {
-        LOG(DEBUG) << "got answer to set_block_candidate";
-        td::actor::send_closure_later(std::move(self), &Collator::return_block_candidate, std::move(saved));
-      });
+  if (mode_ & CollateMode::skip_store_candidate) {
+    td::actor::send_closure_later(actor_id(this), &Collator::return_block_candidate, td::Unit());
+  } else {
+    LOG(INFO) << "saving new BlockCandidate";
+    td::actor::send_closure_later(
+        manager, &ValidatorManager::set_block_candidate, block_candidate->id, block_candidate->clone(),
+        validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash(),
+        [self = get_self()](td::Result<td::Unit> saved) -> void {
+          LOG(DEBUG) << "got answer to set_block_candidate";
+          td::actor::send_closure_later(std::move(self), &Collator::return_block_candidate, std::move(saved));
+        });
+  }
   // 5. communicate about bad and delayed external messages
   if (!bad_ext_msgs_.empty() || !delay_ext_msgs_.empty()) {
     LOG(INFO) << "sending complete_external_messages() to Manager";
@@ -5681,6 +5711,18 @@ void Collator::after_get_external_messages(td::Result<std::vector<std::pair<Ref<
   LOG(WARNING) << "got " << vect.size() << " external messages from mempool, " << bad_ext_msgs_.size()
                << " bad messages";
   check_pending();
+}
+
+/**
+ * Checks if collation was cancelled via cancellation token
+ *
+ * @returns false if the collation was cancelled, true otherwise
+ */
+bool Collator::check_cancelled() {
+  if (cancellation_token_) {
+    return fatal_error(td::Status::Error(ErrorCode::cancelled, "cancelled"));
+  }
+  return true;
 }
 
 td::uint32 Collator::get_skip_externals_queue_size() {
