@@ -992,6 +992,9 @@ ValidatorSessionImpl::ValidatorSessionImpl(catchain::CatChainSessionId session_i
 }
 
 void ValidatorSessionImpl::start() {
+  round_started_at_ = td::Timestamp::now();
+  round_debug_at_ = td::Timestamp::in(60.0);
+  stats_init();
   started_ = true;
   VLOG(VALIDATOR_SESSION_NOTICE) << this << ": started";
 
@@ -1097,8 +1100,6 @@ void ValidatorSessionImpl::start_up() {
 
   check_all();
   td::actor::send_closure(rldp_, &rldp::Rldp::add_id, description().get_source_adnl_id(local_idx()));
-
-  stats_init();
 }
 
 void ValidatorSessionImpl::stats_init() {

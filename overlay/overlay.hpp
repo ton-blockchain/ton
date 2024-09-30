@@ -320,8 +320,6 @@ class OverlayImpl : public Overlay {
     del_peer(peer_id);
   }
 
-  void wait_neighbours_not_empty(td::Promise<td::Unit> promise, int max_retries = 20);
-
  private:
   template <class T>
   void process_query(adnl::AdnlNodeIdShort src, T &query, td::Promise<td::BufferSlice> promise) {

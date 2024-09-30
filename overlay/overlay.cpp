@@ -101,9 +101,9 @@ OverlayImpl::OverlayImpl(td::actor::ActorId<keyring::Keyring> keyring, td::actor
 
   VLOG(OVERLAY_INFO) << this << ": creating";
 
-  update_root_member_list(std::move(nodes), std::move(root_public_keys), std::move(cert));
-
-  update_neighbours(static_cast<td::uint32>(nodes.size()));
+  auto nodes_size = static_cast<td::uint32>(nodes.size());
+  OverlayImpl::update_root_member_list(std::move(nodes), std::move(root_public_keys), std::move(cert));
+  update_neighbours(nodes_size);
 }
 
 void OverlayImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::overlay_getRandomPeers &query,
@@ -457,20 +457,6 @@ void OverlayImpl::bcast_gc() {
   CHECK(delivered_broadcasts_.size() == bcast_lru_.size());
 }
 
-void OverlayImpl::wait_neighbours_not_empty(td::Promise<td::Unit> promise, int max_retries) {
-  if (!peer_list_.neighbours_.empty()) {
-    promise.set_result(td::Unit());
-  } else if (max_retries > 0) {
-    delay_action(
-        [SelfId = actor_id(this), promise = std::move(promise), max_retries]() mutable {
-          td::actor::send_closure(SelfId, &OverlayImpl::wait_neighbours_not_empty, std::move(promise), max_retries - 1);
-        },
-        td::Timestamp::in(0.5));
-  } else {
-    promise.set_error(td::Status::Error(ErrorCode::timeout));
-  }
-}
-
 void OverlayImpl::send_broadcast(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data) {
   if (!has_valid_membership_certificate()) {
     VLOG(OVERLAY_WARNING) << "member certificate is invalid, valid_until="
@@ -481,20 +467,15 @@ void OverlayImpl::send_broadcast(PublicKeyHash send_as, td::uint32 flags, td::Bu
     VLOG(OVERLAY_WARNING) << "broadcast source certificate is invalid";
     return;
   }
-  wait_neighbours_not_empty([this, send_as, flags, data = std::move(data)](td::Result<td::Unit> R) mutable {
-    if (R.is_error()) {
-      return;
-    }
-    auto S = BroadcastSimple::create_new(actor_id(this), keyring_, send_as, std::move(data), flags);
-    if (S.is_error()) {
-      LOG(WARNING) << "failed to send broadcast: " << S;
-    }
-  });
+  auto S = BroadcastSimple::create_new(actor_id(this), keyring_, send_as, std::move(data), flags);
+  if (S.is_error()) {
+    LOG(WARNING) << "failed to send broadcast: " << S;
+  }
 }
 
 void OverlayImpl::send_broadcast_fec(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data) {
   if (!has_valid_membership_certificate()) {
-    VLOG(OVERLAY_WARNING) << "meber certificate ist invalid, valid_until="
+    VLOG(OVERLAY_WARNING) << "meber certificate is invalid, valid_until="
                           << peer_list_.local_cert_is_valid_until_.at_unix();
     return;
   }
@@ -502,12 +483,7 @@ void OverlayImpl::send_broadcast_fec(PublicKeyHash send_as, td::uint32 flags, td
     VLOG(OVERLAY_WARNING) << "broadcast source certificate is invalid";
     return;
   }
-  wait_neighbours_not_empty([this, send_as, flags, data = std::move(data)](td::Result<td::Unit> R) mutable {
-    if (R.is_error()) {
-      return;
-    }
-    OverlayOutboundFecBroadcast::create(std::move(data), flags, actor_id(this), send_as);
-  });
+  OverlayOutboundFecBroadcast::create(std::move(data), flags, actor_id(this), send_as);
 }
 
 void OverlayImpl::print(td::StringBuilder &sb) {
@@ -752,7 +728,8 @@ bool OverlayImpl::has_valid_broadcast_certificate(const PublicKeyHash &source, s
     return false;
   }
   auto it = certs_.find(source);
-  return check_source_eligible(source, it == certs_.end() ? nullptr : it->second.get(), (td::uint32)size, is_fec);
+  return check_source_eligible(source, it == certs_.end() ? nullptr : it->second.get(), (td::uint32)size, is_fec) !=
+         BroadcastCheckResult::Forbidden;
 }
 
 }  // namespace overlay
