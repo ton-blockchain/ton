@@ -55,7 +55,7 @@ void ValidatorGroup::generate_block_candidate(
       validator_set_, opts_->get_collator_options(), manager_, td::Timestamp::in(10.0),
       [SelfId = actor_id(this), cache = cached_collated_block_](td::Result<BlockCandidate> R) {
         td::actor::send_closure(SelfId, &ValidatorGroup::generated_block_candidate, std::move(cache), std::move(R));
-      });
+      }, cancellation_token_source_.get_cancellation_token(), /* mode = */ 0);
 }
 
 void ValidatorGroup::generated_block_candidate(std::shared_ptr<CachedCollatedBlock> cache, td::Result<BlockCandidate> R) {
@@ -188,6 +188,7 @@ void ValidatorGroup::accept_block_candidate(td::uint32 round_id, PublicKeyHash s
   prev_block_ids_ = std::vector<BlockIdExt>{next_block_id};
   cached_collated_block_ = nullptr;
   approved_candidates_cache_.clear();
+  cancellation_token_source_.cancel();
 }
 
 void ValidatorGroup::retry_accept_block_query(BlockIdExt block_id, td::Ref<BlockData> block,
@@ -433,6 +434,7 @@ void ValidatorGroup::destroy() {
     delay_action([ses]() mutable { td::actor::send_closure(ses, &validatorsession::ValidatorSession::destroy); },
                  td::Timestamp::in(10.0));
   }
+  cancellation_token_source_.cancel();
   stop();
 }
 
