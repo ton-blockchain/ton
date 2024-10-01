@@ -45,6 +45,7 @@
 #include "Dictionary.h"
 #include "SourceLookup.h"
 #include "words.h"
+#include "extwords.h"
 
 #include "td/utils/logging.h"
 #include "td/utils/misc.h"
@@ -154,6 +155,7 @@ int main(int argc, char* const argv[]) {
   fift::init_words_common(config.dictionary);
   fift::init_words_vm(config.dictionary, true);  // enable vm debug
   fift::init_words_ton(config.dictionary);
+  fift::init_words_ext(config.dictionary);
 
   if (script_mode) {
     fift::import_cmdline_args(config.dictionary, source_list.empty() ? "" : source_list[0], argc - optind,
