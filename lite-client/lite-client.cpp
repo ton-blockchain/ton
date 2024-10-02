@@ -3730,7 +3730,7 @@ void TestNode::continue_check_validator_load3(std::unique_ptr<TestNode::Validato
                                               std::unique_ptr<TestNode::ValidatorLoadInfo> info2, int mode,
                                               std::string file_pfx) {
   LOG(INFO) << "continue_check_validator_load3 for blocks " << info1->blk_id.to_str() << " and "
-            << info1->blk_id.to_str() << " with mode=" << mode << " and file prefix `" << file_pfx
+            << info2->blk_id.to_str() << " with mode=" << mode << " and file prefix `" << file_pfx
             << "`: comparing block creators data";
   if (info1->created_total.first <= 0 || info2->created_total.first <= 0) {
     LOG(ERROR) << "no total created blocks statistics";
@@ -3791,13 +3791,14 @@ void TestNode::continue_check_validator_load3(std::unique_ptr<TestNode::Validato
   block::MtCarloComputeShare shard_share(shard_count, info2->vset->export_scaled_validator_weights());
   for (int i = 0; i < count; i++) {
     int x1 = d[i].first, y1 = d[i].second;
-    double xe = (i < main_count ? (double)xs / main_count : 0);
+    bool is_masterchain_validator = i < main_count;
+    double xe = (is_masterchain_validator ? (double)xs / main_count : 0);
     double ye = shard_share[i] * (double)ys / shard_count;
     td::Bits256 pk = info2->vset->list[i].pubkey.as_bits256();
     double p1 = create_prob(x1, .9 * xe), p2 = shard_create_prob(y1, .9 * ye, chunk_size);
     td::TerminalIO::out() << "val #" << i << ": pubkey " << pk.to_hex() << ", blocks created (" << x1 << "," << y1
                           << "), expected (" << xe << "," << ye << "), probabilities " << p1 << " and " << p2 << "\n";
-    if (std::min(p1, p2) < .00001) {
+    if ((is_masterchain_validator ? p1 : p2) < .00001) {
       LOG(ERROR) << "validator #" << i << " with pubkey " << pk.to_hex()
                  << " : serious misbehavior detected: created less than 90% of the expected amount of blocks with "
                     "probability 99.999% : created ("
@@ -3810,7 +3811,7 @@ void TestNode::continue_check_validator_load3(std::unique_ptr<TestNode::Validato
           cnt_ok++;
         }
       }
-    } else if (std::min(p1, p2) < .005) {
+    } else if ((is_masterchain_validator ? p1 : p2) < .005) {
       LOG(ERROR) << "validator #" << i << " with pubkey " << pk.to_hex()
                  << " : moderate misbehavior detected: created less than 90% of the expected amount of blocks with "
                     "probability 99.5% : created ("

@@ -172,6 +172,7 @@ void ValidatorGroup::accept_block_candidate(td::uint32 round_id, PublicKeyHash s
   prev_block_ids_ = std::vector<BlockIdExt>{next_block_id};
   cached_collated_block_ = nullptr;
   approved_candidates_cache_.clear();
+  cancellation_token_source_.cancel();
 }
 
 void ValidatorGroup::accept_block_query(BlockIdExt block_id, td::Ref<BlockData> block, std::vector<BlockIdExt> prev,
@@ -417,6 +418,7 @@ void ValidatorGroup::destroy() {
     delay_action([ses]() mutable { td::actor::send_closure(ses, &validatorsession::ValidatorSession::destroy); },
                  td::Timestamp::in(10.0));
   }
+  cancellation_token_source_.cancel();
   stop();
 }
 
@@ -506,7 +508,8 @@ void ValidatorGroup::collate_block(td::uint32 round_id, td::Timestamp timeout, t
   if (self_collate) {
     run_collate_query(shard_, min_masterchain_block_id_, prev_block_ids_,
                       Ed25519_PublicKey{local_id_full_.ed25519_value().raw()}, validator_set_,
-                      opts_->get_collator_options(), manager_, td::Timestamp::in(10.0), std::move(promise));
+                      opts_->get_collator_options(), manager_, td::Timestamp::in(10.0), std::move(promise),
+                      cancellation_token_source_.get_cancellation_token(), 0);
     return;
   }
   if (collator_adnl_id.is_zero()) {

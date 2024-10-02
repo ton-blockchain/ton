@@ -45,11 +45,13 @@ using td::Ref;
 using namespace std::literals::string_literals;
 
 // Don't increase MERGE_MAX_QUEUE_LIMIT too much: merging requires cleaning the whole queue in out_msg_queue_cleanup
-static const td::uint32 FORCE_SPLIT_QUEUE_SIZE = 4096;
-static const td::uint32 SPLIT_MAX_QUEUE_SIZE = 100000;
-static const td::uint32 MERGE_MAX_QUEUE_SIZE = 2047;
-static const td::uint32 SKIP_EXTERNALS_QUEUE_SIZE = 8000;
-static const int HIGH_PRIORITY_EXTERNAL = 10;  // don't skip high priority externals when queue is big
+static constexpr td::uint32 FORCE_SPLIT_QUEUE_SIZE = 4096;
+static constexpr td::uint32 SPLIT_MAX_QUEUE_SIZE = 100000;
+static constexpr td::uint32 MERGE_MAX_QUEUE_SIZE = 2047;
+static constexpr td::uint32 SKIP_EXTERNALS_QUEUE_SIZE = 8000;
+static constexpr int HIGH_PRIORITY_EXTERNAL = 10;  // don't skip high priority externals when queue is big
+
+static constexpr int MAX_ATTEMPTS = 5;
 
 #define DBG(__n) dbg(__n)&&
 #define DSTART int __dcnt = 0;
@@ -74,12 +76,15 @@ static inline bool dbg(int c) {
  * @param manager The ActorId of the ValidatorManager.
  * @param timeout The timeout for the collator.
  * @param promise The promise to return the result.
+ * @param cancellation_token Token to cancel collation.
+ * @param mode +1 - skip storing candidate to disk.
+ * @param attempt_idx The index of the attempt, starting from 0. On later attempts collator decreases block limits and skips some steps.
  */
 Collator::Collator(ShardIdFull shard, bool is_hardfork, BlockIdExt min_masterchain_block_id,
                    std::vector<BlockIdExt> prev, td::Ref<ValidatorSet> validator_set, Ed25519_PublicKey collator_id,
                    Ref<CollatorOptions> collator_opts, td::actor::ActorId<ValidatorManager> manager,
                    td::Timestamp timeout, td::Promise<BlockCandidate> promise, td::CancellationToken cancellation_token,
-                   unsigned mode)
+                   unsigned mode, int attempt_idx)
     : shard_(shard)
     , is_hardfork_(is_hardfork)
     , min_mc_block_id{min_masterchain_block_id}
@@ -95,6 +100,7 @@ Collator::Collator(ShardIdFull shard, bool is_hardfork, BlockIdExt min_mastercha
     , medium_timeout_(td::Timestamp::at(timeout.at() - 1.5))
     , main_promise(std::move(promise))
     , mode_(mode)
+    , attempt_idx_(attempt_idx)
     , perf_timer_("collate", 0.1,
                   [manager](double duration) {
                     send_closure(manager, &ValidatorManager::add_perf_timer_stat, "collate", duration);
@@ -111,7 +117,11 @@ Collator::Collator(ShardIdFull shard, bool is_hardfork, BlockIdExt min_mastercha
  * The results of these queries are handled by corresponding callback functions.
  */
 void Collator::start_up() {
-  LOG(WARNING) << "Collator for shard " << shard_.to_str() << " started";
+  LOG(WARNING) << "Collator for shard " << shard_.to_str() << " started"
+               << (attempt_idx_ ? PSTRING() << " (attempt #" << attempt_idx_ << ")" : "");
+  if (!check_cancelled()) {
+    return;
+  }
   LOG(DEBUG) << "Previous block #1 is " << prev_blocks.at(0).to_str();
   if (prev_blocks.size() > 1) {
     LOG(DEBUG) << "Previous block #2 is " << prev_blocks.at(1).to_str();
@@ -344,8 +354,15 @@ bool Collator::fatal_error(td::Status error) {
   error.ensure_error();
   LOG(ERROR) << "cannot generate block candidate for " << show_shard(shard_) << " : " << error.to_string();
   if (busy_) {
-    LOG(INFO) << "collation took " << perf_timer_.elapsed() << " s";
-    main_promise(std::move(error));
+    if (allow_repeat_collation_ && error.code() != ErrorCode::cancelled && attempt_idx_ + 1 < MAX_ATTEMPTS &&
+        !is_hardfork_ && !timeout.is_in_past()) {
+      LOG(WARNING) << "Repeating collation (attempt #" << attempt_idx_ + 1 << ")";
+      run_collate_query(shard_, min_mc_block_id, prev_blocks, created_by_, validator_set_, collator_opts_, manager,
+                        td::Timestamp::in(10.0), std::move(main_promise), std::move(cancellation_token_), mode_,
+                        attempt_idx_ + 1);
+    } else {
+      main_promise(std::move(error));
+    }
     busy_ = false;
   }
   stop();
@@ -728,6 +745,15 @@ bool Collator::unpack_last_mc_state() {
     return fatal_error(limits.move_as_error());
   }
   block_limits_ = limits.move_as_ok();
+  if (attempt_idx_ == 3) {
+    LOG(INFO) << "Attempt #3: bytes, gas limits /= 2";
+    block_limits_->bytes.multiply_by(0.5);
+    block_limits_->gas.multiply_by(0.5);
+  } else if (attempt_idx_ == 4) {
+    LOG(INFO) << "Attempt #4: bytes, gas limits /= 4";
+    block_limits_->bytes.multiply_by(0.25);
+    block_limits_->gas.multiply_by(0.25);
+  }
   LOG(DEBUG) << "block limits: bytes [" << block_limits_->bytes.underload() << ", " << block_limits_->bytes.soft()
              << ", " << block_limits_->bytes.hard() << "]";
   LOG(DEBUG) << "block limits: gas [" << block_limits_->gas.underload() << ", " << block_limits_->gas.soft() << ", "
@@ -2189,6 +2215,7 @@ bool Collator::do_collate() {
   if (max_lt == start_lt) {
     ++max_lt;
   }
+  allow_repeat_collation_ = true;
   // NB: interchanged 1.2 and 1.1 (is this always correct?)
   // 1.1. re-adjust neighbors' out_msg_queues (for oneself)
   if (!add_trivial_neighbor()) {
@@ -3715,6 +3742,10 @@ bool Collator::process_inbound_external_messages() {
     LOG(INFO) << "skipping processing of inbound external messages";
     return true;
   }
+  if (attempt_idx_ >= 2) {
+    LOG(INFO) << "Attempt #" << attempt_idx_ << ": skip external messages";
+    return true;
+  }
   if (out_msg_queue_size_ > SKIP_EXTERNALS_QUEUE_SIZE) {
     LOG(INFO) << "skipping processing of inbound external messages (except for high-priority) because out_msg_queue is "
                  "too big ("
@@ -3845,6 +3876,10 @@ bool Collator::process_dispatch_queue() {
     if (max_per_initiator[iter] == 0 || max_total_count[iter] == 0) {
       continue;
     }
+    if (iter > 0 && attempt_idx_ >= 1) {
+      LOG(INFO) << "Attempt #" << attempt_idx_ << ": skip process_dispatch_queue";
+      break;
+    }
     vm::AugmentedDictionary cur_dispatch_queue{dispatch_queue_->get_root(), 256, block::tlb::aug_DispatchQueue};
     std::map<std::tuple<WorkchainId, StdSmcAddress, LogicalTime>, size_t> count_per_initiator;
     size_t total_count = 0;
@@ -3857,13 +3892,13 @@ bool Collator::process_dispatch_queue() {
         stats_.limits_log += PSTRING() << "DISPATCH_QUEUE_STAGE_" << iter << ": "
                                        << block_full_comment(*block_limit_status_, block::ParamLimits::cl_normal)
                                        << "\n";
-        return true;
+        return register_dispatch_queue_op(true);
       }
       if (soft_timeout_.is_in_past(td::Timestamp::now())) {
         block_full_ = true;
         LOG(WARNING) << "soft timeout reached, stop processing dispatch queue";
         stats_.limits_log += PSTRING() << "DISPATCH_QUEUE_STAGE_" << iter << ": timeout\n";
-        return true;
+        return register_dispatch_queue_op(true);
       }
       StdSmcAddress src_addr;
       td::Ref<vm::CellSlice> account_dispatch_queue;
@@ -3941,6 +3976,7 @@ bool Collator::process_dispatch_queue() {
     if (iter == 0) {
       have_unprocessed_account_dispatch_queue_ = false;
     }
+    register_dispatch_queue_op(true);
   }
   return true;
 }
@@ -3964,12 +4000,7 @@ bool Collator::process_deferred_message(Ref<vm::CellSlice> enq_msg, StdSmcAddres
     return fatal_error(PSTRING() << "failed to delete message from DispatchQueue: address=" << src_addr.to_hex()
                                  << ", lt=" << lt);
   }
-  ++dispatch_queue_ops_;
-  if (!(dispatch_queue_ops_ & 63)) {
-    if (!block_limit_status_->add_proof(dispatch_queue_->get_root_cell())) {
-      return false;
-    }
-  }
+  register_dispatch_queue_op();
   ++sender_generated_messages_count_[src_addr];
 
   LogicalTime enqueued_lt = 0;
@@ -4062,6 +4093,7 @@ bool Collator::process_deferred_message(Ref<vm::CellSlice> enq_msg, StdSmcAddres
   ++unprocessed_deferred_messages_[src_addr];
   LOG(INFO) << "delivering deferred message from account " << src_addr.to_hex() << ", lt=" << lt
             << ", emitted_lt=" << emitted_lt;
+  block_limit_status_->add_cell(msg_env);
   register_new_msg(std::move(new_msg));
   msg_metadata = std::move(env.metadata);
   return true;
@@ -4241,11 +4273,7 @@ bool Collator::enqueue_message(block::NewOutMsg msg, td::RefInt256 fwd_fees_rema
     }
     ++dispatch_dict_size;
     dispatch_queue_->set(src_addr, block::pack_account_dispatch_queue(dispatch_dict, dispatch_dict_size));
-    ++dispatch_queue_ops_;
-    if (!(dispatch_queue_ops_ & 63)) {
-      return block_limit_status_->add_proof(dispatch_queue_->get_root_cell());
-    }
-    return true;
+    return register_dispatch_queue_op();
   }
 
   auto next_hop = block::interpolate_addr(src_prefix, dest_prefix, route_info.second);
@@ -5131,6 +5159,23 @@ bool Collator::register_out_msg_queue_op(bool force) {
 }
 
 /**
+ * Registers a dispatch queue message queue operation.
+ * Adds the proof to the block limit status every 64 operations.
+ *
+ * @param force If true, the proof will always be added to the block limit status.
+ *
+ * @returns True if the operation was successfully registered, false otherwise.
+ */
+bool Collator::register_dispatch_queue_op(bool force) {
+  ++dispatch_queue_ops_;
+  if (force || !(dispatch_queue_ops_ & 63)) {
+    return block_limit_status_->add_proof(dispatch_queue_->get_root_cell());
+  } else {
+    return true;
+  }
+}
+
+/**
  * Creates a new shard state and the Merkle update.
  *
  * @returns True if the shard state and Merkle update were successfully created, false otherwise.
@@ -5255,9 +5300,10 @@ bool Collator::compute_out_msg_queue_info(Ref<vm::Cell>& out_msg_queue_info) {
   vm::CellSlice maybe_extra = cb.as_cellslice();
   cb.reset();
 
-  return register_out_msg_queue_op(true) && out_msg_queue_->append_dict_to_bool(cb)  // _ out_queue:OutMsgQueue
-         && processed_upto_->pack(cb)                                                // proc_info:ProcessedInfo
-         && cb.append_cellslice_bool(maybe_extra)                                    // extra:(Maybe OutMsgQueueExtra)
+  return register_out_msg_queue_op(true) && register_dispatch_queue_op(true) &&
+         out_msg_queue_->append_dict_to_bool(cb)   // _ out_queue:OutMsgQueue
+         && processed_upto_->pack(cb)              // proc_info:ProcessedInfo
+         && cb.append_cellslice_bool(maybe_extra)  // extra:(Maybe OutMsgQueueExtra)
          && cb.finalize_to(out_msg_queue_info);
 }
 

@@ -1779,7 +1779,7 @@ Ref<Cell> DictionaryFixed::dict_combine_with(Ref<Cell> dict1, Ref<Cell> dict2, t
                                              int mode, int skip1, int skip2) const {
   if (dict1.is_null()) {
     assert(!skip2);
-    if ((mode & 1) && dict2.is_null()) {
+    if ((mode & 1) && dict2.not_null()) {
       throw CombineError{};
     }
     return dict2;
@@ -1854,11 +1854,11 @@ Ref<Cell> DictionaryFixed::dict_combine_with(Ref<Cell> dict1, Ref<Cell> dict2, t
     key_buffer[-1] = 0;
     // combine left subtrees
     auto c1 = dict_combine_with(label1.remainder->prefetch_ref(0), label2.remainder->prefetch_ref(0), key_buffer,
-                                n - c - 1, total_key_len, combine_func);
+                                n - c - 1, total_key_len, combine_func, mode);
     key_buffer[-1] = 1;
     // combine right subtrees
     auto c2 = dict_combine_with(label1.remainder->prefetch_ref(1), label2.remainder->prefetch_ref(1), key_buffer,
-                                n - c - 1, total_key_len, combine_func);
+                                n - c - 1, total_key_len, combine_func, mode);
     label1.remainder.clear();
     label2.remainder.clear();
     // c1 and c2 are merged left and right children of dict1 and dict2

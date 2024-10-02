@@ -148,6 +148,7 @@ class ValidatorGroup : public td::actor::Actor {
     std::vector<td::Promise<BlockCandidate>> promises;
   };
   std::shared_ptr<CachedCollatedBlock> cached_collated_block_;
+  td::CancellationTokenSource cancellation_token_source_;
 
   void generated_block_candidate(std::shared_ptr<CachedCollatedBlock> cache, td::Result<BlockCandidate> R);
 

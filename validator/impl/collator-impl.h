@@ -77,6 +77,8 @@ class Collator final : public td::actor::Actor {
   td::Timestamp queue_cleanup_timeout_, soft_timeout_, medium_timeout_;
   td::Promise<BlockCandidate> main_promise;
   unsigned mode_ = 0;
+  int attempt_idx_;
+  bool allow_repeat_collation_ = false;
   ton::BlockSeqno last_block_seqno{0};
   ton::BlockSeqno prev_mc_block_seqno{0};
   ton::BlockSeqno new_block_seqno{0};
@@ -92,7 +94,7 @@ class Collator final : public td::actor::Actor {
   Collator(ShardIdFull shard, bool is_hardfork, BlockIdExt min_masterchain_block_id, std::vector<BlockIdExt> prev,
            Ref<ValidatorSet> validator_set, Ed25519_PublicKey collator_id, Ref<CollatorOptions> collator_opts,
            td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout, td::Promise<BlockCandidate> promise,
-           td::CancellationToken cancellation_token, unsigned mode);
+           td::CancellationToken cancellation_token, unsigned mode, int attempt_idx);
   ~Collator() override = default;
   bool is_busy() const {
     return busy_;
@@ -330,6 +332,7 @@ class Collator final : public td::actor::Actor {
   bool insert_out_msg(Ref<vm::Cell> out_msg);
   bool insert_out_msg(Ref<vm::Cell> out_msg, td::ConstBitPtr msg_hash);
   bool register_out_msg_queue_op(bool force = false);
+  bool register_dispatch_queue_op(bool force = false);
   bool update_min_mc_seqno(ton::BlockSeqno some_mc_seqno);
   bool combine_account_transactions();
   bool update_public_libraries();
