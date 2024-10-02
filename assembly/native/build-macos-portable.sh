@@ -88,7 +88,7 @@ if [ ! -d "openssl_3" ]; then
   cd openssl_3
   opensslPath=`pwd`
   git checkout openssl-3.1.4
-  ./config -static
+  ./config
   make build_libs -j12
   test $? -eq 0 || { echo "Can't compile openssl_3"; exit 1; }
   cd ..
