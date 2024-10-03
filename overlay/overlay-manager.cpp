@@ -188,7 +188,7 @@ void OverlayManager::receive_message(adnl::AdnlNodeIdShort src, adnl::AdnlNodeId
     return;
   }
 
-  td::actor::send_closure(it2->second.overlay, &Overlay::update_throughput_in_ctr, src, (td::uint32)data.size(), false);
+  td::actor::send_closure(it2->second.overlay, &Overlay::update_throughput_in_ctr, src, data.size(), false, false);
   td::actor::send_closure(it2->second.overlay, &Overlay::receive_message, src, std::move(extra), std::move(data));
 }
 
@@ -225,7 +225,14 @@ void OverlayManager::receive_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdSh
     return;
   }
 
-  td::actor::send_closure(it2->second.overlay, &Overlay::update_throughput_in_ctr, src, (td::uint32)data.size(), true);
+  td::actor::send_closure(it2->second.overlay, &Overlay::update_throughput_in_ctr, src, data.size(), true, false);
+  promise = [overlay = it2->second.overlay.get(), promise = std::move(promise),
+             src](td::Result<td::BufferSlice> R) mutable {
+    if (R.is_ok()) {
+      td::actor::send_closure(overlay, &Overlay::update_throughput_out_ctr, src, R.ok().size(), false, true);
+    }
+    promise.set_result(std::move(R));
+  };
   td::actor::send_closure(it2->second.overlay, &Overlay::receive_query, src, std::move(extra), std::move(data),
                           std::move(promise));
 }
@@ -243,8 +250,14 @@ void OverlayManager::send_query_via(adnl::AdnlNodeIdShort dst, adnl::AdnlNodeIdS
   if (it != overlays_.end()) {
     auto it2 = it->second.find(overlay_id);
     if (it2 != it->second.end()) {
-      td::actor::send_closure(it2->second.overlay, &Overlay::update_throughput_out_ctr, dst, (td::uint32)query.size(),
-                              true);
+      td::actor::send_closure(it2->second.overlay, &Overlay::update_throughput_out_ctr, dst, query.size(), true, false);
+      promise = [overlay = it2->second.overlay.get(), promise = std::move(promise),
+                 dst](td::Result<td::BufferSlice> R) mutable {
+        if (R.is_ok()) {
+          td::actor::send_closure(overlay, &Overlay::update_throughput_in_ctr, dst, R.ok().size(), false, true);
+        }
+        promise.set_result(std::move(R));
+      };
       if (!it2->second.member_certificate.empty()) {
         extra->flags_ |= 1;
         extra->certificate_ = it2->second.member_certificate.tl();
@@ -273,7 +286,7 @@ void OverlayManager::send_message_via(adnl::AdnlNodeIdShort dst, adnl::AdnlNodeI
   if (it != overlays_.end()) {
     auto it2 = it->second.find(overlay_id);
     if (it2 != it->second.end()) {
-      td::actor::send_closure(it2->second.overlay, &Overlay::update_throughput_out_ctr, dst, (td::uint32)object.size(),
+      td::actor::send_closure(it2->second.overlay, &Overlay::update_throughput_out_ctr, dst, object.size(), false,
                               false);
       if (!it2->second.member_certificate.empty()) {
         // do not send certificate here, we hope that all our neighbours already know of out certificate

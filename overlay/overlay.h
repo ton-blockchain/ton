@@ -72,8 +72,10 @@ class Overlay : public td::actor::Actor {
   virtual void receive_nodes_from_db(tl_object_ptr<ton_api::overlay_nodes> nodes) = 0;
   virtual void receive_nodes_from_db_v2(tl_object_ptr<ton_api::overlay_nodesV2> nodes) = 0;
   virtual void get_stats(td::Promise<tl_object_ptr<ton_api::engine_validator_overlayStats>> promise) = 0;
-  virtual void update_throughput_out_ctr(adnl::AdnlNodeIdShort peer_id, td::uint32 msg_size, bool is_query) = 0;
-  virtual void update_throughput_in_ctr(adnl::AdnlNodeIdShort peer_id, td::uint32 msg_size, bool is_query) = 0;
+  virtual void update_throughput_out_ctr(adnl::AdnlNodeIdShort peer_id, td::uint64 msg_size, bool is_query,
+                                         bool is_response) = 0;
+  virtual void update_throughput_in_ctr(adnl::AdnlNodeIdShort peer_id, td::uint64 msg_size, bool is_query,
+                                        bool is_response) = 0;
   virtual void update_peer_ip_str(adnl::AdnlNodeIdShort peer_id, td::string ip_str) = 0;
   virtual void update_member_certificate(OverlayMemberCertificate cert) = 0;
   virtual void update_root_member_list(std::vector<adnl::AdnlNodeIdShort> nodes,

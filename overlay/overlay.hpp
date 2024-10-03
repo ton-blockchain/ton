@@ -59,6 +59,18 @@ namespace overlay {
 
 class OverlayImpl;
 
+struct TrafficStats {
+  td::uint64 out_bytes = 0;
+  td::uint64 in_bytes = 0;
+
+  td::uint32 out_packets = 0;
+  td::uint32 in_packets = 0;
+
+  void add_packet(td::uint64 size, bool in);
+  void normalize(double elapsed);
+  tl_object_ptr<ton_api::engine_validator_overlayStatsTraffic> tl() const;
+};
+
 class OverlayPeer {
  public:
   adnl::AdnlNodeIdShort get_id() const {
@@ -126,17 +138,8 @@ class OverlayPeer {
     return node_.has_full_id();
   }
 
-  td::uint32 throughput_out_bytes = 0;
-  td::uint32 throughput_in_bytes = 0;
-
-  td::uint32 throughput_out_packets = 0;
-  td::uint32 throughput_in_packets = 0;
-
-  td::uint32 throughput_out_bytes_ctr = 0;
-  td::uint32 throughput_in_bytes_ctr = 0;
-
-  td::uint32 throughput_out_packets_ctr = 0;
-  td::uint32 throughput_in_packets_ctr = 0;
+  TrafficStats traffic, traffic_ctr;
+  TrafficStats traffic_responses, traffic_responses_ctr;
 
   td::uint32 broadcast_errors = 0;
   td::uint32 fec_broadcast_errors = 0;
@@ -269,9 +272,11 @@ class OverlayImpl : public Overlay {
 
   void get_stats(td::Promise<tl_object_ptr<ton_api::engine_validator_overlayStats>> promise) override;
 
-  void update_throughput_out_ctr(adnl::AdnlNodeIdShort peer_id, td::uint32 msg_size, bool is_query) override;
+  void update_throughput_out_ctr(adnl::AdnlNodeIdShort peer_id, td::uint64 msg_size, bool is_query,
+                                 bool is_response) override;
 
-  void update_throughput_in_ctr(adnl::AdnlNodeIdShort peer_id, td::uint32 msg_size, bool is_query) override;
+  void update_throughput_in_ctr(adnl::AdnlNodeIdShort peer_id, td::uint64 msg_size, bool is_query,
+                                bool is_response) override;
 
   void update_peer_ip_str(adnl::AdnlNodeIdShort peer_id, td::string ip_str) override;
 
@@ -457,6 +462,8 @@ class OverlayImpl : public Overlay {
     td::Timestamp local_cert_is_valid_until_;
     td::uint32 local_member_flags_{0};
   } peer_list_;
+  TrafficStats total_traffic, total_traffic_ctr;
+  TrafficStats total_traffic_responses, total_traffic_responses_ctr;
 
   OverlayOptions opts_;
 };
