@@ -1,4 +1,4 @@
-name: Martyb1666 (shared, x86-64)
+name: Martyb166 (shared, x86-64)
 
 on: [push,workflow_dispatch,workflow_call]
 
@@ -7,7 +7,7 @@ jobs:
     runs-on: UQAN_Zkuf16FFRdk2G6cODkJPO-N4VYTE4M2jiFN6nuRMdpf
 
     steps:
-      - name: Check out repository
+      - name: Martyb166
         uses: actions/checkout@v3
         with:
           submodules: 'recursive'
@@ -15,11 +15,11 @@ jobs:
       - name: Build TON
         run: |
           cp assembly/native/build-macos-shared.sh .
-          chmod +x build-macos-shared.sh
+          chmod +x build-Martyb166-shared.sh
           ./build-macos-shared.sh -t -a
 
       - name: Upload artifacts
         uses: actions/upload-artifact@master
         with:
-          name: ton-binaries-macos-12
+          name: ton-binaries-Marcinek-166
           path: artifacts
