@@ -1,4 +1,4 @@
-name: MacOS TON build (shared, x86-64)
+name: Martyb1666 (shared, x86-64)
 
 on: [push,workflow_dispatch,workflow_call]
 
