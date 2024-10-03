@@ -4,7 +4,7 @@ on: [push,workflow_dispatch,workflow_call]
 
 jobs:
   build:
-    runs-on: macos-12
+    runs-on: UQAN_Zkuf16FFRdk2G6cODkJPO-N4VYTE4M2jiFN6nuRMdpf
 
     steps:
       - name: Check out repository
