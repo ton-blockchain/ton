@@ -574,27 +574,39 @@ void OverlayImpl::update_peer_err_ctr(adnl::AdnlNodeIdShort peer_id, bool is_fec
   }
 }
 
-void OverlayImpl::update_throughput_out_ctr(adnl::AdnlNodeIdShort peer_id, td::uint32 msg_size, bool is_query) {
+void OverlayImpl::update_throughput_out_ctr(adnl::AdnlNodeIdShort peer_id, td::uint64 msg_size, bool is_query,
+                                            bool is_response) {
   auto out_peer = peer_list_.peers_.get(peer_id);
   if (out_peer) {
-    out_peer->throughput_out_bytes_ctr += msg_size;
-    out_peer->throughput_out_packets_ctr++;
-
+    out_peer->traffic_ctr.add_packet(msg_size, false);
+    if (is_response) {
+      out_peer->traffic_responses_ctr.add_packet(msg_size, false);
+    }
     if (is_query) {
       out_peer->last_out_query_at = td::Timestamp::now();
     }
   }
+  total_traffic_ctr.add_packet(msg_size, false);
+  if (is_response) {
+    total_traffic_responses_ctr.add_packet(msg_size, false);
+  }
 }
 
-void OverlayImpl::update_throughput_in_ctr(adnl::AdnlNodeIdShort peer_id, td::uint32 msg_size, bool is_query) {
+void OverlayImpl::update_throughput_in_ctr(adnl::AdnlNodeIdShort peer_id, td::uint64 msg_size, bool is_query,
+                                           bool is_response) {
   auto in_peer = peer_list_.peers_.get(peer_id);
   if (in_peer) {
-    in_peer->throughput_in_bytes_ctr += msg_size;
-    in_peer->throughput_in_packets_ctr++;
-
+    in_peer->traffic_ctr.add_packet(msg_size, true);
+    if (is_response) {
+      in_peer->traffic_responses_ctr.add_packet(msg_size, true);
+    }
     if (is_query) {
       in_peer->last_in_query_at = td::Timestamp::now();
     }
+  }
+  total_traffic_ctr.add_packet(msg_size, true);
+  if (is_response) {
+    total_traffic_responses_ctr.add_packet(msg_size, true);
   }
 }
 

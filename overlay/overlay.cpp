@@ -38,6 +38,10 @@ namespace overlay {
 
 const OverlayMemberCertificate OverlayNode::empty_certificate_{};
 
+static std::string overlay_actor_name(const OverlayIdFull &overlay_id) {
+  return PSTRING() << "overlay." << overlay_id.compute_short_id().bits256_value().to_hex().substr(0, 4);
+}
+
 td::actor::ActorOwn<Overlay> Overlay::create_public(td::actor::ActorId<keyring::Keyring> keyring,
                                                     td::actor::ActorId<adnl::Adnl> adnl,
                                                     td::actor::ActorId<OverlayManager> manager,
@@ -45,11 +49,10 @@ td::actor::ActorOwn<Overlay> Overlay::create_public(td::actor::ActorId<keyring::
                                                     adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
                                                     std::unique_ptr<Overlays::Callback> callback,
                                                     OverlayPrivacyRules rules, td::string scope, OverlayOptions opts) {
-  auto R = td::actor::create_actor<OverlayImpl>(
-      "overlay", keyring, adnl, manager, dht_node, local_id, std::move(overlay_id), OverlayType::Public,
-      std::vector<adnl::AdnlNodeIdShort>(), std::vector<PublicKeyHash>(), OverlayMemberCertificate{}, std::move(callback),
-      std::move(rules), std::move(scope), std::move(opts));
-  return td::actor::ActorOwn<Overlay>(std::move(R));
+  return td::actor::create_actor<OverlayImpl>(
+      overlay_actor_name(overlay_id), keyring, adnl, manager, dht_node, local_id, std::move(overlay_id),
+      OverlayType::Public, std::vector<adnl::AdnlNodeIdShort>(), std::vector<PublicKeyHash>(),
+      OverlayMemberCertificate{}, std::move(callback), std::move(rules), std::move(scope), std::move(opts));
 }
 
 td::actor::ActorOwn<Overlay> Overlay::create_private(
@@ -57,11 +60,10 @@ td::actor::ActorOwn<Overlay> Overlay::create_private(
     td::actor::ActorId<OverlayManager> manager, td::actor::ActorId<dht::Dht> dht_node, adnl::AdnlNodeIdShort local_id,
     OverlayIdFull overlay_id, std::vector<adnl::AdnlNodeIdShort> nodes, std::unique_ptr<Overlays::Callback> callback,
     OverlayPrivacyRules rules, std::string scope, OverlayOptions opts) {
-  auto R = td::actor::create_actor<OverlayImpl>("overlay", keyring, adnl, manager, dht_node, local_id,
-                                                std::move(overlay_id), OverlayType::FixedMemberList, std::move(nodes),
-                                                std::vector<PublicKeyHash>(), OverlayMemberCertificate{},
-                                                std::move(callback), std::move(rules), std::move(scope));
-  return td::actor::ActorOwn<Overlay>(std::move(R));
+  return td::actor::create_actor<OverlayImpl>(
+      overlay_actor_name(overlay_id), keyring, adnl, manager, dht_node, local_id, std::move(overlay_id),
+      OverlayType::FixedMemberList, std::move(nodes), std::vector<PublicKeyHash>(), OverlayMemberCertificate{},
+      std::move(callback), std::move(rules), std::move(scope));
 }
 
 td::actor::ActorOwn<Overlay> Overlay::create_semiprivate(
@@ -70,11 +72,10 @@ td::actor::ActorOwn<Overlay> Overlay::create_semiprivate(
     OverlayIdFull overlay_id, std::vector<adnl::AdnlNodeIdShort> nodes, std::vector<PublicKeyHash> root_public_keys,
     OverlayMemberCertificate cert, std::unique_ptr<Overlays::Callback> callback, OverlayPrivacyRules rules,
     std::string scope, OverlayOptions opts) {
-  auto R = td::actor::create_actor<OverlayImpl>(
-      "overlay", keyring, adnl, manager, dht_node, local_id, std::move(overlay_id), OverlayType::CertificatedMembers,
-      std::move(nodes), std::move(root_public_keys), std::move(cert), std::move(callback), std::move(rules),
-      std::move(scope), std::move(opts));
-  return td::actor::ActorOwn<Overlay>(std::move(R));
+  return td::actor::create_actor<OverlayImpl>(overlay_actor_name(overlay_id), keyring, adnl, manager, dht_node,
+                                              local_id, std::move(overlay_id), OverlayType::CertificatedMembers,
+                                              std::move(nodes), std::move(root_public_keys), std::move(cert),
+                                              std::move(callback), std::move(rules), std::move(scope), std::move(opts));
 }
 
 OverlayImpl::OverlayImpl(td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
@@ -281,17 +282,12 @@ void OverlayImpl::alarm() {
 
     auto SelfId = actor_id(this);
     iterate_all_peers([&](const adnl::AdnlNodeIdShort &key, OverlayPeer &peer) {
-      peer.throughput_out_bytes = static_cast<td::uint32>(peer.throughput_out_bytes_ctr / t_elapsed);
-      peer.throughput_in_bytes = static_cast<td::uint32>(peer.throughput_in_bytes_ctr / t_elapsed);
-
-      peer.throughput_out_packets = static_cast<td::uint32>(peer.throughput_out_packets_ctr / t_elapsed);
-      peer.throughput_in_packets = static_cast<td::uint32>(peer.throughput_in_packets_ctr / t_elapsed);
-
-      peer.throughput_out_bytes_ctr = 0;
-      peer.throughput_in_bytes_ctr = 0;
-
-      peer.throughput_out_packets_ctr = 0;
-      peer.throughput_in_packets_ctr = 0;
+      peer.traffic = peer.traffic_ctr;
+      peer.traffic.normalize(t_elapsed);
+      peer.traffic_ctr = {};
+      peer.traffic_responses = peer.traffic_responses_ctr;
+      peer.traffic_responses.normalize(t_elapsed);
+      peer.traffic_responses_ctr = {};
 
       auto P = td::PromiseCreator::lambda([SelfId, peer_id = key](td::Result<td::string> result) {
         result.ensure();
@@ -300,6 +296,12 @@ void OverlayImpl::alarm() {
 
       td::actor::send_closure(adnl_, &adnl::AdnlSenderInterface::get_conn_ip_str, local_id_, key, std::move(P));
     });
+    total_traffic = total_traffic_ctr;
+    total_traffic.normalize(t_elapsed);
+    total_traffic_ctr = {};
+    total_traffic_responses = total_traffic_responses_ctr;
+    total_traffic_responses.normalize(t_elapsed);
+    total_traffic_responses_ctr = {};
 
     update_throughput_at_ = td::Timestamp::in(50.0);
     last_throughput_update_ = td::Timestamp::now();
@@ -691,12 +693,8 @@ void OverlayImpl::get_stats(td::Promise<tl_object_ptr<ton_api::engine_validator_
   iterate_all_peers([&](const adnl::AdnlNodeIdShort &key, const OverlayPeer &peer) {
     auto node_obj = create_tl_object<ton_api::engine_validator_overlayStatsNode>();
     node_obj->adnl_id_ = key.bits256_value();
-    node_obj->t_out_bytes_ = peer.throughput_out_bytes;
-    node_obj->t_in_bytes_ = peer.throughput_in_bytes;
-
-    node_obj->t_out_pckts_ = peer.throughput_out_packets;
-    node_obj->t_in_pckts_ = peer.throughput_in_packets;
-
+    node_obj->traffic_ = peer.traffic.tl();
+    node_obj->traffic_responses_ = peer.traffic_responses.tl();
     node_obj->ip_addr_ = peer.ip_addr_str;
 
     node_obj->last_in_query_ = static_cast<td::uint32>(peer.last_in_query_at.at_unix());
@@ -712,6 +710,8 @@ void OverlayImpl::get_stats(td::Promise<tl_object_ptr<ton_api::engine_validator_
     res->nodes_.push_back(std::move(node_obj));
   });
 
+  res->total_traffic_ = total_traffic.tl();
+  res->total_traffic_responses_ = total_traffic_responses.tl();
   res->stats_.push_back(
       create_tl_object<ton_api::engine_validator_oneStat>("neighbours_cnt", PSTRING() << neighbours_cnt()));
 
@@ -730,6 +730,27 @@ bool OverlayImpl::has_valid_broadcast_certificate(const PublicKeyHash &source, s
   auto it = certs_.find(source);
   return check_source_eligible(source, it == certs_.end() ? nullptr : it->second.get(), (td::uint32)size, is_fec) !=
          BroadcastCheckResult::Forbidden;
+}
+
+void TrafficStats::add_packet(td::uint64 size, bool in) {
+  if (in) {
+    ++in_packets;
+    in_bytes += size;
+  } else {
+    ++out_packets;
+    out_bytes += size;
+  }
+}
+
+void TrafficStats::normalize(double elapsed) {
+  out_bytes = static_cast<td::uint64>(out_bytes / elapsed);
+  in_bytes = static_cast<td::uint64>(in_bytes / elapsed);
+  out_packets = static_cast<td::uint32>(out_packets / elapsed);
+  in_packets = static_cast<td::uint32>(in_packets / elapsed);
+}
+
+tl_object_ptr<ton_api::engine_validator_overlayStatsTraffic> TrafficStats::tl() const {
+  return create_tl_object<ton_api::engine_validator_overlayStatsTraffic>(out_bytes, in_bytes, out_packets, in_packets);
 }
 
 }  // namespace overlay
