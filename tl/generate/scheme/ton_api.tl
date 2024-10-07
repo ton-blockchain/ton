@@ -764,7 +764,7 @@ engine.validator.setStateSerializerEnabled enabled:Bool = engine.validator.Succe
 engine.validator.setCollatorOptionsJson json:string = engine.validator.Success;
 engine.validator.getCollatorOptionsJson = engine.validator.JsonConfig;
 
-engine.validator.getAdnlStats = adnl.Stats;
+engine.validator.getAdnlStats all:Bool = adnl.Stats;
 engine.validator.getActorTextStats = engine.validator.TextStats;
 
 ---types---
