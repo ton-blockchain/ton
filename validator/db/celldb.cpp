@@ -206,6 +206,7 @@ void CellDbIn::store_cell(BlockIdExt block_id, td::Ref<vm::Cell> cell, td::Promi
     timer_prepare.pause();
     td::actor::send_lambda(
         SelfId, [=, this, timer = std::move(timer), promise = std::move(promise), cell = std::move(cell)]() mutable {
+          TD_PERF_COUNTER(celldb_store_cell);
           auto empty = get_empty_key_hash();
           auto ER = get_block(empty);
           ER.ensure();
@@ -440,6 +441,7 @@ void CellDbIn::gc_cont2(BlockHandle handle) {
         td::actor::send_lambda(SelfId, [this, timer_boc = std::move(timer_boc), F = std::move(F), key_hash,
                                         P = std::move(P), N = std::move(N), cell = std::move(cell),
                                         timer = std::move(timer), timer_all = std::move(timer_all), handle]() mutable {
+          TD_PERF_COUNTER(celldb_gc_cell);
           vm::CellStorer stor{*cell_db_};
           timer_boc.reset();
 
