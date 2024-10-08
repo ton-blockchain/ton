@@ -28,7 +28,7 @@ namespace ton {
 
 namespace validator {
 
-static bool send_candidate_broadcast(const validatorsession::BlockSourceInfo &source_info, bool is_masterchain) {
+static bool need_send_candidate_broadcast(const validatorsession::BlockSourceInfo &source_info, bool is_masterchain) {
   return source_info.first_block_round == source_info.round && source_info.source_priority == 0 && !is_masterchain;
 }
 
@@ -79,10 +79,8 @@ void ValidatorGroup::generated_block_candidate(validatorsession::BlockSourceInfo
   } else {
     auto candidate = R.move_as_ok();
     add_available_block_candidate(candidate.pubkey.as_bits256(), candidate.id, candidate.collated_file_hash);
-    if (send_candidate_broadcast(source_info, shard_.is_masterchain())) {
-      td::actor::send_closure(manager_, &ValidatorManager::send_block_candidate_broadcast, candidate.id,
-                              validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash(),
-                              candidate.data.clone());
+    if (need_send_candidate_broadcast(source_info, shard_.is_masterchain())) {
+      send_block_candidate_broadcast(candidate.id, candidate.data.clone());
     }
     cache->result = std::move(candidate);
     for (auto &p : cache->promises) {
@@ -134,9 +132,8 @@ void ValidatorGroup::validate_block_candidate(validatorsession::BlockSourceInfo 
             td::actor::send_closure(SelfId, &ValidatorGroup::update_approve_cache, block_to_cache_key(block), ts);
             td::actor::send_closure(SelfId, &ValidatorGroup::add_available_block_candidate, block.pubkey.as_bits256(),
                                     block.id, block.collated_file_hash);
-            if (send_candidate_broadcast(source_info, block.id.is_masterchain())) {
-              td::actor::send_closure(manager, &ValidatorManager::send_block_candidate_broadcast, block.id,
-                                      validator_set->get_catchain_seqno(), validator_set->get_validator_set_hash(),
+            if (need_send_candidate_broadcast(source_info, block.id.is_masterchain())) {
+              td::actor::send_closure(SelfId, &ValidatorGroup::send_block_candidate_broadcast, block.id,
                                       block.data.clone());
             }
             promise.set_value({ts, false});
@@ -192,13 +189,14 @@ void ValidatorGroup::accept_block_candidate(validatorsession::BlockSourceInfo so
   // Creator of the block sends broadcast to private block overlay unless candidate broadcast was sent
   // Any node sends broadcast to custom overlays unless candidate broadcast was sent
   int send_broadcast_mode = 0;
+  bool sent_candidate = sent_candidate_broadcasts_.contains(block->block_id());
   if (source_info.source.compute_short_id() == local_id_) {
     send_broadcast_mode |= fullnode::FullNode::broadcast_mode_public;
-    if (!send_candidate_broadcast(source_info, shard_.is_masterchain())) {
+    if (!sent_candidate) {
       send_broadcast_mode |= fullnode::FullNode::broadcast_mode_private_block;
     }
   }
-  if (!send_candidate_broadcast(source_info, shard_.is_masterchain())) {
+  if (!sent_candidate) {
     send_broadcast_mode |= fullnode::FullNode::broadcast_mode_custom;
   }
 

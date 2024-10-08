@@ -162,6 +162,16 @@ class ValidatorGroup : public td::actor::Actor {
   void add_available_block_candidate(td::Bits256 source, BlockIdExt id, FileHash collated_data_hash) {
     available_block_candidates_.emplace(source, id, collated_data_hash);
   }
+
+  std::set<BlockIdExt> sent_candidate_broadcasts_;
+
+  void send_block_candidate_broadcast(BlockIdExt id, td::BufferSlice data) {
+    if (sent_candidate_broadcasts_.insert(id).second) {
+      td::actor::send_closure(manager_, &ValidatorManager::send_block_candidate_broadcast, id,
+                              validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash(),
+                              std::move(data));
+    }
+  }
 };
 
 }  // namespace validator
