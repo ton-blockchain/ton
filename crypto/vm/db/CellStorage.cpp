@@ -198,6 +198,7 @@ td::Result<CellLoader::LoadResult> CellLoader::load_refcnt(td::Slice hash) {
   if (res.refcnt_ == -1) {
     parse(res.refcnt_, parser);
   }
+  TRY_STATUS(parser.get_status());
   return res;
 }
 

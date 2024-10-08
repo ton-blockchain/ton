@@ -183,6 +183,9 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
   }
 
   td::Status prepare_commit() override {
+    if (pca_state_) {
+      return td::Status::Error("prepare_commit_async is not finished");
+    }
     if (is_prepared_for_commit()) {
       return td::Status::OK();
     }
