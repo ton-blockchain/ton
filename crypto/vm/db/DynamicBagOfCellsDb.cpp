@@ -598,7 +598,7 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
     td::Promise<td::Unit> promise_;
 
     struct CellInfo2 {
-      CellInfo *info;
+      CellInfo *info{};
       std::vector<CellInfo2 *> parents;
       unsigned remaining_children = 0;
       Cell::Hash key() const {
@@ -649,6 +649,7 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
   std::unique_ptr<PrepareCommitAsyncState> pca_state_;
 
   void prepare_commit_async(std::shared_ptr<AsyncExecutor> executor, td::Promise<td::Unit> promise) override {
+    hash_table_ = {};
     if (pca_state_) {
       promise.set_error(td::Status::Error("Other prepare_commit_async is not finished"));
       return;
@@ -741,6 +742,7 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
         pca_load_from_db(parent_info);
       }
     }
+    CHECK(pca_state_->remaining_ != 0);
     if (--pca_state_->remaining_ == 0) {
       prepare_commit_async_cont();
     }
