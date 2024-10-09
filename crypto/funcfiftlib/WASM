@@ -1,0 +1,1 @@
+func -o output.fif -SPA imports/stdlib.fc imports/params.fc imports/constants.fc imports/jetton-utils.fc imports/op-codes.fc imports/utils.fc imports/discovery-params.fc jetton-minter.fc -> WASM(FunC -> Fift -> BOC)
