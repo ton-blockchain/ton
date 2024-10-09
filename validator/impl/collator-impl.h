@@ -221,6 +221,7 @@ class Collator final : public td::actor::Actor {
   td::uint64 hard_defer_out_queue_size_limit_;
 
   std::unique_ptr<vm::AugmentedDictionary> account_dict_estimator_;
+  std::set<td::Bits256> account_dict_estimator_added_accounts_;
   unsigned account_dict_ops_{0};
 
   bool msg_metadata_enabled_ = false;

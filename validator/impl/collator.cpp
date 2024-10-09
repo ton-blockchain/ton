@@ -5056,8 +5056,9 @@ bool Collator::register_dispatch_queue_op(bool force) {
  * @returns True on success, false otherwise.
  */
 bool Collator::update_account_dict_estimation(const block::transaction::Transaction& trans) {
-  if (trans.is_first) {
-    const block::Account& acc = trans.account;
+  const block::Account& acc = trans.account;
+  if (acc.orig_total_state->get_hash() != acc.total_state->get_hash() &&
+      account_dict_estimator_added_accounts_.insert(acc.addr).second) {
     // see combine_account_transactions
     if (acc.status == block::Account::acc_nonexist) {
       account_dict_estimator_->lookup_delete(acc.addr);
