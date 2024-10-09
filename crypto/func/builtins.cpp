@@ -264,7 +264,7 @@ int emulate_lshift(int a, int b) {
   }
   int t = ((b & VarDescr::_NonZero) ? VarDescr::_Even : 0);
   t |= b & VarDescr::_Finite;
-  return emulate_mul(a, VarDescr::_Int | VarDescr::_Pos | VarDescr::_NonZero | VarDescr::_Even | t);
+  return emulate_mul(a, VarDescr::_Int | VarDescr::_Pos | VarDescr::_NonZero | t);
 }
 
 int emulate_div(int a, int b) {
@@ -310,7 +310,7 @@ int emulate_rshift(int a, int b) {
   }
   int t = ((b & VarDescr::_NonZero) ? VarDescr::_Even : 0);
   t |= b & VarDescr::_Finite;
-  return emulate_div(a, VarDescr::_Int | VarDescr::_Pos | VarDescr::_NonZero | VarDescr::_Even | t);
+  return emulate_div(a, VarDescr::_Int | VarDescr::_Pos | VarDescr::_NonZero | t);
 }
 
 int emulate_mod(int a, int b, int round_mode = -1) {
