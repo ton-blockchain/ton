@@ -74,29 +74,30 @@ void ShardClient::got_init_state_from_db(td::Ref<MasterchainState> state) {
 }
 
 void ShardClient::start_up_init_mode() {
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
-    R.ensure();
-    td::actor::send_closure(SelfId, &ShardClient::apply_all_shards);
-  });
-
-  td::MultiPromise mp;
-  auto ig = mp.init_guard();
-  ig.add_promise(std::move(P));
-
-  auto vec = masterchain_state_->get_shards();
-  for (auto &shard : vec) {
-    if (opts_->need_monitor(shard->shard(), masterchain_state_)) {
-      auto P = td::PromiseCreator::lambda([promise = ig.get_promise()](td::Result<td::Ref<ShardState>> R) mutable {
-        R.ensure();
-        promise.set_value(td::Unit());
-      });
-
-      td::actor::create_actor<DownloadShardState>("downloadstate", shard->top_block_id(),
-                                                  masterchain_block_handle_->id(), 2, manager_,
-                                                  td::Timestamp::in(3600 * 3), std::move(P))
-          .release();
+  std::vector<BlockIdExt> shards;
+  for (const auto& s : masterchain_state_->get_shards()) {
+    if (opts_->need_monitor(s->shard(), masterchain_state_)) {
+      shards.push_back(s->top_block_id());
     }
   }
+  download_shard_states(masterchain_block_handle_->id(), std::move(shards), 0);
+}
+
+void ShardClient::download_shard_states(BlockIdExt masterchain_block_id, std::vector<BlockIdExt> shards, size_t idx) {
+  if (idx >= shards.size()) {
+    LOG(WARNING) << "downloaded all shard states";
+    applied_all_shards();
+    return;
+  }
+  BlockIdExt block_id = shards[idx];
+  td::actor::create_actor<DownloadShardState>(
+      "downloadstate", block_id, masterchain_block_handle_->id(), 2, manager_, td::Timestamp::in(3600 * 5),
+      [=, SelfId = actor_id(this), shards = std::move(shards)](td::Result<td::Ref<ShardState>> R) {
+        R.ensure();
+        td::actor::send_closure(SelfId, &ShardClient::download_shard_states, masterchain_block_id, std::move(shards),
+                                idx + 1);
+      })
+      .release();
 }
 
 void ShardClient::applied_all_shards() {

@@ -231,6 +231,10 @@ class ValidatorManagerImpl : public ValidatorManager {
                            td::uint32 validator_set_hash, td::Promise<td::Unit> promise) override {
     promise.set_value(td::Unit());
   }
+  void send_block_candidate_broadcast(BlockIdExt id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
+                                      td::BufferSlice data) {
+    callback_->send_block_candidate(id, cc_seqno, validator_set_hash, std::move(data));
+  }
 
   void wait_block_state_merge(BlockIdExt left_id, BlockIdExt right_id, td::uint32 priority, td::Timestamp timeout,
                               td::Promise<td::Ref<ShardState>> promise) override;
@@ -331,7 +335,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void send_top_shard_block_description(td::Ref<ShardTopBlockDescription> desc) override {
     UNREACHABLE();
   }
-  void send_block_broadcast(BlockBroadcast broadcast, bool custom_overlays_only) override {
+  void send_block_broadcast(BlockBroadcast broadcast, int mode) override {
   }
   void send_get_out_msg_queue_proof_request(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
                                             block::ImportedMsgQueueLimits limits,

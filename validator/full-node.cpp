@@ -354,17 +354,16 @@ void FullNodeImpl::send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_se
   }
 }
 
-void FullNodeImpl::send_broadcast(BlockBroadcast broadcast, bool custom_overlays_only) {
-  send_block_broadcast_to_custom_overlays(broadcast);
-  if (custom_overlays_only) {
-    return;
+void FullNodeImpl::send_broadcast(BlockBroadcast broadcast, int mode) {
+  if (mode & broadcast_mode_custom) {
+    send_block_broadcast_to_custom_overlays(broadcast);
   }
   auto shard = get_shard(broadcast.block_id.shard_full());
   if (shard.empty()) {
     VLOG(FULL_NODE_WARNING) << "dropping OUT broadcast to unknown shard";
     return;
   }
-  if (broadcast.block_id.is_masterchain()) {
+  if (mode & broadcast_mode_private_block) {
     if (!private_block_overlays_.empty()) {
       td::actor::send_closure(private_block_overlays_.begin()->second, &FullNodePrivateBlockOverlay::send_broadcast,
                               broadcast.clone());
@@ -374,7 +373,9 @@ void FullNodeImpl::send_broadcast(BlockBroadcast broadcast, bool custom_overlays
       td::actor::send_closure(fast_sync_overlay, &FullNodeFastSyncOverlay::send_broadcast, broadcast.clone());
     }
   }
-  td::actor::send_closure(shard, &FullNodeShard::send_broadcast, std::move(broadcast));
+  if (mode & broadcast_mode_public) {
+    td::actor::send_closure(shard, &FullNodeShard::send_broadcast, std::move(broadcast));
+  }
 }
 
 void FullNodeImpl::download_block(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
@@ -625,8 +626,8 @@ void FullNodeImpl::start_up() {
       td::actor::send_closure(id_, &FullNodeImpl::send_block_candidate, block_id, cc_seqno, validator_set_hash,
                               std::move(data));
     }
-    void send_broadcast(BlockBroadcast broadcast, bool custom_overlays_only) override {
-      td::actor::send_closure(id_, &FullNodeImpl::send_broadcast, std::move(broadcast), custom_overlays_only);
+    void send_broadcast(BlockBroadcast broadcast, int mode) override {
+      td::actor::send_closure(id_, &FullNodeImpl::send_broadcast, std::move(broadcast), mode);
     }
     void download_block(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
                         td::Promise<ReceivedBlock> promise) override {

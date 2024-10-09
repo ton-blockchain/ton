@@ -803,7 +803,7 @@ engine.validator.setStateSerializerEnabled enabled:Bool = engine.validator.Succe
 engine.validator.setCollatorOptionsJson json:string = engine.validator.Success;
 engine.validator.getCollatorOptionsJson = engine.validator.JsonConfig;
 
-engine.validator.getAdnlStats = adnl.Stats;
+engine.validator.getAdnlStats all:Bool = adnl.Stats;
 engine.validator.getActorTextStats = engine.validator.TextStats;
 
 engine.validator.addCollator adnl_id:int256 shard:tonNode.shardId = engine.validator.Success;

@@ -104,6 +104,8 @@ class ValidatorManager : public ValidatorManagerInterface {
 
   virtual void set_block_candidate(BlockIdExt id, BlockCandidate candidate, CatchainSeqno cc_seqno,
                                    td::uint32 validator_set_hash, td::Promise<td::Unit> promise) = 0;
+  virtual void send_block_candidate_broadcast(BlockIdExt id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
+                                              td::BufferSlice data) = 0;
 
   virtual void wait_block_state_merge(BlockIdExt left_id, BlockIdExt right_id, td::uint32 priority,
                                       td::Timestamp timeout, td::Promise<td::Ref<ShardState>> promise) = 0;
@@ -143,7 +145,7 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void send_external_message(td::Ref<ExtMessage> message) = 0;
   virtual void send_ihr_message(td::Ref<IhrMessage> message) = 0;
   virtual void send_top_shard_block_description(td::Ref<ShardTopBlockDescription> desc) = 0;
-  virtual void send_block_broadcast(BlockBroadcast broadcast, bool custom_overlays_only) = 0;
+  virtual void send_block_broadcast(BlockBroadcast broadcast, int mode) = 0;
   virtual void send_get_out_msg_queue_proof_request(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
                                                     block::ImportedMsgQueueLimits limits,
                                                     td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise) = 0;

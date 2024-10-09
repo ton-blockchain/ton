@@ -1327,7 +1327,8 @@ class GetAdnlStatsJsonQuery : public Query {
     return "getadnlstatsjson";
   }
   static std::string get_help() {
-    return "getadnlstatsjson <filename>\tsave adnl stats to <filename>";
+    return "getadnlstatsjson <filename> [all]\tsave adnl stats to <filename>. all - returns all peers (default - only "
+           "peers with traffic in the last 10 minutes)";
   }
   std::string name() const override {
     return get_name();
@@ -1335,6 +1336,7 @@ class GetAdnlStatsJsonQuery : public Query {
 
  private:
   std::string file_name_;
+  bool all_ = false;
 };
 
 class GetAdnlStatsQuery : public Query {
@@ -1349,7 +1351,8 @@ class GetAdnlStatsQuery : public Query {
     return "getadnlstats";
   }
   static std::string get_help() {
-    return "getadnlstats\tdisplay adnl stats";
+    return "getadnlstats [all]\tdisplay adnl stats. all - returns all peers (default - only peers with traffic in the "
+           "last 10 minutes)";
   }
   std::string name() const override {
     return get_name();
@@ -1357,6 +1360,7 @@ class GetAdnlStatsQuery : public Query {
 
  private:
   std::string file_name_;
+  bool all_ = false;
 };
 
 class AddCollatorQuery : public Query {

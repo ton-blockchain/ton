@@ -1323,13 +1323,21 @@ td::Status GetCollatorOptionsJsonQuery::receive(td::BufferSlice data) {
 
 td::Status GetAdnlStatsJsonQuery::run() {
   TRY_RESULT_ASSIGN(file_name_, tokenizer_.get_token<std::string>());
+  if (!tokenizer_.endl()) {
+    TRY_RESULT(s, tokenizer_.get_token<std::string>());
+    if (s == "all") {
+      all_ = true;
+    } else {
+      return td::Status::Error(PSTRING() << "unexpected token " << s);
+    }
+  }
   TRY_STATUS(tokenizer_.check_endl());
   return td::Status::OK();
 }
 
 td::Status GetAdnlStatsJsonQuery::send() {
   auto b =
-      ton::create_serialize_tl_object<ton::ton_api::engine_validator_getAdnlStats>();
+      ton::create_serialize_tl_object<ton::ton_api::engine_validator_getAdnlStats>(all_);
   td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
   return td::Status::OK();
 }
@@ -1344,13 +1352,21 @@ td::Status GetAdnlStatsJsonQuery::receive(td::BufferSlice data) {
 }
 
 td::Status GetAdnlStatsQuery::run() {
+  if (!tokenizer_.endl()) {
+    TRY_RESULT(s, tokenizer_.get_token<std::string>());
+    if (s == "all") {
+      all_ = true;
+    } else {
+      return td::Status::Error(PSTRING() << "unexpected token " << s);
+    }
+  }
   TRY_STATUS(tokenizer_.check_endl());
   return td::Status::OK();
 }
 
 td::Status GetAdnlStatsQuery::send() {
   auto b =
-      ton::create_serialize_tl_object<ton::ton_api::engine_validator_getAdnlStats>();
+      ton::create_serialize_tl_object<ton::ton_api::engine_validator_getAdnlStats>(all_);
   td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
   return td::Status::OK();
 }

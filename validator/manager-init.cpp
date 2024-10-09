@@ -227,7 +227,7 @@ void ValidatorManagerMasterchainReiniter::choose_masterchain_state() {
     }
     if (!p || ValidatorManager::is_persistent_state(h->unix_time(), p->unix_time())) {
       auto ttl = ValidatorManager::persistent_state_ttl(h->unix_time());
-      double time_to_download = 3600 * 3;
+      double time_to_download = 3600 * 8;
       if (ttl > td::Clocks::system() + time_to_download) {
         handle = h;
         break;

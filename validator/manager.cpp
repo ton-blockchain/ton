@@ -1428,9 +1428,13 @@ void ValidatorManagerImpl::set_block_candidate(BlockIdExt id, BlockCandidate can
   }
   if (!id.is_masterchain()) {
     add_cached_block_candidate(ReceivedBlock{id, candidate.data.clone()});
-    callback_->send_block_candidate(id, cc_seqno, validator_set_hash, candidate.data.clone());
   }
   td::actor::send_closure(db_, &Db::store_block_candidate, std::move(candidate), std::move(promise));
+}
+
+void ValidatorManagerImpl::send_block_candidate_broadcast(BlockIdExt id, CatchainSeqno cc_seqno,
+                                                          td::uint32 validator_set_hash, td::BufferSlice data) {
+  callback_->send_block_candidate(id, cc_seqno, validator_set_hash, std::move(data));
 }
 
 void ValidatorManagerImpl::write_handle(BlockHandle handle, td::Promise<td::Unit> promise) {
@@ -1761,8 +1765,8 @@ void ValidatorManagerImpl::send_top_shard_block_description(td::Ref<ShardTopBloc
   }
 }
 
-void ValidatorManagerImpl::send_block_broadcast(BlockBroadcast broadcast, bool custom_overlays_only) {
-  callback_->send_broadcast(std::move(broadcast), custom_overlays_only);
+void ValidatorManagerImpl::send_block_broadcast(BlockBroadcast broadcast, int mode) {
+  callback_->send_broadcast(std::move(broadcast), mode);
 }
 
 void ValidatorManagerImpl::send_get_out_msg_queue_proof_request(

@@ -41,7 +41,7 @@ using namespace std::literals::string_literals;
 
 AcceptBlockQuery::AcceptBlockQuery(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
                                    td::Ref<ValidatorSet> validator_set, td::Ref<BlockSignatureSet> signatures,
-                                   td::Ref<BlockSignatureSet> approve_signatures, bool send_broadcast, bool apply,
+                                   td::Ref<BlockSignatureSet> approve_signatures, int send_broadcast_mode, bool apply,
                                    td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise)
     : id_(id)
     , data_(std::move(data))
@@ -51,7 +51,7 @@ AcceptBlockQuery::AcceptBlockQuery(BlockIdExt id, td::Ref<BlockData> data, std::
     , approve_signatures_(std::move(approve_signatures))
     , is_fake_(false)
     , is_fork_(false)
-    , send_broadcast_(send_broadcast)
+    , send_broadcast_mode_(send_broadcast_mode)
     , apply_(apply)
     , manager_(manager)
     , promise_(std::move(promise))
@@ -73,7 +73,6 @@ AcceptBlockQuery::AcceptBlockQuery(AcceptBlockQuery::IsFake fake, BlockIdExt id,
     , validator_set_(std::move(validator_set))
     , is_fake_(true)
     , is_fork_(false)
-    , send_broadcast_(false)
     , manager_(manager)
     , promise_(std::move(promise))
     , perf_timer_("acceptblock", 0.1, [manager](double duration) {
@@ -91,7 +90,6 @@ AcceptBlockQuery::AcceptBlockQuery(ForceFork ffork, BlockIdExt id, td::Ref<Block
     , data_(std::move(data))
     , is_fake_(true)
     , is_fork_(true)
-    , send_broadcast_(false)
     , manager_(manager)
     , promise_(std::move(promise))
     , perf_timer_("acceptblock", 0.1, [manager](double duration) {
@@ -937,6 +935,10 @@ void AcceptBlockQuery::written_block_info_2() {
 }
 
 void AcceptBlockQuery::applied() {
+  if (send_broadcast_mode_ == 0) {
+    finish_query();
+    return;
+  }
   BlockBroadcast b;
   b.data = data_->data();
   b.block_id = id_;
@@ -956,8 +958,7 @@ void AcceptBlockQuery::applied() {
   }
 
   // do not wait for answer
-  td::actor::send_closure_later(manager_, &ValidatorManager::send_block_broadcast, std::move(b),
-                                /* custom_overlays_only = */ !send_broadcast_);
+  td::actor::send_closure_later(manager_, &ValidatorManager::send_block_broadcast, std::move(b), send_broadcast_mode_);
 
   finish_query();
 }

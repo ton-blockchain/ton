@@ -106,6 +106,7 @@ class FullNode : public td::actor::Actor {
   static constexpr td::uint64 max_state_size() {
     return 4ull << 30;
   }
+  enum { broadcast_mode_public = 1, broadcast_mode_private_block = 2, broadcast_mode_custom = 4 };
 
   static td::actor::ActorOwn<FullNode> create(
       ton::PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash, FullNodeConfig config,

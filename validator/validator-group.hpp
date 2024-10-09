@@ -34,18 +34,18 @@ class ValidatorManager;
 
 class ValidatorGroup : public td::actor::Actor {
  public:
-  void generate_block_candidate(td::uint32 round_id,
+  void generate_block_candidate(validatorsession::BlockSourceInfo source_info,
                                 td::Promise<validatorsession::ValidatorSession::GeneratedCandidate> promise);
-  void validate_block_candidate(td::uint32 round_id, BlockCandidate block,
+  void validate_block_candidate(validatorsession::BlockSourceInfo source_info, BlockCandidate block,
                                 td::Promise<std::pair<UnixTime, bool>> promise);
-  void accept_block_candidate(td::uint32 round_id, PublicKeyHash src, td::BufferSlice block, RootHash root_hash,
+  void accept_block_candidate(validatorsession::BlockSourceInfo source_info, td::BufferSlice block, RootHash root_hash,
                               FileHash file_hash, std::vector<BlockSignature> signatures,
                               std::vector<BlockSignature> approve_signatures,
                               validatorsession::ValidatorSessionStats stats, td::Promise<td::Unit> promise);
   void skip_round(td::uint32 round);
   void accept_block_query(BlockIdExt block_id, td::Ref<BlockData> block, std::vector<BlockIdExt> prev,
                           td::Ref<BlockSignatureSet> sigs, td::Ref<BlockSignatureSet> approve_sigs,
-                          bool send_broadcast, td::Promise<td::Unit> promise, bool is_retry = false);
+                          int send_broadcast_mode, td::Promise<td::Unit> promise, bool is_retry = false);
   void get_approved_candidate(PublicKey source, RootHash root_hash, FileHash file_hash,
                               FileHash collated_data_file_hash, td::Promise<BlockCandidate> promise);
   BlockIdExt create_next_block_id(RootHash root_hash, FileHash file_hash) const;
@@ -97,10 +97,10 @@ class ValidatorGroup : public td::actor::Actor {
 
  private:
   std::unique_ptr<validatorsession::ValidatorSession::Callback> make_validator_session_callback();
-  void collate_block(td::uint32 round_id, td::Timestamp timeout, td::Promise<BlockCandidate> promise,
-                          unsigned max_retries = 4);
-  void receive_collate_query_response(td::uint32 round_id, td::BufferSlice data, bool trusted_collator,
-                                      td::Promise<BlockCandidate> promise);
+  void collate_block(validatorsession::BlockSourceInfo source_info, td::Timestamp timeout,
+                     td::Promise<BlockCandidate> promise, unsigned max_retries = 4);
+  void receive_collate_query_response(validatorsession::BlockSourceInfo source_info, td::BufferSlice data,
+                                      bool trusted_collator, td::Promise<BlockCandidate> promise);
 
   struct PostponedAccept {
     RootHash root_hash;
@@ -150,7 +150,8 @@ class ValidatorGroup : public td::actor::Actor {
   std::shared_ptr<CachedCollatedBlock> cached_collated_block_;
   td::CancellationTokenSource cancellation_token_source_;
 
-  void generated_block_candidate(std::shared_ptr<CachedCollatedBlock> cache, td::Result<BlockCandidate> R);
+  void generated_block_candidate(validatorsession::BlockSourceInfo source_info,
+                                 std::shared_ptr<CachedCollatedBlock> cache, td::Result<BlockCandidate> R);
 
   using CacheKey = std::tuple<td::Bits256, BlockIdExt, FileHash, FileHash>;
   std::map<CacheKey, UnixTime> approved_candidates_cache_;
@@ -170,6 +171,16 @@ class ValidatorGroup : public td::actor::Actor {
 
   void add_available_block_candidate(td::Bits256 source, BlockIdExt id, FileHash collated_data_hash) {
     available_block_candidates_.emplace(source, id, collated_data_hash);
+  }
+
+  std::set<BlockIdExt> sent_candidate_broadcasts_;
+
+  void send_block_candidate_broadcast(BlockIdExt id, td::BufferSlice data) {
+    if (sent_candidate_broadcasts_.insert(id).second) {
+      td::actor::send_closure(manager_, &ValidatorManager::send_block_candidate_broadcast, id,
+                              validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash(),
+                              std::move(data));
+    }
   }
 };
 

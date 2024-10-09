@@ -188,7 +188,7 @@ class ValidatorManagerInterface : public td::actor::Actor {
     virtual void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) = 0;
     virtual void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                                       td::BufferSlice data) = 0;
-    virtual void send_broadcast(BlockBroadcast broadcast, bool custom_overlays_only = false) = 0;
+    virtual void send_broadcast(BlockBroadcast broadcast, int mode) = 0;
     virtual void download_block(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
                                 td::Promise<ReceivedBlock> promise) = 0;
     virtual void download_zero_state(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,

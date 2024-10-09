@@ -785,6 +785,11 @@ void ValidatorManagerImpl::set_block_candidate(BlockIdExt id, BlockCandidate can
   td::actor::send_closure(db_, &Db::store_block_candidate, std::move(candidate), std::move(promise));
 }
 
+void ValidatorManagerImpl::send_block_candidate_broadcast(BlockIdExt id, CatchainSeqno cc_seqno,
+                                                          td::uint32 validator_set_hash, td::BufferSlice data) {
+  callback_->send_block_candidate(id, cc_seqno, validator_set_hash, std::move(data));
+}
+
 void ValidatorManagerImpl::write_handle(BlockHandle handle, td::Promise<td::Unit> promise) {
   td::actor::send_closure(db_, &Db::store_block_handle, std::move(handle), std::move(promise));
 }

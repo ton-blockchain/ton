@@ -64,18 +64,11 @@ class ShardClient : public td::actor::Actor {
 
   void start_up() override;
   void start_up_init_mode();
-  void start_up_init_mode_finished();
+  void download_shard_states(BlockIdExt masterchain_block_id, std::vector<BlockIdExt> shards, size_t idx);
   void start();
   void got_state_from_db(BlockIdExt masterchain_block_id);
   void got_init_handle_from_db(BlockHandle handle);
   void got_init_state_from_db(td::Ref<MasterchainState> state);
-
-  void im_download_shard_state(BlockIdExt block_id, td::Promise<td::Unit> promise);
-  void im_downloaded_zero_state(BlockIdExt block_id, td::BufferSlice data, td::Promise<td::Unit> promise);
-  void im_downloaded_proof_link(BlockIdExt block_id, td::BufferSlice data, td::Promise<td::Unit> promise);
-  void im_checked_proof_link(BlockIdExt block_id, td::Promise<td::Unit> promise);
-  void im_downloaded_shard_state(BlockIdExt block_id, td::Promise<td::Unit> promise);
-  void im_got_shard_handle(BlockHandle handle, td::Promise<td::Unit> promise);
 
   void new_masterchain_block_id(BlockIdExt masterchain_block_id);
   void got_masterchain_block_handle(BlockHandle handle);

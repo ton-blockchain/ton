@@ -4085,7 +4085,7 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getAdnlSt
     return;
   }
   td::actor::send_closure(
-      adnl_, &ton::adnl::Adnl::get_stats,
+      adnl_, &ton::adnl::Adnl::get_stats, query.all_,
       [promise = std::move(promise)](td::Result<ton::tl_object_ptr<ton::ton_api::adnl_stats>> R) mutable {
         if (R.is_ok()) {
           promise.set_value(ton::serialize_tl_object(R.move_as_ok(), true));
