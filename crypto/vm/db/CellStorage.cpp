@@ -184,6 +184,24 @@ td::Result<CellLoader::LoadResult> CellLoader::load(td::Slice hash, td::Slice va
   return res;
 }
 
+td::Result<CellLoader::LoadResult> CellLoader::load_refcnt(td::Slice hash) {
+  LoadResult res;
+  std::string serialized;
+  TRY_RESULT(get_status, reader_->get(hash, serialized));
+  if (get_status != KeyValue::GetStatus::Ok) {
+    DCHECK(get_status == KeyValue::GetStatus::NotFound);
+    return res;
+  }
+  res.status = LoadResult::Ok;
+  td::TlParser parser(serialized);
+  td::parse(res.refcnt_, parser);
+  if (res.refcnt_ == -1) {
+    parse(res.refcnt_, parser);
+  }
+  TRY_STATUS(parser.get_status());
+  return res;
+}
+
 CellStorer::CellStorer(KeyValue &kv) : kv_(kv) {
 }
 

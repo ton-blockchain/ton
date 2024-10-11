@@ -848,6 +848,10 @@ class InMemoryBagOfCellsDb : public DynamicBagOfCellsDb {
     to_inc_ = {};
     return td::Status::OK();
   }
+  void prepare_commit_async(std::shared_ptr<AsyncExecutor> executor, td::Promise<td::Unit> promise) override {
+    TRY_STATUS_PROMISE(promise, prepare_commit());
+    promise.set_value(td::Unit());
+  }
   Stats get_stats_diff() override {
     LOG(FATAL) << "Not implemented";
     return {};

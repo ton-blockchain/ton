@@ -30,6 +30,7 @@
 #include "td/db/RocksDb.h"
 
 #include <optional>
+#include <queue>
 
 namespace rocksdb {
 class Statistics;
@@ -136,6 +137,8 @@ class CellDbIn : public CellDbBase {
 
   struct CellDbStatistics {
     PercentileStats store_cell_time_;
+    PercentileStats store_cell_prepare_time_;
+    PercentileStats store_cell_write_time_;
     PercentileStats gc_cell_time_;
     td::Timestamp stats_start_time_ = td::Timestamp::now();
     std::optional<double> in_memory_load_time_;
@@ -152,6 +155,18 @@ class CellDbIn : public CellDbBase {
   CellDbStatistics cell_db_statistics_;
   td::Timestamp statistics_flush_at_ = td::Timestamp::never();
   BlockSeqno last_deleted_mc_state_ = 0;
+
+  bool db_busy_ = false;
+  std::queue<td::Promise<td::Unit>> action_queue_;
+
+  void release_db() {
+    db_busy_ = false;
+    while (!db_busy_ && !action_queue_.empty()) {
+      auto action = std::move(action_queue_.front());
+      action_queue_.pop();
+      action.set_value(td::Unit());
+    }
+  }
 
  public:
   class MigrationProxy : public td::actor::Actor {
