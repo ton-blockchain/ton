@@ -747,8 +747,8 @@ td::uint64 BlockLimitStatus::estimate_block_size(const vm::NewCellStorageStat::S
   if (extra) {
     sum += *extra;
   }
-  return 2000 + (sum.bits >> 3) + sum.cells * 12 + sum.internal_refs * 3 + sum.external_refs * 40 + accounts * 200 +
-         transactions * 200 + (extra ? 200 : 0) + extra_out_msgs * 300 + public_library_diff * 700;
+  return 2000 + (sum.bits >> 3) + sum.cells * 12 + sum.internal_refs * 3 + sum.external_refs * 40 + transactions * 200 +
+         (extra ? 200 : 0) + extra_out_msgs * 300 + public_library_diff * 700;
 }
 
 int BlockLimitStatus::classify() const {
