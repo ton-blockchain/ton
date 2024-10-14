@@ -3864,7 +3864,10 @@ void TestNode::continue_check_validator_load4(std::unique_ptr<TestNode::Validato
       LOG(ERROR) << "failed to compute shard shares";
       return;
     }
-    mtc_shard_share.assign(mtc.weights_array(), mtc.weights_array() + mtc.size());
+    mtc_shard_share.resize(count);
+    for (size_t i = 0; i < count; ++i) {
+      mtc_shard_share[i] = mtc[i];
+    }
   }
 
   auto validators = info1->vset->export_validator_set();
