@@ -189,7 +189,7 @@ void ValidatorGroup::accept_block_candidate(validatorsession::BlockSourceInfo so
   // Creator of the block sends broadcast to private block overlay unless candidate broadcast was sent
   // Any node sends broadcast to custom overlays unless candidate broadcast was sent
   int send_broadcast_mode = 0;
-  bool sent_candidate = sent_candidate_broadcasts_.contains(block->block_id());
+  bool sent_candidate = sent_candidate_broadcasts_.contains(next_block_id);
   if (source_info.source.compute_short_id() == local_id_) {
     send_broadcast_mode |= fullnode::FullNode::broadcast_mode_public;
     if (!sent_candidate) {
