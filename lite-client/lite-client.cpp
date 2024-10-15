@@ -3821,7 +3821,7 @@ void TestNode::continue_check_validator_load3(std::unique_ptr<TestNode::Validato
                     "probability 99.999% : created ("
                  << x1 << "," << y1 << "), expected (" << xe << "," << ye << ") masterchain/shardchain blocks\n";
       if (mode & 2) {
-        auto st = write_val_create_proof(*info1, *info2, i, true, file_pfx, ++cnt);
+        auto st = write_val_create_proof(*info1, *info2, i, true, file_pfx, ++cnt, x1 + y1, is_masterchain_validator);
         if (st.is_error()) {
           LOG(ERROR) << "cannot create proof: " << st.move_as_error();
         } else {
@@ -3834,7 +3834,7 @@ void TestNode::continue_check_validator_load3(std::unique_ptr<TestNode::Validato
                     "probability 99.5% : created ("
                  << x1 << "," << y1 << "), expected (" << xe << "," << ye << ") masterchain/shardchain blocks\n";
       if ((mode & 3) == 2) {
-        auto st = write_val_create_proof(*info1, *info2, i, false, file_pfx, ++cnt);
+        auto st = write_val_create_proof(*info1, *info2, i, false, file_pfx, ++cnt, x1 + y1, is_masterchain_validator);
         if (st.is_error()) {
           LOG(ERROR) << "cannot create proof: " << st.move_as_error();
         } else {
@@ -3848,13 +3848,13 @@ void TestNode::continue_check_validator_load3(std::unique_ptr<TestNode::Validato
   }
 }
 
-bool compute_punishment_default(int interval, bool severe, td::RefInt256& fine, unsigned& fine_part) {
+bool compute_punishment_default(int interval, bool severe, td::RefInt256& fine, unsigned& fine_part, int blocks_count, bool is_masterchain) {
   if (interval <= 1000) {
     return false;  // no punishments for less than 1000 seconds
   }
 
   fine = td::make_refint(101 * 1000000000LL);  // 101
-  fine_part = 0;
+  fine_part = (is_masterchain && blocks_count == 0) ? (1LL << 32) / 100 : 0;  // 1/100 - 1% of stake
 
   return true; // todo: (tolya-yanot) temporary reduction of fine
 
@@ -3878,9 +3878,9 @@ bool compute_punishment_default(int interval, bool severe, td::RefInt256& fine, 
   return true;
 }
 
-bool compute_punishment(int interval, bool severe, td::RefInt256& fine, unsigned& fine_part, Ref<vm::Cell> punishment_params) {
+bool compute_punishment(int interval, bool severe, td::RefInt256& fine, unsigned& fine_part, Ref<vm::Cell> punishment_params, int blocks_count, bool is_masterchain) {
   if(punishment_params.is_null()) {
-    return compute_punishment_default(interval, severe, fine, fine_part);
+    return compute_punishment_default(interval, severe, fine, fine_part, blocks_count, is_masterchain);
   }
   block::gen::MisbehaviourPunishmentConfig::Record rec;
   if (!tlb::unpack_cell(punishment_params, rec)) {
@@ -3912,17 +3912,18 @@ bool compute_punishment(int interval, bool severe, td::RefInt256& fine, unsigned
   return true;
 }
 
-bool check_punishment(int interval, bool severe, td::RefInt256 fine, unsigned fine_part, Ref<vm::Cell> punishment_params) {
+bool check_punishment(int interval, bool severe, td::RefInt256 fine, unsigned fine_part, Ref<vm::Cell> punishment_params,
+                      int blocks_count, bool is_masterchain) {
   td::RefInt256 computed_fine;
   unsigned computed_fine_part;
-  return compute_punishment(interval, severe, computed_fine, computed_fine_part, punishment_params) &&
+  return compute_punishment(interval, severe, computed_fine, computed_fine_part, punishment_params, blocks_count, is_masterchain) &&
          std::llabs((long long)fine_part - (long long)computed_fine_part) <=
              (std::max(fine_part, computed_fine_part) >> 3) &&
          fine * 7 <= computed_fine * 8 && computed_fine * 7 <= fine * 8;
 }
 
 td::Status TestNode::write_val_create_proof(TestNode::ValidatorLoadInfo& info1, TestNode::ValidatorLoadInfo& info2,
-                                            int idx, bool severe, std::string file_pfx, int cnt) {
+                                            int idx, bool severe, std::string file_pfx, int cnt, int blocks_count, bool is_masterchain) {
   std::string filename = PSTRING() << file_pfx << '-' << cnt << ".boc";
   if (!info1.has_data()) {
     return td::Status::Error("first block information is incomplete");
@@ -3948,8 +3949,8 @@ td::Status TestNode::write_val_create_proof(TestNode::ValidatorLoadInfo& info1, 
 
   int severity = (severe ? 2 : 1);
   td::RefInt256 fine = td::make_refint(101000000000);
-  unsigned fine_part = 0; // todo: (tolya-yanot) temporary reduction of fine  // 0xffffffff / 16;  // 1/16
-  if (!compute_punishment(interval, severe, fine, fine_part, punishment_params)) {
+  unsigned fine_part = 0;
+  if (!compute_punishment(interval, severe, fine, fine_part, punishment_params, blocks_count, is_masterchain)) {
     return td::Status::Error("cannot compute adequate punishment");
   }
   Ref<vm::Cell> cpl_descr, complaint;
@@ -4263,7 +4264,8 @@ td::Status TestNode::continue_check_validator_load_proof(std::unique_ptr<Validat
     if (suggested_fine.is_null()) {
       return td::Status::Error("cannot parse suggested fine");
     }
-    if (!check_punishment(interval, severe, suggested_fine, rec.suggested_fine_part, info2->config->get_config_param(40))) {
+    int blocks_count = (int)(x1 + y1);
+    if (!check_punishment(interval, severe, suggested_fine, rec.suggested_fine_part, info2->config->get_config_param(40), blocks_count, val_idx < main_count)) {
       LOG(ERROR) << "proposed punishment (fine " << td::dec_string(suggested_fine)
                  << ", fine_part=" << (double)rec.suggested_fine_part / (1LL << 32) << " is too harsh";
       show_vote(root->get_hash().bits(), false);

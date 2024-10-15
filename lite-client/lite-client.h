@@ -283,7 +283,7 @@ class TestNode : public td::actor::Actor {
                                       std::unique_ptr<ValidatorLoadInfo> info2, int mode = 0,
                                       std::string file_pfx = "");
   td::Status write_val_create_proof(ValidatorLoadInfo& info1, ValidatorLoadInfo& info2, int idx, bool severe,
-                                    std::string file_pfx, int cnt);
+                                    std::string file_pfx, int cnt, int blocks_count, bool is_masterchain);
   bool load_creator_stats(std::unique_ptr<ValidatorLoadInfo> load_to,
                           td::Promise<std::unique_ptr<ValidatorLoadInfo>> promise, bool need_proofs);
   td::Status check_validator_load_proof(std::string filename, std::string vset_filename = "",
