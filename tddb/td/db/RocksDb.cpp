@@ -85,6 +85,8 @@ Result<RocksDb> RocksDb::open(std::string path, RocksDbOptions options) {
     db_options.bytes_per_sync = 1 << 20;
     db_options.writable_file_max_buffer_size = 2 << 14;
     db_options.statistics = options.statistics;
+    db_options.max_log_file_size = 100 << 20;
+    db_options.keep_log_file_num = 1;
     rocksdb::OptimisticTransactionDBOptions occ_options;
     occ_options.validate_policy = rocksdb::OccValidationPolicy::kValidateSerial;
     rocksdb::ColumnFamilyOptions cf_options(db_options);
