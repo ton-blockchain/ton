@@ -20,6 +20,8 @@
 #include "td/utils/bits.h"
 #include "td/utils/filesystem.h"
 
+#define DISABLE_CPP_OUTPUT
+
 namespace tlbc {
 
 /*
@@ -3148,8 +3150,13 @@ void CppTypeCode::generate_header(std::ostream& os, int options) {
   }
 }
 
+#include "tlbc-gen-rust.hpp"
+
 void CppTypeCode::generate_body(std::ostream& os, int options) {
   generate_cons_tag_info(os, "", 2);
+
+#ifndef DISABLE_CPP_OUTPUT
+
   if (!inline_get_tag) {
     os << "\nint " << cpp_type_class_name << "::get_tag(const vm::CellSlice& cs) const {";
     generate_get_tag_body(os, "\n  ");
@@ -3196,6 +3203,7 @@ void CppTypeCode::generate_body(std::ostream& os, int options) {
     os << "\nconst " << cpp_type_class_name << " " << cpp_type_var_name << ";";
   }
   os << std::endl;
+#endif
 }
 
 void CppTypeCode::generate(std::ostream& os, int options) {
@@ -3203,6 +3211,7 @@ void CppTypeCode::generate(std::ostream& os, int options) {
   if (!type.type_name && type.is_auto) {
     type_name = cpp_type_class_name;
   }
+#ifndef DISABLE_CPP_OUTPUT
   if (options & 1) {
     os << "\n//\n// headers for " << (type.is_auto ? "auxiliary " : "") << "type `" << type_name << "`\n//\n";
     generate_header(os, options);
@@ -3214,6 +3223,8 @@ void CppTypeCode::generate(std::ostream& os, int options) {
     os << "\n//\n// code for " << (type.is_auto ? "auxiliary " : "") << "type `" << type_name << "`\n//\n";
     generate_body(os, options);
   }
+#endif
+  if (options & 2) generate_rust(os, type);
 }
 
 void generate_type_constant(std::ostream& os, int i, TypeExpr* expr, std::string cpp_name, int mode) {
@@ -3376,6 +3387,7 @@ void generate_cpp_output_to(std::ostream& os, int options = 0, std::vector<std::
     prepare_generate_cpp(options);
     generate_prepared = true;
   }
+#ifndef DISABLE_CPP_OUTPUT
   if (options & 1) {
     os << "#pragma once\n";
   }
@@ -3411,19 +3423,24 @@ void generate_cpp_output_to(std::ostream& os, int options = 0, std::vector<std::
      << "using vm::CellSlice;\n"
      << "using vm::Cell;\n"
      << "using td::RefInt256;\n";
+#endif // DISABLE_CPP_OUTPUT
   for (int pass = 1; pass <= 2; pass++) {
     if (options & pass) {
       for (int i : type_gen_order) {
         CppTypeCode& cc = *cpp_type[i];
         cc.generate(os, (options & -4) | pass);
       }
+#ifndef DISABLE_CPP_OUTPUT
       generate_type_constants(os, pass - 1);
       generate_register_function(os, pass - 1);
+#endif // DISABLE_CPP_OUTPUT
     }
   }
+#ifndef DISABLE_CPP_OUTPUT
   for (auto it = cpp_namespace_list.rbegin(); it != cpp_namespace_list.rend(); ++it) {
     os << "\n} // namespace " << *it << std::endl;
   }
+#endif // DISABLE_CPP_OUTPUT
 }
 
 void generate_cpp_output_to(std::string filename, int options = 0, std::vector<std::string> include_files = {}) {
