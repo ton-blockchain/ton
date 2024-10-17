@@ -37,7 +37,7 @@ cp ./result/lib/fift/* artifacts/lib/
 cp -r ./result/share/ton/smartcont artifacts/
 chmod -R +x artifacts
 cd artifacts
-strip -xSX storage-daemon \
+sudo strip -xSX storage-daemon \
          storage-daemon-cli \
          blockchain-explorer \
          fift \
@@ -52,7 +52,6 @@ strip -xSX storage-daemon \
          lite-client \
          validator-engine \
          generate-random-id \
-         json2tlo \
          adnl-proxy \
          libemulator.dylib \
          libtonlibjson.dylib
