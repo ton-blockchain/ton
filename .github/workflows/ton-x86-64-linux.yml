@@ -34,11 +34,6 @@ jobs:
         artifacts/fift -V
         artifacts/func -V
 
-    - name: Strip
-      run: |
-        cd artifacts
-        sudo strip -s *
-
     - name: Upload artifacts
       uses: actions/upload-artifact@master
       with:
