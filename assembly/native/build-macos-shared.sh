@@ -97,23 +97,23 @@ else
 fi
 
 
-strip storage/storage-daemon/storage-daemon
-strip storage/storage-daemon/storage-daemon-cli
-strip blockchain-explorer/blockchain-explorer
-strip crypto/fift
-strip crypto/func
-strip crypto/create-state
-strip crypto/tlbc
-strip validator-engine-console/validator-engine-console
-strip tonlib/tonlib-cli
-strip http/http-proxy
-strip rldp-http-proxy/rldp-http-proxy
-strip dht-server/dht-server
-strip lite-client/lite-client
-strip validator-engine/validator-engine
-strip utils/generate-random-id
-strip utils/json2tlo
-strip adnl/adnl-proxy
+strip -s storage/storage-daemon/storage-daemon
+strip -s storage/storage-daemon/storage-daemon-cli
+strip -s blockchain-explorer/blockchain-explorer
+strip -s crypto/fift
+strip -s crypto/func
+strip -s crypto/create-state
+strip -s crypto/tlbc
+strip -s validator-engine-console/validator-engine-console
+strip -s tonlib/tonlib-cli
+strip -s http/http-proxy
+strip -s rldp-http-proxy/rldp-http-proxy
+strip -s dht-server/dht-server
+strip -s lite-client/lite-client
+strip -s validator-engine/validator-engine
+strip -s utils/generate-random-id
+strip -s utils/json2tlo
+strip -s adnl/adnl-proxy
 
 cd ..
 

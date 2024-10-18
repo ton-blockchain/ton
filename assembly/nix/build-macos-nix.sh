@@ -36,3 +36,22 @@ cp ./result/lib/libemulator.dylib artifacts/
 cp ./result/lib/fift/* artifacts/lib/
 cp -r ./result/share/ton/smartcont artifacts/
 chmod -R +x artifacts
+cd artifacts
+sudo strip -xSX storage-daemon \
+         storage-daemon-cli \
+         blockchain-explorer \
+         fift \
+         tlbc \
+         func \
+         create-state \
+         validator-engine-console \
+         tonlib-cli \
+         http-proxy \
+         rldp-http-proxy \
+         dht-server \
+         lite-client \
+         validator-engine \
+         generate-random-id \
+         adnl-proxy \
+         libemulator.dylib \
+         libtonlibjson.dylib
