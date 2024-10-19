@@ -68,7 +68,7 @@ ninja storage-daemon storage-daemon-cli fift func tonlib tonlibjson tonlib-cli \
       test $? -eq 0 || { echo "Can't compile ton"; exit 1; }
 fi
 
-strip -g storage/storage-daemon/storage-daemon \
+strip -s storage/storage-daemon/storage-daemon \
          storage/storage-daemon/storage-daemon-cli \
          blockchain-explorer/blockchain-explorer \
          crypto/fift \
