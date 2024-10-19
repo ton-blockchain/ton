@@ -72,6 +72,11 @@ td::uint32 ValidatorSessionDescriptionImpl::get_max_priority() const {
   return opts_.round_candidates - 1;
 }
 
+td::uint32 ValidatorSessionDescriptionImpl::get_node_by_priority(td::uint32 round, td::uint32 priority) const {
+  CHECK(priority <= get_max_priority());
+  return (round + priority) % get_total_nodes();
+}
+
 ValidatorSessionCandidateId ValidatorSessionDescriptionImpl::candidate_id(
     td::uint32 src_idx, ValidatorSessionRootHash root_hash, ValidatorSessionFileHash file_hash,
     ValidatorSessionCollatedDataFileHash collated_data_file_hash) const {

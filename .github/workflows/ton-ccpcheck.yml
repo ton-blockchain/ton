@@ -20,7 +20,7 @@ jobs:
         generate report: true
 
     - name: Upload report
-      uses: actions/upload-artifact@v1
+      uses: actions/upload-artifact@master
       with:
         name: ton-ccpcheck-report
         path: output

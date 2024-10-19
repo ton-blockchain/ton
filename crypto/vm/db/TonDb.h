@@ -113,7 +113,8 @@ class TonDbTransactionImpl;
 using TonDbTransaction = std::unique_ptr<TonDbTransactionImpl>;
 class TonDbTransactionImpl {
  public:
-  SmartContractDb begin_smartcontract(td::Slice hash = {});
+
+  SmartContractDb begin_smartcontract(td::Slice hash = std::string(32, '\0'));
 
   void commit_smartcontract(SmartContractDb txn);
   void commit_smartcontract(SmartContractDiff txn);
@@ -142,6 +143,20 @@ class TonDbTransactionImpl {
     friend bool operator<(td::Slice hash, const SmartContractInfo &info) {
       return hash < info.hash;
     }
+
+    struct Eq {
+      using is_transparent = void;  // Pred to use
+      bool operator()(const SmartContractInfo &info, const SmartContractInfo &other_info) const { return info.hash == other_info.hash;}
+      bool operator()(const SmartContractInfo &info, td::Slice hash) const { return info.hash == hash;}
+      bool operator()(td::Slice hash, const SmartContractInfo &info) const { return info.hash == hash;}
+
+    };
+    struct Hash {
+      using is_transparent = void;  // Pred to use
+      using transparent_key_equal = Eq;
+      size_t operator()(td::Slice hash) const { return cell_hash_slice_hash(hash); }
+      size_t operator()(const SmartContractInfo &info) const { return cell_hash_slice_hash(info.hash);}
+    };
   };
 
   CellHashTable<SmartContractInfo> contracts_;

@@ -161,8 +161,8 @@ struct ControlData {
 
 class Continuation : public td::CntObject {
  public:
-  virtual int jump(VmState* st) const & = 0;
-  virtual int jump_w(VmState* st) &;
+  virtual td::Ref<Continuation> jump(VmState* st, int& exitcode) const& = 0;
+  virtual td::Ref<Continuation> jump_w(VmState* st, int& exitcode) &;
   virtual ControlData* get_cdata() {
     return 0;
   }
@@ -203,8 +203,9 @@ class QuitCont : public Continuation {
   QuitCont(int _code = 0) : exit_code(_code) {
   }
   ~QuitCont() override = default;
-  int jump(VmState* st) const & override {
-    return ~exit_code;
+  td::Ref<Continuation> jump(VmState* st, int& exitcode) const& override {
+    exitcode = ~exit_code;
+    return {};
   }
   bool serialize(CellBuilder& cb) const override;
   static Ref<QuitCont> deserialize(CellSlice& cs, int mode = 0);
@@ -215,7 +216,7 @@ class ExcQuitCont : public Continuation {
  public:
   ExcQuitCont() = default;
   ~ExcQuitCont() override = default;
-  int jump(VmState* st) const & override;
+  td::Ref<Continuation> jump(VmState* st, int& exitcode) const& override;
   bool serialize(CellBuilder& cb) const override;
   static Ref<ExcQuitCont> deserialize(CellSlice& cs, int mode = 0);
   std::string type() const override;
@@ -229,8 +230,8 @@ class PushIntCont : public Continuation {
   PushIntCont(int val, Ref<Continuation> _next) : push_val(val), next(_next) {
   }
   ~PushIntCont() override = default;
-  int jump(VmState* st) const & override;
-  int jump_w(VmState* st) & override;
+  td::Ref<Continuation> jump(VmState* st, int& exitcode) const& override;
+  td::Ref<Continuation> jump_w(VmState* st, int& exitcode) & override;
   bool serialize(CellBuilder& cb) const override;
   static Ref<PushIntCont> deserialize(CellSlice& cs, int mode = 0);
   std::string type() const override;
@@ -245,8 +246,8 @@ class RepeatCont : public Continuation {
       : body(std::move(_body)), after(std::move(_after)), count(_count) {
   }
   ~RepeatCont() override = default;
-  int jump(VmState* st) const & override;
-  int jump_w(VmState* st) & override;
+  td::Ref<Continuation> jump(VmState* st, int& exitcode) const& override;
+  td::Ref<Continuation> jump_w(VmState* st, int& exitcode) & override;
   bool serialize(CellBuilder& cb) const override;
   static Ref<RepeatCont> deserialize(CellSlice& cs, int mode = 0);
   std::string type() const override;
@@ -259,8 +260,8 @@ class AgainCont : public Continuation {
   AgainCont(Ref<Continuation> _body) : body(std::move(_body)) {
   }
   ~AgainCont() override = default;
-  int jump(VmState* st) const & override;
-  int jump_w(VmState* st) & override;
+  td::Ref<Continuation> jump(VmState* st, int& exitcode) const& override;
+  td::Ref<Continuation> jump_w(VmState* st, int& exitcode) & override;
   bool serialize(CellBuilder& cb) const override;
   static Ref<AgainCont> deserialize(CellSlice& cs, int mode = 0);
   std::string type() const override;
@@ -273,8 +274,8 @@ class UntilCont : public Continuation {
   UntilCont(Ref<Continuation> _body, Ref<Continuation> _after) : body(std::move(_body)), after(std::move(_after)) {
   }
   ~UntilCont() override = default;
-  int jump(VmState* st) const & override;
-  int jump_w(VmState* st) & override;
+  td::Ref<Continuation> jump(VmState* st, int& exitcode) const& override;
+  td::Ref<Continuation> jump_w(VmState* st, int& exitcode) & override;
   bool serialize(CellBuilder& cb) const override;
   static Ref<UntilCont> deserialize(CellSlice& cs, int mode = 0);
   std::string type() const override;
@@ -289,8 +290,8 @@ class WhileCont : public Continuation {
       : cond(std::move(_cond)), body(std::move(_body)), after(std::move(_after)), chkcond(_chk) {
   }
   ~WhileCont() override = default;
-  int jump(VmState* st) const & override;
-  int jump_w(VmState* st) & override;
+  td::Ref<Continuation> jump(VmState* st, int& exitcode) const& override;
+  td::Ref<Continuation> jump_w(VmState* st, int& exitcode) & override;
   bool serialize(CellBuilder& cb) const override;
   static Ref<WhileCont> deserialize(CellSlice& cs, int mode = 0);
   std::string type() const override;
@@ -312,8 +313,8 @@ class ArgContExt : public Continuation {
   ArgContExt(const ArgContExt&) = default;
   ArgContExt(ArgContExt&&) = default;
   ~ArgContExt() override = default;
-  int jump(VmState* st) const & override;
-  int jump_w(VmState* st) & override;
+  td::Ref<Continuation> jump(VmState* st, int& exitcode) const& override;
+  td::Ref<Continuation> jump_w(VmState* st, int& exitcode) & override;
   ControlData* get_cdata() override {
     return &data;
   }
@@ -354,8 +355,8 @@ class OrdCont : public Continuation {
   td::CntObject* make_copy() const override {
     return new OrdCont{*this};
   }
-  int jump(VmState* st) const & override;
-  int jump_w(VmState* st) & override;
+  td::Ref<Continuation> jump(VmState* st, int& exitcode) const& override;
+  td::Ref<Continuation> jump_w(VmState* st, int& exitcode) & override;
 
   ControlData* get_cdata() override {
     return &data;

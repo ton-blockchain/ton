@@ -282,6 +282,26 @@ class TestNode : public td::actor::Actor {
   void continue_check_validator_load3(std::unique_ptr<ValidatorLoadInfo> info1,
                                       std::unique_ptr<ValidatorLoadInfo> info2, int mode = 0,
                                       std::string file_pfx = "");
+  void continue_check_validator_load4(std::unique_ptr<ValidatorLoadInfo> info1,
+                                      std::unique_ptr<ValidatorLoadInfo> info2, int mode, std::string file_pfx,
+                                      std::map<td::Bits256, td::uint64> exact_shard_shares);
+
+  struct LoadValidatorShardSharesState {
+    ton::BlockSeqno start_seqno;
+    ton::BlockSeqno end_seqno;
+    block::ValidatorSet validator_set;
+    std::unique_ptr<block::CatchainValidatorsConfig> catchain_config;
+    std::vector<block::ShardConfig> shard_configs;
+    td::uint32 cur_idx = 0, pending = 0, loaded = 0;
+    td::Promise<std::map<td::Bits256, td::uint64>> promise;
+  };
+  void load_validator_shard_shares(ton::BlockSeqno start_seqno, ton::BlockSeqno end_seqno,
+                                   block::ValidatorSet validator_set,
+                                   std::unique_ptr<block::CatchainValidatorsConfig> catchain_config,
+                                   td::Promise<std::map<td::Bits256, td::uint64>> promise);
+  void load_validator_shard_shares_cont(std::shared_ptr<LoadValidatorShardSharesState> state);
+  void load_block_shard_configuration(ton::BlockSeqno seqno, td::Promise<block::ShardConfig> promise);
+
   td::Status write_val_create_proof(ValidatorLoadInfo& info1, ValidatorLoadInfo& info2, int idx, bool severe,
                                     std::string file_pfx, int cnt);
   bool load_creator_stats(std::unique_ptr<ValidatorLoadInfo> load_to,
@@ -307,6 +327,13 @@ class TestNode : public td::actor::Actor {
                                           unsigned refs, td::Bits256 chash, std::string filename);
   bool get_msg_queue_sizes();
   void got_msg_queue_sizes(ton::tl_object_ptr<ton::lite_api::liteServer_outMsgQueueSizes> f);
+  bool get_dispatch_queue_info(ton::BlockIdExt block_id);
+  bool get_dispatch_queue_info_cont(ton::BlockIdExt block_id, bool first, td::Bits256 after_addr);
+  void got_dispatch_queue_info(ton::BlockIdExt block_id,
+                               ton::tl_object_ptr<ton::lite_api::liteServer_dispatchQueueInfo> info);
+  bool get_dispatch_queue_messages(ton::BlockIdExt block_id, ton::WorkchainId wc, ton::StdSmcAddress addr,
+                                   ton::LogicalTime lt, bool one_account);
+  void got_dispatch_queue_messages(ton::tl_object_ptr<ton::lite_api::liteServer_dispatchQueueMessages> msgs);
   bool cache_cell(Ref<vm::Cell> cell);
   bool list_cached_cells() const;
   bool dump_cached_cell(td::Slice hash_pfx, td::Slice type_name = {});

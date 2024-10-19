@@ -19,15 +19,20 @@
 #include "td/actor/core/ActorLocker.h"
 #include "td/actor/actor.h"
 #include "td/actor/PromiseFuture.h"
+#include "td/actor/ActorStats.h"
 
 #include "td/utils/format.h"
 #include "td/utils/logging.h"
+#include "td/utils/misc.h"
+#include "td/utils/port/thread.h"
 #include "td/utils/port/thread.h"
 #include "td/utils/Random.h"
 #include "td/utils/Slice.h"
 #include "td/utils/StringBuilder.h"
 #include "td/utils/tests.h"
 #include "td/utils/Time.h"
+#include "td/utils/TimedStat.h"
+#include "td/utils/port/sleep.h"
 
 #include <array>
 #include <atomic>
@@ -1101,5 +1106,60 @@ TEST(Actor2, send_vs_close2) {
 
     scheduler.run();
   }
+}
+
+TEST(Actor2, test_stats) {
+  Scheduler scheduler({8});
+  td::actor::set_debug(true);
+
+  auto watcher = td::create_shared_destructor([] { SchedulerContext::get()->stop(); });
+  scheduler.run_in_context([watcher = std::move(watcher)] {
+    class SleepWorker : public Actor {
+      void loop() override {
+        // 0.8 load
+        td::usleep_for(800000);
+        alarm_timestamp() = td::Timestamp::in(0.2);
+      }
+    };
+    class QueueWorker : public Actor {
+      void loop() override {
+        for (int i = 0; i < 20; i++) {
+          send_closure(actor_id(this), &QueueWorker::ping);
+        }
+        alarm_timestamp() = td::Timestamp::in(1.0);
+      }
+      void ping() {
+      }
+    };
+    class Master : public Actor {
+     public:
+      Master(std::shared_ptr<td::Destructor> watcher) : watcher_(std::move(watcher)) {
+      }
+      void start_up() override {
+        alarm_timestamp() = td::Timestamp::in(1);
+        stats_ = td::actor::create_actor<ActorStats>("actor_stats");
+        td::actor::create_actor<SleepWorker>("sleep_worker").release();
+        td::actor::create_actor<QueueWorker>("queue_worker").release();
+      }
+      void alarm() override {
+        td::actor::send_closure(stats_, &ActorStats::prepare_stats, td::promise_send_closure(actor_id(this), &Master::on_stats));
+        alarm_timestamp() = td::Timestamp::in(5);
+      }
+      void on_stats(td::Result<std::string> r_stats) {
+        LOG(ERROR) << "\n" << r_stats.ok();
+        if (--cnt_ == 0) {
+          stop();
+        }
+      }
+
+     private:
+      std::shared_ptr<td::Destructor> watcher_;
+      td::actor::ActorOwn<ActorStats> stats_;
+      int cnt_={2};
+    };
+    td::actor::create_actor<Master>("Master", watcher).release();
+  });
+
+  scheduler.run();
 }
 #endif  //!TD_THREAD_UNSUPPORTED

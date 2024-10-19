@@ -48,7 +48,7 @@ td::Result<td::Ref<vm::Cell>> WalletInterface::get_init_message(const td::Ed2551
 
 td::Ref<vm::Cell> WalletInterface::create_int_message(const Gift &gift) {
   vm::CellBuilder cbi;
-  GenericAccount::store_int_message(cbi, gift.destination, gift.gramms < 0 ? 0 : gift.gramms);
+  GenericAccount::store_int_message(cbi, gift.destination, gift.gramms < 0 ? 0 : gift.gramms, gift.extra_currencies);
   if (gift.init_state.not_null()) {
     cbi.store_ones(2);
     cbi.store_ref(gift.init_state);

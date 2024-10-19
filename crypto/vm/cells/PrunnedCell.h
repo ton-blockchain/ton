@@ -30,18 +30,27 @@ struct PrunnedCellInfo {
 template <class ExtraT>
 class PrunnedCell : public Cell {
  public:
+  ExtraT& get_extra() {
+    return extra_;
+  }
   const ExtraT& get_extra() const {
     return extra_;
   }
 
   static td::Result<Ref<PrunnedCell<ExtraT>>> create(const PrunnedCellInfo& prunned_cell_info, ExtraT&& extra) {
+    return create(detail::DefaultAllocator<PrunnedCell<ExtraT>>(), prunned_cell_info, std::forward<ExtraT>(extra));
+  }
+
+  template <class AllocatorT>
+  static td::Result<Ref<PrunnedCell<ExtraT>>> create(AllocatorT allocator, const PrunnedCellInfo& prunned_cell_info,
+                                                     ExtraT&& extra) {
     auto level_mask = prunned_cell_info.level_mask;
     if (level_mask.get_level() > max_level) {
       return td::Status::Error("Level is too big");
     }
     Info info(level_mask);
     auto prunned_cell =
-        detail::CellWithUniquePtrStorage<PrunnedCell<ExtraT>>::create(info.get_storage_size(), info, std::move(extra));
+        detail::CellWithArrayStorage<PrunnedCell<ExtraT>>::create(allocator, info.get_storage_size(), info, std::move(extra));
     TRY_STATUS(prunned_cell->init(prunned_cell_info));
     return Ref<PrunnedCell<ExtraT>>(prunned_cell.release(), typename Ref<PrunnedCell<ExtraT>>::acquire_t{});
   }
@@ -51,6 +60,7 @@ class PrunnedCell : public Cell {
   }
 
  protected:
+  static constexpr auto max_storage_size = (max_level + 1) * (hash_bytes + sizeof(td::uint16));
   struct Info {
     Info(LevelMask level_mask) {
       level_mask_ = level_mask.get_mask() & 7;

@@ -808,7 +808,15 @@ void AdnlPeerPairImpl::get_conn_ip_str(td::Promise<td::string> promise) {
   promise.set_value("undefined");
 }
 
-void AdnlPeerPairImpl::get_stats(td::Promise<tl_object_ptr<ton_api::adnl_stats_peerPair>> promise) {
+void AdnlPeerPairImpl::get_stats(bool all, td::Promise<tl_object_ptr<ton_api::adnl_stats_peerPair>> promise) {
+  if (!all) {
+    double threshold = td::Clocks::system() - 600.0;
+    if (last_in_packet_ts_ < threshold && last_out_packet_ts_ < threshold) {
+      promise.set_value(nullptr);
+      return;
+    }
+  }
+
   auto stats = create_tl_object<ton_api::adnl_stats_peerPair>();
   stats->local_id_ = local_id_.bits256_value();
   stats->peer_id_ = peer_id_short_.bits256_value();
@@ -993,7 +1001,7 @@ void AdnlPeerImpl::update_addr_list(AdnlNodeIdShort local_id, td::uint32 local_m
   td::actor::send_closure(it->second, &AdnlPeerPair::update_addr_list, std::move(addr_list));
 }
 
-void AdnlPeerImpl::get_stats(td::Promise<std::vector<tl_object_ptr<ton_api::adnl_stats_peerPair>>> promise) {
+void AdnlPeerImpl::get_stats(bool all, td::Promise<std::vector<tl_object_ptr<ton_api::adnl_stats_peerPair>>> promise) {
   class Cb : public td::actor::Actor {
    public:
     explicit Cb(td::Promise<std::vector<tl_object_ptr<ton_api::adnl_stats_peerPair>>> promise)
@@ -1001,7 +1009,9 @@ void AdnlPeerImpl::get_stats(td::Promise<std::vector<tl_object_ptr<ton_api::adnl
     }
 
     void got_peer_pair_stats(tl_object_ptr<ton_api::adnl_stats_peerPair> peer_pair) {
-      result_.push_back(std::move(peer_pair));
+      if (peer_pair) {
+        result_.push_back(std::move(peer_pair));
+      }
       dec_pending();
     }
 
@@ -1027,7 +1037,7 @@ void AdnlPeerImpl::get_stats(td::Promise<std::vector<tl_object_ptr<ton_api::adnl
 
   for (auto &[local_id, peer_pair] : peer_pairs_) {
     td::actor::send_closure(callback, &Cb::inc_pending);
-    td::actor::send_closure(peer_pair, &AdnlPeerPair::get_stats,
+    td::actor::send_closure(peer_pair, &AdnlPeerPair::get_stats, all,
                             [local_id = local_id, peer_id = peer_id_short_,
                              callback](td::Result<tl_object_ptr<ton_api::adnl_stats_peerPair>> R) {
                               if (R.is_error()) {

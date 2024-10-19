@@ -278,6 +278,38 @@ class Candidate {
   FileHash collated_data_file_hash;
 };
 
+class CandidateRefShort {
+ public:
+  FileHash hash() const {
+    return hashv;
+  }
+  ShardIdFull shard() const {
+    return block_id.shard_full();
+  }
+  std::string filename_short() const;
+
+  BlockId block_id;
+  FileHash hashv;
+};
+
+class CandidateRef {
+ public:
+  tl_object_ptr<ton_api::db_filedb_Key> tl() const {
+    return create_tl_object<ton_api::db_filedb_key_candidateRef>(create_tl_block_id(block_id));
+  }
+  FileHash hash() const {
+    return create_hash_tl_object<ton_api::db_filedb_key_candidateRef>(create_tl_block_id(block_id));
+  }
+  ShardIdFull shard() const {
+    return block_id.shard_full();
+  }
+  CandidateRefShort shortref() const;
+  std::string filename() const;
+  std::string filename_short() const;
+
+  BlockIdExt block_id;
+};
+
 class BlockInfoShort {
  public:
   FileHash hash() const {
@@ -316,7 +348,7 @@ class FileReferenceShort {
  private:
   td::Variant<fileref::Empty, fileref::BlockShort, fileref::ZeroStateShort, fileref::PersistentStateShort,
               fileref::ProofShort, fileref::ProofShort, fileref::ProofLinkShort, fileref::SignaturesShort,
-              fileref::CandidateShort, fileref::BlockInfoShort>
+              fileref::CandidateShort, fileref::CandidateRefShort, fileref::BlockInfoShort>
       ref_;
 
  public:
@@ -340,7 +372,8 @@ class FileReferenceShort {
 class FileReference {
  private:
   td::Variant<fileref::Empty, fileref::Block, fileref::ZeroState, fileref::PersistentState, fileref::Proof,
-              fileref::Proof, fileref::ProofLink, fileref::Signatures, fileref::Candidate, fileref::BlockInfo>
+              fileref::Proof, fileref::ProofLink, fileref::Signatures, fileref::Candidate, fileref::CandidateRef,
+              fileref::BlockInfo>
       ref_;
 
  public:

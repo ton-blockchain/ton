@@ -1,16 +1,17 @@
-## 2024.08 Update
+## 2024.10 Update
 
-1. Introduction of dispatch queues, message envelopes with transaction chain metadata, and explicitly stored msg_queue size, which will be activated by `Config8.version >= 8` and new `Config8.capabilities` bits: `capStoreOutMsgQueueSize`, `capMsgMetadata`, `capDeferMessages`. 
-2. A number of changes to transcation executor which will activated for `Config8.version >= 8`:
-    - Check mode on invalid `action_send_msg`. Ignore action if `IGNORE_ERROR` (+2) bit is set, bounce if `BOUNCE_ON_FAIL` (+16) bit is set.
-    - Slightly change random seed generation to fix mix of `addr_rewrite` and `addr`.
-    - Fill in `skipped_actions` for both invalid and valid messages with `IGNORE_ERROR` mode that can't be sent.
-    - Allow unfreeze through external messages.
-    - Don't use user-provided `fwd_fee` and `ihr_fee` for internal messages.
-3. A few issues with broadcasts were fixed: stop on receiving last piece, response to AdnlMessageCreateChannel
-4. A number of fixes and improvements for emulator and tonlib: correct work with config_addr, not accepted externals, bounces, debug ops gas consumption, added version and c5 dump, fixed tonlib crashes
-5. Added new flags and commands to the node, in particular `--fast-state-serializer`, `getcollatoroptionsjson`, `setcollatoroptionsjson`
+1. Parallel write to celldb: substantial improvement of sync and GC speed, especially with slow disks.
+2. Decreased network traffic: only first block candidate is sent optimistically.
+3. Improved channel creation and dht lookups, introduction of semi-private overlays
+4. New LS dispatch queue related methods and improvement security
+5. Fixing recursion in TVM continuations
+6. Improved stats for actors, validator sessions, perf counters, overlays, adnl, rocksdb
+7. Migration to C++20
+8. Improved block size estimates: account for depth in various structures
+9. Fix bug with `<<` optimization in FunC
+10. Minor changes of TVM which will be activated by `Config8.version >= 9`
+11. Multiple minor improvements
 
-Besides the work of the core team, this update is based on the efforts of @krigga (emulator), stonfi team, in particular @dbaranovstonfi and @hey-researcher (emulator), and  @loeul, @xiaoxianBoy, @simlecode (typos in comments and docs).
+Besides the work of the core team, this update is based on the efforts of @krigga (emulator), Arayz @ TonBit (LS security, TVM recursion).
 
 

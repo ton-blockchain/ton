@@ -46,12 +46,12 @@ class Db : public td::actor::Actor {
   virtual void store_block_candidate(BlockCandidate candidate, td::Promise<td::Unit> promise) = 0;
   virtual void get_block_candidate(ton::PublicKey source, BlockIdExt id, FileHash collated_data_file_hash,
                                    td::Promise<BlockCandidate> promise) = 0;
+  virtual void get_block_candidate_by_block_id(BlockIdExt id, td::Promise<BlockCandidate> promise) = 0;
 
   virtual void store_block_state(BlockHandle handle, td::Ref<ShardState> state,
                                  td::Promise<td::Ref<ShardState>> promise) = 0;
   virtual void get_block_state(ConstBlockHandle handle, td::Promise<td::Ref<ShardState>> promise) = 0;
   virtual void get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) = 0;
-  virtual void get_last_deleted_mc_state(td::Promise<BlockSeqno> promise) = 0;
 
   virtual void store_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::BufferSlice state,
                                            td::Promise<td::Unit> promise) = 0;

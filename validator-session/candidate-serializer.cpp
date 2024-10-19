@@ -22,27 +22,15 @@
 
 namespace ton::validatorsession {
 
-td::Result<td::BufferSlice> serialize_candidate(const tl_object_ptr<ton_api::validatorSession_candidate> &block,
+td::Result<td::BufferSlice> serialize_candidate(const tl_object_ptr<ton_api::validatorSession_candidate>& block,
                                                 bool compression_enabled) {
   if (!compression_enabled) {
     return serialize_tl_object(block, true);
   }
-  vm::BagOfCells boc1, boc2;
-  TRY_STATUS(boc1.deserialize(block->data_));
-  if (boc1.get_root_count() != 1) {
-    return td::Status::Error("block candidate should have exactly one root");
-  }
-  std::vector<td::Ref<vm::Cell>> roots = {boc1.get_root_cell()};
-  TRY_STATUS(boc2.deserialize(block->collated_data_));
-  for (int i = 0; i < boc2.get_root_count(); ++i) {
-    roots.push_back(boc2.get_root_cell(i));
-  }
-  TRY_RESULT(data, vm::std_boc_serialize_multi(std::move(roots), 2));
-  td::BufferSlice compressed = td::lz4_compress(data);
-  LOG(VALIDATOR_SESSION_DEBUG) << "Compressing block candidate: " << block->data_.size() + block->collated_data_.size()
-                               << " -> " << compressed.size();
+  size_t decompressed_size;
+  TRY_RESULT(compressed, compress_candidate_data(block->data_, block->collated_data_, decompressed_size))
   return create_serialize_tl_object<ton_api::validatorSession_compressedCandidate>(
-      0, block->src_, block->round_, block->root_hash_, (int)data.size(), std::move(compressed));
+      0, block->src_, block->round_, block->root_hash_, (int)decompressed_size, std::move(compressed));
 }
 
 td::Result<tl_object_ptr<ton_api::validatorSession_candidate>> deserialize_candidate(td::Slice data,
@@ -55,8 +43,34 @@ td::Result<tl_object_ptr<ton_api::validatorSession_candidate>> deserialize_candi
   if (f->decompressed_size_ > max_decompressed_data_size) {
     return td::Status::Error("decompressed size is too big");
   }
-  TRY_RESULT(decompressed, td::lz4_decompress(f->data_, f->decompressed_size_));
-  if (decompressed.size() != (size_t)f->decompressed_size_) {
+  TRY_RESULT(p, decompress_candidate_data(f->data_, f->decompressed_size_));
+  return create_tl_object<ton_api::validatorSession_candidate>(f->src_, f->round_, f->root_hash_, std::move(p.first),
+                                                               std::move(p.second));
+}
+
+td::Result<td::BufferSlice> compress_candidate_data(td::Slice block, td::Slice collated_data,
+                                                    size_t& decompressed_size) {
+  vm::BagOfCells boc1, boc2;
+  TRY_STATUS(boc1.deserialize(block));
+  if (boc1.get_root_count() != 1) {
+    return td::Status::Error("block candidate should have exactly one root");
+  }
+  std::vector<td::Ref<vm::Cell>> roots = {boc1.get_root_cell()};
+  TRY_STATUS(boc2.deserialize(collated_data));
+  for (int i = 0; i < boc2.get_root_count(); ++i) {
+    roots.push_back(boc2.get_root_cell(i));
+  }
+  TRY_RESULT(data, vm::std_boc_serialize_multi(std::move(roots), 2));
+  decompressed_size = data.size();
+  td::BufferSlice compressed = td::lz4_compress(data);
+  LOG(DEBUG) << "Compressing block candidate: " << block.size() + collated_data.size() << " -> " << compressed.size();
+  return compressed;
+}
+
+td::Result<std::pair<td::BufferSlice, td::BufferSlice>> decompress_candidate_data(td::Slice compressed,
+                                                                                  int decompressed_size) {
+  TRY_RESULT(decompressed, td::lz4_decompress(compressed, decompressed_size));
+  if (decompressed.size() != (size_t)decompressed_size) {
     return td::Status::Error("decompressed size mismatch");
   }
   TRY_RESULT(roots, vm::std_boc_deserialize_multi(decompressed));
@@ -66,10 +80,9 @@ td::Result<tl_object_ptr<ton_api::validatorSession_candidate>> deserialize_candi
   TRY_RESULT(block_data, vm::std_boc_serialize(roots[0], 31));
   roots.erase(roots.begin());
   TRY_RESULT(collated_data, vm::std_boc_serialize_multi(std::move(roots), 31));
-  LOG(VALIDATOR_SESSION_DEBUG) << "Decompressing block candidate: " << f->data_.size() << " -> "
-                               << block_data.size() + collated_data.size();
-  return create_tl_object<ton_api::validatorSession_candidate>(f->src_, f->round_, f->root_hash_, std::move(block_data),
-                                                               std::move(collated_data));
+  LOG(DEBUG) << "Decompressing block candidate: " << compressed.size() << " -> "
+             << block_data.size() + collated_data.size();
+  return std::make_pair(std::move(block_data), std::move(collated_data));
 }
 
 }  // namespace ton::validatorsession

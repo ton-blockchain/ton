@@ -48,6 +48,7 @@ struct OpensslEVP_SHA512 {
 
 template <typename H>
 class HashCtx {
+  EVP_MD_CTX *base_ctx{nullptr};
   EVP_MD_CTX *ctx{nullptr};
   void init();
   void clear();
@@ -77,16 +78,20 @@ class HashCtx {
 template <typename H>
 void HashCtx<H>::init() {
   ctx = EVP_MD_CTX_create();
+  base_ctx = EVP_MD_CTX_create();
+  EVP_DigestInit_ex(base_ctx, H::get_evp(), 0);
   reset();
 }
 
 template <typename H>
 void HashCtx<H>::reset() {
-  EVP_DigestInit_ex(ctx, H::get_evp(), 0);
+  EVP_MD_CTX_copy_ex(ctx, base_ctx);
 }
 
 template <typename H>
 void HashCtx<H>::clear() {
+  EVP_MD_CTX_destroy(base_ctx);
+  base_ctx = nullptr;
   EVP_MD_CTX_destroy(ctx);
   ctx = nullptr;
 }

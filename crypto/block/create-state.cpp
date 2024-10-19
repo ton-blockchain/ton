@@ -426,7 +426,7 @@ bool store_validator_list_hash(vm::CellBuilder& cb) {
   LOG_CHECK(vset) << "unpacked validator set is empty";
   auto ccvc = block::Config::unpack_catchain_validators_config(config_dict.lookup_ref(td::BitArray<32>{28}));
   ton::ShardIdFull shard{ton::masterchainId};
-  auto nodes = block::Config::do_compute_validator_set(ccvc, shard, *vset, now, 0);
+  auto nodes = block::Config::do_compute_validator_set(ccvc, shard, *vset, 0);
   LOG_CHECK(!nodes.empty()) << "validator node list in unpacked validator set is empty";
   auto vset_hash = block::compute_validator_set_hash(0, shard, std::move(nodes));
   LOG(DEBUG) << "initial validator set hash is " << vset_hash;

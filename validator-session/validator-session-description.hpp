@@ -114,6 +114,7 @@ class ValidatorSessionDescriptionImpl : public ValidatorSessionDescription {
   }
   td::int32 get_node_priority(td::uint32 src_idx, td::uint32 round) const override;
   td::uint32 get_max_priority() const override;
+  td::uint32 get_node_by_priority(td::uint32 round, td::uint32 priority) const override;
   td::uint32 get_unixtime(td::uint64 ts) const override {
     return static_cast<td::uint32>(ts >> 32);
   }

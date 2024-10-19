@@ -37,6 +37,7 @@ class WalletInterface : public SmartContract {
   struct Gift {
     block::StdAddress destination;
     td::int64 gramms;
+    td::Ref<vm::Cell> extra_currencies;
     td::int32 send_mode{-1};
 
     bool is_encrypted{false};

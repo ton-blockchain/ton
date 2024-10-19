@@ -27,6 +27,9 @@ namespace vm {
 
 class DataCell : public Cell {
  public:
+  // NB: cells created with use_arena=true are never freed
+  static thread_local bool use_arena;
+
   DataCell(const DataCell& other) = delete;
   ~DataCell() override;
 
@@ -121,10 +124,6 @@ class DataCell : public Cell {
   void destroy_storage(char* storage);
 
   explicit DataCell(Info info);
-  Cell* get_ref_raw_ptr(unsigned idx) const {
-    DCHECK(idx < get_refs_cnt());
-    return info_.get_refs(get_storage())[idx];
-  }
 
  public:
   td::Result<LoadedCell> load_cell() const override {
@@ -152,6 +151,20 @@ class DataCell : public Cell {
     return Ref<Cell>(get_ref_raw_ptr(idx));
   }
 
+  Cell* get_ref_raw_ptr(unsigned idx) const {
+    DCHECK(idx < get_refs_cnt());
+    return info_.get_refs(get_storage())[idx];
+  }
+
+  Ref<Cell> reset_ref_unsafe(unsigned idx, Ref<Cell> ref, bool check_hash = true) {
+    CHECK(idx < get_refs_cnt());
+    auto refs = info_.get_refs(get_storage());
+    CHECK(!check_hash || refs[idx]->get_hash() == ref->get_hash());
+    auto res = Ref<Cell>(refs[idx], Ref<Cell>::acquire_t{});  // call destructor
+    refs[idx] = ref.release();
+    return res;
+  }
+
   td::uint32 get_virtualization() const override {
     return info_.virtualization_;
   }
@@ -172,6 +185,9 @@ class DataCell : public Cell {
   int get_serialized_size(bool with_hashes = false) const {
     return ((get_bits() + 23) >> 3) +
            (with_hashes ? get_level_mask().get_hashes_count() * (hash_bytes + depth_bytes) : 0);
+  }
+  size_t get_storage_size() const {
+    return info_.get_storage_size();
   }
   int serialize(unsigned char* buff, int buff_size, bool with_hashes = false) const;
   std::string serialize() const;
@@ -207,6 +223,9 @@ class DataCell : public Cell {
 };
 
 std::ostream& operator<<(std::ostream& os, const DataCell& c);
+inline CellHash as_cell_hash(const Ref<DataCell>& cell) {
+  return cell->get_hash();
+}
 
 }  // namespace vm
 

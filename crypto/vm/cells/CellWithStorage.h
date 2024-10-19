@@ -20,6 +20,15 @@
 
 namespace vm {
 namespace detail {
+
+template <class CellT>
+struct DefaultAllocator {
+  template <class T, class... ArgsT>
+  std::unique_ptr<CellT> make_unique(ArgsT&&... args) {
+    return std::make_unique<T>(std::forward<ArgsT>(args)...);
+  }
+};
+
 template <class CellT, size_t Size = 0>
 class CellWithArrayStorage : public CellT {
  public:
@@ -29,14 +38,14 @@ class CellWithArrayStorage : public CellT {
   ~CellWithArrayStorage() {
     CellT::destroy_storage(get_storage());
   }
-  template <class... ArgsT>
-  static std::unique_ptr<CellT> create(size_t storage_size, ArgsT&&... args) {
+  template <class Allocator, class... ArgsT>
+  static auto create(Allocator allocator, size_t storage_size, ArgsT&&... args) {
     static_assert(CellT::max_storage_size <= 40 * 8, "");
     //size = 128 + 32 + 8;
     auto size = (storage_size + 7) / 8;
 #define CASE(size) \
   case (size):     \
-    return std::make_unique<CellWithArrayStorage<CellT, (size)*8>>(std::forward<ArgsT>(args)...);
+    return allocator. template make_unique<CellWithArrayStorage<CellT, (size) * 8>>(std::forward<ArgsT>(args)...);
 #define CASE2(offset) CASE(offset) CASE(offset + 1)
 #define CASE8(offset) CASE2(offset) CASE2(offset + 2) CASE2(offset + 4) CASE2(offset + 6)
 #define CASE32(offset) CASE8(offset) CASE8(offset + 8) CASE8(offset + 16) CASE8(offset + 24)
@@ -47,6 +56,10 @@ class CellWithArrayStorage : public CellT {
 #undef CASE32
     LOG(FATAL) << "TOO BIG " << storage_size;
     UNREACHABLE();
+  }
+  template <class... ArgsT>
+  static std::unique_ptr<CellT> create(size_t storage_size, ArgsT&&... args) {
+    return create(DefaultAllocator<CellT>{}, storage_size, std::forward<ArgsT>(args)...);
   }
 
  private:

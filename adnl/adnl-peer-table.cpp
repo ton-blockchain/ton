@@ -385,7 +385,7 @@ void AdnlPeerTableImpl::get_conn_ip_str(AdnlNodeIdShort l_id, AdnlNodeIdShort p_
   td::actor::send_closure(it->second, &AdnlPeer::get_conn_ip_str, l_id, std::move(promise));
 }
 
-void AdnlPeerTableImpl::get_stats(td::Promise<tl_object_ptr<ton_api::adnl_stats>> promise) {
+void AdnlPeerTableImpl::get_stats(bool all, td::Promise<tl_object_ptr<ton_api::adnl_stats>> promise) {
   class Cb : public td::actor::Actor {
    public:
     explicit Cb(td::Promise<tl_object_ptr<ton_api::adnl_stats>> promise) : promise_(std::move(promise)) {
@@ -440,7 +440,7 @@ void AdnlPeerTableImpl::get_stats(td::Promise<tl_object_ptr<ton_api::adnl_stats>
 
   for (auto &[id, local_id] : local_ids_) {
     td::actor::send_closure(callback, &Cb::inc_pending);
-    td::actor::send_closure(local_id.local_id, &AdnlLocalId::get_stats,
+    td::actor::send_closure(local_id.local_id, &AdnlLocalId::get_stats, all,
                             [id = id, callback](td::Result<tl_object_ptr<ton_api::adnl_stats_localId>> R) {
                               if (R.is_error()) {
                                 VLOG(ADNL_NOTICE)
@@ -454,7 +454,7 @@ void AdnlPeerTableImpl::get_stats(td::Promise<tl_object_ptr<ton_api::adnl_stats>
   for (auto &[id, peer] : peers_) {
     td::actor::send_closure(callback, &Cb::inc_pending);
     td::actor::send_closure(
-        peer, &AdnlPeer::get_stats,
+        peer, &AdnlPeer::get_stats, all,
         [id = id, callback](td::Result<std::vector<tl_object_ptr<ton_api::adnl_stats_peerPair>>> R) {
           if (R.is_error()) {
             VLOG(ADNL_NOTICE) << "failed to get stats for peer " << id << " : " << R.move_as_error();

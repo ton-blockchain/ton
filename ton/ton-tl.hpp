@@ -19,7 +19,8 @@
 #pragma once
 
 #include "ton-types.h"
-#include "auto/tl/ton_api.h"
+#include "auto/tl/ton_api.hpp"
+#include "td/utils/overloaded.h"
 
 namespace ton {
 
@@ -51,6 +52,14 @@ inline tl_object_ptr<ton_api::tonNode_zeroStateIdExt> create_tl_zero_state_id(co
 
 inline ZeroStateIdExt create_zero_state_id(tl_object_ptr<ton_api::tonNode_zeroStateIdExt> &B) {
   return ZeroStateIdExt{B->workchain_, B->root_hash_, B->file_hash_};
+}
+
+inline ShardIdFull create_shard_id(const tl_object_ptr<ton_api::tonNode_shardId> &s) {
+  return ShardIdFull{s->workchain_, static_cast<td::uint64>(s->shard_)};
+}
+
+inline tl_object_ptr<ton_api::tonNode_shardId> create_tl_shard_id(const ShardIdFull &s) {
+  return create_tl_object<ton_api::tonNode_shardId>(s.workchain, s.shard);
 }
 
 }  // namespace ton

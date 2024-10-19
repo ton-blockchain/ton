@@ -22,12 +22,12 @@ namespace vm {
 //
 // CellUsageTree::NodePtr
 //
-bool CellUsageTree::NodePtr::on_load() const {
+bool CellUsageTree::NodePtr::on_load(const td::Ref<vm::DataCell>& cell) const {
   auto tree = tree_weak_.lock();
   if (!tree) {
     return false;
   }
-  tree->on_load(node_id_);
+  tree->on_load(node_id_, cell);
   return true;
 }
 
@@ -111,8 +111,14 @@ void CellUsageTree::set_use_mark_for_is_loaded(bool use_mark) {
   use_mark_ = use_mark;
 }
 
-void CellUsageTree::on_load(NodeId node_id) {
+void CellUsageTree::on_load(NodeId node_id, const td::Ref<vm::DataCell>& cell) {
+  if (nodes_[node_id].is_loaded) {
+    return;
+  }
   nodes_[node_id].is_loaded = true;
+  if (cell_load_callback_) {
+    cell_load_callback_(cell);
+  }
 }
 
 CellUsageTree::NodeId CellUsageTree::create_child(NodeId node_id, unsigned ref_id) {

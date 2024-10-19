@@ -25,7 +25,44 @@
 #include "vm/cells/CellWithStorage.h"
 
 namespace vm {
+thread_local bool DataCell::use_arena = false;
+
+namespace {
+template <class CellT>
+struct ArenaAllocator {
+  template <class T, class... ArgsT>
+  std::unique_ptr<CellT> make_unique(ArgsT&&... args) {
+    auto* ptr = fast_alloc(sizeof(T));
+    T* obj = new (ptr) T(std::forward<ArgsT>(args)...);
+    return std::unique_ptr<T>(obj);
+  }
+private:
+  td::MutableSlice alloc_batch() {
+    size_t batch_size = 1 << 20;
+    auto batch = std::make_unique<char[]>(batch_size);
+    return td::MutableSlice(batch.release(), batch_size);
+  }
+  char* fast_alloc(size_t size) {
+    thread_local td::MutableSlice batch;
+    auto aligned_size = (size + 7) / 8 * 8;
+    if (batch.size() < size) {
+      batch = alloc_batch();
+    }
+    auto res = batch.begin();
+    batch.remove_prefix(aligned_size);
+    return res;
+  }
+};
+}
 std::unique_ptr<DataCell> DataCell::create_empty_data_cell(Info info) {
+  if (use_arena) {
+    ArenaAllocator<DataCell> allocator;
+    auto res = detail::CellWithArrayStorage<DataCell>::create(allocator, info.get_storage_size(), info);
+    // this is dangerous
+    Ref<DataCell>(res.get()).release();
+    return res;
+  }
+
   return detail::CellWithUniquePtrStorage<DataCell>::create(info.get_storage_size(), info);
 }
 
@@ -359,7 +396,7 @@ std::string DataCell::to_hex() const {
   int len = serialize(buff, sizeof(buff));
   char hex_buff[max_serialized_bytes * 2 + 1];
   for (int i = 0; i < len; i++) {
-    sprintf(hex_buff + 2 * i, "%02x", buff[i]);
+    snprintf(hex_buff + 2 * i, sizeof(hex_buff) - 2 * i, "%02x", buff[i]);
   }
   return hex_buff;
 }

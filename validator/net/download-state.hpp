@@ -43,6 +43,7 @@ class DownloadState : public td::actor::Actor {
   void finish_query();
 
   void start_up() override;
+  void get_block_handle();
   void got_block_handle(BlockHandle handle);
   void got_node_to_download(adnl::AdnlNodeIdShort node);
   void got_block_state_description(td::BufferSlice data_description);

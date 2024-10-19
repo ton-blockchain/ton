@@ -114,6 +114,8 @@ void ActorExecutor::start() noexcept {
 
   actor_execute_context_.set_actor(&actor_info_.actor());
 
+  actor_stats_ = actor_info_.actor_type_stat();
+  auto execute_timer = actor_stats_.create_execute_timer();
   while (flush_one_signal(signals)) {
     if (actor_execute_context_.has_immediate_flags()) {
       return;
@@ -175,6 +177,11 @@ void ActorExecutor::finish() noexcept {
     if (add_to_queue) {
       actor_info_ptr = actor_info_.actor().get_actor_info_ptr();
     }
+    if (!flags().is_closed() && flags().is_in_queue()) {
+      // Must do it while we are locked, so to it optimistically
+      // we will add actor to queue after unlock OR we are already in a queue OR we will be closed
+      actor_info_.on_add_to_queue();
+    }
     if (actor_locker_.try_unlock(flags())) {
       if (add_to_queue) {
         dispatcher_.add_to_queue(std::move(actor_info_ptr), flags().get_scheduler_id(), !flags().is_shared());
@@ -193,23 +200,31 @@ bool ActorExecutor::flush_one_signal(ActorSignals &signals) {
   }
   switch (signal) {
     //NB: Signals will be handled in order of their value.
-    // For clarity it conincides with order in this switch
+    // For clarity, it coincides with order in this switch
     case ActorSignals::Pause:
       actor_execute_context_.set_pause();
       break;
-    case ActorSignals::Kill:
+    case ActorSignals::Kill: {
+      auto message_timer = actor_stats_.create_message_timer();
       actor_execute_context_.set_stop();
       break;
-    case ActorSignals::StartUp:
+    }
+    case ActorSignals::StartUp: {
+      auto message_timer = actor_stats_.create_message_timer();
+      actor_stats_.created();
       actor_info_.actor().start_up();
       break;
-    case ActorSignals::Wakeup:
+    }
+    case ActorSignals::Wakeup: {
+      auto message_timer = actor_stats_.create_message_timer();
       actor_info_.actor().wake_up();
       break;
+    }
     case ActorSignals::Alarm:
       if (actor_execute_context_.get_alarm_timestamp() && actor_execute_context_.get_alarm_timestamp().is_in_past()) {
         actor_execute_context_.alarm_timestamp() = Timestamp::never();
         actor_info_.set_alarm_timestamp(Timestamp::never());
+        auto message_timer = actor_stats_.create_message_timer();
         actor_info_.actor().alarm();
       }
       break;
@@ -245,6 +260,7 @@ bool ActorExecutor::flush_one_message() {
   }
 
   actor_execute_context_.set_link_token(message.get_link_token());
+  auto message_timer = actor_stats_.create_message_timer();
   message.run();
   return true;
 }
@@ -257,7 +273,9 @@ void ActorExecutor::flush_context_flags() {
     }
     flags_.set_closed(true);
     if (!flags_.get_signals().has_signal(ActorSignals::Signal::StartUp)) {
+      auto message_timer = actor_stats_.create_message_timer();
       actor_info_.actor().tear_down();
+      actor_stats_.destroyed();
     }
     actor_info_.destroy_actor();
   } else {

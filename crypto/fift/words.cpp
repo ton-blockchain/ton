@@ -3425,7 +3425,7 @@ void import_cmdline_args(Dictionary& d, std::string arg0, int n, const char* con
   cmdline_args->set(std::move(list));
   for (int i = 1; i <= n; i++) {
     char buffer[14];
-    sprintf(buffer, "$%d ", i);
+    snprintf(buffer, sizeof(buffer), "$%d ", i);
     d.def_stack_word(buffer, std::bind(interpret_get_fixed_cmdline_arg, _1, i));
   }
 }

@@ -22,8 +22,12 @@
 
 #include "td/utils/int_types.h"
 #include "td/utils/logging.h"
+#include <functional>
 
 namespace vm {
+
+class DataCell;
+
 class CellUsageTree : public std::enable_shared_from_this<CellUsageTree> {
  public:
   using NodeId = td::uint32;
@@ -38,7 +42,7 @@ class CellUsageTree : public std::enable_shared_from_this<CellUsageTree> {
       return node_id_ == 0 || tree_weak_.expired();
     }
 
-    bool on_load() const;
+    bool on_load(const td::Ref<vm::DataCell>& cell) const;
     NodePtr create_child(unsigned ref_id) const;
     bool mark_path(CellUsageTree* master_tree) const;
     bool is_from_tree(const CellUsageTree* master_tree) const;
@@ -59,6 +63,10 @@ class CellUsageTree : public std::enable_shared_from_this<CellUsageTree> {
   void set_use_mark_for_is_loaded(bool use_mark = true);
   NodeId create_child(NodeId node_id, unsigned ref_id);
 
+  void set_cell_load_callback(std::function<void(const td::Ref<vm::DataCell>&)> f) {
+    cell_load_callback_ = std::move(f);
+  }
+
  private:
   struct Node {
     bool is_loaded{false};
@@ -68,8 +76,9 @@ class CellUsageTree : public std::enable_shared_from_this<CellUsageTree> {
   };
   bool use_mark_{false};
   std::vector<Node> nodes_{2};
+  std::function<void(const td::Ref<vm::DataCell>&)> cell_load_callback_;
 
-  void on_load(NodeId node_id);
+  void on_load(NodeId node_id, const td::Ref<vm::DataCell>& cell);
   NodeId create_node(NodeId parent);
 };
 }  // namespace vm

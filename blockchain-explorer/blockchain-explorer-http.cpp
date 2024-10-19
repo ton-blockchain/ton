@@ -122,9 +122,8 @@ HttpAnswer& HttpAnswer::operator<<(MessageCell msg) {
         abort("cannot unpack internal message");
         return *this;
       }
-      td::RefInt256 value;
-      td::Ref<vm::Cell> extra;
-      if (!block::unpack_CurrencyCollection(info.value, value, extra)) {
+      block::CurrencyCollection currency_collection;
+      if (!currency_collection.unpack(info.value)) {
         abort("cannot unpack message value");
         return *this;
       }
@@ -133,7 +132,7 @@ HttpAnswer& HttpAnswer::operator<<(MessageCell msg) {
             << "<tr><th>destination</th><td>" << AddressCell{info.dest} << "</td></tr>\n"
             << "<tr><th>lt</th><td>" << info.created_lt << "</td></tr>\n"
             << "<tr><th>time</th><td>" << info.created_at << " (" << time_to_human(info.created_at) << ")</td></tr>\n"
-            << "<tr><th>value</th><td>" << value << "</td></tr>\n";
+            << "<tr><th>value</th><td>" << currency_collection.to_str()<< "</td></tr>\n";
       break;
     }
     default:
@@ -365,6 +364,7 @@ HttpAnswer& HttpAnswer::operator<<(AccountCell acc_c) {
   ton::LogicalTime last_trans_lt = 0;
   ton::Bits256 last_trans_hash;
   last_trans_hash.set_zero();
+  block::CurrencyCollection balance = block::CurrencyCollection::zero();
   try {
     auto state_root = vm::MerkleProof::virtualize(acc_c.q_roots[1], 1);
     if (state_root.is_null()) {
@@ -397,6 +397,20 @@ HttpAnswer& HttpAnswer::operator<<(AccountCell acc_c) {
       }
       last_trans_hash = acc_info.last_trans_hash;
       last_trans_lt = acc_info.last_trans_lt;
+      block::gen::Account::Record_account acc;
+      block::gen::AccountStorage::Record storage_rec;
+      if (!tlb::unpack_cell(acc_c.root, acc)) {
+        abort("cannot unpack Account");
+        return *this;
+      }
+      if (!tlb::csr_unpack(acc.storage, storage_rec)) {
+        abort("cannot unpack AccountStorage");
+        return *this;
+      }
+      if (!balance.unpack(storage_rec.balance)) {
+        abort("cannot unpack account balance");
+        return *this;
+      }
     } else if (acc_c.root.not_null()) {
       abort(PSTRING() << "account state proof shows that account state for " << acc_c.addr.workchain << ":"
                       << acc_c.addr.addr.to_hex() << " must be empty, but it is not");
@@ -434,6 +448,7 @@ HttpAnswer& HttpAnswer::operator<<(AccountCell acc_c) {
   *this << "<tr><th>workchain</th><td>" << acc_c.addr.workchain << "</td></tr>";
   *this << "<tr><th>account hex</th><td>" << acc_c.addr.addr.to_hex() << "</td></tr>";
   *this << "<tr><th>account</th><td>" << acc_c.addr.rserialize(true) << "</td></tr>";
+  *this << "<tr><th>balance</th><td>" << balance.to_str() << "</td></tr>";
   if (last_trans_lt > 0) {
     *this << "<tr><th>last transaction</th><td>"
           << "<a href=\"" << TransactionLink{acc_c.addr, last_trans_lt, last_trans_hash} << "\">lt=" << last_trans_lt

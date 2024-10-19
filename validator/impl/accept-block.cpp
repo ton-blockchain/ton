@@ -41,7 +41,7 @@ using namespace std::literals::string_literals;
 
 AcceptBlockQuery::AcceptBlockQuery(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
                                    td::Ref<ValidatorSet> validator_set, td::Ref<BlockSignatureSet> signatures,
-                                   td::Ref<BlockSignatureSet> approve_signatures, bool send_broadcast,
+                                   td::Ref<BlockSignatureSet> approve_signatures, int send_broadcast_mode,
                                    td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise)
     : id_(id)
     , data_(std::move(data))
@@ -51,7 +51,7 @@ AcceptBlockQuery::AcceptBlockQuery(BlockIdExt id, td::Ref<BlockData> data, std::
     , approve_signatures_(std::move(approve_signatures))
     , is_fake_(false)
     , is_fork_(false)
-    , send_broadcast_(send_broadcast)
+    , send_broadcast_mode_(send_broadcast_mode)
     , manager_(manager)
     , promise_(std::move(promise))
     , perf_timer_("acceptblock", 0.1, [manager](double duration) {
@@ -72,7 +72,6 @@ AcceptBlockQuery::AcceptBlockQuery(AcceptBlockQuery::IsFake fake, BlockIdExt id,
     , validator_set_(std::move(validator_set))
     , is_fake_(true)
     , is_fork_(false)
-    , send_broadcast_(false)
     , manager_(manager)
     , promise_(std::move(promise))
     , perf_timer_("acceptblock", 0.1, [manager](double duration) {
@@ -90,7 +89,6 @@ AcceptBlockQuery::AcceptBlockQuery(ForceFork ffork, BlockIdExt id, td::Ref<Block
     , data_(std::move(data))
     , is_fake_(true)
     , is_fork_(true)
-    , send_broadcast_(false)
     , manager_(manager)
     , promise_(std::move(promise))
     , perf_timer_("acceptblock", 0.1, [manager](double duration) {
@@ -413,7 +411,36 @@ void AcceptBlockQuery::got_block_handle(BlockHandle handle) {
                         : handle_->inited_proof_link())) {
     finish_query();
     return;
+                        }
+  if (data_.is_null()) {
+    td::actor::send_closure(manager_, &ValidatorManager::get_candidate_data_by_block_id_from_db, id_, [SelfId = actor_id(this)](td::Result<td::BufferSlice> R) {
+      if (R.is_ok()) {
+        td::actor::send_closure(SelfId, &AcceptBlockQuery::got_block_candidate_data, R.move_as_ok());
+      } else {
+        td::actor::send_closure(SelfId, &AcceptBlockQuery::got_block_handle_cont);
+      }
+    });
+  } else {
+    got_block_handle_cont();
   }
+}
+
+void AcceptBlockQuery::got_block_candidate_data(td::BufferSlice data) {
+  auto r_block = create_block(id_, std::move(data));
+  if (r_block.is_error()) {
+    fatal_error("invalid block candidate data in db: " + r_block.error().to_string());
+    return;
+  }
+  data_ = r_block.move_as_ok();
+  VLOG(VALIDATOR_DEBUG) << "got block candidate data from db";
+  if (data_.not_null() && !precheck_header()) {
+    fatal_error("invalid block header in AcceptBlock");
+    return;
+  }
+  got_block_handle_cont();
+}
+
+void AcceptBlockQuery::got_block_handle_cont() {
   if (data_.not_null() && !handle_->received()) {
     td::actor::send_closure(
         manager_, &ValidatorManager::set_block_data, handle_, data_, [SelfId = actor_id(this)](td::Result<td::Unit> R) {
@@ -899,6 +926,10 @@ void AcceptBlockQuery::written_block_info_2() {
 }
 
 void AcceptBlockQuery::applied() {
+  if (send_broadcast_mode_ == 0) {
+    finish_query();
+    return;
+  }
   BlockBroadcast b;
   b.data = data_->data();
   b.block_id = id_;
@@ -918,8 +949,7 @@ void AcceptBlockQuery::applied() {
   }
 
   // do not wait for answer
-  td::actor::send_closure_later(manager_, &ValidatorManager::send_block_broadcast, std::move(b),
-                                /* custom_overlays_only = */ !send_broadcast_);
+  td::actor::send_closure_later(manager_, &ValidatorManager::send_block_broadcast, std::move(b), send_broadcast_mode_);
 
   finish_query();
 }

@@ -306,7 +306,7 @@ void AdnlLocalId::update_packet(AdnlPacket packet, bool update_id, bool sign, td
   }
 }
 
-void AdnlLocalId::get_stats(td::Promise<tl_object_ptr<ton_api::adnl_stats_localId>> promise) {
+void AdnlLocalId::get_stats(bool all, td::Promise<tl_object_ptr<ton_api::adnl_stats_localId>> promise) {
   auto stats = create_tl_object<ton_api::adnl_stats_localId>();
   stats->short_id_ = short_id_.bits256_value();
   for (auto &[ip, x] : inbound_rate_limiter_) {
@@ -317,7 +317,7 @@ void AdnlLocalId::get_stats(td::Promise<tl_object_ptr<ton_api::adnl_stats_localI
   }
   prepare_packet_stats();
   stats->packets_recent_ = packet_stats_prev_.tl();
-  stats->packets_total_ = packet_stats_total_.tl();
+  stats->packets_total_ = packet_stats_total_.tl(all);
   stats->packets_total_->ts_start_ = (double)Adnl::adnl_start_time();
   stats->packets_total_->ts_end_ = td::Clocks::system();
   promise.set_result(std::move(stats));
@@ -325,14 +325,14 @@ void AdnlLocalId::get_stats(td::Promise<tl_object_ptr<ton_api::adnl_stats_localI
 
 void AdnlLocalId::add_decrypted_packet_stats(td::IPAddress addr) {
   prepare_packet_stats();
-  ++packet_stats_cur_.decrypted_packets[addr];
-  ++packet_stats_total_.decrypted_packets[addr];
+  packet_stats_cur_.decrypted_packets[addr].inc();
+  packet_stats_total_.decrypted_packets[addr].inc();
 }
 
 void AdnlLocalId::add_dropped_packet_stats(td::IPAddress addr) {
   prepare_packet_stats();
-  ++packet_stats_cur_.dropped_packets[addr];
-  ++packet_stats_total_.dropped_packets[addr];
+  packet_stats_cur_.dropped_packets[addr].inc();
+  packet_stats_total_.dropped_packets[addr].inc();
 }
 
 void AdnlLocalId::prepare_packet_stats() {
@@ -351,17 +351,22 @@ void AdnlLocalId::prepare_packet_stats() {
   }
 }
 
-tl_object_ptr<ton_api::adnl_stats_localIdPackets> AdnlLocalId::PacketStats::tl() const {
+tl_object_ptr<ton_api::adnl_stats_localIdPackets> AdnlLocalId::PacketStats::tl(bool all) const {
+  double threshold = all ? -1.0 : td::Clocks::system() - 600.0;
   auto obj = create_tl_object<ton_api::adnl_stats_localIdPackets>();
   obj->ts_start_ = ts_start;
   obj->ts_end_ = ts_end;
   for (const auto &[ip, packets] : decrypted_packets) {
-    obj->decrypted_packets_.push_back(create_tl_object<ton_api::adnl_stats_ipPackets>(
-        ip.is_valid() ? PSTRING() << ip.get_ip_str() << ":" << ip.get_port() : "", packets));
+    if (packets.last_packet_ts >= threshold) {
+      obj->decrypted_packets_.push_back(create_tl_object<ton_api::adnl_stats_ipPackets>(
+          ip.is_valid() ? PSTRING() << ip.get_ip_str() << ":" << ip.get_port() : "", packets.packets));
+    }
   }
   for (const auto &[ip, packets] : dropped_packets) {
-    obj->dropped_packets_.push_back(create_tl_object<ton_api::adnl_stats_ipPackets>(
-        ip.is_valid() ? PSTRING() << ip.get_ip_str() << ":" << ip.get_port() : "", packets));
+    if (packets.last_packet_ts >= threshold) {
+      obj->dropped_packets_.push_back(create_tl_object<ton_api::adnl_stats_ipPackets>(
+          ip.is_valid() ? PSTRING() << ip.get_ip_str() << ":" << ip.get_port() : "", packets.packets));
+    }
   }
   return obj;
 }

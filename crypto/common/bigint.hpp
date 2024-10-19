@@ -2294,11 +2294,11 @@ std::string AnyIntView<Tr>::to_dec_string_destroy_any() {
     stack.push_back(divmod_short_any(Tr::max_pow10));
   } while (sgn());
   char slice[word_bits * 97879 / 325147 + 2];
-  std::sprintf(slice, "%lld", stack.back());
+  std::snprintf(slice, sizeof(slice), "%lld", stack.back());
   s += slice;
   stack.pop_back();
   while (stack.size()) {
-    std::sprintf(slice, "%018lld", stack.back());
+    std::snprintf(slice, sizeof(slice), "%018lld", stack.back());
     s += slice;
     stack.pop_back();
   }

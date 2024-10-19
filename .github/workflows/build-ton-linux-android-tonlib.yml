@@ -28,5 +28,5 @@ jobs:
     - name: Upload artifacts
       uses: actions/upload-artifact@master
       with:
-        name: tonlib-android
+        name: ton-android-tonlib
         path: artifacts

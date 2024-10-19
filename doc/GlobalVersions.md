@@ -110,3 +110,9 @@ Operations for working with Merkle proofs, where cells can have non-zero level a
 - Fill in `skipped_actions` for both invalid and valid messages with `IGNORE_ERROR` mode that can't be sent.
 - Allow unfreeze through external messages.
 - Don't use user-provided `fwd_fee` and `ihr_fee` for internal messages.
+
+## Version 9
+
+- Fix `RAWRESERVE` action with flag `4` (use original balance of the account) by explicitly setting `original_balance` to `balance - msg_balance_remaining`.
+  - Previously it did not work if storage fee was greater than the original balance.
+- Jumps to nested continuations of depth more than 8 consume 1 gas for eact subsequent continuation (this does not affect most of TVM code).

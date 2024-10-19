@@ -264,7 +264,8 @@ td::Result<QueryId> create_send_grams_query(Client& client, const Wallet& source
     data = tonlib_api::make_object<tonlib_api::msg_dataRaw>(message.raw.unwrap(), message.init_state.unwrap());
   }
   msgs.push_back(tonlib_api::make_object<tonlib_api::msg_message>(
-      tonlib_api::make_object<tonlib_api::accountAddress>(destination), "", amount, std::move(data), -1));
+      tonlib_api::make_object<tonlib_api::accountAddress>(destination), "", amount,
+      std::vector<tonlib_api::object_ptr<tonlib_api::extraCurrency>>{}, std::move(data), -1));
 
   auto r_id =
       sync_send(client, tonlib_api::make_object<tonlib_api::createQuery>(
@@ -566,7 +567,7 @@ void test_multisig(Client& client, const Wallet& giver_wallet) {
   for (int i = 0; i < 2; i++) {
     // Just transfer all (some) money back in one query
     vm::CellBuilder icb;
-    ton::GenericAccount::store_int_message(icb, block::StdAddress::parse(giver_wallet.address).move_as_ok(), 1);
+    ton::GenericAccount::store_int_message(icb, block::StdAddress::parse(giver_wallet.address).move_as_ok(), 1, {});
     icb.store_bytes("\0\0\0\0", 4);
     vm::CellString::store(icb, "Greatings from multisig", 35 * 8).ensure();
     ton::MultisigWallet::QueryBuilder qb(wallet_id, -1 - i, icb.finalize());

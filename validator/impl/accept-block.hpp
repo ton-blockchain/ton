@@ -50,7 +50,7 @@ class AcceptBlockQuery : public td::actor::Actor {
   struct ForceFork {};
   AcceptBlockQuery(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
                    td::Ref<ValidatorSet> validator_set, td::Ref<BlockSignatureSet> signatures,
-                   td::Ref<BlockSignatureSet> approve_signatures, bool send_broadcast,
+                   td::Ref<BlockSignatureSet> approve_signatures, int send_broadcast_mode,
                    td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise);
   AcceptBlockQuery(IsFake fake, BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
                    td::Ref<ValidatorSet> validator_set, td::actor::ActorId<ValidatorManager> manager,
@@ -71,6 +71,8 @@ class AcceptBlockQuery : public td::actor::Actor {
   void written_block_data();
   void written_block_signatures();
   void got_block_handle(BlockHandle handle);
+  void got_block_candidate_data(td::BufferSlice data);
+  void got_block_handle_cont();
   void written_block_info();
   void got_block_data(td::Ref<BlockData> data);
   void got_prev_state(td::Ref<ShardState> state);
@@ -97,7 +99,7 @@ class AcceptBlockQuery : public td::actor::Actor {
   Ref<BlockSignatureSetQ> approve_signatures_;
   bool is_fake_;
   bool is_fork_;
-  bool send_broadcast_;
+  int send_broadcast_mode_{0};
   bool ancestors_split_{false}, is_key_block_{false};
   td::Timestamp timeout_ = td::Timestamp::in(600.0);
   td::actor::ActorId<ValidatorManager> manager_;

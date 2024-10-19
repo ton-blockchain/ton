@@ -260,6 +260,10 @@ class PublicKey {
   td::BufferSlice export_as_slice() const;
   static td::Result<PublicKey> import(td::Slice s);
 
+  bool is_ed25519() const {
+    return pub_key_.get_offset() == pub_key_.offset<pubkeys::Ed25519>();
+  }
+
   pubkeys::Ed25519 ed25519_value() const {
     CHECK(pub_key_.get_offset() == pub_key_.offset<pubkeys::Ed25519>());
     return pub_key_.get<pubkeys::Ed25519>();

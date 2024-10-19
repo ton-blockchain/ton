@@ -23,6 +23,7 @@
 #endif
 
 #include "td/db/KeyValue.h"
+#include "td/utils/Span.h"
 #include "td/utils/Status.h"
 #include "td/utils/optional.h"
 
@@ -31,6 +32,8 @@
 #include <map>
 #include <mutex>
 #include <set>
+
+#include <functional>
 
 namespace rocksdb {
 class Cache;
@@ -59,6 +62,7 @@ struct RocksDbOptions {
   std::shared_ptr<rocksdb::Cache> block_cache;  // Default - one 1G cache for all RocksDb
   std::shared_ptr<RocksDbSnapshotStatistics> snapshot_statistics = nullptr;
   bool use_direct_reads = false;
+  bool no_block_cache = false;
 };
 
 class RocksDb : public KeyValue {
@@ -72,6 +76,7 @@ class RocksDb : public KeyValue {
   Status erase(Slice key) override;
   Result<size_t> count(Slice prefix) override;
   Status for_each(std::function<Status(Slice, Slice)> f) override;
+  Status for_each_in_range (Slice begin, Slice end, std::function<Status(Slice, Slice)> f) override;
 
   Status begin_write_batch() override;
   Status commit_write_batch() override;

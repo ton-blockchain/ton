@@ -1,0 +1,53 @@
+
+int lshift() {
+    return (1 << 0) == 1;
+}
+
+int rshift() {
+    return (1 >> 0) == 1;
+}
+
+int lshift_var(int i) {
+    return (1 << i) == 1;
+}
+
+int rshift_var(int i) {
+    return (1 >> i) == 1;
+}
+
+int main(int x) {
+    if (x == 0) {
+        return lshift();
+    } elseif (x == 1) {
+        return rshift();
+    } elseif (x == 2) {
+        return lshift_var(0);
+    } elseif (x == 3) {
+        return rshift_var(0);
+    } elseif (x == 4) {
+        return lshift_var(1);
+    } else {
+        return rshift_var(1);
+    }
+}
+
+int is_claimed(int index) method_id(11) {
+    int claim_bit_index = index % 256;
+    int mask = 1 << claim_bit_index;
+    return (255 & mask) == mask;
+}
+
+
+{-
+    method_id | in  | out
+TESTCASE | 0  | 0   | -1
+TESTCASE | 0  | 1   | -1
+TESTCASE | 0  | 2   | -1
+TESTCASE | 0  | 3   | -1
+TESTCASE | 0  | 4   |  0
+TESTCASE | 0  | 5   |  0
+TESTCASE | 11 | 0   | -1
+TESTCASE | 11 | 1   | -1
+TESTCASE | 11 | 256 | -1
+TESTCASE | 11 | 8   |  0
+-}

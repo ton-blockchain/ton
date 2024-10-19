@@ -80,7 +80,7 @@
   TRY_RESULT_PREFIX_IMPL(TD_CONCAT(TD_CONCAT(r_, name), __LINE__), auto name, result, prefix)
 
 #define TRY_RESULT_PREFIX_ASSIGN(name, result, prefix) \
-  TRY_RESULT_PREFIX_IMPL(TD_CONCAT(TD_CONCAT(r_, name), __LINE__), name, result, prefix)
+  TRY_RESULT_PREFIX_IMPL(TD_CONCAT(r_response, __LINE__), name, result, prefix)
 
 #define TRY_RESULT_PROMISE_PREFIX(promise_name, name, result, prefix) \
   TRY_RESULT_PROMISE_PREFIX_IMPL(promise_name, TD_CONCAT(TD_CONCAT(r_, name), __LINE__), auto name, result, prefix)

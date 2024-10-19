@@ -112,7 +112,7 @@ td::Status BroadcastFec::distribute_part(td::uint32 seqno) {
   td::BufferSlice data_short = std::move(tls.first);
   td::BufferSlice data = std::move(tls.second);
 
-  auto nodes = overlay_->get_neighbours(5);
+  auto nodes = overlay_->get_neighbours(overlay_->propagate_broadcast_to());
   auto manager = overlay_->overlay_manager();
 
   for (auto &n : nodes) {

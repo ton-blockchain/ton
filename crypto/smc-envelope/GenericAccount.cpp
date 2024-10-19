@@ -61,7 +61,8 @@ block::StdAddress GenericAccount::get_address(ton::WorkchainId workchain_id,
   return block::StdAddress(workchain_id, init_state->get_hash().bits(), true /*bounce*/);
 }
 
-void GenericAccount::store_int_message(vm::CellBuilder& cb, const block::StdAddress& dest_address, td::int64 gramms) {
+void GenericAccount::store_int_message(vm::CellBuilder& cb, const block::StdAddress& dest_address, td::int64 gramms,
+                                       td::Ref<vm::Cell> extra_currencies) {
   td::BigInt256 dest_addr;
   dest_addr.import_bits(dest_address.addr.as_bitslice());
   cb.store_zeroes(1)
@@ -73,7 +74,8 @@ void GenericAccount::store_int_message(vm::CellBuilder& cb, const block::StdAddr
       .store_long(dest_address.workchain, 8)
       .store_int256(dest_addr, 256);
   block::tlb::t_Grams.store_integer_value(cb, td::BigInt256(gramms));
-  cb.store_zeroes(9 + 64 + 32);
+  cb.store_maybe_ref(extra_currencies);
+  cb.store_zeroes(8 + 64 + 32);
 }
 
 td::Ref<vm::Cell> GenericAccount::create_ext_message(const block::StdAddress& address, td::Ref<vm::Cell> new_state,
