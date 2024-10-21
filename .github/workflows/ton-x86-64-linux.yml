@@ -22,8 +22,9 @@ jobs:
 
     - name: Install GCC-11
       run: |
-        sudo update-alternatives --remove-all gcc
-        sudo update-alternatives --remove-all g++
+        sudo apt install build-essential manpages-dev software-properties-common
+        sudo add-apt-repository ppa:ubuntu-toolchain-r/test
+        sudo apt update && sudo apt install gcc-11 g++-11
         sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-11 10
         sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-11 10  
 
