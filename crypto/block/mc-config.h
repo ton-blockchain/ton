@@ -456,10 +456,11 @@ class ShardConfig {
   ShardConfig() = default;
   ShardConfig(const ShardConfig& other);
   ShardConfig(ShardConfig&& other) = default;
-  ShardConfig(Ref<vm::Cell> shard_hashes, Ref<McShardHash> mc_shard_hash = {})
+  explicit ShardConfig(Ref<vm::Cell> shard_hashes, Ref<McShardHash> mc_shard_hash = {})
       : shard_hashes_(std::move(shard_hashes)), mc_shard_hash_(std::move(mc_shard_hash)) {
     init();
   }
+  ShardConfig& operator=(ShardConfig&& other) = default;
   bool is_valid() const {
     return valid_;
   }
@@ -670,9 +671,8 @@ class Config {
   BurningConfig get_burning_config() const;
   td::Ref<vm::Tuple> get_unpacked_config_tuple(ton::UnixTime now) const;
   PrecompiledContractsConfig get_precompiled_contracts_config() const;
-  static std::vector<ton::ValidatorDescr> do_compute_validator_set(const block::CatchainValidatorsConfig& ccv_conf,
-                                                                   ton::ShardIdFull shard,
-                                                                   const block::ValidatorSet& vset, ton::UnixTime time,
+  static std::vector<ton::ValidatorDescr> do_compute_validator_set(const CatchainValidatorsConfig& ccv_conf,
+                                                                   ton::ShardIdFull shard, const ValidatorSet& vset,
                                                                    ton::CatchainSeqno cc_seqno);
 
   static td::Result<std::unique_ptr<Config>> unpack_config(Ref<vm::Cell> config_root,

@@ -4652,7 +4652,7 @@ bool Collator::create_mc_state_extra() {
     cc_updated = true;
     LOG(INFO) << "increased masterchain catchain seqno to " << val_info.catchain_seqno;
   }
-  auto nodes = block::Config::do_compute_validator_set(ccvc, shard_, *cur_validators, now_, val_info.catchain_seqno);
+  auto nodes = block::Config::do_compute_validator_set(ccvc, shard_, *cur_validators, val_info.catchain_seqno);
   LOG_CHECK(!nodes.empty()) << "validator node list in unpacked validator set is empty";
 
   auto vlist_hash = block::compute_validator_set_hash(/* val_info.catchain_seqno */ 0, shard_, std::move(nodes));

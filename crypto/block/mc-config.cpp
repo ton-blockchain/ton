@@ -1746,7 +1746,7 @@ ton::CatchainSeqno ConfigInfo::get_shard_cc_seqno(ton::ShardIdFull shard) const 
 
 std::vector<ton::ValidatorDescr> Config::compute_validator_set(ton::ShardIdFull shard, const block::ValidatorSet& vset,
                                                                ton::UnixTime time, ton::CatchainSeqno cc_seqno) const {
-  return do_compute_validator_set(get_catchain_validators_config(), shard, vset, time, cc_seqno);
+  return do_compute_validator_set(get_catchain_validators_config(), shard, vset, cc_seqno);
 }
 
 std::vector<ton::ValidatorDescr> Config::compute_validator_set(ton::ShardIdFull shard, ton::UnixTime time,
@@ -1773,7 +1773,7 @@ std::vector<ton::ValidatorDescr> ConfigInfo::compute_validator_set_cc(ton::Shard
   if (cc_seqno_delta) {
     cc_seqno = *cc_seqno_delta += cc_seqno;
   }
-  return do_compute_validator_set(get_catchain_validators_config(), shard, vset, time, cc_seqno);
+  return do_compute_validator_set(get_catchain_validators_config(), shard, vset, cc_seqno);
 }
 
 std::vector<ton::ValidatorDescr> ConfigInfo::compute_validator_set_cc(ton::ShardIdFull shard, ton::UnixTime time,
@@ -1856,9 +1856,8 @@ int ValidatorSet::lookup_public_key(td::ConstBitPtr pubkey) const {
   return -1;
 }
 
-std::vector<ton::ValidatorDescr> Config::do_compute_validator_set(const block::CatchainValidatorsConfig& ccv_conf,
-                                                                  ton::ShardIdFull shard,
-                                                                  const block::ValidatorSet& vset, ton::UnixTime time,
+std::vector<ton::ValidatorDescr> Config::do_compute_validator_set(const CatchainValidatorsConfig& ccv_conf,
+                                                                  ton::ShardIdFull shard, const ValidatorSet& vset,
                                                                   ton::CatchainSeqno cc_seqno) {
   // LOG(DEBUG) << "in Config::do_compute_validator_set() for " << shard.to_str() << " ; cc_seqno=" << cc_seqno;
   std::vector<ton::ValidatorDescr> nodes;

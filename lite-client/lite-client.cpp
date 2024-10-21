@@ -948,8 +948,8 @@ bool TestNode::show_help(std::string command) {
          "recentcreatorstats <block-id-ext> <start-utime> [<count> [<start-pubkey>]]\tLists block creator statistics "
          "updated after <start-utime> by validator public "
          "key\n"
-         "checkload[all|severe] <start-utime> <end-utime> [<savefile-prefix>]\tChecks whether all validators worked "
-         "properly during specified time "
+         "checkload[all|severe][-v2] <start-utime> <end-utime> [<savefile-prefix>]\tChecks whether all validators "
+         "worked properly during specified time "
          "interval, and optionally saves proofs into <savefile-prefix>-<n>.boc\n"
          "loadproofcheck <filename>\tChecks a validator misbehavior proof previously created by checkload\n"
          "pastvalsets\tLists known past validator set ids and their hashes\n"
@@ -1085,8 +1085,15 @@ bool TestNode::do_parse_line() {
     return parse_block_id_ext(blkid) && (!mode || parse_uint32(utime)) &&
            (seekeoln() ? (mode |= 0x100) : parse_uint32(count)) && (seekeoln() || (parse_hash(hash) && (mode |= 1))) &&
            seekeoln() && get_creator_stats(blkid, mode, count, hash, utime);
-  } else if (word == "checkload" || word == "checkloadall" || word == "checkloadsevere") {
-    int time1, time2, mode = (word == "checkloadsevere");
+  } else if (word == "checkload" || word == "checkloadall" || word == "checkloadsevere" || word == "checkload-v2" ||
+             word == "checkloadall-v2" || word == "checkloadsevere-v2") {
+    int time1, time2, mode = 0;
+    if (word == "checkloadsevere" || word == "checkloadsevere-v2") {
+      mode |= 1;
+    }
+    if (td::ends_with(word, "-v2")) {
+      mode |= 4;
+    }
     std::string file_pfx;
     return parse_int32(time1) && parse_int32(time2) && (seekeoln() || ((mode |= 2) && get_word_to(file_pfx))) &&
            seekeoln() && check_validator_load(time1, time2, mode, file_pfx);
@@ -3689,7 +3696,7 @@ void TestNode::continue_check_validator_load2(std::unique_ptr<TestNode::Validato
   load_creator_stats(std::move(info2), std::move(P.second), true);
 }
 
-// computes the probability of creating <= x masterchain blocks if the expected value is y
+// computes the probability of creating <= x blocks if the expected value is y
 static double create_prob(int x, double y) {
   if (x < 0 || y < 0) {
     return .5;
@@ -3730,49 +3737,79 @@ void TestNode::continue_check_validator_load3(std::unique_ptr<TestNode::Validato
                                               std::unique_ptr<TestNode::ValidatorLoadInfo> info2, int mode,
                                               std::string file_pfx) {
   LOG(INFO) << "continue_check_validator_load3 for blocks " << info1->blk_id.to_str() << " and "
-            << info2->blk_id.to_str() << " with mode=" << mode << " and file prefix `" << file_pfx
-            << "`: comparing block creators data";
+            << info2->blk_id.to_str() << " with mode=" << mode << " and file prefix `" << file_pfx;
+
+  if (mode & 4) {
+    ton::BlockSeqno start_seqno = info1->blk_id.seqno();
+    ton::BlockSeqno end_seqno = info2->blk_id.seqno();
+    block::ValidatorSet validator_set = *info1->vset;
+    if (info1->config->get_config_param(28)->get_hash() != info2->config->get_config_param(28)->get_hash()) {
+      LOG(ERROR) << "Catchain validator config (28) changed between the first and the last block";
+      return;
+    }
+    auto catchain_config = std::make_unique<block::CatchainValidatorsConfig>(
+        block::Config::unpack_catchain_validators_config(info1->config->get_config_param(28)));
+    load_validator_shard_shares(
+        start_seqno, end_seqno, std::move(validator_set), std::move(catchain_config),
+        [=, this, info1 = std::move(info1),
+         info2 = std::move(info2)](td::Result<std::map<td::Bits256, td::uint64>> R) mutable {
+          if (R.is_error()) {
+            LOG(ERROR) << "failed to load validator shard shares: " << R.move_as_error();
+          } else {
+            continue_check_validator_load4(std::move(info1), std::move(info2), mode, file_pfx, R.move_as_ok());
+          }
+        });
+  } else {
+    continue_check_validator_load4(std::move(info1), std::move(info2), mode, std::move(file_pfx), {});
+  }
+}
+
+void TestNode::continue_check_validator_load4(std::unique_ptr<TestNode::ValidatorLoadInfo> info1,
+                                              std::unique_ptr<TestNode::ValidatorLoadInfo> info2, int mode,
+                                              std::string file_pfx,
+                                              std::map<td::Bits256, td::uint64> exact_shard_shares) {
+  LOG(INFO) << "continue_check_validator_load4 for blocks " << info1->blk_id.to_str() << " and "
+            << info2->blk_id.to_str() << " with mode=" << mode << " and file prefix `" << file_pfx;
   if (info1->created_total.first <= 0 || info2->created_total.first <= 0) {
     LOG(ERROR) << "no total created blocks statistics";
     return;
   }
   td::TerminalIO::out() << "total: (" << info1->created_total.first << "," << info1->created_total.second << ") -> ("
                         << info2->created_total.first << "," << info2->created_total.second << ")\n";
-  auto x = info2->created_total.first - info1->created_total.first;
-  auto y = info2->created_total.second - info1->created_total.second;
-  td::int64 xs = 0, ys = 0;
-  if (x <= 0 || y < 0 || (x | y) >= (1u << 31)) {
-    LOG(ERROR) << "impossible situation: zero or no blocks created: " << x << " masterchain blocks, " << y
-               << " shardchain blocks";
+  auto created_total_mc = info2->created_total.first - info1->created_total.first;
+  auto created_total_bc = info2->created_total.second - info1->created_total.second;
+  td::int64 created_mc_sum = 0, created_bc_sum = 0;
+  if (created_total_mc <= 0 || created_total_bc < 0 || (created_total_mc | created_total_bc) >= (1U << 31)) {
+    LOG(ERROR) << "impossible situation: zero or no blocks created: " << created_total_mc << " masterchain blocks, "
+               << created_total_bc << " shardchain blocks";
     return;
   }
-  std::pair<int, int> created_total{(int)x, (int)y};
   int count = info1->vset->total;
   CHECK(info2->vset->total == count);
   CHECK((int)info1->created.size() == count);
   CHECK((int)info2->created.size() == count);
-  std::vector<std::pair<int, int>> d;
-  d.reserve(count);
+  std::vector<std::pair<int, int>> vals_created;
+  vals_created.reserve(count);
   for (int i = 0; i < count; i++) {
-    auto x1 = info2->created[i].first - info1->created[i].first;
-    auto y1 = info2->created[i].second - info1->created[i].second;
-    if (x1 < 0 || y1 < 0 || (x1 | y1) >= (1u << 31)) {
-      LOG(ERROR) << "impossible situation: validator #" << i << " created a negative amount of blocks: " << x1
-                 << " masterchain blocks, " << y1 << " shardchain blocks";
+    auto created_mc = info2->created[i].first - info1->created[i].first;
+    auto created_bc = info2->created[i].second - info1->created[i].second;
+    if (created_mc < 0 || created_bc < 0 || (created_mc | created_bc) >= (1u << 31)) {
+      LOG(ERROR) << "impossible situation: validator #" << i << " created a negative amount of blocks: " << created_mc
+                 << " masterchain blocks, " << created_bc << " shardchain blocks";
       return;
     }
-    xs += x1;
-    ys += y1;
-    d.emplace_back((int)x1, (int)y1);
-    td::TerminalIO::out() << "val #" << i << ": created (" << x1 << "," << y1 << ") ; was (" << info1->created[i].first
-                          << "," << info1->created[i].second << ")\n";
+    created_mc_sum += created_mc;
+    created_bc_sum += created_bc;
+    vals_created.emplace_back((int)created_mc, (int)created_bc);
+    td::TerminalIO::out() << "val #" << i << ": created (" << created_mc << "," << created_bc << ") ; was ("
+                          << info1->created[i].first << "," << info1->created[i].second << ")\n";
   }
-  if (xs != x || ys != y) {
-    LOG(ERROR) << "cannot account for all blocks created: total is (" << x << "," << y
-               << "), but the sum for all validators is (" << xs << "," << ys << ")";
+  if (created_mc_sum != created_total_mc || created_bc_sum != created_total_bc) {
+    LOG(ERROR) << "cannot account for all blocks created: total is (" << created_total_mc << "," << created_total_bc
+               << "), but the sum for all validators is (" << created_mc_sum << "," << created_bc_sum << ")";
     return;
   }
-  td::TerminalIO::out() << "total: (" << x << "," << y << ")\n";
+  td::TerminalIO::out() << "total: (" << created_total_mc << "," << created_total_bc << ")\n";
   auto ccfg = block::Config::unpack_catchain_validators_config(info2->config->get_config_param(28));
   auto ccfg_old = block::Config::unpack_catchain_validators_config(info1->config->get_config_param(28));
   if (ccfg.shard_val_num != ccfg_old.shard_val_num || ccfg.shard_val_num <= 0) {
@@ -3780,55 +3817,214 @@ void TestNode::continue_check_validator_load3(std::unique_ptr<TestNode::Validato
                << ", or is not positive";
     return;
   }
-  int shard_count = ccfg.shard_val_num, main_count = info2->vset->main;
-  if (info1->vset->main != main_count || main_count <= 0) {
-    LOG(ERROR) << "masterchain validator group size changed from " << info1->vset->main << " to " << main_count
+  int shard_vals = ccfg.shard_val_num, master_vals = info2->vset->main;
+  if (info1->vset->main != master_vals || master_vals <= 0) {
+    LOG(ERROR) << "masterchain validator group size changed from " << info1->vset->main << " to " << master_vals
                << ", or is not positive";
     return;
   }
-  int cnt = 0, cnt_ok = 0;
-  double chunk_size = ccfg.shard_val_lifetime / 3. / shard_count;
-  block::MtCarloComputeShare shard_share(shard_count, info2->vset->export_scaled_validator_weights());
+
+  bool use_exact_shard_share = mode & 4;
+  int proofs_cnt = 0, proofs_cnt_ok = 0;
+  double chunk_size = ccfg.shard_val_lifetime / 3. / shard_vals;
+
+  std::vector<double> mtc_shard_share;
+  if (use_exact_shard_share) {
+    LOG(INFO) << "using exact shard shares";
+    td::uint64 exact_shard_shares_sum = 0;
+    for (auto& [_, count] : exact_shard_shares) {
+      exact_shard_shares_sum += count;
+    }
+    if ((td::int64)exact_shard_shares_sum != shard_vals * created_bc_sum) {
+      LOG(ERROR) << "unexpected total shard shares: blocks=" << created_bc_sum << ", shard_vals=" << shard_vals
+                 << ", expected_sum=" << shard_vals * created_bc_sum << ", found=" << exact_shard_shares_sum;
+      return;
+    }
+  } else {
+    LOG(INFO) << "using MtCarloComputeShare";
+    block::MtCarloComputeShare mtc(shard_vals, info2->vset->export_scaled_validator_weights());
+    if (!mtc.is_ok()) {
+      LOG(ERROR) << "failed to compute shard shares";
+      return;
+    }
+    mtc_shard_share.resize(count);
+    for (size_t i = 0; i < count; ++i) {
+      mtc_shard_share[i] = mtc[i];
+    }
+  }
+
+  auto validators = info1->vset->export_validator_set();
   for (int i = 0; i < count; i++) {
-    int x1 = d[i].first, y1 = d[i].second;
-    bool is_masterchain_validator = i < main_count;
-    double xe = (is_masterchain_validator ? (double)xs / main_count : 0);
-    double ye = shard_share[i] * (double)ys / shard_count;
+    int created_mc = vals_created[i].first, created_bc = vals_created[i].second;
+    bool is_masterchain_validator = i < master_vals;
+
+    double expected_created_mc = (is_masterchain_validator ? (double)created_mc_sum / master_vals : 0);
+    double prob_mc = create_prob(created_mc, .9 * expected_created_mc);
+
+    double expected_created_bc, prob_bc;
+    if (use_exact_shard_share) {
+      expected_created_bc = (double)exact_shard_shares[validators[i].key.as_bits256()] / shard_vals;
+      prob_bc = create_prob(created_bc, .9 * expected_created_bc);
+    } else {
+      expected_created_bc = mtc_shard_share[i] * (double)created_bc_sum / shard_vals;
+      prob_bc = shard_create_prob(created_bc, .9 * expected_created_bc, chunk_size);
+    }
+
     td::Bits256 pk = info2->vset->list[i].pubkey.as_bits256();
-    double p1 = create_prob(x1, .9 * xe), p2 = shard_create_prob(y1, .9 * ye, chunk_size);
-    td::TerminalIO::out() << "val #" << i << ": pubkey " << pk.to_hex() << ", blocks created (" << x1 << "," << y1
-                          << "), expected (" << xe << "," << ye << "), probabilities " << p1 << " and " << p2 << "\n";
-    if ((is_masterchain_validator ? p1 : p2) < .00001) {
+    td::TerminalIO::out() << "val #" << i << ": pubkey " << pk.to_hex() << ", blocks created (" << created_mc << ","
+                          << created_bc << "), expected (" << expected_created_mc << "," << expected_created_bc
+                          << "), probabilities " << prob_mc << " and " << prob_bc << "\n";
+    if ((is_masterchain_validator ? prob_mc : prob_bc) < .00001) {
       LOG(ERROR) << "validator #" << i << " with pubkey " << pk.to_hex()
                  << " : serious misbehavior detected: created less than 90% of the expected amount of blocks with "
                     "probability 99.999% : created ("
-                 << x1 << "," << y1 << "), expected (" << xe << "," << ye << ") masterchain/shardchain blocks\n";
+                 << created_mc << "," << created_bc << "), expected (" << expected_created_mc << ","
+                 << expected_created_bc << ") masterchain/shardchain blocks\n";
       if (mode & 2) {
-        auto st = write_val_create_proof(*info1, *info2, i, true, file_pfx, ++cnt);
+        auto st = write_val_create_proof(*info1, *info2, i, true, file_pfx, ++proofs_cnt);
         if (st.is_error()) {
           LOG(ERROR) << "cannot create proof: " << st.move_as_error();
         } else {
-          cnt_ok++;
+          proofs_cnt_ok++;
         }
       }
-    } else if ((is_masterchain_validator ? p1 : p2) < .005) {
+    } else if ((is_masterchain_validator ? prob_mc : prob_bc) < .005) {
       LOG(ERROR) << "validator #" << i << " with pubkey " << pk.to_hex()
                  << " : moderate misbehavior detected: created less than 90% of the expected amount of blocks with "
                     "probability 99.5% : created ("
-                 << x1 << "," << y1 << "), expected (" << xe << "," << ye << ") masterchain/shardchain blocks\n";
+                 << created_mc << "," << created_bc << "), expected (" << expected_created_mc << ","
+                 << expected_created_bc << ") masterchain/shardchain blocks\n";
       if ((mode & 3) == 2) {
-        auto st = write_val_create_proof(*info1, *info2, i, false, file_pfx, ++cnt);
+        auto st = write_val_create_proof(*info1, *info2, i, false, file_pfx, ++proofs_cnt);
         if (st.is_error()) {
           LOG(ERROR) << "cannot create proof: " << st.move_as_error();
         } else {
-          cnt_ok++;
+          proofs_cnt_ok++;
         }
       }
     }
   }
-  if (cnt > 0) {
-    LOG(INFO) << cnt_ok << " out of " << cnt << " proofs written to " << file_pfx << "-*.boc";
+  if (proofs_cnt > 0) {
+    LOG(INFO) << proofs_cnt_ok << " out of " << proofs_cnt << " proofs written to " << file_pfx << "-*.boc";
   }
+}
+
+void TestNode::load_validator_shard_shares(ton::BlockSeqno start_seqno, ton::BlockSeqno end_seqno,
+                                           block::ValidatorSet validator_set,
+                                           std::unique_ptr<block::CatchainValidatorsConfig> catchain_config,
+                                           td::Promise<std::map<td::Bits256, td::uint64>> promise) {
+  CHECK(start_seqno <= end_seqno);
+  LOG(INFO) << "loading shard shares from mc blocks " << start_seqno << ".." << end_seqno << " ("
+            << end_seqno - start_seqno + 1 << " blocks)";
+  auto state = std::make_shared<LoadValidatorShardSharesState>();
+  state->start_seqno = start_seqno;
+  state->end_seqno = end_seqno;
+  state->validator_set = std::move(validator_set);
+  state->catchain_config = std::move(catchain_config);
+  state->shard_configs.resize(end_seqno - start_seqno + 1);
+  state->promise = std::move(promise);
+  load_validator_shard_shares_cont(std::move(state));
+}
+
+void TestNode::load_validator_shard_shares_cont(std::shared_ptr<LoadValidatorShardSharesState> state) {
+  if (!state->promise) {
+    return;
+  }
+  if (state->loaded % 100 == 0) {
+    LOG(INFO) << "loaded " << state->loaded << "/" << state->shard_configs.size() << " mc blocks";
+  }
+  while (state->cur_idx < state->shard_configs.size() && state->pending < 8) {
+    load_block_shard_configuration(state->start_seqno + state->cur_idx,
+                                   [this, state, idx = state->cur_idx](td::Result<block::ShardConfig> R) mutable {
+                                     if (R.is_error()) {
+                                       state->promise.set_error(R.move_as_error());
+                                       state->promise = {};
+                                     } else {
+                                       state->shard_configs[idx] = R.move_as_ok();
+                                       --state->pending;
+                                       ++state->loaded;
+                                       load_validator_shard_shares_cont(std::move(state));
+                                     }
+                                   });
+    ++state->pending;
+    ++state->cur_idx;
+  }
+
+  if (state->loaded != state->shard_configs.size()) {
+    return;
+  }
+  LOG(INFO) << "loaded all " << state->shard_configs.size() << " mc blocks, computing shard shares";
+  std::map<td::Bits256, td::uint64> result;
+  try {
+    for (size_t idx = 0; idx + 1 < state->shard_configs.size(); ++idx) {
+      block::ShardConfig& shards1 = state->shard_configs[idx];
+      block::ShardConfig& shards2 = state->shard_configs[idx + 1];
+
+      // Compute validator groups, see ValidatorManagerImpl::update_shards
+      auto process_shard = [&](ton::ShardIdFull shard, ton::BlockSeqno first_seqno) {
+        auto desc2 = shards2.get_shard_hash(shard);
+        if (desc2.is_null() || desc2->seqno() < first_seqno) {
+          return;
+        }
+        td::uint32 blocks_count = desc2->seqno() - first_seqno + 1;
+        ton::CatchainSeqno cc_seqno = shards1.get_shard_cc_seqno(shard);
+        auto val_set =
+            block::ConfigInfo::do_compute_validator_set(*state->catchain_config, shard, state->validator_set, cc_seqno);
+        for (const auto &val : val_set) {
+          result[val.key.as_bits256()] += blocks_count;
+        }
+      };
+
+      for (const ton::BlockId& id : shards1.get_shard_hash_ids()) {
+        ton::ShardIdFull shard = id.shard_full();
+        auto desc = shards1.get_shard_hash(shard);
+        CHECK(desc.not_null());
+        if (desc->before_split()) {
+          ton::ShardIdFull l_shard = shard_child(shard, true);
+          ton::ShardIdFull r_shard = shard_child(shard, false);
+          process_shard(l_shard, desc->seqno() + 1);
+          process_shard(r_shard, desc->seqno() + 1);
+        } else if (desc->before_merge()) {
+          if (is_right_child(shard)) {
+            continue;
+          }
+          ton::ShardIdFull sibling_shard = shard_sibling(shard);
+          auto sibling_desc = shards1.get_shard_hash(sibling_shard);
+          CHECK(sibling_desc.not_null());
+          ton::ShardIdFull p_shard = shard_parent(shard);
+          process_shard(p_shard, std::max(desc->seqno(), sibling_desc->seqno()) + 1);
+        } else {
+          process_shard(shard, desc->seqno() + 1);
+        }
+      }
+    }
+  } catch (vm::VmError &e) {
+    state->promise.set_error(e.as_status("cannot parse shard hashes: "));
+    return;
+  }
+  state->promise.set_value(std::move(result));
+}
+
+void TestNode::load_block_shard_configuration(ton::BlockSeqno seqno, td::Promise<block::ShardConfig> promise) {
+  lookup_block(
+      ton::ShardIdFull{ton::masterchainId}, 1, seqno,
+      [this, promise = std::move(promise)](td::Result<BlockHdrInfo> R) mutable {
+        TRY_RESULT_PROMISE(promise, res, std::move(R));
+        auto b = ton::serialize_tl_object(
+            ton::create_tl_object<ton::lite_api::liteServer_getAllShardsInfo>(ton::create_tl_lite_block_id(res.blk_id)),
+            true);
+        envelope_send_query(std::move(b), [this, promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
+          TRY_RESULT_PROMISE(promise, data, std::move(R));
+          TRY_RESULT_PROMISE(promise, f, ton::fetch_tl_object<ton::lite_api::liteServer_allShardsInfo>(data, true));
+          TRY_RESULT_PROMISE(promise, root, vm::std_boc_deserialize(f->data_));
+          block::ShardConfig sh_conf;
+          if (!sh_conf.unpack(load_cell_slice_ref(root))) {
+            promise.set_error(td::Status::Error("cannot extract shard block list from shard configuration"));
+          } else {
+            promise.set_value(std::move(sh_conf));
+          }
+        });
+      });
 }
 
 bool compute_punishment_default(int interval, bool severe, td::RefInt256& fine, unsigned& fine_part) {

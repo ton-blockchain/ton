@@ -373,11 +373,11 @@ class VmState final : public VmStateInterface {
   int jump_to(Ref<Continuation> cont) {
     int res = 0, cnt = 0;
     while (cont.not_null()) {
-      cnt++;
       cont = cont->is_unique() ? cont.unique_write().jump_w(this, res) : cont->jump(this, res);
-    }
-    if (global_version >= 9 && cnt > free_nested_cont_jump) {
-      consume_gas(cnt - free_nested_cont_jump);
+      cnt++;
+      if (cnt > free_nested_cont_jump && global_version >= 9) {
+        consume_gas(1);
+      }
     }
     return res;
   }

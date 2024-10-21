@@ -216,6 +216,6 @@ build\validator-engine\validator-engine.exe ^
 build\utils\generate-random-id.exe ^
 build\utils\json2tlo.exe ^
 build\adnl\adnl-proxy.exe ^
-build\emulator\emulator.dll) do (strip -g %%I & copy %%I artifacts\)
+build\emulator\emulator.dll) do (strip -s %%I & copy %%I artifacts\)
 xcopy /e /k /h /i crypto\smartcont artifacts\smartcont
 xcopy /e /k /h /i crypto\fift\lib artifacts\lib
