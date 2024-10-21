@@ -20,6 +20,13 @@ jobs:
         extra_nix_config: |
           access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
 
+    - name: Install GCC-11
+      run: |
+        sudo update-alternatives --remove-all gcc
+        sudo update-alternatives --remove-all g++
+        sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-11 10
+        sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-11 10  
+
     - name: Build TON
       run: |
         cp assembly/nix/build-linux-x86-64-nix.sh .
