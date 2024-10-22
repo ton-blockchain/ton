@@ -12,6 +12,6 @@
 10. Minor changes of TVM which will be activated by `Config8.version >= 9`
 11. Multiple minor improvements
 
-Besides the work of the core team, this update is based on the efforts of @krigga (emulator), Arayz @ TonBit (LS security, TVM recursion).
+Besides the work of the core team, this update is based on the efforts of @krigga (emulator), Arayz @ TonBit (LS security, TVM recursion), @ret2happy (UB in BLST).
 
 
