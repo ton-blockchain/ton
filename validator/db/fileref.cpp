@@ -79,14 +79,14 @@ std::string Block::filename() const {
 
 std::string Block::filename_short() const {
   char s[33];
-  sprintf(s, "%llx", static_cast<long long>(block_id.id.shard));
+  snprintf(s, sizeof(s), "%llx", static_cast<long long>(block_id.id.shard));
   return PSTRING() << "block_" << block_id.id.workchain << "_" << s << "_" << block_id.id.seqno << "_"
                    << hash().to_hex();
 }
 
 std::string BlockShort::filename_short() const {
   char s[33];
-  sprintf(s, "%llx", static_cast<long long>(block_id.shard));
+  snprintf(s, sizeof(s), "%llx", static_cast<long long>(block_id.shard));
   return PSTRING() << "block_" << block_id.workchain << "_" << s << "_" << block_id.seqno << "_" << hash().to_hex();
 }
 
@@ -116,14 +116,14 @@ std::string PersistentState::filename() const {
 
 std::string PersistentState::filename_short() const {
   char s[33];
-  sprintf(s, "%llx", static_cast<long long>(block_id.id.shard));
+  snprintf(s, sizeof(s), "%llx", static_cast<long long>(block_id.id.shard));
   return PSTRING() << "state_" << masterchain_block_id.seqno() << "_" << block_id.id.workchain << "_" << s << "_"
                    << hash().to_hex();
 }
 
 std::string PersistentStateShort::filename_short() const {
   char s[33];
-  sprintf(s, "%llx", static_cast<long long>(shard_id.shard));
+  snprintf(s, sizeof(s), "%llx", static_cast<long long>(shard_id.shard));
   return PSTRING() << "state_" << masterchain_seqno << "_" << shard_id.workchain << "_" << s << "_" << hash().to_hex();
 }
 
@@ -137,14 +137,14 @@ std::string Proof::filename() const {
 
 std::string Proof::filename_short() const {
   char s[33];
-  sprintf(s, "%llx", static_cast<long long>(block_id.id.shard));
+  snprintf(s, sizeof(s), "%llx", static_cast<long long>(block_id.id.shard));
   return PSTRING() << "proof_" << block_id.id.workchain << "_" << s << "_" << block_id.id.seqno << "_"
                    << hash().to_hex();
 }
 
 std::string ProofShort::filename_short() const {
   char s[33];
-  sprintf(s, "%llx", static_cast<long long>(block_id.shard));
+  snprintf(s, sizeof(s), "%llx", static_cast<long long>(block_id.shard));
   return PSTRING() << "proof_" << block_id.workchain << "_" << s << "_" << block_id.seqno << "_" << hash().to_hex();
 }
 
@@ -158,14 +158,14 @@ std::string ProofLink::filename() const {
 
 std::string ProofLink::filename_short() const {
   char s[33];
-  sprintf(s, "%llx", static_cast<long long>(block_id.id.shard));
+  snprintf(s, sizeof(s), "%llx", static_cast<long long>(block_id.id.shard));
   return PSTRING() << "prooflink_" << block_id.id.workchain << "_" << s << "_" << block_id.id.seqno << "_"
                    << hash().to_hex();
 }
 
 std::string ProofLinkShort::filename_short() const {
   char s[33];
-  sprintf(s, "%llx", static_cast<long long>(block_id.shard));
+  snprintf(s, sizeof(s), "%llx", static_cast<long long>(block_id.shard));
   return PSTRING() << "prooflink_" << block_id.workchain << "_" << s << "_" << block_id.seqno << "_" << hash().to_hex();
 }
 
@@ -179,14 +179,14 @@ std::string Signatures::filename() const {
 
 std::string Signatures::filename_short() const {
   char s[33];
-  sprintf(s, "%llx", static_cast<long long>(block_id.id.shard));
+  snprintf(s, sizeof(s), "%llx", static_cast<long long>(block_id.id.shard));
   return PSTRING() << "signatures_" << block_id.id.workchain << "_" << s << "_" << block_id.id.seqno << "_"
                    << hash().to_hex();
 }
 
 std::string SignaturesShort::filename_short() const {
   char s[33];
-  sprintf(s, "%llx", static_cast<long long>(block_id.shard));
+  snprintf(s, sizeof(s), "%llx", static_cast<long long>(block_id.shard));
   return PSTRING() << "signatures_" << block_id.workchain << "_" << s << "_" << block_id.seqno << "_"
                    << hash().to_hex();
 }
@@ -202,15 +202,37 @@ std::string Candidate::filename() const {
 
 std::string Candidate::filename_short() const {
   char s[33];
-  sprintf(s, "%llx", static_cast<long long>(block_id.id.shard));
+  snprintf(s, sizeof(s), "%llx", static_cast<long long>(block_id.id.shard));
   return PSTRING() << "candidate_" << block_id.id.workchain << "_" << s << "_" << block_id.id.seqno << "_"
                    << hash().to_hex();
 }
 
 std::string CandidateShort::filename_short() const {
   char s[33];
-  sprintf(s, "%llx", static_cast<long long>(block_id.shard));
+  snprintf(s, sizeof(s), "%llx", static_cast<long long>(block_id.shard));
   return PSTRING() << "candidate_" << block_id.workchain << "_" << s << "_" << block_id.seqno << "_" << hash().to_hex();
+}
+
+CandidateRefShort CandidateRef::shortref() const {
+  return CandidateRefShort{block_id.id, hash()};
+}
+
+std::string CandidateRef::filename() const {
+  return PSTRING() << "candidateref_" << block_id.to_str();
+}
+
+std::string CandidateRef::filename_short() const {
+  char s[33];
+  snprintf(s, sizeof(s), "%llx", static_cast<long long>(block_id.id.shard));
+  return PSTRING() << "candidateref_" << block_id.id.workchain << "_" << s << "_" << block_id.id.seqno << "_"
+                   << hash().to_hex();
+}
+
+std::string CandidateRefShort::filename_short() const {
+  char s[33];
+  snprintf(s, sizeof(s), "%llx", static_cast<long long>(block_id.shard));
+  return PSTRING() << "candidateref_" << block_id.workchain << "_" << s << "_" << block_id.seqno << "_"
+                   << hash().to_hex();
 }
 
 BlockInfoShort BlockInfo::shortref() const {
@@ -223,14 +245,14 @@ std::string BlockInfo::filename() const {
 
 std::string BlockInfo::filename_short() const {
   char s[33];
-  sprintf(s, "%llx", static_cast<long long>(block_id.id.shard));
+  snprintf(s, sizeof(s), "%llx", static_cast<long long>(block_id.id.shard));
   return PSTRING() << "info_" << block_id.id.workchain << "_" << s << "_" << block_id.id.seqno << "_"
                    << hash().to_hex();
 }
 
 std::string BlockInfoShort::filename_short() const {
   char s[33];
-  sprintf(s, "%llx", static_cast<long long>(block_id.shard));
+  snprintf(s, sizeof(s), "%llx", static_cast<long long>(block_id.shard));
   return PSTRING() << "info_" << block_id.workchain << "_" << s << "_" << block_id.seqno << "_" << hash().to_hex();
 }
 
@@ -258,6 +280,9 @@ FileReference::FileReference(tl_object_ptr<ton_api::db_filedb_Key> key) {
           [&](const ton_api::db_filedb_key_candidate& key) {
             ref_ = fileref::Candidate{PublicKey{key.id_->source_}, create_block_id(key.id_->id_),
                                       key.id_->collated_data_file_hash_};
+          },
+          [&](const ton_api::db_filedb_key_candidateRef& key) {
+            ref_ = fileref::CandidateRef{create_block_id(key.id_)};
           },
           [&](const ton_api::db_filedb_key_blockInfo& key) {
             ref_ = fileref::BlockInfo{create_block_id(key.block_id_)};

@@ -178,6 +178,12 @@ struct EndValidatorGroupStats {
   std::vector<Node> nodes;
 };
 
+struct BlockSourceInfo {
+  td::uint32 round, first_block_round;
+  PublicKey source;
+  td::int32 source_priority;
+};
+
 }  // namespace validatorsession
 
 }  // namespace ton

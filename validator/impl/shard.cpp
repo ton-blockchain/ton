@@ -290,6 +290,7 @@ td::Result<std::pair<td::Ref<ShardState>, td::Ref<ShardState>>> ShardStateQ::spl
 }
 
 td::Result<td::BufferSlice> ShardStateQ::serialize() const {
+  TD_PERF_COUNTER(serialize_state);
   td::PerfWarningTimer perf_timer_{"serializestate", 0.1};
   if (!data.is_null()) {
     return data.clone();
@@ -314,6 +315,7 @@ td::Result<td::BufferSlice> ShardStateQ::serialize() const {
 }
 
 td::Status ShardStateQ::serialize_to_file(td::FileFd& fd) const {
+  TD_PERF_COUNTER(serialize_state_to_file);
   td::PerfWarningTimer perf_timer_{"serializestate", 0.1};
   if (!data.is_null()) {
     auto cur_data = data.clone();
@@ -375,7 +377,8 @@ td::Status MasterchainStateQ::mc_init() {
 td::Status MasterchainStateQ::mc_reinit() {
   auto res = block::ConfigInfo::extract_config(
       root_cell(), block::ConfigInfo::needStateRoot | block::ConfigInfo::needValidatorSet |
-                       block::ConfigInfo::needShardHashes | block::ConfigInfo::needPrevBlocks);
+                       block::ConfigInfo::needShardHashes | block::ConfigInfo::needPrevBlocks |
+                       block::ConfigInfo::needWorkchainInfo);
   cur_validators_.reset();
   next_validators_.reset();
   if (res.is_error()) {
@@ -521,15 +524,15 @@ bool MasterchainStateQ::check_old_mc_block_id(const ton::BlockIdExt& blkid, bool
   return config_ && config_->check_old_mc_block_id(blkid, strict);
 }
 
-td::uint32 MasterchainStateQ::min_split_depth(WorkchainId workchain_id) const {
+td::uint32 MasterchainStateQ::monitor_min_split_depth(WorkchainId workchain_id) const {
   if (!config_) {
     return 0;
   }
   auto wc_info = config_->get_workchain_info(workchain_id);
-  return wc_info.not_null() ? wc_info->actual_min_split : 0;
+  return wc_info.not_null() ? wc_info->monitor_min_split : 0;
 }
 
-td::uint32 MasterchainStateQ::soft_min_split_depth(WorkchainId workchain_id) const {
+td::uint32 MasterchainStateQ::min_split_depth(WorkchainId workchain_id) const {
   if (!config_) {
     return 0;
   }
@@ -564,6 +567,10 @@ BlockIdExt MasterchainStateQ::prev_key_block_id(BlockSeqno seqno) const {
     config_->get_prev_key_block(seqno, block_id);
   }
   return block_id;
+}
+
+bool MasterchainStateQ::is_key_state() const {
+  return config_ ? config_->is_key_state() : false;
 }
 
 }  // namespace validator

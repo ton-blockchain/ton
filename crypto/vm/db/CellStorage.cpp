@@ -33,6 +33,7 @@ class RefcntCellStorer {
 
   template <class StorerT>
   void store(StorerT &storer) const {
+    TD_PERF_COUNTER(cell_store);
     using td::store;
     if (as_boc_) {
       td::int32 tag = -1;
@@ -151,18 +152,27 @@ CellLoader::CellLoader(std::shared_ptr<KeyValueReader> reader, std::function<voi
 
 td::Result<CellLoader::LoadResult> CellLoader::load(td::Slice hash, bool need_data, ExtCellCreator &ext_cell_creator) {
   //LOG(ERROR) << "Storage: load cell " << hash.size() << " " << td::base64_encode(hash);
-  LoadResult res;
+  TD_PERF_COUNTER(cell_load);
   std::string serialized;
   TRY_RESULT(get_status, reader_->get(hash, serialized));
   if (get_status != KeyValue::GetStatus::Ok) {
     DCHECK(get_status == KeyValue::GetStatus::NotFound);
-    return res;
+    return LoadResult{};
   }
+  TRY_RESULT(res, load(hash, serialized, need_data, ext_cell_creator));
+  if (on_load_callback_) {
+    on_load_callback_(res);
+  }
+  return res;
+}
 
+td::Result<CellLoader::LoadResult> CellLoader::load(td::Slice hash, td::Slice value, bool need_data,
+                                                    ExtCellCreator &ext_cell_creator) {
+  LoadResult res;
   res.status = LoadResult::Ok;
 
   RefcntCellParser refcnt_cell(need_data);
-  td::TlParser parser(serialized);
+  td::TlParser parser(value);
   refcnt_cell.parse(parser, ext_cell_creator);
   TRY_STATUS(parser.get_status());
 
@@ -170,10 +180,25 @@ td::Result<CellLoader::LoadResult> CellLoader::load(td::Slice hash, bool need_da
   res.cell_ = std::move(refcnt_cell.cell);
   res.stored_boc_ = refcnt_cell.stored_boc_;
   //CHECK(res.cell_->get_hash() == hash);
-  if (on_load_callback_) {
-    on_load_callback_(res);
-  }
 
+  return res;
+}
+
+td::Result<CellLoader::LoadResult> CellLoader::load_refcnt(td::Slice hash) {
+  LoadResult res;
+  std::string serialized;
+  TRY_RESULT(get_status, reader_->get(hash, serialized));
+  if (get_status != KeyValue::GetStatus::Ok) {
+    DCHECK(get_status == KeyValue::GetStatus::NotFound);
+    return res;
+  }
+  res.status = LoadResult::Ok;
+  td::TlParser parser(serialized);
+  td::parse(res.refcnt_, parser);
+  if (res.refcnt_ == -1) {
+    parse(res.refcnt_, parser);
+  }
+  TRY_STATUS(parser.get_status());
   return res;
 }
 
@@ -184,7 +209,11 @@ td::Status CellStorer::erase(td::Slice hash) {
   return kv_.erase(hash);
 }
 
+std::string CellStorer::serialize_value(td::int32 refcnt, const td::Ref<DataCell> &cell, bool as_boc) {
+  return td::serialize(RefcntCellStorer(refcnt, cell, as_boc));
+}
+
 td::Status CellStorer::set(td::int32 refcnt, const td::Ref<DataCell> &cell, bool as_boc) {
-  return kv_.set(cell->get_hash().as_slice(), td::serialize(RefcntCellStorer(refcnt, cell, as_boc)));
+  return kv_.set(cell->get_hash().as_slice(), serialize_value(refcnt, cell, as_boc));
 }
 }  // namespace vm

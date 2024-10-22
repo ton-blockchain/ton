@@ -1555,7 +1555,14 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
   // ...
   compute_phase = std::make_unique<ComputePhase>();
   ComputePhase& cp = *(compute_phase.get());
-  original_balance -= total_fees;
+  if (cfg.global_version >= 9) {
+    original_balance = balance;
+    if (msg_balance_remaining.is_valid()) {
+      original_balance -= msg_balance_remaining;
+    }
+  } else {
+    original_balance -= total_fees;
+  }
   if (td::sgn(balance.grams) <= 0) {
     // no gas
     cp.skip_reason = ComputePhase::sk_no_gas;
@@ -2860,22 +2867,26 @@ td::Status Transaction::check_state_limits(const SizeLimitsConfig& size_limits, 
   vm::CellStorageStat storage_stat;
   storage_stat.limit_cells = size_limits.max_acc_state_cells;
   storage_stat.limit_bits = size_limits.max_acc_state_bits;
-  td::Timer timer;
-  auto add_used_storage = [&](const td::Ref<vm::Cell>& cell) -> td::Status {
-    if (cell.not_null()) {
-      TRY_RESULT(res, storage_stat.add_used_storage(cell));
-      if (res.max_merkle_depth > max_allowed_merkle_depth) {
-        return td::Status::Error("too big merkle depth");
+  {
+    TD_PERF_COUNTER(transaction_storage_stat_a);
+    td::Timer timer;
+    auto add_used_storage = [&](const td::Ref<vm::Cell>& cell) -> td::Status {
+      if (cell.not_null()) {
+        TRY_RESULT(res, storage_stat.add_used_storage(cell));
+        if (res.max_merkle_depth > max_allowed_merkle_depth) {
+          return td::Status::Error("too big merkle depth");
+        }
       }
+      return td::Status::OK();
+    };
+    TRY_STATUS(add_used_storage(new_code));
+    TRY_STATUS(add_used_storage(new_data));
+    TRY_STATUS(add_used_storage(new_library));
+    if (timer.elapsed() > 0.1) {
+      LOG(INFO) << "Compute used storage took " << timer.elapsed() << "s";
     }
-    return td::Status::OK();
-  };
-  TRY_STATUS(add_used_storage(new_code));
-  TRY_STATUS(add_used_storage(new_data));
-  TRY_STATUS(add_used_storage(new_library));
-  if (timer.elapsed() > 0.1) {
-    LOG(INFO) << "Compute used storage took " << timer.elapsed() << "s";
   }
+
   if (acc_status == Account::acc_active) {
     storage_stat.clear_limit();
   } else {
@@ -3156,6 +3167,7 @@ bool Transaction::compute_state() {
   if (new_stats) {
     stats = new_stats.unwrap();
   } else {
+    TD_PERF_COUNTER(transaction_storage_stat_b);
     td::Timer timer;
     stats.add_used_storage(Ref<vm::Cell>(storage)).ensure();
     if (timer.elapsed() > 0.1) {

@@ -57,7 +57,6 @@ std::string ErrorCtx::as_string() const {
  * Constructs a ValidateQuery object.
  *
  * @param shard The shard of the block being validated.
- * @param min_ts The minimum allowed UnixTime for the block.
  * @param min_masterchain_block_id The minimum allowed masterchain block reference for the block.
  * @param prev A vector of BlockIdExt representing the previous blocks.
  * @param candidate The BlockCandidate to be validated.
@@ -67,13 +66,12 @@ std::string ErrorCtx::as_string() const {
  * @param promise The Promise to return the ValidateCandidateResult to.
  * @param is_fake A boolean indicating if the validation is fake (performed when creating a hardfork).
  */
-ValidateQuery::ValidateQuery(ShardIdFull shard, UnixTime min_ts, BlockIdExt min_masterchain_block_id,
-                             std::vector<BlockIdExt> prev, BlockCandidate candidate, Ref<ValidatorSet> validator_set,
+ValidateQuery::ValidateQuery(ShardIdFull shard, BlockIdExt min_masterchain_block_id, std::vector<BlockIdExt> prev,
+                             BlockCandidate candidate, Ref<ValidatorSet> validator_set,
                              td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
                              td::Promise<ValidateCandidateResult> promise, bool is_fake)
     : shard_(shard)
     , id_(candidate.id)
-    , min_ts(min_ts)
     , min_mc_block_id(min_masterchain_block_id)
     , prev_blocks(std::move(prev))
     , block_candidate(std::move(candidate))
@@ -87,7 +85,6 @@ ValidateQuery::ValidateQuery(ShardIdFull shard, UnixTime min_ts, BlockIdExt min_
     , perf_timer_("validateblock", 0.1, [manager](double duration) {
       send_closure(manager, &ValidatorManager::add_perf_timer_stat, "validateblock", duration);
     }) {
-  proc_hash_.zero();
 }
 
 /**
@@ -709,7 +706,7 @@ void ValidateQuery::after_get_latest_mc_state(td::Result<std::pair<Ref<Mastercha
 
 /**
  * Callback function called after retrieving the masterchain state referenced int the block.
- * 
+ *
  * @param res The result of the masterchain state retrieval.
  */
 void ValidateQuery::after_get_mc_state(td::Result<Ref<ShardState>> res) {
@@ -1333,7 +1330,7 @@ bool ValidateQuery::compute_next_state() {
  * Unpacks and merges the states of two previous blocks.
  * Used if the block is after_merge.
  * Similar to Collator::unpack_merge_last_state()
- * 
+ *
  * @returns True if the unpacking and merging was successful, false otherwise.
  */
 bool ValidateQuery::unpack_merge_prev_state() {
@@ -2334,7 +2331,7 @@ bool ValidateQuery::fix_all_processed_upto() {
  * Adds trivials neighbor after merging two shards.
  * Trivial neighbors are the two previous blocks.
  * Almost the same as in Collator.
- * 
+ *
  * @returns True if the operation is successful, false otherwise.
  */
 bool ValidateQuery::add_trivial_neighbor_after_merge() {
@@ -2810,7 +2807,7 @@ bool ValidateQuery::precheck_one_account_update(td::ConstBitPtr acc_id, Ref<vm::
 
 /**
  * Pre-validates all account updates between the old and new state.
- * 
+ *
  * @returns True if the pre-check is successful, False otherwise.
  */
 bool ValidateQuery::precheck_account_updates() {
@@ -3257,7 +3254,7 @@ bool ValidateQuery::precheck_one_message_queue_update(td::ConstBitPtr out_msg_id
 
 /**
  * Performs a pre-check on the difference between the old and new outbound message queues.
- * 
+ *
  * @returns True if the pre-check is successful, false otherwise.
  */
 bool ValidateQuery::precheck_message_queue_update() {
@@ -5033,12 +5030,10 @@ bool ValidateQuery::check_in_queue() {
                           neighbors_.at(kv->source).blk_.to_str());
     }
     if (unprocessed) {
-      inbound_queues_empty_ = false;
       return true;
     }
     nb_out_msgs.next();
   }
-  inbound_queues_empty_ = true;
   return true;
 }
 
@@ -5777,7 +5772,7 @@ bool ValidateQuery::scan_account_libraries(Ref<vm::Cell> orig_libs, Ref<vm::Cell
 /**
  * Checks if all necessary tick-tock smart contracts have been created.
  * Used in masterchain validation.
- * 
+ *
  * @returns True if all necessary tick-tock transactions have been created, false otherwise.
  */
 bool ValidateQuery::check_all_ticktock_processed() {
@@ -6919,6 +6914,7 @@ void ValidateQuery::written_candidate() {
 void ValidateQuery::record_stats() {
   double work_time = work_timer_.elapsed();
   double cpu_work_time = cpu_work_timer_.elapsed();
+  LOG(WARNING) << "validation took " << perf_timer_.elapsed() << "s";
   LOG(WARNING) << "Validate query work time = " << work_time << "s, cpu time = " << cpu_work_time << "s";
   td::actor::send_closure(manager, &ValidatorManager::record_validate_query_stats, block_candidate.id, work_time,
                           cpu_work_time);

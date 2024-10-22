@@ -24,7 +24,7 @@ else
 fi
 
 export NONINTERACTIVE=1
-brew install ninja pkg-config automake libtool autoconf
+brew install ninja pkg-config automake libtool autoconf texinfo
 brew install llvm@16
 
 
@@ -88,7 +88,7 @@ if [ ! -d "openssl_3" ]; then
   cd openssl_3
   opensslPath=`pwd`
   git checkout openssl-3.1.4
-  ./config -static
+  ./config
   make build_libs -j12
   test $? -eq 0 || { echo "Can't compile openssl_3"; exit 1; }
   cd ..
@@ -168,23 +168,23 @@ else
   test $? -eq 0 || { echo "Can't compile ton"; exit 1; }
 fi
 
-strip storage/storage-daemon/storage-daemon
-strip storage/storage-daemon/storage-daemon-cli
-strip blockchain-explorer/blockchain-explorer
-strip crypto/fift
-strip crypto/func
-strip crypto/create-state
-strip crypto/tlbc
-strip validator-engine-console/validator-engine-console
-strip tonlib/tonlib-cli
-strip http/http-proxy
-strip rldp-http-proxy/rldp-http-proxy
-strip dht-server/dht-server
-strip lite-client/lite-client
-strip validator-engine/validator-engine
-strip utils/generate-random-id
-strip utils/json2tlo
-strip adnl/adnl-proxy
+strip -s storage/storage-daemon/storage-daemon
+strip -s storage/storage-daemon/storage-daemon-cli
+strip -s blockchain-explorer/blockchain-explorer
+strip -s crypto/fift
+strip -s crypto/func
+strip -s crypto/create-state
+strip -s crypto/tlbc
+strip -s validator-engine-console/validator-engine-console
+strip -s tonlib/tonlib-cli
+strip -s http/http-proxy
+strip -s rldp-http-proxy/rldp-http-proxy
+strip -s dht-server/dht-server
+strip -s lite-client/lite-client
+strip -s validator-engine/validator-engine
+strip -s utils/generate-random-id
+strip -s utils/json2tlo
+strip -s adnl/adnl-proxy
 
 cd ..
 
@@ -192,8 +192,6 @@ if [ "$with_artifacts" = true ]; then
   echo Creating artifacts...
   rm -rf artifacts
   mkdir artifacts
-  cp crypto/fift/lib artifacts/
-  cp -R crypto/smartcont/ artifacts/
   cp build/storage/storage-daemon/storage-daemon artifacts/
   cp build/storage/storage-daemon/storage-daemon-cli artifacts/
   cp build/blockchain-explorer/blockchain-explorer artifacts/
@@ -213,9 +211,9 @@ if [ "$with_artifacts" = true ]; then
   cp build/utils/json2tlo artifacts/
   cp build/adnl/adnl-proxy artifacts/
   cp build/emulator/libemulator.dylib artifacts/
-  chmod +x artifacts/*
   rsync -r crypto/smartcont artifacts/
   rsync -r crypto/fift/lib artifacts/
+  chmod -R +x artifacts/*
 fi
 
 if [ "$with_tests" = true ]; then

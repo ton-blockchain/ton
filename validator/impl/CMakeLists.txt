@@ -27,7 +27,6 @@ set(TON_VALIDATOR_SOURCE
   block.hpp
   candidates-buffer.hpp
   check-proof.hpp
-  collate-query-impl.h
   collator-impl.h
   collator.h
   config.hpp

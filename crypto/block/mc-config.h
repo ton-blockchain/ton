@@ -197,6 +197,7 @@ struct McShardHash : public McShardHashI {
       : blk_(blk), start_lt_(start_lt), end_lt_(end_lt) {
   }
   McShardHash(const McShardHash&) = default;
+  McShardHash& operator=(const McShardHash&) = default;
   bool is_valid() const {
     return blk_.is_valid();
   }
@@ -414,7 +415,7 @@ struct CatchainValidatorsConfig {
 struct WorkchainInfo : public td::CntObject {
   ton::WorkchainId workchain{ton::workchainInvalid};
   ton::UnixTime enabled_since;
-  td::uint32 actual_min_split;
+  td::uint32 monitor_min_split;
   td::uint32 min_split, max_split;
   bool basic;
   bool active;
@@ -455,10 +456,11 @@ class ShardConfig {
   ShardConfig() = default;
   ShardConfig(const ShardConfig& other);
   ShardConfig(ShardConfig&& other) = default;
-  ShardConfig(Ref<vm::Cell> shard_hashes, Ref<McShardHash> mc_shard_hash = {})
+  explicit ShardConfig(Ref<vm::Cell> shard_hashes, Ref<McShardHash> mc_shard_hash = {})
       : shard_hashes_(std::move(shard_hashes)), mc_shard_hash_(std::move(mc_shard_hash)) {
     init();
   }
+  ShardConfig& operator=(ShardConfig&& other) = default;
   bool is_valid() const {
     return valid_;
   }
@@ -545,7 +547,10 @@ class Config {
   };
 
  public:
-  enum { needValidatorSet = 16, needSpecialSmc = 32, needWorkchainInfo = 256, needCapabilities = 512 };
+  static constexpr int needValidatorSet = 16;
+  static constexpr int needSpecialSmc = 32;
+  static constexpr int needWorkchainInfo = 256;
+  static constexpr int needCapabilities = 512;
   int mode{0};
   ton::BlockIdExt block_id;
 
@@ -655,9 +660,8 @@ class Config {
   BurningConfig get_burning_config() const;
   td::Ref<vm::Tuple> get_unpacked_config_tuple(ton::UnixTime now) const;
   PrecompiledContractsConfig get_precompiled_contracts_config() const;
-  static std::vector<ton::ValidatorDescr> do_compute_validator_set(const block::CatchainValidatorsConfig& ccv_conf,
-                                                                   ton::ShardIdFull shard,
-                                                                   const block::ValidatorSet& vset, ton::UnixTime time,
+  static std::vector<ton::ValidatorDescr> do_compute_validator_set(const CatchainValidatorsConfig& ccv_conf,
+                                                                   ton::ShardIdFull shard, const ValidatorSet& vset,
                                                                    ton::CatchainSeqno cc_seqno);
 
   static td::Result<std::unique_ptr<Config>> unpack_config(Ref<vm::Cell> config_root,
@@ -682,14 +686,12 @@ class Config {
 
 class ConfigInfo : public Config, public ShardConfig {
  public:
-  enum {
-    needStateRoot = 1,
-    needLibraries = 2,
-    needStateExtraRoot = 4,
-    needShardHashes = 8,
-    needAccountsRoot = 64,
-    needPrevBlocks = 128
-  };
+  static constexpr int needStateRoot = 1;
+  static constexpr int needLibraries = 2;
+  static constexpr int needStateExtraRoot = 4;
+  static constexpr int needShardHashes = 8;
+  static constexpr int needAccountsRoot = 64;
+  static constexpr int needPrevBlocks = 128;
   ton::BlockSeqno vert_seqno{~0U};
   int global_id_{0};
   ton::UnixTime utime{0};

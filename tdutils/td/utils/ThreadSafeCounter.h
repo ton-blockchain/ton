@@ -137,4 +137,55 @@ class NamedThreadSafeCounter {
   Counter counter_;
 };
 
+// another class for simplicity, it
+struct NamedPerfCounter {
+ public:
+  static NamedPerfCounter &get_default() {
+    static NamedPerfCounter res;
+    return res;
+  }
+  struct PerfCounterRef {
+    NamedThreadSafeCounter::CounterRef count;
+    NamedThreadSafeCounter::CounterRef duration;
+  };
+  PerfCounterRef get_counter(Slice name) {
+    return {.count = counter_.get_counter(PSLICE() << name << ".count"),
+            .duration = counter_.get_counter(PSLICE() << name << ".duration")};
+  }
+
+  struct ScopedPerfCounterRef : public NoCopyOrMove {
+    PerfCounterRef perf_counter;
+    uint64 started_at_ticks{td::Clocks::rdtsc()};
+
+    ~ScopedPerfCounterRef() {
+      perf_counter.count.add(1);
+      perf_counter.duration.add(td::Clocks::rdtsc() - started_at_ticks);
+    }
+  };
+
+  template <class F>
+  void for_each(F &&f) const {
+    counter_.for_each(f);
+  }
+
+  void clear() {
+    counter_.clear();
+  }
+
+  friend StringBuilder &operator<<(StringBuilder &sb, const NamedPerfCounter &counter) {
+    return sb << counter.counter_;
+  }
+ private:
+  NamedThreadSafeCounter counter_;
+};
+
 }  // namespace td
+
+#define TD_PERF_COUNTER(name)                                                    \
+  static auto perf_##name = td::NamedPerfCounter::get_default().get_counter(td::Slice(#name)); \
+  auto scoped_perf_##name = td::NamedPerfCounter::ScopedPerfCounterRef{.perf_counter = perf_##name};
+
+#define TD_PERF_COUNTER_SINCE(name, since)                                       \
+  static auto perf_##name = td::NamedPerfCounter::get_default().get_counter(td::Slice(#name)); \
+  auto scoped_perf_##name =                                                      \
+      td::NamedPerfCounter::ScopedPerfCounterRef{.perf_counter = perf_##name, .started_at_ticks = since};

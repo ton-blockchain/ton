@@ -53,7 +53,7 @@ class ValidatorSessionImpl : public ValidatorSession {
   const ValidatorSessionState *real_state_ = nullptr;
   const ValidatorSessionState *virtual_state_ = nullptr;
 
-  td::uint32 cur_round_ = 0;
+  td::uint32 cur_round_ = 0, first_block_round_ = 0;
   td::Timestamp round_started_at_ = td::Timestamp::never();
   td::Timestamp round_debug_at_ = td::Timestamp::never();
   std::set<ValidatorSessionCandidateId> pending_approve_;

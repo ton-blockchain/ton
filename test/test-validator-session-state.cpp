@@ -101,6 +101,10 @@ class Description : public ton::validatorsession::ValidatorSessionDescription {
   td::uint32 get_max_priority() const override {
     return opts_.round_candidates - 1;
   }
+  td::uint32 get_node_by_priority(td::uint32 round, td::uint32 priority) const override {
+    CHECK(priority <= get_max_priority());
+    return (round + priority) % get_total_nodes();
+  }
   td::uint32 get_unixtime(td::uint64 ts) const override {
     return static_cast<td::uint32>(ts >> 32);
   }

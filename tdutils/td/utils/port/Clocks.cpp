@@ -22,6 +22,10 @@
 #include <ctime>
 
 namespace td {
+int64 Clocks::monotonic_nano() {
+  auto duration = std::chrono::steady_clock::now().time_since_epoch();
+  return std::chrono::duration_cast<std::chrono::nanoseconds>(duration).count();
+}
 
 double Clocks::monotonic() {
   // TODO write system specific functions, because std::chrono::steady_clock is steady only under Windows

@@ -102,6 +102,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual BlockSeqno sync_upto() const = 0;
   virtual std::string get_session_logs_file() const = 0;
   virtual td::uint32 get_celldb_compress_depth() const = 0;
+  virtual bool get_celldb_in_memory() const = 0;
   virtual size_t get_max_open_archive_files() const = 0;
   virtual double get_archive_preload_period() const = 0;
   virtual bool get_disable_rocksdb_stats() const = 0;
@@ -141,6 +142,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual void set_celldb_cache_size(td::uint64 value) = 0;
   virtual void set_celldb_direct_io(bool value) = 0;
   virtual void set_celldb_preload_all(bool value) = 0;
+  virtual void set_celldb_in_memory(bool value) = 0;
   virtual void set_catchain_max_block_delay(double value) = 0;
   virtual void set_catchain_max_block_delay_slow(double value) = 0;
   virtual void set_state_serializer_enabled(bool value) = 0;
@@ -172,7 +174,7 @@ class ValidatorManagerInterface : public td::actor::Actor {
     virtual void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) = 0;
     virtual void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                                       td::BufferSlice data) = 0;
-    virtual void send_broadcast(BlockBroadcast broadcast, bool custom_overlays_only = false) = 0;
+    virtual void send_broadcast(BlockBroadcast broadcast, int mode) = 0;
     virtual void download_block(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
                                 td::Promise<ReceivedBlock> promise) = 0;
     virtual void download_zero_state(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
@@ -254,6 +256,7 @@ class ValidatorManagerInterface : public td::actor::Actor {
   virtual void get_block_data_from_db_short(BlockIdExt block_id, td::Promise<td::Ref<BlockData>> promise) = 0;
   virtual void get_block_candidate_from_db(PublicKey source, BlockIdExt id, FileHash collated_data_file_hash,
                                            td::Promise<BlockCandidate> promise) = 0;
+  virtual void get_candidate_data_by_block_id_from_db(BlockIdExt id, td::Promise<td::BufferSlice> promise) = 0;
   virtual void get_shard_state_from_db(ConstBlockHandle handle, td::Promise<td::Ref<ShardState>> promise) = 0;
   virtual void get_shard_state_from_db_short(BlockIdExt block_id, td::Promise<td::Ref<ShardState>> promise) = 0;
   virtual void get_block_proof_from_db(ConstBlockHandle handle, td::Promise<td::Ref<Proof>> promise) = 0;
@@ -274,6 +277,7 @@ class ValidatorManagerInterface : public td::actor::Actor {
 
   virtual void run_ext_query(td::BufferSlice data, td::Promise<td::BufferSlice> promise) = 0;
   virtual void prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise) = 0;
+  virtual void prepare_actor_stats(td::Promise<std::string> promise) = 0;
 
   virtual void prepare_perf_timer_stats(td::Promise<std::vector<PerfTimerStats>> promise) = 0;
   virtual void add_perf_timer_stat(std::string name, double duration) = 0;

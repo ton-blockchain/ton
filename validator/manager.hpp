@@ -21,6 +21,7 @@
 #include "common/refcnt.hpp"
 #include "interfaces/validator-manager.h"
 #include "interfaces/db.h"
+#include "td/actor/ActorStats.h"
 #include "td/actor/PromiseFuture.h"
 #include "td/utils/SharedSlice.h"
 #include "td/utils/buffer.h"
@@ -433,6 +434,8 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   void set_block_candidate(BlockIdExt id, BlockCandidate candidate, CatchainSeqno cc_seqno,
                            td::uint32 validator_set_hash, td::Promise<td::Unit> promise) override;
+  void send_block_candidate_broadcast(BlockIdExt id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
+                                      td::BufferSlice data) override;
 
   void wait_block_state_merge(BlockIdExt left_id, BlockIdExt right_id, td::uint32 priority, td::Timestamp timeout,
                               td::Promise<td::Ref<ShardState>> promise) override;
@@ -460,6 +463,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void get_shard_state_from_db_short(BlockIdExt block_id, td::Promise<td::Ref<ShardState>> promise) override;
   void get_block_candidate_from_db(PublicKey source, BlockIdExt id, FileHash collated_data_file_hash,
                                    td::Promise<BlockCandidate> promise) override;
+  void get_candidate_data_by_block_id_from_db(BlockIdExt id, td::Promise<td::BufferSlice> promise) override;
   void get_block_proof_from_db(ConstBlockHandle handle, td::Promise<td::Ref<Proof>> promise) override;
   void get_block_proof_from_db_short(BlockIdExt id, td::Promise<td::Ref<Proof>> promise) override;
   void get_block_proof_link_from_db(ConstBlockHandle handle, td::Promise<td::Ref<ProofLink>> promise) override;
@@ -496,7 +500,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void send_external_message(td::Ref<ExtMessage> message) override;
   void send_ihr_message(td::Ref<IhrMessage> message) override;
   void send_top_shard_block_description(td::Ref<ShardTopBlockDescription> desc) override;
-  void send_block_broadcast(BlockBroadcast broadcast, bool custom_overlays_only) override;
+  void send_block_broadcast(BlockBroadcast broadcast, int mode) override;
 
   void update_shard_client_state(BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise) override;
   void get_shard_client_state(bool from_db, td::Promise<BlockIdExt> promise) override;
@@ -580,6 +584,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   void update_last_known_key_block(BlockHandle handle, bool send_request) override;
 
   void prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise) override;
+
+  void prepare_actor_stats(td::Promise<std::string> promise) override;
 
   void prepare_perf_timer_stats(td::Promise<std::vector<PerfTimerStats>> promise) override;
   void add_perf_timer_stat(std::string name, double duration) override;
@@ -677,6 +683,7 @@ class ValidatorManagerImpl : public ValidatorManager {
  private:
   std::unique_ptr<Callback> callback_;
   td::actor::ActorOwn<Db> db_;
+  td::actor::ActorOwn<td::actor::ActorStats> actor_stats_;
 
   bool started_ = false;
   bool allow_validate_ = false;
