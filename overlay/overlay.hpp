@@ -280,7 +280,7 @@ class OverlayImpl : public Overlay {
 
   void update_peer_ip_str(adnl::AdnlNodeIdShort peer_id, td::string ip_str) override;
 
-  void update_root_member_list(std::vector<adnl::AdnlNodeIdShort> nodes, std::vector<PublicKeyHash> root_public_keys,
+  void update_root_member_list(std::vector<adnl::AdnlNodeIdShort> ids, std::vector<PublicKeyHash> root_public_keys,
                                OverlayMemberCertificate cert) override;
 
   bool is_valid_peer(const adnl::AdnlNodeIdShort &id, const ton_api::overlay_MemberCertificate *certificate);

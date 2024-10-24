@@ -407,7 +407,8 @@ void OverlayImpl::update_neighbours(td::uint32 nodes_to_change) {
       continue;
     }
 
-    if (X->get_version() <= td::Clocks::system() - Overlays::overlay_peer_ttl()) {
+    if (overlay_type_ != OverlayType::FixedMemberList && X->get_version() <= td::Clocks::system() -
+        Overlays::overlay_peer_ttl()) {
       if (X->is_permanent_member()) {
         del_from_neighbour_list(X);
       } else {
@@ -656,14 +657,9 @@ size_t OverlayImpl::neighbours_cnt() const {
 
 void OverlayImpl::update_root_member_list(std::vector<adnl::AdnlNodeIdShort> ids,
                                           std::vector<PublicKeyHash> root_public_keys, OverlayMemberCertificate cert) {
-  td::uint32 expectd_size =
+  auto expected_size =
       (td::uint32)(ids.size() + root_public_keys.size() * opts_.max_slaves_in_semiprivate_overlay_);
-  if (expectd_size > opts_.max_peers_) {
-    opts_.max_peers_ = expectd_size;
-  }
-  if (expectd_size > opts_.max_neighbours_) {
-    opts_.max_neighbours_ = expectd_size;
-  }
+  opts_.max_peers_ = std::max(opts_.max_peers_, expected_size);
   std::sort(ids.begin(), ids.end());
   auto old_root_public_keys = std::move(peer_list_.root_public_keys_);
   for (const auto &pub_key : root_public_keys) {
