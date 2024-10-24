@@ -177,7 +177,7 @@ emcmake cmake -DUSE_EMSCRIPTEN=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_VERBOSE_MAK
 test $? -eq 0 || { echo "Can't configure TON with emmake "; exit 1; }
 cp -R ../crypto/smartcont ../crypto/fift/lib crypto
 
-emmake make -j16 funcfiftlib func fift tlbc emulator-emscripten
+emmake make -j16 funcfiftlib funcfiftlib-portable func fift tlbc emulator-emscripten
 
 test $? -eq 0 || { echo "Can't compile TON with emmake "; exit 1; }
 
