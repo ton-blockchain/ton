@@ -222,6 +222,7 @@ class ValidatorEngine : public td::actor::Actor {
   ton::BlockSeqno truncate_seqno_{0};
   std::string session_logs_file_;
   bool fast_state_serializer_enabled_ = false;
+  std::string validator_telemetry_filename_;
 
   std::set<ton::CatchainSeqno> unsafe_catchains_;
   std::map<ton::BlockSeqno, std::pair<ton::CatchainSeqno, td::uint32>> unsafe_catchain_rotations_;
@@ -309,6 +310,9 @@ class ValidatorEngine : public td::actor::Actor {
   }
   void set_fast_state_serializer_enabled(bool value) {
     fast_state_serializer_enabled_ = value;
+  }
+  void set_validator_telemetry_filename(std::string value) {
+    validator_telemetry_filename_ = std::move(value);
   }
   void start_up() override;
   ValidatorEngine() {
