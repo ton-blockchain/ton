@@ -213,7 +213,7 @@ void OverlayImpl::add_peer(OverlayNode node) {
     peer_list_.peers_.insert(id, OverlayPeer(std::move(node)));
     del_some_peers();
     auto X = peer_list_.peers_.get(id);
-    if (X != nullptr && peer_list_.neighbours_.size() < max_neighbours() &&
+    if (X != nullptr && !X->is_neighbour() && peer_list_.neighbours_.size() < max_neighbours() &&
         !(X->get_node()->flags() & OverlayMemberFlags::DoNotReceiveBroadcasts) && X->get_id() != local_id_) {
       peer_list_.neighbours_.push_back(X->get_id());
       X->set_neighbour(true);
@@ -440,7 +440,7 @@ void OverlayImpl::update_neighbours(td::uint32 nodes_to_change) {
       VLOG(OVERLAY_INFO) << this << ": adding new neighbour " << X->get_id();
       peer_list_.neighbours_.push_back(X->get_id());
       X->set_neighbour(true);
-    } else {
+    } else if (X->is_alive()) {
       CHECK(nodes_to_change > 0);
       auto i = td::Random::fast(0, static_cast<td::uint32>(peer_list_.neighbours_.size()) - 1);
       auto Y = peer_list_.peers_.get(peer_list_.neighbours_[i]);

@@ -347,7 +347,12 @@ void OverlayImpl::alarm() {
       update_db_at_ = td::Timestamp::in(60.0);
     }
 
-    update_neighbours(0);
+    if (update_neighbours_at_.is_in_past()) {
+      update_neighbours(2);
+      update_neighbours_at_ = td::Timestamp::in(td::Random::fast(30.0, 120.0));
+    } else {
+      update_neighbours(0);
+    }
     alarm_timestamp() = td::Timestamp::in(1.0);
   } else {
     update_neighbours(0);
