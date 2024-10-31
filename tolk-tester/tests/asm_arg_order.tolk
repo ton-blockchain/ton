@@ -2,10 +2,8 @@
 fun empty_tuple2(): tuple
 asm "NIL";
 @pure
-fun tpush2<X>(t: tuple, x: X): (tuple, ())
+fun tpush2<X>(mutate self: tuple, x: X): void
 asm "TPUSH";
-fun myEmptyTuple(): tuple { return empty_tuple2(); }
-fun myTuplePush<X>(t: tuple, value: X): (tuple, ()) { return tpush2(t, value); }
 
 @pure
 fun asm_func_1(x: int, y: int, z: int): tuple
@@ -20,31 +18,27 @@ asm (y z x -> 0) "3 TUPLE";
 fun asm_func_4(a: int, b: (int, (int, int)), c: int): tuple
 asm (b a c -> 0) "5 TUPLE";
 
-fun asmFunc1(x: int, y: int, z: int): tuple { return asm_func_1(x, y, z); }
-fun asmFunc3(x: int, y: int, z: int): tuple { return asm_func_3(x, y, z); }
-
 @pure
-fun asm_func_modify(a: tuple, b: int, c: int): (tuple, ())
-asm (c b a -> 0) "SWAP TPUSH SWAP TPUSH";
-fun asmFuncModify(a: tuple, b: int, c: int): (tuple, ()) { return asm_func_modify(a, b, c); }
+fun asm_func_modify(mutate self: tuple, b: int, c: int): void
+asm (c b self) "SWAP TPUSH SWAP TPUSH";
 
 global t: tuple;
 
 fun foo(x: int): int {
-  t~myTuplePush(x);
+  t.tpush2(x);
   return x * 10;
 }
 
 @method_id(11)
 fun test_old_1(): (tuple, tuple) {
   t = empty_tuple2();
-  var t2: tuple = asmFunc1(foo(11), foo(22), foo(33));
+  var t2: tuple = asm_func_1(foo(11), foo(22), foo(33));
   return (t, t2);
 }
 
 @method_id(12)
 fun test_old_2(): (tuple, tuple) {
-  t = myEmptyTuple();
+  t = empty_tuple2();
   var t2: tuple = asm_func_2(foo(11), foo(22), foo(33));
   return (t, t2);
 }
@@ -58,7 +52,7 @@ fun test_old_3(): (tuple, tuple) {
 
 @method_id(14)
 fun test_old_4(): (tuple, tuple) {
-  t = myEmptyTuple();
+  t = empty_tuple2();
   var t2: tuple = empty_tuple2();
   // This actually computes left-to-right even without compute-asm-ltr
   t2 = asm_func_4(foo(11), (foo(22), (foo(33), foo(44))), foo(55));
@@ -69,21 +63,21 @@ fun test_old_4(): (tuple, tuple) {
 fun test_old_modify(): (tuple, tuple) {
   t = empty_tuple2();
   var t2: tuple = empty_tuple2();
-  t2~asmFuncModify(foo(22), foo(33));
+  t2.asm_func_modify(foo(22), foo(33));
   return (t, t2);
 }
 
 @method_id(16)
 fun test_old_dot(): (tuple, tuple) {
   t = empty_tuple2();
-  var t2: tuple = foo(11).asmFunc3(foo(22), foo(33));
+  var t2: tuple = foo(11).asm_func_3(foo(22), foo(33));
   return (t, t2);
 }
 
 @method_id(21)
 fun test_new_1(): (tuple, tuple) {
   t = empty_tuple2();
-  var t2: tuple = asmFunc1(foo(11), foo(22), foo(33));
+  var t2: tuple = asm_func_1(foo(11), foo(22), foo(33));
   return (t, t2);
 }
 
@@ -112,7 +106,7 @@ fun test_new_4(): (tuple, tuple) {
 fun test_new_modify(): (tuple, tuple) {
   t = empty_tuple2();
   var t2: tuple = empty_tuple2();
-  t2~asm_func_modify(foo(22), foo(33));
+  t2.asm_func_modify(foo(22), foo(33));
   return (t, t2);
 }
 

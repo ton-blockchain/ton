@@ -40,11 +40,14 @@ class ASTStringifier final : public ASTVisitor {
     {ast_string_const, "ast_string_const"},
     {ast_bool_const, "ast_bool_const"},
     {ast_null_keyword, "ast_null_keyword"},
+    {ast_self_keyword, "ast_self_keyword"},
+    {ast_argument, "ast_argument"},
+    {ast_argument_list, "ast_argument_list"},
     {ast_function_call, "ast_function_call"},
+    {ast_dot_method_call, "ast_dot_method_call"},
     {ast_global_var_declaration, "ast_global_var_declaration"},
     {ast_constant_declaration, "ast_constant_declaration"},
     {ast_underscore, "ast_underscore"},
-    {ast_dot_tilde_call, "ast_dot_tilde_call"},
     {ast_unary_operator, "ast_unary_operator"},
     {ast_binary_operator, "ast_binary_operator"},
     {ast_ternary_operator, "ast_ternary_operator"},
@@ -125,12 +128,12 @@ class ASTStringifier final : public ASTVisitor {
         }
         return {};
       }
+      case ast_dot_method_call:
+        return static_cast<std::string>(v->as<ast_dot_method_call>()->method_name);
       case ast_global_var_declaration:
         return static_cast<std::string>(v->as<ast_global_var_declaration>()->get_identifier()->name);
       case ast_constant_declaration:
         return static_cast<std::string>(v->as<ast_constant_declaration>()->get_identifier()->name);
-      case ast_dot_tilde_call:
-        return static_cast<std::string>(v->as<ast_dot_tilde_call>()->method_name);
       case ast_unary_operator:
         return static_cast<std::string>(v->as<ast_unary_operator>()->operator_name);
       case ast_binary_operator:
@@ -208,11 +211,14 @@ public:
       case ast_string_const:                  return handle_vertex(v->as<ast_string_const>());
       case ast_bool_const:                    return handle_vertex(v->as<ast_bool_const>());
       case ast_null_keyword:                  return handle_vertex(v->as<ast_null_keyword>());
+      case ast_self_keyword:                  return handle_vertex(v->as<ast_self_keyword>());
+      case ast_argument:                      return handle_vertex(v->as<ast_argument>());
+      case ast_argument_list:                 return handle_vertex(v->as<ast_argument_list>());
       case ast_function_call:                 return handle_vertex(v->as<ast_function_call>());
+      case ast_dot_method_call:               return handle_vertex(v->as<ast_dot_method_call>());
       case ast_global_var_declaration:        return handle_vertex(v->as<ast_global_var_declaration>());
       case ast_constant_declaration:          return handle_vertex(v->as<ast_constant_declaration>());
       case ast_underscore:                    return handle_vertex(v->as<ast_underscore>());
-      case ast_dot_tilde_call:                return handle_vertex(v->as<ast_dot_tilde_call>());
       case ast_unary_operator:                return handle_vertex(v->as<ast_unary_operator>());
       case ast_binary_operator:               return handle_vertex(v->as<ast_binary_operator>());
       case ast_ternary_operator:              return handle_vertex(v->as<ast_ternary_operator>());

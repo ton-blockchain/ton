@@ -323,8 +323,7 @@ struct ChunkIdentifierOrKeyword final : ChunkLexerBase {
   static TokenType maybe_keyword(std::string_view str) {
     switch (str.size()) {
       case 1:
-        if (str == "~") return tok_bitwise_not;  // todo attention
-        if (str == "_") return tok_underscore;  // todo attention
+        if (str == "_") return tok_underscore;
         break;
       case 2:
         if (str == "do") return tok_do;
@@ -347,6 +346,7 @@ struct ChunkIdentifierOrKeyword final : ChunkLexerBase {
         if (str == "void") return tok_void;
         if (str == "bool") return tok_bool;
         if (str == "auto") return tok_auto;
+        if (str == "self") return tok_self;
         if (str == "tolk") return tok_tolk;
         if (str == "type") return tok_type;
         if (str == "enum") return tok_enum;
@@ -368,6 +368,7 @@ struct ChunkIdentifierOrKeyword final : ChunkLexerBase {
         if (str == "assert") return tok_assert;
         if (str == "import") return tok_import;
         if (str == "global") return tok_global;
+        if (str == "mutate") return tok_mutate;
         if (str == "repeat") return tok_repeat;
         if (str == "struct") return tok_struct;
         if (str == "export") return tok_export;
@@ -394,8 +395,7 @@ struct ChunkIdentifierOrKeyword final : ChunkLexerBase {
     lex->skip_chars(1);
     while (!lex->is_eof()) {
       char c = lex->char_at();
-      // the pattern of valid identifier first symbol is provided in trie, here we test for identifier middle
-      bool allowed_in_identifier = std::isalnum(c) || c == '_' || c == '$' || c == '?' || c == '!' || c == '\'';
+      bool allowed_in_identifier = std::isalnum(c) || c == '_' || c == '$';
       if (!allowed_in_identifier) {
         break;
       }
@@ -433,28 +433,6 @@ struct ChunkIdentifierInBackticks final : ChunkLexerBase {
     std::string_view str_val(str_begin + 1, lex->c_str() - str_begin - 1);
     lex->skip_chars(1);
     G.symbols.lookup_add(str_val);
-    lex->add_token(tok_identifier, str_val);
-    return true;
-  }
-};
-
-// Handle ~`some_method` and .`some_method` todo to be removed later
-struct ChunkDotTildeAndBackticks final : ChunkLexerBase {
-  bool parse(Lexer* lex) const override {
-    const char* str_begin = lex->c_str();
-    lex->skip_chars(2);
-    while (!lex->is_eof() && lex->char_at() != '`' && lex->char_at() != '\n') {
-      lex->skip_chars(1);
-    }
-    if (lex->char_at() != '`') {
-      lex->error("unclosed backtick `");
-    }
-
-    std::string_view in_backticks(str_begin + 2, lex->c_str() - str_begin - 2);
-    std::string full = std::string(1, *str_begin) + static_cast<std::string>(in_backticks);
-    std::string* allocated = new std::string(full);
-    lex->skip_chars(1);
-    std::string_view str_val(allocated->c_str(), allocated->size());
     lex->add_token(tok_identifier, str_val);
     return true;
   }
@@ -500,11 +478,8 @@ struct TolkLanguageGrammar {
     trie.add_prefix("\n", singleton<ChunkSkipWhitespace>());
 
     trie.add_pattern("[0-9]", singleton<ChunkNumber>());
-    // todo think of . ~
-    trie.add_pattern("[a-zA-Z_$.~]", singleton<ChunkIdentifierOrKeyword>());
+    trie.add_pattern("[a-zA-Z_$]", singleton<ChunkIdentifierOrKeyword>());
     trie.add_prefix("`", singleton<ChunkIdentifierInBackticks>());
-    // todo to be removed after ~ becomes invalid and . becomes a separate token
-    trie.add_pattern("[.~]`", singleton<ChunkDotTildeAndBackticks>());
 
     register_token("+", 1, tok_plus);
     register_token("-", 1, tok_minus);
@@ -528,6 +503,8 @@ struct TolkLanguageGrammar {
     register_token("&", 1, tok_bitwise_and);
     register_token("|", 1, tok_bitwise_or);
     register_token("^", 1, tok_bitwise_xor);
+    register_token("~", 1, tok_bitwise_not);
+    register_token(".", 1, tok_dot);
     register_token("==", 2, tok_eq);
     register_token("!=", 2, tok_neq);
     register_token("<=", 2, tok_leq);

@@ -74,68 +74,6 @@ static td::RefInt256 calculate_method_id_by_func_name(std::string_view func_name
   return td::make_refint((crc & 0xffff) | 0x10000);
 }
 
-static bool is_parameter_of_function(AnyV v_variable, V<ast_function_declaration> v_func) {
-  return v_variable->type == ast_identifier && v_func->get_param_list()->lookup_idx(v_variable->as<ast_identifier>()->name) != -1;
-}
-
-// if a function looks like `T f(...args) { return anotherF(...args); }`,
-// set a bit to flags
-// then, all calls to `f(...)` will be effectively replaced with `anotherF(...)`
-// todo this function (and optimization) was done before implementing AST, but after AST and registering symbols in advance,
-// its behavior became a bit wrong: if anotherF is declared before f, than it's detected here, but still not inlined,
-// since inlining is done is legacy code, using Expr
-// in the future, inlining should be done on AST level, but it's impossible until all names resolving (including scopes)
-// is also done on AST level
-// in the future, when working on AST level, inlining should become much more powerful
-// (for instance, it should inline `return anotherF(constants)`, etc.)
-static bool detect_if_function_just_wraps_another(V<ast_function_declaration> v) {
-  if (v->method_id || v->marked_as_get_method || v->marked_as_builtin || v->marked_as_inline_ref || v->is_entrypoint) {
-    return false;
-  }
-  for (int i = 0; i < v->get_num_params(); ++i) {
-    if (v->get_param(i)->param_type->get_width() != 1 || v->get_param(i)->param_type->has_unknown_inside()) {
-      return false;   // avoid situations like `f(int a, (int,int) b)`, inlining will be cumbersome
-    }
-  }
-
-  auto v_body = v->get_body()->try_as<ast_sequence>();
-  if (!v_body || v_body->size() != 1 || v_body->get_item(0)->type != ast_return_statement) {
-    return false;
-  }
-
-  auto v_return = v_body->get_item(0)->as<ast_return_statement>();
-  auto v_anotherF = v_return->get_return_value()->try_as<ast_function_call>();
-  if (!v_anotherF) {
-    return false;
-  }
-
-  V<ast_tensor> called_arg = v_anotherF->get_called_arg();
-  if (v_anotherF->get_called_f()->type != ast_identifier) {
-    return false;
-  }
-
-  std::string_view called_name = v_anotherF->get_called_f()->try_as<ast_identifier>()->name;
-  std::string_view function_name = v->get_identifier()->name;
-
-  const std::vector<AnyV>& v_arg_items = called_arg->get_items();
-  std::set<std::string_view> used_args;
-  for (AnyV v_arg : v_arg_items) {
-    if (!is_parameter_of_function(v_arg, v)) {
-      return false;
-    }
-    used_args.emplace(v_arg->as<ast_identifier>()->name);
-  }
-  if (static_cast<int>(used_args.size()) != v->get_num_params() || used_args.size() != v_arg_items.size()) {
-    return false;
-  }
-
-  // ok, f_current is a wrapper
-  if (G.is_verbosity(2)) {
-    std::cerr << function_name << " -> " << called_name << std::endl;
-  }
-  return true;
-}
-
 static void calc_arg_ret_order_of_asm_function(V<ast_asm_body> v_body, V<ast_parameter_list> param_list, TypeExpr* ret_type,
                                    std::vector<int>& arg_order, std::vector<int>& ret_order) {
   int cnt = param_list->size();
@@ -201,7 +139,7 @@ static void register_constant(V<ast_constant_declaration> v) {
   // todo currently, constant value calculation is dirty and roughly: init_value is evaluated to fif code
   // and waited to be a single expression
   // although it works, of course it should be later rewritten using AST calculations, as well as lots of other parts
-  CodeBlob code("tmp", v->loc, nullptr);
+  CodeBlob code("tmp", v->loc, nullptr, nullptr);
   Expr* x = process_expr(init_value, code);
   if (!x->is_rvalue()) {
     v->get_init_value()->error("expression is not strictly Rvalue");
@@ -211,9 +149,9 @@ static void register_constant(V<ast_constant_declaration> v) {
   }
   SymValConst* sym_val = nullptr;
   if (x->cls == Expr::_Const) {  // Integer constant
-    sym_val = new SymValConst{static_cast<int>(G.all_constants.size()), x->intval};
+    sym_val = new SymValConst(static_cast<int>(G.all_constants.size()), x->intval);
   } else if (x->cls == Expr::_SliceConst) {  // Slice constant (string)
-    sym_val = new SymValConst{static_cast<int>(G.all_constants.size()), x->strval};
+    sym_val = new SymValConst(static_cast<int>(G.all_constants.size()), x->strval);
   } else if (x->cls == Expr::_Apply) {  // even "1 + 2" is Expr::_Apply (it applies `_+_`)
     code.emplace_back(v->loc, Op::_Import, std::vector<var_idx_t>());
     auto tmp_vars = x->pre_compile(code);
@@ -241,14 +179,14 @@ static void register_constant(V<ast_constant_declaration> v) {
     if (op.origin.is_null() || !op.origin->is_valid()) {
       init_value->error("precompiled expression did not result in a valid integer constant");
     }
-    sym_val = new SymValConst{static_cast<int>(G.all_constants.size()), op.origin};
+    sym_val = new SymValConst(static_cast<int>(G.all_constants.size()), op.origin);
   } else {
     init_value->error("integer or slice literal or constant expected");
   }
 
   sym_def->value = sym_val;
 #ifdef TOLK_DEBUG
-  dynamic_cast<SymValConst*>(sym_def->value)->name = v->get_identifier()->name;
+  sym_def->value->sym_name = v->get_identifier()->name;
 #endif
   G.all_constants.push_back(sym_def);
 }
@@ -259,35 +197,68 @@ static void register_global_var(V<ast_global_var_declaration> v) {
     fire_error_redefinition_of_symbol(v->get_identifier(), sym_def);
   }
 
-  sym_def->value = new SymValGlobVar{static_cast<int>(G.all_global_vars.size()), v->declared_type};
+  sym_def->value = new SymValGlobVar(static_cast<int>(G.all_global_vars.size()), v->declared_type);
 #ifdef TOLK_DEBUG
-  dynamic_cast<SymValGlobVar*>(sym_def->value)->name = v->get_identifier()->name;
+  sym_def->value->sym_name = v->get_identifier()->name;
 #endif
   G.all_global_vars.push_back(sym_def);
+}
+
+static SymDef* register_parameter(V<ast_parameter> v, int idx) {
+  if (v->is_underscore()) {
+    return nullptr;
+  }
+  SymDef* sym_def = define_parameter(calc_sym_idx(v->get_identifier()->name), v->loc);
+  if (sym_def->value) {
+    // todo always false now, how to detect similar parameter names? (remember about underscore)
+    v->error("redefined parameter");
+  }
+
+  SymValVariable* sym_val = new SymValVariable(idx, v->param_type);
+  if (v->declared_as_mutate) {
+    sym_val->flags |= SymValVariable::flagMutateParameter;
+  }
+  if (!v->declared_as_mutate && idx == 0 && v->get_identifier()->name == "self") {
+    sym_val->flags |= SymValVariable::flagImmutable;
+  }
+  sym_def->value = sym_val;
+#ifdef TOLK_DEBUG
+  sym_def->value->sym_name = v->get_identifier()->name;
+#endif
+  return sym_def;
 }
 
 static void register_function(V<ast_function_declaration> v) {
   std::string_view func_name = v->get_identifier()->name;
 
-  // calculate TypeExpr of a function: it's a map (args -> ret), probably surrounded by forall
-  TypeExpr* func_type = nullptr;
-  if (int n_args = v->get_num_params()) {
-    std::vector<TypeExpr*> arg_types;
-    arg_types.reserve(n_args);
-    for (int idx = 0; idx < n_args; ++idx) {
-      arg_types.emplace_back(v->get_param(idx)->param_type);
+  // calculate TypeExpr of a function: it's a map (params -> ret), probably surrounded by forall
+  TypeExpr* params_tensor_type = nullptr;
+  int n_params = v->get_num_params();
+  int n_mutate_params = 0;
+  std::vector<SymDef*> parameters_syms;
+  if (n_params) {
+    std::vector<TypeExpr*> param_tensor_items;
+    param_tensor_items.reserve(n_params);
+    parameters_syms.reserve(n_params);
+    for (int i = 0; i < n_params; ++i) {
+      auto v_param = v->get_param(i);
+      n_mutate_params += static_cast<int>(v_param->declared_as_mutate);
+      param_tensor_items.emplace_back(v_param->param_type);
+      parameters_syms.emplace_back(register_parameter(v_param, i));
     }
-    func_type = TypeExpr::new_map(TypeExpr::new_tensor(std::move(arg_types)), v->ret_type);
+    params_tensor_type = TypeExpr::new_tensor(std::move(param_tensor_items));
   } else {
-    func_type = TypeExpr::new_map(TypeExpr::new_unit(), v->ret_type);
+    params_tensor_type = TypeExpr::new_unit();
   }
+
+  TypeExpr* function_type = TypeExpr::new_map(params_tensor_type, v->ret_type);
   if (v->genericsT_list) {
     std::vector<TypeExpr*> type_vars;
     type_vars.reserve(v->genericsT_list->size());
     for (int idx = 0; idx < v->genericsT_list->size(); ++idx) {
       type_vars.emplace_back(v->genericsT_list->get_item(idx)->created_type);
     }
-    func_type = TypeExpr::new_forall(std::move(type_vars), func_type);
+    function_type = TypeExpr::new_forall(std::move(type_vars), function_type);
   }
   if (v->marked_as_builtin) {
     const SymDef* builtin_func = lookup_symbol(G.symbols.lookup(func_name));
@@ -297,7 +268,7 @@ static void register_function(V<ast_function_declaration> v) {
     }
 #ifdef TOLK_DEBUG
     // in release, we don't need this check, since `builtin` is used only in stdlib, which is our responsibility
-    if (!func_val->sym_type->equals_to(func_type) || func_val->is_marked_as_pure() != v->marked_as_pure) {
+    if (!func_val->sym_type->equals_to(function_type) || func_val->is_marked_as_pure() != v->marked_as_pure) {
       v->error("declaration for `builtin` function doesn't match an actual one");
     }
 #endif
@@ -309,7 +280,7 @@ static void register_function(V<ast_function_declaration> v) {
     fire_error_redefinition_of_symbol(v->get_identifier(), sym_def);
   }
   if (G.is_verbosity(1)) {
-    std::cerr << "fun " << func_name << " : " << func_type << std::endl;
+    std::cerr << "fun " << func_name << " : " << function_type << std::endl;
   }
   if (v->marked_as_pure && v->ret_type->get_width() == 0) {
     v->error("a pure function should return something, otherwise it will be optimized out anyway");
@@ -317,11 +288,11 @@ static void register_function(V<ast_function_declaration> v) {
 
   SymValFunc* sym_val = nullptr;
   if (const auto* v_seq = v->get_body()->try_as<ast_sequence>()) {
-    sym_val = new SymValCodeFunc{static_cast<int>(G.all_code_functions.size()), func_type, v->marked_as_pure};
+    sym_val = new SymValCodeFunc(std::move(parameters_syms), static_cast<int>(G.all_code_functions.size()), function_type);
   } else if (const auto* v_asm = v->get_body()->try_as<ast_asm_body>()) {
     std::vector<int> arg_order, ret_order;
     calc_arg_ret_order_of_asm_function(v_asm, v->get_param_list(), v->ret_type, arg_order, ret_order);
-    sym_val = new SymValAsmFunc{func_type, std::move(arg_order), std::move(ret_order), v->marked_as_pure};
+    sym_val = new SymValAsmFunc(std::move(parameters_syms), function_type, std::move(arg_order), std::move(ret_order), 0);
   } else {
     v->error("Unexpected function body statement");
   }
@@ -341,6 +312,9 @@ static void register_function(V<ast_function_declaration> v) {
   } else if (v->is_entrypoint) {
     sym_val->method_id = calculate_method_id_for_entrypoint(func_name);
   }
+  if (v->marked_as_pure) {
+    sym_val->flags |= SymValFunc::flagMarkedAsPure;
+  }
   if (v->marked_as_inline) {
     sym_val->flags |= SymValFunc::flagInline;
   }
@@ -353,13 +327,19 @@ static void register_function(V<ast_function_declaration> v) {
   if (v->is_entrypoint) {
     sym_val->flags |= SymValFunc::flagIsEntrypoint;
   }
-  if (detect_if_function_just_wraps_another(v)) {
-    sym_val->flags |= SymValFunc::flagWrapsAnotherF;
+  if (n_mutate_params) {
+    sym_val->flags |= SymValFunc::flagHasMutateParams;
+  }
+  if (v->accepts_self) {
+    sym_val->flags |= SymValFunc::flagAcceptsSelf;
+  }
+  if (v->returns_self) {
+    sym_val->flags |= SymValFunc::flagReturnsSelf;
   }
 
   sym_def->value = sym_val;
 #ifdef TOLK_DEBUG
-  dynamic_cast<SymValFunc*>(sym_def->value)->name = func_name;
+  sym_def->value->sym_name = func_name;
 #endif
   if (dynamic_cast<SymValCodeFunc*>(sym_val)) {
     G.all_code_functions.push_back(sym_def);

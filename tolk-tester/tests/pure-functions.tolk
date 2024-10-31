@@ -13,8 +13,8 @@ fun f_pure2(): int {
 fun get_contract_data(): (int, int) {
     var c: cell = getContractData();
     var cs: slice = c.beginParse();
-    cs~loadBits(32);
-    var value: int = cs~loadUint(16);
+    cs.loadBits(32);
+    var value: int = cs.loadUint(16);
     return (1, value);
 }
 

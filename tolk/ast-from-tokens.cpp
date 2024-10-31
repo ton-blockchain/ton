@@ -131,7 +131,8 @@ static AnyV maybe_replace_eq_null_with_isNull_call(V<ast_binary_operator> v) {
 
   auto v_ident = createV<ast_identifier>(v->loc, "__isNull"); // built-in function
   AnyV v_null = v->get_lhs()->type == ast_null_keyword ? v->get_rhs() : v->get_lhs();
-  AnyV v_isNull = createV<ast_function_call>(v->loc, v_ident, createV<ast_tensor>(v->loc, {v_null}));
+  AnyV v_arg = createV<ast_argument>(v->loc, v_null, false);
+  AnyV v_isNull = createV<ast_function_call>(v->loc, v_ident, createV<ast_argument_list>(v->loc, {v_arg}));
   if (v->tok == tok_neq) {
     v_isNull = createV<ast_unary_operator>(v->loc, "!", tok_logical_not, v_isNull);
   }
@@ -165,7 +166,7 @@ static TypeExpr* parse_type1(Lexer& lex, V<ast_genericsT_list> genericsT_list) {
       return TypeExpr::new_atomic(TypeExpr::_Builder);
     case tok_continuation:
       lex.next();
-      return TypeExpr::new_atomic(TypeExpr::_Cont);
+      return TypeExpr::new_atomic(TypeExpr::_Continutaion);
     case tok_tuple:
       lex.next();
       return TypeExpr::new_atomic(TypeExpr::_Tuple);
@@ -177,6 +178,8 @@ static TypeExpr* parse_type1(Lexer& lex, V<ast_genericsT_list> genericsT_list) {
       return TypeExpr::new_tensor({});
     case tok_bool:
       lex.error("bool type is not supported yet");
+    case tok_self:
+      lex.error("`self` type can be used only as a return type of a function (enforcing it to be chainable)");
     case tok_identifier:
       if (int idx = genericsT_list ? genericsT_list->lookup_idx(lex.cur_str()) : -1; idx != -1) {
         lex.next();
@@ -229,13 +232,27 @@ static TypeExpr* parse_type(Lexer& lex, V<ast_genericsT_list> genericsT_list) {
 
 AnyV parse_expr(Lexer& lex);
 
-static AnyV parse_parameter(Lexer& lex, V<ast_genericsT_list> genericsT_list) {
+static AnyV parse_parameter(Lexer& lex, V<ast_genericsT_list> genericsT_list, bool is_first) {
   SrcLocation loc = lex.cur_location();
 
-  // argument name (or underscore for an unnamed parameter)
+  // optional keyword `mutate` meaning that a function will mutate a passed argument (like passed by reference)
+  bool declared_as_mutate = false;
+  bool is_param_self = false;
+  if (lex.tok() == tok_mutate) {
+    lex.next();
+    declared_as_mutate = true;
+  }
+
+  // parameter name (or underscore for an unnamed parameter)
   std::string_view param_name;
   if (lex.tok() == tok_identifier) {
     param_name = lex.cur_str();
+  } else if (lex.tok() == tok_self) {
+    if (!is_first) {
+      lex.error("`self` can only be the first parameter");
+    }
+    param_name = "self";
+    is_param_self = true;
   } else if (lex.tok() != tok_underscore) {
     lex.unexpected("parameter name");
   }
@@ -245,8 +262,14 @@ static AnyV parse_parameter(Lexer& lex, V<ast_genericsT_list> genericsT_list) {
   // parameter type after colon, also mandatory (even explicit ":auto")
   lex.expect(tok_colon, "`: <parameter_type>`");
   TypeExpr* param_type = parse_type(lex, genericsT_list);
+  if (declared_as_mutate && !param_type->has_fixed_width()) {
+    throw ParseError(loc, "`mutate` parameter must be strictly typed");
+  }
+  if (is_param_self && !param_type->has_fixed_width()) {
+    throw ParseError(loc, "`self` parameter must be strictly typed");
+  }
 
-  return createV<ast_parameter>(loc, v_ident, param_type);
+  return createV<ast_parameter>(loc, v_ident, param_type, declared_as_mutate);
 }
 
 static AnyV parse_global_var_declaration(Lexer& lex, const std::vector<V<ast_annotation>>& annotations) {
@@ -301,19 +324,50 @@ static AnyV parse_constant_declaration(Lexer& lex, const std::vector<V<ast_annot
   return createV<ast_constant_declaration>(loc, v_ident, declared_type, init_value);
 }
 
-static AnyV parse_parameter_list(Lexer& lex, V<ast_genericsT_list> genericsT_list) {
+// "parameters" are at function declaration: `fun f(param1: int, mutate param2: slice)`
+static V<ast_parameter_list> parse_parameter_list(Lexer& lex, V<ast_genericsT_list> genericsT_list) {
   SrcLocation loc = lex.cur_location();
   std::vector<AnyV> params;
   lex.expect(tok_oppar, "parameter list");
   if (lex.tok() != tok_clpar) {
-    params.push_back(parse_parameter(lex, genericsT_list));
+    params.push_back(parse_parameter(lex, genericsT_list, true));
     while (lex.tok() == tok_comma) {
       lex.next();
-      params.push_back(parse_parameter(lex, genericsT_list));
+      params.push_back(parse_parameter(lex, genericsT_list, false));
     }
   }
   lex.expect(tok_clpar, "`)`");
   return createV<ast_parameter_list>(loc, std::move(params));
+}
+
+// "arguments" are at function call: `f(arg1, mutate arg2)`
+static AnyV parse_argument(Lexer& lex) {
+  SrcLocation loc = lex.cur_location();
+
+  // keyword `mutate` is necessary when a parameter is declared `mutate` (to make mutation obvious for the reader)
+  bool passed_as_mutate = false;
+  if (lex.tok() == tok_mutate) {
+    lex.next();
+    passed_as_mutate = true;
+  }
+
+  AnyV expr = parse_expr(lex);
+  return createV<ast_argument>(loc, expr, passed_as_mutate);
+}
+
+static V<ast_argument_list> parse_argument_list(Lexer& lex) {
+  SrcLocation loc = lex.cur_location();
+  std::vector<AnyV> args;
+  lex.expect(tok_oppar, "`(`");
+  if (lex.tok() != tok_clpar) {
+    args.push_back(parse_argument(lex));
+    while (lex.tok() == tok_comma) {
+      lex.next();
+      args.push_back(parse_argument(lex));
+    }
+  }
+  lex.expect(tok_clpar, "`)`");
+  return createV<ast_argument_list>(loc, std::move(args));
 }
 
 // parse (expr) / [expr] / identifier / number
@@ -384,6 +438,10 @@ static AnyV parse_expr100(Lexer& lex) {
       lex.next();
       return createV<ast_null_keyword>(loc);
     }
+    case tok_self: {
+      lex.next();
+      return createV<ast_self_keyword>(loc);
+    }
     case tok_identifier: {
       std::string_view str_val = lex.cur_str();
       lex.next();
@@ -400,48 +458,25 @@ static AnyV parse_expr100(Lexer& lex) {
   }
 }
 
-// parse E(expr)
+// parse E(args)
 static AnyV parse_expr90(Lexer& lex) {
   AnyV res = parse_expr100(lex);
   if (lex.tok() == tok_oppar) {
-    lex.next();
-
-    SrcLocation loc = lex.cur_location();
-    std::vector<AnyV> args;
-    if (lex.tok() != tok_clpar) {
-      args.push_back(parse_expr(lex));
-      while (lex.tok() == tok_comma) {
-        lex.next();
-        args.push_back(parse_expr(lex));
-      }
-    }
-    lex.expect(tok_clpar, "`)`");
-
-    return createV<ast_function_call>(res->loc, res, createV<ast_tensor>(loc, std::move(args)));
+    return createV<ast_function_call>(res->loc, res, parse_argument_list(lex));
   }
   return res;
 }
 
-// parse E .method ~method E (left-to-right)
+// parse E.method(...) (left-to-right)
 static AnyV parse_expr80(Lexer& lex) {
   AnyV lhs = parse_expr90(lex);
-  while (lex.tok() == tok_identifier && (lex.cur_str()[0] == '.' || lex.cur_str()[0] == '~')) {
+  while (lex.tok() == tok_dot) {
+    SrcLocation loc = lex.cur_location();
+    lex.next();
+    lex.check(tok_identifier, "method name");
     std::string_view method_name = lex.cur_str();
     lex.next();
-
-    SrcLocation loc = lex.cur_location();
-    std::vector<AnyV> args;
-    lex.expect(tok_oppar, "`(`");
-    if (lex.tok() != tok_clpar) {
-      args.push_back(parse_expr(lex));
-      while (lex.tok() == tok_comma) {
-        lex.next();
-        args.push_back(parse_expr(lex));
-      }
-    }
-    lex.expect(tok_clpar, "`)`");
-
-    lhs = createV<ast_dot_tilde_call>(lhs->loc, method_name, lhs, createV<ast_tensor>(loc, std::move(args)));
+    lhs = createV<ast_dot_method_call>(loc, method_name, lhs, parse_argument_list(lex));
   }
   return lhs;
 }
@@ -586,11 +621,11 @@ AnyV parse_expr(Lexer& lex) {
 
 AnyV parse_statement(Lexer& lex);
 
-static AnyV parse_var_declaration_lhs(Lexer& lex) {
+static AnyV parse_var_declaration_lhs(Lexer& lex, bool is_immutable) {
   SrcLocation loc = lex.cur_location();
   if (lex.tok() == tok_oppar) {
     lex.next();
-    AnyV first = parse_var_declaration_lhs(lex);
+    AnyV first = parse_var_declaration_lhs(lex, is_immutable);
     if (lex.tok() == tok_clpar) {
       lex.next();
       return createV<ast_parenthesized_expr>(loc, first);
@@ -598,17 +633,17 @@ static AnyV parse_var_declaration_lhs(Lexer& lex) {
     std::vector<AnyV> args(1, first);
     while (lex.tok() == tok_comma) {
       lex.next();
-      args.push_back(parse_var_declaration_lhs(lex));
+      args.push_back(parse_var_declaration_lhs(lex, is_immutable));
     }
     lex.expect(tok_clpar, "`)`");
     return createV<ast_tensor>(loc, std::move(args));
   }
   if (lex.tok() == tok_opbracket) {
     lex.next();
-    std::vector<AnyV> args(1, parse_var_declaration_lhs(lex));
+    std::vector<AnyV> args(1, parse_var_declaration_lhs(lex, is_immutable));
     while (lex.tok() == tok_comma) {
       lex.next();
-      args.push_back(parse_var_declaration_lhs(lex));
+      args.push_back(parse_var_declaration_lhs(lex, is_immutable));
     }
     lex.expect(tok_clbracket, "`]`");
     return createV<ast_tensor_square>(loc, std::move(args));
@@ -625,7 +660,7 @@ static AnyV parse_var_declaration_lhs(Lexer& lex) {
       lex.next();
       marked_as_redef = true;
     }
-    return createV<ast_local_var>(loc, v_ident, declared_type, marked_as_redef);
+    return createV<ast_local_var>(loc, v_ident, declared_type, is_immutable, marked_as_redef);
   }
   if (lex.tok() == tok_underscore) {
     TypeExpr* declared_type = nullptr;
@@ -634,21 +669,17 @@ static AnyV parse_var_declaration_lhs(Lexer& lex) {
       lex.next();
       declared_type = parse_type(lex, nullptr);
     }
-    return createV<ast_local_var>(loc, createV<ast_underscore>(loc), declared_type, false);
+    return createV<ast_local_var>(loc, createV<ast_underscore>(loc), declared_type, true, false);
   }
   lex.unexpected("variable name");
 }
 
 static AnyV parse_local_vars_declaration(Lexer& lex) {
   SrcLocation loc = lex.cur_location();
-  bool immutable = lex.tok() == tok_val;
+  bool is_immutable = lex.tok() == tok_val;
   lex.next();
 
-  if (immutable) {
-    lex.error("immutable variables are not supported yet");
-  }
-
-  AnyV lhs = parse_var_declaration_lhs(lex);
+  AnyV lhs = parse_var_declaration_lhs(lex, is_immutable);
   if (lex.tok() != tok_assign) {
     lex.error("variables declaration must be followed by assignment: `var xxx = ...`");
   }
@@ -885,10 +916,10 @@ static AnyV parse_asm_func_body(Lexer& lex, V<ast_parameter_list> param_list) {
   std::vector<int> arg_order, ret_order;
   if (lex.tok() == tok_oppar) {
     lex.next();
-    while (lex.tok() == tok_identifier || lex.tok() == tok_int_const) {
+    while (lex.tok() == tok_identifier || lex.tok() == tok_self) {
       int arg_idx = param_list->lookup_idx(lex.cur_str());
       if (arg_idx == -1) {
-        lex.unexpected("argument name");
+        lex.unexpected("parameter name");
       }
       arg_order.push_back(arg_idx);
       lex.next();
@@ -1006,16 +1037,43 @@ static AnyV parse_function_declaration(Lexer& lex, const std::vector<V<ast_annot
     genericsT_list = parse_genericsT_list(lex)->as<ast_genericsT_list>();
   }
 
-  V<ast_parameter_list> param_list = parse_parameter_list(lex, genericsT_list)->as<ast_parameter_list>();
+  V<ast_parameter_list> v_param_list = parse_parameter_list(lex, genericsT_list)->as<ast_parameter_list>();
+  bool accepts_self = !v_param_list->empty() && v_param_list->get_param(0)->get_identifier()->name == "self";
+  int n_mutate_params = v_param_list->get_mutate_params_count();
 
   TypeExpr* ret_type = nullptr;
+  bool returns_self = false;
   if (lex.tok() == tok_colon) {   // : <ret_type> (if absent, it means "auto infer", not void)
     lex.next();
-    ret_type = parse_type(lex, genericsT_list);
+    if (lex.tok() == tok_self) {
+      if (!accepts_self) {
+        lex.error("only a member function can return `self` (which accepts `self` first parameter)");
+      }
+      lex.next();
+      returns_self = true;
+      ret_type = TypeExpr::new_unit();
+    } else {
+      ret_type = parse_type(lex, genericsT_list);
+    }
   }
 
-  if (is_entrypoint && (is_get_method || genericsT_list || !annotations.empty())) {
+  if (is_entrypoint && (is_get_method || genericsT_list || n_mutate_params || accepts_self)) {
     throw ParseError(loc, "invalid declaration of a reserved function");
+  }
+  if (is_get_method && (genericsT_list || n_mutate_params || accepts_self)) {
+    throw ParseError(loc, "get methods can't have `mutate` and `self` params");
+  }
+
+  if (n_mutate_params) {
+    std::vector<TypeExpr*> ret_tensor_items;
+    ret_tensor_items.reserve(1 + n_mutate_params);
+    for (AnyV v_param : v_param_list->get_params()) {
+      if (v_param->as<ast_parameter>()->declared_as_mutate) {
+        ret_tensor_items.emplace_back(v_param->as<ast_parameter>()->param_type);
+      }
+    }
+    ret_tensor_items.emplace_back(ret_type ? ret_type : TypeExpr::new_hole());
+    ret_type = TypeExpr::new_tensor(std::move(ret_tensor_items));
   }
 
   AnyV v_body = nullptr;
@@ -1030,17 +1088,19 @@ static AnyV parse_function_declaration(Lexer& lex, const std::vector<V<ast_annot
     if (!ret_type) {
       lex.error("asm function must specify return type");
     }
-    v_body = parse_asm_func_body(lex, param_list);
+    v_body = parse_asm_func_body(lex, v_param_list);
   } else {
     lex.unexpected("{ function body }");
   }
 
-  auto f_declaration = createV<ast_function_declaration>(loc, v_ident, param_list, v_body);
+  auto f_declaration = createV<ast_function_declaration>(loc, v_ident, v_param_list, v_body);
   f_declaration->ret_type = ret_type ? ret_type : TypeExpr::new_hole();
   f_declaration->is_entrypoint = is_entrypoint;
   f_declaration->genericsT_list = genericsT_list;
   f_declaration->marked_as_get_method = is_get_method;
   f_declaration->marked_as_builtin = v_body->type == ast_empty;
+  f_declaration->accepts_self = accepts_self;
+  f_declaration->returns_self = returns_self;
 
   for (auto v_annotation : annotations) {
     switch (v_annotation->kind) {
@@ -1054,7 +1114,7 @@ static AnyV parse_function_declaration(Lexer& lex, const std::vector<V<ast_annot
         f_declaration->marked_as_pure = true;
         break;
       case AnnotationKind::method_id:
-        if (is_get_method || genericsT_list || is_entrypoint) {
+        if (is_get_method || genericsT_list || is_entrypoint || n_mutate_params || accepts_self) {
           v_annotation->error("@method_id can be specified only for regular functions");
         }
         f_declaration->method_id = v_annotation->get_arg()->get_item(0)->as<ast_int_const>();

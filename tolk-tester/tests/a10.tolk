@@ -1,3 +1,5 @@
+import "@stdlib/tvm-lowlevel"
+
 fun pair_first<X, Y>(p: [X, Y]): X asm "FIRST";
 
 fun one(dummy: tuple) {
@@ -35,11 +37,32 @@ fun test88(x: int) {
 @method_id(89)
 fun test89(last: int) {
     var t: tuple = createEmptyTuple();
-    t~tuplePush(1);
-    t~tuplePush(2);
-    t~tuplePush(3);
-    t~tuplePush(last);
+    t.tuplePush(1);
+    t.tuplePush(2);
+    t.tuplePush(3);
+    t.tuplePush(last);
     return (t.tupleAt(0), t.tupleAt(t.tupleSize() - 1), t.tupleFirst(), t.tupleLast());
+}
+
+@pure fun get10() { return 10; }
+
+@method_id(91)
+fun touchCodegen2() {
+    var f = get10();
+    f.stackMoveToTop();
+    return f;
+}
+
+@method_id(92)
+fun testDumpDontPolluteStack() {
+    var f = get10();
+    f.debugPrint();
+    debugPrint(10);
+    var s = "asdf";
+    s.debugPrintString();
+    debugDumpStack();
+    debugPrintString("my");
+    return (f, getRemainingBitsCount(s));
 }
 
 @method_id(93)
@@ -65,7 +88,27 @@ fun testStartBalanceCodegen2() {
 @testcase | 88 | 5      | 234
 @testcase | 88 | 50     | 0
 @testcase | 89 | 4      | 1 4 1 4
+@testcase | 91 |        | 10
+@testcase | 92 |        | 10 32
 
+@fif_codegen
+"""
+  touchCodegen2 PROC:<{
+    //
+    get10 CALLDICT	//  f
+  }>
+"""
+
+@fif_codegen
+"""
+  testDumpDontPolluteStack PROC:<{
+    ...
+    DUMPSTK
+    x{6d79} PUSHSLICE	//  f s _9
+    STRDUMP DROP
+    SBITS	//  f _11
+  }>
+"""
 
 @fif_codegen
 """

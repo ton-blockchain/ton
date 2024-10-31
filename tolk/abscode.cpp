@@ -25,12 +25,8 @@ namespace tolk {
  * 
  */
 
-TmpVar::TmpVar(var_idx_t _idx, bool _is_tmp_unnamed, TypeExpr* _type, SymDef* sym, SrcLocation loc)
-    : v_type(_type), idx(_idx), is_tmp_unnamed(_is_tmp_unnamed), coord(0), where(loc) {
-  if (sym) {
-    name = sym->sym_idx;
-    sym->value->idx = _idx;
-  }
+TmpVar::TmpVar(var_idx_t _idx, TypeExpr* _type, sym_idx_t sym_idx, SrcLocation loc)
+    : v_type(_type), idx(_idx), sym_idx(sym_idx), coord(0), where(loc) {
   if (!_type) {
     v_type = TypeExpr::new_hole();
   }
@@ -59,8 +55,8 @@ void TmpVar::dump(std::ostream& os) const {
 }
 
 void TmpVar::show(std::ostream& os, int omit_idx) const {
-  if (!is_tmp_unnamed) {
-    os << G.symbols.get_name(name);
+  if (!is_unnamed()) {
+    os << G.symbols.get_name(sym_idx);
     if (omit_idx >= 2) {
       return;
     }
@@ -462,16 +458,13 @@ void CodeBlob::print(std::ostream& os, int flags) const {
   os << "-------- END ---------\n\n";
 }
 
-var_idx_t CodeBlob::create_var(bool is_tmp_unnamed, TypeExpr* var_type, SymDef* sym, SrcLocation location) {
-  vars.emplace_back(var_cnt, is_tmp_unnamed, var_type, sym, location);
-  if (sym) {
-    sym->value->idx = var_cnt;
-  }
+var_idx_t CodeBlob::create_var(TypeExpr* var_type, var_idx_t sym_idx, SrcLocation location) {
+  vars.emplace_back(var_cnt, var_type, sym_idx, location);
   return var_cnt++;
 }
 
 bool CodeBlob::import_params(FormalArgList arg_list) {
-  if (var_cnt || in_var_cnt || op_cnt) {
+  if (var_cnt || in_var_cnt) {
     return false;
   }
   std::vector<var_idx_t> list;
@@ -480,7 +473,7 @@ bool CodeBlob::import_params(FormalArgList arg_list) {
     SymDef* arg_sym;
     SrcLocation arg_loc;
     std::tie(arg_type, arg_sym, arg_loc) = par;
-    list.push_back(create_var(arg_sym == nullptr, arg_type, arg_sym, arg_loc));
+    list.push_back(create_var(arg_type, arg_sym ? arg_sym->sym_idx : 0, arg_loc));
   }
   emplace_back(loc, Op::_Import, list);
   in_var_cnt = var_cnt;

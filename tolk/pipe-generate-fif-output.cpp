@@ -39,10 +39,10 @@ bool SymValCodeFunc::does_need_codegen() const {
   if (flags & flagUsedAsNonCall) {
     return true;
   }
-  // when a function f() is just `return anotherF(...args)`, it doesn't need to be codegenerated at all,
-  // since all its usages are inlined
-  return !is_just_wrapper_for_another_f();
-  // in the future, we may want to implement a true AST inlining for `inline` functions also
+  // currently, there is no inlining, all functions are codegenerated
+  // (but actually, unused ones are later removed by Fift)
+  // in the future, we may want to implement a true AST inlining for "simple" functions
+  return true;
 }
 
 void SymValCodeFunc::set_code(CodeBlob* code) {

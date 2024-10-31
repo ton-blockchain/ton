@@ -86,6 +86,16 @@ int Vertex<ast_parameter_list>::lookup_idx(std::string_view param_name) const {
   return -1;
 }
 
+int Vertex<ast_parameter_list>::get_mutate_params_count() const {
+  int n = 0;
+  for (AnyV param : children) {
+    if (param->as<ast_parameter>()->declared_as_mutate) {
+      n++;
+    }
+  }
+  return n;
+}
+
 void Vertex<ast_import_statement>::mutate_set_src_file(const SrcFile* file) const {
   const_cast<Vertex*>(this)->file = file;
 }

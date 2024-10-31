@@ -41,21 +41,22 @@ Expr::Expr(ExprCls c, sym_idx_t name_idx, std::initializer_list<Expr*> _arglist)
   }
 }
 
-bool Expr::deduce_type() {
+void Expr::deduce_type() {
   if (e_type) {
-    return true;
+    return;
   }
   switch (cls) {
     case _Apply: {
       if (!sym) {
-        return false;
+        return;
       }
-      SymVal* sym_val = dynamic_cast<SymVal*>(sym->value);
+      SymValFunc* sym_val = dynamic_cast<SymValFunc*>(sym->value);
       if (!sym_val || !sym_val->get_type()) {
-        return false;
+        return;
       }
       std::vector<TypeExpr*> arg_types;
-      for (const auto& arg : args) {
+      arg_types.reserve(args.size());
+      for (const Expr* arg : args) {
         arg_types.push_back(arg->e_type);
       }
       TypeExpr* fun_type = TypeExpr::new_map(TypeExpr::new_tensor(arg_types), TypeExpr::new_hole());
@@ -69,7 +70,7 @@ bool Expr::deduce_type() {
       }
       e_type = fun_type->args[1];
       TypeExpr::remove_indirect(e_type);
-      return true;
+      return;
     }
     case _VarApply: {
       tolk_assert(args.size() == 2);
@@ -84,7 +85,27 @@ bool Expr::deduce_type() {
       }
       e_type = fun_type->args[1];
       TypeExpr::remove_indirect(e_type);
-      return true;
+      return;
+    }
+    case _GrabMutatedVars: {
+      tolk_assert(args.size() == 2 && args[0]->cls == _Apply && sym);
+      SymValFunc* called_f = dynamic_cast<SymValFunc*>(sym->value);
+      tolk_assert(called_f->has_mutate_params());
+      TypeExpr* sym_type = called_f->get_type();
+      if (sym_type->constr == TypeExpr::te_ForAll) {
+        TypeExpr::remove_forall(sym_type);
+      }
+      tolk_assert(sym_type->args[1]->constr == TypeExpr::te_Tensor);
+      e_type = sym_type->args[1]->args[sym_type->args[1]->args.size() - 1];
+      TypeExpr::remove_indirect(e_type);
+      return;
+    }
+    case _ReturnSelf: {
+      tolk_assert(args.size() == 2 && sym);
+      Expr* this_arg = args[1];
+      e_type = this_arg->e_type;
+      TypeExpr::remove_indirect(e_type);
+      return;
     }
     case _Letop: {
       tolk_assert(args.size() == 2);
@@ -99,25 +120,7 @@ bool Expr::deduce_type() {
       }
       e_type = args[0]->e_type;
       TypeExpr::remove_indirect(e_type);
-      return true;
-    }
-    case _LetFirst: {
-      tolk_assert(args.size() == 2);
-      TypeExpr* rhs_type = TypeExpr::new_tensor({args[0]->e_type, TypeExpr::new_hole()});
-      try {
-        // std::cerr << "in implicit assignment of a modifying method: " << rhs_type << " and " << args[1]->e_type << std::endl;
-        unify(rhs_type, args[1]->e_type);
-      } catch (UnifyError& ue) {
-        std::ostringstream os;
-        os << "cannot implicitly assign an expression of type " << args[1]->e_type
-           << " to a variable or pattern of type " << rhs_type << " in modifying method `" << G.symbols.get_name(val)
-           << "` : " << ue;
-        throw ParseError(here, os.str());
-      }
-      e_type = rhs_type->args[1];
-      TypeExpr::remove_indirect(e_type);
-      // std::cerr << "result type is " << e_type << std::endl;
-      return true;
+      return;
     }
     case _CondExpr: {
       tolk_assert(args.size() == 3);
@@ -139,46 +142,46 @@ bool Expr::deduce_type() {
       }
       e_type = args[1]->e_type;
       TypeExpr::remove_indirect(e_type);
-      return true;
+      return;
     }
+    default:
+      throw Fatal("unexpected cls=" + std::to_string(cls) + " in Expr::deduce_type()");
   }
-  return false;
 }
 
-int Expr::define_new_vars(CodeBlob& code) {
+void Expr::define_new_vars(CodeBlob& code) {
   switch (cls) {
     case _Tensor:
     case _MkTuple: {
-      int res = 0;
-      for (const auto& x : args) {
-        res += x->define_new_vars(code);
+      for (Expr* item : args) {
+        item->define_new_vars(code);
       }
-      return res;
+      break;
     }
     case _Var:
       if (val < 0) {
-        val = code.create_var(false, e_type, sym, here);
-        return 1;
+        val = code.create_var(e_type, sym->sym_idx, here);
+        sym->value->idx = val;
       }
       break;
     case _Hole:
       if (val < 0) {
-        val = code.create_var(true, e_type, nullptr, here);
+        val = code.create_tmp_var(e_type, here);
       }
       break;
+    default:
+      break;
   }
-  return 0;
 }
 
-int Expr::predefine_vars() {
+void Expr::predefine_vars() {
   switch (cls) {
     case _Tensor:
     case _MkTuple: {
-      int res = 0;
-      for (const auto& x : args) {
-        res += x->predefine_vars();
+      for (Expr* item : args) {
+        item->predefine_vars();
       }
-      return res;
+      break;
     }
     case _Var:
       if (!sym) {
@@ -188,12 +191,15 @@ int Expr::predefine_vars() {
         if (!sym) {
           throw ParseError{here, std::string{"redefined variable `"} + G.symbols.get_name(~val) + "`"};
         }
-        sym->value = new SymVal{SymValKind::_Var, -1, e_type};
-        return 1;
+        sym->value = new SymValVariable(-1, e_type);
+        if (is_immutable()) {
+          dynamic_cast<SymValVariable*>(sym->value)->flags |= SymValVariable::flagImmutable;
+        }
       }
       break;
+    default:
+      break;
   }
-  return 0;
 }
 
 var_idx_t Expr::new_tmp(CodeBlob& code) const {
@@ -217,7 +223,7 @@ std::vector<var_idx_t> pre_compile_let(CodeBlob& code, Expr* lhs, Expr* rhs, Src
     auto unpacked_type = rhs->e_type->args.at(0);
     std::vector<var_idx_t> tmp{code.create_tmp_var(unpacked_type, rhs->here)};
     code.emplace_back(lhs->here, Op::_UnTuple, tmp, std::move(right));
-    auto tvar = new Expr{Expr::_Var};
+    auto tvar = new Expr{Expr::_Var, lhs->here};
     tvar->set_val(tmp[0]);
     tvar->set_location(rhs->here);
     tvar->e_type = unpacked_type;
@@ -255,7 +261,7 @@ std::vector<var_idx_t> pre_compile_tensor(const std::vector<Expr *>& args, CodeB
     res_lists[i] = args[i]->pre_compile(code, lval_globs);
     for (size_t j = 0; j < res_lists[i].size(); ++j) {
       TmpVar& var = code.vars.at(res_lists[i][j]);
-      if (!lval_globs && !var.is_tmp_unnamed) {
+      if (!lval_globs && !var.is_unnamed()) {
         var.on_modification.push_back([&modified_vars, i, j, cur_ops = code.cur_ops, done = false](SrcLocation here) mutable {
           if (!done) {
             done = true;
@@ -303,38 +309,38 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, std::vector<std::pair<S
     }
     case _Apply: {
       tolk_assert(sym);
-      std::vector<var_idx_t> res;
-      SymDef* applied_sym = sym;
-      auto func = dynamic_cast<SymValFunc*>(applied_sym->value);
-      // replace `beginCell()` with `begin_cell()`
-      // todo it should be done at AST level, see comment above detect_if_function_just_wraps_another()
-      if (func && func->is_just_wrapper_for_another_f()) {
-        // todo currently, f is inlined only if anotherF is declared (and processed) before
-        if (!dynamic_cast<SymValCodeFunc*>(func)->code) {   // if anotherF is processed after
-          func->flags |= SymValFunc::flagUsedAsNonCall;
-          res = pre_compile_tensor(args, code, lval_globs);
-        } else {
-        // body is { Op::_Import; Op::_Call; Op::_Return; }
-        const std::unique_ptr<Op>& op_call = dynamic_cast<SymValCodeFunc*>(func)->code->ops->next;
-        applied_sym = op_call->fun_ref;
-        // a function may call anotherF with shuffled arguments: f(x,y) { return anotherF(y,x) }
-        // then op_call looks like (_1,_0), so use op_call->right for correct positions in Op::_Call below
-        // it's correct, since every argument has width 1
-        std::vector<var_idx_t> res_inner = pre_compile_tensor(args, code, lval_globs);
-        res.reserve(res_inner.size());
-        for (var_idx_t right_idx : op_call->right) {
-          res.emplace_back(res_inner[right_idx]);
-        }
-        }
-      } else {
-        res = pre_compile_tensor(args, code, lval_globs);
-      }
+      std::vector<var_idx_t> res = pre_compile_tensor(args, code, lval_globs);;
       auto rvect = new_tmp_vect(code);
-      auto& op = code.emplace_back(here, Op::_Call, rvect, res, applied_sym);
+      auto& op = code.emplace_back(here, Op::_Call, rvect, res, sym);
       if (flags & _IsImpure) {
         op.set_impure(code);
       }
       return rvect;
+    }
+    case _GrabMutatedVars: {
+      SymValFunc* func_val = dynamic_cast<SymValFunc*>(sym->value);
+      tolk_assert(func_val && func_val->has_mutate_params());
+      tolk_assert(args.size() == 2 && args[0]->cls == _Apply && args[1]->cls == _Tensor);
+      auto right = args[0]->pre_compile(code);    // apply (returning function result and mutated)
+      std::vector<std::pair<SymDef*, var_idx_t>> local_globs;
+      if (!lval_globs) {
+        lval_globs = &local_globs;
+      }
+      auto left = args[1]->pre_compile(code, lval_globs);   // mutated (lvalue)
+      auto rvect = new_tmp_vect(code);
+      left.push_back(rvect[0]);
+      for (var_idx_t v : left) {
+        code.on_var_modification(v, here);
+      }
+      code.emplace_back(here, Op::_Let, std::move(left), std::move(right));
+      add_set_globs(code, local_globs, here);
+      return rvect;
+    }
+    case _ReturnSelf: {
+      tolk_assert(args.size() == 2 && sym);
+      Expr* this_arg = args[1];
+      auto right = args[0]->pre_compile(code);
+      return this_arg->pre_compile(code);
     }
     case _Var:
     case _Hole:
@@ -372,7 +378,10 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, std::vector<std::pair<S
       if (auto fun_ref = dynamic_cast<SymValFunc*>(sym->value)) {
         fun_ref->flags |= SymValFunc::flagUsedAsNonCall;
         if (!fun_ref->arg_order.empty() || !fun_ref->ret_order.empty()) {
-          throw ParseError(here, "Saving " + sym->name() + " into a variable will most likely lead to invalid usage, since it changes the order of variables on the stack");
+          throw ParseError(here, "saving `" + sym->name() + "` into a variable will most likely lead to invalid usage, since it changes the order of variables on the stack");
+        }
+        if (fun_ref->has_mutate_params()) {
+          throw ParseError(here, "saving `" + sym->name() + "` into a variable is impossible, since it has `mutate` parameters and thus can only be called directly");
         }
       }
       auto rvect = new_tmp_vect(code);
@@ -386,22 +395,6 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, std::vector<std::pair<S
     }
     case _Letop: {
       return pre_compile_let(code, args.at(0), args.at(1), here);
-    }
-    case _LetFirst: {
-      auto rvect = new_tmp_vect(code);
-      auto right = args[1]->pre_compile(code);
-      std::vector<std::pair<SymDef*, var_idx_t>> local_globs;
-      if (!lval_globs) {
-        lval_globs = &local_globs;
-      }
-      auto left = args[0]->pre_compile(code, lval_globs);
-      left.push_back(rvect[0]);
-      for (var_idx_t v : left) {
-        code.on_var_modification(v, here);
-      }
-      code.emplace_back(here, Op::_Let, std::move(left), std::move(right));
-      add_set_globs(code, local_globs, here);
-      return rvect;
     }
     case _MkTuple: {
       auto left = new_tmp_vect(code);

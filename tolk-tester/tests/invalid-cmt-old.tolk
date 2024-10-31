@@ -1,5 +1,5 @@
 fun main(): int {
-    ;; this is not a comment
+    ;; here is not a comment
 }
 
 /**

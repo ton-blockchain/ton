@@ -1,8 +1,8 @@
-fun main() {
-    val imm = 10;
+get seqno(self: int) {
+    return 0;
 }
 
 /**
 @compilation_should_fail
-@stderr immutable variables are not supported yet
-*/
+@stderr get methods can't have `mutate` and `self` params
+ */

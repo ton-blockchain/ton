@@ -4,8 +4,6 @@ fun f(a: int, b: int, c: int, d: int, e: int, f: int): (int, int) {
   return (Dx/D,Dy/D);
 };;;;
 
-fun mulDivR(x: int, y: int, z: int): int { return mulDivRound(x, y, z); }
-
 fun calc_phi(): int {
   var n = 1;
   repeat (70) { n*=10; };
@@ -14,7 +12,7 @@ fun calc_phi(): int {
   do {
     (p,q)=(q,p+q);
   } while (q <= n); //;;
-  return mulDivR(p, n, q);
+  return mulDivRound(p, n, q);
 }
 
 fun calc_sqrt2(): int {
@@ -26,7 +24,7 @@ fun calc_sqrt2(): int {
     var t = p + q;
     (p, q) = (q, t + q);
   } while (q <= n);
-  return mulDivR(p, n, q);
+  return mulDivRound(p, n, q);
 }
 
 fun calc_root(m: auto): auto {
@@ -63,18 +61,14 @@ fun ataninv(base: int, q: int): int { // computes base*atan(1/q)
   return sum;
 }
 
-fun arctanInv(base: int, q: int): int { return ataninv(base, q); }
-
 fun calc_pi(): int {
   var base: int = 64;
   repeat (70) { base *= 10; }
-  return (arctanInv(base << 2, 5) - arctanInv(base, 239))~>>4;
+  return (ataninv(base << 2, 5) - ataninv(base, 239))~>>4;
 }
 
-fun calcPi(): int { return calc_pi(); }
-
 fun main(): int {
-  return calcPi();
+  return calc_pi();
 }
 
 /**

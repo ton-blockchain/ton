@@ -126,6 +126,18 @@ SymDef* define_global_symbol(sym_idx_t name_idx, SrcLocation loc) {
   return registered;  // registered->value is nullptr; it means, it's just created
 }
 
+SymDef* define_parameter(sym_idx_t name_idx, SrcLocation loc) {
+  // note, that parameters (defined at function declaration) are not inserted into symtable
+  // their SymDef is registered to be inserted into SymValFunc::parameters
+  // (and later ->value is filled with SymValVariable)
+
+  SymDef* registered = new SymDef(0, name_idx, loc);
+#ifdef TOLK_DEBUG
+  registered->sym_name = registered->name();
+#endif
+  return registered;
+}
+
 SymDef* define_symbol(sym_idx_t name_idx, bool force_new, SrcLocation loc) {
   if (!name_idx) {
     return nullptr;

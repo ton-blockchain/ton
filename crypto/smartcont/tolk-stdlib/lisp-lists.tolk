@@ -24,7 +24,7 @@ fun listSplit<X>(list: tuple): (X, tuple)
 
 /// Extracts the tail and the head of lisp-style list.
 @pure
-fun ~listNext<X>(list: tuple): (tuple, X)
+fun listNext<X>(mutate self: tuple): X
     asm( -> 1 0) "UNCONS";
 
 /// Returns the head of lisp-style list.

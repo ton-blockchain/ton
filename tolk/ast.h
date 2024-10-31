@@ -68,11 +68,14 @@ enum ASTNodeType {
   ast_string_const,
   ast_bool_const,
   ast_null_keyword,
+  ast_self_keyword,
+  ast_argument,
+  ast_argument_list,
   ast_function_call,
+  ast_dot_method_call,
   ast_global_var_declaration,
   ast_constant_declaration,
   ast_underscore,
-  ast_dot_tilde_call,
   ast_unary_operator,
   ast_binary_operator,
   ast_ternary_operator,
@@ -285,13 +288,50 @@ struct Vertex<ast_null_keyword> final : ASTNodeLeaf {
 };
 
 template<>
-struct Vertex<ast_function_call> final : ASTNodeBinary {
-  // even for f(1,2,3), f (lhs) is called with a single arg (tensor "(1,2,3)") (rhs)
-  AnyV get_called_f() const { return lhs; }
-  auto get_called_arg() const { return rhs->as<ast_tensor>(); }
+struct Vertex<ast_self_keyword> final : ASTNodeLeaf {
+  explicit Vertex(SrcLocation loc)
+    : ASTNodeLeaf(ast_self_keyword, loc) {}
+};
 
-  Vertex(SrcLocation loc, AnyV lhs_f, V<ast_tensor> arg)
-    : ASTNodeBinary(ast_function_call, loc, lhs_f, arg) {}
+template<>
+struct Vertex<ast_argument> final : ASTNodeUnary {
+  bool passed_as_mutate;      // when called `f(mutate arg)`, not `f(arg)`
+
+  AnyV get_expr() const { return child; }
+
+  explicit Vertex(SrcLocation loc, AnyV expr, bool passed_as_mutate)
+    : ASTNodeUnary(ast_argument, loc, expr), passed_as_mutate(passed_as_mutate) {}
+};
+
+template<>
+struct Vertex<ast_argument_list> final : ASTNodeVararg {
+  const std::vector<AnyV>& get_arguments() const { return children; }
+  auto get_arg(int i) const { return children.at(i)->as<ast_argument>(); }
+
+  explicit Vertex(SrcLocation loc, std::vector<AnyV> arguments)
+    : ASTNodeVararg(ast_argument_list, loc, std::move(arguments)) {}
+};
+
+template<>
+struct Vertex<ast_function_call> final : ASTNodeBinary {
+  AnyV get_called_f() const { return lhs; }
+  auto get_arg_list() const { return rhs->as<ast_argument_list>(); }
+  int get_num_args() const { return rhs->as<ast_argument_list>()->size(); }
+  auto get_arg(int i) const { return rhs->as<ast_argument_list>()->get_arg(i); }
+
+  Vertex(SrcLocation loc, AnyV lhs_f, V<ast_argument_list> arguments)
+    : ASTNodeBinary(ast_function_call, loc, lhs_f, arguments) {}
+};
+
+template<>
+struct Vertex<ast_dot_method_call> final : ASTNodeBinary {
+  std::string_view method_name;
+
+  AnyV get_obj() const { return lhs; }
+  auto get_arg_list() const { return rhs->as<ast_argument_list>(); }
+
+  Vertex(SrcLocation loc, std::string_view method_name, AnyV lhs, V<ast_argument_list> arguments)
+    : ASTNodeBinary(ast_dot_method_call, loc, lhs, arguments), method_name(method_name) {}
 };
 
 template<>
@@ -319,17 +359,6 @@ template<>
 struct Vertex<ast_underscore> final : ASTNodeLeaf {
   explicit Vertex(SrcLocation loc)
     : ASTNodeLeaf(ast_underscore, loc) {}
-};
-
-template<>
-struct Vertex<ast_dot_tilde_call> final : ASTNodeBinary {
-  std::string_view method_name;      // starts with . or ~
-
-  AnyV get_lhs() const { return lhs; }
-  auto get_arg() const { return rhs->as<ast_tensor>(); }
-
-  Vertex(SrcLocation loc, std::string_view method_name, AnyV lhs, V<ast_tensor> arg)
-    : ASTNodeBinary(ast_dot_tilde_call, loc, lhs, arg), method_name(method_name) {}
 };
 
 template<>
@@ -475,11 +504,13 @@ struct Vertex<ast_genericsT_list> final : ASTNodeVararg {
 template<>
 struct Vertex<ast_parameter> final : ASTNodeUnary {
   TypeExpr* param_type;
+  bool declared_as_mutate;      // declared as `mutate param_name`
 
-  auto get_identifier() const { return child->as<ast_identifier>(); } // for underscore, its str_val is empty
+  auto get_identifier() const { return child->as<ast_identifier>(); } // for underscore, name is empty
+  bool is_underscore() const { return child->as<ast_identifier>()->name.empty(); }
 
-  Vertex(SrcLocation loc, V<ast_identifier> name_identifier, TypeExpr* param_type)
-    : ASTNodeUnary(ast_parameter, loc, name_identifier), param_type(param_type) {}
+  Vertex(SrcLocation loc, V<ast_identifier> name_identifier, TypeExpr* param_type, bool declared_as_mutate)
+    : ASTNodeUnary(ast_parameter, loc, name_identifier), param_type(param_type), declared_as_mutate(declared_as_mutate) {}
 };
 
 template<>
@@ -491,6 +522,8 @@ struct Vertex<ast_parameter_list> final : ASTNodeVararg {
     : ASTNodeVararg(ast_parameter_list, loc, std::move(params)) {}
 
   int lookup_idx(std::string_view param_name) const;
+  int get_mutate_params_count() const;
+  bool has_mutate_params() const { return get_mutate_params_count() > 0; }
 };
 
 template<>
@@ -519,12 +552,13 @@ struct Vertex<ast_annotation> final : ASTNodeUnary {
 template<>
 struct Vertex<ast_local_var> final : ASTNodeUnary {
   TypeExpr* declared_type;
+  bool is_immutable;       // declared via 'val', not 'var'
   bool marked_as_redef;    // var (existing_var redef, new_var: int) = ...
 
   AnyV get_identifier() const { return child; } // ast_identifier / ast_underscore
 
-  Vertex(SrcLocation loc, AnyV name_identifier, TypeExpr* declared_type, bool marked_as_redef)
-    : ASTNodeUnary(ast_local_var, loc, name_identifier), declared_type(declared_type), marked_as_redef(marked_as_redef) {}
+  Vertex(SrcLocation loc, AnyV name_identifier, TypeExpr* declared_type, bool is_immutable, bool marked_as_redef)
+    : ASTNodeUnary(ast_local_var, loc, name_identifier), declared_type(declared_type), is_immutable(is_immutable), marked_as_redef(marked_as_redef) {}
 };
 
 template<>
@@ -552,6 +586,8 @@ struct Vertex<ast_function_declaration> final : ASTNodeVararg {
   bool marked_as_get_method = false;
   bool marked_as_inline = false;
   bool marked_as_inline_ref = false;
+  bool accepts_self = false;
+  bool returns_self = false;
   V<ast_int_const> method_id = nullptr;
 
   bool is_asm_function() const { return children.at(2)->type == ast_asm_body; }

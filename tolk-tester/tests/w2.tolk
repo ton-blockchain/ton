@@ -1,6 +1,6 @@
 @method_id(101)
 fun test1(cs: slice) {
-    return cs~loadUint(8)+cs~loadUint(8)+cs~loadUint(8)+cs~loadUint(8);
+    return cs.loadUint(8)+cs.loadUint(8)+cs.loadUint(8)+cs.loadUint(8);
 }
 
 @method_id(102)
@@ -12,15 +12,15 @@ fun test2(cs: slice) {
 }
 
 fun main(cs: slice) {
-    return (cs~loadUint(8), cs~loadUint(8), cs~loadUint(8), cs~loadUint(8));
+    return (cs.loadUint(8), cs.loadUint(8), cs.loadUint(8), cs.loadUint(8));
 }
 
 fun f(cs: slice) {
-    return (cs~loadUint(8), cs~loadUint(8), cs~loadUint(8), cs~loadUint(8),
-        cs~loadUint(8), cs~loadUint(8), cs~loadUint(8), cs~loadUint(8),
-        cs~loadUint(8), cs~loadUint(8), cs~loadUint(8), cs~loadUint(8),
-        cs~loadUint(8), cs~loadUint(8), cs~loadUint(8), cs~loadUint(8),
-        cs~loadUint(8), cs~loadUint(8), cs~loadUint(8), cs~loadUint(8));
+    return (cs.loadUint(8), cs.loadUint(8), cs.loadUint(8), cs.loadUint(8),
+        cs.loadUint(8), cs.loadUint(8), cs.loadUint(8), cs.loadUint(8),
+        cs.loadUint(8), cs.loadUint(8), cs.loadUint(8), cs.loadUint(8),
+        cs.loadUint(8), cs.loadUint(8), cs.loadUint(8), cs.loadUint(8),
+        cs.loadUint(8), cs.loadUint(8), cs.loadUint(8), cs.loadUint(8));
 }
 
 

@@ -69,13 +69,14 @@ using const_idx_t = int;
 struct TmpVar {
   TypeExpr* v_type;
   var_idx_t idx;
-  bool is_tmp_unnamed;
-  sym_idx_t name;
+  sym_idx_t sym_idx;
   int coord;
   SrcLocation where;
   std::vector<std::function<void(SrcLocation)>> on_modification;
 
-  TmpVar(var_idx_t _idx, bool _is_tmp_unnamed, TypeExpr* _type, SymDef* sym, SrcLocation loc);
+  TmpVar(var_idx_t _idx, TypeExpr* _type, sym_idx_t sym_idx, SrcLocation loc);
+  bool is_unnamed() const { return sym_idx == 0; }
+
   void show(std::ostream& os, int omit_idx = 0) const;
   void dump(std::ostream& os) const;
   void set_location(SrcLocation loc);
@@ -401,40 +402,56 @@ struct AsmOpList;
  * 
  */
 
-struct SymVal : SymValBase {
-  TypeExpr* sym_type;
-  SymVal(SymValKind kind, int idx, TypeExpr* sym_type = nullptr)
-      : SymValBase(kind, idx), sym_type(sym_type) {
+struct SymValVariable : SymValBase {
+  enum SymValFlag {
+    flagMutateParameter = 1,    // parameter was declared with `mutate` keyword
+    flagImmutable = 2,          // variable was declared via `val` (not `var`)
+  };
+  int flags{0};
+
+  ~SymValVariable() override = default;
+  SymValVariable(int val, TypeExpr* sym_type)
+      : SymValBase(SymValKind::_Var, val, sym_type) {}
+
+  bool is_function_parameter() const {
+    return idx >= 0;
   }
-  ~SymVal() override = default;
-  TypeExpr* get_type() const {
-    return sym_type;
+  bool is_mutate_parameter() const {
+    return flags & flagMutateParameter;
+  }
+  bool is_local_var() const {
+    return idx == -1;
+  }
+  bool is_immutable() const {
+    return flags & flagImmutable;
   }
 };
 
-struct SymValFunc : SymVal {
+struct SymValFunc : SymValBase {
   enum SymValFlag {
     flagInline = 1,             // marked `@inline`
     flagInlineRef = 2,          // marked `@inline_ref`
-    flagWrapsAnotherF = 4,      // `fun thisF(...args) { return anotherF(...args); }` (calls to thisF will be inlined)
     flagUsedAsNonCall = 8,      // used not only as `f()`, but as a 1-st class function (assigned to var, pushed to tuple, etc.)
     flagMarkedAsPure = 16,      // declared as `pure`, can't call impure and access globals, unused invocations are optimized out
     flagBuiltinFunction = 32,   // was created via `define_builtin_func()`, not from source code
     flagGetMethod = 64,         // was declared via `get func(): T`, method_id is auto-assigned
     flagIsEntrypoint = 128,     // it's `main` / `onExternalMessage` / etc.
+    flagHasMutateParams = 256,  // has parameters declared as `mutate`
+    flagAcceptsSelf = 512,      // is a member function (has `self` first parameter)
+    flagReturnsSelf = 1024,     // return type is `self` (returns the mutated 1st argument), calls can be chainable
   };
 
   td::RefInt256 method_id;  // todo why int256? it's small
   int flags{0};
+  std::vector<SymDef*> parameters;  // [i]-th may be nullptr for underscore; if not, its val is SymValVariable
   std::vector<int> arg_order, ret_order;
-#ifdef TOLK_DEBUG
-  std::string name; // seeing function name in debugger makes it much easier to delve into Tolk sources
-#endif
+
   ~SymValFunc() override = default;
-  SymValFunc(int val, TypeExpr* _ft, bool marked_as_pure)
-      : SymVal(SymValKind::_Func, val, _ft), flags(marked_as_pure ? flagMarkedAsPure : 0) {}
-  SymValFunc(int val, TypeExpr* _ft, std::initializer_list<int> _arg_order, std::initializer_list<int> _ret_order, bool marked_as_pure)
-      : SymVal(SymValKind::_Func, val, _ft), flags(marked_as_pure ? flagMarkedAsPure : 0), arg_order(_arg_order), ret_order(_ret_order) {
+  SymValFunc(std::vector<SymDef*> parameters, int val, TypeExpr* sym_type, int flags)
+      : SymValBase(SymValKind::_Func, val, sym_type), flags(flags), parameters(std::move(parameters)) {
+  }
+  SymValFunc(std::vector<SymDef*> parameters, int val, TypeExpr* sym_type, int flags, std::initializer_list<int> arg_order, std::initializer_list<int> ret_order)
+      : SymValBase(SymValKind::_Func, val, sym_type), flags(flags), parameters(std::move(parameters)), arg_order(arg_order), ret_order(ret_order) {
   }
 
   const std::vector<int>* get_arg_order() const {
@@ -450,9 +467,6 @@ struct SymValFunc : SymVal {
   bool is_inline_ref() const {
     return flags & flagInlineRef;
   }
-  bool is_just_wrapper_for_another_f() const {
-    return flags & flagWrapsAnotherF;
-  }
   bool is_marked_as_pure() const {
     return flags & flagMarkedAsPure;
   }
@@ -465,32 +479,35 @@ struct SymValFunc : SymVal {
   bool is_entrypoint() const {
     return flags & flagIsEntrypoint;
   }
+  bool has_mutate_params() const {
+    return flags & flagHasMutateParams;
+  }
+  bool does_accept_self() const {
+    return flags & flagAcceptsSelf;
+  }
+  bool does_return_self() const {
+    return flags & flagReturnsSelf;
+  }
 };
 
 struct SymValCodeFunc : SymValFunc {
   CodeBlob* code;
   bool is_really_used{false};   // calculated via dfs; unused functions are not codegenerated
   ~SymValCodeFunc() override = default;
-  SymValCodeFunc(int val, TypeExpr* _ft, bool marked_as_pure) : SymValFunc(val, _ft, marked_as_pure), code(nullptr) {
+  SymValCodeFunc(std::vector<SymDef*> parameters, int val, TypeExpr* _ft)
+    : SymValFunc(std::move(parameters), val, _ft, 0), code(nullptr) {
   }
   bool does_need_codegen() const;
   void set_code(CodeBlob* code);
 };
 
 struct SymValGlobVar : SymValBase {
-  TypeExpr* sym_type;
-  int out_idx{0};
   bool is_really_used{false};   // calculated via dfs from used functions; unused globals are not codegenerated
-#ifdef TOLK_DEBUG
-  std::string name; // seeing variable name in debugger makes it much easier to delve into Tolk sources
-#endif
-  SymValGlobVar(int val, TypeExpr* gvtype, int oidx = 0)
-      : SymValBase(SymValKind::_GlobVar, val), sym_type(gvtype), out_idx(oidx) {
+
+  SymValGlobVar(int val, TypeExpr* gvtype)
+      : SymValBase(SymValKind::_GlobVar, val, gvtype) {
   }
   ~SymValGlobVar() override = default;
-  TypeExpr* get_type() const {
-    return sym_type;
-  }
 };
 
 struct SymValConst : SymValBase {
@@ -499,14 +516,12 @@ struct SymValConst : SymValBase {
   td::RefInt256 intval;
   std::string strval;
   ConstKind kind;
-#ifdef TOLK_DEBUG
-  std::string name; // seeing const name in debugger makes it much easier to delve into Tolk sources
-#endif
+
   SymValConst(int idx, td::RefInt256 value)
-      : SymValBase(SymValKind::_Const, idx), intval(value), kind(IntConst) {
+      : SymValBase(SymValKind::_Const, idx, TypeExpr::new_atomic(TypeExpr::_Int)), intval(std::move(value)), kind(IntConst) {
   }
   SymValConst(int idx, std::string value)
-      : SymValBase(SymValKind::_Const, idx), strval(value), kind(SliceConst) {
+      : SymValBase(SymValKind::_Const, idx, TypeExpr::new_atomic(TypeExpr::_Slice)), strval(std::move(value)), kind(SliceConst) {
   }
   ~SymValConst() override = default;
   td::RefInt256 get_int_value() const {
@@ -529,9 +544,10 @@ struct SymValConst : SymValBase {
 
 struct Expr {
   enum ExprCls {
-    _None,
     _Apply,
     _VarApply,
+    _GrabMutatedVars,
+    _ReturnSelf,
     _MkTuple,
     _Tensor,
     _Const,
@@ -539,14 +555,13 @@ struct Expr {
     _GlobFunc,
     _GlobVar,
     _Letop,
-    _LetFirst,
     _Hole,
     _CondExpr,
     _SliceConst,
   };
   ExprCls cls;
   int val{0};
-  enum { _IsRvalue = 2, _IsLvalue = 4, _IsImpure = 32 };
+  enum { _IsRvalue = 2, _IsLvalue = 4, _IsImmutable = 8, _IsImpure = 32 };
   int flags{0};
   SrcLocation here;
   td::RefInt256 intval;
@@ -554,8 +569,6 @@ struct Expr {
   SymDef* sym{nullptr};
   TypeExpr* e_type{nullptr};
   std::vector<Expr*> args;
-  explicit Expr(ExprCls c = _None) : cls(c) {
-  }
   Expr(ExprCls c, SrcLocation loc) : cls(c), here(loc) {
   }
   Expr(ExprCls c, std::vector<Expr*> _args) : cls(c), args(std::move(_args)) {
@@ -585,33 +598,38 @@ struct Expr {
   bool is_lvalue() const {
     return flags & _IsLvalue;
   }
+  bool is_immutable() const {
+    return flags & _IsImmutable;
+  }
   bool is_mktuple() const {
     return cls == _MkTuple;
   }
   void chk_rvalue() const {
     if (!is_rvalue()) {
-      throw ParseError(here, "rvalue expected");
+      fire_error_rvalue_expected();
     }
   }
-  void chk_lvalue() const {
-    if (!is_lvalue()) {
-      throw ParseError(here, "lvalue expected");
-    }
-  }
-  bool deduce_type();
+  void deduce_type();
   void set_location(SrcLocation loc) {
     here = loc;
   }
   SrcLocation get_location() const {
     return here;
   }
-  int define_new_vars(CodeBlob& code);
-  int predefine_vars();
+  void define_new_vars(CodeBlob& code);
+  void predefine_vars();
   std::vector<var_idx_t> pre_compile(CodeBlob& code, std::vector<std::pair<SymDef*, var_idx_t>>* lval_globs = nullptr) const;
   var_idx_t new_tmp(CodeBlob& code) const;
   std::vector<var_idx_t> new_tmp_vect(CodeBlob& code) const {
     return {new_tmp(code)};
   }
+
+  GNU_ATTRIBUTE_COLD GNU_ATTRIBUTE_NORETURN
+  void fire_error_rvalue_expected() const;
+  GNU_ATTRIBUTE_COLD GNU_ATTRIBUTE_NORETURN
+  void fire_error_lvalue_expected(const std::string& details) const;
+  GNU_ATTRIBUTE_COLD GNU_ATTRIBUTE_NORETURN
+  void fire_error_modifying_immutable(const std::string& details) const;
 };
 
 /*
@@ -1324,24 +1342,17 @@ struct SymValAsmFunc : SymValFunc {
   simple_compile_func_t simple_compile;
   compile_func_t ext_compile;
   ~SymValAsmFunc() override = default;
-  SymValAsmFunc(TypeExpr* ft, std::vector<int>&& arg_order, std::vector<int>&& ret_order, bool marked_as_pure)
-      : SymValFunc(-1, ft, marked_as_pure) {
+  SymValAsmFunc(std::vector<SymDef*> parameters, TypeExpr* ft, std::vector<int>&& arg_order, std::vector<int>&& ret_order, int flags)
+      : SymValFunc(std::move(parameters), -1, ft, flags) {
     this->arg_order = std::move(arg_order);
     this->ret_order = std::move(ret_order);
   }
-  SymValAsmFunc(TypeExpr* ft, simple_compile_func_t _compile, bool marked_as_pure)
-      : SymValFunc(-1, ft, marked_as_pure), simple_compile(std::move(_compile)) {
+  SymValAsmFunc(std::vector<SymDef*> parameters, TypeExpr* ft, simple_compile_func_t _compile, int flags)
+      : SymValFunc(std::move(parameters), -1, ft, flags), simple_compile(std::move(_compile)) {
   }
-  SymValAsmFunc(TypeExpr* ft, compile_func_t _compile, bool marked_as_pure)
-      : SymValFunc(-1, ft, marked_as_pure), ext_compile(std::move(_compile)) {
-  }
-  SymValAsmFunc(TypeExpr* ft, simple_compile_func_t _compile, std::initializer_list<int> arg_order,
-                std::initializer_list<int> ret_order = {}, bool marked_as_pure = false)
-      : SymValFunc(-1, ft, arg_order, ret_order, marked_as_pure), simple_compile(std::move(_compile)) {
-  }
-  SymValAsmFunc(TypeExpr* ft, compile_func_t _compile, std::initializer_list<int> arg_order,
-                std::initializer_list<int> ret_order = {}, bool marked_as_pure = false)
-      : SymValFunc(-1, ft, arg_order, ret_order, marked_as_pure), ext_compile(std::move(_compile)) {
+  SymValAsmFunc(std::vector<SymDef*> parameters, TypeExpr* ft, simple_compile_func_t _compile, int flags,
+                std::initializer_list<int> arg_order, std::initializer_list<int> ret_order)
+      : SymValFunc(std::move(parameters), -1, ft, flags, arg_order, ret_order), simple_compile(std::move(_compile)) {
   }
   void set_code(std::vector<AsmOp> code);
   bool compile(AsmOpList& dest, std::vector<VarDescr>& out, std::vector<VarDescr>& in, SrcLocation where) const;
@@ -1349,29 +1360,32 @@ struct SymValAsmFunc : SymValFunc {
 
 struct CodeBlob {
   enum { _ForbidImpure = 4 };
-  int var_cnt, in_var_cnt, op_cnt;
+  int var_cnt, in_var_cnt;
   TypeExpr* ret_type;
+  const SymValCodeFunc* func_val;
   std::string name;
   SrcLocation loc;
   std::vector<TmpVar> vars;
   std::unique_ptr<Op> ops;
   std::unique_ptr<Op>* cur_ops;
+  std::vector<Op*> debug_ttt;
   std::stack<std::unique_ptr<Op>*> cur_ops_stack;
   int flags = 0;
   bool require_callxargs = false;
-  CodeBlob(std::string name, SrcLocation loc, TypeExpr* ret)
-    : var_cnt(0), in_var_cnt(0), op_cnt(0), ret_type(ret), name(std::move(name)), loc(loc), cur_ops(&ops) {
+  CodeBlob(std::string name, SrcLocation loc, const SymValCodeFunc* func_val, TypeExpr* ret_type)
+    : var_cnt(0), in_var_cnt(0), ret_type(ret_type), func_val(func_val), name(std::move(name)), loc(loc), cur_ops(&ops) {
   }
   template <typename... Args>
   Op& emplace_back(Args&&... args) {
     Op& res = *(*cur_ops = std::make_unique<Op>(args...));
     cur_ops = &(res.next);
+    debug_ttt.push_back(&res);
     return res;
   }
   bool import_params(FormalArgList arg_list);
-  var_idx_t create_var(bool is_tmp_unnamed, TypeExpr* var_type, SymDef* sym, SrcLocation loc);
+  var_idx_t create_var(TypeExpr* var_type, var_idx_t sym_idx, SrcLocation loc);
   var_idx_t create_tmp_var(TypeExpr* var_type, SrcLocation loc) {
-    return create_var(true, var_type, nullptr, loc);
+    return create_var(var_type, 0, loc);
   }
   int split_vars(bool strict = false);
   bool compute_used_code_vars();

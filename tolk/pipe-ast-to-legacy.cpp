@@ -37,29 +37,93 @@ static int calc_sym_idx(std::string_view sym_name) {
   return G.symbols.lookup(sym_name);
 }
 
+void Expr::fire_error_rvalue_expected() const {
+  // generally, almost all vertices are rvalue, that's why code leading to "not rvalue"
+  // should be very strange, like `var x = _`
+  throw ParseError(here, "rvalue expected");
+}
+
+void Expr::fire_error_lvalue_expected(const std::string& details) const {
+  // "lvalue expected" is when a user modifies something unmodifiable
+  // example: `f() = 32`
+  // example: `loadUint(c.beginParse(), 32)` (since `loadUint()` mutates the first argument)
+  throw ParseError(here, "lvalue expected (" + details + ")");
+}
+
+void Expr::fire_error_modifying_immutable(const std::string& details) const {
+  // "modifying immutable variable" is when a user assigns to a variable declared `val`
+  // example: `immutable_val = 32`
+  // example: `(regular_var, immutable_val) = f()`
+  // for better error message, try to print out variable name if possible
+  std::string variable_name;
+  if (cls == _Var || cls == _Const) {
+    variable_name = sym->name();
+  } else if (cls == _Tensor || cls == _MkTuple) {
+    for (const Expr* arg : (cls == _Tensor ? args : args[0]->args)) {
+      if (arg->is_immutable() && (arg->cls == _Var || arg->cls == _Const)) {
+        variable_name = arg->sym->name();
+        break;
+      }
+    }
+  }
+
+  if (variable_name == "self") {
+    throw ParseError(here, "modifying `self` (" + details + "), which is immutable by default; probably, you want to declare `mutate self`");
+  } else if (!variable_name.empty()) {
+    throw ParseError(here, "modifying an immutable variable `" + variable_name + "` (" + details + ")");
+  } else {
+    throw ParseError(here, "modifying an immutable variable (" + details + ")");
+  }
+}
+
+GNU_ATTRIBUTE_COLD GNU_ATTRIBUTE_NORETURN
+static void fire_error_invalid_mutate_arg_passed(SrcLocation loc, const SymDef* func_sym, const SymDef* param_sym, bool called_as_method, bool arg_passed_as_mutate, AnyV arg_expr) {
+  std::string func_name = func_sym->name();
+  std::string arg_str(arg_expr->type == ast_identifier ? arg_expr->as<ast_identifier>()->name : "obj");
+  const SymValFunc* func_val = dynamic_cast<const SymValFunc*>(func_sym->value);
+  const SymValVariable* param_val = dynamic_cast<const SymValVariable*>(param_sym->value);
+
+  // case: `loadInt(cs, 32)`; suggest: `cs.loadInt(32)`
+  if (param_val->is_mutate_parameter() && !arg_passed_as_mutate && !called_as_method && param_val->idx == 0 && func_val->does_accept_self()) {
+    throw ParseError(loc, "`" + func_name + "` is a mutating method; consider calling `" + arg_str + "." + func_name + "()`, not `" + func_name + "(" + arg_str + ")`");
+  }
+  // case: `cs.mutating_function()`; suggest: `mutating_function(mutate cs)` or make it a method
+  if (param_val->is_mutate_parameter() && called_as_method && param_val->idx == 0 && !func_val->does_accept_self()) {
+    throw ParseError(loc, "function `" + func_name + "` mutates parameter `" + param_sym->name() + "`; consider calling `" + func_name + "(mutate " + arg_str + ")`, not `" + arg_str + "." + func_name + "`(); alternatively, rename parameter to `self` to make it a method");
+  }
+  // case: `mutating_function(arg)`; suggest: `mutate arg`
+  if (param_val->is_mutate_parameter() && !arg_passed_as_mutate) {
+    throw ParseError(loc, "function `" + func_name + "` mutates parameter `" + param_sym->name() + "`; you need to specify `mutate` when passing an argument, like `mutate " + arg_str + "`");
+  }
+  // case: `usual_function(mutate arg)`
+  if (!param_val->is_mutate_parameter() && arg_passed_as_mutate) {
+    throw ParseError(loc, "incorrect `mutate`, since `" + func_name + "` does not mutate this parameter");
+  }
+  throw Fatal("unreachable");
+}
+
+namespace blk_fl {
+enum { end = 1, ret = 2, empty = 4 };
+typedef int val;
+constexpr val init = end | empty;
+void combine(val& x, const val y) {
+  x |= y & ret;
+  x &= y | ~(end | empty);
+}
+void combine_parallel(val& x, const val y) {
+  x &= y | ~(ret | empty);
+  x |= y & end;
+}
+} // namespace blk_fl
+
 Expr* process_expr(AnyV v, CodeBlob& code);
+blk_fl::val process_statement(AnyV v, CodeBlob& code);
 
 static void check_global_func(SrcLocation loc, sym_idx_t func_name) {
   SymDef* sym_def = lookup_symbol(func_name);
   if (!sym_def) {
     throw ParseError(loc, "undefined symbol `" + G.symbols.get_name(func_name) + "`");
   }
-}
-
-static Expr* make_func_apply(Expr* fun, Expr* x) {
-  Expr* res{nullptr};
-  if (fun->cls == Expr::_GlobFunc) {
-    if (x->cls == Expr::_Tensor) {
-      res = new Expr{Expr::_Apply, fun->sym, x->args};
-    } else {
-      res = new Expr{Expr::_Apply, fun->sym, {x}};
-    }
-    res->flags = Expr::_IsRvalue | (fun->flags & Expr::_IsImpure);
-  } else {
-    res = new Expr{Expr::_VarApply, {fun, x}};
-    res->flags = Expr::_IsRvalue;
-  }
-  return res;
 }
 
 static void check_import_exists_when_using_sym(AnyV v_usage, const SymDef* used_sym) {
@@ -77,7 +141,7 @@ static void check_import_exists_when_using_sym(AnyV v_usage, const SymDef* used_
   }
 }
 
-static Expr* create_new_local_variable(SrcLocation loc, std::string_view var_name, TypeExpr* var_type) {
+static Expr* create_new_local_variable(SrcLocation loc, std::string_view var_name, TypeExpr* var_type, bool is_immutable) {
   SymDef* sym = lookup_symbol(calc_sym_idx(var_name));
   if (sym) { // creating a new variable, but something found in symtable
     if (sym->level != G.scope_level) {
@@ -89,7 +153,7 @@ static Expr* create_new_local_variable(SrcLocation loc, std::string_view var_nam
   Expr* x = new Expr{Expr::_Var, loc};
   x->val = ~calc_sym_idx(var_name);
   x->e_type = var_type;
-  x->flags = Expr::_IsLvalue;
+  x->flags = Expr::_IsLvalue | (is_immutable ? Expr::_IsImmutable : 0);
   return x;
 }
 
@@ -109,8 +173,13 @@ static Expr* process_expr(V<ast_binary_operator> v, CodeBlob& code) {
       t == tok_set_mod || t == tok_set_lshift || t == tok_set_rshift ||
       t == tok_set_bitwise_and || t == tok_set_bitwise_or || t == tok_set_bitwise_xor) {
     Expr* x = process_expr(v->get_lhs(), code);
-    x->chk_lvalue();
     x->chk_rvalue();
+    if (!x->is_lvalue()) {
+      x->fire_error_lvalue_expected("left side of assignment");
+    }
+    if (x->is_immutable()) {
+      x->fire_error_modifying_immutable("left side of assignment");
+    }
     sym_idx_t name = G.symbols.lookup_add("^_" + operator_name + "_");
     Expr* y = process_expr(v->get_rhs(), code);
     y->chk_rvalue();
@@ -126,7 +195,12 @@ static Expr* process_expr(V<ast_binary_operator> v, CodeBlob& code) {
   }
   if (t == tok_assign) {
     Expr* x = process_expr(v->get_lhs(), code);
-    x->chk_lvalue();
+    if (!x->is_lvalue()) {
+      x->fire_error_lvalue_expected("left side of assignment");
+    }
+    if (x->is_immutable()) {
+      x->fire_error_modifying_immutable("left side of assignment");
+    }
     Expr* y = process_expr(v->get_rhs(), code);
     y->chk_rvalue();
     x->predefine_vars();
@@ -191,54 +265,6 @@ static Expr* process_expr(V<ast_unary_operator> v, CodeBlob& code) {
   return res;
 }
 
-static Expr* process_expr(V<ast_dot_tilde_call> v, CodeBlob& code) {
-  Expr* res = process_expr(v->get_lhs(), code);
-  bool modify = v->method_name[0] == '~';
-  Expr* obj = res;
-  if (modify) {
-    obj->chk_lvalue();
-  } else {
-    obj->chk_rvalue();
-  }
-  sym_idx_t name_idx = calc_sym_idx(v->method_name);
-  const SymDef* sym = lookup_symbol(name_idx);
-  if (!sym || !dynamic_cast<SymValFunc*>(sym->value)) {
-    sym_idx_t name1 = G.symbols.lookup(v->method_name.substr(1));
-    if (name1) {
-      const SymDef* sym1 = lookup_symbol(name1);
-      if (sym1 && dynamic_cast<SymValFunc*>(sym1->value)) {
-        name_idx = name1;
-      }
-    }
-  }
-  check_global_func(v->loc, name_idx);
-  sym = lookup_symbol(name_idx);
-  SymValFunc* val = sym ? dynamic_cast<SymValFunc*>(sym->value) : nullptr;
-  if (!val) {
-    v->error("undefined method call");
-  }
-  Expr* x = process_expr(v->get_arg(), code);
-  x->chk_rvalue();
-  if (x->cls == Expr::_Tensor) {
-    res = new Expr{Expr::_Apply, name_idx, {obj}};
-    res->args.insert(res->args.end(), x->args.begin(), x->args.end());
-  } else {
-    res = new Expr{Expr::_Apply, name_idx, {obj, x}};
-  }
-  res->here = v->loc;
-  res->flags = Expr::_IsRvalue | (val->is_marked_as_pure() ? 0 : Expr::_IsImpure);
-  res->deduce_type();
-  if (modify) {
-    Expr* tmp = res;
-    res = new Expr{Expr::_LetFirst, {obj->copy(), tmp}};
-    res->here = v->loc;
-    res->flags = tmp->flags;
-    res->set_val(name_idx);
-    res->deduce_type();
-  }
-  return res;
-}
-
 static Expr* process_expr(V<ast_ternary_operator> v, CodeBlob& code) {
   Expr* cond = process_expr(v->get_cond(), code);
   cond->chk_rvalue();
@@ -253,19 +279,194 @@ static Expr* process_expr(V<ast_ternary_operator> v, CodeBlob& code) {
   return res;
 }
 
-static Expr* process_expr(V<ast_function_call> v, CodeBlob& code) {
+static Expr* process_function_arguments(SymDef* func_sym, V<ast_argument_list> v, Expr* lhs_of_dot_call, CodeBlob& code) {
+  SymValFunc* func_val = dynamic_cast<SymValFunc*>(func_sym->value);
+  int delta_self = lhs_of_dot_call ? 1 : 0;
+  int n_arguments = static_cast<int>(v->get_arguments().size()) + delta_self;
+  int n_parameters = static_cast<int>(func_val->parameters.size());
+
+  // Tolk doesn't have optional parameters currently, so just compare counts
+  if (n_parameters < n_arguments) {
+    v->error("too many arguments in call to `" + func_sym->name() + "`, expected " + std::to_string(n_parameters - delta_self) + ", have " + std::to_string(n_arguments - delta_self));
+  }
+  if (n_arguments < n_parameters) {
+    v->error("too few arguments in call to `" + func_sym->name() + "`, expected " + std::to_string(n_parameters - delta_self) + ", have " + std::to_string(n_arguments - delta_self));
+  }
+
+  std::vector<Expr*> apply_args;
+  apply_args.reserve(n_arguments);
+  if (lhs_of_dot_call) {
+    apply_args.push_back(lhs_of_dot_call);
+  }
+  for (int i = delta_self; i < n_arguments; ++i) {
+    auto v_arg = v->get_arg(i - delta_self);
+    if (SymDef* param_sym = func_val->parameters[i]) {   // can be null (for underscore parameter)
+      SymValVariable* param_val = dynamic_cast<SymValVariable*>(param_sym->value);
+      if (param_val->is_mutate_parameter() != v_arg->passed_as_mutate) {
+        fire_error_invalid_mutate_arg_passed(v_arg->loc, func_sym, param_sym, false, v_arg->passed_as_mutate, v_arg->get_expr());
+      }
+    }
+
+    Expr* arg = process_expr(v_arg->get_expr(), code);
+    arg->chk_rvalue();
+    apply_args.push_back(arg);
+  }
+
+  Expr* apply = new Expr{Expr::_Apply, func_sym, std::move(apply_args)};
+  apply->flags = Expr::_IsRvalue | (!func_val->is_marked_as_pure() * Expr::_IsImpure);
+  apply->here = v->loc;
+  apply->deduce_type();
+
+  return apply;
+}
+
+static Expr* process_function_call(V<ast_function_call> v, CodeBlob& code) {
   // special error for "null()" which is a FunC syntax
   if (v->get_called_f()->type == ast_null_keyword) {
     v->error("null is not a function: use `null`, not `null()`");
   }
 
-  Expr* res = process_expr(v->get_called_f(), code);
-  Expr* x = process_expr(v->get_called_arg(), code);
-  x->chk_rvalue();
-  res = make_func_apply(res, x);
-  res->here = v->loc;
-  res->deduce_type();
-  return res;
+  // most likely it's a global function, but also may be `some_var(args)` or even `getF()(args)`
+  Expr* lhs = process_expr(v->get_called_f(), code);
+  if (lhs->cls != Expr::_GlobFunc) {
+    Expr* tensor_arg = new Expr(Expr::_Tensor, v->loc);
+    std::vector<TypeExpr*> type_list;
+    type_list.reserve(v->get_num_args());
+    for (int i = 0; i < v->get_num_args(); ++i) {
+      auto v_arg = v->get_arg(i);
+      if (v_arg->passed_as_mutate) {
+        v_arg->error("`mutate` used for non-mutate argument");
+      }
+      Expr* arg = process_expr(v_arg->get_expr(), code);
+      arg->chk_rvalue();
+      tensor_arg->pb_arg(arg);
+      type_list.push_back(arg->e_type);
+    }
+    tensor_arg->flags = Expr::_IsRvalue;
+    tensor_arg->e_type = TypeExpr::new_tensor(std::move(type_list));
+
+    Expr* var_apply = new Expr{Expr::_VarApply, {lhs, tensor_arg}};
+    var_apply->here = v->loc;
+    var_apply->flags = Expr::_IsRvalue;
+    var_apply->deduce_type();
+    return var_apply;
+  }
+
+  Expr* apply = process_function_arguments(lhs->sym, v->get_arg_list(), nullptr, code);
+
+  if (dynamic_cast<SymValFunc*>(apply->sym->value)->has_mutate_params()) {
+    const std::vector<Expr*>& args = apply->args;
+    SymValFunc* func_val = dynamic_cast<SymValFunc*>(apply->sym->value);
+    tolk_assert(func_val->parameters.size() == args.size());
+    Expr* grabbed_vars = new Expr(Expr::_Tensor, v->loc);
+    std::vector<TypeExpr*> type_list;
+    for (int i = 0; i < static_cast<int>(args.size()); ++i) {
+      SymDef* param_def = func_val->parameters[i];
+      if (param_def && dynamic_cast<SymValVariable*>(param_def->value)->is_mutate_parameter()) {
+        if (!args[i]->is_lvalue()) {
+          args[i]->fire_error_lvalue_expected("call a mutating function");
+        }
+        if (args[i]->is_immutable()) {
+          args[i]->fire_error_modifying_immutable("call a mutating function");
+        }
+        grabbed_vars->pb_arg(args[i]->copy());
+        type_list.emplace_back(args[i]->e_type);
+      }
+    }
+    grabbed_vars->flags = Expr::_IsRvalue;
+    Expr* grab_mutate = new Expr(Expr::_GrabMutatedVars, apply->sym, {apply, grabbed_vars});
+    grab_mutate->here = v->loc;
+    grab_mutate->flags = apply->flags;
+    grab_mutate->deduce_type();
+    return grab_mutate;
+  }
+
+  return apply;
+}
+
+static Expr* process_dot_method_call(V<ast_dot_method_call> v, CodeBlob& code) {
+  sym_idx_t name_idx = calc_sym_idx(v->method_name);
+  check_global_func(v->loc, name_idx);
+  SymDef* func_sym = lookup_symbol(name_idx);
+  SymValFunc* func_val = dynamic_cast<SymValFunc*>(func_sym->value);
+  tolk_assert(func_val != nullptr);
+
+  Expr* obj = process_expr(v->get_obj(), code);
+  obj->chk_rvalue();
+
+  if (func_val->parameters.empty()) {
+    v->error("`" + func_sym->name() + "` has no parameters and can not be called as method");
+  }
+  if (!func_val->does_accept_self() && func_val->parameters[0] && dynamic_cast<SymValVariable*>(func_val->parameters[0]->value)->is_mutate_parameter()) {
+    fire_error_invalid_mutate_arg_passed(v->loc, func_sym, func_val->parameters[0], true, false, v->get_obj());
+  }
+
+  Expr* apply = process_function_arguments(func_sym, v->get_arg_list(), obj, code);
+
+  Expr* obj_lval = apply->args[0];
+  if (!obj_lval->is_lvalue()) {
+    if (obj_lval->cls == Expr::_ReturnSelf) {
+      obj_lval = obj_lval->args[1];
+    } else {
+      Expr* tmp_var = create_new_underscore_variable(v->loc, obj_lval->e_type);
+      tmp_var->define_new_vars(code);
+      Expr* assign_to_tmp_var = new Expr(Expr::_Letop, {tmp_var, obj_lval});
+      assign_to_tmp_var->here = v->loc;
+      assign_to_tmp_var->flags = Expr::_IsRvalue;
+      assign_to_tmp_var->deduce_type();
+      apply->args[0] = assign_to_tmp_var;
+      obj_lval = tmp_var;
+    }
+  }
+
+  if (func_val->has_mutate_params()) {
+    tolk_assert(func_val->parameters.size() == apply->args.size());
+    Expr* grabbed_vars = new Expr(Expr::_Tensor, v->loc);
+    std::vector<TypeExpr*> type_list;
+    for (int i = 0; i < static_cast<int>(apply->args.size()); ++i) {
+      SymDef* param_sym = func_val->parameters[i];
+      if (param_sym && dynamic_cast<SymValVariable*>(param_sym->value)->is_mutate_parameter()) {
+        Expr* ith_arg = apply->args[i];
+        if (ith_arg->is_immutable()) {
+          ith_arg->fire_error_modifying_immutable("call a mutating method");
+        }
+
+        Expr* var_to_mutate = nullptr;
+        if (ith_arg->is_lvalue()) {
+          var_to_mutate = ith_arg->copy();
+        } else if (i == 0) {
+          var_to_mutate = obj_lval;
+        } else {
+          ith_arg->fire_error_lvalue_expected("call a mutating method");
+        }
+        tolk_assert(var_to_mutate->is_lvalue() && !var_to_mutate->is_immutable());
+        grabbed_vars->pb_arg(var_to_mutate);
+        type_list.emplace_back(var_to_mutate->e_type);
+      }
+    }
+    grabbed_vars->flags = Expr::_IsRvalue;
+
+    Expr* grab_mutate = new Expr(Expr::_GrabMutatedVars, func_sym, {apply, grabbed_vars});
+    grab_mutate->here = v->loc;
+    grab_mutate->flags = apply->flags;
+    grab_mutate->deduce_type();
+
+    apply = grab_mutate;
+  }
+
+  if (func_val->does_return_self()) {
+    Expr* self_arg = obj_lval;
+    tolk_assert(self_arg->is_lvalue());
+
+    Expr* return_self = new Expr(Expr::_ReturnSelf, func_sym, {apply, self_arg});
+    return_self->here = v->loc;
+    return_self->flags = Expr::_IsRvalue;
+    return_self->deduce_type();
+
+    apply = return_self;
+  }
+
+  return apply;
 }
 
 static Expr* process_expr(V<ast_tensor> v, CodeBlob& code) {
@@ -285,7 +486,8 @@ static Expr* process_expr(V<ast_tensor> v, CodeBlob& code) {
   for (int i = 1; i < v->size(); ++i) {
     Expr* x = process_expr(v->get_item(i), code);
     res->pb_arg(x);
-    f &= x->flags;
+    f &= (x->flags | Expr::_IsImmutable);
+    f |= (x->flags & Expr::_IsImmutable);
     type_list.push_back(x->e_type);
   }
   res->here = v->loc;
@@ -315,7 +517,8 @@ static Expr* process_expr(V<ast_tensor_square> v, CodeBlob& code) {
   for (int i = 1; i < v->size(); ++i) {
     Expr* x = process_expr(v->get_item(i), code);
     res->pb_arg(x);
-    f &= x->flags;
+    f &= (x->flags | Expr::_IsImmutable);
+    f |= (x->flags & Expr::_IsImmutable);
     type_list.push_back(x->e_type);
   }
   res->here = v->loc;
@@ -419,11 +622,27 @@ static Expr* process_expr(V<ast_bool_const> v) {
   return res;
 }
 
-static Expr* process_expr([[maybe_unused]] V<ast_null_keyword> v) {
+static Expr* process_expr(V<ast_null_keyword> v) {
   SymDef* builtin_sym = lookup_symbol(calc_sym_idx("__null"));
   Expr* res = new Expr{Expr::_Apply, builtin_sym, {}};
+  res->here = v->loc;
   res->flags = Expr::_IsRvalue;
   res->deduce_type();
+  return res;
+}
+
+static Expr* process_expr(V<ast_self_keyword> v, CodeBlob& code) {
+  if (!code.func_val->does_accept_self()) {
+    v->error("using `self` in a non-member function (it does not accept the first `self` parameter)");
+  }
+  SymDef* sym = lookup_symbol(calc_sym_idx("self"));
+  tolk_assert(sym);
+  SymValVariable* sym_val = dynamic_cast<SymValVariable*>(sym->value);
+  Expr* res = new Expr(Expr::_Var, v->loc);
+  res->sym = sym;
+  res->val = sym_val->idx;
+  res->flags = Expr::_IsLvalue | Expr::_IsRvalue | (sym_val->is_immutable() ? Expr::_IsImmutable : 0);
+  res->e_type = sym_val->get_type();
   return res;
 }
 
@@ -431,9 +650,8 @@ static Expr* process_identifier(V<ast_identifier> v) {
   SymDef* sym = lookup_symbol(calc_sym_idx(v->name));
   if (sym && dynamic_cast<SymValGlobVar*>(sym->value)) {
     check_import_exists_when_using_sym(v, sym);
-    auto val = dynamic_cast<SymValGlobVar*>(sym->value);
     Expr* res = new Expr{Expr::_GlobVar, v->loc};
-    res->e_type = val->get_type();
+    res->e_type = sym->value->get_type();
     res->sym = sym;
     res->flags = Expr::_IsLvalue | Expr::_IsRvalue | Expr::_IsImpure;
     return res;
@@ -441,19 +659,20 @@ static Expr* process_identifier(V<ast_identifier> v) {
   if (sym && dynamic_cast<SymValConst*>(sym->value)) {
     check_import_exists_when_using_sym(v, sym);
     auto val = dynamic_cast<SymValConst*>(sym->value);
-    Expr* res = new Expr{Expr::_None, v->loc};
-    res->flags = Expr::_IsRvalue;
+    Expr* res = nullptr;
     if (val->get_kind() == SymValConst::IntConst) {
-      res->cls = Expr::_Const;
+      res = new Expr{Expr::_Const, v->loc};
       res->intval = val->get_int_value();
-      res->e_type = TypeExpr::new_atomic(tok_int);
+      res->e_type = TypeExpr::new_atomic(TypeExpr::_Int);
     } else if (val->get_kind() == SymValConst::SliceConst) {
-      res->cls = Expr::_SliceConst;
+      res = new Expr{Expr::_SliceConst, v->loc};
       res->strval = val->get_str_value();
-      res->e_type = TypeExpr::new_atomic(tok_slice);
+      res->e_type = TypeExpr::new_atomic(TypeExpr::_Slice);
     } else {
       v->error("invalid symbolic constant type");
     }
+    res->flags = Expr::_IsLvalue | Expr::_IsRvalue | Expr::_IsImmutable;
+    res->sym = sym;
     return res;
   }
   if (sym && dynamic_cast<SymValFunc*>(sym->value)) {
@@ -463,28 +682,26 @@ static Expr* process_identifier(V<ast_identifier> v) {
   if (!sym) {
     check_global_func(v->loc, calc_sym_idx(v->name));
     sym = lookup_symbol(calc_sym_idx(v->name));
+    tolk_assert(sym);
   }
   res->sym = sym;
-  SymVal* val = nullptr;
   bool impure = false;
-  if (sym) {
-    val = dynamic_cast<SymVal*>(sym->value);
-  }
-  if (!val) {
+  bool immutable = false;
+  if (const SymValFunc* func_val = dynamic_cast<SymValFunc*>(sym->value)) {
+    res->e_type = func_val->get_type();
+    res->cls = Expr::_GlobFunc;
+    impure = !func_val->is_marked_as_pure();
+  } else if (const SymValVariable* var_val = dynamic_cast<SymValVariable*>(sym->value)) {
+    tolk_assert(var_val->idx >= 0)
+    res->val = var_val->idx;
+    res->e_type = var_val->get_type();
+    immutable = var_val->is_immutable();
+    // std::cerr << "accessing variable " << lex.cur().str << " : " << res->e_type << std::endl;
+  } else {
     v->error("undefined identifier '" + static_cast<std::string>(v->name) + "'");
   }
-  if (val->kind == SymValKind::_Func) {
-    res->e_type = val->get_type();
-    res->cls = Expr::_GlobFunc;
-    impure = !dynamic_cast<SymValFunc*>(val)->is_marked_as_pure();
-  } else {
-    tolk_assert(val->idx >= 0);
-    res->val = val->idx;
-    res->e_type = val->get_type();
-    // std::cerr << "accessing variable " << lex.cur().str << " : " << res->e_type << std::endl;
-  }
   // std::cerr << "accessing symbol " << lex.cur().str << " : " << res->e_type << (val->impure ? " (impure)" : " (pure)") << std::endl;
-  res->flags = Expr::_IsLvalue | Expr::_IsRvalue | (impure ? Expr::_IsImpure : 0);
+  res->flags = Expr::_IsLvalue | Expr::_IsRvalue | (impure ? Expr::_IsImpure : 0) | (immutable ? Expr::_IsImmutable : 0);
   res->deduce_type();
   return res;
 }
@@ -495,12 +712,12 @@ Expr* process_expr(AnyV v, CodeBlob& code) {
       return process_expr(v->as<ast_binary_operator>(), code);
     case ast_unary_operator:
       return process_expr(v->as<ast_unary_operator>(), code);
-    case ast_dot_tilde_call:
-      return process_expr(v->as<ast_dot_tilde_call>(), code);
     case ast_ternary_operator:
       return process_expr(v->as<ast_ternary_operator>(), code);
     case ast_function_call:
-      return process_expr(v->as<ast_function_call>(), code);
+      return process_function_call(v->as<ast_function_call>(), code);
+    case ast_dot_method_call:
+      return process_dot_method_call(v->as<ast_dot_method_call>(), code);
     case ast_parenthesized_expr:
       return process_expr(v->as<ast_parenthesized_expr>()->get_expr(), code);
     case ast_tensor:
@@ -515,6 +732,8 @@ Expr* process_expr(AnyV v, CodeBlob& code) {
       return process_expr(v->as<ast_bool_const>());
     case ast_null_keyword:
       return process_expr(v->as<ast_null_keyword>());
+    case ast_self_keyword:
+      return process_expr(v->as<ast_self_keyword>(), code);
     case ast_identifier:
       return process_identifier(v->as<ast_identifier>());
     case ast_underscore:
@@ -524,31 +743,22 @@ Expr* process_expr(AnyV v, CodeBlob& code) {
   }
 }
 
-namespace blk_fl {
-enum { end = 1, ret = 2, empty = 4 };
-typedef int val;
-constexpr val init = end | empty;
-void combine(val& x, const val y) {
-  x |= y & ret;
-  x &= y | ~(end | empty);
-}
-void combine_parallel(val& x, const val y) {
-  x &= y | ~(ret | empty);
-  x |= y & end;
-}
-} // namespace blk_fl
-
 static Expr* process_local_vars_lhs(AnyV v, CodeBlob& code) {
   switch (v->type) {
     case ast_local_var: {
-      if (v->as<ast_local_var>()->marked_as_redef) {
-        return process_identifier(v->as<ast_local_var>()->get_identifier()->as<ast_identifier>());
+      auto v_var = v->as<ast_local_var>();
+      if (v_var->marked_as_redef) {
+        Expr* redef_var = process_identifier(v_var->get_identifier()->as<ast_identifier>());
+        if (redef_var->is_immutable()) {
+          redef_var->fire_error_modifying_immutable("left side of assignment");
+        }
+        return redef_var;
       }
-      TypeExpr* declared_type = v->as<ast_local_var>()->declared_type;
+      TypeExpr* var_type = v_var->declared_type ? v_var->declared_type : TypeExpr::new_hole();
       if (auto v_ident = v->as<ast_local_var>()->get_identifier()->try_as<ast_identifier>()) {
-        return create_new_local_variable(v->loc, v_ident->name, declared_type ? declared_type : TypeExpr::new_hole());
+        return create_new_local_variable(v->loc, v_ident->name, var_type, v_var->is_immutable);
       } else {
-        return create_new_underscore_variable(v->loc, declared_type ? declared_type : TypeExpr::new_hole());
+        return create_new_underscore_variable(v->loc, var_type);
       }
     }
     case ast_parenthesized_expr:
@@ -588,7 +798,6 @@ static Expr* process_local_vars_lhs(AnyV v, CodeBlob& code) {
 
 static blk_fl::val process_vertex(V<ast_local_vars_declaration> v, CodeBlob& code) {
   Expr* x = process_local_vars_lhs(v->get_lhs(), code);
-  x->chk_lvalue();
   Expr* y = process_expr(v->get_assigned_val(), code);
   y->chk_rvalue();
   x->predefine_vars();
@@ -602,11 +811,83 @@ static blk_fl::val process_vertex(V<ast_local_vars_declaration> v, CodeBlob& cod
   return blk_fl::end;
 }
 
+static bool is_expr_valid_as_return_self(Expr* return_expr) {
+  // `return self`
+  if (return_expr->cls == Expr::_Var && return_expr->val == 0) {
+    return true;
+  }
+  if (return_expr->cls == Expr::_ReturnSelf) {
+    return is_expr_valid_as_return_self(return_expr->args[1]);
+  }
+  if (return_expr->cls == Expr::_CondExpr) {
+    return is_expr_valid_as_return_self(return_expr->args[1]) && is_expr_valid_as_return_self(return_expr->args[2]);
+  }
+  return false;
+}
+
+// for mutating functions, having `return expr`, transform it to `return (modify_var1, ..., expr)`
+static Expr* wrap_return_value_with_mutate_params(SrcLocation loc, CodeBlob& code, Expr* return_expr) {
+  Expr* tmp_var;
+  if (return_expr->cls != Expr::_Var) {
+    // `return complex_expr` - extract this into temporary variable (eval it before return)
+    // this is mandatory if it assigns to one of modified vars
+    tmp_var = create_new_underscore_variable(loc, return_expr->e_type);
+    tmp_var->predefine_vars();
+    tmp_var->define_new_vars(code);
+    Expr* assign_to_tmp_var = new Expr(Expr::_Letop, {tmp_var, return_expr});
+    assign_to_tmp_var->here = loc;
+    assign_to_tmp_var->flags = tmp_var->flags | Expr::_IsRvalue;
+    assign_to_tmp_var->deduce_type();
+    assign_to_tmp_var->pre_compile(code);
+  } else {
+    tmp_var = return_expr;
+  }
+
+  Expr* ret_tensor = new Expr(Expr::_Tensor, loc);
+  std::vector<TypeExpr*> type_list;
+  for (SymDef* p_sym: code.func_val->parameters) {
+    if (p_sym && dynamic_cast<SymValVariable*>(p_sym->value)->is_mutate_parameter()) {
+      Expr* p_expr = new Expr{Expr::_Var, p_sym->loc};
+      p_expr->sym = p_sym;
+      p_expr->val = p_sym->value->idx;
+      p_expr->flags = Expr::_IsRvalue;
+      p_expr->e_type = p_sym->value->get_type();
+      ret_tensor->pb_arg(p_expr);
+      type_list.emplace_back(p_expr->e_type);
+    }
+  }
+  ret_tensor->pb_arg(tmp_var);
+  type_list.emplace_back(tmp_var->e_type);
+  ret_tensor->flags = Expr::_IsRvalue;
+  ret_tensor->e_type = TypeExpr::new_tensor(std::move(type_list));
+  return ret_tensor;
+}
+
 static blk_fl::val process_vertex(V<ast_return_statement> v, CodeBlob& code) {
   Expr* expr = process_expr(v->get_return_value(), code);
+  if (code.func_val->does_return_self()) {
+    if (!is_expr_valid_as_return_self(expr)) {
+      v->error("invalid return from `self` function");
+    }
+    Expr* var_self = new Expr(Expr::_Var, v->loc);
+    var_self->flags = Expr::_IsRvalue | Expr::_IsLvalue;
+    var_self->e_type = code.func_val->parameters[0]->value->get_type();
+    Expr* assign_to_self = new Expr(Expr::_Letop, {var_self, expr});
+    assign_to_self->here = v->loc;
+    assign_to_self->flags = Expr::_IsRvalue;
+    assign_to_self->deduce_type();
+    assign_to_self->pre_compile(code);
+    Expr* empty_tensor = new Expr(Expr::_Tensor, {});
+    empty_tensor->here = v->loc;
+    empty_tensor->flags = Expr::_IsRvalue;
+    empty_tensor->e_type = TypeExpr::new_tensor({});
+    expr = empty_tensor;
+  }
+  if (code.func_val->has_mutate_params()) {
+    expr = wrap_return_value_with_mutate_params(v->loc, code, expr);
+  }
   expr->chk_rvalue();
   try {
-    // std::cerr << "in return: ";
     unify(expr->e_type, code.ret_type);
   } catch (UnifyError& ue) {
     std::ostringstream os;
@@ -619,21 +900,28 @@ static blk_fl::val process_vertex(V<ast_return_statement> v, CodeBlob& code) {
   return blk_fl::ret;
 }
 
-static void append_implicit_ret_stmt(V<ast_sequence> v, CodeBlob& code) {
-  TypeExpr* ret_type = TypeExpr::new_unit();
+static void append_implicit_ret_stmt(SrcLocation loc_end, CodeBlob& code) {
+  Expr* expr = new Expr{Expr::_Tensor, {}};
+  expr->flags = Expr::_IsRvalue;
+  expr->here = loc_end;
+  expr->e_type = TypeExpr::new_unit();
+  if (code.func_val->does_return_self()) {
+    throw ParseError(loc_end, "missing return; forgot `return self`?");
+  }
+  if (code.func_val->has_mutate_params()) {
+    expr = wrap_return_value_with_mutate_params(loc_end, code, expr);
+  }
   try {
-    // std::cerr << "in implicit return: ";
-    unify(ret_type, code.ret_type);
+    unify(expr->e_type, code.ret_type);
   } catch (UnifyError& ue) {
     std::ostringstream os;
     os << "previous function return type " << code.ret_type
-       << " cannot be unified with implicit end-of-block return type " << ret_type << ": " << ue;
-    throw ParseError(v->loc_end, os.str());
+       << " cannot be unified with implicit end-of-block return type " << expr->e_type << ": " << ue;
+    throw ParseError(loc_end, os.str());
   }
-  code.emplace_back(v->loc_end, Op::_Return);
+  std::vector<var_idx_t> tmp_vars = expr->pre_compile(code);
+  code.emplace_back(loc_end, Op::_Return, std::move(tmp_vars));
 }
-
-blk_fl::val process_statement(AnyV v, CodeBlob& code);
 
 static blk_fl::val process_vertex(V<ast_sequence> v, CodeBlob& code, bool no_new_scope = false) {
   if (!no_new_scope) {
@@ -792,7 +1080,7 @@ static blk_fl::val process_vertex(V<ast_assert_statement> v, CodeBlob& code) {
 
 static Expr* process_catch_variable(AnyV catch_var, TypeExpr* var_type) {
   if (auto v_ident = catch_var->try_as<ast_identifier>()) {
-    return create_new_local_variable(catch_var->loc, v_ident->name, var_type);
+    return create_new_local_variable(catch_var->loc, v_ident->name, var_type, true);
   }
   return create_new_underscore_variable(catch_var->loc, var_type);
 }
@@ -882,7 +1170,7 @@ blk_fl::val process_statement(AnyV v, CodeBlob& code) {
     case ast_try_catch_statement:
       return process_vertex(v->as<ast_try_catch_statement>(), code);
     default: {
-      auto expr = process_expr(v, code);
+      Expr* expr = process_expr(v, code);
       expr->chk_rvalue();
       expr->pre_compile(code);
       return blk_fl::end;
@@ -890,18 +1178,16 @@ blk_fl::val process_statement(AnyV v, CodeBlob& code) {
   }
 }
 
-static FormalArg process_vertex(V<ast_parameter> v, int fa_idx) {
-  if (v->get_identifier()->name.empty()) {
-    return std::make_tuple(v->param_type, (SymDef*)nullptr, v->loc);
+static FormalArg process_vertex(V<ast_parameter> v, SymDef* param_sym) {
+  if (!param_sym) {
+    return std::make_tuple(v->param_type, nullptr, v->loc);
   }
   SymDef* new_sym_def = define_symbol(calc_sym_idx(v->get_identifier()->name), true, v->loc);
-  if (!new_sym_def) {
-    v->error("cannot define symbol");
+  if (!new_sym_def || new_sym_def->value) {
+    v->error("redefined parameter");
   }
-  if (new_sym_def->value) {
-    v->error("redefined argument");
-  }
-  new_sym_def->value = new SymVal{SymValKind::_Param, fa_idx, v->param_type};
+  const SymValVariable* param_val = dynamic_cast<SymValVariable*>(param_sym->value);
+  new_sym_def->value = new SymValVariable(*param_val);
   return std::make_tuple(v->param_type, new_sym_def, v->loc);
 }
 
@@ -911,13 +1197,13 @@ static void convert_function_body_to_CodeBlob(V<ast_function_declaration> v, V<a
   tolk_assert(sym_val != nullptr);
 
   open_scope(v->loc);
-  CodeBlob* blob = new CodeBlob{static_cast<std::string>(v->get_identifier()->name), v->loc, v->ret_type};
+  CodeBlob* blob = new CodeBlob{static_cast<std::string>(v->get_identifier()->name), v->loc, sym_val, v->ret_type};
   if (v->marked_as_pure) {
     blob->flags |= CodeBlob::_ForbidImpure;
   }
   FormalArgList legacy_arg_list;
   for (int i = 0; i < v->get_num_params(); ++i) {
-    legacy_arg_list.emplace_back(process_vertex(v->get_param(i), i));
+    legacy_arg_list.emplace_back(process_vertex(v->get_param(i), sym_val->parameters[i]));
   }
   blob->import_params(std::move(legacy_arg_list));
 
@@ -931,7 +1217,7 @@ static void convert_function_body_to_CodeBlob(V<ast_function_declaration> v, V<a
     blk_fl::combine(res, process_statement(item, *blob));
   }
   if (res & blk_fl::end) {
-    append_implicit_ret_stmt(v_body, *blob);
+    append_implicit_ret_stmt(v_body->loc_end, *blob);
   }
 
   blob->close_blk(v_body->loc_end);

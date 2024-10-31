@@ -21,9 +21,5 @@ fun transformSliceToContinuation(s: slice): continuation
 
 /// Moves a variable or a value [x] to the top of the stack.
 @pure
-fun stackMoveToTop<X>(x: X): X
+fun stackMoveToTop<X>(mutate self: X): void
     asm "NOP";
-
-/// Mark a variable as used, such that the code which produced it won't be deleted even if it is not impure.
-fun stackMoveToTopImpure<X>(x: X): void         // todo needs to be deleted, check verified contracts
-    asm "DROP";

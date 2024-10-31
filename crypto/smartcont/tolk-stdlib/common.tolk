@@ -17,11 +17,7 @@ fun createEmptyTuple(): tuple
 /// Appends a value to tuple, resulting in `Tuple t' = (x1, ..., xn, value)`.
 /// If its size exceeds 255, throws a type check exception.
 @pure
-fun tuplePush<X>(t: tuple, value: X): tuple
-    asm "TPUSH";
-
-@pure
-fun ~tuplePush<X>(t: tuple, value: X): (tuple, ())
+fun tuplePush<X>(mutate self: tuple, value: X): void
     asm "TPUSH";
 
 /// Returns the first element of a non-empty tuple.
@@ -336,118 +332,109 @@ fun beginParse(c: cell): slice
     asm "CTOS";
 
 /// Checks if slice is empty. If not, throws an exception.
-fun assertEndOfSlice(s: slice): void
+fun assertEndOfSlice(self: slice): void
     asm "ENDS";
 
 /// Loads the next reference from the slice.
 @pure
-fun loadRef(s: slice): (slice, cell)
+fun loadRef(mutate self: slice): cell
     asm( -> 1 0) "LDREF";
 
 /// Preloads the next reference from the slice.
 @pure
-fun preloadRef(s: slice): cell
+fun preloadRef(self: slice): cell
     asm "PLDREF";
 
 /// Loads a signed [len]-bit integer from a slice.
 @pure
-fun loadInt(s: slice, len: int): (slice, int)
+fun loadInt(mutate self: slice, len: int): int
     builtin;
 
 /// Loads an unsigned [len]-bit integer from a slice.
 @pure
-fun loadUint(s: slice, len: int): (slice, int)
+fun loadUint(mutate self: slice, len: int): int
     builtin;
 
 /// Loads the first `0 ≤ len ≤ 1023` bits from slice [s] into a separate slice `s''`.
 @pure
-fun loadBits(s: slice, len: int): (slice, slice)
+fun loadBits(mutate self: slice, len: int): slice
     builtin;
 
 /// Preloads a signed [len]-bit integer from a slice.
 @pure
-fun preloadInt(s: slice, len: int): int
+fun preloadInt(self: slice, len: int): int
     builtin;
 
 /// Preloads an unsigned [len]-bit integer from a slice.
 @pure
-fun preloadUint(s: slice, len: int): int
+fun preloadUint(self: slice, len: int): int
     builtin;
 
 /// Preloads the first `0 ≤ len ≤ 1023` bits from slice [s] into a separate slice.
 @pure
-fun preloadBits(s: slice, len: int): slice
+fun preloadBits(self: slice, len: int): slice
     builtin;
 
 /// Loads serialized amount of Toncoins (any unsigned integer up to `2^120 - 1`).
 @pure
-fun loadCoins(s: slice): (slice, int)
+fun loadCoins(mutate self: slice): int
     asm( -> 1 0) "LDGRAMS";
 
 /// Loads bool (-1 or 0) from a slice
 @pure
-fun loadBool(s: slice): (slice, int)
+fun loadBool(mutate self: slice): int
     asm( -> 1 0) "1 LDI";
 
 /// Shifts a slice pointer to [len] bits forward, mutating the slice.
 @pure
-fun skipBits(s: slice, len: int): slice
-    asm "SDSKIPFIRST";                      // todo make mutating
-@pure
-fun ~skipBits(s: slice, len: int): (slice, ())
+fun skipBits(mutate self: slice, len: int): self
     asm "SDSKIPFIRST";
 
 /// Returns the first `0 ≤ len ≤ 1023` bits of a slice.
 @pure
-fun getFirstBits(s: slice, len: int): slice
+fun getFirstBits(self: slice, len: int): slice
     asm "SDCUTFIRST";
 
 /// Returns all but the last `0 ≤ len ≤ 1023` bits of a slice.
 @pure
-fun removeLastBits(s: slice, len: int): slice
-    asm "SDSKIPLAST";                           // todo make mutating
-@pure
-fun ~removeLastBits(s: slice, len: int): (slice, ())
+fun removeLastBits(mutate self: slice, len: int): self
     asm "SDSKIPLAST";
 
 /// Returns the last `0 ≤ len ≤ 1023` bits of a slice.
 @pure
-fun getLastBits(s: slice, len: int): slice
+fun getLastBits(self: slice, len: int): slice
     asm "SDCUTLAST";
 
 /// Loads a dictionary (TL HashMapE structure, represented as TVM cell) from a slice.
 /// Returns `null` if `nothing` constructor is used.
 @pure
-fun loadDict(s: slice): (slice, cell)
+fun loadDict(mutate self: slice): cell
     asm( -> 1 0) "LDDICT";
 
 /// Preloads a dictionary (cell) from a slice.
 @pure
-fun preloadDict(s: slice): cell
+fun preloadDict(self: slice): cell
     asm "PLDDICT";
 
 /// Loads a dictionary as [loadDict], but returns only the remainder of the slice.
 @pure
-fun skipDict(s: slice): slice
-    asm "SKIPDICT";                 // todo make mutating
-@pure
-fun ~skipDict(s: slice): (slice, ())
+fun skipDict(mutate self: slice): self
     asm "SKIPDICT";
 
 /// Loads (Maybe ^Cell) from a slice.
 /// In other words, loads 1 bit: if it's true, loads the first ref, otherwise returns `null`.
 @pure
-fun loadMaybeRef(s: slice): (slice, cell)
+fun loadMaybeRef(mutate self: slice): cell
     asm( -> 1 0) "LDOPTREF";
 
 /// Preloads (Maybe ^Cell) from a slice.
 @pure
-fun preloadMaybeRef(s: slice): cell
+fun preloadMaybeRef(self: slice): cell
     asm "PLDOPTREF";
 
 /// Loads (Maybe ^Cell), but returns only the remainder of the slice.
 @pure
-fun ~skipMaybeRef(s: slice): (slice, ())
+fun skipMaybeRef(mutate self: slice): self
     asm "SKIPOPTREF";
 
 /**
@@ -464,62 +451,60 @@ fun beginCell(): builder
 
 /// Converts a builder into an ordinary `cell`.
 @pure
-fun endCell(b: builder): cell
+fun endCell(self: builder): cell
     asm "ENDC";
 
 /// Stores a reference to a cell into a builder.
 @pure
-fun storeRef(b: builder, c: cell): builder
-    asm(c b) "STREF";
+fun storeRef(mutate self: builder, c: cell): self
+    asm(c self) "STREF";
 
 /// Stores a signed [len]-bit integer into a builder (`0 ≤ len ≤ 257`).
 @pure
-fun storeInt(b: builder, x: int, len: int): builder
+fun storeInt(mutate self: builder, x: int, len: int): self
     builtin;
 
 /// Stores an unsigned [len]-bit integer into a builder (`0 ≤ len ≤ 256`).
 @pure
-fun storeUint(b: builder, x: int, len: int): builder
+fun storeUint(mutate self: builder, x: int, len: int): self
     builtin;
 
 /// Stores a slice into a builder.
 @pure
-fun storeSlice(b: builder, s: slice): builder
+fun storeSlice(mutate self: builder, s: slice): self
     asm "STSLICER";
 
 /// Stores amount of Toncoins into a builder.
 @pure
-fun storeCoins(b: builder, x: int): builder
+fun storeCoins(mutate self: builder, x: int): self
     asm "STGRAMS";
 
 /// Stores bool (-1 or 0) into a builder.
 /// Attention: true value is `-1`, not 1! If you pass `1` here, TVM will throw an exception.
 @pure
-fun storeBool(b: builder, x: int): builder
-    asm(x b) "1 STI";
+fun storeBool(mutate self: builder, x: int): self
+    asm(x self) "1 STI";
 
 /// Stores dictionary (represented by TVM `cell` or `null`) into a builder.
 /// In other words, stores a `1`-bit and a reference to [c] if [c] is not `null` and `0`-bit otherwise.
 @pure
-fun storeDict(b: builder, c: cell): builder
-    asm(c b) "STDICT";
+fun storeDict(mutate self: builder, c: cell): self
+    asm(c self) "STDICT";
 
 /// Stores (Maybe ^Cell) into a builder.
 /// In other words, if cell is `null`, store '0' bit; otherwise, store '1' and a ref to [c].
 @pure
-fun storeMaybeRef(b: builder, c: cell): builder
-    asm(c b) "STOPTREF";
+fun storeMaybeRef(mutate self: builder, c: cell): self
+    asm(c self) "STOPTREF";
 
 /// Concatenates two builders.
 @pure
-fun storeBuilder(to: builder, from: builder): builder
+fun storeBuilder(mutate self: builder, from: builder): self
     asm "STBR";
 
+/// Stores a slice representing TL addr_none$00 (two `0` bits).
 @pure
-fun storeAddressNone(b: builder): builder
-    asm "0 PUSHINT" "SWAP" "2 STU";
-@pure
-fun ~storeAddressNone(b: builder): (builder, ())
+fun storeAddressNone(mutate self: builder): self
     asm "b{00} STSLICECONST";
 
 
@@ -529,47 +514,47 @@ fun ~storeAddressNone(b: builder): (builder, ())
 
 /// Returns the number of references in a slice.
 @pure
-fun getRemainingRefsCount(s: slice): int
+fun getRemainingRefsCount(self: slice): int
     asm "SREFS";
 
 /// Returns the number of data bits in a slice.
 @pure
-fun getRemainingBitsCount(s: slice): int
+fun getRemainingBitsCount(self: slice): int
     asm "SBITS";
 
 /// Returns both the number of data bits and the number of references in a slice.
 @pure
-fun getRemainingBitsAndRefsCount(s: slice): (int, int)
+fun getRemainingBitsAndRefsCount(self: slice): (int, int)
     asm "SBITREFS";
 
 /// Checks whether a slice is empty (i.e., contains no bits of data and no cell references).
 @pure
-fun isEndOfSlice(s: slice): int
+fun isEndOfSlice(self: slice): int
     asm "SEMPTY";
 
 /// Checks whether a slice has no bits of data.
 @pure
-fun isEndOfSliceBits(s: slice): int
+fun isEndOfSliceBits(self: slice): int
     asm "SDEMPTY";
 
 /// Checks whether a slice has no references.
 @pure
-fun isEndOfSliceRefs(s: slice): int
+fun isEndOfSliceRefs(self: slice): int
     asm "SREMPTY";
 
 /// Checks whether data parts of two slices coinside.
 @pure
-fun isSliceBitsEqual(a: slice, b: slice): int
+fun isSliceBitsEqual(self: slice, b: slice): int
     asm "SDEQ";
 
 /// Returns the number of cell references already stored in a builder.
 @pure
-fun getBuilderRefsCount(b: builder): int
+fun getBuilderRefsCount(self: builder): int
     asm "BREFS";
 
 /// Returns the number of data bits already stored in a builder.
 @pure
-fun getBuilderBitsCount(b: builder): int
+fun getBuilderBitsCount(self: builder): int
     asm "BBITS";
 
 
@@ -613,8 +598,8 @@ fun getBuilderBitsCount(b: builder): int
 /// Loads from slice [s] the only prefix that is a valid `MsgAddress`,
 /// and returns both this prefix `s'` and the remainder `s''` of [s] as slices.
 @pure
-fun loadAddress(s: slice): (slice, slice)
-    asm( -> 1 0) "LDMSGADDR";           // todo make mutating
+fun loadAddress(mutate self: slice): slice
+    asm( -> 1 0) "LDMSGADDR";
 
 /// Decomposes slice [s] containing a valid `MsgAddress` into a `tuple t` with separate fields of this `MsgAddress`.
 /// If [s] is not a valid `MsgAddress`, a cell deserialization exception is thrown.
@@ -686,7 +671,7 @@ const NON_BOUNCEABLE = 0x10;
 
 /// Load msgFlags from incoming message body (4 bits).
 @pure
-fun loadMessageFlags(s: slice): (slice, int)
+fun loadMessageFlags(mutate self: slice): int
     asm( -> 1 0) "4 LDU";
 
 /// Having msgFlags (4 bits), check that a message is bounced.
@@ -697,38 +682,34 @@ fun isMessageBounced(msgFlags: int): int
 
 /// Skip 0xFFFFFFFF prefix (when a message is bounced).
 @pure
-fun ~skipBouncedPrefix(s: slice): (slice, ())
+fun skipBouncedPrefix(mutate self: slice): self
     asm "32 PUSHINT" "SDSKIPFIRST";
 
 /// The guideline recommends to start the body of an internal message with uint32 `op` and uint64 `queryId`.
 @pure
-fun loadMessageOp(s: slice): (slice, int)
+fun loadMessageOp(mutate self: slice): int
     asm( -> 1 0) "32 LDU";
 
 @pure
-fun ~skipMessageOp(s: slice): (slice, ())
+fun skipMessageOp(mutate self: slice): self
     asm "32 PUSHINT" "SDSKIPFIRST";
 
 @pure
-fun storeMessageOp(b: builder, op: int): builder
-    asm(op b) "32 STU";
-fun ~storeMessageOp(b: builder, op: int): (builder, ())
-    asm(op b) "32 STU";
+fun storeMessageOp(mutate self: builder, op: int): self
+    asm(op self) "32 STU";
 
 /// The guideline recommends that uint64 `queryId` should follow uint32 `op`.
 @pure
-fun loadMessageQueryId(s: slice): (slice, int)
+fun loadMessageQueryId(mutate self: slice): int
     asm( -> 1 0) "64 LDU";
 
 @pure
-fun ~skipMessageQueryId(s: slice): (slice, ())
+fun skipMessageQueryId(mutate self: slice): self
     asm "64 PUSHINT" "SDSKIPFIRST";
 
 @pure
-fun storeMessageQueryId(b: builder, queryId: int): builder
-    asm(queryId b) "64 STU";
-fun ~storeMessageQueryId(b: builder, queryId: int): (builder, ())
-    asm(queryId b) "64 STU";
+fun storeMessageQueryId(mutate self: builder, queryId: int): self
+    asm(queryId self) "64 STU";
 
 /// SEND MODES - https://docs.ton.org/tvm.pdf page 137, SENDRAWMSG
 

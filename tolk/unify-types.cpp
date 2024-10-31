@@ -264,7 +264,7 @@ std::ostream& TypeExpr::print(std::ostream& os, int lex_level) const {
           return os << "slice";
         case _Builder:
           return os << "builder";
-        case _Cont:
+        case _Continutaion:
           return os << "cont";
         case _Tuple:
           return os << "tuple";

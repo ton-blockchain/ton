@@ -12,8 +12,8 @@ fun test1() {
 
     var t = createEmptyTuple();
     do {
-        var num = numbers~listNext();
-        t~tuplePush(num);
+        var num = numbers.listNext();
+        t.tuplePush(num);
     } while (numbers != null);
 
     return (h, numbers == null, t);
@@ -63,7 +63,7 @@ fun test4() {
 @method_id(105)
 fun test5() {
     var n = getUntypedNull();
-    return !(null == n) ? n~loadInt(32) : 100;
+    return !(null == n) ? n.loadInt(32) : 100;
 }
 
 @method_id(106)
@@ -75,7 +75,7 @@ fun test6(x: int) {
 fun test7() {
     var b = beginCell().storeMaybeRef(null);
     var s = b.endCell().beginParse();
-    var c = s~loadMaybeRef();
+    var c = s.loadMaybeRef();
     return (null == c) * 10 + (b != null);
 }
 
@@ -145,14 +145,14 @@ fun main() {
 """
   test7 PROC:<{
     ...
-    LDOPTREF	//  b _17 _16
+    LDOPTREF	//  b _20 _19
     DROP	    //  b c
-    ISNULL	    //  b _10
-    10 MULCONST	//  b _12
-    SWAP	    //  _12 b
-    ISNULL	    //  _12 _13
-    0 EQINT     // _12 _14
-    ADD	        //  _15
+    ISNULL	    //  b _13
+    10 MULCONST	//  b _15
+    SWAP	    //  _15 b
+    ISNULL	    //  _15 _16
+    0 EQINT     // _15 _17
+    ADD	        //  _18
   }>
 """
 */

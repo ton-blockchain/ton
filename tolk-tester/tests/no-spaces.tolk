@@ -30,13 +30,11 @@ global `some()var`:int;
 }
 
 @method_id(113)fun`unary+bitwise-constant`():[int,int,int]{
-    // todo spaces are still not allowed before ~
-    return [~-~~+-3, ~+3-~ 9, -(-~+-20-~ 10+3+~ 38&39)];
+    return [~-~~+-3, ~+3-~9, -(-~+-20-~ 10+3+~38&39)];
 }
 
 @method_id(114)fun`unary+bitwize-parametrized`(c3:int, c9:int, c20:int, c10:int, c38:int):[int,int,int]{
-    // todo spaces are still not allowed before ~
-    return [~-~~+-c3, ~+c3-~ `c9`, -(-~+-c20-~ c10+c3+~ c38&39)];
+    return [~-~~+-c3, ~+c3-~`c9`, -(-~+-c20-~c10+c3+~c38&39)];
 }
 
 fun add3(a: int, b: int, c: int) { return a+b+c; }
@@ -49,16 +47,16 @@ fun add3(a: int, b: int, c: int) { return a+b+c; }
     return [add3(fst2,snd2,trd2),add3(fst1,snd1,trd1)];
 }
 
-fun `load:u32`(cs: slice): (slice, int) {
-    return cs.loadUint(32);
+fun `load:u32`(mutate self: slice): int {
+    return self.loadUint(32);
 }
 
 @method_id(116) fun `call_~_via_backticks`():[int,int,int,int] {
     var b:builder = beginCell().storeUint(1, 32).storeUint(2, 32).storeUint(3, 32).storeUint(4, 32);
     var `cs`:slice = b.endCell().beginParse();
-    var (`cs` redef,one:int) = `cs`.`loadUint`(32);
-    var (two:int,three:int) = (`cs`~`loadUint`(32), cs~`load:u32`());
-    var (cs redef,four:int) = cs.`load:u32`();
+    val one:int=`cs`.`loadUint`(32);
+    val (two:int,three:int) = (`cs`.`loadUint`(32), cs.`load:u32`());
+    val four:int = cs.`load:u32`();
     return [one,two,three,four];
 }
 

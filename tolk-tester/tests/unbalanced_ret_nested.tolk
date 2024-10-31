@@ -17,11 +17,8 @@ fun bar(x: int, y: int): (int, int) {
   }
   return (x + 1, y);
 }
-fun bar2(x: int, y: int): (int,int) {
-  return bar(x, y);
-}
 fun main(x: int, y: int): (int, int) {
-  (x, y) = bar2(x, y);
+  (x, y) = bar(x, y);
   return (x, y * 10);
 }
 /**

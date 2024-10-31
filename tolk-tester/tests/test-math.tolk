@@ -243,7 +243,7 @@ fun tanh_f258(x: int, n: int): int {
     repeat (n) {
         a = (c -= Two) + mulDivRound(x2, 1 << 239, a);      // a := 2k+1+x^2/a as fixed250, k=n+1,n,...,2
     }
-    a = (stackMoveToTop(3) << 254) + mulDivRound(x2, 1 << 243, a);    // a := 3+x^2/a as fixed254
+    a = (3 << 254) + mulDivRound(x2, 1 << 243, a);    // a := 3+x^2/a as fixed254
     // y = x/(1+a') = x - x*a'/(1+a') = x - x*x^2/(a+x^2)  where a' = x^2/a
     return x - (mulDivRound(x, x2, a + (x2 ~>> 7)) ~>> 7);
 }
@@ -257,12 +257,12 @@ fun expm1_f257(x: int): int {
     // (almost) compute tanh(x/2) first; x/2 as fixed258 = x as fixed257
     var x2: int = mulDivRound(x, x, 1 << 255);     // x^2 as fixed261
     var Two: int = (1 << 251);   // 2. as fixed250
-    var a: int = stackMoveToTop(39) << 250;   // a=2n+5 as fixed250
+    var a: int = 39 << 250;   // a=2n+5 as fixed250
     var c = a;
     repeat (17) {
         a = (c -= Two) + mulDivRound(x2, 1 << 239, a);      // a := 2k+1+x^2/a as fixed250, k=n+1,n,...,2
     }
-    a = (stackMoveToTop(3) << 254) + mulDivRound(x2, 1 << 243, a);    // a := 3+x^2/a as fixed254
+    a = (3 << 254) + mulDivRound(x2, 1 << 243, a);    // a := 3+x^2/a as fixed254
     // now tanh(x/2) = x/(1+a') where a'=x^2/a ; apply exp(x)-1=2*tanh(x/2)/(1-tanh(x/2))
     var t: int = (x ~>> 4) - a;   // t:=x-a as fixed254
     return x - mulDivRound(x2, t / 2, a + mulrshiftr256(x, t) ~/ 4) ~/ 4;  // x - x^2 * (x-a) / (a + x*(x-a))
@@ -306,12 +306,12 @@ fun fixed248_exp2(x: int): int {
 fun tan_f260_inlined(x: int): int {
     var x2: int = mulrshiftr256(x, x);     // x^2 as fixed264
     var Two: int = (1 << 251);   // 2. as fixed250
-    var a: int = stackMoveToTop(33) << 250;   // a=2n+5 as fixed250
+    var a: int = 33 << 250;   // a=2n+5 as fixed250
     var c = a;
     repeat (14) {
         a = (c -= Two) - mulDivRound(x2, 1 << 236, a);      // a := 2k+1-x^2/a as fixed250, k=n+1,n,...,2
     }
-    a = (stackMoveToTop(3) << 254) - mulDivRound(x2, 1 << 240, a);    // a := 3-x^2/a as fixed254
+    a = (3 << 254) - mulDivRound(x2, 1 << 240, a);    // a := 3-x^2/a as fixed254
     // y = x/(1-a') = x + x*a'/(1-a') = x + x*x^2/(a-x^2)  where a' = x^2/a
     return x + (mulDivRound(x / 2, x2, a - (x2 ~>> 10)) ~>> 9);
 }
@@ -330,12 +330,12 @@ fun tan_f260(x: int): int {
 fun tan_f258_inlined(x: int): int {
     var x2: int = mulrshiftr256(x, x);     // x^2 as fixed260
     var Two: int = (1 << 251);   // 2. as fixed250
-    var a: int = stackMoveToTop(41) << 250;   // a=2n+5 as fixed250
+    var a: int = 41 << 250;   // a=2n+5 as fixed250
     var c = a;
     repeat (18) {
         a = (c -= Two) - mulDivRound(x2, 1 << 240, a);      // a := 2k+1-x^2/a as fixed250, k=n+1,n,...,2
     }
-    a = (stackMoveToTop(3) << 254) - mulDivRound(x2, 1 << 244, a);    // a := 3-x^2/a as fixed254
+    a = (3 << 254) - mulDivRound(x2, 1 << 244, a);    // a := 3-x^2/a as fixed254
     // y = x/(1-a') = x + x*a'/(1-a') = x + x*x^2/(a-x^2)  where a' = x^2/a
     return x + (mulDivRound(x / 2, x2, a - (x2 ~>> 6)) ~>> 5);
 }
@@ -546,9 +546,8 @@ fun atanh_f261(x: int, n: int): int {
 fun log_aux_f257(x: int): (int, int) {
     var s: int = log2_floor_p1(x);
     x <<= 256 - s;
-    var t: int = stackMoveToTop(-1 << 256);
+    var t: int = -1 << 256;
     if ((x >> 249) <= 90) {
-        // t~stackMoveToTop();
         t >>= 1;
         s -= 1;
     }
@@ -593,7 +592,7 @@ fun pow33b(m: int): int {
 fun log_auxx_f260(x: int): (int, int, int) {
     var s: int = log2_floor_p1(x) - 1;
     x <<= 255 - s;   // rescale to 1 <= x < 2 as fixed255
-    var t: int = stackMoveToTop(2873) << 244;   // ~ (33/32)^11 ~ sqrt(2) as fixed255
+    var t: int = 2873 << 244;   // ~ (33/32)^11 ~ sqrt(2) as fixed255
     var x1: int = (x - t) >> 1;
     var q: int = mulDivRound(x1, 65, x1 + t) + 11;   // crude approximation to round(log(x)/log(33/32))
     // t = 1;  repeat (q) { t *= 33; }  // t:=33^q, 0<=q<=22
@@ -742,13 +741,14 @@ fun atan_aux_prereduce(x: int): (int, int, int) {
     var tc: int = 7214596;  // tan(13*theta) as fixed24 where theta=atan(1/32)
     var t1: int = mulDivRound(xu - tc, 1 << 88, xu * tc + (1 << 48));   // tan(x') as fixed64 where x'=atan(x)-13*theta
     // t1/(3+t1^2) * 3073/32 = x'/3 * 3072/32 = x' / (96/3072) = x' / theta
-    var q: int = mulDivRound(t1 * 3073, 1 << 59, t1 * t1 + (stackMoveToTop(3) << 128)) + 13;   // approximately round(atan(x)/theta), 0<=q<=25
+    var q: int = mulDivRound(t1 * 3073, 1 << 59, t1 * t1 + (3 << 128)) + 13;   // approximately round(atan(x)/theta), 0<=q<=25
     var (pa, pb) = (33226912, 5232641);  // (32+I)^5
     var (qh, ql) = divMod(q, 5);
     var (a, b) = (1 << (5 * (51 - q)), 0);    // (1/32^q, 0) as fixed255
     repeat (ql) {
         // a+b*I *= 32+I
-        (a, b) = (sub_rev(stackMoveToTop(b), 32 * a), a + 32 * b);   // same as (32 * a - b, 32 * b + a), but more efficient
+        b.stackMoveToTop();
+        (a, b) = (sub_rev(b, 32 * a), a + 32 * b);   // same as (32 * a - b, 32 * b + a), but more efficient
     }
     repeat (qh) {
         // a+b*I *= (32+I)^5 = pa + pb*I
@@ -807,7 +807,7 @@ fun atan_auxx_f256(x: int): (int, int) {
 @inline_ref
 fun atan_f255(x: int): int {
     var s: int = (x ~>> 256);
-    stackMoveToTop(x);
+    x.stackMoveToTop();
     if (s) {
         x = lshift256divr(-1 << 255, x);   // x:=-1/x as fixed256
     } else {
@@ -880,7 +880,7 @@ fun fixed248_acos(x: int): int {
 @inline_ref
 fun fixed248_atan(x: int): int {
     var s: int = (x ~>> 249);
-    stackMoveToTop(x);
+    x.stackMoveToTop();
     if (s) {
         s = sign(s);
         x = lshift256divr(-1 << 248, x);   // x:=-1/x as fixed256
@@ -897,7 +897,7 @@ fun fixed248_atan(x: int): int {
 @inline_ref
 fun fixed248_acot(x: int): int {
     var s: int = (x ~>> 249);
-    stackMoveToTop(x);
+    x.stackMoveToTop();
     if (s) {
         x = lshift256divr(-1 << 248, x);   // x:=-1/x as fixed256
         s = 0;
@@ -918,7 +918,7 @@ fun fixed248_acot(x: int): int {
 /// fixed252 nrand();
 @inline_ref
 fun nrand_f252(): int {
-    var (x, s, t, A, B, r0) = (nan(), stackMoveToTop(29483) << 236, stackMoveToTop(-3167) << 239, 12845, 16693, 9043);
+    var (x, s, t, A, B, r0) = (nan(), 29483 << 236, -3167 << 239, 12845, 16693, 9043);
     // 4/sqrt(e*Pi) = 1.369 loop iterations on average
     do {
         var (u, v) = (random() / 16 + 1, mulDivRound(random() - (1 << 255), 7027, 1 << 16));   // fixed252; 7027=ceil(sqrt(8/e)*2^12)
@@ -950,7 +950,7 @@ fun nrand_f252(): int {
 /// fixed252 nrand_fast();
 @inline_ref
 fun nrand_fast_f252(): int {
-    var t: int = stackMoveToTop(-3) << 253;   // -6. as fixed252
+    var t: int = -3 << 253;   // -6. as fixed252
     repeat (12) {
         t += random() / 16;         // add together 12 uniformly random numbers
     }
@@ -979,8 +979,8 @@ fun fixed248_nrand_fast(): int {
 }
 
 @pure
-fun ~tset<X>(t: tuple, idx: int, value: X): (tuple, ())
-asm(t value idx) "SETINDEXVAR";
+fun tset<X>(mutate self: tuple, idx: int, value: X): void
+    asm(self value idx) "SETINDEXVAR";
 
 // computes 1-acos(x)/Pi by a very simple, extremely slow (~70k gas) and imprecise method
 // fixed256 acos_prepare_slow(fixed255 x);
@@ -1014,12 +1014,12 @@ fun asin_slow_f255(x: int): int {
 fun test_nrand(n: int): tuple {
   var t: tuple = createEmptyTuple();
   repeat (255) {
-    t~tuplePush(0);
+    t.tuplePush(0);
   }
   repeat (n) {
     var x: int = fixed248_nrand();
     var bucket: int = (abs(x) >> 243);   // 255 buckets starting from x=0, each 1/32 wide
-    t~tset(bucket, t.tupleAt(bucket) + 1);
+    t.tset(bucket, t.tupleAt(bucket) + 1);
   }
   return t;
 }
@@ -1210,14 +1210,14 @@ fun main() {
     // return atan_aux_f256(1);  // atan(1/2^256)*2^261 = 32
   //return fixed248_nrand();
   // return test_nrand(100000);
-  var One2: int = stackMoveToTop(1 << 255);
+  var One2: int = 1 << 255;
     // return asin_f255(One);
     // return asin_f255(-2 * One ~/ -3);
   var arg: int = mulDivRound(12, One2, 17);  // 12/17
     // return [ asin_slow_f255(arg), asin_f255(arg) ];
     // return [ acos_slow_f255(arg), acos_f255(arg) ];
   // return 4 * atan_f255(One ~/ 5) - atan_f255(One ~/ 239);   // 4 * atan(1/5) - atan(1/239) = Pi/4 as fixed255
-  var One3: int = stackMoveToTop(1 << 248);
+  var One3: int = 1 << 248;
     // return fixed248_atan(One) ~/ 5);   // atan(1/5)
     // return fixed248_acot(One ~/ 239);   // atan(1/5)
 }

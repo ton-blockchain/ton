@@ -17,6 +17,7 @@
 #pragma once
 
 #include "src-file.h"
+#include "type-expr.h"
 #include <functional>
 #include <memory>
 
@@ -25,14 +26,23 @@ namespace tolk {
 typedef int var_idx_t;
 typedef int sym_idx_t;
 
-enum class SymValKind { _Param, _Var, _Func, _Typename, _GlobVar, _Const };
+enum class SymValKind { _Var, _Func, _GlobVar, _Const };
 
 struct SymValBase {
   SymValKind kind;
   int idx;
-  SymValBase(SymValKind kind, int idx) : kind(kind), idx(idx) {
+  TypeExpr* sym_type;
+#ifdef TOLK_DEBUG
+  std::string sym_name; // seeing symbol name in debugger makes it much easier to delve into Tolk sources
+#endif
+
+  SymValBase(SymValKind kind, int idx, TypeExpr* sym_type) : kind(kind), idx(idx), sym_type(sym_type) {
   }
   virtual ~SymValBase() = default;
+
+  TypeExpr* get_type() const {
+    return sym_type;
+  }
 };
 
 
@@ -98,6 +108,7 @@ void close_scope();
 SymDef* lookup_symbol(sym_idx_t idx);
 
 SymDef* define_global_symbol(sym_idx_t name_idx, SrcLocation loc = {});
+SymDef* define_parameter(sym_idx_t name_idx, SrcLocation loc);
 SymDef* define_symbol(sym_idx_t name_idx, bool force_new, SrcLocation loc);
 
 }  // namespace tolk

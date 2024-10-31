@@ -2,28 +2,20 @@
 
 #include <vector>
 #include <iostream>
-#include "lexer.h"
 
 namespace tolk {
 
 struct TypeExpr {
   enum Kind { te_Unknown, te_Var, te_Indirect, te_Atomic, te_Tensor, te_Tuple, te_Map, te_ForAll };
-  // todo not _
-  enum AtomicType {
-    _Int = tok_int,
-    _Cell = tok_cell,
-    _Slice = tok_slice,
-    _Builder = tok_builder,
-    _Cont = tok_continuation,
-    _Tuple = tok_tuple,
-  };
+  enum AtomicType { _Int, _Cell, _Slice, _Builder, _Continutaion, _Tuple };
   Kind constr;
   int value;
   int minw, maxw;
   static constexpr int w_inf = 1023;
   std::vector<TypeExpr*> args;
   bool was_forall_var = false;
-  TypeExpr(Kind _constr, int _val = 0) : constr(_constr), value(_val), minw(0), maxw(w_inf) {
+
+  explicit TypeExpr(Kind _constr, int _val = 0) : constr(_constr), value(_val), minw(0), maxw(w_inf) {
   }
   TypeExpr(Kind _constr, int _val, int width) : constr(_constr), value(_val), minw(width), maxw(width) {
   }
@@ -48,6 +40,7 @@ struct TypeExpr {
     args.insert(args.end(), list.begin(), list.end());
     compute_width();
   }
+
   bool is_atomic() const {
     return constr == te_Atomic;
   }
@@ -127,9 +120,7 @@ struct TypeExpr {
   static TypeExpr* new_forall(std::vector<TypeExpr*> list, TypeExpr* body) {
     return new TypeExpr{te_ForAll, body, std::move(list)};
   }
-  static TypeExpr* new_forall(std::initializer_list<TypeExpr*> list, TypeExpr* body) {
-    return new TypeExpr{te_ForAll, body, std::move(list)};
-  }
+
   static bool remove_indirect(TypeExpr*& te, TypeExpr* forbidden = nullptr);
   static std::vector<TypeExpr*> remove_forall(TypeExpr*& te);
   static bool remove_forall_in(TypeExpr*& te, TypeExpr* te2, const std::vector<TypeExpr*>& new_vars);

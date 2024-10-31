@@ -80,8 +80,8 @@ protected:
   virtual AnyV replace(V<ast_bool_const> v)              { return replace_children(v); }
   virtual AnyV replace(V<ast_null_keyword> v)            { return replace_children(v); }
   virtual AnyV replace(V<ast_function_call> v)           { return replace_children(v); }
+  virtual AnyV replace(V<ast_dot_method_call> v)         { return replace_children(v); }
   virtual AnyV replace(V<ast_underscore> v)              { return replace_children(v); }
-  virtual AnyV replace(V<ast_dot_tilde_call> v)          { return replace_children(v); }
   virtual AnyV replace(V<ast_unary_operator> v)          { return replace_children(v); }
   virtual AnyV replace(V<ast_binary_operator> v)         { return replace_children(v); }
   virtual AnyV replace(V<ast_ternary_operator> v)        { return replace_children(v); }
@@ -109,9 +109,10 @@ protected:
       case ast_string_const:                    return replace(v->as<ast_string_const>());
       case ast_bool_const:                      return replace(v->as<ast_bool_const>());
       case ast_null_keyword:                    return replace(v->as<ast_null_keyword>());
+      case ast_self_keyword:                    return replace(v->as<ast_self_keyword>());
       case ast_function_call:                   return replace(v->as<ast_function_call>());
+      case ast_dot_method_call:                 return replace(v->as<ast_dot_method_call>());
       case ast_underscore:                      return replace(v->as<ast_underscore>());
-      case ast_dot_tilde_call:                  return replace(v->as<ast_dot_tilde_call>());
       case ast_unary_operator:                  return replace(v->as<ast_unary_operator>());
       case ast_binary_operator:                 return replace(v->as<ast_binary_operator>());
       case ast_ternary_operator:                return replace(v->as<ast_ternary_operator>());

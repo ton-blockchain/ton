@@ -38,6 +38,8 @@ enum TokenType {
   tok_var,
   tok_val,
   tok_redef,
+  tok_mutate,
+  tok_self,
 
   tok_annotation_at,
   tok_colon,
@@ -52,6 +54,7 @@ enum TokenType {
   tok_null,
 
   tok_identifier,
+  tok_dot,
 
   tok_plus,
   tok_minus,
