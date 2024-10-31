@@ -4,17 +4,17 @@
 // (save to a variable, return from a function, etc.)
 // it also works, since a function becomes codegenerated (though direct calls are expectedly inlined).
 
-fun myBeginCell(): builder { return begin_cell(); }
-fun myEndCell(b: builder): cell { return end_cell(b); }
-fun myStoreRef(b: builder, c: cell): builder { return store_ref(b, c); }
-fun myStoreUint3(i: int, bw: int, b: builder): builder { return store_uint(b, i, bw); }
+fun myBeginCell(): builder { return beginCell(); }
+fun myEndCell(b: builder): cell { return endCell(b); }
+fun myStoreRef(b: builder, c: cell): builder { return storeRef(b, c); }
+fun myStoreUint3(i: int, bw: int, b: builder): builder { return storeUint(b, i, bw); }
 
-fun computeDataSize2(maxCells: int, c: cell): (int, int, int) { return compute_data_size(c, maxCells); }
+fun computeDataSize2(maxCells: int, c: cell): (int, int, int) { return calculateCellSizeStrict(c, maxCells); }
 
-fun myEmptyTuple(): tuple { return empty_tuple(); }
-fun myTuplePush<X>(t: tuple, value: X): tuple { return tpush(t, value); }
-fun ~myTuplePush<X>(t: tuple, value: X): (tuple, ()) { return ~tpush(t, value); }
-fun tupleGetFirst<X>(t: tuple): X { return first(t); }
+fun myEmptyTuple(): tuple { return createEmptyTuple(); }
+fun myTuplePush<X>(t: tuple, value: X): tuple { return tuplePush(t, value); }
+fun ~myTuplePush<X>(t: tuple, value: X): (tuple, ()) { return ~tuplePush(t, value); }
+fun myTupleGetFirst<X>(t: tuple): X { return tupleFirst(t); }
 
 
 @inline
@@ -32,7 +32,7 @@ fun test1(): (int, int, int) {
 
     var t: tuple = myEmptyTuple();
     t~myTuplePush(myStoreRef);
-    var refStorer = tupleGetFirst(t);
+    var refStorer = myTupleGetFirst(t);
 
     var x: int = 1;
     var y: int = 1;

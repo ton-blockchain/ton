@@ -52,10 +52,9 @@ struct CompilerSettings {
   int optimization_level = 2;
   bool stack_layout_comments = true;
 
-  std::string entrypoint_filename;
   std::string output_filename;
   std::string boc_output_filename;
-  std::string stdlib_filename;
+  std::string stdlib_folder;    // a path to tolk-stdlib/; files imported via @stdlib/xxx are there
 
   FsReadCallback read_callback;
 
@@ -81,8 +80,6 @@ struct CompilerState {
 
   std::vector<SymDef*> all_code_functions, all_global_vars, all_get_methods, all_constants;
   AllRegisteredSrcFiles all_src_files;
-
-  std::string generated_from;
 
   bool is_verbosity(int gt_eq) const { return settings.verbosity >= gt_eq; }
 };

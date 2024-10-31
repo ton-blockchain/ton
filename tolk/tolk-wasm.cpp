@@ -34,21 +34,18 @@
 
 using namespace tolk;
 
-td::Result<std::string> compile_internal(char *config_json) {
+static td::Result<std::string> compile_internal(char *config_json) {
   TRY_RESULT(input_json, td::json_decode(td::MutableSlice(config_json)))
   td::JsonObject& config = input_json.get_object();
 
   TRY_RESULT(opt_level, td::get_json_object_int_field(config, "optimizationLevel", true, 2));
-  TRY_RESULT(stdlib_tolk, td::get_json_object_string_field(config, "stdlibLocation", false));
   TRY_RESULT(stack_comments, td::get_json_object_bool_field(config, "withStackComments", true, false));
   TRY_RESULT(entrypoint_filename, td::get_json_object_string_field(config, "entrypointFileName", false));
   TRY_RESULT(experimental_options, td::get_json_object_string_field(config, "experimentalOptions", true));
 
   G.settings.verbosity = 0;
   G.settings.optimization_level = std::max(0, opt_level);
-  G.settings.stdlib_filename = stdlib_tolk;
   G.settings.stack_layout_comments = stack_comments;
-  G.settings.entrypoint_filename = entrypoint_filename;
   if (!experimental_options.empty()) {
     G.settings.parse_experimental_options_cmd_arg(experimental_options.c_str());
   }
@@ -56,8 +53,8 @@ td::Result<std::string> compile_internal(char *config_json) {
   std::ostringstream outs, errs;
   std::cout.rdbuf(outs.rdbuf());
   std::cerr.rdbuf(errs.rdbuf());
-  int tolk_res = tolk::tolk_proceed(entrypoint_filename);
-  if (tolk_res != 0) {
+  int exit_code = tolk_proceed(entrypoint_filename);
+  if (exit_code != 0) {
     return td::Status::Error("Tolk compilation error: " + errs.str());
   }
 
@@ -78,32 +75,29 @@ td::Result<std::string> compile_internal(char *config_json) {
 /// Callback used to retrieve file contents from a "not file system". See tolk-js for implementation.
 /// The callback must fill either destContents or destError.
 /// The implementor must use malloc() for them and use free() after tolk_compile returns.
-typedef void (*CStyleReadFileCallback)(int kind, char const* data, char** destContents, char** destError);
+typedef void (*WasmFsReadCallback)(int kind, char const* data, char** destContents, char** destError);
 
-CompilerSettings::FsReadCallback wrapReadCallback(CStyleReadFileCallback _readCallback)
-{
-  CompilerSettings::FsReadCallback readCallback;
-  if (_readCallback) {
-    readCallback = [=](CompilerSettings::FsReadCallbackKind kind, char const* data) -> td::Result<std::string> {
-      char* destContents = nullptr;
-      char* destError = nullptr;
+static CompilerSettings::FsReadCallback wrap_wasm_read_callback(WasmFsReadCallback _readCallback) {
+  return [_readCallback](CompilerSettings::FsReadCallbackKind kind, char const* data) -> td::Result<std::string> {
+    char* destContents = nullptr;
+    char* destError = nullptr;
+    if (_readCallback) {
       _readCallback(static_cast<int>(kind), data, &destContents, &destError);
-      if (!destContents && !destError) {
-        return td::Status::Error("Callback not supported");
-      }
-      if (destContents) {
-        return destContents;
-      }
+    }
+    if (destContents) {
+      return destContents;
+    }
+    if (destError) {
       return td::Status::Error(std::string(destError));
-    };
-  }
-  return readCallback;
+    }
+    return td::Status::Error("Invalid callback from wasm");
+  };
 }
 
 extern "C" {
 
 const char* version() {
-  auto version_json = td::JsonBuilder();
+  td::JsonBuilder version_json = td::JsonBuilder();
   auto obj = version_json.enter_object();
   obj("tolkVersion", TOLK_VERSION);
   obj("tolkFiftLibCommitHash", GitMetadata::CommitSHA1());
@@ -112,23 +106,22 @@ const char* version() {
   return strdup(version_json.string_builder().as_cslice().c_str());
 }
 
-const char *tolk_compile(char *config_json, CStyleReadFileCallback callback) {
-  G.settings.read_callback = wrapReadCallback(callback);
+const char *tolk_compile(char *config_json, WasmFsReadCallback callback) {
+  G.settings.read_callback = wrap_wasm_read_callback(callback);
 
   td::Result<std::string> res = compile_internal(config_json);
 
   if (res.is_error()) {
-    auto result = res.move_as_error();
-    auto error_res = td::JsonBuilder();
-    auto error_o = error_res.enter_object();
-    error_o("status", "error");
-    error_o("message", result.message().str());
-    error_o.leave();
+    td::JsonBuilder error_res = td::JsonBuilder();
+    auto obj = error_res.enter_object();
+    obj("status", "error");
+    obj("message", res.move_as_error().message().str());
+    obj.leave();
     return strdup(error_res.string_builder().as_cslice().c_str());
   }
 
-  auto res_string = res.move_as_ok();
-
+  std::string res_string = res.move_as_ok();
   return strdup(res_string.c_str());
 }
-}
+
+} // extern "C"

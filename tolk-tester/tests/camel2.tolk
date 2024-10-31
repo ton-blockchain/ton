@@ -5,15 +5,15 @@
 // But swapping arguments may sometimes lead to bytecode changes (see test2),
 // both with compute-asm-ltr and without it.
 
-fun myBeginCell(): builder { return begin_cell(); }
-fun myEndCell(b: builder): cell { return end_cell(b); }
-fun myStoreRef1(b: builder, c: cell): builder { return store_ref(b, c); }
-fun myStoreRef2(c: cell, b: builder): builder { return store_ref(b, c); }
-fun myStoreUint1(b: builder, x: int, bw: int): builder { return store_uint(b, x, bw); }
-fun myStoreUint2(b: builder, bw: int, x: int): builder { return store_uint(b, x, bw); }
+fun myBeginCell(): builder { return beginCell(); }
+fun myEndCell(b: builder): cell { return endCell(b); }
+fun myStoreRef1(b: builder, c: cell): builder { return storeRef(b, c); }
+fun myStoreRef2(c: cell, b: builder): builder { return storeRef(b, c); }
+fun myStoreUint1(b: builder, x: int, bw: int): builder { return storeUint(b, x, bw); }
+fun myStoreUint2(b: builder, bw: int, x: int): builder { return storeUint(b, x, bw); }
 
-fun computeDataSize1(c: cell, maxCells: int): (int, int, int) { return compute_data_size(c, maxCells); }
-fun computeDataSize2(maxCells: int, c: cell): (int, int, int) { return compute_data_size(c, maxCells); }
+fun computeDataSize1(c: cell, maxCells: int): (int, int, int) { return calculateCellSizeStrict(c, maxCells); }
+fun computeDataSize2(maxCells: int, c: cell): (int, int, int) { return calculateCellSizeStrict(c, maxCells); }
 
 fun fake(a: int, b: int, c: int): void
 asm "DROP DROP DROP";
@@ -48,24 +48,24 @@ fun test2(): (int, int, int) {
 fun test3(): (int, int, int) {
     var x: int = 1;
     var y: int = 1;
-    var to_be_ref: cell = begin_cell().end_cell();
-    var in_c: builder = begin_cell().store_uint(123, 8);
-    in_c = store_ref(in_c, to_be_ref);
-    var (a, b, c) = compute_data_size(in_c.end_cell(), 10);
+    var to_be_ref: cell = beginCell().endCell();
+    var in_c: builder = beginCell().storeUint(123, 8);
+    in_c = storeRef(in_c, to_be_ref);
+    var (a, b, c) = calculateCellSizeStrict(in_c.endCell(), 10);
     return (a, b + x, c + y);
 }
 
-fun beginCell1(): builder { return begin_cell(); }
+fun beginCell1(): builder { return beginCell(); }
 fun beginCell11(): builder { return beginCell1(); }
 fun beginCell111(): builder { return beginCell11(); }
 
-fun endCell1(b: builder): cell { return end_cell(b); }
+fun endCell1(b: builder): cell { return endCell(b); }
 fun endCell11(b: builder): cell { return endCell1(b); }
 
-fun beginParse1(c: cell): slice { return begin_parse(c); }
+fun beginParse1(c: cell): slice { return beginParse(c); }
 fun beginParse11(c: cell): slice { return beginParse1(c); }
 
-fun storeInt1(b: builder, bw: int, x: int): builder { return store_int(b, x, bw); }
+fun storeInt1(b: builder, bw: int, x: int): builder { return storeInt(b, x, bw); }
 fun storeInt11(bw: int, x: int, b: builder): builder { return storeInt1(b, bw, x); }
 fun storeInt111(b: builder, x: int, bw: int): builder { return storeInt11(bw, x, b); }
 

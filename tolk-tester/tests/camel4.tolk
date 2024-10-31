@@ -1,7 +1,7 @@
 // Here we test that a just-return function is not a valid wrapper, it will not be inlined.
 // (doesn't use all arguments, has different pureness, has method_id, etc.)
 
-fun myStoreUint(b: builder, x: int, unused: int): builder { return store_uint(b, x, x); }
+fun myStoreUint(b: builder, x: int, unused: int): builder { return storeUint(b, x, x); }
 fun throwIf(excNo: int, cond: int) { assert(!cond) throw excNo; }
 
 fun initial1(x: auto) { return x; }
@@ -17,11 +17,11 @@ fun postpone_elections(): int {
 }
 
 fun setAndGetData(ret: int): int {
-    var c: cell = begin_cell().store_uint(ret, 8).end_cell();
-    set_data(c);
-    var s: slice = get_data().begin_parse();
+    var c: cell = beginCell().storeUint(ret, 8).endCell();
+    setContractData(c);
+    var s: slice = getContractData().beginParse();
     throwIf(101, 0);
-    return s~load_uint(8);
+    return s~loadUint(8);
 }
 
 fun setAndGetDataWrapper(ret: int): int {
@@ -30,9 +30,9 @@ fun setAndGetDataWrapper(ret: int): int {
 
 @method_id(101)
 fun test1(): int {
-    var c: cell = begin_cell().myStoreUint(32, 10000000).end_cell();
-    var s: slice = c.begin_parse();
-    return s~load_uint(32);
+    var c: cell = beginCell().myStoreUint(32, 10000000).endCell();
+    var s: slice = c.beginParse();
+    return s~loadUint(32);
 }
 
 get fun test2(ret: int): int {
@@ -47,13 +47,13 @@ fun test3(): int {
 global t: tuple;
 
 fun foo(x: int): int {
-    t~tpush(x);
+    t~tuplePush(x);
     return x * 10;
 }
 
 @method_id(104)
 fun test4(): (tuple, tuple) {
-    t = empty_tuple();
+    t = createEmptyTuple();
     var t2: tuple = asmFunc4(foo(11), (foo(22), (foo(33), foo(44))), foo(55));
     return (t, t2);
 }

@@ -29,9 +29,14 @@
 #include "td/utils/port/path.h"
 #include <getopt.h>
 #include <fstream>
-#include <utility>
 #include <sys/stat.h>
-#include <filesystem>
+#ifdef TD_DARWIN
+#include <mach-o/dyld.h>
+#elif TD_WINDOWS
+#include <windows.h>
+#else  // linux
+#include <unistd.h>
+#endif
 #include "git.h"
 
 using namespace tolk;
@@ -50,42 +55,89 @@ void usage(const char* progname) {
   std::exit(2);
 }
 
-static bool stdlib_file_exists(std::filesystem::path& stdlib_tolk) {
+static bool stdlib_folder_exists(const char* stdlib_folder) {
   struct stat f_stat;
-  stdlib_tolk = stdlib_tolk.lexically_normal();
-  int res = stat(stdlib_tolk.c_str(), &f_stat);
-  return res == 0 && S_ISREG(f_stat.st_mode);
+  int res = stat(stdlib_folder, &f_stat);
+  return res == 0 && (f_stat.st_mode & S_IFMT) == S_IFDIR;
 }
 
-static std::string auto_discover_stdlib_location(const char* argv0) {
-  // first, the user can specify env var that points directly to stdlib (useful for non-standard compiler locations)
-  if (const char* env_var = getenv("TOLK_STDLIB")) {
-    return env_var;
+// getting current executable path is a complicated and not cross-platform task
+// for instance, we can't just use argv[0] or even filesystem::canonical
+// https://stackoverflow.com/questions/1023306/finding-current-executables-path-without-proc-self-exe/1024937
+static bool get_current_executable_filename(std::string& out) {
+#ifdef TD_DARWIN
+  char name_buf[1024];
+  unsigned int size = 1024;
+  if (0 == _NSGetExecutablePath(name_buf, &size)) {   // may contain ../, so normalize it
+    char *exe_path = realpath(name_buf, nullptr);
+    if (exe_path != nullptr) {
+      out = exe_path;
+      return true;
+    }
+  }
+#elif TD_WINDOWS
+  char exe_path[1024];
+  if (GetModuleFileNameA(nullptr, exe_path, 1024)) {
+    out = exe_path;
+    std::replace(out.begin(), out.end(), '\\', '/');    // modern Windows correctly deals with / separator
+    return true;
+  }
+#else  // linux
+  char exe_path[1024];
+  ssize_t res = readlink("/proc/self/exe", exe_path, 1024 - 1);
+  if (res >= 0) {
+    exe_path[res] = 0;
+    out = exe_path;
+    return true;
+  }
+#endif
+  return false;
+}
+
+// simple join "/some/folder/" (guaranteed to end with /) and "../relative/path"
+static std::string join_path(std::string dir, const char* relative) {
+  while (relative[0] == '.' && relative[1] == '.' && relative[2] == '/') {
+    size_t slash_pos = dir.find_last_of('/', dir.size() - 2);   // last symbol is slash, find before it
+    if (slash_pos != std::string::npos) {
+      dir = dir.substr(0, slash_pos + 1);
+    }
+    relative += 3;
   }
 
+  return dir + relative;
+}
+
+static std::string auto_discover_stdlib_folder() {
   // if the user launches tolk compiler from a package installed (e.g. /usr/bin/tolk),
   // locate stdlib in /usr/share/ton/smartcont (this folder exists on package installation)
   // (note, that paths are not absolute, they are relative to the launched binary)
   // consider https://github.com/ton-blockchain/packages for actual paths
-  std::filesystem::path executable_dir = std::filesystem::canonical(argv0).remove_filename();
+  std::string executable_filename;
+  if (!get_current_executable_filename(executable_filename)) {
+    return {};
+  }
+
+  // extract dirname to concatenate with relative paths (separator / is ok even for windows)
+  size_t slash_pos = executable_filename.find_last_of('/');
+  std::string executable_dir = executable_filename.substr(0, slash_pos + 1);
 
 #ifdef TD_DARWIN
-  auto def_location = executable_dir / "../share/ton/ton/smartcont/stdlib.tolk";
+  std::string def_location = join_path(executable_dir, "../share/ton/ton/smartcont/tolk-stdlib");
 #elif TD_WINDOWS
-  auto def_location = executable_dir / "smartcont/stdlib.tolk";
+  std::string def_location = join_path(executable_dir, "smartcont/tolk-stdlib");
 #else  // linux
-  auto def_location = executable_dir / "../share/ton/smartcont/stdlib.tolk";
+  std::string def_location = join_path(executable_dir, "../share/ton/smartcont/tolk-stdlib");
 #endif
 
-  if (stdlib_file_exists(def_location)) {
+  if (stdlib_folder_exists(def_location.c_str())) {
     return def_location;
   }
 
   // so, the binary is not from a system package
   // maybe it's just built from sources? e.g. ~/ton/cmake-build-debug/tolk/tolk
   // then, check the ~/ton/crypto/smartcont folder
-  auto near_when_built_from_sources = executable_dir / "../../crypto/smartcont/stdlib.tolk";
-  if (stdlib_file_exists(near_when_built_from_sources)) {
+  std::string near_when_built_from_sources = join_path(executable_dir, "../../crypto/smartcont/tolk-stdlib");
+  if (stdlib_folder_exists(near_when_built_from_sources.c_str())) {
     return near_when_built_from_sources;
   }
 
@@ -95,10 +147,31 @@ static std::string auto_discover_stdlib_location(const char* argv0) {
 
 td::Result<std::string> fs_read_callback(CompilerSettings::FsReadCallbackKind kind, const char* query) {
   switch (kind) {
+    case CompilerSettings::FsReadCallbackKind::Realpath: {
+      td::Result<std::string> res_realpath;
+      if (query[0] == '@' && strlen(query) > 8 && !strncmp(query, "@stdlib/", 8)) {
+        // import "@stdlib/filename" or import "@stdlib/filename.tolk"
+        std::string path = G.settings.stdlib_folder + static_cast<std::string>(query + 7);
+        if (strncmp(path.c_str() + path.size() - 5, ".tolk", 5) != 0) {
+          path += ".tolk";
+        }
+        res_realpath = td::realpath(td::CSlice(path.c_str()));
+      } else {
+        // import "relative/to/cwd/path.tolk"
+        res_realpath = td::realpath(td::CSlice(query));
+      }
+
+      if (res_realpath.is_error()) {
+        // note, that for non-existing files, `realpath()` on Linux/Mac returns an error,
+        // whereas on Windows, it returns okay, but fails after, on reading, with a message "cannot open file"
+        return td::Status::Error(std::string{"cannot find file "} + query);
+      }
+      return res_realpath;
+    }
     case CompilerSettings::FsReadCallbackKind::ReadFile: {
       struct stat f_stat;
-      int res = stat(query, &f_stat);
-      if (res != 0 || !S_ISREG(f_stat.st_mode)) {
+      int res = stat(query, &f_stat);   // query here is already resolved realpath
+      if (res != 0 || (f_stat.st_mode & S_IFMT) != S_IFREG) {
         return td::Status::Error(std::string{"cannot open file "} + query);
       }
 
@@ -110,15 +183,8 @@ td::Result<std::string> fs_read_callback(CompilerSettings::FsReadCallbackKind ki
       fclose(f);
       return std::move(str);
     }
-    case CompilerSettings::FsReadCallbackKind::Realpath: {
-      td::Result<std::string> res_realpath = td::realpath(td::CSlice(query));
-      if (res_realpath.is_error()) {
-        return td::Status::Error(std::string{"cannot find file "} + query);
-      }
-      return res_realpath;
-    }
     default: {
-      return td::Status::Error("Unknown query kind");
+      return td::Status::Error("unknown query kind");
     }
   }
 }
@@ -185,16 +251,26 @@ int main(int argc, char* const argv[]) {
     return 2;
   }
 
-  // locate stdlib.tolk based on env or default system paths
-  G.settings.stdlib_filename = auto_discover_stdlib_location(argv[0]);
-  if (G.settings.stdlib_filename.empty()) {
-    std::cerr << "Failed to discover stdlib.tolk.\n"
+  // locate tolk-stdlib/ based on env or default system paths
+  if (const char* env_var = getenv("TOLK_STDLIB")) {
+    std::string stdlib_filename = static_cast<std::string>(env_var) + "/common.tolk";
+    td::Result<std::string> res = td::realpath(td::CSlice(stdlib_filename.c_str()));
+    if (res.is_error()) {
+      std::cerr << "Environment variable TOLK_STDLIB is invalid: " << res.move_as_error().message().c_str() << std::endl;
+      return 2;
+    }
+    G.settings.stdlib_folder = env_var;
+  } else {
+    G.settings.stdlib_folder = auto_discover_stdlib_folder();
+  }
+  if (G.settings.stdlib_folder.empty()) {
+    std::cerr << "Failed to discover Tolk stdlib.\n"
                  "Probably, you have a non-standard Tolk installation.\n"
-                 "Please, provide env variable TOLK_STDLIB referencing to it.\n";
+                 "Please, provide env variable TOLK_STDLIB referencing to tolk-stdlib/ folder.\n";
     return 2;
   }
   if (G.is_verbosity(2)) {
-    std::cerr << "stdlib located at " << G.settings.stdlib_filename << std::endl;
+    std::cerr << "stdlib folder: " << G.settings.stdlib_folder << std::endl;
   }
 
   if (optind != argc - 1) {
@@ -202,8 +278,8 @@ int main(int argc, char* const argv[]) {
     return 2;
   }
 
-  G.settings.entrypoint_filename = argv[optind];
   G.settings.read_callback = fs_read_callback;
 
-  return tolk_proceed(G.settings.entrypoint_filename);
+  int exit_code = tolk_proceed(argv[optind]);
+  return exit_code;
 }

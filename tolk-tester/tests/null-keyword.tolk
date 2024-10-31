@@ -1,18 +1,19 @@
-import "../../crypto/smartcont/stdlib.tolk"
+import "@stdlib/lisp-lists"
+
 @method_id(101)
 fun test1() {
-    var numbers: tuple = null;
-    numbers = cons(1, numbers);
-    numbers = cons(2, numbers);
-    numbers = cons(3, numbers);
-    numbers = cons(4, numbers);
-    var (h, numbers redef) = uncons(numbers);
-    h += car(numbers);
+    var numbers: tuple = createEmptyList();
+    numbers = listPrepend(1, numbers);
+    numbers = listPrepend(2, numbers);
+    numbers = listPrepend(3, numbers);
+    numbers = listPrepend(4, numbers);
+    var (h, numbers redef) = listSplit(numbers);
+    h += listGetHead(numbers);
 
-    var t = empty_tuple();
+    var t = createEmptyTuple();
     do {
-        var num = numbers~list_next();
-        t~tpush(num);
+        var num = numbers~listNext();
+        t~tuplePush(num);
     } while (numbers != null);
 
     return (h, numbers == null, t);
@@ -52,7 +53,7 @@ fun getUntypedNull() {
 
 @method_id(104)
 fun test4() {
-    var (_, (_, untyped)) = (3, (empty_tuple, null));
+    var (_, (_, untyped)) = (3, (createEmptyTuple, null));
     if (true) {
         return untyped;
     }
@@ -62,7 +63,7 @@ fun test4() {
 @method_id(105)
 fun test5() {
     var n = getUntypedNull();
-    return !(null == n) ? n~load_int(32) : 100;
+    return !(null == n) ? n~loadInt(32) : 100;
 }
 
 @method_id(106)
@@ -72,9 +73,9 @@ fun test6(x: int) {
 
 @method_id(107)
 fun test7() {
-    var b = begin_cell().store_maybe_ref(null);
-    var s = b.end_cell().begin_parse();
-    var c = s~load_maybe_ref();
+    var b = beginCell().storeMaybeRef(null);
+    var s = b.endCell().beginParse();
+    var c = s~loadMaybeRef();
     return (null == c) * 10 + (b != null);
 }
 

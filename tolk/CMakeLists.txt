@@ -35,12 +35,6 @@ if (${TOLK_DEBUG}) # -DTOLK_DEBUG=1 in CMake options => #define TOLK_DEBUG (for 
   target_compile_definitions(tolk PRIVATE TOLK_DEBUG=1)
 endif()
 
-if (NOT USE_EMSCRIPTEN)
-  get_filename_component(STDLIB_TOLK_IF_BUILD_FROM_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/../crypto/smartcont/stdlib.tolk" REALPATH)
-  target_compile_definitions(tolk PRIVATE STDLIB_TOLK_IF_BUILD_FROM_SOURCES="${STDLIB_TOLK_IF_BUILD_FROM_SOURCES}")
-endif()
-
-
 if (USE_EMSCRIPTEN)
   add_executable(tolkfiftlib tolk-wasm.cpp ${TOLK_SOURCE})
   target_include_directories(tolkfiftlib PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)

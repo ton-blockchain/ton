@@ -51,7 +51,7 @@ struct SrcFile {
   SrcFile(const SrcFile& other) = delete;
   SrcFile &operator=(const SrcFile&) = delete;
 
-  bool is_stdlib_file() const { return file_id == 0; /* stdlib always exists, has no imports and parsed the first */ }
+  bool is_stdlib_file() const;
 
   bool is_offset_valid(int offset) const;
   SrcPosition convert_offset(int offset) const;

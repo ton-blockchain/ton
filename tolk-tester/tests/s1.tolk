@@ -43,10 +43,10 @@ fun main() {
   var i_mini: int = string_minihash();
   var i_maxi: int = string_maxihash();
   var i_crc: int = string_crc32();
-  assert(sdeq(s_ascii, newc().store_uint(0x737472696E67, 12 * 4).endcs())) throw 101;
-  assert(sdeq(s_raw, newc().store_uint(0xABCDEF, 6 * 4).endcs())) throw 102;
-  assert(sdeq(s_addr, newc().store_uint(4, 3).store_int(-1, 8)
-    .store_uint(0x3333333333333333333333333333333333333333333333333333333333333333, 256).endcs()), 103);
+  assert(sdeq(s_ascii, newc().storeUint(0x737472696E67, 12 * 4).endcs())) throw 101;
+  assert(sdeq(s_raw, newc().storeUint(0xABCDEF, 6 * 4).endcs())) throw 102;
+  assert(sdeq(s_addr, newc().storeUint(4, 3).storeInt(-1, 8)
+    .storeUint(0x3333333333333333333333333333333333333333333333333333333333333333, 256).endcs()), 103);
   assert(i_hex == 0x4142434445464748494A4B4C4D4E4F505152535455565758595A303132333435) throw 104;
   assert(i_mini == 0x7a62e8a8) throw 105;
   assert(i_maxi == 0x7a62e8a8ebac41bd6de16c65e7be363bc2d2cbc6a0873778dead4795c13db979) throw 106;

@@ -1,3 +1,5 @@
+import "imports/use-dicts.tolk"
+
 fun simpleAllConst() {
     return (!0, !!0 & !false, !!!0, !1, !!1, !-1, !!-1, (!5 == 0) == !0, !0 == true);
 }
@@ -43,29 +45,10 @@ fun someSum(upto: int) {
     return x;
 }
 
-
-fun lookupIdxByValue(idict32: cell, value: int) {
-    var cur_key = -1;
-    do {
-        var (cur_key redef, cs: slice, found: int) = idict32.idict_get_next?(32, cur_key);
-        // todo one-line condition (via &) doesn't work, since right side is calculated immediately
-        if (found) {
-            if (cs~load_int(32) == value) {
-                return cur_key;
-            }
-        }
-    } while (found);
-    return -1;
-}
-
 @method_id(104)
 fun testDict(last: int) {
-    // prepare dict: [3 => 30, 4 => 40, 5 => 50]
-    var dict: cell = new_dict();
-    dict~idict_set_builder(32, 3, begin_cell().store_int(30, 32));
-    dict~idict_set_builder(32, 4, begin_cell().store_int(40, 32));
-    dict~idict_set_builder(32, 5, begin_cell().store_int(!last ? 100 : last, 32));
-
+    // prepare dict: [3 => 30, 4 => 40, 5 => x]
+    var dict = prepareDict_3_30_4_40_5_x(!last ? 100 : last);
     return (lookupIdxByValue(dict, 30), lookupIdxByValue(dict, last), lookupIdxByValue(dict, 100));
 }
 

@@ -4,7 +4,7 @@ fun f(a: int, b: int, c: int, d: int, e: int, f: int): (int, int) {
   return (Dx/D,Dy/D);
 };;;;
 
-fun mulDivR(x: int, y: int, z: int): int { return muldivr(x, y, z); }
+fun mulDivR(x: int, y: int, z: int): int { return mulDivRound(x, y, z); }
 
 fun calc_phi(): int {
   var n = 1;

@@ -7,40 +7,45 @@
 // without affecting performance and even bytecode hashes.
 // This works with ~functions also. And even works with wrappers of wrappers.
 // Moreover, such wrappers can reorder input parameters, see a separate test camel2.tolk.
+import "@stdlib/tvm-dicts"
 
-fun myBeginCell(): builder { return begin_cell(); }
-fun myEndCell(b: builder): cell { return end_cell(b); }
-fun myStoreRef(b: builder, c: cell): builder { return store_ref(b, c); }
-fun myStoreUint(b: builder, i: int, bw: int): builder { return store_uint(b, i, bw); }
+fun myBeginCell(): builder { return beginCell(); }
+fun myEndCell(b: builder): cell { return endCell(b); }
+fun myStoreRef(b: builder, c: cell): builder { return storeRef(b, c); }
+fun myStoreUint(b: builder, i: int, bw: int): builder { return storeUint(b, i, bw); }
 
 // 'inline' is not needed actually, but if it exists, it's just ignored
 @inline
 @pure
-fun myBeginParse(c: cell): slice { return begin_parse(c); }
+fun myBeginParse(c: cell): slice { return beginParse(c); }
 @inline
 @pure
-fun mySkipBits(s: slice, len: int): slice { return skip_bits(s, len); }
+fun mySkipBits(s: slice, len: int): slice { return skipBits(s, len); }
 @inline
 @pure
-fun ~mySkipBits(s: slice, len: int): (slice, ()) { return ~skip_bits(s, len); }
+fun ~mySkipBits(s: slice, len: int): (slice, ()) { return ~skipBits(s, len); }
 @inline
 @pure
-fun ~myLoadUint(s: slice, len: int): (slice, int) { return load_uint(s, len); }
+fun ~myLoadUint(s: slice, len: int): (slice, int) { return loadUint(s, len); }
 
-fun myComputeDataSize(c: cell, maxCells: int): (int, int, int) { return compute_data_size(c, maxCells); }
+fun myComputeDataSize(c: cell, maxCells: int): (int, int, int) { return calculateCellSizeStrict(c, maxCells); }
 
-fun dict__new(): cell { return new_dict(); }
-fun dict__iset(dict: cell, keyLen: int, index: int, value: slice): cell { return idict_set(dict, keyLen, index, value); }
-fun ~dict__iset(dict: cell, keyLen: int, index: int, value: slice): (cell, ()) { return ~idict_set(dict, keyLen, index, value); }
-fun dict__tryIGet(dict: cell, keyLen: int, index: int): (slice, int) { return idict_get?(dict, keyLen, index); }
-fun dict__tryIGetMin(dict: cell, keyLen: int): (int, slice, int) { return idict_get_min?(dict, keyLen); }
+fun dict__new(): cell { return createEmptyDict(); }
+fun dict__iset(dict: cell, keyLen: int, index: int, value: slice): cell { return iDictSet(dict, keyLen, index, value); }
+fun ~dict__iset(dict: cell, keyLen: int, index: int, value: slice): (cell, ()) { return ~iDictSet(dict, keyLen, index, value); }
+fun dict__tryIGet(dict: cell, keyLen: int, index: int): (slice, int) { return iDictGet(dict, keyLen, index); }
+fun dict__tryIGetMin(dict: cell, keyLen: int): (int, slice, int) { return iDictGetFirst(dict, keyLen); }
 
-fun myEmptyTuple(): tuple { return empty_tuple(); }
+@pure
+fun triple_second<X, Y, Z>(p: [X, Y, Z]): Y
+    asm "SECOND";
+
+fun myEmptyTuple(): tuple { return createEmptyTuple(); }
 fun emptyTuple1(): tuple { return myEmptyTuple(); }
 fun emptyTuple11(): tuple { return emptyTuple1(); }
-fun myTuplePush<X>(t: tuple, value: X): tuple { return tpush(t, value); }
-fun ~myTuplePush<X>(t: tuple, value: X): (tuple, ()) { return ~tpush(t, value); }
-fun myTupleAt<X>(t: tuple, index: int): X { return at(t, index); }
+fun myTuplePush<X>(t: tuple, value: X): tuple { return tuplePush(t, value); }
+fun ~myTuplePush<X>(t: tuple, value: X): (tuple, ()) { return ~tuplePush(t, value); }
+fun myTupleAt<X>(t: tuple, index: int): X { return tupleAt(t, index); }
 fun tripleSecond<X1, Y2, Z3>(p: [X1, Y2, Z3]): Y2 { return triple_second(p); }
 @pure
 fun nullValue<X>(): X

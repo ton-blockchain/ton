@@ -50,14 +50,14 @@ fun add3(a: int, b: int, c: int) { return a+b+c; }
 }
 
 fun `load:u32`(cs: slice): (slice, int) {
-    return cs.load_uint(32);
+    return cs.loadUint(32);
 }
 
 @method_id(116) fun `call_~_via_backticks`():[int,int,int,int] {
-    var b:builder = begin_cell().store_uint(1, 32).store_uint(2, 32).store_uint(3, 32).store_uint(4, 32);
-    var `cs`:slice = b.end_cell().begin_parse();
-    var (`cs` redef,one:int) = `cs`.`load_uint`(32);
-    var (two:int,three:int) = (`cs`~`load_uint`(32), cs~`load:u32`());
+    var b:builder = beginCell().storeUint(1, 32).storeUint(2, 32).storeUint(3, 32).storeUint(4, 32);
+    var `cs`:slice = b.endCell().beginParse();
+    var (`cs` redef,one:int) = `cs`.`loadUint`(32);
+    var (two:int,three:int) = (`cs`~`loadUint`(32), cs~`load:u32`());
     var (cs redef,four:int) = cs.`load:u32`();
     return [one,two,three,four];
 }

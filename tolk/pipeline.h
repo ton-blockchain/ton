@@ -36,6 +36,6 @@ void pipeline_register_global_symbols(const AllSrcFiles&);
 void pipeline_convert_ast_to_legacy_Expr_Op(const AllSrcFiles&);
 
 void pipeline_find_unused_symbols();
-void pipeline_generate_fif_output_to_std_cout();
+void pipeline_generate_fif_output_to_std_cout(const AllSrcFiles&);
 
 } // namespace tolk

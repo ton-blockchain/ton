@@ -4,8 +4,8 @@ asm "NIL";
 @pure
 fun tpush2<X>(t: tuple, x: X): (tuple, ())
 asm "TPUSH";
-fun emptyTuple(): tuple { return empty_tuple2(); }
-fun tuplePush<X>(t: tuple, value: X): (tuple, ()) { return tpush2(t, value); }
+fun myEmptyTuple(): tuple { return empty_tuple2(); }
+fun myTuplePush<X>(t: tuple, value: X): (tuple, ()) { return tpush2(t, value); }
 
 @pure
 fun asm_func_1(x: int, y: int, z: int): tuple
@@ -31,7 +31,7 @@ fun asmFuncModify(a: tuple, b: int, c: int): (tuple, ()) { return asm_func_modif
 global t: tuple;
 
 fun foo(x: int): int {
-  t~tuplePush(x);
+  t~myTuplePush(x);
   return x * 10;
 }
 
@@ -44,7 +44,7 @@ fun test_old_1(): (tuple, tuple) {
 
 @method_id(12)
 fun test_old_2(): (tuple, tuple) {
-  t = emptyTuple();
+  t = myEmptyTuple();
   var t2: tuple = asm_func_2(foo(11), foo(22), foo(33));
   return (t, t2);
 }
@@ -58,7 +58,7 @@ fun test_old_3(): (tuple, tuple) {
 
 @method_id(14)
 fun test_old_4(): (tuple, tuple) {
-  t = emptyTuple();
+  t = myEmptyTuple();
   var t2: tuple = empty_tuple2();
   // This actually computes left-to-right even without compute-asm-ltr
   t2 = asm_func_4(foo(11), (foo(22), (foo(33), foo(44))), foo(55));

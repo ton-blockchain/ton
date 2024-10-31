@@ -1121,10 +1121,6 @@ void define_builtins() {
   define_builtin_func("_~/_", arith_bin_op, std::bind(compile_div, _1, _2, _3, 0));
   define_builtin_func("_^/_", arith_bin_op, std::bind(compile_div, _1, _2, _3, 1));
   define_builtin_func("_%_", arith_bin_op, std::bind(compile_mod, _1, _2, _3, -1));
-  define_builtin_func("divmod", TypeExpr::new_map(Int2, Int2), AsmOp::Custom("DIVMOD", 2, 2));
-  define_builtin_func("~divmod", TypeExpr::new_map(Int2, Int2), AsmOp::Custom("DIVMOD", 2, 2));
-  define_builtin_func("moddiv", TypeExpr::new_map(Int2, Int2), AsmOp::Custom("DIVMOD", 2, 2), {}, {1, 0});
-  define_builtin_func("~moddiv", TypeExpr::new_map(Int2, Int2), AsmOp::Custom("DIVMOD", 2, 2), {}, {1, 0});
   define_builtin_func("_<<_", arith_bin_op, compile_lshift);
   define_builtin_func("_>>_", arith_bin_op, std::bind(compile_rshift, _1, _2, _3, -1));
   define_builtin_func("_~>>_", arith_bin_op, std::bind(compile_rshift, _1, _2, _3, 0));
@@ -1144,10 +1140,10 @@ void define_builtins() {
   define_builtin_func("^_&=_", arith_bin_op, compile_bitwise_and);
   define_builtin_func("^_|=_", arith_bin_op, compile_bitwise_or);
   define_builtin_func("^_^=_", arith_bin_op, compile_bitwise_xor);
-  define_builtin_func("muldiv", TypeExpr::new_map(Int3, Int), std::bind(compile_muldiv, _1, _2, _3, -1));
-  define_builtin_func("muldivr", TypeExpr::new_map(Int3, Int), std::bind(compile_muldiv, _1, _2, _3, 0));
-  define_builtin_func("muldivc", TypeExpr::new_map(Int3, Int), std::bind(compile_muldiv, _1, _2, _3, 1));
-  define_builtin_func("muldivmod", TypeExpr::new_map(Int3, Int2), AsmOp::Custom("MULDIVMOD", 3, 2));
+  define_builtin_func("mulDivFloor", TypeExpr::new_map(Int3, Int), std::bind(compile_muldiv, _1, _2, _3, -1));
+  define_builtin_func("mulDivRound", TypeExpr::new_map(Int3, Int), std::bind(compile_muldiv, _1, _2, _3, 0));
+  define_builtin_func("mulDivCeil", TypeExpr::new_map(Int3, Int), std::bind(compile_muldiv, _1, _2, _3, 1));
+  define_builtin_func("mulDivMod", TypeExpr::new_map(Int3, Int2), AsmOp::Custom("MULDIVMOD", 3, 2));
   define_builtin_func("_==_", arith_bin_op, std::bind(compile_cmp_int, _1, _2, 2));
   define_builtin_func("_!=_", arith_bin_op, std::bind(compile_cmp_int, _1, _2, 5));
   define_builtin_func("_<_", arith_bin_op, std::bind(compile_cmp_int, _1, _2, 4));
@@ -1162,24 +1158,23 @@ void define_builtins() {
   define_builtin_func("__throw", impure_un_op, compile_throw, true);
   define_builtin_func("__throw_arg", throw_arg_op, compile_throw_arg, true);
   define_builtin_func("__throw_if_unless", TypeExpr::new_map(Int3, Unit), std::bind(compile_throw_if_unless, _1, _2), true);
-  define_builtin_func("load_int", fetch_int_op, std::bind(compile_fetch_int, _1, _2, true, true), {}, {1, 0});
-  define_builtin_func("load_uint", fetch_int_op, std::bind(compile_fetch_int, _1, _2, true, false), {}, {1, 0});
-  define_builtin_func("preload_int", prefetch_int_op, std::bind(compile_fetch_int, _1, _2, false, true));
-  define_builtin_func("preload_uint", prefetch_int_op, std::bind(compile_fetch_int, _1, _2, false, false));
-  define_builtin_func("store_int", store_int_op, std::bind(compile_store_int, _1, _2, true), {1, 0, 2});
-  define_builtin_func("store_uint", store_int_op, std::bind(compile_store_int, _1, _2, false), {1, 0, 2});
-  define_builtin_func("~store_int", store_int_method, std::bind(compile_store_int, _1, _2, true), {1, 0, 2});
-  define_builtin_func("~store_uint", store_int_method, std::bind(compile_store_int, _1, _2, false), {1, 0, 2});
-  define_builtin_func("load_bits", fetch_slice_op, std::bind(compile_fetch_slice, _1, _2, true), {}, {1, 0});
-  define_builtin_func("preload_bits", prefetch_slice_op, std::bind(compile_fetch_slice, _1, _2, false));
-  define_builtin_func("at", TypeExpr::new_forall({X}, TypeExpr::new_map(TupleInt, X)), compile_tuple_at);
-  define_builtin_func("touch", TypeExpr::new_forall({X}, TypeExpr::new_map(X, X)), AsmOp::Nop());
-  define_builtin_func("~touch", TypeExpr::new_forall({X}, TypeExpr::new_map(X, TypeExpr::new_tensor({X, Unit}))),
-                      AsmOp::Nop());
-  define_builtin_func("~dump", TypeExpr::new_forall({X}, TypeExpr::new_map(X, TypeExpr::new_tensor({X, Unit}))),
-                      AsmOp::Custom("s0 DUMP", 1, 1), true);
-  define_builtin_func("~strdump", TypeExpr::new_forall({X}, TypeExpr::new_map(X, TypeExpr::new_tensor({X, Unit}))),
-                      AsmOp::Custom("STRDUMP", 1, 1), true);
+  define_builtin_func("loadInt", fetch_int_op, std::bind(compile_fetch_int, _1, _2, true, true), {}, {1, 0});
+  define_builtin_func("loadUint", fetch_int_op, std::bind(compile_fetch_int, _1, _2, true, false), {}, {1, 0});
+  define_builtin_func("loadBits", fetch_slice_op, std::bind(compile_fetch_slice, _1, _2, true), {}, {1, 0});
+  define_builtin_func("preloadInt", prefetch_int_op, std::bind(compile_fetch_int, _1, _2, false, true));
+  define_builtin_func("preloadUint", prefetch_int_op, std::bind(compile_fetch_int, _1, _2, false, false));
+  define_builtin_func("preloadBits", prefetch_slice_op, std::bind(compile_fetch_slice, _1, _2, false));
+  define_builtin_func("storeInt", store_int_op, std::bind(compile_store_int, _1, _2, true), {1, 0, 2});
+  define_builtin_func("storeUint", store_int_op, std::bind(compile_store_int, _1, _2, false), {1, 0, 2});
+  define_builtin_func("~storeInt", store_int_method, std::bind(compile_store_int, _1, _2, true), {1, 0, 2});
+  define_builtin_func("~storeUint", store_int_method, std::bind(compile_store_int, _1, _2, false), {1, 0, 2});
+  define_builtin_func("tupleAt", TypeExpr::new_forall({X}, TypeExpr::new_map(TupleInt, X)), compile_tuple_at);
+  define_builtin_func("debugPrint", TypeExpr::new_forall({X}, TypeExpr::new_map(X, Unit)),
+                      AsmOp::Custom("s0 DUMP DROP", 1, 1), true);
+  define_builtin_func("debugPrintString", TypeExpr::new_forall({X}, TypeExpr::new_map(X, Unit)),
+                      AsmOp::Custom("STRDUMP DROP", 1, 1), true);
+  define_builtin_func("debugDumpStack", TypeExpr::new_map(Unit, Unit),
+                      AsmOp::Custom("DUMPSTK", 0, 0), true);
 }
 
 }  // namespace tolk

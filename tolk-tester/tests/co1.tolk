@@ -43,7 +43,7 @@ asm "SDEQ";
 fun stslicer(b: builder, s: slice): builder
 asm "STSLICER";
 
-fun storeUint(b: builder, x: int, len: int): builder { return store_uint(b, x, len); }
+fun myStoreUint(b: builder, x: int, len: int): builder { return storeUint(b, x, len); }
 fun endSlice(b: builder): slice { return endcs(b); }
 
 fun main() {
@@ -59,9 +59,9 @@ fun main() {
     var s2: slice = sget2();
     var s3: slice = newc().stslicer(str1).stslicer(str2r).endcs();
 
-    assert(sdeq(s1, newc().storeUint(str1int, 12 * nibbles).endcs())) throw int111;
-    assert(sdeq(s2, newc().store_uint(str2int, 6 * nibbles).endSlice())) throw 112;
-    assert(sdeq(s3, newc().store_uint(0x636f6e737431AABBCC, 18 * nibbles).endcs())) throw 113;
+    assert(sdeq(s1, newc().myStoreUint(str1int, 12 * nibbles).endcs())) throw int111;
+    assert(sdeq(s2, newc().storeUint(str2int, 6 * nibbles).endSlice())) throw 112;
+    assert(sdeq(s3, newc().storeUint(0x636f6e737431AABBCC, 18 * nibbles).endcs())) throw 113;
 
     var i4: int = iget240();
     assert(i4 == 240) throw ((104));

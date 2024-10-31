@@ -87,6 +87,11 @@ AllSrcFiles AllRegisteredSrcFiles::get_all_files() const {
   return src_files_immutable;
 }
 
+bool SrcFile::is_stdlib_file() const {
+  std::string_view rel(rel_filename);
+  return rel.size() > 10 && rel.substr(0, 8) == "@stdlib/"; // common.tolk, tvm-dicts.tolk, etc
+}
+
 bool SrcFile::is_offset_valid(int offset) const {
   return offset >= 0 && offset < static_cast<int>(text.size());
 }

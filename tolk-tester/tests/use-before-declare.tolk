@@ -1,7 +1,7 @@
 fun main(): int {
-    var c: cell = my_begin_cell().store_int(demo_10, 32).my_end_cell();
+    var c: cell = my_begin_cell().storeInt(demo_10, 32).my_end_cell();
     var cs: slice = my_begin_parse(c);
-    var ten: int = cs~load_int(32);
+    var ten: int = cs~loadInt(32);
     return 1 + demo1(ten) + demo_var;
 }
 

@@ -132,9 +132,20 @@ static void generate_output_func(SymDef* func_sym) {
   }
 }
 
-void pipeline_generate_fif_output_to_std_cout() {
+void pipeline_generate_fif_output_to_std_cout(const AllSrcFiles& all_src_files) {
   std::cout << "\"Asm.fif\" include\n";
-  std::cout << "// automatically generated from " << G.generated_from << std::endl;
+  std::cout << "// automatically generated from ";
+  bool need_comma = false;
+  for (const SrcFile* file : all_src_files) {
+    if (!file->is_stdlib_file()) {
+      if (need_comma) {
+        std::cout << ", ";
+      }
+      std::cout << file->rel_filename;
+      need_comma = true;
+    }
+  }
+  std::cout << std::endl;
   std::cout << "PROGRAM{\n";
 
   bool has_main_procedure = false;

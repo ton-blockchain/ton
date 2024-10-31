@@ -2,7 +2,7 @@ global g: int;
 
 @pure
 fun f_pure(): builder {
-    var b: builder = begin_cell();
+    var b: builder = beginCell();
     g = g + 1;
     return b;
 }

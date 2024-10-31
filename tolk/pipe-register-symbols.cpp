@@ -296,7 +296,7 @@ static void register_function(V<ast_function_declaration> v) {
       v->error("`builtin` used for non-builtin function");
     }
 #ifdef TOLK_DEBUG
-    // in release, we don't need this check, since `builtin` is used only in stdlib.tolk, which is our responsibility
+    // in release, we don't need this check, since `builtin` is used only in stdlib, which is our responsibility
     if (!func_val->sym_type->equals_to(func_type) || func_val->is_marked_as_pure() != v->marked_as_pure) {
       v->error("declaration for `builtin` function doesn't match an actual one");
     }

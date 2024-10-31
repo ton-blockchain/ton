@@ -979,12 +979,6 @@ void pipeline_convert_ast_to_legacy_Expr_Op(const AllSrcFiles& all_src_files) {
   for (const SrcFile* file : all_src_files) {
     tolk_assert(file->ast);
 
-    if (!file->is_stdlib_file()) {
-      // file->ast->debug_print();
-      G.generated_from += file->rel_filename;
-      G.generated_from += ", ";
-    }
-
     for (AnyV v : file->ast->as<ast_tolk_file>()->get_toplevel_declarations()) {
       if (auto v_func = v->try_as<ast_function_declaration>()) {
         if (v_func->is_asm_function()) {

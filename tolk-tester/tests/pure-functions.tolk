@@ -11,16 +11,16 @@ fun f_pure2(): int {
 
 @pure
 fun get_contract_data(): (int, int) {
-    var c: cell = get_data();
-    var cs: slice = c.begin_parse();
-    cs~load_bits(32);
-    var value: int = cs~load_uint(16);
+    var c: cell = getContractData();
+    var cs: slice = c.beginParse();
+    cs~loadBits(32);
+    var value: int = cs~loadUint(16);
     return (1, value);
 }
 
 fun save_contract_data(value: int) {
-    var b: builder = begin_cell().store_int(1, 32).store_uint(value, 16);
-    set_data(b.end_cell());
+    var b: builder = beginCell().storeInt(1, 32).storeUint(value, 16);
+    setContractData(b.endCell());
 }
 
 @pure

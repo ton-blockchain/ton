@@ -27,6 +27,7 @@ const TOLKFIFTLIB_MODULE = getenv('TOLKFIFTLIB_MODULE')
 const TOLKFIFTLIB_WASM = getenv('TOLKFIFTLIB_WASM')
 const FIFT_EXECUTABLE = getenv('FIFT_EXECUTABLE')
 const FIFT_LIBS_FOLDER = getenv('FIFTPATH')  // this env is needed for fift to work properly
+const STDLIB_FOLDER = __dirname + '/../crypto/smartcont/tolk-stdlib'
 const TMP_DIR = os.tmpdir()
 
 class CmdLineOptions {
@@ -475,25 +476,33 @@ function copyToCStringPtr(mod, str, ptr) {
     return allocated;
 }
 
+/** @return {string} */
 function copyFromCString(mod, ptr) {
     return mod.UTF8ToString(ptr);
 }
 
 /** @return {{status: string, message: string, fiftCode: string, codeBoc: string, codeHashHex: string}} */
 function compileFile(mod, filename, experimentalOptions) {
-    // see tolk-wasm.cpp: typedef void (*CStyleReadFileCallback)(int, char const*, char**, char**)
+    // see tolk-wasm.cpp: typedef void (*WasmFsReadCallback)(int, char const*, char**, char**)
     const callbackPtr = mod.addFunction((kind, dataPtr, destContents, destError) => {
         if (kind === 0) { // realpath
             try {
-                const relativeFilename = copyFromCString(mod, dataPtr)
-                copyToCStringPtr(mod, fs.realpathSync(relativeFilename), destContents);
+                let relative = copyFromCString(mod, dataPtr)
+                if (relative.startsWith('@stdlib/')) {
+                    // import "@stdlib/filename" or import "@stdlib/filename.tolk"
+                    relative = STDLIB_FOLDER + '/' + relative.substring(7)
+                    if (!relative.endsWith('.tolk')) {
+                        relative += '.tolk'
+                    }
+                }
+                copyToCStringPtr(mod, fs.realpathSync(relative), destContents);
             } catch (err) {
                 copyToCStringPtr(mod, 'cannot find file', destError);
             }
         } else if (kind === 1) { // read file
             try {
-                const filename = copyFromCString(mod, dataPtr) // already normalized (as returned above)
-                copyToCStringPtr(mod, fs.readFileSync(filename).toString('utf-8'), destContents);
+                const absolute = copyFromCString(mod, dataPtr) // already normalized (as returned above)
+                copyToCStringPtr(mod, fs.readFileSync(absolute).toString('utf-8'), destContents);
             } catch (err) {
                 copyToCStringPtr(mod, err.message || err.toString(), destError);
             }
@@ -506,7 +515,6 @@ function compileFile(mod, filename, experimentalOptions) {
         optimizationLevel: 2,
         withStackComments: true,
         experimentalOptions: experimentalOptions || undefined,
-        stdlibLocation: __dirname + '/../crypto/smartcont/stdlib.tolk',
         entrypointFileName: filename
     };
 

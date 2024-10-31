@@ -48,21 +48,16 @@ int tolk_proceed(const std::string &entrypoint_filename) {
   define_builtins();
   lexer_init();
 
+  // on any error, an exception is thrown, and the message is printed out below
+  // (currently, only a single error can be printed)
   try {
-    if (G.settings.stdlib_filename.empty()) {
-      throw Fatal("stdlib filename not specified");
-    }
-
-    // on any error, an exception is thrown, and the message is printed out below
-    // (currently, only a single error can be printed)
-
-    AllSrcFiles all_files = pipeline_discover_and_parse_sources(G.settings.stdlib_filename, entrypoint_filename);
+    AllSrcFiles all_files = pipeline_discover_and_parse_sources("@stdlib/common.tolk", entrypoint_filename);
 
     pipeline_register_global_symbols(all_files);
     pipeline_convert_ast_to_legacy_Expr_Op(all_files);
 
     pipeline_find_unused_symbols();
-    pipeline_generate_fif_output_to_std_cout();
+    pipeline_generate_fif_output_to_std_cout(all_files);
 
     return 0;
   } catch (Fatal& fatal) {
