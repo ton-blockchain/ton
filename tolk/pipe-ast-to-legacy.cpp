@@ -160,6 +160,22 @@ static bool parse_raw_address(const std::string& acc_string, int& workchain, ton
   return true;
 }
 
+static Expr* create_expr_apply(SrcLocation loc, SymDef* sym, std::vector<Expr*>&& args) {
+  Expr* apply = new Expr(Expr::_Apply, sym, std::move(args));
+  apply->here = loc;
+  apply->flags = Expr::_IsRvalue;
+  apply->deduce_type();
+  return apply;
+}
+
+static Expr* create_expr_int_const(SrcLocation loc, int int_val) {
+  Expr* int_const = new Expr(Expr::_Const, loc);
+  int_const->intval = td::make_refint(int_val);
+  int_const->flags = Expr::_IsRvalue;
+  int_const->e_type = TypeExpr::new_atomic(TypeExpr::_Int);
+  return int_const;
+}
+
 namespace blk_fl {
 enum { end = 1, ret = 2, empty = 4 };
 typedef int val;
@@ -238,13 +254,10 @@ static Expr* process_expr(V<ast_binary_operator> v, CodeBlob& code) {
     if (x->is_immutable()) {
       x->fire_error_modifying_immutable("left side of assignment");
     }
-    sym_idx_t name = G.symbols.lookup_add("^_" + operator_name + "_");
+    SymDef* sym = lookup_symbol(calc_sym_idx("^_" + operator_name + "_"));
     Expr* y = process_expr(v->get_rhs(), code);
     y->chk_rvalue();
-    Expr* z = new Expr{Expr::_Apply, name, {x, y}};
-    z->here = v->loc;
-    z->flags = Expr::_IsRvalue;
-    z->deduce_type();
+    Expr* z = create_expr_apply(v->loc, sym, {x, y});
     Expr* res = new Expr{Expr::_Letop, {x->copy(), z}};
     res->here = v->loc;
     res->flags = x->flags | Expr::_IsRvalue;
@@ -276,17 +289,27 @@ static Expr* process_expr(V<ast_binary_operator> v, CodeBlob& code) {
       t == tok_mul || t == tok_div || t == tok_mod || t == tok_divC || t == tok_divR) {
     Expr* res = process_expr(v->get_lhs(), code);
     res->chk_rvalue();
-    sym_idx_t name = G.symbols.lookup_add("_" + operator_name + "_");
+    SymDef* sym = lookup_symbol(calc_sym_idx("_" + operator_name + "_"));
     Expr* x = process_expr(v->get_rhs(), code);
     x->chk_rvalue();
-    res = new Expr{Expr::_Apply, name, {res, x}};
-    res->here = v->loc;
-    res->flags = Expr::_IsRvalue;
-    res->deduce_type();
+    res = create_expr_apply(v->loc, sym, {res, x});
     return res;
   }
   if (t == tok_logical_and || t == tok_logical_or) {
-    v->error("logical operators are not supported yet");
+    // do the following transformations:
+    // a && b  ->  a ? (b != 0) : 0
+    // a || b  ->  a ? 1 : (b != 0)
+    SymDef* sym_neq = lookup_symbol(calc_sym_idx("_!=_"));
+    Expr* lhs = process_expr(v->get_lhs(), code);
+    Expr* rhs = process_expr(v->get_rhs(), code);
+    Expr* e_neq0 = create_expr_apply(v->loc, sym_neq, {rhs, create_expr_int_const(v->loc, 0)});
+    Expr* e_when_true = t == tok_logical_and ? e_neq0 : create_expr_int_const(v->loc, -1);
+    Expr* e_when_false = t == tok_logical_and ? create_expr_int_const(v->loc, 0) : e_neq0;
+    Expr* e_ternary = new Expr(Expr::_CondExpr, {lhs, e_when_true, e_when_false});
+    e_ternary->here = v->loc;
+    e_ternary->flags = Expr::_IsRvalue;
+    e_ternary->deduce_type();
+    return e_ternary;
   }
 
   v->error("unsupported binary operator");
@@ -294,7 +317,7 @@ static Expr* process_expr(V<ast_binary_operator> v, CodeBlob& code) {
 
 static Expr* process_expr(V<ast_unary_operator> v, CodeBlob& code) {
   TokenType t = v->tok;
-  sym_idx_t name = G.symbols.lookup_add(static_cast<std::string>(v->operator_name) + "_");
+  SymDef* sym = lookup_symbol(calc_sym_idx(static_cast<std::string>(v->operator_name) + "_"));
   Expr* x = process_expr(v->get_rhs(), code);
   x->chk_rvalue();
 
@@ -316,11 +339,7 @@ static Expr* process_expr(V<ast_unary_operator> v, CodeBlob& code) {
     return x;
   }
 
-  auto res = new Expr{Expr::_Apply, name, {x}};
-  res->here = v->loc;
-  res->flags = Expr::_IsRvalue;
-  res->deduce_type();
-  return res;
+  return create_expr_apply(v->loc, sym, {x});
 }
 
 static Expr* process_expr(V<ast_ternary_operator> v, CodeBlob& code) {
@@ -683,19 +702,12 @@ static Expr* process_expr(V<ast_string_const> v) {
 
 static Expr* process_expr(V<ast_bool_const> v) {
   SymDef* builtin_sym = lookup_symbol(calc_sym_idx(v->bool_val ? "__true" : "__false"));
-  Expr* res = new Expr{Expr::_Apply, builtin_sym, {}};
-  res->flags = Expr::_IsRvalue;
-  res->deduce_type();
-  return res;
+  return create_expr_apply(v->loc, builtin_sym, {});
 }
 
 static Expr* process_expr(V<ast_null_keyword> v) {
   SymDef* builtin_sym = lookup_symbol(calc_sym_idx("__null"));
-  Expr* res = new Expr{Expr::_Apply, builtin_sym, {}};
-  res->here = v->loc;
-  res->flags = Expr::_IsRvalue;
-  res->deduce_type();
-  return res;
+  return create_expr_apply(v->loc, builtin_sym, {});
 }
 
 static Expr* process_expr(V<ast_self_keyword> v, CodeBlob& code) {
@@ -1116,11 +1128,9 @@ static blk_fl::val process_vertex(V<ast_throw_statement> v, CodeBlob& code) {
     args.push_back(process_expr(v->get_thrown_code(), code));
   }
 
-  Expr* expr = new Expr{Expr::_Apply, builtin_sym, std::move(args)};
-  expr->here = v->loc;
-  expr->flags = Expr::_IsRvalue | Expr::_IsImpure;
-  expr->deduce_type();
-  expr->pre_compile(code);
+  Expr* apply = create_expr_apply(v->loc, builtin_sym, std::move(args));
+  apply->flags |= Expr::_IsImpure;
+  apply->pre_compile(code);
   return blk_fl::end;
 }
 
@@ -1137,11 +1147,9 @@ static blk_fl::val process_vertex(V<ast_assert_statement> v, CodeBlob& code) {
   }
 
   SymDef* builtin_sym = lookup_symbol(calc_sym_idx("__throw_if_unless"));
-  Expr* expr = new Expr{Expr::_Apply, builtin_sym, std::move(args)};
-  expr->here = v->loc;
-  expr->flags = Expr::_IsRvalue | Expr::_IsImpure;
-  expr->deduce_type();
-  expr->pre_compile(code);
+  Expr* apply = create_expr_apply(v->loc, builtin_sym, std::move(args));
+  apply->flags |= Expr::_IsImpure;
+  apply->pre_compile(code);
   return blk_fl::end;
 }
 

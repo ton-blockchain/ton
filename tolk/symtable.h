@@ -67,8 +67,8 @@ private:
 public:
 
   static constexpr sym_idx_t not_found = 0;
-  sym_idx_t lookup(std::string_view str, int mode = 0) {
-    return gen_lookup(str, mode);
+  sym_idx_t lookup(std::string_view str) {
+    return gen_lookup(str, 0);
   }
   sym_idx_t lookup_add(std::string_view str) {
     return gen_lookup(str, 1);
