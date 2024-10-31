@@ -15,104 +15,225 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #pragma once
-#include "srcread.h"
-#include <array>
-#include <memory>
-#include <cstring>
+
+#include "platform-utils.h"
+#include "src-file.h"
+#include <string>
 
 namespace tolk {
 
-/*
- *
- *   LEXER
- *
- */
+enum TokenType {
+  tok_empty,
 
-struct Lexem {
-  enum { Undefined = -2, Eof = -1, Unknown = 0, Ident = 0, Number = 1, Special = 2, String = 3 };
-  int tp;
-  int val;
-  std::string str;
-  SrcLocation loc;
-  int classify();
-  Lexem(std::string _str = "", const SrcLocation& _loc = {}, int _tp = Unknown, int _val = 0)
-      : tp(_tp), val(_val), str(_str), loc(_loc) {
-    classify();
-  }
-  int set(std::string _str = "", const SrcLocation& _loc = {}, int _tp = Unknown, int _val = 0);
-  Lexem& clear(const SrcLocation& _loc = {}, int _tp = Unknown, int _val = 0) {
-    tp = _tp;
-    val = _val;
-    loc = _loc;
-    str = "";
-    return *this;
-  }
-  bool valid() const {
-    return tp != Undefined;
-  }
-  std::string name_str() const;
-  void error(std::string _str) const {
-    throw ParseError{loc, _str};
-  }
-  void error_at(std::string str1, std::string str2) const {
-    error(str1 + str + str2);
-  }
+  tok_int_const,
+  tok_string_const,
+  tok_string_modifier,
 
-  static std::string lexem_name_str(int idx);
+  tok_identifier,
+
+  tok_plus,
+  tok_minus,
+  tok_mul,
+  tok_div,
+  tok_mod,
+  tok_question,
+  tok_colon,
+  tok_comma,
+  tok_semicolon,
+  tok_oppar,
+  tok_clpar,
+  tok_opbracket,
+  tok_clbracket,
+  tok_opbrace,
+  tok_clbrace,
+  tok_assign,
+  tok_underscore,
+  tok_lt,
+  tok_gt,
+  tok_bitwise_and,
+  tok_bitwise_or,
+  tok_bitwise_xor,
+  tok_bitwise_not,
+  tok_dot,
+
+  tok_eq,
+  tok_neq,
+  tok_leq,
+  tok_geq,
+  tok_spaceship,
+  tok_lshift,
+  tok_rshift,
+  tok_rshiftR,
+  tok_rshiftC,
+  tok_divR,
+  tok_divC,
+  tok_modR,
+  tok_modC,
+  tok_divmod,
+  tok_set_plus,
+  tok_set_minus,
+  tok_set_mul,
+  tok_set_div,
+  tok_set_divR,
+  tok_set_divC,
+  tok_set_mod,
+  tok_set_modR,
+  tok_set_modC,
+  tok_set_lshift,
+  tok_set_rshift,
+  tok_set_rshiftR,
+  tok_set_rshiftC,
+  tok_set_bitwise_and,
+  tok_set_bitwise_or,
+  tok_set_bitwise_xor,
+
+  tok_return,
+  tok_var,
+  tok_repeat,
+  tok_do,
+  tok_while,
+  tok_until,
+  tok_try,
+  tok_catch,
+  tok_if,
+  tok_ifnot,
+  tok_then,
+  tok_else,
+  tok_elseif,
+  tok_elseifnot,
+
+  tok_int,
+  tok_cell,
+  tok_slice,
+  tok_builder,
+  tok_cont,
+  tok_tuple,
+  tok_type,
+  tok_mapsto,
+  tok_forall,
+
+  tok_extern,
+  tok_global,
+  tok_asm,
+  tok_impure,
+  tok_pure,
+  tok_inline,
+  tok_inlineref,
+  tok_builtin,
+  tok_autoapply,
+  tok_method_id,
+  tok_get,
+  tok_operator,
+  tok_infix,
+  tok_infixl,
+  tok_infixr,
+  tok_const,
+
+  tok_pragma,
+  tok_pragma_name,
+  tok_semver,
+  tok_include,
+
+  tok_eof
 };
 
+// All tolk language is parsed into tokens.
+// Lexer::next() returns a Token.
+struct Token {
+  TokenType type = tok_empty;
+  std::string_view str_val;
+
+  Token() = default;
+  Token(TokenType type, std::string_view str_val): type(type), str_val(str_val) {}
+};
+
+// Lexer::next() is a method to be used externally (while parsing tolk file to AST).
+// It's streaming: `next()` parses a token on demand.
+// For comments, see lexer.cpp, a comment above Lexer constructor.
 class Lexer {
-  SourceReader& src;
-  bool eof;
-  Lexem lexem, peek_lexem;
-  unsigned char char_class[128];
-  std::array<int, 3> eol_cmt, cmt_op, cmt_cl;    // for ;; {- -}
-  std::array<int, 3> eol_cmt2, cmt_op2, cmt_cl2; // for // /* */
-  std::string multiline_quote;
-  enum cc { left_active = 2, right_active = 1, active = 3, allow_repeat = 4, quote_char = 8 };
+  Token tokens_circularbuf[8]{};
+  int last_token_idx = -1;
+  int cur_token_idx = -1;
+  Token cur_token;  // = tokens_circularbuf[cur_token_idx & 7]
 
- public:
-  bool eof_found() const {
-    return eof;
-  }
-  explicit Lexer(SourceReader& _src, std::string active_chars = ";,() ~.",
-    std::string quote_chars = "\"", std::string multiline_quote = "\"\"\"");
+  const SrcFile* file;
+  const char *p_start, *p_end, *p_next;
+  SrcLocation location;
 
-  void set_comment_tokens(const std::string &eol_cmts, const std::string &open_cmts, const std::string &close_cmts);
-  void set_comment2_tokens(const std::string &eol_cmts2, const std::string &open_cmts2, const std::string &close_cmts2);
-  void start_parsing();
-
-  const Lexem& next();
-  const Lexem& cur() const {
-    return lexem;
-  }
-  const Lexem& peek();
-  int tp() const {
-    return lexem.tp;
-  }
-  void expect(int exp_tp, const char* msg = 0);
-  int classify_char(unsigned c) const {
-    return c < 0x80 ? char_class[c] : 0;
-  }
-  bool is_active(int c) const {
-    return (classify_char(c) & cc::active) == cc::active;
-  }
-  bool is_left_active(int c) const {
-    return (classify_char(c) & cc::left_active);
-  }
-  bool is_right_active(int c) const {
-    return (classify_char(c) & cc::right_active);
-  }
-  bool is_repeatable(int c) const {
-    return (classify_char(c) & cc::allow_repeat);
-  }
-  bool is_quote_char(int c) const {
-    return (classify_char(c) & cc::quote_char);
+  void update_location() {
+    location.char_offset = static_cast<int>(p_next - p_start);
   }
 
- private:
-  void set_spec(std::array<int, 3>& arr, std::string setup);
-  bool is_multiline_quote(const char* begin, const char* end);
+  GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
+  void on_expect_call_failed(const char* str_expected) const;
+
+public:
+
+  explicit Lexer(const SrcFile* file);
+  Lexer(const Lexer&) = delete;
+  Lexer &operator=(const Lexer&) = delete;
+
+  void add_token(TokenType type, std::string_view str) {
+    tokens_circularbuf[++last_token_idx & 7] = Token(type, str);
+  }
+
+  void skip_spaces() {
+    while (std::isspace(*p_next)) {
+      ++p_next;
+    }
+  }
+
+  void skip_line() {
+    while (p_next < p_end && *p_next != '\n' && *p_next != '\r') {
+      ++p_next;
+    }
+    while (*p_next == '\n' || *p_next == '\r') {
+      ++p_next;
+    }
+  }
+
+  void skip_chars(int n) {
+    p_next += n;
+  }
+
+  bool is_eof() const {
+    return p_next >= p_end;
+  }
+
+  char char_at() const { return *p_next; }
+  char char_at(int shift) const { return *(p_next + shift); }
+  const char* c_str() const { return p_next; }
+
+  TokenType tok() const { return cur_token.type; }
+  std::string_view cur_str() const { return cur_token.str_val; }
+  std::string cur_str_std_string() const { return static_cast<std::string>(cur_token.str_val); }
+  SrcLocation cur_location() const { return location; }
+  int cur_sym_idx() const;
+
+  void next();
+  void next_special(TokenType parse_next_as, const char* str_expected);
+
+  void check(TokenType next_tok, const char* str_expected) const {
+    if (cur_token.type != next_tok) {
+      on_expect_call_failed(str_expected); // unlikely path, not inlined
+    }
+  }
+  void expect(TokenType next_tok, const char* str_expected) {
+    if (cur_token.type != next_tok) {
+      on_expect_call_failed(str_expected);
+    }
+    next();
+  }
+
+  GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
+  void error(const std::string& err_msg) const;
+  GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
+  void error_at(const std::string& prefix, const std::string& suffix) const;
 };
+
+void lexer_init();
+
+// todo #ifdef TOLK_PROFILING
+void lexer_measure_performance(const std::vector<SrcFile*>& files_to_just_parse);
 
 }  // namespace tolk

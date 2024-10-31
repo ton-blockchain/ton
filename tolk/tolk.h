@@ -15,6 +15,7 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #pragma once
+#include <utility>
 #include <vector>
 #include <string>
 #include <set>
@@ -26,7 +27,7 @@
 #include "common/refcnt.hpp"
 #include "common/bigint.hpp"
 #include "common/refint.h"
-#include "srcread.h"
+#include "src-file.h"
 #include "lexer.h"
 #include "symtable.h"
 #include "td/utils/Status.h"
@@ -45,104 +46,6 @@ constexpr int optimize_depth = 20;
 
 const std::string tolk_version{"0.4.5"};
 
-enum Keyword {
-  _Eof = -1,
-  _Ident = 0,
-  _Number,
-  _Special,
-  _String,
-  _Return = 0x80,
-  _Var,
-  _Repeat,
-  _Do,
-  _While,
-  _Until,
-  _Try,
-  _Catch,
-  _If,
-  _Ifnot,
-  _Then,
-  _Else,
-  _Elseif,
-  _Elseifnot,
-  _Eq,
-  _Neq,
-  _Leq,
-  _Geq,
-  _Spaceship,
-  _Lshift,
-  _Rshift,
-  _RshiftR,
-  _RshiftC,
-  _DivR,
-  _DivC,
-  _ModR,
-  _ModC,
-  _DivMod,
-  _PlusLet,
-  _MinusLet,
-  _TimesLet,
-  _DivLet,
-  _DivRLet,
-  _DivCLet,
-  _ModLet,
-  _ModRLet,
-  _ModCLet,
-  _LshiftLet,
-  _RshiftLet,
-  _RshiftRLet,
-  _RshiftCLet,
-  _AndLet,
-  _OrLet,
-  _XorLet,
-  _Int,
-  _Cell,
-  _Slice,
-  _Builder,
-  _Cont,
-  _Tuple,
-  _Type,
-  _Mapsto,
-  _Forall,
-  _Asm,
-  _Impure,
-  _Pure,
-  _Global,
-  _Extern,
-  _Inline,
-  _InlineRef,
-  _Builtin,
-  _AutoApply,
-  _MethodId,
-  _Get,
-  _Operator,
-  _Infix,
-  _Infixl,
-  _Infixr,
-  _Const,
-  _PragmaHashtag,
-  _IncludeHashtag
-};
-
-void define_keywords();
-
-class IdSc {
-  int cls;
-
- public:
-  enum { undef = 0, dotid = 1, tildeid = 2 };
-  IdSc(int _cls = undef) : cls(_cls) {
-  }
-  operator int() {
-    return cls;
-  }
-};
-
-// symbol subclass:
-// 1 = begins with . (a const method)
-// 2 = begins with ~ (a non-const method)
-// 0 = else
-
 /*
  * 
  *   TYPE EXPRESSIONS
@@ -152,13 +55,13 @@ class IdSc {
 struct TypeExpr {
   enum te_type { te_Unknown, te_Var, te_Indirect, te_Atomic, te_Tensor, te_Tuple, te_Map, te_ForAll } constr;
   enum AtomicType {
-    _Int = Keyword::_Int,
-    _Cell = Keyword::_Cell,
-    _Slice = Keyword::_Slice,
-    _Builder = Keyword::_Builder,
-    _Cont = Keyword::_Cont,
-    _Tuple = Keyword::_Tuple,
-    _Type = Keyword::_Type
+    _Int = tok_int,
+    _Cell = tok_cell,
+    _Slice = tok_slice,
+    _Builder = tok_builder,
+    _Cont = tok_cont,
+    _Tuple = tok_tuple,
+    _Type = tok_type
   };
   int value;
   int minw, maxw;
@@ -279,14 +182,18 @@ struct TypeExpr {
 
 std::ostream& operator<<(std::ostream& os, TypeExpr* type_expr);
 
-struct UnifyError {
+struct UnifyError : std::exception {
   TypeExpr* te1;
   TypeExpr* te2;
   std::string msg;
-  UnifyError(TypeExpr* _te1, TypeExpr* _te2, std::string _msg = "") : te1(_te1), te2(_te2), msg(_msg) {
+
+  UnifyError(TypeExpr* _te1, TypeExpr* _te2, std::string _msg = "") : te1(_te1), te2(_te2), msg(std::move(_msg)) {
   }
+
   void print_message(std::ostream& os) const;
-  std::string message() const;
+  const char* what() const noexcept override {
+    return msg.c_str();
+  }
 };
 
 std::ostream& operator<<(std::ostream& os, const UnifyError& ue);
@@ -310,18 +217,13 @@ struct TmpVar {
   int cls;
   sym_idx_t name;
   int coord;
-  std::unique_ptr<SrcLocation> where;
-  std::vector<std::function<void(const SrcLocation &)>> on_modification;
-  bool undefined = false;
-  TmpVar(var_idx_t _idx, int _cls, TypeExpr* _type = 0, SymDef* sym = 0, const SrcLocation* loc = 0);
+  SrcLocation where;
+  std::vector<std::function<void(SrcLocation)>> on_modification;
+
+  TmpVar(var_idx_t _idx, int _cls, TypeExpr* _type, SymDef* sym, SrcLocation loc);
   void show(std::ostream& os, int omit_idx = 0) const;
   void dump(std::ostream& os) const;
-  void set_location(const SrcLocation& loc);
-  std::string to_string() const {
-    std::ostringstream s;
-    show(s, 2);
-    return s.str();
-  }
+  void set_location(SrcLocation loc);
 };
 
 struct VarDescr {
@@ -566,25 +468,25 @@ struct Op {
   std::unique_ptr<Op> block0, block1;
   td::RefInt256 int_const;
   std::string str_const;
-  Op(const SrcLocation& _where = {}, OpKind _cl = _Undef) : cl(_cl), flags(0), fun_ref(nullptr), where(_where) {
+  Op(SrcLocation _where = {}, OpKind _cl = _Undef) : cl(_cl), flags(0), fun_ref(nullptr), where(_where) {
   }
-  Op(const SrcLocation& _where, OpKind _cl, const std::vector<var_idx_t>& _left)
+  Op(SrcLocation _where, OpKind _cl, const std::vector<var_idx_t>& _left)
       : cl(_cl), flags(0), fun_ref(nullptr), where(_where), left(_left) {
   }
-  Op(const SrcLocation& _where, OpKind _cl, std::vector<var_idx_t>&& _left)
+  Op(SrcLocation _where, OpKind _cl, std::vector<var_idx_t>&& _left)
       : cl(_cl), flags(0), fun_ref(nullptr), where(_where), left(std::move(_left)) {
   }
-  Op(const SrcLocation& _where, OpKind _cl, const std::vector<var_idx_t>& _left, td::RefInt256 _const)
+  Op(SrcLocation _where, OpKind _cl, const std::vector<var_idx_t>& _left, td::RefInt256 _const)
       : cl(_cl), flags(0), fun_ref(nullptr), where(_where), left(_left), int_const(_const) {
   }
-  Op(const SrcLocation& _where, OpKind _cl, const std::vector<var_idx_t>& _left, std::string _const)
+  Op(SrcLocation _where, OpKind _cl, const std::vector<var_idx_t>& _left, std::string _const)
       : cl(_cl), flags(0), fun_ref(nullptr), where(_where), left(_left), str_const(_const) {
   }
-  Op(const SrcLocation& _where, OpKind _cl, const std::vector<var_idx_t>& _left, const std::vector<var_idx_t>& _right,
+  Op(SrcLocation _where, OpKind _cl, const std::vector<var_idx_t>& _left, const std::vector<var_idx_t>& _right,
      SymDef* _fun = nullptr)
       : cl(_cl), flags(0), fun_ref(_fun), where(_where), left(_left), right(_right) {
   }
-  Op(const SrcLocation& _where, OpKind _cl, std::vector<var_idx_t>&& _left, std::vector<var_idx_t>&& _right,
+  Op(SrcLocation _where, OpKind _cl, std::vector<var_idx_t>&& _left, std::vector<var_idx_t>&& _right,
      SymDef* _fun = nullptr)
       : cl(_cl), flags(0), fun_ref(_fun), where(_where), left(std::move(_left)), right(std::move(_right)) {
   }
@@ -700,8 +602,8 @@ struct CodeBlob {
     return res;
   }
   bool import_params(FormalArgList arg_list);
-  var_idx_t create_var(int cls, TypeExpr* var_type = 0, SymDef* sym = 0, const SrcLocation* loc = 0);
-  var_idx_t create_tmp_var(TypeExpr* var_type = 0, const SrcLocation* loc = 0) {
+  var_idx_t create_var(int cls, TypeExpr* var_type, SymDef* sym, SrcLocation loc);
+  var_idx_t create_tmp_var(TypeExpr* var_type, SrcLocation loc) {
     return create_var(TmpVar::_Tmp, var_type, nullptr, loc);
   }
   int split_vars(bool strict = false);
@@ -712,14 +614,14 @@ struct CodeBlob {
     cur_ops_stack.push(cur_ops);
     cur_ops = &new_cur_ops;
   }
-  void close_blk(const SrcLocation& location) {
+  void close_blk(SrcLocation location) {
     *cur_ops = std::make_unique<Op>(location, Op::_Nop);
   }
   void pop_cur() {
     cur_ops = cur_ops_stack.top();
     cur_ops_stack.pop();
   }
-  void close_pop_cur(const SrcLocation& location) {
+  void close_pop_cur(SrcLocation location) {
     close_blk(location);
     pop_cur();
   }
@@ -730,7 +632,7 @@ struct CodeBlob {
   void generate_code(AsmOpList& out_list, int mode = 0);
   void generate_code(std::ostream& os, int mode = 0, int indent = 0);
 
-  void on_var_modification(var_idx_t idx, const SrcLocation& here) const {
+  void on_var_modification(var_idx_t idx, SrcLocation here) const {
     for (auto& f : vars.at(idx).on_modification) {
       f(here);
     }
@@ -746,8 +648,8 @@ struct CodeBlob {
 struct SymVal : SymValBase {
   TypeExpr* sym_type;
   bool auto_apply{false};
-  SymVal(int _type, int _idx, TypeExpr* _stype = nullptr)
-      : SymValBase(_type, _idx), sym_type(_stype) {
+  SymVal(SymValKind kind, int idx, TypeExpr* sym_type = nullptr)
+      : SymValBase(kind, idx), sym_type(sym_type) {
   }
   ~SymVal() override = default;
   TypeExpr* get_type() const {
@@ -774,9 +676,9 @@ struct SymValFunc : SymVal {
 #endif
   ~SymValFunc() override = default;
   SymValFunc(int val, TypeExpr* _ft, bool marked_as_pure)
-      : SymVal(_Func, val, _ft), flags(marked_as_pure ? flagMarkedAsPure : 0) {}
+      : SymVal(SymValKind::_Func, val, _ft), flags(marked_as_pure ? flagMarkedAsPure : 0) {}
   SymValFunc(int val, TypeExpr* _ft, std::initializer_list<int> _arg_order, std::initializer_list<int> _ret_order, bool marked_as_pure)
-      : SymVal(_Func, val, _ft), flags(marked_as_pure ? flagMarkedAsPure : 0), arg_order(_arg_order), ret_order(_ret_order) {
+      : SymVal(SymValKind::_Func, val, _ft), flags(marked_as_pure ? flagMarkedAsPure : 0), arg_order(_arg_order), ret_order(_ret_order) {
   }
 
   const std::vector<int>* get_arg_order() const {
@@ -818,7 +720,7 @@ struct SymValCodeFunc : SymValFunc {
 
 struct SymValType : SymValBase {
   TypeExpr* sym_type;
-  SymValType(int _type, int _idx, TypeExpr* _stype = nullptr) : SymValBase(_type, _idx), sym_type(_stype) {
+  SymValType(SymValKind kind, int idx, TypeExpr* _stype = nullptr) : SymValBase(kind, idx), sym_type(_stype) {
   }
   ~SymValType() override = default;
   TypeExpr* get_type() const {
@@ -834,7 +736,7 @@ struct SymValGlobVar : SymValBase {
   std::string name; // seeing variable name in debugger makes it much easier to delve into Tolk sources
 #endif
   SymValGlobVar(int val, TypeExpr* gvtype, int oidx = 0)
-      : SymValBase(_GlobVar, val), sym_type(gvtype), out_idx(oidx) {
+      : SymValBase(SymValKind::_GlobVar, val), sym_type(gvtype), out_idx(oidx) {
   }
   ~SymValGlobVar() override = default;
   TypeExpr* get_type() const {
@@ -843,16 +745,16 @@ struct SymValGlobVar : SymValBase {
 };
 
 struct SymValConst : SymValBase {
+  enum ConstKind { IntConst, SliceConst };
+
   td::RefInt256 intval;
   std::string strval;
-  Keyword type;
+  ConstKind kind;
   SymValConst(int idx, td::RefInt256 value)
-      : SymValBase(_Const, idx), intval(value) {
-    type = _Int;
+      : SymValBase(SymValKind::_Const, idx), intval(value), kind(IntConst) {
   }
   SymValConst(int idx, std::string value)
-      : SymValBase(_Const, idx), strval(value) {
-    type = _Slice;
+      : SymValBase(SymValKind::_Const, idx), strval(value), kind(SliceConst) {
   }
   ~SymValConst() override = default;
   td::RefInt256 get_int_value() const {
@@ -861,8 +763,8 @@ struct SymValConst : SymValBase {
   std::string get_str_value() const {
     return strval;
   }
-  Keyword get_type() const {
-    return type;
+  ConstKind get_kind() const {
+    return kind;
   }
 };
 
@@ -882,35 +784,21 @@ public:
   ReadCallback(ReadCallback const&) = delete;
   ReadCallback& operator=(ReadCallback const&) = delete;
 
-  enum class Kind
-  {
+  enum class Kind {
+    Realpath,
     ReadFile,
-    Realpath
   };
 
-  static std::string kindString(Kind _kind)
-  {
-    switch (_kind)
-    {
-    case Kind::ReadFile:
-      return "source";
-    case Kind::Realpath:
-      return "realpath";
-    default:
-      throw ""; // todo ?
-    }
-  }
-
   /// File reading or generic query callback.
-  using Callback = std::function<td::Result<std::string>(ReadCallback::Kind, const char*)>;
+  using Callback = std::function<td::Result<std::string>(Kind, const char*)>;
 };
 
 // defined in parse-tolk.cpp
-bool parse_source(std::istream* is, const FileDescr* fdescr);
-bool parse_source_file(const char* filename, Lexem lex = {}, bool is_main = false);
-bool parse_source_stdin();
+void parse_source(const SrcFile* file);
+bool parse_source_file(const char* filename, SrcLocation loc_included_from);
 
 extern std::stack<SrcLocation> inclusion_locations;
+extern AllRegisteredSrcFiles all_src_files;
 
 /*
  * 
@@ -949,7 +837,7 @@ struct Expr {
   std::vector<Expr*> args;
   explicit Expr(ExprCls c = _None) : cls(c) {
   }
-  Expr(ExprCls c, const SrcLocation& loc) : cls(c), here(loc) {
+  Expr(ExprCls c, SrcLocation loc) : cls(c), here(loc) {
   }
   Expr(ExprCls c, std::vector<Expr*> _args) : cls(c), args(std::move(_args)) {
   }
@@ -990,14 +878,13 @@ struct Expr {
   bool is_mktuple() const {
     return cls == _MkTuple;
   }
-  void chk_rvalue(const Lexem& lem) const;
-  void chk_lvalue(const Lexem& lem) const;
-  void chk_type(const Lexem& lem) const;
-  bool deduce_type(const Lexem& lem);
-  void set_location(const SrcLocation& loc) {
+  void chk_rvalue(const Lexer& lex) const;  // todo here and below: strange to pass Lexer
+  void chk_lvalue(const Lexer& lex) const;
+  bool deduce_type(const Lexer& lex);
+  void set_location(SrcLocation loc) {
     here = loc;
   }
-  const SrcLocation& get_location() const {
+  SrcLocation get_location() const {
     return here;
   }
   int define_new_vars(CodeBlob& code);
@@ -1699,11 +1586,11 @@ struct Stack {
  * 
  */
 
-typedef std::function<AsmOp(std::vector<VarDescr>&, std::vector<VarDescr>&, const SrcLocation)> simple_compile_func_t;
+typedef std::function<AsmOp(std::vector<VarDescr>&, std::vector<VarDescr>&, SrcLocation)> simple_compile_func_t;
 typedef std::function<bool(AsmOpList&, std::vector<VarDescr>&, std::vector<VarDescr>&)> compile_func_t;
 
 inline simple_compile_func_t make_simple_compile(AsmOp op) {
-  return [op](std::vector<VarDescr>& out, std::vector<VarDescr>& in, const SrcLocation&) -> AsmOp { return op; };
+  return [op](std::vector<VarDescr>& out, std::vector<VarDescr>& in, SrcLocation) -> AsmOp { return op; };
 }
 
 inline compile_func_t make_ext_compile(std::vector<AsmOp>&& ops) {
@@ -1739,7 +1626,7 @@ struct SymValAsmFunc : SymValFunc {
                 std::initializer_list<int> ret_order = {}, bool marked_as_pure = false)
       : SymValFunc(-1, ft, arg_order, ret_order, marked_as_pure), ext_compile(std::move(_compile)) {
   }
-  bool compile(AsmOpList& dest, std::vector<VarDescr>& out, std::vector<VarDescr>& in, const SrcLocation& where) const;
+  bool compile(AsmOpList& dest, std::vector<VarDescr>& out, std::vector<VarDescr>& in, SrcLocation where) const;
 };
 
 // defined in builtins.cpp
@@ -1753,8 +1640,8 @@ AsmOp push_const(td::RefInt256 x);
 void define_builtins();
 
 
-extern int verbosity, indent, opt_level;
-extern bool stack_layout_comments, op_rewrite_comments, program_envelope, asm_preamble, interactive;
+extern int verbosity, opt_level;
+extern bool stack_layout_comments;
 extern std::string generated_from, boc_output_filename;
 extern ReadCallback::Callback read_callback;
 
@@ -1764,6 +1651,7 @@ class GlobalPragma {
  public:
   explicit GlobalPragma(std::string name) : name_(std::move(name)) {
   }
+
   const std::string& name() const {
     return name_;
   }
@@ -1771,14 +1659,12 @@ class GlobalPragma {
     return enabled_;
   }
   void enable(SrcLocation loc);
-  void check_enable_in_libs();
   void always_on_and_deprecated(const char *deprecated_from_v);
 
  private:
   std::string name_;
   bool enabled_ = false;
   const char *deprecated_from_v_ = nullptr;
-  std::vector<SrcLocation> locs_;
 };
 extern GlobalPragma pragma_allow_post_modification, pragma_compute_asm_ltr, pragma_remove_unused_functions;
 
@@ -1788,7 +1674,7 @@ extern GlobalPragma pragma_allow_post_modification, pragma_compute_asm_ltr, prag
  *
  */
 
-int tolk_proceed(const std::vector<std::string> &sources, std::ostream &outs, std::ostream &errs);
+int tolk_proceed(const std::string &entrypoint_file_name, std::ostream &outs, std::ostream &errs);
 
 }  // namespace tolk
 

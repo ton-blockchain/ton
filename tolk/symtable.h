@@ -15,8 +15,9 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #pragma once
-#include "srcread.h"
-#include "lexer.h"
+#include "src-file.h"
+#include <functional>
+#include <memory>
 #include <vector>
 
 namespace tolk {
@@ -29,11 +30,12 @@ namespace tolk {
 
 typedef int var_idx_t;
 
+enum class SymValKind { _Param, _Var, _Func, _Typename, _GlobVar, _Const };
+
 struct SymValBase {
-  enum { _Param, _Var, _Func, _Typename, _GlobVar, _Const };
-  int type;
+  SymValKind kind;
   int idx;
-  SymValBase(int _type, int _idx) : type(_type), idx(_idx) {
+  SymValBase(SymValKind kind, int idx) : kind(kind), idx(idx) {
   }
   virtual ~SymValBase() = default;
 };
@@ -44,92 +46,69 @@ struct SymValBase {
  *
  */
 
-// defined outside this module (by the end user)
-int compute_symbol_subclass(std::string str);  // return 0 if unneeded
+enum class SymbolSubclass {
+  undef = 0,
+  dot_identifier = 1,    // begins with . (a const method)
+  tilde_identifier = 2   // begins with ~ (a non-const method)
+};
 
 typedef int sym_idx_t;
 
 struct Symbol {
   std::string str;
   sym_idx_t idx;
-  int subclass;
-  Symbol(std::string _str, sym_idx_t _idx, int _sc) : str(_str), idx(_idx), subclass(_sc) {
-  }
-  Symbol(std::string _str, sym_idx_t _idx) : str(_str), idx(_idx) {
-    subclass = compute_symbol_subclass(std::move(_str));
-  }
+  SymbolSubclass subclass;
+
+  Symbol(std::string str, sym_idx_t idx);
+
   static std::string unknown_symbol_name(sym_idx_t i);
 };
 
-class SymTableBase {
-  unsigned p;
-  std::unique_ptr<Symbol>* sym_table;
-  sym_idx_t def_kw, def_sym;
+class SymTable {
+public:
+  static constexpr int SIZE_PRIME = 100003;
+
+private:
+  sym_idx_t def_sym{0};
+  std::unique_ptr<Symbol> sym[SIZE_PRIME + 1];
+  sym_idx_t gen_lookup(std::string_view str, int mode = 0, sym_idx_t idx = 0);
+
   static constexpr int max_kw_idx = 10000;
   sym_idx_t keywords[max_kw_idx];
 
- public:
-  SymTableBase(unsigned p_, std::unique_ptr<Symbol>* sym_table_)
-      : p(p_), sym_table(sym_table_), def_kw(0x100), def_sym(0) {
-    std::memset(keywords, 0, sizeof(keywords));
-  }
+public:
+
   static constexpr sym_idx_t not_found = 0;
-  SymTableBase& add_keyword(std::string str, sym_idx_t idx = 0);
-  SymTableBase& add_kw_char(char c) {
-    return add_keyword(std::string{c}, c);
-  }
-  sym_idx_t lookup(std::string str, int mode = 0) {
+  sym_idx_t lookup(const std::string_view& str, int mode = 0) {
     return gen_lookup(str, mode);
   }
-  sym_idx_t lookup_add(std::string str) {
+  sym_idx_t lookup_add(const std::string& str) {
     return gen_lookup(str, 1);
   }
   Symbol* operator[](sym_idx_t i) const {
-    return sym_table[i].get();
+    return sym[i].get();
   }
   bool is_keyword(sym_idx_t i) const {
-    return sym_table[i] && sym_table[i]->idx < 0;
+    return sym[i] && sym[i]->idx < 0;
   }
   std::string get_name(sym_idx_t i) const {
-    return sym_table[i] ? sym_table[i]->str : Symbol::unknown_symbol_name(i);
+    return sym[i] ? sym[i]->str : Symbol::unknown_symbol_name(i);
   }
-  int get_subclass(sym_idx_t i) const {
-    return sym_table[i] ? sym_table[i]->subclass : 0;
+  SymbolSubclass get_subclass(sym_idx_t i) const {
+    return sym[i] ? sym[i]->subclass : SymbolSubclass::undef;
   }
   Symbol* get_keyword(int i) const {
-    return ((unsigned)i < (unsigned)max_kw_idx) ? sym_table[keywords[i]].get() : nullptr;
+    return ((unsigned)i < (unsigned)max_kw_idx) ? sym[keywords[i]].get() : nullptr;
   }
 
- protected:
-  sym_idx_t gen_lookup(std::string str, int mode = 0, sym_idx_t idx = 0);
-};
-
-template <unsigned pp>
-class SymTable : public SymTableBase {
- public:
-  static constexpr int hprime = pp;
-  static int size() {
-    return pp + 1;
-  }
-
- private:
-  std::unique_ptr<Symbol> sym[pp + 1];
-
- public:
-  SymTable() : SymTableBase(pp, sym) {
-  }
-  SymTable& add_keyword(std::string str, sym_idx_t idx = 0) {
-    SymTableBase::add_keyword(str, idx);
-    return *this;
-  }
-  SymTable& add_kw_char(char c) {
-    return add_keyword(std::string{c}, c);
+  SymTable() {
+    std::memset(keywords, 0, sizeof(keywords));
   }
 };
 
 struct SymTableOverflow {
   int sym_def;
-  SymTableOverflow(int x) : sym_def(x) {
+  explicit SymTableOverflow(int x) : sym_def(x) {
   }
 };
 
@@ -139,7 +118,7 @@ struct SymTableKwRedef {
   }
 };
 
-extern SymTable<100003> symbols;
+extern SymTable symbols;
 
 extern int scope_level;
 
@@ -151,7 +130,7 @@ struct SymDef {
 #ifdef TOLK_DEBUG
   std::string sym_name;
 #endif
-  SymDef(int lvl, sym_idx_t idx, const SrcLocation& _loc = {}, SymValBase* val = 0)
+  SymDef(int lvl, sym_idx_t idx, SrcLocation _loc, SymValBase* val = nullptr)
       : level(lvl), sym_idx(idx), value(val), loc(_loc) {
   }
   bool has_name() const {
@@ -162,17 +141,16 @@ struct SymDef {
   }
 };
 
-extern SymDef* sym_def[symbols.hprime + 1];
-extern SymDef* global_sym_def[symbols.hprime + 1];
+extern SymDef* sym_def[symbols.SIZE_PRIME + 1];
+extern SymDef* global_sym_def[symbols.SIZE_PRIME + 1];
 extern std::vector<std::pair<int, SymDef>> symbol_stack;
 extern std::vector<SrcLocation> scope_opened_at;
 
-void open_scope(Lexer& lex);
-void close_scope(Lexer& lex);
-SymDef* lookup_symbol(sym_idx_t idx, int flags = 3);
-SymDef* lookup_symbol(std::string name, int flags = 3);
+void open_scope(SrcLocation loc);
+void close_scope(SrcLocation loc);
+SymDef* lookup_symbol(sym_idx_t idx);
 
-SymDef* define_global_symbol(sym_idx_t name_idx, bool force_new = false, const SrcLocation& loc = {});
-SymDef* define_symbol(sym_idx_t name_idx, bool force_new = false, const SrcLocation& loc = {});
+SymDef* define_global_symbol(sym_idx_t name_idx, bool force_new = false, SrcLocation loc = {});
+SymDef* define_symbol(sym_idx_t name_idx, bool force_new, SrcLocation loc);
 
 }  // namespace tolk

@@ -612,7 +612,7 @@ bool Optimizer::optimize() {
 }
 
 AsmOpConsList optimize_code_head(AsmOpConsList op_list, int mode) {
-  Optimizer opt(std::move(op_list), op_rewrite_comments, mode);
+  Optimizer opt(std::move(op_list), false, mode);
   opt.optimize();
   return opt.extract_code();
 }

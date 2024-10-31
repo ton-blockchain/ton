@@ -36,7 +36,7 @@ int CodeBlob::split_vars(bool strict) {
   for (int j = 0; j < var_cnt; j++) {
     TmpVar& var = vars[j];
     if (strict && var.v_type->minw != var.v_type->maxw) {
-      throw ParseError{var.where.get(), "variable does not have fixed width, cannot manipulate it"};
+      throw ParseError{var.where, "variable does not have fixed width, cannot manipulate it"};
     }
     std::vector<TypeExpr*> comp_types;
     int k = var.v_type->extract_components(comp_types);
@@ -45,7 +45,7 @@ int CodeBlob::split_vars(bool strict) {
     if (k != 1) {
       var.coord = ~((n << 8) + k);
       for (int i = 0; i < k; i++) {
-        auto v = create_var(vars[j].cls, comp_types[i], 0, vars[j].where.get());
+        auto v = create_var(vars[j].cls, comp_types[i], 0, vars[j].where);
         tolk_assert(v == n + i);
         tolk_assert(vars[v].idx == v);
         vars[v].name = vars[j].name;
@@ -54,7 +54,7 @@ int CodeBlob::split_vars(bool strict) {
       n += k;
       ++changes;
     } else if (strict && var.v_type->minw != 1) {
-      throw ParseError{var.where.get(),
+      throw ParseError{var.where,
                             "cannot work with variable or variable component of width greater than one"};
     }
   }

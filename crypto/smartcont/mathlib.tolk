@@ -572,9 +572,9 @@ int atanh_f261(int x, int n) inline_ref {
     s -= 1;
   }
   x += t;
-  int 2x = 2 * x;
-  int y = lshift256divr(2x, (x >> 1) - t);
-  ;; y = 2x - (mulrshiftr256(2x, y) ~>> 2);  ;; this line could improve precision on very rare occasions
+  int `2x` = 2 * x;
+  int y = lshift256divr(`2x`, (x >> 1) - t);
+  ;; y = `2x` - (mulrshiftr256(2x, y) ~>> 2);  ;; this line could improve precision on very rare occasions
   return (atanh_f258(y, 36), s);
 }
 

@@ -1,10 +1,9 @@
 cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
 
 set(TOLK_SOURCE
-        srcread.cpp
+        src-file.cpp
         lexer.cpp
         symtable.cpp
-        keywords.cpp
         unify-types.cpp
         parse-tolk.cpp
         abscode.cpp

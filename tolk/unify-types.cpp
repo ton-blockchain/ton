@@ -354,12 +354,6 @@ std::ostream& operator<<(std::ostream& os, const UnifyError& ue) {
   return os;
 }
 
-std::string UnifyError::message() const {
-  std::ostringstream os;
-  print_message(os);
-  return os.str();
-}
-
 void check_width_compat(TypeExpr* te1, TypeExpr* te2) {
   if (te1->minw > te2->maxw || te2->minw > te1->maxw) {
     std::ostringstream os{"cannot unify types of widths ", std::ios_base::ate};

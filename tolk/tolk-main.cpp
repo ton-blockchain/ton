@@ -30,67 +30,41 @@
 
 void usage(const char* progname) {
   std::cerr
-      << "usage: " << progname
-      << " [-vIAPSR][-O<level>][-i<indent-spc>][-o<output-filename>][-W<boc-filename>] {<filename.tolk> ...}\n"
-         "\tGenerates Fift TVM assembler code from a Tolk source\n"
-         "-I\tEnables interactive mode (parse stdin)\n"
-         "-o<fift-output-filename>\tWrites generated code into specified file instead of stdout\n"
-         "-v\tIncreases verbosity level (extra information output into stderr)\n"
-         "-i<indent>\tSets indentation for the output code (in two-space units)\n"
-         "-A\tPrefix code with `\"Asm.fif\" include` preamble\n"
+      << "usage: " << progname << " [options] <filename.tolk>\n"
+         "\tGenerates Fift TVM assembler code from a .tolk file\n"
+         "-o<fif-filename>\tWrites generated code into specified .fif file instead of stdout\n"
+         "-b<boc-filename>\tGenerate Fift instructions to save TVM bytecode into .boc file\n"
          "-O<level>\tSets optimization level (2 by default)\n"
-         "-P\tEnvelope code into PROGRAM{ ... }END>c\n"
-         "-S\tInclude stack layout comments in the output code\n"
-         "-R\tInclude operation rewrite comments in the output code\n"
-         "-W<output-boc-file>\tInclude Fift code to serialize and save generated code into specified BoC file. Enables "
-         "-A and -P.\n"
-         "\t-s\tOutput semantic version of Tolk and exit\n"
-         "\t-V<version>\tShow Tolk build information\n";
+         "-S\tDon't include stack layout comments into Fift output\n"
+         "-e\tIncreases verbosity level (extra output into stderr)\n"
+         "-v\tOutput version of Tolk and exit\n";
   std::exit(2);
 }
 
 int main(int argc, char* const argv[]) {
   int i;
   std::string output_filename;
-  while ((i = getopt(argc, argv, "Ahi:Io:O:PRsSvW:V")) != -1) {
+  while ((i = getopt(argc, argv, "o:b:O:Sevh")) != -1) {
     switch (i) {
-      case 'A':
-        tolk::asm_preamble = true;
-        break;
-      case 'I':
-        tolk::interactive = true;
-        break;
-      case 'i':
-        tolk::indent = std::max(0, atoi(optarg));
-        break;
       case 'o':
         output_filename = optarg;
+        break;
+      case 'b':
+        tolk::boc_output_filename = optarg;
         break;
       case 'O':
         tolk::opt_level = std::max(0, atoi(optarg));
         break;
-      case 'P':
-        tolk::program_envelope = true;
-        break;
-      case 'R':
-        tolk::op_rewrite_comments = true;
-        break;
       case 'S':
-        tolk::stack_layout_comments = true;
+        tolk::stack_layout_comments = false;
         break;
-      case 'v':
+      case 'e':
         ++tolk::verbosity;
         break;
-      case 'W':
-        tolk::boc_output_filename = optarg;
-        tolk::asm_preamble = tolk::program_envelope = true;
-        break;
-      case 's':
-        std::cout << tolk::tolk_version << "\n";
-        std::exit(0);
-      case 'V':
-        std::cout << "Tolk semantic version: v" << tolk::tolk_version << "\n";
-        std::cout << "Build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
+      case 'v':
+        std::cout << "Tolk compiler v" << tolk::tolk_version << "\n";
+        std::cout << "Build commit: " << GitMetadata::CommitSHA1() << "\n";
+        std::cout << "Build date: " << GitMetadata::CommitDate() << "\n";
         std::exit(0);
       case 'h':
       default:
@@ -110,13 +84,14 @@ int main(int argc, char* const argv[]) {
     outs = fs.get();
   }
 
-  std::vector<std::string> sources;
-
-  while (optind < argc) {
-    sources.push_back(std::string(argv[optind++]));
+  if (optind != argc - 1) {
+    std::cerr << "invalid usage: should specify exactly one input file.tolk";
+    return 2;
   }
+
+  std::string entrypoint_file_name = argv[optind];
 
   tolk::read_callback = tolk::fs_read_callback;
 
-  return tolk::tolk_proceed(sources, *outs, std::cerr);
+  return tolk::tolk_proceed(entrypoint_file_name, *outs, std::cerr);
 }

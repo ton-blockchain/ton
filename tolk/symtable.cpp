@@ -28,12 +28,18 @@ namespace tolk {
 
 int scope_level;
 
-SymTable<100003> symbols;
+SymTable symbols;
 
-SymDef* sym_def[symbols.hprime + 1];
-SymDef* global_sym_def[symbols.hprime + 1];
+SymDef* sym_def[symbols.SIZE_PRIME + 1];
+SymDef* global_sym_def[symbols.SIZE_PRIME + 1];
 std::vector<std::pair<int, SymDef>> symbol_stack;
 std::vector<SrcLocation> scope_opened_at;
+
+Symbol::Symbol(std::string str, sym_idx_t idx) : str(std::move(str)), idx(idx) {
+  subclass = this->str[0] == '.'   ? SymbolSubclass::dot_identifier
+             : this->str[0] == '~' ? SymbolSubclass::tilde_identifier
+                                   : SymbolSubclass::undef;
+}
 
 std::string Symbol::unknown_symbol_name(sym_idx_t i) {
   if (!i) {
@@ -45,57 +51,43 @@ std::string Symbol::unknown_symbol_name(sym_idx_t i) {
   }
 }
 
-sym_idx_t SymTableBase::gen_lookup(std::string str, int mode, sym_idx_t idx) {
+sym_idx_t SymTable::gen_lookup(std::string_view str, int mode, sym_idx_t idx) {
   unsigned long long h1 = 1, h2 = 1;
   for (char c : str) {
-    h1 = ((h1 * 239) + (unsigned char)(c)) % p;
-    h2 = ((h2 * 17) + (unsigned char)(c)) % (p - 1);
+    h1 = ((h1 * 239) + (unsigned char)(c)) % SIZE_PRIME;
+    h2 = ((h2 * 17) + (unsigned char)(c)) % (SIZE_PRIME - 1);
   }
   ++h2;
   ++h1;
   while (true) {
-    if (sym_table[h1]) {
-      if (sym_table[h1]->str == str) {
+    if (sym[h1]) {
+      if (sym[h1]->str == str) {
         return (mode & 2) ? not_found : sym_idx_t(h1);
       }
       h1 += h2;
-      if (h1 > p) {
-        h1 -= p;
+      if (h1 > SIZE_PRIME) {
+        h1 -= SIZE_PRIME;
       }
     } else {
       if (!(mode & 1)) {
         return not_found;
       }
-      if (def_sym >= ((long long)p * 3) / 4) {
+      if (def_sym >= ((long long)SIZE_PRIME * 3) / 4) {
         throw SymTableOverflow{def_sym};
       }
-      sym_table[h1] = std::make_unique<Symbol>(str, idx <= 0 ? sym_idx_t(h1) : -idx);
+      sym[h1] = std::make_unique<Symbol>(static_cast<std::string>(str), idx <= 0 ? sym_idx_t(h1) : -idx);
       ++def_sym;
       return sym_idx_t(h1);
     }
   }
 }
 
-SymTableBase& SymTableBase::add_keyword(std::string str, sym_idx_t idx) {
-  if (idx <= 0) {
-    idx = ++def_kw;
-  }
-  sym_idx_t res = gen_lookup(str, -1, idx);
-  if (!res) {
-    throw SymTableKwRedef{str};
-  }
-  if (idx < max_kw_idx) {
-    keywords[idx] = res;
-  }
-  return *this;
-}
-
-void open_scope(Lexer& lex) {
+void open_scope(SrcLocation loc) {
   ++scope_level;
-  scope_opened_at.push_back(lex.cur().loc);
+  scope_opened_at.push_back(loc);
 }
 
-void close_scope(Lexer& lex) {
+void close_scope(SrcLocation loc) {
   if (!scope_level) {
     throw Fatal{"cannot close the outer scope"};
   }
@@ -124,24 +116,20 @@ void close_scope(Lexer& lex) {
   scope_opened_at.pop_back();
 }
 
-SymDef* lookup_symbol(sym_idx_t idx, int flags) {
+SymDef* lookup_symbol(sym_idx_t idx) {
   if (!idx) {
     return nullptr;
   }
-  if ((flags & 1) && sym_def[idx]) {
+  if (sym_def[idx]) {
     return sym_def[idx];
   }
-  if ((flags & 2) && global_sym_def[idx]) {
+  if (global_sym_def[idx]) {
     return global_sym_def[idx];
   }
   return nullptr;
 }
 
-SymDef* lookup_symbol(std::string name, int flags) {
-  return lookup_symbol(symbols.lookup(name), flags);
-}
-
-SymDef* define_global_symbol(sym_idx_t name_idx, bool force_new, const SrcLocation& loc) {
+SymDef* define_global_symbol(sym_idx_t name_idx, bool force_new, SrcLocation loc) {
   if (!name_idx) {
     return nullptr;
   }
@@ -156,7 +144,7 @@ SymDef* define_global_symbol(sym_idx_t name_idx, bool force_new, const SrcLocati
   return found;
 }
 
-SymDef* define_symbol(sym_idx_t name_idx, bool force_new, const SrcLocation& loc) {
+SymDef* define_symbol(sym_idx_t name_idx, bool force_new, SrcLocation loc) {
   if (!name_idx) {
     return nullptr;
   }
@@ -176,7 +164,7 @@ SymDef* define_symbol(sym_idx_t name_idx, bool force_new, const SrcLocation& loc
     return found;
   }
   found = sym_def[name_idx] = new SymDef(scope_level, name_idx, loc);
-  symbol_stack.push_back(std::make_pair(scope_level, SymDef{0, name_idx}));
+  symbol_stack.push_back(std::make_pair(scope_level, SymDef{0, name_idx, loc}));
 #ifdef TOLK_DEBUG
   found->sym_name = found->name();
   symbol_stack.back().second.sym_name = found->name();

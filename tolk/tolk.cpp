@@ -24,18 +24,17 @@
     from all source files in the program, then also delete it here.
 */
 #include "tolk.h"
-#include "srcread.h"
 #include "lexer.h"
 #include <getopt.h>
 #include "git.h"
 #include <fstream>
 #include "td/utils/port/path.h"
+#include <sys/stat.h>
 
 namespace tolk {
 
-int verbosity, indent, opt_level = 2;
-bool stack_layout_comments, op_rewrite_comments, program_envelope, asm_preamble;
-bool interactive = false;
+int verbosity = 0, opt_level = 2;
+bool stack_layout_comments = true;
 GlobalPragma pragma_allow_post_modification{"allow-post-modification"};
 GlobalPragma pragma_compute_asm_ltr{"compute-asm-ltr"};
 GlobalPragma pragma_remove_unused_functions{"remove-unused-functions"};
@@ -82,23 +81,13 @@ void GlobalPragma::enable(SrcLocation loc) {
                      ". Please, remove this line from your code.");
     return;
   }
+  if (!loc.get_src_file()->is_entrypoint_file()) {
+    // todo generally it's not true; rework pragmas completely
+    loc.show_warning(PSTRING() << "#pragma " << name_ <<
+                     " should be used in the main file only.");
+  }
 
   enabled_ = true;
-  locs_.push_back(std::move(loc));
-}
-
-void GlobalPragma::check_enable_in_libs() {
-  if (locs_.empty()) {
-    return;
-  }
-  for (const SrcLocation& loc : locs_) {
-    if (loc.fdescr->is_main) {
-      return;
-    }
-  }
-  locs_[0].show_warning(PSTRING() << "#pragma " << name_
-                        << " is enabled in included libraries, it may change the behavior of your code. "
-                        << "Add this #pragma to the main source file to suppress this warning.");
 }
 
 void GlobalPragma::always_on_and_deprecated(const char *deprecated_from_v) {
@@ -109,14 +98,19 @@ void GlobalPragma::always_on_and_deprecated(const char *deprecated_from_v) {
 td::Result<std::string> fs_read_callback(ReadCallback::Kind kind, const char* query) {
   switch (kind) {
     case ReadCallback::Kind::ReadFile: {
-      std::ifstream ifs{query};
-      if (ifs.fail()) {
-        auto msg = std::string{"cannot open source file `"} + query + "`";
-        return td::Status::Error(msg);
+      struct stat f_stat;
+      int res = stat(query, &f_stat);
+      if (res != 0) {
+        return td::Status::Error(std::string{"cannot open source file: "} + query);
       }
-      std::stringstream ss;
-      ss << ifs.rdbuf();
-      return ss.str();
+
+      size_t file_size = static_cast<size_t>(f_stat.st_size);
+      std::string str;
+      str.resize(file_size);
+      FILE* f = fopen(query, "r");
+      fread(str.data(), file_size, 1, f);
+      fclose(f);
+      return std::move(str);
     }
     case ReadCallback::Kind::Realpath: {
       return td::realpath(td::CSlice(query));
@@ -241,7 +235,7 @@ void generate_output_func(SymDef* func_sym, std::ostream &outs, std::ostream &er
     } else if (func_val->is_inline_ref()) {
       modifier = "REF";
     }
-    outs << std::string(indent * 2, ' ') << name << " PROC" << modifier << ":<{\n";
+    outs << std::string(2, ' ') << name << " PROC" << modifier << ":<{\n";
     int mode = 0;
     if (stack_layout_comments) {
       mode |= Stack::_StkCmt | Stack::_CptStkCmt;
@@ -255,8 +249,8 @@ void generate_output_func(SymDef* func_sym, std::ostream &outs, std::ostream &er
     if (func_val->is_inline() || func_val->is_inline_ref()) {
       mode |= Stack::_InlineAny;
     }
-    code.generate_code(outs, mode, indent + 1);
-    outs << std::string(indent * 2, ' ') << "}>\n";
+    code.generate_code(outs, mode, 2);
+    outs << std::string(2, ' ') << "}>\n";
     if (verbosity >= 2) {
       errs << "--------------\n";
     }
@@ -264,13 +258,9 @@ void generate_output_func(SymDef* func_sym, std::ostream &outs, std::ostream &er
 }
 
 int generate_output(std::ostream &outs, std::ostream &errs) {
-  if (asm_preamble) {
-    outs << "\"Asm.fif\" include\n";
-  }
+  outs << "\"Asm.fif\" include\n";
   outs << "// automatically generated from " << generated_from << std::endl;
-  if (program_envelope) {
-    outs << "PROGRAM{\n";
-  }
+  outs << "PROGRAM{\n";
   mark_used_symbols();
   for (SymDef* func_sym : glob_func) {
     SymValCodeFunc* func_val = dynamic_cast<SymValCodeFunc*>(func_sym->value);
@@ -283,7 +273,7 @@ int generate_output(std::ostream &outs, std::ostream &errs) {
     }
 
     std::string name = symbols.get_name(func_sym->sym_idx);
-    outs << std::string(indent * 2, ' ');
+    outs << std::string(2, ' ');
     if (func_val->method_id.is_null()) {
       outs << "DECLPROC " << name << "\n";
     } else {
@@ -300,7 +290,7 @@ int generate_output(std::ostream &outs, std::ostream &errs) {
       continue;
     }
     std::string name = symbols.get_name(gvar_sym->sym_idx);
-    outs << std::string(indent * 2, ' ') << "DECLGLOBVAR " << name << "\n";
+    outs << std::string(2, ' ') << "DECLGLOBVAR " << name << "\n";
   }
   int errors = 0;
   for (SymDef* func_sym : glob_func) {
@@ -310,76 +300,46 @@ int generate_output(std::ostream &outs, std::ostream &errs) {
     }
     try {
       generate_output_func(func_sym, outs, errs);
-    } catch (Error& err) {
+    } catch (ParseError& err) {
       errs << "cannot generate code for function `" << symbols.get_name(func_sym->sym_idx) << "`:\n"
                 << err << std::endl;
       ++errors;
     }
   }
-  if (program_envelope) {
-    outs << "}END>c\n";
-  }
+  outs << "}END>c\n";
   if (!boc_output_filename.empty()) {
-    outs << "2 boc+>B \"" << boc_output_filename << "\" B>file\n";
+    outs << "boc>B \"" << boc_output_filename << "\" B>file\n";
   }
   return errors;
 }
 
-void output_inclusion_stack(std::ostream &errs) {
-  while (!inclusion_locations.empty()) {
-    SrcLocation loc = inclusion_locations.top();
-    inclusion_locations.pop();
-    if (loc.fdescr) {
-      errs << "note: included from ";
-      loc.show(errs);
-      errs << std::endl;
-    }
-  }
-}
 
-
-int tolk_proceed(const std::vector<std::string> &sources, std::ostream &outs, std::ostream &errs) {
-  if (program_envelope && !indent) {
-    indent = 1;
-  }
-
-  define_keywords();
+int tolk_proceed(const std::string &entrypoint_file_name, std::ostream &outs, std::ostream &errs) {
   define_builtins();
+  lexer_init();
   pragma_allow_post_modification.always_on_and_deprecated("0.5.0");
   pragma_compute_asm_ltr.always_on_and_deprecated("0.5.0");
 
-  int ok = 0, proc = 0;
   try {
-    for (auto src : sources) {
-      ok += parse_source_file(src.c_str(), {}, true);
-      proc++;
-    }
-    if (interactive) {
-      generated_from += "stdin ";
-      ok += parse_source_stdin();
-      proc++;
-    }
-    if (ok < proc) {
+    bool ok = parse_source_file(entrypoint_file_name.c_str(), {});
+    if (!ok) {
       throw Fatal{"output code generation omitted because of errors"};
     }
-    if (!proc) {
-      throw Fatal{"no source files, no output"};
-    }
-    pragma_remove_unused_functions.check_enable_in_libs();
+
+    // todo #ifdef TOLK_PROFILING + comment
+    // lexer_measure_performance(all_src_files.get_all_files());
+
     return generate_output(outs, errs);
   } catch (Fatal& fatal) {
     errs << "fatal: " << fatal << std::endl;
-    output_inclusion_stack(errs);
     return 2;
-  } catch (Error& error) {
+  } catch (ParseError& error) {
     errs << error << std::endl;
-    output_inclusion_stack(errs);
     return 2;
   } catch (UnifyError& unif_err) {
     errs << "fatal: ";
     unif_err.print_message(errs);
     errs << std::endl;
-    output_inclusion_stack(errs);
     return 2;
   }
 

@@ -31,81 +31,58 @@
 #include "td/utils/Status.h"
 #include <sstream>
 #include <iomanip>
-#include "vm/boc.h"
 
 td::Result<std::string> compile_internal(char *config_json) {
   TRY_RESULT(input_json, td::json_decode(td::MutableSlice(config_json)))
-  auto &obj = input_json.get_object();
+  td::JsonObject& config = input_json.get_object();
 
-  TRY_RESULT(opt_level, td::get_json_object_int_field(obj, "optLevel", false));
-  TRY_RESULT(sources_obj, td::get_json_object_field(obj, "sources", td::JsonValue::Type::Array, false));
-
-  auto &sources_arr = sources_obj.get_array();
-
-  std::vector<std::string> sources;
-
-  for (auto &item : sources_arr) {
-    sources.push_back(item.get_string().str());
-  }
+  TRY_RESULT(opt_level, td::get_json_object_int_field(config, "optimizationLevel", true, 2));
+  TRY_RESULT(stack_comments, td::get_json_object_bool_field(config, "withStackComments", true, false));
+  TRY_RESULT(entrypoint_file_name, td::get_json_object_string_field(config, "entrypointFileName", false));
 
   tolk::opt_level = std::max(0, opt_level);
-  tolk::program_envelope = true;
   tolk::verbosity = 0;
-  tolk::indent = 1;
+  tolk::stack_layout_comments = stack_comments;
 
   std::ostringstream outs, errs;
-  auto compile_res = tolk::tolk_proceed(sources, outs, errs);
-
-  if (compile_res != 0) {
-    return td::Status::Error(std::string("Tolk compilation error: ") + errs.str());
+  int tolk_res = tolk::tolk_proceed(entrypoint_file_name, outs, errs);
+  if (tolk_res != 0) {
+    return td::Status::Error("Tolk compilation error: " + errs.str());
   }
 
-  TRY_RESULT(code_cell, fift::compile_asm(outs.str(), "/fiftlib/", false));
-  TRY_RESULT(boc, vm::std_boc_serialize(code_cell));
+  TRY_RESULT(fift_res, fift::compile_asm_program(outs.str(), "/fiftlib/"));
 
   td::JsonBuilder result_json;
-  auto result_obj = result_json.enter_object();
-  result_obj("status", "ok");
-  result_obj("codeBoc", td::base64_encode(boc));
-  result_obj("fiftCode", outs.str());
-  result_obj("codeHashHex", code_cell->get_hash().to_hex());
-  result_obj.leave();
-
-  outs.clear();
-  errs.clear();
+  auto obj = result_json.enter_object();
+  obj("status", "ok");
+  obj("fiftCode", fift_res.fiftCode);
+  obj("codeBoc64", fift_res.codeBoc64);
+  obj("codeHashHex", fift_res.codeHashHex);
+  obj.leave();
 
   return result_json.string_builder().as_cslice().str();
 }
 
-/// Callback used to retrieve additional source files or data.
-///
-/// @param _kind The kind of callback (a string).
-/// @param _data The data for the callback (a string).
-/// @param o_contents A pointer to the contents of the file, if found. Allocated via malloc().
-/// @param o_error A pointer to an error message, if there is one. Allocated via malloc().
-///
-/// The callback implementor must use malloc() to allocate storage for
-/// contents or error. The callback implementor must use free() to free
-/// said storage after tolk_compile returns.
-///
-/// If the callback is not supported, *o_contents and *o_error must be set to NULL.
-typedef void (*CStyleReadFileCallback)(char const* _kind, char const* _data, char** o_contents, char** o_error);
+/// Callback used to retrieve file contents from a "not file system". See tolk-js for implementation.
+/// The callback must fill either destContents or destError.
+/// The implementor must use malloc() for them and use free() after tolk_compile returns.
+typedef void (*CStyleReadFileCallback)(int kind, char const* data, char** destContents, char** destError);
 
 tolk::ReadCallback::Callback wrapReadCallback(CStyleReadFileCallback _readCallback)
 {
   tolk::ReadCallback::Callback readCallback;
   if (_readCallback) {
-    readCallback = [=](tolk::ReadCallback::Kind _kind, char const* _data) -> td::Result<std::string> {
-      char* contents_c = nullptr;
-      char* error_c = nullptr;
-      _readCallback(tolk::ReadCallback::kindString(_kind).data(), _data, &contents_c, &error_c);
-      if (!contents_c && !error_c) {
+    readCallback = [=](tolk::ReadCallback::Kind kind, char const* data) -> td::Result<std::string> {
+      char* destContents = nullptr;
+      char* destError = nullptr;
+      _readCallback(static_cast<int>(kind), data, &destContents, &destError);
+      if (!destContents && !destError) {
         return td::Status::Error("Callback not supported");
       }
-      if (contents_c) {
-        return contents_c;
+      if (destContents) {
+        return destContents;
       }
-      return td::Status::Error(std::string(error_c));
+      return td::Status::Error(std::string(destError));
     };
   }
   return readCallback;

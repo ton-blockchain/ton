@@ -95,7 +95,7 @@ SymDef* define_builtin_const(std::string name, TypeExpr* const_type, Args&&... a
 }
 
 bool SymValAsmFunc::compile(AsmOpList& dest, std::vector<VarDescr>& out, std::vector<VarDescr>& in,
-                            const SrcLocation& where) const {
+                            SrcLocation where) const {
   if (simple_compile) {
     return dest.append(simple_compile(out, in, where));
   } else if (ext_compile) {
@@ -186,7 +186,7 @@ int emulate_mul(int a, int b) {
   return r;
 }
 
-int emulate_and(int a, int b) {
+int emulate_bitwise_and(int a, int b) {
   int both = a & b, any = a | b;
   int r = VarDescr::_Int;
   if (any & VarDescr::_Nan) {
@@ -204,7 +204,7 @@ int emulate_and(int a, int b) {
   return r;
 }
 
-int emulate_or(int a, int b) {
+int emulate_bitwise_or(int a, int b) {
   if (b & VarDescr::_Zero) {
     return a;
   } else if (a & VarDescr::_Zero) {
@@ -222,7 +222,7 @@ int emulate_or(int a, int b) {
   return r;
 }
 
-int emulate_xor(int a, int b) {
+int emulate_bitwise_xor(int a, int b) {
   if (b & VarDescr::_Zero) {
     return a;
   } else if (a & VarDescr::_Zero) {
@@ -241,7 +241,7 @@ int emulate_xor(int a, int b) {
   return r;
 }
 
-int emulate_not(int a) {
+int emulate_bitwise_not(int a) {
   if ((a & VarDescr::ConstZero) == VarDescr::ConstZero) {
     return VarDescr::ConstTrue;
   }
@@ -436,7 +436,7 @@ AsmOp push_const(td::RefInt256 x) {
   return AsmOp::IntConst(std::move(x));
 }
 
-AsmOp compile_add(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation& where) {
+AsmOp compile_add(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation where) {
   tolk_assert(res.size() == 1 && args.size() == 2);
   VarDescr &r = res[0], &x = args[0], &y = args[1];
   if (x.is_int_const() && y.is_int_const()) {
@@ -478,7 +478,7 @@ AsmOp compile_add(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const
   return exec_op("ADD", 2);
 }
 
-AsmOp compile_sub(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation& where) {
+AsmOp compile_sub(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation where) {
   tolk_assert(res.size() == 1 && args.size() == 2);
   VarDescr &r = res[0], &x = args[0], &y = args[1];
   if (x.is_int_const() && y.is_int_const()) {
@@ -511,7 +511,7 @@ AsmOp compile_sub(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const
   return exec_op("SUB", 2);
 }
 
-AsmOp compile_negate(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation& where) {
+AsmOp compile_unary_minus(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation where) {
   tolk_assert(res.size() == 1 && args.size() == 1);
   VarDescr &r = res[0], &x = args[0];
   if (x.is_int_const()) {
@@ -526,7 +526,19 @@ AsmOp compile_negate(std::vector<VarDescr>& res, std::vector<VarDescr>& args, co
   return exec_op("NEGATE", 1);
 }
 
-AsmOp compile_and(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation& where) {
+AsmOp compile_unary_plus(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation where) {
+  tolk_assert(res.size() == 1 && args.size() == 1);
+  VarDescr &r = res[0], &x = args[0];
+  if (x.is_int_const()) {
+    r.set_const(x.int_const);
+    x.unused();
+    return push_const(r.int_const);
+  }
+  r.val = x.val;
+  return AsmOp::Nop();
+}
+
+AsmOp compile_bitwise_and(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation where) {
   tolk_assert(res.size() == 1 && args.size() == 2);
   VarDescr &r = res[0], &x = args[0], &y = args[1];
   if (x.is_int_const() && y.is_int_const()) {
@@ -535,11 +547,11 @@ AsmOp compile_and(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const
     y.unused();
     return push_const(r.int_const);
   }
-  r.val = emulate_and(x.val, y.val);
+  r.val = emulate_bitwise_and(x.val, y.val);
   return exec_op("AND", 2);
 }
 
-AsmOp compile_or(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation& where) {
+AsmOp compile_bitwise_or(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation where) {
   tolk_assert(res.size() == 1 && args.size() == 2);
   VarDescr &r = res[0], &x = args[0], &y = args[1];
   if (x.is_int_const() && y.is_int_const()) {
@@ -548,11 +560,11 @@ AsmOp compile_or(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const 
     y.unused();
     return push_const(r.int_const);
   }
-  r.val = emulate_or(x.val, y.val);
+  r.val = emulate_bitwise_or(x.val, y.val);
   return exec_op("OR", 2);
 }
 
-AsmOp compile_xor(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation& where) {
+AsmOp compile_bitwise_xor(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation where) {
   tolk_assert(res.size() == 1 && args.size() == 2);
   VarDescr &r = res[0], &x = args[0], &y = args[1];
   if (x.is_int_const() && y.is_int_const()) {
@@ -561,11 +573,11 @@ AsmOp compile_xor(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const
     y.unused();
     return push_const(r.int_const);
   }
-  r.val = emulate_xor(x.val, y.val);
+  r.val = emulate_bitwise_xor(x.val, y.val);
   return exec_op("XOR", 2);
 }
 
-AsmOp compile_not(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation& where) {
+AsmOp compile_bitwise_not(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation where) {
   tolk_assert(res.size() == 1 && args.size() == 1);
   VarDescr &r = res[0], &x = args[0];
   if (x.is_int_const()) {
@@ -573,11 +585,11 @@ AsmOp compile_not(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const
     x.unused();
     return push_const(r.int_const);
   }
-  r.val = emulate_not(x.val);
+  r.val = emulate_bitwise_not(x.val);
   return exec_op("NOT", 1);
 }
 
-AsmOp compile_mul_internal(VarDescr& r, VarDescr& x, VarDescr& y, const SrcLocation& where) {
+AsmOp compile_mul_internal(VarDescr& r, VarDescr& x, VarDescr& y, SrcLocation where) {
   if (x.is_int_const() && y.is_int_const()) {
     r.set_const(x.int_const * y.int_const);
     if (!r.int_const->is_valid()) {
@@ -645,12 +657,12 @@ AsmOp compile_mul_internal(VarDescr& r, VarDescr& x, VarDescr& y, const SrcLocat
   return exec_op("MUL", 2);
 }
 
-AsmOp compile_mul(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation& where) {
+AsmOp compile_mul(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation where) {
   tolk_assert(res.size() == 1 && args.size() == 2);
   return compile_mul_internal(res[0], args[0], args[1], where);
 }
 
-AsmOp compile_lshift(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation& where) {
+AsmOp compile_lshift(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation where) {
   tolk_assert(res.size() == 1 && args.size() == 2);
   VarDescr &r = res[0], &x = args[0], &y = args[1];
   if (y.is_int_const()) {
@@ -692,7 +704,7 @@ AsmOp compile_lshift(std::vector<VarDescr>& res, std::vector<VarDescr>& args, co
   return exec_op("LSHIFT", 2);
 }
 
-AsmOp compile_rshift(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation& where,
+AsmOp compile_rshift(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation where,
                      int round_mode) {
   tolk_assert(res.size() == 1 && args.size() == 2);
   VarDescr &r = res[0], &x = args[0], &y = args[1];
@@ -722,7 +734,7 @@ AsmOp compile_rshift(std::vector<VarDescr>& res, std::vector<VarDescr>& args, co
   return exec_op(rshift, 2);
 }
 
-AsmOp compile_div_internal(VarDescr& r, VarDescr& x, VarDescr& y, const SrcLocation& where, int round_mode) {
+AsmOp compile_div_internal(VarDescr& r, VarDescr& x, VarDescr& y, SrcLocation where, int round_mode) {
   if (x.is_int_const() && y.is_int_const()) {
     r.set_const(div(x.int_const, y.int_const, round_mode));
     if (!r.int_const->is_valid()) {
@@ -762,12 +774,12 @@ AsmOp compile_div_internal(VarDescr& r, VarDescr& x, VarDescr& y, const SrcLocat
   return exec_op(op, 2);
 }
 
-AsmOp compile_div(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation& where, int round_mode) {
+AsmOp compile_div(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation where, int round_mode) {
   tolk_assert(res.size() == 1 && args.size() == 2);
   return compile_div_internal(res[0], args[0], args[1], where, round_mode);
 }
 
-AsmOp compile_mod(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation& where,
+AsmOp compile_mod(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation where,
                   int round_mode) {
   tolk_assert(res.size() == 1 && args.size() == 2);
   VarDescr &r = res[0], &x = args[0], &y = args[1];
@@ -808,7 +820,7 @@ AsmOp compile_mod(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const
   return exec_op(op, 2);
 }
 
-AsmOp compile_muldiv(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation& where,
+AsmOp compile_muldiv(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation where,
                      int round_mode) {
   tolk_assert(res.size() == 1 && args.size() == 3);
   VarDescr &r = res[0], &x = args[0], &y = args[1], &z = args[2];
@@ -978,7 +990,7 @@ AsmOp compile_cmp_int(std::vector<VarDescr>& res, std::vector<VarDescr>& args, i
   return exec_op(cmp_names[mode], 2);
 }
 
-AsmOp compile_throw(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation&) {
+AsmOp compile_throw(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation) {
   tolk_assert(res.empty() && args.size() == 1);
   VarDescr& x = args[0];
   if (x.is_int_const() && x.int_const->unsigned_fits_bits(11)) {
@@ -1010,7 +1022,7 @@ AsmOp compile_cond_throw(std::vector<VarDescr>& res, std::vector<VarDescr>& args
   }
 }
 
-AsmOp compile_throw_arg(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation&) {
+AsmOp compile_throw_arg(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation) {
   tolk_assert(res.empty() && args.size() == 2);
   VarDescr &x = args[1];
   if (x.is_int_const() && x.int_const->unsigned_fits_bits(11)) {
@@ -1101,7 +1113,7 @@ AsmOp compile_fetch_slice(std::vector<VarDescr>& res, std::vector<VarDescr>& arg
 }
 
 // <type> <type>_at(tuple t, int index) asm "INDEXVAR";
-AsmOp compile_tuple_at(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation&) {
+AsmOp compile_tuple_at(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation) {
   tolk_assert(args.size() == 2 && res.size() == 1);
   auto& y = args[1];
   if (y.is_int_const() && y.int_const >= 0 && y.int_const < 16) {
@@ -1112,7 +1124,7 @@ AsmOp compile_tuple_at(std::vector<VarDescr>& res, std::vector<VarDescr>& args, 
 }
 
 // int null?(X arg)
-AsmOp compile_is_null(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation&) {
+AsmOp compile_is_null(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation) {
   tolk_assert(args.size() == 1 && res.size() == 1);
   auto &x = args[0], &r = res[0];
   if (x.always_null() || x.always_not_null()) {
@@ -1128,12 +1140,12 @@ AsmOp compile_is_null(std::vector<VarDescr>& res, std::vector<VarDescr>& args, c
 void define_builtins() {
   using namespace std::placeholders;
   auto Unit = TypeExpr::new_unit();
-  auto Int = TypeExpr::new_atomic(_Int);
-  auto Cell = TypeExpr::new_atomic(_Cell);
-  auto Slice = TypeExpr::new_atomic(_Slice);
-  auto Builder = TypeExpr::new_atomic(_Builder);
-  // auto Null = TypeExpr::new_atomic(_Null);
-  auto Tuple = TypeExpr::new_atomic(_Tuple);
+  auto Int = TypeExpr::new_atomic(TypeExpr::_Int);
+  auto Cell = TypeExpr::new_atomic(TypeExpr::_Cell);
+  auto Slice = TypeExpr::new_atomic(TypeExpr::_Slice);
+  auto Builder = TypeExpr::new_atomic(TypeExpr::_Builder);
+  // auto Null = TypeExpr::new_atomic(TypeExpr::_Null);
+  auto Tuple = TypeExpr::new_atomic(TypeExpr::_Tuple);
   auto Int2 = TypeExpr::new_tensor({Int, Int});
   auto Int3 = TypeExpr::new_tensor({Int, Int, Int});
   auto TupleInt = TypeExpr::new_tensor({Tuple, Int});
@@ -1156,9 +1168,16 @@ void define_builtins() {
   //auto arith_null_op = TypeExpr::new_map(TypeExpr::new_unit(), Int);
   auto throw_arg_op = TypeExpr::new_forall({X}, TypeExpr::new_map(TypeExpr::new_tensor({X, Int}), Unit));
   auto cond_throw_arg_op = TypeExpr::new_forall({X}, TypeExpr::new_map(TypeExpr::new_tensor({X, Int, Int}), Unit));
+
+  // prevent unused vars warnings (there vars are created to acquire initial id of TypeExpr::value)
+  static_cast<void>(Z);
+  static_cast<void>(XY);
+  static_cast<void>(Cell);
+
   define_builtin_func("_+_", arith_bin_op, compile_add);
   define_builtin_func("_-_", arith_bin_op, compile_sub);
-  define_builtin_func("-_", arith_un_op, compile_negate);
+  define_builtin_func("-_", arith_un_op, compile_unary_minus);
+  define_builtin_func("+_", arith_un_op, compile_unary_plus);
   define_builtin_func("_*_", arith_bin_op, compile_mul);
   define_builtin_func("_/_", arith_bin_op, std::bind(compile_div, _1, _2, _3, -1));
   define_builtin_func("_~/_", arith_bin_op, std::bind(compile_div, _1, _2, _3, 0));
@@ -1175,10 +1194,10 @@ void define_builtins() {
   define_builtin_func("_>>_", arith_bin_op, std::bind(compile_rshift, _1, _2, _3, -1));
   define_builtin_func("_~>>_", arith_bin_op, std::bind(compile_rshift, _1, _2, _3, 0));
   define_builtin_func("_^>>_", arith_bin_op, std::bind(compile_rshift, _1, _2, _3, 1));
-  define_builtin_func("_&_", arith_bin_op, compile_and);
-  define_builtin_func("_|_", arith_bin_op, compile_or);
-  define_builtin_func("_^_", arith_bin_op, compile_xor);
-  define_builtin_func("~_", arith_un_op, compile_not);
+  define_builtin_func("_&_", arith_bin_op, compile_bitwise_and);
+  define_builtin_func("_|_", arith_bin_op, compile_bitwise_or);
+  define_builtin_func("_^_", arith_bin_op, compile_bitwise_xor);
+  define_builtin_func("~_", arith_un_op, compile_bitwise_not);
   define_builtin_func("^_+=_", arith_bin_op, compile_add);
   define_builtin_func("^_-=_", arith_bin_op, compile_sub);
   define_builtin_func("^_*=_", arith_bin_op, compile_mul);
@@ -1192,9 +1211,9 @@ void define_builtins() {
   define_builtin_func("^_>>=_", arith_bin_op, std::bind(compile_rshift, _1, _2, _3, -1));
   define_builtin_func("^_~>>=_", arith_bin_op, std::bind(compile_rshift, _1, _2, _3, 0));
   define_builtin_func("^_^>>=_", arith_bin_op, std::bind(compile_rshift, _1, _2, _3, 1));
-  define_builtin_func("^_&=_", arith_bin_op, compile_and);
-  define_builtin_func("^_|=_", arith_bin_op, compile_or);
-  define_builtin_func("^_^=_", arith_bin_op, compile_xor);
+  define_builtin_func("^_&=_", arith_bin_op, compile_bitwise_and);
+  define_builtin_func("^_|=_", arith_bin_op, compile_bitwise_or);
+  define_builtin_func("^_^=_", arith_bin_op, compile_bitwise_xor);
   define_builtin_func("muldiv", TypeExpr::new_map(Int3, Int), std::bind(compile_muldiv, _1, _2, _3, -1));
   define_builtin_func("muldivr", TypeExpr::new_map(Int3, Int), std::bind(compile_muldiv, _1, _2, _3, 0));
   define_builtin_func("muldivc", TypeExpr::new_map(Int3, Int), std::bind(compile_muldiv, _1, _2, _3, 1));

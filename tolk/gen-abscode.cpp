@@ -41,25 +41,19 @@ Expr::Expr(ExprCls c, sym_idx_t name_idx, std::initializer_list<Expr*> _arglist)
   }
 }
 
-void Expr::chk_rvalue(const Lexem& lem) const {
+void Expr::chk_rvalue(const Lexer& lex) const {
   if (!is_rvalue()) {
-    lem.error_at("rvalue expected before `", "`");
+    lex.error_at("rvalue expected before `", "`");
   }
 }
 
-void Expr::chk_lvalue(const Lexem& lem) const {
+void Expr::chk_lvalue(const Lexer& lex) const {
   if (!is_lvalue()) {
-    lem.error_at("lvalue expected before `", "`");
+    lex.error_at("lvalue expected before `", "`");
   }
 }
 
-void Expr::chk_type(const Lexem& lem) const {
-  if (!is_type()) {
-    lem.error_at("type expression expected before `", "`");
-  }
-}
-
-bool Expr::deduce_type(const Lexem& lem) {
+bool Expr::deduce_type(const Lexer& lex) {
   if (e_type) {
     return true;
   }
@@ -83,7 +77,7 @@ bool Expr::deduce_type(const Lexem& lem) {
         std::ostringstream os;
         os << "cannot apply function " << sym->name() << " : " << sym_val->get_type() << " to arguments of type "
            << fun_type->args[0] << ": " << ue;
-        lem.error(os.str());
+        lex.error(os.str());
       }
       e_type = fun_type->args[1];
       TypeExpr::remove_indirect(e_type);
@@ -98,7 +92,7 @@ bool Expr::deduce_type(const Lexem& lem) {
         std::ostringstream os;
         os << "cannot apply expression of type " << args[0]->e_type << " to an expression of type " << args[1]->e_type
            << ": " << ue;
-        lem.error(os.str());
+        lex.error(os.str());
       }
       e_type = fun_type->args[1];
       TypeExpr::remove_indirect(e_type);
@@ -113,7 +107,7 @@ bool Expr::deduce_type(const Lexem& lem) {
         std::ostringstream os;
         os << "cannot assign an expression of type " << args[1]->e_type << " to a variable or pattern of type "
            << args[0]->e_type << ": " << ue;
-        lem.error(os.str());
+        lex.error(os.str());
       }
       e_type = args[0]->e_type;
       TypeExpr::remove_indirect(e_type);
@@ -130,7 +124,7 @@ bool Expr::deduce_type(const Lexem& lem) {
         os << "cannot implicitly assign an expression of type " << args[1]->e_type
            << " to a variable or pattern of type " << rhs_type << " in modifying method `" << symbols.get_name(val)
            << "` : " << ue;
-        lem.error(os.str());
+        lex.error(os.str());
       }
       e_type = rhs_type->args[1];
       TypeExpr::remove_indirect(e_type);
@@ -139,13 +133,13 @@ bool Expr::deduce_type(const Lexem& lem) {
     }
     case _CondExpr: {
       tolk_assert(args.size() == 3);
-      auto flag_type = TypeExpr::new_atomic(_Int);
+      auto flag_type = TypeExpr::new_atomic(TypeExpr::_Int);
       try {
         unify(args[0]->e_type, flag_type);
       } catch (UnifyError& ue) {
         std::ostringstream os;
         os << "condition in a conditional expression has non-integer type " << args[0]->e_type << ": " << ue;
-        lem.error(os.str());
+        lex.error(os.str());
       }
       try {
         unify(args[1]->e_type, args[2]->e_type);
@@ -153,7 +147,7 @@ bool Expr::deduce_type(const Lexem& lem) {
         std::ostringstream os;
         os << "the two variants in a conditional expression have different types " << args[1]->e_type << " and "
            << args[2]->e_type << " : " << ue;
-        lem.error(os.str());
+        lex.error(os.str());
       }
       e_type = args[1]->e_type;
       TypeExpr::remove_indirect(e_type);
@@ -176,13 +170,13 @@ int Expr::define_new_vars(CodeBlob& code) {
     }
     case _Var:
       if (val < 0) {
-        val = code.create_var(TmpVar::_Named, e_type, sym, &here);
+        val = code.create_var(TmpVar::_Named, e_type, sym, here);
         return 1;
       }
       break;
     case _Hole:
       if (val < 0) {
-        val = code.create_var(TmpVar::_Tmp, e_type, nullptr, &here);
+        val = code.create_var(TmpVar::_Tmp, e_type, nullptr, here);
       }
       break;
   }
@@ -202,7 +196,7 @@ int Expr::predefine_vars() {
     }
     case _Var:
       if (!sym) {
-        tolk_assert(val < 0 && here.defined());
+        tolk_assert(val < 0 && here.is_defined());
         if (prohibited_var_names.count(symbols.get_name(~val))) {
           throw ParseError{
               here, PSTRING() << "symbol `" << symbols.get_name(~val) << "` cannot be redefined as a variable"};
@@ -212,7 +206,7 @@ int Expr::predefine_vars() {
         if (!sym) {
           throw ParseError{here, std::string{"redefined variable `"} + symbols.get_name(~val) + "`"};
         }
-        sym->value = new SymVal{SymVal::_Var, -1, e_type};
+        sym->value = new SymVal{SymValKind::_Var, -1, e_type};
         return 1;
       }
       break;
@@ -221,17 +215,17 @@ int Expr::predefine_vars() {
 }
 
 var_idx_t Expr::new_tmp(CodeBlob& code) const {
-  return code.create_tmp_var(e_type, &here);
+  return code.create_tmp_var(e_type, here);
 }
 
-void add_set_globs(CodeBlob& code, std::vector<std::pair<SymDef*, var_idx_t>>& globs, const SrcLocation& here) {
+void add_set_globs(CodeBlob& code, std::vector<std::pair<SymDef*, var_idx_t>>& globs, SrcLocation here) {
   for (const auto& p : globs) {
     auto& op = code.emplace_back(here, Op::_SetGlob, std::vector<var_idx_t>{}, std::vector<var_idx_t>{ p.second }, p.first);
     op.set_impure(code);
   }
 }
 
-std::vector<var_idx_t> pre_compile_let(CodeBlob& code, Expr* lhs, Expr* rhs, const SrcLocation& here) {
+std::vector<var_idx_t> pre_compile_let(CodeBlob& code, Expr* lhs, Expr* rhs, SrcLocation here) {
   while (lhs->is_type_apply()) {
     lhs = lhs->args.at(0);
   }
@@ -245,7 +239,7 @@ std::vector<var_idx_t> pre_compile_let(CodeBlob& code, Expr* lhs, Expr* rhs, con
     auto right = rhs->pre_compile(code);
     TypeExpr::remove_indirect(rhs->e_type);
     auto unpacked_type = rhs->e_type->args.at(0);
-    std::vector<var_idx_t> tmp{code.create_tmp_var(unpacked_type, &rhs->here)};
+    std::vector<var_idx_t> tmp{code.create_tmp_var(unpacked_type, rhs->here)};
     code.emplace_back(lhs->here, Op::_UnTuple, tmp, std::move(right));
     auto tvar = new Expr{Expr::_Var};
     tvar->set_val(tmp[0]);
@@ -286,14 +280,14 @@ std::vector<var_idx_t> pre_compile_tensor(const std::vector<Expr *>& args, CodeB
     for (size_t j = 0; j < res_lists[i].size(); ++j) {
       TmpVar& var = code.vars.at(res_lists[i][j]);
       if (!lval_globs && (var.cls & TmpVar::_Named)) {
-        var.on_modification.push_back([&modified_vars, i, j, cur_ops = code.cur_ops, done = false](const SrcLocation &here) mutable {
+        var.on_modification.push_back([&modified_vars, i, j, cur_ops = code.cur_ops, done = false](SrcLocation here) mutable {
           if (!done) {
             done = true;
             modified_vars.push_back({i, j, cur_ops});
           }
         });
       } else {
-        var.on_modification.push_back([](const SrcLocation &) {
+        var.on_modification.push_back([](SrcLocation) {
         });
       }
     }
@@ -307,8 +301,8 @@ std::vector<var_idx_t> pre_compile_tensor(const std::vector<Expr *>& args, CodeB
   for (size_t idx = modified_vars.size(); idx--; ) {
     const ModifiedVar &m = modified_vars[idx];
     var_idx_t orig_v = res_lists[m.i][m.j];
-    var_idx_t tmp_v = code.create_tmp_var(code.vars[orig_v].v_type, code.vars[orig_v].where.get());
-    std::unique_ptr<Op> op = std::make_unique<Op>(*code.vars[orig_v].where, Op::_Let);
+    var_idx_t tmp_v = code.create_tmp_var(code.vars[orig_v].v_type, code.vars[orig_v].where);
+    std::unique_ptr<Op> op = std::make_unique<Op>(code.vars[orig_v].where, Op::_Let);
     op->left = {tmp_v};
     op->right = {orig_v};
     op->next = std::move((*m.cur_ops));

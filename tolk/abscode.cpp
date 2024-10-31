@@ -24,29 +24,19 @@ namespace tolk {
  * 
  */
 
-TmpVar::TmpVar(var_idx_t _idx, int _cls, TypeExpr* _type, SymDef* sym, const SrcLocation* loc)
-    : v_type(_type), idx(_idx), cls(_cls), coord(0) {
+TmpVar::TmpVar(var_idx_t _idx, int _cls, TypeExpr* _type, SymDef* sym, SrcLocation loc)
+    : v_type(_type), idx(_idx), cls(_cls), coord(0), where(loc) {
   if (sym) {
     name = sym->sym_idx;
     sym->value->idx = _idx;
   }
-  if (loc) {
-    where = std::make_unique<SrcLocation>(*loc);
-  }
   if (!_type) {
     v_type = TypeExpr::new_hole();
   }
-  if (cls == _Named) {
-    undefined = true;
-  }
 }
 
-void TmpVar::set_location(const SrcLocation& loc) {
-  if (where) {
-    *where = loc;
-  } else {
-    where = std::make_unique<SrcLocation>(loc);
-  }
+void TmpVar::set_location(SrcLocation loc) {
+  where = loc;
 }
 
 void TmpVar::dump(std::ostream& os) const {
@@ -469,10 +459,10 @@ void CodeBlob::print(std::ostream& os, int flags) const {
   if ((flags & 8) != 0) {
     for (const auto& var : vars) {
       var.dump(os);
-      if (var.where && (flags & 1) != 0) {
-        var.where->show(os);
+      if (var.where.is_defined() && (flags & 1) != 0) {
+        var.where.show(os);
         os << " defined here:\n";
-        var.where->show_context(os);
+        var.where.show_context(os);
       }
     }
   }
@@ -483,7 +473,7 @@ void CodeBlob::print(std::ostream& os, int flags) const {
   os << "-------- END ---------\n\n";
 }
 
-var_idx_t CodeBlob::create_var(int cls, TypeExpr* var_type, SymDef* sym, const SrcLocation* location) {
+var_idx_t CodeBlob::create_var(int cls, TypeExpr* var_type, SymDef* sym, SrcLocation location) {
   vars.emplace_back(var_cnt, cls, var_type, sym, location);
   if (sym) {
     sym->value->idx = var_cnt;
@@ -501,7 +491,7 @@ bool CodeBlob::import_params(FormalArgList arg_list) {
     SymDef* arg_sym;
     SrcLocation arg_loc;
     std::tie(arg_type, arg_sym, arg_loc) = par;
-    list.push_back(create_var(arg_sym ? (TmpVar::_In | TmpVar::_Named) : TmpVar::_In, arg_type, arg_sym, &arg_loc));
+    list.push_back(create_var(arg_sym ? (TmpVar::_In | TmpVar::_Named) : TmpVar::_In, arg_type, arg_sym, arg_loc));
   }
   emplace_back(loc, Op::_Import, list);
   in_var_cnt = var_cnt;
