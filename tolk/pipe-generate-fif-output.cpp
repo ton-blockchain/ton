@@ -32,7 +32,7 @@ namespace tolk {
 
 bool SymValCodeFunc::does_need_codegen() const {
   // when a function is declared, but not referenced from code in any way, don't generate its body
-  if (!is_really_used && G.pragma_remove_unused_functions.enabled()) {
+  if (!is_really_used && G.settings.remove_unused_functions) {
     return false;
   }
   // when a function is referenced like `var a = some_fn;` (or in some other non-call way), its continuation should exist
@@ -137,6 +137,7 @@ void pipeline_generate_fif_output_to_std_cout() {
   std::cout << "// automatically generated from " << G.generated_from << std::endl;
   std::cout << "PROGRAM{\n";
 
+  bool has_main_procedure = false;
   for (SymDef* func_sym : G.all_code_functions) {
     SymValCodeFunc* func_val = dynamic_cast<SymValCodeFunc*>(func_sym->value);
     tolk_assert(func_val);
@@ -148,6 +149,10 @@ void pipeline_generate_fif_output_to_std_cout() {
     }
 
     std::string name = G.symbols.get_name(func_sym->sym_idx);
+    if (func_val->is_entrypoint() && (name == "main" || name == "onInternalMessage")) {
+      has_main_procedure = true;
+    }
+
     std::cout << std::string(2, ' ');
     if (func_val->method_id.is_null()) {
       std::cout << "DECLPROC " << name << "\n";
@@ -156,10 +161,14 @@ void pipeline_generate_fif_output_to_std_cout() {
     }
   }
 
+  if (!has_main_procedure) {
+    throw Fatal("the contract has no entrypoint; forgot `fun onInternalMessage(...)`?");
+  }
+
   for (SymDef* gvar_sym : G.all_global_vars) {
     auto* glob_val = dynamic_cast<SymValGlobVar*>(gvar_sym->value);
     tolk_assert(glob_val);
-    if (!glob_val->is_really_used && G.pragma_remove_unused_functions.enabled()) {
+    if (!glob_val->is_really_used && G.settings.remove_unused_functions) {
       if (G.is_verbosity(2)) {
         std::cerr << gvar_sym->name() << ": variable not generated, it's unused\n";
       }

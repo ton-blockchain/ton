@@ -158,8 +158,7 @@ struct ChunkInlineComment final : ChunkLexerBase {
 struct ChunkMultilineComment final : ChunkLexerBase {
   bool parse(Lexer* lex) const override {
     while (!lex->is_eof()) {
-      // todo drop -} later
-      if ((lex->char_at() == '-' && lex->char_at(1) == '}') || (lex->char_at() == '*' && lex->char_at(1) == '/')) {
+      if (lex->char_at() == '*' && lex->char_at(1) == '/') {
         lex->skip_chars(2);
         return true;
       }
@@ -221,6 +220,22 @@ struct ChunkMultilineString final : ChunkLexerBase {
   }
 };
 
+// An annotation for a function (in the future, for vars also):
+// @inline and others
+struct ChunkAnnotation final : ChunkLexerBase {
+  bool parse(Lexer* lex) const override {
+    const char* str_begin = lex->c_str();
+    lex->skip_chars(1);
+    while (std::isalnum(lex->char_at()) || lex->char_at() == '_') {
+      lex->skip_chars(1);
+    }
+
+    std::string_view str_val(str_begin, lex->c_str() - str_begin);
+    lex->add_token(tok_annotation_at, str_val);
+    return true;
+  }
+};
+
 // A number, may be a hex one.
 struct ChunkNumber final : ChunkLexerBase {
   bool parse(Lexer* lex) const override {
@@ -255,32 +270,6 @@ struct ChunkNumber final : ChunkLexerBase {
   }
 };
 
-// Anything starting from # is a compiler directive.
-// Technically, #include and #pragma can be mapped as separate chunks,
-// but storing such long strings in a trie increases its memory usage.
-struct ChunkCompilerDirective final : ChunkLexerBase {
-  bool parse(Lexer* lex) const override {
-    const char* str_begin = lex->c_str();
-
-    lex->skip_chars(1);
-    while (std::isalnum(lex->char_at())) {
-      lex->skip_chars(1);
-    }
-
-    std::string_view str_val(str_begin, lex->c_str() - str_begin);
-    if (str_val == "#include") {
-      lex->add_token(tok_include, str_val);
-      return true;
-    }
-    if (str_val == "#pragma") {
-      lex->add_token(tok_pragma, str_val);
-      return true;
-    }
-
-    lex->error("unknown compiler directive");
-  }
-};
-
 // Tokens like !=, &, etc. emit just a simple TokenType.
 // Since they are stored in trie, "parsing" them is just skipping len chars.
 struct ChunkSimpleToken final : ChunkLexerBase {
@@ -307,23 +296,9 @@ struct ChunkSkipWhitespace final : ChunkLexerBase {
 };
 
 // Here we handle corner cases of grammar that are requested on demand.
-// E.g., for 'pragma version >0.5.0', '0.5.0' should be parsed specially to emit tok_semver.
+// E.g., for 'tolk >0.5.0', '0.5.0' should be parsed specially to emit tok_semver.
 // See TolkLanguageGrammar::parse_next_chunk_special().
 struct ChunkSpecialParsing {
-  static bool parse_pragma_name(Lexer* lex) {
-    const char* str_begin = lex->c_str();
-    while (std::isalnum(lex->char_at()) || lex->char_at() == '-') {
-      lex->skip_chars(1);
-    }
-
-    std::string_view str_val(str_begin, lex->c_str() - str_begin);
-    if (str_val.empty()) {
-      return false;
-    }
-    lex->add_token(tok_pragma_name, str_val);
-    return true;
-  }
-
   static bool parse_semver(Lexer* lex) {
     const char* str_begin = lex->c_str();
     while (std::isdigit(lex->char_at()) || lex->char_at() == '.') {
@@ -358,53 +333,55 @@ struct ChunkIdentifierOrKeyword final : ChunkLexerBase {
       case 3:
         if (str == "int") return tok_int;
         if (str == "var") return tok_var;
+        if (str == "fun") return tok_fun;
         if (str == "asm") return tok_asm;
         if (str == "get") return tok_get;
         if (str == "try") return tok_try;
-        if (str == "nil") return tok_nil;
+        if (str == "val") return tok_val;
         break;
       case 4:
         if (str == "else") return tok_else;
         if (str == "true") return tok_true;
-        if (str == "pure") return tok_pure;
-        if (str == "then") return tok_then;
         if (str == "cell") return tok_cell;
-        if (str == "cont") return tok_cont;
+        if (str == "null") return tok_null;
+        if (str == "void") return tok_void;
+        if (str == "bool") return tok_bool;
+        if (str == "auto") return tok_auto;
+        if (str == "tolk") return tok_tolk;
+        if (str == "type") return tok_type;
+        if (str == "enum") return tok_enum;
         break;
       case 5:
         if (str == "slice") return tok_slice;
         if (str == "tuple") return tok_tuple;
         if (str == "const") return tok_const;
         if (str == "false") return tok_false;
+        if (str == "redef") return tok_redef;
         if (str == "while") return tok_while;
-        if (str == "until") return tok_until;
+        if (str == "break") return tok_break;
+        if (str == "throw") return tok_throw;
         if (str == "catch") return tok_catch;
-        if (str == "ifnot") return tok_ifnot;
+        if (str == "infix") return tok_infix;
         break;
       case 6:
         if (str == "return") return tok_return;
-        if (str == "repeat") return tok_repeat;
-        if (str == "elseif") return tok_elseif;
-        if (str == "forall") return tok_forall;
-        if (str == "extern") return tok_extern;
+        if (str == "assert") return tok_assert;
+        if (str == "import") return tok_import;
         if (str == "global") return tok_global;
-        if (str == "impure") return tok_impure;
-        if (str == "inline") return tok_inline;
+        if (str == "repeat") return tok_repeat;
+        if (str == "struct") return tok_struct;
+        if (str == "export") return tok_export;
         break;
       case 7:
         if (str == "builder") return tok_builder;
         if (str == "builtin") return tok_builtin;
         break;
       case 8:
+        if (str == "continue") return tok_continue;
         if (str == "operator") return tok_operator;
         break;
-      case 9:
-        if (str == "elseifnot") return tok_elseifnot;
-        if (str == "method_id") return tok_method_id;
-        break;
-      case 10:
-        if (str == "inline_ref") return tok_inlineref;
-        if (str == "auto_apply") return tok_autoapply;
+      case 12:
+        if (str == "continuation") return tok_continuation;
         break;
       default:
         break;
@@ -418,7 +395,7 @@ struct ChunkIdentifierOrKeyword final : ChunkLexerBase {
     while (!lex->is_eof()) {
       char c = lex->char_at();
       // the pattern of valid identifier first symbol is provided in trie, here we test for identifier middle
-      bool allowed_in_identifier = std::isalnum(c) || c == '_' || c == '$' || c == ':' || c == '?' || c == '!' || c == '\'';
+      bool allowed_in_identifier = std::isalnum(c) || c == '_' || c == '$' || c == '?' || c == '!' || c == '\'';
       if (!allowed_in_identifier) {
         break;
       }
@@ -445,17 +422,39 @@ struct ChunkIdentifierInBackticks final : ChunkLexerBase {
     lex->skip_chars(1);
     while (!lex->is_eof() && lex->char_at() != '`' && lex->char_at() != '\n') {
       if (std::isspace(lex->char_at())) { // probably, I'll remove this restriction after rewriting symtable and cur_sym_idx
-        lex->error("An identifier can't have a space in its name (even inside backticks)");
+        lex->error("an identifier can't have a space in its name (even inside backticks)");
       }
       lex->skip_chars(1);
     }
     if (lex->char_at() != '`') {
-      lex->error("Unclosed backtick `");
+      lex->error("unclosed backtick `");
     }
 
     std::string_view str_val(str_begin + 1, lex->c_str() - str_begin - 1);
     lex->skip_chars(1);
     G.symbols.lookup_add(str_val);
+    lex->add_token(tok_identifier, str_val);
+    return true;
+  }
+};
+
+// Handle ~`some_method` and .`some_method` todo to be removed later
+struct ChunkDotTildeAndBackticks final : ChunkLexerBase {
+  bool parse(Lexer* lex) const override {
+    const char* str_begin = lex->c_str();
+    lex->skip_chars(2);
+    while (!lex->is_eof() && lex->char_at() != '`' && lex->char_at() != '\n') {
+      lex->skip_chars(1);
+    }
+    if (lex->char_at() != '`') {
+      lex->error("unclosed backtick `");
+    }
+
+    std::string_view in_backticks(str_begin + 2, lex->c_str() - str_begin - 2);
+    std::string full = std::string(1, *str_begin) + static_cast<std::string>(in_backticks);
+    std::string* allocated = new std::string(full);
+    lex->skip_chars(1);
+    std::string_view str_val(allocated->c_str(), allocated->size());
     lex->add_token(tok_identifier, str_val);
     return true;
   }
@@ -477,8 +476,6 @@ struct TolkLanguageGrammar {
 
   static bool parse_next_chunk_special(Lexer* lex, TokenType parse_next_as) {
     switch (parse_next_as) {
-      case tok_pragma_name:
-        return ChunkSpecialParsing::parse_pragma_name(lex);
       case tok_semver:
         return ChunkSpecialParsing::parse_semver(lex);
       default:
@@ -493,21 +490,21 @@ struct TolkLanguageGrammar {
 
   static void init() {
     trie.add_prefix("//", singleton<ChunkInlineComment>());
-    trie.add_prefix(";;", singleton<ChunkInlineComment>());
     trie.add_prefix("/*", singleton<ChunkMultilineComment>());
-    trie.add_prefix("{-", singleton<ChunkMultilineComment>());
     trie.add_prefix(R"(")", singleton<ChunkString>());
     trie.add_prefix(R"(""")", singleton<ChunkMultilineString>());
+    trie.add_prefix("@", singleton<ChunkAnnotation>());
     trie.add_prefix(" ", singleton<ChunkSkipWhitespace>());
     trie.add_prefix("\t", singleton<ChunkSkipWhitespace>());
     trie.add_prefix("\r", singleton<ChunkSkipWhitespace>());
     trie.add_prefix("\n", singleton<ChunkSkipWhitespace>());
-    trie.add_prefix("#", singleton<ChunkCompilerDirective>());
 
     trie.add_pattern("[0-9]", singleton<ChunkNumber>());
     // todo think of . ~
     trie.add_pattern("[a-zA-Z_$.~]", singleton<ChunkIdentifierOrKeyword>());
     trie.add_prefix("`", singleton<ChunkIdentifierInBackticks>());
+    // todo to be removed after ~ becomes invalid and . becomes a separate token
+    trie.add_pattern("[.~]`", singleton<ChunkDotTildeAndBackticks>());
 
     register_token("+", 1, tok_plus);
     register_token("-", 1, tok_minus);
@@ -527,6 +524,7 @@ struct TolkLanguageGrammar {
     register_token("=", 1, tok_assign);
     register_token("<", 1, tok_lt);
     register_token(">", 1, tok_gt);
+    register_token("!", 1, tok_logical_not);
     register_token("&", 1, tok_bitwise_and);
     register_token("|", 1, tok_bitwise_or);
     register_token("^", 1, tok_bitwise_xor);
@@ -536,11 +534,10 @@ struct TolkLanguageGrammar {
     register_token(">=", 2, tok_geq);
     register_token("<<", 2, tok_lshift);
     register_token(">>", 2, tok_rshift);
+    register_token("&&", 2, tok_logical_and);
+    register_token("||", 2, tok_logical_or);
     register_token("~/", 2, tok_divR);
     register_token("^/", 2, tok_divC);
-    register_token("~%", 2, tok_modR);
-    register_token("^%", 2, tok_modC);
-    register_token("/%", 2, tok_divmod);
     register_token("+=", 2, tok_set_plus);
     register_token("-=", 2, tok_set_minus);
     register_token("*=", 2, tok_set_mul);
@@ -549,18 +546,12 @@ struct TolkLanguageGrammar {
     register_token("&=", 2, tok_set_bitwise_and);
     register_token("|=", 2, tok_set_bitwise_or);
     register_token("^=", 2, tok_set_bitwise_xor);
-    register_token("->", 2, tok_mapsto);
+    register_token("->", 2, tok_arrow);
     register_token("<=>", 3, tok_spaceship);
     register_token("~>>", 3, tok_rshiftR);
     register_token("^>>", 3, tok_rshiftC);
-    register_token("~/=", 3, tok_set_divR);
-    register_token("^/=", 3, tok_set_divC);
-    register_token("~%=", 3, tok_set_modR);
-    register_token("^%=", 3, tok_set_modC);
     register_token("<<=", 3, tok_set_lshift);
     register_token(">>=", 3, tok_set_rshift);
-    register_token("~>>=", 4, tok_set_rshiftR);
-    register_token("^>>=", 4, tok_set_rshiftC);
   }
 };
 
@@ -593,7 +584,7 @@ void Lexer::next() {
   while (cur_token_idx == last_token_idx && !is_eof()) {
     update_location();
     if (!TolkLanguageGrammar::parse_next_chunk(this)) {
-      error("Failed to parse");
+      error("failed to parse");
     }
   }
   if (is_eof()) {
@@ -616,8 +607,8 @@ void Lexer::error(const std::string& err_msg) const {
   throw ParseError(cur_location(), err_msg);
 }
 
-void Lexer::on_expect_call_failed(const char* str_expected) const {
-  throw ParseError(cur_location(), std::string(str_expected) + " expected instead of `" + std::string(cur_str()) + "`");
+void Lexer::unexpected(const char* str_expected) const {
+  throw ParseError(cur_location(), "expected " + std::string(str_expected) + ", got `" + std::string(cur_str()) + "`");
 }
 
 void lexer_init() {

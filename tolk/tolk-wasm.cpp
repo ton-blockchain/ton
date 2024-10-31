@@ -24,6 +24,7 @@
     from all source files in the program, then also delete it here.
 */
 #include "tolk.h"
+#include "tolk-version.h"
 #include "compiler-state.h"
 #include "git.h"
 #include "td/utils/JsonBuilder.h"
@@ -41,12 +42,16 @@ td::Result<std::string> compile_internal(char *config_json) {
   TRY_RESULT(stdlib_tolk, td::get_json_object_string_field(config, "stdlibLocation", false));
   TRY_RESULT(stack_comments, td::get_json_object_bool_field(config, "withStackComments", true, false));
   TRY_RESULT(entrypoint_filename, td::get_json_object_string_field(config, "entrypointFileName", false));
+  TRY_RESULT(experimental_options, td::get_json_object_string_field(config, "experimentalOptions", true));
 
   G.settings.verbosity = 0;
   G.settings.optimization_level = std::max(0, opt_level);
   G.settings.stdlib_filename = stdlib_tolk;
   G.settings.stack_layout_comments = stack_comments;
   G.settings.entrypoint_filename = entrypoint_filename;
+  if (!experimental_options.empty()) {
+    G.settings.parse_experimental_options_cmd_arg(experimental_options.c_str());
+  }
 
   std::ostringstream outs, errs;
   std::cout.rdbuf(outs.rdbuf());
@@ -100,7 +105,7 @@ extern "C" {
 const char* version() {
   auto version_json = td::JsonBuilder();
   auto obj = version_json.enter_object();
-  obj("tolkVersion", tolk_version);
+  obj("tolkVersion", TOLK_VERSION);
   obj("tolkFiftLibCommitHash", GitMetadata::CommitSHA1());
   obj("tolkFiftLibCommitDate", GitMetadata::CommitDate());
   obj.leave();

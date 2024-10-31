@@ -883,7 +883,7 @@ void Op::set_impure(const CodeBlob &code) {
   // todo calling this function with `code` is a bad design (flags are assigned after Op is constructed)
   // later it's better to check this somewhere in code.emplace_back()
   if (code.flags & CodeBlob::_ForbidImpure) {
-    throw ParseError(where, "An impure operation in a pure function");
+    throw ParseError(where, "an impure operation in a pure function");
   }
   flags |= _Impure;
 }
@@ -891,7 +891,7 @@ void Op::set_impure(const CodeBlob &code) {
 void Op::set_impure(const CodeBlob &code, bool flag) {
   if (flag) {
     if (code.flags & CodeBlob::_ForbidImpure) {
-      throw ParseError(where, "An impure operation in a pure function");
+      throw ParseError(where, "an impure operation in a pure function");
     }
     flags |= _Impure;
   } else {

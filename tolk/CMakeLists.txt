@@ -8,7 +8,6 @@ set(TOLK_SOURCE
         ast.cpp
         ast-from-tokens.cpp
         pipe-discover-parse-sources.cpp
-        pipe-handle-pragmas.cpp
         pipe-register-symbols.cpp
         pipe-ast-to-legacy.cpp
         pipe-find-unused-symbols.cpp

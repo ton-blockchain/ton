@@ -49,25 +49,44 @@ void ASTNodeBase::error(const std::string& err_msg) const {
   throw ParseError(loc, err_msg);
 }
 
-int Vertex<ast_forall_list>::lookup_idx(std::string_view nameT) const {
+AnnotationKind Vertex<ast_annotation>::parse_kind(std::string_view name) {
+  if (name == "@pure") {
+    return AnnotationKind::pure;
+  }
+  if (name == "@inline") {
+    return AnnotationKind::inline_simple;
+  }
+  if (name == "@inline_ref") {
+    return AnnotationKind::inline_ref;
+  }
+  if (name == "@method_id") {
+    return AnnotationKind::method_id;
+  }
+  if (name == "@deprecated") {
+    return AnnotationKind::deprecated;
+  }
+  return AnnotationKind::unknown;
+}
+
+int Vertex<ast_genericsT_list>::lookup_idx(std::string_view nameT) const {
   for (size_t idx = 0; idx < children.size(); ++idx) {
-    if (children[idx] && children[idx]->as<ast_forall_item>()->nameT == nameT) {
+    if (children[idx] && children[idx]->as<ast_genericsT_item>()->nameT == nameT) {
       return static_cast<int>(idx);
     }
   }
   return -1;
 }
 
-int Vertex<ast_argument_list>::lookup_idx(std::string_view arg_name) const {
+int Vertex<ast_parameter_list>::lookup_idx(std::string_view param_name) const {
   for (size_t idx = 0; idx < children.size(); ++idx) {
-    if (children[idx] && children[idx]->as<ast_argument>()->get_identifier()->name == arg_name) {
+    if (children[idx] && children[idx]->as<ast_parameter>()->get_identifier()->name == param_name) {
       return static_cast<int>(idx);
     }
   }
   return -1;
 }
 
-void Vertex<ast_include_statement>::mutate_set_src_file(const SrcFile* file) const {
+void Vertex<ast_import_statement>::mutate_set_src_file(const SrcFile* file) const {
   const_cast<Vertex*>(this)->file = file;
 }
 

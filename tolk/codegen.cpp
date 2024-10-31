@@ -497,11 +497,10 @@ bool Op::generate_code_step(Stack& stack) {
         asm_fv->compile(stack.o, res, args, where);  // compile res := f (args)
       } else {
         auto fv = dynamic_cast<const SymValCodeFunc*>(fun_ref->value);
-        // todo can be fv == nullptr?
         std::string name = G.symbols.get_name(fun_ref->sym_idx);
-        if (fv && (fv->is_inline() || fv->is_inline_ref())) {
+        if (fv->is_inline() || fv->is_inline_ref()) {
           stack.o << AsmOp::Custom(name + " INLINECALLDICT", (int)right.size(), (int)left.size());
-        } else if (fv && fv->code && fv->code->require_callxargs) {
+        } else if (fv->code && fv->code->require_callxargs) {
           stack.o << AsmOp::Custom(name + (" PREPAREDICT"), 0, 2);
           exec_callxargs((int)right.size() + 1, (int)left.size());
         } else {

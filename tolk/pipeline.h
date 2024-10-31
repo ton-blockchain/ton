@@ -32,7 +32,6 @@ namespace tolk {
 
 AllSrcFiles pipeline_discover_and_parse_sources(const std::string& stdlib_filename, const std::string& entrypoint_filename);
 
-void pipeline_handle_pragmas(const AllSrcFiles&);
 void pipeline_register_global_symbols(const AllSrcFiles&);
 void pipeline_convert_ast_to_legacy_Expr_Op(const AllSrcFiles&);
 

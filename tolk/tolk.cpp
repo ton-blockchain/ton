@@ -32,11 +32,21 @@
 namespace tolk {
 
 
+void on_assertion_failed(const char *description, const char *file_name, int line_number) {
+  std::string message = static_cast<std::string>("Assertion failed at ") + file_name + ":" + std::to_string(line_number) + ": " + description;
+#ifdef TOLK_DEBUG
+#ifdef __arm64__
+  // when developing, it's handy when the debugger stops on assertion failure (stacktraces and watches are available)
+  std::cerr << message << std::endl;
+  __builtin_debugtrap();
+#endif
+#endif
+  throw Fatal(std::move(message));
+}
+
 int tolk_proceed(const std::string &entrypoint_filename) {
   define_builtins();
   lexer_init();
-  G.pragma_allow_post_modification.always_on_and_deprecated("0.5.0");
-  G.pragma_compute_asm_ltr.always_on_and_deprecated("0.5.0");
 
   try {
     if (G.settings.stdlib_filename.empty()) {
@@ -48,7 +58,6 @@ int tolk_proceed(const std::string &entrypoint_filename) {
 
     AllSrcFiles all_files = pipeline_discover_and_parse_sources(G.settings.stdlib_filename, entrypoint_filename);
 
-    pipeline_handle_pragmas(all_files);
     pipeline_register_global_symbols(all_files);
     pipeline_convert_ast_to_legacy_Expr_Op(all_files);
 

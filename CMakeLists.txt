@@ -627,6 +627,30 @@ if (NOT NIX)
     endif()
 endif()
 
+# Tolk tests
+if (NOT NIX)
+    if (MSVC)
+      set(PYTHON_VER "python")
+    else()
+      set(PYTHON_VER "python3")
+    endif()
+    add_test(
+      NAME test-tolk
+      COMMAND ${PYTHON_VER} tolk-tester.py tests/
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/tolk-tester)
+    if (WIN32)
+        set_property(TEST test-tolk PROPERTY ENVIRONMENT
+          "TOLK_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/tolk/tolk.exe"
+          "FIFT_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/crypto/fift.exe"
+          "FIFTPATH=${CMAKE_CURRENT_SOURCE_DIR}/crypto/fift/lib/")
+    else()
+        set_property(TEST test-tolk PROPERTY ENVIRONMENT
+          "TOLK_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/tolk/tolk"
+          "FIFT_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/crypto/fift"
+          "FIFTPATH=${CMAKE_CURRENT_SOURCE_DIR}/crypto/fift/lib/")
+    endif()
+endif()
+
 #BEGIN internal
 if (NOT TON_ONLY_TONLIB)
 add_test(test-adnl test-adnl)

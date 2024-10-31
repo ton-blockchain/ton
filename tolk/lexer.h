@@ -25,15 +25,33 @@ namespace tolk {
 enum TokenType {
   tok_empty,
 
+  tok_fun,
+  tok_get,
+  tok_type,
+  tok_enum,
+  tok_struct,
+  tok_operator,
+  tok_infix,
+
+  tok_global,
+  tok_const,
+  tok_var,
+  tok_val,
+  tok_redef,
+
+  tok_annotation_at,
+  tok_colon,
+  tok_asm,
+  tok_builtin,
+
   tok_int_const,
   tok_string_const,
   tok_string_modifier,
-
-  tok_identifier,
-
   tok_true,
   tok_false,
-  tok_nil,      // todo "null" keyword is still absent, "nil" in FunC is an empty tuple
+  tok_null,
+
+  tok_identifier,
 
   tok_plus,
   tok_minus,
@@ -41,7 +59,6 @@ enum TokenType {
   tok_div,
   tok_mod,
   tok_question,
-  tok_colon,
   tok_comma,
   tok_semicolon,
   tok_oppar,
@@ -54,11 +71,13 @@ enum TokenType {
   tok_underscore,
   tok_lt,
   tok_gt,
+  tok_logical_not,
+  tok_logical_and,
+  tok_logical_or,
   tok_bitwise_and,
   tok_bitwise_or,
   tok_bitwise_xor,
   tok_bitwise_not,
-  tok_dot,
 
   tok_eq,
   tok_neq,
@@ -71,71 +90,45 @@ enum TokenType {
   tok_rshiftC,
   tok_divR,
   tok_divC,
-  tok_modR,
-  tok_modC,
-  tok_divmod,
   tok_set_plus,
   tok_set_minus,
   tok_set_mul,
   tok_set_div,
-  tok_set_divR,
-  tok_set_divC,
   tok_set_mod,
-  tok_set_modR,
-  tok_set_modC,
   tok_set_lshift,
   tok_set_rshift,
-  tok_set_rshiftR,
-  tok_set_rshiftC,
   tok_set_bitwise_and,
   tok_set_bitwise_or,
   tok_set_bitwise_xor,
 
   tok_return,
-  tok_var,
   tok_repeat,
   tok_do,
   tok_while,
-  tok_until,
+  tok_break,
+  tok_continue,
   tok_try,
   tok_catch,
+  tok_throw,
+  tok_assert,
   tok_if,
-  tok_ifnot,
-  tok_then,
   tok_else,
-  tok_elseif,
-  tok_elseifnot,
 
   tok_int,
   tok_cell,
+  tok_bool,
   tok_slice,
   tok_builder,
-  tok_cont,
+  tok_continuation,
   tok_tuple,
-  tok_mapsto,
-  tok_forall,
+  tok_auto,
+  tok_void,
+  tok_arrow,
 
-  tok_extern,
-  tok_global,
-  tok_asm,
-  tok_impure,
-  tok_pure,
-  tok_inline,
-  tok_inlineref,
-  tok_builtin,
-  tok_autoapply,
-  tok_method_id,
-  tok_get,
-  tok_operator,
-  tok_infix,
-  tok_infixl,
-  tok_infixr,
-  tok_const,
-
-  tok_pragma,
-  tok_pragma_name,
+  tok_tolk,
   tok_semver,
-  tok_include,
+  tok_import,
+  tok_export,
 
   tok_eof
 };
@@ -166,9 +159,6 @@ class Lexer {
   void update_location() {
     location.char_offset = static_cast<int>(p_next - p_start);
   }
-
-  GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-  void on_expect_call_failed(const char* str_expected) const;
 
 public:
 
@@ -217,16 +207,18 @@ public:
 
   void check(TokenType next_tok, const char* str_expected) const {
     if (cur_token.type != next_tok) {
-      on_expect_call_failed(str_expected); // unlikely path, not inlined
+      unexpected(str_expected); // unlikely path, not inlined
     }
   }
   void expect(TokenType next_tok, const char* str_expected) {
     if (cur_token.type != next_tok) {
-      on_expect_call_failed(str_expected);
+      unexpected(str_expected);
     }
     next();
   }
 
+  GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
+  void unexpected(const char* str_expected) const;
   GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
   void error(const std::string& err_msg) const;
 };

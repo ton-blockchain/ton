@@ -24,12 +24,14 @@
     from all source files in the program, then also delete it here.
 */
 #include "tolk.h"
+#include "tolk-version.h"
 #include "compiler-state.h"
 #include "td/utils/port/path.h"
 #include <getopt.h>
 #include <fstream>
 #include <utility>
 #include <sys/stat.h>
+#include <filesystem>
 #include "git.h"
 
 using namespace tolk;
@@ -40,28 +42,54 @@ void usage(const char* progname) {
          "\tGenerates Fift TVM assembler code from a .tolk file\n"
          "-o<fif-filename>\tWrites generated code into specified .fif file instead of stdout\n"
          "-b<boc-filename>\tGenerate Fift instructions to save TVM bytecode into .boc file\n"
-         "-s<stdlib.tolk>\tSpecify stdlib location (same as env TOLK_STDLIB; if unset, auto-discover)\n"
          "-O<level>\tSets optimization level (2 by default)\n"
+         "-x<option-names>\tEnables experimental options, comma-separated\n"
          "-S\tDon't include stack layout comments into Fift output\n"
          "-e\tIncreases verbosity level (extra output into stderr)\n"
          "-v\tOutput version of Tolk and exit\n";
   std::exit(2);
 }
 
-static std::string auto_discover_stdlib_location() {
+static bool stdlib_file_exists(std::filesystem::path& stdlib_tolk) {
+  struct stat f_stat;
+  stdlib_tolk = stdlib_tolk.lexically_normal();
+  int res = stat(stdlib_tolk.c_str(), &f_stat);
+  return res == 0 && S_ISREG(f_stat.st_mode);
+}
+
+static std::string auto_discover_stdlib_location(const char* argv0) {
+  // first, the user can specify env var that points directly to stdlib (useful for non-standard compiler locations)
   if (const char* env_var = getenv("TOLK_STDLIB")) {
     return env_var;
   }
-  // this define is automatically set if just building this repo locally with cmake
-#ifdef STDLIB_TOLK_IF_BUILD_FROM_SOURCES
-  return STDLIB_TOLK_IF_BUILD_FROM_SOURCES;
+
+  // if the user launches tolk compiler from a package installed (e.g. /usr/bin/tolk),
+  // locate stdlib in /usr/share/ton/smartcont (this folder exists on package installation)
+  // (note, that paths are not absolute, they are relative to the launched binary)
+  // consider https://github.com/ton-blockchain/packages for actual paths
+  std::filesystem::path executable_dir = std::filesystem::canonical(argv0).remove_filename();
+
+#ifdef TD_DARWIN
+  auto def_location = executable_dir / "../share/ton/ton/smartcont/stdlib.tolk";
+#elif TD_WINDOWS
+  auto def_location = executable_dir / "smartcont/stdlib.tolk";
+#else  // linux
+  auto def_location = executable_dir / "../share/ton/smartcont/stdlib.tolk";
 #endif
-  // this define is automatically set when compiling a linux package for distribution
-  // (since binaries and smartcont/ folder are installed to a predefined path)
-  // todo provide in cmake
-#ifdef STDLIB_TOLK_IF_BUILD_TO_PACKAGE
-  return STDLIB_TOLK_IF_BUILD_TO_PACKAGE;
-#endif
+
+  if (stdlib_file_exists(def_location)) {
+    return def_location;
+  }
+
+  // so, the binary is not from a system package
+  // maybe it's just built from sources? e.g. ~/ton/cmake-build-debug/tolk/tolk
+  // then, check the ~/ton/crypto/smartcont folder
+  auto near_when_built_from_sources = executable_dir / "../../crypto/smartcont/stdlib.tolk";
+  if (stdlib_file_exists(near_when_built_from_sources)) {
+    return near_when_built_from_sources;
+  }
+
+  // no idea of where to find stdlib; let's show an error for the user, he should provide env var above
   return {};
 }
 
@@ -120,7 +148,7 @@ public:
 
 int main(int argc, char* const argv[]) {
   int i;
-  while ((i = getopt(argc, argv, "o:b:s:O:Sevh")) != -1) {
+  while ((i = getopt(argc, argv, "o:b:O:x:Sevh")) != -1) {
     switch (i) {
       case 'o':
         G.settings.output_filename = optarg;
@@ -128,11 +156,11 @@ int main(int argc, char* const argv[]) {
       case 'b':
         G.settings.boc_output_filename = optarg;
         break;
-      case 's':
-        G.settings.stdlib_filename = optarg;
-        break;
       case 'O':
         G.settings.optimization_level = std::max(0, atoi(optarg));
+        break;
+      case 'x':
+        G.settings.parse_experimental_options_cmd_arg(optarg);
         break;
       case 'S':
         G.settings.stack_layout_comments = false;
@@ -141,9 +169,9 @@ int main(int argc, char* const argv[]) {
         G.settings.verbosity++;
         break;
       case 'v':
-        std::cout << "Tolk compiler v" << tolk_version << "\n";
-        std::cout << "Build commit: " << GitMetadata::CommitSHA1() << "\n";
-        std::cout << "Build date: " << GitMetadata::CommitDate() << "\n";
+        std::cout << "Tolk compiler v" << TOLK_VERSION << std::endl;
+        std::cout << "Build commit: " << GitMetadata::CommitSHA1() << std::endl;
+        std::cout << "Build date: " << GitMetadata::CommitDate() << std::endl;
         std::exit(0);
       case 'h':
       default:
@@ -153,14 +181,12 @@ int main(int argc, char* const argv[]) {
 
   StdCoutRedirectToFile redirect_cout(G.settings.output_filename);
   if (redirect_cout.is_failed()) {
-    std::cerr << "Failed to create output file " << G.settings.output_filename << '\n';
+    std::cerr << "Failed to create output file " << G.settings.output_filename << std::endl;
     return 2;
   }
 
-  // if stdlib wasn't specify as an option — locate it based on env
-  if (G.settings.stdlib_filename.empty()) {
-    G.settings.stdlib_filename = auto_discover_stdlib_location();
-  }
+  // locate stdlib.tolk based on env or default system paths
+  G.settings.stdlib_filename = auto_discover_stdlib_location(argv[0]);
   if (G.settings.stdlib_filename.empty()) {
     std::cerr << "Failed to discover stdlib.tolk.\n"
                  "Probably, you have a non-standard Tolk installation.\n"
@@ -168,11 +194,11 @@ int main(int argc, char* const argv[]) {
     return 2;
   }
   if (G.is_verbosity(2)) {
-    std::cerr << "stdlib located at " << G.settings.stdlib_filename << '\n';
+    std::cerr << "stdlib located at " << G.settings.stdlib_filename << std::endl;
   }
 
   if (optind != argc - 1) {
-    std::cerr << "invalid usage: should specify exactly one input file.tolk";
+    std::cerr << "invalid usage: should specify exactly one input file.tolk" << std::endl;
     return 2;
   }
 

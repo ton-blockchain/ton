@@ -38,17 +38,18 @@ AllSrcFiles pipeline_discover_and_parse_sources(const std::string& stdlib_filena
     tolk_assert(!file->ast);
 
     file->ast = parse_src_file_to_ast(file);
+    // file->ast->debug_print();
 
     for (AnyV v_toplevel : file->ast->as<ast_tolk_file>()->get_toplevel_declarations()) {
-      if (auto v_include = v_toplevel->try_as<ast_include_statement>()) {
+      if (auto v_import = v_toplevel->try_as<ast_import_statement>()) {
         size_t pos = file->rel_filename.rfind('/');
         std::string rel_filename = pos == std::string::npos
-          ? v_include->get_file_name()
-          : file->rel_filename.substr(0, pos + 1) + v_include->get_file_name();
+          ? v_import->get_file_name()
+          : file->rel_filename.substr(0, pos + 1) + v_import->get_file_name();
 
-        SrcFile* imported = G.all_src_files.locate_and_register_source_file(rel_filename, v_include->loc);
+        SrcFile* imported = G.all_src_files.locate_and_register_source_file(rel_filename, v_import->loc);
         file->imports.push_back(SrcFile::ImportStatement{imported});
-        v_include->mutate_set_src_file(imported);
+        v_import->mutate_set_src_file(imported);
       }
     }
   }

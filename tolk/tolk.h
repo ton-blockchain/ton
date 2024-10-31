@@ -16,6 +16,7 @@
 */
 #pragma once
 
+#include "platform-utils.h"
 #include "src-file.h"
 #include "type-expr.h"
 #include "symtable.h"
@@ -26,11 +27,12 @@
 #include <stack>
 #include <iostream>
 
-#define tolk_assert(expr) \
-  (bool(expr) ? void(0)   \
-              : throw Fatal(PSTRING() << "Assertion failed at " << __FILE__ << ":" << __LINE__ << ": " << #expr))
+#define tolk_assert(expr) if(UNLIKELY(!(expr))) on_assertion_failed(#expr, __FILE__, __LINE__);
 
 namespace tolk {
+
+GNU_ATTRIBUTE_COLD GNU_ATTRIBUTE_NORETURN
+void on_assertion_failed(const char *description, const char *file_name, int line_number);
 
 /*
  * 
@@ -90,27 +92,23 @@ struct VarDescr {
     _NonZero = 128,
     _Pos = 256,
     _Neg = 512,
-    _Bool = 1024,
-    _Bit = 2048,
     _Finite = 4096,
     _Nan = 8192,
     _Even = 16384,
     _Odd = 32768,
-    _Null = (1 << 16),
-    _NotNull = (1 << 17)
   };
-  static constexpr int ConstZero = _Int | _Zero | _Pos | _Neg | _Bool | _Bit | _Finite | _Even | _NotNull;
-  static constexpr int ConstOne = _Int | _NonZero | _Pos | _Bit | _Finite | _Odd | _NotNull;
-  static constexpr int ConstTrue = _Int | _NonZero | _Neg | _Bool | _Finite | _Odd | _NotNull;
-  static constexpr int ValBit = ConstZero & ConstOne;
-  static constexpr int ValBool = ConstZero & ConstTrue;
-  static constexpr int FiniteInt = _Int | _Finite | _NotNull;
-  static constexpr int FiniteUInt = FiniteInt | _Pos;
+  static constexpr int ConstZero  = _Const | _Int | _Zero | _Pos | _Neg | _Finite | _Even;
+  static constexpr int ConstOne   = _Const | _Int | _NonZero | _Pos | _Finite | _Odd;
+  static constexpr int ConstTrue  = _Const | _Int | _NonZero | _Neg | _Finite | _Odd;
+  static constexpr int ValBit     = _Int | _Pos | _Finite;
+  static constexpr int ValBool    = _Int | _Neg | _Finite;
+  static constexpr int FiniteInt  = _Int | _Finite;
+  static constexpr int FiniteUInt = _Int | _Finite | _Pos;
   int val;
   td::RefInt256 int_const;
   std::string str_const;
 
-  VarDescr(var_idx_t _idx = -1, int _flags = 0, int _val = 0) : idx(_idx), flags(_flags), val(_val) {
+  explicit VarDescr(var_idx_t _idx = -1, int _flags = 0, int _val = 0) : idx(_idx), flags(_flags), val(_val) {
   }
   bool operator<(var_idx_t other_idx) const {
     return idx < other_idx;
@@ -138,15 +136,6 @@ struct VarDescr {
   }
   bool always_odd() const {
     return val & _Odd;
-  }
-  bool always_null() const {
-    return val & _Null;
-  }
-  bool always_not_null() const {
-    return val & _NotNull;
-  }
-  bool is_const() const {
-    return val & _Const;
   }
   bool is_int_const() const {
     return (val & (_Int | _Const)) == (_Int | _Const) && int_const.not_null();
@@ -260,7 +249,7 @@ class ListIterator {
  public:
   ListIterator() : ptr(nullptr) {
   }
-  ListIterator(T* _ptr) : ptr(_ptr) {
+  explicit ListIterator(T* _ptr) : ptr(_ptr) {
   }
   ListIterator& operator++() {
     ptr = ptr->next.get();
@@ -383,18 +372,6 @@ struct Op {
   const Op& last() const {
     return next ? next->last() : *this;
   }
-  ListIterator<Op> begin() {
-    return ListIterator<Op>{this};
-  }
-  ListIterator<Op> end() const {
-    return ListIterator<Op>{};
-  }
-  ListIterator<const Op> cbegin() {
-    return ListIterator<const Op>{this};
-  }
-  ListIterator<const Op> cend() const {
-    return ListIterator<const Op>{};
-  }
 };
 
 inline ListIterator<Op> begin(const std::unique_ptr<Op>& op_list) {
@@ -405,14 +382,6 @@ inline ListIterator<Op> end(const std::unique_ptr<Op>& op_list) {
   return ListIterator<Op>{};
 }
 
-inline ListIterator<const Op> cbegin(const Op* op_list) {
-  return ListIterator<const Op>{op_list};
-}
-
-inline ListIterator<const Op> cend(const Op* op_list) {
-  return ListIterator<const Op>{};
-}
-
 inline ListIterator<const Op> begin(const Op* op_list) {
   return ListIterator<const Op>{op_list};
 }
@@ -421,77 +390,10 @@ inline ListIterator<const Op> end(const Op* op_list) {
   return ListIterator<const Op>{};
 }
 
-inline ListIterator<Op> begin(Op* op_list) {
-  return ListIterator<Op>{op_list};
-}
-
-inline ListIterator<Op> end(Op* op_list) {
-  return ListIterator<Op>{};
-}
-
 typedef std::tuple<TypeExpr*, SymDef*, SrcLocation> FormalArg;
 typedef std::vector<FormalArg> FormalArgList;
 
 struct AsmOpList;
-
-struct CodeBlob {
-  enum { _ForbidImpure = 4 };
-  int var_cnt, in_var_cnt, op_cnt;
-  TypeExpr* ret_type;
-  std::string name;
-  SrcLocation loc;
-  std::vector<TmpVar> vars;
-  std::unique_ptr<Op> ops;
-  std::unique_ptr<Op>* cur_ops;
-  std::stack<std::unique_ptr<Op>*> cur_ops_stack;
-  int flags = 0;
-  bool require_callxargs = false;
-  CodeBlob(std::string name, SrcLocation loc, TypeExpr* ret)
-    : var_cnt(0), in_var_cnt(0), op_cnt(0), ret_type(ret), name(std::move(name)), loc(loc), cur_ops(&ops) {
-  }
-  template <typename... Args>
-  Op& emplace_back(Args&&... args) {
-    Op& res = *(*cur_ops = std::make_unique<Op>(args...));
-    cur_ops = &(res.next);
-    return res;
-  }
-  bool import_params(FormalArgList arg_list);
-  var_idx_t create_var(bool is_tmp_unnamed, TypeExpr* var_type, SymDef* sym, SrcLocation loc);
-  var_idx_t create_tmp_var(TypeExpr* var_type, SrcLocation loc) {
-    return create_var(true, var_type, nullptr, loc);
-  }
-  int split_vars(bool strict = false);
-  bool compute_used_code_vars();
-  bool compute_used_code_vars(std::unique_ptr<Op>& ops, const VarDescrList& var_info, bool edit) const;
-  void print(std::ostream& os, int flags = 0) const;
-  void push_set_cur(std::unique_ptr<Op>& new_cur_ops) {
-    cur_ops_stack.push(cur_ops);
-    cur_ops = &new_cur_ops;
-  }
-  void close_blk(SrcLocation location) {
-    *cur_ops = std::make_unique<Op>(location, Op::_Nop);
-  }
-  void pop_cur() {
-    cur_ops = cur_ops_stack.top();
-    cur_ops_stack.pop();
-  }
-  void close_pop_cur(SrcLocation location) {
-    close_blk(location);
-    pop_cur();
-  }
-  void simplify_var_types();
-  void prune_unreachable_code();
-  void fwd_analyze();
-  void mark_noreturn();
-  void generate_code(AsmOpList& out_list, int mode = 0);
-  void generate_code(std::ostream& os, int mode = 0, int indent = 0);
-
-  void on_var_modification(var_idx_t idx, SrcLocation here) const {
-    for (auto& f : vars.at(idx).on_modification) {
-      f(here);
-    }
-  }
-};
 
 /*
  *
@@ -512,13 +414,14 @@ struct SymVal : SymValBase {
 
 struct SymValFunc : SymVal {
   enum SymValFlag {
-    flagInline = 1,             // function marked `inline`
-    flagInlineRef = 2,          // function marked `inline_ref`
-    flagWrapsAnotherF = 4,      // (T) thisF(...args) { return anotherF(...args); } (calls to thisF will be replaced)
+    flagInline = 1,             // marked `@inline`
+    flagInlineRef = 2,          // marked `@inline_ref`
+    flagWrapsAnotherF = 4,      // `fun thisF(...args) { return anotherF(...args); }` (calls to thisF will be inlined)
     flagUsedAsNonCall = 8,      // used not only as `f()`, but as a 1-st class function (assigned to var, pushed to tuple, etc.)
     flagMarkedAsPure = 16,      // declared as `pure`, can't call impure and access globals, unused invocations are optimized out
     flagBuiltinFunction = 32,   // was created via `define_builtin_func()`, not from source code
-    flagGetMethod = 64,         // was declared via `get T func()`, method_id is auto-assigned
+    flagGetMethod = 64,         // was declared via `get func(): T`, method_id is auto-assigned
+    flagIsEntrypoint = 128,     // it's `main` / `onExternalMessage` / etc.
   };
 
   td::RefInt256 method_id;  // todo why int256? it's small
@@ -558,6 +461,9 @@ struct SymValFunc : SymVal {
   }
   bool is_get_method() const {
     return flags & flagGetMethod;
+  }
+  bool is_entrypoint() const {
+    return flags & flagIsEntrypoint;
   }
 };
 
@@ -626,7 +532,6 @@ struct Expr {
     _None,
     _Apply,
     _VarApply,
-    _TypeApply,
     _MkTuple,
     _Tensor,
     _Const,
@@ -636,13 +541,12 @@ struct Expr {
     _Letop,
     _LetFirst,
     _Hole,
-    _Type,
     _CondExpr,
     _SliceConst,
   };
   ExprCls cls;
   int val{0};
-  enum { _IsType = 1, _IsRvalue = 2, _IsLvalue = 4, _IsImpure = 32 };
+  enum { _IsRvalue = 2, _IsLvalue = 4, _IsImpure = 32 };
   int flags{0};
   SrcLocation here;
   td::RefInt256 intval;
@@ -680,12 +584,6 @@ struct Expr {
   }
   bool is_lvalue() const {
     return flags & _IsLvalue;
-  }
-  bool is_type() const {
-    return flags & _IsType;
-  }
-  bool is_type_apply() const {
-    return cls == _TypeApply;
   }
   bool is_mktuple() const {
     return cls == _MkTuple;
@@ -1447,6 +1345,65 @@ struct SymValAsmFunc : SymValFunc {
   }
   void set_code(std::vector<AsmOp> code);
   bool compile(AsmOpList& dest, std::vector<VarDescr>& out, std::vector<VarDescr>& in, SrcLocation where) const;
+};
+
+struct CodeBlob {
+  enum { _ForbidImpure = 4 };
+  int var_cnt, in_var_cnt, op_cnt;
+  TypeExpr* ret_type;
+  std::string name;
+  SrcLocation loc;
+  std::vector<TmpVar> vars;
+  std::unique_ptr<Op> ops;
+  std::unique_ptr<Op>* cur_ops;
+  std::stack<std::unique_ptr<Op>*> cur_ops_stack;
+  int flags = 0;
+  bool require_callxargs = false;
+  CodeBlob(std::string name, SrcLocation loc, TypeExpr* ret)
+    : var_cnt(0), in_var_cnt(0), op_cnt(0), ret_type(ret), name(std::move(name)), loc(loc), cur_ops(&ops) {
+  }
+  template <typename... Args>
+  Op& emplace_back(Args&&... args) {
+    Op& res = *(*cur_ops = std::make_unique<Op>(args...));
+    cur_ops = &(res.next);
+    return res;
+  }
+  bool import_params(FormalArgList arg_list);
+  var_idx_t create_var(bool is_tmp_unnamed, TypeExpr* var_type, SymDef* sym, SrcLocation loc);
+  var_idx_t create_tmp_var(TypeExpr* var_type, SrcLocation loc) {
+    return create_var(true, var_type, nullptr, loc);
+  }
+  int split_vars(bool strict = false);
+  bool compute_used_code_vars();
+  bool compute_used_code_vars(std::unique_ptr<Op>& ops, const VarDescrList& var_info, bool edit) const;
+  void print(std::ostream& os, int flags = 0) const;
+  void push_set_cur(std::unique_ptr<Op>& new_cur_ops) {
+    cur_ops_stack.push(cur_ops);
+    cur_ops = &new_cur_ops;
+  }
+  void close_blk(SrcLocation location) {
+    *cur_ops = std::make_unique<Op>(location, Op::_Nop);
+  }
+  void pop_cur() {
+    cur_ops = cur_ops_stack.top();
+    cur_ops_stack.pop();
+  }
+  void close_pop_cur(SrcLocation location) {
+    close_blk(location);
+    pop_cur();
+  }
+  void simplify_var_types();
+  void prune_unreachable_code();
+  void fwd_analyze();
+  void mark_noreturn();
+  void generate_code(AsmOpList& out_list, int mode = 0);
+  void generate_code(std::ostream& os, int mode = 0, int indent = 0);
+
+  void on_var_modification(var_idx_t idx, SrcLocation here) const {
+    for (auto& f : vars.at(idx).on_modification) {
+      f(here);
+    }
+  }
 };
 
 // defined in builtins.cpp

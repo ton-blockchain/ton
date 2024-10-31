@@ -148,8 +148,7 @@ bool Expr::deduce_type() {
 int Expr::define_new_vars(CodeBlob& code) {
   switch (cls) {
     case _Tensor:
-    case _MkTuple:
-    case _TypeApply: {
+    case _MkTuple: {
       int res = 0;
       for (const auto& x : args) {
         res += x->define_new_vars(code);
@@ -174,8 +173,7 @@ int Expr::define_new_vars(CodeBlob& code) {
 int Expr::predefine_vars() {
   switch (cls) {
     case _Tensor:
-    case _MkTuple:
-    case _TypeApply: {
+    case _MkTuple: {
       int res = 0;
       for (const auto& x : args) {
         res += x->predefine_vars();
@@ -210,12 +208,6 @@ void add_set_globs(CodeBlob& code, std::vector<std::pair<SymDef*, var_idx_t>>& g
 }
 
 std::vector<var_idx_t> pre_compile_let(CodeBlob& code, Expr* lhs, Expr* rhs, SrcLocation here) {
-  while (lhs->is_type_apply()) {
-    lhs = lhs->args.at(0);
-  }
-  while (rhs->is_type_apply()) {
-    rhs = rhs->args.at(0);
-  }
   if (lhs->is_mktuple()) {
     if (rhs->is_mktuple()) {
       return pre_compile_let(code, lhs->args.at(0), rhs->args.at(0), here);
@@ -301,7 +293,7 @@ std::vector<var_idx_t> pre_compile_tensor(const std::vector<Expr *>& args, CodeB
 }
 
 std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, std::vector<std::pair<SymDef*, var_idx_t>>* lval_globs) const {
-  if (lval_globs && !(cls == _Tensor || cls == _Var || cls == _Hole || cls == _TypeApply || cls == _GlobVar)) {
+  if (lval_globs && !(cls == _Tensor || cls == _Var || cls == _Hole || cls == _GlobVar)) {
     std::cerr << "lvalue expression constructor is " << cls << std::endl;
     throw Fatal{"cannot compile lvalue expression with unknown constructor"};
   }
@@ -344,8 +336,6 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, std::vector<std::pair<S
       }
       return rvect;
     }
-    case _TypeApply:
-      return args[0]->pre_compile(code, lval_globs);
     case _Var:
     case _Hole:
       if (val < 0) {

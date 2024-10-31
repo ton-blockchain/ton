@@ -71,18 +71,16 @@ protected:
   using parent = ASTReplacerInFunctionBody;
 
   virtual AnyV replace(V<ast_empty> v)                   { return replace_children(v); }
+  virtual AnyV replace(V<ast_parenthesized_expr> v)      { return replace_children(v); }
+  virtual AnyV replace(V<ast_tensor> v)                  { return replace_children(v); }
+  virtual AnyV replace(V<ast_tensor_square> v)           { return replace_children(v); }
   virtual AnyV replace(V<ast_identifier> v)              { return replace_children(v); }
   virtual AnyV replace(V<ast_int_const> v)               { return replace_children(v); }
   virtual AnyV replace(V<ast_string_const> v)            { return replace_children(v); }
   virtual AnyV replace(V<ast_bool_const> v)              { return replace_children(v); }
-  virtual AnyV replace(V<ast_nil_tuple> v)               { return replace_children(v); }
+  virtual AnyV replace(V<ast_null_keyword> v)            { return replace_children(v); }
   virtual AnyV replace(V<ast_function_call> v)           { return replace_children(v); }
-  virtual AnyV replace(V<ast_parenthesized_expr> v)      { return replace_children(v); }
   virtual AnyV replace(V<ast_underscore> v)              { return replace_children(v); }
-  virtual AnyV replace(V<ast_type_expression> v)         { return replace_children(v); }
-  virtual AnyV replace(V<ast_variable_declaration> v)    { return replace_children(v); }
-  virtual AnyV replace(V<ast_tensor> v)                  { return replace_children(v); }
-  virtual AnyV replace(V<ast_tensor_square> v)           { return replace_children(v); }
   virtual AnyV replace(V<ast_dot_tilde_call> v)          { return replace_children(v); }
   virtual AnyV replace(V<ast_unary_operator> v)          { return replace_children(v); }
   virtual AnyV replace(V<ast_binary_operator> v)         { return replace_children(v); }
@@ -91,26 +89,28 @@ protected:
   virtual AnyV replace(V<ast_sequence> v)                { return replace_children(v); }
   virtual AnyV replace(V<ast_repeat_statement> v)        { return replace_children(v); }
   virtual AnyV replace(V<ast_while_statement> v)         { return replace_children(v); }
-  virtual AnyV replace(V<ast_do_until_statement> v)      { return replace_children(v); }
+  virtual AnyV replace(V<ast_do_while_statement> v)      { return replace_children(v); }
+  virtual AnyV replace(V<ast_throw_statement> v)         { return replace_children(v); }
+  virtual AnyV replace(V<ast_assert_statement> v)        { return replace_children(v); }
   virtual AnyV replace(V<ast_try_catch_statement> v)     { return replace_children(v); }
   virtual AnyV replace(V<ast_if_statement> v)            { return replace_children(v); }
+  virtual AnyV replace(V<ast_local_var> v)               { return replace_children(v); }
+  virtual AnyV replace(V<ast_local_vars_declaration> v)  { return replace_children(v); }
   virtual AnyV replace(V<ast_asm_body> v)                { return replace_children(v); }
 
   AnyV replace(AnyV v) final {
     switch (v->type) {
       case ast_empty:                           return replace(v->as<ast_empty>());
+      case ast_parenthesized_expr:              return replace(v->as<ast_parenthesized_expr>());
+      case ast_tensor:                          return replace(v->as<ast_tensor>());
+      case ast_tensor_square:                   return replace(v->as<ast_tensor_square>());
       case ast_identifier:                      return replace(v->as<ast_identifier>());
       case ast_int_const:                       return replace(v->as<ast_int_const>());
       case ast_string_const:                    return replace(v->as<ast_string_const>());
       case ast_bool_const:                      return replace(v->as<ast_bool_const>());
-      case ast_nil_tuple:                       return replace(v->as<ast_nil_tuple>());
+      case ast_null_keyword:                    return replace(v->as<ast_null_keyword>());
       case ast_function_call:                   return replace(v->as<ast_function_call>());
-      case ast_parenthesized_expr:              return replace(v->as<ast_parenthesized_expr>());
       case ast_underscore:                      return replace(v->as<ast_underscore>());
-      case ast_type_expression:                 return replace(v->as<ast_type_expression>());
-      case ast_variable_declaration:            return replace(v->as<ast_variable_declaration>());
-      case ast_tensor:                          return replace(v->as<ast_tensor>());
-      case ast_tensor_square:                   return replace(v->as<ast_tensor_square>());
       case ast_dot_tilde_call:                  return replace(v->as<ast_dot_tilde_call>());
       case ast_unary_operator:                  return replace(v->as<ast_unary_operator>());
       case ast_binary_operator:                 return replace(v->as<ast_binary_operator>());
@@ -119,9 +119,13 @@ protected:
       case ast_sequence:                        return replace(v->as<ast_sequence>());
       case ast_repeat_statement:                return replace(v->as<ast_repeat_statement>());
       case ast_while_statement:                 return replace(v->as<ast_while_statement>());
-      case ast_do_until_statement:              return replace(v->as<ast_do_until_statement>());
+      case ast_do_while_statement:              return replace(v->as<ast_do_while_statement>());
+      case ast_throw_statement:                 return replace(v->as<ast_throw_statement>());
+      case ast_assert_statement:                return replace(v->as<ast_assert_statement>());
       case ast_try_catch_statement:             return replace(v->as<ast_try_catch_statement>());
       case ast_if_statement:                    return replace(v->as<ast_if_statement>());
+      case ast_local_var:                       return replace(v->as<ast_local_var>());
+      case ast_local_vars_declaration:          return replace(v->as<ast_local_vars_declaration>());
       case ast_asm_body:                        return replace(v->as<ast_asm_body>());
       default:
         throw UnexpectedASTNodeType(v, "ASTReplacerInFunctionBody::visit");

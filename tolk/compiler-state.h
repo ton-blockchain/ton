@@ -24,21 +24,21 @@
 
 namespace tolk {
 
-extern std::string tolk_version;
+// with cmd option -x, the user can pass experimental options to use
+class ExperimentalOption {
+  friend struct CompilerSettings;
 
-class GlobalPragma {
-  std::string name_;
-  bool enabled_ = false;
-  const char* deprecated_from_v_ = nullptr;
+  const std::string_view name;
+  bool enabled = false;
+  const char* deprecated_from_v = nullptr;  // when an option becomes deprecated (after the next compiler release),
+  const char* deprecated_reason = nullptr;  // but the user still passes it, we'll warn to stderr
 
 public:
-  explicit GlobalPragma(std::string name) : name_(std::move(name)) { }
+  explicit ExperimentalOption(std::string_view name) : name(name) {}
 
-  const std::string& name() const { return name_; }
+  void mark_deprecated(const char* deprecated_from_v, const char* deprecated_reason);
 
-  bool enabled() const { return enabled_; }
-  void enable(SrcLocation loc);
-  void always_on_and_deprecated(const char* deprecated_from_v);
+  explicit operator bool() const { return enabled; }
 };
 
 // CompilerSettings contains settings that can be passed via cmd line or (partially) wasm envelope.
@@ -58,6 +58,11 @@ struct CompilerSettings {
   std::string stdlib_filename;
 
   FsReadCallback read_callback;
+
+  ExperimentalOption remove_unused_functions{"remove-unused-functions"};
+
+  void enable_experimental_option(std::string_view name);
+  void parse_experimental_options_cmd_arg(const std::string& cmd_arg);
 };
 
 // CompilerState contains a mutable state that is changed while the compilation is going on.
@@ -78,9 +83,6 @@ struct CompilerState {
   AllRegisteredSrcFiles all_src_files;
 
   std::string generated_from;
-  GlobalPragma pragma_allow_post_modification{"allow-post-modification"};
-  GlobalPragma pragma_compute_asm_ltr{"compute-asm-ltr"};
-  GlobalPragma pragma_remove_unused_functions{"remove-unused-functions"};
 
   bool is_verbosity(int gt_eq) const { return settings.verbosity >= gt_eq; }
 };

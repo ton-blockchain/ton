@@ -92,12 +92,6 @@ void VarDescr::show_value(std::ostream& os) const {
   if (val & _Neg) {
     os << '<';
   }
-  if (val & _Bool) {
-    os << 'B';
-  }
-  if (val & _Bit) {
-    os << 'b';
-  }
   if (val & _Even) {
     os << 'E';
   }
@@ -144,16 +138,10 @@ void VarDescr::set_const(td::RefInt256 value) {
     val |= _Nan | _NonZero;
   } else if (s < 0) {
     val |= _NonZero | _Neg | _Finite;
-    if (*int_const == -1) {
-      val |= _Bool;
-    }
   } else if (s > 0) {
     val |= _NonZero | _Pos | _Finite;
-  } else if (!s) {
-    //if (*int_const == 1) {
-    //  val |= _Bit;
-    //}
-    val |= _Zero | _Neg | _Pos | _Finite | _Bool | _Bit;
+  } else {
+    val |= _Zero | _Neg | _Pos | _Finite;
   }
   if (val & _Finite) {
     val |= int_const->get_bit(0) ? _Odd : _Even;

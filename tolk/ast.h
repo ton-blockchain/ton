@@ -60,22 +60,18 @@ namespace tolk {
 
 enum ASTNodeType {
   ast_empty,
+  ast_parenthesized_expr,
+  ast_tensor,
+  ast_tensor_square,
   ast_identifier,
   ast_int_const,
   ast_string_const,
   ast_bool_const,
-  ast_nil_tuple,
+  ast_null_keyword,
   ast_function_call,
-  ast_parenthesized_expr,
   ast_global_var_declaration,
-  ast_global_var_declaration_list,
   ast_constant_declaration,
-  ast_constant_declaration_list,
   ast_underscore,
-  ast_type_expression,
-  ast_variable_declaration,
-  ast_tensor,
-  ast_tensor_square,
   ast_dot_tilde_call,
   ast_unary_operator,
   ast_binary_operator,
@@ -84,19 +80,32 @@ enum ASTNodeType {
   ast_sequence,
   ast_repeat_statement,
   ast_while_statement,
-  ast_do_until_statement,
+  ast_do_while_statement,
+  ast_throw_statement,
+  ast_assert_statement,
   ast_try_catch_statement,
   ast_if_statement,
-  ast_forall_item,
-  ast_forall_list,
-  ast_argument,
-  ast_argument_list,
+  ast_genericsT_item,
+  ast_genericsT_list,
+  ast_parameter,
+  ast_parameter_list,
   ast_asm_body,
+  ast_annotation,
   ast_function_declaration,
-  ast_pragma_no_arg,
-  ast_pragma_version,
-  ast_include_statement,
+  ast_local_var,
+  ast_local_vars_declaration,
+  ast_tolk_required_version,
+  ast_import_statement,
   ast_tolk_file,
+};
+
+enum class AnnotationKind {
+  inline_simple,
+  inline_ref,
+  method_id,
+  pure,
+  deprecated,
+  unknown,
 };
 
 struct ASTNodeBase;
@@ -211,6 +220,32 @@ struct Vertex<ast_empty> final : ASTNodeLeaf {
 };
 
 template<>
+struct Vertex<ast_parenthesized_expr> final : ASTNodeUnary {
+  AnyV get_expr() const { return child; }
+
+  Vertex(SrcLocation loc, AnyV expr)
+    : ASTNodeUnary(ast_parenthesized_expr, loc, expr) {}
+};
+
+template<>
+struct Vertex<ast_tensor> final : ASTNodeVararg {
+  const std::vector<AnyV>& get_items() const { return children; }
+  AnyV get_item(int i) const { return children.at(i); }
+
+  Vertex(SrcLocation loc, std::vector<AnyV> items)
+    : ASTNodeVararg(ast_tensor, loc, std::move(items)) {}
+};
+
+template<>
+struct Vertex<ast_tensor_square> final : ASTNodeVararg {
+  const std::vector<AnyV>& get_items() const { return children; }
+  AnyV get_item(int i) const { return children.at(i); }
+
+  Vertex(SrcLocation loc, std::vector<AnyV> items)
+    : ASTNodeVararg(ast_tensor_square, loc, std::move(items)) {}
+};
+
+template<>
 struct Vertex<ast_identifier> final : ASTNodeLeaf {
   std::string_view name;
 
@@ -244,27 +279,19 @@ struct Vertex<ast_bool_const> final : ASTNodeLeaf {
 };
 
 template<>
-struct Vertex<ast_nil_tuple> final : ASTNodeLeaf {
+struct Vertex<ast_null_keyword> final : ASTNodeLeaf {
   explicit Vertex(SrcLocation loc)
-    : ASTNodeLeaf(ast_nil_tuple, loc) {}
+    : ASTNodeLeaf(ast_null_keyword, loc) {}
 };
 
 template<>
 struct Vertex<ast_function_call> final : ASTNodeBinary {
   // even for f(1,2,3), f (lhs) is called with a single arg (tensor "(1,2,3)") (rhs)
   AnyV get_called_f() const { return lhs; }
-  AnyV get_called_arg() const { return rhs; }
+  auto get_called_arg() const { return rhs->as<ast_tensor>(); }
 
-  Vertex(SrcLocation loc, AnyV lhs_f, AnyV arg)
+  Vertex(SrcLocation loc, AnyV lhs_f, V<ast_tensor> arg)
     : ASTNodeBinary(ast_function_call, loc, lhs_f, arg) {}
-};
-
-template<>
-struct Vertex<ast_parenthesized_expr> final : ASTNodeUnary {
-  AnyV get_expr() const { return child; }
-
-  Vertex(SrcLocation loc, AnyV expr)
-    : ASTNodeUnary(ast_parenthesized_expr, loc, expr) {}
 };
 
 template<>
@@ -273,16 +300,8 @@ struct Vertex<ast_global_var_declaration> final : ASTNodeUnary {
 
   auto get_identifier() const { return child->as<ast_identifier>(); }
 
-  Vertex(SrcLocation loc, V<ast_identifier> var_identifier, TypeExpr* declared_type)
-    : ASTNodeUnary(ast_global_var_declaration, loc, var_identifier), declared_type(declared_type) {}
-};
-
-template<>
-struct Vertex<ast_global_var_declaration_list> final : ASTNodeVararg {
-  const std::vector<AnyV>& get_declarations() const { return children; }
-
-  Vertex(SrcLocation loc, std::vector<AnyV> declarations)
-    : ASTNodeVararg(ast_global_var_declaration_list, loc, std::move(declarations)) {}
+  Vertex(SrcLocation loc, V<ast_identifier> name_identifier, TypeExpr* declared_type)
+    : ASTNodeUnary(ast_global_var_declaration, loc, name_identifier), declared_type(declared_type) {}
 };
 
 template<>
@@ -292,16 +311,8 @@ struct Vertex<ast_constant_declaration> final : ASTNodeBinary {
   auto get_identifier() const { return lhs->as<ast_identifier>(); }
   AnyV get_init_value() const { return rhs; }
 
-  Vertex(SrcLocation loc, V<ast_identifier> const_identifier, TypeExpr* declared_type, AnyV init_value)
-    : ASTNodeBinary(ast_constant_declaration, loc, const_identifier, init_value), declared_type(declared_type) {}
-};
-
-template<>
-struct Vertex<ast_constant_declaration_list> final : ASTNodeVararg {
-  const std::vector<AnyV>& get_declarations() const { return children; }
-
-  Vertex(SrcLocation loc, std::vector<AnyV> declarations)
-    : ASTNodeVararg(ast_constant_declaration_list, loc, std::move(declarations)) {}
+  Vertex(SrcLocation loc, V<ast_identifier> name_identifier, TypeExpr* declared_type, AnyV init_value)
+    : ASTNodeBinary(ast_constant_declaration, loc, name_identifier, init_value), declared_type(declared_type) {}
 };
 
 template<>
@@ -311,50 +322,14 @@ struct Vertex<ast_underscore> final : ASTNodeLeaf {
 };
 
 template<>
-struct Vertex<ast_type_expression> final : ASTNodeLeaf {
-  TypeExpr* declared_type;
-
-  Vertex(SrcLocation loc, TypeExpr* declared_type)
-    : ASTNodeLeaf(ast_type_expression, loc), declared_type(declared_type) {}
-};
-
-template<>
-struct Vertex<ast_variable_declaration> final : ASTNodeUnary {
-  TypeExpr* declared_type;
-
-  AnyV get_variable_or_list() const { return child; }  // identifier, tuple, tensor
-
-  Vertex(SrcLocation loc, TypeExpr* declared_type, AnyV dest)
-    : ASTNodeUnary(ast_variable_declaration, loc, dest), declared_type(declared_type) {}
-};
-
-template<>
-struct Vertex<ast_tensor> final : ASTNodeVararg {
-  const std::vector<AnyV>& get_items() const { return children; }
-  AnyV get_item(int i) const { return children.at(i); }
-
-  Vertex(SrcLocation loc, std::vector<AnyV> items)
-    : ASTNodeVararg(ast_tensor, loc, std::move(items)) {}
-};
-
-template<>
-struct Vertex<ast_tensor_square> final : ASTNodeVararg {
-  const std::vector<AnyV>& get_items() const { return children; }
-  AnyV get_item(int i) const { return children.at(i); }
-
-  Vertex(SrcLocation loc, std::vector<AnyV> items)
-    : ASTNodeVararg(ast_tensor_square, loc, std::move(items)) {}
-};
-
-template<>
 struct Vertex<ast_dot_tilde_call> final : ASTNodeBinary {
   std::string_view method_name;      // starts with . or ~
 
   AnyV get_lhs() const { return lhs; }
-  AnyV get_arg() const { return rhs; }
+  auto get_arg() const { return rhs->as<ast_tensor>(); }
 
-  Vertex(SrcLocation loc, std::string_view method_name, AnyV lhs, AnyV rhs)
-    : ASTNodeBinary(ast_dot_tilde_call, loc, lhs, rhs), method_name(method_name) {}
+  Vertex(SrcLocation loc, std::string_view method_name, AnyV lhs, V<ast_tensor> arg)
+    : ASTNodeBinary(ast_dot_tilde_call, loc, lhs, arg), method_name(method_name) {}
 };
 
 template<>
@@ -428,27 +403,46 @@ struct Vertex<ast_while_statement> final : ASTNodeBinary {
 };
 
 template<>
-struct Vertex<ast_do_until_statement> final : ASTNodeBinary {
+struct Vertex<ast_do_while_statement> final : ASTNodeBinary {
   auto get_body() const { return lhs->as<ast_sequence>(); }
   AnyV get_cond() const { return rhs; }
 
   Vertex(SrcLocation loc, V<ast_sequence> body, AnyV cond)
-    : ASTNodeBinary(ast_do_until_statement, loc, body, cond) {}
+    : ASTNodeBinary(ast_do_while_statement, loc, body, cond) {}
+};
+
+template<>
+struct Vertex<ast_throw_statement> final : ASTNodeBinary {
+  AnyV get_thrown_code() const { return lhs; }
+  AnyV get_thrown_arg() const { return rhs; }    // may be ast_empty
+  bool has_thrown_arg() const { return rhs->type != ast_empty; }
+
+  Vertex(SrcLocation loc, AnyV thrown_code, AnyV thrown_arg)
+    : ASTNodeBinary(ast_throw_statement, loc, thrown_code, thrown_arg) {}
+};
+
+template<>
+struct Vertex<ast_assert_statement> final : ASTNodeBinary {
+  AnyV get_cond() const { return lhs; }
+  AnyV get_thrown_code() const { return rhs; }
+
+  Vertex(SrcLocation loc, AnyV cond, AnyV thrown_code)
+    : ASTNodeBinary(ast_assert_statement, loc, cond, thrown_code) {}
 };
 
 template<>
 struct Vertex<ast_try_catch_statement> final : ASTNodeVararg {
   auto get_try_body() const { return children.at(0)->as<ast_sequence>(); }
-  AnyV get_catch_expr() const { return children.at(1); }    // it's a tensor
+  auto get_catch_expr() const { return children.at(1)->as<ast_tensor>(); }    // (excNo, arg), always len 2
   auto get_catch_body() const { return children.at(2)->as<ast_sequence>(); }
 
-  Vertex(SrcLocation loc, V<ast_sequence> try_body, AnyV catch_expr, V<ast_sequence> catch_body)
+  Vertex(SrcLocation loc, V<ast_sequence> try_body, V<ast_tensor> catch_expr, V<ast_sequence> catch_body)
     : ASTNodeVararg(ast_try_catch_statement, loc, {try_body, catch_expr, catch_body}) {}
 };
 
 template<>
 struct Vertex<ast_if_statement> final : ASTNodeVararg {
-  bool is_ifnot;
+  bool is_ifnot;  // if(!cond), to generate more optimal fift code
 
   AnyV get_cond() const { return children.at(0); }
   auto get_if_body() const { return children.at(1)->as<ast_sequence>(); }
@@ -459,33 +453,44 @@ struct Vertex<ast_if_statement> final : ASTNodeVararg {
 };
 
 template<>
-struct Vertex<ast_forall_item> final : ASTNodeLeaf {
+struct Vertex<ast_genericsT_item> final : ASTNodeLeaf {
   TypeExpr* created_type;   // used to keep same pointer, since TypeExpr::new_var(i) always allocates
-  std::string nameT;
+  std::string_view nameT;
 
-  Vertex(SrcLocation loc, TypeExpr* created_type, std::string nameT)
-    : ASTNodeLeaf(ast_forall_item, loc), created_type(created_type), nameT(std::move(nameT)) {}
+  Vertex(SrcLocation loc, TypeExpr* created_type, std::string_view nameT)
+    : ASTNodeLeaf(ast_genericsT_item, loc), created_type(created_type), nameT(nameT) {}
 };
 
 template<>
-struct Vertex<ast_forall_list> final : ASTNodeVararg {
+struct Vertex<ast_genericsT_list> final : ASTNodeVararg {
   std::vector<AnyV> get_items() const { return children; }
-  auto get_item(int i) const { return children.at(i)->as<ast_forall_item>(); }
+  auto get_item(int i) const { return children.at(i)->as<ast_genericsT_item>(); }
 
-  Vertex(SrcLocation loc, std::vector<AnyV> forall_items)
-    : ASTNodeVararg(ast_forall_list, loc, std::move(forall_items)) {}
+  Vertex(SrcLocation loc, std::vector<AnyV> genericsT_items)
+    : ASTNodeVararg(ast_genericsT_list, loc, std::move(genericsT_items)) {}
 
   int lookup_idx(std::string_view nameT) const;
 };
 
 template<>
-struct Vertex<ast_argument> final : ASTNodeUnary {
-  TypeExpr* arg_type;
+struct Vertex<ast_parameter> final : ASTNodeUnary {
+  TypeExpr* param_type;
 
-  auto get_identifier() const { return child->as<ast_identifier>(); }
+  auto get_identifier() const { return child->as<ast_identifier>(); } // for underscore, its str_val is empty
 
-  Vertex(SrcLocation loc, V<ast_identifier> arg_identifier, TypeExpr* arg_type)
-    : ASTNodeUnary(ast_argument, loc, arg_identifier), arg_type(arg_type) {}
+  Vertex(SrcLocation loc, V<ast_identifier> name_identifier, TypeExpr* param_type)
+    : ASTNodeUnary(ast_parameter, loc, name_identifier), param_type(param_type) {}
+};
+
+template<>
+struct Vertex<ast_parameter_list> final : ASTNodeVararg {
+  const std::vector<AnyV>& get_params() const { return children; }
+  auto get_param(int i) const { return children.at(i)->as<ast_parameter>(); }
+
+  Vertex(SrcLocation loc, std::vector<AnyV> params)
+    : ASTNodeVararg(ast_parameter_list, loc, std::move(params)) {}
+
+  int lookup_idx(std::string_view param_name) const;
 };
 
 template<>
@@ -500,26 +505,48 @@ struct Vertex<ast_asm_body> final : ASTNodeVararg {
 };
 
 template<>
-struct Vertex<ast_argument_list> final : ASTNodeVararg {
-  const std::vector<AnyV>& get_args() const { return children; }
-  auto get_arg(int i) const { return children.at(i)->as<ast_argument>(); }
+struct Vertex<ast_annotation> final : ASTNodeUnary {
+  AnnotationKind kind;
 
-  Vertex(SrcLocation loc, std::vector<AnyV> args)
-    : ASTNodeVararg(ast_argument_list, loc, std::move(args)) {}
+  auto get_arg() const { return child->as<ast_tensor>(); }
 
-  int lookup_idx(std::string_view arg_name) const;
+  static AnnotationKind parse_kind(std::string_view name);
+
+  Vertex(SrcLocation loc, AnnotationKind kind, V<ast_tensor> arg_probably_empty)
+    : ASTNodeUnary(ast_annotation, loc, arg_probably_empty), kind(kind) {}
+};
+
+template<>
+struct Vertex<ast_local_var> final : ASTNodeUnary {
+  TypeExpr* declared_type;
+  bool marked_as_redef;    // var (existing_var redef, new_var: int) = ...
+
+  AnyV get_identifier() const { return child; } // ast_identifier / ast_underscore
+
+  Vertex(SrcLocation loc, AnyV name_identifier, TypeExpr* declared_type, bool marked_as_redef)
+    : ASTNodeUnary(ast_local_var, loc, name_identifier), declared_type(declared_type), marked_as_redef(marked_as_redef) {}
+};
+
+template<>
+struct Vertex<ast_local_vars_declaration> final : ASTNodeBinary {
+  AnyV get_lhs() const { return lhs; } // ast_local_var / ast_tensor / ast_tensor_square
+  AnyV get_assigned_val() const { return rhs; }
+
+  Vertex(SrcLocation loc, AnyV lhs, AnyV assigned_val)
+    : ASTNodeBinary(ast_local_vars_declaration, loc, lhs, assigned_val) {}
 };
 
 template<>
 struct Vertex<ast_function_declaration> final : ASTNodeVararg {
   auto get_identifier() const { return children.at(0)->as<ast_identifier>(); }
-  int get_num_args() const { return children.at(1)->as<ast_argument_list>()->size(); }
-  auto get_arg_list() const { return children.at(1)->as<ast_argument_list>(); }
-  auto get_arg(int i) const { return children.at(1)->as<ast_argument_list>()->get_arg(i); }
+  int get_num_params() const { return children.at(1)->as<ast_parameter_list>()->size(); }
+  auto get_param_list() const { return children.at(1)->as<ast_parameter_list>(); }
+  auto get_param(int i) const { return children.at(1)->as<ast_parameter_list>()->get_param(i); }
   AnyV get_body() const { return children.at(2); }   // ast_sequence / ast_asm_body
 
   TypeExpr* ret_type = nullptr;
-  V<ast_forall_list> forall_list = nullptr;
+  V<ast_genericsT_list> genericsT_list = nullptr;
+  bool is_entrypoint = false;
   bool marked_as_pure = false;
   bool marked_as_builtin = false;
   bool marked_as_get_method = false;
@@ -529,29 +556,21 @@ struct Vertex<ast_function_declaration> final : ASTNodeVararg {
 
   bool is_asm_function() const { return children.at(2)->type == ast_asm_body; }
 
-  Vertex(SrcLocation loc, V<ast_identifier> name_identifier, V<ast_argument_list> args, AnyV body)
-    : ASTNodeVararg(ast_function_declaration, loc, {name_identifier, args, body}) {}
+  Vertex(SrcLocation loc, V<ast_identifier> name_identifier, V<ast_parameter_list> parameters, AnyV body)
+    : ASTNodeVararg(ast_function_declaration, loc, {name_identifier, parameters, body}) {}
 };
 
 template<>
-struct Vertex<ast_pragma_no_arg> final : ASTNodeLeaf {
-  std::string_view pragma_name;
-
-  Vertex(SrcLocation loc, std::string_view pragma_name)
-    : ASTNodeLeaf(ast_pragma_no_arg, loc), pragma_name(pragma_name) {}
-};
-
-template<>
-struct Vertex<ast_pragma_version> final : ASTNodeLeaf {
+struct Vertex<ast_tolk_required_version> final : ASTNodeLeaf {
   TokenType cmp_tok;
   std::string_view semver;
 
   Vertex(SrcLocation loc, TokenType cmp_tok, std::string_view semver)
-    : ASTNodeLeaf(ast_pragma_version, loc), cmp_tok(cmp_tok), semver(semver) {}
+    : ASTNodeLeaf(ast_tolk_required_version, loc), cmp_tok(cmp_tok), semver(semver) {}
 };
 
 template<>
-struct Vertex<ast_include_statement> final : ASTNodeUnary {
+struct Vertex<ast_import_statement> final : ASTNodeUnary {
   const SrcFile* file = nullptr;    // assigned after includes have been resolved
 
   auto get_file_leaf() const { return child->as<ast_string_const>(); }
@@ -561,7 +580,7 @@ struct Vertex<ast_include_statement> final : ASTNodeUnary {
   void mutate_set_src_file(const SrcFile* file) const;
 
   Vertex(SrcLocation loc, V<ast_string_const> file_name)
-    : ASTNodeUnary(ast_include_statement, loc, file_name) {}
+    : ASTNodeUnary(ast_import_statement, loc, file_name) {}
 };
 
 template<>

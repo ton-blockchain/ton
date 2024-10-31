@@ -15,33 +15,42 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include "compiler-state.h"
+#include <iostream>
+#include <sstream>
 
 namespace tolk {
 
-std::string tolk_version{"0.5.0"};
-
 CompilerState G; // the only mutable global variable in tolk internals
 
-void GlobalPragma::enable(SrcLocation loc) {
-  if (deprecated_from_v_) {
-    loc.show_warning(PSTRING() << "#pragma " << name_ <<
-                     " is deprecated since Tolk v" << deprecated_from_v_ <<
-                     ". Please, remove this line from your code.");
-    return;
-  }
-  if (!loc.get_src_file()->is_entrypoint_file()) {
-    // todo generally it's not true; rework pragmas completely
-    loc.show_warning(PSTRING() << "#pragma " << name_ <<
-                     " should be used in the main file only.");
-  }
-
-  enabled_ = true;
+void ExperimentalOption::mark_deprecated(const char* deprecated_from_v, const char* deprecated_reason) {
+  this->deprecated_from_v = deprecated_from_v;
+  this->deprecated_reason = deprecated_reason;
 }
 
-void GlobalPragma::always_on_and_deprecated(const char *deprecated_from_v) {
-  deprecated_from_v_ = deprecated_from_v;
-  enabled_ = true;
+void CompilerSettings::enable_experimental_option(std::string_view name) {
+  ExperimentalOption* to_enable = nullptr;
+
+  if (name == remove_unused_functions.name) {
+    to_enable = &remove_unused_functions;
+  }
+
+  if (to_enable == nullptr) {
+    std::cerr << "unknown experimental option: " << name << std::endl;
+  } else if (to_enable->deprecated_from_v) {
+    std::cerr << "experimental option " << name << " "
+              << "is deprecated since Tolk v" << to_enable->deprecated_from_v
+              << ": " << to_enable->deprecated_reason << std::endl;
+  } else {
+    to_enable->enabled = true;
+  }
 }
 
+void CompilerSettings::parse_experimental_options_cmd_arg(const std::string& cmd_arg) {
+  std::istringstream stream(cmd_arg);
+  std::string token;
+  while (std::getline(stream, token, ',')) {
+    enable_experimental_option(token);
+  }
+}
 
 } // namespace tolk

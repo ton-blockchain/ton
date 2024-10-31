@@ -33,7 +33,7 @@
 
 namespace tolk {
 
-Expr* process_expr(AnyV v, CodeBlob& code, bool nv = false);
+Expr* process_expr(AnyV v, CodeBlob& code);
 
 GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
 static void fire_error_redefinition_of_symbol(V<ast_identifier> v_ident, SymDef* existing) {
@@ -50,13 +50,32 @@ static int calc_sym_idx(std::string_view sym_name) {
   return G.symbols.lookup_add(sym_name);
 }
 
+static td::RefInt256 calculate_method_id_for_entrypoint(std::string_view func_name) {
+  if (func_name == "main" || func_name == "onInternalMessage") {
+    return td::make_refint(0);
+  }
+  if (func_name == "onExternalMessage") {
+    return td::make_refint(-1);
+  }
+  if (func_name == "onRunTickTock") {
+    return td::make_refint(-2);
+  }
+  if (func_name == "onSplitPrepare") {
+    return td::make_refint(-3);
+  }
+  if (func_name == "onSplitInstall") {
+    return td::make_refint(-4);
+  }
+  tolk_assert(false);
+}
+
 static td::RefInt256 calculate_method_id_by_func_name(std::string_view func_name) {
   unsigned int crc = td::crc16(static_cast<std::string>(func_name));
   return td::make_refint((crc & 0xffff) | 0x10000);
 }
 
-static bool is_argument_of_function(AnyV v_variable, V<ast_function_declaration> v_func) {
-  return v_variable->type == ast_identifier && v_func->get_arg_list()->lookup_idx(v_variable->as<ast_identifier>()->name) != -1;
+static bool is_parameter_of_function(AnyV v_variable, V<ast_function_declaration> v_func) {
+  return v_variable->type == ast_identifier && v_func->get_param_list()->lookup_idx(v_variable->as<ast_identifier>()->name) != -1;
 }
 
 // if a function looks like `T f(...args) { return anotherF(...args); }`,
@@ -70,11 +89,11 @@ static bool is_argument_of_function(AnyV v_variable, V<ast_function_declaration>
 // in the future, when working on AST level, inlining should become much more powerful
 // (for instance, it should inline `return anotherF(constants)`, etc.)
 static bool detect_if_function_just_wraps_another(V<ast_function_declaration> v) {
-  if (v->method_id || v->marked_as_get_method || v->marked_as_inline_ref || v->ret_type->has_unknown_inside()) {
+  if (v->method_id || v->marked_as_get_method || v->marked_as_builtin || v->marked_as_inline_ref || v->is_entrypoint) {
     return false;
   }
-  for (int i = 0; i < v->get_num_args(); ++i) {
-    if (v->get_arg(i)->arg_type->get_width() != 1) {
+  for (int i = 0; i < v->get_num_params(); ++i) {
+    if (v->get_param(i)->param_type->get_width() != 1 || v->get_param(i)->param_type->has_unknown_inside()) {
       return false;   // avoid situations like `f(int a, (int,int) b)`, inlining will be cumbersome
     }
   }
@@ -82,7 +101,7 @@ static bool detect_if_function_just_wraps_another(V<ast_function_declaration> v)
   auto v_body = v->get_body()->try_as<ast_sequence>();
   if (!v_body || v_body->size() != 1 || v_body->get_item(0)->type != ast_return_statement) {
     return false;
-  }                                            
+  }
 
   auto v_return = v_body->get_item(0)->as<ast_return_statement>();
   auto v_anotherF = v_return->get_return_value()->try_as<ast_function_call>();
@@ -90,37 +109,23 @@ static bool detect_if_function_just_wraps_another(V<ast_function_declaration> v)
     return false;
   }
 
-  // todo simplify when removing ability of calling a function without parentheses
-  AnyV called_arg = v_anotherF->get_called_arg();
-  bool ok_arg = called_arg->type == ast_tensor || called_arg->type == ast_parenthesized_expr;
-  if (!ok_arg || v_anotherF->get_called_f()->type != ast_identifier) {
+  V<ast_tensor> called_arg = v_anotherF->get_called_arg();
+  if (v_anotherF->get_called_f()->type != ast_identifier) {
     return false;
   }
 
   std::string_view called_name = v_anotherF->get_called_f()->try_as<ast_identifier>()->name;
   std::string_view function_name = v->get_identifier()->name;
 
-  if (called_arg->type == ast_tensor) {
-    const std::vector<AnyV>& v_arg_items = called_arg->as<ast_tensor>()->get_items();
-    std::set<std::string_view> used_args;
-    for (AnyV v_arg : v_arg_items) {
-      if (!is_argument_of_function(v_arg, v)) {
-        return false;
-      }
-      used_args.emplace(v_arg->as<ast_identifier>()->name);
-    }
-    if (used_args.size() != v->get_num_args() || used_args.size() != v_arg_items.size()) {
+  const std::vector<AnyV>& v_arg_items = called_arg->get_items();
+  std::set<std::string_view> used_args;
+  for (AnyV v_arg : v_arg_items) {
+    if (!is_parameter_of_function(v_arg, v)) {
       return false;
     }
-  } else if (called_arg->type == ast_parenthesized_expr) {
-    AnyV v_arg = called_arg->as<ast_parenthesized_expr>()->get_expr();
-    if (!is_argument_of_function(v_arg, v)) {
-      return false;
-    }
+    used_args.emplace(v_arg->as<ast_identifier>()->name);
   }
-
-  if (function_name == "main" || function_name == "recv_internal" || function_name == "recv_external" ||
-      function_name == "run_ticktock" || function_name == "split_prepare" || function_name == "split_install") {
+  if (static_cast<int>(used_args.size()) != v->get_num_params() || used_args.size() != v_arg_items.size()) {
     return false;
   }
 
@@ -131,9 +136,9 @@ static bool detect_if_function_just_wraps_another(V<ast_function_declaration> v)
   return true;
 }
 
-static void calc_arg_ret_order_of_asm_function(V<ast_asm_body> v_body, V<ast_argument_list> arg_list, TypeExpr* ret_type,
+static void calc_arg_ret_order_of_asm_function(V<ast_asm_body> v_body, V<ast_parameter_list> param_list, TypeExpr* ret_type,
                                    std::vector<int>& arg_order, std::vector<int>& ret_order) {
-  int cnt = arg_list->size();
+  int cnt = param_list->size();
   int width = ret_type->get_width();
   if (width < 0 || width > 16) {
     v_body->error("return type of an assembler built-in function must have a well-defined fixed width");
@@ -145,16 +150,16 @@ static void calc_arg_ret_order_of_asm_function(V<ast_asm_body> v_body, V<ast_arg
   cum_arg_width.push_back(0);
   int tot_width = 0;
   for (int i = 0; i < cnt; ++i) {
-    V<ast_argument> arg = arg_list->get_arg(i);
-    int arg_width = arg->arg_type->get_width();
+    V<ast_parameter> v_param = param_list->get_param(i);
+    int arg_width = v_param->param_type->get_width();
     if (arg_width < 0 || arg_width > 16) {
-      arg->error("parameters of an assembler built-in function must have a well-defined fixed width");
+      v_param->error("parameters of an assembler built-in function must have a well-defined fixed width");
     }
     cum_arg_width.push_back(tot_width += arg_width);
   }
   if (!v_body->arg_order.empty()) {
     if (static_cast<int>(v_body->arg_order.size()) != cnt) {
-      v_body->error("arg_order of asm function must specify all arguments");
+      v_body->error("arg_order of asm function must specify all parameters");
     }
     std::vector<bool> visited(cnt, false);
     for (int i = 0; i < cnt; ++i) {
@@ -197,7 +202,7 @@ static void register_constant(V<ast_constant_declaration> v) {
   // and waited to be a single expression
   // although it works, of course it should be later rewritten using AST calculations, as well as lots of other parts
   CodeBlob code("tmp", v->loc, nullptr);
-  Expr* x = process_expr(init_value, code, false);
+  Expr* x = process_expr(init_value, code);
   if (!x->is_rvalue()) {
     v->get_init_value()->error("expression is not strictly Rvalue");
   }
@@ -266,21 +271,21 @@ static void register_function(V<ast_function_declaration> v) {
 
   // calculate TypeExpr of a function: it's a map (args -> ret), probably surrounded by forall
   TypeExpr* func_type = nullptr;
-  if (int n_args = v->get_num_args()) {
+  if (int n_args = v->get_num_params()) {
     std::vector<TypeExpr*> arg_types;
     arg_types.reserve(n_args);
     for (int idx = 0; idx < n_args; ++idx) {
-      arg_types.emplace_back(v->get_arg(idx)->arg_type);
+      arg_types.emplace_back(v->get_param(idx)->param_type);
     }
     func_type = TypeExpr::new_map(TypeExpr::new_tensor(std::move(arg_types)), v->ret_type);
   } else {
     func_type = TypeExpr::new_map(TypeExpr::new_unit(), v->ret_type);
   }
-  if (v->forall_list) {
+  if (v->genericsT_list) {
     std::vector<TypeExpr*> type_vars;
-    type_vars.reserve(v->forall_list->size());
-    for (int idx = 0; idx < v->forall_list->size(); ++idx) {
-      type_vars.emplace_back(v->forall_list->get_item(idx)->created_type);
+    type_vars.reserve(v->genericsT_list->size());
+    for (int idx = 0; idx < v->genericsT_list->size(); ++idx) {
+      type_vars.emplace_back(v->genericsT_list->get_item(idx)->created_type);
     }
     func_type = TypeExpr::new_forall(std::move(type_vars), func_type);
   }
@@ -315,7 +320,7 @@ static void register_function(V<ast_function_declaration> v) {
     sym_val = new SymValCodeFunc{static_cast<int>(G.all_code_functions.size()), func_type, v->marked_as_pure};
   } else if (const auto* v_asm = v->get_body()->try_as<ast_asm_body>()) {
     std::vector<int> arg_order, ret_order;
-    calc_arg_ret_order_of_asm_function(v_asm, v->get_arg_list(), v->ret_type, arg_order, ret_order);
+    calc_arg_ret_order_of_asm_function(v_asm, v->get_param_list(), v->ret_type, arg_order, ret_order);
     sym_val = new SymValAsmFunc{func_type, std::move(arg_order), std::move(ret_order), v->marked_as_pure};
   } else {
     v->error("Unexpected function body statement");
@@ -333,6 +338,8 @@ static void register_function(V<ast_function_declaration> v) {
         v->error(PSTRING() << "GET methods hash collision: `" << other->name() << "` and `" << static_cast<std::string>(func_name) << "` produce the same hash. Consider renaming one of these functions.");
       }
     }
+  } else if (v->is_entrypoint) {
+    sym_val->method_id = calculate_method_id_for_entrypoint(func_name);
   }
   if (v->marked_as_inline) {
     sym_val->flags |= SymValFunc::flagInline;
@@ -342,6 +349,9 @@ static void register_function(V<ast_function_declaration> v) {
   }
   if (v->marked_as_get_method) {
     sym_val->flags |= SymValFunc::flagGetMethod;
+  }
+  if (v->is_entrypoint) {
+    sym_val->flags |= SymValFunc::flagIsEntrypoint;
   }
   if (detect_if_function_just_wraps_another(v)) {
     sym_val->flags |= SymValFunc::flagWrapsAnotherF;
@@ -368,21 +378,17 @@ static void iterate_through_file_symbols(const SrcFile* file) {
 
   for (AnyV v : file->ast->as<ast_tolk_file>()->get_toplevel_declarations()) {
     switch (v->type) {
-      case ast_include_statement:
+      case ast_import_statement:
         // on `import "another-file.tolk"`, register symbols from that file at first
         // (for instance, it can calculate constants, which are used in init_val of constants in current file below import)
-        iterate_through_file_symbols(v->as<ast_include_statement>()->file);
+        iterate_through_file_symbols(v->as<ast_import_statement>()->file);
         break;
 
-      case ast_constant_declaration_list:
-        for (AnyV v_decl : v->as<ast_constant_declaration_list>()->get_declarations()) {
-          register_constant(v_decl->as<ast_constant_declaration>());
-        }
+      case ast_constant_declaration:
+        register_constant(v->as<ast_constant_declaration>());
         break;
-      case ast_global_var_declaration_list:
-        for (AnyV v_decl : v->as<ast_global_var_declaration_list>()->get_declarations()) {
-          register_global_var(v_decl->as<ast_global_var_declaration>());
-        }
+      case ast_global_var_declaration:
+        register_global_var(v->as<ast_global_var_declaration>());
         break;
       case ast_function_declaration:
         register_function(v->as<ast_function_declaration>());

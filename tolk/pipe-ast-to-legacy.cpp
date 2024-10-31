@@ -34,10 +34,10 @@
 namespace tolk {
 
 static int calc_sym_idx(std::string_view sym_name) {
-  return G.symbols.lookup_add(sym_name);
+  return G.symbols.lookup(sym_name);
 }
 
-Expr* process_expr(AnyV v, CodeBlob& code, bool nv = false);
+Expr* process_expr(AnyV v, CodeBlob& code);
 
 static void check_global_func(SrcLocation loc, sym_idx_t func_name) {
   SymDef* sym_def = lookup_symbol(func_name);
@@ -77,42 +77,63 @@ static void check_import_exists_when_using_sym(AnyV v_usage, const SymDef* used_
   }
 }
 
-static Expr* process_expr(V<ast_binary_operator> v, CodeBlob& code, bool nv) {
+static Expr* create_new_local_variable(SrcLocation loc, std::string_view var_name, TypeExpr* var_type) {
+  SymDef* sym = lookup_symbol(calc_sym_idx(var_name));
+  if (sym) { // creating a new variable, but something found in symtable
+    if (sym->level != G.scope_level) {
+      sym = nullptr;  // declaring a new variable with the same name, but in another scope
+    } else {
+      throw ParseError(loc, "redeclaration of local variable `" + static_cast<std::string>(var_name) + "`");
+    }
+  }
+  Expr* x = new Expr{Expr::_Var, loc};
+  x->val = ~calc_sym_idx(var_name);
+  x->e_type = var_type;
+  x->flags = Expr::_IsLvalue;
+  return x;
+}
+
+static Expr* create_new_underscore_variable(SrcLocation loc, TypeExpr* var_type) {
+  Expr* x = new Expr{Expr::_Hole, loc};
+  x->val = -1;
+  x->flags = Expr::_IsLvalue;
+  x->e_type = var_type;
+  return x;
+}
+
+static Expr* process_expr(V<ast_binary_operator> v, CodeBlob& code) {
   TokenType t = v->tok;
   std::string operator_name = static_cast<std::string>(v->operator_name);
 
-  if (t == tok_set_plus || t == tok_set_minus || t == tok_set_mul || t == tok_set_div || t == tok_set_divR || t == tok_set_divC ||
-      t == tok_set_mod || t == tok_set_modC || t == tok_set_modR || t == tok_set_lshift || t == tok_set_rshift || t == tok_set_rshiftC ||
-      t == tok_set_rshiftR || t == tok_set_bitwise_and || t == tok_set_bitwise_or || t == tok_set_bitwise_xor) {
-    Expr* x = process_expr(v->get_lhs(), code, nv);
+  if (t == tok_set_plus || t == tok_set_minus || t == tok_set_mul || t == tok_set_div ||
+      t == tok_set_mod || t == tok_set_lshift || t == tok_set_rshift ||
+      t == tok_set_bitwise_and || t == tok_set_bitwise_or || t == tok_set_bitwise_xor) {
+    Expr* x = process_expr(v->get_lhs(), code);
     x->chk_lvalue();
     x->chk_rvalue();
     sym_idx_t name = G.symbols.lookup_add("^_" + operator_name + "_");
-    Expr* y = process_expr(v->get_rhs(), code, false);
+    Expr* y = process_expr(v->get_rhs(), code);
     y->chk_rvalue();
     Expr* z = new Expr{Expr::_Apply, name, {x, y}};
     z->here = v->loc;
-    z->set_val(t);
     z->flags = Expr::_IsRvalue;
     z->deduce_type();
     Expr* res = new Expr{Expr::_Letop, {x->copy(), z}};
     res->here = v->loc;
-    res->flags = (x->flags & ~Expr::_IsType) | Expr::_IsRvalue;
-    res->set_val(t);
+    res->flags = x->flags | Expr::_IsRvalue;
     res->deduce_type();
     return res;
   }
   if (t == tok_assign) {
-    Expr* x = process_expr(v->get_lhs(), code, nv);
+    Expr* x = process_expr(v->get_lhs(), code);
     x->chk_lvalue();
-    Expr* y = process_expr(v->get_rhs(), code, false);
+    Expr* y = process_expr(v->get_rhs(), code);
     y->chk_rvalue();
     x->predefine_vars();
     x->define_new_vars(code);
     Expr* res = new Expr{Expr::_Letop, {x, y}};
     res->here = v->loc;
-    res->flags = (x->flags & ~Expr::_IsType) | Expr::_IsRvalue;
-    res->set_val(t);
+    res->flags = x->flags | Expr::_IsRvalue;
     res->deduce_type();
     return res;
   }
@@ -120,19 +141,20 @@ static Expr* process_expr(V<ast_binary_operator> v, CodeBlob& code, bool nv) {
       t == tok_bitwise_and || t == tok_bitwise_or || t == tok_bitwise_xor ||
       t == tok_eq || t == tok_lt || t == tok_gt || t == tok_leq || t == tok_geq || t == tok_neq || t == tok_spaceship ||
       t == tok_lshift || t == tok_rshift || t == tok_rshiftC || t == tok_rshiftR ||
-      t == tok_mul || t == tok_div || t == tok_mod || t == tok_divmod ||
-      t == tok_divC || t == tok_divR || t == tok_modC || t == tok_modR) {
-    Expr* res = process_expr(v->get_lhs(), code, nv);
+      t == tok_mul || t == tok_div || t == tok_mod || t == tok_divC || t == tok_divR) {
+    Expr* res = process_expr(v->get_lhs(), code);
     res->chk_rvalue();
     sym_idx_t name = G.symbols.lookup_add("_" + operator_name + "_");
-    Expr* x = process_expr(v->get_rhs(), code, false);
+    Expr* x = process_expr(v->get_rhs(), code);
     x->chk_rvalue();
     res = new Expr{Expr::_Apply, name, {res, x}};
     res->here = v->loc;
-    res->set_val(t);
     res->flags = Expr::_IsRvalue;
     res->deduce_type();
     return res;
+  }
+  if (t == tok_logical_and || t == tok_logical_or) {
+    v->error("logical operators are not supported yet");
   }
 
   v->error("unsupported binary operator");
@@ -141,7 +163,7 @@ static Expr* process_expr(V<ast_binary_operator> v, CodeBlob& code, bool nv) {
 static Expr* process_expr(V<ast_unary_operator> v, CodeBlob& code) {
   TokenType t = v->tok;
   sym_idx_t name = G.symbols.lookup_add(static_cast<std::string>(v->operator_name) + "_");
-  Expr* x = process_expr(v->get_rhs(), code, false);
+  Expr* x = process_expr(v->get_rhs(), code);
   x->chk_rvalue();
 
   // here's an optimization to convert "-1" (tok_minus tok_int_const) to a const -1, not to Expr::Apply(-,1)
@@ -151,28 +173,26 @@ static Expr* process_expr(V<ast_unary_operator> v, CodeBlob& code) {
   // `var snd = - 1;`  // is Expr::Apply(-), a comment "snd=1" is lost in stack layout comments, and so on
   // hence, when after grammar modification tok_minus became a true unary operator (not a part of a number),
   // and thus to preserve existing behavior until compiler parts are completely rewritten, handle this case here
-  if (x->cls == Expr::_Const) {
-    if (t == tok_bitwise_not) {
-      x->intval = ~x->intval;
-    } else if (t == tok_minus) {
-      x->intval = -x->intval;
-    }
+  if (t == tok_minus && x->cls == Expr::_Const) {
+    x->intval = -x->intval;
     if (!x->intval->signed_fits_bits(257)) {
       v->error("integer overflow");
     }
     return x;
   }
+  if (t == tok_plus && x->cls == Expr::_Const) {
+    return x;
+  }
 
   auto res = new Expr{Expr::_Apply, name, {x}};
   res->here = v->loc;
-  res->set_val(t);
   res->flags = Expr::_IsRvalue;
   res->deduce_type();
   return res;
 }
 
-static Expr* process_expr(V<ast_dot_tilde_call> v, CodeBlob& code, bool nv) {
-  Expr* res = process_expr(v->get_lhs(), code, nv);
+static Expr* process_expr(V<ast_dot_tilde_call> v, CodeBlob& code) {
+  Expr* res = process_expr(v->get_lhs(), code);
   bool modify = v->method_name[0] == '~';
   Expr* obj = res;
   if (modify) {
@@ -188,7 +208,6 @@ static Expr* process_expr(V<ast_dot_tilde_call> v, CodeBlob& code, bool nv) {
       const SymDef* sym1 = lookup_symbol(name1);
       if (sym1 && dynamic_cast<SymValFunc*>(sym1->value)) {
         name_idx = name1;
-        sym = sym1;
       }
     }
   }
@@ -198,7 +217,7 @@ static Expr* process_expr(V<ast_dot_tilde_call> v, CodeBlob& code, bool nv) {
   if (!val) {
     v->error("undefined method call");
   }
-  Expr* x = process_expr(v->get_arg(), code, false);
+  Expr* x = process_expr(v->get_arg(), code);
   x->chk_rvalue();
   if (x->cls == Expr::_Tensor) {
     res = new Expr{Expr::_Apply, name_idx, {obj}};
@@ -210,7 +229,7 @@ static Expr* process_expr(V<ast_dot_tilde_call> v, CodeBlob& code, bool nv) {
   res->flags = Expr::_IsRvalue | (val->is_marked_as_pure() ? 0 : Expr::_IsImpure);
   res->deduce_type();
   if (modify) {
-    auto tmp = res;
+    Expr* tmp = res;
     res = new Expr{Expr::_LetFirst, {obj->copy(), tmp}};
     res->here = v->loc;
     res->flags = tmp->flags;
@@ -220,12 +239,12 @@ static Expr* process_expr(V<ast_dot_tilde_call> v, CodeBlob& code, bool nv) {
   return res;
 }
 
-static Expr* process_expr(V<ast_ternary_operator> v, CodeBlob& code, bool nv) {
-  Expr* cond = process_expr(v->get_cond(), code, nv);
+static Expr* process_expr(V<ast_ternary_operator> v, CodeBlob& code) {
+  Expr* cond = process_expr(v->get_cond(), code);
   cond->chk_rvalue();
-  Expr* x = process_expr(v->get_when_true(), code, false);
+  Expr* x = process_expr(v->get_when_true(), code);
   x->chk_rvalue();
-  Expr* y = process_expr(v->get_when_false(), code, false);
+  Expr* y = process_expr(v->get_when_false(), code);
   y->chk_rvalue();
   Expr* res = new Expr{Expr::_CondExpr, {cond, x, y}};
   res->here = v->loc;
@@ -234,9 +253,14 @@ static Expr* process_expr(V<ast_ternary_operator> v, CodeBlob& code, bool nv) {
   return res;
 }
 
-static Expr* process_expr(V<ast_function_call> v, CodeBlob& code, bool nv) {
-  Expr* res = process_expr(v->get_called_f(), code, nv);
-  Expr* x = process_expr(v->get_called_arg(), code, false);
+static Expr* process_expr(V<ast_function_call> v, CodeBlob& code) {
+  // special error for "null()" which is a FunC syntax
+  if (v->get_called_f()->type == ast_null_keyword) {
+    v->error("null is not a function: use `null`, not `null()`");
+  }
+
+  Expr* res = process_expr(v->get_called_f(), code);
+  Expr* x = process_expr(v->get_called_arg(), code);
   x->chk_rvalue();
   res = make_func_apply(res, x);
   res->here = v->loc;
@@ -244,7 +268,7 @@ static Expr* process_expr(V<ast_function_call> v, CodeBlob& code, bool nv) {
   return res;
 }
 
-static Expr* process_expr(V<ast_tensor> v, CodeBlob& code, bool nv) {
+static Expr* process_expr(V<ast_tensor> v, CodeBlob& code) {
   if (v->empty()) {
     Expr* res = new Expr{Expr::_Tensor, {}};
     res->flags = Expr::_IsRvalue;
@@ -253,13 +277,13 @@ static Expr* process_expr(V<ast_tensor> v, CodeBlob& code, bool nv) {
     return res;
   }
 
-  Expr* res = process_expr(v->get_item(0), code, nv);
+  Expr* res = process_expr(v->get_item(0), code);
   std::vector<TypeExpr*> type_list;
   type_list.push_back(res->e_type);
   int f = res->flags;
   res = new Expr{Expr::_Tensor, {res}};
   for (int i = 1; i < v->size(); ++i) {
-    Expr* x = process_expr(v->get_item(i), code, nv);
+    Expr* x = process_expr(v->get_item(i), code);
     res->pb_arg(x);
     f &= x->flags;
     type_list.push_back(x->e_type);
@@ -270,25 +294,7 @@ static Expr* process_expr(V<ast_tensor> v, CodeBlob& code, bool nv) {
   return res;
 }
 
-static Expr* process_expr(V<ast_variable_declaration> v, CodeBlob& code) {
-  Expr* x = process_expr(v->get_variable_or_list(), code, true);
-  x->chk_lvalue();  // chk_lrvalue() ?
-  Expr* res = new Expr{Expr::_TypeApply, {x}};
-  res->e_type = v->declared_type;
-  res->here = v->loc;
-  try {
-    unify(res->e_type, x->e_type);
-  } catch (UnifyError& ue) {
-    std::ostringstream os;
-    os << "cannot transform expression of type " << x->e_type << " to explicitly requested type " << res->e_type
-       << ": " << ue;
-    v->error(os.str());
-  }
-  res->flags = x->flags;
-  return res;
-}
-
-static Expr* process_expr(V<ast_tensor_square> v, CodeBlob& code, bool nv) {
+static Expr* process_expr(V<ast_tensor_square> v, CodeBlob& code) {
   if (v->empty()) {
     Expr* res = new Expr{Expr::_Tensor, {}};
     res->flags = Expr::_IsRvalue;
@@ -301,13 +307,13 @@ static Expr* process_expr(V<ast_tensor_square> v, CodeBlob& code, bool nv) {
     return res;
   }
 
-  Expr* res = process_expr(v->get_item(0), code, nv);
+  Expr* res = process_expr(v->get_item(0), code);
   std::vector<TypeExpr*> type_list;
   type_list.push_back(res->e_type);
   int f = res->flags;
   res = new Expr{Expr::_Tensor, {res}};
   for (int i = 1; i < v->size(); ++i) {
-    Expr* x = process_expr(v->get_item(i), code, nv);
+    Expr* x = process_expr(v->get_item(i), code);
     res->pb_arg(x);
     f &= x->flags;
     type_list.push_back(x->e_type);
@@ -364,7 +370,7 @@ static Expr* process_expr(V<ast_string_const> v) {
       unsigned char buff[128];
       int bits = (int)td::bitstring::parse_bitstring_hex_literal(buff, sizeof(buff), str.data(), str.data() + str.size());
       if (bits < 0) {
-        v->error("Invalid hex bitstring constant '" + str + "'");
+        v->error("invalid hex bitstring constant '" + str + "'");
       }
       break;
     }
@@ -406,32 +412,23 @@ static Expr* process_expr(V<ast_string_const> v) {
 }
 
 static Expr* process_expr(V<ast_bool_const> v) {
-  SymDef* sym = lookup_symbol(calc_sym_idx(v->bool_val ? "true" : "false"));
-  tolk_assert(sym);
-  Expr* res = new Expr{Expr::_Apply, sym, {}};
+  SymDef* builtin_sym = lookup_symbol(calc_sym_idx(v->bool_val ? "__true" : "__false"));
+  Expr* res = new Expr{Expr::_Apply, builtin_sym, {}};
   res->flags = Expr::_IsRvalue;
   res->deduce_type();
   return res;
 }
 
-static Expr* process_expr([[maybe_unused]] V<ast_nil_tuple> v) {
-  SymDef* sym = lookup_symbol(calc_sym_idx("nil"));
-  tolk_assert(sym);
-  Expr* res = new Expr{Expr::_Apply, sym, {}};
+static Expr* process_expr([[maybe_unused]] V<ast_null_keyword> v) {
+  SymDef* builtin_sym = lookup_symbol(calc_sym_idx("__null"));
+  Expr* res = new Expr{Expr::_Apply, builtin_sym, {}};
   res->flags = Expr::_IsRvalue;
   res->deduce_type();
   return res;
 }
 
-static Expr* process_expr(V<ast_identifier> v, bool nv) {
+static Expr* process_identifier(V<ast_identifier> v) {
   SymDef* sym = lookup_symbol(calc_sym_idx(v->name));
-  if (nv && sym) {
-    if (sym->level != G.scope_level) {
-      sym = nullptr;  // declaring a new variable with the same name, but in another scope
-    } else {
-      v->error("redeclaration of local variable `" + static_cast<std::string>(v->name) + "`");
-    }
-  }
   if (sym && dynamic_cast<SymValGlobVar*>(sym->value)) {
     check_import_exists_when_using_sym(v, sym);
     auto val = dynamic_cast<SymValGlobVar*>(sym->value);
@@ -455,7 +452,7 @@ static Expr* process_expr(V<ast_identifier> v, bool nv) {
       res->strval = val->get_str_value();
       res->e_type = TypeExpr::new_atomic(tok_slice);
     } else {
-      v->error("Invalid symbolic constant type");
+      v->error("invalid symbolic constant type");
     }
     return res;
   }
@@ -463,86 +460,65 @@ static Expr* process_expr(V<ast_identifier> v, bool nv) {
     check_import_exists_when_using_sym(v, sym);
   }
   Expr* res = new Expr{Expr::_Var, v->loc};
-  if (nv) {
-    res->val = ~calc_sym_idx(v->name);
-    res->e_type = TypeExpr::new_hole();
-    res->flags = Expr::_IsLvalue;
-    // std::cerr << "defined new variable " << lex.cur().str << " : " << res->e_type << std::endl;
-  } else {
-    if (!sym) {
-      check_global_func(v->loc, calc_sym_idx(v->name));
-      sym = lookup_symbol(calc_sym_idx(v->name));
-    }
-    res->sym = sym;
-    SymVal* val = nullptr;
-    bool impure = false;
-    if (sym) {
-      val = dynamic_cast<SymVal*>(sym->value);
-    }
-    if (!val) {
-      v->error("undefined identifier '" + static_cast<std::string>(v->name) + "'");
-    }
-    if (val->kind == SymValKind::_Func) {
-      res->e_type = val->get_type();
-      res->cls = Expr::_GlobFunc;
-      impure = !dynamic_cast<SymValFunc*>(val)->is_marked_as_pure();
-    } else {
-      tolk_assert(val->idx >= 0);
-      res->val = val->idx;
-      res->e_type = val->get_type();
-      // std::cerr << "accessing variable " << lex.cur().str << " : " << res->e_type << std::endl;
-    }
-    // std::cerr << "accessing symbol " << lex.cur().str << " : " << res->e_type << (val->impure ? " (impure)" : " (pure)") << std::endl;
-    res->flags = Expr::_IsLvalue | Expr::_IsRvalue | (impure ? Expr::_IsImpure : 0);
+  if (!sym) {
+    check_global_func(v->loc, calc_sym_idx(v->name));
+    sym = lookup_symbol(calc_sym_idx(v->name));
   }
+  res->sym = sym;
+  SymVal* val = nullptr;
+  bool impure = false;
+  if (sym) {
+    val = dynamic_cast<SymVal*>(sym->value);
+  }
+  if (!val) {
+    v->error("undefined identifier '" + static_cast<std::string>(v->name) + "'");
+  }
+  if (val->kind == SymValKind::_Func) {
+    res->e_type = val->get_type();
+    res->cls = Expr::_GlobFunc;
+    impure = !dynamic_cast<SymValFunc*>(val)->is_marked_as_pure();
+  } else {
+    tolk_assert(val->idx >= 0);
+    res->val = val->idx;
+    res->e_type = val->get_type();
+    // std::cerr << "accessing variable " << lex.cur().str << " : " << res->e_type << std::endl;
+  }
+  // std::cerr << "accessing symbol " << lex.cur().str << " : " << res->e_type << (val->impure ? " (impure)" : " (pure)") << std::endl;
+  res->flags = Expr::_IsLvalue | Expr::_IsRvalue | (impure ? Expr::_IsImpure : 0);
   res->deduce_type();
   return res;
 }
 
-Expr* process_expr(AnyV v, CodeBlob& code, bool nv) {
+Expr* process_expr(AnyV v, CodeBlob& code) {
   switch (v->type) {
     case ast_binary_operator:
-      return process_expr(v->as<ast_binary_operator>(), code, nv);
+      return process_expr(v->as<ast_binary_operator>(), code);
     case ast_unary_operator:
       return process_expr(v->as<ast_unary_operator>(), code);
     case ast_dot_tilde_call:
-      return process_expr(v->as<ast_dot_tilde_call>(), code, nv);
+      return process_expr(v->as<ast_dot_tilde_call>(), code);
     case ast_ternary_operator:
-      return process_expr(v->as<ast_ternary_operator>(), code, nv);
+      return process_expr(v->as<ast_ternary_operator>(), code);
     case ast_function_call:
-      return process_expr(v->as<ast_function_call>(), code, nv);
+      return process_expr(v->as<ast_function_call>(), code);
     case ast_parenthesized_expr:
-      return process_expr(v->as<ast_parenthesized_expr>()->get_expr(), code, nv);
-    case ast_variable_declaration:
-      return process_expr(v->as<ast_variable_declaration>(), code);
+      return process_expr(v->as<ast_parenthesized_expr>()->get_expr(), code);
     case ast_tensor:
-      return process_expr(v->as<ast_tensor>(), code, nv);
+      return process_expr(v->as<ast_tensor>(), code);
     case ast_tensor_square:
-      return process_expr(v->as<ast_tensor_square>(), code, nv);
+      return process_expr(v->as<ast_tensor_square>(), code);
     case ast_int_const:
       return process_expr(v->as<ast_int_const>());
     case ast_string_const:
       return process_expr(v->as<ast_string_const>());
     case ast_bool_const:
       return process_expr(v->as<ast_bool_const>());
-    case ast_nil_tuple:
-      return process_expr(v->as<ast_nil_tuple>());
+    case ast_null_keyword:
+      return process_expr(v->as<ast_null_keyword>());
     case ast_identifier:
-      return process_expr(v->as<ast_identifier>(), nv);
-
-    case ast_underscore: {
-      Expr* res = new Expr{Expr::_Hole, v->loc};
-      res->val = -1;
-      res->flags = Expr::_IsLvalue;
-      res->e_type = TypeExpr::new_hole();
-      return res;
-    }
-    case ast_type_expression: {
-      Expr* res = new Expr{Expr::_Type, v->loc};
-      res->flags = Expr::_IsType;
-      res->e_type = v->as<ast_type_expression>()->declared_type;
-      return res;
-    }
+      return process_identifier(v->as<ast_identifier>());
+    case ast_underscore:
+      return create_new_underscore_variable(v->loc, TypeExpr::new_hole());
     default:
       throw UnexpectedASTNodeType(v, "process_expr");
   }
@@ -561,6 +537,70 @@ void combine_parallel(val& x, const val y) {
   x |= y & end;
 }
 } // namespace blk_fl
+
+static Expr* process_local_vars_lhs(AnyV v, CodeBlob& code) {
+  switch (v->type) {
+    case ast_local_var: {
+      if (v->as<ast_local_var>()->marked_as_redef) {
+        return process_identifier(v->as<ast_local_var>()->get_identifier()->as<ast_identifier>());
+      }
+      TypeExpr* declared_type = v->as<ast_local_var>()->declared_type;
+      if (auto v_ident = v->as<ast_local_var>()->get_identifier()->try_as<ast_identifier>()) {
+        return create_new_local_variable(v->loc, v_ident->name, declared_type ? declared_type : TypeExpr::new_hole());
+      } else {
+        return create_new_underscore_variable(v->loc, declared_type ? declared_type : TypeExpr::new_hole());
+      }
+    }
+    case ast_parenthesized_expr:
+      return process_local_vars_lhs(v->as<ast_parenthesized_expr>()->get_expr(), code);
+    case ast_tensor: {
+      std::vector<TypeExpr*> type_list;
+      Expr* res = new Expr{Expr::_Tensor, v->loc};
+      for (AnyV item : v->as<ast_tensor>()->get_items()) {
+        Expr* x = process_local_vars_lhs(item, code);
+        res->pb_arg(x);
+        res->flags |= x->flags;
+        type_list.push_back(x->e_type);
+      }
+      res->e_type = TypeExpr::new_tensor(std::move(type_list));
+      return res;
+    }
+    case ast_tensor_square: {
+      std::vector<TypeExpr*> type_list;
+      Expr* res = new Expr{Expr::_Tensor, v->loc};
+      for (AnyV item : v->as<ast_tensor_square>()->get_items()) {
+        Expr* x = process_local_vars_lhs(item, code);
+        res->pb_arg(x);
+        res->flags |= x->flags;
+        type_list.push_back(x->e_type);
+      }
+      res->e_type = TypeExpr::new_tensor(std::move(type_list));
+      res = new Expr{Expr::_MkTuple, {res}};
+      res->flags = res->args.at(0)->flags;
+      res->here = v->loc;
+      res->e_type = TypeExpr::new_tuple(res->args.at(0)->e_type);
+      return res;
+    }
+    default:
+      throw UnexpectedASTNodeType(v, "process_local_vars_lhs");
+  }
+}
+
+static blk_fl::val process_vertex(V<ast_local_vars_declaration> v, CodeBlob& code) {
+  Expr* x = process_local_vars_lhs(v->get_lhs(), code);
+  x->chk_lvalue();
+  Expr* y = process_expr(v->get_assigned_val(), code);
+  y->chk_rvalue();
+  x->predefine_vars();
+  x->define_new_vars(code);
+  Expr* res = new Expr{Expr::_Letop, {x, y}};
+  res->here = v->loc;
+  res->flags = x->flags | Expr::_IsRvalue;
+  res->deduce_type();
+  res->chk_rvalue();
+  res->pre_compile(code);
+  return blk_fl::end;
+}
 
 static blk_fl::val process_vertex(V<ast_return_statement> v, CodeBlob& code) {
   Expr* expr = process_expr(v->get_return_value(), code);
@@ -593,7 +633,7 @@ static void append_implicit_ret_stmt(V<ast_sequence> v, CodeBlob& code) {
   code.emplace_back(v->loc_end, Op::_Return);
 }
 
-blk_fl::val process_stmt(AnyV v, CodeBlob& code);
+blk_fl::val process_statement(AnyV v, CodeBlob& code);
 
 static blk_fl::val process_vertex(V<ast_sequence> v, CodeBlob& code, bool no_new_scope = false) {
   if (!no_new_scope) {
@@ -606,7 +646,7 @@ static blk_fl::val process_vertex(V<ast_sequence> v, CodeBlob& code, bool no_new
       item->loc.show_warning("unreachable code");
       warned = true;
     }
-    blk_fl::combine(res, process_stmt(item, code));
+    blk_fl::combine(res, process_statement(item, code));
   }
   if (!no_new_scope) {
     close_scope();
@@ -660,12 +700,37 @@ static blk_fl::val process_vertex(V<ast_while_statement> v, CodeBlob& code) {
   return res1 | blk_fl::end;
 }
 
-static blk_fl::val process_vertex(V<ast_do_until_statement> v, CodeBlob& code) {
+static blk_fl::val process_vertex(V<ast_do_while_statement> v, CodeBlob& code) {
   Op& until_op = code.emplace_back(v->loc, Op::_Until);
   code.push_set_cur(until_op.block0);
   open_scope(v->loc);
   blk_fl::val res = process_vertex(v->get_body(), code, true);
-  Expr* expr = process_expr(v->get_cond(), code);
+
+  // in TVM, there is only "do until", but in Tolk, we want "do while"
+  // here we negate condition to pass it forward to legacy to Op::_Until
+  // also, handle common situations as a hardcoded "optimization": replace (a<0) with (a>=0) and so on
+  // todo these hardcoded conditions should be removed from this place in the future
+  AnyV cond = v->get_cond();
+  AnyV until_cond;
+  if (auto v_not = cond->try_as<ast_unary_operator>(); v_not && v_not->tok == tok_logical_not) {
+    until_cond = v_not->get_rhs();
+  } else if (auto v_eq = cond->try_as<ast_binary_operator>(); v_eq && v_eq->tok == tok_eq) {
+    until_cond = createV<ast_binary_operator>(cond->loc, "!=", tok_neq, v_eq->get_lhs(), v_eq->get_rhs());
+  } else if (auto v_neq = cond->try_as<ast_binary_operator>(); v_neq && v_neq->tok == tok_neq) {
+    until_cond = createV<ast_binary_operator>(cond->loc, "==", tok_eq, v_neq->get_lhs(), v_neq->get_rhs());
+  } else if (auto v_leq = cond->try_as<ast_binary_operator>(); v_leq && v_leq->tok == tok_leq) {
+    until_cond = createV<ast_binary_operator>(cond->loc, ">", tok_gt, v_leq->get_lhs(), v_leq->get_rhs());
+  } else if (auto v_lt = cond->try_as<ast_binary_operator>(); v_lt && v_lt->tok == tok_lt) {
+    until_cond = createV<ast_binary_operator>(cond->loc, ">=", tok_geq, v_lt->get_lhs(), v_lt->get_rhs());
+  } else if (auto v_geq = cond->try_as<ast_binary_operator>(); v_geq && v_geq->tok == tok_geq) {
+    until_cond = createV<ast_binary_operator>(cond->loc, "<", tok_lt, v_geq->get_lhs(), v_geq->get_rhs());
+  } else if (auto v_gt = cond->try_as<ast_binary_operator>(); v_gt && v_gt->tok == tok_gt) {
+    until_cond = createV<ast_binary_operator>(cond->loc, "<=", tok_geq, v_gt->get_lhs(), v_gt->get_rhs());
+  } else {
+    until_cond = createV<ast_unary_operator>(cond->loc, "!", tok_logical_not, cond);
+  }
+
+  Expr* expr = process_expr(until_cond, code);
   expr->chk_rvalue();
   close_scope();
   auto cnt_type = TypeExpr::new_atomic(TypeExpr::_Int);
@@ -673,15 +738,63 @@ static blk_fl::val process_vertex(V<ast_do_until_statement> v, CodeBlob& code) {
     unify(expr->e_type, cnt_type);
   } catch (UnifyError& ue) {
     std::ostringstream os;
-    os << "`until` condition value of type " << expr->e_type << " is not an integer: " << ue;
+    os << "`while` condition value of type " << expr->e_type << " is not an integer: " << ue;
     v->get_cond()->error(os.str());
   }
   until_op.left = expr->pre_compile(code);
   code.close_pop_cur(v->get_body()->loc_end);
   if (until_op.left.size() != 1) {
-    v->get_cond()->error("`until` condition value is not a singleton");
+    v->get_cond()->error("`while` condition value is not a singleton");
   }
   return res & ~blk_fl::empty;
+}
+
+static blk_fl::val process_vertex(V<ast_throw_statement> v, CodeBlob& code) {
+  std::vector<Expr*> args;
+  SymDef* builtin_sym;
+  if (v->has_thrown_arg()) {
+    builtin_sym = lookup_symbol(calc_sym_idx("__throw_arg"));
+    args.push_back(process_expr(v->get_thrown_arg(), code));
+    args.push_back(process_expr(v->get_thrown_code(), code));
+  } else {
+    builtin_sym = lookup_symbol(calc_sym_idx("__throw"));
+    args.push_back(process_expr(v->get_thrown_code(), code));
+  }
+
+  Expr* expr = new Expr{Expr::_Apply, builtin_sym, std::move(args)};
+  expr->here = v->loc;
+  expr->flags = Expr::_IsRvalue | Expr::_IsImpure;
+  expr->deduce_type();
+  expr->pre_compile(code);
+  return blk_fl::end;
+}
+
+static blk_fl::val process_vertex(V<ast_assert_statement> v, CodeBlob& code) {
+  std::vector<Expr*> args(3);
+  if (auto v_not = v->get_cond()->try_as<ast_unary_operator>(); v_not && v_not->tok == tok_logical_not) {
+    args[0] = process_expr(v->get_thrown_code(), code);
+    args[1] = process_expr(v->get_cond()->as<ast_unary_operator>()->get_rhs(), code);
+    args[2] = process_expr(createV<ast_bool_const>(v->loc, true), code);
+  } else {
+    args[0] = process_expr(v->get_thrown_code(), code);
+    args[1] = process_expr(v->get_cond(), code);
+    args[2] = process_expr(createV<ast_bool_const>(v->loc, false), code);
+  }
+
+  SymDef* builtin_sym = lookup_symbol(calc_sym_idx("__throw_if_unless"));
+  Expr* expr = new Expr{Expr::_Apply, builtin_sym, std::move(args)};
+  expr->here = v->loc;
+  expr->flags = Expr::_IsRvalue | Expr::_IsImpure;
+  expr->deduce_type();
+  expr->pre_compile(code);
+  return blk_fl::end;
+}
+
+static Expr* process_catch_variable(AnyV catch_var, TypeExpr* var_type) {
+  if (auto v_ident = catch_var->try_as<ast_identifier>()) {
+    return create_new_local_variable(catch_var->loc, v_ident->name, var_type);
+  }
+  return create_new_underscore_variable(catch_var->loc, var_type);
 }
 
 static blk_fl::val process_vertex(V<ast_try_catch_statement> v, CodeBlob& code) {
@@ -692,20 +805,21 @@ static blk_fl::val process_vertex(V<ast_try_catch_statement> v, CodeBlob& code) 
   code.close_pop_cur(v->get_try_body()->loc_end);
   code.push_set_cur(try_catch_op.block1);
   open_scope(v->get_catch_expr()->loc);
-  Expr* expr = process_expr(v->get_catch_expr(), code, true);
-  expr->chk_lvalue();
+
+  // transform catch (excNo, arg) into TVM-catch (arg, excNo), where arg is untyped and thus almost useless now
   TypeExpr* tvm_error_type = TypeExpr::new_tensor(TypeExpr::new_var(), TypeExpr::new_atomic(TypeExpr::_Int));
-  try {
-    unify(expr->e_type, tvm_error_type);
-  } catch (UnifyError& ue) {
-    std::ostringstream os;
-    os << "`catch` arguments have incorrect type " << expr->e_type << ": " << ue;
-    v->get_catch_expr()->error(os.str());
-  }
-  expr->predefine_vars();
-  expr->define_new_vars(code);
-  try_catch_op.left = expr->pre_compile(code);
-  tolk_assert(try_catch_op.left.size() == 2 || try_catch_op.left.size() == 1);
+  const std::vector<AnyV>& catch_items = v->get_catch_expr()->get_items();
+  tolk_assert(catch_items.size() == 2);
+  Expr* e_catch = new Expr{Expr::_Tensor, v->get_catch_expr()->loc};
+  e_catch->pb_arg(process_catch_variable(catch_items[1], tvm_error_type->args[0]));
+  e_catch->pb_arg(process_catch_variable(catch_items[0], tvm_error_type->args[1]));
+  e_catch->flags = Expr::_IsLvalue;
+  e_catch->e_type = tvm_error_type;
+  e_catch->predefine_vars();
+  e_catch->define_new_vars(code);
+  try_catch_op.left = e_catch->pre_compile(code);
+  tolk_assert(try_catch_op.left.size() == 2);
+
   blk_fl::val res1 = process_vertex(v->get_catch_body(), code);
   close_scope();
   code.close_pop_cur(v->get_catch_body()->loc_end);
@@ -716,7 +830,7 @@ static blk_fl::val process_vertex(V<ast_try_catch_statement> v, CodeBlob& code) 
 static blk_fl::val process_vertex(V<ast_if_statement> v, CodeBlob& code) {
   Expr* expr = process_expr(v->get_cond(), code);
   expr->chk_rvalue();
-  auto flag_type = TypeExpr::new_atomic(TypeExpr::_Int);
+  TypeExpr* flag_type = TypeExpr::new_atomic(TypeExpr::_Int);
   try {
     unify(expr->e_type, flag_type);
   } catch (UnifyError& ue) {
@@ -743,8 +857,10 @@ static blk_fl::val process_vertex(V<ast_if_statement> v, CodeBlob& code) {
   return res1;
 }
 
-blk_fl::val process_stmt(AnyV v, CodeBlob& code) {
+blk_fl::val process_statement(AnyV v, CodeBlob& code) {
   switch (v->type) {
+    case ast_local_vars_declaration:
+      return process_vertex(v->as<ast_local_vars_declaration>(), code);
     case ast_return_statement:
       return process_vertex(v->as<ast_return_statement>(), code);
     case ast_sequence:
@@ -755,10 +871,14 @@ blk_fl::val process_stmt(AnyV v, CodeBlob& code) {
       return process_vertex(v->as<ast_repeat_statement>(), code);
     case ast_if_statement:
       return process_vertex(v->as<ast_if_statement>(), code);
-    case ast_do_until_statement:
-      return process_vertex(v->as<ast_do_until_statement>(), code);
+    case ast_do_while_statement:
+      return process_vertex(v->as<ast_do_while_statement>(), code);
     case ast_while_statement:
       return process_vertex(v->as<ast_while_statement>(), code);
+    case ast_throw_statement:
+      return process_vertex(v->as<ast_throw_statement>(), code);
+    case ast_assert_statement:
+      return process_vertex(v->as<ast_assert_statement>(), code);
     case ast_try_catch_statement:
       return process_vertex(v->as<ast_try_catch_statement>(), code);
     default: {
@@ -770,9 +890,9 @@ blk_fl::val process_stmt(AnyV v, CodeBlob& code) {
   }
 }
 
-static FormalArg process_vertex(V<ast_argument> v, int fa_idx) {
+static FormalArg process_vertex(V<ast_parameter> v, int fa_idx) {
   if (v->get_identifier()->name.empty()) {
-    return std::make_tuple(v->arg_type, (SymDef*)nullptr, v->loc);
+    return std::make_tuple(v->param_type, (SymDef*)nullptr, v->loc);
   }
   SymDef* new_sym_def = define_symbol(calc_sym_idx(v->get_identifier()->name), true, v->loc);
   if (!new_sym_def) {
@@ -781,8 +901,8 @@ static FormalArg process_vertex(V<ast_argument> v, int fa_idx) {
   if (new_sym_def->value) {
     v->error("redefined argument");
   }
-  new_sym_def->value = new SymVal{SymValKind::_Param, fa_idx, v->arg_type};
-  return std::make_tuple(v->arg_type, new_sym_def, v->loc);
+  new_sym_def->value = new SymVal{SymValKind::_Param, fa_idx, v->param_type};
+  return std::make_tuple(v->param_type, new_sym_def, v->loc);
 }
 
 static void convert_function_body_to_CodeBlob(V<ast_function_declaration> v, V<ast_sequence> v_body) {
@@ -796,8 +916,8 @@ static void convert_function_body_to_CodeBlob(V<ast_function_declaration> v, V<a
     blob->flags |= CodeBlob::_ForbidImpure;
   }
   FormalArgList legacy_arg_list;
-  for (int i = 0; i < v->get_num_args(); ++i) {
-    legacy_arg_list.emplace_back(process_vertex(v->get_arg(i), i));
+  for (int i = 0; i < v->get_num_params(); ++i) {
+    legacy_arg_list.emplace_back(process_vertex(v->get_param(i), i));
   }
   blob->import_params(std::move(legacy_arg_list));
 
@@ -808,7 +928,7 @@ static void convert_function_body_to_CodeBlob(V<ast_function_declaration> v, V<a
       item->loc.show_warning("unreachable code");
       warned = true;
     }
-    blk_fl::combine(res, process_stmt(item, *blob));
+    blk_fl::combine(res, process_statement(item, *blob));
   }
   if (res & blk_fl::end) {
     append_implicit_ret_stmt(v_body, *blob);
@@ -824,7 +944,7 @@ static void convert_asm_body_to_AsmOp(V<ast_function_declaration> v, V<ast_asm_b
   SymValAsmFunc* sym_val = dynamic_cast<SymValAsmFunc*>(sym_def->value);
   tolk_assert(sym_val != nullptr);
 
-  int cnt = v->get_num_args();
+  int cnt = v->get_num_params();
   int width = v->ret_type->get_width();
   std::vector<AsmOp> asm_ops;
   for (AnyV v_child : v_body->get_asm_commands()) {

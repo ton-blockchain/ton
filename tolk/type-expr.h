@@ -14,7 +14,7 @@ struct TypeExpr {
     _Cell = tok_cell,
     _Slice = tok_slice,
     _Builder = tok_builder,
-    _Cont = tok_cont,
+    _Cont = tok_continuation,
     _Tuple = tok_tuple,
   };
   Kind constr;

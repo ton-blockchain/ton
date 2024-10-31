@@ -79,9 +79,7 @@ void pipeline_find_unused_symbols() {
   for (SymDef* func_sym : G.all_code_functions) {
     auto* func_val = dynamic_cast<SymValCodeFunc*>(func_sym->value);
     std::string name = G.symbols.get_name(func_sym->sym_idx);
-    if (func_val->method_id.not_null() ||
-        name == "main" || name == "recv_internal" || name == "recv_external" ||
-        name == "run_ticktock" || name == "split_prepare" || name == "split_install") {
+    if (func_val->method_id.not_null() || func_val->is_entrypoint()) {
       mark_function_used(func_val);
     }
   }
