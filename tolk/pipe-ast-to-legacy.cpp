@@ -20,9 +20,9 @@
 #include "compiler-state.h"
 #include "common/refint.h"
 #include "openssl/digest.hpp"
-#include "block/block.h"
-#include "block-parse.h"
+#include "crypto/common/util.h"
 #include "td/utils/crypto.h"
+#include "ton/ton-types.h"
 
 /*
  *   In this module, we convert modern AST representation to legacy representation
@@ -100,6 +100,64 @@ static void fire_error_invalid_mutate_arg_passed(SrcLocation loc, const SymDef* 
     throw ParseError(loc, "incorrect `mutate`, since `" + func_name + "` does not mutate this parameter");
   }
   throw Fatal("unreachable");
+}
+
+// parse address like "EQCRDM9h4k3UJdOePPuyX40mCgA4vxge5Dc5vjBR8djbEKC5"
+// based on unpack_std_smc_addr() from block.cpp
+// (which is not included to avoid linking with ton_crypto)
+static bool parse_friendly_address(const char packed[48], ton::WorkchainId& workchain, ton::StdSmcAddress& addr) {
+  unsigned char buffer[36];
+  if (!td::buff_base64_decode(td::MutableSlice{buffer, 36}, td::Slice{packed, 48}, true)) {
+    return false;
+  }
+  td::uint16 crc = td::crc16(td::Slice{buffer, 34});
+  if (buffer[34] != (crc >> 8) || buffer[35] != (crc & 0xff) || (buffer[0] & 0x3f) != 0x11) {
+    return false;
+  }
+  workchain = (td::int8)buffer[1];
+  std::memcpy(addr.data(), buffer + 2, 32);
+  return true;
+}
+
+// parse address like "0:527964d55cfa6eb731f4bfc07e9d025098097ef8505519e853986279bd8400d8"
+// based on StdAddress::parse_addr() from block.cpp
+// (which is not included to avoid linking with ton_crypto)
+static bool parse_raw_address(const std::string& acc_string, int& workchain, ton::StdSmcAddress& addr) {
+  size_t pos = acc_string.find(':');
+  if (pos != std::string::npos) {
+    td::Result<int> r_wc = td::to_integer_safe<ton::WorkchainId>(acc_string.substr(0, pos));
+    if (r_wc.is_error()) {
+      return false;
+    }
+    workchain = r_wc.move_as_ok();
+    pos++;
+  } else {
+    pos = 0;
+  }
+  if (acc_string.size() != pos + 64) {
+    return false;
+  }
+
+  for (int i = 0; i < 64; ++i) {    // loop through each hex digit
+    char c = acc_string[pos + i];
+    int x;
+    if (c >= '0' && c <= '9') {
+      x = c - '0';
+    } else if (c >= 'a' && c <= 'z') {
+      x = c - 'a' + 10;
+    } else if (c >= 'A' && c <= 'Z') {
+      x = c - 'A' + 10;
+    } else {
+      return false;
+    }
+
+    if ((i & 1) == 0) {
+      addr.data()[i >> 1] = static_cast<unsigned char>((addr.data()[i >> 1] & 0x0F) | (x << 4));
+    } else {
+      addr.data()[i >> 1] = static_cast<unsigned char>((addr.data()[i >> 1] & 0xF0) | x);
+    }
+  }
+  return true;
 }
 
 namespace blk_fl {
@@ -577,14 +635,23 @@ static Expr* process_expr(V<ast_string_const> v) {
       }
       break;
     }
-    case 'a': {  // MsgAddressInt
-      // todo rewrite stdaddress parsing (if done, CMake dep "ton_crypto" can be replaced with "ton_crypto_core")
-      block::StdAddress a;
-      if (a.parse_addr(str)) {
-        res->strval = block::tlb::MsgAddressInt().pack_std_address(a)->as_bitslice().to_hex();
-      } else {
+    case 'a': {  // MsgAddress
+      int workchain;
+      ton::StdSmcAddress addr;
+      bool correct = (str.size() == 48 && parse_friendly_address(str.data(), workchain, addr)) ||
+                     (str.size() != 48 && parse_raw_address(str, workchain, addr));
+      if (!correct) {
         v->error("invalid standard address '" + str + "'");
       }
+      if (workchain < -128 || workchain >= 128) {
+        v->error("anycast addresses not supported");
+      }
+
+      unsigned char data[3 + 8 + 256];  // addr_std$10 anycast:(Maybe Anycast) workchain_id:int8 address:bits256 = MsgAddressInt;
+      td::bitstring::bits_store_long_top(data, 0, static_cast<uint64_t>(4) << (64 - 3), 3);
+      td::bitstring::bits_store_long_top(data, 3, static_cast<uint64_t>(workchain) << (64 - 8), 8);
+      td::bitstring::bits_memcpy(data, 3 + 8, addr.bits().ptr, 0, addr.size());
+      res->strval = td::BitSlice{data, sizeof(data)}.to_hex();
       break;
     }
     case 'u': {
