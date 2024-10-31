@@ -361,19 +361,21 @@ struct ChunkIdentifierOrKeyword final : ChunkLexerBase {
         if (str == "asm") return tok_asm;
         if (str == "get") return tok_get;
         if (str == "try") return tok_try;
+        if (str == "nil") return tok_nil;
         break;
       case 4:
         if (str == "else") return tok_else;
+        if (str == "true") return tok_true;
         if (str == "pure") return tok_pure;
         if (str == "then") return tok_then;
         if (str == "cell") return tok_cell;
         if (str == "cont") return tok_cont;
-        if (str == "type") return tok_type; // todo unused token?
         break;
       case 5:
         if (str == "slice") return tok_slice;
         if (str == "tuple") return tok_tuple;
         if (str == "const") return tok_const;
+        if (str == "false") return tok_false;
         if (str == "while") return tok_while;
         if (str == "until") return tok_until;
         if (str == "catch") return tok_catch;
@@ -427,7 +429,7 @@ struct ChunkIdentifierOrKeyword final : ChunkLexerBase {
     if (TokenType kw_tok = maybe_keyword(str_val)) {
       lex->add_token(kw_tok, str_val);
     } else {
-      G.symbols.lookup_add(static_cast<std::string>(str_val));
+      G.symbols.lookup_add(str_val);
       lex->add_token(tok_identifier, str_val);
     }
     return true;
@@ -453,7 +455,7 @@ struct ChunkIdentifierInBackticks final : ChunkLexerBase {
 
     std::string_view str_val(str_begin + 1, lex->c_str() - str_begin - 1);
     lex->skip_chars(1);
-    G.symbols.lookup_add(static_cast<std::string>(str_val));
+    G.symbols.lookup_add(str_val);
     lex->add_token(tok_identifier, str_val);
     return true;
   }
@@ -610,21 +612,12 @@ void Lexer::next_special(TokenType parse_next_as, const char* str_expected) {
   cur_token = tokens_circularbuf[++cur_token_idx & 7];
 }
 
-int Lexer::cur_sym_idx() const {
-  assert(tok() == tok_identifier);
-  return G.symbols.lookup_add(cur_str_std_string());
-}
-
 void Lexer::error(const std::string& err_msg) const {
   throw ParseError(cur_location(), err_msg);
 }
 
-void Lexer::error_at(const std::string& prefix, const std::string& suffix) const {
-  throw ParseError(cur_location(), prefix + cur_str_std_string() + suffix);
-}
-
 void Lexer::on_expect_call_failed(const char* str_expected) const {
-  throw ParseError(cur_location(), std::string(str_expected) + " expected instead of `" + cur_str_std_string() + "`");
+  throw ParseError(cur_location(), std::string(str_expected) + " expected instead of `" + std::string(cur_str()) + "`");
 }
 
 void lexer_init() {

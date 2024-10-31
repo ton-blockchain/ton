@@ -22,12 +22,6 @@
 namespace tolk {
 
 
-Symbol::Symbol(std::string str, sym_idx_t idx) : str(std::move(str)), idx(idx) {
-  subclass = this->str[0] == '.'   ? SymbolSubclass::dot_identifier
-             : this->str[0] == '~' ? SymbolSubclass::tilde_identifier
-                                   : SymbolSubclass::undef;
-}
-
 std::string Symbol::unknown_symbol_name(sym_idx_t i) {
   if (!i) {
     return "_";
@@ -78,7 +72,7 @@ void open_scope(SrcLocation loc) {
   G.scope_opened_at.push_back(loc);
 }
 
-void close_scope(SrcLocation loc) {
+void close_scope() {
   if (!G.scope_level) {
     throw Fatal{"cannot close the outer scope"};
   }

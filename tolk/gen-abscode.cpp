@@ -41,19 +41,7 @@ Expr::Expr(ExprCls c, sym_idx_t name_idx, std::initializer_list<Expr*> _arglist)
   }
 }
 
-void Expr::chk_rvalue(const Lexer& lex) const {
-  if (!is_rvalue()) {
-    lex.error_at("rvalue expected before `", "`");
-  }
-}
-
-void Expr::chk_lvalue(const Lexer& lex) const {
-  if (!is_lvalue()) {
-    lex.error_at("lvalue expected before `", "`");
-  }
-}
-
-bool Expr::deduce_type(const Lexer& lex) {
+bool Expr::deduce_type() {
   if (e_type) {
     return true;
   }
@@ -77,7 +65,7 @@ bool Expr::deduce_type(const Lexer& lex) {
         std::ostringstream os;
         os << "cannot apply function " << sym->name() << " : " << sym_val->get_type() << " to arguments of type "
            << fun_type->args[0] << ": " << ue;
-        lex.error(os.str());
+        throw ParseError(here, os.str());
       }
       e_type = fun_type->args[1];
       TypeExpr::remove_indirect(e_type);
@@ -92,7 +80,7 @@ bool Expr::deduce_type(const Lexer& lex) {
         std::ostringstream os;
         os << "cannot apply expression of type " << args[0]->e_type << " to an expression of type " << args[1]->e_type
            << ": " << ue;
-        lex.error(os.str());
+        throw ParseError(here, os.str());
       }
       e_type = fun_type->args[1];
       TypeExpr::remove_indirect(e_type);
@@ -107,7 +95,7 @@ bool Expr::deduce_type(const Lexer& lex) {
         std::ostringstream os;
         os << "cannot assign an expression of type " << args[1]->e_type << " to a variable or pattern of type "
            << args[0]->e_type << ": " << ue;
-        lex.error(os.str());
+        throw ParseError(here, os.str());
       }
       e_type = args[0]->e_type;
       TypeExpr::remove_indirect(e_type);
@@ -124,7 +112,7 @@ bool Expr::deduce_type(const Lexer& lex) {
         os << "cannot implicitly assign an expression of type " << args[1]->e_type
            << " to a variable or pattern of type " << rhs_type << " in modifying method `" << G.symbols.get_name(val)
            << "` : " << ue;
-        lex.error(os.str());
+        throw ParseError(here, os.str());
       }
       e_type = rhs_type->args[1];
       TypeExpr::remove_indirect(e_type);
@@ -139,7 +127,7 @@ bool Expr::deduce_type(const Lexer& lex) {
       } catch (UnifyError& ue) {
         std::ostringstream os;
         os << "condition in a conditional expression has non-integer type " << args[0]->e_type << ": " << ue;
-        lex.error(os.str());
+        throw ParseError(here, os.str());
       }
       try {
         unify(args[1]->e_type, args[2]->e_type);
@@ -147,7 +135,7 @@ bool Expr::deduce_type(const Lexer& lex) {
         std::ostringstream os;
         os << "the two variants in a conditional expression have different types " << args[1]->e_type << " and "
            << args[2]->e_type << " : " << ue;
-        lex.error(os.str());
+        throw ParseError(here, os.str());
       }
       e_type = args[1]->e_type;
       TypeExpr::remove_indirect(e_type);
@@ -170,13 +158,13 @@ int Expr::define_new_vars(CodeBlob& code) {
     }
     case _Var:
       if (val < 0) {
-        val = code.create_var(TmpVar::_Named, e_type, sym, here);
+        val = code.create_var(false, e_type, sym, here);
         return 1;
       }
       break;
     case _Hole:
       if (val < 0) {
-        val = code.create_var(TmpVar::_Tmp, e_type, nullptr, here);
+        val = code.create_var(true, e_type, nullptr, here);
       }
       break;
   }
@@ -279,7 +267,7 @@ std::vector<var_idx_t> pre_compile_tensor(const std::vector<Expr *>& args, CodeB
     res_lists[i] = args[i]->pre_compile(code, lval_globs);
     for (size_t j = 0; j < res_lists[i].size(); ++j) {
       TmpVar& var = code.vars.at(res_lists[i][j]);
-      if (!lval_globs && (var.cls & TmpVar::_Named)) {
+      if (!lval_globs && !var.is_tmp_unnamed) {
         var.on_modification.push_back([&modified_vars, i, j, cur_ops = code.cur_ops, done = false](SrcLocation here) mutable {
           if (!done) {
             done = true;

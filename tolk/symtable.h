@@ -36,18 +36,11 @@ struct SymValBase {
 };
 
 
-enum class SymbolSubclass {
-  undef = 0,
-  dot_identifier = 1,    // begins with . (a const method)
-  tilde_identifier = 2   // begins with ~ (a non-const method)
-};
-
 struct Symbol {
   std::string str;
   sym_idx_t idx;
-  SymbolSubclass subclass;
 
-  Symbol(std::string str, sym_idx_t idx);
+  Symbol(std::string str, sym_idx_t idx) : str(std::move(str)), idx(idx) {}
 
   static std::string unknown_symbol_name(sym_idx_t i);
 };
@@ -64,10 +57,10 @@ private:
 public:
 
   static constexpr sym_idx_t not_found = 0;
-  sym_idx_t lookup(const std::string_view& str, int mode = 0) {
+  sym_idx_t lookup(std::string_view str, int mode = 0) {
     return gen_lookup(str, mode);
   }
-  sym_idx_t lookup_add(const std::string& str) {
+  sym_idx_t lookup_add(std::string_view str) {
     return gen_lookup(str, 1);
   }
   Symbol* operator[](sym_idx_t i) const {
@@ -75,9 +68,6 @@ public:
   }
   std::string get_name(sym_idx_t i) const {
     return sym[i] ? sym[i]->str : Symbol::unknown_symbol_name(i);
-  }
-  SymbolSubclass get_subclass(sym_idx_t i) const {
-    return sym[i] ? sym[i]->subclass : SymbolSubclass::undef;
   }
 };
 
@@ -104,7 +94,7 @@ struct SymDef {
 
 
 void open_scope(SrcLocation loc);
-void close_scope(SrcLocation loc);
+void close_scope();
 SymDef* lookup_symbol(sym_idx_t idx);
 
 SymDef* define_global_symbol(sym_idx_t name_idx, bool force_new = false, SrcLocation loc = {});

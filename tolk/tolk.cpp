@@ -27,7 +27,8 @@
 #include "compiler-state.h"
 #include "lexer.h"
 #include <getopt.h>
-#include "git.h"
+#include "ast-from-tokens.h"
+#include "ast-to-legacy.h"
 #include <fstream>
 #include "td/utils/port/path.h"
 #include <sys/stat.h>
@@ -269,13 +270,13 @@ int tolk_proceed(const std::string &entrypoint_file_name) {
       if (locate_res.is_error()) {
         throw Fatal("Failed to locate stdlib: " + locate_res.error().message().str());
       }
-      parse_source_file(locate_res.move_as_ok());
+      process_file_ast(parse_src_file_to_ast(locate_res.move_as_ok()));
     }
     td::Result<SrcFile*> locate_res = locate_source_file(entrypoint_file_name);
     if (locate_res.is_error()) {
       throw Fatal("Failed to locate " + entrypoint_file_name + ": " + locate_res.error().message().str());
     }
-    parse_source_file(locate_res.move_as_ok());
+    process_file_ast(parse_src_file_to_ast(locate_res.move_as_ok()));
 
     // todo #ifdef TOLK_PROFILING + comment
     // lexer_measure_performance(all_src_files.get_all_files());
@@ -292,6 +293,10 @@ int tolk_proceed(const std::string &entrypoint_file_name) {
     std::cerr << "fatal: ";
     unif_err.print_message(std::cerr);
     std::cerr << std::endl;
+    return 2;
+  } catch (UnexpectedASTNodeType& error) {
+    std::cerr << "fatal: " << error.what() << std::endl;
+    std::cerr << "It's a compiler bug, please report to developers" << std::endl;
     return 2;
   }
 }

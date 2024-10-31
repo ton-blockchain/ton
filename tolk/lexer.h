@@ -31,6 +31,10 @@ enum TokenType {
 
   tok_identifier,
 
+  tok_true,
+  tok_false,
+  tok_nil,      // todo "null" keyword is still absent, "nil" in FunC is an empty tuple
+
   tok_plus,
   tok_minus,
   tok_mul,
@@ -108,7 +112,6 @@ enum TokenType {
   tok_builder,
   tok_cont,
   tok_tuple,
-  tok_type,
   tok_mapsto,
   tok_forall,
 
@@ -206,10 +209,8 @@ public:
 
   TokenType tok() const { return cur_token.type; }
   std::string_view cur_str() const { return cur_token.str_val; }
-  std::string cur_str_std_string() const { return static_cast<std::string>(cur_token.str_val); }
   SrcLocation cur_location() const { return location; }
   const SrcFile* cur_file() const { return file; }
-  int cur_sym_idx() const;
 
   void next();
   void next_special(TokenType parse_next_as, const char* str_expected);
@@ -228,8 +229,6 @@ public:
 
   GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
   void error(const std::string& err_msg) const;
-  GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-  void error_at(const std::string& prefix, const std::string& suffix) const;
 };
 
 void lexer_init();

@@ -72,22 +72,6 @@ SymDef* define_builtin_func(const std::string& name, TypeExpr* func_type, const 
   return define_builtin_func_impl(name, new SymValAsmFunc{func_type, make_simple_compile(macro), arg_order, ret_order, !impure});
 }
 
-SymDef* force_autoapply(SymDef* def) {
-  if (def) {
-    auto val = dynamic_cast<SymVal*>(def->value);
-    if (val) {
-      val->auto_apply = true;
-    }
-  }
-  return def;
-}
-
-template <typename... Args>
-SymDef* define_builtin_const(std::string name, TypeExpr* const_type, Args&&... args) {
-  return force_autoapply(
-      define_builtin_func(name, TypeExpr::new_map(TypeExpr::new_unit(), const_type), std::forward<Args>(args)...));
-}
-
 bool SymValAsmFunc::compile(AsmOpList& dest, std::vector<VarDescr>& out, std::vector<VarDescr>& in,
                             SrcLocation where) const {
   if (simple_compile) {
@@ -1219,11 +1203,10 @@ void define_builtins() {
   define_builtin_func("_<=_", arith_bin_op, std::bind(compile_cmp_int, _1, _2, 6));
   define_builtin_func("_>=_", arith_bin_op, std::bind(compile_cmp_int, _1, _2, 3));
   define_builtin_func("_<=>_", arith_bin_op, std::bind(compile_cmp_int, _1, _2, 7));
-  define_builtin_const("true", Int, /* AsmOp::Const("TRUE") */ std::bind(compile_bool_const, _1, _2, true));
-  define_builtin_const("false", Int, /* AsmOp::Const("FALSE") */ std::bind(compile_bool_const, _1, _2, false));
+  define_builtin_func("true", TypeExpr::new_map(TypeExpr::new_unit(), Int), /* AsmOp::Const("TRUE") */ std::bind(compile_bool_const, _1, _2, true));
+  define_builtin_func("false", TypeExpr::new_map(TypeExpr::new_unit(), Int), /* AsmOp::Const("FALSE") */ std::bind(compile_bool_const, _1, _2, false));
   // define_builtin_func("null", Null, AsmOp::Const("PUSHNULL"));
-  define_builtin_const("nil", Tuple, AsmOp::Const("PUSHNULL"));
-  define_builtin_const("Nil", Tuple, AsmOp::Const("NIL"));
+  define_builtin_func("nil", TypeExpr::new_map(TypeExpr::new_unit(), Tuple), AsmOp::Const("PUSHNULL"));
   define_builtin_func("null?", TypeExpr::new_forall({X}, TypeExpr::new_map(X, Int)), compile_is_null);
   define_builtin_func("throw", impure_un_op, compile_throw, true);
   define_builtin_func("throw_if", impure_bin_op, std::bind(compile_cond_throw, _1, _2, true), true);

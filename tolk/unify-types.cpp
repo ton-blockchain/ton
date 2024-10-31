@@ -268,8 +268,6 @@ std::ostream& TypeExpr::print(std::ostream& os, int lex_level) const {
           return os << "cont";
         case _Tuple:
           return os << "tuple";
-        case _Type:
-          return os << "type";
         default:
           return os << "atomic-type-" << value;
       }

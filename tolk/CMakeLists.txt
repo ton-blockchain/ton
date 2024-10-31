@@ -5,8 +5,10 @@ set(TOLK_SOURCE
         lexer.cpp
         symtable.cpp
         compiler-state.cpp
+        ast.cpp
+        ast-from-tokens.cpp
+        ast-to-legacy.cpp
         unify-types.cpp
-        parse-tolk.cpp
         abscode.cpp
         gen-abscode.cpp
         analyzer.cpp

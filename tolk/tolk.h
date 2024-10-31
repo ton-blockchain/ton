@@ -17,7 +17,7 @@
 #pragma once
 
 #include "src-file.h"
-#include "lexer.h"
+#include "type-expr.h"
 #include "symtable.h"
 #include "crypto/common/refint.h"
 #include "td/utils/Status.h"
@@ -37,136 +37,6 @@ namespace tolk {
  *   TYPE EXPRESSIONS
  * 
  */
-
-struct TypeExpr {
-  enum te_type { te_Unknown, te_Var, te_Indirect, te_Atomic, te_Tensor, te_Tuple, te_Map, te_ForAll } constr;
-  enum AtomicType {
-    _Int = tok_int,
-    _Cell = tok_cell,
-    _Slice = tok_slice,
-    _Builder = tok_builder,
-    _Cont = tok_cont,
-    _Tuple = tok_tuple,
-    _Type = tok_type
-  };
-  int value;
-  int minw, maxw;
-  static constexpr int w_inf = 1023;
-  std::vector<TypeExpr*> args;
-  bool was_forall_var = false;
-  TypeExpr(te_type _constr, int _val = 0) : constr(_constr), value(_val), minw(0), maxw(w_inf) {
-  }
-  TypeExpr(te_type _constr, int _val, int width) : constr(_constr), value(_val), minw(width), maxw(width) {
-  }
-  TypeExpr(te_type _constr, std::vector<TypeExpr*> list)
-      : constr(_constr), value((int)list.size()), args(std::move(list)) {
-    compute_width();
-  }
-  TypeExpr(te_type _constr, std::initializer_list<TypeExpr*> list)
-      : constr(_constr), value((int)list.size()), args(std::move(list)) {
-    compute_width();
-  }
-  TypeExpr(te_type _constr, TypeExpr* elem0) : constr(_constr), value(1), args{elem0} {
-    compute_width();
-  }
-  TypeExpr(te_type _constr, TypeExpr* elem0, std::vector<TypeExpr*> list)
-      : constr(_constr), value((int)list.size() + 1), args{elem0} {
-    args.insert(args.end(), list.begin(), list.end());
-    compute_width();
-  }
-  TypeExpr(te_type _constr, TypeExpr* elem0, std::initializer_list<TypeExpr*> list)
-      : constr(_constr), value((int)list.size() + 1), args{elem0} {
-    args.insert(args.end(), list.begin(), list.end());
-    compute_width();
-  }
-  bool is_atomic() const {
-    return constr == te_Atomic;
-  }
-  bool is_atomic(int v) const {
-    return constr == te_Atomic && value == v;
-  }
-  bool is_int() const {
-    return is_atomic(_Int);
-  }
-  bool is_var() const {
-    return constr == te_Var;
-  }
-  bool is_map() const {
-    return constr == te_Map;
-  }
-  bool is_tuple() const {
-    return constr == te_Tuple;
-  }
-  bool has_fixed_width() const {
-    return minw == maxw;
-  }
-  int get_width() const {
-    return has_fixed_width() ? minw : -1;
-  }
-  void compute_width();
-  bool recompute_width();
-  void show_width(std::ostream& os);
-  std::ostream& print(std::ostream& os, int prio = 0) const;
-  void replace_with(TypeExpr* te2);
-  int extract_components(std::vector<TypeExpr*>& comp_list);
-  bool equals_to(const TypeExpr* rhs) const;
-  bool has_unknown_inside() const;
-  static int holes, type_vars;
-  static TypeExpr* new_hole() {
-    return new TypeExpr{te_Unknown, ++holes};
-  }
-  static TypeExpr* new_hole(int width) {
-    return new TypeExpr{te_Unknown, ++holes, width};
-  }
-  static TypeExpr* new_unit() {
-    return new TypeExpr{te_Tensor, 0, 0};
-  }
-  static TypeExpr* new_atomic(int value) {
-    return new TypeExpr{te_Atomic, value, 1};
-  }
-  static TypeExpr* new_map(TypeExpr* from, TypeExpr* to);
-  static TypeExpr* new_func() {
-    return new_map(new_hole(), new_hole());
-  }
-  static TypeExpr* new_tensor(std::vector<TypeExpr*> list, bool red = true) {
-    return red && list.size() == 1 ? list[0] : new TypeExpr{te_Tensor, std::move(list)};
-  }
-  static TypeExpr* new_tensor(std::initializer_list<TypeExpr*> list) {
-    return new TypeExpr{te_Tensor, std::move(list)};
-  }
-  static TypeExpr* new_tensor(TypeExpr* te1, TypeExpr* te2) {
-    return new_tensor({te1, te2});
-  }
-  static TypeExpr* new_tensor(TypeExpr* te1, TypeExpr* te2, TypeExpr* te3) {
-    return new_tensor({te1, te2, te3});
-  }
-  static TypeExpr* new_tuple(TypeExpr* arg0) {
-    return new TypeExpr{te_Tuple, arg0};
-  }
-  static TypeExpr* new_tuple(std::vector<TypeExpr*> list, bool red = false) {
-    return new_tuple(new_tensor(std::move(list), red));
-  }
-  static TypeExpr* new_tuple(std::initializer_list<TypeExpr*> list) {
-    return new_tuple(new_tensor(std::move(list)));
-  }
-  static TypeExpr* new_var() {
-    return new TypeExpr{te_Var, --type_vars, 1};
-  }
-  static TypeExpr* new_var(int idx) {
-    return new TypeExpr{te_Var, idx, 1};
-  }
-  static TypeExpr* new_forall(std::vector<TypeExpr*> list, TypeExpr* body) {
-    return new TypeExpr{te_ForAll, body, std::move(list)};
-  }
-  static TypeExpr* new_forall(std::initializer_list<TypeExpr*> list, TypeExpr* body) {
-    return new TypeExpr{te_ForAll, body, std::move(list)};
-  }
-  static bool remove_indirect(TypeExpr*& te, TypeExpr* forbidden = nullptr);
-  static std::vector<TypeExpr*> remove_forall(TypeExpr*& te);
-  static bool remove_forall_in(TypeExpr*& te, TypeExpr* te2, const std::vector<TypeExpr*>& new_vars);
-};
-
-std::ostream& operator<<(std::ostream& os, TypeExpr* type_expr);
 
 struct UnifyError : std::exception {
   TypeExpr* te1;
@@ -197,14 +67,13 @@ using const_idx_t = int;
 struct TmpVar {
   TypeExpr* v_type;
   var_idx_t idx;
-  enum { _In = 1, _Named = 2, _Tmp = 4, _UniqueName = 0x20 };
-  int cls;
+  bool is_tmp_unnamed;
   sym_idx_t name;
   int coord;
   SrcLocation where;
   std::vector<std::function<void(SrcLocation)>> on_modification;
 
-  TmpVar(var_idx_t _idx, int _cls, TypeExpr* _type, SymDef* sym, SrcLocation loc);
+  TmpVar(var_idx_t _idx, bool _is_tmp_unnamed, TypeExpr* _type, SymDef* sym, SrcLocation loc);
   void show(std::ostream& os, int omit_idx = 0) const;
   void dump(std::ostream& os) const;
   void set_location(SrcLocation loc);
@@ -586,9 +455,9 @@ struct CodeBlob {
     return res;
   }
   bool import_params(FormalArgList arg_list);
-  var_idx_t create_var(int cls, TypeExpr* var_type, SymDef* sym, SrcLocation loc);
+  var_idx_t create_var(bool is_tmp_unnamed, TypeExpr* var_type, SymDef* sym, SrcLocation loc);
   var_idx_t create_tmp_var(TypeExpr* var_type, SrcLocation loc) {
-    return create_var(TmpVar::_Tmp, var_type, nullptr, loc);
+    return create_var(true, var_type, nullptr, loc);
   }
   int split_vars(bool strict = false);
   bool compute_used_code_vars();
@@ -631,7 +500,6 @@ struct CodeBlob {
 
 struct SymVal : SymValBase {
   TypeExpr* sym_type;
-  bool auto_apply{false};
   SymVal(SymValKind kind, int idx, TypeExpr* sym_type = nullptr)
       : SymValBase(kind, idx), sym_type(sym_type) {
   }
@@ -702,16 +570,6 @@ struct SymValCodeFunc : SymValFunc {
   bool does_need_codegen() const;
 };
 
-struct SymValType : SymValBase {
-  TypeExpr* sym_type;
-  SymValType(SymValKind kind, int idx, TypeExpr* _stype = nullptr) : SymValBase(kind, idx), sym_type(_stype) {
-  }
-  ~SymValType() override = default;
-  TypeExpr* get_type() const {
-    return sym_type;
-  }
-};
-
 struct SymValGlobVar : SymValBase {
   TypeExpr* sym_type;
   int out_idx{0};
@@ -762,7 +620,6 @@ struct SymValConst : SymValBase {
 
 // defined in parse-tolk.cpp
 td::Result<SrcFile*> locate_source_file(const std::string& rel_filename);
-void parse_source_file(SrcFile* file);
 
 
 /*
@@ -792,7 +649,7 @@ struct Expr {
   };
   ExprCls cls;
   int val{0};
-  enum { _IsType = 1, _IsRvalue = 2, _IsLvalue = 4, _IsImpure = 32, _IsInsideParenthesis = 64 };
+  enum { _IsType = 1, _IsRvalue = 2, _IsLvalue = 4, _IsImpure = 32 };
   int flags{0};
   SrcLocation here;
   td::RefInt256 intval;
@@ -834,18 +691,23 @@ struct Expr {
   bool is_type() const {
     return flags & _IsType;
   }
-  bool is_inside_parenthesis() const {
-    return flags & _IsInsideParenthesis;
-  }
   bool is_type_apply() const {
     return cls == _TypeApply;
   }
   bool is_mktuple() const {
     return cls == _MkTuple;
   }
-  void chk_rvalue(const Lexer& lex) const;  // todo here and below: strange to pass Lexer
-  void chk_lvalue(const Lexer& lex) const;
-  bool deduce_type(const Lexer& lex);
+  void chk_rvalue() const {
+    if (!is_rvalue()) {
+      throw ParseError(here, "rvalue expected");
+    }
+  }
+  void chk_lvalue() const {
+    if (!is_lvalue()) {
+      throw ParseError(here, "lvalue expected");
+    }
+  }
+  bool deduce_type();
   void set_location(SrcLocation loc) {
     here = loc;
   }

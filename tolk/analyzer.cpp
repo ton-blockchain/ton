@@ -46,7 +46,7 @@ int CodeBlob::split_vars(bool strict) {
     if (k != 1) {
       var.coord = ~((n << 8) + k);
       for (int i = 0; i < k; i++) {
-        auto v = create_var(vars[j].cls, comp_types[i], 0, vars[j].where);
+        auto v = create_var(vars[j].is_tmp_unnamed, comp_types[i], 0, vars[j].where);
         tolk_assert(v == n + i);
         tolk_assert(vars[v].idx == v);
         vars[v].name = vars[j].name;
