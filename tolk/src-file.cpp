@@ -17,6 +17,7 @@
 #include "src-file.h"
 #include "compiler-state.h"
 #include <iostream>
+#include <sstream>
 
 namespace tolk {
 
@@ -40,12 +41,51 @@ SrcFile* AllRegisteredSrcFiles::find_file(const std::string& abs_filename) const
   return nullptr;
 }
 
-SrcFile* AllRegisteredSrcFiles::register_file(const std::string& rel_filename, const std::string& abs_filename, std::string&& text) {
-  SrcFile* created = new SrcFile(++last_file_id, rel_filename, abs_filename, std::move(text));
+SrcFile* AllRegisteredSrcFiles::locate_and_register_source_file(const std::string& rel_filename, SrcLocation included_from) {
+  td::Result<std::string> path = G.settings.read_callback(CompilerSettings::FsReadCallbackKind::Realpath, rel_filename.c_str());
+  if (path.is_error()) {
+    if (included_from.is_defined()) {
+      throw ParseError(included_from, "Failed to import: " + path.move_as_error().message().str());
+    }
+    throw Fatal("Failed to locate " + rel_filename + ": " + path.move_as_error().message().str());
+  }
+
+  std::string abs_filename = path.move_as_ok();
+  if (SrcFile* file = find_file(abs_filename)) {
+    return file;
+  }
+
+  td::Result<std::string> text = G.settings.read_callback(CompilerSettings::FsReadCallbackKind::ReadFile, abs_filename.c_str());
+  if (text.is_error()) {
+    if (included_from.is_defined()) {
+      throw ParseError(included_from, "Failed to import: " + text.move_as_error().message().str());
+    }
+    throw Fatal("Failed to read " + rel_filename + ": " + text.move_as_error().message().str());
+  }
+
+  SrcFile* created = new SrcFile(++last_registered_file_id, rel_filename, std::move(abs_filename), text.move_as_ok());
+  if (G.is_verbosity(1)) {
+    std::cerr << "register file_id " << created->file_id << " " << created->abs_filename << std::endl;
+  }
   all_src_files.push_back(created);
   return created;
 }
 
+SrcFile* AllRegisteredSrcFiles::get_next_unparsed_file() {
+  if (last_parsed_file_id >= last_registered_file_id) {
+    return nullptr;
+  }
+  return all_src_files[++last_parsed_file_id];
+}
+
+AllSrcFiles AllRegisteredSrcFiles::get_all_files() const {
+  AllSrcFiles src_files_immutable;
+  src_files_immutable.reserve(all_src_files.size());
+  for (const SrcFile* file : all_src_files) {
+    src_files_immutable.push_back(file);
+  }
+  return src_files_immutable;
+}
 
 bool SrcFile::is_offset_valid(int offset) const {
   return offset >= 0 && offset < static_cast<int>(text.size());
@@ -117,6 +157,12 @@ void SrcLocation::show_context(std::ostream& os) const {
     os << ' ';
   }
   os << '^' << "\n";
+}
+
+std::string SrcLocation::to_string() const {
+  std::ostringstream os;
+  show(os);
+  return os.str();
 }
 
 std::ostream& operator<<(std::ostream& os, SrcLocation loc) {

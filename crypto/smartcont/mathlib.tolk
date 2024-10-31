@@ -676,7 +676,7 @@ int fixed248::pow(int x, int y) inline_ref {
   if (sq <= 0) {
     return - (sq == 0);   ;; underflow
   }
-  int y = expm1_f257(mulrshiftr256(ll, log2_const_f256()));
+  y = expm1_f257(mulrshiftr256(ll, log2_const_f256()));
   return (y ~>> (9 - q)) - (-1 << sq);
 }
 

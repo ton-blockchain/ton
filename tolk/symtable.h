@@ -97,7 +97,7 @@ void open_scope(SrcLocation loc);
 void close_scope();
 SymDef* lookup_symbol(sym_idx_t idx);
 
-SymDef* define_global_symbol(sym_idx_t name_idx, bool force_new = false, SrcLocation loc = {});
+SymDef* define_global_symbol(sym_idx_t name_idx, SrcLocation loc = {});
 SymDef* define_symbol(sym_idx_t name_idx, bool force_new, SrcLocation loc);
 
 }  // namespace tolk

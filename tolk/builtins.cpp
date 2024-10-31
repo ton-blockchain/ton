@@ -27,11 +27,8 @@ using namespace std::literals::string_literals;
  */
 
 SymDef* define_builtin_func_impl(const std::string& name, SymValAsmFunc* func_val) {
-  if (name.back() == '_') {
-    G.prohibited_var_names.insert(name);
-  }
-  sym_idx_t name_idx = G.symbols.lookup(name, 1);
-  SymDef* def = define_global_symbol(name_idx, true);
+  sym_idx_t name_idx = G.symbols.lookup_add(name);
+  SymDef* def = define_global_symbol(name_idx);
   if (!def) {
     std::cerr << "fatal: global function `" << name << "` already defined" << std::endl;
     std::exit(1);

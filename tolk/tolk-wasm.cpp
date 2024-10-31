@@ -40,18 +40,18 @@ td::Result<std::string> compile_internal(char *config_json) {
   TRY_RESULT(opt_level, td::get_json_object_int_field(config, "optimizationLevel", true, 2));
   TRY_RESULT(stdlib_tolk, td::get_json_object_string_field(config, "stdlibLocation", false));
   TRY_RESULT(stack_comments, td::get_json_object_bool_field(config, "withStackComments", true, false));
-  TRY_RESULT(entrypoint_file_name, td::get_json_object_string_field(config, "entrypointFileName", false));
+  TRY_RESULT(entrypoint_filename, td::get_json_object_string_field(config, "entrypointFileName", false));
 
   G.settings.verbosity = 0;
   G.settings.optimization_level = std::max(0, opt_level);
   G.settings.stdlib_filename = stdlib_tolk;
   G.settings.stack_layout_comments = stack_comments;
-  G.settings.entrypoint_filename = entrypoint_file_name;
+  G.settings.entrypoint_filename = entrypoint_filename;
 
   std::ostringstream outs, errs;
   std::cout.rdbuf(outs.rdbuf());
   std::cerr.rdbuf(errs.rdbuf());
-  int tolk_res = tolk::tolk_proceed(entrypoint_file_name);
+  int tolk_res = tolk::tolk_proceed(entrypoint_filename);
   if (tolk_res != 0) {
     return td::Status::Error("Tolk compilation error: " + errs.str());
   }

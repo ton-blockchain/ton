@@ -234,6 +234,6 @@ public:
 void lexer_init();
 
 // todo #ifdef TOLK_PROFILING
-void lexer_measure_performance(const std::vector<SrcFile*>& files_to_just_parse);
+void lexer_measure_performance(const AllSrcFiles& files_to_just_parse);
 
 }  // namespace tolk

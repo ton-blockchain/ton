@@ -96,64 +96,70 @@ class ASTStringifier final : public ASTVisitor {
     depth--;
   }
 
-  static std::string specific_str(AnyV node) {
-    switch (node->type) {
+  static std::string specific_str(AnyV v) {
+    switch (v->type) {
       case ast_identifier:
-        return static_cast<std::string>(node->as<ast_identifier>()->name);
+        return static_cast<std::string>(v->as<ast_identifier>()->name);
       case ast_int_const:
-        return static_cast<std::string>(node->as<ast_int_const>()->int_val);
+        return static_cast<std::string>(v->as<ast_int_const>()->int_val);
       case ast_string_const:
-        if (char modifier = node->as<ast_string_const>()->modifier) {
-          return "\"" + static_cast<std::string>(node->as<ast_string_const>()->str_val) + "\"" + std::string(1, modifier);
+        if (char modifier = v->as<ast_string_const>()->modifier) {
+          return "\"" + static_cast<std::string>(v->as<ast_string_const>()->str_val) + "\"" + std::string(1, modifier);
         } else {
-          return "\"" + static_cast<std::string>(node->as<ast_string_const>()->str_val) + "\"";
+          return "\"" + static_cast<std::string>(v->as<ast_string_const>()->str_val) + "\"";
         }
+      case ast_function_call: {
+        if (auto v_lhs = v->as<ast_function_call>()->get_called_f()->try_as<ast_identifier>()) {
+          return static_cast<std::string>(v_lhs->name) + "()";
+        }
+        return {};
+      }
       case ast_global_var_declaration:
-        return static_cast<std::string>(node->as<ast_global_var_declaration>()->var_name);
+        return static_cast<std::string>(v->as<ast_global_var_declaration>()->get_identifier()->name);
       case ast_constant_declaration:
-        return static_cast<std::string>(node->as<ast_constant_declaration>()->const_name);
+        return static_cast<std::string>(v->as<ast_constant_declaration>()->get_identifier()->name);
       case ast_type_expression: {
         std::ostringstream os;
-        os << node->as<ast_type_expression>()->declared_type;
+        os << v->as<ast_type_expression>()->declared_type;
         return os.str();
       }
       case ast_variable_declaration: {
         std::ostringstream os;
-        os << node->as<ast_variable_declaration>()->declared_type;
+        os << v->as<ast_variable_declaration>()->declared_type;
         return os.str();
       }
       case ast_dot_tilde_call:
-        return static_cast<std::string>(node->as<ast_dot_tilde_call>()->method_name);
+        return static_cast<std::string>(v->as<ast_dot_tilde_call>()->method_name);
       case ast_unary_operator:
-        return static_cast<std::string>(node->as<ast_unary_operator>()->operator_name);
+        return static_cast<std::string>(v->as<ast_unary_operator>()->operator_name);
       case ast_binary_operator:
-        return static_cast<std::string>(node->as<ast_binary_operator>()->operator_name);
+        return static_cast<std::string>(v->as<ast_binary_operator>()->operator_name);
       case ast_sequence:
-        return "↓" + std::to_string(node->as<ast_sequence>()->get_items().size());
+        return "↓" + std::to_string(v->as<ast_sequence>()->get_items().size());
       case ast_if_statement:
-        return node->as<ast_if_statement>()->is_ifnot ? "ifnot" : "";
+        return v->as<ast_if_statement>()->is_ifnot ? "ifnot" : "";
       case ast_argument: {
         std::ostringstream os;
-        os << node->as<ast_argument>()->arg_type;
-        return static_cast<std::string>(node->as<ast_argument>()->arg_name) + ": " + os.str();
+        os << v->as<ast_argument>()->arg_type;
+        return static_cast<std::string>(v->as<ast_argument>()->get_identifier()->name) + ": " + os.str();
       }
       case ast_function_declaration: {
         std::string arg_names;
-        for (int i = 0; i < node->as<ast_function_declaration>()->get_num_args(); i++) {
+        for (int i = 0; i < v->as<ast_function_declaration>()->get_num_args(); i++) {
           if (!arg_names.empty())
             arg_names += ",";
-          arg_names += node->as<ast_function_declaration>()->get_arg(i)->arg_name;
+          arg_names += v->as<ast_function_declaration>()->get_arg(i)->get_identifier()->name;
         }
-        return "fun " + node->as<ast_function_declaration>()->name + "(" + arg_names + ")";
+        return "fun " + static_cast<std::string>(v->as<ast_function_declaration>()->get_identifier()->name) + "(" + arg_names + ")";
       }
       case ast_pragma_no_arg:
-        return static_cast<std::string>(node->as<ast_pragma_no_arg>()->pragma_name);
+        return static_cast<std::string>(v->as<ast_pragma_no_arg>()->pragma_name);
       case ast_pragma_version:
-        return static_cast<std::string>(node->as<ast_pragma_version>()->semver);
+        return static_cast<std::string>(v->as<ast_pragma_version>()->semver);
       case ast_include_statement:
-        return static_cast<std::string>(node->as<ast_include_statement>()->file_name);
+        return static_cast<std::string>(v->as<ast_include_statement>()->get_file_leaf()->str_val);
       case ast_tolk_file:
-        return node->as<ast_tolk_file>()->file->rel_filename;
+        return v->as<ast_tolk_file>()->file->rel_filename;
       default:
         return {};
     }

@@ -446,7 +446,8 @@ struct CodeBlob {
   std::stack<std::unique_ptr<Op>*> cur_ops_stack;
   int flags = 0;
   bool require_callxargs = false;
-  CodeBlob(TypeExpr* ret = nullptr) : var_cnt(0), in_var_cnt(0), op_cnt(0), ret_type(ret), cur_ops(&ops) {
+  CodeBlob(std::string name, SrcLocation loc, TypeExpr* ret)
+    : var_cnt(0), in_var_cnt(0), op_cnt(0), ret_type(ret), name(std::move(name)), loc(loc), cur_ops(&ops) {
   }
   template <typename... Args>
   Op& emplace_back(Args&&... args) {
@@ -539,7 +540,6 @@ struct SymValFunc : SymVal {
   const std::vector<int>* get_ret_order() const {
     return ret_order.empty() ? nullptr : &ret_order;
   }
-  const TypeExpr* get_arg_type() const;
 
   bool is_inline() const {
     return flags & flagInline;
@@ -568,6 +568,7 @@ struct SymValCodeFunc : SymValFunc {
   SymValCodeFunc(int val, TypeExpr* _ft, bool marked_as_pure) : SymValFunc(val, _ft, marked_as_pure), code(nullptr) {
   }
   bool does_need_codegen() const;
+  void set_code(CodeBlob* code);
 };
 
 struct SymValGlobVar : SymValBase {
@@ -592,6 +593,9 @@ struct SymValConst : SymValBase {
   td::RefInt256 intval;
   std::string strval;
   ConstKind kind;
+#ifdef TOLK_DEBUG
+  std::string name; // seeing const name in debugger makes it much easier to delve into Tolk sources
+#endif
   SymValConst(int idx, td::RefInt256 value)
       : SymValBase(SymValKind::_Const, idx), intval(value), kind(IntConst) {
   }
@@ -609,17 +613,6 @@ struct SymValConst : SymValBase {
     return kind;
   }
 };
-
-
-/*
- * 
- *   PARSE SOURCE
- * 
- */
-
-
-// defined in parse-tolk.cpp
-td::Result<SrcFile*> locate_source_file(const std::string& rel_filename);
 
 
 /*
@@ -1432,10 +1425,11 @@ inline compile_func_t make_ext_compile(AsmOp op) {
 struct SymValAsmFunc : SymValFunc {
   simple_compile_func_t simple_compile;
   compile_func_t ext_compile;
-  td::uint64 crc;
   ~SymValAsmFunc() override = default;
-  SymValAsmFunc(TypeExpr* ft, std::vector<AsmOp>&& _macro, bool marked_as_pure)
-      : SymValFunc(-1, ft, marked_as_pure), ext_compile(make_ext_compile(std::move(_macro))) {
+  SymValAsmFunc(TypeExpr* ft, std::vector<int>&& arg_order, std::vector<int>&& ret_order, bool marked_as_pure)
+      : SymValFunc(-1, ft, marked_as_pure) {
+    this->arg_order = std::move(arg_order);
+    this->ret_order = std::move(ret_order);
   }
   SymValAsmFunc(TypeExpr* ft, simple_compile_func_t _compile, bool marked_as_pure)
       : SymValFunc(-1, ft, marked_as_pure), simple_compile(std::move(_compile)) {
@@ -1451,6 +1445,7 @@ struct SymValAsmFunc : SymValFunc {
                 std::initializer_list<int> ret_order = {}, bool marked_as_pure = false)
       : SymValFunc(-1, ft, arg_order, ret_order, marked_as_pure), ext_compile(std::move(_compile)) {
   }
+  void set_code(std::vector<AsmOp> code);
   bool compile(AsmOpList& dest, std::vector<VarDescr>& out, std::vector<VarDescr>& in, SrcLocation where) const;
 };
 
@@ -1472,7 +1467,7 @@ void define_builtins();
  *
  */
 
-int tolk_proceed(const std::string &entrypoint_file_name);
+int tolk_proceed(const std::string &entrypoint_filename);
 
 }  // namespace tolk
 

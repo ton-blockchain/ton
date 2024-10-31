@@ -7,7 +7,12 @@ set(TOLK_SOURCE
         compiler-state.cpp
         ast.cpp
         ast-from-tokens.cpp
-        ast-to-legacy.cpp
+        pipe-discover-parse-sources.cpp
+        pipe-handle-pragmas.cpp
+        pipe-register-symbols.cpp
+        pipe-ast-to-legacy.cpp
+        pipe-find-unused-symbols.cpp
+        pipe-generate-fif-output.cpp
         unify-types.cpp
         abscode.cpp
         gen-abscode.cpp

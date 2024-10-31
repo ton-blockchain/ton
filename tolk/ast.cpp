@@ -60,11 +60,15 @@ int Vertex<ast_forall_list>::lookup_idx(std::string_view nameT) const {
 
 int Vertex<ast_argument_list>::lookup_idx(std::string_view arg_name) const {
   for (size_t idx = 0; idx < children.size(); ++idx) {
-    if (children[idx] && children[idx]->as<ast_argument>()->arg_name == arg_name) {
+    if (children[idx] && children[idx]->as<ast_argument>()->get_identifier()->name == arg_name) {
       return static_cast<int>(idx);
     }
   }
   return -1;
+}
+
+void Vertex<ast_include_statement>::mutate_set_src_file(const SrcFile* file) const {
+  const_cast<Vertex*>(this)->file = file;
 }
 
 } // namespace tolk

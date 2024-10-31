@@ -185,10 +185,6 @@ int Expr::predefine_vars() {
     case _Var:
       if (!sym) {
         tolk_assert(val < 0 && here.is_defined());
-        if (G.prohibited_var_names.count(G.symbols.get_name(~val))) {
-          throw ParseError{
-              here, PSTRING() << "symbol `" << G.symbols.get_name(~val) << "` cannot be redefined as a variable"};
-        }
         sym = define_symbol(~val, false, here);
         // std::cerr << "predefining variable " << symbols.get_name(~val) << std::endl;
         if (!sym) {
@@ -319,7 +315,13 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, std::vector<std::pair<S
       SymDef* applied_sym = sym;
       auto func = dynamic_cast<SymValFunc*>(applied_sym->value);
       // replace `beginCell()` with `begin_cell()`
+      // todo it should be done at AST level, see comment above detect_if_function_just_wraps_another()
       if (func && func->is_just_wrapper_for_another_f()) {
+        // todo currently, f is inlined only if anotherF is declared (and processed) before
+        if (!dynamic_cast<SymValCodeFunc*>(func)->code) {   // if anotherF is processed after
+          func->flags |= SymValFunc::flagUsedAsNonCall;
+          res = pre_compile_tensor(args, code, lval_globs);
+        } else {
         // body is { Op::_Import; Op::_Call; Op::_Return; }
         const std::unique_ptr<Op>& op_call = dynamic_cast<SymValCodeFunc*>(func)->code->ops->next;
         applied_sym = op_call->fun_ref;
@@ -330,6 +332,7 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, std::vector<std::pair<S
         res.reserve(res_inner.size());
         for (var_idx_t right_idx : op_call->right) {
           res.emplace_back(res_inner[right_idx]);
+        }
         }
       } else {
         res = pre_compile_tensor(args, code, lval_globs);

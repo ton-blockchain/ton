@@ -103,9 +103,9 @@ static void diagnose_addition_in_bitshift(SrcLocation loc, std::string_view bits
 
 // TE ::= TA | TA -> TE
 // TA ::= int | ... | cont | var | _ | () | ( TE { , TE } ) | [ TE { , TE } ]
-TypeExpr* parse_type(Lexer& lex, V<ast_forall_list> forall_list);
+static TypeExpr* parse_type(Lexer& lex, V<ast_forall_list> forall_list);
 
-TypeExpr* parse_type1(Lexer& lex, V<ast_forall_list> forall_list) {
+static TypeExpr* parse_type1(Lexer& lex, V<ast_forall_list> forall_list) {
   switch (lex.tok()) {
     case tok_int:
       lex.next();
@@ -165,7 +165,7 @@ TypeExpr* parse_type1(Lexer& lex, V<ast_forall_list> forall_list) {
   return c == tok_clpar ? TypeExpr::new_tensor(std::move(tlist)) : TypeExpr::new_tuple(std::move(tlist));
 }
 
-TypeExpr* parse_type(Lexer& lex, V<ast_forall_list> forall_list) {
+static TypeExpr* parse_type(Lexer& lex, V<ast_forall_list> forall_list) {
   TypeExpr* res = parse_type1(lex, forall_list);
   if (lex.tok() == tok_mapsto) {
     lex.next();
@@ -175,13 +175,14 @@ TypeExpr* parse_type(Lexer& lex, V<ast_forall_list> forall_list) {
   return res;
 }
 
-AnyV parse_argument(Lexer& lex, V<ast_forall_list> forall_list) {
+static AnyV parse_argument(Lexer& lex, V<ast_forall_list> forall_list) {
   TypeExpr* arg_type = nullptr;
   SrcLocation loc = lex.cur_location();
   if (lex.tok() == tok_underscore) {
     lex.next();
     if (lex.tok() == tok_comma || lex.tok() == tok_clpar) {
-      return createV<ast_argument>(loc, "", TypeExpr::new_hole());
+      auto v_empty = createV<ast_identifier>(lex.cur_location(), "");
+      return createV<ast_argument>(loc, v_empty, TypeExpr::new_hole());
     }
     arg_type = TypeExpr::new_hole();
     loc = lex.cur_location();
@@ -201,16 +202,17 @@ AnyV parse_argument(Lexer& lex, V<ast_forall_list> forall_list) {
       loc = lex.cur_location();
       lex.next();
     }
-    return createV<ast_argument>(loc, "", arg_type);
+    auto v_empty = createV<ast_identifier>(lex.cur_location(), "");
+    return createV<ast_argument>(loc, v_empty, arg_type);
   }
   lex.check(tok_identifier, "parameter name");
   loc = lex.cur_location();
-  std::string_view arg_name = lex.cur_str();
+  auto v_ident = createV<ast_identifier>(lex.cur_location(), lex.cur_str());
   lex.next();
-  return createV<ast_argument>(loc, arg_name, arg_type);
+  return createV<ast_argument>(loc, v_ident, arg_type);
 }
 
-AnyV parse_global_var_declaration(Lexer& lex) {
+static AnyV parse_global_var_declaration(Lexer& lex) {
   TypeExpr* declared_type = nullptr;
   SrcLocation loc = lex.cur_location();
   if (lex.tok() == tok_underscore) {
@@ -221,14 +223,15 @@ AnyV parse_global_var_declaration(Lexer& lex) {
     declared_type = parse_type(lex, nullptr);
   }
   lex.check(tok_identifier, "global variable name");
-  std::string_view var_name = lex.cur_str();
+  auto v_ident = createV<ast_identifier>(lex.cur_location(), lex.cur_str());
   lex.next();
-  return createV<ast_global_var_declaration>(loc, var_name, declared_type);
+  return createV<ast_global_var_declaration>(loc, v_ident, declared_type);
 }
 
 AnyV parse_expr(Lexer& lex);
 
-AnyV parse_constant_declaration(Lexer& lex) {
+static AnyV parse_constant_declaration(Lexer& lex) {
+  SrcLocation loc = lex.cur_location();
   TypeExpr *declared_type = nullptr;
   if (lex.tok() == tok_int) {
     declared_type = TypeExpr::new_atomic(TypeExpr::_Int);
@@ -238,15 +241,14 @@ AnyV parse_constant_declaration(Lexer& lex) {
     lex.next();
   }
   lex.check(tok_identifier, "constant name");
-  SrcLocation loc = lex.cur_location();
-  std::string_view const_name = lex.cur_str();
+  auto v_ident = createV<ast_identifier>(lex.cur_location(), lex.cur_str());
   lex.next();
   lex.expect(tok_assign, "'='");
   AnyV init_value = parse_expr(lex);
-  return createV<ast_constant_declaration>(loc, const_name, declared_type, init_value);
+  return createV<ast_constant_declaration>(loc, v_ident, declared_type, init_value);
 }
 
-AnyV parse_argument_list(Lexer& lex, V<ast_forall_list> forall_list) {
+static AnyV parse_argument_list(Lexer& lex, V<ast_forall_list> forall_list) {
   SrcLocation loc = lex.cur_location();
   std::vector<AnyV> args;
   lex.expect(tok_oppar, "argument list");
@@ -261,7 +263,7 @@ AnyV parse_argument_list(Lexer& lex, V<ast_forall_list> forall_list) {
   return createV<ast_argument_list>(loc, std::move(args));
 }
 
-AnyV parse_constant_declaration_list(Lexer& lex) {
+static AnyV parse_constant_declaration_list(Lexer& lex) {
   std::vector<AnyV> consts;
   SrcLocation loc = lex.cur_location();
   lex.expect(tok_const, "'const'");
@@ -276,7 +278,7 @@ AnyV parse_constant_declaration_list(Lexer& lex) {
   return createV<ast_constant_declaration_list>(loc, std::move(consts));
 }
 
-AnyV parse_global_var_declaration_list(Lexer& lex) {
+static AnyV parse_global_var_declaration_list(Lexer& lex) {
   std::vector<AnyV> globals;
   SrcLocation loc = lex.cur_location();
   lex.expect(tok_global, "'global'");
@@ -292,7 +294,7 @@ AnyV parse_global_var_declaration_list(Lexer& lex) {
 }
 
 // parse ( E { , E } ) | () | [ E { , E } ] | [] | id | num | _
-AnyV parse_expr100(Lexer& lex) {
+static AnyV parse_expr100(Lexer& lex) {
   SrcLocation loc = lex.cur_location();
   if (lex.tok() == tok_oppar) {
     lex.next();
@@ -402,7 +404,7 @@ AnyV parse_expr100(Lexer& lex) {
 }
 
 // parse E { E }
-AnyV parse_expr90(Lexer& lex) {
+static AnyV parse_expr90(Lexer& lex) {
   AnyV res = parse_expr100(lex);
   while (lex.tok() == tok_oppar || lex.tok() == tok_opbracket || (lex.tok() == tok_identifier && lex.cur_str()[0] != '.' && lex.cur_str()[0] != '~')) {
     if (const auto* v_type_expr = res->try_as<ast_type_expression>()) {
@@ -417,7 +419,7 @@ AnyV parse_expr90(Lexer& lex) {
 }
 
 // parse E { .method E | ~method E }
-AnyV parse_expr80(Lexer& lex) {
+static AnyV parse_expr80(Lexer& lex) {
   AnyV lhs = parse_expr90(lex);
   while (lex.tok() == tok_identifier && (lex.cur_str()[0] == '.' || lex.cur_str()[0] == '~')) {
     std::string_view method_name = lex.cur_str();
@@ -430,7 +432,7 @@ AnyV parse_expr80(Lexer& lex) {
 }
 
 // parse [ ~ | - | + ] E
-AnyV parse_expr75(Lexer& lex) {
+static AnyV parse_expr75(Lexer& lex) {
   TokenType t = lex.tok();
   if (t == tok_bitwise_not || t == tok_minus || t == tok_plus) {
     SrcLocation loc = lex.cur_location();
@@ -444,7 +446,7 @@ AnyV parse_expr75(Lexer& lex) {
 }
 
 // parse E { (* | / | % | /% | ^/ | ~/ | ^% | ~% ) E }
-AnyV parse_expr30(Lexer& lex) {
+static AnyV parse_expr30(Lexer& lex) {
   AnyV lhs = parse_expr75(lex);
   TokenType t = lex.tok();
   while (t == tok_mul || t == tok_div || t == tok_mod || t == tok_divmod || t == tok_divC ||
@@ -460,7 +462,7 @@ AnyV parse_expr30(Lexer& lex) {
 }
 
 // parse E { (+ | -) E }
-AnyV parse_expr20(Lexer& lex) {
+static AnyV parse_expr20(Lexer& lex) {
   AnyV lhs = parse_expr30(lex);
   TokenType t = lex.tok();
   while (t == tok_minus || t == tok_plus) {
@@ -475,7 +477,7 @@ AnyV parse_expr20(Lexer& lex) {
 }
 
 // parse E { ( << | >> | ~>> | ^>> ) E }
-AnyV parse_expr17(Lexer& lex) {
+static AnyV parse_expr17(Lexer& lex) {
   AnyV lhs = parse_expr20(lex);
   TokenType t = lex.tok();
   while (t == tok_lshift || t == tok_rshift || t == tok_rshiftC || t == tok_rshiftR) {
@@ -491,7 +493,7 @@ AnyV parse_expr17(Lexer& lex) {
 }
 
 // parse E [ (== | < | > | <= | >= | != | <=> ) E ]
-AnyV parse_expr15(Lexer& lex) {
+static AnyV parse_expr15(Lexer& lex) {
   AnyV lhs = parse_expr17(lex);
   TokenType t = lex.tok();
   if (t == tok_eq || t == tok_lt || t == tok_gt || t == tok_leq || t == tok_geq || t == tok_neq || t == tok_spaceship) {
@@ -505,7 +507,7 @@ AnyV parse_expr15(Lexer& lex) {
 }
 
 // parse E { ( & | `|` | ^ ) E }
-AnyV parse_expr14(Lexer& lex) {
+static AnyV parse_expr14(Lexer& lex) {
   AnyV lhs = parse_expr15(lex);
   TokenType t = lex.tok();
   while (t == tok_bitwise_and || t == tok_bitwise_or || t == tok_bitwise_xor) {
@@ -521,7 +523,7 @@ AnyV parse_expr14(Lexer& lex) {
 }
 
 // parse E [ ? E : E ]
-AnyV parse_expr13(Lexer& lex) {
+static AnyV parse_expr13(Lexer& lex) {
   AnyV res = parse_expr14(lex);
   if (lex.tok() == tok_question) {
     SrcLocation loc = lex.cur_location();
@@ -535,7 +537,7 @@ AnyV parse_expr13(Lexer& lex) {
 }
 
 // parse LE1 (= | += | -= | ... ) E2
-AnyV parse_expr10(Lexer& lex) {
+static AnyV parse_expr10(Lexer& lex) {
   AnyV lhs = parse_expr13(lex);
   TokenType t = lex.tok();
   if (t == tok_set_plus || t == tok_set_minus || t == tok_set_mul || t == tok_set_div || t == tok_set_divR || t == tok_set_divC ||
@@ -555,7 +557,7 @@ AnyV parse_expr(Lexer& lex) {
   return parse_expr10(lex);
 }
 
-AnyV parse_return_stmt(Lexer& lex) {
+static AnyV parse_return_stmt(Lexer& lex) {
   SrcLocation loc = lex.cur_location();
   lex.expect(tok_return, "'return'");
   AnyV child = parse_expr(lex);
@@ -565,7 +567,7 @@ AnyV parse_return_stmt(Lexer& lex) {
 
 AnyV parse_statement(Lexer& lex);
 
-V<ast_sequence> parse_sequence(Lexer& lex) {
+static V<ast_sequence> parse_sequence(Lexer& lex) {
   SrcLocation loc = lex.cur_location();
   lex.expect(tok_opbrace, "'{'");
   std::vector<AnyV> items;
@@ -577,7 +579,7 @@ V<ast_sequence> parse_sequence(Lexer& lex) {
   return createV<ast_sequence>(loc, loc_end, items);
 }
 
-AnyV parse_repeat_statement(Lexer& lex) {
+static AnyV parse_repeat_statement(Lexer& lex) {
   SrcLocation loc = lex.cur_location();
   lex.expect(tok_repeat, "'repeat'");
   AnyV cond = parse_expr(lex);
@@ -585,7 +587,7 @@ AnyV parse_repeat_statement(Lexer& lex) {
   return createV<ast_repeat_statement>(loc, cond, body);
 }
 
-AnyV parse_while_statement(Lexer& lex) {
+static AnyV parse_while_statement(Lexer& lex) {
   SrcLocation loc = lex.cur_location();
   lex.expect(tok_while, "'while'");
   AnyV cond = parse_expr(lex);
@@ -593,7 +595,7 @@ AnyV parse_while_statement(Lexer& lex) {
   return createV<ast_while_statement>(loc, cond, body);
 }
 
-ASTNodeBase* parse_do_until_statement(Lexer& lex) {
+static AnyV parse_do_until_statement(Lexer& lex) {
   SrcLocation loc = lex.cur_location();
   lex.expect(tok_do, "'do'");
   V<ast_sequence> body = parse_sequence(lex);
@@ -602,7 +604,7 @@ ASTNodeBase* parse_do_until_statement(Lexer& lex) {
   return createV<ast_do_until_statement>(loc, body, cond);
 }
 
-AnyV parse_try_catch_statement(Lexer& lex) {
+static AnyV parse_try_catch_statement(Lexer& lex) {
   SrcLocation loc = lex.cur_location();
   lex.expect(tok_try, "'try'");
   V<ast_sequence> try_body = parse_sequence(lex);
@@ -612,7 +614,7 @@ AnyV parse_try_catch_statement(Lexer& lex) {
   return createV<ast_try_catch_statement>(loc, try_body, catch_expr, catch_body);
 }
 
-AnyV parse_if_statement(Lexer& lex, bool is_ifnot) {
+static AnyV parse_if_statement(Lexer& lex, bool is_ifnot) {
   SrcLocation loc = lex.cur_location();
   lex.next();
   AnyV cond = parse_expr(lex);
@@ -652,8 +654,9 @@ AnyV parse_statement(Lexer& lex) {
     case tok_try:
       return parse_try_catch_statement(lex);
     case tok_semicolon: {
+      SrcLocation loc = lex.cur_location();
       lex.next();
-      return createV<ast_empty>;
+      return createV<ast_empty>(loc);
     }
     default: {
       AnyV expr = parse_expr(lex);
@@ -663,11 +666,11 @@ AnyV parse_statement(Lexer& lex) {
   }
 }
 
-AnyV parse_func_body(Lexer& lex) {
+static AnyV parse_func_body(Lexer& lex) {
   return parse_sequence(lex);
 }
 
-AnyV parse_asm_func_body(Lexer& lex, V<ast_argument_list> arg_list) {
+static AnyV parse_asm_func_body(Lexer& lex, V<ast_argument_list> arg_list) {
   SrcLocation loc = lex.cur_location();
   lex.expect(tok_asm, "'asm'");
   size_t n_args = arg_list->size();
@@ -706,7 +709,7 @@ AnyV parse_asm_func_body(Lexer& lex, V<ast_argument_list> arg_list) {
   return createV<ast_asm_body>(loc, std::move(arg_order), std::move(ret_order), std::move(asm_commands));
 }
 
-AnyV parse_forall(Lexer& lex) {
+static AnyV parse_forall(Lexer& lex) {
   SrcLocation loc = lex.cur_location();
   std::vector<AnyV> forall_items;
   lex.expect(tok_forall, "'forall'");
@@ -726,7 +729,7 @@ AnyV parse_forall(Lexer& lex) {
   return createV<ast_forall_list>{loc, std::move(forall_items)};
 }
 
-AnyV parse_function_declaration(Lexer& lex) {
+static AnyV parse_function_declaration(Lexer& lex) {
   SrcLocation loc = lex.cur_location();
   V<ast_forall_list> forall_list = nullptr;
   bool is_get_method = false;
@@ -741,7 +744,7 @@ AnyV parse_function_declaration(Lexer& lex) {
   }
   TypeExpr* ret_type = parse_type(lex, forall_list);
   lex.check(tok_identifier, "function name identifier expected");
-  std::string func_name = static_cast<std::string>(lex.cur_str());
+  auto v_ident = createV<ast_identifier>(lex.cur_location(), lex.cur_str());
   lex.next();
   V<ast_argument_list> arg_list = parse_argument_list(lex, forall_list)->as<ast_argument_list>();
   bool marked_as_pure = false;
@@ -790,13 +793,9 @@ AnyV parse_function_declaration(Lexer& lex) {
 
   if (lex.tok() == tok_builtin) {
     is_builtin = true;
-    body = createV<ast_empty>;
+    body = createV<ast_empty>(lex.cur_location());
     lex.next();
     lex.expect(tok_semicolon, "';'");
-  } else if (lex.tok() == tok_semicolon) {
-    // todo this is just a prototype, remove this "feature" in the future
-    lex.next();
-    body = createV<ast_empty>;
   } else if (lex.tok() == tok_opbrace) {
     body = parse_func_body(lex);
   } else if (lex.tok() == tok_asm) {
@@ -805,7 +804,7 @@ AnyV parse_function_declaration(Lexer& lex) {
     lex.expect(tok_opbrace, "function body block");
   }
 
-  auto f_declaration = createV<ast_function_declaration>(loc, func_name, arg_list, body);
+  auto f_declaration = createV<ast_function_declaration>(loc, v_ident, arg_list, body);
   f_declaration->ret_type = ret_type;
   f_declaration->forall_list = forall_list;
   f_declaration->marked_as_pure = marked_as_pure;
@@ -817,7 +816,7 @@ AnyV parse_function_declaration(Lexer& lex) {
   return f_declaration;
 }
 
-AnyV parse_pragma(Lexer& lex) {
+static AnyV parse_pragma(Lexer& lex) {
   SrcLocation loc = lex.cur_location();
   lex.next_special(tok_pragma_name, "pragma name");
   std::string_view pragma_name = lex.cur_str();
@@ -839,7 +838,7 @@ AnyV parse_pragma(Lexer& lex) {
   return createV<ast_pragma_no_arg>(loc, pragma_name);
 }
 
-AnyV parse_include_statement(Lexer& lex) {
+static AnyV parse_include_statement(Lexer& lex) {
   SrcLocation loc = lex.cur_location();
   lex.expect(tok_include, "#include");
   lex.check(tok_string_const, "source file name");
@@ -847,15 +846,14 @@ AnyV parse_include_statement(Lexer& lex) {
   if (rel_filename.empty()) {
     lex.error("imported file name is an empty string");
   }
+  auto v_str = createV<ast_string_const>(lex.cur_location(), rel_filename, 0);
   lex.next();
   lex.expect(tok_semicolon, "';'");
-  return createV<ast_include_statement>(loc, rel_filename);
+  return createV<ast_include_statement>(loc, v_str);
 }
 
 // the main (exported) function
-AnyV parse_src_file_to_ast(SrcFile* file) {
-  file->was_parsed = true;
-
+AnyV parse_src_file_to_ast(const SrcFile* file) {
   std::vector<AnyV> toplevel_declarations;
   Lexer lex(file);
   while (!lex.is_eof()) {
@@ -867,6 +865,8 @@ AnyV parse_src_file_to_ast(SrcFile* file) {
       toplevel_declarations.push_back(parse_global_var_declaration_list(lex));
     } else if (lex.tok() == tok_const) {
       toplevel_declarations.push_back(parse_constant_declaration_list(lex));
+    } else if (lex.tok() == tok_semicolon) {
+      lex.next();   // don't add op_empty, no need
     } else {
       toplevel_declarations.push_back(parse_function_declaration(lex));
     }

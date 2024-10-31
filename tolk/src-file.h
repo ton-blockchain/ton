@@ -21,6 +21,8 @@
 
 namespace tolk {
 
+struct ASTNodeBase;
+
 struct SrcFile {
   struct SrcPosition {
     int offset;
@@ -36,8 +38,8 @@ struct SrcFile {
   int file_id;                          // an incremental counter through all parsed files
   std::string rel_filename;             // relative to cwd
   std::string abs_filename;             // absolute from root
-  std::string text;                     // file contents loaded into memory, Token::str_val points into it
-  bool was_parsed = false;              // to prevent double parsing when a file is imported multiple times
+  std::string text;                     // file contents loaded into memory, every Token::str_val points inside it
+  const ASTNodeBase* ast = nullptr;     // when a file has been parsed, its ast_tolk_file is kept here
   std::vector<ImportStatement> imports; // to check strictness (can't use a symbol without importing its file)
 
   SrcFile(int file_id, std::string rel_filename, std::string abs_filename, std::string&& text)
@@ -56,16 +58,6 @@ struct SrcFile {
   SrcPosition convert_offset(int offset) const;
 };
 
-class AllRegisteredSrcFiles {
-  std::vector<SrcFile*> all_src_files;
-  int last_file_id = -1;
-
-public:
-  SrcFile *find_file(int file_id) const;
-  SrcFile* find_file(const std::string& abs_filename) const;
-  SrcFile* register_file(const std::string& rel_filename, const std::string& abs_filename, std::string&& text);
-  const std::vector<SrcFile*>& get_all_files() const { return all_src_files; }
-};
 
 // SrcLocation points to a location (line, column) in some loaded .tolk source SrcFile.
 // Note, that instead of storing src_file, line_no, etc., only 2 ints are stored.
@@ -84,6 +76,7 @@ public:
   }
 
   bool is_defined() const { return file_id != -1; }
+  bool is_stdlib() const { return file_id == 0; }
   const SrcFile* get_src_file() const;
 
   // similar to `this->get_src_file() == symbol->get_src_file() || symbol->get_src_file()->is_stdlib()`
@@ -94,6 +87,7 @@ public:
 
   void show(std::ostream& os) const;
   void show_context(std::ostream& os) const;
+  std::string to_string() const;
 
   void show_general_error(std::ostream& os, const std::string& message, const std::string& err_type) const;
   void show_note(const std::string& err_msg) const;
@@ -102,6 +96,23 @@ public:
 };
 
 std::ostream& operator<<(std::ostream& os, SrcLocation loc);
+
+using AllSrcFiles = std::vector<const SrcFile*>;
+
+class AllRegisteredSrcFiles {
+  std::vector<SrcFile*> all_src_files;
+  int last_registered_file_id = -1;
+  int last_parsed_file_id = -1;
+
+public:
+  SrcFile *find_file(int file_id) const;
+  SrcFile* find_file(const std::string& abs_filename) const;
+
+  SrcFile* locate_and_register_source_file(const std::string& rel_filename, SrcLocation included_from);
+  SrcFile* get_next_unparsed_file();
+
+  AllSrcFiles get_all_files() const;
+};
 
 struct Fatal final : std::exception {
   std::string message;

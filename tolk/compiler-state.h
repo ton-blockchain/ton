@@ -74,11 +74,8 @@ struct CompilerState {
   std::vector<std::pair<int, SymDef>> symbol_stack;
   std::vector<SrcLocation> scope_opened_at;
 
+  std::vector<SymDef*> all_code_functions, all_global_vars, all_get_methods, all_constants;
   AllRegisteredSrcFiles all_src_files;
-
-  int glob_func_cnt = 0, glob_var_cnt = 0, const_cnt = 0;
-  std::vector<SymDef*> glob_func, glob_vars, glob_get_methods;
-  std::set<std::string> prohibited_var_names;
 
   std::string generated_from;
   GlobalPragma pragma_allow_post_modification{"allow-post-modification"};

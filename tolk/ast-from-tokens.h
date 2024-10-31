@@ -22,6 +22,6 @@ namespace tolk {
 
 struct ASTNodeBase;
 
-const ASTNodeBase* parse_src_file_to_ast(SrcFile* file);
+const ASTNodeBase* parse_src_file_to_ast(const SrcFile* file);
 
 } // namespace tolk

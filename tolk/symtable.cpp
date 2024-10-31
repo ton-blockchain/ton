@@ -114,19 +114,16 @@ SymDef* lookup_symbol(sym_idx_t idx) {
   return nullptr;
 }
 
-SymDef* define_global_symbol(sym_idx_t name_idx, bool force_new, SrcLocation loc) {
-  if (!name_idx) {
-    return nullptr;
+SymDef* define_global_symbol(sym_idx_t name_idx, SrcLocation loc) {
+  if (SymDef* found = G.global_sym_def[name_idx]) {
+    return found;   // found->value is filled; it means, that a symbol is redefined
   }
-  auto found = G.global_sym_def[name_idx];
-  if (found) {
-    return force_new && found->value ? nullptr : found;
-  }
-  found = G.global_sym_def[name_idx] = new SymDef(0, name_idx, loc);
+
+  SymDef* registered = G.global_sym_def[name_idx] = new SymDef(0, name_idx, loc);
 #ifdef TOLK_DEBUG
-  found->sym_name = found->name();
+  registered->sym_name = registered->name();
 #endif
-  return found;
+  return registered;  // registered->value is nullptr; it means, it's just created
 }
 
 SymDef* define_symbol(sym_idx_t name_idx, bool force_new, SrcLocation loc) {
@@ -134,7 +131,7 @@ SymDef* define_symbol(sym_idx_t name_idx, bool force_new, SrcLocation loc) {
     return nullptr;
   }
   if (!G.scope_level) {
-    return define_global_symbol(name_idx, force_new, loc);
+    throw Fatal("unexpected scope_level = 0");
   }
   auto found = G.sym_def[name_idx];
   if (found) {
