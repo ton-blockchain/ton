@@ -208,6 +208,7 @@ public:
   std::string_view cur_str() const { return cur_token.str_val; }
   std::string cur_str_std_string() const { return static_cast<std::string>(cur_token.str_val); }
   SrcLocation cur_location() const { return location; }
+  const SrcFile* cur_file() const { return file; }
   int cur_sym_idx() const;
 
   void next();

@@ -24,6 +24,7 @@
     from all source files in the program, then also delete it here.
 */
 #include "tolk.h"
+#include "compiler-state.h"
 #include "lexer.h"
 #include <getopt.h>
 #include "git.h"
@@ -32,14 +33,6 @@
 #include <sys/stat.h>
 
 namespace tolk {
-
-int verbosity = 0, opt_level = 2;
-bool stack_layout_comments = true;
-GlobalPragma pragma_allow_post_modification{"allow-post-modification"};
-GlobalPragma pragma_compute_asm_ltr{"compute-asm-ltr"};
-GlobalPragma pragma_remove_unused_functions{"remove-unused-functions"};
-std::string generated_from, boc_output_filename;
-ReadCallback::Callback read_callback;
 
 // returns argument type of a function
 // note, that when a function has multiple arguments, its arg type is a tensor (no arguments — an empty tensor)
@@ -61,7 +54,7 @@ const TypeExpr *SymValFunc::get_arg_type() const {
 
 bool SymValCodeFunc::does_need_codegen() const {
   // when a function is declared, but not referenced from code in any way, don't generate its body
-  if (!is_really_used && pragma_remove_unused_functions.enabled()) {
+  if (!is_really_used && G.pragma_remove_unused_functions.enabled()) {
     return false;
   }
   // when a function is referenced like `var a = some_fn;` (or in some other non-call way), its continuation should exist
@@ -72,53 +65,6 @@ bool SymValCodeFunc::does_need_codegen() const {
   // since all its usages are inlined
   return !is_just_wrapper_for_another_f();
   // in the future, we may want to implement a true AST inlining for `inline` functions also
-}
-
-void GlobalPragma::enable(SrcLocation loc) {
-  if (deprecated_from_v_) {
-    loc.show_warning(PSTRING() << "#pragma " << name_ <<
-                     " is deprecated since Tolk v" << deprecated_from_v_ <<
-                     ". Please, remove this line from your code.");
-    return;
-  }
-  if (!loc.get_src_file()->is_entrypoint_file()) {
-    // todo generally it's not true; rework pragmas completely
-    loc.show_warning(PSTRING() << "#pragma " << name_ <<
-                     " should be used in the main file only.");
-  }
-
-  enabled_ = true;
-}
-
-void GlobalPragma::always_on_and_deprecated(const char *deprecated_from_v) {
-  deprecated_from_v_ = deprecated_from_v;
-  enabled_ = true;
-}
-
-td::Result<std::string> fs_read_callback(ReadCallback::Kind kind, const char* query) {
-  switch (kind) {
-    case ReadCallback::Kind::ReadFile: {
-      struct stat f_stat;
-      int res = stat(query, &f_stat);
-      if (res != 0) {
-        return td::Status::Error(std::string{"cannot open source file: "} + query);
-      }
-
-      size_t file_size = static_cast<size_t>(f_stat.st_size);
-      std::string str;
-      str.resize(file_size);
-      FILE* f = fopen(query, "r");
-      fread(str.data(), file_size, 1, f);
-      fclose(f);
-      return std::move(str);
-    }
-    case ReadCallback::Kind::Realpath: {
-      return td::realpath(td::CSlice(query));
-    }
-    default: {
-      return td::Status::Error("Unknown query kind");
-    }
-  }
 }
 
 void mark_function_used_dfs(const std::unique_ptr<Op>& op);
@@ -159,9 +105,9 @@ void mark_function_used_dfs(const std::unique_ptr<Op>& op) {
 }
 
 void mark_used_symbols() {
-  for (SymDef* func_sym : glob_func) {
+  for (SymDef* func_sym : G.glob_func) {
     auto* func_val = dynamic_cast<SymValCodeFunc*>(func_sym->value);
-    std::string name = symbols.get_name(func_sym->sym_idx);
+    std::string name = G.symbols.get_name(func_sym->sym_idx);
     if (func_val->method_id.not_null() ||
         name == "main" || name == "recv_internal" || name == "recv_external" ||
         name == "run_ticktock" || name == "split_prepare" || name == "split_install") {
@@ -176,58 +122,58 @@ void mark_used_symbols() {
  *
  */
 
-void generate_output_func(SymDef* func_sym, std::ostream &outs, std::ostream &errs) {
+void generate_output_func(SymDef* func_sym) {
   SymValCodeFunc* func_val = dynamic_cast<SymValCodeFunc*>(func_sym->value);
   tolk_assert(func_val);
-  std::string name = symbols.get_name(func_sym->sym_idx);
-  if (verbosity >= 2) {
-    errs << "\n\n=========================\nfunction " << name << " : " << func_val->get_type() << std::endl;
+  std::string name = G.symbols.get_name(func_sym->sym_idx);
+  if (G.is_verbosity(2)) {
+    std::cerr << "\n\n=========================\nfunction " << name << " : " << func_val->get_type() << std::endl;
   }
   if (!func_val->code) {
     throw ParseError(func_sym->loc, "function `" + name + "` is just declared, not implemented");
   } else {
     CodeBlob& code = *(func_val->code);
-    if (verbosity >= 3) {
-      code.print(errs, 9);
+    if (G.is_verbosity(3)) {
+      code.print(std::cerr, 9);
     }
     code.simplify_var_types();
-    if (verbosity >= 5) {
-      errs << "after simplify_var_types: \n";
-      code.print(errs, 0);
+    if (G.is_verbosity(5)) {
+      std::cerr << "after simplify_var_types: \n";
+      code.print(std::cerr, 0);
     }
     code.prune_unreachable_code();
-    if (verbosity >= 5) {
-      errs << "after prune_unreachable: \n";
-      code.print(errs, 0);
+    if (G.is_verbosity(5)) {
+      std::cerr << "after prune_unreachable: \n";
+      code.print(std::cerr, 0);
     }
     code.split_vars(true);
-    if (verbosity >= 5) {
-      errs << "after split_vars: \n";
-      code.print(errs, 0);
+    if (G.is_verbosity(5)) {
+      std::cerr << "after split_vars: \n";
+      code.print(std::cerr, 0);
     }
     for (int i = 0; i < 8; i++) {
       code.compute_used_code_vars();
-      if (verbosity >= 4) {
-        errs << "after compute_used_vars: \n";
-        code.print(errs, 6);
+      if (G.is_verbosity(4)) {
+        std::cerr << "after compute_used_vars: \n";
+        code.print(std::cerr, 6);
       }
       code.fwd_analyze();
-      if (verbosity >= 5) {
-        errs << "after fwd_analyze: \n";
-        code.print(errs, 6);
+      if (G.is_verbosity(5)) {
+        std::cerr << "after fwd_analyze: \n";
+        code.print(std::cerr, 6);
       }
       code.prune_unreachable_code();
-      if (verbosity >= 5) {
-        errs << "after prune_unreachable: \n";
-        code.print(errs, 6);
+      if (G.is_verbosity(5)) {
+        std::cerr << "after prune_unreachable: \n";
+        code.print(std::cerr, 6);
       }
     }
     code.mark_noreturn();
-    if (verbosity >= 3) {
-      code.print(errs, 15);
+    if (G.is_verbosity(3)) {
+      code.print(std::cerr, 15);
     }
-    if (verbosity >= 2) {
-      errs << "\n---------- resulting code for " << name << " -------------\n";
+    if (G.is_verbosity(2)) {
+      std::cerr << "\n---------- resulting code for " << name << " -------------\n";
     }
     const char* modifier = "";
     if (func_val->is_inline()) {
@@ -235,13 +181,10 @@ void generate_output_func(SymDef* func_sym, std::ostream &outs, std::ostream &er
     } else if (func_val->is_inline_ref()) {
       modifier = "REF";
     }
-    outs << std::string(2, ' ') << name << " PROC" << modifier << ":<{\n";
+    std::cout << std::string(2, ' ') << name << " PROC" << modifier << ":<{\n";
     int mode = 0;
-    if (stack_layout_comments) {
+    if (G.settings.stack_layout_comments) {
       mode |= Stack::_StkCmt | Stack::_CptStkCmt;
-    }
-    if (opt_level < 2) {
-      mode |= Stack::_DisableOpt;
     }
     if (func_val->is_inline() && code.ops->noreturn()) {
       mode |= Stack::_InlineFunc;
@@ -249,101 +192,108 @@ void generate_output_func(SymDef* func_sym, std::ostream &outs, std::ostream &er
     if (func_val->is_inline() || func_val->is_inline_ref()) {
       mode |= Stack::_InlineAny;
     }
-    code.generate_code(outs, mode, 2);
-    outs << std::string(2, ' ') << "}>\n";
-    if (verbosity >= 2) {
-      errs << "--------------\n";
+    code.generate_code(std::cout, mode, 2);
+    std::cout << std::string(2, ' ') << "}>\n";
+    if (G.is_verbosity(2)) {
+      std::cerr << "--------------\n";
     }
   }
 }
 
-int generate_output(std::ostream &outs, std::ostream &errs) {
-  outs << "\"Asm.fif\" include\n";
-  outs << "// automatically generated from " << generated_from << std::endl;
-  outs << "PROGRAM{\n";
+// this function either throws or successfully prints whole program output to std::cout
+void generate_output() {
+  std::cout << "\"Asm.fif\" include\n";
+  std::cout << "// automatically generated from " << G.generated_from << std::endl;
+  std::cout << "PROGRAM{\n";
   mark_used_symbols();
-  for (SymDef* func_sym : glob_func) {
+
+  for (SymDef* func_sym : G.glob_func) {
     SymValCodeFunc* func_val = dynamic_cast<SymValCodeFunc*>(func_sym->value);
     tolk_assert(func_val);
     if (!func_val->does_need_codegen()) {
-      if (verbosity >= 2) {
-        errs << func_sym->name() << ": code not generated, function does not need codegen\n";
+      if (G.is_verbosity(2)) {
+        std::cerr << func_sym->name() << ": code not generated, function does not need codegen\n";
       }
       continue;
     }
 
-    std::string name = symbols.get_name(func_sym->sym_idx);
-    outs << std::string(2, ' ');
+    std::string name = G.symbols.get_name(func_sym->sym_idx);
+    std::cout << std::string(2, ' ');
     if (func_val->method_id.is_null()) {
-      outs << "DECLPROC " << name << "\n";
+      std::cout << "DECLPROC " << name << "\n";
     } else {
-      outs << func_val->method_id << " DECLMETHOD " << name << "\n";
+      std::cout << func_val->method_id << " DECLMETHOD " << name << "\n";
     }
   }
-  for (SymDef* gvar_sym : glob_vars) {
+
+  for (SymDef* gvar_sym : G.glob_vars) {
     auto* glob_val = dynamic_cast<SymValGlobVar*>(gvar_sym->value);
     tolk_assert(glob_val);
-    if (!glob_val->is_really_used && pragma_remove_unused_functions.enabled()) {
-      if (verbosity >= 2) {
-        errs << gvar_sym->name() << ": variable not generated, it's unused\n";
+    if (!glob_val->is_really_used && G.pragma_remove_unused_functions.enabled()) {
+      if (G.is_verbosity(2)) {
+        std::cerr << gvar_sym->name() << ": variable not generated, it's unused\n";
       }
       continue;
     }
-    std::string name = symbols.get_name(gvar_sym->sym_idx);
-    outs << std::string(2, ' ') << "DECLGLOBVAR " << name << "\n";
+    std::string name = G.symbols.get_name(gvar_sym->sym_idx);
+    std::cout << std::string(2, ' ') << "DECLGLOBVAR " << name << "\n";
   }
-  int errors = 0;
-  for (SymDef* func_sym : glob_func) {
+
+  for (SymDef* func_sym : G.glob_func) {
     SymValCodeFunc* func_val = dynamic_cast<SymValCodeFunc*>(func_sym->value);
     if (!func_val->does_need_codegen()) {
       continue;
     }
-    try {
-      generate_output_func(func_sym, outs, errs);
-    } catch (ParseError& err) {
-      errs << "cannot generate code for function `" << symbols.get_name(func_sym->sym_idx) << "`:\n"
-                << err << std::endl;
-      ++errors;
-    }
+    generate_output_func(func_sym);
   }
-  outs << "}END>c\n";
-  if (!boc_output_filename.empty()) {
-    outs << "boc>B \"" << boc_output_filename << "\" B>file\n";
+
+  std::cout << "}END>c\n";
+  if (!G.settings.boc_output_filename.empty()) {
+    std::cout << "boc>B \"" << G.settings.boc_output_filename << "\" B>file\n";
   }
-  return errors;
 }
 
 
-int tolk_proceed(const std::string &entrypoint_file_name, std::ostream &outs, std::ostream &errs) {
+int tolk_proceed(const std::string &entrypoint_file_name) {
   define_builtins();
   lexer_init();
-  pragma_allow_post_modification.always_on_and_deprecated("0.5.0");
-  pragma_compute_asm_ltr.always_on_and_deprecated("0.5.0");
+  G.pragma_allow_post_modification.always_on_and_deprecated("0.5.0");
+  G.pragma_compute_asm_ltr.always_on_and_deprecated("0.5.0");
 
   try {
-    bool ok = parse_source_file(entrypoint_file_name.c_str(), {});
-    if (!ok) {
-      throw Fatal{"output code generation omitted because of errors"};
+    {
+      if (G.settings.stdlib_filename.empty()) {
+        throw Fatal("stdlib filename not specified");
+      }
+      td::Result<SrcFile*> locate_res = locate_source_file(G.settings.stdlib_filename);
+      if (locate_res.is_error()) {
+        throw Fatal("Failed to locate stdlib: " + locate_res.error().message().str());
+      }
+      parse_source_file(locate_res.move_as_ok());
     }
+    td::Result<SrcFile*> locate_res = locate_source_file(entrypoint_file_name);
+    if (locate_res.is_error()) {
+      throw Fatal("Failed to locate " + entrypoint_file_name + ": " + locate_res.error().message().str());
+    }
+    parse_source_file(locate_res.move_as_ok());
 
     // todo #ifdef TOLK_PROFILING + comment
     // lexer_measure_performance(all_src_files.get_all_files());
 
-    return generate_output(outs, errs);
+    generate_output();
+    return 0;
   } catch (Fatal& fatal) {
-    errs << "fatal: " << fatal << std::endl;
+    std::cerr << "fatal: " << fatal << std::endl;
     return 2;
   } catch (ParseError& error) {
-    errs << error << std::endl;
+    std::cerr << error << std::endl;
     return 2;
   } catch (UnifyError& unif_err) {
-    errs << "fatal: ";
-    unif_err.print_message(errs);
-    errs << std::endl;
+    std::cerr << "fatal: ";
+    unif_err.print_message(std::cerr);
+    std::cerr << std::endl;
     return 2;
   }
-
-  return 0;
 }
 
 }  // namespace tolk

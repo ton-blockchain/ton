@@ -15,6 +15,7 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include "tolk.h"
+#include "compiler-state.h"
 
 namespace tolk {
 using namespace std::literals::string_literals;
@@ -25,18 +26,11 @@ using namespace std::literals::string_literals;
  * 
  */
 
-int glob_func_cnt, undef_func_cnt, glob_var_cnt, const_cnt;
-std::vector<SymDef*> glob_func, glob_vars, glob_get_methods;
-std::set<std::string> prohibited_var_names;
-
 SymDef* define_builtin_func_impl(const std::string& name, SymValAsmFunc* func_val) {
   if (name.back() == '_') {
-    prohibited_var_names.insert(name);
+    G.prohibited_var_names.insert(name);
   }
-  sym_idx_t name_idx = symbols.lookup(name, 1);
-  if (symbols.is_keyword(name_idx)) {
-    std::cerr << "fatal: global function `" << name << "` already defined as a keyword" << std::endl;
-  }
+  sym_idx_t name_idx = G.symbols.lookup(name, 1);
   SymDef* def = define_global_symbol(name_idx, true);
   if (!def) {
     std::cerr << "fatal: global function `" << name << "` already defined" << std::endl;

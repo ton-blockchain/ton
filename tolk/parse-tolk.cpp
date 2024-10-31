@@ -16,6 +16,7 @@
 */
 #include "tolk.h"
 #include "platform-utils.h"
+#include "compiler-state.h"
 #include "td/utils/crypto.h"
 #include "common/refint.h"
 #include "openssl/digest.hpp"
@@ -26,15 +27,15 @@ namespace tolk {
 using namespace std::literals::string_literals;
 
 inline bool is_dot_ident(sym_idx_t idx) {
-  return symbols.get_subclass(idx) == SymbolSubclass::dot_identifier;
+  return G.symbols.get_subclass(idx) == SymbolSubclass::dot_identifier;
 }
 
 inline bool is_tilde_ident(sym_idx_t idx) {
-  return symbols.get_subclass(idx) == SymbolSubclass::tilde_identifier;
+  return G.symbols.get_subclass(idx) == SymbolSubclass::tilde_identifier;
 }
 
 inline bool is_special_ident(sym_idx_t idx) {
-  return symbols.get_subclass(idx) != SymbolSubclass::undef;
+  return G.symbols.get_subclass(idx) != SymbolSubclass::undef;
 }
 
 // given Expr::_Apply (a function call / a variable call), determine whether it's <, or >, or similar
@@ -80,7 +81,7 @@ static bool is_add_or_sub_binary_op(const Expr* e_apply) {
 }
 
 static inline std::string get_builtin_operator_name(sym_idx_t sym_builtin) {
-  std::string underscored = symbols.get_name(sym_builtin);
+  std::string underscored = G.symbols.get_name(sym_builtin);
   return underscored.substr(1, underscored.size() - 2);
 }
 
@@ -256,9 +257,9 @@ FormalArg parse_formal_arg(Lexer& lex, int fa_idx) {
   }
   lex.check(tok_identifier, "formal parameter name");
   loc = lex.cur_location();
-  if (prohibited_var_names.count(symbols.get_name(lex.cur_sym_idx()))) {
+  if (G.prohibited_var_names.count(G.symbols.get_name(lex.cur_sym_idx()))) {
     throw ParseError{
-        loc, PSTRING() << "symbol `" << symbols.get_name(lex.cur_sym_idx()) << "` cannot be redefined as a variable"};
+        loc, PSTRING() << "symbol `" << G.symbols.get_name(lex.cur_sym_idx()) << "` cannot be redefined as a variable"};
   }
   SymDef* new_sym_def = define_symbol(lex.cur_sym_idx(), true, loc);
   if (!new_sym_def) {
@@ -311,16 +312,15 @@ void parse_global_var_decl(Lexer& lex) {
       lex.error(os.str());
     }
   } else {
-    sym_def->value = new SymValGlobVar{glob_var_cnt++, var_type};
+    sym_def->value = new SymValGlobVar{G.glob_var_cnt++, var_type};
 #ifdef TOLK_DEBUG
     dynamic_cast<SymValGlobVar*>(sym_def->value)->name = lex.cur_str();
 #endif
-    glob_vars.push_back(sym_def);
+    G.glob_vars.push_back(sym_def);
   }
   lex.next();
 }
 
-extern int const_cnt;
 Expr* parse_expr(Lexer& lex, CodeBlob& code, bool nv = false);
 
 void parse_const_decl(Lexer& lex) {
@@ -360,9 +360,9 @@ void parse_const_decl(Lexer& lex) {
   }
   SymValConst* new_value = nullptr;
   if (x->cls == Expr::_Const) { // Integer constant
-    new_value = new SymValConst{const_cnt++, x->intval};
+    new_value = new SymValConst{G.const_cnt++, x->intval};
   } else if (x->cls == Expr::_SliceConst) { // Slice constant (string)
-    new_value = new SymValConst{const_cnt++, x->strval};
+    new_value = new SymValConst{G.const_cnt++, x->strval};
   } else if (x->cls == Expr::_Apply) {  // even "1 + 2" is Expr::_Apply (it applies `_+_`)
     code.emplace_back(loc, Op::_Import, std::vector<var_idx_t>());
     auto tmp_vars = x->pre_compile(code);
@@ -390,7 +390,7 @@ void parse_const_decl(Lexer& lex) {
     if (op.origin.is_null() || !op.origin->is_valid()) {
       lex.error("precompiled expression did not result in a valid integer constant");
     }
-    new_value = new SymValConst{const_cnt++, op.origin};
+    new_value = new SymValConst{G.const_cnt++, op.origin};
   } else {
     lex.error("integer or slice literal or constant expected");
   }
@@ -453,28 +453,28 @@ void parse_global_var_decls(Lexer& lex) {
 }
 
 SymValCodeFunc* make_new_glob_func(SymDef* func_sym, TypeExpr* func_type, bool marked_as_pure) {
-  SymValCodeFunc* res = new SymValCodeFunc{glob_func_cnt, func_type, marked_as_pure};
+  SymValCodeFunc* res = new SymValCodeFunc{G.glob_func_cnt, func_type, marked_as_pure};
 #ifdef TOLK_DEBUG
   res->name = func_sym->name();
 #endif
   func_sym->value = res;
-  glob_func.push_back(func_sym);
-  glob_func_cnt++;
+  G.glob_func.push_back(func_sym);
+  G.glob_func_cnt++;
   return res;
 }
 
 bool check_global_func(const Lexer& lex, sym_idx_t func_name) {
   SymDef* def = lookup_symbol(func_name);
   if (!def) {
-    lex.error("undefined symbol `" + symbols.get_name(func_name) + "`");
+    lex.error("undefined symbol `" + G.symbols.get_name(func_name) + "`");
     return false;
   }
   SymVal* val = dynamic_cast<SymVal*>(def->value);
   if (!val) {
-    lex.error(std::string{"symbol `"} + symbols.get_name(func_name) + "` has no value and no type");
+    lex.error(std::string{"symbol `"} + G.symbols.get_name(func_name) + "` has no value and no type");
     return false;
   } else if (!val->get_type()) {
-    lex.error(std::string{"symbol `"} + symbols.get_name(func_name) + "` has no type, possibly not a function");
+    lex.error(std::string{"symbol `"} + G.symbols.get_name(func_name) + "` has no type, possibly not a function");
     return false;
   } else {
     return true;
@@ -495,6 +495,21 @@ Expr* make_func_apply(Expr* fun, Expr* x) {
     res->flags = Expr::_IsRvalue;
   }
   return res;
+}
+
+void check_import_exists_when_using_sym(const Lexer& lex, const SymDef* used_sym) {
+  if (!lex.cur_location().is_symbol_from_same_or_builtin_file(used_sym->loc)) {
+    const SrcFile* declared_in = used_sym->loc.get_src_file();
+    bool has_import = false;
+    for (const SrcFile::ImportStatement& import_stmt : lex.cur_file()->imports) {
+      if (import_stmt.imported_file == declared_in) {
+        has_import = true;
+      }
+    }
+    if (!has_import) {
+      lex.error("Using a non-imported symbol `" + used_sym->name() + "`. Forgot to import \"" + declared_in->rel_filename + "\"?");
+    }
+  }
 }
 
 // parse ( E { , E } ) | () | [ E { , E } ] | [] | id | num | _
@@ -672,6 +687,7 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
       return res;
     }
     if (sym && dynamic_cast<SymValGlobVar*>(sym->value)) {
+      check_import_exists_when_using_sym(lex, sym);
       auto val = dynamic_cast<SymValGlobVar*>(sym->value);
       Expr* res = new Expr{Expr::_GlobVar, lex.cur_location()};
       res->e_type = val->get_type();
@@ -681,6 +697,7 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
       return res;
     }
     if (sym && dynamic_cast<SymValConst*>(sym->value)) {
+      check_import_exists_when_using_sym(lex, sym);
       auto val = dynamic_cast<SymValConst*>(sym->value);
       Expr* res = new Expr{Expr::_None, lex.cur_location()};
       res->flags = Expr::_IsRvalue;
@@ -699,6 +716,9 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
       }
       lex.next();
       return res;
+    }
+    if (sym && dynamic_cast<SymValFunc*>(sym->value)) {
+      check_import_exists_when_using_sym(lex, sym);
     }
     bool auto_apply = false;
     Expr* res = new Expr{Expr::_Var, lex.cur_location()};
@@ -796,7 +816,7 @@ Expr* parse_expr80(Lexer& lex, CodeBlob& code, bool nv) {
     sym_idx_t name = lex.cur_sym_idx();
     auto sym = lookup_symbol(name);
     if (!sym || !dynamic_cast<SymValFunc*>(sym->value)) {
-      auto name1 = symbols.lookup(lex.cur_str().substr(1));
+      auto name1 = G.symbols.lookup(lex.cur_str().substr(1));
       if (name1) {
         auto sym1 = lookup_symbol(name1);
         if (sym1 && dynamic_cast<SymValFunc*>(sym1->value)) {
@@ -806,8 +826,8 @@ Expr* parse_expr80(Lexer& lex, CodeBlob& code, bool nv) {
       }
     }
     check_global_func(lex, name);
-    if (verbosity >= 2) {
-      std::cerr << "using symbol `" << symbols.get_name(name) << "` for method call of " << lex.cur_str() << std::endl;
+    if (G.is_verbosity(2)) {
+      std::cerr << "using symbol `" << G.symbols.get_name(name) << "` for method call of " << lex.cur_str() << std::endl;
     }
     sym = lookup_symbol(name);
     SymValFunc* val = sym ? dynamic_cast<SymValFunc*>(sym->value) : nullptr;
@@ -842,7 +862,7 @@ Expr* parse_expr80(Lexer& lex, CodeBlob& code, bool nv) {
 Expr* parse_expr75(Lexer& lex, CodeBlob& code, bool nv) {
   if (lex.tok() == tok_bitwise_not || lex.tok() == tok_minus || lex.tok() == tok_plus) {
     TokenType t = lex.tok();
-    sym_idx_t name = symbols.lookup_add(lex.cur_str_std_string() + "_");
+    sym_idx_t name = G.symbols.lookup_add(lex.cur_str_std_string() + "_");
     check_global_func(lex, name);
     SrcLocation loc{lex.cur_location()};
     lex.next();
@@ -886,7 +906,7 @@ Expr* parse_expr30(Lexer& lex, CodeBlob& code, bool nv) {
          lex.tok() == tok_divR || lex.tok() == tok_modC || lex.tok() == tok_modR) {
     res->chk_rvalue(lex);
     TokenType t = lex.tok();
-    sym_idx_t name = symbols.lookup_add(std::string{"_"} + lex.cur_str_std_string() + "_");
+    sym_idx_t name = G.symbols.lookup_add(std::string{"_"} + lex.cur_str_std_string() + "_");
     SrcLocation loc{lex.cur_location()};
     check_global_func(lex, name);
     lex.next();
@@ -907,7 +927,7 @@ Expr* parse_expr20(Lexer& lex, CodeBlob& code, bool nv) {
   while (lex.tok() == tok_minus || lex.tok() == tok_plus) {
     res->chk_rvalue(lex);
     TokenType t = lex.tok();
-    sym_idx_t name = symbols.lookup_add(std::string{"_"} + lex.cur_str_std_string() + "_");
+    sym_idx_t name = G.symbols.lookup_add(std::string{"_"} + lex.cur_str_std_string() + "_");
     check_global_func(lex, name);
     SrcLocation loc{lex.cur_location()};
     lex.next();
@@ -928,7 +948,7 @@ Expr* parse_expr17(Lexer& lex, CodeBlob& code, bool nv) {
   while (lex.tok() == tok_lshift || lex.tok() == tok_rshift || lex.tok() == tok_rshiftC || lex.tok() == tok_rshiftR) {
     res->chk_rvalue(lex);
     TokenType t = lex.tok();
-    sym_idx_t name = symbols.lookup_add(std::string{"_"} + lex.cur_str_std_string() + "_");
+    sym_idx_t name = G.symbols.lookup_add(std::string{"_"} + lex.cur_str_std_string() + "_");
     check_global_func(lex, name);
     SrcLocation loc{lex.cur_location()};
     lex.next();
@@ -951,7 +971,7 @@ Expr* parse_expr15(Lexer& lex, CodeBlob& code, bool nv) {
       lex.tok() == tok_neq || lex.tok() == tok_spaceship) {
     res->chk_rvalue(lex);
     TokenType t = lex.tok();
-    sym_idx_t name = symbols.lookup_add(std::string{"_"} + lex.cur_str_std_string() + "_");
+    sym_idx_t name = G.symbols.lookup_add(std::string{"_"} + lex.cur_str_std_string() + "_");
     check_global_func(lex, name);
     SrcLocation loc{lex.cur_location()};
     lex.next();
@@ -972,7 +992,7 @@ Expr* parse_expr14(Lexer& lex, CodeBlob& code, bool nv) {
   while (lex.tok() == tok_bitwise_and || lex.tok() == tok_bitwise_or || lex.tok() == tok_bitwise_xor) {
     res->chk_rvalue(lex);
     TokenType t = lex.tok();
-    sym_idx_t name = symbols.lookup_add(std::string{"_"} + lex.cur_str_std_string() + "_");
+    sym_idx_t name = G.symbols.lookup_add(std::string{"_"} + lex.cur_str_std_string() + "_");
     check_global_func(lex, name);
     SrcLocation loc{lex.cur_location()};
     lex.next();
@@ -1019,7 +1039,7 @@ Expr* parse_expr10(Lexer& lex, CodeBlob& code, bool nv) {
       t == tok_set_rshiftR || t == tok_set_bitwise_and || t == tok_set_bitwise_or || t == tok_set_bitwise_xor) {
     x->chk_lvalue(lex);
     x->chk_rvalue(lex);
-    sym_idx_t name = symbols.lookup_add(std::string{"^_"} + lex.cur_str_std_string() + "_");
+    sym_idx_t name = G.symbols.lookup_add(std::string{"^_"} + lex.cur_str_std_string() + "_");
     check_global_func(lex, name);
     SrcLocation loc{lex.cur_location()};
     lex.next();
@@ -1464,8 +1484,8 @@ std::vector<TypeExpr*> parse_type_var_list(Lexer& lex) {
       lex.error("free type identifier expected");
     }
     SrcLocation loc = lex.cur_location();
-    if (prohibited_var_names.count(symbols.get_name(lex.cur_sym_idx()))) {
-      throw ParseError{loc, PSTRING() << "symbol `" << symbols.get_name(lex.cur_sym_idx())
+    if (G.prohibited_var_names.count(G.symbols.get_name(lex.cur_sym_idx()))) {
+      throw ParseError{loc, PSTRING() << "symbol `" << G.symbols.get_name(lex.cur_sym_idx())
                                            << "` cannot be redefined as a variable"};
     }
     SymDef* new_sym_def = define_symbol(lex.cur_sym_idx(), true, loc);
@@ -1582,7 +1602,7 @@ void detect_if_function_just_wraps_another(SymValCodeFunc* v_current, const td::
 
   // ok, f_current is a wrapper
   v_current->flags |= SymValFunc::flagWrapsAnotherF;
-  if (verbosity >= 2) {
+  if (G.is_verbosity(2)) {
     std::cerr << function_name << " -> " << f_called->name() << std::endl;
   }
 }
@@ -1658,7 +1678,7 @@ void parse_func_def(Lexer& lex) {
   if (is_get_method) {
     tolk_assert(method_id.is_null());
     method_id = calculate_method_id_by_func_name(func_name);
-    for (const SymDef* other : glob_get_methods) {
+    for (const SymDef* other : G.glob_get_methods) {
       if (!td::cmp(dynamic_cast<const SymValFunc*>(other->value)->method_id, method_id)) {
         lex.error(PSTRING() << "GET methods hash collision: `" << other->name() << "` and `" + func_name + "` produce the same hash. Consider renaming one of these functions.");
       }
@@ -1667,7 +1687,7 @@ void parse_func_def(Lexer& lex) {
   TypeExpr* func_type = TypeExpr::new_map(extract_total_arg_type(arg_list), ret_type);
   func_type = compute_type_closure(func_type, type_vars);
   if (lex.tok() == tok_builtin) {
-    const SymDef* builtin_func = lookup_symbol(symbols.lookup(func_name));
+    const SymDef* builtin_func = lookup_symbol(G.symbols.lookup(func_name));
     const SymValFunc* func_val = builtin_func ? dynamic_cast<SymValFunc*>(builtin_func->value) : nullptr;
     if (!func_val || !func_val->is_builtin()) {
       lex.error("`builtin` used for non-builtin function");
@@ -1686,7 +1706,7 @@ void parse_func_def(Lexer& lex) {
   if (lex.tok() != tok_semicolon && lex.tok() != tok_opbrace && lex.tok() != tok_asm) {
     lex.expect(tok_opbrace, "function body block");
   }
-  if (verbosity >= 1) {
+  if (G.is_verbosity(1)) {
     std::cerr << "function " << func_name << " : " << func_type << std::endl;
   }
   SymDef* func_sym = define_global_symbol(func_sym_idx, 0, loc);
@@ -1783,9 +1803,9 @@ void parse_func_def(Lexer& lex) {
       lex.error("cannot set unknown function `" + func_name + "` as a get method");
     }
     val->flags |= SymValFunc::flagGetMethod;
-    glob_get_methods.push_back(func_sym);
+    G.glob_get_methods.push_back(func_sym);
   }
-  if (verbosity >= 1) {
+  if (G.is_verbosity(1)) {
     std::cerr << "new type of function " << func_name << " : " << func_type << std::endl;
   }
   close_scope(lex.cur_location());
@@ -1876,12 +1896,12 @@ void parse_pragma(Lexer& lex) {
     if (!match) {
       throw ParseError(loc, std::string("Tolk version ") + tolk_version + " does not satisfy this condition");
     }
-  } else if (pragma_name == pragma_allow_post_modification.name()) {
-    pragma_allow_post_modification.enable(loc);
-  } else if (pragma_name == pragma_compute_asm_ltr.name()) {
-    pragma_compute_asm_ltr.enable(loc);
-  } else if (pragma_name == pragma_remove_unused_functions.name()) {
-    pragma_remove_unused_functions.enable(loc);
+  } else if (pragma_name == G.pragma_allow_post_modification.name()) {
+    G.pragma_allow_post_modification.enable(loc);
+  } else if (pragma_name == G.pragma_compute_asm_ltr.name()) {
+    G.pragma_compute_asm_ltr.enable(loc);
+  } else if (pragma_name == G.pragma_remove_unused_functions.name()) {
+    G.pragma_remove_unused_functions.enable(loc);
   } else {
     lex.error("unknown pragma name");
   }
@@ -1889,28 +1909,42 @@ void parse_pragma(Lexer& lex) {
   lex.expect(tok_semicolon, "';'");
 }
 
-AllRegisteredSrcFiles all_src_files;
-std::string stdlib_filename;
-
-void parse_include(Lexer& lex, const SrcFile* parent_file) {
+void parse_include(Lexer& lex, SrcFile* parent_file) {
   SrcLocation loc = lex.cur_location();
   lex.expect(tok_include, "#include");
   if (lex.tok() != tok_string_const) {
     lex.expect(tok_string_const, "source file name");
   }
-  std::string val = static_cast<std::string>(lex.cur_str());
-  std::string parent_dir = parent_file->rel_filename;
-  if (size_t rc = parent_dir.rfind('/'); rc != std::string::npos) {
-    val = parent_dir.substr(0, rc + 1) + val;
+  std::string rel_filename = lex.cur_str_std_string();
+  if (rel_filename.empty()) {
+    lex.error("imported file name is an empty string");
+  }
+  if (size_t rc = parent_file->rel_filename.rfind('/'); rc != std::string::npos) {
+    rel_filename = parent_file->rel_filename.substr(0, rc + 1) + rel_filename;
   }
   lex.next();
   lex.expect(tok_semicolon, "';'");
-  if (!parse_source_file(val.c_str(), loc)) {
-    lex.error(std::string{"failed parsing included file `"} + val + "`");
+
+  td::Result<SrcFile*> locate_res = locate_source_file(rel_filename);
+  if (locate_res.is_error()) {
+    throw ParseError(loc, "Failed to import: " + locate_res.move_as_error().message().str());
+  }
+
+  SrcFile* imported_file = locate_res.move_as_ok();
+  parent_file->imports.emplace_back(SrcFile::ImportStatement{imported_file});
+  if (!imported_file->was_parsed) {
+    parse_source_file(imported_file);
   }
 }
 
-void parse_source(const SrcFile* file) {
+// this function either throws (on any error) or returns nothing meaning success (filling global variables)
+void parse_source_file(SrcFile* file) {
+  if (!file->is_stdlib_file()) {
+    G.generated_from += file->rel_filename;
+    G.generated_from += ", ";
+  }
+  file->was_parsed = true;
+
   Lexer lex(file);
   while (!lex.is_eof()) {
     if (lex.tok() == tok_pragma) {
@@ -1927,37 +1961,23 @@ void parse_source(const SrcFile* file) {
   }
 }
 
-bool parse_source_file(const char* filename, SrcLocation loc_included_from) {
-  const SrcFile* included_from = loc_included_from.get_src_file();
-  if (!filename || !*filename) {
-    throw ParseError(loc_included_from, "source file name is an empty string");
+td::Result<SrcFile*> locate_source_file(const std::string& rel_filename) {
+  td::Result<std::string> path = G.settings.read_callback(CompilerSettings::FsReadCallbackKind::Realpath, rel_filename.c_str());
+  if (path.is_error()) {
+    return path.move_as_error();
   }
 
-  auto path_res = read_callback(ReadCallback::Kind::Realpath, filename);
-  if (path_res.is_error()) {
-    auto error = path_res.move_as_error();
-    throw ParseError(loc_included_from, error.message().c_str());
-    return false;
+  std::string abs_filename = path.move_as_ok();
+  if (SrcFile* file = G.all_src_files.find_file(abs_filename)) {
+    return file; // file was already parsed (imported from somewhere else)
   }
-  std::string abs_filename = path_res.move_as_ok();
-  const SrcFile* file = all_src_files.find_file(abs_filename);
-  if (file != nullptr) {
-    if (verbosity >= 2) {
-      std::cerr << "skipping file " << abs_filename << " because it was already parsed" << '\n';
-    }
-    return true;
-  }
-  if (included_from) {
-    generated_from += std::string{"incl:"};
-  }
-  generated_from += std::string{"`"} + filename + "` ";
-  td::Result<std::string> text = read_callback(ReadCallback::Kind::ReadFile, abs_filename.c_str());
+
+  td::Result<std::string> text = G.settings.read_callback(CompilerSettings::FsReadCallbackKind::ReadFile, abs_filename.c_str());
   if (text.is_error()) {
-    throw ParseError(loc_included_from, text.move_as_error().message().str());
+    return text.move_as_error();
   }
-  file = all_src_files.register_file(filename, abs_filename, text.move_as_ok(), included_from);
-  parse_source(file);
-  return true;
+
+  return G.all_src_files.register_file(rel_filename, abs_filename, text.move_as_ok());
 }
 
 }  // namespace tolk

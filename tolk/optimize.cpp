@@ -31,7 +31,7 @@ void Optimizer::set_code(AsmOpConsList code) {
 
 void Optimizer::unpack() {
   int i = 0, j = 0;
-  for (AsmOpCons *p = code_.get(); p && i < n; p = p->cdr.get(), ++j) {
+  for (AsmOpCons *p = code_.get(); p && i < optimize_depth; p = p->cdr.get(), ++j) {
     if (p->car->is_very_custom()) {
       break;
     }
@@ -59,7 +59,7 @@ void Optimizer::apply() {
   if (!p_ && !q_) {
     return;
   }
-  tolk_assert(p_ > 0 && p_ <= l_ && q_ >= 0 && q_ <= n && l_ <= n);
+  tolk_assert(p_ > 0 && p_ <= l_ && q_ >= 0 && q_ <= optimize_depth && l_ <= optimize_depth);
   for (int i = p_; i < l_; i++) {
     tolk_assert(op_[i]);
     op_cons_[i]->car = std::move(op_[i]);

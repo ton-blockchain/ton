@@ -15,17 +15,15 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include "src-file.h"
+#include "compiler-state.h"
 #include <iostream>
 
 namespace tolk {
 
-extern AllRegisteredSrcFiles all_src_files;
-extern std::string stdlib_filename;
-
 static_assert(sizeof(SrcLocation) == 8);
 
-const SrcFile* AllRegisteredSrcFiles::find_file(int file_id) const {
-  for (const SrcFile* file : all_src_files) {
+SrcFile* AllRegisteredSrcFiles::find_file(int file_id) const {
+  for (SrcFile* file : all_src_files) {
     if (file->file_id == file_id) {
       return file;
     }
@@ -33,8 +31,8 @@ const SrcFile* AllRegisteredSrcFiles::find_file(int file_id) const {
   return nullptr;
 }
 
-const SrcFile* AllRegisteredSrcFiles::find_file(const std::string& abs_filename) const {
-  for (const SrcFile* file : all_src_files) {
+SrcFile* AllRegisteredSrcFiles::find_file(const std::string& abs_filename) const {
+  for (SrcFile* file : all_src_files) {
     if (file->abs_filename == abs_filename) {
       return file;
     }
@@ -42,16 +40,12 @@ const SrcFile* AllRegisteredSrcFiles::find_file(const std::string& abs_filename)
   return nullptr;
 }
 
-const SrcFile* AllRegisteredSrcFiles::register_file(const std::string& rel_filename, const std::string& abs_filename, std::string&& text, const SrcFile* included_from) {
-  SrcFile* created = new SrcFile(++last_file_id, rel_filename, abs_filename, std::move(text), included_from);
+SrcFile* AllRegisteredSrcFiles::register_file(const std::string& rel_filename, const std::string& abs_filename, std::string&& text) {
+  SrcFile* created = new SrcFile(++last_file_id, rel_filename, abs_filename, std::move(text));
   all_src_files.push_back(created);
   return created;
 }
 
-
-bool SrcFile::is_entrypoint_file() const {
-  return file_id == (stdlib_filename.empty() ? 0 : 1);
-}
 
 bool SrcFile::is_offset_valid(int offset) const {
   return offset >= 0 && offset < static_cast<int>(text.size());
@@ -98,7 +92,7 @@ std::ostream& operator<<(std::ostream& os, const Fatal& fatal) {
 }
 
 const SrcFile* SrcLocation::get_src_file() const {
-  return all_src_files.find_file(file_id);
+  return G.all_src_files.find_file(file_id);
 }
 
 void SrcLocation::show(std::ostream& os) const {

@@ -15,6 +15,7 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include "lexer.h"
+#include "compiler-state.h"
 #include "symtable.h"
 #include <cassert>
 
@@ -426,7 +427,7 @@ struct ChunkIdentifierOrKeyword final : ChunkLexerBase {
     if (TokenType kw_tok = maybe_keyword(str_val)) {
       lex->add_token(kw_tok, str_val);
     } else {
-      symbols.lookup_add(static_cast<std::string>(str_val));
+      G.symbols.lookup_add(static_cast<std::string>(str_val));
       lex->add_token(tok_identifier, str_val);
     }
     return true;
@@ -452,7 +453,7 @@ struct ChunkIdentifierInBackticks final : ChunkLexerBase {
 
     std::string_view str_val(str_begin + 1, lex->c_str() - str_begin - 1);
     lex->skip_chars(1);
-    symbols.lookup_add(static_cast<std::string>(str_val));
+    G.symbols.lookup_add(static_cast<std::string>(str_val));
     lex->add_token(tok_identifier, str_val);
     return true;
   }
@@ -611,7 +612,7 @@ void Lexer::next_special(TokenType parse_next_as, const char* str_expected) {
 
 int Lexer::cur_sym_idx() const {
   assert(tok() == tok_identifier);
-  return symbols.lookup_add(cur_str_std_string());
+  return G.symbols.lookup_add(cur_str_std_string());
 }
 
 void Lexer::error(const std::string& err_msg) const {

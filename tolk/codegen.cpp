@@ -15,6 +15,7 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include "tolk.h"
+#include "compiler-state.h"
 
 namespace tolk {
 
@@ -324,7 +325,7 @@ bool Op::generate_code_step(Stack& stack) {
         if (!used || disabled()) {
           return true;
         }
-        std::string name = symbols.get_name(fun_ref->sym_idx);
+        std::string name = G.symbols.get_name(fun_ref->sym_idx);
         stack.o << AsmOp::Custom(name + " GETGLOB", 0, 1);
         if (left.size() != 1) {
           tolk_assert(left.size() <= 15);
@@ -359,7 +360,7 @@ bool Op::generate_code_step(Stack& stack) {
           }
           func->compile(stack.o, res, args0, where);  // compile res := f (args0)
         } else {
-          std::string name = symbols.get_name(fun_ref->sym_idx);
+          std::string name = G.symbols.get_name(fun_ref->sym_idx);
           stack.o << AsmOp::Custom(name + " CALLDICT", (int)right.size(), (int)left.size());
         }
         stack.o.undent();
@@ -497,7 +498,7 @@ bool Op::generate_code_step(Stack& stack) {
       } else {
         auto fv = dynamic_cast<const SymValCodeFunc*>(fun_ref->value);
         // todo can be fv == nullptr?
-        std::string name = symbols.get_name(fun_ref->sym_idx);
+        std::string name = G.symbols.get_name(fun_ref->sym_idx);
         if (fv && (fv->is_inline() || fv->is_inline_ref())) {
           stack.o << AsmOp::Custom(name + " INLINECALLDICT", (int)right.size(), (int)left.size());
         } else if (fv && fv->code && fv->code->require_callxargs) {
@@ -534,7 +535,7 @@ bool Op::generate_code_step(Stack& stack) {
         stack.o << AsmOp::Tuple((int)right.size());
       }
       if (!right.empty()) {
-        std::string name = symbols.get_name(fun_ref->sym_idx);
+        std::string name = G.symbols.get_name(fun_ref->sym_idx);
         stack.o << AsmOp::Custom(name + " SETGLOB", 1, 0);
       }
       stack.s.resize(k);
@@ -894,14 +895,14 @@ void CodeBlob::generate_code(AsmOpList& out, int mode) {
   }
   ops->generate_code_all(stack);
   stack.apply_wrappers(require_callxargs && (mode & Stack::_InlineAny) ? args : -1);
-  if (!(mode & Stack::_DisableOpt)) {
-    optimize_code(out);
-  }
 }
 
 void CodeBlob::generate_code(std::ostream& os, int mode, int indent) {
   AsmOpList out_list(indent, &vars);
   generate_code(out_list, mode);
+  if (G.settings.optimization_level >= 2) {
+    optimize_code(out_list);
+  }
   out_list.out(os, mode);
 }
 

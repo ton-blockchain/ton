@@ -14,8 +14,8 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include <numeric>
 #include "tolk.h"
+#include "compiler-state.h"
 
 using namespace std::literals::string_literals;
 
@@ -122,7 +122,7 @@ bool Expr::deduce_type(const Lexer& lex) {
       } catch (UnifyError& ue) {
         std::ostringstream os;
         os << "cannot implicitly assign an expression of type " << args[1]->e_type
-           << " to a variable or pattern of type " << rhs_type << " in modifying method `" << symbols.get_name(val)
+           << " to a variable or pattern of type " << rhs_type << " in modifying method `" << G.symbols.get_name(val)
            << "` : " << ue;
         lex.error(os.str());
       }
@@ -197,14 +197,14 @@ int Expr::predefine_vars() {
     case _Var:
       if (!sym) {
         tolk_assert(val < 0 && here.is_defined());
-        if (prohibited_var_names.count(symbols.get_name(~val))) {
+        if (G.prohibited_var_names.count(G.symbols.get_name(~val))) {
           throw ParseError{
-              here, PSTRING() << "symbol `" << symbols.get_name(~val) << "` cannot be redefined as a variable"};
+              here, PSTRING() << "symbol `" << G.symbols.get_name(~val) << "` cannot be redefined as a variable"};
         }
         sym = define_symbol(~val, false, here);
         // std::cerr << "predefining variable " << symbols.get_name(~val) << std::endl;
         if (!sym) {
-          throw ParseError{here, std::string{"redefined variable `"} + symbols.get_name(~val) + "`"};
+          throw ParseError{here, std::string{"redefined variable `"} + G.symbols.get_name(~val) + "`"};
         }
         sym->value = new SymVal{SymValKind::_Var, -1, e_type};
         return 1;

@@ -15,36 +15,22 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #pragma once
-#include <utility>
-#include <vector>
-#include <string>
-#include <set>
-#include <stack>
-#include <utility>
-#include <algorithm>
-#include <iostream>
-#include <functional>
-#include "common/refcnt.hpp"
-#include "common/bigint.hpp"
-#include "common/refint.h"
+
 #include "src-file.h"
 #include "lexer.h"
 #include "symtable.h"
+#include "crypto/common/refint.h"
 #include "td/utils/Status.h"
+#include <vector>
+#include <string>
+#include <stack>
+#include <iostream>
 
 #define tolk_assert(expr) \
   (bool(expr) ? void(0)   \
               : throw Fatal(PSTRING() << "Assertion failed at " << __FILE__ << ":" << __LINE__ << ": " << #expr))
 
 namespace tolk {
-
-extern int verbosity;
-extern bool op_rewrite_comments;
-extern std::string generated_from;
-
-constexpr int optimize_depth = 20;
-
-const std::string tolk_version{"0.4.5"};
 
 /*
  * 
@@ -199,8 +185,6 @@ struct UnifyError : std::exception {
 std::ostream& operator<<(std::ostream& os, const UnifyError& ue);
 
 void unify(TypeExpr*& te1, TypeExpr*& te2);
-
-// extern int TypeExpr::holes;
 
 /*
  * 
@@ -596,7 +580,7 @@ struct CodeBlob {
   CodeBlob(TypeExpr* ret = nullptr) : var_cnt(0), in_var_cnt(0), op_cnt(0), ret_type(ret), cur_ops(&ops) {
   }
   template <typename... Args>
-  Op& emplace_back(const Args&... args) {
+  Op& emplace_back(Args&&... args) {
     Op& res = *(*cur_ops = std::make_unique<Op>(args...));
     cur_ops = &(res.next);
     return res;
@@ -768,9 +752,6 @@ struct SymValConst : SymValBase {
   }
 };
 
-extern int glob_func_cnt, undef_func_cnt, glob_var_cnt;
-extern std::vector<SymDef*> glob_func, glob_vars, glob_get_methods;
-extern std::set<std::string> prohibited_var_names;
 
 /*
  * 
@@ -778,27 +759,11 @@ extern std::set<std::string> prohibited_var_names;
  * 
  */
 
-class ReadCallback {
-public:
-  /// Noncopyable.
-  ReadCallback(ReadCallback const&) = delete;
-  ReadCallback& operator=(ReadCallback const&) = delete;
-
-  enum class Kind {
-    Realpath,
-    ReadFile,
-  };
-
-  /// File reading or generic query callback.
-  using Callback = std::function<td::Result<std::string>(Kind, const char*)>;
-};
 
 // defined in parse-tolk.cpp
-void parse_source(const SrcFile* file);
-bool parse_source_file(const char* filename, SrcLocation loc_included_from);
+td::Result<SrcFile*> locate_source_file(const std::string& rel_filename);
+void parse_source_file(SrcFile* file);
 
-extern std::stack<SrcLocation> inclusion_locations;
-extern AllRegisteredSrcFiles all_src_files;
 
 /*
  * 
@@ -1359,8 +1324,6 @@ struct StackTransform {
   bool try_store(int x, int y);              // appends (x,y) to A
 };
 
-//extern const StackTransform StackTransform::rot, StackTransform::rot_rev;
-
 inline std::ostream& operator<<(std::ostream& os, const StackTransform& trans) {
   trans.show(os);
   return os;
@@ -1375,14 +1338,14 @@ bool apply_op(StackTransform& trans, const AsmOp& op);
  */
 
 struct Optimizer {
-  enum { n = optimize_depth };
+  static constexpr int optimize_depth = 20;
   AsmOpConsList code_;
   int l_{0}, l2_{0}, p_, pb_, q_, indent_;
   bool debug_{false};
-  std::unique_ptr<AsmOp> op_[n], oq_[n];
-  AsmOpCons* op_cons_[n];
-  int offs_[n];
-  StackTransform tr_[n];
+  std::unique_ptr<AsmOp> op_[optimize_depth], oq_[optimize_depth];
+  AsmOpCons* op_cons_[optimize_depth];
+  int offs_[optimize_depth];
+  StackTransform tr_[optimize_depth];
   int mode_{0};
   Optimizer() {
   }
@@ -1475,7 +1438,7 @@ struct Stack {
   StackLayoutExt s;
   AsmOpList& o;
   enum {
-    _StkCmt = 1, _CptStkCmt = 2, _DisableOpt = 4, _DisableOut = 128, _Shown = 256,
+    _StkCmt = 1, _CptStkCmt = 2, _DisableOut = 128, _Shown = 256,
     _InlineFunc = 512, _NeedRetAlt = 1024, _InlineAny = 2048,
     _ModeSave = _InlineFunc | _NeedRetAlt | _InlineAny,
     _Garbage = -0x10000
@@ -1640,33 +1603,6 @@ AsmOp push_const(td::RefInt256 x);
 void define_builtins();
 
 
-extern int verbosity, opt_level;
-extern bool stack_layout_comments;
-extern std::string generated_from, boc_output_filename;
-extern ReadCallback::Callback read_callback;
-
-td::Result<std::string> fs_read_callback(ReadCallback::Kind kind, const char* query);
-
-class GlobalPragma {
- public:
-  explicit GlobalPragma(std::string name) : name_(std::move(name)) {
-  }
-
-  const std::string& name() const {
-    return name_;
-  }
-  bool enabled() const {
-    return enabled_;
-  }
-  void enable(SrcLocation loc);
-  void always_on_and_deprecated(const char *deprecated_from_v);
-
- private:
-  std::string name_;
-  bool enabled_ = false;
-  const char *deprecated_from_v_ = nullptr;
-};
-extern GlobalPragma pragma_allow_post_modification, pragma_compute_asm_ltr, pragma_remove_unused_functions;
 
 /*
  *
@@ -1674,7 +1610,7 @@ extern GlobalPragma pragma_allow_post_modification, pragma_compute_asm_ltr, prag
  *
  */
 
-int tolk_proceed(const std::string &entrypoint_file_name, std::ostream &outs, std::ostream &errs);
+int tolk_proceed(const std::string &entrypoint_file_name);
 
 }  // namespace tolk
 

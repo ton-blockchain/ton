@@ -15,25 +15,12 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include "symtable.h"
+#include "compiler-state.h"
 #include <sstream>
 #include <cassert>
 
 namespace tolk {
 
-/*
- *
- *   SYMBOL VALUES (DECLARED)
- *
- */
-
-int scope_level;
-
-SymTable symbols;
-
-SymDef* sym_def[symbols.SIZE_PRIME + 1];
-SymDef* global_sym_def[symbols.SIZE_PRIME + 1];
-std::vector<std::pair<int, SymDef>> symbol_stack;
-std::vector<SrcLocation> scope_opened_at;
 
 Symbol::Symbol(std::string str, sym_idx_t idx) : str(std::move(str)), idx(idx) {
   subclass = this->str[0] == '.'   ? SymbolSubclass::dot_identifier
@@ -82,22 +69,26 @@ sym_idx_t SymTable::gen_lookup(std::string_view str, int mode, sym_idx_t idx) {
   }
 }
 
+std::string SymDef::name() const {
+  return G.symbols.get_name(sym_idx);
+}
+
 void open_scope(SrcLocation loc) {
-  ++scope_level;
-  scope_opened_at.push_back(loc);
+  ++G.scope_level;
+  G.scope_opened_at.push_back(loc);
 }
 
 void close_scope(SrcLocation loc) {
-  if (!scope_level) {
+  if (!G.scope_level) {
     throw Fatal{"cannot close the outer scope"};
   }
-  while (!symbol_stack.empty() && symbol_stack.back().first == scope_level) {
-    SymDef old_def = symbol_stack.back().second;
+  while (!G.symbol_stack.empty() && G.symbol_stack.back().first == G.scope_level) {
+    SymDef old_def = G.symbol_stack.back().second;
     auto idx = old_def.sym_idx;
-    symbol_stack.pop_back();
-    SymDef* cur_def = sym_def[idx];
+    G.symbol_stack.pop_back();
+    SymDef* cur_def = G.sym_def[idx];
     assert(cur_def);
-    assert(cur_def->level == scope_level && cur_def->sym_idx == idx);
+    assert(cur_def->level == G.scope_level && cur_def->sym_idx == idx);
     //std::cerr << "restoring local symbol `" << old_def.name << "` of level " << scope_level << " to its previous level " << old_def.level << std::endl;
     if (cur_def->value) {
       //std::cerr << "deleting value of symbol " << old_def.name << ":" << old_def.level << " at " << (const void*) it->second.value << std::endl;
@@ -105,26 +96,26 @@ void close_scope(SrcLocation loc) {
     }
     if (!old_def.level && !old_def.value) {
       delete cur_def;  // ??? keep the definition always?
-      sym_def[idx] = nullptr;
+      G.sym_def[idx] = nullptr;
     } else {
-      cur_def->value = std::move(old_def.value);
+      cur_def->value = old_def.value;
       cur_def->level = old_def.level;
     }
     old_def.value = nullptr;
   }
-  --scope_level;
-  scope_opened_at.pop_back();
+  --G.scope_level;
+  G.scope_opened_at.pop_back();
 }
 
 SymDef* lookup_symbol(sym_idx_t idx) {
   if (!idx) {
     return nullptr;
   }
-  if (sym_def[idx]) {
-    return sym_def[idx];
+  if (G.sym_def[idx]) {
+    return G.sym_def[idx];
   }
-  if (global_sym_def[idx]) {
-    return global_sym_def[idx];
+  if (G.global_sym_def[idx]) {
+    return G.global_sym_def[idx];
   }
   return nullptr;
 }
@@ -133,11 +124,11 @@ SymDef* define_global_symbol(sym_idx_t name_idx, bool force_new, SrcLocation loc
   if (!name_idx) {
     return nullptr;
   }
-  auto found = global_sym_def[name_idx];
+  auto found = G.global_sym_def[name_idx];
   if (found) {
     return force_new && found->value ? nullptr : found;
   }
-  found = global_sym_def[name_idx] = new SymDef(0, name_idx, loc);
+  found = G.global_sym_def[name_idx] = new SymDef(0, name_idx, loc);
 #ifdef TOLK_DEBUG
   found->sym_name = found->name();
 #endif
@@ -148,26 +139,26 @@ SymDef* define_symbol(sym_idx_t name_idx, bool force_new, SrcLocation loc) {
   if (!name_idx) {
     return nullptr;
   }
-  if (!scope_level) {
+  if (!G.scope_level) {
     return define_global_symbol(name_idx, force_new, loc);
   }
-  auto found = sym_def[name_idx];
+  auto found = G.sym_def[name_idx];
   if (found) {
-    if (found->level < scope_level) {
-      symbol_stack.push_back(std::make_pair(scope_level, *found));
-      found->level = scope_level;
+    if (found->level < G.scope_level) {
+      G.symbol_stack.emplace_back(G.scope_level, *found);
+      found->level = G.scope_level;
     } else if (found->value && force_new) {
       return nullptr;
     }
-    found->value = 0;
+    found->value = nullptr;
     found->loc = loc;
     return found;
   }
-  found = sym_def[name_idx] = new SymDef(scope_level, name_idx, loc);
-  symbol_stack.push_back(std::make_pair(scope_level, SymDef{0, name_idx, loc}));
+  found = G.sym_def[name_idx] = new SymDef(G.scope_level, name_idx, loc);
+  G.symbol_stack.emplace_back(G.scope_level, SymDef{0, name_idx, loc});
 #ifdef TOLK_DEBUG
   found->sym_name = found->name();
-  symbol_stack.back().second.sym_name = found->name();
+  G.symbol_stack.back().second.sym_name = found->name();
 #endif
   return found;
 }

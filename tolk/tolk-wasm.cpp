@@ -24,28 +24,34 @@
     from all source files in the program, then also delete it here.
 */
 #include "tolk.h"
+#include "compiler-state.h"
 #include "git.h"
 #include "td/utils/JsonBuilder.h"
 #include "fift/utils.h"
-#include "td/utils/base64.h"
 #include "td/utils/Status.h"
 #include <sstream>
-#include <iomanip>
+
+using namespace tolk;
 
 td::Result<std::string> compile_internal(char *config_json) {
   TRY_RESULT(input_json, td::json_decode(td::MutableSlice(config_json)))
   td::JsonObject& config = input_json.get_object();
 
   TRY_RESULT(opt_level, td::get_json_object_int_field(config, "optimizationLevel", true, 2));
+  TRY_RESULT(stdlib_tolk, td::get_json_object_string_field(config, "stdlibLocation", false));
   TRY_RESULT(stack_comments, td::get_json_object_bool_field(config, "withStackComments", true, false));
   TRY_RESULT(entrypoint_file_name, td::get_json_object_string_field(config, "entrypointFileName", false));
 
-  tolk::opt_level = std::max(0, opt_level);
-  tolk::verbosity = 0;
-  tolk::stack_layout_comments = stack_comments;
+  G.settings.verbosity = 0;
+  G.settings.optimization_level = std::max(0, opt_level);
+  G.settings.stdlib_filename = stdlib_tolk;
+  G.settings.stack_layout_comments = stack_comments;
+  G.settings.entrypoint_filename = entrypoint_file_name;
 
   std::ostringstream outs, errs;
-  int tolk_res = tolk::tolk_proceed(entrypoint_file_name, outs, errs);
+  std::cout.rdbuf(outs.rdbuf());
+  std::cerr.rdbuf(errs.rdbuf());
+  int tolk_res = tolk::tolk_proceed(entrypoint_file_name);
   if (tolk_res != 0) {
     return td::Status::Error("Tolk compilation error: " + errs.str());
   }
@@ -58,6 +64,7 @@ td::Result<std::string> compile_internal(char *config_json) {
   obj("fiftCode", fift_res.fiftCode);
   obj("codeBoc64", fift_res.codeBoc64);
   obj("codeHashHex", fift_res.codeHashHex);
+  obj("stderr", errs.str().c_str());
   obj.leave();
 
   return result_json.string_builder().as_cslice().str();
@@ -68,11 +75,11 @@ td::Result<std::string> compile_internal(char *config_json) {
 /// The implementor must use malloc() for them and use free() after tolk_compile returns.
 typedef void (*CStyleReadFileCallback)(int kind, char const* data, char** destContents, char** destError);
 
-tolk::ReadCallback::Callback wrapReadCallback(CStyleReadFileCallback _readCallback)
+CompilerSettings::FsReadCallback wrapReadCallback(CStyleReadFileCallback _readCallback)
 {
-  tolk::ReadCallback::Callback readCallback;
+  CompilerSettings::FsReadCallback readCallback;
   if (_readCallback) {
-    readCallback = [=](tolk::ReadCallback::Kind kind, char const* data) -> td::Result<std::string> {
+    readCallback = [=](CompilerSettings::FsReadCallbackKind kind, char const* data) -> td::Result<std::string> {
       char* destContents = nullptr;
       char* destError = nullptr;
       _readCallback(static_cast<int>(kind), data, &destContents, &destError);
@@ -93,7 +100,7 @@ extern "C" {
 const char* version() {
   auto version_json = td::JsonBuilder();
   auto obj = version_json.enter_object();
-  obj("tolkVersion", tolk::tolk_version);
+  obj("tolkVersion", tolk_version);
   obj("tolkFiftLibCommitHash", GitMetadata::CommitSHA1());
   obj("tolkFiftLibCommitDate", GitMetadata::CommitDate());
   obj.leave();
@@ -101,13 +108,9 @@ const char* version() {
 }
 
 const char *tolk_compile(char *config_json, CStyleReadFileCallback callback) {
-  if (callback) {
-    tolk::read_callback = wrapReadCallback(callback);
-  } else {
-    tolk::read_callback = tolk::fs_read_callback;
-  }
+  G.settings.read_callback = wrapReadCallback(callback);
 
-  auto res = compile_internal(config_json);
+  td::Result<std::string> res = compile_internal(config_json);
 
   if (res.is_error()) {
     auto result = res.move_as_error();

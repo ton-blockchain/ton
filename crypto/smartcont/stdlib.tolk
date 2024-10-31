@@ -1,6 +1,7 @@
 // Standard library for Tolk
 // (initially copied from stdlib.fc)
 //
+#pragma version >=0.5;
 
 /*
     This file is part of TON Tolk Standard Library.
@@ -405,6 +406,7 @@ cell preload_dict(slice s) pure asm "PLDDICT";
 
 /// Loads a dictionary as [load_dict], but returns only the remainder of the slice.
 slice skip_dict(slice s) pure asm "SKIPDICT";
+(slice, ()) ~skip_dict(slice s) pure asm "SKIPDICT";
 
 /// Loads (Maybe ^Cell) from `slice` [s].
 /// In other words loads 1 bit and if it is true
@@ -661,6 +663,7 @@ int dict_empty?(cell c) pure asm "DICTEMPTY";
 cell config_param(int x) pure asm "CONFIGOPTPARAM";
 /// Checks whether c is a null. Note, that Tolk also has polymorphic null? built-in.
 int cell_null?(cell c) pure asm "ISNULL";
+int builder_null?(builder b) asm "ISNULL";
 
 /// Creates an output action which would reserve exactly amount nanotoncoins (if mode = 0), at most amount nanotoncoins (if mode = 2), or all but amount nanotoncoins (if mode = 1 or mode = 3), from the remaining balance of the account. It is roughly equivalent to creating an outbound message carrying amount nanotoncoins (or b − amount nanotoncoins, where b is the remaining balance) to oneself, so that the subsequent output actions would not be able to spend more money than the remainder. Bit +2 in mode means that the external action does not fail if the specified amount cannot be reserved; instead, all remaining balance is reserved. Bit +8 in mode means `amount <- -amount` before performing any further actions. Bit +4 in mode means that amount is increased by the original balance of the current account (before the compute phase), including all extra currencies, before performing any other checks and actions. Currently, amount must be a non-negative integer, and mode must be in the range 0..15.
 () raw_reserve(int amount, int mode) asm "RAWRESERVE";

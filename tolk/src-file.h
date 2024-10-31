@@ -29,23 +29,29 @@ struct SrcFile {
     std::string_view line_str;
   };
 
-  int file_id;
-  std::string rel_filename;
-  std::string abs_filename;
-  std::string text;
-  const SrcFile* included_from{nullptr};
+  struct ImportStatement {
+    const SrcFile* imported_file;
+  };
 
-  SrcFile(int file_id, std::string rel_filename, std::string abs_filename, std::string&& text, const SrcFile* included_from)
+  int file_id;                          // an incremental counter through all parsed files
+  std::string rel_filename;             // relative to cwd
+  std::string abs_filename;             // absolute from root
+  std::string text;                     // file contents loaded into memory, Token::str_val points into it
+  bool was_parsed = false;              // to prevent double parsing when a file is imported multiple times
+  std::vector<ImportStatement> imports; // to check strictness (can't use a symbol without importing its file)
+
+  SrcFile(int file_id, std::string rel_filename, std::string abs_filename, std::string&& text)
     : file_id(file_id)
     , rel_filename(std::move(rel_filename))
     , abs_filename(std::move(abs_filename))
-    , text(std::move(text))
-    , included_from(included_from) { }
+    , text(std::move(text)) { }
 
   SrcFile(const SrcFile& other) = delete;
   SrcFile &operator=(const SrcFile&) = delete;
 
-  bool is_entrypoint_file() const;
+  bool is_stdlib_file() const { return file_id == 0; /* stdlib always exists, has no imports and parsed the first */ }
+  bool is_entrypoint_file() const { return file_id == 1; /* after stdlib, the entrypoint file is parsed */ }
+
   bool is_offset_valid(int offset) const;
   SrcPosition convert_offset(int offset) const;
 };
@@ -55,11 +61,47 @@ class AllRegisteredSrcFiles {
   int last_file_id = -1;
 
 public:
-  const SrcFile *find_file(int file_id) const;
-  const SrcFile* find_file(const std::string& abs_filename) const;
-  const SrcFile* register_file(const std::string& rel_filename, const std::string& abs_filename, std::string&& text, const SrcFile* included_from);
+  SrcFile *find_file(int file_id) const;
+  SrcFile* find_file(const std::string& abs_filename) const;
+  SrcFile* register_file(const std::string& rel_filename, const std::string& abs_filename, std::string&& text);
   const std::vector<SrcFile*>& get_all_files() const { return all_src_files; }
 };
+
+// SrcLocation points to a location (line, column) in some loaded .tolk source SrcFile.
+// Note, that instead of storing src_file, line_no, etc., only 2 ints are stored.
+// The purpose is: sizeof(SrcLocation) == 8, so it's just passed/stored without pointers/refs, just like int64_t.
+// When decoding SrcLocation into human-readable format, it's converted to SrcFile::SrcPosition via offset.
+class SrcLocation {
+  friend class Lexer;
+
+  int file_id = -1;       // = SrcFile::file_id (note, that get_src_file() does linear search)
+  int char_offset = -1;   // offset from SrcFile::text
+
+public:
+
+  SrcLocation() = default;
+  explicit SrcLocation(const SrcFile* src_file) : file_id(src_file->file_id) {
+  }
+
+  bool is_defined() const { return file_id != -1; }
+  const SrcFile* get_src_file() const;
+
+  // similar to `this->get_src_file() == symbol->get_src_file() || symbol->get_src_file()->is_stdlib()`
+  // (but effectively, avoiding linear search)
+  bool is_symbol_from_same_or_builtin_file(SrcLocation symbol_loc) const {
+    return file_id == symbol_loc.file_id || symbol_loc.file_id < 1;
+  }
+
+  void show(std::ostream& os) const;
+  void show_context(std::ostream& os) const;
+
+  void show_general_error(std::ostream& os, const std::string& message, const std::string& err_type) const;
+  void show_note(const std::string& err_msg) const;
+  void show_warning(const std::string& err_msg) const;
+  void show_error(const std::string& err_msg) const;
+};
+
+std::ostream& operator<<(std::ostream& os, SrcLocation loc);
 
 struct Fatal final : std::exception {
   std::string message;
@@ -72,36 +114,6 @@ struct Fatal final : std::exception {
 };
 
 std::ostream& operator<<(std::ostream& os, const Fatal& fatal);
-
-// SrcLocation points to a location (line, column) in some loaded .tolk source SrcFile.
-// Note, that instead of storing src_file, line_no, etc., only 2 ints are stored.
-// The purpose is: sizeof(SrcLocation) == 8, so it's just passed/stored without pointers/refs, just like int64_t.
-// When decoding SrcLocation into human-readable format, it's converted to SrcFile::SrcPosition via offset.
-class SrcLocation {
-  friend class Lexer;
-
-  int file_id = -1;       // file_id from AllRegisteredSrcFiles
-  int char_offset = -1;   // offset from SrcFile::text
-
-public:
-
-  SrcLocation() = default;
-  explicit SrcLocation(const SrcFile* src_file) : file_id(src_file->file_id) {
-  }
-
-  bool is_defined() const { return file_id != -1; }
-  const SrcFile* get_src_file() const;
-
-  void show(std::ostream& os) const;
-  void show_context(std::ostream& os) const;
-
-  void show_general_error(std::ostream& os, const std::string& message, const std::string& err_type) const;
-  void show_note(const std::string& err_msg) const;
-  void show_warning(const std::string& err_msg) const;
-  void show_error(const std::string& err_msg) const;
-};
-
-std::ostream& operator<<(std::ostream& os, SrcLocation loc);
 
 struct ParseError : std::exception {
   SrcLocation where;

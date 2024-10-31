@@ -15,6 +15,7 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include "tolk.h"
+#include "compiler-state.h"
 
 namespace tolk {
 
@@ -59,7 +60,7 @@ void TmpVar::dump(std::ostream& os) const {
 
 void TmpVar::show(std::ostream& os, int omit_idx) const {
   if (cls & _Named) {
-    os << symbols.get_name(name);
+    os << G.symbols.get_name(name);
     if (omit_idx && (omit_idx >= 2 || (cls & _UniqueName))) {
       return;
     }

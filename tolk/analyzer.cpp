@@ -15,6 +15,7 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include "tolk.h"
+#include "compiler-state.h"
 
 namespace tolk {
 
@@ -768,7 +769,7 @@ VarDescrList Op::fwd_analyze(VarDescrList values) {
       tolk_assert(left.size() == right.size());
       for (std::size_t i = 0; i < right.size(); i++) {
         const VarDescr* ov = values[right[i]];
-        if (!ov && verbosity >= 5) {
+        if (!ov && G.is_verbosity(5)) {
           std::cerr << "FATAL: error in assignment at right component #" << i << " (no value for _" << right[i] << ")"
                     << std::endl;
           for (auto x : left) {
