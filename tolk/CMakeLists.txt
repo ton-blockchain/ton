@@ -24,6 +24,10 @@ target_link_libraries(tolk PUBLIC git ton_crypto)  # todo replace with ton_crypt
 if (WINGETOPT_FOUND)
   target_link_libraries_system(tolk wingetopt)
 endif ()
+if (${TOLK_DEBUG}) # -DTOLK_DEBUG=1 in CMake options => #define TOLK_DEBUG (for development purposes)
+  message(STATUS "TOLK_DEBUG is ON")
+  target_compile_definitions(tolk PRIVATE TOLK_DEBUG=1)
+endif()
 
 if (USE_EMSCRIPTEN)
   add_executable(tolkfiftlib tolk-wasm.cpp ${TOLK_SOURCE})

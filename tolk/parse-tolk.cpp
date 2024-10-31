@@ -48,6 +48,109 @@ inline bool is_special_ident(sym_idx_t idx) {
   return symbols.get_subclass(idx) != IdSc::undef;
 }
 
+// given Expr::_Apply (a function call / a variable call), determine whether it's <, or >, or similar
+// (an expression `1 < 2` is expressed as `_<_(1,2)`, see builtins.cpp)
+static bool is_comparison_binary_op(const Expr* e_apply) {
+  const std::string& name = e_apply->sym->name();
+  const size_t len = name.size();
+  if (len < 3 || len > 5 || name[0] != '_' || name[len-1] != '_') {
+    return false; // not "_<_" and similar
+  }
+
+  char c1 = name[1];
+  char c2 = name[2];
+  // < > <= != == >= <=>
+  return (len == 3 && (c1 == '<' || c1 == '>')) ||
+         (len == 4 && (c1 == '<' || c1 == '>' || c1 == '!' || c1 == '=') && c2 == '=') ||
+         (len == 5 && (c1 == '<' && c2 == '=' && name[3] == '>'));
+}
+
+// same as above, but to detect bitwise operators: & | ^
+// (in Tolk, they are used as logical ones due to absence of a boolean type and && || operators)
+static bool is_bitwise_binary_op(const Expr* e_apply) {
+  const std::string& name = e_apply->sym->name();
+  const size_t len = name.size();
+  if (len != 3 || name[0] != '_' || name[len-1] != '_') {
+    return false;
+  }
+
+  char c1 = name[1];
+  return c1 == '&' || c1 == '|' || c1 == '^';
+}
+
+// same as above, but to detect addition/subtraction
+static bool is_add_or_sub_binary_op(const Expr* e_apply) {
+  const std::string& name = e_apply->sym->name();
+  const size_t len = name.size();
+  if (len != 3 || name[0] != '_' || name[len-1] != '_') {
+    return false;
+  }
+
+  char c1 = name[1];
+  return c1 == '+' || c1 == '-';
+}
+
+static inline std::string get_builtin_operator_name(sym_idx_t sym_builtin) {
+  std::string underscored = symbols.get_name(sym_builtin);
+  return underscored.substr(1, underscored.size() - 2);
+}
+
+// fire an error for a case "flags & 0xFF != 0" (equivalent to "flags & 1", probably unexpected)
+// it would better be a warning, but we decided to make it a strict error
+[[gnu::cold]] static void fire_error_lower_precedence(const SrcLocation& loc, sym_idx_t op_lower, sym_idx_t op_higher) {
+  std::string name_lower = get_builtin_operator_name(op_lower);
+  std::string name_higher = get_builtin_operator_name(op_higher);
+  throw ParseError(loc, name_lower + " has lower precedence than " + name_higher +
+                                 ", probably this code won't work as you expected.  "
+                                 "Use parenthesis: either (... " + name_lower + " ...) to evaluate it first, or (... " + name_higher + " ...) to suppress this error.");
+}
+
+// fire an error for a case "arg1 & arg2 | arg3"
+[[gnu::cold]] static void fire_error_mix_bitwise_and_or(const SrcLocation& loc, sym_idx_t op1, sym_idx_t op2) {
+  std::string name1 = get_builtin_operator_name(op1);
+  std::string name2 = get_builtin_operator_name(op2);
+  throw ParseError(loc, "mixing " + name1 + " with " + name2 + " without parenthesis"
+                                 ", probably this code won't work as you expected.  "
+                                 "Use parenthesis to emphasize operator precedence.");
+}
+
+// diagnose when bitwise operators are used in a probably wrong way due to tricky precedence
+// example: "flags & 0xFF != 0" is equivalent to "flags & 1", most likely it's unexpected
+// the only way to suppress this error for the programmer is to use parenthesis
+static void diagnose_bitwise_precedence(const SrcLocation& loc, sym_idx_t bitwise_sym, const Expr* lhs, const Expr* rhs) {
+  // handle "0 != flags & 0xFF" (lhs = "0 != flags")
+  if (!lhs->is_inside_parenthesis() &&
+    lhs->cls == Expr::_Apply && lhs->e_type->is_int() &&  // fast false if 100% not
+    is_comparison_binary_op(lhs)) {
+    fire_error_lower_precedence(loc, bitwise_sym, lhs->sym->sym_idx);
+    // there is a tiny bug: "flags & _!=_(0xFF,0)" will also suggest to wrap rhs into parenthesis
+  }
+
+  // handle "flags & 0xFF != 0" (rhs = "0xFF != 0")
+  if (!rhs->is_inside_parenthesis() &&
+    rhs->cls == Expr::_Apply && rhs->e_type->is_int() &&
+    is_comparison_binary_op(rhs)) {
+    fire_error_lower_precedence(loc, bitwise_sym, rhs->sym->sym_idx);
+  }
+
+  // handle "arg1 & arg2 | arg3" (lhs = "arg1 & arg2")
+  if (!lhs->is_inside_parenthesis() &&
+    lhs->cls == Expr::_Apply && lhs->e_type->is_int() &&
+    is_bitwise_binary_op(lhs) &&
+    lhs->sym->sym_idx != bitwise_sym) {
+    fire_error_mix_bitwise_and_or(loc, lhs->sym->sym_idx, bitwise_sym);
+  }
+}
+
+// diagnose "a << 8 + 1" (equivalent to "a << 9", probably unexpected)
+static void diagnose_addition_in_bitshift(const SrcLocation& loc, sym_idx_t bitshift_sym, const Expr* rhs) {
+  if (!rhs->is_inside_parenthesis() &&
+    rhs->cls == Expr::_Apply && rhs->e_type->is_int() &&
+    is_add_or_sub_binary_op(rhs)) {
+    fire_error_lower_precedence(loc, bitshift_sym, rhs->sym->sym_idx);
+  }
+}
+
 /*
  * 
  *   PARSE SOURCE
@@ -220,6 +323,9 @@ void parse_global_var_decl(Lexer& lex) {
     }
   } else {
     sym_def->value = new SymValGlobVar{glob_var_cnt++, var_type};
+#ifdef TOLK_DEBUG
+    dynamic_cast<SymValGlobVar*>(sym_def->value)->name = lex.cur().str;
+#endif
     glob_vars.push_back(sym_def);
   }
   lex.next();
@@ -253,15 +359,9 @@ void parse_const_decl(Lexer& lex) {
   }
   lex.next();
   CodeBlob code;
-  if (pragma_allow_post_modification.enabled()) {
-    code.flags |= CodeBlob::_AllowPostModification;
-  }
-  if (pragma_compute_asm_ltr.enabled()) {
-    code.flags |= CodeBlob::_ComputeAsmLtr;
-  }
   // Handles processing and resolution of literals and consts
   auto x = parse_expr(lex, code, false); // also does lex.next() !
-  if (x->flags != Expr::_IsRvalue) {
+  if (!x->is_rvalue()) {
     lex.cur().error("expression is not strictly Rvalue");
   }
   if ((wanted_type == Expr::_Const) && (x->cls == Expr::_Apply))
@@ -274,7 +374,7 @@ void parse_const_decl(Lexer& lex) {
     new_value = new SymValConst{const_cnt++, x->intval};
   } else if (x->cls == Expr::_SliceConst) { // Slice constant (string)
     new_value = new SymValConst{const_cnt++, x->strval};
-  } else if (x->cls == Expr::_Apply) {
+  } else if (x->cls == Expr::_Apply) {  // even "1 + 2" is Expr::_Apply (it applies `_+_`)
     code.emplace_back(loc, Op::_Import, std::vector<var_idx_t>());
     auto tmp_vars = x->pre_compile(code);
     code.emplace_back(loc, Op::_Return, std::move(tmp_vars));
@@ -372,27 +472,22 @@ void parse_global_var_decls(Lexer& lex) {
   lex.expect(';');
 }
 
-SymValCodeFunc* make_new_glob_func(SymDef* func_sym, TypeExpr* func_type, bool impure = false) {
-  SymValCodeFunc* res = new SymValCodeFunc{glob_func_cnt, func_type, impure};
+SymValCodeFunc* make_new_glob_func(SymDef* func_sym, TypeExpr* func_type, bool marked_as_pure) {
+  SymValCodeFunc* res = new SymValCodeFunc{glob_func_cnt, func_type, marked_as_pure};
+#ifdef TOLK_DEBUG
+  res->name = func_sym->name();
+#endif
   func_sym->value = res;
   glob_func.push_back(func_sym);
   glob_func_cnt++;
   return res;
 }
 
-bool check_global_func(const Lexem& cur, sym_idx_t func_name = 0) {
-  if (!func_name) {
-    func_name = cur.val;
-  }
+bool check_global_func(const Lexem& cur, sym_idx_t func_name) {
   SymDef* def = lookup_symbol(func_name);
   if (!def) {
-    cur.loc.show_error(std::string{"undefined function `"} + symbols.get_name(func_name) +
-                       "`, defining a global function of unknown type");
-    def = define_global_symbol(func_name, 0, cur.loc);
-    tolk_assert(def && "cannot define global function");
-    ++undef_func_cnt;
-    make_new_glob_func(def, TypeExpr::new_func());  // was: ... ::new_func()
-    return true;
+    cur.error("undefined symbol `" + symbols.get_name(func_name) + "`");
+    return false;
   }
   SymVal* val = dynamic_cast<SymVal*>(def->value);
   if (!val) {
@@ -407,8 +502,8 @@ bool check_global_func(const Lexem& cur, sym_idx_t func_name = 0) {
 }
 
 Expr* make_func_apply(Expr* fun, Expr* x) {
-  Expr* res;
-  if (fun->cls == Expr::_Glob) {
+  Expr* res{nullptr};
+  if (fun->cls == Expr::_GlobFunc) {
     if (x->cls == Expr::_Tensor) {
       res = new Expr{Expr::_Apply, fun->sym, x->args};
     } else {
@@ -445,6 +540,7 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
     }
     Expr* res = parse_expr(lex, code, nv);
     if (lex.tp() == ')') {
+      res->flags |= Expr::_IsInsideParenthesis;
       lex.expect(clbr);
       return res;
     }
@@ -571,7 +667,7 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
   if (t == '_') {
     Expr* res = new Expr{Expr::_Hole, lex.cur().loc};
     res->val = -1;
-    res->flags = (Expr::_IsLvalue | Expr::_IsHole | Expr::_IsNewVar);
+    res->flags = Expr::_IsLvalue;
     res->e_type = TypeExpr::new_hole();
     lex.next();
     return res;
@@ -633,15 +729,16 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
     if (nv) {
       res->val = ~lex.cur().val;
       res->e_type = TypeExpr::new_hole();
-      res->flags = Expr::_IsLvalue | Expr::_IsNewVar;
+      res->flags = Expr::_IsLvalue;
       // std::cerr << "defined new variable " << lex.cur().str << " : " << res->e_type << std::endl;
     } else {
       if (!sym) {
-        check_global_func(lex.cur());
+        check_global_func(lex.cur(), lex.cur().val);
         sym = lookup_symbol(lex.cur().val);
       }
       res->sym = sym;
       SymVal* val = nullptr;
+      bool impure = false;
       if (sym) {
         val = dynamic_cast<SymVal*>(sym->value);
       }
@@ -649,8 +746,9 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
         lex.cur().error_at("undefined identifier `", "`");
       } else if (val->type == SymVal::_Func) {
         res->e_type = val->get_type();
-        res->cls = Expr::_Glob;
+        res->cls = Expr::_GlobFunc;
         auto_apply = val->auto_apply;
+        impure = !dynamic_cast<SymValFunc*>(val)->is_marked_as_pure();
       } else if (val->idx < 0) {
         lex.cur().error_at("accessing variable `", "` being defined");
       } else {
@@ -659,7 +757,7 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
         // std::cerr << "accessing variable " << lex.cur().str << " : " << res->e_type << std::endl;
       }
       // std::cerr << "accessing symbol " << lex.cur().str << " : " << res->e_type << (val->impure ? " (impure)" : " (pure)") << std::endl;
-      res->flags = Expr::_IsLvalue | Expr::_IsRvalue | (val->impure ? Expr::_IsImpure : 0);
+      res->flags = Expr::_IsLvalue | Expr::_IsRvalue | (impure ? Expr::_IsImpure : 0);
     }
     if (auto_apply) {
       int impure = res->flags & Expr::_IsImpure;
@@ -750,7 +848,7 @@ Expr* parse_expr80(Lexer& lex, CodeBlob& code, bool nv) {
       res = new Expr{Expr::_Apply, name, {obj, x}};
     }
     res->here = loc;
-    res->flags = Expr::_IsRvalue | (val->impure ? Expr::_IsImpure : 0);
+    res->flags = Expr::_IsRvalue | (val->is_marked_as_pure() ? 0 : Expr::_IsImpure);
     res->deduce_type(lex.cur());
     if (modify) {
       auto tmp = res;
@@ -784,11 +882,11 @@ Expr* parse_expr75(Lexer& lex, CodeBlob& code, bool nv) {
   }
 }
 
-// parse E { (* | / | % | /% ) E }
+// parse E { (* | / | % | /% | ^/ | ~/ | ^% | ~% ) E }
 Expr* parse_expr30(Lexer& lex, CodeBlob& code, bool nv) {
   Expr* res = parse_expr75(lex, code, nv);
   while (lex.tp() == '*' || lex.tp() == '/' || lex.tp() == '%' || lex.tp() == _DivMod || lex.tp() == _DivC ||
-         lex.tp() == _DivR || lex.tp() == _ModC || lex.tp() == _ModR || lex.tp() == '&') {
+         lex.tp() == _DivR || lex.tp() == _ModC || lex.tp() == _ModR) {
     res->chk_rvalue(lex.cur());
     int t = lex.tp();
     sym_idx_t name = symbols.lookup_add(std::string{"_"} + lex.cur().str + "_");
@@ -806,7 +904,7 @@ Expr* parse_expr30(Lexer& lex, CodeBlob& code, bool nv) {
   return res;
 }
 
-// parse [-] E { (+ | - | `|` | ^) E }
+// parse [-] E { (+ | -) E }
 Expr* parse_expr20(Lexer& lex, CodeBlob& code, bool nv) {
   Expr* res;
   int t = lex.tp();
@@ -825,7 +923,7 @@ Expr* parse_expr20(Lexer& lex, CodeBlob& code, bool nv) {
   } else {
     res = parse_expr30(lex, code, nv);
   }
-  while (lex.tp() == '-' || lex.tp() == '+' || lex.tp() == '|' || lex.tp() == '^') {
+  while (lex.tp() == '-' || lex.tp() == '+') {
     res->chk_rvalue(lex.cur());
     t = lex.tp();
     sym_idx_t name = symbols.lookup_add(std::string{"_"} + lex.cur().str + "_");
@@ -843,7 +941,7 @@ Expr* parse_expr20(Lexer& lex, CodeBlob& code, bool nv) {
   return res;
 }
 
-// parse E { ( << | >> | >>~ | >>^ ) E }
+// parse E { ( << | >> | ~>> | ^>> ) E }
 Expr* parse_expr17(Lexer& lex, CodeBlob& code, bool nv) {
   Expr* res = parse_expr20(lex, code, nv);
   while (lex.tp() == _Lshift || lex.tp() == _Rshift || lex.tp() == _RshiftC || lex.tp() == _RshiftR) {
@@ -855,6 +953,7 @@ Expr* parse_expr17(Lexer& lex, CodeBlob& code, bool nv) {
     lex.next();
     auto x = parse_expr20(lex, code, false);
     x->chk_rvalue(lex.cur());
+    diagnose_addition_in_bitshift(loc, name, x);
     res = new Expr{Expr::_Apply, name, {res, x}};
     res->here = loc;
     res->set_val(t);
@@ -886,9 +985,33 @@ Expr* parse_expr15(Lexer& lex, CodeBlob& code, bool nv) {
   return res;
 }
 
+// parse E { ( & | `|` | ^ ) E }
+Expr* parse_expr14(Lexer& lex, CodeBlob& code, bool nv) {
+  Expr* res = parse_expr15(lex, code, nv);
+  while (lex.tp() == '&' || lex.tp() == '|' || lex.tp() == '^') {
+    res->chk_rvalue(lex.cur());
+    int t = lex.tp();
+    sym_idx_t name = symbols.lookup_add(std::string{"_"} + lex.cur().str + "_");
+    check_global_func(lex.cur(), name);
+    SrcLocation loc{lex.cur().loc};
+    lex.next();
+    auto x = parse_expr15(lex, code, false);
+    x->chk_rvalue(lex.cur());
+    // diagnose tricky bitwise precedence, like "flags & 0xFF != 0" (& has lower precedence)
+    diagnose_bitwise_precedence(loc, name, res, x);
+
+    res = new Expr{Expr::_Apply, name, {res, x}};
+    res->here = loc;
+    res->set_val(t);
+    res->flags = Expr::_IsRvalue;
+    res->deduce_type(lex.cur());
+  }
+  return res;
+}
+
 // parse E [ ? E : E ]
 Expr* parse_expr13(Lexer& lex, CodeBlob& code, bool nv) {
-  Expr* res = parse_expr15(lex, code, nv);
+  Expr* res = parse_expr14(lex, code, nv);
   if (lex.tp() == '?') {
     res->chk_rvalue(lex.cur());
     SrcLocation loc{lex.cur().loc};
@@ -1207,14 +1330,11 @@ blk_fl::val parse_stmt(Lexer& lex, CodeBlob& code) {
   }
 }
 
-CodeBlob* parse_func_body(Lexer& lex, FormalArgList arg_list, TypeExpr* ret_type) {
+CodeBlob* parse_func_body(Lexer& lex, FormalArgList arg_list, TypeExpr* ret_type, bool marked_as_pure) {
   lex.expect('{');
   CodeBlob* blob = new CodeBlob{ret_type};
-  if (pragma_allow_post_modification.enabled()) {
-    blob->flags |= CodeBlob::_AllowPostModification;
-  }
-  if (pragma_compute_asm_ltr.enabled()) {
-    blob->flags |= CodeBlob::_ComputeAsmLtr;
+  if (marked_as_pure) {
+    blob->flags |= CodeBlob::_ForbidImpure;
   }
   blob->import_params(std::move(arg_list));
   blk_fl::val res = blk_fl::init;
@@ -1235,7 +1355,7 @@ CodeBlob* parse_func_body(Lexer& lex, FormalArgList arg_list, TypeExpr* ret_type
 }
 
 SymValAsmFunc* parse_asm_func_body(Lexer& lex, TypeExpr* func_type, const FormalArgList& arg_list, TypeExpr* ret_type,
-                                   bool impure = false) {
+                                   bool marked_as_pure) {
   auto loc = lex.cur().loc;
   lex.expect(_Asm);
   int cnt = (int)arg_list.size();
@@ -1339,14 +1459,14 @@ SymValAsmFunc* parse_asm_func_body(Lexer& lex, TypeExpr* func_type, const Formal
   for (const AsmOp& asm_op : asm_ops) {
     crc_s += asm_op.op;
   }
-  crc_s.push_back(impure);
+  crc_s.push_back(!marked_as_pure);
   for (const int& x : arg_order) {
     crc_s += std::string((const char*) (&x), (const char*) (&x + 1));
   }
   for (const int& x : ret_order) {
     crc_s += std::string((const char*) (&x), (const char*) (&x + 1));
   }
-  auto res = new SymValAsmFunc{func_type, asm_ops, impure};
+  auto res = new SymValAsmFunc{func_type, std::move(asm_ops), marked_as_pure};
   res->arg_order = std::move(arg_order);
   res->ret_order = std::move(ret_order);
   res->crc = td::crc64(crc_s);
@@ -1420,12 +1540,90 @@ TypeExpr* compute_type_closure(TypeExpr* expr, const std::vector<TypeExpr*>& typ
   return expr;
 }
 
+// if a function looks like `T f(...args) { return anotherF(...args); }`,
+// set a bit to flags
+// then, all calls to `f(...)` will be effectively replaced with `anotherF(...)`
+void detect_if_function_just_wraps_another(SymValCodeFunc* v_current, const td::RefInt256 &method_id) {
+  const std::string& function_name = v_current->code->name;
+
+  // in "AST" representation, the first is Op::_Import (input arguments, even if none)
+  const auto& op_import = v_current->code->ops;
+  tolk_assert(op_import && op_import->cl == Op::_Import);
+
+  // then Op::_Call (anotherF)
+  const Op* op_call = op_import->next.get();
+  if (!op_call || op_call->cl != Op::_Call)
+    return;
+  tolk_assert(op_call->left.size() == 1);
+
+  const auto& op_return = op_call->next;
+  if (!op_return || op_return->cl != Op::_Return || op_return->left.size() != 1)
+    return;
+
+  bool indices_expected = static_cast<int>(op_import->left.size()) == op_call->left[0] && op_call->left[0] == op_return->left[0];
+  if (!indices_expected)
+    return;
+
+  const SymDef* f_called = op_call->fun_ref;
+  const SymValFunc* v_called = dynamic_cast<SymValFunc*>(f_called->value);
+  if (!v_called)
+    return;
+
+  // `return` must use all arguments, e.g. `return (_0,_2,_1)`, not `return (_0,_1,_1)`
+  int args_used_mask = 0;
+  for (var_idx_t arg_idx : op_call->right) {
+    args_used_mask |= 1 << arg_idx;
+  }
+  if (args_used_mask != (1 << op_call->right.size()) - 1)
+    return;
+
+  // detect getters (having method_id), they should not be treated as wrappers
+  // v_current->method_id will be assigned later; todo refactor function parsing completely, it's weird
+  // moreover, `recv_external()` and others are also exported, but FunC is unaware of method_id
+  // (it's assigned by Fift later)
+  // so, for now, just handle "special" function names, the same as in Asm.fif
+  if (!method_id.is_null())
+    return;
+  if (function_name == "main" || function_name == "recv_internal" || function_name == "recv_external" ||
+      function_name == "run_ticktock" || function_name == "split_prepare" || function_name == "split_install")
+    return;
+
+  // all types must be strictly defined (on mismatch, a compilation error will be triggered anyway)
+  if (v_called->sym_type->has_unknown_inside() || v_current->sym_type->has_unknown_inside())
+    return;
+  // avoid situations like `f(int a, (int,int) b)`, inlining will be cumbersome
+  if (v_current->get_arg_type()->get_width() != static_cast<int>(op_call->right.size()))
+    return;
+  // 'return true;' (false, nil) are (surprisingly) also function calls, with auto_apply=true
+  if (v_called->auto_apply)
+    return;
+  // if an original is marked `pure`, and this one doesn't, it's okay; just check for inline_ref storage
+  if (v_current->is_inline_ref())
+    return;
+
+  // ok, f_current is a wrapper
+  v_current->flags |= SymValFunc::flagWrapsAnotherF;
+  if (verbosity >= 2) {
+    std::cerr << function_name << " -> " << f_called->name() << std::endl;
+  }
+}
+
+static td::RefInt256 calculate_method_id_by_func_name(const std::string &func_name) {
+  unsigned int crc = td::crc16(func_name);
+  return td::make_refint((crc & 0xffff) | 0x10000);
+}
+
+// todo rewrite function declaration parsing completely, it's weird
 void parse_func_def(Lexer& lex) {
   SrcLocation loc{lex.cur().loc};
   open_scope(lex);
   std::vector<TypeExpr*> type_vars;
+  bool is_get_method = false;
   if (lex.tp() == _Forall) {
     type_vars = parse_type_var_list(lex);
+  } else if (lex.tp() == _Get) {
+    is_get_method = true;
+    lex.next();
   }
   auto ret_type = parse_type(lex);
   if (lex.tp() != _Ident) {
@@ -1434,47 +1632,80 @@ void parse_func_def(Lexer& lex) {
   Lexem func_name = lex.cur();
   lex.next();
   FormalArgList arg_list = parse_formal_args(lex);
-  bool impure = (lex.tp() == _Impure);
-  if (impure) {
+  bool marked_as_pure = false;
+  if (lex.tp() == _Impure) {
+    static bool warning_shown = false;
+    if (!warning_shown) {
+      lex.cur().loc.show_warning("`impure` specifier is deprecated. All functions are impure by default, use `pure` to mark a function as pure");
+      warning_shown = true;
+    }
+    lex.next();
+  } else if (lex.tp() == _Pure) {
+    marked_as_pure = true;
     lex.next();
   }
-  int f = 0;
-  if (lex.tp() == _Inline || lex.tp() == _InlineRef) {
-    f = (lex.tp() == _Inline) ? 1 : 2;
+  int flags_inline = 0;
+  if (lex.tp() == _Inline) {
+    flags_inline = SymValFunc::flagInline;
+    lex.next();
+  } else if (lex.tp() == _InlineRef) {
+    flags_inline = SymValFunc::flagInlineRef;
     lex.next();
   }
   td::RefInt256 method_id;
-  std::string method_name;
   if (lex.tp() == _MethodId) {
+    if (is_get_method) {
+      lex.cur().error("both `get` and `method_id` are not allowed");
+    }
     lex.next();
-    if (lex.tp() == '(') {
+    if (lex.tp() == '(') {  // method_id(N)
       lex.expect('(');
-      if (lex.tp() == Lexem::String) {
-        method_name = lex.cur().str;
-      } else if (lex.tp() == Lexem::Number) {
-        method_name = lex.cur().str;
-        method_id = td::string_to_int256(method_name);
-        if (method_id.is_null()) {
-          lex.cur().error_at("invalid integer constant `", "`");
-        }
-      } else {
-        throw ParseError{lex.cur().loc, "integer or string method identifier expected"};
+      method_id = td::string_to_int256(lex.cur().str);
+      lex.expect(Lexem::Number);
+      if (method_id.is_null()) {
+        lex.cur().error_at("invalid integer constant `", "`");
       }
-      lex.next();
       lex.expect(')');
     } else {
-      method_name = func_name.str;
-    }
-    if (method_id.is_null()) {
-      unsigned crc = td::crc16(method_name);
-      method_id = td::make_refint((crc & 0xffff) | 0x10000);
+      static bool warning_shown = false;
+      if (!warning_shown) {
+        lex.cur().loc.show_warning("`method_id` specifier is deprecated, use `get` keyword.\nExample: `get int seqno() { ... }`");
+        warning_shown = true;
+      }
+      method_id = calculate_method_id_by_func_name(func_name.str);
     }
   }
-  if (lex.tp() != ';' && lex.tp() != '{' && lex.tp() != _Asm) {
-    lex.expect('{', "function body block expected");
+  if (is_get_method) {
+    tolk_assert(method_id.is_null());
+    method_id = calculate_method_id_by_func_name(func_name.str);
+    for (const SymDef* other : glob_get_methods) {
+      if (!td::cmp(dynamic_cast<const SymValFunc*>(other->value)->method_id, method_id)) {
+        lex.cur().error(PSTRING() << "GET methods hash collision: `" << other->name() << "` and `" + func_name.str + "` produce the same hash. Consider renaming one of these functions.");
+      }
+    }
   }
   TypeExpr* func_type = TypeExpr::new_map(extract_total_arg_type(arg_list), ret_type);
   func_type = compute_type_closure(func_type, type_vars);
+  if (lex.tp() == _Builtin) {
+    const SymDef* builtin_func = lookup_symbol(func_name.str);
+    const SymValFunc* func_val = builtin_func ? dynamic_cast<SymValFunc*>(builtin_func->value) : nullptr;
+    if (!func_val || !func_val->is_builtin()) {
+      lex.cur().error("`builtin` used for non-builtin function");
+    }
+#ifdef TOLK_DEBUG
+    // in release, we don't need this check, since `builtin` is used only in stdlib.tolk, which is our responsibility
+    if (!func_val->sym_type->equals_to(func_type) || func_val->is_marked_as_pure() != marked_as_pure) {
+      lex.cur().error("declaration for `builtin` function doesn't match an actual one");
+    }
+#endif
+    lex.next();
+    lex.expect(';');
+    close_scope(lex);
+    return;
+  }
+  if (lex.tp() != ';' && lex.tp() != '{' && lex.tp() != _Asm) {
+    lex.expect('{', "function body block");
+  }
   if (verbosity >= 1) {
     std::cerr << "function " << func_name.str << " : " << func_type << std::endl;
   }
@@ -1495,7 +1726,7 @@ void parse_func_def(Lexer& lex) {
     }
   }
   if (lex.tp() == ';') {
-    make_new_glob_func(func_sym, func_type, impure);
+    make_new_glob_func(func_sym, func_type, marked_as_pure);
     lex.next();
   } else if (lex.tp() == '{') {
     if (dynamic_cast<SymValAsmFunc*>(func_sym_val)) {
@@ -1508,19 +1739,26 @@ void parse_func_def(Lexer& lex) {
         lex.cur().error("function `"s + func_name.str + "` has been already defined in an yet-unknown way");
       }
     } else {
-      func_sym_code = make_new_glob_func(func_sym, func_type, impure);
+      func_sym_code = make_new_glob_func(func_sym, func_type, marked_as_pure);
     }
     if (func_sym_code->code) {
       lex.cur().error("redefinition of function `"s + func_name.str + "`");
     }
-    CodeBlob* code = parse_func_body(lex, arg_list, ret_type);
+    if (marked_as_pure && ret_type->get_width() == 0) {
+      lex.cur().error("a pure function should return something, otherwise it will be optimized out anyway");
+    }
+    CodeBlob* code = parse_func_body(lex, arg_list, ret_type, marked_as_pure);
     code->name = func_name.str;
     code->loc = loc;
     // code->print(std::cerr);  // !!!DEBUG!!!
     func_sym_code->code = code;
+    detect_if_function_just_wraps_another(func_sym_code, method_id);
   } else {
     Lexem asm_lexem = lex.cur();
-    SymValAsmFunc* asm_func = parse_asm_func_body(lex, func_type, arg_list, ret_type, impure);
+    SymValAsmFunc* asm_func = parse_asm_func_body(lex, func_type, arg_list, ret_type, marked_as_pure);
+#ifdef TOLK_DEBUG
+    asm_func->name = func_name.str;
+#endif
     if (func_sym_val) {
       if (dynamic_cast<SymValCodeFunc*>(func_sym_val)) {
         asm_lexem.error("function `"s + func_name.str + "` was already declared as an ordinary function");
@@ -1537,7 +1775,7 @@ void parse_func_def(Lexer& lex) {
     func_sym->value = asm_func;
   }
   if (method_id.not_null()) {
-    auto val = dynamic_cast<SymVal*>(func_sym->value);
+    auto val = dynamic_cast<SymValFunc*>(func_sym->value);
     if (!val) {
       lex.cur().error("cannot set method id for unknown function `"s + func_name.str + "`");
     }
@@ -1548,16 +1786,24 @@ void parse_func_def(Lexer& lex) {
                       val->method_id->to_dec_string() + " to a different value " + method_id->to_dec_string());
     }
   }
-  if (f) {
-    auto val = dynamic_cast<SymVal*>(func_sym->value);
+  if (flags_inline) {
+    auto val = dynamic_cast<SymValFunc*>(func_sym->value);
     if (!val) {
       lex.cur().error("cannot set unknown function `"s + func_name.str + "` as an inline");
     }
-    if (!(val->flags & 3)) {
-      val->flags = (short)(val->flags | f);
-    } else if ((val->flags & 3) != f) {
+    if (!val->is_inline() && !val->is_inline_ref()) {
+      val->flags |= flags_inline;
+    } else if ((val->flags & (SymValFunc::flagInline | SymValFunc::flagInlineRef)) != flags_inline) {
       lex.cur().error("inline mode for `"s + func_name.str + "` changed with respect to a previous declaration");
     }
+  }
+  if (is_get_method) {
+    auto val = dynamic_cast<SymValFunc*>(func_sym->value);
+    if (!val) {
+      lex.cur().error("cannot set unknown function `"s + func_name.str + "` as a get method");
+    }
+    val->flags |= SymValFunc::flagGetMethod;
+    glob_get_methods.push_back(func_sym);
   }
   if (verbosity >= 1) {
     std::cerr << "new type of function " << func_name.str << " : " << func_type << std::endl;
@@ -1697,6 +1943,8 @@ void parse_pragma(Lexer& lex) {
     pragma_allow_post_modification.enable(lex.cur().loc);
   } else if (pragma_name == pragma_compute_asm_ltr.name()) {
     pragma_compute_asm_ltr.enable(lex.cur().loc);
+  } else if (pragma_name == pragma_remove_unused_functions.name()) {
+    pragma_remove_unused_functions.enable(lex.cur().loc);
   } else {
     lex.cur().error(std::string{"unknown pragma `"} + pragma_name + "`");
   }
@@ -1728,7 +1976,12 @@ void parse_include(Lexer& lex, const FileDescr* fdescr) {
 
 bool parse_source(std::istream* is, FileDescr* fdescr) {
   SourceReader reader{is, fdescr};
-  Lexer lex{reader, true, ";,()[] ~."};
+  Lexer lex{reader, ";,()[] ~."};
+  // previously, FunC had lisp-style comments,
+  // but Tolk supports traditional (slash) comments alongside (lisp-style will be deleted soon)
+  lex.set_comment_tokens(";;", "{-", "-}");
+  lex.set_comment2_tokens("//", "/*", "*/");
+  lex.start_parsing();
   while (lex.tp() != _Eof) {
     if (lex.tp() == _PragmaHashtag) {
       parse_pragma(lex);

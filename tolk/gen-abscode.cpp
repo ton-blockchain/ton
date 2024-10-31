@@ -35,7 +35,7 @@ Expr* Expr::copy() const {
   return res;
 }
 
-Expr::Expr(int c, sym_idx_t name_idx, std::initializer_list<Expr*> _arglist) : cls(c), args(std::move(_arglist)) {
+Expr::Expr(ExprCls c, sym_idx_t name_idx, std::initializer_list<Expr*> _arglist) : cls(c), args(std::move(_arglist)) {
   sym = lookup_symbol(name_idx);
   if (!sym) {
   }
@@ -227,11 +227,11 @@ var_idx_t Expr::new_tmp(CodeBlob& code) const {
 void add_set_globs(CodeBlob& code, std::vector<std::pair<SymDef*, var_idx_t>>& globs, const SrcLocation& here) {
   for (const auto& p : globs) {
     auto& op = code.emplace_back(here, Op::_SetGlob, std::vector<var_idx_t>{}, std::vector<var_idx_t>{ p.second }, p.first);
-    op.flags |= Op::_Impure;
+    op.set_impure(code);
   }
 }
 
-std::vector<var_idx_t> Expr::pre_compile_let(CodeBlob& code, Expr* lhs, Expr* rhs, const SrcLocation& here) {
+std::vector<var_idx_t> pre_compile_let(CodeBlob& code, Expr* lhs, Expr* rhs, const SrcLocation& here) {
   while (lhs->is_type_apply()) {
     lhs = lhs->args.at(0);
   }
@@ -247,7 +247,7 @@ std::vector<var_idx_t> Expr::pre_compile_let(CodeBlob& code, Expr* lhs, Expr* rh
     auto unpacked_type = rhs->e_type->args.at(0);
     std::vector<var_idx_t> tmp{code.create_tmp_var(unpacked_type, &rhs->here)};
     code.emplace_back(lhs->here, Op::_UnTuple, tmp, std::move(right));
-    auto tvar = new Expr{_Var};
+    auto tvar = new Expr{Expr::_Var};
     tvar->set_val(tmp[0]);
     tvar->set_location(rhs->here);
     tvar->e_type = unpacked_type;
@@ -265,43 +265,35 @@ std::vector<var_idx_t> Expr::pre_compile_let(CodeBlob& code, Expr* lhs, Expr* rh
   return right;
 }
 
-std::vector<var_idx_t> pre_compile_tensor(const std::vector<Expr *> args, CodeBlob &code,
-                                          std::vector<std::pair<SymDef*, var_idx_t>> *lval_globs,
-                                          std::vector<int> arg_order) {
-  if (arg_order.empty()) {
-    arg_order.resize(args.size());
-    std::iota(arg_order.begin(), arg_order.end(), 0);
+std::vector<var_idx_t> pre_compile_tensor(const std::vector<Expr *>& args, CodeBlob &code,
+                                          std::vector<std::pair<SymDef*, var_idx_t>> *lval_globs) {
+  const size_t n = args.size();
+  if (n == 0) {  // just `()`
+    return {};
   }
-  tolk_assert(args.size() == arg_order.size());
-  std::vector<std::vector<var_idx_t>> res_lists(args.size());
+  if (n == 1) {  // just `(x)`: even if x is modified (e.g. `f(x=x+2)`), there are no next arguments
+    return args[0]->pre_compile(code, lval_globs);
+  }
+  std::vector<std::vector<var_idx_t>> res_lists(n);
 
   struct ModifiedVar {
     size_t i, j;
-    Op* op;
+    std::unique_ptr<Op>* cur_ops; // `LET tmp = v_ij` will be inserted before this
   };
-  auto modified_vars = std::make_shared<std::vector<ModifiedVar>>();
-  for (size_t i : arg_order) {
+  std::vector<ModifiedVar> modified_vars;
+  for (size_t i = 0; i < n; ++i) {
     res_lists[i] = args[i]->pre_compile(code, lval_globs);
     for (size_t j = 0; j < res_lists[i].size(); ++j) {
       TmpVar& var = code.vars.at(res_lists[i][j]);
-      if (code.flags & CodeBlob::_AllowPostModification) {
-        if (!lval_globs && (var.cls & TmpVar::_Named)) {
-          Op *op = &code.emplace_back(nullptr, Op::_Let, std::vector<var_idx_t>(), std::vector<var_idx_t>());
-          op->flags |= Op::_Disabled;
-          var.on_modification.push_back([modified_vars, i, j, op, done = false](const SrcLocation &here) mutable {
-            if (!done) {
-              done = true;
-              modified_vars->push_back({i, j, op});
-            }
-          });
-        } else {
-          var.on_modification.push_back([](const SrcLocation &) {
-          });
-        }
+      if (!lval_globs && (var.cls & TmpVar::_Named)) {
+        var.on_modification.push_back([&modified_vars, i, j, cur_ops = code.cur_ops, done = false](const SrcLocation &here) mutable {
+          if (!done) {
+            done = true;
+            modified_vars.push_back({i, j, cur_ops});
+          }
+        });
       } else {
-        var.on_modification.push_back([name = var.to_string()](const SrcLocation &here) {
-            throw ParseError{here, PSTRING() << "Modifying local variable " << name
-                                                  << " after using it in the same expression"};
+        var.on_modification.push_back([](const SrcLocation &) {
         });
       }
     }
@@ -312,13 +304,16 @@ std::vector<var_idx_t> pre_compile_tensor(const std::vector<Expr *> args, CodeBl
       code.vars.at(v).on_modification.pop_back();
     }
   }
-  for (const ModifiedVar &m : *modified_vars) {
-    var_idx_t& v = res_lists[m.i][m.j];
-    var_idx_t v2 = code.create_tmp_var(code.vars[v].v_type, code.vars[v].where.get());
-    m.op->left = {v2};
-    m.op->right = {v};
-    m.op->flags &= ~Op::_Disabled;
-    v = v2;
+  for (size_t idx = modified_vars.size(); idx--; ) {
+    const ModifiedVar &m = modified_vars[idx];
+    var_idx_t orig_v = res_lists[m.i][m.j];
+    var_idx_t tmp_v = code.create_tmp_var(code.vars[orig_v].v_type, code.vars[orig_v].where.get());
+    std::unique_ptr<Op> op = std::make_unique<Op>(*code.vars[orig_v].where, Op::_Let);
+    op->left = {tmp_v};
+    op->right = {orig_v};
+    op->next = std::move((*m.cur_ops));
+    *m.cur_ops = std::move(op);
+    res_lists[m.i][m.j] = tmp_v;
   }
   std::vector<var_idx_t> res;
   for (const auto& list : res_lists) {
@@ -334,22 +329,33 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, std::vector<std::pair<S
   }
   switch (cls) {
     case _Tensor: {
-      return pre_compile_tensor(args, code, lval_globs, {});
+      return pre_compile_tensor(args, code, lval_globs);
     }
     case _Apply: {
       tolk_assert(sym);
-      auto func = dynamic_cast<SymValFunc*>(sym->value);
       std::vector<var_idx_t> res;
-      if (func && func->arg_order.size() == args.size() && !(code.flags & CodeBlob::_ComputeAsmLtr)) {
-        //std::cerr << "!!! reordering " << args.size() << " arguments of " << sym->name() << std::endl;
-        res = pre_compile_tensor(args, code, lval_globs, func->arg_order);
+      SymDef* applied_sym = sym;
+      auto func = dynamic_cast<SymValFunc*>(applied_sym->value);
+      // replace `beginCell()` with `begin_cell()`
+      if (func && func->is_just_wrapper_for_another_f()) {
+        // body is { Op::_Import; Op::_Call; Op::_Return; }
+        const std::unique_ptr<Op>& op_call = dynamic_cast<SymValCodeFunc*>(func)->code->ops->next;
+        applied_sym = op_call->fun_ref;
+        // a function may call anotherF with shuffled arguments: f(x,y) { return anotherF(y,x) }
+        // then op_call looks like (_1,_0), so use op_call->right for correct positions in Op::_Call below
+        // it's correct, since every argument has width 1
+        std::vector<var_idx_t> res_inner = pre_compile_tensor(args, code, lval_globs);
+        res.reserve(res_inner.size());
+        for (var_idx_t right_idx : op_call->right) {
+          res.emplace_back(res_inner[right_idx]);
+        }
       } else {
-        res = pre_compile_tensor(args, code, lval_globs, {});
+        res = pre_compile_tensor(args, code, lval_globs);
       }
       auto rvect = new_tmp_vect(code);
-      auto& op = code.emplace_back(here, Op::_Call, rvect, std::move(res), sym);
+      auto& op = code.emplace_back(here, Op::_Call, rvect, res, applied_sym);
       if (flags & _IsImpure) {
-        op.flags |= Op::_Impure;
+        op.set_impure(code);
       }
       return rvect;
     }
@@ -362,12 +368,12 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, std::vector<std::pair<S
       }
       return {val};
     case _VarApply:
-      if (args[0]->cls == _Glob) {
+      if (args[0]->cls == _GlobFunc) {
         auto res = args[1]->pre_compile(code);
         auto rvect = new_tmp_vect(code);
         auto& op = code.emplace_back(here, Op::_Call, rvect, std::move(res), args[0]->sym);
         if (args[0]->flags & _IsImpure) {
-          op.flags |= Op::_Impure;
+          op.set_impure(code);
         }
         return rvect;
       } else {
@@ -386,8 +392,14 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, std::vector<std::pair<S
       code.emplace_back(here, Op::_IntConst, rvect, intval);
       return rvect;
     }
-    case _Glob:
+    case _GlobFunc:
     case _GlobVar: {
+      if (auto fun_ref = dynamic_cast<SymValFunc*>(sym->value)) {
+        fun_ref->flags |= SymValFunc::flagUsedAsNonCall;
+        if (!fun_ref->arg_order.empty() || !fun_ref->ret_order.empty()) {
+          throw ParseError(here, "Saving " + sym->name() + " into a variable will most likely lead to invalid usage, since it changes the order of variables on the stack");
+        }
+      }
       auto rvect = new_tmp_vect(code);
       if (lval_globs) {
         lval_globs->push_back({ sym, rvect[0] });

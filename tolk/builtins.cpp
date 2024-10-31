@@ -26,10 +26,10 @@ using namespace std::literals::string_literals;
  */
 
 int glob_func_cnt, undef_func_cnt, glob_var_cnt, const_cnt;
-std::vector<SymDef*> glob_func, glob_vars;
+std::vector<SymDef*> glob_func, glob_vars, glob_get_methods;
 std::set<std::string> prohibited_var_names;
 
-SymDef* predefine_builtin_func(std::string name, TypeExpr* func_type) {
+SymDef* define_builtin_func_impl(const std::string& name, SymValAsmFunc* func_val) {
   if (name.back() == '_') {
     prohibited_var_names.insert(name);
   }
@@ -42,30 +42,40 @@ SymDef* predefine_builtin_func(std::string name, TypeExpr* func_type) {
     std::cerr << "fatal: global function `" << name << "` already defined" << std::endl;
     std::exit(1);
   }
+  func_val->flags |= SymValFunc::flagBuiltinFunction;
+  def->value = func_val;
+#ifdef TOLK_DEBUG
+  dynamic_cast<SymValAsmFunc*>(def->value)->name = name;
+#endif
   return def;
 }
 
-template <typename T>
-SymDef* define_builtin_func(std::string name, TypeExpr* func_type, const T& func, bool impure = false) {
-  SymDef* def = predefine_builtin_func(name, func_type);
-  def->value = new SymValAsmFunc{func_type, func, impure};
-  return def;
+SymDef* define_builtin_func(const std::string& name, TypeExpr* func_type, const simple_compile_func_t& func, bool impure = false) {
+  return define_builtin_func_impl(name, new SymValAsmFunc{func_type, func, !impure});
 }
 
-template <typename T>
-SymDef* define_builtin_func(std::string name, TypeExpr* func_type, const T& func, std::initializer_list<int> arg_order,
+SymDef* define_builtin_func(const std::string& name, TypeExpr* func_type, const compile_func_t& func, bool impure = false) {
+  return define_builtin_func_impl(name, new SymValAsmFunc{func_type, func, !impure});
+}
+
+SymDef* define_builtin_func(const std::string& name, TypeExpr* func_type, const AsmOp& macro, bool impure = false) {
+  return define_builtin_func_impl(name, new SymValAsmFunc{func_type, make_simple_compile(macro), !impure});
+}
+
+SymDef* define_builtin_func(const std::string& name, TypeExpr* func_type, const simple_compile_func_t& func, std::initializer_list<int> arg_order,
                             std::initializer_list<int> ret_order = {}, bool impure = false) {
-  SymDef* def = predefine_builtin_func(name, func_type);
-  def->value = new SymValAsmFunc{func_type, func, arg_order, ret_order, impure};
-  return def;
+  return define_builtin_func_impl(name, new SymValAsmFunc{func_type, func, arg_order, ret_order, !impure});
 }
 
-SymDef* define_builtin_func(std::string name, TypeExpr* func_type, const AsmOp& macro,
+SymDef* define_builtin_func(const std::string& name, TypeExpr* func_type, const compile_func_t& func, std::initializer_list<int> arg_order,
+                            std::initializer_list<int> ret_order = {}, bool impure = false) {
+  return define_builtin_func_impl(name, new SymValAsmFunc{func_type, func, arg_order, ret_order, !impure});
+}
+
+SymDef* define_builtin_func(const std::string& name, TypeExpr* func_type, const AsmOp& macro,
                             std::initializer_list<int> arg_order, std::initializer_list<int> ret_order = {},
                             bool impure = false) {
-  SymDef* def = predefine_builtin_func(name, func_type);
-  def->value = new SymValAsmFunc{func_type, make_simple_compile(macro), arg_order, ret_order, impure};
-  return def;
+  return define_builtin_func_impl(name, new SymValAsmFunc{func_type, make_simple_compile(macro), arg_order, ret_order, !impure});
 }
 
 SymDef* force_autoapply(SymDef* def) {
@@ -262,7 +272,7 @@ int emulate_lshift(int a, int b) {
   }
   int t = ((b & VarDescr::_NonZero) ? VarDescr::_Even : 0);
   t |= b & VarDescr::_Finite;
-  return emulate_mul(a, VarDescr::_Int | VarDescr::_Pos | VarDescr::_NonZero | VarDescr::_Even | t);
+  return emulate_mul(a, VarDescr::_Int | VarDescr::_Pos | VarDescr::_NonZero | t);
 }
 
 int emulate_div(int a, int b) {
@@ -308,7 +318,7 @@ int emulate_rshift(int a, int b) {
   }
   int t = ((b & VarDescr::_NonZero) ? VarDescr::_Even : 0);
   t |= b & VarDescr::_Finite;
-  return emulate_div(a, VarDescr::_Int | VarDescr::_Pos | VarDescr::_NonZero | VarDescr::_Even | t);
+  return emulate_div(a, VarDescr::_Int | VarDescr::_Pos | VarDescr::_NonZero | t);
 }
 
 int emulate_mod(int a, int b, int round_mode = -1) {
@@ -1128,9 +1138,9 @@ void define_builtins() {
   auto Int3 = TypeExpr::new_tensor({Int, Int, Int});
   auto TupleInt = TypeExpr::new_tensor({Tuple, Int});
   auto SliceInt = TypeExpr::new_tensor({Slice, Int});
-  auto X = TypeExpr::new_var();
-  auto Y = TypeExpr::new_var();
-  auto Z = TypeExpr::new_var();
+  auto X = TypeExpr::new_var(0);
+  auto Y = TypeExpr::new_var(1);
+  auto Z = TypeExpr::new_var(2);
   auto XY = TypeExpr::new_tensor({X, Y});
   auto arith_bin_op = TypeExpr::new_map(Int2, Int);
   auto arith_un_op = TypeExpr::new_map(Int, Int);

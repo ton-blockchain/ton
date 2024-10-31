@@ -148,6 +148,9 @@ struct SymDef {
   sym_idx_t sym_idx;
   SymValBase* value;
   SrcLocation loc;
+#ifdef TOLK_DEBUG
+  std::string sym_name;
+#endif
   SymDef(int lvl, sym_idx_t idx, const SrcLocation& _loc = {}, SymValBase* val = 0)
       : level(lvl), sym_idx(idx), value(val), loc(_loc) {
   }

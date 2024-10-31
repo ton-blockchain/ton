@@ -149,7 +149,11 @@ SymDef* define_global_symbol(sym_idx_t name_idx, bool force_new, const SrcLocati
   if (found) {
     return force_new && found->value ? nullptr : found;
   }
-  return global_sym_def[name_idx] = new SymDef(0, name_idx, loc);
+  found = global_sym_def[name_idx] = new SymDef(0, name_idx, loc);
+#ifdef TOLK_DEBUG
+  found->sym_name = found->name();
+#endif
+  return found;
 }
 
 SymDef* define_symbol(sym_idx_t name_idx, bool force_new, const SrcLocation& loc) {
@@ -173,6 +177,10 @@ SymDef* define_symbol(sym_idx_t name_idx, bool force_new, const SrcLocation& loc
   }
   found = sym_def[name_idx] = new SymDef(scope_level, name_idx, loc);
   symbol_stack.push_back(std::make_pair(scope_level, SymDef{0, name_idx}));
+#ifdef TOLK_DEBUG
+  found->sym_name = found->name();
+  symbol_stack.back().second.sym_name = found->name();
+#endif
   return found;
 }
 

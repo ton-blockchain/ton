@@ -106,12 +106,15 @@ enum Keyword {
   _Forall,
   _Asm,
   _Impure,
+  _Pure,
   _Global,
   _Extern,
   _Inline,
   _InlineRef,
+  _Builtin,
   _AutoApply,
   _MethodId,
+  _Get,
   _Operator,
   _Infix,
   _Infixl,
@@ -147,8 +150,8 @@ class IdSc {
  */
 
 struct TypeExpr {
-  enum te_type { te_Unknown, te_Var, te_Indirect, te_Atomic, te_Tensor, te_Tuple, te_Map, te_Type, te_ForAll } constr;
-  enum {
+  enum te_type { te_Unknown, te_Var, te_Indirect, te_Atomic, te_Tensor, te_Tuple, te_Map, te_ForAll } constr;
+  enum AtomicType {
     _Int = Keyword::_Int,
     _Cell = Keyword::_Cell,
     _Slice = Keyword::_Slice,
@@ -214,9 +217,11 @@ struct TypeExpr {
   void compute_width();
   bool recompute_width();
   void show_width(std::ostream& os);
-  std::ostream& print(std::ostream& os, int prio = 0);
+  std::ostream& print(std::ostream& os, int prio = 0) const;
   void replace_with(TypeExpr* te2);
   int extract_components(std::vector<TypeExpr*>& comp_list);
+  bool equals_to(const TypeExpr* rhs) const;
+  bool has_unknown_inside() const;
   static int holes, type_vars;
   static TypeExpr* new_hole() {
     return new TypeExpr{te_Unknown, ++holes};
@@ -528,7 +533,7 @@ class ListIterator {
 struct Stack;
 
 struct Op {
-  enum {
+  enum OpKind {
     _Undef,
     _Nop,
     _Call,
@@ -547,13 +552,13 @@ struct Op {
     _Repeat,
     _Again,
     _TryCatch,
-    _SliceConst
+    _SliceConst,
   };
-  int cl;
-  enum { _Disabled = 1, _Reachable = 2, _NoReturn = 4, _ImpureR = 8, _ImpureW = 16, _Impure = 24 };
+  OpKind cl;
+  enum { _Disabled = 1, _NoReturn = 4, _Impure = 24 };
   int flags;
   std::unique_ptr<Op> next;
-  SymDef* fun_ref;
+  SymDef* fun_ref;   // despite its name, it may actually ref global var; applicable not only to Op::_Call, but for other kinds also
   SrcLocation where;
   VarDescrList var_info;
   std::vector<VarDescr> args;
@@ -561,41 +566,41 @@ struct Op {
   std::unique_ptr<Op> block0, block1;
   td::RefInt256 int_const;
   std::string str_const;
-  Op(const SrcLocation& _where = {}, int _cl = _Undef) : cl(_cl), flags(0), fun_ref(nullptr), where(_where) {
+  Op(const SrcLocation& _where = {}, OpKind _cl = _Undef) : cl(_cl), flags(0), fun_ref(nullptr), where(_where) {
   }
-  Op(const SrcLocation& _where, int _cl, const std::vector<var_idx_t>& _left)
+  Op(const SrcLocation& _where, OpKind _cl, const std::vector<var_idx_t>& _left)
       : cl(_cl), flags(0), fun_ref(nullptr), where(_where), left(_left) {
   }
-  Op(const SrcLocation& _where, int _cl, std::vector<var_idx_t>&& _left)
+  Op(const SrcLocation& _where, OpKind _cl, std::vector<var_idx_t>&& _left)
       : cl(_cl), flags(0), fun_ref(nullptr), where(_where), left(std::move(_left)) {
   }
-  Op(const SrcLocation& _where, int _cl, const std::vector<var_idx_t>& _left, td::RefInt256 _const)
+  Op(const SrcLocation& _where, OpKind _cl, const std::vector<var_idx_t>& _left, td::RefInt256 _const)
       : cl(_cl), flags(0), fun_ref(nullptr), where(_where), left(_left), int_const(_const) {
   }
-  Op(const SrcLocation& _where, int _cl, const std::vector<var_idx_t>& _left, std::string _const)
+  Op(const SrcLocation& _where, OpKind _cl, const std::vector<var_idx_t>& _left, std::string _const)
       : cl(_cl), flags(0), fun_ref(nullptr), where(_where), left(_left), str_const(_const) {
   }
-  Op(const SrcLocation& _where, int _cl, const std::vector<var_idx_t>& _left, const std::vector<var_idx_t>& _right,
+  Op(const SrcLocation& _where, OpKind _cl, const std::vector<var_idx_t>& _left, const std::vector<var_idx_t>& _right,
      SymDef* _fun = nullptr)
       : cl(_cl), flags(0), fun_ref(_fun), where(_where), left(_left), right(_right) {
   }
-  Op(const SrcLocation& _where, int _cl, std::vector<var_idx_t>&& _left, std::vector<var_idx_t>&& _right,
+  Op(const SrcLocation& _where, OpKind _cl, std::vector<var_idx_t>&& _left, std::vector<var_idx_t>&& _right,
      SymDef* _fun = nullptr)
       : cl(_cl), flags(0), fun_ref(_fun), where(_where), left(std::move(_left)), right(std::move(_right)) {
   }
-  bool disabled() const {
-    return flags & _Disabled;
-  }
-  bool enabled() const {
-    return !disabled();
-  }
-  void disable() {
-    flags |= _Disabled;
-  }
-  bool unreachable() {
-    return !(flags & _Reachable);
-  }
-  void flags_set_clear(int set, int clear);
+
+  bool disabled() const { return flags & _Disabled; }
+  void set_disabled() { flags |= _Disabled; }
+  void set_disabled(bool flag);
+
+  bool noreturn() const { return flags & _NoReturn; }
+  bool set_noreturn() { flags |= _NoReturn; return true; }
+  bool set_noreturn(bool flag);
+
+  bool impure() const { return flags & _Impure; }
+  void set_impure(const CodeBlob &code);
+  void set_impure(const CodeBlob &code, bool flag);
+
   void show(std::ostream& os, const std::vector<TmpVar>& vars, std::string pfx = "", int mode = 0) const;
   void show_var_list(std::ostream& os, const std::vector<var_idx_t>& idx_list, const std::vector<TmpVar>& vars) const;
   void show_var_list(std::ostream& os, const std::vector<VarDescr>& list, const std::vector<TmpVar>& vars) const;
@@ -611,16 +616,9 @@ struct Op {
   bool set_var_info_except(VarDescrList&& new_var_info, const std::vector<var_idx_t>& var_list);
   void prepare_args(VarDescrList values);
   VarDescrList fwd_analyze(VarDescrList values);
-  bool set_noreturn(bool nr);
   bool mark_noreturn();
-  bool noreturn() const {
-    return flags & _NoReturn;
-  }
   bool is_empty() const {
     return cl == _Nop && !next;
-  }
-  bool is_pure() const {
-    return !(flags & _Impure);
   }
   bool generate_code_step(Stack& stack);
   void generate_code_all(Stack& stack);
@@ -682,7 +680,7 @@ typedef std::vector<FormalArg> FormalArgList;
 struct AsmOpList;
 
 struct CodeBlob {
-  enum { _AllowPostModification = 1, _ComputeAsmLtr = 2 };
+  enum { _ForbidImpure = 4 };
   int var_cnt, in_var_cnt, op_cnt;
   TypeExpr* ret_type;
   std::string name;
@@ -726,7 +724,6 @@ struct CodeBlob {
     pop_cur();
   }
   void simplify_var_types();
-  void flags_set_clear(int set, int clear);
   void prune_unreachable_code();
   void fwd_analyze();
   void mark_noreturn();
@@ -748,48 +745,75 @@ struct CodeBlob {
 
 struct SymVal : SymValBase {
   TypeExpr* sym_type;
-  td::RefInt256 method_id;
-  bool impure;
   bool auto_apply{false};
-  short flags;  // +1 = inline, +2 = inline_ref
-  SymVal(int _type, int _idx, TypeExpr* _stype = nullptr, bool _impure = false)
-      : SymValBase(_type, _idx), sym_type(_stype), impure(_impure), flags(0) {
+  SymVal(int _type, int _idx, TypeExpr* _stype = nullptr)
+      : SymValBase(_type, _idx), sym_type(_stype) {
   }
   ~SymVal() override = default;
   TypeExpr* get_type() const {
     return sym_type;
   }
-  virtual const std::vector<int>* get_arg_order() const {
-    return nullptr;
-  }
-  virtual const std::vector<int>* get_ret_order() const {
-    return nullptr;
-  }
 };
 
 struct SymValFunc : SymVal {
+  enum SymValFlag {
+    flagInline = 1,             // function marked `inline`
+    flagInlineRef = 2,          // function marked `inline_ref`
+    flagWrapsAnotherF = 4,      // (T) thisF(...args) { return anotherF(...args); } (calls to thisF will be replaced)
+    flagUsedAsNonCall = 8,      // used not only as `f()`, but as a 1-st class function (assigned to var, pushed to tuple, etc.)
+    flagMarkedAsPure = 16,      // declared as `pure`, can't call impure and access globals, unused invocations are optimized out
+    flagBuiltinFunction = 32,   // was created via `define_builtin_func()`, not from source code
+    flagGetMethod = 64,         // was declared via `get T func()`, method_id is auto-assigned
+  };
+
+  td::RefInt256 method_id;  // todo why int256? it's small
+  int flags{0};
   std::vector<int> arg_order, ret_order;
+#ifdef TOLK_DEBUG
+  std::string name; // seeing function name in debugger makes it much easier to delve into Tolk sources
+#endif
   ~SymValFunc() override = default;
-  SymValFunc(int val, TypeExpr* _ft, bool _impure = false) : SymVal(_Func, val, _ft, _impure) {
-  }
-  SymValFunc(int val, TypeExpr* _ft, std::initializer_list<int> _arg_order, std::initializer_list<int> _ret_order = {},
-             bool _impure = false)
-      : SymVal(_Func, val, _ft, _impure), arg_order(_arg_order), ret_order(_ret_order) {
+  SymValFunc(int val, TypeExpr* _ft, bool marked_as_pure)
+      : SymVal(_Func, val, _ft), flags(marked_as_pure ? flagMarkedAsPure : 0) {}
+  SymValFunc(int val, TypeExpr* _ft, std::initializer_list<int> _arg_order, std::initializer_list<int> _ret_order, bool marked_as_pure)
+      : SymVal(_Func, val, _ft), flags(marked_as_pure ? flagMarkedAsPure : 0), arg_order(_arg_order), ret_order(_ret_order) {
   }
 
-  const std::vector<int>* get_arg_order() const override {
+  const std::vector<int>* get_arg_order() const {
     return arg_order.empty() ? nullptr : &arg_order;
   }
-  const std::vector<int>* get_ret_order() const override {
+  const std::vector<int>* get_ret_order() const {
     return ret_order.empty() ? nullptr : &ret_order;
+  }
+  const TypeExpr* get_arg_type() const;
+
+  bool is_inline() const {
+    return flags & flagInline;
+  }
+  bool is_inline_ref() const {
+    return flags & flagInlineRef;
+  }
+  bool is_just_wrapper_for_another_f() const {
+    return flags & flagWrapsAnotherF;
+  }
+  bool is_marked_as_pure() const {
+    return flags & flagMarkedAsPure;
+  }
+  bool is_builtin() const {
+    return flags & flagBuiltinFunction;
+  }
+  bool is_get_method() const {
+    return flags & flagGetMethod;
   }
 };
 
 struct SymValCodeFunc : SymValFunc {
   CodeBlob* code;
+  bool is_really_used{false};   // calculated via dfs; unused functions are not codegenerated
   ~SymValCodeFunc() override = default;
-  SymValCodeFunc(int val, TypeExpr* _ft, bool _impure = false) : SymValFunc(val, _ft, _impure), code(nullptr) {
+  SymValCodeFunc(int val, TypeExpr* _ft, bool marked_as_pure) : SymValFunc(val, _ft, marked_as_pure), code(nullptr) {
   }
+  bool does_need_codegen() const;
 };
 
 struct SymValType : SymValBase {
@@ -805,6 +829,10 @@ struct SymValType : SymValBase {
 struct SymValGlobVar : SymValBase {
   TypeExpr* sym_type;
   int out_idx{0};
+  bool is_really_used{false};   // calculated via dfs from used functions; unused globals are not codegenerated
+#ifdef TOLK_DEBUG
+  std::string name; // seeing variable name in debugger makes it much easier to delve into Tolk sources
+#endif
   SymValGlobVar(int val, TypeExpr* gvtype, int oidx = 0)
       : SymValBase(_GlobVar, val), sym_type(gvtype), out_idx(oidx) {
   }
@@ -839,7 +867,7 @@ struct SymValConst : SymValBase {
 };
 
 extern int glob_func_cnt, undef_func_cnt, glob_var_cnt;
-extern std::vector<SymDef*> glob_func, glob_vars;
+extern std::vector<SymDef*> glob_func, glob_vars, glob_get_methods;
 extern std::set<std::string> prohibited_var_names;
 
 /*
@@ -891,7 +919,7 @@ extern std::stack<SrcLocation> inclusion_locations;
  */
 
 struct Expr {
-  enum {
+  enum ExprCls {
     _None,
     _Apply,
     _VarApply,
@@ -900,18 +928,18 @@ struct Expr {
     _Tensor,
     _Const,
     _Var,
-    _Glob,
+    _GlobFunc,
     _GlobVar,
     _Letop,
     _LetFirst,
     _Hole,
     _Type,
     _CondExpr,
-    _SliceConst
+    _SliceConst,
   };
-  int cls;
+  ExprCls cls;
   int val{0};
-  enum { _IsType = 1, _IsRvalue = 2, _IsLvalue = 4, _IsHole = 8, _IsNewVar = 16, _IsImpure = 32 };
+  enum { _IsType = 1, _IsRvalue = 2, _IsLvalue = 4, _IsImpure = 32, _IsInsideParenthesis = 64 };
   int flags{0};
   SrcLocation here;
   td::RefInt256 intval;
@@ -919,19 +947,19 @@ struct Expr {
   SymDef* sym{nullptr};
   TypeExpr* e_type{nullptr};
   std::vector<Expr*> args;
-  Expr(int c = _None) : cls(c) {
+  explicit Expr(ExprCls c = _None) : cls(c) {
   }
-  Expr(int c, const SrcLocation& loc) : cls(c), here(loc) {
+  Expr(ExprCls c, const SrcLocation& loc) : cls(c), here(loc) {
   }
-  Expr(int c, std::vector<Expr*> _args) : cls(c), args(std::move(_args)) {
+  Expr(ExprCls c, std::vector<Expr*> _args) : cls(c), args(std::move(_args)) {
   }
-  Expr(int c, std::initializer_list<Expr*> _arglist) : cls(c), args(std::move(_arglist)) {
+  Expr(ExprCls c, std::initializer_list<Expr*> _arglist) : cls(c), args(std::move(_arglist)) {
   }
-  Expr(int c, SymDef* _sym, std::initializer_list<Expr*> _arglist) : cls(c), sym(_sym), args(std::move(_arglist)) {
+  Expr(ExprCls c, SymDef* _sym, std::initializer_list<Expr*> _arglist) : cls(c), sym(_sym), args(std::move(_arglist)) {
   }
-  Expr(int c, SymDef* _sym, std::vector<Expr*> _arglist) : cls(c), sym(_sym), args(std::move(_arglist)) {
+  Expr(ExprCls c, SymDef* _sym, std::vector<Expr*> _arglist) : cls(c), sym(_sym), args(std::move(_arglist)) {
   }
-  Expr(int c, sym_idx_t name_idx, std::initializer_list<Expr*> _arglist);
+  Expr(ExprCls c, sym_idx_t name_idx, std::initializer_list<Expr*> _arglist);
   ~Expr() {
     for (auto& arg_ptr : args) {
       delete arg_ptr;
@@ -953,6 +981,9 @@ struct Expr {
   bool is_type() const {
     return flags & _IsType;
   }
+  bool is_inside_parenthesis() const {
+    return flags & _IsInsideParenthesis;
+  }
   bool is_type_apply() const {
     return cls == _TypeApply;
   }
@@ -972,7 +1003,6 @@ struct Expr {
   int define_new_vars(CodeBlob& code);
   int predefine_vars();
   std::vector<var_idx_t> pre_compile(CodeBlob& code, std::vector<std::pair<SymDef*, var_idx_t>>* lval_globs = nullptr) const;
-  static std::vector<var_idx_t> pre_compile_let(CodeBlob& code, Expr* lhs, Expr* rhs, const SrcLocation& here);
   var_idx_t new_tmp(CodeBlob& code) const;
   std::vector<var_idx_t> new_tmp_vect(CodeBlob& code) const {
     return {new_tmp(code)};
@@ -993,9 +1023,9 @@ using Const = td::RefInt256;
 
 struct AsmOp {
   enum Type { a_none, a_xchg, a_push, a_pop, a_const, a_custom, a_magic };
-  int t{a_none};
+  Type t{a_none};
   int indent{0};
-  int a, b, c;
+  int a, b;
   bool gconst{false};
   std::string op;
   td::RefInt256 origin;
@@ -1005,25 +1035,21 @@ struct AsmOp {
     }
   };
   AsmOp() = default;
-  AsmOp(int _t) : t(_t) {
+  AsmOp(Type _t) : t(_t) {
   }
-  AsmOp(int _t, std::string _op) : t(_t), op(std::move(_op)) {
+  AsmOp(Type _t, std::string _op) : t(_t), op(std::move(_op)) {
   }
-  AsmOp(int _t, int _a) : t(_t), a(_a) {
+  AsmOp(Type _t, int _a) : t(_t), a(_a) {
   }
-  AsmOp(int _t, int _a, std::string _op) : t(_t), a(_a), op(std::move(_op)) {
+  AsmOp(Type _t, int _a, std::string _op) : t(_t), a(_a), op(std::move(_op)) {
   }
-  AsmOp(int _t, int _a, int _b) : t(_t), a(_a), b(_b) {
+  AsmOp(Type _t, int _a, int _b) : t(_t), a(_a), b(_b) {
   }
-  AsmOp(int _t, int _a, int _b, std::string _op) : t(_t), a(_a), b(_b), op(std::move(_op)) {
+  AsmOp(Type _t, int _a, int _b, std::string _op) : t(_t), a(_a), b(_b), op(std::move(_op)) {
     compute_gconst();
   }
-  AsmOp(int _t, int _a, int _b, std::string _op, td::RefInt256 x) : t(_t), a(_a), b(_b), op(std::move(_op)), origin(x) {
+  AsmOp(Type _t, int _a, int _b, std::string _op, td::RefInt256 x) : t(_t), a(_a), b(_b), op(std::move(_op)), origin(x) {
     compute_gconst();
-  }
-  AsmOp(int _t, int _a, int _b, int _c) : t(_t), a(_a), b(_b), c(_c) {
-  }
-  AsmOp(int _t, int _a, int _b, int _c, std::string _op) : t(_t), a(_a), b(_b), c(_c), op(std::move(_op)) {
   }
   void out(std::ostream& os) const;
   void out_indent_nl(std::ostream& os, bool no_nl = false) const;
@@ -1680,8 +1706,8 @@ inline simple_compile_func_t make_simple_compile(AsmOp op) {
   return [op](std::vector<VarDescr>& out, std::vector<VarDescr>& in, const SrcLocation&) -> AsmOp { return op; };
 }
 
-inline compile_func_t make_ext_compile(std::vector<AsmOp> ops) {
-  return [ops = std::move(ops)](AsmOpList & dest, std::vector<VarDescr> & out, std::vector<VarDescr> & in)->bool {
+inline compile_func_t make_ext_compile(std::vector<AsmOp>&& ops) {
+  return [ops = std::move(ops)](AsmOpList& dest, std::vector<VarDescr>& out, std::vector<VarDescr>& in)->bool {
     return dest.append(ops);
   };
 }
@@ -1696,25 +1722,22 @@ struct SymValAsmFunc : SymValFunc {
   compile_func_t ext_compile;
   td::uint64 crc;
   ~SymValAsmFunc() override = default;
-  SymValAsmFunc(TypeExpr* ft, const AsmOp& _macro, bool impure = false)
-      : SymValFunc(-1, ft, impure), simple_compile(make_simple_compile(_macro)) {
+  SymValAsmFunc(TypeExpr* ft, std::vector<AsmOp>&& _macro, bool marked_as_pure)
+      : SymValFunc(-1, ft, marked_as_pure), ext_compile(make_ext_compile(std::move(_macro))) {
   }
-  SymValAsmFunc(TypeExpr* ft, std::vector<AsmOp> _macro, bool impure = false)
-      : SymValFunc(-1, ft, impure), ext_compile(make_ext_compile(std::move(_macro))) {
+  SymValAsmFunc(TypeExpr* ft, simple_compile_func_t _compile, bool marked_as_pure)
+      : SymValFunc(-1, ft, marked_as_pure), simple_compile(std::move(_compile)) {
   }
-  SymValAsmFunc(TypeExpr* ft, simple_compile_func_t _compile, bool impure = false)
-      : SymValFunc(-1, ft, impure), simple_compile(std::move(_compile)) {
-  }
-  SymValAsmFunc(TypeExpr* ft, compile_func_t _compile, bool impure = false)
-      : SymValFunc(-1, ft, impure), ext_compile(std::move(_compile)) {
+  SymValAsmFunc(TypeExpr* ft, compile_func_t _compile, bool marked_as_pure)
+      : SymValFunc(-1, ft, marked_as_pure), ext_compile(std::move(_compile)) {
   }
   SymValAsmFunc(TypeExpr* ft, simple_compile_func_t _compile, std::initializer_list<int> arg_order,
-                std::initializer_list<int> ret_order = {}, bool impure = false)
-      : SymValFunc(-1, ft, arg_order, ret_order, impure), simple_compile(std::move(_compile)) {
+                std::initializer_list<int> ret_order = {}, bool marked_as_pure = false)
+      : SymValFunc(-1, ft, arg_order, ret_order, marked_as_pure), simple_compile(std::move(_compile)) {
   }
   SymValAsmFunc(TypeExpr* ft, compile_func_t _compile, std::initializer_list<int> arg_order,
-                std::initializer_list<int> ret_order = {}, bool impure = false)
-      : SymValFunc(-1, ft, arg_order, ret_order, impure), ext_compile(std::move(_compile)) {
+                std::initializer_list<int> ret_order = {}, bool marked_as_pure = false)
+      : SymValFunc(-1, ft, arg_order, ret_order, marked_as_pure), ext_compile(std::move(_compile)) {
   }
   bool compile(AsmOpList& dest, std::vector<VarDescr>& out, std::vector<VarDescr>& in, const SrcLocation& where) const;
 };
@@ -1747,30 +1770,17 @@ class GlobalPragma {
   bool enabled() const {
     return enabled_;
   }
-  void enable(SrcLocation loc) {
-    enabled_ = true;
-    locs_.push_back(std::move(loc));
-  }
-  void check_enable_in_libs() {
-    if (locs_.empty()) {
-      return;
-    }
-    for (const SrcLocation& loc : locs_) {
-      if (loc.fdescr->is_main) {
-        return;
-      }
-    }
-    locs_[0].show_warning(PSTRING() << "#pragma " << name_
-                                    << " is enabled in included libraries, it may change the behavior of your code. "
-                                    << "Add this #pragma to the main source file to suppress this warning.");
-  }
+  void enable(SrcLocation loc);
+  void check_enable_in_libs();
+  void always_on_and_deprecated(const char *deprecated_from_v);
 
  private:
   std::string name_;
   bool enabled_ = false;
+  const char *deprecated_from_v_ = nullptr;
   std::vector<SrcLocation> locs_;
 };
-extern GlobalPragma pragma_allow_post_modification, pragma_compute_asm_ltr;
+extern GlobalPragma pragma_allow_post_modification, pragma_compute_asm_ltr, pragma_remove_unused_functions;
 
 /*
  *
