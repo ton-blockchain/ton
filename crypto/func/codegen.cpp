@@ -830,6 +830,8 @@ bool Op::generate_code_step(Stack& stack) {
       catch_stack.push_new_var(left[1]);
       stack.rearrange_top(catch_vars, catch_last);
       stack.opt_show();
+      stack.o << "c1 PUSH";
+      stack.o << "c3 PUSH";
       stack.o << "c4 PUSH";
       stack.o << "c5 PUSH";
       stack.o << "c7 PUSH";
@@ -846,6 +848,8 @@ bool Op::generate_code_step(Stack& stack) {
       stack.o << "c7 SETCONT";
       stack.o << "c5 SETCONT";
       stack.o << "c4 SETCONT";
+      stack.o << "c3 SETCONT";
+      stack.o << "c1 SETCONT";
       for (size_t begin = catch_vars.size(), end = begin; end > 0; end = begin) {
         begin = end >= block_size ? end - block_size : 0;
         stack.o << std::to_string(end - begin) + " PUSHINT";
