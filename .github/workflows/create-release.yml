@@ -167,6 +167,14 @@ jobs:
           asset_name: func.exe
           tag: ${{ steps.tag.outputs.TAG }}
 
+      - name: Upload Windows 2019 single artifact - tolk
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-win-binaries/tolk.exe
+          asset_name: tolk.exe
+          tag: ${{ steps.tag.outputs.TAG }}
+
       - name: Upload Windows 2019 single artifact - lite-client
         uses: svenstaro/upload-release-action@v2
         with:
@@ -255,6 +263,14 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: artifacts/ton-x86_64-macos-binaries/func
           asset_name: func-mac-x86-64
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Mac x86-64 single artifact - tolk
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-macos-binaries/tolk
+          asset_name: tolk-mac-x86-64
           tag: ${{ steps.tag.outputs.TAG }}
 
       - name: Upload Mac x86-64 single artifact - lite-client
@@ -348,6 +364,14 @@ jobs:
           asset_name: func-mac-arm64
           tag: ${{ steps.tag.outputs.TAG }}
 
+      - name: Upload Mac arm64 single artifact - tolk
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-arm64-macos-binaries/tolk
+          asset_name: tolk-mac-arm64
+          tag: ${{ steps.tag.outputs.TAG }}
+
       - name: Upload Mac arm64 single artifact - lite-client
         uses: svenstaro/upload-release-action@v2
         with:
@@ -436,6 +460,14 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: artifacts/ton-x86_64-linux-binaries/func
           asset_name: func-linux-x86_64
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Linux x86-64 single artifact - tolk
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-linux-binaries/tolk
+          asset_name: tolk-linux-x86_64
           tag: ${{ steps.tag.outputs.TAG }}
 
       - name: Upload Linux x86-64 single artifact - lite-client

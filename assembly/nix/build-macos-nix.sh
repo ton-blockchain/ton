@@ -43,6 +43,7 @@ sudo strip -xSX storage-daemon \
          fift \
          tlbc \
          func \
+         tolk \
          create-state \
          validator-engine-console \
          tonlib-cli \
