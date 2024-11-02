@@ -386,7 +386,7 @@ class TonlibCli : public td::actor::Actor {
       td::TerminalIO::out() << "sendfile <filename>\tLoad a serialized message from <filename> and send it to server\n";
       td::TerminalIO::out() << "setconfig|validateconfig <path> [<name>] [<use_callback>] [<force>] - set or validate "
                                "lite server config\n";
-      td::TerminalIO::out() << "runmethod <addr> <method-id> <params>...\tRuns GET method <method-id> of account "
+      td::TerminalIO::out() << "runmethod <addr> <name> <params>...\tRuns GET method <name> of account "
                                "<addr> with specified parameters\n";
       td::TerminalIO::out() << "getstate <key_id>\tget state of wallet with requested key\n";
       td::TerminalIO::out() << "getstatebytransaction <key_id> <lt> <hash>\tget state of wallet with requested key after transaction with local time <lt> and hash <hash> (base64url)\n";

@@ -114,7 +114,7 @@ class MemoryFileLoader : public fift::FileLoader {
   std::map<std::string, std::string, std::less<>> files_;
 };
 
-td::Result<fift::SourceLookup> create_source_lookup(std::string main, bool need_preamble = true, bool need_asm = true,
+td::Result<fift::SourceLookup> create_source_lookup(std::string&& main, bool need_preamble = true, bool need_asm = true,
                                                     bool need_ton_util = true, bool need_lisp = true,
                                                     bool need_w3_code = true, bool need_fift_ext = true,
                                                     bool need_disasm = true, std::string dir = "") {
@@ -189,7 +189,7 @@ td::Result<fift::SourceLookup> run_fift(fift::SourceLookup source_lookup, std::o
 }  // namespace
 td::Result<FiftOutput> mem_run_fift(std::string source, std::vector<std::string> args, std::string fift_dir) {
   std::stringstream ss;
-  TRY_RESULT(source_lookup, create_source_lookup(source, true, true, true, true, true, true, true, fift_dir));
+  TRY_RESULT(source_lookup, create_source_lookup(std::move(source), true, true, true, true, true, true, true, fift_dir));
   TRY_RESULT_ASSIGN(source_lookup, run_fift(std::move(source_lookup), &ss, true, std::move(args)));
   FiftOutput res;
   res.source_lookup = std::move(source_lookup);
@@ -207,19 +207,43 @@ td::Result<FiftOutput> mem_run_fift(SourceLookup source_lookup, std::vector<std:
 td::Result<fift::SourceLookup> create_mem_source_lookup(std::string main, std::string fift_dir, bool need_preamble,
                                                         bool need_asm, bool need_ton_util, bool need_lisp,
                                                         bool need_w3_code) {
-  return create_source_lookup(main, need_preamble, need_asm, need_ton_util, need_lisp, need_w3_code, false, false,
+  return create_source_lookup(std::move(main), need_preamble, need_asm, need_ton_util, need_lisp, need_w3_code, false, false,
                               fift_dir);
 }
 
-td::Result<td::Ref<vm::Cell>> compile_asm(td::Slice asm_code, std::string fift_dir, bool is_raw) {
+td::Result<td::Ref<vm::Cell>> compile_asm(td::Slice asm_code) {
   std::stringstream ss;
-  TRY_RESULT(source_lookup,
-             create_source_lookup(PSTRING() << "\"Asm.fif\" include\n " << (is_raw ? "<{" : "") << asm_code << "\n"
-                                            << (is_raw ? "}>c" : "") << " boc>B \"res\" B>file",
-                                  true, true, true, false, false, false, false, fift_dir));
+  std::string sb;
+  sb.reserve(asm_code.size() + 100);
+  sb.append("\"Asm.fif\" include\n <{\n");
+  sb.append(asm_code.data(), asm_code.size());
+  sb.append("\n}>c boc>B \"res\" B>file");
+
+  TRY_RESULT(source_lookup, create_source_lookup(std::move(sb), true, true, true, false, false, false, false));
   TRY_RESULT(res, run_fift(std::move(source_lookup), &ss));
   TRY_RESULT(boc, res.read_file("res"));
   return vm::std_boc_deserialize(std::move(boc.data));
+}
+
+td::Result<CompiledProgramOutput> compile_asm_program(std::string&& program_code, const std::string& fift_dir) {
+  std::string main_fif;
+  main_fif.reserve(program_code.size() + 100);
+  main_fif.append(program_code.data(), program_code.size());
+  main_fif.append(R"( dup hashB B>X      $>B "hex" B>file)");   // write codeHashHex to a file
+  main_fif.append(R"(     boc>B B>base64 $>B "boc" B>file)");   // write codeBoc64 to a file
+
+  std::stringstream fift_output_stream;
+  TRY_RESULT(source_lookup, create_source_lookup(std::move(main_fif), true, true, false, false, false, false, false, fift_dir));
+  TRY_RESULT(res, run_fift(std::move(source_lookup), &fift_output_stream));
+
+  TRY_RESULT(boc, res.read_file("boc"));
+  TRY_RESULT(hex, res.read_file("hex"));
+
+  return CompiledProgramOutput{
+    std::move(program_code),
+    std::move(boc.data),
+    std::move(hex.data),
+  };
 }
 
 }  // namespace fift

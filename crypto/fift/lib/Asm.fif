@@ -1589,6 +1589,9 @@ forget @proclist  forget @proccnt
 { }END> b> } : }END>c
 { }END>c <s } : }END>s
 
+// This is the way how FunC assigns method_id for reserved functions.
+// Note, that Tolk entrypoints have other names (`onInternalMessage`, etc.),
+// but method_id is assigned not by Fift, but by Tolk code generation.
 0 constant recv_internal
 -1 constant recv_external
 -2 constant run_ticktock
