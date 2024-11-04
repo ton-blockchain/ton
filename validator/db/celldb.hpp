@@ -216,12 +216,12 @@ class CellDb : public CellDbBase {
 
   CellDb(td::actor::ActorId<RootDb> root_db, std::string path, int obj_id, InMemoryInfo inmem_info,
          std::shared_ptr<td::RocksDb> rocks_db, td::RocksDbOptions rdb_opts, td::Ref<ValidatorManagerOptions> opts)
-      : root_db_(root_db)
-      , path_(path)
-      , obj_id_(obj_id)
+      : obj_id_(obj_id)
       , inmem_info_(inmem_info)
       , rocks_db_(rocks_db)
       , rdb_opts_(rdb_opts)
+      , path_(path)
+      , root_db_(root_db)
       , opts_(opts) {
   }
 
@@ -234,8 +234,8 @@ class CellDb : public CellDbBase {
   std::shared_ptr<td::RocksDb> rocks_db_;
   td::RocksDbOptions rdb_opts_;
 
-  td::actor::ActorId<RootDb> root_db_;
   std::string path_;
+  td::actor::ActorId<RootDb> root_db_;
   td::Ref<ValidatorManagerOptions> opts_;
 
   td::actor::ActorOwn<CellDbIn> cell_db_;

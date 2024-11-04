@@ -90,9 +90,9 @@ CellDbIn::CellDbIn(td::actor::ActorId<RootDb> root_db, td::actor::ActorId<CellDb
     , path_(std::move(path))
     , obj_id_(obj_id)
     , boc_(inmem_info.boc_)
-    , in_memory_load_time_(inmem_info.in_memory_load_time_)
+    , cell_db_(rocks_db)
     , rocks_db_(rocks_db->raw_db())
-    , cell_db_(std::move(rocks_db)) {
+    , in_memory_load_time_(inmem_info.in_memory_load_time_) {
   statistics_ = rdb_opts.statistics;
   statistics_flush_at_ = td::Timestamp::in(60.0);
   snapshot_statistics_ = rdb_opts.snapshot_statistics;
@@ -649,6 +649,7 @@ void CellDb::start_up() {
   CellDbBase::start_up();
   boc_ = vm::DynamicBagOfCellsDb::create();
   boc_->set_celldb_compress_depth(opts_->get_celldb_compress_depth());
+
   cell_db_ = td::actor::create_actor<CellDbIn>("celldbin", root_db_, actor_id(this), path_, obj_id_, inmem_info_,
                                                rocks_db_, rdb_opts_, opts_);
   on_load_callback_ = [actor = std::make_shared<td::actor::ActorOwn<CellDbIn::MigrationProxy>>(
