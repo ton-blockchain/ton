@@ -58,6 +58,13 @@ class CellDbBase : public td::actor::Actor {
   friend CellDbAsyncExecutor;
 };
 
+struct InMemoryInfo {
+  static InMemoryInfo create_from_rocksdb(const std::string& path);
+
+  std::shared_ptr<vm::DynamicBagOfCellsDb> boc_;
+  std::optional<double> in_memory_load_time_;
+};
+
 class CellDbIn : public CellDbBase {
  public:
   using KeyHash = td::Bits256;
@@ -71,7 +78,8 @@ class CellDbIn : public CellDbBase {
 
   void flush_db_stats();
 
-  CellDbIn(td::actor::ActorId<RootDb> root_db, td::actor::ActorId<CellDb> parent, std::string path,
+  CellDbIn(td::actor::ActorId<RootDb> root_db, td::actor::ActorId<CellDb> parent, std::string path, int obj_id,
+           InMemoryInfo inmem_info, std::shared_ptr<td::RocksDb> rocks_db, td::RocksDbOptions rdb_opts,
            td::Ref<ValidatorManagerOptions> opts);
 
   void start_up() override;
@@ -113,6 +121,7 @@ class CellDbIn : public CellDbBase {
   td::actor::ActorId<CellDb> parent_;
 
   std::string path_;
+  int obj_id_;
   td::Ref<ValidatorManagerOptions> opts_;
 
   std::shared_ptr<vm::DynamicBagOfCellsDb> boc_;
@@ -187,13 +196,13 @@ class CellDb : public CellDbBase {
   void prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise);
   void load_cell(RootHash hash, td::Promise<td::Ref<vm::DataCell>> promise);
   void store_cell(BlockIdExt block_id, td::Ref<vm::Cell> cell, td::Promise<td::Ref<vm::DataCell>> promise);
-  void update_snapshot(std::unique_ptr<td::KeyValueReader> snapshot) {
+  void update_snapshot() {
     CHECK(!opts_->get_celldb_in_memory());
     if (!started_) {
       alarm();
     }
     started_ = true;
-    boc_->set_loader(std::make_unique<vm::CellLoader>(std::move(snapshot), on_load_callback_)).ensure();
+    boc_->set_loader(std::make_unique<vm::CellLoader>(rocks_db_->snapshot(), on_load_callback_)).ensure();
   }
   void set_in_memory_boc(std::shared_ptr<const vm::DynamicBagOfCellsDb> in_memory_boc) {
     CHECK(opts_->get_celldb_in_memory());
@@ -205,13 +214,26 @@ class CellDb : public CellDbBase {
   }
   void get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise);
 
-  CellDb(td::actor::ActorId<RootDb> root_db, std::string path, td::Ref<ValidatorManagerOptions> opts)
-      : root_db_(root_db), path_(path), opts_(opts) {
+  CellDb(td::actor::ActorId<RootDb> root_db, std::string path, int obj_id, InMemoryInfo inmem_info,
+         std::shared_ptr<td::RocksDb> rocks_db, td::RocksDbOptions rdb_opts, td::Ref<ValidatorManagerOptions> opts)
+      : root_db_(root_db)
+      , path_(path)
+      , obj_id_(obj_id)
+      , inmem_info_(inmem_info)
+      , rocks_db_(rocks_db)
+      , rdb_opts_(rdb_opts)
+      , opts_(opts) {
   }
 
   void start_up() override;
 
  private:
+  // just used to store temporary and then pass to CellDbIn
+  int obj_id_;
+  InMemoryInfo inmem_info_;
+  std::shared_ptr<td::RocksDb> rocks_db_;
+  td::RocksDbOptions rdb_opts_;
+
   td::actor::ActorId<RootDb> root_db_;
   std::string path_;
   td::Ref<ValidatorManagerOptions> opts_;

@@ -139,12 +139,22 @@ class RootDb : public Db {
 
   void run_gc(UnixTime mc_ts, UnixTime gc_ts, UnixTime archive_ttl) override;
 
+ public:
+  void update_snapshot() {
+    // we don't update snapshot of writer because the update action must be sent from writer.
+    for (const auto& reader : cell_db_readers_) {
+      td::actor::send_closure(reader, &CellDb::update_snapshot);
+    }
+  }
+
  private:
   td::actor::ActorId<ValidatorManager> validator_manager_;
   std::string root_path_;
   td::Ref<ValidatorManagerOptions> opts_;
 
-  td::actor::ActorOwn<CellDb> cell_db_;
+  td::actor::ActorOwn<CellDb> cell_db_writer_;
+  std::vector<td::actor::ActorOwn<CellDb>> cell_db_readers_;
+  std::size_t reader_index_ = 0;
   td::actor::ActorOwn<StateDb> state_db_;
   td::actor::ActorOwn<StaticFilesDb> static_files_db_;
   td::actor::ActorOwn<ArchiveManager> archive_db_;

@@ -253,7 +253,7 @@ void RootDb::store_block_state(BlockHandle handle, td::Ref<ShardState> state,
         td::actor::send_closure(b, &ArchiveManager::update_handle, std::move(handle), std::move(P));
       }
     });
-    td::actor::send_closure(cell_db_, &CellDb::store_cell, handle->id(), state->root_cell(), std::move(P));
+    td::actor::send_closure(cell_db_writer_, &CellDb::store_cell, handle->id(), state->root_cell(), std::move(P));
   } else {
     get_block_state(handle, std::move(promise));
   }
@@ -265,6 +265,9 @@ void RootDb::get_block_state(ConstBlockHandle handle, td::Promise<td::Ref<ShardS
       promise.set_error(td::Status::Error(ErrorCode::error, "state already gc'd"));
       return;
     }
+
+    const auto index = reader_index_;
+    reader_index_ = (reader_index_ + 1) % cell_db_readers_.size();
     auto P =
         td::PromiseCreator::lambda([handle, promise = std::move(promise)](td::Result<td::Ref<vm::DataCell>> R) mutable {
           if (R.is_error()) {
@@ -275,14 +278,14 @@ void RootDb::get_block_state(ConstBlockHandle handle, td::Promise<td::Ref<ShardS
             promise.set_value(S.move_as_ok());
           }
         });
-    td::actor::send_closure(cell_db_, &CellDb::load_cell, handle->state(), std::move(P));
+    td::actor::send_closure(cell_db_readers_[index], &CellDb::load_cell, handle->state(), std::move(P));
   } else {
     promise.set_error(td::Status::Error(ErrorCode::notready, "state not in db"));
   }
 }
 
 void RootDb::get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) {
-  td::actor::send_closure(cell_db_, &CellDb::get_cell_db_reader, std::move(promise));
+  td::actor::send_closure(cell_db_writer_, &CellDb::get_cell_db_reader, std::move(promise));
 }
 
 void RootDb::store_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::BufferSlice state,
@@ -414,7 +417,32 @@ void RootDb::get_hardforks(td::Promise<std::vector<BlockIdExt>> promise) {
 }
 
 void RootDb::start_up() {
-  cell_db_ = td::actor::create_actor<CellDb>("celldb", actor_id(this), root_path_ + "/celldb/", opts_);
+  const auto celldb_path = root_path_ + "/celldb/";
+
+  InMemoryInfo inmem_info;
+  if (opts_->get_celldb_in_memory()) {
+    inmem_info = InMemoryInfo::create_from_rocksdb(celldb_path);
+  }
+
+  td::RocksDbOptions db_options;
+  if (!opts_->get_disable_rocksdb_stats()) {
+    db_options.statistics = td::RocksDb::create_statistics();
+    db_options.snapshot_statistics = std::make_shared<td::RocksDbSnapshotStatistics>();
+  }
+  if (opts_->get_celldb_cache_size()) {
+    db_options.block_cache = td::RocksDb::create_cache(opts_->get_celldb_cache_size().value());
+    LOG(WARNING) << "Set CellDb block cache size to " << td::format::as_size(opts_->get_celldb_cache_size().value());
+  }
+  db_options.use_direct_reads = opts_->get_celldb_direct_io();
+  auto rocks_db = std::make_shared<td::RocksDb>(td::RocksDb::open(celldb_path, std::move(db_options)).move_as_ok());
+
+  cell_db_writer_ = td::actor::create_actor<CellDb>("celldbwriter", actor_id(this), celldb_path, 0, inmem_info,
+                                                    rocks_db, db_options, opts_);
+  for (auto i = 0; i < 10; i++) {
+    cell_db_readers_.push_back(td::actor::create_actor<CellDb>("celldbreader", actor_id(this), celldb_path, i + 1,
+                                                               inmem_info, rocks_db, db_options, opts_));
+  }
+
   state_db_ = td::actor::create_actor<StateDb>("statedb", actor_id(this), root_path_ + "/state/");
   static_files_db_ = td::actor::create_actor<StaticFilesDb>("staticfilesdb", actor_id(this), root_path_ + "/static/");
   archive_db_ = td::actor::create_actor<ArchiveManager>("archive", actor_id(this), root_path_, opts_);
@@ -435,7 +463,7 @@ void RootDb::allow_block_gc(BlockIdExt block_id, td::Promise<bool> promise) {
 
 void RootDb::prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise) {
   auto merger = StatsMerger::create(std::move(promise));
-  td::actor::send_closure(cell_db_, &CellDb::prepare_stats, merger.make_promise("celldb."));
+  td::actor::send_closure(cell_db_writer_, &CellDb::prepare_stats, merger.make_promise("celldb."));
 }
 
 void RootDb::truncate(BlockSeqno seqno, ConstBlockHandle handle, td::Promise<td::Unit> promise) {
