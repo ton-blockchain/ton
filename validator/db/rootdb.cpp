@@ -434,7 +434,7 @@ void RootDb::start_up() {
     LOG(WARNING) << "Set CellDb block cache size to " << td::format::as_size(opts_->get_celldb_cache_size().value());
   }
   db_options.use_direct_reads = opts_->get_celldb_direct_io();
-  auto rocks_db = std::make_shared<td::RocksDb>(td::RocksDb::open(celldb_path, std::move(db_options)).move_as_ok());
+  auto rocks_db = std::make_shared<td::RocksDb>(td::RocksDb::open(celldb_path, db_options).move_as_ok());
 
   cell_db_writer_ = td::actor::create_actor<CellDb>("celldbwriter", actor_id(this), celldb_path, 0, inmem_info,
                                                     rocks_db, db_options, opts_);
