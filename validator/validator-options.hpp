@@ -156,6 +156,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   bool get_fast_state_serializer_enabled() const override {
     return fast_state_serializer_enabled_;
   }
+  size_t get_cpu_threads_count() const override {
+    return cpu_threads_count_;
+  }
 
   void set_zero_block_id(BlockIdExt block_id) override {
     zero_block_id_ = block_id;
@@ -197,7 +200,8 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
     unsafe_catchains_.insert(seqno);
   }
   void add_unsafe_catchain_rotate(BlockSeqno seqno, CatchainSeqno cc_seqno, td::uint32 value) override {
-    VLOG(INFO) << "Add unsafe catchain rotation: Master block seqno " << seqno<<" Catchain seqno " << cc_seqno << " New value "<< value;
+    VLOG(INFO) << "Add unsafe catchain rotation: Master block seqno " << seqno << " Catchain seqno " << cc_seqno
+               << " New value " << value;
     unsafe_catchain_rotates_[cc_seqno] = std::make_pair(seqno, value);
   }
   void truncate_db(BlockSeqno seqno) override {
@@ -251,6 +255,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   void set_fast_state_serializer_enabled(bool value) override {
     fast_state_serializer_enabled_ = value;
   }
+  void set_cpu_threads_count(size_t cpu_threads_count) override {
+    cpu_threads_count_ = cpu_threads_count;
+  }
 
   ValidatorManagerOptionsImpl *make_copy() const override {
     return new ValidatorManagerOptionsImpl(*this);
@@ -258,9 +265,8 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
 
   ValidatorManagerOptionsImpl(BlockIdExt zero_block_id, BlockIdExt init_block_id,
                               std::function<bool(ShardIdFull, CatchainSeqno, ShardCheckMode)> check_shard,
-                              bool allow_blockchain_init, double sync_blocks_before,
-                              double block_ttl, double state_ttl, double max_mempool_num,
-                              double archive_ttl, double key_proof_ttl,
+                              bool allow_blockchain_init, double sync_blocks_before, double block_ttl, double state_ttl,
+                              double max_mempool_num, double archive_ttl, double key_proof_ttl,
                               bool initial_sync_disabled)
       : zero_block_id_(zero_block_id)
       , init_block_id_(init_block_id)
@@ -306,6 +312,7 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   bool state_serializer_enabled_ = true;
   td::Ref<CollatorOptions> collator_options_{true};
   bool fast_state_serializer_enabled_ = false;
+  size_t cpu_threads_count_;
 };
 
 }  // namespace validator

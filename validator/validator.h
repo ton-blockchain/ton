@@ -48,7 +48,7 @@ class DownloadToken {
 
 struct PerfTimerStats {
   std::string name;
-  std::deque<std::pair<double, double>> stats; // <Time::now(), duration>
+  std::deque<std::pair<double, double>> stats;  // <Time::now(), duration>
 };
 
 struct CollatorOptions : public td::CntObject {
@@ -115,6 +115,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual bool get_state_serializer_enabled() const = 0;
   virtual td::Ref<CollatorOptions> get_collator_options() const = 0;
   virtual bool get_fast_state_serializer_enabled() const = 0;
+  virtual size_t get_cpu_threads_count() const = 0;
 
   virtual void set_zero_block_id(BlockIdExt block_id) = 0;
   virtual void set_init_block_id(BlockIdExt block_id) = 0;
@@ -148,6 +149,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual void set_state_serializer_enabled(bool value) = 0;
   virtual void set_collator_options(td::Ref<CollatorOptions> value) = 0;
   virtual void set_fast_state_serializer_enabled(bool value) = 0;
+  virtual void set_cpu_threads_count(size_t cpu_threads_count) = 0;
 
   static td::Ref<ValidatorManagerOptions> create(
       BlockIdExt zero_block_id, BlockIdExt init_block_id,
@@ -155,8 +157,7 @@ struct ValidatorManagerOptions : public td::CntObject {
                                                                                        ShardCheckMode) { return true; },
       bool allow_blockchain_init = false, double sync_blocks_before = 3600, double block_ttl = 86400,
       double state_ttl = 86400, double archive_ttl = 86400 * 7, double key_proof_ttl = 86400 * 3650,
-      double max_mempool_num = 999999,
-      bool initial_sync_disabled = false);
+      double max_mempool_num = 999999, bool initial_sync_disabled = false);
 };
 
 class ValidatorManagerInterface : public td::actor::Actor {

@@ -223,6 +223,8 @@ class ValidatorEngine : public td::actor::Actor {
   std::string session_logs_file_;
   bool fast_state_serializer_enabled_ = false;
 
+  size_t cpu_threads_count_;
+
   std::set<ton::CatchainSeqno> unsafe_catchains_;
   std::map<ton::BlockSeqno, std::pair<ton::CatchainSeqno, td::uint32>> unsafe_catchain_rotations_;
 
@@ -309,6 +311,9 @@ class ValidatorEngine : public td::actor::Actor {
   }
   void set_fast_state_serializer_enabled(bool value) {
     fast_state_serializer_enabled_ = value;
+  }
+  void set_cpu_threads_count(size_t cpu_threads_count) {
+    cpu_threads_count_ = cpu_threads_count;
   }
   void start_up() override;
   ValidatorEngine() {
@@ -401,8 +406,8 @@ class ValidatorEngine : public td::actor::Actor {
 
   void load_custom_overlays_config();
   td::Status write_custom_overlays_config();
-  void add_custom_overlay_to_config(
-      ton::tl_object_ptr<ton::ton_api::engine_validator_customOverlay> overlay, td::Promise<td::Unit> promise);
+  void add_custom_overlay_to_config(ton::tl_object_ptr<ton::ton_api::engine_validator_customOverlay> overlay,
+                                    td::Promise<td::Unit> promise);
   void del_custom_overlay_from_config(std::string name, td::Promise<td::Unit> promise);
   void load_collator_options();
 

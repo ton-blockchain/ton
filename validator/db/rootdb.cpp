@@ -438,7 +438,8 @@ void RootDb::start_up() {
 
   cell_db_writer_ = td::actor::create_actor<CellDb>("celldbwriter", actor_id(this), celldb_path, 0, inmem_info,
                                                     rocks_db, db_options, opts_);
-  for (auto i = 0; i < 10; i++) {
+  const auto reader_count = 0 == opts_->get_cpu_threads_count() ? 1 : opts_->get_cpu_threads_count();
+  for (size_t i = 0; i < reader_count; i++) {
     cell_db_readers_.push_back(td::actor::create_actor<CellDb>("celldbreader", actor_id(this), celldb_path, i + 1,
                                                                inmem_info, rocks_db, db_options, opts_));
   }

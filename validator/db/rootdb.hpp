@@ -141,7 +141,7 @@ class RootDb : public Db {
 
  public:
   void update_snapshot() {
-    // we don't update snapshot of writer because the update action must be sent from writer.
+    // we don't update snapshot of writer because the update action is triggered by writer.
     for (const auto& reader : cell_db_readers_) {
       td::actor::send_closure(reader, &CellDb::update_snapshot);
     }

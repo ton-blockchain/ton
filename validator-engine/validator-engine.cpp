@@ -1487,6 +1487,8 @@ td::Status ValidatorEngine::load_global_config() {
   }
   validator_options_.write().set_fast_state_serializer_enabled(fast_state_serializer_enabled_);
 
+  validator_options_.write().set_cpu_threads_count(cpu_threads_count_);
+
   return td::Status::OK();
 }
 
