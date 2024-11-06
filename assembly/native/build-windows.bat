@@ -156,7 +156,7 @@ IF %errorlevel% NEQ 0 (
 )
 
 IF "%1"=="-t" (
-ninja storage-daemon storage-daemon-cli blockchain-explorer fift func tonlib tonlibjson  ^
+ninja storage-daemon storage-daemon-cli blockchain-explorer fift func tolk tonlib tonlibjson  ^
 tonlib-cli validator-engine lite-client pow-miner validator-engine-console generate-random-id ^
 json2tlo dht-server http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork emulator ^
 test-ed25519 test-ed25519-crypto test-bigint test-vm test-fift test-cells test-smartcont test-net ^
@@ -167,7 +167,7 @@ IF %errorlevel% NEQ 0 (
   exit /b %errorlevel%
 )
 ) else (
-ninja storage-daemon storage-daemon-cli blockchain-explorer fift func tonlib tonlibjson  ^
+ninja storage-daemon storage-daemon-cli blockchain-explorer fift func tolk tonlib tonlibjson  ^
 tonlib-cli validator-engine lite-client pow-miner validator-engine-console generate-random-id ^
 json2tlo dht-server http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork emulator
 IF %errorlevel% NEQ 0 (
@@ -205,6 +205,7 @@ build\blockchain-explorer\blockchain-explorer.exe ^
 build\crypto\fift.exe ^
 build\crypto\tlbc.exe ^
 build\crypto\func.exe ^
+build\tolk\tolk.exe ^
 build\crypto\create-state.exe ^
 build\validator-engine-console\validator-engine-console.exe ^
 build\tonlib\tonlib-cli.exe ^

@@ -17,4 +17,4 @@ ENV CC clang
 ENV CXX clang++
 ENV CCACHE_DISABLE 1
 RUN cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DPORTABLE=1 -DTON_ARCH= -DCMAKE_CXX_FLAGS="-mavx2" ..
-RUN ninja storage-daemon storage-daemon-cli tonlibjson blockchain-explorer fift func validator-engine validator-engine-console create-state generate-random-id create-hardfork dht-server lite-client
+RUN ninja storage-daemon storage-daemon-cli tonlibjson blockchain-explorer fift func tolk validator-engine validator-engine-console create-state generate-random-id create-hardfork dht-server lite-client

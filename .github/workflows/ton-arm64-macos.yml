@@ -29,6 +29,7 @@ jobs:
         artifacts/lite-client -V
         artifacts/fift -V
         artifacts/func -V
+        artifacts/tolk -v
 
     - name: Upload artifacts
       uses: actions/upload-artifact@master

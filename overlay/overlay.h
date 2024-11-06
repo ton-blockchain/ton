@@ -78,7 +78,7 @@ class Overlay : public td::actor::Actor {
                                         bool is_response) = 0;
   virtual void update_peer_ip_str(adnl::AdnlNodeIdShort peer_id, td::string ip_str) = 0;
   virtual void update_member_certificate(OverlayMemberCertificate cert) = 0;
-  virtual void update_root_member_list(std::vector<adnl::AdnlNodeIdShort> nodes,
+  virtual void update_root_member_list(std::vector<adnl::AdnlNodeIdShort> ids,
                                        std::vector<PublicKeyHash> root_public_keys, OverlayMemberCertificate cert) = 0;
   //virtual void receive_broadcast(td::BufferSlice data) = 0;
   //virtual void subscribe(std::unique_ptr<Overlays::Callback> callback) = 0;
