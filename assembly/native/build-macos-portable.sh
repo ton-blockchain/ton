@@ -179,6 +179,7 @@ if [ "$with_artifacts" = true ]; then
   cp build/blockchain-explorer/blockchain-explorer artifacts/
   cp build/crypto/fift artifacts/
   cp build/crypto/func artifacts/
+  cp build/tolk/tolk artifacts/
   cp build/crypto/create-state artifacts/
   cp build/crypto/tlbc artifacts/
   cp build/validator-engine-console/validator-engine-console artifacts/
