@@ -168,25 +168,6 @@ else
   test $? -eq 0 || { echo "Can't compile ton"; exit 1; }
 fi
 
-strip -s storage/storage-daemon/storage-daemon
-strip -s storage/storage-daemon/storage-daemon-cli
-strip -s blockchain-explorer/blockchain-explorer
-strip -s crypto/fift
-strip -s crypto/func
-strip -s tolk/tolk
-strip -s crypto/create-state
-strip -s crypto/tlbc
-strip -s validator-engine-console/validator-engine-console
-strip -s tonlib/tonlib-cli
-strip -s http/http-proxy
-strip -s rldp-http-proxy/rldp-http-proxy
-strip -s dht-server/dht-server
-strip -s lite-client/lite-client
-strip -s validator-engine/validator-engine
-strip -s utils/generate-random-id
-strip -s utils/json2tlo
-strip -s adnl/adnl-proxy
-
 cd ..
 
 if [ "$with_artifacts" = true ]; then

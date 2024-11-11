@@ -160,29 +160,6 @@ ninja storage-daemon storage-daemon-cli fift func tolk tonlib tonlibjson tonlib-
       test $? -eq 0 || { echo "Can't compile ton"; exit 1; }
 fi
 
-strip -s storage/storage-daemon/storage-daemon \
-         storage/storage-daemon/storage-daemon-cli \
-         blockchain-explorer/blockchain-explorer \
-         crypto/fift \
-         crypto/tlbc \
-         crypto/func \
-         tolk/tolk \
-         crypto/create-state \
-         validator-engine-console/validator-engine-console \
-         tonlib/tonlib-cli \
-         tonlib/libtonlibjson.so.0.5 \
-         http/http-proxy \
-         rldp-http-proxy/rldp-http-proxy \
-         dht-server/dht-server \
-         lite-client/lite-client \
-         validator-engine/validator-engine \
-         utils/generate-random-id \
-         utils/json2tlo \
-         adnl/adnl-proxy \
-         emulator/libemulator.*
-
-test $? -eq 0 || { echo "Can't strip final binaries"; exit 1; }
-
 # simple binaries' test
 ./storage/storage-daemon/storage-daemon -V || exit 1
 ./validator-engine/validator-engine -V || exit 1
