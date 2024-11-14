@@ -427,7 +427,7 @@ Expr* make_func_apply(Expr* fun, Expr* x) {
     res->flags = Expr::_IsRvalue | (fun->flags & Expr::_IsImpure);
   } else {
     res = new Expr{Expr::_VarApply, {fun, x}};
-    res->flags = Expr::_IsRvalue;
+    res->flags = Expr::_IsRvalue | Expr::_IsImpure; // for `some_var()`, don't make any considerations about runtime value, it's impure
   }
   return res;
 }
