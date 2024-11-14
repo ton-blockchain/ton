@@ -1,4 +1,4 @@
-int foo(int x) method_id(11) {
+int foo(int x) {
   try {
     if (x == 7) {
       throw(44);
@@ -9,7 +9,7 @@ int foo(int x) method_id(11) {
   }
 }
 
-int foo_inline(int x) inline method_id(12) {
+int foo_inline(int x) inline {
   try {
     if (x == 7) {
       throw(44);
@@ -20,7 +20,7 @@ int foo_inline(int x) inline method_id(12) {
   }
 }
 
-int foo_inlineref(int x) inline_ref method_id(13) {
+int foo_inlineref(int x) inline_ref {
   try {
     if (x == 7) {
       throw(44);
@@ -31,17 +31,17 @@ int foo_inlineref(int x) inline_ref method_id(13) {
   }
 }
 
-int test(int x, int y, int z) method_id(1) {
+int test(int x, int y, int z) method_id(101) {
   y = foo(y);
   return x * 100 + y * 10 + z;
 }
 
-int test_inline(int x, int y, int z) method_id(2) {
+int test_inline(int x, int y, int z) method_id(102) {
   y = foo_inline(y);
   return x * 100 + y * 10 + z;
 }
 
-int test_inlineref(int x, int y, int z) method_id(3) {
+int test_inlineref(int x, int y, int z) method_id(103) {
   y = foo_inlineref(y);
   return x * 100 + y * 10 + z;
 }
@@ -49,7 +49,7 @@ int test_inlineref(int x, int y, int z) method_id(3) {
 int foo_inline_big(
         int x1, int x2, int x3, int x4, int x5, int x6, int x7, int x8, int x9, int x10,
         int x11, int x12, int x13, int x14, int x15, int x16, int x17, int x18, int x19, int x20
-) inline method_id(14) {
+) inline {
   try {
     if (x1 == 7) {
       throw(44);
@@ -60,7 +60,7 @@ int foo_inline_big(
   }
 }
 
-int test_inline_big(int x, int y, int z) method_id(4) {
+int test_inline_big(int x, int y, int z) method_id(104) {
   y = foo_inline_big(
           y, y + 1, y + 2, y + 3, y + 4, y + 5, y + 6, y + 7, y + 8, y + 9,
           y + 10, y + 11, y + 12, y + 13, y + 14, y + 15, y + 16, y + 17, y + 18, y + 19);
@@ -70,7 +70,7 @@ int test_inline_big(int x, int y, int z) method_id(4) {
 int foo_big(
         int x1, int x2, int x3, int x4, int x5, int x6, int x7, int x8, int x9, int x10,
         int x11, int x12, int x13, int x14, int x15, int x16, int x17, int x18, int x19, int x20
-) method_id(15) {
+) {
   try {
     if (x1 == 7) {
       throw(44);
@@ -81,29 +81,69 @@ int foo_big(
   }
 }
 
-int test_big(int x, int y, int z) method_id(5) {
+int test_big(int x, int y, int z) method_id(105) {
   y = foo_big(
           y, y + 1, y + 2, y + 3, y + 4, y + 5, y + 6, y + 7, y + 8, y + 9,
           y + 10, y + 11, y + 12, y + 13, y + 14, y + 15, y + 16, y + 17, y + 18, y + 19);
   return x * 1000000 + y * 1000 + z;
 }
 
+
+() some_throwing(int op) impure {
+  if (op == 1) {
+    return ();
+  } elseif (op == 2) {
+    return ();
+  } else {
+    throw(1);
+  }
+}
+
+int test106() method_id(106) {
+  try {
+    some_throwing(1337);
+    return 1337;
+  } catch(_, code) {
+    return code;
+  }
+  return -1;
+}
+
+global int g_reg;
+
+(int, int) test107() method_id(107) {
+  int l_reg = 10;
+  g_reg = 10;
+  try {
+    ;; note, that regardless of assignment, an exception RESTORES them to previous (to 10)
+    ;; it's very unexpected, but is considered to be a TVM feature, not a bug
+    g_reg = 999;
+    l_reg = 999;
+    some_throwing(999);
+  } catch(_, _) {
+  }
+  ;; returns (10,10) because of an exception, see a comment above
+  return (g_reg, l_reg);
+}
+
 () main() {
 }
 
 {-
-    method_id | in    | out
-TESTCASE | 1  | 1 2 3 | 123
-TESTCASE | 1  | 3 8 9 | 389
-TESTCASE | 1  | 3 7 9 | 329
-TESTCASE | 2  | 1 2 3 | 123
-TESTCASE | 2  | 3 8 9 | 389
-TESTCASE | 2  | 3 7 9 | 329
-TESTCASE | 3  | 1 2 3 | 123
-TESTCASE | 3  | 3 8 9 | 389
-TESTCASE | 3  | 3 7 9 | 329
-TESTCASE | 4  | 4 8 9 | 4350009
-TESTCASE | 4  | 4 7 9 | 4001009
-TESTCASE | 5  | 4 8 9 | 4350009
-TESTCASE | 5  | 4 7 9 | 4001009
+    method_id  | in    | out
+TESTCASE | 101 | 1 2 3 | 123
+TESTCASE | 101 | 3 8 9 | 389
+TESTCASE | 101 | 3 7 9 | 329
+TESTCASE | 102 | 1 2 3 | 123
+TESTCASE | 102 | 3 8 9 | 389
+TESTCASE | 102 | 3 7 9 | 329
+TESTCASE | 103 | 1 2 3 | 123
+TESTCASE | 103 | 3 8 9 | 389
+TESTCASE | 103 | 3 7 9 | 329
+TESTCASE | 104 | 4 8 9 | 4350009
+TESTCASE | 104 | 4 7 9 | 4001009
+TESTCASE | 105 | 4 8 9 | 4350009
+TESTCASE | 105 | 4 7 9 | 4001009
+TESTCASE | 106 |       | 1
+TESTCASE | 107 |       | 10 10
 -}
