@@ -206,13 +206,20 @@ void FullNodeImpl::on_new_masterchain_block(td::Ref<MasterchainState> state, std
   std::set<ShardIdFull> new_active;
   all_shards.insert(ShardIdFull(masterchainId));
   std::set<WorkchainId> workchains;
+  wc_monitor_min_split_ = state->monitor_min_split_depth(basechainId);
   auto cut_shard = [&](ShardIdFull shard) -> ShardIdFull {
-    int min_split = state->monitor_min_split_depth(shard.workchain);
-    return min_split < shard.pfx_len() ? shard_prefix(shard, min_split) : shard;
+    return wc_monitor_min_split_ < shard.pfx_len() ? shard_prefix(shard, wc_monitor_min_split_) : shard;
   };
   for (auto &info : state->get_shards()) {
     workchains.insert(info->shard().workchain);
-    all_shards.insert(cut_shard(info->shard()));
+    ShardIdFull shard = cut_shard(info->shard());
+    while (true) {
+      all_shards.insert(shard);
+      if (shard.pfx_len() == 0) {
+        break;
+      }
+      shard = shard_parent(shard);
+    }
   }
   for (const auto &[wc, winfo] : state->get_workchain_list()) {
     if (!workchains.contains(wc) && winfo->active && winfo->enabled_since <= state->get_unix_time()) {
@@ -220,7 +227,14 @@ void FullNodeImpl::on_new_masterchain_block(td::Ref<MasterchainState> state, std
     }
   }
   for (ShardIdFull shard : shards_to_monitor) {
-    new_active.insert(cut_shard(shard));
+    shard = cut_shard(shard);
+    while (true) {
+      new_active.insert(shard);
+      if (shard.pfx_len() == 0) {
+        break;
+      }
+      shard = shard_parent(shard);
+    }
   }
 
   for (auto it = shards_.begin(); it != shards_.end(); ) {
@@ -478,21 +492,25 @@ void FullNodeImpl::download_out_msg_queue_proof(ShardIdFull dst_shard, std::vect
 }
 
 td::actor::ActorId<FullNodeShard> FullNodeImpl::get_shard(ShardIdFull shard) {
-  while (true) {
-    auto it = shards_.find(shard);
-    if (it != shards_.end()) {
-      if (it->second.actor.empty()) {
-        update_shard_actor(shard, false);
-      }
-      return it->second.actor.get();
-    }
-    if (shard.pfx_len() == 0) {
-      break;
-    }
-    shard = shard_parent(shard);
+  if (shard.is_masterchain()) {
+    return shards_[ShardIdFull{masterchainId}].actor.get();
   }
-  update_shard_actor(shard, false);
-  return shards_[shard].actor.get();
+  if (shard.workchain != basechainId) {
+    return {};
+  }
+  int pfx_len = shard.pfx_len();
+  if (pfx_len > wc_monitor_min_split_) {
+    shard = shard_prefix(shard, wc_monitor_min_split_);
+  }
+  auto it = shards_.find(shard);
+  if (it != shards_.end()) {
+    update_shard_actor(shard, it->second.active);
+    return it->second.actor.get();
+  }
+
+  // Special case if shards_ was not yet initialized.
+  // This can happen briefly on node startup.
+  return shards_[ShardIdFull{masterchainId}].actor.get();
 }
 
 td::actor::ActorId<FullNodeShard> FullNodeImpl::get_shard(AccountIdPrefixFull dst) {

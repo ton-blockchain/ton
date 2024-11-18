@@ -124,6 +124,7 @@ class FullNodeImpl : public FullNode {
   td::actor::ActorId<FullNodeShard> get_shard(AccountIdPrefixFull dst);
   td::actor::ActorId<FullNodeShard> get_shard(ShardIdFull shard);
   std::map<ShardIdFull, ShardInfo> shards_;
+  int wc_monitor_min_split_ = 0;
 
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;
