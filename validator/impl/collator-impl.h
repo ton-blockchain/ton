@@ -180,6 +180,7 @@ class Collator final : public td::actor::Actor {
   td::RefInt256 masterchain_create_fee_, basechain_create_fee_;
   std::unique_ptr<block::BlockLimits> block_limits_;
   std::unique_ptr<block::BlockLimitStatus> block_limit_status_;
+  int block_limit_class_ = 0;
   ton::LogicalTime min_new_msg_lt{std::numeric_limits<td::uint64>::max()};
   block::CurrencyCollection total_balance_, old_total_balance_, total_validator_fees_;
   block::CurrencyCollection global_balance_, old_global_balance_, import_created_{0};
