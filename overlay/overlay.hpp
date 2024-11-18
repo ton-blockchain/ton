@@ -466,6 +466,19 @@ class OverlayImpl : public Overlay {
   TrafficStats total_traffic_responses, total_traffic_responses_ctr;
 
   OverlayOptions opts_;
+
+  struct CachedCertificate : td::ListNode {
+    CachedCertificate(PublicKeyHash source, td::Bits256 cert_hash)
+      : source(source)
+      , cert_hash(cert_hash) {
+    }
+
+    PublicKeyHash source;
+    td::Bits256 cert_hash;
+  };
+  std::map<PublicKeyHash, std::unique_ptr<CachedCertificate>> checked_certificates_cache_;
+  td::ListNode checked_certificates_cache_lru_;
+  size_t max_checked_certificates_cache_size_ = 1000;
 };
 
 }  // namespace overlay
