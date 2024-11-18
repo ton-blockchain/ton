@@ -149,7 +149,7 @@ class Certificate {
   td::BufferSlice to_sign(OverlayIdShort overlay_id, PublicKeyHash issued_to) const;
 
   BroadcastCheckResult check(PublicKeyHash node, OverlayIdShort overlay_id, td::int32 unix_time, td::uint32 size,
-                             bool is_fec) const;
+                             bool is_fec, bool skip_check_signature = false) const;
   tl_object_ptr<ton_api::overlay_Certificate> tl() const;
   const PublicKey &issuer() const;
   const PublicKeyHash issuer_hash() const;

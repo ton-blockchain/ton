@@ -2448,6 +2448,7 @@ bool Collator::out_msg_queue_cleanup() {
         register_out_msg_queue_op();
         if (!block_limit_status_->fits(block::ParamLimits::cl_normal)) {
           block_full_ = true;
+          block_limit_class_ = std::max(block_limit_class_, block_limit_status_->classify());
         }
       }
       return !delivered;
@@ -2517,6 +2518,7 @@ bool Collator::out_msg_queue_cleanup() {
           register_out_msg_queue_op();
           if (!block_limit_status_->fits(block::ParamLimits::cl_normal)) {
             block_full_ = true;
+            block_limit_class_ = std::max(block_limit_class_, block_limit_status_->classify());
           }
           queue.next();
           ++i;
@@ -3320,6 +3322,7 @@ int Collator::process_one_new_message(block::NewOutMsg msg, bool enqueue_only, R
   // 7. check whether the block is full now
   if (!block_limit_status_->fits(block::ParamLimits::cl_normal)) {
     block_full_ = true;
+    block_limit_class_ = std::max(block_limit_class_, block_limit_status_->classify());
     return 3;
   }
   if (soft_timeout_.is_in_past(td::Timestamp::now())) {
@@ -3706,6 +3709,7 @@ bool Collator::process_inbound_internal_messages() {
     }
     if (block_full_) {
       LOG(INFO) << "BLOCK FULL, stop processing inbound internal messages";
+      block_limit_class_ = std::max(block_limit_class_, block_limit_status_->classify());
       stats_.limits_log += PSTRING() << "INBOUND_INT_MESSAGES: "
                                      << block_full_comment(*block_limit_status_, block::ParamLimits::cl_normal) << "\n";
       break;
@@ -3795,6 +3799,7 @@ bool Collator::process_inbound_external_messages() {
     }
     if (r > 0) {
       full = !block_limit_status_->fits(block::ParamLimits::cl_soft);
+      block_limit_class_ = std::max(block_limit_class_, block_limit_status_->classify());
     }
     auto it = ext_msg_map.find(hash);
     CHECK(it != ext_msg_map.end());
@@ -3897,6 +3902,7 @@ bool Collator::process_dispatch_queue() {
       block_full_ = !block_limit_status_->fits(block::ParamLimits::cl_normal);
       if (block_full_) {
         LOG(INFO) << "BLOCK FULL, stop processing dispatch queue";
+        block_limit_class_ = std::max(block_limit_class_, block_limit_status_->classify());
         stats_.limits_log += PSTRING() << "DISPATCH_QUEUE_STAGE_" << iter << ": "
                                        << block_full_comment(*block_limit_status_, block::ParamLimits::cl_normal)
                                        << "\n";
@@ -4924,11 +4930,11 @@ bool Collator::check_block_overload() {
             << " lt_delta=" << block_limit_status_->cur_lt - block_limit_status_->limits.start_lt
             << " size_estimate=" << block_size_estimate_
             << " collated_size_estimate=" << block_limit_status_->collated_data_stat.estimate_proof_size();
-  auto cl = block_limit_status_->classify();
-  if (cl >= block::ParamLimits::cl_soft || dispatch_queue_total_limit_reached_) {
+  block_limit_class_ = std::max(block_limit_class_, block_limit_status_->classify());
+  if (block_limit_class_ >= block::ParamLimits::cl_soft || dispatch_queue_total_limit_reached_) {
     std::string message = "block is overloaded ";
-    if (cl >= block::ParamLimits::cl_soft) {
-      message += PSTRING() << "(category " << cl << ")";
+    if (block_limit_class_ >= block::ParamLimits::cl_soft) {
+      message += PSTRING() << "(category " << block_limit_class_ << ")";
     } else {
       message += "(long dispatch queue processing)";
     }
@@ -4939,7 +4945,7 @@ bool Collator::check_block_overload() {
       overload_history_ |= 1;
       LOG(INFO) << message;
     }
-  } else if (cl <= block::ParamLimits::cl_underload) {
+  } else if (block_limit_class_ <= block::ParamLimits::cl_underload) {
     if (out_msg_queue_size_ > MERGE_MAX_QUEUE_SIZE) {
       LOG(INFO)
           << "block is underloaded, but don't set underload history because out_msg_queue size is too big to merge ("

@@ -564,7 +564,7 @@ td::Result<std::shared_ptr<Certificate>> Certificate::create(tl_object_ptr<ton_a
 }
 
 BroadcastCheckResult Certificate::check(PublicKeyHash node, OverlayIdShort overlay_id, td::int32 unix_time,
-                                        td::uint32 size, bool is_fec) const {
+                                        td::uint32 size, bool is_fec, bool skip_check_signature) const {
   if (size > max_size_) {
     return BroadcastCheckResult::Forbidden;
   }
@@ -575,16 +575,16 @@ BroadcastCheckResult Certificate::check(PublicKeyHash node, OverlayIdShort overl
     return BroadcastCheckResult::Forbidden;
   }
 
-  auto R1 = issued_by_.get<PublicKey>().create_encryptor();
-  if (R1.is_error()) {
-    return BroadcastCheckResult::Forbidden;
-  }
-  auto E = R1.move_as_ok();
-
-  auto B = to_sign(overlay_id, node);
-
-  if (E->check_signature(B.as_slice(), signature_.as_slice()).is_error()) {
-    return BroadcastCheckResult::Forbidden;
+  if (!skip_check_signature) {
+    auto R1 = issued_by_.get<PublicKey>().create_encryptor();
+    if (R1.is_error()) {
+      return BroadcastCheckResult::Forbidden;
+    }
+    auto E = R1.move_as_ok();
+    auto B = to_sign(overlay_id, node);
+    if (E->check_signature(B.as_slice(), signature_.as_slice()).is_error()) {
+      return BroadcastCheckResult::Forbidden;
+    }
   }
 
   return (flags_ & CertificateFlags::Trusted) ? BroadcastCheckResult::Allowed : BroadcastCheckResult::NeedCheck;
