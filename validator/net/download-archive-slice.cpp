@@ -20,6 +20,8 @@
 #include "td/utils/port/path.h"
 #include "td/utils/overloaded.h"
 
+#include <ton/ton-tl.hpp>
+
 namespace ton {
 
 namespace validator {
@@ -27,12 +29,13 @@ namespace validator {
 namespace fullnode {
 
 DownloadArchiveSlice::DownloadArchiveSlice(
-    BlockSeqno masterchain_seqno, std::string tmp_dir, adnl::AdnlNodeIdShort local_id,
+    BlockSeqno masterchain_seqno, ShardIdFull shard_prefix, std::string tmp_dir, adnl::AdnlNodeIdShort local_id,
     overlay::OverlayIdShort overlay_id, adnl::AdnlNodeIdShort download_from, td::Timestamp timeout,
     td::actor::ActorId<ValidatorManagerInterface> validator_manager, td::actor::ActorId<adnl::AdnlSenderInterface> rldp,
     td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<adnl::Adnl> adnl,
     td::actor::ActorId<adnl::AdnlExtClient> client, td::Promise<std::string> promise)
     : masterchain_seqno_(masterchain_seqno)
+    , shard_prefix_(shard_prefix)
     , tmp_dir_(std::move(tmp_dir))
     , local_id_(local_id)
     , overlay_id_(overlay_id)
@@ -114,7 +117,13 @@ void DownloadArchiveSlice::got_node_to_download(adnl::AdnlNodeIdShort download_f
     }
   });
 
-  auto q = create_serialize_tl_object<ton_api::tonNode_getArchiveInfo>(masterchain_seqno_);
+  td::BufferSlice q;
+  if (shard_prefix_.is_masterchain()) {
+    q = create_serialize_tl_object<ton_api::tonNode_getArchiveInfo>(masterchain_seqno_);
+  } else {
+    q = create_serialize_tl_object<ton_api::tonNode_getShardArchiveInfo>(masterchain_seqno_,
+                                                                         create_tl_shard_id(shard_prefix_));
+  }
   if (client_.empty()) {
     td::actor::send_closure(overlays_, &overlay::Overlays::send_query, download_from_, local_id_, overlay_id_,
                             "get_archive_info", std::move(P), td::Timestamp::in(3.0), std::move(q));
@@ -145,7 +154,8 @@ void DownloadArchiveSlice::got_archive_info(td::BufferSlice data) {
   }
 
   prev_logged_timer_ = td::Timer();
-  LOG(INFO) << "downloading archive slice #" << masterchain_seqno_ << " from " << download_from_;
+  LOG(INFO) << "downloading archive slice #" << masterchain_seqno_ << " " << shard_prefix_.to_str() << " from "
+            << download_from_;
   get_archive_slice();
 }
 
@@ -186,13 +196,15 @@ void DownloadArchiveSlice::got_archive_slice(td::BufferSlice data) {
   double elapsed = prev_logged_timer_.elapsed();
   if (elapsed > 10.0) {
     prev_logged_timer_ = td::Timer();
-    LOG(INFO) << "downloading archive slice #" << masterchain_seqno_ << ": total=" << offset_ << " ("
+    LOG(INFO) << "downloading archive slice #" << masterchain_seqno_ << " " << shard_prefix_.to_str()
+              << ": total=" << offset_ << " ("
               << td::format::as_size((td::uint64)(double(offset_ - prev_logged_sum_) / elapsed)) << "/s)";
     prev_logged_sum_ = offset_;
   }
 
   if (data.size() < slice_size()) {
-    LOG(INFO) << "finished downloading arcrive slice #" << masterchain_seqno_ << ": total=" << offset_;
+    LOG(INFO) << "finished downloading arcrive slice #" << masterchain_seqno_ << " " << shard_prefix_.to_str()
+              << ": total=" << offset_;
     finish_query();
   } else {
     get_archive_slice();

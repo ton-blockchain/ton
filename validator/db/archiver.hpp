@@ -33,11 +33,13 @@ class FileDb;
 
 class BlockArchiver : public td::actor::Actor {
  public:
-  BlockArchiver(BlockHandle handle, td::actor::ActorId<ArchiveManager> archive_db, td::Promise<td::Unit> promise);
+  BlockArchiver(BlockHandle handle, td::actor::ActorId<ArchiveManager> archive_db, td::actor::ActorId<Db> db,
+                td::Promise<td::Unit> promise);
 
   void abort_query(td::Status error);
 
   void start_up() override;
+  void move_handle();
   void moved_handle();
   void got_proof(td::BufferSlice data);
   void written_proof();
@@ -50,6 +52,7 @@ class BlockArchiver : public td::actor::Actor {
  private:
   BlockHandle handle_;
   td::actor::ActorId<ArchiveManager> archive_;
+  td::actor::ActorId<Db> db_;
   td::Promise<td::Unit> promise_;
 };
 

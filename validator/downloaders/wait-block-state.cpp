@@ -21,6 +21,7 @@
 #include "ton/ton-io.hpp"
 #include "common/checksum.h"
 #include "common/delay.h"
+#include "validator/downloaders/download-state.hpp"
 
 namespace ton {
 
@@ -106,6 +107,19 @@ void WaitBlockState::start() {
     });
     td::actor::send_closure(manager_, &ValidatorManager::send_get_zero_state_request, handle_->id(), priority_,
                             std::move(P));
+  } else if (check_persistent_state_desc()) {
+    auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
+      if (R.is_error()) {
+        LOG(WARNING) << "failed to get persistent state: " << R.move_as_error();
+        td::actor::send_closure(SelfId, &WaitBlockState::start);
+      } else {
+        td::actor::send_closure(SelfId, &WaitBlockState::written_state, R.move_as_ok());
+      }
+    });
+    BlockIdExt masterchain_id = persistent_state_desc_->masterchain_id;
+    td::actor::create_actor<DownloadShardState>("downloadstate", handle_->id(), masterchain_id, priority_, manager_,
+                                                timeout_, std::move(P))
+        .release();
   } else if (!handle_->inited_prev() || (!handle_->inited_proof() && !handle_->inited_proof_link())) {
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), handle = handle_](td::Result<td::BufferSlice> R) {
       if (R.is_error()) {

@@ -33,6 +33,7 @@
 #include "td/utils/optional.h"
 
 #include "smc-envelope/ManualDns.h"
+#include "lite-client/ext-client.h"
 
 #include <map>
 
@@ -113,7 +114,7 @@ class TonlibClient : public td::actor::Actor {
   vm::Dictionary libraries{256};
 
   // network
-  td::actor::ActorOwn<ExtClientLazy> raw_client_;
+  td::actor::ActorOwn<liteclient::ExtClient> raw_client_;
   td::actor::ActorId<ExtClientOutbound> ext_client_outbound_;
   td::actor::ActorOwn<LastBlock> raw_last_block_;
   td::actor::ActorOwn<LastConfig> raw_last_config_;

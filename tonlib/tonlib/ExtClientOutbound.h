@@ -18,11 +18,10 @@
 */
 #pragma once
 #include "td/actor/actor.h"
-
-#include "ExtClientLazy.h"
+#include "lite-client/ext-client.h"
 
 namespace tonlib {
-class ExtClientOutbound : public ExtClientLazy {
+class ExtClientOutbound : public liteclient::ExtClient {
  public:
   class Callback {
    public:
