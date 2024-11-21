@@ -543,11 +543,6 @@ struct CollatorNodeDescr {
   ton::NodeIdShort adnl_id;
 };
 
-struct CollatorConfig {
-  bool full_collated_data = false;
-  std::vector<CollatorNodeDescr> collator_nodes;
-};
-
 class Config {
   enum {
     default_mc_catchain_lifetime = 200,
@@ -664,7 +659,6 @@ class Config {
   std::vector<ton::ValidatorDescr> compute_validator_set(ton::ShardIdFull shard, ton::UnixTime time,
                                                          ton::CatchainSeqno cc_seqno) const;
   std::vector<ton::ValidatorDescr> compute_total_validator_set(int next) const;
-  CollatorConfig get_collator_config(bool need_collator_nodes) const;
   td::Result<SizeLimitsConfig> get_size_limits_config() const;
   static td::Result<SizeLimitsConfig> do_get_size_limits_config(td::Ref<vm::CellSlice> cs);
   std::unique_ptr<vm::Dictionary> get_suspended_addresses(ton::UnixTime now) const;

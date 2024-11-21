@@ -35,6 +35,7 @@ class ValidatorSet : public td::CntObject {
   virtual td::uint32 get_validator_set_hash() const = 0;
   virtual ShardId get_validator_set_from() const = 0;
   virtual std::vector<ValidatorDescr> export_vector() const = 0;
+  virtual const ValidatorDescr* find_validator(const NodeIdShort& id) const = 0;
   virtual td::Result<ValidatorWeight> check_signatures(RootHash root_hash, FileHash file_hash,
                                                        td::Ref<BlockSignatureSet> signatures) const = 0;
   virtual td::Result<ValidatorWeight> check_approve_signatures(RootHash root_hash, FileHash file_hash,

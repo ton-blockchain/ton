@@ -525,6 +525,11 @@ class ValidatorManagerImpl : public ValidatorManager {
     UNREACHABLE();
   }
 
+  void get_collation_manager_stats(
+      td::Promise<tl_object_ptr<ton_api::engine_validator_collationManagerStats>> promise) override {
+    UNREACHABLE();
+  }
+
  private:
   td::Ref<ValidatorManagerOptions> opts_;
 

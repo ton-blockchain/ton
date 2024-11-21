@@ -1536,6 +1536,9 @@ bool ValidateQuery::request_neighbor_queues() {
   auto neighbor_list = new_shard_conf_->get_neighbor_shard_hash_ids(shard_);
   LOG(DEBUG) << "got a preliminary list of " << neighbor_list.size() << " neighbors for " << shard_.to_str();
   for (ton::BlockId blk_id : neighbor_list) {
+    if (blk_id.seqno == 0 && blk_id.shard_full() != shard_) {
+      continue;
+    }
     auto shard_ptr = new_shard_conf_->get_shard_hash(ton::ShardIdFull(blk_id));
     if (shard_ptr.is_null()) {
       return reject_query("cannot obtain shard hash for neighbor "s + blk_id.to_str());
@@ -2301,6 +2304,12 @@ bool ValidateQuery::prepare_out_msg_queue_size() {
   if (ps_.out_msg_queue_size_) {
     // if after_split then out_msg_queue_size is always present, since it is calculated during split
     old_out_msg_queue_size_ = ps_.out_msg_queue_size_.value();
+    out_msg_queue_size_known_ = true;
+    have_out_msg_queue_size_in_state_ = true;
+    return true;
+  }
+  if (ps_.out_msg_queue_->is_empty()) {
+    old_out_msg_queue_size_ = 0;
     out_msg_queue_size_known_ = true;
     have_out_msg_queue_size_in_state_ = true;
     return true;

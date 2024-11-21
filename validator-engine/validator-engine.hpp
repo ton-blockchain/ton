@@ -67,14 +67,6 @@ struct Config {
     ton::UnixTime election_date;
     ton::UnixTime expire_at;
   };
-  struct Collator {
-    ton::PublicKeyHash adnl_id;
-    ton::ShardIdFull shard;
-
-    bool operator==(const Collator& b) const {
-      return adnl_id == b.adnl_id && shard == b.shard;
-    }
-  };
   struct Control {
     ton::PublicKeyHash key;
     std::map<ton::PublicKeyHash, td::uint32> clients;
@@ -90,7 +82,9 @@ struct Config {
   std::map<ton::PublicKeyHash, AdnlCategory> adnl_ids;
   std::set<ton::PublicKeyHash> dht_ids;
   std::map<ton::PublicKeyHash, Validator> validators;
-  std::vector<Collator> collators;
+  std::map<ton::adnl::AdnlNodeIdShort, std::vector<ton::ShardIdFull>> collators;
+  bool collator_node_whiltelist_enabled = false;
+  std::set<ton::adnl::AdnlNodeIdShort> collator_node_whitelist;
   ton::PublicKeyHash full_node = ton::PublicKeyHash::zero();
   std::vector<FullNodeSlave> full_node_slaves;
   std::map<td::int32, ton::PublicKeyHash> full_node_masters;
@@ -120,8 +114,8 @@ struct Config {
                                                  ton::UnixTime expire_at);
   td::Result<bool> config_add_validator_adnl_id(ton::PublicKeyHash perm_key, ton::PublicKeyHash adnl_id,
                                                 ton::UnixTime expire_at);
-  td::Result<bool> config_add_collator(ton::PublicKeyHash addr, ton::ShardIdFull shard);
-  td::Result<bool> config_del_collator(ton::PublicKeyHash addr, ton::ShardIdFull shard);
+  td::Result<bool> config_add_collator(ton::adnl::AdnlNodeIdShort addr, ton::ShardIdFull shard);
+  td::Result<bool> config_del_collator(ton::adnl::AdnlNodeIdShort addr, ton::ShardIdFull shard);
   td::Result<bool> config_add_full_node_adnl_id(ton::PublicKeyHash id);
   td::Result<bool> config_add_full_node_slave(td::IPAddress addr, ton::PublicKey id);
   td::Result<bool> config_add_full_node_master(td::int32 port, ton::PublicKeyHash id);
@@ -537,9 +531,20 @@ class ValidatorEngine : public td::actor::Actor {
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_setCollatorOptionsJson &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_collatorNodeSetWhitelistedValidator &query,
+                         td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
+                         td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_collatorNodeSetWhitelistEnabled &query, td::BufferSlice data,
+                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_showCollatorNodeWhitelist &query, td::BufferSlice data,
+                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_setCollatorsList &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_clearCollatorsList &query, td::BufferSlice data,
+                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_showCollatorsList &query, td::BufferSlice data,
+                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_getCollationManagerStats &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_signOverlayMemberCertificate &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);

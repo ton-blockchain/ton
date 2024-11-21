@@ -801,11 +801,6 @@ misbehaviour_punishment_config_v1#01
    = MisbehaviourPunishmentConfig;
 _ MisbehaviourPunishmentConfig = ConfigParam 40;
 
-// collator_nodes: each collator is (workchain:int32 shard:uint64 adnl_id:uint256)
-collator_info#00 = CollatorInfo;
-colator_config#a0 full_collated_data:Bool collator_nodes:(HashmapE 352 CollatorInfo) = CollatorConfig;
-_ CollatorConfig = ConfigParam 41;
-
 size_limits_config#01 max_msg_bits:uint32 max_msg_cells:uint32 max_library_cells:uint32 max_vm_data_depth:uint16
   max_ext_msg_size:uint32 max_ext_msg_depth:uint16 = SizeLimitsConfig;
 size_limits_config_v2#02 max_msg_bits:uint32 max_msg_cells:uint32 max_library_cells:uint32 max_vm_data_depth:uint16

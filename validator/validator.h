@@ -73,19 +73,20 @@ struct CollatorOptions : public td::CntObject {
 };
 
 struct CollatorsList : public td::CntObject {
-  struct Collator {
-    adnl::AdnlNodeIdShort adnl_id;
-    bool trusted;
+  enum SelectMode {
+    mode_random, mode_ordered, mode_round_robin
   };
   struct Shard {
     ShardIdFull shard_id;
-    std::vector<Collator> collators;
+    SelectMode select_mode = mode_random;
+    std::vector<adnl::AdnlNodeIdShort> collators;
+    bool self_collate = false;
   };
-  bool self_collate = true;
-  bool use_config_41 = false;
   std::vector<Shard> shards;
+  bool self_collate = false;
 
-  void unpack(const ton_api::engine_validator_collatorsList& obj);
+  td::Status unpack(const ton_api::engine_validator_collatorsList& obj);
+  static CollatorsList default_list();
 };
 
 struct ValidatorManagerOptions : public td::CntObject {
@@ -130,6 +131,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual td::Ref<CollatorOptions> get_collator_options() const = 0;
   virtual bool get_fast_state_serializer_enabled() const = 0;
   virtual td::Ref<CollatorsList> get_collators_list() const = 0;
+  virtual bool check_collator_node_whitelist(adnl::AdnlNodeIdShort id) const = 0;
 
   virtual void set_zero_block_id(BlockIdExt block_id) = 0;
   virtual void set_init_block_id(BlockIdExt block_id) = 0;
@@ -163,6 +165,8 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual void set_collator_options(td::Ref<CollatorOptions> value) = 0;
   virtual void set_fast_state_serializer_enabled(bool value) = 0;
   virtual void set_collators_list(td::Ref<CollatorsList> list) = 0;
+  virtual void set_collator_node_whitelisted_validator(adnl::AdnlNodeIdShort id, bool add) = 0;
+  virtual void set_collator_node_whitelist_enabled(bool enabled) = 0;
 
   static td::Ref<ValidatorManagerOptions> create(
       BlockIdExt zero_block_id, BlockIdExt init_block_id,
@@ -314,6 +318,9 @@ class ValidatorManagerInterface : public td::actor::Actor {
 
   virtual void add_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) = 0;
   virtual void del_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) = 0;
+
+  virtual void get_collation_manager_stats(
+      td::Promise<tl_object_ptr<ton_api::engine_validator_collationManagerStats>> promise) = 0;
 };
 
 }  // namespace validator

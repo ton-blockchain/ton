@@ -62,7 +62,8 @@ enum GlobalCapabilities {
   capShortDequeue = 32,
   capStoreOutMsgQueueSize = 64,
   capMsgMetadata = 128,
-  capDeferMessages = 256
+  capDeferMessages = 256,
+  capFullCollatedData = 512
 };
 
 inline int shard_pfx_len(ShardId shard) {

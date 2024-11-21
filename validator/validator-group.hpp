@@ -18,6 +18,7 @@
 */
 #pragma once
 
+#include "collation-manager.hpp"
 #include "interfaces/validator-manager.h"
 
 #include "validator-session/validator-session.h"
@@ -59,6 +60,10 @@ class ValidatorGroup : public td::actor::Actor {
       init_ = false;
       create_session();
     }
+    td::actor::send_closure(collation_manager_, &CollationManager::validator_group_started, shard_);
+  }
+  void tear_down() override {
+    td::actor::send_closure(collation_manager_, &CollationManager::validator_group_finished, shard_);
   }
 
   void get_validator_group_info_for_litequery(
@@ -71,17 +76,17 @@ class ValidatorGroup : public td::actor::Actor {
 
   ValidatorGroup(ShardIdFull shard, PublicKeyHash local_id, ValidatorSessionId session_id,
                  td::Ref<ValidatorSet> validator_set, BlockSeqno last_key_block_seqno,
-                 block::CollatorConfig collator_config, validatorsession::ValidatorSessionOptions config,
-                 td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-                 td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays,
-                 std::string db_root, td::actor::ActorId<ValidatorManager> validator_manager, bool create_session,
+                 validatorsession::ValidatorSessionOptions config, td::actor::ActorId<keyring::Keyring> keyring,
+                 td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp,
+                 td::actor::ActorId<overlay::Overlays> overlays, std::string db_root,
+                 td::actor::ActorId<ValidatorManager> validator_manager,
+                 td::actor::ActorId<CollationManager> collation_manager, bool create_session,
                  bool allow_unsafe_self_blocks_resync, td::Ref<ValidatorManagerOptions> opts, bool monitoring_shard)
       : shard_(shard)
       , local_id_(std::move(local_id))
       , session_id_(session_id)
       , validator_set_(std::move(validator_set))
       , last_key_block_seqno_(last_key_block_seqno)
-      , collator_config_(std::move(collator_config))
       , config_(std::move(config))
       , keyring_(keyring)
       , adnl_(adnl)
@@ -89,6 +94,7 @@ class ValidatorGroup : public td::actor::Actor {
       , overlays_(overlays)
       , db_root_(std::move(db_root))
       , manager_(validator_manager)
+      , collation_manager_(collation_manager)
       , init_(create_session)
       , allow_unsafe_self_blocks_resync_(allow_unsafe_self_blocks_resync)
       , opts_(std::move(opts))
@@ -97,10 +103,6 @@ class ValidatorGroup : public td::actor::Actor {
 
  private:
   std::unique_ptr<validatorsession::ValidatorSession::Callback> make_validator_session_callback();
-  void collate_block(validatorsession::BlockSourceInfo source_info, td::Timestamp timeout,
-                     td::Promise<BlockCandidate> promise, unsigned max_retries = 4);
-  void receive_collate_query_response(validatorsession::BlockSourceInfo source_info, td::BufferSlice data,
-                                      bool trusted_collator, td::Promise<BlockCandidate> promise);
 
   struct PostponedAccept {
     RootHash root_hash;
@@ -124,7 +126,6 @@ class ValidatorGroup : public td::actor::Actor {
 
   td::Ref<ValidatorSet> validator_set_;
   BlockSeqno last_key_block_seqno_;
-  block::CollatorConfig collator_config_;
   validatorsession::ValidatorSessionOptions config_;
 
   td::actor::ActorId<keyring::Keyring> keyring_;
@@ -133,6 +134,7 @@ class ValidatorGroup : public td::actor::Actor {
   td::actor::ActorId<overlay::Overlays> overlays_;
   std::string db_root_;
   td::actor::ActorId<ValidatorManager> manager_;
+  td::actor::ActorId<CollationManager> collation_manager_;
   td::actor::ActorOwn<validatorsession::ValidatorSession> session_;
   adnl::AdnlNodeIdShort local_adnl_id_;
 

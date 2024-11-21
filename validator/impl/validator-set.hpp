@@ -50,6 +50,7 @@ class ValidatorSetQ : public ValidatorSet {
                                                td::Ref<BlockSignatureSet> signatures) const override;
   td::Result<ValidatorWeight> check_approve_signatures(RootHash root_hash, FileHash file_hash,
                                                        td::Ref<BlockSignatureSet> signatures) const override;
+  const ValidatorDescr* find_validator(const NodeIdShort& id) const override;
 
   ValidatorSetQ* make_copy() const override;
 
@@ -62,8 +63,6 @@ class ValidatorSetQ : public ValidatorSet {
   ValidatorWeight total_weight_;
   std::vector<ValidatorDescr> ids_;
   std::vector<std::pair<NodeIdShort, size_t>> ids_map_;
-
-  const ValidatorDescr* find_validator(const NodeIdShort& id) const;
 };
 
 class ValidatorSetCompute {

@@ -646,8 +646,9 @@ engine.validator.fullNodeMaster port:int adnl:int256 = engine.validator.FullNode
 engine.validator.fullNodeSlave ip:int port:int adnl:PublicKey = engine.validator.FullNodeSlave;
 engine.validator.fullNodeConfig ext_messages_broadcast_disabled:Bool = engine.validator.FullNodeConfig;
 engine.validator.fastSyncMemberCertificate adnl_id:int256 certificate:overlay.MemberCertificate = engine.validator.FastSyncMemberCertificate;
+engine.validator.collatorNodeWhitelist enabled:Bool adnl_ids:(vector int256) = engine.validator.CollatorNodeWhitelist;
 engine.validator.extraConfig state_serializer_enabled:Bool fast_sync_member_certificates:(vector engine.validator.fastSyncMemberCertificate)
-    = engine.validator.ExtraConfig;
+    collator_node_whitelist:engine.validator.collatorNodeWhitelist = engine.validator.ExtraConfig;
 engine.validator.config out_port:int addrs:(vector engine.Addr) adnl:(vector engine.adnl)
         dht:(vector engine.dht)
         validators:(vector engine.validator) collators:(vector engine.collator)
@@ -670,11 +671,10 @@ engine.validator.collatorOptions
   dispatch_phase_2_max_per_initiator:int dispatch_phase_3_max_per_initiator:int
   whitelist:(vector string) prioritylist:(vector string) = engine.validator.CollatorOptions;
 
-engine.validator.collatorsList.collator adnl_id:int256 trusted:Bool = engine.validator.collatorsList.Collator;
+engine.validator.collatorsList.collator adnl_id:int256 = engine.validator.collatorsList.Collator;
 engine.validator.collatorsList.shard shard_id:tonNode.shardId collators:(vector engine.validator.collatorsList.collator)
-    = engine.validator.collatorsList.Shard;
-engine.validator.collatorsList self_collate:Bool use_config_41:Bool shards:(vector engine.validator.collatorsList.shard)
-    = engine.validator.CollatorsList;
+    self_collate:Bool select_mode:string = engine.validator.collatorsList.Shard;
+engine.validator.collatorsList shards:(vector engine.validator.collatorsList.shard) = engine.validator.CollatorsList;
 
 ---functions---
 ---types---
@@ -740,6 +740,11 @@ engine.validator.perfTimerStats stats:(vector engine.validator.PerfTimerStatsByN
 
 engine.validator.shardOutQueueSize size:long = engine.validator.ShardOutQueueSize;
 
+engine.validator.collationManagerStats.shard shard_id:tonNode.shardId self_collate:Bool select_mode:string active:Bool collators:(vector int256) = engine.validator.collationManagerStats.Shard;
+engine.validator.collationManagerStats.collator adnl_id:int256 active:Bool alive:Bool ping_in:double = engine.validator.collationManagerStats.Collator;
+engine.validator.collationManagerStats.localId adnl_id:int256 shards:(vector engine.validator.collationManagerStats.shard)
+    collators:(vector engine.validator.collationManagerStats.collator) = engine.validator.collationManagerStats.LocalId;
+engine.validator.collationManagerStats local_ids:(vector engine.validator.collationManagerStats.localId) = engine.validator.CollationManagerStats;
 
 ---functions---
 
@@ -811,8 +816,14 @@ engine.validator.addShard shard:tonNode.shardId = engine.validator.Success;
 engine.validator.delCollator adnl_id:int256 shard:tonNode.shardId = engine.validator.Success;
 engine.validator.delShard shard:tonNode.shardId = engine.validator.Success;
 
+engine.validator.collatorNodeSetWhitelistedValidator adnl_id:int256 add:Bool = engine.validator.Success;
+engine.validator.collatorNodeSetWhitelistEnabled enabled:Bool = engine.validator.Success;
+engine.validator.showCollatorNodeWhitelist = engine.validator.CollatorNodeWhitelist;
+
 engine.validator.setCollatorsList list:engine.validator.collatorsList = engine.validator.Success;
+engine.validator.clearCollatorsList = engine.validator.Success;
 engine.validator.showCollatorsList = engine.validator.CollatorsList;
+engine.validator.getCollationManagerStats = engine.validator.CollationManagerStats;
 
 engine.validator.signOverlayMemberCertificate sign_by:int256 adnl_id:int256 slot:int expire_at:int = overlay.MemberCertificate;
 engine.validator.importFastSyncMemberCertificate adnl_id:int256 certificate:overlay.MemberCertificate = engine.validator.Success;
@@ -887,8 +898,8 @@ validatorSession.stats success:Bool id:tonNode.blockIdExt timestamp:double self:
 
 collatorNode.candidate source:PublicKey id:tonNode.blockIdExt data:bytes collated_data:bytes = collatorNode.Candidate;
 collatorNode.compressedCandidate flags:# source:PublicKey id:tonNode.blockIdExt decompressed_size:int data:bytes = collatorNode.Candidate;
-collatorNode.generateBlockSuccess candidate:collatorNode.Candidate = collatorNode.GenerateBlockResult;
-collatorNode.generateBlockError code:int message:string = collatorNode.GenerateBlockResult;
+collatorNode.pong flags:# = collatorNode.Pong;
+collatorNode.error code:int message:string = collatorNode.Error;
 
 validatorSession.newValidatorGroupStats.node id:int256 weight:long = validatorSession.newValidatorGroupStats.Node;
 validatorSession.newValidatorGroupStats session_id:int256 workchain:int shard:long cc_seqno:int
@@ -901,7 +912,8 @@ validatorSession.endValidatorGroupStats session_id:int256 timestamp:double
 
 ---functions---
 collatorNode.generateBlock shard:tonNode.shardId cc_seqno:int prev_blocks:(vector tonNode.blockIdExt)
-    creator:int256 = collatorNode.GenerateBlockResult;
+    creator:int256 = collatorNode.Candidate;
+collatorNode.ping flags:# = collatorNode.Pong;
 
 ---types---
 

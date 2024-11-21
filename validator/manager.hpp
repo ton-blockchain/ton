@@ -283,12 +283,15 @@ class ValidatorManagerImpl : public ValidatorManager {
                                                              td::Ref<ValidatorSet> validator_set, BlockSeqno key_seqno,
                                                              validatorsession::ValidatorSessionOptions opts,
                                                              bool create_catchain);
+  td::actor::ActorId<CollationManager> get_collation_manager(adnl::AdnlNodeIdShort adnl_id);
+
   struct ValidatorGroupEntry {
     td::actor::ActorOwn<ValidatorGroup> actor;
     ShardIdFull shard;
   };
   std::map<ValidatorSessionId, ValidatorGroupEntry> validator_groups_;
   std::map<ValidatorSessionId, ValidatorGroupEntry> next_validator_groups_;
+  std::map<adnl::AdnlNodeIdShort, td::actor::ActorOwn<CollationManager>> collation_managers_;
 
   std::set<ValidatorSessionId> check_gc_list_;
   std::vector<ValidatorSessionId> gc_list_;
@@ -633,6 +636,9 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   void add_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) override;
   void del_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) override;
+
+  void get_collation_manager_stats(
+      td::Promise<tl_object_ptr<ton_api::engine_validator_collationManagerStats>> promise) override;
 
   void get_out_msg_queue_size(BlockIdExt block_id, td::Promise<td::uint64> promise) override {
     if (queue_size_counter_.empty()) {

@@ -799,7 +799,13 @@ void ValidatorManagerImpl::wait_neighbor_msg_queue_proofs(
      public:
       Worker(size_t pending, td::Promise<std::map<BlockIdExt, td::Ref<OutMsgQueueProof>>> promise)
           : pending_(pending), promise_(std::move(promise)) {
-        CHECK(pending_ > 0);
+      }
+
+      void start_up() override {
+        if (pending_ == 0) {
+          promise_.set_result(std::move(result_));
+          stop();
+        }
       }
 
       void on_result(td::Ref<OutMsgQueueProof> res) {
@@ -2462,13 +2468,25 @@ td::actor::ActorOwn<ValidatorGroup> ValidatorManagerImpl::create_validator_group
 
     auto validator_id = get_validator(shard, validator_set);
     CHECK(!validator_id.is_zero());
+    auto descr = validator_set->find_validator(validator_id.bits256_value());
+    CHECK(descr);
+    auto adnl_id = adnl::AdnlNodeIdShort{
+        descr->addr.is_zero() ? ValidatorFullId{descr->key}.compute_short_id().bits256_value() : descr->addr};
     auto G = td::actor::create_actor<ValidatorGroup>(
-        PSTRING() << "valgroup" << shard.to_str(), shard, validator_id, session_id, validator_set, key_seqno,
-        last_masterchain_state_->get_collator_config(true), opts, keyring_, adnl_, rldp_, overlays_, db_root_,
-        actor_id(this), init_session, opts_->check_unsafe_resync_allowed(validator_set->get_catchain_seqno()), opts_,
+        PSTRING() << "valgroup" << shard.to_str(), shard, validator_id, session_id, validator_set, key_seqno, opts,
+        keyring_, adnl_, rldp_, overlays_, db_root_, actor_id(this), get_collation_manager(adnl_id), init_session,
+        opts_->check_unsafe_resync_allowed(validator_set->get_catchain_seqno()), opts_,
         opts_->need_monitor(shard, last_masterchain_state_));
     return G;
   }
+}
+
+td::actor::ActorId<CollationManager> ValidatorManagerImpl::get_collation_manager(adnl::AdnlNodeIdShort adnl_id) {
+  auto &actor = collation_managers_[adnl_id];
+  if (actor.empty()) {
+    actor = td::actor::create_actor<CollationManager>("collation", adnl_id, opts_, actor_id(this), rldp_);
+  }
+  return actor.get();
 }
 
 void ValidatorManagerImpl::add_handle_to_lru(BlockHandle handle) {
@@ -3458,6 +3476,9 @@ void ValidatorManagerImpl::update_options(td::Ref<ValidatorManagerOptions> opts)
   for (auto &collator : collator_nodes_) {
     td::actor::send_closure(collator.second.actor, &CollatorNode::update_options, opts);
   }
+  for (auto &[_, c] : collation_managers_) {
+    td::actor::send_closure(c, &CollationManager::update_options, opts);
+  }
   opts_ = std::move(opts);
 }
 
@@ -3490,6 +3511,54 @@ void ValidatorManagerImpl::del_collator(adnl::AdnlNodeIdShort id, ShardIdFull sh
   } else {
     td::actor::send_closure(it->second.actor, &CollatorNode::del_shard, shard);
   }
+}
+
+void ValidatorManagerImpl::get_collation_manager_stats(
+    td::Promise<tl_object_ptr<ton_api::engine_validator_collationManagerStats>> promise) {
+  class Cb : public td::actor::Actor {
+   public:
+    explicit Cb(td::Promise<tl_object_ptr<ton_api::engine_validator_collationManagerStats>> promise)
+        : promise_(std::move(promise)) {
+    }
+
+    void got_stats(tl_object_ptr<ton_api::engine_validator_collationManagerStats_localId> s) {
+      result_.push_back(std::move(s));
+      dec_pending();
+    }
+
+    void inc_pending() {
+      ++pending_;
+    }
+
+    void dec_pending() {
+      CHECK(pending_ > 0);
+      --pending_;
+      if (pending_ == 0) {
+        promise_.set_result(create_tl_object<ton_api::engine_validator_collationManagerStats>(std::move(result_)));
+        stop();
+      }
+    }
+
+   private:
+    td::Promise<tl_object_ptr<ton_api::engine_validator_collationManagerStats>> promise_;
+    size_t pending_ = 1;
+    std::vector<tl_object_ptr<ton_api::engine_validator_collationManagerStats_localId>> result_;
+  };
+  auto callback = td::actor::create_actor<Cb>("stats", std::move(promise)).release();
+
+  for (auto &[_, actor] : collation_managers_) {
+    td::actor::send_closure(callback, &Cb::inc_pending);
+    td::actor::send_closure(
+        actor, &CollationManager::get_stats,
+        [callback](td::Result<tl_object_ptr<ton_api::engine_validator_collationManagerStats_localId>> R) {
+          if (R.is_error()) {
+            td::actor::send_closure(callback, &Cb::dec_pending);
+          } else {
+            td::actor::send_closure(callback, &Cb::got_stats, R.move_as_ok());
+          }
+        });
+  }
+  td::actor::send_closure(callback, &Cb::dec_pending);
 }
 
 void ValidatorManagerImpl::add_persistent_state_description(td::Ref<PersistentStateDescription> desc) {

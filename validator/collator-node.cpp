@@ -54,17 +54,22 @@ void CollatorNode::start_up() {
   td::actor::send_closure(adnl_, &adnl::Adnl::subscribe, local_id_,
                           adnl::Adnl::int_to_bytestring(ton_api::collatorNode_generateBlock::ID),
                           std::make_unique<Cb>(actor_id(this)));
+  td::actor::send_closure(adnl_, &adnl::Adnl::subscribe, local_id_,
+                          adnl::Adnl::int_to_bytestring(ton_api::collatorNode_ping::ID),
+                          std::make_unique<Cb>(actor_id(this)));
   td::actor::send_closure(rldp_, &rldp::Rldp::add_id, adnl::AdnlNodeIdShort(local_id_));
 }
 
 void CollatorNode::tear_down() {
   td::actor::send_closure(adnl_, &adnl::Adnl::unsubscribe, local_id_,
                           adnl::Adnl::int_to_bytestring(ton_api::collatorNode_generateBlock::ID));
+  td::actor::send_closure(adnl_, &adnl::Adnl::unsubscribe, local_id_,
+                          adnl::Adnl::int_to_bytestring(ton_api::collatorNode_ping::ID));
 }
 
 void CollatorNode::add_shard(ShardIdFull shard) {
   CHECK(shard.is_valid_ext() && !shard.is_masterchain());
-  if (std::find(collating_shards_.begin(), collating_shards_.end(), shard) != collating_shards_.end()) {
+  if (std::ranges::find(collating_shards_, shard) != collating_shards_.end()) {
     return;
   }
   LOG(INFO) << "Collator node: local_id=" << local_id_ << " , shard=" << shard.to_str();
@@ -72,7 +77,7 @@ void CollatorNode::add_shard(ShardIdFull shard) {
 }
 
 void CollatorNode::del_shard(ShardIdFull shard) {
-  auto it = std::find(collating_shards_.begin(), collating_shards_.end(), shard);
+  auto it = std::ranges::find(collating_shards_, shard);
   if (it != collating_shards_.end()) {
     collating_shards_.erase(it);
   }
@@ -127,7 +132,7 @@ void CollatorNode::new_masterchain_block_notification(td::Ref<MasterchainState> 
     }
   }
   for (auto it = validator_groups_.begin(); it != validator_groups_.end();) {
-    if (new_shards.count(it->first)) {
+    if (new_shards.contains(it->first)) {
       ++it;
     } else {
       it->second.cleanup();
@@ -253,7 +258,7 @@ void CollatorNode::CacheEntry::cancel(td::Status reason) {
 }
 
 static td::BufferSlice serialize_error(td::Status error) {
-  return create_serialize_tl_object<ton_api::collatorNode_generateBlockError>(error.code(), error.message().c_str());
+  return create_serialize_tl_object<ton_api::collatorNode_error>(error.code(), error.message().c_str());
 }
 
 static BlockCandidate change_creator(BlockCandidate block, Ed25519_PublicKey creator, CatchainSeqno& cc_seqno,
@@ -285,25 +290,32 @@ static BlockCandidate change_creator(BlockCandidate block, Ed25519_PublicKey cre
 
 void CollatorNode::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data,
                                  td::Promise<td::BufferSlice> promise) {
-  td::Promise<BlockCandidate> new_promise = [promise = std::move(promise), src](td::Result<BlockCandidate> R) mutable {
+  promise = [promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
     if (R.is_error()) {
-      LOG(INFO) << "adnl query from " << src << ", error: " << R.error();
       if (R.error().code() == ErrorCode::timeout) {
         promise.set_error(R.move_as_error());
       } else {
         promise.set_result(serialize_error(R.move_as_error()));
       }
     } else {
-      LOG(INFO) << "adnl query from " << src << ", success";
-      promise.set_result(create_serialize_tl_object<ton_api::collatorNode_generateBlockSuccess>(
-          serialize_candidate(R.move_as_ok(), true)));
+      promise.set_result(R.move_as_ok());
     }
   };
-  if (!validator_adnl_ids_.count(src)) {
-    new_promise.set_error(td::Status::Error("src is not a validator"));
+  if (!opts_->check_collator_node_whitelist(src)) {
+    promise.set_error(td::Status::Error("not authorized"));
     return;
   }
-  TRY_RESULT_PROMISE(new_promise, f, fetch_tl_object<ton_api::collatorNode_generateBlock>(data, true));
+  if (!validator_adnl_ids_.contains(src)) {
+    promise.set_error(td::Status::Error("src is not a validator"));
+    return;
+  }
+  auto r_ping = fetch_tl_object<ton_api::collatorNode_ping>(data, true);
+  if (r_ping.is_ok()) {
+    process_ping(src, *r_ping.ok_ref(), std::move(promise));
+    return;
+  }
+
+  TRY_RESULT_PROMISE(promise, f, fetch_tl_object<ton_api::collatorNode_generateBlock>(data, true));
   ShardIdFull shard = create_shard_id(f->shard_);
   CatchainSeqno cc_seqno = f->cc_seqno_;
   std::vector<BlockIdExt> prev_blocks;
@@ -311,6 +323,16 @@ void CollatorNode::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data
     prev_blocks.push_back(create_block_id(b));
   }
   Ed25519_PublicKey creator(f->creator_);
+  td::Promise<BlockCandidate> new_promise = [promise = std::move(promise), src,
+                                             shard](td::Result<BlockCandidate> R) mutable {
+    if (R.is_error()) {
+      LOG(INFO) << "collate query from " << src << ", shard=" << shard.to_str() << ": error: " << R.error();
+      promise.set_error(R.move_as_error());
+    } else {
+      LOG(INFO) << "collate query from " << src << ", shard=" << shard.to_str() << ": success";
+      promise.set_result(serialize_tl_object(serialize_candidate(R.move_as_ok(), true), true));
+    }
+  };
   new_promise = [new_promise = std::move(new_promise), creator,
                  manager = manager_](td::Result<BlockCandidate> R) mutable {
     TRY_RESULT_PROMISE(new_promise, block, std::move(R));
@@ -427,9 +449,15 @@ void CollatorNode::process_result(std::shared_ptr<CacheEntry> cache_entry, td::R
   cache_entry->promises.clear();
 }
 
+void CollatorNode::process_ping(adnl::AdnlNodeIdShort src, ton_api::collatorNode_ping& ping,
+                                td::Promise<td::BufferSlice> promise) {
+  LOG(DEBUG) << "got ping from " << src;
+  promise.set_result(create_serialize_tl_object<ton_api::collatorNode_pong>(0));
+}
+
 bool CollatorNode::can_collate_shard(ShardIdFull shard) const {
-  return std::any_of(collating_shards_.begin(), collating_shards_.end(),
-                     [&](const ShardIdFull& our_shard) { return shard_intersects(shard, our_shard); });
+  return std::ranges::any_of(collating_shards_,
+                             [&](const ShardIdFull& our_shard) { return shard_intersects(shard, our_shard); });
 }
 
 tl_object_ptr<ton_api::collatorNode_Candidate> CollatorNode::serialize_candidate(const BlockCandidate& block,

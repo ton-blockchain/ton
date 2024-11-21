@@ -730,6 +730,8 @@ bool Collator::unpack_last_mc_state() {
   store_out_msg_queue_size_ = config_->has_capability(ton::capStoreOutMsgQueueSize);
   msg_metadata_enabled_ = config_->has_capability(ton::capMsgMetadata);
   deferring_messages_enabled_ = config_->has_capability(ton::capDeferMessages);
+  full_collated_data_ = config_->has_capability(capFullCollatedData);
+  LOG(DEBUG) << "full_collated_data is " << full_collated_data_;
   shard_conf_ = std::make_unique<block::ShardConfig>(*config_);
   prev_key_block_exists_ = config_->get_last_key_block(prev_key_block_, prev_key_block_lt_);
   if (prev_key_block_exists_) {
@@ -768,8 +770,6 @@ bool Collator::unpack_last_mc_state() {
                << " have been enabled in global configuration, but we support only " << supported_version()
                << " (upgrade validator software?)";
   }
-  full_collated_data_ = config_->get_collator_config(false).full_collated_data;
-  LOG(DEBUG) << "full_collated_data is " << full_collated_data_;
   // TODO: extract start_lt and end_lt from prev_mc_block as well
   // std::cerr << "  block::gen::ShardState::print_ref(mc_state_root) = ";
   // block::gen::t_ShardState.print_ref(std::cerr, mc_state_root, 2);
@@ -817,6 +817,9 @@ bool Collator::request_neighbor_msg_queues() {
   auto neighbor_list = shard_conf_->get_neighbor_shard_hash_ids(shard_);
   LOG(DEBUG) << "got a preliminary list of " << neighbor_list.size() << " neighbors for " << shard_.to_str();
   for (ton::BlockId blk_id : neighbor_list) {
+    if (blk_id.seqno == 0 && blk_id.shard_full() != shard_) {
+      continue;
+    }
     auto shard_ptr = shard_conf_->get_shard_hash(ton::ShardIdFull(blk_id));
     if (shard_ptr.is_null()) {
       return fatal_error(-667, "cannot obtain shard hash for neighbor "s + blk_id.to_str());

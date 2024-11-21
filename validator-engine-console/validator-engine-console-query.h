@@ -1457,6 +1457,91 @@ class DelShardQuery : public Query {
   td::int64 shard_;
 };
 
+class CollatorNodeAddWhitelistedValidatorQuery : public Query {
+ public:
+  CollatorNodeAddWhitelistedValidatorQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "collatorwhitelistadd";
+  }
+  static std::string get_help() {
+    return "collatorwhitelistadd <adnl_id>\tadd validator adnl id to collator node whitelist";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  ton::PublicKeyHash adnl_id_;
+};
+
+class CollatorNodeDelWhitelistedValidatorQuery : public Query {
+ public:
+  CollatorNodeDelWhitelistedValidatorQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "collatorwhitelistdel";
+  }
+  static std::string get_help() {
+    return "collatorwhitelistdel <adnl_id>\tremove validator adnl id from collator node whitelist";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  ton::PublicKeyHash adnl_id_;
+};
+
+class CollatorNodeEnableWhitelistQuery : public Query {
+ public:
+  CollatorNodeEnableWhitelistQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "collatorwhitelistenable";
+  }
+  static std::string get_help() {
+    return "collatorwhitelistenable <value>\tenable or disable collator node whiltelist (value is 0 or 1)";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  bool enabled_;
+};
+
+class CollatorNodeShowWhitelistQuery : public Query {
+ public:
+  CollatorNodeShowWhitelistQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "collatorwhitelistshow";
+  }
+  static std::string get_help() {
+    return "collatorwhitelistshow\tshow collator node whitelist";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+};
+
 class SetCollatorsListQuery : public Query {
  public:
   SetCollatorsListQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
@@ -1511,6 +1596,25 @@ class ShowCollatorsListQuery : public Query {
   }
   static std::string get_help() {
     return "showcollatorslist\tshow list of collators";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+};
+
+class GetCollationManagerStatsQuery : public Query {
+ public:
+  GetCollationManagerStatsQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "collationmanagerstats";
+  }
+  static std::string get_help() {
+    return "collationmanagerstats\tshow stats of collation manager";
   }
   std::string name() const override {
     return get_name();

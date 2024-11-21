@@ -502,10 +502,16 @@ td::actor::ActorId<FullNodeShard> FullNodeImpl::get_shard(ShardIdFull shard) {
   if (pfx_len > wc_monitor_min_split_) {
     shard = shard_prefix(shard, wc_monitor_min_split_);
   }
-  auto it = shards_.find(shard);
-  if (it != shards_.end()) {
-    update_shard_actor(shard, it->second.active);
-    return it->second.actor.get();
+  while (true) {
+    auto it = shards_.find(shard);
+    if (it != shards_.end()) {
+      update_shard_actor(shard, it->second.active);
+      return it->second.actor.get();
+    }
+    if (shard.pfx_len() == 0) {
+      break;
+    }
+    shard = shard_parent(shard);
   }
 
   // Special case if shards_ was not yet initialized.
