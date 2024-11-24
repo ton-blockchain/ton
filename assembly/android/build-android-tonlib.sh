@@ -10,12 +10,13 @@ done
 
 if [ ! -d android-ndk-r25b ]; then
   rm android-ndk-r25b-linux.zip
+  echo "Downloading https://dl.google.com/android/repository/android-ndk-r25b-linux.zip"
   wget -q https://dl.google.com/android/repository/android-ndk-r25b-linux.zip
   unzip -q android-ndk-r25b-linux.zip
   test $? -eq 0 || { echo "Can't unzip android-ndk-r25b-linux.zip"; exit 1; }
-  echo Android NDK extracted
+  echo "Android NDK extracted"
 else
-  echo Using extracted Android NDK
+  echo "Using extracted Android NDK"
 fi
 
 export JAVA_AWT_LIBRARY=NotNeeded

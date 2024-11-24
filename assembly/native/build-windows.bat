@@ -58,26 +58,6 @@ cd ..\..\..\..
 echo Using lz4...
 )
 
-if not exist "secp256k1" (
-git clone https://github.com/bitcoin-core/secp256k1.git
-cd secp256k1
-git checkout v0.3.2
-cmake -G "Visual Studio 17 2022" -A x64 -S . -B build -DSECP256K1_ENABLE_MODULE_RECOVERY=ON -DBUILD_SHARED_LIBS=OFF
-IF %errorlevel% NEQ 0 (
-  echo Can't configure secp256k1
-  exit /b %errorlevel%
-)
-cmake --build build --config Release
-IF %errorlevel% NEQ 0 (
-  echo Can't install secp256k1
-  exit /b %errorlevel%
-)
-cd ..
-) else (
-echo Using secp256k1...
-)
-
-
 if not exist "libsodium" (
 curl  -Lo libsodium-1.0.18-stable-msvc.zip https://download.libsodium.org/libsodium/releases/libsodium-1.0.18-stable-msvc.zip
 IF %errorlevel% NEQ 0 (
@@ -132,9 +112,6 @@ cd build
 cmake -GNinja  -DCMAKE_BUILD_TYPE=Release ^
 -DPORTABLE=1 ^
 -DSODIUM_USE_STATIC_LIBS=1 ^
--DSECP256K1_FOUND=1 ^
--DSECP256K1_INCLUDE_DIR=%root%\secp256k1\include ^
--DSECP256K1_LIBRARY=%root%\secp256k1\build\src\Release\libsecp256k1.lib ^
 -DLZ4_FOUND=1 ^
 -DLZ4_INCLUDE_DIRS=%root%\lz4\lib ^
 -DLZ4_LIBRARIES=%root%\lz4\build\VS2017\liblz4\bin\x64_Release\liblz4_static.lib ^

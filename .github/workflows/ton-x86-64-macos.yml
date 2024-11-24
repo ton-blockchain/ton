@@ -18,6 +18,8 @@ jobs:
 
     - name: Build TON
       run: |
+        git submodule sync --recursive
+        git submodule update
         cp assembly/nix/build-macos-nix.sh .
         chmod +x build-macos-nix.sh
         ./build-macos-nix.sh -t

@@ -2,7 +2,7 @@
 # sudo apt update
 # sudo apt install -y build-essential git make cmake ninja-build clang libgflags-dev zlib1g-dev libssl-dev \
 #                    libreadline-dev libmicrohttpd-dev pkg-config libgsl-dev python3 python3-dev python3-pip \
-#                    nodejs libsecp256k1-dev libsodium-dev automake libtool
+#                    nodejs libsodium-dev automake libtool
 
 # wget https://apt.llvm.org/llvm.sh
 # chmod +x llvm.sh
@@ -26,8 +26,8 @@ export CCACHE_DISABLE=1
 
 echo `pwd`
 if [ "$scratch_new" = true ]; then
-  echo Compiling openssl zlib lz4 emsdk secp256k1 libsodium emsdk ton
-  rm -rf openssl zlib lz4 emsdk secp256k1 libsodium build
+  echo Compiling openssl zlib lz4 emsdk libsodium emsdk ton
+  rm -rf openssl zlib lz4 emsdk libsodium build
 fi
 
 
@@ -125,21 +125,6 @@ else
   echo Using compiled lz4 with emscripten at $LZ4_DIR
 fi
 
-if [ ! -d "secp256k1" ]; then
-  git clone https://github.com/bitcoin-core/secp256k1.git
-  cd secp256k1
-  git checkout v0.3.2
-  ./autogen.sh
-  SECP256K1_DIR=`pwd`
-  emconfigure ./configure --enable-module-recovery
-  emmake make -j16
-  test $? -eq 0 || { echo "Can't compile secp256k1 with emmake "; exit 1; }
-  cd ..
-else
-  SECP256K1_DIR=`pwd`/secp256k1
-  echo Using compiled secp256k1 with emscripten at $SECP256K1_DIR
-fi
-
 if [ ! -d "libsodium" ]; then
   git clone https://github.com/jedisct1/libsodium
   cd libsodium
@@ -168,8 +153,6 @@ emcmake cmake -DUSE_EMSCRIPTEN=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_VERBOSE_MAK
 -DOPENSSL_CRYPTO_LIBRARY=$OPENSSL_DIR/libcrypto.a \
 -DCMAKE_TOOLCHAIN_FILE=$EMSDK_DIR/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake \
 -DCMAKE_CXX_FLAGS="-sUSE_ZLIB=1" \
--DSECP256K1_INCLUDE_DIR=$SECP256K1_DIR/include \
--DSECP256K1_LIBRARY=$SECP256K1_DIR/.libs/libsecp256k1.a \
 -DSODIUM_INCLUDE_DIR=$SODIUM_DIR/src/libsodium/include \
 -DSODIUM_LIBRARY_RELEASE=$SODIUM_DIR/src/libsodium/.libs/libsodium.a \
 ..

@@ -52,21 +52,6 @@ else
   echo "Using compiled lz4"
 fi
 
-if [ ! -d "secp256k1" ]; then
-git clone https://github.com/bitcoin-core/secp256k1.git
-cd secp256k1
-secp256k1Path=`pwd`
-git checkout v0.3.2
-./autogen.sh
-./configure --enable-module-recovery --enable-static --disable-tests --disable-benchmark --with-pic
-make -j12
-test $? -eq 0 || { echo "Can't compile secp256k1"; exit 1; }
-cd ..
-else
-  secp256k1Path=$(pwd)/secp256k1
-  echo "Using compiled secp256k1"
-fi
-
 if [ ! -d "libsodium" ]; then
   export LIBSODIUM_FULL_BUILD=1
   git clone https://github.com/jedisct1/libsodium.git
@@ -135,9 +120,6 @@ cmake -GNinja .. \
 -DZLIB_FOUND=1 \
 -DZLIB_INCLUDE_DIR=$zlibPath \
 -DZLIB_LIBRARIES=$zlibPath/libz.a \
--DSECP256K1_FOUND=1 \
--DSECP256K1_INCLUDE_DIR=$secp256k1Path/include \
--DSECP256K1_LIBRARY=$secp256k1Path/.libs/libsecp256k1.a \
 -DSODIUM_FOUND=1 \
 -DSODIUM_INCLUDE_DIR=$sodiumPath/src/libsodium/include \
 -DSODIUM_LIBRARY_RELEASE=$sodiumPath/src/libsodium/.libs/libsodium.a \

@@ -183,6 +183,7 @@ message("Add ton")
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake" ${CMAKE_MODULE_PATH})
 
 include(BuildBLST)
+include(BuildSECP256K1)
 
 # Configure CCache if available
 find_program(CCACHE_FOUND ccache)

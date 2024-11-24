@@ -5,6 +5,8 @@
 
 cmake_minimum_required(VERSION 3.4.1 FATAL_ERROR)
 
+project(TON_ANDROID VERSION 0.5 LANGUAGES C CXX)
+
 option(TONLIB_ENABLE_JNI "Enable JNI-compatible TonLib API" ON)
 
 if (${CMAKE_SYSTEM_NAME} MATCHES "Windows")
