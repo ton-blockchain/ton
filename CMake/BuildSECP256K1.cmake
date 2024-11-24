@@ -1,5 +1,3 @@
-cmake_minimum_required(VERSION 3.0.2 FATAL_ERROR)
-
 if (NOT SECP256K1_LIBRARY)
 
     set(SECP256K1_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third-party/secp256k1)
@@ -22,7 +20,7 @@ if (NOT SECP256K1_LIBRARY)
       )
     elseif (EMSCRIPTEN)
       set(SECP256K1_BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third-party/secp256k1)
-      set(SECP256K1_LIBRARY ${SECP256K1_BINARY_DIR}/.libs/libsecp256k1.a)
+      set(SECP256K1_LIBRARY ${SECP256K1_BINARY_DIR}/lib/libsecp256k1.a)
       set(SECP256K1_INCLUDE_DIR ${SECP256K1_BINARY_DIR}/include)
       add_custom_command(
           WORKING_DIRECTORY ${SECP256K1_SOURCE_DIR}
