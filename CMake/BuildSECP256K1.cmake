@@ -10,7 +10,7 @@ if (NOT SECP256K1_LIBRARY)
 
     if (MSVC)
       set(SECP256K1_BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third-party/secp256k1)
-      set(SECP256K1_LIBRARY ${SECP256K1_SOURCE_DIR}/build/src/Release/libsecp256k1.lib)
+      set(SECP256K1_LIBRARY ${SECP256K1_SOURCE_DIR}/build/lib/Release/libsecp256k1.lib)
       set(SECP256K1_INCLUDE_DIR ${SECP256K1_BINARY_DIR}/include)
       add_custom_command(
         WORKING_DIRECTORY ${SECP256K1_SOURCE_DIR}
