@@ -12,7 +12,7 @@ jobs:
       - uses: actions/checkout@v3
 
       - name: Download Linux x86-64 artifacts
-        uses: dawidd6/action-download-artifact@v2
+        uses: dawidd6/action-download-artifact@v6
         with:
           workflow: ton-x86-64-linux.yml
           path: artifacts
@@ -20,7 +20,7 @@ jobs:
           skip_unpack: true
 
       - name: Download and unzip Linux x86-64 artifacts
-        uses: dawidd6/action-download-artifact@v2
+        uses: dawidd6/action-download-artifact@v6
         with:
           workflow: ton-x86-64-linux.yml
           path: artifacts
@@ -28,7 +28,7 @@ jobs:
           skip_unpack: false
 
       - name: Download Mac x86-64 artifacts
-        uses: dawidd6/action-download-artifact@v2
+        uses: dawidd6/action-download-artifact@v6
         with:
           workflow: ton-x86-64-macos.yml
           path: artifacts
@@ -36,7 +36,7 @@ jobs:
           skip_unpack: true
 
       - name: Download Mac arm64 artifacts
-        uses: dawidd6/action-download-artifact@v2
+        uses: dawidd6/action-download-artifact@v6
         with:
           workflow: ton-arm64-macos.yml
           path: artifacts
@@ -44,7 +44,7 @@ jobs:
           skip_unpack: true
 
       - name: Download and unzip Mac x86-64 artifacts
-        uses: dawidd6/action-download-artifact@v2
+        uses: dawidd6/action-download-artifact@v6
         with:
           workflow: ton-x86-64-macos.yml
           path: artifacts
@@ -52,7 +52,7 @@ jobs:
           skip_unpack: false
 
       - name: Download and unzip arm64 artifacts
-        uses: dawidd6/action-download-artifact@v2
+        uses: dawidd6/action-download-artifact@v6
         with:
           workflow: ton-arm64-macos.yml
           path: artifacts
@@ -60,7 +60,7 @@ jobs:
           skip_unpack: false
 
       - name: Download Windows artifacts
-        uses: dawidd6/action-download-artifact@v2
+        uses: dawidd6/action-download-artifact@v6
         with:
           workflow: ton-x86-64-windows.yml
           path: artifacts
@@ -68,7 +68,7 @@ jobs:
           skip_unpack: true
 
       - name: Download and unzip Windows artifacts
-        uses: dawidd6/action-download-artifact@v2
+        uses: dawidd6/action-download-artifact@v6
         with:
           workflow: ton-x86-64-windows.yml
           path: artifacts
@@ -76,7 +76,7 @@ jobs:
           skip_unpack: false
 
       - name: Download WASM artifacts
-        uses: dawidd6/action-download-artifact@v2
+        uses: dawidd6/action-download-artifact@v6
         with:
           workflow: build-ton-wasm-emscripten.yml
           path: artifacts
@@ -84,7 +84,7 @@ jobs:
           skip_unpack: true
 
       - name: Download Android Tonlib artifacts
-        uses: dawidd6/action-download-artifact@v2
+        uses: dawidd6/action-download-artifact@v6
         with:
           workflow: build-ton-linux-android-tonlib.yml
           path: artifacts
