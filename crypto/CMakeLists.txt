@@ -317,7 +317,7 @@ if (NOT WIN32)
 endif()
 target_include_directories(ton_crypto SYSTEM PUBLIC $<BUILD_INTERFACE:${OPENSSL_INCLUDE_DIR}>)
 
-add_dependencies(ton_crypto blst secp256k1)
+add_dependencies(ton_crypto blst)
 add_dependencies(ton_crypto_core secp256k1)
 
 target_include_directories(ton_crypto PRIVATE ${BLST_INCLUDE_DIR})

@@ -154,6 +154,7 @@ emcmake cmake -DUSE_EMSCRIPTEN=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_VERBOSE_MAK
 -DCMAKE_TOOLCHAIN_FILE=$EMSDK_DIR/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake \
 -DCMAKE_CXX_FLAGS="-sUSE_ZLIB=1" \
 -DSODIUM_INCLUDE_DIR=$SODIUM_DIR/src/libsodium/include \
+-DSODIUM_USE_STATIC_LIBS=1 \
 -DSODIUM_LIBRARY_RELEASE=$SODIUM_DIR/src/libsodium/.libs/libsodium.a \
 ..
 

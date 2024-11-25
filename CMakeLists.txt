@@ -238,6 +238,11 @@ if (TON_USE_JEMALLOC)
   find_package(jemalloc REQUIRED)
 endif()
 
+if (NIX)
+  find_package(Secp256k1 REQUIRED)
+endif()
+
+
 set(MEMPROF "" CACHE STRING "Use one of \"ON\", \"FAST\" or \"SAFE\" to enable memory profiling. \
 Works under macOS and Linux when compiled using glibc. \
 In FAST mode stack is unwinded only using frame pointers, which may fail. \

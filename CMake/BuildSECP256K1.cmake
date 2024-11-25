@@ -12,9 +12,9 @@ if (NOT SECP256K1_LIBRARY)
       set(SECP256K1_INCLUDE_DIR ${SECP256K1_BINARY_DIR}/include)
       add_custom_command(
         WORKING_DIRECTORY ${SECP256K1_SOURCE_DIR}
-        COMMAND cmake -E env CFLAGS="/WX" cmake -A x64 -B build -DSECP256K1_ENABLE_MODULE_RECOVERY=ON -DSECP256K1_ENABLE_MODULE_EXTRAKEYS=ON -DSECP256K1_BUILD_EXAMPLES=OFF -DBUILD_SHARED_LIBS=OFF
+        COMMAND cmake -E env CFLAGS="/WX" cmake -A x64 -B build
         COMMAND cmake --build build --config Release
-        COMMENT "Build Secp256k1 with vs2017"
+        COMMENT "Build Secp256k1"
         DEPENDS ${SECP256K1_SOURCE_DIR}
         OUTPUT ${SECP256K1_LIBRARY}
       )
@@ -32,17 +32,19 @@ if (NOT SECP256K1_LIBRARY)
           OUTPUT ${SECP256K1_LIBRARY}
       )
     else()
-      set(SECP256K1_LIBRARY ${SECP256K1_BINARY_DIR}/lib/libsecp256k1.a)
-      add_custom_command(
-          WORKING_DIRECTORY ${SECP256K1_SOURCE_DIR}
-          COMMAND ./autogen.sh
-          COMMAND ./configure -q --disable-option-checking --enable-module-recovery --enable-module-extrakeys --prefix ${SECP256K1_BINARY_DIR} --with-pic --disable-shared --enable-static --disable-tests --disable-benchmark
-          COMMAND make -j16
-          COMMAND make install
-          COMMENT "Build secp256k1"
-          DEPENDS ${SECP256K1_SOURCE_DIR}
-          OUTPUT ${SECP256K1_LIBRARY}
-      )
+      if (NOT NIX)
+        set(SECP256K1_LIBRARY ${SECP256K1_BINARY_DIR}/lib/libsecp256k1.a)
+        add_custom_command(
+            WORKING_DIRECTORY ${SECP256K1_SOURCE_DIR}
+            COMMAND ./autogen.sh
+            COMMAND ./configure -q --disable-option-checking --enable-module-recovery --enable-module-extrakeys --prefix ${SECP256K1_BINARY_DIR} --with-pic --disable-shared --enable-static --disable-tests --disable-benchmark
+            COMMAND make -j16
+            COMMAND make install
+            COMMENT "Build secp256k1"
+            DEPENDS ${SECP256K1_SOURCE_DIR}
+            OUTPUT ${SECP256K1_LIBRARY}
+        )
+      endif()
     endif()
 
 else()
