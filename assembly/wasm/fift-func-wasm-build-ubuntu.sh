@@ -44,15 +44,19 @@ else
   echo Using compiled openssl at $OPENSSL_DIR
 fi
 
+cd third-party/secp256k1
+make clean
+rm -rf .libs
+cd ../..
+
 if [ ! -d "build" ]; then
   mkdir build
   cd build
-  cmake -GNinja -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_CXX_STANDARD=17 \
-  -DOPENSSL_FOUND=1 \
+  cmake -GNinja -DTON_USE_JEMALLOC=ON .. \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DOPENSSL_ROOT_DIR=$OPENSSL_DIR \
   -DOPENSSL_INCLUDE_DIR=$OPENSSL_DIR/include \
-  -DOPENSSL_CRYPTO_LIBRARY=$OPENSSL_DIR/libcrypto.so \
-  -DTON_USE_ABSEIL=OFF ..
+  -DOPENSSL_CRYPTO_LIBRARY=$OPENSSL_DIR/libcrypto.so
 
   test $? -eq 0 || { echo "Can't configure TON build"; exit 1; }
   ninja fift smc-envelope
