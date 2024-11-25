@@ -64,6 +64,7 @@ void FullNodeImpl::del_permanent_key(PublicKeyHash key, td::Promise<td::Unit> pr
   }
   local_keys_.erase(key);
   private_block_overlays_.erase(key);
+  update_validator_telemetry_collector();
   for (auto &p : custom_overlays_) {
     update_custom_overlay(p.second);
   }
@@ -438,6 +439,15 @@ void FullNodeImpl::new_key_block(BlockHandle handle) {
   }
 }
 
+void FullNodeImpl::send_validator_telemetry(PublicKeyHash key, tl_object_ptr<ton_api::validator_telemetry> telemetry) {
+  auto it = private_block_overlays_.find(key);
+  if (it == private_block_overlays_.end()) {
+    VLOG(FULL_NODE_INFO) << "Cannot send validator telemetry for " << key << " : no private block overlay";
+    return;
+  }
+  td::actor::send_closure(it->second, &FullNodePrivateBlockOverlay::send_validator_telemetry, std::move(telemetry));
+}
+
 void FullNodeImpl::process_block_broadcast(BlockBroadcast broadcast) {
   send_block_broadcast_to_custom_overlays(broadcast);
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::prevalidate_block, std::move(broadcast),
@@ -458,6 +468,24 @@ void FullNodeImpl::process_block_candidate_broadcast(BlockIdExt block_id, Catcha
   // ignore cc_seqno and validator_hash for now
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_block_candidate, block_id,
                           std::move(data));
+}
+
+void FullNodeImpl::set_validator_telemetry_filename(std::string value) {
+  validator_telemetry_filename_ = std::move(value);
+  update_validator_telemetry_collector();
+}
+
+void FullNodeImpl::update_validator_telemetry_collector() {
+  if (validator_telemetry_filename_.empty() || private_block_overlays_.empty()) {
+    validator_telemetry_collector_key_ = PublicKeyHash::zero();
+    return;
+  }
+  if (!private_block_overlays_.contains(validator_telemetry_collector_key_)) {
+    auto it = private_block_overlays_.begin();
+    validator_telemetry_collector_key_ = it->first;
+    td::actor::send_closure(it->second, &FullNodePrivateBlockOverlay::collect_validator_telemetry,
+                            validator_telemetry_filename_);
+  }
 }
 
 void FullNodeImpl::start_up() {
@@ -536,6 +564,9 @@ void FullNodeImpl::start_up() {
     void new_key_block(BlockHandle handle) override {
       td::actor::send_closure(id_, &FullNodeImpl::new_key_block, std::move(handle));
     }
+    void send_validator_telemetry(PublicKeyHash key, tl_object_ptr<ton_api::validator_telemetry> telemetry) override {
+      td::actor::send_closure(id_, &FullNodeImpl::send_validator_telemetry, key, std::move(telemetry));
+    }
 
     Callback(td::actor::ActorId<FullNodeImpl> id) : id_(id) {
     }
@@ -555,6 +586,7 @@ void FullNodeImpl::update_private_overlays() {
   }
 
   private_block_overlays_.clear();
+  update_validator_telemetry_collector();
   if (local_keys_.empty()) {
     return;
   }
@@ -573,6 +605,7 @@ void FullNodeImpl::create_private_block_overlay(PublicKeyHash key) {
     private_block_overlays_[key] = td::actor::create_actor<FullNodePrivateBlockOverlay>(
         "BlocksPrivateOverlay", current_validators_[key], std::move(nodes), zero_state_file_hash_, config_, keyring_,
         adnl_, rldp_, rldp2_, overlays_, validator_manager_, actor_id(this));
+    update_validator_telemetry_collector();
   }
 }
 

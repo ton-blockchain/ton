@@ -191,6 +191,7 @@ class ValidatorManagerInterface : public td::actor::Actor {
                                   td::Promise<std::string> promise) = 0;
 
     virtual void new_key_block(BlockHandle handle) = 0;
+    virtual void send_validator_telemetry(PublicKeyHash key, tl_object_ptr<ton_api::validator_telemetry> telemetry) = 0;
   };
 
   virtual ~ValidatorManagerInterface() = default;

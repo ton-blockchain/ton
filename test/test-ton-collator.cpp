@@ -378,6 +378,9 @@ class TestNode : public td::actor::Actor {
 
       void new_key_block(ton::validator::BlockHandle handle) override {
       }
+      void send_validator_telemetry(ton::PublicKeyHash key,
+                                    ton::tl_object_ptr<ton::ton_api::validator_telemetry> telemetry) override {
+      }
     };
 
     td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::install_callback,

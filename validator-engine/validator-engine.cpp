@@ -1945,6 +1945,10 @@ void ValidatorEngine::start_full_node() {
         default_dht_node_.is_zero() ? td::actor::ActorId<ton::dht::Dht>{} : dht_nodes_[default_dht_node_].get(),
         overlay_manager_.get(), validator_manager_.get(), full_node_client_.get(), db_root_);
     load_custom_overlays_config();
+    if (!validator_telemetry_filename_.empty()) {
+      td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::set_validator_telemetry_filename,
+                              validator_telemetry_filename_);
+    }
   }
 
   for (auto &v : config_.validators) {
@@ -4330,6 +4334,15 @@ int main(int argc, char *argv[]) {
       [&]() {
         acts.push_back(
             [&x]() { td::actor::send_closure(x, &ValidatorEngine::set_fast_state_serializer_enabled, true); });
+      });
+  p.add_option(
+      '\0', "collect-validator-telemetry",
+      "store validator telemetry from private block overlay to a given file (json format)",
+      [&](td::Slice s) {
+        acts.push_back(
+            [&x, s = s.str()]() {
+              td::actor::send_closure(x, &ValidatorEngine::set_validator_telemetry_filename, s);
+            });
       });
   auto S = p.run(argc, argv);
   if (S.is_error()) {
