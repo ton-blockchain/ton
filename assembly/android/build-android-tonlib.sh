@@ -8,6 +8,10 @@ while getopts 'a' flag; do
   esac
 done
 
+export CC=$(which clang-16)
+export CXX=$(which clang++-16)
+export CCACHE_DISABLE=1
+
 if [ ! -d android-ndk-r25b ]; then
   rm android-ndk-r25b-linux.zip
   echo "Downloading https://dl.google.com/android/repository/android-ndk-r25b-linux.zip"
