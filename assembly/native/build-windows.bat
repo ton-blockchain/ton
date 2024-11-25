@@ -26,6 +26,8 @@ IF %errorlevel% NEQ 0 (
   exit /b %errorlevel%
 )
 
+rd /s /q ".\third-party\secp256k1\build"
+
 if not exist "zlib" (
 git clone https://github.com/madler/zlib.git
 cd zlib

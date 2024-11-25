@@ -8,11 +8,11 @@ if (NOT SECP256K1_LIBRARY)
 
     if (MSVC)
       set(SECP256K1_BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third-party/secp256k1)
-      set(SECP256K1_LIBRARY ${SECP256K1_SOURCE_DIR}/build/lib/Release/libsecp256k1.lib)
+      set(SECP256K1_LIBRARY ${SECP256K1_SOURCE_DIR}/build/src/Release/libsecp256k1.lib)
       set(SECP256K1_INCLUDE_DIR ${SECP256K1_BINARY_DIR}/include)
       add_custom_command(
         WORKING_DIRECTORY ${SECP256K1_SOURCE_DIR}
-        COMMAND cmake -E env CFLAGS="/WX" cmake -A x64 -B build
+        COMMAND cmake -E env CFLAGS="/WX" cmake -A x64 -B build -DSECP256K1_ENABLE_MODULE_RECOVERY=ON -DSECP256K1_ENABLE_MODULE_EXTRAKEYS=ON -DSECP256K1_BUILD_EXAMPLES=OFF -DBUILD_SHARED_LIBS=OFF
         COMMAND cmake --build build --config Release
         COMMENT "Build Secp256k1"
         DEPENDS ${SECP256K1_SOURCE_DIR}
