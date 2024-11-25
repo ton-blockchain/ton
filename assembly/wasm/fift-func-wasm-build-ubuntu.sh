@@ -2,7 +2,7 @@
 # sudo apt update
 # sudo apt install -y build-essential git make cmake ninja-build clang libgflags-dev zlib1g-dev libssl-dev \
 #                    libreadline-dev libmicrohttpd-dev pkg-config libgsl-dev python3 python3-dev python3-pip \
-#                    nodejs libsodium-dev automake libtool
+#                    nodejs libsodium-dev automake libtool libjemalloc-dev
 
 # wget https://apt.llvm.org/llvm.sh
 # chmod +x llvm.sh
@@ -46,7 +46,7 @@ fi
 
 cd third-party/secp256k1
 make clean
-rm -rf .libs
+rm -rf .libs lib build
 cd ../..
 
 if [ ! -d "build" ]; then
@@ -61,11 +61,11 @@ if [ ! -d "build" ]; then
   test $? -eq 0 || { echo "Can't configure TON build"; exit 1; }
   ninja fift smc-envelope
   test $? -eq 0 || { echo "Can't compile fift "; exit 1; }
-  rm -rf *
+  rm -rf * .ninja* CMakeCache.txt
   cd ..
 else
   echo cleaning build...
-  rm -rf build/*
+  rm -rf build/* build/.ninja* build/CMakeCache.txt
 fi
 
 if [ ! -d "emsdk" ]; then

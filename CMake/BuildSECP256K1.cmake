@@ -19,14 +19,14 @@ if (NOT SECP256K1_LIBRARY)
         OUTPUT ${SECP256K1_LIBRARY}
       )
     elseif (EMSCRIPTEN)
-      set(SECP256K1_BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third-party/secp256k1)
-      set(SECP256K1_LIBRARY ${SECP256K1_BINARY_DIR}/.libs/libsecp256k1.a)
-      set(SECP256K1_INCLUDE_DIR ${SECP256K1_BINARY_DIR}/include)
+      set(SECP256K1_LIBRARY ${SECP256K1_BINARY_DIR}/lib/libsecp256k1.a)
+      set(SECP256K1_INCLUDE_DIR ${SECP256K1_SOURCE_DIR}/include)
       add_custom_command(
           WORKING_DIRECTORY ${SECP256K1_SOURCE_DIR}
           COMMAND ./autogen.sh
-          COMMAND emconfigure ./configure --disable-option-checking --enable-module-recovery --enable-module-extrakeys --prefix ${SECP256K1_BINARY_DIR} --with-pic --disable-shared --enable-static --disable-tests --disable-benchmark
+          COMMAND emconfigure ./configure --enable-module-recovery --enable-module-extrakeys --prefix ${SECP256K1_BINARY_DIR}
           COMMAND emmake make
+          COMMAND emmake make install
           COMMENT "Build Secp256k1 with emscripten"
           DEPENDS ${SECP256K1_SOURCE_DIR}
           OUTPUT ${SECP256K1_LIBRARY}
