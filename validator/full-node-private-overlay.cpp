@@ -19,6 +19,9 @@
 #include "common/delay.h"
 #include "common/checksum.h"
 #include "full-node-serializer.hpp"
+#include "auto/tl/ton_api_json.h"
+#include "td/utils/JsonBuilder.h"
+#include "tl/tl_json.h"
 
 namespace ton::validator::fullnode {
 
@@ -85,15 +88,52 @@ void FullNodePrivateBlockOverlay::process_block_candidate_broadcast(PublicKeyHas
                           validator_set_hash, std::move(data));
 }
 
+void FullNodePrivateBlockOverlay::process_telemetry_broadcast(
+    PublicKeyHash src, const tl_object_ptr<ton_api::validator_telemetry>& telemetry) {
+  if (telemetry->adnl_id_ != src.bits256_value()) {
+    VLOG(FULL_NODE_WARNING) << "Invalid telemetry broadcast from " << src << ": adnl_id mismatch";
+    return;
+  }
+  auto now = (td::int32)td::Clocks::system();
+  if (telemetry->timestamp_ < now - 60) {
+    VLOG(FULL_NODE_WARNING) << "Invalid telemetry broadcast from " << src << ": too old ("
+                            << now - telemetry->timestamp_ << "s ago)";
+    return;
+  }
+  if (telemetry->timestamp_ > now + 60) {
+    VLOG(FULL_NODE_WARNING) << "Invalid telemetry broadcast from " << src << ": too new ("
+                            << telemetry->timestamp_ - now << "s in the future)";
+    return;
+  }
+  VLOG(FULL_NODE_DEBUG) << "Got telemetry broadcast from " << src;
+  auto s = td::json_encode<std::string>(td::ToJson(*telemetry), false);
+  std::erase_if(s, [](char c) {
+    return c == '\n' || c == '\r';
+  });
+  telemetry_file_ << s << "\n";
+  telemetry_file_.flush();
+  if (telemetry_file_.fail()) {
+    VLOG(FULL_NODE_WARNING) << "Failed to write telemetry to file";
+  }
+}
+
 void FullNodePrivateBlockOverlay::receive_broadcast(PublicKeyHash src, td::BufferSlice broadcast) {
   if (adnl::AdnlNodeIdShort{src} == local_id_) {
     return;
   }
   auto B = fetch_tl_object<ton_api::tonNode_Broadcast>(std::move(broadcast), true);
   if (B.is_error()) {
+    if (collect_telemetry_ && src != local_id_.pubkey_hash()) {
+      auto R = fetch_tl_prefix<ton_api::validator_telemetry>(broadcast, true);
+      if (R.is_ok()) {
+        process_telemetry_broadcast(src, R.ok());
+      }
+    }
     return;
   }
-  ton_api::downcast_call(*B.move_as_ok(), [src, Self = this](auto &obj) { Self->process_broadcast(src, obj); });
+  ton_api::downcast_call(*B.move_as_ok(), [src, Self = this](auto& obj) {
+    Self->process_broadcast(src, obj);
+  });
 }
 
 void FullNodePrivateBlockOverlay::send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno,
@@ -142,6 +182,30 @@ void FullNodePrivateBlockOverlay::send_broadcast(BlockBroadcast broadcast) {
   }
   td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_,
                           local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagAnySender(), B.move_as_ok());
+}
+
+void FullNodePrivateBlockOverlay::send_validator_telemetry(tl_object_ptr<ton_api::validator_telemetry> telemetry) {
+  process_telemetry_broadcast(local_id_.pubkey_hash(), telemetry);
+  auto data = serialize_tl_object(telemetry, true);
+  if (data.size() <= overlay::Overlays::max_simple_broadcast_size()) {
+    td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_ex, local_id_, overlay_id_,
+                            local_id_.pubkey_hash(), 0, std::move(data));
+  } else {
+    td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_,
+                            local_id_.pubkey_hash(), 0, std::move(data));
+  }
+}
+
+void FullNodePrivateBlockOverlay::collect_validator_telemetry(std::string filename) {
+  if (collect_telemetry_) {
+    telemetry_file_.close();
+  }
+  collect_telemetry_ = true;
+  LOG(FULL_NODE_WARNING) << "Collecting validator telemetry to " << filename << " (local id: " << local_id_ << ")";
+  telemetry_file_.open(filename, std::ios_base::app);
+  if (!telemetry_file_.is_open()) {
+    LOG(WARNING) << "Cannot open file " << filename << " for validator telemetry";
+  }
 }
 
 void FullNodePrivateBlockOverlay::start_up() {

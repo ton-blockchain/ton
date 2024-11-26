@@ -32,6 +32,7 @@ namespace validator {
 
 class ValidatorSetQ : public ValidatorSet {
  public:
+  const ValidatorDescr* get_validator(const NodeIdShort& id) const override;
   bool is_validator(NodeIdShort id) const override;
   CatchainSeqno get_catchain_seqno() const override {
     return cc_seqno_;

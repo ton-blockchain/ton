@@ -595,6 +595,10 @@ validator.group workchain:int shard:long catchain_seqno:int config_hash:int256 m
 validator.groupEx workchain:int shard:long vertical_seqno:int catchain_seqno:int config_hash:int256 members:(vector validator.groupMember) = validator.Group; 
 validator.groupNew workchain:int shard:long vertical_seqno:int last_key_block_seqno:int catchain_seqno:int config_hash:int256 members:(vector validator.groupMember) = validator.Group; 
 
+validator.telemetry flags:# timestamp:double adnl_id:int256
+    node_version:string os_version:string node_started_at:int
+    ram_size:long cpu_cores:int node_threads:int = validator.Telemetry;
+
 ---functions---
 
 

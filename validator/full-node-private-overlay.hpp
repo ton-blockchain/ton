@@ -17,6 +17,7 @@
 #pragma once
 
 #include "full-node.h"
+#include <fstream>
 
 namespace ton::validator::fullnode {
 
@@ -32,6 +33,8 @@ class FullNodePrivateBlockOverlay : public td::actor::Actor {
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcastCompressed &query);
   void process_block_candidate_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query);
 
+  void process_telemetry_broadcast(PublicKeyHash src, const tl_object_ptr<ton_api::validator_telemetry>& telemetry);
+
   template <class T>
   void process_broadcast(PublicKeyHash, T &) {
     VLOG(FULL_NODE_WARNING) << "dropping unknown broadcast";
@@ -42,6 +45,9 @@ class FullNodePrivateBlockOverlay : public td::actor::Actor {
   void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                             td::BufferSlice data);
   void send_broadcast(BlockBroadcast broadcast);
+  void send_validator_telemetry(tl_object_ptr<ton_api::validator_telemetry> telemetry);
+
+  void collect_validator_telemetry(std::string filename);
 
   void set_config(FullNodeConfig config) {
     config_ = std::move(config);
@@ -91,6 +97,9 @@ class FullNodePrivateBlockOverlay : public td::actor::Actor {
 
   void try_init();
   void init();
+
+  bool collect_telemetry_ = false;
+  std::ofstream telemetry_file_;
 };
 
 class FullNodeCustomOverlay : public td::actor::Actor {

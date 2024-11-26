@@ -1775,6 +1775,11 @@ void ValidatorManagerImpl::send_block_broadcast(BlockBroadcast broadcast, int mo
   callback_->send_broadcast(std::move(broadcast), mode);
 }
 
+void ValidatorManagerImpl::send_validator_telemetry(PublicKeyHash key,
+                                                    tl_object_ptr<ton_api::validator_telemetry> telemetry) {
+  callback_->send_validator_telemetry(key, std::move(telemetry));
+}
+
 void ValidatorManagerImpl::send_get_out_msg_queue_proof_request(
     ShardIdFull dst_shard, std::vector<BlockIdExt> blocks, block::ImportedMsgQueueLimits limits,
     td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise) {
@@ -1900,6 +1905,7 @@ void ValidatorManagerImpl::started(ValidatorManagerInitResult R) {
   if (opts_->nonfinal_ls_queries_enabled()) {
     candidates_buffer_ = td::actor::create_actor<CandidatesBuffer>("candidates-buffer", actor_id(this));
   }
+  init_validator_telemetry();
 
   auto Q = td::PromiseCreator::lambda(
       [SelfId = actor_id(this)](td::Result<std::vector<td::Ref<PersistentStateDescription>>> R) {
@@ -2091,6 +2097,7 @@ void ValidatorManagerImpl::new_masterchain_block() {
       td::actor::send_closure(serializer_, &AsyncStateSerializer::update_last_known_key_block_ts,
                               last_key_block_handle_->unix_time());
     }
+    init_validator_telemetry();
   }
 
   update_shard_overlays();
@@ -3674,6 +3681,41 @@ void ValidatorManagerImpl::CheckedExtMsgCounter::before_query() {
       break;
     }
     cleanup_at_ += max_ext_msg_per_addr_time_window() / 2.0;
+  }
+}
+
+void ValidatorManagerImpl::init_validator_telemetry() {
+  if (last_masterchain_state_.is_null()) {
+    return;
+  }
+  td::Ref<ValidatorSet> validator_set = last_masterchain_state_->get_total_validator_set(0);
+  if (validator_set.is_null()) {
+    validator_telemetry_.clear();
+    return;
+  }
+  std::set<PublicKeyHash> processed;
+  for (auto& key : temp_keys_) {
+    if (const ValidatorDescr* desc = validator_set->get_validator(key.bits256_value())) {
+      processed.insert(key);
+      adnl::AdnlNodeIdShort adnl_id;
+      if (desc->addr.is_zero()) {
+        adnl_id = adnl::AdnlNodeIdShort{ValidatorFullId{desc->key}.compute_short_id()};
+      } else {
+        adnl_id = adnl::AdnlNodeIdShort{desc->addr};
+      }
+      auto& telemetry = validator_telemetry_[key];
+      if (telemetry.empty()) {
+        telemetry = td::actor::create_actor<ValidatorTelemetry>(
+            "telemetry", key, adnl_id, opts_->zero_block_id().file_hash, actor_id(this));
+      }
+    }
+  }
+  for (auto it = validator_telemetry_.begin(); it != validator_telemetry_.end();) {
+    if (processed.contains(it->first)) {
+      ++it;
+    } else {
+      it = validator_telemetry_.erase(it);
+    }
   }
 }
 

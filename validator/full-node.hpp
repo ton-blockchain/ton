@@ -88,10 +88,13 @@ class FullNodeImpl : public FullNode {
 
   void got_key_block_config(td::Ref<ConfigHolder> config);
   void new_key_block(BlockHandle handle);
+  void send_validator_telemetry(PublicKeyHash key, tl_object_ptr<ton_api::validator_telemetry> telemetry);
 
   void process_block_broadcast(BlockBroadcast broadcast) override;
   void process_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                                          td::BufferSlice data) override;
+
+  void set_validator_telemetry_filename(std::string value) override;
 
   void import_fast_sync_member_certificate(adnl::AdnlNodeIdShort local_id,
                                             overlay::OverlayMemberCertificate cert) override {
@@ -170,6 +173,11 @@ class FullNodeImpl : public FullNode {
   void send_block_broadcast_to_custom_overlays(const BlockBroadcast& broadcast);
   void send_block_candidate_broadcast_to_custom_overlays(const BlockIdExt& block_id, CatchainSeqno cc_seqno,
                                                          td::uint32 validator_set_hash, const td::BufferSlice& data);
+
+  std::string validator_telemetry_filename_;
+  PublicKeyHash validator_telemetry_collector_key_ = PublicKeyHash::zero();
+
+  void update_validator_telemetry_collector();
 };
 
 }  // namespace fullnode
