@@ -42,8 +42,6 @@ class ShardClient : public td::actor::Actor {
 
   td::Promise<td::Unit> promise_;
 
-  std::set<ShardIdFull> created_overlays_;
-
  public:
   ShardClient(td::Ref<ValidatorManagerOptions> opts, BlockHandle masterchain_block_handle,
               td::Ref<MasterchainState> masterchain_state, td::actor::ActorId<ValidatorManager> manager,
@@ -63,8 +61,6 @@ class ShardClient : public td::actor::Actor {
   static constexpr td::uint32 shard_client_priority() {
     return 2;
   }
-
-  void build_shard_overlays();
 
   void start_up() override;
   void start_up_init_mode();
@@ -90,6 +86,8 @@ class ShardClient : public td::actor::Actor {
 
   void force_update_shard_client(BlockHandle handle, td::Promise<td::Unit> promise);
   void force_update_shard_client_ex(BlockHandle handle, td::Ref<MasterchainState> state, td::Promise<td::Unit> promise);
+
+  void update_options(td::Ref<ValidatorManagerOptions> opts);
 };
 
 }  // namespace validator

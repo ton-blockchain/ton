@@ -1,4 +1,4 @@
-/* 
+/*
     This file is part of TON Blockchain source code.
 
     TON Blockchain is free software; you can redistribute it and/or
@@ -35,6 +35,7 @@
 #include "ton/ton-tl.hpp"
 #include "td/utils/JsonBuilder.h"
 #include "auto/tl/ton_api_json.h"
+#include "tl/tl_json.h"
 
 #include <cctype>
 #include <fstream>
@@ -948,8 +949,18 @@ td::Status GetOverlaysStatsJsonQuery::receive(td::BufferSlice data) {
 
       sb << "   \"" << t->key_ << "\": \"" << t->value_ << "\"";
     }
-    sb << "\n  }\n";
-    sb << "}\n";
+    sb << "\n  }";
+    if (!s->extra_.empty()) {
+      sb << ",\n  \"extra\": ";
+      for (char c : s->extra_) {
+        if (c == '\n') {
+          sb << "\n  ";
+        } else {
+          sb << c;
+        }
+      }
+    }
+    sb << "\n}\n";
   }
   sb << "]\n";
   sb << std::flush;
@@ -1216,6 +1227,12 @@ td::Status ShowCustomOverlaysQuery::receive(td::BufferSlice data) {
                                     : "")
                             << (node->block_sender_ ? " (block sender)" : "") << "\n";
     }
+    if (!overlay->sender_shards_.empty()) {
+      td::TerminalIO::out() << "Sender shards:\n";
+      for (const auto &shard : overlay->sender_shards_) {
+        td::TerminalIO::out() << "  " << ton::create_shard_id(shard).to_str() << "\n";
+      }
+    }
     td::TerminalIO::out() << "\n";
   }
   return td::Status::OK();
@@ -1480,5 +1497,45 @@ td::Status GetAdnlStatsQuery::receive(td::BufferSlice data) {
   }
   sb << "==============================================================================\n";
   td::TerminalIO::out() << sb.as_cslice();
+  return td::Status::OK();
+}
+
+td::Status AddShardQuery::run() {
+  TRY_RESULT_ASSIGN(wc_, tokenizer_.get_token<td::int32>());
+  TRY_RESULT_ASSIGN(shard_, tokenizer_.get_token<td::int64>());
+  return td::Status::OK();
+}
+
+td::Status AddShardQuery::send() {
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_addShard>(
+      ton::create_tl_shard_id(ton::ShardIdFull(wc_, shard_)));
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status AddShardQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  td::TerminalIO::out() << "successfully added shard\n";
+  return td::Status::OK();
+}
+
+td::Status DelShardQuery::run() {
+  TRY_RESULT_ASSIGN(wc_, tokenizer_.get_token<td::int32>());
+  TRY_RESULT_ASSIGN(shard_, tokenizer_.get_token<td::int64>());
+  return td::Status::OK();
+}
+
+td::Status DelShardQuery::send() {
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_delShard>(
+      ton::create_tl_shard_id(ton::ShardIdFull(wc_, shard_)));
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status DelShardQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  td::TerminalIO::out() << "successfully removed shard\n";
   return td::Status::OK();
 }

@@ -44,9 +44,8 @@ class FullNodeImpl : public FullNode {
   void add_permanent_key(PublicKeyHash key, td::Promise<td::Unit> promise) override;
   void del_permanent_key(PublicKeyHash key, td::Promise<td::Unit> promise) override;
 
-  void sign_shard_overlay_certificate(ShardIdFull shard_id, PublicKeyHash signed_key,
-                                      td::uint32 expiry_at, td::uint32 max_size,
-                                      td::Promise<td::BufferSlice> promise) override;
+  void sign_shard_overlay_certificate(ShardIdFull shard_id, PublicKeyHash signed_key, td::uint32 expiry_at,
+                                      td::uint32 max_size, td::Promise<td::BufferSlice> promise) override;
   void import_shard_overlay_certificate(ShardIdFull shard_id, PublicKeyHash signed_key,
                                         std::shared_ptr<ton::overlay::Certificate> cert,
                                         td::Promise<td::Unit> promise) override;
@@ -57,8 +56,7 @@ class FullNodeImpl : public FullNode {
   void add_custom_overlay(CustomOverlayParams params, td::Promise<td::Unit> promise) override;
   void del_custom_overlay(std::string name, td::Promise<td::Unit> promise) override;
 
-  void add_shard(ShardIdFull shard);
-  void del_shard(ShardIdFull shard);
+  void on_new_masterchain_block(td::Ref<MasterchainState> state, std::set<ShardIdFull> shards_to_monitor);
 
   void sync_completed();
 
@@ -79,8 +77,8 @@ class FullNodeImpl : public FullNode {
   void download_block_proof_link(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
                                  td::Promise<td::BufferSlice> promise);
   void get_next_key_blocks(BlockIdExt block_id, td::Timestamp timeout, td::Promise<std::vector<BlockIdExt>> promise);
-  void download_archive(BlockSeqno masterchain_seqno, std::string tmp_dir, td::Timestamp timeout,
-                        td::Promise<std::string> promise);
+  void download_archive(BlockSeqno masterchain_seqno, ShardIdFull shard_prefix, std::string tmp_dir,
+                        td::Timestamp timeout, td::Promise<std::string> promise);
 
   void got_key_block_config(td::Ref<ConfigHolder> config);
   void new_key_block(BlockHandle handle);
@@ -99,17 +97,26 @@ class FullNodeImpl : public FullNode {
                td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
                td::actor::ActorId<dht::Dht> dht, td::actor::ActorId<overlay::Overlays> overlays,
                td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-               td::actor::ActorId<adnl::AdnlExtClient> client, std::string db_root);
+               td::actor::ActorId<adnl::AdnlExtClient> client, std::string db_root,
+               td::Promise<td::Unit> started_promise);
 
  private:
+  struct ShardInfo {
+    td::actor::ActorOwn<FullNodeShard> actor;
+    bool active = false;
+    td::Timestamp delete_at = td::Timestamp::never();
+  };
+
+  void update_shard_actor(ShardIdFull shard, bool active);
+
   PublicKeyHash local_id_;
   adnl::AdnlNodeIdShort adnl_id_;
   FileHash zero_state_file_hash_;
 
   td::actor::ActorId<FullNodeShard> get_shard(AccountIdPrefixFull dst);
-  td::actor::ActorId<FullNodeShard> get_shard(ShardIdFull dst);
-
-  std::map<ShardIdFull, td::actor::ActorOwn<FullNodeShard>> shards_;
+  td::actor::ActorId<FullNodeShard> get_shard(ShardIdFull shard);
+  std::map<ShardIdFull, ShardInfo> shards_;
+  int wc_monitor_min_split_ = 0;
 
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;
@@ -127,6 +134,8 @@ class FullNodeImpl : public FullNode {
   std::map<PublicKeyHash, adnl::AdnlNodeIdShort> current_validators_;
 
   std::set<PublicKeyHash> local_keys_;
+
+  td::Promise<td::Unit> started_promise_;
   FullNodeConfig config_;
 
   std::map<PublicKeyHash, td::actor::ActorOwn<FullNodePrivateBlockOverlay>> private_block_overlays_;

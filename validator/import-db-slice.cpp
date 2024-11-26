@@ -17,6 +17,7 @@
     Copyright 2019-2020 Telegram Systems LLP
 */
 #include "import-db-slice.hpp"
+
 #include "validator/db/fileref.hpp"
 #include "td/utils/overloaded.h"
 #include "validator/fabric.h"
@@ -26,35 +27,91 @@
 #include "ton/ton-io.hpp"
 #include "downloaders/download-state.hpp"
 
+#include <delay.h>
+
 namespace ton {
 
 namespace validator {
 
-ArchiveImporter::ArchiveImporter(std::string path, td::Ref<MasterchainState> state, BlockSeqno shard_client_seqno,
+ArchiveImporter::ArchiveImporter(std::string db_root, td::Ref<MasterchainState> state, BlockSeqno shard_client_seqno,
                                  td::Ref<ValidatorManagerOptions> opts, td::actor::ActorId<ValidatorManager> manager,
-                                 td::Promise<std::vector<BlockSeqno>> promise)
-    : path_(std::move(path))
-    , state_(std::move(state))
+                                 std::vector<std::string> to_import_files,
+                                 td::Promise<std::pair<BlockSeqno, BlockSeqno>> promise)
+    : db_root_(std::move(db_root))
+    , last_masterchain_state_(std::move(state))
     , shard_client_seqno_(shard_client_seqno)
+    , start_import_seqno_(shard_client_seqno + 1)
     , opts_(std::move(opts))
     , manager_(manager)
+    , to_import_files_(std::move(to_import_files))
+    , use_imported_files_(!to_import_files_.empty())
     , promise_(std::move(promise)) {
 }
 
 void ArchiveImporter::start_up() {
-  auto R = Package::open(path_, false, false);
-  if (R.is_error()) {
-    abort_query(R.move_as_error());
+  if (use_imported_files_) {
+    LOG(INFO) << "Importing archive for masterchain seqno #" << start_import_seqno_ << " from disk";
+    for (const std::string& path : to_import_files_) {
+      LOG(INFO) << "Importing file from disk " << path;
+      td::Status S = process_package(path, true);
+      if (S.is_error()) {
+        LOG(INFO) << "Error processing package " << path << ": " << S;
+      }
+    }
+    files_to_cleanup_.clear();
+    processed_mc_archive();
     return;
   }
-  package_ = std::make_shared<Package>(R.move_as_ok());
+  LOG(INFO) << "Importing archive for masterchain seqno #" << start_import_seqno_ << " from net";
+  td::actor::send_closure(manager_, &ValidatorManager::send_download_archive_request, start_import_seqno_,
+                          ShardIdFull{masterchainId}, db_root_ + "/tmp/", td::Timestamp::in(3600.0),
+                          [SelfId = actor_id(this)](td::Result<std::string> R) {
+                            if (R.is_error()) {
+                              td::actor::send_closure(SelfId, &ArchiveImporter::abort_query, R.move_as_error());
+                            } else {
+                              td::actor::send_closure(SelfId, &ArchiveImporter::downloaded_mc_archive, R.move_as_ok());
+                            }
+                          });
+}
 
-  bool fail = false;
-  package_->iterate([&](std::string filename, td::BufferSlice data, td::uint64 offset) -> bool {
+void ArchiveImporter::downloaded_mc_archive(std::string path) {
+  td::Status S = process_package(path, true);
+  if (S.is_error()) {
+    abort_query(std::move(S));
+    return;
+  }
+  processed_mc_archive();
+}
+
+void ArchiveImporter::processed_mc_archive() {
+  if (masterchain_blocks_.empty()) {
+    LOG(DEBUG) << "No masterhchain blocks in archive";
+    last_masterchain_seqno_ = last_masterchain_state_->get_seqno();
+    checked_all_masterchain_blocks();
+    return;
+  }
+
+  auto seqno = masterchain_blocks_.begin()->first;
+  LOG(DEBUG) << "First mc seqno in archive = " << seqno;
+  if (seqno > last_masterchain_state_->get_seqno() + 1) {
+    abort_query(td::Status::Error(ErrorCode::notready, "too big first masterchain seqno"));
+    return;
+  }
+
+  check_masterchain_block(seqno);
+}
+
+td::Status ArchiveImporter::process_package(std::string path, bool with_masterchain) {
+  LOG(DEBUG) << "Processing package " << path << " (with_masterchain=" << with_masterchain << ")";
+  files_to_cleanup_.push_back(path);
+  TRY_RESULT(p, Package::open(path, false, false));
+  auto package = std::make_shared<Package>(std::move(p));
+
+  td::Status S = td::Status::OK();
+  package->iterate([&](std::string filename, td::BufferSlice, td::uint64 offset) -> bool {
     auto F = FileReference::create(filename);
     if (F.is_error()) {
-      abort_query(F.move_as_error());
-      fail = true;
+      S = F.move_as_error();
       return false;
     }
     auto f = F.move_as_ok();
@@ -79,33 +136,26 @@ void ArchiveImporter::start_up() {
           ignore = false;
           is_proof = false;
         },
-        [&](const auto &p) { ignore = true; }));
+        [&](const auto &) { ignore = true; }));
 
-    if (!ignore) {
-      blocks_[b][is_proof ? 0 : 1] = offset;
+    if (!ignore && (with_masterchain || !b.is_masterchain())) {
+      if (is_proof) {
+        blocks_[b].proof_pkg = package;
+        blocks_[b].proof_offset = offset;
+      } else {
+        blocks_[b].data_pkg = package;
+        blocks_[b].data_offset = offset;
+      }
       if (b.is_masterchain()) {
         masterchain_blocks_[b.seqno()] = b;
+        last_masterchain_seqno_ = std::max(last_masterchain_seqno_, b.seqno());
+      } else {
+        have_shard_blocks_ = true;
       }
     }
     return true;
   });
-
-  if (fail) {
-    return;
-  }
-
-  if (masterchain_blocks_.size() == 0) {
-    abort_query(td::Status::Error(ErrorCode::notready, "archive does not contain any masterchain blocks"));
-    return;
-  }
-
-  auto seqno = masterchain_blocks_.begin()->first;
-  if (seqno > state_->get_seqno() + 1) {
-    abort_query(td::Status::Error(ErrorCode::notready, "too big first masterchain seqno"));
-    return;
-  }
-
-  check_masterchain_block(seqno);
+  return S;
 }
 
 void ArchiveImporter::check_masterchain_block(BlockSeqno seqno) {
@@ -115,17 +165,17 @@ void ArchiveImporter::check_masterchain_block(BlockSeqno seqno) {
       abort_query(td::Status::Error(ErrorCode::notready, "no new blocks"));
       return;
     }
-    checked_all_masterchain_blocks(seqno - 1);
+    checked_all_masterchain_blocks();
     return;
   }
-  while (seqno <= state_->get_block_id().seqno()) {
-    if (seqno < state_->get_block_id().seqno()) {
-      if (!state_->check_old_mc_block_id(it->second)) {
+  while (seqno <= last_masterchain_state_->get_block_id().seqno()) {
+    if (seqno < last_masterchain_state_->get_block_id().seqno()) {
+      if (!last_masterchain_state_->check_old_mc_block_id(it->second)) {
         abort_query(td::Status::Error(ErrorCode::protoviolation, "bad old masterchain block id"));
         return;
       }
     } else {
-      if (state_->get_block_id() != it->second) {
+      if (last_masterchain_state_->get_block_id() != it->second) {
         abort_query(td::Status::Error(ErrorCode::protoviolation, "bad old masterchain block id"));
         return;
       }
@@ -133,18 +183,27 @@ void ArchiveImporter::check_masterchain_block(BlockSeqno seqno) {
     seqno++;
     it = masterchain_blocks_.find(seqno);
     if (it == masterchain_blocks_.end()) {
-      checked_all_masterchain_blocks(seqno - 1);
+      checked_all_masterchain_blocks();
       return;
     }
   }
-  if (seqno != state_->get_block_id().seqno() + 1) {
+  LOG(DEBUG) << "Checking masterchain block #" << seqno;
+  if (seqno != last_masterchain_state_->get_block_id().seqno() + 1) {
     abort_query(td::Status::Error(ErrorCode::protoviolation, "hole in masterchain seqno"));
     return;
   }
   auto it2 = blocks_.find(it->second);
   CHECK(it2 != blocks_.end());
+  if (!it2->second.proof_pkg) {
+    abort_query(td::Status::Error(ErrorCode::protoviolation, "no masterchain block proof"));
+    return;
+  }
+  if (!it2->second.data_pkg) {
+    abort_query(td::Status::Error(ErrorCode::protoviolation, "no masterchain block data"));
+    return;
+  }
 
-  auto R1 = package_->read(it2->second[0]);
+  auto R1 = it2->second.proof_pkg->read(it2->second.proof_offset);
   if (R1.is_error()) {
     abort_query(R1.move_as_error());
     return;
@@ -156,7 +215,7 @@ void ArchiveImporter::check_masterchain_block(BlockSeqno seqno) {
     return;
   }
 
-  auto R2 = package_->read(it2->second[1]);
+  auto R2 = it2->second.data_pkg->read(it2->second.data_offset);
   if (R2.is_error()) {
     abort_query(R2.move_as_error());
     return;
@@ -175,7 +234,7 @@ void ArchiveImporter::check_masterchain_block(BlockSeqno seqno) {
   auto proof = proofR.move_as_ok();
   auto data = dataR.move_as_ok();
 
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), id = state_->get_block_id(),
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), id = last_masterchain_state_->get_block_id(),
                                        data](td::Result<BlockHandle> R) mutable {
     if (R.is_error()) {
       td::actor::send_closure(SelfId, &ArchiveImporter::abort_query, R.move_as_error());
@@ -191,11 +250,12 @@ void ArchiveImporter::check_masterchain_block(BlockSeqno seqno) {
     td::actor::send_closure(SelfId, &ArchiveImporter::checked_masterchain_proof, std::move(handle), std::move(data));
   });
 
-  run_check_proof_query(it->second, std::move(proof), manager_, td::Timestamp::in(2.0), std::move(P), state_,
-                        opts_->is_hardfork(it->second));
+  run_check_proof_query(it->second, std::move(proof), manager_, td::Timestamp::in(2.0), std::move(P),
+                        last_masterchain_state_, opts_->is_hardfork(it->second));
 }
 
 void ArchiveImporter::checked_masterchain_proof(BlockHandle handle, td::Ref<BlockData> data) {
+  LOG(DEBUG) << "Checked proof for masterchain block #" << handle->id().seqno();
   CHECK(data.not_null());
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), handle](td::Result<td::Unit> R) {
     R.ensure();
@@ -205,6 +265,7 @@ void ArchiveImporter::checked_masterchain_proof(BlockHandle handle, td::Ref<Bloc
 }
 
 void ArchiveImporter::applied_masterchain_block(BlockHandle handle) {
+  LOG(DEBUG) << "Applied masterchain block #" << handle->id().seqno();
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
     R.ensure();
     td::actor::send_closure(SelfId, &ArchiveImporter::got_new_materchain_state,
@@ -214,22 +275,87 @@ void ArchiveImporter::applied_masterchain_block(BlockHandle handle) {
 }
 
 void ArchiveImporter::got_new_materchain_state(td::Ref<MasterchainState> state) {
-  state_ = std::move(state);
-  check_masterchain_block(state_->get_block_id().seqno() + 1);
+  last_masterchain_state_ = std::move(state);
+  imported_any_ = true;
+  check_masterchain_block(last_masterchain_state_->get_block_id().seqno() + 1);
 }
 
-void ArchiveImporter::checked_all_masterchain_blocks(BlockSeqno seqno) {
-  check_next_shard_client_seqno(shard_client_seqno_ + 1);
+void ArchiveImporter::checked_all_masterchain_blocks() {
+  LOG(DEBUG) << "Done importing masterchain blocks. Last block seqno = " << last_masterchain_seqno_;
+  if (start_import_seqno_ > last_masterchain_state_->get_seqno()) {
+    abort_query(td::Status::Error("no new masterchain blocks were imported"));
+    return;
+  }
+  BlockIdExt block_id;
+  CHECK(last_masterchain_state_->get_old_mc_block_id(start_import_seqno_, block_id));
+  td::actor::send_closure(manager_, &ValidatorManager::get_shard_state_from_db_short, block_id,
+                          [SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
+                            R.ensure();
+                            td::Ref<MasterchainState> state{R.move_as_ok()};
+                            td::actor::send_closure(SelfId, &ArchiveImporter::download_shard_archives,
+                                                    std::move(state));
+                          });
+}
+
+void ArchiveImporter::download_shard_archives(td::Ref<MasterchainState> start_state) {
+  start_state_ = start_state;
+  td::uint32 monitor_min_split = start_state->monitor_min_split_depth(basechainId);
+  LOG(DEBUG) << "Monitor min split = " << monitor_min_split;
+  // If monitor_min_split == 0, we use the old archive format (packages are not separated by shard)
+  // If masterchain package has shard blocks then it's old archive format, don't need to download shards
+  if (monitor_min_split > 0 && !have_shard_blocks_ && !use_imported_files_) {
+    for (td::uint64 i = 0; i < (1ULL << monitor_min_split); ++i) {
+      ShardIdFull shard_prefix{basechainId, (i * 2 + 1) << (64 - monitor_min_split - 1)};
+      if (opts_->need_monitor(shard_prefix, start_state)) {
+        ++pending_shard_archives_;
+        LOG(DEBUG) << "Downloading shard archive #" << start_import_seqno_ << " " << shard_prefix.to_str();
+        download_shard_archive(shard_prefix);
+      }
+    }
+  } else {
+    LOG(DEBUG) << "Skip downloading shard archives";
+  }
+  if (pending_shard_archives_ == 0) {
+    check_next_shard_client_seqno(shard_client_seqno_ + 1);
+  }
+}
+
+void ArchiveImporter::download_shard_archive(ShardIdFull shard_prefix) {
+  td::actor::send_closure(
+      manager_, &ValidatorManager::send_download_archive_request, start_import_seqno_, shard_prefix, db_root_ + "/tmp/",
+      td::Timestamp::in(3600.0),
+      [SelfId = actor_id(this), seqno = start_import_seqno_, shard_prefix](td::Result<std::string> R) {
+        if (R.is_error()) {
+          LOG(WARNING) << "Failed to download archive slice #" << seqno << " for shard " << shard_prefix.to_str();
+          delay_action(
+              [=]() { td::actor::send_closure(SelfId, &ArchiveImporter::download_shard_archive, shard_prefix); },
+              td::Timestamp::in(2.0));
+        } else {
+          LOG(DEBUG) << "Downloaded shard archive #" << seqno << " " << shard_prefix.to_str();
+          td::actor::send_closure(SelfId, &ArchiveImporter::downloaded_shard_archive, R.move_as_ok());
+        }
+      });
+}
+
+void ArchiveImporter::downloaded_shard_archive(std::string path) {
+  td::Status S = process_package(path, false);
+  if (S.is_error()) {
+    LOG(INFO) << "Error processing package: " << S;
+  }
+  --pending_shard_archives_;
+  if (pending_shard_archives_ == 0) {
+    check_next_shard_client_seqno(shard_client_seqno_ + 1);
+  }
 }
 
 void ArchiveImporter::check_next_shard_client_seqno(BlockSeqno seqno) {
-  if (seqno > state_->get_seqno()) {
+  if (seqno > last_masterchain_state_->get_seqno() || seqno > last_masterchain_seqno_) {
     finish_query();
-  } else if (seqno == state_->get_seqno()) {
-    got_masterchain_state(state_);
+  } else if (seqno == last_masterchain_state_->get_seqno()) {
+    got_masterchain_state(last_masterchain_state_);
   } else {
     BlockIdExt b;
-    bool f = state_->get_old_mc_block_id(seqno, b);
+    bool f = last_masterchain_state_->get_old_mc_block_id(seqno, b);
     CHECK(f);
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
       R.ensure();
@@ -241,33 +367,38 @@ void ArchiveImporter::check_next_shard_client_seqno(BlockSeqno seqno) {
 }
 
 void ArchiveImporter::got_masterchain_state(td::Ref<MasterchainState> state) {
+  if (state->get_seqno() != start_import_seqno_ && state->is_key_state()) {
+    finish_query();
+    return;
+  }
+  LOG(DEBUG) << "Applying shard client seqno " << state->get_seqno();
   auto s = state->get_shards();
-
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), seqno = state->get_seqno()](td::Result<td::Unit> R) {
+  td::MultiPromise mp;
+  auto ig = mp.init_guard();
+  for (auto &shard : s) {
+    if (opts_->need_monitor(shard->shard(), state)) {
+      apply_shard_block(shard->top_block_id(), state->get_block_id(), ig.get_promise());
+    }
+  }
+  ig.add_promise([SelfId = actor_id(this), seqno = state->get_seqno()](td::Result<td::Unit> R) {
     if (R.is_error()) {
       td::actor::send_closure(SelfId, &ArchiveImporter::abort_query, R.move_as_error());
     } else {
       td::actor::send_closure(SelfId, &ArchiveImporter::checked_shard_client_seqno, seqno);
     }
   });
-
-  td::MultiPromise mp;
-  auto ig = mp.init_guard();
-  ig.add_promise(std::move(P));
-
-  for (auto &shard : s) {
-    apply_shard_block(shard->top_block_id(), state->get_block_id(), ig.get_promise());
-  }
 }
 
 void ArchiveImporter::checked_shard_client_seqno(BlockSeqno seqno) {
   CHECK(shard_client_seqno_ + 1 == seqno);
   shard_client_seqno_++;
+  imported_any_ = true;
   check_next_shard_client_seqno(seqno + 1);
 }
 
 void ArchiveImporter::apply_shard_block(BlockIdExt block_id, BlockIdExt masterchain_block_id,
                                         td::Promise<td::Unit> promise) {
+  LOG(DEBUG) << "Applying shard block " << block_id.id.to_str();
   auto P = td::PromiseCreator::lambda(
       [SelfId = actor_id(this), masterchain_block_id, promise = std::move(promise)](td::Result<BlockHandle> R) mutable {
         R.ensure();
@@ -286,7 +417,7 @@ void ArchiveImporter::apply_shard_block_cont1(BlockHandle handle, BlockIdExt mas
 
   if (handle->id().seqno() == 0) {
     auto P = td::PromiseCreator::lambda(
-        [promise = std::move(promise)](td::Result<td::Ref<ShardState>> R) mutable { promise.set_value(td::Unit()); });
+        [promise = std::move(promise)](td::Result<td::Ref<ShardState>>) mutable { promise.set_value(td::Unit()); });
     td::actor::create_actor<DownloadShardState>("downloadstate", handle->id(), masterchain_block_id, 2, manager_,
                                                 td::Timestamp::in(3600), std::move(P))
         .release();
@@ -294,12 +425,13 @@ void ArchiveImporter::apply_shard_block_cont1(BlockHandle handle, BlockIdExt mas
   }
 
   auto it = blocks_.find(handle->id());
-  if (it == blocks_.end()) {
-    promise.set_error(td::Status::Error(ErrorCode::notready, PSTRING() << "no proof for shard block " << handle->id()));
+  if (it == blocks_.end() || !it->second.proof_pkg || !it->second.data_pkg) {
+    promise.set_error(
+        td::Status::Error(ErrorCode::notready, PSTRING() << "no data/proof for shard block " << handle->id()));
     return;
   }
-  TRY_RESULT_PROMISE(promise, data, package_->read(it->second[0]));
-  TRY_RESULT_PROMISE(promise, proof, create_proof_link(handle->id(), std::move(data.second)));
+  TRY_RESULT_PROMISE(promise, proof_data, it->second.proof_pkg->read(it->second.proof_offset));
+  TRY_RESULT_PROMISE(promise, proof, create_proof_link(handle->id(), std::move(proof_data.second)));
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), handle, masterchain_block_id,
                                        promise = std::move(promise)](td::Result<BlockHandle> R) mutable {
     if (R.is_error()) {
@@ -345,8 +477,8 @@ void ArchiveImporter::apply_shard_block_cont2(BlockHandle handle, BlockIdExt mas
 void ArchiveImporter::apply_shard_block_cont3(BlockHandle handle, BlockIdExt masterchain_block_id,
                                               td::Promise<td::Unit> promise) {
   auto it = blocks_.find(handle->id());
-  CHECK(it != blocks_.end());
-  TRY_RESULT_PROMISE(promise, data, package_->read(it->second[1]));
+  CHECK(it != blocks_.end() && it->second.data_pkg);
+  TRY_RESULT_PROMISE(promise, data, it->second.data_pkg->read(it->second.data_offset));
   if (sha256_bits256(data.second.as_slice()) != handle->id().file_hash) {
     promise.set_error(td::Status::Error(ErrorCode::protoviolation, "bad block file hash"));
     return;
@@ -367,6 +499,7 @@ void ArchiveImporter::check_shard_block_applied(BlockIdExt block_id, td::Promise
           if (!handle->is_applied()) {
             promise.set_error(td::Status::Error(ErrorCode::notready, "not applied"));
           } else {
+            LOG(DEBUG) << "Applied shard block " << handle->id().id.to_str();
             promise.set_value(td::Unit());
           }
         }
@@ -375,13 +508,24 @@ void ArchiveImporter::check_shard_block_applied(BlockIdExt block_id, td::Promise
 }
 
 void ArchiveImporter::abort_query(td::Status error) {
-  LOG(INFO) << error;
+  if (!imported_any_) {
+    for (const std::string &f : files_to_cleanup_) {
+      td::unlink(f).ignore();
+    }
+    promise_.set_error(std::move(error));
+    return;
+  }
+  LOG(INFO) << "Archive import: " << error;
   finish_query();
 }
+
 void ArchiveImporter::finish_query() {
+  for (const std::string &f : files_to_cleanup_) {
+    td::unlink(f).ignore();
+  }
   if (promise_) {
-    promise_.set_value(
-        std::vector<BlockSeqno>{state_->get_seqno(), std::min<BlockSeqno>(state_->get_seqno(), shard_client_seqno_)});
+    promise_.set_value({last_masterchain_state_->get_seqno(),
+                        std::min<BlockSeqno>(last_masterchain_state_->get_seqno(), shard_client_seqno_)});
   }
   stop();
 }

@@ -50,6 +50,9 @@ class StateDb : public td::actor::Actor {
   void update_hardforks(std::vector<BlockIdExt> blocks, td::Promise<td::Unit> promise);
   void get_hardforks(td::Promise<std::vector<BlockIdExt>> promise);
 
+  void add_persistent_state_description(td::Ref<PersistentStateDescription> desc, td::Promise<td::Unit> promise);
+  void get_persistent_state_descriptions(td::Promise<std::vector<td::Ref<PersistentStateDescription>>> promise);
+
   StateDb(td::actor::ActorId<RootDb> root_db, std::string path);
 
   void start_up() override;

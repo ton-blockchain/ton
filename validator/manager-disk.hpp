@@ -265,11 +265,13 @@ class ValidatorManagerImpl : public ValidatorManager {
   }
   void send_validator_telemetry(PublicKeyHash key, tl_object_ptr<ton_api::validator_telemetry> telemetry) override {
   }
+  void send_download_archive_request(BlockSeqno mc_seqno, ShardIdFull shard_prefix, std::string tmp_dir,
+                                     td::Timestamp timeout, td::Promise<std::string> promise) override {
+    UNREACHABLE();
+  }
 
   void update_shard_client_state(BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise) override;
   void get_shard_client_state(bool from_db, td::Promise<BlockIdExt> promise) override;
-  void subscribe_to_shard(ShardIdFull shard) override {
-  }
 
   void update_async_serializer_state(AsyncSerializerState state, td::Promise<td::Unit> promise) override {
     UNREACHABLE();
@@ -285,7 +287,8 @@ class ValidatorManagerImpl : public ValidatorManager {
     promise.set_error(td::Status::Error(ErrorCode::error, "download disabled"));
   }
 
-  void get_archive_id(BlockSeqno masterchain_seqno, td::Promise<td::uint64> promise) override {
+  void get_archive_id(BlockSeqno masterchain_seqno, ShardIdFull shard_prefix,
+                      td::Promise<td::uint64> promise) override {
     UNREACHABLE();
   }
   void get_archive_slice(td::uint64 archive_id, td::uint64 offset, td::uint32 limit,
@@ -402,8 +405,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   }
   void get_out_msg_queue_size(BlockIdExt block_id, td::Promise<td::uint64> promise) override {
     if (queue_size_counter_.empty()) {
-      queue_size_counter_ =
-          td::actor::create_actor<QueueSizeCounter>("queuesizecounter", td::Ref<MasterchainState>{}, actor_id(this));
+      queue_size_counter_ = td::actor::create_actor<QueueSizeCounter>("queuesizecounter", td::Ref<MasterchainState>{},
+                                                                      opts_, actor_id(this));
     }
     td::actor::send_closure(queue_size_counter_, &QueueSizeCounter::get_queue_size, block_id, std::move(promise));
   }
@@ -436,6 +439,8 @@ class ValidatorManagerImpl : public ValidatorManager {
       td::optional<ShardIdFull> shard,
       td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroups>> promise) override {
     promise.set_result(td::Status::Error("not implemented"));
+  }
+  void add_persistent_state_description(td::Ref<PersistentStateDescription> desc) override {
   }
 
   void update_options(td::Ref<ValidatorManagerOptions> opts) override {

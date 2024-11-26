@@ -25,11 +25,27 @@ namespace ton {
 namespace validator {
 
 BlockArchiver::BlockArchiver(BlockHandle handle, td::actor::ActorId<ArchiveManager> archive_db,
-                             td::Promise<td::Unit> promise)
-    : handle_(std::move(handle)), archive_(archive_db), promise_(std::move(promise)) {
+                             td::actor::ActorId<Db> db, td::Promise<td::Unit> promise)
+    : handle_(std::move(handle)), archive_(archive_db), db_(std::move(db)), promise_(std::move(promise)) {
 }
 
 void BlockArchiver::start_up() {
+  if (handle_->id().is_masterchain()) {
+    td::actor::send_closure(db_, &Db::get_block_state, handle_,
+                            [SelfId = actor_id(this), archive = archive_](td::Result<td::Ref<ShardState>> R) {
+                              R.ensure();
+                              td::Ref<MasterchainState> state{R.move_as_ok()};
+                              td::uint32 monitor_min_split = state->monitor_min_split_depth(basechainId);
+                              td::actor::send_closure(archive, &ArchiveManager::set_current_shard_split_depth,
+                                                      monitor_min_split);
+                              td::actor::send_closure(SelfId, &BlockArchiver::move_handle);
+                            });
+  } else {
+    move_handle();
+  }
+}
+
+void BlockArchiver::move_handle() {
   if (handle_->handle_moved_to_archive()) {
     moved_handle();
   } else {

@@ -106,13 +106,24 @@ void WaitBlockData::start() {
     });
 
     td::actor::send_closure(manager_, &ValidatorManager::try_get_static_file, handle_->id().file_hash, std::move(P));
+  } else if (try_get_candidate_) {
+    try_get_candidate_ = false;
+    td::actor::send_closure(
+        manager_, &ValidatorManager::get_candidate_data_by_block_id_from_db, handle_->id(),
+        [SelfId = actor_id(this), id = handle_->id()](td::Result<td::BufferSlice> R) {
+          if (R.is_error()) {
+            td::actor::send_closure(SelfId, &WaitBlockData::start);
+          } else {
+            td::actor::send_closure(SelfId, &WaitBlockData::loaded_data, ReceivedBlock{id, R.move_as_ok()});
+          }
+        });
   } else {
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<ReceivedBlock> R) {
       if (R.is_error()) {
         td::actor::send_closure(SelfId, &WaitBlockData::failed_to_get_block_data_from_net,
                                 R.move_as_error_prefix("net error: "));
       } else {
-        td::actor::send_closure(SelfId, &WaitBlockData::got_data_from_net, R.move_as_ok());
+        td::actor::send_closure(SelfId, &WaitBlockData::loaded_data, R.move_as_ok());
       }
     });
 
@@ -137,16 +148,16 @@ void WaitBlockData::failed_to_get_block_data_from_net(td::Status reason) {
                td::Timestamp::in(0.1));
 }
 
-void WaitBlockData::got_data_from_net(ReceivedBlock block) {
+void WaitBlockData::loaded_data(ReceivedBlock block) {
   auto X = create_block(std::move(block));
   if (X.is_error()) {
     failed_to_get_block_data_from_net(X.move_as_error_prefix("bad block from net: "));
     return;
   }
-  got_block_data_from_net(X.move_as_ok());
+  loaded_block_data(X.move_as_ok());
 }
 
-void WaitBlockData::got_block_data_from_net(td::Ref<BlockData> block) {
+void WaitBlockData::loaded_block_data(td::Ref<BlockData> block) {
   if (data_.not_null()) {
     return;
   }

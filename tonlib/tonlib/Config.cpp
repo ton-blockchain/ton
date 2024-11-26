@@ -19,6 +19,8 @@
 #include "Config.h"
 #include "adnl/adnl-node-id.hpp"
 #include "td/utils/JsonBuilder.h"
+#include "auto/tl/ton_api_json.h"
+#include "ton/ton-tl.hpp"
 
 namespace tonlib {
 td::Result<ton::BlockIdExt> parse_block_id_ext(td::JsonObject &obj) {
@@ -63,75 +65,26 @@ td::Result<ton::BlockIdExt> parse_block_id_ext(td::JsonObject &obj) {
 td::Result<Config> Config::parse(std::string str) {
   TRY_RESULT(json, td::json_decode(str));
   if (json.type() != td::JsonValue::Type::Object) {
-    return td::Status::Error("Invalid config (1)");
+    return td::Status::Error("Invalid config: json is not an object");
   }
-  //TRY_RESULT(main_type, td::get_json_object_string_field(json.get_object(), "@type", false));
-  //if (main_type != "config.global") {
-  //return td::Status::Error("Invalid config (3)");
-  //}
-  TRY_RESULT(lite_clients_obj,
-             td::get_json_object_field(json.get_object(), "liteservers", td::JsonValue::Type::Array, false));
-  auto &lite_clients = lite_clients_obj.get_array();
-
   Config res;
-  for (auto &value : lite_clients) {
-    if (value.type() != td::JsonValue::Type::Object) {
-      return td::Status::Error("Invalid config (2)");
-    }
-    auto &object = value.get_object();
-    //TRY_RESULT(value_type, td::get_json_object_string_field(object, "@type", false));
-    //if (value_type != "liteclient.config.global") {
-    //return td::Status::Error("Invalid config (4)");
-    //}
+  ton::ton_api::liteclient_config_global conf;
+  TRY_STATUS(ton::ton_api::from_json(conf, json.get_object()));
+  TRY_RESULT_ASSIGN(res.lite_servers, liteclient::LiteServerConfig::parse_global_config(conf));
 
-    TRY_RESULT(ip, td::get_json_object_long_field(object, "ip", false));
-    TRY_RESULT(port, td::get_json_object_int_field(object, "port", false));
-    Config::LiteClient client;
-    TRY_STATUS(client.address.init_host_port(td::IPAddress::ipv4_to_str(static_cast<td::int32>(ip)), port));
-
-    TRY_RESULT(id_obj, td::get_json_object_field(object, "id", td::JsonValue::Type::Object, false));
-    auto &id = id_obj.get_object();
-    TRY_RESULT(id_type, td::get_json_object_string_field(id, "@type", false));
-    if (id_type != "pub.ed25519") {
-      return td::Status::Error("Invalid config (5)");
-    }
-    TRY_RESULT(key_base64, td::get_json_object_string_field(id, "key", false));
-    TRY_RESULT(key, td::base64_decode(key_base64));
-    if (key.size() != 32) {
-      return td::Status::Error("Invalid config (6)");
-    }
-
-    client.adnl_id = ton::adnl::AdnlNodeIdFull(ton::pubkeys::Ed25519(td::Bits256(td::Slice(key).ubegin())));
-    res.lite_clients.push_back(std::move(client));
+  if (!conf.validator_) {
+    return td::Status::Error("Invalid config: no 'validator' section");
+  }
+  if (!conf.validator_->zero_state_) {
+    return td::Status::Error("Invalid config: no zerostate");
+  }
+  res.zero_state_id = ton::create_block_id(conf.validator_->zero_state_);
+  if (conf.validator_->init_block_) {
+    res.init_block_id = ton::create_block_id(conf.validator_->init_block_);
   }
 
-  TRY_RESULT(validator_obj,
-             td::get_json_object_field(json.get_object(), "validator", td::JsonValue::Type::Object, false));
-  auto &validator = validator_obj.get_object();
-  TRY_RESULT(validator_type, td::get_json_object_string_field(validator, "@type", false));
-  if (validator_type != "validator.config.global") {
-    return td::Status::Error("Invalid config (7)");
-  }
-  TRY_RESULT(zero_state_obj, td::get_json_object_field(validator, "zero_state", td::JsonValue::Type::Object, false));
-  TRY_RESULT(zero_state_id, parse_block_id_ext(zero_state_obj.get_object()));
-  res.zero_state_id = zero_state_id;
-  auto r_init_block_obj = td::get_json_object_field(validator, "init_block", td::JsonValue::Type::Object, false);
-  if (r_init_block_obj.is_ok()) {
-    TRY_RESULT(init_block_id, parse_block_id_ext(r_init_block_obj.move_as_ok().get_object()));
-    res.init_block_id = init_block_id;
-  }
-
-  auto r_hardforks = td::get_json_object_field(validator, "hardforks", td::JsonValue::Type::Array, false);
-  if (r_hardforks.is_ok()) {
-    auto hardforks_obj = r_hardforks.move_as_ok();
-    auto &hardforks = hardforks_obj.get_array();
-    for (auto &fork : hardforks) {
-      if (fork.type() != td::JsonValue::Type::Object) {
-        return td::Status::Error("Invalid config (8)");
-      }
-      TRY_RESULT(fork_block, parse_block_id_ext(fork.get_object()));
-      res.hardforks.push_back(std::move(fork_block));
-    }
+  for (auto &fork : conf.validator_->hardforks_) {
+    res.hardforks.push_back(ton::create_block_id(fork));
   }
 
   for (auto hardfork : res.hardforks) {

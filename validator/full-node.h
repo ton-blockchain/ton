@@ -60,7 +60,9 @@ struct CustomOverlayParams {
   std::vector<adnl::AdnlNodeIdShort> nodes_;
   std::map<adnl::AdnlNodeIdShort, int> msg_senders_;
   std::set<adnl::AdnlNodeIdShort> block_senders_;
+  std::vector<ShardIdFull> sender_shards_;
 
+  bool send_shard(const ShardIdFull& shard) const;
   static CustomOverlayParams fetch(const ton_api::engine_validator_customOverlay& f);
 };
 
@@ -103,14 +105,12 @@ class FullNode : public td::actor::Actor {
   }
   enum { broadcast_mode_public = 1, broadcast_mode_private_block = 2, broadcast_mode_custom = 4 };
 
-  static td::actor::ActorOwn<FullNode> create(ton::PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id,
-                                              FileHash zero_state_file_hash, FullNodeConfig config,
-                                              td::actor::ActorId<keyring::Keyring> keyring,
-                                              td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp,
-                                              td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<dht::Dht> dht,
-                                              td::actor::ActorId<overlay::Overlays> overlays,
-                                              td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-                                              td::actor::ActorId<adnl::AdnlExtClient> client, std::string db_root);
+  static td::actor::ActorOwn<FullNode> create(
+      ton::PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash, FullNodeConfig config,
+      td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
+      td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<dht::Dht> dht,
+      td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<ValidatorManagerInterface> validator_manager,
+      td::actor::ActorId<adnl::AdnlExtClient> client, std::string db_root, td::Promise<td::Unit> started_promise);
 };
 
 }  // namespace fullnode

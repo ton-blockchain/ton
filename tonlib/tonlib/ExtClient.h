@@ -28,7 +28,7 @@
 #include "td/utils/Container.h"
 #include "td/utils/Random.h"
 
-#include "ExtClientLazy.h"
+#include "lite-client/ext-client.h"
 #include "TonlibError.h"
 #include "utils.h"
 
@@ -38,7 +38,7 @@ class LastConfig;
 struct LastBlockState;
 struct LastConfigState;
 struct ExtClientRef {
-  td::actor::ActorId<ExtClientLazy> adnl_ext_client_;
+  td::actor::ActorId<liteclient::ExtClient> adnl_ext_client_;
   td::actor::ActorId<LastBlock> last_block_actor_;
   td::actor::ActorId<LastConfig> last_config_actor_;
 };
@@ -97,7 +97,7 @@ class ExtClient {
 
   void force_change_liteserver() {
     if (!client_.adnl_ext_client_.empty()) {
-      td::actor::send_closure(client_.adnl_ext_client_, &ExtClientLazy::force_change_liteserver);
+      td::actor::send_closure(client_.adnl_ext_client_, &liteclient::ExtClient::reset_servers);
     }
   }
 
