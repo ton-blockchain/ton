@@ -22,6 +22,8 @@
 #include "td/utils/logging.h"
 #include "td/utils/Time.h"
 
+#include <numeric>
+
 namespace td {
 
 Timer::Timer(bool is_paused) : is_paused_(is_paused) {
@@ -60,12 +62,15 @@ StringBuilder &operator<<(StringBuilder &string_builder, const Timer &timer) {
   return string_builder << format::as_time(timer.elapsed());
 }
 
-PerfWarningTimer::PerfWarningTimer(string name, double max_duration, std::function<void(double)>&& callback)
+PerfWarningTimer::PerfWarningTimer(string name, double max_duration, std::function<void(double)> &&callback)
     : name_(std::move(name)), start_at_(Time::now()), max_duration_(max_duration), callback_(std::move(callback)) {
 }
 
 PerfWarningTimer::PerfWarningTimer(PerfWarningTimer &&other)
-    : name_(std::move(other.name_)), start_at_(other.start_at_), max_duration_(other.max_duration_), callback_(std::move(other.callback_)) {
+    : name_(std::move(other.name_))
+    , start_at_(other.start_at_)
+    , max_duration_(other.max_duration_)
+    , callback_(std::move(other.callback_)) {
   other.start_at_ = 0;
 }
 
@@ -134,4 +139,34 @@ double ThreadCpuTimer::elapsed() const {
   return res;
 }
 
+PerfLogAction PerfLog::start_action(std::string name) {
+  auto i = entries_.size();
+  entries_.push_back({.name = std::move(name), .begin = td::Timestamp::now().at()});
+  return PerfLogAction{i, std::unique_ptr<PerfLog, EmptyDeleter>(this)};
+}
+td::StringBuilder &operator<<(StringBuilder &sb, const PerfLog &log) {
+  sb << "{";
+  std::vector<size_t> ids(log.entries_.size());
+  std::iota(ids.begin(), ids.end(), 0);
+  std::sort(ids.begin(), ids.end(), [&](auto a, auto b) {
+    return log.entries_[a].end - log.entries_[a].begin > log.entries_[b].end - log.entries_[b].begin;
+  });
+  sb << "{";
+  for (size_t i = 0; i < log.entries_.size(); i++) {
+    sb << "\n\t";
+    auto &entry = log.entries_[ids[i]];
+    sb << "{" << entry.name << ":" << entry.begin << "->" << entry.end << "(" << entry.end - entry.begin << ")"
+       << td::format::cond(entry.status.is_error(), entry.status, "") << "}";
+  }
+  sb << "\n}";
+  return sb;
+}
+
+double PerfLog::finish_action(size_t i, td::Status status) {
+  auto &entry = entries_[i];
+  CHECK(entry.end == 0);
+  entry.end = td::Timestamp::now().at();
+  entry.status = std::move(status);
+  return entry.end - entry.begin;
+}
 }  // namespace td

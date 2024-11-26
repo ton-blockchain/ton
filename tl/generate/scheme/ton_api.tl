@@ -433,6 +433,10 @@ tonNode.newBlockCandidateBroadcast id:tonNode.blockIdExt catchain_seqno:int vali
 tonNode.newBlockCandidateBroadcastCompressed id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int
               collator_signature:tonNode.blockSignature flags:# compressed:bytes = tonNode.Broadcast;
 
+// optimistic broadcast of response to tonNode.getOutMsgQueueProof with dst_shard, block and limits arguments
+tonNode.outMsgQueueProofBroadcast dst_shard:tonNode.shardId block:tonNode.blockIdExt
+              limits:ImportedMsgQueueLimits proof:tonNode.OutMsgQueueProof = tonNode.Broadcast;
+
 tonNode.shardPublicOverlayId workchain:int shard:long zero_state_file_hash:int256 = tonNode.ShardPublicOverlayId;
 
 tonNode.privateBlockOverlayId zero_state_file_hash:int256 nodes:(vector int256) = tonNode.PrivateBlockOverlayId;
@@ -924,7 +928,7 @@ validatorSession.endValidatorGroupStats session_id:int256 timestamp:double
 
 ---functions---
 collatorNode.generateBlock shard:tonNode.shardId cc_seqno:int prev_blocks:(vector tonNode.blockIdExt)
-    creator:int256 = collatorNode.Candidate;
+    creator:int256 round:int first_block_round:int priority:int = collatorNode.Candidate;
 collatorNode.ping flags:# = collatorNode.Pong;
 
 ---types---

@@ -66,8 +66,14 @@ void ValidatorGroup::generate_block_candidate(
                             std::move(R));
   };
   td::uint64 max_answer_size = config_.max_block_size + config_.max_collated_data_size + 1024;
+  auto block_candidate_priority = BlockCandidatePriority{
+          .round = source_info.round,
+          .first_block_round = source_info.first_block_round,
+          .priority = source_info.source_priority
+  };
   td::actor::send_closure(collation_manager_, &CollationManager::collate_block, shard_, min_masterchain_block_id_,
-                          prev_block_ids_, Ed25519_PublicKey{local_id_full_.ed25519_value().raw()}, validator_set_,
+                          prev_block_ids_, Ed25519_PublicKey{local_id_full_.ed25519_value().raw()},
+                          block_candidate_priority, validator_set_,
                           max_answer_size, cancellation_token_source_.get_cancellation_token(), std::move(P));
 }
 

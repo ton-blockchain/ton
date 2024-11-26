@@ -320,13 +320,23 @@ void OutMsgQueueImporter::get_neighbor_msg_queue_proofs(
       if (prefix.pfx_len() > min_split) {
         prefix = shard_prefix(prefix, min_split);
       }
-      new_queries[prefix].push_back(block);
+
+      LOG(INFO) << "search for out msg queue proof " << prefix.to_str() << block.to_str();
+      auto& small_entry = small_cache_[std::make_pair(dst_shard, block)];
+      if (!small_entry.result.is_null()) {
+        entry->result[block] = small_entry.result;
+        entry->from_small_cache++;
+        alarm_timestamp().relax(small_entry.timeout = td::Timestamp::in(CACHE_TTL));
+      } else {
+        small_entry.pending_entries.push_back(entry);
+        ++entry->pending;
+        new_queries[prefix].push_back(block);
+      }
     }
   };
   auto limits = last_masterchain_state_->get_imported_msg_queue_limits(dst_shard.workchain);
   for (auto& p : new_queries) {
     for (size_t i = 0; i < p.second.size(); i += 16) {
-      ++entry->pending;
       size_t j = std::min(i + 16, p.second.size());
       get_proof_import(entry, std::vector<BlockIdExt>(p.second.begin() + i, p.second.begin() + j),
                        limits * (td::uint32)(j - i));
@@ -355,7 +365,7 @@ void OutMsgQueueImporter::get_proof_local(std::shared_ptr<CacheEntry> entry, Blo
         if (block.seqno() == 0) {
           std::vector<td::Ref<OutMsgQueueProof>> proof = {
               td::Ref<OutMsgQueueProof>(true, block, state->root_cell(), td::Ref<vm::Cell>{})};
-          td::actor::send_closure(SelfId, &OutMsgQueueImporter::got_proof, entry, std::move(proof));
+          td::actor::send_closure(SelfId, &OutMsgQueueImporter::got_proof, entry, std::move(proof), ProofSource::Local);
           return;
         }
         td::actor::send_closure(
@@ -371,7 +381,8 @@ void OutMsgQueueImporter::get_proof_local(std::shared_ptr<CacheEntry> entry, Blo
               Ref<vm::Cell> block_state_proof = create_block_state_proof(R.ok()->root_cell()).move_as_ok();
               std::vector<td::Ref<OutMsgQueueProof>> proof = {
                   td::Ref<OutMsgQueueProof>(true, block, state->root_cell(), std::move(block_state_proof))};
-              td::actor::send_closure(SelfId, &OutMsgQueueImporter::got_proof, entry, std::move(proof));
+              td::actor::send_closure(SelfId, &OutMsgQueueImporter::got_proof, entry, std::move(proof),
+                                      ProofSource::Local);
             });
       });
 }
@@ -395,27 +406,70 @@ void OutMsgQueueImporter::get_proof_import(std::shared_ptr<CacheEntry> entry, st
               retry_after);
           return;
         }
-        td::actor::send_closure(SelfId, &OutMsgQueueImporter::got_proof, entry, R.move_as_ok());
+        td::actor::send_closure(SelfId, &OutMsgQueueImporter::got_proof, entry, R.move_as_ok(), ProofSource::Query);
       });
 }
 
-void OutMsgQueueImporter::got_proof(std::shared_ptr<CacheEntry> entry, std::vector<td::Ref<OutMsgQueueProof>> proofs) {
+void OutMsgQueueImporter::got_proof(std::shared_ptr<CacheEntry> entry, std::vector<td::Ref<OutMsgQueueProof>> proofs,
+                                    ProofSource proof_source) {
   if (!check_timeout(entry)) {
     return;
   }
+  // TODO: maybe save proof to small cache? It would allow other queries to reuse this result
   for (auto& p : proofs) {
-    entry->result[p->block_id_] = std::move(p);
-  }
-  CHECK(entry->pending > 0);
-  if (--entry->pending == 0) {
-    finish_query(entry);
+    auto block_id = p->block_id_;
+    if (entry->result.emplace(block_id, std::move(p)).second) {
+      CHECK(entry->pending > 0);
+      switch (proof_source) {
+        case ProofSource::SmallCache:
+          entry->from_small_cache++;
+          break;
+        case ProofSource::Broadcast:
+          entry->from_broadcast++;
+          break;
+        case ProofSource::Query:
+          entry->from_query++;
+          break;
+        case ProofSource::Local:
+          entry->from_local++;
+          break;
+      }
+      if (--entry->pending == 0) {
+        finish_query(entry);
+      }
+    }
   }
 }
 
 void OutMsgQueueImporter::finish_query(std::shared_ptr<CacheEntry> entry) {
-  LOG(DEBUG) << "Done importing neighbor msg queues for shard " << entry->dst_shard.to_str() << ", "
-             << entry->blocks.size() << " blocks in " << entry->timer.elapsed() << "s";
+  FLOG(INFO) {
+    sb << "Done importing neighbor msg queues for shard " << entry->dst_shard.to_str() << ", " << entry->blocks.size()
+       << " blocks in " << entry->timer.elapsed() << "s";
+    sb << " sources{";
+    if (entry->from_broadcast) {
+      sb << " broadcast=" << entry->from_broadcast;
+    }
+    if (entry->from_small_cache) {
+      sb << " small_cache=" << entry->from_small_cache;
+    }
+    if (entry->from_local) {
+      sb << " local=" << entry->from_local;
+    }
+    if (entry->from_query) {
+      sb << " query=" << entry->from_query;
+    }
+    sb << "}";
+
+    if (!small_cache_.empty()) {
+      sb << " small_cache_size=" << small_cache_.size();
+    }
+    if (!cache_.empty()) {
+      sb << " cache_size=" << cache_.size();
+    }
+  };
+
   entry->done = true;
+  CHECK(entry->blocks.size() == entry->result.size());
   alarm_timestamp().relax(entry->timeout = td::Timestamp::in(CACHE_TTL));
   for (auto& p : entry->promises) {
     p.first.set_result(entry->result);
@@ -441,8 +495,7 @@ bool OutMsgQueueImporter::check_timeout(std::shared_ptr<CacheEntry> entry) {
 }
 
 void OutMsgQueueImporter::alarm() {
-  auto it = cache_.begin();
-  while (it != cache_.end()) {
+  for (auto it = cache_.begin(); it != cache_.end();) {
     auto& promises = it->second->promises;
     if (it->second->timeout.is_in_past()) {
       if (!it->second->done) {
@@ -468,6 +521,36 @@ void OutMsgQueueImporter::alarm() {
     }
     promises.resize(j);
     ++it;
+  }
+
+  for (auto it = small_cache_.begin(); it != small_cache_.end();) {
+    td::remove_if(it->second.pending_entries,
+                  [](const std::shared_ptr<CacheEntry>& entry) { return entry->done || entry->promises.empty(); });
+    if (it->second.timeout.is_in_past()) {
+        if (it->second.pending_entries.empty()) {
+            it = small_cache_.erase(it);
+        } else {
+            ++it;
+        }
+    } else {
+      alarm_timestamp().relax(it->second.timeout);
+      ++it;
+    }
+  }
+}
+
+void OutMsgQueueImporter::add_out_msg_queue_proof(ShardIdFull dst_shard, td::Ref<OutMsgQueueProof> proof) {
+  LOG(INFO) << "add out msg queue proof " << dst_shard.to_str() << proof->block_id_.to_str();
+  auto& small_entry = small_cache_[std::make_pair(dst_shard, proof->block_id_)];
+  if (!small_entry.result.is_null()) {
+    return;
+  }
+  alarm_timestamp().relax(small_entry.timeout = td::Timestamp::in(CACHE_TTL));
+  small_entry.result = proof;
+  CHECK(proof.not_null());
+  auto pending_entries = std::move(small_entry.pending_entries);
+  for (auto& entry : pending_entries) {
+    got_proof(entry, {proof}, ProofSource::Broadcast);
   }
 }
 
