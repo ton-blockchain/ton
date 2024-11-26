@@ -7,8 +7,8 @@
 if (NOT SECP256K1_LIBRARY)
     find_path(
         SECP256K1_INCLUDE_DIR
-        NAMES microhttpd.h
-        DOC "microhttpd include dir"
+        NAMES secp256k1_recovery.h
+        DOC "secp256k1_recovery.h include dir"
     )
 
     find_library(

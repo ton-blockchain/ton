@@ -8,6 +8,7 @@ rm -rf secp256k1
 git clone https://github.com/bitcoin-core/secp256k1
 
 cd secp256k1
+git checkout v0.3.2
 
 ./autogen.sh
 mkdir build
