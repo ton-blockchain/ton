@@ -4985,7 +4985,7 @@ int main(int argc, char *argv[]) {
       });
   p.add_option(
       '\0', "collect-validator-telemetry",
-      "store validator telemetry from private block overlay to a given file (json format)",
+      "store validator telemetry from fast sync overlay to a given file (json format)",
       [&](td::Slice s) {
         acts.push_back(
             [&x, s = s.str()]() {

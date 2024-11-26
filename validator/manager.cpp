@@ -2475,7 +2475,7 @@ td::actor::ActorOwn<ValidatorGroup> ValidatorManagerImpl::create_validator_group
 
     auto validator_id = get_validator(shard, validator_set);
     CHECK(!validator_id.is_zero());
-    auto descr = validator_set->find_validator(validator_id.bits256_value());
+    auto descr = validator_set->get_validator(validator_id.bits256_value());
     CHECK(descr);
     auto adnl_id = adnl::AdnlNodeIdShort{
         descr->addr.is_zero() ? ValidatorFullId{descr->key}.compute_short_id().bits256_value() : descr->addr};

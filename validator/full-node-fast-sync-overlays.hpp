@@ -17,6 +17,7 @@
 #pragma once
 
 #include "full-node.h"
+#include <fstream>
 
 namespace ton::validator::fullnode {
 
@@ -32,6 +33,9 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcastCompressed& query);
   void process_block_candidate_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast& query);
 
+  void process_telemetry_broadcast(adnl::AdnlNodeIdShort src,
+                                   const tl_object_ptr<ton_api::validator_telemetry>& telemetry);
+
   template <class T>
   void process_broadcast(PublicKeyHash, T&) {
     VLOG(FULL_NODE_WARNING) << "dropping unknown broadcast";
@@ -42,6 +46,9 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
   void send_broadcast(BlockBroadcast broadcast);
   void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                             td::BufferSlice data);
+  void send_validator_telemetry(tl_object_ptr<ton_api::validator_telemetry> telemetry);
+
+  void collect_validator_telemetry(std::string filename);
 
   void start_up() override;
   void tear_down() override;
@@ -96,11 +103,15 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
   void try_init();
   void init();
   void get_stats_extra(td::Promise<std::string> promise);
+
+  bool collect_telemetry_ = false;
+  std::ofstream telemetry_file_;
 };
 
 class FullNodeFastSyncOverlays {
  public:
-  td::actor::ActorId<FullNodeFastSyncOverlay> choose_overlay(ShardIdFull shard);
+  std::pair<td::actor::ActorId<FullNodeFastSyncOverlay>, adnl::AdnlNodeIdShort> choose_overlay(ShardIdFull shard);
+  td::actor::ActorId<FullNodeFastSyncOverlay> get_masterchain_overlay_for(adnl::AdnlNodeIdShort adnl_id);
   void update_overlays(td::Ref<MasterchainState> state, std::set<adnl::AdnlNodeIdShort> my_adnl_ids,
                        std::set<ShardIdFull> monitoring_shards, const FileHash& zero_state_file_hash,
                        const td::actor::ActorId<keyring::Keyring>& keyring, const td::actor::ActorId<adnl::Adnl>& adnl,

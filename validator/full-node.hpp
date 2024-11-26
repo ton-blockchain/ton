@@ -154,7 +154,7 @@ class FullNodeImpl : public FullNode {
   // Old overlays - one private overlay for all validators
   // New overlays (fast sync overlays) - semiprivate overlay per shard (monitor_min_split depth)
   //     for validators and authorized nodes
-  bool use_old_private_overlays_ = false;  // TODO: set from config or something
+  bool use_old_private_overlays_ = true;
   std::map<PublicKeyHash, td::actor::ActorOwn<FullNodePrivateBlockOverlay>> private_block_overlays_;
   bool broadcast_block_candidates_in_public_overlay_ = false;
   FullNodeFastSyncOverlays fast_sync_overlays_;
