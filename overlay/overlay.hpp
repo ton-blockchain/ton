@@ -391,6 +391,7 @@ class OverlayImpl : public Overlay {
   td::Timestamp next_dht_store_query_ = td::Timestamp::in(1.0);
   td::Timestamp update_db_at_;
   td::Timestamp update_throughput_at_;
+  td::Timestamp update_neighbours_at_;
   td::Timestamp last_throughput_update_;
 
   std::unique_ptr<Overlays::Callback> callback_;

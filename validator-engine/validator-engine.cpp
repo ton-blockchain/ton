@@ -2024,6 +2024,10 @@ void ValidatorEngine::start_full_node() {
                               [](td::Unit) {});
     }
     load_custom_overlays_config();
+    if (!validator_telemetry_filename_.empty()) {
+      td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::set_validator_telemetry_filename,
+                              validator_telemetry_filename_);
+    }
   } else {
     started_full_node();
   }
@@ -4489,6 +4493,15 @@ int main(int argc, char *argv[]) {
       [&]() {
         acts.push_back(
             [&x]() { td::actor::send_closure(x, &ValidatorEngine::set_fast_state_serializer_enabled, true); });
+      });
+  p.add_option(
+      '\0', "collect-validator-telemetry",
+      "store validator telemetry from private block overlay to a given file (json format)",
+      [&](td::Slice s) {
+        acts.push_back(
+            [&x, s = s.str()]() {
+              td::actor::send_closure(x, &ValidatorEngine::set_validator_telemetry_filename, s);
+            });
       });
   auto S = p.run(argc, argv);
   if (S.is_error()) {

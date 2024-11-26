@@ -225,6 +225,7 @@ class ValidatorEngine : public td::actor::Actor {
   ton::BlockSeqno truncate_seqno_{0};
   std::string session_logs_file_;
   bool fast_state_serializer_enabled_ = false;
+  std::string validator_telemetry_filename_;
   bool not_all_shards_ = false;
   std::vector<ton::ShardIdFull> add_shard_cmds_;
 
@@ -314,6 +315,9 @@ class ValidatorEngine : public td::actor::Actor {
   }
   void set_fast_state_serializer_enabled(bool value) {
     fast_state_serializer_enabled_ = value;
+  }
+  void set_validator_telemetry_filename(std::string value) {
+    validator_telemetry_filename_ = std::move(value);
   }
   void set_not_all_shards() {
     not_all_shards_ = true;
