@@ -22,6 +22,8 @@ jobs:
 
     - name: Build TON
       run: |
+        git submodule sync --recursive
+        git submodule update
         cp assembly/nix/build-linux-x86-64-nix.sh .
         chmod +x build-linux-x86-64-nix.sh
         ./build-linux-x86-64-nix.sh -t
