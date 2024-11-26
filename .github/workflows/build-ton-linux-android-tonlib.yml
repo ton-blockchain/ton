@@ -21,6 +21,8 @@ jobs:
 
     - name: Build TON
       run: |
+        git submodule sync --recursive
+        git submodule update
         cp assembly/android/build-android-tonlib.sh .
         chmod +x build-android-tonlib.sh
         ./build-android-tonlib.sh -a

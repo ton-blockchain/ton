@@ -23,6 +23,8 @@ jobs:
 
       - name: Build TON
         run: |
+          git submodule sync --recursive
+          git submodule update
           copy assembly\native\build-windows-github-2019.bat .
           copy assembly\native\build-windows-2019.bat .
           build-windows-github-2019.bat Enterprise

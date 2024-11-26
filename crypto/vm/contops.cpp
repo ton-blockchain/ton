@@ -923,6 +923,41 @@ int exec_setcont_ctr_var(VmState* st) {
   return 0;
 }
 
+int exec_setcont_ctr_many(VmState* st, unsigned args) {
+  unsigned mask = args & 255;
+  VM_LOG(st) << "execute SETCONTCTRMANY " << mask;
+  if (mask & (1 << 6)) {
+    throw VmError{Excno::range_chk, "no control register c6"};
+  }
+  Stack& stack = st->get_stack();
+  auto cont = stack.pop_cont();
+  for (int i = 0; i < 8; ++i) {
+    if (mask & (1 << i)) {
+      throw_typechk(force_cregs(cont)->define(i, st->get(i)));
+    }
+  }
+  st->get_stack().push_cont(std::move(cont));
+  return 0;
+}
+
+int exec_setcont_ctr_many_var(VmState* st) {
+  VM_LOG(st) << "execute SETCONTCTRMANYX";
+  Stack& stack = st->get_stack();
+  stack.check_underflow(2);
+  int mask = stack.pop_smallint_range(255);
+  if (mask & (1 << 6)) {
+    throw VmError{Excno::range_chk, "no control register c6"};
+  }
+  auto cont = stack.pop_cont();
+  for (int i = 0; i < 8; ++i) {
+    if (mask & (1 << i)) {
+      throw_typechk(force_cregs(cont)->define(i, st->get(i)));
+    }
+  }
+  st->get_stack().push_cont(std::move(cont));
+  return 0;
+}
+
 int exec_compos(VmState* st, unsigned mask, const char* name) {
   Stack& stack = st->get_stack();
   VM_LOG(st) << "execute " << name;
@@ -1037,6 +1072,8 @@ void register_continuation_change_ops(OpcodeTable& cp0) {
   cp0.insert(OpcodeInstr::mksimple(0xede0, 16, "PUSHCTRX", exec_push_ctr_var))
       .insert(OpcodeInstr::mksimple(0xede1, 16, "POPCTRX", exec_pop_ctr_var))
       .insert(OpcodeInstr::mksimple(0xede2, 16, "SETCONTCTRX", exec_setcont_ctr_var))
+      .insert(OpcodeInstr::mkfixed(0xede3, 16, 8, instr::dump_1c_l_add(1, "SETCONTCTRMANY "), exec_setcont_ctr_many)->require_version(9))
+      .insert(OpcodeInstr::mksimple(0xede4, 16, "SETCONTCTRMANYX", exec_setcont_ctr_many_var)->require_version(9))
       .insert(OpcodeInstr::mksimple(0xedf0, 16, "BOOLAND", std::bind(exec_compos, _1, 1, "BOOLAND")))
       .insert(OpcodeInstr::mksimple(0xedf1, 16, "BOOLOR", std::bind(exec_compos, _1, 2, "BOOLOR")))
       .insert(OpcodeInstr::mksimple(0xedf2, 16, "COMPOSBOTH", std::bind(exec_compos, _1, 3, "COMPOSBOTH")))

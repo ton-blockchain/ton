@@ -127,6 +127,7 @@ class VmState final : public VmStateInterface {
     rist255_validate_gas_price = 200,
 
     ecrecover_gas_price = 1500,
+    secp256k1_xonly_pubkey_tweak_add_gas_price = 1250,
     chksgn_free_count = 10,
     chksgn_gas_price = 4000,
     p256_chksgn_gas_price = 3500,

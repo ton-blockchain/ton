@@ -661,7 +661,38 @@ int exec_ecrecover(VmState* st) {
   }
   st->consume_gas(VmState::ecrecover_gas_price);
   unsigned char public_key[65];
-  if (td::ecrecover(hash_bytes, signature, public_key)) {
+  if (td::secp256k1::ecrecover(hash_bytes, signature, public_key)) {
+    td::uint8 h = public_key[0];
+    td::RefInt256 x1{true}, x2{true};
+    CHECK(x1.write().import_bytes(public_key + 1, 32, false));
+    CHECK(x2.write().import_bytes(public_key + 33, 32, false));
+    stack.push_smallint(h);
+    stack.push_int(std::move(x1));
+    stack.push_int(std::move(x2));
+    stack.push_bool(true);
+  } else {
+    stack.push_bool(false);
+  }
+  return 0;
+}
+
+int exec_secp256k1_xonly_pubkey_tweak_add(VmState* st) {
+  VM_LOG(st) << "execute SECP256K1_XONLY_PUBKEY_TWEAK_ADD";
+  Stack& stack = st->get_stack();
+  stack.check_underflow(2);
+  auto tweak_int = stack.pop_int();
+  auto key_int = stack.pop_int();
+
+  unsigned char key[32], tweak[32];
+  if (!key_int->export_bytes(key, 32, false)) {
+    throw VmError{Excno::range_chk, "key must fit in an unsigned 256-bit integer"};
+  }
+  if (!tweak_int->export_bytes(tweak, 32, false)) {
+    throw VmError{Excno::range_chk, "tweak must fit in an unsigned 256-bit integer"};
+  }
+  st->consume_gas(VmState::secp256k1_xonly_pubkey_tweak_add_gas_price);
+  unsigned char public_key[65];
+  if (td::secp256k1::xonly_pubkey_tweak_add(key, tweak, public_key)) {
     td::uint8 h = public_key[0];
     td::RefInt256 x1{true}, x2{true};
     CHECK(x1.write().import_bytes(public_key + 1, 32, false));
@@ -1214,6 +1245,7 @@ void register_ton_crypto_ops(OpcodeTable& cp0) {
       .insert(OpcodeInstr::mksimple(0xf910, 16, "CHKSIGNU", std::bind(exec_ed25519_check_signature, _1, false)))
       .insert(OpcodeInstr::mksimple(0xf911, 16, "CHKSIGNS", std::bind(exec_ed25519_check_signature, _1, true)))
       .insert(OpcodeInstr::mksimple(0xf912, 16, "ECRECOVER", exec_ecrecover)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf913, 16, "SECP256K1_XONLY_PUBKEY_TWEAK_ADD", exec_secp256k1_xonly_pubkey_tweak_add)->require_version(9))
       .insert(OpcodeInstr::mksimple(0xf914, 16, "P256_CHKSIGNU", std::bind(exec_p256_chksign, _1, false))->require_version(4))
       .insert(OpcodeInstr::mksimple(0xf915, 16, "P256_CHKSIGNS", std::bind(exec_p256_chksign, _1, true))->require_version(4))
 

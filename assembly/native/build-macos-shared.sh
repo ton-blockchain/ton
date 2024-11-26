@@ -36,21 +36,6 @@ else
 fi
 export CCACHE_DISABLE=1
 
-if [ ! -d "secp256k1" ]; then
-  git clone https://github.com/bitcoin-core/secp256k1.git
-  cd secp256k1
-  secp256k1Path=`pwd`
-  git checkout v0.3.2
-  ./autogen.sh
-  ./configure --enable-module-recovery --enable-static --disable-tests --disable-benchmark
-  make -j12
-  test $? -eq 0 || { echo "Can't compile secp256k1"; exit 1; }
-  cd ..
-else
-  secp256k1Path=$(pwd)/secp256k1
-  echo "Using compiled secp256k1"
-fi
-
 if [ ! -d "lz4" ]; then
   git clone https://github.com/lz4/lz4
   cd lz4
@@ -70,9 +55,6 @@ brew unlink openssl@3 &&  brew link --overwrite openssl@3
 
 cmake -GNinja -DCMAKE_BUILD_TYPE=Release .. \
 -DCMAKE_CXX_FLAGS="-stdlib=libc++" \
--DSECP256K1_FOUND=1 \
--DSECP256K1_INCLUDE_DIR=$secp256k1Path/include \
--DSECP256K1_LIBRARY=$secp256k1Path/.libs/libsecp256k1.a \
 -DLZ4_FOUND=1 \
 -DLZ4_LIBRARIES=$lz4Path/lib/liblz4.a \
 -DLZ4_INCLUDE_DIRS=$lz4Path/lib
