@@ -3099,10 +3099,7 @@ void ValidatorManagerImpl::log_validator_session_stats(BlockIdExt block_id,
       tl_object_ptr<ton_api::validatorSession_collationStats> collation_stats;
       if (it != recorded_block_stats_.end() && it->second.collator_stats_) {
         auto &stats = it->second.collator_stats_.value();
-        collation_stats = create_tl_object<ton_api::validatorSession_collationStats>(
-            stats.bytes, stats.gas, stats.lt_delta, stats.cat_bytes, stats.cat_gas, stats.cat_lt_delta,
-            stats.limits_log, stats.ext_msgs_total, stats.ext_msgs_filtered, stats.ext_msgs_accepted,
-            stats.ext_msgs_rejected);
+        collation_stats = stats.tl();
       }
       std::string approvers, signers;
       for (bool x : producer.approvers) {
@@ -3616,12 +3613,28 @@ td::actor::ActorOwn<ValidatorManagerInterface> ValidatorManagerFactory::create(
                                                                   rldp, overlays);
 }
 
-void ValidatorManagerImpl::record_collate_query_stats(BlockIdExt block_id, double work_time, double cpu_work_time,
-                                                      CollationStats stats) {
+void ValidatorManagerImpl::record_collate_query_stats(BlockIdExt block_id, CollationStats stats) {
   auto &record = new_block_stats_record(block_id);
-  record.collator_work_time_ = work_time;
-  record.collator_cpu_work_time_ = cpu_work_time;
+  record.collator_work_time_ = stats.work_time;
+  record.collator_cpu_work_time_ = stats.cpu_work_time;
   record.collator_stats_ = std::move(stats);
+
+  std::string fname = opts_->get_session_logs_file();
+  if (fname.empty()) {
+    return;
+  }
+
+  auto obj = create_tl_object<ton_api::validatorSession_statsCollatedBlock>(td::Clocks::system(),
+                                                                            create_tl_block_id(block_id), stats.tl());
+  auto s = td::json_encode<std::string>(td::ToJson(*obj.get()), false);
+  s.erase(std::remove_if(s.begin(), s.end(), [](char c) { return c == '\n' || c == '\r'; }), s.end());
+
+  std::ofstream file;
+  file.open(fname, std::ios_base::app);
+  file << s << "\n";
+  file.close();
+
+  LOG(DEBUG) << "Writing collation stats stats for " << block_id.id.to_str();
 }
 
 void ValidatorManagerImpl::record_validate_query_stats(BlockIdExt block_id, double work_time, double cpu_work_time) {

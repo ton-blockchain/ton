@@ -16,6 +16,7 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include "candidate-serializer.h"
 #include "collator-impl.h"
 #include "vm/boc.h"
 #include "td/db/utils/BlobView.h"
@@ -77,7 +78,7 @@ static inline bool dbg(int c) {
  * @param timeout The timeout for the collator.
  * @param promise The promise to return the result.
  * @param cancellation_token Token to cancel collation.
- * @param mode +1 - skip storing candidate to disk.
+ * @param mode +1 - skip storing candidate to disk, +2 - called from CollatorNode.
  * @param attempt_idx The index of the attempt, starting from 0. On later attempts collator decreases block limits and skips some steps.
  */
 Collator::Collator(ShardIdFull shard, bool is_hardfork, BlockIdExt min_masterchain_block_id,
@@ -730,7 +731,7 @@ bool Collator::unpack_last_mc_state() {
   store_out_msg_queue_size_ = config_->has_capability(ton::capStoreOutMsgQueueSize);
   msg_metadata_enabled_ = config_->has_capability(ton::capMsgMetadata);
   deferring_messages_enabled_ = config_->has_capability(ton::capDeferMessages);
-  full_collated_data_ = config_->has_capability(capFullCollatedData);
+  full_collated_data_ = config_->has_capability(capFullCollatedData) || collator_opts_->force_full_collated_data;
   LOG(DEBUG) << "full_collated_data is " << full_collated_data_;
   shard_conf_ = std::make_unique<block::ShardConfig>(*config_);
   prev_key_block_exists_ = config_->get_last_key_block(prev_key_block_, prev_key_block_lt_);
@@ -751,15 +752,24 @@ bool Collator::unpack_last_mc_state() {
     LOG(INFO) << "Attempt #3: bytes, gas limits /= 2";
     block_limits_->bytes.multiply_by(0.5);
     block_limits_->gas.multiply_by(0.5);
+    block_limits_->collated_data.multiply_by(0.5);
   } else if (attempt_idx_ == 4) {
     LOG(INFO) << "Attempt #4: bytes, gas limits /= 4";
     block_limits_->bytes.multiply_by(0.25);
     block_limits_->gas.multiply_by(0.25);
+    block_limits_->collated_data.multiply_by(0.25);
+  }
+  if (collator_opts_->ignore_collated_data_limits) {
+    block_limits_->collated_data = block::ParamLimits{1 << 30, 1 << 30, 1 << 30};
   }
   LOG(DEBUG) << "block limits: bytes [" << block_limits_->bytes.underload() << ", " << block_limits_->bytes.soft()
              << ", " << block_limits_->bytes.hard() << "]";
   LOG(DEBUG) << "block limits: gas [" << block_limits_->gas.underload() << ", " << block_limits_->gas.soft() << ", "
              << block_limits_->gas.hard() << "]";
+  LOG(DEBUG) << "block limits: lt_delta [" << block_limits_->lt_delta.underload() << ", "
+             << block_limits_->lt_delta.soft() << ", " << block_limits_->lt_delta.hard() << "]";
+  LOG(DEBUG) << "block limits: collated_data_bytes [" << block_limits_->collated_data.underload() << ", "
+             << block_limits_->collated_data.soft() << ", " << block_limits_->collated_data.hard() << "]";
   if (config_->has_capabilities() && (config_->get_capabilities() & ~supported_capabilities())) {
     LOG(ERROR) << "block generation capabilities " << config_->get_capabilities()
                << " have been enabled in global configuration, but we support only " << supported_capabilities()
@@ -3678,6 +3688,10 @@ static std::string block_full_comment(const block::BlockLimitStatus& block_limit
   if (!block_limit_status.limits.lt_delta.fits(cls, lt_delta)) {
     return PSTRING() << "block_full lt_delta " << lt_delta;
   }
+  auto collated_data_bytes = block_limit_status.collated_data_stat.estimate_proof_size();
+  if (!block_limit_status.limits.collated_data.fits(cls, collated_data_bytes)) {
+    return PSTRING() << "block_full collated_data " << collated_data_bytes;
+  }
   return "";
 }
 
@@ -5810,7 +5824,8 @@ bool Collator::create_block_candidate() {
                                  << ") exceeds the limit in consensus config (" << consensus_config.max_block_size
                                  << ")");
   }
-  if (block_candidate->collated_data.size() > consensus_config.max_collated_data_size) {
+  if (block_candidate->collated_data.size() > consensus_config.max_collated_data_size &&
+      !collator_opts_->ignore_collated_data_limits) {
     return fatal_error(PSTRING() << "collated data size (" << block_candidate->collated_data.size()
                                  << ") exceeds the limit in consensus config ("
                                  << consensus_config.max_collated_data_size << ")");
@@ -5838,14 +5853,31 @@ bool Collator::create_block_candidate() {
   double work_time = work_timer_.elapsed();
   double cpu_work_time = cpu_work_timer_.elapsed();
   LOG(WARNING) << "Collate query work time = " << work_time << "s, cpu time = " << cpu_work_time << "s";
-  stats_.bytes = block_limit_status_->estimate_block_size();
+  stats_.actual_bytes = block_candidate->data.size();
+  stats_.actual_collated_data_bytes = block_candidate->collated_data.size();
+  stats_.estimated_bytes = block_limit_status_->estimate_block_size();
   stats_.gas = block_limit_status_->gas_used;
   stats_.lt_delta = block_limit_status_->cur_lt - block_limit_status_->limits.start_lt;
-  stats_.cat_bytes = block_limit_status_->limits.classify_size(stats_.bytes);
+  stats_.estimated_collated_data_bytes = block_limit_status_->collated_data_stat.estimate_proof_size();
+  stats_.cat_bytes = block_limit_status_->limits.classify_size(stats_.estimated_bytes);
   stats_.cat_gas = block_limit_status_->limits.classify_gas(stats_.gas);
   stats_.cat_lt_delta = block_limit_status_->limits.classify_lt(block_limit_status_->cur_lt);
-  td::actor::send_closure(manager, &ValidatorManager::record_collate_query_stats, block_candidate->id, work_time,
-                          cpu_work_time, std::move(stats_));
+  stats_.cat_collated_data_bytes =
+      block_limit_status_->limits.classify_collated_data_size(stats_.estimated_collated_data_bytes);
+  stats_.work_time = work_time;
+  stats_.cpu_work_time = cpu_work_time;
+
+  // TODO: remove this later (currently needed to collect stats)
+  if (mode_ & CollateMode::from_collator_node) {
+    size_t d;
+    stats_.serialized_size =
+        validatorsession::compress_candidate_data(block_candidate->data, block_candidate->collated_data, d).ok().size();
+    stats_.serialized_size_no_collated_data =
+        validatorsession::compress_candidate_data(block_candidate->data, td::Slice{}, d).ok().size();
+  }
+
+  td::actor::send_closure(manager, &ValidatorManager::record_collate_query_stats, block_candidate->id,
+                          std::move(stats_));
   return true;
 }
 

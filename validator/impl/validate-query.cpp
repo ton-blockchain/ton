@@ -65,7 +65,7 @@ std::string ErrorCtx::as_string() const {
  * @param manager The ActorId of the ValidatorManager.
  * @param timeout The timeout for the validation.
  * @param promise The Promise to return the ValidateCandidateResult to.
- * @param is_fake A boolean indicating if the validation is fake (performed when creating a hardfork).
+ * @param mode +1 - fake mode
  */
 ValidateQuery::ValidateQuery(ShardIdFull shard, BlockIdExt min_masterchain_block_id,
                              std::vector<BlockIdExt> prev, BlockCandidate candidate, Ref<ValidatorSet> validator_set,

@@ -780,8 +780,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   std::map<BlockIdExt, RecordedBlockStats> recorded_block_stats_;
   std::queue<BlockIdExt> recorded_block_stats_lru_;
 
-  void record_collate_query_stats(BlockIdExt block_id, double work_time, double cpu_work_time,
-                                  CollationStats stats) override;
+  void record_collate_query_stats(BlockIdExt block_id, CollationStats stats) override;
   void record_validate_query_stats(BlockIdExt block_id, double work_time, double cpu_work_time) override;
   RecordedBlockStats &new_block_stats_record(BlockIdExt block_id);
 

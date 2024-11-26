@@ -70,6 +70,11 @@ struct CollatorOptions : public td::CntObject {
   std::set<std::pair<WorkchainId, StdSmcAddress>> whitelist;
   // Prioritize these accounts on each phase of process_dispatch_queue
   std::set<std::pair<WorkchainId, StdSmcAddress>> prioritylist;
+
+  // Always enable full_collated_data
+  bool force_full_collated_data = false;
+  // Ignore collated data size limits from block limits and catchain config
+  bool ignore_collated_data_limits = false;
 };
 
 struct CollatorsList : public td::CntObject {

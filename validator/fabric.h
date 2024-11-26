@@ -27,7 +27,7 @@ namespace ton {
 namespace validator {
 
 enum ValidateMode { fake = 1 };
-enum CollateMode { skip_store_candidate = 1 };
+enum CollateMode { skip_store_candidate = 1, from_collator_node = 2 };
 
 td::actor::ActorOwn<Db> create_db_actor(td::actor::ActorId<ValidatorManager> manager, std::string db_root_,
                                         td::Ref<ValidatorManagerOptions> opts);

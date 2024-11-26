@@ -431,7 +431,8 @@ void CollatorNode::generate_block(ShardIdFull shard, CatchainSeqno cc_seqno, std
                   << ", time=" << timer.elapsed() << ": " << (R.is_ok() ? "OK" : R.error().to_string());
         td::actor::send_closure(SelfId, &CollatorNode::process_result, cache_entry, std::move(R));
       },
-      cache_entry->cancellation_token_source.get_cancellation_token(), CollateMode::skip_store_candidate);
+      cache_entry->cancellation_token_source.get_cancellation_token(),
+      CollateMode::skip_store_candidate | CollateMode::from_collator_node);
 }
 
 void CollatorNode::process_result(std::shared_ptr<CacheEntry> cache_entry, td::Result<BlockCandidate> R) {

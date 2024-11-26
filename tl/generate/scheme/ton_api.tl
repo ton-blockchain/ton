@@ -669,7 +669,8 @@ engine.validator.collatorOptions
   deferring_enabled:Bool defer_messages_after:int defer_out_queue_size_limit:long
   dispatch_phase_2_max_total:int dispatch_phase_3_max_total:int
   dispatch_phase_2_max_per_initiator:int dispatch_phase_3_max_per_initiator:int
-  whitelist:(vector string) prioritylist:(vector string) = engine.validator.CollatorOptions;
+  whitelist:(vector string) prioritylist:(vector string)
+  force_full_collated_data:Bool ignore_collated_data_limits:Bool = engine.validator.CollatorOptions;
 
 engine.validator.collatorsList.collator adnl_id:int256 = engine.validator.collatorsList.Collator;
 engine.validator.collatorsList.shard shard_id:tonNode.shardId collators:(vector engine.validator.collatorsList.collator)
@@ -874,8 +875,12 @@ http.server.config dhs:(vector http.server.dnsEntry) local_hosts:(vector http.se
 
 ---types---
 
-validatorSession.collationStats bytes:int gas:int lt_delta:int cat_bytes:int cat_gas:int cat_lt_delta:int
-  limits_log:string ext_msgs_total:int ext_msgs_filtered:int ext_msgs_accepted:int ext_msgs_rejected:int = validadorSession.CollationStats;
+validatorSession.collationStats actual_bytes:int actual_collated_data_bytes:int
+  bytes:int gas:int lt_delta:int collated_data_bytes:int
+  cat_bytes:int cat_gas:int cat_lt_delta:int cat_collated_data_bytes:int
+  limits_log:string ext_msgs_total:int ext_msgs_filtered:int ext_msgs_accepted:int ext_msgs_rejected:int
+  work_time:double cpu_work_time:double
+  serialized_size:int serialized_size_no_collated_data:int = validadorSession.CollationStats;
 
 validatorSession.statsProducer id:int256 candidate_id:int256 block_status:int root_hash:int256 file_hash:int256
   comment:string block_timestamp:double is_accepted:Bool is_ours:Bool got_submit_at:double
@@ -895,6 +900,8 @@ validatorSession.stats success:Bool id:tonNode.blockIdExt timestamp:double self:
     creator:int256 total_validators:int total_weight:long
     signatures:int signatures_weight:long approve_signatures:int approve_signatures_weight:long
     first_round:int rounds:(vector validatorSession.statsRound) = validatorSession.Stats;
+
+validatorSession.statsCollatedBlock timestamp:double id:tonNode.blockIdExt stats:validatorSession.collationStats = validatorSession.StatsCollatedBlock;
 
 collatorNode.candidate source:PublicKey id:tonNode.blockIdExt data:bytes collated_data:bytes = collatorNode.Candidate;
 collatorNode.compressedCandidate flags:# source:PublicKey id:tonNode.blockIdExt decompressed_size:int data:bytes = collatorNode.Candidate;

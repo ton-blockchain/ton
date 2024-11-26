@@ -2707,6 +2707,8 @@ static td::Result<td::Ref<ton::validator::CollatorOptions>> parse_collator_optio
   f.dispatch_phase_2_max_per_initiator_ = opts.dispatch_phase_2_max_per_initiator;
   f.dispatch_phase_3_max_per_initiator_ =
       opts.dispatch_phase_3_max_per_initiator ? opts.dispatch_phase_3_max_per_initiator.value() : -1;
+  f.force_full_collated_data_ = false;
+  f.ignore_collated_data_limits_ = false;
 
   TRY_RESULT_PREFIX(json, td::json_decode(json_str), "failed to parse json: ");
   TRY_STATUS_PREFIX(ton::ton_api::from_json(f, json.get_object()), "json does not fit TL scheme: ");
@@ -2746,6 +2748,8 @@ static td::Result<td::Ref<ton::validator::CollatorOptions>> parse_collator_optio
     TRY_RESULT(addr, block::StdAddress::parse(s));
     opts.prioritylist.emplace(addr.workchain, addr.addr);
   }
+  opts.force_full_collated_data = f.force_full_collated_data_;
+  opts.ignore_collated_data_limits = f.ignore_collated_data_limits_;
 
   return ref;
 }

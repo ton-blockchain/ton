@@ -54,13 +54,24 @@ struct AsyncSerializerState {
 };
 
 struct CollationStats {
-  td::uint32 bytes, gas, lt_delta;
-  int cat_bytes, cat_gas, cat_lt_delta;
+  td::uint32 actual_bytes = 0, actual_collated_data_bytes = 0;
+  td::uint32 estimated_bytes = 0, gas = 0, lt_delta = 0, estimated_collated_data_bytes = 0;
+  int cat_bytes = 0, cat_gas = 0, cat_lt_delta = 0, cat_collated_data_bytes = 0;
   std::string limits_log;
   td::uint32 ext_msgs_total = 0;
   td::uint32 ext_msgs_filtered = 0;
   td::uint32 ext_msgs_accepted = 0;
   td::uint32 ext_msgs_rejected = 0;
+  double work_time = 0.0, cpu_work_time = 0.0;
+  td::uint32 serialized_size = 0, serialized_size_no_collated_data = 0;
+
+  tl_object_ptr<ton_api::validatorSession_collationStats> tl() const {
+    return create_tl_object<ton_api::validatorSession_collationStats>(
+        actual_bytes, actual_collated_data_bytes, estimated_bytes, gas, lt_delta, estimated_collated_data_bytes,
+        cat_bytes, cat_gas, cat_lt_delta, cat_collated_data_bytes, limits_log, ext_msgs_total, ext_msgs_filtered,
+        ext_msgs_accepted, ext_msgs_rejected, work_time, cpu_work_time, serialized_size,
+        serialized_size_no_collated_data);
+  }
 };
 
 using ValidateCandidateResult = td::Variant<UnixTime, CandidateReject>;
@@ -208,8 +219,7 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void add_lite_query_stats(int lite_query_id) {
   }
 
-  virtual void record_collate_query_stats(BlockIdExt block_id, double work_time, double cpu_work_time,
-                                          CollationStats stats) {
+  virtual void record_collate_query_stats(BlockIdExt block_id, CollationStats stats) {
   }
   virtual void record_validate_query_stats(BlockIdExt block_id, double work_time, double cpu_work_time) {
   }
