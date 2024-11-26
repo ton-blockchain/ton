@@ -4221,6 +4221,74 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getAdnlSt
       });
 }
 
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_addShard &query,
+                                        td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
+                                        td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_modify)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+  if (!started_) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "not started")));
+    return;
+  }
+
+  auto shard = ton::create_shard_id(query.shard_);
+  auto R = config_.config_add_shard(shard);
+  if (R.is_error()) {
+    promise.set_value(create_control_query_error(R.move_as_error()));
+    return;
+  }
+  set_shard_check_function();
+  if (!validator_manager_.empty()) {
+    td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::update_options,
+                            validator_options_);
+  }
+  write_config([promise = std::move(promise)](td::Result<td::Unit> R) mutable {
+    if (R.is_error()) {
+      promise.set_value(create_control_query_error(R.move_as_error()));
+    } else {
+      promise.set_value(ton::serialize_tl_object(ton::create_tl_object<ton::ton_api::engine_validator_success>(), true));
+    }
+  });
+}
+
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_delShard &query,
+                                        td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
+                                        td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_modify)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+  if (!started_) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "not started")));
+    return;
+  }
+
+  auto shard = ton::create_shard_id(query.shard_);
+  auto R = config_.config_del_shard(shard);
+  if (R.is_error()) {
+    promise.set_value(create_control_query_error(R.move_as_error()));
+    return;
+  }
+  if (!R.move_as_ok()) {
+    promise.set_value(create_control_query_error(td::Status::Error("No such shard")));
+    return;
+  }
+  set_shard_check_function();
+  if (!validator_manager_.empty()) {
+    td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::update_options,
+                            validator_options_);
+  }
+  write_config([promise = std::move(promise)](td::Result<td::Unit> R) mutable {
+    if (R.is_error()) {
+      promise.set_value(create_control_query_error(R.move_as_error()));
+    } else {
+      promise.set_value(ton::serialize_tl_object(ton::create_tl_object<ton::ton_api::engine_validator_success>(), true));
+    }
+  });
+}
+
 void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_setCollatorsList &query, td::BufferSlice data,
                                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise) {
   if (!(perm & ValidatorEnginePermissions::vep_modify)) {
@@ -4357,38 +4425,6 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_addCollat
   });
 }
 
-void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_addShard &query,
-                                        td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
-                                        td::Promise<td::BufferSlice> promise) {
-  if (!(perm & ValidatorEnginePermissions::vep_modify)) {
-    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
-    return;
-  }
-  if (!started_) {
-    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "not started")));
-    return;
-  }
-
-  auto shard = ton::create_shard_id(query.shard_);
-  auto R = config_.config_add_shard(shard);
-  if (R.is_error()) {
-    promise.set_value(create_control_query_error(R.move_as_error()));
-    return;
-  }
-  set_shard_check_function();
-  if (!validator_manager_.empty()) {
-    td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::update_options,
-                            validator_options_);
-  }
-  write_config([promise = std::move(promise)](td::Result<td::Unit> R) mutable {
-    if (R.is_error()) {
-      promise.set_value(create_control_query_error(R.move_as_error()));
-    } else {
-      promise.set_value(ton::serialize_tl_object(ton::create_tl_object<ton::ton_api::engine_validator_success>(), true));
-    }
-  });
-}
-
 void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_delCollator &query,
                                         td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
                                         td::Promise<td::BufferSlice> promise) {
@@ -4424,42 +4460,6 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_delCollat
   }
   if (!full_node_.empty()) {
     td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::del_collator_adnl_id, id);
-  }
-  write_config([promise = std::move(promise)](td::Result<td::Unit> R) mutable {
-    if (R.is_error()) {
-      promise.set_value(create_control_query_error(R.move_as_error()));
-    } else {
-      promise.set_value(ton::serialize_tl_object(ton::create_tl_object<ton::ton_api::engine_validator_success>(), true));
-    }
-  });
-}
-
-void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_delShard &query,
-                                        td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
-                                        td::Promise<td::BufferSlice> promise) {
-  if (!(perm & ValidatorEnginePermissions::vep_modify)) {
-    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
-    return;
-  }
-  if (!started_) {
-    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "not started")));
-    return;
-  }
-
-  auto shard = ton::create_shard_id(query.shard_);
-  auto R = config_.config_del_shard(shard);
-  if (R.is_error()) {
-    promise.set_value(create_control_query_error(R.move_as_error()));
-    return;
-  }
-  if (!R.move_as_ok()) {
-    promise.set_value(create_control_query_error(td::Status::Error("No such shard")));
-    return;
-  }
-  set_shard_check_function();
-  if (!validator_manager_.empty()) {
-    td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::update_options,
-                            validator_options_);
   }
   write_config([promise = std::move(promise)](td::Result<td::Unit> R) mutable {
     if (R.is_error()) {

@@ -1500,6 +1500,46 @@ td::Status GetAdnlStatsQuery::receive(td::BufferSlice data) {
   return td::Status::OK();
 }
 
+td::Status AddShardQuery::run() {
+  TRY_RESULT_ASSIGN(wc_, tokenizer_.get_token<td::int32>());
+  TRY_RESULT_ASSIGN(shard_, tokenizer_.get_token<td::int64>());
+  return td::Status::OK();
+}
+
+td::Status AddShardQuery::send() {
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_addShard>(
+      ton::create_tl_shard_id(ton::ShardIdFull(wc_, shard_)));
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status AddShardQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  td::TerminalIO::out() << "successfully added shard\n";
+  return td::Status::OK();
+}
+
+td::Status DelShardQuery::run() {
+  TRY_RESULT_ASSIGN(wc_, tokenizer_.get_token<td::int32>());
+  TRY_RESULT_ASSIGN(shard_, tokenizer_.get_token<td::int64>());
+  return td::Status::OK();
+}
+
+td::Status DelShardQuery::send() {
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_delShard>(
+      ton::create_tl_shard_id(ton::ShardIdFull(wc_, shard_)));
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status DelShardQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  td::TerminalIO::out() << "successfully removed shard\n";
+  return td::Status::OK();
+}
+
 td::Status AddCollatorQuery::run() {
   TRY_RESULT_ASSIGN(adnl_id_, tokenizer_.get_token<ton::PublicKeyHash>());
   TRY_RESULT_ASSIGN(wc_, tokenizer_.get_token<td::int32>());
@@ -1521,26 +1561,6 @@ td::Status AddCollatorQuery::receive(td::BufferSlice data) {
   return td::Status::OK();
 }
 
-td::Status AddShardQuery::run() {
-  TRY_RESULT_ASSIGN(wc_, tokenizer_.get_token<td::int32>());
-  TRY_RESULT_ASSIGN(shard_, tokenizer_.get_token<td::int64>());
-  return td::Status::OK();
-}
-
-td::Status AddShardQuery::send() {
-  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_addShard>(
-      ton::create_tl_shard_id(ton::ShardIdFull(wc_, shard_)));
-  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
-  return td::Status::OK();
-}
-
-td::Status AddShardQuery::receive(td::BufferSlice data) {
-  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
-                    "received incorrect answer: ");
-  td::TerminalIO::out() << "successfully added shard\n";
-  return td::Status::OK();
-}
-
 td::Status DelCollatorQuery::run() {
   TRY_RESULT_ASSIGN(adnl_id_, tokenizer_.get_token<ton::PublicKeyHash>());
   TRY_RESULT_ASSIGN(wc_, tokenizer_.get_token<td::int32>());
@@ -1559,26 +1579,6 @@ td::Status DelCollatorQuery::receive(td::BufferSlice data) {
   TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
                     "received incorrect answer: ");
   td::TerminalIO::out() << "successfully removed  collator\n";
-  return td::Status::OK();
-}
-
-td::Status DelShardQuery::run() {
-  TRY_RESULT_ASSIGN(wc_, tokenizer_.get_token<td::int32>());
-  TRY_RESULT_ASSIGN(shard_, tokenizer_.get_token<td::int64>());
-  return td::Status::OK();
-}
-
-td::Status DelShardQuery::send() {
-  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_delShard>(
-      ton::create_tl_shard_id(ton::ShardIdFull(wc_, shard_)));
-  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
-  return td::Status::OK();
-}
-
-td::Status DelShardQuery::receive(td::BufferSlice data) {
-  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
-                    "received incorrect answer: ");
-  td::TerminalIO::out() << "successfully removed shard\n";
   return td::Status::OK();
 }
 

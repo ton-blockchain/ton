@@ -816,10 +816,11 @@ engine.validator.getCollatorOptionsJson = engine.validator.JsonConfig;
 engine.validator.getAdnlStats all:Bool = adnl.Stats;
 engine.validator.getActorTextStats = engine.validator.TextStats;
 
-engine.validator.addCollator adnl_id:int256 shard:tonNode.shardId = engine.validator.Success;
 engine.validator.addShard shard:tonNode.shardId = engine.validator.Success;
-engine.validator.delCollator adnl_id:int256 shard:tonNode.shardId = engine.validator.Success;
 engine.validator.delShard shard:tonNode.shardId = engine.validator.Success;
+
+engine.validator.addCollator adnl_id:int256 shard:tonNode.shardId = engine.validator.Success;
+engine.validator.delCollator adnl_id:int256 shard:tonNode.shardId = engine.validator.Success;
 
 engine.validator.collatorNodeSetWhitelistedValidator adnl_id:int256 add:Bool = engine.validator.Success;
 engine.validator.collatorNodeSetWhitelistEnabled enabled:Bool = engine.validator.Success;

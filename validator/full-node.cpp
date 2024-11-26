@@ -21,6 +21,7 @@
 #include "td/actor/MultiPromise.h"
 #include "full-node.h"
 #include "common/delay.h"
+#include "td/utils/Random.h"
 #include "ton/ton-tl.hpp"
 
 namespace ton {

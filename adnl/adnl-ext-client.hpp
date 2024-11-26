@@ -43,7 +43,10 @@ class AdnlOutboundConnection : public AdnlExtConnection {
  public:
   AdnlOutboundConnection(td::SocketFd fd, std::unique_ptr<AdnlExtConnection::Callback> callback, AdnlNodeIdFull dst,
                          td::actor::ActorId<AdnlExtClientImpl> ext_client)
-      : AdnlExtConnection(std::move(fd), std::move(callback), true), dst_(std::move(dst)), ext_client_(ext_client) {
+      : AdnlExtConnection(std::move(fd), std::move(callback), true)
+      , dst_(std::move(dst))
+      , local_id_(privkeys::Ed25519::random())
+      , ext_client_(ext_client) {
   }
   AdnlOutboundConnection(td::SocketFd fd, std::unique_ptr<AdnlExtConnection::Callback> callback, AdnlNodeIdFull dst,
                          PrivateKey local_id, td::actor::ActorId<AdnlExtClientImpl> ext_client)
