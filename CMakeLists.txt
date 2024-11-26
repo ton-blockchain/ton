@@ -183,6 +183,7 @@ message("Add ton")
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake" ${CMAKE_MODULE_PATH})
 
 include(BuildBLST)
+include(BuildSECP256K1)
 
 # Configure CCache if available
 find_program(CCACHE_FOUND ccache)
@@ -236,6 +237,11 @@ endif()
 if (TON_USE_JEMALLOC)
   find_package(jemalloc REQUIRED)
 endif()
+
+if (NIX)
+  find_package(Secp256k1 REQUIRED)
+endif()
+
 
 set(MEMPROF "" CACHE STRING "Use one of \"ON\", \"FAST\" or \"SAFE\" to enable memory profiling. \
 Works under macOS and Linux when compiled using glibc. \

@@ -167,3 +167,7 @@ TEST(Fift, test_bls_ops) {
 TEST(Fift, test_levels) {
   run_fift("levels.fif");
 }
+
+TEST(Fift, test_secp256k1) {
+  run_fift("secp256k1.fif");
+}

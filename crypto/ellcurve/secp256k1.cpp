@@ -17,13 +17,22 @@
 
 #include "secp256k1.h"
 #include "td/utils/check.h"
+#include "td/utils/logging.h"
+
 #include <secp256k1_recovery.h>
+#include <secp256k1_extrakeys.h>
 #include <cstring>
 
-namespace td {
+namespace td::secp256k1 {
+
+static const secp256k1_context* get_context() {
+  static secp256k1_context* ctx = secp256k1_context_create(SECP256K1_CONTEXT_VERIFY);
+  LOG_CHECK(ctx) << "Failed to create secp256k1_context";
+  return ctx;
+}
 
 bool ecrecover(const unsigned char* hash, const unsigned char* signature, unsigned char* public_key) {
-  static secp256k1_context* ctx = secp256k1_context_create(SECP256K1_CONTEXT_VERIFY);
+  const secp256k1_context* ctx = get_context();
   secp256k1_ecdsa_recoverable_signature ecdsa_signature;
   if (signature[64] > 3 ||
       !secp256k1_ecdsa_recoverable_signature_parse_compact(ctx, &ecdsa_signature, signature, signature[64])) {
@@ -39,4 +48,22 @@ bool ecrecover(const unsigned char* hash, const unsigned char* signature, unsign
   return true;
 }
 
+bool xonly_pubkey_tweak_add(const unsigned char* xonly_pubkey_bytes, const unsigned char* tweak,
+                            unsigned char* output_pubkey_bytes) {
+  const secp256k1_context* ctx = get_context();
+
+  secp256k1_xonly_pubkey xonly_pubkey;
+  secp256k1_pubkey output_pubkey;
+  if (!secp256k1_xonly_pubkey_parse(ctx, &xonly_pubkey, xonly_pubkey_bytes)) {
+    return false;
+  }
+  if (!secp256k1_xonly_pubkey_tweak_add(ctx, &output_pubkey, &xonly_pubkey, tweak)) {
+    return false;
+  }
+  size_t len = 65;
+  secp256k1_ec_pubkey_serialize(ctx, output_pubkey_bytes, &len, &output_pubkey, SECP256K1_EC_UNCOMPRESSED);
+  CHECK(len == 65);
+  return true;
 }
+
+}  // namespace td::secp256k1

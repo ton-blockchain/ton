@@ -4,7 +4,7 @@ on: [push,workflow_dispatch,workflow_call]
 
 jobs:
   build:
-    runs-on: macos-12
+    runs-on: macos-13
 
     steps:
     - uses: actions/checkout@v3
@@ -18,6 +18,8 @@ jobs:
 
     - name: Build TON
       run: |
+        git submodule sync --recursive
+        git submodule update
         cp assembly/nix/build-macos-nix.sh .
         chmod +x build-macos-nix.sh
         ./build-macos-nix.sh -t
