@@ -27,12 +27,13 @@ export CCACHE_DISABLE=1
 echo `pwd`
 if [ "$scratch_new" = true ]; then
   echo Compiling openssl zlib lz4 emsdk libsodium emsdk ton
-  rm -rf openssl zlib lz4 emsdk libsodium build
+  rm -rf openssl zlib lz4 emsdk libsodium build openssl_em
 fi
 
 
 if [ ! -d "openssl" ]; then
   git clone https://github.com/openssl/openssl.git
+  cp -r openssl openssl_em
   cd openssl
   git checkout openssl-3.1.4
   ./config
@@ -43,11 +44,6 @@ else
   OPENSSL_DIR=`pwd`/openssl
   echo Using compiled openssl at $OPENSSL_DIR
 fi
-
-cd third-party/secp256k1
-make clean
-rm -rf .libs lib build
-cd ../..
 
 if [ ! -d "build" ]; then
   mkdir build
@@ -75,8 +71,8 @@ echo
 fi
 
 cd emsdk
-./emsdk install 3.1.19
-./emsdk activate 3.1.19
+./emsdk install 3.1.40
+./emsdk activate 3.1.40
 EMSDK_DIR=`pwd`
 
 . $EMSDK_DIR/emsdk_env.sh
@@ -86,9 +82,8 @@ export CCACHE_DISABLE=1
 
 cd ..
 
-if [ ! -f "openssl/openssl_em" ]; then
-  cd openssl
-  make clean
+if [ ! -f "openssl_em/openssl_em" ]; then
+  cd openssl_em
   emconfigure ./Configure linux-generic32 no-shared no-dso no-engine no-unit-test no-tests no-fuzz-afl no-fuzz-libfuzzer
   sed -i 's/CROSS_COMPILE=.*/CROSS_COMPILE=/g' Makefile
   sed -i 's/-ldl//g' Makefile
@@ -96,10 +91,12 @@ if [ ! -f "openssl/openssl_em" ]; then
   emmake make depend
   emmake make -j16
   test $? -eq 0 || { echo "Can't compile OpenSSL with emmake "; exit 1; }
+  OPENSSL_DIR=`pwd`
   touch openssl_em
   cd ..
 else
-  echo Using compiled openssl with emscripten
+  OPENSSL_DIR=`pwd`/openssl_em
+  echo Using compiled with empscripten openssl at $OPENSSL_DIR
 fi
 
 if [ ! -d "zlib" ]; then
@@ -183,5 +180,3 @@ if [ "$with_artifacts" = true ]; then
   cp -R crypto/smartcont artifacts
   cp -R crypto/fift/lib artifacts
 fi
-
-
