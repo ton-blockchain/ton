@@ -5854,33 +5854,39 @@ bool Collator::create_block_candidate() {
   block_candidate =
       std::make_unique<BlockCandidate>(created_by_, new_block_id_ext, block::compute_file_hash(cdata_slice.as_slice()),
                                        blk_slice.clone(), cdata_slice.clone());
-  const bool need_out_msg_queue_broadcasts = true;
+  const bool need_out_msg_queue_broadcasts = !is_masterchain();
   if (need_out_msg_queue_broadcasts) {
     // we can't generate two proofs at the same time for the same root (it is not currently supported by cells)
     // so we have can't reuse new state and have to regenerate it with merkle update
     auto new_state = vm::MerkleUpdate::apply(prev_state_root_pure_, state_update);
     CHECK(new_state.not_null());
     CHECK(new_state->get_hash() == state_root->get_hash());
-    assert(config_ && shard_conf_);
+    CHECK(shard_conf_);
     auto neighbor_list = shard_conf_->get_neighbor_shard_hash_ids(shard_);
     LOG(INFO) << "Build OutMsgQueueProofs for " << neighbor_list.size() << " neighbours";
-    for (ton::BlockId blk_id : neighbor_list) {
+    for (BlockId blk_id : neighbor_list) {
       auto prefix = blk_id.shard_full();
+      if (shard_intersects(prefix, shard_)) {
+        continue;
+      }
       auto limits = mc_state_->get_imported_msg_queue_limits(blk_id.workchain);
 
       // one could use monitor_min_split_depth here, to decrease number of broadcasts
       // but current implementation OutMsgQueueImporter doesn't support it
 
       auto r_proof = OutMsgQueueProof::build(
-          prefix, {OutMsgQueueProof::OneBlock{.id = new_block_id_ext, .state_root = new_state, .block_root = new_block}}, limits);
+          prefix,
+          {OutMsgQueueProof::OneBlock{.id = new_block_id_ext, .state_root = new_state, .block_root = new_block}},
+          limits);
       if (r_proof.is_ok()) {
         auto proof = r_proof.move_as_ok();
+        CHECK(proof->msg_counts_.size() == 1);
         block_candidate->out_msg_queue_proof_broadcasts.push_back(td::Ref<OutMsgQueueProofBroadcast>(
             true, OutMsgQueueProofBroadcast(prefix, new_block_id_ext, limits.max_bytes, limits.max_msgs,
                                             std::move(proof->queue_proofs_), std::move(proof->block_state_proofs_),
-                                            std::move(proof->msg_counts_))));
+                                            proof->msg_counts_[0])));
       } else {
-        LOG(ERROR) << "Failed to build OutMsgQueueProof: " << r_proof.error();
+        LOG(ERROR) << "Failed to build OutMsgQueueProof to " << prefix.to_str() << ": " << r_proof.error();
       }
     }
   }

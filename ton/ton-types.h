@@ -428,15 +428,14 @@ struct Ed25519_PublicKey {
 
 struct OutMsgQueueProofBroadcast : public td::CntObject {
   OutMsgQueueProofBroadcast(ShardIdFull dst_shard, BlockIdExt block_id, td::int32 max_bytes, td::int32 max_msgs,
-                            td::BufferSlice queue_proofs, td::BufferSlice block_state_proofs,
-                            std::vector<std::int32_t> msg_counts)
+                            td::BufferSlice queue_proof, td::BufferSlice block_state_proof, int msg_count)
       : dst_shard(std::move(dst_shard))
       , block_id(block_id)
       , max_bytes(max_bytes)
       , max_msgs(max_msgs)
-      , queue_proofs(std::move(queue_proofs))
-      , block_state_proofs(std::move(block_state_proofs))
-      , msg_counts(std::move(msg_counts)) {
+      , queue_proofs(std::move(queue_proof))
+      , block_state_proofs(std::move(block_state_proof))
+      , msg_count(std::move(msg_count)) {
   }
   ShardIdFull dst_shard;
   BlockIdExt block_id;
@@ -448,11 +447,11 @@ struct OutMsgQueueProofBroadcast : public td::CntObject {
   // outMsgQueueProof
   td::BufferSlice queue_proofs;
   td::BufferSlice block_state_proofs;
-  std::vector<std::int32_t> msg_counts;
+  int msg_count;
 
-  virtual OutMsgQueueProofBroadcast* make_copy() const {
+  OutMsgQueueProofBroadcast* make_copy() const override {
     return new OutMsgQueueProofBroadcast(dst_shard, block_id, max_bytes, max_msgs, queue_proofs.clone(),
-                                         block_state_proofs.clone(), msg_counts);
+                                         block_state_proofs.clone(), msg_count);
   }
 };
 

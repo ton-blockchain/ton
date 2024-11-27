@@ -553,9 +553,9 @@ void ValidatorSessionImpl::check_generate_slot() {
             LOG(WARNING) << print_id << ": failed to generate block candidate: " << R.move_as_error();
           }
         });
-        callback_->on_generate_slot(
-            BlockSourceInfo{cur_round_, first_block_round_, description().get_source_public_key(local_idx()), priority},
-            std::move(P));
+        callback_->on_generate_slot(BlockSourceInfo{description().get_source_public_key(local_idx()),
+                                                    BlockCandidatePriority{cur_round_, first_block_round_, priority}},
+                                    std::move(P));
       } else {
         alarm_timestamp().relax(t);
       }
@@ -634,8 +634,9 @@ void ValidatorSessionImpl::try_approve_block(const SentBlock *block) {
       pending_approve_.insert(block_id);
 
       callback_->on_candidate(
-          BlockSourceInfo{cur_round_, first_block_round_, description().get_source_public_key(block->get_src_idx()),
-                          description().get_node_priority(block->get_src_idx(), cur_round_)},
+          BlockSourceInfo{description().get_source_public_key(block->get_src_idx()),
+                          BlockCandidatePriority{cur_round_, first_block_round_,
+                                                 description().get_node_priority(block->get_src_idx(), cur_round_)}},
           B->root_hash_, B->data_.clone(), B->collated_data_.clone(), std::move(P));
     } else if (T.is_in_past()) {
       if (!active_requests_.count(block_id)) {
@@ -909,9 +910,10 @@ void ValidatorSessionImpl::on_new_round(td::uint32 round) {
         stats.rounds.pop_back();
       }
 
-      BlockSourceInfo source_info{cur_round_, first_block_round_,
-                                  description().get_source_public_key(block->get_src_idx()),
-                                  description().get_node_priority(block->get_src_idx(), cur_round_)};
+      BlockSourceInfo source_info{
+          description().get_source_public_key(block->get_src_idx()),
+          BlockCandidatePriority{cur_round_, first_block_round_,
+                                 description().get_node_priority(block->get_src_idx(), cur_round_)}};
       if (it == blocks_.end()) {
         callback_->on_block_committed(std::move(source_info), block->get_root_hash(), block->get_file_hash(),
                                       td::BufferSlice(), std::move(export_sigs), std::move(export_approve_sigs),

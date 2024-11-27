@@ -703,8 +703,13 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
           promise.set_result(serialize_tl_object(R.move_as_ok(), true));
         }
       });
-  VLOG(FULL_NODE_DEBUG) << "Got query getOutMsgQueueProof (" << blocks.size() << " blocks) to shard "
-                        << dst_shard.to_str() << " from " << src;
+  FLOG(DEBUG) {
+    sb << "Got query getOutMsgQueueProof to shard " << dst_shard.to_str() << " from blocks";
+    for (const BlockIdExt &id : blocks) {
+      sb << " " << id.id.to_str();
+    }
+    sb << " from " << src;
+  };
   td::actor::create_actor<BuildOutMsgQueueProof>("buildqueueproof", dst_shard, std::move(blocks), limits,
                                                  validator_manager_, std::move(P))
       .release();

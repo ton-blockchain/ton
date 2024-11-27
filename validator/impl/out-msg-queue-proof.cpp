@@ -92,29 +92,6 @@ static td::Result<std::vector<td::int32>> process_queue(
     ++msg_count[kv->source];
     ++msg_count_total;
 
-    // TODO: Get processed_upto from destination shard (in request?)
-    /*
-    // Parse message to check if it was processed (as in Collator::process_inbound_message)
-    ton::LogicalTime enqueued_lt = kv->msg->prefetch_ulong(64);
-    auto msg_env = kv->msg->prefetch_ref();
-    block::tlb::MsgEnvelope::Record_std env;
-    if (!tlb::unpack_cell(msg_env, env)) {
-      return td::Status::Error("cannot unpack MsgEnvelope of an internal message");
-    }
-    vm::CellSlice cs{vm::NoVmOrd{}, env.msg};
-    block::gen::CommonMsgInfo::Record_int_msg_info info;
-    if (!tlb::unpack(cs, info)) {
-      return td::Status::Error("cannot unpack CommonMsgInfo of an internal message");
-    }
-    auto src_prefix = block::tlb::MsgAddressInt::get_prefix(info.src);
-    auto dest_prefix = block::tlb::MsgAddressInt::get_prefix(info.dest);
-    auto cur_prefix = block::interpolate_addr(src_prefix, dest_prefix, env.cur_addr);
-    auto next_prefix = block::interpolate_addr(src_prefix, dest_prefix, env.next_addr);
-    block::EnqueuedMsgDescr descr{cur_prefix, next_prefix, kv->lt, enqueued_lt, env.msg->get_hash().bits()};
-    if (dst_processed_upto->already_processed(descr)) {
-    } else {
-    }*/
-
     dfs_cs(*kv->msg);
     TRY_STATUS_PREFIX(check_no_prunned(*kv->msg), "invalid message proof: ")
     if (estimated_proof_size >= limits.max_bytes || msg_count_total >= (long long)limits.max_msgs) {
@@ -301,7 +278,12 @@ void OutMsgQueueImporter::get_neighbor_msg_queue_proofs(
     return;
   }
 
-  LOG(DEBUG) << "Importing neighbor msg queues for shard " << dst_shard.to_str() << ", " << blocks.size() << " blocks";
+  FLOG(DEBUG) {
+    sb << "Importing neighbor msg queues for shard " << dst_shard.to_str() << ", " << blocks.size() << " blocks:";
+    for (const BlockIdExt& block : blocks) {
+      sb << " " << block.id.to_str();
+    }
+  };
 
   cache_[{dst_shard, blocks}] = entry = std::make_shared<CacheEntry>();
   entry->dst_shard = dst_shard;
@@ -321,7 +303,7 @@ void OutMsgQueueImporter::get_neighbor_msg_queue_proofs(
         prefix = shard_prefix(prefix, min_split);
       }
 
-      LOG(INFO) << "search for out msg queue proof " << prefix.to_str() << block.to_str();
+      LOG(DEBUG) << "search for out msg queue proof " << prefix.to_str() << " " << block.to_str();
       auto& small_entry = small_cache_[std::make_pair(dst_shard, block)];
       if (!small_entry.result.is_null()) {
         entry->result[block] = small_entry.result;
@@ -397,7 +379,13 @@ void OutMsgQueueImporter::get_proof_import(std::shared_ptr<CacheEntry> entry, st
       [=, SelfId = actor_id(this), retry_after = td::Timestamp::in(0.1),
        dst_shard = entry->dst_shard](td::Result<std::vector<td::Ref<OutMsgQueueProof>>> R) {
         if (R.is_error()) {
-          LOG(DEBUG) << "Failed to get out msg queue for " << dst_shard.to_str() << ": " << R.move_as_error();
+          FLOG(DEBUG) {
+            sb << "Failed to get out msg queue for " << dst_shard.to_str() << " from";
+            for (const BlockIdExt &block : blocks) {
+              sb << " " << block.id.to_str();
+            }
+            sb << ": " << R.move_as_error();
+          };
           delay_action(
               [=]() {
                 td::actor::send_closure(SelfId, &OutMsgQueueImporter::get_proof_import, entry, std::move(blocks),
@@ -443,8 +431,11 @@ void OutMsgQueueImporter::got_proof(std::shared_ptr<CacheEntry> entry, std::vect
 
 void OutMsgQueueImporter::finish_query(std::shared_ptr<CacheEntry> entry) {
   FLOG(INFO) {
-    sb << "Done importing neighbor msg queues for shard " << entry->dst_shard.to_str() << ", " << entry->blocks.size()
-       << " blocks in " << entry->timer.elapsed() << "s";
+    sb << "Done importing neighbor msg queues for shard " << entry->dst_shard.to_str() << " from";
+    for (const BlockIdExt &block : entry->blocks) {
+      sb << " " << block.id.to_str();
+    }
+    sb << " in " << entry->timer.elapsed() << "s";
     sb << " sources{";
     if (entry->from_broadcast) {
       sb << " broadcast=" << entry->from_broadcast;
@@ -479,8 +470,13 @@ void OutMsgQueueImporter::finish_query(std::shared_ptr<CacheEntry> entry) {
 
 bool OutMsgQueueImporter::check_timeout(std::shared_ptr<CacheEntry> entry) {
   if (entry->timeout.is_in_past()) {
-    LOG(DEBUG) << "Aborting importing neighbor msg queues for shard " << entry->dst_shard.to_str() << ", "
-               << entry->blocks.size() << " blocks: timeout";
+    FLOG(DEBUG) {
+      sb << "Aborting importing neighbor msg queues for shard " << entry->dst_shard.to_str() << " from";
+      for (const BlockIdExt &block : entry->blocks) {
+        sb << " " << block.id.to_str();
+      }
+      sb << ": timeout";
+    };
     for (auto& p : entry->promises) {
       p.first.set_error(td::Status::Error(ErrorCode::timeout, "timeout"));
     }
@@ -499,8 +495,13 @@ void OutMsgQueueImporter::alarm() {
     auto& promises = it->second->promises;
     if (it->second->timeout.is_in_past()) {
       if (!it->second->done) {
-        LOG(DEBUG) << "Aborting importing neighbor msg queues for shard " << it->second->dst_shard.to_str() << ", "
-                   << it->second->blocks.size() << " blocks: timeout";
+        FLOG(DEBUG) {
+          sb << "Aborting importing neighbor msg queues for shard " << it->second->dst_shard.to_str() << " from";
+          for (const BlockIdExt &block : it->second->blocks) {
+            sb << " " << block.id.to_str();
+          }
+          sb << ": timeout";
+        };
         for (auto& p : promises) {
           p.first.set_error(td::Status::Error(ErrorCode::timeout, "timeout"));
         }
@@ -540,7 +541,7 @@ void OutMsgQueueImporter::alarm() {
 }
 
 void OutMsgQueueImporter::add_out_msg_queue_proof(ShardIdFull dst_shard, td::Ref<OutMsgQueueProof> proof) {
-  LOG(INFO) << "add out msg queue proof " << dst_shard.to_str() << proof->block_id_.to_str();
+  LOG(INFO) << "add out msg queue proof " << dst_shard.to_str() << " " << proof->block_id_.to_str();
   auto& small_entry = small_cache_[std::make_pair(dst_shard, proof->block_id_)];
   if (!small_entry.result.is_null()) {
     return;
@@ -556,7 +557,13 @@ void OutMsgQueueImporter::add_out_msg_queue_proof(ShardIdFull dst_shard, td::Ref
 
 void BuildOutMsgQueueProof::abort_query(td::Status reason) {
   if (promise_) {
-    LOG(DEBUG) << "failed to build msg queue proof to " << dst_shard_.to_str() << ": " << reason;
+    FLOG(DEBUG) {
+      sb << "failed to build msg queue proof to " << dst_shard_.to_str() << " from";
+      for (const auto& block : blocks_) {
+        sb << " " << block.id.id.to_str();
+      }
+      sb << ": " << reason;
+    };
     promise_.set_error(
         reason.move_as_error_prefix(PSTRING() << "failed to build msg queue proof to " << dst_shard_.to_str() << ": "));
   }

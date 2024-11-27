@@ -179,9 +179,8 @@ struct EndValidatorGroupStats {
 };
 
 struct BlockSourceInfo {
-  td::uint32 round, first_block_round;
   PublicKey source;
-  td::int32 source_priority;
+  BlockCandidatePriority priority;
 };
 
 }  // namespace validatorsession

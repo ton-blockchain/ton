@@ -32,13 +32,14 @@ namespace ton {
 namespace validator {
 
 static bool need_send_candidate_broadcast(const validatorsession::BlockSourceInfo &source_info, bool is_masterchain) {
-  return source_info.first_block_round == source_info.round && source_info.source_priority == 0 && !is_masterchain;
+  return source_info.priority.first_block_round == source_info.priority.round && source_info.priority.priority == 0 &&
+         !is_masterchain;
 }
 
 void ValidatorGroup::generate_block_candidate(
     validatorsession::BlockSourceInfo source_info,
     td::Promise<validatorsession::ValidatorSession::GeneratedCandidate> promise) {
-  td::uint32 round_id = source_info.round;
+  td::uint32 round_id = source_info.priority.round;
   if (round_id > last_known_round_id_) {
     last_known_round_id_ = round_id;
   }
@@ -66,15 +67,10 @@ void ValidatorGroup::generate_block_candidate(
                             std::move(R));
   };
   td::uint64 max_answer_size = config_.max_block_size + config_.max_collated_data_size + 1024;
-  auto block_candidate_priority = BlockCandidatePriority{
-          .round = source_info.round,
-          .first_block_round = source_info.first_block_round,
-          .priority = source_info.source_priority
-  };
   td::actor::send_closure(collation_manager_, &CollationManager::collate_block, shard_, min_masterchain_block_id_,
                           prev_block_ids_, Ed25519_PublicKey{local_id_full_.ed25519_value().raw()},
-                          block_candidate_priority, validator_set_,
-                          max_answer_size, cancellation_token_source_.get_cancellation_token(), std::move(P));
+                          source_info.priority, validator_set_, max_answer_size,
+                          cancellation_token_source_.get_cancellation_token(), std::move(P));
 }
 
 void ValidatorGroup::generated_block_candidate(validatorsession::BlockSourceInfo source_info,
@@ -103,7 +99,7 @@ void ValidatorGroup::generated_block_candidate(validatorsession::BlockSourceInfo
 
 void ValidatorGroup::validate_block_candidate(validatorsession::BlockSourceInfo source_info, BlockCandidate block,
                                               td::Promise<std::pair<UnixTime, bool>> promise) {
-  td::uint32 round_id = source_info.round;
+  td::uint32 round_id = source_info.priority.round;
   if (round_id > last_known_round_id_) {
     last_known_round_id_ = round_id;
   }
@@ -174,7 +170,7 @@ void ValidatorGroup::accept_block_candidate(validatorsession::BlockSourceInfo so
                                             validatorsession::ValidatorSessionStats stats,
                                             td::Promise<td::Unit> promise) {
   stats.cc_seqno = validator_set_->get_catchain_seqno();
-  td::uint32 round_id = source_info.round;
+  td::uint32 round_id = source_info.priority.round;
   if (round_id >= last_known_round_id_) {
     last_known_round_id_ = round_id + 1;
   }

@@ -47,6 +47,9 @@ void FullNodeFastSyncOverlay::process_block_broadcast(PublicKeyHash src, ton_api
 }
 
 void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_outMsgQueueProofBroadcast &query) {
+  if (src == local_id_.pubkey_hash()) {
+    return;  // dropping broadcast from self
+  }
   BlockIdExt block_id = create_block_id(query.block_);
   ShardIdFull shard_id = create_shard_id(query.dst_shard_);
   if (query.proof_->get_id() != ton_api::tonNode_outMsgQueueProof::ID) {
@@ -68,7 +71,8 @@ void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonN
   }
   auto proof = std::move(R.move_as_ok()[0]);
 
-  LOG(INFO) << "got tonNode.outMsgQueueProofBroadcast " << shard_id.to_str() << " " << block_id.to_str();
+  LOG(INFO) << "got tonNode.outMsgQueueProofBroadcast to " << shard_id.to_str() << " from " << block_id.to_str()
+            << ", msgs=" << proof->msg_count_ << ", size=" << tl_proof->queue_proofs_.size();
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::add_out_msg_queue_proof, shard_id,
                           std::move(proof));
 }
@@ -236,9 +240,10 @@ void FullNodeFastSyncOverlay::send_out_msg_queue_proof_broadcast(td::Ref<OutMsgQ
       create_tl_object<ton_api::tonNode_importedMsgQueueLimits>(broadcast->max_bytes, broadcast->max_msgs),
       create_tl_object<ton_api::tonNode_outMsgQueueProof>(broadcast->queue_proofs.clone(),
                                                           broadcast->block_state_proofs.clone(),
-                                                          std::vector<std::int32_t>(broadcast->msg_counts)));
-  VLOG(FULL_NODE_DEBUG) << "Sending outMsgQueueProof in fast sync overlay: " << broadcast->dst_shard.to_str() << " "
-                        << broadcast->block_id.to_str();
+                                                          std::vector<td::int32>(1, broadcast->msg_count)));
+  VLOG(FULL_NODE_DEBUG) << "Sending outMsgQueueProof in fast sync overlay to " << broadcast->dst_shard.to_str()
+                        << " from " << broadcast->block_id.to_str() << ", msgs=" << broadcast->msg_count
+                        << " bytes=" << broadcast->queue_proofs.size();
   td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_,
                           local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagAnySender(), std::move(B));
 }
