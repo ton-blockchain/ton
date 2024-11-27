@@ -198,6 +198,9 @@ class ValidatorManagerInterface : public td::actor::Actor {
     virtual void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                                       td::BufferSlice data) = 0;
     virtual void send_broadcast(BlockBroadcast broadcast, int mode) = 0;
+    virtual void send_out_msg_queue_proof_broadcast(td::Ref<OutMsgQueueProofBroadcast> broadcats) {
+      LOG(ERROR) << "Unimplemented send_out_msg_queue_proof_broadcast - ignore broadcast";
+    }
     virtual void download_block(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
                                 td::Promise<ReceivedBlock> promise) = 0;
     virtual void download_zero_state(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
@@ -324,6 +327,10 @@ class ValidatorManagerInterface : public td::actor::Actor {
 
   virtual void add_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) = 0;
   virtual void del_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) = 0;
+
+  virtual void add_out_msg_queue_proof(ShardIdFull dst_shard, td::Ref<OutMsgQueueProof> proof) {
+    LOG(ERROR) << "Unimplemented add_out_msg_queu_proof - ignore broadcast";
+  }
 
   virtual void get_collation_manager_stats(
       td::Promise<tl_object_ptr<ton_api::engine_validator_collationManagerStats>> promise) = 0;

@@ -19,6 +19,7 @@
 #include "interfaces/validator-manager.h"
 #include "rldp/rldp.h"
 #include <map>
+#include <optional>
 
 namespace ton::validator {
 
@@ -57,6 +58,9 @@ class CollatorNode : public td::actor::Actor {
 
   struct CacheEntry {
     bool started = false;
+    td::Timestamp has_internal_query_at;
+    td::Timestamp has_external_query_at;
+    td::Timestamp has_result_at;
     BlockSeqno block_seqno = 0;
     td::optional<BlockCandidate> result;
     td::CancellationTokenSource cancellation_token_source;
@@ -84,7 +88,8 @@ class CollatorNode : public td::actor::Actor {
   td::Result<FutureValidatorGroup*> get_future_validator_group(ShardIdFull shard, CatchainSeqno cc_seqno);
 
   void generate_block(ShardIdFull shard, CatchainSeqno cc_seqno, std::vector<BlockIdExt> prev_blocks,
-                      td::Timestamp timeout, td::Promise<BlockCandidate> promise);
+                      std::optional<BlockCandidatePriority> o_priority, td::Timestamp timeout,
+                      td::Promise<BlockCandidate> promise);
   void process_result(std::shared_ptr<CacheEntry> cache_entry, td::Result<BlockCandidate> R);
 
  public:

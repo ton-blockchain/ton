@@ -217,25 +217,30 @@ void Collator::start_up() {
     // 2. learn latest masterchain state and block id
     LOG(DEBUG) << "sending get_top_masterchain_state_block() to Manager";
     ++pending;
+    auto token = perf_log_.start_action("get_top_masterchain_state_block");
     if (!is_hardfork_) {
       td::actor::send_closure_later(manager, &ValidatorManager::get_top_masterchain_state_block,
-                                    [self = get_self()](td::Result<std::pair<Ref<MasterchainState>, BlockIdExt>> res) {
+                                    [self = get_self(), token = std::move(token)](
+                                        td::Result<std::pair<Ref<MasterchainState>, BlockIdExt>> res) mutable {
                                       LOG(DEBUG) << "got answer to get_top_masterchain_state_block";
                                       td::actor::send_closure_later(std::move(self), &Collator::after_get_mc_state,
-                                                                    std::move(res));
+                                                                    std::move(res), std::move(token));
                                     });
     } else {
-      td::actor::send_closure_later(
-          manager, &ValidatorManager::get_shard_state_from_db_short, min_mc_block_id,
-          [self = get_self(), block_id = min_mc_block_id](td::Result<Ref<ShardState>> res) {
-            LOG(DEBUG) << "got answer to get_top_masterchain_state_block";
-            if (res.is_error()) {
-              td::actor::send_closure_later(std::move(self), &Collator::after_get_mc_state, res.move_as_error());
-            } else {
-              td::actor::send_closure_later(std::move(self), &Collator::after_get_mc_state,
-                                            std::make_pair(Ref<MasterchainState>(res.move_as_ok()), block_id));
-            }
-          });
+      td::actor::send_closure_later(manager, &ValidatorManager::get_shard_state_from_db_short, min_mc_block_id,
+                                    [self = get_self(), block_id = min_mc_block_id,
+                                     token = std::move(token)](td::Result<Ref<ShardState>> res) mutable {
+                                      LOG(DEBUG) << "got answer to get_top_masterchain_state_block";
+                                      if (res.is_error()) {
+                                        td::actor::send_closure_later(std::move(self), &Collator::after_get_mc_state,
+                                                                      res.move_as_error(), std::move(token));
+                                      } else {
+                                        td::actor::send_closure_later(
+                                            std::move(self), &Collator::after_get_mc_state,
+                                            std::make_pair(Ref<MasterchainState>(res.move_as_ok()), block_id),
+                                            std::move(token));
+                                      }
+                                    });
     }
   }
   // 3. load previous block(s) and corresponding state(s)
@@ -245,23 +250,27 @@ void Collator::start_up() {
     // 3.1. load state
     LOG(DEBUG) << "sending wait_block_state() query #" << i << " for " << prev_blocks[i].to_str() << " to Manager";
     ++pending;
-    td::actor::send_closure_later(manager, &ValidatorManager::wait_block_state_short, prev_blocks[i], priority(),
-                                  timeout, [self = get_self(), i](td::Result<Ref<ShardState>> res) {
-                                    LOG(DEBUG) << "got answer to wait_block_state query #" << i;
-                                    td::actor::send_closure_later(std::move(self), &Collator::after_get_shard_state, i,
-                                                                  std::move(res));
-                                  });
+    auto token = perf_log_.start_action(PSTRING() << "wait_block_state #" << i);
+    td::actor::send_closure_later(
+        manager, &ValidatorManager::wait_block_state_short, prev_blocks[i], priority(), timeout,
+        [self = get_self(), i, token = std::move(token)](td::Result<Ref<ShardState>> res) mutable {
+          LOG(DEBUG) << "got answer to wait_block_state query #" << i;
+          td::actor::send_closure_later(std::move(self), &Collator::after_get_shard_state, i, std::move(res),
+                                        std::move(token));
+        });
     if (prev_blocks[i].seqno()) {
       // 3.2. load block
       // NB: we need the block itself only for extracting start_lt and end_lt to create correct prev_blk:ExtBlkRef and related Merkle proofs
       LOG(DEBUG) << "sending wait_block_data() query #" << i << " for " << prev_blocks[i].to_str() << " to Manager";
       ++pending;
-      td::actor::send_closure_later(manager, &ValidatorManager::wait_block_data_short, prev_blocks[i], priority(),
-                                    timeout, [self = get_self(), i](td::Result<Ref<BlockData>> res) {
-                                      LOG(DEBUG) << "got answer to wait_block_data query #" << i;
-                                      td::actor::send_closure_later(std::move(self), &Collator::after_get_block_data, i,
-                                                                    std::move(res));
-                                    });
+      auto token = perf_log_.start_action(PSTRING() << "wait_block_data #" << i);
+      td::actor::send_closure_later(
+          manager, &ValidatorManager::wait_block_data_short, prev_blocks[i], priority(), timeout,
+          [self = get_self(), i, token = std::move(token)](td::Result<Ref<BlockData>> res) mutable {
+            LOG(DEBUG) << "got answer to wait_block_data query #" << i;
+            td::actor::send_closure_later(std::move(self), &Collator::after_get_block_data, i, std::move(res),
+                                          std::move(token));
+          });
     }
   }
   if (is_hardfork_) {
@@ -271,22 +280,28 @@ void Collator::start_up() {
   if (!is_hardfork_) {
     LOG(DEBUG) << "sending get_external_messages() query to Manager";
     ++pending;
-    td::actor::send_closure_later(manager, &ValidatorManager::get_external_messages, shard_,
-        [self = get_self()](td::Result<std::vector<std::pair<Ref<ExtMessage>, int>>> res) -> void {
+    auto token = perf_log_.start_action("get_external_messages");
+    td::actor::send_closure_later(
+        manager, &ValidatorManager::get_external_messages, shard_,
+        [self = get_self(),
+         token = std::move(token)](td::Result<std::vector<std::pair<Ref<ExtMessage>, int>>> res) mutable -> void {
           LOG(DEBUG) << "got answer to get_external_messages() query";
-          td::actor::send_closure_later(std::move(self), &Collator::after_get_external_messages, std::move(res));
+          td::actor::send_closure_later(std::move(self), &Collator::after_get_external_messages, std::move(res),
+                                        std::move(token));
         });
   }
   if (is_masterchain() && !is_hardfork_) {
     // 5. load shard block info messages
     LOG(DEBUG) << "sending get_shard_blocks_for_collator() query to Manager";
     ++pending;
-    td::actor::send_closure_later(
-        manager, &ValidatorManager::get_shard_blocks_for_collator, prev_blocks[0],
-        [self = get_self()](td::Result<std::vector<Ref<ShardTopBlockDescription>>> res) -> void {
-          LOG(DEBUG) << "got answer to get_shard_blocks_for_collator() query";
-          td::actor::send_closure_later(std::move(self), &Collator::after_get_shard_blocks, std::move(res));
-        });
+    auto token = perf_log_.start_action("get_shard_blocks_for_collator");
+    td::actor::send_closure_later(manager, &ValidatorManager::get_shard_blocks_for_collator, prev_blocks[0],
+                                  [self = get_self(), token = std::move(token)](
+                                      td::Result<std::vector<Ref<ShardTopBlockDescription>>> res) mutable -> void {
+                                    LOG(DEBUG) << "got answer to get_shard_blocks_for_collator() query";
+                                    td::actor::send_closure_later(std::move(self), &Collator::after_get_shard_blocks,
+                                                                  std::move(res), std::move(token));
+                                  });
   }
   // 6. set timeout
   alarm_timestamp() = timeout;
@@ -362,6 +377,8 @@ bool Collator::fatal_error(td::Status error) {
                         td::Timestamp::in(10.0), std::move(main_promise), std::move(cancellation_token_), mode_,
                         attempt_idx_ + 1);
     } else {
+      LOG(INFO) << "collation failed in " << perf_timer_.elapsed() << " s " << error;
+      LOG(INFO) << perf_log_;
       main_promise(std::move(error));
     }
     busy_ = false;
@@ -482,12 +499,14 @@ bool Collator::request_aux_mc_state(BlockSeqno seqno, Ref<MasterchainStateQ>& st
   CHECK(blkid.is_valid_ext() && blkid.is_masterchain());
   LOG(DEBUG) << "sending auxiliary wait_block_state() query for " << blkid.to_str() << " to Manager";
   ++pending;
-  td::actor::send_closure_later(manager, &ValidatorManager::wait_block_state_short, blkid, priority(), timeout,
-                                [self = get_self(), blkid](td::Result<Ref<ShardState>> res) {
-                                  LOG(DEBUG) << "got answer to wait_block_state query for " << blkid.to_str();
-                                  td::actor::send_closure_later(std::move(self), &Collator::after_get_aux_shard_state,
-                                                                blkid, std::move(res));
-                                });
+  auto token = perf_log_.start_action(PSTRING() << "auxiliary wait_block_state " << blkid.to_str());
+  td::actor::send_closure_later(
+      manager, &ValidatorManager::wait_block_state_short, blkid, priority(), timeout,
+      [self = get_self(), blkid, token = std::move(token)](td::Result<Ref<ShardState>> res) mutable {
+        LOG(DEBUG) << "got answer to wait_block_state query for " << blkid.to_str();
+        td::actor::send_closure_later(std::move(self), &Collator::after_get_aux_shard_state, blkid, std::move(res),
+                                      std::move(token));
+      });
   state.clear();
   return true;
 }
@@ -515,9 +534,11 @@ Ref<MasterchainStateQ> Collator::get_aux_mc_state(BlockSeqno seqno) const {
  * @param blkid The BlockIdExt of the shard state.
  * @param res The result of retrieving the shard state.
  */
-void Collator::after_get_aux_shard_state(ton::BlockIdExt blkid, td::Result<Ref<ShardState>> res) {
+void Collator::after_get_aux_shard_state(ton::BlockIdExt blkid, td::Result<Ref<ShardState>> res,
+                                         td::PerfLogAction token) {
   LOG(DEBUG) << "in Collator::after_get_aux_shard_state(" << blkid.to_str() << ")";
   --pending;
+  token.finish(res);
   if (res.is_error()) {
     fatal_error("cannot load auxiliary masterchain state for "s + blkid.to_str() + " : " +
                 res.move_as_error().to_string());
@@ -579,9 +600,11 @@ bool Collator::preprocess_prev_mc_state() {
  *
  * @param res The retrieved masterchain state.
  */
-void Collator::after_get_mc_state(td::Result<std::pair<Ref<MasterchainState>, BlockIdExt>> res) {
+void Collator::after_get_mc_state(td::Result<std::pair<Ref<MasterchainState>, BlockIdExt>> res,
+                                  td::PerfLogAction token) {
   LOG(WARNING) << "in Collator::after_get_mc_state()";
   --pending;
+  token.finish(res);
   if (res.is_error()) {
     fatal_error(res.move_as_error());
     return;
@@ -598,12 +621,14 @@ void Collator::after_get_mc_state(td::Result<std::pair<Ref<MasterchainState>, Bl
     // NB. it is needed only for creating a correct ExtBlkRef reference to it, which requires start_lt and end_lt
     LOG(DEBUG) << "sending wait_block_data() query #-1 for " << mc_block_id_.to_str() << " to Manager";
     ++pending;
-    td::actor::send_closure_later(manager, &ValidatorManager::wait_block_data_short, mc_block_id_, priority(), timeout,
-                                  [self = get_self()](td::Result<Ref<BlockData>> res) {
-                                    LOG(DEBUG) << "got answer to wait_block_data query #-1";
-                                    td::actor::send_closure_later(std::move(self), &Collator::after_get_block_data, -1,
-                                                                  std::move(res));
-                                  });
+    auto token = perf_log_.start_action("wait_block_data #-1");
+    td::actor::send_closure_later(
+        manager, &ValidatorManager::wait_block_data_short, mc_block_id_, priority(), timeout,
+        [self = get_self(), token = std::move(token)](td::Result<Ref<BlockData>> res) mutable {
+          LOG(DEBUG) << "got answer to wait_block_data query #-1";
+          td::actor::send_closure_later(std::move(self), &Collator::after_get_block_data, -1, std::move(res),
+                                        std::move(token));
+        });
   }
   check_pending();
 }
@@ -614,9 +639,10 @@ void Collator::after_get_mc_state(td::Result<std::pair<Ref<MasterchainState>, Bl
  * @param idx The index of the previous shard block (0 or 1).
  * @param res The retrieved shard state.
  */
-void Collator::after_get_shard_state(int idx, td::Result<Ref<ShardState>> res) {
+void Collator::after_get_shard_state(int idx, td::Result<Ref<ShardState>> res, td::PerfLogAction token) {
   LOG(WARNING) << "in Collator::after_get_shard_state(" << idx << ")";
   --pending;
+  token.finish(res);
   if (res.is_error()) {
     fatal_error(res.move_as_error());
     return;
@@ -647,9 +673,10 @@ void Collator::after_get_shard_state(int idx, td::Result<Ref<ShardState>> res) {
  * @param idx The index of the previous block (0 or 1).
  * @param res The retreved block data.
  */
-void Collator::after_get_block_data(int idx, td::Result<Ref<BlockData>> res) {
+void Collator::after_get_block_data(int idx, td::Result<Ref<BlockData>> res, td::PerfLogAction token) {
   LOG(DEBUG) << "in Collator::after_get_block_data(" << idx << ")";
   --pending;
+  token.finish(res);
   if (res.is_error()) {
     fatal_error(res.move_as_error());
     return;
@@ -691,8 +718,10 @@ void Collator::after_get_block_data(int idx, td::Result<Ref<BlockData>> res) {
  *
  * @param res The retrieved shard block descriptions.
  */
-void Collator::after_get_shard_blocks(td::Result<std::vector<Ref<ShardTopBlockDescription>>> res) {
+void Collator::after_get_shard_blocks(td::Result<std::vector<Ref<ShardTopBlockDescription>>> res,
+                                      td::PerfLogAction token) {
   --pending;
+  token.finish(res);
   if (res.is_error()) {
     fatal_error(res.move_as_error());
     return;
@@ -848,10 +877,13 @@ bool Collator::request_neighbor_msg_queues() {
     ++i;
   }
   ++pending;
+  auto token = perf_log_.start_action("neighbor_msg_queues");
   td::actor::send_closure_later(
       manager, &ValidatorManager::wait_neighbor_msg_queue_proofs, shard_, std::move(top_blocks), timeout,
-      [self = get_self()](td::Result<std::map<BlockIdExt, Ref<OutMsgQueueProof>>> res) {
-        td::actor::send_closure_later(std::move(self), &Collator::got_neighbor_msg_queues, std::move(res));
+      [self = get_self(),
+       token = std::move(token)](td::Result<std::map<BlockIdExt, Ref<OutMsgQueueProof>>> res) mutable {
+        td::actor::send_closure_later(std::move(self), &Collator::got_neighbor_msg_queues, std::move(res),
+                                      std::move(token));
       });
   return true;
 }
@@ -883,13 +915,15 @@ bool Collator::request_out_msg_queue_size() {
  * @param i The index of the neighbor.
  * @param res The obtained outbound queue.
  */
-void Collator::got_neighbor_msg_queues(td::Result<std::map<BlockIdExt, Ref<OutMsgQueueProof>>> R) {
+void Collator::got_neighbor_msg_queues(td::Result<std::map<BlockIdExt, Ref<OutMsgQueueProof>>> R,
+                                       td::PerfLogAction token) {
   --pending;
+  double duration = token.finish(R);
   if (R.is_error()) {
     fatal_error(R.move_as_error_prefix("failed to get neighbor msg queues: "));
     return;
   }
-  LOG(INFO) << "neighbor output queues fetched";
+  LOG(INFO) << "neighbor output queues fetched, took " << duration << "s";
   auto res = R.move_as_ok();
   unsigned i = 0;
   for (block::McShardDescr& descr : neighbors_) {
@@ -2091,12 +2125,9 @@ bool Collator::init_lt() {
  * @returns True if the configuration parameters were successfully fetched and initialized, false otherwise.
  */
 bool Collator::fetch_config_params() {
-  auto res = block::FetchConfigParams::fetch_config_params(*config_,
-                                      &old_mparams_, &storage_prices_, &storage_phase_cfg_,
-                                      &rand_seed_, &compute_phase_cfg_, &action_phase_cfg_,
-                                      &masterchain_create_fee_, &basechain_create_fee_,
-                                      workchain(), now_
-                                     );
+  auto res = block::FetchConfigParams::fetch_config_params(
+      *config_, &old_mparams_, &storage_prices_, &storage_phase_cfg_, &rand_seed_, &compute_phase_cfg_,
+      &action_phase_cfg_, &masterchain_create_fee_, &basechain_create_fee_, workchain(), now_);
   if (res.is_error()) {
     return fatal_error(res.move_as_error());
   }
@@ -2217,6 +2248,11 @@ bool Collator::init_value_create() {
 bool Collator::do_collate() {
   // After do_collate started it will not be interrupted by timeout
   alarm_timestamp() = td::Timestamp::never();
+  auto token = perf_log_.start_action("do_collate");
+  td::Status status = td::Status::Error("some error");
+  SCOPE_EXIT {
+    token.finish(status);
+  };
 
   LOG(WARNING) << "do_collate() : start";
   if (!fetch_config_params()) {
@@ -2342,6 +2378,7 @@ bool Collator::do_collate() {
   if (!create_block_candidate()) {
     return fatal_error("cannot serialize a new Block candidate");
   }
+  status = td::Status::OK();
   return true;
 }
 
@@ -5811,12 +5848,43 @@ bool Collator::create_block_candidate() {
             << block_limit_status_->transactions;
   LOG(INFO) << "serialized collated data size " << cdata_slice.size() << " bytes (preliminary estimate was "
             << block_limit_status_->collated_data_stat.estimate_proof_size() << ")";
+  auto new_block_id_ext = ton::BlockIdExt{ton::BlockId{shard_, new_block_seqno}, new_block->get_hash().bits(),
+                                          block::compute_file_hash(blk_slice.as_slice())};
   // 3. create a BlockCandidate
-  block_candidate = std::make_unique<BlockCandidate>(
-      created_by_,
-      ton::BlockIdExt{ton::BlockId{shard_, new_block_seqno}, new_block->get_hash().bits(),
-                      block::compute_file_hash(blk_slice.as_slice())},
-      block::compute_file_hash(cdata_slice.as_slice()), blk_slice.clone(), cdata_slice.clone());
+  block_candidate =
+      std::make_unique<BlockCandidate>(created_by_, new_block_id_ext, block::compute_file_hash(cdata_slice.as_slice()),
+                                       blk_slice.clone(), cdata_slice.clone());
+  const bool need_out_msg_queue_broadcasts = true;
+  if (need_out_msg_queue_broadcasts) {
+    // we can't generate two proofs at the same time for the same root (it is not currently supported by cells)
+    // so we have can't reuse new state and have to regenerate it with merkle update
+    auto new_state = vm::MerkleUpdate::apply(prev_state_root_pure_, state_update);
+    CHECK(new_state.not_null());
+    CHECK(new_state->get_hash() == state_root->get_hash());
+    assert(config_ && shard_conf_);
+    auto neighbor_list = shard_conf_->get_neighbor_shard_hash_ids(shard_);
+    LOG(INFO) << "Build OutMsgQueueProofs for " << neighbor_list.size() << " neighbours";
+    for (ton::BlockId blk_id : neighbor_list) {
+      auto prefix = blk_id.shard_full();
+      auto limits = mc_state_->get_imported_msg_queue_limits(blk_id.workchain);
+
+      // one could use monitor_min_split_depth here, to decrease number of broadcasts
+      // but current implementation OutMsgQueueImporter doesn't support it
+
+      auto r_proof = OutMsgQueueProof::build(
+          prefix, {OutMsgQueueProof::OneBlock{.id = new_block_id_ext, .state_root = new_state, .block_root = new_block}}, limits);
+      if (r_proof.is_ok()) {
+        auto proof = r_proof.move_as_ok();
+        block_candidate->out_msg_queue_proof_broadcasts.push_back(td::Ref<OutMsgQueueProofBroadcast>(
+            true, OutMsgQueueProofBroadcast(prefix, new_block_id_ext, limits.max_bytes, limits.max_msgs,
+                                            std::move(proof->queue_proofs_), std::move(proof->block_state_proofs_),
+                                            std::move(proof->msg_counts_))));
+      } else {
+        LOG(ERROR) << "Failed to build OutMsgQueueProof: " << r_proof.error();
+      }
+    }
+  }
+
   // 3.1 check block and collated data size
   auto consensus_config = config_->get_consensus_config();
   if (block_candidate->data.size() > consensus_config.max_block_size) {
@@ -5896,6 +5964,7 @@ void Collator::return_block_candidate(td::Result<td::Unit> saved) {
     CHECK(block_candidate);
     LOG(WARNING) << "sending new BlockCandidate to Promise";
     LOG(WARNING) << "collation took " << perf_timer_.elapsed() << " s";
+    LOG(WARNING) << perf_log_;
     main_promise(block_candidate->clone());
     busy_ = false;
     stop();
@@ -5974,9 +6043,11 @@ td::Result<bool> Collator::register_external_message_cell(Ref<vm::Cell> ext_msg,
  *
  * @param res The result of the external message retrieval operation.
  */
-void Collator::after_get_external_messages(td::Result<std::vector<std::pair<Ref<ExtMessage>, int>>> res) {
+void Collator::after_get_external_messages(td::Result<std::vector<std::pair<Ref<ExtMessage>, int>>> res,
+                                           td::PerfLogAction token) {
   // res: pair {ext msg, priority}
   --pending;
+  token.finish(res);
   if (res.is_error()) {
     fatal_error(res.move_as_error());
     return;

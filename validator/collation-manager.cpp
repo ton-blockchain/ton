@@ -33,6 +33,7 @@ void CollationManager::start_up() {
 
 void CollationManager::collate_block(ShardIdFull shard, BlockIdExt min_masterchain_block_id,
                                      std::vector<BlockIdExt> prev, Ed25519_PublicKey creator,
+                                     BlockCandidatePriority priority,
                                      td::Ref<ValidatorSet> validator_set, td::uint64 max_answer_size,
                                      td::CancellationToken cancellation_token, td::Promise<BlockCandidate> promise) {
   if (shard.is_masterchain()) {
@@ -41,12 +42,13 @@ void CollationManager::collate_block(ShardIdFull shard, BlockIdExt min_mastercha
                       std::move(cancellation_token), 0);
     return;
   }
-  collate_shard_block(shard, min_masterchain_block_id, std::move(prev), creator, std::move(validator_set),
+  collate_shard_block(shard, min_masterchain_block_id, std::move(prev), creator, priority, std::move(validator_set),
                       max_answer_size, std::move(cancellation_token), std::move(promise), td::Timestamp::in(10.0));
 }
 
 void CollationManager::collate_shard_block(ShardIdFull shard, BlockIdExt min_masterchain_block_id,
                                            std::vector<BlockIdExt> prev, Ed25519_PublicKey creator,
+                                           BlockCandidatePriority priority,
                                            td::Ref<ValidatorSet> validator_set, td::uint64 max_answer_size,
                                            td::CancellationToken cancellation_token,
                                            td::Promise<BlockCandidate> promise, td::Timestamp timeout) {
@@ -133,8 +135,8 @@ void CollationManager::collate_shard_block(ShardIdFull shard, BlockIdExt min_mas
     delay_action(
         [=, promise = std::move(promise)]() mutable {
           td::actor::send_closure(SelfId, &CollationManager::collate_shard_block, shard, min_masterchain_block_id, prev,
-                                  creator, validator_set, max_answer_size, cancellation_token, std::move(promise),
-                                  timeout);
+                                  creator, priority, validator_set, max_answer_size, cancellation_token,
+                                  std::move(promise), timeout);
         },
         retry_at);
   };
@@ -145,7 +147,8 @@ void CollationManager::collate_shard_block(ShardIdFull shard, BlockIdExt min_mas
   }
 
   td::BufferSlice query = create_serialize_tl_object<ton_api::collatorNode_generateBlock>(
-      create_tl_shard_id(shard), validator_set->get_catchain_seqno(), std::move(prev_blocks), creator.as_bits256());
+      create_tl_shard_id(shard), validator_set->get_catchain_seqno(), std::move(prev_blocks), creator.as_bits256(),
+      priority.round, priority.first_block_round, priority.priority);
   LOG(INFO) << "sending collate query for " << next_block_id.to_str() << ": send to #" << selected_idx << "("
             << selected_collator << ")";
 

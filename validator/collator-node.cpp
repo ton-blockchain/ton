@@ -191,17 +191,41 @@ void CollatorNode::update_validator_group_info(ShardIdFull shard, std::vector<Bl
           if (cache_entry->block_seqno < info.next_block_seqno) {
             cache_entry->cancel(td::Status::Error(PSTRING() << "next block seqno " << cache_entry->block_seqno
                                                             << " is too small, expected " << info.next_block_seqno));
+            if (!cache_entry->has_external_query_at && cache_entry->has_internal_query_at) {
+              LOG(INFO) << "generate block query"
+                        << ": shard=" << shard.to_str() << ", cc_seqno=" << cc_seqno
+                        << ", next_block_seqno=" << cache_entry->block_seqno
+                        << ": nobody asked for block, but we tried to generate it";
+            }
+            if (cache_entry->has_external_query_at && !cache_entry->has_internal_query_at) {
+              LOG(INFO) << "generate block query"
+                        << ": shard=" << shard.to_str() << ", cc_seqno=" << cc_seqno
+                        << ", next_block_seqno=" << cache_entry->block_seqno
+                        << ": somebody asked for block we didn't even tried to generate";
+            }
             cache_it = info.cache.erase(cache_it);
             continue;
           }
           if (cache_entry->block_seqno == info.next_block_seqno && cached_prev != info.prev) {
             cache_entry->cancel(td::Status::Error("invalid prev blocks"));
+            if (!cache_entry->has_external_query_at && cache_entry->has_internal_query_at) {
+              LOG(INFO) << "generate block query"
+                        << ": shard=" << shard.to_str() << ", cc_seqno=" << cc_seqno
+                        << ", next_block_seqno=" << cache_entry->block_seqno
+                         << ": nobody asked for block, but we tried to generate it";
+            }
+            if (cache_entry->has_external_query_at && !cache_entry->has_internal_query_at) {
+              LOG(INFO) << "generate block query"
+                        << ": shard=" << shard.to_str() << ", cc_seqno=" << cc_seqno
+                        << ", next_block_seqno=" << cache_entry->block_seqno
+                        << ": somebody asked for block we didn't even tried to generate";
+            }
             cache_it = info.cache.erase(cache_it);
             continue;
           }
           ++cache_it;
         }
-        generate_block(shard, cc_seqno, info.prev, td::Timestamp::in(10.0), [](td::Result<BlockCandidate>) {});
+        generate_block(shard, cc_seqno, info.prev, {}, td::Timestamp::in(10.0), [](td::Result<BlockCandidate>) {});
       }
       return;
     }
@@ -285,6 +309,14 @@ static BlockCandidate change_creator(BlockCandidate block, Ed25519_PublicKey cre
 
   cc_seqno = info.gen_catchain_seqno;
   val_set_hash = info.gen_validator_list_hash_short;
+
+  for (auto& broadcast_ref : block.out_msg_queue_proof_broadcasts) {
+    auto block_state_proof = create_block_state_proof(root).move_as_ok();
+
+    auto &broadcast = broadcast_ref.write();
+    broadcast.block_id = block.id;
+    broadcast.block_state_proofs = vm::std_boc_serialize(std::move(block_state_proof), 31).move_as_ok();
+  }
   return block;
 }
 
@@ -322,6 +354,11 @@ void CollatorNode::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data
   for (const auto& b : f->prev_blocks_) {
     prev_blocks.push_back(create_block_id(b));
   }
+  auto priority = BlockCandidatePriority {
+      .round = static_cast<td::uint32>(f->round_),
+      .first_block_round = static_cast<td::uint32>(f->first_block_round_),
+      .priority = f->priority_
+  };
   Ed25519_PublicKey creator(f->creator_);
   td::Promise<BlockCandidate> new_promise = [promise = std::move(promise), src,
                                              shard](td::Result<BlockCandidate> R) mutable {
@@ -353,11 +390,13 @@ void CollatorNode::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data
     return;
   }
   LOG(INFO) << "got adnl query from " << src << ": shard=" << shard.to_str() << ", cc_seqno=" << cc_seqno;
-  generate_block(shard, cc_seqno, std::move(prev_blocks), td::Timestamp::in(10.0), std::move(new_promise));
+  generate_block(shard, cc_seqno, std::move(prev_blocks), priority, td::Timestamp::in(10.0), std::move(new_promise));
 }
 
 void CollatorNode::generate_block(ShardIdFull shard, CatchainSeqno cc_seqno, std::vector<BlockIdExt> prev_blocks,
-                                  td::Timestamp timeout, td::Promise<BlockCandidate> promise) {
+                                  std::optional<BlockCandidatePriority> o_priority, td::Timestamp timeout,
+                                  td::Promise<BlockCandidate> promise) {
+  bool is_external = !o_priority;
   if (last_masterchain_state_.is_null()) {
     promise.set_error(td::Status::Error(ErrorCode::notready, "not ready"));
     return;
@@ -379,8 +418,8 @@ void CollatorNode::generate_block(ShardIdFull shard, CatchainSeqno cc_seqno, std
         promise.set_error(td::Status::Error(ErrorCode::timeout));
         return;
       }
-      td::actor::send_closure(SelfId, &CollatorNode::generate_block, shard, cc_seqno, std::move(prev_blocks), timeout,
-                              std::move(promise));
+      td::actor::send_closure(SelfId, &CollatorNode::generate_block, shard, cc_seqno, std::move(prev_blocks),
+                              std::move(o_priority), timeout, std::move(promise));
     });
     return;
   }
@@ -399,36 +438,81 @@ void CollatorNode::generate_block(ShardIdFull shard, CatchainSeqno cc_seqno, std
     return;
   }
 
+  static auto prefix_inner = [] (auto &sb, auto &shard, auto cc_seqno, auto block_seqno,
+                     const std::optional<BlockCandidatePriority> &o_priority) {
+    sb << "generate block query"
+       << ": shard=" << shard.to_str() << ", cc_seqno=" << cc_seqno << ", next_block_seqno=" << block_seqno;
+    if (o_priority) {
+      sb << " external{";
+      sb << "round_offset=" << o_priority->round - o_priority->first_block_round << ",priority=" << o_priority->priority;
+      sb << ",first_block_round=" << o_priority->first_block_round;
+      sb << "}";
+    } else {
+      sb << " internal" ;
+    }
+  };
+  auto prefix = [&] (auto &sb) {
+    prefix_inner(sb, shard, cc_seqno, block_seqno, o_priority);
+  };
+
   auto cache_entry = validator_group_info.cache[prev_blocks];
   if (cache_entry == nullptr) {
     cache_entry = validator_group_info.cache[prev_blocks] = std::make_shared<CacheEntry>();
   }
+  if (is_external && !cache_entry->has_external_query_at) {
+    cache_entry->has_external_query_at = td::Timestamp::now();
+    if (cache_entry->has_internal_query_at && cache_entry->has_external_query_at) {
+      FLOG(INFO) {
+        prefix(sb);
+        sb << ": got external query " << cache_entry->has_external_query_at.at() - cache_entry->has_internal_query_at.at()
+           << "s  after internal query [WON]";
+      };
+    }
+  }
+  if (!is_external && !cache_entry->has_internal_query_at) {
+    cache_entry->has_internal_query_at = td::Timestamp::now();
+    if (cache_entry->has_internal_query_at && cache_entry->has_external_query_at) {
+      FLOG(INFO) {
+        prefix(sb);
+        sb << ": got internal query " << cache_entry->has_internal_query_at.at() - cache_entry->has_external_query_at.at()
+           << "s after external query [LOST]";
+      };
+    }
+  }
   if (cache_entry->result) {
-    LOG(INFO) << "generate block query"
-              << ": shard=" << shard.to_str() << ", cc_seqno=" << cc_seqno << ", next_block_seqno=" << block_seqno
-              << ": using cached result";
+    auto has_result_ago = td::Timestamp::now().at() - cache_entry->has_result_at.at();
+    FLOG(INFO) {
+      prefix(sb);
+      sb << ": using cached result " << " generated " << has_result_ago << "s ago";
+      sb << (is_external ? " for external query [WON]" : " for internal query ");
+    };
+
     promise.set_result(cache_entry->result.value().clone());
     return;
   }
   cache_entry->promises.push_back(std::move(promise));
+
   if (cache_entry->started) {
-    LOG(INFO) << "generate block query"
-              << ": shard=" << shard.to_str() << ", cc_seqno=" << cc_seqno << ", next_block_seqno=" << block_seqno
-              << ": collation in progress, waiting";
+    FLOG(INFO) {
+       prefix(sb);
+       sb << ": collation in progress, waiting";
+    };
     return;
   }
-  LOG(INFO) << "generate block query"
-            << ": shard=" << shard.to_str() << ", cc_seqno=" << cc_seqno << ", next_block_seqno=" << block_seqno
-            << ": starting collation";
+  FLOG(INFO) {
+    prefix(sb);
+    sb << ": starting collation";
+  };
   cache_entry->started = true;
   cache_entry->block_seqno = block_seqno;
   run_collate_query(
       shard, last_masterchain_state_->get_block_id(), std::move(prev_blocks), Ed25519_PublicKey{td::Bits256::zero()},
       last_masterchain_state_->get_validator_set(shard), opts_->get_collator_options(), manager_, timeout,
       [=, SelfId = actor_id(this), timer = td::Timer{}](td::Result<BlockCandidate> R) {
-        LOG(INFO) << "generate block result"
-                  << ": shard=" << shard.to_str() << ", cc_seqno=" << cc_seqno << ", next_block_seqno=" << block_seqno
-                  << ", time=" << timer.elapsed() << ": " << (R.is_ok() ? "OK" : R.error().to_string());
+        FLOG(INFO) {
+          prefix_inner(sb, shard, cc_seqno, block_seqno,o_priority);
+          sb << timer.elapsed() << ": " << (R.is_ok() ? "OK" : R.error().to_string());
+        };
         td::actor::send_closure(SelfId, &CollatorNode::process_result, cache_entry, std::move(R));
       },
       cache_entry->cancellation_token_source.get_cancellation_token(),
@@ -443,6 +527,7 @@ void CollatorNode::process_result(std::shared_ptr<CacheEntry> cache_entry, td::R
     }
   } else {
     cache_entry->result = R.move_as_ok();
+    cache_entry->has_result_at = td::Timestamp::now();
     for (auto& p : cache_entry->promises) {
       p.set_result(cache_entry->result.value().clone());
     }
