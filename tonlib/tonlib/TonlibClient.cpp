@@ -1800,6 +1800,132 @@ class GetShardBlockProof : public td::actor::Actor {
   std::vector<std::pair<ton::BlockIdExt, td::BufferSlice>> links_;
 };
 
+class GetOutMsgQueueSizes : public td::actor::Actor {
+ public:
+  GetOutMsgQueueSizes(ExtClientRef ext_client_ref, std::vector<ton::BlockIdExt> blocks,
+                     td::actor::ActorShared<> parent,
+                     td::Promise<tonlib_api_ptr<tonlib_api::blocks_outMsgQueueSizes>>&& promise)
+      : blocks_(std::move(blocks)), parent_(std::move(parent)), promise_(std::move(promise)) {
+    client_.set_client(ext_client_ref);
+  }
+
+  void start_up() override {
+    sizes_.resize(blocks_.size());
+    pending_ = blocks_.size() + 1;
+
+    for (size_t i = 0; i < blocks_.size(); ++i) {
+      client_.send_query(
+          ton::lite_api::liteServer_getBlockOutMsgQueueSize(1, ton::create_tl_lite_block_id(blocks_[i]), true),
+          [SelfId = actor_id(this), i](td::Result<lite_api_ptr<ton::lite_api::liteServer_blockOutMsgQueueSize>> R) {
+            if (R.is_error()) {
+              td::actor::send_closure(SelfId, &GetOutMsgQueueSizes::abort, R.move_as_error());
+            } else {
+              td::actor::send_closure(SelfId, &GetOutMsgQueueSizes::got_block_queue_size, i, R.move_as_ok());
+            }
+          });
+    }
+
+    client_.send_query(
+        ton::lite_api::liteServer_getOutMsgQueueSizes(1, ton::masterchainId, ton::shardIdAll),
+        [SelfId = actor_id(this)](td::Result<lite_api_ptr<ton::lite_api::liteServer_outMsgQueueSizes>> R) {
+          if (R.is_error()) {
+            td::actor::send_closure(SelfId, &GetOutMsgQueueSizes::abort, R.move_as_error());
+          } else {
+            td::actor::send_closure(SelfId, &GetOutMsgQueueSizes::got_ext_msg_queue_size_limit,
+                                    R.ok()->ext_msg_queue_size_limit_);
+          }
+        });
+  }
+
+  void got_block_queue_size(size_t i, lite_api_ptr<ton::lite_api::liteServer_blockOutMsgQueueSize> f) {
+    try {
+      auto S = [&, this]() -> td::Status {
+        TRY_RESULT_PREFIX(roots, vm::std_boc_deserialize_multi(f->proof_), "cannot deserialize proof: ");
+        if (roots.size() != 2) {
+          return td::Status::Error("expected 2 roots in proof");
+        }
+        auto state_root = vm::MerkleProof::virtualize(std::move(roots[1]), 1);
+        if (state_root.is_null()) {
+          return td::Status::Error("state proof is invalid");
+        }
+        ton::Bits256 state_hash = state_root->get_hash().bits();
+        TRY_STATUS_PREFIX(block::check_block_header_proof(vm::MerkleProof::virtualize(std::move(roots[0]), 1),
+                                                          blocks_[i], &state_hash, true, nullptr, nullptr),
+                          "error in block header proof: ");
+
+        block::gen::ShardStateUnsplit::Record sstate;
+        block::gen::OutMsgQueueInfo::Record out_msg_queue_info;
+        if (!tlb::unpack_cell(state_root, sstate) || !tlb::unpack_cell(sstate.out_msg_queue_info, out_msg_queue_info)) {
+          return td::Status::Error("cannot unpack shard state");
+        }
+        vm::CellSlice& extra_slice = out_msg_queue_info.extra.write();
+        if (extra_slice.fetch_long(1) == 0) {
+          return td::Status::Error("no out_msg_queue_size in shard state");
+        }
+        block::gen::OutMsgQueueExtra::Record out_msg_queue_extra;
+        if (!tlb::unpack(extra_slice, out_msg_queue_extra)) {
+          return td::Status::Error("cannot unpack OutMsgQueueExtra");
+        }
+        vm::CellSlice& size_slice = out_msg_queue_extra.out_queue_size.write();
+        if (size_slice.fetch_long(1) == 0) {
+          return td::Status::Error("no out_msg_queue_size in shard state");
+        }
+        td::uint64 size = size_slice.prefetch_ulong(48);
+        if (size != f->size_) {
+          return td::Status::Error("queue size mismatch");
+        }
+        return td::Status::OK();
+      }();
+      if (S.is_error()) {
+        abort(std::move(S));
+        return;
+      }
+    } catch (vm::VmError& err) {
+      abort(err.as_status());
+      return;
+    } catch (vm::VmVirtError& err) {
+      abort(err.as_status());
+      return;
+    }
+
+    sizes_[i] = f->size_;
+    dec_pending();
+  }
+
+  void got_ext_msg_queue_size_limit(td::uint32 value) {
+    ext_msg_queue_size_limit_ = value;
+    dec_pending();
+  }
+
+  void dec_pending() {
+    if (--pending_ == 0) {
+      std::vector<tonlib_api::object_ptr<tonlib_api::blocks_outMsgQueueSize>> shards;
+      for (size_t i = 0; i < blocks_.size(); ++i) {
+        shards.push_back(
+            tonlib_api::make_object<tonlib_api::blocks_outMsgQueueSize>(to_tonlib_api(blocks_[i]), sizes_[i]));
+      }
+      promise_.set_result(
+          tonlib_api::make_object<tonlib_api::blocks_outMsgQueueSizes>(std::move(shards), ext_msg_queue_size_limit_));
+      stop();
+    }
+  }
+
+  void abort(td::Status error) {
+    promise_.set_error(std::move(error));
+    stop();
+  }
+
+ private:
+  std::vector<ton::BlockIdExt> blocks_;
+  td::actor::ActorShared<> parent_;
+  td::Promise<tonlib_api_ptr<tonlib_api::blocks_outMsgQueueSizes>> promise_;
+  ExtClient client_;
+
+  std::vector<td::uint64> sizes_;
+  td::uint32 ext_msg_queue_size_limit_ = 0;
+  size_t pending_ = 0;
+};
+
 auto to_lite_api(const tonlib_api::ton_blockIdExt& blk) -> td::Result<lite_api_ptr<ton::lite_api::tonNode_blockIdExt>>;
 auto to_tonlib_api(const ton::lite_api::liteServer_transactionId& txid) -> tonlib_api_ptr<tonlib_api::blocks_shortTxId>;
 
@@ -6129,19 +6255,34 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getShardBlockProof&
 
 td::Status TonlibClient::do_request(const tonlib_api::blocks_getOutMsgQueueSizes& request,
                                     td::Promise<object_ptr<tonlib_api::blocks_outMsgQueueSizes>>&& promise) {
-  client_.send_query(ton::lite_api::liteServer_getOutMsgQueueSizes(request.mode_, request.wc_, request.shard_),
-                     promise.wrap([](lite_api_ptr<ton::lite_api::liteServer_outMsgQueueSizes>&& queue_sizes) {
-    tonlib_api::blocks_outMsgQueueSizes result;
-    result.ext_msg_queue_size_limit_ = queue_sizes->ext_msg_queue_size_limit_;
-    for (auto &x : queue_sizes->shards_) {
-      tonlib_api::blocks_outMsgQueueSize shard;
-      shard.id_ = to_tonlib_api(*x->id_);
-      shard.size_ = x->size_;
-      result.shards_.push_back(tonlib_api::make_object<tonlib_api::blocks_outMsgQueueSize>(std::move(shard)));
-    }
-    return tonlib_api::make_object<tonlib_api::blocks_outMsgQueueSizes>(std::move(result));
-  }));
-
+  auto req_mode = request.mode_;
+  auto req_shard = ton::ShardIdFull{request.wc_, (ton::ShardId)request.shard_};
+  if ((req_mode & 1) && !req_shard.is_valid_ext()) {
+    return td::Status::Error("invalid shard");
+  }
+  client_.with_last_block(
+      [=, self = this, promise = std::move(promise)](td::Result<LastBlockState> r_last_block) mutable {
+        TRY_RESULT_PROMISE_PREFIX(promise, last_block, std::move(r_last_block), "get last block failed: ");
+        do_request(tonlib_api::blocks_getShards(to_tonlib_api(last_block.last_block_id)),
+                   [=, mc_blkid = last_block.last_block_id,
+                    promise = std::move(promise)](td::Result<object_ptr<tonlib_api::blocks_shards>> R) mutable {
+                     TRY_RESULT_PROMISE_PREFIX(promise, shards, std::move(R), "get shards failed: ");
+                     std::vector<ton::BlockIdExt> blocks;
+                     if (!(req_mode & 1) || ton::shard_intersects(mc_blkid.shard_full(), req_shard)) {
+                       blocks.push_back(mc_blkid);
+                     }
+                     for (const auto& shard : shards->shards_) {
+                       TRY_RESULT_PROMISE(promise, block_id, to_block_id(*shard));
+                       if (!(req_mode & 1) || ton::shard_intersects(block_id.shard_full(), req_shard)) {
+                         blocks.push_back(block_id);
+                       }
+                     }
+                     auto actor_id = self->actor_id_++;
+                     self->actors_[actor_id] = td::actor::create_actor<GetOutMsgQueueSizes>(
+                         "GetOutMsgQueueSizes", self->client_.get_client(), std::move(blocks),
+                         actor_shared(this, actor_id), std::move(promise));
+                   });
+      });
   return td::Status::OK();
 }
 
