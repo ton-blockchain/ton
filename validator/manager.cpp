@@ -2754,6 +2754,9 @@ void ValidatorManagerImpl::update_shard_client_block_handle(BlockHandle handle, 
       last_liteserver_state_ = std::move(state);
     }
   }
+  for (auto &c : collator_nodes_) {
+    td::actor::send_closure(c.second.actor, &CollatorNode::update_shard_client_handle, shard_client_handle_);
+  }
   shard_client_update(seqno);
   promise.set_value(td::Unit());
 }
@@ -3509,6 +3512,13 @@ void ValidatorManagerImpl::add_collator(adnl::AdnlNodeIdShort id, ShardIdFull sh
   if (it == collator_nodes_.end()) {
     it = collator_nodes_.emplace(id, Collator()).first;
     it->second.actor = td::actor::create_actor<CollatorNode>("collatornode", id, opts_, actor_id(this), adnl_, rldp_);
+    if (last_masterchain_state_.not_null()) {
+      td::actor::send_closure(it->second.actor, &CollatorNode::new_masterchain_block_notification,
+                              last_masterchain_state_);
+    }
+    if (shard_client_handle_) {
+      td::actor::send_closure(it->second.actor, &CollatorNode::update_shard_client_handle, shard_client_handle_);
+    }
   }
   if (!it->second.shards.insert(shard).second) {
     return;

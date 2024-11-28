@@ -261,6 +261,8 @@ void CollationManager::get_stats(
     } else {
       obj->ping_in_ = -1.0;
     }
+    obj->last_ping_ago_ = collator.last_ping_at ? td::Time::now() - collator.last_ping_at.at() : -1.0;
+    obj->last_ping_status_ = collator.last_ping_status.is_ok() ? "OK" : collator.last_ping_status.message().str();
     stats->collators_.push_back(std::move(obj));
   }
   promise.set_value(std::move(stats));
@@ -323,7 +325,7 @@ void CollationManager::alarm() {
         td::actor::send_closure(SelfId, &CollationManager::got_pong, id, std::move(R));
       };
       LOG(DEBUG) << "sending ping to " << id;
-      td::actor::send_closure(rldp_, &rldp::Rldp::send_query, local_id_, id, "collatorping", std::move(P),
+      td::actor::send_closure(rldp_, &rldp::Rldp::send_query, local_id_, id, "ping", std::move(P),
                               td::Timestamp::in(2.0), std::move(query));
     } else {
       alarm_timestamp().relax(collator.ping_at);
@@ -340,7 +342,7 @@ void CollationManager::got_pong(adnl::AdnlNodeIdShort id, td::Result<td::BufferS
   collator.sent_ping = false;
 
   auto r_pong = [&]() -> td::Result<tl_object_ptr<ton_api::collatorNode_pong>> {
-    TRY_RESULT_PREFIX(data, std::move(R), "rldp query error: ");
+    TRY_RESULT(data, std::move(R));
     auto r_error = fetch_tl_object<ton_api::collatorNode_error>(data, true);
     if (r_error.is_ok()) {
       auto error = r_error.move_as_ok();
@@ -348,12 +350,15 @@ void CollationManager::got_pong(adnl::AdnlNodeIdShort id, td::Result<td::BufferS
     }
     return fetch_tl_object<ton_api::collatorNode_pong>(data, true);
   }();
+  collator.last_ping_at = td::Timestamp::now();
   if (r_pong.is_error()) {
-    LOG(DEBUG) << "pong from " << id << " : " << r_pong.move_as_error();
+    LOG(DEBUG) << "pong from " << id << " : " << r_pong.error();
     collator.alive = false;
+    collator.last_ping_status = r_pong.move_as_error();
   } else {
     LOG(DEBUG) << "pong from " << id << " : OK";
     collator.alive = true;
+    collator.last_ping_status = td::Status::OK();
   }
   collator.ping_at = td::Timestamp::in(td::Random::fast(10.0, 20.0));
   if (collator.active_cnt && !collator.sent_ping) {

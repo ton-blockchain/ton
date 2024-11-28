@@ -750,7 +750,7 @@ engine.validator.perfTimerStats stats:(vector engine.validator.PerfTimerStatsByN
 engine.validator.shardOutQueueSize size:long = engine.validator.ShardOutQueueSize;
 
 engine.validator.collationManagerStats.shard shard_id:tonNode.shardId self_collate:Bool select_mode:string active:Bool collators:(vector int256) = engine.validator.collationManagerStats.Shard;
-engine.validator.collationManagerStats.collator adnl_id:int256 active:Bool alive:Bool ping_in:double = engine.validator.collationManagerStats.Collator;
+engine.validator.collationManagerStats.collator adnl_id:int256 active:Bool alive:Bool ping_in:double last_ping_ago:double last_ping_status:string = engine.validator.collationManagerStats.Collator;
 engine.validator.collationManagerStats.localId adnl_id:int256 shards:(vector engine.validator.collationManagerStats.shard)
     collators:(vector engine.validator.collationManagerStats.collator) = engine.validator.collationManagerStats.LocalId;
 engine.validator.collationManagerStats local_ids:(vector engine.validator.collationManagerStats.localId) = engine.validator.CollationManagerStats;

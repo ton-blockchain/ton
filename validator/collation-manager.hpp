@@ -65,6 +65,8 @@ class CollationManager : public td::actor::Actor {
     td::Timestamp ping_at = td::Timestamp::now();
     bool sent_ping = false;
     size_t active_cnt = 0;
+    td::Timestamp last_ping_at = td::Timestamp::never();
+    td::Status last_ping_status = td::Status::Error("not pinged");
   };
   std::map<adnl::AdnlNodeIdShort, CollatorInfo> collators_;
 

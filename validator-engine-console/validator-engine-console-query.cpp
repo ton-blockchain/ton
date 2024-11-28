@@ -1775,8 +1775,24 @@ td::Status GetCollationManagerStatsQuery::receive(td::BufferSlice data) {
         if (collator == nullptr) {
           return td::Status::Error("collator not found");
         }
-        td::TerminalIO::out() << "      " << id << " alive=" << (int)collator->alive_
-                              << " ping_in=" << collator->ping_in_ << "\n";
+        td::StringBuilder sb;
+        sb << "      " << id << "\n";
+        sb << "        alive=" << (int)collator->alive_;
+        if (collator->active_) {
+          sb << " ping_in=" << td::StringBuilder::FixedDouble(std::max(collator->ping_in_, 0.0), 3);
+        }
+        sb << " last_ping_ago=";
+        if (collator->last_ping_ago_ < 0.0) {
+          sb << "never";
+        } else {
+          std::string status = collator->last_ping_status_;
+          std::erase_if(status, [](char c) { return c < (char)32; });
+          if (status.size() > 128) {
+            status.resize(128);
+          }
+          sb << td::StringBuilder::FixedDouble(collator->last_ping_ago_, 3) << ": " << status;
+        }
+        td::TerminalIO::out() << sb.as_cslice() << "\n";
       }
     }
   }

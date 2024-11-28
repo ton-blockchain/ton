@@ -167,6 +167,10 @@ void CollatorNode::new_masterchain_block_notification(td::Ref<MasterchainState> 
   }
 }
 
+void CollatorNode::update_shard_client_handle(BlockHandle shard_client_handle) {
+  shard_client_handle_ = shard_client_handle;
+}
+
 void CollatorNode::update_validator_group_info(ShardIdFull shard, std::vector<BlockIdExt> prev,
                                                CatchainSeqno cc_seqno) {
   if (!can_collate_shard(shard)) {
@@ -225,7 +229,12 @@ void CollatorNode::update_validator_group_info(ShardIdFull shard, std::vector<Bl
           }
           ++cache_it;
         }
-        generate_block(shard, cc_seqno, info.prev, {}, td::Timestamp::in(10.0), [](td::Result<BlockCandidate>) {});
+        auto S = check_out_of_sync();
+        if (S.is_ok()) {
+          generate_block(shard, cc_seqno, info.prev, {}, td::Timestamp::in(10.0), [](td::Result<BlockCandidate>) {});
+        } else {
+          LOG(DEBUG) << "not generating block automatically: " << S;
+        }
       }
       return;
     }
@@ -535,9 +544,22 @@ void CollatorNode::process_result(std::shared_ptr<CacheEntry> cache_entry, td::R
   cache_entry->promises.clear();
 }
 
+td::Status CollatorNode::check_out_of_sync() {
+  if (last_masterchain_state_.is_null() || !shard_client_handle_) {
+    return td::Status::Error("not inited");
+  }
+  auto now = (UnixTime)td::Clocks::system();
+  if (last_masterchain_state_->get_unix_time() < now - 60 || shard_client_handle_->unix_time() < now - 60) {
+    return td::Status::Error(PSTRING() << "out of sync: mc " << now - last_masterchain_state_->get_unix_time()
+                                       << "s ago, shardclient " << now - shard_client_handle_->unix_time() << "s ago");
+  }
+  return td::Status::OK();
+}
+
 void CollatorNode::process_ping(adnl::AdnlNodeIdShort src, ton_api::collatorNode_ping& ping,
                                 td::Promise<td::BufferSlice> promise) {
   LOG(DEBUG) << "got ping from " << src;
+  TRY_STATUS_PROMISE(promise, check_out_of_sync());
   promise.set_result(create_serialize_tl_object<ton_api::collatorNode_pong>(0));
 }
 
