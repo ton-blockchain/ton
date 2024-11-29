@@ -23,6 +23,7 @@
 #include "td/utils/Time.h"
 
 #include <numeric>
+#include <algorithm>
 
 namespace td {
 

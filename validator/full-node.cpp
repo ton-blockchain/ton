@@ -936,9 +936,9 @@ bool FullNodeConfig::operator!=(const FullNodeConfig &rhs) const {
 }
 
 bool CustomOverlayParams::send_shard(const ShardIdFull &shard) const {
-  return sender_shards_.empty() || std::ranges::any_of(sender_shards_, [&](const ShardIdFull &our_shard) {
-           return shard_intersects(shard, our_shard);
-         });
+  return sender_shards_.empty() ||
+         std::any_of(sender_shards_.begin(), sender_shards_.end(),
+                     [&](const ShardIdFull &our_shard) { return shard_intersects(shard, our_shard); });
 }
 
 CustomOverlayParams CustomOverlayParams::fetch(const ton_api::engine_validator_customOverlay& f) {

@@ -472,7 +472,7 @@ td::Result<bool> Config::config_add_collator(ton::adnl::AdnlNodeIdShort addr, to
     return td::Status::Error(PSTRING() << "invalid shard: " << shard.to_str());
   }
   auto& shards = collators[addr];
-  if (std::ranges::find(shards, shard) != collators[addr].end()) {
+  if (std::find(shards.begin(), shards.end(), shard) != shards.end()) {
     return false;
   }
   shards.push_back(shard);
@@ -484,7 +484,7 @@ td::Result<bool> Config::config_del_collator(ton::adnl::AdnlNodeIdShort addr, to
     return td::Status::Error(PSTRING() << "invalid shard: " << shard.to_str());
   }
   auto& shards = collators[addr];
-  auto it = std::ranges::find(shards, shard);
+  auto it = std::find(shards.begin(), shards.end(), shard);
   if (it == shards.end()) {
     return false;
   }
@@ -1605,7 +1605,7 @@ void ValidatorEngine::set_shard_check_function() {
       shards.push_back(s);
     }
     std::sort(shards.begin(), shards.end());
-    shards.erase(std::ranges::unique(shards).begin(), shards.end());
+    shards.erase(std::unique(shards.begin(), shards.end()), shards.end());
     validator_options_.write().set_shard_check_function(
         [shards = std::move(shards)](ton::ShardIdFull shard) -> bool {
           for (auto s : shards) {

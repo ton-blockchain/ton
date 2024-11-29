@@ -70,7 +70,7 @@ void CollatorNode::tear_down() {
 
 void CollatorNode::add_shard(ShardIdFull shard) {
   CHECK(shard.is_valid_ext() && !shard.is_masterchain());
-  if (std::ranges::find(collating_shards_, shard) != collating_shards_.end()) {
+  if (std::find(collating_shards_.begin(), collating_shards_.end(), shard) != collating_shards_.end()) {
     return;
   }
   LOG(INFO) << "Collator node: local_id=" << local_id_ << " , shard=" << shard.to_str();
@@ -78,7 +78,7 @@ void CollatorNode::add_shard(ShardIdFull shard) {
 }
 
 void CollatorNode::del_shard(ShardIdFull shard) {
-  auto it = std::ranges::find(collating_shards_, shard);
+  auto it = std::find(collating_shards_.begin(), collating_shards_.end(), shard);
   if (it != collating_shards_.end()) {
     collating_shards_.erase(it);
   }
@@ -608,8 +608,8 @@ void CollatorNode::process_ping(adnl::AdnlNodeIdShort src, ton_api::collatorNode
 }
 
 bool CollatorNode::can_collate_shard(ShardIdFull shard) const {
-  return std::ranges::any_of(collating_shards_,
-                             [&](const ShardIdFull& our_shard) { return shard_intersects(shard, our_shard); });
+  return std::any_of(collating_shards_.begin(), collating_shards_.end(),
+                     [&](const ShardIdFull& our_shard) { return shard_intersects(shard, our_shard); });
 }
 
 tl_object_ptr<ton_api::collatorNode_Candidate> CollatorNode::serialize_candidate(const BlockCandidate& block,

@@ -321,7 +321,7 @@ void CollationManager::alarm() {
     if (collator.ping_at.is_in_past()) {
       collator.sent_ping = true;
       td::BufferSlice query = create_serialize_tl_object<ton_api::collatorNode_ping>(0);
-      td::Promise<td::BufferSlice> P = [=, SelfId = actor_id(this)](td::Result<td::BufferSlice> R) mutable {
+      td::Promise<td::BufferSlice> P = [=, id = id, SelfId = actor_id(this)](td::Result<td::BufferSlice> R) mutable {
         td::actor::send_closure(SelfId, &CollationManager::got_pong, id, std::move(R));
       };
       LOG(DEBUG) << "sending ping to " << id;
