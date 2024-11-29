@@ -87,6 +87,9 @@ class CollatorNode : public td::actor::Actor {
   td::Ref<MasterchainState> last_masterchain_state_;
   BlockHandle shard_client_handle_;
 
+  td::Status mc_config_status_ = td::Status::Error("not inited");
+  BlockSeqno last_key_block_seqno_ = (BlockSeqno)-1;
+
   td::Result<FutureValidatorGroup*> get_future_validator_group(ShardIdFull shard, CatchainSeqno cc_seqno);
 
   void generate_block(ShardIdFull shard, CatchainSeqno cc_seqno, std::vector<BlockIdExt> prev_blocks,
@@ -95,6 +98,7 @@ class CollatorNode : public td::actor::Actor {
   void process_result(std::shared_ptr<CacheEntry> cache_entry, td::Result<BlockCandidate> R);
 
   td::Status check_out_of_sync();
+  td::Status check_mc_config();
 
  public:
   static tl_object_ptr<ton_api::collatorNode_Candidate> serialize_candidate(const BlockCandidate& block, bool compress);

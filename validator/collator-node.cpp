@@ -21,6 +21,7 @@
 #include "block-db.h"
 #include "td/utils/lz4.h"
 #include "checksum.h"
+#include "impl/collator-impl.h"
 #include "impl/shard.hpp"
 #include "validator-session/candidate-serializer.h"
 
@@ -85,6 +86,15 @@ void CollatorNode::del_shard(ShardIdFull shard) {
 
 void CollatorNode::new_masterchain_block_notification(td::Ref<MasterchainState> state) {
   last_masterchain_state_ = state;
+
+  if (state->last_key_block_id().seqno() != last_key_block_seqno_) {
+    last_key_block_seqno_ = state->last_key_block_id().seqno();
+    mc_config_status_ = check_mc_config();
+    if (mc_config_status_.is_error()) {
+      LOG(ERROR) << "Cannot validate masterchain config (possibly outdated software):" << mc_config_status_;
+    }
+  }
+
   if (validator_adnl_ids_.empty() || state->is_key_state()) {
     validator_adnl_ids_.clear();
     for (int next : {-1, 0, 1}) {
@@ -216,7 +226,7 @@ void CollatorNode::update_validator_group_info(ShardIdFull shard, std::vector<Bl
               LOG(INFO) << "generate block query"
                         << ": shard=" << shard.to_str() << ", cc_seqno=" << cc_seqno
                         << ", next_block_seqno=" << cache_entry->block_seqno
-                         << ": nobody asked for block, but we tried to generate it";
+                        << ": nobody asked for block, but we tried to generate it";
             }
             if (cache_entry->has_external_query_at && !cache_entry->has_internal_query_at) {
               LOG(INFO) << "generate block query"
@@ -230,11 +240,15 @@ void CollatorNode::update_validator_group_info(ShardIdFull shard, std::vector<Bl
           ++cache_it;
         }
         auto S = check_out_of_sync();
-        if (S.is_ok()) {
-          generate_block(shard, cc_seqno, info.prev, {}, td::Timestamp::in(10.0), [](td::Result<BlockCandidate>) {});
-        } else {
+        if (S.is_error()) {
           LOG(DEBUG) << "not generating block automatically: " << S;
+          return;
         }
+        if (mc_config_status_.is_error()) {
+          LOG(DEBUG) << "not generating block automatically: unsupported mc config: " << mc_config_status_;
+          return;
+        }
+        generate_block(shard, cc_seqno, info.prev, {}, td::Timestamp::in(10.0), [](td::Result<BlockCandidate>) {});
       }
       return;
     }
@@ -322,7 +336,7 @@ static BlockCandidate change_creator(BlockCandidate block, Ed25519_PublicKey cre
   for (auto& broadcast_ref : block.out_msg_queue_proof_broadcasts) {
     auto block_state_proof = create_block_state_proof(root).move_as_ok();
 
-    auto &broadcast = broadcast_ref.write();
+    auto& broadcast = broadcast_ref.write();
     broadcast.block_id = block.id;
     broadcast.block_state_proofs = vm::std_boc_serialize(std::move(block_state_proof), 31).move_as_ok();
   }
@@ -363,11 +377,9 @@ void CollatorNode::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data
   for (const auto& b : f->prev_blocks_) {
     prev_blocks.push_back(create_block_id(b));
   }
-  auto priority = BlockCandidatePriority {
-      .round = static_cast<td::uint32>(f->round_),
-      .first_block_round = static_cast<td::uint32>(f->first_block_round_),
-      .priority = f->priority_
-  };
+  auto priority = BlockCandidatePriority{.round = static_cast<td::uint32>(f->round_),
+                                         .first_block_round = static_cast<td::uint32>(f->first_block_round_),
+                                         .priority = f->priority_};
   Ed25519_PublicKey creator(f->creator_);
   td::Promise<BlockCandidate> new_promise = [promise = std::move(promise), src,
                                              shard](td::Result<BlockCandidate> R) mutable {
@@ -447,22 +459,21 @@ void CollatorNode::generate_block(ShardIdFull shard, CatchainSeqno cc_seqno, std
     return;
   }
 
-  static auto prefix_inner = [] (auto &sb, auto &shard, auto cc_seqno, auto block_seqno,
-                     const std::optional<BlockCandidatePriority> &o_priority) {
+  static auto prefix_inner = [](auto& sb, auto& shard, auto cc_seqno, auto block_seqno,
+                                const std::optional<BlockCandidatePriority>& o_priority) {
     sb << "generate block query"
        << ": shard=" << shard.to_str() << ", cc_seqno=" << cc_seqno << ", next_block_seqno=" << block_seqno;
     if (o_priority) {
       sb << " external{";
-      sb << "round_offset=" << o_priority->round - o_priority->first_block_round << ",priority=" << o_priority->priority;
+      sb << "round_offset=" << o_priority->round - o_priority->first_block_round
+         << ",priority=" << o_priority->priority;
       sb << ",first_block_round=" << o_priority->first_block_round;
       sb << "}";
     } else {
-      sb << " internal" ;
+      sb << " internal";
     }
   };
-  auto prefix = [&] (auto &sb) {
-    prefix_inner(sb, shard, cc_seqno, block_seqno, o_priority);
-  };
+  auto prefix = [&](auto& sb) { prefix_inner(sb, shard, cc_seqno, block_seqno, o_priority); };
 
   auto cache_entry = validator_group_info.cache[prev_blocks];
   if (cache_entry == nullptr) {
@@ -473,7 +484,8 @@ void CollatorNode::generate_block(ShardIdFull shard, CatchainSeqno cc_seqno, std
     if (cache_entry->has_internal_query_at && cache_entry->has_external_query_at) {
       FLOG(INFO) {
         prefix(sb);
-        sb << ": got external query " << cache_entry->has_external_query_at.at() - cache_entry->has_internal_query_at.at()
+        sb << ": got external query "
+           << cache_entry->has_external_query_at.at() - cache_entry->has_internal_query_at.at()
            << "s  after internal query [WON]";
       };
     }
@@ -483,7 +495,8 @@ void CollatorNode::generate_block(ShardIdFull shard, CatchainSeqno cc_seqno, std
     if (cache_entry->has_internal_query_at && cache_entry->has_external_query_at) {
       FLOG(INFO) {
         prefix(sb);
-        sb << ": got internal query " << cache_entry->has_internal_query_at.at() - cache_entry->has_external_query_at.at()
+        sb << ": got internal query "
+           << cache_entry->has_internal_query_at.at() - cache_entry->has_external_query_at.at()
            << "s after external query [LOST]";
       };
     }
@@ -503,8 +516,8 @@ void CollatorNode::generate_block(ShardIdFull shard, CatchainSeqno cc_seqno, std
 
   if (cache_entry->started) {
     FLOG(INFO) {
-       prefix(sb);
-       sb << ": collation in progress, waiting";
+      prefix(sb);
+      sb << ": collation in progress, waiting";
     };
     return;
   }
@@ -519,7 +532,7 @@ void CollatorNode::generate_block(ShardIdFull shard, CatchainSeqno cc_seqno, std
       last_masterchain_state_->get_validator_set(shard), opts_->get_collator_options(), manager_, timeout,
       [=, SelfId = actor_id(this), timer = td::Timer{}](td::Result<BlockCandidate> R) {
         FLOG(INFO) {
-          prefix_inner(sb, shard, cc_seqno, block_seqno,o_priority);
+          prefix_inner(sb, shard, cc_seqno, block_seqno, o_priority);
           sb << timer.elapsed() << ": " << (R.is_ok() ? "OK" : R.error().to_string());
         };
         td::actor::send_closure(SelfId, &CollatorNode::process_result, cache_entry, std::move(R));
@@ -556,10 +569,41 @@ td::Status CollatorNode::check_out_of_sync() {
   return td::Status::OK();
 }
 
+td::Status CollatorNode::check_mc_config() {
+  if (last_masterchain_state_.is_null()) {
+    return td::Status::Error("not inited");
+  }
+  TRY_RESULT_PREFIX(
+      config,
+      block::ConfigInfo::extract_config(last_masterchain_state_->root_cell(), block::ConfigInfo::needCapabilities),
+      "cannot unpack masterchain config");
+  if (config->get_global_version() > Collator::supported_version()) {
+    return td::Status::Error(PSTRING() << "unsupported global version " << config->get_global_version()
+                                       << " (supported: " << Collator::supported_version() << ")");
+  }
+  if (config->get_capabilities() & ~Collator::supported_capabilities()) {
+    return td::Status::Error(PSTRING() << "unsupported capabilities " << config->get_capabilities()
+                                       << " (supported: " << Collator::supported_capabilities() << ")");
+  }
+  td::Status S = td::Status::OK();
+  config->foreach_config_param([&](int idx, td::Ref<vm::Cell> param) {
+    if (idx < 0) {
+      return true;
+    }
+    if (!block::gen::ConfigParam{idx}.validate_ref(1024, std::move(param))) {
+      S = td::Status::Error(PSTRING() << "unknown ConfigParam " << idx);
+      return false;
+    }
+    return true;
+  });
+  return S;
+}
+
 void CollatorNode::process_ping(adnl::AdnlNodeIdShort src, ton_api::collatorNode_ping& ping,
                                 td::Promise<td::BufferSlice> promise) {
   LOG(DEBUG) << "got ping from " << src;
   TRY_STATUS_PROMISE(promise, check_out_of_sync());
+  TRY_STATUS_PROMISE_PREFIX(promise, mc_config_status_.clone(), "unsupported mc config: ");
   promise.set_result(create_serialize_tl_object<ton_api::collatorNode_pong>(0));
 }
 

@@ -40,6 +40,7 @@ namespace validator {
 using td::Ref;
 
 class Collator final : public td::actor::Actor {
+ public:
   static constexpr int supported_version() {
     return SUPPORTED_VERSION;
   }
@@ -47,6 +48,8 @@ class Collator final : public td::actor::Actor {
     return ton::capCreateStatsEnabled | ton::capBounceMsgBody | ton::capReportVersion | ton::capShortDequeue |
            ton::capStoreOutMsgQueueSize | ton::capMsgMetadata | ton::capDeferMessages | ton::capFullCollatedData;
   }
+
+ private:
   using LtCellRef = block::LtCellRef;
   using NewOutMsg = block::NewOutMsg;
   const ShardIdFull shard_;
