@@ -1652,6 +1652,13 @@ void ValidatorManagerImpl::send_validator_telemetry(PublicKeyHash key,
   callback_->send_validator_telemetry(key, std::move(telemetry));
 }
 
+void ValidatorManagerImpl::send_get_out_msg_queue_proof_request(
+    ShardIdFull dst_shard, std::vector<BlockIdExt> blocks, block::ImportedMsgQueueLimits limits,
+    td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise) {
+  callback_->download_out_msg_queue_proof(dst_shard, std::move(blocks), limits, td::Timestamp::in(10.0),
+                                          std::move(promise));
+}
+
 void ValidatorManagerImpl::send_download_archive_request(BlockSeqno mc_seqno, ShardIdFull shard_prefix,
                                                          std::string tmp_dir, td::Timestamp timeout,
                                                          td::Promise<std::string> promise) {

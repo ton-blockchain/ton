@@ -430,6 +430,24 @@ void FullNodeImpl::download_archive(BlockSeqno masterchain_seqno, ShardIdFull sh
                           timeout, std::move(promise));
 }
 
+void FullNodeImpl::download_out_msg_queue_proof(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
+                                                block::ImportedMsgQueueLimits limits, td::Timestamp timeout,
+                                                td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise) {
+  if (blocks.empty()) {
+    promise.set_value({});
+    return;
+  }
+  // All blocks are expected to have the same minsplit shard prefix
+  auto shard = get_shard(blocks[0].shard_full());
+  if (shard.empty()) {
+    VLOG(FULL_NODE_WARNING) << "dropping download msg queue query to unknown shard";
+    promise.set_error(td::Status::Error(ErrorCode::notready, "shard not ready"));
+    return;
+  }
+  td::actor::send_closure(shard, &FullNodeShard::download_out_msg_queue_proof, dst_shard, std::move(blocks), limits,
+                          timeout, std::move(promise));
+}
+
 td::actor::ActorId<FullNodeShard> FullNodeImpl::get_shard(ShardIdFull shard) {
   if (shard.is_masterchain()) {
     return shards_[ShardIdFull{masterchainId}].actor.get();
@@ -643,6 +661,12 @@ void FullNodeImpl::start_up() {
     void download_archive(BlockSeqno masterchain_seqno, ShardIdFull shard_prefix, std::string tmp_dir,
                           td::Timestamp timeout, td::Promise<std::string> promise) override {
       td::actor::send_closure(id_, &FullNodeImpl::download_archive, masterchain_seqno, shard_prefix, std::move(tmp_dir),
+                              timeout, std::move(promise));
+    }
+    void download_out_msg_queue_proof(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
+                                      block::ImportedMsgQueueLimits limits, td::Timestamp timeout,
+                                      td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise) override {
+      td::actor::send_closure(id_, &FullNodeImpl::download_out_msg_queue_proof, dst_shard, std::move(blocks), limits,
                               timeout, std::move(promise));
     }
 

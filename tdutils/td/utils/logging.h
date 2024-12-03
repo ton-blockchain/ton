@@ -74,6 +74,7 @@
 
 #define LOG(level) LOG_IMPL(level, level, true, ::td::Slice())
 #define LOG_IF(level, condition) LOG_IMPL(level, level, condition, #condition)
+#define FLOG(level) LOG_IMPL(level, level, true, ::td::Slice()) << td::LambdaPrint{} << [&](auto &sb)
 
 #define VLOG(level) LOG_IMPL(DEBUG, level, true, TD_DEFINE_STR(level))
 #define VLOG_IF(level, condition) LOG_IMPL(DEBUG, level, condition, TD_DEFINE_STR(level) " " #condition)
@@ -95,13 +96,13 @@ inline bool no_return_func() {
 #define DUMMY_LOG_CHECK(condition) LOG_IF(NEVER, !(condition))
 
 #ifdef TD_DEBUG
-  #if TD_MSVC
+#if TD_MSVC
     #define LOG_CHECK(condition)        \
       __analysis_assume(!!(condition)); \
       LOG_IMPL(FATAL, FATAL, !(condition), #condition)
-  #else
+#else
     #define LOG_CHECK(condition) LOG_IMPL(FATAL, FATAL, !(condition) && no_return_func(), #condition)
-  #endif
+#endif
 #else
   #define LOG_CHECK DUMMY_LOG_CHECK
 #endif
@@ -262,6 +263,9 @@ class Logger {
   Logger &operator<<(const T &other) {
     sb_ << other;
     return *this;
+  }
+  LambdaPrintHelper<td::Logger> operator<<(const LambdaPrint &) {
+    return LambdaPrintHelper<td::Logger>{*this};
   }
 
   MutableCSlice as_cslice() {
