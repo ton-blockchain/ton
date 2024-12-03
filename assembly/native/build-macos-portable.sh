@@ -140,13 +140,13 @@ if [ "$with_tests" = true ]; then
   http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork tlbc emulator \
   test-ed25519 test-ed25519-crypto test-bigint test-vm test-fift test-cells test-smartcont \
   test-net test-tdactor test-tdutils test-tonlib-offline test-adnl test-dht test-rldp \
-  test-rldp2 test-catchain test-fec test-tddb test-db test-validator-session-state test-emulator
+  test-rldp2 test-catchain test-fec test-tddb test-db test-validator-session-state test-emulator proxy-liteserver
   test $? -eq 0 || { echo "Can't compile ton"; exit 1; }
 else
   ninja storage-daemon storage-daemon-cli blockchain-explorer   \
   tonlib tonlibjson tonlib-cli validator-engine func tolk fift \
   lite-client pow-miner validator-engine-console generate-random-id json2tlo dht-server \
-  http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork tlbc emulator
+  http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork tlbc emulator proxy-liteserver
   test $? -eq 0 || { echo "Can't compile ton"; exit 1; }
 fi
 
@@ -174,6 +174,7 @@ if [ "$with_artifacts" = true ]; then
   cp build/validator-engine/validator-engine artifacts/
   cp build/utils/generate-random-id artifacts/
   cp build/utils/json2tlo artifacts/
+  cp build/utils/proxy-liteserver artifacts/
   cp build/adnl/adnl-proxy artifacts/
   cp build/emulator/libemulator.dylib artifacts/
   rsync -r crypto/smartcont artifacts/

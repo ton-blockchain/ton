@@ -183,6 +183,14 @@ jobs:
           asset_name: lite-client.exe
           tag: ${{ steps.tag.outputs.TAG }}
 
+      - name: Upload Windows 2019 single artifact - proxy-liteserver
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-win-binaries/proxy-liteserver.exe
+          asset_name: proxy-liteserver.exe
+          tag: ${{ steps.tag.outputs.TAG }}
+
       - name: Upload Windows 2019 single artifact - rldp-http-proxy
         uses: svenstaro/upload-release-action@v2
         with:
@@ -279,6 +287,14 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: artifacts/ton-x86_64-macos-binaries/lite-client
           asset_name: lite-client-mac-x86-64
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Mac x86-64 single artifact - proxy-liteserver
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-macos-binaries/proxy-liteserver
+          asset_name: proxy-liteserver-mac-x86-64
           tag: ${{ steps.tag.outputs.TAG }}
 
       - name: Upload Mac x86-64 single artifact - rldp-http-proxy
@@ -380,6 +396,14 @@ jobs:
           asset_name: lite-client-mac-arm64
           tag: ${{ steps.tag.outputs.TAG }}
 
+      - name: Upload Mac arm64 single artifact - proxy-liteserver
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-arm64-macos-binaries/proxy-liteserver
+          asset_name: proxy-liteserver-mac-arm64
+          tag: ${{ steps.tag.outputs.TAG }}
+
       - name: Upload Mac arm64 single artifact - rldp-http-proxy
         uses: svenstaro/upload-release-action@v2
         with:
@@ -476,6 +500,14 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: artifacts/ton-x86_64-linux-binaries/lite-client
           asset_name: lite-client-linux-x86_64
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Linux x86-64 single artifact - proxy-liteserver
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-linux-binaries/proxy-liteserver
+          asset_name: proxy-liteserver-linux-x86_64
           tag: ${{ steps.tag.outputs.TAG }}
 
       - name: Upload Linux x86-64 single artifact - rldp-http-proxy
