@@ -26,6 +26,13 @@ IF %errorlevel% NEQ 0 (
   exit /b %errorlevel%
 )
 
+echo Installing nasm...
+choco install -y nasm
+IF %errorlevel% NEQ 0 (
+  echo Can't install nasm
+  exit /b %errorlevel%
+)
+
 mkdir third_libs
 cd third_libs
 
@@ -70,6 +77,10 @@ if not exist "openssl" (
   git checkout openssl-3.1.4
   where perl
   perl Configure VC-WIN64A
+  IF %errorlevel% NEQ 0 (
+    echo Can't configure openssl
+    exit /b %errorlevel%
+  )
   nmake
   cd ..
 ) else (
