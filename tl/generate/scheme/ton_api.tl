@@ -749,6 +749,8 @@ engine.validator.perfTimerStats stats:(vector engine.validator.PerfTimerStatsByN
 
 engine.validator.shardOutQueueSize size:long = engine.validator.ShardOutQueueSize;
 
+engine.validator.exportedPrivateKeys encrypted_data:bytes = engine.validator.ExportedPrivateKeys;
+
 engine.validator.collationManagerStats.shard shard_id:tonNode.shardId self_collate:Bool select_mode:string active:Bool collators:(vector int256) = engine.validator.collationManagerStats.Shard;
 engine.validator.collationManagerStats.collator adnl_id:int256 active:Bool alive:Bool ping_in:double last_ping_ago:double last_ping_status:string = engine.validator.collationManagerStats.Collator;
 engine.validator.collationManagerStats.localId adnl_id:int256 shards:(vector engine.validator.collationManagerStats.shard)
@@ -784,6 +786,7 @@ engine.validator.delListeningPort ip:int port:int categories:(vector int) priori
 engine.validator.delProxy out_ip:int out_port:int categories:(vector int) priority_categories:(vector int) = engine.validator.Success;
 
 engine.validator.sign key_hash:int256 data:bytes = engine.validator.Signature;
+engine.validator.exportAllPrivateKeys encryption_key:PublicKey = engine.validator.ExportedPrivateKeys;
 
 engine.validator.getStats = engine.validator.Stats;
 engine.validator.getConfig = engine.validator.JsonConfig;

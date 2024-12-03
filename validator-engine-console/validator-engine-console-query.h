@@ -413,6 +413,30 @@ class SignFileQuery : public Query {
   std::string out_file_;
 };
 
+class ExportAllPrivateKeysQuery : public Query {
+ public:
+  ExportAllPrivateKeysQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice R) override;
+  static std::string get_name() {
+    return "exportallprivatekeys";
+  }
+  static std::string get_help() {
+    return "exportallprivatekeys <directory>\texports all private keys from validator engine and stores them to "
+           "<directory>";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  std::string directory_;
+  ton::PrivateKey client_pk_;
+};
+
 class AddAdnlAddrQuery : public Query {
  public:
   AddAdnlAddrQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)

@@ -112,6 +112,7 @@ void ValidatorEngineConsole::run() {
   add_query_runner(std::make_unique<QueryRunnerImpl<ExportPublicKeyFileQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<SignQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<SignFileQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<ExportAllPrivateKeysQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<AddAdnlAddrQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<AddDhtIdQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<AddValidatorPermanentKeyQuery>>());

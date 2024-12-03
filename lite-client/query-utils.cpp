@@ -181,9 +181,9 @@ QueryInfo get_query_info(const lite_api::Function& f) {
                      [&](const lite_api::liteServer_getBlockProof& q) {
                        info.shard_id = ShardIdFull{masterchainId};
                        BlockIdExt from = create_block_id(q.known_block_);
-                       BlockIdExt to = create_block_id(q.target_block_);
                        // See LiteQuery::perform_getBlockProof
                        if ((q.mode_ & 1) && (q.mode_ & 0x1000)) {
+                         BlockIdExt to = create_block_id(q.target_block_);  // target_block is non-null if (mode & 1)
                          info.type = QueryInfo::t_seqno;
                          info.value = std::max(from.seqno(), to.seqno());
                        } else {
