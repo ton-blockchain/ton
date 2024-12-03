@@ -35,6 +35,8 @@
 #include "ton/ton-tl.hpp"
 #include "td/utils/JsonBuilder.h"
 #include "auto/tl/ton_api_json.h"
+#include "keys/encryptor.h"
+#include "td/utils/port/path.h"
 #include "tl/tl_json.h"
 
 #include <cctype>
@@ -280,6 +282,66 @@ td::Status SignFileQuery::receive(td::BufferSlice data) {
                     "received incorrect answer: ");
   TRY_STATUS(td::write_file(out_file_, f->signature_.as_slice()));
   td::TerminalIO::out() << "got signature\n";
+  return td::Status::OK();
+}
+
+td::Status ExportAllPrivateKeysQuery::run() {
+  TRY_RESULT_ASSIGN(directory_, tokenizer_.get_token<std::string>());
+  TRY_STATUS(tokenizer_.check_endl());
+  client_pk_ = ton::privkeys::Ed25519::random();
+  return td::Status::OK();
+}
+
+td::Status ExportAllPrivateKeysQuery::send() {
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_exportAllPrivateKeys>(
+      client_pk_.compute_public_key().tl());
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status ExportAllPrivateKeysQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_exportedPrivateKeys>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  // Private keys are encrypted using client-provided public key to avoid storing them in
+  // non-secure buffers (not td::SecureString)
+  TRY_RESULT_PREFIX(decryptor, client_pk_.create_decryptor(), "cannot create decryptor: ");
+  TRY_RESULT_PREFIX(keys_data, decryptor->decrypt(f->encrypted_data_.as_slice()), "cannot decrypt data: ");
+  SCOPE_EXIT {
+    keys_data.as_slice().fill_zero_secure();
+  };
+  td::Slice slice = keys_data.as_slice();
+  if (slice.size() < 32) {
+    return td::Status::Error("data is too small");
+  }
+  slice.remove_suffix(32);
+  std::vector<ton::PrivateKey> private_keys;
+  while (!slice.empty()) {
+    if (slice.size() < 4) {
+      return td::Status::Error("unexpected end of data");
+    }
+    td::uint32 size;
+    td::MutableSlice{reinterpret_cast<char *>(&size), 4}.copy_from(slice.substr(0, 4));
+    if (size > slice.size()) {
+      return td::Status::Error("unexpected end of data");
+    }
+    slice.remove_prefix(4);
+    TRY_RESULT_PREFIX(private_key, ton::PrivateKey::import(slice.substr(0, size)), "cannot parse private key: ");
+    if (!private_key.exportable()) {
+      return td::Status::Error("private key is not exportable");
+    }
+    private_keys.push_back(std::move(private_key));
+    slice.remove_prefix(size);
+  }
+
+  TRY_STATUS_PREFIX(td::mkpath(directory_ + "/"), "cannot create directory " + directory_ + ": ");
+  td::TerminalIO::out() << "exported " << private_keys.size() << " private keys" << "\n";
+  for (const ton::PrivateKey &private_key : private_keys) {
+    std::string hash_hex = private_key.compute_short_id().bits256_value().to_hex();
+    TRY_STATUS_PREFIX(td::write_file(directory_ + "/" + hash_hex, private_key.export_as_slice()),
+                      "failed to write file: ");
+    td::TerminalIO::out() << "pubkey_hash " << hash_hex << "\n";
+  }
+  td::TerminalIO::out() << "written all files to " << directory_ << "\n";
   return td::Status::OK();
 }
 

@@ -44,6 +44,8 @@ class Keyring : public td::actor::Actor {
 
   virtual void decrypt_message(PublicKeyHash key_hash, td::BufferSlice data, td::Promise<td::BufferSlice> promise) = 0;
 
+  virtual void export_all_private_keys(td::Promise<std::vector<PrivateKey>> promise) = 0;
+
   static td::actor::ActorOwn<Keyring> create(std::string db_root);
 };
 

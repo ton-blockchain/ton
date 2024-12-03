@@ -725,6 +725,8 @@ engine.validator.perfTimerStats stats:(vector engine.validator.PerfTimerStatsByN
 
 engine.validator.shardOutQueueSize size:long = engine.validator.ShardOutQueueSize;
 
+engine.validator.exportedPrivateKeys encrypted_data:bytes = engine.validator.ExportedPrivateKeys;
+
 
 ---functions---
 
@@ -755,6 +757,7 @@ engine.validator.delListeningPort ip:int port:int categories:(vector int) priori
 engine.validator.delProxy out_ip:int out_port:int categories:(vector int) priority_categories:(vector int) = engine.validator.Success;
 
 engine.validator.sign key_hash:int256 data:bytes = engine.validator.Signature;
+engine.validator.exportAllPrivateKeys encryption_key:PublicKey = engine.validator.ExportedPrivateKeys;
 
 engine.validator.getStats = engine.validator.Stats;
 engine.validator.getConfig = engine.validator.JsonConfig;
