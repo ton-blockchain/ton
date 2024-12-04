@@ -673,7 +673,7 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
 void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getOutMsgQueueProof &query,
                                       td::Promise<td::BufferSlice> promise) {
   std::vector<BlockIdExt> blocks;
-  for (const auto& x : query.blocks_) {
+  for (const auto &x : query.blocks_) {
     BlockIdExt id = create_block_id(x);
     if (!id.is_valid_ext()) {
       promise.set_error(td::Status::Error("invalid block_id"));
@@ -691,18 +691,14 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
     return;
   }
   block::ImportedMsgQueueLimits limits{(td::uint32)query.limits_->max_bytes_, (td::uint32)query.limits_->max_msgs_};
-  if (limits.max_bytes > (1 << 24)) {
+  if (limits.max_msgs > 512) {
+    promise.set_error(td::Status::Error("max_msgs is too big"));
+    return;
+  }
+  if (limits.max_bytes > (1 << 21)) {
     promise.set_error(td::Status::Error("max_bytes is too big"));
     return;
   }
-  auto P = td::PromiseCreator::lambda(
-      [promise = std::move(promise)](td::Result<tl_object_ptr<ton_api::tonNode_outMsgQueueProof>> R) mutable {
-        if (R.is_error()) {
-          promise.set_result(create_serialize_tl_object<ton_api::tonNode_outMsgQueueProofEmpty>());
-        } else {
-          promise.set_result(serialize_tl_object(R.move_as_ok(), true));
-        }
-      });
   FLOG(DEBUG) {
     sb << "Got query getOutMsgQueueProof to shard " << dst_shard.to_str() << " from blocks";
     for (const BlockIdExt &id : blocks) {
@@ -710,9 +706,24 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
     }
     sb << " from " << src;
   };
-  td::actor::create_actor<BuildOutMsgQueueProof>("buildqueueproof", dst_shard, std::move(blocks), limits,
-                                                 validator_manager_, std::move(P))
-      .release();
+  td::actor::send_closure(
+      full_node_, &FullNode::get_out_msg_queue_query_token,
+      [=, manager = validator_manager_, blocks = std::move(blocks),
+       promise = std::move(promise)](td::Result<std::unique_ptr<ActionToken>> R) mutable {
+        TRY_RESULT_PROMISE(promise, token, std::move(R));
+        auto P =
+            td::PromiseCreator::lambda([promise = std::move(promise), token = std::move(token)](
+                                           td::Result<tl_object_ptr<ton_api::tonNode_outMsgQueueProof>> R) mutable {
+              if (R.is_error()) {
+                promise.set_result(create_serialize_tl_object<ton_api::tonNode_outMsgQueueProofEmpty>());
+              } else {
+                promise.set_result(serialize_tl_object(R.move_as_ok(), true));
+              }
+            });
+        td::actor::create_actor<BuildOutMsgQueueProof>("buildqueueproof", dst_shard, std::move(blocks), limits, manager,
+                                                       std::move(P))
+            .release();
+      });
 }
 
 void FullNodeShardImpl::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice query,
