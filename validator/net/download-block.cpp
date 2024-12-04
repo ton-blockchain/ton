@@ -128,7 +128,7 @@ void DownloadBlock::got_block_handle(BlockHandle handle) {
     return;
   }
 
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<std::unique_ptr<DownloadToken>> R) {
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<std::unique_ptr<ActionToken>> R) {
     if (R.is_error()) {
       td::actor::send_closure(SelfId, &DownloadBlock::abort_query,
                               R.move_as_error_prefix("failed to get download token: "));
@@ -140,7 +140,7 @@ void DownloadBlock::got_block_handle(BlockHandle handle) {
                           std::move(P));
 }
 
-void DownloadBlock::got_download_token(std::unique_ptr<DownloadToken> token) {
+void DownloadBlock::got_download_token(std::unique_ptr<ActionToken> token) {
   token_ = std::move(token);
 
   if (download_from_.is_zero() && !short_ && client_.empty()) {

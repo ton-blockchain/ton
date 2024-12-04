@@ -42,9 +42,9 @@ namespace ton {
 
 namespace validator {
 
-class DownloadToken {
+class ActionToken {
  public:
-  virtual ~DownloadToken() = default;
+  virtual ~ActionToken() = default;
 };
 
 struct PerfTimerStats {
@@ -280,7 +280,7 @@ class ValidatorManagerInterface : public td::actor::Actor {
   virtual void add_ext_server_port(td::uint16 port) = 0;
 
   virtual void get_download_token(size_t download_size, td::uint32 priority, td::Timestamp timeout,
-                                  td::Promise<std::unique_ptr<DownloadToken>> promise) = 0;
+                                  td::Promise<std::unique_ptr<ActionToken>> promise) = 0;
 
   virtual void get_block_data_from_db(ConstBlockHandle handle, td::Promise<td::Ref<BlockData>> promise) = 0;
   virtual void get_block_data_from_db_short(BlockIdExt block_id, td::Promise<td::Ref<BlockData>> promise) = 0;

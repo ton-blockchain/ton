@@ -543,8 +543,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   void try_get_static_file(FileHash file_hash, td::Promise<td::BufferSlice> promise) override;
 
   void get_download_token(size_t download_size, td::uint32 priority, td::Timestamp timeout,
-                          td::Promise<std::unique_ptr<DownloadToken>> promise) override {
-    td::actor::send_closure(token_manager_, &TokenManager::get_download_token, download_size, priority, timeout,
+                          td::Promise<std::unique_ptr<ActionToken>> promise) override {
+    td::actor::send_closure(token_manager_, &TokenManager::get_token, download_size, priority, timeout,
                             std::move(promise));
   }
 

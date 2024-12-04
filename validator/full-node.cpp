@@ -21,6 +21,7 @@
 #include "td/actor/MultiPromise.h"
 #include "full-node.h"
 #include "common/delay.h"
+#include "impl/out-msg-queue-proof.hpp"
 #include "td/utils/Random.h"
 #include "ton/ton-tl.hpp"
 
@@ -642,6 +643,11 @@ void FullNodeImpl::process_block_candidate_broadcast(BlockIdExt block_id, Catcha
   // ignore cc_seqno and validator_hash for now
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_block_candidate, block_id,
                           std::move(data));
+}
+
+void FullNodeImpl::get_out_msg_queue_query_token(td::Promise<std::unique_ptr<ActionToken>> promise) {
+  td::actor::send_closure(out_msg_queue_query_token_manager_, &TokenManager::get_token, 1, 0, td::Timestamp::in(10.0),
+                          std::move(promise));
 }
 
 void FullNodeImpl::set_validator_telemetry_filename(std::string value) {

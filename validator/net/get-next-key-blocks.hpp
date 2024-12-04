@@ -44,7 +44,7 @@ class GetNextKeyBlocks : public td::actor::Actor {
   void finish_query();
 
   void start_up() override;
-  void got_download_token(std::unique_ptr<DownloadToken> token);
+  void got_download_token(std::unique_ptr<ActionToken> token);
   void got_node_to_download(adnl::AdnlNodeIdShort node);
   void send_request();
   void got_result(td::BufferSlice res);
@@ -75,7 +75,7 @@ class GetNextKeyBlocks : public td::actor::Actor {
   std::vector<BlockIdExt> pending_;
   std::vector<BlockIdExt> res_;
 
-  std::unique_ptr<DownloadToken> token_;
+  std::unique_ptr<ActionToken> token_;
 };
 
 }  // namespace fullnode

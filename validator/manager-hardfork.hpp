@@ -366,7 +366,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void try_get_static_file(FileHash file_hash, td::Promise<td::BufferSlice> promise) override;
 
   void get_download_token(size_t download_size, td::uint32 priority, td::Timestamp timeout,
-                          td::Promise<std::unique_ptr<DownloadToken>> promise) override {
+                          td::Promise<std::unique_ptr<ActionToken>> promise) override {
     promise.set_error(td::Status::Error(ErrorCode::error, "download disabled"));
   }
 

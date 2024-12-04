@@ -49,7 +49,7 @@ class DownloadBlockNew : public td::actor::Actor {
 
   void start_up() override;
   void got_block_handle(BlockHandle handle);
-  void got_download_token(std::unique_ptr<DownloadToken> token);
+  void got_download_token(std::unique_ptr<ActionToken> token);
   void got_node_to_download(adnl::AdnlNodeIdShort node);
   void got_data(td::BufferSlice data);
   void got_data_from_db(td::BufferSlice data);
@@ -79,7 +79,7 @@ class DownloadBlockNew : public td::actor::Actor {
 
   bool allow_partial_proof_ = false;
 
-  std::unique_ptr<DownloadToken> token_;
+  std::unique_ptr<ActionToken> token_;
 };
 
 }  // namespace fullnode
