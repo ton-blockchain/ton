@@ -979,9 +979,9 @@ class GetOverlaysStatsJsonQuery : public Query {
   std::string name() const override {
     return get_name();
   }
-  
-private:
- std::string file_name_;
+
+ private:
+  std::string file_name_;
 };
 
 class SignCertificateQuery : public Query {
@@ -996,7 +996,8 @@ class SignCertificateQuery : public Query {
     return "signcert";
   }
   static std::string get_help() {
-    return "signcert <overlayid> <adnlid> <expireat> <maxsize> <signwith> <outfile>\tsign overlay certificate by <signwith> key";
+    return "signcert <overlayid> <adnlid> <expireat> <maxsize> <signwith> <outfile>\tsign overlay certificate by "
+           "<signwith> key";
   }
   std::string name() const override {
     return get_name();
@@ -1004,9 +1005,8 @@ class SignCertificateQuery : public Query {
   void receive_pubkey(td::BufferSlice R);
   void receive_signature(td::BufferSlice R);
 
-
  private:
-   void save_certificate();
+  void save_certificate();
 
   td::Bits256 overlay_;
   td::Bits256 id_;
@@ -1057,14 +1057,14 @@ class SignShardOverlayCertificateQuery : public Query {
     return "signshardoverlaycert";
   }
   static std::string get_help() {
-    return "signshardoverlaycert <workchain> <shardprefix> <key> <expireat> <maxsize> <outfile>\tsign certificate for <key> in currently active shard overlay";
+    return "signshardoverlaycert <workchain> <shardprefix> <key> <expireat> <maxsize> <outfile>\tsign certificate for "
+           "<key> in currently active shard overlay";
   }
   std::string name() const override {
     return get_name();
   }
 
  private:
-
   td::int32 wc_;
   td::int64 shard_;
   td::int32 expire_at_;
@@ -1072,7 +1072,6 @@ class SignShardOverlayCertificateQuery : public Query {
   td::uint32 max_size_;
   std::string out_file_;
 };
-
 
 class ImportShardOverlayCertificateQuery : public Query {
  public:
@@ -1086,14 +1085,14 @@ class ImportShardOverlayCertificateQuery : public Query {
     return "importshardoverlaycert";
   }
   static std::string get_help() {
-    return "importshardoverlaycert <workchain> <shardprefix> <key> <certfile>\timport certificate for <key> in currently active shard overlay";
+    return "importshardoverlaycert <workchain> <shardprefix> <key> <certfile>\timport certificate for <key> in "
+           "currently active shard overlay";
   }
   std::string name() const override {
     return get_name();
   }
 
  private:
-
   td::int32 wc_;
   td::int64 shard_;
   ton::PublicKeyHash key_;
@@ -1134,7 +1133,8 @@ class GetPerfTimerStatsJsonQuery : public Query {
     return "getperftimerstatsjson";
   }
   static std::string get_help() {
-    return "getperftimerstatsjson <outfile>\tgets min, average and max event processing time for last 60, 300 and 3600 seconds and writes to json file";
+    return "getperftimerstatsjson <outfile>\tgets min, average and max event processing time for last 60, 300 and 3600 "
+           "seconds and writes to json file";
   }
   std::string name() const override {
     return get_name();
@@ -1695,4 +1695,51 @@ class ImportFastSyncMemberCertificateQuery : public Query {
  private:
   td::Bits256 adnl_id_;
   std::string file_name_;
+};
+
+class AddFastSyncOverlayClientQuery : public Query {
+ public:
+  AddFastSyncOverlayClientQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "addfastsyncoverlayclient";
+  }
+  static std::string get_help() {
+    return "addfastsyncoverlayclient <adnl_id> <slot>\tstarts issuing member certificates "
+           "to <adnl_id> (hex) on slot (int)";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  td::Bits256 adnl_id_;
+  td::int32 slot_;
+};
+
+class DelFastSyncOverlayClientQuery : public Query {
+ public:
+  DelFastSyncOverlayClientQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "delfastsyncoverlayclient";
+  }
+  static std::string get_help() {
+    return "delfastsyncoverlayclient <adnl_id> <slot>\tstops issuing member certificates "
+           "to <adnl_id> (hex)";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  td::Bits256 adnl_id_;
 };

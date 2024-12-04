@@ -100,7 +100,10 @@ class FullNodeImpl : public FullNode {
   void set_validator_telemetry_filename(std::string value) override;
 
   void import_fast_sync_member_certificate(adnl::AdnlNodeIdShort local_id,
-                                            overlay::OverlayMemberCertificate cert) override {
+                                           overlay::OverlayMemberCertificate cert) override {
+    VLOG(FULL_NODE_DEBUG) << "Importing fast sync overlay certificate for " << local_id << " issued by "
+                          << cert.issued_by().compute_short_id() << " expires in "
+                          << (double)cert.expire_at() - td::Clocks::system();
     fast_sync_overlays_.add_member_certificate(local_id, std::move(cert));
   }
 
