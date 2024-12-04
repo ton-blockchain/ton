@@ -512,6 +512,9 @@ class ValidatorManagerImpl : public ValidatorManager {
   void send_top_shard_block_description(td::Ref<ShardTopBlockDescription> desc) override;
   void send_block_broadcast(BlockBroadcast broadcast, int mode) override;
   void send_validator_telemetry(PublicKeyHash key, tl_object_ptr<ton_api::validator_telemetry> telemetry) override;
+  void send_get_out_msg_queue_proof_request(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
+                                            block::ImportedMsgQueueLimits limits,
+                                            td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise) override;
   void send_download_archive_request(BlockSeqno mc_seqno, ShardIdFull shard_prefix, std::string tmp_dir,
                                      td::Timestamp timeout, td::Promise<std::string> promise) override;
 
@@ -524,8 +527,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   void try_get_static_file(FileHash file_hash, td::Promise<td::BufferSlice> promise) override;
 
   void get_download_token(size_t download_size, td::uint32 priority, td::Timestamp timeout,
-                          td::Promise<std::unique_ptr<DownloadToken>> promise) override {
-    td::actor::send_closure(token_manager_, &TokenManager::get_download_token, download_size, priority, timeout,
+                          td::Promise<std::unique_ptr<ActionToken>> promise) override {
+    td::actor::send_closure(token_manager_, &TokenManager::get_token, download_size, priority, timeout,
                             std::move(promise));
   }
 
