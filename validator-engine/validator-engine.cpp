@@ -1636,17 +1636,6 @@ td::Status ValidatorEngine::load_global_config() {
     h.push_back(b);
   }
   validator_options_.write().set_hardforks(std::move(h));
-
-  auto r_total_mem_stat = td::get_total_mem_stat();
-  if (r_total_mem_stat.is_error()) {
-    LOG(ERROR) << "Failed to get total RAM size: " << r_total_mem_stat.move_as_error();
-  } else {
-    td::uint64 total_ram = r_total_mem_stat.ok().total_ram;
-    LOG(WARNING) << "Total RAM = " << td::format::as_size(total_ram);
-    if (total_ram >= (90ULL << 30)) {
-      fast_state_serializer_enabled_ = true;
-    }
-  }
   validator_options_.write().set_fast_state_serializer_enabled(fast_state_serializer_enabled_);
 
   for (auto& id : config_.collator_node_whitelist) {
@@ -5392,7 +5381,7 @@ int main(int argc, char *argv[]) {
       });
   p.add_option(
       '\0', "fast-state-serializer",
-      "faster persistent state serializer, but requires more RAM (enabled automatically on machines with >= 90GB RAM)",
+      "faster persistent state serializer, but requires more RAM",
       [&]() {
         acts.push_back(
             [&x]() { td::actor::send_closure(x, &ValidatorEngine::set_fast_state_serializer_enabled, true); });
