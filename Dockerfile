@@ -30,7 +30,7 @@ RUN apt-get update && \
     net-tools netcat iptraf-ng jq tcpdump pv plzip && \
     rm -rf /var/lib/apt/lists/*
 
-RUN mkdir -p /var/ton-work/db /var/ton-work/scripts /usr/share/ton/smartcont/ /usr/lib/fift/
+RUN mkdir -p /var/ton-work/db /var/ton-work/scripts /usr/share/ton/smartcont/auto /usr/lib/fift/
 
 COPY --from=builder /ton/build/storage/storage-daemon/storage-daemon /usr/local/bin/
 COPY --from=builder /ton/build/storage/storage-daemon/storage-daemon-cli /usr/local/bin/
@@ -51,6 +51,7 @@ COPY --from=builder /ton/build/tolk/tolk /usr/local/bin/
 COPY --from=builder /ton/build/crypto/fift /usr/local/bin/
 COPY --from=builder /ton/build/crypto/func /usr/local/bin/
 COPY --from=builder /ton/crypto/smartcont/* /usr/share/ton/smartcont/
+COPY --from=builder /ton/crypto/smartcont/auto/* /usr/share/ton/smartcont/auto/
 COPY --from=builder /ton/crypto/fift/lib/* /usr/lib/fift/
 
 WORKDIR /var/ton-work/db
