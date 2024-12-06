@@ -20,11 +20,14 @@ COPY ./ ./
 RUN mkdir build && \
         cd build && \
         cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DPORTABLE=1 -DTON_ARCH= -DTON_USE_JEMALLOC=ON .. && \
-        ninja storage-daemon storage-daemon-cli tonlibjson fift func validator-engine validator-engine-console generate-random-id dht-server lite-client
+        ninja storage-daemon storage-daemon-cli tonlibjson fift func validator-engine validator-engine-console \
+    generate-random-id dht-server lite-client tolk rldp-http-proxy dht-server proxy-liteserver create-state \
+    blockchain-explorer emulator tonlibjson http-proxy adnl-proxy
 
 FROM ubuntu:22.04
 RUN apt-get update && \
-    apt-get install -y wget curl libatomic1 openssl libsodium-dev libmicrohttpd-dev liblz4-dev libjemalloc-dev htop net-tools netcat iptraf-ng jq tcpdump pv plzip && \
+    apt-get install -y wget curl libatomic1 openssl libsodium-dev libmicrohttpd-dev liblz4-dev libjemalloc-dev htop \
+    net-tools netcat iptraf-ng jq tcpdump pv plzip && \
     rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /var/ton-work/db /var/ton-work/scripts /usr/share/ton/smartcont/ /usr/lib/fift/
