@@ -2760,22 +2760,21 @@ int Transaction::try_action_reserve_currency(vm::CellSlice& cs, ActionPhase& ap,
     LOG(DEBUG) << "cannot reserve a negative amount: " << reserve.to_str();
     return -1;
   }
-  if (reserve.grams > ap.remaining_balance.grams) {
-    if (mode & 2) {
-      reserve.grams = ap.remaining_balance.grams;
-    } else {
-      LOG(DEBUG) << "cannot reserve " << reserve.grams << " nanograms : only " << ap.remaining_balance.grams
-                 << " available";
-      return 37;  // not enough grams
+  if (mode & 2) {
+    if (!reserve.clamp(ap.remaining_balance)) {
+      LOG(DEBUG) << "failed to clamp reserve amount" << mode;
+      return -1;
     }
+  }
+  if (reserve.grams > ap.remaining_balance.grams) {
+    LOG(DEBUG) << "cannot reserve " << reserve.grams << " nanograms : only " << ap.remaining_balance.grams
+               << " available";
+    return 37;  // not enough grams
   }
   if (!block::sub_extra_currency(ap.remaining_balance.extra, reserve.extra, newc.extra)) {
     LOG(DEBUG) << "not enough extra currency to reserve: " << block::CurrencyCollection{0, reserve.extra}.to_str()
                << " required, only " << block::CurrencyCollection{0, ap.remaining_balance.extra}.to_str()
                << " available";
-    if (mode & 2) {
-      // TODO: process (mode & 2) correctly by setting res_extra := inf (reserve.extra, ap.remaining_balance.extra)
-    }
     return 38;  // not enough (extra) funds
   }
   newc.grams = ap.remaining_balance.grams - reserve.grams;
