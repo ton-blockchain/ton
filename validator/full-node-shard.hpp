@@ -209,7 +209,7 @@ class FullNodeShardImpl : public FullNodeShard {
   void got_neighbours(std::vector<adnl::AdnlNodeIdShort> res);
   void update_neighbour_stats(adnl::AdnlNodeIdShort adnl_id, double t, bool success);
   void got_neighbour_capabilities(adnl::AdnlNodeIdShort adnl_id, double t, td::BufferSlice data);
-  const Neighbour &choose_neighbour() const;
+  const Neighbour &choose_neighbour(td::uint32 required_version_major = 0, td::uint32 required_version_minor = 0) const;
 
   template <typename T>
   td::Promise<T> create_neighbour_promise(const Neighbour &x, td::Promise<T> p, bool require_state = false) {

@@ -1794,7 +1794,7 @@ void ValidatorManagerImpl::send_validator_telemetry(PublicKeyHash key,
 void ValidatorManagerImpl::send_get_out_msg_queue_proof_request(
     ShardIdFull dst_shard, std::vector<BlockIdExt> blocks, block::ImportedMsgQueueLimits limits,
     td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise) {
-  callback_->download_out_msg_queue_proof(dst_shard, std::move(blocks), limits, td::Timestamp::in(10.0),
+  callback_->download_out_msg_queue_proof(dst_shard, std::move(blocks), limits, td::Timestamp::in(5.0),
                                           std::move(promise));
 }
 
