@@ -648,7 +648,7 @@ _ ConfigVotingSetup = ConfigParam 11;
 cfg_proposal#f3 param_id:int32 param_value:(Maybe ^Cell) if_hash_equal:(Maybe uint256) 
   = ConfigProposal;
 cfg_proposal_status#ce expires:uint32 proposal:^ConfigProposal is_critical:Bool
-  voters:(HashmapE 16 True) remaining_weight:int64 validator_set_id:uint256 
+  voters:(HashmapE 16 uint32) remaining_weight:int64 validator_set_id:uint256 
   rounds_remaining:uint8 wins:uint8 losses:uint8 = ConfigProposalStatus;
 
 wfmt_basic#1 vm_version:int32 vm_mode:uint64 = WorkchainFormat 1;
