@@ -212,7 +212,7 @@ typedef struct ASN1_TLC_st ASN1_TLC;
 /* This is just an opaque pointer */
 typedef struct ASN1_VALUE_st ASN1_VALUE;
 
-/* Declare ASN1 functions: the implement macro in in asn1t.h */
+/* Declare ASN1 functions: the implement macro in asn1t.h */
 
 # define DECLARE_ASN1_FUNCTIONS(type) DECLARE_ASN1_FUNCTIONS_name(type, type)
 
