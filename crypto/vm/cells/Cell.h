@@ -55,6 +55,7 @@ class Cell : public CellTraits {
   }
 
   // load interface
+  virtual td::Status set_data_cell(Ref<DataCell> &&data_cell) const = 0;
   virtual td::Result<LoadedCell> load_cell() const = 0;
   virtual Ref<Cell> virtualize(VirtualizationParameters virt) const;
   virtual td::uint32 get_virtualization() const = 0;
