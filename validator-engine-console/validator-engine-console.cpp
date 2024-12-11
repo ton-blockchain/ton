@@ -206,9 +206,8 @@ void ValidatorEngineConsole::show_help(std::string command, td::Promise<td::Buff
       td::TerminalIO::out() << cmd.second->help() << "\n";
     }
   } else {
-    auto it = query_runners_.find(command);
-    if (it != query_runners_.end()) {
-      td::TerminalIO::out() << it->second->help() << "\n";
+    if (auto query = get_query(command)) {
+      td::TerminalIO::out() << query->help() << "\n";
     } else {
       td::TerminalIO::out() << "unknown command '" << command << "'\n";
     }
@@ -232,10 +231,9 @@ void ValidatorEngineConsole::parse_line(td::BufferSlice data) {
   }
   auto name = tokenizer.get_token<std::string>().move_as_ok();
 
-  auto it = query_runners_.find(name);
-  if (it != query_runners_.end()) {
+  if (auto query = get_query(name)) {
     running_queries_++;
-    it->second->run(actor_id(this), std::move(tokenizer));
+    query->run(actor_id(this), std::move(tokenizer));
   } else {
     td::TerminalIO::out() << "unknown command '" << name << "'\n";
   }
