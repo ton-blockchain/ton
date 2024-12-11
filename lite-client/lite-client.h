@@ -26,6 +26,7 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
+#include "ext-client.h"
 #include "adnl/adnl-ext-client.h"
 #include "tl-utils/tl-utils.hpp"
 #include "ton/ton-types.h"
@@ -46,22 +47,24 @@ class TestNode : public td::actor::Actor {
     min_ls_version = 0x101,
     min_ls_capabilities = 1
   };  // server version >= 1.1, capabilities at least +1 = build proof chains
-  td::actor::ActorOwn<ton::adnl::AdnlExtClient> client_;
+  td::actor::ActorOwn<liteclient::ExtClient> client_;
   td::actor::ActorOwn<td::TerminalIO> io_;
+  bool ready_ = false;
+
+  td::int32 single_liteserver_idx_ = -1;
+  td::IPAddress single_remote_addr_;
+  ton::PublicKey single_remote_public_key_;
 
   bool readline_enabled_ = true;
-  bool server_ok_ = false;
-  td::int32 liteserver_idx_ = -1;
   int print_limit_ = 1024;
 
-  bool ready_ = false;
-  bool inited_ = false;
   std::string db_root_;
 
-  int server_time_ = 0;
-  int server_time_got_at_ = 0;
-  int server_version_ = 0;
-  long long server_capabilities_ = 0;
+  int mc_server_time_ = 0;
+  int mc_server_time_got_at_ = 0;
+  int mc_server_version_ = 0;
+  long long mc_server_capabilities_ = 0;
+  bool mc_server_ok_ = false;
 
   ton::ZeroStateIdExt zstate_id_;
   ton::BlockIdExt mc_last_id_;
@@ -76,9 +79,6 @@ class TestNode : public td::actor::Actor {
   const char *parse_ptr_, *parse_end_;
   td::Status error_;
 
-  td::IPAddress remote_addr_;
-  ton::PublicKey remote_public_key_;
-
   std::vector<ton::BlockIdExt> known_blk_ids_;
   std::size_t shown_blk_ids_ = 0;
 
@@ -88,8 +88,6 @@ class TestNode : public td::actor::Actor {
   std::vector<td::BufferSlice> ex_queries_;
 
   std::map<td::Bits256, Ref<vm::Cell>> cell_cache_;
-
-  std::unique_ptr<ton::adnl::AdnlExtClient::Callback> make_callback();
 
   using creator_stats_func_t =
       std::function<bool(const td::Bits256&, const block::DiscountedCounter&, const block::DiscountedCounter&)>;
@@ -183,8 +181,8 @@ class TestNode : public td::actor::Actor {
   void got_server_mc_block_id(ton::BlockIdExt blkid, ton::ZeroStateIdExt zstateid, int created_at);
   void got_server_mc_block_id_ext(ton::BlockIdExt blkid, ton::ZeroStateIdExt zstateid, int mode, int version,
                                   long long capabilities, int last_utime, int server_now);
-  void set_server_version(td::int32 version, td::int64 capabilities);
-  void set_server_time(int server_utime);
+  void set_mc_server_version(td::int32 version, td::int64 capabilities);
+  void set_mc_server_time(int server_utime);
   bool request_block(ton::BlockIdExt blkid);
   bool request_state(ton::BlockIdExt blkid);
   void got_mc_block(ton::BlockIdExt blkid, td::BufferSlice data);
@@ -370,9 +368,6 @@ class TestNode : public td::actor::Actor {
   bool parse_shard_id(ton::ShardIdFull& shard);
   bool parse_block_id_ext(ton::BlockIdExt& blkid, bool allow_incomplete = false);
   bool parse_block_id_ext(std::string blk_id_string, ton::BlockIdExt& blkid, bool allow_incomplete = false) const;
-  bool parse_stack_value(td::Slice str, vm::StackEntry& value);
-  bool parse_stack_value(vm::StackEntry& value);
-  bool parse_stack_values(std::vector<vm::StackEntry>& values);
   bool register_blkid(const ton::BlockIdExt& blkid);
   bool show_new_blkids(bool all = false);
   bool complete_blkid(ton::BlockId partial_blkid, ton::BlockIdExt& complete_blkid) const;
@@ -391,16 +386,6 @@ class TestNode : public td::actor::Actor {
   static const tlb::TypenameLookup& get_tlb_dict();
 
  public:
-  void conn_ready() {
-    LOG(ERROR) << "conn ready";
-    ready_ = true;
-    if (!inited_) {
-      run_init_queries();
-    }
-  }
-  void conn_closed() {
-    ready_ = false;
-  }
   void set_global_config(std::string str) {
     global_config_ = str;
   }
@@ -411,10 +396,10 @@ class TestNode : public td::actor::Actor {
     readline_enabled_ = value;
   }
   void set_liteserver_idx(td::int32 idx) {
-    liteserver_idx_ = idx;
+    single_liteserver_idx_ = idx;
   }
   void set_remote_addr(td::IPAddress addr) {
-    remote_addr_ = addr;
+    single_remote_addr_ = addr;
   }
   void set_public_key(td::BufferSlice file_name) {
     auto R = [&]() -> td::Result<ton::PublicKey> {
@@ -425,7 +410,7 @@ class TestNode : public td::actor::Actor {
     if (R.is_error()) {
       LOG(FATAL) << "bad server public key: " << R.move_as_error();
     }
-    remote_public_key_ = R.move_as_ok();
+    single_remote_public_key_ = R.move_as_ok();
   }
   void decode_public_key(td::BufferSlice b64_key) {
     auto R = [&]() -> td::Result<ton::PublicKey> {
@@ -437,7 +422,7 @@ class TestNode : public td::actor::Actor {
     if (R.is_error()) {
       LOG(FATAL) << "bad b64 server public key: " << R.move_as_error();
     }
-    remote_public_key_ = R.move_as_ok();
+    single_remote_public_key_ = R.move_as_ok();
   }
   void set_fail_timeout(td::Timestamp ts) {
     fail_timeout_ = ts;
@@ -475,8 +460,7 @@ class TestNode : public td::actor::Actor {
   bool envelope_send_query(td::BufferSlice query, td::Promise<td::BufferSlice> promise);
   void parse_line(td::BufferSlice data);
 
-  TestNode() {
-  }
+  TestNode() = default;
 
   void run();
 };

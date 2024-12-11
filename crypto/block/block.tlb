@@ -818,7 +818,7 @@ _ OracleBridgeParams = ConfigParam 72; // Binance Smart Chain bridge
 _ OracleBridgeParams = ConfigParam 73; // Polygon bridge
 
 // Note that chains in which bridge, minter and jetton-wallet operate are fixated
-jetton_bridge_prices#_ bridge_burn_fee:Coins bridge_mint_fee:Coins 
+jetton_bridge_prices#_ bridge_burn_fee:Coins bridge_mint_fee:Coins
                        wallet_min_tons_for_storage:Coins
                        wallet_gas_consumption:Coins
                        minter_min_tons_for_storage:Coins

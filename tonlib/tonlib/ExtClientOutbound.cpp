@@ -20,15 +20,12 @@
 #include "ExtClientOutbound.h"
 #include "TonlibError.h"
 #include <map>
+
 namespace tonlib {
 
-class ExtClientOutboundImp : public ExtClientOutbound {
+class ExtClientOutboundImpl : public ExtClientOutbound {
  public:
-  ExtClientOutboundImp(td::unique_ptr<ExtClientOutbound::Callback> callback) : callback_(std::move(callback)) {
-  }
-
-  void check_ready(td::Promise<td::Unit> promise) override {
-    promise.set_error(td::Status::Error("Not supported"));
+  ExtClientOutboundImpl(td::unique_ptr<ExtClientOutbound::Callback> callback) : callback_(std::move(callback)) {
   }
 
   void send_query(std::string name, td::BufferSlice data, td::Timestamp timeout,
@@ -36,9 +33,6 @@ class ExtClientOutboundImp : public ExtClientOutbound {
     auto query_id = next_query_id_++;
     queries_[query_id] = std::move(promise);
     callback_->request(query_id, data.as_slice().str());
-  }
-
-  void force_change_liteserver() override {
   }
 
   void on_query_result(td::int64 id, td::Result<td::BufferSlice> r_data, td::Promise<td::Unit> promise) override {
@@ -66,6 +60,6 @@ class ExtClientOutboundImp : public ExtClientOutbound {
 };
 
 td::actor::ActorOwn<ExtClientOutbound> ExtClientOutbound::create(td::unique_ptr<Callback> callback) {
-  return td::actor::create_actor<ExtClientOutboundImp>("ExtClientOutbound", std::move(callback));
+  return td::actor::create_actor<ExtClientOutboundImpl>("ExtClientOutbound", std::move(callback));
 }
 }  // namespace tonlib

@@ -94,7 +94,7 @@ struct Config {
   ton::tl_object_ptr<ton::ton_api::engine_validator_config> tl() const;
 
   Config();
-  Config(ton::ton_api::engine_validator_config &config);
+  Config(const ton::ton_api::engine_validator_config &config);
 };
 
 class DhtServer : public td::actor::Actor {

@@ -68,6 +68,9 @@ void OverlayManager::register_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdS
   }
   overlays_[local_id][overlay_id] = OverlayDescription{std::move(overlay), std::move(cert)};
 
+  if (!with_db_) {
+    return;
+  }
   auto P =
       td::PromiseCreator::lambda([id = overlays_[local_id][overlay_id].overlay.get()](td::Result<DbType::GetResult> R) {
         R.ensure();
@@ -417,13 +420,19 @@ OverlayManager::OverlayManager(std::string db_root, td::actor::ActorId<keyring::
 }
 
 void OverlayManager::start_up() {
-  std::shared_ptr<td::KeyValue> kv =
-      std::make_shared<td::RocksDb>(td::RocksDb::open(PSTRING() << db_root_ << "/overlays").move_as_ok());
-  db_ = DbType{std::move(kv)};
+  if (!db_root_.empty()) {
+    with_db_ = true;
+    std::shared_ptr<td::KeyValue> kv =
+        std::make_shared<td::RocksDb>(td::RocksDb::open(PSTRING() << db_root_ << "/overlays").move_as_ok());
+    db_ = DbType{std::move(kv)};
+  }
 }
 
 void OverlayManager::save_to_db(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
                                 std::vector<OverlayNode> nodes) {
+  if (!with_db_) {
+    return;
+  }
   std::vector<tl_object_ptr<ton_api::overlay_node>> nodes_vec;
   for (auto &n : nodes) {
     nodes_vec.push_back(n.tl());
@@ -564,7 +573,7 @@ td::Result<std::shared_ptr<Certificate>> Certificate::create(tl_object_ptr<ton_a
 }
 
 BroadcastCheckResult Certificate::check(PublicKeyHash node, OverlayIdShort overlay_id, td::int32 unix_time,
-                                        td::uint32 size, bool is_fec) const {
+                                        td::uint32 size, bool is_fec, bool skip_check_signature) const {
   if (size > max_size_) {
     return BroadcastCheckResult::Forbidden;
   }
@@ -575,16 +584,16 @@ BroadcastCheckResult Certificate::check(PublicKeyHash node, OverlayIdShort overl
     return BroadcastCheckResult::Forbidden;
   }
 
-  auto R1 = issued_by_.get<PublicKey>().create_encryptor();
-  if (R1.is_error()) {
-    return BroadcastCheckResult::Forbidden;
-  }
-  auto E = R1.move_as_ok();
-
-  auto B = to_sign(overlay_id, node);
-
-  if (E->check_signature(B.as_slice(), signature_.as_slice()).is_error()) {
-    return BroadcastCheckResult::Forbidden;
+  if (!skip_check_signature) {
+    auto R1 = issued_by_.get<PublicKey>().create_encryptor();
+    if (R1.is_error()) {
+      return BroadcastCheckResult::Forbidden;
+    }
+    auto E = R1.move_as_ok();
+    auto B = to_sign(overlay_id, node);
+    if (E->check_signature(B.as_slice(), signature_.as_slice()).is_error()) {
+      return BroadcastCheckResult::Forbidden;
+    }
   }
 
   return (flags_ & CertificateFlags::Trusted) ? BroadcastCheckResult::Allowed : BroadcastCheckResult::NeedCheck;

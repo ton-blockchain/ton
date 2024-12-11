@@ -234,7 +234,9 @@ void QueueSizeCounter::process_top_shard_blocks_cont(td::Ref<MasterchainState> s
   last_top_blocks_.clear();
   last_top_blocks_.push_back(state->get_block_id());
   for (auto &shard : state->get_shards()) {
-    last_top_blocks_.push_back(shard->top_block_id());
+    if (opts_->need_monitor(shard->shard(), state)) {
+      last_top_blocks_.push_back(shard->top_block_id());
+    }
   }
   for (const BlockIdExt &block_id : last_top_blocks_) {
     get_queue_size_ex_retry(block_id, init, ig.get_promise());

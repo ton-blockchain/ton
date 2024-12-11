@@ -67,7 +67,7 @@ class ArchiveManager : public td::actor::Actor {
   void get_block_by_lt(AccountIdPrefixFull account_id, LogicalTime lt, td::Promise<ConstBlockHandle> promise);
   void get_block_by_seqno(AccountIdPrefixFull account_id, BlockSeqno seqno, td::Promise<ConstBlockHandle> promise);
 
-  void get_archive_id(BlockSeqno masterchain_seqno, td::Promise<td::uint64> promise);
+  void get_archive_id(BlockSeqno masterchain_seqno, ShardIdFull shard_prefix, td::Promise<td::uint64> promise);
   void get_archive_slice(td::uint64 archive_id, td::uint64 offset, td::uint32 limit,
                          td::Promise<td::BufferSlice> promise);
 
@@ -76,6 +76,10 @@ class ArchiveManager : public td::actor::Actor {
 
   void commit_transaction();
   void set_async_mode(bool mode, td::Promise<td::Unit> promise);
+
+  void set_current_shard_split_depth(td::uint32 value) {
+    cur_shard_split_depth_ = value;
+  }
 
   static constexpr td::uint32 archive_size() {
     return 20000;
@@ -175,6 +179,7 @@ class ArchiveManager : public td::actor::Actor {
   bool async_mode_ = false;
   bool huge_transaction_started_ = false;
   td::uint32 huge_transaction_size_ = 0;
+  td::uint32 cur_shard_split_depth_ = 0;
 
   DbStatistics statistics_;
 

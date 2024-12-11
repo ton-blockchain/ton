@@ -1,9 +1,8 @@
-# - Try to find SECP256K1
+# - Try to find Secp256k1
 # Once done this will define
 #
-#  SECP256K1_FOUND - system has SECP256K1
-#  SECP256K1_INCLUDE_DIR - the SECP256K1 include directory
-#  SECP256K1_LIBRARY - Link these to use SECP256K1
+#  SECP256K1_INCLUDE_DIR - the Secp256k1 include directory
+#  SECP256K1_LIBRARY - Link these to use Secp256k1
 
 if (NOT SECP256K1_LIBRARY)
     find_path(

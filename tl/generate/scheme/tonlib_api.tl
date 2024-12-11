@@ -53,7 +53,7 @@ ton.blockIdExt workchain:int32 shard:int64 seqno:int32 root_hash:bytes file_hash
 extraCurrency id:int32 amount:int64 = ExtraCurrency;
 
 raw.fullAccountState balance:int64 extra_currencies:vector<extraCurrency> code:bytes data:bytes last_transaction_id:internal.transactionId block_id:ton.blockIdExt frozen_hash:bytes sync_utime:int53 = raw.FullAccountState;
-raw.message source:accountAddress destination:accountAddress value:int64 extra_currencies:vector<extraCurrency> fwd_fee:int64 ihr_fee:int64 created_lt:int64 body_hash:bytes msg_data:msg.Data = raw.Message;
+raw.message hash:bytes source:accountAddress destination:accountAddress value:int64 extra_currencies:vector<extraCurrency> fwd_fee:int64 ihr_fee:int64 created_lt:int64 body_hash:bytes msg_data:msg.Data = raw.Message;
 raw.transaction address:accountAddress utime:int53 data:bytes transaction_id:internal.transactionId fee:int64 storage_fee:int64 other_fee:int64 in_msg:raw.message out_msgs:vector<raw.message> = raw.Transaction;
 raw.transactions transactions:vector<raw.transaction> previous_transaction_id:internal.transactionId = raw.Transactions;
 

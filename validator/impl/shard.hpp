@@ -160,6 +160,9 @@ class MasterchainStateQ : public MasterchainState, public ShardStateQ {
       return td::make_ref<ConfigHolderQ>(config_);
     }
   }
+  block::WorkchainSet get_workchain_list() const override {
+    return config_ ? config_->get_workchain_list() : block::WorkchainSet();
+  }
 
  private:
   ZeroStateIdExt zerostate_id_;

@@ -36,21 +36,6 @@ else
 fi
 export CCACHE_DISABLE=1
 
-if [ ! -d "secp256k1" ]; then
-  git clone https://github.com/bitcoin-core/secp256k1.git
-  cd secp256k1
-  secp256k1Path=`pwd`
-  git checkout v0.3.2
-  ./autogen.sh
-  ./configure --enable-module-recovery --enable-static --disable-tests --disable-benchmark
-  make -j12
-  test $? -eq 0 || { echo "Can't compile secp256k1"; exit 1; }
-  cd ..
-else
-  secp256k1Path=$(pwd)/secp256k1
-  echo "Using compiled secp256k1"
-fi
-
 if [ ! -d "lz4" ]; then
   git clone https://github.com/lz4/lz4
   cd lz4
@@ -70,9 +55,6 @@ brew unlink openssl@3 &&  brew link --overwrite openssl@3
 
 cmake -GNinja -DCMAKE_BUILD_TYPE=Release .. \
 -DCMAKE_CXX_FLAGS="-stdlib=libc++" \
--DSECP256K1_FOUND=1 \
--DSECP256K1_INCLUDE_DIR=$secp256k1Path/include \
--DSECP256K1_LIBRARY=$secp256k1Path/.libs/libsecp256k1.a \
 -DLZ4_FOUND=1 \
 -DLZ4_LIBRARIES=$lz4Path/lib/liblz4.a \
 -DLZ4_INCLUDE_DIRS=$lz4Path/lib
@@ -86,35 +68,15 @@ if [ "$with_tests" = true ]; then
   http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork tlbc emulator \
   test-ed25519 test-ed25519-crypto test-bigint test-vm test-fift test-cells test-smartcont \
   test-net test-tdactor test-tdutils test-tonlib-offline test-adnl test-dht test-rldp \
-  test-rldp2 test-catchain test-fec test-tddb test-db test-validator-session-state test-emulator
+  test-rldp2 test-catchain test-fec test-tddb test-db test-validator-session-state test-emulator proxy-liteserver
   test $? -eq 0 || { echo "Can't compile ton"; exit 1; }
 else
   ninja storage-daemon storage-daemon-cli blockchain-explorer   \
   tonlib tonlibjson tonlib-cli validator-engine func tolk fift \
   lite-client pow-miner validator-engine-console generate-random-id json2tlo dht-server \
-  http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork tlbc emulator
+  http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork tlbc emulator proxy-liteserver
   test $? -eq 0 || { echo "Can't compile ton"; exit 1; }
 fi
-
-
-strip -s storage/storage-daemon/storage-daemon
-strip -s storage/storage-daemon/storage-daemon-cli
-strip -s blockchain-explorer/blockchain-explorer
-strip -s crypto/fift
-strip -s crypto/func
-strip -s tolk/tolk
-strip -s crypto/create-state
-strip -s crypto/tlbc
-strip -s validator-engine-console/validator-engine-console
-strip -s tonlib/tonlib-cli
-strip -s http/http-proxy
-strip -s rldp-http-proxy/rldp-http-proxy
-strip -s dht-server/dht-server
-strip -s lite-client/lite-client
-strip -s validator-engine/validator-engine
-strip -s utils/generate-random-id
-strip -s utils/json2tlo
-strip -s adnl/adnl-proxy
 
 cd ..
 
@@ -140,6 +102,7 @@ if [ "$with_artifacts" = true ]; then
   cp build/validator-engine/validator-engine artifacts/
   cp build/utils/generate-random-id artifacts/
   cp build/utils/json2tlo artifacts/
+  cp build/utils/proxy-liteserver artifacts/
   cp build/adnl/adnl-proxy artifacts/
   cp build/emulator/libemulator.dylib artifacts/
   cp -R crypto/smartcont artifacts/

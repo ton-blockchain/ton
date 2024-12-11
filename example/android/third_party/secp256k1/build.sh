@@ -5,28 +5,32 @@ export CC=
 export CXX=
 
 rm -rf secp256k1
-git clone https://github.com/libbitcoin/secp256k1.git
+git clone https://github.com/bitcoin-core/secp256k1
 
 cd secp256k1
+git checkout v0.3.2
 
 ./autogen.sh
+mkdir build
+cd build
 
-./configure --enable-module-recovery --enable-experimental --with-asm=arm --host=arm-linux-androideabi CC=armv7a-linux-androideabi21-clang CFLAGS="-mthumb -march=armv7-a" CCASFLAGS="-Wa,-mthumb -Wa,-march=armv7-a"
+cmake .. -DSECP256K1_ENABLE_MODULE_RECOVERY=ON -DCMAKE_TOOLCHAIN_FILE="${ANDROID_NDK_ROOT}/build/cmake/android.toolchain.cmake" -DANDROID_ABI=armeabi-v7a -DANDROID_PLATFORM=21 -DBUILD_SHARED_LIBS=OFF -DANDROID_TOOLCHAIN_NAME=arm-linux-androideabi
 make
-cp .libs/libsecp256k1.a ../armv7/
-cp .libs/libsecp256k1.so ../armv7/
+cp lib/libsecp256k1.a ../../armv7/
+rm -rf *
 
-./configure --enable-module-recovery --host=aarch64-linux-android CC=aarch64-linux-android21-clang CFLAGS="-mthumb -march=armv8-a" CCASFLAGS="-Wa,-mthumb -Wa,-march=armv8-a"
+cmake .. -DSECP256K1_ENABLE_MODULE_RECOVERY=ON -DCMAKE_TOOLCHAIN_FILE="${ANDROID_NDK_ROOT}/build/cmake/android.toolchain.cmake" -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=21 -DBUILD_SHARED_LIBS=OFF -DANDROID_TOOLCHAIN_NAME=aarch64-linux-android
 make
-cp .libs/libsecp256k1.a ../armv8/
-cp .libs/libsecp256k1.so ../armv8/
+cp lib/libsecp256k1.a ../../armv8/
+rm -rf *
 
-./configure --enable-module-recovery --host=x86_64-linux-android CC=x86_64-linux-android21-clang
+cmake .. -DSECP256K1_ENABLE_MODULE_RECOVERY=ON -DCMAKE_TOOLCHAIN_FILE="${ANDROID_NDK_ROOT}/build/cmake/android.toolchain.cmake" -DANDROID_ABI=x86_64 -DANDROID_PLATFORM=21 -DBUILD_SHARED_LIBS=OFF -DANDROID_TOOLCHAIN_NAME=x86_64
 make
-cp .libs/libsecp256k1.a ../x86-64/
-cp .libs/libsecp256k1.so ../x86-64/
+cp lib/libsecp256k1.a ../../x86-64/
+rm -rf *
 
-./configure --enable-module-recovery --host=i686-linux-android CC=i686-linux-android21-clang
+cmake .. -DSECP256K1_ENABLE_MODULE_RECOVERY=ON -DCMAKE_TOOLCHAIN_FILE="${ANDROID_NDK_ROOT}/build/cmake/android.toolchain.cmake" -DANDROID_ABI= -DANDROID_PLATFORM=21 -DBUILD_SHARED_LIBS=OFF -DANDROID_TOOLCHAIN_NAME=x86-
 make
-cp .libs/libsecp256k1.a ../i686/
-cp .libs/libsecp256k1.so ../i686/
+cp lib/libsecp256k1.a ../../i686/
+rm -rf *
+rm -rf ../secp256k1

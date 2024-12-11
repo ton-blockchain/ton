@@ -380,7 +380,10 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, std::vector<std::pair<S
         }
         res.push_back(tfunc[0]);
         auto rvect = new_tmp_vect(code);
-        code.emplace_back(here, Op::_CallInd, rvect, std::move(res));
+        auto& op = code.emplace_back(here, Op::_CallInd, rvect, std::move(res));
+        if (flags & _IsImpure) {
+          op.flags |= Op::_Impure;
+        }
         return rvect;
       }
     case _Const: {

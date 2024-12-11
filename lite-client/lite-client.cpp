@@ -29,22 +29,16 @@
 
 #include "lite-client-common.h"
 
-#include "adnl/adnl-ext-client.h"
 #include "tl-utils/lite-utils.hpp"
 #include "auto/tl/ton_api_json.h"
 #include "auto/tl/lite_api.hpp"
 #include "td/utils/OptionParser.h"
 #include "td/utils/Time.h"
 #include "td/utils/filesystem.h"
-#include "td/utils/format.h"
 #include "td/utils/Random.h"
 #include "td/utils/crypto.h"
-#include "td/utils/overloaded.h"
 #include "td/utils/port/signals.h"
-#include "td/utils/port/stacktrace.h"
-#include "td/utils/port/StdStreams.h"
 #include "td/utils/port/FileFd.h"
-#include "terminal/terminal.h"
 #include "ton/lite-tl.hpp"
 #include "block/block-db.h"
 #include "block/block.h"
@@ -58,42 +52,20 @@
 #include "vm/vm.h"
 #include "vm/cp0.h"
 #include "vm/memo.h"
-#include "ton/ton-shard.h"
-#include "openssl/rand.hpp"
 #include "crypto/vm/utils.h"
 #include "crypto/common/util.h"
 #include "common/checksum.h"
 
 #if TD_DARWIN || TD_LINUX
 #include <unistd.h>
-#include <fcntl.h>
 #endif
 #include <iostream>
-#include <sstream>
 #include "git.h"
 
 using namespace std::literals::string_literals;
 using td::Ref;
 
 int verbosity;
-
-std::unique_ptr<ton::adnl::AdnlExtClient::Callback> TestNode::make_callback() {
-  class Callback : public ton::adnl::AdnlExtClient::Callback {
-   public:
-    void on_ready() override {
-      td::actor::send_closure(id_, &TestNode::conn_ready);
-    }
-    void on_stop_ready() override {
-      td::actor::send_closure(id_, &TestNode::conn_closed);
-    }
-    Callback(td::actor::ActorId<TestNode> id) : id_(std::move(id)) {
-    }
-
-   private:
-    td::actor::ActorId<TestNode> id_;
-  };
-  return std::make_unique<Callback>(actor_id(this));
-}
 
 void TestNode::run() {
   class Cb : public td::TerminalIO::Callback {
@@ -110,19 +82,20 @@ void TestNode::run() {
   io_ = td::TerminalIO::create("> ", readline_enabled_, ex_mode_, std::make_unique<Cb>(actor_id(this)));
   td::actor::send_closure(io_, &td::TerminalIO::set_log_interface);
 
-  if (remote_public_key_.empty()) {
+  std::vector<liteclient::LiteServerConfig> servers;
+  if (!single_remote_public_key_.empty()) {  // Use single provided liteserver
+    servers.push_back(
+        liteclient::LiteServerConfig{ton::adnl::AdnlNodeIdFull{single_remote_public_key_}, single_remote_addr_});
+    td::TerminalIO::out() << "using liteserver " << single_remote_addr_ << "\n";
+  } else {
     auto G = td::read_file(global_config_).move_as_ok();
     auto gc_j = td::json_decode(G.as_slice()).move_as_ok();
     ton::ton_api::liteclient_config_global gc;
     ton::ton_api::from_json(gc, gc_j.get_object()).ensure();
-    CHECK(gc.liteservers_.size() > 0);
-    auto idx = liteserver_idx_ >= 0 ? liteserver_idx_
-                                    : td::Random::fast(0, static_cast<td::uint32>(gc.liteservers_.size() - 1));
-    CHECK(idx >= 0 && static_cast<td::uint32>(idx) <= gc.liteservers_.size());
-    auto& cli = gc.liteservers_[idx];
-    remote_addr_.init_host_port(td::IPAddress::ipv4_to_str(cli->ip_), cli->port_).ensure();
-    remote_public_key_ = ton::PublicKey{cli->id_};
-    td::TerminalIO::out() << "using liteserver " << idx << " with addr " << remote_addr_ << "\n";
+    auto r_servers = liteclient::LiteServerConfig::parse_global_config(gc);
+    r_servers.ensure();
+    servers = r_servers.move_as_ok();
+
     if (gc.validator_ && gc.validator_->zero_state_) {
       zstate_id_.workchain = gc.validator_->zero_state_->workchain_;
       if (zstate_id_.workchain != ton::workchainInvalid) {
@@ -131,10 +104,19 @@ void TestNode::run() {
         td::TerminalIO::out() << "zerostate set to " << zstate_id_.to_str() << "\n";
       }
     }
-  }
 
-  client_ =
-      ton::adnl::AdnlExtClient::create(ton::adnl::AdnlNodeIdFull{remote_public_key_}, remote_addr_, make_callback());
+    if (single_liteserver_idx_ != -1) {  // Use single liteserver from config
+      CHECK(single_liteserver_idx_ >= 0 && (size_t)single_liteserver_idx_ < servers.size());
+      td::TerminalIO::out() << "using liteserver #" << single_liteserver_idx_ << " with addr "
+                            << servers[single_liteserver_idx_].addr << "\n";
+      servers = {servers[single_liteserver_idx_]};
+    }
+  }
+  CHECK(!servers.empty());
+  client_ = liteclient::ExtClient::create(std::move(servers), nullptr);
+  ready_ = true;
+
+  run_init_queries();
 }
 
 void TestNode::got_result(td::Result<td::BufferSlice> R, td::Promise<td::BufferSlice> promise) {
@@ -191,8 +173,8 @@ bool TestNode::envelope_send_query(td::BufferSlice query, td::Promise<td::Buffer
       });
   td::BufferSlice b =
       ton::serialize_tl_object(ton::create_tl_object<ton::lite_api::liteServer_query>(std::move(query)), true);
-  td::actor::send_closure(client_, &ton::adnl::AdnlExtClient::send_query, "query", std::move(b),
-                          td::Timestamp::in(10.0), std::move(P));
+  td::actor::send_closure(client_, &liteclient::ExtClient::send_query, "query", std::move(b), td::Timestamp::in(10.0),
+                          std::move(P));
   return true;
 }
 
@@ -319,9 +301,10 @@ bool TestNode::get_server_time() {
       if (F.is_error()) {
         LOG(ERROR) << "cannot parse answer to liteServer.getTime";
       } else {
-        server_time_ = F.move_as_ok()->now_;
-        server_time_got_at_ = now();
-        LOG(INFO) << "server time is " << server_time_ << " (delta " << server_time_ - server_time_got_at_ << ")";
+        mc_server_time_ = F.move_as_ok()->now_;
+        mc_server_time_got_at_ = now();
+        LOG(INFO) << "server time is " << mc_server_time_ << " (delta " << mc_server_time_ - mc_server_time_got_at_
+                  << ")";
       }
     }
   });
@@ -335,7 +318,7 @@ bool TestNode::get_server_version(int mode) {
 };
 
 void TestNode::got_server_version(td::Result<td::BufferSlice> res, int mode) {
-  server_ok_ = false;
+  mc_server_ok_ = false;
   if (res.is_error()) {
     LOG(ERROR) << "cannot get server version and time (server too old?)";
   } else {
@@ -344,11 +327,11 @@ void TestNode::got_server_version(td::Result<td::BufferSlice> res, int mode) {
       LOG(ERROR) << "cannot parse answer to liteServer.getVersion";
     } else {
       auto a = F.move_as_ok();
-      set_server_version(a->version_, a->capabilities_);
-      set_server_time(a->now_);
+      set_mc_server_version(a->version_, a->capabilities_);
+      set_mc_server_time(a->now_);
     }
   }
-  if (!server_ok_) {
+  if (!mc_server_ok_) {
     LOG(ERROR) << "server version is too old (at least " << (min_ls_version >> 8) << "." << (min_ls_version & 0xff)
                << " with capabilities " << min_ls_capabilities << " required), some queries are unavailable";
   }
@@ -357,24 +340,24 @@ void TestNode::got_server_version(td::Result<td::BufferSlice> res, int mode) {
   }
 }
 
-void TestNode::set_server_version(td::int32 version, td::int64 capabilities) {
-  if (server_version_ != version || server_capabilities_ != capabilities) {
-    server_version_ = version;
-    server_capabilities_ = capabilities;
-    LOG(WARNING) << "server version is " << (server_version_ >> 8) << "." << (server_version_ & 0xff)
-                 << ", capabilities " << server_capabilities_;
+void TestNode::set_mc_server_version(td::int32 version, td::int64 capabilities) {
+  if (mc_server_version_ != version || mc_server_capabilities_ != capabilities) {
+    mc_server_version_ = version;
+    mc_server_capabilities_ = capabilities;
+    LOG(WARNING) << "server version is " << (mc_server_version_ >> 8) << "." << (mc_server_version_ & 0xff)
+                 << ", capabilities " << mc_server_capabilities_;
   }
-  server_ok_ = (server_version_ >= min_ls_version) && !(~server_capabilities_ & min_ls_capabilities);
+  mc_server_ok_ = (mc_server_version_ >= min_ls_version) && !(~mc_server_capabilities_ & min_ls_capabilities);
 }
 
-void TestNode::set_server_time(int server_utime) {
-  server_time_ = server_utime;
-  server_time_got_at_ = now();
-  LOG(INFO) << "server time is " << server_time_ << " (delta " << server_time_ - server_time_got_at_ << ")";
+void TestNode::set_mc_server_time(int server_utime) {
+  mc_server_time_ = server_utime;
+  mc_server_time_got_at_ = now();
+  LOG(INFO) << "server time is " << mc_server_time_ << " (delta " << mc_server_time_ - mc_server_time_got_at_ << ")";
 }
 
 bool TestNode::get_server_mc_block_id() {
-  int mode = (server_capabilities_ & 2) ? 0 : -1;
+  int mode = (mc_server_capabilities_ & 2) ? 0 : -1;
   if (mode < 0) {
     auto b = ton::serialize_tl_object(ton::create_tl_object<ton::lite_api::liteServer_getMasterchainInfo>(), true);
     return envelope_send_query(std::move(b), [Self = actor_id(this)](td::Result<td::BufferSlice> res) -> void {
@@ -448,8 +431,8 @@ void TestNode::got_server_mc_block_id(ton::BlockIdExt blkid, ton::ZeroStateIdExt
 
 void TestNode::got_server_mc_block_id_ext(ton::BlockIdExt blkid, ton::ZeroStateIdExt zstateid, int mode, int version,
                                           long long capabilities, int last_utime, int server_now) {
-  set_server_version(version, capabilities);
-  set_server_time(server_now);
+  set_mc_server_version(version, capabilities);
+  set_mc_server_time(server_now);
   if (last_utime > server_now) {
     LOG(WARNING) << "server claims to have a masterchain block " << blkid.to_str() << " created at " << last_utime
                  << " (" << last_utime - server_now << " seconds in the future)";
@@ -457,10 +440,10 @@ void TestNode::got_server_mc_block_id_ext(ton::BlockIdExt blkid, ton::ZeroStateI
     LOG(WARNING) << "server appears to be out of sync: its newest masterchain block is " << blkid.to_str()
                  << " created at " << last_utime << " (" << server_now - last_utime
                  << " seconds ago according to the server's clock)";
-  } else if (last_utime < server_time_got_at_ - 60) {
+  } else if (last_utime < mc_server_time_got_at_ - 60) {
     LOG(WARNING) << "either the server is out of sync, or the local clock is set incorrectly: the newest masterchain "
                     "block known to server is "
-                 << blkid.to_str() << " created at " << last_utime << " (" << server_now - server_time_got_at_
+                 << blkid.to_str() << " created at " << last_utime << " (" << server_now - mc_server_time_got_at_
                  << " seconds ago according to the local clock)";
   }
   got_server_mc_block_id(blkid, zstateid, last_utime);

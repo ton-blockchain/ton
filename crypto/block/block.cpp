@@ -660,6 +660,12 @@ bool EnqueuedMsgDescr::check_key(td::ConstBitPtr key) const {
          hash_ == key + 96;
 }
 
+bool ImportedMsgQueueLimits::deserialize(vm::CellSlice& cs) {
+  return cs.fetch_ulong(8) == 0xd3           // imported_msg_queue_limits#d3
+         && cs.fetch_uint_to(32, max_bytes)  // max_bytes:#
+         && cs.fetch_uint_to(32, max_msgs);  // max_msgs:#
+}
+
 bool ParamLimits::deserialize(vm::CellSlice& cs) {
   return cs.fetch_ulong(8) == 0xc3            // param_limits#c3
          && cs.fetch_uint_to(32, limits_[0])  // underload:uint32

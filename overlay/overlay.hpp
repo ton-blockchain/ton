@@ -391,6 +391,7 @@ class OverlayImpl : public Overlay {
   td::Timestamp next_dht_store_query_ = td::Timestamp::in(1.0);
   td::Timestamp update_db_at_;
   td::Timestamp update_throughput_at_;
+  td::Timestamp update_neighbours_at_;
   td::Timestamp last_throughput_update_;
 
   std::unique_ptr<Overlays::Callback> callback_;
@@ -466,6 +467,19 @@ class OverlayImpl : public Overlay {
   TrafficStats total_traffic_responses, total_traffic_responses_ctr;
 
   OverlayOptions opts_;
+
+  struct CachedCertificate : td::ListNode {
+    CachedCertificate(PublicKeyHash source, td::Bits256 cert_hash)
+      : source(source)
+      , cert_hash(cert_hash) {
+    }
+
+    PublicKeyHash source;
+    td::Bits256 cert_hash;
+  };
+  std::map<PublicKeyHash, std::unique_ptr<CachedCertificate>> checked_certificates_cache_;
+  td::ListNode checked_certificates_cache_lru_;
+  size_t max_checked_certificates_cache_size_ = 1000;
 };
 
 }  // namespace overlay

@@ -323,9 +323,8 @@ class TestNode : public td::actor::Actor {
         td::actor::send_closure(id_, &ton::validator::ValidatorManager::sync_complete,
                                 td::PromiseCreator::lambda([](td::Unit) {}));
       }
-      void add_shard(ton::ShardIdFull) override {
-      }
-      void del_shard(ton::ShardIdFull) override {
+      void on_new_masterchain_block(td::Ref<ton::validator::MasterchainState> state,
+                                    std::set<ton::ShardIdFull> shards_to_monitor) override {
       }
       void send_ihr_message(ton::AccountIdPrefixFull dst, td::BufferSlice data) override {
       }
@@ -371,12 +370,18 @@ class TestNode : public td::actor::Actor {
       void get_next_key_blocks(ton::BlockIdExt block_id, td::Timestamp timeout,
                                td::Promise<std::vector<ton::BlockIdExt>> promise) override {
       }
-      void download_archive(ton::BlockSeqno masterchain_seqno, std::string tmp_dir, td::Timestamp timeout,
-
-                            td::Promise<std::string> promise) override {
+      void download_archive(ton::BlockSeqno masterchain_seqno, ton::ShardIdFull shard_prefix, std::string tmp_dir,
+                            td::Timestamp timeout, td::Promise<std::string> promise) override {
+      }
+      void download_out_msg_queue_proof(
+          ton::ShardIdFull dst_shard, std::vector<ton::BlockIdExt> blocks, block::ImportedMsgQueueLimits limits,
+          td::Timestamp timeout, td::Promise<std::vector<td::Ref<ton::validator::OutMsgQueueProof>>> promise) override {
       }
 
       void new_key_block(ton::validator::BlockHandle handle) override {
+      }
+      void send_validator_telemetry(ton::PublicKeyHash key,
+                                    ton::tl_object_ptr<ton::ton_api::validator_telemetry> telemetry) override {
       }
     };
 

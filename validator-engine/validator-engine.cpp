@@ -54,6 +54,7 @@
 #include "td/utils/Random.h"
 
 #include "auto/tl/lite_api.h"
+#include "tl/tl_json.h"
 
 #include "memprof/memprof.h"
 
@@ -64,10 +65,10 @@
 #endif
 #include <algorithm>
 #include <iostream>
-#include <sstream>
 #include <cstdlib>
 #include <limits>
 #include <set>
+#include <cstdio>
 #include "git.h"
 #include "block-auto.h"
 #include "block-parse.h"
@@ -84,7 +85,7 @@ Config::Config() {
   full_node = ton::PublicKeyHash::zero();
 }
 
-Config::Config(ton::ton_api::engine_validator_config &config) {
+Config::Config(const ton::ton_api::engine_validator_config &config) {
   full_node = ton::PublicKeyHash::zero();
   out_port = static_cast<td::uint16>(config.out_port_);
   if (!out_port) {
@@ -97,7 +98,7 @@ Config::Config(ton::ton_api::engine_validator_config &config) {
     std::vector<AdnlCategory> categories;
     std::vector<AdnlCategory> priority_categories;
     ton::ton_api::downcast_call(
-        *addr.get(),
+        *addr,
         td::overloaded(
             [&](const ton::ton_api::engine_addr &obj) {
               in_ip.init_ipv4_port(td::IPAddress::ipv4_to_str(obj.ip_), static_cast<td::uint16>(obj.port_)).ensure();
@@ -177,6 +178,10 @@ Config::Config(ton::ton_api::engine_validator_config &config) {
     for (auto &proc : serv->allowed_) {
       config_add_control_process(key, serv->port_, ton::PublicKeyHash{proc->id_}, proc->permissions_).ensure();
     }
+  }
+
+  for (auto &shard : config.shards_to_monitor_) {
+    config_add_shard(ton::create_shard_id(shard)).ensure();
   }
 
   if (config.gc_) {
@@ -262,14 +267,21 @@ ton::tl_object_ptr<ton::ton_api::engine_validator_config> Config::tl() const {
                                                                                        std::move(control_proc_vec)));
   }
 
+  std::vector<ton::tl_object_ptr<ton::ton_api::tonNode_shardId>> shards_vec;
+  for (auto &shard : shards_to_monitor) {
+    shards_vec.push_back(ton::create_tl_shard_id(shard));
+  }
+
   auto gc_vec = ton::create_tl_object<ton::ton_api::engine_gc>(std::vector<td::Bits256>{});
   for (auto &id : gc) {
     gc_vec->ids_.push_back(id.tl());
   }
+
   return ton::create_tl_object<ton::ton_api::engine_validator_config>(
-      out_port, std::move(addrs_vec), std::move(adnl_vec), std::move(dht_vec), std::move(val_vec), full_node.tl(),
-      std::move(full_node_slaves_vec), std::move(full_node_masters_vec), std::move(full_node_config_obj),
-      std::move(extra_config_obj), std::move(liteserver_vec), std::move(control_vec), std::move(gc_vec));
+      out_port, std::move(addrs_vec), std::move(adnl_vec), std::move(dht_vec), std::move(val_vec),
+      full_node.tl(), std::move(full_node_slaves_vec), std::move(full_node_masters_vec),
+      std::move(full_node_config_obj), std::move(extra_config_obj), std::move(liteserver_vec), std::move(control_vec),
+      std::move(shards_vec), std::move(gc_vec));
 }
 
 td::Result<bool> Config::config_add_network_addr(td::IPAddress in_ip, td::IPAddress out_ip,
@@ -530,6 +542,32 @@ td::Result<bool> Config::config_add_control_process(ton::PublicKeyHash key, td::
     v.clients.emplace(id, permissions);
     return true;
   }
+}
+
+td::Result<bool> Config::config_add_shard(ton::ShardIdFull shard) {
+  if (shard.is_masterchain()) {
+    return td::Status::Error("masterchain is monitored by default");
+  }
+  if (!shard.is_valid_ext()) {
+    return td::Status::Error(PSTRING() << "invalid shard " << shard.to_str());
+  }
+  if (std::find(shards_to_monitor.begin(), shards_to_monitor.end(), shard) != shards_to_monitor.end()) {
+    return false;
+  }
+  shards_to_monitor.push_back(shard);
+  return true;
+}
+
+td::Result<bool> Config::config_del_shard(ton::ShardIdFull shard) {
+  if (!shard.is_valid_ext()) {
+    return td::Status::Error(PSTRING() << "invalid shard " << shard.to_str());
+  }
+  auto it = std::find(shards_to_monitor.begin(), shards_to_monitor.end(), shard);
+  if (it == shards_to_monitor.end()) {
+    return false;
+  }
+  shards_to_monitor.erase(it);
+  return true;
 }
 
 td::Result<bool> Config::config_add_gc(ton::PublicKeyHash key) {
@@ -1393,15 +1431,6 @@ td::Status ValidatorEngine::load_global_config() {
   }
 
   validator_options_ = ton::validator::ValidatorManagerOptions::create(zero_state, init_block);
-  validator_options_.write().set_shard_check_function(
-      [](ton::ShardIdFull shard, ton::CatchainSeqno cc_seqno,
-         ton::validator::ValidatorManagerOptions::ShardCheckMode mode) -> bool {
-        if (mode == ton::validator::ValidatorManagerOptions::ShardCheckMode::m_monitor) {
-          return true;
-        }
-        CHECK(mode == ton::validator::ValidatorManagerOptions::ShardCheckMode::m_validate);
-        return true;
-      });
   if (state_ttl_ != 0) {
     validator_options_.write().set_state_ttl(state_ttl_);
   }
@@ -1474,20 +1503,31 @@ td::Status ValidatorEngine::load_global_config() {
     h.push_back(b);
   }
   validator_options_.write().set_hardforks(std::move(h));
-
-  auto r_total_mem_stat = td::get_total_mem_stat();
-  if (r_total_mem_stat.is_error()) {
-    LOG(ERROR) << "Failed to get total RAM size: " << r_total_mem_stat.move_as_error();
-  } else {
-    td::uint64 total_ram = r_total_mem_stat.ok().total_ram;
-    LOG(WARNING) << "Total RAM = " << td::format::as_size(total_ram);
-    if (total_ram >= (90ULL << 30)) {
-      fast_state_serializer_enabled_ = true;
-    }
-  }
   validator_options_.write().set_fast_state_serializer_enabled(fast_state_serializer_enabled_);
 
   return td::Status::OK();
+}
+
+void ValidatorEngine::set_shard_check_function() {
+  if (!not_all_shards_) {
+    validator_options_.write().set_shard_check_function([](ton::ShardIdFull shard) -> bool { return true; });
+  } else {
+    std::vector<ton::ShardIdFull> shards = {ton::ShardIdFull(ton::masterchainId)};
+    for (const auto& s : config_.shards_to_monitor) {
+      shards.push_back(s);
+    }
+    std::sort(shards.begin(), shards.end());
+    shards.erase(std::unique(shards.begin(), shards.end()), shards.end());
+    validator_options_.write().set_shard_check_function(
+        [shards = std::move(shards)](ton::ShardIdFull shard) -> bool {
+          for (auto s : shards) {
+            if (shard_intersects(shard, s)) {
+              return true;
+            }
+          }
+          return false;
+        });
+  }
 }
 
 void ValidatorEngine::load_empty_local_config(td::Promise<td::Unit> promise) {
@@ -1531,6 +1571,14 @@ void ValidatorEngine::load_empty_local_config(td::Promise<td::Unit> promise) {
 }
 
 void ValidatorEngine::load_local_config(td::Promise<td::Unit> promise) {
+  for (ton::ShardIdFull shard : add_shard_cmds_) {
+    auto R = config_.config_add_shard(shard);
+    if (R.is_error()) {
+      LOG(WARNING) << "Cannot add shard " << shard.to_str() << " : " << R.move_as_error();
+    } else if (R.ok()) {
+      LOG(WARNING) << "Adding shard to monitor " << shard.to_str();
+    }
+  }
   if (local_config_.size() == 0) {
     load_empty_local_config(std::move(promise));
     return;
@@ -1746,6 +1794,15 @@ void ValidatorEngine::load_config(td::Promise<td::Unit> promise) {
     td::actor::send_closure(keyring_, &ton::keyring::Keyring::add_key_short, key.first, get_key_promise(ig));
   }
 
+  for (ton::ShardIdFull shard : add_shard_cmds_) {
+    auto R = config_.config_add_shard(shard);
+    if (R.is_error()) {
+      LOG(WARNING) << "Cannot add shard " << shard.to_str() << " : " << R.move_as_error();
+    } else if (R.ok()) {
+      LOG(WARNING) << "Adding shard to monitor " << shard.to_str();
+    }
+  }
+
   write_config(ig.get_promise());
 }
 
@@ -1781,6 +1838,7 @@ void ValidatorEngine::got_key(ton::PublicKey key) {
 }
 
 void ValidatorEngine::start() {
+  set_shard_check_function();
   read_config_ = true;
   start_adnl();
 }
@@ -1876,6 +1934,8 @@ void ValidatorEngine::started_dht() {
 void ValidatorEngine::start_rldp() {
   rldp_ = ton::rldp::Rldp::create(adnl_.get());
   rldp2_ = ton::rldp2::Rldp::create(adnl_.get());
+  td::actor::send_closure(rldp_, &ton::rldp::Rldp::set_default_mtu, 2048);
+  td::actor::send_closure(rldp2_, &ton::rldp2::Rldp::set_default_mtu, 2048);
   started_rldp();
 }
 
@@ -1939,20 +1999,27 @@ void ValidatorEngine::start_full_node() {
       };
       full_node_client_ = ton::adnl::AdnlExtMultiClient::create(std::move(vec), std::make_unique<Cb>());
     }
+    auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
+      R.ensure();
+      td::actor::send_closure(SelfId, &ValidatorEngine::started_full_node);
+    });
     full_node_ = ton::validator::fullnode::FullNode::create(
         short_id, ton::adnl::AdnlNodeIdShort{config_.full_node}, validator_options_->zero_block_id().file_hash,
         config_.full_node_config, keyring_.get(), adnl_.get(), rldp_.get(), rldp2_.get(),
         default_dht_node_.is_zero() ? td::actor::ActorId<ton::dht::Dht>{} : dht_nodes_[default_dht_node_].get(),
-        overlay_manager_.get(), validator_manager_.get(), full_node_client_.get(), db_root_);
+        overlay_manager_.get(), validator_manager_.get(), full_node_client_.get(), db_root_, std::move(P));
+    for (auto &v : config_.validators) {
+      td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::add_permanent_key, v.first,
+                              [](td::Unit) {});
+    }
     load_custom_overlays_config();
+    if (!validator_telemetry_filename_.empty()) {
+      td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::set_validator_telemetry_filename,
+                              validator_telemetry_filename_);
+    }
+  } else {
+    started_full_node();
   }
-
-  for (auto &v : config_.validators) {
-    td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::add_permanent_key, v.first,
-                            [](td::Unit) {});
-  }
-
-  started_full_node();
 }
 
 void ValidatorEngine::started_full_node() {
@@ -3255,6 +3322,70 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_sign &que
                           std::move(query.data_), std::move(P));
 }
 
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_exportAllPrivateKeys &query,
+                                        td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
+                                        td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_unsafe)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+  if (keyring_.empty()) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "not started keyring")));
+    return;
+  }
+
+  ton::PublicKey client_pubkey = ton::PublicKey{query.encryption_key_};
+  if (!client_pubkey.is_ed25519()) {
+    promise.set_value(
+        create_control_query_error(td::Status::Error(ton::ErrorCode::protoviolation, "encryption key is not Ed25519")));
+    return;
+  }
+
+  td::actor::send_closure(
+      keyring_, &ton::keyring::Keyring::export_all_private_keys,
+      [promise = std::move(promise),
+       client_pubkey = std::move(client_pubkey)](td::Result<std::vector<ton::PrivateKey>> R) mutable {
+        if (R.is_error()) {
+          promise.set_value(create_control_query_error(R.move_as_error()));
+          return;
+        }
+        // Private keys are encrypted using client-provided public key to avoid storing them in
+        // non-secure buffers (not td::SecureString)
+        std::vector<td::SecureString> serialized_keys;
+        size_t data_size = 32;
+        for (const ton::PrivateKey &key : R.ok()) {
+          serialized_keys.push_back(key.export_as_slice());
+          data_size += serialized_keys.back().size() + 4;
+        }
+        td::SecureString data{data_size};
+        td::MutableSlice slice = data.as_mutable_slice();
+        for (const td::SecureString &s : serialized_keys) {
+          td::uint32 size = td::narrow_cast_safe<td::uint32>(s.size()).move_as_ok();
+          CHECK(slice.size() >= size + 4);
+          slice.copy_from(td::Slice{reinterpret_cast<const td::uint8 *>(&size), 4});
+          slice.remove_prefix(4);
+          slice.copy_from(s.as_slice());
+          slice.remove_prefix(s.size());
+        }
+        CHECK(slice.size() == 32);
+        td::Random::secure_bytes(slice);
+
+        auto r_encryptor = client_pubkey.create_encryptor();
+        if (r_encryptor.is_error()) {
+          promise.set_value(create_control_query_error(r_encryptor.move_as_error_prefix("cannot create encryptor: ")));
+          return;
+        }
+        auto encryptor = r_encryptor.move_as_ok();
+        auto r_encrypted = encryptor->encrypt(data.as_slice());
+        if (r_encryptor.is_error()) {
+          promise.set_value(create_control_query_error(r_encrypted.move_as_error_prefix("cannot encrypt data: ")));
+          return;
+        }
+        promise.set_value(ton::create_serialize_tl_object<ton::ton_api::engine_validator_exportedPrivateKeys>(
+            r_encrypted.move_as_ok()));
+      });
+}
+
 void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_setVerbosity &query, td::BufferSlice data,
                                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise) {
   if (!(perm & ValidatorEnginePermissions::vep_default)) {
@@ -3924,6 +4055,74 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getAdnlSt
       });
 }
 
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_addShard &query,
+                                        td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
+                                        td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_modify)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+  if (!started_) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "not started")));
+    return;
+  }
+
+  auto shard = ton::create_shard_id(query.shard_);
+  auto R = config_.config_add_shard(shard);
+  if (R.is_error()) {
+    promise.set_value(create_control_query_error(R.move_as_error()));
+    return;
+  }
+  set_shard_check_function();
+  if (!validator_manager_.empty()) {
+    td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::update_options,
+                            validator_options_);
+  }
+  write_config([promise = std::move(promise)](td::Result<td::Unit> R) mutable {
+    if (R.is_error()) {
+      promise.set_value(create_control_query_error(R.move_as_error()));
+    } else {
+      promise.set_value(ton::serialize_tl_object(ton::create_tl_object<ton::ton_api::engine_validator_success>(), true));
+    }
+  });
+}
+
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_delShard &query,
+                                        td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
+                                        td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_modify)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+  if (!started_) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "not started")));
+    return;
+  }
+
+  auto shard = ton::create_shard_id(query.shard_);
+  auto R = config_.config_del_shard(shard);
+  if (R.is_error()) {
+    promise.set_value(create_control_query_error(R.move_as_error()));
+    return;
+  }
+  if (!R.move_as_ok()) {
+    promise.set_value(create_control_query_error(td::Status::Error("No such shard")));
+    return;
+  }
+  set_shard_check_function();
+  if (!validator_manager_.empty()) {
+    td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::update_options,
+                            validator_options_);
+  }
+  write_config([promise = std::move(promise)](td::Result<td::Unit> R) mutable {
+    if (R.is_error()) {
+      promise.set_value(create_control_query_error(R.move_as_error()));
+    } else {
+      promise.set_value(ton::serialize_tl_object(ton::create_tl_object<ton::ton_api::engine_validator_success>(), true));
+    }
+  });
+}
+
 void ValidatorEngine::process_control_query(td::uint16 port, ton::adnl::AdnlNodeIdShort src,
                                             ton::adnl::AdnlNodeIdShort dst, td::BufferSlice data,
                                             td::Promise<td::BufferSlice> promise) {
@@ -3957,7 +4156,7 @@ void ValidatorEngine::process_control_query(td::uint16 port, ton::adnl::AdnlNode
   }
   auto f = F.move_as_ok();
 
-  ton::ton_api::downcast_call(*f.get(), [&](auto &obj) {
+  ton::ton_api::downcast_call(*f, [&](auto &obj) {
     run_control_query(obj, std::move(data), src.pubkey_hash(), it->second, std::move(promise));
   });
 }
@@ -4216,6 +4415,23 @@ int main(int argc, char *argv[]) {
                          });
                          return td::Status::OK();
                        });
+  p.add_option('M', "not-all-shards", "monitor only a necessary set of shards instead of all", [&]() {
+    acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_not_all_shards); });
+  });
+  p.add_checked_option(
+      '\0', "add-shard", "add shard to monitor (same as addshard in validator console), format: 0:8000000000000000",
+      [&](td::Slice arg) -> td::Status {
+        std::string str = arg.str();
+        int wc;
+        unsigned long long shard;
+        if (sscanf(str.c_str(), "%d:%016llx", &wc, &shard) != 2) {
+          return td::Status::Error(PSTRING() << "invalid shard " << str);
+        }
+        acts.push_back([=, &x]() {
+          td::actor::send_closure(x, &ValidatorEngine::add_shard_cmd, ton::ShardIdFull{wc, (ton::ShardId)shard});
+        });
+        return td::Status::OK();
+      });
   td::uint32 threads = 7;
   p.add_checked_option(
       't', "threads", PSTRING() << "number of threads (default=" << threads << ")", [&](td::Slice arg) {
@@ -4326,10 +4542,19 @@ int main(int argc, char *argv[]) {
       });
   p.add_option(
       '\0', "fast-state-serializer",
-      "faster persistent state serializer, but requires more RAM (enabled automatically on machines with >= 90GB RAM)",
+      "faster persistent state serializer, but requires more RAM",
       [&]() {
         acts.push_back(
             [&x]() { td::actor::send_closure(x, &ValidatorEngine::set_fast_state_serializer_enabled, true); });
+      });
+  p.add_option(
+      '\0', "collect-validator-telemetry",
+      "store validator telemetry from private block overlay to a given file (json format)",
+      [&](td::Slice s) {
+        acts.push_back(
+            [&x, s = s.str()]() {
+              td::actor::send_closure(x, &ValidatorEngine::set_validator_telemetry_filename, s);
+            });
       });
   auto S = p.run(argc, argv);
   if (S.is_error()) {

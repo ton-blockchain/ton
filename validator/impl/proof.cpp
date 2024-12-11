@@ -162,5 +162,40 @@ td::Result<Ref<vm::Cell>> ProofQ::get_signatures_root() const {
   return proof.signatures->prefetch_ref();
 }
 
+td::Result<td::Ref<vm::Cell>> create_block_state_proof(td::Ref<vm::Cell> root) {
+  if (root.is_null()) {
+    return td::Status::Error("root is null");
+  }
+  vm::MerkleProofBuilder mpb{std::move(root)};
+  block::gen::Block::Record block;
+  if (!tlb::unpack_cell(mpb.root(), block) || block.state_update->load_cell().is_error()) {
+    return td::Status::Error("invalid block");
+  }
+  TRY_RESULT(proof, mpb.extract_proof());
+  if (proof.is_null()) {
+    return td::Status::Error("failed to create proof");
+  }
+  return proof;
+}
+
+td::Result<RootHash> unpack_block_state_proof(BlockIdExt block_id, td::Ref<vm::Cell> proof) {
+  auto virt_root = vm::MerkleProof::virtualize(proof, 1);
+  if (virt_root.is_null()) {
+    return td::Status::Error("invalid Merkle proof");
+  }
+  if (virt_root->get_hash().as_slice() != block_id.root_hash.as_slice()) {
+    return td::Status::Error("hash mismatch");
+  }
+  block::gen::Block::Record block;
+  if (!tlb::unpack_cell(virt_root, block)) {
+    return td::Status::Error("invalid block");
+  }
+  vm::CellSlice upd_cs{vm::NoVmSpec(), block.state_update};
+  if (!(upd_cs.is_special() && upd_cs.prefetch_long(8) == 4 && upd_cs.size_ext() == 0x20228)) {
+    return td::Status::Error("invalid Merkle update");
+  }
+  return upd_cs.prefetch_ref(1)->get_hash(0).bits();
+}
+
 }  // namespace validator
 }  // namespace ton

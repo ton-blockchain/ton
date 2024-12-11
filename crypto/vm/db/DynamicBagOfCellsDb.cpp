@@ -111,14 +111,16 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
   }
   void load_cell_async(td::Slice hash, std::shared_ptr<AsyncExecutor> executor,
                        td::Promise<Ref<DataCell>> promise) override {
+    auto promise_ptr = std::make_shared<td::Promise<Ref<DataCell>>>(std::move(promise));
     auto info = hash_table_.get_if_exists(hash);
     if (info && info->sync_with_db) {
-      TRY_RESULT_PROMISE(promise, loaded_cell, info->cell->load_cell());
-      promise.set_result(loaded_cell.data_cell);
+      executor->execute_async([promise = std::move(promise_ptr), cell = info->cell]() mutable {
+        TRY_RESULT_PROMISE((*promise), loaded_cell, cell->load_cell());
+        promise->set_result(loaded_cell.data_cell);
+      });
       return;
     }
     SimpleExtCellCreator ext_cell_creator(cell_db_reader_);
-    auto promise_ptr = std::make_shared<td::Promise<Ref<DataCell>>>(std::move(promise));
     executor->execute_async(
         [executor, loader = *loader_, hash = CellHash::from_slice(hash), db = this,
          ext_cell_creator = std::move(ext_cell_creator), promise = std::move(promise_ptr)]() mutable {
