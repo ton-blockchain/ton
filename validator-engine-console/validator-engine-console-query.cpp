@@ -1607,7 +1607,9 @@ td::Status AddCollatorQuery::send() {
 td::Status AddCollatorQuery::receive(td::BufferSlice data) {
   TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
                     "received incorrect answer: ");
-  td::TerminalIO::out() << "successfully added collator\n";
+  td::TerminalIO::out() << "successfully added collator for shard " << shard_.to_str() << "\n";
+  td::TerminalIO::out() << "ADNL ID = " << adnl_id_.bits256_value().to_hex() << " (" << adnl_id_.bits256_value()
+                        << ")\n";
   return td::Status::OK();
 }
 
@@ -1627,7 +1629,9 @@ td::Status DelCollatorQuery::send() {
 td::Status DelCollatorQuery::receive(td::BufferSlice data) {
   TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
                     "received incorrect answer: ");
-  td::TerminalIO::out() << "successfully removed  collator\n";
+  td::TerminalIO::out() << "successfully removed collator for shard " << shard_.to_str() << "\n";
+  td::TerminalIO::out() << "ADNL ID = " << adnl_id_.bits256_value().to_hex() << " (" << adnl_id_.bits256_value()
+                        << ")\n";
   return td::Status::OK();
 }
 

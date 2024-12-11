@@ -151,8 +151,8 @@ inline td::Result<ton::ShardIdFull> Tokenizer::get_token() {
   auto r_wc = td::to_integer_safe<ton::WorkchainId>(word);
   if (r_wc.is_ok()) {
     TRY_RESULT_ASSIGN(word, get_raw_token());
-    TRY_RESULT(shard, td::to_integer_safe<ton::ShardId>(word));
-    return ton::ShardIdFull{r_wc.move_as_ok(), shard};
+    TRY_RESULT(shard, td::to_integer_safe<td::int64>(word));
+    return ton::ShardIdFull{r_wc.move_as_ok(), (ton::ShardId)shard};
   }
   return ton::ShardIdFull::parse(word);
 }
