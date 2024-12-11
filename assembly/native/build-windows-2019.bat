@@ -26,106 +26,109 @@ IF %errorlevel% NEQ 0 (
   exit /b %errorlevel%
 )
 
-if not exist "zlib" (
-git clone https://github.com/madler/zlib.git
-cd zlib
-git checkout v1.3.1
-cd contrib\vstudio\vc14
-msbuild zlibstat.vcxproj /p:Configuration=ReleaseWithoutAsm /p:platform=x64 -p:PlatformToolset=v142
-
+echo Installing nasm...
+choco install -y nasm
+where nasm
+SET PATH=%PATH%;C:\Program Files\NASM
 IF %errorlevel% NEQ 0 (
-  echo Can't install zlib
+  echo Can't install nasm
   exit /b %errorlevel%
 )
-cd ..\..\..\..
+
+mkdir third_libs
+cd third_libs
+
+set third_libs=%cd%
+echo %third_libs%
+
+if not exist "zlib" (
+  git clone https://github.com/madler/zlib.git
+  cd zlib
+  git checkout v1.3.1
+  cd contrib\vstudio\vc14
+  msbuild zlibstat.vcxproj /p:Configuration=ReleaseWithoutAsm /p:platform=x64 -p:PlatformToolset=v142
+  cd ..\..\..\..
 ) else (
-echo Using zlib...
+  echo Using zlib...
 )
 
 if not exist "lz4" (
-git clone https://github.com/lz4/lz4.git
-cd lz4
-git checkout v1.9.4
-cd build\VS2017\liblz4
-msbuild liblz4.vcxproj /p:Configuration=Release /p:platform=x64 -p:PlatformToolset=v142
-
-IF %errorlevel% NEQ 0 (
-  echo Can't install lz4
-  exit /b %errorlevel%
-)
-cd ..\..\..\..
+  git clone https://github.com/lz4/lz4.git
+  cd lz4
+  git checkout v1.9.4
+  cd build\VS2017\liblz4
+  msbuild liblz4.vcxproj /p:Configuration=Release /p:platform=x64 -p:PlatformToolset=v142
+  cd ..\..\..\..
 ) else (
-echo Using lz4...
+  echo Using lz4...
 )
 
-curl --retry 5 --retry-delay 10 -Lo libsodium-1.0.18-stable-msvc.zip https://download.libsodium.org/libsodium/releases/libsodium-1.0.18-stable-msvc.zip
-IF %errorlevel% NEQ 0 (
-  echo Can't download libsodium
-  exit /b %errorlevel%
-)
-unzip libsodium-1.0.18-stable-msvc.zip
+if not exist "libsodium" (
+  git clone https://github.com/jedisct1/libsodium
+  cd libsodium
+  git checkout 1.0.18-RELEASE
+  msbuild libsodium.vcxproj /p:Configuration=Release /p:platform=x64 -p:PlatformToolset=v142
+  cd ..
 ) else (
-echo Using libsodium...
+  echo Using libsodium...
 )
 
-if not exist "openssl-3.1.4" (
-curl  -Lo openssl-3.1.4.zip https://github.com/neodiX42/precompiled-openssl-win64/raw/main/openssl-3.1.4.zip
-IF %errorlevel% NEQ 0 (
-  echo Can't download OpenSSL
-  exit /b %errorlevel%
-)
-unzip -q openssl-3.1.4.zip
+if not exist "openssl" (
+  git clone https://github.com/openssl/openssl.git
+  cd openssl
+  git checkout openssl-3.1.4
+  where perl
+  perl Configure VC-WIN64A
+  IF %errorlevel% NEQ 0 (
+    echo Can't configure openssl
+    exit /b %errorlevel%
+  )
+  nmake
+  cd ..
 ) else (
-echo Using openssl...
+  echo Using openssl...
 )
 
-if not exist "libmicrohttpd-0.9.77-w32-bin" (
-curl  -Lo libmicrohttpd-0.9.77-w32-bin.zip https://github.com/neodiX42/precompiled-openssl-win64/raw/main/libmicrohttpd-0.9.77-w32-bin.zip
-IF %errorlevel% NEQ 0 (
-  echo Can't download libmicrohttpd
-  exit /b %errorlevel%
-)
-unzip -q libmicrohttpd-0.9.77-w32-bin.zip
+if not exist "libmicrohttpd" (
+  git clone https://github.com/Karlson2k/libmicrohttpd.git
+  cd libmicrohttpd
+  git checkout v1.0.1
+  cd w32\VS2019
+  msbuild libmicrohttpd.vcxproj /p:Configuration=Release-static /p:platform=x64 -p:PlatformToolset=v142
+  IF %errorlevel% NEQ 0 (
+    echo Can't compile libmicrohttpd
+    exit /b %errorlevel%
+  )
+  cd ../../..
 ) else (
-echo Using libmicrohttpd...
+  echo Using libmicrohttpd...
 )
 
-if not exist "readline-5.0-1-lib" (
-curl  -Lo readline-5.0-1-lib.zip https://github.com/neodiX42/precompiled-openssl-win64/raw/main/readline-5.0-1-lib.zip
-IF %errorlevel% NEQ 0 (
-  echo Can't download readline
-  exit /b %errorlevel%
-)
-unzip -q -d readline-5.0-1-lib readline-5.0-1-lib.zip
-) else (
-echo Using readline...
-)
-
-
-set root=%cd%
-echo %root%
-set SODIUM_DIR=%root%\libsodium
+cd ..
+echo Current dir %cd%
 
 mkdir build
 cd build
 cmake -GNinja  -DCMAKE_BUILD_TYPE=Release ^
 -DPORTABLE=1 ^
 -DSODIUM_USE_STATIC_LIBS=1 ^
+-DSODIUM_LIBRARY_RELEASE=%third_libs%\libsodium\Build\Release\x64\libsodium.lib ^
+-DSODIUM_LIBRARY_DEBUG=%third_libs%\libsodium\Build\Release\x64\libsodium.lib ^
+-DSODIUM_INCLUDE_DIR=%third_libs%\libsodium\src\libsodium\include ^
 -DLZ4_FOUND=1 ^
--DLZ4_INCLUDE_DIRS=%root%\lz4\lib ^
--DLZ4_LIBRARIES=%root%\lz4\build\VS2017\liblz4\bin\x64_Release\liblz4_static.lib ^
+-DLZ4_INCLUDE_DIRS=%third_libs%\lz4\lib ^
+-DLZ4_LIBRARIES=%third_libs%\lz4\build\VS2017\liblz4\bin\x64_Release\liblz4_static.lib ^
 -DMHD_FOUND=1 ^
--DMHD_LIBRARY=%root%\libmicrohttpd-0.9.77-w32-bin\x86_64\VS2019\Release-static\libmicrohttpd.lib ^
--DMHD_INCLUDE_DIR=%root%\libmicrohttpd-0.9.77-w32-bin\x86_64\VS2019\Release-static ^
+-DMHD_LIBRARY=%third_libs%\libmicrohttpd\w32\VS2019\Output\x64\libmicrohttpd.lib ^
+-DMHD_INCLUDE_DIR=%third_libs%\libmicrohttpd\src\include ^
 -DZLIB_FOUND=1 ^
--DZLIB_INCLUDE_DIR=%root%\zlib ^
--DZLIB_LIBRARIES=%root%\zlib\contrib\vstudio\vc14\x64\ZlibStatReleaseWithoutAsm\zlibstat.lib ^
+-DZLIB_INCLUDE_DIR=%third_libs%\zlib ^
+-DZLIB_LIBRARIES=%third_libs%\zlib\contrib\vstudio\vc14\x64\ZlibStatReleaseWithoutAsm\zlibstat.lib ^
 -DOPENSSL_FOUND=1 ^
--DOPENSSL_INCLUDE_DIR=%root%\openssl-3.1.4\x64\include ^
--DOPENSSL_CRYPTO_LIBRARY=%root%\openssl-3.1.4\x64\lib\libcrypto_static.lib ^
--DREADLINE_INCLUDE_DIR=%root%\readline-5.0-1-lib\include ^
--DREADLINE_LIBRARY=%root%\readline-5.0-1-lib\lib\readline.lib ^
+-DOPENSSL_INCLUDE_DIR=%third_libs%\openssl\include ^
+-DOPENSSL_CRYPTO_LIBRARY=%third_libs%\openssl\libcrypto_static.lib ^
 -DCMAKE_CXX_FLAGS="/DTD_WINDOWS=1 /EHsc /bigobj" ..
+
 IF %errorlevel% NEQ 0 (
   echo Can't configure TON
   exit /b %errorlevel%
@@ -168,33 +171,38 @@ REM  ctest -C Release --output-on-failure -E "test-catchain|test-actors|test-val
   )
 )
 
-
-echo Creating artifacts...
+echo Strip and copy artifacts
 cd ..
+echo where strip
+where strip
 mkdir artifacts
 mkdir artifacts\smartcont
 mkdir artifacts\lib
 
 for %%I in (build\storage\storage-daemon\storage-daemon.exe ^
-build\storage\storage-daemon\storage-daemon-cli.exe ^
-build\blockchain-explorer\blockchain-explorer.exe ^
-build\crypto\fift.exe ^
-build\crypto\tlbc.exe ^
-build\crypto\func.exe ^
-build\tolk\tolk.exe ^
-build\crypto\create-state.exe ^
-build\validator-engine-console\validator-engine-console.exe ^
-build\tonlib\tonlib-cli.exe ^
-build\tonlib\tonlibjson.dll ^
-build\http\http-proxy.exe ^
-build\rldp-http-proxy\rldp-http-proxy.exe ^
-build\dht-server\dht-server.exe ^
-build\lite-client\lite-client.exe ^
-build\validator-engine\validator-engine.exe ^
-build\utils\generate-random-id.exe ^
-build\utils\json2tlo.exe ^
-build\utils\proxy-liteserver.exe ^
-build\adnl\adnl-proxy.exe ^
-build\emulator\emulator.dll) do (strip -s %%I & copy %%I artifacts\)
+  build\storage\storage-daemon\storage-daemon-cli.exe ^
+  build\blockchain-explorer\blockchain-explorer.exe ^
+  build\crypto\fift.exe ^
+  build\crypto\tlbc.exe ^
+  build\crypto\func.exe ^
+  build\tolk\tolk.exe ^
+  build\crypto\create-state.exe ^
+  build\validator-engine-console\validator-engine-console.exe ^
+  build\tonlib\tonlib-cli.exe ^
+  build\tonlib\tonlibjson.dll ^
+  build\http\http-proxy.exe ^
+  build\rldp-http-proxy\rldp-http-proxy.exe ^
+  build\dht-server\dht-server.exe ^
+  build\lite-client\lite-client.exe ^
+  build\validator-engine\validator-engine.exe ^
+  build\utils\generate-random-id.exe ^
+  build\utils\json2tlo.exe ^
+  build\utils\proxy-liteserver.exe ^
+  build\adnl\adnl-proxy.exe ^
+  build\emulator\emulator.dll) do (
+    echo strip -s %%I & copy %%I artifacts\
+    strip -s %%I & copy %%I artifacts\
+)
+
 xcopy /e /k /h /i crypto\smartcont artifacts\smartcont
 xcopy /e /k /h /i crypto\fift\lib artifacts\lib
