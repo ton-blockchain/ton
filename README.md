@@ -44,12 +44,24 @@ Main TON monorepo, which includes the code of the node/validator, lite-client, t
 
 ## The Open Network
 
-__The Open Network (TON)__ is a fast, secure, scalable blockchain focused on handling _millions of transactions per second_ (TPS) with the goal of reaching hundreds of millions of blockchain users.
-- To learn more about different aspects of TON blockchain and its underlying ecosystem check [documentation](https://ton.org/docs)
-- To run node, validator or lite-server check [Participate section](https://ton.org/docs/participate/nodes/run-node)
-- To develop decentralised apps check [Tutorials](https://ton.org/docs/develop/smart-contracts/), [FunC docs](https://ton.org/docs/develop/func/overview) and [DApp tutorials](https://ton.org/docs/develop/dapps/)
-- To work on TON check [wallets](https://ton.app/wallets), [explorers](https://ton.app/explorers), [DEXes](https://ton.app/dex) and [utilities](https://ton.app/utilities)
-- To interact with TON check [APIs](https://ton.org/docs/develop/dapps/apis/)
+__The Open Network (TON)__ is a fast, secure, scalable blockchain focused on handling _millions of transactions per second_ (TPS) with the goal of reaching hundreds of millions of blockchain users. To learn more about different aspects of TON blockchain and its underlying ecosystem check [documentation](https://ton.org/docs).
+
+## Running Node
+
+There are several types of nodes you can check in [Participate section](https://docs.ton.org/participate/nodes/node-types). To install and manage your own node, use the [MyTonCtrl](https://github.com/ton-blockchain/mytonctrl) open-source tool developed by the TON Foundation.
+
+* **[Full Node](https://docs.ton.org/participate/nodes/node-types#full-node)** - maintains synchronization with the blockchain.
+* **[Liteserver](https://docs.ton.org/participate/nodes/node-types#full-node--liteserver)** - allowing to seamlessly interract with the TON Blockchain.
+* **[Validator](https://docs.ton.org/participate/nodes/node-types#validator-node)** - activated when it holds a necessary amount of Toncoin as a stake.
+* **[Archieve Node](https://docs.ton.org/participate/run-nodes/archive-node)** - archives the entire block history.
+
+## Develop decentralised apps
+
+There is a [FunC](https://ton.org/docs/develop/func/overview) as main programming language for smart contract creation. Check FunC [Tutorials](https://ton.org/docs/develop/smart-contracts/) to [develop DApp](https://ton.org/docs/develop/dapps/). To work on TON check [wallets](https://ton.app/wallets), [explorers](https://ton.app/explorers), [DEXes](https://ton.app/dex) and [utilities](https://ton.app/utilities). 
+
+## Ton API
+
+To interact with TON check [APIs](https://ton.org/docs/develop/dapps/apis/) section.
 
 ## Updates flow
 
