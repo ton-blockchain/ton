@@ -55,6 +55,10 @@ class AdnlPeerTableImpl : public AdnlPeerTable {
       VLOG(ADNL_WARNING) << "DUMP: " << td::buffer_to_hex(data.as_slice().truncate(128));
       return;
     }
+    if (data.empty()) {
+      send_message_in(src, dst, AdnlMessage{adnlmessage::AdnlMessageNop()}, flags);
+      return;
+    }
     send_message_in(src, dst, AdnlMessage{adnlmessage::AdnlMessageCustom{std::move(data)}}, flags);
   }
   void answer_query(AdnlNodeIdShort src, AdnlNodeIdShort dst, AdnlQueryId query_id, td::BufferSlice data) override;
