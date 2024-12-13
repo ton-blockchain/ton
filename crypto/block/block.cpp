@@ -1319,6 +1319,36 @@ CurrencyCollection CurrencyCollection::operator-(td::RefInt256 other_grams) cons
   }
 }
 
+bool CurrencyCollection::clamp(const CurrencyCollection& other) {
+  if (!is_valid() || !other.is_valid()) {
+    return invalidate();
+  }
+  grams = std::min(grams, other.grams);
+  vm::Dictionary dict1{extra, 32}, dict2(other.extra, 32);
+  bool ok = dict1.check_for_each([&](td::Ref<vm::CellSlice> cs1, td::ConstBitPtr key, int n) {
+    CHECK(n == 32);
+    td::Ref<vm::CellSlice> cs2 = dict2.lookup(key, 32);
+    td::RefInt256 val1 = tlb::t_VarUIntegerPos_32.as_integer(cs1);
+    if (val1.is_null()) {
+      return false;
+    }
+    td::RefInt256 val2 = cs2.is_null() ? td::zero_refint() : tlb::t_VarUIntegerPos_32.as_integer(cs2);
+    if (val2.is_null()) {
+      return false;
+    }
+    if (val1 > val2) {
+      if (val2->sgn() == 0) {
+        dict1.lookup_delete(key, 32);
+      } else {
+        dict1.set(key, 32, cs2);
+      }
+    }
+    return true;
+  });
+  extra = dict1.get_root_cell();
+  return ok || invalidate();
+}
+
 bool CurrencyCollection::operator==(const CurrencyCollection& other) const {
   return is_valid() && other.is_valid() && !td::cmp(grams, other.grams) &&
          (extra.not_null() == other.extra.not_null()) &&
