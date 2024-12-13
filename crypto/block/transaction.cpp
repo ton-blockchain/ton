@@ -2761,9 +2761,13 @@ int Transaction::try_action_reserve_currency(vm::CellSlice& cs, ActionPhase& ap,
     return -1;
   }
   if (mode & 2) {
-    if (!reserve.clamp(ap.remaining_balance)) {
-      LOG(DEBUG) << "failed to clamp reserve amount" << mode;
-      return -1;
+    if (cfg.reserve_extra_enabled) {
+      if (!reserve.clamp(ap.remaining_balance)) {
+        LOG(DEBUG) << "failed to clamp reserve amount" << mode;
+        return -1;
+      }
+    } else {
+      reserve.grams = std::min(reserve.grams, ap.remaining_balance.grams);
     }
   }
   if (reserve.grams > ap.remaining_balance.grams) {
@@ -3777,6 +3781,7 @@ td::Status FetchConfigParams::fetch_config_params(
     action_phase_cfg->bounce_on_fail_enabled = config.get_global_version() >= 4;
     action_phase_cfg->message_skip_enabled = config.get_global_version() >= 8;
     action_phase_cfg->disable_custom_fess = config.get_global_version() >= 8;
+    action_phase_cfg->reserve_extra_enabled = config.get_global_version() >= 9;
     action_phase_cfg->mc_blackhole_addr = config.get_burning_config().blackhole_addr;
   }
   {
