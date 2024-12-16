@@ -4,5 +4,5 @@ fun load32(self: slice): int {
 
 /**
 @compilation_should_fail
-@stderr modifying `self` (call a mutating method), which is immutable by default
+@stderr modifying `self`, which is immutable by default
  */

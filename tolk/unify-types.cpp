@@ -121,7 +121,7 @@ bool TypeExpr::equals_to(const TypeExpr *rhs) const {
   while (r->constr == te_Indirect)
     r = r->args[0];
 
-  bool eq = l->constr == r->constr && l->value == r->value &&
+  bool eq = l->constr == r->constr && (l->constr == te_Unknown || l->value == r->value) &&
             l->minw == r->minw && l->maxw == r->maxw &&
             l->was_forall_var == r->was_forall_var &&
             l->args.size() == r->args.size();

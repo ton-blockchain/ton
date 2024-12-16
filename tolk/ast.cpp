@@ -79,7 +79,7 @@ int Vertex<ast_genericsT_list>::lookup_idx(std::string_view nameT) const {
 
 int Vertex<ast_parameter_list>::lookup_idx(std::string_view param_name) const {
   for (size_t idx = 0; idx < children.size(); ++idx) {
-    if (children[idx] && children[idx]->as<ast_parameter>()->get_identifier()->name == param_name) {
+    if (children[idx] && children[idx]->as<ast_parameter>()->param_name == param_name) {
       return static_cast<int>(idx);
     }
   }
@@ -96,8 +96,64 @@ int Vertex<ast_parameter_list>::get_mutate_params_count() const {
   return n;
 }
 
-void Vertex<ast_import_statement>::mutate_set_src_file(const SrcFile* file) const {
-  const_cast<Vertex*>(this)->file = file;
+// ---------------------------------------------------------
+// "assign" methods
+//
+// From the user's point of view, all AST vertices are constant, fields are public, but can't be modified.
+// The only way to modify a field is to call "mutate()" and then use these "assign_*" methods.
+// Therefore, there is a guarantee, that all AST mutations are done via these methods,
+// easily searched by usages, and there is no another way to modify any other field.
+
+void ASTNodeExpressionBase::assign_inferred_type(TypeExpr* type) {
+  this->inferred_type = type;
+}
+
+void ASTNodeExpressionBase::assign_rvalue_true() {
+  this->is_rvalue = true;
+}
+
+void ASTNodeExpressionBase::assign_lvalue_true() {
+  this->is_lvalue = true;
+}
+
+void Vertex<ast_identifier>::assign_sym(const Symbol* sym) {
+  this->sym = sym;
+}
+
+void Vertex<ast_self_keyword>::assign_param_ref(const LocalVarData* self_param) {
+  this->param_ref = self_param;
+}
+
+void Vertex<ast_function_call>::assign_fun_ref(const FunctionData* fun_ref) {
+  this->fun_maybe = fun_ref;
+}
+
+void Vertex<ast_dot_method_call>::assign_fun_ref(const FunctionData* fun_ref) {
+  this->fun_ref = fun_ref;
+}
+
+void Vertex<ast_global_var_declaration>::assign_var_ref(const GlobalVarData* var_ref) {
+  this->var_ref = var_ref;
+}
+
+void Vertex<ast_constant_declaration>::assign_const_ref(const GlobalConstData* const_ref) {
+  this->const_ref = const_ref;
+}
+
+void Vertex<ast_parameter>::assign_param_ref(const LocalVarData* param_ref) {
+  this->param_ref = param_ref;
+}
+
+void Vertex<ast_function_declaration>::assign_fun_ref(const FunctionData* fun_ref) {
+  this->fun_ref = fun_ref;
+}
+
+void Vertex<ast_local_var>::assign_var_ref(const Symbol* var_ref) {
+  this->var_maybe = var_ref;
+}
+
+void Vertex<ast_import_statement>::assign_src_file(const SrcFile* file) {
+  this->file = file;
 }
 
 } // namespace tolk

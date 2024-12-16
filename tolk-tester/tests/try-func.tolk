@@ -1,7 +1,6 @@
 fun unsafeGetInt<X>(any: X): int
     asm "NOP";
 
-@method_id(11)
 fun foo(x: int): int {
   try {
     if (x == 7) {
@@ -14,7 +13,6 @@ fun foo(x: int): int {
 }
 
 @inline
-@method_id(12)
 fun foo_inline(x: int): int {
   try {
     assert(!(x == 7)) throw 44;
@@ -25,7 +23,6 @@ fun foo_inline(x: int): int {
 }
 
 @inline_ref
-@method_id(13)
 fun foo_inlineref(x: int): int {
   try {
     if (x == 7) { throw (44, 2); }
@@ -35,26 +32,25 @@ fun foo_inlineref(x: int): int {
   }
 }
 
-@method_id(1)
+@method_id(101)
 fun test(x: int, y: int, z: int): int {
   y = foo(y);
   return x * 100 + y * 10 + z;
 }
 
-@method_id(2)
+@method_id(102)
 fun test_inline(x: int, y: int, z: int): int {
   y = foo_inline(y);
   return x * 100 + y * 10 + z;
 }
 
-@method_id(3)
+@method_id(103)
 fun test_inlineref(x: int, y: int, z: int): int {
   y = foo_inlineref(y);
   return x * 100 + y * 10 + z;
 }
 
 @inline
-@method_id(14)
 fun foo_inline_big(
         x1: int, x2: int, x3: int, x4: int, x5: int, x6: int, x7: int, x8: int, x9: int, x10: int,
         x11: int, x12: int, x13: int, x14: int, x15: int, x16: int, x17: int, x18: int, x19: int, x20: int
@@ -69,7 +65,7 @@ fun foo_inline_big(
   }
 }
 
-@method_id(4)
+@method_id(104)
 fun test_inline_big(x: int, y: int, z: int): int {
   y = foo_inline_big(
           y, y + 1, y + 2, y + 3, y + 4, y + 5, y + 6, y + 7, y + 8, y + 9,
@@ -77,7 +73,6 @@ fun test_inline_big(x: int, y: int, z: int): int {
   return x * 1000000 + y * 1000 + z;
 }
 
-@method_id(15)
 fun foo_big(
         x1: int, x2: int, x3: int, x4: int, x5: int, x6: int, x7: int, x8: int, x9: int, x10: int,
         x11: int, x12: int, x13: int, x14: int, x15: int, x16: int, x17: int, x18: int, x19: int, x20: int
@@ -92,7 +87,7 @@ fun foo_big(
   }
 }
 
-@method_id(5)
+@method_id(105)
 fun test_big(x: int, y: int, z: int): int {
   y = foo_big(
           y, y + 1, y + 2, y + 3, y + 4, y + 5, y + 6, y + 7, y + 8, y + 9,
@@ -100,7 +95,7 @@ fun test_big(x: int, y: int, z: int): int {
   return x * 1000000 + y * 1000 + z;
 }
 
-@method_id(16)
+@method_id(106)
 fun test_catch_into_same(x: int): int {
   var code = x;
   try {
@@ -112,7 +107,7 @@ fun test_catch_into_same(x: int): int {
 }
 
 
-@method_id(17)
+@method_id(107)
 fun test_catch_into_same_2(x: int): int {
   var code = x;
   try {
@@ -124,28 +119,77 @@ fun test_catch_into_same_2(x: int): int {
   return code;
 }
 
+global after046: int;
+
+// this bug existed in FunC and is fixed in v0.4.6
+fun bug_046_internal(op: int) {
+  if (op == 1) {
+    return;
+  } else if (op == 2) {
+    return;
+  } else {
+    throw 1;
+  }
+}
+
+fun bug_046_called() {
+  after046 = 0;
+  try {
+    bug_046_internal(1337);
+    after046 = 1;  // shouldn't be called
+  } catch(n) {
+    return;
+  }
+  return;
+}
+
+@method_id(108)
+fun bug_046_entrypoint() {
+  bug_046_called();
+  return after046;
+}
+
+global g_reg: int;
+
+@method_id(109)
+fun test109(): (int, int) {
+  var l_reg = 10;
+  g_reg = 10;
+  try {
+    // note, that regardless of assignment, an exception RESTORES them to previous (to 10)
+    // it's very unexpected, but is considered to be a TVM feature, not a bug
+    g_reg = 999;
+    l_reg = 999;
+    bug_046_internal(999);  // throws
+  } catch {
+  }
+  // returns (10,10) because of an exception, see a comment above
+  return (g_reg, l_reg);
+}
+
 fun main() {
 }
 
 /**
-    method_id | in    | out
-@testcase | 1  | 1 2 3 | 123
-@testcase | 1  | 3 8 9 | 389
-@testcase | 1  | 3 7 9 | 329
-@testcase | 2  | 1 2 3 | 123
-@testcase | 2  | 3 8 9 | 389
-@testcase | 2  | 3 7 9 | 329
-@testcase | 3  | 1 2 3 | 123
-@testcase | 3  | 3 8 9 | 389
-@testcase | 3  | 3 7 9 | 329
-@testcase | 4  | 4 8 9 | 4350009
-@testcase | 4  | 4 7 9 | 4001009
-@testcase | 5  | 4 8 9 | 4350009
-@testcase | 5  | 4 7 9 | 4001009
-@testcase | 16 | 5     | 5
-@testcase | 16 | 20    | 44
-@testcase | 17 | 5     | 5
-@testcase | 17 | 20    | 20
+    method_id   | in    | out
+@testcase | 101 | 1 2 3 | 123
+@testcase | 101 | 3 8 9 | 389
+@testcase | 101 | 3 7 9 | 329
+@testcase | 102 | 1 2 3 | 123
+@testcase | 102 | 3 8 9 | 389
+@testcase | 102 | 3 7 9 | 329
+@testcase | 103 | 1 2 3 | 123
+@testcase | 103 | 3 8 9 | 389
+@testcase | 103 | 3 7 9 | 329
+@testcase | 104 | 4 8 9 | 4350009
+@testcase | 104 | 4 7 9 | 4001009
+@testcase | 105 | 4 8 9 | 4350009
+@testcase | 105 | 4 7 9 | 4001009
+@testcase | 106 | 5     | 5
+@testcase | 106 | 20    | 44
+@testcase | 107 | 5     | 5
+@testcase | 107 | 20    | 20
+@testcase | 108 |       | 0
 
-@code_hash 73240939343624734070640372352271282883450660826541545137654364443860257436623
+@code_hash 39307974281105539319288356721945232226028429128341177951717392648324358675585
 */

@@ -145,14 +145,14 @@ fun main() {
 """
   test7 PROC:<{
     ...
-    LDOPTREF	//  b _20 _19
+    LDOPTREF	//  b _18 _17
     DROP	    //  b c
-    ISNULL	    //  b _13
-    10 MULCONST	//  b _15
-    SWAP	    //  _15 b
-    ISNULL	    //  _15 _16
-    0 EQINT     // _15 _17
-    ADD	        //  _18
+    ISNULL	    //  b _11
+    10 MULCONST	//  b _13
+    SWAP	    //  _13 b
+    ISNULL	    //  _13 _14
+    0 EQINT     // _13 _15
+    ADD	        //  _16
   }>
 """
 */

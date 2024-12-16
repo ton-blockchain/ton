@@ -7,5 +7,5 @@ fun cantAssignToVal() {
 
 /**
 @compilation_should_fail
-@stderr modifying an immutable variable `x`
+@stderr modifying immutable variable `x`
  */

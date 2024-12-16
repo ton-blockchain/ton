@@ -35,7 +35,7 @@ Below, I just give examples of @fif_codegen tag:
 """
 main PROC:<{
   // s
-  17 PUSHINT     //  s _3=17
+  17 PUSHINT     //  s _1=17
   OVER           //  s z=17 t
   WHILE:<{
     ...

@@ -16,10 +16,24 @@
 */
 #pragma once
 
-#include "fwd-declarations.h"
-
 namespace tolk {
 
-AnyV parse_src_file_to_ast(const SrcFile* file);
+struct ASTNodeBase;
+struct ASTNodeExpressionBase;
+struct ASTNodeStatementBase;
+
+using AnyV = const ASTNodeBase*;
+using AnyExprV = const ASTNodeExpressionBase*;
+using AnyStatementV = const ASTNodeStatementBase*;
+
+struct Symbol;
+struct LocalVarData;
+struct FunctionData;
+struct GlobalVarData;
+struct GlobalConstData;
+
+struct TypeExpr;
+
+struct SrcFile;
 
 } // namespace tolk

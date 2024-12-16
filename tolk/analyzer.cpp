@@ -46,7 +46,7 @@ int CodeBlob::split_vars(bool strict) {
     if (k != 1) {
       var.coord = ~((n << 8) + k);
       for (int i = 0; i < k; i++) {
-        auto v = create_var(comp_types[i], vars[j].sym_idx, vars[j].where);
+        auto v = create_var(comp_types[i], vars[j].v_sym, vars[j].where);
         tolk_assert(v == n + i);
         tolk_assert(vars[v].idx == v);
         vars[v].coord = ((int)j << 8) + i + 1;
@@ -732,15 +732,18 @@ VarDescrList Op::fwd_analyze(VarDescrList values) {
     }
     case _Call: {
       prepare_args(values);
-      auto func = dynamic_cast<const SymValAsmFunc*>(fun_ref->value);
-      if (func) {
+      if (!f_sym->is_regular_function()) {
         std::vector<VarDescr> res;
         res.reserve(left.size());
         for (var_idx_t i : left) {
           res.emplace_back(i);
         }
         AsmOpList tmp;
-        func->compile(tmp, res, args, where);  // abstract interpretation of res := f (args)
+        if (f_sym->is_asm_function()) {
+          std::get<FunctionBodyAsm*>(f_sym->body)->compile(tmp);  // abstract interpretation of res := f (args)
+        } else {
+          std::get<FunctionBodyBuiltin*>(f_sym->body)->compile(tmp, res, args, where);
+        }
         int j = 0;
         for (var_idx_t i : left) {
           values.add_newval(i).set_value(res[j++]);
@@ -878,26 +881,9 @@ bool Op::set_noreturn(bool flag) {
   return flag;
 }
 
-void Op::set_impure(const CodeBlob &code) {
-  // todo calling this function with `code` is a bad design (flags are assigned after Op is constructed)
-  // later it's better to check this somewhere in code.emplace_back()
-  if (code.flags & CodeBlob::_ForbidImpure) {
-    throw ParseError(where, "an impure operation in a pure function");
-  }
+void Op::set_impure_flag() {
   flags |= _Impure;
 }
-
-void Op::set_impure(const CodeBlob &code, bool flag) {
-  if (flag) {
-    if (code.flags & CodeBlob::_ForbidImpure) {
-      throw ParseError(where, "an impure operation in a pure function");
-    }
-    flags |= _Impure;
-  } else {
-    flags &= ~_Impure;
-  }
-}
-
 
 bool Op::mark_noreturn() {
   switch (cl) {

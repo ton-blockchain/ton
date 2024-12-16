@@ -18,10 +18,9 @@
 
 #include <string>
 #include <vector>
+#include "fwd-declarations.h"
 
 namespace tolk {
-
-struct ASTNodeBase;
 
 struct SrcFile {
   struct SrcPosition {
@@ -39,7 +38,7 @@ struct SrcFile {
   std::string rel_filename;             // relative to cwd
   std::string abs_filename;             // absolute from root
   std::string text;                     // file contents loaded into memory, every Token::str_val points inside it
-  const ASTNodeBase* ast = nullptr;     // when a file has been parsed, its ast_tolk_file is kept here
+  AnyV ast = nullptr;                   // when a file has been parsed, its ast_tolk_file is kept here
   std::vector<ImportStatement> imports; // to check strictness (can't use a symbol without importing its file)
 
   SrcFile(int file_id, std::string rel_filename, std::string abs_filename, std::string&& text)

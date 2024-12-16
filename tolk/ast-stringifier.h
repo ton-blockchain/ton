@@ -31,8 +31,9 @@ namespace tolk {
 
 class ASTStringifier final : public ASTVisitor {
   constexpr static std::pair<ASTNodeType, const char*> name_pairs[] = {
-    {ast_empty, "ast_empty"},
-    {ast_parenthesized_expr, "ast_parenthesized_expr"},
+    {ast_empty_statement, "ast_empty_statement"},
+    {ast_empty_expression, "ast_empty_expression"},
+    {ast_parenthesized_expression, "ast_parenthesized_expression"},
     {ast_tensor, "ast_tensor"},
     {ast_tensor_square, "ast_tensor_square"},
     {ast_identifier, "ast_identifier"},
@@ -115,7 +116,7 @@ class ASTStringifier final : public ASTVisitor {
       case ast_identifier:
         return static_cast<std::string>(v->as<ast_identifier>()->name);
       case ast_int_const:
-        return static_cast<std::string>(v->as<ast_int_const>()->int_val);
+        return static_cast<std::string>(v->as<ast_int_const>()->orig_str);
       case ast_string_const:
         if (char modifier = v->as<ast_string_const>()->modifier) {
           return "\"" + static_cast<std::string>(v->as<ast_string_const>()->str_val) + "\"" + std::string(1, modifier);
@@ -146,21 +147,21 @@ class ASTStringifier final : public ASTVisitor {
         return annotation_kinds[static_cast<int>(v->as<ast_annotation>()->kind)].second;
       case ast_parameter: {
         std::ostringstream os;
-        os << v->as<ast_parameter>()->param_type;
-        return static_cast<std::string>(v->as<ast_parameter>()->get_identifier()->name) + ": " + os.str();
+        os << v->as<ast_parameter>()->declared_type;
+        return static_cast<std::string>(v->as<ast_parameter>()->param_name) + ": " + os.str();
       }
       case ast_function_declaration: {
         std::string param_names;
         for (int i = 0; i < v->as<ast_function_declaration>()->get_num_params(); i++) {
           if (!param_names.empty())
             param_names += ",";
-          param_names += v->as<ast_function_declaration>()->get_param(i)->get_identifier()->name;
+          param_names += v->as<ast_function_declaration>()->get_param(i)->param_name;
         }
         return "fun " + static_cast<std::string>(v->as<ast_function_declaration>()->get_identifier()->name) + "(" + param_names + ")";
       }
       case ast_local_var: {
         std::ostringstream os;
-        os << v->as<ast_local_var>()->declared_type;
+        os << (v->as<ast_local_var>()->inferred_type ? v->as<ast_local_var>()->inferred_type : v->as<ast_local_var>()->declared_type);
         if (auto v_ident = v->as<ast_local_var>()->get_identifier()->try_as<ast_identifier>()) {
           return static_cast<std::string>(v_ident->name) + ":" + os.str();
         }
@@ -202,8 +203,9 @@ public:
 
   void visit(AnyV v) override {
     switch (v->type) {
-      case ast_empty:                         return handle_vertex(v->as<ast_empty>());
-      case ast_parenthesized_expr:            return handle_vertex(v->as<ast_parenthesized_expr>());
+      case ast_empty_statement:               return handle_vertex(v->as<ast_empty_statement>());
+      case ast_empty_expression:              return handle_vertex(v->as<ast_empty_expression>());
+      case ast_parenthesized_expression:      return handle_vertex(v->as<ast_parenthesized_expression>());
       case ast_tensor:                        return handle_vertex(v->as<ast_tensor>());
       case ast_tensor_square:                 return handle_vertex(v->as<ast_tensor_square>());
       case ast_identifier:                    return handle_vertex(v->as<ast_identifier>());

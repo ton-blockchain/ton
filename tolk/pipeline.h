@@ -33,6 +33,14 @@ namespace tolk {
 AllSrcFiles pipeline_discover_and_parse_sources(const std::string& stdlib_filename, const std::string& entrypoint_filename);
 
 void pipeline_register_global_symbols(const AllSrcFiles&);
+void pipeline_resolve_identifiers_and_assign_symbols(const AllSrcFiles&);
+void pipeline_calculate_rvalue_lvalue(const AllSrcFiles&);
+void pipeline_detect_unreachable_statements(const AllSrcFiles&);
+void pipeline_infer_and_check_types(const AllSrcFiles&);
+void pipeline_refine_lvalue_for_mutate_arguments(const AllSrcFiles&);
+void pipeline_check_rvalue_lvalue(const AllSrcFiles&);
+void pipeline_check_pure_impure_operations(const AllSrcFiles&);
+void pipeline_constant_folding(const AllSrcFiles&);
 void pipeline_convert_ast_to_legacy_Expr_Op(const AllSrcFiles&);
 
 void pipeline_find_unused_symbols();

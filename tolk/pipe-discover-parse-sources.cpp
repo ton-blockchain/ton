@@ -28,6 +28,14 @@
 #include "ast-from-tokens.h"
 #include "compiler-state.h"
 
+/*
+ *   This is the starting point of compilation pipeline.
+ *   It parses Tolk files to AST, analyzes `import` statements and loads/parses imported files.
+ *
+ *   When it finishes, all files have been parsed to AST, and no more files will later be added.
+ *   If a parsing error happens (invalid syntax), an exception is thrown immediately from ast-from-tokens.cpp.
+ */
+
 namespace tolk {
 
 AllSrcFiles pipeline_discover_and_parse_sources(const std::string& stdlib_filename, const std::string& entrypoint_filename) {
@@ -50,7 +58,7 @@ AllSrcFiles pipeline_discover_and_parse_sources(const std::string& stdlib_filena
 
         SrcFile* imported = G.all_src_files.locate_and_register_source_file(rel_filename, v_import->loc);
         file->imports.push_back(SrcFile::ImportStatement{imported});
-        v_import->mutate_set_src_file(imported);
+        v_import->mutate()->assign_src_file(imported);
       }
     }
   }

@@ -27,6 +27,19 @@ void ExperimentalOption::mark_deprecated(const char* deprecated_from_v, const ch
   this->deprecated_reason = deprecated_reason;
 }
 
+std::string_view PersistentHeapAllocator::copy_string_to_persistent_memory(std::string_view str_in_tmp_memory) {
+  size_t len = str_in_tmp_memory.size();
+  char* allocated = new char[len];
+  memcpy(allocated, str_in_tmp_memory.data(), str_in_tmp_memory.size());
+  auto new_chunk = std::make_unique<ChunkInHeap>(allocated, std::move(head));
+  head = std::move(new_chunk);
+  return {head->allocated, len};
+}
+
+void PersistentHeapAllocator::clear() {
+  head = nullptr;
+}
+
 void CompilerSettings::enable_experimental_option(std::string_view name) {
   ExperimentalOption* to_enable = nullptr;
 

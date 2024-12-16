@@ -15,9 +15,9 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include "lexer.h"
-#include "compiler-state.h"
-#include "symtable.h"
 #include <cassert>
+#include <cstdint>
+#include <cstring>
 
 namespace tolk {
 
@@ -406,7 +406,6 @@ struct ChunkIdentifierOrKeyword final : ChunkLexerBase {
     if (TokenType kw_tok = maybe_keyword(str_val)) {
       lex->add_token(kw_tok, str_val);
     } else {
-      G.symbols.lookup_add(str_val);
       lex->add_token(tok_identifier, str_val);
     }
     return true;
@@ -421,7 +420,7 @@ struct ChunkIdentifierInBackticks final : ChunkLexerBase {
     const char* str_begin = lex->c_str();
     lex->skip_chars(1);
     while (!lex->is_eof() && lex->char_at() != '`' && lex->char_at() != '\n') {
-      if (std::isspace(lex->char_at())) { // probably, I'll remove this restriction after rewriting symtable and cur_sym_idx
+      if (std::isspace(lex->char_at())) {
         lex->error("an identifier can't have a space in its name (even inside backticks)");
       }
       lex->skip_chars(1);
@@ -432,7 +431,6 @@ struct ChunkIdentifierInBackticks final : ChunkLexerBase {
 
     std::string_view str_val(str_begin + 1, lex->c_str() - str_begin - 1);
     lex->skip_chars(1);
-    G.symbols.lookup_add(str_val);
     lex->add_token(tok_identifier, str_val);
     return true;
   }

@@ -11,6 +11,6 @@ fun cantCallMutatingFunctionWithImmutable() {
 
 /**
 @compilation_should_fail
-@stderr modifying an immutable variable `op_increase` (call a mutating function)
+@stderr modifying immutable constant
 @stderr inc(mutate op_increase)
  */

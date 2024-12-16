@@ -24,51 +24,41 @@
     from all source files in the program, then also delete it here.
 */
 #include "tolk.h"
-#include "src-file.h"
 #include "compiler-state.h"
 
 /*
- *   Here we find unused symbols (global functions and variables) to strip them off codegen.
- *   Note, that currently it's implemented as a standalone step after AST has been transformed to legacy Expr/Op.
- * The reason why it's not done on AST level is that symbol resolving is done too late. For instance,
- * having `beginCell()` there is not enough information in AST whether if points to a global function
- * or it's a local variable application.
- *   In the future, this should be done on AST level.
+ *   This pipe finds unused symbols (global functions and variables) to strip them off codegen.
+ *   It happens after converting AST to Op, so it does not traverse AST.
+ *   In the future, when control flow graph is introduced, this should be done at AST level.
  */
 
 namespace tolk {
 
 static void mark_function_used_dfs(const std::unique_ptr<Op>& op);
 
-static void mark_function_used(SymValCodeFunc* func_val) {
-  if (!func_val->code || func_val->is_really_used) { // already handled
+static void mark_function_used(const FunctionData* fun_ref) {
+  if (!fun_ref->is_regular_function() || fun_ref->is_really_used()) { // already handled
     return;
   }
 
-  func_val->is_really_used = true;
-  mark_function_used_dfs(func_val->code->ops);
+  fun_ref->mutate()->assign_is_really_used();
+  mark_function_used_dfs(std::get<FunctionBodyCode*>(fun_ref->body)->code->ops);
 }
 
-static void mark_global_var_used(SymValGlobVar* glob_val) {
-  glob_val->is_really_used = true;
+static void mark_global_var_used(const GlobalVarData* glob_ref) {
+  glob_ref->mutate()->assign_is_really_used();
 }
 
 static void mark_function_used_dfs(const std::unique_ptr<Op>& op) {
   if (!op) {
     return;
   }
-  // op->fun_ref, despite its name, may actually ref global var
-  // note, that for non-calls, e.g. `var a = some_fn` (Op::_Let), some_fn is Op::_GlobVar
-  // (in other words, fun_ref exists not only for direct Op::_Call, but for non-call references also)
-  if (op->fun_ref) {
-    if (auto* func_val = dynamic_cast<SymValCodeFunc*>(op->fun_ref->value)) {
-      mark_function_used(func_val);
-    } else if (auto* glob_val = dynamic_cast<SymValGlobVar*>(op->fun_ref->value)) {
-      mark_global_var_used(glob_val);
-    } else if (auto* asm_val = dynamic_cast<SymValAsmFunc*>(op->fun_ref->value)) {
-    } else {
-      tolk_assert(false);
-    }
+
+  if (op->f_sym) {  // for Op::_Call
+    mark_function_used(op->f_sym);
+  }
+  if (op->g_sym) {  // for Op::_GlobVar
+    mark_global_var_used(op->g_sym);
   }
   mark_function_used_dfs(op->next);
   mark_function_used_dfs(op->block0);
@@ -76,11 +66,9 @@ static void mark_function_used_dfs(const std::unique_ptr<Op>& op) {
 }
 
 void pipeline_find_unused_symbols() {
-  for (SymDef* func_sym : G.all_code_functions) {
-    auto* func_val = dynamic_cast<SymValCodeFunc*>(func_sym->value);
-    std::string name = G.symbols.get_name(func_sym->sym_idx);
-    if (func_val->method_id.not_null() || func_val->is_entrypoint()) {
-      mark_function_used(func_val);
+  for (const FunctionData* fun_ref : G.all_code_functions) {
+    if (fun_ref->is_method_id_not_empty()) {    // get methods, main and other entrypoints, regular functions with @method_id
+      mark_function_used(fun_ref);
     }
   }
 }

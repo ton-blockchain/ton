@@ -17,9 +17,29 @@
 #pragma once
 
 #include "fwd-declarations.h"
+#include "crypto/common/refint.h"
+#include <variant>
 
 namespace tolk {
 
-AnyV parse_src_file_to_ast(const SrcFile* file);
+struct ConstantValue {
+  std::variant<td::RefInt256, std::string> value;
+
+  bool is_int() const { return std::holds_alternative<td::RefInt256>(value); }
+  bool is_slice() const { return std::holds_alternative<std::string>(value); }
+
+  td::RefInt256 as_int() const { return std::get<td::RefInt256>(value); }
+  const std::string& as_slice() const { return std::get<std::string>(value); }
+
+  static ConstantValue from_int(int value) {
+    return {td::make_refint(value)};
+  }
+
+  static ConstantValue from_int(td::RefInt256 value) {
+    return {std::move(value)};
+  }
+};
+
+ConstantValue eval_const_init_value(AnyExprV init_value);
 
 } // namespace tolk

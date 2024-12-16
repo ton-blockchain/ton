@@ -10,6 +10,6 @@ fun cantCallMutatingFunctionWithRvalue() {
 
 /**
 @compilation_should_fail
-@stderr lvalue expected (call a mutating function)
+@stderr literal can not be used as lvalue
 @stderr incBoth(mutate x, mutate 30)
  */

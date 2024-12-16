@@ -347,11 +347,11 @@ class TolkTestFile {
         if (exit_code === 0 && this.compilation_should_fail)
             throw new TolkCompilationSucceededError("compilation succeeded, but it should have failed")
 
-        if (exit_code !== 0 && this.compilation_should_fail) {
-            for (let should_include of this.stderr_includes)
-                should_include.check(stderr)
+        for (let should_include of this.stderr_includes)  // @stderr is used to check errors and warnings
+            should_include.check(stderr)
+
+        if (exit_code !== 0 && this.compilation_should_fail)
             return
-        }
 
         if (exit_code !== 0 && !this.compilation_should_fail)
             throw new TolkCompilationFailedError(`tolk exit_code = ${exit_code}`, stderr)

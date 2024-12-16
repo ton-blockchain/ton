@@ -54,6 +54,14 @@ int tolk_proceed(const std::string &entrypoint_filename) {
     AllSrcFiles all_files = pipeline_discover_and_parse_sources("@stdlib/common.tolk", entrypoint_filename);
 
     pipeline_register_global_symbols(all_files);
+    pipeline_resolve_identifiers_and_assign_symbols(all_files);
+    pipeline_calculate_rvalue_lvalue(all_files);
+    pipeline_detect_unreachable_statements(all_files);
+    pipeline_infer_and_check_types(all_files);
+    pipeline_refine_lvalue_for_mutate_arguments(all_files);
+    pipeline_check_rvalue_lvalue(all_files);
+    pipeline_check_pure_impure_operations(all_files);
+    pipeline_constant_folding(all_files);
     pipeline_convert_ast_to_legacy_Expr_Op(all_files);
 
     pipeline_find_unused_symbols();
