@@ -1336,7 +1336,8 @@ Ref<vm::Tuple> Transaction::prepare_vm_c7(const ComputePhaseConfig& cfg) const {
     // See crypto/block/mc-config.cpp#2223 (get_prev_blocks_info)
     // [ wc:Integer shard:Integer seqno:Integer root_hash:Integer file_hash:Integer] = BlockId;
     // [ last_mc_blocks:[BlockId...]
-    //   prev_key_block:BlockId ] : PrevBlocksInfo
+    //   prev_key_block:BlockId
+    //   last_mc_blocks_100:[BlockId...] ] : PrevBlocksInfo
     // The only context where PrevBlocksInfo (13 parameter of c7) is null is inside emulator
     // where it need to be set via transaction_emulator_set_prev_blocks_info (see emulator/emulator-extern.cpp)
     // Inside validator, collator and liteserver checking external message  contexts
