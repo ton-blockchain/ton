@@ -1692,9 +1692,8 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
       }
     }
   }
-  vm::VmState vm{new_code, std::move(stack), gas, 1, new_data, vm_log, compute_vm_libraries(cfg)};
+  vm::VmState vm{new_code, cfg.global_version, std::move(stack), gas, 1, new_data, vm_log, compute_vm_libraries(cfg)};
   vm.set_max_data_depth(cfg.max_vm_data_depth);
-  vm.set_global_version(cfg.global_version);
   vm.set_c7(prepare_vm_c7(cfg));  // tuple with SmartContractInfo
   vm.set_chksig_always_succeed(cfg.ignore_chksig);
   vm.set_stop_on_accept_message(cfg.stop_on_accept_message);

@@ -131,3 +131,4 @@ Example: if the last masterchain block seqno is `19071` then the list contains b
 - Jumps to nested continuations of depth more than 8 consume 1 gas for eact subsequent continuation (this does not affect most of TVM code).
 - Fix exception code in some TVM instructions: now `stk_und` has priority over other error codes.
   - `PFXDICTADD`, `PFXDICTSET`, `PFXDICTREPLACE`, `PFXDICTDEL`, `GETGASFEE`, `GETSTORAGEFEE`, `GETFORWARDFEE`, `GETORIGINALFWDFEE`, `GETGASFEESIMPLE`, `GETFORWARDFEESIMPLE`, `HASHEXT`
+- Now setting the contract code to a library cell does not consume additional gas on execution of the code.

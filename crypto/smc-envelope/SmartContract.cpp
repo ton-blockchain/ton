@@ -222,14 +222,14 @@ SmartContract::Answer run_smartcont(SmartContract::State state, td::Ref<vm::Stac
     stack->dump(os, 2);
     LOG(DEBUG) << "VM stack:\n" << os.str();
   }
-  vm::VmState vm{state.code, std::move(stack), gas, 1, state.data, log};
+  int global_version = config ? config->get_global_version() : 0;
+  vm::VmState vm{state.code, global_version, std::move(stack), gas, 1, state.data, log};
   vm.set_c7(std::move(c7));
   vm.set_chksig_always_succeed(ignore_chksig);
   if (!libraries.is_null()) {
     vm.register_library_collection(libraries);
   }
   if (config) {
-    vm.set_global_version(config->get_global_version());
     auto r_limits = config->get_size_limits_config();
     if (r_limits.is_ok()) {
       vm.set_max_data_depth(r_limits.ok().max_vm_data_depth);
