@@ -3,6 +3,7 @@ Global version is a parameter specified in `ConfigParam 8` ([block.tlb](https://
 Various features are enabled depending on the global version.
 
 ## Version 4
+New features of version 4 are desctibed in detail in [the documentation](https://docs.ton.org/v3/documentation/tvm/changelog/tvm-upgrade-2023-07).
 
 ### New TVM instructions
 * `PREVMCBLOCKS`, `PREVKEYBLOCK`
@@ -123,3 +124,5 @@ Operations for working with Merkle proofs, where cells can have non-zero level a
 - Fix `RAWRESERVE` action with flag `4` (use original balance of the account) by explicitly setting `original_balance` to `balance - msg_balance_remaining`.
   - Previously it did not work if storage fee was greater than the original balance.
 - Jumps to nested continuations of depth more than 8 consume 1 gas for eact subsequent continuation (this does not affect most of TVM code).
+- Fix exception code in some TVM instructions: now `stk_und` has priority over other error codes.
+  - `PFXDICTADD`, `PFXDICTSET`, `PFXDICTREPLACE`, `PFXDICTDEL`, `GETGASFEE`, `GETSTORAGEFEE`, `GETFORWARDFEE`, `GETORIGINALFWDFEE`, `GETGASFEESIMPLE`, `GETFORWARDFEESIMPLE`, `HASHEXT`
