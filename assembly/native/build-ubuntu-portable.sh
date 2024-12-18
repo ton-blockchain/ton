@@ -1,7 +1,7 @@
 #/bin/bash
 
 #sudo apt-get update
-#sudo apt-get install -y build-essential git cmake ninja-build automake libtool texinfo autoconf
+#sudo apt-get install -y build-essential git cmake ninja-build automake libtool texinfo autoconf libc++-dev libc++abi-dev
 
 with_tests=false
 with_artifacts=false
@@ -24,8 +24,8 @@ else
   rm -rf .ninja* CMakeCache.txt
 fi
 
-export CC=$(which clang-16)
-export CXX=$(which clang++-16)
+export CC=$(which clang)
+export CXX=$(which clang++)
 export CCACHE_DISABLE=1
 
 if [ ! -d "lz4" ]; then
@@ -101,6 +101,8 @@ else
 fi
 
 cmake -GNinja .. \
+-DCMAKE_CXX_FLAGS="-stdlib=libc++" \
+-DCMAKE_EXE_LINKER_FLAGS="-stdlib=libc++" \
 -DPORTABLE=1 \
 -DCMAKE_BUILD_TYPE=Release \
 -DOPENSSL_FOUND=1 \
