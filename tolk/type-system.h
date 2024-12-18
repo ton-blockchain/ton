@@ -97,10 +97,6 @@ public:
   virtual int calc_width_on_stack() const {
     return 1;
   }
-
-  virtual void extract_components(std::vector<TypePtr>& comp_types) const {
-    comp_types.push_back(this);
-  }
 };
 
 /*
@@ -291,7 +287,6 @@ public:
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
   int calc_width_on_stack() const override;
-  void extract_components(std::vector<TypePtr>& comp_types) const override;
 };
 
 /*
@@ -318,7 +313,6 @@ public:
   void traverse(const TraverserCallbackT& callback) const override;
   TypePtr replace_children_custom(const ReplacerCallbackT& callback) const override;
   int calc_width_on_stack() const override;
-  void extract_components(std::vector<TypePtr>& comp_types) const override;
 };
 
 /*
@@ -387,7 +381,6 @@ public:
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
   int calc_width_on_stack() const override;
-  void extract_components(std::vector<TypePtr>& comp_types) const override;
 };
 
 /*
@@ -408,7 +401,6 @@ public:
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
   int calc_width_on_stack() const override;
-  void extract_components(std::vector<TypePtr>& comp_types) const override;
 };
 
 

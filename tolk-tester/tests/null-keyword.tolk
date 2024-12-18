@@ -113,7 +113,7 @@ fun main() {
     CONS	//  numbers
     UNCONS	//  h numbers
     DUP	//  h numbers numbers
-    CAR	//  h numbers _12
+    CAR	//  h numbers _13
 """
 
 @fif_codegen
@@ -133,7 +133,7 @@ fun main() {
 """
   test7 PROC:<{
     ...
-    LDOPTREF	//  b _18 _17
+    LDOPTREF	//  b _8 _7
     DROP	    //  b c
     ISNULL	    //  b _11
     10 MULCONST	//  b _13

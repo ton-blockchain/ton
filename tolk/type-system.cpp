@@ -538,31 +538,6 @@ bool TypeDataVoid::can_be_casted_with_as_operator(TypePtr cast_to) const {
 
 
 // --------------------------------------------
-//    extract_components()
-//
-// used in code generation (transforming Ops to other Ops)
-// to be removed in the future
-//
-
-void TypeDataGenericT::extract_components(std::vector<TypePtr>& comp_types) const {
-  assert(false);
-}
-
-void TypeDataTensor::extract_components(std::vector<TypePtr>& comp_types) const {
-  for (TypePtr item : items) {
-    item->extract_components(comp_types);
-  }
-}
-
-void TypeDataUnresolved::extract_components(std::vector<TypePtr>& comp_types) const {
-  assert(false);
-}
-
-void TypeDataVoid::extract_components(std::vector<TypePtr>& comp_types) const {
-}
-
-
-// --------------------------------------------
 //    parsing type from tokens
 //
 // here we implement parsing types (mostly after colon) to TypeData

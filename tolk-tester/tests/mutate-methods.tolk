@@ -307,7 +307,7 @@ fun main(){}
     ...
     incrementTwoInPlace CALLDICT        //  x y sum1
     -ROT
-    10 PUSHINT  //  sum1 x y _8=10
+    10 PUSHINT  //  sum1 x y _10=10
     incrementTwoInPlace CALLDICT        //  sum1 x y sum2
     s1 s3 s0 XCHG3       //  x y sum1 sum2
   }>
@@ -317,8 +317,8 @@ fun main(){}
 """
  load_next PROC:<{
     //  cs
-    32 LDI      //  _3 cs
-    SWAP        //  cs _3
+    32 LDI      //  _4 cs
+    SWAP        //  cs _4
   }>
 """
 

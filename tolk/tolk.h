@@ -45,17 +45,15 @@ typedef int const_idx_t;
 
 struct TmpVar {
   TypePtr v_type;
-  var_idx_t idx;
+  var_idx_t ir_idx;
   const LocalVarData* v_sym;  // points to var defined in code; nullptr for implicitly created tmp vars
-  int coord;
   SrcLocation where;
   std::vector<std::function<void(SrcLocation)>> on_modification;
 
-  TmpVar(var_idx_t _idx, TypePtr type, const LocalVarData* v_sym, SrcLocation loc)
+  TmpVar(var_idx_t ir_idx, TypePtr type, const LocalVarData* v_sym, SrcLocation loc)
     : v_type(type)
-    , idx(_idx)
+    , ir_idx(ir_idx)
     , v_sym(v_sym)
-    , coord(0)
     , where(loc) {
   }
 
@@ -345,8 +343,6 @@ struct Op {
   void show_var_list(std::ostream& os, const std::vector<VarDescr>& list, const std::vector<TmpVar>& vars) const;
   static void show_block(std::ostream& os, const Op* block, const std::vector<TmpVar>& vars, std::string pfx = "",
                          int mode = 0);
-  void split_vars(const std::vector<TmpVar>& vars);
-  static void split_var_list(std::vector<var_idx_t>& var_list, const std::vector<TmpVar>& vars);
   bool compute_used_vars(const CodeBlob& code, bool edit);
   bool std_compute_used_vars(bool disabled = false);
   bool set_var_info(const VarDescrList& new_var_info);
@@ -384,9 +380,6 @@ inline ListIterator<const Op> begin(const Op* op_list) {
 inline ListIterator<const Op> end(const Op* op_list) {
   return ListIterator<const Op>{};
 }
-
-typedef std::tuple<TypePtr, const LocalVarData*, SrcLocation> FormalArg;
-typedef std::vector<FormalArg> FormalArgList;
 
 struct AsmOpList;
 
@@ -1115,12 +1108,10 @@ struct CodeBlob {
 #endif
     return res;
   }
-  bool import_params(FormalArgList&& arg_list);
-  var_idx_t create_var(TypePtr var_type, const LocalVarData* v_sym, SrcLocation loc);
-  var_idx_t create_tmp_var(TypePtr var_type, SrcLocation loc) {
+  std::vector<var_idx_t> create_var(TypePtr var_type, const LocalVarData* v_sym, SrcLocation loc);
+  std::vector<var_idx_t> create_tmp_var(TypePtr var_type, SrcLocation loc) {
     return create_var(var_type, nullptr, loc);
   }
-  int split_vars(bool strict = false);
   bool compute_used_code_vars();
   bool compute_used_code_vars(std::unique_ptr<Op>& ops, const VarDescrList& var_info, bool edit) const;
   void print(std::ostream& os, int flags = 0) const;

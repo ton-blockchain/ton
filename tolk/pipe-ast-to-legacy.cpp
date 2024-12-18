@@ -34,15 +34,15 @@
 namespace tolk {
 
 struct LValGlobs {
-  std::vector<std::pair<const GlobalVarData*, var_idx_t>> globs;
+  std::vector<std::pair<const GlobalVarData*, std::vector<var_idx_t>>> globs;
 
-  void add_modified_glob(const GlobalVarData* g_sym, var_idx_t local_ir_idx) {
-    globs.emplace_back(g_sym, local_ir_idx);
+  void add_modified_glob(const GlobalVarData* g_sym, std::vector<var_idx_t> local_ir_idx) {
+    globs.emplace_back(g_sym, std::move(local_ir_idx));
   }
 
   void gen_ops_set_globs(CodeBlob& code, SrcLocation loc) const {
     for (const auto& [g_sym, ir_idx] : globs) {
-      Op& op = code.emplace_back(loc, Op::_SetGlob, std::vector<var_idx_t>{}, std::vector<var_idx_t>{ ir_idx }, g_sym);
+      Op& op = code.emplace_back(loc, Op::_SetGlob, std::vector<var_idx_t>{}, ir_idx, g_sym);
       op.set_impure_flag();
     }
   }
@@ -93,7 +93,9 @@ static std::vector<std::vector<var_idx_t>> pre_compile_tensor_inner(CodeBlob& co
 
     void on_var_modified(var_idx_t ir_idx, SrcLocation loc, CodeBlob& code) {
       tolk_assert(is_watched(ir_idx));
-      var_idx_t tmp_idx = code.create_tmp_var(code.vars[ir_idx].v_type, loc);
+      std::vector<var_idx_t> tmp_idx_arr = code.create_tmp_var(code.vars[ir_idx].v_type, loc);
+      tolk_assert(tmp_idx_arr.size() == 1);
+      var_idx_t tmp_idx = tmp_idx_arr[0];
       code.emplace_back(loc, Op::_Let, std::vector{tmp_idx}, std::vector{ir_idx});
       for (std::vector<var_idx_t>& prev_vars : res_lists) {
         std::replace(prev_vars.begin(), prev_vars.end(), ir_idx, tmp_idx);
@@ -143,7 +145,7 @@ static std::vector<var_idx_t> pre_compile_let(CodeBlob& code, AnyExprV lhs, AnyE
     std::vector<var_idx_t> right = pre_compile_expr(rhs, code);
     const TypeDataTypedTuple* inferred_tuple = rhs->inferred_type->try_as<TypeDataTypedTuple>();
     std::vector<TypePtr> types_list = inferred_tuple->items;
-    std::vector<var_idx_t> rvect = {code.create_tmp_var(TypeDataTensor::create(std::move(types_list)), rhs->loc)};
+    std::vector<var_idx_t> rvect = code.create_tmp_var(TypeDataTensor::create(std::move(types_list)), rhs->loc);
     code.emplace_back(lhs->loc, Op::_UnTuple, rvect, std::move(right));
     LValGlobs globs;
     std::vector<var_idx_t> left = pre_compile_tensor(code, lhs->as<ast_typed_tuple>()->get_items(), &globs);
@@ -164,7 +166,7 @@ static std::vector<var_idx_t> pre_compile_let(CodeBlob& code, AnyExprV lhs, AnyE
 
 static std::vector<var_idx_t> gen_op_call(CodeBlob& code, TypePtr ret_type, SrcLocation here,
                                           std::vector<var_idx_t>&& args_vars, const FunctionData* fun_ref) {
-  std::vector<var_idx_t> rvect = {code.create_tmp_var(ret_type, here)};
+  std::vector<var_idx_t> rvect = code.create_tmp_var(ret_type, here);
   Op& op = code.emplace_back(here, Op::_Call, rvect, std::move(args_vars), fun_ref);
   if (!fun_ref->is_marked_as_pure()) {
     op.set_impure_flag();
@@ -175,9 +177,9 @@ static std::vector<var_idx_t> gen_op_call(CodeBlob& code, TypePtr ret_type, SrcL
 
 static std::vector<var_idx_t> process_symbol(SrcLocation loc, const Symbol* sym, CodeBlob& code, LValGlobs* lval_globs) {
   if (const auto* glob_ref = sym->try_as<GlobalVarData>()) {
-    std::vector<var_idx_t> rvect = {code.create_tmp_var(glob_ref->declared_type, loc)};
+    std::vector<var_idx_t> rvect = code.create_tmp_var(glob_ref->declared_type, loc);
     if (lval_globs) {
-      lval_globs->add_modified_glob(glob_ref, rvect[0]);
+      lval_globs->add_modified_glob(glob_ref, rvect);
       return rvect;
     } else {
       code.emplace_back(loc, Op::_GlobVar, rvect, std::vector<var_idx_t>{}, glob_ref);
@@ -186,22 +188,25 @@ static std::vector<var_idx_t> process_symbol(SrcLocation loc, const Symbol* sym,
   }
   if (const auto* const_ref = sym->try_as<GlobalConstData>()) {
     if (const_ref->is_int_const()) {
-      std::vector<var_idx_t> rvect = {code.create_tmp_var(TypeDataInt::create(), loc)};
+      std::vector<var_idx_t> rvect = code.create_tmp_var(TypeDataInt::create(), loc);
       code.emplace_back(loc, Op::_IntConst, rvect, const_ref->as_int_const());
       return rvect;
     } else {
-      std::vector<var_idx_t> rvect = {code.create_tmp_var(TypeDataSlice::create(), loc)};
+      std::vector<var_idx_t> rvect = code.create_tmp_var(TypeDataSlice::create(), loc);
       code.emplace_back(loc, Op::_SliceConst, rvect, const_ref->as_slice_const());
       return rvect;
     }
   }
   if (const auto* fun_ref = sym->try_as<FunctionData>()) {
-    std::vector<var_idx_t> rvect = {code.create_tmp_var(fun_ref->inferred_full_type, loc)};
+    std::vector<var_idx_t> rvect = code.create_tmp_var(fun_ref->inferred_full_type, loc);
     code.emplace_back(loc, Op::_GlobVar, rvect, std::vector<var_idx_t>{}, fun_ref);
     return rvect;
   }
   if (const auto* var_ref = sym->try_as<LocalVarData>()) {
-    return {var_ref->idx};
+#ifdef TOLK_DEBUG
+    tolk_assert(static_cast<int>(var_ref->ir_idx.size()) == var_ref->declared_type->calc_width_on_stack());
+#endif
+    return var_ref->ir_idx;
   }
   throw Fatal("process_symbol");
 }
@@ -244,7 +249,7 @@ static std::vector<var_idx_t> process_binary_operator(V<ast_binary_operator> v, 
     v_b_ne_0->mutate()->assign_fun_ref(lookup_global_symbol("_!=_")->as<FunctionData>());
     std::vector<var_idx_t> cond = pre_compile_expr(v->get_lhs(), code);
     tolk_assert(cond.size() == 1);
-    std::vector<var_idx_t> rvect = {code.create_tmp_var(v->inferred_type, v->loc)};
+    std::vector<var_idx_t> rvect = code.create_tmp_var(v->inferred_type, v->loc);
     Op& if_op = code.emplace_back(v->loc, Op::_If, cond);
     code.push_set_cur(if_op.block0);
     code.emplace_back(v->loc, Op::_Let, rvect, pre_compile_expr(t == tok_logical_and ? v_b_ne_0 : v_1, code));
@@ -266,7 +271,7 @@ static std::vector<var_idx_t> process_unary_operator(V<ast_unary_operator> v, Co
 static std::vector<var_idx_t> process_ternary_operator(V<ast_ternary_operator> v, CodeBlob& code) {
   std::vector<var_idx_t> cond = pre_compile_expr(v->get_cond(), code);
   tolk_assert(cond.size() == 1);
-  std::vector<var_idx_t> rvect = {code.create_tmp_var(v->inferred_type, v->loc)};
+  std::vector<var_idx_t> rvect = code.create_tmp_var(v->inferred_type, v->loc);
   Op& if_op = code.emplace_back(v->loc, Op::_If, cond);
   code.push_set_cur(if_op.block0);
   code.emplace_back(v->get_when_true()->loc, Op::_Let, rvect, pre_compile_expr(v->get_when_true(), code));
@@ -299,7 +304,7 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
     std::vector<var_idx_t> tfunc = pre_compile_expr(v->get_callee(), code);
     tolk_assert(tfunc.size() == 1);
     args_vars.push_back(tfunc[0]);
-    std::vector<var_idx_t> rvect = {code.create_tmp_var(v->inferred_type, v->loc)};
+    std::vector<var_idx_t> rvect = code.create_tmp_var(v->inferred_type, v->loc);
     Op& op = code.emplace_back(v->loc, Op::_CallInd, rvect, std::move(args_vars));
     op.set_impure_flag();
     return rvect;
@@ -361,8 +366,8 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
         }
       }
     }
-    std::vector<var_idx_t> rvect = {code.create_tmp_var(real_ret_type, v->loc)};
-    left.push_back(rvect[0]);
+    std::vector<var_idx_t> rvect = code.create_tmp_var(real_ret_type, v->loc);
+    left.insert(left.end(), rvect.begin(), rvect.end());
     code.on_var_modification(left, v->loc);
     code.emplace_back(v->loc, Op::_Let, std::move(left), rvect_apply);
     local_globs.gen_ops_set_globs(code, v->loc);
@@ -388,21 +393,21 @@ static std::vector<var_idx_t> process_typed_tuple(V<ast_typed_tuple> v, CodeBlob
   if (lval_globs) {       // todo some time, make "var (a, [b,c]) = (1, [2,3])" work
     v->error("[...] can not be used as lvalue here");
   }
-  std::vector<var_idx_t> left = std::vector{code.create_tmp_var(v->inferred_type, v->loc)};
+  std::vector<var_idx_t> left = code.create_tmp_var(v->inferred_type, v->loc);
   std::vector<var_idx_t> right = pre_compile_tensor(code, v->get_items());
   code.emplace_back(v->loc, Op::_Tuple, left, std::move(right));
   return left;
 }
 
 static std::vector<var_idx_t> process_int_const(V<ast_int_const> v, CodeBlob& code) {
-  std::vector<var_idx_t> rvect = {code.create_tmp_var(v->inferred_type, v->loc)};
+  std::vector<var_idx_t> rvect = code.create_tmp_var(v->inferred_type, v->loc);
   code.emplace_back(v->loc, Op::_IntConst, rvect, v->intval);
   return rvect;
 }
 
 static std::vector<var_idx_t> process_string_const(V<ast_string_const> v, CodeBlob& code) {
   ConstantValue value = eval_const_init_value(v);
-  std::vector<var_idx_t> rvect = {code.create_tmp_var(v->inferred_type, v->loc)};
+  std::vector<var_idx_t> rvect = code.create_tmp_var(v->inferred_type, v->loc);
   if (value.is_int()) {
     code.emplace_back(v->loc, Op::_IntConst, rvect, value.as_int());
   } else {
@@ -426,9 +431,9 @@ static std::vector<var_idx_t> process_local_var(V<ast_local_var_lhs> v, CodeBlob
     return process_symbol(v->loc, v->var_ref, code, nullptr);
   }
 
-  tolk_assert(v->var_ref->idx == -1);
-  v->var_ref->mutate()->assign_idx(code.create_var(v->inferred_type, v->var_ref, v->loc));
-  return {v->var_ref->idx};
+  tolk_assert(v->var_ref->ir_idx.empty());
+  v->var_ref->mutate()->assign_ir_idx(code.create_var(v->inferred_type, v->var_ref, v->loc));
+  return v->var_ref->ir_idx;
 }
 
 static std::vector<var_idx_t> process_local_vars_declaration(V<ast_local_vars_declaration>, CodeBlob&) {
@@ -439,7 +444,7 @@ static std::vector<var_idx_t> process_local_vars_declaration(V<ast_local_vars_de
 
 static std::vector<var_idx_t> process_underscore(V<ast_underscore> v, CodeBlob& code) {
   // when _ is used as left side of assignment, like `(cs, _) = cs.loadAndReturn()`
-  return {code.create_tmp_var(v->inferred_type, v->loc)};
+  return code.create_tmp_var(v->inferred_type, v->loc);
 }
 
 std::vector<var_idx_t> pre_compile_expr(AnyExprV v, CodeBlob& code, LValGlobs* lval_globs) {
@@ -516,8 +521,8 @@ static void process_assert_statement(V<ast_assert_statement> v, CodeBlob& code) 
 static void process_catch_variable(AnyExprV v_catch_var, CodeBlob& code) {
   if (auto v_ref = v_catch_var->try_as<ast_reference>(); v_ref && v_ref->sym) { // not underscore
     const LocalVarData* var_ref = v_ref->sym->as<LocalVarData>();
-    tolk_assert(var_ref->idx == -1);
-    var_ref->mutate()->assign_idx(code.create_var(v_catch_var->inferred_type, var_ref, v_catch_var->loc));
+    tolk_assert(var_ref->ir_idx.empty());
+    var_ref->mutate()->assign_ir_idx(code.create_var(v_catch_var->inferred_type, var_ref, v_catch_var->loc));
   }
 }
 
@@ -627,14 +632,13 @@ static void process_throw_statement(V<ast_throw_statement> v, CodeBlob& code) {
 static void process_return_statement(V<ast_return_statement> v, CodeBlob& code) {
   std::vector<var_idx_t> return_vars = v->has_return_value() ? pre_compile_expr(v->get_return_value(), code) : std::vector<var_idx_t>{};
   if (code.fun_ref->does_return_self()) {
-    tolk_assert(return_vars.size() == 1);
     return_vars = {};
   }
   if (code.fun_ref->has_mutate_params()) {
     std::vector<var_idx_t> mutated_vars;
     for (const LocalVarData& p_sym: code.fun_ref->parameters) {
       if (p_sym.is_mutate_parameter()) {
-        mutated_vars.push_back(p_sym.idx);
+        mutated_vars.insert(mutated_vars.end(), p_sym.ir_idx.begin(), p_sym.ir_idx.end());
       }
     }
     return_vars.insert(return_vars.begin(), mutated_vars.begin(), mutated_vars.end());
@@ -647,7 +651,7 @@ static void append_implicit_return_statement(SrcLocation loc_end, CodeBlob& code
   if (code.fun_ref->has_mutate_params()) {
     for (const LocalVarData& p_sym: code.fun_ref->parameters) {
       if (p_sym.is_mutate_parameter()) {
-        mutated_vars.push_back(p_sym.idx);
+        mutated_vars.insert(mutated_vars.end(), p_sym.ir_idx.begin(), p_sym.ir_idx.end());
       }
     }
   }
@@ -685,11 +689,23 @@ void process_any_statement(AnyV v, CodeBlob& code) {
 static void convert_function_body_to_CodeBlob(const FunctionData* fun_ref, FunctionBodyCode* code_body) {
   auto v_body = fun_ref->ast_root->as<ast_function_declaration>()->get_body()->as<ast_sequence>();
   CodeBlob* blob = new CodeBlob{fun_ref->name, fun_ref->loc, fun_ref};
-  FormalArgList legacy_arg_list;
-  for (const LocalVarData& param : fun_ref->parameters) {
-    legacy_arg_list.emplace_back(param.declared_type, &param, param.loc);
+
+  std::vector<var_idx_t> rvect_import;
+  int total_arg_width = 0;
+  for (int i = 0; i < fun_ref->get_num_params(); ++i) {
+    total_arg_width += fun_ref->parameters[i].declared_type->calc_width_on_stack();
   }
-  blob->import_params(std::move(legacy_arg_list));
+  rvect_import.reserve(total_arg_width);
+
+  for (int i = 0; i < fun_ref->get_num_params(); ++i) {
+    const LocalVarData& param_i = fun_ref->parameters[i];
+    std::vector<var_idx_t> ir_idx = blob->create_var(param_i.declared_type, &param_i, param_i.loc);
+    rvect_import.insert(rvect_import.end(), ir_idx.begin(), ir_idx.end());
+    param_i.mutate()->assign_ir_idx(std::move(ir_idx));
+  }
+  blob->emplace_back(fun_ref->loc, Op::_Import, rvect_import);
+  blob->in_var_cnt = blob->var_cnt;
+  tolk_assert(blob->var_cnt == total_arg_width);
 
   for (AnyV item : v_body->get_items()) {
     process_any_statement(item, *blob);

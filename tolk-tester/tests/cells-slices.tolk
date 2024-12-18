@@ -220,11 +220,11 @@ Note, that since 'compute-asm-ltr' became on be default, chaining methods codege
     1 PUSHINT	//  _0 _1=1
     SWAP	//  _1=1 _0
     32 STU	//  _0
-    2 PUSHINT	//  _0 _5=2
-    SWAP	//  _5=2 _0
+    2 PUSHINT	//  _0 _4=2
+    SWAP	//  _4=2 _0
     32 STU	//  _0
-    3 PUSHINT	//  _0 _9=3
-    SWAP	//  _9=3 _0
+    3 PUSHINT	//  _0 _7=3
+    SWAP	//  _7=3 _0
     32 STU	//  _0
   }>
 """

@@ -332,15 +332,15 @@ These are moments of future optimizations. For now, it's more than enough.
     DUP	//  x x
     IFNOTJMP:<{	//  x
       DROP	//
-      1 PUSHINT	//  _7=1
+      1 PUSHINT	//  _5=1
     }>	//  x
     DUP	//  x x
     IFNOTJMP:<{	//  x
       DROP	//
-      1 PUSHINT	//  _8=1
+      1 PUSHINT	//  _6=1
     }>	//  x
     100 THROWIFNOT
-    -4 PUSHINT	//  _12=-4
+    -4 PUSHINT	//  _9=-4
   }>
 """
 

@@ -38,7 +38,7 @@ static void fire_error_cannot_be_used_as_lvalue(AnyV v, const std::string& detai
 
 GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
 static void fire_error_modifying_immutable_variable(AnyExprV v, const LocalVarData* var_ref) {
-  if (var_ref->idx == 0 && var_ref->name == "self") {
+  if (var_ref->param_idx == 0 && var_ref->name == "self") {
     v->error("modifying `self`, which is immutable by default; probably, you want to declare `mutate self`");
   } else {
     v->error("modifying immutable variable `" + var_ref->name + "`");

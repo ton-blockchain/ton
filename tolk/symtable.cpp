@@ -93,8 +93,8 @@ void GlobalConstData::assign_resolved_type(TypePtr declared_type) {
   this->declared_type = declared_type;
 }
 
-void LocalVarData::assign_idx(int idx) {
-  this->idx = idx;
+void LocalVarData::assign_ir_idx(std::vector<int>&& ir_idx) {
+  this->ir_idx = std::move(ir_idx);
 }
 
 void LocalVarData::assign_resolved_type(TypePtr declared_type) {

@@ -104,9 +104,9 @@ fun testStartBalanceCodegen2() {
   testDumpDontPolluteStack PROC:<{
     ...
     DUMPSTK
-    x{6d79} PUSHSLICE	//  f s _9
+    x{6d79} PUSHSLICE	//  f s _5
     STRDUMP DROP
-    SBITS	//  f _11
+    SBITS	//  f _6
   }>
 """
 
