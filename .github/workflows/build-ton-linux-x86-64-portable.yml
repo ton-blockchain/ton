@@ -21,6 +21,12 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y build-essential git cmake ninja-build libc++-dev libc++abi-dev
 
+    - if: matrix.os == 'ubuntu-20.04'
+      run: |
+        sudo apt install -y manpages-dev software-properties-common
+        sudo add-apt-repository ppa:ubuntu-toolchain-r/test
+        sudo apt update && sudo apt install gcc-11 g++-11
+
     - name: Build TON
       run: |
         git submodule sync --recursive
