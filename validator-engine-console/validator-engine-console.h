@@ -57,9 +57,23 @@ class ValidatorEngineConsole : public td::actor::Actor {
   std::unique_ptr<ton::adnl::AdnlExtClient::Callback> make_callback();
 
   std::map<std::string, std::unique_ptr<QueryRunner>> query_runners_;
+  std::map<std::string, std::string> alternate_names_;
+  static std::string simplify_name(std::string name) {
+    std::erase_if(name, [](char c) { return c == '-'; });
+    return name;
+  }
   void add_query_runner(std::unique_ptr<QueryRunner> runner) {
     auto name = runner->name();
     query_runners_[name] = std::move(runner);
+    alternate_names_[simplify_name(name)] = name;
+  }
+  QueryRunner* get_query(std::string name) {
+    auto it = alternate_names_.find(name);
+    if (it != alternate_names_.end()) {
+      name = it->second;
+    }
+    auto it2 = query_runners_.find(name);
+    return it2 == query_runners_.end() ? nullptr : it2->second.get();
   }
 
  public:

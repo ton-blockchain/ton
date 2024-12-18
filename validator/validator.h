@@ -35,15 +35,16 @@
 #include "interfaces/proof.h"
 #include "interfaces/shard.h"
 #include "catchain/catchain-types.h"
+#include "interfaces/out-msg-queue-proof.h"
 #include "interfaces/external-message.h"
 
 namespace ton {
 
 namespace validator {
 
-class DownloadToken {
+class ActionToken {
  public:
-  virtual ~DownloadToken() = default;
+  virtual ~ActionToken() = default;
 };
 
 struct PerfTimerStats {
@@ -186,6 +187,9 @@ class ValidatorManagerInterface : public td::actor::Actor {
                                      td::Promise<std::vector<BlockIdExt>> promise) = 0;
     virtual void download_archive(BlockSeqno masterchain_seqno, ShardIdFull shard_prefix, std::string tmp_dir,
                                   td::Timestamp timeout, td::Promise<std::string> promise) = 0;
+    virtual void download_out_msg_queue_proof(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
+                                              block::ImportedMsgQueueLimits limits, td::Timestamp timeout,
+                                              td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise) = 0;
 
     virtual void new_key_block(BlockHandle handle) = 0;
     virtual void send_validator_telemetry(PublicKeyHash key, tl_object_ptr<ton_api::validator_telemetry> telemetry) = 0;
@@ -248,7 +252,7 @@ class ValidatorManagerInterface : public td::actor::Actor {
   virtual void add_ext_server_port(td::uint16 port) = 0;
 
   virtual void get_download_token(size_t download_size, td::uint32 priority, td::Timestamp timeout,
-                                  td::Promise<std::unique_ptr<DownloadToken>> promise) = 0;
+                                  td::Promise<std::unique_ptr<ActionToken>> promise) = 0;
 
   virtual void get_block_data_from_db(ConstBlockHandle handle, td::Promise<td::Ref<BlockData>> promise) = 0;
   virtual void get_block_data_from_db_short(BlockIdExt block_id, td::Promise<td::Ref<BlockData>> promise) = 0;

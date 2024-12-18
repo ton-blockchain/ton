@@ -454,6 +454,10 @@ tonNode.success = tonNode.Success;
 tonNode.archiveNotFound = tonNode.ArchiveInfo;
 tonNode.archiveInfo id:long = tonNode.ArchiveInfo;
 
+tonNode.importedMsgQueueLimits max_bytes:int max_msgs:int = ImportedMsgQueueLimits;
+tonNode.outMsgQueueProof queue_proofs:bytes block_state_proofs:bytes msg_counts:(vector int) = tonNode.OutMsgQueueProof;
+tonNode.outMsgQueueProofEmpty = tonNode.OutMsgQueueProof;
+
 tonNode.forgetPeer = tonNode.ForgetPeer;
 
 ---functions---
@@ -483,6 +487,8 @@ tonNode.downloadKeyBlockProofLink block:tonNode.blockIdExt = tonNode.Data;
 tonNode.getArchiveInfo masterchain_seqno:int = tonNode.ArchiveInfo;
 tonNode.getShardArchiveInfo masterchain_seqno:int shard_prefix:tonNode.shardId = tonNode.ArchiveInfo;
 tonNode.getArchiveSlice archive_id:long offset:long max_size:int = tonNode.Data;
+tonNode.getOutMsgQueueProof dst_shard:tonNode.shardId blocks:(vector tonNode.blockIdExt)
+    limits:tonNode.importedMsgQueueLimits = tonNode.OutMsgQueueProof;
 
 tonNode.getCapabilities = tonNode.Capabilities;
 
@@ -725,6 +731,8 @@ engine.validator.perfTimerStats stats:(vector engine.validator.PerfTimerStatsByN
 
 engine.validator.shardOutQueueSize size:long = engine.validator.ShardOutQueueSize;
 
+engine.validator.exportedPrivateKeys encrypted_data:bytes = engine.validator.ExportedPrivateKeys;
+
 
 ---functions---
 
@@ -755,6 +763,7 @@ engine.validator.delListeningPort ip:int port:int categories:(vector int) priori
 engine.validator.delProxy out_ip:int out_port:int categories:(vector int) priority_categories:(vector int) = engine.validator.Success;
 
 engine.validator.sign key_hash:int256 data:bytes = engine.validator.Signature;
+engine.validator.exportAllPrivateKeys encryption_key:PublicKey = engine.validator.ExportedPrivateKeys;
 
 engine.validator.getStats = engine.validator.Stats;
 engine.validator.getConfig = engine.validator.JsonConfig;

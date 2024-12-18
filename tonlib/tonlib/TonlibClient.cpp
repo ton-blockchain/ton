@@ -5673,6 +5673,26 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_lookupBlock& reques
 td::Status check_lookup_block_proof(lite_api_ptr<ton::lite_api::liteServer_lookupBlockResult>& result, int mode, ton::BlockId blkid, ton::BlockIdExt client_mc_blkid, td::uint64 lt, td::uint32 utime) {
   try {
     ton::BlockIdExt cur_id = ton::create_block_id(result->mc_block_id_);
+    if (!cur_id.is_masterchain_ext()) {
+      return td::Status::Error("invalid response: mc block id is not from masterchain");
+    }
+    if (client_mc_blkid != cur_id) {
+      auto state = block::check_extract_state_proof(client_mc_blkid, result->client_mc_state_proof_.as_slice(),
+                                          result->mc_block_proof_.as_slice());
+      if (state.is_error()) {
+        LOG(WARNING) << "cannot check state proof: " << state.move_as_error().to_string();
+        return state.move_as_error();
+      }
+      auto state_root = state.move_as_ok();
+      auto prev_blocks_dict = block::get_prev_blocks_dict(state_root);
+      if (!prev_blocks_dict) {
+        return td::Status::Error("cannot extract prev blocks dict from state");
+      }
+
+      if (!block::check_old_mc_block_id(*prev_blocks_dict, cur_id)) {
+        return td::Status::Error("couldn't check old mc block id");
+      }
+    }
     try {
       for (auto& link : result->shard_links_) {
         ton::BlockIdExt prev_id = create_block_id(link->id_);
@@ -5686,23 +5706,6 @@ td::Status check_lookup_block_proof(lite_api_ptr<ton::lite_api::liteServer_looku
           return td::Status::Error("invalid block hash in proof");
         }
         if (cur_id.is_masterchain()) {
-          if (client_mc_blkid != cur_id) {
-            auto state = block::check_extract_state_proof(client_mc_blkid, result->client_mc_state_proof_.as_slice(),
-                                                result->mc_block_proof_.as_slice());
-            if (state.is_error()) {
-              LOG(WARNING) << "cannot check state proof: " << state.move_as_error().to_string();
-              return state.move_as_error();
-            }
-            auto state_root = state.move_as_ok();
-            auto prev_blocks_dict = block::get_prev_blocks_dict(state_root);
-            if (!prev_blocks_dict) {
-              return td::Status::Error("cannot extract prev blocks dict from state");
-            }
-
-            if (!block::check_old_mc_block_id(*prev_blocks_dict, cur_id)) {
-              return td::Status::Error("couldn't check old mc block id");
-            }
-          }
           block::gen::Block::Record blk;
           block::gen::BlockExtra::Record extra;
           block::gen::McBlockExtra::Record mc_extra;

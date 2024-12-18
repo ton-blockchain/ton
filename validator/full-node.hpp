@@ -28,6 +28,7 @@
 #include <map>
 #include <set>
 #include <queue>
+#include <token-manager.h>
 
 namespace ton {
 
@@ -79,6 +80,9 @@ class FullNodeImpl : public FullNode {
   void get_next_key_blocks(BlockIdExt block_id, td::Timestamp timeout, td::Promise<std::vector<BlockIdExt>> promise);
   void download_archive(BlockSeqno masterchain_seqno, ShardIdFull shard_prefix, std::string tmp_dir,
                         td::Timestamp timeout, td::Promise<std::string> promise);
+  void download_out_msg_queue_proof(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
+                                    block::ImportedMsgQueueLimits limits, td::Timestamp timeout,
+                                    td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise);
 
   void got_key_block_config(td::Ref<ConfigHolder> config);
   void new_key_block(BlockHandle handle);
@@ -87,6 +91,7 @@ class FullNodeImpl : public FullNode {
   void process_block_broadcast(BlockBroadcast broadcast) override;
   void process_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                                          td::BufferSlice data) override;
+  void get_out_msg_queue_query_token(td::Promise<std::unique_ptr<ActionToken>> promise) override;
 
   void set_validator_telemetry_filename(std::string value) override;
 
@@ -160,6 +165,9 @@ class FullNodeImpl : public FullNode {
   PublicKeyHash validator_telemetry_collector_key_ = PublicKeyHash::zero();
 
   void update_validator_telemetry_collector();
+
+  td::actor::ActorOwn<TokenManager> out_msg_queue_query_token_manager_ =
+      td::actor::create_actor<TokenManager>("tokens", /* max_tokens = */ 1);
 };
 
 }  // namespace fullnode

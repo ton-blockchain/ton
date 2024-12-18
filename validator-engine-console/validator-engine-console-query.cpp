@@ -35,6 +35,8 @@
 #include "ton/ton-tl.hpp"
 #include "td/utils/JsonBuilder.h"
 #include "auto/tl/ton_api_json.h"
+#include "keys/encryptor.h"
+#include "td/utils/port/path.h"
 #include "tl/tl_json.h"
 
 #include <cctype>
@@ -280,6 +282,66 @@ td::Status SignFileQuery::receive(td::BufferSlice data) {
                     "received incorrect answer: ");
   TRY_STATUS(td::write_file(out_file_, f->signature_.as_slice()));
   td::TerminalIO::out() << "got signature\n";
+  return td::Status::OK();
+}
+
+td::Status ExportAllPrivateKeysQuery::run() {
+  TRY_RESULT_ASSIGN(directory_, tokenizer_.get_token<std::string>());
+  TRY_STATUS(tokenizer_.check_endl());
+  client_pk_ = ton::privkeys::Ed25519::random();
+  return td::Status::OK();
+}
+
+td::Status ExportAllPrivateKeysQuery::send() {
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_exportAllPrivateKeys>(
+      client_pk_.compute_public_key().tl());
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status ExportAllPrivateKeysQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_exportedPrivateKeys>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  // Private keys are encrypted using client-provided public key to avoid storing them in
+  // non-secure buffers (not td::SecureString)
+  TRY_RESULT_PREFIX(decryptor, client_pk_.create_decryptor(), "cannot create decryptor: ");
+  TRY_RESULT_PREFIX(keys_data, decryptor->decrypt(f->encrypted_data_.as_slice()), "cannot decrypt data: ");
+  SCOPE_EXIT {
+    keys_data.as_slice().fill_zero_secure();
+  };
+  td::Slice slice = keys_data.as_slice();
+  if (slice.size() < 32) {
+    return td::Status::Error("data is too small");
+  }
+  slice.remove_suffix(32);
+  std::vector<ton::PrivateKey> private_keys;
+  while (!slice.empty()) {
+    if (slice.size() < 4) {
+      return td::Status::Error("unexpected end of data");
+    }
+    td::uint32 size;
+    td::MutableSlice{reinterpret_cast<char *>(&size), 4}.copy_from(slice.substr(0, 4));
+    if (size > slice.size()) {
+      return td::Status::Error("unexpected end of data");
+    }
+    slice.remove_prefix(4);
+    TRY_RESULT_PREFIX(private_key, ton::PrivateKey::import(slice.substr(0, size)), "cannot parse private key: ");
+    if (!private_key.exportable()) {
+      return td::Status::Error("private key is not exportable");
+    }
+    private_keys.push_back(std::move(private_key));
+    slice.remove_prefix(size);
+  }
+
+  TRY_STATUS_PREFIX(td::mkpath(directory_ + "/"), "cannot create directory " + directory_ + ": ");
+  td::TerminalIO::out() << "exported " << private_keys.size() << " private keys" << "\n";
+  for (const ton::PrivateKey &private_key : private_keys) {
+    std::string hash_hex = private_key.compute_short_id().bits256_value().to_hex();
+    TRY_STATUS_PREFIX(td::write_file(directory_ + "/" + hash_hex, private_key.export_as_slice()),
+                      "failed to write file: ");
+    td::TerminalIO::out() << "pubkey_hash " << hash_hex << "\n";
+  }
+  td::TerminalIO::out() << "written all files to " << directory_ << "\n";
   return td::Status::OK();
 }
 
@@ -979,8 +1041,7 @@ td::Status ImportCertificateQuery::receive(td::BufferSlice data) {
 
 
 td::Status SignShardOverlayCertificateQuery::run() {
-  TRY_RESULT_ASSIGN(wc_, tokenizer_.get_token<td::int32>());
-  TRY_RESULT_ASSIGN(shard_, tokenizer_.get_token<td::int64>() );
+  TRY_RESULT_ASSIGN(shard_, tokenizer_.get_token<ton::ShardIdFull>() );
   TRY_RESULT_ASSIGN(key_, tokenizer_.get_token<ton::PublicKeyHash>());
   TRY_RESULT_ASSIGN(expire_at_, tokenizer_.get_token<td::int32>());
   TRY_RESULT_ASSIGN(max_size_, tokenizer_.get_token<td::uint32>());
@@ -990,8 +1051,9 @@ td::Status SignShardOverlayCertificateQuery::run() {
 }
 
 td::Status SignShardOverlayCertificateQuery::send() {
-  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_signShardOverlayCertificate>
-             (wc_, shard_, ton::create_tl_object<ton::ton_api::engine_validator_keyHash>(key_.tl()), expire_at_, max_size_);
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_signShardOverlayCertificate>(
+      shard_.workchain, shard_.shard, ton::create_tl_object<ton::ton_api::engine_validator_keyHash>(key_.tl()),
+      expire_at_, max_size_);
   td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
   return td::Status::OK();
 }
@@ -1009,8 +1071,7 @@ td::Status SignShardOverlayCertificateQuery::receive(td::BufferSlice data) {
 }
 
 td::Status ImportShardOverlayCertificateQuery::run() {
-  TRY_RESULT_ASSIGN(wc_, tokenizer_.get_token<td::int32>());
-  TRY_RESULT_ASSIGN(shard_, tokenizer_.get_token<td::int64>() );
+  TRY_RESULT_ASSIGN(shard_, tokenizer_.get_token<ton::ShardIdFull>());
   TRY_RESULT_ASSIGN(key_, tokenizer_.get_token<ton::PublicKeyHash>());
   TRY_RESULT_ASSIGN(in_file_, tokenizer_.get_token<std::string>());
 
@@ -1021,8 +1082,9 @@ td::Status ImportShardOverlayCertificateQuery::send() {
   TRY_RESULT(data, td::read_file(in_file_));
   TRY_RESULT_PREFIX(cert, ton::fetch_tl_object<ton::ton_api::overlay_Certificate>(data.as_slice(), true),
                     "incorrect certificate");
-  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_importShardOverlayCertificate>
-             (wc_, shard_, ton::create_tl_object<ton::ton_api::engine_validator_keyHash>(key_.tl()), std::move(cert));
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_importShardOverlayCertificate>(
+      shard_.workchain, shard_.shard, ton::create_tl_object<ton::ton_api::engine_validator_keyHash>(key_.tl()),
+      std::move(cert));
   td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
   return td::Status::OK();
 }
@@ -1111,14 +1173,12 @@ td::Status GetPerfTimerStatsJsonQuery::receive(td::BufferSlice data) {
 }
 
 td::Status GetShardOutQueueSizeQuery::run() {
-  TRY_RESULT_ASSIGN(block_id_.workchain, tokenizer_.get_token<int>());
-  TRY_RESULT_ASSIGN(block_id_.shard, tokenizer_.get_token<long long>());
+  TRY_RESULT(shard, tokenizer_.get_token<ton::ShardIdFull>());
+  block_id_.workchain = shard.workchain;
+  block_id_.shard = shard.shard;
   TRY_RESULT_ASSIGN(block_id_.seqno, tokenizer_.get_token<int>());
   if (!tokenizer_.endl()) {
-    ton::ShardIdFull dest;
-    TRY_RESULT_ASSIGN(dest.workchain, tokenizer_.get_token<int>());
-    TRY_RESULT_ASSIGN(dest.shard, tokenizer_.get_token<long long>());
-    dest_ = dest;
+    TRY_RESULT_ASSIGN(dest_, tokenizer_.get_token<ton::ShardIdFull>());
   }
   TRY_STATUS(tokenizer_.check_endl());
   return td::Status::OK();
@@ -1126,8 +1186,7 @@ td::Status GetShardOutQueueSizeQuery::run() {
 
 td::Status GetShardOutQueueSizeQuery::send() {
   auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_getShardOutQueueSize>(
-      dest_ ? 1 : 0, ton::create_tl_block_id_simple(block_id_), dest_ ? dest_.value().workchain : 0,
-      dest_ ? dest_.value().shard : 0);
+      dest_.is_valid() ? 1 : 0, ton::create_tl_block_id_simple(block_id_), dest_.workchain, dest_.shard);
   td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
   return td::Status::OK();
 }
@@ -1501,14 +1560,13 @@ td::Status GetAdnlStatsQuery::receive(td::BufferSlice data) {
 }
 
 td::Status AddShardQuery::run() {
-  TRY_RESULT_ASSIGN(wc_, tokenizer_.get_token<td::int32>());
-  TRY_RESULT_ASSIGN(shard_, tokenizer_.get_token<td::int64>());
+  TRY_RESULT_ASSIGN(shard_, tokenizer_.get_token<ton::ShardIdFull>());
+  TRY_STATUS(tokenizer_.check_endl());
   return td::Status::OK();
 }
 
 td::Status AddShardQuery::send() {
-  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_addShard>(
-      ton::create_tl_shard_id(ton::ShardIdFull(wc_, shard_)));
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_addShard>(ton::create_tl_shard_id(shard_));
   td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
   return td::Status::OK();
 }
@@ -1521,14 +1579,13 @@ td::Status AddShardQuery::receive(td::BufferSlice data) {
 }
 
 td::Status DelShardQuery::run() {
-  TRY_RESULT_ASSIGN(wc_, tokenizer_.get_token<td::int32>());
-  TRY_RESULT_ASSIGN(shard_, tokenizer_.get_token<td::int64>());
+  TRY_RESULT_ASSIGN(shard_, tokenizer_.get_token<ton::ShardIdFull>());
+  TRY_STATUS(tokenizer_.check_endl());
   return td::Status::OK();
 }
 
 td::Status DelShardQuery::send() {
-  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_delShard>(
-      ton::create_tl_shard_id(ton::ShardIdFull(wc_, shard_)));
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_delShard>(ton::create_tl_shard_id(shard_));
   td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
   return td::Status::OK();
 }

@@ -265,6 +265,11 @@ class ValidatorManagerImpl : public ValidatorManager {
   }
   void send_validator_telemetry(PublicKeyHash key, tl_object_ptr<ton_api::validator_telemetry> telemetry) override {
   }
+  void send_get_out_msg_queue_proof_request(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
+                                            block::ImportedMsgQueueLimits limits,
+                                            td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise) override {
+    UNREACHABLE();
+  }
   void send_download_archive_request(BlockSeqno mc_seqno, ShardIdFull shard_prefix, std::string tmp_dir,
                                      td::Timestamp timeout, td::Promise<std::string> promise) override {
     UNREACHABLE();
@@ -283,7 +288,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void try_get_static_file(FileHash file_hash, td::Promise<td::BufferSlice> promise) override;
 
   void get_download_token(size_t download_size, td::uint32 priority, td::Timestamp timeout,
-                          td::Promise<std::unique_ptr<DownloadToken>> promise) override {
+                          td::Promise<std::unique_ptr<ActionToken>> promise) override {
     promise.set_error(td::Status::Error(ErrorCode::error, "download disabled"));
   }
 

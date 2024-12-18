@@ -120,6 +120,26 @@ struct ShardIdFull {
     char buffer[64];
     return std::string{buffer, (unsigned)snprintf(buffer, 63, "(%d,%016llx)", workchain, (unsigned long long)shard)};
   }
+  static td::Result<ShardIdFull> parse(td::Slice s) {
+    // Formats: (0,2000000000000000) (0:2000000000000000) 0,2000000000000000 0:2000000000000000
+    if (s.empty()) {
+      return td::Status::Error("empty string");
+    }
+    if (s[0] == '(' && s.back() == ')') {
+      s = s.substr(1, s.size() - 2);
+    }
+    auto sep = s.find(':');
+    if (sep == td::Slice::npos) {
+      sep = s.find(',');
+    }
+    if (sep == td::Slice::npos || s.size() - sep - 1 != 16) {
+      return td::Status::Error(PSTRING() << "invalid shard " << s);
+    }
+    ShardIdFull shard;
+    TRY_RESULT_ASSIGN(shard.workchain, td::to_integer_safe<td::int32>(s.substr(0, sep)));
+    TRY_RESULT_ASSIGN(shard.shard, td::hex_to_integer_safe<td::uint64>(s.substr(sep + 1)));
+    return shard;
+  }
 };
 
 struct AccountIdPrefixFull {

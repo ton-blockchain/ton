@@ -554,11 +554,7 @@ class BitArray {
     set_same(0);
   }
   void set_zero_s() {
-    volatile uint8* p = data();
-    auto x = m;
-    while (x--) {
-      *p++ = 0;
-    }
+    as_slice().fill_zero_secure();
   }
   void set_ones() {
     set_same(1);

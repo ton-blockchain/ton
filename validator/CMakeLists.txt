@@ -46,6 +46,7 @@ set(VALIDATOR_HEADERS
   interfaces/db.h
   interfaces/external-message.h
   interfaces/liteserver.h
+  interfaces/out-msg-queue-proof.h
   interfaces/proof.h
   interfaces/shard.h
   interfaces/signature-set.h

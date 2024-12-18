@@ -1503,17 +1503,6 @@ td::Status ValidatorEngine::load_global_config() {
     h.push_back(b);
   }
   validator_options_.write().set_hardforks(std::move(h));
-
-  auto r_total_mem_stat = td::get_total_mem_stat();
-  if (r_total_mem_stat.is_error()) {
-    LOG(ERROR) << "Failed to get total RAM size: " << r_total_mem_stat.move_as_error();
-  } else {
-    td::uint64 total_ram = r_total_mem_stat.ok().total_ram;
-    LOG(WARNING) << "Total RAM = " << td::format::as_size(total_ram);
-    if (total_ram >= (90ULL << 30)) {
-      fast_state_serializer_enabled_ = true;
-    }
-  }
   validator_options_.write().set_fast_state_serializer_enabled(fast_state_serializer_enabled_);
 
   return td::Status::OK();
@@ -3333,6 +3322,70 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_sign &que
                           std::move(query.data_), std::move(P));
 }
 
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_exportAllPrivateKeys &query,
+                                        td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
+                                        td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_unsafe)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+  if (keyring_.empty()) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "not started keyring")));
+    return;
+  }
+
+  ton::PublicKey client_pubkey = ton::PublicKey{query.encryption_key_};
+  if (!client_pubkey.is_ed25519()) {
+    promise.set_value(
+        create_control_query_error(td::Status::Error(ton::ErrorCode::protoviolation, "encryption key is not Ed25519")));
+    return;
+  }
+
+  td::actor::send_closure(
+      keyring_, &ton::keyring::Keyring::export_all_private_keys,
+      [promise = std::move(promise),
+       client_pubkey = std::move(client_pubkey)](td::Result<std::vector<ton::PrivateKey>> R) mutable {
+        if (R.is_error()) {
+          promise.set_value(create_control_query_error(R.move_as_error()));
+          return;
+        }
+        // Private keys are encrypted using client-provided public key to avoid storing them in
+        // non-secure buffers (not td::SecureString)
+        std::vector<td::SecureString> serialized_keys;
+        size_t data_size = 32;
+        for (const ton::PrivateKey &key : R.ok()) {
+          serialized_keys.push_back(key.export_as_slice());
+          data_size += serialized_keys.back().size() + 4;
+        }
+        td::SecureString data{data_size};
+        td::MutableSlice slice = data.as_mutable_slice();
+        for (const td::SecureString &s : serialized_keys) {
+          td::uint32 size = td::narrow_cast_safe<td::uint32>(s.size()).move_as_ok();
+          CHECK(slice.size() >= size + 4);
+          slice.copy_from(td::Slice{reinterpret_cast<const td::uint8 *>(&size), 4});
+          slice.remove_prefix(4);
+          slice.copy_from(s.as_slice());
+          slice.remove_prefix(s.size());
+        }
+        CHECK(slice.size() == 32);
+        td::Random::secure_bytes(slice);
+
+        auto r_encryptor = client_pubkey.create_encryptor();
+        if (r_encryptor.is_error()) {
+          promise.set_value(create_control_query_error(r_encryptor.move_as_error_prefix("cannot create encryptor: ")));
+          return;
+        }
+        auto encryptor = r_encryptor.move_as_ok();
+        auto r_encrypted = encryptor->encrypt(data.as_slice());
+        if (r_encryptor.is_error()) {
+          promise.set_value(create_control_query_error(r_encrypted.move_as_error_prefix("cannot encrypt data: ")));
+          return;
+        }
+        promise.set_value(ton::create_serialize_tl_object<ton::ton_api::engine_validator_exportedPrivateKeys>(
+            r_encrypted.move_as_ok()));
+      });
+}
+
 void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_setVerbosity &query, td::BufferSlice data,
                                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise) {
   if (!(perm & ValidatorEnginePermissions::vep_default)) {
@@ -4489,7 +4542,7 @@ int main(int argc, char *argv[]) {
       });
   p.add_option(
       '\0', "fast-state-serializer",
-      "faster persistent state serializer, but requires more RAM (enabled automatically on machines with >= 90GB RAM)",
+      "faster persistent state serializer, but requires more RAM",
       [&]() {
         acts.push_back(
             [&x]() { td::actor::send_closure(x, &ValidatorEngine::set_fast_state_serializer_enabled, true); });
