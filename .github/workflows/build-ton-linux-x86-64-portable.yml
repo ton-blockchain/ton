@@ -18,8 +18,9 @@ jobs:
 
     - name: Install system libraries
       run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential git cmake ninja-build libc++-dev libc++abi-dev
+        sudo apt update
+        sudo apt install -y build-essential git cmake ninja-build libc++-dev libc++abi-dev
+        sudo apt remove libgsl-dev
 
     - if: matrix.os != 'ubuntu-24.04'
       run: |

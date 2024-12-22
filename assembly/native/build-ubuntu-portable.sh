@@ -33,7 +33,7 @@ git clone https://github.com/lz4/lz4.git
 cd lz4
 lz4Path=`pwd`
 git checkout v1.9.4
-make -j12
+CFLAGS="-fPIC" make -j12
 test $? -eq 0 || { echo "Can't compile lz4"; exit 1; }
 cd ..
 # ./lib/liblz4.a
@@ -102,7 +102,7 @@ fi
 
 cmake -GNinja .. \
 -DCMAKE_CXX_FLAGS="-stdlib=libc++ -I/usr/lib/llvm-16/include/c++/v1" \
--DCMAKE_EXE_LINKER_FLAGS="-stdlib=libc++ -I/usr/lib/llvm-16/include/c++/v1" \
+-DCMAKE_EXE_LINKER_FLAGS="-stdlib=libc++ -static-libgcc -static-libstdc++ /usr/lib/llvm-14/lib/libc++abi.a -I/usr/lib/llvm-16/include/c++/v1" \
 -DPORTABLE=1 \
 -DCMAKE_BUILD_TYPE=Release \
 -DOPENSSL_FOUND=1 \
