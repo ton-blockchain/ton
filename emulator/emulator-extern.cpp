@@ -615,7 +615,7 @@ const char *tvm_emulator_emulate_run_method(uint32_t len, const char *params_boc
   emulator->set_vm_verbosity_level(0);
   emulator->set_gas_limit(gas_limit);
   emulator->set_c7_raw(c7->fetch(0).as_tuple());
-  if (libs.is_empty()) {
+  if (!libs.is_empty()) {
     emulator->set_libraries(std::move(libs));
   }
   auto result = emulator->run_get_method(int(method_id), stack);
