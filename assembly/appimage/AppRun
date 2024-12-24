@@ -1,0 +1,3 @@
+#!/bin/bash
+export PATH=$PATH:$(dirname "$0")/usr/bin
+cd "$(dirname $APPIMAGE)" & exec app "$@"

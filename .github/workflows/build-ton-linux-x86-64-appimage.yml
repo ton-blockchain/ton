@@ -1,0 +1,51 @@
+name: Ubuntu TON build (AppImages, x86-64)
+
+on: [push,workflow_dispatch,workflow_call]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-20.04, ubuntu-22.04, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - name: Check out repository
+      uses: actions/checkout@v3
+      with:      
+        submodules: 'recursive'
+
+    - name: Install system libraries
+      run: |
+        sudo apt update
+        sudo apt install -y build-essential git cmake ninja-build libc++-dev libc++abi-dev
+        sudo apt remove libgsl-dev
+
+    - if: matrix.os != 'ubuntu-24.04'
+      run: |
+        wget https://apt.llvm.org/llvm.sh
+        chmod +x llvm.sh
+        sudo ./llvm.sh 16 all
+
+    - name: Build TON
+      run: |
+        git submodule sync --recursive
+        git submodule update
+        cp assembly/native/build-ubuntu-shared.sh .
+        chmod +x build-ubuntu-shared.sh
+        ./build-ubuntu-shared.sh -t -a
+
+    - name: Make AppImages
+      run: |
+        cp assembly/appimage/create-appimages.sh .
+        cp assembly/appimage/AppRun .
+        cp assembly/appimage/ton.png .
+        chmod +x create-appimages.sh
+        ./create-appimages.sh
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@master
+      with:
+        name: ton-appimages-${{ matrix.os }}
+        path: appimages/artifacts
