@@ -42,7 +42,7 @@ fi
 cmake -GNinja -DTON_USE_JEMALLOC=ON .. \
 -DCMAKE_BUILD_TYPE=Release \
 -DCMAKE_CXX_FLAGS="-stdlib=libc++ -I/usr/lib/llvm-16/include/c++/v1" \
--DCMAKE_EXE_LINKER_FLAGS="-stdlib=libc++ -static-libgcc -static-libstdc++ /usr/lib/llvm-14/lib/libc++abi.a -I/usr/lib/llvm-16/include/c++/v1" \
+-DCMAKE_EXE_LINKER_FLAGS="-stdlib=libc++ -static-libgcc -static-libstdc++ /usr/lib/llvm-16/lib/libc++abi.a -I/usr/lib/llvm-16/include/c++/v1" \
 -DPORTABLE=1 \
 -DOPENSSL_ROOT_DIR=$opensslPath \
 -DOPENSSL_INCLUDE_DIR=$opensslPath/include \
