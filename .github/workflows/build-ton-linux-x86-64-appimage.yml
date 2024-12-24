@@ -22,7 +22,7 @@ jobs:
         sudo apt install -y build-essential git cmake ninja-build zlib1g-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev liblz4-dev libjemalloc-dev
         sudo apt remove libgsl-dev
 
-    - if: matrix.os != 'ubuntu-24.04'
+    - name: Install clang-16
       run: |
         wget https://apt.llvm.org/llvm.sh
         chmod +x llvm.sh
@@ -32,9 +32,9 @@ jobs:
       run: |
         git submodule sync --recursive
         git submodule update
-        cp assembly/native/build-ubuntu-shared.sh .
-        chmod +x build-ubuntu-shared.sh
-        ./build-ubuntu-shared.sh -t -a
+        cp assembly/native/build-ubuntu-appimages.sh .
+        chmod +x build-ubuntu-appimages.sh
+        ./build-ubuntu-appimages.sh -t -a
 
     - name: Make AppImages
       run: |
