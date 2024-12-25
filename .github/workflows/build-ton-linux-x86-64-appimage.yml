@@ -49,9 +49,10 @@ jobs:
         cp assembly/appimage/ton.png .
         chmod +x create-appimages.sh
         ./create-appimages.sh
+        rm -rf artifacts
 
     - name: Upload artifacts
       uses: actions/upload-artifact@master
       with:
         name: ton-appimages-${{ matrix.os }}
-        path: appimages/artifacts
+        path: appimages/artifacts2

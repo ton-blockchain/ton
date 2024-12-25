@@ -7,13 +7,13 @@ fi
 
 rm -rf appimages
 
-mkdir -p appimages/artifacts
+mkdir -p appimages/artifacts2
 
 wget -nc https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
 chmod +x ./appimagetool-x86_64.AppImage
 
 cd appimages
-for file in ../artifacts/*; do
+for file in ../artifacts2/*; do
   if [[ -f "$file" && "$file" != *.so ]]; then
     appName=$(basename "$file")
     echo $appName
@@ -28,11 +28,11 @@ for file in ../artifacts/*; do
     chmod +x ./$appName.AppDir/usr/bin/$appName
     # create AppImage
     ./../appimagetool-x86_64.AppImage $appName.AppDir
-    mv $appName-x86_64.AppImage artifacts/$appName
+    mv $appName-x86_64.AppImage artifacts2/$appName
   fi
 done
 
-ls -larth artifacts
-cp -r ../artifacts/{smartcont,lib} artifacts/
+ls -larth artifacts2
+cp -r ../artifacts2/{smartcont,lib} artifacts2/
 pwd
-ls -larth artifacts
+ls -larth artifacts2
