@@ -50,5 +50,5 @@ jobs:
     - name: Upload artifacts
       uses: actions/upload-artifact@master
       with:
-        name: ton-appimages-${{ matrix.os }}
+        name: ton-appimages-20.04
         path: appimages/artifacts2

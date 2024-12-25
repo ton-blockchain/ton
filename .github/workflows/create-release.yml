@@ -473,7 +473,7 @@ jobs:
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-appimages-ubuntu-20.04.zip
+          file: artifacts/ton-appimages-.zip
           asset_name: ton-appimages-ubuntu-20.04.zip
           tag: ${{ steps.tag.outputs.TAG }}
 
