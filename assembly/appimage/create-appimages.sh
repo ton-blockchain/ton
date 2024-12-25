@@ -13,7 +13,7 @@ wget -nc https://github.com/AppImage/appimagetool/releases/download/continuous/a
 chmod +x ./appimagetool-x86_64.AppImage
 
 cd appimages
-for file in ../artifacts2/*; do
+for file in ../artifacts/*; do
   if [[ -f "$file" && "$file" != *.so ]]; then
     appName=$(basename "$file")
     echo $appName
