@@ -33,7 +33,7 @@ jobs:
           workflow: build-ton-linux-x86-64-appimage.yml
           path: artifacts
           workflow_conclusion: success
-          skip_unpack: false
+          skip_unpack: true
 
       - name: Download Mac x86-64 artifacts
         uses: dawidd6/action-download-artifact@v6
