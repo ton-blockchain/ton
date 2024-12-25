@@ -32,4 +32,7 @@ for file in ../artifacts/*; do
   fi
 done
 
+ls -larth artifacts
 cp -r ../artifacts/{smartcont,lib} artifacts/
+pwd
+ls -larth artifacts
