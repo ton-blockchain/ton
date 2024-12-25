@@ -33,6 +33,6 @@ for file in ../artifacts2/*; do
 done
 
 ls -larth artifacts2
-cp -r ../artifacts2/{smartcont,lib} artifacts2/
+cp -r ../artifacts/{smartcont,lib} artifacts2/
 pwd
 ls -larth artifacts2
