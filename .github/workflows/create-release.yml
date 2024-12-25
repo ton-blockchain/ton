@@ -477,14 +477,6 @@ jobs:
           asset_name: ton-appimages-ubuntu-20.04.zip
           tag: ${{ steps.tag.outputs.TAG }}
 
-      - name: Upload Linux x86-64 artifacts 22
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-appimages-ubuntu-22.04.zip
-          asset_name: ton-appimages-ubuntu-22.04.zip
-          tag: ${{ steps.tag.outputs.TAG }}
-
       # linux x86-64
 
       - name: Upload Linux x86-64 artifacts
