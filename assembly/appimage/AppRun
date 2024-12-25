@@ -1,3 +1,4 @@
 #!/bin/bash
+export LD_LIBRARY_PATH="${APPDIR}/usr/lib:${LD_LIBRARY_PATH}"
 export PATH=$PATH:$(dirname "$0")/usr/bin
 cd "$(dirname $APPIMAGE)" & exec app "$@"
