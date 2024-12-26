@@ -391,12 +391,24 @@ void CollatorNode::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data
       promise.set_result(serialize_tl_object(serialize_candidate(R.move_as_ok(), true), true));
     }
   };
-  new_promise = [new_promise = std::move(new_promise), creator,
+  new_promise = [new_promise = std::move(new_promise), creator, local_id = local_id_,
                  manager = manager_](td::Result<BlockCandidate> R) mutable {
     TRY_RESULT_PROMISE(new_promise, block, std::move(R));
+
+    CollatorNodeResponseStats stats;
+    stats.collator_node_id = local_id.bits256_value();
+    stats.validator_id = creator.as_bits256();
+    stats.original_block_id = block.id;
+    stats.collated_data_hash = block.collated_file_hash;
+
     CatchainSeqno cc_seqno;
     td::uint32 val_set_hash;
     block = change_creator(std::move(block), creator, cc_seqno, val_set_hash);
+
+    stats.block_id = block.id;
+    stats.timestamp = td::Clocks::system();
+    td::actor::send_closure(manager, &ValidatorManager::log_collator_node_response_stats, std::move(stats));
+
     td::Promise<td::Unit> P =
         new_promise.wrap([block = block.clone()](td::Unit&&) mutable -> BlockCandidate { return std::move(block); });
     td::actor::send_closure(manager, &ValidatorManager::set_block_candidate, block.id, std::move(block), cc_seqno,
@@ -537,7 +549,7 @@ void CollatorNode::generate_block(ShardIdFull shard, CatchainSeqno cc_seqno, std
         };
         td::actor::send_closure(SelfId, &CollatorNode::process_result, cache_entry, std::move(R));
       },
-      cache_entry->cancellation_token_source.get_cancellation_token(),
+      local_id_, cache_entry->cancellation_token_source.get_cancellation_token(),
       CollateMode::skip_store_candidate | CollateMode::from_collator_node);
 }
 

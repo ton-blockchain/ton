@@ -630,7 +630,7 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   void wait_shard_client_state(BlockSeqno seqno, td::Timestamp timeout, td::Promise<td::Unit> promise) override;
 
-  void log_validator_session_stats(BlockIdExt block_id, validatorsession::ValidatorSessionStats stats) override;
+  void log_validator_session_stats(validatorsession::ValidatorSessionStats stats) override;
   void log_new_validator_group_stats(validatorsession::NewValidatorGroupStats stats) override;
   void log_end_validator_group_stats(validatorsession::EndValidatorGroupStats stats) override;
 
@@ -775,19 +775,9 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   td::actor::ActorOwn<CandidatesBuffer> candidates_buffer_;
 
-  struct RecordedBlockStats {
-    double collator_work_time_ = -1.0;
-    double collator_cpu_work_time_ = -1.0;
-    td::optional<CollationStats> collator_stats_;
-    double validator_work_time_ = -1.0;
-    double validator_cpu_work_time_ = -1.0;
-  };
-  std::map<BlockIdExt, RecordedBlockStats> recorded_block_stats_;
-  std::queue<BlockIdExt> recorded_block_stats_lru_;
-
-  void record_collate_query_stats(BlockIdExt block_id, CollationStats stats) override;
-  void record_validate_query_stats(BlockIdExt block_id, double work_time, double cpu_work_time) override;
-  RecordedBlockStats &new_block_stats_record(BlockIdExt block_id);
+  void log_collate_query_stats(CollationStats stats) override;
+  void log_validate_query_stats(ValidationStats stats) override;
+  void log_collator_node_response_stats(CollatorNodeResponseStats stats) override;
 
   std::map<PublicKeyHash, td::actor::ActorOwn<ValidatorTelemetry>> validator_telemetry_;
 

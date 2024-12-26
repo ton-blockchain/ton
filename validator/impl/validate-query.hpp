@@ -407,7 +407,7 @@ class ValidateQuery : public td::actor::Actor {
 
   td::Timer work_timer_{true};
   td::ThreadCpuTimer cpu_work_timer_{true};
-  void record_stats();
+  void record_stats(bool valid, std::string error_message = "");
 };
 
 }  // namespace validator

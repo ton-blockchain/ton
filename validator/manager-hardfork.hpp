@@ -468,15 +468,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   void wait_shard_client_state(BlockSeqno seqno, td::Timestamp timeout, td::Promise<td::Unit> promise) override {
     UNREACHABLE();
   }
-  void log_validator_session_stats(BlockIdExt block_id, validatorsession::ValidatorSessionStats stats) override {
-    UNREACHABLE();
-  }
-  void log_new_validator_group_stats(validatorsession::NewValidatorGroupStats stats) override {
-    UNREACHABLE();
-  }
-  void log_end_validator_group_stats(validatorsession::EndValidatorGroupStats stats) override {
-    UNREACHABLE();
-  }
   void get_out_msg_queue_size(BlockIdExt block_id, td::Promise<td::uint64> promise) override {
     if (queue_size_counter_.empty()) {
       queue_size_counter_ = td::actor::create_actor<QueueSizeCounter>("queuesizecounter", td::Ref<MasterchainState>{},

@@ -79,6 +79,7 @@ class Collator final : public td::actor::Actor {
   td::Timestamp timeout;
   td::Timestamp queue_cleanup_timeout_, soft_timeout_, medium_timeout_;
   td::Promise<BlockCandidate> main_promise;
+  adnl::AdnlNodeIdShort collator_node_id_ = adnl::AdnlNodeIdShort::zero();
   unsigned mode_ = 0;
   int attempt_idx_;
   bool allow_repeat_collation_ = false;
@@ -97,7 +98,8 @@ class Collator final : public td::actor::Actor {
   Collator(ShardIdFull shard, bool is_hardfork, BlockIdExt min_masterchain_block_id, std::vector<BlockIdExt> prev,
            Ref<ValidatorSet> validator_set, Ed25519_PublicKey collator_id, Ref<CollatorOptions> collator_opts,
            td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout, td::Promise<BlockCandidate> promise,
-           td::CancellationToken cancellation_token, unsigned mode, int attempt_idx);
+           adnl::AdnlNodeIdShort collator_node_id, td::CancellationToken cancellation_token, unsigned mode,
+           int attempt_idx);
   ~Collator() override = default;
   bool is_busy() const {
     return busy_;

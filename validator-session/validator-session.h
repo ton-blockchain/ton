@@ -78,11 +78,6 @@ class ValidatorSession : public td::actor::Actor {
     bool is_cached_ = false;
   };
 
-  struct GeneratedCandidate {
-    BlockCandidate candidate;
-    bool is_cached = false;
-  };
-
   class Callback {
    public:
     virtual void on_candidate(BlockSourceInfo source_info, ValidatorSessionRootHash root_hash, td::BufferSlice data,

@@ -116,13 +116,12 @@ bool ValidateQuery::reject_query(std::string error, td::BufferSlice reason) {
   error = error_ctx() + error;
   LOG(ERROR) << "REJECT: aborting validation of block candidate for " << shard_.to_str() << " : " << error;
   if (main_promise) {
-    record_stats();
+    record_stats(false, error);
     errorlog::ErrorLog::log(PSTRING() << "REJECT: aborting validation of block candidate for " << shard_.to_str()
                                       << " : " << error << ": data=" << block_candidate.id.file_hash.to_hex()
                                       << " collated_data=" << block_candidate.collated_file_hash.to_hex());
     errorlog::ErrorLog::log_file(block_candidate.data.clone());
     errorlog::ErrorLog::log_file(block_candidate.collated_data.clone());
-    LOG(INFO) << "validation took " << perf_timer_.elapsed() << " s";
     main_promise.set_result(CandidateReject{std::move(error), std::move(reason)});
   }
   stop();
@@ -155,13 +154,12 @@ bool ValidateQuery::soft_reject_query(std::string error, td::BufferSlice reason)
   error = error_ctx() + error;
   LOG(ERROR) << "SOFT REJECT: aborting validation of block candidate for " << shard_.to_str() << " : " << error;
   if (main_promise) {
-    record_stats();
+    record_stats(false, error);
     errorlog::ErrorLog::log(PSTRING() << "SOFT REJECT: aborting validation of block candidate for " << shard_.to_str()
                                       << " : " << error << ": data=" << block_candidate.id.file_hash.to_hex()
                                       << " collated_data=" << block_candidate.collated_file_hash.to_hex());
     errorlog::ErrorLog::log_file(block_candidate.data.clone());
     errorlog::ErrorLog::log_file(block_candidate.collated_data.clone());
-    LOG(INFO) << "validation took " << perf_timer_.elapsed() << " s";
     main_promise.set_result(CandidateReject{std::move(error), std::move(reason)});
   }
   stop();
@@ -179,7 +177,7 @@ bool ValidateQuery::fatal_error(td::Status error) {
   error.ensure_error();
   LOG(ERROR) << "aborting validation of block candidate for " << shard_.to_str() << " : " << error.to_string();
   if (main_promise) {
-    record_stats();
+    record_stats(false, error.message().str());
     auto c = error.code();
     if (c <= -667 && c >= -670) {
       errorlog::ErrorLog::log(PSTRING() << "FATAL ERROR: aborting validation of block candidate for " << shard_.to_str()
@@ -188,7 +186,6 @@ bool ValidateQuery::fatal_error(td::Status error) {
       errorlog::ErrorLog::log_file(block_candidate.data.clone());
       errorlog::ErrorLog::log_file(block_candidate.collated_data.clone());
     }
-    LOG(INFO) << "validation took " << perf_timer_.elapsed() << " s";
     main_promise(std::move(error));
   }
   stop();
@@ -238,9 +235,8 @@ bool ValidateQuery::fatal_error(std::string err_msg, int err_code) {
  */
 void ValidateQuery::finish_query() {
   if (main_promise) {
-    record_stats();
+    record_stats(true);
     LOG(WARNING) << "validate query done";
-    LOG(WARNING) << "validation took " << perf_timer_.elapsed() << " s";
     main_promise.set_result(now_);
   }
   stop();
@@ -7061,13 +7057,25 @@ void ValidateQuery::written_candidate() {
 /**
  * Sends validation work time to manager.
  */
-void ValidateQuery::record_stats() {
-  double work_time = work_timer_.elapsed();
-  double cpu_work_time = cpu_work_timer_.elapsed();
+void ValidateQuery::record_stats(bool valid, std::string error_message) {
+  ValidationStats stats;
+  stats.block_id = id_;
+  stats.collated_data_hash = block_candidate.collated_file_hash;
+  stats.validated_at = td::Clocks::system();
+  stats.valid = valid;
+  if (valid) {
+    stats.comment = (PSTRING() << "OK ts=" << now_);
+  } else {
+    stats.comment = std::move(error_message);
+  }
+  stats.actual_bytes = block_candidate.data.size();
+  stats.actual_collated_data_bytes = block_candidate.collated_data.size();
+  stats.total_time = perf_timer_.elapsed();
+  stats.work_time = work_timer_.elapsed();
+  stats.cpu_work_time = cpu_work_timer_.elapsed();
   LOG(WARNING) << "validation took " << perf_timer_.elapsed() << "s";
-  LOG(WARNING) << "Validate query work time = " << work_time << "s, cpu time = " << cpu_work_time << "s";
-  td::actor::send_closure(manager, &ValidatorManager::record_validate_query_stats, block_candidate.id, work_time,
-                          cpu_work_time);
+  LOG(WARNING) << "Validate query work time = " << stats.work_time << "s, cpu time = " << stats.cpu_work_time << "s";
+  td::actor::send_closure(manager, &ValidatorManager::log_validate_query_stats, std::move(stats));
 }
 
 }  // namespace validator

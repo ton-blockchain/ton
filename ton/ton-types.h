@@ -501,6 +501,17 @@ struct BlockCandidate {
   }
 };
 
+struct GeneratedCandidate {
+  BlockCandidate candidate;
+  bool is_cached = false;
+  bool self_collated = false;
+  td::Bits256 collator_node_id = td::Bits256::zero();
+
+  GeneratedCandidate clone() const {
+    return {candidate.clone(), is_cached, self_collated, collator_node_id};
+  }
+};
+
 struct BlockCandidatePriority {
   td::uint32 round{};
   td::uint32 first_block_round{};

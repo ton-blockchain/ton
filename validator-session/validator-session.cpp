@@ -266,13 +266,14 @@ void ValidatorSessionImpl::process_broadcast(PublicKeyHash src, td::BufferSlice 
     if (stat->block_status == ValidatorSessionStats::status_none) {
       stat->block_status = ValidatorSessionStats::status_received;
     }
-    if (stat->block_timestamp <= 0.0) {
-      stat->block_timestamp = td::Clocks::system();
+    if (stat->got_block_at <= 0.0) {
+      stat->got_block_at = td::Clocks::system();
     }
     stat->deserialize_time = deserialize_time;
     stat->serialized_size = data.size();
-    stat->root_hash = candidate->root_hash_;
-    stat->file_hash = file_hash;
+    stat->block_id.root_hash = candidate->root_hash_;
+    stat->block_id.file_hash = file_hash;
+    stat->collated_data_hash = collated_data_file_hash;
   }
 
   if ((td::int32)block_round < (td::int32)cur_round_ - MAX_PAST_ROUND_BLOCK ||
@@ -451,35 +452,36 @@ void ValidatorSessionImpl::candidate_approved_signed(td::uint32 round, Validator
   }
 }
 
-void ValidatorSessionImpl::generated_block(td::uint32 round, ValidatorSessionCandidateId root_hash,
-                                           td::BufferSlice data, td::BufferSlice collated_data, double collation_time,
-                                           bool collation_cached) {
-  if (data.size() > description().opts().max_block_size ||
-      collated_data.size() > description().opts().max_collated_data_size) {
-    LOG(ERROR) << this << ": generated candidate is too big. Dropping. size=" << data.size() << " "
-               << collated_data.size();
+void ValidatorSessionImpl::generated_block(td::uint32 round, GeneratedCandidate c, double collation_time) {
+  if (c.candidate.data.size() > description().opts().max_block_size ||
+      c.candidate.collated_data.size() > description().opts().max_collated_data_size) {
+    LOG(ERROR) << this << ": generated candidate is too big. Dropping. size=" << c.candidate.data.size() << " "
+               << c.candidate.collated_data.size();
     return;
   }
-  auto file_hash = sha256_bits256(data.as_slice());
-  auto collated_data_file_hash = sha256_bits256(collated_data.as_slice());
-  auto block_id = description().candidate_id(local_idx(), root_hash, file_hash, collated_data_file_hash);
+  auto file_hash = sha256_bits256(c.candidate.data.as_slice());
+  auto collated_data_file_hash = sha256_bits256(c.candidate.collated_data.as_slice());
+  auto block_id = description().candidate_id(local_idx(), c.candidate.id.root_hash, file_hash, collated_data_file_hash);
 
   auto stat = stats_get_candidate_stat(round, local_id(), block_id);
   if (stat) {
     stat->block_status = ValidatorSessionStats::status_received;
     stat->collation_time = collation_time;
     stat->collated_at = td::Clocks::system();
-    stat->block_timestamp = td::Clocks::system();
-    stat->collation_cached = collation_cached;
-    stat->root_hash = root_hash;
-    stat->file_hash = file_hash;
+    stat->got_block_at = td::Clocks::system();
+    stat->collation_cached = c.is_cached;
+    stat->self_collated = c.self_collated;
+    stat->collator_node_id = c.collator_node_id;
+    stat->block_id = c.candidate.id;
+    stat->collated_data_hash = collated_data_file_hash;
   }
   if (round != cur_round_) {
     return;
   }
   td::Timer serialize_timer;
-  auto b = create_tl_object<ton_api::validatorSession_candidate>(local_id().tl(), round, root_hash, std::move(data),
-                                                                 std::move(collated_data));
+  auto b = create_tl_object<ton_api::validatorSession_candidate>(local_id().tl(), round, c.candidate.id.root_hash,
+                                                                 std::move(c.candidate.data),
+                                                                 std::move(c.candidate.collated_data));
   auto B = serialize_candidate(b, compress_block_candidates_).move_as_ok();
   if (stat) {
     stat->serialize_time = serialize_timer.elapsed();
@@ -546,9 +548,8 @@ void ValidatorSessionImpl::check_generate_slot() {
         auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), print_id = print_id(), timer = std::move(timer),
                                              round = cur_round_](td::Result<GeneratedCandidate> R) {
           if (R.is_ok()) {
-            auto c = std::move(R.ok_ref().candidate);
-            td::actor::send_closure(SelfId, &ValidatorSessionImpl::generated_block, round, c.id.root_hash,
-                                    c.data.clone(), c.collated_data.clone(), timer.elapsed(), R.ok().is_cached);
+            td::actor::send_closure(SelfId, &ValidatorSessionImpl::generated_block, round, R.move_as_ok(),
+                                    timer.elapsed());
           } else {
             LOG(WARNING) << print_id << ": failed to generate block candidate: " << R.move_as_error();
           }
@@ -606,11 +607,12 @@ void ValidatorSessionImpl::try_approve_block(const SentBlock *block) {
         if (stat->block_status == ValidatorSessionStats::status_none) {
           stat->block_status = ValidatorSessionStats::status_received;
         }
-        if (stat->block_timestamp <= 0.0) {
-          stat->block_timestamp = td::Clocks::system();
+        if (stat->got_block_at <= 0.0) {
+          stat->got_block_at = td::Clocks::system();
         }
-        stat->root_hash = B->root_hash_;
-        stat->file_hash = td::sha256_bits256(B->data_);
+        stat->block_id.root_hash = B->root_hash_;
+        stat->block_id.file_hash = td::sha256_bits256(B->data_);
+        stat->collated_data_hash = td::sha256_bits256(B->collated_data_);
       }
 
       auto P = td::PromiseCreator::lambda([round = cur_round_, hash = block_id, root_hash = block->get_root_hash(),
@@ -933,7 +935,7 @@ void ValidatorSessionImpl::on_new_round(td::uint32 round) {
       while (round_idx >= cur_stats_.rounds.size()) {
         stats_add_round();
       }
-      cur_stats_.rounds[round_idx].timestamp = td::Clocks::system();
+      cur_stats_.rounds[round_idx].started_at = td::Clocks::system();
     }
     auto it2 = blocks_.begin();
     while (it2 != blocks_.end()) {
@@ -1034,9 +1036,7 @@ void ValidatorSessionImpl::get_end_stats(td::Promise<EndValidatorGroupStats> pro
     promise.set_error(td::Status::Error(ErrorCode::notready, "not started"));
     return;
   }
-  EndValidatorGroupStats stats;
-  stats.session_id = unique_hash_;
-  stats.timestamp = td::Clocks::system();
+  EndValidatorGroupStats stats{.session_id = unique_hash_, .timestamp = td::Clocks::system()};
   stats.nodes.resize(description().get_total_nodes());
   for (size_t i = 0; i < stats.nodes.size(); ++i) {
     stats.nodes[i].id = description().get_source_id(i);
@@ -1145,7 +1145,7 @@ void ValidatorSessionImpl::stats_init() {
   if (cur_stats_.rounds.empty()) {
     stats_add_round();
   }
-  cur_stats_.rounds[0].timestamp = td::Clocks::system();
+  cur_stats_.rounds[0].started_at = td::Clocks::system();
   stats_inited_ = true;
 }
 
@@ -1158,13 +1158,13 @@ void ValidatorSessionImpl::stats_add_round() {
     td::int32 priority = description().get_node_priority(i, round);
     if (priority >= 0) {
       CHECK((size_t)priority < stat.producers.size());
-      stat.producers[priority].id = description().get_source_id(i);
+      stat.producers[priority].validator_id = description().get_source_id(i);
       stat.producers[priority].is_ours = (local_idx() == i);
       stat.producers[priority].approvers.resize(description().get_total_nodes(), false);
       stat.producers[priority].signers.resize(description().get_total_nodes(), false);
     }
   }
-  while (!stat.producers.empty() && stat.producers.back().id.is_zero()) {
+  while (!stat.producers.empty() && stat.producers.back().validator_id.is_zero()) {
     stat.producers.pop_back();
   }
 }
@@ -1179,7 +1179,7 @@ ValidatorSessionStats::Producer *ValidatorSessionImpl::stats_get_candidate_stat(
   }
   auto &stats_round = cur_stats_.rounds[round - cur_stats_.first_round];
   auto it = std::find_if(stats_round.producers.begin(), stats_round.producers.end(),
-                         [&](const ValidatorSessionStats::Producer &p) { return p.id == src; });
+                         [&](const ValidatorSessionStats::Producer &p) { return p.validator_id == src; });
   if (it == stats_round.producers.end()) {
     return nullptr;
   }

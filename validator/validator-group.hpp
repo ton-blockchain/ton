@@ -35,8 +35,7 @@ class ValidatorManager;
 
 class ValidatorGroup : public td::actor::Actor {
  public:
-  void generate_block_candidate(validatorsession::BlockSourceInfo source_info,
-                                td::Promise<validatorsession::ValidatorSession::GeneratedCandidate> promise);
+  void generate_block_candidate(validatorsession::BlockSourceInfo source_info, td::Promise<GeneratedCandidate> promise);
   void validate_block_candidate(validatorsession::BlockSourceInfo source_info, BlockCandidate block,
                                 td::Promise<std::pair<UnixTime, bool>> promise);
   void accept_block_candidate(validatorsession::BlockSourceInfo source_info, td::BufferSlice block, RootHash root_hash,
@@ -146,14 +145,14 @@ class ValidatorGroup : public td::actor::Actor {
   bool monitoring_shard_ = true;
 
   struct CachedCollatedBlock {
-    td::optional<BlockCandidate> result;
-    std::vector<td::Promise<BlockCandidate>> promises;
+    td::optional<GeneratedCandidate> result;
+    std::vector<td::Promise<GeneratedCandidate>> promises;
   };
   std::shared_ptr<CachedCollatedBlock> cached_collated_block_;
   td::CancellationTokenSource cancellation_token_source_;
 
   void generated_block_candidate(validatorsession::BlockSourceInfo source_info,
-                                 std::shared_ptr<CachedCollatedBlock> cache, td::Result<BlockCandidate> R);
+                                 std::shared_ptr<CachedCollatedBlock> cache, td::Result<GeneratedCandidate> R);
 
   using CacheKey = std::tuple<td::Bits256, BlockIdExt, FileHash, FileHash>;
   std::map<CacheKey, UnixTime> approved_candidates_cache_;
@@ -165,8 +164,7 @@ class ValidatorGroup : public td::actor::Actor {
   }
 
   void get_validator_group_info_for_litequery_cont(
-      td::uint32 expected_round,
-      std::vector<tl_object_ptr<lite_api::liteServer_nonfinal_candidateInfo>> candidates,
+      td::uint32 expected_round, std::vector<tl_object_ptr<lite_api::liteServer_nonfinal_candidateInfo>> candidates,
       td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroupInfo>> promise);
 
   std::set<std::tuple<td::Bits256, BlockIdExt, FileHash>> available_block_candidates_;  // source, id, collated hash

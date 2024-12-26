@@ -36,9 +36,8 @@ static bool need_send_candidate_broadcast(const validatorsession::BlockSourceInf
          !is_masterchain;
 }
 
-void ValidatorGroup::generate_block_candidate(
-    validatorsession::BlockSourceInfo source_info,
-    td::Promise<validatorsession::ValidatorSession::GeneratedCandidate> promise) {
+void ValidatorGroup::generate_block_candidate(validatorsession::BlockSourceInfo source_info,
+                                              td::Promise<GeneratedCandidate> promise) {
   td::uint32 round_id = source_info.priority.round;
   if (round_id > last_known_round_id_) {
     last_known_round_id_ = round_id;
@@ -49,20 +48,21 @@ void ValidatorGroup::generate_block_candidate(
   }
   if (cached_collated_block_) {
     if (cached_collated_block_->result) {
-      promise.set_value({cached_collated_block_->result.value().clone(), true});
+      auto res = cached_collated_block_->result.value().clone();
+      res.is_cached = true;
+      promise.set_value(std::move(res));
     } else {
-      cached_collated_block_->promises.push_back(promise.wrap([](BlockCandidate &&res) {
-        return validatorsession::ValidatorSession::GeneratedCandidate{std::move(res), true};
+      cached_collated_block_->promises.push_back(promise.wrap([](GeneratedCandidate &&res) {
+        res.is_cached = true;
+        return std::move(res);
       }));
     }
     return;
   }
   cached_collated_block_ = std::make_shared<CachedCollatedBlock>();
-  cached_collated_block_->promises.push_back(promise.wrap([](BlockCandidate &&res) {
-    return validatorsession::ValidatorSession::GeneratedCandidate{std::move(res), false};
-  }));
-  td::Promise<BlockCandidate> P = [SelfId = actor_id(this), cache = cached_collated_block_,
-                                   source_info](td::Result<BlockCandidate> R) {
+  cached_collated_block_->promises.push_back(std::move(promise));
+  td::Promise<GeneratedCandidate> P = [SelfId = actor_id(this), cache = cached_collated_block_,
+                                       source_info](td::Result<GeneratedCandidate> R) {
     td::actor::send_closure(SelfId, &ValidatorGroup::generated_block_candidate, source_info, std::move(cache),
                             std::move(R));
   };
@@ -75,7 +75,7 @@ void ValidatorGroup::generate_block_candidate(
 
 void ValidatorGroup::generated_block_candidate(validatorsession::BlockSourceInfo source_info,
                                                std::shared_ptr<CachedCollatedBlock> cache,
-                                               td::Result<BlockCandidate> R) {
+                                               td::Result<GeneratedCandidate> R) {
   if (R.is_error()) {
     for (auto &p : cache->promises) {
       p.set_error(R.error().clone());
@@ -84,12 +84,12 @@ void ValidatorGroup::generated_block_candidate(validatorsession::BlockSourceInfo
       cached_collated_block_ = nullptr;
     }
   } else {
-    auto candidate = R.move_as_ok();
-    add_available_block_candidate(candidate.pubkey.as_bits256(), candidate.id, candidate.collated_file_hash);
+    auto c = R.move_as_ok();
+    add_available_block_candidate(c.candidate.pubkey.as_bits256(), c.candidate.id, c.candidate.collated_file_hash);
     if (need_send_candidate_broadcast(source_info, shard_.is_masterchain())) {
-      send_block_candidate_broadcast(candidate.id, candidate.data.clone());
+      send_block_candidate_broadcast(c.candidate.id, c.candidate.data.clone());
     }
-    cache->result = std::move(candidate);
+    cache->result = std::move(c);
     for (auto &p : cache->promises) {
       p.set_value(cache->result.value().clone());
     }
@@ -186,7 +186,8 @@ void ValidatorGroup::accept_block_candidate(validatorsession::BlockSourceInfo so
   }
   auto next_block_id = create_next_block_id(root_hash, file_hash);
   LOG(WARNING) << "Accepted block " << next_block_id;
-  td::actor::send_closure(manager_, &ValidatorManager::log_validator_session_stats, next_block_id, std::move(stats));
+  stats.block_id = next_block_id;
+  td::actor::send_closure(manager_, &ValidatorManager::log_validator_session_stats, std::move(stats));
   auto block =
       block_data.size() > 0 ? create_block(next_block_id, std::move(block_data)).move_as_ok() : td::Ref<BlockData>{};
 
@@ -293,7 +294,7 @@ std::unique_ptr<validatorsession::ValidatorSession::Callback> ValidatorGroup::ma
                               std::move(candidate), std::move(P));
     }
     void on_generate_slot(validatorsession::BlockSourceInfo source_info,
-                          td::Promise<validatorsession::ValidatorSession::GeneratedCandidate> promise) override {
+                          td::Promise<GeneratedCandidate> promise) override {
       td::actor::send_closure(id_, &ValidatorGroup::generate_block_candidate, std::move(source_info),
                               std::move(promise));
     }
@@ -397,8 +398,8 @@ void ValidatorGroup::start(std::vector<BlockIdExt> prev, BlockIdExt min_masterch
 
   for (auto &p : postponed_accept_) {
     auto next_block_id = create_next_block_id(p.root_hash, p.file_hash);
-    td::actor::send_closure(manager_, &ValidatorManager::log_validator_session_stats, next_block_id,
-                            std::move(p.stats));
+    p.stats.block_id = next_block_id;
+    td::actor::send_closure(manager_, &ValidatorManager::log_validator_session_stats, std::move(p.stats));
 
     auto block =
         p.block.size() > 0 ? create_block(next_block_id, std::move(p.block)).move_as_ok() : td::Ref<BlockData>{};
@@ -408,12 +409,11 @@ void ValidatorGroup::start(std::vector<BlockIdExt> prev, BlockIdExt min_masterch
   }
   postponed_accept_.clear();
 
-  validatorsession::NewValidatorGroupStats stats;
-  stats.session_id = session_id_;
-  stats.shard = shard_;
-  stats.cc_seqno = validator_set_->get_catchain_seqno();
-  stats.last_key_block_seqno = last_key_block_seqno_;
-  stats.timestamp = td::Clocks::system();
+  validatorsession::NewValidatorGroupStats stats{.session_id = session_id_,
+                                                 .shard = shard_,
+                                                 .cc_seqno = validator_set_->get_catchain_seqno(),
+                                                 .last_key_block_seqno = last_key_block_seqno_,
+                                                 .started_at = td::Clocks::system()};
   td::uint32 idx = 0;
   for (const auto &node : validator_set_->export_vector()) {
     PublicKeyHash id = ValidatorFullId{node.key}.compute_short_id();
@@ -441,7 +441,8 @@ void ValidatorGroup::destroy() {
                                 return;
                               }
                               stats.cc_seqno = cc_seqno;
-                              td::actor::send_closure(manager, &ValidatorManager::log_validator_session_stats, block_id,
+                              stats.block_id = block_id;
+                              td::actor::send_closure(manager, &ValidatorManager::log_validator_session_stats,
                                                       std::move(stats));
                             });
     td::actor::send_closure(session_, &validatorsession::ValidatorSession::get_end_stats,

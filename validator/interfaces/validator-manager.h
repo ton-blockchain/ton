@@ -32,6 +32,8 @@
 #include "auto/tl/lite_api.h"
 #include "impl/out-msg-queue-proof.hpp"
 
+#include <ton/ton-tl.hpp>
+
 namespace ton {
 
 namespace validator {
@@ -54,7 +56,14 @@ struct AsyncSerializerState {
 };
 
 struct CollationStats {
+  BlockIdExt block_id;
+  td::Bits256 collated_data_hash = td::Bits256::zero();
+  CatchainSeqno cc_seqno = 0;
+  double collated_at = -1.0;
   td::uint32 actual_bytes = 0, actual_collated_data_bytes = 0;
+  int attempt = 0;
+  td::Bits256 collator_node_id = td::Bits256::zero();
+  td::Bits256 validator_id = td::Bits256::zero();
   td::uint32 estimated_bytes = 0, gas = 0, lt_delta = 0, estimated_collated_data_bytes = 0;
   int cat_bytes = 0, cat_gas = 0, cat_lt_delta = 0, cat_collated_data_bytes = 0;
   std::string limits_log;
@@ -62,15 +71,51 @@ struct CollationStats {
   td::uint32 ext_msgs_filtered = 0;
   td::uint32 ext_msgs_accepted = 0;
   td::uint32 ext_msgs_rejected = 0;
-  double work_time = 0.0, cpu_work_time = 0.0;
-  td::uint32 serialized_size = 0, serialized_size_no_collated_data = 0;
+  double total_time = 0.0, work_time = 0.0, cpu_work_time = 0.0;
+  std::string time_stats;
 
-  tl_object_ptr<ton_api::validatorSession_collationStats> tl() const {
-    return create_tl_object<ton_api::validatorSession_collationStats>(
-        actual_bytes, actual_collated_data_bytes, estimated_bytes, gas, lt_delta, estimated_collated_data_bytes,
-        cat_bytes, cat_gas, cat_lt_delta, cat_collated_data_bytes, limits_log, ext_msgs_total, ext_msgs_filtered,
-        ext_msgs_accepted, ext_msgs_rejected, work_time, cpu_work_time, serialized_size,
-        serialized_size_no_collated_data);
+  tl_object_ptr<ton_api::validatorStats_collatedBlock> tl() const {
+    int flags = (collator_node_id.is_zero() ? 0 : ton_api::validatorStats_collatedBlock::Flags::COLLATOR_NODE_ID_MASK) |
+                (validator_id.is_zero() ? 0 : ton_api::validatorStats_collatedBlock::Flags::VALIDATOR_ID_MASK);
+    return create_tl_object<ton_api::validatorStats_collatedBlock>(
+        flags, create_tl_block_id(block_id), collated_data_hash, cc_seqno, collated_at, actual_bytes,
+        actual_collated_data_bytes, attempt, collator_node_id, validator_id, total_time, work_time, cpu_work_time,
+        time_stats,
+        create_tl_object<ton_api::validatorStats_blockLimitsStatus>(estimated_bytes, gas, lt_delta,
+                                                                    estimated_collated_data_bytes, cat_bytes, cat_gas,
+                                                                    cat_lt_delta, cat_collated_data_bytes, limits_log),
+        create_tl_object<ton_api::validatorStats_extMsgsStats>(ext_msgs_total, ext_msgs_filtered, ext_msgs_accepted,
+                                                               ext_msgs_rejected));
+  }
+};
+
+struct ValidationStats {
+  BlockIdExt block_id;
+  td::Bits256 collated_data_hash = td::Bits256::zero();
+  double validated_at = -1.0;
+  bool valid = false;
+  std::string comment;
+  td::uint32 actual_bytes = 0, actual_collated_data_bytes = 0;
+  double total_time = 0.0, work_time = 0.0, cpu_work_time = 0.0;
+
+  tl_object_ptr<ton_api::validatorStats_validatedBlock> tl() const {
+    return create_tl_object<ton_api::validatorStats_validatedBlock>(
+        create_tl_block_id(block_id), collated_data_hash, validated_at, valid, comment, actual_bytes,
+        actual_collated_data_bytes, total_time, work_time, cpu_work_time);
+  }
+};
+
+struct CollatorNodeResponseStats {
+  td::Bits256 collator_node_id = td::Bits256::zero();
+  td::Bits256 validator_id = td::Bits256::zero();
+  double timestamp = -1.0;
+  BlockIdExt block_id, original_block_id;
+  td::Bits256 collated_data_hash = td::Bits256::zero();
+
+  tl_object_ptr<ton_api::validatorStats_collatorNodeResponse> tl() const {
+    return create_tl_object<ton_api::validatorStats_collatorNodeResponse>(
+        collator_node_id, validator_id, timestamp, create_tl_block_id(block_id), create_tl_block_id(original_block_id),
+        collated_data_hash);;
   }
 };
 
@@ -198,9 +243,12 @@ class ValidatorManager : public ValidatorManagerInterface {
 
   virtual void wait_shard_client_state(BlockSeqno seqno, td::Timestamp timeout, td::Promise<td::Unit> promise) = 0;
 
-  virtual void log_validator_session_stats(BlockIdExt block_id, validatorsession::ValidatorSessionStats stats) = 0;
-  virtual void log_new_validator_group_stats(validatorsession::NewValidatorGroupStats stats) = 0;
-  virtual void log_end_validator_group_stats(validatorsession::EndValidatorGroupStats stats) = 0;
+  virtual void log_validator_session_stats(validatorsession::ValidatorSessionStats stats) {
+  }
+  virtual void log_new_validator_group_stats(validatorsession::NewValidatorGroupStats stats) {
+  }
+  virtual void log_end_validator_group_stats(validatorsession::EndValidatorGroupStats stats) {
+  }
 
   virtual void get_block_handle_for_litequery(BlockIdExt block_id, td::Promise<ConstBlockHandle> promise) = 0;
   virtual void get_block_data_for_litequery(BlockIdExt block_id, td::Promise<td::Ref<BlockData>> promise) = 0;
@@ -220,9 +268,11 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void add_lite_query_stats(int lite_query_id) {
   }
 
-  virtual void record_collate_query_stats(BlockIdExt block_id, CollationStats stats) {
+  virtual void log_collate_query_stats(CollationStats stats) {
   }
-  virtual void record_validate_query_stats(BlockIdExt block_id, double work_time, double cpu_work_time) {
+  virtual void log_validate_query_stats(ValidationStats stats) {
+  }
+  virtual void log_collator_node_response_stats(CollatorNodeResponseStats stats) {
   }
 
   virtual void add_persistent_state_description(td::Ref<PersistentStateDescription> desc) = 0;
