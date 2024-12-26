@@ -47,8 +47,16 @@ jobs:
         ./create-appimages.sh
         rm -rf artifacts
 
+    - name: Build TON libs
+      run: |
+        cp assembly/native/build-ubuntu-portable-libs.sh .
+        chmod +x build-ubuntu-portable-libs.sh
+        ./build-ubuntu-portable-libs.sh -a
+        cp ./artifacts/libtonlibjson.so appimages/artifacts/
+        cp ./artifacts/libemulator.so appimages/artifacts/
+
     - name: Upload artifacts
       uses: actions/upload-artifact@master
       with:
         name: ton-appimages-20.04
-        path: appimages/artifacts2
+        path: appimages/artifacts
