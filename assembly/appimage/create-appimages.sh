@@ -31,7 +31,7 @@ for file in ../artifacts/*; do
       /lib/x86_64-linux-gnu/libz.so.1 \
       /lib/x86_64-linux-gnu/liblz4.so.1 \
       /lib/x86_64-linux-gnu/libmicrohttpd.so.12 \
-      /usr/lib/x86_64-linux-gnu/libreadline.so \
+      /lib/x86_64-linux-gnu/libreadline.so.8 \
       $appName.AppDir/usr/lib/
 
     chmod +x ./$appName.AppDir/usr/bin/$appName
