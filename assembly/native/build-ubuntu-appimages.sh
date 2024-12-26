@@ -72,10 +72,15 @@ fi
 ./lite-client/lite-client -V || exit 1
 ./crypto/fift  -V || exit 1
 
+echo validator-engine
 ldd ./validator-engine/validator-engine || exit 1
+ldd ./validator-engine-console/validator-engine-console || exit 1
 ldd ./crypto/fift || exit 1
+echo blockchain-explorer
 ldd ./blockchain-explorer/blockchain-explorer || exit 1
+echo libtonlibjson.so
 ldd ./tonlib/libtonlibjson.so.0.5 || exit 1
+echo libemulator.so
 ldd ./emulator/libemulator.so  || exit 1
 
 cd ..

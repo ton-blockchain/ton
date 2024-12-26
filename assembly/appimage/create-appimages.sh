@@ -7,7 +7,7 @@ fi
 
 rm -rf appimages
 
-mkdir -p appimages/artifacts2
+mkdir -p appimages/artifacts
 
 wget -nc https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
 chmod +x ./appimagetool-x86_64.AppImage
@@ -31,16 +31,17 @@ for file in ../artifacts/*; do
       /lib/x86_64-linux-gnu/libz.so.1 \
       /lib/x86_64-linux-gnu/liblz4.so.1 \
       /lib/x86_64-linux-gnu/libmicrohttpd.so.12 \
+      /usr/lib/x86_64-linux-gnu/libreadline.so \
       $appName.AppDir/usr/lib/
 
     chmod +x ./$appName.AppDir/usr/bin/$appName
     # create AppImage
     ./../appimagetool-x86_64.AppImage $appName.AppDir
-    mv $appName-x86_64.AppImage artifacts2/$appName
+    mv $appName-x86_64.AppImage artifacts/$appName
   fi
 done
 
-ls -larth artifacts2
-cp -r ../artifacts/{smartcont,lib} artifacts2/
+ls -larth artifacts
+cp -r ../artifacts/{smartcont,lib} artifacts/
 pwd
-ls -larth artifacts2
+ls -larth artifacts
