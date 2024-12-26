@@ -34,9 +34,11 @@ for file in ../artifacts/*; do
       /lib/x86_64-linux-gnu/libreadline.so.8 \
       $appName.AppDir/usr/lib/
 
+#      /lib/x86_64-linux-gnu/libstdc++.so.6
+
     chmod +x ./$appName.AppDir/usr/bin/$appName
     # create AppImage
-    ./../appimagetool-x86_64.AppImage $appName.AppDir
+    ./../appimagetool-x86_64.AppImage -l $appName.AppDir
     mv $appName-x86_64.AppImage artifacts/$appName
   fi
 done
