@@ -25,7 +25,14 @@ for file in ../artifacts/*; do
     printf '[Desktop Entry]\nName='$appName'\nExec='$appName'\nIcon='$appName'\nType=Application\nCategories=Utility;\n' > $appName.AppDir/$appName.desktop
     cp ../ton.png $appName.AppDir/$appName.png
     cp $file $appName.AppDir/usr/bin/
-    cp ../build/openssl_3/libcrypto.so.3 $appName.AppDir/usr/lib/
+    cp ../build/openssl_3/libcrypto.so.3 \
+      /lib/x86_64-linux-gnu/libatomic.so.1 \
+      /lib/x86_64-linux-gnu/libsodium.so.23 \
+      /lib/x86_64-linux-gnu/libz.so.1 \
+      /lib/x86_64-linux-gnu/liblz4.so.1 \
+      /lib/x86_64-linux-gnu/libmicrohttpd.so.12 \
+      $appName.AppDir/usr/lib/
+
     chmod +x ./$appName.AppDir/usr/bin/$appName
     # create AppImage
     ./../appimagetool-x86_64.AppImage $appName.AppDir

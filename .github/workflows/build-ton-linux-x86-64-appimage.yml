@@ -36,7 +36,7 @@ jobs:
         git submodule update
         cp assembly/native/build-ubuntu-appimages.sh .
         chmod +x build-ubuntu-appimages.sh
-        ./build-ubuntu-appimages.sh -t -a
+        ./build-ubuntu-appimages.sh -a
 
     - name: Make AppImages
       run: |

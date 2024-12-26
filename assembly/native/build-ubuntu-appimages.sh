@@ -73,6 +73,10 @@ fi
 ./crypto/fift  -V || exit 1
 
 ldd ./validator-engine/validator-engine || exit 1
+ldd ./crypto/fift || exit 1
+ldd ./blockchain-explorer/blockchain-explorer || exit 1
+ldd ./tonlib/libtonlibjson.so.0.5 || exit 1
+ldd ./emulator/libemulator.so  || exit 1
 
 cd ..
 
