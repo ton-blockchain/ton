@@ -5936,8 +5936,9 @@ bool Collator::create_block_candidate() {
   stats_.actual_bytes = block_candidate->data.size();
   stats_.actual_collated_data_bytes = block_candidate->collated_data.size();
   stats_.attempt = attempt_idx_;
-  stats_.collator_node_id = collator_node_id_.bits256_value();
-  stats_.validator_id = created_by_.as_bits256();
+  stats_.is_validator = !(mode_ & CollateMode::from_collator_node);
+  stats_.self = stats_.is_validator ? PublicKey(pubkeys::Ed25519(created_by_)).compute_short_id()
+                                    : collator_node_id_.pubkey_hash();
   stats_.estimated_bytes = block_limit_status_->estimate_block_size();
   stats_.gas = block_limit_status_->gas_used;
   stats_.lt_delta = block_limit_status_->cur_lt - block_limit_status_->limits.start_lt;

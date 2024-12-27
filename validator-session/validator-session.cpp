@@ -1036,7 +1036,7 @@ void ValidatorSessionImpl::get_end_stats(td::Promise<EndValidatorGroupStats> pro
     promise.set_error(td::Status::Error(ErrorCode::notready, "not started"));
     return;
   }
-  EndValidatorGroupStats stats{.session_id = unique_hash_, .timestamp = td::Clocks::system()};
+  EndValidatorGroupStats stats{.session_id = unique_hash_, .timestamp = td::Clocks::system(), .self = local_id()};
   stats.nodes.resize(description().get_total_nodes());
   for (size_t i = 0; i < stats.nodes.size(); ++i) {
     stats.nodes[i].id = description().get_source_id(i);

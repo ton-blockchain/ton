@@ -222,6 +222,7 @@ struct NewValidatorGroupStats {
   BlockSeqno last_key_block_seqno = 0;
   double started_at = -1.0;
   td::uint32 self_idx = 0;
+  PublicKeyHash self = PublicKeyHash::zero();
   std::vector<Node> nodes;
 
   tl_object_ptr<ton_api::validatorStats_newValidatorGroup> tl() const {
@@ -232,7 +233,7 @@ struct NewValidatorGroupStats {
     }
     return create_tl_object<ton_api::validatorStats_newValidatorGroup>(session_id, create_tl_shard_id(shard), cc_seqno,
                                                                        last_key_block_seqno, started_at, self_idx,
-                                                                       std::move(nodes_arr));
+                                                                       self.bits256_value(), std::move(nodes_arr));
   }
 };
 
@@ -244,6 +245,7 @@ struct EndValidatorGroupStats {
 
   ValidatorSessionId session_id = ValidatorSessionId::zero();
   double timestamp = -1.0;
+  PublicKeyHash self = PublicKeyHash::zero();
   std::vector<Node> nodes;
 
   tl_object_ptr<ton_api::validatorStats_endValidatorGroup> tl() const {
@@ -252,7 +254,8 @@ struct EndValidatorGroupStats {
       nodes_arr.push_back(create_tl_object<ton_api::validatorStats_endValidatorGroup_node>(node.id.bits256_value(),
                                                                                            node.catchain_blocks));
     }
-    return create_tl_object<ton_api::validatorStats_endValidatorGroup>(session_id, timestamp, std::move(nodes_arr));
+    return create_tl_object<ton_api::validatorStats_endValidatorGroup>(session_id, timestamp, self.bits256_value(),
+                                                                       std::move(nodes_arr));
   }
 };
 

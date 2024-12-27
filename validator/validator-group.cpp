@@ -155,8 +155,8 @@ void ValidatorGroup::validate_block_candidate(validatorsession::BlockSourceInfo 
     return;
   }
   VLOG(VALIDATOR_DEBUG) << "validating block candidate " << next_block_id;
-  run_validate_query(shard_, min_masterchain_block_id_, prev_block_ids_, std::move(block), validator_set_, manager_,
-                     td::Timestamp::in(15.0), std::move(P));
+  run_validate_query(shard_, min_masterchain_block_id_, prev_block_ids_, std::move(block), validator_set_,
+                     local_id_, manager_, td::Timestamp::in(15.0), std::move(P));
 }
 
 void ValidatorGroup::update_approve_cache(CacheKey key, UnixTime value) {
@@ -413,7 +413,8 @@ void ValidatorGroup::start(std::vector<BlockIdExt> prev, BlockIdExt min_masterch
                                                  .shard = shard_,
                                                  .cc_seqno = validator_set_->get_catchain_seqno(),
                                                  .last_key_block_seqno = last_key_block_seqno_,
-                                                 .started_at = td::Clocks::system()};
+                                                 .started_at = td::Clocks::system(),
+                                                 .self = local_id_};
   td::uint32 idx = 0;
   for (const auto &node : validator_set_->export_vector()) {
     PublicKeyHash id = ValidatorFullId{node.key}.compute_short_id();

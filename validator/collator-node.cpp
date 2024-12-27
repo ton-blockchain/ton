@@ -396,8 +396,8 @@ void CollatorNode::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data
     TRY_RESULT_PROMISE(new_promise, block, std::move(R));
 
     CollatorNodeResponseStats stats;
-    stats.collator_node_id = local_id.bits256_value();
-    stats.validator_id = creator.as_bits256();
+    stats.self = local_id.pubkey_hash();
+    stats.validator_id = PublicKey(pubkeys::Ed25519(creator)).compute_short_id();
     stats.original_block_id = block.id;
     stats.collated_data_hash = block.collated_file_hash;
 

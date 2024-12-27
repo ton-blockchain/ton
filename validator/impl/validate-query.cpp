@@ -67,16 +67,17 @@ std::string ErrorCtx::as_string() const {
  * @param promise The Promise to return the ValidateCandidateResult to.
  * @param mode +1 - fake mode
  */
-ValidateQuery::ValidateQuery(ShardIdFull shard, BlockIdExt min_masterchain_block_id,
-                             std::vector<BlockIdExt> prev, BlockCandidate candidate, Ref<ValidatorSet> validator_set,
-                             td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
-                             td::Promise<ValidateCandidateResult> promise, unsigned mode)
+ValidateQuery::ValidateQuery(ShardIdFull shard, BlockIdExt min_masterchain_block_id, std::vector<BlockIdExt> prev,
+                             BlockCandidate candidate, Ref<ValidatorSet> validator_set,
+                             PublicKeyHash local_validator_id, td::actor::ActorId<ValidatorManager> manager,
+                             td::Timestamp timeout, td::Promise<ValidateCandidateResult> promise, unsigned mode)
     : shard_(shard)
     , id_(candidate.id)
     , min_mc_block_id(min_masterchain_block_id)
     , prev_blocks(std::move(prev))
     , block_candidate(std::move(candidate))
     , validator_set_(std::move(validator_set))
+    , local_validator_id_(local_validator_id)
     , manager(manager)
     , timeout(timeout)
     , main_promise(std::move(promise))
@@ -7062,6 +7063,7 @@ void ValidateQuery::record_stats(bool valid, std::string error_message) {
   stats.block_id = id_;
   stats.collated_data_hash = block_candidate.collated_file_hash;
   stats.validated_at = td::Clocks::system();
+  stats.self = local_validator_id_;
   stats.valid = valid;
   if (valid) {
     stats.comment = (PSTRING() << "OK ts=" << now_);

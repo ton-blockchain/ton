@@ -923,16 +923,17 @@ validatorStats.blockLimitsStatus
 validatorStats.extMsgsStats
     ext_msgs_total:int ext_msgs_filtered:int ext_msgs_accepted:int ext_msgs_rejected:int = validatorStats.ExtMsgsStats;
 
-validatorStats.collatedBlock flags:#
+validatorStats.collatedBlock
     block_id:tonNode.blockIdExt collated_data_hash:int256 cc_seqno:int collated_at:double
     bytes:int collated_data_bytes:int attempt:int
-    collator_node_id:flags.0?int256 validator_id:flags.1?int256
+    self:int256 is_validator:Bool
     total_time:double work_time:double cpu_work_time:double time_stats:string
     block_limits:validatorStats.blockLimitsStatus
     ext_msgs_stats:validatorStats.extMsgsStats = validatorSession.stats.CollatedBlock;
 
 validatorStats.validatedBlock
     block_id:tonNode.blockIdExt collated_data_hash:int256 validated_at:double
+    self:int256
     valid:Bool comment:string
     bytes:int collated_data_bytes:int
     total_time:double work_time:double cpu_work_time:double = validatorStats.ValidatedBlock;
@@ -940,13 +941,13 @@ validatorStats.validatedBlock
 validatorStats.newValidatorGroup.node id:int256 weight:long = validatorStats.newValidatorGroup.Node;
 validatorStats.newValidatorGroup session_id:int256 shard:tonNode.shardId cc_seqno:int
     last_key_block_seqno:int started_at:double
-    self_idx:int nodes:(vector validatorStats.newValidatorGroup.node) = validatorStats.NewValidatorGroup;
+    self_idx:int self:int256 nodes:(vector validatorStats.newValidatorGroup.node) = validatorStats.NewValidatorGroup;
 
 validatorStats.endValidatorGroup.node id:int256 catchain_blocks:int = validatorStats.endValidatorGroup.Node;
-validatorStats.endValidatorGroup session_id:int256 timestamp:double
+validatorStats.endValidatorGroup session_id:int256 timestamp:double self:int256
     nodes:(vector validatorStats.endValidatorGroup.node) = validatorStats.EndValidatorGroup;
 
-validatorStats.collatorNodeResponse collator_node_id:int256 validator_id:int256 timestamp:double
+validatorStats.collatorNodeResponse self:int256 validator_id:int256 timestamp:double
     block_id:tonNode.blockIdExt original_block_id:tonNode.blockIdExt collated_data_hash:int256
     = validatorStats.CollatorNodeResponse;
 
