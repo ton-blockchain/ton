@@ -938,7 +938,7 @@ validatorStats.validatedBlock
     bytes:int collated_data_bytes:int
     total_time:double work_time:double cpu_work_time:double = validatorStats.ValidatedBlock;
 
-validatorStats.newValidatorGroup.node id:int256 weight:long = validatorStats.newValidatorGroup.Node;
+validatorStats.newValidatorGroup.node id:int256 pubkey:PublicKey adnl_id:int256 weight:long = validatorStats.newValidatorGroup.Node;
 validatorStats.newValidatorGroup session_id:int256 shard:tonNode.shardId cc_seqno:int
     last_key_block_seqno:int started_at:double
     self_idx:int self:int256 nodes:(vector validatorStats.newValidatorGroup.node) = validatorStats.NewValidatorGroup;

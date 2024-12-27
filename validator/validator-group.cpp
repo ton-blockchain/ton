@@ -155,8 +155,8 @@ void ValidatorGroup::validate_block_candidate(validatorsession::BlockSourceInfo 
     return;
   }
   VLOG(VALIDATOR_DEBUG) << "validating block candidate " << next_block_id;
-  run_validate_query(shard_, min_masterchain_block_id_, prev_block_ids_, std::move(block), validator_set_,
-                     local_id_, manager_, td::Timestamp::in(15.0), std::move(P));
+  run_validate_query(shard_, min_masterchain_block_id_, prev_block_ids_, std::move(block), validator_set_, local_id_,
+                     manager_, td::Timestamp::in(15.0), std::move(P));
 }
 
 void ValidatorGroup::update_approve_cache(CacheKey key, UnixTime value) {
@@ -421,7 +421,11 @@ void ValidatorGroup::start(std::vector<BlockIdExt> prev, BlockIdExt min_masterch
     if (id == local_id_) {
       stats.self_idx = idx;
     }
-    stats.nodes.push_back(validatorsession::NewValidatorGroupStats::Node{id, node.weight});
+    stats.nodes.push_back(validatorsession::NewValidatorGroupStats::Node{
+        .id = id,
+        .pubkey = PublicKey(pubkeys::Ed25519(node.key)),
+        .adnl_id = (node.addr.is_zero() ? adnl::AdnlNodeIdShort{id} : adnl::AdnlNodeIdShort{node.addr}),
+        .weight = node.weight});
     ++idx;
   }
   td::actor::send_closure(manager_, &ValidatorManager::log_new_validator_group_stats, std::move(stats));

@@ -213,6 +213,8 @@ struct ValidatorSessionStats {
 struct NewValidatorGroupStats {
   struct Node {
     PublicKeyHash id = PublicKeyHash::zero();
+    PublicKey pubkey;
+    adnl::AdnlNodeIdShort adnl_id = adnl::AdnlNodeIdShort::zero();
     ValidatorWeight weight = 0;
   };
 
@@ -228,8 +230,8 @@ struct NewValidatorGroupStats {
   tl_object_ptr<ton_api::validatorStats_newValidatorGroup> tl() const {
     std::vector<tl_object_ptr<ton_api::validatorStats_newValidatorGroup_node>> nodes_arr;
     for (const auto &node : nodes) {
-      nodes_arr.push_back(
-          create_tl_object<ton_api::validatorStats_newValidatorGroup_node>(node.id.bits256_value(), node.weight));
+      nodes_arr.push_back(create_tl_object<ton_api::validatorStats_newValidatorGroup_node>(
+          node.id.bits256_value(), node.pubkey.tl(), node.adnl_id.bits256_value(), node.weight));
     }
     return create_tl_object<ton_api::validatorStats_newValidatorGroup>(session_id, create_tl_shard_id(shard), cc_seqno,
                                                                        last_key_block_seqno, started_at, self_idx,
