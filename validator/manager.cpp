@@ -1866,6 +1866,7 @@ void ValidatorManagerImpl::start_up() {
   }
 
   validator_manager_init(opts_, actor_id(this), db_.get(), std::move(P));
+  init_session_stats();
 
   check_waiters_at_ = td::Timestamp::in(1.0);
   alarm_timestamp().relax(check_waiters_at_);
@@ -3108,50 +3109,16 @@ void ValidatorManagerImpl::wait_shard_client_state(BlockSeqno seqno, td::Timesta
 }
 
 void ValidatorManagerImpl::log_validator_session_stats(validatorsession::ValidatorSessionStats stats) {
-  std::string fname = opts_->get_session_logs_file();
-  if (fname.empty()) {
-    return;
-  }
   stats.fix_block_ids();
-  auto obj = stats.tl();
-  auto s = td::json_encode<std::string>(td::ToJson(*obj.get()), false);
-  s.erase(std::remove_if(s.begin(), s.end(), [](char c) { return c == '\n' || c == '\r'; }), s.end());
-  std::ofstream file;
-  file.open(fname, std::ios_base::app);
-  file << s << "\n";
-  file.close();
-  LOG(INFO) << "Writing validator session stats for " << stats.block_id.to_str();
+  write_session_stats(stats);
 }
 
 void ValidatorManagerImpl::log_new_validator_group_stats(validatorsession::NewValidatorGroupStats stats) {
-  std::string fname = opts_->get_session_logs_file();
-  if (fname.empty()) {
-    return;
-  }
-  auto obj = stats.tl();
-  auto s = td::json_encode<std::string>(td::ToJson(*obj.get()), false);
-  s.erase(std::remove_if(s.begin(), s.end(), [](char c) { return c == '\n' || c == '\r'; }), s.end());
-  std::ofstream file;
-  file.open(fname, std::ios_base::app);
-  file << s << "\n";
-  file.close();
-  LOG(INFO) << "Writing new validator group stats for " << stats.session_id << " shard=" << stats.shard.to_str()
-            << " cc_seqno=" << stats.cc_seqno;
+  write_session_stats(stats);
 }
 
 void ValidatorManagerImpl::log_end_validator_group_stats(validatorsession::EndValidatorGroupStats stats) {
-  std::string fname = opts_->get_session_logs_file();
-  if (fname.empty()) {
-    return;
-  }
-  auto obj = stats.tl();
-  auto s = td::json_encode<std::string>(td::ToJson(*obj.get()), false);
-  s.erase(std::remove_if(s.begin(), s.end(), [](char c) { return c == '\n' || c == '\r'; }), s.end());
-  std::ofstream file;
-  file.open(fname, std::ios_base::app);
-  file << s << "\n";
-  file.close();
-  LOG(INFO) << "Writing end validator group stats for " << stats.session_id;
+  write_session_stats(stats);
 }
 
 void ValidatorManagerImpl::get_block_handle_for_litequery(BlockIdExt block_id, td::Promise<ConstBlockHandle> promise) {
@@ -3443,6 +3410,7 @@ void ValidatorManagerImpl::update_options(td::Ref<ValidatorManagerOptions> opts)
     td::actor::send_closure(c, &CollationManager::update_options, opts);
   }
   opts_ = std::move(opts);
+  init_session_stats();
 }
 
 void ValidatorManagerImpl::add_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) {
@@ -3600,48 +3568,15 @@ td::actor::ActorOwn<ValidatorManagerInterface> ValidatorManagerFactory::create(
 }
 
 void ValidatorManagerImpl::log_collate_query_stats(CollationStats stats) {
-  std::string fname = opts_->get_session_logs_file();
-  if (fname.empty()) {
-    return;
-  }
-  auto obj = stats.tl();
-  auto s = td::json_encode<std::string>(td::ToJson(*obj.get()), false);
-  s.erase(std::remove_if(s.begin(), s.end(), [](char c) { return c == '\n' || c == '\r'; }), s.end());
-  std::ofstream file;
-  file.open(fname, std::ios_base::app);
-  file << s << "\n";
-  file.close();
-  LOG(DEBUG) << "Writing collation stats stats for " << stats.block_id.to_str();
+  write_session_stats(stats);
 }
 
 void ValidatorManagerImpl::log_validate_query_stats(ValidationStats stats) {
-  std::string fname = opts_->get_session_logs_file();
-  if (fname.empty()) {
-    return;
-  }
-  auto obj = stats.tl();
-  auto s = td::json_encode<std::string>(td::ToJson(*obj.get()), false);
-  s.erase(std::remove_if(s.begin(), s.end(), [](char c) { return c == '\n' || c == '\r'; }), s.end());
-  std::ofstream file;
-  file.open(fname, std::ios_base::app);
-  file << s << "\n";
-  file.close();
-  LOG(DEBUG) << "Writing validation stats stats for " << stats.block_id.to_str();
+  write_session_stats(stats);
 }
 
 void ValidatorManagerImpl::log_collator_node_response_stats(CollatorNodeResponseStats stats) {
-  std::string fname = opts_->get_session_logs_file();
-  if (fname.empty()) {
-    return;
-  }
-  auto obj = stats.tl();
-  auto s = td::json_encode<std::string>(td::ToJson(*obj.get()), false);
-  s.erase(std::remove_if(s.begin(), s.end(), [](char c) { return c == '\n' || c == '\r'; }), s.end());
-  std::ofstream file;
-  file.open(fname, std::ios_base::app);
-  file << s << "\n";
-  file.close();
-  LOG(DEBUG) << "Writing collator node response stats stats for " << stats.block_id.to_str();
+  write_session_stats(stats);
 }
 
 size_t ValidatorManagerImpl::CheckedExtMsgCounter::get_msg_count(WorkchainId wc, StdSmcAddress addr) {
@@ -3699,6 +3634,53 @@ void ValidatorManagerImpl::init_validator_telemetry() {
     } else {
       it = validator_telemetry_.erase(it);
     }
+  }
+}
+
+void ValidatorManagerImpl::init_session_stats() {
+  if (opts_->get_session_logs_file() == session_stats_filename_) {
+    return;
+  }
+  session_stats_filename_ = opts_->get_session_logs_file();
+  if (session_stats_filename_.empty()) {
+    session_stats_enabled_ = false;
+    session_stats_fd_.close();
+    return;
+  }
+  auto r_fd = td::FileFd::open(session_stats_filename_,
+                               td::FileFd::Flags::Write | td::FileFd::Flags::Append | td::FileFd::Create);
+  if (r_fd.is_error()) {
+    LOG(ERROR) << "Failed to open session stats file for writing: " << r_fd.move_as_error();
+    session_stats_filename_.clear();
+    session_stats_enabled_ = false;
+    return;
+  }
+  session_stats_fd_ = r_fd.move_as_ok();
+  session_stats_enabled_ = true;
+}
+
+template<typename T>
+void ValidatorManagerImpl::write_session_stats(const T &obj) {
+  if (!session_stats_enabled_) {
+    return;
+  }
+  auto s = td::json_encode<std::string>(td::ToJson(*obj.tl()), false);
+  s.erase(std::remove_if(s.begin(), s.end(), [](char c) { return c == '\n' || c == '\r'; }), s.end());
+  s += '\n';
+  td::Slice slice{s};
+  while (!slice.empty()) {
+    auto R = session_stats_fd_.write(slice);
+    if (R.is_error()) {
+      LOG(WARNING) << "Failed to write to session stats: " << R.move_as_error();
+    }
+    if (R.ok() == 0) {
+      LOG(WARNING) << "Failed to write to session stats";
+    }
+    slice.remove_prefix(R.ok());
+  }
+  auto S = session_stats_fd_.sync();
+  if (S.is_error()) {
+    LOG(WARNING) << "Failed to write to session stats: " << S;
   }
 }
 
