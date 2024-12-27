@@ -98,8 +98,8 @@ else
 fi
 
 cmake -GNinja .. \
--DCMAKE_CXX_FLAGS="-stdlib=libc++ -I/usr/lib/llvm-16/include/c++/v1 -D_GLIBCXX_USE_CXX11_ABI=0" \
--DCMAKE_EXE_LINKER_FLAGS="-stdlib=libc++ -static-libgcc -static-libstdc++ /usr/lib/llvm-16/lib/libc++abi.a -I/usr/lib/llvm-16/include/c++/v1" \
+-DCMAKE_CXX_FLAGS="-D_GLIBCXX_USE_CXX11_ABI=0" \
+-DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++" \
 -DPORTABLE=1 \
 -DCMAKE_BUILD_TYPE=Release \
 -DOPENSSL_FOUND=1 \
