@@ -17,6 +17,7 @@
 #include "tolk.h"
 #include "ast.h"
 #include "ast-replacer.h"
+#include "type-system.h"
 
 /*
  *   This pipe is supposed to do constant folding, like replacing `2 + 3` with `5`.
@@ -33,7 +34,7 @@ namespace tolk {
 class ConstantFoldingReplacer final : public ASTReplacerInFunctionBody {
   static V<ast_int_const> create_int_const(SrcLocation loc, td::RefInt256&& intval) {
     auto v_int = createV<ast_int_const>(loc, std::move(intval), {});
-    v_int->assign_inferred_type(TypeExpr::new_atomic(TypeExpr::_Int));
+    v_int->assign_inferred_type(TypeDataInt::create());
     v_int->assign_rvalue_true();
     return v_int;
   }
@@ -59,10 +60,15 @@ class ConstantFoldingReplacer final : public ASTReplacerInFunctionBody {
 
     return v;
   }
+
+public:
+  bool should_visit_function(const FunctionData* fun_ref) override {
+    return fun_ref->is_code_function() && !fun_ref->is_generic_function();
+  }
 };
 
-void pipeline_constant_folding(const AllSrcFiles& all_src_files) {
-  replace_ast_of_all_functions<ConstantFoldingReplacer>(all_src_files);
+void pipeline_constant_folding() {
+  replace_ast_of_all_functions<ConstantFoldingReplacer>();
 }
 
 } // namespace tolk

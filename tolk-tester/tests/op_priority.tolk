@@ -56,7 +56,7 @@ fun test8(b: int): int {
     return a;
 }
 
-fun `_<p`(a: auto, b: auto): int { return true; }
+fun `_<p`(a: int, b: int): int { return true; }
 
 fun main() {
     // ok to parse

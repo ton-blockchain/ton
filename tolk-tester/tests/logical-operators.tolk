@@ -54,7 +54,8 @@ fun testDict(last: int) {
 
 @method_id(105)
 fun testNotNull(x: int) {
-    return [x == null, null == x, !(x == null), null == null, +(null != null)];
+    // return [x == null, null == x, !(x == null), null == null, +(null != null)];
+    return [x == null, null == x, !(x == null)];
 }
 
 @method_id(106)
@@ -144,8 +145,8 @@ fun main() {
 @testcase | 104 | 50     | 3 5 -1
 @testcase | 104 | 100    | 3 5 5
 @testcase | 104 | 0      | 3 -1 5
-@testcase | 105 | 0      | [ 0 0 -1 -1 0 ]
-@testcase | 105 | null   | [ -1 -1 0 -1 0 ]
+@testcase | 105 | 0      | [ 0 0 -1 ]
+@testcase | 105 | null   | [ -1 -1 0 ]
 @testcase | 106 |        | [ 0 0 0 -1 ] [ 0 0 0 ] [ -1 -1 -1 ] [ 0 -1 ]
 @testcase | 107 |        | [ -1 -1 0 -1 ] [ 0 0 0 ] [ -1 -1 -1 ] [ -1 0 ]
 @testcase | 108 | 1 2    | -1

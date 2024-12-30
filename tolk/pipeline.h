@@ -25,25 +25,33 @@
 */
 #pragma once
 
-#include "src-file.h"
+#include "fwd-declarations.h"
 #include <string>
 
 namespace tolk {
 
-AllSrcFiles pipeline_discover_and_parse_sources(const std::string& stdlib_filename, const std::string& entrypoint_filename);
+void pipeline_discover_and_parse_sources(const std::string& stdlib_filename, const std::string& entrypoint_filename);
 
-void pipeline_register_global_symbols(const AllSrcFiles&);
-void pipeline_resolve_identifiers_and_assign_symbols(const AllSrcFiles&);
-void pipeline_calculate_rvalue_lvalue(const AllSrcFiles&);
-void pipeline_detect_unreachable_statements(const AllSrcFiles&);
-void pipeline_infer_and_check_types(const AllSrcFiles&);
-void pipeline_refine_lvalue_for_mutate_arguments(const AllSrcFiles&);
-void pipeline_check_rvalue_lvalue(const AllSrcFiles&);
-void pipeline_check_pure_impure_operations(const AllSrcFiles&);
-void pipeline_constant_folding(const AllSrcFiles&);
-void pipeline_convert_ast_to_legacy_Expr_Op(const AllSrcFiles&);
+void pipeline_register_global_symbols();
+void pipeline_resolve_identifiers_and_assign_symbols();
+void pipeline_calculate_rvalue_lvalue();
+void pipeline_detect_unreachable_statements();
+void pipeline_infer_types_and_calls_and_fields();
+void pipeline_refine_lvalue_for_mutate_arguments();
+void pipeline_check_rvalue_lvalue();
+void pipeline_check_pure_impure_operations();
+void pipeline_constant_folding();
+void pipeline_convert_ast_to_legacy_Expr_Op();
 
 void pipeline_find_unused_symbols();
-void pipeline_generate_fif_output_to_std_cout(const AllSrcFiles&);
+void pipeline_generate_fif_output_to_std_cout();
+
+// these pipes also can be called per-function individually
+// they are called for instantiated generics functions, when `f<T>` is deeply cloned as `f<int>`
+void pipeline_resolve_identifiers_and_assign_symbols(const FunctionData*);
+void pipeline_calculate_rvalue_lvalue(const FunctionData*);
+void pipeline_detect_unreachable_statements(const FunctionData*);
+void pipeline_infer_types_and_calls_and_fields(const FunctionData*);
+
 
 } // namespace tolk

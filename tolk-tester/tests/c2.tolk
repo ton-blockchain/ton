@@ -4,7 +4,7 @@ fun check_assoc(a: int, b: int, c: int): int {
   return op(op(a, b), c) == op(a, op(b, c));
 }
 
-fun unnamed_args(_: int, _: slice, _: auto): auto {
+fun unnamed_args(_: int, _: slice, _: int) {
   return true;
 }
 
@@ -14,7 +14,7 @@ fun main(x: int, y: int, z: int): int {
 }
 
 @method_id(101)
-fun test101(x: int, z: int): auto {
+fun test101(x: int, z: int) {
   return unnamed_args(x, "asdf", z);
 }
 

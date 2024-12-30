@@ -17,17 +17,17 @@ fun createEmptyTuple(): tuple
 /// Appends a value to tuple, resulting in `Tuple t' = (x1, ..., xn, value)`.
 /// If its size exceeds 255, throws a type check exception.
 @pure
-fun tuplePush<X>(mutate self: tuple, value: X): void
+fun tuplePush<T>(mutate self: tuple, value: T): void
     asm "TPUSH";
 
 /// Returns the first element of a non-empty tuple.
 @pure
-fun tupleFirst<X>(t: tuple): X
+fun tupleFirst<T>(t: tuple): T
     asm "FIRST";
 
 /// Returns the [`index`]-th element of a tuple.
 @pure
-fun tupleAt<X>(t: tuple, index: int): X
+fun tupleAt<T>(t: tuple, index: int): T
     builtin;
 
 /// Returns the size of a tuple (elements count in it).
@@ -37,7 +37,7 @@ fun tupleSize(t: tuple): int
 
 /// Returns the last element of a non-empty tuple.
 @pure
-fun tupleLast(t: tuple): int
+fun tupleLast<T>(t: tuple): T
     asm "LAST";
 
 
@@ -306,11 +306,11 @@ fun getBuilderDepth(b: builder): int
  */
 
 /// Dump a variable [x] to the debug log.
-fun debugPrint<X>(x: X): void
+fun debugPrint<T>(x: T): void
     builtin;
 
 /// Dump a string [x] to the debug log.
-fun debugPrintString<X>(x: X): void
+fun debugPrintString<T>(x: T): void
     builtin;
 
 /// Dumps the stack (at most the top 255 values) and shows the total stack depth.

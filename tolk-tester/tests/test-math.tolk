@@ -218,7 +218,7 @@ fun fixed248_log2_const(): int {
 @pure
 @inline
 fun Pi_const_f254(): int {
-    var (c: auto, _) = Pi_xconst_f254();
+    var (c, _) = Pi_xconst_f254();
     return c;
 }
 
@@ -1019,7 +1019,8 @@ fun test_nrand(n: int): tuple {
   repeat (n) {
     var x: int = fixed248_nrand();
     var bucket: int = (abs(x) >> 243);   // 255 buckets starting from x=0, each 1/32 wide
-    t.tset(bucket, t.tupleAt(bucket) + 1);
+    var at_bucket: int = t.tupleAt(bucket);
+    t.tset(bucket, at_bucket + 1);
   }
   return t;
 }

@@ -187,7 +187,7 @@ fun myTupleAt<T>(self: tuple, idx: int): T {
 global tup111: tuple;
 
 @method_id(111)
-fun testForallFunctionsWithSelf() {
+fun testForallFunctionsWithSelf(): (int, int, tuple) {
     var t = createEmptyTuple();
     tup111 = createEmptyTuple();
     t.myTuplePush(10);

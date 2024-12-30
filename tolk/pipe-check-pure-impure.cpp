@@ -33,43 +33,31 @@ static void fire_error_impure_operation_inside_pure_function(AnyV v) {
 
 class CheckImpureOperationsInPureFunctionVisitor final : public ASTVisitorFunctionBody {
   static void fire_if_global_var(AnyExprV v) {
-    if (auto v_ident = v->try_as<ast_identifier>()) {
+    if (auto v_ident = v->try_as<ast_reference>()) {
       if (v_ident->sym->try_as<GlobalVarData>()) {
         fire_error_impure_operation_inside_pure_function(v);
       }
     }
   }
 
-  void visit(V<ast_local_var> v) override {
-    if (v->marked_as_redef) {
-      fire_if_global_var(v->get_identifier());
-    }
+  void visit(V<ast_assign> v) override {
+    fire_if_global_var(v->get_lhs());
+    parent::visit(v);
   }
 
-  void visit(V<ast_binary_operator> v) override {
-    if (v->is_set_assign() || v->is_assign()) {
-      fire_if_global_var(v->get_lhs());
-    }
-
+  void visit(V<ast_set_assign> v) override {
+    fire_if_global_var(v->get_lhs());
     parent::visit(v);
   }
 
   void visit(V<ast_function_call> v) override {
-    // most likely it's a global function, but also may be `some_var(args)` or even `getF()(args)`
+    // v is `globalF(args)` / `globalF<int>(args)` / `obj.method(args)` / `local_var(args)` / `getF()(args)`
     if (!v->fun_maybe) {
-      // calling variables is always impure, no considerations about what's there at runtime
+      // `local_var(args)` is always impure, no considerations about what's there at runtime
       fire_error_impure_operation_inside_pure_function(v);
     }
 
     if (!v->fun_maybe->is_marked_as_pure()) {
-      fire_error_impure_operation_inside_pure_function(v);
-    }
-
-    parent::visit(v);
-  }
-
-  void visit(V<ast_dot_method_call> v) override {
-    if (!v->fun_ref->is_marked_as_pure()) {
       fire_error_impure_operation_inside_pure_function(v);
     }
 
@@ -93,15 +81,13 @@ class CheckImpureOperationsInPureFunctionVisitor final : public ASTVisitorFuncti
   }
 
 public:
-  void start_visiting_function(V<ast_function_declaration> v_function) override {
-    if (v_function->marked_as_pure) {
-      parent::visit(v_function->get_body());
-    }
+  bool should_visit_function(const FunctionData* fun_ref) override {
+    return fun_ref->is_code_function() && !fun_ref->is_generic_function() && fun_ref->is_marked_as_pure();
   }
 };
 
-void pipeline_check_pure_impure_operations(const AllSrcFiles& all_src_files) {
-  visit_ast_of_all_functions<CheckImpureOperationsInPureFunctionVisitor>(all_src_files);
+void pipeline_check_pure_impure_operations() {
+  visit_ast_of_all_functions<CheckImpureOperationsInPureFunctionVisitor>();
 }
 
 } // namespace tolk

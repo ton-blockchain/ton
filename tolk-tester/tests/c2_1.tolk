@@ -1,4 +1,4 @@
-fun check_assoc(op: auto, a: int, b: int, c: int) {
+fun check_assoc(op: (int, int) -> int, a: int, b: int, c: int) {
   return op(op(a, b), c) == op(a, op(b, c));
 }
 

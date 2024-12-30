@@ -16,6 +16,7 @@
 */
 #include "tolk.h"
 #include "compiler-state.h"
+#include "type-system.h"
 
 namespace tolk {
 
@@ -28,7 +29,7 @@ namespace tolk {
 void TmpVar::dump(std::ostream& os) const {
   show(os);
   os << " : " << v_type << " (width ";
-  v_type->show_width(os);
+  os << v_type->calc_width_on_stack();
   os << ")";
   if (coord > 0) {
     os << " = _" << (coord >> 8) << '.' << (coord & 255);
@@ -443,7 +444,7 @@ void CodeBlob::print(std::ostream& os, int flags) const {
   os << "-------- END ---------\n\n";
 }
 
-var_idx_t CodeBlob::create_var(TypeExpr* var_type, const LocalVarData* v_sym, SrcLocation location) {
+var_idx_t CodeBlob::create_var(TypePtr var_type, const LocalVarData* v_sym, SrcLocation location) {
   vars.emplace_back(var_cnt, var_type, v_sym, location);
   return var_cnt++;
 }
@@ -454,7 +455,7 @@ bool CodeBlob::import_params(FormalArgList&& arg_list) {
   }
   std::vector<var_idx_t> list;
   for (const auto& par : arg_list) {
-    TypeExpr* arg_type;
+    TypePtr arg_type;
     const LocalVarData* arg_sym;
     SrcLocation arg_loc;
     std::tie(arg_type, arg_sym, arg_loc) = par;

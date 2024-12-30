@@ -18,7 +18,6 @@
 
 #include "platform-utils.h"
 #include "src-file.h"
-#include "type-expr.h"
 #include "symtable.h"
 #include "crypto/common/refint.h"
 #include "td/utils/Status.h"
@@ -37,30 +36,6 @@ void on_assertion_failed(const char *description, const char *file_name, int lin
 
 /*
  * 
- *   TYPE EXPRESSIONS
- * 
- */
-
-struct UnifyError : std::exception {
-  TypeExpr* te1;
-  TypeExpr* te2;
-  std::string msg;
-
-  UnifyError(TypeExpr* _te1, TypeExpr* _te2, std::string _msg = "") : te1(_te1), te2(_te2), msg(std::move(_msg)) {
-  }
-
-  void print_message(std::ostream& os) const;
-  const char* what() const noexcept override {
-    return msg.c_str();
-  }
-};
-
-std::ostream& operator<<(std::ostream& os, const UnifyError& ue);
-
-void unify(TypeExpr*& te1, TypeExpr*& te2);
-
-/*
- * 
  *   ABSTRACT CODE
  * 
  */
@@ -69,15 +44,15 @@ typedef int var_idx_t;
 typedef int const_idx_t;
 
 struct TmpVar {
-  TypeExpr* v_type;
+  TypePtr v_type;
   var_idx_t idx;
   const LocalVarData* v_sym;  // points to var defined in code; nullptr for implicitly created tmp vars
   int coord;
   SrcLocation where;
   std::vector<std::function<void(SrcLocation)>> on_modification;
 
-  TmpVar(var_idx_t _idx, TypeExpr* _type, const LocalVarData* v_sym, SrcLocation loc)
-    : v_type(_type)
+  TmpVar(var_idx_t _idx, TypePtr type, const LocalVarData* v_sym, SrcLocation loc)
+    : v_type(type)
     , idx(_idx)
     , v_sym(v_sym)
     , coord(0)
@@ -410,13 +385,13 @@ inline ListIterator<const Op> end(const Op* op_list) {
   return ListIterator<const Op>{};
 }
 
-typedef std::tuple<TypeExpr*, const LocalVarData*, SrcLocation> FormalArg;
+typedef std::tuple<TypePtr, const LocalVarData*, SrcLocation> FormalArg;
 typedef std::vector<FormalArg> FormalArgList;
 
 struct AsmOpList;
 
 struct FunctionBodyCode {
-  CodeBlob* code;
+  CodeBlob* code = nullptr;
   void set_code(CodeBlob* code);
 };
 
@@ -597,6 +572,7 @@ inline std::ostream& operator<<(std::ostream& os, const AsmOp& op) {
 }
 
 std::ostream& operator<<(std::ostream& os, AsmOp::SReg stack_reg);
+std::ostream& operator<<(std::ostream& os, TypePtr type_data);
 
 struct AsmOpList {
   std::vector<AsmOp> list_;
@@ -1116,7 +1092,6 @@ struct FunctionBodyAsm {
 
 struct CodeBlob {
   int var_cnt, in_var_cnt;
-  TypeExpr* ret_type;
   const FunctionData* fun_ref;
   std::string name;
   SrcLocation loc;
@@ -1128,8 +1103,8 @@ struct CodeBlob {
 #endif
   std::stack<std::unique_ptr<Op>*> cur_ops_stack;
   bool require_callxargs = false;
-  CodeBlob(std::string name, SrcLocation loc, const FunctionData* fun_ref, TypeExpr* ret_type)
-    : var_cnt(0), in_var_cnt(0), ret_type(ret_type), fun_ref(fun_ref), name(std::move(name)), loc(loc), cur_ops(&ops) {
+  CodeBlob(std::string name, SrcLocation loc, const FunctionData* fun_ref)
+    : var_cnt(0), in_var_cnt(0), fun_ref(fun_ref), name(std::move(name)), loc(loc), cur_ops(&ops) {
   }
   template <typename... Args>
   Op& emplace_back(Args&&... args) {
@@ -1141,8 +1116,8 @@ struct CodeBlob {
     return res;
   }
   bool import_params(FormalArgList&& arg_list);
-  var_idx_t create_var(TypeExpr* var_type, const LocalVarData* v_sym, SrcLocation loc);
-  var_idx_t create_tmp_var(TypeExpr* var_type, SrcLocation loc) {
+  var_idx_t create_var(TypePtr var_type, const LocalVarData* v_sym, SrcLocation loc);
+  var_idx_t create_tmp_var(TypePtr var_type, SrcLocation loc) {
     return create_var(var_type, nullptr, loc);
   }
   int split_vars(bool strict = false);
@@ -1164,7 +1139,6 @@ struct CodeBlob {
     close_blk(location);
     pop_cur();
   }
-  void simplify_var_types();
   void prune_unreachable_code();
   void fwd_analyze();
   void mark_noreturn();

@@ -7,12 +7,14 @@ fun test1() {
     numbers = listPrepend(2, numbers);
     numbers = listPrepend(3, numbers);
     numbers = listPrepend(4, numbers);
-    var (h, numbers redef) = listSplit(numbers);
+    var (h: int, numbers redef) = listSplit(numbers);
     h += listGetHead(numbers);
 
+    _ = null;
+    (_, _) = (null, null);
     var t = createEmptyTuple();
     do {
-        var num = numbers.listNext();
+        var num: int = numbers.listNext();
         t.tuplePush(num);
     } while (numbers != null);
 
@@ -44,7 +46,7 @@ fun test3(x: int) {
 }
 
 fun getUntypedNull() {
-    var untyped = null;
+    var untyped: null = null;
     if (true) {
         return untyped;
     }
@@ -52,8 +54,8 @@ fun getUntypedNull() {
 }
 
 @method_id(104)
-fun test4() {
-    var (_, (_, untyped)) = (3, (createEmptyTuple, null));
+fun test4(): null {
+    var (_, (_, untyped: null)) = (3, (createEmptyTuple, null));
     if (true) {
         return untyped;
     }
@@ -62,13 +64,8 @@ fun test4() {
 
 @method_id(105)
 fun test5() {
-    var n = getUntypedNull();
+    var n: slice = getUntypedNull();
     return !(null == n) ? n.loadInt(32) : 100;
-}
-
-@method_id(106)
-fun test6(x: int) {
-    return x > null;  // this compiles (for now), but fails at runtime
 }
 
 @method_id(107)
@@ -129,15 +126,6 @@ fun main() {
       1 PUSHINT	//  _3=1
     }>	//
     10 PUSHINT	//  _4=10
-  }>
-"""
-
-@fif_codegen
-"""
-  test6 PROC:<{
-    //  x
-    PUSHNULL	//  x _1
-    GREATER	//  _2
   }>
 """
 

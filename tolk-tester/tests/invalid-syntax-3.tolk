@@ -4,5 +4,5 @@ fun main(x: int) {
 
 /**
 @compilation_should_fail
-@stderr null is not a function: use `null`, not `null()`
+@stderr calling a non-function
  */

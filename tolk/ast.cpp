@@ -15,8 +15,9 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include "ast.h"
+#ifdef TOLK_DEBUG
 #include "ast-stringifier.h"
-#include <iostream>
+#endif
 
 namespace tolk {
 
@@ -104,7 +105,7 @@ int Vertex<ast_parameter_list>::get_mutate_params_count() const {
 // Therefore, there is a guarantee, that all AST mutations are done via these methods,
 // easily searched by usages, and there is no another way to modify any other field.
 
-void ASTNodeExpressionBase::assign_inferred_type(TypeExpr* type) {
+void ASTNodeExpressionBase::assign_inferred_type(TypePtr type) {
   this->inferred_type = type;
 }
 
@@ -116,43 +117,79 @@ void ASTNodeExpressionBase::assign_lvalue_true() {
   this->is_lvalue = true;
 }
 
-void Vertex<ast_identifier>::assign_sym(const Symbol* sym) {
+void Vertex<ast_reference>::assign_sym(const Symbol* sym) {
   this->sym = sym;
-}
-
-void Vertex<ast_self_keyword>::assign_param_ref(const LocalVarData* self_param) {
-  this->param_ref = self_param;
 }
 
 void Vertex<ast_function_call>::assign_fun_ref(const FunctionData* fun_ref) {
   this->fun_maybe = fun_ref;
 }
 
-void Vertex<ast_dot_method_call>::assign_fun_ref(const FunctionData* fun_ref) {
-  this->fun_ref = fun_ref;
+void Vertex<ast_cast_as_operator>::assign_resolved_type(TypePtr cast_to_type) {
+  this->cast_to_type = cast_to_type;
 }
 
 void Vertex<ast_global_var_declaration>::assign_var_ref(const GlobalVarData* var_ref) {
   this->var_ref = var_ref;
 }
 
+void Vertex<ast_global_var_declaration>::assign_resolved_type(TypePtr declared_type) {
+  this->declared_type = declared_type;
+}
+
 void Vertex<ast_constant_declaration>::assign_const_ref(const GlobalConstData* const_ref) {
   this->const_ref = const_ref;
+}
+
+void Vertex<ast_constant_declaration>::assign_resolved_type(TypePtr declared_type) {
+  this->declared_type = declared_type;
+}
+
+void Vertex<ast_instantiationT_item>::assign_resolved_type(TypePtr substituted_type) {
+  this->substituted_type = substituted_type;
 }
 
 void Vertex<ast_parameter>::assign_param_ref(const LocalVarData* param_ref) {
   this->param_ref = param_ref;
 }
 
+void Vertex<ast_parameter>::assign_resolved_type(TypePtr declared_type) {
+  this->declared_type = declared_type;
+}
+
+void Vertex<ast_set_assign>::assign_fun_ref(const FunctionData* fun_ref) {
+  this->fun_ref = fun_ref;
+}
+
+void Vertex<ast_unary_operator>::assign_fun_ref(const FunctionData* fun_ref) {
+  this->fun_ref = fun_ref;
+}
+
+void Vertex<ast_binary_operator>::assign_fun_ref(const FunctionData* fun_ref) {
+  this->fun_ref = fun_ref;
+}
+
+void Vertex<ast_dot_access>::assign_target(const DotTarget& target) {
+  this->target = target;
+}
+
 void Vertex<ast_function_declaration>::assign_fun_ref(const FunctionData* fun_ref) {
   this->fun_ref = fun_ref;
 }
 
-void Vertex<ast_local_var>::assign_var_ref(const Symbol* var_ref) {
-  this->var_maybe = var_ref;
+void Vertex<ast_function_declaration>::assign_resolved_type(TypePtr declared_return_type) {
+  this->declared_return_type = declared_return_type;
 }
 
-void Vertex<ast_import_statement>::assign_src_file(const SrcFile* file) {
+void Vertex<ast_local_var_lhs>::assign_var_ref(const LocalVarData* var_ref) {
+  this->var_ref = var_ref;
+}
+
+void Vertex<ast_local_var_lhs>::assign_resolved_type(TypePtr declared_type) {
+  this->declared_type = declared_type;
+}
+
+void Vertex<ast_import_directive>::assign_src_file(const SrcFile* file) {
   this->file = file;
 }
 

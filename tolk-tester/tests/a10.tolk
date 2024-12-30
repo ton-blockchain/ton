@@ -35,7 +35,7 @@ fun test88(x: int) {
 }
 
 @method_id(89)
-fun test89(last: int) {
+fun test89(last: int): (int, int, int, int) {
     var t: tuple = createEmptyTuple();
     t.tuplePush(1);
     t.tuplePush(2);

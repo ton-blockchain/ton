@@ -95,7 +95,7 @@ struct CompilerState {
   GlobalSymbolTable symtable;
   PersistentHeapAllocator persistent_mem;
 
-  std::vector<const FunctionData*> all_code_functions;
+  std::vector<const FunctionData*> all_functions;       // all user-defined (not built-in) functions, with generic instantiations
   std::vector<const FunctionData*> all_get_methods;
   std::vector<const GlobalVarData*> all_global_vars;
   std::vector<const GlobalConstData*> all_constants;

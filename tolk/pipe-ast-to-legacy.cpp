@@ -17,7 +17,8 @@
 #include "tolk.h"
 #include "src-file.h"
 #include "ast.h"
-#include "compiler-state.h"
+#include "ast-visitor.h"
+#include "type-system.h"
 #include "common/refint.h"
 #include "constant-evaluator.h"
 
@@ -48,7 +49,7 @@ struct LValGlobs {
 };
 
 std::vector<var_idx_t> pre_compile_expr(AnyExprV v, CodeBlob& code, LValGlobs* lval_globs = nullptr);
-void process_statement(AnyV v, CodeBlob& code);
+void process_any_statement(AnyV v, CodeBlob& code);
 
 
 static std::vector<std::vector<var_idx_t>> pre_compile_tensor_inner(CodeBlob& code, const std::vector<AnyExprV>& args,
@@ -128,25 +129,24 @@ static std::vector<var_idx_t> pre_compile_tensor(CodeBlob& code, const std::vect
 
 static std::vector<var_idx_t> pre_compile_let(CodeBlob& code, AnyExprV lhs, AnyExprV rhs, SrcLocation loc) {
   // [lhs] = [rhs]; since type checking is ok, it's the same as "lhs = rhs"
-  if (lhs->type == ast_tensor_square && rhs->type == ast_tensor_square) {
-    std::vector<var_idx_t> right = pre_compile_tensor(code, rhs->as<ast_tensor_square>()->get_items());
+  if (lhs->type == ast_typed_tuple && rhs->type == ast_typed_tuple) {
+    std::vector<var_idx_t> right = pre_compile_tensor(code, rhs->as<ast_typed_tuple>()->get_items());
     LValGlobs globs;
-    std::vector<var_idx_t> left = pre_compile_tensor(code, lhs->as<ast_tensor_square>()->get_items(), &globs);
+    std::vector<var_idx_t> left = pre_compile_tensor(code, lhs->as<ast_typed_tuple>()->get_items(), &globs);
     code.on_var_modification(left, loc);
     code.emplace_back(loc, Op::_Let, std::move(left), right);
     globs.gen_ops_set_globs(code, loc);
     return right;
   }
   // [lhs] = rhs; it's un-tuple to N left vars
-  if (lhs->type == ast_tensor_square) {
+  if (lhs->type == ast_typed_tuple) {
     std::vector<var_idx_t> right = pre_compile_expr(rhs, code);
-    TypeExpr* rhs_type = rhs->inferred_type;
-    TypeExpr::remove_indirect(rhs_type);
-    TypeExpr* unpacked_type = rhs_type->args.at(0);   // rhs->inferred_type is tuple<tensor<...>>
-    std::vector<var_idx_t> rvect = {code.create_tmp_var(unpacked_type, rhs->loc)};
+    const TypeDataTypedTuple* inferred_tuple = rhs->inferred_type->try_as<TypeDataTypedTuple>();
+    std::vector<TypePtr> types_list = inferred_tuple->items;
+    std::vector<var_idx_t> rvect = {code.create_tmp_var(TypeDataTensor::create(std::move(types_list)), rhs->loc)};
     code.emplace_back(lhs->loc, Op::_UnTuple, rvect, std::move(right));
     LValGlobs globs;
-    std::vector<var_idx_t> left = pre_compile_tensor(code, lhs->as<ast_tensor_square>()->get_items(), &globs);
+    std::vector<var_idx_t> left = pre_compile_tensor(code, lhs->as<ast_typed_tuple>()->get_items(), &globs);
     code.on_var_modification(left, loc);
     code.emplace_back(loc, Op::_Let, std::move(left), rvect);
     globs.gen_ops_set_globs(code, loc);
@@ -162,7 +162,7 @@ static std::vector<var_idx_t> pre_compile_let(CodeBlob& code, AnyExprV lhs, AnyE
   return right;
 }
 
-static std::vector<var_idx_t> gen_op_call(CodeBlob& code, TypeExpr* ret_type, SrcLocation here,
+static std::vector<var_idx_t> gen_op_call(CodeBlob& code, TypePtr ret_type, SrcLocation here,
                                           std::vector<var_idx_t>&& args_vars, const FunctionData* fun_ref) {
   std::vector<var_idx_t> rvect = {code.create_tmp_var(ret_type, here)};
   Op& op = code.emplace_back(here, Op::_Call, rvect, std::move(args_vars), fun_ref);
@@ -173,38 +173,75 @@ static std::vector<var_idx_t> gen_op_call(CodeBlob& code, TypeExpr* ret_type, Sr
 }
 
 
-static std::vector<var_idx_t> process_binary_operator(V<ast_binary_operator> v, CodeBlob& code) {
-  TokenType t = v->tok;
-  std::string operator_name = static_cast<std::string>(v->operator_name);
-
-  if (v->is_set_assign()) {
-    std::string_view calc_operator = std::string_view{operator_name}.substr(0, operator_name.size() - 1);
-    auto v_apply = createV<ast_binary_operator>(v->loc, calc_operator, static_cast<TokenType>(t - 1), v->get_lhs(), v->get_rhs());
-    v_apply->assign_inferred_type(v->inferred_type);
-    return pre_compile_let(code, v->get_lhs(), v_apply, v->loc);
+static std::vector<var_idx_t> process_symbol(SrcLocation loc, const Symbol* sym, CodeBlob& code, LValGlobs* lval_globs) {
+  if (const auto* glob_ref = sym->try_as<GlobalVarData>()) {
+    std::vector<var_idx_t> rvect = {code.create_tmp_var(glob_ref->declared_type, loc)};
+    if (lval_globs) {
+      lval_globs->add_modified_glob(glob_ref, rvect[0]);
+      return rvect;
+    } else {
+      code.emplace_back(loc, Op::_GlobVar, rvect, std::vector<var_idx_t>{}, glob_ref);
+      return rvect;
+    }
   }
-  if (v->is_assign()) {
+  if (const auto* const_ref = sym->try_as<GlobalConstData>()) {
+    if (const_ref->is_int_const()) {
+      std::vector<var_idx_t> rvect = {code.create_tmp_var(TypeDataInt::create(), loc)};
+      code.emplace_back(loc, Op::_IntConst, rvect, const_ref->as_int_const());
+      return rvect;
+    } else {
+      std::vector<var_idx_t> rvect = {code.create_tmp_var(TypeDataSlice::create(), loc)};
+      code.emplace_back(loc, Op::_SliceConst, rvect, const_ref->as_slice_const());
+      return rvect;
+    }
+  }
+  if (const auto* fun_ref = sym->try_as<FunctionData>()) {
+    std::vector<var_idx_t> rvect = {code.create_tmp_var(fun_ref->inferred_full_type, loc)};
+    code.emplace_back(loc, Op::_GlobVar, rvect, std::vector<var_idx_t>{}, fun_ref);
+    return rvect;
+  }
+  if (const auto* var_ref = sym->try_as<LocalVarData>()) {
+    return {var_ref->idx};
+  }
+  throw Fatal("process_symbol");
+}
+
+static std::vector<var_idx_t> process_assign(V<ast_assign> v, CodeBlob& code) {
+  if (auto lhs_decl = v->get_lhs()->try_as<ast_local_vars_declaration>()) {
+    return pre_compile_let(code, lhs_decl->get_expr(), v->get_rhs(), v->loc);
+  } else {
     return pre_compile_let(code, v->get_lhs(), v->get_rhs(), v->loc);
   }
-  if (t == tok_minus || t == tok_plus ||
-      t == tok_bitwise_and || t == tok_bitwise_or || t == tok_bitwise_xor ||
-      t == tok_eq || t == tok_lt || t == tok_gt || t == tok_leq || t == tok_geq || t == tok_neq || t == tok_spaceship ||
-      t == tok_lshift || t == tok_rshift || t == tok_rshiftC || t == tok_rshiftR ||
-      t == tok_mul || t == tok_div || t == tok_mod || t == tok_divC || t == tok_divR) {
-    const FunctionData* fun_ref = lookup_global_symbol("_" + operator_name + "_")->as<FunctionData>();
+}
+
+static std::vector<var_idx_t> process_set_assign(V<ast_set_assign> v, CodeBlob& code) {
+  // for "a += b", emulate "a = a + b"
+  // seems not beautiful, but it works; probably, this transformation should be done at AST level in advance
+  std::string_view calc_operator = v->operator_name;  // "+" for operator +=
+  auto v_apply = createV<ast_binary_operator>(v->loc, calc_operator, static_cast<TokenType>(v->tok - 1), v->get_lhs(), v->get_rhs());
+  v_apply->assign_inferred_type(v->inferred_type);
+  v_apply->assign_fun_ref(v->fun_ref);
+  return pre_compile_let(code, v->get_lhs(), v_apply, v->loc);
+}
+
+static std::vector<var_idx_t> process_binary_operator(V<ast_binary_operator> v, CodeBlob& code) {
+  TokenType t = v->tok;
+
+  if (v->fun_ref) {   // almost all operators, fun_ref was assigned at type inferring
     std::vector<var_idx_t> args_vars = pre_compile_tensor(code, {v->get_lhs(), v->get_rhs()});
-    return gen_op_call(code, v->inferred_type, v->loc, std::move(args_vars), fun_ref);
+    return gen_op_call(code, v->inferred_type, v->loc, std::move(args_vars), v->fun_ref);
   }
   if (t == tok_logical_and || t == tok_logical_or) {
     // do the following transformations:
     // a && b  ->  a ? (b != 0) : 0
     // a || b  ->  a ? 1 : (b != 0)
     AnyExprV v_0 = createV<ast_int_const>(v->loc, td::make_refint(0), "0");
-    v_0->mutate()->assign_inferred_type(TypeExpr::new_atomic(TypeExpr::_Int));
+    v_0->mutate()->assign_inferred_type(TypeDataInt::create());
     AnyExprV v_1 = createV<ast_int_const>(v->loc, td::make_refint(-1), "-1");
-    v_1->mutate()->assign_inferred_type(TypeExpr::new_atomic(TypeExpr::_Int));
-    AnyExprV v_b_ne_0 = createV<ast_binary_operator>(v->loc, "!=", tok_neq, v->get_rhs(), v_0);
-    v_b_ne_0->mutate()->assign_inferred_type(TypeExpr::new_atomic(TypeExpr::_Int));
+    v_1->mutate()->assign_inferred_type(TypeDataInt::create());
+    auto v_b_ne_0 = createV<ast_binary_operator>(v->loc, "!=", tok_neq, v->get_rhs(), v_0);
+    v_b_ne_0->mutate()->assign_inferred_type(TypeDataInt::create());
+    v_b_ne_0->mutate()->assign_fun_ref(lookup_global_symbol("_!=_")->as<FunctionData>());
     std::vector<var_idx_t> cond = pre_compile_expr(v->get_lhs(), code);
     tolk_assert(cond.size() == 1);
     std::vector<var_idx_t> rvect = {code.create_tmp_var(v->inferred_type, v->loc)};
@@ -222,9 +259,8 @@ static std::vector<var_idx_t> process_binary_operator(V<ast_binary_operator> v, 
 }
 
 static std::vector<var_idx_t> process_unary_operator(V<ast_unary_operator> v, CodeBlob& code) {
-  const FunctionData* fun_ref = lookup_global_symbol(static_cast<std::string>(v->operator_name) + "_")->as<FunctionData>();
   std::vector<var_idx_t> args_vars = pre_compile_tensor(code, {v->get_rhs()});
-  return gen_op_call(code, v->inferred_type, v->loc, std::move(args_vars), fun_ref);
+  return gen_op_call(code, v->inferred_type, v->loc, std::move(args_vars), v->fun_ref);
 }
 
 static std::vector<var_idx_t> process_ternary_operator(V<ast_ternary_operator> v, CodeBlob& code) {
@@ -241,8 +277,17 @@ static std::vector<var_idx_t> process_ternary_operator(V<ast_ternary_operator> v
   return rvect;
 }
 
+static std::vector<var_idx_t> process_dot_access(V<ast_dot_access> v, CodeBlob& code, LValGlobs* lval_globs) {
+  // it's NOT a method call `t.tupleSize()` (since such cases are handled by process_function_call)
+  // it's `t.0`, `getUser().id`, and `t.tupleSize` (as a reference, not as a call)
+  // currently, nothing except a global function can be a target of dot access
+  const FunctionData* fun_ref = v->target;
+  tolk_assert(fun_ref);
+  return process_symbol(v->loc, fun_ref, code, lval_globs);
+}
+
 static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, CodeBlob& code) {
-  // most likely it's a global function, but also may be `some_var(args)` or even `getF()(args)`
+  // v is `globalF(args)` / `globalF<int>(args)` / `obj.method(args)` / `local_var(args)` / `getF()(args)`
   const FunctionData* fun_ref = v->fun_maybe;
   if (!fun_ref) {
     std::vector<AnyExprV> args;
@@ -251,7 +296,7 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
       args.push_back(v->get_arg(i)->get_expr());
     }
     std::vector<var_idx_t> args_vars = pre_compile_tensor(code, args);
-    std::vector<var_idx_t> tfunc = pre_compile_expr(v->get_called_f(), code);
+    std::vector<var_idx_t> tfunc = pre_compile_expr(v->get_callee(), code);
     tolk_assert(tfunc.size() == 1);
     args_vars.push_back(tfunc[0]);
     std::vector<var_idx_t> rvect = {code.create_tmp_var(v->inferred_type, v->loc)};
@@ -260,95 +305,54 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
     return rvect;
   }
 
+  int delta_self = v->is_dot_call();
+  AnyExprV obj_leftmost = nullptr;
   std::vector<AnyExprV> args;
-  args.reserve(v->get_num_args());
-  for (int i = 0; i < v->get_num_args(); ++i) {
-    args.push_back(v->get_arg(i)->get_expr());
-  }
-  std::vector<var_idx_t> args_vars = pre_compile_tensor(code, args);
-
-  TypeExpr* op_call_type = v->inferred_type;
-  if (fun_ref->has_mutate_params()) {
-    std::vector<TypeExpr*> types_list;
-    for (int i = 0; i < v->get_num_args(); ++i) {
-      if (fun_ref->parameters[i].is_mutate_parameter()) {
-        types_list.push_back(args[i]->inferred_type);
-      }
+  args.reserve(delta_self + v->get_num_args());
+  if (delta_self) {
+    args.push_back(v->get_dot_obj());
+    obj_leftmost = v->get_dot_obj();
+    while (obj_leftmost->type == ast_function_call && obj_leftmost->as<ast_function_call>()->is_dot_call() && obj_leftmost->as<ast_function_call>()->fun_maybe && obj_leftmost->as<ast_function_call>()->fun_maybe->does_return_self()) {
+      obj_leftmost = obj_leftmost->as<ast_function_call>()->get_dot_obj();
     }
-    types_list.push_back(v->inferred_type);
-    op_call_type = TypeExpr::new_tensor(std::move(types_list));
   }
-
-  std::vector<var_idx_t> rvect_apply = gen_op_call(code, op_call_type, v->loc, std::move(args_vars), fun_ref);
-
-  if (fun_ref->has_mutate_params()) {
-    LValGlobs local_globs;
-    std::vector<var_idx_t> left;
-    for (int i = 0; i < v->get_num_args(); ++i) {
-      if (fun_ref->parameters[i].is_mutate_parameter()) {
-        AnyExprV arg_i = v->get_arg(i)->get_expr();
-        tolk_assert(arg_i->is_lvalue);
-        std::vector<var_idx_t> ith_var_idx = pre_compile_expr(arg_i, code, &local_globs);
-        left.insert(left.end(), ith_var_idx.begin(), ith_var_idx.end());
-      }
-    }
-    std::vector<var_idx_t> rvect = {code.create_tmp_var(v->inferred_type, v->loc)};
-    left.push_back(rvect[0]);
-    code.on_var_modification(left, v->loc);
-    code.emplace_back(v->loc, Op::_Let, std::move(left), rvect_apply);
-    local_globs.gen_ops_set_globs(code, v->loc);
-    return rvect;
-  }
-
-  return rvect_apply;
-}
-
-static std::vector<var_idx_t> process_dot_method_call(V<ast_dot_method_call> v, CodeBlob& code) {
-  std::vector<AnyExprV> args;
-  args.reserve(1 + v->get_num_args());
-  args.push_back(v->get_obj());
   for (int i = 0; i < v->get_num_args(); ++i) {
     args.push_back(v->get_arg(i)->get_expr());
   }
   std::vector<std::vector<var_idx_t>> vars_per_arg = pre_compile_tensor_inner(code, args, nullptr);
 
-  TypeExpr* op_call_type = v->inferred_type;
-  TypeExpr* real_ret_type = v->inferred_type;
-  if (v->fun_ref->does_return_self()) {
-    real_ret_type = TypeExpr::new_unit();
-    if (!v->fun_ref->parameters[0].is_mutate_parameter()) {
-      op_call_type = TypeExpr::new_unit();
+  TypePtr op_call_type = v->inferred_type;
+  TypePtr real_ret_type = v->inferred_type;
+  if (delta_self && fun_ref->does_return_self()) {
+    real_ret_type = TypeDataVoid::create();
+    if (!fun_ref->parameters[0].is_mutate_parameter()) {
+      op_call_type = TypeDataVoid::create();
     }
   }
-  if (v->fun_ref->has_mutate_params()) {
-    std::vector<TypeExpr*> types_list;
-    for (int i = 0; i < 1 + v->get_num_args(); ++i) {
-      if (v->fun_ref->parameters[i].is_mutate_parameter()) {
+  if (fun_ref->has_mutate_params()) {
+    std::vector<TypePtr> types_list;
+    for (int i = 0; i < delta_self + v->get_num_args(); ++i) {
+      if (fun_ref->parameters[i].is_mutate_parameter()) {
         types_list.push_back(args[i]->inferred_type);
       }
     }
     types_list.push_back(real_ret_type);
-    op_call_type = TypeExpr::new_tensor(std::move(types_list));
+    op_call_type = TypeDataTensor::create(std::move(types_list));
   }
 
   std::vector<var_idx_t> args_vars;
   for (const std::vector<var_idx_t>& list : vars_per_arg) {
     args_vars.insert(args_vars.end(), list.cbegin(), list.cend());
   }
-  std::vector<var_idx_t> rvect_apply = gen_op_call(code, op_call_type, v->loc, std::move(args_vars), v->fun_ref);
+  std::vector<var_idx_t> rvect_apply = gen_op_call(code, op_call_type, v->loc, std::move(args_vars), fun_ref);
 
-  AnyExprV obj_leftmost = args[0];
-  while (obj_leftmost->type == ast_dot_method_call && obj_leftmost->as<ast_dot_method_call>()->fun_ref->does_return_self()) {
-    obj_leftmost = obj_leftmost->as<ast_dot_method_call>()->get_obj();
-  }
-
-  if (v->fun_ref->has_mutate_params()) {
+  if (fun_ref->has_mutate_params()) {
     LValGlobs local_globs;
     std::vector<var_idx_t> left;
-    for (int i = 0; i < 1 + v->get_num_args(); ++i) {
-      if (v->fun_ref->parameters[i].is_mutate_parameter()) {
-        AnyExprV arg_i = i == 0 ? obj_leftmost : args[i];
-        tolk_assert (arg_i->is_lvalue || i == 0);
+    for (int i = 0; i < delta_self + v->get_num_args(); ++i) {
+      if (fun_ref->parameters[i].is_mutate_parameter()) {
+        AnyExprV arg_i = obj_leftmost && i == 0 ? obj_leftmost : args[i];
+        tolk_assert(arg_i->is_lvalue || i == 0);
         if (arg_i->is_lvalue) {
           std::vector<var_idx_t> ith_var_idx = pre_compile_expr(arg_i, code, &local_globs);
           left.insert(left.end(), ith_var_idx.begin(), ith_var_idx.end());
@@ -365,7 +369,7 @@ static std::vector<var_idx_t> process_dot_method_call(V<ast_dot_method_call> v, 
     rvect_apply = rvect;
   }
 
-  if (v->fun_ref->does_return_self()) {
+  if (obj_leftmost && fun_ref->does_return_self()) {
     if (obj_leftmost->is_lvalue) {    // to handle if obj is global var, potentially re-assigned inside a chain
       rvect_apply = pre_compile_expr(obj_leftmost, code);
     } else {                          // temporary object, not lvalue, pre_compile_expr
@@ -380,7 +384,7 @@ static std::vector<var_idx_t> process_tensor(V<ast_tensor> v, CodeBlob& code, LV
   return pre_compile_tensor(code, v->get_items(), lval_globs);
 }
 
-static std::vector<var_idx_t> process_tensor_square(V<ast_tensor_square> v, CodeBlob& code, LValGlobs* lval_globs) {
+static std::vector<var_idx_t> process_typed_tuple(V<ast_typed_tuple> v, CodeBlob& code, LValGlobs* lval_globs) {
   if (lval_globs) {       // todo some time, make "var (a, [b,c]) = (1, [2,3])" work
     v->error("[...] can not be used as lvalue here");
   }
@@ -417,82 +421,53 @@ static std::vector<var_idx_t> process_null_keyword(V<ast_null_keyword> v, CodeBl
   return gen_op_call(code, v->inferred_type, v->loc, {}, builtin_sym);
 }
 
-static std::vector<var_idx_t> process_self_keyword(V<ast_self_keyword> v, CodeBlob& code) {
-  tolk_assert(code.fun_ref->does_accept_self() && v->param_ref);
-  tolk_assert(v->param_ref->idx == 0);
-  return {0};
-}
-
-static std::vector<var_idx_t> process_identifier(V<ast_identifier> v, CodeBlob& code, LValGlobs* lval_globs) {
-  const Symbol* sym = v->sym;
-  if (const auto* glob_ref = sym->try_as<GlobalVarData>()) {
-    std::vector<var_idx_t> rvect = {code.create_tmp_var(v->inferred_type, v->loc)};
-    if (lval_globs) {
-      lval_globs->add_modified_glob(glob_ref, rvect[0]);
-      return rvect;
-    } else {
-      code.emplace_back(v->loc, Op::_GlobVar, rvect, std::vector<var_idx_t>{}, glob_ref);
-      return rvect;
-    }
-  }
-  if (const auto* const_ref = sym->try_as<GlobalConstData>()) {
-    std::vector<var_idx_t> rvect = {code.create_tmp_var(v->inferred_type, v->loc)};
-    if (const_ref->is_int_const()) {
-      code.emplace_back(v->loc, Op::_IntConst, rvect, const_ref->as_int_const());
-    } else {
-      code.emplace_back(v->loc, Op::_SliceConst, rvect, const_ref->as_slice_const());
-    }
-    return rvect;
-  }
-  if (const auto* fun_ref = sym->try_as<FunctionData>()) {
-    std::vector<var_idx_t> rvect = {code.create_tmp_var(v->inferred_type, v->loc)};
-    code.emplace_back(v->loc, Op::_GlobVar, rvect, std::vector<var_idx_t>{}, fun_ref);
-    return rvect;
-  }
-  if (const auto* var_ref = sym->try_as<LocalVarData>()) {
-#ifdef TOLK_DEBUG
-    tolk_assert(var_ref->idx != -1);
-#endif
-    return {var_ref->idx};
-  }
-  throw UnexpectedASTNodeType(v, "process_identifier");
-}
-
-static std::vector<var_idx_t> process_local_var(V<ast_local_var> v, CodeBlob& code, LValGlobs* lval_globs) {
+static std::vector<var_idx_t> process_local_var(V<ast_local_var_lhs> v, CodeBlob& code) {
   if (v->marked_as_redef) {
-    return process_identifier(v->get_identifier()->as<ast_identifier>(), code, lval_globs);
+    return process_symbol(v->loc, v->var_ref, code, nullptr);
   }
-  if (v->get_identifier()->try_as<ast_identifier>()) {
-    const LocalVarData* var_ref = v->var_maybe->as<LocalVarData>();
-    tolk_assert(var_ref->idx == -1);
-    var_ref->mutate()->assign_idx(code.create_var(v->inferred_type, var_ref, v->loc));
-    return {var_ref->idx};
-  }
-  return {code.create_tmp_var(v->inferred_type, v->loc)};  // underscore
+
+  tolk_assert(v->var_ref->idx == -1);
+  v->var_ref->mutate()->assign_idx(code.create_var(v->inferred_type, v->var_ref, v->loc));
+  return {v->var_ref->idx};
+}
+
+static std::vector<var_idx_t> process_local_vars_declaration(V<ast_local_vars_declaration>, CodeBlob&) {
+  // it can not appear as a standalone expression
+  // `var ... = rhs` is handled by ast_assign
+  tolk_assert(false);
 }
 
 static std::vector<var_idx_t> process_underscore(V<ast_underscore> v, CodeBlob& code) {
+  // when _ is used as left side of assignment, like `(cs, _) = cs.loadAndReturn()`
   return {code.create_tmp_var(v->inferred_type, v->loc)};
 }
 
 std::vector<var_idx_t> pre_compile_expr(AnyExprV v, CodeBlob& code, LValGlobs* lval_globs) {
   switch (v->type) {
+    case ast_reference:
+      return process_symbol(v->loc, v->as<ast_reference>()->sym, code, lval_globs);
+    case ast_assign:
+      return process_assign(v->as<ast_assign>(), code);
+    case ast_set_assign:
+      return process_set_assign(v->as<ast_set_assign>(), code);
     case ast_binary_operator:
       return process_binary_operator(v->as<ast_binary_operator>(), code);
     case ast_unary_operator:
       return process_unary_operator(v->as<ast_unary_operator>(), code);
     case ast_ternary_operator:
       return process_ternary_operator(v->as<ast_ternary_operator>(), code);
+    case ast_cast_as_operator:
+      return pre_compile_expr(v->as<ast_cast_as_operator>()->get_expr(), code, lval_globs);
+    case ast_dot_access:
+      return process_dot_access(v->as<ast_dot_access>(), code, lval_globs);
     case ast_function_call:
       return process_function_call(v->as<ast_function_call>(), code);
-    case ast_dot_method_call:
-      return process_dot_method_call(v->as<ast_dot_method_call>(), code);
     case ast_parenthesized_expression:
       return pre_compile_expr(v->as<ast_parenthesized_expression>()->get_expr(), code, lval_globs);
     case ast_tensor:
       return process_tensor(v->as<ast_tensor>(), code, lval_globs);
-    case ast_tensor_square:
-      return process_tensor_square(v->as<ast_tensor_square>(), code, lval_globs);
+    case ast_typed_tuple:
+      return process_typed_tuple(v->as<ast_typed_tuple>(), code, lval_globs);
     case ast_int_const:
       return process_int_const(v->as<ast_int_const>(), code);
     case ast_string_const:
@@ -501,12 +476,10 @@ std::vector<var_idx_t> pre_compile_expr(AnyExprV v, CodeBlob& code, LValGlobs* l
       return process_bool_const(v->as<ast_bool_const>(), code);
     case ast_null_keyword:
       return process_null_keyword(v->as<ast_null_keyword>(), code);
-    case ast_self_keyword:
-      return process_self_keyword(v->as<ast_self_keyword>(), code);
-    case ast_identifier:
-      return process_identifier(v->as<ast_identifier>(), code, lval_globs);
-    case ast_local_var:
-      return process_local_var(v->as<ast_local_var>(), code, lval_globs);
+    case ast_local_var_lhs:
+      return process_local_var(v->as<ast_local_var_lhs>(), code);
+    case ast_local_vars_declaration:
+      return process_local_vars_declaration(v->as<ast_local_vars_declaration>(), code);
     case ast_underscore:
       return process_underscore(v->as<ast_underscore>(), code);
     default:
@@ -515,16 +488,11 @@ std::vector<var_idx_t> pre_compile_expr(AnyExprV v, CodeBlob& code, LValGlobs* l
 }
 
 
-static void process_local_vars_declaration(V<ast_local_vars_declaration> v, CodeBlob& code) {
-  pre_compile_let(code, v->get_lhs(), v->get_assigned_val(), v->loc);
-}
-
 static void process_sequence(V<ast_sequence> v, CodeBlob& code) {
   for (AnyV item : v->get_items()) {
-    process_statement(item, code);
+    process_any_statement(item, code);
   }
 }
-
 
 static void process_assert_statement(V<ast_assert_statement> v, CodeBlob& code) {
   std::vector<AnyExprV> args(3);
@@ -532,22 +500,22 @@ static void process_assert_statement(V<ast_assert_statement> v, CodeBlob& code) 
     args[0] = v->get_thrown_code();
     args[1] = v->get_cond()->as<ast_unary_operator>()->get_rhs();
     args[2] = createV<ast_bool_const>(v->loc, true);
-    args[2]->mutate()->assign_inferred_type(TypeExpr::new_atomic(TypeExpr::_Int));
+    args[2]->mutate()->assign_inferred_type(TypeDataInt::create());
   } else {
     args[0] = v->get_thrown_code();
     args[1] = v->get_cond();
     args[2] = createV<ast_bool_const>(v->loc, false);
-    args[2]->mutate()->assign_inferred_type(TypeExpr::new_atomic(TypeExpr::_Int));
+    args[2]->mutate()->assign_inferred_type(TypeDataInt::create());
   }
 
   const FunctionData* builtin_sym = lookup_global_symbol("__throw_if_unless")->as<FunctionData>();
   std::vector<var_idx_t> args_vars = pre_compile_tensor(code, args);
-  gen_op_call(code, TypeExpr::new_unit(), v->loc, std::move(args_vars), builtin_sym);
+  gen_op_call(code, TypeDataVoid::create(), v->loc, std::move(args_vars), builtin_sym);
 }
 
 static void process_catch_variable(AnyExprV v_catch_var, CodeBlob& code) {
-  if (auto v_ident = v_catch_var->try_as<ast_identifier>()) {
-    const LocalVarData* var_ref = v_ident->sym->as<LocalVarData>();
+  if (auto v_ref = v_catch_var->try_as<ast_reference>(); v_ref && v_ref->sym) { // not underscore
+    const LocalVarData* var_ref = v_ref->sym->as<LocalVarData>();
     tolk_assert(var_ref->idx == -1);
     var_ref->mutate()->assign_idx(code.create_var(v_catch_var->inferred_type, var_ref, v_catch_var->loc));
   }
@@ -557,7 +525,7 @@ static void process_try_catch_statement(V<ast_try_catch_statement> v, CodeBlob& 
   code.require_callxargs = true;
   Op& try_catch_op = code.emplace_back(v->loc, Op::_TryCatch);
   code.push_set_cur(try_catch_op.block0);
-  process_statement(v->get_try_body(), code);
+  process_any_statement(v->get_try_body(), code);
   code.close_pop_cur(v->get_try_body()->loc_end);
   code.push_set_cur(try_catch_op.block1);
 
@@ -567,7 +535,7 @@ static void process_try_catch_statement(V<ast_try_catch_statement> v, CodeBlob& 
   process_catch_variable(catch_vars[0], code);
   process_catch_variable(catch_vars[1], code);
   try_catch_op.left = pre_compile_tensor(code, {catch_vars[1], catch_vars[0]});
-  process_statement(v->get_catch_body(), code);
+  process_any_statement(v->get_catch_body(), code);
   code.close_pop_cur(v->get_catch_body()->loc_end);
 }
 
@@ -575,7 +543,7 @@ static void process_repeat_statement(V<ast_repeat_statement> v, CodeBlob& code) 
   std::vector<var_idx_t> tmp_vars = pre_compile_expr(v->get_cond(), code);
   Op& repeat_op = code.emplace_back(v->loc, Op::_Repeat, tmp_vars);
   code.push_set_cur(repeat_op.block0);
-  process_statement(v->get_body(), code);
+  process_any_statement(v->get_body(), code);
   code.close_pop_cur(v->get_body()->loc_end);
 }
 
@@ -583,10 +551,10 @@ static void process_if_statement(V<ast_if_statement> v, CodeBlob& code) {
   std::vector<var_idx_t> tmp_vars = pre_compile_expr(v->get_cond(), code);
   Op& if_op = code.emplace_back(v->loc, Op::_If, std::move(tmp_vars));
   code.push_set_cur(if_op.block0);
-  process_statement(v->get_if_body(), code);
+  process_any_statement(v->get_if_body(), code);
   code.close_pop_cur(v->get_if_body()->loc_end);
   code.push_set_cur(if_op.block1);
-  process_statement(v->get_else_body(), code);
+  process_any_statement(v->get_else_body(), code);
   code.close_pop_cur(v->get_else_body()->loc_end);
   if (v->is_ifnot) {
     std::swap(if_op.block0, if_op.block1);
@@ -596,7 +564,7 @@ static void process_if_statement(V<ast_if_statement> v, CodeBlob& code) {
 static void process_do_while_statement(V<ast_do_while_statement> v, CodeBlob& code) {
   Op& until_op = code.emplace_back(v->loc, Op::_Until);
   code.push_set_cur(until_op.block0);
-  process_statement(v->get_body(), code);
+  process_any_statement(v->get_body(), code);
 
   // in TVM, there is only "do until", but in Tolk, we want "do while"
   // here we negate condition to pass it forward to legacy to Op::_Until
@@ -621,7 +589,12 @@ static void process_do_while_statement(V<ast_do_while_statement> v, CodeBlob& co
   } else {
     until_cond = createV<ast_unary_operator>(cond->loc, "!", tok_logical_not, cond);
   }
-  until_cond->mutate()->assign_inferred_type(TypeExpr::new_atomic(TypeExpr::_Int));
+  until_cond->mutate()->assign_inferred_type(TypeDataInt::create());
+  if (auto v_bin = until_cond->try_as<ast_binary_operator>(); v_bin && !v_bin->fun_ref) {
+    v_bin->mutate()->assign_fun_ref(lookup_global_symbol("_" + static_cast<std::string>(v_bin->operator_name) + "_")->as<FunctionData>());
+  } else if (auto v_un = until_cond->try_as<ast_unary_operator>(); v_un && !v_un->fun_ref) {
+    v_un->mutate()->assign_fun_ref(lookup_global_symbol(static_cast<std::string>(v_un->operator_name) + "_")->as<FunctionData>());
+  }
 
   until_op.left = pre_compile_expr(until_cond, code);
   code.close_pop_cur(v->get_body()->loc_end);
@@ -633,7 +606,7 @@ static void process_while_statement(V<ast_while_statement> v, CodeBlob& code) {
   while_op.left = pre_compile_expr(v->get_cond(), code);
   code.close_pop_cur(v->get_body()->loc);
   code.push_set_cur(while_op.block1);
-  process_statement(v->get_body(), code);
+  process_any_statement(v->get_body(), code);
   code.close_pop_cur(v->get_body()->loc_end);
 }
 
@@ -641,16 +614,16 @@ static void process_throw_statement(V<ast_throw_statement> v, CodeBlob& code) {
   if (v->has_thrown_arg()) {
     const FunctionData* builtin_sym = lookup_global_symbol("__throw_arg")->as<FunctionData>();
     std::vector<var_idx_t> args_vars = pre_compile_tensor(code, {v->get_thrown_arg(), v->get_thrown_code()});
-    gen_op_call(code, TypeExpr::new_unit(), v->loc, std::move(args_vars), builtin_sym);
+    gen_op_call(code, TypeDataVoid::create(), v->loc, std::move(args_vars), builtin_sym);
   } else {
     const FunctionData* builtin_sym = lookup_global_symbol("__throw")->as<FunctionData>();
     std::vector<var_idx_t> args_vars = pre_compile_tensor(code, {v->get_thrown_code()});
-    gen_op_call(code, TypeExpr::new_unit(), v->loc, std::move(args_vars), builtin_sym);
+    gen_op_call(code, TypeDataVoid::create(), v->loc, std::move(args_vars), builtin_sym);
   }
 }
 
 static void process_return_statement(V<ast_return_statement> v, CodeBlob& code) {
-  std::vector<var_idx_t> return_vars = pre_compile_expr(v->get_return_value(), code);
+  std::vector<var_idx_t> return_vars = v->has_return_value() ? pre_compile_expr(v->get_return_value(), code) : std::vector<var_idx_t>{};
   if (code.fun_ref->does_return_self()) {
     tolk_assert(return_vars.size() == 1);
     return_vars = {};
@@ -680,10 +653,8 @@ static void append_implicit_return_statement(SrcLocation loc_end, CodeBlob& code
 }
 
 
-void process_statement(AnyV v, CodeBlob& code) {
+void process_any_statement(AnyV v, CodeBlob& code) {
   switch (v->type) {
-    case ast_local_vars_declaration:
-      return process_local_vars_declaration(v->as<ast_local_vars_declaration>(), code);
     case ast_sequence:
       return process_sequence(v->as<ast_sequence>(), code);
     case ast_return_statement:
@@ -709,30 +680,31 @@ void process_statement(AnyV v, CodeBlob& code) {
   }
 }
 
-static void convert_function_body_to_CodeBlob(V<ast_function_declaration> v, V<ast_sequence> v_body) {
-  CodeBlob* blob = new CodeBlob{static_cast<std::string>(v->get_identifier()->name), v->loc, v->fun_ref, v->ret_type};
+static void convert_function_body_to_CodeBlob(const FunctionData* fun_ref, FunctionBodyCode* code_body) {
+  auto v_body = fun_ref->ast_root->as<ast_function_declaration>()->get_body()->as<ast_sequence>();
+  CodeBlob* blob = new CodeBlob{fun_ref->name, fun_ref->loc, fun_ref};
   FormalArgList legacy_arg_list;
-  for (int i = 0; i < v->get_num_params(); ++i) {
-    legacy_arg_list.emplace_back(v->get_param(i)->declared_type, &v->fun_ref->parameters[i], v->loc);
+  for (const LocalVarData& param : fun_ref->parameters) {
+    legacy_arg_list.emplace_back(param.declared_type, &param, param.loc);
   }
   blob->import_params(std::move(legacy_arg_list));
 
   for (AnyV item : v_body->get_items()) {
-    process_statement(item, *blob);
+    process_any_statement(item, *blob);
   }
-  if (v->fun_ref->is_implicit_return()) {
+  if (fun_ref->is_implicit_return()) {
     append_implicit_return_statement(v_body->loc_end, *blob);
   }
 
   blob->close_blk(v_body->loc_end);
-  std::get<FunctionBodyCode*>(v->fun_ref->body)->set_code(blob);
+  code_body->set_code(blob);
 }
 
-static void convert_asm_body_to_AsmOp(V<ast_function_declaration> v, V<ast_asm_body> v_body) {
-  int cnt = v->get_num_params();
-  int width = v->ret_type->get_width();
+static void convert_asm_body_to_AsmOp(const FunctionData* fun_ref, FunctionBodyAsm* asm_body) {
+  int cnt = fun_ref->get_num_params();
+  int width = fun_ref->inferred_return_type->calc_width_on_stack();
   std::vector<AsmOp> asm_ops;
-  for (AnyV v_child : v_body->get_asm_commands()) {
+  for (AnyV v_child : fun_ref->ast_root->as<ast_function_declaration>()->get_body()->as<ast_asm_body>()->get_asm_commands()) {
     std::string_view ops = v_child->as<ast_string_const>()->str_val; // <op>\n<op>\n...
     std::string op;
     for (char c : ops) {
@@ -756,21 +728,77 @@ static void convert_asm_body_to_AsmOp(V<ast_function_declaration> v, V<ast_asm_b
     }
   }
 
-  std::get<FunctionBodyAsm*>(v->fun_ref->body)->set_code(std::move(asm_ops));
+  asm_body->set_code(std::move(asm_ops));
 }
 
-void pipeline_convert_ast_to_legacy_Expr_Op(const AllSrcFiles& all_src_files) {
-  for (const SrcFile* file : all_src_files) {
-    for (AnyV v : file->ast->as<ast_tolk_file>()->get_toplevel_declarations()) {
-      if (auto v_func = v->try_as<ast_function_declaration>()) {
-        if (v_func->is_asm_function()) {
-          convert_asm_body_to_AsmOp(v_func, v_func->get_body()->as<ast_asm_body>());
-        } else if (!v_func->marked_as_builtin) {
-          convert_function_body_to_CodeBlob(v_func, v_func->get_body()->as<ast_sequence>());
+class UpdateArgRetOrderConsideringStackWidth final {
+public:
+  static bool should_visit_function(const FunctionData* fun_ref) {
+    return !fun_ref->is_generic_function() && (!fun_ref->ret_order.empty() || !fun_ref->arg_order.empty());
+  }
+
+  static void start_visiting_function(const FunctionData* fun_ref, V<ast_function_declaration> v_function) {
+    int total_arg_mutate_width = 0;
+    bool has_arg_width_not_1 = false;
+    for (const LocalVarData& param : fun_ref->parameters) {
+      int arg_width = param.declared_type->calc_width_on_stack();
+      has_arg_width_not_1 |= arg_width != 1;
+      total_arg_mutate_width += param.is_mutate_parameter() * arg_width;
+    }
+
+    // example: `fun f(a: int, b: (int, (int, int)), c: int)` with `asm (b a c)`
+    // current arg_order is [1 0 2]
+    // needs to be converted to [1 2 3 0 4] because b width is 3
+    if (has_arg_width_not_1) {
+      int total_arg_width = 0;
+      std::vector<int> cum_arg_width;
+      cum_arg_width.reserve(1 + fun_ref->get_num_params());
+      cum_arg_width.push_back(0);
+      for (const LocalVarData& param : fun_ref->parameters) {
+        cum_arg_width.push_back(total_arg_width += param.declared_type->calc_width_on_stack());
+      }
+      std::vector<int> arg_order;
+      for (int i = 0; i < fun_ref->get_num_params(); ++i) {
+        int j = fun_ref->arg_order[i];
+        int c1 = cum_arg_width[j], c2 = cum_arg_width[j + 1];
+        while (c1 < c2) {
+          arg_order.push_back(c1++);
         }
+      }
+      fun_ref->mutate()->assign_arg_order(std::move(arg_order));
+    }
+
+    // example: `fun f(mutate self: slice): slice` with `asm(-> 1 0)`
+    // ret_order is a shuffled range 0...N
+    // validate N: a function should return value and mutated arguments onto a stack
+    if (!fun_ref->ret_order.empty()) {
+      size_t expected_width = fun_ref->inferred_return_type->calc_width_on_stack() + total_arg_mutate_width;
+      if (expected_width != fun_ref->ret_order.size()) {
+        v_function->get_body()->error("ret_order (after ->) expected to contain " + std::to_string(expected_width) + " numbers");
       }
     }
   }
+};
+
+class ConvertASTToLegacyOpVisitor final {
+public:
+  static bool should_visit_function(const FunctionData* fun_ref) {
+    return !fun_ref->is_generic_function();
+  }
+
+  static void start_visiting_function(const FunctionData* fun_ref, V<ast_function_declaration>) {
+    tolk_assert(fun_ref->is_type_inferring_done());
+    if (fun_ref->is_code_function()) {
+      convert_function_body_to_CodeBlob(fun_ref, std::get<FunctionBodyCode*>(fun_ref->body));
+    } else if (fun_ref->is_asm_function()) {
+      convert_asm_body_to_AsmOp(fun_ref, std::get<FunctionBodyAsm*>(fun_ref->body));
+    }
+  }
+};
+
+void pipeline_convert_ast_to_legacy_Expr_Op() {
+  visit_ast_of_all_functions<UpdateArgRetOrderConsideringStackWidth>();
+  visit_ast_of_all_functions<ConvertASTToLegacyOpVisitor>();
 }
 
 } // namespace tolk

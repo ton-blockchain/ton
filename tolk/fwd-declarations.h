@@ -32,7 +32,8 @@ struct FunctionData;
 struct GlobalVarData;
 struct GlobalConstData;
 
-struct TypeExpr;
+class TypeData;
+using TypePtr = const TypeData*;
 
 struct SrcFile;
 

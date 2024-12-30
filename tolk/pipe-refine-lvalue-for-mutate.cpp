@@ -34,8 +34,8 @@
 namespace tolk {
 
 GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-static void fire_error_invalid_mutate_arg_passed(AnyV v, const FunctionData* fun_ref, const LocalVarData& p_sym, bool called_as_method, bool arg_passed_as_mutate, AnyV arg_expr) {
-  std::string arg_str(arg_expr->type == ast_identifier ? arg_expr->as<ast_identifier>()->name : "obj");
+static void fire_error_invalid_mutate_arg_passed(AnyExprV v, const FunctionData* fun_ref, const LocalVarData& p_sym, bool called_as_method, bool arg_passed_as_mutate, AnyV arg_expr) {
+  std::string arg_str(arg_expr->type == ast_reference ? arg_expr->as<ast_reference>()->get_name() : "obj");
 
   // case: `loadInt(cs, 32)`; suggest: `cs.loadInt(32)`
   if (p_sym.is_mutate_parameter() && !arg_passed_as_mutate && !called_as_method && p_sym.idx == 0 && fun_ref->does_accept_self()) {
@@ -59,7 +59,7 @@ static void fire_error_invalid_mutate_arg_passed(AnyV v, const FunctionData* fun
 
 class RefineLvalueForMutateArgumentsVisitor final : public ASTVisitorFunctionBody {
   void visit(V<ast_function_call> v) override {
-    // most likely it's a global function, but also may be `some_var(args)` or even `getF()(args)`
+    // v is `globalF(args)` / `globalF<int>(args)` / `obj.method(args)` / `local_var(args)` / `getF()(args)`
     const FunctionData* fun_ref = v->fun_maybe;
     if (!fun_ref) {
       parent::visit(v);
@@ -72,47 +72,55 @@ class RefineLvalueForMutateArgumentsVisitor final : public ASTVisitorFunctionBod
       return;
     }
 
-    tolk_assert(static_cast<int>(fun_ref->parameters.size()) == v->get_num_args());
+    int delta_self = v->is_dot_call();
+    tolk_assert(fun_ref->get_num_params() == delta_self + v->get_num_args());
+
+    if (v->is_dot_call()) {
+      if (fun_ref->does_mutate_self()) {
+        // for `b.storeInt()`, `b` should become lvalue, since `storeInt` is a method mutating self
+        // but: `beginCell().storeInt()`, then `beginCell()` is not lvalue
+        // (it will be extracted as tmp var when transforming AST to IR)
+        AnyExprV leftmost_obj = v->get_dot_obj();
+        while (true) {
+          if (auto as_par = leftmost_obj->try_as<ast_parenthesized_expression>()) {
+            leftmost_obj = as_par->get_expr();
+          } else if (auto as_cast = leftmost_obj->try_as<ast_cast_as_operator>()) {
+            leftmost_obj = as_cast->get_expr();
+          } else {
+            break;
+          }
+        }
+        bool will_be_extracted_as_tmp_var = leftmost_obj->type == ast_function_call;
+        if (!will_be_extracted_as_tmp_var) {
+          leftmost_obj->mutate()->assign_lvalue_true();
+          v->get_dot_obj()->mutate()->assign_lvalue_true();
+        }
+      }
+
+      if (!fun_ref->does_accept_self() && fun_ref->parameters[0].is_mutate_parameter()) {
+        fire_error_invalid_mutate_arg_passed(v, fun_ref, fun_ref->parameters[0], true, false, v->get_dot_obj());
+      }
+    }
 
     for (int i = 0; i < v->get_num_args(); ++i) {
-      const LocalVarData& p_sym = fun_ref->parameters[i];
+      const LocalVarData& p_sym = fun_ref->parameters[delta_self + i];
       auto arg_i = v->get_arg(i);
       if (p_sym.is_mutate_parameter() != arg_i->passed_as_mutate) {
         fire_error_invalid_mutate_arg_passed(arg_i, fun_ref, p_sym, false, arg_i->passed_as_mutate, arg_i->get_expr());
       }
       parent::visit(arg_i);
     }
+    parent::visit(v->get_callee());
   }
 
-  void visit(V<ast_dot_method_call> v) override {
-    parent::visit(v);
-
-    const FunctionData* fun_ref = v->fun_ref;
-    tolk_assert(static_cast<int>(fun_ref->parameters.size()) == 1 + v->get_num_args());
-
-    if (fun_ref->does_mutate_self()) {
-      bool will_be_extracted_as_tmp_var = v->get_obj()->type == ast_function_call || v->get_obj()->type == ast_dot_method_call;
-      if (!will_be_extracted_as_tmp_var) {
-        v->get_obj()->mutate()->assign_lvalue_true();
-      }
-    }
-
-    if (!fun_ref->does_accept_self() && fun_ref->parameters[0].is_mutate_parameter()) {
-      fire_error_invalid_mutate_arg_passed(v, fun_ref, fun_ref->parameters[0], true, false, v->get_obj());
-    }
-
-    for (int i = 0; i < v->get_num_args(); ++i) {
-      const LocalVarData& p_sym = fun_ref->parameters[1 + i];
-      auto arg_i = v->get_arg(i);
-      if (p_sym.is_mutate_parameter() != arg_i->passed_as_mutate) {
-        fire_error_invalid_mutate_arg_passed(arg_i, fun_ref, p_sym, false, arg_i->passed_as_mutate, arg_i->get_expr());
-      }
-    }
+public:
+  bool should_visit_function(const FunctionData* fun_ref) override {
+    return fun_ref->is_code_function() && !fun_ref->is_generic_function();
   }
 };
 
-void pipeline_refine_lvalue_for_mutate_arguments(const AllSrcFiles& all_src_files) {
-  visit_ast_of_all_functions<RefineLvalueForMutateArgumentsVisitor>(all_src_files);
+void pipeline_refine_lvalue_for_mutate_arguments() {
+  visit_ast_of_all_functions<RefineLvalueForMutateArgumentsVisitor>();
 }
 
 } // namespace tolk

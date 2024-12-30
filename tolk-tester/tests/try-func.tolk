@@ -1,6 +1,3 @@
-fun unsafeGetInt<X>(any: X): int
-    asm "NOP";
-
 fun foo(x: int): int {
   try {
     if (x == 7) {
@@ -28,7 +25,7 @@ fun foo_inlineref(x: int): int {
     if (x == 7) { throw (44, 2); }
     return x;
   } catch (_, arg) {
-    return unsafeGetInt(arg);
+    return arg as int;
   }
 }
 
@@ -83,7 +80,7 @@ fun foo_big(
     }
     return x1 + x2 + x3 + x4 + x5 + x6 + x7 + x8 + x9 + x10 + x11 + x12 + x13 + x14 + x15 + x16 + x17 + x18 + x19 + x20;
   } catch (code, arg) {
-    return unsafeGetInt(arg);
+    return arg as int;
   }
 }
 

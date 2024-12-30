@@ -17,19 +17,34 @@
 #include "symtable.h"
 #include "compiler-state.h"
 #include "platform-utils.h"
-#include <sstream>
-#include <cassert>
+#include "generics-helpers.h"
 
 namespace tolk {
+
+std::string FunctionData::as_human_readable() const {
+  if (!genericTs) {
+    return name;  // if it's generic instantiation like `f<int>`, its name is "f<int>", not "f"
+  }
+  return name + genericTs->as_human_readable();
+}
 
 bool FunctionData::does_need_codegen() const {
   // when a function is declared, but not referenced from code in any way, don't generate its body
   if (!is_really_used() && G.settings.remove_unused_functions) {
     return false;
   }
+  // functions with asm body don't need code generation
+  // (even if used as non-call: `var a = beginCell;` inserts TVM continuation inline)
+  if (is_asm_function() || is_builtin_function()) {
+    return false;
+  }
   // when a function is referenced like `var a = some_fn;` (or in some other non-call way), its continuation should exist
   if (is_used_as_noncall()) {
     return true;
+  }
+  // generic functions also don't need code generation, only generic instantiations do
+  if (is_generic_function()) {
+    return false;
   }
   // currently, there is no inlining, all functions are codegenerated
   // (but actually, unused ones are later removed by Fift)
@@ -37,8 +52,13 @@ bool FunctionData::does_need_codegen() const {
   return true;
 }
 
-void FunctionData::assign_is_really_used() {
-  this->flags |= flagReallyUsed;
+void FunctionData::assign_resolved_type(TypePtr declared_return_type) {
+  this->declared_return_type = declared_return_type;
+}
+
+void FunctionData::assign_inferred_type(TypePtr inferred_return_type, TypePtr inferred_full_type) {
+  this->inferred_return_type = inferred_return_type;
+  this->inferred_full_type = inferred_full_type;
 }
 
 void FunctionData::assign_is_used_as_noncall() {
@@ -49,12 +69,43 @@ void FunctionData::assign_is_implicit_return() {
   this->flags |= flagImplicitReturn;
 }
 
+void FunctionData::assign_is_type_inferring_done() {
+  this->flags |= flagTypeInferringDone;
+}
+
+void FunctionData::assign_is_really_used() {
+  this->flags |= flagReallyUsed;
+}
+
+void FunctionData::assign_arg_order(std::vector<int>&& arg_order) {
+  this->arg_order = std::move(arg_order);
+}
+
+void GlobalVarData::assign_resolved_type(TypePtr declared_type) {
+  this->declared_type = declared_type;
+}
+
 void GlobalVarData::assign_is_really_used() {
   this->flags |= flagReallyUsed;
 }
 
+void GlobalConstData::assign_resolved_type(TypePtr declared_type) {
+  this->declared_type = declared_type;
+}
+
 void LocalVarData::assign_idx(int idx) {
   this->idx = idx;
+}
+
+void LocalVarData::assign_resolved_type(TypePtr declared_type) {
+  this->declared_type = declared_type;
+}
+
+void LocalVarData::assign_inferred_type(TypePtr inferred_type) {
+#ifdef TOLK_DEBUG
+  assert(this->declared_type == nullptr);  // called when type declaration omitted, inferred from assigned value
+#endif
+  this->declared_type = inferred_type;
 }
 
 GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD

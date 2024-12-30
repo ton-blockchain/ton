@@ -28,6 +28,7 @@
 #include "compiler-state.h"
 #include "lexer.h"
 #include "ast.h"
+#include "type-system.h"
 
 namespace tolk {
 
@@ -45,27 +46,28 @@ void on_assertion_failed(const char *description, const char *file_name, int lin
 }
 
 int tolk_proceed(const std::string &entrypoint_filename) {
+  type_system_init();
   define_builtins();
   lexer_init();
 
   // on any error, an exception is thrown, and the message is printed out below
   // (currently, only a single error can be printed)
   try {
-    AllSrcFiles all_files = pipeline_discover_and_parse_sources("@stdlib/common.tolk", entrypoint_filename);
+    pipeline_discover_and_parse_sources("@stdlib/common.tolk", entrypoint_filename);
 
-    pipeline_register_global_symbols(all_files);
-    pipeline_resolve_identifiers_and_assign_symbols(all_files);
-    pipeline_calculate_rvalue_lvalue(all_files);
-    pipeline_detect_unreachable_statements(all_files);
-    pipeline_infer_and_check_types(all_files);
-    pipeline_refine_lvalue_for_mutate_arguments(all_files);
-    pipeline_check_rvalue_lvalue(all_files);
-    pipeline_check_pure_impure_operations(all_files);
-    pipeline_constant_folding(all_files);
-    pipeline_convert_ast_to_legacy_Expr_Op(all_files);
+    pipeline_register_global_symbols();
+    pipeline_resolve_identifiers_and_assign_symbols();
+    pipeline_calculate_rvalue_lvalue();
+    pipeline_detect_unreachable_statements();
+    pipeline_infer_types_and_calls_and_fields();
+    pipeline_refine_lvalue_for_mutate_arguments();
+    pipeline_check_rvalue_lvalue();
+    pipeline_check_pure_impure_operations();
+    pipeline_constant_folding();
+    pipeline_convert_ast_to_legacy_Expr_Op();
 
     pipeline_find_unused_symbols();
-    pipeline_generate_fif_output_to_std_cout(all_files);
+    pipeline_generate_fif_output_to_std_cout();
 
     return 0;
   } catch (Fatal& fatal) {
@@ -73,11 +75,6 @@ int tolk_proceed(const std::string &entrypoint_filename) {
     return 2;
   } catch (ParseError& error) {
     std::cerr << error << std::endl;
-    return 2;
-  } catch (UnifyError& unif_err) {
-    std::cerr << "fatal: ";
-    unif_err.print_message(std::cerr);
-    std::cerr << std::endl;
     return 2;
   } catch (UnexpectedASTNodeType& error) {
     std::cerr << "fatal: " << error.what() << std::endl;

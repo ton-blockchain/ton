@@ -40,19 +40,14 @@ void FunctionBodyAsm::set_code(std::vector<AsmOp>&& code) {
 
 
 static void generate_output_func(const FunctionData* fun_ref) {
-  tolk_assert(fun_ref->is_regular_function());
+  tolk_assert(fun_ref->is_code_function());
   if (G.is_verbosity(2)) {
-    std::cerr << "\n\n=========================\nfunction " << fun_ref->name << " : " << fun_ref->full_type << std::endl;
+    std::cerr << "\n\n=========================\nfunction " << fun_ref->name << " : " << fun_ref->inferred_return_type << std::endl;
   }
 
   CodeBlob* code = std::get<FunctionBodyCode*>(fun_ref->body)->code;
   if (G.is_verbosity(3)) {
     code->print(std::cerr, 9);
-  }
-  code->simplify_var_types();
-  if (G.is_verbosity(5)) {
-    std::cerr << "after simplify_var_types: \n";
-    code->print(std::cerr, 0);
   }
   code->prune_unreachable_code();
   if (G.is_verbosity(5)) {
@@ -112,11 +107,11 @@ static void generate_output_func(const FunctionData* fun_ref) {
   }
 }
 
-void pipeline_generate_fif_output_to_std_cout(const AllSrcFiles& all_src_files) {
+void pipeline_generate_fif_output_to_std_cout() {
   std::cout << "\"Asm.fif\" include\n";
   std::cout << "// automatically generated from ";
   bool need_comma = false;
-  for (const SrcFile* file : all_src_files) {
+  for (const SrcFile* file : G.all_src_files) {
     if (!file->is_stdlib_file()) {
       if (need_comma) {
         std::cout << ", ";
@@ -129,9 +124,9 @@ void pipeline_generate_fif_output_to_std_cout(const AllSrcFiles& all_src_files) 
   std::cout << "PROGRAM{\n";
 
   bool has_main_procedure = false;
-  for (const FunctionData* fun_ref : G.all_code_functions) {
+  for (const FunctionData* fun_ref : G.all_functions) {
     if (!fun_ref->does_need_codegen()) {
-      if (G.is_verbosity(2)) {
+      if (G.is_verbosity(2) && fun_ref->is_code_function()) {
         std::cerr << fun_ref->name << ": code not generated, function does not need codegen\n";
       }
       continue;
@@ -164,7 +159,7 @@ void pipeline_generate_fif_output_to_std_cout(const AllSrcFiles& all_src_files) 
     std::cout << std::string(2, ' ') << "DECLGLOBVAR " << var_ref->name << "\n";
   }
 
-  for (const FunctionData* fun_ref : G.all_code_functions) {
+  for (const FunctionData* fun_ref : G.all_functions) {
     if (!fun_ref->does_need_codegen()) {
       continue;
     }

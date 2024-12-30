@@ -16,6 +16,8 @@
 */
 #include "tolk.h"
 #include "compiler-state.h"
+#include "type-system.h"
+#include "generics-helpers.h"
 
 namespace tolk {
 using namespace std::literals::string_literals;
@@ -23,46 +25,33 @@ using namespace std::literals::string_literals;
 // given func_type = `(slice, int) -> slice` and func flags, create SymLocalVarOrParameter
 // currently (see at the bottom) parameters of built-in functions are unnamed:
 // built-in functions are created using a resulting type
-static std::vector<LocalVarData> define_builtin_parameters(const TypeExpr* func_type, int func_flags) {
+static std::vector<LocalVarData> define_builtin_parameters(const std::vector<TypePtr>& params_types, int func_flags) {
   // `loadInt()`, `storeInt()`: they accept `self` and mutate it; no other options available in built-ins for now
   bool is_mutate_self = func_flags & FunctionData::flagHasMutateParams;
-  // func_type a map (params_type -> ret_type), probably surrounded by forall (internal representation of <T>)
-  TypeExpr* params_type = func_type->constr == TypeExpr::te_ForAll ? func_type->args[0]->args[0] : func_type->args[0];
   std::vector<LocalVarData> parameters;
+  parameters.reserve(params_types.size());
 
-  if (params_type->constr == TypeExpr::te_Tensor) {   // multiple parameters: it's a tensor
-    parameters.reserve(params_type->args.size());
-    for (int i = 0; i < static_cast<int>(params_type->args.size()); ++i) {
-      LocalVarData p_sym("", {}, i, params_type->args[i]);
-      if (i == 0 && is_mutate_self) {
-        p_sym.flags |= LocalVarData::flagMutateParameter;
-      }
-      parameters.push_back(std::move(p_sym));
-    }
-  } else {  // single parameter
-    LocalVarData p_sym("", {}, 0, params_type);
-    if (is_mutate_self) {
-      p_sym.flags |= LocalVarData::flagMutateParameter;
-    }
+  for (int i = 0; i < static_cast<int>(params_types.size()); ++i) {
+    LocalVarData p_sym("", {}, params_types[i], (i == 0 && is_mutate_self) * LocalVarData::flagMutateParameter, i);
     parameters.push_back(std::move(p_sym));
   }
 
   return parameters;
 }
 
-static void define_builtin_func(const std::string& name, TypeExpr* func_type, const simple_compile_func_t& func, int flags) {
-  auto* f_sym = new FunctionData(name, {}, func_type, define_builtin_parameters(func_type, flags), flags, new FunctionBodyBuiltin(func));
+static void define_builtin_func(const std::string& name, const std::vector<TypePtr>& params_types, TypePtr return_type, const GenericsDeclaration* genericTs, const simple_compile_func_t& func, int flags) {
+  auto* f_sym = new FunctionData(name, {}, return_type, define_builtin_parameters(params_types, flags), flags, genericTs, nullptr, new FunctionBodyBuiltin(func), nullptr);
   G.symtable.add_function(f_sym);
 }
 
-static void define_builtin_func(const std::string& name, TypeExpr* func_type, const AsmOp& macro, int flags) {
-  auto* f_sym = new FunctionData(name, {}, func_type, define_builtin_parameters(func_type, flags), flags, new FunctionBodyBuiltin(make_simple_compile(macro)));
+static void define_builtin_func(const std::string& name, const std::vector<TypePtr>& params_types, TypePtr return_type, const GenericsDeclaration* genericTs, const AsmOp& macro, int flags) {
+  auto* f_sym = new FunctionData(name, {}, return_type, define_builtin_parameters(params_types, flags), flags, genericTs, nullptr, new FunctionBodyBuiltin(make_simple_compile(macro)), nullptr);
   G.symtable.add_function(f_sym);
 }
 
-static void define_builtin_func(const std::string& name, TypeExpr* func_type, const simple_compile_func_t& func, int flags,
+static void define_builtin_func(const std::string& name, const std::vector<TypePtr>& params_types, TypePtr return_type, const GenericsDeclaration* genericTs, const simple_compile_func_t& func, int flags,
                                 std::initializer_list<int> arg_order, std::initializer_list<int> ret_order) {
-  auto* f_sym = new FunctionData(name, {}, func_type, define_builtin_parameters(func_type, flags), flags, new FunctionBodyBuiltin(func));
+  auto* f_sym = new FunctionData(name, {}, return_type, define_builtin_parameters(params_types, flags), flags, genericTs, nullptr, new FunctionBodyBuiltin(func), nullptr);
   f_sym->arg_order = arg_order;
   f_sym->ret_order = ret_order;
   G.symtable.add_function(f_sym);
@@ -1080,128 +1069,169 @@ AsmOp compile_is_null(std::vector<VarDescr>& res, std::vector<VarDescr>& args, S
 void define_builtins() {
   using namespace std::placeholders;
 
-  TypeExpr* Unit = TypeExpr::new_unit();
-  TypeExpr* Int = TypeExpr::new_atomic(TypeExpr::_Int);
-  TypeExpr* Slice = TypeExpr::new_atomic(TypeExpr::_Slice);
-  TypeExpr* Builder = TypeExpr::new_atomic(TypeExpr::_Builder);
-  TypeExpr* Tuple = TypeExpr::new_atomic(TypeExpr::_Tuple);
-  TypeExpr* Int2 = TypeExpr::new_tensor({Int, Int});
-  TypeExpr* Int3 = TypeExpr::new_tensor({Int, Int, Int});
-  TypeExpr* TupleInt = TypeExpr::new_tensor({Tuple, Int});
-  TypeExpr* SliceInt = TypeExpr::new_tensor({Slice, Int});
-  TypeExpr* X = TypeExpr::new_var(0);
-  TypeExpr* arith_bin_op = TypeExpr::new_map(Int2, Int);
-  TypeExpr* arith_un_op = TypeExpr::new_map(Int, Int);
-  TypeExpr* impure_un_op = TypeExpr::new_map(Int, Unit);
-  TypeExpr* fetch_int_op_mutate = TypeExpr::new_map(SliceInt, SliceInt);
-  TypeExpr* prefetch_int_op = TypeExpr::new_map(SliceInt, Int);
-  TypeExpr* store_int_mutate = TypeExpr::new_map(TypeExpr::new_tensor({Builder, Int, Int}), TypeExpr::new_tensor({Builder, Unit}));
-  TypeExpr* fetch_slice_op_mutate = TypeExpr::new_map(SliceInt, TypeExpr::new_tensor({Slice, Slice}));
-  TypeExpr* prefetch_slice_op = TypeExpr::new_map(SliceInt, Slice);
-  TypeExpr* throw_arg_op = TypeExpr::new_forall({X}, TypeExpr::new_map(TypeExpr::new_tensor({X, Int}), Unit));
+  TypePtr Unit = TypeDataVoid::create();
+  TypePtr Int = TypeDataInt::create();
+  TypePtr Slice = TypeDataSlice::create();
+  TypePtr Builder = TypeDataBuilder::create();
+  TypePtr Tuple = TypeDataTuple::create();
 
-  define_builtin_func("_+_", arith_bin_op, compile_add,
+  std::vector<GenericsDeclaration::GenericsItem> itemsT;
+  itemsT.emplace_back("T");
+  TypePtr typeT = TypeDataGenericT::create("T");
+  const GenericsDeclaration* declGenericT = new GenericsDeclaration(std::move(itemsT));
+
+  std::vector ParamsInt1 = {Int};
+  std::vector ParamsInt2 = {Int, Int};
+  std::vector ParamsInt3 = {Int, Int, Int};
+  std::vector ParamsSliceInt = {Slice, Int};
+
+  define_builtin_func("_+_", ParamsInt2, Int, nullptr,
+                              compile_add,
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("_-_", arith_bin_op, compile_sub,
+  define_builtin_func("_-_", ParamsInt2, Int, nullptr,
+                              compile_sub,
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("-_", arith_un_op, compile_unary_minus,
+  define_builtin_func("-_", ParamsInt1, Int, nullptr,
+                              compile_unary_minus,
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("+_", arith_un_op, compile_unary_plus,
+  define_builtin_func("+_", ParamsInt1, Int, nullptr,
+                              compile_unary_plus,
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("_*_", arith_bin_op, compile_mul,
+  define_builtin_func("_*_", ParamsInt2, Int, nullptr,
+                              compile_mul,
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("_/_", arith_bin_op, std::bind(compile_div, _1, _2, _3, -1),
+  define_builtin_func("_/_", ParamsInt2, Int, nullptr,
+                              std::bind(compile_div, _1, _2, _3, -1),
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("_~/_", arith_bin_op, std::bind(compile_div, _1, _2, _3, 0),
+  define_builtin_func("_~/_", ParamsInt2, Int, nullptr,
+                              std::bind(compile_div, _1, _2, _3, 0),
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("_^/_", arith_bin_op, std::bind(compile_div, _1, _2, _3, 1),
+  define_builtin_func("_^/_", ParamsInt2, Int, nullptr,
+                              std::bind(compile_div, _1, _2, _3, 1),
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("_%_", arith_bin_op, std::bind(compile_mod, _1, _2, _3, -1),
+  define_builtin_func("_%_", ParamsInt2, Int, nullptr,
+                              std::bind(compile_mod, _1, _2, _3, -1),
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("_<<_", arith_bin_op, compile_lshift,
+  define_builtin_func("_<<_", ParamsInt2, Int, nullptr,
+                              compile_lshift,
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("_>>_", arith_bin_op, std::bind(compile_rshift, _1, _2, _3, -1),
+  define_builtin_func("_>>_", ParamsInt2, Int, nullptr,
+                              std::bind(compile_rshift, _1, _2, _3, -1),
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("_~>>_", arith_bin_op, std::bind(compile_rshift, _1, _2, _3, 0),
+  define_builtin_func("_~>>_", ParamsInt2, Int, nullptr,
+                              std::bind(compile_rshift, _1, _2, _3, 0),
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("_^>>_", arith_bin_op, std::bind(compile_rshift, _1, _2, _3, 1),
+  define_builtin_func("_^>>_", ParamsInt2, Int, nullptr,
+                              std::bind(compile_rshift, _1, _2, _3, 1),
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("!_", arith_un_op, compile_logical_not,
+  define_builtin_func("!_", ParamsInt1, Int, nullptr,
+                              compile_logical_not,
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("~_", arith_un_op, compile_bitwise_not,
+  define_builtin_func("~_", ParamsInt1, Int, nullptr,
+                              compile_bitwise_not,
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("_&_", arith_bin_op, compile_bitwise_and,
+  define_builtin_func("_&_", ParamsInt2, Int, nullptr,
+                              compile_bitwise_and,
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("_|_", arith_bin_op, compile_bitwise_or,
+  define_builtin_func("_|_", ParamsInt2, Int, nullptr,
+                              compile_bitwise_or,
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("_^_", arith_bin_op, compile_bitwise_xor,
+  define_builtin_func("_^_", ParamsInt2, Int, nullptr,
+                              compile_bitwise_xor,
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("_==_", arith_bin_op, std::bind(compile_cmp_int, _1, _2, 2),
+  define_builtin_func("_==_", ParamsInt2, Int, nullptr,
+                              std::bind(compile_cmp_int, _1, _2, 2),
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("_!=_", arith_bin_op, std::bind(compile_cmp_int, _1, _2, 5),
+  define_builtin_func("_!=_", ParamsInt2, Int, nullptr,
+                              std::bind(compile_cmp_int, _1, _2, 5),
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("_<_", arith_bin_op, std::bind(compile_cmp_int, _1, _2, 4),
+  define_builtin_func("_<_", ParamsInt2, Int, nullptr,
+                              std::bind(compile_cmp_int, _1, _2, 4),
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("_>_", arith_bin_op, std::bind(compile_cmp_int, _1, _2, 1),
+  define_builtin_func("_>_", ParamsInt2, Int, nullptr,
+                              std::bind(compile_cmp_int, _1, _2, 1),
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("_<=_", arith_bin_op, std::bind(compile_cmp_int, _1, _2, 6),
+  define_builtin_func("_<=_", ParamsInt2, Int, nullptr,
+                              std::bind(compile_cmp_int, _1, _2, 6),
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("_>=_", arith_bin_op, std::bind(compile_cmp_int, _1, _2, 3),
+  define_builtin_func("_>=_", ParamsInt2, Int, nullptr,
+                              std::bind(compile_cmp_int, _1, _2, 3),
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("_<=>_", arith_bin_op, std::bind(compile_cmp_int, _1, _2, 7),
+  define_builtin_func("_<=>_", ParamsInt2, Int, nullptr,
+                              std::bind(compile_cmp_int, _1, _2, 7),
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("mulDivFloor", TypeExpr::new_map(Int3, Int), std::bind(compile_muldiv, _1, _2, _3, -1),
+  define_builtin_func("mulDivFloor", ParamsInt3, Int, nullptr,
+                              std::bind(compile_muldiv, _1, _2, _3, -1),
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("mulDivRound", TypeExpr::new_map(Int3, Int), std::bind(compile_muldiv, _1, _2, _3, 0),
+  define_builtin_func("mulDivRound", ParamsInt3, Int, nullptr,
+                              std::bind(compile_muldiv, _1, _2, _3, 0),
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("mulDivCeil", TypeExpr::new_map(Int3, Int), std::bind(compile_muldiv, _1, _2, _3, 1),
+  define_builtin_func("mulDivCeil", ParamsInt3, Int, nullptr,
+                              std::bind(compile_muldiv, _1, _2, _3, 1),
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("mulDivMod", TypeExpr::new_map(Int3, Int2), AsmOp::Custom("MULDIVMOD", 3, 2),
+  define_builtin_func("mulDivMod", ParamsInt3, TypeDataTensor::create({Int, Int}), nullptr,
+                              AsmOp::Custom("MULDIVMOD", 3, 2),
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("__true", TypeExpr::new_map(TypeExpr::new_unit(), Int), /* AsmOp::Const("TRUE") */ std::bind(compile_bool_const, _1, _2, true),
+  define_builtin_func("__true", {}, Int, nullptr, /* AsmOp::Const("TRUE") */
+                              std::bind(compile_bool_const, _1, _2, true),
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("__false", TypeExpr::new_map(TypeExpr::new_unit(), Int), /* AsmOp::Const("FALSE") */ std::bind(compile_bool_const, _1, _2, false),
+  define_builtin_func("__false", {}, Int, nullptr, /* AsmOp::Const("FALSE") */
+                              std::bind(compile_bool_const, _1, _2, false),
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("__null", TypeExpr::new_forall({X}, TypeExpr::new_map(TypeExpr::new_unit(), X)), AsmOp::Const("PUSHNULL"),
+  define_builtin_func("__null", {}, typeT, declGenericT,
+                              AsmOp::Const("PUSHNULL"),
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("__isNull", TypeExpr::new_forall({X}, TypeExpr::new_map(X, Int)), compile_is_null,
+  define_builtin_func("__isNull", {typeT}, Int, declGenericT,
+                              compile_is_null,
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("__throw", impure_un_op, compile_throw,
+  define_builtin_func("__throw", ParamsInt1, Unit, nullptr,
+                              compile_throw,
                                 0);
-  define_builtin_func("__throw_arg", throw_arg_op, compile_throw_arg,
+  define_builtin_func("__throw_arg", {typeT, Int}, Unit, declGenericT,
+                              compile_throw_arg,
                                 0);
-  define_builtin_func("__throw_if_unless", TypeExpr::new_map(Int3, Unit), compile_throw_if_unless,
+  define_builtin_func("__throw_if_unless", ParamsInt3, Unit, nullptr,
+                              compile_throw_if_unless,
                                 0);
-  define_builtin_func("loadInt", fetch_int_op_mutate, std::bind(compile_fetch_int, _1, _2, true, true),
+  define_builtin_func("loadInt", ParamsSliceInt, Int, nullptr,
+                              std::bind(compile_fetch_int, _1, _2, true, true),
                                 FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf,
                                 {}, {1, 0});
-  define_builtin_func("loadUint", fetch_int_op_mutate, std::bind(compile_fetch_int, _1, _2, true, false),
+  define_builtin_func("loadUint", ParamsSliceInt, Int, nullptr,
+                              std::bind(compile_fetch_int, _1, _2, true, false),
                                 FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf,
                                 {}, {1, 0});
-  define_builtin_func("loadBits", fetch_slice_op_mutate, std::bind(compile_fetch_slice, _1, _2, true),
+  define_builtin_func("loadBits", ParamsSliceInt, Slice, nullptr,
+                              std::bind(compile_fetch_slice, _1, _2, true),
                                 FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf,
                                 {}, {1, 0});
-  define_builtin_func("preloadInt", prefetch_int_op, std::bind(compile_fetch_int, _1, _2, false, true),
+  define_builtin_func("preloadInt", ParamsSliceInt, Int, nullptr,
+                              std::bind(compile_fetch_int, _1, _2, false, true),
                                 FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf);
-  define_builtin_func("preloadUint", prefetch_int_op, std::bind(compile_fetch_int, _1, _2, false, false),
+  define_builtin_func("preloadUint", ParamsSliceInt, Int, nullptr,
+                              std::bind(compile_fetch_int, _1, _2, false, false),
                                 FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf);
-  define_builtin_func("preloadBits", prefetch_slice_op, std::bind(compile_fetch_slice, _1, _2, false),
+  define_builtin_func("preloadBits", ParamsSliceInt, Slice, nullptr,
+                              std::bind(compile_fetch_slice, _1, _2, false),
                                 FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf);
-  define_builtin_func("storeInt", store_int_mutate, std::bind(compile_store_int, _1, _2, true),
+  define_builtin_func("storeInt", {Builder, Int, Int}, Unit, nullptr,
+                              std::bind(compile_store_int, _1, _2, true),
                                 FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf,
                                 {1, 0, 2}, {});
-  define_builtin_func("storeUint", store_int_mutate, std::bind(compile_store_int, _1, _2, false),
+  define_builtin_func("storeUint", {Builder, Int, Int}, Unit, nullptr,
+                              std::bind(compile_store_int, _1, _2, false),
                                 FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf,
                                 {1, 0, 2}, {});
-  define_builtin_func("tupleAt", TypeExpr::new_forall({X}, TypeExpr::new_map(TupleInt, X)), compile_tuple_at,
+  define_builtin_func("tupleAt", {Tuple, Int}, typeT, declGenericT,
+                              compile_tuple_at,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf);
-  define_builtin_func("debugPrint", TypeExpr::new_forall({X}, TypeExpr::new_map(X, Unit)),
+  define_builtin_func("debugPrint", {typeT}, Unit, declGenericT,
                                 AsmOp::Custom("s0 DUMP DROP", 1, 1),
                                 0);
-  define_builtin_func("debugPrintString", TypeExpr::new_forall({X}, TypeExpr::new_map(X, Unit)),
+  define_builtin_func("debugPrintString", {typeT}, Unit, declGenericT,
                                 AsmOp::Custom("STRDUMP DROP", 1, 1),
                                 0);
-  define_builtin_func("debugDumpStack", TypeExpr::new_map(Unit, Unit),
+  define_builtin_func("debugDumpStack", {}, Unit, nullptr,
                                 AsmOp::Custom("DUMPSTK", 0, 0),
                                 0);
 }

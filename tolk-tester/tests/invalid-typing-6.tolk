@@ -4,5 +4,5 @@ fun failWhenTernaryConditionNotInt(cs: slice) {
 
 /**
 @compilation_should_fail
-@stderr condition of ternary ?: operator must be an integer
+@stderr condition of ternary operator must be an integer
  */

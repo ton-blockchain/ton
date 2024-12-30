@@ -16,6 +16,7 @@
 */
 #include "tolk.h"
 #include "compiler-state.h"
+#include "type-system.h"
 
 namespace tolk {
 
@@ -345,16 +346,16 @@ bool Op::generate_code_step(Stack& stack) {
         if (f_sym->is_asm_function() || f_sym->is_builtin_function()) {
           // TODO: create and compile a true lambda instead of this (so that arg_order and ret_order would work correctly)
           std::vector<VarDescr> args0, res;
-          TypeExpr* func_type = f_sym->full_type;
-          TypeExpr::remove_indirect(func_type);
-          tolk_assert(func_type->is_map());
-          auto wr = func_type->args.at(0)->get_width();
-          auto wl = func_type->args.at(1)->get_width();
-          tolk_assert(wl >= 0 && wr >= 0);
-          for (int i = 0; i < wl; i++) {
+          int w_arg = 0;
+          for (const LocalVarData& param : f_sym->parameters) {
+            w_arg += param.declared_type->calc_width_on_stack();
+          }
+          int w_ret = f_sym->inferred_return_type->calc_width_on_stack();
+          tolk_assert(w_ret >= 0 && w_arg >= 0);
+          for (int i = 0; i < w_ret; i++) {
             res.emplace_back(0);
           }
-          for (int i = 0; i < wr; i++) {
+          for (int i = 0; i < w_arg; i++) {
             args0.emplace_back(0);
           }
           if (f_sym->is_asm_function()) {
@@ -456,14 +457,12 @@ bool Op::generate_code_step(Stack& stack) {
             right1.push_back(arg.idx);
           }
         }
-      } else if (arg_order) {
-        for (int i = 0; i < (int)right.size(); i++) {
-          right1.push_back(right.at(arg_order->at(i)));
-        }
       } else {
+        tolk_assert(!arg_order);
         right1 = right;
       }
       std::vector<bool> last;
+      last.reserve(right1.size());
       for (var_idx_t x : right1) {
         last.push_back(var_info[x] && var_info[x]->is_last());
       }
@@ -489,7 +488,7 @@ bool Op::generate_code_step(Stack& stack) {
       };
       if (cl == _CallInd) {
         exec_callxargs((int)right.size() - 1, (int)left.size());
-      } else if (!f_sym->is_regular_function()) {
+      } else if (!f_sym->is_code_function()) {
         std::vector<VarDescr> res;
         res.reserve(left.size());
         for (var_idx_t i : left) {
@@ -503,7 +502,7 @@ bool Op::generate_code_step(Stack& stack) {
       } else {
         if (f_sym->is_inline() || f_sym->is_inline_ref()) {
           stack.o << AsmOp::Custom(f_sym->name + " INLINECALLDICT", (int)right.size(), (int)left.size());
-        } else if (f_sym->is_regular_function() && std::get<FunctionBodyCode*>(f_sym->body)->code->require_callxargs) {
+        } else if (f_sym->is_code_function() && std::get<FunctionBodyCode*>(f_sym->body)->code->require_callxargs) {
           stack.o << AsmOp::Custom(f_sym->name + (" PREPAREDICT"), 0, 2);
           exec_callxargs((int)right.size() + 1, (int)left.size());
         } else {

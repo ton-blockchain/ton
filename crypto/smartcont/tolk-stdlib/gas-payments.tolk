@@ -61,3 +61,9 @@ fun calculateOriginalMessageFee(workchain: int, incomingFwdFee: int): int
 /// If it has no debt, `0` is returned.
 fun getMyStorageDuePayment(): int
     asm "DUEPAYMENT";
+
+/// Returns the amount of nanotoncoins charged for storage.
+/// (during storage phase preceeding to current computation phase)
+@pure
+fun getMyStoragePaidPayment(): int
+    asm "STORAGEFEES";

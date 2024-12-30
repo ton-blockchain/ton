@@ -20,7 +20,9 @@
 #include "ast.h"
 #include "compiler-state.h"
 #include "constant-evaluator.h"
+#include "generics-helpers.h"
 #include "td/utils/crypto.h"
+#include "type-system.h"
 #include <unordered_set>
 
 /*
@@ -59,67 +61,69 @@ static int calculate_method_id_by_func_name(std::string_view func_name) {
   return static_cast<int>(crc & 0xffff) | 0x10000;
 }
 
-static void calc_arg_ret_order_of_asm_function(V<ast_asm_body> v_body, V<ast_parameter_list> param_list, TypeExpr* ret_type,
-                                   std::vector<int>& arg_order, std::vector<int>& ret_order) {
-  int cnt = param_list->size();
-  int width = ret_type->get_width();
-  if (width < 0 || width > 16) {
-    v_body->error("return type of an assembler built-in function must have a well-defined fixed width");
+static void validate_arg_ret_order_of_asm_function(V<ast_asm_body> v_body, int n_params, TypePtr ret_type) {
+  if (!ret_type) {
+    v_body->error("asm function must declare return type (before asm instructions)");
   }
-  if (cnt > 16) {
-    v_body->error("assembler built-in function must have at most 16 arguments");
+  if (n_params > 16) {
+    v_body->error("asm function can have at most 16 parameters");
   }
-  std::vector<int> cum_arg_width;
-  cum_arg_width.push_back(0);
-  int tot_width = 0;
-  for (int i = 0; i < cnt; ++i) {
-    V<ast_parameter> v_param = param_list->get_param(i);
-    int arg_width = v_param->declared_type->get_width();
-    if (arg_width < 0 || arg_width > 16) {
-      v_param->error("parameters of an assembler built-in function must have a well-defined fixed width");
-    }
-    cum_arg_width.push_back(tot_width += arg_width);
-  }
+
+  // asm(param1 ... paramN), param names were previously mapped into indices
   if (!v_body->arg_order.empty()) {
-    if (static_cast<int>(v_body->arg_order.size()) != cnt) {
+    if (static_cast<int>(v_body->arg_order.size()) != n_params) {
       v_body->error("arg_order of asm function must specify all parameters");
     }
-    std::vector<bool> visited(cnt, false);
-    for (int i = 0; i < cnt; ++i) {
-      int j = v_body->arg_order[i];
+    std::vector<bool> visited(v_body->arg_order.size(), false);
+    for (int j : v_body->arg_order) {
       if (visited[j]) {
         v_body->error("arg_order of asm function contains duplicates");
       }
       visited[j] = true;
-      int c1 = cum_arg_width[j], c2 = cum_arg_width[j + 1];
-      while (c1 < c2) {
-        arg_order.push_back(c1++);
-      }
     }
-    tolk_assert(arg_order.size() == (unsigned)tot_width);
   }
+
+  // asm(-> 0 2 1 3), check for a shuffled range 0...N
+  // correctness of N (actual return width onto a stack) will be checked after type inferring and generics instantiation
   if (!v_body->ret_order.empty()) {
-    if (static_cast<int>(v_body->ret_order.size()) != width) {
-      v_body->error("ret_order of this asm function expected to be width = " + std::to_string(width));
-    }
-    std::vector<bool> visited(width, false);
-    for (int i = 0; i < width; ++i) {
-      int j = v_body->ret_order[i];
-      if (j < 0 || j >= width || visited[j]) {
-        v_body->error("ret_order contains invalid integer, not in range 0 .. width-1");
+    std::vector<bool> visited(v_body->ret_order.size(), false);
+    for (int j : v_body->ret_order) {
+      if (j < 0 || j >= static_cast<int>(v_body->ret_order.size()) || visited[j]) {
+        v_body->error("ret_order contains invalid integer, not in range 0 .. N");
       }
       visited[j] = true;
     }
-    ret_order = v_body->ret_order;
   }
+}
+
+static const GenericsDeclaration* construct_genericTs(V<ast_genericsT_list> v_list) {
+  std::vector<GenericsDeclaration::GenericsItem> itemsT;
+  itemsT.reserve(v_list->size());
+
+  for (int i = 0; i < v_list->size(); ++i) {
+    auto v_item = v_list->get_item(i);
+    auto it_existing = std::find_if(itemsT.begin(), itemsT.end(), [v_item](const GenericsDeclaration::GenericsItem& prev) {
+      return prev.nameT == v_item->nameT;
+    });
+    if (it_existing != itemsT.end()) {
+      v_item->error("duplicate generic parameter `" + static_cast<std::string>(v_item->nameT) + "`");
+    }
+    itemsT.emplace_back(v_item->nameT);
+  }
+
+  return new GenericsDeclaration(std::move(itemsT));
 }
 
 static void register_constant(V<ast_constant_declaration> v) {
   ConstantValue init_value = eval_const_init_value(v->get_init_value());
-  GlobalConstData* c_sym = new GlobalConstData(static_cast<std::string>(v->get_identifier()->name), v->loc, std::move(init_value));
+  GlobalConstData* c_sym = new GlobalConstData(static_cast<std::string>(v->get_identifier()->name), v->loc, v->declared_type, std::move(init_value));
 
-  if (v->declared_type && !v->declared_type->equals_to(c_sym->inferred_type)) {
-    v->error("expression type does not match declared type");
+  if (v->declared_type) {
+    bool ok = (c_sym->is_int_const() && (v->declared_type == TypeDataInt::create()))
+           || (c_sym->is_slice_const() && (v->declared_type == TypeDataSlice::create()));
+    if (!ok) {
+      v->error("expression type does not match declared type");
+    }
   }
 
   G.symtable.add_global_const(c_sym);
@@ -137,124 +141,82 @@ static void register_global_var(V<ast_global_var_declaration> v) {
 
 static LocalVarData register_parameter(V<ast_parameter> v, int idx) {
   if (v->is_underscore()) {
-    return {"", v->loc, idx, v->declared_type};
+    return {"", v->loc, v->declared_type, 0, idx};
   }
 
-  LocalVarData p_sym(static_cast<std::string>(v->param_name), v->loc, idx, v->declared_type);
+  int flags = 0;
   if (v->declared_as_mutate) {
-    p_sym.flags |= LocalVarData::flagMutateParameter;
+    flags |= LocalVarData::flagMutateParameter;
   }
   if (!v->declared_as_mutate && idx == 0 && v->param_name == "self") {
-    p_sym.flags |= LocalVarData::flagImmutable;
+    flags |= LocalVarData::flagImmutable;
   }
-  return p_sym;
+  return LocalVarData(static_cast<std::string>(v->param_name), v->loc, v->declared_type, flags, idx);
 }
 
 static void register_function(V<ast_function_declaration> v) {
   std::string_view func_name = v->get_identifier()->name;
 
-  // calculate TypeExpr of a function: it's a map (params -> ret), probably surrounded by forall
-  TypeExpr* params_tensor_type = nullptr;
+  // calculate TypeData of a function
+  std::vector<TypePtr> arg_types;
+  std::vector<LocalVarData> parameters;
   int n_params = v->get_num_params();
   int n_mutate_params = 0;
-  std::vector<LocalVarData> parameters;
-  if (n_params) {
-    std::vector<TypeExpr*> param_tensor_items;
-    param_tensor_items.reserve(n_params);
-    parameters.reserve(n_params);
-    for (int i = 0; i < n_params; ++i) {
-      auto v_param = v->get_param(i);
-      n_mutate_params += static_cast<int>(v_param->declared_as_mutate);
-      param_tensor_items.emplace_back(v_param->declared_type);
-      parameters.emplace_back(register_parameter(v_param, i));
-    }
-    params_tensor_type = TypeExpr::new_tensor(std::move(param_tensor_items));
-  } else {
-    params_tensor_type = TypeExpr::new_unit();
+  arg_types.reserve(n_params);
+  parameters.reserve(n_params);
+  for (int i = 0; i < n_params; ++i) {
+    auto v_param = v->get_param(i);
+    arg_types.emplace_back(v_param->declared_type);
+    parameters.emplace_back(register_parameter(v_param, i));
+    n_mutate_params += static_cast<int>(v_param->declared_as_mutate);
   }
 
-  TypeExpr* function_type = TypeExpr::new_map(params_tensor_type, v->ret_type);
+  const GenericsDeclaration* genericTs = nullptr;
   if (v->genericsT_list) {
-    std::vector<TypeExpr*> type_vars;
-    type_vars.reserve(v->genericsT_list->size());
-    for (int idx = 0; idx < v->genericsT_list->size(); ++idx) {
-      type_vars.emplace_back(v->genericsT_list->get_item(idx)->created_type);
-    }
-    function_type = TypeExpr::new_forall(std::move(type_vars), function_type);
+    genericTs = construct_genericTs(v->genericsT_list);
   }
-  if (v->marked_as_builtin) {
+  if (v->is_builtin_function()) {
     const Symbol* builtin_func = lookup_global_symbol(func_name);
-    const FunctionData* func_val = builtin_func ? builtin_func->as<FunctionData>() : nullptr;
-    if (!func_val || !func_val->is_builtin_function()) {
+    const FunctionData* fun_ref = builtin_func ? builtin_func->as<FunctionData>() : nullptr;
+    if (!fun_ref || !fun_ref->is_builtin_function()) {
       v->error("`builtin` used for non-builtin function");
     }
-#ifdef TOLK_DEBUG
-    // in release, we don't need this check, since `builtin` is used only in stdlib, which is our responsibility
-    if (!func_val->full_type->equals_to(function_type) || func_val->is_marked_as_pure() != v->marked_as_pure) {
-      v->error("declaration for `builtin` function doesn't match an actual one");
-    }
-#endif
+    v->mutate()->assign_fun_ref(fun_ref);
     return;
   }
 
-  if (G.is_verbosity(1)) {
-    std::cerr << "fun " << func_name << " : " << function_type << std::endl;
-  }
-  if (v->marked_as_pure && v->ret_type->get_width() == 0) {
-    v->error("a pure function should return something, otherwise it will be optimized out anyway");
+  if (G.is_verbosity(1) && v->is_code_function()) {
+    std::cerr << "fun " << func_name << " : " << v->declared_return_type << std::endl;
   }
 
   FunctionBody f_body = v->get_body()->type == ast_sequence ? static_cast<FunctionBody>(new FunctionBodyCode) : static_cast<FunctionBody>(new FunctionBodyAsm);
-  FunctionData* f_sym = new FunctionData(static_cast<std::string>(func_name), v->loc, function_type, std::move(parameters), 0, f_body);
+  FunctionData* f_sym = new FunctionData(static_cast<std::string>(func_name), v->loc, v->declared_return_type, std::move(parameters), 0, genericTs, nullptr, f_body, v);
 
   if (const auto* v_asm = v->get_body()->try_as<ast_asm_body>()) {
-    calc_arg_ret_order_of_asm_function(v_asm, v->get_param_list(), v->ret_type, f_sym->arg_order, f_sym->ret_order);
+    validate_arg_ret_order_of_asm_function(v_asm, v->get_num_params(), v->declared_return_type);
+    f_sym->arg_order = v_asm->arg_order;
+    f_sym->ret_order = v_asm->ret_order;
   }
 
-  if (v->method_id) {
-    if (v->method_id->intval.is_null() || !v->method_id->intval->signed_fits_bits(32)) {
-      v->method_id->error("invalid integer constant");
-    }
-    f_sym->method_id = static_cast<int>(v->method_id->intval->to_long());
-  } else if (v->marked_as_get_method) {
+  if (v->method_id.not_null()) {
+    f_sym->method_id = static_cast<int>(v->method_id->to_long());
+  } else if (v->flags & FunctionData::flagGetMethod) {
     f_sym->method_id = calculate_method_id_by_func_name(func_name);
     for (const FunctionData* other : G.all_get_methods) {
       if (other->method_id == f_sym->method_id) {
         v->error(PSTRING() << "GET methods hash collision: `" << other->name << "` and `" << f_sym->name << "` produce the same hash. Consider renaming one of these functions.");
       }
     }
-  } else if (v->is_entrypoint) {
+  } else if (v->flags & FunctionData::flagIsEntrypoint) {
     f_sym->method_id = calculate_method_id_for_entrypoint(func_name);
   }
-  if (v->marked_as_pure) {
-    f_sym->flags |= FunctionData::flagMarkedAsPure;
-  }
-  if (v->marked_as_inline) {
-    f_sym->flags |= FunctionData::flagInline;
-  }
-  if (v->marked_as_inline_ref) {
-    f_sym->flags |= FunctionData::flagInlineRef;
-  }
-  if (v->marked_as_get_method) {
-    f_sym->flags |= FunctionData::flagGetMethod;
-  }
-  if (v->is_entrypoint) {
-    f_sym->flags |= FunctionData::flagIsEntrypoint;
-  }
+  f_sym->flags |= v->flags;
   if (n_mutate_params) {
     f_sym->flags |= FunctionData::flagHasMutateParams;
   }
-  if (v->accepts_self) {
-    f_sym->flags |= FunctionData::flagAcceptsSelf;
-  }
-  if (v->returns_self) {
-    f_sym->flags |= FunctionData::flagReturnsSelf;
-  }
 
   G.symtable.add_function(f_sym);
-  if (f_sym->is_regular_function()) {
-    G.all_code_functions.push_back(f_sym);
-  }
+  G.all_functions.push_back(f_sym);
   if (f_sym->is_get_method()) {
     G.all_get_methods.push_back(f_sym);
   }
@@ -270,10 +232,10 @@ static void iterate_through_file_symbols(const SrcFile* file) {
 
   for (AnyV v : file->ast->as<ast_tolk_file>()->get_toplevel_declarations()) {
     switch (v->type) {
-      case ast_import_statement:
+      case ast_import_directive:
         // on `import "another-file.tolk"`, register symbols from that file at first
         // (for instance, it can calculate constants, which are used in init_val of constants in current file below import)
-        iterate_through_file_symbols(v->as<ast_import_statement>()->file);
+        iterate_through_file_symbols(v->as<ast_import_directive>()->file);
         break;
 
       case ast_constant_declaration:
@@ -291,8 +253,8 @@ static void iterate_through_file_symbols(const SrcFile* file) {
   }
 }
 
-void pipeline_register_global_symbols(const AllSrcFiles& all_src_files) {
-  for (const SrcFile* file : all_src_files) {
+void pipeline_register_global_symbols() {
+  for (const SrcFile* file : G.all_src_files) {
     iterate_through_file_symbols(file);
   }
 }

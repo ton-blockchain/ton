@@ -74,12 +74,12 @@ class CalculateRvalueLvalueVisitor final : public ASTVisitorFunctionBody {
     parent::visit(v);
   }
   
-  void visit(V<ast_tensor_square> v) override {
+  void visit(V<ast_typed_tuple> v) override {
     mark_vertex_cur_or_rvalue(v);
     parent::visit(v);
   }
 
-  void visit(V<ast_identifier> v) override {
+  void visit(V<ast_reference> v) override {
     mark_vertex_cur_or_rvalue(v);
   }
 
@@ -99,10 +99,6 @@ class CalculateRvalueLvalueVisitor final : public ASTVisitorFunctionBody {
     mark_vertex_cur_or_rvalue(v);
   }
 
-  void visit(V<ast_self_keyword> v) override {
-    mark_vertex_cur_or_rvalue(v);
-  }
-
   void visit(V<ast_argument> v) override {
     mark_vertex_cur_or_rvalue(v);
     MarkingState saved = enter_state(v->passed_as_mutate ? MarkingState::LValueAndRValue : MarkingState::RValue);
@@ -115,19 +111,17 @@ class CalculateRvalueLvalueVisitor final : public ASTVisitorFunctionBody {
     parent::visit(v);
   }
 
+  void visit(V<ast_dot_access> v) override {
+    mark_vertex_cur_or_rvalue(v);
+    MarkingState saved = enter_state(MarkingState::RValue);
+    parent::visit(v->get_obj());
+    restore_state(saved);
+  }
+
   void visit(V<ast_function_call> v) override {
     mark_vertex_cur_or_rvalue(v);
     MarkingState saved = enter_state(MarkingState::RValue);
     parent::visit(v);
-    restore_state(saved);
-  }
-
-  void visit(V<ast_dot_method_call> v) override {
-    mark_vertex_cur_or_rvalue(v);
-    MarkingState saved = enter_state(MarkingState::RValue);
-    parent::visit(v->get_obj());
-    enter_state(MarkingState::RValue);
-    parent::visit(v->get_arg_list());
     restore_state(saved);
   }
 
@@ -139,6 +133,24 @@ class CalculateRvalueLvalueVisitor final : public ASTVisitorFunctionBody {
     mark_vertex_cur_or_rvalue(v);
   }
 
+  void visit(V<ast_assign> v) override {
+    mark_vertex_cur_or_rvalue(v);
+    MarkingState saved = enter_state(MarkingState::LValue);
+    parent::visit(v->get_lhs());
+    enter_state(MarkingState::RValue);
+    parent::visit(v->get_rhs());
+    restore_state(saved);
+  }
+
+  void visit(V<ast_set_assign> v) override {
+    mark_vertex_cur_or_rvalue(v);
+    MarkingState saved = enter_state(MarkingState::LValueAndRValue);
+    parent::visit(v->get_lhs());
+    enter_state(MarkingState::RValue);
+    parent::visit(v->get_rhs());
+    restore_state(saved);
+  }
+
   void visit(V<ast_unary_operator> v) override {
     mark_vertex_cur_or_rvalue(v);
     MarkingState saved = enter_state(MarkingState::RValue);
@@ -148,10 +160,8 @@ class CalculateRvalueLvalueVisitor final : public ASTVisitorFunctionBody {
 
   void visit(V<ast_binary_operator> v) override {
     mark_vertex_cur_or_rvalue(v);
-    MarkingState saved = enter_state(v->is_set_assign() ? MarkingState::LValueAndRValue : v->is_assign() ? MarkingState::LValue : MarkingState::RValue);
-    parent::visit(v->get_lhs());
-    enter_state(MarkingState::RValue);
-    parent::visit(v->get_rhs());
+    MarkingState saved = enter_state(MarkingState::RValue);
+    parent::visit(v);
     restore_state(saved);
   }
 
@@ -162,15 +172,18 @@ class CalculateRvalueLvalueVisitor final : public ASTVisitorFunctionBody {
     restore_state(saved);
   }
 
-  void visit(V<ast_local_vars_declaration> v) override {
-    MarkingState saved = enter_state(MarkingState::LValue);
-    parent::visit(v->get_lhs());
-    enter_state(MarkingState::RValue);
-    parent::visit(v->get_assigned_val());
-    restore_state(saved);
+  void visit(V<ast_cast_as_operator> v) override {
+    mark_vertex_cur_or_rvalue(v);
+    parent::visit(v->get_expr());   // leave lvalue state unchanged, for `mutate (t.0 as int)` both `t.0 as int` and `t.0` are lvalue
   }
 
-  void visit(V<ast_local_var> v) override {
+  void visit(V<ast_local_var_lhs> v) override {
+    tolk_assert(cur_state == MarkingState::LValue);
+    mark_vertex_cur_or_rvalue(v);
+    parent::visit(v);
+  }
+
+  void visit(V<ast_local_vars_declaration> v) override {
     tolk_assert(cur_state == MarkingState::LValue);
     mark_vertex_cur_or_rvalue(v);
     parent::visit(v);
@@ -183,10 +196,22 @@ class CalculateRvalueLvalueVisitor final : public ASTVisitorFunctionBody {
     restore_state(saved);
     parent::visit(v->get_catch_body());
   }
+
+public:
+  bool should_visit_function(const FunctionData* fun_ref) override {
+    return fun_ref->is_code_function() && !fun_ref->is_generic_function();
+  }
 };
 
-void pipeline_calculate_rvalue_lvalue(const AllSrcFiles& all_src_files) {
-  visit_ast_of_all_functions<CalculateRvalueLvalueVisitor>(all_src_files);
+void pipeline_calculate_rvalue_lvalue() {
+  visit_ast_of_all_functions<CalculateRvalueLvalueVisitor>();
+}
+
+void pipeline_calculate_rvalue_lvalue(const FunctionData* fun_ref) {
+  CalculateRvalueLvalueVisitor visitor;
+  if (visitor.should_visit_function(fun_ref)) {
+    visitor.start_visiting_function(fun_ref, fun_ref->ast_root->as<ast_function_declaration>());
+  }
 }
 
 } // namespace tolk

@@ -125,9 +125,9 @@ enum TokenType {
   tok_builder,
   tok_continuation,
   tok_tuple,
-  tok_auto,
   tok_void,
   tok_arrow,
+  tok_as,
 
   tok_tolk,
   tok_semver,
@@ -165,6 +165,12 @@ class Lexer {
   }
 
 public:
+
+  struct SavedPositionForLookahead {
+    const char* p_next = nullptr;
+    int cur_token_idx = 0;
+    Token cur_token;
+  };
 
   explicit Lexer(const SrcFile* file);
   Lexer(const Lexer&) = delete;
@@ -209,6 +215,9 @@ public:
   void next();
   void next_special(TokenType parse_next_as, const char* str_expected);
 
+  SavedPositionForLookahead save_parsing_position() const;
+  void restore_position(SavedPositionForLookahead saved);
+
   void check(TokenType next_tok, const char* str_expected) const {
     if (cur_token.type != next_tok) {
       unexpected(str_expected); // unlikely path, not inlined
@@ -230,6 +239,6 @@ public:
 void lexer_init();
 
 // todo #ifdef TOLK_PROFILING
-void lexer_measure_performance(const AllSrcFiles& files_to_just_parse);
+void lexer_measure_performance(const AllRegisteredSrcFiles& files_to_just_parse);
 
 }  // namespace tolk

@@ -92,7 +92,7 @@ fun always_throw2(x: int) {
     throw 239 + x;
 }
 
-global global_f: int -> ();
+global global_f: int -> void;
 
 @method_id(104)
 fun testGlobalVarApply() {
@@ -105,6 +105,30 @@ fun testGlobalVarApply() {
     }
 }
 
+@method_id(105)
+fun testVarApply2() {
+    var creator = createEmptyTuple;
+    var t = creator();
+    t.tuplePush(1);
+    var sizer = t.tupleSize;
+    return sizer(t);
+}
+
+fun getTupleLastGetter<X>(): (tuple) -> X {
+    return tupleLast<X>;
+}
+
+@method_id(106)
+fun testVarApply3() {
+    var t = createEmptyTuple();
+    t.tuplePush(1);
+    t.tuplePush([2]);
+    var getIntAt = t.tupleAt<int>;
+    var getTupleFirstInt = createEmptyTuple().tupleFirst<int>;
+    var getTupleLastTuple = getTupleLastGetter<tuple>();
+    return (getIntAt(t, 0), getTupleFirstInt(t), getTupleLastTuple(t), getTupleLastGetter<tuple>()(t));
+}
+
 fun main() {}
 
 /**
@@ -112,4 +136,6 @@ fun main() {}
 @testcase | 102 |    | 1000
 @testcase | 103 |    | [ 1000 1000 0 1001 ]
 @testcase | 104 |    | 240
+@testcase | 105 |    | 1
+@testcase | 106 |    | 1 1 [ 2 ] [ 2 ]
  */

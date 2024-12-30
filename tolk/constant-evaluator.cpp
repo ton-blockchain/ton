@@ -248,15 +248,19 @@ struct ConstantEvaluator {
     return ConstantValue::from_int(std::move(intval));
   }
 
-  static ConstantValue handle_identifier(V<ast_identifier> v) {
+  static ConstantValue handle_reference(V<ast_reference> v) {
     // todo better handle "appears, directly or indirectly, in its own initializer"
-    const Symbol* sym = lookup_global_symbol(v->name);
+    std::string_view name = v->get_name();
+    const Symbol* sym = lookup_global_symbol(name);
     if (!sym) {
-      v->error("undefined symbol `" + static_cast<std::string>(v->name) + "`");
+      v->error("undefined symbol `" + static_cast<std::string>(name) + "`");
     }
     const GlobalConstData* const_ref = sym->try_as<GlobalConstData>();
     if (!const_ref) {
-      v->error("symbol `" + static_cast<std::string>(v->name) + "` is not a constant");
+      v->error("symbol `" + static_cast<std::string>(name) + "` is not a constant");
+    }
+    if (v->has_instantiationTs()) {   // SOME_CONST<int>
+      v->error("constant is not a generic");
     }
     return {const_ref->value};
   }
@@ -274,8 +278,8 @@ struct ConstantEvaluator {
     if (auto v_binop = v->try_as<ast_binary_operator>()) {
       return handle_binary_operator(v_binop, visit(v_binop->get_lhs()), visit(v_binop->get_rhs()));
     }
-    if (auto v_ident = v->try_as<ast_identifier>()) {
-      return handle_identifier(v_ident);
+    if (auto v_ref = v->try_as<ast_reference>()) {
+      return handle_reference(v_ref);
     }
     if (auto v_par = v->try_as<ast_parenthesized_expression>()) {
       return visit(v_par->get_expr());

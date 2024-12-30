@@ -154,7 +154,7 @@ fun getSumOfNumbersInCell(c: cell): int {
 
 @method_id(110)
 fun testStoreChaining() {
-    var b = beginCell().storeUint(1, 32).storeUint(2, 32).storeUint(3, 32);
+    var b = ((beginCell()).storeUint(1, 32)).storeUint(2, 32).storeUint(3, 32);
     b.storeUint(4, 32);
     b.myStoreUint(5, 32).storeUint(6, 32);
     storeUint(mutate b, 7, 32);
@@ -198,7 +198,7 @@ fun testStoreAndMutateBoth() {
     b.myStoreU32_and_mutate_x(mutate x);
 
     var cs: slice = b.endCell().beginParse();
-    var (n1,n2,n3,n4,n5) = (cs.loadUint(32),cs.loadUint(32),cs.loadUint(32),cs.loadUint(32),cs.loadUint(32));
+    var (n1,n2,n3,n4,n5) = (cs.loadUint(32),((cs)).loadUint(32),cs.loadUint(32),cs.loadUint(32),cs.loadUint(32));
     assert(n5 == x) throw 100;
 
     return [n1,n2,n3,n4,n5];
