@@ -217,8 +217,7 @@ class ValidatorSessionImpl : public ValidatorSession {
   void candidate_approved_signed(td::uint32 round, ValidatorSessionCandidateId hash, td::uint32 ok_from,
                                  td::BufferSlice signature);
 
-  void generated_block(td::uint32 round, ValidatorSessionRootHash root_hash, td::BufferSlice data,
-                       td::BufferSlice collated, double collation_time, bool collation_cached);
+  void generated_block(td::uint32 round, GeneratedCandidate c, double collation_time);
   void signed_block(td::uint32 round, ValidatorSessionCandidateId hash, td::BufferSlice signature);
 
   void end_request(td::uint32 round, ValidatorSessionCandidateId block_id) {

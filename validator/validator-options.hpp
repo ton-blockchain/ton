@@ -154,6 +154,12 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   bool get_fast_state_serializer_enabled() const override {
     return fast_state_serializer_enabled_;
   }
+  td::Ref<CollatorsList> get_collators_list() const override {
+    return collators_list_;
+  }
+  bool check_collator_node_whitelist(adnl::AdnlNodeIdShort id) const override {
+    return !collator_node_whitelist_enabled_ || collator_node_whitelist_.contains(id);
+  }
 
   void set_zero_block_id(BlockIdExt block_id) override {
     zero_block_id_ = block_id;
@@ -249,6 +255,19 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   void set_fast_state_serializer_enabled(bool value) override {
     fast_state_serializer_enabled_ = value;
   }
+  void set_collators_list(td::Ref<CollatorsList> list) override {
+    collators_list_ = std::move(list);
+  }
+  void set_collator_node_whitelisted_validator(adnl::AdnlNodeIdShort id, bool add) override {
+    if (add) {
+      collator_node_whitelist_.insert(id);
+    } else {
+      collator_node_whitelist_.erase(id);
+    }
+  }
+  void set_collator_node_whitelist_enabled(bool enabled) override {
+    collator_node_whitelist_enabled_ = enabled;
+  }
 
   ValidatorManagerOptionsImpl *make_copy() const override {
     return new ValidatorManagerOptionsImpl(*this);
@@ -302,6 +321,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   bool state_serializer_enabled_ = true;
   td::Ref<CollatorOptions> collator_options_{true};
   bool fast_state_serializer_enabled_ = false;
+  td::Ref<CollatorsList> collators_list_{true, CollatorsList::default_list()};
+  std::set<adnl::AdnlNodeIdShort> collator_node_whitelist_;
+  bool collator_node_whitelist_enabled_ = false;
 };
 
 }  // namespace validator

@@ -430,6 +430,7 @@ class TonlibCli : public td::actor::Actor {
                             << "\t 'k' modifier - use fake key\n"
                             << "\t 'c' modifier - just esmitate fees\n";
       td::TerminalIO::out() << "getmasterchainsignatures <seqno> - get sigratures of masterchain block <seqno>\n";
+      td::TerminalIO::out() << "msgqueuesizes - get out msg queue sizes in the latest shard states\n";
     } else if (cmd == "genkey") {
       generate_key();
     } else if (cmd == "exit" || cmd == "quit") {
@@ -517,6 +518,8 @@ class TonlibCli : public td::actor::Actor {
     } else if (cmd == "getmasterchainsignatures") {
       auto seqno = parser.read_word();
       run_get_masterchain_block_signatures(seqno, std::move(cmd_promise));
+    } else if (cmd == "msgqueuesizes") {
+      run_get_out_msg_queue_sizes(std::move(cmd_promise));
     } else if (cmd == "showtransactions") {
       run_show_transactions(parser, std::move(cmd_promise));
     } else {
@@ -2159,6 +2162,22 @@ class TonlibCli : public td::actor::Actor {
       }
       return td::Unit();
     }));
+  }
+
+  void run_get_out_msg_queue_sizes(td::Promise<td::Unit> promise) {
+    send_query(make_object<tonlib_api::blocks_getOutMsgQueueSizes>(0, 0, 0),
+               promise.wrap([](tonlib_api::object_ptr<tonlib_api::blocks_outMsgQueueSizes>&& f) {
+                 td::TerminalIO::out() << "Outbound message queue sizes:" << std::endl;
+                 for (const auto& shard : f->shards_) {
+                   td::TerminalIO::out() << ton::BlockId{shard->id_->workchain_, (ton::ShardId)shard->id_->shard_,
+                                                         (ton::BlockSeqno)shard->id_->seqno_}
+                                                .to_str()
+                                         << "    " << shard->size_ << std::endl;
+                 }
+                 td::TerminalIO::out() << "External message queue size limit: " << f->ext_msg_queue_size_limit_
+                                       << std::endl;
+                 return td::Unit();
+               }));
   }
 
   void run_show_transactions(td::ConstParser& parser, td::Promise<td::Unit> promise) {

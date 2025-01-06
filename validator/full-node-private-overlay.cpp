@@ -185,7 +185,9 @@ void FullNodePrivateBlockOverlay::send_broadcast(BlockBroadcast broadcast) {
 }
 
 void FullNodePrivateBlockOverlay::send_validator_telemetry(tl_object_ptr<ton_api::validator_telemetry> telemetry) {
-  process_telemetry_broadcast(local_id_.pubkey_hash(), telemetry);
+  if (collect_telemetry_) {
+    process_telemetry_broadcast(local_id_.pubkey_hash(), telemetry);
+  }
   auto data = serialize_tl_object(telemetry, true);
   if (data.size() <= overlay::Overlays::max_simple_broadcast_size()) {
     td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_ex, local_id_, overlay_id_,
