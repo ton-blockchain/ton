@@ -1,3 +1,4 @@
+</p>DANISH-AHMED-KM</p>
 <div align="center">
   <a href="https://ton.org">
     <picture>
@@ -121,7 +122,7 @@ Install additional system libraries on Ubuntu
 ```
 Compile TON binaries with emscripten
 ```bash
-  cd assembly/wasm
+  cd assembly/wasm 
   chmod +x fift-func-wasm-build-ubuntu.sh
   ./fift-func-wasm-build-ubuntu.sh
 ```
