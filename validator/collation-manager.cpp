@@ -284,7 +284,10 @@ void CollationManager::update_collators_list(const CollatorsList& collators_list
   auto old_collators = std::move(collators_);
   collators_.clear();
   for (const auto& shard : collators_list.shards) {
-    shards_.push_back({.shard_id = shard.shard_id, .select_mode = shard.select_mode, .collators = shard.collators});
+    shards_.push_back({.shard_id = shard.shard_id,
+                       .select_mode = shard.select_mode,
+                       .collators = shard.collators,
+                       .self_collate = shard.self_collate});
     for (auto id : shard.collators) {
       auto it = old_collators.find(id);
       if (it == old_collators.end()) {
