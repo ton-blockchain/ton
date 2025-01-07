@@ -224,7 +224,7 @@ class Collator final : public td::actor::Actor {
 
   std::unique_ptr<ton::BlockCandidate> block_candidate;
 
-  std::unique_ptr<vm::AugmentedDictionary> dispatch_queue_;
+  std::unique_ptr<vm::AugmentedDictionary> dispatch_queue_, old_dispatch_queue_;
   std::map<StdSmcAddress, td::uint32> sender_generated_messages_count_;
   unsigned dispatch_queue_ops_{0};
   std::map<StdSmcAddress, LogicalTime> last_dispatch_queue_emitted_lt_;

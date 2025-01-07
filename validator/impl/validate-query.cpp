@@ -2923,7 +2923,7 @@ bool ValidateQuery::precheck_account_updates() {
               CHECK(key_len == 256);
               return precheck_one_account_update(key, std::move(old_val_extra), std::move(new_val_extra));
             },
-            3 /* check augmentation of changed nodes */)) {
+            2 /* check augmentation of changed nodes in the new dict */)) {
       return reject_query("invalid ShardAccounts dictionary in the new state");
     }
   } catch (vm::VmError& err) {
@@ -3372,7 +3372,7 @@ bool ValidateQuery::precheck_message_queue_update() {
               CHECK(key_len == 352);
               return precheck_one_message_queue_update(key, std::move(old_val_extra), std::move(new_val_extra));
             },
-            3 /* check augmentation of changed nodes */)) {
+            2 /* check augmentation of changed nodes in the new dict */)) {
       return reject_query("invalid OutMsgQueue dictionary in the new state");
     }
   } catch (vm::VmError& err) {
@@ -3533,7 +3533,7 @@ bool ValidateQuery::unpack_dispatch_queue_update() {
           return check_account_dispatch_queue_update(key, ps_.dispatch_queue_->extract_value(std::move(old_val_extra)),
                                                      ns_.dispatch_queue_->extract_value(std::move(new_val_extra)));
         },
-        3 /* check augmentation of changed nodes */);
+        2 /* check augmentation of changed nodes in the new dict */);
     if (!res) {
       return reject_query("invalid DispatchQueue dictionary in the new state");
     }

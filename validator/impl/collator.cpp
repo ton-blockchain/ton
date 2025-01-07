@@ -1215,6 +1215,7 @@ bool Collator::import_shard_state_data(block::ShardState& ss) {
   processed_upto_ = std::move(ss.processed_upto_);
   ihr_pending = std::move(ss.ihr_pending_);
   dispatch_queue_ = std::move(ss.dispatch_queue_);
+  old_dispatch_queue_ = std::make_unique<vm::AugmentedDictionary>(*dispatch_queue_);
   block_create_stats_ = std::move(ss.block_create_stats_);
   if (ss.out_msg_queue_size_) {
     have_out_msg_queue_size_in_state_ = true;
@@ -5708,6 +5709,11 @@ Ref<vm::Cell> Collator::collate_shard_block_descr_set() {
   return cell;
 }
 
+/**
+ * Visits certain cells in out msg queue and dispatch queue to add them to the proof
+ *
+ * @returns True on success, Falise if error occurred
+ */
 bool Collator::prepare_msg_queue_proof() {
   auto res = old_out_msg_queue_->scan_diff(
       *out_msg_queue_,
@@ -5732,7 +5738,32 @@ bool Collator::prepare_msg_queue_proof() {
         }
         return true;
       },
-      3);
+      2);
+  if (!res) {
+    return false;
+  }
+  res = old_dispatch_queue_->scan_diff(
+      *dispatch_queue_,
+      [this](td::ConstBitPtr, int, Ref<vm::CellSlice> old_value, Ref<vm::CellSlice> new_value) {
+        if (old_value.not_null()) {
+          old_value = old_dispatch_queue_->extract_value(std::move(old_value));
+          vm::Dictionary dispatch_dict{64};
+          td::uint64 dispatch_dict_size;
+          CHECK(block::unpack_account_dispatch_queue(old_value, dispatch_dict, dispatch_dict_size));
+          td::BitArray<64> max_lt;
+          CHECK(dispatch_dict.get_minmax_key(max_lt, true).not_null());
+        }
+        if (new_value.not_null()) {
+          new_value = dispatch_queue_->extract_value(std::move(new_value));
+          vm::Dictionary dispatch_dict{64};
+          td::uint64 dispatch_dict_size;
+          CHECK(block::unpack_account_dispatch_queue(new_value, dispatch_dict, dispatch_dict_size));
+          td::BitArray<64> min_lt;
+          CHECK(dispatch_dict.get_minmax_key(min_lt, false).not_null());
+        }
+        return true;
+      },
+      2);
   return res;
 }
 
