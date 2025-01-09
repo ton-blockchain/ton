@@ -32,6 +32,7 @@ for file in ../artifacts/*; do
       /lib/x86_64-linux-gnu/liblz4.so.1 \
       /lib/x86_64-linux-gnu/libmicrohttpd.so.12 \
       /lib/x86_64-linux-gnu/libreadline.so.8 \
+      /lib/x86_64-linux-gnu/libstdc++.so.6 \
       $appName.AppDir/usr/lib/
 
 #      /lib/x86_64-linux-gnu/libstdc++.so.6
