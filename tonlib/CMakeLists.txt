@@ -100,9 +100,9 @@ endif()
 
 if (PORTABLE)
   target_link_libraries(tonlibjson PRIVATE tonlibjson_private -static-libgcc -static-libstdc++)
-else
+else()
   target_link_libraries(tonlibjson PRIVATE tonlibjson_private)
-if
+endif()
 
 generate_export_header(tonlibjson EXPORT_FILE_NAME ${CMAKE_CURRENT_BINARY_DIR}/tonlib/tonlibjson_export.h)
 if (!BUILD_SHARED_LIBS)
