@@ -99,7 +99,7 @@ else()
 endif()
 
 if (PORTABLE AND NOT APPLE)
-    target_link_libraries(emulator PUBLIC emulator_static git -static-libgcc -static-libstdc++)
+  target_link_libraries(tonlibjson PRIVATE tonlibjson_private -static-libgcc -static-libstdc++)
 else()
   target_link_libraries(tonlibjson PRIVATE tonlibjson_private)
 endif()
