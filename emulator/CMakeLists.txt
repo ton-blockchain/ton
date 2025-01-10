@@ -36,7 +36,7 @@ else()
 endif()
 
 if (PORTABLE)
-  target_link_libraries(emulator PUBLIC emulator_static git -static-libgcc -static-libstdc++))
+  target_link_libraries(emulator PUBLIC emulator_static git -static-libgcc -static-libstdc++)
 else()
   target_link_libraries(emulator PUBLIC emulator_static git)
 endif()
