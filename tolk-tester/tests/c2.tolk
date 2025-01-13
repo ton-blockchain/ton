@@ -1,6 +1,6 @@
 global op: (int, int) -> int;
 
-fun check_assoc(a: int, b: int, c: int): int {
+fun check_assoc(a: int, b: int, c: int): bool {
   return op(op(a, b), c) == op(a, op(b, c));
 }
 
@@ -8,8 +8,9 @@ fun unnamed_args(_: int, _: slice, _: int) {
   return true;
 }
 
-fun main(x: int, y: int, z: int): int {
+fun main(x: int, y: int, z: int): bool {
   op = `_+_`;
+  if (0) { return null; }
   return check_assoc(x, y, z);
 }
 

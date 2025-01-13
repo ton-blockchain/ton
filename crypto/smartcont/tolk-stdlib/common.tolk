@@ -205,7 +205,7 @@ fun stringHash(s: slice): int
 /// That is, if [hash] is computed as the hash of some data, these data are hashed twice,
 /// the second hashing occurring inside `CHKSIGNS`.
 @pure
-fun isSignatureValid(hash: int, signature: slice, publicKey: int): int
+fun isSignatureValid(hash: int, signature: slice, publicKey: int): bool
     asm "CHKSIGNU";
 
 /// Checks whether [signature] is a valid Ed25519-signature of the data portion of `slice data` using `publicKey`,
@@ -214,7 +214,7 @@ fun isSignatureValid(hash: int, signature: slice, publicKey: int): int
 /// The verification of Ed25519 signatures is the standard one,
 /// with sha256 used to reduce [data] to the 256-bit number that is actually signed.
 @pure
-fun isSliceSignatureValid(data: slice, signature: slice, publicKey: int): int
+fun isSliceSignatureValid(data: slice, signature: slice, publicKey: int): bool
     asm "CHKSIGNS";
 
 /// Generates a new pseudo-random unsigned 256-bit integer x.
@@ -259,14 +259,14 @@ fun randomizeByLogicalTime(): void
 /// otherwise the computation is aborted before visiting the `(maxCells + 1)`-st cell and
 /// a zero flag is returned to indicate failure. If [c] is `null`, returns `x = y = z = 0`.
 @pure
-fun calculateCellSize(c: cell, maxCells: int): (int, int, int, int)
+fun calculateCellSize(c: cell, maxCells: int): (int, int, int, bool)
     asm "CDATASIZEQ NULLSWAPIFNOT2 NULLSWAPIFNOT";
 
 /// Similar to [calculateCellSize], but accepting a `slice` [s] instead of a `cell`.
 /// The returned value of `x` does not take into account the cell that contains the `slice` [s] itself;
 /// however, the data bits and the cell references of [s] are accounted for in `y` and `z`.
 @pure
-fun calculateSliceSize(s: slice, maxCells: int): (int, int, int, int)
+fun calculateSliceSize(s: slice, maxCells: int): (int, int, int, bool)
     asm "SDATASIZEQ NULLSWAPIFNOT2 NULLSWAPIFNOT";
 
 /// A non-quiet version of [calculateCellSize] that throws a cell overflow exception (`8`) on failure.
@@ -382,7 +382,7 @@ fun loadCoins(mutate self: slice): int
 
 /// Loads bool (-1 or 0) from a slice
 @pure
-fun loadBool(mutate self: slice): int
+fun loadBool(mutate self: slice): bool
     asm( -> 1 0) "1 LDI";
 
 /// Shifts a slice pointer to [len] bits forward, mutating the slice.
@@ -482,7 +482,7 @@ fun storeCoins(mutate self: builder, x: int): self
 /// Stores bool (-1 or 0) into a builder.
 /// Attention: true value is `-1`, not 1! If you pass `1` here, TVM will throw an exception.
 @pure
-fun storeBool(mutate self: builder, x: int): self
+fun storeBool(mutate self: builder, x: bool): self
     asm(x self) "1 STI";
 
 /// Stores dictionary (represented by TVM `cell` or `null`) into a builder.
@@ -529,22 +529,22 @@ fun getRemainingBitsAndRefsCount(self: slice): (int, int)
 
 /// Checks whether a slice is empty (i.e., contains no bits of data and no cell references).
 @pure
-fun isEndOfSlice(self: slice): int
+fun isEndOfSlice(self: slice): bool
     asm "SEMPTY";
 
 /// Checks whether a slice has no bits of data.
 @pure
-fun isEndOfSliceBits(self: slice): int
+fun isEndOfSliceBits(self: slice): bool
     asm "SDEMPTY";
 
 /// Checks whether a slice has no references.
 @pure
-fun isEndOfSliceRefs(self: slice): int
+fun isEndOfSliceRefs(self: slice): bool
     asm "SREMPTY";
 
 /// Checks whether data parts of two slices coinside.
 @pure
-fun isSliceBitsEqual(self: slice, b: slice): int
+fun isSliceBitsEqual(self: slice, b: slice): bool
     asm "SDEQ";
 
 /// Returns the number of cell references already stored in a builder.
@@ -621,10 +621,10 @@ fun parseStandardAddress(s: slice): (int, int)
 fun createAddressNone(): slice
     asm "b{00} PUSHSLICE";
 
-/// Returns if a slice pointer contains an empty address (`-1` for true, `0` for false, as always).
+/// Returns if a slice pointer contains an empty address.
 /// In other words, a slice starts with two `0` bits (TL addr_none$00).
 @pure
-fun addressIsNone(s: slice): int
+fun addressIsNone(s: slice): bool
     asm "2 PLDU" "0 EQINT";
 
 
@@ -677,8 +677,8 @@ fun loadMessageFlags(mutate self: slice): int
 /// Having msgFlags (4 bits), check that a message is bounced.
 /// Effectively, it's `msgFlags & 1` (the lowest bit present).
 @pure
-fun isMessageBounced(msgFlags: int): int
-    asm "1 PUSHINT" "AND";
+fun isMessageBounced(msgFlags: int): bool
+    asm "2 PUSHINT" "MODR";
 
 /// Skip 0xFFFFFFFF prefix (when a message is bounced).
 @pure

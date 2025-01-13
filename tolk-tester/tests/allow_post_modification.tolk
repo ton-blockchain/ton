@@ -83,7 +83,7 @@ fun test_if_else(x: int): (int, int, int, int, int) {
         return (x.`~inc`(8), x + 1, x = 1, x <<= 3, x);
     } else {
         xx = 9;
-        return (x, x.`~inc`(-4), x.`~inc`(-1), x >= 1, x = x + xx);
+        return (x, x.`~inc`(-4), x.`~inc`(-1), (x >= 1) as int, x = x + xx);
     }
 }
 

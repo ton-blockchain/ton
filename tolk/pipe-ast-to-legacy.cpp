@@ -586,6 +586,8 @@ static void process_do_while_statement(V<ast_do_while_statement> v, CodeBlob& co
     until_cond = createV<ast_binary_operator>(cond->loc, "<", tok_lt, v_geq->get_lhs(), v_geq->get_rhs());
   } else if (auto v_gt = cond->try_as<ast_binary_operator>(); v_gt && v_gt->tok == tok_gt) {
     until_cond = createV<ast_binary_operator>(cond->loc, "<=", tok_geq, v_gt->get_lhs(), v_gt->get_rhs());
+  } else if (cond->inferred_type == TypeDataBool::create()) {
+    until_cond = createV<ast_unary_operator>(cond->loc, "!b", tok_logical_not, cond);
   } else {
     until_cond = createV<ast_unary_operator>(cond->loc, "!", tok_logical_not, cond);
   }

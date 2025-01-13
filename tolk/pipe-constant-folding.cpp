@@ -23,7 +23,8 @@
  *   This pipe is supposed to do constant folding, like replacing `2 + 3` with `5`.
  *   It happens after type inferring and validity checks, one of the last ones.
  *
- *   Currently, it just replaces `-1` (ast_unary_operator ast_int_const) with a number -1.
+ *   Currently, it just replaces `-1` (ast_unary_operator ast_int_const) with a number -1
+ * and `!true` with false.
  *   More rich constant folding should be done some day, but even without this, IR optimizations
  * (operating low-level stack variables) pretty manage to do all related optimizations.
  * Constant folding in the future, done at AST level, just would slightly reduce amount of work for optimizer.
@@ -37,6 +38,13 @@ class ConstantFoldingReplacer final : public ASTReplacerInFunctionBody {
     v_int->assign_inferred_type(TypeDataInt::create());
     v_int->assign_rvalue_true();
     return v_int;
+  }
+
+  static V<ast_bool_const> create_bool_const(SrcLocation loc, bool bool_val) {
+    auto v_bool = createV<ast_bool_const>(loc, bool_val);
+    v_bool->assign_inferred_type(TypeDataBool::create());
+    v_bool->assign_rvalue_true();
+    return v_bool;
   }
 
   AnyExprV replace(V<ast_unary_operator> v) override {
@@ -56,6 +64,15 @@ class ConstantFoldingReplacer final : public ASTReplacerInFunctionBody {
     // same for "+1"
     if (t == tok_plus && v->get_rhs()->type == ast_int_const) {
       return v->get_rhs();
+    }
+
+    // `!true` / `!false`
+    if (t == tok_logical_not && v->get_rhs()->type == ast_bool_const) {
+      return create_bool_const(v->loc, !v->get_rhs()->as<ast_bool_const>()->bool_val);
+    }
+    // `!0`
+    if (t == tok_logical_not && v->get_rhs()->type == ast_int_const) {
+      return create_bool_const(v->loc, v->get_rhs()->as<ast_int_const>()->intval == 0);
     }
 
     return v;

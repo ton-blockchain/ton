@@ -475,7 +475,7 @@ AsmOp compile_unary_plus(std::vector<VarDescr>& res, std::vector<VarDescr>& args
   return AsmOp::Nop();
 }
 
-AsmOp compile_logical_not(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation where) {
+AsmOp compile_logical_not(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation where, bool for_int_arg) {
   tolk_assert(res.size() == 1 && args.size() == 1);
   VarDescr &r = res[0], &x = args[0];
   if (x.is_int_const()) {
@@ -484,7 +484,9 @@ AsmOp compile_logical_not(std::vector<VarDescr>& res, std::vector<VarDescr>& arg
     return push_const(r.int_const);
   }
   r.val = VarDescr::ValBool;
-  return exec_op("0 EQINT", 1);
+  // for integers, `!var` is `var != 0`
+  // for booleans, `!var` can be shortened to `~var` (works the same for 0/-1 but consumes less)
+  return for_int_arg ? exec_op("0 EQINT", 1) : exec_op("NOT", 1);
 }
 
 AsmOp compile_bitwise_and(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation where) {
@@ -1047,7 +1049,7 @@ AsmOp compile_fetch_slice(std::vector<VarDescr>& res, std::vector<VarDescr>& arg
   return exec_op(fetch ? "LDSLICEX" : "PLDSLICEX", 2, 1 + (unsigned)fetch);
 }
 
-// fun at<X>(t: tuple, index: int): X   asm "INDEXVAR";
+// fun tupleAt<X>(t: tuple, index: int): X   asm "INDEXVAR";
 AsmOp compile_tuple_at(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation) {
   tolk_assert(args.size() == 2 && res.size() == 1);
   auto& y = args[1];
@@ -1058,7 +1060,7 @@ AsmOp compile_tuple_at(std::vector<VarDescr>& res, std::vector<VarDescr>& args, 
   return exec_op("INDEXVAR", 2, 1);
 }
 
-// fun __isNull<X>(X arg): int
+// fun __isNull<X>(X arg): bool
 AsmOp compile_is_null(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation) {
   tolk_assert(args.size() == 1 && res.size() == 1);
   res[0].val = VarDescr::ValBool;
@@ -1071,6 +1073,7 @@ void define_builtins() {
 
   TypePtr Unit = TypeDataVoid::create();
   TypePtr Int = TypeDataInt::create();
+  TypePtr Bool = TypeDataBool::create();
   TypePtr Slice = TypeDataSlice::create();
   TypePtr Builder = TypeDataBuilder::create();
   TypePtr Tuple = TypeDataTuple::create();
@@ -1085,17 +1088,35 @@ void define_builtins() {
   std::vector ParamsInt3 = {Int, Int, Int};
   std::vector ParamsSliceInt = {Slice, Int};
 
-  define_builtin_func("_+_", ParamsInt2, Int, nullptr,
-                              compile_add,
-                                FunctionData::flagMarkedAsPure);
-  define_builtin_func("_-_", ParamsInt2, Int, nullptr,
-                              compile_sub,
-                                FunctionData::flagMarkedAsPure);
+  // builtin operators
+  // they are internally stored as functions, because at IR level, there is no difference
+  // between calling `userAdd(a,b)` and `_+_(a,b)`
+  // since they are registered in a global symtable, technically, they can even be referenced from Tolk code,
+  // though it's a "hidden feature" and won't work well for overloads (`==` for int and bool, for example)
+
+  // unary operators
   define_builtin_func("-_", ParamsInt1, Int, nullptr,
                               compile_unary_minus,
                                 FunctionData::flagMarkedAsPure);
   define_builtin_func("+_", ParamsInt1, Int, nullptr,
                               compile_unary_plus,
+                                FunctionData::flagMarkedAsPure);
+  define_builtin_func("!_", ParamsInt1, Bool, nullptr,
+                              std::bind(compile_logical_not, _1, _2, _3, true),
+                                FunctionData::flagMarkedAsPure);
+  define_builtin_func("!b_", {Bool}, Bool, nullptr,   // "overloaded" separate version for bool
+                              std::bind(compile_logical_not, _1, _2, _3, false),
+                                FunctionData::flagMarkedAsPure);
+  define_builtin_func("~_", ParamsInt1, Int, nullptr,
+                              compile_bitwise_not,
+                                FunctionData::flagMarkedAsPure);
+
+  // binary operators
+  define_builtin_func("_+_", ParamsInt2, Int, nullptr,
+                              compile_add,
+                                FunctionData::flagMarkedAsPure);
+  define_builtin_func("_-_", ParamsInt2, Int, nullptr,
+                              compile_sub,
                                 FunctionData::flagMarkedAsPure);
   define_builtin_func("_*_", ParamsInt2, Int, nullptr,
                               compile_mul,
@@ -1124,25 +1145,19 @@ void define_builtins() {
   define_builtin_func("_^>>_", ParamsInt2, Int, nullptr,
                               std::bind(compile_rshift, _1, _2, _3, 1),
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("!_", ParamsInt1, Int, nullptr,
-                              compile_logical_not,
-                                FunctionData::flagMarkedAsPure);
-  define_builtin_func("~_", ParamsInt1, Int, nullptr,
-                              compile_bitwise_not,
-                                FunctionData::flagMarkedAsPure);
-  define_builtin_func("_&_", ParamsInt2, Int, nullptr,
+  define_builtin_func("_&_", ParamsInt2, Int, nullptr,        // also works for bool
                               compile_bitwise_and,
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("_|_", ParamsInt2, Int, nullptr,
+  define_builtin_func("_|_", ParamsInt2, Int, nullptr,        // also works for bool
                               compile_bitwise_or,
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("_^_", ParamsInt2, Int, nullptr,
+  define_builtin_func("_^_", ParamsInt2, Int, nullptr,        // also works for bool
                               compile_bitwise_xor,
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("_==_", ParamsInt2, Int, nullptr,
+  define_builtin_func("_==_", ParamsInt2, Int, nullptr,       // also works for bool
                               std::bind(compile_cmp_int, _1, _2, 2),
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("_!=_", ParamsInt2, Int, nullptr,
+  define_builtin_func("_!=_", ParamsInt2, Int, nullptr,       // also works for bool
                               std::bind(compile_cmp_int, _1, _2, 5),
                                 FunctionData::flagMarkedAsPure);
   define_builtin_func("_<_", ParamsInt2, Int, nullptr,
@@ -1160,6 +1175,33 @@ void define_builtins() {
   define_builtin_func("_<=>_", ParamsInt2, Int, nullptr,
                               std::bind(compile_cmp_int, _1, _2, 7),
                                 FunctionData::flagMarkedAsPure);
+
+  // special function used for internal compilation of some lexical constructs
+  // for example, `throw 123;` is actually calling `__throw(123)`
+  define_builtin_func("__true", {}, Bool, nullptr, /* AsmOp::Const("TRUE") */
+                              std::bind(compile_bool_const, _1, _2, true),
+                                FunctionData::flagMarkedAsPure);
+  define_builtin_func("__false", {}, Bool, nullptr, /* AsmOp::Const("FALSE") */
+                              std::bind(compile_bool_const, _1, _2, false),
+                                FunctionData::flagMarkedAsPure);
+  define_builtin_func("__null", {}, typeT, declGenericT,
+                              AsmOp::Const("PUSHNULL"),
+                                FunctionData::flagMarkedAsPure);
+  define_builtin_func("__isNull", {typeT}, Bool, declGenericT,
+                              compile_is_null,
+                                FunctionData::flagMarkedAsPure);
+  define_builtin_func("__throw", ParamsInt1, Unit, nullptr,
+                              compile_throw,
+                                0);
+  define_builtin_func("__throw_arg", {typeT, Int}, Unit, declGenericT,
+                              compile_throw_arg,
+                                0);
+  define_builtin_func("__throw_if_unless", ParamsInt3, Unit, nullptr,
+                              compile_throw_if_unless,
+                                0);
+
+  // functions from stdlib marked as `builtin`, implemented at compiler level for optimizations
+  // (for example, `loadInt(1)` is `1 LDI`, but `loadInt(n)` for non-constant requires it be on a stack and `LDIX`)
   define_builtin_func("mulDivFloor", ParamsInt3, Int, nullptr,
                               std::bind(compile_muldiv, _1, _2, _3, -1),
                                 FunctionData::flagMarkedAsPure);
@@ -1172,27 +1214,6 @@ void define_builtins() {
   define_builtin_func("mulDivMod", ParamsInt3, TypeDataTensor::create({Int, Int}), nullptr,
                               AsmOp::Custom("MULDIVMOD", 3, 2),
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("__true", {}, Int, nullptr, /* AsmOp::Const("TRUE") */
-                              std::bind(compile_bool_const, _1, _2, true),
-                                FunctionData::flagMarkedAsPure);
-  define_builtin_func("__false", {}, Int, nullptr, /* AsmOp::Const("FALSE") */
-                              std::bind(compile_bool_const, _1, _2, false),
-                                FunctionData::flagMarkedAsPure);
-  define_builtin_func("__null", {}, typeT, declGenericT,
-                              AsmOp::Const("PUSHNULL"),
-                                FunctionData::flagMarkedAsPure);
-  define_builtin_func("__isNull", {typeT}, Int, declGenericT,
-                              compile_is_null,
-                                FunctionData::flagMarkedAsPure);
-  define_builtin_func("__throw", ParamsInt1, Unit, nullptr,
-                              compile_throw,
-                                0);
-  define_builtin_func("__throw_arg", {typeT, Int}, Unit, declGenericT,
-                              compile_throw_arg,
-                                0);
-  define_builtin_func("__throw_if_unless", ParamsInt3, Unit, nullptr,
-                              compile_throw_if_unless,
-                                0);
   define_builtin_func("loadInt", ParamsSliceInt, Int, nullptr,
                               std::bind(compile_fetch_int, _1, _2, true, true),
                                 FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf,

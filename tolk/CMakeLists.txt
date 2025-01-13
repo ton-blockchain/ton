@@ -18,6 +18,7 @@ set(TOLK_SOURCE
         pipe-check-rvalue-lvalue.cpp
         pipe-check-pure-impure.cpp
         pipe-constant-folding.cpp
+        pipe-optimize-boolean-expr.cpp
         pipe-ast-to-legacy.cpp
         pipe-find-unused-symbols.cpp
         pipe-generate-fif-output.cpp

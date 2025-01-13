@@ -1,7 +1,7 @@
 @method_id(101)
 fun test1(): int {
-    var x = false;
-    if (x == true) {
+    var x: int = false as int;
+    if (x == true as int) {
         x= 100500;
     }
     return x;

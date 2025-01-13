@@ -110,6 +110,20 @@ static void fire_error_assign_always_null_to_variable(SrcLocation loc, const Loc
   throw ParseError(loc, "can not infer type of `" + var_name + "`, it's always null; specify its type with `" + var_name + ": <type>`" + (is_assigned_null_literal ? " or use `null as <type>`" : ""));
 }
 
+// fire an error on `!cell` / `+slice`
+GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
+static void fire_error_cannot_apply_operator(SrcLocation loc, std::string_view operator_name, AnyExprV unary_expr) {
+  std::string op = static_cast<std::string>(operator_name);
+  throw ParseError(loc, "can not apply operator `" + op + "` to " + to_string(unary_expr->inferred_type));
+}
+
+// fire an error on `int + cell` / `slice & int`
+GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
+static void fire_error_cannot_apply_operator(SrcLocation loc, std::string_view operator_name, AnyExprV lhs, AnyExprV rhs) {
+  std::string op = static_cast<std::string>(operator_name);
+  throw ParseError(loc, "can not apply operator `" + op + "` to " + to_string(lhs->inferred_type) + " and " + to_string(rhs->inferred_type));
+}
+
 // check correctness of called arguments counts and their type matching
 static void check_function_arguments(const FunctionData* fun_ref, V<ast_argument_list> v, AnyExprV lhs_of_dot_call) {
   int delta_self = lhs_of_dot_call ? 1 : 0;
@@ -345,6 +359,10 @@ class InferCheckTypesAndCallsAndFieldsVisitor final {
     return v_inferred->inferred_type == TypeDataInt::create();
   }
 
+  static bool expect_boolean(AnyExprV v_inferred) {
+    return v_inferred->inferred_type == TypeDataBool::create();
+  }
+
   static void infer_int_const(V<ast_int_const> v) {
     assign_inferred_type(v, TypeDataInt::create());
   }
@@ -358,8 +376,7 @@ class InferCheckTypesAndCallsAndFieldsVisitor final {
   }
 
   static void infer_bool_const(V<ast_bool_const> v) {
-    // currently, Tolk has no `bool` type; `true` and `false` are integers (-1 and 0)
-    assign_inferred_type(v, TypeDataInt::create());
+    assign_inferred_type(v, TypeDataBool::create());
   }
 
   static void infer_local_vars_declaration(V<ast_local_vars_declaration>) {
@@ -544,8 +561,23 @@ class InferCheckTypesAndCallsAndFieldsVisitor final {
     // almost all operators implementation is hardcoded by built-in functions `_+_` and similar
     std::string_view builtin_func = v->operator_name;   // "+" for operator +=
 
-    if (!expect_integer(lhs) || !expect_integer(rhs)) {
-      v->error("can not apply operator `" + static_cast<std::string>(v->operator_name) + "` to " + to_string(lhs) + " and " + to_string(rhs));
+    switch (v->tok) {
+      // &= |= ^= are "overloaded" both for integers and booleans, (int &= bool) is NOT allowed
+      case tok_set_bitwise_and:
+      case tok_set_bitwise_or:
+      case tok_set_bitwise_xor: {
+        bool both_int = expect_integer(lhs) && expect_integer(rhs);
+        bool both_bool = expect_boolean(lhs) && expect_boolean(rhs);
+        if (!both_int && !both_bool) {
+          fire_error_cannot_apply_operator(v->loc, v->operator_name, lhs, rhs);
+        }
+        break;
+      }
+      // others are mathematical: += *= ...
+      default:
+        if (!expect_integer(lhs) || !expect_integer(rhs)) {
+          fire_error_cannot_apply_operator(v->loc, v->operator_name, lhs, rhs);
+        }
     }
 
     assign_inferred_type(v, lhs);
@@ -563,10 +595,26 @@ class InferCheckTypesAndCallsAndFieldsVisitor final {
     // all operators implementation is hardcoded by built-in functions `~_` and similar
     std::string_view builtin_func = v->operator_name;
 
-    if (!expect_integer(rhs)) {
-      v->error("can not apply operator `" + static_cast<std::string>(v->operator_name) + "` to " + to_string(rhs));
+    switch (v->tok) {
+      case tok_minus:
+      case tok_plus:
+      case tok_bitwise_not:
+        if (!expect_integer(rhs)) {
+          fire_error_cannot_apply_operator(v->loc, v->operator_name, rhs);
+        }
+        assign_inferred_type(v, TypeDataInt::create());
+        break;
+      case tok_logical_not:
+        if (expect_boolean(rhs)) {
+          builtin_func = "!b";  // "overloaded" for bool
+        } else if (!expect_integer(rhs)) {
+          fire_error_cannot_apply_operator(v->loc, v->operator_name, rhs);
+        }
+        assign_inferred_type(v, TypeDataBool::create());
+        break;
+      default:
+        tolk_assert(false);
     }
-    assign_inferred_type(v, TypeDataInt::create());
 
     if (!builtin_func.empty()) {
       const FunctionData* builtin_sym = lookup_global_symbol(static_cast<std::string>(builtin_func) + "_")->as<FunctionData>();
@@ -587,26 +635,59 @@ class InferCheckTypesAndCallsAndFieldsVisitor final {
     switch (v->tok) {
       // == != can compare both integers and booleans, (int == bool) is NOT allowed
       case tok_eq:
-      case tok_neq:
+      case tok_neq: {
+        bool both_int = expect_integer(lhs) && expect_integer(rhs);
+        bool both_bool = expect_boolean(lhs) && expect_boolean(rhs);
+        if (!both_int && !both_bool) {
+          if (lhs->inferred_type == rhs->inferred_type) {   // compare slice with slice
+            v->error("type " + to_string(lhs) + " can not be compared with `== !=`");
+          } else {
+            fire_error_cannot_apply_operator(v->loc, v->operator_name, lhs, rhs);
+          }
+        }
+        assign_inferred_type(v, TypeDataBool::create());
+        break;
+      }
+      // < > can compare only integers
+      case tok_lt:
+      case tok_gt:
+      case tok_leq:
+      case tok_geq:
       case tok_spaceship: {
         if (!expect_integer(lhs) || !expect_integer(rhs)) {
-          v->error("comparison operators `== !=` can compare only integers, got " + to_string(lhs) + " and " + to_string(rhs));
+          fire_error_cannot_apply_operator(v->loc, v->operator_name, lhs, rhs);
         }
-        assign_inferred_type(v, TypeDataInt::create());
+        assign_inferred_type(v, TypeDataBool::create());
         break;
       }
+      // & | ^ are "overloaded" both for integers and booleans, (int & bool) is NOT allowed
+      case tok_bitwise_and:
+      case tok_bitwise_or:
+      case tok_bitwise_xor: {
+        bool both_int = expect_integer(lhs) && expect_integer(rhs);
+        bool both_bool = expect_boolean(lhs) && expect_boolean(rhs);
+        if (!both_int && !both_bool) {
+          fire_error_cannot_apply_operator(v->loc, v->operator_name, lhs, rhs);
+        }
+        assign_inferred_type(v, rhs);   // (int & int) is int, (bool & bool) is bool
+        break;
+      }
+      // && || can work with integers and booleans, (int && bool) is allowed
       case tok_logical_and:
       case tok_logical_or: {
-        if (!expect_integer(lhs) || !expect_integer(rhs)) {
-          v->error("logical operators `&& ||` expect integer operands, got " + to_string(lhs) + " and " + to_string(rhs));
+        bool lhs_ok = expect_integer(lhs) || expect_boolean(lhs);
+        bool rhs_ok = expect_integer(rhs) || expect_boolean(rhs);
+        if (!lhs_ok || !rhs_ok) {
+          fire_error_cannot_apply_operator(v->loc, v->operator_name, lhs, rhs);
         }
-        assign_inferred_type(v, TypeDataInt::create());
-        builtin_func = {};
+        assign_inferred_type(v, TypeDataBool::create());
+        builtin_func = {};    // no built-in functions, logical operators are expressed as IFs at IR level
         break;
       }
+      // others are mathematical: + * ...
       default:
         if (!expect_integer(lhs) || !expect_integer(rhs)) {
-          v->error("can not apply operator `" + static_cast<std::string>(v->operator_name) + "` to " + to_string(lhs) + " and " + to_string(rhs));
+          fire_error_cannot_apply_operator(v->loc, v->operator_name, lhs, rhs);
         }
         assign_inferred_type(v, TypeDataInt::create());
     }
@@ -619,9 +700,10 @@ class InferCheckTypesAndCallsAndFieldsVisitor final {
   }
 
   void infer_ternary_operator(V<ast_ternary_operator> v, TypePtr hint) {
-    infer_any_expr(v->get_cond());
-    if (!expect_integer(v->get_cond())) {
-      v->get_cond()->error("condition of ternary operator must be an integer, got " + to_string(v->get_cond()));
+    AnyExprV cond = v->get_cond();
+    infer_any_expr(cond);
+    if (!expect_integer(cond) && !expect_boolean(cond)) {
+      cond->error("can not use " + to_string(cond) + " as a boolean condition");
     }
     infer_any_expr(v->get_when_true(), hint);
     infer_any_expr(v->get_when_false(), hint);
@@ -983,35 +1065,39 @@ class InferCheckTypesAndCallsAndFieldsVisitor final {
   }
 
   void process_if_statement(V<ast_if_statement> v) {
-    infer_any_expr(v->get_cond());
-    if (!expect_integer(v->get_cond())) {
-      v->get_cond()->error("condition of `if` must be an integer, got " + to_string(v->get_cond()));
+    AnyExprV cond = v->get_cond();
+    infer_any_expr(cond);
+    if (!expect_integer(cond) && !expect_boolean(cond)) {
+      cond->error("can not use " + to_string(cond) + " as a boolean condition");
     }
     process_any_statement(v->get_if_body());
     process_any_statement(v->get_else_body());
   }
 
   void process_repeat_statement(V<ast_repeat_statement> v) {
-    infer_any_expr(v->get_cond());
-    if (!expect_integer(v->get_cond())) {
-      v->get_cond()->error("condition of `repeat` must be an integer, got " + to_string(v->get_cond()));
+    AnyExprV cond = v->get_cond();
+    infer_any_expr(cond);
+    if (!expect_integer(cond)) {
+      cond->error("condition of `repeat` must be an integer, got " + to_string(cond));
     }
     process_any_statement(v->get_body());
   }
 
   void process_while_statement(V<ast_while_statement> v) {
-    infer_any_expr(v->get_cond());
-    if (!expect_integer(v->get_cond())) {
-      v->get_cond()->error("condition of `while` must be an integer, got " + to_string(v->get_cond()));
+    AnyExprV cond = v->get_cond();
+    infer_any_expr(cond);
+    if (!expect_integer(cond) && !expect_boolean(cond)) {
+      cond->error("can not use " + to_string(cond) + " as a boolean condition");
     }
     process_any_statement(v->get_body());
   }
 
   void process_do_while_statement(V<ast_do_while_statement> v) {
     process_any_statement(v->get_body());
-    infer_any_expr(v->get_cond());
-    if (!expect_integer(v->get_cond())) {
-      v->get_cond()->error("condition of `while` must be an integer, got " + to_string(v->get_cond()));
+    AnyExprV cond = v->get_cond();
+    infer_any_expr(cond);
+    if (!expect_integer(cond) && !expect_boolean(cond)) {
+      cond->error("can not use " + to_string(cond) + " as a boolean condition");
     }
   }
 
@@ -1027,9 +1113,10 @@ class InferCheckTypesAndCallsAndFieldsVisitor final {
   }
 
   void process_assert_statement(V<ast_assert_statement> v) {
-    infer_any_expr(v->get_cond());
-    if (!expect_integer(v->get_cond())) {
-      v->get_cond()->error("condition of `assert` must be an integer, got " + to_string(v->get_cond()));
+    AnyExprV cond = v->get_cond();
+    infer_any_expr(cond);
+    if (!expect_integer(cond) && !expect_boolean(cond)) {
+      cond->error("can not use " + to_string(cond) + " as a boolean condition");
     }
     infer_any_expr(v->get_thrown_code());
     if (!expect_integer(v->get_thrown_code())) {

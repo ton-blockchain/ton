@@ -162,8 +162,8 @@ fun test13() {
 }
 
 @method_id(114)
-fun test110(x: int) {
-    var s = beginCell().storeBool(x < 0).storeBool(0).storeBool(x).endCell().beginParse();
+fun test110(x: bool) {
+    var s = beginCell().storeBool(x == true).storeBool(false).storeBool(x).endCell().beginParse();
     return (s.loadBool(), s.loadBool(), s.loadBool());
 }
 
@@ -179,15 +179,15 @@ fun test111() {
     if (s.addressIsNone()) {
         s.skipBits(2);
     }
-    if (s.loadBool() == 0) {
-        assert(s.loadBool() == 0) throw 444;
+    if (s.loadBool() == false) {
+        assert(!s.loadBool()) throw 444;
         s.skipBouncedPrefix();
     }
     var op2 = s.loadMessageOp();
     var q2 = s.loadMessageQueryId();
     s.skipBits(64);
     s.assertEndOfSlice();
-    assert(isMessageBounced(0x001)) throw 444;
+    assert(isMessageBounced(0x001) && !isMessageBounced(0x002)) throw 444;
     return (op1, q1, op2, q2);
 }
 

@@ -73,7 +73,7 @@ fun test7() {
     var b = beginCell().storeMaybeRef(null);
     var s = b.endCell().beginParse();
     var c = s.loadMaybeRef();
-    return (null == c) * 10 + (b != null);
+    return (null == c) as int * 10 + (b != null) as int;
 }
 
 fun main() {
@@ -139,7 +139,7 @@ fun main() {
     10 MULCONST	//  b _13
     SWAP	    //  _13 b
     ISNULL	    //  _13 _14
-    0 EQINT     // _13 _15
+    NOT         // _13 _15
     ADD	        //  _16
   }>
 """

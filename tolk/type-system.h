@@ -121,6 +121,24 @@ public:
 };
 
 /*
+ * `bool` is TypeDataBool. TVM has no bool, only integers. Under the hood, -1 is true, 0 is false.
+ * From the type system point of view, int and bool are different, not-autocastable types.
+ */
+class TypeDataBool final : public TypeData {
+  TypeDataBool() : TypeData(2ULL, 0) {}
+
+  static TypePtr singleton;
+  friend void type_system_init();
+
+public:
+  static TypePtr create() { return singleton; }
+
+  std::string as_human_readable() const override { return "bool"; }
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+};
+
+/*
  * `cell` is TypeDataCell, representation of TVM cell.
  */
 class TypeDataCell final : public TypeData {

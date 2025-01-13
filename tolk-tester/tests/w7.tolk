@@ -4,7 +4,7 @@ fun test(y: int): int {
   if (y > 0) {
     return 1;
   }
-  return x > 0;
+  return x > 0 ? -1 : 0;
 }
 
 @method_id(2)

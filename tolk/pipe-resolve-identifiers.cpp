@@ -150,9 +150,6 @@ struct TypeDataResolver {
         if (un->text == "self") {
           throw ParseError(un->loc, "`self` type can be used only as a return type of a function (enforcing it to be chainable)");
         }
-        if (un->text == "bool") {
-          throw ParseError(un->loc, "bool type is not supported yet");
-        }
         fire_error_unknown_type_name(un->loc, un->text);
       }
       return child;

@@ -673,25 +673,20 @@ static AnyV parse_return_statement(Lexer& lex) {
   return createV<ast_return_statement>(loc, child);
 }
 
-static AnyV parse_if_statement(Lexer& lex, bool is_ifnot) {
+static AnyV parse_if_statement(Lexer& lex) {
   SrcLocation loc = lex.cur_location();
   lex.expect(tok_if, "`if`");
 
   lex.expect(tok_oppar, "`(`");
   AnyExprV cond = parse_expr(lex);
   lex.expect(tok_clpar, "`)`");
-  // replace if(!expr) with ifnot(expr) (this should be done later, but for now, let this be right at parsing time)
-  if (auto v_not = cond->try_as<ast_unary_operator>(); v_not && v_not->tok == tok_logical_not) {
-    is_ifnot = !is_ifnot;
-    cond = v_not->get_rhs();
-  }
 
   V<ast_sequence> if_body = parse_sequence(lex);
   V<ast_sequence> else_body = nullptr;
   if (lex.tok() == tok_else) {  // else if(e) { } or else { }
     lex.next();
     if (lex.tok() == tok_if) {
-      AnyV v_inner_if = parse_if_statement(lex, false);
+      AnyV v_inner_if = parse_if_statement(lex);
       else_body = createV<ast_sequence>(v_inner_if->loc, lex.cur_location(), {v_inner_if});
     } else {
       else_body = parse_sequence(lex);
@@ -699,7 +694,7 @@ static AnyV parse_if_statement(Lexer& lex, bool is_ifnot) {
   } else {  // no 'else', create empty block
     else_body = createV<ast_sequence>(lex.cur_location(), lex.cur_location(), {});
   }
-  return createV<ast_if_statement>(loc, is_ifnot, cond, if_body, else_body);
+  return createV<ast_if_statement>(loc, false, cond, if_body, else_body);
 }
 
 static AnyV parse_repeat_statement(Lexer& lex) {
@@ -838,7 +833,7 @@ AnyV parse_statement(Lexer& lex) {
     case tok_return:
       return parse_return_statement(lex);
     case tok_if:
-      return parse_if_statement(lex, false);
+      return parse_if_statement(lex);
     case tok_repeat:
       return parse_repeat_statement(lex);
     case tok_do:

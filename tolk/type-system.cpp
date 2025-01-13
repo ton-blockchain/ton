@@ -76,6 +76,7 @@ public:
 
 std::unordered_map<uint64_t, TypePtr> TypeDataTypeIdCalculation::all_unique_occurred_types;
 TypePtr TypeDataInt::singleton;
+TypePtr TypeDataBool::singleton;
 TypePtr TypeDataCell::singleton;
 TypePtr TypeDataSlice::singleton;
 TypePtr TypeDataBuilder::singleton;
@@ -87,6 +88,7 @@ TypePtr TypeDataVoid::singleton;
 
 void type_system_init() {
   TypeDataInt::singleton = new TypeDataInt;
+  TypeDataBool::singleton = new TypeDataBool;
   TypeDataCell::singleton = new TypeDataCell;
   TypeDataSlice::singleton = new TypeDataSlice;
   TypeDataBuilder::singleton = new TypeDataBuilder;
@@ -330,6 +332,16 @@ bool TypeDataInt::can_rhs_be_assigned(TypePtr rhs) const {
   return false;
 }
 
+bool TypeDataBool::can_rhs_be_assigned(TypePtr rhs) const {
+  if (rhs == this) {
+    return true;
+  }
+  if (rhs == TypeDataNullLiteral::create()) {
+    return true;
+  }
+  return false;
+}
+
 bool TypeDataCell::can_rhs_be_assigned(TypePtr rhs) const {
   if (rhs == this) {
     return true;
@@ -446,6 +458,10 @@ bool TypeDataInt::can_be_casted_with_as_operator(TypePtr cast_to) const {
   return cast_to == this;
 }
 
+bool TypeDataBool::can_be_casted_with_as_operator(TypePtr cast_to) const {
+  return cast_to == this || cast_to == TypeDataInt::create();
+}
+
 bool TypeDataCell::can_be_casted_with_as_operator(TypePtr cast_to) const {
   return cast_to == this;
 }
@@ -468,7 +484,7 @@ bool TypeDataContinuation::can_be_casted_with_as_operator(TypePtr cast_to) const
 
 bool TypeDataNullLiteral::can_be_casted_with_as_operator(TypePtr cast_to) const {
   return cast_to == this
-      || cast_to == TypeDataInt::create() || cast_to == TypeDataCell::create() || cast_to == TypeDataSlice::create()
+      || cast_to == TypeDataInt::create() || cast_to == TypeDataBool::create() || cast_to == TypeDataCell::create() || cast_to == TypeDataSlice::create()
       || cast_to == TypeDataBuilder::create() || cast_to == TypeDataContinuation::create() || cast_to == TypeDataTuple::create()
       || cast_to->try_as<TypeDataTypedTuple>();
 }
@@ -593,6 +609,9 @@ static TypePtr parse_simple_type(Lexer& lex) {
     case tok_int:
       lex.next();
       return TypeDataInt::create();
+    case tok_bool:
+      lex.next();
+      return TypeDataBool::create();
     case tok_cell:
       lex.next();
       return TypeDataCell::create();
@@ -614,7 +633,6 @@ static TypePtr parse_simple_type(Lexer& lex) {
     case tok_void:
       lex.next();
       return TypeDataVoid::create();
-    case tok_bool:
     case tok_self:
     case tok_identifier: {
       SrcLocation loc = lex.cur_location();

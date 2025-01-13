@@ -38,7 +38,7 @@ fun foo_until(x: int): int {
 }
 
 @method_id(4)
-fun test4(x: int): (int, int) {
+fun test4(x: int): (int, bool) {
   var s = 0;
   var reached = false;
   do {
