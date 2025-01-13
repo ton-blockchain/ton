@@ -1,5 +1,5 @@
 // A part of standard library for Tolk
-tolk 0.6
+tolk 0.7
 
 /**
   Gas and payment related primitives.
