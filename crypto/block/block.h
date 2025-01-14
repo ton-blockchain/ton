@@ -725,10 +725,10 @@ bool unpack_block_prev_blk(Ref<vm::Cell> block_root, const ton::BlockIdExt& id, 
                            ton::BlockIdExt& mc_blkid, bool& after_split, ton::BlockIdExt* fetch_blkid = nullptr);
 td::Status unpack_block_prev_blk_ext(Ref<vm::Cell> block_root, const ton::BlockIdExt& id,
                                      std::vector<ton::BlockIdExt>& prev, ton::BlockIdExt& mc_blkid, bool& after_split,
-                                     ton::BlockIdExt* fetch_blkid = nullptr);
+                                     ton::BlockIdExt* fetch_blkid = nullptr, bool ignore_root_hash = false);
 td::Status unpack_block_prev_blk_try(Ref<vm::Cell> block_root, const ton::BlockIdExt& id,
                                      std::vector<ton::BlockIdExt>& prev, ton::BlockIdExt& mc_blkid, bool& after_split,
-                                     ton::BlockIdExt* fetch_blkid = nullptr);
+                                     ton::BlockIdExt* fetch_blkid = nullptr, bool ignore_root_hash = false);
 td::Status check_block_header(Ref<vm::Cell> block_root, const ton::BlockIdExt& id,
                               ton::Bits256* store_shard_hash_to = nullptr);
 

@@ -1099,3 +1099,5 @@ storage.daemon.removeStorageProvider = storage.daemon.Success;
 
 ---types---
 proxyLiteserver.config port:int id:PublicKey = proxyLiteserver.Config;
+
+contest.test block_id:tonNode.blockIdExt block_data:bytes collated_data:bytes valid:Bool = contest.Test;

@@ -1957,9 +1957,10 @@ bool unpack_block_prev_blk(Ref<vm::Cell> block_root, const ton::BlockIdExt& id, 
 
 td::Status unpack_block_prev_blk_try(Ref<vm::Cell> block_root, const ton::BlockIdExt& id,
                                      std::vector<ton::BlockIdExt>& prev, ton::BlockIdExt& mc_blkid, bool& after_split,
-                                     ton::BlockIdExt* fetch_blkid) {
+                                     ton::BlockIdExt* fetch_blkid, bool ignore_root_hash) {
   try {
-    return unpack_block_prev_blk_ext(std::move(block_root), id, prev, mc_blkid, after_split, fetch_blkid);
+    return unpack_block_prev_blk_ext(std::move(block_root), id, prev, mc_blkid, after_split, fetch_blkid,
+                                     ignore_root_hash);
   } catch (vm::VmError err) {
     return td::Status::Error(std::string{"error while processing Merkle proof: "} + err.get_msg());
   } catch (vm::VmVirtError err) {
@@ -1969,7 +1970,7 @@ td::Status unpack_block_prev_blk_try(Ref<vm::Cell> block_root, const ton::BlockI
 
 td::Status unpack_block_prev_blk_ext(Ref<vm::Cell> block_root, const ton::BlockIdExt& id,
                                      std::vector<ton::BlockIdExt>& prev, ton::BlockIdExt& mc_blkid, bool& after_split,
-                                     ton::BlockIdExt* fetch_blkid) {
+                                     ton::BlockIdExt* fetch_blkid, bool ignore_root_hash) {
   block::gen::Block::Record blk;
   block::gen::BlockInfo::Record info;
   block::gen::ExtBlkRef::Record mcref;  // _ ExtBlkRef = BlkMasterInfo;
@@ -1988,7 +1989,7 @@ td::Status unpack_block_prev_blk_ext(Ref<vm::Cell> block_root, const ton::BlockI
     if (id.id != hdr_id) {
       return td::Status::Error("block header contains block id "s + hdr_id.to_str() + ", expected " + id.id.to_str());
     }
-    if (id.root_hash != block_root->get_hash().bits()) {
+    if (id.root_hash != block_root->get_hash().bits() && !ignore_root_hash) {
       return td::Status::Error("block header has incorrect root hash "s + block_root->get_hash().bits().to_hex(256) +
                                " instead of expected " + id.root_hash.to_hex());
     }

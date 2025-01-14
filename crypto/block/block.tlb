@@ -473,6 +473,11 @@ block#11ef55aa global_id:int32
   state_update:^(MERKLE_UPDATE ShardState) 
   extra:^BlockExtra = Block;
 
+block_relaxed#11ef55aa global_id:int32
+  info:^BlockInfo value_flow:^ValueFlow
+  state_update:^Cell
+  extra:^BlockExtra = BlockRelaxed;
+
 block_extra in_msg_descr:^InMsgDescr
   out_msg_descr:^OutMsgDescr
   account_blocks:^ShardAccountBlocks
@@ -853,6 +858,7 @@ top_block_descr#d5 proof_for:BlockIdExt signatures:(Maybe ^BlockSignatures)
 //  COLLATED DATA
 //
 top_block_descr_set#4ac789f3 collection:(HashmapE 96 ^TopBlockDescr) = TopBlockDescrSet;
+extra_collated_data#ea59be4c underload:Bool overload:Bool proc_info:ProcessedInfo = ExtraCollatedData;
 
 //
 //  VALIDATOR MISBEHAVIOR COMPLAINTS
