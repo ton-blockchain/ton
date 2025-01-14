@@ -1,7 +1,7 @@
 #!/usr/bin/fift -s
 "Asm.fif" include
 
-// New advanced wallet code adapted from `auto/wallet3-code.fif`
+// New advanced wallet code adapted from `auto/EQBRYjGMy_f7wQSy5l8W9mMBtjRtAvT4VBJ3pS51jwDkn8pP-code.fif`
 <{ SETCP0 DUP IFNOTRET // return if recv_internal
    DUP 85143 INT EQUAL OVER 78748 INT EQUAL OR IFJMP:<{ // "seqno" and "get_public_key" get-methods
      1 INT AND c4 PUSHCTR CTOS 32 LDU 32 LDU NIP 256 PLDU CONDSEL  // cnt or pubk
