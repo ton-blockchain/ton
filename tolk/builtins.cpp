@@ -1255,6 +1255,13 @@ void define_builtins() {
   define_builtin_func("debugDumpStack", {}, Unit, nullptr,
                                 AsmOp::Custom("DUMPSTK", 0, 0),
                                 0);
+
+  // functions not presented in stdlib at all
+  // used in tolk-tester to check/expose internal compiler state
+  // each of them is handled in a special way, search by its name
+  define_builtin_func("__expect_type", {TypeDataUnknown::create(), Slice}, Unit, nullptr,
+                                AsmOp::Nop(),
+                                FunctionData::flagMarkedAsPure);
 }
 
 }  // namespace tolk

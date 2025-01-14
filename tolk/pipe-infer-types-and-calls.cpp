@@ -240,6 +240,24 @@ public:
   TypePtr get_result() const { return unified_result; }
 };
 
+// handle __expect_type(expr, "type") call
+// this is used in compiler tests
+GNU_ATTRIBUTE_NOINLINE GNU_ATTRIBUTE_COLD
+static void handle_possible_compiler_internal_call(const FunctionData* current_function, V<ast_function_call> v) {
+  const FunctionData* fun_ref = v->fun_maybe;
+  tolk_assert(fun_ref && fun_ref->is_builtin_function());
+  static_cast<void>(current_function);
+
+  if (fun_ref->name == "__expect_type") {
+    tolk_assert(v->get_num_args() == 2);
+    TypePtr expected_type = parse_type_from_string(v->get_arg(1)->get_expr()->as<ast_string_const>()->str_val);
+    TypePtr expr_type = v->get_arg(0)->inferred_type;
+    if (expected_type != expr_type) {
+      v->error("__expect_type failed: expected " + to_string(expected_type) + ", got " + to_string(expr_type));
+    }
+  }
+}
+
 /*
  * This class handles all types of AST vertices and traverses them, filling all AnyExprV::inferred_type.
  * Note, that it isn't derived from ASTVisitor, it has manual `switch` over all existing vertex types.
@@ -974,6 +992,9 @@ class InferCheckTypesAndCallsAndFieldsVisitor final {
     TypePtr inferred_type = dot_obj && fun_ref->does_return_self() ? dot_obj->inferred_type : fun_ref->inferred_return_type;
     assign_inferred_type(v, inferred_type);
     assign_inferred_type(callee, fun_ref->inferred_full_type);
+    if (fun_ref->is_builtin_function() && fun_ref->name[0] == '_') {
+      handle_possible_compiler_internal_call(current_function, v);
+    }
     // note, that mutate params don't affect typing, they are handled when converting to IR
   }
 

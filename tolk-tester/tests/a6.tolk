@@ -1,6 +1,9 @@
 fun f(a: int, b: int, c: int, d: int, e: int, f: int): (int, int) {
   // solve a 2x2 linear equation
   var D: int = a*d - b*c;;;; var Dx: int = e*d-b*f ;;;;  var Dy: int = a * f - e * c;
+  __expect_type(D, "int");
+  __expect_type(D*D, "int");
+  __expect_type(calc_phi, "() -> int");
   return (Dx/D,Dy/D);
 };;;;
 

@@ -173,6 +173,7 @@ public:
   };
 
   explicit Lexer(const SrcFile* file);
+  explicit Lexer(std::string_view text);
   Lexer(const Lexer&) = delete;
   Lexer &operator=(const Lexer&) = delete;
 

@@ -651,11 +651,6 @@ static TypePtr parse_simple_type(Lexer& lex) {
       std::vector<TypePtr> items = parse_nested_type_list(lex, tok_opbracket, "`[`", tok_clbracket, "`]` or `,`");
       return TypeDataTypedTuple::create(std::move(items));
     }
-    case tok_fun: {
-      lex.next();
-      std::vector<TypePtr> params_types = parse_nested_type_list_in_parenthesis(lex);
-      lex.expect(tok_arrow, "`->`");
-    }
     default:
       lex.unexpected("<type>");
   }
@@ -692,6 +687,12 @@ static TypePtr parse_type_expression(Lexer& lex) {
 }
 
 TypePtr parse_type_from_tokens(Lexer& lex) {
+  return parse_type_expression(lex);
+}
+
+// for internal usage only
+TypePtr parse_type_from_string(std::string_view text) {
+  Lexer lex(text);
   return parse_type_expression(lex);
 }
 

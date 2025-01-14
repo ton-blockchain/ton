@@ -417,6 +417,7 @@ public:
 
 class Lexer;
 TypePtr parse_type_from_tokens(Lexer& lex);
+TypePtr parse_type_from_string(std::string_view text);
 
 void type_system_init();
 

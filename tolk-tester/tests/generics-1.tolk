@@ -41,10 +41,12 @@ fun manyEq<T1, T2, T3>(a: T1, b: T2, c: T3): [T1, T2, T3] {
 
 @method_id(104)
 fun test104(f: int) {
-    return (
+    var result = (
         manyEq(1 ? 1 : 1, f ? 0 : null, !f ? getTwo() as int : null),
         manyEq((f ? null as int : eq2(2), beginCell().storeBool(true).endCell().beginParse().loadBool()), 0, eq4(f))
     );
+    __expect_type(result, "([int, int, int], [(int, bool), int, int])");
+    return result;
 }
 
 fun calcSum<X>(x: X, y: X) { return x + y; }
@@ -68,6 +70,7 @@ fun abstractTransform<X, Y, R>(xToY: (X) -> Y, yToR: (((Y))) -> R, initialX: X):
 @method_id(106)
 fun test106() {
     var c = beginCell().storeInt(106, 32).endCell();
+    __expect_type(calcYPlus1<int>, "(int) -> int");
     return [
         abstractTransform(cellToSlice, calcLoad32, c),
         abstractTransform(calcYPlus1<int>, calcYPlus1<int>, 0),
