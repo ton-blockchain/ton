@@ -58,5 +58,5 @@ jobs:
     - name: Upload artifacts
       uses: actions/upload-artifact@master
       with:
-        name: ton-appimages-20.04
+        name: ton-x86_64-linux
         path: appimages/artifacts

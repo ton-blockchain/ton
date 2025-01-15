@@ -98,7 +98,6 @@ else
 fi
 
 cmake -GNinja .. \
--DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++ -fPIC -fcommon" \
 -DPORTABLE=1 \
 -DCMAKE_BUILD_TYPE=Release \
 -DOPENSSL_FOUND=1 \
