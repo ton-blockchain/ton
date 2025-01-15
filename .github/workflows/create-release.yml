@@ -14,7 +14,7 @@ jobs:
       - name: Download Linux x86-64 artifacts
         uses: dawidd6/action-download-artifact@v6
         with:
-          workflow: build-ton-linux-x86-64-appimages.yml
+          workflow: build-ton-linux-x86-64-appimage.yml
           path: artifacts
           workflow_conclusion: success
           skip_unpack: true
@@ -22,7 +22,7 @@ jobs:
       - name: Download and unzip Linux x86-64 artifacts
         uses: dawidd6/action-download-artifact@v6
         with:
-          workflow: build-ton-linux-x86-64-appimages.yml
+          workflow: build-ton-linux-x86-64-appimage.yml
           path: artifacts
           workflow_conclusion: success
           skip_unpack: false
@@ -458,15 +458,6 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: artifacts/ton-arm64-macos/tonlib-cli
           asset_name: tonlib-cli-mac-arm64
-          tag: ${{ steps.tag.outputs.TAG }}
-
-      # linux x86-64 appimages
-      - name: Upload Linux x86-64 artifacts 20
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-appimages-20.04.zip
-          asset_name: ton-appimages-20.04.zip
           tag: ${{ steps.tag.outputs.TAG }}
 
       # linux x86-64
