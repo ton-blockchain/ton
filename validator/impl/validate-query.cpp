@@ -1002,6 +1002,7 @@ bool ValidateQuery::fetch_config_params() {
     action_phase_cfg_.bounce_on_fail_enabled = config_->get_global_version() >= 4;
     action_phase_cfg_.message_skip_enabled = config_->get_global_version() >= 8;
     action_phase_cfg_.disable_custom_fess = config_->get_global_version() >= 8;
+    action_phase_cfg_.reserve_extra_enabled = config_->get_global_version() >= 9;
     action_phase_cfg_.mc_blackhole_addr = config_->get_burning_config().blackhole_addr;
   }
   {
