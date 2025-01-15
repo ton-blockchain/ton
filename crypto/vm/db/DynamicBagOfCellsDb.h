@@ -51,7 +51,7 @@ class DynamicBagOfCellsDb {
  public:
   virtual ~DynamicBagOfCellsDb() = default;
 
-  virtual td::Result<std::vector<std::pair<std::string, std::string>>> meta_get_all() const = 0;
+  virtual td::Result<std::vector<std::pair<std::string, std::string>>> meta_get_all(size_t max_count) const = 0;
   virtual td::Result<td::KeyValue::GetStatus> meta_get(td::Slice key, std::string &value) = 0;
   virtual td::Status meta_set(td::Slice key, td::Slice value) = 0;
   virtual td::Status meta_erase(td::Slice key) = 0;

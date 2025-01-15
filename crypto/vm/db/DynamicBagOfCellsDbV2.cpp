@@ -765,16 +765,22 @@ class DynamicBagOfCellsDbImplV2 : public DynamicBagOfCellsDb {
     }
   }
 
-  td::Result<std::vector<std::pair<std::string, std::string>>> meta_get_all() const override {
+  td::Result<std::vector<std::pair<std::string, std::string>>> meta_get_all(size_t max_count) const override {
     CHECK(meta_db_fixup_.empty());
     std::vector<std::pair<std::string, std::string>> result;
     auto s = cell_db_reader_->key_value_reader().for_each_in_range(
         "desc", "desd", [&](const td::Slice &key, const td::Slice &value) {
+           if (result.size() >= max_count) {
+             return td::Status::Error("COUNT_LIMIT");
+           }
           if (td::begins_with(key, "desc") && key.size() != 32) {
             result.emplace_back(key.str(), value.str());
           }
           return td::Status::OK();
         });
+    if (s.message() == "COUNT_LIMIT") {
+      s = td::Status::OK();
+    }
     TRY_STATUS(std::move(s));
     return result;
   }

@@ -74,6 +74,7 @@ class CellDbIn : public CellDbBase {
   CellDbIn(td::actor::ActorId<RootDb> root_db, td::actor::ActorId<CellDb> parent, std::string path,
            td::Ref<ValidatorManagerOptions> opts);
 
+  void validate_meta();
   void start_up() override;
   void alarm() override;
 

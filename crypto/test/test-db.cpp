@@ -50,6 +50,7 @@
 #include <set>
 #include <map>
 #include <thread>
+#include <barrier>
 
 #include <openssl/sha.h>
 
@@ -1312,7 +1313,8 @@ void with_all_boc_options(F &&f, size_t tests_n, bool single_thread = false) {
       // V2 - one thread
       run({.async_executor = executor,
            .kv_options = kv_options,
-           .options = DynamicBagOfCellsDb::CreateV2Options{.extra_threads = 0, .executor = executor, .cache_ttl_max = 5}});
+           .options =
+               DynamicBagOfCellsDb::CreateV2Options{.extra_threads = 0, .executor = executor, .cache_ttl_max = 5}});
 
       // InMemory
       for (auto use_arena : {false, true}) {
@@ -1353,6 +1355,8 @@ DynamicBagOfCellsDb::Stats test_dynamic_boc(BocOptions options) {
     if (rnd() % 10 == 0) {
       reload_db();
     }
+    db.dboc->load_cell(vm::CellHash{}.as_slice()).ensure_error();
+
     db.reset_loader();
     Ref<Cell> old_root;
     if (!old_root_hash.empty()) {
@@ -2899,6 +2903,35 @@ TEST(TonDb, BocRespectsUsageCell) {
   auto virtualized_proof = vm::MerkleProof::virtualize(proof, 1);
   auto serialization_of_virtualized_cell = serialize_boc(virtualized_proof);
   ASSERT_STREQ(serialization, serialization_of_virtualized_cell);
+}
+
+TEST(UsageTree, ThreadSafe) {
+  size_t test_n = 100;
+  td::Random::Xorshift128plus rnd(123);
+  for (size_t test_i = 0; test_i < test_n; test_i++) {
+    auto cell = vm::gen_random_cell(rnd.fast(2, 100), rnd, false);
+    auto usage_tree = std::make_shared<vm::CellUsageTree>();
+    auto usage_cell = vm::UsageCell::create(cell, usage_tree->root_ptr());
+    std::ptrdiff_t threads_n = 1; // TODO: when CellUsageTree is thread safe, change it to 4
+    auto barrier = std::barrier{threads_n};
+    std::vector<std::thread> threads;
+    std::vector<vm::CellExplorer::Exploration> explorations(threads_n);
+    for (std::ptrdiff_t i = 0; i < threads_n; i++) {
+      threads.emplace_back([&, i = i]() {
+        barrier.arrive_and_wait();
+        explorations[i] = vm::CellExplorer::random_explore(usage_cell, rnd);
+      });
+    }
+    for (auto &thread : threads) {
+      thread.join();
+    }
+    auto proof = vm::MerkleProof::generate(cell, usage_tree.get());
+    auto virtualized_proof = vm::MerkleProof::virtualize(proof, 1);
+    for (auto &exploration : explorations) {
+      auto new_exploration = vm::CellExplorer::explore(virtualized_proof, exploration.ops);
+      ASSERT_EQ(exploration.log, new_exploration.log);
+    }
+  }
 }
 
 /*

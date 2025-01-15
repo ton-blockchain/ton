@@ -774,8 +774,15 @@ class MetaStorage {
       CHECK(p.first.size() != CellTraits::hash_bytes);
     }
   }
-  std::vector<std::pair<std::string, std::string>> meta_get_all() const {
-    return td::transform(meta_, [](const auto &p) {  return std::make_pair(p.first, p.second); });
+  std::vector<std::pair<std::string, std::string>> meta_get_all(size_t max_count) const {
+    std::vector<std::pair<std::string, std::string>> res;
+    for (const auto &[k, v] : meta_) {
+      if (res.size() >= max_count) {
+        break;
+      }
+      res.emplace_back(k, v);
+    }
+    return res;
   }
   KeyValue::GetStatus meta_get(td::Slice key, std::string &value) const {
     auto lock = local_access_.lock();
@@ -814,8 +821,8 @@ class InMemoryBagOfCellsDb : public DynamicBagOfCellsDb {
       : storage_(std::move(storage)), meta_storage_(std::move(meta_storage)) {
   }
 
-  td::Result<std::vector<std::pair<std::string, std::string>>> meta_get_all() const override {
-    return meta_storage_->meta_get_all();
+  td::Result<std::vector<std::pair<std::string, std::string>>> meta_get_all(size_t max_count) const override {
+    return meta_storage_->meta_get_all(max_count);
   }
   td::Result<KeyValue::GetStatus> meta_get(td::Slice key, std::string &value) override {
     CHECK(key.size() != CellTraits::hash_bytes);

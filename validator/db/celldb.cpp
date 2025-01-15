@@ -111,6 +111,66 @@ struct MergeOperatorAddCellRefcnt : public rocksdb::MergeOperator {
   }
 };
 
+void CellDbIn::validate_meta() {
+  LOG(INFO) << "Validating metadata\n";
+  size_t max_meta_keys_loaded = opts_->get_celldb_in_memory() ? std::numeric_limits<std::size_t>::max() : 10000;
+  auto meta = boc_->meta_get_all(max_meta_keys_loaded).move_as_ok();
+  bool partial_check = meta.size() == max_meta_keys_loaded;
+  if (partial_check) {
+    LOG(ERROR) << "Too much metadata in the database, do only partial check";
+  }
+  size_t missing_roots = 0;
+  size_t unknown_roots = 0;
+  std::set<vm::CellHash> root_hashes;
+  for (auto [k, v] : meta) {
+    if (k == "desczero") {
+      continue;
+    }
+    auto obj = fetch_tl_object<ton_api::db_celldb_value>(td::BufferSlice{v}, true);
+    obj.ensure();
+    auto entry = DbEntry{obj.move_as_ok()};
+    root_hashes.insert(vm::CellHash::from_slice(entry.root_hash.as_slice()));
+    auto cell = boc_->load_cell(entry.root_hash.as_slice());
+    missing_roots += cell.is_error();
+    LOG_IF(ERROR, cell.is_error()) << "Cannot load root from meta: " << entry.block_id.to_str() << " " << cell.error();
+  }
+
+  // load_known_roots is only supported by InMemory database, so it is ok to check all known roots here
+  auto known_roots = boc_->load_known_roots().move_as_ok();
+  for (auto& root : known_roots) {
+    block::gen::ShardStateUnsplit::Record info;
+    block::gen::OutMsgQueueInfo::Record qinfo;
+    block::ShardId shard;
+    if (!(tlb::unpack_cell(root, info) && shard.deserialize(info.shard_id.write()) &&
+          tlb::unpack_cell(info.out_msg_queue_info, qinfo))) {
+      LOG(FATAL) << "cannot create ShardDescr from a root in celldb";
+    }
+    if (!partial_check && !root_hashes.contains(root->get_hash())) {
+      unknown_roots++;
+      LOG(ERROR) << "Unknown root" << ShardIdFull(shard).to_str() << ":" << info.seq_no;
+      constexpr bool delete_unknown_roots = false;
+      if (delete_unknown_roots) {
+        vm::CellStorer stor{*cell_db_};
+        cell_db_->begin_write_batch().ensure();
+        boc_->dec(root);
+        boc_->commit(stor).ensure();
+        cell_db_->commit_write_batch().ensure();
+        if (!opts_->get_celldb_in_memory()) {
+          boc_->set_loader(std::make_unique<vm::CellLoader>(cell_db_->snapshot(), on_load_callback_)).ensure();
+        }
+        LOG(ERROR) << "Unknown root" << ShardIdFull(shard).to_str() << ":" << info.seq_no << " REMOVED";
+      }
+    }
+  }
+
+  LOG_IF(ERROR, missing_roots != 0) << "Missing root hashes: " << missing_roots;
+  LOG_IF(ERROR, unknown_roots != 0) << "Unknown roots: " << unknown_roots;
+
+  LOG_IF(FATAL, missing_roots != 0) << "Missing root hashes: " << missing_roots;
+  LOG_IF(FATAL, unknown_roots != 0) << "Unknown roots: " << unknown_roots;
+  LOG(INFO) << "Validating metadata: OK\n";
+}
+
 void CellDbIn::start_up() {
   on_load_callback_ = [actor = std::make_shared<td::actor::ActorOwn<MigrationProxy>>(
                            td::actor::create_actor<MigrationProxy>("celldbmigration", actor_id(this))),
@@ -141,11 +201,11 @@ void CellDbIn::start_up() {
   std::optional<vm::DynamicBagOfCellsDb::CreateV2Options> boc_v2_options;
 
   if (opts_->get_celldb_v2()) {
-    boc_v2_options =
-        vm::DynamicBagOfCellsDb::CreateV2Options{.extra_threads = std::clamp(std::thread::hardware_concurrency() / 2, 1u, 8u),
-                                                 .executor = {},
-                                                 .cache_ttl_max = 2000,
-                                                 .cache_size_max = 1000000};
+    boc_v2_options = vm::DynamicBagOfCellsDb::CreateV2Options{
+        .extra_threads = std::clamp(std::thread::hardware_concurrency() / 2, 1u, 8u),
+        .executor = {},
+        .cache_ttl_max = 2000,
+        .cache_size_max = 1000000};
     size_t min_rocksdb_cache = std::max(size_t{1} << 30, boc_v2_options->cache_size_max * 5000);
     if (!o_celldb_cache_size || o_celldb_cache_size.value() < min_rocksdb_cache) {
       LOG(WARNING) << "Increase CellDb block cache size to " << td::format::as_size(min_rocksdb_cache) << " from "
@@ -208,54 +268,7 @@ void CellDbIn::start_up() {
     boc_->set_loader(std::make_unique<vm::CellLoader>(cell_db_->snapshot(), on_load_callback_)).ensure();
   }
 
-  auto meta = boc_->meta_get_all().move_as_ok();
-  size_t missing_roots = 0;
-  size_t unknown_roots = 0;
-  std::set<vm::CellHash> root_hashes;
-  for (auto [k, v] : meta) {
-    if (k == "desczero") {
-      continue;
-    }
-    auto obj = fetch_tl_object<ton_api::db_celldb_value>(td::BufferSlice{v}, true);
-    obj.ensure();
-    auto entry = DbEntry{obj.move_as_ok()};
-    root_hashes.insert(vm::CellHash::from_slice(entry.root_hash.as_slice()));
-    auto cell = boc_->load_cell(entry.root_hash.as_slice());
-    missing_roots += cell.is_error();
-    LOG_IF(ERROR, cell.is_error()) << "Cannot load root from meta: " << entry.block_id.to_str() << " " << cell.error();
-  }
-  auto known_roots = boc_->load_known_roots().move_as_ok();
-  for (auto& root : known_roots) {
-    block::gen::ShardStateUnsplit::Record info;
-    block::gen::OutMsgQueueInfo::Record qinfo;
-    block::ShardId shard;
-    if (!(tlb::unpack_cell(root, info) && shard.deserialize(info.shard_id.write()) &&
-          tlb::unpack_cell(info.out_msg_queue_info, qinfo))) {
-      LOG(FATAL) << "cannot create ShardDescr from a root in celldb";
-    }
-    if (!root_hashes.contains(root->get_hash())) {
-      unknown_roots++;
-      LOG(ERROR) << "Unknown root" << ShardIdFull(shard).to_str() << ":" << info.seq_no;
-      constexpr bool delete_unknown_roots = false;
-      if (delete_unknown_roots) {
-        vm::CellStorer stor{*cell_db_};
-        cell_db_->begin_write_batch().ensure();
-        boc_->dec(root);
-        boc_->commit(stor).ensure();
-        cell_db_->commit_write_batch().ensure();
-        if (!opts_->get_celldb_in_memory()) {
-          boc_->set_loader(std::make_unique<vm::CellLoader>(cell_db_->snapshot(), on_load_callback_)).ensure();
-        }
-        LOG(ERROR) << "Unknown root" << ShardIdFull(shard).to_str() << ":" << info.seq_no << " REMOVED";
-      }
-    }
-  }
-
-  LOG_IF(ERROR, missing_roots != 1) << "Missing root hashes: " << missing_roots;
-  LOG_IF(ERROR, unknown_roots != 0) << "Unknown roots: " << unknown_roots;
-
-  LOG_IF(FATAL, missing_roots > 1) << "Missing root hashes: " << missing_roots;
-  LOG_IF(FATAL, unknown_roots != 0) << "Unknown roots: " << unknown_roots;
+  validate_meta();
 
   alarm_timestamp() = td::Timestamp::in(10.0);
 
@@ -267,6 +280,9 @@ void CellDbIn::start_up() {
     set_block(empty, std::move(e));
     boc_->commit(stor);
     cell_db_->commit_write_batch().ensure();
+    if (!opts_->get_celldb_in_memory()) {
+      boc_->set_loader(std::make_unique<vm::CellLoader>(cell_db_->snapshot(), on_load_callback_)).ensure();
+    }
   }
 
   if (opts_->get_celldb_v2() || opts_->get_celldb_in_memory()) {

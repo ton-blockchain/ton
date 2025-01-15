@@ -107,15 +107,21 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
   td::Result<Ref<Cell>> ext_cell(Cell::LevelMask level_mask, td::Slice hash, td::Slice depth) override {
     return get_cell_info_lazy(level_mask, hash, depth).cell;
   }
-  td::Result<std::vector<std::pair<std::string, std::string>>> meta_get_all() const override {
+  td::Result<std::vector<std::pair<std::string, std::string>>> meta_get_all(size_t max_count) const override {
     std::vector<std::pair<std::string, std::string>> result;
     auto s = loader_->key_value_reader().for_each_in_range("desc", "desd",
                                                            [&](const td::Slice &key, const td::Slice &value) {
+                                                             if (result.size() >= max_count) {
+                                                               return td::Status::Error("COUNT_LIMIT");
+                                                             }
                                                              if (td::begins_with(key, "desc") && key.size() != 32) {
                                                                result.emplace_back(key.str(), value.str());
                                                              }
                                                              return td::Status::OK();
                                                            });
+    if (s.message() == "COUNT_LIMIT") {
+      s = td::Status::OK();
+    }
     TRY_STATUS(std::move(s));
     return result;
   }
