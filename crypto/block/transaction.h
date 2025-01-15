@@ -169,6 +169,7 @@ struct ActionPhaseConfig {
   bool bounce_on_fail_enabled{false};
   bool message_skip_enabled{false};
   bool disable_custom_fess{false};
+  bool reserve_extra_enabled{false};
   td::optional<td::Bits256> mc_blackhole_addr;
   const MsgPrices& fetch_msg_prices(bool is_masterchain) const {
     return is_masterchain ? fwd_mc : fwd_std;

@@ -377,16 +377,8 @@ void ValidateQuery::start_up() {
                                     });
     }
   }
-  // 5. request masterchain state referred to in the block
+  // 4. request masterchain handle and state referred to in the block
   if (!is_masterchain()) {
-    ++pending;
-    td::actor::send_closure_later(manager, &ValidatorManager::wait_block_state_short, mc_blkid_, priority(), timeout,
-                                  [self = get_self()](td::Result<Ref<ShardState>> res) {
-                                    LOG(DEBUG) << "got answer to wait_block_state() query for masterchain block";
-                                    td::actor::send_closure_later(std::move(self), &ValidateQuery::after_get_mc_state,
-                                                                  std::move(res));
-                                  });
-    // 5.1. request corresponding block handle
     ++pending;
     td::actor::send_closure_later(manager, &ValidatorManager::get_block_handle, mc_blkid_, true,
                                   [self = get_self()](td::Result<BlockHandle> res) {
@@ -672,6 +664,19 @@ bool ValidateQuery::extract_collated_data() {
 }
 
 /**
+ * Send get_top_masterchain_state_block to manager, call after_get_latest_mc_state afterwards
+ */
+void ValidateQuery::request_latest_mc_state() {
+  ++pending;
+  td::actor::send_closure_later(manager, &ValidatorManager::get_top_masterchain_state_block,
+                                [self = get_self()](td::Result<std::pair<Ref<MasterchainState>, BlockIdExt>> res) {
+                                  LOG(DEBUG) << "got answer to get_top_masterchain_state_block";
+                                  td::actor::send_closure_later(
+                                      std::move(self), &ValidateQuery::after_get_latest_mc_state, std::move(res));
+                                });
+}
+
+/**
  * Callback function called after retrieving the latest masterchain state.
  *
  * @param res The result of the retrieval of the latest masterchain state.
@@ -718,6 +723,7 @@ void ValidateQuery::after_get_latest_mc_state(td::Result<std::pair<Ref<Mastercha
  * @param res The result of the masterchain state retrieval.
  */
 void ValidateQuery::after_get_mc_state(td::Result<Ref<ShardState>> res) {
+  CHECK(!is_masterchain());
   LOG(WARNING) << "in ValidateQuery::after_get_mc_state() for " << mc_blkid_.to_str();
   --pending;
   if (res.is_error()) {
@@ -728,6 +734,7 @@ void ValidateQuery::after_get_mc_state(td::Result<Ref<ShardState>> res) {
     fatal_error("cannot process masterchain state for "s + mc_blkid_.to_str());
     return;
   }
+  request_latest_mc_state();
   if (!pending) {
     if (!try_validate()) {
       fatal_error("cannot validate new block");
@@ -742,17 +749,21 @@ void ValidateQuery::after_get_mc_state(td::Result<Ref<ShardState>> res) {
  */
 void ValidateQuery::got_mc_handle(td::Result<BlockHandle> res) {
   LOG(DEBUG) << "in ValidateQuery::got_mc_handle() for " << mc_blkid_.to_str();
-  --pending;
   if (res.is_error()) {
     fatal_error(res.move_as_error());
     return;
   }
-  auto handle = res.move_as_ok();
-  if (!handle->inited_proof() && mc_blkid_.seqno()) {
-    fatal_error(-666, "reference masterchain block "s + mc_blkid_.to_str() + " for block " + id_.to_str() +
-                          " does not have a valid proof");
-    return;
-  }
+  auto mc_handle = res.move_as_ok();
+  td::actor::send_closure_later(
+      manager, &ValidatorManager::wait_block_state, mc_handle, priority(), timeout,
+      [self = get_self(), id = id_, mc_handle](td::Result<Ref<ShardState>> res) {
+        LOG(DEBUG) << "got answer to wait_block_state() query for masterchain block";
+        if (res.is_ok() && mc_handle->id().seqno() > 0 && !mc_handle->inited_proof()) {
+          res = td::Status::Error(-666, "reference masterchain block "s + mc_handle->id().to_str() + " for block " +
+                                            id.to_str() + " does not have a valid proof");
+        }
+        td::actor::send_closure_later(std::move(self), &ValidateQuery::after_get_mc_state, std::move(res));
+      });
 }
 
 /**
@@ -785,6 +796,9 @@ void ValidateQuery::after_get_shard_state(int idx, td::Result<Ref<ShardState>> r
       fatal_error("cannot process masterchain state for "s + mc_blkid_.to_str());
       return;
     }
+  }
+  if (is_masterchain()) {
+    request_latest_mc_state();
   }
   if (!pending) {
     if (!try_validate()) {
@@ -1005,6 +1019,7 @@ bool ValidateQuery::fetch_config_params() {
     action_phase_cfg_.bounce_on_fail_enabled = config_->get_global_version() >= 4;
     action_phase_cfg_.message_skip_enabled = config_->get_global_version() >= 8;
     action_phase_cfg_.disable_custom_fess = config_->get_global_version() >= 8;
+    action_phase_cfg_.reserve_extra_enabled = config_->get_global_version() >= 9;
     action_phase_cfg_.mc_blackhole_addr = config_->get_burning_config().blackhole_addr;
   }
   {

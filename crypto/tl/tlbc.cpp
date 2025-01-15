@@ -1800,9 +1800,6 @@ void Constructor::show(std::ostream& os, int mode) const {
   }
   for (int i = 0; i < type_arity; i++) {
     os << ' ';
-    if (param_negated.at(i)) {
-      os << '~';
-    }
     params.at(i)->show(os, this, 100, mode | 1);
   }
   if (!(mode & 2)) {

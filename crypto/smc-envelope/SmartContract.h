@@ -64,6 +64,7 @@ class SmartContract : public td::CntObject {
     bool ignore_chksig{false};
     td::uint64 amount{0};
     td::uint64 balance{0};
+    td::Ref<vm::Cell> extra_currencies;
     int vm_log_verbosity_level{0};
     bool debug_enabled{false};
 
@@ -119,6 +120,10 @@ class SmartContract : public td::CntObject {
     }
     Args&& set_balance(td::uint64 balance) {
       this->balance = balance;
+      return std::move(*this);
+    }
+    Args&& set_extra_currencies(td::Ref<vm::Cell> extra_currencies) {
+      this->extra_currencies = std::move(extra_currencies);
       return std::move(*this);
     }
     Args&& set_address(block::StdAddress address) {
