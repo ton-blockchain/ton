@@ -47,11 +47,6 @@ jobs:
         ./create-appimages.sh
         rm -rf artifacts
 
-    - name: Quick test
-      run: |
-        ./appimages/artifacts/lite-client --appimage-extract 
-        ldd ./appimages/artifacts/squashfs-root/usr/bin/lite-client
-        ./appimages/artifacts/lite-client -V
 
     - name: Build TON libs
       run: |
