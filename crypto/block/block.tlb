@@ -296,7 +296,7 @@ transaction$0111 account_addr:bits256 lt:uint64
   total_fees:CurrencyCollection state_update:^(HASH_UPDATE Account)
   description:^TransactionDescr = Transaction;
 
-!merkle_update#02 {X:Type} old_hash:bits256 new_hash:bits256
+!merkle_update#04 {X:Type} old_hash:bits256 new_hash:bits256 old_depth:uint16 new_depth:uint16
   old:^X new:^X = MERKLE_UPDATE X;
 update_hashes#72 {X:Type} old_hash:bits256 new_hash:bits256
   = HASH_UPDATE X;
