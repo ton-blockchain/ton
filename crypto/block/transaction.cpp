@@ -1195,7 +1195,7 @@ static td::optional<td::uint64> override_gas_limit(const ComputePhaseConfig& cfg
     accounts[parse_addr("EQCkoRp4OE-SFUoMEnYfL3vF43T3AzNfW8jyTC4yzk8cJqMS")] = {
         .new_limit = 70'000'000, .from_version = 9, .until = 1740787200};
     accounts[parse_addr("EQBDanbCeUqI4_v-xrnAN0_I2wRvEIaLg1Qg2ZN5c6Zl1KOh")] = {
-        .new_limit = 70'000'000, .from_version = 9, .until = 1740787200};
+        .new_limit = 225'000'000, .from_version = 9, .until = 1740787200};
     return accounts;
   }();
   auto it = accounts.find({account.workchain, account.addr});
