@@ -1145,31 +1145,64 @@ td::RefInt256 ComputePhaseConfig::compute_gas_price(td::uint64 gas_used) const {
 namespace transaction {
 
 /**
- * Checks if it is required to increase gas_limit (from GasLimitsPrices config) to special_gas_limit * 2
- * from masterchain GasLimitsPrices config for the transaction.
+ * Checks if it is required to increase gas_limit (from GasLimitsPrices config) for the transaction
  *
  * In January 2024 a highload wallet of @wallet Telegram bot in mainnet was stuck because current gas limit (1M) is
  * not enough to clean up old queires, thus locking funds inside.
  * See comment in crypto/smartcont/highload-wallet-v2-code.fc for details on why this happened.
  * Account address: EQD_v9j1rlsuHHw2FIhcsCFFSD367ldfDdCKcsNmNpIRzUlu
- * It was proposed to validators to increase gas limit for this account for a limited amount of time (until 2024-02-29).
+ * It was proposed to validators to increase gas limit for this account to 70M for a limited amount
+ * of time (until 2024-02-29).
  * It is activated by setting global version to 5 in ConfigParam 8.
  * This config change also activates new behavior for special accounts in masterchain.
+ *
+ * In Augost 2024 it was decided to unlock other old highload wallets that got into the same situation.
+ * See https://t.me/tondev_news/129
+ * It is activated by setting global version to 9.
  *
  * @param cfg The compute phase configuration.
  * @param now The Unix time of the transaction.
  * @param account The account of the transaction.
  *
- * @returns True if gas_limit override is required, false otherwise
+ * @returns Overridden gas limit or empty td::optional
  */
-static bool override_gas_limit(const ComputePhaseConfig& cfg, ton::UnixTime now, const Account& account) {
-  if (!cfg.special_gas_full) {
-    return false;
+static td::optional<td::uint64> override_gas_limit(const ComputePhaseConfig& cfg, ton::UnixTime now,
+                                                   const Account& account) {
+  struct OverridenGasLimit {
+    td::uint64 new_limit;
+    int from_version;
+    ton::UnixTime until;
+  };
+  static std::map<std::pair<ton::WorkchainId, ton::StdSmcAddress>, OverridenGasLimit> accounts = []() {
+    auto parse_addr = [](const char* s) -> std::pair<ton::WorkchainId, ton::StdSmcAddress> {
+      auto r_addr = StdAddress::parse(td::Slice(s));
+      r_addr.ensure();
+      return {r_addr.ok().workchain, r_addr.ok().addr};
+    };
+    std::map<std::pair<ton::WorkchainId, ton::StdSmcAddress>, OverridenGasLimit> accounts;
+
+    // Increase limit for EQD_v9j1rlsuHHw2FIhcsCFFSD367ldfDdCKcsNmNpIRzUlu until 2024-02-29 00:00:00 UTC
+    accounts[parse_addr("0:FFBFD8F5AE5B2E1C7C3614885CB02145483DFAEE575F0DD08A72C366369211CD")] = {
+        .new_limit = 70'000'000, .from_version = 5, .until = 1709164800};
+
+    // Increase limit for multiple accounts (https://t.me/tondev_news/129) until 2025-03-01 00:00:00 UTC
+    accounts[parse_addr("UQBeSl-dumOHieZ3DJkNKVkjeso7wZ0VpzR4LCbLGTQ8xr57")] = {
+        .new_limit = 70'000'000, .from_version = 9, .until = 1740787200};
+    accounts[parse_addr("EQC3VcQ-43klww9UfimR58TBjBzk7GPupXQ3CNuthoNp-uTR")] = {
+        .new_limit = 70'000'000, .from_version = 9, .until = 1740787200};
+    accounts[parse_addr("EQBhwBb8jvokGvfreHRRoeVxI237PrOJgyrsAhLA-4rBC_H5")] = {
+        .new_limit = 70'000'000, .from_version = 9, .until = 1740787200};
+    accounts[parse_addr("EQCkoRp4OE-SFUoMEnYfL3vF43T3AzNfW8jyTC4yzk8cJqMS")] = {
+        .new_limit = 70'000'000, .from_version = 9, .until = 1740787200};
+    accounts[parse_addr("EQBDanbCeUqI4_v-xrnAN0_I2wRvEIaLg1Qg2ZN5c6Zl1KOh")] = {
+        .new_limit = 70'000'000, .from_version = 9, .until = 1740787200};
+    return accounts;
+  }();
+  auto it = accounts.find({account.workchain, account.addr});
+  if (it == accounts.end() || cfg.global_version < it->second.from_version || now >= it->second.until) {
+    return {};
   }
-  ton::UnixTime until = 1709164800;  // 2024-02-29 00:00:00 UTC
-  ton::WorkchainId wc = 0;
-  const char* addr_hex = "FFBFD8F5AE5B2E1C7C3614885CB02145483DFAEE575F0DD08A72C366369211CD";
-  return now < until && account.workchain == wc && account.addr.to_hex() == addr_hex;
+  return it->second.new_limit;
 }
 
 /**
@@ -1183,10 +1216,12 @@ static bool override_gas_limit(const ComputePhaseConfig& cfg, ton::UnixTime now,
  * @returns The amount of gas.
  */
 td::uint64 Transaction::gas_bought_for(const ComputePhaseConfig& cfg, td::RefInt256 nanograms) {
-  if (override_gas_limit(cfg, now, account)) {
+  if (auto new_limit = override_gas_limit(cfg, now, account)) {
     gas_limit_overridden = true;
     // Same as ComputePhaseConfig::gas_bought for, but with other gas_limit and max_gas_threshold
-    auto gas_limit = cfg.mc_gas_prices.special_gas_limit * 2;
+    auto gas_limit = new_limit.value();
+    LOG(INFO) << "overridding gas limit for account " << account.workchain << ":" << account.addr.to_hex() << " to "
+              << gas_limit;
     auto max_gas_threshold =
         compute_max_gas_threshold(cfg.gas_price256, gas_limit, cfg.flat_gas_limit, cfg.flat_gas_price);
     if (nanograms.is_null() || sgn(nanograms) < 0) {

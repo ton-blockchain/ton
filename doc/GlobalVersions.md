@@ -48,7 +48,7 @@ Version 5 enables higher gas limits for special contracts.
 Previously only ticktock transactions had this limit, while ordinary transactions had a default limit of `gas_limit` gas (1M).
 * Gas usage of special contracts is not taken into account when checking block limits. This allows keeping masterchain block limits low
 while having high gas limits for elector.
-* Gas limit on `EQD_v9j1rlsuHHw2FIhcsCFFSD367ldfDdCKcsNmNpIRzUlu` is increased to `special_gas_limit * 2` until 2024-02-29.
+* Gas limit on `EQD_v9j1rlsuHHw2FIhcsCFFSD367ldfDdCKcsNmNpIRzUlu` is increased to 70M (`special_gas_limit * 2`) until 2024-02-29.
 See [this post](https://t.me/tonstatus/88) for details.
 
 ### Loading libraries
@@ -132,3 +132,4 @@ Example: if the last masterchain block seqno is `19071` then the list contains b
 - Fix exception code in some TVM instructions: now `stk_und` has priority over other error codes.
   - `PFXDICTADD`, `PFXDICTSET`, `PFXDICTREPLACE`, `PFXDICTDEL`, `GETGASFEE`, `GETSTORAGEFEE`, `GETFORWARDFEE`, `GETORIGINALFWDFEE`, `GETGASFEESIMPLE`, `GETFORWARDFEESIMPLE`, `HASHEXT`
 - Now setting the contract code to a library cell does not consume additional gas on execution of the code.
+- Temporary increase gas limit for some accounts (see [this post](https://t.me/tondev_news/129) for details, `override_gas_limit` in `transaction.cpp` for the list of accounts).
