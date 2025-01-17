@@ -84,6 +84,19 @@ int main(int argc, char *argv[]) {
     TRY_RESULT_PREFIX_ASSIGN(addr_list, ton::adnl::AdnlAddressList::create(addr_list_tl), "bad addr list: ");
     return td::Status::OK();
   });
+  p.add_checked_option('f', "path to file with addr-list", "addr list to sign", [&](td::Slice key) {
+    if (addr_list) {
+      return td::Status::Error("duplicate '-f' option");
+    }
+
+    td::BufferSlice bs(key);
+    TRY_RESULT_PREFIX(data, td::read_file(key.str()), "failed to read addr-list: ");
+    TRY_RESULT_PREFIX(as_json_value, td::json_decode(data.as_slice()), "bad addr list JSON: ");
+    ton::tl_object_ptr<ton::ton_api::adnl_addressList> addr_list_tl;
+    TRY_STATUS_PREFIX(td::from_json(addr_list_tl, std::move(as_json_value)), "bad addr list TL: ");
+    TRY_RESULT_PREFIX_ASSIGN(addr_list, ton::adnl::AdnlAddressList::create(addr_list_tl), "bad addr list: ");
+    return td::Status::OK();
+  });
   p.add_checked_option('i', "network-id", "dht network id (default: -1)", [&](td::Slice key) {
     if (network_id_opt) {
       return td::Status::Error("duplicate '-i' option");

@@ -67,7 +67,8 @@ void WaitBlockState::start() {
   if (reading_from_db_) {
     return;
   }
-  if (handle_->received_state()) {
+  bool inited_proof = handle_->id().is_masterchain() ? handle_->inited_proof() : handle_->inited_proof_link();
+  if (handle_->received_state() && inited_proof) {
     reading_from_db_ = true;
 
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
@@ -107,7 +108,7 @@ void WaitBlockState::start() {
     });
     td::actor::send_closure(manager_, &ValidatorManager::send_get_zero_state_request, handle_->id(), priority_,
                             std::move(P));
-  } else if (check_persistent_state_desc()) {
+  } else if (check_persistent_state_desc() && !handle_->received_state()) {
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
       if (R.is_error()) {
         LOG(WARNING) << "failed to get persistent state: " << R.move_as_error();

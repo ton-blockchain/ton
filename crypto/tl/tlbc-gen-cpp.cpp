@@ -2074,7 +2074,7 @@ void CppTypeCode::generate_skip_field(const Constructor& constr, const Field& fi
     output_cpp_expr(ss, expr, 100);
     ss << '.';
   }
-  ss << "validate_skip_ref(ops, cs, weak)" << tail;
+  ss << "validate_skip_ref(ops, cs, " << (constr.is_special ? "true" : "weak") << ")" << tail;
   actions += Action{ss.str()};
 }
 
