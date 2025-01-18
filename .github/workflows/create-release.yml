@@ -11,6 +11,22 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
+      - name: Download Linux arm64 artifacts
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: build-ton-linux-arm64-appimage.yml
+          path: artifacts
+          workflow_conclusion: success
+          skip_unpack: true
+
+      - name: Download and unzip Linux arm64 artifacts
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: build-ton-linux-arm64-appimage.yml
+          path: artifacts
+          workflow_conclusion: success
+          skip_unpack: false
+
       - name: Download Linux x86-64 artifacts
         uses: dawidd6/action-download-artifact@v6
         with:
@@ -565,6 +581,114 @@ jobs:
           file: artifacts/ton-x86_64-linux/tonlib-cli
           asset_name: tonlib-cli-linux-x86_64
           tag: ${{ steps.tag.outputs.TAG }}
+
+
+      # linux arm64
+
+      - name: Upload Linux arm64 artifacts
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-arm64-linux.zip
+          asset_name: ton-linux-arm64.zip
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Linux arm64 single artifact - fift
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-arm64-linux/fift
+          asset_name: fift-linux-arm64
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Linux arm64 single artifact - func
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-arm64-linux/func
+          asset_name: func-linux-arm64
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Linux arm64 single artifact - tolk
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-arm64-linux/tolk
+          asset_name: tolk-linux-arm64
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Linux arm64 single artifact - lite-client
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-arm64-linux/lite-client
+          asset_name: lite-client-linux-arm64
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Linux arm64 single artifact - proxy-liteserver
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-arm64-linux/proxy-liteserver
+          asset_name: proxy-liteserver-linux-arm64
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Linux arm64 single artifact - rldp-http-proxy
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-arm64-linux/rldp-http-proxy
+          asset_name: rldp-http-proxy-linux-arm64
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Linux arm64 single artifact - http-proxy
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-arm64-linux/http-proxy
+          asset_name: http-proxy-linux-arm64
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Linux arm64 single artifact - storage-daemon-cli
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-arm64-linux/storage-daemon-cli
+          asset_name: storage-daemon-cli-linux-arm64
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Linux arm64 single artifact - storage-daemon
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-arm64-linux/storage-daemon
+          asset_name: storage-daemon-linux-arm64
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Linux arm64 single artifact - tonlibjson
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-arm64-linux/libtonlibjson.so
+          asset_name: tonlibjson-linux-arm64.so
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Linux arm64 single artifact - libemulator
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-arm64-linux/libemulator.so
+          asset_name: libemulator-linux-arm64.so
+          tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload Linux arm64 single artifact - tonlib-cli
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-arm64-linux/tonlib-cli
+          asset_name: tonlib-cli-linux-arm64
+          tag: ${{ steps.tag.outputs.TAG }}
+
 
       - name: Upload WASM artifacts
         uses: svenstaro/upload-release-action@v2
