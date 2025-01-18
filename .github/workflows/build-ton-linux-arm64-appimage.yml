@@ -38,7 +38,7 @@ jobs:
         cp assembly/appimage/AppRun .
         cp assembly/appimage/ton.png .
         chmod +x create-appimages-arm64.sh
-        ./create-appimages.sh
+        ./create-appimages-arm64.sh
         rm -rf artifacts
 
 
