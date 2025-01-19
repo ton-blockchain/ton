@@ -133,7 +133,13 @@ bool TLB::validate_ref_internal(int* ops, Ref<vm::Cell> cell_ref, bool weak) con
   }
   bool is_special;
   auto cs = load_cell_slice_special(std::move(cell_ref), is_special);
-  return always_special() ? is_special : (is_special ? weak : (validate_skip(ops, cs) && cs.empty_ext()));
+  if (cs.special_type() == vm::Cell::SpecialType::PrunnedBranch && weak) {
+    return true;
+  }
+  if (always_special() != is_special) {
+    return false;
+  }
+  return validate_skip(ops, cs, weak) && cs.empty_ext();
 }
 
 bool TLB::print_skip(PrettyPrinter& pp, vm::CellSlice& cs) const {

@@ -1293,7 +1293,7 @@ void register_ton_crypto_ops(OpcodeTable& cp0) {
 }
 
 int exec_compute_data_size(VmState* st, int mode) {
-  VM_LOG(st) << (mode & 2 ? 'S' : 'C') << "DATASIZE" << (mode & 1 ? "Q" : "");
+  VM_LOG(st) << "execute " << (mode & 2 ? 'S' : 'C') << "DATASIZE" << (mode & 1 ? "Q" : "");
   Stack& stack = st->get_stack();
   stack.check_underflow(2);
   auto bound = stack.pop_int();

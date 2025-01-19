@@ -266,6 +266,7 @@ class AdnlPeerPairImpl : public AdnlPeerPair {
 
   td::Timestamp last_received_packet_ = td::Timestamp::never();
   td::Timestamp try_reinit_at_ = td::Timestamp::never();
+  td::Timestamp drop_addr_list_at_ = td::Timestamp::never();
 
   bool has_reverse_addr_ = false;
   td::Timestamp request_reverse_ping_after_ = td::Timestamp::now();

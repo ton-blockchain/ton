@@ -1050,15 +1050,17 @@ class Query {
     }
 
     vm::GasLimits gas_limits = compute_gas_limits(td::make_refint(raw_.source->get_balance()), gas_limits_prices);
-    auto res = smc.write().send_external_message(raw_.message_body, ton::SmartContract::Args()
-                                                                        .set_limits(gas_limits)
-                                                                        .set_balance(raw_.source->get_balance())
-                                                                        .set_now(raw_.source->get_sync_time())
-                                                                        .set_ignore_chksig(ignore_chksig)
-                                                                        .set_address(raw_.source->get_address())
-                                                                        .set_config(cfg)
-                                                                        .set_prev_blocks_info(state.prev_blocks_info)
-                                                                        .set_libraries(libraries));
+    auto res = smc.write().send_external_message(raw_.message_body,
+                                                 ton::SmartContract::Args()
+                                                     .set_limits(gas_limits)
+                                                     .set_balance(raw_.source->get_balance())
+                                                     .set_extra_currencies(raw_.source->get_extra_currencies())
+                                                     .set_now(raw_.source->get_sync_time())
+                                                     .set_ignore_chksig(ignore_chksig)
+                                                     .set_address(raw_.source->get_address())
+                                                     .set_config(cfg)
+                                                     .set_prev_blocks_info(state.prev_blocks_info)
+                                                     .set_libraries(libraries));
     td::int64 fwd_fee = 0;
     if (res.success) {
       LOG(DEBUG) << "output actions:\n"
@@ -4790,6 +4792,7 @@ td::Status TonlibClient::do_request(const tonlib_api::smc_runGetMethod& request,
   }
   args.set_stack(std::move(stack));
   args.set_balance(it->second->get_balance());
+  args.set_extra_currencies(it->second->get_extra_currencies());
   args.set_now(it->second->get_sync_time());
   args.set_address(it->second->get_address());
 
