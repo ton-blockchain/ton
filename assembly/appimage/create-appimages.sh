@@ -4,13 +4,15 @@ if [ ! -d "artifacts" ]; then
   echo "No artifacts found."
   exit 2
 fi
+# x86_64 or aarch64
+ARCH=$1
 
 rm -rf appimages
 
 mkdir -p appimages/artifacts
 
-wget -nc https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
-chmod +x ./appimagetool-x86_64.AppImage
+wget -nc https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-$ARCH.AppImage
+chmod +x ./appimagetool-$ARCH.AppImage
 
 cd appimages
 for file in ../artifacts/*; do
@@ -26,19 +28,19 @@ for file in ../artifacts/*; do
     cp ../ton.png $appName.AppDir/$appName.png
     cp $file $appName.AppDir/usr/bin/
     cp ../build/openssl_3/libcrypto.so.3 \
-      /lib/x86_64-linux-gnu/libatomic.so.1 \
-      /lib/x86_64-linux-gnu/libsodium.so.23 \
-      /lib/x86_64-linux-gnu/libz.so.1 \
-      /lib/x86_64-linux-gnu/liblz4.so.1 \
-      /lib/x86_64-linux-gnu/libmicrohttpd.so.12 \
-      /lib/x86_64-linux-gnu/libreadline.so.8 \
-      /lib/x86_64-linux-gnu/libstdc++.so.6 \
+      /lib/$ARCH-linux-gnu/libatomic.so.1 \
+      /lib/$ARCH-linux-gnu/libsodium.so.23 \
+      /lib/$ARCH-linux-gnu/libz.so.1 \
+      /lib/$ARCH-linux-gnu/liblz4.so.1 \
+      /lib/$ARCH-linux-gnu/libmicrohttpd.so.12 \
+      /lib/$ARCH-linux-gnu/libreadline.so.8 \
+      /lib/$ARCH-linux-gnu/libstdc++.so.6 \
       $appName.AppDir/usr/lib/
 
     chmod +x ./$appName.AppDir/usr/bin/$appName
     # create AppImage
-    ./../appimagetool-x86_64.AppImage -l $appName.AppDir
-    mv $appName-x86_64.AppImage artifacts/$appName
+    ./../appimagetool-$ARCH.AppImage -l $appName.AppDir
+    mv $appName-$ARCH.AppImage artifacts/$appName
   fi
 done
 

@@ -39,9 +39,6 @@ else
   echo "Using compiled openssl_3"
 fi
 
-echo libstdc++.so.6 supported GLIBC
-strings /lib/x86_64-linux-gnu/libstdc++.so.6 | grep GLIBC
-
 cmake -GNinja .. \
 -DCMAKE_BUILD_TYPE=Release \
 -DPORTABLE=1 \
@@ -85,8 +82,6 @@ echo libtonlibjson.so
 ldd ./tonlib/libtonlibjson.so.0.5 || exit 1
 echo libemulator.so
 ldd ./emulator/libemulator.so  || exit 1
-echo libstdc++.so.6
-strings /lib/x86_64-linux-gnu/libstdc++.so.6 | grep GLIBC
 
 cd ..
 

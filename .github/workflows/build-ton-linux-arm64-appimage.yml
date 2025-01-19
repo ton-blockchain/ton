@@ -34,11 +34,11 @@ jobs:
 
     - name: Make AppImages
       run: |
-        cp assembly/appimage/create-appimages-arm64.sh .
+        cp assembly/appimage/create-appimages.sh .
         cp assembly/appimage/AppRun .
         cp assembly/appimage/ton.png .
-        chmod +x create-appimages-arm64.sh
-        ./create-appimages-arm64.sh
+        chmod +x create-appimages.sh
+        ./create-appimages.sh aarch64
         rm -rf artifacts
 
 
