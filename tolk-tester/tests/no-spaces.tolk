@@ -22,7 +22,7 @@ global `some()var`:int;
     return `a`*-1*-(1)*---(1)*+just10()+-`just10`()*m1*-m1+-eq(m1)----0x1;
 }
 
-@method_id(112) fun `bitwise~ops`(flags:int):[int,int] {
+@method_id(112) fun `bitwise~ops`(flags:int):[bool,bool] {
     return[
         (just10()-3==just10()-(4)--1)|((2==2)&(eq(eq(10)) -3==just10()--13)),
         ((flags&0xFF)!=0)

@@ -10,9 +10,9 @@ fun used_from_noncall2(): int { return int20; }
 fun used_as_noncall2(): int { return 0 * 0 + used_from_noncall2() + (0 << 0); }
 
 global unused_gv: int;
-global used_gv: auto;
+global used_gv: int;
 
-fun receiveGetter(): (() -> int) { return used_as_noncall2; }
+fun receiveGetter(): () -> int { return used_as_noncall2; }
 
 @pure
 fun usedButOptimizedOut(x: int): int { return x + 2; }

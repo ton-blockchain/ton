@@ -18,10 +18,9 @@
 
 #include <string>
 #include <vector>
+#include "fwd-declarations.h"
 
 namespace tolk {
-
-struct ASTNodeBase;
 
 struct SrcFile {
   struct SrcPosition {
@@ -31,7 +30,7 @@ struct SrcFile {
     std::string_view line_str;
   };
 
-  struct ImportStatement {
+  struct ImportDirective {
     const SrcFile* imported_file;
   };
 
@@ -39,8 +38,8 @@ struct SrcFile {
   std::string rel_filename;             // relative to cwd
   std::string abs_filename;             // absolute from root
   std::string text;                     // file contents loaded into memory, every Token::str_val points inside it
-  const ASTNodeBase* ast = nullptr;     // when a file has been parsed, its ast_tolk_file is kept here
-  std::vector<ImportStatement> imports; // to check strictness (can't use a symbol without importing its file)
+  AnyV ast = nullptr;                   // when a file has been parsed, its ast_tolk_file is kept here
+  std::vector<ImportDirective> imports; // to check strictness (can't use a symbol without importing its file)
 
   SrcFile(int file_id, std::string rel_filename, std::string abs_filename, std::string&& text)
     : file_id(file_id)
@@ -96,21 +95,20 @@ public:
 
 std::ostream& operator<<(std::ostream& os, SrcLocation loc);
 
-using AllSrcFiles = std::vector<const SrcFile*>;
-
 class AllRegisteredSrcFiles {
-  std::vector<SrcFile*> all_src_files;
+  std::vector<const SrcFile*> all_src_files;
   int last_registered_file_id = -1;
   int last_parsed_file_id = -1;
 
 public:
-  SrcFile *find_file(int file_id) const;
-  SrcFile* find_file(const std::string& abs_filename) const;
+  const SrcFile* find_file(int file_id) const;
+  const SrcFile* find_file(const std::string& abs_filename) const;
 
-  SrcFile* locate_and_register_source_file(const std::string& rel_filename, SrcLocation included_from);
+  const SrcFile* locate_and_register_source_file(const std::string& rel_filename, SrcLocation included_from);
   SrcFile* get_next_unparsed_file();
 
-  AllSrcFiles get_all_files() const;
+  auto begin() const { return all_src_files.begin(); }
+  auto end() const { return all_src_files.end(); }
 };
 
 struct Fatal final : std::exception {

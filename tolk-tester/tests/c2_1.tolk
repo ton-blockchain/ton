@@ -1,8 +1,8 @@
-fun check_assoc(op: auto, a: int, b: int, c: int) {
+fun check_assoc(op: (int, int) -> int, a: int, b: int, c: int) {
   return op(op(a, b), c) == op(a, op(b, c));
 }
 
-fun main(x: int, y: int, z: int): int {
+fun main(x: int, y: int, z: int): bool {
   return check_assoc(`_+_`, x, y, z);
 }
 

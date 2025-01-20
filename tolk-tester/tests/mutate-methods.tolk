@@ -118,12 +118,19 @@ fun updateTwoItems(mutate self: (int, int), byValue: int) {
     self = (first + byValue, second + byValue);
 }
 
+global t107_1: int;
+global t107_2: int;
+
 @method_id(107)
 fun testMutableTensor() {
     var t = (40, 50);
     t.updateTwoItems(10);
     updateTwoItems(mutate t, 10);
-    return t;
+    t107_1 = 1;
+    t107_2 = 2;
+    (t107_1, t107_2).updateTwoItems(10);
+    updateTwoItems(mutate (t107_1, t107_2), 10);
+    return (t, t107_1, t107_2);
 }
 
 @pure
@@ -147,7 +154,7 @@ fun getSumOfNumbersInCell(c: cell): int {
 
 @method_id(110)
 fun testStoreChaining() {
-    var b = beginCell().storeUint(1, 32).storeUint(2, 32).storeUint(3, 32);
+    var b = ((beginCell()).storeUint(1, 32)).storeUint(2, 32).storeUint(3, 32);
     b.storeUint(4, 32);
     b.myStoreUint(5, 32).storeUint(6, 32);
     storeUint(mutate b, 7, 32);
@@ -191,7 +198,7 @@ fun testStoreAndMutateBoth() {
     b.myStoreU32_and_mutate_x(mutate x);
 
     var cs: slice = b.endCell().beginParse();
-    var (n1,n2,n3,n4,n5) = (cs.loadUint(32),cs.loadUint(32),cs.loadUint(32),cs.loadUint(32),cs.loadUint(32));
+    var (n1,n2,n3,n4,n5) = (cs.loadUint(32),((cs)).loadUint(32),cs.loadUint(32),cs.loadUint(32),cs.loadUint(32));
     assert(n5 == x) throw 100;
 
     return [n1,n2,n3,n4,n5];
@@ -278,7 +285,7 @@ fun main(){}
 @testcase | 104 |    | 1 2 3
 @testcase | 105 |    | 5 5 110
 @testcase | 106 |    | 160 110
-@testcase | 107 |    | 60 70
+@testcase | 107 |    | 60 70 21 22
 @testcase | 110 |    | 320
 @testcase | 111 |    | 55 55
 @testcase | 112 |    | [ 1 13 3 23 33 ]
@@ -300,7 +307,7 @@ fun main(){}
     ...
     incrementTwoInPlace CALLDICT        //  x y sum1
     -ROT
-    10 PUSHINT  //  sum1 x y _9=10
+    10 PUSHINT  //  sum1 x y _8=10
     incrementTwoInPlace CALLDICT        //  sum1 x y sum2
     s1 s3 s0 XCHG3       //  x y sum1 sum2
   }>
@@ -310,8 +317,8 @@ fun main(){}
 """
  load_next PROC:<{
     //  cs
-    32 LDI      //  _1 cs
-    SWAP        //  cs _1
+    32 LDI      //  _3 cs
+    SWAP        //  cs _3
   }>
 """
 
@@ -319,7 +326,7 @@ fun main(){}
 """
   testStoreUintPureUnusedResult PROC:<{
     //
-    0 PUSHINT	//  _12=0
+    0 PUSHINT	//  _11=0
   }>
 """
 
@@ -330,7 +337,7 @@ fun main(){}
     NEWC	//  b
     STIX	//  _2
     DROP	//
-    0 PUSHINT	//  _12=0
+    0 PUSHINT	//  _11=0
   }>
 """
 

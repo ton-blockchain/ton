@@ -16,6 +16,7 @@
 */
 #include "tolk.h"
 #include "compiler-state.h"
+#include "type-system.h"
 
 namespace tolk {
 
@@ -314,7 +315,7 @@ bool Op::generate_code_step(Stack& stack) {
       return true;
     }
     case _GlobVar:
-      if (dynamic_cast<const SymValGlobVar*>(fun_ref->value)) {
+      if (g_sym) {
         bool used = false;
         for (auto i : left) {
           auto p = next->var_info[i];
@@ -325,8 +326,7 @@ bool Op::generate_code_step(Stack& stack) {
         if (!used || disabled()) {
           return true;
         }
-        std::string name = G.symbols.get_name(fun_ref->sym_idx);
-        stack.o << AsmOp::Custom(name + " GETGLOB", 0, 1);
+        stack.o << AsmOp::Custom(g_sym->name + " GETGLOB", 0, 1);
         if (left.size() != 1) {
           tolk_assert(left.size() <= 15);
           stack.o << AsmOp::UnTuple((int)left.size());
@@ -343,25 +343,28 @@ bool Op::generate_code_step(Stack& stack) {
         }
         stack.o << "CONT:<{";
         stack.o.indent();
-        auto func = dynamic_cast<SymValAsmFunc*>(fun_ref->value);
-        if (func) {
+        if (f_sym->is_asm_function() || f_sym->is_builtin_function()) {
           // TODO: create and compile a true lambda instead of this (so that arg_order and ret_order would work correctly)
           std::vector<VarDescr> args0, res;
-          TypeExpr::remove_indirect(func->sym_type);
-          tolk_assert(func->get_type()->is_map());
-          auto wr = func->get_type()->args.at(0)->get_width();
-          auto wl = func->get_type()->args.at(1)->get_width();
-          tolk_assert(wl >= 0 && wr >= 0);
-          for (int i = 0; i < wl; i++) {
+          int w_arg = 0;
+          for (const LocalVarData& param : f_sym->parameters) {
+            w_arg += param.declared_type->calc_width_on_stack();
+          }
+          int w_ret = f_sym->inferred_return_type->calc_width_on_stack();
+          tolk_assert(w_ret >= 0 && w_arg >= 0);
+          for (int i = 0; i < w_ret; i++) {
             res.emplace_back(0);
           }
-          for (int i = 0; i < wr; i++) {
+          for (int i = 0; i < w_arg; i++) {
             args0.emplace_back(0);
           }
-          func->compile(stack.o, res, args0, where);  // compile res := f (args0)
+          if (f_sym->is_asm_function()) {
+            std::get<FunctionBodyAsm*>(f_sym->body)->compile(stack.o);  // compile res := f (args0)
+          } else {
+            std::get<FunctionBodyBuiltin*>(f_sym->body)->compile(stack.o, res, args0, where);  // compile res := f (args0)
+          }
         } else {
-          std::string name = G.symbols.get_name(fun_ref->sym_idx);
-          stack.o << AsmOp::Custom(name + " CALLDICT", (int)right.size(), (int)left.size());
+          stack.o << AsmOp::Custom(f_sym->name + " CALLDICT", (int)right.size(), (int)left.size());
         }
         stack.o.undent();
         stack.o << "}>";
@@ -438,10 +441,9 @@ bool Op::generate_code_step(Stack& stack) {
       if (disabled()) {
         return true;
       }
-      // fun_ref can be nullptr for Op::_CallInd (invoke a variable, not a function)
-      SymValFunc* func = (fun_ref ? dynamic_cast<SymValFunc*>(fun_ref->value) : nullptr);
-      auto arg_order = (func ? func->get_arg_order() : nullptr);
-      auto ret_order = (func ? func->get_ret_order() : nullptr);
+      // f_sym can be nullptr for Op::_CallInd (invoke a variable, not a function)
+      const std::vector<int>* arg_order = f_sym ? f_sym->get_arg_order() : nullptr;
+      const std::vector<int>* ret_order = f_sym ? f_sym->get_ret_order() : nullptr;
       tolk_assert(!arg_order || arg_order->size() == right.size());
       tolk_assert(!ret_order || ret_order->size() == left.size());
       std::vector<var_idx_t> right1;
@@ -455,14 +457,12 @@ bool Op::generate_code_step(Stack& stack) {
             right1.push_back(arg.idx);
           }
         }
-      } else if (arg_order) {
-        for (int i = 0; i < (int)right.size(); i++) {
-          right1.push_back(right.at(arg_order->at(i)));
-        }
       } else {
+        tolk_assert(!arg_order);
         right1 = right;
       }
       std::vector<bool> last;
+      last.reserve(right1.size());
       for (var_idx_t x : right1) {
         last.push_back(var_info[x] && var_info[x]->is_last());
       }
@@ -488,23 +488,25 @@ bool Op::generate_code_step(Stack& stack) {
       };
       if (cl == _CallInd) {
         exec_callxargs((int)right.size() - 1, (int)left.size());
-      } else if (auto asm_fv = dynamic_cast<const SymValAsmFunc*>(fun_ref->value)) {
+      } else if (!f_sym->is_code_function()) {
         std::vector<VarDescr> res;
         res.reserve(left.size());
         for (var_idx_t i : left) {
           res.emplace_back(i);
         }
-        asm_fv->compile(stack.o, res, args, where);  // compile res := f (args)
+        if (f_sym->is_asm_function()) {
+          std::get<FunctionBodyAsm*>(f_sym->body)->compile(stack.o);  // compile res := f (args)
+        } else {
+          std::get<FunctionBodyBuiltin*>(f_sym->body)->compile(stack.o, res, args, where);  // compile res := f (args)
+        }
       } else {
-        auto fv = dynamic_cast<const SymValCodeFunc*>(fun_ref->value);
-        std::string name = G.symbols.get_name(fun_ref->sym_idx);
-        if (fv->is_inline() || fv->is_inline_ref()) {
-          stack.o << AsmOp::Custom(name + " INLINECALLDICT", (int)right.size(), (int)left.size());
-        } else if (fv->code && fv->code->require_callxargs) {
-          stack.o << AsmOp::Custom(name + (" PREPAREDICT"), 0, 2);
+        if (f_sym->is_inline() || f_sym->is_inline_ref()) {
+          stack.o << AsmOp::Custom(f_sym->name + " INLINECALLDICT", (int)right.size(), (int)left.size());
+        } else if (f_sym->is_code_function() && std::get<FunctionBodyCode*>(f_sym->body)->code->require_callxargs) {
+          stack.o << AsmOp::Custom(f_sym->name + (" PREPAREDICT"), 0, 2);
           exec_callxargs((int)right.size() + 1, (int)left.size());
         } else {
-          stack.o << AsmOp::Custom(name + " CALLDICT", (int)right.size(), (int)left.size());
+          stack.o << AsmOp::Custom(f_sym->name + " CALLDICT", (int)right.size(), (int)left.size());
         }
       }
       stack.s.resize(k);
@@ -515,7 +517,7 @@ bool Op::generate_code_step(Stack& stack) {
       return true;
     }
     case _SetGlob: {
-      tolk_assert(fun_ref && dynamic_cast<const SymValGlobVar*>(fun_ref->value));
+      tolk_assert(g_sym);
       std::vector<bool> last;
       for (var_idx_t x : right) {
         last.push_back(var_info[x] && var_info[x]->is_last());
@@ -534,8 +536,7 @@ bool Op::generate_code_step(Stack& stack) {
         stack.o << AsmOp::Tuple((int)right.size());
       }
       if (!right.empty()) {
-        std::string name = G.symbols.get_name(fun_ref->sym_idx);
-        stack.o << AsmOp::Custom(name + " SETGLOB", 1, 0);
+        stack.o << AsmOp::Custom(g_sym->name + " SETGLOB", 1, 0);
       }
       stack.s.resize(k);
       return true;
@@ -826,6 +827,8 @@ bool Op::generate_code_step(Stack& stack) {
       catch_stack.push_new_var(left[1]);
       stack.rearrange_top(catch_vars, catch_last);
       stack.opt_show();
+      stack.o << "c1 PUSH";
+      stack.o << "c3 PUSH";
       stack.o << "c4 PUSH";
       stack.o << "c5 PUSH";
       stack.o << "c7 PUSH";
@@ -842,6 +845,8 @@ bool Op::generate_code_step(Stack& stack) {
       stack.o << "c7 SETCONT";
       stack.o << "c5 SETCONT";
       stack.o << "c4 SETCONT";
+      stack.o << "c3 SETCONT";
+      stack.o << "c1 SETCONT";
       for (size_t begin = catch_vars.size(), end = begin; end > 0; end = begin) {
         begin = end >= block_size ? end - block_size : 0;
         stack.o << std::to_string(end - begin) + " PUSHINT";

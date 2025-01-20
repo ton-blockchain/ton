@@ -32,7 +32,7 @@ fun test1(): int {
 @method_id(102)
 fun test2(value: int): int {
     save_contract_data(value);
-    var (_, restored: auto) = get_contract_data();
+    var (_, restored) = get_contract_data();
     return restored;
 }
 

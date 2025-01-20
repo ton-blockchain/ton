@@ -16,6 +16,7 @@
 */
 #include "tolk.h"
 #include "compiler-state.h"
+#include "type-system.h"
 
 namespace tolk {
 
@@ -25,38 +26,30 @@ namespace tolk {
  * 
  */
 
-void CodeBlob::simplify_var_types() {
-  for (TmpVar& var : vars) {
-    TypeExpr::remove_indirect(var.v_type);
-    var.v_type->recompute_width();
-  }
-}
-
 int CodeBlob::split_vars(bool strict) {
   int n = var_cnt, changes = 0;
   for (int j = 0; j < var_cnt; j++) {
     TmpVar& var = vars[j];
-    if (strict && var.v_type->minw != var.v_type->maxw) {
+    int width_j = var.v_type->calc_width_on_stack();
+    if (strict && width_j < 0) {
       throw ParseError{var.where, "variable does not have fixed width, cannot manipulate it"};
     }
-    std::vector<TypeExpr*> comp_types;
-    int k = var.v_type->extract_components(comp_types);
-    tolk_assert(k <= 254 && n <= 0x7fff00);
-    tolk_assert((unsigned)k == comp_types.size());
-    if (k != 1) {
-      var.coord = ~((n << 8) + k);
-      for (int i = 0; i < k; i++) {
-        auto v = create_var(comp_types[i], vars[j].sym_idx, vars[j].where);
-        tolk_assert(v == n + i);
-        tolk_assert(vars[v].idx == v);
-        vars[v].coord = ((int)j << 8) + i + 1;
-      }
-      n += k;
-      ++changes;
-    } else if (strict && var.v_type->minw != 1) {
-      throw ParseError{var.where,
-                            "cannot work with variable or variable component of width greater than one"};
+    if (width_j == 1) {
+      continue;
     }
+    std::vector<TypePtr> comp_types;
+    var.v_type->extract_components(comp_types);
+    tolk_assert(width_j <= 254 && n <= 0x7fff00);
+    tolk_assert((unsigned)width_j == comp_types.size());
+    var.coord = ~((n << 8) + width_j);
+    for (int i = 0; i < width_j; i++) {
+      auto v = create_var(comp_types[i], vars[j].v_sym, vars[j].where);
+      tolk_assert(v == n + i);
+      tolk_assert(vars[v].idx == v);
+      vars[v].coord = ((int)j << 8) + i + 1;
+    }
+    n += width_j;
+    ++changes;
   }
   if (!changes) {
     return 0;
@@ -687,7 +680,7 @@ void CodeBlob::fwd_analyze() {
   tolk_assert(ops && ops->cl == Op::_Import);
   for (var_idx_t i : ops->left) {
     values += i;
-    if (vars[i].v_type->is_int()) {
+    if (vars[i].v_type == TypeDataInt::create()) {
       values[i]->val |= VarDescr::_Int;
     }
   }
@@ -732,15 +725,18 @@ VarDescrList Op::fwd_analyze(VarDescrList values) {
     }
     case _Call: {
       prepare_args(values);
-      auto func = dynamic_cast<const SymValAsmFunc*>(fun_ref->value);
-      if (func) {
+      if (!f_sym->is_code_function()) {
         std::vector<VarDescr> res;
         res.reserve(left.size());
         for (var_idx_t i : left) {
           res.emplace_back(i);
         }
         AsmOpList tmp;
-        func->compile(tmp, res, args, where);  // abstract interpretation of res := f (args)
+        if (f_sym->is_asm_function()) {
+          std::get<FunctionBodyAsm*>(f_sym->body)->compile(tmp);  // abstract interpretation of res := f (args)
+        } else {
+          std::get<FunctionBodyBuiltin*>(f_sym->body)->compile(tmp, res, args, where);
+        }
         int j = 0;
         for (var_idx_t i : left) {
           values.add_newval(i).set_value(res[j++]);
@@ -878,26 +874,9 @@ bool Op::set_noreturn(bool flag) {
   return flag;
 }
 
-void Op::set_impure(const CodeBlob &code) {
-  // todo calling this function with `code` is a bad design (flags are assigned after Op is constructed)
-  // later it's better to check this somewhere in code.emplace_back()
-  if (code.flags & CodeBlob::_ForbidImpure) {
-    throw ParseError(where, "an impure operation in a pure function");
-  }
+void Op::set_impure_flag() {
   flags |= _Impure;
 }
-
-void Op::set_impure(const CodeBlob &code, bool flag) {
-  if (flag) {
-    if (code.flags & CodeBlob::_ForbidImpure) {
-      throw ParseError(where, "an impure operation in a pure function");
-    }
-    flags |= _Impure;
-  } else {
-    flags &= ~_Impure;
-  }
-}
-
 
 bool Op::mark_noreturn() {
   switch (cl) {

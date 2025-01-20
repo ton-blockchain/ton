@@ -7,8 +7,7 @@ fun failWhenReturnANotChainedValue(x: int): int {
 }
 
 /**
-The error is very weird, but nevertheless, the type system prevents of doing such errors.
-
 @compilation_should_fail
-@stderr previous function return type int cannot be unified with return statement expression type (): cannot unify type () with int
+@stderr x.incNotChained()
+@stderr can not convert type `void` to return type `int`
  */

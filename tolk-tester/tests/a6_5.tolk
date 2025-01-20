@@ -1,5 +1,5 @@
 @deprecated
-fun twice(f: auto, x: auto): auto {
+fun twice(f: int -> int, x: int) {
   return f (f (x));
 }
 

@@ -158,6 +158,44 @@ fun testNotMutatingChainableSelfMutateAnother(initial: int) {
     return (arg, c108, c109, x);
 }
 
+fun pickG110(mutate self: int, mutate pushTo: tuple): self {
+    self += 10;
+    pushTo.tuplePush(c110);
+    return self;
+}
+
+global tup110: tuple;
+global c110: int;
+
+@method_id(110)
+fun testMutateGlobalsLValue(init: int) {
+    c110 = init;
+    tup110 = createEmptyTuple();
+    c110.incChained().incChained().pickG110(mutate tup110).incChained().pickG110(mutate tup110).incChained();
+    return (c110, tup110);
+}
+
+fun myTuplePush<T>(mutate self: tuple, value: T): self {
+    self.tuplePush(value);
+    return self;
+}
+
+fun myTupleAt<T>(self: tuple, idx: int): T {
+    return self.tupleAt(idx);
+}
+
+global tup111: tuple;
+
+@method_id(111)
+fun testForallFunctionsWithSelf(): (int, int, tuple) {
+    var t = createEmptyTuple();
+    tup111 = createEmptyTuple();
+    t.myTuplePush(10);
+    tup111.myTuplePush(1).myTuplePush(2).myTuplePush(3);
+    return (t.myTupleAt(0), tup111.myTupleAt(tup111.tupleSize() - 1), tup111);
+}
+
+
 
 fun main() { }
 
@@ -179,6 +217,8 @@ fun main() { }
 @testcase | 109 | 200 | 200 3 1 2
 @testcase | 109 | 100 | 100 0 0 1
 @testcase | 109 | 102 | 102 2 1 2
+@testcase | 110 | 0   | 24 [ 2 13 ]
+@testcase | 111 |     | 10 3 [ 1 2 3 ]
 
 @fif_codegen
 """

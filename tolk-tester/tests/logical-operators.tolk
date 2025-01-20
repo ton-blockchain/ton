@@ -1,14 +1,14 @@
 import "imports/use-dicts.tolk"
 
 fun simpleAllConst() {
-    return (!0, !!0 & !false, !!!0, !1, !!1, !-1, !!-1, (!5 == 0) == !0, !0 == true);
+    return (!0, !!0 & !false, !!!0, !1, !!1, !-1, !!-1, (!5 as int == 0) == !0, !0 == true);
 }
 
 fun compileTimeEval1(x: int) {
     // todo now compiler doesn't understand that bool can't be equal to number other than 0/-1
     // (but understands that it can't be positive)
     // that's why for now, the last condition is evaluated at runtime
-    return (!x, !x > 10, !x < 10, !!x == 5, !x == -10);
+    return (!x, !x as int > 10, (!x as int) < 10, !!x as int == 5, !x as int == -10);
 }
 
 @method_id(101)
@@ -23,13 +23,13 @@ fun withAndOr(x: int, y: int, z: int) {
     var return_at_end = -1;
     if (!x & !y) {
         if (!z & !y) { return 10; }
-        else if (z | !!y) { return_at_end = 20; }
+        else if ((z != 0) | !!y) { return_at_end = 20; }
     } else if (!!x & !!y & !z) {
         if (!z & (x > 10)) { return_at_end = 30; }
         if ((x != 11) & !z) { return 40; }
         return_at_end = 50;
     } else {
-        return_at_end = !x ? !y : !z | 1;
+        return_at_end = !x ? !y as int : (!z as int) | 1;
     }
     return return_at_end;
 }
@@ -54,7 +54,8 @@ fun testDict(last: int) {
 
 @method_id(105)
 fun testNotNull(x: int) {
-    return [x == null, null == x, !(x == null), null == null, +(null != null)];
+    // return [x == null, null == x, !(x == null), null == null, +(null != null)];
+    return [x == null, null == x, !(x == null)];
 }
 
 @method_id(106)
@@ -123,6 +124,31 @@ fun testLogicalOps2(first: int) {
     return (s.getRemainingBitsCount(), sum);
 }
 
+@method_id(112)
+fun mixLogicalIntsAndBools(first: int, cond: bool) {
+    return (
+        (first && cond) || (!first && cond),
+        ((first & -1) & cond as int) == ((first && true) && cond) as int,
+        7 && cond,
+        first || cond || !cond || alwaysThrows(),
+        cond || first || !first || alwaysThrows()
+    );
+}
+
+@method_id(113)
+fun testConvertIfToIfnot(x: bool) {
+    assert(!!(x == false), 100);
+    assert(!x, 100);
+    if (x == !!false) {
+        return 1;
+    }
+    if (!!(x != !false)) {
+        return 1;
+    }
+    assert(!!x, 100);
+    return -4;
+}
+
 fun main() {
 
 }
@@ -144,8 +170,8 @@ fun main() {
 @testcase | 104 | 50     | 3 5 -1
 @testcase | 104 | 100    | 3 5 5
 @testcase | 104 | 0      | 3 -1 5
-@testcase | 105 | 0      | [ 0 0 -1 -1 0 ]
-@testcase | 105 | null   | [ -1 -1 0 -1 0 ]
+@testcase | 105 | 0      | [ 0 0 -1 ]
+@testcase | 105 | null   | [ -1 -1 0 ]
 @testcase | 106 |        | [ 0 0 0 -1 ] [ 0 0 0 ] [ -1 -1 -1 ] [ 0 -1 ]
 @testcase | 107 |        | [ -1 -1 0 -1 ] [ 0 0 0 ] [ -1 -1 -1 ] [ -1 0 ]
 @testcase | 108 | 1 2    | -1
@@ -159,18 +185,21 @@ fun main() {
 @testcase | 110 | 500    | -1 -1 0 -1 -1 3
 @testcase | 111 | 0      | 32 4
 @testcase | 111 | -1     | 0 8
+@testcase | 112 | 5 0    | 0 -1 0 -1 -1
+@testcase | 112 | 0 -1   | -1 -1 -1 -1 -1
+@testcase | 113 | 0      | 1
 
 @fif_codegen
 """
   simpleAllConst PROC:<{
     //
-    -1 PUSHINT
+    TRUE
     0 PUSHINT
-    -1 PUSHINT
-    0 PUSHINT
-    -1 PUSHINT
-    0 PUSHINT
-    -1 PUSHINT
+    TRUE
+    FALSE
+    TRUE
+    FALSE
+    TRUE
     TRUE
     TRUE
   }>
@@ -289,6 +318,29 @@ These are moments of future optimizations. For now, it's more than enough.
       0 GTINT	//  _7
       0 NEQINT	//  _4
     }>
+  }>
+"""
+
+@fif_codegen
+"""
+  testConvertIfToIfnot PROC:<{
+    //  x
+    DUP	//  x x
+    100 THROWIF
+    DUP	//  x x
+    100 THROWIF
+    DUP	//  x x
+    IFNOTJMP:<{	//  x
+      DROP	//
+      1 PUSHINT	//  _7=1
+    }>	//  x
+    DUP	//  x x
+    IFNOTJMP:<{	//  x
+      DROP	//
+      1 PUSHINT	//  _8=1
+    }>	//  x
+    100 THROWIFNOT
+    -4 PUSHINT	//  _12=-4
   }>
 """
 

@@ -327,9 +327,10 @@ class TolkTestFile:
         if exit_code == 0 and self.compilation_should_fail:
             raise TolkCompilationSucceededError("compilation succeeded, but it should have failed")
 
+        for should_include in self.stderr_includes: # @stderr is used to check errors and warnings
+            should_include.check(stderr)
+
         if exit_code != 0 and self.compilation_should_fail:
-            for should_include in self.stderr_includes:
-                should_include.check(stderr)
             return
 
         if exit_code != 0 and not self.compilation_should_fail:

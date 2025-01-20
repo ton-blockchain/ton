@@ -9,6 +9,6 @@ fun cantCallMutatingMethod(c: cell) {
 
 /**
 @compilation_should_fail
-@stderr modifying an immutable variable `s` (call a mutating method)
+@stderr modifying immutable variable `s`
 @stderr s.loadUint
  */

@@ -10,5 +10,5 @@ fun cantPassToMutatingFunction() {
 
 /**
 @compilation_should_fail
-@stderr modifying an immutable variable `myVal`
+@stderr modifying immutable variable `myVal`
  */
