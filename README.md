@@ -71,7 +71,7 @@ Usually, the response to your pull request will indicate which section it falls 
 
 ## Build TON blockchain
 
-### Ubuntu 20.4, 22.04 (x86-64, aarch64)
+### Ubuntu 20.4, 22.04, 24.04 (x86-64, aarch64)
 Install additional system libraries
 ```bash
   sudo apt-get update
@@ -141,18 +141,10 @@ Compile TON tonlib library
   ./build-android-tonlib.sh
 ```
 
-### Build TON portable binaries with Nix package manager
-You need to install Nix first.
-```bash
-   sh <(curl -L https://nixos.org/nix/install) --daemon
-```
-Then compile TON with Nix by executing below command from the root folder: 
-```bash
-  cp -r assembly/nix/* .
-  export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.05.tar.gz
-  nix-build linux-x86-64-static.nix
-```
-More examples for other platforms can be found under `assembly/nix`.  
+### TON portable binaries
+
+Linux portable binaries are wrapped into AppImages, at the same time MacOS portable binaries are statically linked executables.
+Linux and MacOS binaries are available for both x86-64 and arm64 architectures. 
 
 ## Running tests
 

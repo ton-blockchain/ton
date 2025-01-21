@@ -35,7 +35,12 @@ else()
   add_library(emulator STATIC ${EMULATOR_SOURCE} ${EMULATOR_HEADERS})
 endif()
 
-target_link_libraries(emulator PUBLIC emulator_static git)
+if (PORTABLE AND NOT APPLE)
+  target_link_libraries(emulator PUBLIC emulator_static git -static-libgcc -static-libstdc++)
+else()
+  target_link_libraries(emulator PUBLIC emulator_static git)
+endif()
+
 generate_export_header(emulator EXPORT_FILE_NAME ${CMAKE_CURRENT_BINARY_DIR}/emulator_export.h)
 target_include_directories(emulator PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
