@@ -341,6 +341,14 @@ add_cxx_compiler_flag("-Qunused-arguments")
 add_cxx_compiler_flag("-Wno-unused-private-field")
 add_cxx_compiler_flag("-Wno-redundant-move")
 
+if (GCC OR CLANG)
+  if (CMAKE_BUILD_TYPE MATCHES "RelWithDebInfo")
+    # For historical reasons, CMake falls back to -O2 optimization level when CMAKE_BUILD_TYPE is
+    # set to RelWithDebInfo.
+    add_compile_options(-O3)
+  endif()
+endif()
+
 #add_cxx_compiler_flag("-Wno-unused-function")
 #add_cxx_compiler_flag("-Wno-unused-variable")
 #add_cxx_compiler_flag("-Wno-shorten-64-to-32")
