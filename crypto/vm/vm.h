@@ -164,14 +164,12 @@ class VmState final : public VmStateInterface {
     bls_pairing_element_gas_price = 11800
   };
   VmState();
-  VmState(Ref<CellSlice> _code);
-  VmState(Ref<CellSlice> _code, Ref<Stack> _stack, int flags = 0, Ref<Cell> _data = {}, VmLog log = {},
-          std::vector<Ref<Cell>> _libraries = {}, Ref<Tuple> init_c7 = {});
-  VmState(Ref<CellSlice> _code, Ref<Stack> _stack, const GasLimits& _gas, int flags = 0, Ref<Cell> _data = {},
+  VmState(Ref<CellSlice> _code, int global_version, Ref<Stack> _stack, const GasLimits& _gas, int flags = 0, Ref<Cell> _data = {},
           VmLog log = {}, std::vector<Ref<Cell>> _libraries = {}, Ref<Tuple> init_c7 = {});
-  template <typename... Args>
-  VmState(Ref<Cell> code_cell, Args&&... args)
-      : VmState(convert_code_cell(std::move(code_cell)), std::forward<Args>(args)...) {
+  VmState(Ref<Cell> _code, int global_version, Ref<Stack> _stack, const GasLimits& _gas, int flags = 0,
+          Ref<Cell> _data = {}, VmLog log = {}, std::vector<Ref<Cell>> _libraries = {}, Ref<Tuple> init_c7 = {})
+      : VmState(convert_code_cell(std::move(_code), global_version, _libraries), global_version, std::move(_stack),
+                _gas, flags, std::move(_data), std::move(log), _libraries, std::move(init_c7)) {
   }
   VmState(const VmState&) = delete;
   VmState(VmState&&) = default;
@@ -345,9 +343,6 @@ class VmState final : public VmStateInterface {
   int get_global_version() const override {
     return global_version;
   }
-  void set_global_version(int version) {
-    global_version = version;
-  }
   int call(Ref<Continuation> cont);
   int call(Ref<Continuation> cont, int pass_args, int ret_args = -1);
   int jump(Ref<Continuation> cont);
@@ -382,7 +377,8 @@ class VmState final : public VmStateInterface {
     }
     return res;
   }
-  static Ref<CellSlice> convert_code_cell(Ref<Cell> code_cell);
+  static Ref<CellSlice> convert_code_cell(Ref<Cell> code_cell, int global_version,
+                                          const std::vector<Ref<Cell>>& libraries);
   bool try_commit();
   void force_commit();
 

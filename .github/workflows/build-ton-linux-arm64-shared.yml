@@ -1,0 +1,43 @@
+name: Ubuntu TON build (shared, arm64)
+
+on: [push,workflow_dispatch,workflow_call]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04-arm, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - name: Check out repository
+      uses: actions/checkout@v3
+      with:      
+        submodules: 'recursive'
+
+    - name: Install system libraries
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential git cmake ninja-build zlib1g-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev liblz4-dev libjemalloc-dev
+
+    - if: matrix.os != 'ubuntu-24.04-arm'
+      name: Install llvm-16
+      run: |
+        wget https://apt.llvm.org/llvm.sh
+        chmod +x llvm.sh
+        sudo ./llvm.sh 16 all
+
+    - name: Build TON
+      run: |
+        git submodule sync --recursive
+        git submodule update
+        cp assembly/native/build-ubuntu-shared.sh .
+        chmod +x build-ubuntu-shared.sh
+        ./build-ubuntu-shared.sh -t -a
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@master
+      with:
+        name: ton-binaries-${{ matrix.os }}
+        path: artifacts

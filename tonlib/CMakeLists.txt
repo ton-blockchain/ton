@@ -98,7 +98,12 @@ else()
   add_library(tonlibjson STATIC ${TONLIB_JSON_SOURCE} ${TONLIB_JSON_HEADERS})
 endif()
 
-target_link_libraries(tonlibjson PRIVATE tonlibjson_private)
+if (PORTABLE AND NOT APPLE)
+  target_link_libraries(tonlibjson PRIVATE tonlibjson_private -static-libgcc -static-libstdc++)
+else()
+  target_link_libraries(tonlibjson PRIVATE tonlibjson_private)
+endif()
+
 generate_export_header(tonlibjson EXPORT_FILE_NAME ${CMAKE_CURRENT_BINARY_DIR}/tonlib/tonlibjson_export.h)
 if (!BUILD_SHARED_LIBS)
   target_compile_definitions(tonlibjson PUBLIC TONLIBJSON_STATIC_DEFINE)
