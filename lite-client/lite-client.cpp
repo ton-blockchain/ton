@@ -2227,7 +2227,7 @@ void TestNode::run_smc_method(int mode, ton::BlockIdExt ref_blk, ton::BlockIdExt
     // auto log = create_vm_log(ctx.error_stream ? &ostream_logger : nullptr);
     vm::GasLimits gas{gas_limit};
     LOG(DEBUG) << "creating VM";
-    vm::VmState vm{code, std::move(stack), gas, 1, data, vm::VmLog()};
+    vm::VmState vm{code, ton::SUPPORTED_VERSION, std::move(stack), gas, 1, data, vm::VmLog()};
     vm.set_c7(liteclient::prepare_vm_c7(info.gen_utime, info.gen_lt, td::make_ref<vm::CellSlice>(acc.addr->clone()),
                                         balance));  // tuple with SmartContractInfo
     // vm.incr_stack_trace(1);    // enable stack dump after each step
