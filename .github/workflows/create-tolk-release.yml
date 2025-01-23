@@ -16,19 +16,10 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: Download and unzip Linux arm64 artifacts
-        uses: dawidd6/action-download-artifact@v6
-        with:
-          workflow: build-ton-linux-arm64-appimage.yml
-          path: artifacts
-          workflow_conclusion: success
-          branch: master
-          skip_unpack: false
-
       - name: Download and unzip Linux x86-64 artifacts
         uses: dawidd6/action-download-artifact@v6
         with:
-          workflow: build-ton-linux-x86-64-appimage.yml
+          workflow: ton-x86-64-linux.yml
           path: artifacts
           workflow_conclusion: success
           branch: master
@@ -37,7 +28,7 @@ jobs:
       - name: Download and unzip Mac x86-64 artifacts
         uses: dawidd6/action-download-artifact@v6
         with:
-          workflow: build-ton-macos-13-x86-64-portable.yml
+          workflow: ton-x86-64-macos.yml
           path: artifacts
           workflow_conclusion: success
           branch: master
@@ -46,7 +37,7 @@ jobs:
       - name: Download and unzip arm64 artifacts
         uses: dawidd6/action-download-artifact@v6
         with:
-          workflow: build-ton-macos-14-arm64-portable.yml
+          workflow: ton-arm64-macos.yml
           path: artifacts
           workflow_conclusion: success
           branch: master
