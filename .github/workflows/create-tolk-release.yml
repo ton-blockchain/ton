@@ -129,6 +129,6 @@ jobs:
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-wasm.zip
+          file: artifacts/ton-wasm-binaries.zip
           asset_name: ton-wasm.zip
           tag: ${{ inputs.tag }}
