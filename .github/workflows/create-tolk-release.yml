@@ -22,6 +22,7 @@ jobs:
           workflow: build-ton-linux-arm64-appimage.yml
           path: artifacts
           workflow_conclusion: success
+          branch: master
           skip_unpack: false
 
       - name: Download and unzip Linux x86-64 artifacts
@@ -30,6 +31,7 @@ jobs:
           workflow: build-ton-linux-x86-64-appimage.yml
           path: artifacts
           workflow_conclusion: success
+          branch: master
           skip_unpack: false
 
       - name: Download and unzip Mac x86-64 artifacts
@@ -38,6 +40,7 @@ jobs:
           workflow: build-ton-macos-13-x86-64-portable.yml
           path: artifacts
           workflow_conclusion: success
+          branch: master
           skip_unpack: false
 
       - name: Download and unzip arm64 artifacts
@@ -46,6 +49,7 @@ jobs:
           workflow: build-ton-macos-14-arm64-portable.yml
           path: artifacts
           workflow_conclusion: success
+          branch: master
           skip_unpack: false
 
       - name: Download and unzip Windows artifacts
@@ -54,6 +58,7 @@ jobs:
           workflow: ton-x86-64-windows.yml
           path: artifacts
           workflow_conclusion: success
+          branch: master
           skip_unpack: false
 
       - name: Download WASM artifacts
@@ -62,6 +67,7 @@ jobs:
           workflow: build-ton-wasm-emscripten.yml
           path: artifacts
           workflow_conclusion: success
+          branch: master
           skip_unpack: true
 
       - name: Show all artifacts
@@ -96,7 +102,7 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: artifacts/ton-x86-64-windows/tolk.exe
           asset_name: tolk.exe
-          tag: ${{ steps.tag.outputs.TAG }}
+          tag: ${{ inputs.tag }}
 
       # mac x86-64
 
@@ -106,7 +112,7 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: artifacts/ton-x86_64-macos/tolk
           asset_name: tolk-mac-x86-64
-          tag: ${{ steps.tag.outputs.TAG }}
+          tag: ${{ inputs.tag }}
 
       # mac arm64
 
@@ -116,7 +122,7 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: artifacts/ton-arm64-macos/tolk
           asset_name: tolk-mac-arm64
-          tag: ${{ steps.tag.outputs.TAG }}
+          tag: ${{ inputs.tag }}
 
       # linux x86-64
 
@@ -126,7 +132,7 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: artifacts/ton-x86_64-linux/tolk
           asset_name: tolk-linux-x86_64
-          tag: ${{ steps.tag.outputs.TAG }}
+          tag: ${{ inputs.tag }}
 
       # linux arm64
 
@@ -136,7 +142,7 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: artifacts/ton-arm64-linux/tolk
           asset_name: tolk-linux-arm64
-          tag: ${{ steps.tag.outputs.TAG }}
+          tag: ${{ inputs.tag }}
 
       - name: Upload WASM artifacts
         uses: svenstaro/upload-release-action@v2
@@ -144,4 +150,4 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: artifacts/ton-wasm.zip
           asset_name: ton-wasm.zip
-          tag: ${{ steps.tag.outputs.TAG }}
+          tag: ${{ inputs.tag }}
