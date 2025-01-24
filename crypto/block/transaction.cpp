@@ -1156,7 +1156,7 @@ namespace transaction {
  * It is activated by setting global version to 5 in ConfigParam 8.
  * This config change also activates new behavior for special accounts in masterchain.
  *
- * In Augost 2024 it was decided to unlock other old highload wallets that got into the same situation.
+ * In August 2024 it was decided to unlock other old highload wallets that got into the same situation.
  * See https://t.me/tondev_news/129
  * It is activated by setting global version to 9.
  *

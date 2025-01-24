@@ -375,8 +375,7 @@ class VmState final : public VmStateInterface {
       if (cnt > free_nested_cont_jump && global_version >= 9) {
         consume_gas(1);
       }
-
-      if (cont.not_null()) {
+      if (cont.not_null() && global_version >= 9) {
         const ControlData* cont_data = cont->get_cdata();
         if (cont_data && (cont_data->stack.not_null() || cont_data->nargs >= 0)) {
           // if cont has non-empty stack or expects fixed number of arguments, jump is not simple
