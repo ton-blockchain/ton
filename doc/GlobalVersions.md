@@ -134,3 +134,4 @@ Example: if the last masterchain block seqno is `19071` then the list contains b
   - `PFXDICTADD`, `PFXDICTSET`, `PFXDICTREPLACE`, `PFXDICTDEL`, `GETGASFEE`, `GETSTORAGEFEE`, `GETFORWARDFEE`, `GETORIGINALFWDFEE`, `GETGASFEESIMPLE`, `GETFORWARDFEESIMPLE`, `HASHEXT`
 - Now setting the contract code to a library cell does not consume additional gas on execution of the code.
 - Temporary increase gas limit for some accounts (see [this post](https://t.me/tondev_news/129) for details, `override_gas_limit` in `transaction.cpp` for the list of accounts).
+- Fix recursive jump to continuations with non-null control data.

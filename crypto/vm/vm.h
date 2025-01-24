@@ -347,6 +347,7 @@ class VmState final : public VmStateInterface {
   int call(Ref<Continuation> cont, int pass_args, int ret_args = -1);
   int jump(Ref<Continuation> cont);
   int jump(Ref<Continuation> cont, int pass_args);
+  Ref<Continuation> adjust_jump_cont(Ref<Continuation> cont, int pass_args);
   int ret();
   int ret(int ret_args);
   int ret_alt();
@@ -373,6 +374,13 @@ class VmState final : public VmStateInterface {
       cnt++;
       if (cnt > free_nested_cont_jump && global_version >= 9) {
         consume_gas(1);
+      }
+      if (cont.not_null() && global_version >= 9) {
+        const ControlData* cont_data = cont->get_cdata();
+        if (cont_data && (cont_data->stack.not_null() || cont_data->nargs >= 0)) {
+          // if cont has non-empty stack or expects fixed number of arguments, jump is not simple
+          cont = adjust_jump_cont(std::move(cont), -1);
+        }
       }
     }
     return res;
