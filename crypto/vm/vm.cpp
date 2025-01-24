@@ -247,6 +247,11 @@ int VmState::jump(Ref<Continuation> cont) {
 
 // general jump to continuation cont
 int VmState::jump(Ref<Continuation> cont, int pass_args) {
+  cont = adjust_jump_cont(std::move(cont), pass_args);
+  return jump_to(std::move(cont));
+}
+
+Ref<Continuation> VmState::adjust_jump_cont(Ref<Continuation> cont, int pass_args) {
   const ControlData* cont_data = cont->get_cdata();
   if (cont_data) {
     // first do the checks
@@ -287,7 +292,7 @@ int VmState::jump(Ref<Continuation> cont, int pass_args) {
         consume_stack_gas(copy);
       }
     }
-    return jump_to(std::move(cont));
+    return cont;
   } else {
     // have no continuation data, situation is somewhat simpler
     if (pass_args >= 0) {
@@ -299,7 +304,7 @@ int VmState::jump(Ref<Continuation> cont, int pass_args) {
         consume_stack_gas(pass_args);
       }
     }
-    return jump_to(std::move(cont));
+    return cont;
   }
 }
 
