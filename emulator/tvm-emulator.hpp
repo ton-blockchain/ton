@@ -33,6 +33,10 @@ public:
     }
   }
 
+  void set_extra_currencies(td::Ref<vm::Cell> extra_currencies) {
+    args_.set_extra_currencies(std::move(extra_currencies));
+  }
+
   void set_c7_raw(td::Ref<vm::Tuple> c7) {
     args_.set_c7(std::move(c7));
   }
