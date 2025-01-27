@@ -1,3 +1,17 @@
+## 2025.02 Update
+1. Series of improvement/fixes for `Config8.version >= 9`, check [GlobalVersion.md](./doc/GlobalVersion.md)
+2. Fix for better discovery of updated nodes' (validators') IPs: retry dht queries
+3. Series of improvements for extra currency adoption: fixed c7 in rungetmethod, reserve modes
+4. TVM Fix: saving ret on deep jump
+5. A few fixes of tl-b schemes: crc computation, incorrect tag for merkle proofs, advance_ext, NatWidth print
+6. Emulator improvements: fix setting libraries,  extracurrency support
+7. Increase of gas limit for unlocking highload-v2 wallets locked in the beginning of 2024
+8. Validator console improvement: dashed names, better shard formats
+
+
+Besides the work of the core team, this update is based on the efforts of  @dbaranovstonfi from StonFi(libraries in emulator), @Rexagon (ret on deep jumps), @tvorogme from DTon (`advance_ext`), Nan from Zellic (`stk_und` and JNI)
+
+
 ## 2024.12 Update
 
 1. FunC 0.4.6: Fix in try/catch handling, fixing pure flag for functions stored in variables
