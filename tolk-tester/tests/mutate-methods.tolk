@@ -307,7 +307,7 @@ fun main(){}
     ...
     incrementTwoInPlace CALLDICT        //  x y sum1
     -ROT
-    10 PUSHINT  //  sum1 x y _10=10
+    10 PUSHINT  //  sum1 x y '10=10
     incrementTwoInPlace CALLDICT        //  sum1 x y sum2
     s1 s3 s0 XCHG3       //  x y sum1 sum2
   }>
@@ -317,8 +317,8 @@ fun main(){}
 """
  load_next PROC:<{
     //  cs
-    32 LDI      //  _4 cs
-    SWAP        //  cs _4
+    32 LDI      //  '4 cs
+    SWAP        //  cs '4
   }>
 """
 
@@ -326,7 +326,7 @@ fun main(){}
 """
   testStoreUintPureUnusedResult PROC:<{
     //
-    0 PUSHINT	//  _11=0
+    0 PUSHINT	//  '11=0
   }>
 """
 
@@ -335,9 +335,9 @@ fun main(){}
   testStoreUintImpureUnusedResult PROC:<{
     //
     NEWC	//  b
-    STIX	//  _2
+    STIX	//  '2
     DROP	//
-    0 PUSHINT	//  _11=0
+    0 PUSHINT	//  '11=0
   }>
 """
 

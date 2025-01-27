@@ -129,6 +129,15 @@ fun testVarApply3() {
     return (getIntAt(t, 0), getTupleFirstInt(t), getTupleLastTuple(t), getTupleLastGetter<tuple>()(t));
 }
 
+@method_id(107)
+fun testIndexedAccessApply() {
+    var functions1 = (beginCell, endCell);
+    var functions2 = [beginParse];
+    var b = functions1.0().storeInt(1, 16);
+    b.storeInt(1, 16);
+    return functions2.0(functions1.1(b)).loadInt(32);
+}
+
 fun main() {}
 
 /**
@@ -138,4 +147,5 @@ fun main() {}
 @testcase | 104 |    | 240
 @testcase | 105 |    | 1
 @testcase | 106 |    | 1 1 [ 2 ] [ 2 ]
+@testcase | 107 |    | 65537
  */

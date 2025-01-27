@@ -210,15 +210,15 @@ fun main() {
   compileTimeEval1 PROC:<{
     //  x
     DUP	//  x x
-    0 EQINT	//  x _1
-    FALSE	//  x _1 _4
-    TRUE	//  x _1 _4 _7
-    FALSE	//  x _1 _4 _7 _11
-    s0 s4 XCHG	//  _11 _1 _4 _7 x
-    0 EQINT	//  _11 _1 _4 _7 _12
-    -10 EQINT	//  _11 _1 _4 _7 _14
+    0 EQINT	//  x '1
+    FALSE	//  x '1 '4
+    TRUE	//  x '1 '4 '7
+    FALSE	//  x '1 '4 '7 '11
+    s0 s4 XCHG	//  '11 '1 '4 '7 x
+    0 EQINT	//  '11 '1 '4 '7 '12
+    -10 EQINT	//  '11 '1 '4 '7 '14
     s3 s4 XCHG
-    s1 s3 s0 XCHG3	//  _1 _4 _7 _11 _14
+    s1 s3 s0 XCHG3	//  '1 '4 '7 '11 '14
   }>
 """
 
@@ -230,15 +230,15 @@ fun main() {
     OVER	//  x y x
     IFNOTJMP:<{	//  x y
       2DROP	//
-      10 PUSHINT	//  _2=10
+      10 PUSHINT	//  '2=10
     }>	//  x y
     DUP	//  x y y
     IFNOTJMP:<{	//  x y
       2DROP	//
-      20 PUSHINT	//  _3=20
+      20 PUSHINT	//  '3=20
       RETALT
     }>	//  x y
-    ADD	//  _4
+    ADD	//  '4
   }>
 """
 
@@ -297,10 +297,10 @@ These are moments of future optimizations. For now, it's more than enough.
     //  a b
     SWAP	//  b a
     IF:<{	//  b
-      0 NEQINT	//  _2
+      0 NEQINT	//  '2
     }>ELSE<{	//  b
       DROP	//
-      0 PUSHINT	//  _2=0
+      0 PUSHINT	//  '2=0
     }>
   }>
 """
@@ -310,13 +310,13 @@ These are moments of future optimizations. For now, it's more than enough.
   testOrSimpleCodegen PROC:<{
     //  a b
     SWAP	//  b a
-    0 GTINT	//  b _3
+    0 GTINT	//  b '3
     IF:<{	//  b
       DROP	//
-      -1 PUSHINT	//  _4=-1
+      -1 PUSHINT	//  '4=-1
     }>ELSE<{	//  b
-      0 GTINT	//  _7
-      0 NEQINT	//  _4
+      0 GTINT	//  '7
+      0 NEQINT	//  '4
     }>
   }>
 """
@@ -332,15 +332,15 @@ These are moments of future optimizations. For now, it's more than enough.
     DUP	//  x x
     IFNOTJMP:<{	//  x
       DROP	//
-      1 PUSHINT	//  _5=1
+      1 PUSHINT	//  '5=1
     }>	//  x
     DUP	//  x x
     IFNOTJMP:<{	//  x
       DROP	//
-      1 PUSHINT	//  _6=1
+      1 PUSHINT	//  '6=1
     }>	//  x
     100 THROWIFNOT
-    -4 PUSHINT	//  _9=-4
+    -4 PUSHINT	//  '9=-4
   }>
 """
 

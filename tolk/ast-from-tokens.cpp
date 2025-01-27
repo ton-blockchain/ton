@@ -405,12 +405,15 @@ static AnyExprV parse_expr80(Lexer& lex) {
     lex.next();
     V<ast_identifier> v_ident = nullptr;
     V<ast_instantiationT_list> v_instantiationTs = nullptr;
-    if (lex.tok() == tok_identifier) {
+    if (lex.tok() == tok_identifier) {    // obj.field / obj.method
       v_ident = createV<ast_identifier>(lex.cur_location(), lex.cur_str());
       lex.next();
       if (lex.tok() == tok_lt) {
         v_instantiationTs = parse_maybe_instantiationTs_after_identifier(lex);
       }
+    } else if (lex.tok() == tok_int_const) {  // obj.0 (indexed access)
+      v_ident = createV<ast_identifier>(lex.cur_location(), lex.cur_str());
+      lex.next();
     } else {
       lex.unexpected("method name");
     }

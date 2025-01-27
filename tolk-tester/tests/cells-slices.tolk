@@ -216,16 +216,16 @@ Note, that since 'compute-asm-ltr' became on be default, chaining methods codege
 """
   test6 PROC:<{
     //
-    NEWC	//  _0
-    1 PUSHINT	//  _0 _1=1
-    SWAP	//  _1=1 _0
-    32 STU	//  _0
-    2 PUSHINT	//  _0 _4=2
-    SWAP	//  _4=2 _0
-    32 STU	//  _0
-    3 PUSHINT	//  _0 _7=3
-    SWAP	//  _7=3 _0
-    32 STU	//  _0
+    NEWC	//  '0
+    1 PUSHINT	//  '0 '1=1
+    SWAP	//  '1=1 '0
+    32 STU	//  '0
+    2 PUSHINT	//  '0 '4=2
+    SWAP	//  '4=2 '0
+    32 STU	//  '0
+    3 PUSHINT	//  '0 '7=3
+    SWAP	//  '7=3 '0
+    32 STU	//  '0
   }>
 """
  */

@@ -99,21 +99,21 @@ fun main() {
   test1 PROC:<{
     //
     PUSHNULL	//  numbers
-    1 PUSHINT	//  numbers _2=1
-    SWAP	//  _2=1 numbers
+    1 PUSHINT	//  numbers '2=1
+    SWAP	//  '2=1 numbers
     CONS	//  numbers
-    2 PUSHINT	//  numbers _4=2
-    SWAP	//  _4=2 numbers
+    2 PUSHINT	//  numbers '4=2
+    SWAP	//  '4=2 numbers
     CONS	//  numbers
-    3 PUSHINT	//  numbers _6=3
-    SWAP	//  _6=3 numbers
+    3 PUSHINT	//  numbers '6=3
+    SWAP	//  '6=3 numbers
     CONS	//  numbers
-    4 PUSHINT	//  numbers _8=4
-    SWAP	//  _8=4 numbers
+    4 PUSHINT	//  numbers '8=4
+    SWAP	//  '8=4 numbers
     CONS	//  numbers
     UNCONS	//  h numbers
     DUP	//  h numbers numbers
-    CAR	//  h numbers _13
+    CAR	//  h numbers '13
 """
 
 @fif_codegen
@@ -121,11 +121,11 @@ fun main() {
   main PROC:<{
     //
     PUSHNULL	//  i
-    ISNULL	//  _2
+    ISNULL	//  '2
     IFJMP:<{	//
-      1 PUSHINT	//  _3=1
+      1 PUSHINT	//  '3=1
     }>	//
-    10 PUSHINT	//  _4=10
+    10 PUSHINT	//  '4=10
   }>
 """
 
@@ -133,14 +133,14 @@ fun main() {
 """
   test7 PROC:<{
     ...
-    LDOPTREF	//  b _8 _7
+    LDOPTREF	//  b '8 '7
     DROP	    //  b c
-    ISNULL	    //  b _11
-    10 MULCONST	//  b _13
-    SWAP	    //  _13 b
-    ISNULL	    //  _13 _14
-    NOT         // _13 _15
-    ADD	        //  _16
+    ISNULL	    //  b '11
+    10 MULCONST	//  b '13
+    SWAP	    //  '13 b
+    ISNULL	    //  '13 '14
+    NOT         // '13 '15
+    ADD	        //  '16
   }>
 """
 */

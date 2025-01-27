@@ -21,23 +21,32 @@ fun tuplePush<T>(mutate self: tuple, value: T): void
     asm "TPUSH";
 
 /// Returns the first element of a non-empty tuple.
+/// `t.0` is actually the same as `t.tupleFirst()`
 @pure
-fun tupleFirst<T>(t: tuple): T
+fun tupleFirst<T>(self: tuple): T
     asm "FIRST";
 
 /// Returns the [`index`]-th element of a tuple.
+/// `t.i` is actually the same as `t.tupleAt(i)`
 @pure
-fun tupleAt<T>(t: tuple, index: int): T
+fun tupleAt<T>(self: tuple, index: int): T
+    builtin;
+
+/// Sets the [`index`]-th element of a tuple to a specified value
+/// (element with this index must already exist, a new element isn't created).
+/// `t.i = value` is actually the same as `t.tupleSetAt(value, i)`
+@pure
+fun tupleSetAt<T>(mutate self: tuple, value: T, index: int): void
     builtin;
 
 /// Returns the size of a tuple (elements count in it).
 @pure
-fun tupleSize(t: tuple): int
+fun tupleSize(self: tuple): int
     asm "TLEN";
 
 /// Returns the last element of a non-empty tuple.
 @pure
-fun tupleLast<T>(t: tuple): T
+fun tupleLast<T>(self: tuple): T
     asm "LAST";
 
 

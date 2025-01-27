@@ -43,7 +43,7 @@ const demo_20: int = 20;
 """
   test1 PROC:<{
     //
-    30 PUSHINT  // _10
+    30 PUSHINT  // '10
   }>
 """
  */

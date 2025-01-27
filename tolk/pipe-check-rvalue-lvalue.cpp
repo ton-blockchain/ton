@@ -123,8 +123,8 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
 
   void visit(V<ast_dot_access> v) override {
     // a reference to a method used as rvalue, like `var v = t.tupleAt`
-    if (const FunctionData* fun_ref = v->target; v->is_rvalue) {
-      validate_function_used_as_noncall(v, fun_ref);
+    if (v->is_rvalue && v->is_target_fun_ref()) {
+      validate_function_used_as_noncall(v, std::get<const FunctionData*>(v->target));
     }
   }
 

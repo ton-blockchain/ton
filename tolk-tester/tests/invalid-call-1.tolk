@@ -6,5 +6,5 @@ fun main(x: int) {
 
 /**
 @compilation_should_fail
-@stderr calling a non-function
+@stderr non-existing method `asdf` of type `int`
  */

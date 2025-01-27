@@ -26,22 +26,28 @@ namespace tolk {
  * 
  */
 
-void TmpVar::dump(std::ostream& os) const {
-  show(os);
-  os << " : " << v_type << " (width ";
-  os << v_type->calc_width_on_stack();
-  os << ")";
-  os << std::endl;
+void TmpVar::show_as_stack_comment(std::ostream& os) const {
+  if (!name.empty()) {
+    os << name;
+  } else {
+    os << '\'' << ir_idx;
+  }
+#ifdef TOLK_DEBUG
+  // uncomment for detailed stack output, like `'15(binary-op) '16(glob-var)`
+  // if (desc) os << desc;
+#endif
 }
 
-void TmpVar::show(std::ostream& os, int omit_idx) const {
-  if (v_sym) {
-    os << v_sym->name;
-    if (omit_idx >= 2) {
-      return;
-    }
+void TmpVar::show(std::ostream& os) const {
+  os << '\'' << ir_idx;   // vars are printed out as `'1 '2` (in stack comments, debug info, etc.)
+  if (!name.empty()) {
+    os << '_' << name;
   }
-  os << '_' << ir_idx;
+#ifdef TOLK_DEBUG
+  if (desc) {
+    os << ' ' << desc;    // "origin" of implicitly created tmp var, like `'15 (binary-op) '16 (glob-var)`
+  }
+#endif
 }
 
 std::ostream& operator<<(std::ostream& os, const TmpVar& var) {
@@ -95,7 +101,7 @@ void VarDescr::show(std::ostream& os, const char* name) const {
   if (name) {
     os << name;
   }
-  os << '_' << idx;
+  os << '\'' << idx;
   show_value(os);
 }
 
@@ -333,7 +339,7 @@ void Op::show_var_list(std::ostream& os, const std::vector<var_idx_t>& idx_list,
   } else {
     os << "(" << vars.at(idx_list[0]);
     for (std::size_t i = 1; i < idx_list.size(); i++) {
-      os << "," << vars.at(idx_list[i]);
+      os << ", " << vars.at(idx_list[i]);
     }
     os << ")";
   }
@@ -378,11 +384,12 @@ void CodeBlob::print(std::ostream& os, int flags) const {
   os << "CODE BLOB: " << var_cnt << " variables, " << in_var_cnt << " input\n";
   if ((flags & 8) != 0) {
     for (const auto& var : vars) {
-      var.dump(os);
-      if (var.where.is_defined() && (flags & 1) != 0) {
-        var.where.show(os);
+      var.show(os);
+      os << " : " << var.v_type << std::endl;
+      if (var.loc.is_defined() && (flags & 1) != 0) {
+        var.loc.show(os);
         os << " defined here:\n";
-        var.where.show_context(os);
+        var.loc.show_context(os);
       }
     }
   }
@@ -393,21 +400,25 @@ void CodeBlob::print(std::ostream& os, int flags) const {
   os << "-------- END ---------\n\n";
 }
 
-std::vector<var_idx_t> CodeBlob::create_var(TypePtr var_type, const LocalVarData* v_sym, SrcLocation loc) {
+std::vector<var_idx_t> CodeBlob::create_var(TypePtr var_type, SrcLocation loc, std::string name) {
   std::vector<var_idx_t> ir_idx;
-  ir_idx.reserve(var_type->calc_width_on_stack());
+  int stack_w = var_type->calc_width_on_stack();
+  ir_idx.reserve(stack_w);
   if (const TypeDataTensor* t_tensor = var_type->try_as<TypeDataTensor>()) {
-    for (TypePtr item : t_tensor->items) {
-      std::vector<var_idx_t> nested = create_var(item, v_sym, loc);
+    for (int i = 0; i < t_tensor->size(); ++i) {
+      std::string sub_name = name.empty() ? name : name + "." + std::to_string(i);
+      std::vector<var_idx_t> nested = create_var(t_tensor->items[i], loc, std::move(sub_name));
       ir_idx.insert(ir_idx.end(), nested.begin(), nested.end());
     }
   } else if (var_type != TypeDataVoid::create()) {
-    tolk_assert(var_type->calc_width_on_stack() == 1);
-    vars.emplace_back(var_cnt, var_type, v_sym, loc);
+#ifdef TOLK_DEBUG
+    tolk_assert(stack_w == 1);
+#endif
+    vars.emplace_back(var_cnt, var_type, std::move(name), loc);
     ir_idx.emplace_back(var_cnt);
     var_cnt++;
   }
-  tolk_assert(static_cast<int>(ir_idx.size()) == var_type->calc_width_on_stack());
+  tolk_assert(static_cast<int>(ir_idx.size()) == stack_w);
   return ir_idx;
 }
 

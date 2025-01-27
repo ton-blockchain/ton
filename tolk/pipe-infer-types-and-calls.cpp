@@ -124,6 +124,19 @@ static void fire_error_cannot_apply_operator(SrcLocation loc, std::string_view o
   throw ParseError(loc, "can not apply operator `" + op + "` to " + to_string(lhs->inferred_type) + " and " + to_string(rhs->inferred_type));
 }
 
+// fire an error on `untypedTupleVar.0` when used without a hint
+GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
+static void fire_error_cannot_deduce_untyped_tuple_access(SrcLocation loc, int index) {
+  std::string idx_access = "<tuple>." + std::to_string(index);
+  throw ParseError(loc, "can not deduce type of `" + idx_access + "`; either assign it to variable like `var c: int = " + idx_access + "` or cast the result like `" + idx_access + " as int`");
+}
+
+// fire an error on `untypedTupleVar.0` when inferred as (int,int), or `[int, (int,int)]`, or other non-1 width in a tuple
+GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
+static void fire_error_cannot_put_non1_stack_width_arg_to_tuple(SrcLocation loc, TypePtr inferred_type) {
+  throw ParseError(loc, "can not put " + to_string(inferred_type) + " into a tuple, because it occupies " + std::to_string(inferred_type->calc_width_on_stack()) + " stack slots in TVM, not 1");
+}
+
 // check correctness of called arguments counts and their type matching
 static void check_function_arguments(const FunctionData* fun_ref, V<ast_argument_list> v, AnyExprV lhs_of_dot_call) {
   int delta_self = lhs_of_dot_call ? 1 : 0;
@@ -466,6 +479,22 @@ class InferCheckTypesAndCallsAndFieldsVisitor final {
       return TypeDataTypedTuple::create(std::move(sub_hints));
     }
 
+    // `a.0 = rhs` / `b.1.0 = rhs` (remember, its target is not assigned yet)
+    if (auto lhs_dot = lhs->try_as<ast_dot_access>()) {
+      TypePtr obj_hint = calc_hint_from_assignment_lhs(lhs_dot->get_obj());
+      std::string_view field_name = lhs_dot->get_field_name();
+      if (field_name[0] >= '0' && field_name[0] <= '9') {
+        int index_at = std::stoi(std::string(field_name));
+        if (const auto* t_tensor = obj_hint->try_as<TypeDataTensor>(); t_tensor && index_at < t_tensor->size()) {
+          return t_tensor->items[index_at];
+        }
+        if (const auto* t_tuple = obj_hint->try_as<TypeDataTypedTuple>(); t_tuple && index_at < t_tuple->size()) {
+          return t_tuple->items[index_at];
+        }
+      }
+      return TypeDataUnknown::create();
+    }
+
     return TypeDataUnknown::create();
   }
 
@@ -562,8 +591,8 @@ class InferCheckTypesAndCallsAndFieldsVisitor final {
       return;
     }
 
-    // here is something strange and unhandled, like `f() = rhs`
-    // it will fail on later compilation steps (like rvalue/lvalue checks), but type inferring should pass
+    // here is something unhandled like `a.0 = rhs`, run regular inferring on rhs
+    // for something strange like `f() = rhs` type inferring will pass, but will fail later
     infer_any_expr(lhs, rhs_type);
     if (!lhs->inferred_type->can_rhs_be_assigned(rhs_type)) {
       err_loc->error("can not assign " + to_string(rhs_type) + " to " + to_string(lhs));
@@ -839,25 +868,56 @@ class InferCheckTypesAndCallsAndFieldsVisitor final {
     // it's NOT a method call `t.tupleSize()` (since such cases are handled by infer_function_call)
     // it's `t.0`, `getUser().id`, and `t.tupleSize` (as a reference, not as a call)
     infer_any_expr(v->get_obj());
+    TypePtr obj_type = v->get_obj()->inferred_type;
     // our goal is to fill v->target knowing type of obj
     V<ast_identifier> v_ident = v->get_identifier();    // field/method name vertex
     V<ast_instantiationT_list> v_instantiationTs = v->get_instantiationTs();
     std::string_view field_name = v_ident->name;
 
-    // for now, Tolk doesn't have structures, properties, and object-scoped methods
-    // so, only `t.tupleSize` is allowed, look up a global function
-    const Symbol* sym = lookup_global_symbol(field_name);
-    if (!sym) {
-      v_ident->error("undefined symbol `" + static_cast<std::string>(field_name) + "`");
+    // it can be indexed access (`tensorVar.0`, `tupleVar.1`) or a method (`t.tupleSize`)
+    // at first, check for indexed access
+    if (field_name[0] >= '0' && field_name[0] <= '9') {
+      int index_at = std::stoi(std::string(field_name));
+      if (const auto* t_tensor = obj_type->try_as<TypeDataTensor>()) {
+        if (index_at >= t_tensor->size()) {
+          v_ident->error("invalid tensor index, expected 0.." + std::to_string(t_tensor->items.size() - 1));
+        }
+        v->mutate()->assign_target(index_at);
+        assign_inferred_type(v, t_tensor->items[index_at]);
+        return;
+      }
+      if (const auto* t_tuple = obj_type->try_as<TypeDataTypedTuple>()) {
+        if (index_at >= t_tuple->size()) {
+          v_ident->error("invalid tuple index, expected 0.." + std::to_string(t_tuple->items.size() - 1));
+        }
+        v->mutate()->assign_target(index_at);
+        assign_inferred_type(v, t_tuple->items[index_at]);
+        return;
+      }
+      if (obj_type->try_as<TypeDataTuple>()) {
+        if (hint == nullptr) {
+          fire_error_cannot_deduce_untyped_tuple_access(v->loc, index_at);
+        }
+        if (hint->calc_width_on_stack() != 1) {
+          fire_error_cannot_put_non1_stack_width_arg_to_tuple(v->loc, hint);
+        }
+        v->mutate()->assign_target(index_at);
+        assign_inferred_type(v, hint);
+        return;
+      }
+      v_ident->error("type " + to_string(obj_type) + " is not indexable");
     }
-    const FunctionData* fun_ref = sym->try_as<FunctionData>();
+
+    // for now, Tolk doesn't have fields and object-scoped methods; `t.tupleSize` is a global function `tupleSize`
+    const Symbol* sym = lookup_global_symbol(field_name);
+    const FunctionData* fun_ref = sym ? sym->try_as<FunctionData>() : nullptr;
     if (!fun_ref) {
-      v_ident->error("referencing a non-function");
+      v_ident->error("non-existing field `" + static_cast<std::string>(field_name) + "` of type " + to_string(obj_type));
     }
 
     // `t.tupleSize` is ok, `cs.tupleSize` not
-    if (!fun_ref->parameters[0].declared_type->can_rhs_be_assigned(v->get_obj()->inferred_type)) {
-      v_ident->error("referencing a method for " + to_string(fun_ref->parameters[0]) + " with an object of type " + to_string(v->get_obj()));
+    if (!fun_ref->parameters[0].declared_type->can_rhs_be_assigned(obj_type)) {
+      v_ident->error("referencing a method for " + to_string(fun_ref->parameters[0]) + " with object of type " + to_string(obj_type));
     }
 
     if (fun_ref->is_generic_function() && !v_instantiationTs) {
@@ -896,21 +956,24 @@ class InferCheckTypesAndCallsAndFieldsVisitor final {
 
     } else if (auto v_dot = callee->try_as<ast_dot_access>()) {
       // `obj.someMethod()` / `obj.someMethod<int>()` / `getF().someMethod()` / `obj.SOME_CONST()`
+      // note, that dot_obj->target is not filled yet, since callee was not inferred yet
       delta_self = 1;
       dot_obj = v_dot->get_obj();
       v_instantiationTs = v_dot->get_instantiationTs();     // present for `obj.someMethod<int>()`
       infer_any_expr(dot_obj);
 
-      // for now, Tolk doesn't have object-scoped methods, so method resolving doesn't depend on obj type
-      // (in other words, `globalFunction(a)` = `a.globalFunction()`)
-      std::string_view method_name = v_dot->get_field_name();
-      const Symbol* sym = lookup_global_symbol(method_name);
-      if (!sym) {
-        v_dot->get_identifier()->error("undefined symbol `" + static_cast<std::string>(method_name) + "`");
-      }
-      fun_ref = sym->try_as<FunctionData>();
-      if (!fun_ref) {
-        v_dot->get_identifier()->error("calling a non-function");
+      // it can be indexed access (`tensorVar.0()`, `tupleVar.1()`) or a method (`t.tupleSize()`)
+      std::string_view field_name = v_dot->get_field_name();
+      if (field_name[0] >= '0' && field_name[0] <= '9') {
+        // indexed access `ab.2()`, then treat `ab.2` just like an expression, fun_ref remains nullptr
+        // infer_dot_access() will be called for a callee, it will check type, index correctness, etc.
+      } else {
+        // for now, Tolk doesn't have fields and object-scoped methods; `t.tupleSize` is a global function `tupleSize`
+        const Symbol* sym = lookup_global_symbol(field_name);
+        fun_ref = sym ? sym->try_as<FunctionData>() : nullptr;
+        if (!fun_ref) {
+          v_dot->get_identifier()->error("non-existing method `" + static_cast<std::string>(field_name) + "` of type " + to_string(dot_obj));
+        }
       }
 
     } else {
@@ -926,7 +989,7 @@ class InferCheckTypesAndCallsAndFieldsVisitor final {
       assign_inferred_type(arg_i, arg_i->get_expr());
     }
 
-    // handle `local_var()` / `getF()()` / `5()` / `SOME_CONST()` / `obj.method()()()`
+    // handle `local_var()` / `getF()()` / `5()` / `SOME_CONST()` / `obj.method()()()` / `tensorVar.0()`
     if (!fun_ref) {
       // treat callee like a usual expression, which must have "callable" inferred type
       infer_any_expr(callee);
@@ -1017,6 +1080,9 @@ class InferCheckTypesAndCallsAndFieldsVisitor final {
     for (int i = 0; i < v->size(); ++i) {
       AnyExprV item = v->get_item(i);
       infer_any_expr(item, tuple_hint && i < tuple_hint->size() ? tuple_hint->items[i] : nullptr);
+      if (item->inferred_type->calc_width_on_stack() != 1) {
+        fire_error_cannot_put_non1_stack_width_arg_to_tuple(v->get_item(i)->loc, item->inferred_type);
+      }
       types_list.emplace_back(item->inferred_type);
     }
     assign_inferred_type(v, TypeDataTypedTuple::create(std::move(types_list)));
