@@ -1,5 +1,5 @@
 // A part of standard library for Tolk
-tolk 0.7
+tolk 0.8
 
 /**
     Dictionaries are represented as `cell` data type (cells can store anything, dicts in particular).
