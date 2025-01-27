@@ -111,16 +111,6 @@ static void diagnose_addition_in_bitshift(SrcLocation loc, std::string_view bits
   }
 }
 
-// fire an error for FunC-style variable declaration, like "int i"
-GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-static void fire_error_FunC_style_var_declaration(Lexer& lex) {
-  SrcLocation loc = lex.cur_location();
-  std::string type_str = static_cast<std::string>(lex.cur_str());      // int / slice / etc.
-  lex.next();
-  std::string var_name = lex.tok() == tok_identifier ? static_cast<std::string>(lex.cur_str()) : "name";
-  throw ParseError(loc, "can't parse; probably, you use FunC-like declarations; valid syntax is `var " + var_name + ": " + type_str + " = ...`");
-}
-
 // replace (a == null) and similar to isNull(a) (call of a built-in function)
 static AnyExprV maybe_replace_eq_null_with_isNull_call(V<ast_binary_operator> v) {
   bool has_null = v->get_lhs()->type == ast_null_keyword || v->get_rhs()->type == ast_null_keyword;
@@ -377,14 +367,8 @@ static AnyExprV parse_expr100(Lexer& lex) {
       }
       return createV<ast_reference>(loc, v_ident, v_instantiationTs);
     }
-    default: {
-      // show a proper error for `int i` (FunC-style declarations)
-      TokenType t = lex.tok();
-      if (t == tok_int || t == tok_cell || t == tok_slice || t == tok_builder || t == tok_tuple) {
-        fire_error_FunC_style_var_declaration(lex);
-      }
+    default:
       lex.unexpected("<expression>");
-    }
   }
 }
 

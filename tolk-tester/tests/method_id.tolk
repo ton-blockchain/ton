@@ -4,6 +4,8 @@ fun foo1(): int { return 111; }
 fun foo2(): int { return 222; }
 @method_id(10)
 fun foo3(): int { return 333; }
+@method_id(11)
+fun slice(slice: slice): slice { return slice; }
 fun main(): int { return 999; }
 
 /**

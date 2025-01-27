@@ -118,14 +118,6 @@ enum TokenType {
   tok_if,
   tok_else,
 
-  tok_int,
-  tok_cell,
-  tok_bool,
-  tok_slice,
-  tok_builder,
-  tok_continuation,
-  tok_tuple,
-  tok_void,
   tok_arrow,
   tok_as,
 

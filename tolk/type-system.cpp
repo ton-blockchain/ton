@@ -581,40 +581,38 @@ std::vector<TypePtr> parse_nested_type_list_in_parenthesis(Lexer& lex) {
 
 static TypePtr parse_simple_type(Lexer& lex) {
   switch (lex.tok()) {
-    case tok_int:
-      lex.next();
-      return TypeDataInt::create();
-    case tok_bool:
-      lex.next();
-      return TypeDataBool::create();
-    case tok_cell:
-      lex.next();
-      return TypeDataCell::create();
-    case tok_builder:
-      lex.next();
-      return TypeDataBuilder::create();
-    case tok_slice:
-      lex.next();
-      return TypeDataSlice::create();
-    case tok_tuple:
-      lex.next();
-      return TypeDataTuple::create();
-    case tok_continuation:
-      lex.next();
-      return TypeDataContinuation::create();
-    case tok_null:
-      lex.next();
-      return TypeDataNullLiteral::create();
-    case tok_void:
-      lex.next();
-      return TypeDataVoid::create();
     case tok_self:
     case tok_identifier: {
       SrcLocation loc = lex.cur_location();
-      std::string text = static_cast<std::string>(lex.cur_str());
+      std::string_view str = lex.cur_str();
       lex.next();
-      return TypeDataUnresolved::create(std::move(text), loc);
+      switch (str.size()) {
+        case 3:
+          if (str == "int") return TypeDataInt::create();
+          break;
+        case 4:
+          if (str == "cell") return TypeDataCell::create();
+          if (str == "void") return TypeDataVoid::create();
+          if (str == "bool") return TypeDataBool::create();
+          break;
+        case 5:
+          if (str == "slice") return TypeDataSlice::create();
+          if (str == "tuple") return TypeDataTuple::create();
+          break;
+        case 7:
+          if (str == "builder") return TypeDataBuilder::create();
+          break;
+        case 12:
+          if (str == "continuation") return TypeDataContinuation::create();
+          break;
+        default:
+          break;
+      }
+      return TypeDataUnresolved::create(std::string(str), loc);
     }
+    case tok_null:
+      lex.next();
+      return TypeDataNullLiteral::create();
     case tok_oppar: {
       std::vector<TypePtr> items = parse_nested_type_list_in_parenthesis(lex);
       if (items.size() == 1) {
