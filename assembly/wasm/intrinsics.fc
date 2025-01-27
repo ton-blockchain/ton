@@ -1,0 +1,61 @@
+#pragma allow-post-modification;
+#pragma compute-asm-ltr;
+
+(slice, slice) __tact_load_address(slice cs) inline {
+    slice raw = cs~load_msg_addr();
+    return (cs, raw);
+}
+
+slice __gen_slice1 () asm """
+    B{b5ee9c72410101010005000006abcdefe1e98884} B>boc <s PUSHSLICE
+""";
+
+slice __gen_slice_slice_eb58904b617945cdf4f33042169c462cd36cf1772a2229f06171fd899e920b7f() asm """
+    B{b5ee9c724101010100030000011025086565} B>boc <s PUSHSLICE
+""";
+
+slice __gen_slice3 () asm """
+    B{b5ee9c724101010100030000017888c37a8e} B>boc <s PUSHSLICE
+""";
+
+slice __gen_slice_slice_6694a4a61b0dc7c7d5f63bbd394449f6921de7b2ad9cb() asm """
+    B{b5ee9c724101010100820000ffabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdab} B>boc <s PUSHSLICE
+""";
+
+slice __gen_slice_slice_80b26bab85f37e2bde3795993cdf7402cd42e68eff6187e8388083ce6cfe7c92() asm """
+    B{b5ee9c724101010100030000018a0adc2f9c} B>boc <s PUSHSLICE
+""";
+
+
+(slice,((slice, cell, int, int, slice, slice, int, int, int, int, slice, slice, slice, slice, slice, slice, slice, slice, slice, slice, slice))) IntrinsicsTester_load(slice sc_0) inline {
+    var v'c = sc_0~__tact_load_address();
+    var v'd = sc_0~load_ref();
+    var v'e = sc_0~load_int(257);
+    var v'f = sc_0~load_int(257);
+    slice sc_1 = sc_0~load_ref().begin_parse();
+    var v'g = sc_1~load_ref().begin_parse();
+    var v'h = sc_1~load_ref().begin_parse();
+    var v'i = sc_1~load_int(257);
+    var v'j = sc_1~load_int(257);
+    var v'k = sc_1~load_int(257);
+    slice sc_2 = sc_1~load_ref().begin_parse();
+    var v'l = sc_2~load_int(257);
+    var v'm = sc_2~load_ref().begin_parse();
+    var v'n = sc_2~load_ref().begin_parse();
+    var v'o = sc_2~load_ref().begin_parse();
+    slice sc_3 = sc_2~load_ref().begin_parse();
+    var v'p = sc_3~load_ref().begin_parse();
+    var v'q = sc_3~load_ref().begin_parse();
+    var v'r = sc_3~load_ref().begin_parse();
+    slice sc_4 = sc_3~load_ref().begin_parse();
+    var v's = sc_4~load_ref().begin_parse();
+    var v't = sc_4~load_ref().begin_parse();
+    var v'u = sc_4~load_ref().begin_parse();
+    slice sc_5 = sc_4~load_ref().begin_parse();
+    var v'w = sc_5~load_ref().begin_parse();
+    var v'v = sc_5~load_ref().begin_parse();
+    return (sc_0, (v'c, v'd, v'e, v'f, v'g, v'h, v'i, v'j, v'k, v'l, v'm, v'n, v'o, v'p, v'q, v'r, v's, v't, v'u, v'w, v'v));
+}
+
+() recv_internal(int msg_value, cell in_msg_cell, slice in_msg) impure { }
+
