@@ -16,6 +16,7 @@
 */
 #include "tolk.h"
 #include "compiler-state.h"
+#include "type-system.h"
 
 namespace tolk {
 
@@ -25,21 +26,10 @@ namespace tolk {
  * 
  */
 
-TmpVar::TmpVar(var_idx_t _idx, TypeExpr* _type, sym_idx_t sym_idx, SrcLocation loc)
-    : v_type(_type), idx(_idx), sym_idx(sym_idx), coord(0), where(loc) {
-  if (!_type) {
-    v_type = TypeExpr::new_hole();
-  }
-}
-
-void TmpVar::set_location(SrcLocation loc) {
-  where = loc;
-}
-
 void TmpVar::dump(std::ostream& os) const {
   show(os);
   os << " : " << v_type << " (width ";
-  v_type->show_width(os);
+  os << v_type->calc_width_on_stack();
   os << ")";
   if (coord > 0) {
     os << " = _" << (coord >> 8) << '.' << (coord & 255);
@@ -55,8 +45,8 @@ void TmpVar::dump(std::ostream& os) const {
 }
 
 void TmpVar::show(std::ostream& os, int omit_idx) const {
-  if (!is_unnamed()) {
-    os << G.symbols.get_name(sym_idx);
+  if (v_sym) {
+    os << v_sym->name;
     if (omit_idx >= 2) {
       return;
     }
@@ -147,10 +137,6 @@ void VarDescr::set_const(td::RefInt256 value) {
 void VarDescr::set_const(std::string value) {
   str_const = value;
   val = _Const;
-}
-
-void VarDescr::set_const_nan() {
-  set_const(td::make_refint());
 }
 
 void VarDescr::operator|=(const VarDescr& y) {
@@ -273,7 +259,7 @@ void Op::show(std::ostream& os, const std::vector<TmpVar>& vars, std::string pfx
     case _Call:
       os << pfx << dis << "CALL: ";
       show_var_list(os, left, vars);
-      os << " := " << (fun_ref ? fun_ref->name() : "(null)") << " ";
+      os << " := " << (f_sym ? f_sym->name : "(null)") << " ";
       if ((mode & 4) && args.size() == right.size()) {
         show_var_list(os, args, vars);
       } else {
@@ -332,11 +318,11 @@ void Op::show(std::ostream& os, const std::vector<TmpVar>& vars, std::string pfx
     case _GlobVar:
       os << pfx << dis << "GLOBVAR ";
       show_var_list(os, left, vars);
-      os << " := " << (fun_ref ? fun_ref->name() : "(null)") << std::endl;
+      os << " := " << (g_sym ? g_sym->name : "(null)") << std::endl;
       break;
     case _SetGlob:
       os << pfx << dis << "SETGLOB ";
-      os << (fun_ref ? fun_ref->name() : "(null)") << " := ";
+      os << (g_sym ? g_sym->name : "(null)") << " := ";
       show_var_list(os, right, vars);
       os << std::endl;
       break;
@@ -458,22 +444,22 @@ void CodeBlob::print(std::ostream& os, int flags) const {
   os << "-------- END ---------\n\n";
 }
 
-var_idx_t CodeBlob::create_var(TypeExpr* var_type, var_idx_t sym_idx, SrcLocation location) {
-  vars.emplace_back(var_cnt, var_type, sym_idx, location);
+var_idx_t CodeBlob::create_var(TypePtr var_type, const LocalVarData* v_sym, SrcLocation location) {
+  vars.emplace_back(var_cnt, var_type, v_sym, location);
   return var_cnt++;
 }
 
-bool CodeBlob::import_params(FormalArgList arg_list) {
+bool CodeBlob::import_params(FormalArgList&& arg_list) {
   if (var_cnt || in_var_cnt) {
     return false;
   }
   std::vector<var_idx_t> list;
   for (const auto& par : arg_list) {
-    TypeExpr* arg_type;
-    SymDef* arg_sym;
+    TypePtr arg_type;
+    const LocalVarData* arg_sym;
     SrcLocation arg_loc;
     std::tie(arg_type, arg_sym, arg_loc) = par;
-    list.push_back(create_var(arg_type, arg_sym ? arg_sym->sym_idx : 0, arg_loc));
+    list.push_back(create_var(arg_type, arg_sym, arg_loc));
   }
   emplace_back(loc, Op::_Import, list);
   in_var_cnt = var_cnt;

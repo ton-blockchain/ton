@@ -151,3 +151,4 @@ jobs:
           file: artifacts/ton-wasm.zip
           asset_name: ton-wasm.zip
           tag: ${{ inputs.tag }}
+

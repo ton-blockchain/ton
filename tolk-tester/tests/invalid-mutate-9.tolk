@@ -4,6 +4,6 @@ fun increment(self: int) {
 
 /**
 @compilation_should_fail
-@stderr modifying `self` (left side of assignment), which is immutable by default
+@stderr modifying `self`, which is immutable by default
 @stderr probably, you want to declare `mutate self`
  */

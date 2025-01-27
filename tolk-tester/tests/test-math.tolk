@@ -218,7 +218,7 @@ fun fixed248_log2_const(): int {
 @pure
 @inline
 fun Pi_const_f254(): int {
-    var (c: auto, _) = Pi_xconst_f254();
+    var (c, _) = Pi_xconst_f254();
     return c;
 }
 
@@ -661,7 +661,7 @@ fun fixed248_pow(x: int, y: int): int {
     return 1 << 248;   // x^0 = 1
     }
     if (x <= 0) {
-    var bad: int = (x | y) < 0;
+    var bad: int = ((x | y) < 0) as int;
     return 0 >> bad;          // 0^y = 0 if x=0 and y>=0; "out of range" exception otherwise
     }
     var (l, s) = log2_aux_f256(x);
@@ -677,7 +677,7 @@ fun fixed248_pow(x: int, y: int): int {
     // now log_2(x^y) = y*log_2(x) = q + ll, ss integer, ll fixed257, -1/2<=ll<1/2
     var sq: int = q + 248;
     if (sq <= 0) {
-    return -(sq == 0);   // underflow
+    return -((sq == 0) as int);   // underflow
     }
     y = expm1_f257(mulrshiftr256(ll, log2_const_f256()));
     return (y ~>> (9 - q)) - (-1 << sq);
@@ -986,7 +986,7 @@ fun tset<X>(mutate self: tuple, idx: int, value: X): void
 // fixed256 acos_prepare_slow(fixed255 x);
 @inline
 fun acos_prepare_slow_f255(x: int): int {
-  x -= (x == 0);
+  x -= (x == 0) as int;
   var t: int = 1;
   repeat (255) {
     t = t * sign(x) * 2 + 1;    // decode Gray code (sign(x_0), sign(x_1), ...)
@@ -1019,7 +1019,8 @@ fun test_nrand(n: int): tuple {
   repeat (n) {
     var x: int = fixed248_nrand();
     var bucket: int = (abs(x) >> 243);   // 255 buckets starting from x=0, each 1/32 wide
-    t.tset(bucket, t.tupleAt(bucket) + 1);
+    var at_bucket: int = t.tupleAt(bucket);
+    t.tset(bucket, at_bucket + 1);
   }
   return t;
 }

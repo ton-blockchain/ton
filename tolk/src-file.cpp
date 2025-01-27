@@ -23,8 +23,8 @@ namespace tolk {
 
 static_assert(sizeof(SrcLocation) == 8);
 
-SrcFile* AllRegisteredSrcFiles::find_file(int file_id) const {
-  for (SrcFile* file : all_src_files) {
+const SrcFile* AllRegisteredSrcFiles::find_file(int file_id) const {
+  for (const SrcFile* file : all_src_files) {
     if (file->file_id == file_id) {
       return file;
     }
@@ -32,8 +32,8 @@ SrcFile* AllRegisteredSrcFiles::find_file(int file_id) const {
   return nullptr;
 }
 
-SrcFile* AllRegisteredSrcFiles::find_file(const std::string& abs_filename) const {
-  for (SrcFile* file : all_src_files) {
+const SrcFile* AllRegisteredSrcFiles::find_file(const std::string& abs_filename) const {
+  for (const SrcFile* file : all_src_files) {
     if (file->abs_filename == abs_filename) {
       return file;
     }
@@ -41,7 +41,7 @@ SrcFile* AllRegisteredSrcFiles::find_file(const std::string& abs_filename) const
   return nullptr;
 }
 
-SrcFile* AllRegisteredSrcFiles::locate_and_register_source_file(const std::string& rel_filename, SrcLocation included_from) {
+const SrcFile* AllRegisteredSrcFiles::locate_and_register_source_file(const std::string& rel_filename, SrcLocation included_from) {
   td::Result<std::string> path = G.settings.read_callback(CompilerSettings::FsReadCallbackKind::Realpath, rel_filename.c_str());
   if (path.is_error()) {
     if (included_from.is_defined()) {
@@ -51,7 +51,7 @@ SrcFile* AllRegisteredSrcFiles::locate_and_register_source_file(const std::strin
   }
 
   std::string abs_filename = path.move_as_ok();
-  if (SrcFile* file = find_file(abs_filename)) {
+  if (const SrcFile* file = find_file(abs_filename)) {
     return file;
   }
 
@@ -75,16 +75,7 @@ SrcFile* AllRegisteredSrcFiles::get_next_unparsed_file() {
   if (last_parsed_file_id >= last_registered_file_id) {
     return nullptr;
   }
-  return all_src_files[++last_parsed_file_id];
-}
-
-AllSrcFiles AllRegisteredSrcFiles::get_all_files() const {
-  AllSrcFiles src_files_immutable;
-  src_files_immutable.reserve(all_src_files.size());
-  for (const SrcFile* file : all_src_files) {
-    src_files_immutable.push_back(file);
-  }
-  return src_files_immutable;
+  return const_cast<SrcFile*>(all_src_files[++last_parsed_file_id]);
 }
 
 bool SrcFile::is_stdlib_file() const {

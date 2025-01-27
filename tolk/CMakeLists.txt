@@ -7,14 +7,24 @@ set(TOLK_SOURCE
         compiler-state.cpp
         ast.cpp
         ast-from-tokens.cpp
+        constant-evaluator.cpp
         pipe-discover-parse-sources.cpp
         pipe-register-symbols.cpp
+        pipe-resolve-identifiers.cpp
+        pipe-calc-rvalue-lvalue.cpp
+        pipe-detect-unreachable.cpp
+        pipe-infer-types-and-calls.cpp
+        pipe-refine-lvalue-for-mutate.cpp
+        pipe-check-rvalue-lvalue.cpp
+        pipe-check-pure-impure.cpp
+        pipe-constant-folding.cpp
+        pipe-optimize-boolean-expr.cpp
         pipe-ast-to-legacy.cpp
         pipe-find-unused-symbols.cpp
         pipe-generate-fif-output.cpp
-        unify-types.cpp
+        type-system.cpp
+        generics-helpers.cpp
         abscode.cpp
-        gen-abscode.cpp
         analyzer.cpp
         asmops.cpp
         builtins.cpp

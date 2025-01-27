@@ -9,6 +9,7 @@ fun calc_phi(): int {
   repeat (70) { n*=10; };
   var p= 1;
   var `q`=1;
+  _=`q`;
   do {
     (p,q)=(q,p+q);
   } while (q <= n); //;;
@@ -27,7 +28,7 @@ fun calc_sqrt2(): int {
   return mulDivRound(p, n, q);
 }
 
-fun calc_root(m: auto): auto {
+fun calc_root(m: int) {
   var base: int=1;
   repeat(70) { base *= 10; }
   var (a, b, c) = (1,0,-m);

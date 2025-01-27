@@ -8,6 +8,6 @@ fun main() {
 
 /**
 @compilation_should_fail
-@stderr rvalue expected
+@stderr `_` can't be used as a value; it's a placeholder for a left side of assignment
 @stderr inc(_)
  */

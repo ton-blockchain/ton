@@ -71,6 +71,7 @@ jobs:
           workflow: build-ton-macos-13-x86-64-portable.yml
           path: artifacts
           workflow_conclusion: success
+          branch: master
           skip_unpack: false
 
       - name: Download and unzip arm64 artifacts
