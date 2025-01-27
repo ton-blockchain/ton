@@ -6,5 +6,5 @@ fun main() {
 /**
 @compilation_should_fail
 @stderr .tolk:2
-@stderr expected <type>, got `scli`
+@stderr unknown type name `scli`
  */

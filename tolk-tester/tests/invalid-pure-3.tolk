@@ -2,6 +2,7 @@
 fun validate_input(input: cell): (int, int) {
     var (x, y, z, correct) = calculateCellSize(input, 10);
     assert(correct) throw 102;
+    return (x, y);
 }
 
 @pure

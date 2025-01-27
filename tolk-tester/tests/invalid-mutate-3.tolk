@@ -7,5 +7,5 @@ fun cantAssignToConst() {
 
 /**
 @compilation_should_fail
-@stderr modifying an immutable variable `op_increase`
+@stderr modifying immutable constant
  */

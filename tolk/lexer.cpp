@@ -15,9 +15,9 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include "lexer.h"
-#include "compiler-state.h"
-#include "symtable.h"
 #include <cassert>
+#include <cstdint>
+#include <cstring>
 
 namespace tolk {
 
@@ -328,6 +328,7 @@ struct ChunkIdentifierOrKeyword final : ChunkLexerBase {
       case 2:
         if (str == "do") return tok_do;
         if (str == "if") return tok_if;
+        if (str == "as") return tok_as;
         break;
       case 3:
         if (str == "int") return tok_int;
@@ -345,7 +346,6 @@ struct ChunkIdentifierOrKeyword final : ChunkLexerBase {
         if (str == "null") return tok_null;
         if (str == "void") return tok_void;
         if (str == "bool") return tok_bool;
-        if (str == "auto") return tok_auto;
         if (str == "self") return tok_self;
         if (str == "tolk") return tok_tolk;
         if (str == "type") return tok_type;
@@ -406,7 +406,6 @@ struct ChunkIdentifierOrKeyword final : ChunkLexerBase {
     if (TokenType kw_tok = maybe_keyword(str_val)) {
       lex->add_token(kw_tok, str_val);
     } else {
-      G.symbols.lookup_add(str_val);
       lex->add_token(tok_identifier, str_val);
     }
     return true;
@@ -421,7 +420,7 @@ struct ChunkIdentifierInBackticks final : ChunkLexerBase {
     const char* str_begin = lex->c_str();
     lex->skip_chars(1);
     while (!lex->is_eof() && lex->char_at() != '`' && lex->char_at() != '\n') {
-      if (std::isspace(lex->char_at())) { // probably, I'll remove this restriction after rewriting symtable and cur_sym_idx
+      if (std::isspace(lex->char_at())) {
         lex->error("an identifier can't have a space in its name (even inside backticks)");
       }
       lex->skip_chars(1);
@@ -432,7 +431,6 @@ struct ChunkIdentifierInBackticks final : ChunkLexerBase {
 
     std::string_view str_val(str_begin + 1, lex->c_str() - str_begin - 1);
     lex->skip_chars(1);
-    G.symbols.lookup_add(str_val);
     lex->add_token(tok_identifier, str_val);
     return true;
   }
@@ -580,6 +578,16 @@ void Lexer::next_special(TokenType parse_next_as, const char* str_expected) {
   cur_token = tokens_circularbuf[++cur_token_idx & 7];
 }
 
+Lexer::SavedPositionForLookahead Lexer::save_parsing_position() const {
+  return {p_next, cur_token_idx, cur_token};
+}
+
+void Lexer::restore_position(SavedPositionForLookahead saved) {
+  p_next = saved.p_next;
+  cur_token_idx = last_token_idx = saved.cur_token_idx;
+  cur_token = saved.cur_token;
+}
+
 void Lexer::error(const std::string& err_msg) const {
   throw ParseError(cur_location(), err_msg);
 }
@@ -597,7 +605,7 @@ void lexer_init() {
 // Hence, it's difficult to measure Lexer performance separately.
 // This function can be called just to tick Lexer performance, it just scans all input files.
 // There is no sense to use it in production, but when refactoring and optimizing Lexer, it's useful.
-void lexer_measure_performance(const AllSrcFiles& files_to_just_parse) {
+void lexer_measure_performance(const AllRegisteredSrcFiles& files_to_just_parse) {
   for (const SrcFile* file : files_to_just_parse) {
     Lexer lex(file);
     while (!lex.is_eof()) {

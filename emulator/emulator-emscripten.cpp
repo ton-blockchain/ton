@@ -65,6 +65,7 @@ struct GetMethodParams {
   std::string address;
   uint32_t unixtime;
   uint64_t balance;
+  std::string extra_currencies;
   std::string rand_seed_hex;
   int64_t gas_limit;
   int method_id;
@@ -107,6 +108,32 @@ td::Result<GetMethodParams> decode_get_method_params(const char* json) {
   TRY_RESULT(balance_field, td::get_json_object_field(obj, "balance", td::JsonValue::Type::String, false));
   TRY_RESULT(balance, td::to_integer_safe<td::uint64>(balance_field.get_string()));
   params.balance = balance;
+
+  TRY_RESULT(ec_field, td::get_json_object_field(obj, "extra_currencies", td::JsonValue::Type::Object, true));
+  if (ec_field.type() != td::JsonValue::Type::Null) {
+    if (ec_field.type() != td::JsonValue::Type::Object) {
+      return td::Status::Error("EC must be of type Object");
+    }
+    td::StringBuilder ec_builder;
+    auto& ec_obj = ec_field.get_object();
+    bool is_first = true;
+    for (auto &field_value : ec_obj) {
+      auto currency_id = field_value.first;
+      if (field_value.second.type() != td::JsonValue::Type::String) {
+        return td::Status::Error(PSLICE() << "EC amount must be of type String");
+      }
+      auto amount = field_value.second.get_string();
+      if (!is_first) {
+        ec_builder << " ";
+        is_first = false;
+      }
+      ec_builder << currency_id << "=" << amount;
+    }
+    if (ec_builder.is_error()) {
+      return td::Status::Error(PSLICE() << "Error building extra currencies string");
+    }
+    params.extra_currencies = ec_builder.as_cslice().str();
+  }
 
   TRY_RESULT(rand_seed_str, td::get_json_object_string_field(obj, "rand_seed", false));
   params.rand_seed_hex = rand_seed_str;
@@ -228,8 +255,8 @@ const char *run_get_method(const char *params, const char* stack, const char* co
     if ((decoded_params.libs && !tvm_emulator_set_libraries(tvm, decoded_params.libs.value().c_str())) ||
         !tvm_emulator_set_c7(tvm, decoded_params.address.c_str(), decoded_params.unixtime, decoded_params.balance,
                              decoded_params.rand_seed_hex.c_str(), config) ||
-        (decoded_params.prev_blocks_info &&
-         !tvm_emulator_set_prev_blocks_info(tvm, decoded_params.prev_blocks_info.value().c_str())) ||
+        (decoded_params.extra_currencies.size() > 0 && !tvm_emulator_set_extra_currencies(tvm, decoded_params.extra_currencies.c_str())) ||
+        (decoded_params.prev_blocks_info && !tvm_emulator_set_prev_blocks_info(tvm, decoded_params.prev_blocks_info.value().c_str())) ||
         (decoded_params.gas_limit > 0 && !tvm_emulator_set_gas_limit(tvm, decoded_params.gas_limit)) ||
         !tvm_emulator_set_debug_enabled(tvm, decoded_params.debug_enabled)) {
         tvm_emulator_destroy(tvm);

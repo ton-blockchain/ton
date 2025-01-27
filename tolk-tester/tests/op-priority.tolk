@@ -1,4 +1,4 @@
-fun justTrue(): int { return true; }
+fun justTrue(): bool { return true; }
 
 fun unary_minus_1(a: int, b: int, c: int): int{return -(a+b) *c;}
 fun unary_minus_2(a: int, b: int, c: int): int{return(-(a+b))*c;}
@@ -6,17 +6,17 @@ fun unary_minus_3(a: int, b: int, c: int): int{return-((a+b) *c);}
 
 
 @method_id(101)
-fun test1(x: int, y: int, z: int): int {
+fun test1(x: int, y: int, z: int): bool {
     return (x > 0) & (y > 0) & (z > 0);
 }
 
 @method_id(102)
-fun test2(x: int, y: int, z: int): int {
-    return x > (0 & (y > 0) & (z > 0));
+fun test2(x: int, y: int, z: int): bool {
+    return x > (0 & (y > 0) as int & (z > 0) as int);
 }
 
 @method_id(103)
-fun test3(x: int, y: int, z: int): int {
+fun test3(x: int, y: int, z: int): bool {
     if ((x < 0) | (y < 0)) {
         return z < 0;
     }
@@ -24,29 +24,29 @@ fun test3(x: int, y: int, z: int): int {
 }
 
 @method_id(104)
-fun test4(x: int, y: int, mode: int): int {
+fun test4(x: int, y: int, mode: int): bool {
     if (mode == 1) {
         return (x == 10) | (y == 20);
     } if (mode == 2) {
         return (x == 10) | (y == 20);
     } else {
-        return x == (10 | (y == 20));
+        return x == (10 | (y == 20) as int);
     }
 }
 
 @method_id(105)
-fun test5(status: int): int {
-  return justTrue() & (status == 1) & ((justTrue() & status) == 1);
+fun test5(status: int): bool {
+  return justTrue() & (status == 1) & ((justTrue() as int & status) == 1);
 }
 
 @method_id(106)
-fun test6(a: int, b: int, c: int): int {
+fun test6(a: int, b: int, c: int): bool {
     return (unary_minus_1(a,b,c) == unary_minus_2(a,b,c)) & (unary_minus_1(a,b,c) == unary_minus_3(a,b,c));
 }
 
 @method_id(107)
 fun test7(b: int): int {
-    var a = b == 3 ? 3 : b == 4 ? 4 : (b == 5) & 1 ? 5 : 100;
+    var a = b == 3 ? 3 : b == 4 ? 4 : (b == 5) & true ? 5 : 100;
     return a;
 }
 
@@ -56,14 +56,14 @@ fun test8(b: int): int {
     return a;
 }
 
-fun `_<p`(a: auto, b: auto): int { return true; }
+fun `_<p`(a: int, b: int): bool { return true; }
 
 fun main() {
     // ok to parse
     var c = [
-        (3 & 3) > 0, 3 & (3 > 0), 3 & (`_<_`(3, 0)),
-        3 & `_<p`(3, 0), (1 & 2) ^ (3 | 4),
-        1 & ((1) == 1)
+        (3 & 3) > 0, 3 & (3 > 0) as int, 3 & (`_<_`(3, 0)),
+        3 & `_<p`(3, 0) as int, (1 & 2) ^ (3 | 4),
+        true & ((1) == 1)
     ];
 }
 

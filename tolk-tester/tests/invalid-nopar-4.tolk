@@ -4,5 +4,5 @@ fun load_u32(cs: slice): (slice, int) {
 
 /**
 @compilation_should_fail
-@stderr expected `(`, got `32`
+@stderr expected `;`, got `32`
  */

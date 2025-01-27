@@ -4,6 +4,6 @@ fun cantReturnNothingFromSelf(mutate self: int): self {
 
 /**
 @compilation_should_fail
-@stderr missing return; forgot `return self`?
+@stderr missing return
 @stderr }
  */

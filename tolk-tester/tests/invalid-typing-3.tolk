@@ -15,5 +15,5 @@ fun cantMixDifferentThis() {
 
 /**
 @compilation_should_fail
-@stderr cannot apply function appendBuilder : builder -> (builder, ()) to arguments of type int: cannot unify type int with builder
+@stderr can not call method for `builder` with object of type `int`
  */

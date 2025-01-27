@@ -6,7 +6,7 @@ fun main(x: int): int {
     if (i > 5) {
       return 1;
     }
-    var f: int = (i * i == 64);
+    var f: bool = (i * i == 64);
   } while (!f);
   return -1;
 }

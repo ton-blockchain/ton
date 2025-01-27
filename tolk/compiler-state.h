@@ -19,6 +19,7 @@
 #include "src-file.h"
 #include "symtable.h"
 #include "td/utils/Status.h"
+#include <functional>
 #include <set>
 #include <string>
 
@@ -64,6 +65,26 @@ struct CompilerSettings {
   void parse_experimental_options_cmd_arg(const std::string& cmd_arg);
 };
 
+// AST nodes contain std::string_view referencing to contents of .tolk files (kept in memory after reading).
+// It's more than enough, except a situation when we create new AST nodes inside the compiler
+// and want some "persistent place" for std::string_view to point to.
+// This class copies strings to heap, so that they remain valid after closing scope.
+class PersistentHeapAllocator {
+  struct ChunkInHeap {
+    const char* allocated;
+    std::unique_ptr<ChunkInHeap> next;
+
+    ChunkInHeap(const char* allocated, std::unique_ptr<ChunkInHeap>&& next)
+      : allocated(allocated), next(std::move(next)) {}
+  };
+
+  std::unique_ptr<ChunkInHeap> head = nullptr;
+
+public:
+  std::string_view copy_string_to_persistent_memory(std::string_view str_in_tmp_memory);
+  void clear();
+};
+
 // CompilerState contains a mutable state that is changed while the compilation is going on.
 // It's a "global state" of all compilation.
 // Historically, in FunC, this global state was spread along many global C++ variables.
@@ -71,14 +92,13 @@ struct CompilerSettings {
 struct CompilerState {
   CompilerSettings settings;
 
-  SymTable symbols;
-  int scope_level = 0;
-  SymDef* sym_def[SymTable::SIZE_PRIME + 1]{};
-  SymDef* global_sym_def[SymTable::SIZE_PRIME + 1]{};
-  std::vector<std::pair<int, SymDef>> symbol_stack;
-  std::vector<SrcLocation> scope_opened_at;
+  GlobalSymbolTable symtable;
+  PersistentHeapAllocator persistent_mem;
 
-  std::vector<SymDef*> all_code_functions, all_global_vars, all_get_methods, all_constants;
+  std::vector<const FunctionData*> all_functions;       // all user-defined (not built-in) functions, with generic instantiations
+  std::vector<const FunctionData*> all_get_methods;
+  std::vector<const GlobalVarData*> all_global_vars;
+  std::vector<const GlobalConstData*> all_constants;
   AllRegisteredSrcFiles all_src_files;
 
   bool is_verbosity(int gt_eq) const { return settings.verbosity >= gt_eq; }
