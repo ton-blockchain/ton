@@ -45,7 +45,7 @@ bool Bool::print_skip(PrettyPrinter& pp, vm::CellSlice& cs) const {
 }
 
 bool NatWidth::print_skip(PrettyPrinter& pp, vm::CellSlice& cs) const {
-  long long value = (long long)cs.fetch_ulong(32);
+  long long value = (long long)cs.fetch_ulong(n);
   return value >= 0 && pp.out_int(value);
 }
 
