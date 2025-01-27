@@ -1243,10 +1243,21 @@ bool ValidateQuery::check_this_shard_mc_info() {
  * @returns True if the previous state is computed successfully, false otherwise.
  */
 bool ValidateQuery::compute_prev_state() {
-  if (!is_masterchain() && full_collated_data_) {
-    return compute_prev_state_from_collated_data();
-  }
   CHECK(prev_states.size() == 1u + after_merge_);
+  CHECK(prev_states.size() == prev_blocks.size());
+  if (!is_masterchain() && full_collated_data_) {
+    for (size_t i = 0; i < prev_states.size(); i++) {
+      Ref<vm::Cell> root = get_virt_state_root(prev_blocks[i]);
+      if (root.is_null()) {
+        return reject_query(PSTRING() << "cannot get previous state from collated data: " << prev_blocks[i].to_str());
+      }
+      auto r_state = create_shard_state(prev_blocks[i], std::move(root));
+      if (r_state.is_error()) {
+        return reject_query("failed to parse previous state from collated data", r_state.move_as_error());
+      }
+      prev_states[i] = r_state.move_as_ok();
+    }
+  }
   // Extend validator timeout if previous block is too old
   UnixTime prev_ts = prev_states[0]->get_unix_time();
   if (after_merge_) {
@@ -1271,46 +1282,6 @@ bool ValidateQuery::compute_prev_state() {
     return reject_query("previous state hash mismatch for block "s + id_.to_str() + " : block header declares " +
                         prev_state_hash_.to_hex() + " , actual " + state_hash.to_hex());
   }
-  return true;
-}
-
-bool ValidateQuery::compute_prev_state_from_collated_data() {
-  td::Bits256 state_hash;
-  if (id_.seqno() == 1) {
-    if (prev_blocks.size() != 1) {
-      return reject_query("seqno is 1, but number of previous blocks is not 1");
-    }
-    state_hash = prev_blocks[0].root_hash;
-  } else {
-    std::vector<Ref<vm::Cell>> prev_state_roots(prev_blocks.size());
-    for (size_t i = 0; i < prev_blocks.size(); ++i) {
-      prev_state_roots[i] = get_virt_state_root(prev_blocks[i].root_hash);
-      if (prev_state_roots[i].is_null()) {
-        return reject_query(PSTRING() << "cannot get hash of previous state root: " << prev_blocks[i]);
-      }
-    }
-
-    if (prev_state_roots.size() == 1) {
-      state_hash = prev_state_roots[0]->get_hash().bits();
-    } else {
-      CHECK(prev_state_roots.size() == 2);
-      Ref<vm::Cell> merged;
-      if (!block::gen::t_ShardState.cell_pack_split_state(merged, prev_state_roots[0], prev_state_roots[1])) {
-        return fatal_error(-667, "cannot construct mechanically merged previously state");
-      }
-      state_hash = merged->get_hash().bits();
-    }
-  }
-  if (state_hash != prev_state_hash_) {
-    return reject_query("previous state hash mismatch for block "s + id_.to_str() + " : block header declares " +
-                        prev_state_hash_.to_hex() + " , actual " + state_hash.to_hex());
-  }
-  auto it = virt_roots_.find(state_hash);
-  if (it == virt_roots_.end()) {
-    return reject_query(PSTRING() << "no state root for previous block in collated data (hash = "
-                                  << state_hash.to_hex() << ")");
-  }
-  prev_state_root_ = it->second;
   return true;
 }
 
@@ -1574,21 +1545,11 @@ bool ValidateQuery::request_neighbor_queues() {
         ++i;
         continue;
       }
-      td::Bits256 state_root_hash;
-      if (descr.blk_.seqno() == 0) {
-        state_root_hash = descr.blk_.root_hash;
-      } else {
-        Ref<vm::Cell> state_root = get_virt_state_root(descr.blk_.root_hash);
-        if (state_root.is_null()) {
-          return reject_query(PSTRING() << "cannot get hash of state root: " << descr.blk_);
-        }
-        state_root_hash = state_root->get_hash().bits();
+      auto state_root = get_virt_state_root(descr.blk_);
+      if (state_root.is_null()) {
+        return reject_query(PSTRING() << "cannot get state root form collated data: " << descr.blk_.to_str());
       }
-      auto it = virt_roots_.find(state_root_hash);
-      if (it == virt_roots_.end()) {
-        return reject_query(PSTRING() << "cannot get state root form collated data: " << descr.blk_);
-      }
-      auto state = ShardStateQ::fetch(descr.blk_, {}, it->second);
+      auto state = ShardStateQ::fetch(descr.blk_, {}, std::move(state_root));
       if (state.is_error()) {
         return reject_query("cannot fetch shard state from collated data", state.move_as_error());
       }
@@ -6898,22 +6859,23 @@ bool ValidateQuery::postcheck_value_flow() {
   return true;
 }
 
-Ref<vm::Cell> ValidateQuery::get_virt_state_root(td::Bits256 block_root_hash) {
-  auto it = virt_roots_.find(block_root_hash);
+Ref<vm::Cell> ValidateQuery::get_virt_state_root(const BlockIdExt& block_id) {
+  auto it = virt_roots_.find(block_id.root_hash);
   if (it == virt_roots_.end()) {
     return {};
   }
   Ref<vm::Cell> root = it->second;
+  if (block_id.seqno() == 0) {
+    return root;
+  }
   block::gen::Block::Record block;
   if (!tlb::unpack_cell(root, block)) {
     return {};
   }
   vm::CellSlice upd_cs{vm::NoVmSpec(), block.state_update};
-  if (!(upd_cs.is_special() && upd_cs.prefetch_long(8) == 4  // merkle update
-        && upd_cs.size_ext() == 0x20228)) {
-    return {};
-  }
-  return vm::MerkleProof::virtualize_raw(upd_cs.prefetch_ref(1), {0, 1});
+  td::Bits256 state_root_hash = upd_cs.prefetch_ref(1)->get_hash(0).bits();
+  it = virt_roots_.find(state_root_hash);
+  return it == virt_roots_.end() ? Ref<vm::Cell>{} : it->second;
 }
 
 /**

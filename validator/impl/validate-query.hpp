@@ -306,7 +306,6 @@ class ValidateQuery : public td::actor::Actor {
   bool extract_collated_data();
   bool try_validate();
   bool compute_prev_state();
-  bool compute_prev_state_from_collated_data();
   bool compute_next_state();
   bool unpack_merge_prev_state();
   bool unpack_prev_state();
@@ -397,7 +396,7 @@ class ValidateQuery : public td::actor::Actor {
                            const block::CurrencyCollection& create);
   bool check_mc_block_extra();
 
-  Ref<vm::Cell> get_virt_state_root(td::Bits256 block_root_hash);
+  Ref<vm::Cell> get_virt_state_root(const BlockIdExt& block_id);
 
   bool check_timeout() {
     if (timeout && timeout.is_in_past()) {

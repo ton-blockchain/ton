@@ -2450,8 +2450,7 @@ bool Collator::out_msg_queue_cleanup() {
     auto pure_out_msg_queue =
         std::make_unique<vm::AugmentedDictionary>(r_cell.move_as_ok().data_cell, 352, block::tlb::aug_OutMsgQueue);
     td::uint32 deleted = 0;
-    bool fail = false;
-    pure_out_msg_queue->check_for_each([&](Ref<vm::CellSlice> value, td::ConstBitPtr key, int n) -> bool {
+    bool ok = pure_out_msg_queue->check_for_each([&](Ref<vm::CellSlice> value, td::ConstBitPtr key, int n) -> bool {
       vm::CellSlice& cs = value.write();
       assert(n == 352);
       block::EnqueuedMsgDescr enq_msg_descr;
@@ -2461,7 +2460,6 @@ bool Collator::out_msg_queue_cleanup() {
             && enq_msg_descr.check_key(key)      // check key
             && enq_msg_descr.lt_ == created_lt)) {
         LOG(ERROR) << "cannot unpack EnqueuedMsg with key " << key.to_hex(n);
-        fail = true;
         return false;
       }
       LOG(DEBUG) << "scanning outbound message with (lt,hash)=(" << enq_msg_descr.lt_ << ","
@@ -2495,7 +2493,6 @@ bool Collator::out_msg_queue_cleanup() {
         if (!dequeue_message(std::move(enq_msg_descr.msg_env_), deliver_lt)) {
           fatal_error(PSTRING() << "cannot dequeue outbound message with (lt,hash)=(" << enq_msg_descr.lt_ << ","
                                 << enq_msg_descr.hash_.to_hex() << ") by inserting a msg_export_deq record");
-          fail = true;
           return false;
         }
         register_out_msg_queue_op();
@@ -2504,11 +2501,11 @@ bool Collator::out_msg_queue_cleanup() {
           block_limit_class_ = std::max(block_limit_class_, block_limit_status_->classify());
         }
       }
-      return !delivered;
+      return true;
     });
     LOG(WARNING) << "deleted " << deleted << " messages from out_msg_queue after merge, remaining queue size is "
                  << out_msg_queue_size_;
-    if (fail) {
+    if (!ok) {
       return fatal_error("error scanning/updating OutMsgQueue");
     }
   } else {
@@ -5801,7 +5798,19 @@ bool Collator::create_collated_data() {
     if (state_proof.is_null()) {
       return fatal_error("cannot generate Merkle proof for previous state");
     }
-    proofs[prev_state_root_->get_hash().bits()] = std::move(state_proof);
+    if (after_merge_) {
+      bool special;
+      auto cs = vm::load_cell_slice_special(state_proof, special);
+      CHECK(cs.special_type() == vm::CellTraits::SpecialType::MerkleProof);
+      cs = vm::load_cell_slice(cs.prefetch_ref(0));
+      CHECK(cs.size_refs() == 2);
+      CHECK(cs.size() == 32);
+      CHECK(cs.prefetch_ulong(32) == 0x5f327da5U);
+      proofs[cs.prefetch_ref(0)->get_hash(0).bits()] = vm::CellBuilder::create_merkle_proof(cs.prefetch_ref(0));
+      proofs[cs.prefetch_ref(1)->get_hash(0).bits()] = vm::CellBuilder::create_merkle_proof(cs.prefetch_ref(1));
+    } else {
+      proofs[prev_state_root_->get_hash().bits()] = std::move(state_proof);
+    }
   }
   // 4. Proofs for message queues
   for (vm::MerkleProofBuilder &mpb : neighbor_proof_builders_) {

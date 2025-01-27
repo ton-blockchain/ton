@@ -40,7 +40,7 @@ td::Result<td::Ref<Proof>> create_proof(BlockIdExt masterchain_block_id, td::Buf
 td::Result<td::Ref<ProofLink>> create_proof_link(BlockIdExt block_id, td::BufferSlice proof);
 td::Result<td::Ref<BlockSignatureSet>> create_signature_set(td::BufferSlice sig_set);
 td::Result<td::Ref<ShardState>> create_shard_state(BlockIdExt block_id, td::BufferSlice data);
-td::Result<td::Ref<ShardState>> create_shard_state(BlockIdExt block_id, td::Ref<vm::DataCell> root_cell);
+td::Result<td::Ref<ShardState>> create_shard_state(BlockIdExt block_id, td::Ref<vm::Cell> root_cell);
 td::Result<BlockHandle> create_block_handle(td::BufferSlice data);
 td::Result<BlockHandle> create_block_handle(td::Slice data);
 td::Result<ConstBlockHandle> create_temp_block_handle(td::BufferSlice data);
