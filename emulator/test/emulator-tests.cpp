@@ -445,7 +445,7 @@ TEST(Emulator, tvm_emulator_extra_currencies) {
   auto it = dict.begin();
   std::map<uint32_t, td::RefInt256> ec_balance;
   while (!it.eof()) {
-    auto id = td::BitArray<32>(it.cur_pos()).to_ulong();
+    auto id = static_cast<uint32_t>(td::BitArray<32>(it.cur_pos()).to_ulong());
     auto value_cs = it.cur_value();
     auto value = block::tlb::t_VarUInteger_32.as_integer(value_cs);
     ec_balance[id] = value;

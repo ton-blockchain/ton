@@ -115,7 +115,7 @@ td::Result<GetMethodParams> decode_get_method_params(const char* json) {
       return td::Status::Error("EC must be of type Object");
     }
     td::StringBuilder ec_builder;
-    auto ec_obj = ec_field.get_object();
+    auto& ec_obj = ec_field.get_object();
     bool is_first = true;
     for (auto &field_value : ec_obj) {
       auto currency_id = field_value.first;
