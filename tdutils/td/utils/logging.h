@@ -343,7 +343,10 @@ class TsLog : public LogInterface {
 
  private:
   LogInterface *log_ = nullptr;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-pragma"
   std::atomic_flag lock_ = ATOMIC_FLAG_INIT;
+#pragma clang diagnostic pop
   void enter_critical() {
     while (lock_.test_and_set(std::memory_order_acquire)) {
       // spin
