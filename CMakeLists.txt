@@ -223,7 +223,7 @@ endif()
 if (TON_ARCH AND NOT MSVC)
   CHECK_CXX_COMPILER_FLAG( "-march=${TON_ARCH}" COMPILER_OPT_ARCH_SUPPORTED )
   if (TON_ARCH STREQUAL "apple-m1")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcpu=${TON_ARCH}")	
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcpu=${TON_ARCH}")
   elseif(COMPILER_OPT_ARCH_SUPPORTED)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=${TON_ARCH}")
   elseif(NOT TON_ARCH STREQUAL "native")
@@ -554,6 +554,17 @@ target_link_libraries(test-http PRIVATE tonhttp)
 
 add_executable(test-emulator test/test-td-main.cpp emulator/test/emulator-tests.cpp)
 target_link_libraries(test-emulator PRIVATE emulator)
+
+add_executable(test-fisherman
+        test/fisherman/tests.cpp
+        test/fisherman/block_manipulator/factory.cpp
+        test/fisherman/block_reader.cpp
+        test/fisherman/utils.cpp
+)
+target_link_libraries(test-fisherman PRIVATE validator ton_validator validator ton_db)
+
+add_executable(print-all-shard-states test/print-all-shard-states.cpp)
+target_link_libraries(print-all-shard-states PRIVATE validator ton_db)
 
 get_directory_property(HAS_PARENT PARENT_DIRECTORY)
 if (HAS_PARENT)

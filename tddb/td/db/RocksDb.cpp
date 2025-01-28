@@ -59,6 +59,7 @@ RocksDb RocksDb::clone() const {
   return RocksDb{db_, options_};
 }
 
+// TODO: Add support for opening the database in read-only mode.
 Result<RocksDb> RocksDb::open(std::string path, RocksDbOptions options) {
   rocksdb::OptimisticTransactionDB *db;
   {
