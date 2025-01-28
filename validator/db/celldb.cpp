@@ -265,31 +265,24 @@ void CellDbIn::get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>>
   promise.set_result(boc_->get_cell_db_reader());
 }
 
-// In celldb.cpp (somewhere after CellDbIn is declared and defined)
 void CellDbIn::print_all_hashes() {
   LOG(INFO) << "Enumerating keys in CellDb...";
 
-  // Create a snapshot of RocksDB so we can iterate it
   auto snapshot = cell_db_->snapshot();
 
-  // snapshot->for_each(...) calls our lambda for each (key, value) pair in the DB
   auto status = snapshot->for_each([&](td::Slice raw_key, td::Slice raw_value) -> td::Status {
-    // Special check: in official CellDb code, the "empty" key is "desczero"
     if (raw_key == "desczero") {
       LOG(INFO) << "Found empty key: desczero";
       return td::Status::OK();
     }
 
-    // Check if the key starts with "desc"
     if (raw_key.size() >= 4 && std::memcmp(raw_key.data(), "desc", 4) == 0) {
       if (raw_key.size() == 4 + 44) {
-        // Slice out the 32-byte hash
         KeyHash khash;
         LOG(INFO) << "raw_key: " << raw_key.substr(4, 44);
         auto hash_part = td::base64_decode(raw_key.substr(4, 44)).move_as_ok();
         std::memcpy(khash.as_slice().begin(), hash_part.data(), 32);
         auto block = get_block(khash).move_as_ok();
-        //        LOG(INFO) << raw_key.str();
 
         LOG(INFO) << "Found key: hash=" << block.root_hash << " d: " << block.root_hash.to_hex();
         LOG(INFO) << "Block_id = " << block.block_id.to_str();
@@ -705,7 +698,6 @@ void CellDb::get_block_id(CellDbIn::KeyHash key_hash, td::Promise<BlockIdExt> pr
 }
 
 void CellDb::print_all_hashes() {
-  // The underlying RocksDB tasks happen in the CellDbIn actor, so we forward:
   td::actor::send_closure(cell_db_, &CellDbIn::print_all_hashes);
 }
 
