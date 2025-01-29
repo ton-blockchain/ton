@@ -1,6 +1,7 @@
 #include "block_reader.hpp"
 
 #include "crypto/block/block-auto.h"
+#include "block_manipulator/factory.hpp"
 #include "utils.hpp"
 
 using namespace test::fisherman;
@@ -30,42 +31,50 @@ auto main(int argc, char **argv) -> int {
     return 1;
   }
 
-  auto block_id_res = parse_block_id_from_json(decode_result.move_as_ok());
-  if (block_id_res.is_error()) {
-    std::cerr << "Error extracting BlockIdExt: " << block_id_res.error().message().str() << std::endl;
+  auto js = decode_result.move_as_ok();
+  auto &js_obj = js.get_object();
+  auto blk_id_obj_res = td::get_json_object_field(js_obj, "block_id", td::JsonValue::Type::Object, false);
+  CHECK(blk_id_obj_res.is_ok());
+  auto blk_id_res = parse_block_id_from_json(blk_id_obj_res.move_as_ok());
+  if (blk_id_res.is_error()) {
+    std::cerr << "Error extracting BlockIdExt: " << blk_id_res.error().message().str() << std::endl;
     return 1;
   }
-  ton::BlockIdExt block_id = block_id_res.move_as_ok();
+  ton::BlockIdExt blk_id = blk_id_res.move_as_ok();
 
   BlockDataLoader loader(db_path);
 
-  auto block_data_result = loader.load_block_data(block_id);
-  if (block_data_result.is_error()) {
-    std::cerr << "Error loading block data: " << block_data_result.error().message().str() << std::endl;
+  auto blk_data_result = loader.load_block_data(blk_id);
+  if (blk_data_result.is_error()) {
+    std::cerr << "Error loading block data: " << blk_data_result.error().message().str() << std::endl;
     return 1;
   }
 
-  auto block_data = block_data_result.move_as_ok();
-  LOG(INFO) << "BlockId: " << block_data->block_id().to_str();
-  LOG(INFO) << "Block data size: " << block_data->data().size() << " bytes";
+  auto blk_data = blk_data_result.move_as_ok();
+  LOG(INFO) << "BlockId: " << blk_data->block_id().to_str();
+  LOG(INFO) << "Block data size: " << blk_data->data().size() << " bytes";
 
-  LOG(INFO) << "Cell has block record = " << block::gen::Block().validate_ref(10000000, block_data->root_cell()) << "\n";
+  LOG(INFO) << "Cell has block record = " << block::gen::Block().validate_ref(10000000, blk_data->root_cell()) << "\n";
 
   std::ostringstream os;
-  block::gen::Block().print_ref(os, block_data->root_cell());
+  block::gen::Block().print_ref(os, blk_data->root_cell());
   LOG(INFO) << "Block = " << os.str();
 
   block::gen::Block::Record block_rec;
-  bool ok = block::gen::Block().cell_unpack(block_data->root_cell(), block_rec);
+  bool ok = block::gen::Block().cell_unpack(blk_data->root_cell(), block_rec);
   CHECK(ok);
 
   block::gen::BlockInfo::Record info_rec;
   block::gen::BlockInfo().cell_unpack(block_rec.info, info_rec);
-  LOG(INFO) << "start_lt = " << info_rec.start_lt << ", end_lt = " << info_rec.end_lt;
+  LOG(INFO) << "Block.info after_merge=" << info_rec.after_merge << ", after_split=" << info_rec.after_split;
 
-  block::gen::ShardIdent::Record shard_rec;
-  block::gen::ShardIdent().unpack(info_rec.shard.write(), shard_rec);
-  LOG(INFO) << "workchain_id = " << shard_rec.workchain_id;
+  auto manipulation_config = td::get_json_object_field(js_obj, "manipulation", td::JsonValue::Type::Object, false);
+  CHECK(manipulation_config.is_ok());
+  ManipulatorFactory().create(manipulation_config.move_as_ok())->modify(block_rec);
+
+  LOG(INFO) << "Block after manipulation:";
+  block::gen::BlockInfo().cell_unpack(block_rec.info, info_rec);
+  LOG(INFO) << "Block.info after_merge=" << info_rec.after_merge << ", after_split=" << info_rec.after_split;
 
   return 0;
 }

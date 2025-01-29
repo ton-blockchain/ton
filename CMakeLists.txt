@@ -557,6 +557,7 @@ target_link_libraries(test-emulator PRIVATE emulator)
 
 add_executable(test-fisherman
         test/fisherman/tests.cpp
+        test/fisherman/block_manipulator/header_corrupter.cpp
         test/fisherman/block_manipulator/factory.cpp
         test/fisherman/block_reader.cpp
         test/fisherman/utils.cpp
