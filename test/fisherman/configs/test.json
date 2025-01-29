@@ -1,0 +1,11 @@
+{
+  "block_id": {
+    "workchain_id": -1,
+    "shard_id": "8000000000000000",
+    "seqno": 27492934
+  },
+  "manipulation": {
+    "type": "HeaderCorrupter",
+    "config": {}
+  }
+}
