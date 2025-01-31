@@ -503,7 +503,7 @@ jobs:
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: artifacts/ton-x86_64-linux/{smartcont,lib}
-          asset_name: smartcont
+          file_glob: true
           tag: ${{ steps.tag.outputs.TAG }}
 
       - name: Upload Linux x86-64 single artifact - fift
