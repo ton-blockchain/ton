@@ -135,3 +135,10 @@ Example: if the last masterchain block seqno is `19071` then the list contains b
 - Now setting the contract code to a library cell does not consume additional gas on execution of the code.
 - Temporary increase gas limit for some accounts (see [this post](https://t.me/tondev_news/129) for details, `override_gas_limit` in `transaction.cpp` for the list of accounts).
 - Fix recursive jump to continuations with non-null control data.
+
+## Version 10
+### New account storage stat
+Along with the storage stat (cells and bits count), each account now stores the hash of the **storage dict**.
+
+**Storage dict** is the dictionary that stores refcnt for each cell in the account state.
+This is required to help computing storage stats in the future, after collator-validator separation.

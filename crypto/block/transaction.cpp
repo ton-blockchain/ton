@@ -17,6 +17,7 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include "block/transaction.h"
+
 #include "block/block.h"
 #include "block/block-parse.h"
 #include "block/block-auto.h"
@@ -257,6 +258,11 @@ bool Account::unpack_storage_info(vm::CellSlice& cs) {
     return false;
   }
   last_paid = info.last_paid;
+  if (info.storage_extra.write().fetch_long(3) == 1) {
+    info.storage_extra->prefetch_bits_to(storage_dict_hash.value_force());
+  } else {
+    storage_dict_hash = {};
+  }
   if (info.due_payment->prefetch_ulong(1) == 1) {
     vm::CellSlice& cs2 = info.due_payment.write();
     cs2.advance(1);
@@ -268,11 +274,9 @@ bool Account::unpack_storage_info(vm::CellSlice& cs) {
     due_payment = td::zero_refint();
   }
   unsigned long long u = 0;
-  u |= storage_stat.cells = block::tlb::t_VarUInteger_7.as_uint(*used.cells);
-  u |= storage_stat.bits = block::tlb::t_VarUInteger_7.as_uint(*used.bits);
-  u |= storage_stat.public_cells = block::tlb::t_VarUInteger_7.as_uint(*used.public_cells);
-  LOG(DEBUG) << "last_paid=" << last_paid << "; cells=" << storage_stat.cells << " bits=" << storage_stat.bits
-             << " public_cells=" << storage_stat.public_cells;
+  u |= storage_used.cells = block::tlb::t_VarUInteger_7.as_uint(*used.cells);
+  u |= storage_used.bits = block::tlb::t_VarUInteger_7.as_uint(*used.bits);
+  LOG(DEBUG) << "last_paid=" << last_paid << "; cells=" << storage_used.cells << " bits=" << storage_used.bits;
   return (u != std::numeric_limits<td::uint64>::max());
 }
 
@@ -525,7 +529,8 @@ bool Account::init_new(ton::UnixTime now) {
   last_trans_hash_.set_zero();
   now_ = now;
   last_paid = 0;
-  storage_stat.clear();
+  storage_used = {};
+  storage_dict_hash = {};
   due_payment = td::zero_refint();
   balance.set_zero();
   if (my_addr_exact.is_null()) {
@@ -554,6 +559,81 @@ bool Account::init_new(ton::UnixTime now) {
   status = orig_status = acc_nonexist;
   split_depth_set_ = false;
   return true;
+}
+
+/**
+ * Initializes account_storage_stat of the account from scratch.
+ * This is not strictly necessary, as the storage stat is recomputed in Transaction.
+ * However, it can be used to optimize cell usage.
+ *
+ * @returns Status of the operation.
+ */
+td::Status Account::compute_account_storage_stat() {
+  if (storage.is_null()) {
+    account_storage_stat = {};
+    return td::Status::OK();
+  }
+  bool ok = false;
+  SCOPE_EXIT {
+    if (!ok) {
+      account_storage_stat = {};
+    }
+  };
+  AccountStorageStat& stat = account_storage_stat.value_force();
+  TRY_STATUS(stat.replace_roots(storage->prefetch_all_refs()).move_as_status());
+  // Root of AccountStorage is not counted in AccountStorageStat
+  td::uint64 expected_cells = stat.get_total_cells() + 1;
+  td::uint64 expected_bits = stat.get_total_bits() + storage->size();
+  if (expected_cells != storage_used.cells || expected_bits != storage_used.bits) {
+    return td::Status::Error(PSTRING() << "invalid storage_used: computed cells=" << expected_cells
+                                       << " bits=" << expected_bits << ", found cells" << storage_used.cells
+                                       << " bits=" << storage_used.bits);
+  }
+  if (storage_dict_hash && storage_dict_hash.value() != stat.get_dict_hash()) {
+    return td::Status::Error(PSTRING() << "invalid storage dict hash: computed " << stat.get_dict_hash().to_hex()
+                                       << ", found " << storage_dict_hash.value().to_hex());
+  }
+  ok = true;
+  return td::Status::OK();
+}
+
+/**
+ * Initializes account_storage_stat of the account using the existing dict_root.
+ * This is not strictly necessary, as the storage stat is recomputed in Transaction.
+ * However, it can be used to optimize cell usage.
+ *
+ * @param dict_root Root of the storage dictionary.
+ *
+ * @returns Status of the operation.
+ */
+td::Status Account::init_account_storage_stat(Ref<vm::Cell> dict_root) {
+  if (storage.is_null()) {
+    if (dict_root.not_null()) {
+      return td::Status::Error("storage is null, but dict_root is not null");
+    }
+    account_storage_stat = {};
+    return td::Status::OK();
+  }
+  bool ok = false;
+  SCOPE_EXIT {
+    if (!ok) {
+      account_storage_stat = {};
+    }
+  };
+  // Root of AccountStorage is not counted in AccountStorageStat
+  if (storage_used.cells < 1 || storage_used.bits < storage->size()) {
+    return td::Status::Error(PSTRING() << "storage_used is too small: cells=" << storage_used.cells
+                                       << " bits=" << storage_used.bits << " storage_root_bits=" << storage->size());
+  }
+  account_storage_stat = AccountStorageStat(std::move(dict_root), storage->prefetch_all_refs(), storage_used.cells - 1,
+                                            storage_used.bits - storage->size());
+  if (storage_dict_hash && storage_dict_hash.value() != account_storage_stat.value().get_dict_hash()) {
+    return td::Status::Error(PSTRING() << "invalid storage dict hash: computed "
+                                       << account_storage_stat.value().get_dict_hash().to_hex() << ", found "
+                                       << storage_dict_hash.value().to_hex());
+  }
+  ok = true;
+  return td::Status::OK();
 }
 
 /**
@@ -615,12 +695,12 @@ bool Account::belongs_to_shard(ton::ShardIdFull shard) const {
  * @param payment The total sum to be updated.
  * @param delta The time delta for which the payment is calculated.
  * @param prices The storage prices.
- * @param storage Account storage statistics.
+ * @param storage_used Account storage statistics.
  * @param is_mc A flag indicating whether the account is in the masterchain.
  */
 void add_partial_storage_payment(td::BigInt256& payment, ton::UnixTime delta, const block::StoragePrices& prices,
-                                 const vm::CellStorageStat& storage, bool is_mc) {
-  td::BigInt256 c{(long long)storage.cells}, b{(long long)storage.bits};
+                                 const StorageUsed& storage_used, bool is_mc) {
+  td::BigInt256 c{(long long)storage_used.cells}, b{(long long)storage_used.bits};
   if (is_mc) {
     // storage.cells * prices.mc_cell_price + storage.bits * prices.mc_bit_price;
     c.mul_short(prices.mc_cell_price);
@@ -641,7 +721,7 @@ void add_partial_storage_payment(td::BigInt256& payment, ton::UnixTime delta, co
  *
  * @param now The current Unix time.
  * @param pricing The vector of storage prices.
- * @param storage_stat Account storage statistics.
+ * @param storage_used Account storage statistics.
  * @param last_paid The Unix time when the last payment was made.
  * @param is_special A flag indicating if the account is special.
  * @param is_masterchain A flag indicating if the account is in the masterchain.
@@ -649,7 +729,7 @@ void add_partial_storage_payment(td::BigInt256& payment, ton::UnixTime delta, co
  * @returns The computed storage fees as RefInt256.
  */
 td::RefInt256 StoragePrices::compute_storage_fees(ton::UnixTime now, const std::vector<block::StoragePrices>& pricing,
-                                                  const vm::CellStorageStat& storage_stat, ton::UnixTime last_paid,
+                                                  const StorageUsed& storage_used, ton::UnixTime last_paid,
                                                   bool is_special, bool is_masterchain) {
   if (now <= last_paid || !last_paid || is_special || pricing.empty() || now <= pricing[0].valid_since) {
     return td::zero_refint();
@@ -667,7 +747,7 @@ td::RefInt256 StoragePrices::compute_storage_fees(ton::UnixTime now, const std::
     ton::UnixTime valid_until = (i < n - 1 ? std::min(now, pricing[i + 1].valid_since) : now);
     if (upto < valid_until) {
       assert(upto >= pricing[i].valid_since);
-      add_partial_storage_payment(total.unique_write(), valid_until - upto, pricing[i], storage_stat, is_masterchain);
+      add_partial_storage_payment(total.unique_write(), valid_until - upto, pricing[i], storage_used, is_masterchain);
     }
     upto = valid_until;
   }
@@ -683,7 +763,7 @@ td::RefInt256 StoragePrices::compute_storage_fees(ton::UnixTime now, const std::
  * @returns The computed storage fees as RefInt256.
  */
 td::RefInt256 Account::compute_storage_fees(ton::UnixTime now, const std::vector<block::StoragePrices>& pricing) const {
-  return StoragePrices::compute_storage_fees(now, pricing, storage_stat, last_paid, is_special, is_masterchain());
+  return StoragePrices::compute_storage_fees(now, pricing, storage_used, last_paid, is_special, is_masterchain());
 }
 
 namespace transaction {
@@ -1839,7 +1919,7 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
     if (S.is_error()) {
       // Rollback changes to state, fail action phase
       LOG(INFO) << "Account state size exceeded limits: " << S.move_as_error();
-      new_storage_stat.clear();
+      new_account_storage_stat = {};
       new_code = old_code;
       new_data = old_data;
       new_library = old_library;
@@ -2095,7 +2175,7 @@ int Transaction::try_action_change_library(vm::CellSlice& cs, ActionPhase& ap, c
       LOG(DEBUG) << "added " << ((rec.mode >> 1) ? "public" : "private") << " library with hash " << hash.to_hex();
     }
     new_library = std::move(dict).extract_root_cell();
-  } catch (vm::VmError& vme) {
+  } catch (vm::VmError&) {
     return 42;
   }
   ap.spec_actions++;
@@ -2882,7 +2962,7 @@ static td::uint32 get_public_libraries_diff_count(const td::Ref<vm::Cell>& old_l
  * This function is not called for special accounts.
  *
  * @param size_limits The size limits configuration.
- * @param update_storage_stat Store storage stat in the Transaction's CellStorageStat.
+ * @param update_storage_stat Store storage stat in the Transaction's AccountStorageStat.
  *
  * @returns A `td::Status` indicating the result of the check.
  *          - If the state limits are within the allowed range, returns OK.
@@ -2890,60 +2970,47 @@ static td::uint32 get_public_libraries_diff_count(const td::Ref<vm::Cell>& old_l
  */
 td::Status Transaction::check_state_limits(const SizeLimitsConfig& size_limits, bool update_storage_stat) {
   auto cell_equal = [](const td::Ref<vm::Cell>& a, const td::Ref<vm::Cell>& b) -> bool {
-    if (a.is_null()) {
-      return b.is_null();
-    }
-    if (b.is_null()) {
-      return false;
-    }
-    return a->get_hash() == b->get_hash();
+    return a.is_null() || b.is_null() ? a.is_null() == b.is_null() : a->get_hash() == b->get_hash();
   };
   if (cell_equal(account.code, new_code) && cell_equal(account.data, new_data) &&
       cell_equal(account.library, new_library)) {
     return td::Status::OK();
   }
-  vm::CellStorageStat storage_stat;
-  storage_stat.limit_cells = size_limits.max_acc_state_cells;
-  storage_stat.limit_bits = size_limits.max_acc_state_bits;
+  AccountStorageStat storage_stat;
+  if (update_storage_stat && account.account_storage_stat) {
+    storage_stat = account.account_storage_stat.value();
+  }
   {
     TD_PERF_COUNTER(transaction_storage_stat_a);
     td::Timer timer;
-    auto add_used_storage = [&](const td::Ref<vm::Cell>& cell) -> td::Status {
-      if (cell.not_null()) {
-        TRY_RESULT(res, storage_stat.add_used_storage(cell));
-        if (res.max_merkle_depth > max_allowed_merkle_depth) {
-          return td::Status::Error("too big merkle depth");
-        }
-      }
-      return td::Status::OK();
-    };
-    TRY_STATUS(add_used_storage(new_code));
-    TRY_STATUS(add_used_storage(new_data));
-    TRY_STATUS(add_used_storage(new_library));
+    TRY_RESULT(info, storage_stat.replace_roots({new_code, new_data, new_library}));
+    if (info.max_merkle_depth > max_allowed_merkle_depth) {
+      return td::Status::Error("too big Merkle depth");
+    }
     if (timer.elapsed() > 0.1) {
-      LOG(INFO) << "Compute used storage took " << timer.elapsed() << "s";
+      LOG(INFO) << "Compute used storage (1) took " << timer.elapsed() << "s";
     }
   }
 
-  if (acc_status == Account::acc_active) {
-    storage_stat.clear_limit();
-  } else {
-    storage_stat.clear();
+  if (storage_stat.get_total_cells() > size_limits.max_acc_state_cells ||
+      storage_stat.get_total_bits() > size_limits.max_acc_state_bits) {
+    return td::Status::Error(PSTRING() << "account state is too big: cells=" << storage_stat.get_total_cells()
+                                       << ", bits=" << storage_stat.get_total_bits()
+                                       << " (max cells=" << size_limits.max_acc_state_cells
+                                       << ", max bits=" << size_limits.max_acc_state_bits << ")");
   }
-  td::Status res;
-  if (storage_stat.cells > size_limits.max_acc_state_cells || storage_stat.bits > size_limits.max_acc_state_bits) {
-    res = td::Status::Error(PSTRING() << "account state is too big");
-  } else if (account.is_masterchain() && !cell_equal(account.library, new_library) &&
-             get_public_libraries_count(new_library) > size_limits.max_acc_public_libraries) {
-    res = td::Status::Error("too many public libraries");
-  } else {
-    res = td::Status::OK();
+  if (account.is_masterchain() && !cell_equal(account.library, new_library)) {
+    auto libraries_count = get_public_libraries_count(new_library);
+    if (libraries_count > size_limits.max_acc_public_libraries) {
+      return td::Status::Error(PSTRING() << "too many public libraries: " << libraries_count << " (max "
+                                         << size_limits.max_acc_public_libraries << ")");
+    }
   }
   if (update_storage_stat) {
     // storage_stat will be reused in compute_state()
-    new_storage_stat = std::move(storage_stat);
+    new_account_storage_stat.value_force() = std::move(storage_stat);
   }
-  return res;
+  return td::Status::OK();
 }
 
 /**
@@ -3088,50 +3155,15 @@ bool Account::store_acc_status(vm::CellBuilder& cb, int acc_status) const {
   return cb.store_long_bool(v, 2);
 }
 
-/**
- * Tries to update the storage statistics based on the old storage statistics and old account state without fully recomputing it.
- * 
- * It succeeds if only root cell of AccountStorage is changed.
- *
- * @param old_stat The old storage statistics.
- * @param old_cs The old AccountStorage.
- * @param new_cell The new AccountStorage.
- *
- * @returns An optional value of type vm::CellStorageStat. If the update is successful, it returns the new storage statistics. Otherwise, it returns an empty optional.
- */
-static td::optional<vm::CellStorageStat> try_update_storage_stat(const vm::CellStorageStat& old_stat,
-                                                                 td::Ref<vm::CellSlice> old_cs,
-                                                                 td::Ref<vm::Cell> new_cell) {
-  if (old_stat.cells == 0 || old_cs.is_null()) {
-    return {};
-  }
-  vm::CellSlice new_cs = vm::CellSlice(vm::NoVm(), new_cell);
-  if (old_cs->size_refs() != new_cs.size_refs()) {
-    return {};
-  }
-  for (unsigned i = 0; i < old_cs->size_refs(); ++i) {
-    if (old_cs->prefetch_ref(i)->get_hash() != new_cs.prefetch_ref(i)->get_hash()) {
-      return {};
-    }
-  }
-  if (old_stat.bits < old_cs->size()) {
-    return {};
-  }
-
-  vm::CellStorageStat new_stat;
-  new_stat.cells = old_stat.cells;
-  new_stat.bits = old_stat.bits - old_cs->size() + new_cs.size();
-  new_stat.public_cells = old_stat.public_cells;
-  return new_stat;
-}
-
 namespace transaction {
 /**
  * Computes the new state of the account.
  *
+ * @param cfg The configuration for the serialization.
+ *
  * @returns True if the state computation is successful, false otherwise.
  */
-bool Transaction::compute_state() {
+bool Transaction::compute_state(const SerializeConfig& cfg) {
   if (new_total_state.not_null()) {
     return true;
   }
@@ -3200,31 +3232,64 @@ bool Transaction::compute_state() {
   } else {
     new_inner_state.clear();
   }
-  vm::CellStorageStat& stats = new_storage_stat;
-  auto new_stats = try_update_storage_stat(account.storage_stat, account.storage, storage);
-  if (new_stats) {
-    stats = new_stats.unwrap();
+
+  bool storage_refs_changed = false;
+  if (account.storage.is_null() || new_storage->size_refs() != account.storage->size_refs()) {
+    storage_refs_changed = true;
   } else {
-    TD_PERF_COUNTER(transaction_storage_stat_b);
-    td::Timer timer;
-    stats.add_used_storage(Ref<vm::Cell>(storage)).ensure();
-    if (timer.elapsed() > 0.1) {
-      LOG(INFO) << "Compute used storage took " << timer.elapsed() << "s";
+    for (unsigned i = 0; i < new_storage->size_refs(); i++) {
+      if (new_storage->prefetch_ref(i)->get_hash() != account.storage->prefetch_ref(i)->get_hash()) {
+        storage_refs_changed = true;
+        break;
+      }
     }
   }
-  CHECK(cb.store_long_bool(1, 1)                       // account$1
-        && cb.append_cellslice_bool(account.my_addr)   // addr:MsgAddressInt
-        && block::store_UInt7(cb, stats.cells)         // storage_used$_ cells:(VarUInteger 7)
-        && block::store_UInt7(cb, stats.bits)          //   bits:(VarUInteger 7)
-        && block::store_UInt7(cb, stats.public_cells)  //   public_cells:(VarUInteger 7)
-        && cb.store_long_bool(last_paid, 32));         // last_paid:uint32
+
+  if (storage_refs_changed || (cfg.store_storage_dict_hash && !account.storage_dict_hash)) {
+    TD_PERF_COUNTER(transaction_storage_stat_b);
+    td::Timer timer;
+    if (!new_account_storage_stat && account.account_storage_stat) {
+      new_account_storage_stat = account.account_storage_stat;
+    }
+    AccountStorageStat& stats = new_account_storage_stat.value_force();
+    // Don't check Merkle depth and size here - they were checked in check_state_limits
+    auto S = stats.replace_roots(new_storage->prefetch_all_refs()).move_as_status();
+    if (S.is_error()) {
+      LOG(ERROR) << "Cannot recompute storage stats for account " << account.addr.to_hex() << ": " << S.move_as_error();
+      return false;
+    }
+    new_storage_dict_hash = stats.get_dict_hash();
+    // Root of AccountStorage is not counted in AccountStorageStat
+    new_storage_used.cells = stats.get_total_cells() + 1;
+    new_storage_used.bits = stats.get_total_bits() + new_storage->size();
+    if (timer.elapsed() > 0.1) {
+      LOG(INFO) << "Compute used storage (2) took " << timer.elapsed() << "s";
+    }
+  } else {
+    new_storage_used = account.storage_used;
+    new_storage_used.bits -= account.storage->size();
+    new_storage_used.bits += new_storage->size();
+    new_storage_dict_hash = account.storage_dict_hash;
+    new_account_storage_stat = account.account_storage_stat;
+  }
+  if (!cfg.store_storage_dict_hash) {
+    new_storage_dict_hash = {};
+  }
+
+  CHECK(cb.store_long_bool(1, 1)                                 // account$1
+        && cb.append_cellslice_bool(account.my_addr)             // addr:MsgAddressInt
+        && block::store_UInt7(cb, new_storage_used.cells)        // storage_used$_ cells:(VarUInteger 7)
+        && block::store_UInt7(cb, new_storage_used.bits)         //   bits:(VarUInteger 7)
+        && cb.store_long_bool(new_storage_dict_hash ? 1 : 0, 3)  // extra:StorageExtraInfo
+        && (!new_storage_dict_hash || cb.store_bits_bool(new_storage_dict_hash.value()))  // dict_hash:uint256
+        && cb.store_long_bool(last_paid, 32));                                            // last_paid:uint32
   if (due_payment.not_null() && td::sgn(due_payment) != 0) {
     CHECK(cb.store_long_bool(1, 1) && block::tlb::t_Grams.store_integer_ref(cb, due_payment));
     // due_payment:(Maybe Grams)
   } else {
     CHECK(cb.store_long_bool(0, 1));
   }
-  CHECK(cb.append_data_cell_bool(std::move(storage)));
+  CHECK(cb.append_cellslice_bool(new_storage));
   new_total_state = cb.finalize();
   if (verbosity > 2) {
     std::cerr << "new account state: ";
@@ -3239,13 +3304,15 @@ bool Transaction::compute_state() {
  * 
  * Updates root.
  *
+ * @param cfg The configuration for the serialization.
+ *
  * @returns True if the serialization is successful, False otherwise.
  */
-bool Transaction::serialize() {
+bool Transaction::serialize(const SerializeConfig& cfg) {
   if (root.not_null()) {
     return true;
   }
-  if (!compute_state()) {
+  if (!compute_state(cfg)) {
     return false;
   }
   vm::Dictionary dict{15};
@@ -3576,7 +3643,9 @@ Ref<vm::Cell> Transaction::commit(Account& acc) {
   acc.last_trans_end_lt_ = end_lt;
   acc.last_trans_hash_ = root->get_hash().bits();
   acc.last_paid = last_paid;
-  acc.storage_stat = new_storage_stat;
+  acc.storage_used = new_storage_used;
+  acc.account_storage_stat = std::move(new_account_storage_stat);
+  acc.storage_dict_hash = new_storage_dict_hash;
   acc.storage = new_storage;
   acc.balance = std::move(balance);
   acc.due_payment = std::move(due_payment);
@@ -3705,6 +3774,7 @@ bool Account::libraries_changed() const {
  * @param rand_seed Pointer to the random seed. Generates a new seed if the value is `td::Bits256::zero()`.
  * @param compute_phase_cfg Pointer to store the compute phase configuration.
  * @param action_phase_cfg Pointer to store the action phase configuration.
+ * @param serialize_cfg Pointer to store the serialization configuration.
  * @param masterchain_create_fee Pointer to store the masterchain create fee.
  * @param basechain_create_fee Pointer to store the basechain create fee.
  * @param wc The workchain ID.
@@ -3713,15 +3783,15 @@ bool Account::libraries_changed() const {
 td::Status FetchConfigParams::fetch_config_params(
     const block::ConfigInfo& config, Ref<vm::Cell>* old_mparams, std::vector<block::StoragePrices>* storage_prices,
     StoragePhaseConfig* storage_phase_cfg, td::BitArray<256>* rand_seed, ComputePhaseConfig* compute_phase_cfg,
-    ActionPhaseConfig* action_phase_cfg, td::RefInt256* masterchain_create_fee, td::RefInt256* basechain_create_fee,
-    ton::WorkchainId wc, ton::UnixTime now) {
+    ActionPhaseConfig* action_phase_cfg, SerializeConfig* serialize_cfg, td::RefInt256* masterchain_create_fee,
+    td::RefInt256* basechain_create_fee, ton::WorkchainId wc, ton::UnixTime now) {
   auto prev_blocks_info = config.get_prev_blocks_info();
   if (prev_blocks_info.is_error()) {
     return prev_blocks_info.move_as_error_prefix(
         td::Status::Error(-668, "cannot fetch prev blocks info from masterchain configuration: "));
   }
   return fetch_config_params(config, prev_blocks_info.move_as_ok(), old_mparams, storage_prices, storage_phase_cfg,
-                             rand_seed, compute_phase_cfg, action_phase_cfg, masterchain_create_fee,
+                             rand_seed, compute_phase_cfg, action_phase_cfg, serialize_cfg, masterchain_create_fee,
                              basechain_create_fee, wc, now);
 }
 
@@ -3736,6 +3806,7 @@ td::Status FetchConfigParams::fetch_config_params(
  * @param rand_seed Pointer to the random seed. Generates a new seed if the value is `td::Bits256::zero()`.
  * @param compute_phase_cfg Pointer to store the compute phase configuration.
  * @param action_phase_cfg Pointer to store the action phase configuration.
+ * @param serialize_cfg Pointer to store the serialization configuration.
  * @param masterchain_create_fee Pointer to store the masterchain create fee.
  * @param basechain_create_fee Pointer to store the basechain create fee.
  * @param wc The workchain ID.
@@ -3745,8 +3816,8 @@ td::Status FetchConfigParams::fetch_config_params(
     const block::Config& config, td::Ref<vm::Tuple> prev_blocks_info, Ref<vm::Cell>* old_mparams,
     std::vector<block::StoragePrices>* storage_prices, StoragePhaseConfig* storage_phase_cfg,
     td::BitArray<256>* rand_seed, ComputePhaseConfig* compute_phase_cfg, ActionPhaseConfig* action_phase_cfg,
-    td::RefInt256* masterchain_create_fee, td::RefInt256* basechain_create_fee, ton::WorkchainId wc,
-    ton::UnixTime now) {
+    SerializeConfig* serialize_cfg, td::RefInt256* masterchain_create_fee, td::RefInt256* basechain_create_fee,
+    ton::WorkchainId wc, ton::UnixTime now) {
   *old_mparams = config.get_config_param(9);
   {
     auto res = config.get_storage_prices();
@@ -3818,6 +3889,9 @@ td::Status FetchConfigParams::fetch_config_params(
     action_phase_cfg->disable_custom_fess = config.get_global_version() >= 8;
     action_phase_cfg->reserve_extra_enabled = config.get_global_version() >= 9;
     action_phase_cfg->mc_blackhole_addr = config.get_burning_config().blackhole_addr;
+  }
+  {
+    serialize_cfg->store_storage_dict_hash = config.get_global_version() >= 10;
   }
   {
     // fetch block_grams_created

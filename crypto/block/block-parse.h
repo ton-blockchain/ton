@@ -493,13 +493,6 @@ struct StorageUsed final : TLB_Complex {
 
 extern const StorageUsed t_StorageUsed;
 
-struct StorageUsedShort final : TLB_Complex {
-  bool skip(vm::CellSlice& cs) const override;
-  bool validate_skip(int* ops, vm::CellSlice& cs, bool weak = false) const override;
-};
-
-extern const StorageUsedShort t_StorageUsedShort;
-
 struct StorageInfo final : TLB_Complex {
   bool skip(vm::CellSlice& cs) const override;
   bool validate_skip(int* ops, vm::CellSlice& cs, bool weak = false) const override;

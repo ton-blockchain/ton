@@ -17,6 +17,7 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
+#include "account-storage-stat.h"
 #include "common/refcnt.hpp"
 #include "common/refint.h"
 #include "vm/cells.h"
@@ -176,6 +177,10 @@ struct ActionPhaseConfig {
   }
 };
 
+struct SerializeConfig {
+  bool store_storage_dict_hash{false};
+};
+
 struct CreditPhase {
   td::RefInt256 due_fees_collected;
   block::CurrencyCollection credit;
@@ -261,8 +266,12 @@ struct Account {
   ton::LogicalTime last_trans_lt_;
   ton::Bits256 last_trans_hash_;
   ton::LogicalTime block_lt;
+
   ton::UnixTime last_paid;
-  vm::CellStorageStat storage_stat;
+  StorageUsed storage_used;
+  td::optional<td::Bits256> storage_dict_hash;
+  td::optional<AccountStorageStat> account_storage_stat;
+
   block::CurrencyCollection balance;
   td::RefInt256 due_payment;
   Ref<vm::Cell> orig_total_state;  // ^Account
@@ -284,6 +293,8 @@ struct Account {
   bool set_address(ton::WorkchainId wc, td::ConstBitPtr new_addr);
   bool unpack(Ref<vm::CellSlice> account, ton::UnixTime now, bool special);
   bool init_new(ton::UnixTime now);
+  td::Status compute_account_storage_stat();
+  td::Status init_account_storage_stat(Ref<vm::Cell> dict_root);
   bool deactivate();
   bool recompute_tmp_addr(Ref<vm::CellSlice>& tmp_addr, int split_depth, td::ConstBitPtr orig_addr_rewrite) const;
   td::RefInt256 compute_storage_fees(ton::UnixTime now, const std::vector<block::StoragePrices>& pricing) const;
@@ -372,7 +383,9 @@ struct Transaction {
   std::unique_ptr<ComputePhase> compute_phase;
   std::unique_ptr<ActionPhase> action_phase;
   std::unique_ptr<BouncePhase> bounce_phase;
-  vm::CellStorageStat new_storage_stat;
+  StorageUsed new_storage_used;
+  td::optional<AccountStorageStat> new_account_storage_stat;
+  td::optional<td::Bits256> new_storage_dict_hash;
   bool gas_limit_overridden{false};
   Transaction(const Account& _account, int ttype, ton::LogicalTime req_start_lt, ton::UnixTime _now,
               Ref<vm::Cell> _inmsg = {});
@@ -389,8 +402,8 @@ struct Transaction {
   bool prepare_action_phase(const ActionPhaseConfig& cfg);
   td::Status check_state_limits(const SizeLimitsConfig& size_limits, bool update_storage_stat = true);
   bool prepare_bounce_phase(const ActionPhaseConfig& cfg);
-  bool compute_state();
-  bool serialize();
+  bool compute_state(const SerializeConfig& cfg);
+  bool serialize(const SerializeConfig& cfg);
   td::uint64 gas_used() const {
     return compute_phase ? compute_phase->gas_used : 0;
   }
@@ -428,14 +441,14 @@ struct FetchConfigParams {
                                         std::vector<block::StoragePrices>* storage_prices,
                                         StoragePhaseConfig* storage_phase_cfg, td::BitArray<256>* rand_seed,
                                         ComputePhaseConfig* compute_phase_cfg, ActionPhaseConfig* action_phase_cfg,
-                                        td::RefInt256* masterchain_create_fee, td::RefInt256* basechain_create_fee,
-                                        ton::WorkchainId wc, ton::UnixTime now);
+                                        SerializeConfig* serialize_cfg, td::RefInt256* masterchain_create_fee,
+                                        td::RefInt256* basechain_create_fee, ton::WorkchainId wc, ton::UnixTime now);
   static td::Status fetch_config_params(const block::Config& config, Ref<vm::Tuple> prev_blocks_info,
                                         Ref<vm::Cell>* old_mparams, std::vector<block::StoragePrices>* storage_prices,
                                         StoragePhaseConfig* storage_phase_cfg, td::BitArray<256>* rand_seed,
                                         ComputePhaseConfig* compute_phase_cfg, ActionPhaseConfig* action_phase_cfg,
-                                        td::RefInt256* masterchain_create_fee, td::RefInt256* basechain_create_fee,
-                                        ton::WorkchainId wc, ton::UnixTime now);
+                                        SerializeConfig* serialize_cfg, td::RefInt256* masterchain_create_fee,
+                                        td::RefInt256* basechain_create_fee, ton::WorkchainId wc, ton::UnixTime now);
 };
 
 }  // namespace block

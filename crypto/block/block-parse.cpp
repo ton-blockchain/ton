@@ -961,40 +961,33 @@ const RefTo<MsgEnvelope> t_Ref_MsgEnvelope;
 
 bool StorageUsed::validate_skip(int* ops, vm::CellSlice& cs, bool weak) const {
   return t_VarUInteger_7.validate_skip(ops, cs, weak)      // cells:(VarUInteger 7)
-         && t_VarUInteger_7.validate_skip(ops, cs, weak)   // bits:(VarUInteger 7)
-         && t_VarUInteger_7.validate_skip(ops, cs, weak);  // public_cells:(VarUInteger 7)
+         && t_VarUInteger_7.validate_skip(ops, cs, weak);  // bits:(VarUInteger 7)
 }
 
 bool StorageUsed::skip(vm::CellSlice& cs) const {
   return t_VarUInteger_7.skip(cs)      // cells:(VarUInteger 7)
-         && t_VarUInteger_7.skip(cs)   // bits:(VarUInteger 7)
-         && t_VarUInteger_7.skip(cs);  // public_cells:(VarUInteger 7)
+         && t_VarUInteger_7.skip(cs);  // bits:(VarUInteger 7)
 }
 
 const StorageUsed t_StorageUsed;
 
-bool StorageUsedShort::validate_skip(int* ops, vm::CellSlice& cs, bool weak) const {
-  return t_VarUInteger_7.validate_skip(ops, cs, weak)      // cells:(VarUInteger 7)
-         && t_VarUInteger_7.validate_skip(ops, cs, weak);  // bits:(VarUInteger 7)
-}
-
-bool StorageUsedShort::skip(vm::CellSlice& cs) const {
-  return t_VarUInteger_7.skip(cs)      // cells:(VarUInteger 7)
-         && t_VarUInteger_7.skip(cs);  // bits:(VarUInteger 7)
-}
-
-const StorageUsedShort t_StorageUsedShort;
-
 const Maybe<Grams> t_Maybe_Grams;
 
 bool StorageInfo::skip(vm::CellSlice& cs) const {
-  return t_StorageUsed.skip(cs)      // used:StorageUsed
-         && cs.advance(32)           // last_paid:uint32
-         && t_Maybe_Grams.skip(cs);  // due_payment:(Maybe Grams)
+  int extra_tag = 0;
+  return t_StorageUsed.skip(cs)                  // used:StorageUsed
+         && cs.fetch_uint_to(3, extra_tag)       // storage_extra:StorageExtraInfo
+         && (extra_tag == 0 || cs.advance(256))  // storage_extra_info$001 dict_hash:uint256 = StorageExtraInfo;
+         && cs.advance(32)                       // last_paid:uint32
+         && t_Maybe_Grams.skip(cs);              // due_payment:(Maybe Grams)
 }
 
 bool StorageInfo::validate_skip(int* ops, vm::CellSlice& cs, bool weak) const {
-  return t_StorageUsed.validate_skip(ops, cs, weak)      // used:StorageUsed
+  int extra_tag = 0;
+  return t_StorageUsed.validate_skip(ops, cs, weak)  // used:StorageUsed
+         && cs.fetch_uint_to(3, extra_tag)           // storage_extra:StorageExtraInfo
+         && (extra_tag == 0 ||
+             (extra_tag == 1 && cs.advance(256)))        // storage_extra_info$001 dict_hash:uint256 = StorageExtraInfo;
          && cs.advance(32)                               // last_paid:uint32
          && t_Maybe_Grams.validate_skip(ops, cs, weak);  // due_payment:(Maybe Grams)
 }
@@ -1368,7 +1361,7 @@ bool TrActionPhase::skip(vm::CellSlice& cs) const {
          && cs.advance(16 * 4 + 256)      // tot_actions:uint16 spec_actions:uint16
                                           // skipped_actions:uint16 msgs_created:uint16
                                           // action_list_hash:uint256
-         && t_StorageUsedShort.skip(cs);  // tot_msg_size:StorageUsedShort
+         && t_StorageUsed.skip(cs);  // tot_msg_size:StorageUsed
 }
 
 bool TrActionPhase::validate_skip(int* ops, vm::CellSlice& cs, bool weak) const {
@@ -1381,7 +1374,7 @@ bool TrActionPhase::validate_skip(int* ops, vm::CellSlice& cs, bool weak) const 
          && cs.advance(16 * 4 + 256)                          // tot_actions:uint16 spec_actions:uint16
                                                               // skipped_actions:uint16 msgs_created:uint16
                                                               // action_list_hash:uint256
-         && t_StorageUsedShort.validate_skip(ops, cs, weak);  // tot_msg_size:StorageUsed
+         && t_StorageUsed.validate_skip(ops, cs, weak);  // tot_msg_size:StorageUsed
 }
 
 const TrActionPhase t_TrActionPhase;
@@ -1392,11 +1385,11 @@ bool TrBouncePhase::skip(vm::CellSlice& cs) const {
       return cs.advance(2);  // tr_phase_bounce_negfunds$00
     case tr_phase_bounce_nofunds:
       return cs.advance(2)                   // tr_phase_bounce_nofunds$01
-             && t_StorageUsedShort.skip(cs)  // msg_size:StorageUsedShort
+             && t_StorageUsed.skip(cs)  // msg_size:StorageUsed
              && t_Grams.skip(cs);            // req_fwd_fees:Grams
     case tr_phase_bounce_ok:
       return cs.advance(1)                   // tr_phase_bounce_ok$1
-             && t_StorageUsedShort.skip(cs)  // msg_size:StorageUsedShort
+             && t_StorageUsed.skip(cs)  // msg_size:StorageUsed
              && t_Grams.skip(cs)             // msg_fees:Grams
              && t_Grams.skip(cs);            // fwd_fees:Grams
   }
@@ -1409,11 +1402,11 @@ bool TrBouncePhase::validate_skip(int* ops, vm::CellSlice& cs, bool weak) const 
       return cs.advance(2);  // tr_phase_bounce_negfunds$00
     case tr_phase_bounce_nofunds:
       return cs.advance(2)                                       // tr_phase_bounce_nofunds$01
-             && t_StorageUsedShort.validate_skip(ops, cs, weak)  // msg_size:StorageUsedShort
+             && t_StorageUsed.validate_skip(ops, cs, weak)  // msg_size:StorageUsed
              && t_Grams.validate_skip(ops, cs, weak);            // req_fwd_fees:Grams
     case tr_phase_bounce_ok:
       return cs.advance(1)                                       // tr_phase_bounce_ok$1
-             && t_StorageUsedShort.validate_skip(ops, cs, weak)  // msg_size:StorageUsedShort
+             && t_StorageUsed.validate_skip(ops, cs, weak)  // msg_size:StorageUsed
              && t_Grams.validate_skip(ops, cs, weak)             // msg_fees:Grams
              && t_Grams.validate_skip(ops, cs, weak);            // fwd_fees:Grams
   }
