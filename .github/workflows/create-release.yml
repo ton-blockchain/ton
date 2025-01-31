@@ -509,14 +509,6 @@ jobs:
           zip -r smartcont_lib.zip .
           gh release upload ${{ steps.tag.outputs.TAG }} smartcont_lib.zip
 
-      - name: Upload generic smartcont+lib artifact
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-x86_64-linux/{smartcont,lib}
-          file_glob: true
-          tag: ${{ steps.tag.outputs.TAG }}
-
       - name: Upload Linux x86-64 single artifact - fift
         uses: svenstaro/upload-release-action@v2
         with:
