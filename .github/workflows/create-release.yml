@@ -498,6 +498,14 @@ jobs:
           asset_name: ton-linux-x86_64.zip
           tag: ${{ steps.tag.outputs.TAG }}
 
+      - name: Upload generic smartcont+lib artifact
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-linux/{smartcont,lib}
+          asset_name: smartcont
+          tag: ${{ steps.tag.outputs.TAG }}
+
       - name: Upload Linux x86-64 single artifact - fift
         uses: svenstaro/upload-release-action@v2
         with:
