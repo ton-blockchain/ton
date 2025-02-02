@@ -54,7 +54,7 @@ void HeaderCorrupter::modify(block::gen::Block::Record &block) {
     }
     vm::CellBuilder cb;
     CHECK(block::gen::t_ShardIdent.pack(cb, shard_rec));
-    info_rec.shard = td::Ref<vm::CellSlice>{true, cb.finalize()};
+    info_rec.shard.write() = cb.finalize();
   }
 
   // 3) invert_lt => start_lt >= end_lt
@@ -100,7 +100,7 @@ void HeaderCorrupter::modify(block::gen::Block::Record &block) {
     shard_rec.shard_pfx_bits = 0;
     vm::CellBuilder cb;
     CHECK(block::gen::t_ShardIdent.pack(cb, shard_rec));
-    info_rec.shard = td::Ref<vm::CellSlice>{true, cb.finalize()};
+    info_rec.shard.write() = cb.finalize();
   }
 
   // 8) set_vert_seqno_incr => vert_seqno_incr != 0 => ставим true
