@@ -6,6 +6,14 @@
 
 using namespace test::fisherman;
 
+void print_block(const block::gen::Block::Record &block_rec) {
+  std::ostringstream os;
+  td::Ref<vm::Cell> block_cell_pack;
+  CHECK(block::gen::t_Block.cell_pack(block_cell_pack, block_rec));
+  block::gen::t_Block.print_ref(os, block_cell_pack);
+  LOG(INFO) << "Block = " << os.str();
+}
+
 auto main(int argc, char **argv) -> int {
   if (argc < 3) {
     std::cerr << "Usage: " << argv[0] << " /path/to/rootdb config.json\n";
@@ -51,30 +59,17 @@ auto main(int argc, char **argv) -> int {
   }
 
   auto blk_data = blk_data_result.move_as_ok();
-  LOG(INFO) << "BlockId: " << blk_data->block_id().to_str();
-  LOG(INFO) << "Block data size: " << blk_data->data().size() << " bytes";
-
-  LOG(INFO) << "Cell has block record = " << block::gen::Block().validate_ref(10000000, blk_data->root_cell()) << "\n";
-
-  std::ostringstream os;
-  block::gen::Block().print_ref(os, blk_data->root_cell());
-  LOG(INFO) << "Block = " << os.str();
 
   block::gen::Block::Record block_rec;
-  bool ok = block::gen::Block().cell_unpack(blk_data->root_cell(), block_rec);
-  CHECK(ok);
+  CHECK(block::gen::t_Block.cell_unpack(blk_data->root_cell(), block_rec));
 
-  block::gen::BlockInfo::Record info_rec;
-  block::gen::BlockInfo().cell_unpack(block_rec.info, info_rec);
-  LOG(INFO) << "Block.info after_merge=" << info_rec.after_merge << ", after_split=" << info_rec.after_split;
+  print_block(block_rec);
 
   auto manipulation_config = td::get_json_object_field(js_obj, "manipulation", td::JsonValue::Type::Object, false);
   CHECK(manipulation_config.is_ok());
   ManipulatorFactory().create(manipulation_config.move_as_ok())->modify(block_rec);
 
   LOG(INFO) << "Block after manipulation:";
-  block::gen::BlockInfo().cell_unpack(block_rec.info, info_rec);
-  LOG(INFO) << "Block.info after_merge=" << info_rec.after_merge << ", after_split=" << info_rec.after_split;
-
+  print_block(block_rec);
   return 0;
 }
