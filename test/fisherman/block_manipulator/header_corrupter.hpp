@@ -3,7 +3,6 @@
 #include "base.hpp"
 
 #include "td/utils/JsonBuilder.h"
-#include "block/block-auto.h"
 
 namespace test::fisherman {
 

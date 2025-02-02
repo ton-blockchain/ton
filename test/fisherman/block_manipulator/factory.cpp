@@ -1,6 +1,7 @@
 #include "factory.hpp"
 
 #include "header_corrupter.hpp"
+#include "transaction_corrupter.hpp"
 
 namespace test::fisherman {
 
@@ -21,6 +22,9 @@ auto ManipulatorFactory::createImpl(td::JsonValue jv) -> td::Result<std::shared_
 
   if (type == "HeaderCorrupter") {
     return std::make_shared<HeaderCorrupter>(HeaderCorrupter::Config::fromJson(std::move(json_config)));
+  }
+  if (type == "TransactionCorrupter") {
+    return std::make_shared<TransactionCorrupter>(TransactionCorrupter::Config::fromJson(std::move(json_config)));
   }
   return td::Status::Error(400, PSLICE() << "Unknown manipulator type: " << type);
 }
