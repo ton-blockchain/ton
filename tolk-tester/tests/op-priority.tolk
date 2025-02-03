@@ -95,26 +95,26 @@ fun main() {
   unary_minus_1 PROC:<{
     //  a b c
     -ROT	//  c a b
-    ADD	//  c _3
-    NEGATE	//  c _4
-    SWAP	//  _4 c
-    MUL	//  _5
+    ADD	//  c '3
+    NEGATE	//  c '4
+    SWAP	//  '4 c
+    MUL	//  '5
   }>
   unary_minus_2 PROC:<{
     //  a b c
     -ROT	//  c a b
-    ADD	//  c _3
-    NEGATE	//  c _4
-    SWAP	//  _4 c
-    MUL	//  _5
+    ADD	//  c '3
+    NEGATE	//  c '4
+    SWAP	//  '4 c
+    MUL	//  '5
   }>
   unary_minus_3 PROC:<{
     //  a b c
     -ROT	//  c a b
-    ADD	//  c _3
-    SWAP	//  _3 c
-    MUL	//  _4
-    NEGATE	//  _5
+    ADD	//  c '3
+    SWAP	//  '3 c
+    MUL	//  '4
+    NEGATE	//  '5
   }>
 """
 

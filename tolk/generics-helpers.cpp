@@ -202,8 +202,8 @@ td::Result<std::vector<TypePtr>> deduce_substitutionTs_on_generic_func_call(cons
   try {
     GenericSubstitutionsDeduceForFunctionCall deducing(called_fun);
     for (const LocalVarData& param : called_fun->parameters) {
-      if (param.declared_type->has_genericT_inside() && param.idx < static_cast<int>(arg_types.size())) {
-        deducing.consider_next_condition(param.declared_type, arg_types[param.idx]);
+      if (param.declared_type->has_genericT_inside() && param.param_idx < static_cast<int>(arg_types.size())) {
+        deducing.consider_next_condition(param.declared_type, arg_types[param.param_idx]);
       }
     }
     int idx = deducing.get_first_not_deduced_idx();
@@ -233,7 +233,7 @@ const FunctionData* instantiate_generic_function(SrcLocation loc, const Function
   std::vector<LocalVarData> parameters;
   parameters.reserve(fun_ref->get_num_params());
   for (const LocalVarData& orig_p : fun_ref->parameters) {
-    parameters.emplace_back(orig_p.name, orig_p.loc, replace_genericT_with_deduced(orig_p.declared_type, fun_ref->genericTs, substitutionTs), orig_p.flags, orig_p.idx);
+    parameters.emplace_back(orig_p.name, orig_p.loc, replace_genericT_with_deduced(orig_p.declared_type, fun_ref->genericTs, substitutionTs), orig_p.flags, orig_p.param_idx);
   }
   TypePtr declared_return_type = replace_genericT_with_deduced(fun_ref->declared_return_type, fun_ref->genericTs, substitutionTs);
   const GenericsInstantiation* instantiationTs = new GenericsInstantiation(loc, std::move(substitutionTs));

@@ -78,6 +78,17 @@ fun testStartBalanceCodegen2() {
     return first;
 }
 
+global cur: [int, int, int];
+global next: [int, int, int];
+
+@method_id(95)
+fun test95() {
+    cur = [1, 2, 3];
+    next = [2, 3, 4];
+    (cur, next) = (next, [3, 4, 5]);
+    return (cur, next);
+}
+
 /**
     method_id | in     | out
 @testcase |  0 | 101 15 | 100 1
@@ -90,6 +101,7 @@ fun testStartBalanceCodegen2() {
 @testcase | 89 | 4      | 1 4 1 4
 @testcase | 91 |        | 10
 @testcase | 92 |        | 10 32
+@testcase | 95 |        | [ 2 3 4 ] [ 3 4 5 ]
 
 @fif_codegen
 """
@@ -104,9 +116,9 @@ fun testStartBalanceCodegen2() {
   testDumpDontPolluteStack PROC:<{
     ...
     DUMPSTK
-    x{6d79} PUSHSLICE	//  f s _9
+    x{6d79} PUSHSLICE	//  f s '5
     STRDUMP DROP
-    SBITS	//  f _11
+    SBITS	//  f '6
   }>
 """
 
@@ -125,6 +137,22 @@ fun testStartBalanceCodegen2() {
     //
     BALANCE
     FIRST	//  first
+  }>
+"""
+
+@fif_codegen
+"""
+  test95 PROC:<{
+    ...
+    next GETGLOB	//  '10
+    3 PUSHINT	//  '10 '12=3
+    4 PUSHINT	//  '10 '12=3 '13=4
+    5 PUSHINT	//  '10 '12=3 '13=4 '14=5
+    TRIPLE	//  '15 '16
+    next SETGLOB
+    cur SETGLOB
+    cur GETGLOB	//  '17
+    next GETGLOB	//  '17 '18
   }>
 """
 */

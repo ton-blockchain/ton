@@ -1060,6 +1060,17 @@ AsmOp compile_tuple_at(std::vector<VarDescr>& res, std::vector<VarDescr>& args, 
   return exec_op("INDEXVAR", 2, 1);
 }
 
+// fun tupleSetAt<X>(mutate self: tuple, value: X, index: int): void   asm "SETINDEXVAR";
+AsmOp compile_tuple_set_at(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation) {
+  tolk_assert(args.size() == 3 && res.size() == 1);
+  auto& y = args[2];
+  if (y.is_int_const() && y.int_const >= 0 && y.int_const < 16) {
+    y.unused();
+    return exec_arg_op("SETINDEX", y.int_const, 1, 1);
+  }
+  return exec_op("SETINDEXVAR", 2, 1);
+}
+
 // fun __isNull<X>(X arg): bool
 AsmOp compile_is_null(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation) {
   tolk_assert(args.size() == 1 && res.size() == 1);
@@ -1246,6 +1257,9 @@ void define_builtins() {
   define_builtin_func("tupleAt", {Tuple, Int}, typeT, declGenericT,
                               compile_tuple_at,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf);
+  define_builtin_func("tupleSetAt", {Tuple, typeT, Int}, Unit, declGenericT,
+                              compile_tuple_set_at,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf);
   define_builtin_func("debugPrint", {typeT}, Unit, declGenericT,
                                 AsmOp::Custom("s0 DUMP DROP", 1, 1),
                                 0);
@@ -1255,6 +1269,13 @@ void define_builtins() {
   define_builtin_func("debugDumpStack", {}, Unit, nullptr,
                                 AsmOp::Custom("DUMPSTK", 0, 0),
                                 0);
+
+  // functions not presented in stdlib at all
+  // used in tolk-tester to check/expose internal compiler state
+  // each of them is handled in a special way, search by its name
+  define_builtin_func("__expect_type", {TypeDataUnknown::create(), Slice}, Unit, nullptr,
+                                AsmOp::Nop(),
+                                FunctionData::flagMarkedAsPure);
 }
 
 }  // namespace tolk

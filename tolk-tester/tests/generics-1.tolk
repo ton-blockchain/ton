@@ -14,13 +14,19 @@ fun getTwo<X>(): X { return 2 as X; }
 fun takeInt(a: int) { return a; }
 
 @method_id(102)
-fun test102(): (int, int, int, [(int, int)]) {
+fun test102(): (int, int, int, [int, int]) {
     var a: int = getTwo();
     var _: int = getTwo();
     var b = getTwo() as int;
     var c: int = 1 ? getTwo() : getTwo();
     var c redef = getTwo();
-    return (eq1<int>(a), eq2<int>(b), takeInt(getTwo()), [(getTwo(), getTwo())]);
+    var ab_tens = (0, (1, 2));
+    ab_tens.0 = getTwo();
+    ab_tens.1.1 = getTwo();
+    var ab_tup = [0, [1, 2]];
+    ab_tup.0 = getTwo();
+    ab_tup.1.1 = getTwo();
+    return (eq1<int>(a), eq2<int>(b), takeInt(getTwo()), [getTwo(), ab_tens.1.1]);
 }
 
 @method_id(103)
@@ -41,10 +47,12 @@ fun manyEq<T1, T2, T3>(a: T1, b: T2, c: T3): [T1, T2, T3] {
 
 @method_id(104)
 fun test104(f: int) {
-    return (
+    var result = (
         manyEq(1 ? 1 : 1, f ? 0 : null, !f ? getTwo() as int : null),
-        manyEq((f ? null as int : eq2(2), beginCell().storeBool(true).endCell().beginParse().loadBool()), 0, eq4(f))
+        manyEq(f ? null as int : eq2(2), beginCell().storeBool(true).endCell().beginParse().loadBool(), eq4(f))
     );
+    __expect_type(result, "([int, int, int], [int, bool, int])");
+    return result;
 }
 
 fun calcSum<X>(x: X, y: X) { return x + y; }
@@ -68,10 +76,12 @@ fun abstractTransform<X, Y, R>(xToY: (X) -> Y, yToR: (((Y))) -> R, initialX: X):
 @method_id(106)
 fun test106() {
     var c = beginCell().storeInt(106, 32).endCell();
+    __expect_type(calcYPlus1<int>, "(int) -> int");
     return [
         abstractTransform(cellToSlice, calcLoad32, c),
         abstractTransform(calcYPlus1<int>, calcYPlus1<int>, 0),
-        abstractTransform(calcTensorPlus1, calcTensorMul2, (2, 2))
+        abstractTransform(calcTensorPlus1, calcTensorMul2, (2, 2)).0,
+        abstractTransform(calcTensorPlus1, calcTensorMul2, (2, 2)).1
     ];
 }
 
@@ -132,7 +142,7 @@ fun main(x: int): (int, [[int, int]]) {
 @testcase | 101 | 0 | 0 0 0 [ 0 0 ] 0 0 0 [ 0 0 ] 0 0 0 []
 @testcase | 102 |   | 2 2 2 [ 2 2 ]
 @testcase | 103 | 0 | 0 100 100
-@testcase | 104 | 0 | [ 1 (null) 2 ] [ 2 -1 0 0 ]
+@testcase | 104 | 0 | [ 1 (null) 2 ] [ 2 -1 0 ]
 @testcase | 105 |   | 3
 @testcase | 106 |   | [ 106 2 6 6 ]
 @testcase | 107 |   | 6 6 1 1 6 6

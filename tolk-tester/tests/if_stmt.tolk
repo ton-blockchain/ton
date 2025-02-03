@@ -54,13 +54,13 @@ fun main() {
   test3 PROC:<{
     //  x
     DUP	//  x x
-    20 NEQINT	//  x _2
+    20 NEQINT	//  x '2
     IFNOTJMP:<{	//  x
       DROP	//
-      20 PUSHINT	//  _3=20
+      20 PUSHINT	//  '3=20
     }>	//  x
     DUP	//  x x
-    50 EQINT	//  x _5
+    50 EQINT	//  x '5
     IFNOTJMP:<{	//  x
 """
 */

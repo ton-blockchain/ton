@@ -54,11 +54,6 @@ static void generate_output_func(const FunctionData* fun_ref) {
     std::cerr << "after prune_unreachable: \n";
     code->print(std::cerr, 0);
   }
-  code->split_vars(true);
-  if (G.is_verbosity(5)) {
-    std::cerr << "after split_vars: \n";
-    code->print(std::cerr, 0);
-  }
   for (int i = 0; i < 8; i++) {
     code->compute_used_code_vars();
     if (G.is_verbosity(4)) {
