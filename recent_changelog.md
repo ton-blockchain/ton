@@ -1,12 +1,27 @@
 ## 2025.02 Update
-1. Series of improvement/fixes for `Config8.version >= 9`, check [GlobalVersions.md](./doc/GlobalVersions.md)
-2. Fix for better discovery of updated nodes' (validators') IPs: retry dht queries
-3. Series of improvements for extra currency adoption: fixed c7 in rungetmethod, reserve modes
-4. TVM: Fix processing continuation control data on deep jump
-5. A few fixes of tl-b schemes: crc computation, incorrect tag for merkle proofs, advance_ext, NatWidth print
-6. Emulator improvements: fix setting libraries,  extracurrency support
-7. Increase of gas limit for unlocking highload-v2 wallets locked in the beginning of 2024
-8. Validator console improvement: dashed names, better shard formats
 
+### Core Improvements & Fixes
+1. Multiple improvements and fixes for `Config8.version >= 9` – see [GlobalVersions.md](./doc/GlobalVersions.md) for details.
+2. Enhanced discovery of updated nodes' (validators') IPs by implementing DHT query retries.
+3. Various improvements for extra currency adoption, including:
+   - Fix for `c7` in `rungetmethod`
+   - Enhancements in reserve modes
+4. **TVM Updates**: Improved processing of continuation control data on deep jumps.
+5. **TL-B Scheme Fixes**:
+   - CRC computation corrections
+   - Fix for incorrect tag usage in Merkle proofs
+   - Improvements to `advance_ext` and `NatWidth` printing
+6. **Emulator Enhancements**:
+   - Fixed issues with setting libraries
+   - Improved extra currency support
+7. Increased gas limit to unlock **highload-v2 wallets** that were locked in early 2024.
+8. **Validator Console Improvements**:
+   - Enhanced formatting for shard displays
+   - Support for dashed names
 
-Besides the work of the core team, this update is based on the efforts of  @dbaranovstonfi from StonFi(libraries in emulator), @Rexagon (ret on deep jumps), @tvorogme from DTon (`advance_ext`), Nan from Zellic (`stk_und` and JNI)
+### Contributors
+This update incorporates contributions from the core team and community members, including:
+- **@dbaranovstonfi** from StonFi – **Libraries in the emulator**
+- **@Rexagon** – **RET improvements on deep jumps**
+- **@tvorogme** from DTon – **Fixes for `advance_ext`**
+- **Nan** from Zellic – **Enhancements for `stk_und` and JNI**
