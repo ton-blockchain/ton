@@ -84,6 +84,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
 set(CMAKE_CXX_EXTENSIONS FALSE)
 
 #BEGIN internal
+option(BUILD_SHARED_LIBS "Use \"ON\" to build shared libraries instead of static where it's not specified (not recommended)" OFF)
 option(USE_EMSCRIPTEN "Use \"ON\" for config building wasm." OFF)
 option(TON_ONLY_TONLIB "Use \"ON\" to build only tonlib." OFF)
 if (USE_EMSCRIPTEN)

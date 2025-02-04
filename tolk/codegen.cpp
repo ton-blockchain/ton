@@ -132,7 +132,7 @@ int Stack::drop_vars_except(const VarDescrList& var_info, int excl_var) {
   return dropped;
 }
 
-void Stack::show(int flags) {
+void Stack::show() {
   std::ostringstream os;
   for (auto i : s) {
     os << ' ';

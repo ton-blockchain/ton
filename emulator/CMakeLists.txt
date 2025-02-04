@@ -1,7 +1,5 @@
 cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
 
-option(BUILD_SHARED_LIBS "Use \"OFF\" for a static build." ON)
-
 if (NOT OPENSSL_FOUND)
   find_package(OpenSSL REQUIRED)
 endif()
@@ -9,11 +7,6 @@ endif()
 set(EMULATOR_STATIC_SOURCE
   transaction-emulator.cpp
   tvm-emulator.hpp
-)
-
-set(EMULATOR_HEADERS 
-  transaction-emulator.h
-  emulator-extern.h
 )
 
 set(EMULATOR_SOURCE
@@ -29,14 +22,22 @@ include(GenerateExportHeader)
 add_library(emulator_static STATIC ${EMULATOR_STATIC_SOURCE})
 target_link_libraries(emulator_static PUBLIC ton_crypto smc-envelope)
 
-if (NOT USE_EMSCRIPTEN AND BUILD_SHARED_LIBS)
-  add_library(emulator SHARED ${EMULATOR_SOURCE} ${EMULATOR_HEADERS})
+if (USE_EMSCRIPTEN)
+  add_library(emulator STATIC ${EMULATOR_SOURCE})
 else()
-  add_library(emulator STATIC ${EMULATOR_SOURCE} ${EMULATOR_HEADERS})
+  add_library(emulator SHARED ${EMULATOR_SOURCE})
 endif()
 
-target_link_libraries(emulator PUBLIC emulator_static git)
+if (PORTABLE AND NOT APPLE)
+  target_link_libraries(emulator PUBLIC emulator_static git -static-libgcc -static-libstdc++)
+else()
+  target_link_libraries(emulator PUBLIC emulator_static git)
+endif()
+
 generate_export_header(emulator EXPORT_FILE_NAME ${CMAKE_CURRENT_BINARY_DIR}/emulator_export.h)
+if (USE_EMSCRIPTEN)
+  target_compile_definitions(emulator PUBLIC EMULATOR_STATIC_DEFINE)
+endif()
 target_include_directories(emulator PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)

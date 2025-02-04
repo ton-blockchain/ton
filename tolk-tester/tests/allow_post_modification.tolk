@@ -89,12 +89,14 @@ fun test_if_else(x: int): (int, int, int, int, int) {
 
 @method_id(21)
 fun test_assign_with_inner(x: int) {
-    return (x, x += 10, [(x, x += 20, eq(x -= 50), x)], eq2((x, x *= eq(x /= 2))));
+    var result = (x, x += 10, [x, x += 20, eq(x -= 50), x], eq2((x, x *= eq(x /= 2))));
+    return result;
 }
 
 @method_id(22)
 fun test_assign_with_mutate(x: int) {
-    return (x, mul2(mutate x, x += 5), x.`~inc`(mul2(mutate x, x)), x);
+    var (result, _) = ((x, mul2(mutate x, x += 5), x.`~inc`(mul2(mutate x, x)), x), 0);
+    return result;
 }
 
 @method_id(23)
@@ -138,5 +140,12 @@ fun main() {
     inc CALLDICT // self newY
   }>
 """
+
+@fif_codegen
+"""
+  test_assign_tensor_global PROC:<{
+    // x.0 x.1
+"""
+
 @code_hash 7627024945492125068389905298530400936797031708759561372406088054030801992712
 */

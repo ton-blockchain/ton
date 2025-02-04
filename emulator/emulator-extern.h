@@ -183,6 +183,14 @@ EMULATOR_EXPORT bool tvm_emulator_set_libraries(void *tvm_emulator, const char *
 EMULATOR_EXPORT bool tvm_emulator_set_c7(void *tvm_emulator, const char *address, uint32_t unixtime, uint64_t balance, const char *rand_seed_hex, const char *config);
 
 /**
+ * @brief Set extra currencies balance
+ * @param tvm_emulator Pointer to TVM emulator
+ * @param extra_currencies String with extra currencies balance in format "currency_id1=balance1 currency_id2=balance2 ..."
+ * @return true in case of success, false in case of error 
+ */
+EMULATOR_EXPORT bool tvm_emulator_set_extra_currencies(void *tvm_emulator, const char *extra_currencies);
+
+/**
  * @brief Set config for TVM emulator
  * @param tvm_emulator Pointer to TVM emulator
  * @param config Pointer to Config object

@@ -529,8 +529,14 @@ private:
 
 public:
 
-  typedef const FunctionData* DotTarget;      // for `t.tupleAt` target is `tupleAt` global function
-  DotTarget target = nullptr;                 // filled at type inferring
+  typedef std::variant<
+    const FunctionData*,         // for `t.tupleAt` target is `tupleAt` global function
+    int                          // for `t.0` target is "indexed access" 0
+  > DotTarget;
+  DotTarget target = static_cast<FunctionData*>(nullptr); // filled at type inferring
+
+  bool is_target_fun_ref() const { return std::holds_alternative<const FunctionData*>(target); }
+  bool is_target_indexed_access() const { return std::holds_alternative<int>(target); }
 
   AnyExprV get_obj() const { return child; }
   auto get_identifier() const { return identifier; }

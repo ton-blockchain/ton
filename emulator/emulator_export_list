@@ -17,6 +17,7 @@ _emulator_config_destroy
 _tvm_emulator_create
 _tvm_emulator_set_libraries
 _tvm_emulator_set_c7
+_tvm_emulator_set_extra_currencies
 _tvm_emulator_set_config_object
 _tvm_emulator_set_prev_blocks_info
 _tvm_emulator_set_gas_limit

@@ -104,10 +104,10 @@ fun`main`(){}
     DUP	//  fst1=-1 snd1=-1
     2 PUSHINT	//  fst1=-1 snd1=-1 trd1=2
     s1 s1 s0 PUSH3	//  fst1=-1 snd1=-1 trd1=2 fst2=-1 snd2=-1 trd2=2
-    add3 CALLDICT	//  fst1=-1 snd1=-1 trd1=2 _13
-    3 -ROLL	//  _13 fst1=-1 snd1=-1 trd1=2
-    add3 CALLDICT	//  _13 _14
-    PAIR	//  _12
+    add3 CALLDICT	//  fst1=-1 snd1=-1 trd1=2 '13
+    3 -ROLL	//  '13 fst1=-1 snd1=-1 trd1=2
+    add3 CALLDICT	//  '13 '14
+    PAIR	//  '12
   }>
 """
 

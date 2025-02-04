@@ -1,7 +1,7 @@
 #/bin/bash
 
 #sudo apt-get update
-#sudo apt-get install -y build-essential git cmake ninja-build automake libtool texinfo autoconf
+#sudo apt-get install -y build-essential git cmake ninja-build automake libtool texinfo autoconf libc++-dev libc++abi-dev
 
 with_tests=false
 with_artifacts=false
@@ -24,8 +24,8 @@ else
   rm -rf .ninja* CMakeCache.txt
 fi
 
-export CC=$(which clang-16)
-export CXX=$(which clang++-16)
+export CC=$(which clang)
+export CXX=$(which clang++)
 export CCACHE_DISABLE=1
 
 if [ ! -d "lz4" ]; then
@@ -33,7 +33,7 @@ git clone https://github.com/lz4/lz4.git
 cd lz4
 lz4Path=`pwd`
 git checkout v1.9.4
-make -j12
+CFLAGS="-fPIC" make -j12
 test $? -eq 0 || { echo "Can't compile lz4"; exit 1; }
 cd ..
 # ./lib/liblz4.a

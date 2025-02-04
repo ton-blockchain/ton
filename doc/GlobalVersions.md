@@ -3,6 +3,7 @@ Global version is a parameter specified in `ConfigParam 8` ([block.tlb](https://
 Various features are enabled depending on the global version.
 
 ## Version 4
+New features of version 4 are desctibed in detail in [the documentation](https://docs.ton.org/v3/documentation/tvm/changelog/tvm-upgrade-2023-07).
 
 ### New TVM instructions
 * `PREVMCBLOCKS`, `PREVKEYBLOCK`
@@ -47,7 +48,7 @@ Version 5 enables higher gas limits for special contracts.
 Previously only ticktock transactions had this limit, while ordinary transactions had a default limit of `gas_limit` gas (1M).
 * Gas usage of special contracts is not taken into account when checking block limits. This allows keeping masterchain block limits low
 while having high gas limits for elector.
-* Gas limit on `EQD_v9j1rlsuHHw2FIhcsCFFSD367ldfDdCKcsNmNpIRzUlu` is increased to `special_gas_limit * 2` until 2024-02-29.
+* Gas limit on `EQD_v9j1rlsuHHw2FIhcsCFFSD367ldfDdCKcsNmNpIRzUlu` is increased to 70M (`special_gas_limit * 2`) until 2024-02-29.
 See [this post](https://t.me/tonstatus/88) for details.
 
 ### Loading libraries
@@ -113,13 +114,24 @@ Operations for working with Merkle proofs, where cells can have non-zero level a
 
 ## Version 9
 
+### c7 tuple
+c7 tuple parameter number **13** (previous blocks info tuple) now has the third element. It contains ids of the 16 last masterchain blocks with seqno divisible by 100.
+Example: if the last masterchain block seqno is `19071` then the list contains block ids with seqnos `19000`, `18900`, ..., `17500`.
+
 ### New TVM instructions
 - `SECP256K1_XONLY_PUBKEY_TWEAK_ADD` (`key tweak - 0 or f x y -1`) - performs [`secp256k1_xonly_pubkey_tweak_add`](https://github.com/bitcoin-core/secp256k1/blob/master/include/secp256k1_extrakeys.h#L120).
 `key` and `tweak` are 256-bit unsigned integers. 65-byte public key is returned as `uint8 f`, `uint256 x, y` (as in `ECRECOVER`). Gas cost: `1276`.
 - `mask SETCONTCTRMANY` (`cont - cont'`) - takes continuation, performs the equivalent of `c[i] PUSHCTR SWAP c[i] SETCONTCNR` for each `i` that is set in `mask` (mask is in `0..255`).
 - `SETCONTCTRMANYX` (`cont mask - cont'`) - same as `SETCONTCTRMANY`, but takes `mask` from stack.
+- `PREVMCBLOCKS_100` returns the third element of the previous block info tuple (see above).
 
 ### Other changes
 - Fix `RAWRESERVE` action with flag `4` (use original balance of the account) by explicitly setting `original_balance` to `balance - msg_balance_remaining`.
   - Previously it did not work if storage fee was greater than the original balance.
 - Jumps to nested continuations of depth more than 8 consume 1 gas for eact subsequent continuation (this does not affect most of TVM code).
+- Support extra currencies in reserve action with `+2` mode.
+- Fix exception code in some TVM instructions: now `stk_und` has priority over other error codes.
+  - `PFXDICTADD`, `PFXDICTSET`, `PFXDICTREPLACE`, `PFXDICTDEL`, `GETGASFEE`, `GETSTORAGEFEE`, `GETFORWARDFEE`, `GETORIGINALFWDFEE`, `GETGASFEESIMPLE`, `GETFORWARDFEESIMPLE`, `HASHEXT`
+- Now setting the contract code to a library cell does not consume additional gas on execution of the code.
+- Temporary increase gas limit for some accounts (see [this post](https://t.me/tondev_news/129) for details, `override_gas_limit` in `transaction.cpp` for the list of accounts).
+- Fix recursive jump to continuations with non-null control data.

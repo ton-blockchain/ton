@@ -1,12 +1,12 @@
 fun main() {
     try {
 
-    } catch(int, arg) {}
+    } catch(if, arg) {}
     return 0;
 }
 
 /**
 @compilation_should_fail
-@stderr expected identifier, got `int`
-@stderr catch(int
+@stderr expected identifier, got `if`
+@stderr catch(if
  */

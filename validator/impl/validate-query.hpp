@@ -284,6 +284,7 @@ class ValidateQuery : public td::actor::Actor {
     return actor_id(this);
   }
 
+  void request_latest_mc_state();
   void after_get_latest_mc_state(td::Result<std::pair<Ref<MasterchainState>, BlockIdExt>> res);
   void after_get_mc_state(td::Result<Ref<ShardState>> res);
   void got_mc_handle(td::Result<BlockHandle> res);

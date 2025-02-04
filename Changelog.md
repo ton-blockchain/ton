@@ -1,3 +1,16 @@
+## 2025.02 Update
+1. Series of improvement/fixes for `Config8.version >= 9`, check [GlobalVersions.md](./doc/GlobalVersions.md)
+2. Fix for better discovery of updated nodes' (validators') IPs: retry dht queries
+3. Series of improvements for extra currency adoption: fixed c7 in rungetmethod, reserve modes
+4. TVM: Fix processing continuation control data on deep jump
+5. A few fixes of tl-b schemes: crc computation, incorrect tag for merkle proofs, advance_ext, NatWidth print
+6. Emulator improvements: fix setting libraries,  extracurrency support
+7. Increase of gas limit for unlocking highload-v2 wallets locked in the beginning of 2024
+8. Validator console improvement: dashed names, better shard formats
+
+
+Besides the work of the core team, this update is based on the efforts of  @dbaranovstonfi from StonFi(libraries in emulator), @Rexagon (ret on deep jumps), @tvorogme from DTon (`advance_ext`), Nan from Zellic (`stk_und` and JNI)
+
 ## 2024.12 Update
 
 1. FunC 0.4.6: Fix in try/catch handling, fixing pure flag for functions stored in variables
@@ -31,7 +44,7 @@ Besides the work of the core team, this update is based on the efforts of @krigg
 ## 2024.08 Update
 
 1. Introduction of dispatch queues, message envelopes with transaction chain metadata, and explicitly stored msg_queue size, which will be activated by `Config8.version >= 8` and new `Config8.capabilities` bits: `capStoreOutMsgQueueSize`, `capMsgMetadata`, `capDeferMessages`. 
-2. A number of changes to transcation executor which will activated for `Config8.version >= 8`:
+2. A number of changes to transaction executor which will activated for `Config8.version >= 8`:
     - Check mode on invalid `action_send_msg`. Ignore action if `IGNORE_ERROR` (+2) bit is set, bounce if `BOUNCE_ON_FAIL` (+16) bit is set.
     - Slightly change random seed generation to fix mix of `addr_rewrite` and `addr`.
     - Fill in `skipped_actions` for both invalid and valid messages with `IGNORE_ERROR` mode that can't be sent.
@@ -103,7 +116,7 @@ Besides the work of the core team, this update is based on the efforts of @akifo
    * Fix error in proof generation for blocks after merge
    * Fix most of `block is not applied` issues related to sending too recent block in Proofs
    * LS now check external messages till `accept_message` (`set_gas`).
-3. Improvements in DHT work and storage, CellDb, config.json ammendment, peer misbehavior detection, validator session stats collection, emulator.
+3. Improvements in DHT work and storage, CellDb, config.json amendment, peer misbehavior detection, validator session stats collection, emulator.
 4. Change in CTOS and XLOAD behavior activated through setting `version >= 5` in `ConfigParam 8;`:
    * Loading "nested libraries" (i.e. a library cell that points to another library cell) throws an exception.
    * Loading a library consumes gas for cell load only once (for the library cell), not twice (both for the library cell and the cell in the library).
@@ -114,7 +127,7 @@ Besides the work of the Core team, this update is based on the efforts of @XaBbl
 ## 2023.12 Update
 
 1. Optimized message queue handling, now queue cleaning speed doesn't depend on total queue size
-     * Cleaning delivered messages using lt augmentation instead of random search / consequtive walk
+     * Cleaning delivered messages using lt augmentation instead of random search / consecutive walk
      * Keeping root cell of queue message in memory until outdated (caching)
 2. Changes to block collation/validation limits
 3. Stop accepting new external message if message queue is overloaded
@@ -206,7 +219,7 @@ Besides the work of the core team, this update is based on the efforts of @vtama
 Besides the work of the core team, this update is based on the efforts of @tvorogme (debug improvements), @AlexeyFSL (WASM builds)  and third-party security auditors.
 
 ## 2022.08 Update
-* Blockchain state serialization now works via separate db-handler which simplfies memory clearing after serialization
+* Blockchain state serialization now works via separate db-handler which simplifies memory clearing after serialization
 * CellDB now works asynchronously which substantially increase database access throughput
 * Abseil-cpp and crc32 updated: solve issues with compilation on recent OS distributives
 * Fixed a series of UBs and issues for exotic endianness hosts

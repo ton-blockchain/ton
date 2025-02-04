@@ -44,23 +44,23 @@ typedef int var_idx_t;
 typedef int const_idx_t;
 
 struct TmpVar {
-  TypePtr v_type;
-  var_idx_t idx;
-  const LocalVarData* v_sym;  // points to var defined in code; nullptr for implicitly created tmp vars
-  int coord;
-  SrcLocation where;
-  std::vector<std::function<void(SrcLocation)>> on_modification;
+  var_idx_t ir_idx;   // every var in IR represents 1 stack slot
+  TypePtr v_type;     // calc_width_on_stack() is 1
+  std::string name;   // "x" for vars originated from user sources; "x.0" for tensor components; empty for implicitly created tmp vars
+  SrcLocation loc;    // location of var declaration in sources or where a tmp var was originated
+#ifdef TOLK_DEBUG
+  const char* desc = nullptr; // "origin" of tmp var, for debug output like `'15 (binary-op) '16 (glob-var)`
+#endif
 
-  TmpVar(var_idx_t _idx, TypePtr type, const LocalVarData* v_sym, SrcLocation loc)
-    : v_type(type)
-    , idx(_idx)
-    , v_sym(v_sym)
-    , coord(0)
-    , where(loc) {
+  TmpVar(var_idx_t ir_idx, TypePtr v_type, std::string name, SrcLocation loc)
+    : ir_idx(ir_idx)
+    , v_type(v_type)
+    , name(std::move(name))
+    , loc(loc) {
   }
 
-  void show(std::ostream& os, int omit_idx = 0) const;
-  void dump(std::ostream& os) const;
+  void show_as_stack_comment(std::ostream& os) const;
+  void show(std::ostream& os) const;
 };
 
 struct VarDescr {
@@ -345,8 +345,6 @@ struct Op {
   void show_var_list(std::ostream& os, const std::vector<VarDescr>& list, const std::vector<TmpVar>& vars) const;
   static void show_block(std::ostream& os, const Op* block, const std::vector<TmpVar>& vars, std::string pfx = "",
                          int mode = 0);
-  void split_vars(const std::vector<TmpVar>& vars);
-  static void split_var_list(std::vector<var_idx_t>& var_list, const std::vector<TmpVar>& vars);
   bool compute_used_vars(const CodeBlob& code, bool edit);
   bool std_compute_used_vars(bool disabled = false);
   bool set_var_info(const VarDescrList& new_var_info);
@@ -384,9 +382,6 @@ inline ListIterator<const Op> begin(const Op* op_list) {
 inline ListIterator<const Op> end(const Op* op_list) {
   return ListIterator<const Op>{};
 }
-
-typedef std::tuple<TypePtr, const LocalVarData*, SrcLocation> FormalArg;
-typedef std::vector<FormalArg> FormalArgList;
 
 struct AsmOpList;
 
@@ -609,7 +604,6 @@ struct AsmOpList {
   }
   const_idx_t register_const(Const new_const);
   Const get_const(const_idx_t idx);
-  void show_var(std::ostream& os, var_idx_t idx) const;
   void show_var_ext(std::ostream& os, std::pair<var_idx_t, const_idx_t> idx_pair) const;
   void adjust_last() {
     if (list_.back().is_nop()) {
@@ -1025,13 +1019,10 @@ struct Stack {
   void rearrange_top(var_idx_t top, bool last);
   void merge_const(const Stack& req_stack);
   void merge_state(const Stack& req_stack);
-  void show(int _mode);
-  void show() {
-    show(mode);
-  }
+  void show();
   void opt_show() {
     if ((mode & (_StkCmt | _Shown)) == _StkCmt) {
-      show(mode);
+      show();
     }
   }
   bool operator==(const Stack& y) const & {
@@ -1115,12 +1106,16 @@ struct CodeBlob {
 #endif
     return res;
   }
-  bool import_params(FormalArgList&& arg_list);
-  var_idx_t create_var(TypePtr var_type, const LocalVarData* v_sym, SrcLocation loc);
-  var_idx_t create_tmp_var(TypePtr var_type, SrcLocation loc) {
-    return create_var(var_type, nullptr, loc);
+  std::vector<var_idx_t> create_var(TypePtr var_type, SrcLocation loc, std::string name);
+  std::vector<var_idx_t> create_tmp_var(TypePtr var_type, SrcLocation loc, const char* desc) {
+    std::vector<var_idx_t> ir_idx = create_var(var_type, loc, {});
+#ifdef TOLK_DEBUG
+    for (var_idx_t v : ir_idx) {
+      vars[v].desc = desc;
+    }
+#endif
+    return ir_idx;
   }
-  int split_vars(bool strict = false);
   bool compute_used_code_vars();
   bool compute_used_code_vars(std::unique_ptr<Op>& ops, const VarDescrList& var_info, bool edit) const;
   void print(std::ostream& os, int flags = 0) const;
@@ -1144,14 +1139,6 @@ struct CodeBlob {
   void mark_noreturn();
   void generate_code(AsmOpList& out_list, int mode = 0);
   void generate_code(std::ostream& os, int mode = 0, int indent = 0);
-
-  void on_var_modification(const std::vector<var_idx_t>& left_lval_indices, SrcLocation here) const {
-    for (var_idx_t ir_idx : left_lval_indices) {
-      for (auto& f : vars.at(ir_idx).on_modification) {
-        f(here);
-      }
-    }
-  }
 };
 
 // defined in builtins.cpp

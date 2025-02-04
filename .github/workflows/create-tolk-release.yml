@@ -16,10 +16,19 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
+      - name: Download and unzip Linux arm64 artifacts
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: build-ton-linux-arm64-appimage.yml
+          path: artifacts
+          workflow_conclusion: success
+          branch: master
+          skip_unpack: false
+
       - name: Download and unzip Linux x86-64 artifacts
         uses: dawidd6/action-download-artifact@v6
         with:
-          workflow: ton-x86-64-linux.yml
+          workflow: build-ton-linux-x86-64-appimage.yml
           path: artifacts
           workflow_conclusion: success
           branch: master
@@ -28,7 +37,7 @@ jobs:
       - name: Download and unzip Mac x86-64 artifacts
         uses: dawidd6/action-download-artifact@v6
         with:
-          workflow: ton-x86-64-macos.yml
+          workflow: build-ton-macos-13-x86-64-portable.yml
           path: artifacts
           workflow_conclusion: success
           branch: master
@@ -37,7 +46,7 @@ jobs:
       - name: Download and unzip arm64 artifacts
         uses: dawidd6/action-download-artifact@v6
         with:
-          workflow: ton-arm64-macos.yml
+          workflow: build-ton-macos-14-arm64-portable.yml
           path: artifacts
           workflow_conclusion: success
           branch: master
@@ -91,7 +100,7 @@ jobs:
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-win-binaries/tolk.exe
+          file: artifacts/ton-x86-64-windows/tolk.exe
           asset_name: tolk.exe
           tag: ${{ inputs.tag }}
 
@@ -101,7 +110,7 @@ jobs:
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-x86_64-macos-binaries/tolk
+          file: artifacts/ton-x86_64-macos/tolk
           asset_name: tolk-mac-x86-64
           tag: ${{ inputs.tag }}
 
@@ -111,7 +120,7 @@ jobs:
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-arm64-macos-binaries/tolk
+          file: artifacts/ton-arm64-macos/tolk
           asset_name: tolk-mac-arm64
           tag: ${{ inputs.tag }}
 
@@ -121,14 +130,25 @@ jobs:
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-x86_64-linux-binaries/tolk
+          file: artifacts/ton-x86_64-linux/tolk
           asset_name: tolk-linux-x86_64
+          tag: ${{ inputs.tag }}
+
+      # linux arm64
+
+      - name: Upload Linux arm64 single artifact - tolk
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-arm64-linux/tolk
+          asset_name: tolk-linux-arm64
           tag: ${{ inputs.tag }}
 
       - name: Upload WASM artifacts
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-wasm-binaries.zip
+          file: artifacts/ton-wasm.zip
           asset_name: ton-wasm.zip
           tag: ${{ inputs.tag }}
+

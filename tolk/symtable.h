@@ -59,20 +59,23 @@ struct LocalVarData final : Symbol {
 
   TypePtr declared_type;            // either at declaration `var x:int`, or if omitted, from assigned value `var x=2`
   int flags;
-  int idx;
+  int param_idx;                    // 0...N for function parameters, -1 for local vars
+  std::vector<int> ir_idx;
 
-  LocalVarData(std::string name, SrcLocation loc, TypePtr declared_type, int flags, int idx)
+  LocalVarData(std::string name, SrcLocation loc, TypePtr declared_type, int flags, int param_idx)
     : Symbol(std::move(name), loc)
     , declared_type(declared_type)
     , flags(flags)
-    , idx(idx) {
+    , param_idx(param_idx) {
   }
+
+  bool is_parameter() const { return param_idx >= 0; }
 
   bool is_immutable() const { return flags & flagImmutable; }
   bool is_mutate_parameter() const { return flags & flagMutateParameter; }
 
   LocalVarData* mutate() const { return const_cast<LocalVarData*>(this); }
-  void assign_idx(int idx);
+  void assign_ir_idx(std::vector<int>&& ir_idx);
   void assign_resolved_type(TypePtr declared_type);
   void assign_inferred_type(TypePtr inferred_type);
 };

@@ -1,0 +1,57 @@
+name: Ubuntu TON build (AppImages, arm64)
+
+on: [push,workflow_dispatch,workflow_call]
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04-arm
+
+    steps:
+    - name: Check out repository
+      uses: actions/checkout@v3
+      with:      
+        submodules: 'recursive'
+
+    - name: Install system libraries
+      run: |
+        sudo apt update
+        sudo apt install -y build-essential git cmake ninja-build zlib1g-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev liblz4-dev
+        sudo apt remove libgsl-dev
+
+    - name: Install clang-16
+      run: |
+        wget https://apt.llvm.org/llvm.sh
+        chmod +x llvm.sh
+        sudo ./llvm.sh 16 all
+
+    - name: Build TON
+      run: |
+        git submodule sync --recursive
+        git submodule update
+        cp assembly/native/build-ubuntu-appimages.sh .
+        chmod +x build-ubuntu-appimages.sh
+        ./build-ubuntu-appimages.sh -a
+
+    - name: Make AppImages
+      run: |
+        cp assembly/appimage/create-appimages.sh .
+        cp assembly/appimage/AppRun .
+        cp assembly/appimage/ton.png .
+        chmod +x create-appimages.sh
+        ./create-appimages.sh aarch64
+        rm -rf artifacts
+
+
+    - name: Build TON libs
+      run: |
+        cp assembly/native/build-ubuntu-portable-libs.sh .
+        chmod +x build-ubuntu-portable-libs.sh
+        ./build-ubuntu-portable-libs.sh -a
+        cp ./artifacts/libtonlibjson.so appimages/artifacts/
+        cp ./artifacts/libemulator.so appimages/artifacts/
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@master
+      with:
+        name: ton-arm64-linux
+        path: appimages/artifacts

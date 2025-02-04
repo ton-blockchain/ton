@@ -538,31 +538,6 @@ bool TypeDataVoid::can_be_casted_with_as_operator(TypePtr cast_to) const {
 
 
 // --------------------------------------------
-//    extract_components()
-//
-// used in code generation (transforming Ops to other Ops)
-// to be removed in the future
-//
-
-void TypeDataGenericT::extract_components(std::vector<TypePtr>& comp_types) const {
-  assert(false);
-}
-
-void TypeDataTensor::extract_components(std::vector<TypePtr>& comp_types) const {
-  for (TypePtr item : items) {
-    item->extract_components(comp_types);
-  }
-}
-
-void TypeDataUnresolved::extract_components(std::vector<TypePtr>& comp_types) const {
-  assert(false);
-}
-
-void TypeDataVoid::extract_components(std::vector<TypePtr>& comp_types) const {
-}
-
-
-// --------------------------------------------
 //    parsing type from tokens
 //
 // here we implement parsing types (mostly after colon) to TypeData
@@ -606,40 +581,38 @@ std::vector<TypePtr> parse_nested_type_list_in_parenthesis(Lexer& lex) {
 
 static TypePtr parse_simple_type(Lexer& lex) {
   switch (lex.tok()) {
-    case tok_int:
-      lex.next();
-      return TypeDataInt::create();
-    case tok_bool:
-      lex.next();
-      return TypeDataBool::create();
-    case tok_cell:
-      lex.next();
-      return TypeDataCell::create();
-    case tok_builder:
-      lex.next();
-      return TypeDataBuilder::create();
-    case tok_slice:
-      lex.next();
-      return TypeDataSlice::create();
-    case tok_tuple:
-      lex.next();
-      return TypeDataTuple::create();
-    case tok_continuation:
-      lex.next();
-      return TypeDataContinuation::create();
-    case tok_null:
-      lex.next();
-      return TypeDataNullLiteral::create();
-    case tok_void:
-      lex.next();
-      return TypeDataVoid::create();
     case tok_self:
     case tok_identifier: {
       SrcLocation loc = lex.cur_location();
-      std::string text = static_cast<std::string>(lex.cur_str());
+      std::string_view str = lex.cur_str();
       lex.next();
-      return TypeDataUnresolved::create(std::move(text), loc);
+      switch (str.size()) {
+        case 3:
+          if (str == "int") return TypeDataInt::create();
+          break;
+        case 4:
+          if (str == "cell") return TypeDataCell::create();
+          if (str == "void") return TypeDataVoid::create();
+          if (str == "bool") return TypeDataBool::create();
+          break;
+        case 5:
+          if (str == "slice") return TypeDataSlice::create();
+          if (str == "tuple") return TypeDataTuple::create();
+          break;
+        case 7:
+          if (str == "builder") return TypeDataBuilder::create();
+          break;
+        case 12:
+          if (str == "continuation") return TypeDataContinuation::create();
+          break;
+        default:
+          break;
+      }
+      return TypeDataUnresolved::create(std::string(str), loc);
     }
+    case tok_null:
+      lex.next();
+      return TypeDataNullLiteral::create();
     case tok_oppar: {
       std::vector<TypePtr> items = parse_nested_type_list_in_parenthesis(lex);
       if (items.size() == 1) {
@@ -650,11 +623,6 @@ static TypePtr parse_simple_type(Lexer& lex) {
     case tok_opbracket: {
       std::vector<TypePtr> items = parse_nested_type_list(lex, tok_opbracket, "`[`", tok_clbracket, "`]` or `,`");
       return TypeDataTypedTuple::create(std::move(items));
-    }
-    case tok_fun: {
-      lex.next();
-      std::vector<TypePtr> params_types = parse_nested_type_list_in_parenthesis(lex);
-      lex.expect(tok_arrow, "`->`");
     }
     default:
       lex.unexpected("<type>");
@@ -692,6 +660,12 @@ static TypePtr parse_type_expression(Lexer& lex) {
 }
 
 TypePtr parse_type_from_tokens(Lexer& lex) {
+  return parse_type_expression(lex);
+}
+
+// for internal usage only
+TypePtr parse_type_from_string(std::string_view text) {
+  Lexer lex(text);
   return parse_type_expression(lex);
 }
 

@@ -149,7 +149,10 @@ class PollableFdInfo : private ListNode {
 
  private:
   NativeFd fd_{};
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-pragma"
   std::atomic_flag lock_ = ATOMIC_FLAG_INIT;
+#pragma clang diagnostic pop
   PollFlagsSet flags_;
 #if TD_PORT_WINDOWS
   SpinLock observer_lock_;

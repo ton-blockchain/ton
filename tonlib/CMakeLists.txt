@@ -1,7 +1,5 @@
 cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
 
-option(BUILD_SHARED_LIBS "Use \"OFF\" for a static build." ON)
-
 if (NOT OPENSSL_FOUND)
   find_package(OpenSSL REQUIRED)
 endif()
@@ -92,15 +90,20 @@ set(TONLIB_JSON_HEADERS tonlib/tonlib_client_json.h)
 set(TONLIB_JSON_SOURCE tonlib/tonlib_client_json.cpp)
 
 include(GenerateExportHeader)
-if (NOT USE_EMSCRIPTEN AND BUILD_SHARED_LIBS)
-  add_library(tonlibjson SHARED ${TONLIB_JSON_SOURCE} ${TONLIB_JSON_HEADERS})
+if (USE_EMSCRIPTEN)
+  add_library(tonlibjson STATIC ${TONLIB_JSON_SOURCE})
 else()
-  add_library(tonlibjson STATIC ${TONLIB_JSON_SOURCE} ${TONLIB_JSON_HEADERS})
+  add_library(tonlibjson SHARED ${TONLIB_JSON_SOURCE})
 endif()
 
-target_link_libraries(tonlibjson PRIVATE tonlibjson_private)
+if (PORTABLE AND NOT APPLE)
+  target_link_libraries(tonlibjson PRIVATE tonlibjson_private -static-libgcc -static-libstdc++)
+else()
+  target_link_libraries(tonlibjson PRIVATE tonlibjson_private)
+endif()
+
 generate_export_header(tonlibjson EXPORT_FILE_NAME ${CMAKE_CURRENT_BINARY_DIR}/tonlib/tonlibjson_export.h)
-if (!BUILD_SHARED_LIBS)
+if (USE_EMSCRIPTEN)
   target_compile_definitions(tonlibjson PUBLIC TONLIBJSON_STATIC_DEFINE)
 endif()
 target_include_directories(tonlibjson PUBLIC
@@ -154,7 +157,7 @@ endif()
 
 install(FILES ${TONLIB_JSON_HEADERS} ${CMAKE_CURRENT_BINARY_DIR}/tonlib/tonlibjson_export.h DESTINATION include/tonlib/)
 
-if (NOT USE_EMSCRIPTEN AND BUILD_SHARED_LIBS)
+if (NOT USE_EMSCRIPTEN)
   install(EXPORT Tonlib
     FILE TonlibTargets.cmake
     NAMESPACE Tonlib::

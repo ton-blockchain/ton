@@ -127,10 +127,10 @@ fun testBoolCompareOptimized(x: bool) {
 """
   boolWithBitwiseConst PROC:<{
     //
-    0 PUSHINT	//  _3
-    -1 PUSHINT	//  _3 _5
-    0 PUSHINT	//  _3 _5 _7
-    -1 PUSHINT	//  _3 _5 _7 _8
+    0 PUSHINT	//  '3
+    -1 PUSHINT	//  '3 '5
+    0 PUSHINT	//  '3 '5 '7
+    -1 PUSHINT	//  '3 '5 '7 '8
   }>
 """
 
@@ -142,22 +142,22 @@ fun testBoolCompareOptimized(x: bool) {
     UNTIL:<{
       INC	//  i n cnt
       s2 PUSH	//  i n cnt i
-      NOT	//  i n cnt _6
+      NOT	//  i n cnt '6
     }>	//  i n cnt
     UNTIL:<{
       INC	//  i n cnt
       s2 PUSH	//  i n cnt i
-      NOT	//  i n cnt _9
+      NOT	//  i n cnt '9
     }>	//  i n cnt
     UNTIL:<{
       INC	//  i n cnt
       OVER	//  i n cnt n
-      0 EQINT	//  i n cnt _12
+      0 EQINT	//  i n cnt '12
     }>	//  i n cnt
     s0 s2 XCHG	//  cnt n i
-    NOT	//  cnt n _13
-    SWAP	//  cnt _13 n
-    0 EQINT	//  cnt _13 _14
+    NOT	//  cnt n '13
+    SWAP	//  cnt '13 n
+    0 EQINT	//  cnt '13 '14
   }>
 """
 
@@ -165,12 +165,12 @@ fun testBoolCompareOptimized(x: bool) {
 """
   testConstNegateCodegen PROC:<{
     //
-    TRUE	//  _0
-    FALSE	//  _0 _1
-    FALSE	//  _0 _1 _2
-    TRUE	//  _0 _1 _2 _3
-    TRUE	//  _0 _1 _2 _3 _4
-    FALSE	//  _0 _1 _2 _3 _4 _5
+    TRUE	//  '0
+    FALSE	//  '0 '1
+    FALSE	//  '0 '1 '2
+    TRUE	//  '0 '1 '2 '3
+    TRUE	//  '0 '1 '2 '3 '4
+    FALSE	//  '0 '1 '2 '3 '4 '5
   }>
 """
 
@@ -179,11 +179,11 @@ fun testBoolCompareOptimized(x: bool) {
   testBoolNegateOptimized PROC:<{
     //  x
     DUP	//  x x
-    NOT	//  x _1
-    OVER	//  x _1 x
-    NOT	//  x _1 _2
+    NOT	//  x '1
+    OVER	//  x '1 x
+    NOT	//  x '1 '2
     s2 s(-1) PUXC
-    TRUE	//  x _1 x _2 _3
+    TRUE	//  x '1 x '2 '3
   }>
 """
 
@@ -192,13 +192,13 @@ fun testBoolCompareOptimized(x: bool) {
   testBoolCompareOptimized PROC:<{
     //  x
     DUP	//  x x
-    NOT	//  x _1
-    OVER	//  x _1 x
-    eqX CALLDICT	//  x _1 _2
-    NOT	//  x _1 _3
-    s2 PUSH	//  x _1 _3 x
-    eqX CALLDICT	//  x _1 _3 _4
-    s3 PUSH	//  x _1 _3 _4 x
+    NOT	//  x '1
+    OVER	//  x '1 x
+    eqX CALLDICT	//  x '1 '2
+    NOT	//  x '1 '3
+    s2 PUSH	//  x '1 '3 x
+    eqX CALLDICT	//  x '1 '3 '4
+    s3 PUSH	//  x '1 '3 '4 x
   }>
 """
 */

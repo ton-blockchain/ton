@@ -331,7 +331,6 @@ struct ChunkIdentifierOrKeyword final : ChunkLexerBase {
         if (str == "as") return tok_as;
         break;
       case 3:
-        if (str == "int") return tok_int;
         if (str == "var") return tok_var;
         if (str == "fun") return tok_fun;
         if (str == "asm") return tok_asm;
@@ -342,18 +341,13 @@ struct ChunkIdentifierOrKeyword final : ChunkLexerBase {
       case 4:
         if (str == "else") return tok_else;
         if (str == "true") return tok_true;
-        if (str == "cell") return tok_cell;
         if (str == "null") return tok_null;
-        if (str == "void") return tok_void;
-        if (str == "bool") return tok_bool;
         if (str == "self") return tok_self;
         if (str == "tolk") return tok_tolk;
         if (str == "type") return tok_type;
         if (str == "enum") return tok_enum;
         break;
       case 5:
-        if (str == "slice") return tok_slice;
-        if (str == "tuple") return tok_tuple;
         if (str == "const") return tok_const;
         if (str == "false") return tok_false;
         if (str == "redef") return tok_redef;
@@ -374,15 +368,11 @@ struct ChunkIdentifierOrKeyword final : ChunkLexerBase {
         if (str == "export") return tok_export;
         break;
       case 7:
-        if (str == "builder") return tok_builder;
         if (str == "builtin") return tok_builtin;
         break;
       case 8:
         if (str == "continue") return tok_continue;
         if (str == "operator") return tok_operator;
-        break;
-      case 12:
-        if (str == "continuation") return tok_continuation;
         break;
       default:
         break;
@@ -555,6 +545,15 @@ Lexer::Lexer(const SrcFile* file)
   next();
 }
 
+Lexer::Lexer(std::string_view text)
+  : file(nullptr)
+  , p_start(text.data())
+  , p_end(p_start + text.size())
+  , p_next(p_start)
+  , location() {
+  next();
+}
+
 void Lexer::next() {
   while (cur_token_idx == last_token_idx && !is_eof()) {
     update_location();
@@ -563,7 +562,7 @@ void Lexer::next() {
     }
   }
   if (is_eof()) {
-    add_token(tok_eof, file->text);
+    add_token(tok_eof, "");
   }
   cur_token = tokens_circularbuf[++cur_token_idx & 7];
 }

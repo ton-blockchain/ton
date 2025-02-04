@@ -47,9 +47,9 @@ Main TON monorepo, which includes the code of the node/validator, lite-client, t
 __The Open Network (TON)__ is a fast, secure, scalable blockchain focused on handling _millions of transactions per second_ (TPS) with the goal of reaching hundreds of millions of blockchain users.
 - To learn more about different aspects of TON blockchain and its underlying ecosystem check [documentation](https://ton.org/docs)
 - To run node, validator or lite-server check [Participate section](https://ton.org/docs/participate/nodes/run-node)
-- To develop decentralised apps check [Tutorials](https://ton.org/docs/develop/smart-contracts/), [FunC docs](https://ton.org/docs/develop/func/overview) and [DApp tutorials](https://ton.org/docs/develop/dapps/)
+- To develop decentralised apps check [Tutorials](https://docs.ton.org/v3/guidelines/smart-contracts/guidelines), [FunC docs](https://ton.org/docs/develop/func/overview) and [DApp tutorials](https://docs.ton.org/v3/guidelines/dapps/overview)
 - To work on TON check [wallets](https://ton.app/wallets), [explorers](https://ton.app/explorers), [DEXes](https://ton.app/dex) and [utilities](https://ton.app/utilities)
-- To interact with TON check [APIs](https://ton.org/docs/develop/dapps/apis/)
+- To interact with TON check [APIs](https://docs.ton.org/v3/guidelines/dapps/apis-sdks/overview)
 
 ## Updates flow
 
@@ -71,7 +71,7 @@ Usually, the response to your pull request will indicate which section it falls 
 
 ## Build TON blockchain
 
-### Ubuntu 20.4, 22.04 (x86-64, aarch64)
+### Ubuntu 20.4, 22.04, 24.04 (x86-64, aarch64)
 Install additional system libraries
 ```bash
   sudo apt-get update
@@ -141,18 +141,10 @@ Compile TON tonlib library
   ./build-android-tonlib.sh
 ```
 
-### Build TON portable binaries with Nix package manager
-You need to install Nix first.
-```bash
-   sh <(curl -L https://nixos.org/nix/install) --daemon
-```
-Then compile TON with Nix by executing below command from the root folder: 
-```bash
-  cp -r assembly/nix/* .
-  export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.05.tar.gz
-  nix-build linux-x86-64-static.nix
-```
-More examples for other platforms can be found under `assembly/nix`.  
+### TON portable binaries
+
+Linux portable binaries are wrapped into AppImages, at the same time MacOS portable binaries are statically linked executables.
+Linux and MacOS binaries are available for both x86-64 and arm64 architectures. 
 
 ## Running tests
 

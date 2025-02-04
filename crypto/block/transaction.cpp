@@ -1145,31 +1145,66 @@ td::RefInt256 ComputePhaseConfig::compute_gas_price(td::uint64 gas_used) const {
 namespace transaction {
 
 /**
- * Checks if it is required to increase gas_limit (from GasLimitsPrices config) to special_gas_limit * 2
- * from masterchain GasLimitsPrices config for the transaction.
+ * Checks if it is required to increase gas_limit (from GasLimitsPrices config) for the transaction
  *
  * In January 2024 a highload wallet of @wallet Telegram bot in mainnet was stuck because current gas limit (1M) is
  * not enough to clean up old queires, thus locking funds inside.
  * See comment in crypto/smartcont/highload-wallet-v2-code.fc for details on why this happened.
  * Account address: EQD_v9j1rlsuHHw2FIhcsCFFSD367ldfDdCKcsNmNpIRzUlu
- * It was proposed to validators to increase gas limit for this account for a limited amount of time (until 2024-02-29).
+ * It was proposed to validators to increase gas limit for this account to 70M for a limited amount
+ * of time (until 2024-02-29).
  * It is activated by setting global version to 5 in ConfigParam 8.
  * This config change also activates new behavior for special accounts in masterchain.
+ *
+ * In August 2024 it was decided to unlock other old highload wallets that got into the same situation.
+ * See https://t.me/tondev_news/129
+ * It is activated by setting global version to 9.
  *
  * @param cfg The compute phase configuration.
  * @param now The Unix time of the transaction.
  * @param account The account of the transaction.
  *
- * @returns True if gas_limit override is required, false otherwise
+ * @returns Overridden gas limit or empty td::optional
  */
-static bool override_gas_limit(const ComputePhaseConfig& cfg, ton::UnixTime now, const Account& account) {
-  if (!cfg.special_gas_full) {
-    return false;
+static td::optional<td::uint64> override_gas_limit(const ComputePhaseConfig& cfg, ton::UnixTime now,
+                                                   const Account& account) {
+  struct OverridenGasLimit {
+    td::uint64 new_limit;
+    int from_version;
+    ton::UnixTime until;
+  };
+  static std::map<std::pair<ton::WorkchainId, ton::StdSmcAddress>, OverridenGasLimit> accounts = []() {
+    auto parse_addr = [](const char* s) -> std::pair<ton::WorkchainId, ton::StdSmcAddress> {
+      auto r_addr = StdAddress::parse(td::Slice(s));
+      r_addr.ensure();
+      return {r_addr.ok().workchain, r_addr.ok().addr};
+    };
+    std::map<std::pair<ton::WorkchainId, ton::StdSmcAddress>, OverridenGasLimit> accounts;
+
+    // Increase limit for EQD_v9j1rlsuHHw2FIhcsCFFSD367ldfDdCKcsNmNpIRzUlu until 2024-02-29 00:00:00 UTC
+    accounts[parse_addr("0:FFBFD8F5AE5B2E1C7C3614885CB02145483DFAEE575F0DD08A72C366369211CD")] = {
+        .new_limit = 70'000'000, .from_version = 5, .until = 1709164800};
+
+    // Increase limit for multiple accounts (https://t.me/tondev_news/129) until 2025-03-01 00:00:00 UTC
+    accounts[parse_addr("UQBeSl-dumOHieZ3DJkNKVkjeso7wZ0VpzR4LCbLGTQ8xr57")] = {
+        .new_limit = 70'000'000, .from_version = 9, .until = 1740787200};
+    accounts[parse_addr("EQC3VcQ-43klww9UfimR58TBjBzk7GPupXQ3CNuthoNp-uTR")] = {
+        .new_limit = 70'000'000, .from_version = 9, .until = 1740787200};
+    accounts[parse_addr("EQBhwBb8jvokGvfreHRRoeVxI237PrOJgyrsAhLA-4rBC_H5")] = {
+        .new_limit = 70'000'000, .from_version = 9, .until = 1740787200};
+    accounts[parse_addr("EQCkoRp4OE-SFUoMEnYfL3vF43T3AzNfW8jyTC4yzk8cJqMS")] = {
+        .new_limit = 70'000'000, .from_version = 9, .until = 1740787200};
+    accounts[parse_addr("UQBN5ICras79U8FYEm71ws34n-ZNIQ0LRNpckOUsIV3OebnC")] = {
+        .new_limit = 70'000'000, .from_version = 9, .until = 1740787200};
+    accounts[parse_addr("EQBDanbCeUqI4_v-xrnAN0_I2wRvEIaLg1Qg2ZN5c6Zl1KOh")] = {
+        .new_limit = 225'000'000, .from_version = 9, .until = 1740787200};
+    return accounts;
+  }();
+  auto it = accounts.find({account.workchain, account.addr});
+  if (it == accounts.end() || cfg.global_version < it->second.from_version || now >= it->second.until) {
+    return {};
   }
-  ton::UnixTime until = 1709164800;  // 2024-02-29 00:00:00 UTC
-  ton::WorkchainId wc = 0;
-  const char* addr_hex = "FFBFD8F5AE5B2E1C7C3614885CB02145483DFAEE575F0DD08A72C366369211CD";
-  return now < until && account.workchain == wc && account.addr.to_hex() == addr_hex;
+  return it->second.new_limit;
 }
 
 /**
@@ -1183,10 +1218,12 @@ static bool override_gas_limit(const ComputePhaseConfig& cfg, ton::UnixTime now,
  * @returns The amount of gas.
  */
 td::uint64 Transaction::gas_bought_for(const ComputePhaseConfig& cfg, td::RefInt256 nanograms) {
-  if (override_gas_limit(cfg, now, account)) {
+  if (auto new_limit = override_gas_limit(cfg, now, account)) {
     gas_limit_overridden = true;
     // Same as ComputePhaseConfig::gas_bought for, but with other gas_limit and max_gas_threshold
-    auto gas_limit = cfg.mc_gas_prices.special_gas_limit * 2;
+    auto gas_limit = new_limit.value();
+    LOG(INFO) << "overridding gas limit for account " << account.workchain << ":" << account.addr.to_hex() << " to "
+              << gas_limit;
     auto max_gas_threshold =
         compute_max_gas_threshold(cfg.gas_price256, gas_limit, cfg.flat_gas_limit, cfg.flat_gas_price);
     if (nanograms.is_null() || sgn(nanograms) < 0) {
@@ -1336,7 +1373,8 @@ Ref<vm::Tuple> Transaction::prepare_vm_c7(const ComputePhaseConfig& cfg) const {
     // See crypto/block/mc-config.cpp#2223 (get_prev_blocks_info)
     // [ wc:Integer shard:Integer seqno:Integer root_hash:Integer file_hash:Integer] = BlockId;
     // [ last_mc_blocks:[BlockId...]
-    //   prev_key_block:BlockId ] : PrevBlocksInfo
+    //   prev_key_block:BlockId
+    //   last_mc_blocks_100:[BlockId...] ] : PrevBlocksInfo
     // The only context where PrevBlocksInfo (13 parameter of c7) is null is inside emulator
     // where it need to be set via transaction_emulator_set_prev_blocks_info (see emulator/emulator-extern.cpp)
     // Inside validator, collator and liteserver checking external message  contexts
@@ -1691,9 +1729,8 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
       }
     }
   }
-  vm::VmState vm{new_code, std::move(stack), gas, 1, new_data, vm_log, compute_vm_libraries(cfg)};
+  vm::VmState vm{new_code, cfg.global_version, std::move(stack), gas, 1, new_data, vm_log, compute_vm_libraries(cfg)};
   vm.set_max_data_depth(cfg.max_vm_data_depth);
-  vm.set_global_version(cfg.global_version);
   vm.set_c7(prepare_vm_c7(cfg));  // tuple with SmartContractInfo
   vm.set_chksig_always_succeed(cfg.ignore_chksig);
   vm.set_stop_on_accept_message(cfg.stop_on_accept_message);
@@ -2760,22 +2797,25 @@ int Transaction::try_action_reserve_currency(vm::CellSlice& cs, ActionPhase& ap,
     LOG(DEBUG) << "cannot reserve a negative amount: " << reserve.to_str();
     return -1;
   }
-  if (reserve.grams > ap.remaining_balance.grams) {
-    if (mode & 2) {
-      reserve.grams = ap.remaining_balance.grams;
+  if (mode & 2) {
+    if (cfg.reserve_extra_enabled) {
+      if (!reserve.clamp(ap.remaining_balance)) {
+        LOG(DEBUG) << "failed to clamp reserve amount" << mode;
+        return -1;
+      }
     } else {
-      LOG(DEBUG) << "cannot reserve " << reserve.grams << " nanograms : only " << ap.remaining_balance.grams
-                 << " available";
-      return 37;  // not enough grams
+      reserve.grams = std::min(reserve.grams, ap.remaining_balance.grams);
     }
+  }
+  if (reserve.grams > ap.remaining_balance.grams) {
+    LOG(DEBUG) << "cannot reserve " << reserve.grams << " nanograms : only " << ap.remaining_balance.grams
+               << " available";
+    return 37;  // not enough grams
   }
   if (!block::sub_extra_currency(ap.remaining_balance.extra, reserve.extra, newc.extra)) {
     LOG(DEBUG) << "not enough extra currency to reserve: " << block::CurrencyCollection{0, reserve.extra}.to_str()
                << " required, only " << block::CurrencyCollection{0, ap.remaining_balance.extra}.to_str()
                << " available";
-    if (mode & 2) {
-      // TODO: process (mode & 2) correctly by setting res_extra := inf (reserve.extra, ap.remaining_balance.extra)
-    }
     return 38;  // not enough (extra) funds
   }
   newc.grams = ap.remaining_balance.grams - reserve.grams;
@@ -3778,6 +3818,7 @@ td::Status FetchConfigParams::fetch_config_params(
     action_phase_cfg->bounce_on_fail_enabled = config.get_global_version() >= 4;
     action_phase_cfg->message_skip_enabled = config.get_global_version() >= 8;
     action_phase_cfg->disable_custom_fess = config.get_global_version() >= 8;
+    action_phase_cfg->reserve_extra_enabled = config.get_global_version() >= 9;
     action_phase_cfg->mc_blackhole_addr = config.get_burning_config().blackhole_addr;
   }
   {

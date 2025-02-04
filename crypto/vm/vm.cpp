@@ -22,6 +22,8 @@
 #include "vm/log.h"
 #include "vm/vm.h"
 #include "cp0.h"
+#include "memo.h"
+
 #include <sodium.h>
 
 namespace vm {
@@ -31,33 +33,8 @@ VmState::VmState() : cp(-1), dispatch(&dummy_dispatch_table), quit0(true, 0), qu
   init_cregs();
 }
 
-VmState::VmState(Ref<CellSlice> _code)
-    : code(std::move(_code)), cp(-1), dispatch(&dummy_dispatch_table), quit0(true, 0), quit1(true, 1) {
-  ensure_throw(init_cp(0));
-  init_cregs();
-}
-
-VmState::VmState(Ref<CellSlice> _code, Ref<Stack> _stack, int flags, Ref<Cell> _data, VmLog log,
-                 std::vector<Ref<Cell>> _libraries, Ref<Tuple> init_c7)
-    : code(std::move(_code))
-    , stack(std::move(_stack))
-    , cp(-1)
-    , dispatch(&dummy_dispatch_table)
-    , quit0(true, 0)
-    , quit1(true, 1)
-    , log(log)
-    , libraries(std::move(_libraries))
-    , stack_trace((flags >> 2) & 1) {
-  ensure_throw(init_cp(0));
-  set_c4(std::move(_data));
-  if (init_c7.not_null()) {
-    set_c7(std::move(init_c7));
-  }
-  init_cregs(flags & 1, flags & 2);
-}
-
-VmState::VmState(Ref<CellSlice> _code, Ref<Stack> _stack, const GasLimits& gas, int flags, Ref<Cell> _data, VmLog log,
-                 std::vector<Ref<Cell>> _libraries, Ref<Tuple> init_c7)
+VmState::VmState(Ref<CellSlice> _code, int global_version, Ref<Stack> _stack, const GasLimits& gas, int flags,
+                 Ref<Cell> _data, VmLog log, std::vector<Ref<Cell>> _libraries, Ref<Tuple> init_c7)
     : code(std::move(_code))
     , stack(std::move(_stack))
     , cp(-1)
@@ -67,7 +44,8 @@ VmState::VmState(Ref<CellSlice> _code, Ref<Stack> _stack, const GasLimits& gas, 
     , log(log)
     , gas(gas)
     , libraries(std::move(_libraries))
-    , stack_trace((flags >> 2) & 1) {
+    , stack_trace((flags >> 2) & 1)
+    , global_version(global_version) {
   ensure_throw(init_cp(0));
   set_c4(std::move(_data));
   if (init_c7.not_null()) {
@@ -102,12 +80,24 @@ void VmState::init_cregs(bool same_c3, bool push_0) {
   }
 }
 
-Ref<CellSlice> VmState::convert_code_cell(Ref<Cell> code_cell) {
+Ref<CellSlice> VmState::convert_code_cell(Ref<Cell> code_cell, int global_version,
+                                          const std::vector<Ref<Cell>>& libraries) {
   if (code_cell.is_null()) {
     return {};
   }
-  Ref<CellSlice> csr{true, NoVmOrd(), code_cell};
-  if (csr->is_valid()) {
+  Ref<CellSlice> csr;
+  if (global_version >= 9) {
+    // Use DummyVmState instead of this to avoid consuming gas for cell loading
+    DummyVmState dummy{libraries, global_version};
+    Guard guard(&dummy);
+    try {
+      csr = load_cell_slice_ref(code_cell);
+    } catch (VmError&) {  // NOLINT(*-empty-catch)
+    }
+  } else {
+    csr = td::Ref<CellSlice>{true, NoVmOrd(), code_cell};
+  }
+  if (csr.not_null() && csr->is_valid()) {
     return csr;
   }
   return load_cell_slice_ref(CellBuilder{}.store_ref(std::move(code_cell)).finalize());
@@ -257,6 +247,11 @@ int VmState::jump(Ref<Continuation> cont) {
 
 // general jump to continuation cont
 int VmState::jump(Ref<Continuation> cont, int pass_args) {
+  cont = adjust_jump_cont(std::move(cont), pass_args);
+  return jump_to(std::move(cont));
+}
+
+Ref<Continuation> VmState::adjust_jump_cont(Ref<Continuation> cont, int pass_args) {
   const ControlData* cont_data = cont->get_cdata();
   if (cont_data) {
     // first do the checks
@@ -297,7 +292,7 @@ int VmState::jump(Ref<Continuation> cont, int pass_args) {
         consume_stack_gas(copy);
       }
     }
-    return jump_to(std::move(cont));
+    return cont;
   } else {
     // have no continuation data, situation is somewhat simpler
     if (pass_args >= 0) {
@@ -309,7 +304,7 @@ int VmState::jump(Ref<Continuation> cont, int pass_args) {
         consume_stack_gas(pass_args);
       }
     }
-    return jump_to(std::move(cont));
+    return cont;
   }
 }
 
@@ -577,6 +572,7 @@ int run_vm_code(Ref<CellSlice> code, Ref<Stack>& stack, int flags, Ref<Cell>* da
                 GasLimits* gas_limits, std::vector<Ref<Cell>> libraries, Ref<Tuple> init_c7, Ref<Cell>* actions_ptr,
                 int global_version) {
   VmState vm{code,
+             global_version,
              std::move(stack),
              gas_limits ? *gas_limits : GasLimits{},
              flags,
@@ -584,7 +580,6 @@ int run_vm_code(Ref<CellSlice> code, Ref<Stack>& stack, int flags, Ref<Cell>* da
              log,
              std::move(libraries),
              std::move(init_c7)};
-  vm.set_global_version(global_version);
   int res = vm.run();
   stack = vm.get_stack_ref();
   if (vm.committed() && data_ptr) {
