@@ -2338,6 +2338,8 @@ td::Result<Ref<vm::Tuple>> ConfigInfo::get_prev_blocks_info() const {
       seqno -= 100;
     }
     tuple.push_back(td::make_cnt_ref<std::vector<vm::StackEntry>>(std::move(last_mc_blocks_100)));
+  } else if (get_global_version() == -1) {
+    return td::Status::Error("config version not set (needCapabilities)");
   }
 
   return td::make_cnt_ref<std::vector<vm::StackEntry>>(std::move(tuple));
