@@ -1905,6 +1905,9 @@ void LiteQuery::continue_getConfigParams(int mode, std::vector<int> param_list) 
     }
     cfg = res.move_as_ok();
   } else {
+    if (mode & block::ConfigInfo::needPrevBlocks) {
+      mode |= block::ConfigInfo::needCapabilities;
+    }
     auto res = block::ConfigInfo::extract_config(mpb.root(), mode);
     if (res.is_error()) {
       fatal_error(res.move_as_error());
