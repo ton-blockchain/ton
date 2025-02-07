@@ -1026,13 +1026,19 @@ void interpret_store_end(vm::Stack& stack, bool special) {
   stack.push_cell(std::move(cell));
 }
 
-void interpret_from_cell(vm::Stack& stack) {
+void interpret_from_cell(vm::Stack& stack, bool load_special) {
   auto cell = stack.pop_cell();
-  Ref<vm::CellSlice> cs{true, vm::NoVmOrd(), std::move(cell)};
-  if (!cs->is_valid()) {
-    throw IntError{"deserializing a special cell as ordinary"};
+  bool is_special;
+  td::Ref<vm::CellSlice> cs = td::make_ref<vm::CellSlice>(vm::load_cell_slice_special(cell, is_special));
+  if (!load_special) {
+    if (is_special) {
+      throw IntError{"deserializing a special cell as ordinary"};
+    }
+    stack.push(cs);
+  } else {
+    stack.push(cs);
+    stack.push_bool(is_special);
   }
-  stack.push(cs);
 }
 
 // cs n -- cs' x
@@ -3191,7 +3197,8 @@ void init_words_common(Dictionary& d) {
   d.def_stack_word("hashu ", std::bind(interpret_cell_hash, _1, true));
   d.def_stack_word("hashB ", std::bind(interpret_cell_hash, _1, false));
   // cellslice manipulation (read from cells)
-  d.def_stack_word("<s ", interpret_from_cell);
+  d.def_stack_word("<s ", std::bind(interpret_from_cell, _1, false));
+  d.def_stack_word("<spec ", std::bind(interpret_from_cell, _1, true));
   d.def_stack_word("i@ ", std::bind(interpret_fetch, _1, 1));
   d.def_stack_word("u@ ", std::bind(interpret_fetch, _1, 0));
   d.def_stack_word("i@+ ", std::bind(interpret_fetch, _1, 3));
