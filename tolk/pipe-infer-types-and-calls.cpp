@@ -133,8 +133,8 @@ static void fire_error_cannot_deduce_untyped_tuple_access(SrcLocation loc, int i
 
 // fire an error on `untypedTupleVar.0` when inferred as (int,int), or `[int, (int,int)]`, or other non-1 width in a tuple
 GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-static void fire_error_cannot_put_non1_stack_width_arg_to_tuple(SrcLocation loc, TypePtr inferred_type) {
-  throw ParseError(loc, "can not put " + to_string(inferred_type) + " into a tuple, because it occupies " + std::to_string(inferred_type->calc_width_on_stack()) + " stack slots in TVM, not 1");
+static void fire_error_tuple_cannot_have_non1_stack_width_elem(SrcLocation loc, TypePtr inferred_type) {
+  throw ParseError(loc, "a tuple can not have " + to_string(inferred_type) + " inside, because it occupies " + std::to_string(inferred_type->calc_width_on_stack()) + " stack slots in TVM, not 1");
 }
 
 // check correctness of called arguments counts and their type matching
@@ -351,6 +351,8 @@ class InferCheckTypesAndCallsAndFieldsVisitor final {
         return infer_bool_const(v->as<ast_bool_const>());
       case ast_local_vars_declaration:
         return infer_local_vars_declaration(v->as<ast_local_vars_declaration>());
+      case ast_local_var_lhs:
+        return infer_local_var_lhs(v->as<ast_local_var_lhs>());
       case ast_assign:
         return infer_assignment(v->as<ast_assign>());
       case ast_set_assign:
@@ -410,133 +412,71 @@ class InferCheckTypesAndCallsAndFieldsVisitor final {
     assign_inferred_type(v, TypeDataBool::create());
   }
 
-  static void infer_local_vars_declaration(V<ast_local_vars_declaration>) {
-    // it can not appear as a standalone expression
-    // `var ... = rhs` is handled by ast_assign
-    tolk_assert(false);
+  void infer_local_vars_declaration(V<ast_local_vars_declaration> v) {
+    infer_any_expr(v->get_expr());
+    assign_inferred_type(v, v->get_expr());
+  }
+
+  static void infer_local_var_lhs(V<ast_local_var_lhs> v) {
+    // `var v = rhs`, inferring is called for `v`
+    // at the moment of inferring left side of assignment, we don't know type of rhs (since lhs is executed first)
+    // so, mark `v` as unknown
+    // later, v's inferred_type will be reassigned; see process_assignment_lhs_after_infer_rhs()
+    if (v->marked_as_redef) {
+      assign_inferred_type(v, v->var_ref->declared_type);
+    } else {
+      assign_inferred_type(v, v->declared_type ? v->declared_type : TypeDataUnknown::create());
+    }
   }
 
   void infer_assignment(V<ast_assign> v) {
     // v is assignment: `x = 5` / `var x = 5` / `var x: slice = 5` / `(cs,_) = f()` / `val (a,[b],_) = (a,t,0)`
-    // it's a tricky node to handle, because to infer rhs, at first we need to create hint from lhs
-    // and then to apply/check inferred rhs onto lhs
-    // about a hint: `var i: int = t.tupleAt(0)` is ok, but `var i = t.tupleAt(0)` not, since `tupleAt<T>(t,i): T`
+    // execution flow is: lhs first, rhs second (at IR generation, also lhs is evaluated first, unlike FunC)
+    // after inferring lhs, use it for hint when inferring rhs
+    // example: `var i: int = t.tupleAt(0)` is ok (hint=int, T=int), but `var i = t.tupleAt(0)` not, since `tupleAt<T>(t,i): T`
     AnyExprV lhs = v->get_lhs();
     AnyExprV rhs = v->get_rhs();
-    infer_any_expr(rhs, calc_hint_from_assignment_lhs(lhs));
+    infer_any_expr(lhs);
+    infer_any_expr(rhs, lhs->inferred_type);
     process_assignment_lhs_after_infer_rhs(lhs, rhs->inferred_type, rhs);
-    assign_inferred_type(v, lhs);
-  }
-
-  // having assignment like `var (i: int, s) = rhs` (its lhs is local vars declaration),
-  // create a contextual infer hint for rhs, `(int, unknown)` in this case
-  // this hint helps to deduce generics and to resolve unknown types while inferring rhs
-  static TypePtr calc_hint_from_assignment_lhs(AnyExprV lhs) {
-    // `var ... = rhs` - dig into left part
-    if (auto lhs_decl = lhs->try_as<ast_local_vars_declaration>()) {
-      return calc_hint_from_assignment_lhs(lhs_decl->get_expr());
-    }
-
-    // inside `var v: int = rhs` / `var _ = rhs` / `var v redef = rhs` (lhs is "v" / "_" / "v")
-    if (auto lhs_var = lhs->try_as<ast_local_var_lhs>()) {
-      if (lhs_var->marked_as_redef) {
-        return lhs_var->var_ref->declared_type;
-      }
-      if (lhs_var->declared_type) {
-        return lhs_var->declared_type;
-      }
-      return TypeDataUnknown::create();
-    }
-
-    // `v = rhs` / `(c1, c2) = rhs` (lhs is "v" / "_" / "c1" / "c2" after recursion)
-    if (auto lhs_ref = lhs->try_as<ast_reference>()) {
-      if (const auto* var_ref = lhs_ref->sym->try_as<LocalVarData>()) {
-        return var_ref->declared_type;
-      }
-      if (const auto* glob_ref = lhs_ref->sym->try_as<GlobalVarData>()) {
-        return glob_ref->declared_type;
-      }
-      return TypeDataUnknown::create();
-    }
-
-    // `(v1, v2) = rhs` / `var (v1, v2) = rhs`
-    if (auto lhs_tensor = lhs->try_as<ast_tensor>()) {
-      std::vector<TypePtr> sub_hints;
-      sub_hints.reserve(lhs_tensor->size());
-      for (AnyExprV item : lhs_tensor->get_items()) {
-        sub_hints.push_back(calc_hint_from_assignment_lhs(item));
-      }
-      return TypeDataTensor::create(std::move(sub_hints));
-    }
-
-    // `[v1, v2] = rhs` / `var [v1, v2] = rhs`
-    if (auto lhs_tuple = lhs->try_as<ast_typed_tuple>()) {
-      std::vector<TypePtr> sub_hints;
-      sub_hints.reserve(lhs_tuple->size());
-      for (AnyExprV item : lhs_tuple->get_items()) {
-        sub_hints.push_back(calc_hint_from_assignment_lhs(item));
-      }
-      return TypeDataTypedTuple::create(std::move(sub_hints));
-    }
-
-    // `a.0 = rhs` / `b.1.0 = rhs` (remember, its target is not assigned yet)
-    if (auto lhs_dot = lhs->try_as<ast_dot_access>()) {
-      TypePtr obj_hint = calc_hint_from_assignment_lhs(lhs_dot->get_obj());
-      std::string_view field_name = lhs_dot->get_field_name();
-      if (field_name[0] >= '0' && field_name[0] <= '9') {
-        int index_at = std::stoi(std::string(field_name));
-        if (const auto* t_tensor = obj_hint->try_as<TypeDataTensor>(); t_tensor && index_at < t_tensor->size()) {
-          return t_tensor->items[index_at];
-        }
-        if (const auto* t_tuple = obj_hint->try_as<TypeDataTypedTuple>(); t_tuple && index_at < t_tuple->size()) {
-          return t_tuple->items[index_at];
-        }
-      }
-      return TypeDataUnknown::create();
-    }
-
-    return TypeDataUnknown::create();
+    assign_inferred_type(v, rhs);     // note, that the resulting type is rhs, not lhs
   }
 
   // handle (and dig recursively) into `var lhs = rhs`
+  // at this point, both lhs and rhs are already inferred, but lhs newly-declared vars are unknown (unless have declared_type)
   // examples: `var z = 5`, `var (x, [y]) = (2, [3])`, `var (x, [y]) = xy`
+  // the purpose is to update inferred_type of lhs vars (z, x, y)
   // while recursing, keep track of rhs if lhs and rhs have common shape (5 for z, 2 for x, [3] for [y], 3 for y)
   // (so that on type mismatch, point to corresponding rhs, example: `var (x, y:slice) = (1, 2)` point to 2
-  void process_assignment_lhs_after_infer_rhs(AnyExprV lhs, TypePtr rhs_type, AnyExprV corresponding_maybe_rhs) {
+  static void process_assignment_lhs_after_infer_rhs(AnyExprV lhs, TypePtr rhs_type, AnyExprV corresponding_maybe_rhs) {
+    tolk_assert(lhs->inferred_type != nullptr);
     AnyExprV err_loc = corresponding_maybe_rhs ? corresponding_maybe_rhs : lhs;
 
     // `var ... = rhs` - dig into left part
     if (auto lhs_decl = lhs->try_as<ast_local_vars_declaration>()) {
       process_assignment_lhs_after_infer_rhs(lhs_decl->get_expr(), rhs_type, corresponding_maybe_rhs);
-      assign_inferred_type(lhs, lhs_decl->get_expr()->inferred_type);
       return;
     }
 
     // inside `var v: int = rhs` / `var _ = rhs` / `var v redef = rhs` (lhs is "v" / "_" / "v")
     if (auto lhs_var = lhs->try_as<ast_local_var_lhs>()) {
-      TypePtr declared_type = lhs_var->declared_type;  // `var v: int = rhs` (otherwise, nullptr)
-      if (lhs_var->marked_as_redef) {
-        tolk_assert(lhs_var->var_ref && lhs_var->var_ref->declared_type);
-        declared_type = lhs_var->var_ref->declared_type;
-      }
-      if (declared_type) {
+      if (lhs_var->inferred_type != TypeDataUnknown::create()) {    // it's `var v: int` or redef
+        TypePtr declared_type = lhs_var->inferred_type;
         if (!declared_type->can_rhs_be_assigned(rhs_type)) {
           err_loc->error("can not assign " + to_string(rhs_type) + " to variable of type " + to_string(declared_type));
         }
-        assign_inferred_type(lhs, declared_type);
       } else {
         if (rhs_type == TypeDataNullLiteral::create()) {
           fire_error_assign_always_null_to_variable(err_loc->loc, lhs_var->var_ref->try_as<LocalVarData>(), corresponding_maybe_rhs && corresponding_maybe_rhs->type == ast_null_keyword);
         }
-        assign_inferred_type(lhs, rhs_type);
-        assign_inferred_type(lhs_var->var_ref, lhs_var->inferred_type);
+        assign_inferred_type(lhs_var, rhs_type);
+        assign_inferred_type(lhs_var->var_ref, rhs_type);
       }
       return;
     }
 
     // `v = rhs` / `(c1, c2) = rhs` (lhs is "v" / "_" / "c1" / "c2" after recursion)
     if (lhs->try_as<ast_reference>()) {
-      infer_any_expr(lhs);
       if (!lhs->inferred_type->can_rhs_be_assigned(rhs_type)) {
         err_loc->error("can not assign " + to_string(rhs_type) + " to variable of type " + to_string(lhs));
       }
@@ -554,13 +494,9 @@ class InferCheckTypesAndCallsAndFieldsVisitor final {
         err_loc->error("can not assign " + to_string(rhs_type) + ", sizes mismatch");
       }
       V<ast_tensor> rhs_tensor_maybe = corresponding_maybe_rhs ? corresponding_maybe_rhs->try_as<ast_tensor>() : nullptr;
-      std::vector<TypePtr> types_list;
-      types_list.reserve(lhs_tensor->size());
       for (int i = 0; i < lhs_tensor->size(); ++i) {
         process_assignment_lhs_after_infer_rhs(lhs_tensor->get_item(i), rhs_type_tensor->items[i], rhs_tensor_maybe ? rhs_tensor_maybe->get_item(i) : nullptr);
-        types_list.push_back(lhs_tensor->get_item(i)->inferred_type);
       }
-      assign_inferred_type(lhs, TypeDataTensor::create(std::move(types_list)));
       return;
     }
 
@@ -575,25 +511,23 @@ class InferCheckTypesAndCallsAndFieldsVisitor final {
         err_loc->error("can not assign " + to_string(rhs_type) + ", sizes mismatch");
       }
       V<ast_typed_tuple> rhs_tuple_maybe = corresponding_maybe_rhs ? corresponding_maybe_rhs->try_as<ast_typed_tuple>() : nullptr;
-      std::vector<TypePtr> types_list;
-      types_list.reserve(lhs_tuple->size());
       for (int i = 0; i < lhs_tuple->size(); ++i) {
         process_assignment_lhs_after_infer_rhs(lhs_tuple->get_item(i), rhs_type_tuple->items[i], rhs_tuple_maybe ? rhs_tuple_maybe->get_item(i) : nullptr);
-        types_list.push_back(lhs_tuple->get_item(i)->inferred_type);
       }
-      assign_inferred_type(lhs, TypeDataTypedTuple::create(std::move(types_list)));
       return;
     }
 
-    // `_ = rhs`
-    if (lhs->type == ast_underscore) {
-      assign_inferred_type(lhs, TypeDataUnknown::create());
-      return;
+    // check `untypedTuple.0 = rhs_tensor` and other non-1 width elements
+    if (auto lhs_dot = lhs->try_as<ast_dot_access>()) {
+      if (lhs_dot->is_target_indexed_access() && lhs_dot->get_obj()->inferred_type == TypeDataTuple::create()) {
+        if (rhs_type->calc_width_on_stack() != 1) {
+          fire_error_tuple_cannot_have_non1_stack_width_elem(err_loc->loc, rhs_type);
+        }
+      }
     }
 
-    // here is something unhandled like `a.0 = rhs`, run regular inferring on rhs
+    // here is something unhandled like `a.0 = rhs`, just check type matching
     // for something strange like `f() = rhs` type inferring will pass, but will fail later
-    infer_any_expr(lhs, rhs_type);
     if (!lhs->inferred_type->can_rhs_be_assigned(rhs_type)) {
       err_loc->error("can not assign " + to_string(rhs_type) + " to " + to_string(lhs));
     }
@@ -895,14 +829,20 @@ class InferCheckTypesAndCallsAndFieldsVisitor final {
         return;
       }
       if (obj_type->try_as<TypeDataTuple>()) {
-        if (hint == nullptr) {
-          fire_error_cannot_deduce_untyped_tuple_access(v->loc, index_at);
-        }
-        if (hint->calc_width_on_stack() != 1) {
-          fire_error_cannot_put_non1_stack_width_arg_to_tuple(v->loc, hint);
+        TypePtr item_type = nullptr;
+        if (v->is_lvalue && !hint) {     // left side of assignment
+          item_type = TypeDataUnknown::create();
+        } else {
+          if (hint == nullptr) {
+            fire_error_cannot_deduce_untyped_tuple_access(v->loc, index_at);
+          }
+          if (hint->calc_width_on_stack() != 1) {
+            fire_error_tuple_cannot_have_non1_stack_width_elem(v->loc, hint);
+          }
+          item_type = hint;
         }
         v->mutate()->assign_target(index_at);
-        assign_inferred_type(v, hint);
+        assign_inferred_type(v, item_type);
         return;
       }
       v_ident->error("type " + to_string(obj_type) + " is not indexable");
@@ -1081,7 +1021,7 @@ class InferCheckTypesAndCallsAndFieldsVisitor final {
       AnyExprV item = v->get_item(i);
       infer_any_expr(item, tuple_hint && i < tuple_hint->size() ? tuple_hint->items[i] : nullptr);
       if (item->inferred_type->calc_width_on_stack() != 1) {
-        fire_error_cannot_put_non1_stack_width_arg_to_tuple(v->get_item(i)->loc, item->inferred_type);
+        fire_error_tuple_cannot_have_non1_stack_width_elem(v->get_item(i)->loc, item->inferred_type);
       }
       types_list.emplace_back(item->inferred_type);
     }

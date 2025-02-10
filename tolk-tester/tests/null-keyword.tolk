@@ -133,7 +133,7 @@ fun main() {
 """
   test7 PROC:<{
     ...
-    LDOPTREF	//  b '8 '7
+    LDOPTREF	//  b '9 '8
     DROP	    //  b c
     ISNULL	    //  b '11
     10 MULCONST	//  b '13
