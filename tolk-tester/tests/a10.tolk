@@ -144,15 +144,16 @@ fun test95() {
 """
   test95 PROC:<{
     ...
-    next GETGLOB	//  '10
-    3 PUSHINT	//  '10 '12=3
-    4 PUSHINT	//  '10 '12=3 '13=4
-    5 PUSHINT	//  '10 '12=3 '13=4 '14=5
-    TRIPLE	//  '15 '16
-    next SETGLOB
+    next GETGLOB	//  g_next
+    3 PUSHINT	    //  g_next '14=3
+    4 PUSHINT	    //  g_next '14=3 '15=4
+    5 PUSHINT	    //  g_next '14=3 '15=4 '16=5
+    TRIPLE	        //  '10 '11
+    SWAP
     cur SETGLOB
-    cur GETGLOB	//  '17
-    next GETGLOB	//  '17 '18
+    next SETGLOB
+    cur GETGLOB	    //  g_cur
+    next GETGLOB	//  g_cur g_next
   }>
 """
 */

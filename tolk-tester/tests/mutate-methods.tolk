@@ -307,7 +307,7 @@ fun main(){}
     ...
     incrementTwoInPlace CALLDICT        //  x y sum1
     -ROT
-    10 PUSHINT  //  sum1 x y '10=10
+    10 PUSHINT  //  sum1 x y '11=10
     incrementTwoInPlace CALLDICT        //  sum1 x y sum2
     s1 s3 s0 XCHG3       //  x y sum1 sum2
   }>

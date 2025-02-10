@@ -21,6 +21,26 @@ fun plus(mutate self: int, y: int): int {
 
 fun eq<X>(v: X): X { return v; }
 
+global gTup: [int];
+global gTens: (int, int);
+
+@method_id(100)
+fun testCodegenSimple() {
+    var t1 = [1];
+    t1.0 = 2;
+    debugPrintString("");
+    var t2 = [[1]];
+    t2.0.0 = 2;
+    debugPrintString("");
+    gTup = [1];
+    gTup.0 = 2;
+    debugPrintString("");
+    gTens = (1,2);
+    gTens.1 = 4;
+    debugPrintString("");
+    return (t1, t2, gTup, gTens);
+}
+
 @method_id(101)
 fun test101() {
     var t = (1, (2, 3), [4, 5, [6, 7]], 8);
@@ -241,30 +261,60 @@ fun main(){}
 
 @fif_codegen
 """
-  testCodegenNoPureIndexedAccess PROC:<{
+  testCodegenSimple PROC:<{
     //
-    0 PUSHINT  // '8=0
+    1 PUSHINT	    //  '2=1
+    SINGLE	        //  t1
+    2 PUSHINT	    //  t1 '3=2
+    0 SETINDEX	    //  t1
+    x{} PUSHSLICE	//  t1 '6
+    STRDUMP DROP
+    1 PUSHINT	//  t1 '10=1
+    SINGLE	    //  t1 '9
+    SINGLE	    //  t1 t2
+    2 PUSHINT	//  t1 t2 '11=2
+    OVER	    //  t1 t2 '11=2 t2
+    0 INDEX	    //  t1 t2 '11=2 '14
+    SWAP	    //  t1 t2 '14 '11=2
+    0 SETINDEX	//  t1 t2 '14
+    0 SETINDEX	//  t1 t2
+    x{} PUSHSLICE	//  t1 t2 '17
+    STRDUMP DROP
+    1 PUSHINT	//  t1 t2 '20=1
+    SINGLE	    //  t1 t2 '18
+    gTup SETGLOB
+    2 PUSHINT	    //  t1 t2 '21=2
+    gTup GETGLOB	//  t1 t2 '21=2 g_gTup
+    SWAP	        //  t1 t2 g_gTup '21=2
+    0 SETINDEX	    //  t1 t2 g_gTup
+    gTup SETGLOB
+    x{} PUSHSLICE	//  t1 t2 '25
+    STRDUMP DROP
+    1 PUSHINT	//  t1 t2 '28=1
+    2 PUSHINT	//  t1 t2 '26=1 '27=2
+    PAIR
+    gTens SETGLOB
+    4 PUSHINT	//  t1 t2 g_gTens.1=4
+    gTens GETGLOB
+    UNPAIR	    //  t1 t2 g_gTens.1=4 g_gTens.0 g_gTens.1
+    DROP	    //  t1 t2 g_gTens.1=4 g_gTens.0
+    SWAP	    //  t1 t2 g_gTens.0 g_gTens.1=4
+    PAIR
+    gTens SETGLOB
+    x{} PUSHSLICE	//  t1 t2 '36
+    STRDUMP DROP
+    gTup GETGLOB	//  t1 t2 g_gTup
+    gTens GETGLOB
+    UNPAIR	    //  t1 t2 g_gTup g_gTens.0 g_gTens.1
   }>
 """
 
 @fif_codegen
 """
-  test104 PROC:<{
+  testCodegenNoPureIndexedAccess PROC:<{
     //
-    5 PUSHINT	//  '2=5
-    DUP	//  '2=5 '3=5
-    PAIR	//  '1
-    SINGLE	//  m
-    10 PUSHINT	//  m '5=10
-    20 PUSHINT	//  m '5=10 '6=20
-    s2 PUSH	//  m '5=10 '6=20 m
-    0 INDEX	//  m '10=10 '12=20 '8
-    SWAP	//  m '10=10 '8 '12=20
-    1 SETINDEX	//  m '10=10 '8
-    SWAP	//  m '8 '10=10
-    0 SETINDEX	//  m '8
-    0 SETINDEX	//  m
-    ...
+    0 PUSHINT  // '8=0
+  }>
 """
 
 @fif_codegen

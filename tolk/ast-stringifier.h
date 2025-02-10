@@ -193,7 +193,7 @@ class ASTStringifier final : public ASTVisitor {
       }
       case ast_local_var_lhs: {
         std::ostringstream os;
-        os << (v->as<ast_local_var_lhs>()->inferred_type ? v->as<ast_local_var_lhs>()->inferred_type : v->as<ast_local_var_lhs>()->declared_type);
+        os << (v->as<ast_local_var_lhs>()->inferred_type ? v->as<ast_local_var_lhs>()->inferred_type->as_human_readable() : v->as<ast_local_var_lhs>()->declared_type->as_human_readable());
         if (v->as<ast_local_var_lhs>()->get_name().empty()) {
           return "_: " + os.str();
         }

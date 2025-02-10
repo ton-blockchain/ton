@@ -7,5 +7,5 @@ fun main() {
 
 /**
 @compilation_should_fail
-@stderr can not put `(int, builder)` into a tuple, because it occupies 2 stack slots in TVM, not 1
+@stderr a tuple can not have `(int, builder)` inside, because it occupies 2 stack slots in TVM, not 1
  */
