@@ -734,9 +734,13 @@ template<>
 // example: do while body is a sequence
 struct Vertex<ast_sequence> final : ASTStatementVararg {
   SrcLocation loc_end;
+  AnyV first_unreachable = nullptr;
 
   const std::vector<AnyV>& get_items() const { return children; }
   AnyV get_item(int i) const { return children.at(i); }
+
+  Vertex* mutate() const { return const_cast<Vertex*>(this); }
+  void assign_first_unreachable(AnyV first_unreachable);
 
   Vertex(SrcLocation loc, SrcLocation loc_end, std::vector<AnyV> items)
     : ASTStatementVararg(ast_sequence, loc, std::move(items))

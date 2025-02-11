@@ -84,6 +84,7 @@ TypePtr TypeDataTuple::singleton;
 TypePtr TypeDataContinuation::singleton;
 TypePtr TypeDataNullLiteral::singleton;
 TypePtr TypeDataUnknown::singleton;
+TypePtr TypeDataNever::singleton;
 TypePtr TypeDataVoid::singleton;
 
 void type_system_init() {
@@ -96,6 +97,7 @@ void type_system_init() {
   TypeDataContinuation::singleton = new TypeDataContinuation;
   TypeDataNullLiteral::singleton = new TypeDataNullLiteral;
   TypeDataUnknown::singleton = new TypeDataUnknown;
+  TypeDataNever::singleton = new TypeDataNever;
   TypeDataVoid::singleton = new TypeDataVoid;
 }
 
@@ -430,6 +432,10 @@ bool TypeDataUnresolved::can_rhs_be_assigned(TypePtr rhs) const {
   return false;
 }
 
+bool TypeDataNever::can_rhs_be_assigned(TypePtr rhs) const {
+  return rhs == this;
+}
+
 bool TypeDataVoid::can_rhs_be_assigned(TypePtr rhs) const {
   return rhs == this;
 }
@@ -550,6 +556,10 @@ bool TypeDataUnknown::can_be_casted_with_as_operator(TypePtr cast_to) const {
 
 bool TypeDataUnresolved::can_be_casted_with_as_operator(TypePtr cast_to) const {
   return false;
+}
+
+bool TypeDataNever::can_be_casted_with_as_operator(TypePtr cast_to) const {
+  return cast_to == this;
 }
 
 bool TypeDataVoid::can_be_casted_with_as_operator(TypePtr cast_to) const {

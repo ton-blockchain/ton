@@ -80,7 +80,7 @@ fun test107() {
 @method_id(108)
 fun test108() {
     var (a, b: cell?, c) = (1, beginCell().endCell(), 3);
-    b = null;
+    if (10>3) { b = null; }
     return a + (b == null ? 0 : b!.beginParse().loadInt(32)) + c;
 }
 

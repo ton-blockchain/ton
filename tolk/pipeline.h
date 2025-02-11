@@ -35,8 +35,8 @@ void pipeline_discover_and_parse_sources(const std::string& stdlib_filename, con
 void pipeline_register_global_symbols();
 void pipeline_resolve_identifiers_and_assign_symbols();
 void pipeline_calculate_rvalue_lvalue();
-void pipeline_detect_unreachable_statements();
 void pipeline_infer_types_and_calls_and_fields();
+void pipeline_check_inferred_types();
 void pipeline_refine_lvalue_for_mutate_arguments();
 void pipeline_check_rvalue_lvalue();
 void pipeline_check_pure_impure_operations();

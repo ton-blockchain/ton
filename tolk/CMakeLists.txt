@@ -12,8 +12,8 @@ set(TOLK_SOURCE
         pipe-register-symbols.cpp
         pipe-resolve-identifiers.cpp
         pipe-calc-rvalue-lvalue.cpp
-        pipe-detect-unreachable.cpp
         pipe-infer-types-and-calls.cpp
+        pipe-check-inferred-types.cpp
         pipe-refine-lvalue-for-mutate.cpp
         pipe-check-rvalue-lvalue.cpp
         pipe-check-pure-impure.cpp
@@ -23,6 +23,7 @@ set(TOLK_SOURCE
         pipe-find-unused-symbols.cpp
         pipe-generate-fif-output.cpp
         type-system.cpp
+        smart-casts-cfg.cpp
         generics-helpers.cpp
         abscode.cpp
         analyzer.cpp

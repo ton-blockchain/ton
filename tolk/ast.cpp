@@ -173,6 +173,10 @@ void Vertex<ast_is_null_check>::assign_is_negated(bool is_negated) {
   this->is_negated = is_negated;
 }
 
+void Vertex<ast_sequence>::assign_first_unreachable(AnyV first_unreachable) {
+  this->first_unreachable = first_unreachable;
+}
+
 void Vertex<ast_dot_access>::assign_target(const DotTarget& target) {
   this->target = target;
 }

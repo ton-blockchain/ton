@@ -6,6 +6,6 @@ fun cantApplyPlusOnNullable() {
 
 /**
 @compilation_should_fail
-@stderr while instantiating generic function `calcSum<int?>`
+@stderr in function `calcSum<int?>`
 @stderr can not apply operator `+` to `int?` and `int?`
  */

@@ -488,13 +488,27 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
     }
     return rvect;
   }
-  // pass `T?` to `T`
+  // pass `T?` to `null`
+  // it may occur due to smart cast, when a `T?` variable is guaranteed to be always null
+  // (for instance, always-null `(int,int)?` will be represented as 1 TVM NULL value, not 3)
+  if (target_type == TypeDataNullLiteral::create() && original_type->can_rhs_be_assigned(target_type)) {
+    if (original_type->get_width_on_stack() > 1) {
+      const FunctionData* builtin_sym = lookup_global_symbol("__null")->as<FunctionData>();
+      rvect = code.create_tmp_var(TypeDataNullLiteral::create(), loc, "(null-literal)");
+      code.emplace_back(loc, Op::_Call, rvect, std::vector<var_idx_t>{}, builtin_sym);
+    }
+    return rvect;
+  }
+  // pass `T?` to `T` (or, more generally, `T1?` to `T2`)
   // it may occur due to operator `!` or smart cast
   // for primitives like `int?`, no changes in rvect
   // for passing `(int, int)?` to `(int, int)`, drop the null flag from the tail
-  if (!t_nullable && original_type->try_as<TypeDataNullable>() && original_type->try_as<TypeDataNullable>()->inner == target_type) {
+  // for complex scenarios like passing `(int, (int,int)?)?` to `(int, null)`, recurse the call
+  // (it may occur on `someF(t = (3,null))` when `(3,null)` at first targeted to lhs, but actually its result is rhs)
+  if (!t_nullable && original_type->try_as<TypeDataNullable>()) {
     if (original_type->get_width_on_stack() > 1) {
       rvect.pop_back();
+      rvect = transition_expr_to_runtime_type_impl(std::move(rvect), code, original_type->try_as<TypeDataNullable>()->inner, target_type, loc);
     }
     return rvect;
   }
@@ -541,6 +555,12 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
     tolk_assert(target_type->get_width_on_stack() == original_type->get_width_on_stack());
     return rvect;
   }
+  // pass `T` to `never`
+  // it may occur due to smart cast, in unreachable branches, for example `if (intVal == null) { return intVal; }`
+  // we can't do anything reasonable here, but (hopefully) execution will never reach this point, and stack won't be polluted
+  if (target_type == TypeDataNever::create() || original_type == TypeDataNever::create()) {
+    return rvect;
+  }
 
   throw Fatal("unhandled transition_expr_to_runtime_type_impl() combination");
 }
@@ -553,6 +573,17 @@ GNU_ATTRIBUTE_ALWAYS_INLINE
 static std::vector<var_idx_t> transition_to_target_type(std::vector<var_idx_t>&& rvect, CodeBlob& code, TypePtr target_type, AnyExprV v) {
   if (target_type != nullptr && target_type != v->inferred_type) {
     rvect = transition_expr_to_runtime_type_impl(std::move(rvect), code, v->inferred_type, target_type, v->loc);
+  }
+  return rvect;
+}
+
+// the second overload of the same function, invoke impl only when original and target differ
+#ifndef TOLK_DEBUG
+GNU_ATTRIBUTE_ALWAYS_INLINE
+#endif
+static std::vector<var_idx_t> transition_to_target_type(std::vector<var_idx_t>&& rvect, CodeBlob& code, TypePtr original_type, TypePtr target_type, SrcLocation loc) {
+  if (target_type != original_type) {
+    rvect = transition_expr_to_runtime_type_impl(std::move(rvect), code, original_type, target_type, loc);
   }
   return rvect;
 }
@@ -602,15 +633,33 @@ std::vector<var_idx_t> pre_compile_symbol(SrcLocation loc, const Symbol* sym, Co
 
 static std::vector<var_idx_t> process_reference(V<ast_reference> v, CodeBlob& code, TypePtr target_type, LValContext* lval_ctx) {
   std::vector<var_idx_t> rvect = pre_compile_symbol(v->loc, v->sym, code, lval_ctx);
+
+  // a local variable might be smart cast at this point, for example we're in `if (v != null)`
+  // it means that we must drop the null flag (if it's a tensor), or maybe perform other stack transformations
+  // (from original var_ref->ir_idx to fit smart cast)
+  if (const LocalVarData* var_ref = v->sym->try_as<LocalVarData>()) {
+    // note, inside `if (v != null)` when `v` is used for writing, v->inferred_type is an original (declared_type)
+    // (smart casts apply only for rvalue, not for lvalue, we don't check it here, it's a property of inferring)
+    rvect = transition_to_target_type(std::move(rvect), code, var_ref->declared_type, v->inferred_type, v->loc);
+  }
+
   return transition_to_target_type(std::move(rvect), code, target_type, v);
 }
 
 static std::vector<var_idx_t> process_assignment(V<ast_assign> v, CodeBlob& code, TypePtr target_type) {
-  if (auto lhs_decl = v->get_lhs()->try_as<ast_local_vars_declaration>()) {
-    std::vector<var_idx_t> rvect = pre_compile_let(code, lhs_decl->get_expr(), v->get_rhs(), v->loc);
+  AnyExprV lhs = v->get_lhs();
+  AnyExprV rhs = v->get_rhs();
+
+  if (auto lhs_decl = lhs->try_as<ast_local_vars_declaration>()) {
+    std::vector<var_idx_t> rvect = pre_compile_let(code, lhs_decl->get_expr(), rhs, v->loc);
     return transition_to_target_type(std::move(rvect), code, target_type, v);
   } else {
-    std::vector<var_idx_t> rvect = pre_compile_let(code, v->get_lhs(), v->get_rhs(), v->loc);
+    std::vector<var_idx_t> rvect = pre_compile_let(code, lhs, rhs, v->loc);
+    // now rvect contains rhs IR vars constructed to fit lhs (for correct assignment, lhs type was target_type for rhs)
+    // but the type of `lhs = rhs` is RHS (see type inferring), so rvect now should fit rhs->inferred_type (= v->inferred_type)
+    // example: `t1 = t2 = null`, we're at `t2 = null`, earlier declared t1: `int?`, t2: `(int,int)?`
+    // currently "null" matches t2 (3 null slots), but type of this assignment is "plain null" (1 slot) assigned later to t1
+    rvect = transition_to_target_type(std::move(rvect), code, lhs->inferred_type, v->inferred_type, v->loc);
     return transition_to_target_type(std::move(rvect), code, target_type, v);
   }
 }
@@ -749,6 +798,10 @@ static std::vector<var_idx_t> process_dot_access(V<ast_dot_access> v, CodeBlob& 
         stack_offset += t_tensor->items[i]->get_width_on_stack();
       }
       std::vector<var_idx_t> rvect{lhs_vars.begin() + stack_offset, lhs_vars.begin() + stack_offset + stack_width};
+      // a tensor index might be smart cast at this point, for example we're in `if (t.1 != null)`
+      // it means that we must drop the null flag (if `t.1` is a tensor), or maybe perform other stack transformations
+      // (from original rvect = (vars of t.1) to fit smart cast)
+      rvect = transition_to_target_type(std::move(rvect), code, t_tensor->items[index_at], v->inferred_type, v->loc);
       return transition_to_target_type(std::move(rvect), code, target_type, v);
     }
     // `tupleVar.0`

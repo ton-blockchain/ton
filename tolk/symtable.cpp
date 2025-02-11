@@ -102,9 +102,6 @@ void LocalVarData::assign_resolved_type(TypePtr declared_type) {
 }
 
 void LocalVarData::assign_inferred_type(TypePtr inferred_type) {
-#ifdef TOLK_DEBUG
-  assert(this->declared_type == nullptr);  // called when type declaration omitted, inferred from assigned value
-#endif
   this->declared_type = inferred_type;
 }
 
