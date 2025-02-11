@@ -86,8 +86,8 @@ fun test104() {
 }
 
 @method_id(105)
-fun test105(x: int, y: int): (tuple, int, (int, int), int, int) {
-    var ab = (createEmptyTuple(), (x, y), tupleSize);
+fun test105(x: int, y: int): (tuple, int, (int?, int), int, int) {
+    var ab = (createEmptyTuple(), (x as int?, y), tupleSize);
     ab.0.tuplePush(1);
     tuplePush(mutate ab.0, 2);
     ab.1.0 = null;
@@ -98,7 +98,7 @@ fun test105(x: int, y: int): (tuple, int, (int, int), int, int) {
 
 @method_id(106)
 fun test106(x: int, y: int) {
-    var ab = [createEmptyTuple(), [x, y], tupleSize];
+    var ab = [createEmptyTuple(), [x as int?, y], tupleSize];
     ab.0.tuplePush(1);
     tuplePush(mutate ab.0, 2);
     ab.1.0 = null;
@@ -233,6 +233,25 @@ fun test121(zero: int) {
     return t;
 }
 
+fun isFirstComponentGt0<T1,T2>(t: (T1, T2)): bool {
+    return t.0 > 0;
+}
+
+@method_id(122)
+fun test122(x: (int, int)) {
+    return (
+        isFirstComponentGt0(x), isFirstComponentGt0((2, beginCell())), isFirstComponentGt0<int,slice?>((0, null)),
+        x.isFirstComponentGt0(), (2, beginCell()).isFirstComponentGt0(), (0, null).isFirstComponentGt0<int,slice?>()
+    );
+}
+
+@method_id(123)
+fun test123() {
+    var t = [[10, 20]] as [[int,int]]?;
+    t!.0.0 = t!.0.1 = 100;
+    return t;
+}
+
 fun main(){}
 
 
@@ -258,6 +277,8 @@ fun main(){}
 @testcase | 119 | 1 2 3 4 | 4 1 3
 @testcase | 120 |       | 3 4 [ 5 6 ]
 @testcase | 121 | 0     | [ 3 ]
+@testcase | 122 | 1 2   | -1 -1 0 -1 -1 0
+@testcase | 123 |       | [ [ 100 100 ] ]
 
 @fif_codegen
 """

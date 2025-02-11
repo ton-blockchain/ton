@@ -169,6 +169,10 @@ void Vertex<ast_binary_operator>::assign_fun_ref(const FunctionData* fun_ref) {
   this->fun_ref = fun_ref;
 }
 
+void Vertex<ast_is_null_check>::assign_is_negated(bool is_negated) {
+  this->is_negated = is_negated;
+}
+
 void Vertex<ast_dot_access>::assign_target(const DotTarget& target) {
   this->target = target;
 }

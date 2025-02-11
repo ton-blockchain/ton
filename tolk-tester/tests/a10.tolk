@@ -2,7 +2,7 @@ import "@stdlib/tvm-lowlevel"
 
 fun pair_first<X, Y>(p: [X, Y]): X asm "FIRST";
 
-fun one(dummy: tuple) {
+fun one(dummy: tuple?) {
     return 1;
 }
 

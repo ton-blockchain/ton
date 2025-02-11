@@ -86,6 +86,8 @@ class RefineLvalueForMutateArgumentsVisitor final : public ASTVisitorFunctionBod
             leftmost_obj = as_par->get_expr();
           } else if (auto as_cast = leftmost_obj->try_as<ast_cast_as_operator>()) {
             leftmost_obj = as_cast->get_expr();
+          } else if (auto as_nn = leftmost_obj->try_as<ast_not_null_operator>()) {
+            leftmost_obj = as_nn->get_expr();
           } else {
             break;
           }

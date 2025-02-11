@@ -108,6 +108,8 @@ protected:
   virtual AnyExprV replace(V<ast_binary_operator> v)           { return replace_children(v); }
   virtual AnyExprV replace(V<ast_ternary_operator> v)          { return replace_children(v); }
   virtual AnyExprV replace(V<ast_cast_as_operator> v)          { return replace_children(v); }
+  virtual AnyExprV replace(V<ast_not_null_operator> v)         { return replace_children(v); }
+  virtual AnyExprV replace(V<ast_is_null_check> v)             { return replace_children(v); }
   // statements
   virtual AnyV replace(V<ast_empty_statement> v)               { return replace_children(v); }
   virtual AnyV replace(V<ast_sequence> v)                      { return replace_children(v); }
@@ -144,6 +146,8 @@ protected:
       case ast_binary_operator:                 return replace(v->as<ast_binary_operator>());
       case ast_ternary_operator:                return replace(v->as<ast_ternary_operator>());
       case ast_cast_as_operator:                return replace(v->as<ast_cast_as_operator>());
+      case ast_not_null_operator:               return replace(v->as<ast_not_null_operator>());
+      case ast_is_null_check:                   return replace(v->as<ast_is_null_check>());
       default:
         throw UnexpectedASTNodeType(v, "ASTReplacerInFunctionBody::replace");
     }

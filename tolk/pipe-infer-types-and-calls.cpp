@@ -83,11 +83,6 @@ static std::string to_string(AnyExprV v_with_type) {
 }
 
 GNU_ATTRIBUTE_NOINLINE
-static std::string to_string(const LocalVarData& var_ref) {
-  return "`" + var_ref.declared_type->as_human_readable() + "`";
-}
-
-GNU_ATTRIBUTE_NOINLINE
 static std::string to_string(const FunctionData* fun_ref) {
   return "`" + fun_ref->as_human_readable() + "`";
 }
@@ -97,7 +92,7 @@ static std::string to_string(const FunctionData* fun_ref) {
 // (in FunC, `forall` type just couldn't be unified with non-primitives; in Tolk, generic T is expectedly inferred)
 GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
 static void fire_error_calling_asm_function_with_non1_stack_width_arg(SrcLocation loc, const FunctionData* fun_ref, const std::vector<TypePtr>& substitutions, int arg_idx) {
-  throw ParseError(loc, "can not call `" + fun_ref->as_human_readable() + "` with " + fun_ref->genericTs->get_nameT(arg_idx) + "=" + substitutions[arg_idx]->as_human_readable() + ", because it occupies " + std::to_string(substitutions[arg_idx]->calc_width_on_stack()) + " stack slots in TVM, not 1");
+  throw ParseError(loc, "can not call `" + fun_ref->as_human_readable() + "` with " + fun_ref->genericTs->get_nameT(arg_idx) + "=" + substitutions[arg_idx]->as_human_readable() + ", because it occupies " + std::to_string(substitutions[arg_idx]->get_width_on_stack()) + " stack slots in TVM, not 1");
 }
 
 // fire an error on `var n = null`
@@ -134,34 +129,26 @@ static void fire_error_cannot_deduce_untyped_tuple_access(SrcLocation loc, int i
 // fire an error on `untypedTupleVar.0` when inferred as (int,int), or `[int, (int,int)]`, or other non-1 width in a tuple
 GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
 static void fire_error_tuple_cannot_have_non1_stack_width_elem(SrcLocation loc, TypePtr inferred_type) {
-  throw ParseError(loc, "a tuple can not have " + to_string(inferred_type) + " inside, because it occupies " + std::to_string(inferred_type->calc_width_on_stack()) + " stack slots in TVM, not 1");
+  throw ParseError(loc, "a tuple can not have " + to_string(inferred_type) + " inside, because it occupies " + std::to_string(inferred_type->get_width_on_stack()) + " stack slots in TVM, not 1");
 }
 
-// check correctness of called arguments counts and their type matching
-static void check_function_arguments(const FunctionData* fun_ref, V<ast_argument_list> v, AnyExprV lhs_of_dot_call) {
-  int delta_self = lhs_of_dot_call ? 1 : 0;
-  int n_arguments = v->size() + delta_self;
-  int n_parameters = fun_ref->get_num_params();
-
-  // Tolk doesn't have optional parameters currently, so just compare counts
-  if (!n_parameters && lhs_of_dot_call) {
-    v->error("`" + fun_ref->name + "` has no parameters and can not be called as method");
-  }
-  if (n_parameters < n_arguments) {
-    v->error("too many arguments in call to `" + fun_ref->name + "`, expected " + std::to_string(n_parameters - delta_self) + ", have " + std::to_string(n_arguments - delta_self));
-  }
-  if (n_arguments < n_parameters) {
-    v->error("too few arguments in call to `" + fun_ref->name + "`, expected " + std::to_string(n_parameters - delta_self) + ", have " + std::to_string(n_arguments - delta_self));
-  }
-
-  if (lhs_of_dot_call) {
-    if (!fun_ref->parameters[0].declared_type->can_rhs_be_assigned(lhs_of_dot_call->inferred_type)) {
-      lhs_of_dot_call->error("can not call method for " + to_string(fun_ref->parameters[0]) + " with object of type " + to_string(lhs_of_dot_call));
+// check type correctness of a passed argument when calling a function/method
+static void check_function_argument(TypePtr param_type, bool is_mutate_param, AnyExprV ith_arg, bool is_obj_of_dot_call) {
+  // given `f(x: int)` and a call `f(expr)`, check that expr_type is assignable to `int`
+  if (!param_type->can_rhs_be_assigned(ith_arg->inferred_type)) {
+    if (is_obj_of_dot_call) {
+      ith_arg->error("can not call method for " + to_string(param_type) + " with object of type " + to_string(ith_arg));
+    } else {
+      ith_arg->error("can not pass " + to_string(ith_arg) + " to " + to_string(param_type));
     }
   }
-  for (int i = 0; i < v->size(); ++i) {
-    if (!fun_ref->parameters[i + delta_self].declared_type->can_rhs_be_assigned(v->get_arg(i)->inferred_type)) {
-      v->get_arg(i)->error("can not pass " + to_string(v->get_arg(i)) + " to " + to_string(fun_ref->parameters[i + delta_self]));
+  // given `f(x: mutate int?)` and a call `f(expr)`, check that `int?` is assignable to expr_type
+  // (for instance, can't call such a function with `f(mutate intVal)`, since f can potentially assign null to it)
+  if (is_mutate_param && !ith_arg->inferred_type->can_rhs_be_assigned(param_type)) {
+    if (is_obj_of_dot_call) {
+      ith_arg->error("can not call method for mutate " + to_string(param_type) + " with object of type " + to_string(ith_arg) + ", because mutation is not type compatible");
+    } else {
+      ith_arg->error("can not pass " + to_string(ith_arg) + " to mutate " + to_string(param_type) + ", because mutation is not type compatible");
     }
   }
 }
@@ -187,6 +174,13 @@ class TypeInferringUnifyStrategy {
     }
     if (t2->can_rhs_be_assigned(t1)) {
       return t2;
+    }
+
+    if (t1 == TypeDataNullLiteral::create()) {
+      return TypeDataNullable::create(t2);
+    }
+    if (t2 == TypeDataNullLiteral::create()) {
+      return TypeDataNullable::create(t1);
     }
 
     const auto* tensor1 = t1->try_as<TypeDataTensor>();
@@ -365,6 +359,10 @@ class InferCheckTypesAndCallsAndFieldsVisitor final {
         return infer_ternary_operator(v->as<ast_ternary_operator>(), hint);
       case ast_cast_as_operator:
         return infer_cast_as_operator(v->as<ast_cast_as_operator>());
+      case ast_not_null_operator:
+        return infer_not_null_operator(v->as<ast_not_null_operator>());
+      case ast_is_null_check:
+        return infer_is_null_check(v->as<ast_is_null_check>());
       case ast_parenthesized_expression:
         return infer_parenthesized(v->as<ast_parenthesized_expression>(), hint);
       case ast_reference:
@@ -388,12 +386,27 @@ class InferCheckTypesAndCallsAndFieldsVisitor final {
     }
   }
 
+  static TypePtr unwrap_nullable(TypePtr type) {
+    while (const TypeDataNullable* as_nullable = type->try_as<TypeDataNullable>()) {
+      type = as_nullable->inner;
+    }
+    return type;
+  }
+
   static bool expect_integer(AnyExprV v_inferred) {
     return v_inferred->inferred_type == TypeDataInt::create();
   }
 
+  static bool expect_integer(TypePtr inferred_type) {
+    return inferred_type == TypeDataInt::create();
+  }
+
   static bool expect_boolean(AnyExprV v_inferred) {
     return v_inferred->inferred_type == TypeDataBool::create();
+  }
+
+  static bool expect_boolean(TypePtr inferred_type) {
+    return inferred_type == TypeDataBool::create();
   }
 
   static void infer_int_const(V<ast_int_const> v) {
@@ -520,7 +533,7 @@ class InferCheckTypesAndCallsAndFieldsVisitor final {
     // check `untypedTuple.0 = rhs_tensor` and other non-1 width elements
     if (auto lhs_dot = lhs->try_as<ast_dot_access>()) {
       if (lhs_dot->is_target_indexed_access() && lhs_dot->get_obj()->inferred_type == TypeDataTuple::create()) {
-        if (rhs_type->calc_width_on_stack() != 1) {
+        if (rhs_type->get_width_on_stack() != 1) {
           fire_error_tuple_cannot_have_non1_stack_width_elem(err_loc->loc, rhs_type);
         }
       }
@@ -617,8 +630,8 @@ class InferCheckTypesAndCallsAndFieldsVisitor final {
       // == != can compare both integers and booleans, (int == bool) is NOT allowed
       case tok_eq:
       case tok_neq: {
-        bool both_int = expect_integer(lhs) && expect_integer(rhs);
-        bool both_bool = expect_boolean(lhs) && expect_boolean(rhs);
+        bool both_int = expect_integer(unwrap_nullable(lhs->inferred_type)) && expect_integer(unwrap_nullable(rhs->inferred_type));
+        bool both_bool = expect_boolean(unwrap_nullable(lhs->inferred_type)) && expect_boolean(unwrap_nullable(rhs->inferred_type));
         if (!both_int && !both_bool) {
           if (lhs->inferred_type == rhs->inferred_type) {   // compare slice with slice
             v->error("type " + to_string(lhs) + " can not be compared with `== !=`");
@@ -706,6 +719,22 @@ class InferCheckTypesAndCallsAndFieldsVisitor final {
     assign_inferred_type(v, v->cast_to_type);
   }
 
+  void infer_is_null_check(V<ast_is_null_check> v) {
+    infer_any_expr(v->get_expr());
+    assign_inferred_type(v, TypeDataBool::create());
+  }
+
+  void infer_not_null_operator(V<ast_not_null_operator> v) {
+    infer_any_expr(v->get_expr());
+    if (const auto* as_nullable = v->get_expr()->inferred_type->try_as<TypeDataNullable>()) {
+      // operator `!` used for `T?`, leave `T`
+      assign_inferred_type(v, as_nullable->inner);
+    } else {
+      // operator `!` used for non-nullable, probably a warning should be printed
+      assign_inferred_type(v, v->get_expr());
+    }
+  }
+
   void infer_parenthesized(V<ast_parenthesized_expression> v, TypePtr hint) {
     infer_any_expr(v->get_expr(), hint);
     assign_inferred_type(v, v->get_expr());
@@ -782,7 +811,7 @@ class InferCheckTypesAndCallsAndFieldsVisitor final {
     // T for asm function must be a TVM primitive (width 1), otherwise, asm would act incorrectly
     if (fun_ref->is_asm_function() || fun_ref->is_builtin_function()) {
       for (int i = 0; i < static_cast<int>(substitutionTs.size()); ++i) {
-        if (substitutionTs[i]->calc_width_on_stack() != 1) {
+        if (substitutionTs[i]->get_width_on_stack() != 1) {
           fire_error_calling_asm_function_with_non1_stack_width_arg(loc, fun_ref, substitutionTs, i);
         }
       }
@@ -836,7 +865,7 @@ class InferCheckTypesAndCallsAndFieldsVisitor final {
           if (hint == nullptr) {
             fire_error_cannot_deduce_untyped_tuple_access(v->loc, index_at);
           }
-          if (hint->calc_width_on_stack() != 1) {
+          if (hint->get_width_on_stack() != 1) {
             fire_error_tuple_cannot_have_non1_stack_width_elem(v->loc, hint);
           }
           item_type = hint;
@@ -857,7 +886,7 @@ class InferCheckTypesAndCallsAndFieldsVisitor final {
 
     // `t.tupleSize` is ok, `cs.tupleSize` not
     if (!fun_ref->parameters[0].declared_type->can_rhs_be_assigned(obj_type)) {
-      v_ident->error("referencing a method for " + to_string(fun_ref->parameters[0]) + " with object of type " + to_string(obj_type));
+      v_ident->error("referencing a method for " + to_string(fun_ref->parameters[0].declared_type) + " with object of type " + to_string(obj_type));
     }
 
     if (fun_ref->is_generic_function() && !v_instantiationTs) {
@@ -921,30 +950,26 @@ class InferCheckTypesAndCallsAndFieldsVisitor final {
       // fun_ref remains nullptr
     }
 
-    // infer argument types, looking at fun_ref's parameters as hints
-    for (int i = 0; i < v->get_num_args(); ++i) {
-      TypePtr param_type = fun_ref && i < fun_ref->get_num_params() - delta_self ? fun_ref->parameters[delta_self + i].declared_type : nullptr;
-      auto arg_i = v->get_arg(i);
-      infer_any_expr(arg_i->get_expr(), param_type && !param_type->has_genericT_inside() ? param_type : nullptr);
-      assign_inferred_type(arg_i, arg_i->get_expr());
-    }
-
     // handle `local_var()` / `getF()()` / `5()` / `SOME_CONST()` / `obj.method()()()` / `tensorVar.0()`
     if (!fun_ref) {
       // treat callee like a usual expression, which must have "callable" inferred type
       infer_any_expr(callee);
       const TypeDataFunCallable* f_callable = callee->inferred_type->try_as<TypeDataFunCallable>();
       if (!f_callable) {   // `5()` / `SOME_CONST()` / `null()`
-        v->error("calling a non-function");
+        v->error("calling a non-function " + to_string(callee->inferred_type));
       }
       // check arguments count and their types
       if (v->get_num_args() != static_cast<int>(f_callable->params_types.size())) {
         v->error("expected " + std::to_string(f_callable->params_types.size()) + " arguments, got " + std::to_string(v->get_arg_list()->size()));
       }
       for (int i = 0; i < v->get_num_args(); ++i) {
-        if (!f_callable->params_types[i]->can_rhs_be_assigned(v->get_arg(i)->inferred_type)) {
-          v->get_arg(i)->error("can not pass " + to_string(v->get_arg(i)) + " to " + to_string(f_callable->params_types[i]));
+        auto arg_i = v->get_arg(i)->get_expr();
+        TypePtr param_type = f_callable->params_types[i];
+        infer_any_expr(arg_i, param_type);
+        if (!param_type->can_rhs_be_assigned(arg_i->inferred_type)) {
+          arg_i->error("can not pass " + to_string(arg_i) + " to " + to_string(param_type));
         }
+        assign_inferred_type(v->get_arg(i), arg_i);
       }
       v->mutate()->assign_fun_ref(nullptr);   // no fun_ref to a global function
       assign_inferred_type(v, f_callable->return_type);
@@ -952,30 +977,75 @@ class InferCheckTypesAndCallsAndFieldsVisitor final {
     }
 
     // so, we have a call `f(args)` or `obj.f(args)`, f is a global function (fun_ref) (code / asm / builtin)
+    // we're going to iterate over passed arguments, check type compatibility, and (if generic) infer substitutionTs
+    // at first, check arguments count (Tolk doesn't have optional parameters, so just compare counts)
+    int n_arguments = v->get_num_args() + delta_self;
+    int n_parameters = fun_ref->get_num_params();
+    if (!n_parameters && dot_obj) {
+      v->error("`" + fun_ref->name + "` has no parameters and can not be called as method");
+    }
+    if (n_parameters < n_arguments) {
+      v->error("too many arguments in call to `" + fun_ref->name + "`, expected " + std::to_string(n_parameters - delta_self) + ", have " + std::to_string(n_arguments - delta_self));
+    }
+    if (n_arguments < n_parameters) {
+      v->error("too few arguments in call to `" + fun_ref->name + "`, expected " + std::to_string(n_parameters - delta_self) + ", have " + std::to_string(n_arguments - delta_self));
+    }
+
+    // now, for every passed argument, we need to infer its type, and check it against parameter type
+    // for regular functions, it's obvious
+    // but for generic functions, we need to infer type arguments (substitutionTs) on the fly
+    // (unless Ts are specified by a user like `f<int>(args)` / `t.tupleAt<slice>()`, take them)
+    GenericSubstitutionsDeduceForCall* deducingTs = fun_ref->is_generic_function() ? new GenericSubstitutionsDeduceForCall(fun_ref) : nullptr;
+    if (deducingTs && v_instantiationTs) {
+      deducingTs->provide_manually_specified(collect_fun_generic_substitutions_from_manually_specified(v->loc, fun_ref, v_instantiationTs));
+    }
+
+    // loop over every argument, for `obj.method()` obj is the first one
+    // if genericT deducing has a conflict, ParseError is thrown
+    // note, that deducing Ts one by one is important to manage control flow (mutate params work like assignments)
+    // a corner case, e.g. `f<T>(v1:T?, v2:T?)` and `f(null,2)` will fail on first argument, won't try the second one
+    if (dot_obj) {
+      const LocalVarData& param_0 = fun_ref->parameters[0];
+      TypePtr param_type = param_0.declared_type;
+      if (param_type->has_genericT_inside()) {
+        param_type = deducingTs->auto_deduce_from_argument(dot_obj->loc, param_type, dot_obj->inferred_type);
+      }
+      check_function_argument(param_type, param_0.is_mutate_parameter(), dot_obj, true);
+    }
+    for (int i = 0; i < v->get_num_args(); ++i) {
+      const LocalVarData& param_i = fun_ref->parameters[delta_self + i];
+      AnyExprV arg_i = v->get_arg(i)->get_expr();
+      TypePtr param_type = param_i.declared_type;
+      if (param_type->has_genericT_inside() && deducingTs->is_manually_specified()) {   // `f<int>(a)`
+        param_type = deducingTs->replace_by_manually_specified(param_type);
+      }
+      if (param_type->has_genericT_inside()) {    // `f(a)` where f is generic: use `a` to infer param type
+        infer_any_expr(arg_i);                    // then arg_i is inferred without any hint
+        param_type = deducingTs->auto_deduce_from_argument(arg_i->loc, param_type, arg_i->inferred_type);
+      } else {
+        infer_any_expr(arg_i, param_type);        // param_type is hint, helps infer arg_i
+      }
+      assign_inferred_type(v->get_arg(i), arg_i);  // arg itself is an expression
+      check_function_argument(param_type, param_i.is_mutate_parameter(), arg_i, false);
+    }
+
     // if it's a generic function `f<T>`, we need to instantiate it, like `f<int>`
     // same for generic methods `t.tupleAt<T>`, need to achieve `t.tupleAt<int>`
 
-    if (fun_ref->is_generic_function() && v_instantiationTs) {
-      // if Ts are specified by a user like `f<int>(args)` / `t.tupleAt<slice>()`, take them
-      std::vector<TypePtr> substitutions = collect_fun_generic_substitutions_from_manually_specified(v->loc, fun_ref, v_instantiationTs);
-      fun_ref = check_and_instantiate_generic_function(v->loc, fun_ref, std::move(substitutions));
-
-    } else if (fun_ref->is_generic_function()) {
-      // if `f<T>` called like `f(args)`, deduce T from arg types
-      std::vector<TypePtr> arg_types;
-      arg_types.reserve(delta_self + v->get_num_args());
-      if (dot_obj) {
-        arg_types.push_back(dot_obj->inferred_type);
+    if (fun_ref->is_generic_function()) {
+      // if `f(args)` was called, Ts were inferred; check that all of them are known
+      int idx = deducingTs->get_first_not_deduced_idx();
+      if (idx != -1 && hint && fun_ref->declared_return_type->has_genericT_inside()) {
+        // example: `t.tupleFirst()`, T doesn't depend on arguments, but is determined by return type
+        // if used like `var x: int = t.tupleFirst()` / `t.tupleFirst() as int` / etc., use hint
+        deducingTs->auto_deduce_from_argument(v->loc, fun_ref->declared_return_type, hint);
+        idx = deducingTs->get_first_not_deduced_idx();
       }
-      for (int i = 0; i < v->get_num_args(); ++i) {
-        arg_types.push_back(v->get_arg(i)->inferred_type);
+      if (idx != -1) {
+        v->error("can not deduce " + fun_ref->genericTs->get_nameT(idx));
       }
-
-      td::Result<std::vector<TypePtr>> deduced = deduce_substitutionTs_on_generic_func_call(fun_ref, std::move(arg_types), hint);
-      if (deduced.is_error()) {
-        v->error(deduced.error().message().str() + " for generic function " + to_string(fun_ref));
-      }
-      fun_ref = check_and_instantiate_generic_function(v->loc, fun_ref, deduced.move_as_ok());
+      fun_ref = check_and_instantiate_generic_function(v->loc, fun_ref, deducingTs->flush());
+      delete deducingTs;
 
     } else if (UNLIKELY(v_instantiationTs != nullptr)) {
       // non-generic function/method called with type arguments, like `c.cellHash<int>()` / `beginCell<builder>()`
@@ -988,8 +1058,6 @@ class InferCheckTypesAndCallsAndFieldsVisitor final {
       v->get_callee()->as<ast_dot_access>()->mutate()->assign_target(fun_ref);
       v->get_callee()->as<ast_dot_access>()->mutate()->assign_inferred_type(fun_ref->inferred_full_type);
     }
-    // check arguments count and their types
-    check_function_arguments(fun_ref, v->get_arg_list(), dot_obj);
     // get return type either from user-specified declaration or infer here on demand traversing its body
     get_or_infer_return_type(fun_ref);
     TypePtr inferred_type = dot_obj && fun_ref->does_return_self() ? dot_obj->inferred_type : fun_ref->inferred_return_type;
@@ -1020,7 +1088,7 @@ class InferCheckTypesAndCallsAndFieldsVisitor final {
     for (int i = 0; i < v->size(); ++i) {
       AnyExprV item = v->get_item(i);
       infer_any_expr(item, tuple_hint && i < tuple_hint->size() ? tuple_hint->items[i] : nullptr);
-      if (item->inferred_type->calc_width_on_stack() != 1) {
+      if (item->inferred_type->get_width_on_stack() != 1) {
         fire_error_tuple_cannot_have_non1_stack_width_elem(v->get_item(i)->loc, item->inferred_type);
       }
       types_list.emplace_back(item->inferred_type);
@@ -1134,7 +1202,7 @@ class InferCheckTypesAndCallsAndFieldsVisitor final {
       v->get_thrown_code()->error("excNo of `throw` must be an integer, got " + to_string(v->get_thrown_code()));
     }
     infer_any_expr(v->get_thrown_arg());
-    if (v->has_thrown_arg() && v->get_thrown_arg()->inferred_type->calc_width_on_stack() != 1) {
+    if (v->has_thrown_arg() && v->get_thrown_arg()->inferred_type->get_width_on_stack() != 1) {
       v->get_thrown_arg()->error("can not throw " + to_string(v->get_thrown_arg()) + ", exception arg must occupy exactly 1 stack slot");
     }
   }
@@ -1163,7 +1231,7 @@ class InferCheckTypesAndCallsAndFieldsVisitor final {
 
     // `catch` has exactly 2 variables: excNo and arg (when missing, they are implicit underscores)
     // `arg` is a curious thing, it can be any TVM primitive, so assign unknown to it
-    // hence, using `fInt(arg)` (int from parameter is a hint) or `arg as slice` works well
+    // hence, using `fInt(arg)` (int from parameter is a target type) or `arg as slice` works well
     // it's not truly correct, because `arg as (int,int)` also compiles, but can never happen, but let it be user responsibility
     tolk_assert(v->get_catch_expr()->size() == 2);
     std::vector<TypePtr> types_list = {TypeDataInt::create(), TypeDataUnknown::create()};

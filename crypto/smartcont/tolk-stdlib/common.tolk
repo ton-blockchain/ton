@@ -154,16 +154,16 @@ fun getCurrentBlockLogicalTime(): int
 
 /// Returns the value of the global configuration parameter with integer index `i` as a `cell` or `null` value.
 @pure
-fun getBlockchainConfigParam(x: int): cell
+fun getBlockchainConfigParam(x: int): cell?
     asm "CONFIGOPTPARAM";
 
 /// Returns the persistent contract storage cell. It can be parsed or modified with slice and builder primitives later.
 @pure
-fun getContractData(): cell
+fun getContractData(): cell             // todo null?
     asm "c4 PUSH";
 
 /// Sets `cell` [c] as persistent contract data. You can update persistent contract storage with this primitive.
-fun setContractData(c: cell): void
+fun setContractData(c: cell): void        // todo null?
     asm "c4 POP";
 
 /// Retrieves code of smart-contract from c7
@@ -291,7 +291,7 @@ fun calculateSliceSizeStrict(s: slice, maxCells: int): (int, int, int)
 /// otherwise the returned value is one plus the maximum of depths of cells referred to from [c].
 /// If [c] is a `null` instead of a cell, returns zero.
 @pure
-fun getCellDepth(c: cell): int
+fun getCellDepth(c: cell): int    // todo null? (see comment)
     asm "CDEPTH";
 
 /// Returns the depth of `slice` [s].
@@ -346,7 +346,7 @@ fun assertEndOfSlice(self: slice): void
 
 /// Loads the next reference from the slice.
 @pure
-fun loadRef(mutate self: slice): cell
+fun loadRef(mutate self: slice): cell    // todo null?
     asm( -> 1 0) "LDREF";
 
 /// Preloads the next reference from the slice.
@@ -417,12 +417,12 @@ fun getLastBits(self: slice, len: int): slice
 /// Loads a dictionary (TL HashMapE structure, represented as TVM cell) from a slice.
 /// Returns `null` if `nothing` constructor is used.
 @pure
-fun loadDict(mutate self: slice): cell
+fun loadDict(mutate self: slice): cell?     // todo cell?
     asm( -> 1 0) "LDDICT";
 
 /// Preloads a dictionary (cell) from a slice.
 @pure
-fun preloadDict(self: slice): cell
+fun preloadDict(self: slice): cell   // todo cell?
     asm "PLDDICT";
 
 /// Loads a dictionary as [loadDict], but returns only the remainder of the slice.
@@ -433,12 +433,12 @@ fun skipDict(mutate self: slice): self
 /// Loads (Maybe ^Cell) from a slice.
 /// In other words, loads 1 bit: if it's true, loads the first ref, otherwise returns `null`.
 @pure
-fun loadMaybeRef(mutate self: slice): cell
+fun loadMaybeRef(mutate self: slice): cell?
     asm( -> 1 0) "LDOPTREF";
 
 /// Preloads (Maybe ^Cell) from a slice.
 @pure
-fun preloadMaybeRef(self: slice): cell
+fun preloadMaybeRef(self: slice): cell?
     asm "PLDOPTREF";
 
 /// Loads (Maybe ^Cell), but returns only the remainder of the slice.
@@ -497,13 +497,13 @@ fun storeBool(mutate self: builder, x: bool): self
 /// Stores dictionary (represented by TVM `cell` or `null`) into a builder.
 /// In other words, stores a `1`-bit and a reference to [c] if [c] is not `null` and `0`-bit otherwise.
 @pure
-fun storeDict(mutate self: builder, c: cell): self
+fun storeDict(mutate self: builder, c: cell?): self
     asm(c self) "STDICT";
 
 /// Stores (Maybe ^Cell) into a builder.
 /// In other words, if cell is `null`, store '0' bit; otherwise, store '1' and a ref to [c].
 @pure
-fun storeMaybeRef(mutate self: builder, c: cell): self
+fun storeMaybeRef(mutate self: builder, c: cell?): self
     asm(c self) "STOPTREF";
 
 /// Concatenates two builders.
@@ -687,7 +687,8 @@ fun loadMessageFlags(mutate self: slice): int
 /// Effectively, it's `msgFlags & 1` (the lowest bit present).
 @pure
 fun isMessageBounced(msgFlags: int): bool
-    asm "2 PUSHINT" "MODR";
+    asm "1 PUSHINT" "AND";
+    // asm "2 PUSHINT" "MODR";      // todo uncomment after no diff in verified
 
 /// Skip 0xFFFFFFFF prefix (when a message is bounced).
 @pure

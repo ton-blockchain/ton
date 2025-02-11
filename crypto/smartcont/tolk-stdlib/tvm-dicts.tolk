@@ -24,7 +24,7 @@ fun dictIsEmpty(self: cell): bool
 
 
 @pure
-fun iDictGet(self: cell, keyLen: int, key: int): (slice, bool)
+fun iDictGet(self: cell, keyLen: int, key: int): (slice, bool)     // todo keep not null? or make another interface?
     asm(key self keyLen) "DICTIGET" "NULLSWAPIFNOT";
 
 @pure
@@ -50,7 +50,7 @@ fun sDictSet(mutate self: cell, keyLen: int, key: slice, value: slice): void
 
 
 @pure
-fun iDictSetRef(mutate self: cell, keyLen: int, key: int, value: cell): void
+fun iDictSetRef(mutate self: cell, keyLen: int, key: int, value: cell): void       // todo null?
     asm(value key self keyLen) "DICTISETREF";
 
 @pure
@@ -81,7 +81,7 @@ fun uDictSetIfExists(mutate self: cell, keyLen: int, key: int, value: slice): bo
 
 
 @pure
-fun iDictGetRef(self: cell, keyLen: int, key: int): (cell, bool)
+fun iDictGetRef(self: cell, keyLen: int, key: int): (cell, bool)      // todo keep not null?
     asm(key self keyLen) "DICTIGETREF" "NULLSWAPIFNOT";
 
 @pure
@@ -94,15 +94,15 @@ fun sDictGetRef(self: cell, keyLen: int, key: slice): (cell, bool)
 
 
 @pure
-fun iDictGetRefOrNull(self: cell, keyLen: int, key: int): cell
+fun iDictGetRefOrNull(self: cell, keyLen: int, key: int): cell?
     asm(key self keyLen) "DICTIGETOPTREF";
 
 @pure
-fun uDictGetRefOrNull(self: cell, keyLen: int, key: int): cell
+fun uDictGetRefOrNull(self: cell, keyLen: int, key: int): cell?
     asm(key self keyLen) "DICTUGETOPTREF";
 
 @pure
-fun sDictGetRefOrNull(self: cell, keyLen: int, key: slice): cell
+fun sDictGetRefOrNull(self: cell, keyLen: int, key: slice): cell?
     asm(key self keyLen) "DICTGETOPTREF";
 
 
@@ -120,7 +120,7 @@ fun sDictDelete(mutate self: cell, keyLen: int, key: slice): bool
 
 
 @pure
-fun iDictSetAndGet(mutate self: cell, keyLen: int, key: int, value: slice): (slice, bool)
+fun iDictSetAndGet(mutate self: cell, keyLen: int, key: int, value: slice): (slice, bool)      // todo keep not null? or another interface?
     asm(value key self keyLen) "DICTISETGET" "NULLSWAPIFNOT";
 
 @pure
@@ -133,16 +133,16 @@ fun sDictSetAndGet(mutate self: cell, keyLen: int, key: slice, value: slice): (s
 
 
 @pure
-fun iDictSetAndGetRefOrNull(mutate self: cell, keyLen: int, key: int, value: cell): cell
+fun iDictSetAndGetRefOrNull(mutate self: cell, keyLen: int, key: int, value: cell): cell?
     asm(value key self keyLen) "DICTISETGETOPTREF";
 
 @pure
-fun uDictSetAndGetRefOrNull(mutate self: cell, keyLen: int, key: int, value: cell): cell
+fun uDictSetAndGetRefOrNull(mutate self: cell, keyLen: int, key: int, value: cell): cell?
     asm(value key self keyLen) "DICTUSETGETOPTREF";
 
 
 @pure
-fun iDictDeleteAndGet(mutate self: cell, keyLen: int, key: int): (slice, bool)
+fun iDictDeleteAndGet(mutate self: cell, keyLen: int, key: int): (slice, bool)   // todo keep not null?
     asm(key self keyLen) "DICTIDELGET" "NULLSWAPIFNOT";
 
 @pure
@@ -185,7 +185,7 @@ fun uDictSetBuilderIfExists(mutate self: cell, keyLen: int, key: int, value: bui
 
 
 @pure
-fun iDictDeleteFirstAndGet(mutate self: cell, keyLen: int): (int, slice, bool)
+fun iDictDeleteFirstAndGet(mutate self: cell, keyLen: int): (int, slice, bool)   // todo keep not null?
     asm(-> 0 2 1 3) "DICTIREMMIN" "NULLSWAPIFNOT2";
 
 @pure
@@ -198,7 +198,7 @@ fun sDictDeleteFirstAndGet(mutate self: cell, keyLen: int): (slice, slice, bool)
 
 
 @pure
-fun iDictDeleteLastAndGet(mutate self: cell, keyLen: int): (int, slice, bool)
+fun iDictDeleteLastAndGet(mutate self: cell, keyLen: int): (int, slice, bool)     // todo keep not null?
     asm(-> 0 2 1 3) "DICTIREMMAX" "NULLSWAPIFNOT2";
 
 @pure
@@ -211,7 +211,7 @@ fun sDictDeleteLastAndGet(mutate self: cell, keyLen: int): (slice, slice, bool)
 
 
 @pure
-fun iDictGetFirst(self: cell, keyLen: int): (int, slice, bool)
+fun iDictGetFirst(self: cell, keyLen: int): (int, slice, bool)       // todo keep not null?
     asm (-> 1 0 2) "DICTIMIN" "NULLSWAPIFNOT2";
 
 @pure
@@ -236,7 +236,7 @@ fun sDictGetFirstAsRef(self: cell, keyLen: int): (slice, cell, bool)
 
 
 @pure
-fun iDictGetLast(self: cell, keyLen: int): (int, slice, bool)
+fun iDictGetLast(self: cell, keyLen: int): (int, slice, bool)         // todo keep not null?
     asm (-> 1 0 2) "DICTIMAX" "NULLSWAPIFNOT2";
 
 @pure
@@ -261,7 +261,7 @@ fun sDictGetLastAsRef(self: cell, keyLen: int): (slice, cell, bool)
 
 
 @pure
-fun iDictGetNext(self: cell, keyLen: int, pivot: int): (int, slice, bool)
+fun iDictGetNext(self: cell, keyLen: int, pivot: int): (int, slice, bool)     // todo keep not null?
     asm(pivot self keyLen -> 1 0 2) "DICTIGETNEXT" "NULLSWAPIFNOT2";
 
 @pure
@@ -278,7 +278,7 @@ fun uDictGetNextOrEqual(self: cell, keyLen: int, pivot: int): (int, slice, bool)
 
 
 @pure
-fun iDictGetPrev(self: cell, keyLen: int, pivot: int): (int, slice, bool)
+fun iDictGetPrev(self: cell, keyLen: int, pivot: int): (int, slice, bool)      // todo keep not null?
     asm(pivot self keyLen -> 1 0 2) "DICTIGETPREV" "NULLSWAPIFNOT2";
 
 @pure
@@ -299,7 +299,7 @@ fun uDictGetPrevOrEqual(self: cell, keyLen: int, pivot: int): (int, slice, bool)
  */
 
 @pure
-fun prefixDictGet(self: cell, keyLen: int, key: slice): (slice, slice, slice, bool)
+fun prefixDictGet(self: cell, keyLen: int, key: slice): (slice, slice, slice, bool)   // todo keep not null?
     asm(key self keyLen) "PFXDICTGETQ" "NULLSWAPIFNOT2";
 
 @pure

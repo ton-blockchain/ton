@@ -109,6 +109,8 @@ protected:
   virtual void visit(V<ast_binary_operator> v)           { return visit_children(v); }
   virtual void visit(V<ast_ternary_operator> v)          { return visit_children(v); }
   virtual void visit(V<ast_cast_as_operator> v)          { return visit_children(v); }
+  virtual void visit(V<ast_not_null_operator> v)         { return visit_children(v); }
+  virtual void visit(V<ast_is_null_check> v)             { return visit_children(v); }
   // statements
   virtual void visit(V<ast_empty_statement> v)           { return visit_children(v); }
   virtual void visit(V<ast_sequence> v)                  { return visit_children(v); }
@@ -146,6 +148,8 @@ protected:
       case ast_binary_operator:                 return visit(v->as<ast_binary_operator>());
       case ast_ternary_operator:                return visit(v->as<ast_ternary_operator>());
       case ast_cast_as_operator:                return visit(v->as<ast_cast_as_operator>());
+      case ast_not_null_operator:               return visit(v->as<ast_not_null_operator>());
+      case ast_is_null_check:                   return visit(v->as<ast_is_null_check>());
       // statements
       case ast_empty_statement:                 return visit(v->as<ast_empty_statement>());
       case ast_sequence:                        return visit(v->as<ast_sequence>());

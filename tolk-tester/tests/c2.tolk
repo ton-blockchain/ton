@@ -8,7 +8,7 @@ fun unnamed_args(_: int, _: slice, _: int) {
   return true;
 }
 
-fun main(x: int, y: int, z: int): bool {
+fun main(x: int, y: int, z: int): bool? {
   op = `_+_`;
   if (0) { return null; }
   return check_assoc(x, y, z);

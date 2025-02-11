@@ -348,9 +348,9 @@ bool Op::generate_code_step(Stack& stack) {
           std::vector<VarDescr> args0, res;
           int w_arg = 0;
           for (const LocalVarData& param : f_sym->parameters) {
-            w_arg += param.declared_type->calc_width_on_stack();
+            w_arg += param.declared_type->get_width_on_stack();
           }
-          int w_ret = f_sym->inferred_return_type->calc_width_on_stack();
+          int w_ret = f_sym->inferred_return_type->get_width_on_stack();
           tolk_assert(w_ret >= 0 && w_arg >= 0);
           for (int i = 0; i < w_ret; i++) {
             res.emplace_back(0);

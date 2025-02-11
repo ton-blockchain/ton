@@ -121,6 +121,12 @@ protected:
   virtual V<ast_cast_as_operator> clone(V<ast_cast_as_operator> v) {
     return createV<ast_cast_as_operator>(v->loc, clone(v->get_expr()), clone(v->cast_to_type));
   }
+  virtual V<ast_not_null_operator> clone(V<ast_not_null_operator> v) {
+    return createV<ast_not_null_operator>(v->loc, clone(v->get_expr()));
+  }
+  virtual V<ast_is_null_check> clone(V<ast_is_null_check> v) {
+    return createV<ast_is_null_check>(v->loc, clone(v->get_expr()), v->is_negated);
+  }
 
   // statements
 
@@ -200,6 +206,8 @@ protected:
       case ast_binary_operator:                 return clone(v->as<ast_binary_operator>());
       case ast_ternary_operator:                return clone(v->as<ast_ternary_operator>());
       case ast_cast_as_operator:                return clone(v->as<ast_cast_as_operator>());
+      case ast_not_null_operator:               return clone(v->as<ast_not_null_operator>());
+      case ast_is_null_check:                   return clone(v->as<ast_is_null_check>());
       default:
         throw UnexpectedASTNodeType(v, "ASTReplicatorFunction::clone");
     }

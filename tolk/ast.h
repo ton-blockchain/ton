@@ -88,6 +88,8 @@ enum ASTNodeType {
   ast_binary_operator,
   ast_ternary_operator,
   ast_cast_as_operator,
+  ast_not_null_operator,
+  ast_is_null_check,
   // statements
   ast_empty_statement,
   ast_sequence,
@@ -682,6 +684,32 @@ struct Vertex<ast_cast_as_operator> final : ASTExprUnary {
   Vertex(SrcLocation loc, AnyExprV expr, TypePtr cast_to_type)
     : ASTExprUnary(ast_cast_as_operator, loc, expr)
     , cast_to_type(cast_to_type) {}
+};
+
+template<>
+// ast_not_null_operator is non-null assertion: like TypeScript ! or Kotlin !!
+// examples: `nullableInt!` / `getNullableBuilder()!`
+struct Vertex<ast_not_null_operator> final : ASTExprUnary {
+  AnyExprV get_expr() const { return child; }
+
+  Vertex(SrcLocation loc, AnyExprV expr)
+    : ASTExprUnary(ast_not_null_operator, loc, expr) {}
+};
+
+template<>
+// ast_is_null_check is an artificial vertex for "expr == null" / "expr != null" / same but null on the left
+// it's created instead of a general binary expression to emphasize its purpose
+struct Vertex<ast_is_null_check> final : ASTExprUnary {
+  bool is_negated;
+
+  AnyExprV get_expr() const { return child; }
+
+  Vertex* mutate() const { return const_cast<Vertex*>(this); }
+  void assign_is_negated(bool is_negated);
+
+  Vertex(SrcLocation loc, AnyExprV expr, bool is_negated)
+    : ASTExprUnary(ast_is_null_check, loc, expr)
+    , is_negated(is_negated) {}
 };
 
 

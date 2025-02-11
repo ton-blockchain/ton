@@ -45,7 +45,7 @@ typedef int const_idx_t;
 
 struct TmpVar {
   var_idx_t ir_idx;   // every var in IR represents 1 stack slot
-  TypePtr v_type;     // calc_width_on_stack() is 1
+  TypePtr v_type;     // get_width_on_stack() is 1
   std::string name;   // "x" for vars originated from user sources; "x.0" for tensor components; empty for implicitly created tmp vars
   SrcLocation loc;    // location of var declaration in sources or where a tmp var was originated
 #ifdef TOLK_DEBUG

@@ -120,6 +120,11 @@ protected:
       }
       v = createV<ast_if_statement>(v->loc, !v->is_ifnot, v_cond_unary->get_rhs(), v->get_if_body(), v->get_else_body());
     }
+    // `if (x != null)` -> ifnot(x == null)
+    if (auto v_cond_isnull = v->get_cond()->try_as<ast_is_null_check>(); v_cond_isnull && v_cond_isnull->is_negated) {
+      v_cond_isnull->mutate()->assign_is_negated(!v_cond_isnull->is_negated);
+      v = createV<ast_if_statement>(v->loc, !v->is_ifnot, v_cond_isnull, v->get_if_body(), v->get_else_body());
+    }
 
     return v;
   }
