@@ -282,8 +282,38 @@ class CachedCellDbReader : public vm::CellDbReader {
     }
     return parent_->load_cell(hash);
   }
+  td::Result<std::vector<Ref<vm::DataCell>>> load_bulk(td::Span<td::Slice> hashes) override {
+    total_reqs_ += hashes.size();
+    if (!cache_) {
+      ++bulk_reqs_;
+      return parent_->load_bulk(hashes);
+    }
+    std::vector<td::Slice> missing_hashes;
+    std::vector<size_t> missing_indices;
+    std::vector<td::Ref<vm::DataCell>> res(hashes.size());
+    for (size_t i = 0; i < hashes.size(); i++) {
+      auto it = cache_->find(hashes[i]);
+      if (it != cache_->end()) {
+        ++cached_reqs_;
+        TRY_RESULT(loaded_cell, (*it)->load_cell());
+        res[i] = loaded_cell.data_cell;
+        continue;
+      }
+      missing_hashes.push_back(hashes[i]);
+      missing_indices.push_back(i);
+    }
+    if (missing_hashes.empty()) {
+      return std::move(res);
+    }
+    TRY_RESULT(missing_cells, parent_->load_bulk(missing_hashes));
+    for (size_t i = 0; i < missing_indices.size(); i++) {
+      res[missing_indices[i]] = missing_cells[i];
+    }
+    return res;
+  };
   void print_stats() const {
-    LOG(WARNING) << "CachedCellDbReader stats : " << total_reqs_ << " reads, " << cached_reqs_ << " cached";
+    LOG(WARNING) << "CachedCellDbReader stats : " << total_reqs_ << " reads, " << cached_reqs_ << " cached, " 
+                 << bulk_reqs_ << " bulk reqs";
   }
  private:
   std::shared_ptr<vm::CellDbReader> parent_;
@@ -291,6 +321,7 @@ class CachedCellDbReader : public vm::CellDbReader {
 
   td::uint64 total_reqs_ = 0;
   td::uint64 cached_reqs_ = 0;
+  td::uint64 bulk_reqs_ = 0;
 };
 
 void AsyncStateSerializer::PreviousStateCache::prepare_cache(ShardIdFull shard) {

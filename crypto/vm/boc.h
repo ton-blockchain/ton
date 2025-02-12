@@ -210,6 +210,7 @@ class BagOfCellsLogger {
 
   void start_stage(std::string stage) {
     log_speed_at_ = td::Timestamp::in(LOG_SPEED_PERIOD);
+    last_speed_log_ = td::Timestamp::now();
     processed_cells_ = 0;
     timer_ = {};
     stage_ = std::move(stage);
@@ -217,15 +218,19 @@ class BagOfCellsLogger {
   void finish_stage(td::Slice desc) {
     LOG(ERROR) << "serializer: " << stage_ << " took " << timer_.elapsed() << "s, " << desc;
   }
-  td::Status on_cell_processed() {
-    ++processed_cells_;
-    if (processed_cells_ % 1000 == 0) {
+  td::Status on_cells_processed(size_t count) {
+    processed_cells_ += count;
+    if (processed_cells_ / 1000 > last_token_check_) {
       TRY_STATUS(cancellation_token_.check());
+      last_token_check_ = processed_cells_ / 1000;
     }
     if (log_speed_at_.is_in_past()) {
-      log_speed_at_ += LOG_SPEED_PERIOD;
-      LOG(WARNING) << "serializer: " << stage_ << " " << (double)processed_cells_ / LOG_SPEED_PERIOD << " cells/s";
+      double period = td::Timestamp::now().at() - last_speed_log_.at();
+
+      LOG(WARNING) << "serializer: " << stage_ << " " << (double)processed_cells_ / period << " cells/s";
       processed_cells_ = 0;
+      last_speed_log_ = td::Timestamp::now();
+      log_speed_at_ = td::Timestamp::in(LOG_SPEED_PERIOD);
     }
     return td::Status::OK();
   }
@@ -236,6 +241,8 @@ class BagOfCellsLogger {
   td::CancellationToken cancellation_token_;
   td::Timestamp log_speed_at_;
   size_t processed_cells_ = 0;
+  size_t last_token_check_ = 0;
+  td::Timestamp last_speed_log_;
   static constexpr double LOG_SPEED_PERIOD = 120.0;
 };
 class BagOfCells {
@@ -323,6 +330,7 @@ class BagOfCells {
   const unsigned char* data_ptr{nullptr};
   std::vector<unsigned long long> custom_index;
   BagOfCellsLogger* logger_ptr_{nullptr};
+  std::shared_ptr<CellDbReader> reader_{nullptr};
 
  public:
   void clear();
@@ -334,6 +342,9 @@ class BagOfCells {
   BagOfCells() = default;
   void set_logger(BagOfCellsLogger* logger_ptr) {
     logger_ptr_ = logger_ptr;
+  }
+  void set_reader(std::shared_ptr<CellDbReader> reader) {
+    reader_ = std::move(reader);
   }
   std::size_t estimate_serialized_size(int mode = 0);
   td::Status serialize(int mode = 0);
@@ -362,6 +373,7 @@ class BagOfCells {
 
  private:
   int rv_idx;
+  td::Result<std::vector<vm::Cell::LoadedCell>> load_cells(const std::vector<td::Ref<vm::Cell>>& batch);
   td::Result<int> import_cell(td::Ref<vm::Cell> cell, int depth);
   void cells_clear() {
     cell_count = 0;
@@ -383,6 +395,7 @@ class BagOfCells {
 
 td::Result<Ref<Cell>> std_boc_deserialize(td::Slice data, bool can_be_empty = false, bool allow_nonzero_level = false);
 td::Result<td::BufferSlice> std_boc_serialize(Ref<Cell> root, int mode = 0);
+td::Result<td::BufferSlice> std_boc_serialize_with_reader(std::shared_ptr<CellDbReader> reader, Ref<Cell> root, int mode = 0);
 
 td::Result<std::vector<Ref<Cell>>> std_boc_deserialize_multi(td::Slice data,
                                                              int max_roots = BagOfCells::default_max_roots);

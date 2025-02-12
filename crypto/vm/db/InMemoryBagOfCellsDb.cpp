@@ -454,6 +454,16 @@ class CellStorage {
     return td::Status::Error("not found");
   }
 
+  td::Result<std::vector<Ref<DataCell>>> load_bulk(td::Span<CellHash> hashes) const {
+    std::vector<Ref<DataCell>> res;
+    res.reserve(hashes.size());
+    for (auto &hash : hashes) {
+      TRY_RESULT(cell, load_cell(hash));
+      res.push_back(std::move(cell));
+    }
+    return res;
+  }
+
   td::Result<Ref<DataCell>> load_root_local(const CellHash &hash) const {
     auto lock = local_access_.lock();
     if (auto it = local_roots_.find(hash); it != local_roots_.end()) {
@@ -838,6 +848,9 @@ class InMemoryBagOfCellsDb : public DynamicBagOfCellsDb {
   }
   td::Result<Ref<DataCell>> load_root(td::Slice hash) override {
     return storage_->load_root_local(CellHash::from_slice(hash));
+  }
+  td::Result<std::vector<Ref<DataCell>>> load_bulk(td::Span<td::Slice> hashes) override {
+    return storage_->load_bulk(td::transform(hashes, [](auto &hash) { return CellHash::from_slice(hash); }));
   }
   td::Result<Ref<DataCell>> load_root_thread_safe(td::Slice hash) const override {
     return storage_->load_root_shared(CellHash::from_slice(hash));

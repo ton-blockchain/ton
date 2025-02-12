@@ -45,6 +45,7 @@ class CellDbReader {
  public:
   virtual ~CellDbReader() = default;
   virtual td::Result<Ref<DataCell>> load_cell(td::Slice hash) = 0;
+  virtual td::Result<std::vector<Ref<DataCell>>> load_bulk(td::Span<td::Slice> hashes) = 0;
 };
 
 class DynamicBagOfCellsDb {
@@ -57,6 +58,7 @@ class DynamicBagOfCellsDb {
   virtual td::Status meta_erase(td::Slice key) = 0;
 
   virtual td::Result<Ref<DataCell>> load_cell(td::Slice hash) = 0;
+  virtual td::Result<std::vector<Ref<DataCell>>> load_bulk(td::Span<td::Slice> hashes) = 0;
   virtual td::Result<Ref<DataCell>> load_root(td::Slice hash) = 0;
   virtual td::Result<Ref<DataCell>> load_root_thread_safe(td::Slice hash) const = 0;
   virtual td::Result<std::vector<Ref<DataCell>>> load_known_roots() const {
