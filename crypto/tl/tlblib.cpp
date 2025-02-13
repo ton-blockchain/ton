@@ -196,6 +196,13 @@ bool TLB::print_ref(std::ostream& os, Ref<vm::Cell> cell_ref, int indent, int re
   return pp.fail_unless(print_ref(pp, std::move(cell_ref)));
 }
 
+bool TLB::print_ref(td::StringBuilder& sb, Ref<vm::Cell> cell_ref, int indent, int rec_limit) const {
+  std::ostringstream ss;
+  auto result = print_ref(ss, std::move(cell_ref), indent, rec_limit);
+  sb << ss.str();
+  return result;
+}
+
 std::string TLB::as_string_skip(vm::CellSlice& cs, int indent) const {
   std::ostringstream os;
   print_skip(os, cs, indent);

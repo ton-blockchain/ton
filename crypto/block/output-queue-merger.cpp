@@ -138,7 +138,6 @@ bool OutputQueueMerger::add_root(int src, Ref<vm::Cell> outmsg_root) {
   if (outmsg_root.is_null()) {
     return true;
   }
-  //block::gen::HashmapAug{352, block::gen::t_EnqueuedMsg, block::gen::t_uint64}.print_ref(std::cerr, outmsg_root);
   auto kv = std::make_unique<MsgKeyValue>(src, std::move(outmsg_root));
   if (kv->replace_by_prefix(common_pfx.cbits(), common_pfx_len)) {
     heap.push_back(std::move(kv));

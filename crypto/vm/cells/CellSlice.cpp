@@ -1026,6 +1026,13 @@ bool CellSlice::print_rec(std::ostream& os, int indent) const {
   return print_rec(os, &limit, indent);
 }
 
+bool CellSlice::print_rec(td::StringBuilder& sb, int indent) const {
+  std::ostringstream ss;
+  auto result = print_rec(ss, indent);
+  sb << ss.str();
+  return result;
+}
+
 bool CellSlice::print_rec(int limit, std::ostream& os, int indent) const {
   return print_rec(os, &limit, indent);
 }
