@@ -637,3 +637,31 @@ int equal_slice_bits (slice a, slice b) asm "SDEQ";
 
 ;;; Concatenates two builders
 builder store_builder(builder to, builder from) asm "STBR";
+
+;; Detaches the last element x=x_n from a non-empty Tuple t=(x_1,...,x_n), and returns both the resulting Tuple t'=(x_1,...,x_{n-1}) and the original last element x.
+forall X -> (tuple, X) tpop(tuple t) asm "TPOP";
+forall X -> (tuple, X) ~tpop(tuple t) asm "TPOP";
+
+;; Returns the length of a Tuple.
+int tuple_length(tuple t) asm "TLEN";
+
+;; type checks
+forall X -> int is_int(X x) asm "<{ TRY:<{ 0 PUSHINT ADD DROP -1 PUSHINT }>CATCH<{ 2DROP 0 PUSHINT }> }>CONT 1 1 CALLXARGS";
+forall X -> int is_cell(X x) asm "<{ TRY:<{ CTOS DROP -1 PUSHINT }>CATCH<{ 2DROP 0 PUSHINT }> }>CONT 1 1 CALLXARGS";
+forall X -> int is_slice(X x) asm "<{ TRY:<{ SBITS DROP -1 PUSHINT }>CATCH<{ 2DROP 0 PUSHINT }> }>CONT 1 1 CALLXARGS";
+forall X -> int is_tuple(X x) asm "ISTUPLE";
+
+;; type casts
+forall X -> cell force_cast_to_cell(X x) asm "NOP";
+forall X -> slice force_cast_to_slice(X x) asm "NOP";
+forall X -> int force_cast_to_int(X x) asm "NOP";
+forall X -> tuple force_cast_to_tuple(X x) asm "NOP";
+
+;; get c5 register
+cell get_c5() asm "c5 PUSH";
+
+;; Creates an output action that would modify the collection of this smart contract libraries by adding or removing library with code given in Cell c. If x=0, the library is actually removed if it was previously present in the collection (if not, this action does nothing). If x=1, the library is added as a private library, and if x=2, the library is added as a public library (and becomes available to all smart contracts if the current smart contract resides in the masterchain); if the library was present in the collection before, its public/private status is changed according to x. Values of x other than 0...2 are invalid.
+() set_lib_code(cell library, int x) impure asm "SETLIBCODE";
+
+;; Creates an output action similarly to SETLIBCODE, but instead of the library code accepts its hash as an unsigned 256-bit integer h. If x!=0 and the library with hash h is absent from the library collection of this smart contract, this output action will fail.
+() change_lib(int lib_hash, int x) impure asm "CHANGELIB";
