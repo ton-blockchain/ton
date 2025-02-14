@@ -4510,7 +4510,7 @@ auto to_tonlib_api(const vm::StackEntry& entry, int& limit) -> td::Result<tonlib
 };
 
 auto to_tonlib_api(const td::Ref<vm::Stack>& stack) -> td::Result<std::vector<tonlib_api::object_ptr<tonlib_api::tvm_StackEntry>>> {
-  int stack_limit = 1000;
+  int stack_limit = 8000;
   std::vector<tonlib_api::object_ptr<tonlib_api::tvm_StackEntry>> tl_stack;
   for (auto& entry: stack->as_span()) {
     TRY_RESULT(tl_entry, to_tonlib_api(entry, --stack_limit));
