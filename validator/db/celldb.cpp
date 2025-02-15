@@ -101,6 +101,7 @@ void CellDbIn::start_up() {
     LOG(WARNING) << "Set CellDb block cache size to " << td::format::as_size(opts_->get_celldb_cache_size().value());
   }
   db_options.use_direct_reads = opts_->get_celldb_direct_io();
+  db_options.enable_bloom_filter = !opts_->get_celldb_disable_bloom_filter();
 
   if (opts_->get_celldb_in_memory()) {
     td::RocksDbOptions read_db_options;

@@ -110,6 +110,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual td::optional<td::uint64> get_celldb_cache_size() const = 0;
   virtual bool get_celldb_direct_io() const = 0;
   virtual bool get_celldb_preload_all() const = 0;
+  virtual bool get_celldb_disable_bloom_filter() const = 0;
   virtual td::optional<double> get_catchain_max_block_delay() const = 0;
   virtual td::optional<double> get_catchain_max_block_delay_slow() const = 0;
   virtual bool get_state_serializer_enabled() const = 0;
@@ -142,6 +143,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual void set_celldb_direct_io(bool value) = 0;
   virtual void set_celldb_preload_all(bool value) = 0;
   virtual void set_celldb_in_memory(bool value) = 0;
+  virtual void set_celldb_disable_bloom_filter(bool value) = 0;
   virtual void set_catchain_max_block_delay(double value) = 0;
   virtual void set_catchain_max_block_delay_slow(double value) = 0;
   virtual void set_state_serializer_enabled(bool value) = 0;

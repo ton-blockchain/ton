@@ -218,6 +218,7 @@ class ValidatorEngine : public td::actor::Actor {
   bool celldb_direct_io_ = false;
   bool celldb_preload_all_ = false;
   bool celldb_in_memory_ = false;
+  bool celldb_disable_bloom_filter_ = false;
   td::optional<double> catchain_max_block_delay_, catchain_max_block_delay_slow_;
   bool read_config_ = false;
   bool started_keyring_ = false;
@@ -306,6 +307,9 @@ class ValidatorEngine : public td::actor::Actor {
   }
   void set_celldb_in_memory(bool value) {
     celldb_in_memory_ = value;
+  }
+  void set_celldb_disable_bloom_filter(bool value) {
+    celldb_disable_bloom_filter_ = value;
   }
   void set_catchain_max_block_delay(double value) {
     catchain_max_block_delay_ = value;
