@@ -265,6 +265,41 @@ void CellDbIn::get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>>
   promise.set_result(boc_->get_cell_db_reader());
 }
 
+void CellDbIn::print_all_hashes() {
+  LOG(INFO) << "Enumerating keys in CellDb...";
+
+  auto snapshot = cell_db_->snapshot();
+
+  auto status = snapshot->for_each([&](td::Slice raw_key, td::Slice raw_value) -> td::Status {
+    if (raw_key == "desczero") {
+      LOG(INFO) << "Found empty key: desczero";
+      return td::Status::OK();
+    }
+
+    if (raw_key.size() >= 4 && std::memcmp(raw_key.data(), "desc", 4) == 0) {
+      if (raw_key.size() == 4 + 44) {
+        KeyHash khash;
+        LOG(INFO) << "raw_key: " << raw_key.substr(4, 44);
+        auto hash_part = td::base64_decode(raw_key.substr(4, 44)).move_as_ok();
+        std::memcpy(khash.as_slice().begin(), hash_part.data(), 32);
+        auto block = get_block(khash).move_as_ok();
+
+        LOG(INFO) << "Found key: hash=" << block.root_hash << " d: " << block.root_hash.to_hex();
+        LOG(INFO) << "Block_id = " << block.block_id.to_str();
+      } else {
+        LOG(INFO) << "Found key with \"desc\" prefix but not 48 bytes: key.size()=" << raw_key.size();
+      }
+    }
+    return td::Status::OK();
+  });
+
+  if (status.is_error()) {
+    LOG(ERROR) << "Iteration error: " << status.error().message();
+  } else {
+    LOG(INFO) << "Done enumerating CellDb keys.";
+  }
+}
+
 std::vector<std::pair<std::string, std::string>> CellDbIn::prepare_stats() {
   TD_PERF_COUNTER(celldb_prepare_stats);
   auto r_boc_stats = boc_->get_stats();
@@ -528,6 +563,15 @@ td::Result<CellDbIn::DbEntry> CellDbIn::get_block(KeyHash key_hash) {
   return DbEntry{obj.move_as_ok()};
 }
 
+void CellDbIn::get_block_id_async(KeyHash key_hash, td::Promise<BlockIdExt> promise) {
+  auto result = get_block(key_hash);
+  if (result.is_error()) {
+    promise.set_error(result.move_as_error());
+  } else {
+    promise.set_value(result.move_as_ok().block_id);
+  }
+}
+
 void CellDbIn::set_block(KeyHash key_hash, DbEntry e) {
   const auto key = get_key(key_hash);
   cell_db_->set(td::as_slice(key), e.release()).ensure();
@@ -647,6 +691,14 @@ void CellDb::store_cell(BlockIdExt block_id, td::Ref<vm::Cell> cell, td::Promise
 
 void CellDb::get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) {
   td::actor::send_closure(cell_db_, &CellDbIn::get_cell_db_reader, std::move(promise));
+}
+
+void CellDb::get_block_id(CellDbIn::KeyHash key_hash, td::Promise<BlockIdExt> promise) {
+  td::actor::send_closure(cell_db_, &CellDbIn::get_block_id_async, key_hash, std::move(promise));
+}
+
+void CellDb::print_all_hashes() {
+  td::actor::send_closure(cell_db_, &CellDbIn::print_all_hashes);
 }
 
 void CellDb::start_up() {

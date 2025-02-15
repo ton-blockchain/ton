@@ -23,9 +23,9 @@
 namespace tlbc {
 
 /*
- * 
+ *
  *   C++ CODE GENERATION
- * 
+ *
  */
 
 CppIdentSet global_cpp_ids;
@@ -3036,7 +3036,7 @@ void CppTypeCode::generate_store_enum_method(std::ostream& os, int options) {
        << minl << ");\n";
   } else if (minl == maxl) {
     if (exact) {
-      os << "  return cb.store_long_rchk_bool(value, " << minl << ");\n";
+      os << "  return cb.store_ulong_rchk_bool(value, " << minl << ");\n";
     } else if (incremental_cons_tags && cons_num > (1 << (minl - 1))) {
       os << "  return cb.store_uint_less(" << cons_num << ", value);\n";
     } else {
