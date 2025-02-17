@@ -1957,7 +1957,8 @@ void ValidatorEngine::started_overlays() {
 
 void ValidatorEngine::start_validator() {
   validator_options_.write().set_allow_blockchain_init(config_.validators.size() > 0);
-  validator_options_.write().set_state_serializer_enabled(config_.state_serializer_enabled);
+  validator_options_.write().set_state_serializer_enabled(config_.state_serializer_enabled &&
+                                                          !state_serializer_disabled_flag_);
   load_collator_options();
 
   validator_manager_ = ton::validator::ValidatorManagerFactory::create(
@@ -3973,7 +3974,7 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_setStateS
     promise.set_value(ton::create_serialize_tl_object<ton::ton_api::engine_validator_success>());
     return;
   }
-  validator_options_.write().set_state_serializer_enabled(query.enabled_);
+  validator_options_.write().set_state_serializer_enabled(query.enabled_ && !state_serializer_disabled_flag_);
   td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::update_options,
                           validator_options_);
   config_.state_serializer_enabled = query.enabled_;
@@ -4555,6 +4556,11 @@ int main(int argc, char *argv[]) {
             [&x, s = s.str()]() {
               td::actor::send_closure(x, &ValidatorEngine::set_validator_telemetry_filename, s);
             });
+      });
+  p.add_option(
+      '\0', "disable-state-serializer",
+      "disable persistent state serializer (similar to set-state-serializer-enabled 0 in validator console)", [&]() {
+        acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_state_serializer_disabled_flag); });
       });
   auto S = p.run(argc, argv);
   if (S.is_error()) {

@@ -228,6 +228,7 @@ class ValidatorEngine : public td::actor::Actor {
   std::string validator_telemetry_filename_;
   bool not_all_shards_ = false;
   std::vector<ton::ShardIdFull> add_shard_cmds_;
+  bool state_serializer_disabled_flag_ = false;
 
   std::set<ton::CatchainSeqno> unsafe_catchains_;
   std::map<ton::BlockSeqno, std::pair<ton::CatchainSeqno, td::uint32>> unsafe_catchain_rotations_;
@@ -324,6 +325,9 @@ class ValidatorEngine : public td::actor::Actor {
   }
   void add_shard_cmd(ton::ShardIdFull shard) {
     add_shard_cmds_.push_back(shard);
+  }
+  void set_state_serializer_disabled_flag() {
+    state_serializer_disabled_flag_ = true;
   }
 
   void start_up() override;

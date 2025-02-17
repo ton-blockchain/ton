@@ -1196,6 +1196,30 @@ void ArchiveManager::set_async_mode(bool mode, td::Promise<td::Unit> promise) {
   }
 }
 
+void ArchiveManager::prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise) {
+  std::vector<std::pair<std::string, std::string>> stats;
+  {
+    std::map<BlockSeqno, td::uint64> states;
+    for (auto &[key, file] : perm_states_) {
+      BlockSeqno seqno = key.first;
+      auto r_stat = td::stat(db_root_ + "/archive/states/" + file.filename_short());
+      if (r_stat.is_error()) {
+        LOG(WARNING) << "Cannot stat persistent state file " << file.filename_short() << " : " << r_stat.move_as_error();
+      } else {
+        states[seqno] += r_stat.move_as_ok().size_;
+      }
+    }
+    td::StringBuilder sb;
+    for (auto &[seqno, size] : states) {
+      sb << seqno << ":" << td::format::as_size(size) << " ";
+    }
+    if (!sb.as_cslice().empty()) {
+      stats.emplace_back("persistent_states", sb.as_cslice().str());
+    }
+  }
+  promise.set_value(std::move(stats));
+}
+
 void ArchiveManager::truncate(BlockSeqno masterchain_seqno, ConstBlockHandle handle, td::Promise<td::Unit> promise) {
   index_->begin_transaction().ensure();
   td::MultiPromise mp;

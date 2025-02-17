@@ -655,8 +655,9 @@ class ValidatorManagerImpl : public ValidatorManager {
       td::optional<ShardIdFull> shard,
       td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroups>> promise) override;
 
-  void add_lite_query_stats(int lite_query_id) override {
+  void add_lite_query_stats(int lite_query_id, bool success) override {
     ++ls_stats_[lite_query_id];
+    ++(success ? total_ls_queries_ok_ : total_ls_queries_error_)[lite_query_id];
   }
 
  private:
@@ -747,6 +748,16 @@ class ValidatorManagerImpl : public ValidatorManager {
   std::map<int, td::uint32> ls_stats_;  // lite_api ID -> count, 0 for unknown
   td::uint32 ls_stats_check_ext_messages_{0};
 
+  UnixTime started_at_ = (UnixTime)td::Clocks::system();
+  std::map<int, td::uint64> total_ls_queries_ok_, total_ls_queries_error_;  // lite_api ID -> count, 0 for unknown
+  td::uint64 total_check_ext_messages_ok_{0}, total_check_ext_messages_error_{0};
+  td::uint64 total_collated_blocks_master_ok_{0}, total_collated_blocks_master_error_{0};
+  td::uint64 total_validated_blocks_master_ok_{0}, total_validated_blocks_master_error_{0};
+  td::uint64 total_collated_blocks_shard_ok_{0}, total_collated_blocks_shard_error_{0};
+  td::uint64 total_validated_blocks_shard_ok_{0}, total_validated_blocks_shard_error_{0};
+
+  size_t active_validator_groups_master_{0}, active_validator_groups_shard_{0};
+
   td::actor::ActorOwn<CandidatesBuffer> candidates_buffer_;
 
   struct RecordedBlockStats {
@@ -760,9 +771,14 @@ class ValidatorManagerImpl : public ValidatorManager {
   std::queue<BlockIdExt> recorded_block_stats_lru_;
 
   void record_collate_query_stats(BlockIdExt block_id, double work_time, double cpu_work_time,
-                                  CollationStats stats) override;
-  void record_validate_query_stats(BlockIdExt block_id, double work_time, double cpu_work_time) override;
+                                  td::optional<CollationStats> stats) override;
+  void record_validate_query_stats(BlockIdExt block_id, double work_time, double cpu_work_time, bool success) override;
   RecordedBlockStats &new_block_stats_record(BlockIdExt block_id);
+
+  void register_stats_provider(
+      td::uint64 idx, std::string prefix,
+      std::function<void(td::Promise<std::vector<std::pair<std::string, std::string>>>)> callback) override;
+  void unregister_stats_provider(td::uint64 idx) override;
 
   std::map<PublicKeyHash, td::actor::ActorOwn<ValidatorTelemetry>> validator_telemetry_;
 
@@ -770,6 +786,10 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   std::map<BlockSeqno, td::Ref<PersistentStateDescription>> persistent_state_descriptions_;
   std::map<BlockIdExt, td::Ref<PersistentStateDescription>> persistent_state_blocks_;
+
+  std::map<td::uint64,
+           std::pair<std::string, std::function<void(td::Promise<std::vector<std::pair<std::string, std::string>>>)>>>
+      stats_providers_;
 };
 
 }  // namespace validator

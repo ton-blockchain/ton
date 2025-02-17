@@ -352,6 +352,8 @@ bool Collator::fatal_error(td::Status error) {
                         attempt_idx_ + 1);
     } else {
       main_promise(std::move(error));
+      td::actor::send_closure(manager, &ValidatorManager::record_collate_query_stats, BlockIdExt{new_id, RootHash::zero(), FileHash::zero()},
+                              work_timer_.elapsed(), cpu_work_timer_.elapsed(), td::optional<CollationStats>{});
     }
     busy_ = false;
   }

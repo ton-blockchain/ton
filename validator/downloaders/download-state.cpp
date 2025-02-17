@@ -38,6 +38,7 @@ DownloadShardState::DownloadShardState(BlockIdExt block_id, BlockIdExt mastercha
 }
 
 void DownloadShardState::start_up() {
+  status_ = ProcessStatus(manager_, "process.download_state");
   alarm_timestamp() = timeout_;
 
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<BlockHandle> R) {
@@ -81,6 +82,7 @@ void DownloadShardState::download_state() {
   });
   td::actor::send_closure(manager_, &ValidatorManager::send_get_block_proof_link_request, block_id_, priority_,
                           std::move(P));
+  status_.set_status(PSTRING() << block_id_.id.to_str() << " : downloading proof");
 }
 
 void DownloadShardState::downloaded_proof_link(td::BufferSlice data) {
@@ -123,6 +125,7 @@ void DownloadShardState::checked_proof_link() {
     td::actor::send_closure(manager_, &ValidatorManager::send_get_persistent_state_request, block_id_,
                             masterchain_block_id_, priority_, std::move(P));
   }
+  status_.set_status(PSTRING() << block_id_.id.to_str() << " : downloading state");
 }
 
 void DownloadShardState::download_zero_state() {
@@ -152,6 +155,7 @@ void DownloadShardState::downloaded_zero_state(td::BufferSlice data) {
 }
 
 void DownloadShardState::downloaded_shard_state(td::BufferSlice data) {
+  status_.set_status(PSTRING() << block_id_.id.to_str() << " : processing downloaded state");
   auto S = create_shard_state(block_id_, data.clone());
   if (S.is_error()) {
     fail_handler(actor_id(this), S.move_as_error());
@@ -174,6 +178,7 @@ void DownloadShardState::downloaded_shard_state(td::BufferSlice data) {
 }
 
 void DownloadShardState::checked_shard_state() {
+  status_.set_status(PSTRING() << block_id_.id.to_str() << " : storing state file");
   LOG(WARNING) << "checked shard state " << block_id_.to_str();
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
     R.ensure();
@@ -189,6 +194,7 @@ void DownloadShardState::checked_shard_state() {
 }
 
 void DownloadShardState::written_shard_state_file() {
+  status_.set_status(PSTRING() << block_id_.id.to_str() << " : storing state to celldb");
   LOG(WARNING) << "written shard state file " << block_id_.to_str();
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
     R.ensure();
@@ -198,6 +204,7 @@ void DownloadShardState::written_shard_state_file() {
 }
 
 void DownloadShardState::written_shard_state(td::Ref<ShardState> state) {
+  status_.set_status(PSTRING() << block_id_.id.to_str() << " : finishing");
   state_ = std::move(state);
   handle_->set_unix_time(state_->get_unix_time());
   handle_->set_is_key_block(block_id_.is_masterchain());

@@ -70,6 +70,7 @@ void DownloadState::finish_query() {
 }
 
 void DownloadState::start_up() {
+  status_ = ProcessStatus(validator_manager_, "process.download_state_net");
   alarm_timestamp() = timeout_;
 
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_persistent_state, block_id_,
@@ -190,6 +191,7 @@ void DownloadState::got_block_state_description(td::BufferSlice data) {
                                       td::Timestamp::in(3.0), std::move(P));
             }
           }));
+  status_.set_status(PSTRING() << block_id_.id.to_str() << " : 0 bytes, 0B/s");
 }
 
 void DownloadState::got_block_state_part(td::BufferSlice data, td::uint32 requested_size) {
@@ -198,14 +200,18 @@ void DownloadState::got_block_state_part(td::BufferSlice data, td::uint32 reques
   parts_.push_back(std::move(data));
 
   double elapsed = prev_logged_timer_.elapsed();
-  if (elapsed > 10.0) {
+  if (elapsed > 5.0) {
     prev_logged_timer_ = td::Timer();
+    auto speed = (td::uint64)((double)(sum_ - prev_logged_sum_) / elapsed);
     LOG(WARNING) << "downloading state " << block_id_.to_str() << ": " << td::format::as_size(sum_) << " ("
-                 << td::format::as_size((td::uint64)(double(sum_ - prev_logged_sum_) / elapsed)) << "/s)";
+                 << td::format::as_size(speed) << "/s)";
+    status_.set_status(PSTRING() << block_id_.id.to_str() << " : " << sum_ << " bytes, " << td::format::as_size(speed)
+                                 << "/s");
     prev_logged_sum_ = sum_;
   }
 
   if (last_part) {
+    status_.set_status(PSTRING() << block_id_.id.to_str() << " : " << sum_ << " bytes, finishing");
     td::BufferSlice res{td::narrow_cast<std::size_t>(sum_)};
     auto S = res.as_slice();
     for (auto &p : parts_) {

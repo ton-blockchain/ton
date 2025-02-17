@@ -451,11 +451,9 @@ void ValidatorManagerImpl::check_external_message(td::BufferSlice data, td::Prom
 
   promise = [self = this, wc, addr, promise = std::move(promise),
              SelfId = actor_id(this)](td::Result<td::Ref<ExtMessage>> R) mutable {
-    if (R.is_error()) {
-      promise.set_error(R.move_as_error());
-      return;
-    }
-    td::actor::send_lambda(SelfId, [=, promise = std::move(promise), message = R.move_as_ok()]() mutable {
+    td::actor::send_lambda(SelfId, [=, promise = std::move(promise), R = std::move(R)]() mutable {
+      ++(R.is_ok() ? self->total_check_ext_messages_ok_ : self->total_check_ext_messages_error_);
+      TRY_RESULT_PROMISE(promise, message, std::move(R));
       if (self->checked_ext_msg_counter_.inc_msg_count(wc, addr) > max_ext_msg_per_addr()) {
         promise.set_error(
             td::Status::Error(PSTRING() << "too many external messages to address " << wc << ":" << addr.to_hex()));
@@ -2131,7 +2129,7 @@ void ValidatorManagerImpl::update_shards() {
     }
   }
 
-  bool validating_masterchain = false;
+  active_validator_groups_master_ = active_validator_groups_shard_ = 0;
   if (allow_validate_) {
     for (auto &desc : new_shards) {
       auto shard = desc.first;
@@ -2148,9 +2146,7 @@ void ValidatorManagerImpl::update_shards() {
       auto validator_id = get_validator(shard, val_set);
 
       if (!validator_id.is_zero()) {
-        if (shard.is_masterchain()) {
-          validating_masterchain = true;
-        }
+        ++(shard.is_masterchain() ? active_validator_groups_master_ : active_validator_groups_shard_);
         auto val_group_id = get_validator_set_id(shard, val_set, opts_hash, key_seqno, opts);
 
         if (force_recover) {
@@ -2845,8 +2841,8 @@ void ValidatorManagerImpl::prepare_stats(td::Promise<std::vector<std::pair<std::
     vec.emplace_back("knownkeymasterchainblock", last_known_key_block_handle_->id().to_str());
     vec.emplace_back("rotatemasterchainblock", last_rotate_block_id_.to_str());
     //vec.emplace_back("shardclientmasterchainseqno", td::to_string(min_confirmed_masterchain_seqno_));
-    vec.emplace_back("stateserializermasterchainseqno", td::to_string(state_serializer_masterchain_seqno_));
   }
+
   td::NamedThreadSafeCounter::get_default().for_each([&](auto key, auto value) {
     vec.emplace_back("counter." + key, PSTRING() << value);
   });
@@ -2864,9 +2860,48 @@ void ValidatorManagerImpl::prepare_stats(td::Promise<std::vector<std::pair<std::
     td::actor::send_closure(shard_client_, &ShardClient::get_processed_masterchain_block, std::move(P));
   }
 
+  vec.emplace_back("start_time", td::to_string(started_at_));
+  for (int iter = 0; iter < 2; ++iter) {
+    td::StringBuilder sb;
+    td::uint32 total = 0;
+    for (const auto &p : (iter ? total_ls_queries_error_ : total_ls_queries_ok_)) {
+      sb << lite_query_name_by_id(p.first) << ":" << p.second << " ";
+      total += p.second;
+    }
+    sb << "TOTAL:" << total;
+    vec.emplace_back(PSTRING() << "total.ls_queries_" << (iter ? "error" : "ok"), sb.as_cslice().str());
+  }
+  vec.emplace_back("total.ext_msg_check",
+                   PSTRING() << "ok:" << total_check_ext_messages_ok_ << " error:" << total_check_ext_messages_error_);
+  vec.emplace_back("total.collated_blocks.master", PSTRING() << "ok:" << total_collated_blocks_master_ok_
+                                                             << " error:" << total_collated_blocks_master_error_);
+  vec.emplace_back("total.collated_blocks.shard", PSTRING() << "ok:" << total_collated_blocks_shard_ok_
+                                                            << " error:" << total_collated_blocks_shard_error_);
+  vec.emplace_back("total.validated_blocks.master", PSTRING() << "ok:" << total_validated_blocks_master_ok_
+                                                              << " error:" << total_validated_blocks_master_error_);
+  vec.emplace_back("total.validated_blocks.shard", PSTRING() << "ok:" << total_validated_blocks_shard_ok_
+                                                             << " error:" << total_validated_blocks_shard_error_);
+  if (is_validator()) {
+    vec.emplace_back("active_validator_groups", PSTRING() << "master:" << active_validator_groups_master_
+                                                          << " shard:" << active_validator_groups_shard_);
+  }
+
+  bool serializer_enabled = opts_->get_state_serializer_enabled();
+  if (is_validator() && last_masterchain_state_->get_global_id() == -239) {
+    serializer_enabled = false;
+  }
+  vec.emplace_back("stateserializerenabled", serializer_enabled ? "true" : "false");
+
   merger.make_promise("").set_value(std::move(vec));
 
+  if (!serializer_.empty()) {
+    td::actor::send_closure(serializer_, &AsyncStateSerializer::prepare_stats, merger.make_promise(""));
+  }
+
   td::actor::send_closure(db_, &Db::prepare_stats, merger.make_promise("db."));
+  for (auto &[_, p] : stats_providers_) {
+    p.second(merger.make_promise(p.first));
+  }
 }
 
 void ValidatorManagerImpl::prepare_perf_timer_stats(td::Promise<std::vector<PerfTimerStats>> promise) {
@@ -3353,17 +3388,28 @@ td::actor::ActorOwn<ValidatorManagerInterface> ValidatorManagerFactory::create(
 }
 
 void ValidatorManagerImpl::record_collate_query_stats(BlockIdExt block_id, double work_time, double cpu_work_time,
-                                                      CollationStats stats) {
+                                                      td::optional<CollationStats> stats) {
+  if (!stats) {
+    ++(block_id.is_masterchain() ? total_collated_blocks_master_error_ : total_collated_blocks_shard_error_);
+    return;
+  }
   auto &record = new_block_stats_record(block_id);
   record.collator_work_time_ = work_time;
   record.collator_cpu_work_time_ = cpu_work_time;
-  record.collator_stats_ = std::move(stats);
+  record.collator_stats_ = std::move(stats.value());
+  ++(block_id.is_masterchain() ? total_collated_blocks_master_ok_ : total_collated_blocks_shard_ok_);
 }
 
-void ValidatorManagerImpl::record_validate_query_stats(BlockIdExt block_id, double work_time, double cpu_work_time) {
+void ValidatorManagerImpl::record_validate_query_stats(BlockIdExt block_id, double work_time, double cpu_work_time,
+                                                       bool success) {
   auto &record = new_block_stats_record(block_id);
   record.validator_work_time_ = work_time;
   record.validator_cpu_work_time_ = cpu_work_time;
+  if (success) {
+    ++(block_id.is_masterchain() ? total_validated_blocks_master_ok_ : total_validated_blocks_shard_ok_);
+  } else {
+    ++(block_id.is_masterchain() ? total_validated_blocks_master_error_ : total_validated_blocks_shard_error_);
+  }
 }
 
 ValidatorManagerImpl::RecordedBlockStats &ValidatorManagerImpl::new_block_stats_record(BlockIdExt block_id) {
@@ -3375,6 +3421,16 @@ ValidatorManagerImpl::RecordedBlockStats &ValidatorManagerImpl::new_block_stats_
     }
   }
   return recorded_block_stats_[block_id];
+}
+
+void ValidatorManagerImpl::register_stats_provider(
+    td::uint64 idx, std::string prefix,
+    std::function<void(td::Promise<std::vector<std::pair<std::string, std::string>>>)> callback) {
+  stats_providers_[idx] = {std::move(prefix), std::move(callback)};
+}
+
+void ValidatorManagerImpl::unregister_stats_provider(td::uint64 idx) {
+  stats_providers_.erase(idx);
 }
 
 size_t ValidatorManagerImpl::CheckedExtMsgCounter::get_msg_count(WorkchainId wc, StdSmcAddress addr) {

@@ -32,6 +32,8 @@ namespace ton {
 namespace validator {
 
 void ValidatorManagerMasterchainReiniter::start_up() {
+  status_ = ProcessStatus(manager_, "process.initial_sync");
+  status_.set_status(PSTRING() << "starting, init block seqno " << block_id_.seqno());
   LOG(INFO) << "init_block_id=" << block_id_;
   CHECK(block_id_.is_masterchain());
   CHECK(block_id_.id.shard == shardIdAll);
@@ -58,6 +60,7 @@ void ValidatorManagerMasterchainReiniter::got_masterchain_handle(BlockHandle han
   key_blocks_.push_back(handle_);
 
   if (opts_->initial_sync_disabled()) {
+    status_.set_status(PSTRING() << "downloading masterchain state " << handle_->id().seqno());
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
       R.ensure();
       td::actor::send_closure(SelfId, &ValidatorManagerMasterchainReiniter::download_masterchain_state);
@@ -181,6 +184,7 @@ void ValidatorManagerMasterchainReiniter::got_next_key_blocks(std::vector<BlockI
     }
   }
   LOG(WARNING) << "last key block is " << vec[vec.size() - 1];
+  status_.set_status(PSTRING() << "last key block is " << vec.back().seqno());
   auto s = static_cast<td::uint32>(key_blocks_.size());
   key_blocks_.resize(key_blocks_.size() + vec.size(), nullptr);
 
@@ -247,6 +251,7 @@ void ValidatorManagerMasterchainReiniter::choose_masterchain_state() {
 }
 
 void ValidatorManagerMasterchainReiniter::download_masterchain_state() {
+  status_.set_status(PSTRING() << "downloading masterchain state " << block_id_.seqno());
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
     if (R.is_error()) {
       LOG(WARNING) << "failed to download masterchain state: " << R.move_as_error();
@@ -274,6 +279,7 @@ void ValidatorManagerMasterchainReiniter::downloaded_masterchain_state(td::Ref<S
     td::actor::send_closure(SelfId, &ValidatorManagerMasterchainReiniter::downloaded_all_shards);
   });
   client_ = td::actor::create_actor<ShardClient>("shardclient", opts_, handle_, state_, manager_, std::move(P));
+  status_.set_status(PSTRING() << "downloading all shard states, mc seqno " << block_id_.seqno());
 }
 
 void ValidatorManagerMasterchainReiniter::downloaded_all_shards() {

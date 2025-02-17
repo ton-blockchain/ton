@@ -20,6 +20,7 @@
 
 #include <vector>
 #include <deque>
+#include <functional>
 
 #include "td/actor/actor.h"
 
@@ -292,6 +293,13 @@ class ValidatorManagerInterface : public td::actor::Actor {
   virtual void get_out_msg_queue_size(BlockIdExt block_id, td::Promise<td::uint64> promise) = 0;
 
   virtual void update_options(td::Ref<ValidatorManagerOptions> opts) = 0;
+
+  virtual void register_stats_provider(
+      td::uint64 idx, std::string prefix,
+      std::function<void(td::Promise<std::vector<std::pair<std::string, std::string>>>)> callback) {
+  }
+  virtual void unregister_stats_provider(td::uint64 idx) {
+  }
 };
 
 }  // namespace validator

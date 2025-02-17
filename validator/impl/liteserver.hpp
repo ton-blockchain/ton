@@ -97,7 +97,6 @@ class LiteQuery : public td::actor::Actor {
   bool fatal_error(std::string err_msg, int err_code = -400);
   bool fatal_error(int err_code, std::string err_msg = "");
   void abort_query(td::Status reason);
-  void abort_query_ext(td::Status reason, std::string err_msg);
   bool finish_query(td::BufferSlice result, bool skip_cache_update = false);
   void alarm() override;
   void start_up() override;
