@@ -17,6 +17,7 @@
 #pragma once
 
 #include "src-file.h"
+#include "fwd-declarations.h"
 #include <cstdint>
 #include <string>
 #include <functional>
@@ -335,6 +336,28 @@ public:
   std::string as_human_readable() const override { return nameT; }
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+};
+
+/*
+ * `A`, `User`, `SomeStruct` is TypeDataStruct. At TVM level, structs are tensors.
+ * In the code, creating a struct is either `var v: A = { ... }` (by hint) or `var v = A { ... }`.
+ * Fields of a struct have their own types (accessed by struct_ref).
+ */
+class TypeDataStruct final : public TypeData {
+  TypeDataStruct(int width_on_stack, StructPtr struct_ref)
+    : TypeData(0, width_on_stack)
+    , struct_ref(struct_ref) {}
+
+public:
+  StructPtr struct_ref;
+
+  static TypePtr create(StructPtr struct_ref);
+
+  int get_type_id() const override;
+  std::string as_human_readable() const override;
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+  bool can_hold_tvm_null_instead() const override;
 };
 
 /*

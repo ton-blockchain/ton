@@ -61,6 +61,9 @@ class ASTStringifier final : public ASTVisitor {
     {ast_not_null_operator, "ast_not_null_operator"},
     {ast_match_expression, "ast_match_expression"},
     {ast_match_arm, "ast_match_arm"},
+    {ast_object_field, "ast_object_field"},
+    {ast_object_body, "ast_object_body"},
+    {ast_object_literal, "ast_object_literal"},
     // statements
     {ast_empty_statement, "ast_empty_statement"},
     {ast_block_statement, "ast_block_statement"},
@@ -85,6 +88,9 @@ class ASTStringifier final : public ASTVisitor {
     {ast_global_var_declaration, "ast_global_var_declaration"},
     {ast_constant_declaration, "ast_constant_declaration"},
     {ast_type_alias_declaration, "ast_type_alias_declaration"},
+    {ast_struct_field, "ast_struct_field"},
+    {ast_struct_body, "ast_struct_body"},
+    {ast_struct_declaration, "ast_struct_declaration"},
     {ast_tolk_required_version, "ast_tolk_required_version"},
     {ast_import_directive, "ast_import_directive"},
     {ast_tolk_file, "ast_tolk_file"},
@@ -163,6 +169,10 @@ class ASTStringifier final : public ASTVisitor {
         return static_cast<std::string>(v->as<ast_constant_declaration>()->get_identifier()->name);
       case ast_type_alias_declaration:
         return "type " + static_cast<std::string>(v->as<ast_type_alias_declaration>()->get_identifier()->name);
+      case ast_struct_field:
+        return static_cast<std::string>(v->as<ast_struct_field>()->get_identifier()->name) + ": " + v->as<ast_struct_field>()->declared_type->as_human_readable();
+      case ast_struct_declaration:
+        return "struct " + static_cast<std::string>(v->as<ast_struct_declaration>()->get_identifier()->name);
       case ast_assign:
         return "=";
       case ast_set_assign:
@@ -224,6 +234,10 @@ class ASTStringifier final : public ASTVisitor {
           return "(expression)";
         }
         return "(else)";
+      case ast_object_field:
+        return static_cast<std::string>(v->as<ast_object_field>()->get_field_name());
+      case ast_object_literal:
+        return "↓" + std::to_string(v->as<ast_object_literal>()->get_body()->get_num_fields());
       case ast_tolk_required_version:
         return static_cast<std::string>(v->as<ast_tolk_required_version>()->semver);
       case ast_import_directive:
@@ -289,6 +303,9 @@ public:
       case ast_not_null_operator:             return handle_vertex(v->as<ast_not_null_operator>());
       case ast_match_expression:              return handle_vertex(v->as<ast_match_expression>());
       case ast_match_arm:                     return handle_vertex(v->as<ast_match_arm>());
+      case ast_object_field:                  return handle_vertex(v->as<ast_object_field>());
+      case ast_object_body:                   return handle_vertex(v->as<ast_object_body>());
+      case ast_object_literal:                return handle_vertex(v->as<ast_object_literal>());
       // statements
       case ast_empty_statement:               return handle_vertex(v->as<ast_empty_statement>());
       case ast_block_statement:               return handle_vertex(v->as<ast_block_statement>());
@@ -313,6 +330,9 @@ public:
       case ast_global_var_declaration:        return handle_vertex(v->as<ast_global_var_declaration>());
       case ast_constant_declaration:          return handle_vertex(v->as<ast_constant_declaration>());
       case ast_type_alias_declaration:        return handle_vertex(v->as<ast_type_alias_declaration>());
+      case ast_struct_field:                  return handle_vertex(v->as<ast_struct_field>());
+      case ast_struct_body:                   return handle_vertex(v->as<ast_struct_body>());
+      case ast_struct_declaration:            return handle_vertex(v->as<ast_struct_declaration>());
       case ast_tolk_required_version:         return handle_vertex(v->as<ast_tolk_required_version>());
       case ast_import_directive:              return handle_vertex(v->as<ast_import_directive>());
       case ast_tolk_file:                     return handle_vertex(v->as<ast_tolk_file>());

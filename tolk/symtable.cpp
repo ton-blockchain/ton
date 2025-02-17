@@ -117,6 +117,23 @@ void AliasDefData::assign_resolved_type(TypePtr underlying_type) {
   this->underlying_type = underlying_type;
 }
 
+void StructFieldData::assign_resolved_type(TypePtr declared_type) {
+  this->declared_type = declared_type;
+}
+
+void StructData::assign_resolved_type(TypePtr struct_type) {
+  this->struct_type = struct_type;
+}
+
+StructFieldPtr StructData::find_field(std::string_view field_name) const {
+  for (StructFieldPtr field : fields) {
+    if (field->name == field_name) {
+      return field;
+    }
+  }
+  return nullptr;
+}
+
 GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
 static void fire_error_redefinition_of_symbol(SrcLocation loc, const Symbol* previous) {
   SrcLocation prev_loc = previous->loc;
@@ -158,6 +175,14 @@ void GlobalSymbolTable::add_type_alias(AliasDefPtr a_sym) {
   auto [it, inserted] = entries.emplace(key, a_sym);
   if (!inserted) {
     fire_error_redefinition_of_symbol(a_sym->loc, it->second);
+  }
+}
+
+void GlobalSymbolTable::add_struct(StructPtr s_sym) {
+  auto key = key_hash(s_sym->name);
+  auto [it, inserted] = entries.emplace(key, s_sym);
+  if (!inserted) {
+    fire_error_redefinition_of_symbol(s_sym->loc, it->second);
   }
 }
 

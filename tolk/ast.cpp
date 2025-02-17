@@ -176,6 +176,18 @@ void Vertex<ast_type_alias_declaration>::assign_resolved_type(TypePtr underlying
   this->underlying_type = underlying_type;
 }
 
+void Vertex<ast_struct_field>::assign_field_ref(StructFieldPtr field_ref) {
+  this->field_ref = field_ref;
+}
+
+void Vertex<ast_struct_field>::assign_resolved_type(TypePtr declared_type) {
+  this->declared_type = declared_type;
+}
+
+void Vertex<ast_struct_declaration>::assign_struct_ref(StructPtr struct_ref) {
+  this->struct_ref = struct_ref;
+}
+
 void Vertex<ast_instantiationT_item>::assign_resolved_type(TypePtr substituted_type) {
   this->substituted_type = substituted_type;
 }
@@ -206,6 +218,14 @@ void Vertex<ast_block_statement>::assign_first_unreachable(AnyV first_unreachabl
 
 void Vertex<ast_dot_access>::assign_target(const DotTarget& target) {
   this->target = target;
+}
+
+void Vertex<ast_object_field>::assign_field_ref(StructFieldPtr field_ref) {
+  this->field_ref = field_ref;
+}
+
+void Vertex<ast_object_literal>::assign_struct_ref(StructPtr struct_ref) {
+  this->struct_ref = struct_ref;
 }
 
 void Vertex<ast_function_declaration>::assign_fun_ref(FunctionPtr fun_ref) {

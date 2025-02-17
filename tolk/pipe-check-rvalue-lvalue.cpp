@@ -149,6 +149,31 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
   }
 
   void visit(V<ast_dot_access> v) override {
+    // check for `immutableVal.field = rhs` or any other mutation of an immutable tensor/tuple/object
+    // don't allow cheating like `((immutableVal!)).field = rhs`
+    if (v->is_lvalue) {
+      AnyExprV leftmost_obj = v->get_obj();
+      while (true) {
+        if (auto as_dot = leftmost_obj->try_as<ast_dot_access>()) {
+          leftmost_obj = as_dot->get_obj();
+        } else if (auto as_par = leftmost_obj->try_as<ast_parenthesized_expression>()) {
+          leftmost_obj = as_par->get_expr();
+        } else if (auto as_cast = leftmost_obj->try_as<ast_cast_as_operator>()) {
+          leftmost_obj = as_cast->get_expr();
+        } else if (auto as_nn = leftmost_obj->try_as<ast_not_null_operator>()) {
+          leftmost_obj = as_nn->get_expr();
+        } else {
+          break;
+        }
+      }
+
+      if (auto as_ref = leftmost_obj->try_as<ast_reference>()) {
+        if (LocalVarPtr var_ref = as_ref->sym->try_as<LocalVarPtr>(); var_ref && var_ref->is_immutable()) {
+          fire_error_modifying_immutable_variable(cur_f, leftmost_obj, var_ref);
+        }
+      }
+    }
+
     // a reference to a method used as rvalue, like `var v = t.tupleAt`
     if (v->is_rvalue && v->is_target_fun_ref()) {
       validate_function_used_as_noncall(cur_f, v, std::get<FunctionPtr>(v->target));

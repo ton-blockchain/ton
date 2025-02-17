@@ -160,6 +160,12 @@ struct TypeDataResolver {
             }
             return TypeDataAlias::create(alias_ref);
           }
+          if (StructPtr struct_ref = sym->try_as<StructPtr>()) {
+            if (!struct_ref->struct_type) {
+              resolve_and_mutate_struct_and_fields(struct_ref);
+            }
+            return struct_ref->struct_type;
+          }
         }
         if (un->text == "auto") {
           throw ParseError(cur_f, un->loc, "`auto` type does not exist; just omit a type for local variable (will be inferred from assignment); parameters should always be typed");
@@ -185,6 +191,27 @@ struct TypeDataResolver {
     called_stack.push_back(alias_ref);
     TypePtr underlying_type = finalize_type_data(nullptr, alias_ref->underlying_type, nullptr);
     alias_ref->mutate()->assign_resolved_type(underlying_type);
+    called_stack.pop_back();
+  }
+
+  static void resolve_and_mutate_struct_and_fields(StructPtr struct_ref) {
+    static std::vector<StructPtr> called_stack;
+
+    // prevent recursion like `struct A { field: A }`
+    // currently, a struct is a tensor, and recursion always leads to infinite size (`A?` also, it's also on a stack)
+    // if there would be an annotation to store a struct in a tuple, then it has to be reconsidered
+    bool contains = std::find(called_stack.begin(), called_stack.end(), struct_ref) != called_stack.end();
+    if (contains) {
+      throw ParseError(struct_ref->loc, "struct `" + struct_ref->name + "` size is infinity due to recursive fields");
+    }
+
+    called_stack.push_back(struct_ref);
+    for (int i = 0; i < struct_ref->get_num_fields(); ++i) {
+      StructFieldPtr field_ref = struct_ref->get_field(i);
+      TypePtr declared_type = finalize_type_data(nullptr, field_ref->declared_type, nullptr);
+      field_ref->mutate()->assign_resolved_type(declared_type);
+    }
+    struct_ref->mutate()->assign_resolved_type(TypeDataStruct::create(struct_ref));
     called_stack.pop_back();
   }
 };
@@ -280,7 +307,7 @@ protected:
     switch (v->pattern_kind) {
       case MatchArmKind::exact_type: {
         if (const TypeDataUnresolved* maybe_ident = v->exact_type->try_as<TypeDataUnresolved>()) {
-          if (const Symbol* sym = current_scope.lookup_symbol(maybe_ident->text); sym && !sym->try_as<AliasDefPtr>()) {
+          if (const Symbol* sym = current_scope.lookup_symbol(maybe_ident->text); sym && !sym->try_as<AliasDefPtr>() && !sym->try_as<StructPtr>()) {
             auto v_ident = createV<ast_identifier>(v->loc, sym->name);
             AnyExprV pattern_expr = createV<ast_reference>(v->loc, v_ident, nullptr);
             parent::visit(pattern_expr);
@@ -425,6 +452,14 @@ void pipeline_resolve_identifiers_and_assign_symbols() {
       } else if (auto v_alias = v->try_as<ast_type_alias_declaration>()) {
         TypeDataResolver::resolve_and_mutate_type_alias(v_alias->alias_ref);
         v_alias->mutate()->assign_resolved_type(v_alias->alias_ref->underlying_type);
+
+      } else if (auto v_struct = v->try_as<ast_struct_declaration>()) {
+        TypeDataResolver::resolve_and_mutate_struct_and_fields(v_struct->struct_ref);
+        auto v_body = v_struct->get_struct_body();
+        for (int i = 0; i < v_body->get_num_fields(); ++i) {
+          auto v_field = v_body->get_field(i);
+          v_field->mutate()->assign_resolved_type(v_struct->struct_ref->get_field(i)->declared_type);
+        }
       }
     }
   }

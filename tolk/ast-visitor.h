@@ -118,6 +118,9 @@ protected:
   virtual void visit(V<ast_not_null_operator> v)         { return visit_children(v); }
   virtual void visit(V<ast_match_expression> v)          { return visit_children(v); }
   virtual void visit(V<ast_match_arm> v)                 { return visit_children(v); }
+  virtual void visit(V<ast_object_field> v)              { return visit_children(v); }
+  virtual void visit(V<ast_object_body> v)               { return visit_children(v); }
+  virtual void visit(V<ast_object_literal> v)            { return visit_children(v); }
   // statements
   virtual void visit(V<ast_empty_statement> v)           { return visit_children(v); }
   virtual void visit(V<ast_block_statement> v)           { return visit_children(v); }
@@ -160,6 +163,9 @@ protected:
       case ast_not_null_operator:               return visit(v->as<ast_not_null_operator>());
       case ast_match_expression:                return visit(v->as<ast_match_expression>());
       case ast_match_arm:                       return visit(v->as<ast_match_arm>());
+      case ast_object_field:                    return visit(v->as<ast_object_field>());
+      case ast_object_body:                     return visit(v->as<ast_object_body>());
+      case ast_object_literal:                  return visit(v->as<ast_object_literal>());
       // statements
       case ast_empty_statement:                 return visit(v->as<ast_empty_statement>());
       case ast_block_statement:                 return visit(v->as<ast_block_statement>());

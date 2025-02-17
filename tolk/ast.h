@@ -93,6 +93,9 @@ enum ASTNodeType {
   ast_not_null_operator,
   ast_match_expression,
   ast_match_arm,
+  ast_object_field,
+  ast_object_body,
+  ast_object_literal,
   // statements
   ast_empty_statement,
   ast_block_statement,
@@ -117,6 +120,9 @@ enum ASTNodeType {
   ast_global_var_declaration,
   ast_constant_declaration,
   ast_type_alias_declaration,
+  ast_struct_field,
+  ast_struct_body,
+  ast_struct_declaration,
   ast_tolk_required_version,
   ast_import_directive,
   ast_tolk_file,
@@ -562,11 +568,13 @@ public:
 
   typedef std::variant<
     FunctionPtr,                 // for `t.tupleAt` target is `tupleAt` global function
+    StructFieldPtr,              // for `user.id` target is field `id` of struct `User`
     int                          // for `t.0` target is "indexed access" 0
   > DotTarget;
-  DotTarget target = static_cast<FunctionData*>(nullptr); // filled at type inferring
+  DotTarget target = static_cast<FunctionPtr>(nullptr); // filled at type inferring
 
   bool is_target_fun_ref() const { return std::holds_alternative<FunctionPtr>(target); }
+  bool is_target_struct_field() const { return std::holds_alternative<StructFieldPtr>(target); }
   bool is_target_indexed_access() const { return std::holds_alternative<int>(target); }
 
   AnyExprV get_obj() const { return child; }
@@ -778,6 +786,59 @@ struct Vertex<ast_match_arm> final : ASTExprBinary {
   Vertex(SrcLocation loc, MatchArmKind pattern_kind, TypePtr exact_type, AnyExprV pattern_expr, AnyExprV body)
     : ASTExprBinary(ast_match_arm, loc, pattern_expr, body)
     , pattern_kind(pattern_kind), exact_type(exact_type) {}
+};
+
+template<>
+// ast_object_field is one field at object creation
+// example: `Point { x: 2, y: 3 }` is object creation, its body contains 2 fields
+struct Vertex<ast_object_field> final : ASTExprUnary {
+private:
+  V<ast_identifier> identifier;
+
+public:
+  StructFieldPtr field_ref = nullptr;   // assigned at type inferring
+
+  AnyExprV get_init_val() const { return child; }
+  std::string_view get_field_name() const { return identifier->name; }
+  V<ast_identifier> get_field_identifier() const { return identifier; }
+
+  Vertex* mutate() const { return const_cast<Vertex*>(this); }
+  void assign_field_ref(StructFieldPtr field_ref);
+
+  Vertex(SrcLocation loc, V<ast_identifier> name_identifier, AnyExprV init_val)
+    : ASTExprUnary(ast_object_field, loc, init_val)
+    , identifier(name_identifier) {}
+};
+
+template<>
+// ast_object_body is `{ ... }` inside object initialization, it contains fields
+// examples: see below
+struct Vertex<ast_object_body> final : ASTExprVararg {
+  int get_num_fields() const { return size(); }
+  auto get_field(int i) const { return child(i)->as<ast_object_field>(); }
+  std::vector<AnyExprV> get_all_fields() const { return children; }
+
+  Vertex(SrcLocation loc, std::vector<AnyExprV>&& fields)
+    : ASTExprVararg(ast_object_body, loc, std::move(fields)) {}
+};
+
+template<>
+// ast_object_literal is creating an instance of a struct with initial values of fields, like objects in TypeScript
+// example: `Point { ... }`           (object creation has explicit ref and body)
+// example: `var v: Point = { ... }`  (object creation has only body, struct_ref is determined from the left)
+struct Vertex<ast_object_literal> final : ASTExprBinary {
+  StructPtr struct_ref = nullptr;       // assigned at type inferring
+
+  bool has_explicit_ref() const { return lhs->type != ast_empty_expression; }
+  auto get_explicit_ref() const { return lhs->as<ast_reference>(); }
+  AnyExprV get_maybe_reference() const { return lhs; }      // ast_empty_expression or ast_reference
+  auto get_body() const { return rhs->as<ast_object_body>(); }
+
+  Vertex* mutate() const { return const_cast<Vertex*>(this); }
+  void assign_struct_ref(StructPtr struct_ref);
+
+  Vertex(SrcLocation loc, AnyExprV maybe_reference, V<ast_object_body> body)
+    : ASTExprBinary(ast_object_literal, loc, maybe_reference, body) {}
 };
 
 
@@ -1125,6 +1186,52 @@ struct Vertex<ast_type_alias_declaration> final : ASTOtherVararg {
   Vertex(SrcLocation loc, V<ast_identifier> name_identifier, TypePtr underlying_type)
     : ASTOtherVararg(ast_type_alias_declaration, loc, {name_identifier})
     , underlying_type(underlying_type) {}
+};
+
+template<>
+// ast_struct_field is one field at struct declaration
+// example: `struct Point { x: int, y: int }` is struct declaration, its body contains 2 fields
+struct Vertex<ast_struct_field> final : ASTOtherVararg {
+  StructFieldPtr field_ref = nullptr;   // filled after register
+  TypePtr declared_type;
+
+  auto get_identifier() const { return children.at(0)->as<ast_identifier>(); }
+
+  Vertex* mutate() const { return const_cast<Vertex*>(this); }
+  void assign_field_ref(StructFieldPtr field_ref);
+  void assign_resolved_type(TypePtr declared_type);
+
+  Vertex(SrcLocation loc, V<ast_identifier> name_identifier, TypePtr declared_type)
+    : ASTOtherVararg(ast_struct_field, loc, {name_identifier})
+    , declared_type(declared_type) {}
+};
+
+template<>
+// ast_struct_body is `{ ... }` inside struct declaration, it contains fields
+// example: `struct Storage { owner: User; validUntil: int }` its body contains 2 fields
+struct Vertex<ast_struct_body> final : ASTOtherVararg {
+  int get_num_fields() const { return size(); }
+  auto get_field(int i) const { return children.at(i)->as<ast_struct_field>(); }
+
+  Vertex(SrcLocation loc, std::vector<AnyV>&& fields)
+    : ASTOtherVararg(ast_struct_body, loc, std::move(fields)) {}
+};
+
+template<>
+// ast_struct_declaration is declaring a struct with fields (each having declared_type), like interfaces in TypeScript
+// example: `struct Storage { owner: User; validUntil: int }`
+// currently, Tolk doesn't have "implements" or whatever, so struct declaration contains only body
+struct Vertex<ast_struct_declaration> final : ASTOtherVararg {
+  StructPtr struct_ref = nullptr;       // filled after register
+
+  auto get_identifier() const { return children.at(0)->as<ast_identifier>(); }
+  auto get_struct_body() const { return children.at(1)->as<ast_struct_body>(); }
+
+  Vertex* mutate() const { return const_cast<Vertex*>(this); }
+  void assign_struct_ref(StructPtr struct_ref);
+
+  Vertex(SrcLocation loc, V<ast_identifier> name_identifier, V<ast_struct_body> struct_body)
+    : ASTOtherVararg(ast_struct_declaration, loc, {name_identifier, struct_body}) {}
 };
 
 template<>

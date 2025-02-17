@@ -222,6 +222,26 @@ fun testCallbackUnion(call1st: bool): (int, int) | int {
     return cb(10) as int
 }
 
+struct WithCallbacks {
+    f1: (int -> int)?,
+    beginCell: builder -> cell,
+}
+
+fun doEndCellActually(w: WithCallbacks, b: builder) { return w.beginCell(b); }
+
+@method_id(115)
+fun testCallableFields() {
+    var w: WithCallbacks = { f1: null, beginCell: endCell };
+    if (10 > 3) {
+        w.f1 = justAdd2;
+    }
+    return (
+        w.f1!(5),
+        w.doEndCellActually(beginCell().storeInt(6, 32)).beginParse().loadInt(32),
+        beginParse(w.beginCell(beginCell().storeInt(7, 32))).loadInt(32)
+    );
+}
+
 fun main() {}
 
 /**
@@ -246,4 +266,5 @@ fun main() {}
 @testcase | 113 | -1         | 12 -1
 @testcase | 114 | -1         | 2 3 130
 @testcase | 114 | 0          | (null) 12 1
+@testcase | 115 |            | 7 6 7
  */

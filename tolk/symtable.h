@@ -228,6 +228,37 @@ struct AliasDefData final : Symbol {
   void assign_resolved_type(TypePtr underlying_type);
 };
 
+struct StructFieldData final : Symbol {
+  int field_idx;
+  TypePtr declared_type;
+
+  StructFieldData* mutate() const { return const_cast<StructFieldData*>(this); }
+  void assign_resolved_type(TypePtr declared_type);
+
+  StructFieldData(std::string name, SrcLocation loc, int field_idx, TypePtr declared_type)
+    : Symbol(std::move(name), loc)
+    , field_idx(field_idx)
+    , declared_type(declared_type) {
+  }
+};
+
+struct StructData final : Symbol {
+  std::vector<StructFieldPtr> fields;
+  const TypeData* struct_type = nullptr;      // it's TypeDataStruct, assigned at resolve identifiers
+
+  int get_num_fields() const { return static_cast<int>(fields.size()); }
+  StructFieldPtr get_field(int i) const { return fields.at(i); }
+  StructFieldPtr find_field(std::string_view field_name) const;
+
+  StructData* mutate() const { return const_cast<StructData*>(this); }
+  void assign_resolved_type(TypePtr struct_type);
+
+  StructData(std::string name, SrcLocation loc, std::vector<StructFieldPtr>&& fields)
+    : Symbol(std::move(name), loc)
+    , fields(std::move(fields)) {
+  }
+};
+
 class GlobalSymbolTable {
   std::unordered_map<uint64_t, const Symbol*> entries;
 
@@ -240,6 +271,7 @@ public:
   void add_global_var(GlobalVarPtr g_sym);
   void add_global_const(GlobalConstPtr c_sym);
   void add_type_alias(AliasDefPtr a_sym);
+  void add_struct(StructPtr s_sym);
 
   const Symbol* lookup(std::string_view name) const {
     const auto it = entries.find(key_hash(name));

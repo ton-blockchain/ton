@@ -1,6 +1,17 @@
 // the goal of this file is not only to @testcase results —
 // but to check that this file compiles
 
+struct Point {
+    x: int;
+    y: int;
+}
+
+struct PointOfNulls {
+    x: int?;
+    y: int?;
+    sub: Point?;
+}
+
 fun getNullableInt(): int? { return 5; }
 fun getNullableSlice(): slice? { return null; }
 fun takeNullableInt(a: int?) {}
@@ -12,6 +23,7 @@ fun sameTensor(t: (int, int)) { return t; }
 fun sameTensor2(t: (int?, Pair4N)) { return t; }
 fun eq<T>(v: T) { return v; }
 fun getTwo<X>(): X { return 2 as X; }
+fun assignNullTo<T>(mutate v: T?) { v = null; }
 
 type Pair4N = (slice, slice, slice, builder)?;
 
@@ -659,6 +671,44 @@ fun test60() {
 }
 
 
+@method_id(161)
+fun test61(p: Point) {
+    var p2: Point? = p;
+    __expect_type(p2, "Point");
+    if (p.x < 10) {
+        assignNullTo(mutate p2);
+    }
+    __expect_type(p2, "Point?");
+    return (p2, p2!);
+}
+
+fun test62() {
+    var p = PointOfNulls { x: 1, y: null, sub: null };
+    __expect_type(p.x, "int?");
+    __expect_type(p.sub, "Point?");
+    if (p.sub == null) {
+        p.x! > 10 ? p.sub = { x: 1, y : 2 } : Point { x: 3, y: 4 };
+        __expect_type(p.sub, "Point?");
+        p.x! > 10 ? p.sub = { x: 1, y : 2 } : p.sub = eq<Point>({ x: 3, y: 4 });
+    }
+    __expect_type(p.sub, "Point");
+    __expect_type(p!!.sub!!, "Point");
+    p.sub.x + p.x! + p.y!;
+    return random() ? null : p;
+}
+
+fun test63() {
+    __expect_type(test62, "() -> PointOfNulls?");
+    var r = test62();
+    __expect_type(r!.sub, "Point?");
+    if (r != null) {
+        r.sub = { x: 1, y: 2 };
+    }
+    __expect_type(r!.sub, "Point?");
+    r!.sub = { x: 1, y: 2 };
+    __expect_type(r!.sub, "Point");
+}
+
 
 fun main(x: int?): int {
     return x == null ? -1 : x;
@@ -685,6 +735,8 @@ fun main(x: int?): int {
 @testcase | 147 |       | (null) (null) 100 (null) 100 (null) (null) 0
 @testcase | 158 |       | 123 10 123 5
 @testcase | 160 |       | 101 109
+@testcase | 161 | 9 9   | (null) (null) 0 (null) (null)
+@testcase | 161 | 19 0  | 19 0 133 19 0
 
 @stderr warning: expression of type `int` can never be `null`, this condition is always true
 @stderr warning: unreachable code

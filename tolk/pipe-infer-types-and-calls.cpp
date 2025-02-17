@@ -120,6 +120,11 @@ static std::string to_string(FunctionPtr fun_ref) {
   return "`" + fun_ref->as_human_readable() + "`";
 }
 
+GNU_ATTRIBUTE_NOINLINE
+static std::string to_string(std::string_view string_view) {
+  return static_cast<std::string>(string_view);
+}
+
 // fire a general error, just a wrapper over `throw`
 GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
 static void fire(FunctionPtr cur_f, SrcLocation loc, const std::string& message) {
@@ -247,7 +252,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
       case ast_braced_expression:
         return infer_braced_expression(v->as<ast_braced_expression>(), std::move(flow), used_as_condition);
       case ast_reference:
-        return infer_reference(v->as<ast_reference>(), std::move(flow), used_as_condition);
+        return infer_reference(v->as<ast_reference>(), std::move(flow), used_as_condition, hint);
       case ast_dot_access:
         return infer_dot_access(v->as<ast_dot_access>(), std::move(flow), used_as_condition, hint);
       case ast_function_call:
@@ -260,6 +265,8 @@ class InferTypesAndCallsAndFieldsVisitor final {
         return infer_null_keyword(v->as<ast_null_keyword>(), std::move(flow), used_as_condition);
       case ast_match_expression:
         return infer_match_expression(v->as<ast_match_expression>(), std::move(flow), used_as_condition, hint);
+      case ast_object_literal:
+        return infer_object_literal(v->as<ast_object_literal>(), std::move(flow), used_as_condition, hint);
       case ast_underscore:
         return infer_underscore(v->as<ast_underscore>(), std::move(flow), used_as_condition, hint);
       case ast_empty_expression:
@@ -685,7 +692,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
     return ExprFlow(std::move(flow), used_as_condition);
   }
 
-  ExprFlow infer_reference(V<ast_reference> v, FlowContext&& flow, bool used_as_condition) {
+  ExprFlow infer_reference(V<ast_reference> v, FlowContext&& flow, bool used_as_condition, TypePtr hint) const {
     if (LocalVarPtr var_ref = v->sym->try_as<LocalVarPtr>()) {
       TypePtr declared_or_smart_casted = flow.smart_cast_if_exists(SinkExpression(var_ref));
       tolk_assert(declared_or_smart_casted != nullptr);   // all local vars are presented in flow
@@ -727,6 +734,9 @@ class InferTypesAndCallsAndFieldsVisitor final {
 
     } else if (AliasDefPtr alias_ref = v->sym->try_as<AliasDefPtr>()) {
       fire(cur_f, v->loc, "type `" + alias_ref->name + "` can not be used as a value");
+
+    } else if (StructPtr struct_ref = v->sym->try_as<StructPtr>()) {
+      fire(cur_f, v->loc, "struct `" + struct_ref->name + "` can not be used as a value");
 
     } else {
       tolk_assert(false);
@@ -790,8 +800,23 @@ class InferTypesAndCallsAndFieldsVisitor final {
     V<ast_instantiationT_list> v_instantiationTs = v->get_instantiationTs();
     std::string_view field_name = v_ident->name;
 
-    // it can be indexed access (`tensorVar.0`, `tupleVar.1`) or a method (`t.tupleSize`)
-    // at first, check for indexed access
+    // check for field access (`user.id`), when obj is a struct
+    if (const TypeDataStruct* obj_struct = unwrapped_obj_type->try_as<TypeDataStruct>()) {
+      if (StructFieldPtr field_ref = obj_struct->struct_ref->find_field(field_name)) {
+        v->mutate()->assign_target(field_ref);
+        TypePtr inferred_type = field_ref->declared_type;
+        if (SinkExpression s_expr = extract_sink_expression_from_vertex(v)) {
+          if (TypePtr smart_casted = flow.smart_cast_if_exists(s_expr)) {
+            inferred_type = smart_casted;
+          }
+        }
+        assign_inferred_type(v, inferred_type);
+        return ExprFlow(std::move(flow), used_as_condition);
+      }
+      // if field_name doesn't exist, don't fire an error now — maybe, it's `user.globalFunction()`
+    }
+
+    // check for indexed access (`tensorVar.0` / `tupleVar.1`)
     if (field_name[0] >= '0' && field_name[0] <= '9') {
       int index_at = std::stoi(std::string(field_name));
       if (const auto* t_tensor = unwrapped_obj_type->try_as<TypeDataTensor>()) {
@@ -836,14 +861,28 @@ class InferTypesAndCallsAndFieldsVisitor final {
         assign_inferred_type(v, item_type);
         return ExprFlow(std::move(flow), used_as_condition);
       }
-      fire(cur_f, v_ident->loc, "type " + to_string(obj_type) + " is not indexable");
+      // numeric field not found, fire an error
+      if (unwrapped_obj_type->try_as<TypeDataStruct>()) {     // `user.100500`
+        fire(cur_f, v_ident->loc, "field `" + static_cast<std::string>(field_name) + "` doesn't exist in type " + to_string(obj_type));
+      } else {
+        fire(cur_f, v_ident->loc, "type " + to_string(obj_type) + " is not indexable");
+      }
     }
 
-    // for now, Tolk doesn't have fields and object-scoped methods; `t.tupleSize` is a global function `tupleSize`
+    // check for method (`t.tupleSize` / `user.globalFunction`)
+    // for now, Tolk doesn't have object-scoped methods; `t.tupleSize` is a global function `tupleSize`
     const Symbol* sym = lookup_global_symbol(field_name);
     FunctionPtr fun_ref = sym ? sym->try_as<FunctionPtr>() : nullptr;
+
+    // not a field, not a method — fire an error
     if (!fun_ref) {
-      fire(cur_f, v_ident->loc, "non-existing field `" + static_cast<std::string>(field_name) + "` of type " + to_string(obj_type));
+      // as a special case, handle accessing fields of nullable objects, to show a more precise error
+      if (const TypeDataUnion* as_union = unwrapped_obj_type->try_as<TypeDataUnion>(); as_union && as_union->or_null) {
+        if (const TypeDataStruct* n_struct = as_union->or_null->try_as<TypeDataStruct>(); n_struct && n_struct->struct_ref->find_field(field_name)) {
+          fire(cur_f, v_ident->loc, "can not access field `" + static_cast<std::string>(field_name) + "` of a possibly nullable object " + to_string(obj_type) + "; check it via `obj != null` or use non-null assertion `obj!` operator");
+        }
+      }
+      fire(cur_f, v_ident->loc, "field `" + static_cast<std::string>(field_name) + "` doesn't exist in type " + to_string(obj_type));
     }
 
     // `t.tupleSize` is ok, `cs.tupleSize` not
@@ -896,7 +935,9 @@ class InferTypesAndCallsAndFieldsVisitor final {
 
       // it can be indexed access (`tensorVar.0()`, `tupleVar.1()`) or a method (`t.tupleSize()`)
       std::string_view field_name = v_dot->get_field_name();
-      if (field_name[0] >= '0' && field_name[0] <= '9') {
+      if (const TypeDataStruct* t_struct = dot_obj->inferred_type->unwrap_alias()->try_as<TypeDataStruct>(); t_struct && t_struct->struct_ref->find_field(field_name)) {
+        // `t.someField`, it's a field, probably a callable, fun_ref remains nullptr
+      } else if (field_name[0] >= '0' && field_name[0] <= '9') {
         // indexed access `ab.2()`, then treat `ab.2` just like an expression, fun_ref remains nullptr
         // infer_dot_access() will be called for a callee, it will check index correctness
       } else {
@@ -904,7 +945,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
         const Symbol* sym = lookup_global_symbol(field_name);
         fun_ref = sym ? sym->try_as<FunctionPtr>() : nullptr;
         if (!fun_ref) {
-          fire(cur_f, v_dot->get_identifier()->loc, "non-existing method `" + static_cast<std::string>(field_name) + "` of type " + to_string(dot_obj));
+          fire(cur_f, v_dot->get_identifier()->loc, "non-existing method `" + to_string(field_name) + "` of type " + to_string(dot_obj));
         }
       }
 
@@ -1110,6 +1151,76 @@ class InferTypesAndCallsAndFieldsVisitor final {
     }
 
     return ExprFlow(std::move(match_out_flow), used_as_condition);
+  }
+
+  ExprFlow infer_object_literal(V<ast_object_literal> v, FlowContext&& flow, bool used_as_condition, TypePtr hint) {
+    StructPtr struct_ref = nullptr;
+    if (v->has_explicit_ref()) {
+      V<ast_reference> v_ref = v->get_explicit_ref();
+      struct_ref = v_ref->sym->try_as<StructPtr>();
+      if (!struct_ref) {
+        if (AliasDefPtr as_alias = v_ref->sym->try_as<AliasDefPtr>()) {
+          if (const TypeDataStruct* as_struct = as_alias->underlying_type->unwrap_alias()->try_as<TypeDataStruct>()) {
+            struct_ref = as_struct->struct_ref;
+          }
+        }
+      }
+      if (!struct_ref) {
+        fire(cur_f, v_ref->loc, "`" + to_string(v_ref->get_name()) + "` does not name a struct");
+      }
+      if (UNLIKELY(v_ref->has_instantiationTs())) {
+        fire(cur_f, v_ref->get_instantiationTs()->loc, "generic T not expected here");
+      }
+    }
+    if (!struct_ref && hint) {
+      if (const TypeDataStruct* hint_struct = hint->unwrap_alias()->try_as<TypeDataStruct>()) {
+        struct_ref = hint_struct->struct_ref;
+      }
+      if (const TypeDataUnion* hint_union = hint->unwrap_alias()->try_as<TypeDataUnion>()) {
+        StructPtr last_struct = nullptr;
+        int n_structs = 0;
+        for (TypePtr variant : hint_union->variants) {
+          if (const TypeDataStruct* variant_struct = variant->unwrap_alias()->try_as<TypeDataStruct>()) {
+            last_struct = variant_struct->struct_ref;
+            n_structs++;
+          }
+        }
+        if (n_structs == 1) {
+          struct_ref = last_struct;
+        }
+      }
+    }
+    if (!struct_ref) {
+      fire(cur_f, v->loc, "can not detect struct name; use either `var v: StructName = { ... }` or `var v = StructName { ... }`");
+    }
+
+    uint64_t occurred_mask = 0;
+    for (int i = 0; i < v->get_body()->get_num_fields(); ++i) {
+      auto v_field = v->get_body()->get_field(i);
+      std::string_view field_name = v_field->get_field_name();
+      StructFieldPtr field_ref = struct_ref->find_field(field_name);
+      if (!field_ref) {
+        fire(cur_f, v_field->loc, "field `" + to_string(field_name) + "` not found in struct `" + struct_ref->name + "`");
+      }
+      v_field->mutate()->assign_field_ref(field_ref);
+
+      if (occurred_mask & (1ULL << field_ref->field_idx)) {
+        fire(cur_f, v_field->loc, "duplicate field initialization");
+      }
+      occurred_mask |= 1ULL << field_ref->field_idx;
+      flow = infer_any_expr(v_field->get_init_val(), std::move(flow), false, field_ref->declared_type).out_flow;
+      assign_inferred_type(v_field, v_field->get_init_val());
+    }
+    for (StructFieldPtr field_ref : struct_ref->fields) {
+      if (!(occurred_mask & (1ULL << field_ref->field_idx))) {
+        fire(cur_f, v->get_body()->loc, "field `" + field_ref->name + "` missed in initialization of struct `" + struct_ref->name + "`");
+      }
+    }
+
+    v->mutate()->assign_struct_ref(struct_ref);
+    assign_inferred_type(v, struct_ref->struct_type);
+    assign_inferred_type(v->get_body(), v);
+    return ExprFlow(std::move(flow), used_as_condition);
   }
 
   static ExprFlow infer_underscore(V<ast_underscore> v, FlowContext&& flow, bool used_as_condition, TypePtr hint) {

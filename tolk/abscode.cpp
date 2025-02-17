@@ -401,7 +401,14 @@ std::vector<var_idx_t> CodeBlob::create_var(TypePtr var_type, SrcLocation loc, s
   std::vector<var_idx_t> ir_idx;
   int stack_w = var_type->get_width_on_stack();
   ir_idx.reserve(stack_w);
-  if (const TypeDataTensor* t_tensor = var_type->try_as<TypeDataTensor>()) {
+  if (const TypeDataStruct* t_struct = var_type->try_as<TypeDataStruct>()) {
+    for (int i = 0; i < t_struct->struct_ref->get_num_fields(); ++i) {
+      StructFieldPtr field_ref = t_struct->struct_ref->get_field(i);
+      std::string sub_name = name.empty() || t_struct->struct_ref->get_num_fields() == 1 ? name : name + "." + field_ref->name;
+      std::vector<var_idx_t> nested = create_var(field_ref->declared_type, loc, std::move(sub_name));
+      ir_idx.insert(ir_idx.end(), nested.begin(), nested.end());
+    }
+  } else if (const TypeDataTensor* t_tensor = var_type->try_as<TypeDataTensor>()) {
     for (int i = 0; i < t_tensor->size(); ++i) {
       std::string sub_name = name.empty() ? name : name + "." + std::to_string(i);
       std::vector<var_idx_t> nested = create_var(t_tensor->items[i], loc, std::move(sub_name));

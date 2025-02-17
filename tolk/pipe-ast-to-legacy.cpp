@@ -100,6 +100,23 @@ public:
 static VarsModificationWatcher vars_modification_watcher;
 
 
+static int calc_offset_on_stack(const TypeDataTensor* t_tensor, int index_at) {
+  int stack_offset = 0;
+  for (int i = 0; i < index_at; ++i) {
+    stack_offset += t_tensor->items[i]->get_width_on_stack();
+  }
+  return stack_offset;
+}
+
+static int calc_offset_on_stack(const TypeDataStruct* t_struct, int field_idx) {
+  int stack_offset = 0;
+  for (int i = 0; i < field_idx; ++i) {
+    stack_offset += t_struct->struct_ref->fields[i]->declared_type->get_width_on_stack();
+  }
+  return stack_offset;
+}
+
+
 // Main goal of LValContext is to handle non-primitive lvalues. At IR level, a usual local variable
 // exists, but on its change, something non-trivial should happen.
 // Example: `globalVar = 9` actually does `Const $5 = 9` + `Let $6 = $5` + `SetGlob "globVar" = $6`
@@ -143,20 +160,25 @@ class LValContext {
   // example: `global v: (int, int); v.1 = 5`, implicit var is created `$tmp = 5`, and when it's modified,
   // we need to partially update w; essentially, apply_partially_rewrite() above will be called
   struct ModifiedFieldOfGlobal {
-    AnyExprV tensor_obj;
-    int index_at;
+    AnyExprV tensor_obj;      // it's a tensor or struct
+    int index_at;             // for tensors, it's index_at; for structs, it's field_idx
     std::vector<var_idx_t> lval_ir_idx;
 
     void apply(CodeBlob& code, SrcLocation loc) const {
       LValContext local_lval;
       local_lval.enter_rval_inside_lval();
       std::vector<var_idx_t> obj_ir_idx = pre_compile_expr(tensor_obj, code, nullptr, &local_lval);
-      const TypeDataTensor* t_tensor = tensor_obj->inferred_type->unwrap_alias()->try_as<TypeDataTensor>();
-      tolk_assert(t_tensor);
-      int stack_width = t_tensor->items[index_at]->get_width_on_stack();
-      int stack_offset = 0;
-      for (int i = 0; i < index_at; ++i) {
-        stack_offset += t_tensor->items[i]->get_width_on_stack();
+
+      int stack_width, stack_offset;
+      TypePtr obj_type = tensor_obj->inferred_type->unwrap_alias();
+      if (const TypeDataTensor* t_tensor = obj_type->try_as<TypeDataTensor>()) {
+        stack_width = t_tensor->items[index_at]->get_width_on_stack();
+        stack_offset = calc_offset_on_stack(t_tensor, index_at);
+      } else if (const TypeDataStruct* t_struct = obj_type->try_as<TypeDataStruct>()) {
+        stack_width = t_struct->struct_ref->get_field(index_at)->declared_type->get_width_on_stack();
+        stack_offset = calc_offset_on_stack(t_struct, index_at);
+      } else {
+        tolk_assert(false);
       }
       std::vector<var_idx_t> field_ir_idx = {obj_ir_idx.begin() + stack_offset, obj_ir_idx.begin() + stack_offset + stack_width};
       tolk_assert(field_ir_idx.size() == lval_ir_idx.size());
@@ -270,7 +292,7 @@ static AnyExprV unwrap_not_null_operator(AnyExprV v) {
 static V<ast_reference> calc_sink_leftmost_obj(V<ast_dot_access> v) {
   AnyExprV leftmost_obj = unwrap_not_null_operator(v->get_obj());
   while (auto v_dot = leftmost_obj->try_as<ast_dot_access>()) {
-    if (!v_dot->is_target_indexed_access()) {
+    if (!v_dot->is_target_indexed_access() && !v_dot->is_target_struct_field()) {
       break;
     }
     leftmost_obj = unwrap_not_null_operator(v_dot->get_obj());
@@ -350,13 +372,15 @@ static std::vector<std::vector<var_idx_t>> pre_compile_tensor_inner(CodeBlob& co
 }
 
 static std::vector<var_idx_t> pre_compile_tensor(CodeBlob& code, const std::vector<AnyExprV>& args,
-                                          LValContext* lval_ctx = nullptr) {
-  std::vector<TypePtr> types_list;
-  types_list.reserve(args.size());
-  for (AnyExprV item : args) {
-    types_list.push_back(item->inferred_type);
+                                          LValContext* lval_ctx = nullptr, const TypeDataTensor* tensor_target_type = nullptr) {
+  if (tensor_target_type == nullptr) {
+    std::vector<TypePtr> types_list;
+    types_list.reserve(args.size());
+    for (AnyExprV item : args) {
+      types_list.push_back(item->inferred_type);
+    }
+    tensor_target_type = TypeDataTensor::create(std::move(types_list))->try_as<TypeDataTensor>();
   }
-  const TypeDataTensor* tensor_target_type = TypeDataTensor::create(std::move(types_list))->try_as<TypeDataTensor>();
   std::vector<std::vector<var_idx_t>> res_lists = pre_compile_tensor_inner(code, args, tensor_target_type, lval_ctx);
   std::vector<var_idx_t> res;
   for (const std::vector<var_idx_t>& list : res_lists) {
@@ -489,10 +513,8 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
   // - `null` to `int?`
   // - `int8?` to `int16?`
   // - `null` to `StructWith1Int?`
-  // in general, pass `T1` to `T2?` when `T2` is a primitive and `T2?` still occupies 1 stack slot (value or TVM NULL)
-  if (t_union && target_w == 1 && orig_w == 1 && t_union->or_null->get_width_on_stack() == 1) {
-    // a generalized union type "T | ..." takes at least 2 slots, but "T | null" can be 1
-    tolk_assert(t_union->or_null);
+  // in general, pass `T1` to `T2?` when `T2?` still occupies 1 stack slot (value or TVM NULL)
+  if (t_union && t_union->is_primitive_nullable() && orig_w == 1) {
     // rvect has 1 slot, either value or TVM NULL
     return rvect;
   }
@@ -502,8 +524,8 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
   // - `int?` to `null`
   // - `StructWith1Int?` to `null`
   // this value (one slot) is either a TVM primitive or TVM NULL at runtime
-  if (o_union && orig_w == 1 && target_w == 1 && o_union->or_null->get_width_on_stack() == 1) {
-    tolk_assert(o_union->or_null);
+  if (o_union && o_union->is_primitive_nullable() && target_w == 1) {
+    // rvect has 1 slot, but its contents is compile-time guaranteed to match target_type
     return rvect;
   }
 
@@ -518,7 +540,7 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
   // - `int | slice | null` to `slice?`
   // - `A | int | null` to `int?`
   // so, originally a type occupies N slots, but needs to be converted to 1 slot
-  if (t_union && target_w == 1 && orig_w > 0 && t_union->or_null->get_width_on_stack() == 1) {
+  if (t_union && t_union->is_primitive_nullable() && orig_w > 0) {
     // nothing except "T1 | T2 | ... null" can be cast to 1-slot nullable `T1?`
     tolk_assert(o_union && o_union->has_null() && o_union->has_variant_with_type_id(t_union->or_null));
     // here we exploit rvect shape, how union types and multi-slot nullables are stored on a stack
@@ -527,7 +549,7 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
     return {rvect[rvect.size() - 2]};
   }
 
-  // pass `null` to `T?` when T is not a primitive (1-slot T was handled above)
+  // pass `null` to `T?` when T is wide (stores some nulls and UTag=0 at runtime)
   // - `null` to `(int, int)?`
   // - `null` to `int | slice | null`
   // to represent a non-primitive null value, we need N nulls + 1 null flag (UTag=0, type_id of TypeDataNullLiteral)
@@ -546,12 +568,13 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
     return rvect;
   }
 
-  // pass `null` to nullable empty tensor
+  // pass `null` to nullable empty type
   // - `null` to `()?`
   // - `null` to `EmptyStruct?`
+  // - `null` to `Empty1 | Empty2 | null`
   // so, rvect contains TVM NULL, but instead, we should push UTag=0
   if (t_union && original_type == TypeDataNullLiteral::create()) {
-    tolk_assert(t_union->or_null && t_union->or_null->get_width_on_stack() == 0);
+    tolk_assert(t_union->has_null() && target_w == 1);
     std::vector<var_idx_t> new_rvect = code.create_tmp_var(TypeDataInt::create(), loc, "(UTag)");
     code.emplace_back(loc, Op::_IntConst, new_rvect, td::make_refint(0));
     return new_rvect;
@@ -569,10 +592,11 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
 
   // smart cast of nullable empty tensor to plain `null`
   // - `()?` to `null`
-  // `EmptyStruct?` to `null`
+  // - `EmptyStruct?` to `null`
+  // - `Empty1 | Empty2 | null` to `null`
   // so, rvect contains UTag, we need TVM NULL
   if (o_union && target_type == TypeDataNullLiteral::create()) {
-    tolk_assert(orig_w == 1 && o_union->or_null);
+    tolk_assert(orig_w == 1 && o_union->has_null());
     FunctionPtr null_sym = lookup_global_symbol("__null")->try_as<FunctionPtr>();
     std::vector<var_idx_t> new_rvect = code.create_tmp_var(TypeDataNullLiteral::create(), loc, "(null-literal)");
     code.emplace_back(loc, Op::_Call, new_rvect, std::vector<var_idx_t>{}, null_sym);
@@ -583,7 +607,7 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
   // - `int?` to `int | slice | null`
   // - `slice?` to `(int, int) | slice | builder | null`
   // so, originally `T?` is 1-slot, but needs to be converted to N+1 slots, keeping its value
-  if (o_union && orig_w == 1 && t_union && o_union->or_null->get_width_on_stack() == 1) {
+  if (o_union && o_union->is_primitive_nullable() && t_union) {
     tolk_assert(t_union->has_null() && t_union->has_variant_with_type_id(o_union->or_null) && target_w > 1);
     // the transformation is tricky:
     // when value is null, we need to achieve "... (null) 0"         (value is already null, so "... value 0")
@@ -1089,10 +1113,31 @@ static std::vector<var_idx_t> process_dot_access(V<ast_dot_access> v, CodeBlob& 
   // it's `t.0`, `getUser().id`, and `t.tupleSize` (as a reference, not as a call)
   if (!v->is_target_fun_ref()) {
     TypePtr obj_type = v->get_obj()->inferred_type->unwrap_alias();
-    int index_at = std::get<int>(v->target);
+    // `user.id`; internally, a struct (an object) is a tensor
+    if (const auto* t_struct = obj_type->try_as<TypeDataStruct>()) {
+      StructFieldPtr field_ref = std::get<StructFieldPtr>(v->target);
+      // handle `globalObj.field = rhs`, special case, then the global will be read on demand
+      if (lval_ctx && !lval_ctx->is_rval_inside_lval()) {
+        if (auto sink = calc_sink_leftmost_obj(v); sink && sink->sym->try_as<GlobalVarPtr>()) {
+          std::vector<var_idx_t> lval_ir_idx = code.create_tmp_var(v->inferred_type, v->loc, "(lval-global-field)");
+          lval_ctx->capture_field_of_global_modification(v->get_obj(), field_ref->field_idx, lval_ir_idx);
+          return lval_ir_idx;
+        }
+      }
+      std::vector<var_idx_t> lhs_vars = pre_compile_expr(v->get_obj(), code, nullptr, lval_ctx);
+      int stack_width = field_ref->declared_type->get_width_on_stack();
+      int stack_offset = calc_offset_on_stack(t_struct, field_ref->field_idx);
+      std::vector<var_idx_t> rvect{lhs_vars.begin() + stack_offset, lhs_vars.begin() + stack_offset + stack_width};
+      // an object field might be smart cast at this point, for example we're in `if (user.t != null)`
+      // it means that we must drop the null flag (if `user.t` is a tensor), or maybe perform other stack transformations
+      // (from original rvect = (vars of user.t) to fit smart cast)
+      rvect = transition_to_target_type(std::move(rvect), code, field_ref->declared_type, v->inferred_type, v->loc);
+      return transition_to_target_type(std::move(rvect), code, target_type, v);
+    }
     // `tensorVar.0`
     if (const auto* t_tensor = obj_type->try_as<TypeDataTensor>()) {
-      // handle `tensorVar.0 = rhs` if tensors is a global, special case, then the global will be read on demand
+      int index_at = std::get<int>(v->target);
+      // handle `globalTensorVar.0 = rhs`, special case, then the global will be read on demand
       if (lval_ctx && !lval_ctx->is_rval_inside_lval()) {
         if (auto sink = calc_sink_leftmost_obj(v); sink && sink->sym->try_as<GlobalVarPtr>()) {
           std::vector<var_idx_t> lval_ir_idx = code.create_tmp_var(v->inferred_type, v->loc, "(lval-global-tensor)");
@@ -1103,10 +1148,7 @@ static std::vector<var_idx_t> process_dot_access(V<ast_dot_access> v, CodeBlob& 
       // since a tensor of N elems are N vars on a stack actually, calculate offset
       std::vector<var_idx_t> lhs_vars = pre_compile_expr(v->get_obj(), code, nullptr, lval_ctx);
       int stack_width = t_tensor->items[index_at]->get_width_on_stack();
-      int stack_offset = 0;
-      for (int i = 0; i < index_at; ++i) {
-        stack_offset += t_tensor->items[i]->get_width_on_stack();
-      }
+      int stack_offset = calc_offset_on_stack(t_tensor, index_at);
       std::vector<var_idx_t> rvect{lhs_vars.begin() + stack_offset, lhs_vars.begin() + stack_offset + stack_width};
       // a tensor index might be smart cast at this point, for example we're in `if (t.1 != null)`
       // it means that we must drop the null flag (if `t.1` is a tensor), or maybe perform other stack transformations
@@ -1116,6 +1158,7 @@ static std::vector<var_idx_t> process_dot_access(V<ast_dot_access> v, CodeBlob& 
     }
     // `tupleVar.0`
     if (obj_type->try_as<TypeDataTypedTuple>() || obj_type->try_as<TypeDataTuple>()) {
+      int index_at = std::get<int>(v->target);
       // handle `tupleVar.0 = rhs`, "0 SETINDEX" will be called when this was is modified
       if (lval_ctx && !lval_ctx->is_rval_inside_lval() && calc_sink_leftmost_obj(v)) {
         std::vector<var_idx_t> lval_ir_idx = code.create_tmp_var(v->inferred_type, v->loc, "(lval-tuple-field)");
@@ -1281,6 +1324,32 @@ static std::vector<var_idx_t> process_typed_tuple(V<ast_typed_tuple> v, CodeBlob
   return transition_to_target_type(std::move(left), code, target_type, v);
 }
 
+static std::vector<var_idx_t> process_object_literal(V<ast_object_literal> v, CodeBlob& code, TypePtr target_type, LValContext* lval_ctx) {
+  // an object (an instance of a struct) is actually a tensor at low-level
+  // for example, `struct User { id: int; name: slice; }` occupies 2 slots
+  // fields of a tensor are placed in order of declaration (in a literal they might be shuffled)
+  std::vector<AnyExprV> tensor_items;
+  std::vector<TypePtr> target_types;
+  tensor_items.reserve(v->struct_ref->get_num_fields());
+  target_types.reserve(v->struct_ref->get_num_fields());
+  for (StructFieldPtr field_ref : v->struct_ref->fields) {
+    AnyExprV v_init_val = nullptr;
+    for (int i = 0; i < v->get_body()->get_num_fields(); ++i) {
+      auto v_field = v->get_body()->get_field(i);
+      if (v_field->get_field_name() == field_ref->name) {
+        v_init_val = v_field->get_init_val();
+        break;
+      }
+    }
+    tolk_assert(v_init_val);
+    tensor_items.push_back(v_init_val);
+    target_types.push_back(field_ref->declared_type);
+  }
+  const auto* tensor_target_type = TypeDataTensor::create(std::move(target_types))->try_as<TypeDataTensor>();
+  std::vector<var_idx_t> rvect = pre_compile_tensor(code, tensor_items, lval_ctx, tensor_target_type);
+  return transition_to_target_type(std::move(rvect), code, target_type, v);
+}
+
 static std::vector<var_idx_t> process_int_const(V<ast_int_const> v, CodeBlob& code, TypePtr target_type) {
   std::vector<var_idx_t> rvect = code.create_tmp_var(v->inferred_type, v->loc, "(int-const)");
   code.emplace_back(v->loc, Op::_IntConst, rvect, v->intval);
@@ -1370,6 +1439,8 @@ std::vector<var_idx_t> pre_compile_expr(AnyExprV v, CodeBlob& code, TypePtr targ
       return process_tensor(v->as<ast_tensor>(), code, target_type, lval_ctx);
     case ast_typed_tuple:
       return process_typed_tuple(v->as<ast_typed_tuple>(), code, target_type, lval_ctx);
+    case ast_object_literal:
+      return process_object_literal(v->as<ast_object_literal>(), code, target_type, lval_ctx);
     case ast_int_const:
       return process_int_const(v->as<ast_int_const>(), code, target_type);
     case ast_string_const:

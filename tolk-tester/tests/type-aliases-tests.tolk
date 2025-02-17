@@ -7,6 +7,9 @@ type Pair2_v2 = (MInt, MInt);
 type MBool = bool;
 type Tuple2Int = [int, int];
 
+struct Point { x: int; y: int }
+type PointAlias = Point;
+type PointAlias2 = PointAlias;
 
 fun test1(x: MInt): MVoid {
     var y = x;
@@ -35,6 +38,10 @@ fun test1(x: MInt): MVoid {
     __expect_type(x as int?, "int?");
     __expect_type(x as MInt?, "MInt?");
     __expect_type(x as MIntN, "MIntN");
+
+    __expect_type(PointAlias{x:0,y:0}, "Point");
+    __expect_type(PointAlias2{x:0,y:0}, "Point");
+    __expect_type(Point{x:0,y:0} as PointAlias, "PointAlias");
 
     if (x) { return; }
 }

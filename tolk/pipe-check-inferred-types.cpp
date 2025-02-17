@@ -128,6 +128,9 @@ static void handle_possible_compiler_internal_call(FunctionPtr cur_f, V<ast_func
           if (AliasDefPtr alias_ref = sym->try_as<AliasDefPtr>()) {
             return TypeDataAlias::create(alias_ref);
           }
+          if (StructPtr struct_ref = sym->try_as<StructPtr>()) {
+            return struct_ref->struct_type;
+          }
           tolk_assert(false);
         }
         return child;
@@ -468,6 +471,8 @@ protected:
     if (!lhs->inferred_type->can_rhs_be_assigned(rhs_type)) {
       if (lhs->try_as<ast_reference>()) {
         fire(cur_f, err_loc->loc, "can not assign " + to_string(rhs_type) + " to variable of type " + to_string(lhs));
+      } else if (lhs->try_as<ast_dot_access>()) {
+        fire(cur_f, err_loc->loc, "can not assign " + to_string(rhs_type) + " to field of type " + to_string(lhs));
       } else {
         fire(cur_f, err_loc->loc, "can not assign " + to_string(rhs_type) + " to " + to_string(lhs));
       }
@@ -613,6 +618,14 @@ protected:
       if (needs_else_branch) {
         fire(cur_f, v->loc, "`match` expression should have `else` branch");
       }
+    }
+  }
+
+  void visit(V<ast_object_field> v) override {
+    parent::visit(v->get_init_val());
+
+    if (!v->field_ref->declared_type->can_rhs_be_assigned(v->get_init_val()->inferred_type)) {
+      fire(cur_f, v->get_init_val()->loc, "can not assign " + to_string(v->get_init_val()) + " to field of type " + to_string(v->field_ref->declared_type));
     }
   }
 

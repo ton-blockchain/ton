@@ -218,6 +218,20 @@ TypePtr TypeDataGenericT::create(std::string&& nameT) {
   return hash.register_unique(new TypeDataGenericT(std::move(nameT)));
 }
 
+TypePtr TypeDataStruct::create(StructPtr struct_ref) {
+  TypeDataHasherForUnique hash(8315986401043319583ULL);
+  hash.feed_string(struct_ref->name);
+
+  if (TypePtr existing = hash.get_existing()) {
+    return existing;
+  }
+  int width_on_stack = 0;
+  for (StructFieldPtr field_ref : struct_ref->fields) {
+    width_on_stack += field_ref->declared_type->get_width_on_stack();
+  }
+  return hash.register_unique(new TypeDataStruct(width_on_stack, struct_ref));
+}
+
 TypePtr TypeDataTensor::create(std::vector<TypePtr>&& items) {
   TypeDataHasherForUnique hash(3159238551239480381ULL);
   for (TypePtr item : items) {
@@ -385,6 +399,10 @@ int TypeDataGenericT::get_type_id() const {
   return TypeIdCalculation::assign_type_id(this);
 }
 
+int TypeDataStruct::get_type_id() const {
+  return TypeIdCalculation::assign_type_id(this);
+}
+
 int TypeDataTensor::get_type_id() const {
   assert(!has_genericT_inside());
   return TypeIdCalculation::assign_type_id(this);
@@ -449,6 +467,10 @@ std::string TypeDataFunCallable::as_human_readable() const {
   result += ") -> ";
   result += return_type->as_human_readable();
   return result;
+}
+
+std::string TypeDataStruct::as_human_readable() const {
+  return struct_ref->name;
 }
 
 std::string TypeDataTensor::as_human_readable() const {
@@ -731,6 +753,16 @@ bool TypeDataGenericT::can_rhs_be_assigned(TypePtr rhs) const {
   return false;
 }
 
+bool TypeDataStruct::can_rhs_be_assigned(TypePtr rhs) const {
+  if (rhs == this) {
+    return true;
+  }
+  if (const TypeDataAlias* rhs_alias = rhs->try_as<TypeDataAlias>()) {
+    return can_rhs_be_assigned(rhs_alias->underlying_type);
+  }
+  return rhs == TypeDataNever::create();
+}
+
 bool TypeDataTensor::can_rhs_be_assigned(TypePtr rhs) const {
   if (const auto* as_tensor = rhs->try_as<TypeDataTensor>(); as_tensor && as_tensor->size() == size()) {
     for (int i = 0; i < size(); ++i) {
@@ -986,6 +1018,16 @@ bool TypeDataGenericT::can_be_casted_with_as_operator(TypePtr cast_to) const {
   return true;
 }
 
+bool TypeDataStruct::can_be_casted_with_as_operator(TypePtr cast_to) const {
+  if (const TypeDataUnion* to_union = cast_to->try_as<TypeDataUnion>()) {
+    return can_be_casted_to_union(this, to_union);
+  }
+  if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
+    return can_be_casted_with_as_operator(to_alias->underlying_type);
+  }
+  return cast_to == this;
+}
+
 bool TypeDataTensor::can_be_casted_with_as_operator(TypePtr cast_to) const {
   if (const auto* to_tensor = cast_to->try_as<TypeDataTensor>(); to_tensor && to_tensor->size() == size()) {
     for (int i = 0; i < size(); ++i) {
@@ -1106,6 +1148,18 @@ bool TypeDataVoid::can_be_casted_with_as_operator(TypePtr cast_to) const {
 
 bool TypeDataAlias::can_hold_tvm_null_instead() const {
   return underlying_type->can_hold_tvm_null_instead();
+}
+
+bool TypeDataStruct::can_hold_tvm_null_instead() const {
+  if (get_width_on_stack() != 1) {    // example that can hold null: `{ field: int }`
+    return false;                     // another example: `{ e: Empty, field: ((), int) }`
+  }                                   // examples can NOT: `{ field1: int, field2: int }`, `{ field1: int? }`
+  for (StructFieldPtr field : struct_ref->fields) {
+    if (field->declared_type->get_width_on_stack() == 1 && !field->declared_type->can_hold_tvm_null_instead()) {
+      return false;
+    }
+  }
+  return true;
 }
 
 bool TypeDataTensor::can_hold_tvm_null_instead() const {

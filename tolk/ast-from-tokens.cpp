@@ -385,6 +385,40 @@ static V<ast_instantiationT_list> parse_maybe_instantiationTs_after_identifier(L
   }
 }
 
+static V<ast_object_field> parse_object_field(Lexer& lex) {
+  SrcLocation loc = lex.cur_location();
+  lex.check(tok_identifier, "field name");
+  auto v_ident = createV<ast_identifier>(lex.cur_location(), lex.cur_str());
+  lex.next();
+
+  if (lex.tok() == tok_comma || lex.tok() == tok_clbrace) {
+    auto v_same_ident = createV<ast_identifier>(v_ident->loc, v_ident->name);
+    auto v_same_expr = createV<ast_reference>(v_ident->loc, v_same_ident, nullptr);
+    return createV<ast_object_field>(loc, v_ident, v_same_expr);
+  }
+
+  lex.expect(tok_colon, "`:`");
+  return createV<ast_object_field>(loc, v_ident, parse_expr(lex));
+}
+
+static V<ast_object_body> parse_object_body(Lexer& lex) {
+  SrcLocation loc = lex.cur_location();
+  lex.expect(tok_opbrace, "`{`");
+
+  std::vector<AnyExprV> fields;
+  while (lex.tok() != tok_clbrace) {
+    fields.push_back(parse_object_field(lex));
+    if (lex.tok() == tok_comma) {
+      lex.next();
+    } else if (lex.tok() != tok_clbrace) {
+      lex.unexpected("`,`");
+    }
+  }
+  lex.expect(tok_clbrace, "`}`");
+
+  return createV<ast_object_body>(loc, std::move(fields));
+}
+
 // `throw code` / `throw (code)` / `throw (code, arg)`
 // it's technically a statement (can't occur "in any place of expression"),
 // but inside `match` arm it can appear without semicolon: `pattern => throw 123`
@@ -587,8 +621,14 @@ static AnyExprV parse_expr100(Lexer& lex) {
       if (lex.tok() == tok_lt) {
         v_instantiationTs = parse_maybe_instantiationTs_after_identifier(lex);
       }
+      if (lex.tok() == tok_opbrace) {
+        auto explicit_ref = createV<ast_reference>(loc, v_ident, v_instantiationTs);
+        return createV<ast_object_literal>(loc, explicit_ref, parse_object_body(lex));
+      }
       return createV<ast_reference>(loc, v_ident, v_instantiationTs);
     }
+    case tok_opbrace:
+      return createV<ast_object_literal>(loc, createV<ast_empty_expression>(loc), parse_object_body(lex));
     case tok_match:
       return parse_match_expression(lex);
     default:
@@ -1227,6 +1267,52 @@ static AnyV parse_function_declaration(Lexer& lex, const std::vector<V<ast_annot
   return createV<ast_function_declaration>(loc, v_ident, v_param_list, v_body, ret_type, genericsT_list, std::move(method_id), flags);
 }
 
+static AnyV parse_struct_field(Lexer& lex) {
+  SrcLocation loc = lex.cur_location();
+  lex.check(tok_identifier, "field name");
+  auto v_ident = createV<ast_identifier>(lex.cur_location(), lex.cur_str());
+  lex.next();
+  lex.expect(tok_colon, "`: <type>`");
+  TypePtr declared_type = parse_type_from_tokens(lex);
+
+  if (lex.tok() == tok_assign) {    // `id: int = 3`
+    lex.error("default values for fields not supported yet");
+  }
+
+  return createV<ast_struct_field>(loc, v_ident, declared_type);
+}
+
+static V<ast_struct_body> parse_struct_body(Lexer& lex) {
+  SrcLocation loc = lex.cur_location();
+  lex.expect(tok_opbrace, "`{`");
+
+  std::vector<AnyV> fields;
+  while (lex.tok() != tok_clbrace) {
+    fields.push_back(parse_struct_field(lex));
+    if (lex.tok() == tok_comma || lex.tok() == tok_semicolon) {
+      lex.next();
+    } else if (lex.tok() != tok_clbrace) {
+      lex.unexpected("`;` or `,`");
+    }
+  }
+  lex.expect(tok_clbrace, "`}`");
+
+  return createV<ast_struct_body>(loc, std::move(fields));
+}
+
+static AnyV parse_struct_declaration(Lexer& lex, const std::vector<V<ast_annotation>>& annotations) {
+  SrcLocation loc = lex.cur_location();
+  if (!annotations.empty()) {
+    lex.error("@annotations are not applicable to type alias declaration");
+  }
+  lex.expect(tok_struct, "`struct`");
+  lex.check(tok_identifier, "identifier");
+  auto v_ident = createV<ast_identifier>(lex.cur_location(), lex.cur_str());
+  lex.next();
+
+  return createV<ast_struct_declaration>(loc, v_ident, parse_struct_body(lex));
+}
+
 static AnyV parse_tolk_required_version(Lexer& lex) {
   SrcLocation loc = lex.cur_location();
   lex.next_special(tok_semver, "semver");   // syntax: "tolk 0.6"
@@ -1301,9 +1387,12 @@ AnyV parse_src_file_to_ast(const SrcFile* file) {
         toplevel_declarations.push_back(parse_function_declaration(lex, annotations));
         annotations.clear();
         break;
+      case tok_struct:
+        toplevel_declarations.push_back(parse_struct_declaration(lex, annotations));
+        annotations.clear();
+        break;
 
       case tok_export:
-      case tok_struct:
       case tok_enum:
       case tok_operator:
       case tok_infix:

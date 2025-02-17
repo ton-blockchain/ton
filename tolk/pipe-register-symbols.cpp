@@ -140,6 +140,24 @@ static void register_type_alias(V<ast_type_alias_declaration> v) {
   v->mutate()->assign_alias_ref(a_sym);
 }
 
+static void register_struct(V<ast_struct_declaration> v) {
+  auto v_body = v->get_struct_body();
+
+  std::vector<StructFieldPtr> fields;
+  fields.reserve(v_body->get_num_fields());
+  for (int i = 0; i < v_body->get_num_fields(); ++i) {
+    auto v_field = v_body->get_field(i);
+    StructFieldData* field_ref = new StructFieldData(static_cast<std::string>(v_field->get_identifier()->name), v_field->loc, i, v_field->declared_type);
+    fields.emplace_back(field_ref);
+    v_field->mutate()->assign_field_ref(field_ref);
+  }
+
+  StructData* s_sym = new StructData(static_cast<std::string>(v->get_identifier()->name), v->loc, std::move(fields));
+
+  G.symtable.add_struct(s_sym);
+  v->mutate()->assign_struct_ref(s_sym);
+}
+
 static LocalVarData register_parameter(V<ast_parameter> v, int idx) {
   if (v->is_underscore()) {
     return {"", v->loc, v->declared_type, 0, idx};
@@ -247,6 +265,9 @@ static void iterate_through_file_symbols(const SrcFile* file) {
         break;
       case ast_type_alias_declaration:
         register_type_alias(v->as<ast_type_alias_declaration>());
+        break;
+      case ast_struct_declaration:
+        register_struct(v->as<ast_struct_declaration>());
         break;
       case ast_function_declaration:
         register_function(v->as<ast_function_declaration>());

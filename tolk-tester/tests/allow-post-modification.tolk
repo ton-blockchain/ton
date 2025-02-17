@@ -112,6 +112,16 @@ fun test_assign_tensor_global(x: (int, int)) {
     return (x, x = (20, 30), fs = x.multens((1, 2)), fs.multens(multens(mutate x, (-1, -1))), x, fs);
 }
 
+struct Point1D {
+    c: int;
+}
+
+@method_id(25)
+fun test_with_single_slot_struct(x: Point1D) {
+    var result = (x, x.c += 10, [x, x.c += 20, eq(x.c -= 50), x.c], eq2((x.c, x.c *= eq(x.c /= 2))));
+    return result;
+}
+
 fun main() {
 }
 
@@ -132,6 +142,7 @@ fun main() {
 @testcase | 22 | 100 | 100 210 4200 630
 @testcase | 23 | 1 1 | 1 1 20 30 20 60 -400 -3600 -20 -60 -400 -3600
 @testcase | 24 | 1 1 | 1 1 20 30 20 60 -400 -3600 -20 -60 -400 -3600
+@testcase | 25 | 100 | 100 110 [ 110 130 80 80 ] 80 3200
 
 @fif_codegen
 """
@@ -147,5 +158,5 @@ fun main() {
     // x.0 x.1
 """
 
-@code_hash 61280273714870328160131559159866470128402169974050439159015534193532598351244
+@code_hash 6737917279814799680932710799951154408447028229503449454536845752635763933556
 */

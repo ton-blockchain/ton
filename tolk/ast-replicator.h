@@ -136,6 +136,15 @@ protected:
   virtual V<ast_match_arm> clone(V<ast_match_arm> v) {
     return createV<ast_match_arm>(v->loc, v->pattern_kind, clone(v->exact_type), clone(v->get_pattern_expr()), clone(v->get_body()));
   }
+  virtual V<ast_object_field> clone(V<ast_object_field> v) {
+    return createV<ast_object_field>(v->loc, clone(v->get_field_identifier()), clone(v->get_init_val()));
+  }
+  virtual V<ast_object_body> clone(V<ast_object_body> v) {
+    return createV<ast_object_body>(v->loc, clone(v->get_all_fields()));
+  }
+  virtual V<ast_object_literal> clone(V<ast_object_literal> v) {
+    return createV<ast_object_literal>(v->loc, clone(v->get_maybe_reference()), clone(v->get_body()));
+  }
 
   // statements
 
@@ -220,6 +229,9 @@ protected:
       case ast_not_null_operator:               return clone(v->as<ast_not_null_operator>());
       case ast_match_expression:                return clone(v->as<ast_match_expression>());
       case ast_match_arm:                       return clone(v->as<ast_match_arm>());
+      case ast_object_field:                    return clone(v->as<ast_object_field>());
+      case ast_object_body:                     return clone(v->as<ast_object_body>());
+      case ast_object_literal:                  return clone(v->as<ast_object_literal>());
       default:
         throw UnexpectedASTNodeType(v, "ASTReplicatorFunction::clone");
     }

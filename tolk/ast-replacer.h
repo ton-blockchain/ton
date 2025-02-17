@@ -119,6 +119,9 @@ protected:
   virtual AnyExprV replace(V<ast_not_null_operator> v)         { return replace_children(v); }
   virtual AnyExprV replace(V<ast_match_expression> v)          { return replace_children(v); }
   virtual AnyExprV replace(V<ast_match_arm> v)                 { return replace_children(v); }
+  virtual AnyExprV replace(V<ast_object_field> v)              { return replace_children(v); }
+  virtual AnyExprV replace(V<ast_object_body> v)               { return replace_children(v); }
+  virtual AnyExprV replace(V<ast_object_literal> v)            { return replace_children(v); }
   // statements
   virtual AnyV replace(V<ast_empty_statement> v)               { return replace_children(v); }
   virtual AnyV replace(V<ast_block_statement> v)               { return replace_children(v); }
@@ -160,6 +163,9 @@ protected:
       case ast_not_null_operator:               return replace(v->as<ast_not_null_operator>());
       case ast_match_expression:                return replace(v->as<ast_match_expression>());
       case ast_match_arm:                       return replace(v->as<ast_match_arm>());
+      case ast_object_field:                    return replace(v->as<ast_object_field>());
+      case ast_object_body:                     return replace(v->as<ast_object_body>());
+      case ast_object_literal:                  return replace(v->as<ast_object_literal>());
       default:
         throw UnexpectedASTNodeType(v, "ASTReplacerInFunctionBody::replace");
     }
