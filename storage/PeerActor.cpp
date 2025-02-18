@@ -251,7 +251,7 @@ void PeerActor::loop_update_init() {
   }
   s = s.substr(peer_init_offset_, UPDATE_INIT_BLOCK_SIZE);
   auto query = create_update_query(ton::create_tl_object<ton::ton_api::storage_updateInit>(
-      td::BufferSlice(s), (int)peer_init_offset_, to_ton_api(node_state)));
+      td::BufferSlice(s), (int)peer_init_offset_ * 8, to_ton_api(node_state)));
 
   // take care about update_state_query initial state
   update_state_query_.state = node_state;
@@ -502,11 +502,11 @@ void PeerActor::process_update_peer_parts(const tl_object_ptr<ton_api::storage_U
                     },
                     [&](const ton::ton_api::storage_updateState &state) {},
                     [&](const ton::ton_api::storage_updateInit &init) {
-                      LOG(DEBUG) << "Processing updateInit query (offset=" << init.have_pieces_offset_ * 8 << ")";
+                      LOG(DEBUG) << "Processing updateInit query (offset=" << init.have_pieces_offset_ << ")";
                       td::Bitset new_bitset;
                       new_bitset.set_raw(init.have_pieces_.as_slice().str());
-                      size_t offset = init.have_pieces_offset_ * 8;
-                      for (auto size = new_bitset.size(), i = size_t(0); i < size; i++) {
+                      size_t offset = init.have_pieces_offset_;
+                      for (auto size = new_bitset.size(), i = (size_t)0; i < size; i++) {
                         if (new_bitset.get(i)) {
                           add_piece(static_cast<PartId>(offset + i));
                         }
