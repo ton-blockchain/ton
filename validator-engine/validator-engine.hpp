@@ -57,6 +57,7 @@ struct Config {
   };
   struct AddrCats {
     td::IPAddress in_addr;
+    bool is_tunnel;
     std::shared_ptr<ton::adnl::AdnlProxy> proxy;
     std::set<AdnlCategory> cats;
     std::set<AdnlCategory> priority_cats;
@@ -78,6 +79,7 @@ struct Config {
 
   std::map<ton::PublicKeyHash, td::uint32> keys_refcnt;
   td::uint16 out_port;
+  bool tunnel_enabled;
   std::map<Addr, AddrCats> addrs;
   std::map<ton::PublicKeyHash, AdnlCategory> adnl_ids;
   std::set<ton::PublicKeyHash> dht_ids;

@@ -88,6 +88,7 @@ Config::Config() {
 Config::Config(const ton::ton_api::engine_validator_config &config) {
   full_node = ton::PublicKeyHash::zero();
   out_port = static_cast<td::uint16>(config.out_port_);
+  tunnel_enabled = true; //static_cast<td::uint8>(config.tunnel_enabled_);
   if (!out_port) {
     out_port = 3278;
   }
@@ -278,7 +279,7 @@ ton::tl_object_ptr<ton::ton_api::engine_validator_config> Config::tl() const {
   }
 
   return ton::create_tl_object<ton::ton_api::engine_validator_config>(
-      out_port, std::move(addrs_vec), std::move(adnl_vec), std::move(dht_vec), std::move(val_vec),
+      out_port, 0, std::move(addrs_vec), std::move(adnl_vec), std::move(dht_vec), std::move(val_vec),
       full_node.tl(), std::move(full_node_slaves_vec), std::move(full_node_masters_vec),
       std::move(full_node_config_obj), std::move(extra_config_obj), std::move(liteserver_vec), std::move(control_vec),
       std::move(shards_vec), std::move(gc_vec));
@@ -1848,6 +1849,39 @@ void ValidatorEngine::start_adnl() {
   adnl_ = ton::adnl::Adnl::create(db_root_, keyring_.get());
   td::actor::send_closure(adnl_, &ton::adnl::Adnl::register_network_manager, adnl_network_manager_.get());
 
+  if (config_.tunnel_enabled) {
+    auto on_tunnel_ready = td::PromiseCreator::lambda([SelfId = actor_id(this), this, ip](td::Result<td::IPAddress> R) {
+      R.ensure();
+      auto addr = R.move_as_ok();
+
+      LOG(INFO) << "Tunnel ready, addr: " << addr;
+
+      add_addr(Config::Addr{}, Config::AddrCats{
+        .in_addr = addr,
+        .is_tunnel = true,
+        .cats = {0, 1, 2, 3},
+      });
+
+      for (auto &adnl : config_.adnl_ids) {
+        add_adnl(adnl.first, adnl.second);
+      }
+
+      td::actor::send_closure(adnl_, &ton::adnl::Adnl::add_static_nodes_from_config, std::move(adnl_static_nodes_));
+      td::actor::send_closure(SelfId, &ValidatorEngine::started_adnl);
+    });
+
+    ton::adnl::AdnlCategoryMask cat_mask;
+    cat_mask[0] = true;
+    cat_mask[1] = true;
+    cat_mask[2] = true;
+    cat_mask[3] = true;
+
+    td::actor::send_closure(adnl_network_manager_, &ton::adnl::AdnlNetworkManager::add_tunnel, 3433,
+                           std::move(cat_mask), 0, std::move(on_tunnel_ready));
+
+    return;
+  }
+
   for (auto &addr : config_.addrs) {
     add_addr(addr.first, addr.second);
   }
@@ -1867,13 +1901,16 @@ void ValidatorEngine::add_addr(const Config::Addr &addr, const Config::AddrCats 
   for (auto cat : cats.priority_cats) {
     cat_mask[cat] = true;
   }
-  if (!cats.proxy) {
-    td::actor::send_closure(adnl_network_manager_, &ton::adnl::AdnlNetworkManager::add_self_addr, addr.addr,
-                            std::move(cat_mask), cats.cats.size() ? 0 : 1);
-  } else {
-    td::actor::send_closure(adnl_network_manager_, &ton::adnl::AdnlNetworkManager::add_proxy_addr, cats.in_addr,
-                            static_cast<td::uint16>(addr.addr.get_port()), cats.proxy, std::move(cat_mask),
-                            cats.cats.size() ? 0 : 1);
+
+  if (!cats.is_tunnel) {
+    if (!cats.proxy) {
+      td::actor::send_closure(adnl_network_manager_, &ton::adnl::AdnlNetworkManager::add_self_addr, addr.addr,
+                              std::move(cat_mask), cats.cats.size() ? 0 : 1);
+    } else {
+      td::actor::send_closure(adnl_network_manager_, &ton::adnl::AdnlNetworkManager::add_proxy_addr, cats.in_addr,
+                              static_cast<td::uint16>(addr.addr.get_port()), cats.proxy, std::move(cat_mask),
+                              cats.cats.size() ? 0 : 1);
+    }
   }
 
   td::uint32 ts = static_cast<td::uint32>(td::Clocks::system());

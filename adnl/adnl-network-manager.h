@@ -70,6 +70,8 @@ class AdnlNetworkManager : public td::actor::Actor {
 
   virtual void install_callback(std::unique_ptr<Callback> callback) = 0;
 
+  virtual void add_tunnel(td::uint16 port, AdnlCategoryMask cat_mask, td::uint32 priority,
+                          td::Promise<td::IPAddress> on_ready) = 0;
   virtual void add_self_addr(td::IPAddress addr, AdnlCategoryMask cat_mask, td::uint32 priority) = 0;
   virtual void add_proxy_addr(td::IPAddress addr, td::uint16 local_port, std::shared_ptr<AdnlProxy> proxy,
                               AdnlCategoryMask cat_mask, td::uint32 priority) = 0;

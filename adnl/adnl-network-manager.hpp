@@ -95,6 +95,10 @@ class AdnlNetworkManagerImpl : public AdnlNetworkManager {
     size_t in_desc{std::numeric_limits<size_t>::max()};
     bool allow_proxy{false};
   };
+  struct TunnelDesc {
+    size_t index{};
+    td::IPAddress address;
+  };
 
   OutDesc *choose_out_iface(td::uint8 cat, td::uint32 priority);
 
@@ -127,6 +131,8 @@ class AdnlNetworkManagerImpl : public AdnlNetworkManager {
     in_desc_.push_back(std::move(desc));
   }
 
+  void add_tunnel(td::uint16 port, AdnlCategoryMask cat_mask, td::uint32 priority,
+                  td::Promise<td::IPAddress> on_ready) override;
   void add_self_addr(td::IPAddress addr, AdnlCategoryMask cat_mask, td::uint32 priority) override;
   void add_proxy_addr(td::IPAddress addr, td::uint16 local_port, std::shared_ptr<AdnlProxy> proxy,
                       AdnlCategoryMask cat_mask, td::uint32 priority) override;
@@ -141,6 +147,7 @@ class AdnlNetworkManagerImpl : public AdnlNetworkManager {
     }
   }
 
+  size_t add_tunnel_udp_port(td::uint16 port, td::Promise<td::IPAddress> on_ready);
   size_t add_listening_udp_port(td::uint16 port);
   void receive_udp_message(td::UdpMessage message, size_t idx);
   void proxy_register(OutDesc &desc);

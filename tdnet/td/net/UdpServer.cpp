@@ -20,6 +20,8 @@
 #include "td/net/FdListener.h"
 #include "td/net/TcpListener.h"
 
+#include "td/net/tunnel/libtunnel.h"
+
 #include "td/utils/BufferedFd.h"
 
 #include <map>
@@ -29,6 +31,118 @@ namespace {
 int VERBOSITY_NAME(udp_server) = VERBOSITY_NAME(DEBUG) + 10;
 }
 namespace detail {
+
+class UdpServerTunnelImpl : public UdpServer {
+ public:
+  void start_up() override;
+  void alarm() override;
+
+  void send(td::UdpMessage &&message) override;
+  static td::actor::ActorOwn<UdpServerTunnelImpl> create(td::Slice name, int32 port, std::unique_ptr<Callback> callback,
+                                                         td::Promise<td::IPAddress> on_ready);
+
+  UdpServerTunnelImpl(int32 port, std::unique_ptr<Callback> callback, td::Promise<td::IPAddress> on_ready);
+
+private:
+  td::Promise<td::IPAddress> on_ready_;
+  char out_buf_[(16+2+1500)*300];
+  size_t out_buf_offset_ = 0;
+  size_t out_buf_msg_num_ = 0;
+  size_t tunnel_index_;
+  double last_batch_at_ = Time::now();
+
+  int32 port_;
+  std::unique_ptr<Callback> callback_;
+
+  static void on_recv_batch(void *next, char *data, size_t num);
+
+};
+
+void UdpServerTunnelImpl::send(td::UdpMessage &&message) {
+  auto sock = message.address.get_sockaddr();
+  auto sz = message.data.size();
+
+  // ip+port
+  memcpy(out_buf_ + out_buf_offset_, sock, sizeof(sockaddr));
+  out_buf_offset_ += sizeof(sockaddr);
+
+  // data len (2 bytes)
+  out_buf_[out_buf_offset_] = static_cast<char>(sz >> 8);
+  out_buf_[out_buf_offset_ + 1] = static_cast<char>(sz & 0xff);
+
+  memcpy(out_buf_ + out_buf_offset_ + 2, message.data.data(), sz);
+  out_buf_offset_ += 2 + sz;
+  out_buf_msg_num_++;
+
+
+  if (out_buf_msg_num_ >= 100) {
+    td::Timer timer;
+    WriteTunnel(tunnel_index_, out_buf_, out_buf_msg_num_);
+    LOG(INFO) << "Sending messages " << out_buf_msg_num_ << " | " << timer.elapsed();
+
+    out_buf_offset_ = 0;
+    out_buf_msg_num_ = 0;
+    last_batch_at_ = Time::now();
+  }
+  // LOG(INFO) << "TUN message to: ";
+}
+
+void UdpServerTunnelImpl::alarm() {
+  auto now = Time::now();
+  if (out_buf_msg_num_ > 0 && now-last_batch_at_ > 0.02) {
+    td::Timer timer;
+    WriteTunnel(tunnel_index_, out_buf_, out_buf_msg_num_);
+    LOG(ERROR) << "Sending messages from alarm " << out_buf_msg_num_ << " | " << timer.elapsed();
+
+    out_buf_offset_ = 0;
+    out_buf_msg_num_ = 0;
+    last_batch_at_ = now;
+  }
+
+  alarm_timestamp() = td::Timestamp::in(0.05);
+}
+
+void UdpServerTunnelImpl::start_up() {
+  auto cfg = Slice("{\n\t\t\"TunnelServerKey\": \"2Kg9YuGSbpPA8+2UlMyef47UOzFt7fFjz9QREGUhP0U=\",\n\t\t\"TunnelThreads\": 10,\n\t\t\"PaymentsEnabled\": false,\n\t\t\"Payments\": {\n\t\t\t\"PaymentsServerKey\": \"8BfanhwJYWRlASVw6mXeuUxoMyB73CDfHYLQ8mF5FxE=\",\n\t\t\t\"WalletPrivateKey\": \"8BfanhwJYWRlASVw6mXeuUxoMyB73CDfHYLQ8mF5FxA=\",\n\t\t\t\"PaymentsListenAddr\": \"0.0.0.0:13131\",\n\t\t\t\"DBPath\": \"./payments-db/\",\n\t\t\t\"SecureProofPolicy\": false,\n\t\t\t\"ChannelConfig\": {\n\t\t\t\t\"VirtualChannelProxyFee\": \"0.01\",\n\t\t\t\t\"QuarantineDurationSec\": 600,\n\t\t\t\t\"MisbehaviorFine\": \"0.15\",\n\t\t\t\t\"ConditionalCloseDurationSec\": 180\n\t\t\t}\n\t\t},\n\t\t\"OutGateway\": {\n\t\t\t\"Key\": \"cKrWi/IgAKvd3Ro92ap2IfKABX3C4rQI59P+v1g+vOg=\",\n\t\t\t\"Payment\": null},\n\t\t\"RouteOut\": [],\n\t\t\"RouteIn\": []\n\t}");
+  auto netCfg = Slice("{\n\t\"liteservers\": [\n\t\t{\n\t\t\t\"ip\": 822907680,\n\t\t\t\"port\": 27842,\n\t\t\t\"provided\":\"Beavis\",\n\t\t\t\"id\": {\n\t\t\t\t\"@type\": \"pub.ed25519\",\n\t\t\t\t\"key\": \"sU7QavX2F964iI9oToP9gffQpCQIoOLppeqL/pdPvpM=\"\n\t\t\t}\n\t\t},\n\t\t{\n\t\t\t\"ip\": -1468571697,\n\t\t\t\"port\": 27787,\n\t\t\t\"provided\":\"Beavis\",\n\t\t\t\"id\": {\n\t\t\t\t\"@type\": \"pub.ed25519\",\n\t\t\t\t\"key\": \"Y/QVf6G5VDiKTZOKitbFVm067WsuocTN8Vg036A4zGk=\"\n\t\t\t}\n\t\t},\n\t\t{\n\t\t\t\"ip\": -1468575011,\n\t\t\t\"port\": 51088,\n\t\t\t\"provided\":\"Beavis\",\n\t\t\t\"id\": {\n\t\t\t\t\"@type\": \"pub.ed25519\",\n\t\t\t\t\"key\": \"Sy5ghr3EahQd/1rDayzZXt5+inlfF+7kLfkZDJcU/ek=\"\n\t\t\t}\n\t\t},\n\t\t{\n\t\t\t\"ip\": 1844203537,\n\t\t\t\"port\": 37537,\n\t\t\t\"provided\":\"Neo\",\n\t\t\t\"id\": {\n\t\t\t\t\"@type\": \"pub.ed25519\",\n\t\t\t\t\"key\": \"K1F7zEe0ETf+SwkefLS56hJE8x42sjCVsBJJuaY7nEA=\"\n\t\t\t}\n\t\t},\n\t\t{\n\t\t\t\"ip\": 1844203589,\n\t\t\t\"port\": 34411,\n\t\t\t\"provided\":\"Neo\",\n\t\t\t\"id\": {\n\t\t\t\t\"@type\": \"pub.ed25519\",\n\t\t\t\t\"key\": \"pOpRRpIxDuMRm1qFUPpvVjD62vo8azkO0npw4FPcW/I=\"\n\t\t\t}\n\t\t},\n\t\t{\n\t\t\t\"ip\": 1047529523,\n\t\t\t\"port\": 37649,\n\t\t\t\"provided\":\"Neo\",\n\t\t\t\"id\": {\n\t\t\t\t\"@type\": \"pub.ed25519\",\n\t\t\t\t\"key\": \"pRf2sAa7d+Chl8gDclWOMtthtxjKnLYeAIzk869mMvA=\"\n\t\t\t}\n\t\t},\n\t\t{\n\t\t\t\"ip\": 1592601963,\n\t\t\t\"port\": 13833,\n\t\t\t\"id\": {\n\t\t\t\t\"@type\": \"pub.ed25519\",\n\t\t\t\t\"key\": \"QpVqQiv1u3nCHuBR3cg3fT6NqaFLlnLGbEgtBRukDpU=\"\n\t\t\t}\n\t\t},\n\t\t{\n\t\t\t\"ip\": 1162057690,\n\t\t\t\"port\": 35939,\n\t\t\t\"id\": {\n\t\t\t\t\"@type\": \"pub.ed25519\",\n\t\t\t\t\"key\": \"97y55AkdzXWyyVuOAn+WX6p66XTNs2hEGG0jFUOkCIo=\"\n\t\t\t}\n\t\t},\n\t\t{\n\t\t\t\"ip\": -1304477830,\n\t\t\t\"port\": 20700,\n\t\t\t\"id\": {\n\t\t\t\t\"@type\": \"pub.ed25519\",\n\t\t\t\t\"key\": \"dGLlRRai3K9FGkI0dhABmFHMv+92QEVrvmTrFf5fbqA=\"\n\t\t\t}\n\t\t},\n\t\t{\n\t\t\t\"ip\": 1959453117,\n\t\t\t\"port\": 20700,\n\t\t\t\"id\": {\n\t\t\t\t\"@type\": \"pub.ed25519\",\n\t\t\t\t\"key\": \"24RL7iVI20qcG+j//URfd/XFeEG9qtezW2wqaYQgVKw=\"\n\t\t\t}\n\t\t},\n\t\t{\n\t\t\t\"ip\": -809760973,\n\t\t\t\"port\": 20700,\n\t\t\t\"id\": {\n\t\t\t\t\"@type\": \"pub.ed25519\",\n\t\t\t\t\"key\": \"vunMV7K35yPlTQPx/Fqk6s+4/h5lpcbP+ao0Cy3M2hw=\"\n\t\t\t}\n\t\t},\n\t\t{\n\t\t\t\"ip\": 1097633201,\n\t\t\t\"port\": 17439,\n\t\t\t\"id\": {\n\t\t\t\t\"@type\": \"pub.ed25519\",\n\t\t\t\t\"key\": \"0MIADpLH4VQn+INHfm0FxGiuZZAA8JfTujRqQugkkA8=\"\n\t\t\t}\n\t\t},\n\t\t{\n\t\t\t\"ip\": 1091956407,\n\t\t\t\"port\": 16351,\n\t\t\t\"id\": {\n\t\t\t\t\"@type\": \"pub.ed25519\",\n\t\t\t\t\"key\": \"Mf/JGvcWAvcrN3oheze8RF/ps6p7oL6ifrIzFmGQFQ8=\"\n\t\t\t}\n\t\t}\n\t],\n\t\"dht\": {\n\t\t\"a\": 3,\n\t\t\"k\": 3,\n\t\t\"static_nodes\": {\n\t\t\t\"nodes\": [\n\t\t\t\t{\n\t\t\t\t\t\"@type\": \"dht.node\",\n\t\t\t\t\t\"id\": {\n\t\t\t\t\t\t\"@type\": \"pub.ed25519\",\n\t\t\t\t\t\t\"key\": \"K2AWu8leN2RjYmhMpYAaGX/F6nGVk9oZw9c09RX3yyc=\"\n\t\t\t\t\t},\n\t\t\t\t\t\"addr_list\": {\n\t\t\t\t\t\t\"@type\": \"adnl.addressList\",\n\t\t\t\t\t\t\"addrs\": [\n\t\t\t\t\t\t\t{\n\t\t\t\t\t\t\t\t\"@type\": \"adnl.address.udp\",\n\t\t\t\t\t\t\t\t\"ip\": 1592601963,\n\t\t\t\t\t\t\t\t\"port\": 38723\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t],\n\t\t\t\t\t\t\"version\": 0,\n\t\t\t\t\t\t\"reinit_date\": 0,\n\t\t\t\t\t\t\"priority\": 0,\n\t\t\t\t\t\t\"expire_at\": 0\n\t\t\t\t\t},\n\t\t\t\t\t\"version\": -1,\n\t\t\t\t\t\"signature\": \"21g16jxnqbb2ENAijrZFccHqLQcmmpkAI1HA46DaPvnVYvMkATFNEyHTy2R1T1jgU5M7CCLGJN+MxhwZfl/ZDA==\"\n\t\t\t\t},\n\t\t\t\t{\n\t\t\t\t\t\"@type\": \"dht.node\",\n\t\t\t\t\t\"id\": {\n\t\t\t\t\t\t\"@type\": \"pub.ed25519\",\n\t\t\t\t\t\t\"key\": \"fVIJzD9ATMilaPd847eFs6PtGSB67C+D9b4R+nf1+/s=\"\n\t\t\t\t\t},\n\t\t\t\t\t\"addr_list\": {\n\t\t\t\t\t\t\"@type\": \"adnl.addressList\",\n\t\t\t\t\t\t\"addrs\": [\n\t\t\t\t\t\t\t{\n\t\t\t\t\t\t\t\t\"@type\": \"adnl.address.udp\",\n\t\t\t\t\t\t\t\t\"ip\": 1097649206,\n\t\t\t\t\t\t\t\t\"port\": 29081\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t],\n\t\t\t\t\t\t\"version\": 0,\n\t\t\t\t\t\t\"reinit_date\": 0,\n\t\t\t\t\t\t\"priority\": 0,\n\t\t\t\t\t\t\"expire_at\": 0\n\t\t\t\t\t},\n\t\t\t\t\t\"version\": -1,\n\t\t\t\t\t\"signature\": \"wH0HEVT6yAfZZAoD5bF6J3EZWdSFwBGl1ZpOfhxZ0Bp2u52tv8OzjeH8tlZ+geMLTG50Csn5nxSKP1tswTWwBg==\"\n\t\t\t\t},\n\t\t\t\t{\n\t\t\t\t\t\"@type\": \"dht.node\",\n\t\t\t\t\t\"id\": {\n\t\t\t\t\t\t\"@type\": \"pub.ed25519\",\n\t\t\t\t\t\t\"key\": \"gu+woR+x7PoRmaMqAP7oeOjK2V4U0NU8ofdacWZ34aY=\"\n\t\t\t\t\t},\n\t\t\t\t\t\"addr_list\": {\n\t\t\t\t\t\t\"@type\": \"adnl.addressList\",\n\t\t\t\t\t\t\"addrs\": [\n\t\t\t\t\t\t\t{\n\t\t\t\t\t\t\t\t\"@type\": \"adnl.address.udp\",\n\t\t\t\t\t\t\t\t\"ip\": 1162057690,\n\t\t\t\t\t\t\t\t\"port\": 41578\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t],\n\t\t\t\t\t\t\"version\": 0,\n\t\t\t\t\t\t\"reinit_date\": 0,\n\t\t\t\t\t\t\"priority\": 0,\n\t\t\t\t\t\t\"expire_at\": 0\n\t\t\t\t\t},\n\t\t\t\t\t\"version\": -1,\n\t\t\t\t\t\"signature\": \"0PwDLXpN3IbRQuOTLkZBjkbT6+IkeUcvlhWrUY9us3IfSehmCfQjScR9mkVYsQ6cQHF+JeaFmqzV4GAiUcgjAg==\"\n\t\t\t\t},\n\t\t\t\t{\n\t\t\t\t\t\"@type\": \"dht.node\",\n\t\t\t\t\t\"id\": {\n\t\t\t\t\t\t\"@type\": \"pub.ed25519\",\n\t\t\t\t\t\t\"key\": \"WC4BO1eZ916FnLBSKmt07Pn5NP4D3/1wary1VjaCLaY=\"\n\t\t\t\t\t},\n\t\t\t\t\t\"addr_list\": {\n\t\t\t\t\t\t\"@type\": \"adnl.addressList\",\n\t\t\t\t\t\t\"addrs\": [\n\t\t\t\t\t\t\t{\n\t\t\t\t\t\t\t\t\"@type\": \"adnl.address.udp\",\n\t\t\t\t\t\t\t\t\"ip\": -1304477830,\n\t\t\t\t\t\t\t\t\"port\": 9670\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t],\n\t\t\t\t\t\t\"version\": 0,\n\t\t\t\t\t\t\"reinit_date\": 0,\n\t\t\t\t\t\t\"priority\": 0,\n\t\t\t\t\t\t\"expire_at\": 0\n\t\t\t\t\t},\n\t\t\t\t\t\"version\": -1,\n\t\t\t\t\t\"signature\": \"cvpzkGeuEuKV+d92qIVkln9ngm8qeDnmYtK5rq8uSet0392hAZcIv2IniDzTw0rN42NaOHL9A4KEelwKu1N2Ag==\"\n\t\t\t\t},\n\t\t\t\t{\n\t\t\t\t\t\"@type\": \"dht.node\",\n\t\t\t\t\t\"id\": {\n\t\t\t\t\t\t\"@type\": \"pub.ed25519\",\n\t\t\t\t\t\t\"key\": \"nC8dcxV+EV2i0ARvub94IFJKKZUYACfY4xFj1NaG7Pw=\"\n\t\t\t\t\t},\n\t\t\t\t\t\"addr_list\": {\n\t\t\t\t\t\t\"@type\": \"adnl.addressList\",\n\t\t\t\t\t\t\"addrs\": [\n\t\t\t\t\t\t\t{\n\t\t\t\t\t\t\t\t\"@type\": \"adnl.address.udp\",\n\t\t\t\t\t\t\t\t\"ip\": 1959453117,\n\t\t\t\t\t\t\t\t\"port\": 63625\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t],\n\t\t\t\t\t\t\"version\": 0,\n\t\t\t\t\t\t\"reinit_date\": 0,\n\t\t\t\t\t\t\"priority\": 0,\n\t\t\t\t\t\t\"expire_at\": 0\n\t\t\t\t\t},\n\t\t\t\t\t\"version\": -1,\n\t\t\t\t\t\"signature\": \"AHF6joNvQhyFFE0itV4OMA9n3Q8CEHVKapCLqazP7QJ4arsn4pdVkRYiGFEyQkngx+cm8izU4gB0JIaxF6PiBg==\"\n\t\t\t\t},\n\t\t\t\t{\n\t\t\t\t\t\"@type\": \"dht.node\",\n\t\t\t\t\t\"id\": {\n\t\t\t\t\t\t\"@type\": \"pub.ed25519\",\n\t\t\t\t\t\t\"key\": \"dqsRZLzTg/P7uxUlQpgl4VyTBNYBRMc4js3mnRiolBk=\"\n\t\t\t\t\t},\n\t\t\t\t\t\"addr_list\": {\n\t\t\t\t\t\t\"@type\": \"adnl.addressList\",\n\t\t\t\t\t\t\"addrs\": [\n\t\t\t\t\t\t\t{\n\t\t\t\t\t\t\t\t\"@type\": \"adnl.address.udp\",\n\t\t\t\t\t\t\t\t\"ip\": -809760973,\n\t\t\t\t\t\t\t\t\"port\": 40398\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t],\n\t\t\t\t\t\t\"version\": 0,\n\t\t\t\t\t\t\"reinit_date\": 0,\n\t\t\t\t\t\t\"priority\": 0,\n\t\t\t\t\t\t\"expire_at\": 0\n\t\t\t\t\t},\n\t\t\t\t\t\"version\": -1,\n\t\t\t\t\t\"signature\": \"mJxLrAv5RamN5B9mDz6MhQwFjF92D3drJ5efOSZryDaazil0AR4bRHh4vxzZlYiPhi/X/NyG6WwNvKBz+1ntBw==\"\n\t\t\t\t},\n\t\t\t\t{\n\t\t\t\t\t\"@type\": \"dht.node\",\n\t\t\t\t\t\"id\": {\n\t\t\t\t\t\t\"@type\": \"pub.ed25519\",\n\t\t\t\t\t\t\"key\": \"fO6cFYRCRrD+yQzOJdHcNWpRFwu+qLhQnddLq0gGbTs=\"\n\t\t\t\t\t},\n\t\t\t\t\t\"addr_list\": {\n\t\t\t\t\t\t\"@type\": \"adnl.addressList\",\n\t\t\t\t\t\t\"addrs\": [\n\t\t\t\t\t\t\t{\n\t\t\t\t\t\t\t\t\"@type\": \"adnl.address.udp\",\n\t\t\t\t\t\t\t\t\"ip\": 1097633201,\n\t\t\t\t\t\t\t\t\"port\": 7201\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t],\n\t\t\t\t\t\t\"version\": 0,\n\t\t\t\t\t\t\"reinit_date\": 0,\n\t\t\t\t\t\t\"priority\": 0,\n\t\t\t\t\t\t\"expire_at\": 0\n\t\t\t\t\t},\n\t\t\t\t\t\"version\": -1,\n\t\t\t\t\t\"signature\": \"o/rhtiUL3rvA08TKBcCn0DCiSjsNQdAv41aw7VVUig7ubaqJzYMv1cW3qMjxvsXn1BOugIheJm7voA1/brbtCg==\"\n\t\t\t\t}\n\t\t\t],\n\t\t\t\"@type\": \"dht.nodes\"\n\t\t},\n\t\t\"@type\": \"dht.config.global\"\n\t},\n\t\"@type\": \"config.global\",\n\t\"validator\": {\n\t\t\"zero_state\": {\n\t\t\t\"file_hash\": \"Z+IKwYS54DmmJmesw/nAD5DzWadnOCMzee+kdgSYDOg=\",\n\t\t\t\"seqno\": 0,\n\t\t\t\"root_hash\": \"gj+B8wb/AmlPk1z1AhVI484rhrUpgSr2oSFIh56VoSg=\",\n\t\t\t\"workchain\": -1,\n\t\t\t\"shard\": -9223372036854775808\n\t\t},\n\t\t\"@type\": \"validator.config.global\",\n\t\t\"init_block\": {\n\t\t\t\"workchain\": -1,\n\t\t\t\"shard\": -9223372036854775808,\n\t\t\t\"seqno\": 17908219,\n\t\t\t\"root_hash\": \"y6qWqhCnLgzWHjUFmXysaiOljuK5xVoCRMLzUwGInVM=\",\n\t\t\t\"file_hash\": \"Y/GziXxwuYte0AM4WT7tTWsCx+6rcfLpGmRaEQwhUKI=\"\n\t\t},\n\t\t\"hardforks\": [\n\t\t\t{\n\t\t\t\t\"file_hash\": \"jF3RTD+OyOoP+OI9oIjdV6M8EaOh9E+8+c3m5JkPYdg=\",\n\t\t\t\t\"seqno\": 5141579,\n\t\t\t\t\"root_hash\": \"6JSqIYIkW7y8IorxfbQBoXiuY3kXjcoYgQOxTJpjXXA=\",\n\t\t\t\t\"workchain\": -1,\n\t\t\t\t\"shard\": -9223372036854775808\n\t\t\t},\n\t\t\t{\n\t\t\t\t\"file_hash\": \"WrNoMrn5UIVPDV/ug/VPjYatvde8TPvz5v1VYHCLPh8=\",\n\t\t\t\t\"seqno\": 5172980,\n\t\t\t\t\"root_hash\": \"054VCNNtUEwYGoRe1zjH+9b1q21/MeM+3fOo76Vcjes=\",\n\t\t\t\t\"workchain\": -1,\n\t\t\t\t\"shard\": -9223372036854775808\n\t\t\t},\n\t\t\t{\n\t\t\t\t\"file_hash\": \"xRaxgUwgTXYFb16YnR+Q+VVsczLl6jmYwvzhQ/ncrh4=\",\n\t\t\t\t\"seqno\": 5176527,\n\t\t\t\t\"root_hash\": \"SoPLqMe9Dz26YJPOGDOHApTSe5i0kXFtRmRh/zPMGuI=\",\n\t\t\t\t\"workchain\": -1,\n\t\t\t\t\"shard\": -9223372036854775808\n\t\t\t}\n\t\t]\n\t}\n}\n");
+
+
+  LOG(INFO) << "INIT SERVER TUNNEL...";
+  // TODO: pass port_
+  auto res = PrepareTunnel(&on_recv_batch, callback_.release(), const_cast<char*>(cfg.data()), cfg.size(), const_cast<char*>(netCfg.data()), netCfg.size());
+  LOG(INFO) << "INIT SERVER TUNNEL DONE";
+  tunnel_index_ = res.index;
+
+  td:IPAddress ip;
+  ip.init_ipv4_port(td::IPAddress::ipv4_to_str(res.ip), static_cast<td::uint16>(res.port)).ensure();
+  on_ready_.set_value(std::move(ip));
+
+  alarm_timestamp() = td::Timestamp::in(0.05);
+}
+
+void UdpServerTunnelImpl::on_recv_batch(void *next, char *data, size_t num) {
+  for (size_t i = 0; i < num; i++) {
+    UdpMessage msg;
+    msg.address.init_sockaddr(reinterpret_cast<sockaddr *>(data));
+    const uint16_t len = (static_cast<uint16_t>(data[16]) << 8) + data[17];
+    msg.data = BufferSlice(data+18, len);
+    data += 18+len;
+
+    // both init_sockaddr and BufferSlice doing memcpy so it is safe
+    static_cast<Callback*>(next)->on_udp_message(std::move(msg));
+  }
+}
+
+td::actor::ActorOwn<UdpServerTunnelImpl> UdpServerTunnelImpl::create(td::Slice name, int32 port,
+                                                                     std::unique_ptr<Callback> callback,
+                                                                     td::Promise<td::IPAddress> on_ready) {
+  return td::actor::create_actor<UdpServerTunnelImpl>(
+      actor::ActorOptions().with_name(name).with_poll(!td::Poll::is_edge_triggered()), port, std::move(callback), std::move(on_ready));
+}
+
+UdpServerTunnelImpl::UdpServerTunnelImpl(int32 port, std::unique_ptr<Callback> callback, td::Promise<td::IPAddress> on_ready): port_(port), callback_(std::move(callback)), on_ready_(std::move(on_ready)) {
+}
+
 class UdpServerImpl : public UdpServer {
  public:
   void send(td::UdpMessage &&message) override;
@@ -396,6 +510,13 @@ Result<actor::ActorOwn<UdpServer>> UdpServer::create(td::Slice name, int32 port,
   fd.maximize_rcv_buffer().ensure();
   return detail::UdpServerImpl::create(name, std::move(fd), std::move(callback));
 }
+
+Result<actor::ActorOwn<UdpServer>> UdpServer::create_via_tunnel(td::Slice name, int32 port,
+                                                                std::unique_ptr<Callback> callback,
+                                                                td::Promise<td::IPAddress> on_ready) {
+  return detail::UdpServerTunnelImpl::create(name, port, std::move(callback), std::move(on_ready));
+}
+
 Result<actor::ActorOwn<UdpServer>> UdpServer::create_via_tcp(td::Slice name, int32 port,
                                                              std::unique_ptr<Callback> callback) {
   return actor::create_actor<detail::UdpServerViaTcp>(name, port, std::move(callback));

@@ -37,6 +37,10 @@ class UdpServer : public td::actor::Actor {
   static Result<actor::ActorOwn<UdpServer>> create(td::Slice name, int32 port, std::unique_ptr<Callback> callback);
   static Result<actor::ActorOwn<UdpServer>> create_via_tcp(td::Slice name, int32 port,
                                                            std::unique_ptr<Callback> callback);
+  static Result<actor::ActorOwn<UdpServer>> create_via_tunnel(td::Slice name, int32 port,
+                                                              std::unique_ptr<Callback> callback,
+                                                              td::Promise<td::IPAddress> on_ready);
+
 };
 
 }  // namespace td

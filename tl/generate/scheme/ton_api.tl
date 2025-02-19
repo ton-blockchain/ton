@@ -648,7 +648,7 @@ engine.validator.fullNodeMaster port:int adnl:int256 = engine.validator.FullNode
 engine.validator.fullNodeSlave ip:int port:int adnl:PublicKey = engine.validator.FullNodeSlave;
 engine.validator.fullNodeConfig ext_messages_broadcast_disabled:Bool = engine.validator.FullNodeConfig;
 engine.validator.extraConfig state_serializer_enabled:Bool = engine.validator.ExtraConfig;
-engine.validator.config out_port:int addrs:(vector engine.Addr) adnl:(vector engine.adnl)
+engine.validator.config out_port:int tunnel_enabled:int addrs:(vector engine.Addr) adnl:(vector engine.adnl)
         dht:(vector engine.dht)
         validators:(vector engine.validator) fullnode:int256 fullnodeslaves:(vector engine.validator.fullNodeSlave)
         fullnodemasters:(vector engine.validator.fullNodeMaster)
