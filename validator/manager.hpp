@@ -734,7 +734,7 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   void got_persistent_state_descriptions(std::vector<td::Ref<PersistentStateDescription>> descs);
   void add_persistent_state_description_impl(td::Ref<PersistentStateDescription> desc);
-  td::Ref<PersistentStateDescription> get_block_persistent_state(BlockIdExt block_id);
+  td::Ref<PersistentStateDescription> get_block_persistent_state_to_download(BlockIdExt block_id);
 
  private:
   bool need_monitor(ShardIdFull shard) const {

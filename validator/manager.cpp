@@ -700,11 +700,10 @@ void ValidatorManagerImpl::wait_block_state(BlockHandle handle, td::uint32 prior
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), handle](td::Result<td::Ref<ShardState>> R) {
       td::actor::send_closure(SelfId, &ValidatorManagerImpl::finished_wait_state, handle, std::move(R));
     });
-    auto id =
-        td::actor::create_actor<WaitBlockState>("waitstate", handle, priority, actor_id(this),
-                                                td::Timestamp::at(timeout.at() + 10.0), std::move(P),
-                                                get_block_persistent_state(handle->id()))
-            .release();
+    auto id = td::actor::create_actor<WaitBlockState>("waitstate", handle, priority, actor_id(this),
+                                                      td::Timestamp::at(timeout.at() + 10.0), std::move(P),
+                                                      get_block_persistent_state_to_download(handle->id()))
+                  .release();
     wait_state_[handle->id()].actor_ = id;
     it = wait_state_.find(handle->id());
   }
@@ -1150,9 +1149,10 @@ void ValidatorManagerImpl::finished_wait_state(BlockHandle handle, td::Result<td
         auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), handle](td::Result<td::Ref<ShardState>> R) {
           td::actor::send_closure(SelfId, &ValidatorManagerImpl::finished_wait_state, handle, std::move(R));
         });
-        auto id = td::actor::create_actor<WaitBlockState>("waitstate", handle, X.second, actor_id(this), X.first,
-                                                          std::move(P), get_block_persistent_state(handle->id()))
-                      .release();
+        auto id =
+            td::actor::create_actor<WaitBlockState>("waitstate", handle, X.second, actor_id(this), X.first,
+                                                    std::move(P), get_block_persistent_state_to_download(handle->id()))
+                .release();
         it->second.actor_ = id;
         return;
       }
@@ -3375,9 +3375,16 @@ void ValidatorManagerImpl::got_persistent_state_descriptions(std::vector<td::Ref
   }
 }
 
-td::Ref<PersistentStateDescription> ValidatorManagerImpl::get_block_persistent_state(BlockIdExt block_id) {
+td::Ref<PersistentStateDescription> ValidatorManagerImpl::get_block_persistent_state_to_download(BlockIdExt block_id) {
+  if (block_id.is_masterchain()) {
+    return {};
+  }
   auto it = persistent_state_blocks_.find(block_id);
   if (it == persistent_state_blocks_.end()) {
+    return {};
+  }
+  if (it->second->masterchain_id.seqno() + 16 >= min_confirmed_masterchain_seqno_) {
+    // Do not download persistent states during ordinary shard client sync
     return {};
   }
   return it->second;
