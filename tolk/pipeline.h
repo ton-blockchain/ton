@@ -34,6 +34,7 @@ void pipeline_discover_and_parse_sources(const std::string& stdlib_filename, con
 
 void pipeline_register_global_symbols();
 void pipeline_resolve_identifiers_and_assign_symbols();
+void pipeline_resolve_types_and_aliases();
 void pipeline_calculate_rvalue_lvalue();
 void pipeline_infer_types_and_calls_and_fields();
 void pipeline_check_inferred_types();
@@ -49,7 +50,9 @@ void pipeline_generate_fif_output_to_std_cout();
 
 // these pipes also can be called per-function individually
 // they are called for instantiated generics functions, when `f<T>` is deeply cloned as `f<int>`
+FunctionPtr pipeline_register_instantiated_generic_function(AnyV cloned_v, const GenericsInstantiation* instantiationTs);
 void pipeline_resolve_identifiers_and_assign_symbols(FunctionPtr);
+void pipeline_resolve_types_and_aliases(FunctionPtr);
 void pipeline_calculate_rvalue_lvalue(FunctionPtr);
 void pipeline_detect_unreachable_statements(FunctionPtr);
 void pipeline_infer_types_and_calls_and_fields(FunctionPtr);

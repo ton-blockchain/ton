@@ -117,7 +117,7 @@ protected:
     if (v->tok == tok_eq || v->tok == tok_neq) {
       AnyExprV lhs = v->get_lhs();
       AnyExprV rhs = v->get_rhs();
-      if (expect_boolean(lhs->inferred_type) && rhs->type == ast_bool_const) {
+      if (expect_boolean(lhs->inferred_type) && rhs->kind == ast_bool_const) {
         // `boolVar == true` / `boolVar != false`
         if (rhs->as<ast_bool_const>()->bool_val ^ (v->tok == tok_neq)) {
           return lhs;

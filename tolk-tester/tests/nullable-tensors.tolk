@@ -519,14 +519,14 @@ fun main(){}
 @testcase | 132 |      | -1 0 -1 0 777 (null) (null) -1 0 0
 @testcase | 133 |      | 60
 @testcase | 134 |      | 11 21 129
-@testcase | 135 |      | [ 10 ] [ (null) ] (null) 777 10 146 (null) 146 (null) 0 777 10 143 (null) 143 (null) 0 777 0 0 -1 0 0 -1 0 0 -1 777 0 -1 0 0 -1 0
+@testcase | 135 |      | [ 10 ] [ (null) ] (null) 777 10 143 (null) 143 (null) 0 777 10 144 (null) 144 (null) 0 777 0 0 -1 0 0 -1 0 0 -1 777 0 -1 0 0 -1 0
 @testcase | 136 | 9    | 9 0
 @testcase | 136 | null | (null) -1
-@testcase | 140 | 8 9  | 8 9 144 (null) (null) 0
+@testcase | 140 | 8 9  | 8 9 145 (null) (null) 0
 @testcase | 141 |      | (null) 10
 @testcase | 142 |      | 3 3 1 2
 @testcase | 143 | -1 0 | 1 2 1 3 777 (null) (null) (null) (null) 0
-@testcase | 143 | 0 -1 | 1 (null) 0 3 777 1 2 1 3 145
+@testcase | 143 | 0 -1 | 1 (null) 0 3 777 1 2 1 3 146
 
 @fif_codegen
 """

@@ -249,7 +249,7 @@ TypePtr TypeDataTensor::create(std::vector<TypePtr>&& items) {
   return hash.register_unique(new TypeDataTensor(hash.children_flags(), width_on_stack, std::move(items)));
 }
 
-TypePtr TypeDataTypedTuple::create(std::vector<TypePtr>&& items) {
+TypePtr TypeDataBrackets::create(std::vector<TypePtr>&& items) {
   TypeDataHasherForUnique hash(9189266157349499320ULL);
   for (TypePtr item : items) {
     hash.feed_child(item);
@@ -259,7 +259,7 @@ TypePtr TypeDataTypedTuple::create(std::vector<TypePtr>&& items) {
   if (TypePtr existing = hash.get_existing()) {
     return existing;
   }
-  return hash.register_unique(new TypeDataTypedTuple(hash.children_flags(), std::move(items)));
+  return hash.register_unique(new TypeDataBrackets(hash.children_flags(), std::move(items)));
 }
 
 TypePtr TypeDataIntN::create(bool is_unsigned, bool is_variadic, int n_bits) {
@@ -296,12 +296,12 @@ TypePtr TypeDataUnion::create(std::vector<TypePtr>&& variants) {
     return existing;
   }
 
-  // at the moment of parsing, union type can contain unresolved symbols
+  // for generics, like `f<T>(v: T?)`, no type_id exists
   // in this case, don't try to flatten: we have no info
-  // after symbols resolving, a new union type (with resolved variants) will be created
+  // after instantiation, a new union type (with resolved variants) will be created
   bool not_ready_yet = false;
   for (TypePtr variant : variants) {
-    not_ready_yet |= variant->has_unresolved_inside() || variant->has_genericT_inside();
+    not_ready_yet |= variant->has_genericT_inside();
   }
   if (not_ready_yet) {
     TypePtr or_null = nullptr;
@@ -368,17 +368,6 @@ TypePtr TypeDataUnion::create_nullable(TypePtr nullable) {
   return create({nullable, TypeDataNullLiteral::create()});
 }
 
-TypePtr TypeDataUnresolved::create(std::string&& text, SrcLocation loc) {
-  TypeDataHasherForUnique hash(3680147223540048162ULL);
-  hash.feed_string(text);
-  // hash.feed_hash(*reinterpret_cast<uint64_t*>(&loc));
-
-  if (TypePtr existing = hash.get_existing()) {
-    return existing;
-  }
-  return hash.register_unique(new TypeDataUnresolved(std::move(text), loc));
-}
-
 
 // --------------------------------------------
 //    get_type_id()
@@ -396,7 +385,8 @@ int TypeDataFunCallable::get_type_id() const {
 }
 
 int TypeDataGenericT::get_type_id() const {
-  return TypeIdCalculation::assign_type_id(this);
+  assert(false);    // generics must have been instantiated in advance
+  throw Fatal("unexpected get_type_id() call");
 }
 
 int TypeDataStruct::get_type_id() const {
@@ -408,7 +398,7 @@ int TypeDataTensor::get_type_id() const {
   return TypeIdCalculation::assign_type_id(this);
 }
 
-int TypeDataTypedTuple::get_type_id() const {
+int TypeDataBrackets::get_type_id() const {
   assert(!has_genericT_inside());
   return TypeIdCalculation::assign_type_id(this);
 }
@@ -436,11 +426,6 @@ int TypeDataUnion::get_type_id() const {
 
 int TypeDataUnknown::get_type_id() const {
   assert(false);    // unknown can not be inside a union
-  throw Fatal("unexpected get_type_id() call");
-}
-
-int TypeDataUnresolved::get_type_id() const {
-  assert(false);    // unresolved can be inside a union at parsing, but is resolved is advance
   throw Fatal("unexpected get_type_id() call");
 }
 
@@ -485,7 +470,7 @@ std::string TypeDataTensor::as_human_readable() const {
   return result;
 }
 
-std::string TypeDataTypedTuple::as_human_readable() const {
+std::string TypeDataBrackets::as_human_readable() const {
   std::string result = "[";
   for (TypePtr item : items) {
     if (result.size() > 1) {
@@ -535,48 +520,6 @@ std::string TypeDataUnion::as_human_readable() const {
 
 
 // --------------------------------------------
-//    traverse()
-//
-// invokes a callback for TypeData itself and all its children
-// only non-trivial implementations are here; by default (no children), `callback(this)` is executed
-//
-
-void TypeDataAlias::traverse(const TraverserCallbackT& callback) const {
-  callback(this);
-  underlying_type->traverse(callback);
-}
-
-void TypeDataFunCallable::traverse(const TraverserCallbackT& callback) const {
-  callback(this);
-  for (TypePtr param : params_types) {
-    param->traverse(callback);
-  }
-  return_type->traverse(callback);
-}
-
-void TypeDataTensor::traverse(const TraverserCallbackT& callback) const {
-  callback(this);
-  for (TypePtr item : items) {
-    item->traverse(callback);
-  }
-}
-
-void TypeDataTypedTuple::traverse(const TraverserCallbackT& callback) const {
-  callback(this);
-  for (TypePtr item : items) {
-    item->traverse(callback);
-  }
-}
-
-void TypeDataUnion::traverse(const TraverserCallbackT& callback) const {
-  callback(this);
-  for (TypePtr variant : variants) {
-    variant->traverse(callback);
-  }
-}
-
-
-// --------------------------------------------
 //    replace_children_custom()
 //
 // returns new TypeData with children replaced by a custom callback
@@ -602,7 +545,7 @@ TypePtr TypeDataTensor::replace_children_custom(const ReplacerCallbackT& callbac
   return callback(create(std::move(mapped)));
 }
 
-TypePtr TypeDataTypedTuple::replace_children_custom(const ReplacerCallbackT& callback) const {
+TypePtr TypeDataBrackets::replace_children_custom(const ReplacerCallbackT& callback) const {
   std::vector<TypePtr> mapped;
   mapped.reserve(items.size());
   for (TypePtr item : items) {
@@ -778,8 +721,8 @@ bool TypeDataTensor::can_rhs_be_assigned(TypePtr rhs) const {
   return rhs == TypeDataNever::create();
 }
 
-bool TypeDataTypedTuple::can_rhs_be_assigned(TypePtr rhs) const {
-  if (const auto* as_tuple = rhs->try_as<TypeDataTypedTuple>(); as_tuple && as_tuple->size() == size()) {
+bool TypeDataBrackets::can_rhs_be_assigned(TypePtr rhs) const {
+  if (const auto* as_tuple = rhs->try_as<TypeDataBrackets>(); as_tuple && as_tuple->size() == size()) {
     for (int i = 0; i < size(); ++i) {
       if (!items[i]->can_rhs_be_assigned(as_tuple->items[i])) {
         return false;
@@ -850,11 +793,6 @@ bool TypeDataUnion::can_rhs_be_assigned(TypePtr rhs) const {
 
 bool TypeDataUnknown::can_rhs_be_assigned(TypePtr rhs) const {
   return true;
-}
-
-bool TypeDataUnresolved::can_rhs_be_assigned(TypePtr rhs) const {
-  assert(false);
-  return false;
 }
 
 bool TypeDataNever::can_rhs_be_assigned(TypePtr rhs) const {
@@ -1046,8 +984,8 @@ bool TypeDataTensor::can_be_casted_with_as_operator(TypePtr cast_to) const {
   return false;
 }
 
-bool TypeDataTypedTuple::can_be_casted_with_as_operator(TypePtr cast_to) const {
-  if (const auto* to_tuple = cast_to->try_as<TypeDataTypedTuple>(); to_tuple && to_tuple->size() == size()) {
+bool TypeDataBrackets::can_be_casted_with_as_operator(TypePtr cast_to) const {
+  if (const auto* to_tuple = cast_to->try_as<TypeDataBrackets>(); to_tuple && to_tuple->size() == size()) {
     for (int i = 0; i < size(); ++i) {
       if (!items[i]->can_be_casted_with_as_operator(to_tuple->items[i])) {
         return false;
@@ -1122,10 +1060,6 @@ bool TypeDataUnion::can_be_casted_with_as_operator(TypePtr cast_to) const {
 bool TypeDataUnknown::can_be_casted_with_as_operator(TypePtr cast_to) const {
   // 'unknown' can be cast to any TVM value
   return cast_to->get_width_on_stack() == 1;
-}
-
-bool TypeDataUnresolved::can_be_casted_with_as_operator(TypePtr cast_to) const {
-  return false;
 }
 
 bool TypeDataNever::can_be_casted_with_as_operator(TypePtr cast_to) const {
@@ -1251,190 +1185,6 @@ TypePtr TypeDataUnion::calculate_exact_variant_to_fit_rhs(TypePtr rhs_type) cons
 }
 
 
-// --------------------------------------------
-//    parsing type from tokens
-//
-// here we implement parsing types (mostly after colon) to TypeData
-// example: `var v: int` is TypeDataInt
-// example: `var v: (builder?, [cell])` is TypeDataTensor(TypeDataUnion(TypeDataBuilder,TypeDataNullLiteral), TypeDataTypedTuple(TypeDataCell))
-// example: `fun f(): ()` is TypeDataTensor() (an empty one)
-//
-// note, that unrecognized type names (MyEnum, MyStruct, T) are parsed as TypeDataUnresolved,
-// and later, when all files are parsed and all symbols registered, such identifiers are resolved
-// example: `fun f<T>(v: T)` at first v is TypeDataUnresolved("T"), later becomes TypeDataGenericT
-// see finalize_type_data()
-//
-// note, that `self` does not name a type, it can appear only as a return value of a function (parsed specially)
-// when `self` appears as a type, it's parsed as TypeDataUnresolved, and later an error is emitted
-//
-
-static TypePtr parse_type_expression(Lexer& lex);
-
-std::vector<TypePtr> parse_nested_type_list(Lexer& lex, TokenType tok_op, const char* s_op, TokenType tok_cl, const char* s_cl) {
-  lex.expect(tok_op, s_op);
-  std::vector<TypePtr> sub_types;
-  while (true) {
-    if (lex.tok() == tok_cl) {  // empty lists allowed
-      lex.next();
-      break;
-    }
-
-    sub_types.emplace_back(parse_type_expression(lex));
-    if (lex.tok() == tok_comma) {
-      lex.next();
-    } else if (lex.tok() != tok_cl) {
-      lex.unexpected(s_cl);
-    }
-  }
-  return sub_types;
-}
-
-std::vector<TypePtr> parse_nested_type_list_in_parenthesis(Lexer& lex) {
-  return parse_nested_type_list(lex, tok_oppar, "`(`", tok_clpar, "`)` or `,`");
-}
-
-static TypePtr parse_intN(std::string_view strN, bool is_unsigned) {
-  int n;
-  auto result = std::from_chars(strN.data() + 3 + static_cast<int>(is_unsigned), strN.data() + strN.size(), n);
-  bool parsed = result.ec == std::errc() && result.ptr == strN.data() + strN.size();
-  if (!parsed || n <= 0 || n > 256 + static_cast<int>(is_unsigned)) {
-    return nullptr;   // `int1000`, maybe it's user-defined alias, let it be unresolved
-  }
-  return TypeDataIntN::create(is_unsigned, false, n);
-}
-
-static TypePtr parse_bytesN(std::string_view strN, bool is_bits) {
-  int n;
-  auto result = std::from_chars(strN.data() + 5  - static_cast<int>(is_bits), strN.data() + strN.size(), n);
-  bool parsed = result.ec == std::errc() && result.ptr == strN.data() + strN.size();
-  if (!parsed || n <= 0 || n > 1024) {
-    return nullptr;   // `bytes9999`, maybe it's user-defined alias, let it be unresolved
-  }
-  return TypeDataBytesN::create(is_bits, n);
-}
-
-static TypePtr parse_simple_type(Lexer& lex) {
-  switch (lex.tok()) {
-    case tok_self:
-    case tok_identifier: {
-      SrcLocation loc = lex.cur_location();
-      std::string_view str = lex.cur_str();
-      lex.next();
-      switch (str.size()) {
-        case 3:
-          if (str == "int") return TypeDataInt::create();
-          break;
-        case 4:
-          if (str == "cell") return TypeDataCell::create();
-          if (str == "void") return TypeDataVoid::create();
-          if (str == "bool") return TypeDataBool::create();
-          break;
-        case 5:
-          if (str == "slice") return TypeDataSlice::create();
-          if (str == "tuple") return TypeDataTuple::create();
-          if (str == "coins") return TypeDataCoins::create();
-          if (str == "never") return TypeDataNever::create();
-          break;
-        case 7:
-          if (str == "builder") return TypeDataBuilder::create();
-          break;
-        case 8:
-          if (str == "varint16") return TypeDataIntN::create(false, true, 16);
-          if (str == "varint32") return TypeDataIntN::create(false, true, 32);
-          break;
-        case 12:
-          if (str == "continuation") return TypeDataContinuation::create();
-          break;
-        default:
-          break;
-      }
-      if (str.starts_with("int")) {
-        if (TypePtr intN = parse_intN(str, false)) {
-          return intN;
-        }
-      }
-      if (str.size() > 4 && str.starts_with("uint")) {
-        if (TypePtr uintN = parse_intN(str, true)) {
-          return uintN;
-        }
-      }
-      if (str.size() > 4 && str.starts_with("bits")) {
-        if (TypePtr bitsN = parse_bytesN(str, true)) {
-          return bitsN;
-        }
-      }
-      if (str.size() > 5 && str.starts_with("bytes")) {
-        if (TypePtr bytesN = parse_bytesN(str, false)) {
-          return bytesN;
-        }
-      }
-      return TypeDataUnresolved::create(std::string(str), loc);
-    }
-    case tok_null:
-      lex.next();
-      return TypeDataNullLiteral::create();
-    case tok_oppar: {
-      std::vector<TypePtr> items = parse_nested_type_list_in_parenthesis(lex);
-      if (items.size() == 1) {
-        return items.front();
-      }
-      return TypeDataTensor::create(std::move(items));
-    }
-    case tok_opbracket: {
-      std::vector<TypePtr> items = parse_nested_type_list(lex, tok_opbracket, "`[`", tok_clbracket, "`]` or `,`");
-      return TypeDataTypedTuple::create(std::move(items));
-    }
-    default:
-      lex.unexpected("<type>");
-  }
-}
-
-static TypePtr parse_type_nullable(Lexer& lex) {
-  TypePtr result = parse_simple_type(lex);
-
-  if (lex.tok() == tok_question) {
-    lex.next();
-    result = TypeDataUnion::create_nullable(result);
-  }
-
-  return result;
-}
-
-static TypePtr parse_type_expression(Lexer& lex) {
-  TypePtr result = parse_type_nullable(lex);
-
-  if (lex.tok() == tok_bitwise_or) {  // `int | slice`, `Pair2 | (Pair3 | null)`
-    std::vector<TypePtr> items;
-    items.emplace_back(result);
-    while (lex.tok() == tok_bitwise_or) {
-      lex.next();
-      items.emplace_back(parse_type_nullable(lex));
-    }
-    result = TypeDataUnion::create(std::move(items));
-  }
-
-  if (lex.tok() == tok_arrow) {   // `int -> int`, `(cell, slice) -> void`, `int -> int -> int`, `int | cell -> void`
-    lex.next();
-    TypePtr return_type = parse_type_expression(lex);
-    std::vector<TypePtr> params_types = {result};
-    if (const auto* as_tensor = result->try_as<TypeDataTensor>()) {
-      params_types = as_tensor->items;
-    }
-    result = TypeDataFunCallable::create(std::move(params_types), return_type);
-  }
-
-  return result;
-}
-
-TypePtr parse_type_from_tokens(Lexer& lex) {
-  return parse_type_expression(lex);
-}
-
-// for internal usage only
-TypePtr parse_type_from_string(std::string_view text) {
-  Lexer lex(text);
-  return parse_type_expression(lex);
-}
 
 std::ostream& operator<<(std::ostream& os, TypePtr type_data) {
   return os << (type_data ? type_data->as_human_readable() : "(nullptr-type)");

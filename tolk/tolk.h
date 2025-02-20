@@ -34,6 +34,12 @@ namespace tolk {
 GNU_ATTRIBUTE_COLD GNU_ATTRIBUTE_NORETURN
 void on_assertion_failed(const char *description, const char *file_name, int line_number);
 
+// fire a general error, just a wrapper over `throw`
+GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
+inline void fire(FunctionPtr cur_f, SrcLocation loc, const std::string& message) {
+  throw ParseError(cur_f, loc, message);
+}
+
 /*
  * 
  *   ABSTRACT CODE

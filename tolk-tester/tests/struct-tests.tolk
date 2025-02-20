@@ -506,7 +506,7 @@ type PointAlias = Point;
 @testcase | 126 |      | 118
 @testcase | 127 |      | 0 0 131 131 777 -1 -1 0 0 777 0 0 138 777 0 0 777 (null) (null) 0
 @testcase | 128 | -1   | (null) (null) 131 -1 0 0 777 (null) (null) 131 -1 0 0
-@testcase | 128 | 0    | 1 2 129 0 -1 0 777 0 131 138 0 -1 0
+@testcase | 128 | 0    | 1 2 130 0 -1 0 777 0 131 138 0 -1 0
 @testcase | 129 |      | (null)
 @testcase | 130 | -1   | 140 777 (null) 140 777 0 777 0 0
 @testcase | 130 | 0    | 139 777 4 1 777 139 777 0 0

@@ -35,7 +35,7 @@ namespace tolk {
 
 GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
 static void fire_error_invalid_mutate_arg_passed(AnyExprV v, FunctionPtr fun_ref, const LocalVarData& p_sym, bool called_as_method, bool arg_passed_as_mutate, AnyV arg_expr) {
-  std::string arg_str(arg_expr->type == ast_reference ? arg_expr->as<ast_reference>()->get_name() : "obj");
+  std::string arg_str(arg_expr->kind == ast_reference ? arg_expr->as<ast_reference>()->get_name() : "obj");
 
   // case: `loadInt(cs, 32)`; suggest: `cs.loadInt(32)`
   if (p_sym.is_mutate_parameter() && !arg_passed_as_mutate && !called_as_method && p_sym.param_idx == 0 && fun_ref->does_accept_self()) {
@@ -92,7 +92,7 @@ class RefineLvalueForMutateArgumentsVisitor final : public ASTVisitorFunctionBod
             break;
           }
         }
-        bool will_be_extracted_as_tmp_var = leftmost_obj->type == ast_function_call;
+        bool will_be_extracted_as_tmp_var = leftmost_obj->kind == ast_function_call;
         if (!will_be_extracted_as_tmp_var) {
           leftmost_obj->mutate()->assign_lvalue_true();
           v->get_dot_obj()->mutate()->assign_lvalue_true();

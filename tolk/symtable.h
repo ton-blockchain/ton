@@ -51,13 +51,21 @@ struct LocalVarData final : Symbol {
     flagImmutable = 2,          // variable was declared via `val` (not `var`)
   };
 
-  TypePtr declared_type;            // either at declaration `var x:int`, or if omitted, from assigned value `var x=2`
+  AnyTypeV type_node;               // either at declaration `var x:int`, or if omitted, from assigned value `var x=2`
+  TypePtr declared_type = nullptr;  // = resolved type_node
   int flags;
   int param_idx;                    // 0...N for function parameters, -1 for local vars
   std::vector<int> ir_idx;
 
+  LocalVarData(std::string name, SrcLocation loc, AnyTypeV type_node, int flags, int param_idx)
+    : Symbol(std::move(name), loc)
+    , type_node(type_node)
+    , flags(flags)
+    , param_idx(param_idx) {
+  }
   LocalVarData(std::string name, SrcLocation loc, TypePtr declared_type, int flags, int param_idx)
     : Symbol(std::move(name), loc)
+    , type_node(nullptr)         // for built-in functions (their parameters)
     , declared_type(declared_type)
     , flags(flags)
     , param_idx(param_idx) {
@@ -110,19 +118,31 @@ struct FunctionData final : Symbol {
 
   std::vector<LocalVarData> parameters;
   std::vector<int> arg_order, ret_order;
-  TypePtr declared_return_type;               // may be nullptr, meaning "auto infer"
+  AnyTypeV return_type_node;                  // may be nullptr, meaning "auto infer"
+  TypePtr declared_return_type = nullptr;     // = resolved return_type_node
   TypePtr inferred_return_type = nullptr;     // assigned on type inferring
   TypePtr inferred_full_type = nullptr;       // assigned on type inferring, it's TypeDataFunCallable(params -> return)
 
   const GenericsDeclaration* genericTs;
   const GenericsInstantiation* instantiationTs;
   FunctionBody body;
-  AnyV ast_root;                                            // V<ast_function_declaration> for user-defined (not builtin)
+  AnyV ast_root;                                  // V<ast_function_declaration> for user-defined (not builtin)
 
+  FunctionData(std::string name, SrcLocation loc, AnyTypeV return_type_node, std::vector<LocalVarData> parameters, int initial_flags, const GenericsDeclaration* genericTs, const GenericsInstantiation* instantiationTs, FunctionBody body, AnyV ast_root)
+    : Symbol(std::move(name), loc)
+    , flags(initial_flags)
+    , parameters(std::move(parameters))
+    , return_type_node(return_type_node)
+    , genericTs(genericTs)
+    , instantiationTs(instantiationTs)
+    , body(body)
+    , ast_root(ast_root) {
+  }
   FunctionData(std::string name, SrcLocation loc, TypePtr declared_return_type, std::vector<LocalVarData> parameters, int initial_flags, const GenericsDeclaration* genericTs, const GenericsInstantiation* instantiationTs, FunctionBody body, AnyV ast_root)
     : Symbol(std::move(name), loc)
     , flags(initial_flags)
     , parameters(std::move(parameters))
+    , return_type_node(nullptr)            // for built-in functions, defined in sources
     , declared_return_type(declared_return_type)
     , genericTs(genericTs)
     , instantiationTs(instantiationTs)
@@ -146,7 +166,7 @@ struct FunctionData final : Symbol {
   bool is_asm_function() const { return std::holds_alternative<FunctionBodyAsm*>(body); }
   bool is_builtin_function() const { return ast_root == nullptr; }
 
-  bool is_generic_function() const { return genericTs != nullptr; }
+  bool is_generic_function() const { return genericTs != nullptr && instantiationTs == nullptr; }
   bool is_instantiation_of_generic_function() const { return instantiationTs != nullptr; }
 
   bool is_inline() const { return flags & flagInline; }
@@ -182,12 +202,13 @@ struct GlobalVarData final : Symbol {
     flagReallyUsed = 1,          // calculated via dfs from used functions; unused globals are not codegenerated
   };
 
-  TypePtr declared_type; // always exists, declaring globals without type is prohibited
+  AnyTypeV type_node;                 // `global a: int;` always exists, declaring globals without type is prohibited
+  TypePtr declared_type = nullptr;    // = resolved type_node
   int flags = 0;
 
-  GlobalVarData(std::string name, SrcLocation loc, TypePtr declared_type)
+  GlobalVarData(std::string name, SrcLocation loc, AnyTypeV type_node)
     : Symbol(std::move(name), loc)
-    , declared_type(declared_type) {
+    , type_node(type_node) {
   }
 
   bool is_really_used() const { return flags & flagReallyUsed; }
@@ -198,14 +219,15 @@ struct GlobalVarData final : Symbol {
 };
 
 struct GlobalConstData final : Symbol {
+  AnyTypeV type_node;                 // exists for `const op: int = rhs`, otherwise nullptr
+  TypePtr declared_type = nullptr;    // = resolved type_node
+  TypePtr inferred_type = nullptr;
   AnyExprV init_value;
-  TypePtr declared_type;            // `const a: int = ...`; nullptr for `const a = ...`
-  TypePtr inferred_type = nullptr;  // filled at type inferring pass
 
-  GlobalConstData(std::string name, SrcLocation loc, TypePtr declared_type, AnyExprV init_value)
+  GlobalConstData(std::string name, SrcLocation loc, AnyTypeV type_node, AnyExprV init_value)
     : Symbol(std::move(name), loc)
-    , init_value(init_value)
-    , declared_type(declared_type) {
+    , type_node(type_node)
+    , init_value(init_value) {
   }
 
   GlobalConstData* mutate() const { return const_cast<GlobalConstData*>(this); }
@@ -215,21 +237,31 @@ struct GlobalConstData final : Symbol {
 };
 
 struct AliasDefData final : Symbol {
-  TypePtr underlying_type;
+  enum {
+    flagVisitedByResolver = 1,
+  };
 
-  AliasDefData(std::string name, SrcLocation loc, TypePtr underlying_type)
+  AnyTypeV underlying_type_node;
+  TypePtr underlying_type = nullptr;    // = resolved underlying_type_node
+  int flags = 0;
+
+  AliasDefData(std::string name, SrcLocation loc, AnyTypeV underlying_type_node)
     : Symbol(std::move(name), loc)
-    , underlying_type(underlying_type) {
+    , underlying_type_node(underlying_type_node) {
   }
 
+  bool was_visited_by_resolver() const { return flags & flagVisitedByResolver; }
+
   AliasDefData* mutate() const { return const_cast<AliasDefData*>(this); }
+  void assign_visited_by_resolver();
   void assign_resolved_type(TypePtr underlying_type);
 };
 
 struct StructFieldData final : Symbol {
   int field_idx;
-  TypePtr declared_type;
-  AnyExprV default_value;     // nullptr if no default
+  AnyTypeV type_node;
+  TypePtr declared_type = nullptr;      // = resolved type_node
+  AnyExprV default_value;               // nullptr if no default
 
   bool has_default_value() const { return default_value != nullptr; }
 
@@ -237,24 +269,30 @@ struct StructFieldData final : Symbol {
   void assign_resolved_type(TypePtr declared_type);
   void assign_default_value(AnyExprV default_value);
 
-  StructFieldData(std::string name, SrcLocation loc, int field_idx, TypePtr declared_type, AnyExprV default_value)
+  StructFieldData(std::string name, SrcLocation loc, int field_idx, AnyTypeV type_node, AnyExprV default_value)
     : Symbol(std::move(name), loc)
     , field_idx(field_idx)
-    , declared_type(declared_type)
+    , type_node(type_node)
     , default_value(default_value) {
   }
 };
 
 struct StructData final : Symbol {
+  enum {
+    flagVisitedByResolver = 1,
+  };
+
   std::vector<StructFieldPtr> fields;
-  const TypeData* struct_type = nullptr;      // it's TypeDataStruct, assigned at resolve identifiers
+  int flags = 0;
 
   int get_num_fields() const { return static_cast<int>(fields.size()); }
   StructFieldPtr get_field(int i) const { return fields.at(i); }
   StructFieldPtr find_field(std::string_view field_name) const;
 
+  bool was_visited_by_resolver() const { return flags & flagVisitedByResolver; }
+
   StructData* mutate() const { return const_cast<StructData*>(this); }
-  void assign_resolved_type(TypePtr struct_type);
+  void assign_visited_by_resolver();
 
   StructData(std::string name, SrcLocation loc, std::vector<StructFieldPtr>&& fields)
     : Symbol(std::move(name), loc)

@@ -31,14 +31,21 @@
 namespace tolk {
 
 class ASTStringifier final : public ASTVisitor {
-  constexpr static std::pair<ASTNodeType, const char*> name_pairs[] = {
+  constexpr static std::pair<ASTNodeKind, const char*> name_pairs[] = {
     {ast_identifier, "ast_identifier"},
+    // types
+    {ast_type_leaf_text, "ast_type_leaf_text"},
+    {ast_type_question_nullable, "ast_type_question_nullable"},
+    {ast_type_parenthesis_tensor, "ast_type_parenthesis_tensor"},
+    {ast_type_bracket_tuple, "ast_type_bracket_tuple"},
+    {ast_type_arrow_callable, "ast_type_arrow_callable"},
+    {ast_type_vertical_bar_union, "ast_type_vertical_bar_union"},
     // expressions
     {ast_empty_expression, "ast_empty_expression"},
     {ast_parenthesized_expression, "ast_parenthesized_expression"},
     {ast_braced_expression, "ast_braced_expression"},
     {ast_tensor, "ast_tensor"},
-    {ast_typed_tuple, "ast_typed_tuple"},
+    {ast_bracket_tuple, "ast_bracket_tuple"},
     {ast_reference, "ast_reference"},
     {ast_local_var_lhs, "ast_local_var_lhs"},
     {ast_local_vars_declaration, "ast_local_vars_declaration"},
@@ -108,19 +115,19 @@ class ASTStringifier final : public ASTVisitor {
 
   static_assert(std::size(annotation_kinds) == static_cast<size_t>(AnnotationKind::unknown), "annotation_kinds needs to be updated");
 
-  template<ASTNodeType node_type>
-  constexpr static const char* ast_node_type_to_string() {
-    return name_pairs[node_type].second;
+  template<ASTNodeKind node_kind>
+  constexpr static const char* ast_node_kind_to_string() {
+    return name_pairs[node_kind].second;
   }
 
   int depth = 0;
   std::string out;
   bool colored = false;
 
-  template<ASTNodeType node_type>
-  void handle_vertex(V<node_type> v) {
+  template<ASTNodeKind node_kind>
+  void handle_vertex(V<node_kind> v) {
     out += std::string(depth * 2, ' ');
-    out += ast_node_type_to_string<node_type>();
+    out += ast_node_kind_to_string<node_kind>();
     if (std::string postfix = specific_str(v); !postfix.empty()) {
       out += colored ? "  \x1b[34m" : " // ";
       out += postfix;
@@ -133,7 +140,9 @@ class ASTStringifier final : public ASTVisitor {
   }
 
   static std::string specific_str(AnyV v) {
-    switch (v->type) {
+    switch (v->kind) {
+      case ast_type_leaf_text:
+        return static_cast<std::string>(v->as<ast_type_leaf_text>()->text);
       case ast_identifier:
         return static_cast<std::string>(v->as<ast_identifier>()->name);
       case ast_reference: {
@@ -170,7 +179,7 @@ class ASTStringifier final : public ASTVisitor {
       case ast_type_alias_declaration:
         return "type " + static_cast<std::string>(v->as<ast_type_alias_declaration>()->get_identifier()->name);
       case ast_struct_field:
-        return static_cast<std::string>(v->as<ast_struct_field>()->get_identifier()->name) + ": " + v->as<ast_struct_field>()->declared_type->as_human_readable();
+        return static_cast<std::string>(v->as<ast_struct_field>()->get_identifier()->name) + ": " + ast_type_node_to_string(v->as<ast_struct_field>()->type_node);
       case ast_struct_declaration:
         return "struct " + static_cast<std::string>(v->as<ast_struct_declaration>()->get_identifier()->name);
       case ast_assign:
@@ -182,24 +191,21 @@ class ASTStringifier final : public ASTVisitor {
       case ast_binary_operator:
         return static_cast<std::string>(v->as<ast_binary_operator>()->operator_name);
       case ast_cast_as_operator:
-        return v->as<ast_cast_as_operator>()->cast_to_type->as_human_readable();
+        return ast_type_node_to_string(v->as<ast_cast_as_operator>()->type_node);
       case ast_is_type_operator: {
         std::string prefix = v->as<ast_is_type_operator>()->is_negated ? "!is " : "is ";
-        return prefix + v->as<ast_is_type_operator>()->rhs_type->as_human_readable();
+        return prefix + ast_type_node_to_string(v->as<ast_is_type_operator>()->type_node);
       }
       case ast_block_statement:
         return "↓" + std::to_string(v->as<ast_block_statement>()->get_items().size());
       case ast_instantiationT_item:
-        return v->as<ast_instantiationT_item>()->substituted_type->as_human_readable();
+        return ast_type_node_to_string(v->as<ast_instantiationT_item>()->type_node);
       case ast_if_statement:
         return v->as<ast_if_statement>()->is_ifnot ? "ifnot" : "";
       case ast_annotation:
         return annotation_kinds[static_cast<int>(v->as<ast_annotation>()->kind)].second;
-      case ast_parameter: {
-        std::ostringstream os;
-        os << v->as<ast_parameter>()->declared_type;
-        return static_cast<std::string>(v->as<ast_parameter>()->param_name) + ": " + os.str();
-      }
+      case ast_parameter:
+        return static_cast<std::string>(v->as<ast_parameter>()->param_name) + ": " + ast_type_node_to_string(v->as<ast_parameter>()->type_node);
       case ast_function_declaration: {
         std::string param_names;
         for (int i = 0; i < v->as<ast_function_declaration>()->get_num_params(); i++) {
@@ -210,25 +216,24 @@ class ASTStringifier final : public ASTVisitor {
         return "fun " + static_cast<std::string>(v->as<ast_function_declaration>()->get_identifier()->name) + "(" + param_names + ")";
       }
       case ast_local_var_lhs: {
-        std::ostringstream os;
-        os << (v->as<ast_local_var_lhs>()->inferred_type ? v->as<ast_local_var_lhs>()->inferred_type->as_human_readable() : v->as<ast_local_var_lhs>()->declared_type->as_human_readable());
+        std::string str_type = v->as<ast_local_var_lhs>()->inferred_type ? v->as<ast_local_var_lhs>()->inferred_type->as_human_readable() : ast_type_node_to_string(v->as<ast_local_var_lhs>()->type_node);
         if (v->as<ast_local_var_lhs>()->get_name().empty()) {
-          return "_: " + os.str();
+          return "_: " + str_type;
         }
-        return static_cast<std::string>(v->as<ast_local_var_lhs>()->get_name()) + ":" + os.str();
+        return static_cast<std::string>(v->as<ast_local_var_lhs>()->get_name()) + ": " + str_type;
       }
       case ast_instantiationT_list: {
         std::string result = "<";
         for (AnyV item : v->as<ast_instantiationT_list>()->get_items()) {
           if (result.size() > 1)
             result += ",";
-          result += item->as<ast_instantiationT_item>()->substituted_type->as_human_readable();
+          result += ast_type_node_to_string(item->as<ast_instantiationT_item>()->type_node);
         }
         return result + ">";
       }
       case ast_match_arm:
         if (v->as<ast_match_arm>()->pattern_kind == MatchArmKind::exact_type) {
-          return v->as<ast_match_arm>()->exact_type->as_human_readable();
+          return ast_type_node_to_string(v->as<ast_match_arm>()->pattern_type_node);
         }
         if (v->as<ast_match_arm>()->pattern_kind == MatchArmKind::const_expression) {
           return "(expression)";
@@ -260,7 +265,7 @@ public:
   }
 
   static std::string to_string_without_children(AnyV v) {
-    std::string result = ast_node_type_to_string(v->type);
+    std::string result = ast_node_kind_to_string(v->kind);
     if (std::string postfix = specific_str(v); !postfix.empty()) {
       result += ' ';
       result += specific_str(v);
@@ -268,19 +273,39 @@ public:
     return result;
   }
 
-  static const char* ast_node_type_to_string(ASTNodeType node_type) {
-    return name_pairs[node_type].second;
+  static std::string ast_type_node_to_string(AnyTypeV type_node) {
+    if (type_node == nullptr) {
+      return "";
+    }
+    if (auto v_leaf = type_node->try_as<ast_type_leaf_text>()) {
+      return static_cast<std::string>(v_leaf->text);
+    }
+    if (auto v_nullable = type_node->try_as<ast_type_question_nullable>()) {
+      return ast_type_node_to_string(v_nullable->get_inner()) + "?";
+    }
+    return ast_node_kind_to_string(type_node->kind);
+  }
+
+  static const char* ast_node_kind_to_string(ASTNodeKind node_kind) {
+    return name_pairs[node_kind].second;
   }
 
   void visit(AnyV v) override {
-    switch (v->type) {
+    switch (v->kind) {
       case ast_identifier:                    return handle_vertex(v->as<ast_identifier>());
+      // types
+      case ast_type_leaf_text:                return handle_vertex(v->as<ast_type_leaf_text>());
+      case ast_type_question_nullable:        return handle_vertex(v->as<ast_type_question_nullable>());
+      case ast_type_parenthesis_tensor:       return handle_vertex(v->as<ast_type_parenthesis_tensor>());
+      case ast_type_bracket_tuple:            return handle_vertex(v->as<ast_type_bracket_tuple>());
+      case ast_type_arrow_callable:           return handle_vertex(v->as<ast_type_arrow_callable>());
+      case ast_type_vertical_bar_union:       return handle_vertex(v->as<ast_type_vertical_bar_union>());
       // expressions
       case ast_empty_expression:              return handle_vertex(v->as<ast_empty_expression>());
       case ast_parenthesized_expression:      return handle_vertex(v->as<ast_parenthesized_expression>());
       case ast_braced_expression:             return handle_vertex(v->as<ast_braced_expression>());
       case ast_tensor:                        return handle_vertex(v->as<ast_tensor>());
-      case ast_typed_tuple:                   return handle_vertex(v->as<ast_typed_tuple>());
+      case ast_bracket_tuple:                 return handle_vertex(v->as<ast_bracket_tuple>());
       case ast_reference:                     return handle_vertex(v->as<ast_reference>());
       case ast_local_var_lhs:                 return handle_vertex(v->as<ast_local_var_lhs>());
       case ast_local_vars_declaration:        return handle_vertex(v->as<ast_local_vars_declaration>());
@@ -337,7 +362,7 @@ public:
       case ast_import_directive:              return handle_vertex(v->as<ast_import_directive>());
       case ast_tolk_file:                     return handle_vertex(v->as<ast_tolk_file>());
       default:
-        throw UnexpectedASTNodeType(v, "ASTStringifier::visit");
+        throw UnexpectedASTNodeKind(v, "ASTStringifier::visit");
     }
   }
 };

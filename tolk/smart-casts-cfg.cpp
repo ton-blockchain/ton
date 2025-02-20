@@ -178,8 +178,8 @@ static TypePtr calculate_type_lca(TypePtr a, TypePtr b, bool* became_union = nul
     return TypeDataTensor::create(std::move(types_lca));
   }
 
-  const auto* tuple1 = a->try_as<TypeDataTypedTuple>();
-  const auto* tuple2 = b->try_as<TypeDataTypedTuple>();
+  const auto* tuple1 = a->try_as<TypeDataBrackets>();
+  const auto* tuple2 = b->try_as<TypeDataBrackets>();
   if (tuple1 && tuple2 && tuple1->size() == tuple2->size()) {
     std::vector<TypePtr> types_lca;
     types_lca.reserve(tuple1->size());
@@ -190,7 +190,7 @@ static TypePtr calculate_type_lca(TypePtr a, TypePtr b, bool* became_union = nul
       }
       types_lca.push_back(next);
     }
-    return TypeDataTypedTuple::create(std::move(types_lca));
+    return TypeDataBrackets::create(std::move(types_lca));
   }
 
   if (const auto* a_alias = a->try_as<TypeDataAlias>()) {
@@ -468,7 +468,7 @@ TypePtr calc_declared_type_before_smart_cast(AnyExprV v) {
       if (const auto* t_tensor = obj_type->try_as<TypeDataTensor>()) {
         return t_tensor->items[index_at];
       }
-      if (const auto* t_tuple = obj_type->try_as<TypeDataTypedTuple>()) {
+      if (const auto* t_tuple = obj_type->try_as<TypeDataBrackets>()) {
         return t_tuple->items[index_at];
       }
     }

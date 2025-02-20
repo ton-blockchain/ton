@@ -21,7 +21,6 @@
 #include "compiler-state.h"
 #include "generics-helpers.h"
 #include "td/utils/crypto.h"
-#include "type-system.h"
 #include <unordered_set>
 
 /*
@@ -60,10 +59,7 @@ static int calculate_method_id_by_func_name(std::string_view func_name) {
   return static_cast<int>(crc & 0xffff) | 0x10000;
 }
 
-static void validate_arg_ret_order_of_asm_function(V<ast_asm_body> v_body, int n_params, TypePtr ret_type) {
-  if (!ret_type) {
-    v_body->error("asm function must declare return type (before asm instructions)");
-  }
+static void validate_arg_ret_order_of_asm_function(V<ast_asm_body> v_body, int n_params) {
   if (n_params > 16) {
     v_body->error("asm function can have at most 16 parameters");
   }
@@ -114,7 +110,7 @@ static const GenericsDeclaration* construct_genericTs(V<ast_genericsT_list> v_li
 }
 
 static void register_constant(V<ast_constant_declaration> v) {
-  GlobalConstData* c_sym = new GlobalConstData(static_cast<std::string>(v->get_identifier()->name), v->loc, v->declared_type, v->get_init_value());
+  GlobalConstData* c_sym = new GlobalConstData(static_cast<std::string>(v->get_identifier()->name), v->loc, v->type_node, v->get_init_value());
 
   G.symtable.add_global_const(c_sym);
   G.all_constants.push_back(c_sym);
@@ -122,15 +118,15 @@ static void register_constant(V<ast_constant_declaration> v) {
 }
 
 static void register_global_var(V<ast_global_var_declaration> v) {
-  GlobalVarData* g_sym = new GlobalVarData(static_cast<std::string>(v->get_identifier()->name), v->loc, v->declared_type);
+  GlobalVarData* g_sym = new GlobalVarData(static_cast<std::string>(v->get_identifier()->name), v->loc, v->type_node);
 
   G.symtable.add_global_var(g_sym);
   G.all_global_vars.push_back(g_sym);
-  v->mutate()->assign_var_ref(g_sym);
+  v->mutate()->assign_glob_ref(g_sym);
 }
 
 static void register_type_alias(V<ast_type_alias_declaration> v) {
-  AliasDefData* a_sym = new AliasDefData(static_cast<std::string>(v->get_identifier()->name), v->loc, v->underlying_type);
+  AliasDefData* a_sym = new AliasDefData(static_cast<std::string>(v->get_identifier()->name), v->loc, v->underlying_type_node);
 
   G.symtable.add_type_alias(a_sym);
   v->mutate()->assign_alias_ref(a_sym);
@@ -144,9 +140,7 @@ static void register_struct(V<ast_struct_declaration> v) {
   for (int i = 0; i < v_body->get_num_fields(); ++i) {
     auto v_field = v_body->get_field(i);
     AnyExprV default_value = v_field->has_default_value() ? v_field->get_default_value() : nullptr;
-    StructFieldData* field_ref = new StructFieldData(static_cast<std::string>(v_field->get_identifier()->name), v_field->loc, i, v_field->declared_type, default_value);
-    fields.emplace_back(field_ref);
-    v_field->mutate()->assign_field_ref(field_ref);
+    fields.emplace_back(new StructFieldData(static_cast<std::string>(v_field->get_identifier()->name), v_field->loc, i, v_field->type_node, default_value));
   }
 
   StructData* s_sym = new StructData(static_cast<std::string>(v->get_identifier()->name), v->loc, std::move(fields));
@@ -158,7 +152,7 @@ static void register_struct(V<ast_struct_declaration> v) {
 
 static LocalVarData register_parameter(V<ast_parameter> v, int idx) {
   if (v->is_underscore()) {
-    return {"", v->loc, v->declared_type, 0, idx};
+    return LocalVarData{"", v->loc, v->type_node, 0, idx};
   }
 
   int flags = 0;
@@ -168,30 +162,21 @@ static LocalVarData register_parameter(V<ast_parameter> v, int idx) {
   if (!v->declared_as_mutate && idx == 0 && v->param_name == "self") {
     flags |= LocalVarData::flagImmutable;
   }
-  return LocalVarData(static_cast<std::string>(v->param_name), v->loc, v->declared_type, flags, idx);
+  return LocalVarData(static_cast<std::string>(v->param_name), v->loc, v->type_node, flags, idx);
 }
 
-static void register_function(V<ast_function_declaration> v) {
+static void register_function(V<ast_function_declaration> v, const GenericsInstantiation* instantiationTs = nullptr) {
   std::string_view func_name = v->get_identifier()->name;
 
-  // calculate TypeData of a function
-  std::vector<TypePtr> arg_types;
   std::vector<LocalVarData> parameters;
-  int n_params = v->get_num_params();
   int n_mutate_params = 0;
-  arg_types.reserve(n_params);
-  parameters.reserve(n_params);
-  for (int i = 0; i < n_params; ++i) {
+  parameters.reserve(v->get_num_params());
+  for (int i = 0; i < v->get_num_params(); ++i) {
     auto v_param = v->get_param(i);
-    arg_types.emplace_back(v_param->declared_type);
     parameters.emplace_back(register_parameter(v_param, i));
     n_mutate_params += static_cast<int>(v_param->declared_as_mutate);
   }
 
-  const GenericsDeclaration* genericTs = nullptr;
-  if (v->genericsT_list) {
-    genericTs = construct_genericTs(v->genericsT_list);
-  }
   if (v->is_builtin_function()) {
     const Symbol* sym = lookup_global_symbol(func_name);
     FunctionPtr fun_ref = sym ? sym->try_as<FunctionPtr>() : nullptr;
@@ -202,15 +187,15 @@ static void register_function(V<ast_function_declaration> v) {
     return;
   }
 
-  if (G.is_verbosity(1) && v->is_code_function()) {
-    std::cerr << "fun " << func_name << " : " << v->declared_return_type << std::endl;
-  }
+  const GenericsDeclaration* genericTs = v->genericsT_list ? construct_genericTs(v->genericsT_list) : nullptr;
+  FunctionBody f_body = v->get_body()->kind == ast_block_statement ? static_cast<FunctionBody>(new FunctionBodyCode) : static_cast<FunctionBody>(new FunctionBodyAsm);
+  FunctionData* f_sym = new FunctionData(static_cast<std::string>(func_name), v->loc, v->return_type_node, std::move(parameters), 0, genericTs, instantiationTs, f_body, v);
 
-  FunctionBody f_body = v->get_body()->type == ast_block_statement ? static_cast<FunctionBody>(new FunctionBodyCode) : static_cast<FunctionBody>(new FunctionBodyAsm);
-  FunctionData* f_sym = new FunctionData(static_cast<std::string>(func_name), v->loc, v->declared_return_type, std::move(parameters), 0, genericTs, nullptr, f_body, v);
-
-  if (const auto* v_asm = v->get_body()->try_as<ast_asm_body>()) {
-    validate_arg_ret_order_of_asm_function(v_asm, v->get_num_params(), v->declared_return_type);
+  if (auto v_asm = v->get_body()->try_as<ast_asm_body>()) {
+    if (!v->return_type_node) {
+      v_asm->error("asm function must declare return type (before asm instructions)");
+    }
+    validate_arg_ret_order_of_asm_function(v_asm, v->get_num_params());
     f_sym->arg_order = v_asm->arg_order;
     f_sym->ret_order = v_asm->ret_order;
   }
@@ -248,7 +233,7 @@ static void iterate_through_file_symbols(const SrcFile* file) {
   tolk_assert(file && file->ast);
 
   for (AnyV v : file->ast->as<ast_tolk_file>()->get_toplevel_declarations()) {
-    switch (v->type) {
+    switch (v->kind) {
       case ast_import_directive:
         // on `import "another-file.tolk"`, register symbols from that file at first
         // (for instance, it can calculate constants, which are used in init_val of constants in current file below import)
@@ -280,6 +265,12 @@ void pipeline_register_global_symbols() {
   for (const SrcFile* file : G.all_src_files) {
     iterate_through_file_symbols(file);
   }
+}
+
+FunctionPtr pipeline_register_instantiated_generic_function(AnyV cloned_v, const GenericsInstantiation* instantiationTs) {
+  auto v = cloned_v->as<ast_function_declaration>();
+  register_function(v, instantiationTs);
+  return lookup_global_symbol(v->get_identifier()->name)->try_as<FunctionPtr>();
 }
 
 } // namespace tolk

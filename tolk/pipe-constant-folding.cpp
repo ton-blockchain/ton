@@ -71,7 +71,7 @@ class ConstantFoldingReplacer final : public ASTReplacerInFunctionBody {
 
     TokenType t = v->tok;
     // convert "-1" (tok_minus tok_int_const) to a const -1
-    if (t == tok_minus && v->get_rhs()->type == ast_int_const) {
+    if (t == tok_minus && v->get_rhs()->kind == ast_int_const) {
       td::RefInt256 intval = v->get_rhs()->as<ast_int_const>()->intval;
       tolk_assert(!intval.is_null());
       intval = -intval;
@@ -81,16 +81,16 @@ class ConstantFoldingReplacer final : public ASTReplacerInFunctionBody {
       return create_int_const(v->loc, std::move(intval));
     }
     // same for "+1"
-    if (t == tok_plus && v->get_rhs()->type == ast_int_const) {
+    if (t == tok_plus && v->get_rhs()->kind == ast_int_const) {
       return v->get_rhs();
     }
 
     // `!true` / `!false`
-    if (t == tok_logical_not && v->get_rhs()->type == ast_bool_const) {
+    if (t == tok_logical_not && v->get_rhs()->kind == ast_bool_const) {
       return create_bool_const(v->loc, !v->get_rhs()->as<ast_bool_const>()->bool_val);
     }
     // `!0`
-    if (t == tok_logical_not && v->get_rhs()->type == ast_int_const) {
+    if (t == tok_logical_not && v->get_rhs()->kind == ast_int_const) {
       return create_bool_const(v->loc, v->get_rhs()->as<ast_int_const>()->intval == 0);
     }
 
@@ -101,7 +101,7 @@ class ConstantFoldingReplacer final : public ASTReplacerInFunctionBody {
     parent::replace(v);
 
     // `null == null` / `null != null`
-    if (v->get_expr()->type == ast_null_keyword && v->rhs_type == TypeDataNullLiteral::create()) {
+    if (v->get_expr()->kind == ast_null_keyword && v->type_node->resolved_type == TypeDataNullLiteral::create()) {
       return create_bool_const(v->loc, !v->is_negated);
     }
 
@@ -138,7 +138,7 @@ class ConstantFoldingReplacer final : public ASTReplacerInFunctionBody {
 
     // replace `2 + 3 => ...` with `5 => ...`
     // non-constant expressions like `foo() => ...` fire an error here
-    if (v->pattern_kind == MatchArmKind::const_expression && v->get_pattern_expr()->type != ast_int_const) {
+    if (v->pattern_kind == MatchArmKind::const_expression && v->get_pattern_expr()->kind != ast_int_const) {
       check_expression_is_constant(v->get_pattern_expr());
     }
 

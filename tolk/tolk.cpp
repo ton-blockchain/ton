@@ -57,6 +57,7 @@ int tolk_proceed(const std::string &entrypoint_filename) {
 
     pipeline_register_global_symbols();
     pipeline_resolve_identifiers_and_assign_symbols();
+    pipeline_resolve_types_and_aliases();
     pipeline_calculate_rvalue_lvalue();
     pipeline_infer_types_and_calls_and_fields();
     pipeline_check_inferred_types();
@@ -77,7 +78,7 @@ int tolk_proceed(const std::string &entrypoint_filename) {
   } catch (ParseError& error) {
     std::cerr << error << std::endl;
     return 2;
-  } catch (UnexpectedASTNodeType& error) {
+  } catch (UnexpectedASTNodeKind& error) {
     std::cerr << "fatal: " << error.what() << std::endl;
     std::cerr << "It's a compiler bug, please report to developers" << std::endl;
     return 2;

@@ -76,12 +76,12 @@ static void fire_error_mix_and_or_no_parenthesis(SrcLocation loc, std::string_vi
 //  that's why if rhs->type == ast_binary_operator, it's not surrounded by parenthesis)
 static void diagnose_bitwise_precedence(SrcLocation loc, std::string_view operator_name, AnyExprV lhs, AnyExprV rhs) {
   // handle "flags & 0xFF != 0" (rhs = "0xFF != 0")
-  if (rhs->type == ast_binary_operator && is_comparison_binary_op(rhs->as<ast_binary_operator>()->tok)) {
+  if (rhs->kind == ast_binary_operator && is_comparison_binary_op(rhs->as<ast_binary_operator>()->tok)) {
     fire_error_lower_precedence(loc, operator_name, rhs->as<ast_binary_operator>()->operator_name);
   }
 
   // handle "0 != flags & 0xFF" (lhs = "0 != flags")
-  if (lhs->type == ast_binary_operator && is_comparison_binary_op(lhs->as<ast_binary_operator>()->tok)) {
+  if (lhs->kind == ast_binary_operator && is_comparison_binary_op(lhs->as<ast_binary_operator>()->tok)) {
     fire_error_lower_precedence(loc, operator_name, lhs->as<ast_binary_operator>()->operator_name);
   }
 }
@@ -105,21 +105,22 @@ static void diagnose_and_or_precedence(SrcLocation loc, AnyExprV lhs, TokenType 
 
 // diagnose "a << 8 + 1" (equivalent to "a << 9", probably unexpected)
 static void diagnose_addition_in_bitshift(SrcLocation loc, std::string_view bitshift_operator_name, AnyExprV rhs) {
-  if (rhs->type == ast_binary_operator && is_add_or_sub_binary_op(rhs->as<ast_binary_operator>()->tok)) {
+  if (rhs->kind == ast_binary_operator && is_add_or_sub_binary_op(rhs->as<ast_binary_operator>()->tok)) {
     fire_error_lower_precedence(loc, bitshift_operator_name, rhs->as<ast_binary_operator>()->operator_name);
   }
 }
 
 // replace (a == null) and similar to ast_is_type_operator(a, null) (as if `a is null` was written)
 static AnyExprV maybe_replace_eq_null_with_isNull_check(V<ast_binary_operator> v) {
-  bool has_null = v->get_lhs()->type == ast_null_keyword || v->get_rhs()->type == ast_null_keyword;
+  bool has_null = v->get_lhs()->kind == ast_null_keyword || v->get_rhs()->kind == ast_null_keyword;
   bool replace = has_null && (v->tok == tok_eq || v->tok == tok_neq);
   if (!replace) {
     return v;
   }
 
-  AnyExprV v_nullable = v->get_lhs()->type == ast_null_keyword ? v->get_rhs() : v->get_lhs();
-  return createV<ast_is_type_operator>(v->loc, v_nullable, TypeDataNullLiteral::create(), v->tok == tok_neq);
+  AnyExprV v_nullable = v->get_lhs()->kind == ast_null_keyword ? v->get_rhs() : v->get_lhs();
+  AnyTypeV rhs_null_type = createV<ast_type_leaf_text>(v->loc, "null");
+  return createV<ast_is_type_operator>(v->loc, v_nullable, rhs_null_type, v->tok == tok_neq);
 }
 
 // parse `123` / `0xFF` / `0b10001` to td::RefInt256
@@ -142,11 +143,116 @@ static td::RefInt256 parse_tok_int_const(std::string_view text) {
 
 
 
-/*
- *
- *   PARSE SOURCE
- *
- */
+// --------------------------------------------
+//    parsing type from tokens
+//
+// here we implement parsing types (mostly after colon) to AnyTypeV
+// example: `var v: int` is leaf "int"
+// example: `var v: (User?, [cell])` is tensor(nullable(leaf "User"), brackets(leaf "cell"))
+//
+// later, after all symbols are registered, types are resolved to TypePtr, see pipe-resolve-types.cpp
+//
+
+static AnyTypeV parse_type_expression(Lexer& lex);
+
+static std::vector<AnyTypeV> parse_nested_type_list(Lexer& lex, TokenType tok_op, const char* s_op, TokenType tok_cl, const char* s_cl) {
+  lex.expect(tok_op, s_op);
+  std::vector<AnyTypeV> sub_types;
+  while (true) {
+    if (lex.tok() == tok_cl) {  // empty lists allowed
+      lex.next();
+      break;
+    }
+
+    sub_types.emplace_back(parse_type_expression(lex));
+    if (lex.tok() == tok_comma) {
+      lex.next();
+    } else if (lex.tok() != tok_cl) {
+      lex.unexpected(s_cl);
+    }
+  }
+  return sub_types;
+}
+
+static std::vector<AnyTypeV> parse_nested_type_list_in_parenthesis(Lexer& lex) {
+  return parse_nested_type_list(lex, tok_oppar, "`(`", tok_clpar, "`)` or `,`");
+}
+
+static AnyTypeV parse_simple_type(Lexer& lex) {
+  SrcLocation loc = lex.cur_location();
+  switch (lex.tok()) {
+    case tok_self:
+    case tok_identifier:
+    case tok_null: {
+      std::string_view text = lex.cur_str();
+      lex.next();
+      return createV<ast_type_leaf_text>(loc, text);
+    }
+    case tok_oppar: {
+      return createV<ast_type_parenthesis_tensor>(loc, parse_nested_type_list_in_parenthesis(lex));
+    }
+    case tok_opbracket: {
+      return createV<ast_type_bracket_tuple>(loc, parse_nested_type_list(lex, tok_opbracket, "`[`", tok_clbracket, "`]` or `,`"));
+    }
+    default:
+      lex.unexpected("<type>");
+  }
+}
+
+static AnyTypeV parse_type_nullable(Lexer& lex) {
+  AnyTypeV result = parse_simple_type(lex);
+
+  if (lex.tok() == tok_question) {
+    lex.next();
+    result = createV<ast_type_question_nullable>(result->loc, result);
+  }
+
+  return result;
+}
+
+static AnyTypeV parse_type_expression(Lexer& lex) {
+  if (lex.tok() == tok_bitwise_or) {    // `type T = | T1 | T2 | ...` (each per line) (like in TypeScript)
+    lex.next();
+  }
+
+  AnyTypeV result = parse_type_nullable(lex);
+
+  if (lex.tok() == tok_bitwise_or) {  // `int | slice`, `Pair2 | (Pair3 | null)`
+    std::vector<AnyTypeV> items;
+    items.emplace_back(result);
+    while (lex.tok() == tok_bitwise_or) {
+      lex.next();
+      items.emplace_back(parse_type_nullable(lex));
+    }
+    result = createV<ast_type_vertical_bar_union>(result->loc, std::move(items));
+  }
+
+  if (lex.tok() == tok_arrow) {   // `int -> int`, `(cell, slice) -> void`, `int -> int -> int`, `int | cell -> void`
+    lex.next();
+    std::vector<AnyTypeV> params_and_return;
+    if (auto p_tensor = result->try_as<ast_type_parenthesis_tensor>()) {
+      params_and_return.reserve(p_tensor->get_items().size());
+      params_and_return.insert(params_and_return.begin(), p_tensor->get_items().begin(), p_tensor->get_items().end());
+    } else {
+      params_and_return.reserve(2);
+      params_and_return.push_back(result);
+    }
+    params_and_return.push_back(parse_type_expression(lex));
+    result = createV<ast_type_arrow_callable>(result->loc, std::move(params_and_return));
+  }
+
+  return result;
+}
+
+static AnyTypeV parse_type_from_tokens(Lexer& lex) {
+  return parse_type_expression(lex);
+}
+
+
+
+// --------------------------------------------
+//    parsing expressions and statements
+//
 
 
 AnyExprV parse_expr(Lexer& lex);
@@ -178,7 +284,7 @@ static AnyV parse_parameter(Lexer& lex, bool is_first) {
 
   // parameter type after colon are mandatory
   lex.expect(tok_colon, "`: <parameter_type>`");
-  TypePtr param_type = parse_type_from_tokens(lex);
+  AnyTypeV param_type = parse_type_from_tokens(lex);
 
   return createV<ast_parameter>(loc, param_name, param_type, declared_as_mutate);
 }
@@ -193,7 +299,7 @@ static AnyV parse_global_var_declaration(Lexer& lex, const std::vector<V<ast_ann
   auto v_ident = createV<ast_identifier>(lex.cur_location(), lex.cur_str());
   lex.next();
   lex.expect(tok_colon, "`:`");
-  TypePtr declared_type = parse_type_from_tokens(lex);
+  AnyTypeV declared_type = parse_type_from_tokens(lex);
   if (lex.tok() == tok_comma) {
     lex.error("multiple declarations are not allowed, split globals on separate lines");
   }
@@ -213,7 +319,7 @@ static AnyV parse_constant_declaration(Lexer& lex, const std::vector<V<ast_annot
   lex.check(tok_identifier, "constant name");
   auto v_ident = createV<ast_identifier>(lex.cur_location(), lex.cur_str());
   lex.next();
-  TypePtr declared_type = nullptr;
+  AnyTypeV declared_type = nullptr;
   if (lex.tok() == tok_colon) {
     lex.next();
     declared_type = parse_type_from_tokens(lex);
@@ -237,7 +343,7 @@ static AnyV parse_type_alias_declaration(Lexer& lex, const std::vector<V<ast_ann
   auto v_ident = createV<ast_identifier>(lex.cur_location(), lex.cur_str());
   lex.next();
   lex.expect(tok_assign, "`=`");
-  TypePtr underlying_type = parse_type_from_tokens(lex);
+  AnyTypeV underlying_type = parse_type_from_tokens(lex);
   lex.expect(tok_semicolon, "`;`");
   return createV<ast_type_alias_declaration>(loc, v_ident, underlying_type);
 }
@@ -267,11 +373,11 @@ static AnyExprV parse_var_declaration_lhs(Lexer& lex, bool is_immutable) {
       args.push_back(parse_var_declaration_lhs(lex, is_immutable));
     }
     lex.expect(tok_clbracket, "`]`");
-    return createV<ast_typed_tuple>(loc, std::move(args));
+    return createV<ast_bracket_tuple>(loc, std::move(args));
   }
   if (lex.tok() == tok_identifier) {
     auto v_ident = createV<ast_identifier>(loc, lex.cur_str());
-    TypePtr declared_type = nullptr;
+    AnyTypeV declared_type = nullptr;
     bool marked_as_redef = false;
     lex.next();
     if (lex.tok() == tok_colon) {
@@ -284,7 +390,7 @@ static AnyExprV parse_var_declaration_lhs(Lexer& lex, bool is_immutable) {
     return createV<ast_local_var_lhs>(loc, v_ident, declared_type, is_immutable, marked_as_redef);
   }
   if (lex.tok() == tok_underscore) {
-    TypePtr declared_type = nullptr;
+    AnyTypeV declared_type = nullptr;
     lex.next();
     if (lex.tok() == tok_colon) {
       lex.next();
@@ -449,7 +555,7 @@ static AnyV parse_throw_expression(Lexer& lex) {
 static V<ast_match_arm> parse_match_arm(Lexer& lex) {
   SrcLocation loc = lex.cur_location();
   MatchArmKind pattern_kind = static_cast<MatchArmKind>(-1);
-  TypePtr exact_type = nullptr;
+  AnyTypeV exact_type = nullptr;
   AnyExprV pattern_expr = nullptr;
 
   Lexer::SavedPositionForLookahead backup = lex.save_parsing_position();
@@ -525,7 +631,7 @@ static V<ast_match_expression> parse_match_expression(Lexer& lex) {
     if (lex.tok() == tok_clbrace) {
       break;
     }
-    if (!was_comma && v_arm->get_body()->type != ast_braced_expression) {
+    if (!was_comma && v_arm->get_body()->kind != ast_braced_expression) {
       lex.unexpected("`,`");
     }
   }
@@ -566,7 +672,7 @@ static AnyExprV parse_expr100(Lexer& lex) {
       lex.next();
       if (lex.tok() == tok_clbracket) {
         lex.next();
-        return createV<ast_typed_tuple>(loc, {});
+        return createV<ast_bracket_tuple>(loc, {});
       }
       std::vector<AnyExprV> items(1, parse_expr(lex));
       while (lex.tok() == tok_comma) {
@@ -577,7 +683,7 @@ static AnyExprV parse_expr100(Lexer& lex) {
         items.emplace_back(parse_expr(lex));
       }
       lex.expect(tok_clbracket, "`]`");
-      return createV<ast_typed_tuple>(loc, std::move(items));
+      return createV<ast_bracket_tuple>(loc, std::move(items));
     }
     case tok_int_const: {
       std::string_view orig_str = lex.cur_str();
@@ -707,13 +813,13 @@ static AnyExprV parse_expr40(Lexer& lex) {
   if (lex.tok() == tok_as) {
     SrcLocation loc = lex.cur_location();
     lex.next();
-    TypePtr cast_to_type = parse_type_from_tokens(lex);
+    AnyTypeV cast_to_type = parse_type_from_tokens(lex);
     lhs = createV<ast_cast_as_operator>(loc, lhs, cast_to_type);
   } else if (lex.tok() == tok_is) {
     SrcLocation loc = lex.cur_location();
     lex.next();
-    TypePtr rhs_type = parse_type_from_tokens(lex);
-    bool is_negated = lhs->type == ast_not_null_operator;   // `a !is ...`, now lhs = `a!`
+    AnyTypeV rhs_type = parse_type_from_tokens(lex);
+    bool is_negated = lhs->kind == ast_not_null_operator;   // `a !is ...`, now lhs = `a!`
     if (is_negated) {
       lhs = lhs->as<ast_not_null_operator>()->get_expr();
     }
@@ -862,7 +968,9 @@ static V<ast_block_statement> parse_block_statement(Lexer& lex) {
     if (lex.tok() == tok_clbrace) {
       break;
     }
-    bool does_end_with_brace = v->type == ast_if_statement || v->type == ast_while_statement || v->type == ast_match_expression || v->type == ast_try_catch_statement || v->type == ast_repeat_statement || v->type == ast_block_statement;
+    bool does_end_with_brace = v->kind == ast_if_statement || v->kind == ast_while_statement
+          || v->kind == ast_match_expression
+          || v->kind == ast_try_catch_statement || v->kind == ast_repeat_statement || v->kind == ast_block_statement;
     if (!does_end_with_brace) {
       lex.expect(tok_semicolon, "`;`");
     }
@@ -1038,6 +1146,12 @@ AnyV parse_statement(Lexer& lex) {
   }
 }
 
+
+// --------------------------------------------
+//    parsing top-level declarations
+//
+
+
 static AnyV parse_func_body(Lexer& lex) {
   return parse_block_statement(lex);
 }
@@ -1136,7 +1250,7 @@ static V<ast_annotation> parse_annotation(Lexer& lex) {
       v_arg = createV<ast_tensor>(loc, {});
       break;
     case AnnotationKind::method_id:
-      if (!v_arg || v_arg->size() != 1 || v_arg->get_item(0)->type != ast_int_const) {
+      if (!v_arg || v_arg->size() != 1 || v_arg->get_item(0)->kind != ast_int_const) {
         throw ParseError(loc, "expecting `(number)` after " + static_cast<std::string>(name));
       }
       break;
@@ -1178,7 +1292,7 @@ static AnyV parse_function_declaration(Lexer& lex, const std::vector<V<ast_annot
   bool accepts_self = !v_param_list->empty() && v_param_list->get_param(0)->param_name == "self";
   int n_mutate_params = v_param_list->get_mutate_params_count();
 
-  TypePtr ret_type = nullptr;
+  AnyTypeV ret_type = nullptr;
   bool returns_self = false;
   if (lex.tok() == tok_colon) {   // : <ret_type> (if absent, it means "auto infer", not void)
     lex.next();
@@ -1186,9 +1300,9 @@ static AnyV parse_function_declaration(Lexer& lex, const std::vector<V<ast_annot
       if (!accepts_self) {
         lex.error("only a member function can return `self` (which accepts `self` first parameter)");
       }
-      lex.next();
       returns_self = true;
-      ret_type = TypeDataVoid::create();
+      ret_type = createV<ast_type_leaf_text>(lex.cur_location(), "void");
+      lex.next();
     } else {
       ret_type = parse_type_from_tokens(lex);
     }
@@ -1273,7 +1387,7 @@ static AnyV parse_struct_field(Lexer& lex) {
   auto v_ident = createV<ast_identifier>(lex.cur_location(), lex.cur_str());
   lex.next();
   lex.expect(tok_colon, "`: <type>`");
-  TypePtr declared_type = parse_type_from_tokens(lex);
+  AnyTypeV declared_type = parse_type_from_tokens(lex);
 
   AnyExprV default_value = nullptr;
   if (lex.tok() == tok_assign) {    // `id: int = 3`
@@ -1344,7 +1458,12 @@ static AnyV parse_import_directive(Lexer& lex) {
   return createV<ast_import_directive>(loc, v_str); // semicolon is not necessary
 }
 
-// the main (exported) function
+
+// --------------------------------------------
+//    parse .tolk source file to AST
+//    (the main, exported, function)
+//
+
 AnyV parse_src_file_to_ast(const SrcFile* file) {
   std::vector<AnyV> toplevel_declarations;
   std::vector<V<ast_annotation>> annotations;

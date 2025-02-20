@@ -41,7 +41,6 @@ struct GenericsDeclaration {
   std::string as_human_readable() const;
 
   size_t size() const { return itemsT.size(); }
-  bool has_nameT(std::string_view nameT) const { return find_nameT(nameT) != -1; }
   int find_nameT(std::string_view nameT) const;
   std::string get_nameT(int idx) const { return static_cast<std::string>(itemsT[idx].nameT); }
 };
@@ -96,7 +95,6 @@ struct GenericDeduceError final : std::exception {
   }
 };
 
-std::string generate_instantiated_name(const std::string& orig_name, const std::vector<TypePtr>& substitutions);
-FunctionPtr instantiate_generic_function(SrcLocation loc, FunctionPtr fun_ref, const std::string& inst_name, std::vector<TypePtr>&& substitutionTs);
+FunctionPtr instantiate_generic_function(SrcLocation loc, FunctionPtr fun_ref, std::vector<TypePtr>&& substitutionTs);
 
 }  // namespace tolk

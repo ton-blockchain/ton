@@ -21,7 +21,7 @@
 
 /*
  *   A module implementing base functionality of read-only traversing a vertex tree.
- *   Since a vertex in general doesn't store a vector of children, iterating is possible only for concrete node_type.
+ *   Since a vertex in general doesn't store a vector of children, iterating is possible only for concrete node_kind.
  * E.g., for ast_if_statement, visit nodes cond, if-body and else-body. For ast_string_const, nothing. And so on.
  *   Visitors below are helpers to inherit from and handle specific vertex types.
  *
@@ -37,6 +37,16 @@ namespace tolk {
 
 class ASTVisitor {
 protected:
+  GNU_ATTRIBUTE_ALWAYS_INLINE static void visit_children(const ASTTypeLeaf* v) {
+    static_cast<void>(v);
+  }
+
+  GNU_ATTRIBUTE_ALWAYS_INLINE void visit_children(const ASTTypeVararg* v) {
+    for (AnyTypeV child : v->children) {
+      visit(child);
+    }
+  }
+
   GNU_ATTRIBUTE_ALWAYS_INLINE static void visit_children(const ASTExprLeaf* v) {
     static_cast<void>(v);
   }
@@ -95,7 +105,7 @@ protected:
   virtual void visit(V<ast_parenthesized_expression> v)  { return visit_children(v); }
   virtual void visit(V<ast_braced_expression> v)         { return visit_children(v); }
   virtual void visit(V<ast_tensor> v)                    { return visit_children(v); }
-  virtual void visit(V<ast_typed_tuple> v)               { return visit_children(v); }
+  virtual void visit(V<ast_bracket_tuple> v)             { return visit_children(v); }
   virtual void visit(V<ast_reference> v)                 { return visit_children(v); }
   virtual void visit(V<ast_local_var_lhs> v)             { return visit_children(v); }
   virtual void visit(V<ast_local_vars_declaration> v)    { return visit_children(v); }
@@ -134,13 +144,13 @@ protected:
   virtual void visit(V<ast_try_catch_statement> v)       { return visit_children(v); }
 
   void visit(AnyV v) final {
-    switch (v->type) {
+    switch (v->kind) {
       // expressions
       case ast_empty_expression:                return visit(v->as<ast_empty_expression>());
       case ast_parenthesized_expression:        return visit(v->as<ast_parenthesized_expression>());
       case ast_braced_expression:               return visit(v->as<ast_braced_expression>());
       case ast_tensor:                          return visit(v->as<ast_tensor>());
-      case ast_typed_tuple:                     return visit(v->as<ast_typed_tuple>());
+      case ast_bracket_tuple:                   return visit(v->as<ast_bracket_tuple>());
       case ast_reference:                       return visit(v->as<ast_reference>());
       case ast_local_var_lhs:                   return visit(v->as<ast_local_var_lhs>());
       case ast_local_vars_declaration:          return visit(v->as<ast_local_vars_declaration>());
@@ -179,10 +189,10 @@ protected:
       case ast_try_catch_statement:             return visit(v->as<ast_try_catch_statement>());
 #ifdef TOLK_DEBUG
       case ast_asm_body:
-        throw UnexpectedASTNodeType(v, "ASTVisitor; forgot to filter out asm functions in should_visit_function()?");
+        throw UnexpectedASTNodeKind(v, "ASTVisitor; forgot to filter out asm functions in should_visit_function()?");
 #endif
       default:
-        throw UnexpectedASTNodeType(v, "ASTVisitorFunctionBody::visit");
+        throw UnexpectedASTNodeKind(v, "ASTVisitorFunctionBody::visit");
     }
   }
 

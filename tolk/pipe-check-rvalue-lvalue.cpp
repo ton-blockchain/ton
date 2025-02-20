@@ -29,12 +29,6 @@
 
 namespace tolk {
 
-// fire a general error, just a wrapper over `throw`
-GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-static void fire(FunctionPtr cur_f, SrcLocation loc, const std::string& message) {
-  throw ParseError(cur_f, loc, message);
-}
-
 GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
 static void fire_error_cannot_be_used_as_lvalue(FunctionPtr cur_f, AnyV v, const std::string& details) {
   // example: `f() = 32`

@@ -125,12 +125,6 @@ static std::string to_string(std::string_view string_view) {
   return static_cast<std::string>(string_view);
 }
 
-// fire a general error, just a wrapper over `throw`
-GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-static void fire(FunctionPtr cur_f, SrcLocation loc, const std::string& message) {
-  throw ParseError(cur_f, loc, message);
-}
-
 // fire an error when `fun f<T>(...) asm ...` is called with T=(int,int) or other non-1 width on stack
 // asm functions generally can't handle it, they expect T to be a TVM primitive
 // (in FunC, `forall` type just couldn't be unified with non-primitives; in Tolk, generic T is expectedly inferred)
@@ -161,7 +155,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
   GNU_ATTRIBUTE_ALWAYS_INLINE
   static void assign_inferred_type(AnyExprV dst, AnyExprV src) {
 #ifdef TOLK_DEBUG
-    tolk_assert(src->inferred_type != nullptr && !src->inferred_type->has_unresolved_inside() && !src->inferred_type->has_genericT_inside());
+    tolk_assert(src->inferred_type != nullptr && !src->inferred_type->has_genericT_inside());
 #endif
     dst->mutate()->assign_inferred_type(src->inferred_type);
   }
@@ -169,28 +163,28 @@ class InferTypesAndCallsAndFieldsVisitor final {
   GNU_ATTRIBUTE_ALWAYS_INLINE
   static void assign_inferred_type(AnyExprV dst, TypePtr inferred_type) {
 #ifdef TOLK_DEBUG
-    tolk_assert(inferred_type != nullptr && !inferred_type->has_unresolved_inside() && !inferred_type->has_genericT_inside());
+    tolk_assert(inferred_type != nullptr && !inferred_type->has_genericT_inside());
 #endif
     dst->mutate()->assign_inferred_type(inferred_type);
   }
 
   static void assign_inferred_type(LocalVarPtr local_var_or_param, TypePtr inferred_type) {
 #ifdef TOLK_DEBUG
-    tolk_assert(inferred_type != nullptr && !inferred_type->has_unresolved_inside() && !inferred_type->has_genericT_inside());
+    tolk_assert(inferred_type != nullptr && !inferred_type->has_genericT_inside());
 #endif
     local_var_or_param->mutate()->assign_inferred_type(inferred_type);
   }
 
   static void assign_inferred_type(FunctionPtr fun_ref, TypePtr inferred_return_type, TypePtr inferred_full_type) {
 #ifdef TOLK_DEBUG
-    tolk_assert(inferred_return_type != nullptr && !inferred_return_type->has_unresolved_inside() && !inferred_return_type->has_genericT_inside());
+    tolk_assert(inferred_return_type != nullptr && !inferred_return_type->has_genericT_inside());
 #endif
     fun_ref->mutate()->assign_inferred_type(inferred_return_type, inferred_full_type);
   }
 
   // traverse children in any statement
   FlowContext process_any_statement(AnyV v, FlowContext&& flow) {
-    switch (v->type) {
+    switch (v->kind) {
       case ast_block_statement:
         return process_block_statement(v->as<ast_block_statement>(), std::move(flow));
       case ast_return_statement:
@@ -220,7 +214,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
   // returns ExprFlow: out_facts that are "definitely known" after evaluating the whole expression
   // if used_as_condition, true_facts/false_facts are also calculated (don't calculate them always for optimization)
   ExprFlow infer_any_expr(AnyExprV v, FlowContext&& flow, bool used_as_condition, TypePtr hint = nullptr) {
-    switch (v->type) {
+    switch (v->kind) {
       case ast_int_const:
         return infer_int_const(v->as<ast_int_const>(), std::move(flow), used_as_condition);
       case ast_string_const:
@@ -259,8 +253,8 @@ class InferTypesAndCallsAndFieldsVisitor final {
         return infer_function_call(v->as<ast_function_call>(), std::move(flow), used_as_condition, hint);
       case ast_tensor:
         return infer_tensor(v->as<ast_tensor>(), std::move(flow), used_as_condition, hint);
-      case ast_typed_tuple:
-        return infer_typed_tuple(v->as<ast_typed_tuple>(), std::move(flow), used_as_condition, hint);
+      case ast_bracket_tuple:
+        return infer_typed_tuple(v->as<ast_bracket_tuple>(), std::move(flow), used_as_condition, hint);
       case ast_null_keyword:
         return infer_null_keyword(v->as<ast_null_keyword>(), std::move(flow), used_as_condition);
       case ast_match_expression:
@@ -272,7 +266,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
       case ast_empty_expression:
         return infer_empty_expression(v->as<ast_empty_expression>(), std::move(flow), used_as_condition);
       default:
-        throw UnexpectedASTNodeType(v, "infer_any_expr");
+        throw UnexpectedASTNodeKind(v, "infer_any_expr");
     }
   }
 
@@ -323,7 +317,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
     if (v->marked_as_redef) {
       assign_inferred_type(v, v->var_ref->declared_type);
     } else {
-      assign_inferred_type(v, v->declared_type ? v->declared_type : TypeDataUnknown::create());
+      assign_inferred_type(v, v->type_node ? v->type_node->resolved_type : TypeDataUnknown::create());
     }
     return ExprFlow(std::move(flow), used_as_condition);
   }
@@ -357,14 +351,14 @@ class InferTypesAndCallsAndFieldsVisitor final {
       }
       assign_inferred_type(lhs, TypeDataTensor::create(std::move(types_list)));
 
-    } else if (auto lhs_tuple = lhs->try_as<ast_typed_tuple>()) {
+    } else if (auto lhs_tuple = lhs->try_as<ast_bracket_tuple>()) {
       std::vector<TypePtr> types_list;
       types_list.reserve(lhs_tuple->size());
       for (int i = 0; i < lhs_tuple->size(); ++i) {
         flow = infer_left_side_of_assignment(lhs_tuple->get_item(i), std::move(flow));
         types_list.push_back(lhs_tuple->get_item(i)->inferred_type);
       }
-      assign_inferred_type(lhs, TypeDataTypedTuple::create(std::move(types_list)));
+      assign_inferred_type(lhs, TypeDataBrackets::create(std::move(types_list)));
 
     } else if (auto lhs_par = lhs->try_as<ast_parenthesized_expression>()) {
       flow = infer_left_side_of_assignment(lhs_par->get_expr(), std::move(flow));
@@ -399,7 +393,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
 
     // inside `var v: int = rhs` / `var _ = rhs` / `var v redef = rhs` (lhs is "v" / "_" / "v")
     if (auto lhs_var = lhs->try_as<ast_local_var_lhs>()) {
-      TypePtr declared_type = lhs_var->marked_as_redef ? lhs_var->var_ref->declared_type : lhs_var->declared_type;
+      TypePtr declared_type = lhs_var->marked_as_redef ? lhs_var->var_ref->declared_type : lhs_var->type_node ? lhs_var->type_node->resolved_type : nullptr;
       if (lhs_var->inferred_type == TypeDataUnknown::create()) {
         assign_inferred_type(lhs_var, rhs_type);
         assign_inferred_type(lhs_var->var_ref, rhs_type);
@@ -426,8 +420,8 @@ class InferTypesAndCallsAndFieldsVisitor final {
 
     // `[v1, v2] = rhs` / `var [v1, v2] = rhs` (rhs may be `[1,2]` or `tupleVar` or `someF()`, doesn't matter)
     // dig recursively into v1 and v2 with corresponding rhs i-th item of a tuple
-    if (auto lhs_tuple = lhs->try_as<ast_typed_tuple>()) {
-      const TypeDataTypedTuple* rhs_type_tuple = rhs_type->unwrap_alias()->try_as<TypeDataTypedTuple>();
+    if (auto lhs_tuple = lhs->try_as<ast_bracket_tuple>()) {
+      const TypeDataBrackets* rhs_type_tuple = rhs_type->unwrap_alias()->try_as<TypeDataBrackets>();
       std::vector<TypePtr> types_list;
       types_list.reserve(lhs_tuple->size());
       for (int i = 0; i < lhs_tuple->size(); ++i) {
@@ -435,7 +429,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
         process_assignment_lhs_after_infer_rhs(lhs_tuple->get_item(i), ith_rhs_type, out_flow);
         types_list.push_back(lhs_tuple->get_item(i)->inferred_type);
       }
-      assign_inferred_type(lhs, TypeDataTypedTuple::create(std::move(types_list)));
+      assign_inferred_type(lhs, TypeDataBrackets::create(std::move(types_list)));
       return;
     }
 
@@ -619,8 +613,8 @@ class InferTypesAndCallsAndFieldsVisitor final {
 
   ExprFlow infer_cast_as_operator(V<ast_cast_as_operator> v, FlowContext&& flow, bool used_as_condition) {
     // for `expr as <type>`, use this type for hint, so that `t.tupleAt(0) as int` is ok
-    ExprFlow after_expr = infer_any_expr(v->get_expr(), std::move(flow), false, v->cast_to_type);
-    assign_inferred_type(v, v->cast_to_type);
+    ExprFlow after_expr = infer_any_expr(v->get_expr(), std::move(flow), false, v->type_node->resolved_type);
+    assign_inferred_type(v, v->type_node->resolved_type);
 
     if (!used_as_condition) {
       return after_expr;
@@ -632,10 +626,10 @@ class InferTypesAndCallsAndFieldsVisitor final {
     ExprFlow after_expr = infer_any_expr(v->get_expr(), std::move(flow), false);
     assign_inferred_type(v, TypeDataBool::create());
 
-    TypePtr rhs_type = v->rhs_type->unwrap_alias();
+    TypePtr rhs_type = v->type_node->resolved_type->unwrap_alias();
     TypePtr expr_type = v->get_expr()->inferred_type->unwrap_alias();
     TypePtr non_rhs_type = calculate_type_subtract_rhs_type(expr_type, rhs_type);
-    if (expr_type->equal_to(v->rhs_type)) {                       // `expr is <type>` is always true
+    if (expr_type->equal_to(rhs_type)) {                          // `expr is <type>` is always true
       v->mutate()->assign_always_true_or_false(v->is_negated ? 2 : 1);
     } else if (non_rhs_type == TypeDataNever::create()) {         // `expr is <type>` is always false
       v->mutate()->assign_always_true_or_false(v->is_negated ? 1 : 2);
@@ -760,7 +754,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
     std::vector<TypePtr> substitutions;
     substitutions.reserve(instantiationT_list->size());
     for (int i = 0; i < instantiationT_list->size(); ++i) {
-      substitutions.push_back(instantiationT_list->get_item(i)->substituted_type);
+      substitutions.push_back(instantiationT_list->get_item(i)->type_node->resolved_type);
     }
 
     return substitutions;
@@ -782,10 +776,9 @@ class InferTypesAndCallsAndFieldsVisitor final {
       }
     }
 
-    std::string inst_name = generate_instantiated_name(fun_ref->name, substitutionTs);
     // make deep clone of `f<T>` with substitutionTs
     // (if `f<int>` was already instantiated, it will be immediately returned from a symbol table)
-    return instantiate_generic_function(loc, fun_ref, inst_name, std::move(substitutionTs));
+    return instantiate_generic_function(loc, fun_ref, std::move(substitutionTs));
   }
 
   ExprFlow infer_dot_access(V<ast_dot_access> v, FlowContext&& flow, bool used_as_condition, TypePtr hint) {
@@ -833,7 +826,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
         assign_inferred_type(v, inferred_type);
         return ExprFlow(std::move(flow), used_as_condition);
       }
-      if (const auto* t_tuple = unwrapped_obj_type->try_as<TypeDataTypedTuple>()) {
+      if (const auto* t_tuple = unwrapped_obj_type->try_as<TypeDataBrackets>()) {
         if (index_at >= t_tuple->size()) {
           fire(cur_f, v_ident->loc, "invalid tuple index, expected 0.." + std::to_string(t_tuple->items.size() - 1));
         }
@@ -1095,8 +1088,8 @@ class InferTypesAndCallsAndFieldsVisitor final {
     return ExprFlow(std::move(flow), used_as_condition);
   }
 
-  ExprFlow infer_typed_tuple(V<ast_typed_tuple> v, FlowContext&& flow, bool used_as_condition, TypePtr hint) {
-    const TypeDataTypedTuple* tuple_hint = hint ? hint->unwrap_alias()->try_as<TypeDataTypedTuple>() : nullptr;
+  ExprFlow infer_typed_tuple(V<ast_bracket_tuple> v, FlowContext&& flow, bool used_as_condition, TypePtr hint) {
+    const TypeDataBrackets* tuple_hint = hint ? hint->unwrap_alias()->try_as<TypeDataBrackets>() : nullptr;
     std::vector<TypePtr> types_list;
     types_list.reserve(v->get_items().size());
     for (int i = 0; i < v->size(); ++i) {
@@ -1104,7 +1097,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
       flow = infer_any_expr(item, std::move(flow), false, tuple_hint && i < tuple_hint->size() ? tuple_hint->items[i] : nullptr).out_flow;
       types_list.emplace_back(item->inferred_type);
     }
-    assign_inferred_type(v, TypeDataTypedTuple::create(std::move(types_list)));
+    assign_inferred_type(v, TypeDataBrackets::create(std::move(types_list)));
     return ExprFlow(std::move(flow), used_as_condition);
   }
 
@@ -1125,7 +1118,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
       auto v_arm = v->get_arm(i);
       FlowContext arm_flow = infer_any_expr(v_arm->get_pattern_expr(), arms_entry_facts.clone(), false, nullptr).out_flow;
       if (s_expr && v_arm->pattern_kind == MatchArmKind::exact_type) {
-        arm_flow.register_known_type(s_expr, v_arm->exact_type);
+        arm_flow.register_known_type(s_expr, v_arm->pattern_type_node->resolved_type);
       }
       arm_flow = infer_any_expr(v_arm->get_body(), std::move(arm_flow), false, hint).out_flow;
       match_out_flow = i == 0 ? std::move(arm_flow) : FlowContext::merge_flow(std::move(match_out_flow), std::move(arm_flow));
@@ -1218,7 +1211,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
     }
 
     v->mutate()->assign_struct_ref(struct_ref);
-    assign_inferred_type(v, struct_ref->struct_type);
+    assign_inferred_type(v, TypeDataStruct::create(struct_ref));
     assign_inferred_type(v->get_body(), v);
     return ExprFlow(std::move(flow), used_as_condition);
   }
@@ -1241,7 +1234,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
     // (but don't print a warning if it's already unreachable, for example we're inside always-false if)
     bool initially_unreachable = flow.is_unreachable();
     for (AnyV item : v->get_items()) {
-      if (flow.is_unreachable() && !initially_unreachable && !v->first_unreachable && item->type != ast_empty_statement) {
+      if (flow.is_unreachable() && !initially_unreachable && !v->first_unreachable && item->kind != ast_empty_statement) {
         v->mutate()->assign_first_unreachable(item);    // a warning will be printed later, after type checking
       }
       flow = process_any_statement(item, std::move(flow));
@@ -1435,15 +1428,17 @@ public:
   // given `const a = 2 + 3` infer that it's int
   // for `const a: int = ...` still infer all sub expressions (to be checked in a later pipe)
   void start_visiting_constant(GlobalConstPtr const_ref) {
-    FlowContext const_flow;
-    infer_any_expr(const_ref->init_value, std::move(const_flow), false, const_ref->declared_type);
+    infer_any_expr(const_ref->init_value, FlowContext(), false, const_ref->declared_type);
     const_ref->mutate()->assign_inferred_type(const_ref->declared_type == nullptr ? const_ref->init_value->inferred_type : const_ref->declared_type);
   }
 
   // given struct field `a: int = 2 + 3` infer that default value is int, assign inferred_type to all nodes
-  void start_visiting_field_default(StructFieldPtr field_ref) {
-    FlowContext field_flow;
-    infer_any_expr(field_ref->default_value, std::move(field_flow), false, field_ref->declared_type);
+  void start_visiting_struct_fields(StructPtr struct_ref) {
+    for (StructFieldPtr field_ref : struct_ref->fields) {
+      if (field_ref->has_default_value()) {
+        infer_any_expr(field_ref->default_value, FlowContext(), false, field_ref->declared_type);
+      }
+    }
   }
 };
 
@@ -1519,11 +1514,7 @@ void pipeline_infer_types_and_calls_and_fields() {
 
   // infer types for default values in structs
   for (StructPtr struct_ref : get_all_declared_structs()) {
-    for (StructFieldPtr field_ref : struct_ref->fields) {
-      if (field_ref->has_default_value()) {
-        visitor.start_visiting_field_default(field_ref);
-      }
-    }
+    visitor.start_visiting_struct_fields(struct_ref);
   }
 }
 

@@ -117,7 +117,18 @@ fun test11(x: bool) {
 }
 
 
-fun main() {}
+type asdf = int;
+
+fun main() {
+    match (10) {
+        asdf => 1,      // it's match by type
+    };
+
+    var asdf = 5;
+    return match (10) {
+        asdf => 2,      // also match by type, regardless of local var
+    };
+}
 
 /**
 @testcase | 101 | 1        | 100

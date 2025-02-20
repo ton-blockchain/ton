@@ -557,15 +557,6 @@ Lexer::Lexer(const SrcFile* file)
   next();
 }
 
-Lexer::Lexer(std::string_view text)
-  : file(nullptr)
-  , p_start(text.data())
-  , p_end(p_start + text.size())
-  , p_next(p_start)
-  , location() {
-  next();
-}
-
 void Lexer::next() {
   while (cur_token_idx == last_token_idx && !is_eof()) {
     update_location();

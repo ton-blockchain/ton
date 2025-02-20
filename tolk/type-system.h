@@ -16,11 +16,10 @@
 */
 #pragma once
 
-#include "src-file.h"
 #include "fwd-declarations.h"
-#include <cstdint>
-#include <string>
 #include <functional>
+#include <string>
+#include <vector>
 
 namespace tolk {
 
@@ -30,21 +29,14 @@ namespace tolk {
  *   Every unique TypeData is created only once, so for example TypeDataTensor::create(int, int)
  * returns one and the same pointer always.
  *
- *   In Tolk code, types after colon `var v: (int, T)` are parsed to TypeData.
- *   See parse_type_from_tokens().
- *   So, AST nodes which can have declared types (local/global variables and others) store a pointer to TypeData.
- *
- *   Type inferring also creates TypeData for inferred expressions. All AST expression nodes have inferred_type.
+ *   Type inferring creates TypeData for inferred expressions. All AST expression nodes have inferred_type.
  * For example, `1 + 2`, both operands are TypeDataInt, its result is also TypeDataInt.
  *   Type checking also uses TypeData. For example, `var i: slice = 1 + 2`, at first rhs (TypeDataInt) is inferred,
  * then lhs (TypeDataSlice from declaration) is checked whether rhs can be assigned.
  *   See can_rhs_be_assigned().
  *
- *   Note, that while initial parsing Tolk files to AST, known types (`int`, `cell`, etc.) are created as-is,
- * but user-defined types (`T`, `MyStruct`, `MyAlias`) are saved as TypeDataUnresolved.
- *   After all symbols have been registered, resolving identifiers step is executed, where particularly
- * all TypeDataUnresolved instances are converted to a resolved type. At inferring, no unresolved remain.
- *   For instance, `fun f<T>(v: T)`, at first "T" of `v` is unresolved, and then converted to TypeDataGenericT.
+ *   At the moment of parsing, types after colon `var v: (int, T)` are parsed to AST (AnyTypeV),
+ * and all symbols have been registered, AST representation resolved to TypeData, see pipe-resolve-types.cpp.
  */
 class TypeData {
   // bits of flag_mask, to store often-used properties and return them without tree traversing
@@ -58,8 +50,7 @@ protected:
   enum flag_mask {
     flag_contains_unknown_inside = 1 << 1,
     flag_contains_genericT_inside = 1 << 2,
-    flag_contains_unresolved_inside = 1 << 3,
-    flag_contains_type_alias_inside = 1 << 4,
+    flag_contains_type_alias_inside = 1 << 3,
   };
 
   explicit TypeData(int flags_with_children, int width_on_stack)
@@ -89,10 +80,8 @@ public:
 
   bool has_unknown_inside() const { return flags & flag_contains_unknown_inside; }
   bool has_genericT_inside() const { return flags & flag_contains_genericT_inside; }
-  bool has_unresolved_inside() const { return flags & flag_contains_unresolved_inside; }
   bool has_type_alias_inside() const { return flags & flag_contains_type_alias_inside; }
 
-  using TraverserCallbackT = std::function<void(TypePtr child)>;
   using ReplacerCallbackT = std::function<TypePtr(TypePtr child)>;
 
   virtual int get_type_id() const = 0;
@@ -102,10 +91,6 @@ public:
 
   virtual bool can_hold_tvm_null_instead() const {
     return true;
-  }
-
-  virtual void traverse(const TraverserCallbackT& callback) const {
-    callback(this);
   }
 
   virtual TypePtr replace_children_custom(const ReplacerCallbackT& callback) const {
@@ -135,7 +120,6 @@ public:
   std::string as_human_readable() const override;
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
-  void traverse(const TraverserCallbackT& callback) const override;
   bool can_hold_tvm_null_instead() const override;
 };
 
@@ -313,7 +297,6 @@ public:
   std::string as_human_readable() const override;
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
-  void traverse(const TraverserCallbackT& callback) const override;
   TypePtr replace_children_custom(const ReplacerCallbackT& callback) const override;
 };
 
@@ -382,18 +365,17 @@ public:
   std::string as_human_readable() const override;
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
-  void traverse(const TraverserCallbackT& callback) const override;
   TypePtr replace_children_custom(const ReplacerCallbackT& callback) const override;
   bool can_hold_tvm_null_instead() const override;
 };
 
 /*
- * `[int, slice]` is TypeDataTypedTuple, a TVM 'tuple' under the hood, contained in 1 stack slot.
+ * `[int, slice]` is TypeDataBrackets, a TVM 'tuple' under the hood, contained in 1 stack slot.
  * Unlike TypeDataTuple (untyped tuples), it has a predefined inner structure and can be assigned as
- * `var [i, cs] = [0, ""]`  (where a and b become two separate variables on a stack, int and slice).
+ * `var [i, cs] = [0, ""]`  (where i and cs become two separate variables on a stack, int and slice).
  */
-class TypeDataTypedTuple final : public TypeData {
-  TypeDataTypedTuple(int children_flags, std::vector<TypePtr>&& items)
+class TypeDataBrackets final : public TypeData {
+  TypeDataBrackets(int children_flags, std::vector<TypePtr>&& items)
     : TypeData(children_flags, 1)
     , items(std::move(items)) {}
 
@@ -408,7 +390,6 @@ public:
   std::string as_human_readable() const override;
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
-  void traverse(const TraverserCallbackT& callback) const override;
   TypePtr replace_children_custom(const ReplacerCallbackT& callback) const override;
 };
 
@@ -533,7 +514,6 @@ public:
   std::string as_human_readable() const override;
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
-  void traverse(const TraverserCallbackT& callback) const override;
   TypePtr replace_children_custom(const ReplacerCallbackT& callback) const override;
   bool can_hold_tvm_null_instead() const override;
 };
@@ -555,30 +535,6 @@ public:
 
   int get_type_id() const override;
   std::string as_human_readable() const override { return "unknown"; }
-  bool can_rhs_be_assigned(TypePtr rhs) const override;
-  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
-};
-
-/*
- * "Unresolved" is not actually a type — it's an intermediate state between parsing and resolving.
- * At parsing to AST, unrecognized type names (MyEnum, MyStruct, T) are parsed as TypeDataUnresolved,
- * and after all source files parsed and global symbols registered, they are replaced by actual ones.
- * Example: `fun f<T>(v: T)` at first v is TypeDataUnresolved("T"), later becomes TypeDataGenericT.
- */
-class TypeDataUnresolved final : public TypeData {
-  TypeDataUnresolved(std::string&& text, SrcLocation loc)
-    : TypeData(flag_contains_unresolved_inside, -999999)
-    , text(std::move(text))
-    , loc(loc) {}
-
-public:
-  const std::string text;
-  const SrcLocation loc;
-
-  static TypePtr create(std::string&& text, SrcLocation loc);
-
-  int get_type_id() const override;
-  std::string as_human_readable() const override { return text + "*"; }
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
 };
@@ -628,10 +584,6 @@ public:
 
 
 // --------------------------------------------
-
-class Lexer;
-TypePtr parse_type_from_tokens(Lexer& lex);
-TypePtr parse_type_from_string(std::string_view text);
 
 void type_system_init();
 

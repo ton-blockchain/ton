@@ -22,7 +22,7 @@
 namespace tolk {
 
 std::string FunctionData::as_human_readable() const {
-  if (!genericTs) {
+  if (!is_generic_function()) {
     return name;  // if it's generic instantiation like `f<int>`, its name is "f<int>", not "f"
   }
   return name + genericTs->as_human_readable();
@@ -113,6 +113,10 @@ void LocalVarData::assign_inferred_type(TypePtr inferred_type) {
   this->declared_type = inferred_type;
 }
 
+void AliasDefData::assign_visited_by_resolver() {
+  this->flags |= flagVisitedByResolver;
+}
+
 void AliasDefData::assign_resolved_type(TypePtr underlying_type) {
   this->underlying_type = underlying_type;
 }
@@ -125,8 +129,8 @@ void StructFieldData::assign_default_value(AnyExprV default_value) {
   this->default_value = default_value;
 }
 
-void StructData::assign_resolved_type(TypePtr struct_type) {
-  this->struct_type = struct_type;
+void StructData::assign_visited_by_resolver() {
+  this->flags |= flagVisitedByResolver;
 }
 
 StructFieldPtr StructData::find_field(std::string_view field_name) const {

@@ -19,10 +19,12 @@
 namespace tolk {
 
 struct ASTNodeBase;
+struct ASTNodeDeclaredTypeBase;
 struct ASTNodeExpressionBase;
 struct ASTNodeStatementBase;
 
 using AnyV = const ASTNodeBase*;
+using AnyTypeV = const ASTNodeDeclaredTypeBase*;
 using AnyExprV = const ASTNodeExpressionBase*;
 using AnyStatementV = const ASTNodeStatementBase*;
 

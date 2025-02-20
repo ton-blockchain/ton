@@ -296,7 +296,7 @@ static V<ast_reference> calc_sink_leftmost_obj(V<ast_dot_access> v) {
     }
     leftmost_obj = unwrap_not_null_operator(v_dot->get_obj());
   }
-  return leftmost_obj->type == ast_reference ? leftmost_obj->as<ast_reference>() : nullptr;
+  return leftmost_obj->kind == ast_reference ? leftmost_obj->as<ast_reference>() : nullptr;
 }
 
 
@@ -390,12 +390,12 @@ static std::vector<var_idx_t> pre_compile_tensor(CodeBlob& code, const std::vect
 
 static std::vector<var_idx_t> pre_compile_let(CodeBlob& code, AnyExprV lhs, AnyExprV rhs, SrcLocation loc) {
   // [lhs] = [rhs]; since type checking is ok, it's the same as "lhs = rhs"
-  if (lhs->type == ast_typed_tuple && rhs->type == ast_typed_tuple) {
+  if (lhs->kind == ast_bracket_tuple && rhs->kind == ast_bracket_tuple) {
     // note: there are no type transitions (adding nullability flag, etc.), since only 1-slot elements allowed in tuples
     LValContext local_lval;
-    std::vector<var_idx_t> left = pre_compile_tensor(code, lhs->as<ast_typed_tuple>()->get_items(), &local_lval);
+    std::vector<var_idx_t> left = pre_compile_tensor(code, lhs->as<ast_bracket_tuple>()->get_items(), &local_lval);
     vars_modification_watcher.trigger_callbacks(left, loc);
-    std::vector<var_idx_t> rvect = pre_compile_tensor(code, rhs->as<ast_typed_tuple>()->get_items());
+    std::vector<var_idx_t> rvect = pre_compile_tensor(code, rhs->as<ast_bracket_tuple>()->get_items());
     code.emplace_back(loc, Op::_Let, left, rvect);
     local_lval.after_let(std::move(left), code, loc);
     std::vector<var_idx_t> right = code.create_tmp_var(TypeDataTuple::create(), loc, "(tuple)");
@@ -403,12 +403,12 @@ static std::vector<var_idx_t> pre_compile_let(CodeBlob& code, AnyExprV lhs, AnyE
     return right;
   }
   // [lhs] = rhs; it's un-tuple to N left vars
-  if (lhs->type == ast_typed_tuple) {
+  if (lhs->kind == ast_bracket_tuple) {
     LValContext local_lval;
-    std::vector<var_idx_t> left = pre_compile_tensor(code, lhs->as<ast_typed_tuple>()->get_items(), &local_lval);
+    std::vector<var_idx_t> left = pre_compile_tensor(code, lhs->as<ast_bracket_tuple>()->get_items(), &local_lval);
     vars_modification_watcher.trigger_callbacks(left, loc);
     std::vector<var_idx_t> right = pre_compile_expr(rhs, code, nullptr);
-    const TypeDataTypedTuple* inferred_tuple = rhs->inferred_type->unwrap_alias()->try_as<TypeDataTypedTuple>();
+    const TypeDataBrackets* inferred_tuple = rhs->inferred_type->unwrap_alias()->try_as<TypeDataBrackets>();
     std::vector<TypePtr> types_list = inferred_tuple->items;
     std::vector<var_idx_t> rvect = code.create_tmp_var(TypeDataTensor::create(std::move(types_list)), rhs->loc, "(unpack-tuple)");
     code.emplace_back(lhs->loc, Op::_UnTuple, rvect, std::move(right));
@@ -417,7 +417,7 @@ static std::vector<var_idx_t> pre_compile_let(CodeBlob& code, AnyExprV lhs, AnyE
     return right;
   }
   // small optimization: `var x = rhs` or `local_var = rhs` (90% cases), LValContext not needed actually
-  if (lhs->type == ast_local_var_lhs || (lhs->type == ast_reference && lhs->as<ast_reference>()->sym->try_as<LocalVarPtr>())) {
+  if (lhs->kind == ast_local_var_lhs || (lhs->kind == ast_reference && lhs->as<ast_reference>()->sym->try_as<LocalVarPtr>())) {
     std::vector<var_idx_t> left = pre_compile_expr(lhs, code, nullptr);    // effectively, local_var->ir_idx
     vars_modification_watcher.trigger_callbacks(left, loc);
     std::vector<var_idx_t> right = pre_compile_expr(rhs, code, lhs->inferred_type);
@@ -818,7 +818,7 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
 
   // pass tuple to tuple, e.g. `[1, null]` to `[int, int?]` / `[1, null]` to `[int, [int?,int?]?]`
   // to changes to rvect, since tuples contain only 1-slot elements
-  if (target_type->try_as<TypeDataTypedTuple>() && original_type->try_as<TypeDataTypedTuple>()) {
+  if (target_type->try_as<TypeDataBrackets>() && original_type->try_as<TypeDataBrackets>()) {
     tolk_assert(target_w == 1 && orig_w == 1);
     return rvect;
   }
@@ -969,7 +969,7 @@ static std::vector<var_idx_t> process_binary_operator(V<ast_binary_operator> v, 
     return transition_to_target_type(std::move(rvect), code, target_type, v);
   }
 
-  throw UnexpectedASTNodeType(v, "process_binary_operator");
+  throw UnexpectedASTNodeKind(v, "process_binary_operator");
 }
 
 static std::vector<var_idx_t> process_unary_operator(V<ast_unary_operator> v, CodeBlob& code, TypePtr target_type) {
@@ -1001,14 +1001,14 @@ static std::vector<var_idx_t> process_ternary_operator(V<ast_ternary_operator> v
 }
 
 static std::vector<var_idx_t> process_cast_as_operator(V<ast_cast_as_operator> v, CodeBlob& code, TypePtr target_type, LValContext* lval_ctx) {
-  TypePtr child_target_type = v->cast_to_type;
+  TypePtr child_target_type = v->type_node->resolved_type;
   std::vector<var_idx_t> rvect = pre_compile_expr(v->get_expr(), code, child_target_type, lval_ctx);
   return transition_to_target_type(std::move(rvect), code, target_type, v);
 }
 
 static std::vector<var_idx_t> process_is_type_operator(V<ast_is_type_operator> v, CodeBlob& code, TypePtr target_type) {
   TypePtr lhs_type = v->get_expr()->inferred_type->unwrap_alias();
-  TypePtr cmp_type = v->rhs_type->unwrap_alias();
+  TypePtr cmp_type = v->type_node->resolved_type->unwrap_alias();
   bool is_null_check = cmp_type == TypeDataNullLiteral::create();    // `v == null`, not `v is T`
   tolk_assert(!cmp_type->try_as<TypeDataUnion>());  // `v is int|slice` is a type checker error
 
@@ -1061,7 +1061,7 @@ static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v
     auto v_ith_arm = v->get_arm(i);
     std::vector<var_idx_t> eq_ith_ir_idx;
     if (is_match_by_type) {
-      TypePtr cmp_type = v_ith_arm->exact_type->unwrap_alias();
+      TypePtr cmp_type = v_ith_arm->pattern_type_node->resolved_type->unwrap_alias();
       tolk_assert(!cmp_type->try_as<TypeDataUnion>());  // `match` over `int|slice` is a type checker error
       eq_ith_ir_idx = pre_compile_is_type(code, lhs_type, cmp_type, subj_ir_idx, v_ith_arm->loc, "(arm-cond-eq)");
     } else {
@@ -1149,7 +1149,7 @@ static std::vector<var_idx_t> process_dot_access(V<ast_dot_access> v, CodeBlob& 
       return transition_to_target_type(std::move(rvect), code, target_type, v);
     }
     // `tupleVar.0`
-    if (obj_type->try_as<TypeDataTypedTuple>() || obj_type->try_as<TypeDataTuple>()) {
+    if (obj_type->try_as<TypeDataBrackets>() || obj_type->try_as<TypeDataTuple>()) {
       int index_at = std::get<int>(v->target);
       // handle `tupleVar.0 = rhs`, "0 SETINDEX" will be called when this was is modified
       if (lval_ctx && !lval_ctx->is_rval_inside_lval() && calc_sink_leftmost_obj(v)) {
@@ -1218,7 +1218,7 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
   if (delta_self) {
     args.push_back(v->get_dot_obj());
     obj_leftmost = v->get_dot_obj();
-    while (obj_leftmost->type == ast_function_call && obj_leftmost->as<ast_function_call>()->is_dot_call() && obj_leftmost->as<ast_function_call>()->fun_maybe && obj_leftmost->as<ast_function_call>()->fun_maybe->does_return_self()) {
+    while (obj_leftmost->kind == ast_function_call && obj_leftmost->as<ast_function_call>()->is_dot_call() && obj_leftmost->as<ast_function_call>()->fun_maybe && obj_leftmost->as<ast_function_call>()->fun_maybe->does_return_self()) {
       obj_leftmost = obj_leftmost->as<ast_function_call>()->get_dot_obj();
     }
   }
@@ -1306,7 +1306,7 @@ static std::vector<var_idx_t> process_tensor(V<ast_tensor> v, CodeBlob& code, Ty
   return transition_to_target_type(std::move(rvect), code, target_type, v);
 }
 
-static std::vector<var_idx_t> process_typed_tuple(V<ast_typed_tuple> v, CodeBlob& code, TypePtr target_type, LValContext* lval_ctx) {
+static std::vector<var_idx_t> process_typed_tuple(V<ast_bracket_tuple> v, CodeBlob& code, TypePtr target_type, LValContext* lval_ctx) {
   if (lval_ctx) {       // todo some time, make "var (a, [b,c]) = (1, [2,3])" work
     v->error("[...] can not be used as lvalue here");
   }
@@ -1400,7 +1400,7 @@ static std::vector<var_idx_t> process_empty_expression(V<ast_empty_expression> v
 }
 
 std::vector<var_idx_t> pre_compile_expr(AnyExprV v, CodeBlob& code, TypePtr target_type, LValContext* lval_ctx) {
-  switch (v->type) {
+  switch (v->kind) {
     case ast_reference:
       return process_reference(v->as<ast_reference>(), code, target_type, lval_ctx);
     case ast_assign:
@@ -1431,8 +1431,8 @@ std::vector<var_idx_t> pre_compile_expr(AnyExprV v, CodeBlob& code, TypePtr targ
       return process_braced_expression(v->as<ast_braced_expression>(), code, target_type);
     case ast_tensor:
       return process_tensor(v->as<ast_tensor>(), code, target_type, lval_ctx);
-    case ast_typed_tuple:
-      return process_typed_tuple(v->as<ast_typed_tuple>(), code, target_type, lval_ctx);
+    case ast_bracket_tuple:
+      return process_typed_tuple(v->as<ast_bracket_tuple>(), code, target_type, lval_ctx);
     case ast_object_literal:
       return process_object_literal(v->as<ast_object_literal>(), code, target_type, lval_ctx);
     case ast_int_const:
@@ -1452,7 +1452,7 @@ std::vector<var_idx_t> pre_compile_expr(AnyExprV v, CodeBlob& code, TypePtr targ
     case ast_empty_expression:
       return process_empty_expression(v->as<ast_empty_expression>(), code, target_type);
     default:
-      throw UnexpectedASTNodeType(v, "pre_compile_expr");
+      throw UnexpectedASTNodeKind(v, "pre_compile_expr");
   }
 }
 
@@ -1646,7 +1646,7 @@ static void append_implicit_return_statement(SrcLocation loc_end, CodeBlob& code
 
 
 void process_any_statement(AnyV v, CodeBlob& code) {
-  switch (v->type) {
+  switch (v->kind) {
     case ast_block_statement:
       return process_block_statement(v->as<ast_block_statement>(), code);
     case ast_return_statement:

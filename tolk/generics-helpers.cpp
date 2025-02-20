@@ -97,9 +97,9 @@ void GenericSubstitutionsDeduceForCall::consider_next_condition(TypePtr param_ty
         consider_next_condition(p_tensor->items[i], a_tensor->items[i]);
       }
     }
-  } else if (const auto* p_tuple = param_type->try_as<TypeDataTypedTuple>()) {
+  } else if (const auto* p_tuple = param_type->try_as<TypeDataBrackets>()) {
     // `arg: [int, T]` called as `f([5, cs])` => T is slice
-    if (const auto* a_tuple = arg_type->unwrap_alias()->try_as<TypeDataTypedTuple>(); a_tuple && a_tuple->size() == p_tuple->size()) {
+    if (const auto* a_tuple = arg_type->unwrap_alias()->try_as<TypeDataBrackets>(); a_tuple && a_tuple->size() == p_tuple->size()) {
       for (int i = 0; i < a_tuple->size(); ++i) {
         consider_next_condition(p_tuple->items[i], a_tuple->items[i]);
       }
@@ -146,41 +146,6 @@ int GenericSubstitutionsDeduceForCall::get_first_not_deduced_idx() const {
   return -1;
 }
 
-// clone the body of `f<T>` replacing T everywhere with a substitution
-// before: `fun f<T>(v: T) { var cp: [T] = [v]; }`
-// after:  `fun f<int>(v: int) { var cp: [int] = [v]; }`
-// an instantiated function becomes a deep copy, all AST nodes are copied, no previous pointers left
-class GenericFunctionReplicator final : public ASTReplicatorFunction {
-  const GenericsDeclaration* genericTs;
-  const std::vector<TypePtr>& substitutionTs;
-
-protected:
-  using ASTReplicatorFunction::clone;
-
-  TypePtr clone(TypePtr t) override {
-    return replace_genericT_with_deduced(t, genericTs, substitutionTs);
-  }
-
-public:
-  GenericFunctionReplicator(const GenericsDeclaration* genericTs, const std::vector<TypePtr>& substitutionTs)
-    : genericTs(genericTs)
-    , substitutionTs(substitutionTs) {
-  }
-
-  V<ast_function_declaration> clone_function_body(V<ast_function_declaration> v_function) override {
-    return createV<ast_function_declaration>(
-      v_function->loc,
-      clone(v_function->get_identifier()),
-      clone(v_function->get_param_list()),
-      clone(v_function->get_body()),
-      clone(v_function->declared_return_type),
-      nullptr,    // a newly-created function is not generic
-      v_function->method_id,
-      v_function->flags
-    );
-  }
-};
-
 std::string GenericsDeclaration::as_human_readable() const {
   std::string result = "<";
   for (const GenericsItem& item : itemsT) {
@@ -202,16 +167,9 @@ int GenericsDeclaration::find_nameT(std::string_view nameT) const {
   return -1;
 }
 
-// after creating a deep copy of `f<T>` like `f<int>`, its new and fresh body needs the previous pipeline to run
-// for example, all local vars need to be registered as symbols, etc.
-static void run_pipeline_for_instantiated_function(FunctionPtr inst_fun_ref) {
-  // these pipes are exactly the same as in tolk.cpp — all preceding (and including) type inferring
-  pipeline_resolve_identifiers_and_assign_symbols(inst_fun_ref);
-  pipeline_calculate_rvalue_lvalue(inst_fun_ref);
-  pipeline_infer_types_and_calls_and_fields(inst_fun_ref);
-}
-
-std::string generate_instantiated_name(const std::string& orig_name, const std::vector<TypePtr>& substitutions) {
+// when cloning `f<T>`, original name is "f", we need a new name for symtable and output
+// name of an instantiated function will be "f<int>" and similar (yes, with "<" symbol, it's okay to Fift)
+static std::string generate_instantiated_name(const std::string& orig_name, const std::vector<TypePtr>& substitutions) {
   // an instantiated function name will be "{orig_name}<{T1,T2,...}>"
   std::string name = orig_name;
   name += "<";
@@ -226,53 +184,56 @@ std::string generate_instantiated_name(const std::string& orig_name, const std::
   return name;
 }
 
-FunctionPtr instantiate_generic_function(SrcLocation loc, FunctionPtr fun_ref, const std::string& inst_name, std::vector<TypePtr>&& substitutionTs) {
-  tolk_assert(fun_ref->genericTs);
+FunctionPtr instantiate_generic_function(SrcLocation loc, FunctionPtr fun_ref, std::vector<TypePtr>&& substitutionTs) {
+  tolk_assert(fun_ref->is_generic_function() && !fun_ref->is_method_id_not_empty());
 
-  // if `f<int>` was earlier instantiated, return it
-  if (const auto* existing = lookup_global_symbol(inst_name)) {
-    FunctionPtr inst_ref = existing->try_as<FunctionPtr>();
-    tolk_assert(inst_ref);
-    return inst_ref;
+  // fun_ref->name = "f", inst_name will be "f<int>" and similar
+  std::string new_name = generate_instantiated_name(fun_ref->name, substitutionTs);
+  if (const Symbol* existing_sym = lookup_global_symbol(new_name)) {
+    FunctionPtr existing_ref = existing_sym->try_as<FunctionPtr>();
+    tolk_assert(existing_ref);
+    return existing_ref;
   }
 
-  std::vector<LocalVarData> parameters;
-  parameters.reserve(fun_ref->get_num_params());
-  for (const LocalVarData& orig_p : fun_ref->parameters) {
-    parameters.emplace_back(orig_p.name, orig_p.loc, replace_genericT_with_deduced(orig_p.declared_type, fun_ref->genericTs, substitutionTs), orig_p.flags, orig_p.param_idx);
-  }
-  TypePtr declared_return_type = replace_genericT_with_deduced(fun_ref->declared_return_type, fun_ref->genericTs, substitutionTs);
   const GenericsInstantiation* instantiationTs = new GenericsInstantiation(loc, std::move(substitutionTs));
+  ASTReplicatorFunction replicator;
 
-  if (fun_ref->is_asm_function()) {
-    FunctionData* inst_ref = new FunctionData(inst_name, fun_ref->loc, declared_return_type, std::move(parameters), fun_ref->flags, nullptr, instantiationTs, new FunctionBodyAsm, fun_ref->ast_root);
-    inst_ref->arg_order = fun_ref->arg_order;
-    inst_ref->ret_order = fun_ref->ret_order;
-    G.symtable.add_function(inst_ref);
-    G.all_functions.push_back(inst_ref);
-    run_pipeline_for_instantiated_function(inst_ref);
-    return inst_ref;
-  }
-
+  // built-in functions don't have AST to clone, types of parameters don't exist in AST, etc.
+  // nevertheless, for outer code to follow a single algorithm,
+  // when calling `debugPrint(x)`, we clone it as "debugPrint<int>", replace types, and insert into symtable
   if (fun_ref->is_builtin_function()) {
-    FunctionData* inst_ref = new FunctionData(inst_name, fun_ref->loc, declared_return_type, std::move(parameters), fun_ref->flags, nullptr, instantiationTs, fun_ref->body, fun_ref->ast_root);
-    inst_ref->arg_order = fun_ref->arg_order;
-    inst_ref->ret_order = fun_ref->ret_order;
-    G.symtable.add_function(inst_ref);
-    return inst_ref;
+    std::vector<LocalVarData> new_parameters;
+    new_parameters.reserve(fun_ref->get_num_params());
+    for (const LocalVarData& orig_p : fun_ref->parameters) {
+      TypePtr new_param_type = replace_genericT_with_deduced(orig_p.declared_type, fun_ref->genericTs, instantiationTs->substitutions);
+      new_parameters.emplace_back(orig_p.name, orig_p.loc, new_param_type, orig_p.flags, orig_p.param_idx);
+    }
+    TypePtr new_return_type = replace_genericT_with_deduced(fun_ref->declared_return_type, fun_ref->genericTs, instantiationTs->substitutions);
+    FunctionData* new_fun_ref = new FunctionData(new_name, fun_ref->loc, new_return_type, std::move(new_parameters), fun_ref->flags, nullptr, instantiationTs, fun_ref->body, fun_ref->ast_root);
+    new_fun_ref->arg_order = fun_ref->arg_order;
+    new_fun_ref->ret_order = fun_ref->ret_order;
+    G.symtable.add_function(new_fun_ref);
+    return new_fun_ref;
   }
 
-  GenericFunctionReplicator replicator(fun_ref->genericTs, instantiationTs->substitutions);
-  V<ast_function_declaration> inst_root = replicator.clone_function_body(fun_ref->ast_root->as<ast_function_declaration>());
+  // for `f<T>` (both asm and regular), create "f<int>" with AST fully cloned
+  // it means, that types still contain T: `f<int>(v: T): T`, but since type resolving knows
+  // it's instantiation, when resolving types, it substitutes T=int
+  V<ast_function_declaration> orig_root = fun_ref->ast_root->as<ast_function_declaration>();
+  V<ast_identifier> new_name_ident = createV<ast_identifier>(orig_root->get_identifier()->loc, new_name);
+  V<ast_function_declaration> new_root = replicator.clone_function_ast(orig_root, new_name_ident);
 
-  FunctionData* inst_ref = new FunctionData(inst_name, fun_ref->loc, declared_return_type, std::move(parameters), fun_ref->flags, nullptr, instantiationTs, new FunctionBodyCode, inst_root);
-  inst_ref->arg_order = fun_ref->arg_order;
-  inst_ref->ret_order = fun_ref->ret_order;
-  inst_root->mutate()->assign_fun_ref(inst_ref);
-  G.symtable.add_function(inst_ref);
-  G.all_functions.push_back(inst_ref);
-  run_pipeline_for_instantiated_function(inst_ref);
-  return inst_ref;
+  FunctionPtr new_fun_ref = pipeline_register_instantiated_generic_function(new_root, instantiationTs);
+  tolk_assert(new_fun_ref);
+  // body of a cloned function (it's cloned at type inferring step) needs the previous pipeline to run
+  // for example, all local vars need to be registered as symbols, etc.
+  // these pipes are exactly the same as in tolk.cpp — all preceding (and including) type inferring
+  pipeline_resolve_identifiers_and_assign_symbols(new_fun_ref);
+  pipeline_resolve_types_and_aliases(new_fun_ref);
+  pipeline_calculate_rvalue_lvalue(new_fun_ref);
+  pipeline_infer_types_and_calls_and_fields(new_fun_ref);
+
+  return new_fun_ref;
 }
 
 } // namespace tolk

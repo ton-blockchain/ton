@@ -32,6 +32,11 @@ static std::string to_string(AnyExprV v_with_type) {
 }
 
 GNU_ATTRIBUTE_NOINLINE
+static std::string to_string(std::string_view string_view) {
+  return static_cast<std::string>(string_view);
+}
+
+GNU_ATTRIBUTE_NOINLINE
 static std::string expression_as_string(AnyExprV v) {
   if (auto v_ref = v->try_as<ast_reference>()) {
     if (v_ref->sym->try_as<LocalVarPtr>() || v_ref->sym->try_as<GlobalVarPtr>()) {
@@ -42,12 +47,6 @@ static std::string expression_as_string(AnyExprV v) {
     return expression_as_string(v_par->get_expr());
   }
   return "expression";
-}
-
-// fire a general "type mismatch" error, just a wrapper over `throw`
-GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-static void fire(FunctionPtr cur_f, SrcLocation loc, const std::string& message) {
-  throw ParseError(cur_f, loc, message);
 }
 
 // fire an error on `!cell` / `+slice`
@@ -117,28 +116,10 @@ static void handle_possible_compiler_internal_call(FunctionPtr cur_f, V<ast_func
 
   if (fun_ref->name == "__expect_type") {
     tolk_assert(v->get_num_args() == 2);
-    TypePtr expected_type = parse_type_from_string(v->get_arg(1)->get_expr()->as<ast_string_const>()->str_val);
-    if (expected_type->has_unresolved_inside()) {   // only aliases can be inside
-      expected_type = expected_type->replace_children_custom([cur_f, v](TypePtr child) -> TypePtr {
-        if (const auto* as_unresolved = child->try_as<TypeDataUnresolved>()) {
-          const Symbol* sym = lookup_global_symbol(as_unresolved->text);
-          if (!sym) {
-            throw ParseError(cur_f, v->loc, "invalid __expect_type");
-          }
-          if (AliasDefPtr alias_ref = sym->try_as<AliasDefPtr>()) {
-            return TypeDataAlias::create(alias_ref);
-          }
-          if (StructPtr struct_ref = sym->try_as<StructPtr>()) {
-            return struct_ref->struct_type;
-          }
-          tolk_assert(false);
-        }
-        return child;
-      });
-    }
+    std::string_view expected_type_str = v->get_arg(1)->get_expr()->as<ast_string_const>()->str_val;
     TypePtr expr_type = v->get_arg(0)->inferred_type;
-    if (expected_type->as_human_readable() != expr_type->as_human_readable()) {
-      fire(cur_f, v->loc, "__expect_type failed: expected " + to_string(expected_type) + ", got " + to_string(expr_type));
+    if (expected_type_str != expr_type->as_human_readable()) {
+      fire(cur_f, v->loc, "__expect_type failed: expected `" + to_string(expected_type_str) + "`, got " + to_string(expr_type));
     }
   }
 }
@@ -282,23 +263,24 @@ protected:
   void visit(V<ast_cast_as_operator> v) override {
     parent::visit(v->get_expr());
 
-    if (!v->get_expr()->inferred_type->can_be_casted_with_as_operator(v->cast_to_type)) {
-      fire(cur_f, v->loc, "type " + to_string(v->get_expr()) + " can not be cast to " + to_string(v->cast_to_type));
+    if (!v->get_expr()->inferred_type->can_be_casted_with_as_operator(v->type_node->resolved_type)) {
+      fire(cur_f, v->loc, "type " + to_string(v->get_expr()) + " can not be cast to " + to_string(v->type_node->resolved_type));
     }
   }
 
   void visit(V<ast_is_type_operator> v) override {
     parent::visit(v->get_expr());
+    TypePtr rhs_type = v->type_node->resolved_type;
 
-    if (v->rhs_type->unwrap_alias()->try_as<TypeDataUnion>()) {   // `v is T1 | T2` / `v is T?` is disallowed
+    if (rhs_type->unwrap_alias()->try_as<TypeDataUnion>()) {   // `v is T1 | T2` / `v is T?` is disallowed
       fire(cur_f, v->loc, "union types are not allowed, use concrete types in `is`");
     }
 
     if ((v->is_always_true && !v->is_negated) || (v->is_always_false && v->is_negated)) {
-      v->loc.show_warning(expression_as_string(v->get_expr()) + " is always " + to_string(v->rhs_type) + ", this condition is always " + (v->is_always_true ? "true" : "false"));
+      v->loc.show_warning(expression_as_string(v->get_expr()) + " is always " + to_string(rhs_type) + ", this condition is always " + (v->is_always_true ? "true" : "false"));
     }
     if ((v->is_always_false && !v->is_negated) || (v->is_always_true && v->is_negated)) {
-      v->loc.show_warning(expression_as_string(v->get_expr()) + " of type " + to_string(v->get_expr()) + " can never be " + to_string(v->rhs_type) + ", this condition is always " + (v->is_always_true ? "true" : "false"));
+      v->loc.show_warning(expression_as_string(v->get_expr()) + " of type " + to_string(v->get_expr()) + " can never be " + to_string(rhs_type) + ", this condition is always " + (v->is_always_true ? "true" : "false"));
     }
   }
 
@@ -312,7 +294,7 @@ protected:
     // if operator `!` used for non-nullable, probably a warning should be printed
   }
 
-  void visit(V<ast_typed_tuple> v) override {
+  void visit(V<ast_bracket_tuple> v) override {
     parent::visit(v);
 
     for (int i = 0; i < v->size(); ++i) {
@@ -328,7 +310,7 @@ protected:
 
     if (v->is_target_indexed_access()) {
       TypePtr obj_type = v->get_obj()->inferred_type->unwrap_alias();
-      if (v->inferred_type->get_width_on_stack() != 1 && (obj_type->try_as<TypeDataTuple>() || obj_type->try_as<TypeDataTypedTuple>())) {
+      if (v->inferred_type->get_width_on_stack() != 1 && (obj_type->try_as<TypeDataTuple>() || obj_type->try_as<TypeDataBrackets>())) {
         fire_error_cannot_put_non1_stack_width_arg_to_tuple(cur_f, v->loc, v->inferred_type);
       }
     }
@@ -405,7 +387,7 @@ protected:
 
     // inside `var v: int = rhs` / `var _ = rhs` / `var v redef = rhs` (lhs is "v" / "_" / "v")
     if (auto lhs_var = lhs->try_as<ast_local_var_lhs>()) {
-      TypePtr declared_type = lhs_var->declared_type;  // `var v: int = rhs` (otherwise, nullptr)
+      TypePtr declared_type = lhs_var->type_node ? lhs_var->type_node->resolved_type : nullptr;
       if (lhs_var->marked_as_redef) {
         tolk_assert(lhs_var->var_ref && lhs_var->var_ref->declared_type);
         declared_type = lhs_var->var_ref->declared_type;
@@ -416,7 +398,7 @@ protected:
         }
       } else {
         if (rhs_type == TypeDataNullLiteral::create()) {
-          fire_error_assign_always_null_to_variable(cur_f, err_loc->loc, lhs_var->var_ref->try_as<LocalVarPtr>(), corresponding_maybe_rhs && corresponding_maybe_rhs->type == ast_null_keyword);
+          fire_error_assign_always_null_to_variable(cur_f, err_loc->loc, lhs_var->var_ref->try_as<LocalVarPtr>(), corresponding_maybe_rhs && corresponding_maybe_rhs->kind == ast_null_keyword);
         }
       }
       return;
@@ -441,15 +423,15 @@ protected:
 
     // `[v1, v2] = rhs` / `var [v1, v2] = rhs` (rhs may be `[1,2]` or `tupleVar` or `someF()`, doesn't matter)
     // dig recursively into v1 and v2 with corresponding rhs i-th item of a tuple
-    if (auto lhs_tuple = lhs->try_as<ast_typed_tuple>()) {
-      const TypeDataTypedTuple* rhs_type_tuple = rhs_type->unwrap_alias()->try_as<TypeDataTypedTuple>();
+    if (auto lhs_tuple = lhs->try_as<ast_bracket_tuple>()) {
+      const TypeDataBrackets* rhs_type_tuple = rhs_type->unwrap_alias()->try_as<TypeDataBrackets>();
       if (!rhs_type_tuple) {
         fire(cur_f, err_loc->loc, "can not assign " + to_string(rhs_type) + " to a tuple");
       }
       if (lhs_tuple->size() != rhs_type_tuple->size()) {
         fire(cur_f, err_loc->loc, "can not assign " + to_string(rhs_type) + ", sizes mismatch");
       }
-      V<ast_typed_tuple> rhs_tuple_maybe = corresponding_maybe_rhs ? corresponding_maybe_rhs->try_as<ast_typed_tuple>() : nullptr;
+      V<ast_bracket_tuple> rhs_tuple_maybe = corresponding_maybe_rhs ? corresponding_maybe_rhs->try_as<ast_bracket_tuple>() : nullptr;
       for (int i = 0; i < lhs_tuple->size(); ++i) {
         process_assignment_lhs(lhs_tuple->get_item(i), rhs_type_tuple->items[i], rhs_tuple_maybe ? rhs_tuple_maybe->get_item(i) : nullptr);
       }
@@ -497,7 +479,7 @@ protected:
 
   static bool is_expr_valid_as_return_self(AnyExprV return_expr) {
     // `return self`
-    if (return_expr->type == ast_reference && return_expr->as<ast_reference>()->get_name() == "self") {
+    if (return_expr->kind == ast_reference && return_expr->as<ast_reference>()->get_name() == "self") {
       return true;
     }
     // `return self.someMethod()`
@@ -548,7 +530,7 @@ protected:
           }
           has_type_arm = true;
 
-          TypePtr lhs_type = v_arm->exact_type->unwrap_alias();   // `lhs_type => ...`
+          TypePtr lhs_type = v_arm->pattern_type_node->resolved_type->unwrap_alias();   // `lhs_type => ...`
           if (lhs_type->try_as<TypeDataUnion>()) {
             fire(cur_f, v_arm->loc, "wrong pattern matching: union types are not allowed, use concrete types in `match`");
           }
@@ -605,7 +587,7 @@ protected:
           missing += to_string(variant);
         }
       }
-      throw ParseError(cur_f, v->loc, "`match` does not cover all possible types; missing types are: " + missing);
+      fire(cur_f, v->loc, "`match` does not cover all possible types; missing types are: " + missing);
     }
     // `match` by expression, if it's not statement, should have `else` (unless it's match over bool with const true/false)
     if (has_expr_arm && !has_else_arm && !v->is_statement()) {
