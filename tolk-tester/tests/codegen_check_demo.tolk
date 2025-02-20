@@ -35,7 +35,7 @@ Below, I just give examples of @fif_codegen tag:
 """
 main PROC:<{
   // s
-  17 PUSHINT     //  s _1=17
+  17 PUSHINT     //  s '1=17
   OVER           //  s z=17 t
   WHILE:<{
     ...
@@ -63,7 +63,7 @@ main PROC:<{
 @fif_codegen
 """
     OVER
-    0 GTINT   //  s z t _5
+    0 GTINT   //  s z t '5
 """
 
 @fif_codegen
@@ -83,7 +83,7 @@ FALSE
 }>
 """
 
-@fif_codegen NOT //  _8
+@fif_codegen NOT //  '8
 @fif_codegen main PROC:<{
 
 @fif_codegen_avoid PROCINLINE

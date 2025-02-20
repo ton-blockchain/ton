@@ -302,24 +302,13 @@ Const AsmOpList::get_const(const_idx_t idx) {
   }
 }
 
-void AsmOpList::show_var(std::ostream& os, var_idx_t idx) const {
-  if (!var_names_ || (unsigned)idx >= var_names_->size()) {
-    os << '_' << idx;
-  } else {
-    var_names_->at(idx).show(os, 2);
-  }
-}
-
 void AsmOpList::show_var_ext(std::ostream& os, std::pair<var_idx_t, const_idx_t> idx_pair) const {
-  auto i = idx_pair.first;
-  auto j = idx_pair.second;
+  var_idx_t i = idx_pair.first;
+  const_idx_t j = idx_pair.second;
   if (!var_names_ || (unsigned)i >= var_names_->size()) {
-    os << '_' << i;
+    os << '\'' << i;
   } else {
-    var_names_->at(i).show(os, 2);
-    // if (!var_names_->at(i).v_type->is_int()) {
-    //   os << '<'; var_names_->at(i).v_type->print(os); os << '>';
-    // }
+    var_names_->at(i).show_as_stack_comment(os);
   }
   if ((unsigned)j < constants_.size() && constants_[j].not_null()) {
     os << '=' << constants_[j];

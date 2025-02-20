@@ -38,11 +38,11 @@ static void fire_error_invalid_mutate_arg_passed(AnyExprV v, const FunctionData*
   std::string arg_str(arg_expr->type == ast_reference ? arg_expr->as<ast_reference>()->get_name() : "obj");
 
   // case: `loadInt(cs, 32)`; suggest: `cs.loadInt(32)`
-  if (p_sym.is_mutate_parameter() && !arg_passed_as_mutate && !called_as_method && p_sym.idx == 0 && fun_ref->does_accept_self()) {
+  if (p_sym.is_mutate_parameter() && !arg_passed_as_mutate && !called_as_method && p_sym.param_idx == 0 && fun_ref->does_accept_self()) {
     v->error("`" + fun_ref->name + "` is a mutating method; consider calling `" + arg_str + "." + fun_ref->name + "()`, not `" + fun_ref->name + "(" + arg_str + ")`");
   }
   // case: `cs.mutating_function()`; suggest: `mutating_function(mutate cs)` or make it a method
-  if (p_sym.is_mutate_parameter() && called_as_method && p_sym.idx == 0 && !fun_ref->does_accept_self()) {
+  if (p_sym.is_mutate_parameter() && called_as_method && p_sym.param_idx == 0 && !fun_ref->does_accept_self()) {
     v->error("function `" + fun_ref->name + "` mutates parameter `" + p_sym.name + "`; consider calling `" + fun_ref->name + "(mutate " + arg_str + ")`, not `" + arg_str + "." + fun_ref->name + "`(); alternatively, rename parameter to `self` to make it a method");
   }
   // case: `mutating_function(arg)`; suggest: `mutate arg`

@@ -4,6 +4,9 @@ on: [workflow_dispatch]
 
 permissions: write-all
 
+env:
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 jobs:
   create-release:
     runs-on: ubuntu-22.04
@@ -497,6 +500,14 @@ jobs:
           file: artifacts/ton-x86_64-linux.zip
           asset_name: ton-linux-x86_64.zip
           tag: ${{ steps.tag.outputs.TAG }}
+
+      - name: Upload generic smartcont+lib artifact
+        run: |
+          mkdir smartcont_lib
+          cd smartcont_lib
+          cp -r ../artifacts/ton-x86_64-linux/{smartcont,lib} .          
+          zip -r smartcont_lib.zip .
+          gh release upload ${{ steps.tag.outputs.TAG }} smartcont_lib.zip
 
       - name: Upload Linux x86-64 single artifact - fift
         uses: svenstaro/upload-release-action@v2

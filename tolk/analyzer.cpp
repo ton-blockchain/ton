@@ -26,40 +26,6 @@ namespace tolk {
  * 
  */
 
-int CodeBlob::split_vars(bool strict) {
-  int n = var_cnt, changes = 0;
-  for (int j = 0; j < var_cnt; j++) {
-    TmpVar& var = vars[j];
-    int width_j = var.v_type->calc_width_on_stack();
-    if (strict && width_j < 0) {
-      throw ParseError{var.where, "variable does not have fixed width, cannot manipulate it"};
-    }
-    if (width_j == 1) {
-      continue;
-    }
-    std::vector<TypePtr> comp_types;
-    var.v_type->extract_components(comp_types);
-    tolk_assert(width_j <= 254 && n <= 0x7fff00);
-    tolk_assert((unsigned)width_j == comp_types.size());
-    var.coord = ~((n << 8) + width_j);
-    for (int i = 0; i < width_j; i++) {
-      auto v = create_var(comp_types[i], vars[j].v_sym, vars[j].where);
-      tolk_assert(v == n + i);
-      tolk_assert(vars[v].idx == v);
-      vars[v].coord = ((int)j << 8) + i + 1;
-    }
-    n += width_j;
-    ++changes;
-  }
-  if (!changes) {
-    return 0;
-  }
-  for (auto& op : ops) {
-    op.split_vars(vars);
-  }
-  return changes;
-}
-
 bool CodeBlob::compute_used_code_vars() {
   VarDescrList empty_var_info;
   return compute_used_code_vars(ops, empty_var_info, true);

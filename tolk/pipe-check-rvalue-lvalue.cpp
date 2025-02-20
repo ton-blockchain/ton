@@ -38,7 +38,7 @@ static void fire_error_cannot_be_used_as_lvalue(AnyV v, const std::string& detai
 
 GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
 static void fire_error_modifying_immutable_variable(AnyExprV v, const LocalVarData* var_ref) {
-  if (var_ref->idx == 0 && var_ref->name == "self") {
+  if (var_ref->param_idx == 0 && var_ref->name == "self") {
     v->error("modifying `self`, which is immutable by default; probably, you want to declare `mutate self`");
   } else {
     v->error("modifying immutable variable `" + var_ref->name + "`");
@@ -123,8 +123,8 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
 
   void visit(V<ast_dot_access> v) override {
     // a reference to a method used as rvalue, like `var v = t.tupleAt`
-    if (const FunctionData* fun_ref = v->target; v->is_rvalue) {
-      validate_function_used_as_noncall(v, fun_ref);
+    if (v->is_rvalue && v->is_target_fun_ref()) {
+      validate_function_used_as_noncall(v, std::get<const FunctionData*>(v->target));
     }
   }
 

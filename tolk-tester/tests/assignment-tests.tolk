@@ -14,6 +14,18 @@ fun autoInferIntNull(x: int) {
     return x;
 }
 
+fun typesAsIdentifiers(builder: builder) {
+    var int = 1;
+    var cell = builder.endCell();
+    var slice = cell.beginParse();
+    {
+        var cell: cell = cell;
+        var tuple: tuple = createEmptyTuple();
+        var bool: bool = tuple.tupleAt<int>(0) > 0;
+    }
+    return int;
+}
+
 fun main(value: int) {
     var (x: int, y) = (autoInferIntNull(value), autoInferIntNull(value * 2));
     if (x == null && y == null) { return null; }
