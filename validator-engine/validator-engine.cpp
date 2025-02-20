@@ -1850,7 +1850,7 @@ void ValidatorEngine::start_adnl() {
   td::actor::send_closure(adnl_, &ton::adnl::Adnl::register_network_manager, adnl_network_manager_.get());
 
   if (config_.tunnel_enabled) {
-    auto on_tunnel_ready = td::PromiseCreator::lambda([SelfId = actor_id(this), this, ip](td::Result<td::IPAddress> R) {
+    auto on_tunnel_ready = td::PromiseCreator::lambda([SelfId = actor_id(this), this](td::Result<td::IPAddress> R) {
       R.ensure();
       auto addr = R.move_as_ok();
 
