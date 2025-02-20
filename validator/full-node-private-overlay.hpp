@@ -50,14 +50,14 @@ class FullNodePrivateBlockOverlay : public td::actor::Actor {
   void collect_validator_telemetry(std::string filename);
 
   void set_config(FullNodeConfig config) {
-    config_ = std::move(config);
+    opts_.config_ = std::move(config);
   }
 
   void start_up() override;
   void tear_down() override;
 
   FullNodePrivateBlockOverlay(adnl::AdnlNodeIdShort local_id, std::vector<adnl::AdnlNodeIdShort> nodes,
-                              FileHash zero_state_file_hash, FullNodeConfig config,
+                              FileHash zero_state_file_hash, FullNodeOptions opts,
                               td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
                               td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
                               td::actor::ActorId<overlay::Overlays> overlays,
@@ -66,7 +66,7 @@ class FullNodePrivateBlockOverlay : public td::actor::Actor {
       : local_id_(local_id)
       , nodes_(std::move(nodes))
       , zero_state_file_hash_(zero_state_file_hash)
-      , config_(config)
+      , opts_(opts)
       , keyring_(keyring)
       , adnl_(adnl)
       , rldp_(rldp)
@@ -80,7 +80,7 @@ class FullNodePrivateBlockOverlay : public td::actor::Actor {
   adnl::AdnlNodeIdShort local_id_;
   std::vector<adnl::AdnlNodeIdShort> nodes_;
   FileHash zero_state_file_hash_;
-  FullNodeConfig config_;
+  FullNodeOptions opts_;
   bool enable_compression_ = true;
 
   td::actor::ActorId<keyring::Keyring> keyring_;
@@ -126,14 +126,14 @@ class FullNodeCustomOverlay : public td::actor::Actor {
                             td::BufferSlice data);
 
   void set_config(FullNodeConfig config) {
-    config_ = std::move(config);
+    opts_.config_ = std::move(config);
   }
 
   void start_up() override;
   void tear_down() override;
 
   FullNodeCustomOverlay(adnl::AdnlNodeIdShort local_id, CustomOverlayParams params, FileHash zero_state_file_hash,
-                        FullNodeConfig config, td::actor::ActorId<keyring::Keyring> keyring,
+                        FullNodeOptions opts, td::actor::ActorId<keyring::Keyring> keyring,
                         td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp,
                         td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<overlay::Overlays> overlays,
                         td::actor::ActorId<ValidatorManagerInterface> validator_manager,
@@ -144,7 +144,7 @@ class FullNodeCustomOverlay : public td::actor::Actor {
       , msg_senders_(std::move(params.msg_senders_))
       , block_senders_(std::move(params.block_senders_))
       , zero_state_file_hash_(zero_state_file_hash)
-      , config_(config)
+      , opts_(opts)
       , keyring_(keyring)
       , adnl_(adnl)
       , rldp_(rldp)
@@ -161,7 +161,7 @@ class FullNodeCustomOverlay : public td::actor::Actor {
   std::map<adnl::AdnlNodeIdShort, int> msg_senders_;
   std::set<adnl::AdnlNodeIdShort> block_senders_;
   FileHash zero_state_file_hash_;
-  FullNodeConfig config_;
+  FullNodeOptions opts_;
 
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;
