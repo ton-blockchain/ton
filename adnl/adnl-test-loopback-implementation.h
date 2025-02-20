@@ -39,6 +39,9 @@ class TestLoopbackNetworkManager : public ton::adnl::AdnlNetworkManager {
   void add_proxy_addr(td::IPAddress addr, td::uint16 local_port, std::shared_ptr<AdnlProxy> proxy,
                       AdnlCategoryMask cat_mask, td::uint32 priority) override {
   }
+  void add_tunnel(td::uint16 port, AdnlCategoryMask cat_mask, td::uint32 priority,
+                          td::Promise<td::IPAddress> on_ready) override {
+  }
   void send_udp_packet(ton::adnl::AdnlNodeIdShort src_id, ton::adnl::AdnlNodeIdShort dst_id, td::IPAddress dst_addr,
                        td::uint32 priority, td::BufferSlice data) override {
     if (allowed_sources_.count(src_id) == 0 || allowed_destinations_.count(dst_id) == 0) {
