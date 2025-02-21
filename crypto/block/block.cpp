@@ -360,7 +360,6 @@ MsgProcessedUptoCollection::MsgProcessedUptoCollection(ton::ShardIdFull _owner, 
     z.shard = key.get_uint(64);
     z.mc_seqno = (unsigned)((key + 64).get_uint(32));
     z.last_inmsg_lt = value.write().fetch_ulong(64);
-    // std::cerr << "ProcessedUpto shard " << std::hex << z.shard << std::dec << std::endl;
     return value.write().fetch_bits_to(z.last_inmsg_hash) && z.shard && ton::shard_contains(owner.shard, z.shard);
   });
 }
@@ -862,8 +861,10 @@ td::Status ShardState::unpack_out_msg_queue_info(Ref<vm::Cell> out_msg_queue_inf
   out_msg_queue_ =
       std::make_unique<vm::AugmentedDictionary>(std::move(qinfo.out_queue), 352, block::tlb::aug_OutMsgQueue);
   if (verbosity >= 3 * 1) {
-    LOG(DEBUG) << "unpacking ProcessedUpto of our previous block " << id_.to_str();
-    block::gen::t_ProcessedInfo.print(std::cerr, qinfo.proc_info);
+    FLOG(DEBUG) {
+      sb << "unpacking ProcessedUpto of our previous block " << id_.to_str();
+      block::gen::t_ProcessedInfo.print(sb, qinfo.proc_info);
+    };
   }
   if (!block::gen::t_ProcessedInfo.validate_csr(1024, qinfo.proc_info)) {
     return td::Status::Error(

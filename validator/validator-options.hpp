@@ -154,6 +154,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   bool get_fast_state_serializer_enabled() const override {
     return fast_state_serializer_enabled_;
   }
+  double get_catchain_broadcast_speed_multiplier() const override {
+    return catchain_broadcast_speed_multipliers_;
+  }
 
   void set_zero_block_id(BlockIdExt block_id) override {
     zero_block_id_ = block_id;
@@ -249,6 +252,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   void set_fast_state_serializer_enabled(bool value) override {
     fast_state_serializer_enabled_ = value;
   }
+  void set_catchain_broadcast_speed_multiplier(double value) override {
+    catchain_broadcast_speed_multipliers_ = value;
+  }
 
   ValidatorManagerOptionsImpl *make_copy() const override {
     return new ValidatorManagerOptionsImpl(*this);
@@ -302,6 +308,7 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   bool state_serializer_enabled_ = true;
   td::Ref<CollatorOptions> collator_options_{true};
   bool fast_state_serializer_enabled_ = false;
+  double catchain_broadcast_speed_multipliers_;
 };
 
 }  // namespace validator

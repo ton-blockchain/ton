@@ -493,6 +493,7 @@ struct CatChainOptions {
   td::uint64 max_block_height_coeff = 0;
 
   bool debug_disable_db = false;
+  double broadcast_speed_multiplier = 1.0;
 };
 
 struct ValidatorSessionConfig {

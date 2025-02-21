@@ -205,13 +205,13 @@ class ValidatorManager : public ValidatorManagerInterface {
       td::optional<ShardIdFull> shard,
       td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroups>> promise) = 0;
 
-  virtual void add_lite_query_stats(int lite_query_id) {
+  virtual void add_lite_query_stats(int lite_query_id, bool success) {
   }
 
   virtual void record_collate_query_stats(BlockIdExt block_id, double work_time, double cpu_work_time,
-                                          CollationStats stats) {
+                                          td::optional<CollationStats> stats) {
   }
-  virtual void record_validate_query_stats(BlockIdExt block_id, double work_time, double cpu_work_time) {
+  virtual void record_validate_query_stats(BlockIdExt block_id, double work_time, double cpu_work_time, bool success) {
   }
 
   virtual void add_persistent_state_description(td::Ref<PersistentStateDescription> desc) = 0;
