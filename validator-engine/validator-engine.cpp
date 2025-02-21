@@ -1637,6 +1637,7 @@ td::Status ValidatorEngine::load_global_config() {
   }
   validator_options_.write().set_hardforks(std::move(h));
   validator_options_.write().set_fast_state_serializer_enabled(fast_state_serializer_enabled_);
+  validator_options_.write().set_catchain_broadcast_speed_multiplier(broadcast_speed_multiplier_catchain_);
 
   for (auto& id : config_.collator_node_whitelist) {
     validator_options_.write().set_collator_node_whitelisted_validator(id, true);
@@ -2130,7 +2131,8 @@ void ValidatorEngine::started_overlays() {
 
 void ValidatorEngine::start_validator() {
   validator_options_.write().set_allow_blockchain_init(config_.validators.size() > 0);
-  validator_options_.write().set_state_serializer_enabled(config_.state_serializer_enabled);
+  validator_options_.write().set_state_serializer_enabled(config_.state_serializer_enabled &&
+                                                          !state_serializer_disabled_flag_);
   load_collator_options();
 
   validator_manager_ = ton::validator::ValidatorManagerFactory::create(
@@ -2177,9 +2179,13 @@ void ValidatorEngine::start_full_node() {
       R.ensure();
       td::actor::send_closure(SelfId, &ValidatorEngine::started_full_node);
     });
+    ton::validator::fullnode::FullNodeOptions full_node_options{
+        .config_ = config_.full_node_config,
+        .public_broadcast_speed_multiplier_ = broadcast_speed_multiplier_public_,
+        .private_broadcast_speed_multiplier_ = broadcast_speed_multiplier_private_};
     full_node_ = ton::validator::fullnode::FullNode::create(
-        short_id, full_node_id_, validator_options_->zero_block_id().file_hash, config_.full_node_config,
-        keyring_.get(), adnl_.get(), rldp_.get(), rldp2_.get(),
+        short_id, full_node_id_, validator_options_->zero_block_id().file_hash,
+        full_node_options, keyring_.get(), adnl_.get(), rldp_.get(), rldp2_.get(),
         default_dht_node_.is_zero() ? td::actor::ActorId<ton::dht::Dht>{} : dht_nodes_[default_dht_node_].get(),
         overlay_manager_.get(), validator_manager_.get(), full_node_client_.get(), db_root_, std::move(P));
     for (auto &v : config_.validators) {
@@ -4398,7 +4404,7 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_setStateS
     promise.set_value(ton::create_serialize_tl_object<ton::ton_api::engine_validator_success>());
     return;
   }
-  validator_options_.write().set_state_serializer_enabled(query.enabled_);
+  validator_options_.write().set_state_serializer_enabled(query.enabled_ && !state_serializer_disabled_flag_);
   td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::update_options,
                           validator_options_);
   config_.state_serializer_enabled = query.enabled_;
@@ -5394,6 +5400,47 @@ int main(int argc, char *argv[]) {
             [&x, s = s.str()]() {
               td::actor::send_closure(x, &ValidatorEngine::set_validator_telemetry_filename, s);
             });
+      });
+  p.add_option(
+      '\0', "disable-state-serializer",
+      "disable persistent state serializer (similar to set-state-serializer-enabled 0 in validator console)", [&]() {
+        acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_state_serializer_disabled_flag); });
+      });
+  p.add_checked_option(
+      '\0', "broadcast-speed-catchain",
+      "multiplier for broadcast speed in catchain overlays (experimental, default is 1.0, which is ~300 KB/s)",
+      [&](td::Slice s) -> td::Status {
+        auto v = td::to_double(s);
+        if (v <= 0.0) {
+          return td::Status::Error("broadcast-speed-catchain should be positive");
+        }
+        acts.push_back(
+            [&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_broadcast_speed_multiplier_catchain, v); });
+        return td::Status::OK();
+      });
+  p.add_checked_option(
+      '\0', "broadcast-speed-public",
+      "multiplier for broadcast speed in public shard overlays (experimental, default is 1.0, which is ~300 KB/s)",
+      [&](td::Slice s) -> td::Status {
+        auto v = td::to_double(s);
+        if (v <= 0.0) {
+          return td::Status::Error("broadcast-speed-public should be positive");
+        }
+        acts.push_back(
+            [&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_broadcast_speed_multiplier_public, v); });
+        return td::Status::OK();
+      });
+  p.add_checked_option(
+      '\0', "broadcast-speed-private",
+      "multiplier for broadcast speed in private block overlays (experimental, default is 1.0, which is ~300 KB/s)",
+      [&](td::Slice s) -> td::Status {
+        auto v = td::to_double(s);
+        if (v <= 0.0) {
+          return td::Status::Error("broadcast-speed-private should be positive");
+        }
+        acts.push_back(
+            [&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_broadcast_speed_multiplier_private, v); });
+        return td::Status::OK();
       });
   auto S = p.run(argc, argv);
   if (S.is_error()) {

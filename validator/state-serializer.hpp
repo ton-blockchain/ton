@@ -36,6 +36,9 @@ class AsyncStateSerializer : public td::actor::Actor {
   UnixTime last_key_block_ts_ = 0;
   bool saved_to_db_ = true;
 
+  bool inited_block_id_ = false;
+  std::vector<td::Promise<td::Unit>> wait_init_block_id_;
+
   td::Ref<ValidatorManagerOptions> opts_;
   bool auto_disabled_ = false;
   td::CancellationTokenSource cancellation_token_source_;
@@ -95,6 +98,8 @@ class AsyncStateSerializer : public td::actor::Actor {
     promise.set_result(last_block_id_.id.seqno);
   }
 
+  void prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise);
+
   void update_last_known_key_block_ts(UnixTime ts) {
     last_known_key_block_ts_ = std::max(last_known_key_block_ts_, ts);
   }
@@ -111,6 +116,9 @@ class AsyncStateSerializer : public td::actor::Actor {
 
   void update_options(td::Ref<ValidatorManagerOptions> opts);
   void auto_disable_serializer(bool disabled);
+
+  std::string current_status_ = "pending";
+  td::Timestamp current_status_ts_ = td::Timestamp::never();
 };
 
 }  // namespace validator

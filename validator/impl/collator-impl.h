@@ -53,7 +53,7 @@ class Collator final : public td::actor::Actor {
   using LtCellRef = block::LtCellRef;
   using NewOutMsg = block::NewOutMsg;
   const ShardIdFull shard_;
-  ton::BlockId new_id;
+  ton::BlockId new_id{workchainInvalid, 0, 0};
   bool busy_{false};
   bool before_split_{false};
   bool after_split_{false};
@@ -392,6 +392,8 @@ class Collator final : public td::actor::Actor {
   td::Timer work_timer_{true};
   td::ThreadCpuTimer cpu_work_timer_{true};
   CollationStats stats_;
+
+  void finalize_stats();
 };
 
 }  // namespace validator

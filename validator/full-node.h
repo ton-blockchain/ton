@@ -55,6 +55,12 @@ struct FullNodeConfig {
   bool ext_messages_broadcast_disabled_ = false;
 };
 
+struct FullNodeOptions {
+  FullNodeConfig config_;
+  double public_broadcast_speed_multiplier_ = 1.0;
+  double private_broadcast_speed_multiplier_ = 1.0;
+};
+
 struct CustomOverlayParams {
   std::string name_;
   std::vector<adnl::AdnlNodeIdShort> nodes_;
@@ -114,7 +120,7 @@ class FullNode : public td::actor::Actor {
   static constexpr td::int32 MAX_FAST_SYNC_OVERLAY_CLIENTS = 5000;  // TODO: set lower limit (high limit for testing)
 
   static td::actor::ActorOwn<FullNode> create(
-      ton::PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash, FullNodeConfig config,
+      ton::PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash, FullNodeOptions opts,
       td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
       td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<dht::Dht> dht,
       td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<ValidatorManagerInterface> validator_manager,

@@ -56,7 +56,9 @@ struct AsyncSerializerState {
 };
 
 struct CollationStats {
-  BlockIdExt block_id;
+  BlockIdExt block_id{workchainInvalid, 0, 0, RootHash::zero(), FileHash::zero()};
+  td::Status status = td::Status::OK();
+
   td::Bits256 collated_data_hash = td::Bits256::zero();
   CatchainSeqno cc_seqno = 0;
   double collated_at = -1.0;
@@ -265,7 +267,7 @@ class ValidatorManager : public ValidatorManagerInterface {
       td::optional<ShardIdFull> shard,
       td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroups>> promise) = 0;
 
-  virtual void add_lite_query_stats(int lite_query_id) {
+  virtual void add_lite_query_stats(int lite_query_id, bool success) {
   }
 
   virtual void log_collate_query_stats(CollationStats stats) {

@@ -58,6 +58,12 @@ void AsyncStateSerializer::got_self_state(AsyncSerializerState state) {
     });
     td::actor::send_closure(manager_, &ValidatorManager::get_block_handle, last_block_id_, true, std::move(P));
   }
+
+  inited_block_id_ = true;
+  for (auto& promise : wait_init_block_id_) {
+    promise.set_value(td::Unit());
+  }
+  wait_init_block_id_.clear();
 }
 
 void AsyncStateSerializer::got_init_handle(BlockHandle handle) {
@@ -186,6 +192,9 @@ void AsyncStateSerializer::next_iteration() {
               td::actor::send_closure(SelfId, &AsyncStateSerializer::request_previous_state_files);
             },
             td::Timestamp::in(delay));
+        current_status_ = PSTRING() << "delay before serializing seqno=" << masterchain_handle_->id().seqno() << " "
+                                    << (int)delay << "s";
+        current_status_ts_ = td::Timestamp::now();
         return;
       }
       if (next_idx_ < shards_.size()) {
@@ -379,9 +388,14 @@ void AsyncStateSerializer::got_masterchain_state(td::Ref<MasterchainState> state
 
   td::actor::send_closure(manager_, &ValidatorManager::store_persistent_state_file_gen, masterchain_handle_->id(),
                           masterchain_handle_->id(), write_data, std::move(P));
+
+  current_status_ = PSTRING() << "serializing masterchain state " << state->get_block_id().id.to_str();
+  current_status_ts_ = td::Timestamp::now();
 }
 
 void AsyncStateSerializer::stored_masterchain_state() {
+  current_status_ = "pending";
+  current_status_ts_ = {};
   LOG(ERROR) << "finished serializing masterchain state " << masterchain_handle_->id().id.to_str();
   running_ = false;
   next_iteration();
@@ -444,9 +458,14 @@ void AsyncStateSerializer::got_shard_state(BlockHandle handle, td::Ref<ShardStat
   });
   td::actor::send_closure(manager_, &ValidatorManager::store_persistent_state_file_gen, handle->id(),
                           masterchain_handle_->id(), write_data, std::move(P));
+  current_status_ = PSTRING() << "serializing shard state " << next_idx_ << "/" << shards_.size() << " "
+                              << state->get_block_id().id.to_str();
+  current_status_ts_ = td::Timestamp::now();
 }
 
 void AsyncStateSerializer::fail_handler(td::Status reason) {
+  current_status_ = PSTRING() << "pending, " << reason;
+  current_status_ts_ = {};
   VLOG(VALIDATOR_NOTICE) << "failure: " << reason;
   attempt_++;
   delay_action(
@@ -460,6 +479,8 @@ void AsyncStateSerializer::fail_handler_cont() {
 }
 
 void AsyncStateSerializer::success_handler() {
+  current_status_ = "pending";
+  current_status_ts_ = {};
   running_ = false;
   next_iteration();
 }
@@ -476,6 +497,29 @@ void AsyncStateSerializer::auto_disable_serializer(bool disabled) {
   if (auto_disabled_) {
     cancellation_token_source_.cancel();
   }
+}
+
+void AsyncStateSerializer::prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise) {
+  if (!inited_block_id_) {
+    wait_init_block_id_.push_back(
+        [SelfId = actor_id(this), promise = std::move(promise)](td::Result<td::Unit> R) mutable {
+          TRY_STATUS_PROMISE(promise, R.move_as_status());
+          td::actor::send_closure(SelfId, &AsyncStateSerializer::prepare_stats, std::move(promise));
+        });
+    return;
+  }
+  std::vector<std::pair<std::string, std::string>> vec;
+  vec.emplace_back("stateserializermasterchainseqno", td::to_string(last_block_id_.seqno()));
+  td::StringBuilder sb;
+  sb << current_status_;
+  if (current_status_ts_) {
+    sb << " (started " << (int)(td::Timestamp::now() - current_status_ts_) << "s ago)";
+  }
+  if (!opts_->get_state_serializer_enabled() || auto_disabled_) {
+    sb << " (disabled)";
+  }
+  vec.emplace_back("stateserializerstatus", sb.as_cslice().str());
+  promise.set_result(std::move(vec));
 }
 
 bool AsyncStateSerializer::need_serialize(BlockHandle handle) {

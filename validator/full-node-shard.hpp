@@ -86,7 +86,7 @@ class FullNodeShardImpl : public FullNodeShard {
   void set_active(bool active) override;
 
   void set_config(FullNodeConfig config) override {
-    config_ = config;
+    opts_.config_ = config;
   }
 
   void try_get_next_block(td::Timestamp timestamp, td::Promise<ReceivedBlock> promise);
@@ -225,7 +225,7 @@ class FullNodeShardImpl : public FullNodeShard {
   }
 
   FullNodeShardImpl(ShardIdFull shard, PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id,
-                    FileHash zero_state_file_hash, FullNodeConfig config, td::actor::ActorId<keyring::Keyring> keyring,
+                    FileHash zero_state_file_hash, FullNodeOptions opts, td::actor::ActorId<keyring::Keyring> keyring,
                     td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp,
                     td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<overlay::Overlays> overlays,
                     td::actor::ActorId<ValidatorManagerInterface> validator_manager,
@@ -272,7 +272,7 @@ class FullNodeShardImpl : public FullNodeShard {
 
   bool active_;
 
-  FullNodeConfig config_;
+  FullNodeOptions opts_;
 
   std::set<td::Bits256> my_ext_msg_broadcasts_;
   std::set<td::Bits256> processed_ext_msg_broadcasts_;

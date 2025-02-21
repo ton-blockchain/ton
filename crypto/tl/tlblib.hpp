@@ -246,7 +246,14 @@ class TLB {
   bool print(std::ostream& os, Ref<vm::CellSlice> cs_ref, int indent = 0, int rec_limit = 0) const {
     return print(os, *cs_ref, indent, rec_limit);
   }
+  bool print(td::StringBuilder& sb, Ref<vm::CellSlice> cs_ref, int indent = 0, int rec_limit = 0) const {
+    std::ostringstream ss;
+    auto result = print(ss, *cs_ref, indent, rec_limit);
+    sb << ss.str();
+    return result;
+  }
   bool print_ref(std::ostream& os, Ref<vm::Cell> cell_ref, int indent = 0, int rec_limit = 0) const;
+  bool print_ref(td::StringBuilder& sb, Ref<vm::Cell> cell_ref, int indent = 0, int rec_limit = 0) const;
   bool print_ref(int rec_limit, std::ostream& os, Ref<vm::Cell> cell_ref, int indent = 0) const {
     return print_ref(os, std::move(cell_ref), indent, rec_limit);
   }

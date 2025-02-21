@@ -158,6 +158,17 @@ void CellDbIn::start_up() {
         },
         td::Timestamp::now());
   }
+
+  {
+    std::string key = "stats.last_deleted_mc_seqno", value;
+    auto R = cell_db_->get(td::as_slice(key), value);
+    R.ensure();
+    if (R.ok() == td::KeyValue::GetStatus::Ok) {
+      auto r_value = td::to_integer_safe<BlockSeqno>(value);
+      r_value.ensure();
+      last_deleted_mc_state_ = r_value.move_as_ok();
+    }
+  }
 }
 
 void CellDbIn::load_cell(RootHash hash, td::Promise<td::Ref<vm::DataCell>> promise) {
@@ -452,6 +463,11 @@ void CellDbIn::gc_cont2(BlockHandle handle) {
           cell_db_->erase(get_key(key_hash)).ensure();
           set_block(F.prev, std::move(P));
           set_block(F.next, std::move(N));
+          if (handle->id().is_masterchain()) {
+            last_deleted_mc_state_ = handle->id().seqno();
+            std::string key = "stats.last_deleted_mc_seqno", value = td::to_string(last_deleted_mc_state_);
+            cell_db_->set(td::as_slice(key), td::as_slice(value));
+          }
           cell_db_->commit_write_batch().ensure();
           alarm_timestamp() = td::Timestamp::now();
           timer_write_batch.reset();
@@ -474,9 +490,6 @@ void CellDbIn::gc_cont2(BlockHandle handle) {
           DCHECK(get_block(key_hash).is_error());
           if (!opts_->get_disable_rocksdb_stats()) {
             cell_db_statistics_.gc_cell_time_.insert(timer.elapsed() * 1e6);
-          }
-          if (handle->id().is_masterchain()) {
-            last_deleted_mc_state_ = handle->id().seqno();
           }
           LOG(DEBUG) << "Deleted state " << handle->id().to_str();
           timer_finish.reset();

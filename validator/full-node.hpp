@@ -110,7 +110,7 @@ class FullNodeImpl : public FullNode {
   void start_up() override;
 
   FullNodeImpl(PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash,
-               FullNodeConfig config, td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
+               FullNodeOptions opts, td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
                td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
                td::actor::ActorId<dht::Dht> dht, td::actor::ActorId<overlay::Overlays> overlays,
                td::actor::ActorId<ValidatorManagerInterface> validator_manager,
@@ -154,7 +154,7 @@ class FullNodeImpl : public FullNode {
   std::map<adnl::AdnlNodeIdShort, int> local_collator_nodes_;
 
   td::Promise<td::Unit> started_promise_;
-  FullNodeConfig config_;
+  FullNodeOptions opts_;
 
   // Private overlays:
   // Old overlays - one private overlay for all validators

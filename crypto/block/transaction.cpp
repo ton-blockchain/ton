@@ -446,8 +446,10 @@ bool Account::unpack(Ref<vm::CellSlice> shard_account, ton::UnixTime now, bool s
     return false;
   }
   if (verbosity > 2) {
-    shard_account->print_rec(std::cerr, 2);
-    block::gen::t_ShardAccount.print(std::cerr, *shard_account);
+    FLOG(INFO) {
+      shard_account->print_rec(sb, 2);
+      block::gen::t_ShardAccount.print(sb, shard_account);
+    };
   }
   block::gen::ShardAccount::Record acc_info;
   if (!(block::tlb::t_ShardAccount.validate_csr(shard_account) && tlb::unpack_exact(shard_account.write(), acc_info))) {
@@ -737,9 +739,11 @@ bool Transaction::unpack_input_msg(bool ihr_delivered, const ActionPhaseConfig* 
     return false;
   }
   if (verbosity > 2) {
-    fprintf(stderr, "unpacking inbound message for a new transaction: ");
-    block::gen::t_Message_Any.print_ref(std::cerr, in_msg);
-    load_cell_slice(in_msg).print_rec(std::cerr);
+    FLOG(INFO) {
+      sb << "unpacking inbound message for a new transaction: ";
+      block::gen::t_Message_Any.print_ref(sb, in_msg);
+      load_cell_slice(in_msg).print_rec(sb);
+    };
   }
   auto cs = vm::load_cell_slice(in_msg);
   int tag = block::gen::t_CommonMsgInfo.get_tag(cs);
@@ -1550,11 +1554,13 @@ bool Transaction::run_precompiled_contract(const ComputePhaseConfig& cfg, precom
     cp.actions = impl.get_c5();
     int out_act_num = output_actions_count(cp.actions);
     if (verbosity > 2) {
-      std::cerr << "new smart contract data: ";
-      bool can_be_special = true;
-      load_cell_slice_special(cp.new_data, can_be_special).print_rec(std::cerr);
-      std::cerr << "output actions: ";
-      block::gen::OutList{out_act_num}.print_ref(std::cerr, cp.actions);
+      FLOG(INFO) {
+        sb << "new smart contract data: ";
+        bool can_be_special = true;
+        load_cell_slice_special(cp.new_data, can_be_special).print_rec(sb);
+        sb << "output actions: ";
+        block::gen::OutList{out_act_num}.print_ref(sb, cp.actions);
+      };
     }
   }
   cp.mode = 0;
@@ -1619,7 +1625,6 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
   if (in_msg_state.not_null()) {
     LOG(DEBUG) << "HASH(in_msg_state) = " << in_msg_state->get_hash().bits().to_hex(256)
                << ", account_state_hash = " << account.state_hash.to_hex();
-    // vm::load_cell_slice(in_msg_state).print_rec(std::cerr);
   } else {
     LOG(DEBUG) << "in_msg_state is null";
   }
@@ -1775,11 +1780,13 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
     cp.actions = vm.get_committed_state().c5;   // c5 -> action list
     int out_act_num = output_actions_count(cp.actions);
     if (verbosity > 2) {
-      std::cerr << "new smart contract data: ";
-      bool can_be_special = true;
-      load_cell_slice_special(cp.new_data, can_be_special).print_rec(std::cerr);
-      std::cerr << "output actions: ";
-      block::gen::OutList{out_act_num}.print_ref(std::cerr, cp.actions);
+      FLOG(INFO) {
+        sb << "new smart contract data: ";
+        bool can_be_special = true;
+        load_cell_slice_special(cp.new_data, can_be_special).print_rec(sb);
+        sb << "output actions: ";
+        block::gen::OutList{out_act_num}.print_ref(sb, cp.actions);
+      };
     }
   }
   cp.mode = 0;
@@ -2725,14 +2732,18 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
   }
   if (!block::gen::t_Message_Any.validate_ref(new_msg)) {
     LOG(ERROR) << "generated outbound message is not a valid (Message Any) according to automated check";
-    block::gen::t_Message_Any.print_ref(std::cerr, new_msg);
-    vm::load_cell_slice(new_msg).print_rec(std::cerr);
+    FLOG(INFO) {
+      block::gen::t_Message_Any.print_ref(sb, new_msg);
+      vm::load_cell_slice(new_msg).print_rec(sb);
+    };
     collect_fine();
     return -1;
   }
   if (verbosity > 2) {
-    std::cerr << "converted outbound message: ";
-    block::gen::t_Message_Any.print_ref(std::cerr, new_msg);
+    FLOG(INFO) {
+      sb << "converted outbound message: ";
+      block::gen::t_Message_Any.print_ref(sb, new_msg);
+    };
   }
 
   ap.msgs_created++;
@@ -3045,8 +3056,10 @@ bool Transaction::prepare_bounce_phase(const ActionPhaseConfig& cfg) {
   }
   CHECK(cb.finalize_to(bp.out_msg));
   if (verbosity > 2) {
-    LOG(INFO) << "generated bounced message: ";
-    block::gen::t_Message_Any.print_ref(std::cerr, bp.out_msg);
+    FLOG(INFO) {
+      sb << "generated bounced message: ";
+      block::gen::t_Message_Any.print_ref(sb, bp.out_msg);
+    };
   }
   out_msgs.push_back(bp.out_msg);
   bp.ok = true;
@@ -3167,11 +3180,13 @@ bool Transaction::compute_state() {
       auto frozen_state = cb2.finalize();
       frozen_hash = frozen_state->get_hash().bits();
       if (verbosity >= 3 * 1) {  // !!!DEBUG!!!
-        std::cerr << "freezing state of smart contract: ";
-        block::gen::t_StateInit.print_ref(std::cerr, frozen_state);
-        CHECK(block::gen::t_StateInit.validate_ref(frozen_state));
-        CHECK(block::tlb::t_StateInit.validate_ref(frozen_state));
-        std::cerr << "with hash " << frozen_hash.to_hex() << std::endl;
+        FLOG(INFO) {
+          sb << "freezing state of smart contract: ";
+          block::gen::t_StateInit.print_ref(sb, frozen_state);
+          CHECK(block::gen::t_StateInit.validate_ref(frozen_state));
+          CHECK(block::tlb::t_StateInit.validate_ref(frozen_state));
+          sb << "with hash " << frozen_hash.to_hex();
+        };
       }
     }
     new_code.clear();
@@ -3229,8 +3244,10 @@ bool Transaction::compute_state() {
   CHECK(cb.append_data_cell_bool(std::move(storage)));
   new_total_state = cb.finalize();
   if (verbosity > 2) {
-    std::cerr << "new account state: ";
-    block::gen::t_Account.print_ref(std::cerr, new_total_state);
+    FLOG(INFO) {
+      sb << "new account state: ";
+      block::gen::t_Account.print_ref(sb, new_total_state);
+    };
   }
   CHECK(block::tlb::t_Account.validate_ref(new_total_state));
   return true;
@@ -3322,22 +3339,28 @@ bool Transaction::serialize() {
       return false;
   }
   if (verbosity >= 3 * 1) {
-    std::cerr << "new transaction: ";
-    block::gen::t_Transaction.print_ref(std::cerr, root);
-    vm::load_cell_slice(root).print_rec(std::cerr);
+    FLOG(INFO) {
+      sb << "new transaction: ";
+      block::gen::t_Transaction.print_ref(sb, root);
+      vm::load_cell_slice(root).print_rec(sb);
+    };
   }
 
   if (!block::gen::t_Transaction.validate_ref(4096, root)) {
     LOG(ERROR) << "newly-generated transaction failed to pass automated validation:";
-    vm::load_cell_slice(root).print_rec(std::cerr);
-    block::gen::t_Transaction.print_ref(std::cerr, root);
+    FLOG(INFO) {
+      vm::load_cell_slice(root).print_rec(sb);
+      block::gen::t_Transaction.print_ref(sb, root);
+    };
     root.clear();
     return false;
   }
   if (!block::tlb::t_Transaction.validate_ref(4096, root)) {
     LOG(ERROR) << "newly-generated transaction failed to pass hand-written validation:";
-    vm::load_cell_slice(root).print_rec(std::cerr);
-    block::gen::t_Transaction.print_ref(std::cerr, root);
+    FLOG(INFO) {
+      vm::load_cell_slice(root).print_rec(sb);
+      block::gen::t_Transaction.print_ref(sb, root);
+    };
     root.clear();
     return false;
   }

@@ -128,6 +128,10 @@ inline Timestamp &operator+=(Timestamp &a, double b) {
   return a;
 }
 
+inline double operator-(const Timestamp &a, const Timestamp &b) {
+  return a.at() - b.at();
+}
+
 template <class StorerT>
 void store(const Timestamp &timestamp, StorerT &storer) {
   storer.store_binary(timestamp.at() - Time::now() + Clocks::system());

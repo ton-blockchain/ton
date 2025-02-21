@@ -63,7 +63,7 @@ td::actor::ActorOwn<Overlay> Overlay::create_private(
   return td::actor::create_actor<OverlayImpl>(
       overlay_actor_name(overlay_id), keyring, adnl, manager, dht_node, local_id, std::move(overlay_id),
       OverlayType::FixedMemberList, std::move(nodes), std::vector<PublicKeyHash>(), OverlayMemberCertificate{},
-      std::move(callback), std::move(rules), std::move(scope));
+      std::move(callback), std::move(rules), std::move(scope), std::move(opts));
 }
 
 td::actor::ActorOwn<Overlay> Overlay::create_semiprivate(
@@ -99,6 +99,7 @@ OverlayImpl::OverlayImpl(td::actor::ActorId<keyring::Keyring> keyring, td::actor
   overlay_id_ = id_full_.compute_short_id();
   frequent_dht_lookup_ = opts_.frequent_dht_lookup_;
   peer_list_.local_member_flags_ = opts_.local_overlay_member_flags_;
+  opts_.broadcast_speed_multiplier_ = std::max(opts_.broadcast_speed_multiplier_, 1e-9);
 
   VLOG(OVERLAY_INFO) << this << ": creating";
 
@@ -490,7 +491,8 @@ void OverlayImpl::send_broadcast_fec(PublicKeyHash send_as, td::uint32 flags, td
     VLOG(OVERLAY_WARNING) << "broadcast source certificate is invalid";
     return;
   }
-  OverlayOutboundFecBroadcast::create(std::move(data), flags, actor_id(this), send_as);
+  OverlayOutboundFecBroadcast::create(std::move(data), flags, actor_id(this), send_as,
+                                      opts_.broadcast_speed_multiplier_);
 }
 
 void OverlayImpl::print(td::StringBuilder &sb) {

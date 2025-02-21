@@ -266,8 +266,11 @@ void FullNodePrivateBlockOverlay::init() {
   overlay::OverlayPrivacyRules rules{overlay::Overlays::max_fec_broadcast_size(),
                                      overlay::CertificateFlags::AllowFec | overlay::CertificateFlags::Trusted,
                                      {}};
-  td::actor::send_closure(overlays_, &overlay::Overlays::create_private_overlay, local_id_, overlay_id_full_.clone(),
-                          nodes_, std::make_unique<Callback>(actor_id(this)), rules, R"({ "type": "private-blocks" })");
+  overlay::OverlayOptions overlay_options;
+  overlay_options.broadcast_speed_multiplier_ = opts_.private_broadcast_speed_multiplier_;
+  td::actor::send_closure(overlays_, &overlay::Overlays::create_private_overlay_ex, local_id_, overlay_id_full_.clone(),
+                          nodes_, std::make_unique<Callback>(actor_id(this)), rules, R"({ "type": "private-blocks" })",
+                          overlay_options);
 
   td::actor::send_closure(rldp_, &rldp::Rldp::add_id, local_id_);
   td::actor::send_closure(rldp2_, &rldp2::Rldp::add_id, local_id_);
@@ -368,7 +371,7 @@ void FullNodeCustomOverlay::receive_broadcast(PublicKeyHash src, td::BufferSlice
 }
 
 void FullNodeCustomOverlay::send_external_message(td::BufferSlice data) {
-  if (!inited_ || config_.ext_messages_broadcast_disabled_) {
+  if (!inited_ || opts_.config_.ext_messages_broadcast_disabled_) {
     return;
   }
   VLOG(FULL_NODE_DEBUG) << "Sending external message to custom overlay \"" << name_ << "\"";
@@ -474,10 +477,13 @@ void FullNodeCustomOverlay::init() {
     authorized_keys[sender.pubkey_hash()] = overlay::Overlays::max_fec_broadcast_size();
   }
   overlay::OverlayPrivacyRules rules{overlay::Overlays::max_fec_broadcast_size(), 0, std::move(authorized_keys)};
+  overlay::OverlayOptions overlay_options;
+  overlay_options.broadcast_speed_multiplier_ = opts_.private_broadcast_speed_multiplier_;
   td::actor::send_closure(
-      overlays_, &overlay::Overlays::create_private_overlay, local_id_, overlay_id_full_.clone(), nodes_,
+      overlays_, &overlay::Overlays::create_private_overlay_ex, local_id_, overlay_id_full_.clone(), nodes_,
       std::make_unique<Callback>(actor_id(this)), rules,
-      PSTRING() << R"({ "type": "custom-overlay", "name": ")" << td::format::Escaped{name_} << R"(" })");
+      PSTRING() << R"({ "type": "custom-overlay", "name": ")" << td::format::Escaped{name_} << R"(" })",
+      overlay_options);
 
   td::actor::send_closure(rldp_, &rldp::Rldp::add_id, local_id_);
   td::actor::send_closure(rldp2_, &rldp2::Rldp::add_id, local_id_);
