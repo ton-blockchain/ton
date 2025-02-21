@@ -4619,6 +4619,8 @@ void TonlibClient::get_libraries(ton::BlockIdExt blkid, std::vector<td::Bits256>
   std::vector<object_ptr<tonlib_api::smc_libraryEntry>> result_entries;
   result_entries.reserve(library_list.size());
   std::vector<td::Bits256> not_cached_hashes;
+  not_cached_hashes.reserve(library_list.size());
+
   for (auto& library_hash : library_list) {
     if (libraries.key_exists(library_hash)) {
       auto library_content = vm::std_boc_serialize(libraries.lookup_ref(library_hash)).move_as_ok().as_slice().str();
@@ -4633,7 +4635,8 @@ void TonlibClient::get_libraries(ton::BlockIdExt blkid, std::vector<td::Bits256>
     return;
   }
 
-  client_.send_query(ton::lite_api::liteServer_getLibrariesWithProof(ton::create_tl_lite_block_id(blkid), 1, std::move(not_cached_hashes)),
+  auto missed_lib_ids = not_cached_hashes;
+  client_.send_query(ton::lite_api::liteServer_getLibrariesWithProof(ton::create_tl_lite_block_id(blkid), 1, std::move(missed_lib_ids)),
                      promise.wrap([self=this, blkid, result_entries = std::move(result_entries), not_cached_hashes]
                                   (td::Result<ton::lite_api::object_ptr<ton::lite_api::liteServer_libraryResultWithProof>> r_libraries) mutable
                                     -> td::Result<tonlib_api::object_ptr<tonlib_api::smc_libraryResult>> {
