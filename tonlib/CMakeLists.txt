@@ -159,7 +159,7 @@ endif()
 
 install(FILES ${TONLIB_JSON_HEADERS} ${CMAKE_CURRENT_BINARY_DIR}/tonlib/tonlibjson_export.h DESTINATION include/tonlib/)
 
-if (NOT USE_EMSCRIPTEN)
+if (NOT USE_EMSCRIPTEN AND NOT TONLIBJSON_STATIC)
   install(EXPORT Tonlib
     FILE TonlibTargets.cmake
     NAMESPACE Tonlib::
