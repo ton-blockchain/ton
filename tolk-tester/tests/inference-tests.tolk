@@ -86,6 +86,17 @@ fun test7() {
     // __expect_type(eq<(int, slice)>, "(int, slice) -> (int, slice)");
 }
 
+fun alwaysThrows(): never { throw 123; }
+fun alwaysThrowsNotAnnotated() { throw 123; }
+fun alwaysThrowsNotAnnotated2() { alwaysThrows(); }
+
+fun test9() {
+    __expect_type(alwaysThrows(), "never");
+    __expect_type(alwaysThrows, "() -> never");
+    __expect_type(alwaysThrowsNotAnnotated(), "void");
+    __expect_type(alwaysThrowsNotAnnotated2(), "void");
+}
+
 
 fun main() {
     return 0;

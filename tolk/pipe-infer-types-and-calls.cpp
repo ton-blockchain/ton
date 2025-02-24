@@ -1013,6 +1013,9 @@ class InferTypesAndCallsAndFieldsVisitor final {
     TypePtr inferred_type = dot_obj && fun_ref->does_return_self() ? dot_obj->inferred_type : fun_ref->inferred_return_type;
     assign_inferred_type(v, inferred_type);
     assign_inferred_type(callee, fun_ref->inferred_full_type);
+    if (inferred_type == TypeDataNever::create()) {
+      flow.mark_unreachable(UnreachableKind::CallNeverReturnFunction);
+    }
     // note, that mutate params don't affect typing, they are handled when converting to IR
     return ExprFlow(std::move(flow), used_as_condition);
   }
@@ -1139,6 +1142,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
   FlowContext process_throw_statement(V<ast_throw_statement> v, FlowContext&& flow) {
     flow = infer_any_expr(v->get_thrown_code(), std::move(flow), false).out_flow;
     flow = infer_any_expr(v->get_thrown_arg(), std::move(flow), false).out_flow;
+    flow.mark_unreachable(UnreachableKind::ThrowStatement);
     return flow;
   }
 
@@ -1209,6 +1213,9 @@ public:
 
       if (!body_end.is_unreachable()) {
         fun_ref->mutate()->assign_is_implicit_return();
+        if (fun_ref->declared_return_type == TypeDataNever::create()) {   // `never` can only be declared, it can't be inferred
+          fire(fun_ref, v_function->get_body()->as<ast_sequence>()->loc_end, "a function returning `never` can not have a reachable endpoint");
+        }
       }
 
       if (!fun_ref->declared_return_type) {

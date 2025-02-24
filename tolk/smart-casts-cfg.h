@@ -77,6 +77,7 @@ struct SinkExpression {
 enum class UnreachableKind {
   Unknown,     // no definite info or not unreachable
   CantHappen,
+  ThrowStatement,
   ReturnStatement,
   CallNeverReturnFunction,
 };

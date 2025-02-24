@@ -205,7 +205,6 @@ struct VarDescrList {
   std::size_t count_used(const std::vector<var_idx_t> idx_list) const;
   VarDescr& add(var_idx_t idx);
   VarDescr& add_newval(var_idx_t idx);
-  VarDescrList& operator&=(const VarDescrList& values);
   VarDescrList& import_values(const VarDescrList& values);
   VarDescrList operator|(const VarDescrList& y) const;
   VarDescrList& operator|=(const VarDescrList& values);
@@ -575,6 +574,7 @@ struct AsmOpList {
   const std::vector<TmpVar>* var_names_{nullptr};
   std::vector<Const> constants_;
   bool retalt_{false};
+  bool retalt_inserted_{false};
   void out(std::ostream& os, int mode = 0) const;
   AsmOpList(int indent = 0, const std::vector<TmpVar>* var_names = nullptr) : indent_(indent), var_names_(var_names) {
   }
@@ -1030,7 +1030,7 @@ struct Stack {
   }
   void apply_wrappers(int callxargs_count) {
     bool is_inline = mode & _InlineFunc;
-    if (o.retalt_) {
+    if (o.retalt_inserted_) {
       o.insert(0, "SAMEALTSAVE");
       o.insert(0, "c2 SAVE");
     }

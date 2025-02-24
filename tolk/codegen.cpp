@@ -274,8 +274,16 @@ void Stack::rearrange_top(var_idx_t top, bool last) {
 
 bool Op::generate_code_step(Stack& stack) {
   stack.opt_show();
-  stack.drop_vars_except(var_info);
-  stack.opt_show();
+
+  // detect `throw 123` (actually _IntConst 123 + _Call __throw)
+  // don't clear the stack, since dropping unused elements make no sense, an exception is thrown anyway
+  bool will_now_immediate_throw = (cl == _Call && f_sym->is_builtin_function() && f_sym->name == "__throw")
+      || (cl == _IntConst && next->cl == _Call && next->f_sym->is_builtin_function() && next->f_sym->name == "__throw");
+  if (!will_now_immediate_throw) {
+    stack.drop_vars_except(var_info);
+    stack.opt_show();
+  }
+
   bool inline_func = stack.mode & Stack::_InlineFunc;
   switch (cl) {
     case _Nop:
@@ -285,6 +293,7 @@ bool Op::generate_code_step(Stack& stack) {
       stack.enforce_state(left);
       if (stack.o.retalt_ && (stack.mode & Stack::_NeedRetAlt)) {
         stack.o << "RETALT";
+        stack.o.retalt_inserted_ = true;
       }
       stack.opt_show();
       return false;
@@ -514,7 +523,7 @@ bool Op::generate_code_step(Stack& stack) {
         int j = ret_order ? ret_order->at(i) : i;
         stack.push_new_var(left.at(j));
       }
-      return true;
+      return !f_sym || f_sym->declared_return_type != TypeDataNever::create();
     }
     case _SetGlob: {
       tolk_assert(g_sym);

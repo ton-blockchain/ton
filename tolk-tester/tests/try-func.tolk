@@ -164,6 +164,78 @@ fun test109(): (int, int) {
   return (g_reg, l_reg);
 }
 
+fun alwaysThrow123(): never {
+  throw 123;
+}
+
+fun alwaysThrowX(x: int): never {
+  if (x > 10) { throw (x, beginCell()); }
+  else { throw (x, null); }
+}
+
+fun anotherNever(throw123: bool): never {
+  if (throw123) { alwaysThrow123(); }
+  alwaysThrowX(456);
+}
+
+fun testCodegen1(x: int) {
+  if (x > 10) {
+    throw 123;
+    anotherNever(true); // unreachable, will be dropped
+  }
+  else if (x < 10) {
+    throw x;
+    return -123;        // unreachable, will be dropped
+  }
+  return 0;
+}
+
+fun testCodegen2(x: int) {
+  if (x > 10) {
+    alwaysThrow123();
+    anotherNever(true); // unreachable, will be dropped
+  }
+  else if (x < 10) {
+    anotherNever(false);
+    return -123;        // unreachable, will be dropped
+  }
+  return 0;
+}
+
+@method_id(110)
+fun test110(b: bool) {
+  try {
+    if (b == true) { testCodegen1(100); }
+    testCodegen1(5);
+    return -1;
+  } catch (ex) {
+    return ex;
+  }
+}
+
+@method_id(111)
+fun test111(b: bool) {
+  try {
+    if (b == true) { testCodegen2(100); }
+    testCodegen2(5);
+    return -1;
+  } catch (ex) {
+    return ex;
+  }
+}
+
+fun mySetCode(newCode: slice): void
+    asm "SETCODE";
+
+fun testCodegen3(numberId: int, paramVal: cell) {
+  if (numberId == -1000) {
+    var cs = paramVal.beginParse();
+    mySetCode(cs);
+    throw 0;
+  }
+  paramVal.beginParse();
+}
+
 fun main() {
 }
 
@@ -187,6 +259,65 @@ fun main() {
 @testcase | 107 | 5     | 5
 @testcase | 107 | 20    | 20
 @testcase | 108 |       | 0
+@testcase | 109 |       | 10 10
+@testcase | 110 | -1    | 123
+@testcase | 110 | 0     | 5
+@testcase | 111 | -1    | 123
+@testcase | 111 | 0     | 456
 
-@code_hash 39307974281105539319288356721945232226028429128341177951717392648324358675585
+@code_hash 57361460846265694653029920796509802052573595128418810728101968091567195330515
+
+@fif_codegen
+"""
+  testCodegen1 PROC:<{
+    // x
+    DUP	//  x x
+    10 GTINT	//  x '2
+    IFJMP:<{	//  x
+      123 THROW
+    }>	//  x
+    DUP	//  x x
+    10 LESSINT	//  x '6
+    IFJMP:<{	//  x
+      THROWANY
+    }>	//  x
+    DROP	//
+    0 PUSHINT	//  '8=0
+  }>
+"""
+
+@fif_codegen
+"""
+  testCodegen2 PROC:<{
+    // x
+    DUP	//  x x
+    10 GTINT	//  x '2
+    IFJMP:<{	//  x
+      DROP	//
+      alwaysThrow123 CALLDICT
+    }>	//  x
+    10 LESSINT	//  '5
+    IFJMP:<{	//
+      FALSE	//  '6
+      anotherNever CALLDICT
+    }>	//
+    0 PUSHINT	//  '8=0
+  }>
+"""
+
+@fif_codegen
+"""
+  testCodegen3 PROC:<{
+    //  numberId paramVal
+    SWAP
+    -1000 PUSHINT	//  paramVal numberId '2=-1000
+    EQUAL	    //  paramVal '3
+    IFJMP:<{	//  paramVal
+      CTOS	    //  cs
+      SETCODE
+      0 THROW
+    }>	    //  paramVal
+    DROP	//
+  }>
+"""
 */
