@@ -119,7 +119,7 @@ struct NameAndScopeResolver {
     return G.symtable.lookup(name);
   }
 
-  void add_local_var(const LocalVarData* v_sym) {
+  void add_local_var(LocalVarPtr v_sym) {
     if (UNLIKELY(scopes.empty())) {
       throw Fatal("unexpected scope_level = 0");
     }
@@ -168,9 +168,9 @@ static TypePtr finalize_type_data(TypePtr type_data, const GenericsDeclaration* 
 class AssignSymInsideFunctionVisitor final : public ASTVisitorFunctionBody {
   // more correctly this field shouldn't be static, but currently there is no need to make it a part of state
   static NameAndScopeResolver current_scope;
-  static const FunctionData* current_function;
+  static FunctionPtr current_function;
 
-  static const LocalVarData* create_local_var_sym(std::string_view name, SrcLocation loc, TypePtr declared_type, bool immutable) {
+  static LocalVarPtr create_local_var_sym(std::string_view name, SrcLocation loc, TypePtr declared_type, bool immutable) {
     LocalVarData* v_sym = new LocalVarData(static_cast<std::string>(name), loc, declared_type, immutable * LocalVarData::flagImmutable, -1);
     current_scope.add_local_var(v_sym);
     return v_sym;
@@ -178,7 +178,7 @@ class AssignSymInsideFunctionVisitor final : public ASTVisitorFunctionBody {
 
   static void process_catch_variable(AnyExprV catch_var) {
     if (auto v_ref = catch_var->try_as<ast_reference>()) {
-      const LocalVarData* var_ref = create_local_var_sym(v_ref->get_name(), catch_var->loc, nullptr, true);
+      LocalVarPtr var_ref = create_local_var_sym(v_ref->get_name(), catch_var->loc, nullptr, true);
       v_ref->mutate()->assign_sym(var_ref);
     }
   }
@@ -190,14 +190,14 @@ protected:
       if (sym == nullptr) {
         v->error("`redef` for unknown variable");
       }
-      const LocalVarData* var_ref = sym->try_as<LocalVarData>();
+      LocalVarPtr var_ref = sym->try_as<LocalVarPtr>();
       if (!var_ref) {
         v->error("`redef` for unknown variable");
       }
       v->mutate()->assign_var_ref(var_ref);
     } else {
       TypePtr declared_type = finalize_type_data(v->declared_type, current_function->genericTs);
-      const LocalVarData* var_ref = create_local_var_sym(v->get_name(), v->loc, declared_type, v->is_immutable);
+      LocalVarPtr var_ref = create_local_var_sym(v->get_name(), v->loc, declared_type, v->is_immutable);
       v->mutate()->assign_resolved_type(declared_type);
       v->mutate()->assign_var_ref(var_ref);
     }
@@ -216,7 +216,7 @@ protected:
     v->mutate()->assign_sym(sym);
 
     // for global functions, global vars and constants, `import` must exist
-    if (!sym->try_as<LocalVarData>()) {
+    if (!sym->try_as<LocalVarPtr>()) {
       check_import_exists_when_using_sym(v, sym);
     }
 
@@ -276,14 +276,14 @@ protected:
   }
 
 public:
-  bool should_visit_function(const FunctionData* fun_ref) override {
+  bool should_visit_function(FunctionPtr fun_ref) override {
     // this pipe is done just after parsing
     // visit both asm and code functions, resolve identifiers in parameter/return types everywhere
     // for generic functions, unresolved "T" will be replaced by TypeDataGenericT
     return true;
   }
 
-  void start_visiting_function(const FunctionData* fun_ref, V<ast_function_declaration> v) override {
+  void start_visiting_function(FunctionPtr fun_ref, V<ast_function_declaration> v) override {
     current_function = fun_ref;
 
     for (int i = 0; i < v->get_num_params(); ++i) {
@@ -313,7 +313,7 @@ public:
 };
 
 NameAndScopeResolver AssignSymInsideFunctionVisitor::current_scope;
-const FunctionData* AssignSymInsideFunctionVisitor::current_function = nullptr;
+FunctionPtr AssignSymInsideFunctionVisitor::current_function = nullptr;
 
 void pipeline_resolve_identifiers_and_assign_symbols() {
   AssignSymInsideFunctionVisitor visitor;
@@ -337,7 +337,7 @@ void pipeline_resolve_identifiers_and_assign_symbols() {
   }
 }
 
-void pipeline_resolve_identifiers_and_assign_symbols(const FunctionData* fun_ref) {
+void pipeline_resolve_identifiers_and_assign_symbols(FunctionPtr fun_ref) {
   AssignSymInsideFunctionVisitor visitor;
   if (visitor.should_visit_function(fun_ref)) {
     visitor.start_visiting_function(fun_ref, fun_ref->ast_root->as<ast_function_declaration>());

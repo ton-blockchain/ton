@@ -32,6 +32,11 @@ struct FunctionData;
 struct GlobalVarData;
 struct GlobalConstData;
 
+using LocalVarPtr = const LocalVarData*;
+using FunctionPtr = const FunctionData*;
+using GlobalVarPtr = const GlobalVarData*;
+using GlobalConstPtr = const GlobalConstData*;
+
 class TypeData;
 using TypePtr = const TypeData*;
 

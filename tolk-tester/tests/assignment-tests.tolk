@@ -206,9 +206,9 @@ fun test116() {
 
 
 fun main(value: int) {
-    var (x: int, y) = (autoInferIntNull(value), autoInferIntNull(value * 2));
+    var (x: int?, y) = (autoInferIntNull(value), autoInferIntNull(value * 2));
     if (x == null && y == null) { return null; }
-    return x == null || y == null ? -1 : x + y;
+    return x == null || y == null ? -1 : x! + y!;
 }
 
 /**

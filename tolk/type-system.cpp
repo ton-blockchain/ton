@@ -108,6 +108,19 @@ void type_system_init() {
 // and creates an object only if it isn't found in a global hashtable
 //
 
+TypePtr TypeDataNullable::create(TypePtr inner) {
+  TypeDataTypeIdCalculation hash(1774084920039440885ULL);
+  hash.feed_child(inner);
+
+  if (TypePtr existing = hash.get_existing()) {
+    return existing;
+  }
+  // most types (int?, slice?, etc.), when nullable, still occupy 1 stack slot (holding TVM NULL at runtime)
+  // but for example for `(int, int)` we need an extra stack slot "null flag"
+  int width_on_stack = inner->can_hold_tvm_null_instead() ? 1 : inner->get_width_on_stack() + 1;
+  return hash.register_unique(new TypeDataNullable(hash.type_id(), hash.children_flags(), width_on_stack, inner));
+}
+
 TypePtr TypeDataFunCallable::create(std::vector<TypePtr>&& params_types, TypePtr return_type) {
   TypeDataTypeIdCalculation hash(3184039965511020991ULL);
   for (TypePtr param : params_types) {
@@ -143,7 +156,11 @@ TypePtr TypeDataTensor::create(std::vector<TypePtr>&& items) {
   if (TypePtr existing = hash.get_existing()) {
     return existing;
   }
-  return hash.register_unique(new TypeDataTensor(hash.type_id(), hash.children_flags(), std::move(items)));
+  int width_on_stack = 0;
+  for (TypePtr item : items) {
+    width_on_stack += item->get_width_on_stack();
+  }
+  return hash.register_unique(new TypeDataTensor(hash.type_id(), hash.children_flags(), width_on_stack, std::move(items)));
 }
 
 TypePtr TypeDataTypedTuple::create(std::vector<TypePtr>&& items) {
@@ -177,6 +194,12 @@ TypePtr TypeDataUnresolved::create(std::string&& text, SrcLocation loc) {
 // is used only for error messages and debugging, therefore no optimizations for simplicity
 // only non-trivial implementations are here; trivial are defined in .h file
 //
+
+std::string TypeDataNullable::as_human_readable() const {
+  std::string nested = inner->as_human_readable();
+  bool embrace = inner->try_as<TypeDataFunCallable>();
+  return embrace ? "(" + nested + ")?" : nested + "?";
+}
 
 std::string TypeDataFunCallable::as_human_readable() const {
   std::string result = "(";
@@ -223,6 +246,11 @@ std::string TypeDataTypedTuple::as_human_readable() const {
 // only non-trivial implementations are here; by default (no children), `callback(this)` is executed
 //
 
+void TypeDataNullable::traverse(const TraverserCallbackT& callback) const {
+  callback(this);
+  inner->traverse(callback);
+}
+
 void TypeDataFunCallable::traverse(const TraverserCallbackT& callback) const {
   callback(this);
   for (TypePtr param : params_types) {
@@ -254,6 +282,10 @@ void TypeDataTypedTuple::traverse(const TraverserCallbackT& callback) const {
 // only non-trivial implementations are here; by default (no children), `return callback(this)` is executed
 //
 
+TypePtr TypeDataNullable::replace_children_custom(const ReplacerCallbackT& callback) const {
+  return callback(create(inner->replace_children_custom(callback)));
+}
+
 TypePtr TypeDataFunCallable::replace_children_custom(const ReplacerCallbackT& callback) const {
   std::vector<TypePtr> mapped;
   mapped.reserve(params_types.size());
@@ -283,50 +315,14 @@ TypePtr TypeDataTypedTuple::replace_children_custom(const ReplacerCallbackT& cal
 
 
 // --------------------------------------------
-//    calc_width_on_stack()
-//
-// returns the number of stack slots occupied by a variable of this type
-// only non-trivial implementations are here; by default (most types) occupy 1 stack slot
-//
-
-int TypeDataGenericT::calc_width_on_stack() const {
-  // this function is invoked only in functions with generics already instantiated
-  assert(false);
-  return -999999;
-}
-
-int TypeDataTensor::calc_width_on_stack() const {
-  int sum = 0;
-  for (TypePtr item : items) {
-    sum += item->calc_width_on_stack();
-  }
-  return sum;
-}
-
-int TypeDataUnresolved::calc_width_on_stack() const {
-  // since early pipeline stages, no unresolved types left
-  assert(false);
-  return -999999;
-}
-
-int TypeDataVoid::calc_width_on_stack() const {
-  return 0;
-}
-
-
-// --------------------------------------------
 //    can_rhs_be_assigned()
 //
 // on `var lhs: <lhs_type> = rhs`, having inferred rhs_type, check that it can be assigned without any casts
 // the same goes for passing arguments, returning values, etc. — where the "receiver" (lhs) checks "applier" (rhs)
-// for now, `null` can be assigned to any TVM primitive, be later we'll have T? types and null safety
 //
 
 bool TypeDataInt::can_rhs_be_assigned(TypePtr rhs) const {
   if (rhs == this) {
-    return true;
-  }
-  if (rhs == TypeDataNullLiteral::create()) {
     return true;
   }
   return false;
@@ -336,17 +332,11 @@ bool TypeDataBool::can_rhs_be_assigned(TypePtr rhs) const {
   if (rhs == this) {
     return true;
   }
-  if (rhs == TypeDataNullLiteral::create()) {
-    return true;
-  }
   return false;
 }
 
 bool TypeDataCell::can_rhs_be_assigned(TypePtr rhs) const {
   if (rhs == this) {
-    return true;
-  }
-  if (rhs == TypeDataNullLiteral::create()) {
     return true;
   }
   return false;
@@ -356,17 +346,11 @@ bool TypeDataSlice::can_rhs_be_assigned(TypePtr rhs) const {
   if (rhs == this) {
     return true;
   }
-  if (rhs == TypeDataNullLiteral::create()) {
-    return true;
-  }
   return false;
 }
 
 bool TypeDataBuilder::can_rhs_be_assigned(TypePtr rhs) const {
   if (rhs == this) {
-    return true;
-  }
-  if (rhs == TypeDataNullLiteral::create()) {
     return true;
   }
   return false;
@@ -376,9 +360,6 @@ bool TypeDataTuple::can_rhs_be_assigned(TypePtr rhs) const {
   if (rhs == this) {
     return true;
   }
-  if (rhs == TypeDataNullLiteral::create()) {
-    return true;
-  }
   return false;
 }
 
@@ -386,14 +367,24 @@ bool TypeDataContinuation::can_rhs_be_assigned(TypePtr rhs) const {
   if (rhs == this) {
     return true;
   }
-  if (rhs == TypeDataNullLiteral::create()) {
-    return true;
-  }
   return false;
 }
 
 bool TypeDataNullLiteral::can_rhs_be_assigned(TypePtr rhs) const {
   return rhs == this;
+}
+
+bool TypeDataNullable::can_rhs_be_assigned(TypePtr rhs) const {
+  if (rhs == this) {
+    return true;
+  }
+  if (rhs == TypeDataNullLiteral::create()) {
+    return true;
+  }
+  if (const TypeDataNullable* rhs_nullable = rhs->try_as<TypeDataNullable>()) {
+    return inner->can_rhs_be_assigned(rhs_nullable->inner);
+  }
+  return inner->can_rhs_be_assigned(rhs);
 }
 
 bool TypeDataFunCallable::can_rhs_be_assigned(TypePtr rhs) const {
@@ -414,7 +405,6 @@ bool TypeDataTensor::can_rhs_be_assigned(TypePtr rhs) const {
     }
     return true;
   }
-  // note, that tensors can not accept null
   return false;
 }
 
@@ -425,9 +415,6 @@ bool TypeDataTypedTuple::can_rhs_be_assigned(TypePtr rhs) const {
         return false;
       }
     }
-    return true;
-  }
-  if (rhs == TypeDataNullLiteral::create()) {
     return true;
   }
   return false;
@@ -455,41 +442,69 @@ bool TypeDataVoid::can_rhs_be_assigned(TypePtr rhs) const {
 //
 
 bool TypeDataInt::can_be_casted_with_as_operator(TypePtr cast_to) const {
+  if (const auto* to_nullable = cast_to->try_as<TypeDataNullable>()) {  // `int` as `int?`
+    return can_be_casted_with_as_operator(to_nullable->inner);
+  }
   return cast_to == this;
 }
 
 bool TypeDataBool::can_be_casted_with_as_operator(TypePtr cast_to) const {
+  if (const auto* to_nullable = cast_to->try_as<TypeDataNullable>()) {
+    return can_be_casted_with_as_operator(to_nullable->inner);
+  }
   return cast_to == this || cast_to == TypeDataInt::create();
 }
 
 bool TypeDataCell::can_be_casted_with_as_operator(TypePtr cast_to) const {
+  if (const auto* to_nullable = cast_to->try_as<TypeDataNullable>()) {
+    return can_be_casted_with_as_operator(to_nullable->inner);
+  }
   return cast_to == this;
 }
 
 bool TypeDataSlice::can_be_casted_with_as_operator(TypePtr cast_to) const {
+  if (const auto* to_nullable = cast_to->try_as<TypeDataNullable>()) {
+    return can_be_casted_with_as_operator(to_nullable->inner);
+  }
   return cast_to == this;
 }
 
 bool TypeDataBuilder::can_be_casted_with_as_operator(TypePtr cast_to) const {
+  if (const auto* to_nullable = cast_to->try_as<TypeDataNullable>()) {
+    return can_be_casted_with_as_operator(to_nullable->inner);
+  }
   return cast_to == this;
 }
 
 bool TypeDataTuple::can_be_casted_with_as_operator(TypePtr cast_to) const {
+  if (const auto* to_nullable = cast_to->try_as<TypeDataNullable>()) {
+    return can_be_casted_with_as_operator(to_nullable->inner);
+  }
   return cast_to == this;
 }
 
 bool TypeDataContinuation::can_be_casted_with_as_operator(TypePtr cast_to) const {
+  if (const auto* to_nullable = cast_to->try_as<TypeDataNullable>()) {
+    return can_be_casted_with_as_operator(to_nullable->inner);
+  }
   return cast_to == this;
 }
 
 bool TypeDataNullLiteral::can_be_casted_with_as_operator(TypePtr cast_to) const {
-  return cast_to == this
-      || cast_to == TypeDataInt::create() || cast_to == TypeDataBool::create() || cast_to == TypeDataCell::create() || cast_to == TypeDataSlice::create()
-      || cast_to == TypeDataBuilder::create() || cast_to == TypeDataContinuation::create() || cast_to == TypeDataTuple::create()
-      || cast_to->try_as<TypeDataTypedTuple>();
+  return cast_to == this || cast_to->try_as<TypeDataNullable>();
+}
+
+bool TypeDataNullable::can_be_casted_with_as_operator(TypePtr cast_to) const {
+  if (const auto* to_nullable = cast_to->try_as<TypeDataNullable>()) {
+    return inner->can_be_casted_with_as_operator(to_nullable->inner);
+  }
+  return false;
 }
 
 bool TypeDataFunCallable::can_be_casted_with_as_operator(TypePtr cast_to) const {
+  if (const auto* to_nullable = cast_to->try_as<TypeDataNullable>()) {
+    return can_be_casted_with_as_operator(to_nullable->inner);
+  }
   return this == cast_to;
 }
 
@@ -506,6 +521,9 @@ bool TypeDataTensor::can_be_casted_with_as_operator(TypePtr cast_to) const {
     }
     return true;
   }
+  if (const auto* to_nullable = cast_to->try_as<TypeDataNullable>()) {
+    return can_be_casted_with_as_operator(to_nullable->inner);
+  }
   return false;
 }
 
@@ -518,14 +536,15 @@ bool TypeDataTypedTuple::can_be_casted_with_as_operator(TypePtr cast_to) const {
     }
     return true;
   }
+  if (const auto* to_nullable = cast_to->try_as<TypeDataNullable>()) {
+    return can_be_casted_with_as_operator(to_nullable->inner);
+  }
   return false;
 }
 
 bool TypeDataUnknown::can_be_casted_with_as_operator(TypePtr cast_to) const {
-  // 'unknown' can be cast to any type
-  // (though it's not valid for exception arguments when casting them to non-1 stack width,
-  //  but to ensure it, we need a special type "unknown TVM primitive", which is overwhelming I think)
-  return true;
+  // 'unknown' can be cast to any TVM value
+  return cast_to->get_width_on_stack() == 1;
 }
 
 bool TypeDataUnresolved::can_be_casted_with_as_operator(TypePtr cast_to) const {
@@ -538,11 +557,44 @@ bool TypeDataVoid::can_be_casted_with_as_operator(TypePtr cast_to) const {
 
 
 // --------------------------------------------
+//    can_hold_tvm_null_instead()
+//
+// assigning `null` to a primitive variable like `int?` / `cell?` can store TVM NULL inside the same slot
+// (that's why the default implementation is just "return true", and most of types occupy 1 slot)
+// but for complex variables, like `(int, int)?`, "null presence" is kept in a separate slot (UTag for union types)
+// though still, tricky situations like `(int, ())?` can still "embed" TVM NULL in parallel with original value
+//
+
+bool TypeDataNullable::can_hold_tvm_null_instead() const {
+  if (get_width_on_stack() != 1) {    // `(int, int)?` / `()?` can not hold null instead
+    return false;                     // only `int?` / `cell?` / `StructWith1IntField?` can
+  }                                   // and some tricky situations like `(int, ())?`, but not `(int?, ())?`
+  return !inner->can_hold_tvm_null_instead();
+}
+
+bool TypeDataTensor::can_hold_tvm_null_instead() const {
+  if (get_width_on_stack() != 1) {    // `(int, int)` / `()` can not hold null instead, since null is 1 slot
+    return false;                     // only `((), int)` and similar can:
+  }                                   // one item is width 1 (and not nullable), others are 0
+  for (TypePtr item : items) {
+    if (item->get_width_on_stack() == 1 && !item->can_hold_tvm_null_instead()) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool TypeDataVoid::can_hold_tvm_null_instead() const {
+  return false;
+}
+
+
+// --------------------------------------------
 //    parsing type from tokens
 //
 // here we implement parsing types (mostly after colon) to TypeData
 // example: `var v: int` is TypeDataInt
-// example: `var v: (builder, [cell])` is TypeDataTensor(TypeDataBuilder, TypeDataTypedTuple(TypeDataCell))
+// example: `var v: (builder?, [cell])` is TypeDataTensor(TypeDataNullable(TypeDataBuilder), TypeDataTypedTuple(TypeDataCell))
 // example: `fun f(): ()` is TypeDataTensor() (an empty one)
 //
 // note, that unrecognized type names (MyEnum, MyStruct, T) are parsed as TypeDataUnresolved,
@@ -633,7 +685,8 @@ static TypePtr parse_type_nullable(Lexer& lex) {
   TypePtr result = parse_simple_type(lex);
 
   if (lex.tok() == tok_question) {
-    lex.error("nullable types are not supported yet");
+    lex.next();
+    result = TypeDataNullable::create(result);
   }
 
   return result;

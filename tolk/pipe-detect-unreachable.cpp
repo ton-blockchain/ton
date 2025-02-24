@@ -111,11 +111,11 @@ class UnreachableStatementsDetectVisitor final {
   }
 
 public:
-  static bool should_visit_function(const FunctionData* fun_ref) {
+  static bool should_visit_function(FunctionPtr fun_ref) {
     return fun_ref->is_code_function() && !fun_ref->is_generic_function();
   }
 
-  void start_visiting_function(const FunctionData* fun_ref, V<ast_function_declaration> v_function) {
+  void start_visiting_function(FunctionPtr fun_ref, V<ast_function_declaration> v_function) {
     bool control_flow_reaches_end = !always_returns(v_function->get_body()->as<ast_sequence>());
     if (control_flow_reaches_end) {
       fun_ref->mutate()->assign_is_implicit_return();
@@ -128,7 +128,7 @@ void pipeline_detect_unreachable_statements() {
   visit_ast_of_all_functions<UnreachableStatementsDetectVisitor>();
 }
 
-void pipeline_detect_unreachable_statements(const FunctionData* fun_ref) {
+void pipeline_detect_unreachable_statements(FunctionPtr fun_ref) {
   UnreachableStatementsDetectVisitor visitor;
   if (UnreachableStatementsDetectVisitor::should_visit_function(fun_ref)) {
     visitor.start_visiting_function(fun_ref, fun_ref->ast_root->as<ast_function_declaration>());

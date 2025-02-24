@@ -120,7 +120,7 @@ static void fire_error_redefinition_of_symbol(SrcLocation loc, const Symbol* pre
   throw ParseError(loc, "redefinition of built-in symbol");
 }
 
-void GlobalSymbolTable::add_function(const FunctionData* f_sym) {
+void GlobalSymbolTable::add_function(FunctionPtr f_sym) {
   auto key = key_hash(f_sym->name);
   auto [it, inserted] = entries.emplace(key, f_sym);
   if (!inserted) {
@@ -128,7 +128,7 @@ void GlobalSymbolTable::add_function(const FunctionData* f_sym) {
   }
 }
 
-void GlobalSymbolTable::add_global_var(const GlobalVarData* g_sym) {
+void GlobalSymbolTable::add_global_var(GlobalVarPtr g_sym) {
   auto key = key_hash(g_sym->name);
   auto [it, inserted] = entries.emplace(key, g_sym);
   if (!inserted) {
@@ -136,7 +136,7 @@ void GlobalSymbolTable::add_global_var(const GlobalVarData* g_sym) {
   }
 }
 
-void GlobalSymbolTable::add_global_const(const GlobalConstData* c_sym) {
+void GlobalSymbolTable::add_global_const(GlobalConstPtr c_sym) {
   auto key = key_hash(c_sym->name);
   auto [it, inserted] = entries.emplace(key, c_sym);
   if (!inserted) {

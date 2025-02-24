@@ -49,10 +49,10 @@ void pipeline_generate_fif_output_to_std_cout();
 
 // these pipes also can be called per-function individually
 // they are called for instantiated generics functions, when `f<T>` is deeply cloned as `f<int>`
-void pipeline_resolve_identifiers_and_assign_symbols(const FunctionData*);
-void pipeline_calculate_rvalue_lvalue(const FunctionData*);
-void pipeline_detect_unreachable_statements(const FunctionData*);
-void pipeline_infer_types_and_calls_and_fields(const FunctionData*);
+void pipeline_resolve_identifiers_and_assign_symbols(FunctionPtr);
+void pipeline_calculate_rvalue_lvalue(FunctionPtr);
+void pipeline_detect_unreachable_statements(FunctionPtr);
+void pipeline_infer_types_and_calls_and_fields(FunctionPtr);
 
 
 } // namespace tolk

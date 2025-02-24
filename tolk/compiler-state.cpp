@@ -66,7 +66,7 @@ void CompilerSettings::parse_experimental_options_cmd_arg(const std::string& cmd
   }
 }
 
-const std::vector<const FunctionData*>& get_all_not_builtin_functions() {
+const std::vector<FunctionPtr>& get_all_not_builtin_functions() {
   return G.all_functions;
 }
 

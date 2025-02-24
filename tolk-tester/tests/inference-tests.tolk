@@ -18,10 +18,12 @@ fun test1(x: int, y: int) {
     __expect_type(random() ? x : y, "int");
     __expect_type(eq(x), "int");
     __expect_type(eq<int>(x), "int");
-    __expect_type(eq<int>(null), "int");
+    __expect_type(eq<int?>(null), "int?");
     __expect_type(x as int, "int");
     __expect_type(+x, "int");
     __expect_type(~x, "int");
+    __expect_type(x!, "int");
+    __expect_type(x!!!, "int");
     {
         var x: slice = beginCell().endCell().beginParse();
         __expect_type(x, "slice");
@@ -62,9 +64,9 @@ fun test5(x: int) {
     __expect_type([], "[]");
     __expect_type([x], "[int]");
     __expect_type([x, x >= 1], "[int, bool]");
-    __expect_type([x, x >= 1, null as slice], "[int, bool, slice]");
+    __expect_type([x, x >= 1, null as slice?], "[int, bool, slice?]");
     __expect_type((x, [x], [[x], x]), "(int, [int], [[int], int])");
-    __expect_type(getMyOriginalBalanceWithExtraCurrencies(), "[int, cell]");
+    __expect_type(getMyOriginalBalanceWithExtraCurrencies(), "[int, cell?]");
 }
 
 fun test6() {

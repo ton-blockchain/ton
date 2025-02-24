@@ -2,13 +2,13 @@ import "@stdlib/lisp-lists"
 
 @method_id(101)
 fun test1() {
-    var numbers: tuple = createEmptyList();
+    var numbers: tuple? = createEmptyList();
     numbers = listPrepend(1, numbers);
     numbers = listPrepend(2, numbers);
     numbers = listPrepend(3, numbers);
     numbers = listPrepend(4, numbers);
-    var (h: int, numbers redef) = listSplit(numbers);
-    h += listGetHead(numbers);
+    var (h: int, numbers redef) = listSplit(numbers!);
+    h += listGetHead(numbers!);
 
     _ = null;
     (_, _) = (null, null);
@@ -22,22 +22,22 @@ fun test1() {
 }
 
 @method_id(102)
-fun test2(x: int) {
+fun test2(x: int?) {
     if (null != x) {
-        var y: int = null;
+        var y: int? = null;
         if (y != null) { return 10; }
         return y;
     }
     try {
-        return x + 10;  // will throw, since not a number
+        return x! + 10;  // will throw, since not a number
     } catch {
         return -1;
     }
     return 100;
 }
 
-fun myIsNull(x: int): int {
-    return x == null ? -1 : x;
+fun myIsNull(x: int?): int {
+    return x == null ? -1 : x!;
 }
 
 @method_id(103)
@@ -64,21 +64,28 @@ fun test4(): null {
 
 @method_id(105)
 fun test5() {
-    var n: slice = getUntypedNull();
-    return !(null == n) ? n.loadInt(32) : 100;
+    var n: slice? = getUntypedNull();
+    return !(null == n) ? n!.loadInt(32) : 100;
 }
 
 @method_id(107)
 fun test7() {
-    var b = beginCell().storeMaybeRef(null);
-    var s = b.endCell().beginParse();
+    var b = beginCell().storeMaybeRef(null) as builder?;
+    var s = b!.endCell().beginParse();
     var c = s.loadMaybeRef();
     return (null == c) as int * 10 + (b != null) as int;
 }
 
+fun test8() {
+    __expect_type(null, "null");
+    __expect_type([[null]], "[[null]]");
+    __expect_type(null as tuple?, "tuple?");
+    __expect_type(null as [int]?, "[int]?");
+    __expect_type(((null)) as (int, int)?, "(int, int)?");
+}
+
 fun main() {
-    // now, the compiler doesn't optimize this at compile-time, fif codegen contains ifs
-    var i: int = null;
+    var i: int? = null;
     if (i == null) {
         return 1;
     }
@@ -120,12 +127,12 @@ fun main() {
 """
   main PROC:<{
     //
-    PUSHNULL	//  i
-    ISNULL	//  '2
-    IFJMP:<{	//
-      1 PUSHINT	//  '3=1
-    }>	//
-    10 PUSHINT	//  '4=10
+    PUSHNULL    //  i
+    ISNULL      //  '2
+    IFJMP:<{    //
+      1 PUSHINT //  '3=1
+    }>  //
+    10 PUSHINT  //  '4=10
   }>
 """
 
@@ -139,8 +146,8 @@ fun main() {
     10 MULCONST	//  b '13
     SWAP	    //  '13 b
     ISNULL	    //  '13 '14
-    NOT         // '13 '15
-    ADD	        //  '16
+    NOT         // '13 '14
+    ADD	        //  '15
   }>
 """
 */

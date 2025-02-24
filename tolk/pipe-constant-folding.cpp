@@ -88,8 +88,19 @@ class ConstantFoldingReplacer final : public ASTReplacerInFunctionBody {
     return v;
   }
 
+  AnyExprV replace(V<ast_is_null_check> v) override {
+    parent::replace(v);
+
+    // `null == null` / `null != null`
+    if (v->get_expr()->type == ast_null_keyword) {
+      return create_bool_const(v->loc, !v->is_negated);
+    }
+
+    return v;
+  }
+
 public:
-  bool should_visit_function(const FunctionData* fun_ref) override {
+  bool should_visit_function(FunctionPtr fun_ref) override {
     return fun_ref->is_code_function() && !fun_ref->is_generic_function();
   }
 };
