@@ -442,6 +442,21 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
   const TypeDataNullable* t_nullable = target_type->try_as<TypeDataNullable>();
   const TypeDataNullable* o_nullable = original_type->try_as<TypeDataNullable>();
 
+  // handle `never`
+  // it may occur due to smart cast and in unreachable branches
+  // we can't do anything reasonable here, but (hopefully) execution will never reach this point, and stack won't be polluted
+  if (original_type == TypeDataNever::create()) {
+    std::vector<var_idx_t> dummy_rvect;
+    dummy_rvect.reserve(target_w);
+    for (int i = 0; i < target_w; ++i) {
+      dummy_rvect.push_back(code.create_tmp_var(TypeDataUnknown::create(), loc, "(never)")[0]);
+    }
+    return dummy_rvect;
+  }
+  if (target_type == TypeDataNever::create()) {
+    return {};
+  }
+
   // pass `null` to `T?`
   // for primitives like `int?`, no changes in rvect, null occupies the same TVM slot
   // for tensors like `(int,int)?`, `null` is represented as N nulls + 1 null flag, insert N nulls
@@ -493,6 +508,8 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
     return rvect;
   }
   // pass `T?` to `null`
+  // it may occur due to smart cast, when a `T?` variable is guaranteed to be always null
+  // (for instance, always-null `(int,int)?` will be represented as 1 TVM NULL value, not 3)
   if (target_type == TypeDataNullLiteral::create() && original_type->can_rhs_be_assigned(target_type)) {
     tolk_assert(o_nullable || original_type == TypeDataUnknown::create());
     if (o_nullable && !o_nullable->is_primitive_nullable()) {
@@ -502,10 +519,12 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
     }
     return rvect;
   }
-  // pass `T?` to `T`
+  // pass `T?` to `T` (or, more generally, `T1?` to `T2`)
   // it may occur due to operator `!` or smart cast
   // for primitives like `int?`, no changes in rvect
   // for passing `(int, int)?` to `(int, int)`, drop the null flag from the tail
+  // for complex scenarios like passing `(int, (int,int)?)?` to `(int, null)`, recurse the call
+  // (it may occur on `someF(t = (3,null))` when `(3,null)` at first targeted to lhs, but actually its result is rhs)
   if (!t_nullable && o_nullable) {
     if (!o_nullable->is_primitive_nullable()) {
       rvect.pop_back();
@@ -572,6 +591,17 @@ static std::vector<var_idx_t> transition_to_target_type(std::vector<var_idx_t>&&
   return rvect;
 }
 
+// the second overload of the same function, invoke impl only when original and target differ
+#ifndef TOLK_DEBUG
+GNU_ATTRIBUTE_ALWAYS_INLINE
+#endif
+static std::vector<var_idx_t> transition_to_target_type(std::vector<var_idx_t>&& rvect, CodeBlob& code, TypePtr original_type, TypePtr target_type, SrcLocation loc) {
+  if (target_type != original_type) {
+    rvect = transition_expr_to_runtime_type_impl(std::move(rvect), code, original_type, target_type, loc);
+  }
+  return rvect;
+}
+
 
 std::vector<var_idx_t> pre_compile_symbol(SrcLocation loc, const Symbol* sym, CodeBlob& code, LValContext* lval_ctx) {
   if (GlobalVarPtr glob_ref = sym->try_as<GlobalVarPtr>()) {
@@ -617,20 +647,33 @@ std::vector<var_idx_t> pre_compile_symbol(SrcLocation loc, const Symbol* sym, Co
 
 static std::vector<var_idx_t> process_reference(V<ast_reference> v, CodeBlob& code, TypePtr target_type, LValContext* lval_ctx) {
   std::vector<var_idx_t> rvect = pre_compile_symbol(v->loc, v->sym, code, lval_ctx);
+
+  // a local variable might be smart cast at this point, for example we're in `if (v != null)`
+  // it means that we must drop the null flag (if it's a tensor), or maybe perform other stack transformations
+  // (from original var_ref->ir_idx to fit smart cast)
+  if (LocalVarPtr var_ref = v->sym->try_as<LocalVarPtr>()) {
+    // note, inside `if (v != null)` when `v` is used for writing, v->inferred_type is an original (declared_type)
+    // (smart casts apply only for rvalue, not for lvalue, we don't check it here, it's a property of inferring)
+    rvect = transition_to_target_type(std::move(rvect), code, var_ref->declared_type, v->inferred_type, v->loc);
+  }
+
   return transition_to_target_type(std::move(rvect), code, target_type, v);
 }
 
 static std::vector<var_idx_t> process_assignment(V<ast_assign> v, CodeBlob& code, TypePtr target_type) {
-  if (auto lhs_decl = v->get_lhs()->try_as<ast_local_vars_declaration>()) {
-    std::vector<var_idx_t> rvect = pre_compile_let(code, lhs_decl->get_expr(), v->get_rhs(), v->loc);
+  AnyExprV lhs = v->get_lhs();
+  AnyExprV rhs = v->get_rhs();
+
+  if (auto lhs_decl = lhs->try_as<ast_local_vars_declaration>()) {
+    std::vector<var_idx_t> rvect = pre_compile_let(code, lhs_decl->get_expr(), rhs, v->loc);
     return transition_to_target_type(std::move(rvect), code, target_type, v);
   } else {
-    std::vector<var_idx_t> rvect = pre_compile_let(code, v->get_lhs(), v->get_rhs(), v->loc);
+    std::vector<var_idx_t> rvect = pre_compile_let(code, lhs, rhs, v->loc);
     // now rvect contains rhs IR vars constructed to fit lhs (for correct assignment, lhs type was target_type for rhs)
     // but the type of `lhs = rhs` is RHS (see type inferring), so rvect now should fit rhs->inferred_type (= v->inferred_type)
     // example: `t1 = t2 = null`, we're at `t2 = null`, earlier declared t1: `int?`, t2: `(int,int)?`
     // currently "null" matches t2 (3 null slots), but type of this assignment is "plain null" (1 slot) assigned later to t1
-    rvect = transition_expr_to_runtime_type_impl(std::move(rvect), code, v->get_lhs()->inferred_type, v->inferred_type, v->loc);
+    rvect = transition_to_target_type(std::move(rvect), code, lhs->inferred_type, v->inferred_type, v->loc);
     return transition_to_target_type(std::move(rvect), code, target_type, v);
   }
 }
@@ -692,13 +735,21 @@ static std::vector<var_idx_t> process_ternary_operator(V<ast_ternary_operator> v
   std::vector<var_idx_t> cond = pre_compile_expr(v->get_cond(), code, nullptr);
   tolk_assert(cond.size() == 1);
   std::vector<var_idx_t> rvect = code.create_tmp_var(v->inferred_type, v->loc, "(cond)");
-  Op& if_op = code.emplace_back(v->loc, Op::_If, cond);
-  code.push_set_cur(if_op.block0);
-  code.emplace_back(v->get_when_true()->loc, Op::_Let, rvect, pre_compile_expr(v->get_when_true(), code, v->inferred_type));
-  code.close_pop_cur(v->get_when_true()->loc);
-  code.push_set_cur(if_op.block1);
-  code.emplace_back(v->get_when_false()->loc, Op::_Let, rvect, pre_compile_expr(v->get_when_false(), code, v->inferred_type));
-  code.close_pop_cur(v->get_when_false()->loc);
+  
+  if (v->get_cond()->is_always_true) {
+    code.emplace_back(v->get_when_true()->loc, Op::_Let, rvect, pre_compile_expr(v->get_when_true(), code, v->inferred_type));
+  } else if (v->get_cond()->is_always_false) {
+    code.emplace_back(v->get_when_false()->loc, Op::_Let, rvect, pre_compile_expr(v->get_when_false(), code, v->inferred_type));
+  } else {
+    Op& if_op = code.emplace_back(v->loc, Op::_If, cond);
+    code.push_set_cur(if_op.block0);
+    code.emplace_back(v->get_when_true()->loc, Op::_Let, rvect, pre_compile_expr(v->get_when_true(), code, v->inferred_type));
+    code.close_pop_cur(v->get_when_true()->loc);
+    code.push_set_cur(if_op.block1);
+    code.emplace_back(v->get_when_false()->loc, Op::_Let, rvect, pre_compile_expr(v->get_when_false(), code, v->inferred_type));
+    code.close_pop_cur(v->get_when_false()->loc);
+  }
+
   return transition_to_target_type(std::move(rvect), code, target_type, v);
 }
 
@@ -768,6 +819,10 @@ static std::vector<var_idx_t> process_dot_access(V<ast_dot_access> v, CodeBlob& 
         stack_offset += t_tensor->items[i]->get_width_on_stack();
       }
       std::vector<var_idx_t> rvect{lhs_vars.begin() + stack_offset, lhs_vars.begin() + stack_offset + stack_width};
+      // a tensor index might be smart cast at this point, for example we're in `if (t.1 != null)`
+      // it means that we must drop the null flag (if `t.1` is a tensor), or maybe perform other stack transformations
+      // (from original rvect = (vars of t.1) to fit smart cast)
+      rvect = transition_to_target_type(std::move(rvect), code, t_tensor->items[index_at], v->inferred_type, v->loc);
       return transition_to_target_type(std::move(rvect), code, target_type, v);
     }
     // `tupleVar.0`
@@ -1090,8 +1145,19 @@ static void process_repeat_statement(V<ast_repeat_statement> v, CodeBlob& code) 
 }
 
 static void process_if_statement(V<ast_if_statement> v, CodeBlob& code) {
-  std::vector<var_idx_t> tmp_vars = pre_compile_expr(v->get_cond(), code, nullptr);
-  Op& if_op = code.emplace_back(v->loc, Op::_If, std::move(tmp_vars));
+  std::vector<var_idx_t> cond = pre_compile_expr(v->get_cond(), code, nullptr);
+  tolk_assert(cond.size() == 1);
+
+  if (v->get_cond()->is_always_true) {
+    process_any_statement(v->get_if_body(), code);      // v->is_ifnot does not matter here
+    return;
+  }
+  if (v->get_cond()->is_always_false) {
+    process_any_statement(v->get_else_body(), code);
+    return;
+  }
+
+  Op& if_op = code.emplace_back(v->loc, Op::_If, std::move(cond));
   code.push_set_cur(if_op.block0);
   process_any_statement(v->get_if_body(), code);
   code.close_pop_cur(v->get_if_body()->loc_end);
@@ -1192,6 +1258,10 @@ static void process_return_statement(V<ast_return_statement> v, CodeBlob& code) 
   code.emplace_back(v->loc, Op::_Return, std::move(return_vars));
 }
 
+// append "return" (void) to the end of the function
+// if it's not reachable, it will be dropped
+// (IR cfg reachability may differ from FlowContext in case of "never" types, so there may be situations,
+//  when IR will consider this "return" reachable and leave it, but actually execution will never reach it)
 static void append_implicit_return_statement(SrcLocation loc_end, CodeBlob& code) {
   std::vector<var_idx_t> mutated_vars;
   if (code.fun_ref->has_mutate_params()) {
@@ -1256,9 +1326,7 @@ static void convert_function_body_to_CodeBlob(FunctionPtr fun_ref, FunctionBodyC
   for (AnyV item : v_body->get_items()) {
     process_any_statement(item, *blob);
   }
-  if (fun_ref->is_implicit_return()) {
-    append_implicit_return_statement(v_body->loc_end, *blob);
-  }
+  append_implicit_return_statement(v_body->loc_end, *blob);
 
   blob->close_blk(v_body->loc_end);
   code_body->set_code(blob);

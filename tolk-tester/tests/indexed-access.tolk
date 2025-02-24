@@ -178,7 +178,7 @@ fun test114(f: int, s: int) {
 @method_id(115)
 fun test115() {
     var y = [[[[true]]]];
-    return (y, y.0.0.0.0 = !y.0.0.0.0, y.0);
+    return (y, ((((y).0).0).0).0 = !y.0.0.0.0, y.0);
 }
 
 @method_id(116)
@@ -248,7 +248,7 @@ fun test122(x: (int, int)) {
 @method_id(123)
 fun test123() {
     var t = [[10, 20]] as [[int,int]]?;
-    t!.0.0 = t!.0.1 = 100;
+    ((t!).0).0 = ((t!).0).1 = 100;
     return t;
 }
 

@@ -78,7 +78,7 @@ public:
 
   void provide_manually_specified(std::vector<TypePtr>&& substitutionTs);
   TypePtr replace_by_manually_specified(TypePtr param_type) const;
-  TypePtr auto_deduce_from_argument(SrcLocation loc, TypePtr param_type, TypePtr arg_type);
+  TypePtr auto_deduce_from_argument(FunctionPtr cur_f, SrcLocation loc, TypePtr param_type, TypePtr arg_type);
   int get_first_not_deduced_idx() const;
 
   std::vector<TypePtr>&& flush() {

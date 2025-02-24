@@ -73,7 +73,7 @@ fun test104() {
     var t1_1: (int, int)? = (1, 2);
     var t1_2: (int, int)? = t1_1;
     var t1_3: (int, int)? = t1_1!;
-    var t2_1: (int, int)? = null;
+    var t2_1: (int, int)? = getNullableTensor(null);
     var t2_2 = t2_1;
     return (t1_3, t2_2);
 }
@@ -101,9 +101,12 @@ fun test108(x1: (int, int)) {
     incrementTensorComponents(mutate x1);
     x1.incrementTensorComponents();
     var x2: (int, int)? = x1;
+    __expect_type(x2, "(int, int)");
     x2.incrementNullableTensorComponents().incrementNullableTensorComponents();
     incrementNullableTensorComponents(mutate x2);
+    __expect_type(x2, "(int, int)?");
     var x3: (int, int)? = null;
+    __expect_type(x3, "null");
     x3.incrementNullableTensorComponents().incrementNullableTensorComponents();
     incrementNullableTensorComponents(mutate x3);
     return (x1, x2, x3);
@@ -148,7 +151,7 @@ fun test111() {
     var x = (1, 2);
     assignFirstComponent(mutate x, 50);
     var x2: (int, int)? = null;
-    var x3 = x2;
+    var x3 = x2 as (int, int)?;
     assignFirstComponentNullable(mutate x2, 30);
     assignFirstComponentNullable(mutate x3, 70);
     g110_1 = (1, 2);
@@ -361,23 +364,36 @@ fun test132() {
     return (result, 777, aln1, aln2, doubleNulls.1 == null, doubleNulls);
 }
 
+@method_id(133)
+fun test133() {
+    var x: (int, int)? = (10, 20);
+    return sumOfTensor(x) + x.0 + x.1;     // smart casted
+}
+
+@method_id(134)
+fun test134(): (int, int)? {
+    var x: (int, int)? = (10, 20);
+    incrementTensorComponents(mutate x);   // smart casted
+    return x;
+}
+
 
 fun getNormalNullableTensorWidth1(vLess100: int?): ([int?], ())? {
-    if (vLess100 != null && vLess100! >= 100) {
+    if (vLess100 != null && vLess100 >= 100) {
         return null;
     }
     return ([vLess100], ());    // such a nullable tensor can store NULL in the same slot
 }
 
 fun getTrickyNullableTensorWidth1(vLess100: int?): (int?, ())? {
-    if (vLess100 != null && vLess100! >= 100) {
+    if (vLess100 != null && vLess100 >= 100) {
         return null;
     }
     return (vLess100, ());      // such a nullable tensor requires an extra stack slot for null presence
 }
 
 fun getEvenTrickierNullableWidth1(vLess100: int?): ((), (int?, ()), ())? {
-    if (vLess100 != null && vLess100! >= 100) {
+    if (vLess100 != null && vLess100 >= 100) {
         return null;
     }
     return ((), (vLess100, ()), ());
@@ -406,35 +422,35 @@ fun main(){}
 /**
 @testcase | 101 |      | 1 2 -1
 @testcase | 102 |      | 1 2 -1 (null) (null) 0
-@testcase | 103 | 1 2  | 3 3 0 1 2 -1
-@testcase | 104 |      | 1 2 -1 (null) (null) 0
+@testcase | 103 | 1 2  | 3 3 0 1 2
+@testcase | 104 |      | 1 2 (null) (null) 0
 @testcase | 105 |      | (null) (null) (null) 0 1 2 3 -1
-@testcase | 106 |      | 1 2 -1
+@testcase | 106 |      | 1 2
 @testcase | 107 |      | 0 0 -1 0 0 -1
 @testcase | 108 | 5 6  | 7 8 10 11 -1 (null) (null) 0
 @testcase | 109 |      | 0 0 -1 0 -1 0 0 -1 -1
 @testcase | 110 |      | 3 4 (null) (null) 0 6 7 -1
 @testcase | 111 |      | 50 30 70 90 100
-@testcase | 112 |      | 12 22 -1
+@testcase | 112 |      | 12 22
 @testcase | 113 |      | -1
 @testcase | 114 |      | (null) (null) (null) 0 (null) (null) (null) 0
 @testcase | 115 |      | 2 3 7 (null) (null) 0 5 0 -1 0
 @testcase | 116 | -1   | (null) (null) 0 (null) (null) 0
 @testcase | 116 | 0    | 1 2 -1 1 2 -1
-@testcase | 117 |      | (null) (null) 0 1 3
+@testcase | 117 |      | (null) 1 3
 @testcase | 118 | 5    | 5 10 -1
 @testcase | 118 | null | (null) (null) 0
-@testcase | 119 |      | (null) (null) 0 (null) (null) 0 1 2 -1 100
+@testcase | 119 |      | (null) (null) 1 2 -1 100
 @testcase | 120 | -1   | (null) (null) 0
 @testcase | 120 | 0    | 1 2 -1
 @testcase | 121 |      | [ 1 [ 3 4 ] ]
 @testcase | 122 | 0    | [ 1 [ 3 4 ] 4 (null) ]
 @testcase | 122 | -1   | [ 1 (null) 4 (null) ]
 @testcase | 123 |      | 1 3 4 -1
-@testcase | 124 | 0    | 1 3 4 -1 4 (null) (null) 0 -1
-@testcase | 124 | -1   | 1 (null) (null) 0 4 (null) (null) 0 -1
+@testcase | 124 | 0    | 1 3 4 -1 4 (null) (null) 0
+@testcase | 124 | -1   | 1 (null) (null) 0 4 (null) (null) 0
 @testcase | 125 |      | 3
-@testcase | 126 |      | 1 (null) (null) 0 2
+@testcase | 126 |      | 1 (null) 2
 @testcase | 127 | 1    | 1 (null) (null) 0 2
 @testcase | 127 | 2    | 1 2 3 -1 4
 @testcase | 127 | 3    | 1 (null) (null) 0 5
@@ -447,6 +463,8 @@ fun main(){}
 @testcase | 130 | -1   | 1 (null) (null) 0
 @testcase | 131 |      | -1 777 0 777 777 777 0 0 -1 -1 777 -1 -1 -1 777
 @testcase | 132 |      | -1 0 -1 0 777 (null) (null) -1 0 0
+@testcase | 133 |      | 60
+@testcase | 134 |      | 11 21 -1
 @testcase | 135 |      | [ 10 ] [ (null) ] (null) 777 10 -1 (null) -1 (null) 0 777 10 -1 (null) -1 (null) 0 777 0 0 -1 0 0 -1 0 0 -1 777 0 -1 0 0 -1 0
 
 @fif_codegen

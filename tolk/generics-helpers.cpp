@@ -119,14 +119,14 @@ TypePtr GenericSubstitutionsDeduceForCall::replace_by_manually_specified(TypePtr
   return replace_genericT_with_deduced(param_type, fun_ref->genericTs, substitutionTs);
 }
 
-TypePtr GenericSubstitutionsDeduceForCall::auto_deduce_from_argument(SrcLocation loc, TypePtr param_type, TypePtr arg_type) {
+TypePtr GenericSubstitutionsDeduceForCall::auto_deduce_from_argument(FunctionPtr cur_f, SrcLocation loc, TypePtr param_type, TypePtr arg_type) {
   try {
     if (!manually_specified) {
       consider_next_condition(param_type, arg_type);
     }
     return replace_genericT_with_deduced(param_type, fun_ref->genericTs, substitutionTs);
   } catch (const GenericDeduceError& ex) {
-    throw ParseError(loc, ex.message + " for generic function `" + fun_ref->as_human_readable() + "`; instantiate it manually with `" + fun_ref->name + "<...>()`");
+    throw ParseError(cur_f, loc, ex.message + " for generic function `" + fun_ref->as_human_readable() + "`; instantiate it manually with `" + fun_ref->name + "<...>()`");
   }
 }
 
@@ -201,7 +201,6 @@ static void run_pipeline_for_instantiated_function(FunctionPtr inst_fun_ref) {
   // these pipes are exactly the same as in tolk.cpp — all preceding (and including) type inferring
   pipeline_resolve_identifiers_and_assign_symbols(inst_fun_ref);
   pipeline_calculate_rvalue_lvalue(inst_fun_ref);
-  pipeline_detect_unreachable_statements(inst_fun_ref);
   pipeline_infer_types_and_calls_and_fields(inst_fun_ref);
 }
 

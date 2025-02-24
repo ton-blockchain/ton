@@ -26,7 +26,9 @@ fun test2(x: int?) {
     if (null != x) {
         var y: int? = null;
         if (y != null) { return 10; }
-        return y;
+        if (10 < 20) {   // always true at runtime (not at compile-time)
+            return y;
+        }
     }
     try {
         return x! + 10;  // will throw, since not a number
@@ -45,14 +47,6 @@ fun test3(x: int) {
     return myIsNull(x > 10 ? null : x);
 }
 
-fun getUntypedNull() {
-    var untyped: null = null;
-    if (true) {
-        return untyped;
-    }
-    return untyped;
-}
-
 @method_id(104)
 fun test4(): null {
     var (_, (_, untyped: null)) = (3, (createEmptyTuple, null));
@@ -60,12 +54,6 @@ fun test4(): null {
         return untyped;
     }
     return untyped;
-}
-
-@method_id(105)
-fun test5() {
-    var n: slice? = getUntypedNull();
-    return !(null == n) ? n!.loadInt(32) : 100;
 }
 
 @method_id(107)
@@ -85,6 +73,7 @@ fun test8() {
 }
 
 fun main() {
+    // the compiler optimizes this at compile-time
     var i: int? = null;
     if (i == null) {
         return 1;
@@ -99,7 +88,6 @@ fun main() {
 @testcase | 103 | 5    | 5
 @testcase | 103 | 15   | -1
 @testcase | 104 |      | (null)
-@testcase | 105 |      | 100
 @testcase | 107 |      | -11
 @fif_codegen
 """
@@ -127,12 +115,7 @@ fun main() {
 """
   main PROC:<{
     //
-    PUSHNULL    //  i
-    ISNULL      //  '2
-    IFJMP:<{    //
-      1 PUSHINT //  '3=1
-    }>  //
-    10 PUSHINT  //  '4=10
+    1 PUSHINT   // '3=1
   }>
 """
 

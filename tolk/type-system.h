@@ -410,6 +410,27 @@ public:
 };
 
 /*
+ * `never` is a special type meaning "no value can be hold".
+ * Is may appear due to smart casts, for example `if (x == null && x != null)` makes x "never".
+ * Functions returning "never" assume to never exit, calling them interrupts control flow.
+ * Such variables can not be cast to any other types, all their usage will trigger type mismatch errors.
+ */
+class TypeDataNever final : public TypeData {
+  TypeDataNever() : TypeData(19ULL, 0, 0) {}
+
+  static TypePtr singleton;
+  friend void type_system_init();
+
+public:
+  static TypePtr create() { return singleton; }
+
+  std::string as_human_readable() const override { return "never"; }
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+  bool can_hold_tvm_null_instead() const override;
+};
+
+/*
  * `void` is TypeDataVoid.
  * From the type system point of view, `void` functions return nothing.
  * Empty tensor is not compatible with void, although at IR level they are similar, 0 stack slots.

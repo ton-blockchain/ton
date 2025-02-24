@@ -3,6 +3,7 @@ fun failBitwiseNotOnBool() {
     if (~eq) {
         return 0;
     }
+    return -1;
 }
 
 /**

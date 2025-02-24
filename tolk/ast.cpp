@@ -117,6 +117,11 @@ void ASTNodeExpressionBase::assign_lvalue_true() {
   this->is_lvalue = true;
 }
 
+void ASTNodeExpressionBase::assign_always_true_or_false(int flow_true_false_state) {
+  this->is_always_true = flow_true_false_state == 1;      // see smart-casts-cfg.h
+  this->is_always_false = flow_true_false_state == 2;
+}
+
 void Vertex<ast_reference>::assign_sym(const Symbol* sym) {
   this->sym = sym;
 }
@@ -171,6 +176,10 @@ void Vertex<ast_binary_operator>::assign_fun_ref(FunctionPtr fun_ref) {
 
 void Vertex<ast_is_null_check>::assign_is_negated(bool is_negated) {
   this->is_negated = is_negated;
+}
+
+void Vertex<ast_sequence>::assign_first_unreachable(AnyV first_unreachable) {
+  this->first_unreachable = first_unreachable;
 }
 
 void Vertex<ast_dot_access>::assign_target(const DotTarget& target) {

@@ -186,11 +186,14 @@ struct ASTNodeExpressionBase : ASTNodeBase {
   TypePtr inferred_type = nullptr;
   bool is_rvalue: 1 = false;
   bool is_lvalue: 1 = false;
+  bool is_always_true: 1 = false;     // inside `if`, `while`, ternary condition, `== null`, etc.
+  bool is_always_false: 1 = false;    // (when expression is guaranteed to be always true or always false)
 
   ASTNodeExpressionBase* mutate() const { return const_cast<ASTNodeExpressionBase*>(this); }
   void assign_inferred_type(TypePtr type);
   void assign_rvalue_true();
   void assign_lvalue_true();
+  void assign_always_true_or_false(int flow_true_false_state);
 
   ASTNodeExpressionBase(ASTNodeType type, SrcLocation loc) : ASTNodeBase(type, loc) {}
 };
@@ -734,9 +737,13 @@ template<>
 // example: do while body is a sequence
 struct Vertex<ast_sequence> final : ASTStatementVararg {
   SrcLocation loc_end;
+  AnyV first_unreachable = nullptr;
 
   const std::vector<AnyV>& get_items() const { return children; }
   AnyV get_item(int i) const { return children.at(i); }
+
+  Vertex* mutate() const { return const_cast<Vertex*>(this); }
+  void assign_first_unreachable(AnyV first_unreachable);
 
   Vertex(SrcLocation loc, SrcLocation loc_end, std::vector<AnyV> items)
     : ASTStatementVararg(ast_sequence, loc, std::move(items))
