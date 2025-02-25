@@ -46,7 +46,7 @@ class UdpServerTunnelImpl : public UdpServer {
 
 private:
   td::Promise<td::IPAddress> on_ready_;
-  uint8_t out_buf_[(16+2+1500)*300];
+  uint8_t out_buf_[(16+2+1500)*100];
   size_t out_buf_offset_ = 0;
   size_t out_buf_msg_num_ = 0;
   size_t tunnel_index_;
@@ -75,13 +75,17 @@ void UdpServerTunnelImpl::send(td::UdpMessage &&message) {
   out_buf_[out_buf_offset_] = static_cast<uint8_t>(sz >> 8);
   out_buf_[out_buf_offset_ + 1] = static_cast<uint8_t>(sz & 0xff);
 
+  if (sz > 1500) {
+    LOG(WARNING) << "udp message is too big, dropping";
+    return;
+  }
+
   memcpy(out_buf_ + out_buf_offset_ + 2, message.data.data(), sz);
   out_buf_offset_ += 2 + sz;
   out_buf_msg_num_++;
 
 
-  if (out_buf_msg_num_ >= 100) {
-    td::Timer timer;
+  if (out_buf_msg_num_ == 100) {
     WriteTunnel(tunnel_index_, out_buf_, out_buf_msg_num_);
 
     out_buf_offset_ = 0;
