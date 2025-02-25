@@ -330,7 +330,6 @@ class BagOfCells {
   const unsigned char* data_ptr{nullptr};
   std::vector<unsigned long long> custom_index;
   BagOfCellsLogger* logger_ptr_{nullptr};
-  std::shared_ptr<CellDbReader> reader_{nullptr};
 
  public:
   void clear();
@@ -342,9 +341,6 @@ class BagOfCells {
   BagOfCells() = default;
   void set_logger(BagOfCellsLogger* logger_ptr) {
     logger_ptr_ = logger_ptr;
-  }
-  void set_reader(std::shared_ptr<CellDbReader> reader) {
-    reader_ = std::move(reader);
   }
   std::size_t estimate_serialized_size(int mode = 0);
   td::Status serialize(int mode = 0);
@@ -373,7 +369,6 @@ class BagOfCells {
 
  private:
   int rv_idx;
-  td::Result<std::vector<vm::Cell::LoadedCell>> load_cells(const std::vector<td::Ref<vm::Cell>>& batch);
   td::Result<int> import_cell(td::Ref<vm::Cell> cell, int depth);
   void cells_clear() {
     cell_count = 0;
@@ -395,7 +390,6 @@ class BagOfCells {
 
 td::Result<Ref<Cell>> std_boc_deserialize(td::Slice data, bool can_be_empty = false, bool allow_nonzero_level = false);
 td::Result<td::BufferSlice> std_boc_serialize(Ref<Cell> root, int mode = 0);
-td::Result<td::BufferSlice> std_boc_serialize_with_reader(std::shared_ptr<CellDbReader> reader, Ref<Cell> root, int mode = 0);
 
 td::Result<std::vector<Ref<Cell>>> std_boc_deserialize_multi(td::Slice data,
                                                              int max_roots = BagOfCells::default_max_roots);
