@@ -79,7 +79,6 @@ struct Config {
 
   std::map<ton::PublicKeyHash, td::uint32> keys_refcnt;
   td::uint16 out_port;
-  bool tunnel_enabled;
   std::map<Addr, AddrCats> addrs;
   std::map<ton::PublicKeyHash, AdnlCategory> adnl_ids;
   std::set<ton::PublicKeyHash> dht_ids;
@@ -142,6 +141,8 @@ struct Config {
 
 class ValidatorEngine : public td::actor::Actor {
  private:
+  td::actor::Scheduler* scheduler_;
+
   td::actor::ActorOwn<ton::keyring::Keyring> keyring_;
   td::actor::ActorOwn<ton::adnl::AdnlNetworkManager> adnl_network_manager_;
   td::actor::ActorOwn<ton::adnl::Adnl> adnl_;
@@ -158,6 +159,7 @@ class ValidatorEngine : public td::actor::Actor {
 
   std::string local_config_ = "";
   std::string global_config_ = "ton-global.config";
+  std::string tunnel_config_ = "";
   std::string config_file_;
   std::string temp_config_file() const {
     return config_file_ + ".tmp";
@@ -247,6 +249,7 @@ class ValidatorEngine : public td::actor::Actor {
   }
   void set_local_config(std::string str);
   void set_global_config(std::string str);
+  void set_tunnel_config(std::string str);
   void set_fift_dir(std::string str) {
     fift_dir_ = str;
   }
@@ -329,7 +332,7 @@ class ValidatorEngine : public td::actor::Actor {
   }
 
   void start_up() override;
-  ValidatorEngine() {
+  explicit ValidatorEngine(td::actor::Scheduler* scheduler): scheduler_(scheduler) {
   }
 
   // load config

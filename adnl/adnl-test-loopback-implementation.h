@@ -34,13 +34,15 @@ class TestLoopbackNetworkManager : public ton::adnl::AdnlNetworkManager {
     callback_ = std::move(callback);
   }
 
+  void install_tunnel_events_handler(std::unique_ptr<TunnelEventsHandler> handler) override {};
+
   void add_self_addr(td::IPAddress addr, AdnlCategoryMask cat_mask, td::uint32 priority) override {
   }
   void add_proxy_addr(td::IPAddress addr, td::uint16 local_port, std::shared_ptr<AdnlProxy> proxy,
                       AdnlCategoryMask cat_mask, td::uint32 priority) override {
   }
-  void add_tunnel(td::uint16 port, AdnlCategoryMask cat_mask, td::uint32 priority,
-                          td::Promise<td::IPAddress> on_ready) override {
+  void add_tunnel(std::string global_config, std::string tunnel_config, AdnlCategoryMask cat_mask, td::uint32 priority, td::Promise<td::IPAddress> on_ready,
+                  td::actor::Scheduler* scheduler) override {
   }
   void send_udp_packet(ton::adnl::AdnlNodeIdShort src_id, ton::adnl::AdnlNodeIdShort dst_id, td::IPAddress dst_addr,
                        td::uint32 priority, td::BufferSlice data) override {

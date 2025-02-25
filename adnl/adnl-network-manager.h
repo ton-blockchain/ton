@@ -59,19 +59,25 @@ class AdnlNetworkManager : public td::actor::Actor {
  public:
   //using ConnHandle = td::uint64;
   class Callback {
-   public:
+  public:
     virtual ~Callback() = default;
     //virtual void receive_packet(td::IPAddress addr, ConnHandle conn_handle, td::BufferSlice data) = 0;
     virtual void receive_packet(td::IPAddress addr, AdnlCategoryMask cat_mask, td::BufferSlice data) = 0;
+  };
+  class TunnelEventsHandler {
+  public:
+    virtual ~TunnelEventsHandler() = default;
+    virtual void on_in_addr_update(td::IPAddress ip) = 0;
   };
   static td::actor::ActorOwn<AdnlNetworkManager> create(td::uint16 out_port);
 
   virtual ~AdnlNetworkManager() = default;
 
   virtual void install_callback(std::unique_ptr<Callback> callback) = 0;
+  virtual void install_tunnel_events_handler(std::unique_ptr<TunnelEventsHandler> handler) = 0;
 
-  virtual void add_tunnel(td::uint16 port, AdnlCategoryMask cat_mask, td::uint32 priority,
-                          td::Promise<td::IPAddress> on_ready) = 0;
+  virtual void add_tunnel(std::string global_config, std::string tunnel_config, AdnlCategoryMask cat_mask, td::uint32 priority,
+                          td::Promise<td::IPAddress> on_ready, td::actor::Scheduler *scheduler) = 0;
   virtual void add_self_addr(td::IPAddress addr, AdnlCategoryMask cat_mask, td::uint32 priority) = 0;
   virtual void add_proxy_addr(td::IPAddress addr, td::uint16 local_port, std::shared_ptr<AdnlProxy> proxy,
                               AdnlCategoryMask cat_mask, td::uint32 priority) = 0;

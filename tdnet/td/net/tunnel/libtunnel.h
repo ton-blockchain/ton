@@ -21,6 +21,9 @@ typedef struct { const char *p; ptrdiff_t n; } _GoString_;
 
 #line 3 "lib.go"
 
+#include <stdint.h>
+#include <sys/socket.h>
+
 typedef struct {
 	size_t index;
 	int ip;
@@ -28,14 +31,18 @@ typedef struct {
 } Tunnel;
 
 // next - is pointer to class instance or callback to call method from node code
-typedef void (*RecvCallback)(void* next, char * data, size_t num);
+typedef void (*RecvCallback)(void* next, uint8_t* data, size_t num);
 
-typedef void (*PullSendCallback)(void* next, char * data, size_t num);
+typedef void (*ReinitCallback)(void* next, struct sockaddr* data);
 
 
 // we need it because we cannot call C func by pointer directly from go
 static inline void on_recv_batch_ready(RecvCallback cb, void* next, void* data, size_t num) {
-	cb(next, (char*)data, num);
+	cb(next, (uint8_t*)data, num);
+}
+
+static inline void on_reinit(ReinitCallback cb, void* next, void* data) {
+	cb(next, (struct sockaddr*)data);
 }
 
 #line 1 "cgo-generated-wrapper"
@@ -96,8 +103,8 @@ extern "C" {
 
 
 //goland:noinspection ALL
-extern Tunnel PrepareTunnel(RecvCallback onRecv, void* next, char* configJson, int configJsonLen, char* networkConfigJson, int networkConfigJsonLen);
-extern int WriteTunnel(size_t tunIdx, char* data, size_t num);
+extern Tunnel PrepareTunnel(RecvCallback onRecv, ReinitCallback onReinit, void* nextOnRecv, void* nextOnReinit, char* configJson, int configJsonLen, char* networkConfigJson, int networkConfigJsonLen);
+extern int WriteTunnel(size_t tunIdx, uint8_t* data, size_t num);
 
 #ifdef __cplusplus
 }
