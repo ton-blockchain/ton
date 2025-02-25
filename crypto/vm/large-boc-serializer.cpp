@@ -95,6 +95,8 @@ void LargeBocSerializer::add_root(Hash root) {
   roots.emplace_back(root, -1);
 }
 
+// Unlike crypto/vm/boc.cpp this implementation does not load all cells into memory
+// and traverses them in BFS order to utilize bulk load of cells on the same level.
 td::Status LargeBocSerializer::import_cells() {
   if (logger_ptr_) {
     logger_ptr_->start_stage("import_cells");
