@@ -149,3 +149,19 @@ Linux and MacOS binaries are available for both x86-64 and arm64 architectures.
 ## Running tests
 
 Tests are executed by running `ctest` in the build directory. See `doc/Tests.md` for more information.
+
+## Using ADNL tunnel
+
+### Before node compilation
+1. Clone https://github.com/ton-blockchain/adnl-tunnel and install golang 1.23 or newer
+   * `cd adnl-tunnel`
+   * `make library`
+   * It will build `libtunnel.a`
+2. Copy `libtunnel.a` to ton src directory root (usually `/usr/src/ton`)
+3. On the first step of ton node compilation run cmake with option `-DTON_USE_GO_TUNNEL=ON` to enable tunnel.
+4. Build ton node as usual.
+
+### Before startup
+1. Create `tunnel-config.json` in any place.
+2. Fill it with desired tunnel configuration and wallet keys. See example.
+3Add `--tunnel-config /path/to/tunnel-config.json` argument to validator-engine startup command.

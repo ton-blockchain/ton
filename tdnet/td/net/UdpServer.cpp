@@ -46,7 +46,7 @@ class UdpServerTunnelImpl : public UdpServer {
 
 private:
   td::Promise<td::IPAddress> on_ready_;
-  uint8_t out_buf_[(16+2+1500)*100];
+  uint8_t out_buf_[(16+2+1500)*300];
   size_t out_buf_offset_ = 0;
   size_t out_buf_msg_num_ = 0;
   size_t tunnel_index_;
@@ -85,8 +85,10 @@ void UdpServerTunnelImpl::send(td::UdpMessage &&message) {
   out_buf_msg_num_++;
 
 
-  if (out_buf_msg_num_ == 3) {
+  if (out_buf_msg_num_ == 300) {
+    td::Timer timer;
     WriteTunnel(tunnel_index_, out_buf_, out_buf_msg_num_);
+    LOG(ERROR) << "Sending messages by num " << out_buf_msg_num_ << " | " << timer.elapsed();
 
     out_buf_offset_ = 0;
     out_buf_msg_num_ = 0;
@@ -98,7 +100,7 @@ void UdpServerTunnelImpl::alarm() {
   if (out_buf_msg_num_ > 0 && Time::now()-last_batch_at_ >= 0.02) {
     td::Timer timer;
     WriteTunnel(tunnel_index_, out_buf_, out_buf_msg_num_);
-    // LOG(ERROR) << "Sending messages from alarm " << out_buf_msg_num_ << " | " << timer.elapsed();
+    LOG(ERROR) << "Sending messages from alarm " << out_buf_msg_num_ << " | " << timer.elapsed();
 
     out_buf_offset_ = 0;
     out_buf_msg_num_ = 0;
