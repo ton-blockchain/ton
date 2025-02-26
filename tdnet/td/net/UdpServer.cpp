@@ -85,7 +85,7 @@ void UdpServerTunnelImpl::send(td::UdpMessage &&message) {
   out_buf_msg_num_++;
 
 
-  if (out_buf_msg_num_ == 100) {
+  if (out_buf_msg_num_ == 3) {
     WriteTunnel(tunnel_index_, out_buf_, out_buf_msg_num_);
 
     out_buf_offset_ = 0;
@@ -95,15 +95,14 @@ void UdpServerTunnelImpl::send(td::UdpMessage &&message) {
 }
 
 void UdpServerTunnelImpl::alarm() {
-  auto now = Time::now();
-  if (out_buf_msg_num_ > 0 && now-last_batch_at_ >= 0.02) {
+  if (out_buf_msg_num_ > 0 && Time::now()-last_batch_at_ >= 0.02) {
     td::Timer timer;
     WriteTunnel(tunnel_index_, out_buf_, out_buf_msg_num_);
     // LOG(ERROR) << "Sending messages from alarm " << out_buf_msg_num_ << " | " << timer.elapsed();
 
     out_buf_offset_ = 0;
     out_buf_msg_num_ = 0;
-    last_batch_at_ = now;
+    last_batch_at_ = Time::now();
   }
 
   alarm_timestamp() = td::Timestamp::in(0.02);
