@@ -33,6 +33,10 @@ int VERBOSITY_NAME(udp_server) = VERBOSITY_NAME(DEBUG) + 10;
 }
 namespace detail {
 
+#define TUNNEL_BUFFER_SZ_PACKETS 100
+#define TUNNEL_MAX_PACKET_MTU 1500
+#define TUNNEL_ALARM_EVERY 0.01
+
 class UdpServerTunnelImpl : public UdpServer {
  public:
   void start_up() override;
@@ -46,7 +50,7 @@ class UdpServerTunnelImpl : public UdpServer {
 
 private:
   td::Promise<td::IPAddress> on_ready_;
-  uint8_t out_buf_[(16+2+1500)*300];
+  uint8_t out_buf_[(sizeof(sockaddr)+2+TUNNEL_MAX_PACKET_MTU)*TUNNEL_BUFFER_SZ_PACKETS];
   size_t out_buf_offset_ = 0;
   size_t out_buf_msg_num_ = 0;
   size_t tunnel_index_;
@@ -64,8 +68,8 @@ private:
 };
 
 void UdpServerTunnelImpl::send(td::UdpMessage &&message) {
-  auto sock = message.address.get_sockaddr();
-  auto sz = message.data.size();
+  const auto sock = message.address.get_sockaddr();
+  const auto sz = message.data.size();
 
   // ip+port
   memcpy(out_buf_ + out_buf_offset_, sock, sizeof(sockaddr));
@@ -75,7 +79,7 @@ void UdpServerTunnelImpl::send(td::UdpMessage &&message) {
   out_buf_[out_buf_offset_] = static_cast<uint8_t>(sz >> 8);
   out_buf_[out_buf_offset_ + 1] = static_cast<uint8_t>(sz & 0xff);
 
-  if (sz > 1500) {
+  if (sz > TUNNEL_MAX_PACKET_MTU) {
     LOG(WARNING) << "udp message is too big, dropping";
     return;
   }
@@ -85,10 +89,9 @@ void UdpServerTunnelImpl::send(td::UdpMessage &&message) {
   out_buf_msg_num_++;
 
 
-  if (out_buf_msg_num_ == 300) {
-    td::Timer timer;
+  if (out_buf_msg_num_ == TUNNEL_BUFFER_SZ_PACKETS) {
     WriteTunnel(tunnel_index_, out_buf_, out_buf_msg_num_);
-    LOG(ERROR) << "Sending messages by num " << out_buf_msg_num_ << " | " << timer.elapsed();
+    LOG(DEBUG) << "Sending messages by fulfillment " << TUNNEL_BUFFER_SZ_PACKETS;
 
     out_buf_offset_ = 0;
     out_buf_msg_num_ = 0;
@@ -97,17 +100,16 @@ void UdpServerTunnelImpl::send(td::UdpMessage &&message) {
 }
 
 void UdpServerTunnelImpl::alarm() {
-  if (out_buf_msg_num_ > 0 && Time::now()-last_batch_at_ >= 0.02) {
-    td::Timer timer;
+  if (out_buf_msg_num_ > 0 && Time::now()-last_batch_at_ >= TUNNEL_ALARM_EVERY) {
     WriteTunnel(tunnel_index_, out_buf_, out_buf_msg_num_);
-    LOG(ERROR) << "Sending messages from alarm " << out_buf_msg_num_ << " | " << timer.elapsed();
+    LOG(DEBUG) << "Sending messages by alarm " << out_buf_msg_num_;
 
     out_buf_offset_ = 0;
     out_buf_msg_num_ = 0;
     last_batch_at_ = Time::now();
   }
 
-  alarm_timestamp() = td::Timestamp::in(0.02);
+  alarm_timestamp() = td::Timestamp::in(TUNNEL_ALARM_EVERY);
 }
 
 void UdpServerTunnelImpl::start_up() {
@@ -127,7 +129,7 @@ void UdpServerTunnelImpl::start_up() {
   auto tunnel_cfg = tunnel_conf_data_R.move_as_ok();
 
   LOG(INFO) << "Initializing ADNL Tunnel...";
-  auto res = PrepareTunnel(&on_recv_batch, &on_reinit, callback_.get(), callback_.get(), const_cast<char*>(tunnel_cfg.data()), tunnel_cfg.size(), global_cfg.data(), global_cfg.size());
+  const auto res = PrepareTunnel(&on_recv_batch, &on_reinit, callback_.get(), callback_.get(), const_cast<char*>(tunnel_cfg.data()), tunnel_cfg.size(), global_cfg.data(), global_cfg.size());
   if (!res.index) {
     LOG(FATAL) << "ADNL Tunnel initialization failed";
   }
@@ -138,7 +140,7 @@ void UdpServerTunnelImpl::start_up() {
   ip.init_ipv4_port(td::IPAddress::ipv4_to_str(res.ip), static_cast<td::uint16>(res.port)).ensure();
   on_ready_.set_value(std::move(ip));
 
-  alarm_timestamp() = td::Timestamp::in(0.02);
+  alarm_timestamp() = td::Timestamp::in(TUNNEL_ALARM_EVERY);
 }
 
 void UdpServerTunnelImpl::on_recv_batch(void *next, uint8_t *data, size_t num) {
