@@ -40,6 +40,7 @@ class ASTStringifier final : public ASTVisitor {
     {ast_type_bracket_tuple, "ast_type_bracket_tuple"},
     {ast_type_arrow_callable, "ast_type_arrow_callable"},
     {ast_type_vertical_bar_union, "ast_type_vertical_bar_union"},
+    {ast_type_triangle_args, "ast_type_triangle_args"},
     // expressions
     {ast_empty_expression, "ast_empty_expression"},
     {ast_parenthesized_expression, "ast_parenthesized_expression"},
@@ -300,6 +301,7 @@ public:
       case ast_type_bracket_tuple:            return handle_vertex(v->as<ast_type_bracket_tuple>());
       case ast_type_arrow_callable:           return handle_vertex(v->as<ast_type_arrow_callable>());
       case ast_type_vertical_bar_union:       return handle_vertex(v->as<ast_type_vertical_bar_union>());
+      case ast_type_triangle_args:            return handle_vertex(v->as<ast_type_triangle_args>());
       // expressions
       case ast_empty_expression:              return handle_vertex(v->as<ast_empty_expression>());
       case ast_parenthesized_expression:      return handle_vertex(v->as<ast_parenthesized_expression>());

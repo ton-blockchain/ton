@@ -48,6 +48,8 @@ using StructPtr = const StructData*;
 class TypeData;
 using TypePtr = const TypeData*;
 
+struct GenericsSubstitutions;
+
 struct SrcFile;
 
 } // namespace tolk

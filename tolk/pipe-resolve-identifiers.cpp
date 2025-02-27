@@ -305,4 +305,8 @@ void pipeline_resolve_identifiers_and_assign_symbols(FunctionPtr fun_ref) {
   }
 }
 
+void pipeline_resolve_identifiers_and_assign_symbols(StructPtr struct_ref) {
+  AssignSymInsideFunctionVisitor().start_visiting_struct_fields(struct_ref);
+}
+
 } // namespace tolk

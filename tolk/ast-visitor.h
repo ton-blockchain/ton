@@ -212,7 +212,9 @@ const std::vector<StructPtr>& get_all_declared_structs();
 template<class BodyVisitorT>
 void visit_ast_of_all_functions() {
   BodyVisitorT visitor;
-  for (FunctionPtr fun_ref : get_all_not_builtin_functions()) {
+  const std::vector<FunctionPtr>& all = get_all_not_builtin_functions();
+  for (size_t i = 0; i < all.size(); ++i) { // NOLINT(*-loop-convert)
+    FunctionPtr fun_ref = all[i];   // not range-base loop to prevent iterator invalidation (push_back at generics)
     if (visitor.should_visit_function(fun_ref)) {
       visitor.start_visiting_function(fun_ref, fun_ref->ast_root->as<ast_function_declaration>());
     }

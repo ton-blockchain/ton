@@ -86,7 +86,6 @@ struct FunctionBodyCode;
 struct FunctionBodyAsm;
 struct FunctionBodyBuiltin;
 struct GenericsDeclaration;
-struct GenericsInstantiation;
 
 typedef std::variant<
   FunctionBodyCode*,
@@ -124,28 +123,29 @@ struct FunctionData final : Symbol {
   TypePtr inferred_full_type = nullptr;       // assigned on type inferring, it's TypeDataFunCallable(params -> return)
 
   const GenericsDeclaration* genericTs;
-  const GenericsInstantiation* instantiationTs;
+  const GenericsSubstitutions* substitutedTs;
+  FunctionPtr base_fun_ref = nullptr;             // for `f<int>`, here is `f<T>`
   FunctionBody body;
   AnyV ast_root;                                  // V<ast_function_declaration> for user-defined (not builtin)
 
-  FunctionData(std::string name, SrcLocation loc, AnyTypeV return_type_node, std::vector<LocalVarData> parameters, int initial_flags, const GenericsDeclaration* genericTs, const GenericsInstantiation* instantiationTs, FunctionBody body, AnyV ast_root)
+  FunctionData(std::string name, SrcLocation loc, AnyTypeV return_type_node, std::vector<LocalVarData> parameters, int initial_flags, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, FunctionBody body, AnyV ast_root)
     : Symbol(std::move(name), loc)
     , flags(initial_flags)
     , parameters(std::move(parameters))
     , return_type_node(return_type_node)
     , genericTs(genericTs)
-    , instantiationTs(instantiationTs)
+    , substitutedTs(substitutedTs)
     , body(body)
     , ast_root(ast_root) {
   }
-  FunctionData(std::string name, SrcLocation loc, TypePtr declared_return_type, std::vector<LocalVarData> parameters, int initial_flags, const GenericsDeclaration* genericTs, const GenericsInstantiation* instantiationTs, FunctionBody body, AnyV ast_root)
+  FunctionData(std::string name, SrcLocation loc, TypePtr declared_return_type, std::vector<LocalVarData> parameters, int initial_flags, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, FunctionBody body, AnyV ast_root)
     : Symbol(std::move(name), loc)
     , flags(initial_flags)
     , parameters(std::move(parameters))
     , return_type_node(nullptr)            // for built-in functions, defined in sources
     , declared_return_type(declared_return_type)
     , genericTs(genericTs)
-    , instantiationTs(instantiationTs)
+    , substitutedTs(substitutedTs)
     , body(body)
     , ast_root(ast_root) {
   }
@@ -166,8 +166,8 @@ struct FunctionData final : Symbol {
   bool is_asm_function() const { return std::holds_alternative<FunctionBodyAsm*>(body); }
   bool is_builtin_function() const { return ast_root == nullptr; }
 
-  bool is_generic_function() const { return genericTs != nullptr && instantiationTs == nullptr; }
-  bool is_instantiation_of_generic_function() const { return instantiationTs != nullptr; }
+  bool is_generic_function() const { return genericTs != nullptr; }
+  bool is_instantiation_of_generic_function() const { return substitutedTs != nullptr; }
 
   bool is_inline() const { return flags & flagInline; }
   bool is_inline_ref() const { return flags & flagInlineRef; }
@@ -245,10 +245,23 @@ struct AliasDefData final : Symbol {
   TypePtr underlying_type = nullptr;    // = resolved underlying_type_node
   int flags = 0;
 
-  AliasDefData(std::string name, SrcLocation loc, AnyTypeV underlying_type_node)
+  const GenericsDeclaration* genericTs;
+  const GenericsSubstitutions* substitutedTs;
+  AliasDefPtr base_alias_ref = nullptr;           // for `Response<int>`, here is `Response<T>`
+  AnyV ast_root;                                  // V<ast_type_alias_declaration>
+
+  AliasDefData(std::string name, SrcLocation loc, AnyTypeV underlying_type_node, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, AnyV ast_root)
     : Symbol(std::move(name), loc)
-    , underlying_type_node(underlying_type_node) {
+    , underlying_type_node(underlying_type_node)
+    , genericTs(genericTs)
+    , substitutedTs(substitutedTs)
+    , ast_root(ast_root) {
   }
+
+  std::string as_human_readable() const;
+
+  bool is_generic_alias() const { return genericTs != nullptr; }
+  bool is_instantiation_of_generic_alias() const { return substitutedTs != nullptr; }
 
   bool was_visited_by_resolver() const { return flags & flagVisitedByResolver; }
 
@@ -285,19 +298,32 @@ struct StructData final : Symbol {
   std::vector<StructFieldPtr> fields;
   int flags = 0;
 
+  const GenericsDeclaration* genericTs;
+  const GenericsSubstitutions* substitutedTs;
+  StructPtr base_struct_ref = nullptr;            // for `Container<int>`, here is `Container<T>`
+  AnyV ast_root;                                  // V<ast_struct_declaration>
+
   int get_num_fields() const { return static_cast<int>(fields.size()); }
   StructFieldPtr get_field(int i) const { return fields.at(i); }
   StructFieldPtr find_field(std::string_view field_name) const;
+
+  bool is_generic_struct() const { return genericTs != nullptr; }
+  bool is_instantiation_of_generic_struct() const { return substitutedTs != nullptr; }
 
   bool was_visited_by_resolver() const { return flags & flagVisitedByResolver; }
 
   StructData* mutate() const { return const_cast<StructData*>(this); }
   void assign_visited_by_resolver();
 
-  StructData(std::string name, SrcLocation loc, std::vector<StructFieldPtr>&& fields)
+  StructData(std::string name, SrcLocation loc, std::vector<StructFieldPtr>&& fields, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, AnyV ast_root)
     : Symbol(std::move(name), loc)
-    , fields(std::move(fields)) {
+    , fields(std::move(fields))
+    , genericTs(genericTs)
+    , substitutedTs(substitutedTs)
+    , ast_root(ast_root) {
   }
+
+  std::string as_human_readable() const;
 };
 
 class GlobalSymbolTable {

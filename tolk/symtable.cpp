@@ -28,6 +28,20 @@ std::string FunctionData::as_human_readable() const {
   return name + genericTs->as_human_readable();
 }
 
+std::string AliasDefData::as_human_readable() const {
+  if (!is_generic_alias()) {
+    return name;
+  }
+  return name + genericTs->as_human_readable();
+}
+
+std::string StructData::as_human_readable() const {
+  if (!is_generic_struct()) {
+    return name;
+  }
+  return name + genericTs->as_human_readable();
+}
+
 bool FunctionData::does_need_codegen() const {
   // when a function is declared, but not referenced from code in any way, don't generate its body
   if (!is_really_used() && G.settings.remove_unused_functions) {

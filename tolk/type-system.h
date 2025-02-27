@@ -103,6 +103,8 @@ public:
  * It never occurs at runtime: at IR generation it's erased, replaced by an underlying type.
  * But until IR generation, aliases exists, and `var t: MyTensor2 = (1,2)` is alias "MyTensor", not tensor (int,int).
  * That's why lots of code comparing types use `type->unwrap_alias()` or `try_as<TypeDataAlias>`.
+ * Note, that generic aliases, when instantiated, are inserted into in symtable (like structs and functions),
+ * so for `WrapperAlias<T>` alias_ref points to a generic alias, and for `WrapperAlias<int>` to an instantiated one.
  */
 class TypeDataAlias final : public TypeData {
   explicit TypeDataAlias(int children_flags, AliasDefPtr alias_ref, TypePtr underlying_type)
@@ -301,8 +303,9 @@ public:
 };
 
 /*
- * `T` inside generic functions is TypeDataGenericT.
+ * `T` inside generic functions and structs is TypeDataGenericT.
  * Example: `fun f<X,Y>(a: X, b: Y): [X, Y]` (here X and Y are).
+ * Example: `struct Wrapper<T> { value: T }` (type of field is generic T).
  * On instantiation like `f(1,"")`, a new function `f<int,slice>` is created with type `fun(int,slice)->[int,slice]`.
  */
 class TypeDataGenericT final : public TypeData {
@@ -322,9 +325,40 @@ public:
 };
 
 /*
- * `A`, `User`, `SomeStruct` is TypeDataStruct. At TVM level, structs are tensors.
+ * `Wrapper<T>` when T is a generic (a struct is not ready to instantiate) is TypeDataGenericTypeWithTs.
+ * `Wrapper<int>` is NOT here, it's an instantiated struct. Here is only when type arguments contain generics.
+ * Example: `type WrapperAlias<T> = Wrapper<T>`, then `Wrapper<T>` (underlying type of alias) is here.
+ * Since structs and type aliases both can be generic, either struct_ref of alias_ref is filled.
+ */
+class TypeDataGenericTypeWithTs final : public TypeData {
+  TypeDataGenericTypeWithTs(int children_flags, StructPtr struct_ref, AliasDefPtr alias_ref, std::vector<TypePtr>&& type_arguments)
+    : TypeData(children_flags, -999999)
+    , struct_ref(struct_ref)
+    , alias_ref(alias_ref)
+    , type_arguments(std::move(type_arguments)) {}
+
+public:
+  const StructPtr struct_ref;                 // for `Wrapper<T>`, then alias_ref = nullptr
+  const AliasDefPtr alias_ref;                // for `PairAlias<int, T2>`, then struct_ref = nullptr
+  const std::vector<TypePtr> type_arguments;  // `<T>`, `<int, T2>`, at least one of them contains generic T
+
+  static TypePtr create(StructPtr struct_ref, AliasDefPtr alias_ref, std::vector<TypePtr>&& type_arguments);
+
+  int size() const { return static_cast<int>(type_arguments.size()); }
+
+  int get_type_id() const override;
+  std::string as_human_readable() const override;
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+  TypePtr replace_children_custom(const ReplacerCallbackT& callback) const override;
+};
+
+/*
+ * `A`, `User`, `SomeStruct`, `Wrapper<int>` is TypeDataStruct. At TVM level, structs are tensors.
  * In the code, creating a struct is either `var v: A = { ... }` (by hint) or `var v = A { ... }`.
  * Fields of a struct have their own types (accessed by struct_ref).
+ * Note, that instantiated structs like "Wrapper<int>" exist in symtable (like aliases and functions),
+ * so for `Wrapper<T>` struct_ref points to a generic struct, and for `Wrapper<int>` to an instantiated one.
  */
 class TypeDataStruct final : public TypeData {
   TypeDataStruct(int width_on_stack, StructPtr struct_ref)
@@ -486,6 +520,8 @@ public:
 
   static TypePtr create(std::vector<TypePtr>&& variants);
   static TypePtr create_nullable(TypePtr nullable);
+
+  int size() const { return static_cast<int>(variants.size()); }
 
   // "primitive nullable" is `T?` which holds TVM NULL in the same slot (it other words, has no UTag slot)
   // true : `int?`, `slice?`, `StructWith1IntField?`

@@ -10,6 +10,6 @@ fun cantInstantiateNonGenericStruct() {
 
 /**
 @compilation_should_fail
-@stderr generic T not expected here
+@stderr type `UserAlias` is not generic
 @stderr UserAlias<int>
  */

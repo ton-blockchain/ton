@@ -591,6 +591,12 @@ void Lexer::restore_position(SavedPositionForLookahead saved) {
   location = saved.loc;
 }
 
+void Lexer::hack_replace_rshift_with_one_triangle() {
+  // overcome the `>>` problem when parsing generics, leave only `>` here, see comments at usage
+  assert(cur_token.type == tok_rshift);
+  cur_token = Token(tok_gt, ">");
+}
+
 void Lexer::error(const std::string& err_msg) const {
   throw ParseError(cur_location(), err_msg);
 }

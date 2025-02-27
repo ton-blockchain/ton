@@ -109,45 +109,68 @@ static const GenericsDeclaration* construct_genericTs(V<ast_genericsT_list> v_li
   return new GenericsDeclaration(std::move(itemsT));
 }
 
-static void register_constant(V<ast_constant_declaration> v) {
+static GlobalConstPtr register_constant(V<ast_constant_declaration> v) {
   GlobalConstData* c_sym = new GlobalConstData(static_cast<std::string>(v->get_identifier()->name), v->loc, v->type_node, v->get_init_value());
 
   G.symtable.add_global_const(c_sym);
   G.all_constants.push_back(c_sym);
   v->mutate()->assign_const_ref(c_sym);
+  return c_sym;
 }
 
-static void register_global_var(V<ast_global_var_declaration> v) {
+static GlobalVarPtr register_global_var(V<ast_global_var_declaration> v) {
   GlobalVarData* g_sym = new GlobalVarData(static_cast<std::string>(v->get_identifier()->name), v->loc, v->type_node);
 
   G.symtable.add_global_var(g_sym);
   G.all_global_vars.push_back(g_sym);
   v->mutate()->assign_glob_ref(g_sym);
+  return g_sym;
 }
 
-static void register_type_alias(V<ast_type_alias_declaration> v) {
-  AliasDefData* a_sym = new AliasDefData(static_cast<std::string>(v->get_identifier()->name), v->loc, v->underlying_type_node);
+static AliasDefPtr register_type_alias(V<ast_type_alias_declaration> v, AliasDefPtr base_alias_ref = nullptr, const GenericsSubstitutions* substitutedTs = nullptr) {
+  const GenericsDeclaration* genericTs = nullptr;
+  if (v->genericsT_list && !substitutedTs) {
+    genericTs = construct_genericTs(v->genericsT_list);
+  }
+
+  AliasDefData* a_sym = new AliasDefData(static_cast<std::string>(v->get_identifier()->name), v->loc, v->underlying_type_node, genericTs, substitutedTs, v);
+  a_sym->base_alias_ref = base_alias_ref;   // for `Response<int>`, here is `Response<T>`
 
   G.symtable.add_type_alias(a_sym);
   v->mutate()->assign_alias_ref(a_sym);
+  return a_sym;
 }
 
-static void register_struct(V<ast_struct_declaration> v) {
+static StructPtr register_struct(V<ast_struct_declaration> v, StructPtr base_struct_ref = nullptr, const GenericsSubstitutions* substitutedTs = nullptr) {
   auto v_body = v->get_struct_body();
 
   std::vector<StructFieldPtr> fields;
   fields.reserve(v_body->get_num_fields());
   for (int i = 0; i < v_body->get_num_fields(); ++i) {
     auto v_field = v_body->get_field(i);
+    std::string field_name = static_cast<std::string>(v_field->get_identifier()->name);
     AnyExprV default_value = v_field->has_default_value() ? v_field->get_default_value() : nullptr;
+
+    for (StructFieldPtr prev : fields) {
+      if (UNLIKELY(prev->name == field_name)) {
+        v_field->error("redeclaration of field `" + field_name + "`");
+      }
+    }
     fields.emplace_back(new StructFieldData(static_cast<std::string>(v_field->get_identifier()->name), v_field->loc, i, v_field->type_node, default_value));
   }
 
-  StructData* s_sym = new StructData(static_cast<std::string>(v->get_identifier()->name), v->loc, std::move(fields));
+  const GenericsDeclaration* genericTs = nullptr;
+  if (v->genericsT_list && !substitutedTs) {
+    genericTs = construct_genericTs(v->genericsT_list);
+  }
+
+  StructData* s_sym = new StructData(static_cast<std::string>(v->get_identifier()->name), v->loc, std::move(fields), genericTs, substitutedTs, v);
+  s_sym->base_struct_ref = base_struct_ref;   // for `Container<int>`, here is `Container<T>`
 
   G.symtable.add_struct(s_sym);
   G.all_structs.push_back(s_sym);
   v->mutate()->assign_struct_ref(s_sym);
+  return s_sym;
 }
 
 static LocalVarData register_parameter(V<ast_parameter> v, int idx) {
@@ -165,7 +188,7 @@ static LocalVarData register_parameter(V<ast_parameter> v, int idx) {
   return LocalVarData(static_cast<std::string>(v->param_name), v->loc, v->type_node, flags, idx);
 }
 
-static void register_function(V<ast_function_declaration> v, const GenericsInstantiation* instantiationTs = nullptr) {
+static FunctionPtr register_function(V<ast_function_declaration> v, FunctionPtr base_fun_ref = nullptr, const GenericsSubstitutions* substitutedTs = nullptr) {
   std::string_view func_name = v->get_identifier()->name;
 
   std::vector<LocalVarData> parameters;
@@ -184,12 +207,17 @@ static void register_function(V<ast_function_declaration> v, const GenericsInsta
       v->error("`builtin` used for non-builtin function");
     }
     v->mutate()->assign_fun_ref(fun_ref);
-    return;
+    return fun_ref;
   }
 
-  const GenericsDeclaration* genericTs = v->genericsT_list ? construct_genericTs(v->genericsT_list) : nullptr;
+  const GenericsDeclaration* genericTs = nullptr;
+  if (v->genericsT_list && !substitutedTs) {
+    genericTs = construct_genericTs(v->genericsT_list);
+  }
+
   FunctionBody f_body = v->get_body()->kind == ast_block_statement ? static_cast<FunctionBody>(new FunctionBodyCode) : static_cast<FunctionBody>(new FunctionBodyAsm);
-  FunctionData* f_sym = new FunctionData(static_cast<std::string>(func_name), v->loc, v->return_type_node, std::move(parameters), 0, genericTs, instantiationTs, f_body, v);
+  FunctionData* f_sym = new FunctionData(static_cast<std::string>(func_name), v->loc, v->return_type_node, std::move(parameters), 0, genericTs, substitutedTs, f_body, v);
+  f_sym->base_fun_ref = base_fun_ref;   // for `f<int>`, here is `f<T>`
 
   if (auto v_asm = v->get_body()->try_as<ast_asm_body>()) {
     if (!v->return_type_node) {
@@ -223,6 +251,7 @@ static void register_function(V<ast_function_declaration> v, const GenericsInsta
     G.all_get_methods.push_back(f_sym);
   }
   v->mutate()->assign_fun_ref(f_sym);
+  return f_sym;
 }
 
 static void iterate_through_file_symbols(const SrcFile* file) {
@@ -267,10 +296,19 @@ void pipeline_register_global_symbols() {
   }
 }
 
-FunctionPtr pipeline_register_instantiated_generic_function(AnyV cloned_v, const GenericsInstantiation* instantiationTs) {
+FunctionPtr pipeline_register_instantiated_generic_function(FunctionPtr base_fun_ref, AnyV cloned_v, const GenericsSubstitutions* substitutedTs) {
   auto v = cloned_v->as<ast_function_declaration>();
-  register_function(v, instantiationTs);
-  return lookup_global_symbol(v->get_identifier()->name)->try_as<FunctionPtr>();
+  return register_function(v, base_fun_ref, substitutedTs);
+}
+
+StructPtr pipeline_register_instantiated_generic_struct(StructPtr base_struct_ref, AnyV cloned_v, const GenericsSubstitutions* substitutedTs) {
+  auto v = cloned_v->as<ast_struct_declaration>();
+  return register_struct(v, base_struct_ref, substitutedTs);
+}
+
+AliasDefPtr pipeline_register_instantiated_generic_alias(AliasDefPtr base_alias_ref, AnyV cloned_v, const GenericsSubstitutions* substitutedTs) {
+  auto v = cloned_v->as<ast_type_alias_declaration>();
+  return register_type_alias(v, base_alias_ref, substitutedTs);
 }
 
 } // namespace tolk

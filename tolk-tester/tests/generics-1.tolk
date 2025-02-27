@@ -17,8 +17,15 @@ fun getTwo<X>(): X { return 2 as X; }
 
 fun takeInt(a: int) { return a; }
 
+struct Wrapper<T> {
+    value: T;
+}
+struct Err<T> {
+    errPayload: T
+}
+
 @method_id(102)
-fun test102(): (int, int, int, [int, int]) {
+fun test102(): (int, int, int, [int, int], Wrapper< Wrapper<int8> >) {
     var a: int = getTwo();
     var _: int = getTwo();
     var b = getTwo() as int;
@@ -32,7 +39,10 @@ fun test102(): (int, int, int, [int, int]) {
     ab_tup.0 = getTwo();
     ab_tup.1.1 = getTwo();
     var ab_tens_al: Tensor2Int = (getTwo(), getTwo());
-    return (eq1<int>(a), eq2<int>(b), takeInt(getTwo()), [getTwo(), ab_tens.1.1]);
+    var cint: Wrapper<int> = { value: getTwo() };
+    var cuni: Wrapper<int> | Err<int> = Wrapper { value: getTwo() };
+    cuni = Err { errPayload: getTwo() };
+    return (eq1<int>(a), eq2<int>(b), takeInt(getTwo()), [getTwo(), ab_tens.1.1], eq1({ value: { value: getTwo() } } as Wrapper< Wrapper<int8> >));
 }
 
 @method_id(103)
@@ -204,7 +214,7 @@ fun main(x: int): (int, [Tup2Int]) {
 /**
 @testcase | 0   | 1 | 1 [ [ 1 2 ] ]
 @testcase | 101 | 0 | 0 0 0 [ 0 0 ] 0 0 0 [ 0 0 ] 0 0 0 []
-@testcase | 102 |   | 2 2 2 [ 2 2 ]
+@testcase | 102 |   | 2 2 2 [ 2 2 ] 2
 @testcase | 103 | 0 | 0 100 100
 @testcase | 104 | 0 | [ 1 (null) 2 ] [ 2 -1 0 ]
 @testcase | 105 |   | 3
@@ -224,6 +234,7 @@ fun main(x: int): (int, [Tup2Int]) {
 @fif_codegen DECLPROC eq1<[int,int]>
 @fif_codegen DECLPROC eq1<MInt?>
 @fif_codegen DECLPROC eq1<int|slice|null>
+@fif_codegen DECLPROC eq1<Wrapper<Wrapper<int8>>>
 @fif_codegen DECLPROC getTwo<int>
 
 @fif_codegen_avoid DECLPROC eq1

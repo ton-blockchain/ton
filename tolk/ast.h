@@ -70,6 +70,7 @@ enum ASTNodeKind {
   ast_type_bracket_tuple,
   ast_type_arrow_callable,
   ast_type_vertical_bar_union,
+  ast_type_triangle_args,
   // expressions
   ast_empty_expression,
   ast_parenthesized_expression,
@@ -445,6 +446,18 @@ struct Vertex<ast_type_vertical_bar_union> final : ASTTypeVararg {
 
   Vertex(SrcLocation loc, std::vector<AnyTypeV>&& variants)
     : ASTTypeVararg(ast_type_vertical_bar_union, loc, std::move(variants)) {}
+};
+
+
+template<>
+// ast_type_triangle_args is "T1<T2, T3, ...>"
+// example: `type OkInt = Ok<int>`, then "Ok<int>" is triangle args, and at resolving, it's instantiated into TypeDataStruct
+// example: `type A<T> = Ok<T>`, then "Ok<T>" is triangle args, but at resolving, kept as TypeDataGenericTypeWithTs
+struct Vertex<ast_type_triangle_args> final : ASTTypeVararg {
+  const std::vector<AnyTypeV>& get_inner_and_args() const { return children; }
+
+  Vertex(SrcLocation loc, std::vector<AnyTypeV>&& inner_and_args)
+    : ASTTypeVararg(ast_type_triangle_args, loc, std::move(inner_and_args)) {}
 };
 
 
@@ -915,21 +928,21 @@ struct Vertex<ast_object_body> final : ASTExprVararg {
 
 template<>
 // ast_object_literal is creating an instance of a struct with initial values of fields, like objects in TypeScript
-// example: `Point { ... }`           (object creation has explicit ref and body)
+// example: `Point { ... }`           (object creation has type_node and body)
 // example: `var v: Point = { ... }`  (object creation has only body, struct_ref is determined from the left)
-struct Vertex<ast_object_literal> final : ASTExprBinary {
+// example: `Wrapper<int> { ... }`    (also type_node and body, this type_node is resolved as instantiated generic struct)
+struct Vertex<ast_object_literal> final : ASTExprUnary {
   StructPtr struct_ref = nullptr;       // assigned at type inferring
+  AnyTypeV type_node;                   // not null for `T { ... }`, nullptr for plain `{ ... }`
 
-  bool has_explicit_ref() const { return lhs->kind != ast_empty_expression; }
-  auto get_explicit_ref() const { return lhs->as<ast_reference>(); }
-  AnyExprV get_maybe_reference() const { return lhs; }      // ast_empty_expression or ast_reference
-  auto get_body() const { return rhs->as<ast_object_body>(); }
+  auto get_body() const { return child->as<ast_object_body>(); }
 
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
   void assign_struct_ref(StructPtr struct_ref);
 
-  Vertex(SrcLocation loc, AnyExprV maybe_reference, V<ast_object_body> body)
-    : ASTExprBinary(ast_object_literal, loc, maybe_reference, body) {}
+  Vertex(SrcLocation loc, AnyTypeV type_node, V<ast_object_body> body)
+    : ASTExprUnary(ast_object_literal, loc, body)
+    , type_node(type_node) {}
 };
 
 
@@ -1255,6 +1268,7 @@ template<>
 // see TypeDataAlias in type-system.h
 struct Vertex<ast_type_alias_declaration> final : ASTOtherVararg {
   AliasDefPtr alias_ref = nullptr;          // filled after register
+  V<ast_genericsT_list> genericsT_list;             // exists for `type Response<TResult>`; otherwise, nullptr
   AnyTypeV underlying_type_node;                    // at the right of `=`
 
   auto get_identifier() const { return children.at(0)->as<ast_identifier>(); }
@@ -1262,9 +1276,9 @@ struct Vertex<ast_type_alias_declaration> final : ASTOtherVararg {
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
   void assign_alias_ref(AliasDefPtr alias_ref);
 
-  Vertex(SrcLocation loc, V<ast_identifier> name_identifier, AnyTypeV underlying_type_node)
+  Vertex(SrcLocation loc, V<ast_identifier> name_identifier, V<ast_genericsT_list> genericsT_list, AnyTypeV underlying_type_node)
     : ASTOtherVararg(ast_type_alias_declaration, loc, {name_identifier})
-    , underlying_type_node(underlying_type_node) {}
+    , genericsT_list(genericsT_list), underlying_type_node(underlying_type_node) {}
 };
 
 template<>
@@ -1288,6 +1302,7 @@ template<>
 struct Vertex<ast_struct_body> final : ASTOtherVararg {
   int get_num_fields() const { return size(); }
   auto get_field(int i) const { return children.at(i)->as<ast_struct_field>(); }
+  const std::vector<AnyV>& get_all_fields() const { return children; }
 
   Vertex(SrcLocation loc, std::vector<AnyV>&& fields)
     : ASTOtherVararg(ast_struct_body, loc, std::move(fields)) {}
@@ -1299,6 +1314,7 @@ template<>
 // currently, Tolk doesn't have "implements" or whatever, so struct declaration contains only body
 struct Vertex<ast_struct_declaration> final : ASTOtherVararg {
   StructPtr struct_ref = nullptr;       // filled after register
+  V<ast_genericsT_list> genericsT_list;     // exists for `Wrapper<T>`; otherwise, nullptr
 
   auto get_identifier() const { return children.at(0)->as<ast_identifier>(); }
   auto get_struct_body() const { return children.at(1)->as<ast_struct_body>(); }
@@ -1306,8 +1322,9 @@ struct Vertex<ast_struct_declaration> final : ASTOtherVararg {
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
   void assign_struct_ref(StructPtr struct_ref);
 
-  Vertex(SrcLocation loc, V<ast_identifier> name_identifier, V<ast_struct_body> struct_body)
-    : ASTOtherVararg(ast_struct_declaration, loc, {name_identifier, struct_body}) {}
+  Vertex(SrcLocation loc, V<ast_identifier> name_identifier, V<ast_genericsT_list> genericsT_list, V<ast_struct_body> struct_body)
+    : ASTOtherVararg(ast_struct_declaration, loc, {name_identifier, struct_body})
+    , genericsT_list(genericsT_list) {}
 };
 
 template<>

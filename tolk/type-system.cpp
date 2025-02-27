@@ -15,8 +15,8 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include "type-system.h"
-#include "lexer.h"
 #include "platform-utils.h"
+#include "generics-helpers.h"
 #include "compiler-state.h"
 #include <charconv>
 #include <unordered_map>
@@ -81,6 +81,7 @@ public:
 class TypeIdCalculation {
   static int last_type_id;
   static std::unordered_map<TypePtr, int> map_ptr_to_type_id;
+  static std::vector<StructPtr> instantiated_structs;
 
 public:
   static int assign_type_id(TypePtr self) {
@@ -89,6 +90,21 @@ public:
     }
     if (auto it = map_ptr_to_type_id.find(self); it != map_ptr_to_type_id.end()) {
       return it->second;
+    }
+
+    // make `Wrapper<Wrapper<int>>` and `Wrapper<WrapperAlias<int>>` and `Wrapper<WrapperMyInt>` have equal type_id
+    if (const TypeDataStruct* t_struct = self->try_as<TypeDataStruct>(); t_struct && t_struct->struct_ref->is_instantiation_of_generic_struct()) {
+      StructPtr struct_ref = t_struct->struct_ref;
+      instantiated_structs.push_back(struct_ref);
+      for (StructPtr another_ref : instantiated_structs) {
+        if (struct_ref != another_ref && self->equal_to(TypeDataStruct::create(another_ref))) {
+          auto it = map_ptr_to_type_id.find(TypeDataStruct::create(another_ref));
+          assert(it != map_ptr_to_type_id.end());
+          int type_id = it->second;
+          map_ptr_to_type_id[self] = type_id;
+          return type_id;
+        }
+      }
     }
 
     int type_id = ++last_type_id;
@@ -110,6 +126,7 @@ public:
 int TypeIdCalculation::last_type_id = 128;       // below 128 reserved for built-in types
 std::unordered_map<uint64_t, TypePtr> TypeDataHasherForUnique::all_unique_occurred_types;
 std::unordered_map<TypePtr, int> TypeIdCalculation::map_ptr_to_type_id;
+std::vector<StructPtr> TypeIdCalculation::instantiated_structs;
 
 TypePtr TypeDataInt::singleton;
 TypePtr TypeDataBool::singleton;
@@ -154,6 +171,12 @@ bool TypeData::equal_to_slow_path(TypePtr lhs, TypePtr rhs) {
   if (const TypeDataUnion* lhs_union = lhs->try_as<TypeDataUnion>()) {
     if (const TypeDataUnion* rhs_union = rhs->try_as<TypeDataUnion>()) {
       return lhs_union->variants.size() == rhs_union->variants.size() && lhs_union->has_all_variants_of(rhs_union);
+    }
+  }
+  if (const TypeDataStruct* lhs_struct = lhs->try_as<TypeDataStruct>(); lhs_struct && lhs_struct->struct_ref->is_instantiation_of_generic_struct()) {
+    if (const TypeDataStruct* rhs_struct = rhs->try_as<TypeDataStruct>(); rhs_struct && rhs_struct->struct_ref->is_instantiation_of_generic_struct()) {
+      return lhs_struct->struct_ref->base_struct_ref == rhs_struct->struct_ref->base_struct_ref
+          && lhs_struct->struct_ref->substitutedTs->equal_to(rhs_struct->struct_ref->substitutedTs);
     }
   }
   return false;
@@ -218,6 +241,22 @@ TypePtr TypeDataGenericT::create(std::string&& nameT) {
   return hash.register_unique(new TypeDataGenericT(std::move(nameT)));
 }
 
+TypePtr TypeDataGenericTypeWithTs::create(StructPtr struct_ref, AliasDefPtr alias_ref, std::vector<TypePtr>&& type_arguments) {
+  TypeDataHasherForUnique hash(7451094818554079348ULL);   // use it only to calculate children_flags
+  if (struct_ref) {
+    assert(alias_ref == nullptr && struct_ref->is_generic_struct());
+    hash.feed_string(struct_ref->name);
+  } else {
+    assert(struct_ref == nullptr && alias_ref->is_generic_alias());
+    hash.feed_string(alias_ref->name);
+  }
+  for (TypePtr argT : type_arguments) {
+    hash.feed_child(argT);
+  }
+
+  return new TypeDataGenericTypeWithTs(hash.children_flags(), struct_ref, alias_ref, std::move(type_arguments));
+}
+
 TypePtr TypeDataStruct::create(StructPtr struct_ref) {
   TypeDataHasherForUnique hash(8315986401043319583ULL);
   hash.feed_string(struct_ref->name);
@@ -225,7 +264,7 @@ TypePtr TypeDataStruct::create(StructPtr struct_ref) {
   if (TypePtr existing = hash.get_existing()) {
     return existing;
   }
-  int width_on_stack = 0;
+  int width_on_stack = 0;   // if a struct is generic, it will be incorrect, it's okay
   for (StructFieldPtr field_ref : struct_ref->fields) {
     width_on_stack += field_ref->declared_type->get_width_on_stack();
   }
@@ -377,6 +416,7 @@ TypePtr TypeDataUnion::create_nullable(TypePtr nullable) {
 //
 
 int TypeDataAlias::get_type_id() const {
+  assert(!alias_ref->is_generic_alias());
   return underlying_type->get_type_id();
 }
 
@@ -389,7 +429,13 @@ int TypeDataGenericT::get_type_id() const {
   throw Fatal("unexpected get_type_id() call");
 }
 
+int TypeDataGenericTypeWithTs::get_type_id() const {
+  assert(false);    // `Wrapper<T>` has to be resolved in advance
+  throw Fatal("unexpected get_type_id() call");
+}
+
 int TypeDataStruct::get_type_id() const {
+  assert(!struct_ref->is_generic_struct());
   return TypeIdCalculation::assign_type_id(this);
 }
 
@@ -451,6 +497,19 @@ std::string TypeDataFunCallable::as_human_readable() const {
   }
   result += ") -> ";
   result += return_type->as_human_readable();
+  return result;
+}
+
+std::string TypeDataGenericTypeWithTs::as_human_readable() const {
+  std::string result = struct_ref ? struct_ref->name : alias_ref->name;
+  result += '<';
+  for (TypePtr argT : type_arguments) {
+    if (result[result.size() - 1] != '<') {
+      result += ", ";
+    }
+    result += argT->as_human_readable();
+  }
+  result += '>';
   return result;
 }
 
@@ -534,6 +593,15 @@ TypePtr TypeDataFunCallable::replace_children_custom(const ReplacerCallbackT& ca
     mapped.push_back(param->replace_children_custom(callback));
   }
   return callback(create(std::move(mapped), return_type->replace_children_custom(callback)));
+}
+
+TypePtr TypeDataGenericTypeWithTs::replace_children_custom(const ReplacerCallbackT& callback) const {
+  std::vector<TypePtr> mapped;
+  mapped.reserve(type_arguments.size());
+  for (TypePtr argT : type_arguments) {
+    mapped.push_back(argT->replace_children_custom(callback));
+  }
+  return callback(create(struct_ref, alias_ref, std::move(mapped)));
 }
 
 TypePtr TypeDataTensor::replace_children_custom(const ReplacerCallbackT& callback) const {
@@ -692,7 +760,10 @@ bool TypeDataFunCallable::can_rhs_be_assigned(TypePtr rhs) const {
 }
 
 bool TypeDataGenericT::can_rhs_be_assigned(TypePtr rhs) const {
-  assert(false);
+  return false;
+}
+
+bool TypeDataGenericTypeWithTs::can_rhs_be_assigned(TypePtr rhs) const {
   return false;
 }
 
@@ -702,6 +773,9 @@ bool TypeDataStruct::can_rhs_be_assigned(TypePtr rhs) const {
   }
   if (const TypeDataAlias* rhs_alias = rhs->try_as<TypeDataAlias>()) {
     return can_rhs_be_assigned(rhs_alias->underlying_type);
+  }
+  if (const TypeDataStruct* rhs_struct = rhs->try_as<TypeDataStruct>()) {   // C<C<int>> = C<CIntAlias>
+    return equal_to(rhs_struct);
   }
   return rhs == TypeDataNever::create();
 }
@@ -956,12 +1030,19 @@ bool TypeDataGenericT::can_be_casted_with_as_operator(TypePtr cast_to) const {
   return true;
 }
 
+bool TypeDataGenericTypeWithTs::can_be_casted_with_as_operator(TypePtr cast_to) const {
+  return true;
+}
+
 bool TypeDataStruct::can_be_casted_with_as_operator(TypePtr cast_to) const {
   if (const TypeDataUnion* to_union = cast_to->try_as<TypeDataUnion>()) {
     return can_be_casted_to_union(this, to_union);
   }
   if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
     return can_be_casted_with_as_operator(to_alias->underlying_type);
+  }
+  if (const TypeDataStruct* to_struct = cast_to->try_as<TypeDataStruct>()) {   // C<C<int>> as C<CIntAlias>
+    return equal_to(to_struct);
   }
   return cast_to == this;
 }

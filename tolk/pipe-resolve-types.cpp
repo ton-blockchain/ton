@@ -34,13 +34,17 @@ namespace tolk {
  *   Example: `fun f(a: cell): (int, User)`   param to TypeDataCell, return type to TypeDataTensor(TypeDataInt, TypeDataStruct)
  *   Example: `var x: T = 0`                  to TypeDataGenericT inside `f<T>`
  *   Example: `f<MyAlias>()`                  to TypeDataAlias inside instantiation list
+ *   Example: `arg: Wrapper<int>`             instantiates "Wrapper<int>" right here and returns TypeDataStruct to it
  *   Example: `fun f(): KKK`                  fires an error "unknown type name"
  *
  *   Types resolving is done everywhere: inside functions bodies, in struct fields, inside globals declaration, etc.
  *   See finalize_type_node().
  *
  *   Note, that resolving T to TypeDataGenericT (and replacing T with substitution when instantiating a generic type)
- * is also done here, see genericTs and instantiationTs.
+ * is also done here, see genericTs and substitutedTs.
+ *   Note, that instantiating generic structs and aliases is also done here (if they don't have generic Ts inside).
+ * Example: `type OkInt = Ok<int>`, struct "Ok<int>" is instantiated (as a clone of `Ok<T>` substituting T=int)
+ * Example: `type A<T> = Ok<T>`, then `Ok<T>` is not ready yet, it's left as TypeDataGenericTypeWithTs.
  */
 
 GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
@@ -57,6 +61,11 @@ static void fire_error_unknown_type_name(FunctionPtr cur_f, SrcLocation loc, std
 GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
 static void fire_void_type_not_allowed_inside_union(FunctionPtr cur_f, SrcLocation loc, TypePtr disallowed_variant) {
   fire(cur_f, loc, "type `" + disallowed_variant->as_human_readable() + "` is not allowed inside a union");
+}
+
+GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
+static void fire_error_generic_type_used_without_T(FunctionPtr cur_f, SrcLocation loc, const std::string& type_name_with_Ts) {
+  fire(cur_f, loc, "type `" + type_name_with_Ts + "` is generic, you should provide type arguments");
 }
 
 static TypePtr parse_intN(std::string_view strN, bool is_unsigned) {
@@ -137,31 +146,30 @@ static TypePtr try_parse_predefined_type(std::string_view str) {
 class TypeNodesVisitorResolver {
   FunctionPtr cur_f;                                // exists if we're inside its body
   const GenericsDeclaration* genericTs;             // `<T>` if we're inside `f<T>` or `f<int>`
-  const GenericsInstantiation* instantiationTs;     // `<int>` if we're inside `f<int>`
+  const GenericsSubstitutions* substitutedTs;       // `T=int` if we're inside `f<int>`
 
-  TypePtr parse_ast_type_node(AnyTypeV v) {
+  TypePtr parse_ast_type_node(AnyTypeV v, bool allow_without_type_arguments) {
     switch (v->kind) {
       case ast_type_leaf_text: {
         std::string_view text = v->as<ast_type_leaf_text>()->text;
+        SrcLocation loc = v->as<ast_type_leaf_text>()->loc;
+        if (genericTs && genericTs->find_nameT(text) != -1) {
+          // if we're inside `f<T>`, replace "T" with TypeDataGenericT
+          return TypeDataGenericT::create(static_cast<std::string>(text));
+        }
+        if (substitutedTs && substitutedTs->has_nameT(text)) {
+          // if we're inside `f<int>`, replace "T" with TypeDataInt
+          return substitutedTs->get_substitution_for_nameT(text);
+        }
+        if (const Symbol* sym = lookup_global_symbol(text)) {
+          if (TypePtr custom_type = try_resolve_user_defined_type(cur_f, loc, sym, allow_without_type_arguments)) {
+            return custom_type;
+          }
+        }
         if (TypePtr predefined_type = try_parse_predefined_type(text)) {
           return predefined_type;
         }
-        if (genericTs) {
-          // if we're inside `f<T>`, replace "T" with TypeDataGenericT
-          // if we're inside `f<int>`, replace "T" with TypeDataInt (substitution)
-          if (int idx = genericTs->find_nameT(text); idx != -1) {
-            if (instantiationTs) {
-              return instantiationTs->substitutions[idx];
-            }
-            return TypeDataGenericT::create(static_cast<std::string>(text));
-          }
-        }
-        if (const Symbol* sym = lookup_global_symbol(text)) {
-          if (TypePtr struct_or_other = try_resolve_user_defined_type(sym)) {
-            return struct_or_other;
-          }
-        }
-        fire_error_unknown_type_name(cur_f, v->as<ast_type_leaf_text>()->loc, text);
+        fire_error_unknown_type_name(cur_f, loc, text);
       }
 
       case ast_type_question_nullable: {
@@ -202,25 +210,81 @@ class TypeNodesVisitorResolver {
         return result;
       }
 
+      case ast_type_triangle_args: {
+        const std::vector<AnyTypeV>& inner_and_args = v->as<ast_type_triangle_args>()->get_inner_and_args();
+        TypePtr inner = finalize_type_node(inner_and_args.front(), true);
+        std::vector<TypePtr> type_arguments;
+        type_arguments.reserve(inner_and_args.size() - 1);
+        for (size_t i = 1; i < inner_and_args.size(); ++i) {
+          type_arguments.push_back(finalize_type_node(inner_and_args[i]));
+        }
+        return instantiate_generic_type_or_fire(cur_f, v->loc, inner, std::move(type_arguments));
+      }
+
       default:
-        throw UnexpectedASTNodeKind(v, "resolve_ast_type_node");
+        throw UnexpectedASTNodeKind(v, "parse_ast_type_node");
     }
   }
 
-  static TypePtr try_resolve_user_defined_type(const Symbol* sym) {
+  // given `dict` / `User` / `Wrapper` / `WrapperAlias`, find it in a symtable
+  // for generic types, like `Wrapper`, fire that it's used without type arguments (unless allowed)
+  // example: `var w: Wrapper = ...`, here will be an error of generic usage without T
+  // example: `w is Wrapper`, here not, it's allowed (instantiated at type inferring later)
+  // example: `var w: KKK`, nullptr will be returned
+  static TypePtr try_resolve_user_defined_type(FunctionPtr cur_f, SrcLocation loc, const Symbol* sym, bool allow_without_type_arguments) {
     if (AliasDefPtr alias_ref = sym->try_as<AliasDefPtr>()) {
+      if (alias_ref->is_generic_alias() && !allow_without_type_arguments) {
+        fire_error_generic_type_used_without_T(cur_f, loc, alias_ref->as_human_readable());
+      }
       if (!alias_ref->was_visited_by_resolver()) {
         visit_symbol(alias_ref);
       }
       return TypeDataAlias::create(alias_ref);
     }
     if (StructPtr struct_ref = sym->try_as<StructPtr>()) {
+      if (struct_ref->is_generic_struct() && !allow_without_type_arguments) {
+        fire_error_generic_type_used_without_T(cur_f, loc, struct_ref->as_human_readable());
+      }
       if (!struct_ref->was_visited_by_resolver()) {
         visit_symbol(struct_ref);
       }
       return TypeDataStruct::create(struct_ref);
     }
     return nullptr;
+  }
+
+  // given `Wrapper<int>` / `Pair<slice, int>` / `Response<int, cell>`, instantiate a generic struct/alias
+  // an error for invalid usage `Pair<int>` / `cell<int>` is also here
+  static TypePtr instantiate_generic_type_or_fire(FunctionPtr cur_f, SrcLocation loc, TypePtr type_to_instantiate, std::vector<TypePtr>&& type_arguments) {
+    // example: `type WrapperAlias<T> = Wrapper<T>`, we are at `Wrapper<T>`, type_arguments = `<T>`
+    // they contain generics, so the struct is not ready to be instantiated yet
+    bool is_still_generic = false;
+    for (TypePtr argT : type_arguments) {
+      is_still_generic |= argT->has_genericT_inside();
+    }
+
+    if (const TypeDataStruct* t_struct = type_to_instantiate->try_as<TypeDataStruct>(); t_struct && t_struct->struct_ref->is_generic_struct()) {
+      StructPtr struct_ref = t_struct->struct_ref;
+      if (struct_ref->genericTs->size() != static_cast<int>(type_arguments.size())) {
+        fire(cur_f, loc, "struct `" + struct_ref->as_human_readable() + "` expects " + std::to_string(struct_ref->genericTs->size()) + " type arguments, but " + std::to_string(type_arguments.size()) + " provided");
+      }
+      if (is_still_generic) {
+        return TypeDataGenericTypeWithTs::create(struct_ref, nullptr, std::move(type_arguments));
+      }
+      return TypeDataStruct::create(instantiate_generic_struct(struct_ref, GenericsSubstitutions(struct_ref->genericTs, type_arguments)));
+    }
+    if (const TypeDataAlias* t_alias = type_to_instantiate->try_as<TypeDataAlias>(); t_alias && t_alias->alias_ref->is_generic_alias()) {
+      AliasDefPtr alias_ref = t_alias->alias_ref;
+      if (alias_ref->genericTs->size() != static_cast<int>(type_arguments.size())) {
+        fire(cur_f, loc, "type `" + alias_ref->as_human_readable() + "` expects " + std::to_string(alias_ref->genericTs->size()) + " type arguments, but " + std::to_string(type_arguments.size()) + " provided");
+      }
+      if (is_still_generic) {
+        return TypeDataGenericTypeWithTs::create(nullptr, alias_ref, std::move(type_arguments));
+      }
+      return TypeDataAlias::create(instantiate_generic_alias(alias_ref, GenericsSubstitutions(alias_ref->genericTs, type_arguments)));
+    }
+    // `User<int>` / `cell<cell>`
+    fire(cur_f, loc, "type `" + type_to_instantiate->as_human_readable() + "` is not generic");
   }
 
   static void validate_resulting_union_type(const TypeDataUnion* t_union, FunctionPtr cur_f, SrcLocation loc) {
@@ -233,16 +297,16 @@ class TypeNodesVisitorResolver {
 
 public:
 
-  TypeNodesVisitorResolver(FunctionPtr cur_f, const GenericsDeclaration* genericTs, const GenericsInstantiation* instantiationTs)
+  TypeNodesVisitorResolver(FunctionPtr cur_f, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs)
     : cur_f(cur_f)
     , genericTs(genericTs)
-    , instantiationTs(instantiationTs) {}
+    , substitutedTs(substitutedTs) {}
 
-  TypePtr finalize_type_node(AnyTypeV type_node) {
+  TypePtr finalize_type_node(AnyTypeV type_node, bool allow_without_type_arguments = false) {
 #ifdef TOLK_DEBUG
     tolk_assert(type_node != nullptr);
 #endif
-    TypePtr resolved_type = parse_ast_type_node(type_node);
+    TypePtr resolved_type = parse_ast_type_node(type_node, allow_without_type_arguments);
     type_node->mutate()->assign_resolved_type(resolved_type);
     return resolved_type;
   }
@@ -282,7 +346,7 @@ public:
     }
 
     called_stack.push_back(alias_ref);
-    TypeNodesVisitorResolver visitor(nullptr, nullptr, nullptr);
+    TypeNodesVisitorResolver visitor(nullptr, alias_ref->genericTs, alias_ref->substitutedTs);
     TypePtr underlying_type = visitor.finalize_type_node(alias_ref->underlying_type_node);
     alias_ref->mutate()->assign_resolved_type(underlying_type);
     alias_ref->mutate()->assign_visited_by_resolver();
@@ -301,7 +365,7 @@ public:
     }
 
     called_stack.push_back(struct_ref);
-    TypeNodesVisitorResolver visitor(nullptr, nullptr, nullptr);
+    TypeNodesVisitorResolver visitor(nullptr, struct_ref->genericTs, struct_ref->substitutedTs);
     for (int i = 0; i < struct_ref->get_num_fields(); ++i) {
       StructFieldPtr field_ref = struct_ref->get_field(i);
       TypePtr declared_type = visitor.finalize_type_node(field_ref->type_node);
@@ -313,10 +377,10 @@ public:
 };
 
 class ResolveTypesInsideFunctionVisitor final : public ASTVisitorFunctionBody {
-  static TypeNodesVisitorResolver type_nodes_visitor;
+  TypeNodesVisitorResolver type_nodes_visitor{nullptr, nullptr, nullptr};
 
-  static TypePtr finalize_type_node(AnyTypeV type_node) {
-    return type_nodes_visitor.finalize_type_node(type_node);
+  TypePtr finalize_type_node(AnyTypeV type_node, bool allow_without_type_arguments = false) {
+    return type_nodes_visitor.finalize_type_node(type_node, allow_without_type_arguments);
   }
 
 protected:
@@ -329,6 +393,8 @@ protected:
   }
 
   void visit(V<ast_reference> v) override {
+    tolk_assert(v->sym != nullptr);
+
     // for `f<int, MyAlias>` / `f<T>`, resolve "MyAlias" and "T"
     // (for function call `f<T>()`, this v (ast_reference `f<T>`) is callee)
     if (auto v_instantiationTs = v->get_instantiationTs()) {
@@ -340,7 +406,9 @@ protected:
 
   void visit(V<ast_match_arm> v) override {
     if (v->pattern_type_node) {
-      finalize_type_node(v->pattern_type_node);
+      // before `=>` we allow referencing generic types, type inferring will guess
+      // example: `struct Ok<T>` + `type Response<T> = Ok<T> | ErrCode` + `match (resp) { Ok => ... }`
+      finalize_type_node(v->pattern_type_node, true);
     }
     parent::visit(v->get_pattern_expr());
     parent::visit(v->get_body());
@@ -363,8 +431,15 @@ protected:
   }
 
   void visit(V<ast_is_type_operator> v) override {
-    finalize_type_node(v->type_node);
+    finalize_type_node(v->type_node, true);
     parent::visit(v->get_expr());
+  }
+
+  void visit(V<ast_object_literal> v) override {
+    if (v->type_node) {
+      finalize_type_node(v->type_node, true);
+    }
+    parent::visit(v->get_body());
   }
 
 public:
@@ -373,7 +448,7 @@ public:
   }
 
   void start_visiting_function(FunctionPtr fun_ref, V<ast_function_declaration> v) override {
-    type_nodes_visitor = TypeNodesVisitorResolver(fun_ref, fun_ref->genericTs, fun_ref->instantiationTs);
+    type_nodes_visitor = TypeNodesVisitorResolver(fun_ref, fun_ref->genericTs, fun_ref->substitutedTs);
 
     for (int i = 0; i < v->get_num_params(); ++i) {
       const LocalVarData& param_var = fun_ref->parameters[i];
@@ -388,17 +463,19 @@ public:
     if (fun_ref->is_code_function()) {
       parent::visit(v->get_body()->as<ast_block_statement>());
     }
-
-    type_nodes_visitor = TypeNodesVisitorResolver(nullptr, nullptr, nullptr);
   }
 
   void start_visiting_constant(GlobalConstPtr const_ref) {
+    type_nodes_visitor = TypeNodesVisitorResolver(nullptr, nullptr, nullptr);
+
     // `const a = 0 as int8`, resolve types there
     // same for struct field `v: int8 = 0 as int8`
     parent::visit(const_ref->init_value);
   }
 
   void start_visiting_struct_fields(StructPtr struct_ref) {
+    type_nodes_visitor = TypeNodesVisitorResolver(nullptr, struct_ref->genericTs, struct_ref->substitutedTs);
+
     // same for struct field `v: int8 = 0 as int8`
     for (StructFieldPtr field_ref : struct_ref->fields) {
       if (field_ref->has_default_value()) {
@@ -407,8 +484,6 @@ public:
     }
   }
 };
-
-TypeNodesVisitorResolver ResolveTypesInsideFunctionVisitor::type_nodes_visitor(nullptr, nullptr, nullptr);
 
 void pipeline_resolve_types_and_aliases() {
   ResolveTypesInsideFunctionVisitor visitor;
@@ -450,6 +525,15 @@ void pipeline_resolve_types_and_aliases(FunctionPtr fun_ref) {
   if (visitor.should_visit_function(fun_ref)) {
     visitor.start_visiting_function(fun_ref, fun_ref->ast_root->as<ast_function_declaration>());
   }
+}
+
+void pipeline_resolve_types_and_aliases(StructPtr struct_ref) {
+  ResolveTypesInsideFunctionVisitor().start_visiting_struct_fields(struct_ref);
+  TypeNodesVisitorResolver::visit_symbol(struct_ref);
+}
+
+void pipeline_resolve_types_and_aliases(AliasDefPtr alias_ref) {
+  TypeNodesVisitorResolver::visit_symbol(alias_ref);
 }
 
 } // namespace tolk

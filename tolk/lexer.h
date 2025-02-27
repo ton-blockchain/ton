@@ -212,6 +212,7 @@ public:
 
   SavedPositionForLookahead save_parsing_position() const;
   void restore_position(SavedPositionForLookahead saved);
+  void hack_replace_rshift_with_one_triangle();
 
   void check(TokenType next_tok, const char* str_expected) const {
     if (cur_token.type != next_tok) {

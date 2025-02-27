@@ -8,6 +8,6 @@ fun cantInstantiateNonGenericStruct() {
 
 /**
 @compilation_should_fail
-@stderr generic T not expected here
+@stderr type `User` is not generic
 @stderr User<int>
  */

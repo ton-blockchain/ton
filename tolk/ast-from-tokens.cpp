@@ -168,14 +168,20 @@ static std::vector<AnyTypeV> parse_nested_type_list(Lexer& lex, TokenType tok_op
     if (lex.tok() == tok_comma) {
       lex.next();
     } else if (lex.tok() != tok_cl) {
+      // overcome the `>>` problem, like `Wrapper<Wrapper<int>>`:
+      // treat token `>>` like two `>`; consume one here doing nothing (break) and leave the second `>` in a lexer
+      if (tok_cl == tok_gt && lex.tok() == tok_rshift) {
+        lex.hack_replace_rshift_with_one_triangle();
+        break;
+      }
       lex.unexpected(s_cl);
     }
   }
   return sub_types;
 }
 
-static std::vector<AnyTypeV> parse_nested_type_list_in_parenthesis(Lexer& lex) {
-  return parse_nested_type_list(lex, tok_oppar, "`(`", tok_clpar, "`)` or `,`");
+static std::vector<AnyTypeV> parse_nested_type_list_in_triangles(Lexer& lex) {
+  return parse_nested_type_list(lex, tok_lt, "`<`", tok_gt, "`>` or `,`");
 }
 
 static AnyTypeV parse_simple_type(Lexer& lex) {
@@ -189,7 +195,7 @@ static AnyTypeV parse_simple_type(Lexer& lex) {
       return createV<ast_type_leaf_text>(loc, text);
     }
     case tok_oppar: {
-      return createV<ast_type_parenthesis_tensor>(loc, parse_nested_type_list_in_parenthesis(lex));
+      return createV<ast_type_parenthesis_tensor>(loc, parse_nested_type_list(lex, tok_oppar, "`(`", tok_clpar, "`)` or `,`"));
     }
     case tok_opbracket: {
       return createV<ast_type_bracket_tuple>(loc, parse_nested_type_list(lex, tok_opbracket, "`[`", tok_clbracket, "`]` or `,`"));
@@ -201,6 +207,15 @@ static AnyTypeV parse_simple_type(Lexer& lex) {
 
 static AnyTypeV parse_type_nullable(Lexer& lex) {
   AnyTypeV result = parse_simple_type(lex);
+
+  if (lex.tok() == tok_lt) {
+    std::vector<AnyTypeV> args = parse_nested_type_list_in_triangles(lex);
+    std::vector<AnyTypeV> outer_and_args;
+    outer_and_args.reserve(1 + args.size());
+    outer_and_args.push_back(result);
+    outer_and_args.insert(outer_and_args.end(), args.begin(), args.end());
+    result = createV<ast_type_triangle_args>(result->loc, std::move(outer_and_args));
+  }
 
   if (lex.tok() == tok_question) {
     lex.next();
@@ -257,6 +272,24 @@ static AnyTypeV parse_type_from_tokens(Lexer& lex) {
 
 AnyExprV parse_expr(Lexer& lex);
 AnyV parse_statement(Lexer& lex);
+
+static V<ast_genericsT_list> parse_genericsT_list(Lexer& lex) {
+  SrcLocation loc = lex.cur_location();
+  std::vector<AnyV> genericsT_items;
+  lex.expect(tok_lt, "`<`");
+  while (true) {
+    lex.check(tok_identifier, "T");
+    std::string_view nameT = lex.cur_str();
+    genericsT_items.emplace_back(createV<ast_genericsT_item>(lex.cur_location(), nameT));
+    lex.next();
+    if (lex.tok() != tok_comma) {
+      break;
+    }
+    lex.next();
+  }
+  lex.expect(tok_gt, "`>`");
+  return createV<ast_genericsT_list>{loc, std::move(genericsT_items)};
+}
 
 static AnyV parse_parameter(Lexer& lex, bool is_first) {
   SrcLocation loc = lex.cur_location();
@@ -342,10 +375,16 @@ static AnyV parse_type_alias_declaration(Lexer& lex, const std::vector<V<ast_ann
   lex.check(tok_identifier, "type name");
   auto v_ident = createV<ast_identifier>(lex.cur_location(), lex.cur_str());
   lex.next();
+
+  V<ast_genericsT_list> genericsT_list = nullptr;
+  if (lex.tok() == tok_lt) {    // 'type Response<TResult, TError>'
+    genericsT_list = parse_genericsT_list(lex);
+  }
+
   lex.expect(tok_assign, "`=`");
   AnyTypeV underlying_type = parse_type_from_tokens(lex);
   lex.expect(tok_semicolon, "`;`");
-  return createV<ast_type_alias_declaration>(loc, v_ident, underlying_type);
+  return createV<ast_type_alias_declaration>(loc, v_ident, genericsT_list, underlying_type);
 }
 
 static AnyExprV parse_var_declaration_lhs(Lexer& lex, bool is_immutable) {
@@ -728,13 +767,22 @@ static AnyExprV parse_expr100(Lexer& lex) {
         v_instantiationTs = parse_maybe_instantiationTs_after_identifier(lex);
       }
       if (lex.tok() == tok_opbrace) {
-        auto explicit_ref = createV<ast_reference>(loc, v_ident, v_instantiationTs);
-        return createV<ast_object_literal>(loc, explicit_ref, parse_object_body(lex));
+        AnyTypeV type_node = createV<ast_type_leaf_text>(v_ident->loc, v_ident->name);  // `Pair { ... }`
+        if (v_instantiationTs) {                                                        // `Pair<int> { ... }`
+          std::vector<AnyTypeV> ident_and_args;
+          ident_and_args.reserve(1 + v_instantiationTs->size());
+          ident_and_args.push_back(type_node);
+          for (int i = 0; i < v_instantiationTs->size(); ++i) {
+            ident_and_args.push_back(v_instantiationTs->get_item(i)->type_node);
+          }
+          type_node = createV<ast_type_triangle_args>(v_ident->loc, std::move(ident_and_args));
+        }
+        return createV<ast_object_literal>(loc, type_node, parse_object_body(lex));
       }
       return createV<ast_reference>(loc, v_ident, v_instantiationTs);
     }
     case tok_opbrace:
-      return createV<ast_object_literal>(loc, createV<ast_empty_expression>(loc), parse_object_body(lex));
+      return createV<ast_object_literal>(loc, nullptr, parse_object_body(lex));
     case tok_match:
       return parse_match_expression(lex);
     default:
@@ -1195,24 +1243,6 @@ static AnyV parse_asm_func_body(Lexer& lex, V<ast_parameter_list> param_list) {
   return createV<ast_asm_body>(loc, std::move(arg_order), std::move(ret_order), std::move(asm_commands));
 }
 
-static AnyV parse_genericsT_list(Lexer& lex) {
-  SrcLocation loc = lex.cur_location();
-  std::vector<AnyV> genericsT_items;
-  lex.expect(tok_lt, "`<`");
-  while (true) {
-    lex.check(tok_identifier, "T");
-    std::string_view nameT = lex.cur_str();
-    genericsT_items.emplace_back(createV<ast_genericsT_item>(lex.cur_location(), nameT));
-    lex.next();
-    if (lex.tok() != tok_comma) {
-      break;
-    }
-    lex.next();
-  }
-  lex.expect(tok_gt, "`>`");
-  return createV<ast_genericsT_list>{loc, std::move(genericsT_items)};
-}
-
 static V<ast_annotation> parse_annotation(Lexer& lex) {
   SrcLocation loc = lex.cur_location();
   lex.check(tok_annotation_at, "`@`");
@@ -1285,7 +1315,7 @@ static AnyV parse_function_declaration(Lexer& lex, const std::vector<V<ast_annot
 
   V<ast_genericsT_list> genericsT_list = nullptr;
   if (lex.tok() == tok_lt) {    // 'fun f<T1,T2>'
-    genericsT_list = parse_genericsT_list(lex)->as<ast_genericsT_list>();
+    genericsT_list = parse_genericsT_list(lex);
   }
 
   V<ast_parameter_list> v_param_list = parse_parameter_list(lex)->as<ast_parameter_list>();
@@ -1428,7 +1458,12 @@ static AnyV parse_struct_declaration(Lexer& lex, const std::vector<V<ast_annotat
   auto v_ident = createV<ast_identifier>(lex.cur_location(), lex.cur_str());
   lex.next();
 
-  return createV<ast_struct_declaration>(loc, v_ident, parse_struct_body(lex));
+  V<ast_genericsT_list> genericsT_list = nullptr;
+  if (lex.tok() == tok_lt) {    // 'struct Wrapper<T>'
+    genericsT_list = parse_genericsT_list(lex);
+  }
+
+  return createV<ast_struct_declaration>(loc, v_ident, genericsT_list, parse_struct_body(lex));
 }
 
 static AnyV parse_tolk_required_version(Lexer& lex) {

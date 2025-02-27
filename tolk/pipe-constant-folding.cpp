@@ -170,7 +170,7 @@ void pipeline_constant_folding() {
   // do the same for default values of struct fields, they must be constant expressions
   for (StructPtr struct_ref : get_all_declared_structs()) {
     for (StructFieldPtr field_ref : struct_ref->fields) {
-      if (field_ref->has_default_value()) {
+      if (field_ref->has_default_value() && !struct_ref->is_generic_struct()) {
         check_expression_is_constant(field_ref->default_value);
         AnyExprV replaced = replacer.replace_in_expression(field_ref->default_value);
         field_ref->mutate()->assign_default_value(replaced);

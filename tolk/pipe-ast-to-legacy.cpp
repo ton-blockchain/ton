@@ -681,7 +681,7 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
   // - `int | slice` to `int | slice | builder`
   // - `int | slice` to `int | (int, int) | slice | null`
   // so, both original and target have UTag slot, but rvect probably needs to be prepended by nulls
-  if (t_union && o_union && t_union->variants.size() >= o_union->variants.size()) {
+  if (t_union && o_union && t_union->size() >= o_union->size()) {
     tolk_assert(target_w >= orig_w && t_union->has_all_variants_of(o_union));
     std::vector<var_idx_t> prepend_nulls;
     prepend_nulls.reserve(target_w - orig_w);
@@ -827,6 +827,13 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
   // their types aren't exactly equal, but they match (containing aliases, for example)
   if (original_type->try_as<TypeDataFunCallable>() && target_type->try_as<TypeDataFunCallable>()) {
     tolk_assert(rvect.size() == 1);
+    return rvect;
+  }
+
+  // pass struct A to struct B
+  // different structs are typically not assignable, but Wrapper<WrapperAlias<int>> is ok to Wrapper<Wrapper<int>>
+  if (original_type->try_as<TypeDataStruct>() && target_type->try_as<TypeDataStruct>()) {
+    tolk_assert(target_type->can_rhs_be_assigned(original_type) && orig_w == target_w);
     return rvect;
   }
 

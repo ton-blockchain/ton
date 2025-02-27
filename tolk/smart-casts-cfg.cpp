@@ -368,7 +368,7 @@ TypePtr calculate_type_subtract_rhs_type(TypePtr type, TypePtr subtract_type) {
 
   if (const TypeDataUnion* sub_union = subtract_type->try_as<TypeDataUnion>()) {
     if (lhs_union->has_all_variants_of(sub_union)) {
-      rest_variants.reserve(lhs_union->variants.size() - sub_union->variants.size());
+      rest_variants.reserve(lhs_union->size() - sub_union->size());
       for (TypePtr lhs_variant : lhs_union->variants) {
         if (!sub_union->has_variant_with_type_id(lhs_variant)) {
           rest_variants.push_back(lhs_variant);
@@ -376,7 +376,7 @@ TypePtr calculate_type_subtract_rhs_type(TypePtr type, TypePtr subtract_type) {
       }
     }
   } else if (lhs_union->has_variant_with_type_id(subtract_type)) {
-    rest_variants.reserve(lhs_union->variants.size() - 1);
+    rest_variants.reserve(lhs_union->size() - 1);
     for (TypePtr lhs_variant : lhs_union->variants) {
       if (lhs_variant->get_type_id() != subtract_type->get_type_id()) {
         rest_variants.push_back(lhs_variant);
@@ -496,7 +496,7 @@ TypePtr calc_smart_cast_type_on_assignment(TypePtr lhs_declared_type, TypePtr rh
       for (TypePtr rhs_variant : rhs_union->variants) {
         lhs_has_all_variants_of_rhs &= lhs_union->has_variant_with_type_id(rhs_variant);
       }
-      if (lhs_has_all_variants_of_rhs && rhs_union->variants.size() < lhs_union->variants.size()) {
+      if (lhs_has_all_variants_of_rhs && rhs_union->size() < lhs_union->size()) {
         std::vector<TypePtr> subtypes_of_lhs;
         for (TypePtr lhs_variant : lhs_union->variants) {
           if (rhs_union->has_variant_with_type_id(lhs_variant)) {

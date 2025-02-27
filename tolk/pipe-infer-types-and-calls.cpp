@@ -121,6 +121,16 @@ static std::string to_string(FunctionPtr fun_ref) {
 }
 
 GNU_ATTRIBUTE_NOINLINE
+static std::string to_string(StructPtr struct_ref) {
+  return "`" + struct_ref->as_human_readable() + "`";
+}
+
+GNU_ATTRIBUTE_NOINLINE
+static std::string to_string(AliasDefPtr alias_ref) {
+  return "`" + alias_ref->as_human_readable() + "`";
+}
+
+GNU_ATTRIBUTE_NOINLINE
 static std::string to_string(std::string_view string_view) {
   return static_cast<std::string>(string_view);
 }
@@ -129,8 +139,8 @@ static std::string to_string(std::string_view string_view) {
 // asm functions generally can't handle it, they expect T to be a TVM primitive
 // (in FunC, `forall` type just couldn't be unified with non-primitives; in Tolk, generic T is expectedly inferred)
 GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-static void fire_error_calling_asm_function_with_non1_stack_width_arg(FunctionPtr cur_f, SrcLocation loc, FunctionPtr fun_ref, const std::vector<TypePtr>& substitutions, int arg_idx) {
-  fire(cur_f, loc, "can not call `" + fun_ref->as_human_readable() + "` with " + fun_ref->genericTs->get_nameT(arg_idx) + "=" + substitutions[arg_idx]->as_human_readable() + ", because it occupies " + std::to_string(substitutions[arg_idx]->get_width_on_stack()) + " stack slots in TVM, not 1");
+static void fire_error_calling_asm_function_with_non1_stack_width_arg(FunctionPtr cur_f, SrcLocation loc, FunctionPtr fun_ref, const GenericsSubstitutions& substitutions, int arg_idx) {
+  fire(cur_f, loc, "can not call `" + fun_ref->as_human_readable() + "` with " + to_string(substitutions.nameT_at(arg_idx)) + "=" + substitutions.typeT_at(arg_idx)->as_human_readable() + ", because it occupies " + std::to_string(substitutions.typeT_at(arg_idx)->get_width_on_stack()) + " stack slots in TVM, not 1");
 }
 
 // fire an error on `untypedTupleVar.0` when used without a hint
@@ -140,6 +150,51 @@ static void fire_error_cannot_deduce_untyped_tuple_access(FunctionPtr cur_f, Src
   fire(cur_f, loc, "can not deduce type of `" + idx_access + "`; either assign it to variable like `var c: int = " + idx_access + "` or cast the result like `" + idx_access + " as int`");
 }
 
+// helper function: given hint = `Ok<int> | Err<slice>` and struct `Ok`, return `Ok<int>`
+// example: `match (...) { Ok => ... }` we need to deduce `Ok<T>` based on subject
+static TypePtr try_pick_instantiated_generic_from_hint(TypePtr hint, StructPtr lookup_ref) {
+  // example: `var w: Ok<int> = Ok { ... }`, hint is `Ok<int>`, lookup is `Ok`
+  if (const TypeDataStruct* h_struct = hint->unwrap_alias()->try_as<TypeDataStruct>()) {
+    if (lookup_ref == h_struct->struct_ref->base_struct_ref) {
+      return h_struct;
+    }
+  }
+  // example: `fun f(): Response<int, slice> { return Err { ... } }`, hint is `Ok<int> | Err<slice>`, lookup is `Err`
+  if (const TypeDataUnion* h_union = hint->unwrap_alias()->try_as<TypeDataUnion>()) {
+    TypePtr only_variant = nullptr;   // hint `Ok<int8> | Ok<int16>` is ambiguous
+    for (TypePtr h_variant : h_union->variants) {
+      if (const TypeDataStruct* variant_struct = h_variant->unwrap_alias()->try_as<TypeDataStruct>()) {
+        if (lookup_ref == variant_struct->struct_ref->base_struct_ref) {
+          if (only_variant) {
+            return nullptr;
+          }
+          only_variant = variant_struct;
+        }
+      }
+    }
+    return only_variant;
+  }
+  return nullptr;
+}
+
+// helper function, similar to the above, but for generic type aliases
+// example: `v is OkAlias`, need to deduce `OkAlias<T>` based on type of v
+static TypePtr try_pick_instantiated_generic_from_hint(TypePtr hint, AliasDefPtr lookup_ref) {
+  // when a generic type alias points to a generic struct actually: `type WrapperAlias<T> = Wrapper<T>`
+  if (const TypeDataGenericTypeWithTs* as_instT = lookup_ref->underlying_type->try_as<TypeDataGenericTypeWithTs>()) {
+    return as_instT->struct_ref
+         ? try_pick_instantiated_generic_from_hint(hint, as_instT->struct_ref)
+         : try_pick_instantiated_generic_from_hint(hint, as_instT->alias_ref);
+  }
+  // it's something weird, when a generic alias refs non-generic type
+  // example: `type StrangeInt<T> = int`, hint is `StrangeInt<builder>`, lookup `StrangeInt`
+  if (const TypeDataAlias* h_alias = hint->try_as<TypeDataAlias>()) {
+    if (lookup_ref == h_alias->alias_ref->base_alias_ref) {
+      return h_alias;
+    }
+  }
+  return nullptr;
+}
 
 /*
  * This class handles all types of AST vertices and traverses them, filling all AnyExprV::inferred_type.
@@ -626,7 +681,28 @@ class InferTypesAndCallsAndFieldsVisitor final {
     ExprFlow after_expr = infer_any_expr(v->get_expr(), std::move(flow), false);
     assign_inferred_type(v, TypeDataBool::create());
 
-    TypePtr rhs_type = v->type_node->resolved_type->unwrap_alias();
+    TypePtr rhs_type = v->type_node->resolved_type;
+
+    if (const auto* t_struct = rhs_type->try_as<TypeDataStruct>(); t_struct && t_struct->struct_ref->is_generic_struct()) {
+      // `v is Wrapper`, detect T based on type of v (`Wrapper<int> | int` => `Wrapper<int>`)
+      if (TypePtr inst_rhs_type = try_pick_instantiated_generic_from_hint(v->get_expr()->inferred_type, t_struct->struct_ref)) {
+        rhs_type = inst_rhs_type;
+        v->type_node->mutate()->assign_resolved_type(rhs_type);
+      } else {
+        fire(cur_f, v->type_node->loc, "can not deduce type arguments for " + to_string(t_struct->struct_ref) + ", provide them manually");
+      }
+    }
+    if (const auto* t_alias = rhs_type->try_as<TypeDataAlias>(); t_alias && t_alias->alias_ref->is_generic_alias()) {
+      // `v is WrapperAlias`, detect T similar to structures
+      if (TypePtr inst_rhs_type = try_pick_instantiated_generic_from_hint(v->get_expr()->inferred_type, t_alias->alias_ref)) {
+        rhs_type = inst_rhs_type;
+        v->type_node->mutate()->assign_resolved_type(rhs_type);
+      } else {
+        fire(cur_f, v->type_node->loc, "can not deduce type arguments for " + to_string(t_alias->alias_ref) + ", provide them manually");
+      }
+    }
+
+    rhs_type = rhs_type->unwrap_alias();
     TypePtr expr_type = v->get_expr()->inferred_type->unwrap_alias();
     TypePtr non_rhs_type = calculate_type_subtract_rhs_type(expr_type, rhs_type);
     if (expr_type->equal_to(rhs_type)) {                          // `expr is <type>` is always true
@@ -712,8 +788,8 @@ class InferTypesAndCallsAndFieldsVisitor final {
 
       } else if (fun_ref->is_generic_function()) {
         // `genericFn<int>` is valid, it's a reference to instantiation
-        std::vector<TypePtr> substitutions = collect_fun_generic_substitutions_from_manually_specified(v->loc, fun_ref, v_instantiationTs);
-        fun_ref = check_and_instantiate_generic_function(v->loc, fun_ref, std::move(substitutions));
+        GenericsSubstitutions substitutedTs = collect_fun_generic_substitutions_from_manually_specified(v->loc, fun_ref->genericTs, v_instantiationTs);
+        fun_ref = check_and_instantiate_generic_function(v->loc, fun_ref, std::move(substitutedTs));
         v->mutate()->assign_sym(fun_ref);
 
       } else if (v_instantiationTs != nullptr && !fun_ref->is_instantiation_of_generic_function()) {
@@ -727,10 +803,10 @@ class InferTypesAndCallsAndFieldsVisitor final {
       return ExprFlow(std::move(flow), used_as_condition);
 
     } else if (AliasDefPtr alias_ref = v->sym->try_as<AliasDefPtr>()) {
-      fire(cur_f, v->loc, "type `" + alias_ref->name + "` can not be used as a value");
+      fire(cur_f, v->loc, "type " + to_string(alias_ref) + " can not be used as a value");
 
     } else if (StructPtr struct_ref = v->sym->try_as<StructPtr>()) {
-      fire(cur_f, v->loc, "struct `" + struct_ref->name + "` can not be used as a value");
+      fire(cur_f, v->loc, "struct " + to_string(struct_ref) + " can not be used as a value");
 
     } else {
       tolk_assert(false);
@@ -745,19 +821,19 @@ class InferTypesAndCallsAndFieldsVisitor final {
 
   // given `genericF<int, slice>` / `t.tupleFirst<cell>` (the user manually specified instantiation Ts),
   // validate and collect them
-  // returns: [int, slice] / [cell]
-  std::vector<TypePtr> collect_fun_generic_substitutions_from_manually_specified(SrcLocation loc, FunctionPtr fun_ref, V<ast_instantiationT_list> instantiationT_list) const {
-    if (fun_ref->genericTs->size() != instantiationT_list->get_items().size()) {
-      fire(cur_f, loc, "wrong count of generic T: expected " + std::to_string(fun_ref->genericTs->size()) + ", got " + std::to_string(instantiationT_list->size()));
+  // returns: [T1=int, T2=slice] / [T=cell] (with flag auto_deduced = false, meaning they are manually specified)
+  GenericsSubstitutions collect_fun_generic_substitutions_from_manually_specified(SrcLocation loc, const GenericsDeclaration* genericTs, V<ast_instantiationT_list> instantiationT_list) const {
+    if (instantiationT_list->size() != genericTs->size()) {
+      fire(cur_f, loc, "wrong count of generic T: expected " + std::to_string(genericTs->size()) + ", got " + std::to_string(instantiationT_list->size()));
     }
 
-    std::vector<TypePtr> substitutions;
-    substitutions.reserve(instantiationT_list->size());
+    std::vector<TypePtr> type_arguments;
+    type_arguments.reserve(instantiationT_list->size());
     for (int i = 0; i < instantiationT_list->size(); ++i) {
-      substitutions.push_back(instantiationT_list->get_item(i)->type_node->resolved_type);
+      type_arguments.push_back(instantiationT_list->get_item(i)->type_node->resolved_type);
     }
 
-    return substitutions;
+    return GenericsSubstitutions(genericTs, type_arguments);
   }
 
   // when generic Ts have been collected from user-specified or deduced from arguments,
@@ -766,19 +842,19 @@ class InferTypesAndCallsAndFieldsVisitor final {
   // example: was `t.tuplePush<slice>(2)`, read <slice>, instantiate `tuplePush<slice>` (will later fail type check)
   // example: was `var cb = t.tupleFirst<int>;` (used as reference, as non-call), instantiate `tupleFirst<int>`
   // returns fun_ref to instantiated function
-  FunctionPtr check_and_instantiate_generic_function(SrcLocation loc, FunctionPtr fun_ref, std::vector<TypePtr>&& substitutionTs) const {
+  FunctionPtr check_and_instantiate_generic_function(SrcLocation loc, FunctionPtr fun_ref, GenericsSubstitutions&& substitutedTs) const {
     // T for asm function must be a TVM primitive (width 1), otherwise, asm would act incorrectly
     if (fun_ref->is_asm_function() || fun_ref->is_builtin_function()) {
-      for (int i = 0; i < static_cast<int>(substitutionTs.size()); ++i) {
-        if (substitutionTs[i]->get_width_on_stack() != 1) {
-          fire_error_calling_asm_function_with_non1_stack_width_arg(cur_f, loc, fun_ref, substitutionTs, i);
+      for (int i = 0; i < substitutedTs.size(); ++i) {
+        if (substitutedTs.typeT_at(i)->get_width_on_stack() != 1) {
+          fire_error_calling_asm_function_with_non1_stack_width_arg(cur_f, loc, fun_ref, substitutedTs, i);
         }
       }
     }
 
-    // make deep clone of `f<T>` with substitutionTs
+    // make deep clone of `f<T>` with substitutedTs
     // (if `f<int>` was already instantiated, it will be immediately returned from a symbol table)
-    return instantiate_generic_function(loc, fun_ref, std::move(substitutionTs));
+    return instantiate_generic_function(fun_ref, std::move(substitutedTs));
   }
 
   ExprFlow infer_dot_access(V<ast_dot_access> v, FlowContext&& flow, bool used_as_condition, TypePtr hint) {
@@ -889,8 +965,8 @@ class InferTypesAndCallsAndFieldsVisitor final {
 
     } else if (fun_ref->is_generic_function()) {
       // `t.tupleAt<slice>` is valid, it's a reference to instantiation
-      std::vector<TypePtr> substitutions = collect_fun_generic_substitutions_from_manually_specified(v->loc, fun_ref, v_instantiationTs);
-      fun_ref = check_and_instantiate_generic_function(v->loc, fun_ref, std::move(substitutions));
+      GenericsSubstitutions substitutedTs = collect_fun_generic_substitutions_from_manually_specified(v->loc, fun_ref->genericTs, v_instantiationTs);
+      fun_ref = check_and_instantiate_generic_function(v->loc, fun_ref, std::move(substitutedTs));
 
     } else if (UNLIKELY(v_instantiationTs != nullptr)) {
       // non-generic method referenced like `var cb = c.cellHash<int>;`
@@ -915,7 +991,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
 
     if (auto v_ref = callee->try_as<ast_reference>()) {
       // `globalF()` / `globalF<int>()` / `local_var()` / `SOME_CONST()`
-      fun_ref = v_ref->sym->try_as<FunctionPtr>();         // not null for `globalF`
+      fun_ref = v_ref->sym->try_as<FunctionPtr>();          // not null for `globalF`
       v_instantiationTs = v_ref->get_instantiationTs();     // present for `globalF<int>()`
 
     } else if (auto v_dot = callee->try_as<ast_dot_access>()) {
@@ -970,29 +1046,36 @@ class InferTypesAndCallsAndFieldsVisitor final {
       return ExprFlow(std::move(flow), used_as_condition);
     }
 
+    // for a call `f<int>(...)`, create and instantiate function "f<int>" right now
+    // so that further, fun_ref will be not a generic, but an instantiated function
+    if (fun_ref->is_generic_function() && v_instantiationTs) {
+      GenericsSubstitutions substitutedTs = collect_fun_generic_substitutions_from_manually_specified(v->loc, fun_ref->genericTs, v_instantiationTs);
+      fun_ref = check_and_instantiate_generic_function(v->loc, fun_ref, std::move(substitutedTs));
+    } else if (UNLIKELY(v_instantiationTs != nullptr)) {
+      // `c.cellHash<int>()` / `beginCell<builder>()`
+      fire(cur_f, v_instantiationTs->loc, "calling a not generic function with generic T");
+    }
+
     // so, we have a call `f(args)` or `obj.f(args)`, f is a global function (fun_ref) (code / asm / builtin)
-    // we're going to iterate over passed arguments, and (if generic) infer substitutionTs
+    // we're going to iterate over passed arguments, and (if generic) infer substitutedTs
     // at first, check arguments count (Tolk doesn't have optional parameters, so just compare counts)
     int n_arguments = v->get_num_args() + delta_self;
     int n_parameters = fun_ref->get_num_params();
     if (!n_parameters && dot_obj) {
-      fire(cur_f, v->loc, "`" + fun_ref->name + "` has no parameters and can not be called as method");
+      fire(cur_f, v->loc, to_string(fun_ref) + " has no parameters and can not be called as method");
     }
     if (n_parameters < n_arguments) {
-      fire(cur_f, v->loc, "too many arguments in call to `" + fun_ref->name + "`, expected " + std::to_string(n_parameters - delta_self) + ", have " + std::to_string(n_arguments - delta_self));
+      fire(cur_f, v->loc, "too many arguments in call to " + to_string(fun_ref) + ", expected " + std::to_string(n_parameters - delta_self) + ", have " + std::to_string(n_arguments - delta_self));
     }
     if (n_arguments < n_parameters) {
-      fire(cur_f, v->loc, "too few arguments in call to `" + fun_ref->name + "`, expected " + std::to_string(n_parameters - delta_self) + ", have " + std::to_string(n_arguments - delta_self));
+      fire(cur_f, v->loc, "too few arguments in call to " + to_string(fun_ref) + ", expected " + std::to_string(n_parameters - delta_self) + ", have " + std::to_string(n_arguments - delta_self));
     }
 
     // now, for every passed argument, we need to infer its type
     // for regular functions, it's obvious
-    // but for generic functions, we need to infer type arguments (substitutionTs) on the fly
+    // but for generic functions, we need to infer type arguments (substitutedTs) on the fly
     // (unless Ts are specified by a user like `f<int>(args)` / `t.tupleAt<slice>()`, take them)
-    GenericSubstitutionsDeduceForCall* deducingTs = fun_ref->is_generic_function() ? new GenericSubstitutionsDeduceForCall(fun_ref) : nullptr;
-    if (deducingTs && v_instantiationTs) {
-      deducingTs->provide_manually_specified(collect_fun_generic_substitutions_from_manually_specified(v->loc, fun_ref, v_instantiationTs));
-    }
+    GenericSubstitutionsDeducing deducingTs(fun_ref);
 
     // loop over every argument, for `obj.method()` obj is the first one
     // if genericT deducing has a conflict, ParseError is thrown
@@ -1002,7 +1085,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
       const LocalVarData& param_0 = fun_ref->parameters[0];
       TypePtr param_type = param_0.declared_type;
       if (param_type->has_genericT_inside()) {
-        param_type = deducingTs->auto_deduce_from_argument(cur_f, dot_obj->loc, param_type, dot_obj->inferred_type);
+        param_type = deducingTs.auto_deduce_from_argument(cur_f, dot_obj->loc, param_type, dot_obj->inferred_type);
       }
       if (param_0.is_mutate_parameter() && dot_obj->inferred_type->unwrap_alias() != param_type->unwrap_alias()) {
         if (SinkExpression s_expr = extract_sink_expression_from_vertex(dot_obj)) {
@@ -1015,16 +1098,12 @@ class InferTypesAndCallsAndFieldsVisitor final {
       const LocalVarData& param_i = fun_ref->parameters[delta_self + i];
       AnyExprV arg_i = v->get_arg(i)->get_expr();
       TypePtr param_type = param_i.declared_type;
-      if (param_type->has_genericT_inside() && deducingTs->is_manually_specified()) {   // `f<int>(a)`
-        param_type = deducingTs->replace_by_manually_specified(param_type);
+      if (param_type->has_genericT_inside()) {
+        param_type = deducingTs.replace_Ts_with_currently_deduced(param_type);
       }
+      flow = infer_any_expr(arg_i, std::move(flow), false, param_type).out_flow;
       if (param_type->has_genericT_inside()) {    // `f(a)` where f is generic: use `a` to infer param type
-        // then arg_i is inferred without any hint
-        flow = infer_any_expr(arg_i, std::move(flow), false).out_flow;
-        param_type = deducingTs->auto_deduce_from_argument(cur_f, arg_i->loc, param_type, arg_i->inferred_type);
-      } else {
-        // param_type is hint, helps infer arg_i
-        flow = infer_any_expr(arg_i, std::move(flow), false, param_type).out_flow;
+        param_type = deducingTs.auto_deduce_from_argument(cur_f, arg_i->loc, param_type, arg_i->inferred_type);
       }
       assign_inferred_type(v->get_arg(i), arg_i);  // arg itself is an expression
       if (param_i.is_mutate_parameter() && arg_i->inferred_type->unwrap_alias() != param_type->unwrap_alias()) {
@@ -1040,22 +1119,17 @@ class InferTypesAndCallsAndFieldsVisitor final {
 
     if (fun_ref->is_generic_function()) {
       // if `f(args)` was called, Ts were inferred; check that all of them are known
-      int idx = deducingTs->get_first_not_deduced_idx();
-      if (idx != -1 && hint && fun_ref->declared_return_type->has_genericT_inside()) {
+      std::string_view nameT_unknown = deducingTs.get_first_not_deduced_nameT();
+      if (!nameT_unknown.empty() && hint && fun_ref->declared_return_type && fun_ref->declared_return_type->has_genericT_inside()) {
         // example: `t.tupleFirst()`, T doesn't depend on arguments, but is determined by return type
         // if used like `var x: int = t.tupleFirst()` / `t.tupleFirst() as int` / etc., use hint
-        deducingTs->auto_deduce_from_argument(cur_f, v->loc, fun_ref->declared_return_type, hint);
-        idx = deducingTs->get_first_not_deduced_idx();
+        deducingTs.auto_deduce_from_argument(cur_f, v->loc, fun_ref->declared_return_type, hint);
+        nameT_unknown = deducingTs.get_first_not_deduced_nameT();
       }
-      if (idx != -1) {
-        fire(cur_f, v->loc, "can not deduce " + fun_ref->genericTs->get_nameT(idx));
+      if (!nameT_unknown.empty()) {
+        deducingTs.fire_error_can_not_deduce(cur_f, v->get_arg_list()->loc, nameT_unknown);
       }
-      fun_ref = check_and_instantiate_generic_function(v->loc, fun_ref, deducingTs->flush());
-      delete deducingTs;
-
-    } else if (UNLIKELY(v_instantiationTs != nullptr)) {
-      // non-generic function/method called with type arguments, like `c.cellHash<int>()` / `beginCell<builder>()`
-      fire(cur_f, v_instantiationTs->loc, "calling a not generic function with generic T");
+      fun_ref = check_and_instantiate_generic_function(v->loc, fun_ref, deducingTs.flush());
     }
 
     v->mutate()->assign_fun_ref(fun_ref);
@@ -1118,7 +1192,26 @@ class InferTypesAndCallsAndFieldsVisitor final {
       auto v_arm = v->get_arm(i);
       FlowContext arm_flow = infer_any_expr(v_arm->get_pattern_expr(), arms_entry_facts.clone(), false, nullptr).out_flow;
       if (s_expr && v_arm->pattern_kind == MatchArmKind::exact_type) {
-        arm_flow.register_known_type(s_expr, v_arm->pattern_type_node->resolved_type);
+        TypePtr exact_type = v_arm->pattern_type_node->resolved_type;
+        if (const auto* t_struct = exact_type->try_as<TypeDataStruct>(); t_struct && t_struct->struct_ref->is_generic_struct()) {
+          // `Wrapper => ...`, detect T based on type of subject (`Wrapper<int> | int` => `Wrapper<int>`)
+          if (TypePtr inst_exact_type = try_pick_instantiated_generic_from_hint(v->get_subject()->inferred_type, t_struct->struct_ref)) {
+            exact_type = inst_exact_type;
+            v_arm->pattern_type_node->mutate()->assign_resolved_type(exact_type);
+          } else {
+            fire(cur_f, v_arm->loc, "can not deduce type arguments for " + to_string(t_struct->struct_ref) + ", provide them manually");
+          }
+        }
+        if (const auto* t_alias = exact_type->try_as<TypeDataAlias>(); t_alias && t_alias->alias_ref->is_generic_alias()) {
+          // `WrapperAlias => ...`, detect T similar to structures
+          if (TypePtr inst_exact_type = try_pick_instantiated_generic_from_hint(v->get_subject()->inferred_type, t_alias->alias_ref)) {
+            exact_type = inst_exact_type;
+            v_arm->pattern_type_node->mutate()->assign_resolved_type(exact_type);
+          } else {
+            fire(cur_f, v_arm->loc, "can not deduce type arguments for " + to_string(t_alias->alias_ref) + ", provide them manually");
+          }
+        }
+        arm_flow.register_known_type(s_expr, exact_type);
       }
       arm_flow = infer_any_expr(v_arm->get_body(), std::move(arm_flow), false, hint).out_flow;
       match_out_flow = i == 0 ? std::move(arm_flow) : FlowContext::merge_flow(std::move(match_out_flow), std::move(arm_flow));
@@ -1147,22 +1240,26 @@ class InferTypesAndCallsAndFieldsVisitor final {
   }
 
   ExprFlow infer_object_literal(V<ast_object_literal> v, FlowContext&& flow, bool used_as_condition, TypePtr hint) {
+    // the goal is to detect struct_ref
+    // either by lhs hint `var u: User = { ... }, or by explicitly provided ref `User { ... }`
     StructPtr struct_ref = nullptr;
-    if (v->has_explicit_ref()) {
-      V<ast_reference> v_ref = v->get_explicit_ref();
-      struct_ref = v_ref->sym->try_as<StructPtr>();
+
+    // `User { ... }` / `UserAlias { ... }` / `Wrapper { ... }` / `Wrapper<int> { ... }`
+    if (v->type_node) {
+      TypePtr provided_type = v->type_node->resolved_type->unwrap_alias();
+      if (const TypeDataStruct* hint_struct = provided_type->try_as<TypeDataStruct>()) {
+        struct_ref = hint_struct->struct_ref;     // `Wrapper` / `Wrapper<int>`
+      } else if (const TypeDataGenericTypeWithTs* hint_instTs = provided_type->try_as<TypeDataGenericTypeWithTs>()) {
+        struct_ref = hint_instTs->struct_ref;     // if `type WAlias<T> = Wrapper<T>`, here `Wrapper` (generic struct)
+      }
       if (!struct_ref) {
-        if (AliasDefPtr as_alias = v_ref->sym->try_as<AliasDefPtr>()) {
-          if (const TypeDataStruct* as_struct = as_alias->underlying_type->unwrap_alias()->try_as<TypeDataStruct>()) {
-            struct_ref = as_struct->struct_ref;
-          }
+        fire(cur_f, v->type_node->loc, to_string(v->type_node->resolved_type) + " does not name a struct");
+      }
+      // example: `var v: Ok<int> = Ok { ... }`, now struct_ref is "Ok<T>", take "Ok<int>" from hint
+      if (struct_ref->is_generic_struct() && hint) {
+        if (TypePtr inst_explicit_ref = try_pick_instantiated_generic_from_hint(hint, struct_ref)) {
+          struct_ref = inst_explicit_ref->try_as<TypeDataStruct>()->struct_ref;
         }
-      }
-      if (!struct_ref) {
-        fire(cur_f, v_ref->loc, "`" + to_string(v_ref->get_name()) + "` does not name a struct");
-      }
-      if (UNLIKELY(v_ref->has_instantiationTs())) {
-        fire(cur_f, v_ref->get_instantiationTs()->loc, "generic T not expected here");
       }
     }
     if (!struct_ref && hint) {
@@ -1187,26 +1284,55 @@ class InferTypesAndCallsAndFieldsVisitor final {
       fire(cur_f, v->loc, "can not detect struct name; use either `var v: StructName = { ... }` or `var v = StructName { ... }`");
     }
 
+    // so, we have struct_ref, so we can check field names and infer values
+    // if it's a generic struct, we need to deduce Ts by field values, like for a function call
+    GenericSubstitutionsDeducing deducingTs(struct_ref);
+
     uint64_t occurred_mask = 0;
     for (int i = 0; i < v->get_body()->get_num_fields(); ++i) {
-      auto v_field = v->get_body()->get_field(i);
-      std::string_view field_name = v_field->get_field_name();
+      auto field_i = v->get_body()->get_field(i);
+      std::string_view field_name = field_i->get_field_name();
       StructFieldPtr field_ref = struct_ref->find_field(field_name);
       if (!field_ref) {
-        fire(cur_f, v_field->loc, "field `" + to_string(field_name) + "` not found in struct `" + struct_ref->name + "`");
+        fire(cur_f, field_i->loc, "field `" + to_string(field_name) + "` not found in struct " + to_string(struct_ref));
       }
-      v_field->mutate()->assign_field_ref(field_ref);
+      field_i->mutate()->assign_field_ref(field_ref);
 
       if (occurred_mask & (1ULL << field_ref->field_idx)) {
-        fire(cur_f, v_field->loc, "duplicate field initialization");
+        fire(cur_f, field_i->loc, "duplicate field initialization");
       }
       occurred_mask |= 1ULL << field_ref->field_idx;
-      flow = infer_any_expr(v_field->get_init_val(), std::move(flow), false, field_ref->declared_type).out_flow;
-      assign_inferred_type(v_field, v_field->get_init_val());
+
+      AnyExprV val_i = field_i->get_init_val();
+      TypePtr field_type = field_ref->declared_type;
+      if (field_type->has_genericT_inside()) {
+        field_type = deducingTs.replace_Ts_with_currently_deduced(field_type);
+      }
+      if (field_type->has_genericT_inside()) {   // `item: v` where field `item` is generic: use `v` to infer T
+        flow = infer_any_expr(val_i, std::move(flow), false).out_flow;
+        deducingTs.auto_deduce_from_argument(cur_f, field_i->loc, field_type, val_i->inferred_type);
+      } else {
+        // field_type is hint, helps infer val_i
+        flow = infer_any_expr(val_i, std::move(flow), false, field_type).out_flow;
+      }
+      assign_inferred_type(field_i, val_i);
     }
     for (StructFieldPtr field_ref : struct_ref->fields) {
       if (!(occurred_mask & (1ULL << field_ref->field_idx)) && !field_ref->has_default_value()) {
-        fire(cur_f, v->get_body()->loc, "field `" + field_ref->name + "` missed in initialization of struct `" + struct_ref->name + "`");
+        fire(cur_f, v->get_body()->loc, "field `" + field_ref->name + "` missed in initialization of struct " + to_string(struct_ref));
+      }
+    }
+
+    // if it's a generic struct `Wrapper<T>`, we need to instantiate it, like `Wrapper<int>`
+    if (struct_ref->is_generic_struct()) {
+      if (std::string_view nameT = deducingTs.get_first_not_deduced_nameT(); !nameT.empty()) {
+        deducingTs.fire_error_can_not_deduce(cur_f, v->loc, nameT);
+      }
+      struct_ref = instantiate_generic_struct(struct_ref, deducingTs.flush());
+      // re-assign field_ref (it was earlier assigned into a field of a generic struct)
+      for (int i = 0; i < v->get_body()->get_num_fields(); ++i) {
+        auto field_i = v->get_body()->get_field(i);
+        field_i->mutate()->assign_field_ref(struct_ref->find_field(field_i->get_field_name()));
       }
     }
 
@@ -1406,13 +1532,13 @@ public:
         if (has_void_returns && has_non_void_returns) {
           for (AnyExprV return_expr : return_statements) {
             if (return_expr->inferred_type == TypeDataVoid::create()) {
-              fire(fun_ref, return_expr->loc, "mixing void and non-void returns in function `" + fun_ref->as_human_readable() + "`");
+              fire(fun_ref, return_expr->loc, "mixing void and non-void returns in function " + to_string(fun_ref));
             }
           }
         }
         if (return_unifier.is_union_of_different_types()) {
           // `return intVar` + `return sliceVar` results in `int | slice`, probably unexpected
-          fire(fun_ref, v_function->get_body()->loc, "function `" + fun_ref->as_human_readable() + "` calculated return type is " + to_string(inferred_return_type) + "; probably, it's not what you expected; declare `fun (...): <return_type>` manually");
+          fire(fun_ref, v_function->get_body()->loc, "function " + to_string(fun_ref) + " calculated return type is " + to_string(inferred_return_type) + "; probably, it's not what you expected; declare `fun (...): <return_type>` manually");
         }
       }
 
@@ -1514,7 +1640,9 @@ void pipeline_infer_types_and_calls_and_fields() {
 
   // infer types for default values in structs
   for (StructPtr struct_ref : get_all_declared_structs()) {
-    visitor.start_visiting_struct_fields(struct_ref);
+    if (!struct_ref->is_generic_struct()) {
+      visitor.start_visiting_struct_fields(struct_ref);
+    }
   }
 }
 

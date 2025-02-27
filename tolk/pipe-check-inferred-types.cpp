@@ -750,7 +750,7 @@ void pipeline_check_inferred_types() {
   }
   for (StructPtr struct_ref : get_all_declared_structs()) {
     for (StructFieldPtr field_ref : struct_ref->fields) {
-      if (field_ref->has_default_value()) {
+      if (field_ref->has_default_value() && !struct_ref->is_generic_struct()) {
         visitor.start_visiting_field_default(field_ref);
       }
     }

@@ -10,6 +10,6 @@ fun cantDeduceDefiniteUnion(a: int | slice | builder) {
 
 /**
 @compilation_should_fail
-@stderr can not deduce T1 for generic function `makeNullable<T1,T2>`
+@stderr can not deduce T1 for generic function `makeNullable<T1, T2>`
 @stderr makeNullable(a);
  */

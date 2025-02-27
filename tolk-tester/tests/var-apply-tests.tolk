@@ -242,6 +242,23 @@ fun testCallableFields() {
     );
 }
 
+struct Wrapper<T> {
+    value: T;
+}
+
+fun wrap<T>(value: T): Wrapper<T> {
+    return{value};
+}
+
+@method_id(116)
+fun testCallableGenericField() {
+    var w1: Wrapper<(int) -> int> = { value: justAdd2 };
+    var w2: Wrapper<CallbackIntToInt?> = { value: justAdd2 };
+    var w_f = wrap<int->MInt>;
+    return (w1.value(5), w2.value!(9), wrap(w_f(justAdd2)).value.value(78));
+}
+
+
 fun main() {}
 
 /**
@@ -267,4 +284,5 @@ fun main() {}
 @testcase | 114 | -1         | 2 3 131
 @testcase | 114 | 0          | (null) 12 1
 @testcase | 115 |            | 7 6 7
+@testcase | 116 |            | 7 11 80
  */
