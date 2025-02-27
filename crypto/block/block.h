@@ -391,6 +391,8 @@ struct CurrencyCollection {
   CurrencyCollection operator-(CurrencyCollection&& other) const;
   CurrencyCollection operator-(td::RefInt256 other_grams) const;
   bool clamp(const CurrencyCollection& other);
+  bool check_extra_currency_limit(td::uint32 max_currencies) const;
+  static bool remove_zero_extra_currencies(Ref<vm::Cell>& root, td::uint32 max_currencies);
   bool store(vm::CellBuilder& cb) const;
   bool store_or_zero(vm::CellBuilder& cb) const;
   bool fetch(vm::CellSlice& cs);

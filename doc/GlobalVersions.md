@@ -135,3 +135,24 @@ Example: if the last masterchain block seqno is `19071` then the list contains b
 - Now setting the contract code to a library cell does not consume additional gas on execution of the code.
 - Temporary increase gas limit for some accounts (see [this post](https://t.me/tondev_news/129) for details, `override_gas_limit` in `transaction.cpp` for the list of accounts).
 - Fix recursive jump to continuations with non-null control data.
+
+## Version 10
+
+### Extra currencies
+- Internal messages cannot carry more than 2 different extra currencies. The limit can be changed in size limits config (`ConfigParam 43`).
+- Amount of an extra currency in an output action "send message" can be zero.
+  - In action phase zero values are automatically deleted from the dictionary before sending.
+  - However, the size of the extra currency dictionary in the "send message" action should not be greater than 2 (or the value in size limits config).
+- Extra currency dictionary is not counted in message size and does not affect message fees.
+- Message mode `+64` (carry all remaining message balance) is now considered as "carry all remaining TONs from message balance".
+- Message mode `+128` (carry all remaining account balance) is now considered as "carry all remaining TONs from account balance".
+- Message mode `+32` (delete account if balance is zero) deletes account if it has zero TONs, regardless of extra currencies.
+  - Deleted accounts with extra currencies become `account_uninit`, extra currencies remain on the account.
+- `SENDMSG` in TVM calculates message size and fees without extra currencies, uses new `+64` and `+128` mode behavior.
+  - `SENDMSG` does not check the number of extra currencies.
+- Extra currency dictionary is not counted in the account size and does not affect storage fees.
+  - Accounts with already existing extra currencies will get their sizes recomputed without EC only after modifying `AccountState`.
+
+### TVM changes
+- `SENDMSG` calculates messages size and fees without extra currencies, uses new +64 and +128 mode behavior.
+  - `SENDMSG` does not check the number of extra currencies.

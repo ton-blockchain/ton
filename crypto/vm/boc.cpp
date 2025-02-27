@@ -1153,8 +1153,12 @@ td::Result<CellStorageStat::CellInfo> CellStorageStat::add_used_storage(Ref<vm::
       return ins.first->second;
     }
   }
-  vm::CellSlice cs{vm::NoVm{}, std::move(cell)};
-  return add_used_storage(std::move(cs), kill_dup, skip_count_root);
+  vm::CellSlice cs{vm::NoVm{}, cell};
+  TRY_RESULT(res, add_used_storage(std::move(cs), kill_dup, skip_count_root));
+  if (kill_dup) {
+    seen[cell->get_hash()] = res;
+  }
+  return res;
 }
 
 void NewCellStorageStat::add_cell(Ref<Cell> cell) {
