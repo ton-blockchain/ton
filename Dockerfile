@@ -1,6 +1,6 @@
 FROM ubuntu:22.04 AS builder
 RUN apt-get update && \
-        DEBIAN_FRONTEND=noninteractive apt-get --reinstall install libc-bin \
+        DEBIAN_FRONTEND=noninteractive apt-get --reinstall install libc-bin && \
         DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential cmake clang openssl libssl-dev zlib1g-dev gperf wget git ninja-build libsodium-dev libmicrohttpd-dev liblz4-dev pkg-config autoconf automake libtool libjemalloc-dev lsb-release software-properties-common gnupg
 
 RUN wget https://apt.llvm.org/llvm.sh && \
