@@ -308,8 +308,11 @@ bool AcceptBlockQuery::create_new_proof() {
   }
   // 10. check resulting object
   if (!block::gen::t_BlockProof.validate_ref(bs_cell)) {
-    block::gen::t_BlockProof.print_ref(std::cerr, bs_cell);
-    vm::load_cell_slice(bs_cell).print_rec(std::cerr);
+    FLOG(WARNING) {
+      sb << "BlockProof object just created failed to pass automated consistency checks: ";
+      block::gen::t_BlockProof.print_ref(sb, bs_cell);
+      vm::load_cell_slice(bs_cell).print_rec(sb);
+    };
     return fatal_error("BlockProof object just created failed to pass automated consistency checks");
   }
   // 11. create a proof object from this cell
@@ -851,15 +854,12 @@ bool AcceptBlockQuery::create_top_shard_block_description() {
         && (root.is_null() || cb.store_ref_bool(std::move(root))) && cb.finalize_to(td_cell))) {
     return fatal_error("cannot serialize ShardTopBlockDescription for the newly-accepted block "s + id_.to_str());
   }
-  if (false) {
-    // debug output
-    std::cerr << "new ShardTopBlockDescription: ";
-    block::gen::t_TopBlockDescr.print_ref(std::cerr, td_cell);
-    vm::load_cell_slice(td_cell).print_rec(std::cerr);
-  }
   if (!block::gen::t_TopBlockDescr.validate_ref(td_cell)) {
-    block::gen::t_TopBlockDescr.print_ref(std::cerr, td_cell);
-    vm::load_cell_slice(td_cell).print_rec(std::cerr);
+    FLOG(WARNING) {
+      sb << "just created ShardTopBlockDescription is invalid: ";
+      block::gen::t_TopBlockDescr.print_ref(sb, td_cell);
+      vm::load_cell_slice(td_cell).print_rec(sb);
+    };
     return fatal_error("just created ShardTopBlockDescription for "s + id_.to_str() + " is invalid");
   }
   auto res = vm::std_boc_serialize(td_cell, 0);

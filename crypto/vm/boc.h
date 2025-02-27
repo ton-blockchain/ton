@@ -101,9 +101,9 @@ class NewCellStorageStat {
 
  private:
   const CellUsageTree* usage_tree_;
-  std::set<vm::Cell::Hash> seen_;
+  td::HashSet<vm::Cell::Hash> seen_;
   Stat stat_;
-  std::set<vm::Cell::Hash> proof_seen_;
+  td::HashSet<vm::Cell::Hash> proof_seen_;
   Stat proof_stat_;
   const NewCellStorageStat* parent_{nullptr};
 
@@ -117,7 +117,7 @@ struct CellStorageStat {
   struct CellInfo {
     td::uint32 max_merkle_depth = 0;
   };
-  std::map<vm::Cell::Hash, CellInfo> seen;
+  td::HashMap<vm::Cell::Hash, CellInfo> seen;
   CellStorageStat() : cells(0), bits(0), public_cells(0) {
   }
   explicit CellStorageStat(unsigned long long limit_cells)
@@ -173,7 +173,7 @@ class ProofStorageStat {
   enum CellStatus {
     c_none = 0, c_prunned = 1, c_loaded = 2
   };
-  std::map<vm::Cell::Hash, CellStatus> cells_;
+  td::HashMap<vm::Cell::Hash, CellStatus> cells_;
   td::uint64 proof_size_ = 0;
 };
 

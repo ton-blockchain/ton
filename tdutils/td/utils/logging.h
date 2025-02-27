@@ -264,8 +264,8 @@ class Logger {
     sb_ << other;
     return *this;
   }
-  LambdaPrintHelper<td::Logger> operator<<(const LambdaPrint &) {
-    return LambdaPrintHelper<td::Logger>{*this};
+  LambdaPrintHelper<td::StringBuilder> operator<<(const LambdaPrint &) {
+    return LambdaPrintHelper<td::StringBuilder>{sb_};
   }
 
   MutableCSlice as_cslice() {

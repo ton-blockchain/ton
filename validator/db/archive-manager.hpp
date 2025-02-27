@@ -81,6 +81,8 @@ class ArchiveManager : public td::actor::Actor {
     cur_shard_split_depth_ = value;
   }
 
+  void prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise);
+
   static constexpr td::uint32 archive_size() {
     return 20000;
   }
