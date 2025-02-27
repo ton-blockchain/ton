@@ -119,19 +119,13 @@ void UdpServerTunnelImpl::start_up() {
     return;
   }
 
-  auto tunnel_conf_data_R = td::read_file(tunnel_config_);
-  if (tunnel_conf_data_R.is_error()) {
-    LOG(FATAL) << tunnel_conf_data_R.move_as_error_prefix("failed to read tunnel config: ");
-    return;
-  }
-
   auto global_cfg = global_conf_data_R.move_as_ok();
-  auto tunnel_cfg = tunnel_conf_data_R.move_as_ok();
 
   LOG(INFO) << "Initializing ADNL Tunnel...";
-  const auto res = PrepareTunnel(&on_recv_batch, &on_reinit, callback_.get(), callback_.get(), const_cast<char*>(tunnel_cfg.data()), tunnel_cfg.size(), global_cfg.data(), global_cfg.size());
+  const auto res = PrepareTunnel(&on_recv_batch, &on_reinit, callback_.get(), callback_.get(), tunnel_config_.data(), tunnel_config_.size(), global_cfg.data(), global_cfg.size());
   if (!res.index) {
-    LOG(FATAL) << "ADNL Tunnel initialization failed";
+    // the reason will be displayed in logs from lib part
+    exit(1);
   }
   tunnel_index_ = res.index;
   LOG(INFO) << "ADNL Tunnel Initialized";
