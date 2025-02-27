@@ -238,27 +238,43 @@ struct ChunkAnnotation final : ChunkLexerBase {
 
 // A number, may be a hex one.
 struct ChunkNumber final : ChunkLexerBase {
-  bool parse(Lexer* lex) const override {
+  static bool parse_hex_or_bin(Lexer* lex, bool bin) {
     const char* str_begin = lex->c_str();
-    bool hex = false;
-    if (lex->char_at() == '0' && lex->char_at(1) == 'x') {
-      lex->skip_chars(2);
-      hex = true;
-    }
+    lex->skip_chars(2);     // 0x / 0b
     if (lex->is_eof()) {
       return false;
     }
+
     while (!lex->is_eof()) {
       char c = lex->char_at();
-      if (c >= '0' && c <= '9') {
-        lex->skip_chars(1);
-        continue;
-      }
-      if (!hex) {
+      bool ok = bin
+        ? c == '0' || c == '1'
+        : (c >= '0' && c <= '9') || ((c | 0x20) >= 'a' && (c | 0x20) <= 'f');
+      if (!ok) {
         break;
       }
-      c |= 0x20;
-      if (c < 'a' || c > 'f') {
+      lex->skip_chars(1);
+    }
+
+    std::string_view str_val(str_begin, lex->c_str() - str_begin);
+    lex->add_token(tok_int_const, str_val);
+    return true;
+  }
+
+  bool parse(Lexer* lex) const override {
+    if (lex->char_at() == '0') {
+      if (lex->char_at(1) == 'x') {
+        return parse_hex_or_bin(lex, false);
+      }
+      if (lex->char_at(1) == 'b') {
+        return parse_hex_or_bin(lex, true);
+      }
+    }
+
+    const char* str_begin = lex->c_str();
+    while (!lex->is_eof()) {
+      char c = lex->char_at();
+      if (c < '0' || c > '9') {
         break;
       }
       lex->skip_chars(1);

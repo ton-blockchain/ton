@@ -123,6 +123,25 @@ static AnyExprV maybe_replace_eq_null_with_isNull_check(V<ast_binary_operator> v
   return createV<ast_is_null_check>(v->loc, v_nullable, v->tok == tok_neq);
 }
 
+// parse `123` / `0xFF` / `0b10001` to td::RefInt256
+static td::RefInt256 parse_tok_int_const(std::string_view text) {
+  bool bin = text[0] == '0' && text[1] == 'b';
+  if (!bin) {
+    // this function parses decimal and hex numbers
+    return td::string_to_int256(static_cast<std::string>(text));
+  }
+  // parse a binary number; to make it simpler, don't allow too long numbers, it's impractical
+  if (text.size() > 64 + 2) {
+    return {};
+  }
+  uint64_t result = 0;
+  for (char c : text.substr(2)) { // skip "0b"
+    result = (result << 1) | static_cast<uint64_t>(c - '0');
+  }
+  return td::make_refint(result);
+}
+
+
 
 /*
  *
@@ -313,7 +332,7 @@ static AnyExprV parse_expr100(Lexer& lex) {
     }
     case tok_int_const: {
       std::string_view orig_str = lex.cur_str();
-      td::RefInt256 intval = td::string_to_int256(static_cast<std::string>(orig_str));
+      td::RefInt256 intval = parse_tok_int_const(orig_str);
       if (intval.is_null() || !intval->signed_fits_bits(257)) {
         lex.error("invalid integer constant");
       }
