@@ -17,6 +17,7 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
+#include "account-storage-stat.h"
 #include "common/refcnt.hpp"
 #include "common/refint.h"
 #include "vm/cells.h"
@@ -179,6 +180,7 @@ struct ActionPhaseConfig {
 
 struct SerializeConfig {
   bool extra_currency_v2{false};
+  bool store_storage_dict_hash{false};
 };
 
 struct CreditPhase {
@@ -266,8 +268,12 @@ struct Account {
   ton::LogicalTime last_trans_lt_;
   ton::Bits256 last_trans_hash_;
   ton::LogicalTime block_lt;
+
   ton::UnixTime last_paid;
-  vm::CellStorageStat storage_stat;
+  StorageUsed storage_used;
+  td::optional<td::Bits256> storage_dict_hash;
+  td::optional<AccountStorageStat> account_storage_stat;
+
   block::CurrencyCollection balance;
   td::RefInt256 due_payment;
   Ref<vm::Cell> orig_total_state;  // ^Account
@@ -377,7 +383,9 @@ struct Transaction {
   std::unique_ptr<ComputePhase> compute_phase;
   std::unique_ptr<ActionPhase> action_phase;
   std::unique_ptr<BouncePhase> bounce_phase;
-  vm::CellStorageStat new_storage_stat;
+  StorageUsed new_storage_used;
+  td::optional<AccountStorageStat> new_account_storage_stat;
+  td::optional<td::Bits256> new_storage_dict_hash;
   bool gas_limit_overridden{false};
   Transaction(const Account& _account, int ttype, ton::LogicalTime req_start_lt, ton::UnixTime _now,
               Ref<vm::Cell> _inmsg = {});
