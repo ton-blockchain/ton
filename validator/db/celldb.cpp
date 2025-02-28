@@ -233,6 +233,8 @@ void CellDbIn::start_up() {
   }
   db_options.use_direct_reads = opts_->get_celldb_direct_io();
   db_options.enable_bloom_filter = !opts_->get_celldb_disable_bloom_filter();
+  db_options.two_level_index_and_filter = db_options.enable_bloom_filter 
+                                && opts_->state_ttl() >= 60 * 60 * 24 * 30; // 30 days
 
   // NB: from now on we MUST use this merge operator
   // Only V2 and InMemory BoC actually use them, but it still should be kept for V1,
