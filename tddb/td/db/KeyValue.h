@@ -23,9 +23,6 @@
 #include "td/utils/Span.h"
 #include <functional>
 namespace td {
-
-enum class DbOpenMode { db_primary, db_secondary, db_readonly };
-
 class KeyValueReader {
  public:
   virtual ~KeyValueReader() = default;
