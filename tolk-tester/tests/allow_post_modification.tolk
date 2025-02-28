@@ -47,7 +47,7 @@ fun test_call_1(x: int): (int, int, int, int, int, int, int) {
     return foo1(x, x.`~inc`(x / 20), x, x = x * 2, x, x += 1, x);
 }
 
-fun foo2(x1: int, x2: int, x3456: (int, int, int, int), x7: int): (int, int, int, int, int, int, int) {
+fun foo2(x1: int, x2: int, x3456: (int, int, int, int), x7: int, ): (int, int, int, int, int, int, int) {
     var (x3: int, x4: int, x5: int, x6: int) = x3456;
     return (x1, x2, x3, x4, x5, x6, x7);
 }

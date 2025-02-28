@@ -236,6 +236,9 @@ static V<ast_parameter_list> parse_parameter_list(Lexer& lex) {
     params.push_back(parse_parameter(lex, true));
     while (lex.tok() == tok_comma) {
       lex.next();
+      if (lex.tok() == tok_clpar) {     // trailing comma
+        break;
+      }
       params.push_back(parse_parameter(lex, false));
     }
   }
@@ -266,6 +269,9 @@ static V<ast_argument_list> parse_argument_list(Lexer& lex) {
     args.push_back(parse_argument(lex));
     while (lex.tok() == tok_comma) {
       lex.next();
+      if (lex.tok() == tok_clpar) {   // trailing comma
+        break;
+      }
       args.push_back(parse_argument(lex));
     }
   }
@@ -311,9 +317,15 @@ static AnyExprV parse_expr100(Lexer& lex) {
       std::vector<AnyExprV> items(1, first);
       while (lex.tok() == tok_comma) {
         lex.next();
+        if (lex.tok() == tok_clpar) {   // trailing comma
+          break;
+        }
         items.emplace_back(parse_expr(lex));
       }
       lex.expect(tok_clpar, "`)`");
+      if (items.size() == 1) {      // we can reach here for 1 element with trailing comma: `(item, )`
+        return items[0];            // then just return item, not a 1-element tensor,
+      }                             // since 1-element tensors won't be type compatible with item's type
       return createV<ast_tensor>(loc, std::move(items));
     }
     case tok_opbracket: {
@@ -325,6 +337,9 @@ static AnyExprV parse_expr100(Lexer& lex) {
       std::vector<AnyExprV> items(1, parse_expr(lex));
       while (lex.tok() == tok_comma) {
         lex.next();
+        if (lex.tok() == tok_clbracket) {   // trailing comma
+          break;
+        }
         items.emplace_back(parse_expr(lex));
       }
       lex.expect(tok_clbracket, "`]`");
@@ -952,6 +967,9 @@ static V<ast_annotation> parse_annotation(Lexer& lex) {
     args.push_back(parse_expr(lex));
     while (lex.tok() == tok_comma) {
       lex.next();
+      if (lex.tok() == tok_clpar) {   // trailing comma
+        break;
+      }
       args.push_back(parse_expr(lex));
     }
     lex.expect(tok_clpar, "`)`");

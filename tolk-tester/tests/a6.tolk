@@ -4,7 +4,7 @@ fun f(a: int, b: int, c: int, d: int, e: int, f: int): (int, int) {
   __expect_type(D, "int");
   __expect_type(D*D, "int");
   __expect_type(calc_phi, "() -> int");
-  return (Dx/D,Dy/D);
+  return (Dx/D,Dy/D,);
 };;;;
 
 fun calc_phi(): int {
@@ -16,7 +16,7 @@ fun calc_phi(): int {
   do {
     (p,q)=(q,p+q);
   } while (q <= n); //;;
-  return mulDivRound(p, n, q);
+  return mulDivRound(p, n, q,);
 }
 
 fun calc_sqrt2(): int {
@@ -31,10 +31,10 @@ fun calc_sqrt2(): int {
   return mulDivRound(p, n, q);
 }
 
-fun calc_root(m: int) {
+fun calc_root(m: int,) {
   var base: int=1;
   repeat(70) { base *= 10; }
-  var (a, b, c) = (1,0,-m);
+  var (a, b, c) = (1,0,-m,);
   var (p1, q1, p2, q2) = (1, 0, 0, 1);
   do {
     var k: int=-1;

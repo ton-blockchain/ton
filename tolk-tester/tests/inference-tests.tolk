@@ -30,6 +30,15 @@ fun test1(x: int, y: int) {
         __expect_type(beginCell(), "builder");
         __expect_type(beginCell().endCell(), "cell");
     }
+    __expect_type((1, 2), "(int, int)");
+    __expect_type((1, 2, ), "(int, int)");
+    __expect_type((1, ), "int");
+    __expect_type((((1,)),), "int");
+    __expect_type([1, 2], "[int, int]");
+    __expect_type([1, 2, ], "[int, int]");
+    __expect_type([1, ], "[int]");
+    __expect_type([((1, ), ), ], "[int]");
+    __expect_type([[[1, ], ], ], "[[[int]]]");
 }
 
 fun test2(x: int, y: bool) {
