@@ -531,7 +531,7 @@ td::Status LargeBocSerializer::serialize(td::FileFd& fd, int mode) {
 }
 }  // namespace
 
-td::Status std_boc_serialize_to_file_large(std::shared_ptr<CellDbReader> reader, Cell::Hash root_hash, td::FileFd& fd,
+td::Status boc_serialize_to_file_large(std::shared_ptr<CellDbReader> reader, Cell::Hash root_hash, td::FileFd& fd,
                                            int mode, td::CancellationToken cancellation_token) {
   td::Timer timer;
   CHECK(reader != nullptr)

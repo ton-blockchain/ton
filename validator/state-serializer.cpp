@@ -404,7 +404,7 @@ void AsyncStateSerializer::got_masterchain_state(td::Ref<MasterchainState> state
       previous_state_cache->prepare_cache(shard);
     }
     auto new_cell_db_reader = std::make_shared<CachedCellDbReader>(cell_db_reader, previous_state_cache->cache);
-    auto res = vm::std_boc_serialize_to_file_large(new_cell_db_reader, root->get_hash(), fd, 31, std::move(cancellation_token));
+    auto res = vm::boc_serialize_to_file_large(new_cell_db_reader, root->get_hash(), fd, 31, std::move(cancellation_token));
     new_cell_db_reader->print_stats();
     return res;
   };
@@ -474,7 +474,7 @@ void AsyncStateSerializer::got_shard_state(BlockHandle handle, td::Ref<ShardStat
       previous_state_cache->prepare_cache(shard);
     }
     auto new_cell_db_reader = std::make_shared<CachedCellDbReader>(cell_db_reader, previous_state_cache->cache);
-    auto res = vm::std_boc_serialize_to_file_large(new_cell_db_reader, root->get_hash(), fd, 31, std::move(cancellation_token));
+    auto res = vm::boc_serialize_to_file_large(new_cell_db_reader, root->get_hash(), fd, 31, std::move(cancellation_token));
     new_cell_db_reader->print_stats();
     return res;
   };
