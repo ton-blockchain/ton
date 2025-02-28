@@ -102,6 +102,8 @@ void CellDbIn::start_up() {
   }
   db_options.use_direct_reads = opts_->get_celldb_direct_io();
   db_options.enable_bloom_filter = !opts_->get_celldb_disable_bloom_filter();
+  db_options.two_level_index_and_filter = db_options.enable_bloom_filter 
+                                && opts_->state_ttl() >= 60 * 60 * 24 * 30; // 30 days
 
   if (opts_->get_celldb_in_memory()) {
     td::RocksDbOptions read_db_options;
