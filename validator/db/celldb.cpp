@@ -235,6 +235,13 @@ void CellDbIn::start_up() {
   db_options.enable_bloom_filter = !opts_->get_celldb_disable_bloom_filter();
   db_options.two_level_index_and_filter = db_options.enable_bloom_filter 
                                 && opts_->state_ttl() >= 60 * 60 * 24 * 30; // 30 days
+  if (opts_->get_celldb_cache_size()) {
+    db_options.block_cache = td::RocksDb::create_cache(opts_->get_celldb_cache_size().value());
+    LOG(WARNING) << "Set CellDb block cache size to " << td::format::as_size(opts_->get_celldb_cache_size().value());
+  } else if (db_options.two_level_index_and_filter && !opts_->get_celldb_in_memory()) {
+    db_options.block_cache = td::RocksDb::create_cache(16ULL << 30);
+    LOG(WARNING) << "Set CellDb block cache size to 16GB";
+  }
 
   // NB: from now on we MUST use this merge operator
   // Only V2 and InMemory BoC actually use them, but it still should be kept for V1,
