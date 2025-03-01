@@ -1004,6 +1004,10 @@ bool ValidateQuery::fetch_config_params() {
     action_phase_cfg_.disable_custom_fess = config_->get_global_version() >= 8;
     action_phase_cfg_.reserve_extra_enabled = config_->get_global_version() >= 9;
     action_phase_cfg_.mc_blackhole_addr = config_->get_burning_config().blackhole_addr;
+    action_phase_cfg_.extra_currency_v2 = config_->get_global_version() >= 10;
+  }
+  {
+    serialize_cfg_.extra_currency_v2 = config_->get_global_version() >= 10;
   }
   {
     // fetch block_grams_created
@@ -5608,7 +5612,7 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
     return reject_query(PSTRING() << "cannot re-create bounce phase of  transaction " << lt << " for smart contract "
                                   << addr.to_hex());
   }
-  if (!trs->serialize()) {
+  if (!trs->serialize(serialize_cfg_)) {
     return reject_query(PSTRING() << "cannot re-create the serialization of  transaction " << lt
                                   << " for smart contract " << addr.to_hex());
   }

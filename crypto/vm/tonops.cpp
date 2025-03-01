@@ -1761,6 +1761,10 @@ int exec_send_message(VmState* st) {
   vm::VmStorageStat stat(max_cells);
   CellSlice cs = load_cell_slice(msg_cell);
   cs.skip_first(cs.size());
+  if (st->get_global_version() >= 10 && have_extra_currencies) {
+    // Skip extra currency dict
+    cs.advance_refs(1);
+  }
   stat.add_storage(cs);
 
   if (!ext_msg) {
@@ -1773,7 +1777,9 @@ int exec_send_message(VmState* st) {
       if (value.is_null()) {
         throw VmError{Excno::type_chk, "invalid param BALANCE"};
       }
-      have_extra_currencies |= !tuple_index(balance, 1).as_cell().is_null();
+      if (st->get_global_version() < 10) {
+        have_extra_currencies |= !tuple_index(balance, 1).as_cell().is_null();
+      }
     } else if (mode & 64) {  // value += value of incoming message
       Ref<Tuple> balance = get_param(st, 11).as_tuple();
       if (balance.is_null()) {
@@ -1784,7 +1790,9 @@ int exec_send_message(VmState* st) {
         throw VmError{Excno::type_chk, "invalid param INCOMINGVALUE"};
       }
       value += balance_grams;
-      have_extra_currencies |= !tuple_index(balance, 1).as_cell().is_null();
+      if (st->get_global_version() < 10) {
+        have_extra_currencies |= !tuple_index(balance, 1).as_cell().is_null();
+      }
     }
   }
 
