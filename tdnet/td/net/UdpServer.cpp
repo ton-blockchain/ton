@@ -20,7 +20,9 @@
 #include "td/net/FdListener.h"
 #include "td/net/TcpListener.h"
 
+#ifdef TON_USE_GO_TUNNEL
 #include "td/net/tunnel/libtunnel.h"
+#endif
 
 #include "td/utils/BufferedFd.h"
 #include "td/utils/filesystem.h"
@@ -90,8 +92,10 @@ void UdpServerTunnelImpl::send(td::UdpMessage &&message) {
 
 
   if (out_buf_msg_num_ == TUNNEL_BUFFER_SZ_PACKETS) {
+#ifdef TON_USE_GO_TUNNEL
     WriteTunnel(tunnel_index_, out_buf_, out_buf_msg_num_);
     LOG(DEBUG) << "Sending messages by fulfillment " << TUNNEL_BUFFER_SZ_PACKETS;
+#endif
 
     out_buf_offset_ = 0;
     out_buf_msg_num_ = 0;
@@ -101,8 +105,10 @@ void UdpServerTunnelImpl::send(td::UdpMessage &&message) {
 
 void UdpServerTunnelImpl::alarm() {
   if (out_buf_msg_num_ > 0 && Time::now()-last_batch_at_ >= TUNNEL_ALARM_EVERY) {
+#ifdef TON_USE_GO_TUNNEL
     WriteTunnel(tunnel_index_, out_buf_, out_buf_msg_num_);
     LOG(DEBUG) << "Sending messages by alarm " << out_buf_msg_num_;
+#endif
 
     out_buf_offset_ = 0;
     out_buf_msg_num_ = 0;
@@ -113,6 +119,7 @@ void UdpServerTunnelImpl::alarm() {
 }
 
 void UdpServerTunnelImpl::start_up() {
+#ifdef TON_USE_GO_TUNNEL
   auto global_conf_data_R = td::read_file(global_config_);
   if (global_conf_data_R.is_error()) {
     LOG(FATAL) << global_conf_data_R.move_as_error_prefix("failed to read global config: ");
@@ -135,6 +142,9 @@ void UdpServerTunnelImpl::start_up() {
   on_ready_.set_value(std::move(ip));
 
   alarm_timestamp() = td::Timestamp::in(TUNNEL_ALARM_EVERY);
+#else
+  LOG(FATAL) << "Tunnel was not enabled during node building, rebuild with cmake flag -DTON_USE_GO_TUNNEL=ON";
+#endif
 }
 
 void UdpServerTunnelImpl::on_recv_batch(void *next, uint8_t *data, size_t num) {

@@ -152,16 +152,18 @@ Tests are executed by running `ctest` in the build directory. See `doc/Tests.md`
 
 ## Using ADNL tunnel
 
-### Before node compilation
-1. Clone https://github.com/ton-blockchain/adnl-tunnel and install golang 1.23 or newer
+### At node compilation
+1. Clone https://github.com/ton-blockchain/adnl-tunnel and install golang 1.23.3 or newer
    * `cd adnl-tunnel`
    * `make library`
    * It will build `libtunnel.a`
-2. Copy `libtunnel.a` to ton src directory root (usually `/usr/src/ton`)
+2. Copy `libtunnel.a` to ton src directory root (usually `/usr/src/ton`).
 3. On the first step of ton node compilation run cmake with option `-DTON_USE_GO_TUNNEL=ON` to enable tunnel.
 4. Build ton node as usual.
 
-### Before startup
-1. Create `tunnel-config.json` in any place.
-2. Fill it with desired tunnel configuration and wallet keys. See example.
-3Add `--tunnel-config /path/to/tunnel-config.json` argument to validator-engine startup command.
+### At node startup
+1. Run validator-engine with `--tunnel-config /path/to/tunnel-config.json` startup argument.
+2. It will create example tunnel config file at specified path (`/path/to/tunnel-config.json`).
+3. Fill it with desired tunnel configuration, enable payments and top up wallet address if needed.
+4. Run validator-engine `--tunnel-config /path/to/tunnel-config.json` again, and follow instructions in console if any.
+5. When setup is completed and node started, you can stop it and run in daemon mode as usual.
