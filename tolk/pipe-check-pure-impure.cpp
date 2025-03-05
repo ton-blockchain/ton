@@ -34,7 +34,7 @@ static void fire_error_impure_operation_inside_pure_function(AnyV v) {
 class CheckImpureOperationsInPureFunctionVisitor final : public ASTVisitorFunctionBody {
   static void fire_if_global_var(AnyExprV v) {
     if (auto v_ident = v->try_as<ast_reference>()) {
-      if (v_ident->sym->try_as<GlobalVarData>()) {
+      if (v_ident->sym->try_as<GlobalVarPtr>()) {
         fire_error_impure_operation_inside_pure_function(v);
       }
     }
@@ -81,7 +81,7 @@ class CheckImpureOperationsInPureFunctionVisitor final : public ASTVisitorFuncti
   }
 
 public:
-  bool should_visit_function(const FunctionData* fun_ref) override {
+  bool should_visit_function(FunctionPtr fun_ref) override {
     return fun_ref->is_code_function() && !fun_ref->is_generic_function() && fun_ref->is_marked_as_pure();
   }
 };

@@ -108,6 +108,8 @@ protected:
   virtual AnyExprV replace(V<ast_binary_operator> v)           { return replace_children(v); }
   virtual AnyExprV replace(V<ast_ternary_operator> v)          { return replace_children(v); }
   virtual AnyExprV replace(V<ast_cast_as_operator> v)          { return replace_children(v); }
+  virtual AnyExprV replace(V<ast_not_null_operator> v)         { return replace_children(v); }
+  virtual AnyExprV replace(V<ast_is_null_check> v)             { return replace_children(v); }
   // statements
   virtual AnyV replace(V<ast_empty_statement> v)               { return replace_children(v); }
   virtual AnyV replace(V<ast_sequence> v)                      { return replace_children(v); }
@@ -144,6 +146,8 @@ protected:
       case ast_binary_operator:                 return replace(v->as<ast_binary_operator>());
       case ast_ternary_operator:                return replace(v->as<ast_ternary_operator>());
       case ast_cast_as_operator:                return replace(v->as<ast_cast_as_operator>());
+      case ast_not_null_operator:               return replace(v->as<ast_not_null_operator>());
+      case ast_is_null_check:                   return replace(v->as<ast_is_null_check>());
       default:
         throw UnexpectedASTNodeType(v, "ASTReplacerInFunctionBody::replace");
     }
@@ -174,20 +178,20 @@ protected:
   }
 
 public:
-  virtual bool should_visit_function(const FunctionData* fun_ref) = 0;
+  virtual bool should_visit_function(FunctionPtr fun_ref) = 0;
 
-  void start_replacing_in_function(const FunctionData* fun_ref, V<ast_function_declaration> v_function) {
+  void start_replacing_in_function(FunctionPtr fun_ref, V<ast_function_declaration> v_function) {
     replace(v_function->get_body());
   }
 };
 
 
-const std::vector<const FunctionData*>& get_all_not_builtin_functions();
+const std::vector<FunctionPtr>& get_all_not_builtin_functions();
 
 template<class BodyReplacerT>
 void replace_ast_of_all_functions() {
   BodyReplacerT visitor;
-  for (const FunctionData* fun_ref : get_all_not_builtin_functions()) {
+  for (FunctionPtr fun_ref : get_all_not_builtin_functions()) {
     if (visitor.should_visit_function(fun_ref)) {
       visitor.start_replacing_in_function(fun_ref, fun_ref->ast_root->as<ast_function_declaration>());
     }

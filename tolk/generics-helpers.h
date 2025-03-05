@@ -57,8 +57,46 @@ struct GenericsInstantiation {
   }
 };
 
+// this class helps to deduce Ts on the fly
+// purpose: having `f<T>(value: T)` and call `f(5)`, deduce T = int
+// while analyzing a call, arguments are handled one by one, by `auto_deduce_from_argument()`
+// this class also handles manually specified substitutions like `f<int>(5)`
+class GenericSubstitutionsDeduceForCall {
+  FunctionPtr fun_ref;
+  std::vector<TypePtr> substitutionTs;
+  bool manually_specified = false;
+
+  void provide_deducedT(const std::string& nameT, TypePtr deduced);
+  void consider_next_condition(TypePtr param_type, TypePtr arg_type);
+
+public:
+  explicit GenericSubstitutionsDeduceForCall(FunctionPtr fun_ref);
+
+  bool is_manually_specified() const {
+    return manually_specified;
+  }
+
+  void provide_manually_specified(std::vector<TypePtr>&& substitutionTs);
+  TypePtr replace_by_manually_specified(TypePtr param_type) const;
+  TypePtr auto_deduce_from_argument(FunctionPtr cur_f, SrcLocation loc, TypePtr param_type, TypePtr arg_type);
+  int get_first_not_deduced_idx() const;
+
+  std::vector<TypePtr>&& flush() {
+    return std::move(substitutionTs);
+  }
+};
+
+struct GenericDeduceError final : std::exception {
+  std::string message;
+  explicit GenericDeduceError(std::string message)
+    : message(std::move(message)) { }
+
+  const char* what() const noexcept override {
+    return message.c_str();
+  }
+};
+
 std::string generate_instantiated_name(const std::string& orig_name, const std::vector<TypePtr>& substitutions);
-td::Result<std::vector<TypePtr>> deduce_substitutionTs_on_generic_func_call(const FunctionData* called_fun, std::vector<TypePtr>&& arg_types, TypePtr return_hint);
-const FunctionData* instantiate_generic_function(SrcLocation loc, const FunctionData* fun_ref, const std::string& inst_name, std::vector<TypePtr>&& substitutionTs);
+FunctionPtr instantiate_generic_function(SrcLocation loc, FunctionPtr fun_ref, const std::string& inst_name, std::vector<TypePtr>&& substitutionTs);
 
 }  // namespace tolk

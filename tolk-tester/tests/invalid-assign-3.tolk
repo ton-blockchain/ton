@@ -1,10 +1,9 @@
-global gg: (int, int);
-
 fun main() {
-    [gg.0, gg.1, gg.0] = [0, 1, 0];
+    var t = createEmptyTuple();
+    var xy = t.0 as (int, int);
 }
 
 /**
 @compilation_should_fail
-@stderr one variable modified twice inside the same expression
+@stderr a tuple can not have `(int, int)` inside, because it occupies 2 stack slots in TVM, not 1
 */

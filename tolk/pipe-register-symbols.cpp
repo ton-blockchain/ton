@@ -176,8 +176,8 @@ static void register_function(V<ast_function_declaration> v) {
     genericTs = construct_genericTs(v->genericsT_list);
   }
   if (v->is_builtin_function()) {
-    const Symbol* builtin_func = lookup_global_symbol(func_name);
-    const FunctionData* fun_ref = builtin_func ? builtin_func->as<FunctionData>() : nullptr;
+    const Symbol* sym = lookup_global_symbol(func_name);
+    FunctionPtr fun_ref = sym ? sym->try_as<FunctionPtr>() : nullptr;
     if (!fun_ref || !fun_ref->is_builtin_function()) {
       v->error("`builtin` used for non-builtin function");
     }
@@ -202,7 +202,7 @@ static void register_function(V<ast_function_declaration> v) {
     f_sym->method_id = static_cast<int>(v->method_id->to_long());
   } else if (v->flags & FunctionData::flagGetMethod) {
     f_sym->method_id = calculate_method_id_by_func_name(func_name);
-    for (const FunctionData* other : G.all_get_methods) {
+    for (FunctionPtr other : G.all_get_methods) {
       if (other->method_id == f_sym->method_id) {
         v->error(PSTRING() << "GET methods hash collision: `" << other->name << "` and `" << f_sym->name << "` produce the same hash. Consider renaming one of these functions.");
       }
