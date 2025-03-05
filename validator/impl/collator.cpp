@@ -6178,21 +6178,23 @@ void Collator::finalize_stats() {
   } else {
     stats_.block_id.id = new_id;
   }
-  stats_.cc_seqno = validator_set_->get_catchain_seqno();
+  stats_.cc_seqno = validator_set_.not_null() ? validator_set_->get_catchain_seqno() : 0;
   stats_.collated_at = td::Clocks::system();
   stats_.attempt = attempt_idx_;
   stats_.is_validator = !(mode_ & CollateMode::from_collator_node);
   stats_.self = stats_.is_validator ? PublicKey(pubkeys::Ed25519(created_by_)).compute_short_id()
                                     : collator_node_id_.pubkey_hash();
-  stats_.estimated_bytes = block_limit_status_->estimate_block_size();
-  stats_.gas = block_limit_status_->gas_used;
-  stats_.lt_delta = block_limit_status_->cur_lt - block_limit_status_->limits.start_lt;
-  stats_.estimated_collated_data_bytes = block_limit_status_->collated_data_stat.estimate_proof_size();
-  stats_.cat_bytes = block_limit_status_->limits.classify_size(stats_.estimated_bytes);
-  stats_.cat_gas = block_limit_status_->limits.classify_gas(stats_.gas);
-  stats_.cat_lt_delta = block_limit_status_->limits.classify_lt(block_limit_status_->cur_lt);
-  stats_.cat_collated_data_bytes =
-      block_limit_status_->limits.classify_collated_data_size(stats_.estimated_collated_data_bytes);
+  if (block_limit_status_) {
+    stats_.estimated_bytes = block_limit_status_->estimate_block_size();
+    stats_.gas = block_limit_status_->gas_used;
+    stats_.lt_delta = block_limit_status_->cur_lt - block_limit_status_->limits.start_lt;
+    stats_.estimated_collated_data_bytes = block_limit_status_->collated_data_stat.estimate_proof_size();
+    stats_.cat_bytes = block_limit_status_->limits.classify_size(stats_.estimated_bytes);
+    stats_.cat_gas = block_limit_status_->limits.classify_gas(stats_.gas);
+    stats_.cat_lt_delta = block_limit_status_->limits.classify_lt(block_limit_status_->cur_lt);
+    stats_.cat_collated_data_bytes =
+        block_limit_status_->limits.classify_collated_data_size(stats_.estimated_collated_data_bytes);
+  }
   stats_.total_time = perf_timer_.elapsed();
   stats_.work_time = work_time;
   stats_.cpu_work_time = cpu_work_time;
