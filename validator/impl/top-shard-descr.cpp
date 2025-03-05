@@ -175,9 +175,11 @@ td::Status ShardTopBlockDescrQ::unpack() {
   block::gen::TopBlockDescr::Record rec;
   if (!(block::gen::t_TopBlockDescr.force_validate_ref(root_) && tlb::unpack_cell(root_, rec) &&
         block::tlb::t_BlockIdExt.unpack(rec.proof_for.write(), block_id_))) {
-    std::cerr << "invalid ShardTopBlockDescr: ";
-    block::gen::t_TopBlockDescr.print_ref(std::cerr, root_);
-    vm::load_cell_slice(root_).print_rec(std::cerr);
+    FLOG(INFO) {
+      sb << "invalid ShardTopBlockDescr: ";
+      block::gen::t_TopBlockDescr.print_ref(sb, root_);
+      vm::load_cell_slice(root_).print_rec(sb);
+    };
     return td::Status::Error(-666, "Shard top block description is not a valid TopBlockDescr TL-B object");
   }
   LOG(DEBUG) << "unpacking a ShardTopBlockDescr for " << block_id_.to_str() << " with " << rec.len << " links";

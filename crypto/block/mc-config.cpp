@@ -163,8 +163,11 @@ td::Status ConfigInfo::unpack() {
   }
   gen::McStateExtra::Record extra_info;
   if (!tlb::unpack_cell(state_extra_root_, extra_info)) {
-    vm::load_cell_slice(state_extra_root_).print_rec(std::cerr);
-    block::gen::t_McStateExtra.print_ref(std::cerr, state_extra_root_);
+    FLOG(WARNING) {
+      sb << "state extra information is invalid: ";
+      vm::load_cell_slice(state_extra_root_).print_rec(sb);
+      block::gen::t_McStateExtra.print_ref(sb, state_extra_root_);
+    };
     return td::Status::Error("state extra information is invalid");
   }
   gen::ValidatorInfo::Record validator_info;
@@ -1067,7 +1070,6 @@ Ref<McShardHash> ShardConfig::get_shard_hash(ton::ShardIdFull id, bool exact) co
   ton::ShardIdFull true_id;
   vm::CellSlice cs;
   if (get_shard_hash_raw(cs, id, true_id, exact)) {
-    // block::gen::t_ShardDescr.print(std::cerr, vm::CellSlice{cs});
     return McShardHash::unpack(cs, true_id);
   } else {
     return {};
@@ -1637,8 +1639,10 @@ bool ShardConfig::set_shard_info(ton::ShardIdFull shard, Ref<vm::Cell> value) {
   if (!gen::t_BinTree_ShardDescr.validate_ref(1024, value)) {
     LOG(ERROR) << "attempting to store an invalid (BinTree ShardDescr) at shard configuration position "
                << shard.to_str();
-    gen::t_BinTree_ShardDescr.print_ref(std::cerr, value);
-    vm::load_cell_slice(value).print_rec(std::cerr);
+    FLOG(WARNING) {
+      gen::t_BinTree_ShardDescr.print_ref(sb, value);
+      vm::load_cell_slice(value).print_rec(sb);
+    };
     return false;
   }
   auto root = shard_hashes_dict_->lookup_ref(td::BitArray<32>{shard.workchain});
@@ -1956,6 +1960,7 @@ td::Result<SizeLimitsConfig> Config::do_get_size_limits_config(td::Ref<vm::CellS
     limits.max_acc_state_cells = rec.max_acc_state_cells;
     limits.max_acc_public_libraries = rec.max_acc_public_libraries;
     limits.defer_out_queue_size_limit = rec.defer_out_queue_size_limit;
+    limits.max_msg_extra_currencies = rec.max_msg_extra_currencies;
   };
   gen::SizeLimitsConfig::Record_size_limits_config rec_v1;
   gen::SizeLimitsConfig::Record_size_limits_config_v2 rec_v2;

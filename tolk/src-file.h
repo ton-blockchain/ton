@@ -124,10 +124,14 @@ struct Fatal final : std::exception {
 std::ostream& operator<<(std::ostream& os, const Fatal& fatal);
 
 struct ParseError : std::exception {
-  SrcLocation where;
+  FunctionPtr current_function;
+  SrcLocation loc;
   std::string message;
-  ParseError(SrcLocation _where, std::string _msg) : where(_where), message(std::move(_msg)) {
-  }
+
+  ParseError(SrcLocation loc, std::string message)
+    : current_function(nullptr), loc(loc), message(std::move(message)) {}
+  ParseError(FunctionPtr current_function, SrcLocation loc, std::string message)
+    : current_function(current_function), loc(loc), message(std::move(message)) {}
 
   const char* what() const noexcept override {
     return message.c_str();

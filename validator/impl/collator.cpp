@@ -53,16 +53,6 @@ static constexpr int HIGH_PRIORITY_EXTERNAL = 10;  // don't skip high priority e
 
 static constexpr int MAX_ATTEMPTS = 5;
 
-#define DBG(__n) dbg(__n)&&
-#define DSTART int __dcnt = 0;
-#define DEB DBG(++__dcnt)
-
-static inline bool dbg(int c) TD_UNUSED;
-static inline bool dbg(int c) {
-  std::cerr << '[' << (char)('0' + c / 10) << (char)('0' + c % 10) << ']';
-  return true;
-}
-
 /**
  * Constructs a Collator object.
  *
@@ -362,6 +352,8 @@ bool Collator::fatal_error(td::Status error) {
                         attempt_idx_ + 1);
     } else {
       main_promise(std::move(error));
+      td::actor::send_closure(manager, &ValidatorManager::record_collate_query_stats, BlockIdExt{new_id, RootHash::zero(), FileHash::zero()},
+                              work_timer_.elapsed(), cpu_work_timer_.elapsed(), td::optional<CollationStats>{});
     }
     busy_ = false;
   }
@@ -761,8 +753,6 @@ bool Collator::unpack_last_mc_state() {
                << " (upgrade validator software?)";
   }
   // TODO: extract start_lt and end_lt from prev_mc_block as well
-  // std::cerr << "  block::gen::ShardState::print_ref(mc_state_root) = ";
-  // block::gen::t_ShardState.print_ref(std::cerr, mc_state_root, 2);
   return true;
 }
 
@@ -888,8 +878,10 @@ void Collator::got_neighbor_out_queue(int i, td::Result<Ref<MessageQueue>> res) 
   // unpack ProcessedUpto
   LOG(DEBUG) << "unpacking ProcessedUpto of neighbor " << descr.blk_.to_str();
   if (verbosity >= 2) {
-    block::gen::t_ProcessedInfo.print(std::cerr, qinfo.proc_info);
-    qinfo.proc_info->print_rec(std::cerr);
+    FLOG(INFO) {
+      block::gen::t_ProcessedInfo.print(sb, qinfo.proc_info);
+      qinfo.proc_info->print_rec(sb);
+    };
   }
   descr.processed_upto = block::MsgProcessedUptoCollection::unpack(descr.shard(), qinfo.proc_info);
   if (!descr.processed_upto) {
@@ -1756,9 +1748,11 @@ bool Collator::import_new_shard_top_blocks() {
     shard_conf_adjusted_ = true;
   }
   if (tb_act && verbosity >= 0) {  // DEBUG
-    LOG(INFO) << "updated shard block configuration to ";
-    auto csr = shard_conf_->get_root_csr();
-    block::gen::t_ShardHashes.print(std::cerr, csr.write());
+    FLOG(INFO) {
+      sb << "updated shard block configuration to ";
+      auto csr = shard_conf_->get_root_csr();
+      block::gen::t_ShardHashes.print(sb, csr);
+    };
   }
   block::gen::ShardFeeCreated::Record fc;
   if (!(tlb::csr_unpack(fees_import_dict_->get_root_extra(),
@@ -2001,12 +1995,9 @@ bool Collator::init_lt() {
  * @returns True if the configuration parameters were successfully fetched and initialized, false otherwise.
  */
 bool Collator::fetch_config_params() {
-  auto res = block::FetchConfigParams::fetch_config_params(*config_,
-                                      &old_mparams_, &storage_prices_, &storage_phase_cfg_,
-                                      &rand_seed_, &compute_phase_cfg_, &action_phase_cfg_,
-                                      &masterchain_create_fee_, &basechain_create_fee_,
-                                      workchain(), now_
-                                     );
+  auto res = block::FetchConfigParams::fetch_config_params(
+      *config_, &old_mparams_, &storage_prices_, &storage_phase_cfg_, &rand_seed_, &compute_phase_cfg_,
+      &action_phase_cfg_, &serialize_cfg_, &masterchain_create_fee_, &basechain_create_fee_, workchain(), now_);
   if (res.is_error()) {
     return fatal_error(res.move_as_error());
   }
@@ -2279,10 +2270,12 @@ bool Collator::dequeue_message(Ref<vm::Cell> msg_envelope, ton::LogicalTime deli
 bool Collator::out_msg_queue_cleanup() {
   LOG(INFO) << "cleaning outbound queue from messages already imported by neighbors";
   if (verbosity >= 2) {
-    auto rt = out_msg_queue_->get_root();
-    std::cerr << "old out_msg_queue is ";
-    block::gen::t_OutMsgQueue.print(std::cerr, *rt);
-    rt->print_rec(std::cerr);
+    FLOG(INFO) {
+      auto rt = out_msg_queue_->get_root();
+      sb << "old out_msg_queue is ";
+      block::gen::t_OutMsgQueue.print(sb, rt);
+      rt->print_rec(sb);
+    };
   }
 
   if (after_merge_) {
@@ -2422,10 +2415,12 @@ bool Collator::out_msg_queue_cleanup() {
                  << out_msg_queue_size_;
   }
   if (verbosity >= 2) {
-    auto rt = out_msg_queue_->get_root();
-    std::cerr << "new out_msg_queue is ";
-    block::gen::t_OutMsgQueue.print(std::cerr, *rt);
-    rt->print_rec(std::cerr);
+    FLOG(INFO) {
+      auto rt = out_msg_queue_->get_root();
+      sb << "new out_msg_queue is ";
+      block::gen::t_OutMsgQueue.print(sb, rt);
+      rt->print_rec(sb);
+    };
   }
   return register_out_msg_queue_op(true);
 }
@@ -2524,19 +2519,27 @@ bool Collator::combine_account_transactions() {
       auto cell = cb.finalize();
       auto csr = vm::load_cell_slice_ref(cell);
       if (verbosity > 2) {
-        std::cerr << "new AccountBlock for " << z.first.to_hex() << ": ";
-        block::gen::t_AccountBlock.print_ref(std::cerr, cell);
-        csr->print_rec(std::cerr);
+        FLOG(INFO) {
+          sb << "new AccountBlock for " << z.first.to_hex() << ": ";
+          block::gen::t_AccountBlock.print_ref(sb, cell);
+          csr->print_rec(sb);
+        };
       }
       if (!block::gen::t_AccountBlock.validate_ref(100000, cell)) {
-        block::gen::t_AccountBlock.print_ref(std::cerr, cell);
-        csr->print_rec(std::cerr);
+        FLOG(WARNING) {
+          sb << "AccountBlock failed to pass automatic validation tests: ";
+          block::gen::t_AccountBlock.print_ref(sb, cell);
+          csr->print_rec(sb);
+        };
         return fatal_error(std::string{"new AccountBlock for "} + z.first.to_hex() +
                            " failed to pass automatic validation tests");
       }
       if (!block::tlb::t_AccountBlock.validate_ref(100000, cell)) {
-        block::gen::t_AccountBlock.print_ref(std::cerr, cell);
-        csr->print_rec(std::cerr);
+        FLOG(WARNING) {
+          sb << "AccountBlock failed to pass handwritten validation tests: ";
+          block::gen::t_AccountBlock.print_ref(sb, cell);
+          csr->print_rec(sb);
+        };
         return fatal_error(std::string{"new AccountBlock for "} + z.first.to_hex() +
                            " failed to pass handwritten validation tests");
       }
@@ -2561,8 +2564,10 @@ bool Collator::combine_account_transactions() {
         } else if (acc.status == block::Account::acc_nonexist) {
           // account deleted
           if (verbosity > 2) {
-            std::cerr << "deleting account " << acc.addr.to_hex() << " with empty new value ";
-            block::gen::t_Account.print_ref(std::cerr, acc.total_state);
+            FLOG(INFO) {
+              sb << "deleting account " << acc.addr.to_hex() << " with empty new value ";
+              block::gen::t_Account.print_ref(sb, acc.total_state);
+            };
           }
           if (account_dict->lookup_delete(acc.addr).is_null()) {
             return fatal_error(std::string{"cannot delete account "} + acc.addr.to_hex() + " from ShardAccounts");
@@ -2570,8 +2575,10 @@ bool Collator::combine_account_transactions() {
         } else {
           // existing account modified
           if (verbosity > 4) {
-            std::cerr << "modifying account " << acc.addr.to_hex() << " to ";
-            block::gen::t_Account.print_ref(std::cerr, acc.total_state);
+            FLOG(INFO) {
+              sb << "modifying account " << acc.addr.to_hex() << " to ";
+              block::gen::t_Account.print_ref(sb, acc.total_state);
+            };
           }
           if (!(cb.store_ref_bool(acc.total_state)             // account_descr$_ account:^Account
                 && cb.store_bits_bool(acc.last_trans_hash_)    // last_trans_hash:bits256
@@ -2594,9 +2601,11 @@ bool Collator::combine_account_transactions() {
     return fatal_error("cannot serialize ShardAccountBlocks");
   }
   if (verbosity > 2) {
-    std::cerr << "new ShardAccountBlocks: ";
-    block::gen::t_ShardAccountBlocks.print_ref(std::cerr, shard_account_blocks_);
-    vm::load_cell_slice(shard_account_blocks_).print_rec(std::cerr);
+    FLOG(INFO) {
+      sb << "new ShardAccountBlocks: ";
+      block::gen::t_ShardAccountBlocks.print_ref(sb, shard_account_blocks_);
+      vm::load_cell_slice(shard_account_blocks_).print_rec(sb);
+    };
   }
   if (!block::gen::t_ShardAccountBlocks.validate_ref(100000, shard_account_blocks_)) {
     return fatal_error("new ShardAccountBlocks failed to pass automatic validity tests");
@@ -2606,9 +2615,11 @@ bool Collator::combine_account_transactions() {
   }
   auto shard_accounts = account_dict->get_root();
   if (verbosity > 2) {
-    std::cerr << "new ShardAccounts: ";
-    block::gen::t_ShardAccounts.print(std::cerr, *shard_accounts);
-    shard_accounts->print_rec(std::cerr);
+    FLOG(INFO) {
+      sb << "new ShardAccounts: ";
+      block::gen::t_ShardAccounts.print(sb, shard_accounts);
+      shard_accounts->print_rec(sb);
+    };
   }
   if (verify >= 2) {
     LOG(INFO) << "verifying new ShardAccounts";
@@ -2659,7 +2670,9 @@ bool Collator::create_special_transaction(block::CurrencyCollection amount, Ref<
                        addr.to_hex());
   }
   if (verbosity >= 4) {
-    block::gen::t_Message_Any.print_ref(std::cerr, msg);
+    FLOG(INFO) {
+      block::gen::t_Message_Any.print_ref(sb, msg);
+    };
   }
   CHECK(block::gen::t_Message_Any.validate_ref(msg));
   CHECK(block::tlb::t_Message.validate_ref(msg));
@@ -2734,7 +2747,7 @@ bool Collator::create_ticktock_transaction(const ton::StdSmcAddress& smc_addr, t
     return fatal_error(td::Status::Error(
         -666, std::string{"cannot create action phase of a new transaction for smart contract "} + smc_addr.to_hex()));
   }
-  if (!trans->serialize()) {
+  if (!trans->serialize(serialize_cfg_)) {
     return fatal_error(td::Status::Error(
         -666, std::string{"cannot serialize new transaction for smart contract "} + smc_addr.to_hex()));
   }
@@ -2818,7 +2831,7 @@ Ref<vm::Cell> Collator::create_ordinary_transaction(Ref<vm::Cell> msg_root,
     after_lt = std::max(after_lt, it->second);
   }
   auto res = impl_create_ordinary_transaction(msg_root, acc, now_, start_lt, &storage_phase_cfg_, &compute_phase_cfg_,
-                                              &action_phase_cfg_, external, after_lt);
+                                              &action_phase_cfg_, &serialize_cfg_, external, after_lt);
   if (res.is_error()) {
     auto error = res.move_as_error();
     if (error.code() == -701) {
@@ -2869,6 +2882,7 @@ Ref<vm::Cell> Collator::create_ordinary_transaction(Ref<vm::Cell> msg_root,
  * @param storage_phase_cfg The configuration for the storage phase of the transaction.
  * @param compute_phase_cfg The configuration for the compute phase of the transaction.
  * @param action_phase_cfg The configuration for the action phase of the transaction.
+ * @param serialize_cfg The configuration for the serialization of the transaction.
  * @param external Flag indicating if the message is external.
  * @param after_lt The logical time after which the transaction should occur. Used only for external messages.
  *
@@ -2882,6 +2896,7 @@ td::Result<std::unique_ptr<block::transaction::Transaction>> Collator::impl_crea
                                                          block::StoragePhaseConfig* storage_phase_cfg,
                                                          block::ComputePhaseConfig* compute_phase_cfg,
                                                          block::ActionPhaseConfig* action_phase_cfg,
+                                                         block::SerializeConfig* serialize_cfg,
                                                          bool external, LogicalTime after_lt) {
   if (acc->last_trans_end_lt_ >= lt && acc->transactions.empty()) {
     return td::Status::Error(-669, PSTRING() << "last transaction time in the state of account " << acc->workchain
@@ -2949,7 +2964,7 @@ td::Result<std::unique_ptr<block::transaction::Transaction>> Collator::impl_crea
     return td::Status::Error(
         -669, "cannot create bounce phase of a new transaction for smart contract "s + acc->addr.to_hex());
   }
-  if (!trans->serialize()) {
+  if (!trans->serialize(*serialize_cfg)) {
     return td::Status::Error(-669, "cannot serialize new transaction for smart contract "s + acc->addr.to_hex());
   }
   return std::move(trans);
@@ -3163,8 +3178,10 @@ int Collator::process_one_new_message(block::NewOutMsg msg, bool enqueue_only, R
   Ref<vm::Cell> msg_env;
   CHECK(block::tlb::pack_cell(msg_env, msg_env_rec));
   if (verbosity > 2) {
-    std::cerr << "new (processed outbound) message envelope: ";
-    block::gen::t_MsgEnvelope.print_ref(std::cerr, msg_env);
+    FLOG(INFO) {
+      sb << "new (processed outbound) message envelope: ";
+      block::gen::t_MsgEnvelope.print_ref(sb, msg_env);
+    };
   }
   // 3. create InMsg, referring to this MsgEnvelope and this Transaction
   vm::CellBuilder cb;
@@ -3286,16 +3303,20 @@ bool Collator::enqueue_transit_message(Ref<vm::Cell> msg, Ref<vm::Cell> old_msg_
   Ref<vm::Cell> out_msg = cb.finalize();
   // 4.1. insert OutMsg into OutMsgDescr
   if (verbosity > 2) {
-    std::cerr << "OutMsg for a transit message: ";
-    block::gen::t_OutMsg.print_ref(std::cerr, out_msg);
+    FLOG(INFO) {
+      sb << "OutMsg for a transit message: ";
+      block::gen::t_OutMsg.print_ref(sb, out_msg);
+    };
   }
   if (!insert_out_msg(out_msg)) {
     return fatal_error("cannot insert a new OutMsg into OutMsgDescr");
   }
   // 4.2. insert InMsg into InMsgDescr
   if (verbosity > 2) {
-    std::cerr << "InMsg for a transit message: ";
-    block::gen::t_InMsg.print_ref(std::cerr, in_msg);
+    FLOG(INFO) {
+      sb << "InMsg for a transit message: ";
+      block::gen::t_InMsg.print_ref(sb, in_msg);
+    };
   }
   if (!insert_in_msg(in_msg)) {
     return fatal_error("cannot insert a new InMsg into InMsgDescr");
@@ -3366,7 +3387,10 @@ bool Collator::process_inbound_message(Ref<vm::CellSlice> enq_msg, ton::LogicalT
   if (enq_msg.is_null() || enq_msg->size_ext() != 0x10040 ||
       (enqueued_lt = enq_msg->prefetch_ulong(64)) < /* 0 */ 1 * lt) {  // DEBUG
     if (enq_msg.not_null()) {
-      block::gen::t_EnqueuedMsg.print(std::cerr, *enq_msg);
+      FLOG(WARNING) {
+        sb << "inbound internal message is not a valid EnqueuedMsg: ";
+        block::gen::t_EnqueuedMsg.print(sb, enq_msg);
+      };
     }
     LOG(ERROR) << "inbound internal message is not a valid EnqueuedMsg (created lt " << lt << ", enqueued "
                << enqueued_lt << ")";
@@ -3590,14 +3614,18 @@ bool Collator::process_inbound_internal_messages() {
     LOG(DEBUG) << "processing inbound message with (lt,hash)=(" << kv->lt << "," << kv->key.to_hex()
                << ") from neighbor #" << kv->source;
     if (verbosity > 2) {
-      std::cerr << "inbound message: lt=" << kv->lt << " from=" << kv->source << " key=" << kv->key.to_hex() << " msg=";
-      block::gen::t_EnqueuedMsg.print(std::cerr, *(kv->msg));
+      FLOG(INFO) {
+        sb << "inbound message: lt=" << kv->lt << " from=" << kv->source << " key=" << kv->key.to_hex() << " msg=";
+        block::gen::t_EnqueuedMsg.print(sb, kv->msg);
+      };
     }
     if (!process_inbound_message(kv->msg, kv->lt, kv->key.cbits(), neighbors_.at(kv->source))) {
       if (verbosity > 1) {
-        std::cerr << "invalid inbound message: lt=" << kv->lt << " from=" << kv->source << " key=" << kv->key.to_hex()
-                  << " msg=";
-        block::gen::t_EnqueuedMsg.print(std::cerr, *(kv->msg));
+        FLOG(INFO) {
+          sb << "invalid inbound message: lt=" << kv->lt << " from=" << kv->source << " key=" << kv->key.to_hex()
+                    << " msg=";
+          block::gen::t_EnqueuedMsg.print(sb, kv->msg);
+        };
       }
       return fatal_error("error processing inbound internal message");
     }
@@ -3884,7 +3912,10 @@ bool Collator::process_deferred_message(Ref<vm::CellSlice> enq_msg, StdSmcAddres
   LogicalTime enqueued_lt = 0;
   if (enq_msg.is_null() || enq_msg->size_ext() != 0x10040 || (enqueued_lt = enq_msg->prefetch_ulong(64)) != lt) {
     if (enq_msg.not_null()) {
-      block::gen::t_EnqueuedMsg.print(std::cerr, *enq_msg);
+      FLOG(WARNING) {
+        sb << "internal message in DispatchQueue is not a valid EnqueuedMsg: ";
+        block::gen::t_EnqueuedMsg.print(sb, enq_msg);
+      };
     }
     LOG(ERROR) << "internal message in DispatchQueue is not a valid EnqueuedMsg (created lt " << lt << ", enqueued "
                << enqueued_lt << ")";
@@ -3986,8 +4017,10 @@ bool Collator::process_deferred_message(Ref<vm::CellSlice> enq_msg, StdSmcAddres
  */
 bool Collator::insert_in_msg(Ref<vm::Cell> in_msg) {
   if (verbosity > 2) {
-    std::cerr << "InMsg being inserted into InMsgDescr: ";
-    block::gen::t_InMsg.print_ref(std::cerr, in_msg);
+    FLOG(INFO) {
+      sb << "InMsg being inserted into InMsgDescr: ";
+      block::gen::t_InMsg.print_ref(sb, in_msg);
+    };
   }
   auto cs = load_cell_slice(in_msg);
   if (!cs.size_refs()) {
@@ -4028,8 +4061,10 @@ bool Collator::insert_in_msg(Ref<vm::Cell> in_msg) {
  */
 bool Collator::insert_out_msg(Ref<vm::Cell> out_msg) {
   if (verbosity > 2) {
-    std::cerr << "OutMsg being inserted into OutMsgDescr: ";
-    block::gen::t_OutMsg.print_ref(std::cerr, out_msg);
+    FLOG(INFO) {
+      sb << "OutMsg being inserted into OutMsgDescr: ";
+      block::gen::t_OutMsg.print_ref(sb, out_msg);
+    };
   }
   auto cs = load_cell_slice(out_msg);
   if (!cs.size_refs()) {
@@ -4125,8 +4160,10 @@ bool Collator::enqueue_message(block::NewOutMsg msg, td::RefInt256 fwd_fees_rema
   }
   // 4. insert OutMsg into OutMsgDescr
   if (verbosity > 2) {
-    std::cerr << "OutMsg for a newly-generated message: ";
-    block::gen::t_OutMsg.print_ref(std::cerr, out_msg);
+    FLOG(INFO) {
+      sb << "OutMsg for a newly-generated message: ";
+      block::gen::t_OutMsg.print_ref(sb, out_msg);
+    };
   }
   if (!insert_out_msg(out_msg)) {
     return fatal_error("cannot insert a new OutMsg into OutMsgDescr");
@@ -4419,9 +4456,12 @@ bool Collator::create_mc_state_extra() {
   bool ignore_cfg_changes = false;
   Ref<vm::Cell> cfg0;
   if (!block::valid_config_data(cfg_smc_config, config_addr, true, true, old_mparams_)) {
-    block::gen::t_Hashmap_32_Ref_Cell.print_ref(std::cerr, cfg_smc_config);
     LOG(ERROR) << "configuration smart contract "s + config_addr.to_hex() +
                       " contains an invalid configuration in its data, IGNORING CHANGES";
+    FLOG(WARNING) {
+      sb << "ignored configuration: ";
+      block::gen::t_Hashmap_32_Ref_Cell.print_ref(sb, cfg_smc_config);
+    };
     ignore_cfg_changes = true;
   } else {
     cfg0 = cfg_dict.lookup_ref(td::BitArray<32>{(long long)0});
@@ -4459,34 +4499,26 @@ bool Collator::create_mc_state_extra() {
     return fatal_error(wset_res.move_as_error());
   }
   bool update_shard_cc = is_key_block_ || (now_ / ccvc.shard_cc_lifetime > prev_now_ / ccvc.shard_cc_lifetime);
-  // temp debug
-  if (verbosity >= 3 * 1) {
-    auto csr = shard_conf_->get_root_csr();
-    LOG(INFO) << "new shard configuration before post-processing is";
-    std::ostringstream os;
-    csr->print_rec(os);
-    block::gen::t_ShardHashes.print(os, csr.write());
-    LOG(INFO) << os.str();
-  }
-  // end (temp debug)
   if (!update_shard_config(wset_res.move_as_ok(), ccvc, update_shard_cc)) {
     auto csr = shard_conf_->get_root_csr();
     if (csr.is_null()) {
       LOG(WARNING) << "new shard configuration is null (!)";
     } else {
       LOG(WARNING) << "invalid new shard configuration is";
-      std::ostringstream os;
-      csr->print_rec(os);
-      block::gen::t_ShardHashes.print(os, csr.write());
-      LOG(WARNING) << os.str();
+      FLOG(WARNING) {
+        csr->print_rec(sb);
+        block::gen::t_ShardHashes.print(sb, csr);
+      };
     }
     return fatal_error("cannot post-process shard configuration");
   }
   // 3. save new shard_hashes
   state_extra.shard_hashes = shard_conf_->get_root_csr();
-  if (verbosity >= 3 * 0) {  // DEBUG
-    std::cerr << "updated shard configuration to ";
-    block::gen::t_ShardHashes.print(std::cerr, *state_extra.shard_hashes);
+  if (verbosity >= 3) {
+    FLOG(INFO) {
+      sb << "updated shard configuration to ";
+      block::gen::t_ShardHashes.print(sb, state_extra.shard_hashes);
+    };
   }
   if (!block::gen::t_ShardHashes.validate_upto(10000, *state_extra.shard_hashes)) {
     return fatal_error("new ShardHashes is invalid");
@@ -4587,13 +4619,18 @@ bool Collator::create_mc_state_extra() {
     if (verify >= 2) {
       LOG(INFO) << "verifying new BlockCreateStats";
       if (!block::gen::t_BlockCreateStats.validate_csr(100000, cs)) {
-        cs->print_rec(std::cerr);
-        block::gen::t_BlockCreateStats.print(std::cerr, *cs);
+        FLOG(WARNING) {
+          sb << "BlockCreateStats in the new masterchain state failed to pass automated validity checks: ";
+          cs->print_rec(sb);
+          block::gen::t_BlockCreateStats.print(sb, cs);
+        };
         return fatal_error("BlockCreateStats in the new masterchain state failed to pass automated validity checks");
       }
     }
     if (verbosity >= 4 * 1) {
-      block::gen::t_BlockCreateStats.print(std::cerr, *cs);
+      FLOG(INFO) {
+        block::gen::t_BlockCreateStats.print(sb, cs);
+      };
     }
   } else {
     state_extra.r1.block_create_stats.clear();
@@ -4628,7 +4665,6 @@ bool Collator::update_block_creator_count(td::ConstBitPtr key, unsigned shard_in
   if (!block::unpack_CreatorStats(std::move(cs), mc_cnt, shard_cnt)) {
     return fatal_error("cannot unpack CreatorStats for "s + key.to_hex(256) + " from previous masterchain state");
   }
-  // std::cerr << mc_cnt.to_str() << " " << shard_cnt.to_str() << std::endl;
   if (mc_incr && !mc_cnt.increase_by(mc_incr, now_)) {
     return fatal_error(PSTRING() << "cannot increase masterchain block counter in CreatorStats for " << key.to_hex(256)
                                  << " by " << mc_incr << " (old value is " << mc_cnt.to_str() << ")");
@@ -4999,9 +5035,11 @@ bool Collator::update_public_libraries() {
     }
   }
   if (libraries_changed_ && verbosity >= 2) {
-    std::cerr << "New public libraries: ";
-    block::gen::t_HashmapE_256_LibDescr.print(std::cerr, shard_libraries_->get_root());
-    shard_libraries_->get_root()->print_rec(std::cerr);
+    FLOG(INFO) {
+      sb << "New public libraries: ";
+      block::gen::t_HashmapE_256_LibDescr.print(sb, shard_libraries_->get_root());
+      shard_libraries_->get_root()->print_rec(sb);
+    };
   }
   return true;
 }
@@ -5124,9 +5162,11 @@ bool Collator::create_shard_state() {
   }
   LOG(DEBUG) << "min_ref_mc_seqno is " << min_ref_mc_seqno_;
   if (verbosity > 2) {
-    std::cerr << "new ShardState: ";
-    block::gen::t_ShardState.print_ref(std::cerr, state_root);
-    vm::load_cell_slice(state_root).print_rec(std::cerr);
+    FLOG(INFO) {
+      sb << "new ShardState: ";
+      block::gen::t_ShardState.print_ref(sb, state_root);
+      vm::load_cell_slice(state_root).print_rec(sb);
+    };
   }
   if (verify >= 2) {
     LOG(INFO) << "verifying new ShardState";
@@ -5139,9 +5179,11 @@ bool Collator::create_shard_state() {
     return fatal_error("cannot create Merkle update for ShardState");
   }
   if (verbosity > 2) {
-    std::cerr << "Merkle Update for ShardState: ";
-    vm::CellSlice cs{vm::NoVm{}, state_update};
-    cs.print_rec(std::cerr);
+    FLOG(INFO) {
+      sb << "Merkle Update for ShardState: ";
+      vm::CellSlice cs{vm::NoVm{}, state_update};
+      cs.print_rec(sb);
+    };
   }
   LOG(INFO) << "updating block profile statistics";
   block_limit_status_->add_proof(state_root);
@@ -5186,10 +5228,12 @@ bool Collator::update_processed_upto() {
  */
 bool Collator::compute_out_msg_queue_info(Ref<vm::Cell>& out_msg_queue_info) {
   if (verbosity >= 2) {
-    auto rt = out_msg_queue_->get_root();
-    std::cerr << "resulting out_msg_queue is ";
-    block::gen::t_OutMsgQueue.print(std::cerr, *rt);
-    rt->print_rec(std::cerr);
+    FLOG(INFO) {
+      auto rt = out_msg_queue_->get_root();
+      sb << "resulting out_msg_queue is ";
+      block::gen::t_OutMsgQueue.print(sb, rt);
+      rt->print_rec(sb);
+    };
   }
   vm::CellBuilder cb;
   // out_msg_queue_extra#0 dispatch_queue:DispatchQueue out_queue_size:(Maybe uint48) = OutMsgQueueExtra;
@@ -5239,8 +5283,10 @@ bool Collator::compute_total_balance() {
   }
   vm::CellSlice cs{*(in_msg_dict->get_root_extra())};
   if (verbosity > 2) {
-    block::gen::t_ImportFees.print(std::cerr, vm::CellSlice{*(in_msg_dict->get_root_extra())});
-    cs.print_rec(std::cerr);
+    FLOG(INFO) {
+      block::gen::t_ImportFees.print(sb, in_msg_dict->get_root_extra());
+      cs.print_rec(sb);
+    };
   }
   auto new_import_fees = block::tlb::t_Grams.as_integer_skip(cs);
   if (new_import_fees.is_null()) {
@@ -5468,9 +5514,11 @@ bool Collator::create_block() {
     return fatal_error("cannot create new Block");
   }
   if (verbosity >= 3 * 1) {
-    std::cerr << "new Block: ";
-    block::gen::t_Block.print_ref(std::cerr, new_block);
-    vm::load_cell_slice(new_block).print_rec(std::cerr);
+    FLOG(INFO) {
+      sb << "new Block: ";
+      block::gen::t_Block.print_ref(sb, new_block);
+      vm::load_cell_slice(new_block).print_rec(sb);
+    };
   }
   if (verify >= 1) {
     LOG(INFO) << "verifying new Block";
@@ -5508,9 +5556,11 @@ Ref<vm::Cell> Collator::collate_shard_block_descr_set() {
     return {};
   }
   if (verbosity >= 4 * 1) {
-    std::cerr << "serialized TopBlockDescrSet for collated data is: ";
-    block::gen::t_TopBlockDescrSet.print_ref(std::cerr, cell);
-    vm::load_cell_slice(cell).print_rec(std::cerr);
+    FLOG(INFO) {
+      sb << "serialized TopBlockDescrSet for collated data is: ";
+      block::gen::t_TopBlockDescrSet.print_ref(sb, cell);
+      vm::load_cell_slice(cell).print_rec(sb);
+    };
   }
   return cell;
 }
@@ -5717,8 +5767,10 @@ td::Result<bool> Collator::register_external_message_cell(Ref<vm::Cell> ext_msg,
     return td::Status::Error("inbound external message has destination address not in this shard");
   }
   if (verbosity > 2) {
-    std::cerr << "registered external message: ";
-    block::gen::t_Message_Any.print_ref(std::cerr, ext_msg);
+    FLOG(INFO) {
+      sb << "registered external message: ";
+      block::gen::t_Message_Any.print_ref(sb, ext_msg);
+    };
   }
   ext_msg_map.emplace(hash, 1);
   ext_msg_list_.push_back({std::move(ext_msg), ext_hash, priority});

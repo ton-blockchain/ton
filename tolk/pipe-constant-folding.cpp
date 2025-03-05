@@ -25,6 +25,8 @@
  *
  *   Currently, it just replaces `-1` (ast_unary_operator ast_int_const) with a number -1
  * and `!true` with false.
+ *   Also, all parenthesized `((expr))` are replaced with `expr`, it's a constant transformation.
+ * (not to handle parenthesized in optimization passes, like `((x)) == true`)
  *   More rich constant folding should be done some day, but even without this, IR optimizations
  * (operating low-level stack variables) pretty manage to do all related optimizations.
  * Constant folding in the future, done at AST level, just would slightly reduce amount of work for optimizer.
@@ -45,6 +47,14 @@ class ConstantFoldingReplacer final : public ASTReplacerInFunctionBody {
     v_bool->assign_inferred_type(TypeDataBool::create());
     v_bool->assign_rvalue_true();
     return v_bool;
+  }
+
+  AnyExprV replace(V<ast_parenthesized_expression> v) override {
+    AnyExprV inner = parent::replace(v->get_expr());
+    if (v->is_lvalue) {
+      inner->mutate()->assign_lvalue_true();
+    }
+    return inner;
   }
 
   AnyExprV replace(V<ast_unary_operator> v) override {
@@ -78,8 +88,19 @@ class ConstantFoldingReplacer final : public ASTReplacerInFunctionBody {
     return v;
   }
 
+  AnyExprV replace(V<ast_is_null_check> v) override {
+    parent::replace(v);
+
+    // `null == null` / `null != null`
+    if (v->get_expr()->type == ast_null_keyword) {
+      return create_bool_const(v->loc, !v->is_negated);
+    }
+
+    return v;
+  }
+
 public:
-  bool should_visit_function(const FunctionData* fun_ref) override {
+  bool should_visit_function(FunctionPtr fun_ref) override {
     return fun_ref->is_code_function() && !fun_ref->is_generic_function();
   }
 };

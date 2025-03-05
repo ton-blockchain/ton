@@ -109,6 +109,8 @@ protected:
   virtual void visit(V<ast_binary_operator> v)           { return visit_children(v); }
   virtual void visit(V<ast_ternary_operator> v)          { return visit_children(v); }
   virtual void visit(V<ast_cast_as_operator> v)          { return visit_children(v); }
+  virtual void visit(V<ast_not_null_operator> v)         { return visit_children(v); }
+  virtual void visit(V<ast_is_null_check> v)             { return visit_children(v); }
   // statements
   virtual void visit(V<ast_empty_statement> v)           { return visit_children(v); }
   virtual void visit(V<ast_sequence> v)                  { return visit_children(v); }
@@ -146,6 +148,8 @@ protected:
       case ast_binary_operator:                 return visit(v->as<ast_binary_operator>());
       case ast_ternary_operator:                return visit(v->as<ast_ternary_operator>());
       case ast_cast_as_operator:                return visit(v->as<ast_cast_as_operator>());
+      case ast_not_null_operator:               return visit(v->as<ast_not_null_operator>());
+      case ast_is_null_check:                   return visit(v->as<ast_is_null_check>());
       // statements
       case ast_empty_statement:                 return visit(v->as<ast_empty_statement>());
       case ast_sequence:                        return visit(v->as<ast_sequence>());
@@ -167,20 +171,20 @@ protected:
   }
 
 public:
-  virtual bool should_visit_function(const FunctionData* fun_ref) = 0;
+  virtual bool should_visit_function(FunctionPtr fun_ref) = 0;
 
-  virtual void start_visiting_function(const FunctionData* fun_ref, V<ast_function_declaration> v_function) {
+  virtual void start_visiting_function(FunctionPtr fun_ref, V<ast_function_declaration> v_function) {
     visit(v_function->get_body());
   }
 };
 
 
-const std::vector<const FunctionData*>& get_all_not_builtin_functions();
+const std::vector<FunctionPtr>& get_all_not_builtin_functions();
 
 template<class BodyVisitorT>
 void visit_ast_of_all_functions() {
   BodyVisitorT visitor;
-  for (const FunctionData* fun_ref : get_all_not_builtin_functions()) {
+  for (FunctionPtr fun_ref : get_all_not_builtin_functions()) {
     if (visitor.should_visit_function(fun_ref)) {
       visitor.start_visiting_function(fun_ref, fun_ref->ast_root->as<ast_function_declaration>());
     }

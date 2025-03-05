@@ -1088,6 +1088,7 @@ void define_builtins() {
   TypePtr Slice = TypeDataSlice::create();
   TypePtr Builder = TypeDataBuilder::create();
   TypePtr Tuple = TypeDataTuple::create();
+  TypePtr Never = TypeDataNever::create();
 
   std::vector<GenericsDeclaration::GenericsItem> itemsT;
   itemsT.emplace_back("T");
@@ -1201,10 +1202,10 @@ void define_builtins() {
   define_builtin_func("__isNull", {typeT}, Bool, declGenericT,
                               compile_is_null,
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("__throw", ParamsInt1, Unit, nullptr,
+  define_builtin_func("__throw", ParamsInt1, Never, nullptr,
                               compile_throw,
                                 0);
-  define_builtin_func("__throw_arg", {typeT, Int}, Unit, declGenericT,
+  define_builtin_func("__throw_arg", {typeT, Int}, Never, declGenericT,
                               compile_throw_arg,
                                 0);
   define_builtin_func("__throw_if_unless", ParamsInt3, Unit, nullptr,

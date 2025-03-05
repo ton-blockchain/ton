@@ -32,7 +32,7 @@ void OverlayOutboundFecBroadcast::alarm() {
                             fec_type_.size(), flags_, std::move(X.data), X.id, fec_type_, date_);
   }
 
-  alarm_timestamp() = td::Timestamp::in(0.010);
+  alarm_timestamp() = td::Timestamp::in(delay_);
 
   if (seqno_ >= to_send_) {
     stop();
@@ -46,8 +46,9 @@ void OverlayOutboundFecBroadcast::start_up() {
 
 OverlayOutboundFecBroadcast::OverlayOutboundFecBroadcast(td::BufferSlice data, td::uint32 flags,
                                                          td::actor::ActorId<OverlayImpl> overlay,
-                                                         PublicKeyHash local_id)
+                                                         PublicKeyHash local_id, double speed_multiplier)
     : flags_(flags) {
+  delay_ /= speed_multiplier;
   CHECK(data.size() <= (1 << 27));
   local_id_ = local_id;
   overlay_ = std::move(overlay);
@@ -63,9 +64,10 @@ OverlayOutboundFecBroadcast::OverlayOutboundFecBroadcast(td::BufferSlice data, t
 }
 
 td::actor::ActorId<OverlayOutboundFecBroadcast> OverlayOutboundFecBroadcast::create(
-    td::BufferSlice data, td::uint32 flags, td::actor::ActorId<OverlayImpl> overlay, PublicKeyHash local_id) {
-  return td::actor::create_actor<OverlayOutboundFecBroadcast>(td::actor::ActorOptions().with_name("bcast"),
-                                                              std::move(data), flags, overlay, local_id)
+    td::BufferSlice data, td::uint32 flags, td::actor::ActorId<OverlayImpl> overlay, PublicKeyHash local_id,
+    double speed_multiplier) {
+  return td::actor::create_actor<OverlayOutboundFecBroadcast>(
+             td::actor::ActorOptions().with_name("bcast"), std::move(data), flags, overlay, local_id, speed_multiplier)
       .release();
 }
 

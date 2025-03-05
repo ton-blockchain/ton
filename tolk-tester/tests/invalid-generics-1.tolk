@@ -6,5 +6,5 @@ fun failCantDeduceWithoutArgument() {
 
 /**
 @compilation_should_fail
-@stderr can not deduce X for generic function `f<X>`
+@stderr too few arguments in call to `f`, expected 2, have 1
  */

@@ -23,6 +23,8 @@
 #include "validator/validator.h"
 #include "adnl/adnl-ext-client.h"
 
+#include <stats-provider.h>
+
 namespace ton {
 
 namespace validator {
@@ -75,6 +77,8 @@ class DownloadState : public td::actor::Actor {
 
   td::uint64 prev_logged_sum_ = 0;
   td::Timer prev_logged_timer_;
+
+  ProcessStatus status_;
 };
 
 }  // namespace fullnode

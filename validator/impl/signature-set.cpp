@@ -42,9 +42,6 @@ td::BufferSlice BlockSignatureSetQ::serialize() const {
   }
   Ref<vm::Cell> root;
   CHECK(serialize_to(root));
-  //std::cerr << "serializing BlockSignatureSet: ";
-  //vm::CellSlice{vm::NoVm{}, root}.print_rec(std::cerr);
-  //std::cerr << std::endl;
   auto res = vm::std_boc_serialize(std::move(root));
   LOG_CHECK(res.is_ok()) << res.move_as_error();
   return res.move_as_ok();

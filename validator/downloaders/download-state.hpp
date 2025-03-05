@@ -19,6 +19,7 @@
 #pragma once
 
 #include "validator/interfaces/validator-manager.h"
+#include "stats-provider.h"
 
 namespace ton {
 
@@ -67,6 +68,8 @@ class DownloadShardState : public td::actor::Actor {
 
   td::BufferSlice data_;
   td::Ref<ShardState> state_;
+
+  ProcessStatus status_;
 };
 
 }  // namespace validator
