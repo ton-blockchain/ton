@@ -220,6 +220,15 @@ class Collator final : public td::actor::Actor {
   std::vector<vm::MerkleProofBuilder> neighbor_proof_builders_;
   std::vector<Ref<vm::Cell>> collated_roots_;
 
+  struct AccountStorageDict {
+    bool inited = false;
+    vm::MerkleProofBuilder mpb;
+    Ref<vm::Cell> proof_root;
+    size_t proof_size_estimate = 0;
+    bool add_to_collated_data = false;
+  };
+  std::map<td::Bits256, AccountStorageDict> account_storage_dicts_;
+
   std::unique_ptr<ton::BlockCandidate> block_candidate;
 
   std::unique_ptr<vm::AugmentedDictionary> dispatch_queue_, old_dispatch_queue_;
@@ -245,6 +254,7 @@ class Collator final : public td::actor::Actor {
   block::Account* lookup_account(td::ConstBitPtr addr) const;
   std::unique_ptr<block::Account> make_account_from(td::ConstBitPtr addr, Ref<vm::CellSlice> account,
                                                     bool force_create);
+  bool init_account_storage_dict(block::Account& account);
   td::Result<block::Account*> make_account(td::ConstBitPtr addr, bool force_create = false);
   td::actor::ActorId<Collator> get_self() {
     return actor_id(this);
@@ -344,6 +354,7 @@ class Collator final : public td::actor::Actor {
   bool register_dispatch_queue_op(bool force = false);
   bool update_account_dict_estimation(const block::transaction::Transaction& trans);
   bool update_min_mc_seqno(ton::BlockSeqno some_mc_seqno);
+  bool process_account_storage_dict(const block::Account& account);
   bool combine_account_transactions();
   bool update_public_libraries();
   bool update_account_public_libraries(Ref<vm::Cell> orig_libs, Ref<vm::Cell> final_libs, const td::Bits256& addr);

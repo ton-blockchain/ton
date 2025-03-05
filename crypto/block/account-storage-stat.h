@@ -58,9 +58,8 @@ class AccountStorageStat {
     return dict_.is_empty() ? td::Bits256::zero() : td::Bits256{dict_.get_root_cell()->get_hash().bits()};
   }
 
-  td::Result<CellInfo> add_root(const Ref<vm::Cell> &cell);
-  td::Status remove_root(const Ref<vm::Cell> &cell);
-  td::Result<CellInfo> replace_roots(std::vector<Ref<vm::Cell>> new_roots);
+  td::Result<CellInfo> replace_roots(std::vector<Ref<vm::Cell>> hint);
+  void add_hint(const td::HashSet<vm::CellHash> &visited);
 
  private:
   vm::Dictionary dict_;
@@ -72,15 +71,14 @@ class AccountStorageStat {
 
   struct Entry {
     bool inited = false;
-    vm::Cell::Hash hash;
-    td::uint32 refcnt = 0;
-    td::uint32 max_merkle_depth = 0;
-
-    void fetch(Ref<vm::CellSlice> cs);
-    bool serialize(vm::CellBuilder &cb) const;
+    Ref<vm::Cell> cell;
+    bool exists_known = false;
+    bool exists = false;
+    td::optional<td::uint32> refcnt, max_merkle_depth;
+    td::int32 refcnt_diff = 0;
 
     vm::Cell::Hash key() const {
-      return hash;
+      return cell->get_hash();
     }
     bool operator<(const Entry &other) const {
       return key() < other.key();
@@ -111,7 +109,8 @@ class AccountStorageStat {
   vm::CellHashTable<Entry> cache_;
 
   Entry &get_entry(const Ref<vm::Cell> &cell);
-  void update_dict(const Entry &e);
+  td::Status fetch_entry(Entry &e);
+  td::Status commit_entry(Entry &e);
 
   static constexpr td::uint32 MERKLE_DEPTH_LIMIT = 3;
 };

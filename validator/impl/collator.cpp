@@ -2614,8 +2614,59 @@ std::unique_ptr<block::Account> Collator::make_account_from(td::ConstBitPtr addr
     return nullptr;
   }
   ptr->block_lt = start_lt;
+  if (!init_account_storage_dict(*ptr)) {
+    return nullptr;
+  }
   return ptr;
 }
+
+/**
+ * If full collated data is enabled, initialize account storage dict and prepare MerkleProofBuilder for it
+ *
+ * @param account Account to initialize storage dict for
+ * @return True on success, False on failure
+ */
+bool Collator::init_account_storage_dict(block::Account& account) {
+  if (!full_collated_data_ || is_masterchain() || !account.storage_dict_hash || account.storage.is_null()) {
+    return true;
+  }
+  if (account.storage_used.cells < 10) {  // TODO: some other threshold?
+    return true;
+  }
+  td::Bits256 storage_dict_hash = account.storage_dict_hash.value();
+  if (storage_dict_hash.is_zero()) {
+    return true;
+  }
+  AccountStorageDict& dict = account_storage_dicts_[storage_dict_hash];
+  if (!dict.inited) {
+    dict.inited = true;
+    // don't mark cells in account state as loaded during compute_account_storage_dict
+    state_usage_tree_->set_ignore_loads(true);
+    auto res = account.compute_account_storage_dict();
+    state_usage_tree_->set_ignore_loads(false);
+    if (res.is_error()) {
+      return fatal_error(res.move_as_error_prefix(PSTRING() << "Failed to init account storage dict for "
+                                                            << account.addr.to_hex() << ": "));
+    }
+    if (res.ok().is_null()) {  // Impossible if storage_dict_hash is not zero
+      return fatal_error(PSTRING() << "Failed to init account storage dict for " << account.addr.to_hex()
+                                   << ": dict is empty");
+    }
+    dict.mpb = vm::MerkleProofBuilder(res.move_as_ok());
+    dict.mpb.set_cell_load_callback([&](const td::Ref<vm::DataCell>& cell) {
+      if (block_limit_status_) {
+        block_limit_status_->collated_data_stat.add_cell(cell);
+      }
+    });
+  }
+  auto S = account.init_account_storage_stat(dict.mpb.root());
+  if (S.is_error()) {
+    return fatal_error(S.move_as_error_prefix(PSTRING() << "Failed to init account storage dict for "
+                                                        << account.addr.to_hex() << ": "));
+  }
+  return true;
+}
+
 
 /**
  * Looks up an account in the Collator's account map.
@@ -2667,11 +2718,98 @@ td::Result<block::Account*> Collator::make_account(td::ConstBitPtr addr, bool fo
 }
 
 /**
+ * Decides whether to include storage dict proof to collated data for this account or not.
+ *
+ * @param account Account object
+ *
+ * @returns True if the operation is successful, false otherwise.
+ */
+bool Collator::process_account_storage_dict(const block::Account& account) {
+  if (!account.orig_storage_dict_hash) {
+    return true;
+  }
+  td::Bits256 storage_dict_hash = account.orig_storage_dict_hash.value();
+  auto it = account_storage_dicts_.find(storage_dict_hash);
+  if (it == account_storage_dicts_.end()) {
+    return true;
+  }
+  CHECK(full_collated_data_ && !is_masterchain());
+  AccountStorageDict& dict = it->second;
+  if (dict.add_to_collated_data) {
+    LOG(DEBUG) << "Storage dict proof of account " << account.addr.to_hex() << " : already included";
+    return true;
+  }
+
+  td::HashSet<vm::CellHash> visited;
+  bool calculate_proof_size_diff = true;
+  td::int64 proof_size_diff = 0;
+  std::function<void(const Ref<vm::Cell>&)> dfs = [&](const Ref<vm::Cell>& cell) {
+    if (cell.is_null() || !visited.emplace(cell->get_hash()).second) {
+      return;
+    }
+    auto loaded_cell = cell->load_cell().move_as_ok();
+    if (calculate_proof_size_diff) {
+      switch (block_limit_status_->collated_data_stat.get_cell_status(cell->get_hash())) {
+        case vm::ProofStorageStat::c_none:
+          proof_size_diff += vm::ProofStorageStat::estimate_serialized_size(loaded_cell.data_cell);
+          break;
+        case vm::ProofStorageStat::c_prunned:
+          proof_size_diff -= vm::ProofStorageStat::estimate_prunned_size();
+          proof_size_diff += vm::ProofStorageStat::estimate_serialized_size(loaded_cell.data_cell);
+          break;
+        case vm::ProofStorageStat::c_loaded:
+          break;
+      }
+    }
+    vm::CellSlice cs{std::move(loaded_cell)};
+    for (unsigned i = 0; i < cs.size_refs(); ++i) {
+      dfs(cs.prefetch_ref(i));
+    }
+  };
+
+  // Visit all cells in the original account storage to calculate collated data increase
+  state_usage_tree_->set_ignore_loads(true);
+  dfs(account.orig_code);
+  dfs(account.orig_data);
+  dfs(account.orig_library);
+  state_usage_tree_->set_ignore_loads(false);
+
+  if (proof_size_diff > (td::int64)dict.proof_size_estimate) {
+    LOG(DEBUG) << "Storage dict proof of account " << account.addr.to_hex()
+               << " : account_proof_size=" << proof_size_diff << ", dict_proof_size=" << dict.proof_size_estimate
+               << ", include dict in collated data";
+    dict.add_to_collated_data = true;
+  } else {
+    LOG(DEBUG) << "Storage dict proof of account " << account.addr.to_hex()
+               << " : account_proof_size=" << proof_size_diff << ", dict_proof_size=" << dict.proof_size_estimate
+               << ", DO NOT include dict in collated data";
+    // Include account storage in collated data
+    calculate_proof_size_diff = false;
+    visited.clear();
+    dfs(account.orig_code);
+    dfs(account.orig_data);
+    dfs(account.orig_library);
+  }
+
+  return true;
+}
+
+/**
  * Combines account transactions and updates the ShardAccountBlocks and ShardAccounts.
  *
  * @returns True if the operation is successful, false otherwise.
  */
 bool Collator::combine_account_transactions() {
+  for (auto& [hash, dict] : account_storage_dicts_) {
+    auto res = dict.mpb.extract_proof();
+    if (res.is_error()) {
+      return fatal_error(res.move_as_error_prefix(PSTRING() << "Failed to generate proof for account storage dict "
+                                                            << hash.to_hex() << ": "));
+    }
+    dict.proof_root = res.move_as_ok();
+    dict.proof_size_estimate = vm::std_boc_serialize(dict.proof_root, 31).move_as_ok().size();
+  }
+
   vm::AugmentedDictionary dict{256, block::tlb::aug_ShardAccountBlocks};
   for (auto& z : accounts) {
     block::Account& acc = *(z.second);
@@ -2754,6 +2892,9 @@ bool Collator::combine_account_transactions() {
                                " in ShardAccounts");
           }
         }
+      }
+      if (!process_account_storage_dict(acc)) {
+        return false;
       }
     } else {
       if (acc.total_state->get_hash() != acc.orig_total_state->get_hash()) {
@@ -5884,6 +6025,19 @@ bool Collator::create_collated_data() {
 
   for (auto& p : proofs) {
     collated_roots_.push_back(std::move(p.second));
+  }
+
+  // 5. Proofs for account storage dicts
+  for (auto& [_, dict] : account_storage_dicts_) {
+    if (!dict.add_to_collated_data) {
+      continue;
+    }
+    CHECK(dict.proof_root.not_null());
+    // account_storage_dict_proof#37c1e3fc proof:^Cell = AccountStorageDictProof;
+    collated_roots_.push_back(vm::CellBuilder()
+                                  .store_long(block::gen::AccountStorageDictProof::cons_tag[0], 32)
+                                  .store_ref(dict.proof_root)
+                                  .finalize_novm());
   }
   return true;
 }

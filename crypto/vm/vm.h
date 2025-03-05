@@ -19,6 +19,7 @@
 #pragma once
 
 #include "common/refcnt.hpp"
+#include "td/utils/HashMap.h"
 #include "vm/cellslice.h"
 #include "vm/stack.hpp"
 #include "vm/vmstate.h"
@@ -422,6 +423,10 @@ class VmState final : public VmStateInterface {
         consume_gas(chksgn_gas_price);
       }
     }
+  }
+
+  td::HashSet<CellHash> extract_loaded_cells() {
+    return std::move(loaded_cells);
   }
 
  private:
