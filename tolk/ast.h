@@ -88,6 +88,8 @@ enum ASTNodeType {
   ast_binary_operator,
   ast_ternary_operator,
   ast_cast_as_operator,
+  ast_not_null_operator,
+  ast_is_null_check,
   // statements
   ast_empty_statement,
   ast_sequence,
@@ -184,11 +186,14 @@ struct ASTNodeExpressionBase : ASTNodeBase {
   TypePtr inferred_type = nullptr;
   bool is_rvalue: 1 = false;
   bool is_lvalue: 1 = false;
+  bool is_always_true: 1 = false;     // inside `if`, `while`, ternary condition, `== null`, etc.
+  bool is_always_false: 1 = false;    // (when expression is guaranteed to be always true or always false)
 
   ASTNodeExpressionBase* mutate() const { return const_cast<ASTNodeExpressionBase*>(this); }
   void assign_inferred_type(TypePtr type);
   void assign_rvalue_true();
   void assign_lvalue_true();
+  void assign_always_true_or_false(int flow_true_false_state);
 
   ASTNodeExpressionBase(ASTNodeType type, SrcLocation loc) : ASTNodeBase(type, loc) {}
 };
@@ -408,7 +413,7 @@ private:
   V<ast_identifier> identifier;
 
 public:
-  const LocalVarData* var_ref = nullptr;  // filled on resolve identifiers; for `redef` points to declared above; for underscore, name is empty
+  LocalVarPtr var_ref = nullptr;    // filled on resolve identifiers; for `redef` points to declared above; for underscore, name is empty
   TypePtr declared_type;            // not null for `var x: int = rhs`, otherwise nullptr
   bool is_immutable;                // declared via 'val', not 'var'
   bool marked_as_redef;             // var (existing_var redef, new_var: int) = ...
@@ -417,7 +422,7 @@ public:
   std::string_view get_name() const { return identifier->name; }     // empty for underscore
 
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
-  void assign_var_ref(const LocalVarData* var_ref);
+  void assign_var_ref(LocalVarPtr var_ref);
   void assign_resolved_type(TypePtr declared_type);
 
   Vertex(SrcLocation loc, V<ast_identifier> identifier, TypePtr declared_type, bool is_immutable, bool marked_as_redef)
@@ -530,12 +535,12 @@ private:
 public:
 
   typedef std::variant<
-    const FunctionData*,         // for `t.tupleAt` target is `tupleAt` global function
+    FunctionPtr,                 // for `t.tupleAt` target is `tupleAt` global function
     int                          // for `t.0` target is "indexed access" 0
   > DotTarget;
   DotTarget target = static_cast<FunctionData*>(nullptr); // filled at type inferring
 
-  bool is_target_fun_ref() const { return std::holds_alternative<const FunctionData*>(target); }
+  bool is_target_fun_ref() const { return std::holds_alternative<FunctionPtr>(target); }
   bool is_target_indexed_access() const { return std::holds_alternative<int>(target); }
 
   AnyExprV get_obj() const { return child; }
@@ -560,7 +565,7 @@ template<>
 // example: `getF()()` then callee is another func call (which type is TypeDataFunCallable)
 // example: `obj.method()` then callee is dot access (resolved while type inferring)
 struct Vertex<ast_function_call> final : ASTExprBinary {
-  const FunctionData* fun_maybe = nullptr;  // filled while type inferring for `globalF()` / `obj.f()`; remains nullptr for `local_var()` / `getF()()`
+  FunctionPtr fun_maybe = nullptr;  // filled while type inferring for `globalF()` / `obj.f()`; remains nullptr for `local_var()` / `getF()()`
 
   AnyExprV get_callee() const { return lhs; }
   bool is_dot_call() const { return lhs->type == ast_dot_access; }
@@ -570,7 +575,7 @@ struct Vertex<ast_function_call> final : ASTExprBinary {
   auto get_arg(int i) const { return rhs->as<ast_argument_list>()->get_arg(i); }
 
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
-  void assign_fun_ref(const FunctionData* fun_ref);
+  void assign_fun_ref(FunctionPtr fun_ref);
 
   Vertex(SrcLocation loc, AnyExprV lhs_f, V<ast_argument_list> arguments)
     : ASTExprBinary(ast_function_call, loc, lhs_f, arguments) {}
@@ -603,7 +608,7 @@ template<>
 // ast_set_assign represents assignment-and-set operation "lhs <op>= rhs"
 // examples: `a += 4` / `b <<= c`
 struct Vertex<ast_set_assign> final : ASTExprBinary {
-  const FunctionData* fun_ref = nullptr;      // filled at type inferring, points to `_+_` built-in for +=
+  FunctionPtr fun_ref = nullptr;              // filled at type inferring, points to `_+_` built-in for +=
   std::string_view operator_name;             // without equal sign, "+" for operator +=
   TokenType tok;                              // tok_set_*
 
@@ -611,7 +616,7 @@ struct Vertex<ast_set_assign> final : ASTExprBinary {
   AnyExprV get_rhs() const { return rhs; }
 
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
-  void assign_fun_ref(const FunctionData* fun_ref);
+  void assign_fun_ref(FunctionPtr fun_ref);
 
   Vertex(SrcLocation loc, std::string_view operator_name, TokenType tok, AnyExprV lhs, AnyExprV rhs)
     : ASTExprBinary(ast_set_assign, loc, lhs, rhs)
@@ -622,14 +627,14 @@ template<>
 // ast_unary_operator is "some operator over one expression"
 // examples: `-1` / `~found`
 struct Vertex<ast_unary_operator> final : ASTExprUnary {
-  const FunctionData* fun_ref = nullptr;      // filled at type inferring, points to some built-in function
+  FunctionPtr fun_ref = nullptr;          // filled at type inferring, points to some built-in function
   std::string_view operator_name;
   TokenType tok;
 
   AnyExprV get_rhs() const { return child; }
 
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
-  void assign_fun_ref(const FunctionData* fun_ref);
+  void assign_fun_ref(FunctionPtr fun_ref);
 
   Vertex(SrcLocation loc, std::string_view operator_name, TokenType tok, AnyExprV rhs)
     : ASTExprUnary(ast_unary_operator, loc, rhs)
@@ -641,7 +646,7 @@ template<>
 // examples: `a + b` / `x & true` / `(a, b) << g()`
 // note, that `a = b` is NOT a binary operator, it's ast_assign, also `a += b`, it's ast_set_assign
 struct Vertex<ast_binary_operator> final : ASTExprBinary {
-  const FunctionData* fun_ref = nullptr;      // filled at type inferring, points to some built-in function
+  FunctionPtr fun_ref = nullptr;          // filled at type inferring, points to some built-in function
   std::string_view operator_name;
   TokenType tok;
 
@@ -649,7 +654,7 @@ struct Vertex<ast_binary_operator> final : ASTExprBinary {
   AnyExprV get_rhs() const { return rhs; }
 
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
-  void assign_fun_ref(const FunctionData* fun_ref);
+  void assign_fun_ref(FunctionPtr fun_ref);
 
   Vertex(SrcLocation loc, std::string_view operator_name, TokenType tok, AnyExprV lhs, AnyExprV rhs)
     : ASTExprBinary(ast_binary_operator, loc, lhs, rhs)
@@ -684,6 +689,32 @@ struct Vertex<ast_cast_as_operator> final : ASTExprUnary {
     , cast_to_type(cast_to_type) {}
 };
 
+template<>
+// ast_not_null_operator is non-null assertion: like TypeScript ! or Kotlin !!
+// examples: `nullableInt!` / `getNullableBuilder()!`
+struct Vertex<ast_not_null_operator> final : ASTExprUnary {
+  AnyExprV get_expr() const { return child; }
+
+  Vertex(SrcLocation loc, AnyExprV expr)
+    : ASTExprUnary(ast_not_null_operator, loc, expr) {}
+};
+
+template<>
+// ast_is_null_check is an artificial vertex for "expr == null" / "expr != null" / same but null on the left
+// it's created instead of a general binary expression to emphasize its purpose
+struct Vertex<ast_is_null_check> final : ASTExprUnary {
+  bool is_negated;
+
+  AnyExprV get_expr() const { return child; }
+
+  Vertex* mutate() const { return const_cast<Vertex*>(this); }
+  void assign_is_negated(bool is_negated);
+
+  Vertex(SrcLocation loc, AnyExprV expr, bool is_negated)
+    : ASTExprUnary(ast_is_null_check, loc, expr)
+    , is_negated(is_negated) {}
+};
+
 
 //
 // ---------------------------------------------------------
@@ -706,9 +737,13 @@ template<>
 // example: do while body is a sequence
 struct Vertex<ast_sequence> final : ASTStatementVararg {
   SrcLocation loc_end;
+  AnyV first_unreachable = nullptr;
 
   const std::vector<AnyV>& get_items() const { return children; }
   AnyV get_item(int i) const { return children.at(i); }
+
+  Vertex* mutate() const { return const_cast<Vertex*>(this); }
+  void assign_first_unreachable(AnyV first_unreachable);
 
   Vertex(SrcLocation loc, SrcLocation loc_end, std::vector<AnyV> items)
     : ASTStatementVararg(ast_sequence, loc, std::move(items))
@@ -892,7 +927,7 @@ template<>
 // ast_parameter is a parameter of a function in its declaration
 // example: `fun f(a: int, mutate b: slice)` has 2 parameters
 struct Vertex<ast_parameter> final : ASTOtherLeaf {
-  const LocalVarData* param_ref = nullptr;    // filled on resolve identifiers
+  LocalVarPtr param_ref = nullptr;            // filled on resolve identifiers
   std::string_view param_name;
   TypePtr declared_type;
   bool declared_as_mutate;                    // declared as `mutate param_name`
@@ -900,7 +935,7 @@ struct Vertex<ast_parameter> final : ASTOtherLeaf {
   bool is_underscore() const { return param_name.empty(); }
 
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
-  void assign_param_ref(const LocalVarData* param_ref);
+  void assign_param_ref(LocalVarPtr param_ref);
   void assign_resolved_type(TypePtr declared_type);
 
   Vertex(SrcLocation loc, std::string_view param_name, TypePtr declared_type, bool declared_as_mutate)
@@ -951,7 +986,7 @@ struct Vertex<ast_function_declaration> final : ASTOtherVararg {
   auto get_param(int i) const { return children.at(1)->as<ast_parameter_list>()->get_param(i); }
   AnyV get_body() const { return children.at(2); }   // ast_sequence / ast_asm_body
 
-  const FunctionData* fun_ref = nullptr;  // filled after register
+  FunctionPtr fun_ref = nullptr;          // filled after register
   TypePtr declared_return_type;           // filled at ast parsing; if unspecified (nullptr), means "auto infer"
   V<ast_genericsT_list> genericsT_list;   // for non-generics it's nullptr
   td::RefInt256 method_id;                // specified via @method_id annotation
@@ -962,7 +997,7 @@ struct Vertex<ast_function_declaration> final : ASTOtherVararg {
   bool is_builtin_function() const { return children.at(2)->type == ast_empty_statement; }
 
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
-  void assign_fun_ref(const FunctionData* fun_ref);
+  void assign_fun_ref(FunctionPtr fun_ref);
   void assign_resolved_type(TypePtr declared_return_type);
 
   Vertex(SrcLocation loc, V<ast_identifier> name_identifier, V<ast_parameter_list> parameters, AnyV body, TypePtr declared_return_type, V<ast_genericsT_list> genericsT_list, td::RefInt256 method_id, int flags)
@@ -975,13 +1010,13 @@ template<>
 // example: `global g: int;`
 // note, that globals don't have default values, since there is no single "entrypoint" for a contract
 struct Vertex<ast_global_var_declaration> final : ASTOtherVararg {
-  const GlobalVarData* var_ref = nullptr;  // filled after register
+  GlobalVarPtr var_ref = nullptr;          // filled after register
   TypePtr declared_type;                   // filled always, typing globals is mandatory
 
   auto get_identifier() const { return children.at(0)->as<ast_identifier>(); }
 
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
-  void assign_var_ref(const GlobalVarData* var_ref);
+  void assign_var_ref(GlobalVarPtr var_ref);
   void assign_resolved_type(TypePtr declared_type);
 
   Vertex(SrcLocation loc, V<ast_identifier> name_identifier, TypePtr declared_type)
@@ -993,14 +1028,14 @@ template<>
 // ast_constant_declaration is declaring a global constant, outside a function
 // example: `const op = 0x123;`
 struct Vertex<ast_constant_declaration> final : ASTOtherVararg {
-  const GlobalConstData* const_ref = nullptr;  // filled after register
+  GlobalConstPtr const_ref = nullptr;          // filled after register
   TypePtr declared_type;                       // not null for `const op: int = ...`
 
   auto get_identifier() const { return children.at(0)->as<ast_identifier>(); }
   AnyExprV get_init_value() const { return child_as_expr(1); }
 
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
-  void assign_const_ref(const GlobalConstData* const_ref);
+  void assign_const_ref(GlobalConstPtr const_ref);
   void assign_resolved_type(TypePtr declared_type);
 
   Vertex(SrcLocation loc, V<ast_identifier> name_identifier, TypePtr declared_type, AnyExprV init_value)

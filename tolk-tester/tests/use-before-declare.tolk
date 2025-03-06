@@ -27,8 +27,8 @@ fun test1(): int {
     var demo_var: int = demo_10;
     var demo_slice: int = demo_20;
     if (demo_var > 0) {
-        var demo_var: tuple = null;
-        var demo_slice: tuple = null;
+        var demo_var: tuple? = null;
+        var demo_slice: tuple? = null;
     }
     return demo_var + demo_slice;
 }

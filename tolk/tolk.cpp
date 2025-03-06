@@ -58,8 +58,8 @@ int tolk_proceed(const std::string &entrypoint_filename) {
     pipeline_register_global_symbols();
     pipeline_resolve_identifiers_and_assign_symbols();
     pipeline_calculate_rvalue_lvalue();
-    pipeline_detect_unreachable_statements();
     pipeline_infer_types_and_calls_and_fields();
+    pipeline_check_inferred_types();
     pipeline_refine_lvalue_for_mutate_arguments();
     pipeline_check_rvalue_lvalue();
     pipeline_check_pure_impure_operations();
