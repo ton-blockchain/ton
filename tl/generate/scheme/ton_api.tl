@@ -406,6 +406,7 @@ tonNode.preparedProof = tonNode.PreparedProof;
 tonNode.preparedProofLink = tonNode.PreparedProof;
 tonNode.preparedState = tonNode.PreparedState;
 tonNode.notFoundState = tonNode.PreparedState;
+tonNode.persistentStateSize size:long = tonNode.PersistentStateSize;
 tonNode.prepared = tonNode.Prepared;
 tonNode.notFound = tonNode.Prepared;
 tonNode.data data:bytes = tonNode.Data;
@@ -472,6 +473,7 @@ tonNode.prepareKeyBlockProofs blocks:(vector tonNode.blockIdExt) allow_partial:B
 tonNode.prepareBlock block:tonNode.blockIdExt = tonNode.Prepared;
 tonNode.prepareBlocks blocks:(vector tonNode.blockIdExt) = tonNode.Prepared;
 tonNode.preparePersistentState block:tonNode.blockIdExt masterchain_block:tonNode.blockIdExt = tonNode.PreparedState;
+tonNode.getPersistentStateSize block:tonNode.blockIdExt masterchain_block:tonNode.blockIdExt = tonNode.PersistentStateSize;
 tonNode.prepareZeroState block:tonNode.blockIdExt = tonNode.PreparedState;
 tonNode.getNextKeyBlockIds block:tonNode.blockIdExt max_size:int = tonNode.KeyBlocks;
 tonNode.downloadNextBlockFull prev_block:tonNode.blockIdExt = tonNode.DataFull;
