@@ -12,7 +12,7 @@ set(TDNET_SOURCE
 
 add_library(tdnet STATIC ${TDNET_SOURCE})
 target_include_directories(tdnet PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
-target_link_libraries(tdnet PUBLIC tdactor)
+target_link_libraries(tdnet PUBLIC tdactor ${TUNNEL_LIB_IF_USED})
 
 add_executable(tcp_ping_pong example/tcp_ping_pong.cpp)
 target_link_libraries(tcp_ping_pong PRIVATE tdactor tdnet)

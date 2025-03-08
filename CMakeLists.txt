@@ -105,6 +105,21 @@ option(TON_USE_ASAN "Use \"ON\" to enable AddressSanitizer." OFF)
 option(TON_USE_TSAN "Use \"ON\" to enable ThreadSanitizer." OFF)
 option(TON_USE_UBSAN "Use \"ON\" to enable UndefinedBehaviorSanitizer." OFF)
 set(TON_ARCH "native" CACHE STRING "Architecture, will be passed to -march=")
+option(TON_USE_GO_TUNNEL "Use \"ON\" to enable ADNL Tunnel over shared Go library." OFF)
+
+if (TON_USE_GO_TUNNEL)
+  set(TUNNEL_GO_LIB_PATH "${CMAKE_CURRENT_SOURCE_DIR}/libtunnel.a")
+  if (EXISTS "${TUNNEL_GO_LIB_PATH}")
+    message(STATUS "Found ADNL Tunnel library (Go): ${TUNNEL_GO_LIB_PATH}")
+
+    add_library(tunnel STATIC IMPORTED)
+    set_target_properties(tunnel PROPERTIES IMPORTED_LOCATION "${TUNNEL_GO_LIB_PATH}")
+    set(TUNNEL_LIB_IF_USED "tunnel")
+    add_compile_definitions(TON_USE_GO_TUNNEL)
+  else()
+    message(FATAL_ERROR "Missing ADNL Tunnel library (Go), but enabled: ${TUNNEL_GO_LIB_PATH}")
+  endif()
+endif()
 
 #BEGIN M1 support
 EXECUTE_PROCESS( COMMAND uname -m COMMAND tr -d '\n' OUTPUT_VARIABLE ARCHITECTURE )

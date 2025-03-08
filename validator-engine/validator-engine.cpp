@@ -1276,6 +1276,9 @@ void ValidatorEngine::set_local_config(std::string str) {
 void ValidatorEngine::set_global_config(std::string str) {
   global_config_ = str;
 }
+void ValidatorEngine::set_tunnel_config(std::string str) {
+  tunnel_config_ = str;
+}
 void ValidatorEngine::set_db_root(std::string db_root) {
   db_root_ = db_root;
 }
@@ -1849,6 +1852,66 @@ void ValidatorEngine::start_adnl() {
   adnl_ = ton::adnl::Adnl::create(db_root_, keyring_.get());
   td::actor::send_closure(adnl_, &ton::adnl::Adnl::register_network_manager, adnl_network_manager_.get());
 
+  if (!tunnel_config_.empty()) {
+    auto on_tunnel_ready = td::PromiseCreator::lambda([SelfId = actor_id(this), this](td::Result<td::IPAddress> R) {
+      R.ensure();
+      auto addr = R.move_as_ok();
+
+      LOG(INFO) << "Tunnel ready, addr: " << addr;
+
+      add_addr(Config::Addr{}, Config::AddrCats{
+        .in_addr = addr,
+        .is_tunnel = true,
+        .cats = {0, 1, 2, 3},
+      });
+
+      for (auto &adnl : config_.adnl_ids) {
+        add_adnl(adnl.first, adnl.second);
+      }
+
+      td::actor::send_closure(adnl_, &ton::adnl::Adnl::add_static_nodes_from_config, std::move(adnl_static_nodes_));
+      td::actor::send_closure(SelfId, &ValidatorEngine::started_adnl);
+    });
+
+    class Handler : public ton::adnl::AdnlNetworkManager::TunnelEventsHandler {
+    public:
+      Handler(ValidatorEngine *scheduler)
+          : validator_engine_(scheduler) {
+      }
+
+    private:
+      ValidatorEngine *validator_engine_;
+      void on_in_addr_update(td::IPAddress ip) override {
+        validator_engine_->scheduler_->run_in_context_external([&] {
+          LOG(INFO) << "[EVENT] Tunnel reinitialized, addr: " << ip;
+
+          validator_engine_->addr_lists_.clear();
+          validator_engine_->add_addr(Config::Addr{}, Config::AddrCats{
+            .in_addr = ip,
+            .is_tunnel = true,
+            .cats = {0, 1, 2, 3},
+          });
+
+          for (auto &adnl : validator_engine_->config_.adnl_ids) {
+            validator_engine_->add_adnl(adnl.first, adnl.second);
+          }
+        });
+      }
+    };
+
+    td::actor::send_closure(adnl_network_manager_, &ton::adnl::AdnlNetworkManager::install_tunnel_events_handler, std::make_unique<Handler>(this));
+
+    ton::adnl::AdnlCategoryMask cat_mask;
+    for (int i = 0; i <= 3; i++) {
+      cat_mask[i] = true;
+    }
+
+    td::actor::send_closure(adnl_network_manager_, &ton::adnl::AdnlNetworkManager::add_tunnel, global_config_, tunnel_config_,
+                           std::move(cat_mask), 0, std::move(on_tunnel_ready), scheduler_);
+
+    return;
+  }
+
   for (auto &addr : config_.addrs) {
     add_addr(addr.first, addr.second);
   }
@@ -1868,13 +1931,16 @@ void ValidatorEngine::add_addr(const Config::Addr &addr, const Config::AddrCats 
   for (auto cat : cats.priority_cats) {
     cat_mask[cat] = true;
   }
-  if (!cats.proxy) {
-    td::actor::send_closure(adnl_network_manager_, &ton::adnl::AdnlNetworkManager::add_self_addr, addr.addr,
-                            std::move(cat_mask), cats.cats.size() ? 0 : 1);
-  } else {
-    td::actor::send_closure(adnl_network_manager_, &ton::adnl::AdnlNetworkManager::add_proxy_addr, cats.in_addr,
-                            static_cast<td::uint16>(addr.addr.get_port()), cats.proxy, std::move(cat_mask),
-                            cats.cats.size() ? 0 : 1);
+
+  if (!cats.is_tunnel) {
+    if (!cats.proxy) {
+      td::actor::send_closure(adnl_network_manager_, &ton::adnl::AdnlNetworkManager::add_self_addr, addr.addr,
+                              std::move(cat_mask), cats.cats.size() ? 0 : 1);
+    } else {
+      td::actor::send_closure(adnl_network_manager_, &ton::adnl::AdnlNetworkManager::add_proxy_addr, cats.in_addr,
+                              static_cast<td::uint16>(addr.addr.get_port()), cats.proxy, std::move(cat_mask),
+                              cats.cats.size() ? 0 : 1);
+    }
   }
 
   td::uint32 ts = static_cast<td::uint32>(td::Clocks::system());
@@ -4311,6 +4377,10 @@ int main(int argc, char *argv[]) {
     acts.push_back(
         [&x, fname = fname.str()]() { td::actor::send_closure(x, &ValidatorEngine::set_local_config, fname); });
   });
+  p.add_option('\0', "tunnel-config", "file to read tunnel config", [&](td::Slice fname) {
+    acts.push_back(
+        [&x, fname = fname.str()]() { td::actor::send_closure(x, &ValidatorEngine::set_tunnel_config, fname); });
+  });
   p.add_checked_option('I', "ip", "ip:port of instance", [&](td::Slice arg) {
     td::IPAddress addr;
     TRY_STATUS(addr.init_host_port(arg.str()));
@@ -4617,7 +4687,7 @@ int main(int argc, char *argv[]) {
 
   scheduler.run_in_context([&] {
     vm::init_vm().ensure();
-    x = td::actor::create_actor<ValidatorEngine>("validator-engine");
+    x = td::actor::create_actor<ValidatorEngine>("validator-engine", &scheduler);
     for (auto &act : acts) {
       act();
     }

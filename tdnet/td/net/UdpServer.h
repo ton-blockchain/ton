@@ -28,15 +28,23 @@ namespace td {
 class UdpServer : public td::actor::Actor {
  public:
   class Callback {
-   public:
+  public:
     virtual ~Callback() = default;
     virtual void on_udp_message(td::UdpMessage udp_message) = 0;
+  };
+  class TunnelCallback : public Callback {
+  public:
+    virtual void on_in_addr_update(td::IPAddress ip) = 0;
   };
   virtual void send(td::UdpMessage &&message) = 0;
 
   static Result<actor::ActorOwn<UdpServer>> create(td::Slice name, int32 port, std::unique_ptr<Callback> callback);
   static Result<actor::ActorOwn<UdpServer>> create_via_tcp(td::Slice name, int32 port,
                                                            std::unique_ptr<Callback> callback);
+  static Result<actor::ActorOwn<UdpServer>> create_via_tunnel(td::Slice name, std::string global_config, std::string tunnel_config,
+                                                              std::unique_ptr<TunnelCallback> callback,
+                                                              td::Promise<td::IPAddress> on_ready);
+
 };
 
 }  // namespace td

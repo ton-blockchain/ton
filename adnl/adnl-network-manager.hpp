@@ -95,6 +95,10 @@ class AdnlNetworkManagerImpl : public AdnlNetworkManager {
     size_t in_desc{std::numeric_limits<size_t>::max()};
     bool allow_proxy{false};
   };
+  struct TunnelDesc {
+    size_t index{};
+    td::IPAddress address;
+  };
 
   OutDesc *choose_out_iface(td::uint8 cat, td::uint32 priority);
 
@@ -103,6 +107,10 @@ class AdnlNetworkManagerImpl : public AdnlNetworkManager {
 
   void install_callback(std::unique_ptr<Callback> callback) override {
     callback_ = std::move(callback);
+  }
+
+  void install_tunnel_events_handler(std::unique_ptr<TunnelEventsHandler> handler) override {
+    tunnel_events_handler_ = std::move(handler);
   }
 
   void alarm() override;
@@ -127,6 +135,8 @@ class AdnlNetworkManagerImpl : public AdnlNetworkManager {
     in_desc_.push_back(std::move(desc));
   }
 
+  void add_tunnel(std::string global_config, std::string tunnel_config, AdnlCategoryMask cat_mask, td::uint32 priority, td::Promise<td::IPAddress> on_ready,
+                  td::actor::Scheduler *scheduler) override;
   void add_self_addr(td::IPAddress addr, AdnlCategoryMask cat_mask, td::uint32 priority) override;
   void add_proxy_addr(td::IPAddress addr, td::uint16 local_port, std::shared_ptr<AdnlProxy> proxy,
                       AdnlCategoryMask cat_mask, td::uint32 priority) override;
@@ -141,12 +151,14 @@ class AdnlNetworkManagerImpl : public AdnlNetworkManager {
     }
   }
 
+  size_t add_tunnel_udp_port(std::string global_config, std::string tunnel_config, td::Promise<td::IPAddress> on_ready, td::actor::Scheduler *scheduler);
   size_t add_listening_udp_port(td::uint16 port);
   void receive_udp_message(td::UdpMessage message, size_t idx);
   void proxy_register(OutDesc &desc);
 
  private:
   std::unique_ptr<Callback> callback_;
+  std::unique_ptr<TunnelEventsHandler> tunnel_events_handler_;
 
   std::map<td::uint32, std::vector<OutDesc>> out_desc_;
   std::vector<InDesc> in_desc_;
