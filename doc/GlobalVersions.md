@@ -3,7 +3,7 @@ Global version is a parameter specified in `ConfigParam 8` ([block.tlb](https://
 Various features are enabled depending on the global version.
 
 ## Version 4
-New features of version 4 are desctibed in detail in [the documentation](https://docs.ton.org/v3/documentation/tvm/changelog/tvm-upgrade-2023-07).
+New features of version 4 are described in detail in [the documentation](https://docs.ton.org/v3/documentation/tvm/changelog/tvm-upgrade-2023-07).
 
 ### New TVM instructions
 * `PREVMCBLOCKS`, `PREVKEYBLOCK`
@@ -152,7 +152,17 @@ Example: if the last masterchain block seqno is `19071` then the list contains b
   - `SENDMSG` does not check the number of extra currencies.
 - Extra currency dictionary is not counted in the account size and does not affect storage fees.
   - Accounts with already existing extra currencies will get their sizes recomputed without EC only after modifying `AccountState`.
+- Reserve action cannot reserve extra currencies.
+Reserve modes `+1`, `+4` and `+8` ("reserve all except", "add original balance" and "negate amount") now only affect TONs, but not extra currencies.
 
 ### TVM changes
 - `SENDMSG` calculates messages size and fees without extra currencies, uses new +64 and +128 mode behavior.
   - `SENDMSG` does not check the number of extra currencies.
+- New instruction `GETEXTRABALANCE` (`id - amount`). Takes id of the extra currency (integer in range `0..2^32-1`), returns the amount of this extra currency on the account balance.
+  - This is equivalent to taking the extra currency dictionary (`BALANCE SECOND`), loading value (`UDICTGET`) and parsing it (`LDVARUINT32`). If `id` is not present in the dictionary, `0` is returned.
+  - `GETEXTRABALANCE` has special gas cost that allows writing gas-efficient code with predictable gas usage even if there are a lot of different extra currencies.
+  - The full gas cost of `GETEXTRABALANCE` is `26` (normal instruction cost) plus gas for loading cells (up to `3300` if the dictionary has maximum depth).
+  - However, the first `5` executions of `GETEXTRABALANCE` cost at most `26+200` gas units. All subsequent executions cost the full price.
+  - `RUNVM` interacts with this instructions in the following way:
+    - Without "isolate gas" mode, the child VM shares `GETEXTRABALANCE` counter with the parent vm.
+    - With "isolate gas" mode, in the beginning of `RUNVM` the parent VM spends full gas for all already executed `GETEXTRABALANCE` and resets the counter.

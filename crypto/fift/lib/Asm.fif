@@ -1327,6 +1327,8 @@ x{F840} @Defop GETGLOBVAR
 x{F860} @Defop SETGLOBVAR
 { dup 1 31 @rangechk <b x{F87_} s, swap 5 u, @addopb } : SETGLOB
 
+x{F880} @Defop GETEXTRABALANCE
+
 x{F900} @Defop HASHCU
 x{F901} @Defop HASHSU
 x{F902} @Defop SHA256U

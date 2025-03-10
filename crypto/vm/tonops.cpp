@@ -358,6 +358,75 @@ int exec_get_forward_fee_simple(VmState* st) {
   return 0;
 }
 
+int exec_get_extra_currency_balance(VmState* st) {
+  VM_LOG(st) << "execute GETEXTRABALANCE";
+  Stack& stack = st->get_stack();
+  auto id = (td::uint32)stack.pop_long_range((1LL << 32) - 1);
+
+  auto tuple = st->get_c7();
+  tuple = tuple_index(tuple, 0).as_tuple_range(255);
+  if (tuple.is_null()) {
+    throw VmError{Excno::type_chk, "intermediate value is not a tuple"};
+  }
+  tuple = tuple_index(tuple, 7).as_tuple_range(255);  // Balance
+  if (tuple.is_null()) {
+    throw VmError{Excno::type_chk, "intermediate value is not a tuple"};
+  }
+  auto dict_root = tuple_index(tuple, 1);
+  if (!dict_root.is_cell() && !dict_root.is_null()) {
+    throw VmError{Excno::type_chk, "intermediate value is not cell or null"};
+  }
+
+  class LocalVmState : public VmStateInterface {
+   public:
+    explicit LocalVmState(VmState* st) : st_(st) {
+    }
+    ~LocalVmState() override = default;
+
+    Ref<Cell> load_library(td::ConstBitPtr hash) override {
+      return st_->load_library(hash);
+    }
+    void register_cell_load(const CellHash& cell_hash) override {
+      auto new_cell = st_->register_cell_load_free(cell_hash);
+      consume_gas(new_cell ? VmState::cell_load_gas_price : VmState::cell_reload_gas_price);
+    }
+    void register_cell_create() override {
+      // Not expected in this operation
+    }
+    int get_global_version() const override {
+      return st_->get_global_version();
+    }
+
+   private:
+    VmState* st_;
+    long long remaining = VmState::get_extra_balance_cheap_max_gas_price;
+
+    void consume_gas(long long gas) {
+      long long consumed = std::min(gas, remaining);
+      st_->consume_gas(consumed);
+      remaining -= consumed;
+      if (remaining == 0) {
+        st_->consume_free_gas(gas - consumed);
+      }
+    }
+  };
+  bool cheap = st->register_get_extra_balance_call();
+  LocalVmState local_vm_state{st};
+  VmStateInterface::Guard guard{cheap ? (VmStateInterface*)&local_vm_state : st};
+
+  Dictionary dict{dict_root.as_cell(), 32};
+  Ref<CellSlice> cs = dict.lookup(td::BitArray<32>(id));
+  if (cs.is_null()) {
+    stack.push_smallint(0);
+  } else {
+    td::RefInt256 x;
+    util::load_var_integer_q(cs.write(), x, /* len_bits = */ 5, /* sgnd = */ false, /* quiet = */ false);
+    stack.push_int(std::move(x));
+  }
+
+  return 0;
+}
+
 void register_ton_config_ops(OpcodeTable& cp0) {
   using namespace std::placeholders;
   cp0.insert(OpcodeInstr::mkfixedrange(0xf820, 0xf823, 16, 4, instr::dump_1c("GETPARAM "), exec_get_var_param))
@@ -391,7 +460,8 @@ void register_ton_config_ops(OpcodeTable& cp0) {
       .insert(OpcodeInstr::mksimple(0xf840, 16, "GETGLOBVAR", exec_get_global_var))
       .insert(OpcodeInstr::mkfixedrange(0xf841, 0xf860, 16, 5, instr::dump_1c_and(31, "GETGLOB "), exec_get_global))
       .insert(OpcodeInstr::mksimple(0xf860, 16, "SETGLOBVAR", exec_set_global_var))
-      .insert(OpcodeInstr::mkfixedrange(0xf861, 0xf880, 16, 5, instr::dump_1c_and(31, "SETGLOB "), exec_set_global));
+      .insert(OpcodeInstr::mkfixedrange(0xf861, 0xf880, 16, 5, instr::dump_1c_and(31, "SETGLOB "), exec_set_global))
+      .insert(OpcodeInstr::mksimple(0xf880, 16, "GETEXTRABALANCE", exec_get_extra_currency_balance)->require_version(10));
 }
 
 static constexpr int randseed_idx = 6;

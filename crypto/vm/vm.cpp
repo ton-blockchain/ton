@@ -656,12 +656,12 @@ bool VmState::register_library_collection(Ref<Cell> lib) {
 }
 
 void VmState::register_cell_load(const CellHash& cell_hash) {
-  if (cell_load_gas_price == cell_reload_gas_price) {
-    consume_gas(cell_load_gas_price);
-  } else {
-    auto ok = loaded_cells.insert(cell_hash);  // check whether this is the first time this cell is loaded
-    consume_gas(ok.second ? cell_load_gas_price : cell_reload_gas_price);
-  }
+  auto new_cell = loaded_cells.insert(cell_hash).second;  // check whether this is the first time this cell is loaded
+  consume_gas(new_cell ? cell_load_gas_price : cell_reload_gas_price);
+}
+
+bool VmState::register_cell_load_free(const CellHash& cell_hash) {
+  return loaded_cells.insert(cell_hash).second;
 }
 
 void VmState::register_cell_create() {
@@ -715,10 +715,13 @@ void VmState::run_child_vm(VmState&& new_state, bool return_data, bool return_ac
   if (!isolate_gas) {
     new_state.loaded_cells = std::move(loaded_cells);
   } else {
-    consume_gas(std::min<long long>(chksgn_counter, chksgn_free_count) * chksgn_gas_price);
+    consume_gas(free_gas_consumed);
     chksgn_counter = 0;
+    get_extra_balance_counter = 0;
   }
   new_state.chksgn_counter = chksgn_counter;
+  new_state.free_gas_consumed = free_gas_consumed;
+  new_state.get_extra_balance_counter = get_extra_balance_counter;
 
   auto new_parent = std::make_unique<ParentVmState>();
   new_parent->return_data = return_data;
@@ -743,6 +746,8 @@ void VmState::restore_parent_vm(int res) {
     loaded_cells = std::move(child_state.loaded_cells);
   }
   chksgn_counter = child_state.chksgn_counter;
+  get_extra_balance_counter = child_state.get_extra_balance_counter;
+  free_gas_consumed = child_state.free_gas_consumed;
   VM_LOG(this) << "Child VM finished. res: " << res << ", steps: " << child_state.steps
                << ", gas: " << child_state.gas_consumed();
 
