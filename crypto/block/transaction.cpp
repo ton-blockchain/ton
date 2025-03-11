@@ -3044,13 +3044,13 @@ static td::uint32 get_public_libraries_diff_count(const td::Ref<vm::Cell>& old_l
  * This function is not called for special accounts.
  *
  * @param size_limits The size limits configuration.
- * @param update_storage_stat Store storage stat in the Transaction's AccountStorageStat.
+ * @param is_account_stat Store storage stat in the Transaction's AccountStorageStat.
  *
  * @returns A `td::Status` indicating the result of the check.
  *          - If the state limits are within the allowed range, returns OK.
  *          - If the state limits exceed the maximum allowed range, returns an error.
  */
-td::Status Transaction::check_state_limits(const SizeLimitsConfig& size_limits, bool update_storage_stat) {
+td::Status Transaction::check_state_limits(const SizeLimitsConfig& size_limits, bool is_account_stat) {
   auto cell_equal = [](const td::Ref<vm::Cell>& a, const td::Ref<vm::Cell>& b) -> bool {
     return a.is_null() || b.is_null() ? a.is_null() == b.is_null() : a->get_hash() == b->get_hash();
   };
@@ -3059,13 +3059,13 @@ td::Status Transaction::check_state_limits(const SizeLimitsConfig& size_limits, 
     return td::Status::OK();
   }
   AccountStorageStat storage_stat;
-  if (update_storage_stat && account.account_storage_stat) {
+  if (is_account_stat && account.account_storage_stat) {
     storage_stat = account.account_storage_stat.value();
   }
   {
     TD_PERF_COUNTER(transaction_storage_stat_a);
     td::Timer timer;
-    if (update_storage_stat && compute_phase) {
+    if (is_account_stat && compute_phase) {
       storage_stat.add_hint(compute_phase->vm_loaded_cells);
     }
     TRY_RESULT(info, storage_stat.replace_roots({new_code, new_data, new_library}));
@@ -3091,9 +3091,12 @@ td::Status Transaction::check_state_limits(const SizeLimitsConfig& size_limits, 
                                          << size_limits.max_acc_public_libraries << ")");
     }
   }
-  if (update_storage_stat) {
+  if (is_account_stat) {
     // storage_stat will be reused in compute_state()
     new_account_storage_stat.value_force() = std::move(storage_stat);
+    storage_stats_updates.push_back(new_code);
+    storage_stats_updates.push_back(new_data);
+    storage_stats_updates.push_back(new_library);
   }
   return td::Status::OK();
 }
@@ -3364,7 +3367,9 @@ bool Transaction::compute_state(const SerializeConfig& cfg) {
     if (compute_phase) {
       stats.add_hint(compute_phase->vm_loaded_cells);
     }
-    auto S = stats.replace_roots(new_storage->prefetch_all_refs()).move_as_status();
+    auto roots = new_storage->prefetch_all_refs();
+    storage_stats_updates.insert(storage_stats_updates.end(), roots.begin(), roots.end());
+    auto S = stats.replace_roots(std::move(roots)).move_as_status();
     if (S.is_error()) {
       LOG(ERROR) << "Cannot recompute storage stats for account " << account.addr.to_hex() << ": " << S.move_as_error();
       return false;

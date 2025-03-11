@@ -392,6 +392,7 @@ struct Transaction {
   td::optional<AccountStorageStat> new_account_storage_stat;
   td::optional<td::Bits256> new_storage_dict_hash;
   bool gas_limit_overridden{false};
+  std::vector<Ref<vm::Cell>> storage_stats_updates;
   Transaction(const Account& _account, int ttype, ton::LogicalTime req_start_lt, ton::UnixTime _now,
               Ref<vm::Cell> _inmsg = {});
   bool unpack_input_msg(bool ihr_delivered, const ActionPhaseConfig* cfg);
@@ -405,7 +406,7 @@ struct Transaction {
   bool run_precompiled_contract(const ComputePhaseConfig& cfg, precompiled::PrecompiledSmartContract& precompiled);
   bool prepare_compute_phase(const ComputePhaseConfig& cfg);
   bool prepare_action_phase(const ActionPhaseConfig& cfg);
-  td::Status check_state_limits(const SizeLimitsConfig& size_limits, bool update_storage_stat = true);
+  td::Status check_state_limits(const SizeLimitsConfig& size_limits, bool is_account_stat = true);
   bool prepare_bounce_phase(const ActionPhaseConfig& cfg);
   bool compute_state(const SerializeConfig& cfg);
   bool serialize(const SerializeConfig& cfg);

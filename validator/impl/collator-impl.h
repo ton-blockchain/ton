@@ -226,6 +226,7 @@ class Collator final : public td::actor::Actor {
     Ref<vm::Cell> proof_root;
     size_t proof_size_estimate = 0;
     bool add_to_collated_data = false;
+    std::vector<Ref<vm::Cell>> storage_stat_updates;
   };
   std::map<td::Bits256, AccountStorageDict> account_storage_dicts_;
 
@@ -353,6 +354,7 @@ class Collator final : public td::actor::Actor {
   bool register_out_msg_queue_op(bool force = false);
   bool register_dispatch_queue_op(bool force = false);
   bool update_account_dict_estimation(const block::transaction::Transaction& trans);
+  void update_account_storage_dict_info(const block::transaction::Transaction& trans);
   bool update_min_mc_seqno(ton::BlockSeqno some_mc_seqno);
   bool process_account_storage_dict(const block::Account& account);
   bool combine_account_transactions();

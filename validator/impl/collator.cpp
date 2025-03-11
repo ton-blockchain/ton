@@ -2739,16 +2739,23 @@ bool Collator::process_account_storage_dict(const block::Account& account) {
     LOG(DEBUG) << "Storage dict proof of account " << account.addr.to_hex() << " : already included";
     return true;
   }
+  if (dict.storage_stat_updates.empty()) {
+    LOG(DEBUG) << "Storage dict proof of account " << account.addr.to_hex() << " : not required (no storage updates)";
+    return true;
+  }
 
   td::HashSet<vm::CellHash> visited;
   bool calculate_proof_size_diff = true;
   td::int64 proof_size_diff = 0;
-  std::function<void(const Ref<vm::Cell>&)> dfs = [&](const Ref<vm::Cell>& cell) {
+  std::function<void(const Ref<vm::Cell>&, bool)> dfs = [&](const Ref<vm::Cell>& cell, bool from_old_state) {
     if (cell.is_null() || !visited.emplace(cell->get_hash()).second) {
       return;
     }
     auto loaded_cell = cell->load_cell().move_as_ok();
-    if (calculate_proof_size_diff) {
+    if (!loaded_cell.tree_node.empty()) {
+      from_old_state = true;
+    }
+    if (calculate_proof_size_diff && from_old_state) {
       switch (block_limit_status_->collated_data_stat.get_cell_status(cell->get_hash())) {
         case vm::ProofStorageStat::c_none:
           proof_size_diff += vm::ProofStorageStat::estimate_serialized_size(loaded_cell.data_cell);
@@ -2763,15 +2770,15 @@ bool Collator::process_account_storage_dict(const block::Account& account) {
     }
     vm::CellSlice cs{std::move(loaded_cell)};
     for (unsigned i = 0; i < cs.size_refs(); ++i) {
-      dfs(cs.prefetch_ref(i));
+      dfs(cs.prefetch_ref(i), from_old_state);
     }
   };
 
-  // Visit all cells in the original account storage to calculate collated data increase
+  // Visit cells that were used in storage stat computation to calculate collated data increase
   state_usage_tree_->set_ignore_loads(true);
-  dfs(account.orig_code);
-  dfs(account.orig_data);
-  dfs(account.orig_library);
+  for (const auto& cell : dict.storage_stat_updates) {
+    dfs(cell, false);
+  }
   state_usage_tree_->set_ignore_loads(false);
 
   if (proof_size_diff > (td::int64)dict.proof_size_estimate) {
@@ -2786,9 +2793,9 @@ bool Collator::process_account_storage_dict(const block::Account& account) {
     // Include account storage in collated data
     calculate_proof_size_diff = false;
     visited.clear();
-    dfs(account.orig_code);
-    dfs(account.orig_data);
-    dfs(account.orig_library);
+    for (const auto& cell : dict.storage_stat_updates) {
+      dfs(cell, false);
+    }
   }
 
   return true;
@@ -3068,6 +3075,7 @@ bool Collator::create_ticktock_transaction(const ton::StdSmcAddress& smc_addr, t
   if (!update_account_dict_estimation(*trans)) {
     return fatal_error(-666, "cannot update account dict size estimation");
   }
+  update_account_storage_dict_info(*trans);
   update_max_lt(acc->last_trans_end_lt_);
   block::MsgMetadata new_msg_metadata{0, acc->workchain, acc->addr, trans->start_lt};
   register_new_msgs(*trans, std::move(new_msg_metadata));
@@ -3165,6 +3173,7 @@ Ref<vm::Cell> Collator::create_ordinary_transaction(Ref<vm::Cell> msg_root,
     fatal_error("cannot update account dict size estimation");
     return {};
   }
+  update_account_storage_dict_info(*trans);
 
   td::optional<block::MsgMetadata> new_msg_metadata;
   if (external || is_special_tx) {
@@ -5454,6 +5463,26 @@ bool Collator::update_account_dict_estimation(const block::transaction::Transact
     return block_limit_status_->add_proof(account_dict_estimator_->get_root_cell());
   }
   return true;
+}
+
+/**
+ * Update `storage_stat_updates` for AccountStorageDict for the new transaction.
+ *
+ * @param trans Newly-created transaction.
+ */
+void Collator::update_account_storage_dict_info(const block::transaction::Transaction& trans) {
+  if (!trans.account.orig_storage_dict_hash) {
+    return;
+  }
+  auto it = account_storage_dicts_.find(trans.account.orig_storage_dict_hash.value());
+  if (it == account_storage_dicts_.end()) {
+    return;
+  }
+  for (const Ref<vm::Cell>& cell : trans.storage_stats_updates) {
+    if (cell.not_null()) {
+      it->second.storage_stat_updates.push_back(cell);
+    }
+  }
 }
 
 /**
