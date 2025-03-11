@@ -1,5 +1,3 @@
-cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
-
 add_executable(embed-provider-code smartcont/embed-provider-code.cpp)
 
 add_custom_command(
