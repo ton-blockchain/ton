@@ -59,20 +59,20 @@
 namespace tolk {
 
 GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-static void fire_error_undefined_symbol(V<ast_identifier> v) {
+static void fire_error_undefined_symbol(FunctionPtr cur_f, V<ast_identifier> v) {
   if (v->name == "self") {
-    v->error("using `self` in a non-member function (it does not accept the first `self` parameter)");
+    throw ParseError(cur_f, v->loc, "using `self` in a non-member function (it does not accept the first `self` parameter)");
   } else {
-    v->error("undefined symbol `" + static_cast<std::string>(v->name) + "`");
+    throw ParseError(cur_f, v->loc, "undefined symbol `" + static_cast<std::string>(v->name) + "`");
   }
 }
 
 GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-static void fire_error_unknown_type_name(SrcLocation loc, const std::string &text) {
-  throw ParseError(loc, "unknown type name `" + text + "`");
+static void fire_error_unknown_type_name(FunctionPtr cur_f, SrcLocation loc, const std::string &text) {
+  throw ParseError(cur_f, loc, "unknown type name `" + text + "`");
 }
 
-static void check_import_exists_when_using_sym(AnyV v_usage, const Symbol* used_sym) {
+static void check_import_exists_when_using_sym(FunctionPtr cur_f, AnyV v_usage, const Symbol* used_sym) {
   SrcLocation sym_loc = used_sym->loc;
   if (!v_usage->loc.is_symbol_from_same_or_builtin_file(sym_loc)) {
     const SrcFile* declared_in = sym_loc.get_src_file();
@@ -83,7 +83,7 @@ static void check_import_exists_when_using_sym(AnyV v_usage, const Symbol* used_
       }
     }
     if (!has_import) {
-      v_usage->error("Using a non-imported symbol `" + used_sym->name + "`. Forgot to import \"" + declared_in->rel_filename + "\"?");
+      throw ParseError(cur_f, v_usage->loc, "Using a non-imported symbol `" + used_sym->name + "`. Forgot to import \"" + declared_in->rel_filename + "\"?");
     }
   }
 }
@@ -119,7 +119,7 @@ struct NameAndScopeResolver {
     return G.symtable.lookup(name);
   }
 
-  void add_local_var(const LocalVarData* v_sym) {
+  void add_local_var(LocalVarPtr v_sym) {
     if (UNLIKELY(scopes.empty())) {
       throw Fatal("unexpected scope_level = 0");
     }
@@ -137,40 +137,41 @@ struct NameAndScopeResolver {
 
 struct TypeDataResolver {
   GNU_ATTRIBUTE_NOINLINE
-  static TypePtr resolve_identifiers_in_type_data(TypePtr type_data, const GenericsDeclaration* genericTs) {
-    return type_data->replace_children_custom([genericTs](TypePtr child) {
+  static TypePtr resolve_identifiers_in_type_data(FunctionPtr cur_f, TypePtr type_data, const GenericsDeclaration* genericTs) {
+    return type_data->replace_children_custom([cur_f, genericTs](TypePtr child) {
       if (const TypeDataUnresolved* un = child->try_as<TypeDataUnresolved>()) {
         if (genericTs && genericTs->has_nameT(un->text)) {
           std::string nameT = un->text;
           return TypeDataGenericT::create(std::move(nameT));
         }
         if (un->text == "auto") {
-          throw ParseError(un->loc, "`auto` type does not exist; just omit a type for local variable (will be inferred from assignment); parameters should always be typed");
+          throw ParseError(cur_f, un->loc, "`auto` type does not exist; just omit a type for local variable (will be inferred from assignment); parameters should always be typed");
         }
         if (un->text == "self") {
-          throw ParseError(un->loc, "`self` type can be used only as a return type of a function (enforcing it to be chainable)");
+          throw ParseError(cur_f, un->loc, "`self` type can be used only as a return type of a function (enforcing it to be chainable)");
         }
-        fire_error_unknown_type_name(un->loc, un->text);
+        fire_error_unknown_type_name(cur_f, un->loc, un->text);
       }
       return child;
     });
   }
 };
 
-static TypePtr finalize_type_data(TypePtr type_data, const GenericsDeclaration* genericTs) {
+static TypePtr finalize_type_data(FunctionPtr cur_f, TypePtr type_data, const GenericsDeclaration* genericTs) {
   if (!type_data || !type_data->has_unresolved_inside()) {
     return type_data;
   }
-  return TypeDataResolver::resolve_identifiers_in_type_data(type_data, genericTs);
+  return TypeDataResolver::resolve_identifiers_in_type_data(cur_f, type_data, genericTs);
 }
 
 
 class AssignSymInsideFunctionVisitor final : public ASTVisitorFunctionBody {
   // more correctly this field shouldn't be static, but currently there is no need to make it a part of state
   static NameAndScopeResolver current_scope;
-  static const FunctionData* current_function;
+  static FunctionPtr cur_f;
+  static const GenericsDeclaration* current_genericTs;
 
-  static const LocalVarData* create_local_var_sym(std::string_view name, SrcLocation loc, TypePtr declared_type, bool immutable) {
+  static LocalVarPtr create_local_var_sym(std::string_view name, SrcLocation loc, TypePtr declared_type, bool immutable) {
     LocalVarData* v_sym = new LocalVarData(static_cast<std::string>(name), loc, declared_type, immutable * LocalVarData::flagImmutable, -1);
     current_scope.add_local_var(v_sym);
     return v_sym;
@@ -178,7 +179,7 @@ class AssignSymInsideFunctionVisitor final : public ASTVisitorFunctionBody {
 
   static void process_catch_variable(AnyExprV catch_var) {
     if (auto v_ref = catch_var->try_as<ast_reference>()) {
-      const LocalVarData* var_ref = create_local_var_sym(v_ref->get_name(), catch_var->loc, nullptr, true);
+      LocalVarPtr var_ref = create_local_var_sym(v_ref->get_name(), catch_var->loc, nullptr, true);
       v_ref->mutate()->assign_sym(var_ref);
     }
   }
@@ -188,16 +189,16 @@ protected:
     if (v->marked_as_redef) {
       const Symbol* sym = current_scope.lookup_symbol(v->get_name());
       if (sym == nullptr) {
-        v->error("`redef` for unknown variable");
+        throw ParseError(cur_f, v->loc, "`redef` for unknown variable");
       }
-      const LocalVarData* var_ref = sym->try_as<LocalVarData>();
+      LocalVarPtr var_ref = sym->try_as<LocalVarPtr>();
       if (!var_ref) {
-        v->error("`redef` for unknown variable");
+        throw ParseError(cur_f, v->loc, "`redef` for unknown variable");
       }
       v->mutate()->assign_var_ref(var_ref);
     } else {
-      TypePtr declared_type = finalize_type_data(v->declared_type, current_function->genericTs);
-      const LocalVarData* var_ref = create_local_var_sym(v->get_name(), v->loc, declared_type, v->is_immutable);
+      TypePtr declared_type = finalize_type_data(cur_f, v->declared_type, current_genericTs);
+      LocalVarPtr var_ref = create_local_var_sym(v->get_name(), v->loc, declared_type, v->is_immutable);
       v->mutate()->assign_resolved_type(declared_type);
       v->mutate()->assign_var_ref(var_ref);
     }
@@ -211,20 +212,20 @@ protected:
   void visit(V<ast_reference> v) override {
     const Symbol* sym = current_scope.lookup_symbol(v->get_name());
     if (!sym) {
-      fire_error_undefined_symbol(v->get_identifier());
+      fire_error_undefined_symbol(cur_f, v->get_identifier());
     }
     v->mutate()->assign_sym(sym);
 
     // for global functions, global vars and constants, `import` must exist
-    if (!sym->try_as<LocalVarData>()) {
-      check_import_exists_when_using_sym(v, sym);
+    if (!sym->try_as<LocalVarPtr>()) {
+      check_import_exists_when_using_sym(cur_f, v, sym);
     }
 
     // for `f<int, MyAlias>` / `f<T>`, resolve "MyAlias" and "T"
     // (for function call `f<T>()`, this v (ast_reference `f<T>`) is callee)
     if (auto v_instantiationTs = v->get_instantiationTs()) {
       for (int i = 0; i < v_instantiationTs->size(); ++i) {
-        TypePtr substituted_type = finalize_type_data(v_instantiationTs->get_item(i)->substituted_type, current_function->genericTs);
+        TypePtr substituted_type = finalize_type_data(cur_f, v_instantiationTs->get_item(i)->substituted_type, current_genericTs);
         v_instantiationTs->get_item(i)->mutate()->assign_resolved_type(substituted_type);
       }
     }
@@ -235,7 +236,7 @@ protected:
     // (for function call `t.tupleAt<MyAlias>()`, this v (ast_dot_access `t.tupleAt<MyAlias>`) is callee)
     if (auto v_instantiationTs = v->get_instantiationTs()) {
       for (int i = 0; i < v_instantiationTs->size(); ++i) {
-        TypePtr substituted_type = finalize_type_data(v_instantiationTs->get_item(i)->substituted_type, current_function->genericTs);
+        TypePtr substituted_type = finalize_type_data(cur_f, v_instantiationTs->get_item(i)->substituted_type, current_genericTs);
         v_instantiationTs->get_item(i)->mutate()->assign_resolved_type(substituted_type);
       }
     }
@@ -243,7 +244,7 @@ protected:
   }
 
   void visit(V<ast_cast_as_operator> v) override {
-    TypePtr cast_to_type = finalize_type_data(v->cast_to_type, current_function->genericTs);
+    TypePtr cast_to_type = finalize_type_data(cur_f, v->cast_to_type, current_genericTs);
     v->mutate()->assign_resolved_type(cast_to_type);
     parent::visit(v->get_expr());
   }
@@ -276,24 +277,25 @@ protected:
   }
 
 public:
-  bool should_visit_function(const FunctionData* fun_ref) override {
+  bool should_visit_function(FunctionPtr fun_ref) override {
     // this pipe is done just after parsing
     // visit both asm and code functions, resolve identifiers in parameter/return types everywhere
     // for generic functions, unresolved "T" will be replaced by TypeDataGenericT
     return true;
   }
 
-  void start_visiting_function(const FunctionData* fun_ref, V<ast_function_declaration> v) override {
-    current_function = fun_ref;
+  void start_visiting_function(FunctionPtr fun_ref, V<ast_function_declaration> v) override {
+    cur_f = fun_ref;
+    current_genericTs = fun_ref->genericTs;
 
     for (int i = 0; i < v->get_num_params(); ++i) {
       const LocalVarData& param_var = fun_ref->parameters[i];
-      TypePtr declared_type = finalize_type_data(param_var.declared_type, fun_ref->genericTs);
+      TypePtr declared_type = finalize_type_data(cur_f, param_var.declared_type, fun_ref->genericTs);
       v->get_param(i)->mutate()->assign_param_ref(&param_var);
       v->get_param(i)->mutate()->assign_resolved_type(declared_type);
       param_var.mutate()->assign_resolved_type(declared_type);
     }
-    TypePtr return_type = finalize_type_data(fun_ref->declared_return_type, fun_ref->genericTs);
+    TypePtr return_type = finalize_type_data(cur_f, fun_ref->declared_return_type, fun_ref->genericTs);
     v->mutate()->assign_resolved_type(return_type);
     fun_ref->mutate()->assign_resolved_type(return_type);
 
@@ -308,12 +310,14 @@ public:
       tolk_assert(current_scope.scopes.empty());
     }
 
-    current_function = nullptr;
+    current_genericTs = nullptr;
+    cur_f = nullptr;
   }
 };
 
 NameAndScopeResolver AssignSymInsideFunctionVisitor::current_scope;
-const FunctionData* AssignSymInsideFunctionVisitor::current_function = nullptr;
+FunctionPtr AssignSymInsideFunctionVisitor::cur_f = nullptr;
+const GenericsDeclaration* AssignSymInsideFunctionVisitor::current_genericTs = nullptr;
 
 void pipeline_resolve_identifiers_and_assign_symbols() {
   AssignSymInsideFunctionVisitor visitor;
@@ -324,20 +328,22 @@ void pipeline_resolve_identifiers_and_assign_symbols() {
         visitor.start_visiting_function(v_func->fun_ref, v_func);
 
       } else if (auto v_global = v->try_as<ast_global_var_declaration>()) {
-        TypePtr declared_type = finalize_type_data(v_global->var_ref->declared_type, nullptr);
+        TypePtr declared_type = finalize_type_data(nullptr, v_global->var_ref->declared_type, nullptr);
         v_global->mutate()->assign_resolved_type(declared_type);
         v_global->var_ref->mutate()->assign_resolved_type(declared_type);
 
-      } else if (auto v_const = v->try_as<ast_constant_declaration>(); v_const && v_const->declared_type) {
-        TypePtr declared_type = finalize_type_data(v_const->const_ref->declared_type, nullptr);
-        v_const->mutate()->assign_resolved_type(declared_type);
-        v_const->const_ref->mutate()->assign_resolved_type(declared_type);
+      } else if (auto v_const = v->try_as<ast_constant_declaration>()) {
+        if (v_const->declared_type) {
+          TypePtr declared_type = finalize_type_data(nullptr, v_const->const_ref->declared_type, nullptr);
+          v_const->mutate()->assign_resolved_type(declared_type);
+          v_const->const_ref->mutate()->assign_resolved_type(declared_type);
+        }
       }
     }
   }
 }
 
-void pipeline_resolve_identifiers_and_assign_symbols(const FunctionData* fun_ref) {
+void pipeline_resolve_identifiers_and_assign_symbols(FunctionPtr fun_ref) {
   AssignSymInsideFunctionVisitor visitor;
   if (visitor.should_visit_function(fun_ref)) {
     visitor.start_visiting_function(fun_ref, fun_ref->ast_root->as<ast_function_declaration>());

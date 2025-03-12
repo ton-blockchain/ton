@@ -402,7 +402,7 @@ void CodeBlob::print(std::ostream& os, int flags) const {
 
 std::vector<var_idx_t> CodeBlob::create_var(TypePtr var_type, SrcLocation loc, std::string name) {
   std::vector<var_idx_t> ir_idx;
-  int stack_w = var_type->calc_width_on_stack();
+  int stack_w = var_type->get_width_on_stack();
   ir_idx.reserve(stack_w);
   if (const TypeDataTensor* t_tensor = var_type->try_as<TypeDataTensor>()) {
     for (int i = 0; i < t_tensor->size(); ++i) {
@@ -410,7 +410,11 @@ std::vector<var_idx_t> CodeBlob::create_var(TypePtr var_type, SrcLocation loc, s
       std::vector<var_idx_t> nested = create_var(t_tensor->items[i], loc, std::move(sub_name));
       ir_idx.insert(ir_idx.end(), nested.begin(), nested.end());
     }
-  } else if (var_type != TypeDataVoid::create()) {
+  } else if (const TypeDataNullable* t_nullable = var_type->try_as<TypeDataNullable>(); t_nullable && stack_w != 1) {
+    std::string null_flag_name = name.empty() ? name : name + ".NNFlag";
+    ir_idx = create_var(t_nullable->inner, loc, std::move(name));
+    ir_idx.emplace_back(create_var(TypeDataBool::create(), loc, std::move(null_flag_name))[0]);
+  } else if (var_type != TypeDataVoid::create() && var_type != TypeDataNever::create()) {
 #ifdef TOLK_DEBUG
     tolk_assert(stack_w == 1);
 #endif

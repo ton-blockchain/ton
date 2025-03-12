@@ -1,5 +1,5 @@
 // A part of standard library for Tolk
-tolk 0.8
+tolk 0.9
 
 /**
     Lisp-style lists are nested 2-elements tuples: `(1, (2, (3, null)))` represents list `[1, 2, 3]`.
@@ -14,17 +14,18 @@ fun createEmptyList(): tuple
 /// Adds an element to the beginning of lisp-style list.
 /// Note, that it does not mutate the list: instead, it returns a new one (it's a lisp pattern).
 @pure
-fun listPrepend<X>(head: X, tail: tuple): tuple
+fun listPrepend<X>(head: X, tail: tuple?): tuple
     asm "CONS";
 
 /// Extracts the head and the tail of lisp-style list.
 @pure
-fun listSplit<X>(list: tuple): (X, tuple)
+fun listSplit<X>(list: tuple): (X, tuple?)
     asm "UNCONS";
 
 /// Extracts the tail and the head of lisp-style list.
+/// After extracting the last element, tuple is assigned to null.
 @pure
-fun listNext<X>(mutate self: tuple): X
+fun listNext<X>(mutate self: tuple?): X
     asm( -> 1 0) "UNCONS";
 
 /// Returns the head of lisp-style list.
@@ -34,5 +35,5 @@ fun listGetHead<X>(list: tuple): X
 
 /// Returns the tail of lisp-style list.
 @pure
-fun listGetTail(list: tuple): tuple
+fun listGetTail(list: tuple): tuple?
     asm "CDR";

@@ -25,7 +25,6 @@
  *
  *   Example: `boolVar == true` -> `boolVar`.
  *   Example: `!!boolVar` -> `boolVar`.
- *   Also in unwraps parenthesis inside if condition and similar: `assert(((x)), 404)` -> `assert(x, 404)`
  *
  *   todo some day, replace && || with & | when it's safe (currently, && always produces IFs in Fift)
  * It's tricky to implement whether replacing is safe.
@@ -34,13 +33,6 @@
  */
 
 namespace tolk {
-
-static AnyExprV unwrap_parenthesis(AnyExprV v) {
-  while (v->type == ast_parenthesized_expression) {
-    v = v->as<ast_parenthesized_expression>()->get_expr();
-  }
-  return v;
-}
 
 struct OptimizerBooleanExpressionsReplacer final : ASTReplacerInFunctionBody {
   static V<ast_int_const> create_int_const(SrcLocation loc, td::RefInt256&& intval) {
@@ -61,7 +53,7 @@ struct OptimizerBooleanExpressionsReplacer final : ASTReplacerInFunctionBody {
     auto v_not = createV<ast_unary_operator>(loc, "!", tok_logical_not, rhs);
     v_not->assign_inferred_type(TypeDataBool::create());
     v_not->assign_rvalue_true();
-    v_not->assign_fun_ref(lookup_global_symbol("!b_")->as<FunctionData>());
+    v_not->assign_fun_ref(lookup_global_symbol("!b_")->try_as<FunctionPtr>());
     return v_not;
   }
 
@@ -83,7 +75,7 @@ protected:
           auto v_neq = createV<ast_binary_operator>(v->loc, "!=", tok_neq, cond_not_not, v_zero);
           v_neq->mutate()->assign_rvalue_true();
           v_neq->mutate()->assign_inferred_type(TypeDataBool::create());
-          v_neq->mutate()->assign_fun_ref(lookup_global_symbol("_!=_")->as<FunctionData>());
+          v_neq->mutate()->assign_fun_ref(lookup_global_symbol("_!=_")->try_as<FunctionPtr>());
           return v_neq;
         }
       }
@@ -117,9 +109,6 @@ protected:
 
   AnyV replace(V<ast_if_statement> v) override {
     parent::replace(v);
-    if (v->get_cond()->type == ast_parenthesized_expression) {
-      v = createV<ast_if_statement>(v->loc, v->is_ifnot, unwrap_parenthesis(v->get_cond()), v->get_if_body(), v->get_else_body());
-    }
 
     // `if (!x)` -> ifnot(x)
     while (auto v_cond_unary = v->get_cond()->try_as<ast_unary_operator>()) {
@@ -128,39 +117,17 @@ protected:
       }
       v = createV<ast_if_statement>(v->loc, !v->is_ifnot, v_cond_unary->get_rhs(), v->get_if_body(), v->get_else_body());
     }
-
-    return v;
-  }
-
-  AnyV replace(V<ast_while_statement> v) override {
-    parent::replace(v);
-
-    if (v->get_cond()->type == ast_parenthesized_expression) {
-      v = createV<ast_while_statement>(v->loc, unwrap_parenthesis(v->get_cond()), v->get_body());
+    // `if (x != null)` -> ifnot(x == null)
+    if (auto v_cond_isnull = v->get_cond()->try_as<ast_is_null_check>(); v_cond_isnull && v_cond_isnull->is_negated) {
+      v_cond_isnull->mutate()->assign_is_negated(!v_cond_isnull->is_negated);
+      v = createV<ast_if_statement>(v->loc, !v->is_ifnot, v_cond_isnull, v->get_if_body(), v->get_else_body());
     }
-    return v;
-  }
 
-  AnyV replace(V<ast_do_while_statement> v) override {
-    parent::replace(v);
-
-    if (v->get_cond()->type == ast_parenthesized_expression) {
-      v = createV<ast_do_while_statement>(v->loc,  v->get_body(), unwrap_parenthesis(v->get_cond()));
-    }
-    return v;
-  }
-
-  AnyV replace(V<ast_assert_statement> v) override {
-    parent::replace(v);
-
-    if (v->get_cond()->type == ast_parenthesized_expression) {
-      v = createV<ast_assert_statement>(v->loc, unwrap_parenthesis(v->get_cond()), v->get_thrown_code());
-    }
     return v;
   }
 
 public:
-  bool should_visit_function(const FunctionData* fun_ref) override {
+  bool should_visit_function(FunctionPtr fun_ref) override {
     return fun_ref->is_code_function() && !fun_ref->is_generic_function();
   }
 };

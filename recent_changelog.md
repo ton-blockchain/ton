@@ -1,12 +1,13 @@
-## 2025.02 Update
-1. Series of improvement/fixes for `Config8.version >= 9`, check [GlobalVersions.md](./doc/GlobalVersions.md)
-2. Fix for better discovery of updated nodes' (validators') IPs: retry dht queries
-3. Series of improvements for extra currency adoption: fixed c7 in rungetmethod, reserve modes
-4. TVM: Fix processing continuation control data on deep jump
-5. A few fixes of tl-b schemes: crc computation, incorrect tag for merkle proofs, advance_ext, NatWidth print
-6. Emulator improvements: fix setting libraries,  extracurrency support
-7. Increase of gas limit for unlocking highload-v2 wallets locked in the beginning of 2024
-8. Validator console improvement: dashed names, better shard formats
+## 2025.03 Update
+1. New extracurrency behavior introduced, check [GlobalVersions.md](./doc/GlobalVersions.md#version-10)
+2. Optmization of validation process, in particular CellStorageStat.
+3. Flag for speeding up broadcasts in various overlays.
+4. Fixes for static builds for emulator and tonlibjson
+5. Improving getstats output: add
+  * Liteserver queries count
+  * Collated/validated blocks count, number of active sessions
+  * Persistent state sizes
+  * Initial sync progress
+6. Fixes in logging, TON Storage, external message checking, persistent state downloading, UB in tonlib
 
-
-Besides the work of the core team, this update is based on the efforts of  @dbaranovstonfi from StonFi(libraries in emulator), @Rexagon (ret on deep jumps), @tvorogme from DTon (`advance_ext`), Nan from Zellic (`stk_und` and JNI)
+Besides the work of the core team, this update is based on the efforts of  @Sild from StonFi(UB in tonlib).

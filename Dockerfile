@@ -1,6 +1,13 @@
 FROM ubuntu:22.04 AS builder
+ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
-        DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential cmake clang openssl libssl-dev zlib1g-dev gperf wget git ninja-build libsodium-dev libmicrohttpd-dev liblz4-dev pkg-config autoconf automake libtool libjemalloc-dev lsb-release software-properties-common gnupg
+        rm /var/lib/dpkg/info/libc-bin.* && \
+        apt-get clean && \
+        apt-get update && \
+        apt install libc-bin && \
+        apt-get install -y build-essential cmake clang openssl libssl-dev zlib1g-dev gperf wget git \
+        ninja-build libsodium-dev libmicrohttpd-dev liblz4-dev pkg-config autoconf automake libtool \
+        libjemalloc-dev lsb-release software-properties-common gnupg
 
 RUN wget https://apt.llvm.org/llvm.sh && \
     chmod +x llvm.sh && \
@@ -25,6 +32,7 @@ RUN mkdir build && \
     blockchain-explorer emulator tonlibjson http-proxy adnl-proxy
 
 FROM ubuntu:22.04
+ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
     apt-get install -y wget curl libatomic1 openssl libsodium-dev libmicrohttpd-dev liblz4-dev libjemalloc-dev htop \
     net-tools netcat iptraf-ng jq tcpdump pv plzip && \

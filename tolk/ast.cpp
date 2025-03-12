@@ -117,11 +117,16 @@ void ASTNodeExpressionBase::assign_lvalue_true() {
   this->is_lvalue = true;
 }
 
+void ASTNodeExpressionBase::assign_always_true_or_false(int flow_true_false_state) {
+  this->is_always_true = flow_true_false_state == 1;      // see smart-casts-cfg.h
+  this->is_always_false = flow_true_false_state == 2;
+}
+
 void Vertex<ast_reference>::assign_sym(const Symbol* sym) {
   this->sym = sym;
 }
 
-void Vertex<ast_function_call>::assign_fun_ref(const FunctionData* fun_ref) {
+void Vertex<ast_function_call>::assign_fun_ref(FunctionPtr fun_ref) {
   this->fun_maybe = fun_ref;
 }
 
@@ -129,7 +134,7 @@ void Vertex<ast_cast_as_operator>::assign_resolved_type(TypePtr cast_to_type) {
   this->cast_to_type = cast_to_type;
 }
 
-void Vertex<ast_global_var_declaration>::assign_var_ref(const GlobalVarData* var_ref) {
+void Vertex<ast_global_var_declaration>::assign_var_ref(GlobalVarPtr var_ref) {
   this->var_ref = var_ref;
 }
 
@@ -137,7 +142,7 @@ void Vertex<ast_global_var_declaration>::assign_resolved_type(TypePtr declared_t
   this->declared_type = declared_type;
 }
 
-void Vertex<ast_constant_declaration>::assign_const_ref(const GlobalConstData* const_ref) {
+void Vertex<ast_constant_declaration>::assign_const_ref(GlobalConstPtr const_ref) {
   this->const_ref = const_ref;
 }
 
@@ -149,7 +154,7 @@ void Vertex<ast_instantiationT_item>::assign_resolved_type(TypePtr substituted_t
   this->substituted_type = substituted_type;
 }
 
-void Vertex<ast_parameter>::assign_param_ref(const LocalVarData* param_ref) {
+void Vertex<ast_parameter>::assign_param_ref(LocalVarPtr param_ref) {
   this->param_ref = param_ref;
 }
 
@@ -157,23 +162,31 @@ void Vertex<ast_parameter>::assign_resolved_type(TypePtr declared_type) {
   this->declared_type = declared_type;
 }
 
-void Vertex<ast_set_assign>::assign_fun_ref(const FunctionData* fun_ref) {
+void Vertex<ast_set_assign>::assign_fun_ref(FunctionPtr fun_ref) {
   this->fun_ref = fun_ref;
 }
 
-void Vertex<ast_unary_operator>::assign_fun_ref(const FunctionData* fun_ref) {
+void Vertex<ast_unary_operator>::assign_fun_ref(FunctionPtr fun_ref) {
   this->fun_ref = fun_ref;
 }
 
-void Vertex<ast_binary_operator>::assign_fun_ref(const FunctionData* fun_ref) {
+void Vertex<ast_binary_operator>::assign_fun_ref(FunctionPtr fun_ref) {
   this->fun_ref = fun_ref;
+}
+
+void Vertex<ast_is_null_check>::assign_is_negated(bool is_negated) {
+  this->is_negated = is_negated;
+}
+
+void Vertex<ast_sequence>::assign_first_unreachable(AnyV first_unreachable) {
+  this->first_unreachable = first_unreachable;
 }
 
 void Vertex<ast_dot_access>::assign_target(const DotTarget& target) {
   this->target = target;
 }
 
-void Vertex<ast_function_declaration>::assign_fun_ref(const FunctionData* fun_ref) {
+void Vertex<ast_function_declaration>::assign_fun_ref(FunctionPtr fun_ref) {
   this->fun_ref = fun_ref;
 }
 
@@ -181,7 +194,7 @@ void Vertex<ast_function_declaration>::assign_resolved_type(TypePtr declared_ret
   this->declared_return_type = declared_return_type;
 }
 
-void Vertex<ast_local_var_lhs>::assign_var_ref(const LocalVarData* var_ref) {
+void Vertex<ast_local_var_lhs>::assign_var_ref(LocalVarPtr var_ref) {
   this->var_ref = var_ref;
 }
 
