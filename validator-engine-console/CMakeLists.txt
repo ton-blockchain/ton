@@ -1,5 +1,3 @@
-cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
-
 add_executable (validator-engine-console validator-engine-console.cpp
   validator-engine-console.h validator-engine-console-query.cpp
   validator-engine-console-query.h )
