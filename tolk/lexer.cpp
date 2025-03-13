@@ -23,7 +23,6 @@ namespace tolk {
 
 // By 'chunk' in lexer I mean a token or a list of tokens parsed simultaneously.
 // E.g., when we meet "str", ChunkString is called, it emits tok_string.
-// E.g., when we meet "str"x, ChunkString emits not only tok_string, but tok_string_modifier.
 // E.g., when we meet //, ChunkInlineComment is called, it emits nothing (just skips a line).
 // We store all valid chunks lexers in a prefix tree (LexingTrie), see below.
 struct ChunkLexerBase {
@@ -170,8 +169,8 @@ struct ChunkMultilineComment final : ChunkLexerBase {
 
 // A string, starting from "
 // Note, that there are no escape symbols inside: the purpose of strings in Tolk just doesn't need it.
-// After a closing quote, a string modifier may be present, like "Ef8zMzMzMzMzMzMzMzMzMzM0vF"a.
-// If present, it emits a separate tok_string_modifier.
+// In FunC, a string might have ended with a modifier like `"..."c`
+// It's not valid in Tolk, valid is `stringCrc32("...")`
 struct ChunkString final : ChunkLexerBase {
   bool parse(Lexer* lex) const override {
     const char* str_begin = lex->c_str();
@@ -186,12 +185,6 @@ struct ChunkString final : ChunkLexerBase {
     std::string_view str_val(str_begin + 1, lex->c_str() - str_begin - 1);
     lex->skip_chars(1);
     lex->add_token(tok_string_const, str_val);
-
-    if (std::isalpha(lex->char_at())) {
-      std::string_view modifier_val(lex->c_str(), 1);
-      lex->skip_chars(1);
-      lex->add_token(tok_string_modifier, modifier_val);
-    }
 
     return true;
   }

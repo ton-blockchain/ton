@@ -458,25 +458,18 @@ struct Vertex<ast_int_const> final : ASTExprLeaf {
 
 template<>
 // ast_string_const is a string literal in double quotes or """ when multiline
-// examples: "asdf" / "Ef8zMz..."a / "to_calc_crc32_from"c
-// an optional modifier specifies how a string is parsed (probably, like an integer)
+// examples: "asdf" / "LTIME" (in asm body) / stringCrc32("asdf") (as an argument)
 // note, that TVM doesn't have strings, it has only slices, so "hello" has type slice
 struct Vertex<ast_string_const> final : ASTExprLeaf {
   std::string_view str_val;
-  char modifier;
+  ConstantValue literal_value;      // value of type `slice`, calculated after type inferring, at constants evaluation
 
-  bool is_bitslice() const {
-    char m = modifier;
-    return m == 0 || m == 's' || m == 'a';
-  }
-  bool is_intval() const {
-    char m = modifier;
-    return m == 'u' || m == 'h' || m == 'H' || m == 'c';
-  }
+  Vertex* mutate() const { return const_cast<Vertex*>(this); }
+  void assign_literal_value(ConstantValue&& literal_value);
 
-  Vertex(SrcLocation loc, std::string_view str_val, char modifier)
+  Vertex(SrcLocation loc, std::string_view str_val)
     : ASTExprLeaf(ast_string_const, loc)
-    , str_val(str_val), modifier(modifier) {}
+    , str_val(str_val) {}
 };
 
 template<>

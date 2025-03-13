@@ -3,27 +3,31 @@ get ascii_slice(): slice {
 }
 
 get raw_slice(): slice {
-  return "abcdef"s;
+  return stringHexToSlice("abcdef");
 }
 
 get addr_slice(): slice {
-  return "Ef8zMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM0vF"a;
+  return stringAddressToSlice("Ef8zMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM0vF");
 }
 
 get string_hex(): int {
-  return "ABCDEFGHIJKLMNOPQRSTUVWXYZ012345"u;
+  return stringToBase256("ABCDEFGHIJKLMNOPQRSTUVWXYZ012345");
 }
 
 get fun string_minihash(): int {    // 'get' and 'get fun' both possible
-  return "transfer(slice, int)"h;
+  return stringSha256_32("transfer(slice, int)");
 }
 
 get fun string_maxihash(): int {
-  return "transfer(slice, int)"H;
+  return stringSha256("transfer(slice, int)");
 }
 
 get fun string_crc32(): int {
-  return "transfer(slice, int)"c;
+  return stringCrc32("transfer(slice, int)");
+}
+
+get fun string_crc16(): int {
+  return stringCrc16("transfer(slice, int)");
 }
 
 @pure
@@ -35,6 +39,15 @@ asm "ENDC" "CTOS";
 fun sdeq(s1: slice, s2: slice): int
 asm "SDEQ";
 
+fun calcSliceBytes(slice: slice): tuple {
+  var t = createEmptyTuple();
+  var n = 0;
+  while (n = slice.getRemainingBitsCount()) {
+    t.tuplePush(slice.loadUint(min(8, n)));
+  }
+  return t;
+}
+
 fun main() {
   var s_ascii: slice = ascii_slice();
   var s_raw: slice = raw_slice();
@@ -42,7 +55,8 @@ fun main() {
   var i_hex: int = string_hex();
   var i_mini: int = string_minihash();
   var i_maxi: int = string_maxihash();
-  var i_crc: int = string_crc32();
+  var i_crc32: int = string_crc32();
+  var i_crc16: int = string_crc16();
   assert(sdeq(s_ascii, newc().storeUint(0x737472696E67, 12 * 4).endcs())) throw 101;
   assert(sdeq(s_raw, newc().storeUint(0xABCDEF, 6 * 4).endcs())) throw 102;
   assert(sdeq(s_addr, newc().storeUint(4, 3).storeInt(-1, 8)
@@ -50,12 +64,19 @@ fun main() {
   assert(i_hex == 0x4142434445464748494A4B4C4D4E4F505152535455565758595A303132333435) throw 104;
   assert(i_mini == 0x7a62e8a8) throw 105;
   assert(i_maxi == 0x7a62e8a8ebac41bd6de16c65e7be363bc2d2cbc6a0873778dead4795c13db979) throw 106;
-  assert(i_crc == 2235694568) throw 107;
+  assert(i_crc32 == 2235694568 && i_crc32 == 0x8541fde8) throw 107;
+  assert(i_crc16 == 52550 && i_crc16 == 0xCD46) throw 108;
   return 0;
 }
 
-/**
-@testcase | 0 | | 0
+@method_id(101)
+fun test1() {
+  return calcSliceBytes("ABCD");
+}
 
-@code_hash 13830542019509784148027107880226447201604257839069192762244575629978154217223
+/**
+@testcase | 0   | | 0
+@testcase | 101 | | [ 65 66 67 68 ]
+
+@code_hash 38184847030631877916087987911699475358017315230885358090110033079289166112584
 */

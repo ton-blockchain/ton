@@ -103,6 +103,7 @@ struct FunctionData final : Symbol {
     flagAcceptsSelf = 512,      // is a member function (has `self` first parameter)
     flagReturnsSelf = 1024,     // return type is `self` (returns the mutated 1st argument), calls can be chainable
     flagReallyUsed = 2048,      // calculated via dfs from used functions; declared but unused functions are not codegenerated
+    flagCompileTimeOnly = 4096, // calculated only at compile-time for constant arguments: `ton("0.05")`, `stringCrc32`, and others
   };
 
   int method_id = EMPTY_METHOD_ID;
@@ -163,6 +164,7 @@ struct FunctionData final : Symbol {
   bool does_return_self() const { return flags & flagReturnsSelf; }
   bool does_mutate_self() const { return (flags & flagAcceptsSelf) && parameters[0].is_mutate_parameter(); }
   bool is_really_used() const { return flags & flagReallyUsed; }
+  bool is_compile_time_only() const { return flags & flagCompileTimeOnly; }
 
   bool does_need_codegen() const;
 

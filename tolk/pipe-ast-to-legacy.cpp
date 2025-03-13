@@ -1049,13 +1049,9 @@ static std::vector<var_idx_t> process_int_const(V<ast_int_const> v, CodeBlob& co
 }
 
 static std::vector<var_idx_t> process_string_const(V<ast_string_const> v, CodeBlob& code, TypePtr target_type) {
-  ConstantValue value = eval_string_const_considering_modifier(v);
+  tolk_assert(v->literal_value.is_slice());
   std::vector<var_idx_t> rvect = code.create_tmp_var(v->inferred_type, v->loc, "(str-const)");
-  if (value.is_int()) {
-    code.emplace_back(v->loc, Op::_IntConst, rvect, value.as_int());
-  } else {
-    code.emplace_back(v->loc, Op::_SliceConst, rvect, value.as_slice());
-  }
+  code.emplace_back(v->loc, Op::_SliceConst, rvect, v->literal_value.as_slice());
   return transition_to_target_type(std::move(rvect), code, target_type, v);
 }
 

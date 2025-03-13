@@ -7,7 +7,7 @@ const int111: int = 111;
 const int1r = int1;
 
 const str1 = "const1";
-const str2 = "aabbcc"s;
+const str2 = stringHexToSlice("aabbcc");
 
 const str2r: slice = str2;
 

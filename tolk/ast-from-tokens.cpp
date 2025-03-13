@@ -357,12 +357,7 @@ static AnyExprV parse_expr100(Lexer& lex) {
     case tok_string_const: {
       std::string_view str_val = lex.cur_str();
       lex.next();
-      char modifier = 0;
-      if (lex.tok() == tok_string_modifier) {
-        modifier = lex.cur_str()[0];
-        lex.next();
-      }
-      return createV<ast_string_const>(loc, str_val, modifier);
+      return createV<ast_string_const>(loc, str_val);
     }
     case tok_underscore: {
       lex.next();
@@ -927,7 +922,7 @@ static AnyV parse_asm_func_body(Lexer& lex, V<ast_parameter_list> param_list) {
   lex.check(tok_string_const, "\"ASM COMMAND\"");
   while (lex.tok() == tok_string_const) {
     std::string_view asm_command = lex.cur_str();
-    asm_commands.push_back(createV<ast_string_const>(lex.cur_location(), asm_command, 0));
+    asm_commands.push_back(createV<ast_string_const>(lex.cur_location(), asm_command));
     lex.next();
   }
   lex.expect(tok_semicolon, "`;`");
@@ -1142,7 +1137,7 @@ static AnyV parse_import_directive(Lexer& lex) {
   if (rel_filename.empty()) {
     lex.error("imported file name is an empty string");
   }
-  auto v_str = createV<ast_string_const>(lex.cur_location(), rel_filename, 0);
+  auto v_str = createV<ast_string_const>(lex.cur_location(), rel_filename);
   lex.next();
   return createV<ast_import_directive>(loc, v_str); // semicolon is not necessary
 }

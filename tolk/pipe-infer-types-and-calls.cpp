@@ -280,12 +280,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
   }
 
   static ExprFlow infer_string_const(V<ast_string_const> v, FlowContext&& flow, bool used_as_condition) {
-    if (v->is_bitslice()) {
-      assign_inferred_type(v, TypeDataSlice::create());
-    } else {
-      assign_inferred_type(v, TypeDataInt::create());
-    }
-
+    assign_inferred_type(v, TypeDataSlice::create());
     return ExprFlow(std::move(flow), used_as_condition);
   }
 

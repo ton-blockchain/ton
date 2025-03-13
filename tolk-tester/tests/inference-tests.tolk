@@ -5,7 +5,7 @@ fun eq<X>(value: X): X { return value; }
 
 fun test1(x: int, y: int) {
     __expect_type(0, "int");
-    __expect_type("0"c, "int");
+    __expect_type(stringCrc32("0"), "int");
     __expect_type(x, "int");
     __expect_type(x + y, "int");
     __expect_type(x * y, "int");

@@ -1072,7 +1072,8 @@ AsmOp compile_tuple_set_at(std::vector<VarDescr>& res, std::vector<VarDescr>& ar
 }
 
 // fun ton(amount: slice): coins; ton("0.05") replaced by 50000000 at compile-time
-AsmOp compile_int_to_ton_coins(std::vector<VarDescr>&, std::vector<VarDescr>&, SrcLocation) {
+// same for stringCrc32(constString: slice) and others
+AsmOp compile_time_only_function(std::vector<VarDescr>&, std::vector<VarDescr>&, SrcLocation) {
   // all ton() invocations are constants, replaced by integers; no dynamic values allowed, no work at runtime
   tolk_assert(false);
   return AsmOp::Nop();
@@ -1219,11 +1220,36 @@ void define_builtins() {
                               compile_throw_if_unless,
                                 0);
 
+  // compile-time only functions, evaluated essentially at compile-time, no runtime implementation
+  // they are placed in stdlib and marked as `builtin`
+  // note their parameter being `unknown`: in order to `ton(1)` pass type inferring but fire a more gentle error later
+  define_builtin_func("ton", {TypeDataUnknown::create()}, TypeDataCoins::create(), nullptr,
+                              compile_time_only_function,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeOnly);
+  define_builtin_func("stringCrc32", {TypeDataUnknown::create()}, TypeDataInt::create(), nullptr,
+                              compile_time_only_function,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeOnly);
+  define_builtin_func("stringCrc16", {TypeDataUnknown::create()}, TypeDataInt::create(), nullptr,
+                              compile_time_only_function,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeOnly);
+  define_builtin_func("stringSha256", {TypeDataUnknown::create()}, TypeDataInt::create(), nullptr,
+                              compile_time_only_function,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeOnly);
+  define_builtin_func("stringSha256_32", {TypeDataUnknown::create()}, TypeDataInt::create(), nullptr,
+                              compile_time_only_function,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeOnly);
+  define_builtin_func("stringToBase256", {TypeDataUnknown::create()}, TypeDataInt::create(), nullptr,
+                              compile_time_only_function,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeOnly);
+  define_builtin_func("stringAddressToSlice", {TypeDataUnknown::create()}, TypeDataSlice::create(), nullptr,
+                              compile_time_only_function,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeOnly);
+  define_builtin_func("stringHexToSlice", {TypeDataUnknown::create()}, TypeDataSlice::create(), nullptr,
+                              compile_time_only_function,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeOnly);
+
   // functions from stdlib marked as `builtin`, implemented at compiler level for optimizations
   // (for example, `loadInt(1)` is `1 LDI`, but `loadInt(n)` for non-constant requires it be on a stack and `LDIX`)
-  define_builtin_func("ton", {TypeDataUnknown::create()}, TypeDataCoins::create(), nullptr,   // `unknown` to pass inferring for `ton(1)` (to fire a better error later)
-                              compile_int_to_ton_coins,
-                                FunctionData::flagMarkedAsPure);
   define_builtin_func("mulDivFloor", ParamsInt3, Int, nullptr,
                               std::bind(compile_muldiv, _1, _2, _3, -1),
                                 FunctionData::flagMarkedAsPure);

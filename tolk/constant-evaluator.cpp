@@ -24,6 +24,14 @@
 
 namespace tolk {
 
+GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
+static void fire_error_const_string_required(SrcLocation loc, std::string_view f_name, std::string_view example_arg) {
+  std::string name = static_cast<std::string>(f_name);
+  std::string example = static_cast<std::string>(example_arg);
+  throw ParseError(loc, "function `" +  name + "` requires a constant string, like `" + name + "(\"" + example + "\")`");
+}
+
+
 // parse address like "EQCRDM9h4k3UJdOePPuyX40mCgA4vxge5Dc5vjBR8djbEKC5"
 // based on unpack_std_smc_addr() from block.cpp
 // (which is not included to avoid linking with ton_crypto)
@@ -44,10 +52,10 @@ static bool parse_friendly_address(const char packed[48], ton::WorkchainId& work
 // parse address like "0:527964d55cfa6eb731f4bfc07e9d025098097ef8505519e853986279bd8400d8"
 // based on StdAddress::parse_addr() from block.cpp
 // (which is not included to avoid linking with ton_crypto)
-static bool parse_raw_address(const std::string& acc_string, int& workchain, ton::StdSmcAddress& addr) {
+static bool parse_raw_address(std::string_view acc_string, int& workchain, ton::StdSmcAddress& addr) {
   size_t pos = acc_string.find(':');
   if (pos != std::string::npos) {
-    td::Result<int> r_wc = td::to_integer_safe<ton::WorkchainId>(acc_string.substr(0, pos));
+    td::Result<int> r_wc = td::to_integer_safe<ton::WorkchainId>(td::Slice(acc_string.data(), pos));
     if (r_wc.is_error()) {
       return false;
     }
@@ -82,93 +90,8 @@ static bool parse_raw_address(const std::string& acc_string, int& workchain, ton
   return true;
 }
 
-
-static std::string parse_vertex_string_const_as_slice(V<ast_string_const> v) {
-  std::string str = static_cast<std::string>(v->str_val);
-  switch (v->modifier) {
-    case 0: {
-      return td::hex_encode(str);
-    }
-    case 's': {
-      unsigned char buff[128];
-      long bits = td::bitstring::parse_bitstring_hex_literal(buff, sizeof(buff), str.data(), str.data() + str.size());
-      if (bits < 0) {
-        v->error("invalid hex bitstring constant '" + str + "'");
-      }
-      return str;
-    }
-    case 'a': {  // MsgAddress
-      ton::WorkchainId workchain;
-      ton::StdSmcAddress addr;
-      bool correct = (str.size() == 48 && parse_friendly_address(str.data(), workchain, addr)) ||
-                     (str.size() != 48 && parse_raw_address(str, workchain, addr));
-      if (!correct) {
-        v->error("invalid standard address '" + str + "'");
-      }
-      if (workchain < -128 || workchain >= 128) {
-        v->error("anycast addresses not supported");
-      }
-
-      unsigned char data[3 + 8 + 256];  // addr_std$10 anycast:(Maybe Anycast) workchain_id:int8 address:bits256 = MsgAddressInt;
-      td::bitstring::bits_store_long_top(data, 0, static_cast<uint64_t>(4) << (64 - 3), 3);
-      td::bitstring::bits_store_long_top(data, 3, static_cast<uint64_t>(workchain) << (64 - 8), 8);
-      td::bitstring::bits_memcpy(data, 3 + 8, addr.bits().ptr, 0, ton::StdSmcAddress::size());
-      return td::BitSlice{data, sizeof(data)}.to_hex();
-    }
-    default:
-      tolk_assert(false);
-  }
-}
-
-static td::RefInt256 parse_vertex_string_const_as_int(V<ast_string_const> v) {
-  std::string str = static_cast<std::string>(v->str_val);
-  switch (v->modifier) {
-    case 'u': {
-      td::RefInt256 intval = td::hex_string_to_int256(td::hex_encode(str));
-      if (str.empty()) {
-        v->error("empty integer ascii-constant");
-      }
-      if (intval.is_null()) {
-        v->error("too long integer ascii-constant");
-      }
-      return intval;
-    }
-    case 'h':
-    case 'H': {
-      unsigned char hash[32];
-      digest::hash_str<digest::SHA256>(hash, str.data(), str.size());
-      return td::bits_to_refint(hash, (v->modifier == 'h') ? 32 : 256, false);
-    }
-    case 'c': {
-      return td::make_refint(td::crc32(td::Slice{str}));
-    }
-    default:
-      tolk_assert(false);
-  }
-}
-
-static ConstantValue parse_vertex_string_const(V<ast_string_const> v) {
-  return v->is_bitslice()
-    ? ConstantValue(parse_vertex_string_const_as_slice(v))
-    : ConstantValue(parse_vertex_string_const_as_int(v));
-}
-
-// given `ton("0.05")` evaluate it to 50000000
-static ConstantValue parse_vertex_call_to_ton_function(V<ast_function_call> v) {
-  tolk_assert(v->get_num_args() == 1);    // checked by type inferring
-  AnyExprV v_arg = v->get_arg(0)->get_expr();
-
-  std::string_view str;
-  if (auto as_string = v_arg->try_as<ast_string_const>(); as_string && !as_string->modifier) {
-    str = as_string->str_val;
-  } else {
-    // ton(SOME_CONST) is not supported
-    // ton(0.05) is not supported (it can't be represented in AST even)
-  }
-  if (str.empty()) {
-    v->error("function `ton` requires a constant string, like `ton(\"0.05\")`");
-  }
-
+// internal helper: for `ton("0.05")`, parse string literal "0.05" to 50000000
+static td::RefInt256 parse_nanotons_as_floating_string(SrcLocation loc, std::string_view str) {
   bool is_negative = false;
   size_t i = 0;
 
@@ -190,7 +113,7 @@ static ConstantValue parse_vertex_call_to_ton_function(V<ast_function_call> v) {
     char c = str[i];
     if (c == '.') {
       if (seen_dot) {
-        v_arg->error("argument is not a valid number like \"0.05\"");
+        throw ParseError(loc, "argument is not a valid number like \"0.05\"");
       }
       seen_dot = true;
     } else if (c >= '0' && c <= '9') {
@@ -201,7 +124,7 @@ static ConstantValue parse_vertex_call_to_ton_function(V<ast_function_call> v) {
         fractional_digits++;
       }
     } else {
-      v_arg->error("argument is not a valid number like \"0.05\"");
+      throw ParseError(loc, "argument is not a valid number like \"0.05\"");
     }
   }
 
@@ -211,7 +134,99 @@ static ConstantValue parse_vertex_call_to_ton_function(V<ast_function_call> v) {
   }
 
   int64_t result = integer_part * 1000000000LL + fractional_part;
-  return ConstantValue(td::make_refint(is_negative ? -result : result));
+  return td::make_refint(is_negative ? -result : result);
+}
+
+static ConstantValue parse_vertex_string_const(V<ast_string_const> v) {
+  td::Slice str_slice = td::Slice(v->str_val.data(), v->str_val.size());
+  return ConstantValue(td::hex_encode(str_slice));
+}
+
+// given `ton("0.05")` evaluate it to 50000000
+// given `stringCrc32("some_str")` evaluate it
+// etc.
+// currently, all compile-time functions accept 1 argument, a literal string
+static ConstantValue parse_vertex_call_to_compile_time_function(V<ast_function_call> v, std::string_view f_name) {
+  tolk_assert(v->get_num_args() == 1);    // checked by type inferring
+  AnyExprV v_arg = v->get_arg(0)->get_expr();
+
+  std::string_view str;
+  if (auto as_string = v_arg->try_as<ast_string_const>()) {
+    str = as_string->str_val;
+  } else {
+    // ton(SOME_CONST) is not supported
+    // ton(0.05) is not supported (it can't be represented in AST even)
+    // stringCrc32(SOME_CONST) / stringCrc32(some_var) also, it's compile-time literal-only
+  }
+  if (str.empty()) {
+    fire_error_const_string_required(v->loc, f_name, f_name == "ton" ? "0.05" : "some_str");
+  }
+
+  if (f_name == "ton") {
+    return ConstantValue(parse_nanotons_as_floating_string(v_arg->loc, str));
+  }
+
+  if (f_name == "stringCrc32") {          // previously, postfix "..."c
+    return ConstantValue(td::make_refint(td::crc32(td::Slice{str.data(), str.size()})));
+  }
+
+  if (f_name == "stringCrc16") {          // previously, there was no postfix in FunC, no way to calc at compile-time
+    return ConstantValue(td::make_refint(td::crc16(td::Slice{str.data(), str.size()})));
+  }
+
+  if (f_name == "stringSha256") {         // previously, postfix "..."H
+    unsigned char hash[32];
+    digest::hash_str<digest::SHA256>(hash, str.data(), str.size());
+    return ConstantValue(td::bits_to_refint(hash, 256, false));
+  }
+
+  if (f_name == "stringSha256_32") {      // previously, postfix "..."h
+    unsigned char hash[32];
+    digest::hash_str<digest::SHA256>(hash, str.data(), str.size());
+    return ConstantValue(td::bits_to_refint(hash, 32, false));
+  }
+
+  if (f_name == "stringAddressToSlice") { // previously, postfix "..."a
+    ton::WorkchainId workchain;
+    ton::StdSmcAddress addr;
+    bool correct = (str.size() == 48 && parse_friendly_address(str.data(), workchain, addr)) ||
+                   (str.size() != 48 && parse_raw_address(str, workchain, addr));
+    if (!correct) {
+      v_arg->error("invalid standard address");
+    }
+    if (workchain < -128 || workchain >= 128) {
+      v_arg->error("anycast addresses not supported");
+    }
+
+    unsigned char data[3 + 8 + 256];  // addr_std$10 anycast:(Maybe Anycast) workchain_id:int8 address:bits256 = MsgAddressInt;
+    td::bitstring::bits_store_long_top(data, 0, static_cast<uint64_t>(4) << (64 - 3), 3);
+    td::bitstring::bits_store_long_top(data, 3, static_cast<uint64_t>(workchain) << (64 - 8), 8);
+    td::bitstring::bits_memcpy(data, 3 + 8, addr.bits().ptr, 0, ton::StdSmcAddress::size());
+    return ConstantValue(td::BitSlice{data, sizeof(data)}.to_hex());
+  }
+
+  if (f_name == "stringHexToSlice") {     // previously, postfix "..."s
+    unsigned char buff[128];
+    long bits = td::bitstring::parse_bitstring_hex_literal(buff, sizeof(buff), str.data(), str.data() + str.size());
+    if (bits < 0) {
+      v_arg->error("invalid hex bitstring constant");
+    }
+    return ConstantValue(static_cast<std::string>(str));
+  }
+
+  if (f_name == "stringToBase256") {      // previously, postfix "..."u
+    td::RefInt256 intval = td::hex_string_to_int256(td::hex_encode(td::Slice(str.data(), str.size())));
+    if (str.empty()) {
+      v_arg->error("empty integer ascii-constant");
+    }
+    if (intval.is_null()) {
+      v_arg->error("too long integer ascii-constant");
+    }
+    return ConstantValue(std::move(intval));
+  }
+
+  tolk_assert(false);
+  return ConstantValue();
 }
 
 
@@ -332,8 +347,8 @@ struct ConstantEvaluator {
 
   // `const a = ton("0.05")`, we met `ton("0.05")`
   static ConstantValue handle_function_call(V<ast_function_call> v) {
-    if (v->fun_maybe && v->fun_maybe->is_builtin_function() && v->fun_maybe->name == "ton") {
-      return parse_vertex_call_to_ton_function(v);
+    if (v->fun_maybe && v->fun_maybe->is_compile_time_only()) {
+      return parse_vertex_call_to_compile_time_function(v, v->fun_maybe->name);
     }
     v->error("not a constant expression");
   }
@@ -378,14 +393,16 @@ struct ConstantEvaluator {
   }
 };
 
-ConstantValue eval_string_const_considering_modifier(AnyExprV v_string) {
-  tolk_assert(v_string->type == ast_string_const);
-  return parse_vertex_string_const(v_string->as<ast_string_const>());
+ConstantValue eval_string_const_standalone(AnyExprV v_string) {
+  auto v = v_string->try_as<ast_string_const>();
+  tolk_assert(v);
+  return parse_vertex_string_const(v);
 }
 
-ConstantValue eval_call_to_ton_function(AnyExprV v_call) {
-  tolk_assert(v_call->type == ast_function_call && v_call->as<ast_function_call>()->fun_maybe->is_builtin_function());
-  return parse_vertex_call_to_ton_function(v_call->as<ast_function_call>());
+ConstantValue eval_call_to_compile_time_function(AnyExprV v_call) {
+  auto v = v_call->try_as<ast_function_call>();
+  tolk_assert(v && v->fun_maybe->is_compile_time_only());
+  return parse_vertex_call_to_compile_time_function(v, v->fun_maybe->name);
 }
 
 void eval_and_assign_const_init_value(GlobalConstPtr const_ref) {
