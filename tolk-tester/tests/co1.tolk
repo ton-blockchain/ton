@@ -16,6 +16,16 @@ const str2int = 0xAABBCC;
 
 const nibbles: int = 4;
 
+const strange_zero = (!10 as int);
+const strange_minus_1: int = (!0 as int);
+
+const true1 = true;
+const true2 = !!true;
+const true3 = true1 && true2;
+
+const false1 = !true;
+const false2 = false1 || false;
+
 fun iget1(): int { return int1; }
 fun iget2(): int { return int2; }
 fun iget3(): int { return int1+int2; }
@@ -43,6 +53,21 @@ asm "SDEQ";
 fun stslicer(b: builder, s: slice): builder
 asm "STSLICER";
 
+@method_id(101)
+fun test1() {
+    return (strange_zero, strange_minus_1);
+}
+
+@method_id(102)
+fun test2() {
+    return (true1, true2, true3);
+}
+
+@method_id(103)
+fun test3() {
+    return (false1, false2);
+}
+
 fun main() {
     var i1: int = iget1();
     var i2: int = iget2();
@@ -66,7 +91,10 @@ fun main() {
 }
 
 /**
-@testcase | 0 | | 0
+@testcase | 0   |   | 0
+@testcase | 101 |   | 0 -1
+@testcase | 102 |   | -1 -1 -1
+@testcase | 103 |   | 0 0
 
-@code_hash 61273295789179921867241079778489100375537711211918844448475493726205774530743
+@code_hash 28102194299745406750019953961984060488024870092664444642078578246708959881688
 */

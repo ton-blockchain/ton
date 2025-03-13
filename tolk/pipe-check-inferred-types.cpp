@@ -581,10 +581,30 @@ protected:
       }
     }
   }
+
+  // given `const a = 2 + 3` check types within its init_value
+  // so, `const a = 1 + some_slice` will fire a reasonable error
+  void start_visiting_constant(GlobalConstPtr const_ref) {
+    parent::visit(const_ref->init_value);
+
+    // if no errors occurred, init value has correct type
+    // (though it may not be a valid constant expression, this would be checked after type inferring)
+    if (const_ref->declared_type) {     // `const a: int = ...`
+      TypePtr inferred_type = const_ref->init_value->inferred_type;
+      if (!const_ref->declared_type->can_rhs_be_assigned(inferred_type)) {
+        throw ParseError(const_ref->loc, "can not assign " + to_string(inferred_type) + " to " + to_string(const_ref->declared_type));
+      }
+    }
+  }
 };
 
 void pipeline_check_inferred_types() {
   visit_ast_of_all_functions<CheckInferredTypesVisitor>();
+
+  CheckInferredTypesVisitor visitor;
+  for (GlobalConstPtr const_ref : get_all_declared_constants()) {
+    visitor.start_visiting_constant(const_ref);
+  }
 }
 
 } // namespace tolk

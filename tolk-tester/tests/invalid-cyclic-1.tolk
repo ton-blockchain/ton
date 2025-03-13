@@ -3,6 +3,5 @@ const TWO = ONE + 1;
 
 /**
 @compilation_should_fail
-@stderr const ONE
-@stderr undefined symbol `TWO`
+@stderr const `TWO` appears, directly or indirectly, in its own initializer
  */

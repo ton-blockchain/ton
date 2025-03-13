@@ -644,13 +644,13 @@ std::vector<var_idx_t> pre_compile_symbol(SrcLocation loc, const Symbol* sym, Co
     return local_ir_idx;
   }
   if (GlobalConstPtr const_ref = sym->try_as<GlobalConstPtr>()) {
-    if (const_ref->is_int_const()) {
+    if (const_ref->value.is_int()) {
       std::vector<var_idx_t> rvect = code.create_tmp_var(TypeDataInt::create(), loc, "(glob-const)");
-      code.emplace_back(loc, Op::_IntConst, rvect, const_ref->as_int_const());
+      code.emplace_back(loc, Op::_IntConst, rvect, const_ref->value.as_int());
       return rvect;
     } else {
       std::vector<var_idx_t> rvect = code.create_tmp_var(TypeDataSlice::create(), loc, "(glob-const)");
-      code.emplace_back(loc, Op::_SliceConst, rvect, const_ref->as_slice_const());
+      code.emplace_back(loc, Op::_SliceConst, rvect, const_ref->value.as_slice());
       return rvect;
     }
   }
@@ -1013,7 +1013,7 @@ static std::vector<var_idx_t> process_int_const(V<ast_int_const> v, CodeBlob& co
 }
 
 static std::vector<var_idx_t> process_string_const(V<ast_string_const> v, CodeBlob& code, TypePtr target_type) {
-  ConstantValue value = eval_const_init_value(v);
+  ConstantValue value = eval_string_const_considering_modifier(v);
   std::vector<var_idx_t> rvect = code.create_tmp_var(v->inferred_type, v->loc, "(str-const)");
   if (value.is_int()) {
     code.emplace_back(v->loc, Op::_IntConst, rvect, value.as_int());

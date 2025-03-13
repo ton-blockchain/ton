@@ -147,6 +147,12 @@ static td::RefInt256 parse_vertex_string_const_as_int(V<ast_string_const> v) {
   }
 }
 
+static ConstantValue parse_vertex_string_const(V<ast_string_const> v) {
+  return v->is_bitslice()
+    ? ConstantValue(parse_vertex_string_const_as_slice(v))
+    : ConstantValue(parse_vertex_string_const_as_int(v));
+}
+
 
 struct ConstantEvaluator {
   static bool is_overflow(const td::RefInt256& intval) {
@@ -154,10 +160,8 @@ struct ConstantEvaluator {
   }
 
   static ConstantValue handle_unary_operator(V<ast_unary_operator> v, const ConstantValue& rhs) {
-    if (!rhs.is_int()) {
-      v->error("invalid operator, expecting integer");
-    }
-    td::RefInt256 intval = std::get<td::RefInt256>(rhs.value);
+    tolk_assert(rhs.is_int());   // type inferring has passed before, so it's int/bool
+    td::RefInt256 intval = rhs.as_int();
 
     switch (v->tok) {
       case tok_minus:
@@ -167,7 +171,7 @@ struct ConstantEvaluator {
         break;
       case tok_bitwise_not:
         intval = ~intval;
-      break;
+        break;
       case tok_logical_not:
         intval = td::make_refint(intval == 0 ? -1 : 0);
         break;
@@ -178,15 +182,13 @@ struct ConstantEvaluator {
     if (is_overflow(intval)) {
       v->error("integer overflow");
     }
-    return ConstantValue::from_int(std::move(intval));
+    return ConstantValue(std::move(intval));
   }
 
   static ConstantValue handle_binary_operator(V<ast_binary_operator> v, const ConstantValue& lhs, const ConstantValue& rhs) {
-    if (!lhs.is_int() || !rhs.is_int()) {
-      v->error("invalid operator, expecting integer");
-    }
-    td::RefInt256 lhs_intval = std::get<td::RefInt256>(lhs.value);
-    td::RefInt256 rhs_intval = std::get<td::RefInt256>(rhs.value);
+    tolk_assert(lhs.is_int() && rhs.is_int());   // type inferring has passed before, so they are int/bool
+    td::RefInt256 lhs_intval = lhs.as_int();
+    td::RefInt256 rhs_intval = rhs.as_int();
     td::RefInt256 intval;
 
     switch (v->tok) {
@@ -238,6 +240,12 @@ struct ConstantEvaluator {
       case tok_neq:
         intval = td::make_refint(lhs_intval != rhs_intval ? -1 : 0);
         break;
+      case tok_logical_and:
+        intval = td::make_refint(lhs_intval != 0 && rhs_intval != 0 ? -1 : 0);
+        break;
+      case tok_logical_or:
+        intval = td::make_refint(lhs_intval != 0 || rhs_intval != 0 ? -1 : 0);
+        break;
       default:
         v->error("unsupported binary operator in constant expression");
     }
@@ -245,32 +253,28 @@ struct ConstantEvaluator {
     if (is_overflow(intval)) {
       v->error("integer overflow");
     }
-    return ConstantValue::from_int(std::move(intval));
+    return ConstantValue(std::move(intval));
   }
 
+  // `const a = 1 + b`, we met `b`
   static ConstantValue handle_reference(V<ast_reference> v) {
-    // todo better handle "appears, directly or indirectly, in its own initializer"
-    std::string_view name = v->get_name();
-    const Symbol* sym = lookup_global_symbol(name);
-    if (!sym) {
-      v->error("undefined symbol `" + static_cast<std::string>(name) + "`");
-    }
-    GlobalConstPtr const_ref = sym->try_as<GlobalConstPtr>();
+    GlobalConstPtr const_ref = v->sym->try_as<GlobalConstPtr>();
     if (!const_ref) {
-      v->error("symbol `" + static_cast<std::string>(name) + "` is not a constant");
+      v->error("symbol `" + static_cast<std::string>(v->get_name()) + "` is not a constant");
     }
-    if (v->has_instantiationTs()) {   // SOME_CONST<int>
-      v->error("constant is not a generic");
+
+    if (!const_ref->value.initialized()) {          // maybe, `b` was already calculated
+      eval_and_assign_const_init_value(const_ref);  // if not, dig recursively into `b`
     }
-    return {const_ref->value};
+    return const_ref->value;
   }
 
   static ConstantValue visit(AnyExprV v) {
     if (auto v_int = v->try_as<ast_int_const>()) {
-      return ConstantValue::from_int(v_int->intval);
+      return ConstantValue(v_int->intval);
     }
     if (auto v_bool = v->try_as<ast_bool_const>()) {
-      return ConstantValue::from_int(v_bool->bool_val ? -1 : 0);
+      return ConstantValue(v_bool->bool_val ? -1 : 0);
     }
     if (auto v_unop = v->try_as<ast_unary_operator>()) {
       return handle_unary_operator(v_unop, visit(v_unop->get_rhs()));
@@ -284,34 +288,32 @@ struct ConstantEvaluator {
     if (auto v_par = v->try_as<ast_parenthesized_expression>()) {
       return visit(v_par->get_expr());
     }
-    if (v->try_as<ast_string_const>()) {
-      return eval_const_init_value(v);
+    if (auto v_cast_to = v->try_as<ast_cast_as_operator>()) {
+      return visit(v_cast_to->get_expr());
+    }
+    if (auto v_string = v->try_as<ast_string_const>()) {
+      return parse_vertex_string_const(v_string);
     }
     v->error("not a constant expression");
   }
 
-  static ConstantValue eval_const_init_value(AnyExprV init_value) {
-    // it init_value is incorrect, an exception is thrown
-    return visit(init_value);
+  // evaluate `const a = 2 + 3` into 5
+  // type inferring has already passed, to types are correct, `const a = 1 + ""` can not occur
+  // recursive initializers `const a = b; const b = a` also 100% don't exist, checked on type inferring
+  // if init_value is not a constant expression like `const a = foo()`, an exception is thrown
+  static ConstantValue eval_const_init_value(GlobalConstPtr const_ref) {
+    return visit(const_ref->init_value);
   }
 };
 
-ConstantValue eval_const_init_value(AnyExprV init_value) {
-  // at first, handle most simple cases, not to launch heavy computation algorithm: just a number, just a string
-  // just `c = 1` or `c = 0xFF`
-  if (auto v_int = init_value->try_as<ast_int_const>()) {
-    return {v_int->intval};
-  }
-  // just `c = "strval"`, probably with modifier (address, etc.)
-  if (auto v_string = init_value->try_as<ast_string_const>()) {
-    if (v_string->is_bitslice()) {
-      return {parse_vertex_string_const_as_slice(v_string)};
-    } else {
-      return {parse_vertex_string_const_as_int(v_string)};
-    }
-  }
-  // something more complex, like `c = anotherC` or `c = 1 << 8`
-  return ConstantEvaluator::eval_const_init_value(init_value);
+ConstantValue eval_string_const_considering_modifier(AnyExprV v_string) {
+  tolk_assert(v_string->type == ast_string_const);
+  return parse_vertex_string_const(v_string->as<ast_string_const>());
+}
+
+void eval_and_assign_const_init_value(GlobalConstPtr const_ref) {
+  ConstantValue init_value = ConstantEvaluator::eval_const_init_value(const_ref);
+  const_ref->mutate()->assign_const_value(std::move(init_value));
 }
 
 } // namespace tolk

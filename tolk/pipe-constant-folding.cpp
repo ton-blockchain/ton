@@ -106,6 +106,15 @@ public:
 };
 
 void pipeline_constant_folding() {
+  // here (after type inferring) evaluate `const a = 2 + 3` into `5`
+  // non-constant expressions like `const a = foo()` fire an error here
+  for (GlobalConstPtr const_ref : get_all_declared_constants()) {
+    // for `const a = b`, `b` could be already calculated while calculating `a`
+    if (!const_ref->value.initialized()) {
+      eval_and_assign_const_init_value(const_ref);
+    }
+  }
+
   replace_ast_of_all_functions<ConstantFoldingReplacer>();
 }
 

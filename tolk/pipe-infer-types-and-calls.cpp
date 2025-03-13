@@ -96,6 +96,7 @@
 namespace tolk {
 
 static void infer_and_save_return_type_of_function(FunctionPtr fun_ref);
+static void infer_and_save_type_of_constant(GlobalConstPtr const_ref);
 
 static TypePtr get_or_infer_return_type(FunctionPtr fun_ref) {
   if (!fun_ref->inferred_return_type) {
@@ -677,7 +678,10 @@ class InferTypesAndCallsAndFieldsVisitor final {
       assign_inferred_type(v, declared_or_smart_casted);
 
     } else if (GlobalConstPtr const_ref = v->sym->try_as<GlobalConstPtr>()) {
-      assign_inferred_type(v, const_ref->is_int_const() ? TypeDataInt::create() : TypeDataSlice::create());
+      if (!const_ref->inferred_type) {
+        infer_and_save_type_of_constant(const_ref);
+      }
+      assign_inferred_type(v, const_ref->inferred_type);
 
     } else if (GlobalVarPtr glob_ref = v->sym->try_as<GlobalVarPtr>()) {
       // there are no smart casts for globals, it's a way of preventing reading one global multiple times, it costs gas
@@ -1245,6 +1249,14 @@ public:
     assign_fun_full_type(fun_ref, inferred_return_type);
     fun_ref->mutate()->assign_is_type_inferring_done();
   }
+
+  // given `const a = 2 + 3` infer that it's int
+  // for `const a: int = ...` still infer all sub expressions (to be checked in a later pipe)
+  void start_visiting_constant(GlobalConstPtr const_ref) {
+    FlowContext const_flow;
+    infer_any_expr(const_ref->init_value, std::move(const_flow), false, const_ref->declared_type);
+    const_ref->mutate()->assign_inferred_type(const_ref->declared_type == nullptr ? const_ref->init_value->inferred_type : const_ref->declared_type);
+  }
 };
 
 class LaunchInferTypesAndMethodsOnce final {
@@ -1288,8 +1300,35 @@ static void infer_and_save_return_type_of_function(FunctionPtr fun_ref) {
   called_stack.pop_back();
 }
 
+// infer constant type "on demand"
+// example: `const a = 1 + b;`
+// when analyzing `a`, we need to infer what type const_ref=b has
+static void infer_and_save_type_of_constant(GlobalConstPtr const_ref) {
+  static std::vector<GlobalConstPtr> called_stack;
+
+  // prevent recursion like `const a = b; const b = a`
+  bool contains = std::find(called_stack.begin(), called_stack.end(), const_ref) != called_stack.end();
+  if (contains) {
+    throw ParseError(const_ref->loc, "const `" + const_ref->name + "` appears, directly or indirectly, in its own initializer");
+  }
+
+  called_stack.push_back(const_ref);
+  InferTypesAndCallsAndFieldsVisitor visitor;
+  visitor.start_visiting_constant(const_ref);
+  called_stack.pop_back();
+}
+
 void pipeline_infer_types_and_calls_and_fields() {
   visit_ast_of_all_functions<LaunchInferTypesAndMethodsOnce>();
+
+  // analyze constants that weren't referenced by any function
+  InferTypesAndCallsAndFieldsVisitor visitor;
+  for (GlobalConstPtr const_ref : get_all_declared_constants()) {
+    if (!const_ref->inferred_type) {
+      visitor.start_visiting_constant(const_ref);
+    }
+  }
+  // (later, at constant folding, `const a = 2 + 3` will be evaluated to 5)
 }
 
 void pipeline_infer_types_and_calls_and_fields(FunctionPtr fun_ref) {

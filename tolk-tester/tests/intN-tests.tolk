@@ -3,6 +3,9 @@ fun getAnyInt(): int { return 0; }
 fun getNullableInt32(): int32? { return 32; }
 fun getNullableVarInt32(): varint32? { return 32; }
 
+const someN_u128: uint128 = 128;
+const someN_i32: int32 = 20 + (12 as int32) * (1 as uint8);
+
 
 fun autoInferInt8(x: int8) {
     if (random()) { return x; }
@@ -50,7 +53,8 @@ fun test1(x: int8) {
 
     var z = x + y;
     __expect_type(z, "int");
-    return x / y;
+    __expect_type(someN_u128, "uint128");
+    return x / y + someN_u128;
 }
 
 fun test2(): (uint8, uint8, uint8) {
@@ -60,6 +64,7 @@ fun test2(): (uint8, uint8, uint8) {
 
 fun test3(op: int32, qid: uint64) {
     op = qid as int32;
+    op = someN_i32;
 
     op + qid;
     op = op + qid;
@@ -166,7 +171,7 @@ fun main() {
 
 /**
 @testcase | 0 |        | [ 0 0 0 ]
-@testcase | 101 | 0    | 1
+@testcase | 101 | 0    | 129
 @testcase | 104 |      | 64 64 -1 0
 @testcase | 105 |      | 3 -1 0
 @testcase | 114 | 5    | (null) (null) 0
