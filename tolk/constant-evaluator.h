@@ -48,6 +48,7 @@ public:
 };
 
 ConstantValue eval_string_const_considering_modifier(AnyExprV v_string);
+ConstantValue eval_call_to_ton_function(AnyExprV v_call);
 void eval_and_assign_const_init_value(GlobalConstPtr const_ref);
 
 } // namespace tolk

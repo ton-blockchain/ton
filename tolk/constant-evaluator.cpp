@@ -153,6 +153,67 @@ static ConstantValue parse_vertex_string_const(V<ast_string_const> v) {
     : ConstantValue(parse_vertex_string_const_as_int(v));
 }
 
+// given `ton("0.05")` evaluate it to 50000000
+static ConstantValue parse_vertex_call_to_ton_function(V<ast_function_call> v) {
+  tolk_assert(v->get_num_args() == 1);    // checked by type inferring
+  AnyExprV v_arg = v->get_arg(0)->get_expr();
+
+  std::string_view str;
+  if (auto as_string = v_arg->try_as<ast_string_const>(); as_string && !as_string->modifier) {
+    str = as_string->str_val;
+  } else {
+    // ton(SOME_CONST) is not supported
+    // ton(0.05) is not supported (it can't be represented in AST even)
+  }
+  if (str.empty()) {
+    v->error("function `ton` requires a constant string, like `ton(\"0.05\")`");
+  }
+
+  bool is_negative = false;
+  size_t i = 0;
+
+  // handle optional leading sign
+  if (str[0] == '-') {
+    is_negative = true;
+    i++;
+  } else if (str[0] == '+') {
+    i++;
+  }
+
+  // parse "0.05" into integer part (before dot) and fractional (after)
+  int64_t integer_part = 0;
+  int64_t fractional_part = 0;
+  int fractional_digits = 0;
+  bool seen_dot = false;
+
+  for (; i < str.size(); ++i) {
+    char c = str[i];
+    if (c == '.') {
+      if (seen_dot) {
+        v_arg->error("argument is not a valid number like \"0.05\"");
+      }
+      seen_dot = true;
+    } else if (c >= '0' && c <= '9') {
+      if (!seen_dot) {
+        integer_part = integer_part * 10 + (c - '0');
+      } else if (fractional_digits < 9) {
+        fractional_part = fractional_part * 10 + (c - '0');
+        fractional_digits++;
+      }
+    } else {
+      v_arg->error("argument is not a valid number like \"0.05\"");
+    }
+  }
+
+  while (fractional_digits < 9) {     // after "0.05" fractional_digits is 2, scale up to 9
+    fractional_part *= 10;
+    fractional_digits++;
+  }
+
+  int64_t result = integer_part * 1000000000LL + fractional_part;
+  return ConstantValue(td::make_refint(is_negative ? -result : result));
+}
+
 
 struct ConstantEvaluator {
   static bool is_overflow(const td::RefInt256& intval) {
@@ -269,6 +330,14 @@ struct ConstantEvaluator {
     return const_ref->value;
   }
 
+  // `const a = ton("0.05")`, we met `ton("0.05")`
+  static ConstantValue handle_function_call(V<ast_function_call> v) {
+    if (v->fun_maybe && v->fun_maybe->is_builtin_function() && v->fun_maybe->name == "ton") {
+      return parse_vertex_call_to_ton_function(v);
+    }
+    v->error("not a constant expression");
+  }
+
   static ConstantValue visit(AnyExprV v) {
     if (auto v_int = v->try_as<ast_int_const>()) {
       return ConstantValue(v_int->intval);
@@ -284,6 +353,9 @@ struct ConstantEvaluator {
     }
     if (auto v_ref = v->try_as<ast_reference>()) {
       return handle_reference(v_ref);
+    }
+    if (auto v_call = v->try_as<ast_function_call>()) {
+      return handle_function_call(v_call);
     }
     if (auto v_par = v->try_as<ast_parenthesized_expression>()) {
       return visit(v_par->get_expr());
@@ -309,6 +381,11 @@ struct ConstantEvaluator {
 ConstantValue eval_string_const_considering_modifier(AnyExprV v_string) {
   tolk_assert(v_string->type == ast_string_const);
   return parse_vertex_string_const(v_string->as<ast_string_const>());
+}
+
+ConstantValue eval_call_to_ton_function(AnyExprV v_call) {
+  tolk_assert(v_call->type == ast_function_call && v_call->as<ast_function_call>()->fun_maybe->is_builtin_function());
+  return parse_vertex_call_to_ton_function(v_call->as<ast_function_call>());
 }
 
 void eval_and_assign_const_init_value(GlobalConstPtr const_ref) {

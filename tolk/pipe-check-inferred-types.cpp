@@ -126,7 +126,7 @@ static void handle_possible_compiler_internal_call(FunctionPtr cur_f, V<ast_func
 }
 
 static bool expect_integer(AnyExprV v_inferred) {
-  return v_inferred->inferred_type == TypeDataInt::create() || v_inferred->inferred_type->try_as<TypeDataIntN>();
+  return v_inferred->inferred_type == TypeDataInt::create() || v_inferred->inferred_type->try_as<TypeDataIntN>() || v_inferred->inferred_type == TypeDataCoins::create();
 }
 
 static bool expect_boolean(AnyExprV v_inferred) {

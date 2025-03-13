@@ -5,6 +5,10 @@ fun getNullableVarInt32(): varint32? { return 32; }
 
 const someN_u128: uint128 = 128;
 const someN_i32: int32 = 20 + (12 as int32) * (1 as uint8);
+const someN_coins = 10 as coins;
+
+const cost1 = ton("1.234");
+const cost2 = ton("0.05") + ton("0.001");
 
 
 fun autoInferInt8(x: int8) {
@@ -54,6 +58,7 @@ fun test1(x: int8) {
     var z = x + y;
     __expect_type(z, "int");
     __expect_type(someN_u128, "uint128");
+    __expect_type(someN_coins, "coins");
     return x / y + someN_u128;
 }
 
@@ -141,6 +146,65 @@ fun test7() {
     __expect_type((n as varint16) as int, "int");
 }
 
+fun test8(amount1: coins, amount2: coins) {
+    __expect_type(amount1 + 0, "coins");
+    __expect_type(amount1 + amount2, "coins");
+    __expect_type(amount1 += amount2, "coins");
+    __expect_type(amount1 - 10, "coins");
+    __expect_type(amount1 &= 1, "coins");
+    __expect_type(amount1 &= (1 as coins), "coins");
+
+    __expect_type(amount1 & 1, "int");
+    __expect_type(amount1 * 10, "int");
+    __expect_type(amount1 << amount2, "int");
+}
+
+@method_id(109)
+fun test9(c: coins, i: int8) {
+    __expect_type(c as int8, "int8");
+    __expect_type(i as coins, "coins");
+    __expect_type(c + i, "coins");
+
+    var amount: coins = 1000;
+    var percent: uint8 = 50;
+    var new = amount * percent / 100;
+    amount = new;
+    __expect_type(amount, "coins");
+    if (!amount) { while (amount) { amount -= 1; } }
+
+    takeAnyInt(amount);
+    takeAnyInt(percent);
+    takeAnyInt(true as int3);
+    takeAnyInt(amount as int3);
+
+    return (amount, (true as int8) as coins);
+}
+
+@method_id(110)
+fun test10() {
+    return (ton("0.05"), ton("0.05") + 100, cost1, cost2);
+}
+
+@method_id(111)
+fun test11() {
+    __expect_type(ton("0"), "coins");
+    __expect_type(ton("0") + ton("0"), "coins");
+    __expect_type(ton("0") * 20, "int");
+    return [
+        ton("1"),
+        ton("1.0"),
+        ton("1.00000"),
+        ton("-321.123456789"),
+        ton("+321.123456789876"),
+        ton("0001.1000")
+    ];
+}
+
+fun test12() {
+    var a = ton("1") + ton("2");    // check absence in fif codegen
+    return ton("0.1");
+}
+
 fun test13(x1: int?, x2: int8?, x3: int, x4: int8): (int8?, int8?, int8?, int8?, int32?, int32?) {
     return (x1, x2, x3, x4, x4 as int32, x4 as int32?);
 }
@@ -165,6 +229,9 @@ fun main() {
     __expect_type(0 as int32, "int32");
     __expect_type((0 as int32) as uint64?, "uint64?");
     __expect_type(null as (int8, [uint16?])?, "(int8, [uint16?])?");
+    __expect_type(0 as coins, "coins");
+    __expect_type(someN_coins as coins?, "coins?");
+    __expect_type(someN_coins as int8?, "int8?");
     __expect_type(10>3 ? 0 as uint8 : 0 as uint16, "int");
     return t;
 }
@@ -174,10 +241,21 @@ fun main() {
 @testcase | 101 | 0    | 129
 @testcase | 104 |      | 64 64 -1 0
 @testcase | 105 |      | 3 -1 0
+@testcase | 109 | 4  4 | 500 -1
+@testcase | 110 |      | 50000000 50000100 1234000000 51000000
+@testcase | 111 |      | [ 1000000000 1000000000 1000000000 -321123456789 321123456789 1100000000 ]
 @testcase | 114 | 5    | (null) (null) 0
 @testcase | 114 | 15   | 15 2 -1
 
 @fif_codegen DECLPROC assign0<int8>
 @fif_codegen DECLPROC assign0<uint16>
 @fif_codegen DECLPROC assign0<int>
+
+@fif_codegen
+"""
+  test12 PROC:<{
+    //
+    100000000 PUSHINT	//  '4=100000000
+  }>
+"""
 */

@@ -54,6 +54,13 @@ fun tupleLast<T>(self: tuple): T
     Mathematical primitives.
  */
 
+/// Converts a constant floating-point string to nanotoncoins.
+/// Example: `ton("0.05")` is equal to 50000000.
+/// Note, that `ton()` requires a constant string; `ton(some_var)` is an error
+@pure
+fun ton(floatString: slice): coins
+    builtin;
+
 /// Computes the minimum of two integers.
 @pure
 fun min(x: int, y: int): int
@@ -386,7 +393,7 @@ fun preloadBits(self: slice, len: int): slice
 
 /// Loads serialized amount of Toncoins (any unsigned integer up to `2^120 - 1`).
 @pure
-fun loadCoins(mutate self: slice): int
+fun loadCoins(mutate self: slice): coins
     asm( -> 1 0) "LDGRAMS";
 
 /// Loads bool (-1 or 0) from a slice
@@ -485,7 +492,7 @@ fun storeSlice(mutate self: builder, s: slice): self
 
 /// Stores amount of Toncoins into a builder.
 @pure
-fun storeCoins(mutate self: builder, x: int): self
+fun storeCoins(mutate self: builder, x: coins): self
     asm "STGRAMS";
 
 /// Stores bool (-1 or 0) into a builder.

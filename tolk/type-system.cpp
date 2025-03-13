@@ -84,6 +84,7 @@ TypePtr TypeDataBuilder::singleton;
 TypePtr TypeDataTuple::singleton;
 TypePtr TypeDataContinuation::singleton;
 TypePtr TypeDataNullLiteral::singleton;
+TypePtr TypeDataCoins::singleton;
 TypePtr TypeDataUnknown::singleton;
 TypePtr TypeDataNever::singleton;
 TypePtr TypeDataVoid::singleton;
@@ -97,6 +98,7 @@ void type_system_init() {
   TypeDataTuple::singleton = new TypeDataTuple;
   TypeDataContinuation::singleton = new TypeDataContinuation;
   TypeDataNullLiteral::singleton = new TypeDataNullLiteral;
+  TypeDataCoins::singleton = new TypeDataCoins;
   TypeDataUnknown::singleton = new TypeDataUnknown;
   TypeDataNever::singleton = new TypeDataNever;
   TypeDataVoid::singleton = new TypeDataVoid;
@@ -350,6 +352,9 @@ bool TypeDataInt::can_rhs_be_assigned(TypePtr rhs) const {
   if (rhs->try_as<TypeDataIntN>()) {
     return true;
   }
+  if (rhs == TypeDataCoins::create()) {
+    return true;
+  }
   return rhs == TypeDataNever::create();
 }
 
@@ -464,6 +469,16 @@ bool TypeDataIntN::can_rhs_be_assigned(TypePtr rhs) const {
   return rhs == TypeDataNever::create();   // `int8` is NOT assignable to `int32` without `as`
 }
 
+bool TypeDataCoins::can_rhs_be_assigned(TypePtr rhs) const {
+  if (rhs == this) {
+    return true;
+  }
+  if (rhs == TypeDataInt::create()) {
+    return true;
+  }
+  return rhs == TypeDataNever::create();
+}
+
 bool TypeDataUnknown::can_rhs_be_assigned(TypePtr rhs) const {
   return true;
 }
@@ -497,6 +512,9 @@ bool TypeDataInt::can_be_casted_with_as_operator(TypePtr cast_to) const {
     return can_be_casted_with_as_operator(to_nullable->inner);
   }
   if (cast_to->try_as<TypeDataIntN>()) {    // `int` as `int8` / `int` as `uint2`
+    return true;
+  }
+  if (cast_to == TypeDataCoins::create()) {   // `int` as `coins`
     return true;
   }
   return cast_to == this;
@@ -609,7 +627,20 @@ bool TypeDataIntN::can_be_casted_with_as_operator(TypePtr cast_to) const {
   if (const auto* to_nullable = cast_to->try_as<TypeDataNullable>()) {  // `int8` as `int32?`
     return can_be_casted_with_as_operator(to_nullable->inner);
   }
-  return cast_to == TypeDataInt::create();
+  return cast_to == TypeDataInt::create() || cast_to == TypeDataCoins::create();
+}
+
+bool TypeDataCoins::can_be_casted_with_as_operator(TypePtr cast_to) const {
+  if (cast_to->try_as<TypeDataIntN>()) {    // `coins` as `int8`
+    return true;
+  }
+  if (const auto* to_nullable = cast_to->try_as<TypeDataNullable>()) {  // `coins` as `coins?` / `coins` as `int?`
+    return can_be_casted_with_as_operator(to_nullable->inner);
+  }
+  if (cast_to == TypeDataInt::create()) {
+    return true;
+  }
+  return cast_to == this;
 }
 
 bool TypeDataUnknown::can_be_casted_with_as_operator(TypePtr cast_to) const {
@@ -738,6 +769,7 @@ static TypePtr parse_simple_type(Lexer& lex) {
         case 5:
           if (str == "slice") return TypeDataSlice::create();
           if (str == "tuple") return TypeDataTuple::create();
+          if (str == "coins") return TypeDataCoins::create();
           if (str == "never") return TypeDataNever::create();
           break;
         case 7:

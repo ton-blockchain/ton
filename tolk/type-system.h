@@ -392,6 +392,24 @@ public:
 };
 
 /*
+ * `coins` is just integer at TVM level, but encoded as varint when serializing structures.
+ * Example: `var cost = ton("0.05")` has type `coins`.
+ */
+class TypeDataCoins final : public TypeData {
+  TypeDataCoins() : TypeData(17ULL, 0, 1) {}
+
+  static TypePtr singleton;
+  friend void type_system_init();
+
+public:
+  static TypePtr create() { return singleton; }
+
+  std::string as_human_readable() const override { return "coins"; }
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+};
+
+/*
  * `unknown` is a special type, which can appear in corner cases.
  * The type of exception argument (which can hold any TVM value at runtime) is unknown.
  * The type of `_` used as rvalue is unknown.

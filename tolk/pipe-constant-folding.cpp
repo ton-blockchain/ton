@@ -99,6 +99,19 @@ class ConstantFoldingReplacer final : public ASTReplacerInFunctionBody {
     return v;
   }
 
+  AnyExprV replace(V<ast_function_call> v) override {
+    parent::replace(v);
+
+    // replace `ton("0.05")` with 50000000
+    if (v->fun_maybe && v->fun_maybe->is_builtin_function() && v->fun_maybe->name == "ton") {
+      ConstantValue value = eval_call_to_ton_function(v);
+      tolk_assert(value.is_int());
+      return create_int_const(v->loc, value.as_int());
+    }
+
+    return v;
+  }
+
 public:
   bool should_visit_function(FunctionPtr fun_ref) override {
     return fun_ref->is_code_function() && !fun_ref->is_generic_function();

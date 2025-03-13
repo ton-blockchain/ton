@@ -563,7 +563,11 @@ class InferTypesAndCallsAndFieldsVisitor final {
       default:
         flow = infer_any_expr(lhs, std::move(flow), false).out_flow;
         flow = infer_any_expr(rhs, std::move(flow), false).out_flow;
-        assign_inferred_type(v, TypeDataInt::create());
+        if ((v->tok == tok_plus || v->tok == tok_minus) && lhs->inferred_type == TypeDataCoins::create()) {
+          assign_inferred_type(v, TypeDataCoins::create());   // coins + coins = coins
+        } else {
+          assign_inferred_type(v, TypeDataInt::create());     // int8 + int8 = int, as well as other operators/types
+        }
     }
 
     if (!builtin_func.empty()) {

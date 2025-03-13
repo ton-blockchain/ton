@@ -1071,6 +1071,13 @@ AsmOp compile_tuple_set_at(std::vector<VarDescr>& res, std::vector<VarDescr>& ar
   return exec_op("SETINDEXVAR", 2, 1);
 }
 
+// fun ton(amount: slice): coins; ton("0.05") replaced by 50000000 at compile-time
+AsmOp compile_int_to_ton_coins(std::vector<VarDescr>&, std::vector<VarDescr>&, SrcLocation) {
+  // all ton() invocations are constants, replaced by integers; no dynamic values allowed, no work at runtime
+  tolk_assert(false);
+  return AsmOp::Nop();
+}
+
 // fun __isNull<X>(X arg): bool
 AsmOp compile_is_null(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation) {
   tolk_assert(args.size() == 1 && res.size() == 1);
@@ -1214,6 +1221,9 @@ void define_builtins() {
 
   // functions from stdlib marked as `builtin`, implemented at compiler level for optimizations
   // (for example, `loadInt(1)` is `1 LDI`, but `loadInt(n)` for non-constant requires it be on a stack and `LDIX`)
+  define_builtin_func("ton", {TypeDataUnknown::create()}, TypeDataCoins::create(), nullptr,   // `unknown` to pass inferring for `ton(1)` (to fire a better error later)
+                              compile_int_to_ton_coins,
+                                FunctionData::flagMarkedAsPure);
   define_builtin_func("mulDivFloor", ParamsInt3, Int, nullptr,
                               std::bind(compile_muldiv, _1, _2, _3, -1),
                                 FunctionData::flagMarkedAsPure);
