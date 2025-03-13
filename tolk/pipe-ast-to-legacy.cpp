@@ -581,6 +581,22 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
   if (original_type == TypeDataCoins::create() && target_type->try_as<TypeDataIntN>()) {
     return rvect;
   }
+  // pass `bytes32` to `slice`
+  // in code, it's probably done with `as` operator
+  // no changes in rvect, since bytesN is slice at TVM level
+  if (target_type == TypeDataSlice::create() && original_type->try_as<TypeDataBytesN>()) {
+    return rvect;
+  }
+  // pass `slice` to `bytes32`
+  // same as above
+  if (original_type == TypeDataSlice::create() && target_type->try_as<TypeDataBytesN>()) {
+    return rvect;
+  }
+  // pass `bytes32` to `bytes64` / `bits128` to `bytes16`
+  // no changes in rvect
+  if (original_type->try_as<TypeDataBytesN>() && target_type->try_as<TypeDataBytesN>()) {
+    return rvect;
+  }
   // pass something to `unknown`
   // probably, it comes from `_ = rhs`, type of `_` is unknown, it's target_type of rhs
   // no changes in rvect

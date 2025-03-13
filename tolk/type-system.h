@@ -410,6 +410,29 @@ public:
 };
 
 /*
+ * `bytes256`, `bits512`, `bytes8` are TypeDataBytesN. At TVM level, it's just slice.
+ * The purpose of bytesN is to be used in struct fields, describing the way of serialization (n bytes / n bits).
+ * In this essence, bytesN is very similar to intN.
+ * Note, that unlike intN automatically cast to/from int, bytesN does NOT auto cast to slice (without `as`).
+ */
+class TypeDataBytesN final : public TypeData {
+  TypeDataBytesN(uint64_t type_id, bool is_bits, int n_width)
+    : TypeData(type_id, 0, 1)
+    , is_bits(is_bits)
+    , n_width(n_width) {}
+
+public:
+  const bool is_bits;
+  const int n_width;
+
+  static TypePtr create(bool is_bits, int n_width);
+
+  std::string as_human_readable() const override;
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+};
+
+/*
  * `unknown` is a special type, which can appear in corner cases.
  * The type of exception argument (which can hold any TVM value at runtime) is unknown.
  * The type of `_` used as rvalue is unknown.

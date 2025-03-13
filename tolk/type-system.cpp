@@ -193,6 +193,17 @@ TypePtr TypeDataIntN::create(bool is_unsigned, bool is_variadic, int n_bits) {
   return hash.register_unique(new TypeDataIntN(hash.type_id(), is_unsigned, is_variadic, n_bits));
 }
 
+TypePtr TypeDataBytesN::create(bool is_bits, int n_width) {
+  TypeDataTypeIdCalculation hash(7810988137199333041ULL);
+  hash.feed_hash(is_bits);
+  hash.feed_hash(n_width);
+
+  if (TypePtr existing = hash.get_existing()) {
+    return existing;
+  }
+  return hash.register_unique(new TypeDataBytesN(hash.type_id(), is_bits, n_width));
+}
+
 TypePtr TypeDataUnresolved::create(std::string&& text, SrcLocation loc) {
   TypeDataTypeIdCalculation hash(3680147223540048162ULL);
   hash.feed_string(text);
@@ -260,6 +271,11 @@ std::string TypeDataIntN::as_human_readable() const {
     ? is_unsigned ? "varuint" : "varint"
     : is_unsigned ? "uint" : "int";
   return s_int + std::to_string(n_bits);
+}
+
+std::string TypeDataBytesN::as_human_readable() const {
+  std::string s_bytes = is_bits ? "bits" : "bytes";
+  return s_bytes + std::to_string(n_width);
 }
 
 
@@ -376,7 +392,7 @@ bool TypeDataSlice::can_rhs_be_assigned(TypePtr rhs) const {
   if (rhs == this) {
     return true;
   }
-  return rhs == TypeDataNever::create();
+  return rhs == TypeDataNever::create();   // note, that bytesN is NOT automatically cast to slice without `as` operator
 }
 
 bool TypeDataBuilder::can_rhs_be_assigned(TypePtr rhs) const {
@@ -469,6 +485,15 @@ bool TypeDataIntN::can_rhs_be_assigned(TypePtr rhs) const {
   return rhs == TypeDataNever::create();   // `int8` is NOT assignable to `int32` without `as`
 }
 
+bool TypeDataBytesN::can_rhs_be_assigned(TypePtr rhs) const {
+  // `slice` is NOT assignable to bytesN without `as`
+  // `bytes32` is NOT assignable to `bytes256` and even to `bits256` without `as`
+  if (rhs == this) {
+    return true;
+  }
+  return rhs == TypeDataNever::create();
+}
+
 bool TypeDataCoins::can_rhs_be_assigned(TypePtr rhs) const {
   if (rhs == this) {
     return true;
@@ -541,6 +566,9 @@ bool TypeDataCell::can_be_casted_with_as_operator(TypePtr cast_to) const {
 }
 
 bool TypeDataSlice::can_be_casted_with_as_operator(TypePtr cast_to) const {
+  if (cast_to->try_as<TypeDataBytesN>()) {  // `slice` to `bytes32` / `slice` to `bits8`
+    return true;
+  }
   if (const auto* to_nullable = cast_to->try_as<TypeDataNullable>()) {
     return can_be_casted_with_as_operator(to_nullable->inner);
   }
@@ -628,6 +656,16 @@ bool TypeDataIntN::can_be_casted_with_as_operator(TypePtr cast_to) const {
     return can_be_casted_with_as_operator(to_nullable->inner);
   }
   return cast_to == TypeDataInt::create() || cast_to == TypeDataCoins::create();
+}
+
+bool TypeDataBytesN::can_be_casted_with_as_operator(TypePtr cast_to) const {
+  if (cast_to->try_as<TypeDataBytesN>()) {  // `bytes256` as `bytes512`, `bits1` as `bytes8`
+    return true;
+  }
+  if (const auto* to_nullable = cast_to->try_as<TypeDataNullable>()) {  // `bytes8` as `slice?`
+    return can_be_casted_with_as_operator(to_nullable->inner);
+  }
+  return cast_to == TypeDataSlice::create();
 }
 
 bool TypeDataCoins::can_be_casted_with_as_operator(TypePtr cast_to) const {
@@ -750,6 +788,16 @@ static TypePtr parse_intN(std::string_view strN, bool is_unsigned) {
   return TypeDataIntN::create(is_unsigned, false, n);
 }
 
+static TypePtr parse_bytesN(std::string_view strN, bool is_bits) {
+  int n;
+  auto result = std::from_chars(strN.data() + 5  - static_cast<int>(is_bits), strN.data() + strN.size(), n);
+  bool parsed = result.ec == std::errc() && result.ptr == strN.data() + strN.size();
+  if (!parsed || n <= 0 || n > 1024) {
+    return nullptr;   // `bytes9999`, maybe it's user-defined alias, let it be unresolved
+  }
+  return TypeDataBytesN::create(is_bits, n);
+}
+
 static TypePtr parse_simple_type(Lexer& lex) {
   switch (lex.tok()) {
     case tok_self:
@@ -793,6 +841,16 @@ static TypePtr parse_simple_type(Lexer& lex) {
       if (str.size() > 4 && str.starts_with("uint")) {
         if (TypePtr uintN = parse_intN(str, true)) {
           return uintN;
+        }
+      }
+      if (str.size() > 4 && str.starts_with("bits")) {
+        if (TypePtr bitsN = parse_bytesN(str, true)) {
+          return bitsN;
+        }
+      }
+      if (str.size() > 5 && str.starts_with("bytes")) {
+        if (TypePtr bytesN = parse_bytesN(str, false)) {
+          return bytesN;
         }
       }
       return TypeDataUnresolved::create(std::string(str), loc);
