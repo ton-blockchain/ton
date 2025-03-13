@@ -457,14 +457,13 @@ class InferTypesAndCallsAndFieldsVisitor final {
     FlowContext rhs_flow = std::move(after_lhs.out_flow);
     ExprFlow after_rhs = infer_any_expr(rhs, std::move(rhs_flow), false, lhs->inferred_type);
 
-    // almost all operators implementation is hardcoded by built-in functions `_+_` and similar
+    // all operators implementation is hardcoded by built-in functions `_+_` and similar
     std::string_view builtin_func = v->operator_name;   // "+" for operator +=
 
     assign_inferred_type(v, lhs);
-    if (!builtin_func.empty()) {
-      FunctionPtr builtin_sym = lookup_global_symbol("_" + static_cast<std::string>(builtin_func) + "_")->try_as<FunctionPtr>();
-      v->mutate()->assign_fun_ref(builtin_sym);
-    }
+
+    FunctionPtr builtin_sym = lookup_global_symbol("_" + static_cast<std::string>(builtin_func) + "_")->try_as<FunctionPtr>();
+    v->mutate()->assign_fun_ref(builtin_sym);
 
     return ExprFlow(std::move(after_rhs.out_flow), used_as_condition);
   }
@@ -530,7 +529,6 @@ class InferTypesAndCallsAndFieldsVisitor final {
         } else {
           assign_inferred_type(v, TypeDataInt::create());
         }
-        assign_inferred_type(v, rhs);   // (int & int) is int, (bool & bool) is bool
         break;
       // && || result in booleans, but building flow facts is tricky due to short-circuit
       case tok_logical_and: {
@@ -560,6 +558,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
         return ExprFlow(std::move(out_flow), std::move(true_flow), std::move(false_flow));
       }
       // others are mathematical: + * ...
+      // they are allowed for intN (int16 + int32 is ok) and always "fall back" to general int
       default:
         flow = infer_any_expr(lhs, std::move(flow), false).out_flow;
         flow = infer_any_expr(rhs, std::move(flow), false).out_flow;

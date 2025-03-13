@@ -367,6 +367,31 @@ public:
 };
 
 /*
+ * `int8`, `int32`, `uint1`, `uint257`, `varint16` are TypeDataIntN. At TVM level, it's just int.
+ * The purpose of intN is to be used in struct fields, describing the way of serialization (n bits).
+ * A field `value: int32` has the TYPE `int32`, so being assigned to a variable, that variable is also `int32`.
+ * intN is smoothly cast from/to plain int, mathematical operators on intN also "fall back" to general int.
+ */
+class TypeDataIntN final : public TypeData {
+  TypeDataIntN(uint64_t type_id, bool is_unsigned, bool is_variadic, int n_bits)
+    : TypeData(type_id, 0, 1)
+    , is_unsigned(is_unsigned)
+    , is_variadic(is_variadic)
+    , n_bits(n_bits) {}
+
+public:
+  const bool is_unsigned;
+  const bool is_variadic;
+  const int n_bits;
+
+  static TypePtr create(bool is_unsigned, bool is_variadic, int n_bits);
+
+  std::string as_human_readable() const override;
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+};
+
+/*
  * `unknown` is a special type, which can appear in corner cases.
  * The type of exception argument (which can hold any TVM value at runtime) is unknown.
  * The type of `_` used as rvalue is unknown.

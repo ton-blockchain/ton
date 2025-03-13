@@ -422,6 +422,12 @@ fun test136(x: int?, ) {
     return ((t1, t1 == null, ), );   // testing trailing comma everywhere :)
 }
 
+@method_id(140)
+fun test140(x: int8, y: int16) {
+    var t1: (int32, int)? = (x, y) as (int32, int64)?;
+    var t2: (int32, int)? = null as (int32, int64)?;
+    return (t1, t2);
+}
 
 
 fun main(){}
@@ -475,6 +481,7 @@ fun main(){}
 @testcase | 135 |      | [ 10 ] [ (null) ] (null) 777 10 -1 (null) -1 (null) 0 777 10 -1 (null) -1 (null) 0 777 0 0 -1 0 0 -1 0 0 -1 777 0 -1 0 0 -1 0
 @testcase | 136 | 9    | 9 0
 @testcase | 136 | null | (null) -1
+@testcase | 140 | 8 9  | 8 9 -1 (null) (null) 0
 
 @fif_codegen
 """

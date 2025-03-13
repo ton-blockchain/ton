@@ -535,7 +535,30 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
   // pass `bool` to `int`
   // in code, it's done via `as` operator, like `boolVar as int`
   // no changes in rvect, boolVar is guaranteed to be -1 or 0 at TVM level
-  if (target_type == TypeDataInt::create() && original_type == TypeDataBool::create()) {
+  if (original_type == TypeDataBool::create() && target_type == TypeDataInt::create()) {
+    return rvect;
+  }
+  // pass `bool` to `int8`
+  // same as above
+  if (original_type == TypeDataBool::create() && target_type->try_as<TypeDataIntN>()) {
+    return rvect;
+  }
+  // pass `int8` to `int`
+  // it comes from auto cast when an integer (even a literal) is assigned to intN
+  // to changes in rvect, intN is int at TVM level
+  if (target_type == TypeDataInt::create() && original_type->try_as<TypeDataIntN>()) {
+    return rvect;
+  }
+  // pass `int` to `int8`
+  // in code, it's probably done with `as` operator
+  // no changes in rvect
+  if (original_type == TypeDataInt::create() && target_type->try_as<TypeDataIntN>()) {
+    return rvect;
+  }
+  // pass `int8` to `int16` / `int8` to `uint8`
+  // in code, it's probably done with `as` operator
+  // no changes in rvect
+  if (original_type->try_as<TypeDataIntN>() && target_type->try_as<TypeDataIntN>()) {
     return rvect;
   }
   // pass something to `unknown`

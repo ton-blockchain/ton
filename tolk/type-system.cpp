@@ -18,6 +18,7 @@
 #include "lexer.h"
 #include "platform-utils.h"
 #include "compiler-state.h"
+#include <charconv>
 #include <unordered_map>
 
 namespace tolk {
@@ -178,6 +179,18 @@ TypePtr TypeDataTypedTuple::create(std::vector<TypePtr>&& items) {
   return hash.register_unique(new TypeDataTypedTuple(hash.type_id(), hash.children_flags(), std::move(items)));
 }
 
+TypePtr TypeDataIntN::create(bool is_unsigned, bool is_variadic, int n_bits) {
+  TypeDataTypeIdCalculation hash(1678330938771108027ULL);
+  hash.feed_hash(is_unsigned);
+  hash.feed_hash(is_variadic);
+  hash.feed_hash(n_bits);
+
+  if (TypePtr existing = hash.get_existing()) {
+    return existing;
+  }
+  return hash.register_unique(new TypeDataIntN(hash.type_id(), is_unsigned, is_variadic, n_bits));
+}
+
 TypePtr TypeDataUnresolved::create(std::string&& text, SrcLocation loc) {
   TypeDataTypeIdCalculation hash(3680147223540048162ULL);
   hash.feed_string(text);
@@ -238,6 +251,13 @@ std::string TypeDataTypedTuple::as_human_readable() const {
   }
   result += ']';
   return result;
+}
+
+std::string TypeDataIntN::as_human_readable() const {
+  std::string s_int = is_variadic
+    ? is_unsigned ? "varuint" : "varint"
+    : is_unsigned ? "uint" : "int";
+  return s_int + std::to_string(n_bits);
 }
 
 
@@ -325,6 +345,9 @@ TypePtr TypeDataTypedTuple::replace_children_custom(const ReplacerCallbackT& cal
 
 bool TypeDataInt::can_rhs_be_assigned(TypePtr rhs) const {
   if (rhs == this) {
+    return true;
+  }
+  if (rhs->try_as<TypeDataIntN>()) {
     return true;
   }
   return rhs == TypeDataNever::create();
@@ -431,6 +454,16 @@ bool TypeDataTypedTuple::can_rhs_be_assigned(TypePtr rhs) const {
   return rhs == TypeDataNever::create();
 }
 
+bool TypeDataIntN::can_rhs_be_assigned(TypePtr rhs) const {
+  if (rhs == this) {
+    return true;
+  }
+  if (rhs == TypeDataInt::create()) {
+    return true;
+  }
+  return rhs == TypeDataNever::create();   // `int8` is NOT assignable to `int32` without `as`
+}
+
 bool TypeDataUnknown::can_rhs_be_assigned(TypePtr rhs) const {
   return true;
 }
@@ -463,14 +496,23 @@ bool TypeDataInt::can_be_casted_with_as_operator(TypePtr cast_to) const {
   if (const auto* to_nullable = cast_to->try_as<TypeDataNullable>()) {  // `int` as `int?`
     return can_be_casted_with_as_operator(to_nullable->inner);
   }
+  if (cast_to->try_as<TypeDataIntN>()) {    // `int` as `int8` / `int` as `uint2`
+    return true;
+  }
   return cast_to == this;
 }
 
 bool TypeDataBool::can_be_casted_with_as_operator(TypePtr cast_to) const {
+  if (cast_to == TypeDataInt::create()) {
+    return true;
+  }
   if (const auto* to_nullable = cast_to->try_as<TypeDataNullable>()) {
     return can_be_casted_with_as_operator(to_nullable->inner);
   }
-  return cast_to == this || cast_to == TypeDataInt::create();
+  if (const auto* to_intN = cast_to->try_as<TypeDataIntN>()) {
+    return !to_intN->is_unsigned;   // `bool` as `int8` ok, `bool` as `uintN` not (true is -1)
+  }
+  return cast_to == this;
 }
 
 bool TypeDataCell::can_be_casted_with_as_operator(TypePtr cast_to) const {
@@ -558,6 +600,16 @@ bool TypeDataTypedTuple::can_be_casted_with_as_operator(TypePtr cast_to) const {
     return can_be_casted_with_as_operator(to_nullable->inner);
   }
   return false;
+}
+
+bool TypeDataIntN::can_be_casted_with_as_operator(TypePtr cast_to) const {
+  if (cast_to->try_as<TypeDataIntN>()) {    // `int8` as `int32`, `int256` as `uint5`, anything
+    return true;
+  }
+  if (const auto* to_nullable = cast_to->try_as<TypeDataNullable>()) {  // `int8` as `int32?`
+    return can_be_casted_with_as_operator(to_nullable->inner);
+  }
+  return cast_to == TypeDataInt::create();
 }
 
 bool TypeDataUnknown::can_be_casted_with_as_operator(TypePtr cast_to) const {
@@ -657,6 +709,16 @@ std::vector<TypePtr> parse_nested_type_list_in_parenthesis(Lexer& lex) {
   return parse_nested_type_list(lex, tok_oppar, "`(`", tok_clpar, "`)` or `,`");
 }
 
+static TypePtr parse_intN(std::string_view strN, bool is_unsigned) {
+  int n;
+  auto result = std::from_chars(strN.data() + 3 + static_cast<int>(is_unsigned), strN.data() + strN.size(), n);
+  bool parsed = result.ec == std::errc() && result.ptr == strN.data() + strN.size();
+  if (!parsed || n <= 0 || n > 256 + static_cast<int>(is_unsigned)) {
+    return nullptr;   // `int1000`, maybe it's user-defined alias, let it be unresolved
+  }
+  return TypeDataIntN::create(is_unsigned, false, n);
+}
+
 static TypePtr parse_simple_type(Lexer& lex) {
   switch (lex.tok()) {
     case tok_self:
@@ -681,11 +743,25 @@ static TypePtr parse_simple_type(Lexer& lex) {
         case 7:
           if (str == "builder") return TypeDataBuilder::create();
           break;
+        case 8:
+          if (str == "varint16") return TypeDataIntN::create(false, true, 16);
+          if (str == "varint32") return TypeDataIntN::create(false, true, 32);
+          break;
         case 12:
           if (str == "continuation") return TypeDataContinuation::create();
           break;
         default:
           break;
+      }
+      if (str.starts_with("int")) {
+        if (TypePtr intN = parse_intN(str, false)) {
+          return intN;
+        }
+      }
+      if (str.size() > 4 && str.starts_with("uint")) {
+        if (TypePtr uintN = parse_intN(str, true)) {
+          return uintN;
+        }
       }
       return TypeDataUnresolved::create(std::string(str), loc);
     }
