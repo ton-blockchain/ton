@@ -67,7 +67,11 @@ class CellUsageTree : public std::enable_shared_from_this<CellUsageTree> {
     cell_load_callback_ = std::move(f);
   }
   void set_ignore_loads(bool value) {
-    ignore_loads_ = value;
+    if (value) {
+      ++ignore_loads_;
+    } else {
+      --ignore_loads_;
+    }
   }
 
  private:
@@ -83,6 +87,6 @@ class CellUsageTree : public std::enable_shared_from_this<CellUsageTree> {
 
   void on_load(NodeId node_id, const td::Ref<vm::DataCell>& cell);
   NodeId create_node(NodeId parent);
-  bool ignore_loads_ = false;
+  int ignore_loads_ = 0;
 };
 }  // namespace vm

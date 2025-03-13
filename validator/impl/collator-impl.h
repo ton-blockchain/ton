@@ -185,6 +185,7 @@ class Collator final : public td::actor::Actor {
   td::RefInt256 masterchain_create_fee_, basechain_create_fee_;
   std::unique_ptr<block::BlockLimits> block_limits_;
   std::unique_ptr<block::BlockLimitStatus> block_limit_status_;
+  vm::ProofStorageStat collated_data_stat;
   int block_limit_class_ = 0;
   ton::LogicalTime min_new_msg_lt{std::numeric_limits<td::uint64>::max()};
   block::CurrencyCollection total_balance_, old_total_balance_, total_validator_fees_;
@@ -223,8 +224,7 @@ class Collator final : public td::actor::Actor {
   struct AccountStorageDict {
     bool inited = false;
     vm::MerkleProofBuilder mpb;
-    Ref<vm::Cell> proof_root;
-    size_t proof_size_estimate = 0;
+    vm::ProofStorageStat proof_stat;
     bool add_to_collated_data = false;
     std::vector<Ref<vm::Cell>> storage_stat_updates;
   };
@@ -405,6 +405,11 @@ class Collator final : public td::actor::Actor {
   CollationStats stats_;
 
   void finalize_stats();
+
+  AccountStorageDict* current_tx_storage_dict_ = nullptr;
+
+  void on_cell_loaded(const Ref<vm::DataCell>& cell);
+  void set_current_tx_storage_dict(const block::Account& account);
 };
 
 }  // namespace validator

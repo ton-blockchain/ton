@@ -3068,6 +3068,8 @@ td::Status Transaction::check_state_limits(const SizeLimitsConfig& size_limits, 
     if (is_account_stat && compute_phase) {
       storage_stat.add_hint(compute_phase->vm_loaded_cells);
     }
+    StorageStatCalculationContext context{is_account_stat};
+    StorageStatCalculationContext::Guard guard{&context};
     TRY_RESULT(info, storage_stat.replace_roots({new_code, new_data, new_library}));
     if (info.max_merkle_depth > max_allowed_merkle_depth) {
       return td::Status::Error("too big Merkle depth");
@@ -3369,10 +3371,15 @@ bool Transaction::compute_state(const SerializeConfig& cfg) {
     }
     auto roots = new_storage->prefetch_all_refs();
     storage_stats_updates.insert(storage_stats_updates.end(), roots.begin(), roots.end());
-    auto S = stats.replace_roots(std::move(roots)).move_as_status();
-    if (S.is_error()) {
-      LOG(ERROR) << "Cannot recompute storage stats for account " << account.addr.to_hex() << ": " << S.move_as_error();
-      return false;
+    {
+      StorageStatCalculationContext context{true};
+      StorageStatCalculationContext::Guard guard{&context};
+      auto S = stats.replace_roots(std::move(roots)).move_as_status();
+      if (S.is_error()) {
+        LOG(ERROR) << "Cannot recompute storage stats for account " << account.addr.to_hex() << ": "
+                   << S.move_as_error();
+        return false;
+      }
     }
     new_storage_dict_hash = stats.get_dict_hash();
     // Root of AccountStorage is not counted in AccountStorageStat
@@ -3390,26 +3397,6 @@ bool Transaction::compute_state(const SerializeConfig& cfg) {
   }
   if (!cfg.store_storage_dict_hash) {
     new_storage_dict_hash = {};
-  }
-  if (false) {
-    vm::CellStorageStat control_stats;
-    control_stats.add_used_storage(new_storage);
-    if (control_stats.bits != new_storage_used.bits || control_stats.cells != new_storage_used.cells) {
-      LOG(ERROR) << " [ QQQQQQ 1 Wrong storage stat " << account.workchain << ":" << account.addr.to_hex() << " "
-                 << start_lt << " : " << new_storage_used.cells << "," << new_storage_used.bits
-                 << " != " << control_stats.cells << "," << control_stats.bits << " ] ";
-      return false;
-    }
-    AccountStorageStat control_stats_2;
-    control_stats_2.replace_roots(new_storage->prefetch_all_refs());
-    if (control_stats_2.get_total_bits() + new_storage->size() != new_storage_used.bits ||
-        control_stats_2.get_total_cells() + 1 != new_storage_used.cells) {
-      LOG(ERROR) << " [ QQQQQQ 2 Wrong storage stat " << account.workchain << ":" << account.addr.to_hex() << " "
-                 << start_lt << " : " << new_storage_used.cells << "," << new_storage_used.bits
-                 << " != " << control_stats_2.get_total_cells() + 1 << ","
-                 << control_stats_2.get_total_bits() + new_storage->size() << " ] ";
-      return false;
-    }
   }
 
   CHECK(cb.store_long_bool(1, 1)                                 // account$1

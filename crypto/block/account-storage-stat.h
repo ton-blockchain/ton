@@ -115,4 +115,16 @@ class AccountStorageStat {
   static constexpr td::uint32 MERKLE_DEPTH_LIMIT = 3;
 };
 
+class StorageStatCalculationContext : public td::Context<StorageStatCalculationContext> {
+ public:
+  explicit StorageStatCalculationContext(bool active) : active_(active) {
+  }
+  bool calculating_storage_stat() const {
+    return active_;
+  }
+
+ private:
+  bool active_ = false;
+};
+
 }  // namespace block
