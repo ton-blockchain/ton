@@ -31,6 +31,48 @@ fun test3(x: int) {
     return -1;
 }
 
+fun elseif(cond: int) {
+    if (cond > 0) {
+        throw(cond);
+    }
+}
+
+@inline
+@method_id(104)
+fun test4(x: int): int {
+    if (x==1) {
+        return 111;
+    } else {
+        x *= 2;
+    }
+    return x + 1;
+}
+
+@method_id(105)
+fun test5(x: int): (int, int) {
+    return (test4(x), 222);
+}
+
+@method_id(106)
+fun test6(x: int) {
+    try {
+        if (x < 0) { return -1; }
+        elseif (x);
+    } catch(excNo) {
+        return excNo * 1000;
+    }
+    return 0;
+}
+
+fun doNothing(): void {}
+
+@method_id(107)
+fun test7() {
+    if (random()) { return doNothing(); }
+    // here we test that no "missing return" error
+}
+
+
 fun main() {
 
 }
@@ -48,6 +90,12 @@ fun main() {
 @testcase | 103 | 20 | 20
 @testcase | 103 | 40 | 50
 @testcase | 103 | 50 | -1
+@testcase | 104 | 1  | 111
+@testcase | 104 | 3  | 7
+@testcase | 105 | 1  | 111 222
+@testcase | 105 | 3  | 7 222
+@testcase | 106 | -5 | -1
+@testcase | 106 | 5  | 5000
 
 @fif_codegen
 """

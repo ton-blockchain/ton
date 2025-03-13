@@ -175,6 +175,28 @@ fun testVarsModificationInsideVarCall(x: int) {
     return x > 3 ? cb(x, x += 5, eq(x *= x), x, eq(x)) : null;
 }
 
+fun check_assoc_1(op: (int, int) -> int, a: int, b: int, c: int) {
+    return op(op(a, b), c) == op(a, op(b, c));
+}
+
+@method_id(111)
+fun testApplyNativePlus(x: int, y: int, z: int): bool {
+    return check_assoc_1(`_+_`, x, y, z);
+}
+
+global op: (int, int) -> int;
+
+fun check_assoc_2(a: int, b: int, c: int): bool {
+    return op(op(a, b), c) == op(a, op(b, c));
+}
+
+@method_id(112)
+fun testApplyGlobalVar(x: int, y: int, z: int): bool? {
+  op = `_+_`;
+  if (0) { return null; }
+  return check_assoc_2(x, y, z);
+}
+
 fun main() {}
 
 /**
@@ -189,4 +211,10 @@ fun main() {}
 @testcase | 109 |    | 0 3 0 7
 @testcase | 110 | 5  | 5 10 100 100 100 -1
 @testcase | 110 | 0  | (null) (null) (null) (null) (null) 0
- */
+@testcase | 111 | 2 3 9      | -1
+@testcase | 111 | 11 22 44   | -1
+@testcase | 111 | -1 -10 -20 | -1
+@testcase | 112 | 2 3 9      | -1
+@testcase | 112 | 11 22 44   | -1
+@testcase | 112 | -1 -10 -20 | -1
+*/

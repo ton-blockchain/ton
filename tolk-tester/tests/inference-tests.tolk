@@ -95,6 +95,15 @@ fun test7() {
     // __expect_type(eq<(int, slice)>, "(int, slice) -> (int, slice)");
 }
 
+fun unnamed_args(_: int, _: slice, _: int) {
+    return true;
+}
+
+@method_id(108)
+fun test8(x: int, z: int) {
+    return unnamed_args(x, "asdf", z);
+}
+
 fun alwaysThrows(): never { throw 123; }
 fun alwaysThrowsNotAnnotated() { throw 123; }
 fun alwaysThrowsNotAnnotated2() { alwaysThrows(); }
@@ -112,5 +121,6 @@ fun main() {
 }
 
 /**
-@testcase | 0 | | 0
+@testcase | 0   |      | 0
+@testcase | 108 | 1 10 | -1
 */

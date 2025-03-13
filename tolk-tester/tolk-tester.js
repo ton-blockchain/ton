@@ -1,4 +1,4 @@
-// Usage: `node tolk-tester.js tests_dir` OR `node tolk-tester.js test_file.tolk`
+// Usage: `node tolk-tester.js tests_dir` OR `node tolk-tester.js tests_dir file_pattern`
 // from current dir, providing some env (see getenv() calls).
 // This is a JS version of tolk-tester.py to test Tolk compiled to WASM.
 // Don't forget to keep it identical to Python version!
@@ -32,32 +32,38 @@ const TMP_DIR = os.tmpdir()
 
 class CmdLineOptions {
     constructor(/**string[]*/ argv) {
-        if (argv.length !== 3) {
-            print("Usage: node tolk-tester.js tests_dir OR node tolk-tester.js test_file.tolk")
+        if (argv.length < 3) {
+            print("Usage: node tolk-tester.js tests_dir [file_pattern]")
             process.exit(1)
         }
-        if (!fs.existsSync(argv[2])) {
-            print(`Input '${argv[2]}' doesn't exist`)
+        if (!fs.existsSync(argv[2]) || !fs.lstatSync(argv[2]).isDirectory()) {
+            print(`Directory '${argv[2]}' doesn't exist`)
             process.exit(1)
         }
 
-        if (fs.lstatSync(argv[2]).isDirectory()) {
-            this.tests_dir = argv[2]
-            this.test_file = null
-        } else {
-            this.tests_dir = path.dirname(argv[2])
-            this.test_file = argv[2]
-        }
+        this.tests_dir = argv[2]
+        this.file_pattern = argv[3]
     }
 
     /** @return {string[]} */
     find_tests() {
-        if (this.test_file)  // an option to run (debug) a single test
-            return [this.test_file]
+        let all_test_files = []
+        let all_children_of_tests_dir = fs.readdirSync(this.tests_dir)
+        all_children_of_tests_dir.sort()
+        for (let f of all_children_of_tests_dir)
+            if (f.endsWith(".tolk"))
+                all_test_files.push(path.join(this.tests_dir, f))
+        for (let f of all_children_of_tests_dir)
+            if (!f.endsWith(".tolk") && f !== "imports") {
+                let subdir = path.join(this.tests_dir, f)
+                let children_of_subdir = fs.readdirSync(subdir)
+                children_of_subdir.sort()
+                all_test_files.push(...children_of_subdir.map(f => path.join(subdir, f)))
+            }
 
-        let tests = fs.readdirSync(this.tests_dir).filter(f => f.endsWith('.tolk') || f.endsWith('.ton'))
-        tests.sort()
-        return tests.map(f => path.join(this.tests_dir, f))
+        if (this.file_pattern)
+          all_test_files = all_test_files.filter(f => f.includes(this.file_pattern))
+        return all_test_files
     }
 }
 
@@ -126,7 +132,7 @@ class TolkTestCaseInputOutput {
 
     check(/**string[]*/ stdout_lines, /**number*/ line_idx) {
         if (stdout_lines[line_idx] !== this.expected_output)
-            throw new CompareOutputError(`error on case #${line_idx + 1} (${this.method_id} | ${this.input}): expected '${this.expected_output}', found '${stdout_lines[line_idx]}'`, stdout_lines.join("\n"))
+            throw new CompareOutputError(`error on case #${line_idx + 1} (${this.method_id} | ${this.input}):\n    expect: ${this.expected_output}\n    actual: ${stdout_lines[line_idx]}`, stdout_lines.join("\n"))
     }
 }
 
@@ -400,7 +406,7 @@ class TolkTestFile {
 async function run_all_tests(/**string[]*/ tests) {
     for (let ti = 0; ti < tests.length; ++ti) {
         let tolk_filename = tests[ti]
-        print(`Running test ${ti + 1}/${tests.length}: ${tolk_filename}`)
+        print(`Running test ${ti + 1}/${tests.length}: ${path.basename(tolk_filename)}`)
 
         let artifacts_folder = path.join(TMP_DIR, tolk_filename)
         let testcase = new TolkTestFile(tolk_filename, artifacts_folder)
@@ -413,7 +419,7 @@ async function run_all_tests(/**string[]*/ tests) {
             fs.rmSync(artifacts_folder, {recursive: true})
 
             if (testcase.compilation_should_fail)
-                print("  OK, compilation failed as it should")
+                print("  OK, stderr match")
             else
                 print(`  OK, ${testcase.input_output.length} cases`)
         } catch (e) {
