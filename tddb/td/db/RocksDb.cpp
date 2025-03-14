@@ -24,6 +24,7 @@
 #include "rocksdb/write_batch.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/transaction.h"
+#include "rocksdb/filter_policy.h"
 
 namespace td {
 namespace {
@@ -74,6 +75,15 @@ Result<RocksDb> RocksDb::open(std::string path, RocksDbOptions options) {
       table_options.no_block_cache = true;
     } else {
       table_options.block_cache = options.block_cache;
+    }
+    if (options.enable_bloom_filter) {
+      table_options.filter_policy.reset(rocksdb::NewBloomFilterPolicy(10, false));
+      if (options.two_level_index_and_filter) {
+        table_options.index_type = rocksdb::BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+        table_options.partition_filters = true;
+        table_options.cache_index_and_filter_blocks = true;
+        table_options.pin_l0_filter_and_index_blocks_in_cache = true;
+      }
     }
     db_options.table_factory.reset(rocksdb::NewBlockBasedTableFactory(table_options));
 

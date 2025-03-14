@@ -96,11 +96,17 @@ void CellDbIn::start_up() {
     db_options.snapshot_statistics = snapshot_statistics_;
   }
   db_options.statistics = statistics_;
+  db_options.use_direct_reads = opts_->get_celldb_direct_io();
+  db_options.enable_bloom_filter = !opts_->get_celldb_disable_bloom_filter();
+  db_options.two_level_index_and_filter = db_options.enable_bloom_filter 
+                                && opts_->state_ttl() >= 60 * 60 * 24 * 30; // 30 days
   if (opts_->get_celldb_cache_size()) {
     db_options.block_cache = td::RocksDb::create_cache(opts_->get_celldb_cache_size().value());
     LOG(WARNING) << "Set CellDb block cache size to " << td::format::as_size(opts_->get_celldb_cache_size().value());
+  } else if (db_options.two_level_index_and_filter && !opts_->get_celldb_in_memory()) {
+    db_options.block_cache = td::RocksDb::create_cache(16ULL << 30);
+    LOG(WARNING) << "Set CellDb block cache size to 16GB";
   }
-  db_options.use_direct_reads = opts_->get_celldb_direct_io();
 
   if (opts_->get_celldb_in_memory()) {
     td::RocksDbOptions read_db_options;
