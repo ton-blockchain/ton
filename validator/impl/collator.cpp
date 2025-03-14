@@ -5901,6 +5901,7 @@ bool Collator::create_collated_data() {
  * @returns True if the block candidate was created successfully, false otherwise.
  */
 bool Collator::create_block_candidate() {
+  auto consensus_config = config_->get_consensus_config();
   // 1. serialize block
   LOG(INFO) << "serializing new Block";
   vm::BagOfCells boc;
@@ -5926,7 +5927,8 @@ bool Collator::create_block_candidate() {
     if (res.is_error()) {
       return fatal_error(res.move_as_error());
     }
-    auto cdata_res = boc_collated.serialize_to_slice(31);
+    int cdata_serialize_mode = consensus_config.proto_version >= 5 ? 2 : 31;
+    auto cdata_res = boc_collated.serialize_to_slice(cdata_serialize_mode);
     if (cdata_res.is_error()) {
       LOG(ERROR) << "cannot serialize collated data";
       return fatal_error(cdata_res.move_as_error());
@@ -5985,7 +5987,6 @@ bool Collator::create_block_candidate() {
   }
 
   // 3.1 check block and collated data size
-  auto consensus_config = config_->get_consensus_config();
   if (block_candidate->data.size() > consensus_config.max_block_size) {
     return fatal_error(PSTRING() << "block size (" << block_candidate->data.size()
                                  << ") exceeds the limit in consensus config (" << consensus_config.max_block_size

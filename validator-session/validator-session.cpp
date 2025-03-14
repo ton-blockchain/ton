@@ -229,7 +229,8 @@ void ValidatorSessionImpl::process_broadcast(PublicKeyHash src, td::BufferSlice 
   td::Timer deserialize_timer;
   auto R =
       deserialize_candidate(data, compress_block_candidates_,
-                            description().opts().max_block_size + description().opts().max_collated_data_size + 1024);
+                            description().opts().max_block_size + description().opts().max_collated_data_size + 1024,
+                            description().opts().proto_version);
   double deserialize_time = deserialize_timer.elapsed();
   if (R.is_error()) {
     VLOG(VALIDATOR_SESSION_WARNING) << this << "[node " << src << "][broadcast " << sha256_bits256(data.as_slice())

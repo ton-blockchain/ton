@@ -103,7 +103,7 @@ class CollatorNode : public td::actor::Actor {
  public:
   static tl_object_ptr<ton_api::collatorNode_Candidate> serialize_candidate(const BlockCandidate& block, bool compress);
   static td::Result<BlockCandidate> deserialize_candidate(tl_object_ptr<ton_api::collatorNode_Candidate> f,
-                                                          int max_decompressed_data_size);
+                                                          int max_decompressed_data_size, int proto_version);
 };
 
 }  // namespace ton::validator

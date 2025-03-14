@@ -70,7 +70,7 @@ void ValidatorGroup::generate_block_candidate(validatorsession::BlockSourceInfo 
   td::actor::send_closure(collation_manager_, &CollationManager::collate_block, shard_, min_masterchain_block_id_,
                           prev_block_ids_, Ed25519_PublicKey{local_id_full_.ed25519_value().raw()},
                           source_info.priority, validator_set_, max_answer_size,
-                          cancellation_token_source_.get_cancellation_token(), std::move(P));
+                          cancellation_token_source_.get_cancellation_token(), std::move(P), config_.proto_version);
 }
 
 void ValidatorGroup::generated_block_candidate(validatorsession::BlockSourceInfo source_info,
