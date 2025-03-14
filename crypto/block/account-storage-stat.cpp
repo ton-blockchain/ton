@@ -55,6 +55,14 @@ AccountStorageStat& AccountStorageStat::operator=(AccountStorageStat&& other) {
 
 td::Result<AccountStorageStat::CellInfo> AccountStorageStat::replace_roots(std::vector<Ref<vm::Cell>> new_roots) {
   std::erase_if(new_roots, [](const Ref<vm::Cell>& c) { return c.is_null(); });
+  if (new_roots.empty()) {
+    roots_.clear();
+    total_bits_ = total_cells_ = 0;
+    dict_ = vm::Dictionary{256};
+    cache_ = {};
+    return CellInfo{};
+  }
+
   auto cmp = [](const Ref<vm::Cell>& c1, const Ref<vm::Cell>& c2) { return c1->get_hash() < c2->get_hash(); };
   std::sort(new_roots.begin(), new_roots.end(), cmp);
   std::sort(roots_.begin(), roots_.end(), cmp);
