@@ -3395,7 +3395,7 @@ bool Transaction::compute_state(const SerializeConfig& cfg) {
     new_storage_dict_hash = account.storage_dict_hash;
     new_account_storage_stat = account.account_storage_stat;
   }
-  if (!cfg.store_storage_dict_hash) {
+  if (!cfg.store_storage_dict_hash || (new_storage_dict_hash && new_storage_dict_hash.value().is_zero())) {
     new_storage_dict_hash = {};
   }
 
