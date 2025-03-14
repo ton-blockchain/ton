@@ -640,7 +640,7 @@ tl_object_ptr<ton_api::collatorNode_Candidate> CollatorNode::serialize_candidate
 }
 
 td::Result<BlockCandidate> CollatorNode::deserialize_candidate(tl_object_ptr<ton_api::collatorNode_Candidate> f,
-                                                               int max_decompressed_data_size) {
+                                                               int max_decompressed_data_size, int proto_version) {
   td::Result<BlockCandidate> res;
   ton_api::downcast_call(*f, td::overloaded(
                                  [&](ton_api::collatorNode_candidate& c) {
@@ -663,8 +663,8 @@ td::Result<BlockCandidate> CollatorNode::deserialize_candidate(tl_object_ptr<ton
                                      if (c.decompressed_size_ > max_decompressed_data_size) {
                                        return td::Status::Error("decompressed size is too big");
                                      }
-                                     TRY_RESULT(
-                                         p, validatorsession::decompress_candidate_data(c.data_, c.decompressed_size_));
+                                     TRY_RESULT(p, validatorsession::decompress_candidate_data(
+                                                       c.data_, c.decompressed_size_, proto_version));
                                      auto collated_data_hash = td::sha256_bits256(p.second);
                                      auto key = ton::PublicKey{c.source_};
                                      if (!key.is_ed25519()) {
