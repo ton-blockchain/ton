@@ -3369,7 +3369,7 @@ bool Transaction::compute_state(const SerializeConfig& cfg) {
     if (compute_phase) {
       stats.add_hint(compute_phase->vm_loaded_cells);
     }
-    auto roots = new_storage->prefetch_all_refs();
+    auto roots = new_storage_for_stat->prefetch_all_refs();
     storage_stats_updates.insert(storage_stats_updates.end(), roots.begin(), roots.end());
     {
       StorageStatCalculationContext context{true};
@@ -3384,7 +3384,7 @@ bool Transaction::compute_state(const SerializeConfig& cfg) {
     new_storage_dict_hash = stats.get_dict_hash();
     // Root of AccountStorage is not counted in AccountStorageStat
     new_storage_used.cells = stats.get_total_cells() + 1;
-    new_storage_used.bits = stats.get_total_bits() + new_storage->size();
+    new_storage_used.bits = stats.get_total_bits() + new_storage_for_stat->size();
     if (timer.elapsed() > 0.1) {
       LOG(INFO) << "Compute used storage (2) took " << timer.elapsed() << "s";
     }
