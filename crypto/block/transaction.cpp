@@ -3284,7 +3284,7 @@ bool Transaction::compute_state(const SerializeConfig& cfg) {
     }
     AccountStorageStat& stats = new_account_storage_stat.value_force();
     // Don't check Merkle depth and size here - they were checked in check_state_limits
-    auto S = stats.replace_roots(new_storage->prefetch_all_refs()).move_as_status();
+    auto S = stats.replace_roots(new_storage_for_stat->prefetch_all_refs()).move_as_status();
     if (S.is_error()) {
       LOG(ERROR) << "Cannot recompute storage stats for account " << account.addr.to_hex() << ": " << S.move_as_error();
       return false;
@@ -3292,7 +3292,7 @@ bool Transaction::compute_state(const SerializeConfig& cfg) {
     new_storage_dict_hash = stats.get_dict_hash();
     // Root of AccountStorage is not counted in AccountStorageStat
     new_storage_used.cells = stats.get_total_cells() + 1;
-    new_storage_used.bits = stats.get_total_bits() + new_storage->size();
+    new_storage_used.bits = stats.get_total_bits() + new_storage_for_stat->size();
     if (timer.elapsed() > 0.1) {
       LOG(INFO) << "Compute used storage (2) took " << timer.elapsed() << "s";
     }
