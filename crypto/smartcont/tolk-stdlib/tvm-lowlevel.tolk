@@ -1,5 +1,5 @@
 // A part of standard library for Tolk
-tolk 0.8
+tolk 0.9
 
 /// Usually `c3` has a continuation initialized by the whole code of the contract. It is used for function calls.
 /// The primitive returns the current value of `c3`.

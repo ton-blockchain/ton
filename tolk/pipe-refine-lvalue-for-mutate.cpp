@@ -34,7 +34,7 @@
 namespace tolk {
 
 GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-static void fire_error_invalid_mutate_arg_passed(AnyExprV v, const FunctionData* fun_ref, const LocalVarData& p_sym, bool called_as_method, bool arg_passed_as_mutate, AnyV arg_expr) {
+static void fire_error_invalid_mutate_arg_passed(AnyExprV v, FunctionPtr fun_ref, const LocalVarData& p_sym, bool called_as_method, bool arg_passed_as_mutate, AnyV arg_expr) {
   std::string arg_str(arg_expr->type == ast_reference ? arg_expr->as<ast_reference>()->get_name() : "obj");
 
   // case: `loadInt(cs, 32)`; suggest: `cs.loadInt(32)`
@@ -60,7 +60,7 @@ static void fire_error_invalid_mutate_arg_passed(AnyExprV v, const FunctionData*
 class RefineLvalueForMutateArgumentsVisitor final : public ASTVisitorFunctionBody {
   void visit(V<ast_function_call> v) override {
     // v is `globalF(args)` / `globalF<int>(args)` / `obj.method(args)` / `local_var(args)` / `getF()(args)`
-    const FunctionData* fun_ref = v->fun_maybe;
+    FunctionPtr fun_ref = v->fun_maybe;
     if (!fun_ref) {
       parent::visit(v);
       for (int i = 0; i < v->get_num_args(); ++i) {
@@ -86,6 +86,8 @@ class RefineLvalueForMutateArgumentsVisitor final : public ASTVisitorFunctionBod
             leftmost_obj = as_par->get_expr();
           } else if (auto as_cast = leftmost_obj->try_as<ast_cast_as_operator>()) {
             leftmost_obj = as_cast->get_expr();
+          } else if (auto as_nn = leftmost_obj->try_as<ast_not_null_operator>()) {
+            leftmost_obj = as_nn->get_expr();
           } else {
             break;
           }
@@ -114,7 +116,7 @@ class RefineLvalueForMutateArgumentsVisitor final : public ASTVisitorFunctionBod
   }
 
 public:
-  bool should_visit_function(const FunctionData* fun_ref) override {
+  bool should_visit_function(FunctionPtr fun_ref) override {
     return fun_ref->is_code_function() && !fun_ref->is_generic_function();
   }
 };

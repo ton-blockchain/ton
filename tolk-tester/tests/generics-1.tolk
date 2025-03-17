@@ -49,17 +49,17 @@ fun manyEq<T1, T2, T3>(a: T1, b: T2, c: T3): [T1, T2, T3] {
 fun test104(f: int) {
     var result = (
         manyEq(1 ? 1 : 1, f ? 0 : null, !f ? getTwo() as int : null),
-        manyEq(f ? null as int : eq2(2), beginCell().storeBool(true).endCell().beginParse().loadBool(), eq4(f))
+        manyEq(f ? null as int? : eq2(2), beginCell().storeBool(true).endCell().beginParse().loadBool(), eq4(f))
     );
-    __expect_type(result, "([int, int, int], [int, bool, int])");
+    __expect_type(result, "([int, int?, int?], [int?, bool, int])");
     return result;
 }
 
-fun calcSum<X>(x: X, y: X) { return x + y; }
+fun calcSum<X>(x: X, y: X) { return x! + y!; }
 
 @method_id(105)
 fun test105() {
-    if (0) { calcSum(((0)), null); }
+    if (0) { calcSum(((0 as int?)), null); }
     return (calcSum(1, 2));
 }
 

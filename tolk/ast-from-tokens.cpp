@@ -111,23 +111,16 @@ static void diagnose_addition_in_bitshift(SrcLocation loc, std::string_view bits
   }
 }
 
-// replace (a == null) and similar to isNull(a) (call of a built-in function)
-static AnyExprV maybe_replace_eq_null_with_isNull_call(V<ast_binary_operator> v) {
+// replace (a == null) and similar to ast_is_null_check(a) (special AST vertex)
+static AnyExprV maybe_replace_eq_null_with_isNull_check(V<ast_binary_operator> v) {
   bool has_null = v->get_lhs()->type == ast_null_keyword || v->get_rhs()->type == ast_null_keyword;
   bool replace = has_null && (v->tok == tok_eq || v->tok == tok_neq);
   if (!replace) {
     return v;
   }
 
-  auto v_ident = createV<ast_identifier>(v->loc, "__isNull"); // built-in function
-  auto v_ref = createV<ast_reference>(v->loc, v_ident, nullptr);
-  AnyExprV v_null = v->get_lhs()->type == ast_null_keyword ? v->get_rhs() : v->get_lhs();
-  AnyExprV v_arg = createV<ast_argument>(v->loc, v_null, false);
-  AnyExprV v_isNull = createV<ast_function_call>(v->loc, v_ref, createV<ast_argument_list>(v->loc, {v_arg}));
-  if (v->tok == tok_neq) {
-    v_isNull = createV<ast_unary_operator>(v->loc, "!", tok_logical_not, v_isNull);
-  }
-  return v_isNull;
+  AnyExprV v_nullable = v->get_lhs()->type == ast_null_keyword ? v->get_rhs() : v->get_lhs();
+  return createV<ast_is_null_check>(v->loc, v_nullable, v->tok == tok_neq);
 }
 
 
@@ -372,16 +365,31 @@ static AnyExprV parse_expr100(Lexer& lex) {
   }
 }
 
-// parse E(...) (left-to-right)
+// parse E(...) and E! having parsed E already (left-to-right)
+static AnyExprV parse_fun_call_postfix(Lexer& lex, AnyExprV lhs) {
+  while (true) {
+    if (lex.tok() == tok_oppar) {
+      lhs = createV<ast_function_call>(lhs->loc, lhs, parse_argument_list(lex));
+    } else if (lex.tok() == tok_logical_not) {
+      lex.next();
+      lhs = createV<ast_not_null_operator>(lhs->loc, lhs);
+    } else {
+      break;
+    }
+  }
+  return lhs;
+}
+
+// parse E(...) and E! (left-to-right)
 static AnyExprV parse_expr90(Lexer& lex) {
   AnyExprV res = parse_expr100(lex);
-  while (lex.tok() == tok_oppar) {
-    res = createV<ast_function_call>(res->loc, res, parse_argument_list(lex));
+  if (lex.tok() == tok_oppar || lex.tok() == tok_logical_not) {
+    res = parse_fun_call_postfix(lex, res);
   }
   return res;
 }
 
-// parse E.field and E.method(...) (left-to-right)
+// parse E.field and E.method(...) and E.field! (left-to-right)
 static AnyExprV parse_expr80(Lexer& lex) {
   AnyExprV lhs = parse_expr90(lex);
   while (lex.tok() == tok_dot) {
@@ -402,8 +410,8 @@ static AnyExprV parse_expr80(Lexer& lex) {
       lex.unexpected("method name");
     }
     lhs = createV<ast_dot_access>(loc, lhs, v_ident, v_instantiationTs);
-    while (lex.tok() == tok_oppar) {
-      lhs = createV<ast_function_call>(lex.cur_location(), lhs, parse_argument_list(lex));
+    if (lex.tok() == tok_oppar || lex.tok() == tok_logical_not) {
+      lhs = parse_fun_call_postfix(lex, lhs);
     }
   }
   return lhs;
@@ -491,7 +499,7 @@ static AnyExprV parse_expr15(Lexer& lex) {
     AnyExprV rhs = parse_expr17(lex);
     lhs = createV<ast_binary_operator>(loc, operator_name, t, lhs, rhs);
     if (t == tok_eq || t == tok_neq) {
-      lhs = maybe_replace_eq_null_with_isNull_call(lhs->as<ast_binary_operator>());
+      lhs = maybe_replace_eq_null_with_isNull_check(lhs->as<ast_binary_operator>());
     }
   }
   return lhs;

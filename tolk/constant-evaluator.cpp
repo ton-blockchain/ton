@@ -255,7 +255,7 @@ struct ConstantEvaluator {
     if (!sym) {
       v->error("undefined symbol `" + static_cast<std::string>(name) + "`");
     }
-    const GlobalConstData* const_ref = sym->try_as<GlobalConstData>();
+    GlobalConstPtr const_ref = sym->try_as<GlobalConstPtr>();
     if (!const_ref) {
       v->error("symbol `" + static_cast<std::string>(name) + "` is not a constant");
     }

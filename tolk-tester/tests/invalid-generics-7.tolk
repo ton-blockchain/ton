@@ -11,8 +11,7 @@ fun foo<X>(value: X) : X {
 
 /**
 @compilation_should_fail
-@stderr while instantiating generic function `foo<slice>`
-@stderr while instantiating generic function `bar<slice>`
+@stderr in function `bar<slice>`
 @stderr can not convert type `int` to return type `slice`
 @stderr return 1
  */

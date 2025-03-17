@@ -50,6 +50,8 @@ class TypeData {
   const uint64_t type_id;
   // bits of flag_mask, to store often-used properties and return them without tree traversing
   const int flags;
+  // how many slots on a stack this type occupies (calculated on creation), e.g. `int`=1, `(int,int)`=2, `(int,int)?`=3
+  const int width_on_stack;
 
   friend class TypeDataTypeIdCalculation;
 
@@ -60,9 +62,10 @@ protected:
     flag_contains_unresolved_inside = 1 << 3,
   };
 
-  explicit TypeData(uint64_t type_id, int flags_with_children)
+  explicit TypeData(uint64_t type_id, int flags_with_children, int width_on_stack)
     : type_id(type_id)
-    , flags(flags_with_children) {
+    , flags(flags_with_children)
+    , width_on_stack(width_on_stack) {
   }
 
 public:
@@ -74,6 +77,7 @@ public:
   }
 
   uint64_t get_type_id() const { return type_id; }
+  int get_width_on_stack() const { return width_on_stack; }
 
   bool has_unknown_inside() const { return flags & flag_contains_unknown_inside; }
   bool has_genericT_inside() const { return flags & flag_contains_genericT_inside; }
@@ -86,6 +90,10 @@ public:
   virtual bool can_rhs_be_assigned(TypePtr rhs) const = 0;
   virtual bool can_be_casted_with_as_operator(TypePtr cast_to) const = 0;
 
+  virtual bool can_hold_tvm_null_instead() const {
+    return true;
+  }
+
   virtual void traverse(const TraverserCallbackT& callback) const {
     callback(this);
   }
@@ -93,17 +101,13 @@ public:
   virtual TypePtr replace_children_custom(const ReplacerCallbackT& callback) const {
     return callback(this);
   }
-
-  virtual int calc_width_on_stack() const {
-    return 1;
-  }
 };
 
 /*
  * `int` is TypeDataInt, representation of TVM int.
  */
 class TypeDataInt final : public TypeData {
-  TypeDataInt() : TypeData(1ULL, 0) {}
+  TypeDataInt() : TypeData(1ULL, 0, 1) {}
 
   static TypePtr singleton;
   friend void type_system_init();
@@ -121,7 +125,7 @@ public:
  * From the type system point of view, int and bool are different, not-autocastable types.
  */
 class TypeDataBool final : public TypeData {
-  TypeDataBool() : TypeData(2ULL, 0) {}
+  TypeDataBool() : TypeData(2ULL, 0, 1) {}
 
   static TypePtr singleton;
   friend void type_system_init();
@@ -138,7 +142,7 @@ public:
  * `cell` is TypeDataCell, representation of TVM cell.
  */
 class TypeDataCell final : public TypeData {
-  TypeDataCell() : TypeData(3ULL, 0) {}
+  TypeDataCell() : TypeData(3ULL, 0, 1) {}
 
   static TypePtr singleton;
   friend void type_system_init();
@@ -155,7 +159,7 @@ public:
  * `slice` is TypeDataSlice, representation of TVM slice.
  */
 class TypeDataSlice final : public TypeData {
-  TypeDataSlice() : TypeData(4ULL, 0) {}
+  TypeDataSlice() : TypeData(4ULL, 0, 1) {}
 
   static TypePtr singleton;
   friend void type_system_init();
@@ -172,7 +176,7 @@ public:
  * `builder` is TypeDataBuilder, representation of TVM builder.
  */
 class TypeDataBuilder final : public TypeData {
-  TypeDataBuilder() : TypeData(5ULL, 0) {}
+  TypeDataBuilder() : TypeData(5ULL, 0, 1) {}
 
   static TypePtr singleton;
   friend void type_system_init();
@@ -191,7 +195,7 @@ public:
  * so getting its element results in TypeDataUnknown (which must be assigned/cast explicitly).
  */
 class TypeDataTuple final : public TypeData {
-  TypeDataTuple() : TypeData(6ULL, 0) {}
+  TypeDataTuple() : TypeData(6ULL, 0, 1) {}
 
   static TypePtr singleton;
   friend void type_system_init();
@@ -209,7 +213,7 @@ public:
  * It's like "untyped callable", not compatible with other types.
  */
 class TypeDataContinuation final : public TypeData {
-  TypeDataContinuation() : TypeData(7ULL, 0) {}
+  TypeDataContinuation() : TypeData(7ULL, 0, 1) {}
 
   static TypePtr singleton;
   friend void type_system_init();
@@ -224,12 +228,12 @@ public:
 
 /*
  * `null` has TypeDataNullLiteral type.
- * Currently, it can be assigned to int/slice/etc., but later Tolk will have T? types and null safety.
+ * It can be assigned only to nullable types (`int?`, etc.), to ensure null safety.
  * Note, that `var i = null`, though valid (i would be constant null), fires an "always-null" compilation error
  * (it's much better for user to see an error here than when he passes this variable somewhere).
  */
 class TypeDataNullLiteral final : public TypeData {
-  TypeDataNullLiteral() : TypeData(8ULL, 0) {}
+  TypeDataNullLiteral() : TypeData(8ULL, 0, 1) {}
 
   static TypePtr singleton;
   friend void type_system_init();
@@ -243,13 +247,37 @@ public:
 };
 
 /*
+ * `T?` is "nullable T".
+ * It can be converted to T either with ! (non-null assertion operator) or with smart casts.
+ */
+class TypeDataNullable final : public TypeData {
+  TypeDataNullable(uint64_t type_id, int children_flags, int width_on_stack, TypePtr inner)
+    : TypeData(type_id, children_flags, width_on_stack)
+    , inner(inner) {}
+
+public:
+  const TypePtr inner;
+
+  static TypePtr create(TypePtr inner);
+
+  bool is_primitive_nullable() const { return get_width_on_stack() == 1 && inner->get_width_on_stack() == 1; }
+
+  std::string as_human_readable() const override;
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+  void traverse(const TraverserCallbackT& callback) const override;
+  TypePtr replace_children_custom(const ReplacerCallbackT& callback) const override;
+  bool can_hold_tvm_null_instead() const override;
+};
+
+/*
  * `fun(int, int) -> void` is TypeDataFunCallable, think of is as a typed continuation.
  * A type of function `fun f(x: int) { return x; }` is actually `fun(int) -> int`.
  * So, when assigning it to a variable `var cb = f`, this variable also has this type.
  */
 class TypeDataFunCallable final : public TypeData {
   TypeDataFunCallable(uint64_t type_id, int children_flags, std::vector<TypePtr>&& params_types, TypePtr return_type)
-    : TypeData(type_id, children_flags)
+    : TypeData(type_id, children_flags, 1)
     , params_types(std::move(params_types))
     , return_type(return_type) {}
 
@@ -275,7 +303,7 @@ public:
  */
 class TypeDataGenericT final : public TypeData {
   TypeDataGenericT(uint64_t type_id, std::string&& nameT)
-    : TypeData(type_id, flag_contains_genericT_inside)
+    : TypeData(type_id, flag_contains_genericT_inside, -999999)  // width undefined until instantiated
     , nameT(std::move(nameT)) {}
 
 public:
@@ -286,7 +314,6 @@ public:
   std::string as_human_readable() const override { return nameT; }
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
-  int calc_width_on_stack() const override;
 };
 
 /*
@@ -296,8 +323,8 @@ public:
  * A tensor can be empty.
  */
 class TypeDataTensor final : public TypeData {
-  TypeDataTensor(uint64_t type_id, int children_flags, std::vector<TypePtr>&& items)
-    : TypeData(type_id, children_flags)
+  TypeDataTensor(uint64_t type_id, int children_flags, int width_on_stack, std::vector<TypePtr>&& items)
+    : TypeData(type_id, children_flags, width_on_stack)
     , items(std::move(items)) {}
 
 public:
@@ -312,7 +339,7 @@ public:
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
   void traverse(const TraverserCallbackT& callback) const override;
   TypePtr replace_children_custom(const ReplacerCallbackT& callback) const override;
-  int calc_width_on_stack() const override;
+  bool can_hold_tvm_null_instead() const override;
 };
 
 /*
@@ -322,7 +349,7 @@ public:
  */
 class TypeDataTypedTuple final : public TypeData {
   TypeDataTypedTuple(uint64_t type_id, int children_flags, std::vector<TypePtr>&& items)
-    : TypeData(type_id, children_flags)
+    : TypeData(type_id, children_flags, 1)
     , items(std::move(items)) {}
 
 public:
@@ -346,7 +373,7 @@ public:
  * The only thing available to do with unknown is to cast it: `catch (excNo, arg) { var i = arg as int; }`
  */
 class TypeDataUnknown final : public TypeData {
-  TypeDataUnknown() : TypeData(20ULL, flag_contains_unknown_inside) {}
+  TypeDataUnknown() : TypeData(20ULL, flag_contains_unknown_inside, 1) {}
 
   static TypePtr singleton;
   friend void type_system_init();
@@ -367,7 +394,7 @@ public:
  */
 class TypeDataUnresolved final : public TypeData {
   TypeDataUnresolved(uint64_t type_id, std::string&& text, SrcLocation loc)
-    : TypeData(type_id, flag_contains_unresolved_inside)
+    : TypeData(type_id, flag_contains_unresolved_inside, -999999)
     , text(std::move(text))
     , loc(loc) {}
 
@@ -380,7 +407,27 @@ public:
   std::string as_human_readable() const override { return text + "*"; }
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
-  int calc_width_on_stack() const override;
+};
+
+/*
+ * `never` is a special type meaning "no value can be hold".
+ * Is may appear due to smart casts, for example `if (x == null && x != null)` makes x "never".
+ * Functions returning "never" assume to never exit, calling them interrupts control flow.
+ * Such variables can not be cast to any other types, all their usage will trigger type mismatch errors.
+ */
+class TypeDataNever final : public TypeData {
+  TypeDataNever() : TypeData(19ULL, 0, 0) {}
+
+  static TypePtr singleton;
+  friend void type_system_init();
+
+public:
+  static TypePtr create() { return singleton; }
+
+  std::string as_human_readable() const override { return "never"; }
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+  bool can_hold_tvm_null_instead() const override;
 };
 
 /*
@@ -389,7 +436,7 @@ public:
  * Empty tensor is not compatible with void, although at IR level they are similar, 0 stack slots.
  */
 class TypeDataVoid final : public TypeData {
-  TypeDataVoid() : TypeData(10ULL, 0) {}
+  TypeDataVoid() : TypeData(10ULL, 0, 0) {}
 
   static TypePtr singleton;
   friend void type_system_init();
@@ -400,7 +447,7 @@ public:
   std::string as_human_readable() const override { return "void"; }
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
-  int calc_width_on_stack() const override;
+  bool can_hold_tvm_null_instead() const override;
 };
 
 

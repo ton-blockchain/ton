@@ -56,6 +56,8 @@ class ASTStringifier final : public ASTVisitor {
     {ast_binary_operator, "ast_binary_operator"},
     {ast_ternary_operator, "ast_ternary_operator"},
     {ast_cast_as_operator, "ast_cast_as_operator"},
+    {ast_not_null_operator, "ast_not_null_operator"},
+    {ast_is_null_check, "ast_is_null_check"},
     // statements
     {ast_empty_statement, "ast_empty_statement"},
     {ast_sequence, "ast_sequence"},
@@ -193,7 +195,7 @@ class ASTStringifier final : public ASTVisitor {
       }
       case ast_local_var_lhs: {
         std::ostringstream os;
-        os << (v->as<ast_local_var_lhs>()->inferred_type ? v->as<ast_local_var_lhs>()->inferred_type : v->as<ast_local_var_lhs>()->declared_type);
+        os << (v->as<ast_local_var_lhs>()->inferred_type ? v->as<ast_local_var_lhs>()->inferred_type->as_human_readable() : v->as<ast_local_var_lhs>()->declared_type->as_human_readable());
         if (v->as<ast_local_var_lhs>()->get_name().empty()) {
           return "_: " + os.str();
         }
@@ -268,6 +270,8 @@ public:
       case ast_binary_operator:               return handle_vertex(v->as<ast_binary_operator>());
       case ast_ternary_operator:              return handle_vertex(v->as<ast_ternary_operator>());
       case ast_cast_as_operator:              return handle_vertex(v->as<ast_cast_as_operator>());
+      case ast_not_null_operator:             return handle_vertex(v->as<ast_not_null_operator>());
+      case ast_is_null_check:                 return handle_vertex(v->as<ast_is_null_check>());
       // statements
       case ast_empty_statement:               return handle_vertex(v->as<ast_empty_statement>());
       case ast_sequence:                      return handle_vertex(v->as<ast_sequence>());

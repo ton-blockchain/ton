@@ -32,7 +32,8 @@ fun test1(): [int,int,int,int,int] {
 fun test2(): [int,int,int] {
     var b: builder = beginCell().myStoreInt(1, 32);
     b = b.myStoreInt(2, 32);
-    b.myStoreInt(3, 32);
+    // operator ! here and below is used just for testing purposes, it doesn't affect the result
+    b!.myStoreInt(3, 32);
 
     var cs: slice = b.endCell().beginParse();
     var one: int = cs.myLoadInt(32);
@@ -43,14 +44,14 @@ fun test2(): [int,int,int] {
 
 @method_id(103)
 fun test3(ret: int): int {
-    val same: int = beginCell().storeUint(ret,32).endCell().beginParse().loadUint(32);
+    val same: int = beginCell()!.storeUint(ret,32).endCell().beginParse().loadUint(32);
     return same;
 }
 
 @method_id(104)
 fun test4(): [int,int] {
-    var b: builder = beginCell().myStoreInt(1, 32);
-    b = b.storeInt(2, 32).storeInt(3, 32);
+    var b: builder = (beginCell() as builder).myStoreInt(1, 32);
+    b = b!.storeInt(2, 32)!.storeInt(3, 32);
 
     var cs: slice = b.endCell().beginParse();
     var (one, _, three) = (cs.getFirstBits(32).loadUint(32), cs.skipBits(64), cs.load_u32());
@@ -116,7 +117,7 @@ fun test10() {
 fun test11() {
     var s: slice = beginCell().storeInt(1, 32).storeInt(2, 32).storeInt(3, 32).storeInt(4, 32).storeInt(5, 32).storeInt(6, 32).storeInt(7, 32).endCell().beginParse();
     var size1 = getRemainingBitsCount(s);
-    s.skipBits(32);
+    s!.skipBits(32);
     var s1: slice = s.getFirstBits(64);
     var n1 = s1.loadInt(32);
     var size2 = getRemainingBitsCount(s);

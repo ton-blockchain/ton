@@ -37,17 +37,12 @@ struct Symbol {
 
   virtual ~Symbol() = default;
 
-  template<class T>
-  const T* as() const {
+  template<class ConstTPtr>
+  ConstTPtr try_as() const {
 #ifdef TOLK_DEBUG
-    assert(dynamic_cast<const T*>(this) != nullptr);
+    assert(this != nullptr);
 #endif
-    return dynamic_cast<const T*>(this);
-  }
-
-  template<class T>
-  const T* try_as() const {
-    return dynamic_cast<const T*>(this);
+    return dynamic_cast<ConstTPtr>(this);
   }
 };
 
@@ -229,9 +224,9 @@ class GlobalSymbolTable {
   }
 
 public:
-  void add_function(const FunctionData* f_sym);
-  void add_global_var(const GlobalVarData* g_sym);
-  void add_global_const(const GlobalConstData* c_sym);
+  void add_function(FunctionPtr f_sym);
+  void add_global_var(GlobalVarPtr g_sym);
+  void add_global_const(GlobalConstPtr c_sym);
 
   const Symbol* lookup(std::string_view name) const {
     const auto it = entries.find(key_hash(name));

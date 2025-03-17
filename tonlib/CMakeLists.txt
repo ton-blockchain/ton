@@ -1,5 +1,3 @@
-cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
-
 option(TONLIBJSON_STATIC "Build tonlibjson as static library" OFF)
 
 if (NOT OPENSSL_FOUND)

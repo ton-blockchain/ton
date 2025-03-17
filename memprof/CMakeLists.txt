@@ -1,5 +1,3 @@
-cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
-
 set(MEMPROF_SOURCE
   memprof/memprof.cpp
   memprof/memprof.h

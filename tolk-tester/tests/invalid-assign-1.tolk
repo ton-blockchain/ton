@@ -1,9 +1,9 @@
 fun main() {
-    var c = 1;
-    (c, c) = (2, 3);
+    var t = createEmptyTuple();
+    t.0 = (1, 2);
 }
 
 /**
 @compilation_should_fail
-@stderr one variable modified twice inside the same expression
+@stderr a tuple can not have `(int, int)` inside, because it occupies 2 stack slots in TVM, not 1
 */
