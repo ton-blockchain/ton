@@ -3350,8 +3350,6 @@ td::Status TonlibClient::do_request(const tonlib_api::raw_sendMessageReturnHash&
   }
   auto hash_norm = cb.finalize()->get_hash().as_slice().str();
 
-  LOG(ERROR) << "hash: " << td::hex_encode(hash) << "hash_norm: " << td::hex_encode(hash_norm);
-
   make_request(int_api::SendMessage{std::move(body)},
     promise.wrap([hash = std::move(hash), hash_norm = std::move(hash_norm)](auto res) {
       return tonlib_api::make_object<tonlib_api::raw_extMessageInfo>(std::move(hash), std::move(hash_norm));
