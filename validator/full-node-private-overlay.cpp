@@ -266,6 +266,7 @@ void FullNodePrivateBlockOverlay::init() {
                                      {}};
   overlay::OverlayOptions overlay_options;
   overlay_options.broadcast_speed_multiplier_ = opts_.private_broadcast_speed_multiplier_;
+  overlay_options.private_ping_peers_ = true;
   td::actor::send_closure(overlays_, &overlay::Overlays::create_private_overlay_ex, local_id_, overlay_id_full_.clone(),
                           nodes_, std::make_unique<Callback>(actor_id(this)), rules, R"({ "type": "private-blocks" })",
                           overlay_options);

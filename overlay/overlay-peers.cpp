@@ -247,12 +247,16 @@ void OverlayImpl::add_peers(const tl_object_ptr<ton_api::overlay_nodesV2> &nodes
   }
 }
 
-void OverlayImpl::on_ping_result(adnl::AdnlNodeIdShort peer, bool success) {
-  if (overlay_type_ == OverlayType::FixedMemberList) {
+void OverlayImpl::on_ping_result(adnl::AdnlNodeIdShort peer, bool success, double store_ping_time) {
+  if (overlay_type_ == OverlayType::FixedMemberList && (!success || store_ping_time < 0.0)) {
     return;
   }
   if (OverlayPeer *p = peer_list_.peers_.get(peer)) {
     p->on_ping_result(success);
+    if (store_ping_time >= 0.0 && success) {
+      p->last_ping_at = td::Timestamp::now();
+      p->last_ping_time = store_ping_time;
+    }
     if (p->is_alive()) {
       peer_list_.bad_peers_.erase(peer);
     } else {
@@ -261,9 +265,9 @@ void OverlayImpl::on_ping_result(adnl::AdnlNodeIdShort peer, bool success) {
   }
 }
 
-void OverlayImpl::receive_random_peers(adnl::AdnlNodeIdShort src, td::Result<td::BufferSlice> R) {
+void OverlayImpl::receive_random_peers(adnl::AdnlNodeIdShort src, td::Result<td::BufferSlice> R, double elapsed) {
   CHECK(overlay_type_ != OverlayType::FixedMemberList);
-  on_ping_result(src, R.is_ok());
+  on_ping_result(src, R.is_ok(), elapsed);
   if (R.is_error()) {
     VLOG(OVERLAY_NOTICE) << this << ": failed getRandomPeers query: " << R.move_as_error();
     return;
@@ -278,9 +282,9 @@ void OverlayImpl::receive_random_peers(adnl::AdnlNodeIdShort src, td::Result<td:
   add_peers(R2.move_as_ok());
 }
 
-void OverlayImpl::receive_random_peers_v2(adnl::AdnlNodeIdShort src, td::Result<td::BufferSlice> R) {
+void OverlayImpl::receive_random_peers_v2(adnl::AdnlNodeIdShort src, td::Result<td::BufferSlice> R, double elapsed) {
   CHECK(overlay_type_ != OverlayType::FixedMemberList);
-  on_ping_result(src, R.is_ok());
+  on_ping_result(src, R.is_ok(), elapsed);
   if (R.is_error()) {
     VLOG(OVERLAY_NOTICE) << this << ": failed getRandomPeersV2 query: " << R.move_as_error();
     return;
@@ -318,9 +322,9 @@ void OverlayImpl::send_random_peers_cont(adnl::AdnlNodeIdShort src, OverlayNode 
     auto Q = create_tl_object<ton_api::overlay_nodes>(std::move(vec));
     promise.set_value(serialize_tl_object(Q, true));
   } else {
-    auto P =
-        td::PromiseCreator::lambda([SelfId = actor_id(this), src, oid = print_id()](td::Result<td::BufferSlice> res) {
-          td::actor::send_closure(SelfId, &OverlayImpl::receive_random_peers, src, std::move(res));
+    auto P = td::PromiseCreator::lambda(
+        [SelfId = actor_id(this), src, timer = td::Timer()](td::Result<td::BufferSlice> res) {
+          td::actor::send_closure(SelfId, &OverlayImpl::receive_random_peers, src, std::move(res), timer.elapsed());
         });
     auto Q =
         create_tl_object<ton_api::overlay_getRandomPeers>(create_tl_object<ton_api::overlay_nodes>(std::move(vec)));
@@ -367,9 +371,9 @@ void OverlayImpl::send_random_peers_v2_cont(adnl::AdnlNodeIdShort src, OverlayNo
     auto Q = create_tl_object<ton_api::overlay_nodesV2>(std::move(vec));
     promise.set_value(serialize_tl_object(Q, true));
   } else {
-    auto P =
-        td::PromiseCreator::lambda([SelfId = actor_id(this), src, oid = print_id()](td::Result<td::BufferSlice> res) {
-          td::actor::send_closure(SelfId, &OverlayImpl::receive_random_peers_v2, src, std::move(res));
+    auto P = td::PromiseCreator::lambda(
+        [SelfId = actor_id(this), src, timer = td::Timer()](td::Result<td::BufferSlice> res) {
+          td::actor::send_closure(SelfId, &OverlayImpl::receive_random_peers_v2, src, std::move(res), timer.elapsed());
         });
     auto Q =
         create_tl_object<ton_api::overlay_getRandomPeersV2>(create_tl_object<ton_api::overlay_nodesV2>(std::move(vec)));
@@ -390,6 +394,26 @@ void OverlayImpl::send_random_peers_v2(adnl::AdnlNodeIdShort src, td::Promise<td
   });
 
   get_self_node(std::move(P));
+}
+
+void OverlayImpl::ping_random_peers() {
+  auto peers = get_neighbours(5);
+  for (const adnl::AdnlNodeIdShort &peer : peers) {
+    auto P =
+        td::PromiseCreator::lambda([SelfId = actor_id(this), peer, timer = td::Timer(), oid = print_id()](td::Result<td::BufferSlice> R) {
+          if (R.is_error()) {
+            VLOG(OVERLAY_INFO) << oid << " ping to " << peer << " failed : " << R.move_as_error();
+            return;
+          }
+          td::actor::send_closure(SelfId, &OverlayImpl::receive_pong, peer, timer.elapsed());
+        });
+    td::actor::send_closure(manager_, &OverlayManager::send_query, peer, local_id_, overlay_id_, "overlay ping",
+                            std::move(P), td::Timestamp::in(5.0), create_serialize_tl_object<ton_api::overlay_ping>());
+  }
+}
+
+void OverlayImpl::receive_pong(adnl::AdnlNodeIdShort peer, double elapsed) {
+  on_ping_result(peer, true, elapsed);
 }
 
 void OverlayImpl::update_neighbours(td::uint32 nodes_to_change) {
