@@ -527,7 +527,7 @@ bool Account::init_new(ton::UnixTime now) {
   last_trans_hash_.set_zero();
   now_ = now;
   last_paid = 0;
-  storage_stat.clear();
+  storage_stat = {};
   due_payment = td::zero_refint();
   balance.set_zero();
   if (my_addr_exact.is_null()) {
@@ -685,7 +685,8 @@ td::RefInt256 StoragePrices::compute_storage_fees(ton::UnixTime now, const std::
  * @returns The computed storage fees as RefInt256.
  */
 td::RefInt256 Account::compute_storage_fees(ton::UnixTime now, const std::vector<block::StoragePrices>& pricing) const {
-  return StoragePrices::compute_storage_fees(now, pricing, storage_stat, last_paid, is_special, is_masterchain());
+  return StoragePrices::compute_storage_fees(now, pricing, storage_stat.as_cell_storage_stat(), last_paid, is_special,
+                                             is_masterchain());
 }
 
 namespace transaction {
@@ -785,16 +786,15 @@ bool Transaction::unpack_input_msg(bool ihr_delivered, const ActionPhaseConfig* 
       in_msg_type = 2;
       in_msg_extern = true;
       // compute forwarding fees for this external message
-      vm::CellStorageStat sstat;                                     // for message size
-      auto cell_info = sstat.compute_used_storage(cs).move_as_ok();  // message body
-      sstat.bits -= cs.size();                                       // bits in the root cells are free
-      sstat.cells--;                                                 // the root cell itself is not counted as a cell
+      // The root cell of the message is not counted as a cell and bits in it are free.
+      auto sstat = vm::CellStorageStat::of_children(cs);
+
       LOG(DEBUG) << "storage paid for a message: " << sstat.cells << " cells, " << sstat.bits << " bits";
       if (sstat.bits > cfg->size_limits.max_msg_bits || sstat.cells > cfg->size_limits.max_msg_cells) {
         LOG(DEBUG) << "inbound external message too large, invalid";
         return false;
       }
-      if (cell_info.max_merkle_depth > max_allowed_merkle_depth) {
+      if (sstat.max_merkle_depth > max_allowed_merkle_depth) {
         LOG(DEBUG) << "inbound external message has too big merkle depth, invalid";
         return false;
       }
@@ -1848,7 +1848,6 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
     if (S.is_error()) {
       // Rollback changes to state, fail action phase
       LOG(INFO) << "Account state size exceeded limits: " << S.move_as_error();
-      new_storage_stat.clear();
       new_code = old_code;
       new_data = old_data;
       new_library = old_library;
@@ -2093,9 +2092,8 @@ int Transaction::try_action_change_library(vm::CellSlice& cs, ActionPhase& ap, c
         // library code not found
         return 41;
       }
-      vm::CellStorageStat sstat;
-      auto cell_info = sstat.compute_used_storage(lib_ref).move_as_ok();
-      if (sstat.cells > cfg.size_limits.max_library_cells || cell_info.max_merkle_depth > max_allowed_merkle_depth) {
+      auto sstat = vm::CellStorageStat::of(lib_ref);
+      if (sstat.cells > cfg.size_limits.max_library_cells || sstat.max_merkle_depth > max_allowed_merkle_depth) {
         return 43;
       }
       vm::CellBuilder cb;
@@ -2525,22 +2523,26 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
       max_cells = static_cast<unsigned>((funds / td::make_refint(fine_per_cell))->to_long());
     }
   }
+
   // compute size of message
-  vm::CellStorageStat sstat(max_cells);  // for message size
   // preliminary storage estimation of the resulting message
-  unsigned max_merkle_depth = 0;
-  auto add_used_storage = [&](const auto& x, unsigned skip_root_count) -> td::Status {
-    if (x.not_null()) {
-      TRY_RESULT(res, sstat.add_used_storage(x, true, skip_root_count));
-      max_merkle_depth = std::max(max_merkle_depth, res.max_merkle_depth);
-    }
-    return td::Status::OK();
-  };
-  add_used_storage(msg.init, 3);  // message init
-  add_used_storage(msg.body, 3);  // message body (the root cell itself is not counted)
-  if (!ext_msg && !cfg.extra_currency_v2) {
-    add_used_storage(info.value->prefetch_ref(), 0);
+  vm::CellStorageStatComputer sstat_computer;  // for message size
+
+  if (msg.init.not_null()) {
+    sstat_computer.add_children(*msg.init);  // message init
   }
+  if (msg.body.not_null()) {
+    sstat_computer.add_children(*msg.body);  // message body (the root cell itself is not counted)
+  }
+  if (!ext_msg && !cfg.extra_currency_v2) {
+    auto cell = info.value->prefetch_ref();
+    if (!cell.is_null()) {
+      sstat_computer.add_cell(cell);
+    }
+  }
+
+  auto sstat = sstat_computer.get();
+
   auto collect_fine = [&] {
     if (cfg.action_fine_enabled && !account.is_special) {
       td::uint64 fine = fine_per_cell * std::min<td::uint64>(max_cells, sstat.cells);
@@ -2561,7 +2563,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     collect_fine();
     return check_skip_invalid(40);
   }
-  if (max_merkle_depth > max_allowed_merkle_depth) {
+  if (sstat.max_merkle_depth > max_allowed_merkle_depth) {
     LOG(DEBUG) << "message has too big merkle depth, invalid";
     collect_fine();
     return check_skip_invalid(40);
@@ -2951,46 +2953,42 @@ td::Status Transaction::check_state_limits(const SizeLimitsConfig& size_limits, 
       cell_equal(account.library, new_library)) {
     return td::Status::OK();
   }
-  vm::CellStorageStat storage_stat;
-  storage_stat.limit_cells = size_limits.max_acc_state_cells;
-  storage_stat.limit_bits = size_limits.max_acc_state_bits;
+
+  CHECK(!storage_stat_computer);
+  storage_stat_computer = std::make_unique<vm::CellStorageStatComputer>();
   {
     TD_PERF_COUNTER(transaction_storage_stat_a);
     td::Timer timer;
-    auto add_used_storage = [&](const td::Ref<vm::Cell>& cell) -> td::Status {
-      if (cell.not_null()) {
-        TRY_RESULT(res, storage_stat.add_used_storage(cell));
-        if (res.max_merkle_depth > max_allowed_merkle_depth) {
-          return td::Status::Error("too big merkle depth");
-        }
-      }
-      return td::Status::OK();
-    };
-    TRY_STATUS(add_used_storage(new_code));
-    TRY_STATUS(add_used_storage(new_data));
-    TRY_STATUS(add_used_storage(new_library));
+
+    if (new_code.not_null())
+      storage_stat_computer->add_cell(new_code);
+    if (new_data.not_null())
+      storage_stat_computer->add_cell(new_data);
+    if (new_library.not_null())
+      storage_stat_computer->add_cell(new_library);
+
     if (timer.elapsed() > 0.1) {
       LOG(INFO) << "Compute used storage took " << timer.elapsed() << "s";
     }
   }
+  auto storage_stat = storage_stat_computer->get();
 
-  if (acc_status == Account::acc_active) {
-    storage_stat.clear_limit();
-  } else {
-    storage_stat.clear();
-  }
   td::Status res;
   if (storage_stat.cells > size_limits.max_acc_state_cells || storage_stat.bits > size_limits.max_acc_state_bits) {
     res = td::Status::Error(PSTRING() << "account state is too big");
+  } else if (storage_stat.max_merkle_depth > max_allowed_merkle_depth) {
+    res = td::Status::Error(PSTRING() << "too big merkle depth");
   } else if (account.is_masterchain() && !cell_equal(account.library, new_library) &&
              get_public_libraries_count(new_library) > size_limits.max_acc_public_libraries) {
     res = td::Status::Error("too many public libraries");
   } else {
     res = td::Status::OK();
   }
-  if (update_storage_stat) {
-    // storage_stat will be reused in compute_state()
-    new_storage_stat = std::move(storage_stat);
+
+  // If `update_storage_stat`, `storage_stat_computer` will be reused in `compute_state` during
+  // transaction serialization. Otherwise, we need to clean it.
+  if (!update_storage_stat) {
+    storage_stat_computer = {};
   }
   return res;
 }
@@ -3032,9 +3030,9 @@ bool Transaction::prepare_bounce_phase(const ActionPhaseConfig& cfg) {
   // fetch message pricing info
   const MsgPrices& msg_prices = cfg.fetch_msg_prices(to_mc || account.is_masterchain());
   // compute size of message
-  vm::CellStorageStat sstat;  // for message size
   // preliminary storage estimation of the resulting message
-  sstat.compute_used_storage(info.value->prefetch_ref());
+  auto sstat_cell = info.value->prefetch_ref();
+  auto sstat = sstat_cell.is_null() ? vm::CellStorageStat{} : vm::CellStorageStat::of(sstat_cell);
   bp.msg_bits = sstat.bits;
   bp.msg_cells = sstat.cells;
   // compute forwarding fees
@@ -3152,9 +3150,9 @@ bool Account::store_acc_status(vm::CellBuilder& cb, int acc_status) const {
  *
  * @returns An optional value of type vm::CellStorageStat. If the update is successful, it returns the new storage statistics. Otherwise, it returns an empty optional.
  */
-static td::optional<vm::CellStorageStat> try_update_storage_stat(const vm::CellStorageStat& old_stat,
-                                                                 td::Ref<vm::CellSlice> old_cs,
-                                                                 td::Ref<vm::Cell> new_cell) {
+static td::optional<AccountStorageStat> try_update_storage_stat(AccountStorageStat old_stat,
+                                                                td::Ref<vm::CellSlice> old_cs,
+                                                                td::Ref<vm::Cell> new_cell) {
   if (old_stat.cells == 0 || old_cs.is_null()) {
     return {};
   }
@@ -3171,11 +3169,11 @@ static td::optional<vm::CellStorageStat> try_update_storage_stat(const vm::CellS
     return {};
   }
 
-  vm::CellStorageStat new_stat;
-  new_stat.cells = old_stat.cells;
-  new_stat.bits = old_stat.bits - old_cs->size() + new_cs.size();
-  new_stat.public_cells = old_stat.public_cells;
-  return new_stat;
+  return AccountStorageStat{
+      .cells = old_stat.cells,
+      .bits = old_stat.bits - old_cs->size() + new_cs.size(),
+      .public_cells = old_stat.public_cells,
+  };
 }
 
 /**
@@ -3290,7 +3288,6 @@ bool Transaction::compute_state(const SerializeConfig& cfg) {
   } else {
     new_inner_state.clear();
   }
-  vm::CellStorageStat& stats = new_storage_stat;
   td::Ref<vm::CellSlice> old_storage_for_stat = account.storage;
   td::Ref<vm::Cell> new_storage_for_stat = storage;
   if (cfg.extra_currency_v2) {
@@ -3306,22 +3303,29 @@ bool Transaction::compute_state(const SerializeConfig& cfg) {
     }
   }
   auto new_stats = try_update_storage_stat(account.storage_stat, old_storage_for_stat, storage);
-  if (new_stats) {
-    stats = new_stats.unwrap();
-  } else {
+
+  if (!new_stats) {
     TD_PERF_COUNTER(transaction_storage_stat_b);
     td::Timer timer;
-    stats.add_used_storage(new_storage_for_stat).ensure();
+
+    if (!storage_stat_computer) {
+      storage_stat_computer = std::make_unique<vm::CellStorageStatComputer>();
+    }
+    storage_stat_computer->add_cell(new_storage_for_stat);
+    new_stats = AccountStorageStat::from(storage_stat_computer->get());
+
     if (timer.elapsed() > 0.1) {
       LOG(INFO) << "Compute used storage took " << timer.elapsed() << "s";
     }
   }
-  CHECK(cb.store_long_bool(1, 1)                       // account$1
-        && cb.append_cellslice_bool(account.my_addr)   // addr:MsgAddressInt
-        && block::store_UInt7(cb, stats.cells)         // storage_used$_ cells:(VarUInteger 7)
-        && block::store_UInt7(cb, stats.bits)          //   bits:(VarUInteger 7)
-        && block::store_UInt7(cb, stats.public_cells)  //   public_cells:(VarUInteger 7)
-        && cb.store_long_bool(last_paid, 32));         // last_paid:uint32
+  new_storage_stat = new_stats.unwrap();
+
+  CHECK(cb.store_long_bool(1, 1)                                  // account$1
+        && cb.append_cellslice_bool(account.my_addr)              // addr:MsgAddressInt
+        && block::store_UInt7(cb, new_storage_stat.cells)         // storage_used$_ cells:(VarUInteger 7)
+        && block::store_UInt7(cb, new_storage_stat.bits)          //   bits:(VarUInteger 7)
+        && block::store_UInt7(cb, new_storage_stat.public_cells)  //   public_cells:(VarUInteger 7)
+        && cb.store_long_bool(last_paid, 32));                    // last_paid:uint32
   if (due_payment.not_null() && td::sgn(due_payment) != 0) {
     CHECK(cb.store_long_bool(1, 1) && block::tlb::t_Grams.store_integer_ref(cb, due_payment));
     // due_payment:(Maybe Grams)

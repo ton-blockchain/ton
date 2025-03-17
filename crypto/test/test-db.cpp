@@ -615,6 +615,16 @@ std::vector<Ref<Cell>> gen_random_cells(int roots, int size, td::Random::Xorshif
   return RandomBagOfCells(size, rnd, with_prunned_branches, std::move(cells)).get_random_roots(roots, rnd);
 }
 
+static td::uint64 count_cells(Ref<Cell> const &cell) {
+  CellSlice cs{NoVm{}, cell};
+
+  td::uint64 result = 1;
+  for (unsigned i = 0; i < cs.size_refs(); ++i) {
+    result += count_cells(cs.prefetch_ref(i));
+  }
+  return result;
+}
+
 TEST(Cell, MerkleProof) {
   td::Random::Xorshift128plus rnd{123};
   for (int t = 0; t < 1000; t++) {
@@ -1668,9 +1678,7 @@ TEST(Cell, MerkleUpdateArray) {
   arr.set(n / 2 + 3, 2);
 
   auto update = MerkleUpdate::generate(usage_cell, arr.root(), usage_tree.get());
-  CellStorageStat stat;
-  stat.compute_used_storage(update, false);
-  ASSERT_EQ(stat.cells, 81u);
+  ASSERT_EQ(count_cells(update), 81u);
   //CellSlice(NoVm(), update).print_rec(std::cerr);
 
   check_merkle_update(root, arr.root(), update);
@@ -1703,17 +1711,13 @@ TEST(Cell, MerkleUpdateCombineArray) {
       size_t i = updates.size() - 2;
       updates[i] = MerkleUpdate::combine(updates[i], updates[i + 1]);
       updates.pop_back();
-      CellStorageStat stat;
-      stat.compute_used_storage(updates[i], false);
     }
   };
   auto validate = [&](size_t size) {
     combine_all();
     check_merkle_update(from, arr.root(), updates.at(0));
-    CellStorageStat stat;
-    stat.compute_used_storage(updates[0], false);
     if (size != 0) {
-      ASSERT_EQ(size, stat.cells);
+      ASSERT_EQ(size, count_cells(updates[0]));
     }
   };
   apply_op([] {});
@@ -2339,17 +2343,16 @@ TEST(TonDb, CellStat) {
     std::tie(B, AB, usage_tree) = gen_merkle_update(A, rnd, with_prunned_branches);
     B_proof = vm::CellSlice(vm::NoVm(), AB).prefetch_ref(1);
 
-    vm::CellStorageStat stat;
-    stat.add_used_storage(B);
+    vm::CellStorageStatComputer stat;
+    stat.add_cell(B);
 
     vm::NewCellStorageStat new_stat;
     new_stat.add_cell({});
     new_stat.add_cell(B);
-    ASSERT_EQ(stat.cells, new_stat.get_stat().cells);
-    ASSERT_EQ(stat.bits, new_stat.get_stat().bits);
+    ASSERT_EQ(stat.get().cells, new_stat.get_stat().cells);
+    ASSERT_EQ(stat.get().bits, new_stat.get_stat().bits);
 
-    vm::CellStorageStat proof_stat;
-    proof_stat.add_used_storage(B_proof);
+    auto proof_stat = vm::CellStorageStat::of(B_proof);
 
     vm::NewCellStorageStat new_proof_stat;
     new_proof_stat.add_proof(B, usage_tree.get());
@@ -2362,12 +2365,12 @@ TEST(TonDb, CellStat) {
     CHECK(new_proof_stat.get_proof_stat() == new_all_stat.get_proof_stat());
     CHECK(new_stat.get_stat() == new_all_stat.get_stat());
 
-    stat.add_used_storage(A);
+    stat.add_cell(A);
     auto AB_stat = new_stat.get_stat() + const_cast<vm::NewCellStorageStat &>(new_stat).tentative_add_cell(A);
     new_stat.add_cell(A);
     CHECK(AB_stat == new_stat.get_stat());
-    ASSERT_EQ(stat.cells, new_stat.get_stat().cells);
-    ASSERT_EQ(stat.bits, new_stat.get_stat().bits);
+    ASSERT_EQ(stat.get().cells, new_stat.get_stat().cells);
+    ASSERT_EQ(stat.get().bits, new_stat.get_stat().bits);
 
     CHECK(usage_tree.use_count() == 1);
     usage_tree.reset();

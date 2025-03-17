@@ -1049,116 +1049,50 @@ td::Status std_boc_serialize_to_file(Ref<Cell> root, td::FileFd& fd, int mode,
  * 
  */
 
-td::Result<CellStorageStat::CellInfo> CellStorageStat::compute_used_storage(Ref<vm::CellSlice> cs_ref, bool kill_dup,
-                                                                            unsigned skip_count_root) {
-  clear();
-  TRY_RESULT(res, add_used_storage(std::move(cs_ref), kill_dup, skip_count_root));
-  clear_seen();
-  return res;
+CellStorageStat CellStorageStat::of(Ref<Cell> const& cell) {
+  CellStorageStatComputer computer;
+  computer.add_cell(cell);
+  return computer.get();
 }
 
-td::Result<CellStorageStat::CellInfo> CellStorageStat::compute_used_storage(const CellSlice& cs, bool kill_dup,
-                                                                            unsigned skip_count_root) {
-  clear();
-  TRY_RESULT(res, add_used_storage(cs, kill_dup, skip_count_root));
-  clear_seen();
-  return res;
+CellStorageStat CellStorageStat::of_children(CellSlice const& cs) {
+  CellStorageStatComputer computer;
+  computer.add_children(cs);
+  return computer.get();
 }
 
-td::Result<CellStorageStat::CellInfo> CellStorageStat::compute_used_storage(CellSlice&& cs, bool kill_dup,
-                                                                            unsigned skip_count_root) {
-  clear();
-  TRY_RESULT(res, add_used_storage(std::move(cs), kill_dup, skip_count_root));
-  clear_seen();
-  return res;
+void CellStorageStatComputer::add_cell(Ref<Cell> const& cell) {
+  CHECK(!cell.is_null());
+  max_merkle_depth_ = td::max(max_merkle_depth_, recurse(cell));
 }
 
-td::Result<CellStorageStat::CellInfo> CellStorageStat::compute_used_storage(Ref<vm::Cell> cell, bool kill_dup,
-                                                                            unsigned skip_count_root) {
-  clear();
-  TRY_RESULT(res, add_used_storage(std::move(cell), kill_dup, skip_count_root));
-  clear_seen();
-  return res;
-}
+void CellStorageStatComputer::add_children(CellSlice const& cs) {
+  // FIXME: This check makes sense but it is scary to deploy it.
+  DCHECK(cs.special_type() == Cell::SpecialType::Ordinary);
 
-td::Result<CellStorageStat::CellInfo> CellStorageStat::add_used_storage(Ref<vm::CellSlice> cs_ref, bool kill_dup,
-                                                                        unsigned skip_count_root) {
-  if (cs_ref->is_unique()) {
-    return add_used_storage(std::move(cs_ref.unique_write()), kill_dup, skip_count_root);
-  } else {
-    return add_used_storage(*cs_ref, kill_dup, skip_count_root);
+  for (unsigned i = 0; i < cs.size_refs(); ++i) {
+    max_merkle_depth_ = td::max(max_merkle_depth_, recurse(cs.prefetch_ref(i)));
   }
 }
 
-td::Result<CellStorageStat::CellInfo> CellStorageStat::add_used_storage(const CellSlice& cs, bool kill_dup,
-                                                                        unsigned skip_count_root) {
-  if (!(skip_count_root & 1)) {
-    ++cells;
-    if (cells > limit_cells) {
-      return td::Status::Error("too many cells");
-    }
+td::uint32 CellStorageStatComputer::recurse(Ref<Cell> const& cell) {
+  if (auto it = seen_.find(cell->get_hash()); it != seen_.end()) {
+    return it->second;
   }
-  if (!(skip_count_root & 2)) {
-    bits += cs.size();
-    if (bits > limit_bits) {
-      return td::Status::Error("too many bits");
-    }
-  }
-  CellInfo res;
-  for (unsigned i = 0; i < cs.size_refs(); i++) {
-    TRY_RESULT(child, add_used_storage(cs.prefetch_ref(i), kill_dup));
-    res.max_merkle_depth = std::max(res.max_merkle_depth, child.max_merkle_depth);
-  }
-  if (cs.special_type() == CellTraits::SpecialType::MerkleProof ||
-      cs.special_type() == CellTraits::SpecialType::MerkleUpdate) {
-    ++res.max_merkle_depth;
-  }
-  return res;
-}
 
-td::Result<CellStorageStat::CellInfo> CellStorageStat::add_used_storage(CellSlice&& cs, bool kill_dup,
-                                                                        unsigned skip_count_root) {
-  if (!(skip_count_root & 1)) {
-    ++cells;
-    if (cells > limit_cells) {
-      return td::Status::Error("too many cells");
-    }
-  }
-  if (!(skip_count_root & 2)) {
-    bits += cs.size();
-    if (bits > limit_bits) {
-      return td::Status::Error("too many bits");
-    }
-  }
-  CellInfo res;
-  while (cs.size_refs()) {
-    TRY_RESULT(child, add_used_storage(cs.fetch_ref(), kill_dup));
-    res.max_merkle_depth = std::max(res.max_merkle_depth, child.max_merkle_depth);
-  }
-  if (cs.special_type() == CellTraits::SpecialType::MerkleProof ||
-      cs.special_type() == CellTraits::SpecialType::MerkleUpdate) {
-    ++res.max_merkle_depth;
-  }
-  return res;
-}
+  CellSlice cs{vm::NoVm{}, cell};
+  ++cells_;
+  bits_ += cs.size();
 
-td::Result<CellStorageStat::CellInfo> CellStorageStat::add_used_storage(Ref<vm::Cell> cell, bool kill_dup,
-                                                                        unsigned skip_count_root) {
-  if (cell.is_null()) {
-    return td::Status::Error("cell is null");
+  td::uint32 depth = 0;
+  for (unsigned i = 0; i < cs.size_refs(); ++i) {
+    depth = td::max(depth, recurse(cs.prefetch_ref(i)));
   }
-  if (kill_dup) {
-    auto ins = seen.emplace(cell->get_hash(), CellInfo{});
-    if (!ins.second) {
-      return ins.first->second;
-    }
+
+  if (cs.special_type() == Cell::SpecialType::MerkleProof || cs.special_type() == Cell::SpecialType::MerkleUpdate) {
+    ++depth;
   }
-  vm::CellSlice cs{vm::NoVm{}, cell};
-  TRY_RESULT(res, add_used_storage(std::move(cs), kill_dup, skip_count_root));
-  if (kill_dup) {
-    seen[cell->get_hash()] = res;
-  }
-  return res;
+  return seen_[cell->get_hash()] = depth;
 }
 
 void NewCellStorageStat::add_cell(Ref<Cell> cell) {
