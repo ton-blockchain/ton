@@ -20,6 +20,13 @@
 
 namespace tolk {
 
+// functions returning "never" are assumed to interrupt flow
+// for instance, variables after their call aren't considered used
+// its main purpose is `throw` statement, it's a call to a built-in `__throw` function
+static bool does_function_always_throw(FunctionPtr fun_ref) {
+  return fun_ref->declared_return_type == TypeDataNever::create();
+}
+
 /*
  *  
  *   ANALYZE AND PREPROCESS ABSTRACT CODE
@@ -262,17 +269,6 @@ VarDescrList& VarDescrList::operator|=(const VarDescrList& y) {
   }
 }
 
-VarDescrList& VarDescrList::operator&=(const VarDescrList& values) {
-  for (const VarDescr& vd : values.list) {
-    VarDescr* item = operator[](vd.idx);
-    if (item) {
-      *item &= vd;
-    }
-  }
-  unreachable |= values.unreachable;
-  return *this;
-}
-
 VarDescrList& VarDescrList::import_values(const VarDescrList& values) {
   if (values.unreachable) {
     set_unreachable();
@@ -325,6 +321,17 @@ bool Op::compute_used_vars(const CodeBlob& code, bool edit) {
           set_disabled();
         }
         return std_compute_used_vars(true);
+      }
+      if (cl == _Call && does_function_always_throw(f_sym)) {
+        VarDescrList new_var_info;    // empty, not next->var_info
+        if (args.size() == right.size()) {
+          for (const VarDescr& arg : args) {
+            new_var_info.add_var(arg.idx, arg.is_unused());
+          }
+        } else {
+          new_var_info.add_vars(right, false);
+        }
+        return set_var_info(std::move(new_var_info));
       }
       return std_compute_used_vars();
     }
@@ -516,19 +523,18 @@ bool prune_unreachable(std::unique_ptr<Op>& ops) {
     case Op::_SliceConst:
     case Op::_GlobVar:
     case Op::_SetGlob:
-    case Op::_Call:
     case Op::_CallInd:
     case Op::_Tuple:
     case Op::_UnTuple:
     case Op::_Import:
+    case Op::_Let:
       reach = true;
       break;
-    case Op::_Let: {
-      reach = true;
-      break;
-    }
     case Op::_Return:
       reach = false;
+      break;
+    case Op::_Call:
+      reach = !does_function_always_throw(op.f_sym);
       break;
     case Op::_If: {
       // if left then block0 else block1; ...
@@ -712,6 +718,9 @@ VarDescrList Op::fwd_analyze(VarDescrList values) {
           values.add_newval(i);
         }
       }
+      if (does_function_always_throw(f_sym)) {
+        values.set_unreachable();
+      }
       break;
     }
     case _Tuple:
@@ -860,10 +869,11 @@ bool Op::mark_noreturn() {
     case _SetGlob:
     case _GlobVar:
     case _CallInd:
-    case _Call:
       return set_noreturn(next->mark_noreturn());
     case _Return:
       return set_noreturn();
+    case _Call:
+      return set_noreturn(next->mark_noreturn() || does_function_always_throw(f_sym));
     case _If:
     case _TryCatch:
       // note, that & | (not && ||) here and below is mandatory to invoke both left and right calls

@@ -1,5 +1,3 @@
-cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
-
 option(TDUTILS_MIME_TYPE "Generate mime types conversion (gperf is required)" ON)
 
 if (WIN32)

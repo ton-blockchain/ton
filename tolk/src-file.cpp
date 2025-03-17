@@ -18,6 +18,7 @@
 #include "compiler-state.h"
 #include <iostream>
 #include <sstream>
+#include <iomanip>
 
 namespace tolk {
 
@@ -146,9 +147,10 @@ void SrcLocation::show_context(std::ostream& os) const {
     return;
   }
   SrcFile::SrcPosition pos = src_file->convert_offset(char_offset);
-  os << "  "  << pos.line_str << "\n";
+  os << std::right << std::setw(4) << pos.line_no << " | ";
+  os << pos.line_str << "\n";
 
-  os << "  ";
+  os << "    " << " | ";
   for (int i = 1; i < pos.char_no; ++i) {
     os << ' ';
   }
@@ -193,8 +195,11 @@ std::ostream& operator<<(std::ostream& os, const ParseError& error) {
 }
 
 void ParseError::show(std::ostream& os) const {
-  os << where << ": error: " << message << std::endl;
-  where.show_context(os);
+  os << loc << ": error: " << message << std::endl;
+  if (current_function) {
+    os << "    // in function `" << current_function->as_human_readable() << "`" << std::endl;
+  }
+  loc.show_context(os);
 }
 
 }  // namespace tolk

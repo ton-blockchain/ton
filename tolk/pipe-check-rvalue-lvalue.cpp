@@ -37,7 +37,7 @@ static void fire_error_cannot_be_used_as_lvalue(AnyV v, const std::string& detai
 }
 
 GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-static void fire_error_modifying_immutable_variable(AnyExprV v, const LocalVarData* var_ref) {
+static void fire_error_modifying_immutable_variable(AnyExprV v, LocalVarPtr var_ref) {
   if (var_ref->param_idx == 0 && var_ref->name == "self") {
     v->error("modifying `self`, which is immutable by default; probably, you want to declare `mutate self`");
   } else {
@@ -47,7 +47,7 @@ static void fire_error_modifying_immutable_variable(AnyExprV v, const LocalVarDa
 
 // validate a function used as rvalue, like `var cb = f`
 // it's not a generic function (ensured earlier at type inferring) and has some more restrictions
-static void validate_function_used_as_noncall(AnyExprV v, const FunctionData* fun_ref) {
+static void validate_function_used_as_noncall(AnyExprV v, FunctionPtr fun_ref) {
   if (!fun_ref->arg_order.empty() || !fun_ref->ret_order.empty()) {
     v->error("saving `" + fun_ref->name + "` into a variable will most likely lead to invalid usage, since it changes the order of variables on the stack");
   }
@@ -97,6 +97,18 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
     parent::visit(v->get_expr());
   }
 
+  void visit(V<ast_not_null_operator> v) override {
+    // if `x!` is lvalue, then `x` is also lvalue, so check that `x` is ok
+    parent::visit(v->get_expr());
+  }
+
+  void visit(V<ast_is_null_check> v) override {
+    if (v->is_lvalue) {
+      fire_error_cannot_be_used_as_lvalue(v, v->is_negated ? "operator !=" : "operator ==");
+    }
+    parent::visit(v->get_expr());
+  }
+
   void visit(V<ast_int_const> v) override {
     if (v->is_lvalue) {
       fire_error_cannot_be_used_as_lvalue(v, "literal");
@@ -124,7 +136,7 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
   void visit(V<ast_dot_access> v) override {
     // a reference to a method used as rvalue, like `var v = t.tupleAt`
     if (v->is_rvalue && v->is_target_fun_ref()) {
-      validate_function_used_as_noncall(v, std::get<const FunctionData*>(v->target));
+      validate_function_used_as_noncall(v, std::get<FunctionPtr>(v->target));
     }
   }
 
@@ -158,17 +170,17 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
   void visit(V<ast_reference> v) override {
     if (v->is_lvalue) {
       tolk_assert(v->sym);
-      if (const auto* var_ref = v->sym->try_as<LocalVarData>(); var_ref && var_ref->is_immutable()) {
+      if (LocalVarPtr var_ref = v->sym->try_as<LocalVarPtr>(); var_ref && var_ref->is_immutable()) {
         fire_error_modifying_immutable_variable(v, var_ref);
-      } else if (v->sym->try_as<GlobalConstData>()) {
+      } else if (v->sym->try_as<GlobalConstPtr>()) {
         v->error("modifying immutable constant");
-      } else if (v->sym->try_as<FunctionData>()) {
+      } else if (v->sym->try_as<FunctionPtr>()) {
         v->error("function can't be used as lvalue");
       }
     }
 
     // a reference to a function used as rvalue, like `var v = someFunction`
-    if (const FunctionData* fun_ref = v->sym->try_as<FunctionData>(); fun_ref && v->is_rvalue) {
+    if (FunctionPtr fun_ref = v->sym->try_as<FunctionPtr>(); fun_ref && v->is_rvalue) {
       validate_function_used_as_noncall(v, fun_ref);
     }
   }
@@ -186,7 +198,7 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
   }
 
 public:
-  bool should_visit_function(const FunctionData* fun_ref) override {
+  bool should_visit_function(FunctionPtr fun_ref) override {
     return fun_ref->is_code_function() && !fun_ref->is_generic_function();
   }
 };

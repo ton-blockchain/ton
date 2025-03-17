@@ -177,6 +177,18 @@ class CalculateRvalueLvalueVisitor final : public ASTVisitorFunctionBody {
     parent::visit(v->get_expr());   // leave lvalue state unchanged, for `mutate (t.0 as int)` both `t.0 as int` and `t.0` are lvalue
   }
 
+  void visit(V<ast_not_null_operator> v) override {
+    mark_vertex_cur_or_rvalue(v);
+    parent::visit(v->get_expr());   // leave lvalue state unchanged, for `mutate x!` both `x!` and `x` are lvalue
+  }
+
+  void visit(V<ast_is_null_check> v) override {
+    mark_vertex_cur_or_rvalue(v);
+    MarkingState saved = enter_state(MarkingState::RValue);
+    parent::visit(v->get_expr());
+    restore_state(saved);
+  }
+
   void visit(V<ast_local_var_lhs> v) override {
     tolk_assert(cur_state == MarkingState::LValue);
     mark_vertex_cur_or_rvalue(v);
@@ -198,7 +210,7 @@ class CalculateRvalueLvalueVisitor final : public ASTVisitorFunctionBody {
   }
 
 public:
-  bool should_visit_function(const FunctionData* fun_ref) override {
+  bool should_visit_function(FunctionPtr fun_ref) override {
     return fun_ref->is_code_function() && !fun_ref->is_generic_function();
   }
 };
@@ -207,7 +219,7 @@ void pipeline_calculate_rvalue_lvalue() {
   visit_ast_of_all_functions<CalculateRvalueLvalueVisitor>();
 }
 
-void pipeline_calculate_rvalue_lvalue(const FunctionData* fun_ref) {
+void pipeline_calculate_rvalue_lvalue(FunctionPtr fun_ref) {
   CalculateRvalueLvalueVisitor visitor;
   if (visitor.should_visit_function(fun_ref)) {
     visitor.start_visiting_function(fun_ref, fun_ref->ast_root->as<ast_function_declaration>());

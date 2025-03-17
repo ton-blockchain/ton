@@ -1,5 +1,3 @@
-cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
-
 set(TDNET_SOURCE
   td/net/FdListener.cpp
   td/net/TcpListener.cpp

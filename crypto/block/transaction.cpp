@@ -2000,9 +2000,9 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
   ap.remaining_balance += ap.reserved_balance;
   CHECK(ap.remaining_balance.is_valid());
   if (ap.acc_delete_req) {
-    CHECK(ap.remaining_balance.is_zero());
+    CHECK(cfg.extra_currency_v2 ? ap.remaining_balance.grams->sgn() == 0 : ap.remaining_balance.is_zero());
     ap.acc_status_change = ActionPhase::acst_deleted;
-    acc_status = Account::acc_deleted;
+    acc_status = (ap.remaining_balance.is_zero() ? Account::acc_deleted : Account::acc_uninit);
     was_deleted = true;
   }
   ap.success = true;
@@ -2472,6 +2472,20 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     LOG(DEBUG) << "invalid destination address in a proposed outbound message";
     return check_skip_invalid(36);  // invalid destination address
   }
+  if (cfg.extra_currency_v2) {
+    CurrencyCollection value;
+    if (!value.unpack(info.value)) {
+      LOG(DEBUG) << "invalid value:ExtraCurrencies in a proposed outbound message";
+      return check_skip_invalid(37);  // invalid value:CurrencyCollection
+    }
+    if (!CurrencyCollection::remove_zero_extra_currencies(value.extra, cfg.size_limits.max_msg_extra_currencies)) {
+      LOG(DEBUG) << "invalid value:ExtraCurrencies in a proposed outbound message: too many currencies (max "
+                 << cfg.size_limits.max_msg_extra_currencies << ")";
+      // Dict should be valid, since it was checked in t_OutListNode.validate_ref, so error here means limit exceeded
+      return check_skip_invalid(41);  // invalid value:CurrencyCollection : too many extra currencies
+    }
+    info.value = value.pack();
+  }
 
   // fetch message pricing info
   const MsgPrices& msg_prices = cfg.fetch_msg_prices(to_mc || account.is_masterchain());
@@ -2524,7 +2538,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
   };
   add_used_storage(msg.init, 3);  // message init
   add_used_storage(msg.body, 3);  // message body (the root cell itself is not counted)
-  if (!ext_msg) {
+  if (!ext_msg && !cfg.extra_currency_v2) {
     add_used_storage(info.value->prefetch_ref(), 0);
   }
   auto collect_fine = [&] {
@@ -2595,11 +2609,19 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
 
     if (act_rec.mode & 0x80) {
       // attach all remaining balance to this message
-      req = ap.remaining_balance;
+      if (cfg.extra_currency_v2) {
+        req.grams = ap.remaining_balance.grams;
+      } else {
+        req = ap.remaining_balance;
+      }
       act_rec.mode &= ~1;  // pay fees from attached value
     } else if (act_rec.mode & 0x40) {
       // attach all remaining balance of the inbound message (in addition to the original value)
-      req += msg_balance_remaining;
+      if (cfg.extra_currency_v2) {
+        req.grams += msg_balance_remaining.grams;
+      } else {
+        req += msg_balance_remaining;
+      }
       if (!(act_rec.mode & 1)) {
         req -= ap.action_fine;
         if (compute_phase) {
@@ -2637,6 +2659,11 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
                  << ap.remaining_balance.to_str() << ", need " << req_grams_brutto << " (including forwarding fees)";
       collect_fine();
       return check_skip_invalid(37);  // not enough grams
+    }
+
+    if (cfg.extra_currency_v2 && !req.check_extra_currency_limit(cfg.size_limits.max_msg_extra_currencies)) {
+      LOG(DEBUG) << "too many extra currencies in the message : max " << cfg.size_limits.max_msg_extra_currencies;
+      return check_skip_invalid(41);  // to many extra currencies
     }
 
     Ref<vm::Cell> new_extra;
@@ -2680,7 +2707,11 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
 
     // clear msg_balance_remaining if it has been used
     if (act_rec.mode & 0xc0) {
-      msg_balance_remaining.set_zero();
+      if (cfg.extra_currency_v2) {
+        msg_balance_remaining.grams = td::zero_refint();
+      } else {
+        msg_balance_remaining.set_zero();
+      }
     }
 
     // update balance
@@ -2754,8 +2785,13 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
   ap.total_fwd_fees += fees_total;
 
   if ((act_rec.mode & 0xa0) == 0xa0) {
-    CHECK(ap.remaining_balance.is_zero());
-    ap.acc_delete_req = ap.reserved_balance.is_zero();
+    if (cfg.extra_currency_v2) {
+      CHECK(ap.remaining_balance.grams->sgn() == 0);
+      ap.acc_delete_req = ap.reserved_balance.grams->sgn() == 0;
+    } else {
+      CHECK(ap.remaining_balance.is_zero());
+      ap.acc_delete_req = ap.reserved_balance.is_zero();
+    }
   }
 
   ap.tot_msg_bits += sstat.bits + new_msg_bits;
@@ -3026,7 +3062,8 @@ bool Transaction::prepare_bounce_phase(const ActionPhaseConfig& cfg) {
   bp.fwd_fees -= bp.fwd_fees_collected;
   total_fees += td::make_refint(bp.fwd_fees_collected);
   // serialize outbound message
-  info.created_lt = end_lt++;
+  info.created_lt = start_lt + 1 + out_msgs.size();
+  end_lt++;
   info.created_at = now;
   vm::CellBuilder cb;
   CHECK(cb.store_long_bool(5, 4)                            // int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool
@@ -3107,6 +3144,7 @@ bool Account::store_acc_status(vm::CellBuilder& cb, int acc_status) const {
  * Tries to update the storage statistics based on the old storage statistics and old account state without fully recomputing it.
  * 
  * It succeeds if only root cell of AccountStorage is changed.
+ * old_cs and new_cell are AccountStorage without extra currencies (if global_version >= 10).
  *
  * @param old_stat The old storage statistics.
  * @param old_cs The old AccountStorage.
@@ -3140,13 +3178,48 @@ static td::optional<vm::CellStorageStat> try_update_storage_stat(const vm::CellS
   return new_stat;
 }
 
+/**
+ * Removes extra currencies dict from AccountStorage.
+ *
+ * This is used for computing account storage stats.
+ *
+ * @param storage_cs AccountStorage as CellSlice.
+ *
+ * @returns AccountStorage without extra currencies as Cell.
+ */
+static td::Ref<vm::Cell> storage_without_extra_currencies(td::Ref<vm::CellSlice> storage_cs) {
+  block::gen::AccountStorage::Record rec;
+  if (!block::gen::csr_unpack(storage_cs, rec)) {
+    LOG(ERROR) << "failed to unpack AccountStorage";
+    return {};
+  }
+  if (rec.balance->size_refs() > 0) {
+    block::gen::CurrencyCollection::Record balance;
+    if (!block::gen::csr_unpack(rec.balance, balance)) {
+      LOG(ERROR) << "failed to unpack AccountStorage";
+      return {};
+    }
+    balance.other = vm::CellBuilder{}.store_zeroes(1).as_cellslice_ref();
+    if (!block::gen::csr_pack(rec.balance, balance)) {
+      LOG(ERROR) << "failed to pack AccountStorage";
+      return {};
+    }
+  }
+  td::Ref<vm::Cell> cell;
+  if (!block::gen::pack_cell(cell, rec)) {
+    LOG(ERROR) << "failed to pack AccountStorage";
+    return {};
+  }
+  return cell;
+}
+
 namespace transaction {
 /**
  * Computes the new state of the account.
  *
  * @returns True if the state computation is successful, false otherwise.
  */
-bool Transaction::compute_state() {
+bool Transaction::compute_state(const SerializeConfig& cfg) {
   if (new_total_state.not_null()) {
     return true;
   }
@@ -3218,13 +3291,27 @@ bool Transaction::compute_state() {
     new_inner_state.clear();
   }
   vm::CellStorageStat& stats = new_storage_stat;
-  auto new_stats = try_update_storage_stat(account.storage_stat, account.storage, storage);
+  td::Ref<vm::CellSlice> old_storage_for_stat = account.storage;
+  td::Ref<vm::Cell> new_storage_for_stat = storage;
+  if (cfg.extra_currency_v2) {
+    new_storage_for_stat = storage_without_extra_currencies(new_storage);
+    if (new_storage_for_stat.is_null()) {
+      return false;
+    }
+    if (old_storage_for_stat.not_null()) {
+      old_storage_for_stat = vm::load_cell_slice_ref(storage_without_extra_currencies(old_storage_for_stat));
+      if (old_storage_for_stat.is_null()) {
+        return false;
+      }
+    }
+  }
+  auto new_stats = try_update_storage_stat(account.storage_stat, old_storage_for_stat, storage);
   if (new_stats) {
     stats = new_stats.unwrap();
   } else {
     TD_PERF_COUNTER(transaction_storage_stat_b);
     td::Timer timer;
-    stats.add_used_storage(Ref<vm::Cell>(storage)).ensure();
+    stats.add_used_storage(new_storage_for_stat).ensure();
     if (timer.elapsed() > 0.1) {
       LOG(INFO) << "Compute used storage took " << timer.elapsed() << "s";
     }
@@ -3260,11 +3347,11 @@ bool Transaction::compute_state() {
  *
  * @returns True if the serialization is successful, False otherwise.
  */
-bool Transaction::serialize() {
+bool Transaction::serialize(const SerializeConfig& cfg) {
   if (root.not_null()) {
     return true;
   }
-  if (!compute_state()) {
+  if (!compute_state(cfg)) {
     return false;
   }
   vm::Dictionary dict{15};
@@ -3730,6 +3817,7 @@ bool Account::libraries_changed() const {
  * @param rand_seed Pointer to the random seed. Generates a new seed if the value is `td::Bits256::zero()`.
  * @param compute_phase_cfg Pointer to store the compute phase configuration.
  * @param action_phase_cfg Pointer to store the action phase configuration.
+ * @param serialize_cfg Pointer to store the serialize phase configuration.
  * @param masterchain_create_fee Pointer to store the masterchain create fee.
  * @param basechain_create_fee Pointer to store the basechain create fee.
  * @param wc The workchain ID.
@@ -3738,15 +3826,15 @@ bool Account::libraries_changed() const {
 td::Status FetchConfigParams::fetch_config_params(
     const block::ConfigInfo& config, Ref<vm::Cell>* old_mparams, std::vector<block::StoragePrices>* storage_prices,
     StoragePhaseConfig* storage_phase_cfg, td::BitArray<256>* rand_seed, ComputePhaseConfig* compute_phase_cfg,
-    ActionPhaseConfig* action_phase_cfg, td::RefInt256* masterchain_create_fee, td::RefInt256* basechain_create_fee,
-    ton::WorkchainId wc, ton::UnixTime now) {
+    ActionPhaseConfig* action_phase_cfg, SerializeConfig* serialize_cfg, td::RefInt256* masterchain_create_fee,
+    td::RefInt256* basechain_create_fee, ton::WorkchainId wc, ton::UnixTime now) {
   auto prev_blocks_info = config.get_prev_blocks_info();
   if (prev_blocks_info.is_error()) {
     return prev_blocks_info.move_as_error_prefix(
         td::Status::Error(-668, "cannot fetch prev blocks info from masterchain configuration: "));
   }
   return fetch_config_params(config, prev_blocks_info.move_as_ok(), old_mparams, storage_prices, storage_phase_cfg,
-                             rand_seed, compute_phase_cfg, action_phase_cfg, masterchain_create_fee,
+                             rand_seed, compute_phase_cfg, action_phase_cfg, serialize_cfg, masterchain_create_fee,
                              basechain_create_fee, wc, now);
 }
 
@@ -3761,6 +3849,7 @@ td::Status FetchConfigParams::fetch_config_params(
  * @param rand_seed Pointer to the random seed. Generates a new seed if the value is `td::Bits256::zero()`.
  * @param compute_phase_cfg Pointer to store the compute phase configuration.
  * @param action_phase_cfg Pointer to store the action phase configuration.
+ * @param serialize_cfg Pointer to store the serialize phase configuration.
  * @param masterchain_create_fee Pointer to store the masterchain create fee.
  * @param basechain_create_fee Pointer to store the basechain create fee.
  * @param wc The workchain ID.
@@ -3770,8 +3859,8 @@ td::Status FetchConfigParams::fetch_config_params(
     const block::Config& config, td::Ref<vm::Tuple> prev_blocks_info, Ref<vm::Cell>* old_mparams,
     std::vector<block::StoragePrices>* storage_prices, StoragePhaseConfig* storage_phase_cfg,
     td::BitArray<256>* rand_seed, ComputePhaseConfig* compute_phase_cfg, ActionPhaseConfig* action_phase_cfg,
-    td::RefInt256* masterchain_create_fee, td::RefInt256* basechain_create_fee, ton::WorkchainId wc,
-    ton::UnixTime now) {
+    SerializeConfig* serialize_cfg, td::RefInt256* masterchain_create_fee, td::RefInt256* basechain_create_fee,
+    ton::WorkchainId wc, ton::UnixTime now) {
   *old_mparams = config.get_config_param(9);
   {
     auto res = config.get_storage_prices();
@@ -3843,6 +3932,10 @@ td::Status FetchConfigParams::fetch_config_params(
     action_phase_cfg->disable_custom_fess = config.get_global_version() >= 8;
     action_phase_cfg->reserve_extra_enabled = config.get_global_version() >= 9;
     action_phase_cfg->mc_blackhole_addr = config.get_burning_config().blackhole_addr;
+    action_phase_cfg->extra_currency_v2 = config.get_global_version() >= 10;
+  }
+  {
+    serialize_cfg->extra_currency_v2 = config.get_global_version() >= 10;
   }
   {
     // fetch block_grams_created

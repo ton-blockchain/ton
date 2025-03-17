@@ -39,7 +39,7 @@ void FunctionBodyAsm::set_code(std::vector<AsmOp>&& code) {
 }
 
 
-static void generate_output_func(const FunctionData* fun_ref) {
+static void generate_output_func(FunctionPtr fun_ref) {
   tolk_assert(fun_ref->is_code_function());
   if (G.is_verbosity(2)) {
     std::cerr << "\n\n=========================\nfunction " << fun_ref->name << " : " << fun_ref->inferred_return_type << std::endl;
@@ -119,7 +119,7 @@ void pipeline_generate_fif_output_to_std_cout() {
   std::cout << "PROGRAM{\n";
 
   bool has_main_procedure = false;
-  for (const FunctionData* fun_ref : G.all_functions) {
+  for (FunctionPtr fun_ref : G.all_functions) {
     if (!fun_ref->does_need_codegen()) {
       if (G.is_verbosity(2) && fun_ref->is_code_function()) {
         std::cerr << fun_ref->name << ": code not generated, function does not need codegen\n";
@@ -143,7 +143,7 @@ void pipeline_generate_fif_output_to_std_cout() {
     throw Fatal("the contract has no entrypoint; forgot `fun onInternalMessage(...)`?");
   }
 
-  for (const GlobalVarData* var_ref : G.all_global_vars) {
+  for (GlobalVarPtr var_ref : G.all_global_vars) {
     if (!var_ref->is_really_used() && G.settings.remove_unused_functions) {
       if (G.is_verbosity(2)) {
         std::cerr << var_ref->name << ": variable not generated, it's unused\n";
@@ -154,7 +154,7 @@ void pipeline_generate_fif_output_to_std_cout() {
     std::cout << std::string(2, ' ') << "DECLGLOBVAR " << var_ref->name << "\n";
   }
 
-  for (const FunctionData* fun_ref : G.all_functions) {
+  for (FunctionPtr fun_ref : G.all_functions) {
     if (!fun_ref->does_need_codegen()) {
       continue;
     }

@@ -1,7 +1,7 @@
 // Standard library for Tolk (LGPL licence).
 // It contains common functions that are available out of the box, the user doesn't have to import anything.
 // More specific functions are required to be imported explicitly, like "@stdlib/tvm-dicts".
-tolk 0.8
+tolk 0.9
 
 /**
   Tuple manipulation primitives.
@@ -139,7 +139,7 @@ fun getMyOriginalBalance(): int
 /// `int` — balance in nanotoncoins;
 /// `cell` — a dictionary with 32-bit keys representing the balance of "extra currencies".
 @pure
-fun getMyOriginalBalanceWithExtraCurrencies(): [int, cell]
+fun getMyOriginalBalanceWithExtraCurrencies(): [int, cell?]
     asm "BALANCE";
 
 /// Returns the logical time of the current transaction.
@@ -154,7 +154,7 @@ fun getCurrentBlockLogicalTime(): int
 
 /// Returns the value of the global configuration parameter with integer index `i` as a `cell` or `null` value.
 @pure
-fun getBlockchainConfigParam(x: int): cell
+fun getBlockchainConfigParam(x: int): cell?
     asm "CONFIGOPTPARAM";
 
 /// Returns the persistent contract storage cell. It can be parsed or modified with slice and builder primitives later.
@@ -291,7 +291,7 @@ fun calculateSliceSizeStrict(s: slice, maxCells: int): (int, int, int)
 /// otherwise the returned value is one plus the maximum of depths of cells referred to from [c].
 /// If [c] is a `null` instead of a cell, returns zero.
 @pure
-fun getCellDepth(c: cell): int
+fun getCellDepth(c: cell?): int
     asm "CDEPTH";
 
 /// Returns the depth of `slice` [s].
@@ -417,12 +417,12 @@ fun getLastBits(self: slice, len: int): slice
 /// Loads a dictionary (TL HashMapE structure, represented as TVM cell) from a slice.
 /// Returns `null` if `nothing` constructor is used.
 @pure
-fun loadDict(mutate self: slice): cell
+fun loadDict(mutate self: slice): cell?
     asm( -> 1 0) "LDDICT";
 
 /// Preloads a dictionary (cell) from a slice.
 @pure
-fun preloadDict(self: slice): cell
+fun preloadDict(self: slice): cell?
     asm "PLDDICT";
 
 /// Loads a dictionary as [loadDict], but returns only the remainder of the slice.
@@ -433,12 +433,12 @@ fun skipDict(mutate self: slice): self
 /// Loads (Maybe ^Cell) from a slice.
 /// In other words, loads 1 bit: if it's true, loads the first ref, otherwise returns `null`.
 @pure
-fun loadMaybeRef(mutate self: slice): cell
+fun loadMaybeRef(mutate self: slice): cell?
     asm( -> 1 0) "LDOPTREF";
 
 /// Preloads (Maybe ^Cell) from a slice.
 @pure
-fun preloadMaybeRef(self: slice): cell
+fun preloadMaybeRef(self: slice): cell?
     asm "PLDOPTREF";
 
 /// Loads (Maybe ^Cell), but returns only the remainder of the slice.
@@ -497,13 +497,13 @@ fun storeBool(mutate self: builder, x: bool): self
 /// Stores dictionary (represented by TVM `cell` or `null`) into a builder.
 /// In other words, stores a `1`-bit and a reference to [c] if [c] is not `null` and `0`-bit otherwise.
 @pure
-fun storeDict(mutate self: builder, c: cell): self
+fun storeDict(mutate self: builder, c: cell?): self
     asm(c self) "STDICT";
 
 /// Stores (Maybe ^Cell) into a builder.
 /// In other words, if cell is `null`, store '0' bit; otherwise, store '1' and a ref to [c].
 @pure
-fun storeMaybeRef(mutate self: builder, c: cell): self
+fun storeMaybeRef(mutate self: builder, c: cell?): self
     asm(c self) "STOPTREF";
 
 /// Concatenates two builders.
@@ -661,7 +661,7 @@ fun reserveToncoinsOnBalance(nanoTonCoins: int, reserveMode: int): void
 
 /// Similar to [reserveToncoinsOnBalance], but also accepts a dictionary extraAmount (represented by a cell or null)
 /// with extra currencies. In this way currencies other than Toncoin can be reserved.
-fun reserveExtraCurrenciesOnBalance(nanoTonCoins: int, extraAmount: cell, reserveMode: int): void
+fun reserveExtraCurrenciesOnBalance(nanoTonCoins: int, extraAmount: cell?, reserveMode: int): void
     asm "RAWRESERVEX";
 
 

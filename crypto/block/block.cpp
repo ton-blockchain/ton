@@ -1350,6 +1350,35 @@ bool CurrencyCollection::clamp(const CurrencyCollection& other) {
   return ok || invalidate();
 }
 
+bool CurrencyCollection::check_extra_currency_limit(td::uint32 max_currencies) const {
+  td::uint32 count = 0;
+  return vm::Dictionary{extra, 32}.check_for_each([&](td::Ref<vm::CellSlice>, td::ConstBitPtr, int) {
+    ++count;
+    return count <= max_currencies;
+  });
+}
+
+bool CurrencyCollection::remove_zero_extra_currencies(Ref<vm::Cell>& root, td::uint32 max_currencies) {
+  td::uint32 count = 0;
+  vm::Dictionary dict{root, 32};
+  int res = dict.filter([&](const vm::CellSlice& cs, td::ConstBitPtr, int) -> int {
+    ++count;
+    if (count > max_currencies) {
+      return -1;
+    }
+    td::RefInt256 val = tlb::t_VarUInteger_32.as_integer(cs);
+    if (val.is_null()) {
+      return -1;
+    }
+    return val->sgn() > 0;
+  });
+  if (res < 0) {
+    return false;
+  }
+  root = dict.get_root_cell();
+  return true;
+}
+
 bool CurrencyCollection::operator==(const CurrencyCollection& other) const {
   return is_valid() && other.is_valid() && !td::cmp(grams, other.grams) &&
          (extra.not_null() == other.extra.not_null()) &&

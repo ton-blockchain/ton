@@ -18,10 +18,12 @@ fun test1(x: int, y: int) {
     __expect_type(random() ? x : y, "int");
     __expect_type(eq(x), "int");
     __expect_type(eq<int>(x), "int");
-    __expect_type(eq<int>(null), "int");
+    __expect_type(eq<int?>(null), "int?");
     __expect_type(x as int, "int");
     __expect_type(+x, "int");
     __expect_type(~x, "int");
+    __expect_type(x!, "int");
+    __expect_type(x!!!, "int");
     {
         var x: slice = beginCell().endCell().beginParse();
         __expect_type(x, "slice");
@@ -62,9 +64,9 @@ fun test5(x: int) {
     __expect_type([], "[]");
     __expect_type([x], "[int]");
     __expect_type([x, x >= 1], "[int, bool]");
-    __expect_type([x, x >= 1, null as slice], "[int, bool, slice]");
+    __expect_type([x, x >= 1, null as slice?], "[int, bool, slice?]");
     __expect_type((x, [x], [[x], x]), "(int, [int], [[int], int])");
-    __expect_type(getMyOriginalBalanceWithExtraCurrencies(), "[int, cell]");
+    __expect_type(getMyOriginalBalanceWithExtraCurrencies(), "[int, cell?]");
 }
 
 fun test6() {
@@ -82,6 +84,17 @@ fun test7() {
     var t = createEmptyTuple();
     __expect_type(beginCell().endCell, "(builder) -> cell");
     // __expect_type(eq<(int, slice)>, "(int, slice) -> (int, slice)");
+}
+
+fun alwaysThrows(): never { throw 123; }
+fun alwaysThrowsNotAnnotated() { throw 123; }
+fun alwaysThrowsNotAnnotated2() { alwaysThrows(); }
+
+fun test9() {
+    __expect_type(alwaysThrows(), "never");
+    __expect_type(alwaysThrows, "() -> never");
+    __expect_type(alwaysThrowsNotAnnotated(), "void");
+    __expect_type(alwaysThrowsNotAnnotated2(), "void");
 }
 
 

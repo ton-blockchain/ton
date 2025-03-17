@@ -1,15 +1,15 @@
 import "@stdlib/tvm-dicts"
 
-fun addIntToIDict(mutate self: cell, key: int, number: int): void {
+fun addIntToIDict(mutate self: cell?, key: int, number: int): void {
     return self.iDictSetBuilder(32, key, beginCell().storeInt(number, 32));
 }
 
-fun calculateDictLen(d: cell) {
+fun calculateDictLen(d: cell?) {
     var len = 0;
     var (k, v, f) = d.uDictGetFirst(32);
     while (f) {
         len += 1;
-        (k, v, f) = d.uDictGetNext(32, k);
+        (k, v, f) = d.uDictGetNext(32, k!);
     }
     return len;
 }
@@ -25,13 +25,13 @@ fun loadTwoDigitNumberFromSlice(mutate self: slice): int {
 fun test101(getK1: int, getK2: int, getK3: int) {
     var dict = createEmptyDict();
     dict.uDictSetBuilder(32, 1, beginCell().storeUint(1, 32));
-    var (old1: slice, found1) = dict.uDictSetAndGet(32, getK1, beginCell().storeUint(2, 32).endCell().beginParse());
-    var (old2: slice, found2) = dict.uDictSetAndGet(32, getK2, beginCell().storeUint(3, 32).endCell().beginParse());
-    var (cur3: slice, found3) = dict.uDictGet(32, getK3);
+    var (old1: slice?, found1) = dict.uDictSetAndGet(32, getK1, beginCell().storeUint(2, 32).endCell().beginParse());
+    var (old2: slice?, found2) = dict.uDictSetAndGet(32, getK2, beginCell().storeUint(3, 32).endCell().beginParse());
+    var (cur3: slice?, found3) = dict.uDictGet(32, getK3);
     return (
-        found1 ? old1.loadUint(32) : -1,
-        found2 ? old2.loadUint(32) : -1,
-        found3 ? cur3.loadUint(32) : -1
+        found1 ? old1!.loadUint(32) : -1,
+        found2 ? old2!.loadUint(32) : -1,
+        found3 ? cur3!.loadUint(32) : -1
     );
 }
 
@@ -47,7 +47,7 @@ fun test102() {
     while (!shouldBreak) {
         var (kDel, kVal, wasDel) = dict.iDictDeleteLastAndGet(32);
         if (wasDel) {
-            deleted.tuplePush([kDel, kVal.loadInt(32)]);
+            deleted.tuplePush([kDel, kVal!.loadInt(32)]);
         } else {
             shouldBreak = true;
         }
@@ -82,14 +82,14 @@ fun test104() {
     var (old2, _) = dict.sDictDeleteAndGet(32, "key1");
     var (restK, restV, _) = dict.sDictGetFirst(32);
     var (restK1, restV1, _) = dict.sDictDeleteLastAndGet(32);
-    assert (restK.isSliceBitsEqual(restK1)) throw 123;
-    assert (restV.isSliceBitsEqual(restV1)) throw 123;
+    assert (restK!.isSliceBitsEqual(restK1!)) throw 123;
+    assert (restV!.isSliceBitsEqual(restV1!)) throw 123;
     return (
-        old1.loadTwoDigitNumberFromSlice(),
-        old2.loadTwoDigitNumberFromSlice(),
-        restV.loadTwoDigitNumberFromSlice(),
-        restK.loadTwoDigitNumberFromSlice(),
-        restK.loadTwoDigitNumberFromSlice()
+        old1!.loadTwoDigitNumberFromSlice(),
+        old2!.loadTwoDigitNumberFromSlice(),
+        restV!.loadTwoDigitNumberFromSlice(),
+        restK!.loadTwoDigitNumberFromSlice(),
+        restK!.loadTwoDigitNumberFromSlice()
     );
 }
 

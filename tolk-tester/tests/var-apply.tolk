@@ -138,6 +138,43 @@ fun testIndexedAccessApply() {
     return functions2.0(functions1.1(b)).loadInt(32);
 }
 
+fun getNullable4(): int? { return 4; }
+fun myBeginCell(): builder? asm "NEWC";
+
+@method_id(108)
+fun testCallingNotNull() {
+    var n4: () -> int? = getNullable4;
+    var creator: (() -> builder?)? = myBeginCell;
+    var end2: [int, (builder -> cell)?] = [0, endCell];
+    var c: cell = end2.1!((creator!()!)!.storeInt(getNullable4()!, 32));
+    return c.beginParse().loadInt(32);
+}
+
+fun sumOfTensorIfNotNull(t: (int, int)?) {
+    if (t == null) { return 0; }
+    return t!.0 + t!.1;
+}
+
+@method_id(109)
+fun testTypeTransitionOfVarCall() {
+    var summer = sumOfTensorIfNotNull;
+    var hh1 = [1, null];
+    var tt1 = (3, 4);
+    return (summer(null), summer((1,2)), summer(hh1.1), summer(tt1));
+}
+
+fun makeTensor(x1: int, x2: int, x3: int, x4: int, x5: int) {
+    return (x1, x2, x3, x4, x5);
+}
+
+fun eq<T>(x: T): T { return x; }
+
+@method_id(110)
+fun testVarsModificationInsideVarCall(x: int) {
+    var cb = makeTensor;
+    return x > 3 ? cb(x, x += 5, eq(x *= x), x, eq(x)) : null;
+}
+
 fun main() {}
 
 /**
@@ -148,4 +185,8 @@ fun main() {}
 @testcase | 105 |    | 1
 @testcase | 106 |    | 1 1 [ 2 ] [ 2 ]
 @testcase | 107 |    | 65537
+@testcase | 108 |    | 4
+@testcase | 109 |    | 0 3 0 7
+@testcase | 110 | 5  | 5 10 100 100 100 -1
+@testcase | 110 | 0  | (null) (null) (null) (null) (null) 0
  */
