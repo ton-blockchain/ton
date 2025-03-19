@@ -68,7 +68,7 @@ fun doNothing(): void {}
 
 @method_id(107)
 fun test7() {
-    if (random()) { return doNothing() }
+    if (random.uint256()) { return doNothing() }
     // here we test that no "missing return" error
 }
 

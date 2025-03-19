@@ -9,7 +9,7 @@ fun main(): int {
 fun my_begin_cell(): builder
 asm "NEWC";
 @pure
-fun my_end_cell(b: builder): cell
+fun builder.my_end_cell(self): cell
 asm "ENDC";
 @pure
 fun my_begin_parse(c: cell): slice

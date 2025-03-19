@@ -11,6 +11,9 @@ struct Point { x: int; y: int }
 type PointAlias = Point;
 type PointAlias2 = PointAlias;
 
+fun rand(): uint256
+    asm "RANDU256";
+
 fun test1(x: MInt): MVoid {
     var y = x;
     var z: MInt = 2;
@@ -24,14 +27,14 @@ fun test1(x: MInt): MVoid {
     __expect_type(~x, "int");
     __expect_type(x as int, "int");
     __expect_type(x as int8, "int8");
-    __expect_type(random() ? x : y, "MInt");
+    __expect_type(rand() ? x : y, "MInt");
     __expect_type((x, 1, y), "(MInt, int, MInt)");
 
-    __expect_type(random() ? (1, 2) : (1, 2) as Pair2_v1, "(int, int)");
-    __expect_type(random() ? (1, 2) : (1, 2) as Pair2_v2, "(int, int)");
-    __expect_type(random() ? (1, 2) as Pair2_v1 : (1, 2), "Pair2_v1");
-    __expect_type(random() ? (1, 2) as Pair2_v1 : (1, 2) as Pair2_v2, "(int, int)");
-    __expect_type(random() ? (1, 2) as Pair2_v2 : (1, 2) as Pair2_v2, "Pair2_v2");
+    __expect_type(rand() ? (1, 2) : (1, 2) as Pair2_v1, "(int, int)");
+    __expect_type(rand() ? (1, 2) : (1, 2) as Pair2_v2, "(int, int)");
+    __expect_type(rand() ? (1, 2) as Pair2_v1 : (1, 2), "Pair2_v1");
+    __expect_type(rand() ? (1, 2) as Pair2_v1 : (1, 2) as Pair2_v2, "(int, int)");
+    __expect_type(rand() ? (1, 2) as Pair2_v2 : (1, 2) as Pair2_v2, "Pair2_v2");
 
     __expect_type(!x, "bool");
 
@@ -73,10 +76,10 @@ fun test4(x: MIntN, y: MIntN) {
     }
     __expect_type(x, "MInt?");
     __expect_type(x!, "MInt");
-    __expect_type(random() ? x : y, "MInt?");
-    __expect_type(random() ? x : 0, "MInt?");
-    __expect_type(random() ? 0 : x, "int?");
-    __expect_type(random() ? 0 : x!, "int");
+    __expect_type(rand() ? x : y, "MInt?");
+    __expect_type(rand() ? x : 0, "MInt?");
+    __expect_type(rand() ? 0 : x, "int?");
+    __expect_type(rand() ? 0 : x!, "int");
     return y!;
 }
 

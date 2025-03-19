@@ -2,7 +2,7 @@
 fun empty_tuple2(): tuple
 asm "NIL";
 @pure
-fun tpush2<X>(mutate self: tuple, x: X): void
+fun tuple.tpush2<X>(mutate self, x: X): void
 asm "TPUSH";
 
 @pure
@@ -15,11 +15,14 @@ asm (z y x -> 0) "3 TUPLE";
 fun asm_func_3(x: int, y: int, z: int): tuple
 asm (y z x -> 0) "3 TUPLE";
 @pure
+fun int.asm_func_3(self, y: int, z: int): tuple
+asm (y z self -> 0) "3 TUPLE";
+@pure
 fun asm_func_4(a: int, b: (int, (int, int)), c: int): tuple
 asm (b a c -> 0) "5 TUPLE";
 
 @pure
-fun asm_func_modify(mutate self: tuple, b: int, c: int): void
+fun tuple.asm_func_modify(mutate self, b: int, c: int): void
 asm (c b self) "SWAP TPUSH SWAP TPUSH";
 
 global t: tuple;

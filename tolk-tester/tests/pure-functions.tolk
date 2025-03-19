@@ -11,7 +11,7 @@ fun f_pure2(): int {
 
 @pure
 fun get_contract_data(): (int, int) {
-    var c: cell = getContractData();
+    var c: cell = contract.getData();
     var cs: slice = c.beginParse();
     cs.loadBits(32);
     var value: int = cs.loadUint(16);
@@ -20,7 +20,7 @@ fun get_contract_data(): (int, int) {
 
 fun save_contract_data(value: int) {
     var b: builder = beginCell().storeInt(1, 32).storeUint(value, 16);
-    setContractData(b.endCell());
+    contract.setData(b.endCell());
 }
 
 @pure

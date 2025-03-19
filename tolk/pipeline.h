@@ -50,7 +50,7 @@ void pipeline_generate_fif_output_to_std_cout();
 
 // these pipes also can be called per-function individually
 // they are called for instantiated generics functions, when `f<T>` is deeply cloned as `f<int>`
-FunctionPtr pipeline_register_instantiated_generic_function(FunctionPtr base_fun_ref, AnyV cloned_v, const GenericsSubstitutions* substitutedTs);
+FunctionPtr pipeline_register_instantiated_generic_function(FunctionPtr base_fun_ref, AnyV cloned_v, std::string&& name, const GenericsSubstitutions* substitutedTs);
 
 void pipeline_resolve_identifiers_and_assign_symbols(FunctionPtr);
 void pipeline_resolve_types_and_aliases(FunctionPtr);
@@ -58,11 +58,11 @@ void pipeline_calculate_rvalue_lvalue(FunctionPtr);
 void pipeline_detect_unreachable_statements(FunctionPtr);
 void pipeline_infer_types_and_calls_and_fields(FunctionPtr);
 
-StructPtr pipeline_register_instantiated_generic_struct(StructPtr base_struct_ref, AnyV cloned_v, const GenericsSubstitutions* substitutedTs);
+StructPtr pipeline_register_instantiated_generic_struct(StructPtr base_struct_ref, AnyV cloned_v, std::string&& name, const GenericsSubstitutions* substitutedTs);
 void pipeline_resolve_identifiers_and_assign_symbols(StructPtr);
 void pipeline_resolve_types_and_aliases(StructPtr);
 
-AliasDefPtr pipeline_register_instantiated_generic_alias(AliasDefPtr base_alias_ref, AnyV cloned_v, const GenericsSubstitutions* substitutedTs);
+AliasDefPtr pipeline_register_instantiated_generic_alias(AliasDefPtr base_alias_ref, AnyV cloned_v, std::string&& name, const GenericsSubstitutions* substitutedTs);
 void pipeline_resolve_types_and_aliases(AliasDefPtr);
 
 } // namespace tolk

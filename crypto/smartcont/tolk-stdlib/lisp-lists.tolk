@@ -2,7 +2,7 @@
 tolk 0.11
 
 /**
-    Lisp-style lists are nested 2-elements tuples: `(1, (2, (3, null)))` represents list `[1, 2, 3]`.
+    Lisp-style lists are nested 2-elements tuples: `[1, [2, [3, null]]]` represents list `[1, 2, 3]`.
     Elements of a list can be of different types.
     Empty list is conventionally represented as TVM `null` value.
  */
@@ -21,12 +21,6 @@ fun listPrepend<X>(head: X, tail: tuple?): tuple
 @pure
 fun listSplit<X>(list: tuple): (X, tuple?)
     asm "UNCONS";
-
-/// Extracts the tail and the head of lisp-style list.
-/// After extracting the last element, tuple is assigned to null.
-@pure
-fun listNext<X>(mutate self: tuple?): X
-    asm( -> 1 0) "UNCONS";
 
 /// Returns the head of lisp-style list.
 @pure

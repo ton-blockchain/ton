@@ -40,16 +40,18 @@ static std::vector<LocalVarData> define_builtin_parameters(const std::vector<Typ
 }
 
 static void define_builtin_func(const std::string& name, const std::vector<TypePtr>& params_types, TypePtr return_type, const GenericsDeclaration* genericTs, const simple_compile_func_t& func, int flags) {
-  auto* f_sym = new FunctionData(name, {}, return_type, define_builtin_parameters(params_types, flags), flags, genericTs, nullptr, new FunctionBodyBuiltin(func), nullptr);
+  auto* f_sym = new FunctionData(name, {}, "", nullptr, return_type, define_builtin_parameters(params_types, flags), flags, genericTs, nullptr, new FunctionBodyBuiltin(func), nullptr);
   G.symtable.add_function(f_sym);
 }
 
-static void define_builtin_func(const std::string& name, const std::vector<TypePtr>& params_types, TypePtr return_type, const GenericsDeclaration* genericTs, const simple_compile_func_t& func, int flags,
-                                std::initializer_list<int> arg_order, std::initializer_list<int> ret_order) {
-  auto* f_sym = new FunctionData(name, {}, return_type, define_builtin_parameters(params_types, flags), flags, genericTs, nullptr, new FunctionBodyBuiltin(func), nullptr);
+static void define_builtin_method(const std::string& name, TypePtr receiver_type, const std::vector<TypePtr>& params_types, TypePtr return_type, const GenericsDeclaration* genericTs, const simple_compile_func_t& func, int flags,
+                                std::initializer_list<int> arg_order = {}, std::initializer_list<int> ret_order = {}) {
+  std::string method_name = name.substr(name.find('.') + 1);
+  auto* f_sym = new FunctionData(name, {}, std::move(method_name), receiver_type, return_type, define_builtin_parameters(params_types, flags), flags, genericTs, nullptr, new FunctionBodyBuiltin(func), nullptr);
   f_sym->arg_order = arg_order;
   f_sym->ret_order = ret_order;
   G.symtable.add_function(f_sym);
+  G.all_methods.push_back(f_sym);
 }
 
 void FunctionBodyBuiltin::compile(AsmOpList& dest, std::vector<VarDescr>& out, std::vector<VarDescr>& in,
@@ -988,10 +990,10 @@ static AsmOp compile_bool_const(std::vector<VarDescr>& res, std::vector<VarDescr
   return AsmOp::Const(loc, val ? "TRUE" : "FALSE");
 }
 
-// fun loadInt    (mutate s: slice, len: int): int   asm(s len -> 1 0) "LDIX";
-// fun loadUint   (mutate s: slice, len: int): int   asm( -> 1 0) "LDUX";
-// fun preloadInt (s: slice, len: int): int          asm "PLDIX";
-// fun preloadUint(s: slice, len: int): int          asm "PLDUX";
+// fun slice.loadInt    (mutate self, len: int): int   asm(s len -> 1 0) "LDIX";
+// fun slice.loadUint   (mutate self, len: int): int   asm( -> 1 0) "LDUX";
+// fun slice.preloadInt (self, len: int): int          asm "PLDIX";
+// fun slice.preloadUint(self, len: int): int          asm "PLDUX";
 static AsmOp compile_fetch_int(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc, bool fetch, bool sgnd) {
   tolk_assert(args.size() == 2 && res.size() == 1 + (unsigned)fetch);
   auto &y = args[1], &r = res.back();
@@ -1013,8 +1015,8 @@ static AsmOp compile_fetch_int(std::vector<VarDescr>& res, std::vector<VarDescr>
   return exec_op(loc, (fetch ? "LD"s : "PLD"s) + (sgnd ? "IX" : "UX"), 2, 1 + (unsigned)fetch);
 }
 
-// fun storeInt  (mutate self: builder, x: int, len: int): self   asm(x b len) "STIX";
-// fun storeUint (mutate self: builder, x: int, len: int): self   asm(x b len) "STUX";
+// fun builder.storeInt  (mutate self, x: int, len: int): self   asm(x b len) "STIX";
+// fun builder.storeUint (mutate self, x: int, len: int): self   asm(x b len) "STUX";
 static AsmOp compile_store_int(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc, bool sgnd) {
   tolk_assert(args.size() == 3 && res.size() == 1);
   auto& z = args[2];
@@ -1025,8 +1027,8 @@ static AsmOp compile_store_int(std::vector<VarDescr>& res, std::vector<VarDescr>
   return exec_op(loc, "ST"s + (sgnd ? "IX" : "UX"), 3, 1);
 }
 
-// fun loadBits   (mutate self: slice, len: int): self    asm(s len -> 1 0) "LDSLICEX"
-// fun preloadBits(self: slice, len: int): slice          asm(s len -> 1 0) "PLDSLICEX"
+// fun slice.loadBits   (mutate self, len: int): self    asm(s len -> 1 0) "LDSLICEX"
+// fun slice.preloadBits(self, len: int): slice          asm(s len -> 1 0) "PLDSLICEX"
 static AsmOp compile_fetch_slice(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc, bool fetch) {
   tolk_assert(args.size() == 2 && res.size() == 1 + (unsigned)fetch);
   auto& y = args[1];
@@ -1041,8 +1043,8 @@ static AsmOp compile_fetch_slice(std::vector<VarDescr>& res, std::vector<VarDesc
   return exec_op(loc, fetch ? "LDSLICEX" : "PLDSLICEX", 2, 1 + (unsigned)fetch);
 }
 
-// fun tupleAt<X>(t: tuple, index: int): X   asm "INDEXVAR";
-static AsmOp compile_tuple_at(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
+// fun tuple.get<X>(t: tuple, index: int): X   asm "INDEXVAR";
+static AsmOp compile_tuple_get(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
   tolk_assert(args.size() == 2 && res.size() == 1);
   auto& y = args[1];
   if (y.is_int_const() && y.int_const >= 0 && y.int_const < 16) {
@@ -1052,7 +1054,7 @@ static AsmOp compile_tuple_at(std::vector<VarDescr>& res, std::vector<VarDescr>&
   return exec_op(loc, "INDEXVAR", 2, 1);
 }
 
-// fun tupleSetAt<X>(mutate self: tuple, value: X, index: int): void   asm "SETINDEXVAR";
+// fun tuple.set<X>(mutate self: tuple, value: X, index: int): void   asm "SETINDEXVAR";
 static AsmOp compile_tuple_set_at(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
   tolk_assert(args.size() == 3 && res.size() == 1);
   auto& y = args[2];
@@ -1063,17 +1065,17 @@ static AsmOp compile_tuple_set_at(std::vector<VarDescr>& res, std::vector<VarDes
   return exec_op(loc, "SETINDEXVAR", 2, 1);
 }
 
-// fun debugDumpStack(): void   asm "DUMPSTK";
+// fun debug.dumpStack(): void   asm "DUMPSTK";
 static AsmOp compile_dumpstk(std::vector<VarDescr>&, std::vector<VarDescr>&, SrcLocation loc) {
   return AsmOp::Custom(loc, "DUMPSTK", 0, 0);
 }
 
-// fun debugPrintString<T>(x: T): void   asm "STRDUMP";
+// fun debug.printString<T>(x: T): void   asm "STRDUMP";
 static AsmOp compile_strdump(std::vector<VarDescr>&, std::vector<VarDescr>&, SrcLocation loc) {
   return AsmOp::Custom(loc, "STRDUMP DROP", 1, 1);
 }
 
-// fun debugPrint<T>(x: T): void;
+// fun debug.print<T>(x: T): void;
 static AsmOp compile_debug_print_to_string(std::vector<VarDescr>&, std::vector<VarDescr>&, SrcLocation loc) {
   return AsmOp::Custom(loc, "s0 DUMP DROP", 1, 1);
 }
@@ -1116,15 +1118,17 @@ void define_builtins() {
   TypePtr Tuple = TypeDataTuple::create();
   TypePtr Never = TypeDataNever::create();
 
-  std::vector<GenericsDeclaration::GenericsItem> itemsT;
-  itemsT.emplace_back("T");
   TypePtr typeT = TypeDataGenericT::create("T");
-  const GenericsDeclaration* declGenericT = new GenericsDeclaration(std::move(itemsT));
+  const GenericsDeclaration* declGenericT = new GenericsDeclaration(std::vector<std::string_view>{"T"}, 0);
 
   std::vector ParamsInt1 = {Int};
   std::vector ParamsInt2 = {Int, Int};
   std::vector ParamsInt3 = {Int, Int, Int};
   std::vector ParamsSliceInt = {Slice, Int};
+
+  // these types are defined in stdlib, currently unknown
+  // see patch_builtins_after_stdlib_loaded() below
+  TypePtr debug = TypeDataUnknown::create();
 
   // builtin operators
   // they are internally stored as functions, because at IR level, there is no difference
@@ -1280,48 +1284,48 @@ void define_builtins() {
   define_builtin_func("mulDivMod", ParamsInt3, TypeDataTensor::create({Int, Int}), nullptr,
                               compile_muldivmod,
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("loadInt", ParamsSliceInt, Int, nullptr,
+  define_builtin_method("slice.loadInt", Slice, ParamsSliceInt, Int, nullptr,
                               std::bind(compile_fetch_int, _1, _2, _3, true, true),
                                 FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf,
                                 {}, {1, 0});
-  define_builtin_func("loadUint", ParamsSliceInt, Int, nullptr,
+  define_builtin_method("slice.loadUint", Slice, ParamsSliceInt, Int, nullptr,
                               std::bind(compile_fetch_int, _1, _2, _3, true, false),
                                 FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf,
                                 {}, {1, 0});
-  define_builtin_func("loadBits", ParamsSliceInt, Slice, nullptr,
+  define_builtin_method("slice.loadBits", Slice, ParamsSliceInt, Slice, nullptr,
                               std::bind(compile_fetch_slice, _1, _2, _3, true),
                                 FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf,
                                 {}, {1, 0});
-  define_builtin_func("preloadInt", ParamsSliceInt, Int, nullptr,
+  define_builtin_method("slice.preloadInt", Slice, ParamsSliceInt, Int, nullptr,
                               std::bind(compile_fetch_int, _1, _2, _3, false, true),
                                 FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf);
-  define_builtin_func("preloadUint", ParamsSliceInt, Int, nullptr,
+  define_builtin_method("slice.preloadUint", Slice, ParamsSliceInt, Int, nullptr,
                               std::bind(compile_fetch_int, _1, _2, _3, false, false),
                                 FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf);
-  define_builtin_func("preloadBits", ParamsSliceInt, Slice, nullptr,
+  define_builtin_method("slice.preloadBits", Slice, ParamsSliceInt, Slice, nullptr,
                               std::bind(compile_fetch_slice, _1, _2, _3, false),
                                 FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf);
-  define_builtin_func("storeInt", {Builder, Int, Int}, Unit, nullptr,
+  define_builtin_method("builder.storeInt", Builder, {Builder, Int, Int}, Unit, nullptr,
                               std::bind(compile_store_int, _1, _2, _3, true),
                                 FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf,
                                 {1, 0, 2}, {});
-  define_builtin_func("storeUint", {Builder, Int, Int}, Unit, nullptr,
+  define_builtin_method("builder.storeUint", Builder, {Builder, Int, Int}, Unit, nullptr,
                               std::bind(compile_store_int, _1, _2, _3, false),
                                 FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf,
                                 {1, 0, 2}, {});
-  define_builtin_func("tupleAt", {Tuple, Int}, typeT, declGenericT,
-                              compile_tuple_at,
+  define_builtin_method("tuple.get", Tuple, {Tuple, Int}, typeT, declGenericT,
+                              compile_tuple_get,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf);
-  define_builtin_func("tupleSetAt", {Tuple, typeT, Int}, Unit, declGenericT,
+  define_builtin_method("tuple.set", Tuple, {Tuple, typeT, Int}, Unit, declGenericT,
                               compile_tuple_set_at,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf);
-  define_builtin_func("debugPrint", {typeT}, Unit, declGenericT,
+  define_builtin_method("debug.print", debug, {typeT}, Unit, declGenericT,
                                 compile_debug_print_to_string,
                                 0);
-  define_builtin_func("debugPrintString", {typeT}, Unit, declGenericT,
+  define_builtin_method("debug.printString", debug, {typeT}, Unit, declGenericT,
                                 compile_strdump,
                                 0);
-  define_builtin_func("debugDumpStack", {}, Unit, nullptr,
+  define_builtin_method("debug.dumpStack", debug, {}, Unit, nullptr,
                                 compile_dumpstk,
                                 0);
 
@@ -1331,6 +1335,19 @@ void define_builtins() {
   define_builtin_func("__expect_type", {TypeDataUnknown::create(), Slice}, Unit, nullptr,
                                 compile_expect_type,
                                 FunctionData::flagMarkedAsPure);
+}
+
+// there are some built-in functions that operate on types declared in stdlib (like Cell<T>)
+// that's why these symbols were undefined, and when builtins were registered, they were set to unknown
+// after all files have been loaded, symbols have been registered, and aliases exist,
+// we patch that earlier registered built-in functions providing types that now exist
+void patch_builtins_after_stdlib_loaded() {
+  StructPtr struct_debug = lookup_global_symbol("debug")->try_as<StructPtr>();
+  TypePtr debug = TypeDataStruct::create(struct_debug);
+
+  lookup_function("debug.print")->mutate()->receiver_type = debug;
+  lookup_function("debug.printString")->mutate()->receiver_type = debug;
+  lookup_function("debug.dumpStack")->mutate()->receiver_type = debug;
 }
 
 }  // namespace tolk

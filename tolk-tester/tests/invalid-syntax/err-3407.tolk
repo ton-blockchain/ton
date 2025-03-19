@@ -7,5 +7,5 @@ not nested
 
 /**
 @compilation_should_fail
-@stderr error: expected fun or get, got `*`
+@stderr error: expected top-level declaration, got `*`
 */

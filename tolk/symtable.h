@@ -94,7 +94,7 @@ typedef std::variant<
 > FunctionBody;
 
 struct FunctionData final : Symbol {
-  static constexpr int EMPTY_METHOD_ID = -10;
+  static constexpr int EMPTY_TVM_METHOD_ID = -10;
 
   enum {
     flagInline = 1,             // marked `@inline`
@@ -103,7 +103,7 @@ struct FunctionData final : Symbol {
     flagUsedAsNonCall = 8,      // used not only as `f()`, but as a 1-st class function (assigned to var, pushed to tuple, etc.)
     flagMarkedAsPure = 16,      // declared as `pure`, can't call impure and access globals, unused invocations are optimized out
     flagImplicitReturn = 32,    // control flow reaches end of function, so it needs implicit return at the end
-    flagGetMethod = 64,         // was declared via `get func(): T`, method_id is auto-assigned
+    flagContractGetter = 64,    // was declared via `get func(): T`, tvm_method_id is auto-assigned
     flagIsEntrypoint = 128,     // it's `main` / `onExternalMessage` / etc.
     flagHasMutateParams = 256,  // has parameters declared as `mutate`
     flagAcceptsSelf = 512,      // is a member function (has `self` first parameter)
@@ -112,8 +112,12 @@ struct FunctionData final : Symbol {
     flagCompileTimeOnly = 4096, // calculated only at compile-time for constant arguments: `ton("0.05")`, `stringCrc32`, and others
   };
 
-  int method_id = EMPTY_METHOD_ID;
+  int tvm_method_id = EMPTY_TVM_METHOD_ID;
   int flags;
+
+  std::string method_name;                    // for `fun Container<T>.store<U>` here is "store"
+  AnyTypeV receiver_type_node;                // for `fun Container<T>.store<U>` here is `Container<T>`
+  TypePtr receiver_type = nullptr;            // = resolved receiver_type_node
 
   std::vector<LocalVarData> parameters;
   std::vector<int> arg_order, ret_order;
@@ -128,9 +132,11 @@ struct FunctionData final : Symbol {
   FunctionBody body;
   AnyV ast_root;                                  // V<ast_function_declaration> for user-defined (not builtin)
 
-  FunctionData(std::string name, SrcLocation loc, AnyTypeV return_type_node, std::vector<LocalVarData> parameters, int initial_flags, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, FunctionBody body, AnyV ast_root)
+  FunctionData(std::string name, SrcLocation loc, std::string method_name, AnyTypeV receiver_type_node, AnyTypeV return_type_node, std::vector<LocalVarData> parameters, int initial_flags, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, FunctionBody body, AnyV ast_root)
     : Symbol(std::move(name), loc)
     , flags(initial_flags)
+    , method_name(std::move(method_name))
+    , receiver_type_node(receiver_type_node)
     , parameters(std::move(parameters))
     , return_type_node(return_type_node)
     , genericTs(genericTs)
@@ -138,9 +144,12 @@ struct FunctionData final : Symbol {
     , body(body)
     , ast_root(ast_root) {
   }
-  FunctionData(std::string name, SrcLocation loc, TypePtr declared_return_type, std::vector<LocalVarData> parameters, int initial_flags, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, FunctionBody body, AnyV ast_root)
+  FunctionData(std::string name, SrcLocation loc, std::string method_name, TypePtr receiver_type, TypePtr declared_return_type, std::vector<LocalVarData> parameters, int initial_flags, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, FunctionBody body, AnyV ast_root)
     : Symbol(std::move(name), loc)
     , flags(initial_flags)
+    , method_name(std::move(method_name))
+    , receiver_type_node(nullptr)
+    , receiver_type(receiver_type)
     , parameters(std::move(parameters))
     , return_type_node(nullptr)            // for built-in functions, defined in sources
     , declared_return_type(declared_return_type)
@@ -165,6 +174,8 @@ struct FunctionData final : Symbol {
   bool is_code_function() const { return std::holds_alternative<FunctionBodyCode*>(body); }
   bool is_asm_function() const { return std::holds_alternative<FunctionBodyAsm*>(body); }
   bool is_builtin_function() const { return ast_root == nullptr; }
+  bool is_method() const { return !method_name.empty(); }
+  bool is_static_method() const { return is_method() && !does_accept_self(); }
 
   bool is_generic_function() const { return genericTs != nullptr; }
   bool is_instantiation_of_generic_function() const { return substitutedTs != nullptr; }
@@ -175,8 +186,8 @@ struct FunctionData final : Symbol {
   bool is_used_as_noncall() const { return flags & flagUsedAsNonCall; }
   bool is_marked_as_pure() const { return flags & flagMarkedAsPure; }
   bool is_implicit_return() const { return flags & flagImplicitReturn; }
-  bool is_get_method() const { return flags & flagGetMethod; }
-  bool is_method_id_not_empty() const { return method_id != EMPTY_METHOD_ID; }
+  bool is_contract_getter() const { return flags & flagContractGetter; }
+  bool has_tvm_method_id() const { return tvm_method_id != EMPTY_TVM_METHOD_ID; }
   bool is_entrypoint() const { return flags & flagIsEntrypoint; }
   bool has_mutate_params() const { return flags & flagHasMutateParams; }
   bool does_accept_self() const { return flags & flagAcceptsSelf; }
@@ -188,6 +199,7 @@ struct FunctionData final : Symbol {
   bool does_need_codegen() const;
 
   FunctionData* mutate() const { return const_cast<FunctionData*>(this); }
+  void assign_resolved_receiver_type(TypePtr receiver_type, const GenericsDeclaration* genericTs, std::string&& name_prefix);
   void assign_resolved_type(TypePtr declared_return_type);
   void assign_inferred_type(TypePtr inferred_return_type, TypePtr inferred_full_type);
   void assign_is_used_as_noncall();
@@ -326,6 +338,15 @@ struct StructData final : Symbol {
   std::string as_human_readable() const;
 };
 
+struct TypeReferenceUsedAsSymbol final : Symbol {
+  TypePtr resolved_type;
+
+  TypeReferenceUsedAsSymbol(std::string name, SrcLocation loc, TypePtr resolved_type)
+    : Symbol(std::move(name), loc)
+    , resolved_type(resolved_type) {
+  }
+};
+
 class GlobalSymbolTable {
   std::unordered_map<uint64_t, const Symbol*> entries;
 
@@ -347,5 +368,6 @@ public:
 };
 
 const Symbol* lookup_global_symbol(std::string_view name);
+FunctionPtr lookup_function(std::string_view name);
 
 }  // namespace tolk

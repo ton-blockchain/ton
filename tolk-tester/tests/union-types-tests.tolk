@@ -596,7 +596,7 @@ fun test50() {
     if (match(b) { int => 1, null => null } !is int) {
         return 100
     }
-    return (b! + (match (a) { int => a, slice => a, null => a } as int|slice?).test49());
+    return (b! + test49(match (a) { int => a, slice => a, null => a } as int|slice?));
 }
 
 @method_id(151)
@@ -671,7 +671,7 @@ fun test54(): int|slice {
             __expect_type(a, "int");
             a = beginCell().storeInt(100, 32).endCell().beginParse();
             __expect_type(a, "slice");
-            if (a.getRemainingBitsCount() < 100) { a = a.loadInt(32); }
+            if (a.remainingBitsCount() < 100) { a = a.loadInt(32); }
             else { a = 0; }
             __expect_type(a, "int");
             return a;

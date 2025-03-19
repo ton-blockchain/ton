@@ -1,6 +1,6 @@
 struct A {
     ok: coins = ton("0.05"),
-    err: int = now(),
+    err: int = blockchain.now(),
 }
 
 /**

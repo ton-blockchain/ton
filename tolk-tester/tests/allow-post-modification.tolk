@@ -4,7 +4,7 @@ fun unsafe_tuple<X>(x: X): tuple
 fun inc(x: int, y: int): (int, int) {
     return (x + y, y * 10);
 }
-fun `~inc`(mutate self: int, y: int): int {
+fun int.`~inc`(mutate self, y: int): int {
     val (newX, newY) = inc(self, y);
     self = newX;
     return newY;
@@ -13,7 +13,7 @@ fun `~inc`(mutate self: int, y: int): int {
 fun eq<X>(v: X): X { return v; }
 fun eq2(v: (int, int)) { return v; }
 fun mul2(mutate dest: int, v: int): int { dest = v*2; return dest; }
-fun multens(mutate self: (int, int), v: (int, int)): (int, int) { var (f, s) = self; var (m1, m2) = v; self = (f*m1, s*m2); return self; }
+fun (int, int).multens(mutate self, v: (int, int)): (int, int) { var (f, s) = self; var (m1, m2) = v; self = (f*m1, s*m2); return self; }
 
 @method_id(11)
 fun test_return(x: int): (int, int, int, int, int, int, int) {
@@ -102,14 +102,14 @@ fun test_assign_with_mutate(x: int) {
 @method_id(23)
 fun test_assign_tensor(x: (int, int)) {
     var fs = (0, 0);
-    return (x, x = (20, 30), fs = x.multens((1, 2)), fs.multens(multens(mutate x, (-1, -1))), x, fs);
+    return (x, x = (20, 30), fs = x.multens((1, 2)), fs.multens(x.multens((-1, -1))), x, fs);
 }
 
 global fs: (int, int);
 @method_id(24)
 fun test_assign_tensor_global(x: (int, int)) {
     fs = (0, 0);
-    return (x, x = (20, 30), fs = x.multens((1, 2)), fs.multens(multens(mutate x, (-1, -1))), x, fs);
+    return (x, x = (20, 30), fs = x.multens((1, 2)), fs.multens(x.multens((-1, -1))), x, fs);
 }
 
 struct Point1D {
@@ -146,7 +146,7 @@ fun main() {
 
 @fif_codegen
 """
-  ~inc PROC:<{      //  self y
+  int.~inc PROC:<{      //  self y
     inc CALLDICT    //  self newY
   }>
 """

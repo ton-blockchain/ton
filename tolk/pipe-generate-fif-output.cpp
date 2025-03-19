@@ -146,8 +146,8 @@ void pipeline_generate_fif_output_to_std_cout() {
     }
 
     std::cout << "  ";
-    if (fun_ref->is_method_id_not_empty()) {
-      std::cout << fun_ref->method_id << " DECLMETHOD " << fun_ref->name << "\n";
+    if (fun_ref->has_tvm_method_id()) {
+      std::cout << fun_ref->tvm_method_id << " DECLMETHOD " << fun_ref->name << "\n";
     } else {
       std::cout << "DECLPROC " << fun_ref->name << "\n";
     }

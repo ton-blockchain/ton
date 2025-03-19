@@ -49,9 +49,18 @@ namespace tolk {
 GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
 static void fire_error_undefined_symbol(FunctionPtr cur_f, V<ast_identifier> v) {
   if (v->name == "self") {
-    throw ParseError(cur_f, v->loc, "using `self` in a non-member function (it does not accept the first `self` parameter)");
+    fire(cur_f, v->loc, "using `self` in a non-member function (it does not accept the first `self` parameter)");
   } else {
-    throw ParseError(cur_f, v->loc, "undefined symbol `" + static_cast<std::string>(v->name) + "`");
+    fire(cur_f, v->loc, "undefined symbol `" + static_cast<std::string>(v->name) + "`");
+  }
+}
+
+GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
+static void fire_error_type_used_as_symbol(FunctionPtr cur_f, V<ast_identifier> v) {
+  if (v->name == "random") {    // calling `random()`, but it's a struct, correct is `random.uint256()`
+    fire(cur_f, v->loc, "`random` is not a function, you probably want `random.uint256()`");
+  } else {
+    fire(cur_f, v->loc, "`" + static_cast<std::string>(v->name) + "` only refers to a type, but is being used as a value here");
   }
 }
 
@@ -164,11 +173,27 @@ protected:
     if (!sym) {
       fire_error_undefined_symbol(cur_f, v->get_identifier());
     }
+    if (sym->try_as<AliasDefPtr>() || sym->try_as<StructPtr>()) {
+      fire_error_type_used_as_symbol(cur_f, v->get_identifier());
+    }
     v->mutate()->assign_sym(sym);
 
     // for global functions, global vars and constants, `import` must exist
     if (!sym->try_as<LocalVarPtr>()) {
       check_import_exists_when_using_sym(cur_f, v, sym);
+    }
+  }
+
+  void visit(V<ast_dot_access> v) override {
+    try {
+      parent::visit(v->get_obj());
+    } catch (const ParseError&) {
+      if (v->get_obj()->kind == ast_reference) {
+        // for `Point.create` / `int.zero`, "undefined symbol" is fired for Point/int
+        // suppress this exception till a later pipe, it will be tried to be resolved as a type
+        return;
+      }
+      throw;
     }
   }
 
@@ -248,7 +273,7 @@ public:
 
     auto v_block = v->get_body()->as<ast_block_statement>();
     current_scope.open_scope(v->loc);
-    for (int i = 0; i < v->get_num_params(); ++i) {
+    for (int i = 0; i < fun_ref->get_num_params(); ++i) {
       current_scope.add_local_var(&fun_ref->parameters[i]);
     }
     parent::visit(v_block);
@@ -280,7 +305,7 @@ void pipeline_resolve_identifiers_and_assign_symbols() {
   AssignSymInsideFunctionVisitor visitor;
   for (const SrcFile* file : G.all_src_files) {
     for (AnyV v : file->ast->as<ast_tolk_file>()->get_toplevel_declarations()) {
-      if (auto v_func = v->try_as<ast_function_declaration>()) {
+      if (auto v_func = v->try_as<ast_function_declaration>(); v_func && !v_func->is_builtin_function()) {
         tolk_assert(v_func->fun_ref);
         if (visitor.should_visit_function(v_func->fun_ref)) {
           visitor.start_visiting_function(v_func->fun_ref, v_func);

@@ -325,15 +325,16 @@ class ASTReplicator final {
 
 public:
   // the cloned function becomes a deep copy, all AST nodes are copied, no previous pointers left
-  static V<ast_function_declaration> clone_function_ast(V<ast_function_declaration> v_orig, V<ast_identifier> new_name_ident) {
+  static V<ast_function_declaration> clone_function_ast(V<ast_function_declaration> v_orig) {
     return createV<ast_function_declaration>(
       v_orig->loc,
-      new_name_ident,
+      clone(v_orig->get_identifier()),
       clone(v_orig->get_param_list()),
       clone(v_orig->get_body()),
+      clone(v_orig->receiver_type_node),
       clone(v_orig->return_type_node),
-      clone(v_orig->genericsT_list),
-      v_orig->method_id,
+      v_orig->genericsT_list ? clone(v_orig->genericsT_list) : nullptr,
+      v_orig->tvm_method_id,
       v_orig->flags
     );
   }

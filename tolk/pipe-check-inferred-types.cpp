@@ -98,7 +98,7 @@ static void check_function_argument_mutate_back(FunctionPtr cur_f, TypePtr param
 GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
 static void fire_error_assign_always_null_to_variable(FunctionPtr cur_f, SrcLocation loc, LocalVarPtr assigned_var, bool is_assigned_null_literal) {
   std::string var_name = assigned_var->name;
-  fire(cur_f, loc, "can not infer type of `" + var_name + "`, it's always null; specify its type with `" + var_name + ": <type>`" + (is_assigned_null_literal ? " or use `null as <type>`" : ""));
+  fire(cur_f, loc, "can not infer type of `" + var_name + "`, it's always null\nspecify its type with `" + var_name + ": <type>`" + (is_assigned_null_literal ? " or use `null as <type>`" : ""));
 }
 
 // fire an error on `untypedTupleVar.0` when inferred as (int,int), or `[int, (int,int)]`, or other non-1 width in a tuple
@@ -334,20 +334,16 @@ protected:
       return;
     }
 
-    // so, we have a call `f(args)` or `obj.f(args)`, f is a global function (fun_ref) (code / asm / builtin)
-    int delta_self = 0;
-    AnyExprV dot_obj = nullptr;
-    if (auto v_dot = v->get_callee()->try_as<ast_dot_access>()) {
-      delta_self = 1;
-      dot_obj = v_dot->get_obj();
-    }
+    // so, we have a call `f(args)` or `obj.f(args)`, fun_ref is a function/method (code / asm / builtin)
+    AnyExprV self_obj = v->get_self_obj();
+    int delta_self = self_obj != nullptr;
 
-    if (dot_obj) {
+    if (self_obj) {
       const LocalVarData& param_0 = fun_ref->parameters[0];
       TypePtr param_type = param_0.declared_type;
-      check_function_argument_passed(cur_f, param_type, dot_obj, true);
+      check_function_argument_passed(cur_f, param_type, self_obj, true);
       if (param_0.is_mutate_parameter()) {
-        check_function_argument_mutate_back(cur_f, param_type, dot_obj, true);
+        check_function_argument_mutate_back(cur_f, param_type, self_obj, true);
       }
     }
     for (int i = 0; i < v->get_num_args(); ++i) {
@@ -483,8 +479,8 @@ protected:
       return true;
     }
     // `return self.someMethod()`
-    if (auto v_call = return_expr->try_as<ast_function_call>(); v_call && v_call->is_dot_call()) {
-      return v_call->fun_maybe && v_call->fun_maybe->does_return_self() && is_expr_valid_as_return_self(v_call->get_dot_obj());
+    if (auto v_call = return_expr->try_as<ast_function_call>(); v_call && v_call->get_self_obj()) {
+      return v_call->fun_maybe && v_call->fun_maybe->does_return_self() && is_expr_valid_as_return_self(v_call->get_self_obj());
     }
     // `return cond ? ... : ...`
     if (auto v_ternary = return_expr->try_as<ast_ternary_operator>()) {

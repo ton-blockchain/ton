@@ -1,7 +1,7 @@
 fun cantUnifyBytesNAndSlice(n: slice, c: bytes16) {
-    __expect_type(random() ? n : c as slice, "slice");
-    __expect_type(random() ? n : c as slice?, "slice?");
-    random() ? n : c;
+    __expect_type(random.uint256() ? n : c as slice, "slice");
+    __expect_type(random.uint256() ? n : c as slice?, "slice?");
+    random.uint256() ? n : c;
 }
 
 /**

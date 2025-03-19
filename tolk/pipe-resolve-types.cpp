@@ -143,10 +143,33 @@ static TypePtr try_parse_predefined_type(std::string_view str) {
   return nullptr;
 }
 
+static const GenericsDeclaration* combine_genericTs_from_receiver_and_declaration(TypePtr receiver_type, V<ast_genericsT_list> v_list) {
+  std::vector<std::string_view> namesT;
+  receiver_type->replace_children_custom([&namesT](TypePtr child) {
+    if (const TypeDataGenericT* asT = child->try_as<TypeDataGenericT>()) {
+      auto it_existing = std::find_if(namesT.begin(), namesT.end(), [asT](const std::string_view& prevT) {
+        return prevT == asT->nameT;
+      });
+      if (it_existing == namesT.end()) {
+        namesT.emplace_back(asT->nameT);
+      }
+    }
+    return child;
+  });
+  int n_from_receiver = static_cast<int>(namesT.size());
+
+  if (v_list) {
+    GenericsDeclaration::append_ast_list_checking_duplicates(v_list, namesT);
+  }
+
+  return new GenericsDeclaration(std::move(namesT), n_from_receiver);
+}
+
 class TypeNodesVisitorResolver {
   FunctionPtr cur_f;                                // exists if we're inside its body
   const GenericsDeclaration* genericTs;             // `<T>` if we're inside `f<T>` or `f<int>`
   const GenericsSubstitutions* substitutedTs;       // `T=int` if we're inside `f<int>`
+  bool treat_unresolved_as_genericT;                // used for receivers `fun Container<T>.create()`, T becomes generic
 
   TypePtr parse_ast_type_node(AnyTypeV v, bool allow_without_type_arguments) {
     switch (v->kind) {
@@ -168,6 +191,9 @@ class TypeNodesVisitorResolver {
         }
         if (TypePtr predefined_type = try_parse_predefined_type(text)) {
           return predefined_type;
+        }
+        if (treat_unresolved_as_genericT) {
+          return TypeDataGenericT::create(static_cast<std::string>(text));
         }
         fire_error_unknown_type_name(cur_f, loc, text);
       }
@@ -283,6 +309,9 @@ class TypeNodesVisitorResolver {
       }
       return TypeDataAlias::create(instantiate_generic_alias(alias_ref, GenericsSubstitutions(alias_ref->genericTs, type_arguments)));
     }
+    if (const TypeDataGenericT* asT = type_to_instantiate->try_as<TypeDataGenericT>()) {
+      fire_error_unknown_type_name(cur_f, loc, asT->nameT);
+    }
     // `User<int>` / `cell<cell>`
     fire(cur_f, loc, "type `" + type_to_instantiate->as_human_readable() + "` is not generic");
   }
@@ -297,10 +326,11 @@ class TypeNodesVisitorResolver {
 
 public:
 
-  TypeNodesVisitorResolver(FunctionPtr cur_f, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs)
+  TypeNodesVisitorResolver(FunctionPtr cur_f, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, bool treat_unresolved_as_genericT)
     : cur_f(cur_f)
     , genericTs(genericTs)
-    , substitutedTs(substitutedTs) {}
+    , substitutedTs(substitutedTs)
+    , treat_unresolved_as_genericT(treat_unresolved_as_genericT) {}
 
   TypePtr finalize_type_node(AnyTypeV type_node, bool allow_without_type_arguments = false) {
 #ifdef TOLK_DEBUG
@@ -321,7 +351,7 @@ public:
   }
 
   static void visit_symbol(GlobalVarPtr glob_ref) {
-    TypeNodesVisitorResolver visitor(nullptr, nullptr, nullptr);
+    TypeNodesVisitorResolver visitor(nullptr, nullptr, nullptr, false);
     TypePtr declared_type = visitor.finalize_type_node(glob_ref->type_node);
     glob_ref->mutate()->assign_resolved_type(declared_type);
   }
@@ -331,7 +361,7 @@ public:
       return;
     }
 
-    TypeNodesVisitorResolver visitor(nullptr, nullptr, nullptr);
+    TypeNodesVisitorResolver visitor(nullptr, nullptr, nullptr, false);
     TypePtr declared_type = visitor.finalize_type_node(const_ref->type_node);
     const_ref->mutate()->assign_resolved_type(declared_type);
   }
@@ -346,7 +376,7 @@ public:
     }
 
     called_stack.push_back(alias_ref);
-    TypeNodesVisitorResolver visitor(nullptr, alias_ref->genericTs, alias_ref->substitutedTs);
+    TypeNodesVisitorResolver visitor(nullptr, alias_ref->genericTs, alias_ref->substitutedTs, false);
     TypePtr underlying_type = visitor.finalize_type_node(alias_ref->underlying_type_node);
     alias_ref->mutate()->assign_resolved_type(underlying_type);
     alias_ref->mutate()->assign_visited_by_resolver();
@@ -365,7 +395,7 @@ public:
     }
 
     called_stack.push_back(struct_ref);
-    TypeNodesVisitorResolver visitor(nullptr, struct_ref->genericTs, struct_ref->substitutedTs);
+    TypeNodesVisitorResolver visitor(nullptr, struct_ref->genericTs, struct_ref->substitutedTs, false);
     for (int i = 0; i < struct_ref->get_num_fields(); ++i) {
       StructFieldPtr field_ref = struct_ref->get_field(i);
       TypePtr declared_type = visitor.finalize_type_node(field_ref->type_node);
@@ -377,7 +407,7 @@ public:
 };
 
 class ResolveTypesInsideFunctionVisitor final : public ASTVisitorFunctionBody {
-  TypeNodesVisitorResolver type_nodes_visitor{nullptr, nullptr, nullptr};
+  TypeNodesVisitorResolver type_nodes_visitor{nullptr, nullptr, nullptr, false};
 
   TypePtr finalize_type_node(AnyTypeV type_node, bool allow_without_type_arguments = false) {
     return type_nodes_visitor.finalize_type_node(type_node, allow_without_type_arguments);
@@ -415,6 +445,27 @@ protected:
   }
 
   void visit(V<ast_dot_access> v) override {
+    // for static method calls, like "int.zero()" or "Point.create()", dot obj symbol is unresolved for now
+    // so, resolve it as a type and store as a "type reference symbol"
+    if (auto obj_ref = v->get_obj()->try_as<ast_reference>()) {
+      if (obj_ref->sym == nullptr) {
+        std::string_view obj_type_name = obj_ref->get_identifier()->name;
+        AnyTypeV obj_type_node = createV<ast_type_leaf_text>(obj_ref->loc, obj_type_name);
+        if (obj_ref->has_instantiationTs()) {     // Container<int>.create
+          std::vector<AnyTypeV> inner_and_args;
+          inner_and_args.reserve(1 + obj_ref->get_instantiationTs()->size());
+          inner_and_args.push_back(obj_type_node);
+          for (int i = 0; i < obj_ref->get_instantiationTs()->size(); ++i) {
+            inner_and_args.push_back(obj_ref->get_instantiationTs()->get_item(i)->type_node);
+          }
+          obj_type_node = createV<ast_type_triangle_args>(obj_ref->loc, std::move(inner_and_args));
+        }
+        TypePtr type_as_reference = finalize_type_node(obj_type_node);
+        const Symbol* type_as_symbol = new TypeReferenceUsedAsSymbol(static_cast<std::string>(obj_type_name), obj_ref->loc, type_as_reference);
+        obj_ref->mutate()->assign_sym(type_as_symbol);
+      }
+    }
+
     // for `t.tupleAt<MyAlias>` / `obj.method<T>`, resolve "MyAlias" and "T"
     // (for function call `t.tupleAt<MyAlias>()`, this v (ast_dot_access `t.tupleAt<MyAlias>`) is callee)
     if (auto v_instantiationTs = v->get_instantiationTs()) {
@@ -448,9 +499,25 @@ public:
   }
 
   void start_visiting_function(FunctionPtr fun_ref, V<ast_function_declaration> v) override {
-    type_nodes_visitor = TypeNodesVisitorResolver(fun_ref, fun_ref->genericTs, fun_ref->substitutedTs);
+    if (fun_ref->receiver_type_node) {
+      TypeNodesVisitorResolver receiver_visitor(fun_ref, fun_ref->genericTs, fun_ref->substitutedTs, true);
+      TypePtr receiver_type = receiver_visitor.finalize_type_node(fun_ref->receiver_type_node);
+      const GenericsDeclaration* genericTs = fun_ref->genericTs;
+      if (receiver_type->has_genericT_inside()) {
+        genericTs = combine_genericTs_from_receiver_and_declaration(receiver_type, v->genericsT_list);
+      }
+      std::string name_prefix = receiver_type->as_human_readable();
+      bool embrace = receiver_type->try_as<TypeDataUnion>() && !receiver_type->try_as<TypeDataUnion>()->or_null;
+      if (embrace) {
+        name_prefix = "(" + name_prefix + ")";
+      }
+      fun_ref->mutate()->assign_resolved_receiver_type(receiver_type, genericTs, std::move(name_prefix));
+      G.symtable.add_function(fun_ref);
+    }
 
-    for (int i = 0; i < v->get_num_params(); ++i) {
+    type_nodes_visitor = TypeNodesVisitorResolver(fun_ref, fun_ref->genericTs, fun_ref->substitutedTs, false);
+
+    for (int i = 0; i < fun_ref->get_num_params(); ++i) {
       const LocalVarData& param_var = fun_ref->parameters[i];
       TypePtr declared_type = finalize_type_node(param_var.type_node);
       param_var.mutate()->assign_resolved_type(declared_type);
@@ -466,7 +533,7 @@ public:
   }
 
   void start_visiting_constant(GlobalConstPtr const_ref) {
-    type_nodes_visitor = TypeNodesVisitorResolver(nullptr, nullptr, nullptr);
+    type_nodes_visitor = TypeNodesVisitorResolver(nullptr, nullptr, nullptr, false);
 
     // `const a = 0 as int8`, resolve types there
     // same for struct field `v: int8 = 0 as int8`
@@ -474,7 +541,7 @@ public:
   }
 
   void start_visiting_struct_fields(StructPtr struct_ref) {
-    type_nodes_visitor = TypeNodesVisitorResolver(nullptr, struct_ref->genericTs, struct_ref->substitutedTs);
+    type_nodes_visitor = TypeNodesVisitorResolver(nullptr, struct_ref->genericTs, struct_ref->substitutedTs, false);
 
     // same for struct field `v: int8 = 0 as int8`
     for (StructFieldPtr field_ref : struct_ref->fields) {
@@ -490,7 +557,7 @@ void pipeline_resolve_types_and_aliases() {
 
   for (const SrcFile* file : G.all_src_files) {
     for (AnyV v : file->ast->as<ast_tolk_file>()->get_toplevel_declarations()) {
-      if (auto v_func = v->try_as<ast_function_declaration>()) {
+      if (auto v_func = v->try_as<ast_function_declaration>(); v_func && !v_func->is_builtin_function()) {
         tolk_assert(v_func->fun_ref);
         if (visitor.should_visit_function(v_func->fun_ref)) {
           visitor.start_visiting_function(v_func->fun_ref, v_func);
@@ -518,6 +585,8 @@ void pipeline_resolve_types_and_aliases() {
       }
     }
   }
+
+  patch_builtins_after_stdlib_loaded();
 }
 
 void pipeline_resolve_types_and_aliases(FunctionPtr fun_ref) {

@@ -6,7 +6,7 @@ tolk 0.11
  */
 
 /// Returns amount of gas (in gas units) consumed in current Computation Phase.
-fun getGasConsumedAtTheMoment(): int
+fun getGasConsumedAtTheMoment(): coins
     asm "GASCONSUMED";
 
 /// This function is required to be called when you process an external message (from an outer world)
@@ -33,37 +33,37 @@ fun setGasLimit(limit: int): void
     asm "SETGASLIMIT";
 
 /// Calculates fee (amount in nanotoncoins to be paid) for a transaction which consumed [gasUsed] gas units.
-fun calculateGasFee(workchain: int, gasUsed: int): int
+fun calculateGasFee(workchain: int8, gasUsed: int): coins
     asm(gasUsed workchain) "GETGASFEE";
 
 /// Same as [calculateGasFee], but without flat price (you have supposed to read https://docs.ton.org/develop/howto/fees-low-level)
-fun calculateGasFeeWithoutFlatPrice(workchain: int, gasUsed: int): int
+fun calculateGasFeeWithoutFlatPrice(workchain: int8, gasUsed: coins): coins
     asm(gasUsed workchain) "GETGASFEESIMPLE";
 
 /// Calculates amount of nanotoncoins you should pay for storing a contract of provided size for [seconds].
 /// [bits] and [cells] represent contract state (code + data).
-fun calculateStorageFee(workchain: int, seconds: int, bits: int, cells: int): int
+fun calculateStorageFee(workchain: int8, seconds: int, bits: int, cells: int): coins
     asm(cells bits seconds workchain) "GETSTORAGEFEE";
 
 /// Calculates amount of nanotoncoins you should pay to send a message of specified size.
-fun calculateMessageFee(workchain: int, bits: int, cells: int): int
+fun calculateMessageFee(workchain: int8, bits: int, cells: int): coins
     asm(cells bits workchain) "GETFORWARDFEE";
 
 /// Same as [calculateMessageFee], but without lump price (you have supposed to read https://docs.ton.org/develop/howto/fees-low-level)
-fun calculateMessageFeeWithoutLumpPrice(workchain: int, bits: int, cells: int): int
+fun calculateMessageFeeWithoutLumpPrice(workchain: int8, bits: int, cells: int): coins
     asm(cells bits workchain) "GETFORWARDFEESIMPLE";
 
 /// Calculates fee that was paid by the sender of an incoming internal message.
-fun calculateOriginalMessageFee(workchain: int, incomingFwdFee: int): int
+fun calculateOriginalMessageFee(workchain: int8, incomingFwdFee: coins): coins
     asm(incomingFwdFee workchain) "GETORIGINALFWDFEE";
 
 /// Returns the amount of nanotoncoins current contract debts for storage. ("due" and "debt" are synonyms)
 /// If it has no debt, `0` is returned.
-fun getMyStorageDuePayment(): int
+fun contract.getStorageDuePayment(): coins
     asm "DUEPAYMENT";
 
 /// Returns the amount of nanotoncoins charged for storage.
 /// (during storage phase preceeding to current computation phase)
 @pure
-fun getMyStoragePaidPayment(): int
+fun contract.getStoragePaidPayment(): coins
     asm "STORAGEFEES";

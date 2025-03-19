@@ -12,6 +12,6 @@ fun main(d: nested) {
 
 /**
 @compilation_should_fail
-@stderr struct `Wrapper<T>` can not be used as a value
+@stderr `Wrapper` only refers to a type, but is being used as a value here
 @stderr c2 = Wrapper
  */

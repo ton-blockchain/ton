@@ -3,6 +3,14 @@ type MIntN = int?;
 type MBuilder = builder;
 type CallbackIntToInt = int -> int;
 
+@pure
+fun beginParse(c: cell): slice
+    asm "CTOS";
+
+@pure
+fun endCell(b: builder): cell
+    asm "ENDC";
+
 fun getBeginCell() {
     return beginCell
 }
@@ -71,24 +79,24 @@ fun demo_handler(op: int, query_id: int, a: int, b: int): int {
 fun testVarApplyInTernary() {
     var t: tuple = createEmptyTuple();
     try {
-        t.tuplePush(demo_handler(0xF2, 122, 100, 200));
+        t.push(demo_handler(0xF2, 122, 100, 200));
     } catch(code) {
-        t.tuplePush(code);
+        t.push(code);
     }
     try {
-        t.tuplePush(demo_handler(0xF4, 122, 100, 200))
+        t.push(demo_handler(0xF4, 122, 100, 200))
     } catch(code) {
-        t.tuplePush(code)
+        t.push(code)
     }
     try {
-        t.tuplePush(demo_handler(0xF2, 122, 10, 10))
+        t.push(demo_handler(0xF2, 122, 10, 10))
     } catch(code) {
-        t.tuplePush(code)
+        t.push(code)
     }
     try {
-        t.tuplePush(demo_handler(0xF2, 123, 10, 10))
+        t.push(demo_handler(0xF2, 123, 10, 10))
     } catch(code) {
-        t.tuplePush(code)
+        t.push(code)
     }
     return t;
 }
@@ -114,22 +122,22 @@ fun testGlobalVarApply() {
 fun testVarApply2() {
     var creator = createEmptyTuple;
     var t = creator();
-    t.tuplePush(1);
-    var sizer = t.tupleSize;
+    t.push(1);
+    var sizer = t.size;
     return sizer(t);
 }
 
 fun getTupleLastGetter<X>(): (tuple) -> X {
-    return tupleLast<X>;
+    return X.last<X>;
 }
 
 @method_id(106)
 fun testVarApply3() {
     var t = createEmptyTuple();
-    t.tuplePush(1);
-    t.tuplePush([2]);
-    var getIntAt = t.tupleAt<int>;
-    var getTupleFirstInt = createEmptyTuple().tupleFirst<MInt>;
+    t.push(1);
+    t.push([2]);
+    var getIntAt = t.get<int>;
+    var getTupleFirstInt = createEmptyTuple().first<MInt>;
     var getTupleLastTuple = getTupleLastGetter<tuple>();
     return (getIntAt(t, 0), getTupleFirstInt(t), getTupleLastTuple(t), getTupleLastGetter<tuple>()(t));
 }
@@ -227,7 +235,7 @@ struct WithCallbacks {
     beginCell: builder -> cell,
 }
 
-fun doEndCellActually(w: WithCallbacks, b: builder) { return w.beginCell(b); }
+fun WithCallbacks.doEndCellActually(self, b: builder) { return self.beginCell(b); }
 
 @method_id(115)
 fun testCallableFields() {
@@ -258,6 +266,54 @@ fun testCallableGenericField() {
     return (w1.value(5), w2.value!(9), wrap(w_f(justAdd2)).value.value(78));
 }
 
+struct Point {
+    x: int;
+    y: int;
+}
+
+fun Point.createXY(x: int, y: int): Point { return {x,y}; }
+fun Point.createFrom<U,V>(x: U, y: V): Point { return {x,y}; }
+
+fun Point.maxCoord(self) { return self.x > self.y ? self.x : self.y; }
+
+@method_id(117)
+fun testStaticAndInstanceMethods() {
+    var fPointCreateXY = Point.createXY;
+    var p1 = fPointCreateXY(5,6);
+    var fPointCreateFrom = Point.createFrom<int8,uint16>;
+    var p2 = fPointCreateFrom(7,8);
+    __expect_type(p1, "Point");
+    __expect_type(p2, "Point");
+    var getM1 = Point.maxCoord;
+    var getM2 = p1.maxCoord;
+    return (getM1(p1), (getM2 = p2.maxCoord)(p2));
+}
+
+fun Wrapper<T?>.createFromNull(): Wrapper<T?> {
+    return {value: null};
+}
+fun Wrapper<T>.createFrom<U>(value: U): Wrapper<T> {
+    return {value: value as T};
+}
+fun Wrapper<T>.equalsNotNull<U>(self, anotherW: Wrapper<U>) {
+    return self.value != null && anotherW.value != null && self.value == anotherW.value;
+}
+
+@method_id(118)
+fun testMethodsOfGenericStruct() {
+    var creator1 = Wrapper<int8>.createFrom<int>;
+    var w1 = creator1(10);
+    __expect_type(w1, "Wrapper<int8>");
+    var creator2 = Wrapper<coins?>.createFrom<int?>;
+    var w2 = creator2(null as int16?);
+    __expect_type(w2, "Wrapper<coins?>");
+    var eq = Wrapper<int8>.equalsNotNull<coins?>;
+    __expect_type(eq, "(Wrapper<int8>, Wrapper<coins?>) -> bool");
+    var creator3 = Wrapper<int8>.createFromNull;
+    __expect_type(creator3, "() -> Wrapper<int8?>");
+    return (eq(w1, w2), w2.value = w1.value as int, eq(w1, w2), creator3());
+}
+
 
 fun main() {}
 
@@ -285,4 +341,6 @@ fun main() {}
 @testcase | 114 | 0          | (null) 12 1
 @testcase | 115 |            | 7 6 7
 @testcase | 116 |            | 7 11 80
+@testcase | 117 |            | 6 8
+@testcase | 118 |            | 0 10 -1 (null)
  */

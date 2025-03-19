@@ -41,6 +41,10 @@ fun sumCoords(p: Point) {
     return p.x + p.y;
 }
 
+fun Point.sumCoords(self) {
+    return self.x + self.y;
+}
+
 fun getStorage1(x: int): Storage {
     val owner = User { id: 1, name: "u" };
     return {
@@ -53,7 +57,12 @@ fun generatePoint(x: int, y: int): Point {
     return { x, y };
 }
 
-fun assignCoords(mutate self: Point) {
+fun assignCoords(mutate p: Point) {
+    p.x = 10;
+    p.y = 20;
+}
+
+fun Point.assignCoords(mutate self) {
     self.x = 10;
     self.y = 20;
 }
@@ -149,6 +158,10 @@ fun maxCoord(p: Point): int8 {
     return p.x > p.y ? p.x : p.y;
 }
 
+fun Point.maxCoord(self): int8 {
+    return self.x > self.y ? self.x : self.y;
+}
+
 @method_id(109)
 fun test9() {
     var p = Point { x: 80, y: 100 };
@@ -222,7 +235,7 @@ fun test15() {
 }
 
 fun pushZero(mutate t: tuple) {
-    t.tuplePush(0);
+    t.push(0);
 }
 
 @method_id(116)
@@ -237,7 +250,7 @@ fun test16(): WithTensorInside? {
     wt.coords.1 -= 2;
     wt.tup.0 += 5;
     wt.otherCoords!.0 = 7;
-    wt.otherTup.tuplePush(0);
+    wt.otherTup.push(0);
     pushZero(mutate wt.otherTup);
     (wt.otherTup.1, wt.otherTup.0) = (11, 10);
     return wt;
@@ -300,7 +313,7 @@ fun asm_func(x1: JustInt, x2: int, x3: JustIntAlias, x4: JustIntAlias, x5: int, 
     (int, JustInt, int, JustInt, int, int, JustIntAlias2)
     asm (x4 x5 x6 x7 x1 x2 x3->0 1 2 3 4 5 6) "NOP";
 
-fun someOp(mutate self: JustInt, y: int): int {
+fun JustInt.someOp(mutate self, y: int): int {
     val (newX, newY) = (self.value + y, y * 10);
     self = { value: newX };
     return newY;
@@ -453,9 +466,9 @@ struct WithDefaults {
 @method_id(133)
 fun test33(): WithDefaults {
     var w1: WithDefaults = { f2: 0 };
-    assert(w1.f1.0 && w1.f1.1 == 0 && w1.f3!.getRemainingBitsCount() == 24 && w1.f4 == null && w1.f5 is int32) throw 100;
+    assert(w1.f1.0 && w1.f1.1 == 0 && w1.f3!.remainingBitsCount() == 24 && w1.f4 == null && w1.f5 is int32) throw 100;
     var w2: WithDefaults? = { f1: (false, 55), f2: 10, f5: 8 as int64 };
-    assert(w2.f1.0 != true && w2.f3!.getRemainingBitsCount() == 24 && w2.f4 == null && w2.f5 is int64 && w2.f5 == 8) throw 100;
+    assert(w2.f1.0 != true && w2.f3!.remainingBitsCount() == 24 && w2.f4 == null && w2.f5 is int64 && w2.f5 == 8) throw 100;
     var w3: (int, WithDefaults) = (0, { f2: 7, f4: {y: 20} });
     assert(w3.1.f4 != null && w3.1.f4.x == 0 && w3.1.f4.y == 20) throw 100;
     return { f2: 5, f3: null };

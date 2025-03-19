@@ -66,6 +66,15 @@ bool FunctionData::does_need_codegen() const {
   return true;
 }
 
+void FunctionData::assign_resolved_receiver_type(TypePtr receiver_type, const GenericsDeclaration* genericTs, std::string&& name_prefix) {
+  this->receiver_type = receiver_type;
+  if (!this->substitutedTs) {   // after receiver has been resolve, update name to "receiver.method"
+    name_prefix.erase(std::remove(name_prefix.begin(), name_prefix.end(), ' '), name_prefix.end());
+    this->name = name_prefix + "." + this->method_name;
+    this->genericTs = genericTs;
+  }
+}
+
 void FunctionData::assign_resolved_type(TypePtr declared_return_type) {
   this->declared_return_type = declared_return_type;
 }
@@ -210,6 +219,10 @@ void GlobalSymbolTable::add_struct(StructPtr s_sym) {
 
 const Symbol* lookup_global_symbol(std::string_view name) {
   return G.symtable.lookup(name);
+}
+
+FunctionPtr lookup_function(std::string_view name) {
+  return G.symtable.lookup(name)->try_as<FunctionPtr>();
 }
 
 }  // namespace tolk

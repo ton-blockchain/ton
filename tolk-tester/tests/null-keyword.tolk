@@ -14,8 +14,8 @@ fun test1() {
     (_, _) = (null, null);
     var t = createEmptyTuple();
     do {
-        var num: int = numbers.listNext();
-        t.tuplePush(num);
+        var (num: int, numbers redef) = listSplit(numbers!);
+        t.push(num);
     } while (numbers != null);
 
     return (h, numbers == null, t);

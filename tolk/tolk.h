@@ -1128,6 +1128,7 @@ AsmOp exec_arg2_op(SrcLocation loc, std::string op, long long imm1, long long im
 AsmOp push_const(SrcLocation loc, td::RefInt256 x);
 
 void define_builtins();
+void patch_builtins_after_stdlib_loaded();
 
 
 

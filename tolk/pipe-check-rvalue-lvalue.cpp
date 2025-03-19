@@ -183,8 +183,8 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
     }
     // for `f()` don't visit ast_reference `f`, to detect `f` usage as non-call, like `var cb = f`
     // same for `obj.method()`, don't visit ast_reference method, visit only obj
-    if (v->is_dot_call()) {
-      parent::visit(v->get_dot_obj());
+    if (AnyExprV self_obj = v->get_self_obj()) {
+      parent::visit(self_obj);
     }
 
     for (int i = 0; i < v->get_num_args(); ++i) {

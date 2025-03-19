@@ -120,7 +120,7 @@ fun testLogicalOps2(first: int) {
         (10 == s.loadUint(32)) || (20 == s.loadUint(32)) || (3 == s.loadUint(32)) || (4 == s.loadUint(32));
         sum += s.loadUint(32);
     }
-    return (s.getRemainingBitsCount(), sum);
+    return (s.remainingBitsCount(), sum);
 }
 
 @method_id(112)

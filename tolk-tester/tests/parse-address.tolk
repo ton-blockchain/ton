@@ -2,7 +2,7 @@ const cc1 = stringAddressToSlice("0:ca6e321c7cce9ecedf0a8ca2492ec8592494aa5fb5ce
 const cc2 = stringAddressToSlice("EQDKbjIcfM6ezt8KjKJJLshZJJSqX7XOA4ff-W72r5gqPrHF");
 
 fun verifyAddr(addr: slice, workchain: int, number: int) {
-    assert (addr.getRemainingBitsCount() == 3 + 8 + 256) throw 112;
+    assert (addr.remainingBitsCount() == 3 + 8 + 256) throw 112;
     addr.skipBits(3);
     assert (addr.loadUint(8) == workchain) throw 111;
     assert (addr.loadUint(256) == number) throw 111;
@@ -105,7 +105,7 @@ fun main() {
     verifyAddr(stringAddressToSlice("99:527964d55cfa6eb731f4bfc07e9d025098097ef8505519e853986279bd8400d8"), 99, 37304138005561100291416421295333982606153966175434134130332440738068913455320);
     verifyAddr(stringAddressToSlice("-1:527964d55cfa6eb731f4bfc07e9d025098097ef8505519e853986279bd8400d8"), 255, 37304138005561100291416421295333982606153966175434134130332440738068913455320);
 
-    return cc1.isSliceBitsEqual(cc2);
+    return cc1.bitsEqual(cc2);
 }
 
 /**

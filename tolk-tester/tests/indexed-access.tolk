@@ -2,8 +2,19 @@ type Tup2Int = [int, MInt];
 type Tensor2Int = (int, MInt);
 type MInt = int;
 
-fun increment(mutate self: MInt) {
+@pure
+fun tuplePush<T>(mutate t: tuple, value: T): void
+    asm "TPUSH";
+@pure
+fun getBuilderBitsCount(b: builder): int
+    asm "BBITS";
+
+fun MInt.increment(mutate self) {
     self += 1;
+}
+
+fun increment(mutate v: MInt) {
+    v += 1;
 }
 
 fun increment2(mutate a: int, mutate b: int) {
@@ -16,9 +27,15 @@ fun assign1020(mutate a: int, mutate b: MInt) {
     b = 20;
 }
 
-fun plus(mutate self: int, y: int): int {
+fun int.plus(mutate self, y: int): int {
     val newVals = (self + y, y * 10);
     self = newVals.0;
+    return newVals.1;
+}
+
+fun plus(mutate x: int, y: int): int {
+    val newVals = (x + y, y * 10);
+    x = newVals.0;
     return newVals.1;
 }
 
@@ -31,16 +48,16 @@ global gTens: (int, int);
 fun testCodegenSimple() {
     var t1 = [1];
     t1.0 = 2;
-    debugPrintString("");
+    debug.printString("");
     var t2 = [[1]];
     t2.0.0 = 2;
-    debugPrintString("");
+    debug.printString("");
     gTup = [1];
     gTup.0 = 2;
-    debugPrintString("");
+    debug.printString("");
     gTens = (1,2);
     gTens.1 = 4;
-    debugPrintString("");
+    debug.printString("");
     return (t1, t2, gTup, gTens);
 }
 
@@ -90,8 +107,8 @@ fun test104() {
 
 @method_id(105)
 fun test105(x: int, y: int): (tuple, int, (int?, int), int, int) {
-    var ab = (createEmptyTuple(), (x as int?, y), tupleSize);
-    ab.0.tuplePush(1);
+    var ab = (createEmptyTuple(), (x as int?, y), tuple.size);
+    ab.0.push(1);
     tuplePush(mutate ab.0, 2);
     ab.1.0 = null;
     ab.1.1 += 10;
@@ -101,8 +118,8 @@ fun test105(x: int, y: int): (tuple, int, (int?, int), int, int) {
 
 @method_id(106)
 fun test106(x: int, y: int) {
-    var ab = [createEmptyTuple(), [x as int?, y], tupleSize];
-    ab.0.tuplePush(1);
+    var ab = [createEmptyTuple(), [x as int?, y], tuple.size];
+    ab.0.push(1);
     tuplePush(mutate ab.0, 2);
     ab.1.0 = null;
     ab.1.1 += 10;
@@ -113,8 +130,8 @@ fun test106(x: int, y: int) {
 @method_id(107)
 fun test107() {
     var ab = createEmptyTuple();
-    ab.tuplePush(1);
-    ab.tuplePush(beginCell().storeInt(1, 32));
+    ab.push(1);
+    ab.push(beginCell().storeInt(1, 32));
     return (ab.0 as int, getBuilderBitsCount(ab.1));
 }
 
@@ -187,7 +204,7 @@ fun test115() {
 @method_id(116)
 fun test116() {
     var t = createEmptyTuple();
-    t.tuplePush(1);
+    t.push(1);
     try {
         return t.100500 as int;
     } catch(excNo) {
@@ -198,7 +215,7 @@ fun test116() {
 @method_id(117)
 fun test117() {
     var t = createEmptyTuple();
-    t.tuplePush(1);
+    t.push(1);
     try {
         return (t.0 as tuple).0 as MInt;
     } catch(excNo) {
@@ -228,12 +245,16 @@ fun test120() {
 @method_id(121)
 fun test121(zero: int) {
     var t = createEmptyTuple();
-    t.tuplePush(-100);
-    t.tupleSetAt(0, zero);
+    t.push(-100);
+    t.set(0, zero);
     (t.0 as int).increment();
     (((t.0) as int) as int).increment();
     increment(mutate t.0 as int);
     return t;
+}
+
+fun (T1, T2).isFirstComponentGt0(self): bool {
+    return self.0 > 0;
 }
 
 fun isFirstComponentGt0<T1,T2>(t: (T1, T2)): bool {
@@ -244,7 +265,7 @@ fun isFirstComponentGt0<T1,T2>(t: (T1, T2)): bool {
 fun test122(x: (int, int)) {
     return (
         isFirstComponentGt0(x), isFirstComponentGt0((2, beginCell())), isFirstComponentGt0<int,slice?>((0, null)),
-        x.isFirstComponentGt0(), (2, beginCell()).isFirstComponentGt0(), (0, null).isFirstComponentGt0<int,slice?>()
+        x.isFirstComponentGt0(), (2, beginCell()).isFirstComponentGt0(), (0, null as slice?).isFirstComponentGt0()
     );
 }
 

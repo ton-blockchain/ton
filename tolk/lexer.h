@@ -26,7 +26,6 @@ enum TokenType {
   tok_empty,
 
   tok_fun,
-  tok_get,
   tok_type,
   tok_enum,
   tok_struct,

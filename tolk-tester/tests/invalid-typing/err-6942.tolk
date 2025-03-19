@@ -1,14 +1,12 @@
 struct Point { x: int; y: int; }
 
-fun methodOverNullable(p: Point?) {}
-fun method(p: Point) {}
+fun Point?.methodOverNullable(self) {}
 
 fun cantAssignNullableObjectField(a: Point?) {
     if (a != null) {
         a.x = 10;           // ok
     }
     a.methodOverNullable(); // ok
-    a.method();             // also ok, would have failed on type checking, but doesn't reach type checking
     a.y = 20;
 }
 

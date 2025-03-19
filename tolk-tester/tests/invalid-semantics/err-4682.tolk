@@ -8,6 +8,6 @@ fun main() {
 
 /**
 @compilation_should_fail
-@stderr struct `User` can not be used as a value
+@stderr `User` only refers to a type, but is being used as a value here
 @stderr absk(User)
 */

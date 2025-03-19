@@ -53,13 +53,13 @@ fun iget240(): MInt { return int240; }
 fun newc(): builder
 asm "NEWC";
 @pure
-fun endcs(b: builder): slice
+fun builder.endcs(self): slice
 asm "ENDC" "CTOS";
 @pure
 fun sdeq(s1: slice, s2: slice): MInt
 asm "SDEQ";
 @pure
-fun stslicer(b: builder, s: slice): builder
+fun builder.stslicer(self, s: slice): builder
 asm "STSLICER";
 
 @method_id(101)

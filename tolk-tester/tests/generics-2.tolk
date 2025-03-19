@@ -66,8 +66,18 @@ fun getWrappervalue1<T>(c: Wrapper<T>) {
 }
 
 @pure
+fun Wrapper<T>.getWrappervalue1(self) {
+    return self.value;
+}
+
+@pure
 fun getWrappervalue2<T>(c: T) {
     return c.value;
+}
+
+@pure
+fun T.getWrappervalue2(self) {
+    return self.value;
 }
 
 @method_id(103)
@@ -403,6 +413,17 @@ fun test24() {
     HasSomethingAndWrapper { something: 0, w: { value: 0 } };
     val o = HasSomethingAndWrapper { something: 5 as uint8, w: { value: 5 } };
     __expect_type(o, "HasSomethingAndWrapper<uint8>");
+}
+
+fun test25() {
+    var p1 = Pair { first: null, second: null };
+    __expect_type(p1, "Pair<null, null>");
+
+    try {}
+    catch(e, second) {
+        var p2 = Pair { first: null, second };
+        __expect_type(p2, "Pair<null, unknown>");
+    }
 }
 
 

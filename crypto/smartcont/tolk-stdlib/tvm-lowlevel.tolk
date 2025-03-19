@@ -21,5 +21,5 @@ fun transformSliceToContinuation(s: slice): continuation
 
 /// Moves a variable or a value [x] to the top of the stack.
 @pure
-fun stackMoveToTop<X>(mutate self: X): void
+fun T.stackMoveToTop(mutate self): void
     asm "NOP";

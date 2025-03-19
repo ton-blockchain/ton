@@ -6,5 +6,5 @@ fun main() {
 
 /**
 @compilation_should_fail
-@stderr type `int` is not indexable
+@stderr method `3` not found for type `int`
  */

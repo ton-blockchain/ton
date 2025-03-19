@@ -205,7 +205,7 @@ class LValContext {
       code.emplace_back(loc, Op::_IntConst, index_ir_idx, td::make_refint(index_at));
 
       vars_modification_watcher.trigger_callbacks(tuple_ir_idx, loc);
-      FunctionPtr builtin_sym = lookup_global_symbol("tupleSetAt")->try_as<FunctionPtr>();
+      FunctionPtr builtin_sym = lookup_global_symbol("tuple.set")->try_as<FunctionPtr>();
       code.emplace_back(loc, Op::_Call, std::vector{tuple_ir_idx}, std::vector{tuple_ir_idx[0], lval_ir_idx[0], index_ir_idx[0]}, builtin_sym);
       local_lval.after_let(std::move(tuple_ir_idx), code, loc);
     }
@@ -1167,13 +1167,13 @@ static std::vector<var_idx_t> process_dot_access(V<ast_dot_access> v, CodeBlob& 
         lval_ctx->capture_tuple_index_modification(v->get_obj(), index_at, lval_ir_idx);
         return lval_ir_idx;
       }
-      // `tupleVar.0` as rvalue: the same as "tupleAt(tupleVar, 0)" written in terms of IR vars
+      // `tupleVar.0` as rvalue: the same as "tuple.get(tupleVar, 0)" written in terms of IR vars
       std::vector<var_idx_t> tuple_ir_idx = pre_compile_expr(v->get_obj(), code);
       std::vector<var_idx_t> index_ir_idx = code.create_tmp_var(TypeDataInt::create(), v->get_identifier()->loc, "(tuple-idx)");
       code.emplace_back(v->loc, Op::_IntConst, index_ir_idx, td::make_refint(index_at));
       std::vector<var_idx_t> field_ir_idx = code.create_tmp_var(v->inferred_type, v->loc, "(tuple-field)");
       tolk_assert(tuple_ir_idx.size() == 1 && field_ir_idx.size() == 1);  // tuples contain only 1-slot values
-      FunctionPtr builtin_sym = lookup_global_symbol("tupleAt")->try_as<FunctionPtr>();
+      FunctionPtr builtin_sym = lookup_global_symbol("tuple.get")->try_as<FunctionPtr>();
       code.emplace_back(v->loc, Op::_Call, field_ir_idx, std::vector{tuple_ir_idx[0], index_ir_idx[0]}, builtin_sym);
       if (lval_ctx && calc_sink_leftmost_obj(v)) {    // `tupleVar.0.1 = rhs`, then `tupleVar.0` is rval inside lval
         lval_ctx->capture_tuple_index_modification(v->get_obj(), index_at, field_ir_idx);
@@ -1221,15 +1221,14 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
     return transition_to_target_type(std::move(rvect), code, target_type, v);
   }
 
-  int delta_self = v->is_dot_call();
-  AnyExprV obj_leftmost = nullptr;
+  AnyExprV obj_leftmost = v->get_self_obj();
+  int delta_self = obj_leftmost != nullptr;
   std::vector<AnyExprV> args;
   args.reserve(delta_self + v->get_num_args());
   if (delta_self) {
-    args.push_back(v->get_dot_obj());
-    obj_leftmost = v->get_dot_obj();
-    while (obj_leftmost->kind == ast_function_call && obj_leftmost->as<ast_function_call>()->is_dot_call() && obj_leftmost->as<ast_function_call>()->fun_maybe && obj_leftmost->as<ast_function_call>()->fun_maybe->does_return_self()) {
-      obj_leftmost = obj_leftmost->as<ast_function_call>()->get_dot_obj();
+    args.push_back(obj_leftmost);
+    while (obj_leftmost->kind == ast_function_call && obj_leftmost->as<ast_function_call>()->get_self_obj() && obj_leftmost->as<ast_function_call>()->fun_maybe && obj_leftmost->as<ast_function_call>()->fun_maybe->does_return_self()) {
+      obj_leftmost = obj_leftmost->as<ast_function_call>()->get_self_obj();
     }
   }
   for (int i = 0; i < v->get_num_args(); ++i) {
@@ -1243,7 +1242,7 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
 
   TypePtr op_call_type = v->inferred_type;
   TypePtr real_ret_type = v->inferred_type;
-  if (delta_self && fun_ref->does_return_self()) {
+  if (obj_leftmost && fun_ref->does_return_self()) {
     real_ret_type = TypeDataVoid::create();
     if (!fun_ref->parameters[0].is_mutate_parameter()) {
       op_call_type = TypeDataVoid::create();

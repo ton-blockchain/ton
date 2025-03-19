@@ -344,7 +344,6 @@ struct ChunkIdentifierOrKeyword final : ChunkLexerBase {
         if (str == "var") return tok_var;
         if (str == "fun") return tok_fun;
         if (str == "asm") return tok_asm;
-        if (str == "get") return tok_get;
         if (str == "try") return tok_try;
         if (str == "val") return tok_val;
         break;

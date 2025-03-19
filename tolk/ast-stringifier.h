@@ -215,7 +215,12 @@ class ASTStringifier final : public ASTVisitor {
             param_names += ",";
           param_names += v->as<ast_function_declaration>()->get_param(i)->param_name;
         }
-        return "fun " + static_cast<std::string>(v->as<ast_function_declaration>()->get_identifier()->name) + "(" + param_names + ")";
+        std::string decl = "fun ";
+        if (auto receiver_node = v->as<ast_function_declaration>()->receiver_type_node) {
+          decl += specific_str(receiver_node);
+          decl += ".";
+        }
+        return decl + static_cast<std::string>(v->as<ast_function_declaration>()->get_identifier()->name) + "(" + param_names + ")";
       }
       case ast_local_var_lhs: {
         std::string str_type = v->as<ast_local_var_lhs>()->inferred_type ? v->as<ast_local_var_lhs>()->inferred_type->as_human_readable() : ast_type_node_to_string(v->as<ast_local_var_lhs>()->type_node);

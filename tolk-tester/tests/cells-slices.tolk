@@ -1,15 +1,21 @@
-fun store_u32(mutate self: builder, value: int): self {
+fun builder.store_u32(mutate self, value: int): self {
     return self.storeUint(value, 32);
 }
 
-fun load_u32(mutate self: slice): int {
+fun slice.load_u32(mutate self): int {
     return self.loadUint(32);
 }
 
-fun myLoadInt(mutate self: slice, len: int): int
+fun slice.myLoadInt(mutate self, len: int): int
     asm(-> 1 0) "LDIX";
-fun myStoreInt(mutate self: builder, x: int, len: int): self
+fun builder.myStoreInt(mutate self, x: int, len: int): self
     asm(x self len) "STIX";
+@pure
+fun endCell(b: builder): cell
+    asm "ENDC";
+@pure
+fun beginParse(c: cell): slice
+    asm "CTOS";
 
 @method_id(101)
 fun test1(): [int,int,int,int,int] {
@@ -80,7 +86,7 @@ fun test7() {
     var uri_builder = beginCell();
     var uri_slice = uri_builder.storeSlice(".json").endCell().beginParse();
     var image_slice = uri_builder.storeSlice(".png").endCell().beginParse();
-    return (uri_builder.getBuilderBitsCount(), uri_slice.getRemainingBitsCount(), image_slice.getRemainingBitsCount());
+    return (uri_builder.bitsCount(), uri_slice.remainingBitsCount(), image_slice.remainingBitsCount());
 }
 
 @method_id(108)
@@ -90,13 +96,13 @@ fun test8() {
     var uri_slice = fresh.storeSlice(".json").endCell().beginParse();
     var fresh redef = uri_builder;
     var image_slice = fresh.storeSlice(".png").endCell().beginParse();
-    return (uri_builder.getBuilderBitsCount(), uri_slice.getRemainingBitsCount(), image_slice.getRemainingBitsCount());
+    return (uri_builder.bitsCount(), uri_slice.remainingBitsCount(), image_slice.remainingBitsCount());
 }
 
 
-fun sumNumbersInSlice(mutate self: slice): int {
+fun slice.sumNumbersInSlice(mutate self): int {
     var result = 0;
-    while (!self.isEndOfSliceBits()) {
+    while (!self.isEndOfBits()) {
         result += self.loadUint(32);
     }
     return result;
@@ -106,27 +112,27 @@ fun sumNumbersInSlice(mutate self: slice): int {
 fun test10() {
     var ref = beginCell().storeInt(100, 32).endCell();
     var s: slice = beginCell().storeInt(1, 32).storeInt(2, 32).storeRef(ref).endCell().beginParse();
-    var result = (getRemainingBitsCount(s), s.sumNumbersInSlice(), getRemainingBitsCount(s), isEndOfSlice(s), isEndOfSliceBits(s), isEndOfSliceRefs(s));
+    var result = (s.remainingBitsCount(), s.sumNumbersInSlice(), s.remainingBitsCount(), s.isEnd(), s.isEndOfBits(), s.isEndOfRefs());
     var ref2: cell = s.loadRef();
     var s2: slice = ref2.beginParse();
-    s.assertEndOfSlice();
-    return (result, s2.loadInt(32), s2.isEndOfSlice());
+    s.assertEnd();
+    return (result, s2.loadInt(32), s2.isEnd());
 }
 
 @method_id(111)
 fun test11() {
     var s: slice = beginCell().storeInt(1, 32).storeInt(2, 32).storeInt(3, 32).storeInt(4, 32).storeInt(5, 32).storeInt(6, 32).storeInt(7, 32).endCell().beginParse();
-    var size1 = getRemainingBitsCount(s);
+    var size1 = s.remainingBitsCount();
     s!.skipBits(32);
     var s1: slice = s.getFirstBits(64);
     var n1 = s1.loadInt(32);
-    var size2 = getRemainingBitsCount(s);
+    var size2 = s.remainingBitsCount();
     s.loadInt(32);
-    var size3 = getRemainingBitsCount(s);
+    var size3 = s.remainingBitsCount();
     s.removeLastBits(32);
-    var size4 = getRemainingBitsCount(s);
+    var size4 = s.remainingBitsCount();
     var n2 = s.loadInt(32);
-    var size5 = getRemainingBitsCount(s);
+    var size5 = s.remainingBitsCount();
     return (n1, n2, size1, size2, size3, size4, size5);
 }
 
@@ -134,13 +140,13 @@ fun test11() {
 fun test12() {
     var (result1, result2) = (0, 0);
     try {
-        beginCell().storeRef(beginCell().endCell()).endCell().beginParse().assertEndOfSlice();
+        beginCell().storeRef(beginCell().endCell()).endCell().beginParse().assertEnd();
         result1 = 100;
     } catch (code) {
         result1 = code;
     }
     try {
-        beginCell().endCell().beginParse().assertEndOfSlice();
+        beginCell().endCell().beginParse().assertEnd();
         result2 = 100;
     } catch (code) {
         result2 = code;
@@ -153,12 +159,12 @@ fun test13() {
     var ref2 = beginCell().storeInt(1, 32).endCell();
     var ref1 = beginCell().storeInt(1, 32).storeRef(ref2).endCell();
     var c = beginCell().storeInt(444, 32).storeRef(ref1).storeRef(ref1).storeRef(ref1).storeRef(ref2).storeInt(4, 32).endCell();
-    var (n_cells1, n_bits1, n_refs1) = c.calculateCellSizeStrict(10);
+    var (n_cells1, n_bits1, n_refs1) = c.calculateSizeStrict(10);
     var s = c.beginParse();
     s.loadRef();
     s.loadRef();
     var n = s.loadInt(32);
-    var (n_cells2, n_bits2, n_refs2) = s.calculateSliceSizeStrict(10);
+    var (n_cells2, n_bits2, n_refs2) = s.calculateSizeStrict(10);
     return ([n_cells1, n_bits1, n_refs1], [n_cells2, n_bits2, n_refs2], n);
 }
 
@@ -177,7 +183,7 @@ fun test111() {
         .endCell().beginParse();
     var op1 = s.loadUint(32);
     var q1 = s.loadUint(64);
-    if (s.addressIsNone()) {
+    if (addressIsNone(s)) {
         s.skipBits(2);
     }
     if (s.loadBool() == false) {
@@ -187,7 +193,7 @@ fun test111() {
     var op2 = s.loadMessageOp();
     var q2 = s.loadMessageQueryId();
     s.skipBits(64);
-    s.assertEndOfSlice();
+    s.assertEnd();
     assert(isMessageBounced(0x001) && !isMessageBounced(0x002)) throw 444;
     return (op1, q1, op2, q2);
 }

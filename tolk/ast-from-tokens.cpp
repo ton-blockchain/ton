@@ -291,7 +291,7 @@ static V<ast_genericsT_list> parse_genericsT_list(Lexer& lex) {
   return createV<ast_genericsT_list>{loc, std::move(genericsT_items)};
 }
 
-static AnyV parse_parameter(Lexer& lex, bool is_first) {
+static AnyV parse_parameter(Lexer& lex, AnyTypeV self_type) {
   SrcLocation loc = lex.cur_location();
 
   // optional keyword `mutate` meaning that a function will mutate a passed argument (like passed by reference)
@@ -303,21 +303,28 @@ static AnyV parse_parameter(Lexer& lex, bool is_first) {
 
   // parameter name (or underscore for an unnamed parameter)
   std::string_view param_name;
+  bool is_self = false;
   if (lex.tok() == tok_identifier) {
     param_name = lex.cur_str();
   } else if (lex.tok() == tok_self) {
-    if (!is_first) {
-      lex.error("`self` can only be the first parameter");
+    if (!self_type) {
+      lex.error("`self` can only be the first parameter of a method");
     }
+    is_self = true;
     param_name = "self";
   } else if (lex.tok() != tok_underscore) {
     lex.unexpected("parameter name");
   }
   lex.next();
 
-  // parameter type after colon are mandatory
-  lex.expect(tok_colon, "`: <parameter_type>`");
-  AnyTypeV param_type = parse_type_from_tokens(lex);
+  // parameter type after colon is mandatory
+  AnyTypeV param_type = self_type;
+  if (!is_self) {
+    lex.expect(tok_colon, "`: <parameter_type>`");
+    param_type = parse_type_from_tokens(lex);
+  } else if (lex.tok() == tok_colon) {
+    lex.error("`self` parameter should not have a type");
+  }
 
   return createV<ast_parameter>(loc, param_name, param_type, declared_as_mutate);
 }
@@ -459,18 +466,19 @@ static AnyExprV parse_local_vars_declaration_assignment(Lexer& lex) {
 }
 
 // "parameters" are at function declaration: `fun f(param1: int, mutate param2: slice)`
-static V<ast_parameter_list> parse_parameter_list(Lexer& lex) {
+// for methods like `fun builder.storeUint(self, i: int)`, receiver_type = builder (type of self)
+static V<ast_parameter_list> parse_parameter_list(Lexer& lex, AnyTypeV receiver_type) {
   SrcLocation loc = lex.cur_location();
   std::vector<AnyV> params;
   lex.expect(tok_oppar, "parameter list");
   if (lex.tok() != tok_clpar) {
-    params.push_back(parse_parameter(lex, true));
+    params.push_back(parse_parameter(lex, receiver_type));
     while (lex.tok() == tok_comma) {
       lex.next();
       if (lex.tok() == tok_clpar) {     // trailing comma
         break;
       }
-      params.push_back(parse_parameter(lex, false));
+      params.push_back(parse_parameter(lex, nullptr));
     }
   }
   lex.expect(tok_clpar, "`)`");
@@ -1273,11 +1281,13 @@ static V<ast_annotation> parse_annotation(Lexer& lex) {
     case AnnotationKind::inline_simple:
     case AnnotationKind::inline_ref:
     case AnnotationKind::pure:
-    case AnnotationKind::deprecated:
       if (v_arg) {
         throw ParseError(v_arg->loc, "arguments aren't allowed for " + static_cast<std::string>(name));
       }
       v_arg = createV<ast_tensor>(loc, {});
+      break;
+    case AnnotationKind::deprecated:
+      // allowed with and without arguments; it's IDE-only, the compiler doesn't analyze @deprecated
       break;
     case AnnotationKind::method_id:
       if (!v_arg || v_arg->size() != 1 || v_arg->get_item(0)->kind != ast_int_const) {
@@ -1291,21 +1301,31 @@ static V<ast_annotation> parse_annotation(Lexer& lex) {
 
 static AnyV parse_function_declaration(Lexer& lex, const std::vector<V<ast_annotation>>& annotations) {
   SrcLocation loc = lex.cur_location();
-  bool is_get_method = lex.tok() == tok_get;
+  bool is_contract_getter = lex.cur_str() == "get";
   lex.next();
-  if (is_get_method && lex.tok() == tok_fun) {
+  if (is_contract_getter && lex.tok() == tok_fun) {
     lex.next();   // 'get f()' and 'get fun f()' both correct
+  }
+
+  AnyTypeV receiver_type = nullptr;
+  auto backup = lex.save_parsing_position();
+  try {
+    receiver_type = parse_type_expression(lex);
+    lex.expect(tok_dot, "");
+  } catch (const ParseError&) {
+    receiver_type = nullptr;
+    lex.restore_position(backup);
   }
 
   lex.check(tok_identifier, "function name identifier");
 
   std::string_view f_name = lex.cur_str();
-  bool is_entrypoint =
+  bool is_entrypoint = !receiver_type && (
         f_name == "main" || f_name == "onInternalMessage" || f_name == "onExternalMessage" ||
-        f_name == "onRunTickTock" || f_name == "onSplitPrepare" || f_name == "onSplitInstall";
-  bool is_FunC_entrypoint =
+        f_name == "onRunTickTock" || f_name == "onSplitPrepare" || f_name == "onSplitInstall");
+  bool is_FunC_entrypoint = !receiver_type && (
         f_name == "recv_internal" || f_name == "recv_external" ||
-        f_name == "run_ticktock" || f_name == "split_prepare" || f_name == "split_install";
+        f_name == "run_ticktock" || f_name == "split_prepare" || f_name == "split_install");
   if (is_FunC_entrypoint) {
     lex.error("this is a reserved FunC/Fift identifier; you need `onInternalMessage`");
   }
@@ -1318,7 +1338,7 @@ static AnyV parse_function_declaration(Lexer& lex, const std::vector<V<ast_annot
     genericsT_list = parse_genericsT_list(lex);
   }
 
-  V<ast_parameter_list> v_param_list = parse_parameter_list(lex)->as<ast_parameter_list>();
+  V<ast_parameter_list> v_param_list = parse_parameter_list(lex, receiver_type)->as<ast_parameter_list>();
   bool accepts_self = !v_param_list->empty() && v_param_list->get_param(0)->param_name == "self";
   int n_mutate_params = v_param_list->get_mutate_params_count();
 
@@ -1338,11 +1358,11 @@ static AnyV parse_function_declaration(Lexer& lex, const std::vector<V<ast_annot
     }
   }
 
-  if (is_entrypoint && (is_get_method || genericsT_list || n_mutate_params || accepts_self)) {
+  if (is_entrypoint && (is_contract_getter || genericsT_list || n_mutate_params)) {
     throw ParseError(loc, "invalid declaration of a reserved function");
   }
-  if (is_get_method && (genericsT_list || n_mutate_params || accepts_self)) {
-    throw ParseError(loc, "get methods can't have `mutate` and `self` params");
+  if (is_contract_getter && (genericsT_list || n_mutate_params || receiver_type)) {
+    throw ParseError(loc, "invalid declaration of a get method");
   }
 
   AnyV v_body = nullptr;
@@ -1366,8 +1386,8 @@ static AnyV parse_function_declaration(Lexer& lex, const std::vector<V<ast_annot
   if (is_entrypoint) {
     flags |= FunctionData::flagIsEntrypoint;
   }
-  if (is_get_method) {
-    flags |= FunctionData::flagGetMethod;
+  if (is_contract_getter) {
+    flags |= FunctionData::flagContractGetter;
   }
   if (accepts_self) {
     flags |= FunctionData::flagAcceptsSelf;
@@ -1376,7 +1396,7 @@ static AnyV parse_function_declaration(Lexer& lex, const std::vector<V<ast_annot
     flags |= FunctionData::flagReturnsSelf;
   }
 
-  td::RefInt256 method_id;
+  td::RefInt256 tvm_method_id;
   for (auto v_annotation : annotations) {
     switch (v_annotation->kind) {
       case AnnotationKind::inline_simple:
@@ -1389,14 +1409,14 @@ static AnyV parse_function_declaration(Lexer& lex, const std::vector<V<ast_annot
         flags |= FunctionData::flagMarkedAsPure;
         break;
       case AnnotationKind::method_id: {
-        if (is_get_method || genericsT_list || is_entrypoint || n_mutate_params || accepts_self) {
+        if (is_contract_getter || genericsT_list || receiver_type || is_entrypoint || n_mutate_params || accepts_self) {
           v_annotation->error("@method_id can be specified only for regular functions");
         }
         auto v_int = v_annotation->get_arg()->get_item(0)->as<ast_int_const>();
         if (v_int->intval.is_null() || !v_int->intval->signed_fits_bits(32)) {
           v_int->error("invalid integer constant");
         }
-        method_id = v_int->intval;
+        tvm_method_id = v_int->intval;
         break;
       }
       case AnnotationKind::deprecated:
@@ -1408,7 +1428,7 @@ static AnyV parse_function_declaration(Lexer& lex, const std::vector<V<ast_annot
     }
   }
 
-  return createV<ast_function_declaration>(loc, v_ident, v_param_list, v_body, ret_type, genericsT_list, std::move(method_id), flags);
+  return createV<ast_function_declaration>(loc, v_ident, v_param_list, v_body, receiver_type, ret_type, genericsT_list, std::move(tvm_method_id), flags);
 }
 
 static AnyV parse_struct_field(Lexer& lex) {
@@ -1541,7 +1561,6 @@ AnyV parse_src_file_to_ast(const SrcFile* file) {
         annotations.clear();
         break;
       case tok_fun:
-      case tok_get:
         toplevel_declarations.push_back(parse_function_declaration(lex, annotations));
         annotations.clear();
         break;
@@ -1556,8 +1575,15 @@ AnyV parse_src_file_to_ast(const SrcFile* file) {
       case tok_infix:
         lex.error("`" + static_cast<std::string>(lex.cur_str()) +"` is not supported yet");
 
+      case tok_identifier:
+        if (lex.cur_str() == "get") {     // tok-level "get", contract getter
+          toplevel_declarations.push_back(parse_function_declaration(lex, annotations));
+          annotations.clear();
+          break;
+        }
+        // fallthrough
       default:
-        lex.unexpected("fun or get");
+        lex.unexpected("top-level declaration");
     }
   }
 

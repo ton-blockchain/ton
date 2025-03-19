@@ -118,7 +118,7 @@ struct WithDef<T> {
 fun test8() {
     var w1: WithDef<slice> = {};
     var w2: WithDef<Ok<int>> = { price: ton("0.1"), f3: { result: 12 } };
-    return (w1.price, w1.f1, w1.f3, w2.price, w2.f3!.result, w2.f3, w2.slice.getRemainingBitsCount());
+    return (w1.price, w1.f1, w1.f3, w2.price, w2.f3!.result, w2.f3, w2.slice.remainingBitsCount());
 }
 
 

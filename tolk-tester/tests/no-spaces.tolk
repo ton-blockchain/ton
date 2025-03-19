@@ -47,7 +47,7 @@ fun add3(a: int, b: int, c: int) { return a+b+c; }
     return [add3(fst2,snd2,trd2),add3(fst1,snd1,trd1)];
 }
 
-fun `load:u32`(mutate self: slice): int {
+fun slice.`load:u32`(mutate self): int {
     return self.loadUint(32)
 }
 

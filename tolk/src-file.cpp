@@ -226,7 +226,27 @@ std::ostream& operator<<(std::ostream& os, const ParseError& error) {
 }
 
 void ParseError::show(std::ostream& os) const {
-  os << loc << ": error: " << message << std::endl;
+  if (message.find('\n') == std::string::npos) {
+    // just print a single-line message
+    os << loc << ": error: " << message << std::endl;
+  } else {
+    // print "location: line1 \n (spaces) line2 \n ..."
+    std::string_view message = this->message;
+    std::string loc_text = loc.to_string();
+    std::string loc_spaces(std::min(static_cast<int>(loc_text.size()), 30), ' ');
+    size_t start = 0, end;
+    os << loc_text << ": error: ";
+    while ((end = message.find('\n', start)) != std::string::npos) {
+      if (start > 0) {
+        os << loc_spaces << "  ";
+      }
+      os << message.substr(start, end - start) << std::endl;
+      start = end + 1;
+    }
+    if (start < message.size()) {
+      os << loc_spaces << "  " << message.substr(start) << std::endl;
+    }
+  }
   if (current_function) {
     os << "    // in function `" << current_function->as_human_readable() << "`" << std::endl;
   }

@@ -10,5 +10,5 @@ fun main() {
 
 /**
 @compilation_should_fail
-@stderr `mutate` used for non-mutate argument
+@stderr `mutate` used for non-mutate parameter
  */

@@ -21,7 +21,7 @@ fun typesAsIdentifiers(builder: builder) {
     {
         var cell: cell = cell;
         var tuple: tuple = createEmptyTuple();
-        var bool: bool = tuple.tupleAt<int>(0) > 0;
+        var bool: bool = tuple.get<int>(0) > 0;
     }
     return int;
 }
@@ -29,37 +29,37 @@ fun typesAsIdentifiers(builder: builder) {
 global callOrder: tuple;
 
 fun getTensor_12() {
-    callOrder.tuplePush(100);
+    callOrder.push(100);
     return (1, 2);
 }
 fun getTensor_1X(x: int) {
-    callOrder.tuplePush(101);
+    callOrder.push(101);
     return (1, x);
 }
 fun getTuple_12() {
-    callOrder.tuplePush(110);
+    callOrder.push(110);
     return [1, 2, ];
 }
 fun getTuple_1X(x: int) {
-    callOrder.tuplePush(111);
+    callOrder.push(111);
     return [1, x];
 }
 fun getUntypedTuple_12() {
-    callOrder.tuplePush(120);
-    var t = createEmptyTuple(); t.tuplePush(1); t.tuplePush(2);
+    callOrder.push(120);
+    var t = createEmptyTuple(); t.push(1); t.push(2);
     return t;
 }
 fun getUntypedTuple_1X(x: int) {
-    callOrder.tuplePush(121);
-    var t = createEmptyTuple(); t.tuplePush(1); t.tuplePush(x);
+    callOrder.push(121);
+    var t = createEmptyTuple(); t.push(1); t.push(x);
     return t;
 }
 fun getIntValue5() {
-    callOrder.tuplePush(10);
+    callOrder.push(10);
     return 5;
 }
 fun getIntValueX(x: int) {
-    callOrder.tuplePush(11);
+    callOrder.push(11);
     return x;
 }
 

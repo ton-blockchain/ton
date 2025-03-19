@@ -1,5 +1,5 @@
 struct A {
-    tens: (int, int) = (1, 2 + now()),
+    tens: (int, int) = (1, 2 + blockchain.now()),
 }
 
 /**

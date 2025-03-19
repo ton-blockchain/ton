@@ -24,25 +24,26 @@
 namespace tolk {
 
 // when a function is declared `f<T>`, this "<T>" is represented as this class
-// (not at AST, but at symbol storage level)
+// - `fun tuple.push<T>(self, value:T)`  namesT = [T]
+// - `struct Pair<A,B>`                  namesT = [A,B]
+// - `fun Container<T>.compareWith<U>`   namesT = [T,U], n_from_receiver = 1
+// - `fun Pair<int,int>.createFrom<U,V>` namesT = [U,V]
+// - `fun Pair<A,B>.create`              namesT = [A,B], n_from_receiver = 2
 struct GenericsDeclaration {
-  struct GenericsItem {
-    std::string_view nameT;
+  explicit GenericsDeclaration(std::vector<std::string_view>&& namesT, int n_from_receiver)
+    : namesT(std::move(namesT))
+    , n_from_receiver(n_from_receiver) {}
 
-    explicit GenericsItem(std::string_view nameT)
-      : nameT(nameT) {}
-  };
+  const std::vector<std::string_view> namesT;
+  const int n_from_receiver;
 
-  explicit GenericsDeclaration(std::vector<GenericsItem>&& itemsT)
-    : itemsT(std::move(itemsT)) {}
+  std::string as_human_readable(bool include_from_receiver = false) const;
 
-  const std::vector<GenericsItem> itemsT;
-
-  std::string as_human_readable() const;
-
-  int size() const { return static_cast<int>(itemsT.size()); }
+  int size() const { return static_cast<int>(namesT.size()); }
   int find_nameT(std::string_view nameT) const;
-  std::string_view get_nameT(int idx) const { return itemsT[idx].nameT; }
+  std::string_view get_nameT(int idx) const { return namesT[idx]; }
+
+  static void append_ast_list_checking_duplicates(AnyV v_genericsT_list, std::vector<std::string_view>& out);
 };
 
 // when a function call is `f<int>()`, this "<int>" is represented as this class
@@ -59,7 +60,7 @@ public:
   }
   explicit GenericsSubstitutions(const GenericsDeclaration* genericTs, const std::vector<TypePtr>& type_arguments);
 
-  std::string as_human_readable() const;
+  std::string as_human_readable(bool show_nullptr) const;
 
   int size() const { return static_cast<int>(valuesTs.size()); }
   bool has_nameT(std::string_view nameT) const;
@@ -69,6 +70,7 @@ public:
   bool equal_to(const GenericsSubstitutions* rhs) const;
 
   void set_typeT(std::string_view nameT, TypePtr typeT);
+  void provide_type_arguments(const std::vector<TypePtr>& type_arguments);
 };
 
 // this class helps to deduce Ts on the fly
@@ -87,6 +89,7 @@ public:
   explicit GenericSubstitutionsDeducing(StructPtr struct_ref);
 
   TypePtr replace_Ts_with_currently_deduced(TypePtr orig) const;
+  TypePtr auto_deduce_from_argument(TypePtr param_type, TypePtr arg_type);
   TypePtr auto_deduce_from_argument(FunctionPtr cur_f, SrcLocation loc, TypePtr param_type, TypePtr arg_type);
   std::string_view get_first_not_deduced_nameT() const;
   void fire_error_can_not_deduce(FunctionPtr cur_f, SrcLocation loc, std::string_view nameT) const;
@@ -96,19 +99,13 @@ public:
   }
 };
 
-struct GenericDeduceError final : std::exception {
-  std::string nameT;
-
-  explicit GenericDeduceError(std::string_view nameT)
-    : nameT(nameT) { }
-
-  const char* what() const noexcept override {
-    return nameT.c_str();
-  }
-};
+typedef std::pair<FunctionPtr, GenericsSubstitutions> MethodCallCandidate;
 
 FunctionPtr instantiate_generic_function(FunctionPtr fun_ref, GenericsSubstitutions&& substitutedTs);
 StructPtr instantiate_generic_struct(StructPtr struct_ref, GenericsSubstitutions&& substitutedTs);
 AliasDefPtr instantiate_generic_alias(AliasDefPtr alias_ref, GenericsSubstitutions&& substitutedTs);
+
+FunctionPtr match_exact_method_for_call_not_generic(TypePtr called_receiver, std::string_view called_name);
+std::vector<MethodCallCandidate> match_methods_for_call_including_generic(TypePtr called_receiver, std::string_view called_name);
 
 }  // namespace tolk

@@ -24,7 +24,7 @@
 
 namespace tolk {
 
-// given orig `(int, T)` and substitutions [T=slice], return `(int, slice)`
+// given orig `(int, T)` and substitutions [slice], return `(int, slice)`
 static TypePtr replace_genericT_with_deduced(TypePtr orig, const GenericsSubstitutions* substitutedTs) {
   if (!orig || !orig->has_genericT_inside()) {
     return orig;
@@ -52,9 +52,18 @@ static TypePtr replace_genericT_with_deduced(TypePtr orig, const GenericsSubstit
   });
 }
 
-std::string GenericsSubstitutions::as_human_readable() const {
+GenericsSubstitutions::GenericsSubstitutions(const GenericsDeclaration* genericTs, const std::vector<TypePtr>& type_arguments)
+  : genericTs(genericTs)
+  , valuesTs(genericTs->size()) {
+  provide_type_arguments(type_arguments);
+}
+
+std::string GenericsSubstitutions::as_human_readable(bool show_nullptr) const {
   std::string result;
   for (int i = 0; i < size(); ++i) {
+    if (valuesTs[i] == nullptr && !show_nullptr) {
+      continue;;
+    }
     if (!result.empty()) {
       result += ", ";
     }
@@ -74,9 +83,6 @@ void GenericsSubstitutions::set_typeT(std::string_view nameT, TypePtr typeT) {
   for (int i = 0; i < size(); ++i) {
     if (genericTs->get_nameT(i) == nameT) {
       if (valuesTs[i] == nullptr) {
-        if (typeT == TypeDataNullLiteral::create() || typeT->has_unknown_inside()) {
-          throw GenericDeduceError(nameT);
-        }
         tolk_assert(!typeT->has_genericT_inside());
         valuesTs[i] = typeT;
       }
@@ -85,12 +91,12 @@ void GenericsSubstitutions::set_typeT(std::string_view nameT, TypePtr typeT) {
   }
 }
 
-GenericsSubstitutions::GenericsSubstitutions(const GenericsDeclaration* genericTs, const std::vector<TypePtr>& type_arguments)
-  : genericTs(genericTs) {
-  assert(genericTs != nullptr && genericTs->size() == static_cast<int>(type_arguments.size()));
-  valuesTs.resize(genericTs->size());
-  for (int i = 0; i < genericTs->size(); ++i) {
-    valuesTs[i] = type_arguments[i];
+void GenericsSubstitutions::provide_type_arguments(const std::vector<TypePtr>& type_arguments) {
+  tolk_assert(genericTs != nullptr);
+  int start_from = genericTs->n_from_receiver;    // for `Container<T>.wrap<U>` user should specify only U
+  tolk_assert(static_cast<int>(type_arguments.size()) + start_from == genericTs->size());
+  for (int i = start_from; i < genericTs->size(); ++i) {
+    valuesTs[i] = type_arguments[i - start_from];
   }
 }
 
@@ -205,18 +211,17 @@ TypePtr GenericSubstitutionsDeducing::replace_Ts_with_currently_deduced(TypePtr 
   return replace_genericT_with_deduced(orig, &deducedTs);
 }
 
+TypePtr GenericSubstitutionsDeducing::auto_deduce_from_argument(TypePtr param_type, TypePtr arg_type) {
+  consider_next_condition(param_type, arg_type);
+  return replace_genericT_with_deduced(param_type, &deducedTs);
+}
+
 TypePtr GenericSubstitutionsDeducing::auto_deduce_from_argument(FunctionPtr cur_f, SrcLocation loc, TypePtr param_type, TypePtr arg_type) {
-  try {
-    consider_next_condition(param_type, arg_type);
-    param_type = replace_genericT_with_deduced(param_type, &deducedTs);
-    if (param_type->has_genericT_inside()) {
-      fire_error_can_not_deduce(cur_f, loc, get_first_not_deduced_nameT());
-    }
-    return param_type;
-  } catch (const GenericDeduceError& ex) {
-    fire_error_can_not_deduce(cur_f, loc, ex.nameT);
-    return nullptr;
+  param_type = auto_deduce_from_argument(param_type, arg_type);
+  if (param_type->has_genericT_inside()) {
+    fire_error_can_not_deduce(cur_f, loc, get_first_not_deduced_nameT());
   }
+  return param_type;
 }
 
 std::string_view GenericSubstitutionsDeducing::get_first_not_deduced_nameT() const {
@@ -236,25 +241,41 @@ void GenericSubstitutionsDeducing::fire_error_can_not_deduce(FunctionPtr cur_f, 
   }
 }
 
-std::string GenericsDeclaration::as_human_readable() const {
-  std::string result = "<";
-  for (const GenericsItem& item : itemsT) {
-    if (result.size() > 1) {
-      result += ", ";
+std::string GenericsDeclaration::as_human_readable(bool include_from_receiver) const {
+  std::string result;
+  if (int start_from = include_from_receiver ? 0 : n_from_receiver; start_from < size()) {
+    result += '<';
+    for (int i = start_from; i < size(); ++i) {
+      if (result.size() > 1) {
+        result += ", ";
+      }
+      result += namesT[i];
     }
-    result += item.nameT;
+    result += '>';
   }
-  result += ">";
   return result;
 }
 
 int GenericsDeclaration::find_nameT(std::string_view nameT) const {
-  for (int i = 0; i < static_cast<int>(itemsT.size()); ++i) {
-    if (itemsT[i].nameT == nameT) {
+  for (int i = 0; i < static_cast<int>(namesT.size()); ++i) {
+    if (namesT[i] == nameT) {
       return i;
     }
   }
   return -1;
+}
+
+void GenericsDeclaration::append_ast_list_checking_duplicates(AnyV v_genericsT_list, std::vector<std::string_view>& out) {
+  for (int i = 0; i < v_genericsT_list->as<ast_genericsT_list>()->size(); ++i) {
+    auto v_item = v_genericsT_list->as<ast_genericsT_list>()->get_item(i);
+    auto it_existing = std::find_if(out.begin(), out.end(), [v_item](const std::string_view& prevT) {
+      return prevT == v_item->nameT;
+    });
+    if (it_existing != out.end()) {
+      v_item->error("duplicate generic parameter `" + static_cast<std::string>(v_item->nameT) + "`");
+    }
+    out.emplace_back(v_item->nameT);
+  }
 }
 
 bool GenericsSubstitutions::has_nameT(std::string_view nameT) const {
@@ -282,28 +303,34 @@ bool GenericsSubstitutions::equal_to(const GenericsSubstitutions* rhs) const {
 
 // when cloning `f<T>`, original name is "f", we need a new name for symtable and output
 // name of an instantiated function will be "f<int>" and similar (yes, with "<" symbol, it's okay to Fift)
-static std::string generate_instantiated_name(const std::string& orig_name, const GenericsSubstitutions& substitutedTs, bool allow_spaces) {
+static std::string generate_instantiated_name(const std::string& orig_name, const GenericsSubstitutions& substitutedTs, bool allow_spaces, int size_from_receiver = 0) {
   // an instantiated function name will be "{orig_name}<{T1,T2,...}>"
   std::string name = orig_name;
-  name += "<";
-  for (int i = 0; i < substitutedTs.size(); ++i) {
-    if (name.size() > orig_name.size() + 1) {
-      name += ", ";
+  if (size_from_receiver < substitutedTs.size()) {
+    name += '<';
+    for (int i = size_from_receiver; i < substitutedTs.size(); ++i) {
+      if (name.size() > orig_name.size() + 1) {
+        name += ", ";
+      }
+      name += substitutedTs.typeT_at(i)->as_human_readable();
     }
-    name += substitutedTs.typeT_at(i)->as_human_readable();
+    name += '>';
   }
   if (!allow_spaces) {
     name.erase(std::remove(name.begin(), name.end(), ' '), name.end());
   }
-  name += ">";
   return name;
 }
 
 FunctionPtr instantiate_generic_function(FunctionPtr fun_ref, GenericsSubstitutions&& substitutedTs) {
-  tolk_assert(fun_ref->is_generic_function() && !fun_ref->is_method_id_not_empty());
+  tolk_assert(fun_ref->is_generic_function() && !fun_ref->has_tvm_method_id());
 
   // fun_ref->name = "f", inst_name will be "f<int>" and similar
-  std::string new_name = generate_instantiated_name(fun_ref->name, substitutedTs, false);
+  std::string fun_name = fun_ref->name;
+  if (fun_ref->is_method() && fun_ref->receiver_type->has_genericT_inside()) {
+    fun_name = replace_genericT_with_deduced(fun_ref->receiver_type, &substitutedTs)->as_human_readable() + "." + fun_ref->method_name;
+  }
+  std::string new_name = generate_instantiated_name(fun_name, substitutedTs, false, fun_ref->genericTs->n_from_receiver);
   if (const Symbol* existing_sym = lookup_global_symbol(new_name)) {
     FunctionPtr existing_ref = existing_sym->try_as<FunctionPtr>();
     tolk_assert(existing_ref);
@@ -324,7 +351,8 @@ FunctionPtr instantiate_generic_function(FunctionPtr fun_ref, GenericsSubstituti
       new_parameters.emplace_back(orig_p.name, orig_p.loc, new_param_type, orig_p.flags, orig_p.param_idx);
     }
     TypePtr new_return_type = replace_genericT_with_deduced(fun_ref->declared_return_type, allocatedTs);
-    FunctionData* new_fun_ref = new FunctionData(new_name, fun_ref->loc, new_return_type, std::move(new_parameters), fun_ref->flags, nullptr, allocatedTs, fun_ref->body, fun_ref->ast_root);
+    TypePtr new_receiver_type = replace_genericT_with_deduced(fun_ref->receiver_type, allocatedTs);
+    FunctionData* new_fun_ref = new FunctionData(new_name, fun_ref->loc, fun_ref->method_name, new_receiver_type, new_return_type, std::move(new_parameters), fun_ref->flags, nullptr, allocatedTs, fun_ref->body, fun_ref->ast_root);
     new_fun_ref->arg_order = fun_ref->arg_order;
     new_fun_ref->ret_order = fun_ref->ret_order;
     new_fun_ref->base_fun_ref = fun_ref;
@@ -336,10 +364,9 @@ FunctionPtr instantiate_generic_function(FunctionPtr fun_ref, GenericsSubstituti
   // it means, that types still contain T: `f<int>(v: T): T`, but since type resolving knows
   // it's instantiation, when resolving types, it substitutes T=int
   V<ast_function_declaration> orig_root = fun_ref->ast_root->as<ast_function_declaration>();
-  V<ast_identifier> new_name_ident = createV<ast_identifier>(orig_root->get_identifier()->loc, new_name);
-  V<ast_function_declaration> new_root = ASTReplicator::clone_function_ast(orig_root, new_name_ident);
+  V<ast_function_declaration> new_root = ASTReplicator::clone_function_ast(orig_root);
 
-  FunctionPtr new_fun_ref = pipeline_register_instantiated_generic_function(fun_ref, new_root, allocatedTs);
+  FunctionPtr new_fun_ref = pipeline_register_instantiated_generic_function(fun_ref, new_root, std::move(new_name), allocatedTs);
   tolk_assert(new_fun_ref);
   // body of a cloned function (it's cloned at type inferring step) needs the previous pipeline to run
   // for example, all local vars need to be registered as symbols, etc.
@@ -368,7 +395,7 @@ StructPtr instantiate_generic_struct(StructPtr struct_ref, GenericsSubstitutions
   V<ast_identifier> new_name_ident = createV<ast_identifier>(orig_root->get_identifier()->loc, new_name);
   V<ast_struct_declaration> new_root = ASTReplicator::clone_struct_ast(orig_root, new_name_ident);
 
-  StructPtr new_struct_ref = pipeline_register_instantiated_generic_struct(struct_ref, new_root, allocatedTs);
+  StructPtr new_struct_ref = pipeline_register_instantiated_generic_struct(struct_ref, new_root, std::move(new_name), allocatedTs);
   tolk_assert(new_struct_ref);
   pipeline_resolve_identifiers_and_assign_symbols(new_struct_ref);
   pipeline_resolve_types_and_aliases(new_struct_ref);
@@ -391,10 +418,88 @@ AliasDefPtr instantiate_generic_alias(AliasDefPtr alias_ref, GenericsSubstitutio
   V<ast_identifier> new_name_ident = createV<ast_identifier>(orig_root->get_identifier()->loc, new_name);
   V<ast_type_alias_declaration> new_root = ASTReplicator::clone_type_alias_ast(orig_root, new_name_ident);
 
-  AliasDefPtr new_alias_ref = pipeline_register_instantiated_generic_alias(alias_ref, new_root, allocatedTs);
+  AliasDefPtr new_alias_ref = pipeline_register_instantiated_generic_alias(alias_ref, new_root, std::move(new_name), allocatedTs);
   tolk_assert(new_alias_ref);
   pipeline_resolve_types_and_aliases(new_alias_ref);
   return new_alias_ref;
+}
+
+// find `builder.storeInt` for called_receiver = "builder" and called_name = "storeInt"
+// most practical case, when a direct method for receiver exists
+FunctionPtr match_exact_method_for_call_not_generic(TypePtr called_receiver, std::string_view called_name) {
+  FunctionPtr exact_found = nullptr;
+
+  for (FunctionPtr method_ref : G.all_methods) {
+    if (method_ref->method_name == called_name && !method_ref->receiver_type->has_genericT_inside()) {
+      if (method_ref->receiver_type->equal_to(called_receiver)) {
+        if (exact_found) {
+          return nullptr;
+        }
+        exact_found = method_ref;
+      }
+    }
+  }
+
+  return exact_found;
+}
+
+// find `int?.copy` / `T.copy` for called_receiver = "int" and called_name = "copy"
+std::vector<MethodCallCandidate> match_methods_for_call_including_generic(TypePtr called_receiver, std::string_view called_name) {
+  std::vector<MethodCallCandidate> candidates;
+
+  // step1: find all methods where a receiver equals to provided, e.g. `MInt.copy`
+  for (FunctionPtr method_ref : G.all_methods) {
+    if (method_ref->method_name == called_name && !method_ref->receiver_type->has_genericT_inside()) {
+      if (method_ref->receiver_type->equal_to(called_receiver)) {
+        candidates.emplace_back(method_ref, GenericsSubstitutions(method_ref->genericTs));
+      }
+    }
+  }
+  if (!candidates.empty()) {
+    return candidates;
+  }
+
+  // step2: find all methods where a receiver can accept provided, e.g. `int8.copy` / `int?.copy` / `(int|slice).copy`
+  for (FunctionPtr method_ref : G.all_methods) {
+    if (method_ref->method_name == called_name && !method_ref->receiver_type->has_genericT_inside()) {
+      if (method_ref->receiver_type->can_rhs_be_assigned(called_receiver)) {
+        candidates.emplace_back(method_ref, GenericsSubstitutions(method_ref->genericTs));
+      }
+    }
+  }
+  if (!candidates.empty()) {
+    return candidates;
+  }
+
+  // step 3: try to match generic receivers, e.g. `Container<T>.copy` / `(T?|slice).copy` but NOT `T.copy`
+  for (FunctionPtr method_ref : G.all_methods) {
+    if (method_ref->method_name == called_name && method_ref->receiver_type->has_genericT_inside() && !method_ref->receiver_type->try_as<TypeDataGenericT>()) {
+      try {
+        GenericSubstitutionsDeducing deducingTs(method_ref);
+        TypePtr replaced = deducingTs.auto_deduce_from_argument(method_ref->receiver_type, called_receiver);
+        if (!replaced->has_genericT_inside()) {
+          candidates.emplace_back(method_ref, deducingTs.flush());
+        }
+      } catch (...) {}
+    }
+  }
+  if (!candidates.empty()) {
+    return candidates;
+  }
+
+  // step 4: try to match `T.copy`
+  for (FunctionPtr method_ref : G.all_methods) {
+    if (method_ref->method_name == called_name && method_ref->receiver_type->try_as<TypeDataGenericT>()) {
+      try {
+        GenericSubstitutionsDeducing deducingTs(method_ref);
+        TypePtr replaced = deducingTs.auto_deduce_from_argument(method_ref->receiver_type, called_receiver);
+        if (!replaced->has_genericT_inside()) {
+          candidates.emplace_back(method_ref, deducingTs.flush());
+        }
+      } catch (...) {}
+    }
+  }
+  return candidates;
 }
 
 } // namespace tolk

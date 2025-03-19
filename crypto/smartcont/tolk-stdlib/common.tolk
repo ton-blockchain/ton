@@ -10,9 +10,9 @@ tolk 0.11
 type dict = cell?;
 
 /**
-  Tuple manipulation primitives.
-  Elements of a tuple can be of arbitrary type.
-  Note that atomic type `tuple` can't be cast to composite tuple type (e.g. `[int, cell]`) and vise versa.
+    Tuple manipulation primitives.
+    Elements of a tuple can be of arbitrary type.
+    Note that atomic type `tuple` can't be cast to composite tuple type (e.g. `[int, cell]`) and vise versa.
  */
 
 /// Creates a tuple with zero elements.
@@ -23,36 +23,36 @@ fun createEmptyTuple(): tuple
 /// Appends a value to tuple, resulting in `Tuple t' = (x1, ..., xn, value)`.
 /// If its size exceeds 255, throws a type check exception.
 @pure
-fun tuplePush<T>(mutate self: tuple, value: T): void
+fun tuple.push<T>(mutate self, value: T): void
     asm "TPUSH";
 
 /// Returns the first element of a non-empty tuple.
-/// `t.0` is actually the same as `t.tupleFirst()`
+/// `t.0` is actually the same as `t.first()`
 @pure
-fun tupleFirst<T>(self: tuple): T
+fun tuple.first<T>(self): T
     asm "FIRST";
 
 /// Returns the [`index`]-th element of a tuple.
-/// `t.i` is actually the same as `t.tupleAt(i)`
+/// `t.i` is actually the same as `t.get(i)`
 @pure
-fun tupleAt<T>(self: tuple, index: int): T
+fun tuple.get<T>(self, index: int): T
     builtin;
 
 /// Sets the [`index`]-th element of a tuple to a specified value
 /// (element with this index must already exist, a new element isn't created).
-/// `t.i = value` is actually the same as `t.tupleSetAt(value, i)`
+/// `t.i = value` is actually the same as `t.set(value, i)`
 @pure
-fun tupleSetAt<T>(mutate self: tuple, value: T, index: int): void
+fun tuple.set<T>(mutate self, value: T, index: int): void
     builtin;
 
 /// Returns the size of a tuple (elements count in it).
 @pure
-fun tupleSize(self: tuple): int
+fun tuple.size(self): int
     asm "TLEN";
 
 /// Returns the last element of a non-empty tuple.
 @pure
-fun tupleLast<T>(self: tuple): T
+fun tuple.last<T>(self): T
     asm "LAST";
 
 
@@ -78,6 +78,7 @@ fun max(x: int, y: int): int
     asm "MAX";
 
 /// Sorts two integers.
+/// Example: `minMax(x, y)` with (x=20, y=10) and with (x=10, y=20) returns (10, 20)
 @pure
 fun minMax(x: int, y: int): (int, int)
     asm "MINMAX";
@@ -125,69 +126,82 @@ fun mulDivMod(x: int, y: int, z: int): (int, int)
 
 
 /**
-    Global getters of environment and contract state.
+    Global getters and setters of current contract state.
  */
 
-const MASTERCHAIN = -1;
-const BASECHAIN = 0;
-
-/// Returns current Unix timestamp (in seconds).
-@pure
-fun now(): int
-    asm "NOW";
+/// `contract` is a built-in struct, it has only static methods.
+/// Example: `contract.getCode()` and other methods.
+struct contract {}
 
 /// Returns the internal address of the current smart contract as a Slice with a `MsgAddressInt`.
 /// If necessary, it can be parsed further using primitives such as [parseStandardAddress].
 @pure
-fun getMyAddress(): slice
+fun contract.getAddress(): slice
     asm "MYADDR";
 
 /// Returns the balance (in nanotoncoins) of the smart contract at the start of Computation Phase.
 /// Note that RAW primitives such as [sendMessage] do not update this field.
 @pure
-fun getMyOriginalBalance(): int
+fun contract.getOriginalBalance(): coins
     asm "BALANCE" "FIRST";
 
-/// Same as [getMyOriginalBalance], but returns a tuple:
+/// Same as [contract.getOriginalBalance], but returns a tuple:
 /// `int` — balance in nanotoncoins;
 /// `dict` — a dictionary with 32-bit keys representing the balance of "extra currencies".
 @pure
-fun getMyOriginalBalanceWithExtraCurrencies(): [int, dict]
+fun contract.getOriginalBalanceWithExtraCurrencies(): [coins, dict]
     asm "BALANCE";
-
-/// Returns the logical time of the current transaction.
-@pure
-fun getLogicalTime(): int
-    asm "LTIME";
-
-/// Returns the starting logical time of the current block.
-@pure
-fun getCurrentBlockLogicalTime(): int
-    asm "BLOCKLT";
-
-/// Returns the value of the global configuration parameter with integer index `i` as a `cell` or `null` value.
-@pure
-fun getBlockchainConfigParam(x: int): cell?
-    asm "CONFIGOPTPARAM";
 
 /// Returns the persistent contract storage cell. It can be parsed or modified with slice and builder primitives later.
 @pure
-fun getContractData(): cell
+fun contract.getData(): cell
     asm "c4 PUSH";
 
 /// Sets `cell` [c] as persistent contract data. You can update persistent contract storage with this primitive.
-fun setContractData(c: cell): void
+fun contract.setData(c: cell): void
     asm "c4 POP";
 
 /// Retrieves code of smart-contract from c7
 @pure
-fun getContractCode(): cell
+fun contract.getCode(): cell
     asm "MYCODE";
 
 /// Creates an output action that would change this smart contract code to that given by cell [newCode].
 /// Notice that this change will take effect only after the successful termination of the current run of the smart contract.
-fun setContractCodePostponed(newCode: cell): void
+fun contract.setCodePostponed(newCode: cell): void
     asm "SETCODE";
+
+
+/**
+    Global getters of current blockchain (environment) state.
+*/
+
+const MASTERCHAIN = -1;
+const BASECHAIN = 0;
+
+/// `blockchain` is a built-in struct, it has only static methods.
+/// Example: `blockchain.configParam(16)` and other methods.
+struct blockchain {}
+
+/// Returns current Unix timestamp (in seconds).
+@pure
+fun blockchain.now(): int
+    asm "NOW";
+
+/// Returns the logical time of the current transaction.
+@pure
+fun blockchain.logicalTime(): int
+    asm "LTIME";
+
+/// Returns the starting logical time of the current block.
+@pure
+fun blockchain.currentBlockLogicalTime(): int
+    asm "BLOCKLT";
+
+/// Returns the value of the global configuration parameter with integer index `i` as a `cell` or `null` value.
+@pure
+fun blockchain.configParam(x: int): cell?
+    asm "CONFIGOPTPARAM";
 
 /// Commits the current state of registers `c4` (“persistent data”) and `c5` (“actions”)
 /// so that the current execution is considered “successful” with the saved values even if an exception
@@ -197,7 +211,7 @@ fun commitContractDataAndActions(): void
 
 
 /**
-  Signature checks, hashing, cryptography.
+    Signature checks, hashing, cryptography.
  */
 
 /// Compile-time function that calculates crc32 of a constant string.
@@ -236,23 +250,23 @@ fun stringSha256_32(constString: slice): int
 fun stringToBase256(constString: slice): int
     builtin;
 
-/// Computes the representation hash of a `cell` [c] and returns it as a 256-bit unsigned integer `x`.
+/// Computes the representation hash of a `cell` and returns it as a 256-bit unsigned integer `x`.
 /// Useful for signing and checking signatures of arbitrary entities represented by a tree of cells.
 @pure
-fun cellHash(c: cell): int
+fun cell.hash(self): int
     asm "HASHCU";
 
-/// Computes the hash of a `slice s` and returns it as a 256-bit unsigned integer `x`.
+/// Computes the hash of a `slice` and returns it as a 256-bit unsigned integer `x`.
 /// The result is the same as if an ordinary cell containing only data and references from `s` had been created
-/// and its hash computed by [cellHash].
+/// and its hash computed by [cell.hash].
 @pure
-fun sliceHash(s: slice): int
+fun slice.hash(self): int
     asm "HASHSU";
 
-/// Computes sha256 of the data bits of `slice` [s]. If the bit length of `s` is not divisible by eight,
+/// Computes sha256 of the data bits of a `slice`. If the bit length of `s` is not divisible by eight,
 /// throws a cell underflow exception. The hash value is returned as a 256-bit unsigned integer `x`.
 @pure
-fun sliceBitsHash(s: slice): int
+fun slice.bitsHash(self): int
     asm "SHA256U";
 
 /// Checks the Ed25519-`signature` of a `hash` (a 256-bit unsigned integer, usually computed as the hash of some data)
@@ -275,36 +289,43 @@ fun isSignatureValid(hash: int, signature: slice, publicKey: int): bool
 fun isSliceSignatureValid(data: slice, signature: slice, publicKey: int): bool
     asm "CHKSIGNS";
 
+/// `random` is a built-in struct, it has only static methods.
+/// Example: `random.uint256()` and other methods.
+struct random {}
+
 /// Generates a new pseudo-random unsigned 256-bit integer x.
-fun random(): int
+/// Ensure you've called [random.initialize] in advance to make it unpredictable!
+fun random.uint256(): uint256
     asm "RANDU256";
 
-/// Generates a new pseudo-random integer z in the range 0..range−1 (or range..−1, if range < 0).
-/// More precisely, an unsigned random value x is generated as in random; then z := x * range / 2^256 is computed.
-fun randomRange(range: int): int
+/// Generates a new pseudo-random integer z in the range 0..limit−1 (or limit..−1, if upto < 0).
+/// More precisely, an unsigned random value x is generated as in random; then z := x * limit / 2^256 is computed.
+/// Ensure you've called [random.initialize] in advance to make it unpredictable!
+fun random.range(limit: int): int
     asm "RAND";
 
-/// Returns the current random seed as an unsigned 256-bit integer.
+/// Returns the current random seed used to generate pseudo-random numbers.
 @pure
-fun randomGetSeed(): int
+fun random.getSeed(): uint256
     asm "RANDSEED";
 
-/// Sets the random seed to unsigned 256-bit seed.
-fun randomSetSeed(seed: int): void
+/// Sets the random seed to the provided value.
+fun random.setSeed(seed: uint256): void
     asm "SETRAND";
 
-/// Initializes (mixes) random seed with unsigned 256-bit integer x.
-fun randomizeBy(x: int): void
+/// Initializes (mixes) random seed with the provided value.
+fun random.initializeBy(mixSeedWith: uint256): void
     asm "ADDRAND";
 
-/// Initializes random seed using current time. Don't forget to call this before calling `random`!
-fun randomizeByLogicalTime(): void
+/// Initializes random seed with current time to make random generation unpredictable.
+/// Typically, you call this function once before calling [random.uint256] / [random.range].
+fun random.initialize(): void
     asm "LTIME" "ADDRAND";
 
 
 /**
-  Size computation primitives.
-  They may be useful for computing storage fees of user-provided data.
+    Size computation primitives.
+    They may be useful for computing storage fees of user-provided data.
  */
 
 /// Returns `(x, y, z, -1)` or `(null, null, null, 0)`.
@@ -317,69 +338,73 @@ fun randomizeByLogicalTime(): void
 /// otherwise the computation is aborted before visiting the `(maxCells + 1)`-st cell and
 /// a zero flag is returned to indicate failure. If [c] is `null`, returns `x = y = z = 0`.
 @pure
-fun calculateCellSize(c: cell, maxCells: int): (int, int, int, bool)
+fun cell.calculateSize(self, maxCells: int): (int, int, int, bool)
     asm "CDATASIZEQ NULLSWAPIFNOT2 NULLSWAPIFNOT";
 
-/// Similar to [calculateCellSize], but accepting a `slice` [s] instead of a `cell`.
+/// Similar to [cell.calculateSize], but accepting a `slice` [s] instead of a `cell`.
 /// The returned value of `x` does not take into account the cell that contains the `slice` [s] itself;
 /// however, the data bits and the cell references of [s] are accounted for in `y` and `z`.
 @pure
-fun calculateSliceSize(s: slice, maxCells: int): (int, int, int, bool)
+fun slice.calculateSize(self, maxCells: int): (int, int, int, bool)
     asm "SDATASIZEQ NULLSWAPIFNOT2 NULLSWAPIFNOT";
 
-/// A non-quiet version of [calculateCellSize] that throws a cell overflow exception (`8`) on failure.
-fun calculateCellSizeStrict(c: cell, maxCells: int): (int, int, int)
+/// A non-quiet version of [cell.calculateSize] that throws a cell overflow exception (`8`) on failure.
+fun cell.calculateSizeStrict(self, maxCells: int): (int, int, int)
     asm "CDATASIZE";
 
-/// A non-quiet version of [calculateSliceSize] that throws a cell overflow exception (`8`) on failure.
-fun calculateSliceSizeStrict(s: slice, maxCells: int): (int, int, int)
+/// A non-quiet version of [cell.calculateSize] that throws a cell overflow exception (`8`) on failure.
+fun slice.calculateSizeStrict(self, maxCells: int): (int, int, int)
     asm "SDATASIZE";
 
-/// Returns the depth of `cell` [c].
+/// Returns the depth of a `cell`.
 /// If [c] has no references, then return `0`;
 /// otherwise the returned value is one plus the maximum of depths of cells referred to from [c].
 /// If [c] is a `null` instead of a cell, returns zero.
 @pure
-fun getCellDepth(c: cell?): int
+fun cell?.depth(self): int
     asm "CDEPTH";
 
-/// Returns the depth of `slice` [s].
+/// Returns the depth of a `slice`.
 /// If [s] has no references, then returns `0`;
 /// otherwise the returned value is one plus the maximum of depths of cells referred to from [s].
 @pure
-fun getSliceDepth(s: slice): int
+fun slice.depth(self): int
     asm "SDEPTH";
 
-/// Returns the depth of `builder` [b].
+/// Returns the depth of a `builder`.
 /// If no cell references are stored in [b], then returns 0;
 /// otherwise the returned value is one plus the maximum of depths of cells referred to from [b].
 @pure
-fun getBuilderDepth(b: builder): int
+fun builder.depth(self): int
     asm "BDEPTH";
 
 
 /**
-  Debug primitives.
-  Only works for local TVM execution with debug level verbosity.
+    Debug primitives.
+    Only works for local TVM execution with debug level verbosity.
  */
 
+/// `debug` is a built-in struct, it has only static methods.
+/// Example: `debug.print(v)` and other methods.
+struct debug {}
+
 /// Dump a variable [x] to the debug log.
-fun debugPrint<T>(x: T): void
+fun debug.print<T>(x: T): void
     builtin;
 
 /// Dump a string [x] to the debug log.
-fun debugPrintString<T>(x: T): void
+fun debug.printString<T>(x: T): void
     builtin;
 
 /// Dumps the stack (at most the top 255 values) and shows the total stack depth.
-fun debugDumpStack(): void
+fun debug.dumpStack(): void
     builtin;
 
 
 /**
-  Slice primitives: parsing cells.
-  When you _load_ some data, you mutate the slice (shifting an internal pointer on the stack).
-  When you _preload_ some data, you just get the result without mutating the slice.
+    Slice primitives: parsing cells.
+    When you _load_ some data, you mutate the slice (shifting an internal pointer on the stack).
+    When you _preload_ some data, you just get the result without mutating the slice.
  */
 
 /// Compile-time function that converts a constant string to TL-encoded MsgAddressInt (TVM slice).
@@ -398,124 +423,124 @@ fun stringAddressToSlice(constStringAddress: slice): slice
 fun stringHexToSlice(constStringBytesHex: slice): slice
     builtin;
 
-/// Converts a `cell` [c] into a `slice`. Notice that [c] must be either an ordinary cell,
+/// Converts a `cell` into a `slice`. Notice that [c] must be either an ordinary cell,
 /// or an exotic cell (see [TVM.pdf](https://ton-blockchain.github.io/docs/tvm.pdf), 3.1.2)
 /// which is automatically loaded to yield an ordinary cell `c'`, converted into a `slice` afterwards.
 @pure
-fun beginParse(c: cell): slice
+fun cell.beginParse(self): slice
     asm "CTOS";
 
 /// Checks if slice is empty. If not, throws an exception.
-fun assertEndOfSlice(self: slice): void
+fun slice.assertEnd(self): void
     asm "ENDS";
 
 /// Loads the next reference from the slice.
 @pure
-fun loadRef(mutate self: slice): cell
+fun slice.loadRef(mutate self): cell
     asm( -> 1 0) "LDREF";
 
 /// Preloads the next reference from the slice.
 @pure
-fun preloadRef(self: slice): cell
+fun slice.preloadRef(self): cell
     asm "PLDREF";
 
 /// Loads a signed [len]-bit integer from a slice.
 @pure
-fun loadInt(mutate self: slice, len: int): int
+fun slice.loadInt(mutate self, len: int): int
     builtin;
 
 /// Loads an unsigned [len]-bit integer from a slice.
 @pure
-fun loadUint(mutate self: slice, len: int): int
+fun slice.loadUint(mutate self, len: int): int
     builtin;
 
 /// Loads the first `0 ≤ len ≤ 1023` bits from slice [s] into a separate slice `s''`.
 @pure
-fun loadBits(mutate self: slice, len: int): slice
+fun slice.loadBits(mutate self, len: int): slice
     builtin;
 
 /// Preloads a signed [len]-bit integer from a slice.
 @pure
-fun preloadInt(self: slice, len: int): int
+fun slice.preloadInt(self, len: int): int
     builtin;
 
 /// Preloads an unsigned [len]-bit integer from a slice.
 @pure
-fun preloadUint(self: slice, len: int): int
+fun slice.preloadUint(self, len: int): int
     builtin;
 
 /// Preloads the first `0 ≤ len ≤ 1023` bits from slice [s] into a separate slice.
 @pure
-fun preloadBits(self: slice, len: int): slice
+fun slice.preloadBits(self, len: int): slice
     builtin;
 
 /// Loads serialized amount of Toncoins (any unsigned integer up to `2^120 - 1`).
 @pure
-fun loadCoins(mutate self: slice): coins
+fun slice.loadCoins(mutate self): coins
     asm( -> 1 0) "LDGRAMS";
 
 /// Loads bool (-1 or 0) from a slice
 @pure
-fun loadBool(mutate self: slice): bool
+fun slice.loadBool(mutate self): bool
     asm( -> 1 0) "1 LDI";
 
 /// Shifts a slice pointer to [len] bits forward, mutating the slice.
 @pure
-fun skipBits(mutate self: slice, len: int): self
+fun slice.skipBits(mutate self, len: int): self
     asm "SDSKIPFIRST";
 
 /// Returns the first `0 ≤ len ≤ 1023` bits of a slice.
 @pure
-fun getFirstBits(self: slice, len: int): slice
+fun slice.getFirstBits(self, len: int): slice
     asm "SDCUTFIRST";
 
 /// Returns all but the last `0 ≤ len ≤ 1023` bits of a slice.
 @pure
-fun removeLastBits(mutate self: slice, len: int): self
+fun slice.removeLastBits(mutate self, len: int): self
     asm "SDSKIPLAST";
 
 /// Returns the last `0 ≤ len ≤ 1023` bits of a slice.
 @pure
-fun getLastBits(self: slice, len: int): slice
+fun slice.getLastBits(self, len: int): slice
     asm "SDCUTLAST";
 
 /// Loads a dictionary (TL HashMapE structure, represented as TVM cell) from a slice.
 /// Returns `null` if `nothing` constructor is used.
 @pure
-fun loadDict(mutate self: slice): dict
+fun slice.loadDict(mutate self): dict
     asm( -> 1 0) "LDDICT";
 
 /// Preloads a dictionary (cell) from a slice.
 @pure
-fun preloadDict(self: slice): dict
+fun slice.preloadDict(self): dict
     asm "PLDDICT";
 
-/// Loads a dictionary as [loadDict], but returns only the remainder of the slice.
+/// Loads a dictionary as [slice.loadDict], but returns only the remainder of the slice.
 @pure
-fun skipDict(mutate self: slice): self
+fun slice.skipDict(mutate self): self
     asm "SKIPDICT";
 
 /// Loads (Maybe ^Cell) from a slice.
 /// In other words, loads 1 bit: if it's true, loads the first ref, otherwise returns `null`.
 @pure
-fun loadMaybeRef(mutate self: slice): cell?
+fun slice.loadMaybeRef(mutate self): cell?
     asm( -> 1 0) "LDOPTREF";
 
 /// Preloads (Maybe ^Cell) from a slice.
 @pure
-fun preloadMaybeRef(self: slice): cell?
+fun slice.preloadMaybeRef(self): cell?
     asm "PLDOPTREF";
 
 /// Loads (Maybe ^Cell), but returns only the remainder of the slice.
 @pure
-fun skipMaybeRef(mutate self: slice): self
+fun slice.skipMaybeRef(mutate self): self
     asm "SKIPOPTREF";
 
 /**
-  Builder primitives: constructing cells.
-  When you _store_ some data, you mutate the builder (shifting an internal pointer on the stack).
-  All the primitives below first check whether there is enough space in the `builder`,
-  and only then check the range of the value being serialized.
+    Builder primitives: constructing cells.
+    When you _store_ some data, you mutate the builder (shifting an internal pointer on the stack).
+    All the primitives below first check whether there is enough space in the `builder`,
+    and only then check the range of the value being serialized.
  */
 
 /// Creates a new empty builder.
@@ -525,116 +550,116 @@ fun beginCell(): builder
 
 /// Converts a builder into an ordinary `cell`.
 @pure
-fun endCell(self: builder): cell
+fun builder.endCell(self): cell
     asm "ENDC";
 
 /// Stores a reference to a cell into a builder.
 @pure
-fun storeRef(mutate self: builder, c: cell): self
+fun builder.storeRef(mutate self, c: cell): self
     asm(c self) "STREF";
 
 /// Stores a signed [len]-bit integer into a builder (`0 ≤ len ≤ 257`).
 @pure
-fun storeInt(mutate self: builder, x: int, len: int): self
+fun builder.storeInt(mutate self, x: int, len: int): self
     builtin;
 
 /// Stores an unsigned [len]-bit integer into a builder (`0 ≤ len ≤ 256`).
 @pure
-fun storeUint(mutate self: builder, x: int, len: int): self
+fun builder.storeUint(mutate self, x: int, len: int): self
     builtin;
 
 /// Stores a slice into a builder.
 @pure
-fun storeSlice(mutate self: builder, s: slice): self
+fun builder.storeSlice(mutate self, s: slice): self
     asm "STSLICER";
 
 /// Stores amount of Toncoins into a builder.
 @pure
-fun storeCoins(mutate self: builder, x: coins): self
+fun builder.storeCoins(mutate self, x: coins): self
     asm "STGRAMS";
 
 /// Stores bool (-1 or 0) into a builder.
 /// Attention: true value is `-1`, not 1! If you pass `1` here, TVM will throw an exception.
 @pure
-fun storeBool(mutate self: builder, x: bool): self
+fun builder.storeBool(mutate self, x: bool): self
     asm(x self) "1 STI";
 
 /// Stores dictionary (represented by TVM `cell` or `null`) into a builder.
 /// In other words, stores a `1`-bit and a reference to [c] if [c] is not `null` and `0`-bit otherwise.
 @pure
-fun storeDict(mutate self: builder, c: dict): self
+fun builder.storeDict(mutate self, c: dict): self
     asm(c self) "STDICT";
 
 /// Stores (Maybe ^Cell) into a builder.
 /// In other words, if cell is `null`, store '0' bit; otherwise, store '1' and a ref to [c].
 @pure
-fun storeMaybeRef(mutate self: builder, c: cell?): self
+fun builder.storeMaybeRef(mutate self, c: cell?): self
     asm(c self) "STOPTREF";
 
 /// Concatenates two builders.
 @pure
-fun storeBuilder(mutate self: builder, from: builder): self
+fun builder.storeBuilder(mutate self, from: builder): self
     asm "STBR";
 
 /// Stores a slice representing TL addr_none$00 (two `0` bits).
 @pure
-fun storeAddressNone(mutate self: builder): self
+fun builder.storeAddressNone(mutate self): self
     asm "b{00} STSLICECONST";
 
 
 /**
-  Slice size primitives.
+    Slice size primitives.
  */
 
 /// Returns the number of references in a slice.
 @pure
-fun getRemainingRefsCount(self: slice): int
+fun slice.remainingRefsCount(self): int
     asm "SREFS";
 
 /// Returns the number of data bits in a slice.
 @pure
-fun getRemainingBitsCount(self: slice): int
+fun slice.remainingBitsCount(self): int
     asm "SBITS";
 
 /// Returns both the number of data bits and the number of references in a slice.
 @pure
-fun getRemainingBitsAndRefsCount(self: slice): (int, int)
+fun slice.remainingBitsAndRefsCount(self): (int, int)
     asm "SBITREFS";
 
 /// Checks whether a slice is empty (i.e., contains no bits of data and no cell references).
 @pure
-fun isEndOfSlice(self: slice): bool
+fun slice.isEnd(self): bool
     asm "SEMPTY";
 
 /// Checks whether a slice has no bits of data.
 @pure
-fun isEndOfSliceBits(self: slice): bool
+fun slice.isEndOfBits(self): bool
     asm "SDEMPTY";
 
 /// Checks whether a slice has no references.
 @pure
-fun isEndOfSliceRefs(self: slice): bool
+fun slice.isEndOfRefs(self): bool
     asm "SREMPTY";
 
 /// Checks whether data parts of two slices coinside.
 @pure
-fun isSliceBitsEqual(self: slice, b: slice): bool
+fun slice.bitsEqual(self, b: slice): bool
     asm "SDEQ";
 
 /// Returns the number of cell references already stored in a builder.
 @pure
-fun getBuilderRefsCount(self: builder): int
+fun builder.refsCount(self): int
     asm "BREFS";
 
 /// Returns the number of data bits already stored in a builder.
 @pure
-fun getBuilderBitsCount(self: builder): int
+fun builder.bitsCount(self): int
     asm "BBITS";
 
 
 /**
-  Address manipulation primitives.
-  The address manipulation primitives listed below serialize and deserialize values according to the following TL-B scheme:
+    Address manipulation primitives.
+    The address manipulation primitives listed below serialize and deserialize values according to the following TL-B scheme:
   ```TL-B
   addr_none$00 = MsgAddressExt;
   addr_extern$01 len:(## 8) external_address:(bits len)
@@ -672,7 +697,7 @@ fun getBuilderBitsCount(self: builder): int
 /// Loads from slice [s] the only prefix that is a valid `MsgAddress`,
 /// and returns both this prefix `s'` and the remainder `s''` of [s] as slices.
 @pure
-fun loadAddress(mutate self: slice): slice
+fun slice.loadAddress(mutate self): slice
     asm( -> 1 0) "LDMSGADDR";
 
 /// Decomposes slice [s] containing a valid `MsgAddress` into a `tuple t` with separate fields of this `MsgAddress`.
@@ -703,7 +728,7 @@ fun addressIsNone(s: slice): bool
 
 
 /**
-  Reserving Toncoins on balance and its flags.
+    Reserving Toncoins on balance and its flags.
  */
 
 /// mode = 0: Reserve exact amount of nanotoncoins
@@ -721,12 +746,12 @@ const RESERVE_MODE_BOUNCE_ON_ACTION_FAIL = 16;
 
 /// Creates an output action which would reserve Toncoins on balance.
 /// For [reserveMode] consider constants above.
-fun reserveToncoinsOnBalance(nanoTonCoins: int, reserveMode: int): void
+fun reserveToncoinsOnBalance(nanoTonCoins: coins, reserveMode: int): void
     asm "RAWRESERVE";
 
 /// Similar to [reserveToncoinsOnBalance], but also accepts a dictionary extraAmount (represented by a cell or null)
 /// with extra currencies. In this way currencies other than Toncoin can be reserved.
-fun reserveExtraCurrenciesOnBalance(nanoTonCoins: int, extraAmount: dict, reserveMode: int): void
+fun reserveExtraCurrenciesOnBalance(nanoTonCoins: coins, extraAmount: dict, reserveMode: int): void
     asm "RAWRESERVEX";
 
 
@@ -745,7 +770,7 @@ const NON_BOUNCEABLE = 0x10;
 
 /// Load msgFlags from incoming message body (4 bits).
 @pure
-fun loadMessageFlags(mutate self: slice): int
+fun slice.loadMessageFlags(mutate self): int
     asm( -> 1 0) "4 LDU";
 
 /// Having msgFlags (4 bits), check that a message is bounced.
@@ -756,33 +781,33 @@ fun isMessageBounced(msgFlags: int): bool
 
 /// Skip 0xFFFFFFFF prefix (when a message is bounced).
 @pure
-fun skipBouncedPrefix(mutate self: slice): self
+fun slice.skipBouncedPrefix(mutate self): self
     asm "32 PUSHINT" "SDSKIPFIRST";
 
 /// The guideline recommends to start the body of an internal message with uint32 `op` and uint64 `queryId`.
 @pure
-fun loadMessageOp(mutate self: slice): int
+fun slice.loadMessageOp(mutate self): int
     asm( -> 1 0) "32 LDU";
 
 @pure
-fun skipMessageOp(mutate self: slice): self
+fun slice.skipMessageOp(mutate self): self
     asm "32 PUSHINT" "SDSKIPFIRST";
 
 @pure
-fun storeMessageOp(mutate self: builder, op: int): self
+fun builder.storeMessageOp(mutate self, op: int): self
     asm(op self) "32 STU";
 
 /// The guideline recommends that uint64 `queryId` should follow uint32 `op`.
 @pure
-fun loadMessageQueryId(mutate self: slice): int
+fun slice.loadMessageQueryId(mutate self): int
     asm( -> 1 0) "64 LDU";
 
 @pure
-fun skipMessageQueryId(mutate self: slice): self
+fun slice.skipMessageQueryId(mutate self): self
     asm "64 PUSHINT" "SDSKIPFIRST";
 
 @pure
-fun storeMessageQueryId(mutate self: builder, queryId: int): self
+fun builder.storeMessageQueryId(mutate self, queryId: int): self
     asm(queryId self) "64 STU";
 
 /// SEND MODES - https://docs.ton.org/tvm.pdf page 137, SENDRAWMSG
@@ -809,8 +834,6 @@ const SEND_MODE_ESTIMATE_FEE_ONLY = 1024;
 
 /// Sends a raw message — a correctly serialized TL object `Message X`.
 /// For `mode`, see constants above (except SEND_MODE_ESTIMATE_FEE_ONLY).
-/// This function is still available, but deprecated: consider using [sendMessage].
-@deprecated
 fun sendRawMessage(msg: cell, mode: int): void
     asm "SENDRAWMSG";
 

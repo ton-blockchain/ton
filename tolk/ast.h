@@ -684,7 +684,7 @@ struct Vertex<ast_argument_list> final : ASTExprVararg {
 
 template<>
 // ast_dot_access is "object before dot, identifier + optional <T> after dot"
-// examples: `tensorVar.0` / `obj.field` / `getObj().method` / `t.tupleFirst<int>`
+// examples: `tensorVar.0` / `obj.field` / `getObj().method` / `t.tupleFirst<int>` / `Point.create`
 // from traversing point of view, it's an unary expression: only obj is expression, field name is not
 // note, that `obj.method()` is a function call with "dot access `obj.method`" callee
 struct Vertex<ast_dot_access> final : ASTExprUnary {
@@ -725,19 +725,20 @@ template<>
 // example: `globalF<int>()` then callee is reference (with instantiation Ts filled)
 // example: `local_var()` then callee is reference (points to local var, filled at resolve identifiers)
 // example: `getF()()` then callee is another func call (which type is TypeDataFunCallable)
-// example: `obj.method()` then callee is dot access (resolved while type inferring)
+// example: `obj.method()` then callee is dot access, self_obj = obj
+// example: `Point.create()` then callee is dot access, self_obj = nullptr
 struct Vertex<ast_function_call> final : ASTExprBinary {
   FunctionPtr fun_maybe = nullptr;  // filled while type inferring for `globalF()` / `obj.f()`; remains nullptr for `local_var()` / `getF()()`
+  bool dot_obj_is_self = false;     // true for `obj.method()` (obj will be `self` in method); false for `globalF()` / `Point.create()`
 
   AnyExprV get_callee() const { return lhs; }
-  bool is_dot_call() const { return lhs->kind == ast_dot_access; }
-  AnyExprV get_dot_obj() const { return lhs->as<ast_dot_access>()->get_obj(); }
+  AnyExprV get_self_obj() const { return dot_obj_is_self ? lhs->as<ast_dot_access>()->get_obj() : nullptr; }
   auto get_arg_list() const { return rhs->as<ast_argument_list>(); }
   int get_num_args() const { return rhs->as<ast_argument_list>()->size(); }
   auto get_arg(int i) const { return rhs->as<ast_argument_list>()->get_arg(i); }
 
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
-  void assign_fun_ref(FunctionPtr fun_ref);
+  void assign_fun_ref(FunctionPtr fun_ref, bool dot_obj_is_self);
 
   Vertex(SrcLocation loc, AnyExprV lhs_f, V<ast_argument_list> arguments)
     : ASTExprBinary(ast_function_call, loc, lhs_f, arguments) {}
@@ -1166,7 +1167,7 @@ struct Vertex<ast_instantiationT_list> final : ASTOtherVararg {
   std::vector<AnyV> get_items() const { return children; }
   auto get_item(int i) const { return children.at(i)->as<ast_instantiationT_item>(); }
 
-  Vertex(SrcLocation loc, std::vector<AnyV> instantiationTs)
+  Vertex(SrcLocation loc, std::vector<AnyV>&& instantiationTs)
     : ASTOtherVararg(ast_instantiationT_list, loc, std::move(instantiationTs)) {}
 };
 
@@ -1229,9 +1230,10 @@ struct Vertex<ast_function_declaration> final : ASTOtherVararg {
   AnyV get_body() const { return children.at(2); }   // ast_block_statement / ast_asm_body
 
   FunctionPtr fun_ref = nullptr;          // filled after register
+  AnyTypeV receiver_type_node;            // for `fun builder.storeInt`, here is `builder`
   AnyTypeV return_type_node;              // if unspecified (nullptr), means "auto infer"
   V<ast_genericsT_list> genericsT_list;   // for non-generics it's nullptr
-  td::RefInt256 method_id;                // specified via @method_id annotation
+  td::RefInt256 tvm_method_id;            // specified via @method_id annotation
   int flags;                              // from enum in FunctionData
 
   bool is_asm_function() const { return children.at(2)->kind == ast_asm_body; }
@@ -1241,9 +1243,9 @@ struct Vertex<ast_function_declaration> final : ASTOtherVararg {
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
   void assign_fun_ref(FunctionPtr fun_ref);
 
-  Vertex(SrcLocation loc, V<ast_identifier> name_identifier, V<ast_parameter_list> parameters, AnyV body, AnyTypeV return_type_node, V<ast_genericsT_list> genericsT_list, td::RefInt256 method_id, int flags)
+  Vertex(SrcLocation loc, V<ast_identifier> name_identifier, V<ast_parameter_list> parameters, AnyV body, AnyTypeV receiver_type_node, AnyTypeV return_type_node, V<ast_genericsT_list> genericsT_list, td::RefInt256 tvm_method_id, int flags)
     : ASTOtherVararg(ast_function_declaration, loc, {name_identifier, parameters, body})
-    , return_type_node(return_type_node), genericsT_list(genericsT_list), method_id(std::move(method_id)), flags(flags) {}
+    , receiver_type_node(receiver_type_node), return_type_node(return_type_node), genericsT_list(genericsT_list), tvm_method_id(std::move(tvm_method_id)), flags(flags) {}
 };
 
 template<>

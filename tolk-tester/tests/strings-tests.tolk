@@ -33,7 +33,7 @@ get fun string_crc16(): int {
 @pure
 fun newc(): builder
 asm "NEWC";
-fun endcs(b: builder): slice
+fun builder.endcs(self): slice
 asm "ENDC" "CTOS";
 @pure
 fun sdeq(s1: slice, s2: slice): int
@@ -42,8 +42,8 @@ asm "SDEQ";
 fun calcSliceBytes(slice: slice): tuple {
   var t = createEmptyTuple();
   var n = 0;
-  while (n = slice.getRemainingBitsCount()) {
-    t.tuplePush(slice.loadUint(min(8, n)));
+  while (n = slice.remainingBitsCount()) {
+    t.push(slice.loadUint(min(8, n)));
   }
   return t;
 }
