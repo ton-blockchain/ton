@@ -57,6 +57,14 @@ class ConstantFoldingReplacer final : public ASTReplacerInFunctionBody {
     return inner;
   }
 
+  static V<ast_string_const> create_string_const(SrcLocation loc, ConstantValue&& literal_value) {
+    auto v_string = createV<ast_string_const>(loc, literal_value.as_slice());
+    v_string->assign_inferred_type(TypeDataSlice::create());
+    v_string->assign_literal_value(std::move(literal_value));
+    v_string->assign_rvalue_true();
+    return v_string;
+  }
+
   AnyExprV replace(V<ast_unary_operator> v) override {
     parent::replace(v);
 
@@ -99,13 +107,49 @@ class ConstantFoldingReplacer final : public ASTReplacerInFunctionBody {
     return v;
   }
 
-public:
+  AnyExprV replace(V<ast_function_call> v) override {
+    parent::replace(v);
+
+    // replace `ton("0.05")` with 50000000 / `stringCrc32("some_str")` with calculated value / etc.
+    if (v->fun_maybe && v->fun_maybe->is_compile_time_only()) {
+      ConstantValue value = eval_call_to_compile_time_function(v);
+      if (value.is_int()) {
+        return create_int_const(v->loc, value.as_int());
+      }
+      if (value.is_slice()) {
+        return create_string_const(v->loc, std::move(value));
+      }
+      tolk_assert(false);
+    }
+
+    return v;
+  }
+
+  AnyExprV replace(V<ast_string_const> v) override {
+    // when "some_str" occurs as a standalone constant (not inside `stringCrc32("some_str")`,
+    // it's actually a slice
+    ConstantValue literal_value = eval_string_const_standalone(v);
+    v->mutate()->assign_literal_value(std::move(literal_value));
+
+    return v;
+  }
+
+ public:
   bool should_visit_function(FunctionPtr fun_ref) override {
     return fun_ref->is_code_function() && !fun_ref->is_generic_function();
   }
 };
 
 void pipeline_constant_folding() {
+  // here (after type inferring) evaluate `const a = 2 + 3` into `5`
+  // non-constant expressions like `const a = foo()` fire an error here
+  for (GlobalConstPtr const_ref : get_all_declared_constants()) {
+    // for `const a = b`, `b` could be already calculated while calculating `a`
+    if (!const_ref->value.initialized()) {
+      eval_and_assign_const_init_value(const_ref);
+    }
+  }
+
   replace_ast_of_all_functions<ConstantFoldingReplacer>();
 }
 

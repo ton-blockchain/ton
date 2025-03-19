@@ -93,6 +93,14 @@ void GlobalConstData::assign_resolved_type(TypePtr declared_type) {
   this->declared_type = declared_type;
 }
 
+void GlobalConstData::assign_inferred_type(TypePtr inferred_type) {
+  this->inferred_type = inferred_type;
+}
+
+void GlobalConstData::assign_const_value(ConstantValue&& value) {
+  this->value = std::move(value);
+}
+
 void LocalVarData::assign_ir_idx(std::vector<int>&& ir_idx) {
   this->ir_idx = std::move(ir_idx);
 }
