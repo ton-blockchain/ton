@@ -1,5 +1,3 @@
-cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
-
 option(EMULATOR_STATIC "Build emulator as static library" OFF)
 
 set(EMULATOR_STATIC_SOURCE
