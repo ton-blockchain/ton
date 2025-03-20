@@ -21,8 +21,8 @@ else
   rm -rf .ninja* CMakeCache.txt
 fi
 
-export CC=$(which clang)
-export CXX=$(which clang++)
+export CC=$(which clang-16)
+export CXX=$(which clang++-16)
 export CCACHE_DISABLE=1
 
 if [ ! -d "lz4" ]; then

@@ -1,5 +1,3 @@
-cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
-
 add_library(lite-client-common STATIC lite-client-common.cpp lite-client-common.h ext-client.cpp ext-client.h
   query-utils.hpp query-utils.cpp)
 target_link_libraries(lite-client-common PUBLIC tdactor adnllite tl_api tl_lite_api tl-lite-utils ton_crypto)

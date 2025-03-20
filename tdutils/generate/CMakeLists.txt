@@ -1,5 +1,3 @@
-cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
-
 # Generates files for MIME type <-> extension conversions
 # DEPENDS ON: gperf grep bash/powershell
 
