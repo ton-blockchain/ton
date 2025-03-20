@@ -1966,7 +1966,7 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
         ap.no_funds = true;
       }
       LOG(DEBUG) << "invalid action " << ap.result_arg << " in action list: error code " << ap.result_code;
-      // This is required here because changes to libraries are applied even if actipn phase fails
+      // This is required here because changes to libraries are applied even if action phase fails
       enforce_state_limits();
       if (cfg.action_fine_enabled) {
         ap.action_fine = std::min(ap.action_fine, balance.grams);
@@ -1990,6 +1990,15 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
   }
   new_data = compute_phase->new_data;  // tentative persistent data update applied
   if (!enforce_state_limits()) {
+    if (cfg.extra_currency_v2) {
+      end_lt = ap.end_lt = start_lt + 1;
+      if (cfg.action_fine_enabled) {
+        ap.action_fine = std::min(ap.action_fine, balance.grams);
+        ap.total_action_fees = ap.action_fine;
+        balance.grams -= ap.action_fine;
+        total_fees += ap.action_fine;
+      }
+    }
     return true;
   }
 
