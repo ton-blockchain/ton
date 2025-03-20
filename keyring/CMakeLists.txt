@@ -1,5 +1,3 @@
-cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
-
 set(KEYRING_SOURCE
   keyring.h
   keyring.hpp
