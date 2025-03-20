@@ -2482,7 +2482,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
       LOG(DEBUG) << "invalid value:ExtraCurrencies in a proposed outbound message: too many currencies (max "
                  << cfg.size_limits.max_msg_extra_currencies << ")";
       // Dict should be valid, since it was checked in t_OutListNode.validate_ref, so error here means limit exceeded
-      return check_skip_invalid(41);  // invalid value:CurrencyCollection : too many extra currencies
+      return check_skip_invalid(44);  // invalid value:CurrencyCollection : too many extra currencies
     }
     info.value = value.pack();
   }
@@ -2663,7 +2663,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
 
     if (cfg.extra_currency_v2 && !req.check_extra_currency_limit(cfg.size_limits.max_msg_extra_currencies)) {
       LOG(DEBUG) << "too many extra currencies in the message : max " << cfg.size_limits.max_msg_extra_currencies;
-      return check_skip_invalid(41);  // to many extra currencies
+      return check_skip_invalid(44);  // to many extra currencies
     }
 
     Ref<vm::Cell> new_extra;
