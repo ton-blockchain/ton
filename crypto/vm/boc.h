@@ -111,43 +111,38 @@ class NewCellStorageStat {
 };
 
 struct CellStorageStat {
-  unsigned long long cells;
-  unsigned long long bits;
-  unsigned long long public_cells;
-  struct CellInfo {
-    td::uint32 max_merkle_depth = 0;
-  };
-  td::HashMap<vm::Cell::Hash, CellInfo> seen;
-  CellStorageStat() : cells(0), bits(0), public_cells(0) {
-  }
-  explicit CellStorageStat(unsigned long long limit_cells)
-      : cells(0), bits(0), public_cells(0), limit_cells(limit_cells) {
-  }
-  void clear_seen() {
-    seen.clear();
-  }
-  void clear() {
-    cells = bits = public_cells = 0;
-    clear_limit();
-    clear_seen();
-  }
-  void clear_limit() {
-    limit_cells = std::numeric_limits<unsigned long long>::max();
-    limit_bits = std::numeric_limits<unsigned long long>::max();
-  }
-  td::Result<CellInfo> compute_used_storage(Ref<vm::CellSlice> cs_ref, bool kill_dup = true,
-                                            unsigned skip_count_root = 0);
-  td::Result<CellInfo> compute_used_storage(const CellSlice& cs, bool kill_dup = true, unsigned skip_count_root = 0);
-  td::Result<CellInfo> compute_used_storage(CellSlice&& cs, bool kill_dup = true, unsigned skip_count_root = 0);
-  td::Result<CellInfo> compute_used_storage(Ref<vm::Cell> cell, bool kill_dup = true, unsigned skip_count_root = 0);
+  static CellStorageStat of(Ref<Cell> const& cell);
+  static CellStorageStat of_children(CellSlice const& cs);
 
-  td::Result<CellInfo> add_used_storage(Ref<vm::CellSlice> cs_ref, bool kill_dup = true, unsigned skip_count_root = 0);
-  td::Result<CellInfo> add_used_storage(const CellSlice& cs, bool kill_dup = true, unsigned skip_count_root = 0);
-  td::Result<CellInfo> add_used_storage(CellSlice&& cs, bool kill_dup = true, unsigned skip_count_root = 0);
-  td::Result<CellInfo> add_used_storage(Ref<vm::Cell> cell, bool kill_dup = true, unsigned skip_count_root = 0);
+  td::uint64 cells{0};
+  td::uint64 bits{0};
+  td::uint32 max_merkle_depth{0};
+};
 
-  unsigned long long limit_cells = std::numeric_limits<unsigned long long>::max();
-  unsigned long long limit_bits = std::numeric_limits<unsigned long long>::max();
+class CellStorageStatComputer {
+ public:
+  CellStorageStatComputer() = default;
+  CellStorageStatComputer(CellStorageStatComputer const&) = delete;
+  CellStorageStatComputer(CellStorageStatComputer&&) = delete;
+
+  CellStorageStat get() const {
+    return {
+        .cells = cells_,
+        .bits = bits_,
+        .max_merkle_depth = max_merkle_depth_,
+    };
+  }
+
+  void add_cell(Ref<Cell> const& cell);
+  void add_children(CellSlice const& cs);
+
+ private:
+  td::uint32 recurse(Ref<Cell> const& cell);
+
+  td::uint64 cells_{0};
+  td::uint64 bits_{0};
+  td::uint32 max_merkle_depth_{0};
+  td::HashMap<vm::Cell::Hash, td::uint32> seen_;
 };
 
 struct VmStorageStat {

@@ -1012,9 +1012,16 @@ class Query {
               dest_is_masterchain = recs.workchain_id == ton::masterchainId;
             }
           }
-          vm::CellStorageStat sstat;                  // for message size
-          sstat.add_used_storage(msg.init, true, 3);  // message init
-          sstat.add_used_storage(msg.body, true, 3);  // message body (the root cell itself is not counted)
+
+          vm::CellStorageStatComputer sstat_computer;  // for message size
+          if (!msg.init.is_null()) {
+            sstat_computer.add_children(*msg.init);  // message init
+          }
+          if (!msg.body.is_null()) {
+            sstat_computer.add_children(*msg.body);  // message body (the root cell itself is not counted)
+          }
+          auto sstat = sstat_computer.get();
+
           res += msg_prices[is_masterchain || dest_is_masterchain]->compute_fwd_fees(sstat.cells, sstat.bits);
           break;
         }
@@ -1044,8 +1051,7 @@ class Query {
 
     td::int64 in_fwd_fee = 0;
     {
-      vm::CellStorageStat sstat;                      // for message size
-      sstat.add_used_storage(raw_.message, true, 3);  // message init
+      auto sstat = vm::CellStorageStat::of_children(vm::CellSlice{vm::NoVm{}, raw_.message});  // for message size
       in_fwd_fee += msg_prices[is_masterchain]->compute_fwd_fees(sstat.cells, sstat.bits);
     }
 
@@ -1402,7 +1408,7 @@ class GetRawAccountState : public td::actor::Actor {
       vm::CellStorageStat storage_stat;
       u |= storage_stat.cells = block::tlb::t_VarUInteger_7.as_uint(*storage_used.cells);
       u |= storage_stat.bits = block::tlb::t_VarUInteger_7.as_uint(*storage_used.bits);
-      u |= storage_stat.public_cells = block::tlb::t_VarUInteger_7.as_uint(*storage_used.public_cells);
+      u |= block::tlb::t_VarUInteger_7.as_uint(*storage_used.public_cells);
       //LOG(DEBUG) << "last_paid=" << res.storage_last_paid << "; cells=" << storage_stat.cells
       //<< " bits=" << storage_stat.bits << " public_cells=" << storage_stat.public_cells;
       if (u == std::numeric_limits<td::uint64>::max()) {
@@ -2089,7 +2095,7 @@ class RunEmulator : public TonlibQueryActor {
         raw.balance = balance.grams->to_long();
         raw.extra_currencies = balance.extra;
         raw.storage_last_paid = std::move(account.last_paid);
-        raw.storage_stat = std::move(account.storage_stat);
+        raw.storage_stat = account.storage_stat.as_cell_storage_stat();
         raw.code = std::move(account.code);
         raw.data = std::move(account.data);
         raw.state = std::move(account.total_state);

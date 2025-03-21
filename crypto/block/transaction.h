@@ -246,6 +246,28 @@ struct BouncePhase {
   Ref<vm::Cell> out_msg;
 };
 
+struct AccountStorageStat {
+  static AccountStorageStat from(vm::CellStorageStat stat) {
+    return {
+        .cells = stat.cells,
+        .bits = stat.bits,
+        .public_cells = 0,
+    };
+  }
+
+  vm::CellStorageStat as_cell_storage_stat() const {
+    return {
+        .cells = cells,
+        .bits = bits,
+        .max_merkle_depth = std::numeric_limits<td::uint32>::max(),
+    };
+  }
+
+  td::uint64 cells{0};
+  td::uint64 bits{0};
+  td::uint64 public_cells{0};  // not used anywhere, kept for compatibility
+};
+
 struct Account {
   enum { acc_nonexist = 0, acc_uninit = 1, acc_frozen = 2, acc_active = 3, acc_deleted = 4 };
   int status{acc_nonexist}, orig_status{acc_nonexist};
@@ -267,7 +289,7 @@ struct Account {
   ton::Bits256 last_trans_hash_;
   ton::LogicalTime block_lt;
   ton::UnixTime last_paid;
-  vm::CellStorageStat storage_stat;
+  AccountStorageStat storage_stat;
   block::CurrencyCollection balance;
   td::RefInt256 due_payment;
   Ref<vm::Cell> orig_total_state;  // ^Account
@@ -377,7 +399,8 @@ struct Transaction {
   std::unique_ptr<ComputePhase> compute_phase;
   std::unique_ptr<ActionPhase> action_phase;
   std::unique_ptr<BouncePhase> bounce_phase;
-  vm::CellStorageStat new_storage_stat;
+  std::unique_ptr<vm::CellStorageStatComputer> storage_stat_computer;
+  AccountStorageStat new_storage_stat;
   bool gas_limit_overridden{false};
   Transaction(const Account& _account, int ttype, ton::LogicalTime req_start_lt, ton::UnixTime _now,
               Ref<vm::Cell> _inmsg = {});
