@@ -268,18 +268,16 @@ td::Result<Ref<DataCell>> DataCell::create(td::ConstBitPtr data, unsigned bits, 
     tmp[0] = info.d1(level_mask.apply(level_i));
     tmp[1] = info.d2();
 
-    static TD_THREAD_LOCAL digest::SHA256* hasher;
-    td::init_thread_local<digest::SHA256>(hasher);
-    hasher->reset();
+    digest::SHA256 hasher;
 
-    hasher->feed(td::Slice(tmp, 2));
+    hasher.feed(td::Slice(tmp, 2));
 
     if (hash_i == hash_i_offset) {
       DCHECK(level_i == 0 || type == SpecialType::PrunnedBranch);
-      hasher->feed(td::Slice(data_ptr, (bits + 7) >> 3));
+      hasher.feed(td::Slice(data_ptr, (bits + 7) >> 3));
     } else {
       DCHECK(level_i != 0 && type != SpecialType::PrunnedBranch);
-      hasher->feed(hashes_ptr[hash_i - hash_i_offset - 1].as_slice());
+      hasher.feed(hashes_ptr[hash_i - hash_i_offset - 1].as_slice());
     }
 
     auto dest_i = hash_i - hash_i_offset;
@@ -297,7 +295,7 @@ td::Result<Ref<DataCell>> DataCell::create(td::ConstBitPtr data, unsigned bits, 
       // add depth into hash
       td::uint8 child_depth_buf[depth_bytes];
       store_depth(child_depth_buf, child_depth);
-      hasher->feed(td::Slice(child_depth_buf, depth_bytes));
+      hasher.feed(td::Slice(child_depth_buf, depth_bytes));
 
       depth = std::max(depth, child_depth);
     }
@@ -312,12 +310,12 @@ td::Result<Ref<DataCell>> DataCell::create(td::ConstBitPtr data, unsigned bits, 
     // children hash
     for (int i = 0; i < info.refs_count_; i++) {
       if (type == SpecialType::MerkleProof || type == SpecialType::MerkleUpdate) {
-        hasher->feed(refs_ptr[i]->get_hash(level_i + 1).as_slice());
+        hasher.feed(refs_ptr[i]->get_hash(level_i + 1).as_slice());
       } else {
-        hasher->feed(refs_ptr[i]->get_hash(level_i).as_slice());
+        hasher.feed(refs_ptr[i]->get_hash(level_i).as_slice());
       }
     }
-    auto extracted_size = hasher->extract(hashes_ptr[dest_i].as_slice());
+    auto extracted_size = hasher.extract(hashes_ptr[dest_i].as_slice());
     DCHECK(extracted_size == hash_bytes);
   }
 
