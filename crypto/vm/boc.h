@@ -113,21 +113,19 @@ class NewCellStorageStat {
 struct CellStorageStat {
   unsigned long long cells;
   unsigned long long bits;
-  unsigned long long public_cells;
   struct CellInfo {
     td::uint32 max_merkle_depth = 0;
   };
   td::HashMap<vm::Cell::Hash, CellInfo> seen;
-  CellStorageStat() : cells(0), bits(0), public_cells(0) {
+  CellStorageStat() : cells(0), bits(0) {
   }
-  explicit CellStorageStat(unsigned long long limit_cells)
-      : cells(0), bits(0), public_cells(0), limit_cells(limit_cells) {
+  explicit CellStorageStat(unsigned long long limit_cells) : cells(0), bits(0), limit_cells(limit_cells) {
   }
   void clear_seen() {
     seen.clear();
   }
   void clear() {
-    cells = bits = public_cells = 0;
+    cells = bits = 0;
     clear_limit();
     clear_seen();
   }

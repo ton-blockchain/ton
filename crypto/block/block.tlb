@@ -246,14 +246,13 @@ out_msg_queue_extra#0 dispatch_queue:DispatchQueue out_queue_size:(Maybe uint48)
 
 _ out_queue:OutMsgQueue proc_info:ProcessedInfo
   extra:(Maybe OutMsgQueueExtra) = OutMsgQueueInfo;
-//
-storage_used$_ cells:(VarUInteger 7) bits:(VarUInteger 7) 
-  public_cells:(VarUInteger 7) = StorageUsed;
 
-storage_used_short$_ cells:(VarUInteger 7) 
-  bits:(VarUInteger 7) = StorageUsedShort;
+storage_extra_none$000 = StorageExtraInfo;
+storage_extra_info$001 dict_hash:uint256 = StorageExtraInfo;
 
-storage_info$_ used:StorageUsed last_paid:uint32
+storage_used$_ cells:(VarUInteger 7) bits:(VarUInteger 7) = StorageUsed;
+
+storage_info$_ used:StorageUsed storage_extra:StorageExtraInfo last_paid:uint32
               due_payment:(Maybe Grams) = StorageInfo;
 
 account_none$0 = Account;
@@ -341,13 +340,13 @@ tr_phase_action$_ success:Bool valid:Bool no_funds:Bool
   total_fwd_fees:(Maybe Grams) total_action_fees:(Maybe Grams)
   result_code:int32 result_arg:(Maybe int32) tot_actions:uint16
   spec_actions:uint16 skipped_actions:uint16 msgs_created:uint16 
-  action_list_hash:bits256 tot_msg_size:StorageUsedShort 
+  action_list_hash:bits256 tot_msg_size:StorageUsed
   = TrActionPhase;
 
 tr_phase_bounce_negfunds$00 = TrBouncePhase;
-tr_phase_bounce_nofunds$01 msg_size:StorageUsedShort
+tr_phase_bounce_nofunds$01 msg_size:StorageUsed
   req_fwd_fees:Grams = TrBouncePhase;
-tr_phase_bounce_ok$1 msg_size:StorageUsedShort 
+tr_phase_bounce_ok$1 msg_size:StorageUsed
   msg_fees:Grams fwd_fees:Grams = TrBouncePhase;
 //
 trans_ord$0000 credit_first:Bool
