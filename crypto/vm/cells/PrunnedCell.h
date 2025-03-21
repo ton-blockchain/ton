@@ -142,6 +142,10 @@ class PrunnedCell : public Cell {
     return info_.get_depth(get_storage())[get_level_mask().apply(level).get_hash_i()];
   }
 
+  td::Status set_data_cell(Ref<DataCell> &&data_cell) const override {
+    return td::Status::OK();
+  }
+
   td::Result<LoadedCell> load_cell() const override {
     return td::Status::Error("Can't load prunned branch");
   }

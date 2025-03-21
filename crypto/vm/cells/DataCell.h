@@ -31,6 +31,9 @@ class DataCell : public Cell {
   static thread_local bool use_arena;
 
   DataCell(const DataCell& other) = delete;
+  DataCell(DataCell&& other) = delete;
+  DataCell& operator=(const DataCell& other) = delete;
+  DataCell& operator=(DataCell&& other) = delete;
   ~DataCell() override;
 
   static void store_depth(td::uint8* dest, td::uint16 depth) {
@@ -126,6 +129,10 @@ class DataCell : public Cell {
   explicit DataCell(Info info);
 
  public:
+  td::Status set_data_cell(Ref<DataCell>&& data_cell) const override {
+    CHECK(get_hash() == data_cell->get_hash());
+    return td::Status::OK();
+  }
   td::Result<LoadedCell> load_cell() const override {
     return LoadedCell{Ref<DataCell>{this}, {}, {}};
   }
@@ -228,4 +235,3 @@ inline CellHash as_cell_hash(const Ref<DataCell>& cell) {
 }
 
 }  // namespace vm
-

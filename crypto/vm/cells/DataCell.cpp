@@ -36,7 +36,8 @@ struct ArenaAllocator {
     T* obj = new (ptr) T(std::forward<ArgsT>(args)...);
     return std::unique_ptr<T>(obj);
   }
-private:
+
+ private:
   td::MutableSlice alloc_batch() {
     size_t batch_size = 1 << 20;
     auto batch = std::make_unique<char[]>(batch_size);
@@ -53,7 +54,7 @@ private:
     return res;
   }
 };
-}
+}  // namespace
 std::unique_ptr<DataCell> DataCell::create_empty_data_cell(Info info) {
   if (use_arena) {
     ArenaAllocator<DataCell> allocator;

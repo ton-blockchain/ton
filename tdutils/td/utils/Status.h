@@ -619,6 +619,13 @@ inline Result<Unit>::Result(Status &&status) : status_(std::move(status)) {
 inline StringBuilder &operator<<(StringBuilder &string_builder, const Status &status) {
   return status.print(string_builder);
 }
+template <class T>
+StringBuilder &operator<<(StringBuilder &sb, const Result<T> &result) {
+  if (result.is_ok()) {
+    return sb << "Ok{" << result.ok() << "}";
+  }
+  return sb << result.error();
+}
 
 namespace detail {
 

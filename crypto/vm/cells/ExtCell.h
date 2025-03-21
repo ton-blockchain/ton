@@ -65,6 +65,9 @@ class ExtCell : public Cell {
   bool is_loaded() const override {
     return CellView(this)->is_loaded();
   }
+  Ref<PrunnedCell<ExtraT>> get_prunned_cell() const {
+    return prunned_cell_.load();
+  }
 
  private:
   mutable td::AtomicRef<DataCell> data_cell_;
@@ -110,6 +113,23 @@ class ExtCell : public Cell {
 
   td::uint16 do_get_depth(td::uint32 level) const override {
     return CellView(this)->get_depth(level);
+  }
+
+  td::Status set_data_cell(Ref<DataCell>&& new_data_cell) const override {
+    auto prunned_cell = prunned_cell_.load();
+    if (prunned_cell.is_null()) {
+      auto old_data_cell = data_cell_.get_unsafe();
+      DCHECK(old_data_cell);
+      TRY_STATUS(old_data_cell->check_equals_unloaded(new_data_cell));
+      return td::Status::OK();
+    }
+
+    TRY_STATUS(prunned_cell->check_equals_unloaded(new_data_cell));
+    if (data_cell_.store_if_empty(new_data_cell)) {
+      prunned_cell_.store({});
+      get_thread_safe_counter_unloaded().add(-1);
+    }
+    return td::Status::OK();
   }
 
   td::Result<Ref<DataCell>> load_data_cell() const {
