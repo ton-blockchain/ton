@@ -157,17 +157,9 @@ class ArenaPrunnedCellCreator : public ExtCellCreator {
     }
   };
 
-  struct Allocator {
-    template <class T, class... ArgsT>
-    std::unique_ptr<PrunnedCell<Counter>> make_unique(ArgsT &&...args) {
-      auto *ptr = arena_.alloc(sizeof(T));
-      T *obj = new (ptr) T(std::forward<ArgsT>(args)...);
-      return std::unique_ptr<T>(obj);
-    }
-  };
   td::Result<Ref<Cell>> ext_cell(Cell::LevelMask level_mask, td::Slice hash, td::Slice depth) override {
-    Allocator allocator;
-    TRY_RESULT(cell, PrunnedCell<Counter>::create(allocator, PrunnedCellInfo{level_mask, hash, depth}, Counter()));
+    TRY_RESULT(cell, PrunnedCell<Counter>::create([&](size_t bytes) { return arena_.alloc(bytes); }, false,
+                                                  PrunnedCellInfo{level_mask, hash, depth}, Counter()));
     return cell;
   }
   static td::int64 count() {
