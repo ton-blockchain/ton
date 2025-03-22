@@ -31,6 +31,7 @@
 #include "state-serializer.hpp"
 #include "get-next-key-blocks.h"
 #include "import-db-slice.hpp"
+#include "import-db-slice-local.hpp"
 
 #include "auto/tl/lite_api.h"
 #include "tl-utils/lite-utils.hpp"
@@ -685,10 +686,6 @@ void ValidatorManagerImpl::run_ext_query(td::BufferSlice data, td::Promise<td::B
 
 void ValidatorManagerImpl::wait_block_state(BlockHandle handle, td::uint32 priority, td::Timestamp timeout,
                                             td::Promise<td::Ref<ShardState>> promise) {
-  if (last_masterchain_state_.not_null() && !opts_->need_monitor(handle->id().shard_full(), last_masterchain_state_)) {
-    return promise.set_error(
-        td::Status::Error(PSTRING() << "not monitoring shard " << handle->id().shard_full().to_str()));
-  }
   auto it0 = block_state_cache_.find(handle->id());
   if (it0 != block_state_cache_.end()) {
     it0->second.ttl_ = td::Timestamp::in(30.0);
@@ -700,10 +697,11 @@ void ValidatorManagerImpl::wait_block_state(BlockHandle handle, td::uint32 prior
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), handle](td::Result<td::Ref<ShardState>> R) {
       td::actor::send_closure(SelfId, &ValidatorManagerImpl::finished_wait_state, handle, std::move(R));
     });
-    auto id = td::actor::create_actor<WaitBlockState>("waitstate", handle, priority, actor_id(this),
-                                                      td::Timestamp::at(timeout.at() + 10.0), std::move(P),
-                                                      get_block_persistent_state_to_download(handle->id()))
-                  .release();
+    auto id =
+        td::actor::create_actor<WaitBlockState>("waitstate", handle, priority, opts_, last_masterchain_state_,
+                                                actor_id(this), td::Timestamp::at(timeout.at() + 10.0), std::move(P),
+                                                get_block_persistent_state_to_download(handle->id()))
+            .release();
     wait_state_[handle->id()].actor_ = id;
     it = wait_state_.find(handle->id());
   }
@@ -762,10 +760,6 @@ void ValidatorManagerImpl::wait_block_data_short(BlockIdExt block_id, td::uint32
 
 void ValidatorManagerImpl::wait_block_state_merge(BlockIdExt left_id, BlockIdExt right_id, td::uint32 priority,
                                                   td::Timestamp timeout, td::Promise<td::Ref<ShardState>> promise) {
-  if (last_masterchain_state_.not_null() && !opts_->need_monitor(left_id.shard_full(), last_masterchain_state_)) {
-    return promise.set_error(
-        td::Status::Error(PSTRING() << "not monitoring shard " << left_id.shard_full().to_str()));
-  }
   td::actor::create_actor<WaitBlockStateMerge>("merge", left_id, right_id, priority, actor_id(this), timeout,
                                                std::move(promise))
       .release();
@@ -1149,10 +1143,10 @@ void ValidatorManagerImpl::finished_wait_state(BlockHandle handle, td::Result<td
         auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), handle](td::Result<td::Ref<ShardState>> R) {
           td::actor::send_closure(SelfId, &ValidatorManagerImpl::finished_wait_state, handle, std::move(R));
         });
-        auto id =
-            td::actor::create_actor<WaitBlockState>("waitstate", handle, X.second, actor_id(this), X.first,
-                                                    std::move(P), get_block_persistent_state_to_download(handle->id()))
-                .release();
+        auto id = td::actor::create_actor<WaitBlockState>("waitstate", handle, X.second, opts_, last_masterchain_state_,
+                                                          actor_id(this), X.first, std::move(P),
+                                                          get_block_persistent_state_to_download(handle->id()))
+                      .release();
         it->second.actor_ = id;
         return;
       }
@@ -1209,6 +1203,16 @@ void ValidatorManagerImpl::set_block_state(BlockHandle handle, td::Ref<ShardStat
         }
       });
   td::actor::send_closure(db_, &Db::store_block_state, handle, state, std::move(P));
+}
+
+void ValidatorManagerImpl::set_block_state_from_data(BlockHandle handle, td::Ref<BlockData> block,
+                                                     td::Promise<td::Ref<ShardState>> promise) {
+  td::actor::send_closure(db_, &Db::store_block_state_from_data, handle, block, std::move(promise));
+}
+
+void ValidatorManagerImpl::set_block_state_from_data_preliminary(std::vector<td::Ref<BlockData>> blocks,
+                                                                 td::Promise<td::Unit> promise) {
+  td::actor::send_closure(db_, &Db::store_block_state_from_data_preliminary, std::move(blocks), std::move(promise));
 }
 
 void ValidatorManagerImpl::get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) {
@@ -1688,6 +1692,7 @@ void ValidatorManagerImpl::start_up() {
     td::actor::send_closure(SelfId, &ValidatorManagerImpl::started, R.move_as_ok());
   });
 
+  size_t to_import_files = 0;
   auto to_import_dir = db_root_ + "/import";
   auto S = td::WalkPath::run(to_import_dir, [&](td::CSlice cfname, td::WalkPath::Type t) -> void {
     auto fname = td::Slice(cfname);
@@ -1707,25 +1712,29 @@ void ValidatorManagerImpl::start_up() {
       }
       fname = fname.substr(8);
 
-      while (fname.size() > 1 && fname[0] == '0') {
-        fname.remove_prefix(1);
-      }
       auto i = fname.find('.');
       if (i == td::Slice::npos) {
         return;
       }
       fname = fname.substr(0, i);
+      while (fname.size() > 1 && fname[0] == '0') {
+        fname.remove_prefix(1);
+      }
       auto v = td::to_integer_safe<BlockSeqno>(fname);
       if (v.is_error()) {
         return;
       }
       auto seqno = v.move_as_ok();
-      LOG(INFO) << "found archive slice '" << cfname << "' for seqno " << seqno;
+      LOG(DEBUG) << "found archive slice '" << cfname << "' for seqno " << seqno;
       to_import_[seqno].push_back(cfname.str());
+      ++to_import_files;
     }
   });
   if (S.is_error()) {
     LOG(INFO) << "failed to load blocks from import dir: " << S;
+  }
+  if (to_import_files > 0) {
+    LOG(INFO) << "found " << to_import_files << " files to import";
   }
 
   validator_manager_init(opts_, actor_id(this), db_.get(), std::move(P));
@@ -1909,9 +1918,15 @@ void ValidatorManagerImpl::download_next_archive() {
       td::actor::send_closure(SelfId, &ValidatorManagerImpl::checked_archive_slice, R.ok().first, R.ok().second);
     }
   });
-  td::actor::create_actor<ArchiveImporter>("archiveimport", db_root_, last_masterchain_state_, seqno, opts_,
-                                           actor_id(this), std::move(to_import_files), std::move(P))
-      .release();
+  if (to_import_files.empty()) {
+    td::actor::create_actor<ArchiveImporter>("archiveimport", db_root_, last_masterchain_state_, seqno, opts_,
+                                             actor_id(this), std::move(to_import_files), std::move(P))
+        .release();
+  } else {
+    td::actor::create_actor<ArchiveImporterLocal>("archiveimport", db_root_, last_masterchain_state_, seqno, opts_,
+                                                  actor_id(this), std::move(to_import_files), std::move(P))
+        .release();
+  }
 }
 
 void ValidatorManagerImpl::checked_archive_slice(BlockSeqno new_last_mc_seqno, BlockSeqno new_shard_client_seqno) {

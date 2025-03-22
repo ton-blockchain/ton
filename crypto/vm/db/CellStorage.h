@@ -71,7 +71,8 @@ class CellStorer {
   static void merge_refcnt_diffs(std::string &left, td::Slice right);
   static std::string serialize_refcnt_diffs(td::int32 refcnt_diff);
 
-  static std::string serialize_value(td::int32 refcnt, const td::Ref<DataCell> &cell, bool as_boc);
+  static std::string serialize_value(td::int32 refcnt, const td::Ref<DataCell> &cell, bool as_boc,
+                                     int max_level = vm::Cell::max_level);
 
   struct Diff {
     enum Type { Set, Erase, Merge } type{Set};

@@ -85,7 +85,7 @@ void ArchiveImporter::downloaded_mc_archive(std::string path) {
 
 void ArchiveImporter::processed_mc_archive() {
   if (masterchain_blocks_.empty()) {
-    LOG(DEBUG) << "No masterhchain blocks in archive";
+    LOG(DEBUG) << "No masterchain blocks in archive";
     last_masterchain_seqno_ = last_masterchain_state_->get_seqno();
     checked_all_masterchain_blocks();
     return;
