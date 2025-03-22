@@ -346,12 +346,6 @@ td::Result<Ref<DataCell>> DataCell::create(td::Slice data, int bit_length, td::S
       DataCell{bit_length, refs.size(), checker.type(), checker.level_mask(), use_arena, checker.virtualization()};
   auto& cell = *allocated_cell;
 
-  if (use_arena) {
-    // FIXME: Make sure InMemoryBagOfCellsDb doesn't expect one additional ref-count for
-    //        arena-allocated cells.
-    Ref{allocated_cell}.release();
-  }
-
   auto mutable_data = cell.trailer_ + level_info_size;
 
   std::memcpy(mutable_data, data.data(), (bit_length + 7) / 8);
