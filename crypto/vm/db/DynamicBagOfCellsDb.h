@@ -44,12 +44,14 @@ class CellDbReader {
  public:
   virtual ~CellDbReader() = default;
   virtual td::Result<Ref<DataCell>> load_cell(td::Slice hash) = 0;
+  virtual td::Result<std::vector<Ref<DataCell>>> load_bulk(td::Span<td::Slice> hashes) = 0;
 };
 
 class DynamicBagOfCellsDb {
  public:
   virtual ~DynamicBagOfCellsDb() = default;
   virtual td::Result<Ref<DataCell>> load_cell(td::Slice hash) = 0;
+  virtual td::Result<std::vector<Ref<DataCell>>> load_bulk(td::Span<td::Slice> hashes) = 0;
   virtual td::Result<Ref<DataCell>> load_root(td::Slice hash) = 0;
   virtual td::Result<Ref<DataCell>> load_root_thread_safe(td::Slice hash) const = 0;
   struct Stats {

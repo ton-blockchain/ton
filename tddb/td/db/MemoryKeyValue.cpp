@@ -19,6 +19,7 @@
 #include "td/db/MemoryKeyValue.h"
 
 #include "td/utils/format.h"
+#include "td/utils/Span.h"
 
 namespace td {
 Result<MemoryKeyValue::GetStatus> MemoryKeyValue::get(Slice key, std::string &value) {
@@ -28,6 +29,23 @@ Result<MemoryKeyValue::GetStatus> MemoryKeyValue::get(Slice key, std::string &va
   }
   value = it->second;
   return GetStatus::Ok;
+}
+
+Result<std::vector<MemoryKeyValue::GetStatus>> MemoryKeyValue::get_multi(td::Span<Slice> keys,
+                                                                        std::vector<std::string> *values) {
+  values->resize(keys.size());
+  std::vector<GetStatus> res;
+  for (size_t i = 0; i < keys.size(); i++) {
+    auto it = map_.find(keys[i]);
+    if (it == map_.end()) {
+      res.push_back(GetStatus::NotFound);
+      (*values)[i] = "";
+    } else {
+      res.push_back(GetStatus::Ok);
+      (*values)[i] = it->second;
+    }
+  }
+  return res;
 }
 
 Status MemoryKeyValue::for_each(std::function<Status(Slice, Slice)> f) {

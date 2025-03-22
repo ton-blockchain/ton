@@ -72,6 +72,7 @@ class RocksDb : public KeyValue {
   static Result<RocksDb> open(std::string path, RocksDbOptions options = {});
 
   Result<GetStatus> get(Slice key, std::string &value) override;
+  Result<std::vector<RocksDb::GetStatus>> get_multi(td::Span<Slice> keys, std::vector<std::string> *values) override;
   Status set(Slice key, Slice value) override;
   Status erase(Slice key) override;
   Result<size_t> count(Slice prefix) override;
