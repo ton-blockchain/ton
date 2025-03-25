@@ -59,7 +59,7 @@ void ValidatorManagerMasterchainReiniter::got_masterchain_handle(BlockHandle han
   handle_ = std::move(handle);
   key_blocks_.push_back(handle_);
 
-  if (opts_->initial_sync_disabled()) {
+  if (opts_->initial_sync_disabled() && handle_->id().seqno() == 0) {
     status_.set_status(PSTRING() << "downloading masterchain state " << handle_->id().seqno());
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
       R.ensure();
@@ -94,22 +94,21 @@ void ValidatorManagerMasterchainReiniter::download_proof_link() {
         td::actor::send_closure(SelfId, &ValidatorManagerMasterchainReiniter::downloaded_proof_link, R.move_as_ok());
       }
     });
-    td::actor::send_closure(manager_, &ValidatorManager::send_get_block_proof_link_request, handle_->id(), 2,
+    td::actor::send_closure(manager_, &ValidatorManager::get_block_proof_link_from_import, handle_->id(), handle_->id(),
                             std::move(P));
   }
 }
 
-void ValidatorManagerMasterchainReiniter::downloaded_proof_link(td::BufferSlice proof) {
-  auto pp = create_proof_link(handle_->id(), std::move(proof));
-  if (pp.is_error()) {
-    LOG(WARNING) << "bad proof link: " << pp.move_as_error();
+void ValidatorManagerMasterchainReiniter::downloaded_proof_link(td::BufferSlice data) {
+  auto r_proof = create_proof(handle_->id(), std::move(data));
+  if (r_proof.is_error()) {
+    LOG(WARNING) << "bad proof link: " << r_proof.move_as_error();
     download_proof_link();
     return;
   }
+  auto proof = r_proof.move_as_ok();
 
-  auto proof_link = pp.move_as_ok();
-
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), db = db_, proof_link](td::Result<BlockHandle> R) {
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), db = db_, proof](td::Result<BlockHandle> R) {
     if (R.is_error()) {
       LOG(WARNING) << "downloaded proof link failed: " << R.move_as_error();
       td::actor::send_closure(SelfId, &ValidatorManagerMasterchainReiniter::download_proof_link);
@@ -118,11 +117,11 @@ void ValidatorManagerMasterchainReiniter::downloaded_proof_link(td::BufferSlice 
         R.ensure();
         td::actor::send_closure(SelfId, &ValidatorManagerMasterchainReiniter::try_download_key_blocks, false);
       });
-      td::actor::send_closure(db, &Db::add_key_block_proof_link, proof_link, std::move(P));
+      td::actor::send_closure(db, &Db::add_key_block_proof_link, proof, std::move(P));
     }
   });
-
-  run_check_proof_link_query(handle_->id(), proof_link, manager_, td::Timestamp::in(60.0), std::move(P));
+  run_check_proof_query(handle_->id(), proof, manager_, td::Timestamp::in(60.0), std::move(P),
+                        /* skip_check_signatures = */ true);
 }
 
 void ValidatorManagerMasterchainReiniter::downloaded_zero_state() {
@@ -130,6 +129,10 @@ void ValidatorManagerMasterchainReiniter::downloaded_zero_state() {
 }
 
 void ValidatorManagerMasterchainReiniter::try_download_key_blocks(bool try_start) {
+  if (opts_->initial_sync_disabled()) {
+    download_masterchain_state();
+    return;
+  }
   if (!download_new_key_blocks_until_) {
     if (opts_->allow_blockchain_init()) {
       download_new_key_blocks_until_ = td::Timestamp::in(60.0);

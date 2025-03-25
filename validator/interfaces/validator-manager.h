@@ -156,6 +156,11 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void send_download_archive_request(BlockSeqno mc_seqno, ShardIdFull shard_prefix, std::string tmp_dir,
                                              td::Timestamp timeout, td::Promise<std::string> promise) = 0;
 
+  virtual void get_block_proof_link_from_import(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+                                                td::Promise<td::BufferSlice> promise) {
+    promise.set_error(td::Status::Error("not supported"));
+  }
+
   virtual void update_shard_client_state(BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise) = 0;
   virtual void get_shard_client_state(bool from_db, td::Promise<BlockIdExt> promise) = 0;
 

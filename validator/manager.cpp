@@ -43,6 +43,7 @@
 #include "td/utils/JsonBuilder.h"
 
 #include "common/delay.h"
+#include "db/fileref.hpp"
 #include "td/utils/filesystem.h"
 
 #include "validator/stats-merger.h"
@@ -1671,6 +1672,67 @@ void ValidatorManagerImpl::send_download_archive_request(BlockSeqno mc_seqno, Sh
   callback_->download_archive(mc_seqno, shard_prefix, std::move(tmp_dir), timeout, std::move(promise));
 }
 
+void ValidatorManagerImpl::get_block_proof_link_from_import(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+                                                            td::Promise<td::BufferSlice> promise) {
+  auto it = to_import_all_.upper_bound(masterchain_block_id.seqno() + 1);
+  while (true) {
+    if (it == to_import_all_.begin()) {
+      promise.set_error(td::Status::Error("proof not found"));
+      return;
+    }
+    --it;
+    bool stop = false;
+    for (const std::string &path : it->second) {
+      td::BufferSlice result;
+      auto r_package = Package::open(path, false, false);
+      if (r_package.is_error()) {
+        LOG(WARNING) << "Cannot open package " << path << " : " << r_package.move_as_error();
+        continue;
+      }
+      auto package = r_package.move_as_ok();
+      package.iterate([&](std::string filename, td::BufferSlice data, td::uint64) -> bool {
+        auto F = FileReference::create(filename);
+        if (F.is_error()) {
+          return true;
+        }
+        auto f = F.move_as_ok();
+        BlockIdExt id;
+        bool is_proof = false;
+        f.ref().visit(td::overloaded(
+            [&](const fileref::Block &p) {
+              id = p.block_id;
+              is_proof = false;
+            },
+            [&](const fileref::Proof &p) {
+              id = p.block_id;
+              is_proof = true;
+            },
+            [&](const fileref::ProofLink &p) {
+              id = p.block_id;
+              is_proof = true;
+            },
+            [&](const auto &) {}));
+        if (is_proof && id == block_id) {
+          result = std::move(data);
+          return false;
+        }
+        if (shard_intersects(id.shard_full(), block_id.shard_full()) && id.seqno() < block_id.seqno()) {
+          stop = true;
+        }
+        return true;
+      });
+      if (!result.empty()) {
+        promise.set_result(std::move(result));
+        return;
+      }
+    }
+    if (block_id.is_masterchain() || stop) {
+      promise.set_error(td::Status::Error("proof not found"));
+      return;
+    }
+  }
+}
+
 void ValidatorManagerImpl::start_up() {
   db_ = create_db_actor(actor_id(this), db_root_, opts_);
   actor_stats_ = td::actor::create_actor<td::actor::ActorStats>("actor_stats");
@@ -1730,6 +1792,7 @@ void ValidatorManagerImpl::start_up() {
       ++to_import_files;
     }
   });
+  to_import_all_ = to_import_;
   if (S.is_error()) {
     LOG(INFO) << "failed to load blocks from import dir: " << S;
   }

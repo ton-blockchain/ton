@@ -521,6 +521,9 @@ class ValidatorManagerImpl : public ValidatorManager {
   void send_download_archive_request(BlockSeqno mc_seqno, ShardIdFull shard_prefix, std::string tmp_dir,
                                      td::Timestamp timeout, td::Promise<std::string> promise) override;
 
+  void get_block_proof_link_from_import(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+                                        td::Promise<td::BufferSlice> promise) override;
+
   void update_shard_client_state(BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise) override;
   void get_shard_client_state(bool from_db, td::Promise<BlockIdExt> promise) override;
 
@@ -706,6 +709,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   td::actor::ActorOwn<AsyncStateSerializer> serializer_;
 
   std::map<BlockSeqno, std::vector<std::string>> to_import_;
+  std::map<BlockSeqno, std::vector<std::string>> to_import_all_;
 
  private:
   std::unique_ptr<Callback> callback_;
