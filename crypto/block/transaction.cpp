@@ -115,42 +115,42 @@ bool Account::set_address(ton::WorkchainId wc, td::ConstBitPtr new_addr) {
 }
 
 /**
- * Sets the split depth of the account.
+ * Sets the length of anycast prefix length in the account address.
  *
- * @param new_split_depth The new split depth value to be set.
+ * @param new_length The new rewrite lingth.
  *
- * @returns True if the split depth was successfully set, False otherwise.
+ * @returns True if the length was successfully set, False otherwise.
  */
-bool Account::set_split_depth(int new_split_depth) {
-  if (new_split_depth < 0 || new_split_depth > 30) {
-    return false;  // invalid value for split_depth
+bool Account::set_addr_rewrite_length(int new_length) {
+  if (new_length < 0 || new_length > 30) {
+    return false;  // invalid value
   }
-  if (split_depth_set_) {
-    return split_depth_ == new_split_depth;
+  if (addr_rewrite_length_set) {
+    return addr_rewrite_length == new_length;
   } else {
-    split_depth_ = (unsigned char)new_split_depth;
-    split_depth_set_ = true;
+    addr_rewrite_length = (unsigned char)new_length;
+    addr_rewrite_length_set = true;
     return true;
   }
 }
 
 /**
- * Checks if the given split depth is valid for the Account.
+ * Checks if the given addr rewrite length is valid for the Account.
  *
- * @param split_depth The split depth to be checked.
+ * @param length The addr rewrite length to be checked.
  *
- * @returns True if the split depth is valid, False otherwise.
+ * @returns True if the addr rewrite length is valid, False otherwise.
  */
-bool Account::check_split_depth(int split_depth) const {
-  return split_depth_set_ ? (split_depth == split_depth_) : (split_depth >= 0 && split_depth <= 30);
+bool Account::check_addr_rewrite_length(int length) const {
+  return addr_rewrite_length_set ? (length == addr_rewrite_length) : (length >= 0 && length <= 30);
 }
 
 /**
  * Parses anycast data of the account address.
  * 
- * Initializes split_depth and addr_rewrite.
+ * Initializes addr_rewrite.
  *
- * @param cs The cell slice containing partially-parsed account addressa.
+ * @param cs The cell slice containing partially-parsed account address.
  *
  * @returns True if parsing was successful, false otherwise.
  */
@@ -159,13 +159,13 @@ bool Account::parse_maybe_anycast(vm::CellSlice& cs) {
   if (t < 0) {
     return false;
   } else if (!t) {
-    return set_split_depth(0);
+    return set_addr_rewrite_length(0);
   }
   int depth;
   return cs.fetch_uint_leq(30, depth)                     // anycast_info$_ depth:(#<= 30)
          && depth                                         // { depth >= 1 }
          && cs.fetch_bits_to(addr_rewrite.bits(), depth)  // rewrite_pfx:(bits depth)
-         && set_split_depth(depth);
+         && set_addr_rewrite_length(depth);
 }
 
 /**
@@ -176,12 +176,12 @@ bool Account::parse_maybe_anycast(vm::CellSlice& cs) {
  * @returns True if the anycast information was successfully stored, false otherwise.
  */
 bool Account::store_maybe_anycast(vm::CellBuilder& cb) const {
-  if (!split_depth_set_ || !split_depth_) {
+  if (!addr_rewrite_length_set || !addr_rewrite_length) {
     return cb.store_bool_bool(false);
   }
   return cb.store_bool_bool(true)                                    // just$1
-         && cb.store_uint_leq(30, split_depth_)                      // depth:(#<= 30)
-         && cb.store_bits_bool(addr_rewrite.cbits(), split_depth_);  // rewrite_pfx:(bits depth)
+         && cb.store_uint_leq(30, addr_rewrite_length)                      // depth:(#<= 30)
+         && cb.store_bits_bool(addr_rewrite.cbits(), addr_rewrite_length);  // rewrite_pfx:(bits depth)
 }
 
 /**
@@ -214,14 +214,14 @@ bool Account::unpack_address(vm::CellSlice& addr_cs) {
   if (workchain == ton::workchainInvalid) {
     workchain = new_wc;
     addr = addr_orig;
-    addr.bits().copy_from(addr_rewrite.cbits(), split_depth_);
-  } else if (split_depth_) {
+    addr.bits().copy_from(addr_rewrite.cbits(), addr_rewrite_length);
+  } else if (addr_rewrite_length) {
     ton::StdSmcAddress new_addr = addr_orig;
-    new_addr.bits().copy_from(addr_rewrite.cbits(), split_depth_);
+    new_addr.bits().copy_from(addr_rewrite.cbits(), addr_rewrite_length);
     if (new_addr != addr) {
       LOG(ERROR) << "error unpacking account " << workchain << ":" << addr.to_hex()
                  << " : account header contains different address " << new_addr.to_hex() << " (with splitting depth "
-                 << (int)split_depth_ << ")";
+                 << (int)addr_rewrite_length << ")";
       return false;
     }
   } else if (addr != addr_orig) {
@@ -235,7 +235,7 @@ bool Account::unpack_address(vm::CellSlice& addr_cs) {
     return false;
   }
   addr_rewrite = addr.bits();  // initialize all 32 bits of addr_rewrite
-  if (!split_depth_) {
+  if (!addr_rewrite_length) {
     my_addr_exact = my_addr;
   }
   return true;
@@ -280,7 +280,7 @@ bool Account::unpack_storage_info(vm::CellSlice& cs) {
  * Unpacks the state of an Account from a CellSlice.
  *
  * State is serialized using StateInit TLB-scheme.
- * Initializes split_depth (from account state - StateInit)
+ * Initializes fixed_prefix_length (from account state - StateInit)
  *
  * @param cs The CellSlice containing the serialized state.
  *
@@ -291,12 +291,9 @@ bool Account::unpack_state(vm::CellSlice& cs) {
   if (!tlb::unpack_exact(cs, state)) {
     return false;
   }
-  int sd = 0;
-  if (state.split_depth->size() == 6) {
-    sd = (int)state.split_depth->prefetch_ulong(6) - 32;
-  }
-  if (!set_split_depth(sd)) {
-    return false;
+  fixed_prefix_length = 0;
+  if (state.fixed_prefix_length->size() == 6) {
+    fixed_prefix_length = (int)state.fixed_prefix_length->prefetch_ulong(6) - 32;
   }
   if (state.special->size() > 1) {
     int z = (int)state.special->prefetch_ulong(3);
@@ -363,23 +360,25 @@ bool Account::compute_my_addr(bool force) {
 /**
  * Computes the address of the Account.
  *
+ * Legacy (used only if global_version < 10).
+ *
  * @param tmp_addr A reference to the CellSlice for the result.
- * @param split_depth The split depth for the address.
- * @param orig_addr_rewrite Address prefox of length split_depth.
+ * @param fixed_prefix_length The fixed prefix length for the address.
+ * @param orig_addr_rewrite Address prefix of length fixed_prefix_length.
  *
  * @returns True if the address was successfully computed, false otherwise.
  */
-bool Account::recompute_tmp_addr(Ref<vm::CellSlice>& tmp_addr, int split_depth,
+bool Account::recompute_tmp_addr(Ref<vm::CellSlice>& tmp_addr, int fixed_prefix_length,
                                  td::ConstBitPtr orig_addr_rewrite) const {
-  if (!split_depth && my_addr_exact.not_null()) {
+  if (!fixed_prefix_length && my_addr_exact.not_null()) {
     tmp_addr = my_addr_exact;
     return true;
   }
-  if (split_depth == split_depth_ && my_addr.not_null()) {
+  if (fixed_prefix_length == addr_rewrite_length && my_addr.not_null()) {
     tmp_addr = my_addr;
     return true;
   }
-  if (split_depth < 0 || split_depth > 30) {
+  if (fixed_prefix_length < 0 || fixed_prefix_length > 30) {
     return false;
   }
   vm::CellBuilder cb;
@@ -387,13 +386,13 @@ bool Account::recompute_tmp_addr(Ref<vm::CellSlice>& tmp_addr, int split_depth,
   if (!cb.store_long_bool(std ? 2 : 3, 2)) {  // addr_std$10 or addr_var$11
     return false;
   }
-  if (!split_depth) {
+  if (!fixed_prefix_length) {
     if (!cb.store_bool_bool(false)) {  // anycast:(Maybe Anycast)
       return false;
     }
   } else if (!(cb.store_bool_bool(true)                             // just$1
-               && cb.store_long_bool(split_depth, 5)                // depth:(#<= 30)
-               && cb.store_bits_bool(addr.bits(), split_depth))) {  // rewrite_pfx:(bits depth)
+               && cb.store_long_bool(fixed_prefix_length, 5)                // depth:(#<= 30)
+               && cb.store_bits_bool(addr.bits(), fixed_prefix_length))) {  // rewrite_pfx:(bits depth)
     return false;
   }
   if (std) {
@@ -405,26 +404,26 @@ bool Account::recompute_tmp_addr(Ref<vm::CellSlice>& tmp_addr, int split_depth,
     return false;
   }
   Ref<vm::Cell> cell;
-  return cb.store_bits_bool(orig_addr_rewrite, split_depth)  // address:(bits addr_len) or bits256
-         && cb.store_bits_bool(addr.bits() + split_depth, 256 - split_depth) && cb.finalize_to(cell) &&
+  return cb.store_bits_bool(orig_addr_rewrite, fixed_prefix_length)  // address:(bits addr_len) or bits256
+         && cb.store_bits_bool(addr.bits() + fixed_prefix_length, 256 - fixed_prefix_length) && cb.finalize_to(cell) &&
          (tmp_addr = vm::load_cell_slice_ref(std::move(cell))).not_null();
 }
 
 /**
  * Sets address rewriting info for a newly-activated account.
  *
- * @param split_depth The split depth for the account address.
- * @param orig_addr_rewrite Address frepix of length split_depth.
+ * @param rewrite_length The fixed prefix length for the account address.
+ * @param orig_addr_rewrite Address prefix of length fixed_prefix_length.
  *
  * @returns True if the rewriting info was successfully set, false otherwise.
  */
-bool Account::init_rewrite_addr(int split_depth, td::ConstBitPtr orig_addr_rewrite) {
-  if (split_depth_set_ || !set_split_depth(split_depth)) {
+bool Account::init_rewrite_addr(int rewrite_length, td::ConstBitPtr orig_addr_rewrite) {
+  if (addr_rewrite_length_set || !set_addr_rewrite_length(rewrite_length)) {
     return false;
   }
   addr_orig = addr;
   addr_rewrite = addr.bits();
-  addr_orig.bits().copy_from(orig_addr_rewrite, split_depth);
+  addr_orig.bits().copy_from(orig_addr_rewrite, rewrite_length);
   return compute_my_addr(true);
 }
 
@@ -480,7 +479,7 @@ bool Account::unpack(Ref<vm::CellSlice> shard_account, ton::UnixTime now, bool s
     case block::gen::AccountState::account_uninit:
       status = orig_status = acc_uninit;
       state_hash = addr;
-      forget_split_depth();
+      forget_addr_rewrite_length();
       break;
     case block::gen::AccountState::account_frozen:
       status = orig_status = acc_frozen;
@@ -554,18 +553,18 @@ bool Account::init_new(ton::UnixTime now) {
   }
   state_hash = addr_orig;
   status = orig_status = acc_nonexist;
-  split_depth_set_ = false;
+  addr_rewrite_length_set = false;
   return true;
 }
 
 /**
- * Resets the split depth of the account.
+ * Resets the fixed prefix length of the account.
  *
- * @returns True if the split depth was successfully reset, false otherwise.
+ * @returns True if the fixed prefix length was successfully reset, false otherwise.
  */
-bool Account::forget_split_depth() {
-  split_depth_set_ = false;
-  split_depth_ = 0;
+bool Account::forget_addr_rewrite_length() {
+  addr_rewrite_length_set = false;
+  addr_rewrite_length = 0;
   addr_orig = addr;
   my_addr = my_addr_exact;
   addr_rewrite = addr.bits();
@@ -583,9 +582,10 @@ bool Account::deactivate() {
   }
   // forget special (tick/tock) info
   tick = tock = false;
+  fixed_prefix_length = 0;
   if (status == acc_nonexist || status == acc_uninit) {
-    // forget split depth and address rewriting info
-    forget_split_depth();
+    // forget fixed prefix length and address rewriting info
+    forget_addr_rewrite_length();
     // forget specific state hash for deleted or uninitialized accounts (revert to addr)
     state_hash = addr;
   }
@@ -706,6 +706,7 @@ Transaction::Transaction(const Account& _account, int ttype, ton::LogicalTime re
     , is_first(_account.transactions.empty())
     , new_tick(_account.tick)
     , new_tock(_account.tock)
+    , new_fixed_prefix_length(_account.fixed_prefix_length)
     , now(_now)
     , account(_account)
     , my_addr(_account.my_addr)
@@ -782,6 +783,18 @@ bool Transaction::unpack_input_msg(bool ihr_delivered, const ActionPhaseConfig* 
       }
       src_addr = std::move(info.src);
       dest_addr = std::move(info.dest);
+      if (cfg->disable_anycast) {
+        // Check that dest is addr_std without anycast
+        block::gen::MsgAddressInt::Record_addr_std rec;
+        if (!block::gen::csr_unpack(dest_addr, rec)) {
+          LOG(DEBUG) << "destination address of the external message is not a valid addr_std";
+          return false;
+        }
+        if (rec.anycast->size() > 1) {
+          LOG(DEBUG) << "destination address of the external message is an anycast address";
+          return false;
+        }
+      }
       in_msg_type = 2;
       in_msg_extern = true;
       // compute forwarding fees for this external message
@@ -1438,10 +1451,13 @@ bool Transaction::unpack_msg_state(const ComputePhaseConfig& cfg, bool lib_only,
     in_msg_library = state.library->prefetch_ref();
     return true;
   }
-  if (state.split_depth->size() == 6) {
-    new_split_depth = (signed char)(state.split_depth->prefetch_ulong(6) - 32);
+  if (state.fixed_prefix_length->size() == 6) {
+    new_fixed_prefix_length = (signed char)(state.fixed_prefix_length->prefetch_ulong(6) - 32);
   } else {
-    new_split_depth = 0;
+    new_fixed_prefix_length = 0;
+  }
+  if (!cfg.disable_anycast) {
+    new_addr_rewrite_length = new_fixed_prefix_length;
   }
   if (state.special->size() > 1) {
     int z = (int)state.special->prefetch_ulong(3);
@@ -1496,19 +1512,26 @@ std::vector<Ref<vm::Cell>> Transaction::compute_vm_libraries(const ComputePhaseC
 /**
  * Checks if the input message StateInit hash corresponds to the account address.
  *
+ * @param cfg The configuration for the compute phase.
+ *
  * @returns True if the input message state hash is valid, False otherwise.
  */
-bool Transaction::check_in_msg_state_hash() {
+bool Transaction::check_in_msg_state_hash(const ComputePhaseConfig& cfg) {
   CHECK(in_msg_state.not_null());
-  CHECK(new_split_depth >= 0 && new_split_depth < 32);
+  CHECK(new_fixed_prefix_length >= 0 && new_fixed_prefix_length < 32);
   td::Bits256 in_state_hash = in_msg_state->get_hash().bits();
-  int d = new_split_depth;
+  int d = new_fixed_prefix_length;
   if ((in_state_hash.bits() + d).compare(account.addr.bits() + d, 256 - d)) {
     return false;
   }
   orig_addr_rewrite = in_state_hash.bits();
   orig_addr_rewrite_set = true;
-  return account.recompute_tmp_addr(my_addr, d, orig_addr_rewrite.bits());
+  if (cfg.disable_anycast) {
+    my_addr = my_addr_exact;
+    return true;
+  } else {
+    return account.recompute_tmp_addr(my_addr, d, orig_addr_rewrite.bits());
+  }
 }
 
 /**
@@ -1639,13 +1662,21 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
     use_msg_state = true;
     bool forbid_public_libs =
         acc_status == Account::acc_uninit && account.is_masterchain();  // Forbid for deploying, allow for unfreezing
-    if (!(unpack_msg_state(cfg, false, forbid_public_libs) && account.check_split_depth(new_split_depth))) {
-      LOG(DEBUG) << "cannot unpack in_msg_state, or it has bad split_depth; cannot init account state";
+    if (!(unpack_msg_state(cfg, false, forbid_public_libs) &&
+          account.check_addr_rewrite_length(new_fixed_prefix_length))) {
+      LOG(DEBUG) << "cannot unpack in_msg_state, or it has bad fixed_prefix_length; cannot init account state";
       cp.skip_reason = ComputePhase::sk_bad_state;
       return true;
     }
-    if (acc_status == Account::acc_uninit && !check_in_msg_state_hash()) {
+    if (acc_status == Account::acc_uninit && !check_in_msg_state_hash(cfg)) {
       LOG(DEBUG) << "in_msg_state hash mismatch, cannot init account state";
+      cp.skip_reason = ComputePhase::sk_bad_state;
+      return true;
+    }
+    if (cfg.disable_anycast && acc_status == Account::acc_uninit &&
+        new_fixed_prefix_length > cfg.size_limits.max_acc_fixed_prefix_length) {
+      LOG(DEBUG) << "cannot init account state: too big fixed prefix length (" << new_fixed_prefix_length << ", max "
+                 << cfg.size_limits.max_acc_fixed_prefix_length << ")";
       cp.skip_reason = ComputePhase::sk_bad_state;
       return true;
     }
@@ -1670,6 +1701,11 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
       cp.skip_reason = ComputePhase::sk_bad_state;
       return true;
     }
+  }
+  if (cfg.disable_anycast) {
+    my_addr = my_addr_exact;
+    new_addr_rewrite_length = 0;
+    force_remove_anycast_address = true;
   }
 
   td::optional<PrecompiledContractsConfig::Contract> precompiled;
@@ -2246,11 +2282,12 @@ bool Transaction::check_replace_src_addr(Ref<vm::CellSlice>& src_addr) const {
  * @param dest_addr A reference to the destination address of the transaction.
  * @param cfg The configuration for the action phase.
  * @param is_mc A pointer to a boolean where it will be stored whether the destination is in the masterchain.
+ * @param allow_anycast Allow anycast the address.
  *
  * @returns True if the destination address is valid, false otherwise.
  */
 bool Transaction::check_rewrite_dest_addr(Ref<vm::CellSlice>& dest_addr, const ActionPhaseConfig& cfg,
-                                          bool* is_mc) const {
+                                          bool* is_mc, bool allow_anycast) const {
   if (!dest_addr->prefetch_ulong(1)) {
     // all external addresses allowed
     if (is_mc) {
@@ -2310,6 +2347,9 @@ bool Transaction::check_rewrite_dest_addr(Ref<vm::CellSlice>& dest_addr, const A
     }
   }
   if (rec.anycast->size() > 1) {
+    if (!allow_anycast) {
+      return false;
+    }
     // destination address is an anycast
     vm::CellSlice cs{*rec.anycast};
     int d = (int)cs.fetch_ulong(6) - 32;
@@ -2477,7 +2517,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     return 35;  // invalid source address
   }
   bool to_mc = false;
-  if (!check_rewrite_dest_addr(info.dest, cfg, &to_mc)) {
+  if (!check_rewrite_dest_addr(info.dest, cfg, &to_mc, !cfg.disable_anycast)) {
     LOG(DEBUG) << "invalid destination address in a proposed outbound message";
     return check_skip_invalid(36);  // invalid destination address
   }
@@ -3265,13 +3305,14 @@ bool Transaction::compute_state(const SerializeConfig& cfg) {
         && balance.store(cb));          // balance:CurrencyCollection
   int ticktock = new_tick * 2 + new_tock;
   unsigned si_pos = 0;
+  int fixed_prefix_length = cfg.disable_anycast ? new_fixed_prefix_length : account.addr_rewrite_length;
   if (acc_status == Account::acc_uninit) {
     CHECK(cb.store_long_bool(0, 2));  // account_uninit$00 = AccountState
   } else if (acc_status == Account::acc_frozen) {
     if (was_frozen) {
       vm::CellBuilder cb2;
-      CHECK(account.split_depth_ ? cb2.store_long_bool(account.split_depth_ + 32, 6)  // _ ... = StateInit
-                                 : cb2.store_long_bool(0, 1));                        // ... split_depth:(Maybe (## 5))
+      CHECK(fixed_prefix_length ? cb2.store_long_bool(fixed_prefix_length + 32, 6)  // _ ... = StateInit
+                                : cb2.store_long_bool(0, 1));  // ... fixed_prefix_length:(Maybe (## 5))
       CHECK(ticktock ? cb2.store_long_bool(ticktock | 4, 3) : cb2.store_long_bool(0, 1));  // special:(Maybe TickTock)
       CHECK(cb2.store_maybe_ref(new_code) && cb2.store_maybe_ref(new_data) && cb2.store_maybe_ref(new_library));
       // code:(Maybe ^Cell) data:(Maybe ^Cell) library:(HashmapE 256 SimpleLib)
@@ -3300,8 +3341,8 @@ bool Transaction::compute_state(const SerializeConfig& cfg) {
   } else {
     CHECK(acc_status == Account::acc_active && !was_frozen && !was_deleted);
     si_pos = cb.size_ext() + 1;
-    CHECK(account.split_depth_ ? cb.store_long_bool(account.split_depth_ + 96, 7)      // account_active$1 _:StateInit
-                               : cb.store_long_bool(2, 2));                            // ... split_depth:(Maybe (## 5))
+    CHECK(fixed_prefix_length ? cb.store_long_bool(fixed_prefix_length + 96, 7)  // account_active$1 _:StateInit
+                              : cb.store_long_bool(2, 2));  // ... fixed_prefix_length:(Maybe (## 5))
     CHECK(ticktock ? cb.store_long_bool(ticktock | 4, 3) : cb.store_long_bool(0, 1));  // special:(Maybe TickTock)
     CHECK(cb.store_maybe_ref(new_code) && cb.store_maybe_ref(new_data) && cb.store_maybe_ref(new_library));
     // code:(Maybe ^Cell) data:(Maybe ^Cell) library:(HashmapE 256 SimpleLib)
@@ -3341,8 +3382,8 @@ bool Transaction::compute_state(const SerializeConfig& cfg) {
       LOG(INFO) << "Compute used storage took " << timer.elapsed() << "s";
     }
   }
-  CHECK(cb.store_long_bool(1, 1)                       // account$1
-        && cb.append_cellslice_bool(account.my_addr)   // addr:MsgAddressInt
+  CHECK(cb.store_long_bool(1, 1)                                                      // account$1
+        && cb.append_cellslice_bool(cfg.disable_anycast ? my_addr : account.my_addr)  // addr:MsgAddressInt
         && block::store_UInt7(cb, stats.cells)         // storage_used$_ cells:(VarUInteger 7)
         && block::store_UInt7(cb, stats.bits)          //   bits:(VarUInteger 7)
         && block::store_UInt7(cb, stats.public_cells)  //   public_cells:(VarUInteger 7)
@@ -3701,12 +3742,14 @@ Ref<vm::Cell> Transaction::commit(Account& acc) {
   CHECK((const void*)&acc == (const void*)&account);
   // export all fields modified by the Transaction into original account
   // NB: this is the only method that modifies account
-  if (orig_addr_rewrite_set && new_split_depth >= 0 && acc.status != Account::acc_active &&
+  if (force_remove_anycast_address) {
+    CHECK(acc.forget_addr_rewrite_length());
+  } else if (orig_addr_rewrite_set && new_addr_rewrite_length >= 0 && acc.status != Account::acc_active &&
       acc_status == Account::acc_active) {
     LOG(DEBUG) << "setting address rewriting info for newly-activated account " << acc.addr.to_hex()
-               << " with split_depth=" << new_split_depth
-               << ", orig_addr_rewrite=" << orig_addr_rewrite.bits().to_hex(new_split_depth);
-    CHECK(acc.init_rewrite_addr(new_split_depth, orig_addr_rewrite.bits()));
+               << " with addr_rewrite_length=" << new_addr_rewrite_length
+               << ", orig_addr_rewrite=" << orig_addr_rewrite.bits().to_hex(new_addr_rewrite_length);
+    CHECK(acc.init_rewrite_addr(new_addr_rewrite_length, orig_addr_rewrite.bits()));
   }
   acc.status = (acc_status == Account::acc_deleted ? Account::acc_nonexist : acc_status);
   acc.last_trans_lt_ = start_lt;
@@ -3730,6 +3773,7 @@ Ref<vm::Cell> Transaction::commit(Account& acc) {
   if (acc.status == Account::acc_active) {
     acc.tick = new_tick;
     acc.tock = new_tock;
+    acc.fixed_prefix_length = new_fixed_prefix_length;
   } else {
     CHECK(acc.deactivate());
   }
@@ -3930,6 +3974,7 @@ td::Status FetchConfigParams::fetch_config_params(
     compute_phase_cfg->size_limits = size_limits;
     compute_phase_cfg->precompiled_contracts = config.get_precompiled_contracts_config();
     compute_phase_cfg->allow_external_unfreeze = compute_phase_cfg->global_version >= 8;
+    compute_phase_cfg->disable_anycast = config.get_global_version() >= 10;
   }
   {
     // compute action_phase_cfg
@@ -3958,9 +4003,11 @@ td::Status FetchConfigParams::fetch_config_params(
     action_phase_cfg->reserve_extra_enabled = config.get_global_version() >= 9;
     action_phase_cfg->mc_blackhole_addr = config.get_burning_config().blackhole_addr;
     action_phase_cfg->extra_currency_v2 = config.get_global_version() >= 10;
+    action_phase_cfg->disable_anycast = config.get_global_version() >= 10;
   }
   {
     serialize_cfg->extra_currency_v2 = config.get_global_version() >= 10;
+    serialize_cfg->disable_anycast = config.get_global_version() >= 10;
   }
   {
     // fetch block_grams_created

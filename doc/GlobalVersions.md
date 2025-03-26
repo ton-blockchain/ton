@@ -3,6 +3,8 @@ Global version is a parameter specified in `ConfigParam 8` ([block.tlb](https://
 Various features are enabled depending on the global version.
 
 ## Version 4
+__Enabled in mainnet on 2023-12-20__
+
 New features of version 4 are described in detail in [the documentation](https://docs.ton.org/v3/documentation/tvm/changelog/tvm-upgrade-2023-07).
 
 ### New TVM instructions
@@ -40,6 +42,7 @@ intermediate value before division (e.g. `(xy+w)/z`).
 * Unpaid storage fee is now saved to `due_payment`
 
 ## Version 5
+__Enabled in mainnet on 2024-02-03__
 
 ### Gas limits
 Version 5 enables higher gas limits for special contracts.
@@ -57,6 +60,7 @@ See [this post](https://t.me/tonstatus/88) for details.
 * `XLOAD` now works differently. When it takes a library cell, it returns the cell that it points to. This allows loading "nested libraries", if needed.
 
 ## Version 6
+__Enabled in mainnet on 2024-03-16__
 
 ### c7 tuple
 **c7** tuple extended from 14 to 17 elements:
@@ -101,10 +105,12 @@ Operations for working with Merkle proofs, where cells can have non-zero level a
 
 
 ## Version 7
+__Enabled in mainnet on 2024-04-18__
 
 [Explicitly nullify](https://github.com/ton-blockchain/ton/pull/957/files) `due_payment` after due reimbursment.
 
 ## Version 8
+__Enabled in mainnet on 2024-08-25__
 
 - Check mode on invalid `action_send_msg`. Ignore action if `IGNORE_ERROR` (+2) bit is set, bounce if `BOUNCE_ON_FAIL` (+16) bit is set.
 - Slightly change random seed generation to fix mix of `addr_rewrite` and `addr`.
@@ -113,6 +119,7 @@ Operations for working with Merkle proofs, where cells can have non-zero level a
 - Don't use user-provided `fwd_fee` and `ihr_fee` for internal messages.
 
 ## Version 9
+__Enabled in mainnet on 2025-02-13__
 
 ### c7 tuple
 c7 tuple parameter number **13** (previous blocks info tuple) now has the third element. It contains ids of the 16 last masterchain blocks with seqno divisible by 100.
@@ -155,6 +162,19 @@ Example: if the last masterchain block seqno is `19071` then the list contains b
 - Reserve action cannot reserve extra currencies.
 Reserve modes `+1`, `+4` and `+8` ("reserve all except", "add original balance" and "negate amount") now only affect TONs, but not extra currencies.
 
+### Anycast addresses and address rewrite
+- Anycast addresses are not allowed in `dest` of internal and external messages.
+- `addr_var` are not allowed in `dest` of external messages.
+  - Note: as before, `addr_var` in `dest` of internal messages are automatically replaced with `addr_std`.
+- TVM instructions `LDMSGADDR(Q)`, `PARSEMSGADDR(Q)`, `REWRITESTDADDR(Q)`, `REWRITEVARADDR(Q)` no more support anycast addresses and `addr_var`.
+- `addr:MsgAddressInt` in `Account` cannot be an anycast address.
+  - Therefore, `src` of outbound messages cannot be an anycast address.
+  - Existing accounts with anycast addresses change to non-anycast addresses in the first transaction.
+- When deploying an account with `fixed_prefix_length` in `StateInit` of the message (it was called `split_depth` before), the first `fixed_prefix_length` bits of the address are not compared against the state hash.
+  - This allows deploying an account to an arbitrary shard regardless of the hash of state init.
+  - `fixed_prefix_length` remains in the account state.
+  - `fixed_prefix_length` of the account can be at most 8. The limit can be changed in size limits config (`ConfigParam 43`).
+
 ### TVM changes
 - `SENDMSG` calculates messages size and fees without extra currencies, uses new +64 and +128 mode behavior.
   - `SENDMSG` does not check the number of extra currencies.
@@ -166,6 +186,7 @@ Reserve modes `+1`, `+4` and `+8` ("reserve all except", "add original balance" 
   - `RUNVM` interacts with this instructions in the following way:
     - Without "isolate gas" mode, the child VM shares `GETEXTRABALANCE` counter with the parent vm.
     - With "isolate gas" mode, in the beginning of `RUNVM` the parent VM spends full gas for all already executed `GETEXTRABALANCE` and resets the counter.
+- `LDMSGADDR(Q)`, `PARSEMSGADDR(Q)`, `REWRITESTDADDR(Q)`, `REWRITEVARADDR(Q)` no more support anycast addresses and `addr_var`.
 
 ### Other changes
 - Exceeding state limits in transaction now reverts `end_lt` back to `start_lt + 1` and collects action fines.
