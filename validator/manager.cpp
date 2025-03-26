@@ -2891,7 +2891,7 @@ void ValidatorManagerImpl::prepare_stats(td::Promise<std::vector<std::pair<std::
   }
 
   bool serializer_enabled = opts_->get_state_serializer_enabled();
-  if (is_validator() && last_masterchain_state_->get_global_id() == -239) {
+  if (is_validator() && last_masterchain_state_.not_null() && last_masterchain_state_->get_global_id() == -239) {
     serializer_enabled = false;
   }
   vec.emplace_back("stateserializerenabled", serializer_enabled ? "true" : "false");
