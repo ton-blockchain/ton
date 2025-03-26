@@ -106,14 +106,21 @@ option(TON_USE_TSAN "Use \"ON\" to enable ThreadSanitizer." OFF)
 option(TON_USE_UBSAN "Use \"ON\" to enable UndefinedBehaviorSanitizer." OFF)
 set(TON_ARCH "native" CACHE STRING "Architecture, will be passed to -march=")
 
-#BEGIN M1 support
+# detect architecture
 EXECUTE_PROCESS( COMMAND uname -m COMMAND tr -d '\n' OUTPUT_VARIABLE ARCHITECTURE )
 
+#BEGIN M1 support
 if ((ARCHITECTURE MATCHES "arm64") AND (CMAKE_SYSTEM_NAME STREQUAL "Darwin") AND
     (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 13.0)) # only clang 13+ supports cpu=apple-m1
     set(TON_ARCH "apple-m1")
 endif()
 #END M1 support
+
+#BEGIN RISC-V support
+if ((ARCHITECTURE MATCHES "riscv64") AND (CMAKE_SYSTEM_NAME STREQUAL "Linux"))
+  set(TON_ARCH "riscv64")
+endif()
+#END RISC-V support
 
 if (TON_USE_ABSEIL)
   message("Add abseil-cpp")
@@ -151,7 +158,7 @@ set(CRC32C_FOUND 1)
 
 if (TON_USE_ROCKSDB)
   if (ANDROID)
-    set(PORTABLE ON CACHE BOOL "portable")
+    set(PORTABLE 0 CACHE STRING "portable")
   endif()
   set(WITH_GFLAGS OFF CACHE BOOL "build with GFlags")
   set(WITH_TESTS OFF CACHE BOOL "build with tests")
@@ -227,10 +234,26 @@ endif()
 
 if (TON_ARCH AND NOT MSVC)
   CHECK_CXX_COMPILER_FLAG( "-march=${TON_ARCH}" COMPILER_OPT_ARCH_SUPPORTED )
+  CHECK_CXX_COMPILER_FLAG( "-mcpu=${TON_ARCH}" COMPILER_OPT_CPU_SUPPORTED )
   if (TON_ARCH STREQUAL "apple-m1")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcpu=${TON_ARCH}")	
+    message(STATUS "Found supported Apple Silicon architecture")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcpu=${TON_ARCH}")
+  elseif(TON_ARCH STREQUAL "riscv64")
+    execute_process(
+      COMMAND bash -c "cat /proc/cpuinfo | grep -E '^isa\\s*:' | head -1 | cut --delimiter=: -f 2 | cut -b 2-"
+      OUTPUT_VARIABLE RISC_ISA
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+    message(STATUS "Found RISC-V architecture with ISA: ${RISC_ISA}")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=${RISC_ISA}")
+    set(PORTABLE "${RISC_ISA}")
+  elseif(COMPILER_OPT_CPU_SUPPORTED)
+    message(STATUS "Found supported -mcpu=${TON_ARCH}")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcpu=${TON_ARCH}")
   elseif(COMPILER_OPT_ARCH_SUPPORTED)
+    message(STATUS "Found supported -march=${TON_ARCH}")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=${TON_ARCH}")
+    set(PORTABLE "${TON_ARCH}")
   elseif(NOT TON_ARCH STREQUAL "native")
     message(FATAL_ERROR "Compiler doesn't support arch ${TON_ARCH}")
   endif()
