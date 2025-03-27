@@ -93,6 +93,7 @@ else
 fi
 
 if [ ! -d "../3pp/libmicrohttpd" ]; then
+  mkdir -p ../3pp/libmicrohttpd
   wget -O ../3pp/libmicrohttpd/libmicrohttpd-1.0.1.tar.gz https://ftpmirror.gnu.org/libmicrohttpd/libmicrohttpd-1.0.1.tar.gz
   cd ../3pp/libmicrohttpd/
   tar xf libmicrohttpd-1.0.1.tar.gz
