@@ -2,14 +2,16 @@
 
 with_tests=false
 with_artifacts=false
-OSX_TARGET=10.15
+with_ccache=false
 
+OSX_TARGET=11.0
 
-while getopts 'tao:' flag; do
+while getopts 'taco:' flag; do
   case "${flag}" in
     t) with_tests=true ;;
     a) with_artifacts=true ;;
     o) OSX_TARGET=${OPTARG} ;;
+    c) with_ccache=true ;;
     *) break
        ;;
   esac
@@ -25,7 +27,18 @@ fi
 
 export NONINTERACTIVE=1
 brew install ninja libsodium libmicrohttpd pkg-config automake libtool autoconf gnutls
+export PATH=/usr/local/opt/ccache/libexec:$PATH
 brew install llvm@16
+
+if [ "$with_ccache" = true ]; then
+  brew install ccache
+  mkdir -p ~/.ccache
+  export CCACHE_DIR=~/.ccache
+  ccache -M 0
+  test $? -eq 0 || { echo "ccache not installed"; exit 1; }
+else
+  export CCACHE_DISABLE=1
+fi
 
 if [ -f /opt/homebrew/opt/llvm@16/bin/clang ]; then
   export CC=/opt/homebrew/opt/llvm@16/bin/clang
@@ -34,7 +47,6 @@ else
   export CC=/usr/local/opt/llvm@16/bin/clang
   export CXX=/usr/local/opt/llvm@16/bin/clang++
 fi
-export CCACHE_DISABLE=1
 
 if [ ! -d "lz4" ]; then
   git clone https://github.com/lz4/lz4
@@ -110,8 +122,3 @@ if [ "$with_artifacts" = true ]; then
   chmod -R +x artifacts/*
 fi
 
-if [ "$with_tests" = true ]; then
-  cd build
-#  ctest --output-on-failure -E "test-catchain|test-actors"
-  ctest --output-on-failure --timeout 1800
-fi
