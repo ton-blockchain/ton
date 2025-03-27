@@ -55,8 +55,7 @@ jobs:
       uses: actions/cache/restore@v4
       with:
         path: ~/.ccache
-        key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-20.04-portable-ccache-${{ steps.date-stamp.outputs.timestamp }}
-        restore-keys: ${{ runner.os }}-${{ runner.arch }}-ubuntu-20.04-portable-ccache
+        key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-20.04-portable-ccache
 
     - name: Build TON
       run: |
@@ -67,6 +66,12 @@ jobs:
         ./build-ubuntu-appimages.sh -a -c
         ccache -sp
 
+    - name: Save cache TON
+      uses: actions/cache/save@v4
+      with:
+        path: ~/.ccache
+        key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-20.04-portable-ccache-${{ steps.date-stamp.outputs.timestamp }}
+
     - name: Make AppImages
       run: |
         cp assembly/appimage/create-appimages.sh .
@@ -76,7 +81,7 @@ jobs:
         ./create-appimages.sh x86_64
         rm -rf artifacts
 
-    - name: Restore cache TON libs
+    - name: Save/Restore cache TON libs
       uses: actions/cache@v4
       with:
         path: ~/.ccache
