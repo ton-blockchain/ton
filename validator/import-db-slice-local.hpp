@@ -95,7 +95,7 @@ class ArchiveImporterLocal : public td::actor::Actor {
 
   bool imported_any_ = false;
 
-  td::Timer timer_;
+  td::PerfWarningTimer perf_timer_;
 };
 
 }  // namespace validator

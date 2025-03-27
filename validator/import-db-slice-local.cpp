@@ -43,7 +43,10 @@ ArchiveImporterLocal::ArchiveImporterLocal(std::string db_root, td::Ref<Masterch
     , opts_(std::move(opts))
     , manager_(manager)
     , to_import_files_(std::move(to_import_files))
-    , promise_(std::move(promise)) {
+    , promise_(std::move(promise))
+    , perf_timer_("import-slice-local", 10.0, [manager](double duration) {
+      send_closure(manager, &ValidatorManager::add_perf_timer_stat, "import-slice-local", duration);
+    }) {
 }
 
 void ArchiveImporterLocal::start_up() {
@@ -623,7 +626,8 @@ void ArchiveImporterLocal::abort_query(td::Status error) {
 }
 
 void ArchiveImporterLocal::finish_query() {
-  LOG(WARNING) << "Imported archive in " << timer_.elapsed() << "s : mc_seqno=" << last_masterchain_state_->get_seqno()
+  LOG(WARNING) << "Imported archive in " << perf_timer_.elapsed()
+               << "s : mc_seqno=" << last_masterchain_state_->get_seqno()
                << " shard_seqno=" << current_shard_client_seqno_;
   promise_.set_value({last_masterchain_state_->get_seqno(),
                       std::min<BlockSeqno>(last_masterchain_state_->get_seqno(), current_shard_client_seqno_)});
