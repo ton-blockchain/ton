@@ -90,7 +90,7 @@ if [ ! -f "3pp_emscripten/openssl_em/openssl_em" ]; then
   sed -i 's/-ldl//g' Makefile
   sed -i 's/-O3/-Os/g' Makefile
   emmake make depend
-  emmake make -j16
+  emmake make -j$(nproc)
   test $? -eq 0 || { echo "Can't compile OpenSSL with emmake "; exit 1; }
   opensslPath=`pwd`
   touch openssl_em
@@ -106,7 +106,7 @@ if [ ! -d "3pp_emscripten/zlib" ]; then
   git checkout v1.3.1
   ZLIB_DIR=`pwd`
   emconfigure ./configure --static
-  emmake make -j16
+  emmake make -j$(nproc)
   test $? -eq 0 || { echo "Can't compile zlib with emmake "; exit 1; }
   cd ../..
 else
@@ -119,7 +119,7 @@ if [ ! -d "3pp_emscripten/lz4" ]; then
   cd 3pp_emscripten/lz4
   git checkout v1.9.4
   LZ4_DIR=`pwd`
-  emmake make -j16
+  emmake make -j$(nproc)
   test $? -eq 0 || { echo "Can't compile lz4 with emmake "; exit 1; }
   cd ../..
 else
@@ -133,7 +133,7 @@ if [ ! -d "3pp_emscripten/libsodium" ]; then
   git checkout 1.0.18-RELEASE
   SODIUM_DIR=`pwd`
   emconfigure ./configure --disable-ssp
-  emmake make -j16
+  emmake make -j$(nproc)
   test $? -eq 0 || { echo "Can't compile libsodium with emmake "; exit 1; }
   cd ../..
 else
@@ -164,7 +164,7 @@ emcmake cmake -DUSE_EMSCRIPTEN=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_VERBOSE_MAK
 test $? -eq 0 || { echo "Can't configure TON with emmake "; exit 1; }
 cp -R ../crypto/smartcont ../crypto/fift/lib crypto
 
-emmake make -j16 funcfiftlib func fift tlbc emulator-emscripten
+emmake make -j$(nproc) funcfiftlib func fift tlbc emulator-emscripten
 
 test $? -eq 0 || { echo "Can't compile TON with emmake "; exit 1; }
 

@@ -55,7 +55,7 @@ git clone https://github.com/lz4/lz4.git ../3pp/lz4
 cd ../3pp/lz4
 lz4Path=`pwd`
 git checkout v1.9.4
-make -j12
+make -j$(nproc)
 test $? -eq 0 || { echo "Can't compile lz4"; exit 1; }
 cd ../../build
 # ./lib/liblz4.a
@@ -73,7 +73,7 @@ if [ ! -d "../3pp/libsodium" ]; then
   git checkout 1.0.18
   ./autogen.sh
   ./configure --with-pic --enable-static
-  make -j12
+  make -j$(nproc)
   test $? -eq 0 || { echo "Can't compile libsodium"; exit 1; }
   cd ../../build
 else
@@ -100,7 +100,7 @@ if [ ! -d "../3pp/zlib" ]; then
   cd ../3pp/zlib
   zlibPath=`pwd`
   ./configure --static
-  make -j12
+  make -j$(nproc)
   test $? -eq 0 || { echo "Can't compile zlib"; exit 1; }
   cd ../../build
 else
@@ -109,13 +109,13 @@ else
 fi
 
 if [ ! -d "../3pp/libmicrohttpd" ]; then
-  while true; do git clone https://git.gnunet.org/libmicrohttpd.git ../3pp/libmicrohttpd && break; echo wait; sleep 10; done
-
-  cd ../3pp/libmicrohttpd
+  wget -O ../3pp/libmicrohttpd/libmicrohttpd-1.0.1.tar.gz https://ftpmirror.gnu.org/libmicrohttpd/libmicrohttpd-1.0.1.tar.gz
+  cd ../3pp/libmicrohttpd/
+  tar xf libmicrohttpd-1.0.1.tar.gz
+  cd libmicrohttpd-1.0.1
   libmicrohttpdPath=`pwd`
-  ./autogen.sh
   ./configure --enable-static --disable-tests --disable-benchmark --disable-shared --disable-https --with-pic
-  make -j12
+  make -j$(nproc)
   test $? -eq 0 || { echo "Can't compile libmicrohttpd"; exit 1; }
   cd ../../build
 else
