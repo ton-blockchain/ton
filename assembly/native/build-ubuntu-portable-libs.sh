@@ -102,7 +102,7 @@ if [ ! -d "../3pp/libmicrohttpd" ]; then
   ./configure --enable-static --disable-tests --disable-benchmark --disable-shared --disable-https --with-pic
   make -j$(nproc)
   test $? -eq 0 || { echo "Can't compile libmicrohttpd"; exit 1; }
-  cd ../../build
+  cd ../../../build
 else
   libmicrohttpdPath=$(pwd)/../3pp/libmicrohttpd
   echo "Using compiled libmicrohttpd"
