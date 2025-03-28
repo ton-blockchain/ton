@@ -1,5 +1,6 @@
 FROM ubuntu:24.04 AS builder
 ARG DEBIAN_FRONTEND=noninteractive
+RUN cat /proc/cpuinfo
 RUN apt-get update && \
     rm /var/lib/dpkg/info/libc-bin.* && \
     apt-get clean && \
