@@ -315,4 +315,14 @@ function(Main)
 endfunction()
 
 # And off we go...
-Main()
+option(ENABLE_GIT_WATCHER "Use git tree information in the version strings" ON)
+
+if (ENABLE_GIT_WATCHER)
+    Main()
+else()
+    add_custom_target(check_git)
+    set(GIT_RETRIEVED_STATE false)
+    set(GIT_IS_DIRTY false)
+    set(GIT_COMMIT_BODY "\"\"")
+    configure_file("${PRE_CONFIGURE_FILE}" "${POST_CONFIGURE_FILE}" @ONLY)
+endif()

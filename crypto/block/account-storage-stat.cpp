@@ -83,12 +83,16 @@ td::Result<AccountStorageStat::CellInfo> AccountStorageStat::replace_roots(std::
 
   roots_ = std::move(new_roots);
   td::Status S = td::Status::OK();
+  std::vector<std::pair<td::ConstBitPtr, td::Ref<vm::CellBuilder>>> values;
   cache_.for_each([&](Entry& e) {
     if (S.is_ok()) {
-      S = commit_entry(e);
+      S = commit_entry(e, values);
     }
   });
   TRY_STATUS(std::move(S));
+  if (!dict_.multiset(values)) {
+    return td::Status::Error("failed to update dictionary");
+  }
   return CellInfo{max_merkle_depth};
 }
 
@@ -183,6 +187,7 @@ AccountStorageStat::Entry& AccountStorageStat::get_entry(const Ref<vm::Cell>& ce
     }
     e.inited = true;
     e.cell = cell;
+    e.hash = cell->get_hash();
   });
 }
 
@@ -190,26 +195,27 @@ td::Status AccountStorageStat::fetch_entry(Entry& e) {
   if (e.exists_known && e.refcnt && (!e.exists || e.max_merkle_depth)) {
     return td::Status::OK();
   }
-  auto cs = dict_.lookup(e.cell->get_hash().as_bitslice());
+  auto cs = dict_.lookup(e.hash.as_bitslice());
   if (cs.is_null()) {
     e.exists = false;
     e.refcnt = 0;
   } else {
     if (cs->size_ext() != 32 + 2) {
-      return td::Status::Error(PSTRING() << "invalid record for cell " << e.cell->get_hash().to_hex());
+      return td::Status::Error(PSTRING() << "invalid record for cell " << e.hash.to_hex());
     }
     e.exists = true;
     e.refcnt = (td::uint32)cs.write().fetch_ulong(32);
     e.max_merkle_depth = (td::uint32)cs.write().fetch_ulong(2);
     if (e.refcnt.value() == 0) {
-      return td::Status::Error(PSTRING() << "invalid refcnt=0 for cell " << e.cell->get_hash().to_hex());
+      return td::Status::Error(PSTRING() << "invalid refcnt=0 for cell " << e.hash.to_hex());
     }
   }
   e.exists_known = true;
   return td::Status::OK();
 }
 
-td::Status AccountStorageStat::commit_entry(Entry& e) {
+td::Status AccountStorageStat::commit_entry(Entry& e,
+                                            std::vector<std::pair<td::ConstBitPtr, td::Ref<vm::CellBuilder>>>& values) {
   if (e.refcnt_diff == 0) {
     return td::Status::OK();
   }
@@ -221,9 +227,7 @@ td::Status AccountStorageStat::commit_entry(Entry& e) {
     --total_cells_;
     total_bits_ -= vm::load_cell_slice_special(e.cell, spec).size();
     e.exists = false;
-    if (dict_.lookup_delete(e.cell->get_hash().as_bitslice()).is_null()) {
-      return td::Status::Error(PSTRING() << "Failed to delete entry " << e.cell->get_hash().to_hex());
-    }
+    values.emplace_back(e.hash.bits(), td::Ref<vm::CellBuilder>{});
   } else {
     if (!e.exists) {
       ++total_cells_;
@@ -231,15 +235,12 @@ td::Status AccountStorageStat::commit_entry(Entry& e) {
     }
     e.exists = true;
     if (!e.max_merkle_depth) {
-      return td::Status::Error(PSTRING() << "Failed to store entry " << e.cell->get_hash().to_hex()
-                                         << " : unknown merkle depth");
+      return td::Status::Error(PSTRING() << "Failed to store entry " << e.hash.to_hex() << " : unknown merkle depth");
     }
-    vm::CellBuilder cb;
-    dict_.set_builder(e.cell->get_hash().as_bitslice(), cb);
+    td::Ref<vm::CellBuilder> cbr{true};
+    auto& cb = cbr.write();
     CHECK(cb.store_long_bool(e.refcnt.value(), 32) && cb.store_long_bool(e.max_merkle_depth.value(), 2));
-    if (!dict_.set_builder(e.cell->get_hash().as_bitslice(), cb)) {
-      return td::Status::Error(PSTRING() << "Failed to store entry " << e.cell->get_hash().to_hex());
-    }
+    values.emplace_back(e.hash.bits(), std::move(cbr));
   }
   return td::Status::OK();
 }

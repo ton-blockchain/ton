@@ -21,6 +21,7 @@
 
 #include <openssl/evp.h>
 #include <openssl/opensslv.h>
+#include <openssl/sha.h>
 
 #include "td/utils/Slice.h"
 
@@ -124,8 +125,62 @@ std::string HashCtx<H>::extract() {
 }
 
 typedef HashCtx<OpensslEVP_SHA1> SHA1;
-typedef HashCtx<OpensslEVP_SHA256> SHA256;
 typedef HashCtx<OpensslEVP_SHA512> SHA512;
+
+struct SHA256Tag {};
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+
+template <>
+struct HashCtx<SHA256Tag> {
+ public:
+  enum { digest_bytes = 32 };
+
+  HashCtx() {
+    SHA256_Init(&ctx_);
+  }
+
+  HashCtx(const void *data, std::size_t len) : HashCtx() {
+    feed(data, len);
+  }
+
+  void reset() {
+    SHA256_Init(&ctx_);
+  }
+
+  void feed(const void *data, std::size_t len) {
+    SHA256_Update(&ctx_, data, len);
+  }
+
+  void feed(td::Slice slice) {
+    feed(slice.data(), slice.size());
+  }
+
+  std::size_t extract(unsigned char buffer[digest_bytes]) {
+    SHA256_Final(buffer, &ctx_);
+    return digest_bytes;
+  }
+
+  std::size_t extract(td::MutableSlice slice) {
+    CHECK(slice.size() == digest_bytes);
+    SHA256_Final(slice.ubegin(), &ctx_);
+    return digest_bytes;
+  }
+
+  std::string extract() {
+    unsigned char buffer[digest_bytes];
+    extract(buffer);
+    return std::string((char *)buffer, digest_bytes);
+  }
+
+ private:
+  SHA256_CTX ctx_;
+};
+
+#pragma GCC diagnostic pop
+
+typedef HashCtx<SHA256Tag> SHA256;
 
 template <typename T>
 std::size_t hash_str(unsigned char buffer[T::digest_bytes], const void *data, std::size_t size) {

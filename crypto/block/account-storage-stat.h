@@ -71,6 +71,7 @@ class AccountStorageStat {
 
   struct Entry {
     bool inited = false;
+    vm::CellHash hash;
     Ref<vm::Cell> cell;
     bool exists_known = false;
     bool exists = false;
@@ -78,7 +79,7 @@ class AccountStorageStat {
     td::int32 refcnt_diff = 0;
 
     vm::Cell::Hash key() const {
-      return cell->get_hash();
+      return hash;
     }
     bool operator<(const Entry &other) const {
       return key() < other.key();
@@ -110,7 +111,7 @@ class AccountStorageStat {
 
   Entry &get_entry(const Ref<vm::Cell> &cell);
   td::Status fetch_entry(Entry &e);
-  td::Status commit_entry(Entry &e);
+  td::Status commit_entry(Entry &e, std::vector<std::pair<td::ConstBitPtr, td::Ref<vm::CellBuilder>>> &values);
 
   static constexpr td::uint32 MERKLE_DEPTH_LIMIT = 3;
 };
