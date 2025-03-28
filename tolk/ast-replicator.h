@@ -62,7 +62,7 @@ protected:
     return createV<ast_parenthesized_expression>(v->loc, clone(v->get_expr()));
   }
   virtual V<ast_braced_expression> clone(V<ast_braced_expression> v) {
-    return createV<ast_braced_expression>(v->loc, clone(v->get_sequence()));
+    return createV<ast_braced_expression>(v->loc, clone(v->get_block_statement()));
   }
   virtual V<ast_tensor> clone(V<ast_tensor> v) {
     return createV<ast_tensor>(v->loc, clone(v->get_items()));
@@ -142,8 +142,8 @@ protected:
   virtual V<ast_empty_statement> clone(V<ast_empty_statement> v) {
     return createV<ast_empty_statement>(v->loc);
   }
-  virtual V<ast_sequence> clone(V<ast_sequence> v) {
-    return createV<ast_sequence>(v->loc, v->loc_end, clone(v->get_items()));
+  virtual V<ast_block_statement> clone(V<ast_block_statement> v) {
+    return createV<ast_block_statement>(v->loc, v->loc_end, clone(v->get_items()));
   }
   virtual V<ast_return_statement> clone(V<ast_return_statement> v) {
     return createV<ast_return_statement>(v->loc, clone(v->get_return_value()));
@@ -228,7 +228,7 @@ protected:
   AnyV clone(AnyV v) final {
     switch (v->type) {
       case ast_empty_statement:                 return clone(v->as<ast_empty_statement>());
-      case ast_sequence:                        return clone(v->as<ast_sequence>());
+      case ast_block_statement:                 return clone(v->as<ast_block_statement>());
       case ast_return_statement:                return clone(v->as<ast_return_statement>());
       case ast_if_statement:                    return clone(v->as<ast_if_statement>());
       case ast_repeat_statement:                return clone(v->as<ast_repeat_statement>());
@@ -263,7 +263,7 @@ protected:
       v_function->loc,
       clone(v_function->get_identifier()),
       clone(v_function->get_param_list()),
-      clone(v_function->get_body()->as<ast_sequence>()),
+      clone(v_function->get_body()->as<ast_block_statement>()),
       clone(v_function->declared_return_type),
       v_function->genericsT_list,
       v_function->method_id,

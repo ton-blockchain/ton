@@ -83,11 +83,11 @@ fun test2() {
 fun test3(case: int): int | slice | null {
     var a: int | slice | null = 4;
     if (case == 0) {
-        a = getSlice32();
+        a = getSlice32()
     } else if (case == 1) {
-        a = 10;
+        a = 10
     } else {
-        a = null;
+        a = null
     }
     return a;
 }
@@ -99,8 +99,8 @@ fun test4() {
         (5 as int8) as int8 | int8,
         true as bool | bool,
         5 as int | int | (int | slice),
-        (5 as int | int | (int | slice)) as int | slice | null
-    );
+        (5 as int | int | (int | slice)) as int | slice | null,
+    )
 }
 
 @method_id(105)
@@ -119,19 +119,19 @@ fun test6(case: int): int | slice | builder | null {
         a = null as slice? | builder;
         __expect_type(a, "null | slice | builder");
         __expect_type(a!, "slice | builder");
-        return a;
+        return a
     }
     if (case == 2) {
         __expect_type(a = 2 as MInt, "MInt");
         __expect_type(a, "int");
         a = 2;
         __expect_type(a, "int");
-        return a + 0;
+        return a + 0
     }
     if (case == 3) {
         a = null as slice?;
         __expect_type(a, "slice?");
-        return a;
+        return a
     }
     a = null as MNull;
     __expect_type(a, "null");
@@ -159,7 +159,7 @@ fun test8() {
         (2, 3) as Pair2Or3 | null,
         (2, 3) as null | Pair2Or3,
         null as Pair2Or3?
-    );
+    )
 }
 
 @method_id(109)
@@ -177,7 +177,7 @@ fun test9() {
 fun test10() {
     var t = getSlice32() as (int, (int, int)?, (int?, int)?) | slice;
     if (10 > 3) {
-        t = (1, null, null) as (int, (int, int)?, (int?, int)?);
+        t = (1, null, null) as (int, (int, int)?, (int?, int)?)
     }
     return t;
 }
@@ -222,9 +222,9 @@ fun test21() {
         __expect_type(a, "never");
     }
     if (a is slice || a is int) {
-        __expect_type(a, "slice | int");
+        __expect_type(a, "slice | int")
     } else {
-        __expect_type(a, "never");
+        __expect_type(a, "never")
     }
     if (a is int || a is slice || a is builder) {
         __expect_type(a, "int | slice");
@@ -238,13 +238,13 @@ fun test21() {
 @method_id(122)
 fun test22(a: int, b: int | slice) {
     var result = 0;
-    if (a is int) { result += 1; }
-    if (a is int || a is slice) { result += 2; }
-    if (a is builder || a is slice) { result += 3; }
-    if (b is int) { result += 10; }
-    if ((b is int) | (b is slice)) { result += 11; }
-    if ((b is builder) | (b is int)) { result += 12; }
-    return result;
+    if (a is int) { result += 1 }
+    if (a is int || a is slice) { result += 2 }
+    if (a is builder || a is slice) { result += 3 }
+    if (b is int) { result += 10 }
+    if ((b is int) | (b is slice)) { result += 11 }
+    if ((b is builder) | (b is int)) { result += 12 }
+    return result
 }
 
 @method_id(123)
@@ -268,7 +268,7 @@ fun test23(p2: bool) {
     return p;
 }
 
-fun eqUnion2<T1, T2>(v: T1 | T2): T2 | T1 { return v; }
+fun eqUnion2<T1, T2>(v: T1 | T2): T2 | T1 { return v }
 
 fun detectUnionSide<T1, T2>(v: T1 | T2) {
     if (v is T1) {
@@ -371,11 +371,13 @@ fun test31() {
     var t5: (int, int) | int | null = 5 as int?;
     var t6: (int, int) | int | null = null as (int, int)?;
     var t7: (int, int) | int | null = (1, 2) as (int, int)?;
-    __expect_type(t1, "null");
-    __expect_type(t2, "int");
-    __expect_type(t3, "(int, int)");
-    __expect_type(t4, "int?");
-    __expect_type(t6, "(int, int)?");
+    {
+        __expect_type(t1, "null");
+        __expect_type(t2, "int");
+        __expect_type(t3, "(int, int)");
+        __expect_type(t4, "int?");
+        __expect_type(t6, "(int, int)?")
+    }
     return (t1, 777, t2, 777, t3, 777, t4, 777, t5, 777, t6, 777, t7);
 }
 
@@ -469,9 +471,9 @@ fun test39() {
 
 @method_id(140)
 fun test40(x: int): SomeIntBits {
-    if (x < 10) { return x as int8; }
-    if (x < 20) { return x as int9; }
-    if (x < 30) { return x as int10; }
+    if (x < 10) { return x as int8 }
+    if (x < 20) { return x as int9 }
+    if (x < 30) { return x as int10 }
     return x as uint64;
 }
 
@@ -524,7 +526,7 @@ fun checkSimple(a: int | slice | builder) {
         int => 1,
         slice => 2,
         builder => 3,
-    };
+    }
 }
 
 @method_id(147)
@@ -539,7 +541,7 @@ fun checkGeneric3<T1, T2, T3>(a: T1 | T2 | T3): (int, T1 | T2?) {
         T1 => (1, a),
         T2 => (2, match(a) { T2 => a }),
         T3 => (3, null),
-    };
+    }
 }
 
 type IntOrInt8OrInt16 = int | int8 | int16;
@@ -561,9 +563,9 @@ fun test49(a: slice? | int) {
         return match (a) {
             slice => 1,
             null => 2,
-        };
+        }
     }
-    return a + 0;
+    return a + 0
 }
 
 type VeryComplexType = int | (MInt, int)? | builder? | int;
@@ -592,7 +594,7 @@ fun test50() {
     __expect_type(b, "int?");
     b is int && b!is int && b!!is int;
     if (match(b) { int => 1, null => null } !is int) {
-        return 100;
+        return 100
     }
     return (b! + (match (a) { int => a, slice => a, null => a } as int|slice?).test49());
 }
@@ -610,7 +612,7 @@ fun test51(init: int) {
             a = a > 10 ? beginCell().storeInt(init, 32).endCell().beginParse() : 10;
             __expect_type(a, "int | slice");
             if (a is slice) {
-                a = a.loadInt(32);
+                a = a.loadInt(32)
             }
         }
         slice => {
@@ -632,7 +634,7 @@ fun test52(init: int): int | builder {
     return match (init as int?) {
         int => init,
         null => beginCell()
-    };
+    }
 }
 
 fun inc53(mutate x: int) {
@@ -659,7 +661,7 @@ fun test53(a: int | builder) {
     match (var (a, (b, c)) = (10, (20, 30))) {
         (int, Pair2) => {}
     }
-    return cc;
+    return cc
 }
 
 @method_id(154)

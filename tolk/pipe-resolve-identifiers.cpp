@@ -262,7 +262,7 @@ protected:
 
   void visit(V<ast_braced_expression> v) override {
     current_scope.open_scope(v->loc);
-    parent::visit(v->get_sequence());
+    parent::visit(v->get_block_statement());
     current_scope.close_scope(v->loc);
   }
 
@@ -326,7 +326,7 @@ protected:
     parent::visit(v->get_expr());
   }
 
-  void visit(V<ast_sequence> v) override {
+  void visit(V<ast_block_statement> v) override {
     if (v->empty()) {
       return;
     }
@@ -377,13 +377,13 @@ public:
     fun_ref->mutate()->assign_resolved_type(return_type);
 
     if (fun_ref->is_code_function()) {
-      auto v_seq = v->get_body()->as<ast_sequence>();
+      auto v_block = v->get_body()->as<ast_block_statement>();
       current_scope.open_scope(v->loc);
       for (int i = 0; i < v->get_num_params(); ++i) {
         current_scope.add_local_var(&fun_ref->parameters[i]);
       }
-      parent::visit(v_seq);
-      current_scope.close_scope(v_seq->loc_end);
+      parent::visit(v_block);
+      current_scope.close_scope(v_block->loc_end);
       tolk_assert(current_scope.scopes.empty());
     }
 

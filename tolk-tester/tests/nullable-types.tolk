@@ -3,8 +3,8 @@ type MIntN = int?;
 fun getNullable4(): MIntN { return 4; }
 fun getNullableIntNull(): int? asm "PUSHNULL";
 
-fun eqInt(x: int) { return x; }
-fun eq<T>(x: T) { return x; }
+fun eqInt(x: int) { return x }
+fun eq<T>(x: T) { return x }
 
 fun unwrap<T>(x: T?): T { return x!; }
 fun intOr0(x: int?): int { return null == x ? 0 : x!; }

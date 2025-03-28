@@ -1259,7 +1259,7 @@ static std::vector<var_idx_t> process_braced_expression(V<ast_braced_expression>
   // `{ ... }` used as an expression can not return a value currently (there is no syntax in a language)
   // that's why it can appear only in special places, and its usage correctness has been checked
   tolk_assert(v->inferred_type == TypeDataVoid::create() || v->inferred_type == TypeDataNever::create());
-  process_any_statement(v->get_sequence(), code);
+  process_any_statement(v->get_block_statement(), code);
   static_cast<void>(target_type);
   return {};
 }
@@ -1392,7 +1392,7 @@ std::vector<var_idx_t> pre_compile_expr(AnyExprV v, CodeBlob& code, TypePtr targ
 }
 
 
-static void process_sequence(V<ast_sequence> v, CodeBlob& code) {
+static void process_block_statement(V<ast_block_statement> v, CodeBlob& code) {
   for (AnyV item : v->get_items()) {
     process_any_statement(item, code);
   }
@@ -1582,8 +1582,8 @@ static void append_implicit_return_statement(SrcLocation loc_end, CodeBlob& code
 
 void process_any_statement(AnyV v, CodeBlob& code) {
   switch (v->type) {
-    case ast_sequence:
-      return process_sequence(v->as<ast_sequence>(), code);
+    case ast_block_statement:
+      return process_block_statement(v->as<ast_block_statement>(), code);
     case ast_return_statement:
       return process_return_statement(v->as<ast_return_statement>(), code);
     case ast_repeat_statement:
@@ -1608,7 +1608,7 @@ void process_any_statement(AnyV v, CodeBlob& code) {
 }
 
 static void convert_function_body_to_CodeBlob(FunctionPtr fun_ref, FunctionBodyCode* code_body) {
-  auto v_body = fun_ref->ast_root->as<ast_function_declaration>()->get_body()->as<ast_sequence>();
+  auto v_body = fun_ref->ast_root->as<ast_function_declaration>()->get_body()->as<ast_block_statement>();
   CodeBlob* blob = new CodeBlob{fun_ref->name, fun_ref->loc, fun_ref};
 
   std::vector<var_idx_t> rvect_import;

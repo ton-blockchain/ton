@@ -190,7 +190,7 @@ static void register_function(V<ast_function_declaration> v) {
     std::cerr << "fun " << func_name << " : " << v->declared_return_type << std::endl;
   }
 
-  FunctionBody f_body = v->get_body()->type == ast_sequence ? static_cast<FunctionBody>(new FunctionBodyCode) : static_cast<FunctionBody>(new FunctionBodyAsm);
+  FunctionBody f_body = v->get_body()->type == ast_block_statement ? static_cast<FunctionBody>(new FunctionBodyCode) : static_cast<FunctionBody>(new FunctionBodyAsm);
   FunctionData* f_sym = new FunctionData(static_cast<std::string>(func_name), v->loc, v->declared_return_type, std::move(parameters), 0, genericTs, nullptr, f_body, v);
 
   if (const auto* v_asm = v->get_body()->try_as<ast_asm_body>()) {

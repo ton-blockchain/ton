@@ -57,7 +57,7 @@ protected:
   }
 
   GNU_ATTRIBUTE_ALWAYS_INLINE void visit_children(const ASTExprBlockOfStatements* v) {
-    visit_children(v->child_sequence->as<ast_sequence>());
+    visit_children(v->child_block_statement->as<ast_block_statement>());
   }
 
   GNU_ATTRIBUTE_ALWAYS_INLINE void visit_children(const ASTStatementUnary* v) {
@@ -120,7 +120,7 @@ protected:
   virtual void visit(V<ast_match_arm> v)                 { return visit_children(v); }
   // statements
   virtual void visit(V<ast_empty_statement> v)           { return visit_children(v); }
-  virtual void visit(V<ast_sequence> v)                  { return visit_children(v); }
+  virtual void visit(V<ast_block_statement> v)           { return visit_children(v); }
   virtual void visit(V<ast_return_statement> v)          { return visit_children(v); }
   virtual void visit(V<ast_if_statement> v)              { return visit_children(v); }
   virtual void visit(V<ast_repeat_statement> v)          { return visit_children(v); }
@@ -162,7 +162,7 @@ protected:
       case ast_match_arm:                       return visit(v->as<ast_match_arm>());
       // statements
       case ast_empty_statement:                 return visit(v->as<ast_empty_statement>());
-      case ast_sequence:                        return visit(v->as<ast_sequence>());
+      case ast_block_statement:                 return visit(v->as<ast_block_statement>());
       case ast_return_statement:                return visit(v->as<ast_return_statement>());
       case ast_if_statement:                    return visit(v->as<ast_if_statement>());
       case ast_repeat_statement:                return visit(v->as<ast_repeat_statement>());

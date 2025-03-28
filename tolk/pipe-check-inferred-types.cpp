@@ -691,7 +691,7 @@ protected:
     }
   }
 
-  void visit(V<ast_sequence> v) override {
+  void visit(V<ast_block_statement> v) override {
     parent::visit(v);
 
     if (v->first_unreachable) {
@@ -715,7 +715,7 @@ protected:
 
     if (fun_ref->is_implicit_return() && fun_ref->declared_return_type) {
       if (!fun_ref->declared_return_type->can_rhs_be_assigned(TypeDataVoid::create()) || fun_ref->does_return_self()) {
-        fire(fun_ref, v_function->get_body()->as<ast_sequence>()->loc_end, "missing return");
+        fire(fun_ref, v_function->get_body()->as<ast_block_statement>()->loc_end, "missing return");
       }
     }
   }

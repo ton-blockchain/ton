@@ -63,7 +63,7 @@ class ASTStringifier final : public ASTVisitor {
     {ast_match_arm, "ast_match_arm"},
     // statements
     {ast_empty_statement, "ast_empty_statement"},
-    {ast_sequence, "ast_sequence"},
+    {ast_block_statement, "ast_block_statement"},
     {ast_return_statement, "ast_return_statement"},
     {ast_if_statement, "ast_if_statement"},
     {ast_repeat_statement, "ast_repeat_statement"},
@@ -177,8 +177,8 @@ class ASTStringifier final : public ASTVisitor {
         std::string prefix = v->as<ast_is_type_operator>()->is_negated ? "!is " : "is ";
         return prefix + v->as<ast_is_type_operator>()->rhs_type->as_human_readable();
       }
-      case ast_sequence:
-        return "↓" + std::to_string(v->as<ast_sequence>()->get_items().size());
+      case ast_block_statement:
+        return "↓" + std::to_string(v->as<ast_block_statement>()->get_items().size());
       case ast_instantiationT_item:
         return v->as<ast_instantiationT_item>()->substituted_type->as_human_readable();
       case ast_if_statement:
@@ -291,7 +291,7 @@ public:
       case ast_match_arm:                     return handle_vertex(v->as<ast_match_arm>());
       // statements
       case ast_empty_statement:               return handle_vertex(v->as<ast_empty_statement>());
-      case ast_sequence:                      return handle_vertex(v->as<ast_sequence>());
+      case ast_block_statement:               return handle_vertex(v->as<ast_block_statement>());
       case ast_return_statement:              return handle_vertex(v->as<ast_return_statement>());
       case ast_if_statement:                  return handle_vertex(v->as<ast_if_statement>());
       case ast_repeat_statement:              return handle_vertex(v->as<ast_repeat_statement>());

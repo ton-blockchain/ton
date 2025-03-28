@@ -238,7 +238,7 @@ class CalculateRvalueLvalueVisitor final : public ASTVisitorFunctionBody {
     parent::visit(v);
   }
 
-  void visit(V<ast_sequence> v) override {
+  void visit(V<ast_block_statement> v) override {
     MarkingState saved = enter_state(MarkingState::None);
     parent::visit(v);
     restore_state(saved);

@@ -4,11 +4,11 @@ type MBuilder = builder;
 type CallbackIntToInt = int -> int;
 
 fun getBeginCell() {
-    return beginCell;
+    return beginCell
 }
 
 fun getBeginParse() {
-    return beginParse;
+    return beginParse
 }
 
 @method_id(101)
@@ -76,25 +76,25 @@ fun testVarApplyInTernary() {
         t.tuplePush(code);
     }
     try {
-        t.tuplePush(demo_handler(0xF4, 122, 100, 200));
+        t.tuplePush(demo_handler(0xF4, 122, 100, 200))
     } catch(code) {
-        t.tuplePush(code);
+        t.tuplePush(code)
     }
     try {
-        t.tuplePush(demo_handler(0xF2, 122, 10, 10));
+        t.tuplePush(demo_handler(0xF2, 122, 10, 10))
     } catch(code) {
-        t.tuplePush(code);
+        t.tuplePush(code)
     }
     try {
-        t.tuplePush(demo_handler(0xF2, 123, 10, 10));
+        t.tuplePush(demo_handler(0xF2, 123, 10, 10))
     } catch(code) {
-        t.tuplePush(code);
+        t.tuplePush(code)
     }
     return t;
 }
 
 fun always_throw2(x: int) {
-    throw 239 + x;
+    throw 239 + x
 }
 
 global global_f: MInt -> void;
@@ -143,7 +143,7 @@ fun testIndexedAccessApply() {
     return functions2.0(functions1.1(b)).loadInt(32);
 }
 
-fun getNullable4(): int? { return 4; }
+fun getNullable4(): int? { return 4 }
 fun myBeginCell(): builder? asm "NEWC";
 
 @method_id(108)
@@ -211,15 +211,15 @@ fun testCallbackAlias(secondNull: bool) {
     return (adder1(10), adder2 == null ? -1 : adder2(10));
 }
 
-fun justGetTensor2() { return (2, 3); }
+fun justGetTensor2() { return (2, 3) }
 
 @method_id(114)
 fun testCallbackUnion(call1st: bool): (int, int) | int {
     var cb: (int -> int) | (() -> (MInt, int)) = call1st ? justGetTensor2 : justAdd2;
     if (cb is () -> (int, int)) {
-        return cb();
+        return cb()
     }
-    return cb(10) as int;
+    return cb(10) as int
 }
 
 fun main() {}

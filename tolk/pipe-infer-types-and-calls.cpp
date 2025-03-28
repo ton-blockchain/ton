@@ -186,8 +186,8 @@ class InferTypesAndCallsAndFieldsVisitor final {
   // traverse children in any statement
   FlowContext process_any_statement(AnyV v, FlowContext&& flow) {
     switch (v->type) {
-      case ast_sequence:
-        return process_sequence(v->as<ast_sequence>(), std::move(flow));
+      case ast_block_statement:
+        return process_block_statement(v->as<ast_block_statement>(), std::move(flow));
       case ast_return_statement:
         return process_return_statement(v->as<ast_return_statement>(), std::move(flow));
       case ast_if_statement:
@@ -680,7 +680,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
 
   ExprFlow infer_braced_expression(V<ast_braced_expression> v, FlowContext&& flow, bool used_as_condition) {
     // `{ ... }` used as an expression can not return a value currently (there is no syntax in a language)
-    flow = process_any_statement(v->get_sequence(), std::move(flow));
+    flow = process_any_statement(v->get_block_statement(), std::move(flow));
     assign_inferred_type(v, flow.is_unreachable() ? TypeDataNever::create() : TypeDataVoid::create());
     return ExprFlow(std::move(flow), used_as_condition);
   }
@@ -1125,7 +1125,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
     return ExprFlow(std::move(flow), used_as_condition);
   }
 
-  FlowContext process_sequence(V<ast_sequence> v, FlowContext&& flow) {
+  FlowContext process_block_statement(V<ast_block_statement> v, FlowContext&& flow) {
     // we'll print a warning if after some statement, control flow became unreachable
     // (but don't print a warning if it's already unreachable, for example we're inside always-false if)
     bool initially_unreachable = flow.is_unreachable();
@@ -1274,7 +1274,7 @@ public:
       if (!body_end.is_unreachable()) {
         fun_ref->mutate()->assign_is_implicit_return();
         if (fun_ref->declared_return_type == TypeDataNever::create()) {   // `never` can only be declared, it can't be inferred
-          fire(fun_ref, v_function->get_body()->as<ast_sequence>()->loc_end, "a function returning `never` can not have a reachable endpoint");
+          fire(fun_ref, v_function->get_body()->as<ast_block_statement>()->loc_end, "a function returning `never` can not have a reachable endpoint");
         }
       }
 
@@ -1297,7 +1297,7 @@ public:
         }
 
         if (!body_end.is_unreachable() && inferred_return_type != TypeDataVoid::create()) {
-          fire(fun_ref, v_function->get_body()->as<ast_sequence>()->loc_end, "missing return");
+          fire(fun_ref, v_function->get_body()->as<ast_block_statement>()->loc_end, "missing return");
         }
         if (has_void_returns && has_non_void_returns) {
           for (AnyExprV return_expr : return_statements) {

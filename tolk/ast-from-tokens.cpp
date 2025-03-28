@@ -14,7 +14,6 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "ast-from-tokens.h"
 #include "ast.h"
 #include "type-system.h"
 #include "platform-utils.h"
@@ -296,7 +295,7 @@ static AnyExprV parse_var_declaration_lhs(Lexer& lex, bool is_immutable) {
   lex.unexpected("variable name");
 }
 
-static AnyExprV parse_local_vars_declaration_assignment(Lexer& lex, bool is_statement) {
+static AnyExprV parse_local_vars_declaration_assignment(Lexer& lex) {
   SrcLocation loc = lex.cur_location();
   bool is_immutable = lex.tok() == tok_val;
   lex.next();
@@ -310,9 +309,6 @@ static AnyExprV parse_local_vars_declaration_assignment(Lexer& lex, bool is_stat
 
   if (lex.tok() == tok_comma) {
     lex.error("multiple declarations are not allowed, split variables on separate lines");
-  }
-  if (is_statement) {
-    lex.expect(tok_semicolon, "`;`");
   }
   return createV<ast_assign>(loc, lhs, rhs);
 }
@@ -392,7 +388,7 @@ static V<ast_instantiationT_list> parse_maybe_instantiationTs_after_identifier(L
 // `throw code` / `throw (code)` / `throw (code, arg)`
 // it's technically a statement (can't occur "in any place of expression"),
 // but inside `match` arm it can appear without semicolon: `pattern => throw 123`
-static AnyV parse_throw_expression(Lexer& lex, bool is_statement) {
+static AnyV parse_throw_expression(Lexer& lex) {
   SrcLocation loc = lex.cur_location();
   lex.expect(tok_throw, "`throw`");
 
@@ -412,9 +408,6 @@ static AnyV parse_throw_expression(Lexer& lex, bool is_statement) {
     thrown_arg = createV<ast_empty_expression>(loc);
   }
 
-  if (is_statement) {
-    lex.expect(tok_semicolon, "`;`");
-  }
   return createV<ast_throw_statement>(loc, thrown_code, thrown_arg);
 }
 
@@ -453,17 +446,17 @@ static V<ast_match_arm> parse_match_arm(Lexer& lex) {
 
   AnyExprV body;
   if (lex.tok() == tok_opbrace) {         // pattern => { ... }
-    AnyV v_seq = parse_statement(lex);
-    body = createV<ast_braced_expression>(v_seq->loc, v_seq);
+    AnyV v_block = parse_statement(lex);
+    body = createV<ast_braced_expression>(v_block->loc, v_block);
   } else if (lex.tok() == tok_throw) {    // pattern => throw 123 (allow without braces)
-    AnyV v_throw = parse_throw_expression(lex, false);
-    AnyV v_seq = createV<ast_sequence>(v_throw->loc, v_throw->loc, {v_throw});
-    body = createV<ast_braced_expression>(v_seq->loc, v_seq);
+    AnyV v_throw = parse_throw_expression(lex);
+    AnyV v_block = createV<ast_block_statement>(v_throw->loc, v_throw->loc, {v_throw});
+    body = createV<ast_braced_expression>(v_block->loc, v_block);
   } else if (lex.tok() == tok_return) {   // pattern => return 123 (allow without braces, like throw)
     lex.next();
     AnyV v_return = createV<ast_return_statement>(lex.cur_location(), parse_expr(lex));
-    AnyV v_seq = createV<ast_sequence>(v_return->loc, v_return->loc, {v_return});
-    body = createV<ast_braced_expression>(v_seq->loc, v_seq);
+    AnyV v_block = createV<ast_block_statement>(v_return->loc, v_return->loc, {v_return});
+    body = createV<ast_braced_expression>(v_block->loc, v_block);
   } else {
     body = parse_expr(lex);
   }
@@ -480,7 +473,7 @@ static V<ast_match_expression> parse_match_expression(Lexer& lex) {
 
   lex.expect(tok_oppar, "`(`");
   AnyExprV subject = lex.tok() == tok_var || lex.tok() == tok_val       // `match (var x = rhs)`
-                ? parse_local_vars_declaration_assignment(lex, false)
+                ? parse_local_vars_declaration_assignment(lex)
                 : parse_expr(lex);
   lex.expect(tok_clpar, "`)`");
 
@@ -819,16 +812,24 @@ AnyExprV parse_expr(Lexer& lex) {
   return parse_expr10(lex);
 }
 
-static V<ast_sequence> parse_sequence(Lexer& lex) {
+static V<ast_block_statement> parse_block_statement(Lexer& lex) {
   SrcLocation loc = lex.cur_location();
   lex.expect(tok_opbrace, "`{`");
   std::vector<AnyV> items;
   while (lex.tok() != tok_clbrace) {
-    items.push_back(parse_statement(lex));
+    AnyV v = parse_statement(lex);
+    items.push_back(v);
+    if (lex.tok() == tok_clbrace) {
+      break;
+    }
+    bool does_end_with_brace = v->type == ast_if_statement || v->type == ast_while_statement || v->type == ast_match_expression || v->type == ast_try_catch_statement || v->type == ast_repeat_statement || v->type == ast_block_statement;
+    if (!does_end_with_brace) {
+      lex.expect(tok_semicolon, "`;`");
+    }
   }
   SrcLocation loc_end = lex.cur_location();
   lex.expect(tok_clbrace, "`}`");
-  return createV<ast_sequence>(loc, loc_end, std::move(items));
+  return createV<ast_block_statement>(loc, loc_end, std::move(items));
 }
 
 static AnyV parse_return_statement(Lexer& lex) {
@@ -837,7 +838,6 @@ static AnyV parse_return_statement(Lexer& lex) {
   AnyExprV child = lex.tok() == tok_semicolon   // `return;` actually means "nothing" (inferred as void)
     ? createV<ast_empty_expression>(lex.cur_location())
     : parse_expr(lex);
-  lex.expect(tok_semicolon, "`;`");
   return createV<ast_return_statement>(loc, child);
 }
 
@@ -849,18 +849,18 @@ static AnyV parse_if_statement(Lexer& lex) {
   AnyExprV cond = parse_expr(lex);
   lex.expect(tok_clpar, "`)`");
 
-  V<ast_sequence> if_body = parse_sequence(lex);
-  V<ast_sequence> else_body = nullptr;
+  V<ast_block_statement> if_body = parse_block_statement(lex);
+  V<ast_block_statement> else_body = nullptr;
   if (lex.tok() == tok_else) {  // else if(e) { } or else { }
     lex.next();
     if (lex.tok() == tok_if) {
       AnyV v_inner_if = parse_if_statement(lex);
-      else_body = createV<ast_sequence>(v_inner_if->loc, lex.cur_location(), {v_inner_if});
+      else_body = createV<ast_block_statement>(v_inner_if->loc, lex.cur_location(), {v_inner_if});
     } else {
-      else_body = parse_sequence(lex);
+      else_body = parse_block_statement(lex);
     }
   } else {  // no 'else', create empty block
-    else_body = createV<ast_sequence>(lex.cur_location(), lex.cur_location(), {});
+    else_body = createV<ast_block_statement>(lex.cur_location(), lex.cur_location(), {});
   }
   return createV<ast_if_statement>(loc, false, cond, if_body, else_body);
 }
@@ -871,7 +871,7 @@ static AnyV parse_repeat_statement(Lexer& lex) {
   lex.expect(tok_oppar, "`(`");
   AnyExprV cond = parse_expr(lex);
   lex.expect(tok_clpar, "`)`");
-  V<ast_sequence> body = parse_sequence(lex);
+  V<ast_block_statement> body = parse_block_statement(lex);
   return createV<ast_repeat_statement>(loc, cond, body);
 }
 
@@ -881,19 +881,18 @@ static AnyV parse_while_statement(Lexer& lex) {
   lex.expect(tok_oppar, "`(`");
   AnyExprV cond = parse_expr(lex);
   lex.expect(tok_clpar, "`)`");
-  V<ast_sequence> body = parse_sequence(lex);
+  V<ast_block_statement> body = parse_block_statement(lex);
   return createV<ast_while_statement>(loc, cond, body);
 }
 
 static AnyV parse_do_while_statement(Lexer& lex) {
   SrcLocation loc = lex.cur_location();
   lex.expect(tok_do, "`do`");
-  V<ast_sequence> body = parse_sequence(lex);
+  V<ast_block_statement> body = parse_block_statement(lex);
   lex.expect(tok_while, "`while`");
   lex.expect(tok_oppar, "`(`");
   AnyExprV cond = parse_expr(lex);
   lex.expect(tok_clpar, "`)`");
-  lex.expect(tok_semicolon, "`;`");
   return createV<ast_do_while_statement>(loc, body, cond);
 }
 
@@ -935,14 +934,13 @@ static AnyV parse_assert_statement(Lexer& lex) {
     thrown_code = parse_expr(lex);
   }
 
-  lex.expect(tok_semicolon, "`;`");
   return createV<ast_assert_statement>(loc, cond, thrown_code);
 }
 
 static AnyV parse_try_catch_statement(Lexer& lex) {
   SrcLocation loc = lex.cur_location();
   lex.expect(tok_try, "`try`");
-  V<ast_sequence> try_body = parse_sequence(lex);
+  V<ast_block_statement> try_body = parse_block_statement(lex);
 
   std::vector<AnyExprV> catch_args;
   lex.expect(tok_catch, "`catch`");
@@ -963,7 +961,7 @@ static AnyV parse_try_catch_statement(Lexer& lex) {
   }
   V<ast_tensor> catch_expr = createV<ast_tensor>(catch_loc, std::move(catch_args));
 
-  V<ast_sequence> catch_body = parse_sequence(lex);
+  V<ast_block_statement> catch_body = parse_block_statement(lex);
   return createV<ast_try_catch_statement>(loc, try_body, catch_expr, catch_body);
 }
 
@@ -971,9 +969,9 @@ AnyV parse_statement(Lexer& lex) {
   switch (lex.tok()) {
     case tok_var:   // `var x = 0` is technically an expression, but can not appear in "any place",
     case tok_val:   // only as a separate declaration
-      return parse_local_vars_declaration_assignment(lex, true);
+      return parse_local_vars_declaration_assignment(lex);
     case tok_opbrace:
-      return parse_sequence(lex);
+      return parse_block_statement(lex);
     case tok_return:
       return parse_return_statement(lex);
     case tok_if:
@@ -985,31 +983,23 @@ AnyV parse_statement(Lexer& lex) {
     case tok_while:
       return parse_while_statement(lex);
     case tok_throw:
-      return parse_throw_expression(lex, true);
+      return parse_throw_expression(lex);
     case tok_assert:
       return parse_assert_statement(lex);
     case tok_try:
       return parse_try_catch_statement(lex);
-    case tok_semicolon: {
-      SrcLocation loc = lex.cur_location();
-      lex.next();
-      return createV<ast_empty_statement>(loc);
-    }
+    case tok_semicolon:
+      return createV<ast_empty_statement>(lex.cur_location());
     case tok_break:
     case tok_continue:
       lex.error("break/continue from loops are not supported yet");
-    default: {
-      AnyExprV expr = parse_expr(lex);
-      if (expr->type != ast_match_expression) {   // match statement, as if statement, doesn't require semicolon after
-        lex.expect(tok_semicolon, "`;`");
-      }
-      return expr;
-    }
+    default:
+      return parse_expr(lex);
   }
 }
 
 static AnyV parse_func_body(Lexer& lex) {
-  return parse_sequence(lex);
+  return parse_block_statement(lex);
 }
 
 static AnyV parse_asm_func_body(Lexer& lex, V<ast_parameter_list> param_list) {

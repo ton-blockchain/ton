@@ -68,22 +68,22 @@ fun doNothing(): void {}
 
 @method_id(107)
 fun test7() {
-    if (random()) { return doNothing(); }
+    if (random()) { return doNothing() }
     // here we test that no "missing return" error
 }
 
 fun withNoElse(op: int): int {
-    if (op == 123) { return 100; }
-    if (op == 234) { return 200; }
-    if (op == 345) { return 300; }
-    throw 0xFF;
+    if (op == 123) { return 100 }
+    if (op == 234) { return 200 }
+    if (op == 345) { return 300 }
+    throw 0xFF
 }
 
 fun withElse(op: int): int {
-    if (op == 123) { return 100; }
-    else if (op == 234) { return 200; }
-    else if (op == 345) { return 300; }
-    return 0xFF;
+    if (op == 123) { return 100 }
+    else if (op == 234) { return 200 }
+    else if (op == 345) { return 300 }
+    return 0xFF
 }
 
 fun withMatch(op: int): int {
@@ -92,7 +92,7 @@ fun withMatch(op: int): int {
         234 => return 200,
         345 => return 300,
     }
-    throw 0xFF;
+    throw 0xFF
 }
 
 @method_id(108)

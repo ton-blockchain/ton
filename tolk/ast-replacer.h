@@ -62,7 +62,7 @@ protected:
 
   GNU_ATTRIBUTE_ALWAYS_INLINE AnyExprV replace_children(const ASTExprBlockOfStatements* v) {
     auto* v_mutable = const_cast<ASTExprBlockOfStatements*>(v);
-    v_mutable->child_sequence = replace(v_mutable->child_sequence->as<ast_sequence>());
+    v_mutable->child_block_statement = replace(v_mutable->child_block_statement->as<ast_block_statement>());
     return v_mutable;
   }
 
@@ -121,7 +121,7 @@ protected:
   virtual AnyExprV replace(V<ast_match_arm> v)                 { return replace_children(v); }
   // statements
   virtual AnyV replace(V<ast_empty_statement> v)               { return replace_children(v); }
-  virtual AnyV replace(V<ast_sequence> v)                      { return replace_children(v); }
+  virtual AnyV replace(V<ast_block_statement> v)               { return replace_children(v); }
   virtual AnyV replace(V<ast_return_statement> v)              { return replace_children(v); }
   virtual AnyV replace(V<ast_if_statement> v)                  { return replace_children(v); }
   virtual AnyV replace(V<ast_repeat_statement> v)              { return replace_children(v); }
@@ -168,7 +168,7 @@ protected:
   AnyV replace(AnyV v) final {
     switch (v->type) {
       case ast_empty_statement:                 return replace(v->as<ast_empty_statement>());
-      case ast_sequence:                        return replace(v->as<ast_sequence>());
+      case ast_block_statement:                 return replace(v->as<ast_block_statement>());
       case ast_return_statement:                return replace(v->as<ast_return_statement>());
       case ast_if_statement:                    return replace(v->as<ast_if_statement>());
       case ast_repeat_statement:                return replace(v->as<ast_repeat_statement>());

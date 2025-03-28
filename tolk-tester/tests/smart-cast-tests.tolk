@@ -47,8 +47,8 @@ fun test3(): int {
         return x;
     }
     if (random() > -1) {
-        if (y == null) { return -1; }
-        else { return y; }
+        if (y == null) { return -1 }
+        else { return y }
     }
     return 0;
 }
@@ -344,8 +344,8 @@ fun test33(): int {
 
 fun test34() {
     var (x, y) = (getNullableInt(), getNullableInt());
-    if (random()) { throw (x = 1, y = 2); }
-    else { throw (x = 3, y = (1, getNullableInt()!).1); }
+    if (random()) { throw (x = 1, y = 2) }
+    else { throw (x = 3, y = (1, getNullableInt()!).1) }
     return x + y;
 }
 

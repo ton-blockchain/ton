@@ -8,7 +8,7 @@ fun test1(x: int) {
         C2 => 200,
         2 + 1 => 300,
         else => 400
-    };
+    }
 }
 
 @method_id(102)
@@ -19,7 +19,7 @@ fun test2() {
         C2 => 200,
         2 + 1 => 300,
         else => 400
-    };
+    }
 }
 
 fun isGt10(x: int) { return x > 10; }
@@ -34,7 +34,7 @@ fun test3(init: int) {
 
 @method_id(104)
 fun test4(x: int?) {
-    return match(match(x) { null => 0, int => x * 2 }) { 0 => 0, 30 => 30, else => throw 123 };
+    return match(match(x) { null => 0, int => x * 2 }) { 0 => 0, 30 => 30, else => throw 123 }
 }
 
 @method_id(105)
@@ -44,9 +44,9 @@ fun test5(x: int) {
             10/C1 => 10,
             C2*10 => throw 500,
             else => 50
-        };
+        }
     } catch (excCode) {
-        return excCode;
+        return excCode
     }
 }
 
@@ -60,8 +60,8 @@ fun test6(x: coins) {
     }
     var result2 = 0;
     match (x) {
-        ton("0.05") => { result2 = 5; }
-        ton("0.1") => { result2 = 10; }
+        ton("0.05") => { result2 = 5 }
+        ton("0.1") => { result2 = 10 }
     }
     return (result1, result2);
 }
@@ -94,7 +94,7 @@ fun test9(x: int | slice) {
     return match (x) {
         int => match (x) { 10 => 5, else => -1 },
         slice => match (x.loadInt(32)) { -1 => 0, 0 => 0, else => throw 20 }
-    };
+    }
 }
 
 @method_id(110)
@@ -113,7 +113,7 @@ fun test11(x: bool) {
     return match (x) {
         true => false,
         else => !x,
-    };
+    }
 }
 
 

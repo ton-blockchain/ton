@@ -95,7 +95,7 @@ enum ASTNodeType {
   ast_match_arm,
   // statements
   ast_empty_statement,
-  ast_sequence,
+  ast_block_statement,
   ast_return_statement,
   ast_if_statement,
   ast_repeat_statement,
@@ -266,10 +266,10 @@ struct ASTExprBlockOfStatements : ASTNodeExpressionBase {
   friend class ASTReplacer;
 
 protected:
-  AnyV child_sequence;
+  AnyV child_block_statement;
 
-  ASTExprBlockOfStatements(ASTNodeType type, SrcLocation loc, AnyV child_sequence)
-    : ASTNodeExpressionBase(type, loc), child_sequence(child_sequence) {}
+  ASTExprBlockOfStatements(ASTNodeType type, SrcLocation loc, AnyV child_block_statement)
+    : ASTNodeExpressionBase(type, loc), child_block_statement(child_block_statement) {}
 };
 
 struct ASTStatementUnary : ASTNodeStatementBase {
@@ -377,10 +377,10 @@ template<>
 // it can occur only in special places within the input code, not anywhere
 // example: `match (intV) { 0 => { ... } }` rhs of 0 is braced expression
 struct Vertex<ast_braced_expression> final : ASTExprBlockOfStatements {
-  auto get_sequence() const { return child_sequence->as<ast_sequence>(); }
+  auto get_block_statement() const { return child_block_statement->as<ast_block_statement>(); }
 
-  Vertex(SrcLocation loc, AnyV child_sequence)
-    : ASTExprBlockOfStatements(ast_braced_expression, loc, child_sequence) {}
+  Vertex(SrcLocation loc, AnyV child_block_statement)
+    : ASTExprBlockOfStatements(ast_braced_expression, loc, child_block_statement) {}
 };
 
 template<>
@@ -797,10 +797,10 @@ struct Vertex<ast_empty_statement> final : ASTStatementVararg {
 };
 
 template<>
-// ast_sequence is "some sequence of statements"
-// example: function body is a sequence
-// example: do while body is a sequence
-struct Vertex<ast_sequence> final : ASTStatementVararg {
+// ast_block_statement is "{ statement; statement }" (trailing semicolon is optional)
+// example: function body is a block
+// example: do while body is a block
+struct Vertex<ast_block_statement> final : ASTStatementVararg {
   SrcLocation loc_end;
   AnyV first_unreachable = nullptr;
 
@@ -811,7 +811,7 @@ struct Vertex<ast_sequence> final : ASTStatementVararg {
   void assign_first_unreachable(AnyV first_unreachable);
 
   Vertex(SrcLocation loc, SrcLocation loc_end, std::vector<AnyV>&& items)
-    : ASTStatementVararg(ast_sequence, loc, std::move(items))
+    : ASTStatementVararg(ast_block_statement, loc, std::move(items))
     , loc_end(loc_end) {}
 };
 
@@ -836,10 +836,10 @@ struct Vertex<ast_if_statement> final : ASTStatementVararg {
   bool is_ifnot;  // if(!cond), to generate more optimal fift code
 
   AnyExprV get_cond() const { return child_as_expr(0); }
-  auto get_if_body() const { return children.at(1)->as<ast_sequence>(); }
-  auto get_else_body() const { return children.at(2)->as<ast_sequence>(); }    // always exists (when else omitted, it's empty)
+  auto get_if_body() const { return children.at(1)->as<ast_block_statement>(); }
+  auto get_else_body() const { return children.at(2)->as<ast_block_statement>(); }    // always exists (when else omitted, it's empty)
 
-  Vertex(SrcLocation loc, bool is_ifnot, AnyExprV cond, V<ast_sequence> if_body, V<ast_sequence> else_body)
+  Vertex(SrcLocation loc, bool is_ifnot, AnyExprV cond, V<ast_block_statement> if_body, V<ast_block_statement> else_body)
     : ASTStatementVararg(ast_if_statement, loc, {cond, if_body, else_body})
     , is_ifnot(is_ifnot) {}
 };
@@ -849,9 +849,9 @@ template<>
 // example: `repeat (10) { ... }`
 struct Vertex<ast_repeat_statement> final : ASTStatementVararg {
   AnyExprV get_cond() const { return child_as_expr(0); }
-  auto get_body() const { return children.at(1)->as<ast_sequence>(); }
+  auto get_body() const { return children.at(1)->as<ast_block_statement>(); }
 
-  Vertex(SrcLocation loc, AnyExprV cond, V<ast_sequence> body)
+  Vertex(SrcLocation loc, AnyExprV cond, V<ast_block_statement> body)
     : ASTStatementVararg(ast_repeat_statement, loc, {cond, body}) {}
 };
 
@@ -860,9 +860,9 @@ template<>
 // example: `while (x > 0) { ... }`
 struct Vertex<ast_while_statement> final : ASTStatementVararg {
   AnyExprV get_cond() const { return child_as_expr(0); }
-  auto get_body() const { return children.at(1)->as<ast_sequence>(); }
+  auto get_body() const { return children.at(1)->as<ast_block_statement>(); }
 
-  Vertex(SrcLocation loc, AnyExprV cond, V<ast_sequence> body)
+  Vertex(SrcLocation loc, AnyExprV cond, V<ast_block_statement> body)
     : ASTStatementVararg(ast_while_statement, loc, {cond, body}) {}
 };
 
@@ -870,10 +870,10 @@ template<>
 // ast_do_while_statement is a standard "do while" loop
 // example: `do { ... } while (x > 0);`
 struct Vertex<ast_do_while_statement> final : ASTStatementVararg {
-  auto get_body() const { return children.at(0)->as<ast_sequence>(); }
+  auto get_body() const { return children.at(0)->as<ast_block_statement>(); }
   AnyExprV get_cond() const { return child_as_expr(1); }
 
-  Vertex(SrcLocation loc, V<ast_sequence> body, AnyExprV cond)
+  Vertex(SrcLocation loc, V<ast_block_statement> body, AnyExprV cond)
     : ASTStatementVararg(ast_do_while_statement, loc, {body, cond}) {}
 };
 
@@ -907,11 +907,11 @@ template<>
 // there are two formal "arguments" of catch: excNo and arg, but both can be omitted
 // when omitted, they are stored as underscores, so len of a catch tensor is always 2
 struct Vertex<ast_try_catch_statement> final : ASTStatementVararg {
-  auto get_try_body() const { return children.at(0)->as<ast_sequence>(); }
+  auto get_try_body() const { return children.at(0)->as<ast_block_statement>(); }
   auto get_catch_expr() const { return children.at(1)->as<ast_tensor>(); }    // (excNo, arg), always len 2
-  auto get_catch_body() const { return children.at(2)->as<ast_sequence>(); }
+  auto get_catch_body() const { return children.at(2)->as<ast_block_statement>(); }
 
-  Vertex(SrcLocation loc, V<ast_sequence> try_body, V<ast_tensor> catch_expr, V<ast_sequence> catch_body)
+  Vertex(SrcLocation loc, V<ast_block_statement> try_body, V<ast_tensor> catch_expr, V<ast_block_statement> catch_body)
     : ASTStatementVararg(ast_try_catch_statement, loc, {try_body, catch_expr, catch_body}) {}
 };
 
@@ -1049,7 +1049,7 @@ struct Vertex<ast_function_declaration> final : ASTOtherVararg {
   int get_num_params() const { return children.at(1)->as<ast_parameter_list>()->size(); }
   auto get_param_list() const { return children.at(1)->as<ast_parameter_list>(); }
   auto get_param(int i) const { return children.at(1)->as<ast_parameter_list>()->get_param(i); }
-  AnyV get_body() const { return children.at(2); }   // ast_sequence / ast_asm_body
+  AnyV get_body() const { return children.at(2); }   // ast_block_statement / ast_asm_body
 
   FunctionPtr fun_ref = nullptr;          // filled after register
   TypePtr declared_return_type;           // filled at ast parsing; if unspecified (nullptr), means "auto infer"
@@ -1058,7 +1058,7 @@ struct Vertex<ast_function_declaration> final : ASTOtherVararg {
   int flags;                              // from enum in FunctionData
 
   bool is_asm_function() const { return children.at(2)->type == ast_asm_body; }
-  bool is_code_function() const { return children.at(2)->type == ast_sequence; }
+  bool is_code_function() const { return children.at(2)->type == ast_block_statement; }
   bool is_builtin_function() const { return children.at(2)->type == ast_empty_statement; }
 
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
