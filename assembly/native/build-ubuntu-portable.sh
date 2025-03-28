@@ -46,8 +46,6 @@ git checkout v1.9.4
 CFLAGS="-fPIC" make -j$(nproc)
 test $? -eq 0 || { echo "Can't compile lz4"; exit 1; }
 cd ../../build
-# ./lib/liblz4.a
-# ./lib
 else
   lz4Path=$(pwd)/../3pp/lz4
   echo "Using compiled lz4"
