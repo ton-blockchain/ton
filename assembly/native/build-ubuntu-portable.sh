@@ -6,7 +6,6 @@
 with_tests=false
 with_artifacts=false
 
-
 while getopts 'tac' flag; do
   case "${flag}" in
     t) with_tests=true ;;
