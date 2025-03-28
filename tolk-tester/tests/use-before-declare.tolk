@@ -33,8 +33,15 @@ fun test1(): int {
     return demo_var + demo_slice;
 }
 
+fun test2() {
+    return second;
+}
+
 global demo_slice: slice;
 const demo_20: int = 20;
+
+const second = first + 1;
+const first = 1;
 
 /**
 @testcase | 0 |  | 34
@@ -44,6 +51,14 @@ const demo_20: int = 20;
   test1 PROC:<{
     //
     30 PUSHINT  // '10
+  }>
+"""
+
+@fif_codegen
+"""
+  test2 PROC:<{
+    //
+    2 PUSHINT  // '0=2
   }>
 """
  */

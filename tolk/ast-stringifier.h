@@ -136,11 +136,7 @@ class ASTStringifier final : public ASTVisitor {
       case ast_int_const:
         return static_cast<std::string>(v->as<ast_int_const>()->orig_str);
       case ast_string_const:
-        if (char modifier = v->as<ast_string_const>()->modifier) {
-          return "\"" + static_cast<std::string>(v->as<ast_string_const>()->str_val) + "\"" + std::string(1, modifier);
-        } else {
-          return "\"" + static_cast<std::string>(v->as<ast_string_const>()->str_val) + "\"";
-        }
+        return "\"" + static_cast<std::string>(v->as<ast_string_const>()->str_val) + "\"";
       case ast_bool_const:
         return v->as<ast_bool_const>()->bool_val ? "true" : "false";
       case ast_dot_access: {

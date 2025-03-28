@@ -367,6 +367,72 @@ public:
 };
 
 /*
+ * `int8`, `int32`, `uint1`, `uint257`, `varint16` are TypeDataIntN. At TVM level, it's just int.
+ * The purpose of intN is to be used in struct fields, describing the way of serialization (n bits).
+ * A field `value: int32` has the TYPE `int32`, so being assigned to a variable, that variable is also `int32`.
+ * intN is smoothly cast from/to plain int, mathematical operators on intN also "fall back" to general int.
+ */
+class TypeDataIntN final : public TypeData {
+  TypeDataIntN(uint64_t type_id, bool is_unsigned, bool is_variadic, int n_bits)
+    : TypeData(type_id, 0, 1)
+    , is_unsigned(is_unsigned)
+    , is_variadic(is_variadic)
+    , n_bits(n_bits) {}
+
+public:
+  const bool is_unsigned;
+  const bool is_variadic;
+  const int n_bits;
+
+  static TypePtr create(bool is_unsigned, bool is_variadic, int n_bits);
+
+  std::string as_human_readable() const override;
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+};
+
+/*
+ * `coins` is just integer at TVM level, but encoded as varint when serializing structures.
+ * Example: `var cost = ton("0.05")` has type `coins`.
+ */
+class TypeDataCoins final : public TypeData {
+  TypeDataCoins() : TypeData(17ULL, 0, 1) {}
+
+  static TypePtr singleton;
+  friend void type_system_init();
+
+public:
+  static TypePtr create() { return singleton; }
+
+  std::string as_human_readable() const override { return "coins"; }
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+};
+
+/*
+ * `bytes256`, `bits512`, `bytes8` are TypeDataBytesN. At TVM level, it's just slice.
+ * The purpose of bytesN is to be used in struct fields, describing the way of serialization (n bytes / n bits).
+ * In this essence, bytesN is very similar to intN.
+ * Note, that unlike intN automatically cast to/from int, bytesN does NOT auto cast to slice (without `as`).
+ */
+class TypeDataBytesN final : public TypeData {
+  TypeDataBytesN(uint64_t type_id, bool is_bits, int n_width)
+    : TypeData(type_id, 0, 1)
+    , is_bits(is_bits)
+    , n_width(n_width) {}
+
+public:
+  const bool is_bits;
+  const int n_width;
+
+  static TypePtr create(bool is_bits, int n_width);
+
+  std::string as_human_readable() const override;
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+};
+
+/*
  * `unknown` is a special type, which can appear in corner cases.
  * The type of exception argument (which can hold any TVM value at runtime) is unknown.
  * The type of `_` used as rvalue is unknown.
