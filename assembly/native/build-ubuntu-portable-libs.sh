@@ -51,17 +51,18 @@ fi
 
 if [ ! -d "../3pp/libsodium" ]; then
   export LIBSODIUM_FULL_BUILD=1
-  git clone https://github.com/jedisct1/libsodium.git ../3pp/libsodium
+  mkdir -p ../3pp/libsodium
+  wget -O ../3pp/libsodium/libsodium-1.0.18.tar.gz https://github.com/jedisct1/libsodium/releases/download/1.0.18-RELEASE/libsodium-1.0.18.tar.gz
   cd ../3pp/libsodium
+  tar xf libsodium-1.0.18.tar.gz
+  cd libsodium-1.0.18
   sodiumPath=`pwd`
-  git checkout 1.0.18
-  ./autogen.sh
   ./configure --with-pic --enable-static
   make -j$(nproc)
   test $? -eq 0 || { echo "Can't compile libsodium"; exit 1; }
-  cd ../../build
+  cd ../../../build
 else
-  sodiumPath=$(pwd)/../3pp/libsodium
+  sodiumPath=$(pwd)/../3pp/libsodium/libsodium-1.0.18
   echo "Using compiled libsodium"
 fi
 
@@ -104,7 +105,7 @@ if [ ! -d "../3pp/libmicrohttpd" ]; then
   test $? -eq 0 || { echo "Can't compile libmicrohttpd"; exit 1; }
   cd ../../../build
 else
-  libmicrohttpdPath=$(pwd)/../3pp/libmicrohttpd
+  libmicrohttpdPath=$(pwd)/../3pp/libmicrohttpd/libmicrohttpd-1.0.1
   echo "Using compiled libmicrohttpd"
 fi
 
