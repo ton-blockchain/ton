@@ -64,7 +64,6 @@ jobs:
         cp artifacts/funcfiftlib.js func-js/node_modules/@ton-community/func-js-bin/dist/funcfiftlib.js
         npx func-js stdlib.fc intrinsics.fc --fift ./output.f
     
-
     - name: Upload artifacts
       uses: actions/upload-artifact@master
       with:
