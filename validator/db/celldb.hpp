@@ -74,6 +74,7 @@ class CellDbIn : public CellDbBase {
   CellDbIn(td::actor::ActorId<RootDb> root_db, td::actor::ActorId<CellDb> parent, std::string path,
            td::Ref<ValidatorManagerOptions> opts);
 
+  void validate_meta();
   void start_up() override;
   void alarm() override;
 
@@ -195,13 +196,13 @@ class CellDb : public CellDbBase {
     started_ = true;
     boc_->set_loader(std::make_unique<vm::CellLoader>(std::move(snapshot), on_load_callback_)).ensure();
   }
-  void set_in_memory_boc(std::shared_ptr<const vm::DynamicBagOfCellsDb> in_memory_boc) {
-    CHECK(opts_->get_celldb_in_memory());
+  void set_thread_safe_boc(std::shared_ptr<const vm::DynamicBagOfCellsDb> thread_safe_boc) {
+    CHECK(opts_->get_celldb_in_memory() || opts_->get_celldb_v2());
     if (!started_) {
       alarm();
     }
     started_ = true;
-    in_memory_boc_ = std::move(in_memory_boc);
+    thread_safe_boc_ = std::move(thread_safe_boc);
   }
   void get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise);
 
@@ -219,7 +220,7 @@ class CellDb : public CellDbBase {
   td::actor::ActorOwn<CellDbIn> cell_db_;
 
   std::unique_ptr<vm::DynamicBagOfCellsDb> boc_;
-  std::shared_ptr<const vm::DynamicBagOfCellsDb> in_memory_boc_;
+  std::shared_ptr<const vm::DynamicBagOfCellsDb> thread_safe_boc_;
   bool started_ = false;
   std::vector<std::pair<std::string, std::string>> prepared_stats_{{"started", "false"}};
 
