@@ -247,7 +247,7 @@ if (TON_ARCH AND NOT MSVC)
     if(NOT RISC_ISA)
       message(STATUS "RISC-V ISA not detected, using default 'rv64imafdc'")
       set(RISC_ISA "rv64imafdc")
-    endif
+    endif()
     message(STATUS "Found RISC-V architecture with ISA: ${RISC_ISA}")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=${RISC_ISA}")
     set(PORTABLE "${RISC_ISA}")
