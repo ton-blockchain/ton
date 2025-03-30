@@ -718,6 +718,7 @@ void VmState::run_child_vm(VmState&& new_state, bool return_data, bool return_ac
     consume_gas(free_gas_consumed);
     chksgn_counter = 0;
     get_extra_balance_counter = 0;
+    free_gas_consumed = 0;
   }
   new_state.chksgn_counter = chksgn_counter;
   new_state.free_gas_consumed = free_gas_consumed;
