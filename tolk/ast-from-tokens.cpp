@@ -123,6 +123,25 @@ static AnyExprV maybe_replace_eq_null_with_isNull_check(V<ast_binary_operator> v
   return createV<ast_is_null_check>(v->loc, v_nullable, v->tok == tok_neq);
 }
 
+// parse `123` / `0xFF` / `0b10001` to td::RefInt256
+static td::RefInt256 parse_tok_int_const(std::string_view text) {
+  bool bin = text[0] == '0' && text[1] == 'b';
+  if (!bin) {
+    // this function parses decimal and hex numbers
+    return td::string_to_int256(static_cast<std::string>(text));
+  }
+  // parse a binary number; to make it simpler, don't allow too long numbers, it's impractical
+  if (text.size() > 64 + 2) {
+    return {};
+  }
+  uint64_t result = 0;
+  for (char c : text.substr(2)) { // skip "0b"
+    result = (result << 1) | static_cast<uint64_t>(c - '0');
+  }
+  return td::make_refint(result);
+}
+
+
 
 /*
  *
@@ -217,6 +236,9 @@ static V<ast_parameter_list> parse_parameter_list(Lexer& lex) {
     params.push_back(parse_parameter(lex, true));
     while (lex.tok() == tok_comma) {
       lex.next();
+      if (lex.tok() == tok_clpar) {     // trailing comma
+        break;
+      }
       params.push_back(parse_parameter(lex, false));
     }
   }
@@ -247,6 +269,9 @@ static V<ast_argument_list> parse_argument_list(Lexer& lex) {
     args.push_back(parse_argument(lex));
     while (lex.tok() == tok_comma) {
       lex.next();
+      if (lex.tok() == tok_clpar) {   // trailing comma
+        break;
+      }
       args.push_back(parse_argument(lex));
     }
   }
@@ -292,9 +317,15 @@ static AnyExprV parse_expr100(Lexer& lex) {
       std::vector<AnyExprV> items(1, first);
       while (lex.tok() == tok_comma) {
         lex.next();
+        if (lex.tok() == tok_clpar) {   // trailing comma
+          break;
+        }
         items.emplace_back(parse_expr(lex));
       }
       lex.expect(tok_clpar, "`)`");
+      if (items.size() == 1) {      // we can reach here for 1 element with trailing comma: `(item, )`
+        return items[0];            // then just return item, not a 1-element tensor,
+      }                             // since 1-element tensors won't be type compatible with item's type
       return createV<ast_tensor>(loc, std::move(items));
     }
     case tok_opbracket: {
@@ -306,6 +337,9 @@ static AnyExprV parse_expr100(Lexer& lex) {
       std::vector<AnyExprV> items(1, parse_expr(lex));
       while (lex.tok() == tok_comma) {
         lex.next();
+        if (lex.tok() == tok_clbracket) {   // trailing comma
+          break;
+        }
         items.emplace_back(parse_expr(lex));
       }
       lex.expect(tok_clbracket, "`]`");
@@ -313,7 +347,7 @@ static AnyExprV parse_expr100(Lexer& lex) {
     }
     case tok_int_const: {
       std::string_view orig_str = lex.cur_str();
-      td::RefInt256 intval = td::string_to_int256(static_cast<std::string>(orig_str));
+      td::RefInt256 intval = parse_tok_int_const(orig_str);
       if (intval.is_null() || !intval->signed_fits_bits(257)) {
         lex.error("invalid integer constant");
       }
@@ -323,12 +357,7 @@ static AnyExprV parse_expr100(Lexer& lex) {
     case tok_string_const: {
       std::string_view str_val = lex.cur_str();
       lex.next();
-      char modifier = 0;
-      if (lex.tok() == tok_string_modifier) {
-        modifier = lex.cur_str()[0];
-        lex.next();
-      }
-      return createV<ast_string_const>(loc, str_val, modifier);
+      return createV<ast_string_const>(loc, str_val);
     }
     case tok_underscore: {
       lex.next();
@@ -893,7 +922,7 @@ static AnyV parse_asm_func_body(Lexer& lex, V<ast_parameter_list> param_list) {
   lex.check(tok_string_const, "\"ASM COMMAND\"");
   while (lex.tok() == tok_string_const) {
     std::string_view asm_command = lex.cur_str();
-    asm_commands.push_back(createV<ast_string_const>(lex.cur_location(), asm_command, 0));
+    asm_commands.push_back(createV<ast_string_const>(lex.cur_location(), asm_command));
     lex.next();
   }
   lex.expect(tok_semicolon, "`;`");
@@ -933,6 +962,9 @@ static V<ast_annotation> parse_annotation(Lexer& lex) {
     args.push_back(parse_expr(lex));
     while (lex.tok() == tok_comma) {
       lex.next();
+      if (lex.tok() == tok_clpar) {   // trailing comma
+        break;
+      }
       args.push_back(parse_expr(lex));
     }
     lex.expect(tok_clpar, "`)`");
@@ -1105,7 +1137,7 @@ static AnyV parse_import_directive(Lexer& lex) {
   if (rel_filename.empty()) {
     lex.error("imported file name is an empty string");
   }
-  auto v_str = createV<ast_string_const>(lex.cur_location(), rel_filename, 0);
+  auto v_str = createV<ast_string_const>(lex.cur_location(), rel_filename);
   lex.next();
   return createV<ast_import_directive>(loc, v_str); // semicolon is not necessary
 }

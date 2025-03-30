@@ -80,7 +80,7 @@ protected:
     return createV<ast_int_const>(v->loc, v->intval, v->orig_str);
   }
   virtual V<ast_string_const> clone(V<ast_string_const> v) {
-    return createV<ast_string_const>(v->loc, v->str_val, v->modifier);
+    return createV<ast_string_const>(v->loc, v->str_val);
   }
   virtual V<ast_bool_const> clone(V<ast_bool_const> v) {
     return createV<ast_bool_const>(v->loc, v->bool_val);

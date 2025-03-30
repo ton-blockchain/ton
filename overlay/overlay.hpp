@@ -105,11 +105,11 @@ class OverlayPeer {
   void on_ping_result(bool success) {
     if (success) {
       missed_pings_ = 0;
-      last_ping_at_ = td::Timestamp::now();
+      last_receive_at_ = td::Timestamp::now();
       is_alive_ = true;
     } else {
       ++missed_pings_;
-      if (missed_pings_ >= 3 && last_ping_at_.is_in_past(td::Timestamp::in(-15.0))) {
+      if (missed_pings_ >= 3 && last_receive_at_.is_in_past(td::Timestamp::in(-15.0))) {
         is_alive_ = false;
       }
     }
@@ -149,6 +149,9 @@ class OverlayPeer {
 
   td::string ip_addr_str = "undefined";
 
+  td::Timestamp last_ping_at = td::Timestamp::never();
+  double last_ping_time = -1.0;
+
  private:
   OverlayNode node_;
   adnl::AdnlNodeIdShort id_;
@@ -157,7 +160,7 @@ class OverlayPeer {
   size_t missed_pings_ = 0;
   bool is_alive_ = true;
   bool is_permanent_member_ = false;
-  td::Timestamp last_ping_at_ = td::Timestamp::now();
+  td::Timestamp last_receive_at_ = td::Timestamp::now();
 };
 
 class OverlayImpl : public Overlay {
@@ -195,13 +198,15 @@ class OverlayImpl : public Overlay {
     alarm_timestamp() = td::Timestamp::in(1);
   }
 
-  void on_ping_result(adnl::AdnlNodeIdShort peer, bool success);
-  void receive_random_peers(adnl::AdnlNodeIdShort src, td::Result<td::BufferSlice> R);
-  void receive_random_peers_v2(adnl::AdnlNodeIdShort src, td::Result<td::BufferSlice> R);
+  void on_ping_result(adnl::AdnlNodeIdShort peer, bool success, double store_ping_time = -1.0);
+  void receive_random_peers(adnl::AdnlNodeIdShort src, td::Result<td::BufferSlice> R, double elapsed);
+  void receive_random_peers_v2(adnl::AdnlNodeIdShort src, td::Result<td::BufferSlice> R, double elapsed);
   void send_random_peers(adnl::AdnlNodeIdShort dst, td::Promise<td::BufferSlice> promise);
   void send_random_peers_v2(adnl::AdnlNodeIdShort dst, td::Promise<td::BufferSlice> promise);
   void send_random_peers_cont(adnl::AdnlNodeIdShort dst, OverlayNode node, td::Promise<td::BufferSlice> promise);
   void send_random_peers_v2_cont(adnl::AdnlNodeIdShort dst, OverlayNode node, td::Promise<td::BufferSlice> promise);
+  void ping_random_peers();
+  void receive_pong(adnl::AdnlNodeIdShort peer, double elapsed);
   void get_overlay_random_peers(td::uint32 max_peers, td::Promise<std::vector<adnl::AdnlNodeIdShort>> promise) override;
   void set_privacy_rules(OverlayPrivacyRules rules) override;
   void add_certificate(PublicKeyHash key, std::shared_ptr<Certificate> cert) override {
@@ -335,6 +340,7 @@ class OverlayImpl : public Overlay {
                      td::Promise<td::BufferSlice> promise);
   void process_query(adnl::AdnlNodeIdShort src, ton_api::overlay_getRandomPeersV2 &query,
                      td::Promise<td::BufferSlice> promise);
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::overlay_ping &query, td::Promise<td::BufferSlice> promise);
   void process_query(adnl::AdnlNodeIdShort src, ton_api::overlay_getBroadcast &query,
                      td::Promise<td::BufferSlice> promise);
   void process_query(adnl::AdnlNodeIdShort src, ton_api::overlay_getBroadcastList &query,
@@ -390,9 +396,10 @@ class OverlayImpl : public Overlay {
   td::Timestamp next_dht_query_ = td::Timestamp::in(1.0);
   td::Timestamp next_dht_store_query_ = td::Timestamp::in(1.0);
   td::Timestamp update_db_at_;
-  td::Timestamp update_throughput_at_;
-  td::Timestamp update_neighbours_at_;
+  td::Timestamp update_throughput_at_ = td::Timestamp::now();
+  td::Timestamp update_neighbours_at_ = td::Timestamp::now();
   td::Timestamp last_throughput_update_;
+  td::Timestamp private_ping_peers_at_ = td::Timestamp::now();
 
   std::unique_ptr<Overlays::Callback> callback_;
 

@@ -313,6 +313,11 @@ public:
     current_genericTs = nullptr;
     cur_f = nullptr;
   }
+
+  void start_visiting_constant(V<ast_constant_declaration> v) {
+    // `const a = b`, resolve `b`
+    parent::visit(v->get_init_value());
+  }
 };
 
 NameAndScopeResolver AssignSymInsideFunctionVisitor::current_scope;
@@ -333,6 +338,7 @@ void pipeline_resolve_identifiers_and_assign_symbols() {
         v_global->var_ref->mutate()->assign_resolved_type(declared_type);
 
       } else if (auto v_const = v->try_as<ast_constant_declaration>()) {
+        visitor.start_visiting_constant(v_const);
         if (v_const->declared_type) {
           TypePtr declared_type = finalize_type_data(nullptr, v_const->const_ref->declared_type, nullptr);
           v_const->mutate()->assign_resolved_type(declared_type);

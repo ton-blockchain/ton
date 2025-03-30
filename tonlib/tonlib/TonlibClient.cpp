@@ -268,7 +268,7 @@ td::Result<td::Ref<vm::Cell>> add_extra_currencies(const td::Ref<vm::Cell> &e1, 
   block::CurrencyCollection c1{td::zero_refint(), e1};
   block::CurrencyCollection c2{td::zero_refint(), e2};
   TRY_RESULT_ASSIGN(c1, TRY_VM(td::Result<block::CurrencyCollection>{c1 + c2}));
-  if (c1.is_valid()) {
+  if (!c1.is_valid()) {
     return td::Status::Error("Failed to add extra currencies");
   }
   return c1.extra;

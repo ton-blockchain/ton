@@ -1,7 +1,7 @@
 // Standard library for Tolk (LGPL licence).
 // It contains common functions that are available out of the box, the user doesn't have to import anything.
 // More specific functions are required to be imported explicitly, like "@stdlib/tvm-dicts".
-tolk 0.9
+tolk 0.10
 
 /**
   Tuple manipulation primitives.
@@ -53,6 +53,13 @@ fun tupleLast<T>(self: tuple): T
 /**
     Mathematical primitives.
  */
+
+/// Converts a constant floating-point string to nanotoncoins.
+/// Example: `ton("0.05")` is equal to 50000000.
+/// Note, that `ton()` requires a constant string; `ton(some_var)` is an error
+@pure
+fun ton(floatString: slice): coins
+    builtin;
 
 /// Computes the minimum of two integers.
 @pure
@@ -187,6 +194,42 @@ fun commitContractDataAndActions(): void
   Signature checks, hashing, cryptography.
  */
 
+/// Compile-time function that calculates crc32 of a constant string.
+/// Example: `const op = stringCrc32("some_str")` = 4013618352 = 0xEF3AF4B0
+/// Note: stringCrc32(slice_var) does not work! It accepts a constant string and works at compile-time.
+@pure
+fun stringCrc32(constString: slice): int
+    builtin;
+
+/// Compile-time function that calculates crc16 (XMODEM) of a constant string.
+/// Example: `const op = stringCrc16("some_str")` = 53407 = 0xD09F
+/// Note: stringCrc16(slice_var) does not work! It accepts a constant string and works at compile-time.
+@pure
+fun stringCrc16(constString: slice): int
+    builtin;
+
+/// Compile-time function that calculates sha256 of a constant string and returns 256-bit integer.
+/// Example: `const hash = stringSha256("some_crypto_key")`
+/// Note: it's a compile-time function, `stringSha256(slice_var)` does not work.
+/// Use `sliceBitsHash` or `sliceHash` (declared below) to hash a slice without/with its refs at runtime.
+@pure
+fun stringSha256(constString: slice): int
+    builtin;
+
+/// Compile-time function that calculates sha256 of a constant string and takes the first 32 bits.
+/// Example: `const minihash = stringSha256_32("some_crypto_key")`
+/// Note: stringSha256_32(slice_var) does not work! It accepts a constant string and works at compile-time.
+@pure
+fun stringSha256_32(constString: slice): int
+    builtin;
+
+/// Compile-time function that takes N-chars ascii string and interprets it as a number in base 256.
+/// Example: `const value = stringToBase256("AB")` = 16706 (65*256 + 66)
+/// Note: stringToBase256(slice_var) does not work! It accepts a constant string and works at compile-time.
+@pure
+fun stringToBase256(constString: slice): int
+    builtin;
+
 /// Computes the representation hash of a `cell` [c] and returns it as a 256-bit unsigned integer `x`.
 /// Useful for signing and checking signatures of arbitrary entities represented by a tree of cells.
 @pure
@@ -203,7 +246,7 @@ fun sliceHash(s: slice): int
 /// Computes sha256 of the data bits of `slice` [s]. If the bit length of `s` is not divisible by eight,
 /// throws a cell underflow exception. The hash value is returned as a 256-bit unsigned integer `x`.
 @pure
-fun stringHash(s: slice): int
+fun sliceBitsHash(s: slice): int
     asm "SHA256U";
 
 /// Checks the Ed25519-`signature` of a `hash` (a 256-bit unsigned integer, usually computed as the hash of some data)
@@ -333,6 +376,22 @@ fun debugDumpStack(): void
   When you _preload_ some data, you just get the result without mutating the slice.
  */
 
+/// Compile-time function that converts a constant string to TL-encoded MsgAddressInt (TVM slice).
+/// Example: stringAddressToSlice("EQCRDM9h4k3UJdOePPuyX40mCgA4vxge5Dc5vjBR8djbEKC5")
+/// Example: stringAddressToSlice("0:527964d55cfa6eb731f4bfc07e9d025098097ef8505519e853986279bd8400d8")
+/// Note: it's a compile-time function, `stringAddressToSlice(slice_var)` does not work.
+/// Use `parseStandardAddress` to decode a slice at runtime into workchain and hash.
+@pure
+fun stringAddressToSlice(constStringAddress: slice): slice
+    builtin;
+
+/// Compile-time function that converts a constant hex-encoded string to N/2 bytes.
+/// Example: `const v = stringHexToSlice("abcdef")` = slice with 3 bytes `[ 0xAB, 0xCD, 0xEF ]`
+/// Note: stringHexToSlice(slice_var) does not work! It accepts a constant string and works at compile-time.
+@pure
+fun stringHexToSlice(constStringBytesHex: slice): slice
+    builtin;
+
 /// Converts a `cell` [c] into a `slice`. Notice that [c] must be either an ordinary cell,
 /// or an exotic cell (see [TVM.pdf](https://ton-blockchain.github.io/docs/tvm.pdf), 3.1.2)
 /// which is automatically loaded to yield an ordinary cell `c'`, converted into a `slice` afterwards.
@@ -386,7 +445,7 @@ fun preloadBits(self: slice, len: int): slice
 
 /// Loads serialized amount of Toncoins (any unsigned integer up to `2^120 - 1`).
 @pure
-fun loadCoins(mutate self: slice): int
+fun loadCoins(mutate self: slice): coins
     asm( -> 1 0) "LDGRAMS";
 
 /// Loads bool (-1 or 0) from a slice
@@ -485,7 +544,7 @@ fun storeSlice(mutate self: builder, s: slice): self
 
 /// Stores amount of Toncoins into a builder.
 @pure
-fun storeCoins(mutate self: builder, x: int): self
+fun storeCoins(mutate self: builder, x: coins): self
     asm "STGRAMS";
 
 /// Stores bool (-1 or 0) into a builder.
