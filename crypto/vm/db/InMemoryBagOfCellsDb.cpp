@@ -157,17 +157,9 @@ class ArenaPrunnedCellCreator : public ExtCellCreator {
     }
   };
 
-  struct Allocator {
-    template <class T, class... ArgsT>
-    std::unique_ptr<PrunnedCell<Counter>> make_unique(ArgsT &&...args) {
-      auto *ptr = arena_.alloc(sizeof(T));
-      T *obj = new (ptr) T(std::forward<ArgsT>(args)...);
-      return std::unique_ptr<T>(obj);
-    }
-  };
   td::Result<Ref<Cell>> ext_cell(Cell::LevelMask level_mask, td::Slice hash, td::Slice depth) override {
-    Allocator allocator;
-    TRY_RESULT(cell, PrunnedCell<Counter>::create(allocator, PrunnedCellInfo{level_mask, hash, depth}, Counter()));
+    TRY_RESULT(cell, PrunnedCell<Counter>::create([&](size_t bytes) { return arena_.alloc(bytes); }, false,
+                                                  PrunnedCellInfo{level_mask, hash, depth}, Counter()));
     return cell;
   }
   static td::int64 count() {
@@ -601,7 +593,7 @@ class CellStorage {
     std::vector<Stats> bucket_stats(buckets_.size());
     std::atomic<size_t> boc_count{0};
     for_each_bucket(options.extra_threads, [&](size_t bucket_id, auto &bucket) {
-      bucket_stats[bucket_id] = validate_bucket_a(bucket, options.use_arena);
+      bucket_stats[bucket_id] = validate_bucket_a(bucket);
       boc_count += bucket.boc_count_;
     });
     for_each_bucket(options.extra_threads, [&](size_t bucket_id, auto &bucket) { validate_bucket_b(bucket); });
@@ -730,12 +722,12 @@ class CellStorage {
     });
   }
 
-  DynamicBagOfCellsDb::Stats validate_bucket_a(CellBucket &bucket, bool use_arena) {
+  DynamicBagOfCellsDb::Stats validate_bucket_a(CellBucket &bucket) {
     DynamicBagOfCellsDb::Stats stats;
     bucket.infos_.for_each([&](auto &it) {
       int cell_ref_cnt = it.cell->get_refcnt();
-      CHECK(it.db_refcnt + 1 + use_arena >= cell_ref_cnt);
-      auto extra_refcnt = it.db_refcnt + 1 + use_arena - cell_ref_cnt;
+      CHECK(it.db_refcnt + 1 >= cell_ref_cnt);
+      auto extra_refcnt = it.db_refcnt + 1 - cell_ref_cnt;
       if (extra_refcnt != 0) {
         bucket.roots_.push_back(it.cell);
         stats.roots_total_count++;
