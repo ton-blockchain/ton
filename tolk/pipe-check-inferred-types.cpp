@@ -126,7 +126,7 @@ static void handle_possible_compiler_internal_call(FunctionPtr cur_f, V<ast_func
 }
 
 static bool expect_integer(AnyExprV v_inferred) {
-  return v_inferred->inferred_type == TypeDataInt::create();
+  return v_inferred->inferred_type == TypeDataInt::create() || v_inferred->inferred_type->try_as<TypeDataIntN>() || v_inferred->inferred_type == TypeDataCoins::create();
 }
 
 static bool expect_boolean(AnyExprV v_inferred) {
@@ -145,6 +145,7 @@ protected:
     parent::visit(rhs);
 
     // all operators (+=, etc.) can work for integers (if both sides are integers)
+    // for intN, they are also allowed (int16 |= int8 is ok, since int16 | int8 is ok, all arithmetic is int)
     bool types_ok = expect_integer(lhs) && expect_integer(rhs);
     // bitwise operators &= |= ^= are "overloaded" for booleans also (if both sides are booleans)
     if (!types_ok && (v->tok == tok_set_bitwise_and || v->tok == tok_set_bitwise_or || v->tok == tok_set_bitwise_xor)) {
@@ -181,8 +182,9 @@ protected:
 
     switch (v->tok) {
       // == != can compare both integers and booleans, (int == bool) is NOT allowed
+      // for intN, it also works: (int8 == int16) is ok, (int == uint32) is ok
       // note, that `int?` and `int?` can't be compared, since Fift `EQUAL` works with integers only
-      // (if to allow `int?` in the future, `==` must be expressed in a complicated Fift code considering TVM NULL)
+      // (if to allow `int?`/`int8?` in the future, `==` must be expressed in a complicated Fift code considering TVM NULL)
       case tok_eq:
       case tok_neq: {
         bool both_int = expect_integer(lhs) && expect_integer(rhs);
@@ -207,6 +209,7 @@ protected:
         }
         break;
       // & | ^ are "overloaded" both for integers and booleans, (int & bool) is NOT allowed
+      // they are allowed for intN (int16 & int32 is ok) and always "fall back" to general int
       case tok_bitwise_and:
       case tok_bitwise_or:
       case tok_bitwise_xor: {
@@ -228,6 +231,7 @@ protected:
         break;
       }
       // others are mathematical: + * ...
+      // they are allowed for intN (int16 + int32 is ok) and always "fall back" to general int
       default:
         if (!expect_integer(lhs) || !expect_integer(rhs)) {
           fire_error_cannot_apply_operator(cur_f, v->loc, v->operator_name, lhs, rhs);
@@ -577,10 +581,30 @@ protected:
       }
     }
   }
+
+  // given `const a = 2 + 3` check types within its init_value
+  // so, `const a = 1 + some_slice` will fire a reasonable error
+  void start_visiting_constant(GlobalConstPtr const_ref) {
+    parent::visit(const_ref->init_value);
+
+    // if no errors occurred, init value has correct type
+    // (though it may not be a valid constant expression, this would be checked after type inferring)
+    if (const_ref->declared_type) {     // `const a: int = ...`
+      TypePtr inferred_type = const_ref->init_value->inferred_type;
+      if (!const_ref->declared_type->can_rhs_be_assigned(inferred_type)) {
+        throw ParseError(const_ref->loc, "can not assign " + to_string(inferred_type) + " to " + to_string(const_ref->declared_type));
+      }
+    }
+  }
 };
 
 void pipeline_check_inferred_types() {
   visit_ast_of_all_functions<CheckInferredTypesVisitor>();
+
+  CheckInferredTypesVisitor visitor;
+  for (GlobalConstPtr const_ref : get_all_declared_constants()) {
+    visitor.start_visiting_constant(const_ref);
+  }
 }
 
 } // namespace tolk

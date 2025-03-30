@@ -535,7 +535,66 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
   // pass `bool` to `int`
   // in code, it's done via `as` operator, like `boolVar as int`
   // no changes in rvect, boolVar is guaranteed to be -1 or 0 at TVM level
-  if (target_type == TypeDataInt::create() && original_type == TypeDataBool::create()) {
+  if (original_type == TypeDataBool::create() && target_type == TypeDataInt::create()) {
+    return rvect;
+  }
+  // pass `bool` to `int8`
+  // same as above
+  if (original_type == TypeDataBool::create() && target_type->try_as<TypeDataIntN>()) {
+    return rvect;
+  }
+  // pass `int8` to `int`
+  // it comes from auto cast when an integer (even a literal) is assigned to intN
+  // to changes in rvect, intN is int at TVM level
+  if (target_type == TypeDataInt::create() && original_type->try_as<TypeDataIntN>()) {
+    return rvect;
+  }
+  // pass `coins` to `int`
+  // same as above
+  if (target_type == TypeDataInt::create() && original_type == TypeDataCoins::create()) {
+    return rvect;
+  }
+  // pass `int` to `int8`
+  // in code, it's probably done with `as` operator
+  // no changes in rvect
+  if (original_type == TypeDataInt::create() && target_type->try_as<TypeDataIntN>()) {
+    return rvect;
+  }
+  // pass `int` to `coins`
+  // same as above
+  if (original_type == TypeDataInt::create() && target_type == TypeDataCoins::create()) {
+    return rvect;
+  }
+  // pass `int8` to `int16` / `int8` to `uint8`
+  // in code, it's probably done with `as` operator
+  // no changes in rvect
+  if (original_type->try_as<TypeDataIntN>() && target_type->try_as<TypeDataIntN>()) {
+    return rvect;
+  }
+  // pass `int8` to `coins`
+  // same as above
+  if (target_type == TypeDataCoins::create() && original_type->try_as<TypeDataIntN>()) {
+    return rvect;
+  }
+  // pass `coins` to `int8`
+  // same as above
+  if (original_type == TypeDataCoins::create() && target_type->try_as<TypeDataIntN>()) {
+    return rvect;
+  }
+  // pass `bytes32` to `slice`
+  // in code, it's probably done with `as` operator
+  // no changes in rvect, since bytesN is slice at TVM level
+  if (target_type == TypeDataSlice::create() && original_type->try_as<TypeDataBytesN>()) {
+    return rvect;
+  }
+  // pass `slice` to `bytes32`
+  // same as above
+  if (original_type == TypeDataSlice::create() && target_type->try_as<TypeDataBytesN>()) {
+    return rvect;
+  }
+  // pass `bytes32` to `bytes64` / `bits128` to `bytes16`
+  // no changes in rvect
+  if (original_type->try_as<TypeDataBytesN>() && target_type->try_as<TypeDataBytesN>()) {
     return rvect;
   }
   // pass something to `unknown`
@@ -621,13 +680,13 @@ std::vector<var_idx_t> pre_compile_symbol(SrcLocation loc, const Symbol* sym, Co
     return local_ir_idx;
   }
   if (GlobalConstPtr const_ref = sym->try_as<GlobalConstPtr>()) {
-    if (const_ref->is_int_const()) {
+    if (const_ref->value.is_int()) {
       std::vector<var_idx_t> rvect = code.create_tmp_var(TypeDataInt::create(), loc, "(glob-const)");
-      code.emplace_back(loc, Op::_IntConst, rvect, const_ref->as_int_const());
+      code.emplace_back(loc, Op::_IntConst, rvect, const_ref->value.as_int());
       return rvect;
     } else {
       std::vector<var_idx_t> rvect = code.create_tmp_var(TypeDataSlice::create(), loc, "(glob-const)");
-      code.emplace_back(loc, Op::_SliceConst, rvect, const_ref->as_slice_const());
+      code.emplace_back(loc, Op::_SliceConst, rvect, const_ref->value.as_slice());
       return rvect;
     }
   }
@@ -990,13 +1049,9 @@ static std::vector<var_idx_t> process_int_const(V<ast_int_const> v, CodeBlob& co
 }
 
 static std::vector<var_idx_t> process_string_const(V<ast_string_const> v, CodeBlob& code, TypePtr target_type) {
-  ConstantValue value = eval_const_init_value(v);
+  tolk_assert(v->literal_value.is_slice());
   std::vector<var_idx_t> rvect = code.create_tmp_var(v->inferred_type, v->loc, "(str-const)");
-  if (value.is_int()) {
-    code.emplace_back(v->loc, Op::_IntConst, rvect, value.as_int());
-  } else {
-    code.emplace_back(v->loc, Op::_SliceConst, rvect, value.as_slice());
-  }
+  code.emplace_back(v->loc, Op::_SliceConst, rvect, v->literal_value.as_slice());
   return transition_to_target_type(std::move(rvect), code, target_type, v);
 }
 

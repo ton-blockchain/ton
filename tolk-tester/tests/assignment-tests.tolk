@@ -5,7 +5,7 @@ fun extractFromTypedTuple(params: [int]) {
 
 @method_id(101)
 fun test101(x: int) {
-    var params = [x];
+    var params = [x, ];
     return extractFromTypedTuple(params);
 }
 
@@ -38,7 +38,7 @@ fun getTensor_1X(x: int) {
 }
 fun getTuple_12() {
     callOrder.tuplePush(110);
-    return [1, 2];
+    return [1, 2, ];
 }
 fun getTuple_1X(x: int) {
     callOrder.tuplePush(111);
@@ -133,7 +133,7 @@ fun test108() {
 fun test109() {
     callOrder = createEmptyTuple();
     var x = 0;
-    [getTuple_12().0, getTuple_1X(x = getIntValue5()).1, getTuple_1X(x += 10).0] = [getIntValue5(), getIntValue5(), getIntValueX(x)];
+    [getTuple_12().0, getTuple_1X(x = getIntValue5()).1, getTuple_1X(x += 10).0] = [getIntValue5(), getIntValue5(), getIntValueX(x), ];
     return (callOrder, x);
 }
 
@@ -203,9 +203,18 @@ fun test116() {
     return (a, b, c, d, rhs2);
 }
 
+@method_id(117)
+fun test117() {
+    var c = [((1, ), ), ];
+    __expect_type(c, "[int]");
+    c.0 = 10;
+    c.0 = (20, );
+    return c;
+}
 
 
-fun main(value: int) {
+
+fun main(value: int, ) {
     var (x: int?, y) = (autoInferIntNull(value), autoInferIntNull(value * 2));
     if (x == null && y == null) { return null; }
     return x == null || y == null ? -1 : x! + y!;
@@ -231,6 +240,7 @@ fun main(value: int) {
 @testcase | 114 |        | 13 [ 1 14 ] 1 3
 @testcase | 115 |        | [ 101 111 ] 9 9
 @testcase | 116 |        | 1 2 3 4 [ 1 2 3 4 ]
+@testcase | 117 |        | [ 20 ]
 
 
 @fif_codegen

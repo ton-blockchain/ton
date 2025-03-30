@@ -1,4 +1,4 @@
-# Usage: `tolk-tester.py tests_dir` OR `tolk-tester.py test_file.tolk`
+# Usage: `tolk-tester.py tests_dir` OR `tolk-tester.py tests_dir file_pattern`
 # from current dir, providing some env (see getenv() calls).
 # Every .tolk file should provide /* testcase description in a comment */, consider tests/ folder.
 #
@@ -36,27 +36,33 @@ TMP_DIR = tempfile.mkdtemp()
 
 class CmdLineOptions:
     def __init__(self, argv: List[str]):
-        if len(argv) != 2:
-            print("Usage: tolk-tester.py tests_dir OR tolk-tester.py test_file.tolk", file=sys.stderr)
+        if len(argv) < 2:
+            print("Usage: tolk-tester.py tests_dir [file_pattern]", file=sys.stderr)
             exit(1)
-        if not os.path.exists(argv[1]):
-            print("Input '%s' doesn't exist" % argv[1], file=sys.stderr)
+        if not os.path.isdir(argv[1]):
+            print("Directory '%s' doesn't exist" % argv[1], file=sys.stderr)
             exit(1)
 
-        if os.path.isdir(argv[1]):
-            self.tests_dir = argv[1]
-            self.test_file = None
-        else:
-            self.tests_dir = os.path.dirname(argv[1])
-            self.test_file = argv[1]
+        self.tests_dir = argv[1]
+        self.file_pattern = argv[2] if len(argv) > 2 else None
 
     def find_tests(self) -> List[str]:
-        if self.test_file is not None:  # an option to run (debug) a single test
-            return [self.test_file]
+        all_test_files: List[str] = []
+        all_children_of_tests_dir = os.listdir(self.tests_dir)
+        all_children_of_tests_dir.sort()
+        for f in all_children_of_tests_dir:
+            if f.endswith(".tolk"):
+                all_test_files.append(os.path.join(self.tests_dir, f))
+        for f in all_children_of_tests_dir:
+            if not f.endswith(".tolk") and f != "imports":
+                subdir = os.path.join(self.tests_dir, f)
+                children_of_subdir = os.listdir(subdir)
+                children_of_subdir.sort()
+                all_test_files += [os.path.join(subdir, f) for f in children_of_subdir]
 
-        tests = [f for f in os.listdir(self.tests_dir) if f.endswith(".tolk") or f.endswith(".ton")]
-        tests.sort()
-        return [os.path.join(self.tests_dir, f) for f in tests]
+        if self.file_pattern is not None:
+            all_test_files = [f for f in all_test_files if f.find(self.file_pattern) != -1]
+        return all_test_files
 
 
 class ParseInputError(Exception):
@@ -101,6 +107,7 @@ class TolkTestCaseInputOutput:
     """
     reJustNumber = re.compile(r"[-+]?\d+")
     reMathExpr = re.compile(r"[0x123456789()+\-*/<>]+")
+    reGasUsed = re.compile(r"gas:\sused=(\d+)")
 
     def __init__(self, method_id_str: str, input_str: str, output_str: str):
         processed_inputs = []
@@ -122,7 +129,7 @@ class TolkTestCaseInputOutput:
 
     def check(self, stdout_lines: List[str], line_idx: int):
         if stdout_lines[line_idx] != self.expected_output:
-            raise CompareOutputError("error on case #%d (%d | %s): expected '%s', found '%s'" % (line_idx + 1, self.method_id, self.input, self.expected_output, stdout_lines[line_idx]), "\n".join(stdout_lines))
+            raise CompareOutputError("error on case #%d (%d | %s):\n    expect: %s\n    actual: %s" % (line_idx + 1, self.method_id, self.input, self.expected_output, stdout_lines[line_idx]), "\n".join(stdout_lines))
 
 
 class TolkTestCaseStderr:
@@ -331,7 +338,7 @@ class TolkTestFile:
             should_include.check(stderr)
 
         if exit_code != 0 and self.compilation_should_fail:
-            return
+            return 0
 
         if exit_code != 0 and not self.compilation_should_fail:
             raise TolkCompilationFailedError("tolk exit_code = %d" % exit_code, stderr)
@@ -350,6 +357,7 @@ class TolkTestFile:
         if exit_code != 0:
             raise FiftExecutionFailedError("fift exit_code = %d" % exit_code, stderr)
 
+        gas_used = sum(map(int, TolkTestCaseInputOutput.reGasUsed.findall(stderr)))
         stdout_lines = [x.strip() for x in stdout.split("\n")]
         stdout_lines = [x for x in stdout_lines if x != ""]
         fif_code_hash = None
@@ -372,11 +380,14 @@ class TolkTestFile:
         if self.expected_hash is not None:
             self.expected_hash.check(fif_code_hash)
 
+        return gas_used
+
 
 def run_all_tests(tests: List[str]):
+    total_gas_used = 0
     for ti in range(len(tests)):
         tolk_filename = tests[ti]
-        print("Running test %d/%d: %s" % (ti + 1, len(tests), tolk_filename), file=sys.stderr)
+        print("Running test %d/%d: %s" % (ti + 1, len(tests), os.path.basename(tolk_filename)), file=sys.stderr)
 
         artifacts_folder = os.path.join(TMP_DIR, tolk_filename)
         testcase = TolkTestFile(tolk_filename, artifacts_folder)
@@ -384,13 +395,14 @@ def run_all_tests(tests: List[str]):
             if not os.path.exists(artifacts_folder):
                 os.makedirs(artifacts_folder)
             testcase.parse_input_from_tolk_file()
-            testcase.run_and_check()
+            gas_used = testcase.run_and_check()
             shutil.rmtree(artifacts_folder)
+            total_gas_used += gas_used
 
             if testcase.compilation_should_fail:
-                print("  OK, compilation failed as it should", file=sys.stderr)
+                print("  OK, stderr match", file=sys.stderr)
             else:
-                print("  OK, %d cases" % len(testcase.input_output), file=sys.stderr)
+                print("  OK, %d cases, gas %d" % (len(testcase.input_output), gas_used), file=sys.stderr)
         except ParseInputError as e:
             print("  Error parsing input (cur line #%d):" % (testcase.line_idx + 1), e, file=sys.stderr)
             exit(2)
@@ -423,9 +435,10 @@ def run_all_tests(tests: List[str]):
             print("  Mismatch in code hash:", e, file=sys.stderr)
             print("  Was compiled to:", testcase.get_compiled_fif_filename(), file=sys.stderr)
             exit(2)
+    return total_gas_used
 
 
 tests = CmdLineOptions(sys.argv).find_tests()
 print("Found", len(tests), "tests", file=sys.stderr)
-run_all_tests(tests)
-print("Done, %d tests" % len(tests), file=sys.stderr)
+total_gas_used = run_all_tests(tests)
+print("Done, %d tests, gas %d" % (len(tests), total_gas_used), file=sys.stderr)
