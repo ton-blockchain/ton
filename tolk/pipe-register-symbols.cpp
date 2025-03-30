@@ -115,16 +115,10 @@ static const GenericsDeclaration* construct_genericTs(V<ast_genericsT_list> v_li
 }
 
 static void register_constant(V<ast_constant_declaration> v) {
-  ConstantValue init_value = eval_const_init_value(v->get_init_value());
-  GlobalConstData* c_sym = new GlobalConstData(static_cast<std::string>(v->get_identifier()->name), v->loc, v->declared_type, std::move(init_value));
-
-  if (v->declared_type) {
-    bool ok = (c_sym->is_int_const() && (v->declared_type == TypeDataInt::create()))
-           || (c_sym->is_slice_const() && (v->declared_type == TypeDataSlice::create()));
-    if (!ok) {
-      v->error("expression type does not match declared type");
-    }
-  }
+  GlobalConstData* c_sym = new GlobalConstData(static_cast<std::string>(v->get_identifier()->name), v->loc, v->declared_type, v->get_init_value());
+  // init value of constant is not evaluated here
+  // at first, it will be type checked (in type inference pipe)
+  // then, at constant folding pipe, `const a = 2 + 3` will be evaluated to 5
 
   G.symtable.add_global_const(c_sym);
   G.all_constants.push_back(c_sym);

@@ -5,7 +5,7 @@ fun eq<X>(value: X): X { return value; }
 
 fun test1(x: int, y: int) {
     __expect_type(0, "int");
-    __expect_type("0"c, "int");
+    __expect_type(stringCrc32("0"), "int");
     __expect_type(x, "int");
     __expect_type(x + y, "int");
     __expect_type(x * y, "int");
@@ -30,6 +30,15 @@ fun test1(x: int, y: int) {
         __expect_type(beginCell(), "builder");
         __expect_type(beginCell().endCell(), "cell");
     }
+    __expect_type((1, 2), "(int, int)");
+    __expect_type((1, 2, ), "(int, int)");
+    __expect_type((1, ), "int");
+    __expect_type((((1,)),), "int");
+    __expect_type([1, 2], "[int, int]");
+    __expect_type([1, 2, ], "[int, int]");
+    __expect_type([1, ], "[int]");
+    __expect_type([((1, ), ), ], "[int]");
+    __expect_type([[[1, ], ], ], "[[[int]]]");
 }
 
 fun test2(x: int, y: bool) {
@@ -86,6 +95,15 @@ fun test7() {
     // __expect_type(eq<(int, slice)>, "(int, slice) -> (int, slice)");
 }
 
+fun unnamed_args(_: int, _: slice, _: int) {
+    return true;
+}
+
+@method_id(108)
+fun test8(x: int, z: int) {
+    return unnamed_args(x, "asdf", z);
+}
+
 fun alwaysThrows(): never { throw 123; }
 fun alwaysThrowsNotAnnotated() { throw 123; }
 fun alwaysThrowsNotAnnotated2() { alwaysThrows(); }
@@ -103,5 +121,6 @@ fun main() {
 }
 
 /**
-@testcase | 0 | | 0
+@testcase | 0   |      | 0
+@testcase | 108 | 1 10 | -1
 */

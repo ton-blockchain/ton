@@ -34,6 +34,9 @@
 #include <block-auto.h>
 #include <rocksdb/merge_operator.h>
 
+#include <block-auto.h>
+#include <rocksdb/merge_operator.h>
+
 namespace ton {
 
 namespace validator {

@@ -187,6 +187,7 @@ public:
 
 
 const std::vector<FunctionPtr>& get_all_not_builtin_functions();
+const std::vector<GlobalConstPtr>& get_all_declared_constants();
 
 template<class BodyReplacerT>
 void replace_ast_of_all_functions() {

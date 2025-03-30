@@ -128,8 +128,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   void check_zero_state_exists(BlockIdExt block_id, td::Promise<bool> promise) override {
     UNREACHABLE();
   }
-  void check_persistent_state_exists(BlockIdExt block_id, BlockIdExt masterchain_block_id,
-                                     td::Promise<bool> promise) override {
+  void get_persistent_state_size(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+                                 td::Promise<td::uint64> promise) override {
     UNREACHABLE();
   }
   void get_persistent_state(BlockIdExt block_id, BlockIdExt masterchain_block_id,

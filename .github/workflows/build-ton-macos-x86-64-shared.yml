@@ -12,16 +12,34 @@ jobs:
         with:
           submodules: 'recursive'
 
+      - name: Date Stamp
+        shell: bash
+        id: date-stamp
+        run: |
+          echo "timestamp=$(date -u "+%Y%m%d%H%M_%S")" >> "$GITHUB_OUTPUT"
+
+      - name: Create ~/.ccache
+        run: |
+          mkdir -p ~/.ccache
+
+      - name: Cache TON test
+        id: cache-ton
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}-${{ runner.arch }}-13-shared-ccache-${{ steps.date-stamp.outputs.timestamp }}
+          restore-keys: ${{ runner.os }}-${{ runner.arch }}-13-shared-ccache
+
       - name: Build TON
         run: |
           git submodule sync --recursive
           git submodule update
           cp assembly/native/build-macos-shared.sh .
           chmod +x build-macos-shared.sh
-          ./build-macos-shared.sh -t -a
+          ./build-macos-shared.sh -t -c
+          ccache -sp
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@master
-        with:
-          name: ton-binaries-macos-13
-          path: artifacts
+      - name: Run Tests
+        run: |
+          cd build        
+          ctest --output-on-failure --timeout 1800

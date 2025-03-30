@@ -16,6 +16,27 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y build-essential git openssl cmake ninja-build zlib1g-dev libssl-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev liblz4-dev libjemalloc-dev
+        mkdir -p 3pp_emscripten
+
+    - name: Install clang-16
+      run: |
+        wget https://apt.llvm.org/llvm.sh
+        chmod +x llvm.sh
+        sudo ./llvm.sh 16 clang
+
+    - name: Cache OpenSSL
+      id: cache-openssl
+      uses: actions/cache@v4
+      with:
+        path: openssl_3
+        key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-openssl_3-${{ hashFiles('**/assembly/wasm/fift-func-wasm-build-ubuntu.sh') }}
+
+    - name: Cache 3pp Emscripten
+      id: cache-3pp-emscripten
+      uses: actions/cache@v4
+      with:
+        path: 3pp_emscripten
+        key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-3pp_em-${{ hashFiles('**/assembly/wasm/fift-func-wasm-build-ubuntu.sh') }}
 
     - name: Build TON WASM artifacts
       run: |
@@ -43,7 +64,6 @@ jobs:
         cp artifacts/funcfiftlib.js func-js/node_modules/@ton-community/func-js-bin/dist/funcfiftlib.js
         npx func-js stdlib.fc intrinsics.fc --fift ./output.f
     
-
     - name: Upload artifacts
       uses: actions/upload-artifact@master
       with:
