@@ -77,7 +77,8 @@ fun test5(): [int,int] {
 
 @method_id(106)
 fun test6() {
-    return beginCell().storeUint(1, 32).storeUint(2, 32).storeUint(3, 32);
+    var st = beginCell().storeUint(1, 32).storeUint(2, 32).storeUint(3, 32).endCell().beginParse();
+    return st.loadUint(96) == ((1 << 64) + (2 << 32) + 3);
 }
 
 @method_id(107)
@@ -229,6 +230,96 @@ fun test16() {
 }
 
 
+@method_id(117)
+fun test17() {
+    var b = beginCell().storeUint(1, 4).storeCoins(0).storeInt(123, 8);
+    var s = b.endCell().beginParse();
+    return (s.loadUint(4), s.loadCoins(), s.loadUint(8));
+}
+
+@method_id(118)
+fun test18() {
+  var x = 0;
+  var b = beginCell();
+  b = b.storeUint(x, 14);
+  x += 12;
+  if (10 > 3) { x += x; }
+  if (true) {
+      b.storeInt(x + 2, 8).storeUint(x = match (x) { 24 => 5, else => 0 }, 4);
+  }
+  var s = b.endCell().beginParse();
+  return (s.loadUint(14), s.loadInt(8), s.loadUint(4));
+}
+
+fun test19() {
+    // numbers with potential overflow for STU are not joined, check via codegen
+    var b = beginCell();
+    b.storeInt(123, 4).storeUint(0xFF, 8).storeUint(0xFF, 8).storeInt(-1, 8);
+    return b;
+}
+
+@method_id(120)
+fun test20() {
+  var x = false;
+  var n = 4;
+  var b = true ? beginCell() : null;
+  b.storeBool(true).storeBool(x);
+  b = b.storeBool(true).storeUint(0, n *= 2).storeBool(!!true).storeCoins(0);
+  var s = b.endCell().beginParse();
+  return (s.loadBool(), s.loadBool(), s.loadBool(), s.loadUint(8), s.loadBool(), s.loadCoins());
+}
+
+fun test21(s: slice) {
+    // successive skipBits are also joined
+    var x = 8;
+    s.skipBits(x);
+    x -= 4;
+    s = s.skipBits(x).skipBits(2);
+    x *= 0;
+    s = s.skipBits(x);
+    return s;
+}
+
+@method_id(122)
+fun test22() {
+    // different builders aren't mixed, store inside them are joined independently
+    var (b1, b2) = (beginCell(), beginCell());
+    b1.storeUint(8, 16).storeUint(8, 8);
+    b2.storeUint(8, 32).storeUint(1<<88, 100);
+    return (
+        b1.endCell().beginParse().remainingBitsCount(),
+        b2.endCell().beginParse().skipBits(32).loadUint(100),
+    );
+}
+
+@method_id(123)
+fun test23(uns: bool) {
+    // corner values, signed/unsigned 255/256
+    var b = beginCell();
+    if (uns) {
+        b.storeUint(1, 100).storeUint(2, 100).storeInt(3, 55).storeInt(0, 1);
+        b.storeUint(8, 256);
+    } else {
+        b.storeInt(1, 10).storeUint(2, 190).storeInt(3, 54).storeUint(1, 1);
+    }
+    return b.bitsCount();
+}
+
+@method_id(124)
+fun test24(uns: bool) {
+    // doesn't fit into a single STI/STU instruction, is splitted
+    var b = beginCell();
+    if (uns) {
+        b.storeUint(1, 100).storeUint(2, 100)
+         .storeInt(3, 100).storeInt(8, 19);
+        return b.endCell().beginParse().skipBits(200+100).loadInt(19);
+    } else {
+        b.storeInt(1, 20).storeUint(2, 200).storeInt(3, 35)
+         .storeUint(1, 1).storeUint(5, 5).storeUint(10, 10);
+        return b.endCell().beginParse().skipBits(255+6).loadUint(10);
+    }
+}
+
 fun main(): int {
     return 0;
 }
@@ -239,6 +330,7 @@ fun main(): int {
 @testcase | 103 | 103 | 103
 @testcase | 104 |     | [ 1 3 ]
 @testcase | 105 |     | [ 210 1 ]
+@testcase | 106 |     | -1
 @testcase | 107 |     | 72 40 72
 @testcase | 108 |     | 0 40 32
 @testcase | 110 |     | 64 3 0 0 -1 0 100 -1
@@ -249,20 +341,102 @@ fun main(): int {
 @testcase | 114 | 0   | 0 0 0
 @testcase | 115 |     | 123 456 123 456
 @testcase | 116 |     | BC{00140008000000ff00000008}
+@testcase | 117 |     | 1 0 123
+@testcase | 118 |     | 0 26 5
+@testcase | 120 |     | -1 0 -1 0 -1 0
+@testcase | 122 |     | 24 309485009821345068724781056
+@testcase | 123 | -1  | 512
+@testcase | 123 | 0   | 255
+@testcase | 124 | -1  | 8
+@testcase | 124 | 0   | 10
 
-Note, that since 'compute-asm-ltr' became on be default, chaining methods codegen is not quite optimal.
+We test that consequtive storeInt/storeUint with constants are joined into a single number
+
 @fif_codegen
 """
   test6 PROC:<{
-    1 PUSHINT                   //  '0=1
-    NEWC                        //  '0=1 '1
-    32 STU                      //  '1
-    2 PUSHINT                   //  '1 '4=2
-    SWAP                        //  '4=2 '1
-    32 STU                      //  '1
-    3 PUSHINT                   //  '1 '7=3
-    SWAP                        //  '7=3 '1
-    32 STU                      //  '1
+    18446744082299486211 PUSHINT
+    NEWC
+    96 STU      //  '2
+    ENDC        //  '11
+"""
+
+@fif_codegen
+"""
+  test17 PROC:<{
+    4219 PUSHINT
+    NEWC
+    16 STU
+"""
+
+@fif_codegen
+"""
+  test18 PROC:<{
+    421 PUSHINT
+    NEWC
+    26 STU
+"""
+
+@fif_codegen
+"""
+  test19 PROC:<{
+    NEWC
+    123 PUSHINT
+    SWAP
+    4 STI
+    16 PUSHPOW2DEC
+    16 STUR
+    -1 PUSHINT
+    SWAP
+    8 STI
   }>
 """
+
+@fif_codegen
+"""
+  test20 PROC:<{
+    40976 PUSHINT
+    NEWC
+    16 STU
+"""
+
+@fif_codegen
+"""
+  test21 PROC:<{
+    14 PUSHINT
+    SDSKIPFIRST
+  }>
+"""
+
+@fif_codegen
+"""
+  test22 PROC:<{
+    NEWC                    	//  '2
+    NEWC                    	//  b1 b2
+    SWAP                    	//  b2 b1
+    2056 PUSHINT
+    24 STUR                 	//  b2 b1
+    SWAP                    	//  b1 b2
+    10141514286835656557042350424064 PUSHINTX
+    132 STUR                	//  b1 b2
+"""
+
+@fif_codegen
+"""
+  test23 PROC:<{
+    NEWC
+    SWAP
+    IF:<{
+      91343852333181432387730302044911803916571639814 PUSHINT
+      256 STUR
+      8 PUSHINT
+      256 STUR
+    }>ELSE<{
+      56539106072908298546665520023773392506479484700019806659963456035401760775 PUSHINT
+      255 STIR
+    }>
+    BBITS
+  }>
+"""
+
  */

@@ -664,7 +664,7 @@ fun slice.loadBool(mutate self): bool
 /// Shifts a slice pointer to [len] bits forward, mutating the slice.
 @pure
 fun slice.skipBits(mutate self, len: int): self
-    asm "SDSKIPFIRST";
+    builtin;
 
 /// Returns the first `0 ≤ len ≤ 1023` bits of a slice.
 @pure
@@ -758,13 +758,13 @@ fun builder.storeAddress(mutate self, addr: address): self
 /// Stores amount of Toncoins into a builder.
 @pure
 fun builder.storeCoins(mutate self, x: coins): self
-    asm "STGRAMS";
+    builtin;
 
 /// Stores bool (-1 or 0) into a builder.
 /// Attention: true value is `-1`, not 1! If you pass `1` here, TVM will throw an exception.
 @pure
 fun builder.storeBool(mutate self, x: bool): self
-    asm(x self) "1 STI";
+    builtin;
 
 /// Stores dictionary (represented by TVM `cell` or `null`) into a builder.
 /// In other words, stores a `1`-bit and a reference to [c] if [c] is not `null` and `0`-bit otherwise.

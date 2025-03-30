@@ -678,6 +678,16 @@ void Op::prepare_args(VarDescrList values) {
   }
 }
 
+void Op::maybe_swap_builtin_args_to_compile() {
+  // in builtins.cpp, where optimizing constants are done, implementations assume that args are passed ltr (as declared);
+  // if a function has arg_order, called arguments might have been put on a stack not ltr, but in asm order;
+  // here we swap them back before calling FunctionBodyBuiltin compile, and also swap after
+  tolk_assert(arg_order_already_equals_asm());
+  if (f_sym->method_name == "storeUint" || f_sym->method_name == "storeInt" || f_sym->method_name == "storeBool") {
+    std::swap(args[0], args[1]);
+  }
+}
+
 VarDescrList Op::fwd_analyze(VarDescrList values) {
   var_info.import_values(values);
   switch (cl) {
@@ -705,7 +715,13 @@ VarDescrList Op::fwd_analyze(VarDescrList values) {
         }
         AsmOpList tmp;
         if (!f_sym->is_asm_function()) {
+          if (arg_order_already_equals_asm()) {
+            maybe_swap_builtin_args_to_compile();
+          }
           std::get<FunctionBodyBuiltin*>(f_sym->body)->compile(tmp, res, args, loc);
+          if (arg_order_already_equals_asm()) {
+            maybe_swap_builtin_args_to_compile();
+          }
         }
         int j = 0;
         for (var_idx_t i : left) {
