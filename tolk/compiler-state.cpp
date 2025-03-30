@@ -70,4 +70,8 @@ const std::vector<FunctionPtr>& get_all_not_builtin_functions() {
   return G.all_functions;
 }
 
+const std::vector<GlobalConstPtr>& get_all_declared_constants() {
+  return G.all_constants;
+}
+
 } // namespace tolk

@@ -142,6 +142,7 @@ set(TON_CRYPTO_SOURCE
 
 set(TON_DB_SOURCE
   vm/db/DynamicBagOfCellsDb.cpp
+  vm/db/DynamicBagOfCellsDbV2.cpp
   vm/db/CellStorage.cpp
   vm/db/TonDb.cpp
 
@@ -541,7 +542,7 @@ target_include_directories(create-state PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT
 if (INTERNAL_COMPILE)
   target_link_libraries(create-state PUBLIC ton_crypto fift-lib tonlib git)
 else()
-  if (TONLIB_COMPILE) 
+  if (TONLIB_COMPILE)
     target_link_libraries(create-state PUBLIC ton_crypto fift-lib tonlib git)
   else()
     target_link_libraries(create-state PUBLIC ton_crypto fift-lib git)

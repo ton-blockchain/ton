@@ -12,13 +12,45 @@ jobs:
         with:
           submodules: 'recursive'
 
+      - name: Date Stamp
+        shell: bash
+        id: date-stamp
+        run: |
+          echo "timestamp=$(date -u "+%Y%m%d%H%M_%S")" >> "$GITHUB_OUTPUT"
+
+      - name: Create directories
+        run: |
+          mkdir -p ~/.ccache
+          mkdir -p 3pp
+
+      - name: Cache 3pp
+        id: cache-3pp
+        uses: actions/cache@v4
+        with:
+          path: 3pp
+          key: ${{ runner.os }}-${{ runner.arch }}-14-3pp-${{ hashFiles('**/assembly/native/build-macos-portable.sh') }}
+
+      - name: Cache TON
+        id: cache-ton
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}-${{ runner.arch }}-14-portable-ccache-${{ steps.date-stamp.outputs.timestamp }}
+          restore-keys: ${{ runner.os }}-${{ runner.arch }}-14-portable-ccache
+
       - name: Build TON
         run: |
           git submodule sync --recursive
           git submodule update
           cp assembly/native/build-macos-portable.sh .
           chmod +x build-macos-portable.sh
-          ./build-macos-portable.sh -t -a
+          ./build-macos-portable.sh -t -a -c -o 14.0
+          ccache -sp
+
+      - name: Run Tests
+        run: |
+          cd build        
+          ctest --output-on-failure --timeout 1800
 
       - name: Upload artifacts
         uses: actions/upload-artifact@master

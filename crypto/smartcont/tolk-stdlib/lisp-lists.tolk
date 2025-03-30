@@ -1,5 +1,5 @@
 // A part of standard library for Tolk
-tolk 0.9
+tolk 0.10
 
 /**
     Lisp-style lists are nested 2-elements tuples: `(1, (2, (3, null)))` represents list `[1, 2, 3]`.
