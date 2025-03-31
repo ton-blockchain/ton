@@ -258,24 +258,33 @@ class CellChecker {
       return;
     }
 
-    digest::SHA256 hasher;
+    static_assert(2 + CellTraits::max_bytes + CellTraits::max_refs * (hash_bytes + depth_bytes) <= 512);
+    char data_to_hash[512];
+    int pointer = 0;
+
+    auto add_byte_to_hash = [&](char byte) { data_to_hash[pointer++] = byte; };
+
+    auto add_slice_to_hash = [&](td::Slice slice) {
+      std::memcpy(data_to_hash + pointer, slice.data(), slice.size());
+      pointer += slice.size();
+    };
 
     auto d1 = refs_cnt_ + (is_special_ << 3) + (level_mask_.apply(level).get_mask() << 5);
+    add_byte_to_hash(static_cast<td::uint8>(d1));
     auto d2 = (bit_length_ >> 3 << 1) + ((bit_length_ & 7) != 0);
-    td::uint8 header[] = {static_cast<td::uint8>(d1), static_cast<td::uint8>(d2)};
-    hasher.feed(header, 2);
+    add_byte_to_hash(static_cast<td::uint8>(d2));
 
     if (last_computed_hash != -1 && type_ != Cell::SpecialType::PrunnedBranch) {
-      hasher.feed(hash_[last_computed_hash].as_slice());
+      add_slice_to_hash(hash_[last_computed_hash].as_slice());
     } else {
-      hasher.feed(data_.substr(0, bit_length_ / 8));
+      add_slice_to_hash(data_.substr(0, bit_length_ / 8));
       // If we are not byte-aligned, some bit gymnastics is required to correctly pad the last byte.
       if (bit_length_ % 8 != 0) {
         td::uint8 last_byte = data_[bit_length_ / 8];
         last_byte >>= 7 - bit_length_ % 8;
         last_byte |= 1;
         last_byte <<= 7 - bit_length_ % 8;
-        hasher.feed({&last_byte, 1});
+        add_byte_to_hash(last_byte);
       }
     }
 
@@ -283,16 +292,17 @@ class CellChecker {
     auto child_level = (is_merkle_node ? std::min(max_level, level + 1) : level);
 
     for (int i = 0; i < refs_cnt_; ++i) {
-      td::uint8 stored_depth[depth_bytes];
-      DataCell::store_depth(stored_depth, refs_[i]->get_depth(child_level));
-
-      hasher.feed(stored_depth, depth_bytes);
+      auto depth = refs_[i]->get_depth(child_level);
+      add_byte_to_hash((depth >> 8) & 255);
+      add_byte_to_hash((depth >> 0) & 255);
     }
 
     for (int i = 0; i < refs_cnt_; ++i) {
-      hasher.feed(refs_[i]->get_hash(child_level).as_slice());
+      add_slice_to_hash(refs_[i]->get_hash(child_level).as_slice());
     }
 
+    digest::SHA256 hasher;
+    hasher.feed(data_to_hash, pointer);
     hasher.extract(hash_[level].as_slice());
   }
 
