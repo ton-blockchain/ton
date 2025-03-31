@@ -30,6 +30,7 @@
 #include "block/block.h"
 #include "block/mc-config.h"
 #include "precompiled-smc/PrecompiledSmartContract.h"
+#include "block/block-auto.h"
 
 namespace block {
 using td::Ref;
@@ -342,6 +343,7 @@ struct Transaction {
   bool was_created{false};
   bool bounce_enabled{false};
   bool in_msg_extern{false};
+  gen::CommonMsgInfo::Record_int_msg_info in_msg_info;
   bool use_msg_state{false};
   bool is_first{false};
   bool orig_addr_rewrite_set{false};
@@ -428,6 +430,10 @@ struct Transaction {
   bool serialize_action_phase(vm::CellBuilder& cb);
   bool serialize_bounce_phase(vm::CellBuilder& cb);
   bool unpack_msg_state(const ComputePhaseConfig& cfg, bool lib_only = false, bool forbid_public_libs = false);
+
+ public:
+  static Ref<vm::Tuple> prepare_in_msg_params_tuple(const gen::CommonMsgInfo::Record_int_msg_info* info,
+                                                    const Ref<vm::Cell>& state_init);
 };
 }  // namespace transaction
 

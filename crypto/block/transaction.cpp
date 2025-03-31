@@ -747,46 +747,44 @@ bool Transaction::unpack_input_msg(bool ihr_delivered, const ActionPhaseConfig* 
     };
   }
   auto cs = vm::load_cell_slice(in_msg);
-  int tag = block::gen::t_CommonMsgInfo.get_tag(cs);
-  Ref<vm::CellSlice> src_addr, dest_addr;
+  int tag = gen::t_CommonMsgInfo.get_tag(cs);
   switch (tag) {
-    case block::gen::CommonMsgInfo::int_msg_info: {
-      block::gen::CommonMsgInfo::Record_int_msg_info info;
-      if (!(tlb::unpack(cs, info) && msg_balance_remaining.unpack(std::move(info.value)))) {
+    case gen::CommonMsgInfo::int_msg_info: {
+      if (!(tlb::unpack(cs, in_msg_info) && msg_balance_remaining.unpack(in_msg_info.value))) {
         return false;
       }
-      if (info.ihr_disabled && ihr_delivered) {
+      if (in_msg_info.ihr_disabled && ihr_delivered) {
         return false;
       }
-      bounce_enabled = info.bounce;
-      src_addr = std::move(info.src);
-      dest_addr = std::move(info.dest);
+      bounce_enabled = in_msg_info.bounce;
       in_msg_type = 1;
-      td::RefInt256 ihr_fee = block::tlb::t_Grams.as_integer(std::move(info.ihr_fee));
+      td::RefInt256 ihr_fee = block::tlb::t_Grams.as_integer(in_msg_info.ihr_fee);
       if (ihr_delivered) {
         in_fwd_fee = std::move(ihr_fee);
       } else {
         in_fwd_fee = td::zero_refint();
         msg_balance_remaining += std::move(ihr_fee);
       }
-      if (info.created_lt >= start_lt) {
-        start_lt = info.created_lt + 1;
+      if (in_msg_info.created_lt >= start_lt) {
+        start_lt = in_msg_info.created_lt + 1;
         end_lt = start_lt + 1;
       }
       // ...
       break;
     }
-    case block::gen::CommonMsgInfo::ext_in_msg_info: {
-      block::gen::CommonMsgInfo::Record_ext_in_msg_info info;
+    case gen::CommonMsgInfo::ext_in_msg_info: {
+      gen::CommonMsgInfo::Record_ext_in_msg_info info;
       if (!tlb::unpack(cs, info)) {
         return false;
       }
-      src_addr = std::move(info.src);
-      dest_addr = std::move(info.dest);
+      in_msg_info.ihr_disabled = in_msg_info.bounce = in_msg_info.bounced = false;
+      in_msg_info.src = info.src;
+      in_msg_info.dest = info.dest;
+      in_msg_info.created_at = in_msg_info.created_lt = 0;
       if (cfg->disable_anycast) {
         // Check that dest is addr_std without anycast
-        block::gen::MsgAddressInt::Record_addr_std rec;
-        if (!block::gen::csr_unpack(dest_addr, rec)) {
+        gen::MsgAddressInt::Record_addr_std rec;
+        if (!gen::csr_unpack(info.dest, rec)) {
           LOG(DEBUG) << "destination address of the external message is not a valid addr_std";
           return false;
         }
@@ -1406,9 +1404,53 @@ Ref<vm::Tuple> Transaction::prepare_vm_c7(const ComputePhaseConfig& cfg) const {
                         ? vm::StackEntry(td::make_refint(compute_phase->precompiled_gas_usage.value()))
                         : vm::StackEntry());  // precompiled_gas_usage:Integer
   }
+  if (cfg.global_version >= 10) {
+    // in_msg_params:[...]
+    tuple.push_back(prepare_in_msg_params_tuple(trans_type == tr_ord ? &in_msg_info : nullptr, in_msg_state));
+  }
   auto tuple_ref = td::make_cnt_ref<std::vector<vm::StackEntry>>(std::move(tuple));
   LOG(DEBUG) << "SmartContractInfo initialized with " << vm::StackEntry(tuple_ref).to_string();
   return vm::make_tuple_ref(std::move(tuple_ref));
+}
+
+/**
+ * Prepares tuple with unpacked parameters of the inbound message (for the 17th element of c7).
+ * `info` is:
+ * - For internal messages - just int_msg_info of the message
+ * - For external messages - artificial int_msg_info based on ext_msg_info of the messages.
+ * - For tick-tock transactions and get methods - nullptr.
+ *
+ * @param info Pointer to the message info.
+ * @param state_init State init of the message (null if absent).
+
+ * @returns Tuple with message parameters.
+ */
+Ref<vm::Tuple> Transaction::prepare_in_msg_params_tuple(const gen::CommonMsgInfo::Record_int_msg_info* info,
+                                                        const Ref<vm::Cell>& state_init) {
+  std::vector<vm::StackEntry> in_msg_params(8);
+  if (info != nullptr) {
+    in_msg_params[0] = td::make_refint(info->bounce ? -1 : 0);   // bounce
+    in_msg_params[1] = td::make_refint(info->bounced ? -1 : 0);  // bounced
+    in_msg_params[2] = info->src;                                // src_addr
+    in_msg_params[3] = info->fwd_fee.is_null() ? td::zero_refint() : tlb::t_Grams.as_integer(info->fwd_fee);  // fwd_fee
+    in_msg_params[4] = td::make_refint(info->created_lt);  // created_lt
+    in_msg_params[5] = td::make_refint(info->created_at);  // created_at
+    auto value = info->value;
+    in_msg_params[6] =
+        info->value.is_null() ? td::zero_refint() : tlb::t_Grams.as_integer_skip(value.write());  // original value
+    in_msg_params[7] = vm::StackEntry::maybe(state_init);                                         // state_init
+  } else {
+    in_msg_params[0] = td::zero_refint();  // bounce
+    in_msg_params[1] = td::zero_refint();  // bounced
+    static Ref<vm::CellSlice> addr_none = vm::CellBuilder{}.store_zeroes(2).as_cellslice_ref();
+    in_msg_params[2] = addr_none;          // src_addr
+    in_msg_params[3] = td::zero_refint();  // fed_fee
+    in_msg_params[4] = td::zero_refint();  // created_lt
+    in_msg_params[5] = td::zero_refint();  // created_at
+    in_msg_params[6] = td::zero_refint();  // original value
+    in_msg_params[7] = vm::StackEntry{};   // state_init
+  }
+  return td::make_cnt_ref<std::vector<vm::StackEntry>>(std::move(in_msg_params));
 }
 
 /**
