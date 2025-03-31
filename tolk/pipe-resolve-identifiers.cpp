@@ -132,15 +132,15 @@ class AssignSymInsideFunctionVisitor final : public ASTVisitorFunctionBody {
   static NameAndScopeResolver current_scope;
   static FunctionPtr cur_f;
 
-  static LocalVarPtr create_local_var_sym(std::string_view name, SrcLocation loc, AnyTypeV declared_type_node, bool immutable) {
-    LocalVarData* v_sym = new LocalVarData(static_cast<std::string>(name), loc, declared_type_node, immutable * LocalVarData::flagImmutable, -1);
+  static LocalVarPtr create_local_var_sym(std::string_view name, SrcLocation loc, AnyTypeV declared_type_node, bool immutable, bool lateinit) {
+    LocalVarData* v_sym = new LocalVarData(static_cast<std::string>(name), loc, declared_type_node, immutable * LocalVarData::flagImmutable + lateinit * LocalVarData::flagLateInit, -1);
     current_scope.add_local_var(v_sym);
     return v_sym;
   }
 
   static void process_catch_variable(AnyExprV catch_var) {
     if (auto v_ref = catch_var->try_as<ast_reference>()) {
-      LocalVarPtr var_ref = create_local_var_sym(v_ref->get_name(), catch_var->loc, nullptr, true);
+      LocalVarPtr var_ref = create_local_var_sym(v_ref->get_name(), catch_var->loc, nullptr, true, false);
       v_ref->mutate()->assign_sym(var_ref);
     }
   }
@@ -158,7 +158,7 @@ protected:
       }
       v->mutate()->assign_var_ref(var_ref);
     } else {
-      LocalVarPtr var_ref = create_local_var_sym(v->get_name(), v->loc, v->type_node, v->is_immutable);
+      LocalVarPtr var_ref = create_local_var_sym(v->get_name(), v->loc, v->type_node, v->is_immutable, v->is_lateinit);
       v->mutate()->assign_var_ref(var_ref);
     }
   }

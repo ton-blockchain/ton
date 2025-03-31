@@ -150,6 +150,12 @@ static void fire_error_cannot_deduce_untyped_tuple_access(FunctionPtr cur_f, Src
   fire(cur_f, loc, "can not deduce type of `" + idx_access + "`\neither assign it to variable like `var c: int = " + idx_access + "` or cast the result like `" + idx_access + " as int`");
 }
 
+// fire an error on using lateinit variable before definite assignment
+GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
+static void fire_error_using_lateinit_variable_uninitialized(FunctionPtr cur_f, SrcLocation loc, std::string_view name) {
+  fire(cur_f, loc, "using variable `" + static_cast<std::string>(name) + "` before it's definitely assigned");
+}
+
 // helper function: given hint = `Ok<int> | Err<slice>` and struct `Ok`, return `Ok<int>`
 // example: `match (...) { Ok => ... }` we need to deduce `Ok<T>` based on subject
 static TypePtr try_pick_instantiated_generic_from_hint(TypePtr hint, StructPtr lookup_ref) {
@@ -406,6 +412,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
       assign_inferred_type(v, v->var_ref->declared_type);
     } else {
       assign_inferred_type(v, v->type_node ? v->type_node->resolved_type : TypeDataUnknown::create());
+      flow.register_known_type(SinkExpression(v->var_ref), TypeDataUnknown::create());    // it's unknown before assigned
     }
     return ExprFlow(std::move(flow), used_as_condition);
   }
@@ -842,6 +849,9 @@ class InferTypesAndCallsAndFieldsVisitor final {
       TypePtr declared_or_smart_casted = flow.smart_cast_if_exists(SinkExpression(var_ref));
       tolk_assert(declared_or_smart_casted != nullptr);   // all local vars are presented in flow
       assign_inferred_type(v, declared_or_smart_casted);
+      if (var_ref->is_lateinit() && declared_or_smart_casted == TypeDataUnknown::create() && v->is_rvalue) {
+        fire_error_using_lateinit_variable_uninitialized(cur_f, v->loc, v->get_name());
+      }
       // it might be `local_var()` also, don't fill out_f_called, we have no fun_ref, it's a call of arbitrary expression
 
     } else if (GlobalConstPtr const_ref = v->sym->try_as<GlobalConstPtr>()) {
@@ -1220,6 +1230,8 @@ class InferTypesAndCallsAndFieldsVisitor final {
     TypeInferringUnifyStrategy branches_unifier;
     FlowContext arms_entry_facts = flow.clone();
     FlowContext match_out_flow;
+    bool has_expr_arm = false;
+    bool has_else_arm = false;
 
     for (int i = 0; i < v->get_arms_count(); ++i) {
       auto v_arm = v->get_arm(i);
@@ -1245,13 +1257,23 @@ class InferTypesAndCallsAndFieldsVisitor final {
           }
         }
         arm_flow.register_known_type(s_expr, exact_type);
+
+      } else if (v_arm->pattern_kind == MatchArmKind::const_expression) {
+        has_expr_arm = true;
+      } else if (v_arm->pattern_kind == MatchArmKind::else_branch) {
+        has_else_arm = true;
       }
+
       arm_flow = infer_any_expr(v_arm->get_body(), std::move(arm_flow), false, hint).out_flow;
       match_out_flow = i == 0 ? std::move(arm_flow) : FlowContext::merge_flow(std::move(match_out_flow), std::move(arm_flow));
       branches_unifier.unify_with(v_arm->get_body()->inferred_type, hint);
     }
     if (v->get_arms_count() == 0) {
       match_out_flow = std::move(arms_entry_facts);
+    }
+    if (has_expr_arm && !has_else_arm) {
+      FlowContext else_flow = process_any_statement(createV<ast_empty_expression>(v->loc), std::move(arms_entry_facts));
+      match_out_flow = FlowContext::merge_flow(std::move(match_out_flow), std::move(else_flow));
     }
 
     if (v->is_statement()) {

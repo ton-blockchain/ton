@@ -400,11 +400,11 @@ static AnyV parse_type_alias_declaration(Lexer& lex, const std::vector<V<ast_ann
   return createV<ast_type_alias_declaration>(loc, v_ident, genericsT_list, underlying_type);
 }
 
-static AnyExprV parse_var_declaration_lhs(Lexer& lex, bool is_immutable) {
+static AnyExprV parse_var_declaration_lhs(Lexer& lex, bool is_immutable, bool allow_lateinit) {
   SrcLocation loc = lex.cur_location();
   if (lex.tok() == tok_oppar) {
     lex.next();
-    AnyExprV first = parse_var_declaration_lhs(lex, is_immutable);
+    AnyExprV first = parse_var_declaration_lhs(lex, is_immutable, false);
     if (lex.tok() == tok_clpar) {
       lex.next();
       return first;
@@ -412,17 +412,17 @@ static AnyExprV parse_var_declaration_lhs(Lexer& lex, bool is_immutable) {
     std::vector<AnyExprV> args(1, first);
     while (lex.tok() == tok_comma) {
       lex.next();
-      args.push_back(parse_var_declaration_lhs(lex, is_immutable));
+      args.push_back(parse_var_declaration_lhs(lex, is_immutable, false));
     }
     lex.expect(tok_clpar, "`)`");
     return createV<ast_tensor>(loc, std::move(args));
   }
   if (lex.tok() == tok_opbracket) {
     lex.next();
-    std::vector<AnyExprV> args(1, parse_var_declaration_lhs(lex, is_immutable));
+    std::vector<AnyExprV> args(1, parse_var_declaration_lhs(lex, is_immutable, false));
     while (lex.tok() == tok_comma) {
       lex.next();
-      args.push_back(parse_var_declaration_lhs(lex, is_immutable));
+      args.push_back(parse_var_declaration_lhs(lex, is_immutable, false));
     }
     lex.expect(tok_clbracket, "`]`");
     return createV<ast_bracket_tuple>(loc, std::move(args));
@@ -431,6 +431,7 @@ static AnyExprV parse_var_declaration_lhs(Lexer& lex, bool is_immutable) {
     auto v_ident = createV<ast_identifier>(loc, lex.cur_str());
     AnyTypeV declared_type = nullptr;
     bool marked_as_redef = false;
+    bool is_lateinit = false;
     lex.next();
     if (lex.tok() == tok_colon) {
       lex.next();
@@ -439,7 +440,13 @@ static AnyExprV parse_var_declaration_lhs(Lexer& lex, bool is_immutable) {
       lex.next();
       marked_as_redef = true;
     }
-    return createV<ast_local_var_lhs>(loc, v_ident, declared_type, is_immutable, marked_as_redef);
+    if (lex.tok() == tok_semicolon && allow_lateinit) {
+      if (declared_type == nullptr) {
+        lex.error("provide a type for a variable, because its default value is omitted:\n> var " + static_cast<std::string>(v_ident->name) + ": <type>;");
+      }
+      is_lateinit = true;
+    }
+    return createV<ast_local_var_lhs>(loc, v_ident, declared_type, is_immutable, is_lateinit, marked_as_redef);
   }
   if (lex.tok() == tok_underscore) {
     AnyTypeV declared_type = nullptr;
@@ -448,18 +455,21 @@ static AnyExprV parse_var_declaration_lhs(Lexer& lex, bool is_immutable) {
       lex.next();
       declared_type = parse_type_from_tokens(lex);
     }
-    return createV<ast_local_var_lhs>(loc, createV<ast_identifier>(loc, ""), declared_type, true, false);
+    return createV<ast_local_var_lhs>(loc, createV<ast_identifier>(loc, ""), declared_type, true, false, false);
   }
   lex.unexpected("variable name");
 }
 
-static AnyExprV parse_local_vars_declaration_assignment(Lexer& lex) {
+static AnyExprV parse_local_vars_declaration(Lexer& lex, bool allow_lateinit) {
   SrcLocation loc = lex.cur_location();
   bool is_immutable = lex.tok() == tok_val;
   lex.next();
 
-  AnyExprV lhs = createV<ast_local_vars_declaration>(loc, parse_var_declaration_lhs(lex, is_immutable));
+  AnyExprV lhs = parse_var_declaration_lhs(lex, is_immutable, allow_lateinit);
   if (lex.tok() != tok_assign) {
+    if (auto lhs_var = lhs->try_as<ast_local_var_lhs>(); lhs_var && lhs_var->is_lateinit) {
+      return lhs;   // just ast_local_var_lhs inside AST tree
+    }
     lex.error("variables declaration must be followed by assignment: `var xxx = ...`");
   }
   lex.next();
@@ -468,7 +478,7 @@ static AnyExprV parse_local_vars_declaration_assignment(Lexer& lex) {
   if (lex.tok() == tok_comma) {
     lex.error("multiple declarations are not allowed, split variables on separate lines");
   }
-  return createV<ast_assign>(loc, lhs, rhs);
+  return createV<ast_assign>(loc, createV<ast_local_vars_declaration>(loc, lhs), rhs);
 }
 
 // "parameters" are at function declaration: `fun f(param1: int, mutate param2: slice)`
@@ -666,7 +676,7 @@ static V<ast_match_expression> parse_match_expression(Lexer& lex) {
 
   lex.expect(tok_oppar, "`(`");
   AnyExprV subject = lex.tok() == tok_var || lex.tok() == tok_val       // `match (var x = rhs)`
-                ? parse_local_vars_declaration_assignment(lex)
+                ? parse_local_vars_declaration(lex, false)
                 : parse_expr(lex);
   lex.expect(tok_clpar, "`)`");
 
@@ -1179,7 +1189,7 @@ AnyV parse_statement(Lexer& lex) {
   switch (lex.tok()) {
     case tok_var:   // `var x = 0` is technically an expression, but can not appear in "any place",
     case tok_val:   // only as a separate declaration
-      return parse_local_vars_declaration_assignment(lex);
+      return parse_local_vars_declaration(lex, true);
     case tok_opbrace:
       return parse_block_statement(lex);
     case tok_return:

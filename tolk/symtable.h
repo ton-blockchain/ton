@@ -49,6 +49,7 @@ struct LocalVarData final : Symbol {
   enum {
     flagMutateParameter = 1,    // parameter was declared with `mutate` keyword
     flagImmutable = 2,          // variable was declared via `val` (not `var`)
+    flagLateInit = 4,           // variable was declared via `lateinit` (not assigned at declaration)
   };
 
   AnyTypeV type_node;               // either at declaration `var x:int`, or if omitted, from assigned value `var x=2`
@@ -74,6 +75,7 @@ struct LocalVarData final : Symbol {
   bool is_parameter() const { return param_idx >= 0; }
 
   bool is_immutable() const { return flags & flagImmutable; }
+  bool is_lateinit() const { return flags & flagLateInit; }
   bool is_mutate_parameter() const { return flags & flagMutateParameter; }
 
   LocalVarData* mutate() const { return const_cast<LocalVarData*>(this); }

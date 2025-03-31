@@ -1476,6 +1476,7 @@ static std::vector<var_idx_t> process_local_var(V<ast_local_var_lhs> v, CodeBlob
 static std::vector<var_idx_t> process_local_vars_declaration(V<ast_local_vars_declaration>, CodeBlob&) {
   // it can not appear as a standalone expression
   // `var ... = rhs` is handled by ast_assign
+  // `var rhs: int lateinit` is ast_local_var_lhs
   tolk_assert(false);
 }
 

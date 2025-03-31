@@ -584,6 +584,7 @@ public:
   LocalVarPtr var_ref = nullptr;    // filled on resolve identifiers; for `redef` points to declared above; for underscore, name is empty
   AnyTypeV type_node;               // exists for `var x: int = rhs`, otherwise nullptr
   bool is_immutable;                // declared via 'val', not 'var'
+  bool is_lateinit;                 // var st: Storage lateinit (no assignment)
   bool marked_as_redef;             // var (existing_var redef, new_var: int) = ...
 
   V<ast_identifier> get_identifier() const { return identifier; }
@@ -592,9 +593,9 @@ public:
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
   void assign_var_ref(LocalVarPtr var_ref);
 
-  Vertex(SrcLocation loc, V<ast_identifier> identifier, AnyTypeV type_node, bool is_immutable, bool marked_as_redef)
+  Vertex(SrcLocation loc, V<ast_identifier> identifier, AnyTypeV type_node, bool is_immutable, bool is_lateinit, bool marked_as_redef)
     : ASTExprLeaf(ast_local_var_lhs, loc)
-    , identifier(identifier), type_node(type_node), is_immutable(is_immutable), marked_as_redef(marked_as_redef) {}
+    , identifier(identifier), type_node(type_node), is_immutable(is_immutable), is_lateinit(is_lateinit), marked_as_redef(marked_as_redef) {}
 };
 
 template<>
