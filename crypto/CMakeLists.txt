@@ -70,7 +70,6 @@ set(TON_CRYPTO_CORE_SOURCE
   vm/cells/CellString.h
   vm/cells/CellTraits.h
   vm/cells/CellUsageTree.h
-  vm/cells/CellWithStorage.h
   vm/cells/DataCell.h
   vm/cells/ExtCell.h
   vm/cells/LevelMask.h
