@@ -18,7 +18,6 @@
 */
 #include "vm/db/StaticBagOfCellsDb.h"
 
-#include "vm/cells/CellWithStorage.h"
 #include "vm/boc.h"
 
 #include "vm/cells/ExtCell.h"
