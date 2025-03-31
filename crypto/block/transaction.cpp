@@ -2521,7 +2521,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     LOG(DEBUG) << "invalid destination address in a proposed outbound message";
     return check_skip_invalid(36);  // invalid destination address
   }
-  if (cfg.extra_currency_v2) {
+  if (!ext_msg && cfg.extra_currency_v2) {
     CurrencyCollection value;
     if (!value.unpack(info.value)) {
       LOG(DEBUG) << "invalid value:ExtraCurrencies in a proposed outbound message";
