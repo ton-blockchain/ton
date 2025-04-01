@@ -1,21 +1,17 @@
-FROM ubuntu:22.04 AS builder
+FROM ubuntu:24.04 AS builder
 ARG DEBIAN_FRONTEND=noninteractive
+RUN cat /proc/cpuinfo
 RUN apt-get update && \
-        rm /var/lib/dpkg/info/libc-bin.* && \
-        apt-get clean && \
-        apt-get update && \
-        apt install libc-bin && \
-        apt-get install -y build-essential cmake clang openssl libssl-dev zlib1g-dev gperf wget git \
-        ninja-build libsodium-dev libmicrohttpd-dev liblz4-dev pkg-config autoconf automake libtool \
-        libjemalloc-dev lsb-release software-properties-common gnupg
+    rm /var/lib/dpkg/info/libc-bin.* && \
+    apt-get clean && \
+    apt-get update && \
+    apt-get install -y libc-bin && \
+    apt-get install -y build-essential cmake clang gcc g++ openssl libssl-dev zlib1g-dev gperf wget git \
+    ninja-build libsodium-dev libmicrohttpd-dev liblz4-dev pkg-config autoconf automake libtool \
+    libjemalloc-dev lsb-release software-properties-common gnupg
 
-RUN wget https://apt.llvm.org/llvm.sh && \
-    chmod +x llvm.sh && \
-    ./llvm.sh 16 all && \
-    rm -rf /var/lib/apt/lists/*
-
-ENV CC=/usr/bin/clang-16
-ENV CXX=/usr/bin/clang++-16
+ENV CC=/usr/bin/clang
+ENV CXX=/usr/bin/clang++
 ENV CCACHE_DISABLE=1
 
 WORKDIR /
@@ -31,11 +27,12 @@ RUN mkdir build && \
     generate-random-id dht-server lite-client tolk rldp-http-proxy dht-server proxy-liteserver create-state \
     blockchain-explorer emulator tonlibjson http-proxy adnl-proxy
 
-FROM ubuntu:22.04
+# build image
+FROM ubuntu:24.04
 ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
     apt-get install -y wget curl libatomic1 openssl libsodium-dev libmicrohttpd-dev liblz4-dev libjemalloc-dev htop \
-    net-tools netcat iptraf-ng jq tcpdump pv plzip && \
+    net-tools netcat-traditional iptraf-ng jq tcpdump pv plzip && \
     rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /var/ton-work/db /var/ton-work/scripts /usr/share/ton/smartcont/auto /usr/lib/fift/
