@@ -126,6 +126,10 @@ void Vertex<ast_reference>::assign_sym(const Symbol* sym) {
   this->sym = sym;
 }
 
+void Vertex<ast_string_const>::assign_literal_value(ConstantValue&& literal_value) {
+  this->literal_value = std::move(literal_value);
+}
+
 void Vertex<ast_function_call>::assign_fun_ref(FunctionPtr fun_ref) {
   this->fun_maybe = fun_ref;
 }

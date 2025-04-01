@@ -192,6 +192,10 @@ static TypePtr calculate_type_lca(TypePtr a, TypePtr b) {
     return TypeDataTypedTuple::create(std::move(types_lca));
   }
 
+  if (a->try_as<TypeDataIntN>() && b->try_as<TypeDataIntN>()) {   // cond ? int32 : int64
+    return TypeDataInt::create();
+  }
+
   return nullptr;
 }
 

@@ -26,6 +26,13 @@ IF %errorlevel% NEQ 0 (
   exit /b %errorlevel%
 )
 
+echo Installing ccache...
+choco install -y ccache
+IF %errorlevel% NEQ 0 (
+  echo Can't install ccache
+  exit /b %errorlevel%
+)
+
 echo Installing nasm...
 choco install -y nasm
 where nasm
@@ -35,7 +42,9 @@ IF %errorlevel% NEQ 0 (
   exit /b %errorlevel%
 )
 
-mkdir third_libs
+if not exist "third_libs" (
+    mkdir "third_libs"
+)
 cd third_libs
 
 set third_libs=%cd%
@@ -159,16 +168,6 @@ copy validator-engine\validator-engine.exe test
 IF %errorlevel% NEQ 0 (
   echo validator-engine.exe does not exist
   exit /b %errorlevel%
-)
-
-IF "%1"=="-t" (
-  echo Running tests...
-REM  ctest -C Release --output-on-failure -E "test-catchain|test-actors|test-validator-session-state"
-  ctest -C Release --output-on-failure -E "test-bigint" --timeout 1800
-  IF %errorlevel% NEQ 0 (
-    echo Some tests failed
-    exit /b %errorlevel%
-  )
 )
 
 echo Strip and copy artifacts

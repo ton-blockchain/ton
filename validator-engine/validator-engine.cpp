@@ -1414,6 +1414,9 @@ td::Status ValidatorEngine::load_global_config() {
   if (zero_state.root_hash.is_zero() || zero_state.file_hash.is_zero()) {
     return td::Status::Error(ton::ErrorCode::error, "[validator] section contains incomplete [zero_state]");
   }
+  if (celldb_in_memory_ && celldb_v2_) {
+    return td::Status::Error(ton::ErrorCode::error, "at most one of --celldb-in-memory --celldb-v2 could be used");
+  }
 
   ton::BlockIdExt init_block;
   if (!conf.validator_->init_block_) {
@@ -1461,11 +1464,12 @@ td::Status ValidatorEngine::load_global_config() {
   if (!session_logs_file_.empty()) {
     validator_options_.write().set_session_logs_file(session_logs_file_);
   }
-  if (celldb_in_memory_) {
+  if (celldb_in_memory_ || celldb_v2_) {
     celldb_compress_depth_ = 0;
   }
   validator_options_.write().set_celldb_compress_depth(celldb_compress_depth_);
   validator_options_.write().set_celldb_in_memory(celldb_in_memory_);
+  validator_options_.write().set_celldb_v2(celldb_v2_);
   validator_options_.write().set_max_open_archive_files(max_open_archive_files_);
   validator_options_.write().set_archive_preload_period(archive_preload_period_);
   validator_options_.write().set_disable_rocksdb_stats(disable_rocksdb_stats_);
@@ -4525,6 +4529,12 @@ int main(int argc, char *argv[]) {
       "store all cells in-memory, much faster but requires a lot of RAM. RocksDb is still used as persistent storage",
       [&]() {
         acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_celldb_in_memory, true); });
+      });
+  p.add_option(
+      '\0', "celldb-v2",
+      "use new version off celldb",
+      [&]() {
+        acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_celldb_v2, true); });
       });
   p.add_checked_option(
       '\0', "catchain-max-block-delay", "delay before creating a new catchain block, in seconds (default: 0.4)",

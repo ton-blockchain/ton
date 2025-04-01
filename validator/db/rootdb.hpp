@@ -80,8 +80,8 @@ class RootDb : public Db {
                                  td::Promise<td::BufferSlice> promise) override;
   void get_persistent_state_file_slice(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::int64 offset,
                                        td::int64 max_length, td::Promise<td::BufferSlice> promise) override;
-  void check_persistent_state_file_exists(BlockIdExt block_id, BlockIdExt masterchain_block_id,
-                                          td::Promise<bool> promise) override;
+  void get_persistent_state_file_size(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+                                      td::Promise<td::uint64> promise) override;
   void store_zero_state_file(BlockIdExt block_id, td::BufferSlice state, td::Promise<td::Unit> promise) override;
   void get_zero_state_file(BlockIdExt block_id, td::Promise<td::BufferSlice> promise) override;
   void check_zero_state_file_exists(BlockIdExt block_id, td::Promise<bool> promise) override;

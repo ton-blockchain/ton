@@ -52,7 +52,8 @@ class ArchiveManager : public td::actor::Actor {
   void get_persistent_state(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::Promise<td::BufferSlice> promise);
   void get_persistent_state_slice(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::int64 offset,
                                   td::int64 max_size, td::Promise<td::BufferSlice> promise);
-  void check_persistent_state(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::Promise<bool> promise);
+  void get_persistent_state_file_size(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+                                      td::Promise<td::uint64> promise);
   void check_zero_state(BlockIdExt block_id, td::Promise<bool> promise);
   void get_previous_persistent_state_files(BlockSeqno cur_mc_seqno,
                                            td::Promise<std::vector<std::pair<std::string, ShardIdFull>>> promise);
@@ -189,7 +190,11 @@ class ArchiveManager : public td::actor::Actor {
     return p.key ? key_files_ : p.temp ? temp_files_ : files_;
   }
 
-  std::map<std::pair<BlockSeqno, FileHash>, FileReferenceShort> perm_states_;  // Mc block seqno, hash -> state
+  struct PermState {
+    FileReferenceShort id;
+    td::uint64 size;
+  };
+  std::map<std::pair<BlockSeqno, FileHash>, PermState> perm_states_;  // Mc block seqno, hash -> state
 
   void load_package(PackageId seqno);
   void delete_package(PackageId seqno, td::Promise<td::Unit> promise);

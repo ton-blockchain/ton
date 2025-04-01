@@ -104,6 +104,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual std::string get_session_logs_file() const = 0;
   virtual td::uint32 get_celldb_compress_depth() const = 0;
   virtual bool get_celldb_in_memory() const = 0;
+  virtual bool get_celldb_v2() const = 0;
   virtual size_t get_max_open_archive_files() const = 0;
   virtual double get_archive_preload_period() const = 0;
   virtual bool get_disable_rocksdb_stats() const = 0;
@@ -144,6 +145,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual void set_celldb_direct_io(bool value) = 0;
   virtual void set_celldb_preload_all(bool value) = 0;
   virtual void set_celldb_in_memory(bool value) = 0;
+  virtual void set_celldb_v2(bool value) = 0;
   virtual void set_catchain_max_block_delay(double value) = 0;
   virtual void set_catchain_max_block_delay_slow(double value) = 0;
   virtual void set_state_serializer_enabled(bool value) = 0;
@@ -227,8 +229,8 @@ class ValidatorManagerInterface : public td::actor::Actor {
   virtual void get_block_data(BlockHandle handle, td::Promise<td::BufferSlice> promise) = 0;
   virtual void check_zero_state_exists(BlockIdExt block_id, td::Promise<bool> promise) = 0;
   virtual void get_zero_state(BlockIdExt block_id, td::Promise<td::BufferSlice> promise) = 0;
-  virtual void check_persistent_state_exists(BlockIdExt block_id, BlockIdExt masterchain_block_id,
-                                             td::Promise<bool> promise) = 0;
+  virtual void get_persistent_state_size(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+                                         td::Promise<td::uint64> promise) = 0;
   virtual void get_persistent_state(BlockIdExt block_id, BlockIdExt masterchain_block_id,
                                     td::Promise<td::BufferSlice> promise) = 0;
   virtual void get_persistent_state_slice(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::int64 offset,

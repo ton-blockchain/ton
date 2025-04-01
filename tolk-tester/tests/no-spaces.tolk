@@ -3,11 +3,11 @@ const int10:int=10;
 fun just10(): int { return int10; }
 fun eq(v: int): int { return`v`; }
 
-@method_id(101) fun `get_-1`  (): int {return-1;}
-@method_id(102) fun `get_--1` (): int {return--1;}
-@method_id(103) fun `get_---1`(): int {return---1;}
-@method_id(104) fun `get_+++1`(): int {return+++1;}
-@method_id(105) fun `get_+-+1`(): int {return+-+1;}
+@method_id(101,) fun `get_-1`  (): int {return-1;}
+@method_id(102,) fun `get_--1` (): int {return--1;}
+@method_id(103,) fun `get_---1`(): int {return---1;}
+@method_id(104,) fun `get_+++1`(): int {return+++1;}
+@method_id(105,) fun `get_+-+1`(): int {return+-+1;}
 
 global `some()var`:int;
 

@@ -310,9 +310,9 @@ void RootDb::get_persistent_state_file_slice(BlockIdExt block_id, BlockIdExt mas
                           offset, max_size, std::move(promise));
 }
 
-void RootDb::check_persistent_state_file_exists(BlockIdExt block_id, BlockIdExt masterchain_block_id,
-                                                td::Promise<bool> promise) {
-  td::actor::send_closure(archive_db_, &ArchiveManager::check_persistent_state, block_id, masterchain_block_id,
+void RootDb::get_persistent_state_file_size(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+                                            td::Promise<td::uint64> promise) {
+  td::actor::send_closure(archive_db_, &ArchiveManager::get_persistent_state_file_size, block_id, masterchain_block_id,
                           std::move(promise));
 }
 

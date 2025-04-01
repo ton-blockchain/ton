@@ -48,7 +48,6 @@ enum TokenType {
 
   tok_int_const,
   tok_string_const,
-  tok_string_modifier,
   tok_true,
   tok_false,
   tok_null,

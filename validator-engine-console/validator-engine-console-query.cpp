@@ -920,6 +920,10 @@ td::Status GetOverlaysStatsQuery::receive(td::BufferSlice data) {
          << "\n";
       sb << "   is_neighbour: " << n->is_neighbour_ << "  is_alive: " << n->is_alive_
          << "  node_flags: " << n->node_flags_ << "\n";
+      if (n->last_ping_time_ >= 0.0) {
+        sb << "   last_ping_at: " << (td::uint32)n->last_ping_at_ << " (" << time_to_human((td::uint32)n->last_ping_at_)
+           << ")  last_ping_time: " << n->last_ping_time_ << "\n";
+      }
       print_traffic("throughput", "   ", n->traffic_);
       print_traffic("throughput (responses only)", "   ", n->traffic_responses_);
     }
@@ -985,8 +989,12 @@ td::Status GetOverlaysStatsJsonQuery::receive(td::BufferSlice data) {
          << ",\n    \"last_in_query_unix\": " << n->last_in_query_ << ",\n    \"last_in_query_human\": \""
          << time_to_human(n->last_in_query_) << "\",\n"
          << "    \"last_out_query_unix\": " << n->last_out_query_ << ",\n    \"last_out_query_human\": \""
-         << time_to_human(n->last_out_query_) << "\",\n"
-         << "\n    ";
+         << time_to_human(n->last_out_query_) << "\",\n";
+      if (n->last_ping_time_ >= 0.0) {
+        sb << "    \"last_ping_at\": " << (td::uint32)n->last_ping_at_ << ", \"last_ping_at_human\": \""
+           << time_to_human((td::uint32)n->last_ping_at_) << "\", \"last_ping_time\": " << n->last_ping_time_ << ",\n";
+      }
+      sb << "\n    ";
       print_traffic("throughput", n->traffic_);
       sb << ",\n    ";
       print_traffic("throughput_responses", n->traffic_responses_);

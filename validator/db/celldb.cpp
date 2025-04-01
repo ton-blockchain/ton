@@ -28,6 +28,9 @@
 #include "ton/ton-io.hpp"
 #include "common/delay.h"
 
+#include <block-auto.h>
+#include <rocksdb/merge_operator.h>
+
 namespace ton {
 
 namespace validator {
@@ -73,6 +76,101 @@ CellDbIn::CellDbIn(td::actor::ActorId<RootDb> root_db, td::actor::ActorId<CellDb
     : root_db_(root_db), parent_(parent), path_(std::move(path)), opts_(opts) {
 }
 
+struct MergeOperatorAddCellRefcnt : public rocksdb::MergeOperator {
+  const char* Name() const override {
+    return "MergeOperatorAddCellRefcnt";
+  }
+  static auto to_td(rocksdb::Slice value) -> td::Slice {
+    return td::Slice(value.data(), value.size());
+  }
+  bool FullMergeV2(const MergeOperationInput& merge_in, MergeOperationOutput* merge_out) const override {
+    CHECK(merge_in.existing_value);
+    auto& value = *merge_in.existing_value;
+    CHECK(merge_in.operand_list.size() >= 1);
+    td::Slice diff;
+    std::string diff_buf;
+    if (merge_in.operand_list.size() == 1) {
+      diff = to_td(merge_in.operand_list[0]);
+    } else {
+      diff_buf = merge_in.operand_list[0].ToString();
+      for (size_t i = 1; i < merge_in.operand_list.size(); ++i) {
+        vm::CellStorer::merge_refcnt_diffs(diff_buf, to_td(merge_in.operand_list[i]));
+      }
+      diff = diff_buf;
+    }
+
+    merge_out->new_value = value.ToString();
+    vm::CellStorer::merge_value_and_refcnt_diff(merge_out->new_value, diff);
+    return true;
+  }
+  bool PartialMerge(const rocksdb::Slice& /*key*/, const rocksdb::Slice& left, const rocksdb::Slice& right,
+                    std::string* new_value, rocksdb::Logger* logger) const override {
+    *new_value = left.ToString();
+    vm::CellStorer::merge_refcnt_diffs(*new_value, to_td(right));
+    return true;
+  }
+};
+
+void CellDbIn::validate_meta() {
+  LOG(INFO) << "Validating metadata\n";
+  size_t max_meta_keys_loaded = opts_->get_celldb_in_memory() ? std::numeric_limits<std::size_t>::max() : 10000;
+  auto meta = boc_->meta_get_all(max_meta_keys_loaded).move_as_ok();
+  bool partial_check = meta.size() == max_meta_keys_loaded;
+  if (partial_check) {
+    LOG(ERROR) << "Too much metadata in the database, do only partial check";
+  }
+  size_t missing_roots = 0;
+  size_t unknown_roots = 0;
+  std::set<vm::CellHash> root_hashes;
+  for (auto [k, v] : meta) {
+    if (k == "desczero") {
+      continue;
+    }
+    auto obj = fetch_tl_object<ton_api::db_celldb_value>(td::BufferSlice{v}, true);
+    obj.ensure();
+    auto entry = DbEntry{obj.move_as_ok()};
+    root_hashes.insert(vm::CellHash::from_slice(entry.root_hash.as_slice()));
+    auto cell = boc_->load_cell(entry.root_hash.as_slice());
+    missing_roots += cell.is_error();
+    LOG_IF(ERROR, cell.is_error()) << "Cannot load root from meta: " << entry.block_id.to_str() << " " << cell.error();
+  }
+
+  // load_known_roots is only supported by InMemory database, so it is ok to check all known roots here
+  auto known_roots = boc_->load_known_roots().move_as_ok();
+  for (auto& root : known_roots) {
+    block::gen::ShardStateUnsplit::Record info;
+    block::gen::OutMsgQueueInfo::Record qinfo;
+    block::ShardId shard;
+    if (!(tlb::unpack_cell(root, info) && shard.deserialize(info.shard_id.write()) &&
+          tlb::unpack_cell(info.out_msg_queue_info, qinfo))) {
+      LOG(FATAL) << "cannot create ShardDescr from a root in celldb";
+    }
+    if (!partial_check && !root_hashes.contains(root->get_hash())) {
+      unknown_roots++;
+      LOG(ERROR) << "Unknown root" << ShardIdFull(shard).to_str() << ":" << info.seq_no;
+      constexpr bool delete_unknown_roots = false;
+      if (delete_unknown_roots) {
+        vm::CellStorer stor{*cell_db_};
+        cell_db_->begin_write_batch().ensure();
+        boc_->dec(root);
+        boc_->commit(stor).ensure();
+        cell_db_->commit_write_batch().ensure();
+        if (!opts_->get_celldb_in_memory()) {
+          boc_->set_loader(std::make_unique<vm::CellLoader>(cell_db_->snapshot(), on_load_callback_)).ensure();
+        }
+        LOG(ERROR) << "Unknown root" << ShardIdFull(shard).to_str() << ":" << info.seq_no << " REMOVED";
+      }
+    }
+  }
+
+  LOG_IF(ERROR, missing_roots != 0) << "Missing root hashes: " << missing_roots;
+  LOG_IF(ERROR, unknown_roots != 0) << "Unknown roots: " << unknown_roots;
+
+  LOG_IF(FATAL, missing_roots != 0) << "Missing root hashes: " << missing_roots;
+  LOG_IF(FATAL, unknown_roots != 0) << "Unknown roots: " << unknown_roots;
+  LOG(INFO) << "Validating metadata: OK\n";
+}
+
 void CellDbIn::start_up() {
   on_load_callback_ = [actor = std::make_shared<td::actor::ActorOwn<MigrationProxy>>(
                            td::actor::create_actor<MigrationProxy>("celldbmigration", actor_id(this))),
@@ -96,44 +194,101 @@ void CellDbIn::start_up() {
     db_options.snapshot_statistics = snapshot_statistics_;
   }
   db_options.statistics = statistics_;
-  if (opts_->get_celldb_cache_size()) {
-    db_options.block_cache = td::RocksDb::create_cache(opts_->get_celldb_cache_size().value());
-    LOG(WARNING) << "Set CellDb block cache size to " << td::format::as_size(opts_->get_celldb_cache_size().value());
+  auto o_celldb_cache_size = opts_->get_celldb_cache_size();
+
+  std::optional<vm::DynamicBagOfCellsDb::CreateInMemoryOptions> boc_in_memory_options;
+  std::optional<vm::DynamicBagOfCellsDb::CreateV1Options> boc_v1_options;
+  std::optional<vm::DynamicBagOfCellsDb::CreateV2Options> boc_v2_options;
+
+  if (opts_->get_celldb_v2()) {
+    boc_v2_options = vm::DynamicBagOfCellsDb::CreateV2Options{
+        .extra_threads = std::clamp(std::thread::hardware_concurrency() / 2, 1u, 8u),
+        .executor = {},
+        .cache_ttl_max = 2000,
+        .cache_size_max = 1000000};
+    size_t min_rocksdb_cache = std::max(size_t{1} << 30, boc_v2_options->cache_size_max * 5000);
+    if (!o_celldb_cache_size || o_celldb_cache_size.value() < min_rocksdb_cache) {
+      LOG(WARNING) << "Increase CellDb block cache size to " << td::format::as_size(min_rocksdb_cache) << " from "
+                   << td::format::as_size(o_celldb_cache_size.value());
+      o_celldb_cache_size = min_rocksdb_cache;
+    }
+    LOG(WARNING) << "Using V2 DynamicBagOfCells with options " << *boc_v2_options;
+  } else if (opts_->get_celldb_in_memory()) {
+    // default options
+    boc_in_memory_options = vm::DynamicBagOfCellsDb::CreateInMemoryOptions{
+        .extra_threads = std::thread::hardware_concurrency(),
+        .verbose = true,
+        .use_arena = false,
+        .use_less_memory_during_creation = true,
+    };
+    LOG(WARNING) << "Using InMemory DynamicBagOfCells with options " << *boc_v2_options;
+  } else {
+    boc_v1_options = vm::DynamicBagOfCellsDb::CreateV1Options{};
+    LOG(WARNING) << "Using V1 DynamicBagOfCells with options " << *boc_v1_options;
+  }
+
+  if (o_celldb_cache_size) {
+    db_options.block_cache = td::RocksDb::create_cache(o_celldb_cache_size.value());
+    LOG(WARNING) << "Set CellDb block cache size to " << td::format::as_size(o_celldb_cache_size.value());
   }
   db_options.use_direct_reads = opts_->get_celldb_direct_io();
+
+  // NB: from now on we MUST use this merge operator
+  // Only V2 and InMemory BoC actually use them, but it still should be kept for V1,
+  // to handle updates written by V2 or InMemory BoCs
+  db_options.merge_operator = std::make_shared<MergeOperatorAddCellRefcnt>();
 
   if (opts_->get_celldb_in_memory()) {
     td::RocksDbOptions read_db_options;
     read_db_options.use_direct_reads = true;
     read_db_options.no_block_cache = true;
     read_db_options.block_cache = {};
+    read_db_options.merge_operator = std::make_shared<MergeOperatorAddCellRefcnt>();
     LOG(WARNING) << "Loading all cells in memory (because of --celldb-in-memory)";
     td::Timer timer;
     auto read_cell_db =
         std::make_shared<td::RocksDb>(td::RocksDb::open(path_, std::move(read_db_options)).move_as_ok());
-    boc_ = vm::DynamicBagOfCellsDb::create_in_memory(read_cell_db.get(), {});
+    boc_ = vm::DynamicBagOfCellsDb::create_in_memory(read_cell_db.get(), *boc_in_memory_options);
     in_memory_load_time_ = timer.elapsed();
-    td::actor::send_closure(parent_, &CellDb::set_in_memory_boc, boc_);
+
+    // no reads will be allowed from rocksdb, only writes
+    db_options.no_reads = true;
   }
 
   auto rocks_db = std::make_shared<td::RocksDb>(td::RocksDb::open(path_, std::move(db_options)).move_as_ok());
   rocks_db_ = rocks_db->raw_db();
   cell_db_ = std::move(rocks_db);
   if (!opts_->get_celldb_in_memory()) {
-    boc_ = vm::DynamicBagOfCellsDb::create();
+    if (opts_->get_celldb_v2()) {
+      boc_ = vm::DynamicBagOfCellsDb::create_v2(*boc_v2_options);
+    } else {
+      boc_ = vm::DynamicBagOfCellsDb::create(*boc_v1_options);
+    }
     boc_->set_celldb_compress_depth(opts_->get_celldb_compress_depth());
     boc_->set_loader(std::make_unique<vm::CellLoader>(cell_db_->snapshot(), on_load_callback_)).ensure();
-    td::actor::send_closure(parent_, &CellDb::update_snapshot, cell_db_->snapshot());
   }
+
+  validate_meta();
 
   alarm_timestamp() = td::Timestamp::in(10.0);
 
   auto empty = get_empty_key_hash();
   if (get_block(empty).is_error()) {
     DbEntry e{get_empty_key(), empty, empty, RootHash::zero()};
+    vm::CellStorer stor{*cell_db_};
     cell_db_->begin_write_batch().ensure();
     set_block(empty, std::move(e));
+    boc_->commit(stor);
     cell_db_->commit_write_batch().ensure();
+    if (!opts_->get_celldb_in_memory()) {
+      boc_->set_loader(std::make_unique<vm::CellLoader>(cell_db_->snapshot(), on_load_callback_)).ensure();
+    }
+  }
+
+  if (opts_->get_celldb_v2() || opts_->get_celldb_in_memory()) {
+    send_closure(parent_, &CellDb::set_thread_safe_boc, boc_);
+  } else {
+    send_closure(parent_, &CellDb::update_snapshot, cell_db_->snapshot());
   }
 
   if (opts_->get_celldb_preload_all()) {
@@ -161,7 +316,7 @@ void CellDbIn::start_up() {
 
   {
     std::string key = "stats.last_deleted_mc_seqno", value;
-    auto R = cell_db_->get(td::as_slice(key), value);
+    auto R = boc_->meta_get(td::as_slice(key), value);
     R.ensure();
     if (R.ok() == td::KeyValue::GetStatus::Ok) {
       auto r_value = td::to_integer_safe<BlockSeqno>(value);
@@ -240,10 +395,10 @@ void CellDbIn::store_cell(BlockIdExt block_id, td::Ref<vm::Cell> cell, td::Promi
           td::Timer timer_write;
           vm::CellStorer stor{*cell_db_};
           cell_db_->begin_write_batch().ensure();
-          boc_->commit(stor).ensure();
           set_block(get_empty_key_hash(), std::move(E));
           set_block(D.prev, std::move(P));
           set_block(key_hash, std::move(D));
+          boc_->commit(stor).ensure();
           cell_db_->commit_write_batch().ensure();
           timer_write.pause();
 
@@ -266,11 +421,10 @@ void CellDbIn::store_cell(BlockIdExt block_id, td::Ref<vm::Cell> cell, td::Promi
 
 void CellDbIn::get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) {
   if (db_busy_) {
-    action_queue_.push(
-        [self = this, promise = std::move(promise)](td::Result<td::Unit> R) mutable {
-          R.ensure();
-          self->get_cell_db_reader(std::move(promise));
-        });
+    action_queue_.push([self = this, promise = std::move(promise)](td::Result<td::Unit> R) mutable {
+      R.ensure();
+      self->get_cell_db_reader(std::move(promise));
+    });
     return;
   }
   promise.set_result(boc_->get_cell_db_reader());
@@ -440,9 +594,16 @@ void CellDbIn::gc_cont2(BlockHandle handle) {
   timer_get_keys.reset();
 
   td::PerfWarningTimer timer_boc{"gccell_boc", 0.05};
-  auto cell = boc_->load_cell(F.root_hash.as_slice()).move_as_ok();
+  auto r_cell = boc_->load_cell(F.root_hash.as_slice());
+  td::Ref<vm::Cell> cell;
+  if (r_cell.is_ok()) {
+    cell = r_cell.move_as_ok();
+    boc_->dec(cell);
+    LOG(ERROR) << "GC of " << handle->id().to_str();
+  } else {
+    LOG(ERROR) << "GC of UNKNOWN root: " << handle->id().to_str();
+  }
 
-  boc_->dec(cell);
   db_busy_ = true;
   boc_->prepare_commit_async(
       async_executor, [this, SelfId = actor_id(this), timer_boc = std::move(timer_boc), F = std::move(F), key_hash,
@@ -458,17 +619,19 @@ void CellDbIn::gc_cont2(BlockHandle handle) {
 
           td::PerfWarningTimer timer_write_batch{"gccell_write_batch", 0.05};
           cell_db_->begin_write_batch().ensure();
-          boc_->commit(stor).ensure();
 
-          cell_db_->erase(get_key(key_hash)).ensure();
+          boc_->meta_erase(get_key(key_hash)).ensure();
           set_block(F.prev, std::move(P));
           set_block(F.next, std::move(N));
           if (handle->id().is_masterchain()) {
             last_deleted_mc_state_ = handle->id().seqno();
             std::string key = "stats.last_deleted_mc_seqno", value = td::to_string(last_deleted_mc_state_);
-            cell_db_->set(td::as_slice(key), td::as_slice(value));
+            boc_->meta_set(td::as_slice(key), td::as_slice(value));
           }
+
+          boc_->commit(stor).ensure();
           cell_db_->commit_write_batch().ensure();
+
           alarm_timestamp() = td::Timestamp::now();
           timer_write_batch.reset();
 
@@ -530,7 +693,7 @@ CellDbIn::KeyHash CellDbIn::get_empty_key_hash() {
 td::Result<CellDbIn::DbEntry> CellDbIn::get_block(KeyHash key_hash) {
   const auto key = get_key(key_hash);
   std::string value;
-  auto R = cell_db_->get(td::as_slice(key), value);
+  auto R = boc_->meta_get(td::as_slice(key), value);
   R.ensure();
   auto S = R.move_as_ok();
   if (S == td::KeyValue::GetStatus::NotFound) {
@@ -543,7 +706,7 @@ td::Result<CellDbIn::DbEntry> CellDbIn::get_block(KeyHash key_hash) {
 
 void CellDbIn::set_block(KeyHash key_hash, DbEntry e) {
   const auto key = get_key(key_hash);
-  cell_db_->set(td::as_slice(key), e.release()).ensure();
+  boc_->meta_set(td::as_slice(key), e.release());
 }
 
 void CellDbIn::migrate_cell(td::Bits256 hash) {
@@ -631,12 +794,14 @@ void CellDb::alarm() {
 }
 
 void CellDb::load_cell(RootHash hash, td::Promise<td::Ref<vm::DataCell>> promise) {
-  if (in_memory_boc_) {
-    auto result = in_memory_boc_->load_root_thread_safe(hash.as_slice());
+  if (thread_safe_boc_) {
+    auto result = thread_safe_boc_->load_root_thread_safe(hash.as_slice());
     if (result.is_ok()) {
       return async_apply("load_cell_result", std::move(promise), std::move(result));
     } else {
       LOG(ERROR) << "load_root_thread_safe failed - this is suspicious";
+      send_closure(cell_db_, &CellDbIn::load_cell, hash, std::move(promise));
+      return;
     }
   }
   if (!started_) {
@@ -709,6 +874,13 @@ std::vector<std::pair<std::string, std::string>> CellDbIn::CellDbStatistics::pre
     stats.emplace_back("roots_count", PSTRING() << boc_stats_->roots_total_count);
     for (auto& [key, value] : boc_stats_->custom_stats) {
       stats.emplace_back(key, value);
+    }
+
+    for (auto& [key, value] : boc_stats_->named_stats.stats_str) {
+      stats.emplace_back(key, value);
+    }
+    for (auto& [key, value] : boc_stats_->named_stats.stats_int) {
+      stats.emplace_back(key, td::to_string(value));
     }
   }
   return stats;
