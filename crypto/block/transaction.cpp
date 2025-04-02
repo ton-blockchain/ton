@@ -617,7 +617,7 @@ td::Result<Ref<vm::Cell>> Account::compute_account_storage_dict() const {
   if (storage_for_stat.is_null()) {
     return td::Status::Error("cannot compute storage dict: invalid storage");
   }
-  TRY_STATUS(stat.replace_roots(storage_for_stat->prefetch_all_refs()).move_as_status());
+  TRY_STATUS(stat.replace_roots(storage_for_stat->prefetch_all_refs()));
   // Root of AccountStorage is not counted in AccountStorageStat
   td::uint64 expected_cells = stat.get_total_cells() + 1;
   td::uint64 expected_bits = stat.get_total_bits() + storage->size();
@@ -626,9 +626,10 @@ td::Result<Ref<vm::Cell>> Account::compute_account_storage_dict() const {
                                        << " bits=" << expected_bits << ", found cells" << storage_used.cells
                                        << " bits=" << storage_used.bits);
   }
-  if (storage_dict_hash.value() != stat.get_dict_hash()) {
-    return td::Status::Error(PSTRING() << "invalid storage dict hash: computed " << stat.get_dict_hash().to_hex()
-                                       << ", found " << storage_dict_hash.value().to_hex());
+  TRY_RESULT(root_hash, stat.get_dict_hash());
+  if (storage_dict_hash.value() != root_hash) {
+    return td::Status::Error(PSTRING() << "invalid storage dict hash: computed " << root_hash.to_hex() << ", found "
+                                       << storage_dict_hash.value().to_hex());
   }
   return stat.get_dict_root();
 }
@@ -662,9 +663,10 @@ td::Status Account::init_account_storage_stat(Ref<vm::Cell> dict_root) {
   }
   AccountStorageStat new_stat(std::move(dict_root), storage->prefetch_all_refs(), storage_used.cells - 1,
                               storage_used.bits - storage->size());
-  if (storage_dict_hash.value() != new_stat.get_dict_hash()) {
-    return td::Status::Error(PSTRING() << "invalid storage dict hash: computed " << new_stat.get_dict_hash().to_hex()
-                                       << ", found " << storage_dict_hash.value().to_hex());
+  TRY_RESULT(root_hash, new_stat.get_dict_hash());
+  if (storage_dict_hash.value() != root_hash) {
+    return td::Status::Error(PSTRING() << "invalid storage dict hash: computed " << root_hash.to_hex() << ", found "
+                                       << storage_dict_hash.value().to_hex());
   }
   account_storage_stat = std::move(new_stat);
   return td::Status::OK();
