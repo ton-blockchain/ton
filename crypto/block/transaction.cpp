@@ -2951,15 +2951,12 @@ td::Status Transaction::check_state_limits(const SizeLimitsConfig& size_limits, 
   }
   AccountStorageStat storage_stat;
   if (update_storage_stat && account.account_storage_stat) {
-    storage_stat = account.account_storage_stat.value();
+    storage_stat = AccountStorageStat{&account.account_storage_stat.value()};
   }
   {
     TD_PERF_COUNTER(transaction_storage_stat_a);
     td::Timer timer;
-    TRY_RESULT(info, storage_stat.replace_roots({new_code, new_data, new_library}));
-    if (info.max_merkle_depth > max_allowed_merkle_depth) {
-      return td::Status::Error("too big Merkle depth");
-    }
+    TRY_STATUS(storage_stat.replace_roots({new_code, new_data, new_library}, /* check_merkle_depth = */ true));
     if (timer.elapsed() > 0.1) {
       LOG(INFO) << "Compute used storage (1) took " << timer.elapsed() << "s";
     }
@@ -3276,23 +3273,33 @@ bool Transaction::compute_state(const SerializeConfig& cfg) {
     }
   }
 
-  if (storage_refs_changed || (cfg.store_storage_dict_hash && !account.storage_dict_hash)) {
+  if (storage_refs_changed ||
+      (cfg.store_storage_dict_hash && !account.storage_dict_hash && account.storage_used.cells > 25)) {
     TD_PERF_COUNTER(transaction_storage_stat_b);
     td::Timer timer;
     if (!new_account_storage_stat && account.account_storage_stat) {
-      new_account_storage_stat = account.account_storage_stat;
+      new_account_storage_stat = AccountStorageStat(&account.account_storage_stat.value());
     }
     AccountStorageStat& stats = new_account_storage_stat.value_force();
     // Don't check Merkle depth and size here - they were checked in check_state_limits
-    auto S = stats.replace_roots(new_storage_for_stat->prefetch_all_refs()).move_as_status();
+    td::Status S = stats.replace_roots(new_storage_for_stat->prefetch_all_refs());
     if (S.is_error()) {
       LOG(ERROR) << "Cannot recompute storage stats for account " << account.addr.to_hex() << ": " << S.move_as_error();
       return false;
     }
-    new_storage_dict_hash = stats.get_dict_hash();
     // Root of AccountStorage is not counted in AccountStorageStat
     new_storage_used.cells = stats.get_total_cells() + 1;
     new_storage_used.bits = stats.get_total_bits() + new_storage_for_stat->size();
+    // TODO: think about this limit (25)
+    if (cfg.store_storage_dict_hash && new_storage_used.cells > 25) {
+      auto r_hash = stats.get_dict_hash();
+      if (r_hash.is_error()) {
+        LOG(ERROR) << "Cannot compute storage dict hash for account " << account.addr.to_hex() << ": "
+                   << r_hash.move_as_error();
+        return false;
+      }
+      new_storage_dict_hash = r_hash.move_as_ok();
+    }
     if (timer.elapsed() > 0.1) {
       LOG(INFO) << "Compute used storage (2) took " << timer.elapsed() << "s";
     }
@@ -3300,11 +3307,10 @@ bool Transaction::compute_state(const SerializeConfig& cfg) {
     new_storage_used = account.storage_used;
     new_storage_used.bits -= old_storage_for_stat->size();
     new_storage_used.bits += new_storage_for_stat->size();
-    new_storage_dict_hash = account.storage_dict_hash;
-    new_account_storage_stat = account.account_storage_stat;
-  }
-  if (!cfg.store_storage_dict_hash || (new_storage_dict_hash && new_storage_dict_hash.value().is_zero())) {
-    new_storage_dict_hash = {};
+    new_account_storage_stat = {};
+    if (cfg.store_storage_dict_hash) {
+      new_storage_dict_hash = account.storage_dict_hash;
+    }
   }
 
   CHECK(cb.store_long_bool(1, 1)                                 // account$1
@@ -3683,7 +3689,13 @@ Ref<vm::Cell> Transaction::commit(Account& acc) {
   acc.last_trans_hash_ = root->get_hash().bits();
   acc.last_paid = last_paid;
   acc.storage_used = new_storage_used;
-  acc.account_storage_stat = std::move(new_account_storage_stat);
+  if (new_account_storage_stat) {
+    if (acc.account_storage_stat) {
+      acc.account_storage_stat.value().apply_child_stat(std::move(new_account_storage_stat.value()));
+    } else {
+      acc.account_storage_stat = std::move(new_account_storage_stat);
+    }
+  }
   acc.storage_dict_hash = new_storage_dict_hash;
   acc.storage = new_storage;
   acc.balance = std::move(balance);

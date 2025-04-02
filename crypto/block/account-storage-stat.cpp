@@ -23,44 +23,29 @@ AccountStorageStat::AccountStorageStat() : AccountStorageStat({}, {}, 0, 0) {
 
 AccountStorageStat::AccountStorageStat(Ref<vm::Cell> dict_root, std::vector<Ref<vm::Cell>> roots,
                                        td::uint64 total_cells, td::uint64 total_bits)
-    : dict_(std::move(dict_root), 256), roots_(std::move(roots)), total_cells_(total_cells), total_bits_(total_bits) {
+    : dict_(std::move(dict_root), 256), total_cells_(total_cells), total_bits_(total_bits), roots_(std::move(roots)) {
 }
 
-AccountStorageStat::AccountStorageStat(const AccountStorageStat& other)
-    : AccountStorageStat(other.dict_.get_root_cell(), other.roots_, other.total_cells_, other.total_bits_) {
+AccountStorageStat::AccountStorageStat(const AccountStorageStat* parent)
+    : dict_(parent->dict_)
+    , dict_up_to_date_(parent->dict_up_to_date_)
+    , total_cells_(parent->total_cells_)
+    , total_bits_(parent->total_bits_)
+    , roots_(parent->roots_)
+    , parent_(parent) {
+  CHECK(parent_->parent_ == nullptr);
 }
 
-AccountStorageStat::AccountStorageStat(AccountStorageStat&& other)
-    : AccountStorageStat(other.dict_.get_root_cell(), std::move(other.roots_), other.total_cells_, other.total_bits_) {
-  cache_ = std::move(other.cache_);
-}
-
-AccountStorageStat& AccountStorageStat::operator=(const AccountStorageStat& other) {
-  dict_ = other.dict_;
-  total_cells_ = other.total_cells_;
-  total_bits_ = other.total_bits_;
-  roots_ = other.roots_;
-  cache_ = {};
-  return *this;
-}
-
-AccountStorageStat& AccountStorageStat::operator=(AccountStorageStat&& other) {
-  dict_ = std::move(other.dict_);
-  total_cells_ = other.total_cells_;
-  total_bits_ = other.total_bits_;
-  roots_ = std::move(other.roots_);
-  cache_ = std::move(other.cache_);
-  return *this;
-}
-
-td::Result<AccountStorageStat::CellInfo> AccountStorageStat::replace_roots(std::vector<Ref<vm::Cell>> new_roots) {
+td::Status AccountStorageStat::replace_roots(std::vector<Ref<vm::Cell>> new_roots, bool check_merkle_depth) {
   std::erase_if(new_roots, [](const Ref<vm::Cell>& c) { return c.is_null(); });
   if (new_roots.empty()) {
     roots_.clear();
     total_bits_ = total_cells_ = 0;
     dict_ = vm::Dictionary{256};
     cache_ = {};
-    return CellInfo{};
+    dict_up_to_date_ = true;
+    parent_ = nullptr;
+    return td::Status::OK();
   }
 
   auto cmp = [](const Ref<vm::Cell>& c1, const Ref<vm::Cell>& c2) { return c1->get_hash() < c2->get_hash(); };
@@ -71,29 +56,26 @@ td::Result<AccountStorageStat::CellInfo> AccountStorageStat::replace_roots(std::
                       cmp);
   std::set_difference(roots_.begin(), roots_.end(), new_roots.begin(), new_roots.end(), std::back_inserter(to_del),
                       cmp);
+  if (to_add.empty() && to_del.empty()) {
+    return td::Status::OK();
+  }
 
-  td::uint32 max_merkle_depth = 0;
   for (const Ref<vm::Cell>& root : to_add) {
     TRY_RESULT(info, add_cell(root));
-    max_merkle_depth = std::max(max_merkle_depth, info.max_merkle_depth);
+    if (check_merkle_depth && info.max_merkle_depth > MAX_MERKLE_DEPTH) {
+      return td::Status::Error("too big Merkle depth");
+    }
   }
   for (const Ref<vm::Cell>& root : to_del) {
     TRY_STATUS(remove_cell(root));
   }
 
   roots_ = std::move(new_roots);
-  td::Status S = td::Status::OK();
-  std::vector<std::pair<td::ConstBitPtr, td::Ref<vm::CellBuilder>>> values;
-  cache_.for_each([&](Entry& e) {
-    if (S.is_ok()) {
-      S = commit_entry(e, values);
-    }
-  });
-  TRY_STATUS(std::move(S));
-  if (!dict_.multiset(values)) {
-    return td::Status::Error("failed to update dictionary");
+  dict_up_to_date_ = false;
+  for (auto& [_, e] : cache_) {
+    TRY_STATUS(finalize_entry(e));
   }
-  return CellInfo{max_merkle_depth};
+  return td::Status::OK();
 }
 
 void AccountStorageStat::add_hint(const td::HashSet<vm::CellHash>& hint) {
@@ -105,7 +87,7 @@ void AccountStorageStat::add_hint(const td::HashSet<vm::CellHash>& hint) {
     Entry& e = get_entry(cell);
     e.exists = e.exists_known = true;
     if (is_root) {
-      fetch_entry(e).ignore();
+      fetch_from_dict(e).ignore();
       if (e.max_merkle_depth && e.max_merkle_depth.value() != 0) {
         return;
       }
@@ -126,12 +108,12 @@ void AccountStorageStat::add_hint(const td::HashSet<vm::CellHash>& hint) {
 td::Result<AccountStorageStat::CellInfo> AccountStorageStat::add_cell(const Ref<vm::Cell>& cell) {
   Entry& e = get_entry(cell);
   if (!e.exists_known || e.refcnt_diff < 0) {
-    TRY_STATUS(fetch_entry(e));
+    TRY_STATUS(fetch_from_dict(e));
   }
   ++e.refcnt_diff;
   if (e.exists || e.refcnt_diff > 1 || (e.refcnt && e.refcnt.value() + e.refcnt_diff != 1)) {
     if (!e.max_merkle_depth) {
-      TRY_STATUS(fetch_entry(e));
+      TRY_STATUS(fetch_from_dict(e));
       if (!e.max_merkle_depth) {
         return td::Status::Error(PSTRING() << "unexpected unknown Merkle depth of cell " << cell->get_hash());
       }
@@ -159,7 +141,7 @@ td::Result<AccountStorageStat::CellInfo> AccountStorageStat::add_cell(const Ref<
 td::Status AccountStorageStat::remove_cell(const Ref<vm::Cell>& cell) {
   Entry& e = get_entry(cell);
   if (!e.exists_known) {
-    TRY_STATUS(fetch_entry(e));
+    TRY_STATUS(fetch_from_dict(e));
   }
   if (!e.exists) {
     return td::Status::Error(PSTRING() << "Failed to remove cell " << cell->get_hash().to_hex()
@@ -167,7 +149,7 @@ td::Status AccountStorageStat::remove_cell(const Ref<vm::Cell>& cell) {
   }
   --e.refcnt_diff;
   if (e.refcnt_diff < 0 && !e.refcnt) {
-    TRY_STATUS(fetch_entry(e));
+    TRY_STATUS(fetch_from_dict(e));
   }
   if (e.refcnt.value() + e.refcnt_diff != 0) {
     return td::Status::OK();
@@ -180,18 +162,70 @@ td::Status AccountStorageStat::remove_cell(const Ref<vm::Cell>& cell) {
   return td::Status::OK();
 }
 
-AccountStorageStat::Entry& AccountStorageStat::get_entry(const Ref<vm::Cell>& cell) {
-  return cache_.apply(cell->get_hash().as_slice(), [&](Entry& e) {
-    if (e.inited) {
-      return;
+td::Result<Ref<vm::Cell>> AccountStorageStat::get_dict_root() {
+  if (!dict_up_to_date_) {
+    std::vector<std::pair<td::ConstBitPtr, Ref<vm::CellBuilder>>> values;
+    for (auto& [_, e] : cache_) {
+      if (e.dict_refcnt_diff == 0) {
+        continue;
+      }
+      if (!e.exists_known || !e.refcnt || (e.exists && !e.max_merkle_depth)) {
+        return td::Status::Error("unexpected state of storage stat");
+      }
+      if (e.exists) {
+        Ref<vm::CellBuilder> cbr{true};
+        auto& cb = cbr.write();
+        CHECK(cb.store_long_bool(e.refcnt.value(), 32) && cb.store_long_bool(e.max_merkle_depth.value(), 2));
+        values.emplace_back(e.hash.bits(), std::move(cbr));
+      } else {
+        values.emplace_back(e.hash.bits(), Ref<vm::CellBuilder>{});
+      }
+      e.dict_refcnt_diff = 0;
     }
-    e.inited = true;
-    e.cell = cell;
-    e.hash = cell->get_hash();
-  });
+    if (!dict_.multiset(values)) {
+      return td::Status::Error("failed to update dictionary");
+    }
+    dict_up_to_date_ = true;
+  }
+  return dict_.get_root_cell();
 }
 
-td::Status AccountStorageStat::fetch_entry(Entry& e) {
+void AccountStorageStat::apply_child_stat(AccountStorageStat&& child) {
+  CHECK(parent_ == nullptr);
+  if (child.parent_ == nullptr) {
+    *this = std::move(child);
+    return;
+  }
+  CHECK(child.parent_ == this);
+  total_bits_ = child.total_bits_;
+  total_cells_ = child.total_cells_;
+  dict_ = std::move(child.dict_);
+  dict_up_to_date_ = child.dict_up_to_date_;
+  roots_ = std::move(child.roots_);
+  for (auto& [hash, e] : child.cache_) {
+    cache_[hash] = std::move(e);
+  }
+}
+
+AccountStorageStat::Entry& AccountStorageStat::get_entry(const Ref<vm::Cell>& cell) {
+  Entry& e = cache_[cell->get_hash()];
+  if (e.cell.not_null()) {
+    return e;
+  }
+  if (parent_) {
+    auto it = parent_->cache_.find(cell->get_hash());
+    if (it != parent_->cache_.end()) {
+      CHECK(it->second.cell.not_null());
+      e = it->second;
+      return e;
+    }
+  }
+  e.cell = cell;
+  e.hash = cell->get_hash();
+  return e;
+}
+
+td::Status AccountStorageStat::fetch_from_dict(Entry& e) {
   if (e.exists_known && e.refcnt && (!e.exists || e.max_merkle_depth)) {
     return td::Status::OK();
   }
@@ -214,20 +248,19 @@ td::Status AccountStorageStat::fetch_entry(Entry& e) {
   return td::Status::OK();
 }
 
-td::Status AccountStorageStat::commit_entry(Entry& e,
-                                            std::vector<std::pair<td::ConstBitPtr, td::Ref<vm::CellBuilder>>>& values) {
+td::Status AccountStorageStat::finalize_entry(Entry& e) {
   if (e.refcnt_diff == 0) {
     return td::Status::OK();
   }
-  TRY_STATUS(fetch_entry(e));
+  TRY_STATUS(fetch_from_dict(e));
   e.refcnt.value() += e.refcnt_diff;
+  e.dict_refcnt_diff += e.refcnt_diff;
   e.refcnt_diff = 0;
   bool spec;
   if (e.refcnt.value() == 0) {
     --total_cells_;
     total_bits_ -= vm::load_cell_slice_special(e.cell, spec).size();
     e.exists = false;
-    values.emplace_back(e.hash.bits(), td::Ref<vm::CellBuilder>{});
   } else {
     if (!e.exists) {
       ++total_cells_;
@@ -237,10 +270,6 @@ td::Status AccountStorageStat::commit_entry(Entry& e,
     if (!e.max_merkle_depth) {
       return td::Status::Error(PSTRING() << "Failed to store entry " << e.hash.to_hex() << " : unknown merkle depth");
     }
-    td::Ref<vm::CellBuilder> cbr{true};
-    auto& cb = cbr.write();
-    CHECK(cb.store_long_bool(e.refcnt.value(), 32) && cb.store_long_bool(e.max_merkle_depth.value(), 2));
-    values.emplace_back(e.hash.bits(), std::move(cbr));
   }
   return td::Status::OK();
 }
