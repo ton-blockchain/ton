@@ -50,7 +50,7 @@ Ref<DataCell> CellBuilder::finalize_copy(bool special) const {
   if (vm_state_interface) {
     vm_state_interface->register_cell_create();
   }
-  auto res = DataCell::create(data, size(), td::span(refs.data(), size_refs()), special);
+  auto res = DataCell::create(td::Slice{data, Cell::max_bytes}, size(), td::span(refs.data(), size_refs()), special);
   if (res.is_error()) {
     LOG(DEBUG) << res.error();
     throw CellWriteError{};
@@ -68,7 +68,8 @@ Ref<DataCell> CellBuilder::finalize_copy(bool special) const {
 }
 
 td::Result<Ref<DataCell>> CellBuilder::finalize_novm_nothrow(bool special) {
-  auto res = DataCell::create(data, size(), td::mutable_span(refs.data(), size_refs()), special);
+  auto res =
+      DataCell::create(td::Slice{data, Cell::max_bytes}, size(), td::mutable_span(refs.data(), size_refs()), special);
   bits = refs_cnt = 0;
   return res;
 }
