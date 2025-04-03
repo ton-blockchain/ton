@@ -3308,7 +3308,7 @@ td::Status TonlibClient::do_request(const tonlib_api::raw_sendMessage& request,
   return td::Status::OK();
 }
 
-td::Result<td::Bits256> get_hash_norm(td::Ref<vm::Cell> ext_in_msg_cell) {
+td::Result<td::Bits256> get_ext_in_msg_hash_norm(td::Ref<vm::Cell> ext_in_msg_cell) {
   block::gen::Message::Record message;
   if (!tlb::type_unpack_cell(ext_in_msg_cell, block::gen::t_Message_Any, message)) {
     return td::Status::Error("Failed to unpack Message");
@@ -3350,7 +3350,7 @@ td::Status TonlibClient::do_request(const tonlib_api::raw_sendMessageReturnHash&
                                     td::Promise<object_ptr<tonlib_api::raw_extMessageInfo>>&& promise) {
   TRY_RESULT_PREFIX(body, vm::std_boc_deserialize(request.body_), TonlibError::InvalidBagOfCells("body"));
   auto hash = body->get_hash().as_slice().str();
-  TRY_RESULT(hash_norm, get_hash_norm(body));
+  TRY_RESULT(hash_norm, get_ext_in_msg_hash_norm(body));
 
   make_request(int_api::SendMessage{std::move(body)},
     promise.wrap([hash = std::move(hash), hash_norm = std::move(hash_norm)](auto res) {
