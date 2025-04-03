@@ -77,6 +77,7 @@ endif()
 
 if (WIN32)
   message("Add wingetopt")
+  set(CMAKE_POLICY_VERSION_MINIMUM "3.10")
   add_subdirectory(third-party/wingetopt EXCLUDE_FROM_ALL)
   set(WINGETOPT_FOUND 1)
   message(STATUS "Use wingetopt")
