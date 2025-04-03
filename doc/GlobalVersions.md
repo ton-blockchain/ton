@@ -205,6 +205,7 @@ Reserve modes `+1`, `+4` and `+8` ("reserve all except", "add original balance" 
 - New instruction `x GETPARAMLONG` - same as `x GETPARAM`, but `x` is in range `[0..254]`. Gas cost: `34`.
 - New instruction `x INMSGPARAM` - equivalent to `INMSGPARAMS` `x INDEX`. Gas cost: `26`.
   - Aliases: `INMSG_BOUNCE`, `INMSG_BOUNCED`, `INMSG_SRC`, `INMSG_FWDFEE`, `INMSG_LT`, `INMSG_UTIME`, `INMSG_ORIGVALUE`, `INMSG_STATEINIT`.
+- Fixed bug in `RUNVM` caused by throwing out-of-gas exception with "isolate gas" enabled.
 
 ### Other changes
 - Exceeding state limits in transaction now reverts `end_lt` back to `start_lt + 1` and collects action fines.
