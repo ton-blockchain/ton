@@ -145,7 +145,17 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
     return load_cell(hash);
   }
   td::Result<std::vector<Ref<DataCell>>> load_bulk(td::Span<td::Slice> hashes) override {
-    return td::Status::Error("Not implemented");
+    CHECK(cell_db_reader_);
+    std::vector<Ref<DataCell>> result;
+    result.reserve(hashes.size());
+    for (auto &hash : hashes) {
+      auto cell = load_cell(hash);
+      if (cell.is_error()) {
+        return cell.move_as_error();
+      }
+      result.push_back(cell.move_as_ok());
+    }
+    return result;
   }
   td::Result<Ref<DataCell>> load_root_thread_safe(td::Slice hash) const override {
     return td::Status::Error("Not implemented");
