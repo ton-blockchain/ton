@@ -95,6 +95,7 @@ void AccountStorageStat::add_hint(const td::HashSet<vm::CellHash>& hint) {
     if (hint.contains(cell->get_hash())) {
       bool spec;
       vm::CellSlice cs = vm::load_cell_slice_special(cell, spec);
+      e.size_bits = cs.size();
       for (unsigned i = 0; i < cs.size_refs(); ++i) {
         dfs(cs.prefetch_ref(i), false);
       }
@@ -124,6 +125,7 @@ td::Result<AccountStorageStat::CellInfo> AccountStorageStat::add_cell(const Ref<
   td::uint32 max_merkle_depth = 0;
   bool spec;
   vm::CellSlice cs = vm::load_cell_slice_special(cell, spec);
+  e.size_bits = cs.size();
   for (unsigned i = 0; i < cs.size_refs(); ++i) {
     TRY_RESULT(info, add_cell(cs.prefetch_ref(i)));
     max_merkle_depth = std::max(max_merkle_depth, info.max_merkle_depth);
@@ -156,6 +158,7 @@ td::Status AccountStorageStat::remove_cell(const Ref<vm::Cell>& cell) {
   }
   bool spec;
   vm::CellSlice cs = vm::load_cell_slice_special(cell, spec);
+  e.size_bits = cs.size();
   for (unsigned i = 0; i < cs.size_refs(); ++i) {
     TRY_STATUS(remove_cell(cs.prefetch_ref(i)));
   }
@@ -209,18 +212,18 @@ void AccountStorageStat::apply_child_stat(AccountStorageStat&& child) {
 
 AccountStorageStat::Entry& AccountStorageStat::get_entry(const Ref<vm::Cell>& cell) {
   Entry& e = cache_[cell->get_hash()];
-  if (e.cell.not_null()) {
+  if (e.inited) {
     return e;
   }
   if (parent_) {
     auto it = parent_->cache_.find(cell->get_hash());
     if (it != parent_->cache_.end()) {
-      CHECK(it->second.cell.not_null());
+      CHECK(it->second.inited);
       e = it->second;
       return e;
     }
   }
-  e.cell = cell;
+  e.inited = true;
   e.hash = cell->get_hash();
   return e;
 }
@@ -256,15 +259,20 @@ td::Status AccountStorageStat::finalize_entry(Entry& e) {
   e.refcnt.value() += e.refcnt_diff;
   e.dict_refcnt_diff += e.refcnt_diff;
   e.refcnt_diff = 0;
-  bool spec;
   if (e.refcnt.value() == 0) {
+    if (!e.size_bits) {
+      return td::Status::Error(PSTRING() << "Failed to store entry " << e.hash.to_hex() << " : unknown cell bits");
+    }
     --total_cells_;
-    total_bits_ -= vm::load_cell_slice_special(e.cell, spec).size();
+    total_bits_ -= e.size_bits.value();
     e.exists = false;
   } else {
     if (!e.exists) {
+      if (!e.size_bits) {
+        return td::Status::Error(PSTRING() << "Failed to store entry " << e.hash.to_hex() << " : unknown cell bits");
+      }
       ++total_cells_;
-      total_bits_ += vm::load_cell_slice_special(e.cell, spec).size();
+      total_bits_ += e.size_bits.value();
     }
     e.exists = true;
     if (!e.max_merkle_depth) {
