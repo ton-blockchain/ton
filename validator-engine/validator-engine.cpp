@@ -4536,6 +4536,7 @@ int main(int argc, char *argv[]) {
       "use new version off celldb",
       [&]() {
         acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_celldb_v2, true); });
+      });
   p.add_option(
       '\0', "celldb-disable-bloom-filter",
       "disable using bloom filter in CellDb. Enabled bloom filter reduces read latency, but increases memory usage", 
