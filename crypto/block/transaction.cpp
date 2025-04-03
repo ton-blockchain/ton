@@ -3363,12 +3363,12 @@ bool Transaction::compute_state(const SerializeConfig& cfg) {
     td::Timer timer;
     if (!new_account_storage_stat && account.account_storage_stat) {
       new_account_storage_stat = AccountStorageStat(&account.account_storage_stat.value());
+      if (compute_phase) {
+        new_account_storage_stat.value().add_hint(compute_phase->vm_loaded_cells);
+      }
     }
     AccountStorageStat& stats = new_account_storage_stat.value_force();
     // Don't check Merkle depth and size here - they were checked in check_state_limits
-    if (compute_phase) {
-      stats.add_hint(compute_phase->vm_loaded_cells);
-    }
     auto roots = new_storage_for_stat->prefetch_all_refs();
     storage_stats_updates.insert(storage_stats_updates.end(), roots.begin(), roots.end());
     {
