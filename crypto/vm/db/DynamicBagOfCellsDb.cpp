@@ -145,7 +145,6 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
     return load_cell(hash);
   }
   td::Result<std::vector<Ref<DataCell>>> load_bulk(td::Span<td::Slice> hashes) override {
-    CHECK(cell_db_reader_);
     std::vector<Ref<DataCell>> result;
     result.reserve(hashes.size());
     for (auto &hash : hashes) {
