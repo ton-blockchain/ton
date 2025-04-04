@@ -1404,7 +1404,7 @@ Ref<vm::Tuple> Transaction::prepare_vm_c7(const ComputePhaseConfig& cfg) const {
                         ? vm::StackEntry(td::make_refint(compute_phase->precompiled_gas_usage.value()))
                         : vm::StackEntry());  // precompiled_gas_usage:Integer
   }
-  if (cfg.global_version >= 10) {
+  if (cfg.global_version >= 11) {
     // in_msg_params:[...]
     tuple.push_back(prepare_in_msg_params_tuple(trans_type == tr_ord ? &in_msg_info : nullptr, in_msg_state));
   }

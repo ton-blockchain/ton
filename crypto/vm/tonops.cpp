@@ -486,18 +486,18 @@ void register_ton_config_ops(OpcodeTable& cp0) {
       .insert(OpcodeInstr::mksimple(0xf860, 16, "SETGLOBVAR", exec_set_global_var))
       .insert(OpcodeInstr::mkfixedrange(0xf861, 0xf880, 16, 5, instr::dump_1c_and(31, "SETGLOB "), exec_set_global))
       .insert(OpcodeInstr::mksimple(0xf880, 16, "GETEXTRABALANCE", exec_get_extra_currency_balance)->require_version(10))
-      .insert(OpcodeInstr::mkfixedrange(0xf88100, 0xf88111, 24, 8, instr::dump_1c_l_add(0, "GETPARAMLONG "), exec_get_var_param_long)->require_version(10))
-      .insert(OpcodeInstr::mksimple(0xf88111, 24, "INMSGPARAMS", std::bind(exec_get_param, _1, 17, "INMSGPARAMS"))->require_version(10))
-      .insert(OpcodeInstr::mkfixedrange(0xf88112, 0xf881ff, 24, 8, instr::dump_1c_l_add(0, "GETPARAMLONG "), exec_get_var_param_long)->require_version(10))
-      .insert(OpcodeInstr::mksimple(0xf890, 16, "INMSG_BOUNCE", std::bind(exec_get_in_msg_param, _1, 0, "INMSG_BOUNCE"))->require_version(10))
-      .insert(OpcodeInstr::mksimple(0xf891, 16, "INMSG_BOUNCED", std::bind(exec_get_in_msg_param, _1, 1, "INMSG_BOUNCED"))->require_version(10))
-      .insert(OpcodeInstr::mksimple(0xf892, 16, "INMSG_SRC", std::bind(exec_get_in_msg_param, _1, 2, "INMSG_SRC"))->require_version(10))
-      .insert(OpcodeInstr::mksimple(0xf893, 16, "INMSG_FWDFEE", std::bind(exec_get_in_msg_param, _1, 3, "INMSG_FWDFEE"))->require_version(10))
-      .insert(OpcodeInstr::mksimple(0xf894, 16, "INMSG_LT", std::bind(exec_get_in_msg_param, _1, 4, "INMSG_LT"))->require_version(10))
-      .insert(OpcodeInstr::mksimple(0xf895, 16, "INMSG_UTIME", std::bind(exec_get_in_msg_param, _1, 5, "INMSG_UTIME"))->require_version(10))
-      .insert(OpcodeInstr::mksimple(0xf896, 16, "INMSG_ORIGVALUE", std::bind(exec_get_in_msg_param, _1, 6, "INMSG_ORIGVALUE"))->require_version(10))
-      .insert(OpcodeInstr::mksimple(0xf897, 16, "INMSG_STATEINIT", std::bind(exec_get_in_msg_param, _1, 7, "INMSG_STATEINIT"))->require_version(10))
-      .insert(OpcodeInstr::mkfixedrange(0xf898, 0xf8a0, 16, 4, instr::dump_1c("INMSGPARAM "), exec_get_var_in_msg_param)->require_version(10));
+      .insert(OpcodeInstr::mkfixedrange(0xf88100, 0xf88111, 24, 8, instr::dump_1c_l_add(0, "GETPARAMLONG "), exec_get_var_param_long)->require_version(11))
+      .insert(OpcodeInstr::mksimple(0xf88111, 24, "INMSGPARAMS", std::bind(exec_get_param, _1, 17, "INMSGPARAMS"))->require_version(11))
+      .insert(OpcodeInstr::mkfixedrange(0xf88112, 0xf881ff, 24, 8, instr::dump_1c_l_add(0, "GETPARAMLONG "), exec_get_var_param_long)->require_version(11))
+      .insert(OpcodeInstr::mksimple(0xf890, 16, "INMSG_BOUNCE", std::bind(exec_get_in_msg_param, _1, 0, "INMSG_BOUNCE"))->require_version(11))
+      .insert(OpcodeInstr::mksimple(0xf891, 16, "INMSG_BOUNCED", std::bind(exec_get_in_msg_param, _1, 1, "INMSG_BOUNCED"))->require_version(11))
+      .insert(OpcodeInstr::mksimple(0xf892, 16, "INMSG_SRC", std::bind(exec_get_in_msg_param, _1, 2, "INMSG_SRC"))->require_version(11))
+      .insert(OpcodeInstr::mksimple(0xf893, 16, "INMSG_FWDFEE", std::bind(exec_get_in_msg_param, _1, 3, "INMSG_FWDFEE"))->require_version(11))
+      .insert(OpcodeInstr::mksimple(0xf894, 16, "INMSG_LT", std::bind(exec_get_in_msg_param, _1, 4, "INMSG_LT"))->require_version(11))
+      .insert(OpcodeInstr::mksimple(0xf895, 16, "INMSG_UTIME", std::bind(exec_get_in_msg_param, _1, 5, "INMSG_UTIME"))->require_version(11))
+      .insert(OpcodeInstr::mksimple(0xf896, 16, "INMSG_ORIGVALUE", std::bind(exec_get_in_msg_param, _1, 6, "INMSG_ORIGVALUE"))->require_version(11))
+      .insert(OpcodeInstr::mksimple(0xf897, 16, "INMSG_STATEINIT", std::bind(exec_get_in_msg_param, _1, 7, "INMSG_STATEINIT"))->require_version(11))
+      .insert(OpcodeInstr::mkfixedrange(0xf898, 0xf8a0, 16, 4, instr::dump_1c("INMSGPARAM "), exec_get_var_in_msg_param)->require_version(11));
 }
 
 td::RefInt256 generate_randu256(VmState* st) {
