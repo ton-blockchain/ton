@@ -118,8 +118,6 @@ class RootDb : public Db {
   void archive(BlockHandle handle, td::Promise<td::Unit> promise) override;
 
   void allow_state_gc(BlockIdExt block_id, td::Promise<bool> promise);
-  void allow_block_gc(BlockIdExt block_id, td::Promise<bool> promise);
-  //void allow_gc(FileDb::RefId ref_id, bool is_archive, td::Promise<bool> promise);
 
   void prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise) override;
 
@@ -137,7 +135,7 @@ class RootDb : public Db {
                          td::Promise<td::BufferSlice> promise) override;
   void set_async_mode(bool mode, td::Promise<td::Unit> promise) override;
 
-  void run_gc(UnixTime mc_ts, UnixTime gc_ts, UnixTime archive_ttl) override;
+  void run_gc(UnixTime mc_ts, UnixTime gc_ts, double archive_ttl) override;
   void add_persistent_state_description(td::Ref<PersistentStateDescription> desc, td::Promise<td::Unit> promise) override;
   void get_persistent_state_descriptions(td::Promise<std::vector<td::Ref<PersistentStateDescription>>> promise) override;
 
