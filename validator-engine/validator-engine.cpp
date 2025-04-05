@@ -4359,7 +4359,7 @@ int main(int argc, char *argv[]) {
     acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_max_mempool_num, v); });
     return td::Status::OK();
   });
-  p.add_checked_option('b', "block-ttl", "blocks will be gc'd after this time (in seconds) default=86400",
+  p.add_checked_option('b', "block-ttl", "deprecated",
                        [&](td::Slice fname) {
                          auto v = td::to_double(fname);
                          if (v <= 0) {
@@ -4369,7 +4369,9 @@ int main(int argc, char *argv[]) {
                          return td::Status::OK();
                        });
   p.add_checked_option(
-      'A', "archive-ttl", "archived blocks will be deleted after this time (in seconds) default=7*86400",
+      'A', "archive-ttl",
+      "ttl for archived blocks (in seconds) default=7*86400. Note: archived blocks are gc'd after state-ttl + "
+      "archive-ttl seconds",
       [&](td::Slice fname) {
         auto v = td::to_double(fname);
         if (v <= 0) {
@@ -4379,7 +4381,7 @@ int main(int argc, char *argv[]) {
         return td::Status::OK();
       });
   p.add_checked_option(
-      'K', "key-proof-ttl", "key blocks will be deleted after this time (in seconds) default=365*86400*10",
+      'K', "key-proof-ttl", "deprecated",
       [&](td::Slice fname) {
         auto v = td::to_double(fname);
         if (v <= 0) {

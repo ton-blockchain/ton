@@ -2374,7 +2374,7 @@ void ValidatorManagerImpl::try_advance_gc_masterchain_block() {
       gc_masterchain_handle_->id().id.seqno < last_masterchain_state_->last_key_block_id().seqno() &&
       gc_masterchain_handle_->id().id.seqno < min_confirmed_masterchain_seqno_ &&
       gc_masterchain_handle_->id().id.seqno < state_serializer_masterchain_seqno_ &&
-      gc_masterchain_state_->get_unix_time() < td::Clocks::system() - state_ttl()) {
+      (double)gc_masterchain_state_->get_unix_time() < td::Clocks::system() - state_ttl()) {
     gc_advancing_ = true;
     auto block_id = gc_masterchain_handle_->one_next(true);
 
@@ -2384,100 +2384,6 @@ void ValidatorManagerImpl::try_advance_gc_masterchain_block() {
     });
     get_block_handle(block_id, true, std::move(P));
   }
-}
-
-void ValidatorManagerImpl::allow_persistent_state_file_gc(BlockIdExt block_id, BlockIdExt masterchain_block_id,
-                                                          td::Promise<bool> promise) {
-  if (!gc_masterchain_handle_) {
-    promise.set_result(false);
-    return;
-  }
-  if (masterchain_block_id.seqno() == 0) {
-    promise.set_result(false);
-    return;
-  }
-  if (masterchain_block_id.seqno() >= gc_masterchain_handle_->id().seqno()) {
-    promise.set_result(false);
-    return;
-  }
-  auto P = td::PromiseCreator::lambda([promise = std::move(promise)](td::Result<BlockHandle> R) mutable {
-    R.ensure();
-    auto handle = R.move_as_ok();
-    CHECK(handle->is_key_block());
-    promise.set_result(ValidatorManager::persistent_state_ttl(handle->unix_time()) < td::Clocks::system());
-  });
-  get_block_handle(masterchain_block_id, false, std::move(P));
-}
-
-void ValidatorManagerImpl::allow_archive(BlockIdExt block_id, td::Promise<bool> promise) {
-  /*if (!gc_masterchain_handle_) {
-    promise.set_result(false);
-    return;
-  }
-  if (!block_id.is_masterchain()) {
-    if (!gc_masterchain_state_->workchain_is_active(block_id.id.workchain)) {
-      promise.set_result(false);
-      return;
-    }
-    bool found = false;
-    auto S = gc_masterchain_state_->get_shard_from_config(block_id.shard_full());
-    if (S.not_null()) {
-      if (block_id.id.seqno >= S->top_block_id().id.seqno) {
-        promise.set_result(false);
-        return;
-      }
-      found = true;
-    } else {
-      auto shards = gc_masterchain_state_->get_shards();
-      for (auto shard : shards) {
-        if (shard_intersects(shard->shard(), block_id.shard_full())) {
-          if (block_id.id.seqno >= shard->top_block_id().id.seqno) {
-            promise.set_result(false);
-            return;
-          }
-          found = true;
-        }
-      }
-    }
-    CHECK(found);
-  } else {
-    if (block_id.id.seqno >= gc_masterchain_handle_->id().id.seqno) {
-      promise.set_result(false);
-      return;
-    }
-  }
-  auto P = td::PromiseCreator::lambda([promise = std::move(promise)](td::Result<td::Unit> R) mutable {
-    if (R.is_error()) {
-      promise.set_error(R.move_as_error());
-    } else {
-      promise.set_result(true);
-    }
-  });
-  td::actor::send_closure(db_, &Db::archive, block_id, std::move(P));*/
-  promise.set_result(false);
-}
-
-void ValidatorManagerImpl::allow_delete(BlockIdExt block_id, td::Promise<bool> promise) {
-  auto key_ttl = td::Clocks::system() - opts_->key_proof_ttl();
-  auto ttl = td::Clocks::system() - opts_->archive_ttl();
-  auto P = td::PromiseCreator::lambda(
-      [SelfId = actor_id(this), promise = std::move(promise), ttl, key_ttl](td::Result<BlockHandle> R) mutable {
-        if (R.is_error()) {
-          promise.set_result(true);
-          return;
-        }
-        auto handle = R.move_as_ok();
-        if (!handle->inited_unix_time()) {
-          promise.set_result(true);
-          return;
-        }
-        if (!handle->inited_is_key_block() || !handle->is_key_block()) {
-          promise.set_result(handle->unix_time() <= ttl);
-        } else {
-          promise.set_result(handle->unix_time() <= key_ttl);
-        }
-      });
-  get_block_handle(block_id, false, std::move(P));
 }
 
 void ValidatorManagerImpl::allow_block_state_gc(BlockIdExt block_id, td::Promise<bool> promise) {
@@ -2506,27 +2412,6 @@ void ValidatorManagerImpl::allow_block_state_gc(BlockIdExt block_id, td::Promise
     }
   }
   UNREACHABLE();
-}
-
-void ValidatorManagerImpl::allow_block_info_gc(BlockIdExt block_id, td::Promise<bool> promise) {
-  auto P =
-      td::PromiseCreator::lambda([db = db_.get(), promise = std::move(promise)](td::Result<BlockHandle> R) mutable {
-        if (R.is_error()) {
-          promise.set_result(false);
-        } else {
-          auto handle = R.move_as_ok();
-          if (!handle->moved_to_archive() || !handle->is_applied()) {
-            promise.set_result(false);
-          } else {
-            auto P = td::PromiseCreator::lambda([promise = std::move(promise)](td::Result<td::Unit> R) mutable {
-              R.ensure();
-              promise.set_result(true);
-            });
-            td::actor::send_closure(db, &Db::store_block_handle, handle, std::move(P));
-          }
-        }
-      });
-  get_block_handle(block_id, false, std::move(P));
 }
 
 void ValidatorManagerImpl::got_next_gc_masterchain_handle(BlockHandle handle) {
@@ -2610,7 +2495,7 @@ void ValidatorManagerImpl::alarm() {
   alarm_timestamp() = td::Timestamp::in(1.0);
   if (shard_client_handle_ && gc_masterchain_handle_) {
     td::actor::send_closure(db_, &Db::run_gc, shard_client_handle_->unix_time(), gc_masterchain_handle_->unix_time(),
-                            static_cast<UnixTime>(opts_->archive_ttl()));
+                            opts_->archive_ttl());
   }
   if (log_status_at_.is_in_past()) {
     if (last_masterchain_block_handle_) {
