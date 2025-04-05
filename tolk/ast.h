@@ -113,6 +113,7 @@ enum ASTNodeType {
   ast_function_declaration,
   ast_global_var_declaration,
   ast_constant_declaration,
+  ast_type_alias_declaration,
   ast_tolk_required_version,
   ast_import_directive,
   ast_tolk_file,
@@ -1034,6 +1035,25 @@ struct Vertex<ast_constant_declaration> final : ASTOtherVararg {
   Vertex(SrcLocation loc, V<ast_identifier> name_identifier, TypePtr declared_type, AnyExprV init_value)
     : ASTOtherVararg(ast_constant_declaration, loc, {name_identifier, init_value})
     , declared_type(declared_type) {}
+};
+
+template<>
+// ast_type_alias_declaration is declaring a structural type alias (fully interchangeable with original type)
+// example: `type UserId = int;`
+// see TypeDataAlias in type-system.h
+struct Vertex<ast_type_alias_declaration> final : ASTOtherVararg {
+  AliasDefPtr alias_ref = nullptr;          // filled after register, contains TypeDataAlias
+  TypePtr underlying_type;                  // at the right of `=`
+
+  auto get_identifier() const { return children.at(0)->as<ast_identifier>(); }
+
+  Vertex* mutate() const { return const_cast<Vertex*>(this); }
+  void assign_alias_ref(AliasDefPtr alias_ref);
+  void assign_resolved_type(TypePtr underlying_type);
+
+  Vertex(SrcLocation loc, V<ast_identifier> name_identifier, TypePtr underlying_type)
+    : ASTOtherVararg(ast_type_alias_declaration, loc, {name_identifier})
+    , underlying_type(underlying_type) {}
 };
 
 template<>

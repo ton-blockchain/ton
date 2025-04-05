@@ -136,6 +136,15 @@ struct NameAndScopeResolver {
 };
 
 struct TypeDataResolver {
+  static TypePtr finalize_type_data(FunctionPtr cur_f, TypePtr type_data, const GenericsDeclaration* genericTs) {
+    if (type_data) {
+      if (type_data->has_unresolved_inside()) {
+        type_data = resolve_identifiers_in_type_data(cur_f, type_data, genericTs);
+      }
+    }
+    return type_data;
+  }
+
   GNU_ATTRIBUTE_NOINLINE
   static TypePtr resolve_identifiers_in_type_data(FunctionPtr cur_f, TypePtr type_data, const GenericsDeclaration* genericTs) {
     return type_data->replace_children_custom([cur_f, genericTs](TypePtr child) {
@@ -143,6 +152,14 @@ struct TypeDataResolver {
         if (genericTs && genericTs->has_nameT(un->text)) {
           std::string nameT = un->text;
           return TypeDataGenericT::create(std::move(nameT));
+        }
+        if (const Symbol* sym = lookup_global_symbol(un->text)) {
+          if (AliasDefPtr alias_ref = sym->try_as<AliasDefPtr>()) {
+            if (alias_ref->underlying_type->has_unresolved_inside()) {
+              resolve_and_mutate_type_alias(alias_ref);
+            }
+            return TypeDataAlias::create(alias_ref->name, alias_ref->underlying_type);
+          }
         }
         if (un->text == "auto") {
           throw ParseError(cur_f, un->loc, "`auto` type does not exist; just omit a type for local variable (will be inferred from assignment); parameters should always be typed");
@@ -155,13 +172,25 @@ struct TypeDataResolver {
       return child;
     });
   }
+
+  static void resolve_and_mutate_type_alias(AliasDefPtr alias_ref) {
+    static std::vector<AliasDefPtr> called_stack;
+
+    // prevent recursion like `type A = B; type B = A`
+    bool contains = std::find(called_stack.begin(), called_stack.end(), alias_ref) != called_stack.end();
+    if (contains) {
+      throw ParseError(alias_ref->loc, "type `" + alias_ref->name + "` circularly references itself");
+    }
+
+    called_stack.push_back(alias_ref);
+    TypePtr underlying_type = finalize_type_data(nullptr, alias_ref->underlying_type, nullptr);
+    alias_ref->mutate()->assign_resolved_type(underlying_type);
+    called_stack.pop_back();
+  }
 };
 
 static TypePtr finalize_type_data(FunctionPtr cur_f, TypePtr type_data, const GenericsDeclaration* genericTs) {
-  if (!type_data || !type_data->has_unresolved_inside()) {
-    return type_data;
-  }
-  return TypeDataResolver::resolve_identifiers_in_type_data(cur_f, type_data, genericTs);
+  return TypeDataResolver::finalize_type_data(cur_f, type_data, genericTs);
 }
 
 
@@ -344,6 +373,10 @@ void pipeline_resolve_identifiers_and_assign_symbols() {
           v_const->mutate()->assign_resolved_type(declared_type);
           v_const->const_ref->mutate()->assign_resolved_type(declared_type);
         }
+
+      } else if (auto v_alias = v->try_as<ast_type_alias_declaration>()) {
+        TypeDataResolver::resolve_and_mutate_type_alias(v_alias->alias_ref);
+        v_alias->mutate()->assign_resolved_type(v_alias->alias_ref->underlying_type);
       }
     }
   }

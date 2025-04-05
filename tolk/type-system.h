@@ -83,6 +83,8 @@ public:
   bool has_genericT_inside() const { return flags & flag_contains_genericT_inside; }
   bool has_unresolved_inside() const { return flags & flag_contains_unresolved_inside; }
 
+  inline TypePtr unwrap_alias() const;
+
   using TraverserCallbackT = std::function<void(TypePtr child)>;
   using ReplacerCallbackT = std::function<TypePtr(TypePtr child)>;
 
@@ -101,6 +103,32 @@ public:
   virtual TypePtr replace_children_custom(const ReplacerCallbackT& callback) const {
     return callback(this);
   }
+};
+
+/*
+ * `type AliasName = underlying_type` is an alias, which is fully interchangeable with its original type.
+ * It never occurs at runtime: at IR generation it's erased, replaced by an underlying type.
+ * But until IR generation, aliases exists, and `var t: MyTensor2 = (1,2)` is alias "MyTensor", not tensor (int,int).
+ * That's why lots of code comparing types use `type->unwrap_alias()` or `try_as<TypeDataAlias>`.
+ */
+class TypeDataAlias final : public TypeData {
+  explicit TypeDataAlias(uint64_t type_id, int children_flags, std::string&& alias_name, TypePtr underlying_type)
+    : TypeData(type_id, children_flags, underlying_type->get_width_on_stack())
+    , alias_name(std::move(alias_name))
+    , underlying_type(underlying_type) {}
+
+public:
+  const std::string alias_name;
+  const TypePtr underlying_type;
+
+  static TypePtr create(const std::string& alias_name, TypePtr underlying_type);
+
+  std::string as_human_readable() const override { return alias_name; }
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+  void traverse(const TraverserCallbackT& callback) const override;
+  TypePtr replace_children_custom(const ReplacerCallbackT& callback) const override;
+  bool can_hold_tvm_null_instead() const override;
 };
 
 /*
@@ -519,6 +547,13 @@ public:
 
 // --------------------------------------------
 
+inline TypePtr TypeData::unwrap_alias() const {
+  TypePtr unwrapped = this;
+  while (const TypeDataAlias* as_alias = unwrapped->try_as<TypeDataAlias>()) {
+    unwrapped = as_alias->underlying_type;
+  }
+  return unwrapped;
+}
 
 class Lexer;
 TypePtr parse_type_from_tokens(Lexer& lex);

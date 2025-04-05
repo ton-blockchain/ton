@@ -401,7 +401,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
     // `(v1, v2) = rhs` / `var (v1, v2) = rhs` (rhs may be `(1,2)` or `tensorVar` or `someF()`, doesn't matter)
     // dig recursively into v1 and v2 with corresponding rhs i-th item of a tensor
     if (auto lhs_tensor = lhs->try_as<ast_tensor>()) {
-      const TypeDataTensor* rhs_type_tensor = rhs_type->try_as<TypeDataTensor>();
+      const TypeDataTensor* rhs_type_tensor = rhs_type->unwrap_alias()->try_as<TypeDataTensor>();
       std::vector<TypePtr> types_list;
       types_list.reserve(lhs_tensor->size());
       for (int i = 0; i < lhs_tensor->size(); ++i) {
@@ -416,7 +416,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
     // `[v1, v2] = rhs` / `var [v1, v2] = rhs` (rhs may be `[1,2]` or `tupleVar` or `someF()`, doesn't matter)
     // dig recursively into v1 and v2 with corresponding rhs i-th item of a tuple
     if (auto lhs_tuple = lhs->try_as<ast_typed_tuple>()) {
-      const TypeDataTypedTuple* rhs_type_tuple = rhs_type->try_as<TypeDataTypedTuple>();
+      const TypeDataTypedTuple* rhs_type_tuple = rhs_type->unwrap_alias()->try_as<TypeDataTypedTuple>();
       std::vector<TypePtr> types_list;
       types_list.reserve(lhs_tuple->size());
       for (int i = 0; i < lhs_tuple->size(); ++i) {
@@ -478,7 +478,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
         assign_inferred_type(v, TypeDataInt::create());
         break;
       case tok_logical_not:
-        if (rhs->inferred_type == TypeDataBool::create()) {
+        if (rhs->inferred_type->unwrap_alias() == TypeDataBool::create()) {
           builtin_func = "!b";  // "overloaded" for bool
         }
         assign_inferred_type(v, TypeDataBool::create());
@@ -520,7 +520,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
       case tok_bitwise_xor:
         flow = infer_any_expr(lhs, std::move(flow), false).out_flow;
         flow = infer_any_expr(rhs, std::move(flow), false).out_flow;
-        if (lhs->inferred_type == TypeDataBool::create() && rhs->inferred_type == TypeDataBool::create()) {
+        if (lhs->inferred_type->unwrap_alias() == TypeDataBool::create() && rhs->inferred_type->unwrap_alias() == TypeDataBool::create()) {
           assign_inferred_type(v, TypeDataBool::create());
         } else {
           assign_inferred_type(v, TypeDataInt::create());
@@ -615,7 +615,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
     ExprFlow after_expr = infer_any_expr(v->get_expr(), std::move(flow), false);
     assign_inferred_type(v, TypeDataBool::create());
 
-    TypePtr expr_type = v->get_expr()->inferred_type;
+    TypePtr expr_type = v->get_expr()->inferred_type->unwrap_alias();
     TypePtr non_null_type = calculate_type_subtract_null(expr_type);
     if (expr_type == TypeDataNullLiteral::create()) {             // `expr == null` is always true
       v->mutate()->assign_always_true_or_false(v->is_negated ? 2 : 1);
@@ -652,7 +652,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
   ExprFlow infer_not_null_operator(V<ast_not_null_operator> v, FlowContext&& flow, bool used_as_condition) {
     ExprFlow after_expr = infer_any_expr(v->get_expr(), std::move(flow), false);
 
-    if (const auto* as_nullable = v->get_expr()->inferred_type->try_as<TypeDataNullable>()) {
+    if (const auto* as_nullable = v->get_expr()->inferred_type->unwrap_alias()->try_as<TypeDataNullable>()) {
       assign_inferred_type(v, as_nullable->inner);
     } else {
       assign_inferred_type(v, v->get_expr());
@@ -710,6 +710,9 @@ class InferTypesAndCallsAndFieldsVisitor final {
       assign_inferred_type(v, fun_ref->inferred_full_type);
       return ExprFlow(std::move(flow), used_as_condition);
 
+    } else if (AliasDefPtr alias_ref = v->sym->try_as<AliasDefPtr>()) {
+      fire(cur_f, v->loc, "type `" + alias_ref->name + "` can not be used as a value");
+
     } else {
       tolk_assert(false);
     }
@@ -766,6 +769,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
     flow = infer_any_expr(v->get_obj(), std::move(flow), false).out_flow;
 
     TypePtr obj_type = v->get_obj()->inferred_type;
+    TypePtr unwrapped_obj_type = obj_type->unwrap_alias();
     // our goal is to fill v->target knowing type of obj
     V<ast_identifier> v_ident = v->get_identifier();    // field/method name vertex
     V<ast_instantiationT_list> v_instantiationTs = v->get_instantiationTs();
@@ -775,7 +779,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
     // at first, check for indexed access
     if (field_name[0] >= '0' && field_name[0] <= '9') {
       int index_at = std::stoi(std::string(field_name));
-      if (const auto* t_tensor = obj_type->try_as<TypeDataTensor>()) {
+      if (const auto* t_tensor = unwrapped_obj_type->try_as<TypeDataTensor>()) {
         if (index_at >= t_tensor->size()) {
           fire(cur_f, v_ident->loc, "invalid tensor index, expected 0.." + std::to_string(t_tensor->items.size() - 1));
         }
@@ -789,7 +793,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
         assign_inferred_type(v, inferred_type);
         return ExprFlow(std::move(flow), used_as_condition);
       }
-      if (const auto* t_tuple = obj_type->try_as<TypeDataTypedTuple>()) {
+      if (const auto* t_tuple = unwrapped_obj_type->try_as<TypeDataTypedTuple>()) {
         if (index_at >= t_tuple->size()) {
           fire(cur_f, v_ident->loc, "invalid tuple index, expected 0.." + std::to_string(t_tuple->items.size() - 1));
         }
@@ -803,7 +807,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
         assign_inferred_type(v, inferred_type);
         return ExprFlow(std::move(flow), used_as_condition);
       }
-      if (obj_type->try_as<TypeDataTuple>()) {
+      if (unwrapped_obj_type->try_as<TypeDataTuple>()) {
         TypePtr item_type = nullptr;
         if (v->is_lvalue && !hint) {     // left side of assignment
           item_type = TypeDataUnknown::create();
@@ -899,7 +903,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
       // treat callee like a usual expression
       flow = infer_any_expr(callee, std::move(flow), false).out_flow;
       // it must have "callable" inferred type
-      const TypeDataFunCallable* f_callable = callee->inferred_type->try_as<TypeDataFunCallable>();
+      const TypeDataFunCallable* f_callable = callee->inferred_type->unwrap_alias()->try_as<TypeDataFunCallable>();
       if (!f_callable) {   // `5()` / `SOME_CONST()` / `null()`
         fire(cur_f, v->loc, "calling a non-function " + to_string(callee->inferred_type));
       }
@@ -951,7 +955,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
       if (param_type->has_genericT_inside()) {
         param_type = deducingTs->auto_deduce_from_argument(cur_f, dot_obj->loc, param_type, dot_obj->inferred_type);
       }
-      if (param_0.is_mutate_parameter() && dot_obj->inferred_type != param_type) {
+      if (param_0.is_mutate_parameter() && dot_obj->inferred_type->unwrap_alias() != param_type->unwrap_alias()) {
         if (SinkExpression s_expr = extract_sink_expression_from_vertex(dot_obj)) {
           assign_inferred_type(dot_obj, calc_declared_type_before_smart_cast(dot_obj));
           flow.register_known_type(s_expr, param_type);
@@ -974,7 +978,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
         flow = infer_any_expr(arg_i, std::move(flow), false, param_type).out_flow;
       }
       assign_inferred_type(v->get_arg(i), arg_i);  // arg itself is an expression
-      if (param_i.is_mutate_parameter() && arg_i->inferred_type != param_type) {
+      if (param_i.is_mutate_parameter() && arg_i->inferred_type->unwrap_alias() != param_type->unwrap_alias()) {
         if (SinkExpression s_expr = extract_sink_expression_from_vertex(arg_i)) {
           assign_inferred_type(arg_i, calc_declared_type_before_smart_cast(arg_i));
           flow.register_known_type(s_expr, param_type);
@@ -1023,7 +1027,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
   }
 
   ExprFlow infer_tensor(V<ast_tensor> v, FlowContext&& flow, bool used_as_condition, TypePtr hint) {
-    const TypeDataTensor* tensor_hint = hint ? hint->try_as<TypeDataTensor>() : nullptr;
+    const TypeDataTensor* tensor_hint = hint ? hint->unwrap_alias()->try_as<TypeDataTensor>() : nullptr;
     std::vector<TypePtr> types_list;
     types_list.reserve(v->get_items().size());
     for (int i = 0; i < v->size(); ++i) {
@@ -1036,7 +1040,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
   }
 
   ExprFlow infer_typed_tuple(V<ast_typed_tuple> v, FlowContext&& flow, bool used_as_condition, TypePtr hint) {
-    const TypeDataTypedTuple* tuple_hint = hint ? hint->try_as<TypeDataTypedTuple>() : nullptr;
+    const TypeDataTypedTuple* tuple_hint = hint ? hint->unwrap_alias()->try_as<TypeDataTypedTuple>() : nullptr;
     std::vector<TypePtr> types_list;
     types_list.reserve(v->get_items().size());
     for (int i = 0; i < v->size(); ++i) {

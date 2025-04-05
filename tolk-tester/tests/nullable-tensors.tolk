@@ -1,3 +1,7 @@
+type TensorOf2IntNull = (int?, int?);
+type MInt = int;
+type MIntN = int?;
+
 fun getNullableInt(): int? { return 5; }
 
 fun sumOfNullableTensorComponents(t: (int, int)?): int {
@@ -385,7 +389,9 @@ fun getNormalNullableTensorWidth1(vLess100: int?): ([int?], ())? {
     return ([vLess100], ());    // such a nullable tensor can store NULL in the same slot
 }
 
-fun getTrickyNullableTensorWidth1(vLess100: int?): (int?, ())? {
+type TrickyActually2SlotTensor = (MIntN, ())?;
+
+fun getTrickyNullableTensorWidth1(vLess100: int?): TrickyActually2SlotTensor {
     if (vLess100 != null && vLess100 >= 100) {
         return null;
     }
@@ -429,6 +435,26 @@ fun test140(x: int8, y: int16) {
     return (t1, t2);
 }
 
+@method_id(141)
+fun test141() {
+    var t: TensorOf2IntNull = (1, 2);
+    if (t.0 != null) {
+        t.0 = null;
+    }
+    t.1 != null ? t.1 = 10 : t.1 = null;
+    return t;
+}
+
+type T142 = (int, MInt)?;
+
+@method_id(142)
+fun test142() {
+    var t = (1, 2) as T142;
+    __expect_type(t!, "(int, MInt)");
+    var sum1 = sumOfNullableTensorComponents(t);
+    var sum2 = sumOfTensor(t!);
+    return (sum1, sum2, t!);
+}
 
 fun main(){}
 
@@ -482,6 +508,8 @@ fun main(){}
 @testcase | 136 | 9    | 9 0
 @testcase | 136 | null | (null) -1
 @testcase | 140 | 8 9  | 8 9 -1 (null) (null) 0
+@testcase | 141 |      | (null) 10
+@testcase | 142 |      | 3 3 1 2
 
 @fif_codegen
 """

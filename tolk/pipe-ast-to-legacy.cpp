@@ -150,7 +150,7 @@ class LValContext {
       LValContext local_lval;
       local_lval.enter_rval_inside_lval();
       std::vector<var_idx_t> obj_ir_idx = pre_compile_expr(tensor_obj, code, nullptr, &local_lval);
-      const TypeDataTensor* t_tensor = tensor_obj->inferred_type->try_as<TypeDataTensor>();
+      const TypeDataTensor* t_tensor = tensor_obj->inferred_type->unwrap_alias()->try_as<TypeDataTensor>();
       tolk_assert(t_tensor);
       int stack_width = t_tensor->items[index_at]->get_width_on_stack();
       int stack_offset = 0;
@@ -384,7 +384,7 @@ static std::vector<var_idx_t> pre_compile_let(CodeBlob& code, AnyExprV lhs, AnyE
     std::vector<var_idx_t> left = pre_compile_tensor(code, lhs->as<ast_typed_tuple>()->get_items(), &local_lval);
     vars_modification_watcher.trigger_callbacks(left, loc);
     std::vector<var_idx_t> right = pre_compile_expr(rhs, code, nullptr);
-    const TypeDataTypedTuple* inferred_tuple = rhs->inferred_type->try_as<TypeDataTypedTuple>();
+    const TypeDataTypedTuple* inferred_tuple = rhs->inferred_type->unwrap_alias()->try_as<TypeDataTypedTuple>();
     std::vector<TypePtr> types_list = inferred_tuple->items;
     std::vector<var_idx_t> rvect = code.create_tmp_var(TypeDataTensor::create(std::move(types_list)), rhs->loc, "(unpack-tuple)");
     code.emplace_back(lhs->loc, Op::_UnTuple, rvect, std::move(right));
@@ -432,6 +432,13 @@ static std::vector<var_idx_t> gen_op_call(CodeBlob& code, TypePtr ret_type, SrcL
 // Here rvect is a list of IR vars for inferred_type, probably patched due to target_type.
 GNU_ATTRIBUTE_NOINLINE
 static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<var_idx_t>&& rvect, CodeBlob& code, TypePtr original_type, TypePtr target_type, SrcLocation loc) {
+#ifdef TOLK_DEBUG
+  tolk_assert(static_cast<int>(rvect.size()) == original_type->get_width_on_stack());
+#endif
+
+  original_type = original_type->unwrap_alias();
+  target_type = target_type->unwrap_alias();
+
   // pass `T` to `T`
   // could occur for passing tensor `(..., T, ...)` to `(..., T, ...)` while traversing tensor's components
   if (target_type == original_type) {
@@ -635,6 +642,22 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
     return rvect;
   }
 
+  // pass `T` to `UserId` (or some other alias)
+  if (const TypeDataAlias* target_alias = target_type->try_as<TypeDataAlias>()) {
+    return transition_expr_to_runtime_type_impl(std::move(rvect), code, original_type, target_alias->underlying_type, loc);
+  }
+  // pass `UserId` (or some other alias) to `T`
+  if (const TypeDataAlias* orig_alias = original_type->try_as<TypeDataAlias>()) {
+    return transition_expr_to_runtime_type_impl(std::move(rvect), code, orig_alias->underlying_type, target_type, loc);
+  }
+
+  // pass callable to callable
+  // their types aren't exactly equal, but they match (containing aliases, for example)
+  if (original_type->try_as<TypeDataFunCallable>() && target_type->try_as<TypeDataFunCallable>()) {
+    tolk_assert(rvect.size() == 1);
+    return rvect;
+  }
+
   throw Fatal("unhandled transition_expr_to_runtime_type_impl() combination");
 }
 
@@ -819,7 +842,7 @@ static std::vector<var_idx_t> process_cast_as_operator(V<ast_cast_as_operator> v
 }
 
 static std::vector<var_idx_t> process_not_null_operator(V<ast_not_null_operator> v, CodeBlob& code, TypePtr target_type, LValContext* lval_ctx) {
-  TypePtr child_target_type = v->get_expr()->inferred_type;
+  TypePtr child_target_type = v->get_expr()->inferred_type->unwrap_alias();
   if (const auto* as_nullable = child_target_type->try_as<TypeDataNullable>()) {
     child_target_type = as_nullable->inner;
   }
@@ -830,7 +853,7 @@ static std::vector<var_idx_t> process_not_null_operator(V<ast_not_null_operator>
 static std::vector<var_idx_t> process_is_null_check(V<ast_is_null_check> v, CodeBlob& code, TypePtr target_type) {
   std::vector<var_idx_t> expr_ir_idx = pre_compile_expr(v->get_expr(), code, nullptr);
   std::vector<var_idx_t> isnull_ir_idx = code.create_tmp_var(TypeDataBool::create(), v->loc, "(is-null)");
-  TypePtr expr_type = v->get_expr()->inferred_type;
+  TypePtr expr_type = v->get_expr()->inferred_type->unwrap_alias();
 
   if (const TypeDataNullable* t_nullable = expr_type->try_as<TypeDataNullable>()) {
     if (!t_nullable->is_primitive_nullable()) {
@@ -858,7 +881,7 @@ static std::vector<var_idx_t> process_dot_access(V<ast_dot_access> v, CodeBlob& 
   // it's NOT a method call `t.tupleSize()` (since such cases are handled by process_function_call)
   // it's `t.0`, `getUser().id`, and `t.tupleSize` (as a reference, not as a call)
   if (!v->is_target_fun_ref()) {
-    TypePtr obj_type = v->get_obj()->inferred_type;
+    TypePtr obj_type = v->get_obj()->inferred_type->unwrap_alias();
     int index_at = std::get<int>(v->target);
     // `tensorVar.0`
     if (const auto* t_tensor = obj_type->try_as<TypeDataTensor>()) {
@@ -930,7 +953,7 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
     for (int i = 0; i < v->get_num_args(); ++i) {
       args.push_back(v->get_arg(i)->get_expr());
     }
-    std::vector<TypePtr> params_types = v->get_callee()->inferred_type->try_as<TypeDataFunCallable>()->params_types;
+    std::vector<TypePtr> params_types = v->get_callee()->inferred_type->unwrap_alias()->try_as<TypeDataFunCallable>()->params_types;
     const TypeDataTensor* tensor_tt = TypeDataTensor::create(std::move(params_types))->try_as<TypeDataTensor>();
     std::vector<std::vector<var_idx_t>> vars_per_arg = pre_compile_tensor_inner(code, args, tensor_tt, nullptr);
     std::vector<var_idx_t> args_vars;
@@ -1249,7 +1272,7 @@ static void process_do_while_statement(V<ast_do_while_statement> v, CodeBlob& co
     until_cond = createV<ast_binary_operator>(cond->loc, "<", tok_lt, v_geq->get_lhs(), v_geq->get_rhs());
   } else if (auto v_gt = cond->try_as<ast_binary_operator>(); v_gt && v_gt->tok == tok_gt) {
     until_cond = createV<ast_binary_operator>(cond->loc, "<=", tok_geq, v_gt->get_lhs(), v_gt->get_rhs());
-  } else if (cond->inferred_type == TypeDataBool::create()) {
+  } else if (cond->inferred_type->unwrap_alias() == TypeDataBool::create()) {
     until_cond = createV<ast_unary_operator>(cond->loc, "!b", tok_logical_not, cond);
   } else {
     until_cond = createV<ast_unary_operator>(cond->loc, "!", tok_logical_not, cond);

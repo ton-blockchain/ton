@@ -81,6 +81,7 @@ class ASTStringifier final : public ASTVisitor {
     {ast_function_declaration, "ast_function_declaration"},
     {ast_global_var_declaration, "ast_global_var_declaration"},
     {ast_constant_declaration, "ast_constant_declaration"},
+    {ast_type_alias_declaration, "ast_type_alias_declaration"},
     {ast_tolk_required_version, "ast_tolk_required_version"},
     {ast_import_directive, "ast_import_directive"},
     {ast_tolk_file, "ast_tolk_file"},
@@ -157,6 +158,8 @@ class ASTStringifier final : public ASTVisitor {
         return static_cast<std::string>(v->as<ast_global_var_declaration>()->get_identifier()->name);
       case ast_constant_declaration:
         return static_cast<std::string>(v->as<ast_constant_declaration>()->get_identifier()->name);
+      case ast_type_alias_declaration:
+        return "type " + static_cast<std::string>(v->as<ast_type_alias_declaration>()->get_identifier()->name);
       case ast_assign:
         return "=";
       case ast_set_assign:
@@ -291,6 +294,7 @@ public:
       case ast_function_declaration:          return handle_vertex(v->as<ast_function_declaration>());
       case ast_global_var_declaration:        return handle_vertex(v->as<ast_global_var_declaration>());
       case ast_constant_declaration:          return handle_vertex(v->as<ast_constant_declaration>());
+      case ast_type_alias_declaration:        return handle_vertex(v->as<ast_type_alias_declaration>());
       case ast_tolk_required_version:         return handle_vertex(v->as<ast_tolk_required_version>());
       case ast_import_directive:              return handle_vertex(v->as<ast_import_directive>());
       case ast_tolk_file:                     return handle_vertex(v->as<ast_tolk_file>());

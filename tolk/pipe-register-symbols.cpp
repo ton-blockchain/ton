@@ -133,6 +133,13 @@ static void register_global_var(V<ast_global_var_declaration> v) {
   v->mutate()->assign_var_ref(g_sym);
 }
 
+static void register_type_alias(V<ast_type_alias_declaration> v) {
+  AliasDefData* a_sym = new AliasDefData(static_cast<std::string>(v->get_identifier()->name), v->loc, v->underlying_type);
+
+  G.symtable.add_type_alias(a_sym);
+  v->mutate()->assign_alias_ref(a_sym);
+}
+
 static LocalVarData register_parameter(V<ast_parameter> v, int idx) {
   if (v->is_underscore()) {
     return {"", v->loc, v->declared_type, 0, idx};
@@ -237,6 +244,9 @@ static void iterate_through_file_symbols(const SrcFile* file) {
         break;
       case ast_global_var_declaration:
         register_global_var(v->as<ast_global_var_declaration>());
+        break;
+      case ast_type_alias_declaration:
+        register_type_alias(v->as<ast_type_alias_declaration>());
         break;
       case ast_function_declaration:
         register_function(v->as<ast_function_declaration>());

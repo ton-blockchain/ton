@@ -118,6 +118,19 @@ static void handle_possible_compiler_internal_call(FunctionPtr cur_f, V<ast_func
   if (fun_ref->name == "__expect_type") {
     tolk_assert(v->get_num_args() == 2);
     TypePtr expected_type = parse_type_from_string(v->get_arg(1)->get_expr()->as<ast_string_const>()->str_val);
+    if (expected_type->has_unresolved_inside()) {   // only aliases can be inside
+      expected_type = expected_type->replace_children_custom([](TypePtr child) -> TypePtr {
+        if (const auto* as_unresolved = child->try_as<TypeDataUnresolved>()) {
+          const Symbol* sym = lookup_global_symbol(as_unresolved->text);
+          tolk_assert(sym);
+          if (AliasDefPtr alias_ref = sym->try_as<AliasDefPtr>()) {
+            return TypeDataAlias::create(alias_ref->name, alias_ref->underlying_type);
+          }
+          tolk_assert(false);
+        }
+        return child;
+      });
+    }
     TypePtr expr_type = v->get_arg(0)->inferred_type;
     if (expected_type != expr_type) {
       fire(cur_f, v->loc, "__expect_type failed: expected " + to_string(expected_type) + ", got " + to_string(expr_type));
@@ -125,14 +138,36 @@ static void handle_possible_compiler_internal_call(FunctionPtr cur_f, V<ast_func
   }
 }
 
+static bool expect_integer(TypePtr inferred_type) {
+  if (inferred_type == TypeDataInt::create()) {
+    return true;
+  }
+  if (inferred_type->try_as<TypeDataIntN>() || inferred_type == TypeDataCoins::create()) {
+    return true;
+  }
+  if (const TypeDataAlias* as_alias = inferred_type->try_as<TypeDataAlias>()) {
+    return expect_integer(as_alias->underlying_type);
+  }
+  return false;
+}
+
 static bool expect_integer(AnyExprV v_inferred) {
-  return v_inferred->inferred_type == TypeDataInt::create() || v_inferred->inferred_type->try_as<TypeDataIntN>() || v_inferred->inferred_type == TypeDataCoins::create();
+  return expect_integer(v_inferred->inferred_type);
+}
+
+static bool expect_boolean(TypePtr inferred_type) {
+  if (inferred_type == TypeDataBool::create()) {
+    return true;
+  }
+  if (const TypeDataAlias* as_alias = inferred_type->try_as<TypeDataAlias>()) {
+    return expect_boolean(as_alias->underlying_type);
+  }
+  return false;
 }
 
 static bool expect_boolean(AnyExprV v_inferred) {
-  return v_inferred->inferred_type == TypeDataBool::create();
+  return expect_boolean(v_inferred->inferred_type);
 }
-
 
 class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
   FunctionPtr cur_f = nullptr;          // may be nullptr if checking `const a = ...` init_value
@@ -282,9 +317,9 @@ protected:
   void visit(V<ast_dot_access> v) override {
     parent::visit(v);
 
-    TypePtr obj_type = v->get_obj()->inferred_type;
     if (v->is_target_indexed_access()) {
-      if (obj_type->try_as<TypeDataTuple>() && v->inferred_type->get_width_on_stack() != 1) {
+      TypePtr obj_type = v->get_obj()->inferred_type;
+      if (obj_type->unwrap_alias()->try_as<TypeDataTuple>() && v->inferred_type->get_width_on_stack() != 1) {
         fire_error_cannot_put_non1_stack_width_arg_to_tuple(cur_f, v->loc, v->inferred_type);
       }
     }
@@ -296,7 +331,7 @@ protected:
     FunctionPtr fun_ref = v->fun_maybe;
     if (!fun_ref) {
       // `local_var(args)` and similar
-      const TypeDataFunCallable* f_callable = v->get_callee()->inferred_type->try_as<TypeDataFunCallable>();
+      const TypeDataFunCallable* f_callable = v->get_callee()->inferred_type->unwrap_alias()->try_as<TypeDataFunCallable>();
       tolk_assert(f_callable && f_callable->params_size() == v->get_num_args());
       for (int i = 0; i < v->get_num_args(); ++i) {
         auto arg_i = v->get_arg(i)->get_expr();
@@ -381,7 +416,7 @@ protected:
     // `(v1, v2) = rhs` / `var (v1, v2) = rhs` (rhs may be `(1,2)` or `tensorVar` or `someF()`, doesn't matter)
     // dig recursively into v1 and v2 with corresponding rhs i-th item of a tensor
     if (auto lhs_tensor = lhs->try_as<ast_tensor>()) {
-      const TypeDataTensor* rhs_type_tensor = rhs_type->try_as<TypeDataTensor>();
+      const TypeDataTensor* rhs_type_tensor = rhs_type->unwrap_alias()->try_as<TypeDataTensor>();
       if (!rhs_type_tensor) {
         fire(cur_f, err_loc->loc, "can not assign " + to_string(rhs_type) + " to a tensor");
       }
@@ -398,7 +433,7 @@ protected:
     // `[v1, v2] = rhs` / `var [v1, v2] = rhs` (rhs may be `[1,2]` or `tupleVar` or `someF()`, doesn't matter)
     // dig recursively into v1 and v2 with corresponding rhs i-th item of a tuple
     if (auto lhs_tuple = lhs->try_as<ast_typed_tuple>()) {
-      const TypeDataTypedTuple* rhs_type_tuple = rhs_type->try_as<TypeDataTypedTuple>();
+      const TypeDataTypedTuple* rhs_type_tuple = rhs_type->unwrap_alias()->try_as<TypeDataTypedTuple>();
       if (!rhs_type_tuple) {
         fire(cur_f, err_loc->loc, "can not assign " + to_string(rhs_type) + " to a tuple");
       }
@@ -414,7 +449,7 @@ protected:
 
     // check `untypedTuple.0 = rhs_tensor` and other non-1 width elements
     if (auto lhs_dot = lhs->try_as<ast_dot_access>()) {
-      if (lhs_dot->is_target_indexed_access() && lhs_dot->get_obj()->inferred_type == TypeDataTuple::create()) {
+      if (lhs_dot->is_target_indexed_access() && lhs_dot->get_obj()->inferred_type->unwrap_alias() == TypeDataTuple::create()) {
         if (rhs_type->get_width_on_stack() != 1) {
           fire_error_cannot_put_non1_stack_width_arg_to_tuple(cur_f, err_loc->loc, rhs_type);
         }

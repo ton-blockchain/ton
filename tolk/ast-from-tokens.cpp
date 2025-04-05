@@ -227,6 +227,21 @@ static AnyV parse_constant_declaration(Lexer& lex, const std::vector<V<ast_annot
   return createV<ast_constant_declaration>(loc, v_ident, declared_type, init_value);
 }
 
+static AnyV parse_type_alias_declaration(Lexer& lex, const std::vector<V<ast_annotation>>& annotations) {
+  if (!annotations.empty()) {
+    lex.error("@annotations are not applicable to type alias declaration");
+  }
+  SrcLocation loc = lex.cur_location();
+  lex.expect(tok_type, "`type`");
+  lex.check(tok_identifier, "type name");
+  auto v_ident = createV<ast_identifier>(lex.cur_location(), lex.cur_str());
+  lex.next();
+  lex.expect(tok_assign, "`=`");
+  TypePtr underlying_type = parse_type_from_tokens(lex);
+  lex.expect(tok_semicolon, "`;`");
+  return createV<ast_type_alias_declaration>(loc, v_ident, underlying_type);
+}
+
 // "parameters" are at function declaration: `fun f(param1: int, mutate param2: slice)`
 static V<ast_parameter_list> parse_parameter_list(Lexer& lex) {
   SrcLocation loc = lex.cur_location();
@@ -1178,6 +1193,10 @@ AnyV parse_src_file_to_ast(const SrcFile* file) {
         break;
       case tok_const:
         toplevel_declarations.push_back(parse_constant_declaration(lex, annotations));
+        annotations.clear();
+        break;
+      case tok_type:
+        toplevel_declarations.push_back(parse_type_alias_declaration(lex, annotations));
         annotations.clear();
         break;
       case tok_fun:

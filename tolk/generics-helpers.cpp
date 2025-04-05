@@ -83,7 +83,7 @@ void GenericSubstitutionsDeduceForCall::consider_next_condition(TypePtr param_ty
     provide_deducedT(asT->nameT, arg_type);
   } else if (const auto* p_nullable = param_type->try_as<TypeDataNullable>()) {
     // `arg: T?` called as `f(nullableInt)` => T is int
-    if (const auto* a_nullable = arg_type->try_as<TypeDataNullable>()) {
+    if (const auto* a_nullable = arg_type->unwrap_alias()->try_as<TypeDataNullable>()) {
       consider_next_condition(p_nullable->inner, a_nullable->inner);
     }
     // `arg: T?` called as `f(int)` => T is int
@@ -92,21 +92,21 @@ void GenericSubstitutionsDeduceForCall::consider_next_condition(TypePtr param_ty
     }
   } else if (const auto* p_tensor = param_type->try_as<TypeDataTensor>()) {
     // `arg: (int, T)` called as `f((5, cs))` => T is slice
-    if (const auto* a_tensor = arg_type->try_as<TypeDataTensor>(); a_tensor && a_tensor->size() == p_tensor->size()) {
+    if (const auto* a_tensor = arg_type->unwrap_alias()->try_as<TypeDataTensor>(); a_tensor && a_tensor->size() == p_tensor->size()) {
       for (int i = 0; i < a_tensor->size(); ++i) {
         consider_next_condition(p_tensor->items[i], a_tensor->items[i]);
       }
     }
   } else if (const auto* p_tuple = param_type->try_as<TypeDataTypedTuple>()) {
     // `arg: [int, T]` called as `f([5, cs])` => T is slice
-    if (const auto* a_tuple = arg_type->try_as<TypeDataTypedTuple>(); a_tuple && a_tuple->size() == p_tuple->size()) {
+    if (const auto* a_tuple = arg_type->unwrap_alias()->try_as<TypeDataTypedTuple>(); a_tuple && a_tuple->size() == p_tuple->size()) {
       for (int i = 0; i < a_tuple->size(); ++i) {
         consider_next_condition(p_tuple->items[i], a_tuple->items[i]);
       }
     }
   } else if (const auto* p_callable = param_type->try_as<TypeDataFunCallable>()) {
     // `arg: fun(TArg) -> TResult` called as `f(calcTupleLen)` => TArg is tuple, TResult is int
-    if (const auto* a_callable = arg_type->try_as<TypeDataFunCallable>(); a_callable && a_callable->params_size() == p_callable->params_size()) {
+    if (const auto* a_callable = arg_type->unwrap_alias()->try_as<TypeDataFunCallable>(); a_callable && a_callable->params_size() == p_callable->params_size()) {
       for (int i = 0; i < a_callable->params_size(); ++i) {
         consider_next_condition(p_callable->params_types[i], a_callable->params_types[i]);
       }

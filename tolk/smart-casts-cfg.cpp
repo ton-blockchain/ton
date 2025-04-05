@@ -196,6 +196,13 @@ static TypePtr calculate_type_lca(TypePtr a, TypePtr b) {
     return TypeDataInt::create();
   }
 
+  if (const auto* a_alias = a->try_as<TypeDataAlias>()) {
+    return calculate_type_lca(a_alias->underlying_type, b);
+  }
+  if (const auto* b_alias = b->try_as<TypeDataAlias>()) {
+    return calculate_type_lca(a, b_alias->underlying_type);
+  }
+
   return nullptr;
 }
 
@@ -352,7 +359,7 @@ FlowContext FlowContext::merge_flow(FlowContext&& c1, FlowContext&& c2) {
 // return `T`, so that `T?` = type
 // what for: `if (x != null)`, to smart cast x inside if
 TypePtr calculate_type_subtract_null(TypePtr type) {
-  if (const auto* as_nullable = type->try_as<TypeDataNullable>()) {
+  if (const auto* as_nullable = type->unwrap_alias()->try_as<TypeDataNullable>()) {
     return as_nullable->inner;
   }
   // union types will be handled here
@@ -415,7 +422,7 @@ TypePtr calc_declared_type_before_smart_cast(AnyExprV v) {
   }
 
   if (auto as_dot = v->try_as<ast_dot_access>(); as_dot && as_dot->is_target_indexed_access()) {
-    TypePtr obj_type = as_dot->get_obj()->inferred_type;    // v already inferred; hence, index_at is correct
+    TypePtr obj_type = as_dot->get_obj()->inferred_type->unwrap_alias();    // v already inferred; hence, index_at is correct
     int index_at = std::get<int>(as_dot->target);
     if (const auto* t_tensor = obj_type->try_as<TypeDataTensor>()) {
       return t_tensor->items[index_at];
@@ -436,7 +443,7 @@ TypePtr calc_declared_type_before_smart_cast(AnyExprV v) {
 TypePtr calc_smart_cast_type_on_assignment(TypePtr lhs_declared_type, TypePtr rhs_inferred_type) {
   // assign `T` to `T?` (or at least "assignable-to-T" to "T?")
   // smart cast to `T`
-  if (const auto* lhs_nullable = lhs_declared_type->try_as<TypeDataNullable>()) {
+  if (const auto* lhs_nullable = lhs_declared_type->unwrap_alias()->try_as<TypeDataNullable>()) {
     if (lhs_nullable->inner->can_rhs_be_assigned(rhs_inferred_type)) {
       return lhs_nullable->inner;
     }
@@ -444,7 +451,7 @@ TypePtr calc_smart_cast_type_on_assignment(TypePtr lhs_declared_type, TypePtr rh
 
   // assign `null` to `T?`
   // smart cast to `null`
-  if (lhs_declared_type->try_as<TypeDataNullable>() && rhs_inferred_type == TypeDataNullLiteral::create()) {
+  if (lhs_declared_type->unwrap_alias()->try_as<TypeDataNullable>() && rhs_inferred_type == TypeDataNullLiteral::create()) {
     return TypeDataNullLiteral::create();
   }
 

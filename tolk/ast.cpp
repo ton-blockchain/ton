@@ -154,6 +154,14 @@ void Vertex<ast_constant_declaration>::assign_resolved_type(TypePtr declared_typ
   this->declared_type = declared_type;
 }
 
+void Vertex<ast_type_alias_declaration>::assign_alias_ref(AliasDefPtr alias_ref) {
+  this->alias_ref = alias_ref;
+}
+
+void Vertex<ast_type_alias_declaration>::assign_resolved_type(TypePtr underlying_type) {
+  this->underlying_type = underlying_type;
+}
+
 void Vertex<ast_instantiationT_item>::assign_resolved_type(TypePtr substituted_type) {
   this->substituted_type = substituted_type;
 }

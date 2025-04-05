@@ -414,6 +414,8 @@ std::vector<var_idx_t> CodeBlob::create_var(TypePtr var_type, SrcLocation loc, s
     std::string null_flag_name = name.empty() ? name : name + ".NNFlag";
     ir_idx = create_var(t_nullable->inner, loc, std::move(name));
     ir_idx.emplace_back(create_var(TypeDataBool::create(), loc, std::move(null_flag_name))[0]);
+  } else if (const TypeDataAlias* t_alias = var_type->try_as<TypeDataAlias>()) {
+    ir_idx = create_var(t_alias->underlying_type, loc, std::move(name));
   } else if (var_type != TypeDataVoid::create() && var_type != TypeDataNever::create()) {
 #ifdef TOLK_DEBUG
     tolk_assert(stack_w == 1);

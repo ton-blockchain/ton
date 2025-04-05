@@ -9,9 +9,11 @@ fun increment(mutate self: int) { self += 1; }
 fun assignToInt(mutate self: int, value: int) { self = value; }
 fun assignToNullableInt(mutate self: int?, value: int) { self = value; }
 fun sameTensor(t: (int, int)) { return t; }
-fun sameTensor2(t: (int?, (slice, slice, slice, builder)?)) { return t; }
+fun sameTensor2(t: (int?, Pair4N)) { return t; }
 fun eq<T>(v: T) { return v; }
 fun getTwo<X>(): X { return 2 as X; }
+
+type Pair4N = (slice, slice, slice, builder)?;
 
 fun test1(): int {
     var x = getNullableInt();

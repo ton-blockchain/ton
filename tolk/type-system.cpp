@@ -113,6 +113,18 @@ void type_system_init() {
 // and creates an object only if it isn't found in a global hashtable
 //
 
+TypePtr TypeDataAlias::create(const std::string& alias_name, TypePtr underlying_type) {
+  TypeDataTypeIdCalculation hash(5694590762732189561ULL);
+  hash.feed_string(alias_name);
+  hash.feed_child(underlying_type);
+
+  if (TypePtr existing = hash.get_existing()) {
+    return existing;
+  }
+  std::string name_copy = alias_name;
+  return hash.register_unique(new TypeDataAlias(hash.type_id(), hash.children_flags(), std::move(name_copy), underlying_type));
+}
+
 TypePtr TypeDataNullable::create(TypePtr inner) {
   TypeDataTypeIdCalculation hash(1774084920039440885ULL);
   hash.feed_child(inner);
@@ -286,6 +298,11 @@ std::string TypeDataBytesN::as_human_readable() const {
 // only non-trivial implementations are here; by default (no children), `callback(this)` is executed
 //
 
+void TypeDataAlias::traverse(const TraverserCallbackT& callback) const {
+  callback(this);
+  underlying_type->traverse(callback);
+}
+
 void TypeDataNullable::traverse(const TraverserCallbackT& callback) const {
   callback(this);
   inner->traverse(callback);
@@ -321,6 +338,10 @@ void TypeDataTypedTuple::traverse(const TraverserCallbackT& callback) const {
 // used to replace generic T on generics expansion — to convert `f<T>` to `f<int>`
 // only non-trivial implementations are here; by default (no children), `return callback(this)` is executed
 //
+
+TypePtr TypeDataAlias::replace_children_custom(const ReplacerCallbackT& callback) const {
+  return callback(create(alias_name, underlying_type->replace_children_custom(callback)));
+}
 
 TypePtr TypeDataNullable::replace_children_custom(const ReplacerCallbackT& callback) const {
   return callback(create(inner->replace_children_custom(callback)));
@@ -361,6 +382,13 @@ TypePtr TypeDataTypedTuple::replace_children_custom(const ReplacerCallbackT& cal
 // the same goes for passing arguments, returning values, etc. — where the "receiver" (lhs) checks "applier" (rhs)
 //
 
+bool TypeDataAlias::can_rhs_be_assigned(TypePtr rhs) const {
+  if (rhs == this) {
+    return true;
+  }
+  return underlying_type->can_rhs_be_assigned(rhs);
+}
+
 bool TypeDataInt::can_rhs_be_assigned(TypePtr rhs) const {
   if (rhs == this) {
     return true;
@@ -371,12 +399,18 @@ bool TypeDataInt::can_rhs_be_assigned(TypePtr rhs) const {
   if (rhs == TypeDataCoins::create()) {
     return true;
   }
+  if (const TypeDataAlias* rhs_alias = rhs->try_as<TypeDataAlias>()) {
+    return can_rhs_be_assigned(rhs_alias->underlying_type);
+  }
   return rhs == TypeDataNever::create();
 }
 
 bool TypeDataBool::can_rhs_be_assigned(TypePtr rhs) const {
   if (rhs == this) {
     return true;
+  }
+  if (const TypeDataAlias* rhs_alias = rhs->try_as<TypeDataAlias>()) {
+    return can_rhs_be_assigned(rhs_alias->underlying_type);
   }
   return rhs == TypeDataNever::create();
 }
@@ -385,12 +419,18 @@ bool TypeDataCell::can_rhs_be_assigned(TypePtr rhs) const {
   if (rhs == this) {
     return true;
   }
+  if (const TypeDataAlias* rhs_alias = rhs->try_as<TypeDataAlias>()) {
+    return can_rhs_be_assigned(rhs_alias->underlying_type);
+  }
   return rhs == TypeDataNever::create();
 }
 
 bool TypeDataSlice::can_rhs_be_assigned(TypePtr rhs) const {
   if (rhs == this) {
     return true;
+  }
+  if (const TypeDataAlias* rhs_alias = rhs->try_as<TypeDataAlias>()) {
+    return can_rhs_be_assigned(rhs_alias->underlying_type);
   }
   return rhs == TypeDataNever::create();   // note, that bytesN is NOT automatically cast to slice without `as` operator
 }
@@ -399,12 +439,18 @@ bool TypeDataBuilder::can_rhs_be_assigned(TypePtr rhs) const {
   if (rhs == this) {
     return true;
   }
+  if (const TypeDataAlias* rhs_alias = rhs->try_as<TypeDataAlias>()) {
+    return can_rhs_be_assigned(rhs_alias->underlying_type);
+  }
   return rhs == TypeDataNever::create();
 }
 
 bool TypeDataTuple::can_rhs_be_assigned(TypePtr rhs) const {
   if (rhs == this) {
     return true;
+  }
+  if (const TypeDataAlias* rhs_alias = rhs->try_as<TypeDataAlias>()) {
+    return can_rhs_be_assigned(rhs_alias->underlying_type);
   }
   return rhs == TypeDataNever::create();
 }
@@ -413,12 +459,18 @@ bool TypeDataContinuation::can_rhs_be_assigned(TypePtr rhs) const {
   if (rhs == this) {
     return true;
   }
+  if (const TypeDataAlias* rhs_alias = rhs->try_as<TypeDataAlias>()) {
+    return can_rhs_be_assigned(rhs_alias->underlying_type);
+  }
   return rhs == TypeDataNever::create();
 }
 
 bool TypeDataNullLiteral::can_rhs_be_assigned(TypePtr rhs) const {
   if (rhs == this) {
     return true;
+  }
+  if (const TypeDataAlias* rhs_alias = rhs->try_as<TypeDataAlias>()) {
+    return can_rhs_be_assigned(rhs_alias->underlying_type);
   }
   return rhs == TypeDataNever::create();
 }
@@ -436,12 +488,32 @@ bool TypeDataNullable::can_rhs_be_assigned(TypePtr rhs) const {
   if (inner->can_rhs_be_assigned(rhs)) {
     return true;
   }
+  if (const TypeDataAlias* rhs_alias = rhs->try_as<TypeDataAlias>()) {
+    return can_rhs_be_assigned(rhs_alias->underlying_type);
+  }
   return rhs == TypeDataNever::create();
 }
 
 bool TypeDataFunCallable::can_rhs_be_assigned(TypePtr rhs) const {
   if (rhs == this) {
     return true;
+  }
+  if (const TypeDataFunCallable* rhs_callable = rhs->try_as<TypeDataFunCallable>()) {
+    if (rhs_callable->params_size() != params_size()) {
+      return false;
+    }
+    for (int i = 0; i < params_size(); ++i) {
+      if (!rhs_callable->params_types[i]->can_rhs_be_assigned(params_types[i])) {
+        return false;
+      }
+      if (!params_types[i]->can_rhs_be_assigned(rhs_callable->params_types[i])) {
+        return false;
+      }
+    }
+    return return_type->can_rhs_be_assigned(rhs_callable->return_type) && rhs_callable->return_type->can_rhs_be_assigned(return_type);
+  }
+  if (const TypeDataAlias* rhs_alias = rhs->try_as<TypeDataAlias>()) {
+    return can_rhs_be_assigned(rhs_alias->underlying_type);
   }
   return rhs == TypeDataNever::create();
 }
@@ -460,6 +532,9 @@ bool TypeDataTensor::can_rhs_be_assigned(TypePtr rhs) const {
     }
     return true;
   }
+  if (const TypeDataAlias* rhs_alias = rhs->try_as<TypeDataAlias>()) {
+    return can_rhs_be_assigned(rhs_alias->underlying_type);
+  }
   return rhs == TypeDataNever::create();
 }
 
@@ -472,6 +547,9 @@ bool TypeDataTypedTuple::can_rhs_be_assigned(TypePtr rhs) const {
     }
     return true;
   }
+  if (const TypeDataAlias* rhs_alias = rhs->try_as<TypeDataAlias>()) {
+    return can_rhs_be_assigned(rhs_alias->underlying_type);
+  }
   return rhs == TypeDataNever::create();
 }
 
@@ -482,6 +560,9 @@ bool TypeDataIntN::can_rhs_be_assigned(TypePtr rhs) const {
   if (rhs == TypeDataInt::create()) {
     return true;
   }
+  if (const TypeDataAlias* rhs_alias = rhs->try_as<TypeDataAlias>()) {
+    return can_rhs_be_assigned(rhs_alias->underlying_type);
+  }
   return rhs == TypeDataNever::create();   // `int8` is NOT assignable to `int32` without `as`
 }
 
@@ -491,7 +572,10 @@ bool TypeDataBytesN::can_rhs_be_assigned(TypePtr rhs) const {
   if (rhs == this) {
     return true;
   }
-  return rhs == TypeDataNever::create();
+  if (const TypeDataAlias* rhs_alias = rhs->try_as<TypeDataAlias>()) {
+    return can_rhs_be_assigned(rhs_alias->underlying_type);
+  }
+  return false;
 }
 
 bool TypeDataCoins::can_rhs_be_assigned(TypePtr rhs) const {
@@ -500,6 +584,9 @@ bool TypeDataCoins::can_rhs_be_assigned(TypePtr rhs) const {
   }
   if (rhs == TypeDataInt::create()) {
     return true;
+  }
+  if (const TypeDataAlias* rhs_alias = rhs->try_as<TypeDataAlias>()) {
+    return can_rhs_be_assigned(rhs_alias->underlying_type);
   }
   return rhs == TypeDataNever::create();
 }
@@ -521,6 +608,9 @@ bool TypeDataVoid::can_rhs_be_assigned(TypePtr rhs) const {
   if (rhs == this) {
     return true;
   }
+  if (const TypeDataAlias* rhs_alias = rhs->try_as<TypeDataAlias>()) {
+    return can_rhs_be_assigned(rhs_alias->underlying_type);
+  }
   return rhs == TypeDataNever::create();
 }
 
@@ -532,6 +622,10 @@ bool TypeDataVoid::can_rhs_be_assigned(TypePtr rhs) const {
 // note, that it's not auto-casts `var lhs: <lhs_type> = rhs`, it's an expression `rhs as <cast_to>`
 //
 
+bool TypeDataAlias::can_be_casted_with_as_operator(TypePtr cast_to) const {
+  return underlying_type->can_be_casted_with_as_operator(cast_to);
+}
+
 bool TypeDataInt::can_be_casted_with_as_operator(TypePtr cast_to) const {
   if (const auto* to_nullable = cast_to->try_as<TypeDataNullable>()) {  // `int` as `int?`
     return can_be_casted_with_as_operator(to_nullable->inner);
@@ -541,6 +635,9 @@ bool TypeDataInt::can_be_casted_with_as_operator(TypePtr cast_to) const {
   }
   if (cast_to == TypeDataCoins::create()) {   // `int` as `coins`
     return true;
+  }
+  if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
+    return can_be_casted_with_as_operator(to_alias->underlying_type);
   }
   return cast_to == this;
 }
@@ -555,12 +652,18 @@ bool TypeDataBool::can_be_casted_with_as_operator(TypePtr cast_to) const {
   if (const auto* to_intN = cast_to->try_as<TypeDataIntN>()) {
     return !to_intN->is_unsigned;   // `bool` as `int8` ok, `bool` as `uintN` not (true is -1)
   }
+  if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
+    return can_be_casted_with_as_operator(to_alias->underlying_type);
+  }
   return cast_to == this;
 }
 
 bool TypeDataCell::can_be_casted_with_as_operator(TypePtr cast_to) const {
   if (const auto* to_nullable = cast_to->try_as<TypeDataNullable>()) {
     return can_be_casted_with_as_operator(to_nullable->inner);
+  }
+  if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
+    return can_be_casted_with_as_operator(to_alias->underlying_type);
   }
   return cast_to == this;
 }
@@ -572,12 +675,18 @@ bool TypeDataSlice::can_be_casted_with_as_operator(TypePtr cast_to) const {
   if (const auto* to_nullable = cast_to->try_as<TypeDataNullable>()) {
     return can_be_casted_with_as_operator(to_nullable->inner);
   }
+  if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
+    return can_be_casted_with_as_operator(to_alias->underlying_type);
+  }
   return cast_to == this;
 }
 
 bool TypeDataBuilder::can_be_casted_with_as_operator(TypePtr cast_to) const {
   if (const auto* to_nullable = cast_to->try_as<TypeDataNullable>()) {
     return can_be_casted_with_as_operator(to_nullable->inner);
+  }
+  if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
+    return can_be_casted_with_as_operator(to_alias->underlying_type);
   }
   return cast_to == this;
 }
@@ -586,6 +695,9 @@ bool TypeDataTuple::can_be_casted_with_as_operator(TypePtr cast_to) const {
   if (const auto* to_nullable = cast_to->try_as<TypeDataNullable>()) {
     return can_be_casted_with_as_operator(to_nullable->inner);
   }
+  if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
+    return can_be_casted_with_as_operator(to_alias->underlying_type);
+  }
   return cast_to == this;
 }
 
@@ -593,16 +705,28 @@ bool TypeDataContinuation::can_be_casted_with_as_operator(TypePtr cast_to) const
   if (const auto* to_nullable = cast_to->try_as<TypeDataNullable>()) {
     return can_be_casted_with_as_operator(to_nullable->inner);
   }
+  if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
+    return can_be_casted_with_as_operator(to_alias->underlying_type);
+  }
   return cast_to == this;
 }
 
 bool TypeDataNullLiteral::can_be_casted_with_as_operator(TypePtr cast_to) const {
-  return cast_to == this || cast_to->try_as<TypeDataNullable>();
+  if (cast_to->try_as<TypeDataNullable>()) {
+    return true;
+  }
+  if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
+    return can_be_casted_with_as_operator(to_alias->underlying_type);
+  }
+  return cast_to == this;
 }
 
 bool TypeDataNullable::can_be_casted_with_as_operator(TypePtr cast_to) const {
   if (const auto* to_nullable = cast_to->try_as<TypeDataNullable>()) {
     return inner->can_be_casted_with_as_operator(to_nullable->inner);
+  }
+  if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
+    return can_be_casted_with_as_operator(to_alias->underlying_type);
   }
   return false;
 }
@@ -611,7 +735,21 @@ bool TypeDataFunCallable::can_be_casted_with_as_operator(TypePtr cast_to) const 
   if (const auto* to_nullable = cast_to->try_as<TypeDataNullable>()) {
     return can_be_casted_with_as_operator(to_nullable->inner);
   }
-  return this == cast_to;
+  if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
+    return can_be_casted_with_as_operator(to_alias->underlying_type);
+  }
+  if (const TypeDataFunCallable* to_callable = cast_to->try_as<TypeDataFunCallable>()) {
+    if (to_callable->params_size() != params_size()) {
+      return false;
+    }
+    for (int i = 0; i < params_size(); ++i) {
+      if (!params_types[i]->can_be_casted_with_as_operator(to_callable->params_types[i])) {
+        return false;
+      }
+    }
+    return return_type->can_be_casted_with_as_operator(to_callable->return_type);
+  }
+  return false;
 }
 
 bool TypeDataGenericT::can_be_casted_with_as_operator(TypePtr cast_to) const {
@@ -630,6 +768,9 @@ bool TypeDataTensor::can_be_casted_with_as_operator(TypePtr cast_to) const {
   if (const auto* to_nullable = cast_to->try_as<TypeDataNullable>()) {
     return can_be_casted_with_as_operator(to_nullable->inner);
   }
+  if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
+    return can_be_casted_with_as_operator(to_alias->underlying_type);
+  }
   return false;
 }
 
@@ -645,6 +786,9 @@ bool TypeDataTypedTuple::can_be_casted_with_as_operator(TypePtr cast_to) const {
   if (const auto* to_nullable = cast_to->try_as<TypeDataNullable>()) {
     return can_be_casted_with_as_operator(to_nullable->inner);
   }
+  if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
+    return can_be_casted_with_as_operator(to_alias->underlying_type);
+  }
   return false;
 }
 
@@ -654,6 +798,9 @@ bool TypeDataIntN::can_be_casted_with_as_operator(TypePtr cast_to) const {
   }
   if (const auto* to_nullable = cast_to->try_as<TypeDataNullable>()) {  // `int8` as `int32?`
     return can_be_casted_with_as_operator(to_nullable->inner);
+  }
+  if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
+    return can_be_casted_with_as_operator(to_alias->underlying_type);
   }
   return cast_to == TypeDataInt::create() || cast_to == TypeDataCoins::create();
 }
@@ -665,6 +812,9 @@ bool TypeDataBytesN::can_be_casted_with_as_operator(TypePtr cast_to) const {
   if (const auto* to_nullable = cast_to->try_as<TypeDataNullable>()) {  // `bytes8` as `slice?`
     return can_be_casted_with_as_operator(to_nullable->inner);
   }
+  if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
+    return can_be_casted_with_as_operator(to_alias->underlying_type);
+  }
   return cast_to == TypeDataSlice::create();
 }
 
@@ -674,6 +824,9 @@ bool TypeDataCoins::can_be_casted_with_as_operator(TypePtr cast_to) const {
   }
   if (const auto* to_nullable = cast_to->try_as<TypeDataNullable>()) {  // `coins` as `coins?` / `coins` as `int?`
     return can_be_casted_with_as_operator(to_nullable->inner);
+  }
+  if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
+    return can_be_casted_with_as_operator(to_alias->underlying_type);
   }
   if (cast_to == TypeDataInt::create()) {
     return true;
@@ -707,6 +860,10 @@ bool TypeDataVoid::can_be_casted_with_as_operator(TypePtr cast_to) const {
 // but for complex variables, like `(int, int)?`, "null presence" is kept in a separate slot (UTag for union types)
 // though still, tricky situations like `(int, ())?` can still "embed" TVM NULL in parallel with original value
 //
+
+bool TypeDataAlias::can_hold_tvm_null_instead() const {
+  return underlying_type->can_hold_tvm_null_instead();
+}
 
 bool TypeDataNullable::can_hold_tvm_null_instead() const {
   if (get_width_on_stack() != 1) {    // `(int, int)?` / `()?` can not hold null instead
