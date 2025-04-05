@@ -1018,60 +1018,67 @@ static std::vector<var_idx_t> process_not_null_operator(V<ast_not_null_operator>
 static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v, CodeBlob& code, TypePtr target_type) {
   TypePtr lhs_type = v->get_subject()->inferred_type->unwrap_alias();
 
+  int n_arms = v->get_arms_count();
   std::vector<var_idx_t> subj_ir_idx = pre_compile_expr(v->get_subject(), code, nullptr);
   std::vector<var_idx_t> result_ir_idx = code.create_tmp_var(v->inferred_type, v->loc, "(match-expression)");
 
-  // detect whether it's `match` by type covering all cases; type checker has already checked that
-  // match by type can not be mixed with match by expression and can't contain `else`, and that types are distinct and cover all variants
-  bool is_exhaustive_match_by_type = v->get_arms_count() > 0 && v->get_arm(0)->pattern_kind == MatchArmKind::exact_type;
-  if (is_exhaustive_match_by_type) {
-    // example: `match (v) { int => ... slice => ... builder => ... }`
-    // construct nested IFs: IF is int { ... } ELSE { IF is slice { ... } ELSE { ... } }
-    for (int i = 0; i < v->get_arms_count() - 1; ++i) {
-      auto v_ith_arm = v->get_arm(i);
+  if (!n_arms) {    // `match (subject) {}`
+    tolk_assert(v->is_statement());
+    return {};
+  }
+
+  // it's either `match` by type (all arms patterns are types) or `match` by expression
+  bool is_match_by_type = v->get_arm(0)->pattern_kind == MatchArmKind::exact_type;
+  // detect whether `match` is exhaustive
+  bool is_exhaustive = is_match_by_type   // match by type covers all cases, checked earlier
+       || !v->is_statement()              // match by expression is guaranteely exhaustive, checked earlier
+       || v->get_arm(n_arms - 1)->pattern_kind == MatchArmKind::else_branch;
+
+  // example 1 (exhaustive): `match (v) { int => ... slice => ... builder => ... }`
+  // construct nested IFs: IF is int { ... } ELSE { IF is slice { ... } ELSE { ... } }
+  // example 2 (exhaustive): `match (v) { -1 => ... 0 => ... else => ... }`
+  // construct nested IFs: IF is int { ... } ELSE { IF is slice { ... } ELSE { ... } }
+  // example 3 (not exhaustive): `match (v) { -1 => ... 0 => ... 1 => ... }`
+  // construct nested IFs: IF == -1 { ... } ELSE { IF == 0 { ... } ELSE { IF == 1 { ... } } }
+  FunctionPtr eq_sym = lookup_global_symbol("_==_")->try_as<FunctionPtr>();
+  for (int i = 0; i < n_arms - is_exhaustive; ++i) {
+    auto v_ith_arm = v->get_arm(i);
+    std::vector<var_idx_t> eq_ith_ir_idx;
+    if (is_match_by_type) {
       TypePtr cmp_type = v_ith_arm->exact_type->unwrap_alias();
       tolk_assert(!cmp_type->try_as<TypeDataUnion>());  // `match` over `int|slice` is a type checker error
-      std::vector<var_idx_t> eq_ith_ir_idx = pre_compile_is_type(code, lhs_type, cmp_type, subj_ir_idx, v_ith_arm->loc, "(arm-cond-eq)");
-      Op& if_op = code.emplace_back(v_ith_arm->loc, Op::_If, std::move(eq_ith_ir_idx));
-      code.push_set_cur(if_op.block0);
-      if (v->is_statement()) {
-        pre_compile_expr(v_ith_arm->get_body(), code);
-      } else {
-        std::vector<var_idx_t> arm_ir_idx = pre_compile_expr(v_ith_arm->get_body(), code, v->inferred_type);
-        code.emplace_back(v->loc, Op::_Let, result_ir_idx, std::move(arm_ir_idx));
-      }
-      code.close_pop_cur(v->loc);
-      code.push_set_cur(if_op.block1);    // open ELSE
+      eq_ith_ir_idx = pre_compile_is_type(code, lhs_type, cmp_type, subj_ir_idx, v_ith_arm->loc, "(arm-cond-eq)");
+    } else {
+      std::vector<var_idx_t> ith_ir_idx = pre_compile_expr(v_ith_arm->get_pattern_expr(), code);
+      tolk_assert(subj_ir_idx.size() == 1 && ith_ir_idx.size() == 1);
+      eq_ith_ir_idx = code.create_tmp_var(TypeDataBool::create(), v_ith_arm->loc, "(arm-cond-eq)");
+      code.emplace_back(v_ith_arm->loc, Op::_Call, eq_ith_ir_idx, std::vector{subj_ir_idx[0], ith_ir_idx[0]}, eq_sym);
     }
+    Op& if_op = code.emplace_back(v_ith_arm->loc, Op::_If, std::move(eq_ith_ir_idx));
+    code.push_set_cur(if_op.block0);
+    if (v->is_statement()) {
+      pre_compile_expr(v_ith_arm->get_body(), code);
+    } else {
+      std::vector<var_idx_t> arm_ir_idx = pre_compile_expr(v_ith_arm->get_body(), code, v->inferred_type);
+      code.emplace_back(v->loc, Op::_Let, result_ir_idx, std::move(arm_ir_idx));
+    }
+    code.close_pop_cur(v->loc);
+    code.push_set_cur(if_op.block1);    // open ELSE
+  }
 
-    // we're inside the last ELSE, close all outer IFs
-    auto v_last_arm = v->get_arm(v->get_arms_count() - 1);
+  if (is_exhaustive) {
+    // we're inside the last ELSE
+    auto v_last_arm = v->get_arm(n_arms - 1);
     if (v->is_statement()) {
       pre_compile_expr(v_last_arm->get_body(), code);
     } else {
       std::vector<var_idx_t> arm_ir_idx = pre_compile_expr(v_last_arm->get_body(), code, v->inferred_type);
       code.emplace_back(v->loc, Op::_Let, result_ir_idx, std::move(arm_ir_idx));
     }
-    for (int i = 0; i < v->get_arms_count() - 1; ++i) {
-      code.close_pop_cur(v->loc);
-    }
-
-  } else {
-    // not exhaustive `match` by type
-    for (int i = 0; i < v->get_arms_count(); ++i) {
-      auto v_arm = v->get_arm(i);
-      switch (v_arm->pattern_kind) {
-        case MatchArmKind::const_expression:
-          tolk_assert(false);   // match by expressions is not supported yet, checked earlier
-          break;
-        case MatchArmKind::exact_type:
-          tolk_assert(false);   // match by type is exhaustive, checked earlier
-          break;
-        case MatchArmKind::else_branch:
-          tolk_assert(false);   // `else` in match can be only inside match by expression, unsupported yet
-          break;
-      }
-    }
+  }
+  // close all outer IFs
+  for (int i = 0; i < n_arms - is_exhaustive; ++i) {
+    code.close_pop_cur(v->loc);
   }
 
   return transition_to_target_type(std::move(result_ir_idx), code, target_type, v);

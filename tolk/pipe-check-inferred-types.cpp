@@ -227,7 +227,7 @@ protected:
         bool both_int = expect_integer(lhs) && expect_integer(rhs);
         bool both_bool = expect_boolean(lhs) && expect_boolean(rhs);
         if (!both_int && !both_bool) {
-          if (lhs->inferred_type == rhs->inferred_type) {  // compare slice with slice, int? with int?
+          if (lhs->inferred_type->equal_to(rhs->inferred_type)) {  // compare slice with slice, int? with int?
             fire(cur_f, v->loc, "type " + to_string(lhs) + " can not be compared with `== !=`");
           } else {
             fire_error_cannot_apply_operator(cur_f, v->loc, v->operator_name, lhs, rhs);
@@ -525,7 +525,8 @@ protected:
     bool has_type_arm = false;
     bool has_expr_arm = false;
     bool has_else_arm = false;
-    TypePtr subject_type = v->get_subject()->inferred_type->unwrap_alias();
+    AnyExprV v_subject = v->get_subject();
+    TypePtr subject_type = v_subject->inferred_type->unwrap_alias();
     const TypeDataUnion* subject_union = subject_type->try_as<TypeDataUnion>();
 
     std::vector<int> covered_type_ids;    // for type-based `match`, what types are on the left of `=>`
@@ -565,7 +566,16 @@ protected:
             fire(cur_f, v_arm->loc, "`else` branch should be the last");
           }
           has_expr_arm = true;
-          fire(cur_f, v_arm->loc, "`match` by expression is not supported yet");
+          TypePtr pattern_type = v_arm->get_pattern_expr()->inferred_type->unwrap_alias();
+          bool both_int = expect_integer(pattern_type) && expect_integer(subject_type);
+          bool both_bool = expect_boolean(pattern_type) && expect_boolean(subject_type);
+          if (!both_int && !both_bool) {
+            if (pattern_type->equal_to(subject_type)) {   // `match` over `slice` etc., where operator `==` can't be applied
+              fire(cur_f, v_arm->loc, "wrong pattern matching: can not compare type " + to_string(subject_type) + " in `match`");
+            } else {
+              fire(cur_f, v_arm->loc, "wrong pattern matching: can not compare type " + to_string(v_arm->get_pattern_expr()) + " with match subject of type " + to_string(v_subject));
+            }
+          }
           break;
         }
         default:
@@ -576,7 +586,6 @@ protected:
             fire(cur_f, v_arm->loc, "`else` is not allowed in `match` by type; you should cover all possible types");
           }
           has_else_arm = true;
-          fire(cur_f, v_arm->loc, "`match` by expression is not supported yet");
       }
     }
 
@@ -592,6 +601,18 @@ protected:
         }
       }
       throw ParseError(cur_f, v->loc, "`match` does not cover all possible types; missing types are: " + missing);
+    }
+    // `match` by expression, if it's not statement, should have `else` (unless it's match over bool with const true/false)
+    if (has_expr_arm && !has_else_arm && !v->is_statement()) {
+      bool needs_else_branch = true;
+      if (expect_boolean(subject_type) && v->get_arms_count() == 2) {
+        auto arm0 = v->get_arm(0)->get_pattern_expr()->try_as<ast_bool_const>();
+        auto arm1 = v->get_arm(1)->get_pattern_expr()->try_as<ast_bool_const>();
+        needs_else_branch = !(arm0 && arm1 && arm0->bool_val != arm1->bool_val);
+      }
+      if (needs_else_branch) {
+        fire(cur_f, v->loc, "`match` expression should have `else` branch");
+      }
     }
   }
 

@@ -134,7 +134,22 @@ class ConstantFoldingReplacer final : public ASTReplacerInFunctionBody {
     return v;
   }
 
- public:
+ AnyExprV replace(V<ast_match_arm> v) override {
+    parent::replace(v);
+
+    // replace `2 + 3 => ...` with `5 => ...`
+    // non-constant expressions like `foo() => ...` fire an error here
+    if (v->pattern_kind == MatchArmKind::const_expression && v->get_pattern_expr()->type != ast_int_const) {
+      ConstantValue value = eval_expression_expected_to_be_constant(v->get_pattern_expr());
+      tolk_assert(value.is_int());
+      AnyExprV v_new_pattern = create_int_const(v->get_pattern_expr()->loc, value.as_int());
+      v->mutate()->assign_resolved_pattern(MatchArmKind::const_expression, nullptr, v_new_pattern);
+    }
+
+    return v;
+  }
+
+public:
   bool should_visit_function(FunctionPtr fun_ref) override {
     return fun_ref->is_code_function() && !fun_ref->is_generic_function();
   }

@@ -764,6 +764,15 @@ fun test60() {
     return (returnVoidOrNull(true), returnVoidOrNull(false));
 }
 
+@method_id(161)
+fun test61(i: int32 | int64 | int) {
+    match (i) {
+        int32 => { return 10; }
+        int64 => { return 20; }
+        int => { return 30; }
+    }
+}
+
 
 
 fun main() {
@@ -837,6 +846,7 @@ fun main() {
 @testcase | 159 | 0 4       | 456
 @testcase | 159 | null 0    | 123
 @testcase | 160 |           | 10 0
+@testcase | 161 | 100 48    | 20
 
 
 @fif_codegen
@@ -865,6 +875,25 @@ fun main() {
         3 PUSHINT	//  '2=3
       }>
     }>
+  }>
+"""
+
+@fif_codegen
+"""
+  test61 PROC:<{
+    //  i.USlot1 i.UTag
+    NIP
+    DUP
+    46 EQINT
+    IFJMP:<{
+      DROP
+      10 PUSHINT
+    }>
+    48 EQINT
+    IFJMP:<{
+      20 PUSHINT
+    }>
+    30 PUSHINT
   }>
 """
 

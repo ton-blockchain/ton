@@ -13,6 +13,6 @@ fun main() {
 
 /**
 @compilation_should_fail
-@stderr `match` by expression is not supported yet
+@stderr symbol `asdf` is not a constant
 @stderr asdf => 2
  */

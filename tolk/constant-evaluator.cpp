@@ -384,12 +384,11 @@ struct ConstantEvaluator {
     v->error("not a constant expression");
   }
 
-  // evaluate `const a = 2 + 3` into 5
-  // type inferring has already passed, to types are correct, `const a = 1 + ""` can not occur
-  // recursive initializers `const a = b; const b = a` also 100% don't exist, checked on type inferring
-  // if init_value is not a constant expression like `const a = foo()`, an exception is thrown
-  static ConstantValue eval_const_init_value(GlobalConstPtr const_ref) {
-    return visit(const_ref->init_value);
+  // evaluate `2 + 3` into 5
+  // type inferring has already passed, to types are correct, `1 + ""` can not occur
+  // if v is not a constant expression like `foo()`, an exception is thrown
+  static ConstantValue eval_expression_expected_to_be_constant(AnyExprV v) {
+    return visit(v);
   }
 };
 
@@ -405,8 +404,17 @@ ConstantValue eval_call_to_compile_time_function(AnyExprV v_call) {
   return parse_vertex_call_to_compile_time_function(v, v->fun_maybe->name);
 }
 
+// evaluate `2 + 3` into `5`
+// if v is not a constant expression like `gVar`, an exception is thrown
+ConstantValue eval_expression_expected_to_be_constant(AnyExprV v) {
+  return ConstantEvaluator::eval_expression_expected_to_be_constant(v);
+}
+
+// evaluate `const a = 2 + 3` into `const a = 5`
+// recursive initializers `const a = b; const b = a` don't exist, checked on type inferring
+// if init_value is not a constant expression like `const a = foo()`, an exception is thrown
 void eval_and_assign_const_init_value(GlobalConstPtr const_ref) {
-  ConstantValue init_value = ConstantEvaluator::eval_const_init_value(const_ref);
+  ConstantValue init_value = ConstantEvaluator::eval_expression_expected_to_be_constant(const_ref->init_value);
   const_ref->mutate()->assign_const_value(std::move(init_value));
 }
 
