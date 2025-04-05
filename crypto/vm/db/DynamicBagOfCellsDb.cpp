@@ -138,21 +138,23 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
     return td::Status::OK();
   }
   td::Result<Ref<DataCell>> load_cell(td::Slice hash) override {
-    auto info = hash_table_.get_if_exists(hash);
-    if (info && info->sync_with_db) {
-      TRY_RESULT(loaded_cell, info->cell->load_cell());
-      return std::move(loaded_cell.data_cell);
-    }
-    TRY_RESULT(res, loader_->load(hash, true, *this));
-    if (res.status != CellLoader::LoadResult::Ok) {
-      return td::Status::Error("cell not found");
-    }
-    Ref<DataCell> cell = res.cell();
-    hash_table_.apply(hash, [&](CellInfo &info) { update_cell_info_loaded(info, hash, std::move(res)); });
-    return cell;
+    TRY_RESULT(loaded_cell, get_cell_info_force(hash).cell->load_cell());
+    return std::move(loaded_cell.data_cell);
   }
   td::Result<Ref<DataCell>> load_root(td::Slice hash) override {
     return load_cell(hash);
+  }
+  td::Result<std::vector<Ref<DataCell>>> load_bulk(td::Span<td::Slice> hashes) override {
+    std::vector<Ref<DataCell>> result;
+    result.reserve(hashes.size());
+    for (auto &hash : hashes) {
+      auto cell = load_cell(hash);
+      if (cell.is_error()) {
+        return cell.move_as_error();
+      }
+      result.push_back(cell.move_as_ok());
+    }
+    return result;
   }
   td::Result<Ref<DataCell>> load_root_thread_safe(td::Slice hash) const override {
     return td::Status::Error("Not implemented");
@@ -192,6 +194,9 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
           });
           promise->set_result(std::move(cell));
         });
+  }
+  CellInfo &get_cell_info_force(td::Slice hash) {
+    return hash_table_.apply(hash, [&](CellInfo &info) { update_cell_info_force(info, hash); });
   }
   CellInfo &get_cell_info_lazy(Cell::LevelMask level_mask, td::Slice hash, td::Slice depth) {
     return hash_table_.apply(hash.substr(hash.size() - Cell::hash_bytes),
@@ -381,6 +386,23 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
         return td::Status::Error("cell not found");
       }
       return std::move(load_result.cell());
+    }
+
+    td::Result<std::vector<Ref<DataCell>>> load_bulk(td::Span<td::Slice> hashes) override {
+      if (db_) {
+        return db_->load_bulk(hashes);
+      }
+      TRY_RESULT(load_result, cell_loader_->load_bulk(hashes, true, *this));
+      
+      std::vector<Ref<DataCell>> res;
+      res.reserve(load_result.size());
+      for (auto &load_res : load_result) {
+        if (load_res.status != CellLoader::LoadResult::Ok) {
+          return td::Status::Error("cell not found");
+        }
+        res.push_back(std::move(load_res.cell()));
+      }
+      return res;
     }
 
    private:

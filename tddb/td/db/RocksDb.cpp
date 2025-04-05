@@ -187,6 +187,40 @@ Result<RocksDb::GetStatus> RocksDb::get(Slice key, std::string &value) {
   return from_rocksdb(status);
 }
 
+Result<std::vector<RocksDb::GetStatus>> RocksDb::get_multi(td::Span<Slice> keys, std::vector<std::string> *values) {
+  std::vector<rocksdb::Status> statuses(keys.size());
+  std::vector<rocksdb::Slice> keys_rocksdb;
+  keys_rocksdb.reserve(keys.size());
+  for (auto &key : keys) {
+    keys_rocksdb.push_back(to_rocksdb(key));
+  }
+  std::vector<rocksdb::PinnableSlice> values_rocksdb(keys.size());
+  rocksdb::ReadOptions options;
+  if (snapshot_) {
+    options.snapshot = snapshot_.get();
+    db_->MultiGet(options, db_->DefaultColumnFamily(), keys_rocksdb.size(), keys_rocksdb.data(), values_rocksdb.data(), statuses.data());
+  } else if (transaction_) {
+    transaction_->MultiGet(options, db_->DefaultColumnFamily(), keys_rocksdb.size(), keys_rocksdb.data(), values_rocksdb.data(), statuses.data());
+  } else {
+    db_->MultiGet(options, db_->DefaultColumnFamily(), keys_rocksdb.size(), keys_rocksdb.data(), values_rocksdb.data(), statuses.data());
+  }
+  std::vector<GetStatus> res(statuses.size());
+  values->resize(statuses.size());
+  for (size_t i = 0; i < statuses.size(); i++) {
+    auto &status = statuses[i];
+    if (status.ok()) {
+      res[i] = GetStatus::Ok;
+      values->at(i) = values_rocksdb[i].ToString();
+    } else if (status.code() == rocksdb::Status::kNotFound) {
+      res[i] = GetStatus::NotFound;
+      values->at(i) = "";
+    } else {
+      return from_rocksdb(status);
+    }
+  }
+  return res;
+}
+
 Status RocksDb::set(Slice key, Slice value) {
   if (write_batch_) {
     return from_rocksdb(write_batch_->Put(to_rocksdb(key), to_rocksdb(value)));
