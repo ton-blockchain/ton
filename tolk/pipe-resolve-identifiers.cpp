@@ -158,7 +158,7 @@ struct TypeDataResolver {
             if (alias_ref->underlying_type->has_unresolved_inside()) {
               resolve_and_mutate_type_alias(alias_ref);
             }
-            return TypeDataAlias::create(alias_ref->name, alias_ref->underlying_type);
+            return TypeDataAlias::create(alias_ref);
           }
         }
         if (un->text == "auto") {
@@ -260,6 +260,48 @@ protected:
     }
   }
 
+  void visit(V<ast_braced_expression> v) override {
+    current_scope.open_scope(v->loc);
+    parent::visit(v->get_sequence());
+    current_scope.close_scope(v->loc);
+  }
+
+  void visit(V<ast_match_expression> v) override {
+    current_scope.open_scope(v->loc);   // `match (var a = init_val) { ... }`
+    parent::visit(v);                   // then `a` exists only inside `match` arms
+    current_scope.close_scope(v->loc);
+  }
+
+  void visit(V<ast_match_arm> v) override {
+    // resolve identifiers after => at first
+    parent::visit(v->get_body());
+    // because handling lhs of => is comprehensive
+
+    switch (v->pattern_kind) {
+      case MatchArmKind::exact_type: {
+        if (const TypeDataUnresolved* maybe_ident = v->exact_type->try_as<TypeDataUnresolved>()) {
+          if (const Symbol* sym = current_scope.lookup_symbol(maybe_ident->text); sym && !sym->try_as<AliasDefPtr>()) {
+            auto v_ident = createV<ast_identifier>(v->loc, sym->name);
+            AnyExprV pattern_expr = createV<ast_reference>(v->loc, v_ident, nullptr);
+            parent::visit(pattern_expr);
+            v->mutate()->assign_resolved_pattern(MatchArmKind::const_expression, nullptr, pattern_expr);
+            return;
+          }
+        }
+        TypePtr resolved_exact_type = finalize_type_data(cur_f, v->exact_type, current_genericTs);
+        v->mutate()->assign_resolved_pattern(MatchArmKind::exact_type, resolved_exact_type, v->get_pattern_expr());
+        break;
+      }
+      case MatchArmKind::const_expression: {
+        parent::visit(v->get_pattern_expr());
+        break;
+      }
+      default:
+        // for `else` match branch, do nothing: its body was already traversed above
+        break;
+    }
+  }
+
   void visit(V<ast_dot_access> v) override {
     // for `t.tupleAt<MyAlias>` / `obj.method<T>`, resolve "MyAlias" and "T"
     // (for function call `t.tupleAt<MyAlias>()`, this v (ast_dot_access `t.tupleAt<MyAlias>`) is callee)
@@ -275,6 +317,12 @@ protected:
   void visit(V<ast_cast_as_operator> v) override {
     TypePtr cast_to_type = finalize_type_data(cur_f, v->cast_to_type, current_genericTs);
     v->mutate()->assign_resolved_type(cast_to_type);
+    parent::visit(v->get_expr());
+  }
+
+  void visit(V<ast_is_type_operator> v) override {
+    TypePtr rhs_type = finalize_type_data(cur_f, v->rhs_type, current_genericTs);
+    v->mutate()->assign_resolved_type(rhs_type);
     parent::visit(v->get_expr());
   }
 

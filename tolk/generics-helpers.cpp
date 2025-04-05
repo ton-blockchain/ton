@@ -81,14 +81,14 @@ void GenericSubstitutionsDeduceForCall::consider_next_condition(TypePtr param_ty
   if (const auto* asT = param_type->try_as<TypeDataGenericT>()) {
     // `(arg: T)` called as `f([1, 2])` => T is [int, int]
     provide_deducedT(asT->nameT, arg_type);
-  } else if (const auto* p_nullable = param_type->try_as<TypeDataNullable>()) {
+  } else if (const auto* p_nullable = param_type->try_as<TypeDataUnion>(); p_nullable && p_nullable->or_null) {
     // `arg: T?` called as `f(nullableInt)` => T is int
-    if (const auto* a_nullable = arg_type->unwrap_alias()->try_as<TypeDataNullable>()) {
-      consider_next_condition(p_nullable->inner, a_nullable->inner);
+    if (const auto* a_nullable = arg_type->unwrap_alias()->try_as<TypeDataUnion>(); a_nullable && a_nullable->or_null) {
+      consider_next_condition(p_nullable->or_null, a_nullable->or_null);
     }
     // `arg: T?` called as `f(int)` => T is int
     else {
-      consider_next_condition(p_nullable->inner, arg_type);
+      consider_next_condition(p_nullable->or_null, arg_type);
     }
   } else if (const auto* p_tensor = param_type->try_as<TypeDataTensor>()) {
     // `arg: (int, T)` called as `f((5, cs))` => T is slice
@@ -111,6 +111,13 @@ void GenericSubstitutionsDeduceForCall::consider_next_condition(TypePtr param_ty
         consider_next_condition(p_callable->params_types[i], a_callable->params_types[i]);
       }
       consider_next_condition(p_callable->return_type, a_callable->return_type);
+    }
+  } else if (const auto* p_union = param_type->try_as<TypeDataUnion>()) {
+    // `arg: T1 | T2` called as `f(intOrBuilder)` => T1 is int, T2 is builder
+    if (const auto* a_union = arg_type->unwrap_alias()->try_as<TypeDataUnion>(); a_union && a_union->variants.size() == p_union->variants.size()) {
+      for (int i = 0; i < static_cast<int>(p_union->variants.size()); ++i) {
+        consider_next_condition(p_union->variants[i], a_union->variants[i]);
+      }
     }
   }
 }

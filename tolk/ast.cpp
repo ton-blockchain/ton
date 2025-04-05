@@ -138,6 +138,20 @@ void Vertex<ast_cast_as_operator>::assign_resolved_type(TypePtr cast_to_type) {
   this->cast_to_type = cast_to_type;
 }
 
+void Vertex<ast_is_type_operator>::assign_resolved_type(TypePtr rhs_type) {
+  this->rhs_type = rhs_type;
+}
+
+void Vertex<ast_is_type_operator>::assign_is_negated(bool is_negated) {
+  this->is_negated = is_negated;
+}
+
+void Vertex<ast_match_arm>::assign_resolved_pattern(MatchArmKind pattern_kind, TypePtr exact_type, AnyExprV pattern_expr) {
+  this->pattern_kind = pattern_kind;
+  this->exact_type = exact_type;
+  this->lhs = pattern_expr;
+}
+
 void Vertex<ast_global_var_declaration>::assign_var_ref(GlobalVarPtr var_ref) {
   this->var_ref = var_ref;
 }
@@ -184,10 +198,6 @@ void Vertex<ast_unary_operator>::assign_fun_ref(FunctionPtr fun_ref) {
 
 void Vertex<ast_binary_operator>::assign_fun_ref(FunctionPtr fun_ref) {
   this->fun_ref = fun_ref;
-}
-
-void Vertex<ast_is_null_check>::assign_is_negated(bool is_negated) {
-  this->is_negated = is_negated;
 }
 
 void Vertex<ast_sequence>::assign_first_unreachable(AnyV first_unreachable) {

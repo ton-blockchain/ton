@@ -23,13 +23,13 @@ fun autoInferUInt16Opt(x: uint16) {
     return null;
 }
 
-fun autoInferInt_v1() {
+fun inferInt_v1(): int {
     if (random()) { return 0; }
     else if (random()) { return 0 as uint16; }
     else { return 0 as int8; }
 }
 
-fun autoInferInt_v2() {
+fun inferInt_v2(): int {
     if (random()) { return 0 as uint1; }
     else if (random()) { return 0 as int123; }
     else { return 0 as int8; }
@@ -87,8 +87,8 @@ fun test3(op: int32, qid: uint64) {
 
     __expect_type(autoInferInt8, "(int8) -> int8");
     __expect_type(autoInferUInt16Opt(0), "uint16?");
-    __expect_type(autoInferInt_v1(), "int");
-    __expect_type(autoInferInt_v2(), "int");
+    __expect_type(inferInt_v1(), "int");
+    __expect_type(inferInt_v2(), "int");
 
     var amount: uint100 = 1000;
     var percent: uint8 = 50;
@@ -124,7 +124,7 @@ fun test5() {
 fun test6() {
     var x: int11 = ~(0 as int22);
     while (x) {}
-    return x ? x : 0;
+    return x ? x as int : 0;
 }
 
 fun test7() {
@@ -211,7 +211,7 @@ fun test13(x1: int?, x2: int8?, x3: int, x4: int8): (int8?, int8?, int8?, int8?,
 
 @method_id(114)
 fun test14(firstComponent: int8?): (int, int16)? {
-    return firstComponent! < 10 ? null : (firstComponent!, 2);
+    return firstComponent! < 10 ? null : (firstComponent! as int, 2 as int16);
 }
 
 fun assign0<T>(mutate v: T) { v = 0; }
@@ -232,7 +232,7 @@ fun main() {
     __expect_type(0 as coins, "coins");
     __expect_type(someN_coins as coins?, "coins?");
     __expect_type(someN_coins as int8?, "int8?");
-    __expect_type(10>3 ? 0 as uint8 : 0 as uint16, "int");
+    __expect_type(10>3 ? (0 as uint8) as uint8 | uint16 : 0 as uint16, "uint8 | uint16");
     return t;
 }
 
@@ -245,7 +245,7 @@ fun main() {
 @testcase | 110 |      | 50000000 50000100 1234000000 51000000
 @testcase | 111 |      | [ 1000000000 1000000000 1000000000 -321123456789 321123456789 1100000000 ]
 @testcase | 114 | 5    | (null) (null) 0
-@testcase | 114 | 15   | 15 2 -1
+@testcase | 114 | 15   | 15 2 130
 
 @fif_codegen DECLPROC assign0<int8>
 @fif_codegen DECLPROC assign0<uint16>

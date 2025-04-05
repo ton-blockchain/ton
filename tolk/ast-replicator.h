@@ -61,6 +61,9 @@ protected:
   virtual V<ast_parenthesized_expression> clone(V<ast_parenthesized_expression> v) {
     return createV<ast_parenthesized_expression>(v->loc, clone(v->get_expr()));
   }
+  virtual V<ast_braced_expression> clone(V<ast_braced_expression> v) {
+    return createV<ast_braced_expression>(v->loc, clone(v->get_sequence()));
+  }
   virtual V<ast_tensor> clone(V<ast_tensor> v) {
     return createV<ast_tensor>(v->loc, clone(v->get_items()));
   }
@@ -121,11 +124,17 @@ protected:
   virtual V<ast_cast_as_operator> clone(V<ast_cast_as_operator> v) {
     return createV<ast_cast_as_operator>(v->loc, clone(v->get_expr()), clone(v->cast_to_type));
   }
+  virtual V<ast_is_type_operator> clone(V<ast_is_type_operator> v) {
+    return createV<ast_is_type_operator>(v->loc, clone(v->get_expr()), clone(v->rhs_type), v->is_negated);
+  }
   virtual V<ast_not_null_operator> clone(V<ast_not_null_operator> v) {
     return createV<ast_not_null_operator>(v->loc, clone(v->get_expr()));
   }
-  virtual V<ast_is_null_check> clone(V<ast_is_null_check> v) {
-    return createV<ast_is_null_check>(v->loc, clone(v->get_expr()), v->is_negated);
+  virtual V<ast_match_expression> clone(V<ast_match_expression> v) {
+    return createV<ast_match_expression>(v->loc, clone(v->get_all_children()));
+  }
+  virtual V<ast_match_arm> clone(V<ast_match_arm> v) {
+    return createV<ast_match_arm>(v->loc, v->pattern_kind, clone(v->exact_type), clone(v->get_pattern_expr()), clone(v->get_body()));
   }
 
   // statements
@@ -186,6 +195,7 @@ protected:
     switch (v->type) {
       case ast_empty_expression:                return clone(v->as<ast_empty_expression>());
       case ast_parenthesized_expression:        return clone(v->as<ast_parenthesized_expression>());
+      case ast_braced_expression:               return clone(v->as<ast_braced_expression>());
       case ast_tensor:                          return clone(v->as<ast_tensor>());
       case ast_typed_tuple:                     return clone(v->as<ast_typed_tuple>());
       case ast_reference:                       return clone(v->as<ast_reference>());
@@ -206,8 +216,10 @@ protected:
       case ast_binary_operator:                 return clone(v->as<ast_binary_operator>());
       case ast_ternary_operator:                return clone(v->as<ast_ternary_operator>());
       case ast_cast_as_operator:                return clone(v->as<ast_cast_as_operator>());
+      case ast_is_type_operator:                return clone(v->as<ast_is_type_operator>());
       case ast_not_null_operator:               return clone(v->as<ast_not_null_operator>());
-      case ast_is_null_check:                   return clone(v->as<ast_is_null_check>());
+      case ast_match_expression:                return clone(v->as<ast_match_expression>());
+      case ast_match_arm:                       return clone(v->as<ast_match_arm>());
       default:
         throw UnexpectedASTNodeType(v, "ASTReplicatorFunction::clone");
     }

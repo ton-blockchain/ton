@@ -27,7 +27,7 @@ fun test1(x: MInt): MVoid {
     __expect_type(random() ? (1, 2) : (1, 2) as Pair2_v1, "(int, int)");
     __expect_type(random() ? (1, 2) : (1, 2) as Pair2_v2, "(int, int)");
     __expect_type(random() ? (1, 2) as Pair2_v1 : (1, 2), "Pair2_v1");
-    __expect_type(random() ? (1, 2) as Pair2_v1 : (1, 2) as Pair2_v2, "Pair2_v1");
+    __expect_type(random() ? (1, 2) as Pair2_v1 : (1, 2) as Pair2_v2, "(int, int)");
     __expect_type(random() ? (1, 2) as Pair2_v2 : (1, 2) as Pair2_v2, "Pair2_v2");
 
     __expect_type(!x, "bool");
@@ -40,8 +40,8 @@ fun test1(x: MInt): MVoid {
 }
 
 fun test2() {
-    __expect_type(test1, "(MInt) -> MVoid");
-    __expect_type(test1(1), "MVoid");
+    __expect_type(test1, "(MInt) -> void");
+    __expect_type(test1(1), "void");
 }
 
 fun test3(x: MIntN, y: MInt?) {
@@ -51,7 +51,7 @@ fun test3(x: MIntN, y: MInt?) {
     if (x != null) {
         __expect_type(x, "MInt");
     }
-    __expect_type(x, "MInt?");  // merge null + MInt = MInt?, not MIntN as original
+    __expect_type(x, "MInt?");
     var (z1, z2) = (x, x!, );
     __expect_type(z1, "MInt?");
     __expect_type(z2, "MInt");
@@ -64,10 +64,11 @@ fun test4(x: MIntN, y: MIntN) {
         __expect_type(x + y, "int");
         return x + y;
     }
+    __expect_type(x, "MInt?");
     __expect_type(x!, "MInt");
     __expect_type(random() ? x : y, "MInt?");
     __expect_type(random() ? x : 0, "MInt?");
-    __expect_type(random() ? 0 : x, "MInt?");
+    __expect_type(random() ? 0 : x, "int?");
     __expect_type(random() ? 0 : x!, "int");
     return y!;
 }

@@ -21,6 +21,7 @@
 #include "type-system.h"
 #include "common/refint.h"
 #include "constant-evaluator.h"
+#include "smart-casts-cfg.h"
 #include <unordered_set>
 
 /*
@@ -41,7 +42,7 @@
  *   Example: `nullableInt!`; for `nullableInt` inferred_type is `int?`, and target_type is `int`
  *            (this doesn't lead to stack reorganization, but in case `nullableTensor!` does)
  *            (inferred_type of `nullableInt!` is `int`, and its target_type depends on its usage).
- *   The same mechanism will work for union types in the future.
+ *   Example: `var a: int|slice = 5`. This `5` should be extended as "5 1" (5 for value, 1 for type_id of `int`).
  */
 
 namespace tolk {
@@ -410,6 +411,39 @@ static std::vector<var_idx_t> pre_compile_let(CodeBlob& code, AnyExprV lhs, AnyE
   return right;
 }
 
+static std::vector<var_idx_t> pre_compile_is_type(CodeBlob& code, TypePtr expr_type, TypePtr cmp_type, const std::vector<var_idx_t>& expr_ir_idx, SrcLocation loc, const char* debug_desc) {
+  FunctionPtr eq_sym = lookup_global_symbol("_==_")->try_as<FunctionPtr>();
+  FunctionPtr isnull_sym = lookup_global_symbol("__isNull")->try_as<FunctionPtr>();
+  FunctionPtr not_sym = lookup_global_symbol("!b_")->try_as<FunctionPtr>();
+  std::vector<var_idx_t> result_ir_idx = code.create_tmp_var(TypeDataBool::create(), loc, debug_desc);
+
+  const TypeDataUnion* lhs_union = expr_type->try_as<TypeDataUnion>();
+  if (!lhs_union) {
+    // `int` is `int` / `int` is `builder`, it's compile-time, either 0, or -1
+    bool types_eq = expr_type->get_type_id() == cmp_type->get_type_id();
+    code.emplace_back(loc, Op::_IntConst, result_ir_idx, td::make_refint(types_eq ? -1 : 0));
+  } else if (lhs_union->is_primitive_nullable() && cmp_type == TypeDataNullLiteral::create()) {
+    // `int?` is `null` for primitive 1-slot nullables, they hold either value of TVM NULL, no extra union tag slot
+    code.emplace_back(loc, Op::_Call, result_ir_idx, expr_ir_idx, isnull_sym);
+  } else if (lhs_union->is_primitive_nullable()) {
+    // `int?` is `int` (check for null actually) / `int?` is `builder` (compile-time false actually)
+    bool cant_happen = lhs_union->or_null->get_type_id() != cmp_type->get_type_id();
+    if (cant_happen) {
+      code.emplace_back(loc, Op::_IntConst, result_ir_idx, td::make_refint(0));
+    } else {
+      code.emplace_back(loc, Op::_Call, result_ir_idx, expr_ir_idx, isnull_sym);
+      code.emplace_back(loc, Op::_Call, result_ir_idx, result_ir_idx, not_sym);
+    }
+  } else {
+    // `int | slice` is `int`, check type id
+    std::vector<var_idx_t> typeid_ir_idx = code.create_tmp_var(TypeDataInt::create(), loc, "(type-id)");
+    code.emplace_back(loc, Op::_IntConst, typeid_ir_idx, td::make_refint(cmp_type->get_type_id()));
+    code.emplace_back(loc, Op::_Call, result_ir_idx, std::vector{typeid_ir_idx[0], expr_ir_idx.back()}, eq_sym);
+  }
+
+  return result_ir_idx;
+}
+
 static std::vector<var_idx_t> gen_op_call(CodeBlob& code, TypePtr ret_type, SrcLocation loc,
                                           std::vector<var_idx_t>&& args_vars, FunctionPtr fun_ref, const char* debug_desc) {
   std::vector<var_idx_t> rvect = code.create_tmp_var(ret_type, loc, debug_desc);
@@ -428,8 +462,8 @@ static std::vector<var_idx_t> gen_op_call(CodeBlob& code, TypePtr ret_type, SrcL
 // `null` (inferred_type) is 1 stack slots, but target_type is 3, we should add 2 nulls.
 // Another example: `var t1 = (1, null); var t2: (int, (int,int)?) = t1;`.
 // Then t1's rvect is 2 vars (1 and null), but t1's `null` should be converted to 3 stack slots (resulting in 4 total).
-// The same mechanism will work for union types in the future.
-// Here rvect is a list of IR vars for inferred_type, probably patched due to target_type.
+// The same mechanism works for union types, but there is a union tag (UTag) slot instead of null flag.
+// Another example: `var i: int|slice = 5;`. This "5" is represented as "5 1" (5 for value, 1 is type_id of `int`).
 GNU_ATTRIBUTE_NOINLINE
 static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<var_idx_t>&& rvect, CodeBlob& code, TypePtr original_type, TypePtr target_type, SrcLocation loc) {
 #ifdef TOLK_DEBUG
@@ -446,176 +480,299 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
   }
 
   int target_w = target_type->get_width_on_stack();
-  const TypeDataNullable* t_nullable = target_type->try_as<TypeDataNullable>();
-  const TypeDataNullable* o_nullable = original_type->try_as<TypeDataNullable>();
+  int orig_w = original_type->get_width_on_stack();   // = rvect.size()
+  const TypeDataUnion* t_union = target_type->try_as<TypeDataUnion>();
+  const TypeDataUnion* o_union = original_type->try_as<TypeDataUnion>();
 
-  // handle `never`
-  // it may occur due to smart cast and in unreachable branches
+  // most common case, simple nullability:
+  // - `int` to `int?`
+  // - `null` to `int?`
+  // - `int8?` to `int16?`
+  // - `null` to `StructWith1Int?`
+  // in general, pass `T1` to `T2?` when `T2` is a primitive and `T2?` still occupies 1 stack slot (value or TVM NULL)
+  if (t_union && target_w == 1 && orig_w == 1 && t_union->or_null->get_width_on_stack() == 1) {
+    // a generalized union type "T | ..." takes at least 2 slots, but "T | null" can be 1
+    tolk_assert(t_union->or_null);
+    // rvect has 1 slot, either value or TVM NULL
+    return rvect;
+  }
+
+  // smart cast of a primitive 1-slot nullable:
+  // - `int?` to `int`
+  // - `int?` to `null`
+  // - `StructWith1Int?` to `null`
+  // this value (one slot) is either a TVM primitive or TVM NULL at runtime
+  if (o_union && orig_w == 1 && target_w == 1 && o_union->or_null->get_width_on_stack() == 1) {
+    tolk_assert(o_union->or_null);
+    return rvect;
+  }
+
+  // pass `T` to `never`
+  // it occurs due to smart cast, in unreachable branches, for example `if (intVal == null) { return intVal; }`
   // we can't do anything reasonable here, but (hopefully) execution will never reach this point, and stack won't be polluted
-  if (original_type == TypeDataNever::create()) {
-    std::vector<var_idx_t> dummy_rvect;
-    dummy_rvect.reserve(target_w);
-    for (int i = 0; i < target_w; ++i) {
-      dummy_rvect.push_back(code.create_tmp_var(TypeDataUnknown::create(), loc, "(never)")[0]);
-    }
-    return dummy_rvect;
-  }
-  if (target_type == TypeDataNever::create()) {
-    return {};
+  if (target_type == TypeDataNever::create() || original_type == TypeDataNever::create() || target_type == TypeDataUnknown::create()) {
+    return rvect;
   }
 
-  // pass `null` to `T?`
-  // for primitives like `int?`, no changes in rvect, null occupies the same TVM slot
-  // for tensors like `(int,int)?`, `null` is represented as N nulls + 1 null flag, insert N nulls
-  if (t_nullable && original_type == TypeDataNullLiteral::create()) {
-    tolk_assert(rvect.size() == 1);
-    if (target_w == 1 && !t_nullable->is_primitive_nullable()) {    // `null` to `()?`
-      rvect = code.create_tmp_var(TypeDataInt::create(), loc, "(NNFlag)");
-      code.emplace_back(loc, Op::_IntConst, rvect, td::make_refint(0));
+  // smart cast to a primitive 1-slot nullable:
+  // - `int | slice | null` to `slice?`
+  // - `A | int | null` to `int?`
+  // so, originally a type occupies N slots, but needs to be converted to 1 slot
+  if (t_union && target_w == 1 && orig_w > 0 && t_union->or_null->get_width_on_stack() == 1) {
+    // nothing except "T1 | T2 | ... null" can be cast to 1-slot nullable `T1?`
+    tolk_assert(o_union && o_union->has_null() && o_union->has_variant_with_type_id(t_union->or_null));
+    // here we exploit rvect shape, how union types and multi-slot nullables are stored on a stack
+    // `T1 | T2 | ... | null` occupies N+1 slots, where the last is for UTag
+    // when it holds null value, N slots are null, and UTag slot is 0 (it's type_id of TypeDataNullLiteral)
+    return {rvect[rvect.size() - 2]};
+  }
+
+  // pass `null` to `T?` when T is not a primitive (1-slot T was handled above)
+  // - `null` to `(int, int)?`
+  // - `null` to `int | slice | null`
+  // to represent a non-primitive null value, we need N nulls + 1 null flag (UTag=0, type_id of TypeDataNullLiteral)
+  if (t_union && target_w > 1 && original_type == TypeDataNullLiteral::create()) {
+    tolk_assert(t_union->has_null());
+    FunctionPtr null_sym = lookup_global_symbol("__null")->try_as<FunctionPtr>();
+    rvect.reserve(target_w);      // keep rvect[0], it's already null
+    for (int i = 1; i < target_w - 1; ++i) {
+      std::vector<var_idx_t> ith_null = code.create_tmp_var(TypeDataNullLiteral::create(), loc, "(null-literal)");
+      code.emplace_back(loc, Op::_Call, ith_null, std::vector<var_idx_t>{}, null_sym);
+      rvect.push_back(ith_null[0]);
     }
-    if (target_w > 1) {
-      FunctionPtr builtin_sym = lookup_global_symbol("__null")->try_as<FunctionPtr>();
-      rvect.reserve(target_w + 1);
-      for (int i = 1; i < target_w - 1; ++i) {
-        std::vector<var_idx_t> ith_null = code.create_tmp_var(TypeDataNullLiteral::create(), loc, "(null-literal)");
-        code.emplace_back(loc, Op::_Call, ith_null, std::vector<var_idx_t>{}, builtin_sym);
-        rvect.push_back(ith_null[0]);
-      }
-      std::vector<var_idx_t> null_flag_ir = code.create_tmp_var(TypeDataInt::create(), loc, "(NNFlag)");
-      var_idx_t null_flag_ir_idx = null_flag_ir[0];
-      code.emplace_back(loc, Op::_IntConst, std::move(null_flag_ir), td::make_refint(0));
-      rvect.push_back(null_flag_ir_idx);
-    }
+    std::vector<var_idx_t> last_null = code.create_tmp_var(TypeDataInt::create(), loc, "(UTag)");
+    code.emplace_back(loc, Op::_IntConst, last_null, td::make_refint(0));
+    rvect.push_back(last_null[0]);
     return rvect;
   }
-  // pass `T` to `T?`
-  // for primitives like `int?`, no changes in rvect: `int` and `int?` occupy the same TVM slot (null is represented as NULL TVM value)
-  // for passing `(int, int)` to `(int, int)?` / `(int, null)` to `(int, (int,int)?)?`, add a null flag equals to 0
-  if (t_nullable && !o_nullable) {
-    if (!t_nullable->is_primitive_nullable()) {
-      rvect = transition_expr_to_runtime_type_impl(std::move(rvect), code, original_type, t_nullable->inner, loc);
-      tolk_assert(target_w == static_cast<int>(rvect.size() + 1));
-      std::vector<var_idx_t> null_flag_ir = code.create_tmp_var(TypeDataInt::create(), loc, "(NNFlag)");
-      var_idx_t null_flag_ir_idx = null_flag_ir[0];
-      code.emplace_back(loc, Op::_IntConst, std::move(null_flag_ir), td::make_refint(-1));
-      rvect.push_back(null_flag_ir_idx);
+
+  // pass `null` to nullable empty tensor
+  // - `null` to `()?`
+  // - `null` to `EmptyStruct?`
+  // so, rvect contains TVM NULL, but instead, we should push UTag=0
+  if (t_union && original_type == TypeDataNullLiteral::create()) {
+    tolk_assert(t_union->or_null && t_union->or_null->get_width_on_stack() == 0);
+    std::vector<var_idx_t> new_rvect = code.create_tmp_var(TypeDataInt::create(), loc, "(UTag)");
+    code.emplace_back(loc, Op::_IntConst, new_rvect, td::make_refint(0));
+    return new_rvect;
+  }
+
+  // smart cast of a wide nullable union to plain `null`
+  // - `(int, int)?` to `null`
+  // - `int | slice | null` to `null`
+  if (o_union && target_type == TypeDataNullLiteral::create() && orig_w > 1) {
+    tolk_assert(o_union->has_null());
+    // if we are here, it's guaranteed that original value holds null
+    // it means, that its shape is N nulls + 1 UTag (equals 0)
+    return {rvect[rvect.size() - 2]};
+  }
+
+  // smart cast of nullable empty tensor to plain `null`
+  // - `()?` to `null`
+  // `EmptyStruct?` to `null`
+  // so, rvect contains UTag, we need TVM NULL
+  if (o_union && target_type == TypeDataNullLiteral::create()) {
+    tolk_assert(orig_w == 1 && o_union->or_null);
+    FunctionPtr null_sym = lookup_global_symbol("__null")->try_as<FunctionPtr>();
+    std::vector<var_idx_t> new_rvect = code.create_tmp_var(TypeDataNullLiteral::create(), loc, "(null-literal)");
+    code.emplace_back(loc, Op::_Call, new_rvect, std::vector<var_idx_t>{}, null_sym);
+    return new_rvect;
+  }
+
+  // pass primitive 1-slot `T?` to a wider nullable union
+  // - `int?` to `int | slice | null`
+  // - `slice?` to `(int, int) | slice | builder | null`
+  // so, originally `T?` is 1-slot, but needs to be converted to N+1 slots, keeping its value
+  if (o_union && orig_w == 1 && t_union && o_union->or_null->get_width_on_stack() == 1) {
+    tolk_assert(t_union->has_null() && t_union->has_variant_with_type_id(o_union->or_null) && target_w > 1);
+    // the transformation is tricky:
+    // when value is null, we need to achieve "... (null) 0"         (value is already null, so "... value 0")
+    // when value is not null, we need to get "... value {type_id}"
+    // this can be done only via IFs at runtime; luckily, this case is very uncommon in practice
+    // for "...", we might need N-1 nulls: `int?` to `(int,int,int) | int | null` is `(null) (null) value/(null) 0/1`
+    FunctionPtr null_sym = lookup_global_symbol("__null")->try_as<FunctionPtr>();
+    std::vector<var_idx_t> new_rvect;
+    new_rvect.resize(target_w);
+    for (int i = 0; i < target_w - 2; ++i) {    // N-1 nulls
+      std::vector<var_idx_t> ith_null = code.create_tmp_var(TypeDataNullLiteral::create(), loc, "(null-literal)");
+      code.emplace_back(loc, Op::_Call, ith_null, std::vector<var_idx_t>{}, null_sym);
+      new_rvect[i] = ith_null[0];
     }
+    new_rvect[target_w - 2] = rvect[0];   // value
+    new_rvect[target_w - 1] = code.create_tmp_var(TypeDataInt::create(), loc, "(UTag)")[0];
+
+    std::vector<var_idx_t> eq_null_cond = code.create_tmp_var(TypeDataBool::create(), loc, "(value-is-null)");
+    FunctionPtr isnull_sym = lookup_global_symbol("__isNull")->try_as<FunctionPtr>();
+    code.emplace_back(loc, Op::_Call, eq_null_cond, rvect, isnull_sym);
+    Op& if_op = code.emplace_back(loc, Op::_If, eq_null_cond);
+    code.push_set_cur(if_op.block0);
+    code.emplace_back(loc, Op::_IntConst, std::vector{new_rvect[target_w - 1]}, td::make_refint(0));
+    code.close_pop_cur(loc);
+    code.push_set_cur(if_op.block1);
+    code.emplace_back(loc, Op::_IntConst, std::vector{new_rvect[target_w - 1]}, td::make_refint(o_union->or_null->get_type_id()));
+    code.close_pop_cur(loc);
+    return new_rvect;
+  }
+
+  // extend a single type into a union type
+  // - `int` to `int | slice`
+  // - `int` to `int | (int, int) | null`
+  // - `(int, int)` to `(int, int, cell) | builder | (int, int)`
+  // - `(int, null)` to `(int, (int, int)?) | ...`: mind transition
+  // - `(int, null)` to `(int, int | slice | null) | ...`: mind transition
+  // so, probably need to prepend some nulls, and need to append UTag
+  if (t_union && !o_union) {
+    TypePtr t_subtype = t_union->calculate_exact_variant_to_fit_rhs(original_type);
+    tolk_assert(t_subtype && target_w > t_subtype->get_width_on_stack());
+    rvect = transition_expr_to_runtime_type_impl(std::move(rvect), code, original_type, t_subtype, loc);
+    std::vector<var_idx_t> prepend_nulls;
+    prepend_nulls.reserve(target_w - t_subtype->get_width_on_stack() - 1);
+    for (int i = 0; i < target_w - t_subtype->get_width_on_stack() - 1; ++i) {
+      FunctionPtr null_sym = lookup_global_symbol("__null")->try_as<FunctionPtr>();
+      std::vector<var_idx_t> ith_null = code.create_tmp_var(TypeDataNullLiteral::create(), loc, "(UVar.null)");
+      prepend_nulls.push_back(ith_null[0]);
+      code.emplace_back(loc, Op::_Call, std::move(ith_null), std::vector<var_idx_t>{}, null_sym);
+    }
+    rvect.insert(rvect.begin(), prepend_nulls.begin(), prepend_nulls.end());
+
+    std::vector<var_idx_t> last_utag = code.create_tmp_var(TypeDataInt::create(), loc, "(UTag)");
+    code.emplace_back(loc, Op::_IntConst, last_utag, td::make_refint(t_subtype->get_type_id()));
+    rvect.push_back(last_utag[0]);
     return rvect;
   }
-  // pass `T1?` to `T2?`
-  // for example, `int8?` to `int16?`
-  // transition inner types, leaving nullable flag unchanged for tensors
-  if (t_nullable && o_nullable) {
-    if (target_w > 1) {
-      var_idx_t null_flag_ir_idx = rvect.back();
-      rvect.pop_back();
-      rvect = transition_expr_to_runtime_type_impl(std::move(rvect), code, o_nullable->inner, t_nullable->inner, loc);
-      rvect.push_back(null_flag_ir_idx);
-    }
+
+  // smart cast a union type to a single type
+  // - `int | slice` to `int`
+  // - `int | (int, int) | null` to `int`
+  // - `(int, (int, int)?) | ...` to `(int, null)`: mind transition
+  // so, cut off UTag and probably some unused tags from the start
+  if (o_union && !t_union) {
+    TypePtr o_subtype = o_union->calculate_exact_variant_to_fit_rhs(target_type);
+    tolk_assert(o_subtype && orig_w > o_subtype->get_width_on_stack());
+    rvect = std::vector(rvect.begin() + orig_w - o_subtype->get_width_on_stack() - 1, rvect.end() - 1);
+    rvect = transition_expr_to_runtime_type_impl(std::move(rvect), code, o_subtype, target_type, loc);
     return rvect;
   }
-  // pass `T?` to `null`
-  // it may occur due to smart cast, when a `T?` variable is guaranteed to be always null
-  // (for instance, always-null `(int,int)?` will be represented as 1 TVM NULL value, not 3)
-  if (target_type == TypeDataNullLiteral::create() && original_type->can_rhs_be_assigned(target_type)) {
-    tolk_assert(o_nullable || original_type == TypeDataUnknown::create());
-    if (o_nullable && !o_nullable->is_primitive_nullable()) {
-      FunctionPtr builtin_sym = lookup_global_symbol("__null")->try_as<FunctionPtr>();
-      rvect = code.create_tmp_var(TypeDataNullLiteral::create(), loc, "(null-literal)");
-      code.emplace_back(loc, Op::_Call, rvect, std::vector<var_idx_t>{}, builtin_sym);
+
+  // extend a union type to a wider one
+  // - `int | slice` to `int | slice | builder`
+  // - `int | slice` to `int | (int, int) | slice | null`
+  // so, both original and target have UTag slot, but rvect probably needs to be prepended by nulls
+  if (t_union && o_union && t_union->variants.size() >= o_union->variants.size()) {
+    tolk_assert(target_w >= orig_w && t_union->has_all_variants_of(o_union));
+    std::vector<var_idx_t> prepend_nulls;
+    prepend_nulls.reserve(target_w - orig_w);
+    for (int i = 0; i < target_w - orig_w; ++i) {
+      FunctionPtr null_sym = lookup_global_symbol("__null")->try_as<FunctionPtr>();
+      std::vector<var_idx_t> ith_null_ir_idx = code.create_tmp_var(TypeDataNullLiteral::create(), loc, "(UVar.null)");
+      prepend_nulls.push_back(ith_null_ir_idx[0]);
+      code.emplace_back(loc, Op::_Call, std::move(ith_null_ir_idx), std::vector<var_idx_t>{}, null_sym);
     }
+    rvect.insert(rvect.begin(), prepend_nulls.begin(), prepend_nulls.end());
     return rvect;
   }
-  // pass `T?` to `T` (or, more generally, `T1?` to `T2`)
-  // it may occur due to operator `!` or smart cast
-  // for primitives like `int?`, no changes in rvect
-  // for passing `(int, int)?` to `(int, int)`, drop the null flag from the tail
-  // for complex scenarios like passing `(int, (int,int)?)?` to `(int, null)`, recurse the call
-  // (it may occur on `someF(t = (3,null))` when `(3,null)` at first targeted to lhs, but actually its result is rhs)
-  if (!t_nullable && o_nullable) {
-    if (!o_nullable->is_primitive_nullable()) {
-      rvect.pop_back();
-      rvect = transition_expr_to_runtime_type_impl(std::move(rvect), code, original_type->try_as<TypeDataNullable>()->inner, target_type, loc);
-    }
+
+  // smart cast a wider union type to a narrow one
+  // - `int | slice | builder` to `int | slice`
+  // - `int | (int, int) | slice | null` to `int | slice`
+  // so, both original and target have UTag slot, but rvect needs to be cut off from the left
+  if (t_union && o_union) {
+    tolk_assert(target_w <= orig_w && o_union->has_all_variants_of(t_union));
+    rvect = std::vector(rvect.begin() + (orig_w - target_w), rvect.end());
     return rvect;
   }
+
   // pass `bool` to `int`
   // in code, it's done via `as` operator, like `boolVar as int`
   // no changes in rvect, boolVar is guaranteed to be -1 or 0 at TVM level
   if (original_type == TypeDataBool::create() && target_type == TypeDataInt::create()) {
     return rvect;
   }
+
   // pass `bool` to `int8`
   // same as above
   if (original_type == TypeDataBool::create() && target_type->try_as<TypeDataIntN>()) {
     return rvect;
   }
+
   // pass `int8` to `int`
   // it comes from auto cast when an integer (even a literal) is assigned to intN
   // to changes in rvect, intN is int at TVM level
   if (target_type == TypeDataInt::create() && original_type->try_as<TypeDataIntN>()) {
     return rvect;
   }
+
   // pass `coins` to `int`
   // same as above
   if (target_type == TypeDataInt::create() && original_type == TypeDataCoins::create()) {
     return rvect;
   }
+
   // pass `int` to `int8`
   // in code, it's probably done with `as` operator
   // no changes in rvect
   if (original_type == TypeDataInt::create() && target_type->try_as<TypeDataIntN>()) {
     return rvect;
   }
+
   // pass `int` to `coins`
   // same as above
   if (original_type == TypeDataInt::create() && target_type == TypeDataCoins::create()) {
     return rvect;
   }
+
   // pass `int8` to `int16` / `int8` to `uint8`
   // in code, it's probably done with `as` operator
   // no changes in rvect
   if (original_type->try_as<TypeDataIntN>() && target_type->try_as<TypeDataIntN>()) {
     return rvect;
   }
+
   // pass `int8` to `coins`
   // same as above
   if (target_type == TypeDataCoins::create() && original_type->try_as<TypeDataIntN>()) {
     return rvect;
   }
+
   // pass `coins` to `int8`
   // same as above
   if (original_type == TypeDataCoins::create() && target_type->try_as<TypeDataIntN>()) {
     return rvect;
   }
+
   // pass `bytes32` to `slice`
   // in code, it's probably done with `as` operator
   // no changes in rvect, since bytesN is slice at TVM level
   if (target_type == TypeDataSlice::create() && original_type->try_as<TypeDataBytesN>()) {
     return rvect;
   }
+
   // pass `slice` to `bytes32`
   // same as above
   if (original_type == TypeDataSlice::create() && target_type->try_as<TypeDataBytesN>()) {
     return rvect;
   }
+
   // pass `bytes32` to `bytes64` / `bits128` to `bytes16`
   // no changes in rvect
   if (original_type->try_as<TypeDataBytesN>() && target_type->try_as<TypeDataBytesN>()) {
     return rvect;
   }
+
   // pass something to `unknown`
   // probably, it comes from `_ = rhs`, type of `_` is unknown, it's target_type of rhs
   // no changes in rvect
   if (target_type == TypeDataUnknown::create()) {
     return rvect;
   }
+
   // pass `unknown` to something
   // probably, it comes from `arg` in exception, it's inferred as `unknown` and could be cast to any value
   if (original_type == TypeDataUnknown::create()) {
     tolk_assert(rvect.size() == 1);
     return rvect;
   }
+
   // pass tensor to tensor, e.g. `(1, null)` to `(int, slice?)` / `(1, null)` to `(int, (int,int)?)`
   // every element of rhs tensor should be transitioned
   if (target_type->try_as<TypeDataTensor>() && original_type->try_as<TypeDataTensor>()) {
@@ -635,20 +792,12 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
     }
     return result_rvect;
   }
+
   // pass tuple to tuple, e.g. `[1, null]` to `[int, int?]` / `[1, null]` to `[int, [int?,int?]?]`
   // to changes to rvect, since tuples contain only 1-slot elements
   if (target_type->try_as<TypeDataTypedTuple>() && original_type->try_as<TypeDataTypedTuple>()) {
-    tolk_assert(target_type->get_width_on_stack() == original_type->get_width_on_stack());
+    tolk_assert(target_w == 1 && orig_w == 1);
     return rvect;
-  }
-
-  // pass `T` to `UserId` (or some other alias)
-  if (const TypeDataAlias* target_alias = target_type->try_as<TypeDataAlias>()) {
-    return transition_expr_to_runtime_type_impl(std::move(rvect), code, original_type, target_alias->underlying_type, loc);
-  }
-  // pass `UserId` (or some other alias) to `T`
-  if (const TypeDataAlias* orig_alias = original_type->try_as<TypeDataAlias>()) {
-    return transition_expr_to_runtime_type_impl(std::move(rvect), code, orig_alias->underlying_type, target_type, loc);
   }
 
   // pass callable to callable
@@ -817,7 +966,7 @@ static std::vector<var_idx_t> process_ternary_operator(V<ast_ternary_operator> v
   std::vector<var_idx_t> cond = pre_compile_expr(v->get_cond(), code, nullptr);
   tolk_assert(cond.size() == 1);
   std::vector<var_idx_t> rvect = code.create_tmp_var(v->inferred_type, v->loc, "(cond)");
-  
+
   if (v->get_cond()->is_always_true) {
     code.emplace_back(v->get_when_true()->loc, Op::_Let, rvect, pre_compile_expr(v->get_when_true(), code, v->inferred_type));
   } else if (v->get_cond()->is_always_false) {
@@ -841,40 +990,91 @@ static std::vector<var_idx_t> process_cast_as_operator(V<ast_cast_as_operator> v
   return transition_to_target_type(std::move(rvect), code, target_type, v);
 }
 
-static std::vector<var_idx_t> process_not_null_operator(V<ast_not_null_operator> v, CodeBlob& code, TypePtr target_type, LValContext* lval_ctx) {
-  TypePtr child_target_type = v->get_expr()->inferred_type->unwrap_alias();
-  if (const auto* as_nullable = child_target_type->try_as<TypeDataNullable>()) {
-    child_target_type = as_nullable->inner;
+static std::vector<var_idx_t> process_is_type_operator(V<ast_is_type_operator> v, CodeBlob& code, TypePtr target_type) {
+  TypePtr lhs_type = v->get_expr()->inferred_type->unwrap_alias();
+  TypePtr cmp_type = v->rhs_type->unwrap_alias();
+  bool is_null_check = cmp_type == TypeDataNullLiteral::create();    // `v == null`, not `v is T`
+  tolk_assert(!cmp_type->try_as<TypeDataUnion>());  // `v is int|slice` is a type checker error
+
+  std::vector<var_idx_t> expr_ir_idx = pre_compile_expr(v->get_expr(), code, nullptr);
+  std::vector<var_idx_t> result_ir_idx = pre_compile_is_type(code, lhs_type, cmp_type, expr_ir_idx, v->loc, is_null_check ? "(is-null)" : "(is-type)");
+
+  if (v->is_negated) {
+    FunctionPtr not_sym = lookup_global_symbol("!b_")->try_as<FunctionPtr>();
+    code.emplace_back(v->loc, Op::_Call, result_ir_idx, result_ir_idx, not_sym);
   }
+  return transition_to_target_type(std::move(result_ir_idx), code, target_type, v);
+}
+
+static std::vector<var_idx_t> process_not_null_operator(V<ast_not_null_operator> v, CodeBlob& code, TypePtr target_type, LValContext* lval_ctx) {
+  TypePtr expr_type = v->get_expr()->inferred_type->unwrap_alias();
+  TypePtr without_null_type = calculate_type_subtract_rhs_type(expr_type, TypeDataNullLiteral::create());
+  TypePtr child_target_type = without_null_type != TypeDataNever::create() ? without_null_type : expr_type;
+
   std::vector<var_idx_t> rvect = pre_compile_expr(v->get_expr(), code, child_target_type, lval_ctx);
   return transition_to_target_type(std::move(rvect), code, target_type, v);
 }
 
-static std::vector<var_idx_t> process_is_null_check(V<ast_is_null_check> v, CodeBlob& code, TypePtr target_type) {
-  std::vector<var_idx_t> expr_ir_idx = pre_compile_expr(v->get_expr(), code, nullptr);
-  std::vector<var_idx_t> isnull_ir_idx = code.create_tmp_var(TypeDataBool::create(), v->loc, "(is-null)");
-  TypePtr expr_type = v->get_expr()->inferred_type->unwrap_alias();
+static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v, CodeBlob& code, TypePtr target_type) {
+  TypePtr lhs_type = v->get_subject()->inferred_type->unwrap_alias();
 
-  if (const TypeDataNullable* t_nullable = expr_type->try_as<TypeDataNullable>()) {
-    if (!t_nullable->is_primitive_nullable()) {
-      std::vector<var_idx_t> zero_ir_idx = code.create_tmp_var(TypeDataInt::create(), v->loc, "(zero)");
-      code.emplace_back(v->loc, Op::_IntConst, zero_ir_idx, td::make_refint(0));
-      FunctionPtr eq_sym = lookup_global_symbol("_==_")->try_as<FunctionPtr>();
-      code.emplace_back(v->loc, Op::_Call, isnull_ir_idx, std::vector{expr_ir_idx.back(), zero_ir_idx[0]}, eq_sym);
-    } else {
-      FunctionPtr builtin_sym = lookup_global_symbol("__isNull")->try_as<FunctionPtr>();
-      code.emplace_back(v->loc, Op::_Call, isnull_ir_idx, expr_ir_idx, builtin_sym);
+  std::vector<var_idx_t> subj_ir_idx = pre_compile_expr(v->get_subject(), code, nullptr);
+  std::vector<var_idx_t> result_ir_idx = code.create_tmp_var(v->inferred_type, v->loc, "(match-expression)");
+
+  // detect whether it's `match` by type covering all cases; type checker has already checked that
+  // match by type can not be mixed with match by expression and can't contain `else`, and that types are distinct and cover all variants
+  bool is_exhaustive_match_by_type = v->get_arms_count() > 0 && v->get_arm(0)->pattern_kind == MatchArmKind::exact_type;
+  if (is_exhaustive_match_by_type) {
+    // example: `match (v) { int => ... slice => ... builder => ... }`
+    // construct nested IFs: IF is int { ... } ELSE { IF is slice { ... } ELSE { ... } }
+    for (int i = 0; i < v->get_arms_count() - 1; ++i) {
+      auto v_ith_arm = v->get_arm(i);
+      TypePtr cmp_type = v_ith_arm->exact_type->unwrap_alias();
+      tolk_assert(!cmp_type->try_as<TypeDataUnion>());  // `match` over `int|slice` is a type checker error
+      std::vector<var_idx_t> eq_ith_ir_idx = pre_compile_is_type(code, lhs_type, cmp_type, subj_ir_idx, v_ith_arm->loc, "(arm-cond-eq)");
+      Op& if_op = code.emplace_back(v_ith_arm->loc, Op::_If, std::move(eq_ith_ir_idx));
+      code.push_set_cur(if_op.block0);
+      if (v->is_statement()) {
+        pre_compile_expr(v_ith_arm->get_body(), code);
+      } else {
+        std::vector<var_idx_t> arm_ir_idx = pre_compile_expr(v_ith_arm->get_body(), code, v->inferred_type);
+        code.emplace_back(v->loc, Op::_Let, result_ir_idx, std::move(arm_ir_idx));
+      }
+      code.close_pop_cur(v->loc);
+      code.push_set_cur(if_op.block1);    // open ELSE
     }
+
+    // we're inside the last ELSE, close all outer IFs
+    auto v_last_arm = v->get_arm(v->get_arms_count() - 1);
+    if (v->is_statement()) {
+      pre_compile_expr(v_last_arm->get_body(), code);
+    } else {
+      std::vector<var_idx_t> arm_ir_idx = pre_compile_expr(v_last_arm->get_body(), code, v->inferred_type);
+      code.emplace_back(v->loc, Op::_Let, result_ir_idx, std::move(arm_ir_idx));
+    }
+    for (int i = 0; i < v->get_arms_count() - 1; ++i) {
+      code.close_pop_cur(v->loc);
+    }
+
   } else {
-    bool always_null = expr_type == TypeDataNullLiteral::create();
-    code.emplace_back(v->loc, Op::_IntConst, isnull_ir_idx, td::make_refint(always_null ? -1 : 0));
+    // not exhaustive `match` by type
+    for (int i = 0; i < v->get_arms_count(); ++i) {
+      auto v_arm = v->get_arm(i);
+      switch (v_arm->pattern_kind) {
+        case MatchArmKind::const_expression:
+          tolk_assert(false);   // match by expressions is not supported yet, checked earlier
+          break;
+        case MatchArmKind::exact_type:
+          tolk_assert(false);   // match by type is exhaustive, checked earlier
+          break;
+        case MatchArmKind::else_branch:
+          tolk_assert(false);   // `else` in match can be only inside match by expression, unsupported yet
+          break;
+      }
+    }
   }
 
-  if (v->is_negated) {
-    FunctionPtr not_sym = lookup_global_symbol("!b_")->try_as<FunctionPtr>();
-    code.emplace_back(v->loc, Op::_Call, isnull_ir_idx, std::vector{isnull_ir_idx}, not_sym);
-  }
-  return transition_to_target_type(std::move(isnull_ir_idx), code, target_type, v);
+  return transition_to_target_type(std::move(result_ir_idx), code, target_type, v);
 }
 
 static std::vector<var_idx_t> process_dot_access(V<ast_dot_access> v, CodeBlob& code, TypePtr target_type, LValContext* lval_ctx) {
@@ -1048,6 +1248,15 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
   return transition_to_target_type(std::move(rvect_apply), code, target_type, v);
 }
 
+static std::vector<var_idx_t> process_braced_expression(V<ast_braced_expression> v, CodeBlob& code, TypePtr target_type) {
+  // `{ ... }` used as an expression can not return a value currently (there is no syntax in a language)
+  // that's why it can appear only in special places, and its usage correctness has been checked
+  tolk_assert(v->inferred_type == TypeDataVoid::create() || v->inferred_type == TypeDataNever::create());
+  process_any_statement(v->get_sequence(), code);
+  static_cast<void>(target_type);
+  return {};
+}
+
 static std::vector<var_idx_t> process_tensor(V<ast_tensor> v, CodeBlob& code, TypePtr target_type, LValContext* lval_ctx) {
   // tensor is compiled "as is", for example `(1, null)` occupies 2 slots
   // and if assigned/passed to something other, like `(int, (int,int)?)`, a whole tensor is transitioned, it works
@@ -1068,6 +1277,8 @@ static std::vector<var_idx_t> process_typed_tuple(V<ast_typed_tuple> v, CodeBlob
 static std::vector<var_idx_t> process_int_const(V<ast_int_const> v, CodeBlob& code, TypePtr target_type) {
   std::vector<var_idx_t> rvect = code.create_tmp_var(v->inferred_type, v->loc, "(int-const)");
   code.emplace_back(v->loc, Op::_IntConst, rvect, v->intval);
+  // here, like everywhere, even for just `int`, there might be a potential transition due to union types
+  // example: passing `1` to `int | slice` puts actually "1 5" on a stack (1 for value, 5 for UTag = type_id of `int`)
   return transition_to_target_type(std::move(rvect), code, target_type, v);
 }
 
@@ -1113,6 +1324,11 @@ static std::vector<var_idx_t> process_underscore(V<ast_underscore> v, CodeBlob& 
   return code.create_tmp_var(v->inferred_type, v->loc, "(underscore)");
 }
 
+static std::vector<var_idx_t> process_empty_expression(V<ast_empty_expression> v, CodeBlob& code, TypePtr target_type) {
+  std::vector<var_idx_t> empty_rvect;
+  return transition_to_target_type(std::move(empty_rvect), code, target_type, v);
+}
+
 std::vector<var_idx_t> pre_compile_expr(AnyExprV v, CodeBlob& code, TypePtr target_type, LValContext* lval_ctx) {
   switch (v->type) {
     case ast_reference:
@@ -1129,16 +1345,20 @@ std::vector<var_idx_t> pre_compile_expr(AnyExprV v, CodeBlob& code, TypePtr targ
       return process_ternary_operator(v->as<ast_ternary_operator>(), code, target_type);
     case ast_cast_as_operator:
       return process_cast_as_operator(v->as<ast_cast_as_operator>(), code, target_type, lval_ctx);
+    case ast_is_type_operator:
+      return process_is_type_operator(v->as<ast_is_type_operator>(), code, target_type);
     case ast_not_null_operator:
       return process_not_null_operator(v->as<ast_not_null_operator>(), code, target_type, lval_ctx);
-    case ast_is_null_check:
-      return process_is_null_check(v->as<ast_is_null_check>(), code, target_type);
+    case ast_match_expression:
+      return process_match_expression(v->as<ast_match_expression>(), code, target_type);
     case ast_dot_access:
       return process_dot_access(v->as<ast_dot_access>(), code, target_type, lval_ctx);
     case ast_function_call:
       return process_function_call(v->as<ast_function_call>(), code, target_type);
     case ast_parenthesized_expression:
       return pre_compile_expr(v->as<ast_parenthesized_expression>()->get_expr(), code, target_type, lval_ctx);
+    case ast_braced_expression:
+      return process_braced_expression(v->as<ast_braced_expression>(), code, target_type);
     case ast_tensor:
       return process_tensor(v->as<ast_tensor>(), code, target_type, lval_ctx);
     case ast_typed_tuple:
@@ -1157,6 +1377,8 @@ std::vector<var_idx_t> pre_compile_expr(AnyExprV v, CodeBlob& code, TypePtr targ
       return process_local_vars_declaration(v->as<ast_local_vars_declaration>(), code);
     case ast_underscore:
       return process_underscore(v->as<ast_underscore>(), code);
+    case ast_empty_expression:
+      return process_empty_expression(v->as<ast_empty_expression>(), code, target_type);
     default:
       throw UnexpectedASTNodeType(v, "pre_compile_expr");
   }
@@ -1313,14 +1535,12 @@ static void process_throw_statement(V<ast_throw_statement> v, CodeBlob& code) {
 }
 
 static void process_return_statement(V<ast_return_statement> v, CodeBlob& code) {
-  std::vector<var_idx_t> return_vars;
-  if (v->has_return_value()) {
-    TypePtr child_target_type = code.fun_ref->inferred_return_type;
-    if (code.fun_ref->does_return_self()) {
-      child_target_type = code.fun_ref->parameters[0].declared_type;
-    }
-    return_vars = pre_compile_expr(v->get_return_value(), code, child_target_type);
+  TypePtr child_target_type = code.fun_ref->inferred_return_type;
+  if (code.fun_ref->does_return_self()) {
+    child_target_type = code.fun_ref->parameters[0].declared_type;
   }
+  std::vector<var_idx_t> return_vars = pre_compile_expr(v->get_return_value(), code, child_target_type);
+
   if (code.fun_ref->does_return_self()) {
     return_vars = {};
   }

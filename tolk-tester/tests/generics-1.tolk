@@ -24,6 +24,7 @@ fun test102(): (int, int, int, [int, int]) {
     var b = getTwo() as int;
     var c: int = 1 ? getTwo() : getTwo();
     var c redef = getTwo();
+    var d: int = match (1 as int|slice|builder) { int => getTwo(), slice => getTwo(), builder => getTwo() };
     var ab_tens = (0, (1, 2));
     ab_tens.0 = getTwo();
     ab_tens.1.1 = getTwo();
@@ -169,6 +170,29 @@ fun test111() {
     return (isSomeNullableNull(i1), isSomeNullableNull(i2), isSomeNullableNull<int8>(i1), isSomeNullableNull<int?>(i1));
 }
 
+@method_id(112)
+fun test112(v: int | slice?) {
+    return (eq1(v), eq4(v == null));
+}
+
+fun makeNullable<T1, T2>(a: T1 | T2): T1 | T2 | null {
+    return a;
+}
+
+@method_id(113)
+fun test113(a: int | slice) {
+    var b: int | (int, int) = match (a) {
+        int => a,
+        slice => (a.loadInt(32), -1)
+    };
+    __expect_type(makeNullable(b), "int | (int, int) | null");
+    return (
+        makeNullable(a), -100, makeNullable(b), -100, makeNullable<int, null>(9), -100, makeNullable<slice, null>(null), -100,
+        makeNullable<int, (int, int) | builder>(b), -100, makeNullable<int, (int, int, int)?>(null)
+    );
+}
+
+
 fun main(x: int): (int, [Tup2Int]) {
     __expect_type(test110, "() -> (Tensor2Int, Tensor2Int)");
 
@@ -190,12 +214,16 @@ fun main(x: int): (int, [Tup2Int]) {
 @testcase | 109 | 5 | 5 (null) (null)
 @testcase | 110 |   | 2 2 5 2
 @testcase | 111 |   | 0 0 0 0
+@testcase | 112 | 5 1 | 5 1 0
+@testcase | 112 | 0 0 | 0 0 -1
+@testcase | 113 | 5 1 | 5 1 -100 (null) 5 1 -100 9 -100 (null) -100 (null) 5 1 -100 (null) (null) (null) 0
 
 @fif_codegen DECLPROC eq1<int>
 @fif_codegen DECLPROC eq1<tuple>
 @fif_codegen DECLPROC eq1<(int,int)>
 @fif_codegen DECLPROC eq1<[int,int]>
 @fif_codegen DECLPROC eq1<MInt?>
+@fif_codegen DECLPROC eq1<int|slice|null>
 @fif_codegen DECLPROC getTwo<int>
 
 @fif_codegen_avoid DECLPROC eq1

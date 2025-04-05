@@ -36,6 +36,7 @@ class ASTStringifier final : public ASTVisitor {
     // expressions
     {ast_empty_expression, "ast_empty_expression"},
     {ast_parenthesized_expression, "ast_parenthesized_expression"},
+    {ast_braced_expression, "ast_braced_expression"},
     {ast_tensor, "ast_tensor"},
     {ast_typed_tuple, "ast_typed_tuple"},
     {ast_reference, "ast_reference"},
@@ -56,8 +57,10 @@ class ASTStringifier final : public ASTVisitor {
     {ast_binary_operator, "ast_binary_operator"},
     {ast_ternary_operator, "ast_ternary_operator"},
     {ast_cast_as_operator, "ast_cast_as_operator"},
+    {ast_is_type_operator, "ast_is_type_operator"},
     {ast_not_null_operator, "ast_not_null_operator"},
-    {ast_is_null_check, "ast_is_null_check"},
+    {ast_match_expression, "ast_match_expression"},
+    {ast_match_arm, "ast_match_arm"},
     // statements
     {ast_empty_statement, "ast_empty_statement"},
     {ast_sequence, "ast_sequence"},
@@ -170,6 +173,10 @@ class ASTStringifier final : public ASTVisitor {
         return static_cast<std::string>(v->as<ast_binary_operator>()->operator_name);
       case ast_cast_as_operator:
         return v->as<ast_cast_as_operator>()->cast_to_type->as_human_readable();
+      case ast_is_type_operator: {
+        std::string prefix = v->as<ast_is_type_operator>()->is_negated ? "!is " : "is ";
+        return prefix + v->as<ast_is_type_operator>()->rhs_type->as_human_readable();
+      }
       case ast_sequence:
         return "↓" + std::to_string(v->as<ast_sequence>()->get_items().size());
       case ast_instantiationT_item:
@@ -209,6 +216,14 @@ class ASTStringifier final : public ASTVisitor {
         }
         return result + ">";
       }
+      case ast_match_arm:
+        if (v->as<ast_match_arm>()->pattern_kind == MatchArmKind::exact_type) {
+          return v->as<ast_match_arm>()->exact_type->as_human_readable();
+        }
+        if (v->as<ast_match_arm>()->pattern_kind == MatchArmKind::const_expression) {
+          return "(expression)";
+        }
+        return "(else)";
       case ast_tolk_required_version:
         return static_cast<std::string>(v->as<ast_tolk_required_version>()->semver);
       case ast_import_directive:
@@ -249,6 +264,7 @@ public:
       // expressions
       case ast_empty_expression:              return handle_vertex(v->as<ast_empty_expression>());
       case ast_parenthesized_expression:      return handle_vertex(v->as<ast_parenthesized_expression>());
+      case ast_braced_expression:             return handle_vertex(v->as<ast_braced_expression>());
       case ast_tensor:                        return handle_vertex(v->as<ast_tensor>());
       case ast_typed_tuple:                   return handle_vertex(v->as<ast_typed_tuple>());
       case ast_reference:                     return handle_vertex(v->as<ast_reference>());
@@ -269,8 +285,10 @@ public:
       case ast_binary_operator:               return handle_vertex(v->as<ast_binary_operator>());
       case ast_ternary_operator:              return handle_vertex(v->as<ast_ternary_operator>());
       case ast_cast_as_operator:              return handle_vertex(v->as<ast_cast_as_operator>());
+      case ast_is_type_operator:              return handle_vertex(v->as<ast_is_type_operator>());
       case ast_not_null_operator:             return handle_vertex(v->as<ast_not_null_operator>());
-      case ast_is_null_check:                 return handle_vertex(v->as<ast_is_null_check>());
+      case ast_match_expression:              return handle_vertex(v->as<ast_match_expression>());
+      case ast_match_arm:                     return handle_vertex(v->as<ast_match_arm>());
       // statements
       case ast_empty_statement:               return handle_vertex(v->as<ast_empty_statement>());
       case ast_sequence:                      return handle_vertex(v->as<ast_sequence>());

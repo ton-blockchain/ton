@@ -202,13 +202,24 @@ fun testApplyGlobalVar(x: int, y: int, z: int): bool? {
   return check_assoc_2(x, y, z);
 }
 
-fun justAdd2(x: MInt): int64 { return x + 2; }
+fun justAdd2(x: MInt): int { return x + 2; }
 
 @method_id(113)
 fun testCallbackAlias(secondNull: bool) {
     var adder1: CallbackIntToInt = justAdd2;
     var adder2: CallbackIntToInt? = secondNull ? null : justAdd2;
     return (adder1(10), adder2 == null ? -1 : adder2(10));
+}
+
+fun justGetTensor2() { return (2, 3); }
+
+@method_id(114)
+fun testCallbackUnion(call1st: bool): (int, int) | int {
+    var cb: (int -> int) | (() -> (MInt, int)) = call1st ? justGetTensor2 : justAdd2;
+    if (cb is () -> (int, int)) {
+        return cb();
+    }
+    return cb(10) as int;
 }
 
 fun main() {}
@@ -223,7 +234,7 @@ fun main() {}
 @testcase | 107 |    | 65537
 @testcase | 108 |    | 4
 @testcase | 109 |    | 0 3 0 7
-@testcase | 110 | 5  | 5 10 100 100 100 -1
+@testcase | 110 | 5  | 5 10 100 100 100 134
 @testcase | 110 | 0  | (null) (null) (null) (null) (null) 0
 @testcase | 111 | 2 3 9      | -1
 @testcase | 111 | 11 22 44   | -1
@@ -233,4 +244,6 @@ fun main() {}
 @testcase | 112 | -1 -10 -20 | -1
 @testcase | 113 | 0          | 12 12
 @testcase | 113 | -1         | 12 -1
+@testcase | 114 | -1         | 2 3 130
+@testcase | 114 | 0          | (null) 12 1
  */

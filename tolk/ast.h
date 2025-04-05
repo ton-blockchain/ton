@@ -68,6 +68,7 @@ enum ASTNodeType {
   // expressions
   ast_empty_expression,
   ast_parenthesized_expression,
+  ast_braced_expression,
   ast_tensor,
   ast_typed_tuple,
   ast_reference,
@@ -88,8 +89,10 @@ enum ASTNodeType {
   ast_binary_operator,
   ast_ternary_operator,
   ast_cast_as_operator,
+  ast_is_type_operator,
   ast_not_null_operator,
-  ast_is_null_check,
+  ast_match_expression,
+  ast_match_arm,
   // statements
   ast_empty_statement,
   ast_sequence,
@@ -126,6 +129,12 @@ enum class AnnotationKind {
   pure,
   deprecated,
   unknown,
+};
+
+enum class MatchArmKind {    // for `match` expression, each of arms `pattern => body` can be:
+  const_expression,          // `-1 => body` / `SOME_CONST + ton("0.05") => body` (any expr at parsing, resulting in const)
+  exact_type,                // `int => body` / `User | slice => body`
+  else_branch,               // `else => body`
 };
 
 template<ASTNodeType node_type>
@@ -244,12 +253,23 @@ protected:
 
   AnyExprV child(int i) const { return children.at(i); }
 
-  ASTExprVararg(ASTNodeType type, SrcLocation loc, std::vector<AnyExprV> children)
+  ASTExprVararg(ASTNodeType type, SrcLocation loc, std::vector<AnyExprV>&& children)
     : ASTNodeExpressionBase(type, loc), children(std::move(children)) {}
 
 public:
   int size() const { return static_cast<int>(children.size()); }
   bool empty() const { return children.empty(); }
+};
+
+struct ASTExprBlockOfStatements : ASTNodeExpressionBase {
+  friend class ASTVisitor;
+  friend class ASTReplacer;
+
+protected:
+  AnyV child_sequence;
+
+  ASTExprBlockOfStatements(ASTNodeType type, SrcLocation loc, AnyV child_sequence)
+    : ASTNodeExpressionBase(type, loc), child_sequence(child_sequence) {}
 };
 
 struct ASTStatementUnary : ASTNodeStatementBase {
@@ -349,6 +369,18 @@ struct Vertex<ast_parenthesized_expression> final : ASTExprUnary {
 
   Vertex(SrcLocation loc, AnyExprV expr)
     : ASTExprUnary(ast_parenthesized_expression, loc, expr) {}
+};
+
+template<>
+// ast_braced_expression is a sequence, but in a context of expression (it has a type)
+// it can contain arbitrary statements inside
+// it can occur only in special places within the input code, not anywhere
+// example: `match (intV) { 0 => { ... } }` rhs of 0 is braced expression
+struct Vertex<ast_braced_expression> final : ASTExprBlockOfStatements {
+  auto get_sequence() const { return child_sequence->as<ast_sequence>(); }
+
+  Vertex(SrcLocation loc, AnyV child_sequence)
+    : ASTExprBlockOfStatements(ast_braced_expression, loc, child_sequence) {}
 };
 
 template<>
@@ -684,6 +716,24 @@ struct Vertex<ast_cast_as_operator> final : ASTExprUnary {
 };
 
 template<>
+// ast_is_type_operator is type matching with "is" or "!is" keywords and "== null" / "!= null" (same as "is null")
+// examples: `v is SomeStruct` / `getF() !is slice` / `v == null` / `v !is null`
+struct Vertex<ast_is_type_operator> final : ASTExprUnary {
+  AnyExprV get_expr() const { return child; }
+
+  TypePtr rhs_type;
+  bool is_negated;      // `!is type`, `!= null`
+
+  Vertex* mutate() const { return const_cast<Vertex*>(this); }
+  void assign_resolved_type(TypePtr rhs_type);
+  void assign_is_negated(bool is_negated);
+
+  Vertex(SrcLocation loc, AnyExprV expr, TypePtr rhs_type, bool is_negated)
+    : ASTExprUnary(ast_is_type_operator, loc, expr)
+    , rhs_type(rhs_type), is_negated(is_negated) {}
+};
+
+template<>
 // ast_not_null_operator is non-null assertion: like TypeScript ! or Kotlin !!
 // examples: `nullableInt!` / `getNullableBuilder()!`
 struct Vertex<ast_not_null_operator> final : ASTExprUnary {
@@ -694,19 +744,40 @@ struct Vertex<ast_not_null_operator> final : ASTExprUnary {
 };
 
 template<>
-// ast_is_null_check is an artificial vertex for "expr == null" / "expr != null" / same but null on the left
-// it's created instead of a general binary expression to emphasize its purpose
-struct Vertex<ast_is_null_check> final : ASTExprUnary {
-  bool is_negated;
+// ast_match_expression is `match (subject) { ... arms ... }`, used either as a statement or as an expression
+// example: `match (intOrSliceVar) { int => 1, slice => 2 }`
+// example: `match (var c = getIntOrSlice()) { int => return 0, slice => throw 123 }`
+struct Vertex<ast_match_expression> final : ASTExprVararg {
+  AnyExprV get_subject() const { return child(0); }
+  int get_arms_count() const { return size() - 1; }
+  auto get_arm(int i) const { return child(i + 1)->as<ast_match_arm>(); }
+  const std::vector<AnyExprV>& get_all_children() const { return children; }
 
-  AnyExprV get_expr() const { return child; }
+  bool is_statement() const { return !is_rvalue && !is_lvalue; }
+
+  Vertex(SrcLocation loc, std::vector<AnyExprV>&& subject_and_arms)
+    : ASTExprVararg(ast_match_expression, loc, std::move(subject_and_arms)) {}
+};
+
+template<>
+// ast_match_arm is one `pattern => body` inside `match` expression/statement
+// pattern can be a custom expression / a type / `else` (see comments in MatchArmKind)
+// body can be any expression; particularly, braced expression `{ ... }`
+// example: `int => variable`           (match by type, inferred_type of body variable's type)
+// example: `a+b => { ...; return 0; }` (match by expression, inferred_type of body is "never" (unreachable end))
+struct Vertex<ast_match_arm> final : ASTExprBinary {
+  MatchArmKind pattern_kind;
+  TypePtr exact_type;         // for MatchArmKind::exact_type; otherwise, nullptr
+
+  AnyExprV get_pattern_expr() const { return lhs; }
+  AnyExprV get_body() const { return rhs; }    // remember, it may be V<ast_braced_expression>
 
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
-  void assign_is_negated(bool is_negated);
+  void assign_resolved_pattern(MatchArmKind pattern_kind, TypePtr exact_type, AnyExprV pattern_expr);
 
-  Vertex(SrcLocation loc, AnyExprV expr, bool is_negated)
-    : ASTExprUnary(ast_is_null_check, loc, expr)
-    , is_negated(is_negated) {}
+  Vertex(SrcLocation loc, MatchArmKind pattern_kind, TypePtr exact_type, AnyExprV pattern_expr, AnyExprV body)
+    : ASTExprBinary(ast_match_arm, loc, pattern_expr, body)
+    , pattern_kind(pattern_kind), exact_type(exact_type) {}
 };
 
 
@@ -739,7 +810,7 @@ struct Vertex<ast_sequence> final : ASTStatementVararg {
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
   void assign_first_unreachable(AnyV first_unreachable);
 
-  Vertex(SrcLocation loc, SrcLocation loc_end, std::vector<AnyV> items)
+  Vertex(SrcLocation loc, SrcLocation loc_end, std::vector<AnyV>&& items)
     : ASTStatementVararg(ast_sequence, loc, std::move(items))
     , loc_end(loc_end) {}
 };

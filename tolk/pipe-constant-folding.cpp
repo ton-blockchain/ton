@@ -96,11 +96,11 @@ class ConstantFoldingReplacer final : public ASTReplacerInFunctionBody {
     return v;
   }
 
-  AnyExprV replace(V<ast_is_null_check> v) override {
+  AnyExprV replace(V<ast_is_type_operator> v) override {
     parent::replace(v);
 
     // `null == null` / `null != null`
-    if (v->get_expr()->type == ast_null_keyword) {
+    if (v->get_expr()->type == ast_null_keyword && v->rhs_type == TypeDataNullLiteral::create()) {
       return create_bool_const(v->loc, !v->is_negated);
     }
 
