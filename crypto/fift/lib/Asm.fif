@@ -1333,7 +1333,9 @@ x{F893} @Defop INMSG_FWDFEE
 x{F894} @Defop INMSG_LT
 x{F895} @Defop INMSG_UTIME
 x{F896} @Defop INMSG_ORIGVALUE
-x{F897} @Defop INMSG_STATEINIT
+x{F897} @Defop INMSG_VALUE
+x{F898} @Defop INMSG_VALUEEXTRA
+x{F899} @Defop INMSG_STATEINIT
 
 x{F840} @Defop GETGLOBVAR
 { dup 1 31 @rangechk <b x{F85_} s, swap 5 u, @addopb } : GETGLOB

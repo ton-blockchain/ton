@@ -1406,7 +1406,8 @@ Ref<vm::Tuple> Transaction::prepare_vm_c7(const ComputePhaseConfig& cfg) const {
   }
   if (cfg.global_version >= 11) {
     // in_msg_params:[...]
-    tuple.push_back(prepare_in_msg_params_tuple(trans_type == tr_ord ? &in_msg_info : nullptr, in_msg_state));
+    tuple.push_back(prepare_in_msg_params_tuple(trans_type == tr_ord ? &in_msg_info : nullptr, in_msg_state,
+                                                msg_balance_remaining));
   }
   auto tuple_ref = td::make_cnt_ref<std::vector<vm::StackEntry>>(std::move(tuple));
   LOG(DEBUG) << "SmartContractInfo initialized with " << vm::StackEntry(tuple_ref).to_string();
@@ -1422,12 +1423,14 @@ Ref<vm::Tuple> Transaction::prepare_vm_c7(const ComputePhaseConfig& cfg) const {
  *
  * @param info Pointer to the message info.
  * @param state_init State init of the message (null if absent).
-
+ * @param msg_balance_remaining Remaining balance of the message (it's sometimes different from value in info).
+ *
  * @returns Tuple with message parameters.
  */
 Ref<vm::Tuple> Transaction::prepare_in_msg_params_tuple(const gen::CommonMsgInfo::Record_int_msg_info* info,
-                                                        const Ref<vm::Cell>& state_init) {
-  std::vector<vm::StackEntry> in_msg_params(8);
+                                                        const Ref<vm::Cell>& state_init,
+                                                        const CurrencyCollection& msg_balance_remaining) {
+  std::vector<vm::StackEntry> in_msg_params(10);
   if (info != nullptr) {
     in_msg_params[0] = td::make_refint(info->bounce ? -1 : 0);   // bounce
     in_msg_params[1] = td::make_refint(info->bounced ? -1 : 0);  // bounced
@@ -1438,7 +1441,10 @@ Ref<vm::Tuple> Transaction::prepare_in_msg_params_tuple(const gen::CommonMsgInfo
     auto value = info->value;
     in_msg_params[6] =
         info->value.is_null() ? td::zero_refint() : tlb::t_Grams.as_integer_skip(value.write());  // original value
-    in_msg_params[7] = vm::StackEntry::maybe(state_init);                                         // state_init
+    in_msg_params[7] = msg_balance_remaining.is_valid() ? msg_balance_remaining.grams : td::zero_refint();  // value
+    in_msg_params[8] = msg_balance_remaining.is_valid() ? vm::StackEntry::maybe(msg_balance_remaining.extra)
+                                                        : vm::StackEntry{};  // value extra
+    in_msg_params[9] = vm::StackEntry::maybe(state_init);                    // state_init
   } else {
     in_msg_params[0] = td::zero_refint();  // bounce
     in_msg_params[1] = td::zero_refint();  // bounced
@@ -1448,7 +1454,9 @@ Ref<vm::Tuple> Transaction::prepare_in_msg_params_tuple(const gen::CommonMsgInfo
     in_msg_params[4] = td::zero_refint();  // created_lt
     in_msg_params[5] = td::zero_refint();  // created_at
     in_msg_params[6] = td::zero_refint();  // original value
-    in_msg_params[7] = vm::StackEntry{};   // state_init
+    in_msg_params[7] = td::zero_refint();  // value
+    in_msg_params[8] = vm::StackEntry{};   // value extra
+    in_msg_params[9] = vm::StackEntry{};   // state_init
   }
   return td::make_cnt_ref<std::vector<vm::StackEntry>>(std::move(in_msg_params));
 }

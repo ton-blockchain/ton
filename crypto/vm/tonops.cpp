@@ -496,8 +496,10 @@ void register_ton_config_ops(OpcodeTable& cp0) {
       .insert(OpcodeInstr::mksimple(0xf894, 16, "INMSG_LT", std::bind(exec_get_in_msg_param, _1, 4, "INMSG_LT"))->require_version(11))
       .insert(OpcodeInstr::mksimple(0xf895, 16, "INMSG_UTIME", std::bind(exec_get_in_msg_param, _1, 5, "INMSG_UTIME"))->require_version(11))
       .insert(OpcodeInstr::mksimple(0xf896, 16, "INMSG_ORIGVALUE", std::bind(exec_get_in_msg_param, _1, 6, "INMSG_ORIGVALUE"))->require_version(11))
-      .insert(OpcodeInstr::mksimple(0xf897, 16, "INMSG_STATEINIT", std::bind(exec_get_in_msg_param, _1, 7, "INMSG_STATEINIT"))->require_version(11))
-      .insert(OpcodeInstr::mkfixedrange(0xf898, 0xf8a0, 16, 4, instr::dump_1c("INMSGPARAM "), exec_get_var_in_msg_param)->require_version(11));
+      .insert(OpcodeInstr::mksimple(0xf897, 16, "INMSG_VALUE", std::bind(exec_get_in_msg_param, _1, 7, "INMSG_VALUE"))->require_version(11))
+      .insert(OpcodeInstr::mksimple(0xf898, 16, "INMSG_VALUEEXTRA", std::bind(exec_get_in_msg_param, _1, 8, "INMSG_VALUEEXTRA"))->require_version(11))
+      .insert(OpcodeInstr::mksimple(0xf899, 16, "INMSG_STATEINIT", std::bind(exec_get_in_msg_param, _1, 9, "INMSG_STATEINIT"))->require_version(11))
+      .insert(OpcodeInstr::mkfixedrange(0xf89a, 0xf8a0, 16, 4, instr::dump_1c("INMSGPARAM "), exec_get_var_in_msg_param)->require_version(11));
 }
 
 td::RefInt256 generate_randu256(VmState* st) {

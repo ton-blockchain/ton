@@ -433,7 +433,8 @@ struct Transaction {
 
  public:
   static Ref<vm::Tuple> prepare_in_msg_params_tuple(const gen::CommonMsgInfo::Record_int_msg_info* info,
-                                                    const Ref<vm::Cell>& state_init);
+                                                    const Ref<vm::Cell>& state_init,
+                                                    const CurrencyCollection& msg_balance_remaining);
 };
 }  // namespace transaction
 

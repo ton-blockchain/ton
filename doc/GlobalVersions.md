@@ -204,12 +204,14 @@ Reserve modes `+1`, `+4` and `+8` ("reserve all except", "add original balance" 
     * `fwd_fee` (int)
     * `created_lt` (int)
     * `created_at` (int)
-    * `value` (int) - this is sometimes different from the value in `INCOMINGVALUE` and TVM stack because of storage fees
+    * `orig_value` (int) - this is sometimes different from the value in `INCOMINGVALUE` and TVM stack because of storage fees
+    * `value` (int) - same as in `INCOMINGVALUE` and TVM stack.
+    * `value_extra` (cell or null) - same as in `INCOMINGVALUE`.
     * `state_init` (cell or null)
-  * For external messages, tick-tock transactions and get methods, `bounce`, `bounced`, `fwd_fee`, `created_lt`, `created_at`, `value` are 0.
-  * For tick-tock transactions and get methods, `src_addr` is `addr_none`.
+  * For external messages, tick-tock transactions and get methods: `bounce`, `bounced`, `fwd_fee`, `created_lt`, `created_at`, `orig_value`, `value` are 0, `value_extra` is null.
+  * For tick-tock transactions and get methods: `src_addr` is `addr_none`.
 
 ### New TVM instructions
 - `x GETPARAMLONG` - same as `x GETPARAM`, but `x` is in range `[0..254]`. Gas cost: `34`.
 - `x INMSGPARAM` - equivalent to `INMSGPARAMS` `x INDEX`. Gas cost: `26`.
-  - Aliases: `INMSG_BOUNCE`, `INMSG_BOUNCED`, `INMSG_SRC`, `INMSG_FWDFEE`, `INMSG_LT`, `INMSG_UTIME`, `INMSG_ORIGVALUE`, `INMSG_STATEINIT`.
+  - Aliases: `INMSG_BOUNCE`, `INMSG_BOUNCED`, `INMSG_SRC`, `INMSG_FWDFEE`, `INMSG_LT`, `INMSG_UTIME`, `INMSG_ORIGVALUE`, `INMSG_VALUE`, `INMSG_VALUEEXTRA`, `INMSG_STATEINIT`.
