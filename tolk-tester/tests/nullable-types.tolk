@@ -1,9 +1,10 @@
+type MIntN = int?;
 
-fun getNullable4(): int? { return 4; }
+fun getNullable4(): MIntN { return 4; }
 fun getNullableIntNull(): int? asm "PUSHNULL";
 
-fun eqInt(x: int) { return x; }
-fun eq<T>(x: T) { return x; }
+fun eqInt(x: int) { return x }
+fun eq<T>(x: T) { return x }
 
 fun unwrap<T>(x: T?): T { return x!; }
 fun intOr0(x: int?): int { return null == x ? 0 : x!; }
@@ -36,7 +37,7 @@ fun test103(x: int?): (bool, bool, int) {
 }
 
 @method_id(104)
-fun test104(x: int?) {
+fun test104(x: MIntN) {
     var x2 = eq(x = 10);
     var ab = (x2, getNullableIntNull());
     return (unwrap(ab.0) + (ab.1 == null ? -100 : ab.1!), ab.1);
@@ -44,7 +45,7 @@ fun test104(x: int?) {
 
 @method_id(105)
 fun test105() {
-    var xy: (int?, int?) = (5, null);
+    var xy: (int?, MIntN) = (5, null);
     var ab = [1 ? [xy.0, xy.1] : null];
     ab.0!.0 = intOr0(ab.0!.0);
     ab.0!.1 = intOr0(ab.0!.1);
@@ -52,7 +53,7 @@ fun test105() {
 }
 
 global gTup106: tuple?;
-global gInt106: int?;
+global gInt106: MIntN;
 
 @method_id(106)
 fun test106() {
@@ -91,7 +92,11 @@ fun test109() {
     return ([a, b] = [3, 4], a, b);
 }
 
-fun main(x: int?, y: int?) {
+fun main(x: int?, y: MIntN) {
+    __expect_type(x! == y!, "bool");
+    __expect_type(5 != y!, "bool");
+    __expect_type(y == null, "bool");
+    __expect_type(true == (true as bool?)!, "bool");
 }
 
 /**

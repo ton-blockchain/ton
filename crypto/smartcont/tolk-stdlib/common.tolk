@@ -1,7 +1,13 @@
 // Standard library for Tolk (LGPL licence).
 // It contains common functions that are available out of the box, the user doesn't have to import anything.
 // More specific functions are required to be imported explicitly, like "@stdlib/tvm-dicts".
-tolk 0.10
+tolk 0.11
+
+/// In Tolk v1.x there would be a type `map<K,V>`.
+/// Currently, working with dictionaries is still low-level, with raw cells.
+/// But just for clarity, we use "dict" instead of a "cell?" where a cell-dictionary is assumed.
+/// Every dictionary object can be null. TVM NULL is essentially "empty dictionary".
+type dict = cell?;
 
 /**
   Tuple manipulation primitives.
@@ -144,9 +150,9 @@ fun getMyOriginalBalance(): int
 
 /// Same as [getMyOriginalBalance], but returns a tuple:
 /// `int` — balance in nanotoncoins;
-/// `cell` — a dictionary with 32-bit keys representing the balance of "extra currencies".
+/// `dict` — a dictionary with 32-bit keys representing the balance of "extra currencies".
 @pure
-fun getMyOriginalBalanceWithExtraCurrencies(): [int, cell?]
+fun getMyOriginalBalanceWithExtraCurrencies(): [int, dict]
     asm "BALANCE";
 
 /// Returns the logical time of the current transaction.
@@ -476,12 +482,12 @@ fun getLastBits(self: slice, len: int): slice
 /// Loads a dictionary (TL HashMapE structure, represented as TVM cell) from a slice.
 /// Returns `null` if `nothing` constructor is used.
 @pure
-fun loadDict(mutate self: slice): cell?
+fun loadDict(mutate self: slice): dict
     asm( -> 1 0) "LDDICT";
 
 /// Preloads a dictionary (cell) from a slice.
 @pure
-fun preloadDict(self: slice): cell?
+fun preloadDict(self: slice): dict
     asm "PLDDICT";
 
 /// Loads a dictionary as [loadDict], but returns only the remainder of the slice.
@@ -556,7 +562,7 @@ fun storeBool(mutate self: builder, x: bool): self
 /// Stores dictionary (represented by TVM `cell` or `null`) into a builder.
 /// In other words, stores a `1`-bit and a reference to [c] if [c] is not `null` and `0`-bit otherwise.
 @pure
-fun storeDict(mutate self: builder, c: cell?): self
+fun storeDict(mutate self: builder, c: dict): self
     asm(c self) "STDICT";
 
 /// Stores (Maybe ^Cell) into a builder.
@@ -720,7 +726,7 @@ fun reserveToncoinsOnBalance(nanoTonCoins: int, reserveMode: int): void
 
 /// Similar to [reserveToncoinsOnBalance], but also accepts a dictionary extraAmount (represented by a cell or null)
 /// with extra currencies. In this way currencies other than Toncoin can be reserved.
-fun reserveExtraCurrenciesOnBalance(nanoTonCoins: int, extraAmount: cell?, reserveMode: int): void
+fun reserveExtraCurrenciesOnBalance(nanoTonCoins: int, extraAmount: dict, reserveMode: int): void
     asm "RAWRESERVEX";
 
 

@@ -136,6 +136,15 @@ struct NameAndScopeResolver {
 };
 
 struct TypeDataResolver {
+  static TypePtr finalize_type_data(FunctionPtr cur_f, TypePtr type_data, const GenericsDeclaration* genericTs) {
+    if (type_data) {
+      if (type_data->has_unresolved_inside()) {
+        type_data = resolve_identifiers_in_type_data(cur_f, type_data, genericTs);
+      }
+    }
+    return type_data;
+  }
+
   GNU_ATTRIBUTE_NOINLINE
   static TypePtr resolve_identifiers_in_type_data(FunctionPtr cur_f, TypePtr type_data, const GenericsDeclaration* genericTs) {
     return type_data->replace_children_custom([cur_f, genericTs](TypePtr child) {
@@ -143,6 +152,14 @@ struct TypeDataResolver {
         if (genericTs && genericTs->has_nameT(un->text)) {
           std::string nameT = un->text;
           return TypeDataGenericT::create(std::move(nameT));
+        }
+        if (const Symbol* sym = lookup_global_symbol(un->text)) {
+          if (AliasDefPtr alias_ref = sym->try_as<AliasDefPtr>()) {
+            if (alias_ref->underlying_type->has_unresolved_inside()) {
+              resolve_and_mutate_type_alias(alias_ref);
+            }
+            return TypeDataAlias::create(alias_ref);
+          }
         }
         if (un->text == "auto") {
           throw ParseError(cur_f, un->loc, "`auto` type does not exist; just omit a type for local variable (will be inferred from assignment); parameters should always be typed");
@@ -155,13 +172,25 @@ struct TypeDataResolver {
       return child;
     });
   }
+
+  static void resolve_and_mutate_type_alias(AliasDefPtr alias_ref) {
+    static std::vector<AliasDefPtr> called_stack;
+
+    // prevent recursion like `type A = B; type B = A`
+    bool contains = std::find(called_stack.begin(), called_stack.end(), alias_ref) != called_stack.end();
+    if (contains) {
+      throw ParseError(alias_ref->loc, "type `" + alias_ref->name + "` circularly references itself");
+    }
+
+    called_stack.push_back(alias_ref);
+    TypePtr underlying_type = finalize_type_data(nullptr, alias_ref->underlying_type, nullptr);
+    alias_ref->mutate()->assign_resolved_type(underlying_type);
+    called_stack.pop_back();
+  }
 };
 
 static TypePtr finalize_type_data(FunctionPtr cur_f, TypePtr type_data, const GenericsDeclaration* genericTs) {
-  if (!type_data || !type_data->has_unresolved_inside()) {
-    return type_data;
-  }
-  return TypeDataResolver::resolve_identifiers_in_type_data(cur_f, type_data, genericTs);
+  return TypeDataResolver::finalize_type_data(cur_f, type_data, genericTs);
 }
 
 
@@ -231,6 +260,48 @@ protected:
     }
   }
 
+  void visit(V<ast_braced_expression> v) override {
+    current_scope.open_scope(v->loc);
+    parent::visit(v->get_block_statement());
+    current_scope.close_scope(v->loc);
+  }
+
+  void visit(V<ast_match_expression> v) override {
+    current_scope.open_scope(v->loc);   // `match (var a = init_val) { ... }`
+    parent::visit(v);                   // then `a` exists only inside `match` arms
+    current_scope.close_scope(v->loc);
+  }
+
+  void visit(V<ast_match_arm> v) override {
+    // resolve identifiers after => at first
+    parent::visit(v->get_body());
+    // because handling lhs of => is comprehensive
+
+    switch (v->pattern_kind) {
+      case MatchArmKind::exact_type: {
+        if (const TypeDataUnresolved* maybe_ident = v->exact_type->try_as<TypeDataUnresolved>()) {
+          if (const Symbol* sym = current_scope.lookup_symbol(maybe_ident->text); sym && !sym->try_as<AliasDefPtr>()) {
+            auto v_ident = createV<ast_identifier>(v->loc, sym->name);
+            AnyExprV pattern_expr = createV<ast_reference>(v->loc, v_ident, nullptr);
+            parent::visit(pattern_expr);
+            v->mutate()->assign_resolved_pattern(MatchArmKind::const_expression, nullptr, pattern_expr);
+            return;
+          }
+        }
+        TypePtr resolved_exact_type = finalize_type_data(cur_f, v->exact_type, current_genericTs);
+        v->mutate()->assign_resolved_pattern(MatchArmKind::exact_type, resolved_exact_type, v->get_pattern_expr());
+        break;
+      }
+      case MatchArmKind::const_expression: {
+        parent::visit(v->get_pattern_expr());
+        break;
+      }
+      default:
+        // for `else` match branch, do nothing: its body was already traversed above
+        break;
+    }
+  }
+
   void visit(V<ast_dot_access> v) override {
     // for `t.tupleAt<MyAlias>` / `obj.method<T>`, resolve "MyAlias" and "T"
     // (for function call `t.tupleAt<MyAlias>()`, this v (ast_dot_access `t.tupleAt<MyAlias>`) is callee)
@@ -249,7 +320,13 @@ protected:
     parent::visit(v->get_expr());
   }
 
-  void visit(V<ast_sequence> v) override {
+  void visit(V<ast_is_type_operator> v) override {
+    TypePtr rhs_type = finalize_type_data(cur_f, v->rhs_type, current_genericTs);
+    v->mutate()->assign_resolved_type(rhs_type);
+    parent::visit(v->get_expr());
+  }
+
+  void visit(V<ast_block_statement> v) override {
     if (v->empty()) {
       return;
     }
@@ -300,13 +377,13 @@ public:
     fun_ref->mutate()->assign_resolved_type(return_type);
 
     if (fun_ref->is_code_function()) {
-      auto v_seq = v->get_body()->as<ast_sequence>();
+      auto v_block = v->get_body()->as<ast_block_statement>();
       current_scope.open_scope(v->loc);
       for (int i = 0; i < v->get_num_params(); ++i) {
         current_scope.add_local_var(&fun_ref->parameters[i]);
       }
-      parent::visit(v_seq);
-      current_scope.close_scope(v_seq->loc_end);
+      parent::visit(v_block);
+      current_scope.close_scope(v_block->loc_end);
       tolk_assert(current_scope.scopes.empty());
     }
 
@@ -344,6 +421,10 @@ void pipeline_resolve_identifiers_and_assign_symbols() {
           v_const->mutate()->assign_resolved_type(declared_type);
           v_const->const_ref->mutate()->assign_resolved_type(declared_type);
         }
+
+      } else if (auto v_alias = v->try_as<ast_type_alias_declaration>()) {
+        TypeDataResolver::resolve_and_mutate_type_alias(v_alias->alias_ref);
+        v_alias->mutate()->assign_resolved_type(v_alias->alias_ref->underlying_type);
       }
     }
   }

@@ -1,5 +1,7 @@
+type MInt32 = int32;
+
 fun testAssignBetweenDifferentIntN(op: int32, qid: uint64) {
-    op = qid as int32;    // ok
+    op = qid as MInt32;    // ok
     op = qid;
 }
 

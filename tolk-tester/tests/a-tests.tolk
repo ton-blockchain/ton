@@ -4,19 +4,19 @@ fun f(a: int, b: int, c: int, d: int, e: int, f: int): (int, int) {
   __expect_type(D, "int");
   __expect_type(D*D, "int");
   __expect_type(calc_phi, "() -> int");
-  return (Dx/D,Dy/D,);
+  return (Dx/D,Dy/D,)
 };;;;
 
 fun calc_phi(): int {
   var n = 1;
-  repeat (70) { n*=10; };
+  repeat (70) { n*=10 };
   var p= 1;
   var `q`=1;
   _=`q`;
   do {
-    (p,q)=(q,p+q);
+    (p,q)=(q,p+q)
   } while (q <= n); //;;
-  return mulDivRound(p, n, q,);
+  return mulDivRound(p, n, q,)
 }
 
 fun calc_sqrt2(): int {
@@ -43,7 +43,7 @@ fun calc_root(m: int,) {
       k+=1;
       (a1, b1, c1) = (a, b, c);
       c+=b;
-      c += b += a;
+      c += b += a
     } while (c <= 0);
     (a, b, c) = (-c1, -b1, -a1);
     (p1, q1) = (k * p1+q1, p1);
@@ -67,12 +67,12 @@ fun ataninv(base: int, q: int): int { // computes base*atan(1/q)
 
 fun calc_pi(): int {
   var base: int = 64;
-  repeat (70) { base *= 10; }
+  repeat (70) { base *= 10 }
   return (ataninv(base << 2, 5) - ataninv(base, 239))~>>4;
 }
 
 fun main(): int {
-  return calc_pi();
+  return calc_pi()
 }
 
 /**

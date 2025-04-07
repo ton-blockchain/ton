@@ -57,6 +57,29 @@ struct OptimizerBooleanExpressionsReplacer final : ASTReplacerInFunctionBody {
     return v_not;
   }
 
+  static bool expect_integer(TypePtr inferred_type) {
+    if (inferred_type == TypeDataInt::create()) {
+      return true;
+    }
+    if (inferred_type->try_as<TypeDataIntN>() || inferred_type == TypeDataCoins::create()) {
+      return true;
+    }
+    if (const TypeDataAlias* as_alias = inferred_type->try_as<TypeDataAlias>()) {
+      return expect_integer(as_alias->underlying_type);
+    }
+    return false;
+  }
+
+  static bool expect_boolean(TypePtr inferred_type) {
+    if (inferred_type == TypeDataBool::create()) {
+      return true;
+    }
+    if (const TypeDataAlias* as_alias = inferred_type->try_as<TypeDataAlias>()) {
+      return expect_boolean(as_alias->underlying_type);
+    }
+    return false;
+  }
+
 protected:
 
   AnyExprV replace(V<ast_unary_operator> v) override {
@@ -66,11 +89,11 @@ protected:
       if (auto inner_not = v->get_rhs()->try_as<ast_unary_operator>(); inner_not && inner_not->tok == tok_logical_not) {
         AnyExprV cond_not_not = inner_not->get_rhs();
         // `!!boolVar` => `boolVar`
-        if (cond_not_not->inferred_type == TypeDataBool::create()) {
+        if (expect_boolean(cond_not_not->inferred_type)) {
           return cond_not_not;
         }
         // `!!intVar` => `intVar != 0`
-        if (cond_not_not->inferred_type == TypeDataInt::create()) {
+        if (expect_integer(cond_not_not->inferred_type)) {
           auto v_zero = create_int_const(v->loc, td::make_refint(0));
           auto v_neq = createV<ast_binary_operator>(v->loc, "!=", tok_neq, cond_not_not, v_zero);
           v_neq->mutate()->assign_rvalue_true();
@@ -94,7 +117,7 @@ protected:
     if (v->tok == tok_eq || v->tok == tok_neq) {
       AnyExprV lhs = v->get_lhs();
       AnyExprV rhs = v->get_rhs();
-      if (lhs->inferred_type == TypeDataBool::create() && rhs->type == ast_bool_const) {
+      if (expect_boolean(lhs->inferred_type) && rhs->type == ast_bool_const) {
         // `boolVar == true` / `boolVar != false`
         if (rhs->as<ast_bool_const>()->bool_val ^ (v->tok == tok_neq)) {
           return lhs;
@@ -118,9 +141,9 @@ protected:
       v = createV<ast_if_statement>(v->loc, !v->is_ifnot, v_cond_unary->get_rhs(), v->get_if_body(), v->get_else_body());
     }
     // `if (x != null)` -> ifnot(x == null)
-    if (auto v_cond_isnull = v->get_cond()->try_as<ast_is_null_check>(); v_cond_isnull && v_cond_isnull->is_negated) {
-      v_cond_isnull->mutate()->assign_is_negated(!v_cond_isnull->is_negated);
-      v = createV<ast_if_statement>(v->loc, !v->is_ifnot, v_cond_isnull, v->get_if_body(), v->get_else_body());
+    if (auto v_cond_istype = v->get_cond()->try_as<ast_is_type_operator>(); v_cond_istype && v_cond_istype->is_negated) {
+      v_cond_istype->mutate()->assign_is_negated(!v_cond_istype->is_negated);
+      v = createV<ast_if_statement>(v->loc, !v->is_ifnot, v_cond_istype, v->get_if_body(), v->get_else_body());
     }
 
     return v;

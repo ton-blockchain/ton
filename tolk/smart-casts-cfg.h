@@ -34,12 +34,13 @@ namespace tolk {
  */
 class TypeInferringUnifyStrategy {
   TypePtr unified_result = nullptr;
+  bool different_types_became_union = false;
 
 public:
-  bool unify_with(TypePtr next);
-  bool unify_with_implicit_return_void();
+  void unify_with(TypePtr next, TypePtr dest_hint = nullptr);
 
   TypePtr get_result() const { return unified_result; }
+  bool is_union_of_different_types() const { return different_types_became_union; }
 };
 
 /*
@@ -200,7 +201,7 @@ struct ExprFlow {
 
 std::ostream& operator<<(std::ostream& os, const FactsAboutExpr& facts);
 std::ostream& operator<<(std::ostream& os, const FlowContext& flow);
-TypePtr calculate_type_subtract_null(TypePtr type);
+TypePtr calculate_type_subtract_rhs_type(TypePtr type, TypePtr subtract_type);
 SinkExpression extract_sink_expression_from_vertex(AnyExprV v);
 TypePtr calc_declared_type_before_smart_cast(AnyExprV v);
 TypePtr calc_smart_cast_type_on_assignment(TypePtr lhs_declared_type, TypePtr rhs_inferred_type);

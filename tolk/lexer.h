@@ -116,9 +116,12 @@ enum TokenType {
   tok_assert,
   tok_if,
   tok_else,
+  tok_match,
 
   tok_arrow,
+  tok_double_arrow,
   tok_as,
+  tok_is,
 
   tok_tolk,
   tok_semver,
@@ -161,6 +164,7 @@ public:
     const char* p_next = nullptr;
     int cur_token_idx = 0;
     Token cur_token;
+    SrcLocation loc;
   };
 
   explicit Lexer(const SrcFile* file);

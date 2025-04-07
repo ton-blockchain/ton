@@ -138,6 +138,20 @@ void Vertex<ast_cast_as_operator>::assign_resolved_type(TypePtr cast_to_type) {
   this->cast_to_type = cast_to_type;
 }
 
+void Vertex<ast_is_type_operator>::assign_resolved_type(TypePtr rhs_type) {
+  this->rhs_type = rhs_type;
+}
+
+void Vertex<ast_is_type_operator>::assign_is_negated(bool is_negated) {
+  this->is_negated = is_negated;
+}
+
+void Vertex<ast_match_arm>::assign_resolved_pattern(MatchArmKind pattern_kind, TypePtr exact_type, AnyExprV pattern_expr) {
+  this->pattern_kind = pattern_kind;
+  this->exact_type = exact_type;
+  this->lhs = pattern_expr;
+}
+
 void Vertex<ast_global_var_declaration>::assign_var_ref(GlobalVarPtr var_ref) {
   this->var_ref = var_ref;
 }
@@ -152,6 +166,14 @@ void Vertex<ast_constant_declaration>::assign_const_ref(GlobalConstPtr const_ref
 
 void Vertex<ast_constant_declaration>::assign_resolved_type(TypePtr declared_type) {
   this->declared_type = declared_type;
+}
+
+void Vertex<ast_type_alias_declaration>::assign_alias_ref(AliasDefPtr alias_ref) {
+  this->alias_ref = alias_ref;
+}
+
+void Vertex<ast_type_alias_declaration>::assign_resolved_type(TypePtr underlying_type) {
+  this->underlying_type = underlying_type;
 }
 
 void Vertex<ast_instantiationT_item>::assign_resolved_type(TypePtr substituted_type) {
@@ -178,11 +200,7 @@ void Vertex<ast_binary_operator>::assign_fun_ref(FunctionPtr fun_ref) {
   this->fun_ref = fun_ref;
 }
 
-void Vertex<ast_is_null_check>::assign_is_negated(bool is_negated) {
-  this->is_negated = is_negated;
-}
-
-void Vertex<ast_sequence>::assign_first_unreachable(AnyV first_unreachable) {
+void Vertex<ast_block_statement>::assign_first_unreachable(AnyV first_unreachable) {
   this->first_unreachable = first_unreachable;
 }
 

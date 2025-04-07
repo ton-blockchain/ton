@@ -1,3 +1,7 @@
+type MInt = int;
+type Tensor2Int = (int, int);
+type Tensor2IntN = (int, int)?;
+
 fun eq1<X>(value: X): X { return value; }
 fun eq2<X>(value: X)    { return value; }
 fun eq3<X>(value: X): X { var cp: [X] = [eq1(value)]; var ((([v: X]))) = cp; return v; }
@@ -20,12 +24,14 @@ fun test102(): (int, int, int, [int, int]) {
     var b = getTwo() as int;
     var c: int = 1 ? getTwo() : getTwo();
     var c redef = getTwo();
+    var d: int = match (1 as int|slice|builder) { int => getTwo(), slice => getTwo(), builder => getTwo() };
     var ab_tens = (0, (1, 2));
     ab_tens.0 = getTwo();
     ab_tens.1.1 = getTwo();
     var ab_tup = [0, [1, 2]];
     ab_tup.0 = getTwo();
     ab_tup.1.1 = getTwo();
+    var ab_tens_al: Tensor2Int = (getTwo(), getTwo());
     return (eq1<int>(a), eq2<int>(b), takeInt(getTwo()), [getTwo(), ab_tens.1.1]);
 }
 
@@ -88,11 +94,12 @@ fun test106() {
 fun callTupleFirst<X, Y>(t: X): Y { return t.tupleFirst(); }
 fun callTuplePush<T, V>(mutate self: T, v1: V, v2: V): self { self.tuplePush(v1); tuplePush(mutate self, v2); return self; }
 fun getTupleLastInt(t: tuple) { return t.tupleLast<int>(); }
-fun getTupleSize(t: tuple) { return t.tupleSize(); }
+fun getTupleSize(t: MTuple) { return t.tupleSize(); }
 fun callAnyFn<TObj, TResult>(f: (TObj) -> TResult, arg: TObj) { return f(arg); }
 fun callAnyFn2<TCallback>(f: TCallback, arg: tuple) { return f(arg); }
 
-global t107: tuple;
+global t107: MTuple;
+type MTuple = tuple;
 
 @method_id(107)
 fun test107() {
@@ -105,7 +112,7 @@ fun test107() {
         callAnyFn2(getTupleSize, t107),
         first,
         callTupleFirst(t107) as int,
-        callAnyFn(getTupleLastInt, t107),
+        callAnyFn(getTupleLastInt, t107 as tuple),
         callAnyFn2(getTupleLastInt, t107)
     );
 }
@@ -131,7 +138,64 @@ fun test108() {
     return g108;
 }
 
-fun main(x: int): (int, [[int, int]]) {
+@method_id(109)
+fun test109(initialX: int32) {
+    var x: MInt = initialX;
+    __expect_type(eq1(x), "MInt");
+    __expect_type(eq1<int>(x), "int");
+    __expect_type(eq1<int8?>(x), "int8?");
+    return (eq1<uint16?>(x), eq1<uint16?>(null), eq1<MInt?>(null));
+}
+
+@method_id(110)
+fun test110() {
+    var ab_tens_al: Tensor2Int = (getTwo(), getTwo());
+    ab_tens_al.0 = getTwo();
+    var ab_tens_al_n: Tensor2Int? = (5, 6);
+    ab_tens_al_n.1 = getTwo();
+    return (ab_tens_al, ab_tens_al_n);
+}
+
+type Tup2Int = [int, int];
+
+fun isSomeNullableNull<T>(v: T?) { return v == null; }
+
+type MIntN = int?;
+type Tup2IntN = Tup2Int?;
+
+@method_id(111)
+fun test111() {
+    var i1: MIntN = 3;
+    var i2: Tup2IntN = [1, 2];
+    return (isSomeNullableNull(i1), isSomeNullableNull(i2), isSomeNullableNull<int8>(i1), isSomeNullableNull<int?>(i1));
+}
+
+@method_id(112)
+fun test112(v: int | slice?) {
+    return (eq1(v), eq4(v == null));
+}
+
+fun makeNullable<T1, T2>(a: T1 | T2): T1 | T2 | null {
+    return a;
+}
+
+@method_id(113)
+fun test113(a: int | slice) {
+    var b: int | (int, int) = match (a) {
+        int => a,
+        slice => (a.loadInt(32), -1)
+    };
+    __expect_type(makeNullable(b), "int | (int, int) | null");
+    return (
+        makeNullable(a), -100, makeNullable(b), -100, makeNullable<int, null>(9), -100, makeNullable<slice, null>(null), -100,
+        makeNullable<int, (int, int) | builder>(b), -100, makeNullable<int, (int, int, int)?>(null)
+    );
+}
+
+
+fun main(x: int): (int, [Tup2Int]) {
+    __expect_type(test110, "() -> (Tensor2Int, Tensor2Int)");
+
     try { if(x) { throw (1, x); } }
     catch (excNo, arg) { return (arg as int, [[eq2(arg as int), getTwo()]]); }
     return (0, [[x, 1]]);
@@ -147,11 +211,19 @@ fun main(x: int): (int, [[int, int]]) {
 @testcase | 106 |   | [ 106 2 6 6 ]
 @testcase | 107 |   | 6 6 1 1 6 6
 @testcase | 108 |   | 45
+@testcase | 109 | 5 | 5 (null) (null)
+@testcase | 110 |   | 2 2 5 2
+@testcase | 111 |   | 0 0 0 0
+@testcase | 112 | 5 1 | 5 1 0
+@testcase | 112 | 0 0 | 0 0 -1
+@testcase | 113 | 5 1 | 5 1 -100 (null) 5 1 -100 9 -100 (null) -100 (null) 5 1 -100 (null) (null) (null) 0
 
 @fif_codegen DECLPROC eq1<int>
 @fif_codegen DECLPROC eq1<tuple>
 @fif_codegen DECLPROC eq1<(int,int)>
 @fif_codegen DECLPROC eq1<[int,int]>
+@fif_codegen DECLPROC eq1<MInt?>
+@fif_codegen DECLPROC eq1<int|slice|null>
 @fif_codegen DECLPROC getTwo<int>
 
 @fif_codegen_avoid DECLPROC eq1

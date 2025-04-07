@@ -402,7 +402,7 @@ def run_all_tests(tests: List[str]):
             if testcase.compilation_should_fail:
                 print("  OK, stderr match", file=sys.stderr)
             else:
-                print("  OK, %d cases, gas %d" % (len(testcase.input_output), gas_used), file=sys.stderr)
+                print("  OK, %d cases" % (len(testcase.input_output)), file=sys.stderr)
         except ParseInputError as e:
             print("  Error parsing input (cur line #%d):" % (testcase.line_idx + 1), e, file=sys.stderr)
             exit(2)
