@@ -160,16 +160,7 @@ class ValidatorManager : public ValidatorManagerInterface {
 
   virtual void try_get_static_file(FileHash file_hash, td::Promise<td::BufferSlice> promise) = 0;
 
-  virtual void allow_block_data_gc(BlockIdExt block_id, bool is_archive, td::Promise<bool> promise) = 0;
   virtual void allow_block_state_gc(BlockIdExt block_id, td::Promise<bool> promise) = 0;
-  virtual void allow_zero_state_file_gc(BlockIdExt block_id, td::Promise<bool> promise) = 0;
-  virtual void allow_persistent_state_file_gc(BlockIdExt block_id, BlockIdExt masterchain_block_id,
-                                              td::Promise<bool> promise) = 0;
-  virtual void allow_block_signatures_gc(BlockIdExt block_id, td::Promise<bool> promise) = 0;
-  virtual void allow_block_proof_gc(BlockIdExt block_id, bool is_archive, td::Promise<bool> promise) = 0;
-  virtual void allow_block_proof_link_gc(BlockIdExt block_id, bool is_archive, td::Promise<bool> promise) = 0;
-  virtual void allow_block_candidate_gc(BlockIdExt block_id, td::Promise<bool> promise) = 0;
-  virtual void allow_block_info_gc(BlockIdExt block_id, td::Promise<bool> promise) = 0;
 
   virtual void archive(BlockHandle handle, td::Promise<td::Unit> promise) = 0;
 

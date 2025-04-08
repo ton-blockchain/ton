@@ -34,6 +34,7 @@ class MemoryKeyValue : public KeyValue {
   MemoryKeyValue(std::shared_ptr<Merger> merger) : merger_(std::move(merger)) {
   }
   Result<GetStatus> get(Slice key, std::string& value) override;
+  Result<std::vector<GetStatus>> get_multi(td::Span<Slice> keys, std::vector<std::string> *values) override;
   Status for_each(std::function<Status(Slice, Slice)> f) override;
   Status for_each_in_range(Slice begin, Slice end, std::function<Status(Slice, Slice)> f) override;
   Status set(Slice key, Slice value) override;

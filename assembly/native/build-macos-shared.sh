@@ -53,7 +53,7 @@ if [ ! -d "lz4" ]; then
   cd lz4
   lz4Path=`pwd`
   git checkout v1.9.4
-  make -j$(nproc)
+  make -j4
   test $? -eq 0 || { echo "Can't compile lz4"; exit 1; }
   cd ..
 else
