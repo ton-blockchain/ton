@@ -115,16 +115,10 @@ static const GenericsDeclaration* construct_genericTs(V<ast_genericsT_list> v_li
 }
 
 static void register_constant(V<ast_constant_declaration> v) {
-  ConstantValue init_value = eval_const_init_value(v->get_init_value());
-  GlobalConstData* c_sym = new GlobalConstData(static_cast<std::string>(v->get_identifier()->name), v->loc, v->declared_type, std::move(init_value));
-
-  if (v->declared_type) {
-    bool ok = (c_sym->is_int_const() && (v->declared_type == TypeDataInt::create()))
-           || (c_sym->is_slice_const() && (v->declared_type == TypeDataSlice::create()));
-    if (!ok) {
-      v->error("expression type does not match declared type");
-    }
-  }
+  GlobalConstData* c_sym = new GlobalConstData(static_cast<std::string>(v->get_identifier()->name), v->loc, v->declared_type, v->get_init_value());
+  // init value of constant is not evaluated here
+  // at first, it will be type checked (in type inference pipe)
+  // then, at constant folding pipe, `const a = 2 + 3` will be evaluated to 5
 
   G.symtable.add_global_const(c_sym);
   G.all_constants.push_back(c_sym);
@@ -137,6 +131,13 @@ static void register_global_var(V<ast_global_var_declaration> v) {
   G.symtable.add_global_var(g_sym);
   G.all_global_vars.push_back(g_sym);
   v->mutate()->assign_var_ref(g_sym);
+}
+
+static void register_type_alias(V<ast_type_alias_declaration> v) {
+  AliasDefData* a_sym = new AliasDefData(static_cast<std::string>(v->get_identifier()->name), v->loc, v->underlying_type);
+
+  G.symtable.add_type_alias(a_sym);
+  v->mutate()->assign_alias_ref(a_sym);
 }
 
 static LocalVarData register_parameter(V<ast_parameter> v, int idx) {
@@ -176,8 +177,8 @@ static void register_function(V<ast_function_declaration> v) {
     genericTs = construct_genericTs(v->genericsT_list);
   }
   if (v->is_builtin_function()) {
-    const Symbol* builtin_func = lookup_global_symbol(func_name);
-    const FunctionData* fun_ref = builtin_func ? builtin_func->as<FunctionData>() : nullptr;
+    const Symbol* sym = lookup_global_symbol(func_name);
+    FunctionPtr fun_ref = sym ? sym->try_as<FunctionPtr>() : nullptr;
     if (!fun_ref || !fun_ref->is_builtin_function()) {
       v->error("`builtin` used for non-builtin function");
     }
@@ -189,7 +190,7 @@ static void register_function(V<ast_function_declaration> v) {
     std::cerr << "fun " << func_name << " : " << v->declared_return_type << std::endl;
   }
 
-  FunctionBody f_body = v->get_body()->type == ast_sequence ? static_cast<FunctionBody>(new FunctionBodyCode) : static_cast<FunctionBody>(new FunctionBodyAsm);
+  FunctionBody f_body = v->get_body()->type == ast_block_statement ? static_cast<FunctionBody>(new FunctionBodyCode) : static_cast<FunctionBody>(new FunctionBodyAsm);
   FunctionData* f_sym = new FunctionData(static_cast<std::string>(func_name), v->loc, v->declared_return_type, std::move(parameters), 0, genericTs, nullptr, f_body, v);
 
   if (const auto* v_asm = v->get_body()->try_as<ast_asm_body>()) {
@@ -202,7 +203,7 @@ static void register_function(V<ast_function_declaration> v) {
     f_sym->method_id = static_cast<int>(v->method_id->to_long());
   } else if (v->flags & FunctionData::flagGetMethod) {
     f_sym->method_id = calculate_method_id_by_func_name(func_name);
-    for (const FunctionData* other : G.all_get_methods) {
+    for (FunctionPtr other : G.all_get_methods) {
       if (other->method_id == f_sym->method_id) {
         v->error(PSTRING() << "GET methods hash collision: `" << other->name << "` and `" << f_sym->name << "` produce the same hash. Consider renaming one of these functions.");
       }
@@ -243,6 +244,9 @@ static void iterate_through_file_symbols(const SrcFile* file) {
         break;
       case ast_global_var_declaration:
         register_global_var(v->as<ast_global_var_declaration>());
+        break;
+      case ast_type_alias_declaration:
+        register_type_alias(v->as<ast_type_alias_declaration>());
         break;
       case ast_function_declaration:
         register_function(v->as<ast_function_declaration>());

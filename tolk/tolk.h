@@ -45,7 +45,7 @@ typedef int const_idx_t;
 
 struct TmpVar {
   var_idx_t ir_idx;   // every var in IR represents 1 stack slot
-  TypePtr v_type;     // calc_width_on_stack() is 1
+  TypePtr v_type;     // get_width_on_stack() is 1
   std::string name;   // "x" for vars originated from user sources; "x.0" for tensor components; empty for implicitly created tmp vars
   SrcLocation loc;    // location of var declaration in sources or where a tmp var was originated
 #ifdef TOLK_DEBUG
@@ -205,7 +205,6 @@ struct VarDescrList {
   std::size_t count_used(const std::vector<var_idx_t> idx_list) const;
   VarDescr& add(var_idx_t idx);
   VarDescr& add_newval(var_idx_t idx);
-  VarDescrList& operator&=(const VarDescrList& values);
   VarDescrList& import_values(const VarDescrList& values);
   VarDescrList operator|(const VarDescrList& y) const;
   VarDescrList& operator|=(const VarDescrList& values);
@@ -283,8 +282,8 @@ struct Op {
   enum { _Disabled = 1, _NoReturn = 4, _Impure = 24 };
   int flags;
   std::unique_ptr<Op> next;
-  const FunctionData* f_sym = nullptr;
-  const GlobalVarData* g_sym = nullptr;
+  FunctionPtr f_sym = nullptr;
+  GlobalVarPtr g_sym = nullptr;
   SrcLocation where;
   VarDescrList var_info;
   std::vector<VarDescr> args;
@@ -313,19 +312,19 @@ struct Op {
       : cl(_cl), flags(0), f_sym(nullptr), where(_where), left(std::move(_left)), right(std::move(_right)) {
   }
   Op(SrcLocation _where, OpKind _cl, const std::vector<var_idx_t>& _left, const std::vector<var_idx_t>& _right,
-     const FunctionData* _fun)
+     FunctionPtr _fun)
       : cl(_cl), flags(0), f_sym(_fun), where(_where), left(_left), right(_right) {
   }
   Op(SrcLocation _where, OpKind _cl, std::vector<var_idx_t>&& _left, std::vector<var_idx_t>&& _right,
-     const FunctionData* _fun)
+     FunctionPtr _fun)
       : cl(_cl), flags(0), f_sym(_fun), where(_where), left(std::move(_left)), right(std::move(_right)) {
   }
   Op(SrcLocation _where, OpKind _cl, const std::vector<var_idx_t>& _left, const std::vector<var_idx_t>& _right,
-     const GlobalVarData* _gvar)
+     GlobalVarPtr _gvar)
       : cl(_cl), flags(0), g_sym(_gvar), where(_where), left(_left), right(_right) {
   }
   Op(SrcLocation _where, OpKind _cl, std::vector<var_idx_t>&& _left, std::vector<var_idx_t>&& _right,
-     const GlobalVarData* _gvar)
+     GlobalVarPtr _gvar)
       : cl(_cl), flags(0), g_sym(_gvar), where(_where), left(std::move(_left)), right(std::move(_right)) {
   }
 
@@ -575,6 +574,7 @@ struct AsmOpList {
   const std::vector<TmpVar>* var_names_{nullptr};
   std::vector<Const> constants_;
   bool retalt_{false};
+  bool retalt_inserted_{false};
   void out(std::ostream& os, int mode = 0) const;
   AsmOpList(int indent = 0, const std::vector<TmpVar>* var_names = nullptr) : indent_(indent), var_names_(var_names) {
   }
@@ -1030,7 +1030,7 @@ struct Stack {
   }
   void apply_wrappers(int callxargs_count) {
     bool is_inline = mode & _InlineFunc;
-    if (o.retalt_) {
+    if (o.retalt_inserted_) {
       o.insert(0, "SAMEALTSAVE");
       o.insert(0, "c2 SAVE");
     }
@@ -1083,7 +1083,7 @@ struct FunctionBodyAsm {
 
 struct CodeBlob {
   int var_cnt, in_var_cnt;
-  const FunctionData* fun_ref;
+  FunctionPtr fun_ref;
   std::string name;
   SrcLocation loc;
   std::vector<TmpVar> vars;
@@ -1094,7 +1094,7 @@ struct CodeBlob {
 #endif
   std::stack<std::unique_ptr<Op>*> cur_ops_stack;
   bool require_callxargs = false;
-  CodeBlob(std::string name, SrcLocation loc, const FunctionData* fun_ref)
+  CodeBlob(std::string name, SrcLocation loc, FunctionPtr fun_ref)
     : var_cnt(0), in_var_cnt(0), fun_ref(fun_ref), name(std::move(name)), loc(loc), cur_ops(&ops) {
   }
   template <typename... Args>

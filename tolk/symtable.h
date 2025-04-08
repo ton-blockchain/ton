@@ -37,17 +37,12 @@ struct Symbol {
 
   virtual ~Symbol() = default;
 
-  template<class T>
-  const T* as() const {
+  template<class ConstTPtr>
+  ConstTPtr try_as() const {
 #ifdef TOLK_DEBUG
-    assert(dynamic_cast<const T*>(this) != nullptr);
+    assert(this != nullptr);
 #endif
-    return dynamic_cast<const T*>(this);
-  }
-
-  template<class T>
-  const T* try_as() const {
-    return dynamic_cast<const T*>(this);
+    return dynamic_cast<ConstTPtr>(this);
   }
 };
 
@@ -108,6 +103,7 @@ struct FunctionData final : Symbol {
     flagAcceptsSelf = 512,      // is a member function (has `self` first parameter)
     flagReturnsSelf = 1024,     // return type is `self` (returns the mutated 1st argument), calls can be chainable
     flagReallyUsed = 2048,      // calculated via dfs from used functions; declared but unused functions are not codegenerated
+    flagCompileTimeOnly = 4096, // calculated only at compile-time for constant arguments: `ton("0.05")`, `stringCrc32`, and others
   };
 
   int method_id = EMPTY_METHOD_ID;
@@ -168,6 +164,7 @@ struct FunctionData final : Symbol {
   bool does_return_self() const { return flags & flagReturnsSelf; }
   bool does_mutate_self() const { return (flags & flagAcceptsSelf) && parameters[0].is_mutate_parameter(); }
   bool is_really_used() const { return flags & flagReallyUsed; }
+  bool is_compile_time_only() const { return flags & flagCompileTimeOnly; }
 
   bool does_need_codegen() const;
 
@@ -202,23 +199,33 @@ struct GlobalVarData final : Symbol {
 };
 
 struct GlobalConstData final : Symbol {
+  AnyExprV init_value;
   ConstantValue value;
-  TypePtr declared_type; // may be nullptr
+  TypePtr declared_type;            // `const a: int = ...`; nullptr for `const a = ...`
+  TypePtr inferred_type = nullptr;  // filled at type inferring pass
 
-  GlobalConstData(std::string name, SrcLocation loc, TypePtr declared_type, ConstantValue&& value)
+  GlobalConstData(std::string name, SrcLocation loc, TypePtr declared_type, AnyExprV init_value)
     : Symbol(std::move(name), loc)
-    , value(std::move(value))
+    , init_value(init_value)
     , declared_type(declared_type) {
   }
 
-  bool is_int_const() const { return value.is_int(); }
-  bool is_slice_const() const { return value.is_slice(); }
-
-  td::RefInt256 as_int_const() const { return value.as_int(); }
-  const std::string& as_slice_const() const { return value.as_slice(); }
-
   GlobalConstData* mutate() const { return const_cast<GlobalConstData*>(this); }
   void assign_resolved_type(TypePtr declared_type);
+  void assign_inferred_type(TypePtr inferred_type);
+  void assign_const_value(ConstantValue&& value);
+};
+
+struct AliasDefData final : Symbol {
+  TypePtr underlying_type;
+
+  AliasDefData(std::string name, SrcLocation loc, TypePtr underlying_type)
+    : Symbol(std::move(name), loc)
+    , underlying_type(underlying_type) {
+  }
+
+  AliasDefData* mutate() const { return const_cast<AliasDefData*>(this); }
+  void assign_resolved_type(TypePtr underlying_type);
 };
 
 class GlobalSymbolTable {
@@ -229,9 +236,10 @@ class GlobalSymbolTable {
   }
 
 public:
-  void add_function(const FunctionData* f_sym);
-  void add_global_var(const GlobalVarData* g_sym);
-  void add_global_const(const GlobalConstData* c_sym);
+  void add_function(FunctionPtr f_sym);
+  void add_global_var(GlobalVarPtr g_sym);
+  void add_global_const(GlobalConstPtr c_sym);
+  void add_type_alias(AliasDefPtr a_sym);
 
   const Symbol* lookup(std::string_view name) const {
     const auto it = entries.find(key_hash(name));

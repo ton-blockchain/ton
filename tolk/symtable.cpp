@@ -93,6 +93,14 @@ void GlobalConstData::assign_resolved_type(TypePtr declared_type) {
   this->declared_type = declared_type;
 }
 
+void GlobalConstData::assign_inferred_type(TypePtr inferred_type) {
+  this->inferred_type = inferred_type;
+}
+
+void GlobalConstData::assign_const_value(ConstantValue&& value) {
+  this->value = std::move(value);
+}
+
 void LocalVarData::assign_ir_idx(std::vector<int>&& ir_idx) {
   this->ir_idx = std::move(ir_idx);
 }
@@ -102,10 +110,11 @@ void LocalVarData::assign_resolved_type(TypePtr declared_type) {
 }
 
 void LocalVarData::assign_inferred_type(TypePtr inferred_type) {
-#ifdef TOLK_DEBUG
-  assert(this->declared_type == nullptr);  // called when type declaration omitted, inferred from assigned value
-#endif
   this->declared_type = inferred_type;
+}
+
+void AliasDefData::assign_resolved_type(TypePtr underlying_type) {
+  this->underlying_type = underlying_type;
 }
 
 GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
@@ -120,7 +129,7 @@ static void fire_error_redefinition_of_symbol(SrcLocation loc, const Symbol* pre
   throw ParseError(loc, "redefinition of built-in symbol");
 }
 
-void GlobalSymbolTable::add_function(const FunctionData* f_sym) {
+void GlobalSymbolTable::add_function(FunctionPtr f_sym) {
   auto key = key_hash(f_sym->name);
   auto [it, inserted] = entries.emplace(key, f_sym);
   if (!inserted) {
@@ -128,7 +137,7 @@ void GlobalSymbolTable::add_function(const FunctionData* f_sym) {
   }
 }
 
-void GlobalSymbolTable::add_global_var(const GlobalVarData* g_sym) {
+void GlobalSymbolTable::add_global_var(GlobalVarPtr g_sym) {
   auto key = key_hash(g_sym->name);
   auto [it, inserted] = entries.emplace(key, g_sym);
   if (!inserted) {
@@ -136,11 +145,19 @@ void GlobalSymbolTable::add_global_var(const GlobalVarData* g_sym) {
   }
 }
 
-void GlobalSymbolTable::add_global_const(const GlobalConstData* c_sym) {
+void GlobalSymbolTable::add_global_const(GlobalConstPtr c_sym) {
   auto key = key_hash(c_sym->name);
   auto [it, inserted] = entries.emplace(key, c_sym);
   if (!inserted) {
     fire_error_redefinition_of_symbol(c_sym->loc, it->second);
+  }
+}
+
+void GlobalSymbolTable::add_type_alias(AliasDefPtr a_sym) {
+  auto key = key_hash(a_sym->name);
+  auto [it, inserted] = entries.emplace(key, a_sym);
+  if (!inserted) {
+    fire_error_redefinition_of_symbol(a_sym->loc, it->second);
   }
 }
 

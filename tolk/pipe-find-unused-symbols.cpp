@@ -36,7 +36,7 @@ namespace tolk {
 
 static void mark_function_used_dfs(const std::unique_ptr<Op>& op);
 
-static void mark_function_used(const FunctionData* fun_ref) {
+static void mark_function_used(FunctionPtr fun_ref) {
   if (!fun_ref->is_code_function() || fun_ref->is_really_used()) { // already handled
     return;
   }
@@ -45,7 +45,7 @@ static void mark_function_used(const FunctionData* fun_ref) {
   mark_function_used_dfs(std::get<FunctionBodyCode*>(fun_ref->body)->code->ops);
 }
 
-static void mark_global_var_used(const GlobalVarData* glob_ref) {
+static void mark_global_var_used(GlobalVarPtr glob_ref) {
   glob_ref->mutate()->assign_is_really_used();
 }
 
@@ -66,7 +66,7 @@ static void mark_function_used_dfs(const std::unique_ptr<Op>& op) {
 }
 
 void pipeline_find_unused_symbols() {
-  for (const FunctionData* fun_ref : G.all_functions) {
+  for (FunctionPtr fun_ref : G.all_functions) {
     if (fun_ref->is_method_id_not_empty()) {    // get methods, main and other entrypoints, regular functions with @method_id
       mark_function_used(fun_ref);
     }

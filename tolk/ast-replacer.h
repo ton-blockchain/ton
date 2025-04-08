@@ -60,6 +60,12 @@ protected:
     return v_mutable;
   }
 
+  GNU_ATTRIBUTE_ALWAYS_INLINE AnyExprV replace_children(const ASTExprBlockOfStatements* v) {
+    auto* v_mutable = const_cast<ASTExprBlockOfStatements*>(v);
+    v_mutable->child_block_statement = replace(v_mutable->child_block_statement->as<ast_block_statement>());
+    return v_mutable;
+  }
+
   GNU_ATTRIBUTE_ALWAYS_INLINE AnyV replace_children(const ASTStatementUnary* v) {
     auto* v_mutable = const_cast<ASTStatementUnary*>(v);
     v_mutable->child = replace(v_mutable->child);
@@ -88,6 +94,7 @@ protected:
   // expressions
   virtual AnyExprV replace(V<ast_empty_expression> v)          { return replace_children(v); }
   virtual AnyExprV replace(V<ast_parenthesized_expression> v)  { return replace_children(v); }
+  virtual AnyExprV replace(V<ast_braced_expression> v)         { return replace_children(v); }
   virtual AnyExprV replace(V<ast_tensor> v)                    { return replace_children(v); }
   virtual AnyExprV replace(V<ast_typed_tuple> v)               { return replace_children(v); }
   virtual AnyExprV replace(V<ast_reference> v)                 { return replace_children(v); }
@@ -108,9 +115,13 @@ protected:
   virtual AnyExprV replace(V<ast_binary_operator> v)           { return replace_children(v); }
   virtual AnyExprV replace(V<ast_ternary_operator> v)          { return replace_children(v); }
   virtual AnyExprV replace(V<ast_cast_as_operator> v)          { return replace_children(v); }
+  virtual AnyExprV replace(V<ast_is_type_operator> v)          { return replace_children(v); }
+  virtual AnyExprV replace(V<ast_not_null_operator> v)         { return replace_children(v); }
+  virtual AnyExprV replace(V<ast_match_expression> v)          { return replace_children(v); }
+  virtual AnyExprV replace(V<ast_match_arm> v)                 { return replace_children(v); }
   // statements
   virtual AnyV replace(V<ast_empty_statement> v)               { return replace_children(v); }
-  virtual AnyV replace(V<ast_sequence> v)                      { return replace_children(v); }
+  virtual AnyV replace(V<ast_block_statement> v)               { return replace_children(v); }
   virtual AnyV replace(V<ast_return_statement> v)              { return replace_children(v); }
   virtual AnyV replace(V<ast_if_statement> v)                  { return replace_children(v); }
   virtual AnyV replace(V<ast_repeat_statement> v)              { return replace_children(v); }
@@ -124,6 +135,7 @@ protected:
     switch (v->type) {
       case ast_empty_expression:                return replace(v->as<ast_empty_expression>());
       case ast_parenthesized_expression:        return replace(v->as<ast_parenthesized_expression>());
+      case ast_braced_expression:               return replace(v->as<ast_braced_expression>());
       case ast_tensor:                          return replace(v->as<ast_tensor>());
       case ast_typed_tuple:                     return replace(v->as<ast_typed_tuple>());
       case ast_reference:                       return replace(v->as<ast_reference>());
@@ -144,6 +156,10 @@ protected:
       case ast_binary_operator:                 return replace(v->as<ast_binary_operator>());
       case ast_ternary_operator:                return replace(v->as<ast_ternary_operator>());
       case ast_cast_as_operator:                return replace(v->as<ast_cast_as_operator>());
+      case ast_is_type_operator:                return replace(v->as<ast_is_type_operator>());
+      case ast_not_null_operator:               return replace(v->as<ast_not_null_operator>());
+      case ast_match_expression:                return replace(v->as<ast_match_expression>());
+      case ast_match_arm:                       return replace(v->as<ast_match_arm>());
       default:
         throw UnexpectedASTNodeType(v, "ASTReplacerInFunctionBody::replace");
     }
@@ -152,7 +168,7 @@ protected:
   AnyV replace(AnyV v) final {
     switch (v->type) {
       case ast_empty_statement:                 return replace(v->as<ast_empty_statement>());
-      case ast_sequence:                        return replace(v->as<ast_sequence>());
+      case ast_block_statement:                 return replace(v->as<ast_block_statement>());
       case ast_return_statement:                return replace(v->as<ast_return_statement>());
       case ast_if_statement:                    return replace(v->as<ast_if_statement>());
       case ast_repeat_statement:                return replace(v->as<ast_repeat_statement>());
@@ -174,20 +190,21 @@ protected:
   }
 
 public:
-  virtual bool should_visit_function(const FunctionData* fun_ref) = 0;
+  virtual bool should_visit_function(FunctionPtr fun_ref) = 0;
 
-  void start_replacing_in_function(const FunctionData* fun_ref, V<ast_function_declaration> v_function) {
+  void start_replacing_in_function(FunctionPtr fun_ref, V<ast_function_declaration> v_function) {
     replace(v_function->get_body());
   }
 };
 
 
-const std::vector<const FunctionData*>& get_all_not_builtin_functions();
+const std::vector<FunctionPtr>& get_all_not_builtin_functions();
+const std::vector<GlobalConstPtr>& get_all_declared_constants();
 
 template<class BodyReplacerT>
 void replace_ast_of_all_functions() {
   BodyReplacerT visitor;
-  for (const FunctionData* fun_ref : get_all_not_builtin_functions()) {
+  for (FunctionPtr fun_ref : get_all_not_builtin_functions()) {
     if (visitor.should_visit_function(fun_ref)) {
       visitor.start_replacing_in_function(fun_ref, fun_ref->ast_root->as<ast_function_declaration>());
     }

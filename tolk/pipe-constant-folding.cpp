@@ -25,6 +25,8 @@
  *
  *   Currently, it just replaces `-1` (ast_unary_operator ast_int_const) with a number -1
  * and `!true` with false.
+ *   Also, all parenthesized `((expr))` are replaced with `expr`, it's a constant transformation.
+ * (not to handle parenthesized in optimization passes, like `((x)) == true`)
  *   More rich constant folding should be done some day, but even without this, IR optimizations
  * (operating low-level stack variables) pretty manage to do all related optimizations.
  * Constant folding in the future, done at AST level, just would slightly reduce amount of work for optimizer.
@@ -45,6 +47,22 @@ class ConstantFoldingReplacer final : public ASTReplacerInFunctionBody {
     v_bool->assign_inferred_type(TypeDataBool::create());
     v_bool->assign_rvalue_true();
     return v_bool;
+  }
+
+  AnyExprV replace(V<ast_parenthesized_expression> v) override {
+    AnyExprV inner = parent::replace(v->get_expr());
+    if (v->is_lvalue) {
+      inner->mutate()->assign_lvalue_true();
+    }
+    return inner;
+  }
+
+  static V<ast_string_const> create_string_const(SrcLocation loc, ConstantValue&& literal_value) {
+    auto v_string = createV<ast_string_const>(loc, literal_value.as_slice());
+    v_string->assign_inferred_type(TypeDataSlice::create());
+    v_string->assign_literal_value(std::move(literal_value));
+    v_string->assign_rvalue_true();
+    return v_string;
   }
 
   AnyExprV replace(V<ast_unary_operator> v) override {
@@ -78,13 +96,75 @@ class ConstantFoldingReplacer final : public ASTReplacerInFunctionBody {
     return v;
   }
 
+  AnyExprV replace(V<ast_is_type_operator> v) override {
+    parent::replace(v);
+
+    // `null == null` / `null != null`
+    if (v->get_expr()->type == ast_null_keyword && v->rhs_type == TypeDataNullLiteral::create()) {
+      return create_bool_const(v->loc, !v->is_negated);
+    }
+
+    return v;
+  }
+
+  AnyExprV replace(V<ast_function_call> v) override {
+    parent::replace(v);
+
+    // replace `ton("0.05")` with 50000000 / `stringCrc32("some_str")` with calculated value / etc.
+    if (v->fun_maybe && v->fun_maybe->is_compile_time_only()) {
+      ConstantValue value = eval_call_to_compile_time_function(v);
+      if (value.is_int()) {
+        return create_int_const(v->loc, value.as_int());
+      }
+      if (value.is_slice()) {
+        return create_string_const(v->loc, std::move(value));
+      }
+      tolk_assert(false);
+    }
+
+    return v;
+  }
+
+  AnyExprV replace(V<ast_string_const> v) override {
+    // when "some_str" occurs as a standalone constant (not inside `stringCrc32("some_str")`,
+    // it's actually a slice
+    ConstantValue literal_value = eval_string_const_standalone(v);
+    v->mutate()->assign_literal_value(std::move(literal_value));
+
+    return v;
+  }
+
+ AnyExprV replace(V<ast_match_arm> v) override {
+    parent::replace(v);
+
+    // replace `2 + 3 => ...` with `5 => ...`
+    // non-constant expressions like `foo() => ...` fire an error here
+    if (v->pattern_kind == MatchArmKind::const_expression && v->get_pattern_expr()->type != ast_int_const) {
+      ConstantValue value = eval_expression_expected_to_be_constant(v->get_pattern_expr());
+      tolk_assert(value.is_int());
+      AnyExprV v_new_pattern = create_int_const(v->get_pattern_expr()->loc, value.as_int());
+      v->mutate()->assign_resolved_pattern(MatchArmKind::const_expression, nullptr, v_new_pattern);
+    }
+
+    return v;
+  }
+
 public:
-  bool should_visit_function(const FunctionData* fun_ref) override {
+  bool should_visit_function(FunctionPtr fun_ref) override {
     return fun_ref->is_code_function() && !fun_ref->is_generic_function();
   }
 };
 
 void pipeline_constant_folding() {
+  // here (after type inferring) evaluate `const a = 2 + 3` into `5`
+  // non-constant expressions like `const a = foo()` fire an error here
+  for (GlobalConstPtr const_ref : get_all_declared_constants()) {
+    // for `const a = b`, `b` could be already calculated while calculating `a`
+    if (!const_ref->value.initialized()) {
+      eval_and_assign_const_init_value(const_ref);
+    }
+  }
+
   replace_ast_of_all_functions<ConstantFoldingReplacer>();
 }
 

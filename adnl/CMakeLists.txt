@@ -1,5 +1,3 @@
-cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
-
 #BEGIN internal
 if (NOT TON_ONLY_TONLIB)
 set(ADNL_HEADERS

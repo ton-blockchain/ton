@@ -1,5 +1,3 @@
-cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
-
 add_subdirectory(generate)
 set_source_files_properties(${TL_TON_API} PROPERTIES GENERATED TRUE)
 add_library(tl_api STATIC 

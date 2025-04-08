@@ -1,5 +1,3 @@
-cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
-
 set(TDFEC_SOURCE
   td/fec/raptorq/Rfc.cpp
   td/fec/raptorq/Rfc.h

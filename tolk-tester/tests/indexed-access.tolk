@@ -1,5 +1,8 @@
+type Tup2Int = [int, MInt];
+type Tensor2Int = (int, MInt);
+type MInt = int;
 
-fun increment(mutate self: int) {
+fun increment(mutate self: MInt) {
     self += 1;
 }
 
@@ -8,7 +11,7 @@ fun increment2(mutate a: int, mutate b: int) {
     b += 1;
 }
 
-fun assign1020(mutate a: int, mutate b: int) {
+fun assign1020(mutate a: int, mutate b: MInt) {
     a = 10;
     b = 20;
 }
@@ -21,6 +24,26 @@ fun plus(mutate self: int, y: int): int {
 
 fun eq<X>(v: X): X { return v; }
 
+global gTup: [int];
+global gTens: (int, int);
+
+@method_id(100)
+fun testCodegenSimple() {
+    var t1 = [1];
+    t1.0 = 2;
+    debugPrintString("");
+    var t2 = [[1]];
+    t2.0.0 = 2;
+    debugPrintString("");
+    gTup = [1];
+    gTup.0 = 2;
+    debugPrintString("");
+    gTens = (1,2);
+    gTens.1 = 4;
+    debugPrintString("");
+    return (t1, t2, gTup, gTens);
+}
+
 @method_id(101)
 fun test101() {
     var t = (1, (2, 3), [4, 5, [6, 7]], 8);
@@ -31,7 +54,7 @@ fun test101() {
     return t;
 }
 
-global t102: (int, (int, int), [int, int, [int, int]], int);
+global t102: (int, (int, MInt), [int, int, Tup2Int], MInt);
 
 @method_id(102)
 fun test102() {
@@ -66,8 +89,8 @@ fun test104() {
 }
 
 @method_id(105)
-fun test105(x: int, y: int): (tuple, int, (int, int), int, int) {
-    var ab = (createEmptyTuple(), (x, y), tupleSize);
+fun test105(x: int, y: int): (tuple, int, (int?, int), int, int) {
+    var ab = (createEmptyTuple(), (x as int?, y), tupleSize);
     ab.0.tuplePush(1);
     tuplePush(mutate ab.0, 2);
     ab.1.0 = null;
@@ -78,7 +101,7 @@ fun test105(x: int, y: int): (tuple, int, (int, int), int, int) {
 
 @method_id(106)
 fun test106(x: int, y: int) {
-    var ab = [createEmptyTuple(), [x, y], tupleSize];
+    var ab = [createEmptyTuple(), [x as int?, y], tupleSize];
     ab.0.tuplePush(1);
     tuplePush(mutate ab.0, 2);
     ab.1.0 = null;
@@ -117,7 +140,7 @@ fun test110(f: int, s: int) {
     return (x, x.1, x.1.plus(x.1 / 20), x.1, x.1 = x.1 * 2, x.1, x.1 += 1, x.1, x);
 }
 
-global xx: (int, int);
+global xx: Tensor2Int;
 
 @method_id(111)
 fun test111(x: (int, int)) {
@@ -134,7 +157,7 @@ fun test112(f: int, s: int) {
 }
 
 @pure
-fun getConstTuple() {
+fun getConstTuple(): Tup2Int {
     return [1,2];
 }
 
@@ -158,7 +181,7 @@ fun test114(f: int, s: int) {
 @method_id(115)
 fun test115() {
     var y = [[[[true]]]];
-    return (y, y.0.0.0.0 = !y.0.0.0.0, y.0);
+    return (y, ((((y).0).0).0).0 = !y.0.0.0.0, y.0);
 }
 
 @method_id(116)
@@ -177,7 +200,7 @@ fun test117() {
     var t = createEmptyTuple();
     t.tuplePush(1);
     try {
-        return (t.0 as tuple).0 as int;
+        return (t.0 as tuple).0 as MInt;
     } catch(excNo) {
         return excNo;
     }
@@ -213,6 +236,25 @@ fun test121(zero: int) {
     return t;
 }
 
+fun isFirstComponentGt0<T1,T2>(t: (T1, T2)): bool {
+    return t.0 > 0;
+}
+
+@method_id(122)
+fun test122(x: (int, int)) {
+    return (
+        isFirstComponentGt0(x), isFirstComponentGt0((2, beginCell())), isFirstComponentGt0<int,slice?>((0, null)),
+        x.isFirstComponentGt0(), (2, beginCell()).isFirstComponentGt0(), (0, null).isFirstComponentGt0<int,slice?>()
+    );
+}
+
+@method_id(123)
+fun test123() {
+    var t = [[10, 20]] as [[int,int]]?;
+    ((t!).0).0 = ((t!).0).1 = 100;
+    return t;
+}
+
 fun main(){}
 
 
@@ -238,6 +280,58 @@ fun main(){}
 @testcase | 119 | 1 2 3 4 | 4 1 3
 @testcase | 120 |       | 3 4 [ 5 6 ]
 @testcase | 121 | 0     | [ 3 ]
+@testcase | 122 | 1 2   | -1 -1 0 -1 -1 0
+@testcase | 123 |       | [ [ 100 100 ] ]
+
+@fif_codegen
+"""
+  testCodegenSimple PROC:<{
+    //
+    1 PUSHINT	    //  '2=1
+    SINGLE	        //  t1
+    2 PUSHINT	    //  t1 '3=2
+    0 SETINDEX	    //  t1
+    x{} PUSHSLICE	//  t1 '6
+    STRDUMP DROP
+    1 PUSHINT	//  t1 '10=1
+    SINGLE	    //  t1 '9
+    SINGLE	    //  t1 t2
+    2 PUSHINT	//  t1 t2 '11=2
+    OVER	    //  t1 t2 '11=2 t2
+    0 INDEX	    //  t1 t2 '11=2 '14
+    SWAP	    //  t1 t2 '14 '11=2
+    0 SETINDEX	//  t1 t2 '14
+    0 SETINDEX	//  t1 t2
+    x{} PUSHSLICE	//  t1 t2 '17
+    STRDUMP DROP
+    1 PUSHINT	//  t1 t2 '20=1
+    SINGLE	    //  t1 t2 '18
+    gTup SETGLOB
+    2 PUSHINT	    //  t1 t2 '21=2
+    gTup GETGLOB	//  t1 t2 '21=2 g_gTup
+    SWAP	        //  t1 t2 g_gTup '21=2
+    0 SETINDEX	    //  t1 t2 g_gTup
+    gTup SETGLOB
+    x{} PUSHSLICE	//  t1 t2 '25
+    STRDUMP DROP
+    1 PUSHINT	//  t1 t2 '28=1
+    2 PUSHINT	//  t1 t2 '26=1 '27=2
+    PAIR
+    gTens SETGLOB
+    4 PUSHINT	//  t1 t2 g_gTens.1=4
+    gTens GETGLOB
+    UNPAIR	    //  t1 t2 g_gTens.1=4 g_gTens.0 g_gTens.1
+    DROP	    //  t1 t2 g_gTens.1=4 g_gTens.0
+    SWAP	    //  t1 t2 g_gTens.0 g_gTens.1=4
+    PAIR
+    gTens SETGLOB
+    x{} PUSHSLICE	//  t1 t2 '36
+    STRDUMP DROP
+    gTup GETGLOB	//  t1 t2 g_gTup
+    gTens GETGLOB
+    UNPAIR	    //  t1 t2 g_gTup g_gTens.0 g_gTens.1
+  }>
+"""
 
 @fif_codegen
 """
@@ -245,26 +339,6 @@ fun main(){}
     //
     0 PUSHINT  // '8=0
   }>
-"""
-
-@fif_codegen
-"""
-  test104 PROC:<{
-    //
-    5 PUSHINT	//  '2=5
-    DUP	//  '2=5 '3=5
-    PAIR	//  '1
-    SINGLE	//  m
-    10 PUSHINT	//  m '5=10
-    20 PUSHINT	//  m '5=10 '6=20
-    s2 PUSH	//  m '5=10 '6=20 m
-    0 INDEX	//  m '10=10 '12=20 '8
-    SWAP	//  m '10=10 '8 '12=20
-    1 SETINDEX	//  m '10=10 '8
-    SWAP	//  m '8 '10=10
-    0 SETINDEX	//  m '8
-    0 SETINDEX	//  m
-    ...
 """
 
 @fif_codegen

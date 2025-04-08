@@ -14,7 +14,6 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "ast-from-tokens.h"
 #include "ast.h"
 #include "type-system.h"
 #include "platform-utils.h"
@@ -111,24 +110,36 @@ static void diagnose_addition_in_bitshift(SrcLocation loc, std::string_view bits
   }
 }
 
-// replace (a == null) and similar to isNull(a) (call of a built-in function)
-static AnyExprV maybe_replace_eq_null_with_isNull_call(V<ast_binary_operator> v) {
+// replace (a == null) and similar to ast_is_type_operator(a, null) (as if `a is null` was written)
+static AnyExprV maybe_replace_eq_null_with_isNull_check(V<ast_binary_operator> v) {
   bool has_null = v->get_lhs()->type == ast_null_keyword || v->get_rhs()->type == ast_null_keyword;
   bool replace = has_null && (v->tok == tok_eq || v->tok == tok_neq);
   if (!replace) {
     return v;
   }
 
-  auto v_ident = createV<ast_identifier>(v->loc, "__isNull"); // built-in function
-  auto v_ref = createV<ast_reference>(v->loc, v_ident, nullptr);
-  AnyExprV v_null = v->get_lhs()->type == ast_null_keyword ? v->get_rhs() : v->get_lhs();
-  AnyExprV v_arg = createV<ast_argument>(v->loc, v_null, false);
-  AnyExprV v_isNull = createV<ast_function_call>(v->loc, v_ref, createV<ast_argument_list>(v->loc, {v_arg}));
-  if (v->tok == tok_neq) {
-    v_isNull = createV<ast_unary_operator>(v->loc, "!", tok_logical_not, v_isNull);
-  }
-  return v_isNull;
+  AnyExprV v_nullable = v->get_lhs()->type == ast_null_keyword ? v->get_rhs() : v->get_lhs();
+  return createV<ast_is_type_operator>(v->loc, v_nullable, TypeDataNullLiteral::create(), v->tok == tok_neq);
 }
+
+// parse `123` / `0xFF` / `0b10001` to td::RefInt256
+static td::RefInt256 parse_tok_int_const(std::string_view text) {
+  bool bin = text[0] == '0' && text[1] == 'b';
+  if (!bin) {
+    // this function parses decimal and hex numbers
+    return td::string_to_int256(static_cast<std::string>(text));
+  }
+  // parse a binary number; to make it simpler, don't allow too long numbers, it's impractical
+  if (text.size() > 64 + 2) {
+    return {};
+  }
+  uint64_t result = 0;
+  for (char c : text.substr(2)) { // skip "0b"
+    result = (result << 1) | static_cast<uint64_t>(c - '0');
+  }
+  return td::make_refint(result);
+}
+
 
 
 /*
@@ -139,6 +150,7 @@ static AnyExprV maybe_replace_eq_null_with_isNull_call(V<ast_binary_operator> v)
 
 
 AnyExprV parse_expr(Lexer& lex);
+AnyV parse_statement(Lexer& lex);
 
 static AnyV parse_parameter(Lexer& lex, bool is_first) {
   SrcLocation loc = lex.cur_location();
@@ -215,6 +227,92 @@ static AnyV parse_constant_declaration(Lexer& lex, const std::vector<V<ast_annot
   return createV<ast_constant_declaration>(loc, v_ident, declared_type, init_value);
 }
 
+static AnyV parse_type_alias_declaration(Lexer& lex, const std::vector<V<ast_annotation>>& annotations) {
+  if (!annotations.empty()) {
+    lex.error("@annotations are not applicable to type alias declaration");
+  }
+  SrcLocation loc = lex.cur_location();
+  lex.expect(tok_type, "`type`");
+  lex.check(tok_identifier, "type name");
+  auto v_ident = createV<ast_identifier>(lex.cur_location(), lex.cur_str());
+  lex.next();
+  lex.expect(tok_assign, "`=`");
+  TypePtr underlying_type = parse_type_from_tokens(lex);
+  lex.expect(tok_semicolon, "`;`");
+  return createV<ast_type_alias_declaration>(loc, v_ident, underlying_type);
+}
+
+static AnyExprV parse_var_declaration_lhs(Lexer& lex, bool is_immutable) {
+  SrcLocation loc = lex.cur_location();
+  if (lex.tok() == tok_oppar) {
+    lex.next();
+    AnyExprV first = parse_var_declaration_lhs(lex, is_immutable);
+    if (lex.tok() == tok_clpar) {
+      lex.next();
+      return first;
+    }
+    std::vector<AnyExprV> args(1, first);
+    while (lex.tok() == tok_comma) {
+      lex.next();
+      args.push_back(parse_var_declaration_lhs(lex, is_immutable));
+    }
+    lex.expect(tok_clpar, "`)`");
+    return createV<ast_tensor>(loc, std::move(args));
+  }
+  if (lex.tok() == tok_opbracket) {
+    lex.next();
+    std::vector<AnyExprV> args(1, parse_var_declaration_lhs(lex, is_immutable));
+    while (lex.tok() == tok_comma) {
+      lex.next();
+      args.push_back(parse_var_declaration_lhs(lex, is_immutable));
+    }
+    lex.expect(tok_clbracket, "`]`");
+    return createV<ast_typed_tuple>(loc, std::move(args));
+  }
+  if (lex.tok() == tok_identifier) {
+    auto v_ident = createV<ast_identifier>(loc, lex.cur_str());
+    TypePtr declared_type = nullptr;
+    bool marked_as_redef = false;
+    lex.next();
+    if (lex.tok() == tok_colon) {
+      lex.next();
+      declared_type = parse_type_from_tokens(lex);
+    } else if (lex.tok() == tok_redef) {
+      lex.next();
+      marked_as_redef = true;
+    }
+    return createV<ast_local_var_lhs>(loc, v_ident, declared_type, is_immutable, marked_as_redef);
+  }
+  if (lex.tok() == tok_underscore) {
+    TypePtr declared_type = nullptr;
+    lex.next();
+    if (lex.tok() == tok_colon) {
+      lex.next();
+      declared_type = parse_type_from_tokens(lex);
+    }
+    return createV<ast_local_var_lhs>(loc, createV<ast_identifier>(loc, ""), declared_type, true, false);
+  }
+  lex.unexpected("variable name");
+}
+
+static AnyExprV parse_local_vars_declaration_assignment(Lexer& lex) {
+  SrcLocation loc = lex.cur_location();
+  bool is_immutable = lex.tok() == tok_val;
+  lex.next();
+
+  AnyExprV lhs = createV<ast_local_vars_declaration>(loc, parse_var_declaration_lhs(lex, is_immutable));
+  if (lex.tok() != tok_assign) {
+    lex.error("variables declaration must be followed by assignment: `var xxx = ...`");
+  }
+  lex.next();
+  AnyExprV rhs = parse_expr(lex);
+
+  if (lex.tok() == tok_comma) {
+    lex.error("multiple declarations are not allowed, split variables on separate lines");
+  }
+  return createV<ast_assign>(loc, lhs, rhs);
+}
+
 // "parameters" are at function declaration: `fun f(param1: int, mutate param2: slice)`
 static V<ast_parameter_list> parse_parameter_list(Lexer& lex) {
   SrcLocation loc = lex.cur_location();
@@ -224,6 +322,9 @@ static V<ast_parameter_list> parse_parameter_list(Lexer& lex) {
     params.push_back(parse_parameter(lex, true));
     while (lex.tok() == tok_comma) {
       lex.next();
+      if (lex.tok() == tok_clpar) {     // trailing comma
+        break;
+      }
       params.push_back(parse_parameter(lex, false));
     }
   }
@@ -254,6 +355,9 @@ static V<ast_argument_list> parse_argument_list(Lexer& lex) {
     args.push_back(parse_argument(lex));
     while (lex.tok() == tok_comma) {
       lex.next();
+      if (lex.tok() == tok_clpar) {   // trailing comma
+        break;
+      }
       args.push_back(parse_argument(lex));
     }
   }
@@ -281,6 +385,120 @@ static V<ast_instantiationT_list> parse_maybe_instantiationTs_after_identifier(L
   }
 }
 
+// `throw code` / `throw (code)` / `throw (code, arg)`
+// it's technically a statement (can't occur "in any place of expression"),
+// but inside `match` arm it can appear without semicolon: `pattern => throw 123`
+static AnyV parse_throw_expression(Lexer& lex) {
+  SrcLocation loc = lex.cur_location();
+  lex.expect(tok_throw, "`throw`");
+
+  AnyExprV thrown_code, thrown_arg;
+  if (lex.tok() == tok_oppar) {   // throw (code) or throw (code, arg)
+    lex.next();
+    thrown_code = parse_expr(lex);
+    if (lex.tok() == tok_comma) {
+      lex.next();
+      thrown_arg = parse_expr(lex);
+    } else {
+      thrown_arg = createV<ast_empty_expression>(loc);
+    }
+    lex.expect(tok_clpar, "`)`");
+  } else {   // throw code
+    thrown_code = parse_expr(lex);
+    thrown_arg = createV<ast_empty_expression>(loc);
+  }
+
+  return createV<ast_throw_statement>(loc, thrown_code, thrown_arg);
+}
+
+// `pattern => body` inside `match`
+static V<ast_match_arm> parse_match_arm(Lexer& lex) {
+  SrcLocation loc = lex.cur_location();
+  MatchArmKind pattern_kind = static_cast<MatchArmKind>(-1);
+  TypePtr exact_type = nullptr;
+  AnyExprV pattern_expr = nullptr;
+
+  Lexer::SavedPositionForLookahead backup = lex.save_parsing_position();
+  try {
+    exact_type = parse_type_from_tokens(lex);
+    pattern_kind = MatchArmKind::exact_type;
+  } catch (const ParseError&) {
+  }
+  if (!exact_type || lex.tok() != tok_double_arrow) {
+    exact_type = nullptr;
+    lex.restore_position(backup);
+    try {
+      pattern_expr = parse_expr(lex);
+      pattern_kind = MatchArmKind::const_expression;    // any expr at parsing, should result in const int/bool
+    } catch (const ParseError&) {
+    }
+  }
+  if (!exact_type && !pattern_expr && lex.tok() == tok_else) {
+    lex.next();
+    pattern_kind = MatchArmKind::else_branch;
+  }
+
+  if (pattern_kind == static_cast<MatchArmKind>(-1)) {
+    lex.restore_position(backup);
+    throw ParseError(loc, "expected <type> or <expression> in `match` before `=>`");
+  }
+  lex.expect(tok_double_arrow, "`=>`");
+
+  AnyExprV body;
+  if (lex.tok() == tok_opbrace) {         // pattern => { ... }
+    AnyV v_block = parse_statement(lex);
+    body = createV<ast_braced_expression>(v_block->loc, v_block);
+  } else if (lex.tok() == tok_throw) {    // pattern => throw 123 (allow without braces)
+    AnyV v_throw = parse_throw_expression(lex);
+    AnyV v_block = createV<ast_block_statement>(v_throw->loc, v_throw->loc, {v_throw});
+    body = createV<ast_braced_expression>(v_block->loc, v_block);
+  } else if (lex.tok() == tok_return) {   // pattern => return 123 (allow without braces, like throw)
+    lex.next();
+    AnyV v_return = createV<ast_return_statement>(lex.cur_location(), parse_expr(lex));
+    AnyV v_block = createV<ast_block_statement>(v_return->loc, v_return->loc, {v_return});
+    body = createV<ast_braced_expression>(v_block->loc, v_block);
+  } else {
+    body = parse_expr(lex);
+  }
+
+  if (pattern_expr == nullptr) {  // for match by type / default case, empty vertex, not nullptr
+    pattern_expr = createV<ast_empty_expression>(loc);
+  }
+  return createV<ast_match_arm>(loc, pattern_kind, exact_type, pattern_expr, body);
+}
+
+static V<ast_match_expression> parse_match_expression(Lexer& lex) {
+  SrcLocation loc = lex.cur_location();
+  lex.expect(tok_match, "`match`");
+
+  lex.expect(tok_oppar, "`(`");
+  AnyExprV subject = lex.tok() == tok_var || lex.tok() == tok_val       // `match (var x = rhs)`
+                ? parse_local_vars_declaration_assignment(lex)
+                : parse_expr(lex);
+  lex.expect(tok_clpar, "`)`");
+
+  std::vector<AnyExprV> subject_and_arms = {subject};
+  lex.expect(tok_opbrace, "`{`");
+  while (lex.tok() != tok_clbrace) {
+    auto v_arm = parse_match_arm(lex);
+    subject_and_arms.push_back(v_arm);
+
+    // after `pattern => { ... }` comma is optional, after `pattern => expr` mandatory
+    bool was_comma = lex.tok() == tok_comma;    // trailing comma is allowed always
+    if (was_comma) {
+      lex.next();
+    }
+    if (lex.tok() == tok_clbrace) {
+      break;
+    }
+    if (!was_comma && v_arm->get_body()->type != ast_braced_expression) {
+      lex.unexpected("`,`");
+    }
+  }
+  lex.expect(tok_clbrace, "`}`");
+  return createV<ast_match_expression>(loc, std::move(subject_and_arms));
+}
+
 // parse (expr) / [expr] / identifier / number
 static AnyExprV parse_expr100(Lexer& lex) {
   SrcLocation loc = lex.cur_location();
@@ -299,9 +517,15 @@ static AnyExprV parse_expr100(Lexer& lex) {
       std::vector<AnyExprV> items(1, first);
       while (lex.tok() == tok_comma) {
         lex.next();
+        if (lex.tok() == tok_clpar) {   // trailing comma
+          break;
+        }
         items.emplace_back(parse_expr(lex));
       }
       lex.expect(tok_clpar, "`)`");
+      if (items.size() == 1) {      // we can reach here for 1 element with trailing comma: `(item, )`
+        return items[0];            // then just return item, not a 1-element tensor,
+      }                             // since 1-element tensors won't be type compatible with item's type
       return createV<ast_tensor>(loc, std::move(items));
     }
     case tok_opbracket: {
@@ -313,6 +537,9 @@ static AnyExprV parse_expr100(Lexer& lex) {
       std::vector<AnyExprV> items(1, parse_expr(lex));
       while (lex.tok() == tok_comma) {
         lex.next();
+        if (lex.tok() == tok_clbracket) {   // trailing comma
+          break;
+        }
         items.emplace_back(parse_expr(lex));
       }
       lex.expect(tok_clbracket, "`]`");
@@ -320,7 +547,7 @@ static AnyExprV parse_expr100(Lexer& lex) {
     }
     case tok_int_const: {
       std::string_view orig_str = lex.cur_str();
-      td::RefInt256 intval = td::string_to_int256(static_cast<std::string>(orig_str));
+      td::RefInt256 intval = parse_tok_int_const(orig_str);
       if (intval.is_null() || !intval->signed_fits_bits(257)) {
         lex.error("invalid integer constant");
       }
@@ -330,12 +557,7 @@ static AnyExprV parse_expr100(Lexer& lex) {
     case tok_string_const: {
       std::string_view str_val = lex.cur_str();
       lex.next();
-      char modifier = 0;
-      if (lex.tok() == tok_string_modifier) {
-        modifier = lex.cur_str()[0];
-        lex.next();
-      }
-      return createV<ast_string_const>(loc, str_val, modifier);
+      return createV<ast_string_const>(loc, str_val);
     }
     case tok_underscore: {
       lex.next();
@@ -367,21 +589,38 @@ static AnyExprV parse_expr100(Lexer& lex) {
       }
       return createV<ast_reference>(loc, v_ident, v_instantiationTs);
     }
+    case tok_match:
+      return parse_match_expression(lex);
     default:
       lex.unexpected("<expression>");
   }
 }
 
-// parse E(...) (left-to-right)
+// parse E(...) and E! having parsed E already (left-to-right)
+static AnyExprV parse_fun_call_postfix(Lexer& lex, AnyExprV lhs) {
+  while (true) {
+    if (lex.tok() == tok_oppar) {
+      lhs = createV<ast_function_call>(lhs->loc, lhs, parse_argument_list(lex));
+    } else if (lex.tok() == tok_logical_not) {
+      lex.next();
+      lhs = createV<ast_not_null_operator>(lhs->loc, lhs);
+    } else {
+      break;
+    }
+  }
+  return lhs;
+}
+
+// parse E(...) and E! (left-to-right)
 static AnyExprV parse_expr90(Lexer& lex) {
   AnyExprV res = parse_expr100(lex);
-  while (lex.tok() == tok_oppar) {
-    res = createV<ast_function_call>(res->loc, res, parse_argument_list(lex));
+  if (lex.tok() == tok_oppar || lex.tok() == tok_logical_not) {
+    res = parse_fun_call_postfix(lex, res);
   }
   return res;
 }
 
-// parse E.field and E.method(...) (left-to-right)
+// parse E.field and E.method(...) and E.field! (left-to-right)
 static AnyExprV parse_expr80(Lexer& lex) {
   AnyExprV lhs = parse_expr90(lex);
   while (lex.tok() == tok_dot) {
@@ -402,8 +641,8 @@ static AnyExprV parse_expr80(Lexer& lex) {
       lex.unexpected("method name");
     }
     lhs = createV<ast_dot_access>(loc, lhs, v_ident, v_instantiationTs);
-    while (lex.tok() == tok_oppar) {
-      lhs = createV<ast_function_call>(lex.cur_location(), lhs, parse_argument_list(lex));
+    if (lex.tok() == tok_oppar || lex.tok() == tok_logical_not) {
+      lhs = parse_fun_call_postfix(lex, lhs);
     }
   }
   return lhs;
@@ -422,7 +661,7 @@ static AnyExprV parse_expr75(Lexer& lex) {
   return parse_expr80(lex);
 }
 
-// parse E as <type>
+// parse E as / is / !is <type>
 static AnyExprV parse_expr40(Lexer& lex) {
   AnyExprV lhs = parse_expr75(lex);
   if (lex.tok() == tok_as) {
@@ -430,6 +669,15 @@ static AnyExprV parse_expr40(Lexer& lex) {
     lex.next();
     TypePtr cast_to_type = parse_type_from_tokens(lex);
     lhs = createV<ast_cast_as_operator>(loc, lhs, cast_to_type);
+  } else if (lex.tok() == tok_is) {
+    SrcLocation loc = lex.cur_location();
+    lex.next();
+    TypePtr rhs_type = parse_type_from_tokens(lex);
+    bool is_negated = lhs->type == ast_not_null_operator;   // `a !is ...`, now lhs = `a!`
+    if (is_negated) {
+      lhs = lhs->as<ast_not_null_operator>()->get_expr();
+    }
+    lhs = createV<ast_is_type_operator>(loc, lhs, rhs_type, is_negated);
   }
   return lhs;
 }
@@ -491,7 +739,7 @@ static AnyExprV parse_expr15(Lexer& lex) {
     AnyExprV rhs = parse_expr17(lex);
     lhs = createV<ast_binary_operator>(loc, operator_name, t, lhs, rhs);
     if (t == tok_eq || t == tok_neq) {
-      lhs = maybe_replace_eq_null_with_isNull_call(lhs->as<ast_binary_operator>());
+      lhs = maybe_replace_eq_null_with_isNull_check(lhs->as<ast_binary_operator>());
     }
   }
   return lhs;
@@ -564,90 +812,24 @@ AnyExprV parse_expr(Lexer& lex) {
   return parse_expr10(lex);
 }
 
-AnyV parse_statement(Lexer& lex);
-
-static AnyExprV parse_var_declaration_lhs(Lexer& lex, bool is_immutable) {
-  SrcLocation loc = lex.cur_location();
-  if (lex.tok() == tok_oppar) {
-    lex.next();
-    AnyExprV first = parse_var_declaration_lhs(lex, is_immutable);
-    if (lex.tok() == tok_clpar) {
-      lex.next();
-      return first;
-    }
-    std::vector<AnyExprV> args(1, first);
-    while (lex.tok() == tok_comma) {
-      lex.next();
-      args.push_back(parse_var_declaration_lhs(lex, is_immutable));
-    }
-    lex.expect(tok_clpar, "`)`");
-    return createV<ast_tensor>(loc, std::move(args));
-  }
-  if (lex.tok() == tok_opbracket) {
-    lex.next();
-    std::vector<AnyExprV> args(1, parse_var_declaration_lhs(lex, is_immutable));
-    while (lex.tok() == tok_comma) {
-      lex.next();
-      args.push_back(parse_var_declaration_lhs(lex, is_immutable));
-    }
-    lex.expect(tok_clbracket, "`]`");
-    return createV<ast_typed_tuple>(loc, std::move(args));
-  }
-  if (lex.tok() == tok_identifier) {
-    auto v_ident = createV<ast_identifier>(loc, lex.cur_str());
-    TypePtr declared_type = nullptr;
-    bool marked_as_redef = false;
-    lex.next();
-    if (lex.tok() == tok_colon) {
-      lex.next();
-      declared_type = parse_type_from_tokens(lex);
-    } else if (lex.tok() == tok_redef) {
-      lex.next();
-      marked_as_redef = true;
-    }
-    return createV<ast_local_var_lhs>(loc, v_ident, declared_type, is_immutable, marked_as_redef);
-  }
-  if (lex.tok() == tok_underscore) {
-    TypePtr declared_type = nullptr;
-    lex.next();
-    if (lex.tok() == tok_colon) {
-      lex.next();
-      declared_type = parse_type_from_tokens(lex);
-    }
-    return createV<ast_local_var_lhs>(loc, createV<ast_identifier>(loc, ""), declared_type, true, false);
-  }
-  lex.unexpected("variable name");
-}
-
-static AnyV parse_local_vars_declaration_assignment(Lexer& lex) {
-  SrcLocation loc = lex.cur_location();
-  bool is_immutable = lex.tok() == tok_val;
-  lex.next();
-
-  AnyExprV lhs = createV<ast_local_vars_declaration>(loc, parse_var_declaration_lhs(lex, is_immutable));
-  if (lex.tok() != tok_assign) {
-    lex.error("variables declaration must be followed by assignment: `var xxx = ...`");
-  }
-  lex.next();
-  AnyExprV rhs = parse_expr(lex);
-
-  if (lex.tok() == tok_comma) {
-    lex.error("multiple declarations are not allowed, split variables on separate lines");
-  }
-  lex.expect(tok_semicolon, "`;`");
-  return createV<ast_assign>(loc, lhs, rhs);
-}
-
-static V<ast_sequence> parse_sequence(Lexer& lex) {
+static V<ast_block_statement> parse_block_statement(Lexer& lex) {
   SrcLocation loc = lex.cur_location();
   lex.expect(tok_opbrace, "`{`");
   std::vector<AnyV> items;
   while (lex.tok() != tok_clbrace) {
-    items.push_back(parse_statement(lex));
+    AnyV v = parse_statement(lex);
+    items.push_back(v);
+    if (lex.tok() == tok_clbrace) {
+      break;
+    }
+    bool does_end_with_brace = v->type == ast_if_statement || v->type == ast_while_statement || v->type == ast_match_expression || v->type == ast_try_catch_statement || v->type == ast_repeat_statement || v->type == ast_block_statement;
+    if (!does_end_with_brace) {
+      lex.expect(tok_semicolon, "`;`");
+    }
   }
   SrcLocation loc_end = lex.cur_location();
   lex.expect(tok_clbrace, "`}`");
-  return createV<ast_sequence>(loc, loc_end, items);
+  return createV<ast_block_statement>(loc, loc_end, std::move(items));
 }
 
 static AnyV parse_return_statement(Lexer& lex) {
@@ -656,7 +838,6 @@ static AnyV parse_return_statement(Lexer& lex) {
   AnyExprV child = lex.tok() == tok_semicolon   // `return;` actually means "nothing" (inferred as void)
     ? createV<ast_empty_expression>(lex.cur_location())
     : parse_expr(lex);
-  lex.expect(tok_semicolon, "`;`");
   return createV<ast_return_statement>(loc, child);
 }
 
@@ -668,18 +849,18 @@ static AnyV parse_if_statement(Lexer& lex) {
   AnyExprV cond = parse_expr(lex);
   lex.expect(tok_clpar, "`)`");
 
-  V<ast_sequence> if_body = parse_sequence(lex);
-  V<ast_sequence> else_body = nullptr;
+  V<ast_block_statement> if_body = parse_block_statement(lex);
+  V<ast_block_statement> else_body = nullptr;
   if (lex.tok() == tok_else) {  // else if(e) { } or else { }
     lex.next();
     if (lex.tok() == tok_if) {
       AnyV v_inner_if = parse_if_statement(lex);
-      else_body = createV<ast_sequence>(v_inner_if->loc, lex.cur_location(), {v_inner_if});
+      else_body = createV<ast_block_statement>(v_inner_if->loc, lex.cur_location(), {v_inner_if});
     } else {
-      else_body = parse_sequence(lex);
+      else_body = parse_block_statement(lex);
     }
   } else {  // no 'else', create empty block
-    else_body = createV<ast_sequence>(lex.cur_location(), lex.cur_location(), {});
+    else_body = createV<ast_block_statement>(lex.cur_location(), lex.cur_location(), {});
   }
   return createV<ast_if_statement>(loc, false, cond, if_body, else_body);
 }
@@ -690,7 +871,7 @@ static AnyV parse_repeat_statement(Lexer& lex) {
   lex.expect(tok_oppar, "`(`");
   AnyExprV cond = parse_expr(lex);
   lex.expect(tok_clpar, "`)`");
-  V<ast_sequence> body = parse_sequence(lex);
+  V<ast_block_statement> body = parse_block_statement(lex);
   return createV<ast_repeat_statement>(loc, cond, body);
 }
 
@@ -700,19 +881,18 @@ static AnyV parse_while_statement(Lexer& lex) {
   lex.expect(tok_oppar, "`(`");
   AnyExprV cond = parse_expr(lex);
   lex.expect(tok_clpar, "`)`");
-  V<ast_sequence> body = parse_sequence(lex);
+  V<ast_block_statement> body = parse_block_statement(lex);
   return createV<ast_while_statement>(loc, cond, body);
 }
 
 static AnyV parse_do_while_statement(Lexer& lex) {
   SrcLocation loc = lex.cur_location();
   lex.expect(tok_do, "`do`");
-  V<ast_sequence> body = parse_sequence(lex);
+  V<ast_block_statement> body = parse_block_statement(lex);
   lex.expect(tok_while, "`while`");
   lex.expect(tok_oppar, "`(`");
   AnyExprV cond = parse_expr(lex);
   lex.expect(tok_clpar, "`)`");
-  lex.expect(tok_semicolon, "`;`");
   return createV<ast_do_while_statement>(loc, body, cond);
 }
 
@@ -737,30 +917,6 @@ static AnyExprV create_catch_underscore_variable(const Lexer& lex) {
   return createV<ast_reference>(lex.cur_location(), v_ident, nullptr);
 }
 
-static AnyV parse_throw_statement(Lexer& lex) {
-  SrcLocation loc = lex.cur_location();
-  lex.expect(tok_throw, "`throw`");
-
-  AnyExprV thrown_code, thrown_arg;
-  if (lex.tok() == tok_oppar) {   // throw (code) or throw (code, arg)
-    lex.next();
-    thrown_code = parse_expr(lex);
-    if (lex.tok() == tok_comma) {
-      lex.next();
-      thrown_arg = parse_expr(lex);
-    } else {
-      thrown_arg = createV<ast_empty_expression>(loc);
-    }
-    lex.expect(tok_clpar, "`)`");
-  } else {   // throw code
-    thrown_code = parse_expr(lex);
-    thrown_arg = createV<ast_empty_expression>(loc);
-  }
-
-  lex.expect(tok_semicolon, "`;`");
-  return createV<ast_throw_statement>(loc, thrown_code, thrown_arg);
-}
-
 static AnyV parse_assert_statement(Lexer& lex) {
   SrcLocation loc = lex.cur_location();
   lex.expect(tok_assert, "`assert`");
@@ -778,14 +934,13 @@ static AnyV parse_assert_statement(Lexer& lex) {
     thrown_code = parse_expr(lex);
   }
 
-  lex.expect(tok_semicolon, "`;`");
   return createV<ast_assert_statement>(loc, cond, thrown_code);
 }
 
 static AnyV parse_try_catch_statement(Lexer& lex) {
   SrcLocation loc = lex.cur_location();
   lex.expect(tok_try, "`try`");
-  V<ast_sequence> try_body = parse_sequence(lex);
+  V<ast_block_statement> try_body = parse_block_statement(lex);
 
   std::vector<AnyExprV> catch_args;
   lex.expect(tok_catch, "`catch`");
@@ -806,7 +961,7 @@ static AnyV parse_try_catch_statement(Lexer& lex) {
   }
   V<ast_tensor> catch_expr = createV<ast_tensor>(catch_loc, std::move(catch_args));
 
-  V<ast_sequence> catch_body = parse_sequence(lex);
+  V<ast_block_statement> catch_body = parse_block_statement(lex);
   return createV<ast_try_catch_statement>(loc, try_body, catch_expr, catch_body);
 }
 
@@ -816,7 +971,7 @@ AnyV parse_statement(Lexer& lex) {
     case tok_val:   // only as a separate declaration
       return parse_local_vars_declaration_assignment(lex);
     case tok_opbrace:
-      return parse_sequence(lex);
+      return parse_block_statement(lex);
     case tok_return:
       return parse_return_statement(lex);
     case tok_if:
@@ -828,29 +983,23 @@ AnyV parse_statement(Lexer& lex) {
     case tok_while:
       return parse_while_statement(lex);
     case tok_throw:
-      return parse_throw_statement(lex);
+      return parse_throw_expression(lex);
     case tok_assert:
       return parse_assert_statement(lex);
     case tok_try:
       return parse_try_catch_statement(lex);
-    case tok_semicolon: {
-      SrcLocation loc = lex.cur_location();
-      lex.next();
-      return createV<ast_empty_statement>(loc);
-    }
+    case tok_semicolon:
+      return createV<ast_empty_statement>(lex.cur_location());
     case tok_break:
     case tok_continue:
       lex.error("break/continue from loops are not supported yet");
-    default: {
-      AnyExprV expr = parse_expr(lex);
-      lex.expect(tok_semicolon, "`;`");
-      return expr;
-    }
+    default:
+      return parse_expr(lex);
   }
 }
 
 static AnyV parse_func_body(Lexer& lex) {
-  return parse_sequence(lex);
+  return parse_block_statement(lex);
 }
 
 static AnyV parse_asm_func_body(Lexer& lex, V<ast_parameter_list> param_list) {
@@ -885,7 +1034,7 @@ static AnyV parse_asm_func_body(Lexer& lex, V<ast_parameter_list> param_list) {
   lex.check(tok_string_const, "\"ASM COMMAND\"");
   while (lex.tok() == tok_string_const) {
     std::string_view asm_command = lex.cur_str();
-    asm_commands.push_back(createV<ast_string_const>(lex.cur_location(), asm_command, 0));
+    asm_commands.push_back(createV<ast_string_const>(lex.cur_location(), asm_command));
     lex.next();
   }
   lex.expect(tok_semicolon, "`;`");
@@ -925,6 +1074,9 @@ static V<ast_annotation> parse_annotation(Lexer& lex) {
     args.push_back(parse_expr(lex));
     while (lex.tok() == tok_comma) {
       lex.next();
+      if (lex.tok() == tok_clpar) {   // trailing comma
+        break;
+      }
       args.push_back(parse_expr(lex));
     }
     lex.expect(tok_clpar, "`)`");
@@ -1097,7 +1249,7 @@ static AnyV parse_import_directive(Lexer& lex) {
   if (rel_filename.empty()) {
     lex.error("imported file name is an empty string");
   }
-  auto v_str = createV<ast_string_const>(lex.cur_location(), rel_filename, 0);
+  auto v_str = createV<ast_string_const>(lex.cur_location(), rel_filename);
   lex.next();
   return createV<ast_import_directive>(loc, v_str); // semicolon is not necessary
 }
@@ -1138,6 +1290,10 @@ AnyV parse_src_file_to_ast(const SrcFile* file) {
         break;
       case tok_const:
         toplevel_declarations.push_back(parse_constant_declaration(lex, annotations));
+        annotations.clear();
+        break;
+      case tok_type:
+        toplevel_declarations.push_back(parse_type_alias_declaration(lex, annotations));
         annotations.clear();
         break;
       case tok_fun:
