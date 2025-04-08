@@ -38,6 +38,7 @@
 #include "openssl/digest.hpp"
 #include <stack>
 #include <algorithm>
+#include <mutex>
 
 namespace block {
 using namespace std::literals::string_literals;
@@ -253,7 +254,7 @@ td::Status Config::unpack() {
   }
   config_dict = std::make_unique<vm::Dictionary>(config_root, 32);
   if (mode & needValidatorSet) {
-    auto vset_res = unpack_validator_set(get_config_param(35, 34));
+    auto vset_res = unpack_validator_set(get_config_param(35, 34), true);
     if (vset_res.is_error()) {
       return vset_res.move_as_error();
     }
@@ -486,15 +487,74 @@ td::Result<WorkchainSet> Config::unpack_workchain_list(Ref<vm::Cell> root) {
   return std::move(pair.first);
 }
 
-td::Result<std::unique_ptr<ValidatorSet>> Config::unpack_validator_set(Ref<vm::Cell> vset_root) {
+class ValidatorSetCache {
+public:
+  ValidatorSetCache() {
+    cache_.reserve(MAX_CACHE_SIZE + 1);
+  }
+
+  std::shared_ptr<ValidatorSet> get(const vm::CellHash& hash) {
+    std::lock_guard lock{mutex_};
+    auto it = cache_.find(hash);
+    if (it == cache_.end()) {
+      return {};
+    }
+    auto entry = it->second.get();
+    entry->remove();
+    lru_.put(entry);
+    return entry->value;
+  }
+
+  void set(const vm::CellHash& hash, std::shared_ptr<ValidatorSet> vset) {
+    std::lock_guard lock{mutex_};
+    std::unique_ptr<CacheEntry>& entry = cache_[hash];
+    if (entry == nullptr) {
+      entry = std::make_unique<CacheEntry>(hash, std::move(vset));
+    } else {
+      entry->value = std::move(vset);
+      entry->remove();
+    }
+    lru_.put(entry.get());
+    if (cache_.size() > MAX_CACHE_SIZE) {
+      auto to_remove = (CacheEntry*)lru_.get();
+      CHECK(to_remove);
+      to_remove->remove();
+      cache_.erase(to_remove->key);
+    }
+  }
+
+private:
+  std::mutex mutex_;
+
+  struct CacheEntry : td::ListNode {
+    explicit CacheEntry(vm::CellHash key, std::shared_ptr<ValidatorSet> value) : key(key), value(std::move(value)) {
+    }
+    vm::CellHash key;
+    std::shared_ptr<ValidatorSet> value;
+  };
+  td::HashMap<vm::CellHash, std::unique_ptr<CacheEntry>> cache_;
+  td::ListNode lru_;
+
+  static constexpr size_t MAX_CACHE_SIZE = 100;
+};
+
+td::Result<std::shared_ptr<ValidatorSet>> Config::unpack_validator_set(Ref<vm::Cell> vset_root, bool use_cache) {
   if (vset_root.is_null()) {
     return td::Status::Error("validator set is absent");
   }
+  static ValidatorSetCache cache;
+  if (use_cache) {
+    auto result = cache.get(vset_root->get_hash());
+    if (result) {
+      return result;
+    }
+  }
+
   gen::ValidatorSet::Record_validators_ext rec;
   Ref<vm::Cell> dict_root;
   if (!tlb::unpack_cell(vset_root, rec)) {
     gen::ValidatorSet::Record_validators rec0;
-    if (!tlb::unpack_cell(std::move(vset_root), rec0)) {
+    if (!tlb::unpack_cell(vset_root, rec0)) {
       return td::Status::Error("validator set is invalid");
     }
     rec.utime_since = rec0.utime_since;
@@ -515,7 +575,7 @@ td::Result<std::unique_ptr<ValidatorSet>> Config::unpack_validator_set(Ref<vm::C
     return td::Status::Error(
         "maximal index in a validator set dictionary must be one less than the total number of validators");
   }
-  auto ptr = std::make_unique<ValidatorSet>(rec.utime_since, rec.utime_until, rec.total, rec.main);
+  auto ptr = std::make_shared<ValidatorSet>(rec.utime_since, rec.utime_until, rec.total, rec.main);
   for (int i = 0; i < rec.total; i++) {
     key_buffer.store_ulong(i);
     auto descr_cs = dict.lookup(key_buffer.bits(), 16);
@@ -547,6 +607,9 @@ td::Result<std::unique_ptr<ValidatorSet>> Config::unpack_validator_set(Ref<vm::C
   }
   if (rec.total_weight && rec.total_weight != ptr->total_weight) {
     return td::Status::Error("validator set declares incorrect total weight");
+  }
+  if (use_cache) {
+    cache.set(vset_root->get_hash(), ptr);
   }
   return std::move(ptr);
 }
