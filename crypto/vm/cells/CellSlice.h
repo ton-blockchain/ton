@@ -190,6 +190,7 @@ class CellSlice : public td::CntObject {
   }
   bool fetch_maybe_ref(Ref<Cell>& ref);
   bool prefetch_maybe_ref(Ref<Cell>& ref) const;
+  std::vector<Ref<Cell>> prefetch_all_refs() const;
   td::BitSlice fetch_bits(unsigned bits);
   td::BitSlice prefetch_bits(unsigned bits) const;
   td::Ref<CellSlice> fetch_subslice(unsigned bits, unsigned refs = 0);

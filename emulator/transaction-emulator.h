@@ -33,14 +33,18 @@ public:
     virtual ~EmulationResult() = default;
   };
 
-  struct EmulationSuccess: EmulationResult {
+  struct EmulationSuccess : EmulationResult {
     td::Ref<vm::Cell> transaction;
     block::Account account;
     td::Ref<vm::Cell> actions;
 
-    EmulationSuccess(td::Ref<vm::Cell> transaction_, block::Account account_, std::string vm_log_, td::Ref<vm::Cell> actions_, double elapsed_time_) :
-      EmulationResult(vm_log_, elapsed_time_), transaction(transaction_), account(account_) , actions(actions_)
-    {}
+    EmulationSuccess(td::Ref<vm::Cell> transaction_, block::Account account_, std::string vm_log_,
+                     td::Ref<vm::Cell> actions_, double elapsed_time_)
+        : EmulationResult(vm_log_, elapsed_time_)
+        , transaction(transaction_)
+        , account(std::move(account_))
+        , actions(actions_) {
+    }
   };
 
   struct EmulationExternalNotAccepted: EmulationResult {

@@ -156,3 +156,10 @@ Example: if the last masterchain block seqno is `19071` then the list contains b
 ### TVM changes
 - `SENDMSG` calculates messages size and fees without extra currencies, uses new +64 and +128 mode behavior.
   - `SENDMSG` does not check the number of extra currencies.
+
+## Version 11
+### New account storage stat
+Along with the storage stat (cells and bits count), each account now stores the hash of the **storage dict**.
+
+**Storage dict** is the dictionary that stores refcnt for each cell in the account state.
+This is required to help computing storage stats in the future, after collator-validator separation.

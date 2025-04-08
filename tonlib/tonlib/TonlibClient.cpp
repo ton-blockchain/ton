@@ -180,7 +180,7 @@ struct RawAccountState {
   td::Ref<vm::Cell> extra_currencies;
 
   ton::UnixTime storage_last_paid{0};
-  vm::CellStorageStat storage_stat;
+  block::StorageUsed storage_used;
 
   td::Ref<vm::Cell> code;
   td::Ref<vm::Cell> data;
@@ -1036,7 +1036,7 @@ class Query {
     TRY_RESULT(basechain_msg_prices, cfg->get_msg_prices(false));
     block::MsgPrices* msg_prices[2] = {&basechain_msg_prices, &masterchain_msg_prices};
     auto storage_fee_256 = block::StoragePrices::compute_storage_fees(
-        raw_.source->get_sync_time(), storage_prices, raw_.source->raw().storage_stat,
+        raw_.source->get_sync_time(), storage_prices, raw_.source->raw().storage_used,
         raw_.source->raw().storage_last_paid, false, is_masterchain);
     auto storage_fee = storage_fee_256.is_null() ? 0 : storage_fee_256->to_long();
 
@@ -1085,7 +1085,7 @@ class Query {
       TRY_RESULT(dest_gas_limits_prices, cfg->get_gas_limits_prices(dest_is_masterchain));
       auto dest_storage_fee_256 =
           destination ? block::StoragePrices::compute_storage_fees(
-                            destination->get_sync_time(), storage_prices, destination->raw().storage_stat,
+                            destination->get_sync_time(), storage_prices, destination->raw().storage_used,
                             destination->raw().storage_last_paid, false, is_masterchain)
                       : td::make_refint(0);
       Fee dst_fee;
@@ -1399,17 +1399,16 @@ class GetRawAccountState : public td::actor::Actor {
         return td::Status::Error("Failed to unpack StorageInfo");
       }
       unsigned long long u = 0;
-      vm::CellStorageStat storage_stat;
+      block::StorageUsed storage_stat;
       u |= storage_stat.cells = block::tlb::t_VarUInteger_7.as_uint(*storage_used.cells);
       u |= storage_stat.bits = block::tlb::t_VarUInteger_7.as_uint(*storage_used.bits);
-      u |= storage_stat.public_cells = block::tlb::t_VarUInteger_7.as_uint(*storage_used.public_cells);
       //LOG(DEBUG) << "last_paid=" << res.storage_last_paid << "; cells=" << storage_stat.cells
-      //<< " bits=" << storage_stat.bits << " public_cells=" << storage_stat.public_cells;
+      //<< " bits=" << storage_stat.bits;
       if (u == std::numeric_limits<td::uint64>::max()) {
         return td::Status::Error("Failed to unpack StorageStat");
       }
 
-      res.storage_stat = storage_stat;
+      res.storage_used = storage_stat;
     }
 
     block::gen::AccountStorage::Record storage;
@@ -2089,7 +2088,7 @@ class RunEmulator : public TonlibQueryActor {
         raw.balance = balance.grams->to_long();
         raw.extra_currencies = balance.extra;
         raw.storage_last_paid = std::move(account.last_paid);
-        raw.storage_stat = std::move(account.storage_stat);
+        raw.storage_used = account.storage_used;
         raw.code = std::move(account.code);
         raw.data = std::move(account.data);
         raw.state = std::move(account.total_state);

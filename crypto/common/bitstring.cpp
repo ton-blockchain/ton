@@ -347,6 +347,9 @@ std::size_t bits_memscan_rev(ConstBitPtr bs, std::size_t bit_count, bool cmp_to)
 int bits_memcmp(const unsigned char* bs1, int bs1_offs, const unsigned char* bs2, int bs2_offs, std::size_t bit_count,
                 std::size_t* same_upto) {
   if (!bit_count) {
+    if (same_upto) {
+      *same_upto = 0;
+    }
     return 0;
   }
   bs1 += (bs1_offs >> 3);
