@@ -34,12 +34,14 @@
 #include <sstream>
 #include <iomanip>
 #include "vm/boc.h"
+#include "funcfiftlib.h"
 
 td::Result<std::string> compile_internal(char *config_json) {
   TRY_RESULT(input_json, td::json_decode(td::MutableSlice(config_json)))
   td::JsonObject& config = input_json.get_object();
 
   TRY_RESULT(opt_level, td::get_json_object_int_field(config, "optLevel", false));
+  TRY_RESULT(fift_path, td::get_json_object_string_field(config, "fiftPath", false));
   TRY_RESULT(sources_obj, td::get_json_object_field(config, "sources", td::JsonValue::Type::Array, false));
 
   auto &sources_arr = sources_obj.get_array();
@@ -62,7 +64,7 @@ td::Result<std::string> compile_internal(char *config_json) {
     return td::Status::Error("FunC compilation error: " + errs.str());
   }
 
-  TRY_RESULT(fift_res, fift::compile_asm_program(outs.str(), "/fiftlib/"));
+  TRY_RESULT(fift_res, fift::compile_asm_program(outs.str(), fift_path));
 
   td::JsonBuilder result_json;
   auto obj = result_json.enter_object();
@@ -74,20 +76,6 @@ td::Result<std::string> compile_internal(char *config_json) {
 
   return result_json.string_builder().as_cslice().str();
 }
-
-/// Callback used to retrieve additional source files or data.
-///
-/// @param _kind The kind of callback (a string).
-/// @param _data The data for the callback (a string).
-/// @param o_contents A pointer to the contents of the file, if found. Allocated via malloc().
-/// @param o_error A pointer to an error message, if there is one. Allocated via malloc().
-///
-/// The callback implementor must use malloc() to allocate storage for
-/// contents or error. The callback implementor must use free() to free
-/// said storage after func_compile returns.
-///
-/// If the callback is not supported, *o_contents and *o_error must be set to NULL.
-typedef void (*CStyleReadFileCallback)(char const* _kind, char const* _data, char** o_contents, char** o_error);
 
 funC::ReadCallback::Callback wrapReadCallback(CStyleReadFileCallback _readCallback)
 {
