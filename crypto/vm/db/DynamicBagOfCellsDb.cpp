@@ -138,8 +138,18 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
     return td::Status::OK();
   }
   td::Result<Ref<DataCell>> load_cell(td::Slice hash) override {
-    TRY_RESULT(loaded_cell, get_cell_info_force(hash).cell->load_cell());
-    return std::move(loaded_cell.data_cell);
+    auto info = hash_table_.get_if_exists(hash);
+    if (info && info->sync_with_db) {
+      TRY_RESULT(loaded_cell, info->cell->load_cell());
+      return std::move(loaded_cell.data_cell);
+    }
+    TRY_RESULT(res, loader_->load(hash, true, *this));
+    if (res.status != CellLoader::LoadResult::Ok) {
+      return td::Status::Error("cell not found");
+    }
+    Ref<DataCell> cell = res.cell();
+    hash_table_.apply(hash, [&](CellInfo &info) { update_cell_info_loaded(info, hash, std::move(res)); });
+    return cell;
   }
   td::Result<Ref<DataCell>> load_root(td::Slice hash) override {
     return load_cell(hash);
@@ -194,9 +204,6 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
           });
           promise->set_result(std::move(cell));
         });
-  }
-  CellInfo &get_cell_info_force(td::Slice hash) {
-    return hash_table_.apply(hash, [&](CellInfo &info) { update_cell_info_force(info, hash); });
   }
   CellInfo &get_cell_info_lazy(Cell::LevelMask level_mask, td::Slice hash, td::Slice depth) {
     return hash_table_.apply(hash.substr(hash.size() - Cell::hash_bytes),
