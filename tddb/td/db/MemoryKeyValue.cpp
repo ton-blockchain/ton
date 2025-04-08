@@ -19,6 +19,7 @@
 #include "td/db/MemoryKeyValue.h"
 
 #include "td/utils/format.h"
+#include "td/utils/Span.h"
 
 namespace td {
 Result<MemoryKeyValue::GetStatus> MemoryKeyValue::get(Slice key, std::string &value) {
@@ -39,6 +40,17 @@ Result<MemoryKeyValue::GetStatus> MemoryKeyValue::get(Slice key, std::string &va
 std::unique_ptr<MemoryKeyValue::Bucket, MemoryKeyValue::Unlock> MemoryKeyValue::lock(td::Slice key) {
   auto bucket_id = std::hash<std::string_view>()(std::string_view(key.data(), key.size())) % buckets_.size();
   return lock(buckets_[bucket_id]);
+}
+
+Result<std::vector<MemoryKeyValue::GetStatus>> MemoryKeyValue::get_multi(td::Span<Slice> keys,
+                                                                        std::vector<std::string> *values) {
+  values->resize(keys.size());
+  std::vector<GetStatus> res;
+  res.reserve(keys.size());
+  for (size_t i = 0; i < keys.size(); i++) {
+    res.push_back(get(keys[i], (*values)[i]).move_as_ok());
+  }
+  return res;
 }
 
 Status MemoryKeyValue::for_each(std::function<Status(Slice, Slice)> f) {

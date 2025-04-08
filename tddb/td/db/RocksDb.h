@@ -75,6 +75,8 @@ struct RocksDbOptions {
 
   bool use_direct_reads = false;
   bool no_block_cache = false;
+  bool enable_bloom_filter = false;
+  bool two_level_index_and_filter = false;
 };
 
 class RocksDb : public KeyValue {
@@ -84,6 +86,7 @@ class RocksDb : public KeyValue {
   static Result<RocksDb> open(std::string path, RocksDbOptions options = {});
 
   Result<GetStatus> get(Slice key, std::string &value) override;
+  Result<std::vector<RocksDb::GetStatus>> get_multi(td::Span<Slice> keys, std::vector<std::string> *values) override;
   Status set(Slice key, Slice value) override;
   Status merge(Slice key, Slice value) override;
   Status erase(Slice key) override;

@@ -811,6 +811,10 @@ class DynamicBagOfCellsDbImplV2 : public DynamicBagOfCellsDb {
   td::Result<Ref<DataCell>> load_root(td::Slice hash) override {
     return load_cell(hash);
   }
+  td::Result<std::vector<Ref<DataCell>>> load_bulk(td::Span<td::Slice> hashes) override {
+    CHECK(cell_db_reader_);
+    return cell_db_reader_->load_bulk(hashes);
+  }
   td::Result<Ref<DataCell>> load_root_thread_safe(td::Slice hash) const override {
     // TODO: it is better to use AtomicRef, or atomic shared pointer
     // But to use AtomicRef we need a little refactoring
@@ -1100,6 +1104,20 @@ class DynamicBagOfCellsDbImplV2 : public DynamicBagOfCellsDb {
         return maybe_cell;
       }
       return load_cell_slow_path(hash);
+    }
+
+    td::Result<std::vector<Ref<DataCell>>> load_bulk(td::Span<td::Slice> hashes) override {
+      // thread safe function
+      std::vector<Ref<DataCell>> result;
+      result.reserve(hashes.size());
+      for (auto &hash : hashes) {
+        auto maybe_cell = load_cell(hash);
+        if (maybe_cell.is_error()) {
+          return maybe_cell.move_as_error();
+        }
+        result.push_back(maybe_cell.move_as_ok());
+      }
+      return result;
     }
 
     td::Result<Ref<DataCell>> load_ext_cell(Ref<DynamicBocExtCell> ext_cell) override {
