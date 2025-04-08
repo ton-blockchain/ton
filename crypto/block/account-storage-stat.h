@@ -74,15 +74,17 @@ class AccountStorageStat {
   td::Status remove_cell(const Ref<vm::Cell> &cell);
 
   struct Entry {
+    bool inited = false;
     vm::CellHash hash;
-    Ref<vm::Cell> cell;
+    td::optional<unsigned> size_bits;
     bool exists_known = false;
     bool exists = false;
     td::optional<td::uint32> refcnt, max_merkle_depth;
     td::int32 refcnt_diff = 0;
     td::int32 dict_refcnt_diff = 0;
   };
-  td::HashMap<vm::CellHash, Entry> cache_;
+
+  td::HashMap<vm::CellHash, Entry, std::hash<vm::CellHash>> cache_;
 
   Entry &get_entry(const Ref<vm::Cell> &cell);
   td::Status fetch_from_dict(Entry &e);
