@@ -1,4 +1,4 @@
-library Stack  // advanced stack manupulation library
+library Stack  // advanced stack manipulation library
 "Lists.fif" include
 // S(a b c - a c 2 a b) would compile to code performing the requested stack manipulation
 

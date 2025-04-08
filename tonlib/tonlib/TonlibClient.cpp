@@ -268,7 +268,7 @@ td::Result<td::Ref<vm::Cell>> add_extra_currencies(const td::Ref<vm::Cell> &e1, 
   block::CurrencyCollection c1{td::zero_refint(), e1};
   block::CurrencyCollection c2{td::zero_refint(), e2};
   TRY_RESULT_ASSIGN(c1, TRY_VM(td::Result<block::CurrencyCollection>{c1 + c2}));
-  if (c1.is_valid()) {
+  if (!c1.is_valid()) {
     return td::Status::Error("Failed to add extra currencies");
   }
   return c1.extra;
@@ -3308,13 +3308,53 @@ td::Status TonlibClient::do_request(const tonlib_api::raw_sendMessage& request,
   return td::Status::OK();
 }
 
+td::Result<td::Bits256> get_ext_in_msg_hash_norm(td::Ref<vm::Cell> ext_in_msg_cell) {
+  block::gen::Message::Record message;
+  if (!tlb::type_unpack_cell(ext_in_msg_cell, block::gen::t_Message_Any, message)) {
+    return td::Status::Error("Failed to unpack Message");
+  }
+  auto tag = block::gen::CommonMsgInfo().get_tag(*message.info);
+  if (tag != block::gen::CommonMsgInfo::ext_in_msg_info) {
+    return td::Status::Error("CommonMsgInfo tag is not ext_in_msg_info");
+  }
+  block::gen::CommonMsgInfo::Record_ext_in_msg_info msg_info;
+  if (!tlb::csr_unpack(message.info, msg_info)) {
+    return td::Status::Error("Failed to unpack CommonMsgInfo::ext_in_msg_info");
+  }
+
+  td::Ref<vm::Cell> body;
+  auto body_cs = message.body.write();
+  if (body_cs.fetch_ulong(1) == 1) {
+    body = body_cs.fetch_ref();
+  } else {
+    body = vm::CellBuilder().append_cellslice(body_cs).finalize();
+  }
+
+  auto cb = vm::CellBuilder();
+  bool status = 
+    cb.store_long_bool(2, 2) &&                 // message$_ -> info:CommonMsgInfo -> ext_in_msg_info$10
+    cb.store_long_bool(0, 2) &&                 // message$_ -> info:CommonMsgInfo -> src:MsgAddressExt -> addr_none$00
+    cb.append_cellslice_bool(msg_info.dest) &&  // message$_ -> info:CommonMsgInfo -> dest:MsgAddressInt
+    cb.store_long_bool(0, 4) &&                 // message$_ -> info:CommonMsgInfo -> import_fee:Grams -> 0
+    cb.store_long_bool(0, 1) &&                 // message$_ -> init:(Maybe (Either StateInit ^StateInit)) -> nothing$0
+    cb.store_long_bool(1, 1) &&                 // message$_ -> body:(Either X ^X) -> right$1
+    cb.store_ref_bool(body);
+
+  if (!status) {
+    return td::Status::Error("Failed to build normalized message");
+  }
+  return cb.finalize()->get_hash().bits();
+}
+
 td::Status TonlibClient::do_request(const tonlib_api::raw_sendMessageReturnHash& request,
                                     td::Promise<object_ptr<tonlib_api::raw_extMessageInfo>>&& promise) {
   TRY_RESULT_PREFIX(body, vm::std_boc_deserialize(request.body_), TonlibError::InvalidBagOfCells("body"));
   auto hash = body->get_hash().as_slice().str();
+  TRY_RESULT(hash_norm, get_ext_in_msg_hash_norm(body));
+
   make_request(int_api::SendMessage{std::move(body)},
-    promise.wrap([hash = std::move(hash)](auto res) {
-      return tonlib_api::make_object<tonlib_api::raw_extMessageInfo>(std::move(hash));
+    promise.wrap([hash = std::move(hash), hash_norm = std::move(hash_norm)](auto res) {
+      return tonlib_api::make_object<tonlib_api::raw_extMessageInfo>(std::move(hash), hash_norm.as_slice().str());
     }));
   return td::Status::OK();
 }
@@ -4510,7 +4550,7 @@ auto to_tonlib_api(const vm::StackEntry& entry, int& limit) -> td::Result<tonlib
 };
 
 auto to_tonlib_api(const td::Ref<vm::Stack>& stack) -> td::Result<std::vector<tonlib_api::object_ptr<tonlib_api::tvm_StackEntry>>> {
-  int stack_limit = 1000;
+  int stack_limit = 8000;
   std::vector<tonlib_api::object_ptr<tonlib_api::tvm_StackEntry>> tl_stack;
   for (auto& entry: stack->as_span()) {
     TRY_RESULT(tl_entry, to_tonlib_api(entry, --stack_limit));

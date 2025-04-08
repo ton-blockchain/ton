@@ -17,14 +17,19 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include "vm/db/CellStorage.h"
+
+#include "td/utils/Parser.h"
 #include "vm/db/DynamicBagOfCellsDb.h"
 #include "vm/boc.h"
 #include "td/utils/base64.h"
 #include "td/utils/tl_parsers.h"
 #include "td/utils/tl_helpers.h"
 
+#include <block-auto.h>
+
 namespace vm {
 namespace {
+
 class RefcntCellStorer {
  public:
   RefcntCellStorer(td::int32 refcnt, const td::Ref<DataCell> &cell, bool as_boc)
@@ -43,7 +48,9 @@ class RefcntCellStorer {
       storer.store_slice(data);
       return;
     }
+    CHECK(refcnt_ > 0);
     store(refcnt_, storer);
+    CHECK(cell_.not_null())
     store(*cell_, storer);
     for (unsigned i = 0; i < cell_->size_refs(); i++) {
       auto cell = cell_->get_ref(i);
@@ -91,6 +98,7 @@ class RefcntCellParser {
       stored_boc_ = true;
       parse(refcnt, parser);
     }
+    CHECK(refcnt > 0);
     if (!need_data_) {
       return;
     }
@@ -159,9 +167,34 @@ td::Result<CellLoader::LoadResult> CellLoader::load(td::Slice hash, bool need_da
     DCHECK(get_status == KeyValue::GetStatus::NotFound);
     return LoadResult{};
   }
+  if (serialized.empty()) {
+    return LoadResult{};
+  }
   TRY_RESULT(res, load(hash, serialized, need_data, ext_cell_creator));
   if (on_load_callback_) {
     on_load_callback_(res);
+  }
+  return res;
+}
+
+td::Result<std::vector<CellLoader::LoadResult>> CellLoader::load_bulk(td::Span<td::Slice> hashes, bool need_data, 
+                                                                ExtCellCreator &ext_cell_creator) {
+  std::vector<std::string> values;
+  TRY_RESULT(get_statuses, reader_->get_multi(hashes, &values));
+  std::vector<LoadResult> res;
+  res.reserve(hashes.size());
+  for (size_t i = 0; i < hashes.size(); i++) {
+    auto get_status = get_statuses[i];
+    if (get_status != KeyValue::GetStatus::Ok) {
+      DCHECK(get_status == KeyValue::GetStatus::NotFound);
+      res.push_back(LoadResult{});
+      continue;
+    }
+    TRY_RESULT(load_res, load(hashes[i], values[i], need_data, ext_cell_creator));
+    if (on_load_callback_) {
+      on_load_callback_(load_res);
+    }
+    res.push_back(std::move(load_res));
   }
   return res;
 }
@@ -198,6 +231,7 @@ td::Result<CellLoader::LoadResult> CellLoader::load_refcnt(td::Slice hash) {
   if (res.refcnt_ == -1) {
     parse(res.refcnt_, parser);
   }
+  CHECK(res.refcnt_ > 0);
   TRY_STATUS(parser.get_status());
   return res;
 }
@@ -215,5 +249,78 @@ std::string CellStorer::serialize_value(td::int32 refcnt, const td::Ref<DataCell
 
 td::Status CellStorer::set(td::int32 refcnt, const td::Ref<DataCell> &cell, bool as_boc) {
   return kv_.set(cell->get_hash().as_slice(), serialize_value(refcnt, cell, as_boc));
+}
+
+td::Status CellStorer::merge(td::Slice hash, td::int32 refcnt_diff) {
+  return kv_.merge(hash, serialize_refcnt_diffs(refcnt_diff));
+}
+
+void CellStorer::merge_value_and_refcnt_diff(std::string &left, td::Slice right) {
+  if (right.empty()) {
+    return;
+  }
+  CHECK(left.size() > 4);
+  CHECK(right.size() == 4);
+
+  td::int32 left_refcnt = td::as<td::int32>(left.data());
+  size_t shift = 0;
+  if (left_refcnt == -1) {
+    CHECK(left.size() >= 8);
+    left_refcnt = td::as<td::int32>(left.data() + 4);
+    shift = 4;
+  }
+  td::int32 right_refcnt_diff = td::as<td::int32>(right.data());
+  td::int32 new_refcnt = left_refcnt + right_refcnt_diff;
+  CHECK(new_refcnt > 0);
+  td::as<td::int32>(left.data() + shift) = new_refcnt;
+}
+void CellStorer::merge_refcnt_diffs(std::string &left, td::Slice right) {
+  if (right.empty()) {
+    return;
+  }
+  if (left.empty()) {
+    left = right.str();
+    return;
+  }
+  CHECK(left.size() == 4);
+  CHECK(right.size() == 4);
+  td::int32 left_refcnt_diff = td::as<td::int32>(left.data());
+  td::int32 right_refcnt_diff = td::as<td::int32>(right.data());
+  td::int32 total_refcnt_diff = left_refcnt_diff + right_refcnt_diff;
+  td::as<td::int32>(left.data()) = total_refcnt_diff;
+}
+
+std::string CellStorer::serialize_refcnt_diffs(td::int32 refcnt_diff) {
+  TD_PERF_COUNTER(cell_store_refcnt_diff);
+  std::string s(4, 0);
+  td::as<td::int32>(s.data()) = refcnt_diff;
+  return s;
+}
+
+td::Status CellStorer::apply_diff(const Diff &diff) {
+  switch (diff.type) {
+    case Diff::Set:
+      return kv_.set(diff.key.as_slice(), diff.value);
+    case Diff::Erase:
+      return kv_.erase(diff.key.as_slice());
+    case Diff::Merge:
+      return kv_.merge(diff.key.as_slice(), diff.value);
+    default:
+      UNREACHABLE();
+  }
+}
+td::Status CellStorer::apply_meta_diff(const MetaDiff &diff) {
+  switch (diff.type) {
+    case MetaDiff::Set:
+      CHECK(diff.key.size() != CellTraits::hash_bytes);
+      CHECK(!diff.value.empty());
+      return kv_.set(diff.key, diff.value);
+    case MetaDiff::Erase:
+      CHECK(diff.key.size() != CellTraits::hash_bytes);
+      CHECK(diff.value.empty());
+      return kv_.erase(diff.key);
+    default:
+      UNREACHABLE();
+  }
 }
 }  // namespace vm

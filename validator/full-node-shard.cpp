@@ -509,13 +509,12 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
 void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_preparePersistentState &query,
                                       td::Promise<td::BufferSlice> promise) {
   auto P =
-      td::PromiseCreator::lambda([SelfId = actor_id(this), promise = std::move(promise)](td::Result<bool> R) mutable {
-        if (R.is_error() || !R.move_as_ok()) {
+      td::PromiseCreator::lambda([SelfId = actor_id(this), promise = std::move(promise)](td::Result<td::uint64> R) mutable {
+        if (R.is_error()) {
           auto x = create_serialize_tl_object<ton_api::tonNode_notFoundState>();
           promise.set_value(std::move(x));
           return;
         }
-
         auto x = create_serialize_tl_object<ton_api::tonNode_preparedState>();
         promise.set_value(std::move(x));
       });
@@ -523,7 +522,22 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
   auto masterchain_block_id = create_block_id(query.masterchain_block_);
   VLOG(FULL_NODE_DEBUG) << "Got query preparePersistentState " << block_id.to_str() << " "
                         << masterchain_block_id.to_str() << " from " << src;
-  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::check_persistent_state_exists, block_id,
+  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_persistent_state_size, block_id,
+                          masterchain_block_id, std::move(P));
+}
+
+void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getPersistentStateSize &query,
+                                      td::Promise<td::BufferSlice> promise) {
+  auto P = td::PromiseCreator::lambda(
+      [SelfId = actor_id(this), promise = std::move(promise)](td::Result<td::uint64> R) mutable {
+        TRY_RESULT_PROMISE(promise, size, std::move(R));
+        promise.set_value(create_serialize_tl_object<ton_api::tonNode_persistentStateSize>(size));
+      });
+  auto block_id = create_block_id(query.block_);
+  auto masterchain_block_id = create_block_id(query.masterchain_block_);
+  VLOG(FULL_NODE_DEBUG) << "Got query getPersistentStateSize " << block_id.to_str() << " "
+                        << masterchain_block_id.to_str() << " from " << src;
+  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_persistent_state_size, block_id,
                           masterchain_block_id, std::move(P));
 }
 

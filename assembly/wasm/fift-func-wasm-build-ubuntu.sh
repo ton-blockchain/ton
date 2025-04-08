@@ -2,7 +2,7 @@
 # sudo apt update
 # sudo apt install -y build-essential git make cmake ninja-build clang libgflags-dev zlib1g-dev libssl-dev \
 #                    libreadline-dev libmicrohttpd-dev pkg-config libgsl-dev python3 python3-dev python3-pip \
-#                    nodejs libsodium-dev automake libtool libjemalloc-dev
+#                    nodejs libsodium-dev automake libtool libjemalloc-dev ccache
 
 # wget https://apt.llvm.org/llvm.sh
 # chmod +x llvm.sh
@@ -30,19 +30,18 @@ if [ "$scratch_new" = true ]; then
   rm -rf openssl zlib lz4 emsdk libsodium build openssl_em
 fi
 
-
-if [ ! -d "openssl" ]; then
-  git clone https://github.com/openssl/openssl.git
-  cp -r openssl openssl_em
-  cd openssl
+if [ ! -d "openssl_3" ]; then
+  git clone https://github.com/openssl/openssl openssl_3
+  cd openssl_3
+  opensslPath=`pwd`
   git checkout openssl-3.1.4
   ./config
-  make -j16
-  OPENSSL_DIR=`pwd`
+  make build_libs -j$(nproc)
+  test $? -eq 0 || { echo "Can't compile openssl_3"; exit 1; }
   cd ..
 else
-  OPENSSL_DIR=`pwd`/openssl
-  echo Using compiled openssl at $OPENSSL_DIR
+  opensslPath=$(pwd)/openssl_3
+  echo "Using compiled openssl_3"
 fi
 
 if [ ! -d "build" ]; then
@@ -50,9 +49,9 @@ if [ ! -d "build" ]; then
   cd build
   cmake -GNinja -DTON_USE_JEMALLOC=ON .. \
   -DCMAKE_BUILD_TYPE=Release \
-  -DOPENSSL_ROOT_DIR=$OPENSSL_DIR \
-  -DOPENSSL_INCLUDE_DIR=$OPENSSL_DIR/include \
-  -DOPENSSL_CRYPTO_LIBRARY=$OPENSSL_DIR/libcrypto.so
+  -DOPENSSL_ROOT_DIR=$opensslPath \
+  -DOPENSSL_INCLUDE_DIR=$opensslPath/include \
+  -DOPENSSL_CRYPTO_LIBRARY=$opensslPath/libcrypto.so
 
   test $? -eq 0 || { echo "Can't configure TON build"; exit 1; }
   ninja fift smc-envelope
@@ -82,61 +81,63 @@ export CCACHE_DISABLE=1
 
 cd ..
 
-if [ ! -f "openssl_em/openssl_em" ]; then
-  cd openssl_em
+if [ ! -f "3pp_emscripten/openssl_em/openssl_em" ]; then
+  mkdir -p 3pp_emscripten
+  git clone https://github.com/openssl/openssl 3pp_emscripten/openssl_em
+  cd 3pp_emscripten/openssl_em
   emconfigure ./Configure linux-generic32 no-shared no-dso no-engine no-unit-test no-tests no-fuzz-afl no-fuzz-libfuzzer
   sed -i 's/CROSS_COMPILE=.*/CROSS_COMPILE=/g' Makefile
   sed -i 's/-ldl//g' Makefile
   sed -i 's/-O3/-Os/g' Makefile
   emmake make depend
-  emmake make -j16
+  emmake make -j$(nproc)
   test $? -eq 0 || { echo "Can't compile OpenSSL with emmake "; exit 1; }
-  OPENSSL_DIR=`pwd`
+  opensslPath=`pwd`
   touch openssl_em
-  cd ..
+  cd ../..
 else
-  OPENSSL_DIR=`pwd`/openssl_em
-  echo Using compiled with empscripten openssl at $OPENSSL_DIR
+  opensslPath=`pwd`/3pp_emscripten/openssl_em
+  echo Using compiled with empscripten openssl at $opensslPath
 fi
 
-if [ ! -d "zlib" ]; then
-  git clone https://github.com/madler/zlib.git
-  cd zlib
+if [ ! -d "3pp_emscripten/zlib" ]; then
+  git clone https://github.com/madler/zlib.git 3pp_emscripten/zlib
+  cd 3pp_emscripten/zlib
   git checkout v1.3.1
   ZLIB_DIR=`pwd`
   emconfigure ./configure --static
-  emmake make -j16
+  emmake make -j$(nproc)
   test $? -eq 0 || { echo "Can't compile zlib with emmake "; exit 1; }
-  cd ..
+  cd ../..
 else
-  ZLIB_DIR=`pwd`/zlib
+  ZLIB_DIR=`pwd`/3pp_emscripten/zlib
   echo Using compiled zlib with emscripten at $ZLIB_DIR
 fi
 
-if [ ! -d "lz4" ]; then
-  git clone https://github.com/lz4/lz4.git
-  cd lz4
+if [ ! -d "3pp_emscripten/lz4" ]; then
+  git clone https://github.com/lz4/lz4.git 3pp_emscripten/lz4
+  cd 3pp_emscripten/lz4
   git checkout v1.9.4
   LZ4_DIR=`pwd`
-  emmake make -j16
+  emmake make -j$(nproc)
   test $? -eq 0 || { echo "Can't compile lz4 with emmake "; exit 1; }
-  cd ..
+  cd ../..
 else
-  LZ4_DIR=`pwd`/lz4
+  LZ4_DIR=`pwd`/3pp_emscripten/lz4
   echo Using compiled lz4 with emscripten at $LZ4_DIR
 fi
 
-if [ ! -d "libsodium" ]; then
-  git clone https://github.com/jedisct1/libsodium
-  cd libsodium
+if [ ! -d "3pp_emscripten/libsodium" ]; then
+  git clone https://github.com/jedisct1/libsodium 3pp_emscripten/libsodium
+  cd 3pp_emscripten/libsodium
   git checkout 1.0.18-RELEASE
   SODIUM_DIR=`pwd`
   emconfigure ./configure --disable-ssp
-  emmake make -j16
+  emmake make -j$(nproc)
   test $? -eq 0 || { echo "Can't compile libsodium with emmake "; exit 1; }
-  cd ..
+  cd ../..
 else
-  SODIUM_DIR=`pwd`/libsodium
+  SODIUM_DIR=`pwd`/3pp_emscripten/libsodium
   echo Using compiled libsodium with emscripten at $SODIUM_DIR
 fi
 
@@ -150,8 +151,8 @@ emcmake cmake -DUSE_EMSCRIPTEN=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_VERBOSE_MAK
 -DLZ4_LIBRARIES=$LZ4_DIR/lib/liblz4.a \
 -DLZ4_INCLUDE_DIRS=$LZ4_DIR/lib \
 -DOPENSSL_FOUND=1 \
--DOPENSSL_INCLUDE_DIR=$OPENSSL_DIR/include \
--DOPENSSL_CRYPTO_LIBRARY=$OPENSSL_DIR/libcrypto.a \
+-DOPENSSL_INCLUDE_DIR=$opensslPath/include \
+-DOPENSSL_CRYPTO_LIBRARY=$opensslPath/libcrypto.a \
 -DCMAKE_TOOLCHAIN_FILE=$EMSDK_DIR/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake \
 -DCMAKE_CXX_FLAGS="-sUSE_ZLIB=1" \
 -DSODIUM_FOUND=1 \
@@ -163,7 +164,7 @@ emcmake cmake -DUSE_EMSCRIPTEN=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_VERBOSE_MAK
 test $? -eq 0 || { echo "Can't configure TON with emmake "; exit 1; }
 cp -R ../crypto/smartcont ../crypto/fift/lib crypto
 
-emmake make -j16 funcfiftlib func fift tlbc emulator-emscripten
+emmake make -j$(nproc) funcfiftlib func fift tlbc emulator-emscripten
 
 test $? -eq 0 || { echo "Can't compile TON with emmake "; exit 1; }
 

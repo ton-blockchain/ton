@@ -157,17 +157,9 @@ class ArenaPrunnedCellCreator : public ExtCellCreator {
     }
   };
 
-  struct Allocator {
-    template <class T, class... ArgsT>
-    std::unique_ptr<PrunnedCell<Counter>> make_unique(ArgsT &&...args) {
-      auto *ptr = arena_.alloc(sizeof(T));
-      T *obj = new (ptr) T(std::forward<ArgsT>(args)...);
-      return std::unique_ptr<T>(obj);
-    }
-  };
   td::Result<Ref<Cell>> ext_cell(Cell::LevelMask level_mask, td::Slice hash, td::Slice depth) override {
-    Allocator allocator;
-    TRY_RESULT(cell, PrunnedCell<Counter>::create(allocator, PrunnedCellInfo{level_mask, hash, depth}, Counter()));
+    TRY_RESULT(cell, PrunnedCell<Counter>::create([&](size_t bytes) { return arena_.alloc(bytes); }, false,
+                                                  PrunnedCellInfo{level_mask, hash, depth}, Counter()));
     return cell;
   }
   static td::int64 count() {
@@ -413,6 +405,7 @@ class CellStorage {
       size_t dense_ht_size = 0;
       size_t new_ht_size = 0;
       for_each_bucket(0, [&](auto bucket_id, CellBucket &bucket) {
+        // TODO: this leads to CE when use_dense_hash_map == false
         dense_ht_capacity += bucket.infos_.dense_ht_values_.size();
         dense_ht_size += bucket.infos_.dense_ht_size_;
         new_ht_capacity += bucket.infos_.new_ht_.bucket_count();
@@ -461,12 +454,30 @@ class CellStorage {
     return td::Status::Error("not found");
   }
 
+  td::Result<std::vector<Ref<DataCell>>> load_bulk(td::Span<CellHash> hashes) const {
+    std::vector<Ref<DataCell>> res;
+    res.reserve(hashes.size());
+    for (auto &hash : hashes) {
+      TRY_RESULT(cell, load_cell(hash));
+      res.push_back(std::move(cell));
+    }
+    return res;
+  }
+
   td::Result<Ref<DataCell>> load_root_local(const CellHash &hash) const {
     auto lock = local_access_.lock();
     if (auto it = local_roots_.find(hash); it != local_roots_.end()) {
       return *it;
     }
     return td::Status::Error("not found");
+  }
+  td::Result<std::vector<Ref<DataCell>>> load_known_roots_local() const {
+    auto lock = local_access_.lock();
+    std::vector<Ref<DataCell>> result;
+    for (auto &root : roots_) {
+      result.emplace_back(root);
+    }
+    return result;
   }
   td::Result<Ref<DataCell>> load_root_shared(const CellHash &hash) const {
     std::lock_guard<std::mutex> lock(root_mutex_);
@@ -592,7 +603,7 @@ class CellStorage {
     std::vector<Stats> bucket_stats(buckets_.size());
     std::atomic<size_t> boc_count{0};
     for_each_bucket(options.extra_threads, [&](size_t bucket_id, auto &bucket) {
-      bucket_stats[bucket_id] = validate_bucket_a(bucket, options.use_arena);
+      bucket_stats[bucket_id] = validate_bucket_a(bucket);
       boc_count += bucket.boc_count_;
     });
     for_each_bucket(options.extra_threads, [&](size_t bucket_id, auto &bucket) { validate_bucket_b(bucket); });
@@ -620,7 +631,7 @@ class CellStorage {
       sb << "\n\t" << key << "=" << value;
     }
     LOG_IF(ERROR, desc_count != 0 && desc_count != stats.roots_total_count + 1)
-        << "desc<> keys count is " << desc_count << " wich is different from roots count " << stats.roots_total_count;
+        << "desc<> keys count is " << desc_count << " which is different from roots count " << stats.roots_total_count;
     LOG_IF(WARNING, verbose)
         << P << "done in " << full_timer.elapsed() << "\n\troots_count=" << stats.roots_total_count << "\n\t"
         << desc_count << "\n\tcells_count=" << stats.cells_total_count
@@ -721,12 +732,12 @@ class CellStorage {
     });
   }
 
-  DynamicBagOfCellsDb::Stats validate_bucket_a(CellBucket &bucket, bool use_arena) {
+  DynamicBagOfCellsDb::Stats validate_bucket_a(CellBucket &bucket) {
     DynamicBagOfCellsDb::Stats stats;
     bucket.infos_.for_each([&](auto &it) {
       int cell_ref_cnt = it.cell->get_refcnt();
-      CHECK(it.db_refcnt + 1 + use_arena >= cell_ref_cnt);
-      auto extra_refcnt = it.db_refcnt + 1 + use_arena - cell_ref_cnt;
+      CHECK(it.db_refcnt + 1 >= cell_ref_cnt);
+      auto extra_refcnt = it.db_refcnt + 1 - cell_ref_cnt;
       if (extra_refcnt != 0) {
         bucket.roots_.push_back(it.cell);
         stats.roots_total_count++;
@@ -757,17 +768,89 @@ class CellStorage {
   }
 };
 
+class MetaStorage {
+ public:
+  explicit MetaStorage(std::vector<std::pair<std::string, std::string>> values)
+      : meta_(std::move_iterator(values.begin()), std::move_iterator(values.end())) {
+    for (auto &p : meta_) {
+      CHECK(p.first.size() != CellTraits::hash_bytes);
+    }
+  }
+  std::vector<std::pair<std::string, std::string>> meta_get_all(size_t max_count) const {
+    std::vector<std::pair<std::string, std::string>> res;
+    for (const auto &[k, v] : meta_) {
+      if (res.size() >= max_count) {
+        break;
+      }
+      res.emplace_back(k, v);
+    }
+    return res;
+  }
+  KeyValue::GetStatus meta_get(td::Slice key, std::string &value) const {
+    auto lock = local_access_.lock();
+    auto it = meta_.find(key.str());
+    if (it == meta_.end()) {
+      return KeyValue::GetStatus::NotFound;
+    }
+    value = it->second;
+    return KeyValue::GetStatus::Ok;
+  }
+  void meta_set(td::Slice key, td::Slice value) {
+    auto lock = local_access_.lock();
+    meta_[key.str()] = value.str();
+    meta_diffs_.push_back(
+        CellStorer::MetaDiff{.type = CellStorer::MetaDiff::Set, .key = key.str(), .value = value.str()});
+  }
+  void meta_erase(td::Slice key) {
+    auto lock = local_access_.lock();
+    meta_.erase(key.str());
+    meta_diffs_.push_back(CellStorer::MetaDiff{.type = CellStorer::MetaDiff::Erase, .key = key.str()});
+  }
+  std::vector<CellStorer::MetaDiff> extract_diffs() {
+    auto lock = local_access_.lock();
+    return std::move(meta_diffs_);
+  }
+
+ private:
+  mutable UniqueAccess local_access_;
+  std::unordered_map<std::string, std::string> meta_;
+  std::vector<CellStorer::MetaDiff> meta_diffs_;
+};
+
 class InMemoryBagOfCellsDb : public DynamicBagOfCellsDb {
  public:
-  explicit InMemoryBagOfCellsDb(td::unique_ptr<CellStorage> storage) : storage_(std::move(storage)) {
+  explicit InMemoryBagOfCellsDb(td::unique_ptr<CellStorage> storage, td::unique_ptr<MetaStorage> meta_storage)
+      : storage_(std::move(storage)), meta_storage_(std::move(meta_storage)) {
+  }
+
+  td::Result<std::vector<std::pair<std::string, std::string>>> meta_get_all(size_t max_count) const override {
+    return meta_storage_->meta_get_all(max_count);
+  }
+  td::Result<KeyValue::GetStatus> meta_get(td::Slice key, std::string &value) override {
+    CHECK(key.size() != CellTraits::hash_bytes);
+    return meta_storage_->meta_get(key, value);
+  }
+  td::Status meta_set(td::Slice key, td::Slice value) override {
+    meta_storage_->meta_set(key, value);
+    return td::Status::OK();
+  }
+  td::Status meta_erase(td::Slice key) override {
+    meta_storage_->meta_erase(key);
+    return td::Status::OK();
   }
 
   td::Result<Ref<DataCell>> load_cell(td::Slice hash) override {
     return storage_->load_cell(CellHash::from_slice(hash));
   }
 
+  td::Result<std::vector<Ref<DataCell>>> load_known_roots() const override {
+    return storage_->load_known_roots_local();
+  }
   td::Result<Ref<DataCell>> load_root(td::Slice hash) override {
     return storage_->load_root_local(CellHash::from_slice(hash));
+  }
+  td::Result<std::vector<Ref<DataCell>>> load_bulk(td::Span<td::Slice> hashes) override {
+    return storage_->load_bulk(td::transform(hashes, [](auto &hash) { return CellHash::from_slice(hash); }));
   }
   td::Result<Ref<DataCell>> load_root_thread_safe(td::Slice hash) const override {
     return storage_->load_root_shared(CellHash::from_slice(hash));
@@ -798,28 +881,36 @@ class InMemoryBagOfCellsDb : public DynamicBagOfCellsDb {
       TRY_STATUS(prepare_commit());
     }
 
+    td::PerfWarningTimer times_save_diff("save diff");
     Stats diff;
     CHECK(to_dec_.empty());
-    for (auto &it : info_) {
-      auto &info = it.second;
+    for (auto &info : info_) {
       if (info.diff_refcnt == 0) {
         continue;
       }
       auto refcnt = td::narrow_cast<td::int32>(static_cast<td::int64>(info.db_refcnt) + info.diff_refcnt);
-      CHECK(refcnt >= 0);
+      LOG_CHECK(refcnt >= 0) << info.db_refcnt << " + " << info.diff_refcnt;
       if (refcnt > 0) {
-        cell_storer.set(refcnt, info.cell, false);
+        if (info.db_refcnt == 0) {
+          TRY_STATUS(cell_storer.set(refcnt, info.cell, false));
+        } else {
+          TRY_STATUS(cell_storer.merge(info.cell->get_hash().as_slice(), info.diff_refcnt));
+        }
         storage_->set(refcnt, info.cell);
         if (info.db_refcnt == 0) {
           diff.cells_total_count++;
           diff.cells_total_size += static_cast<td::int64>(info.cell->get_storage_size());
         }
       } else {
-        cell_storer.erase(info.cell->get_hash().as_slice());
+        TRY_STATUS(cell_storer.erase(info.cell->get_hash().as_slice()));
         storage_->erase(info.cell->get_hash());
         diff.cells_total_count--;
         diff.cells_total_size -= static_cast<td::int64>(info.cell->get_storage_size());
       }
+    }
+    auto meta_diffs = meta_storage_->extract_diffs();
+    for (const auto &meta_diff : meta_diffs) {
+      TRY_STATUS(cell_storer.apply_meta_diff(meta_diff));
     }
     storage_->apply_stats_diff(diff);
     info_ = {};
@@ -872,13 +963,39 @@ class InMemoryBagOfCellsDb : public DynamicBagOfCellsDb {
 
  private:
   td::unique_ptr<CellStorage> storage_;
+  td::unique_ptr<MetaStorage> meta_storage_;
 
   struct Info {
-    td::int32 db_refcnt{0};
-    td::int32 diff_refcnt{0};
+    mutable td::int32 db_refcnt{0};
+    mutable td::int32 diff_refcnt{0};
     Ref<DataCell> cell;
+    vm::CellHash key() const {
+      return cell->get_hash();
+    }
+    struct Eq {
+      using is_transparent = void;  // Pred to use
+      bool operator()(const Info &info, const Info &other_info) const {
+        return info.key() == other_info.key();
+      }
+      bool operator()(const Info &info, td::Slice hash) const {
+        return info.key().as_slice() == hash;
+      }
+      bool operator()(td::Slice hash, const Info &info) const {
+        return info.key().as_slice() == hash;
+      }
+    };
+    struct Hash {
+      using is_transparent = void;  // Pred to use
+      using transparent_key_equal = Eq;
+      size_t operator()(td::Slice hash) const {
+        return cell_hash_slice_hash(hash);
+      }
+      size_t operator()(const Info &info) const {
+        return cell_hash_slice_hash(info.key().as_slice());
+      }
+    };
   };
-  td::HashMap<CellHash, Info> info_;
+  td::HashSet<Info, Info::Hash, Info::Eq> info_;
 
   std::unique_ptr<CellLoader> loader_;
   std::vector<Ref<Cell>> to_inc_;
@@ -886,13 +1003,13 @@ class InMemoryBagOfCellsDb : public DynamicBagOfCellsDb {
 
   Ref<DataCell> do_inc(Ref<Cell> cell) {
     auto cell_hash = cell->get_hash();
-    if (auto it = info_.find(cell_hash); it != info_.end()) {
-      CHECK(it->second.diff_refcnt != std::numeric_limits<td::int32>::max());
-      it->second.diff_refcnt++;
-      return it->second.cell;
+    if (auto it = info_.find(cell_hash.as_slice()); it != info_.end()) {
+      CHECK(it->diff_refcnt != std::numeric_limits<td::int32>::max());
+      it->diff_refcnt++;
+      return it->cell;
     }
     if (auto o_info = storage_->get_info(cell_hash)) {
-      info_.emplace(cell_hash, Info{.db_refcnt = o_info->db_refcnt, .diff_refcnt = 1, .cell = o_info->cell});
+      info_.emplace(Info{.db_refcnt = o_info->db_refcnt, .diff_refcnt = 1, .cell = o_info->cell});
       return std::move(o_info->cell);
     }
 
@@ -905,21 +1022,21 @@ class InMemoryBagOfCellsDb : public DynamicBagOfCellsDb {
     }
     auto res = cb.finalize(cs.is_special());
     CHECK(res->get_hash() == cell_hash);
-    info_.emplace(cell_hash, Info{.db_refcnt = 0, .diff_refcnt = 1, .cell = res});
+    info_.emplace(Info{.db_refcnt = 0, .diff_refcnt = 1, .cell = res});
     return res;
   }
 
   void do_dec(Ref<Cell> cell) {
     auto cell_hash = cell->get_hash();
-    auto it = info_.find(cell_hash);
+    auto it = info_.find(cell_hash.as_slice());
     if (it != info_.end()) {
-      CHECK(it->second.diff_refcnt != std::numeric_limits<td::int32>::min());
-      --it->second.diff_refcnt;
+      CHECK(it->diff_refcnt != std::numeric_limits<td::int32>::min());
+      --it->diff_refcnt;
     } else {
       auto info = *storage_->get_info(cell_hash);
-      it = info_.emplace(cell_hash, Info{.db_refcnt = info.db_refcnt, .diff_refcnt = -1, .cell = info.cell}).first;
+      it = info_.emplace(Info{.db_refcnt = info.db_refcnt, .diff_refcnt = -1, .cell = info.cell}).first;
     }
-    if (it->second.diff_refcnt + it->second.db_refcnt != 0) {
+    if (it->diff_refcnt + it->db_refcnt != 0) {
       return;
     }
     CellSlice cs(NoVm{}, std::move(cell));
@@ -936,7 +1053,8 @@ std::unique_ptr<DynamicBagOfCellsDb> DynamicBagOfCellsDb::create_in_memory(td::K
   if (kv == nullptr) {
     LOG_IF(WARNING, options.verbose) << "Create empty in-memory cells database (no key value is given)";
     auto storage = CellStorage::build(options, [](auto, auto, auto) { return std::make_pair(0, 0); });
-    return std::make_unique<InMemoryBagOfCellsDb>(std::move(storage));
+    auto meta_storage = td::make_unique<MetaStorage>(std::vector<std::pair<std::string, std::string>>{});
+    return std::make_unique<InMemoryBagOfCellsDb>(std::move(storage), std::move(meta_storage));
   }
 
   std::vector<std::string> keys;
@@ -962,6 +1080,9 @@ std::unique_ptr<DynamicBagOfCellsDb> DynamicBagOfCellsDb::create_in_memory(td::K
                 local_desc_count++;
                 return td::Status::OK();
               }
+              if (key.size() != 32) {
+                return td::Status::OK();
+              }
               auto r_res = CellLoader::load(key, value.str(), true, pc_creator);
               if (r_res.is_error()) {
                 LOG(ERROR) << r_res.error() << " at " << td::format::escaped(key);
@@ -983,6 +1104,24 @@ std::unique_ptr<DynamicBagOfCellsDb> DynamicBagOfCellsDb::create_in_memory(td::K
   };
 
   auto storage = CellStorage::build(options, parallel_scan_cells);
-  return std::make_unique<InMemoryBagOfCellsDb>(std::move(storage));
+
+  std::vector<std::pair<std::string, std::string>> meta;
+  // NB: it scans 1/(2^32) of the database which is not much
+  kv->for_each_in_range("desc", "desd", [&meta](td::Slice key, td::Slice value) {
+    if (key.size() != 32) {
+      meta.emplace_back(key.str(), value.str());
+    }
+    return td::Status::OK();
+  });
+  // this is for tests mostly. desc* keys are expected to correspond to roots
+  kv->for_each_in_range("meta", "metb", [&meta](td::Slice key, td::Slice value) {
+    if (key.size() != 32) {
+      meta.emplace_back(key.str(), value.str());
+    }
+    return td::Status::OK();
+  });
+  auto meta_storage = td::make_unique<MetaStorage>(std::move(meta));
+
+  return std::make_unique<InMemoryBagOfCellsDb>(std::move(storage), std::move(meta_storage));
 }
 }  // namespace vm

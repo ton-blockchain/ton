@@ -513,6 +513,7 @@ void ArchiveImporter::abort_query(td::Status error) {
       td::unlink(f).ignore();
     }
     promise_.set_error(std::move(error));
+    stop();
     return;
   }
   LOG(INFO) << "Archive import: " << error;
