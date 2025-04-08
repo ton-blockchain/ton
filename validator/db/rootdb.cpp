@@ -431,10 +431,6 @@ void RootDb::allow_state_gc(BlockIdExt block_id, td::Promise<bool> promise) {
   td::actor::send_closure(validator_manager_, &ValidatorManager::allow_block_state_gc, block_id, std::move(promise));
 }
 
-void RootDb::allow_block_gc(BlockIdExt block_id, td::Promise<bool> promise) {
-  td::actor::send_closure(validator_manager_, &ValidatorManager::allow_block_info_gc, block_id, std::move(promise));
-}
-
 void RootDb::prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise) {
   auto merger = StatsMerger::create(std::move(promise));
   td::actor::send_closure(cell_db_, &CellDb::prepare_stats, merger.make_promise("celldb."));
@@ -519,7 +515,7 @@ void RootDb::set_async_mode(bool mode, td::Promise<td::Unit> promise) {
   td::actor::send_closure(archive_db_, &ArchiveManager::set_async_mode, mode, std::move(promise));
 }
 
-void RootDb::run_gc(UnixTime mc_ts, UnixTime gc_ts, UnixTime archive_ttl) {
+void RootDb::run_gc(UnixTime mc_ts, UnixTime gc_ts, double archive_ttl) {
   td::actor::send_closure(archive_db_, &ArchiveManager::run_gc, mc_ts, gc_ts, archive_ttl);
 }
 

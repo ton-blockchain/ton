@@ -61,7 +61,7 @@ void TcpListener::loop() {
         break;
       }
       TRY_RESULT(client_socket, std::move(r_socket));
-      LOG(ERROR) << "Accept";
+      LOG(INFO) << "Accept";
       callback_->accept(std::move(client_socket));
     }
     if (td::can_close(server_socket_fd_)) {

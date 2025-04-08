@@ -55,7 +55,7 @@ git clone https://github.com/lz4/lz4.git ../3pp/lz4
 cd ../3pp/lz4
 lz4Path=`pwd`
 git checkout v1.9.4
-make -j$(nproc)
+make -j4
 test $? -eq 0 || { echo "Can't compile lz4"; exit 1; }
 cd ../../build
 # ./lib/liblz4.a
@@ -73,7 +73,7 @@ if [ ! -d "../3pp/libsodium" ]; then
   git checkout 1.0.18
   ./autogen.sh
   ./configure --with-pic --enable-static
-  make -j$(nproc)
+  make -j4
   test $? -eq 0 || { echo "Can't compile libsodium"; exit 1; }
   cd ../../build
 else
@@ -87,7 +87,7 @@ if [ ! -d "../3pp/openssl_3" ]; then
   opensslPath=`pwd`
   git checkout openssl-3.1.4
   ./config
-  make build_libs -j$(nproc)
+  make build_libs -j4
   test $? -eq 0 || { echo "Can't compile openssl_3"; exit 1; }
   cd ../../build
 else
@@ -100,7 +100,7 @@ if [ ! -d "../3pp/zlib" ]; then
   cd ../3pp/zlib
   zlibPath=`pwd`
   ./configure --static
-  make -j$(nproc)
+  make -j4
   test $? -eq 0 || { echo "Can't compile zlib"; exit 1; }
   cd ../../build
 else
@@ -116,7 +116,7 @@ if [ ! -d "../3pp/libmicrohttpd" ]; then
   cd libmicrohttpd-1.0.1
   libmicrohttpdPath=`pwd`
   ./configure --enable-static --disable-tests --disable-benchmark --disable-shared --disable-https --with-pic
-  make -j$(nproc)
+  make -j4
   test $? -eq 0 || { echo "Can't compile libmicrohttpd"; exit 1; }
   cd ../../../build
 else
