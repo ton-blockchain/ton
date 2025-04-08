@@ -24,9 +24,8 @@
 #include "rocksdb/write_batch.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/transaction.h"
+#include "rocksdb/filter_policy.h"
 #include "td/utils/misc.h"
-
-#include <rocksdb/filter_policy.h>
 
 namespace td {
 namespace {
@@ -80,6 +79,15 @@ Result<RocksDb> RocksDb::open(std::string path, RocksDbOptions options) {
     table_options.no_block_cache = true;
   } else {
     table_options.block_cache = options.block_cache;
+  }
+  if (options.enable_bloom_filter) {
+    table_options.filter_policy.reset(rocksdb::NewBloomFilterPolicy(10, false));
+    if (options.two_level_index_and_filter) {
+      table_options.index_type = rocksdb::BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+      table_options.partition_filters = true;
+      table_options.cache_index_and_filter_blocks = true;
+      table_options.pin_l0_filter_and_index_blocks_in_cache = true;
+    }
   }
   db_options.table_factory.reset(rocksdb::NewBlockBasedTableFactory(table_options));
 
@@ -177,6 +185,40 @@ Result<RocksDb::GetStatus> RocksDb::get(Slice key, std::string &value) {
     return GetStatus::NotFound;
   }
   return from_rocksdb(status);
+}
+
+Result<std::vector<RocksDb::GetStatus>> RocksDb::get_multi(td::Span<Slice> keys, std::vector<std::string> *values) {
+  std::vector<rocksdb::Status> statuses(keys.size());
+  std::vector<rocksdb::Slice> keys_rocksdb;
+  keys_rocksdb.reserve(keys.size());
+  for (auto &key : keys) {
+    keys_rocksdb.push_back(to_rocksdb(key));
+  }
+  std::vector<rocksdb::PinnableSlice> values_rocksdb(keys.size());
+  rocksdb::ReadOptions options;
+  if (snapshot_) {
+    options.snapshot = snapshot_.get();
+    db_->MultiGet(options, db_->DefaultColumnFamily(), keys_rocksdb.size(), keys_rocksdb.data(), values_rocksdb.data(), statuses.data());
+  } else if (transaction_) {
+    transaction_->MultiGet(options, db_->DefaultColumnFamily(), keys_rocksdb.size(), keys_rocksdb.data(), values_rocksdb.data(), statuses.data());
+  } else {
+    db_->MultiGet(options, db_->DefaultColumnFamily(), keys_rocksdb.size(), keys_rocksdb.data(), values_rocksdb.data(), statuses.data());
+  }
+  std::vector<GetStatus> res(statuses.size());
+  values->resize(statuses.size());
+  for (size_t i = 0; i < statuses.size(); i++) {
+    auto &status = statuses[i];
+    if (status.ok()) {
+      res[i] = GetStatus::Ok;
+      values->at(i) = values_rocksdb[i].ToString();
+    } else if (status.code() == rocksdb::Status::kNotFound) {
+      res[i] = GetStatus::NotFound;
+      values->at(i) = "";
+    } else {
+      return from_rocksdb(status);
+    }
+  }
+  return res;
 }
 
 Status RocksDb::set(Slice key, Slice value) {
