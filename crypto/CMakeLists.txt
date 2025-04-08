@@ -412,6 +412,18 @@ if (USE_EMSCRIPTEN)
   target_compile_options(funcfiftlib PRIVATE -fexceptions -fno-stack-protector)
 endif()
 
+# New target: func executable linked with fift-lib
+add_executable(funcplusfift funcfiftlib/funcfiftlib.cpp funcfiftlib/funcfiftlib-main.cpp ${FUNC_LIB_SOURCE})
+target_include_directories(funcplusfift PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
+# Link fift-lib, ton_crypto, src_parser, git
+target_link_libraries(funcplusfift PUBLIC fift-lib ton_crypto src_parser git)
+if (WINGETOPT_FOUND)
+  target_link_libraries_system(funcplusfift wingetopt)
+endif()
+
+# Install the new executable
+install(TARGETS funcplusfift RUNTIME DESTINATION bin)
+
 add_executable(tlbc tl/tlbc.cpp)
 target_include_directories(tlbc PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
 target_link_libraries(tlbc PUBLIC src_parser)
