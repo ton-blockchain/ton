@@ -209,7 +209,7 @@ td::Result<int> BagOfCells::import_cell(td::Ref<vm::Cell> cell, int depth) {
     return td::Status::Error("error while importing a cell into a bag of cells: cell is null");
   }
   if (logger_ptr_) {
-    TRY_STATUS(logger_ptr_->on_cell_processed());
+    TRY_STATUS(logger_ptr_->on_cells_processed(1));
   }
   auto it = cells.find(cell->get_hash());
   if (it != cells.end()) {
@@ -555,7 +555,7 @@ td::Result<std::size_t> BagOfCells::serialize_to_impl(WriterT& writer, int mode)
       }
       store_offset(fixed_offset);
       if (logger_ptr_) {
-        TRY_STATUS(logger_ptr_->on_cell_processed());
+        TRY_STATUS(logger_ptr_->on_cells_processed(1));
       }
     }
     if (logger_ptr_) {
@@ -588,7 +588,7 @@ td::Result<std::size_t> BagOfCells::serialize_to_impl(WriterT& writer, int mode)
     }
     // std::cerr << std::endl;
     if (logger_ptr_) {
-      TRY_STATUS(logger_ptr_->on_cell_processed());
+      TRY_STATUS(logger_ptr_->on_cells_processed(1));
     }
   }
   writer.chk();

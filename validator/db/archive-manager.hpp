@@ -61,7 +61,7 @@ class ArchiveManager : public td::actor::Actor {
   void truncate(BlockSeqno masterchain_seqno, ConstBlockHandle handle, td::Promise<td::Unit> promise);
   //void truncate_continue(BlockSeqno masterchain_seqno, td::Promise<td::Unit> promise);
 
-  void run_gc(UnixTime mc_ts, UnixTime gc_ts, UnixTime archive_ttl);
+  void run_gc(UnixTime mc_ts, UnixTime gc_ts, double archive_ttl);
 
   /* from LTDB */
   void get_block_by_unix_time(AccountIdPrefixFull account_id, UnixTime ts, td::Promise<ConstBlockHandle> promise);
@@ -240,7 +240,7 @@ class ArchiveManager : public td::actor::Actor {
 
   void update_permanent_slices();
 
-  static const td::uint32 TEMP_PACKAGES_TTL = 3600;
+  static constexpr double TEMP_PACKAGES_TTL = 3600;
 };
 
 }  // namespace validator

@@ -31,7 +31,7 @@ td::Status AdnlInboundConnection::process_packet(td::BufferSlice data) {
       td::PromiseCreator::lambda([SelfId = actor_id(this), query_id = f->query_id_](td::Result<td::BufferSlice> R) {
         if (R.is_error()) {
           auto S = R.move_as_error();
-          LOG(WARNING) << "failed ext query: " << S;
+          LOG(INFO) << "failed ext query: " << S;
         } else {
           auto B = create_tl_object<ton_api::adnl_message_answer>(query_id, R.move_as_ok());
           td::actor::send_closure(SelfId, &AdnlInboundConnection::send, serialize_tl_object(B, true));

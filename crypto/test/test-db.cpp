@@ -2991,10 +2991,13 @@ TEST(TonDb, LargeBocSerializer) {
   td::unlink(path).ignore();
   fd = td::FileFd::open(path, td::FileFd::Flags::Create | td::FileFd::Flags::Truncate | td::FileFd::Flags::Write)
            .move_as_ok();
-  std_boc_serialize_to_file_large(dboc->get_cell_db_reader(), root->get_hash(), fd, 31);
+  boc_serialize_to_file_large(dboc->get_cell_db_reader(), root->get_hash(), fd, 31);
   fd.close();
   auto b = td::read_file_str(path).move_as_ok();
-  CHECK(a == b);
+
+  auto a_cell = vm::deserialize_boc(td::BufferSlice(a));
+  auto b_cell = vm::deserialize_boc(td::BufferSlice(b));
+  ASSERT_EQ(a_cell->get_hash(), b_cell->get_hash());
 }
 
 TEST(TonDb, DoNotMakeListsPrunned) {

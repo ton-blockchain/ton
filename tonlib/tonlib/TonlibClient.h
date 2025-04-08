@@ -59,6 +59,7 @@ class RunEmulator;
 td::Result<tonlib_api::object_ptr<tonlib_api::dns_EntryData>> to_tonlib_api(
     const ton::ManualDns::EntryData& entry_data);
 td::Result<ton::ManualDns::EntryData> to_dns_entry_data(tonlib_api::dns_EntryData& entry_data);
+td::Result<td::Bits256> get_ext_in_msg_hash_norm(td::Ref<vm::Cell> ext_in_msg_cell);
 
 class TonlibClient : public td::actor::Actor {
  public:
