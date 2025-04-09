@@ -93,8 +93,7 @@ void AccountStorageStat::add_hint(const td::HashSet<vm::CellHash>& hint) {
       }
     }
     if (hint.contains(cell->get_hash())) {
-      bool spec;
-      vm::CellSlice cs = vm::load_cell_slice_special(cell, spec);
+      auto cs = vm::CellSlice{vm::NoVm{}, cell};
       e.size_bits = cs.size();
       for (unsigned i = 0; i < cs.size_refs(); ++i) {
         dfs(cs.prefetch_ref(i), false);
@@ -123,8 +122,7 @@ td::Result<AccountStorageStat::CellInfo> AccountStorageStat::add_cell(const Ref<
   }
 
   td::uint32 max_merkle_depth = 0;
-  bool spec;
-  vm::CellSlice cs = vm::load_cell_slice_special(cell, spec);
+  auto cs = vm::CellSlice{vm::NoVm{}, cell};
   e.size_bits = cs.size();
   for (unsigned i = 0; i < cs.size_refs(); ++i) {
     TRY_RESULT(info, add_cell(cs.prefetch_ref(i)));
@@ -156,8 +154,7 @@ td::Status AccountStorageStat::remove_cell(const Ref<vm::Cell>& cell) {
   if (e.refcnt.value() + e.refcnt_diff != 0) {
     return td::Status::OK();
   }
-  bool spec;
-  vm::CellSlice cs = vm::load_cell_slice_special(cell, spec);
+  auto cs = vm::CellSlice{vm::NoVm{}, cell};
   e.size_bits = cs.size();
   for (unsigned i = 0; i < cs.size_refs(); ++i) {
     TRY_STATUS(remove_cell(cs.prefetch_ref(i)));
