@@ -143,7 +143,7 @@ class TestNode : public td::actor::Actor {
     ton::LogicalTime end_lt{0};
     ton::Bits256 vset_hash;
     Ref<vm::Cell> vset_root;
-    std::unique_ptr<block::ValidatorSet> vset;
+    std::shared_ptr<block::ValidatorSet> vset;
     std::map<ton::Bits256, int> vset_map;
     int special_idx{-1};
     std::pair<td::int64, td::int64> created_total, created_special;
