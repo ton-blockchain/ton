@@ -19,6 +19,7 @@
 #include "SmartContract.h"
 
 #include "GenericAccount.h"
+#include "transaction.h"
 
 #include "block/block.h"
 #include "block/block-auto.h"
@@ -175,12 +176,15 @@ td::Ref<vm::Tuple> prepare_vm_c7(SmartContract::Args args, td::Ref<vm::Cell> cod
   if (args.config && args.config.value()->get_global_version() >= 6) {
     tuple.push_back(args.config.value()->get_unpacked_config_tuple(now));  // unpacked_config_tuple
     tuple.push_back(td::zero_refint());                                    // due_payment
-    // precomiled_gas_usage:(Maybe Integer)
+    // precompiled_gas_usage:(Maybe Integer)
     td::optional<block::PrecompiledContractsConfig::Contract> precompiled;
     if (code.not_null()) {
       precompiled = args.config.value()->get_precompiled_contracts_config().get_contract(code->get_hash().bits());
     }
     tuple.push_back(precompiled ? td::make_refint(precompiled.value().gas_usage) : vm::StackEntry());
+  }
+  if (args.config && args.config.value()->get_global_version() >= 11) {
+    tuple.push_back(block::transaction::Transaction::prepare_in_msg_params_tuple(nullptr, {}, {}));
   }
   auto tuple_ref = td::make_cnt_ref<std::vector<vm::StackEntry>>(std::move(tuple));
   //LOG(DEBUG) << "SmartContractInfo initialized with " << vm::StackEntry(tuple).to_string();

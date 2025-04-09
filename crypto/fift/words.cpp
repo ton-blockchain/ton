@@ -2719,6 +2719,10 @@ void interpret_vmop_dump(vm::Stack& stack) {
   stack.push_string(std::move(dump));
 }
 
+void interpret_supported_version(vm::Stack& stack) {
+  stack.push_smallint(ton::SUPPORTED_VERSION);
+}
+
 void interpret_store_vm_cont(vm::Stack& stack) {
   auto vmcont = stack.pop_cont();
   auto cb = stack.pop_builder();
@@ -3412,6 +3416,7 @@ void init_words_vm(Dictionary& d, bool enable_debug) {
   d.def_stack_word("vmcont@ ", interpret_fetch_vm_cont);
   d.def_stack_word("(vmoplen) ", interpret_vmop_len);
   d.def_stack_word("(vmopdump) ", interpret_vmop_dump);
+  d.def_ctx_word("supported-version ", interpret_supported_version);
 }
 
 void import_cmdline_args(Dictionary& d, std::string arg0, int n, const char* const argv[]) {

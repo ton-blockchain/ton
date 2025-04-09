@@ -63,6 +63,9 @@ bool debug(int x) {
 #define DEB_START DBG_START
 #define DEB DBG
 
+static constexpr int randseed_idx = 6;
+static constexpr int inmsgparams_idx = 17;
+
 int exec_set_gas_generic(VmState* st, long long new_gas_limit) {
   if (new_gas_limit < st->gas_consumed()) {
     throw VmNoGas{};
@@ -150,6 +153,27 @@ int exec_get_var_param(VmState* st, unsigned idx) {
   idx &= 15;
   VM_LOG(st) << "execute GETPARAM " << idx;
   return exec_get_param(st, idx, nullptr);
+}
+
+int exec_get_var_param_long(VmState* st, unsigned idx) {
+  idx &= 255;
+  VM_LOG(st) << "execute GETPARAMLONG " << idx;
+  return exec_get_param(st, idx, nullptr);
+}
+
+int exec_get_in_msg_param(VmState* st, unsigned idx, const char* name) {
+  if (name) {
+    VM_LOG(st) << "execute " << name;
+  }
+  Ref<Tuple> t = get_param(st, inmsgparams_idx).as_tuple();
+  st->get_stack().push(tuple_index(t, idx));
+  return 0;
+}
+
+int exec_get_var_in_msg_param(VmState* st, unsigned idx) {
+  idx &= 15;
+  VM_LOG(st) << "execute INMSGPARAM " << idx;
+  return exec_get_in_msg_param(st, idx, nullptr);
 }
 
 int exec_get_config_dict(VmState* st) {
@@ -358,6 +382,75 @@ int exec_get_forward_fee_simple(VmState* st) {
   return 0;
 }
 
+int exec_get_extra_currency_balance(VmState* st) {
+  VM_LOG(st) << "execute GETEXTRABALANCE";
+  Stack& stack = st->get_stack();
+  auto id = (td::uint32)stack.pop_long_range((1LL << 32) - 1);
+
+  auto tuple = st->get_c7();
+  tuple = tuple_index(tuple, 0).as_tuple_range(255);
+  if (tuple.is_null()) {
+    throw VmError{Excno::type_chk, "intermediate value is not a tuple"};
+  }
+  tuple = tuple_index(tuple, 7).as_tuple_range(255);  // Balance
+  if (tuple.is_null()) {
+    throw VmError{Excno::type_chk, "intermediate value is not a tuple"};
+  }
+  auto dict_root = tuple_index(tuple, 1);
+  if (!dict_root.is_cell() && !dict_root.is_null()) {
+    throw VmError{Excno::type_chk, "intermediate value is not cell or null"};
+  }
+
+  class LocalVmState : public VmStateInterface {
+   public:
+    explicit LocalVmState(VmState* st) : st_(st) {
+    }
+    ~LocalVmState() override = default;
+
+    Ref<Cell> load_library(td::ConstBitPtr hash) override {
+      return st_->load_library(hash);
+    }
+    void register_cell_load(const CellHash& cell_hash) override {
+      auto new_cell = st_->register_cell_load_free(cell_hash);
+      consume_gas(new_cell ? VmState::cell_load_gas_price : VmState::cell_reload_gas_price);
+    }
+    void register_cell_create() override {
+      // Not expected in this operation
+    }
+    int get_global_version() const override {
+      return st_->get_global_version();
+    }
+
+   private:
+    VmState* st_;
+    long long remaining = VmState::get_extra_balance_cheap_max_gas_price;
+
+    void consume_gas(long long gas) {
+      long long consumed = std::min(gas, remaining);
+      st_->consume_gas(consumed);
+      remaining -= consumed;
+      if (remaining == 0) {
+        st_->consume_free_gas(gas - consumed);
+      }
+    }
+  };
+  bool cheap = st->register_get_extra_balance_call();
+  LocalVmState local_vm_state{st};
+  VmStateInterface::Guard guard{cheap ? (VmStateInterface*)&local_vm_state : st};
+
+  Dictionary dict{dict_root.as_cell(), 32};
+  Ref<CellSlice> cs = dict.lookup(td::BitArray<32>(id));
+  if (cs.is_null()) {
+    stack.push_smallint(0);
+  } else {
+    td::RefInt256 x;
+    util::load_var_integer_q(cs.write(), x, /* len_bits = */ 5, /* sgnd = */ false, /* quiet = */ false);
+    stack.push_int(std::move(x));
+  }
+
+  return 0;
+}
+
 void register_ton_config_ops(OpcodeTable& cp0) {
   using namespace std::placeholders;
   cp0.insert(OpcodeInstr::mkfixedrange(0xf820, 0xf823, 16, 4, instr::dump_1c("GETPARAM "), exec_get_var_param))
@@ -391,10 +484,23 @@ void register_ton_config_ops(OpcodeTable& cp0) {
       .insert(OpcodeInstr::mksimple(0xf840, 16, "GETGLOBVAR", exec_get_global_var))
       .insert(OpcodeInstr::mkfixedrange(0xf841, 0xf860, 16, 5, instr::dump_1c_and(31, "GETGLOB "), exec_get_global))
       .insert(OpcodeInstr::mksimple(0xf860, 16, "SETGLOBVAR", exec_set_global_var))
-      .insert(OpcodeInstr::mkfixedrange(0xf861, 0xf880, 16, 5, instr::dump_1c_and(31, "SETGLOB "), exec_set_global));
+      .insert(OpcodeInstr::mkfixedrange(0xf861, 0xf880, 16, 5, instr::dump_1c_and(31, "SETGLOB "), exec_set_global))
+      .insert(OpcodeInstr::mksimple(0xf880, 16, "GETEXTRABALANCE", exec_get_extra_currency_balance)->require_version(10))
+      .insert(OpcodeInstr::mkfixedrange(0xf88100, 0xf88111, 24, 8, instr::dump_1c_l_add(0, "GETPARAMLONG "), exec_get_var_param_long)->require_version(11))
+      .insert(OpcodeInstr::mksimple(0xf88111, 24, "INMSGPARAMS", std::bind(exec_get_param, _1, 17, "INMSGPARAMS"))->require_version(11))
+      .insert(OpcodeInstr::mkfixedrange(0xf88112, 0xf881ff, 24, 8, instr::dump_1c_l_add(0, "GETPARAMLONG "), exec_get_var_param_long)->require_version(11))
+      .insert(OpcodeInstr::mksimple(0xf890, 16, "INMSG_BOUNCE", std::bind(exec_get_in_msg_param, _1, 0, "INMSG_BOUNCE"))->require_version(11))
+      .insert(OpcodeInstr::mksimple(0xf891, 16, "INMSG_BOUNCED", std::bind(exec_get_in_msg_param, _1, 1, "INMSG_BOUNCED"))->require_version(11))
+      .insert(OpcodeInstr::mksimple(0xf892, 16, "INMSG_SRC", std::bind(exec_get_in_msg_param, _1, 2, "INMSG_SRC"))->require_version(11))
+      .insert(OpcodeInstr::mksimple(0xf893, 16, "INMSG_FWDFEE", std::bind(exec_get_in_msg_param, _1, 3, "INMSG_FWDFEE"))->require_version(11))
+      .insert(OpcodeInstr::mksimple(0xf894, 16, "INMSG_LT", std::bind(exec_get_in_msg_param, _1, 4, "INMSG_LT"))->require_version(11))
+      .insert(OpcodeInstr::mksimple(0xf895, 16, "INMSG_UTIME", std::bind(exec_get_in_msg_param, _1, 5, "INMSG_UTIME"))->require_version(11))
+      .insert(OpcodeInstr::mksimple(0xf896, 16, "INMSG_ORIGVALUE", std::bind(exec_get_in_msg_param, _1, 6, "INMSG_ORIGVALUE"))->require_version(11))
+      .insert(OpcodeInstr::mksimple(0xf897, 16, "INMSG_VALUE", std::bind(exec_get_in_msg_param, _1, 7, "INMSG_VALUE"))->require_version(11))
+      .insert(OpcodeInstr::mksimple(0xf898, 16, "INMSG_VALUEEXTRA", std::bind(exec_get_in_msg_param, _1, 8, "INMSG_VALUEEXTRA"))->require_version(11))
+      .insert(OpcodeInstr::mksimple(0xf899, 16, "INMSG_STATEINIT", std::bind(exec_get_in_msg_param, _1, 9, "INMSG_STATEINIT"))->require_version(11))
+      .insert(OpcodeInstr::mkfixedrange(0xf89a, 0xf8a0, 16, 4, instr::dump_1c("INMSGPARAM "), exec_get_var_in_msg_param)->require_version(11));
 }
-
-static constexpr int randseed_idx = 6;
 
 td::RefInt256 generate_randu256(VmState* st) {
   auto tuple = st->get_c7();
@@ -1380,9 +1486,12 @@ int exec_store_var_integer(VmState* st, int len_bits, bool sgnd, bool quiet) {
   return 0;
 }
 
-bool skip_maybe_anycast(CellSlice& cs) {
+bool skip_maybe_anycast(CellSlice& cs, int global_version) {
   if (cs.prefetch_ulong(1) != 1) {
     return cs.advance(1);
+  }
+  if (global_version >= 10) {
+    return false;
   }
   unsigned depth;
   return cs.advance(1)                    // just$1
@@ -1391,7 +1500,7 @@ bool skip_maybe_anycast(CellSlice& cs) {
          && cs.advance(depth);            // rewrite_pfx:(bits depth) = Anycast;
 }
 
-bool skip_message_addr(CellSlice& cs) {
+bool skip_message_addr(CellSlice& cs, int global_version) {
   switch ((unsigned)cs.fetch_ulong(2)) {
     case 0:  // addr_none$00 = MsgAddressExt;
       return true;
@@ -1400,15 +1509,18 @@ bool skip_message_addr(CellSlice& cs) {
       return cs.fetch_uint_to(9, len)  // len:(## 9)
              && cs.advance(len);       // external_address:(bits len) = MsgAddressExt;
     }
-    case 2: {                         // addr_std$10
-      return skip_maybe_anycast(cs)   // anycast:(Maybe Anycast)
-             && cs.advance(8 + 256);  // workchain_id:int8 address:bits256  = MsgAddressInt;
+    case 2: {                                        // addr_std$10
+      return skip_maybe_anycast(cs, global_version)  // anycast:(Maybe Anycast)
+             && cs.advance(8 + 256);                 // workchain_id:int8 address:bits256  = MsgAddressInt;
     }
     case 3: {  // addr_var$11
+      if (global_version >= 10) {
+        return false;
+      }
       unsigned len;
-      return skip_maybe_anycast(cs)       // anycast:(Maybe Anycast)
-             && cs.fetch_uint_to(9, len)  // addr_len:(## 9)
-             && cs.advance(32 + len);     // workchain_id:int32 address:(bits addr_len) = MsgAddressInt;
+      return skip_maybe_anycast(cs, global_version)  // anycast:(Maybe Anycast)
+             && cs.fetch_uint_to(9, len)             // addr_len:(## 9)
+             && cs.advance(32 + len);                // workchain_id:int32 address:(bits addr_len) = MsgAddressInt;
     }
     default:
       return false;
@@ -1420,7 +1532,7 @@ int exec_load_message_addr(VmState* st, bool quiet) {
   Stack& stack = st->get_stack();
   auto csr = stack.pop_cellslice();
   td::Ref<CellSlice> addr{true};
-  if (util::load_msg_addr_q(csr.write(), addr.write(), quiet)) {
+  if (util::load_msg_addr_q(csr.write(), addr.write(), st->get_global_version(), quiet)) {
     stack.push_cellslice(std::move(addr));
     stack.push_cellslice(std::move(csr));
     if (quiet) {
@@ -1433,10 +1545,13 @@ int exec_load_message_addr(VmState* st, bool quiet) {
   return 0;
 }
 
-bool parse_maybe_anycast(CellSlice& cs, StackEntry& res) {
+bool parse_maybe_anycast(CellSlice& cs, StackEntry& res, int global_version) {
   res = StackEntry{};
   if (cs.prefetch_ulong(1) != 1) {
     return cs.advance(1);
+  }
+  if (global_version >= 10) {
+    return false;
   }
   unsigned depth;
   Ref<CellSlice> pfx;
@@ -1450,7 +1565,7 @@ bool parse_maybe_anycast(CellSlice& cs, StackEntry& res) {
   return false;
 }
 
-bool parse_message_addr(CellSlice& cs, std::vector<StackEntry>& res) {
+bool parse_message_addr(CellSlice& cs, std::vector<StackEntry>& res, int global_version) {
   res.clear();
   switch ((unsigned)cs.fetch_ulong(2)) {
     case 0:                                 // addr_none$00 = MsgAddressExt;
@@ -1471,9 +1586,9 @@ bool parse_message_addr(CellSlice& cs, std::vector<StackEntry>& res) {
       StackEntry v;
       int workchain;
       Ref<CellSlice> addr;
-      if (parse_maybe_anycast(cs, v)             // anycast:(Maybe Anycast)
-          && cs.fetch_int_to(8, workchain)       // workchain_id:int8
-          && cs.fetch_subslice_to(256, addr)) {  // address:bits256  = MsgAddressInt;
+      if (parse_maybe_anycast(cs, v, global_version)  // anycast:(Maybe Anycast)
+          && cs.fetch_int_to(8, workchain)            // workchain_id:int8
+          && cs.fetch_subslice_to(256, addr)) {       // address:bits256  = MsgAddressInt;
         res.emplace_back(td::make_refint(2));
         res.emplace_back(std::move(v));
         res.emplace_back(td::make_refint(workchain));
@@ -1483,13 +1598,16 @@ bool parse_message_addr(CellSlice& cs, std::vector<StackEntry>& res) {
       break;
     }
     case 3: {  // addr_var$11
+      if (global_version >= 10) {
+        return false;
+      }
       StackEntry v;
       int len, workchain;
       Ref<CellSlice> addr;
-      if (parse_maybe_anycast(cs, v)             // anycast:(Maybe Anycast)
-          && cs.fetch_uint_to(9, len)            // addr_len:(## 9)
-          && cs.fetch_int_to(32, workchain)      // workchain_id:int32
-          && cs.fetch_subslice_to(len, addr)) {  // address:(bits addr_len) = MsgAddressInt;
+      if (parse_maybe_anycast(cs, v, global_version)  // anycast:(Maybe Anycast)
+          && cs.fetch_uint_to(9, len)                 // addr_len:(## 9)
+          && cs.fetch_int_to(32, workchain)           // workchain_id:int32
+          && cs.fetch_subslice_to(len, addr)) {       // address:(bits addr_len) = MsgAddressInt;
         res.emplace_back(td::make_refint(3));
         res.emplace_back(std::move(v));
         res.emplace_back(td::make_refint(workchain));
@@ -1508,7 +1626,7 @@ int exec_parse_message_addr(VmState* st, bool quiet) {
   auto csr = stack.pop_cellslice();
   auto& cs = csr.write();
   std::vector<StackEntry> res;
-  if (!(parse_message_addr(cs, res) && cs.empty_ext())) {
+  if (!(parse_message_addr(cs, res, st->get_global_version()) && cs.empty_ext())) {
     if (quiet) {
       stack.push_bool(false);
     } else {
@@ -1548,7 +1666,7 @@ int exec_rewrite_message_addr(VmState* st, bool allow_var_addr, bool quiet) {
   auto csr = stack.pop_cellslice();
   auto& cs = csr.write();
   std::vector<StackEntry> tuple;
-  if (!(parse_message_addr(cs, tuple) && cs.empty_ext())) {
+  if (!(parse_message_addr(cs, tuple, st->get_global_version()) && cs.empty_ext())) {
     if (quiet) {
       stack.push_bool(false);
       return 0;
@@ -2026,9 +2144,9 @@ bool load_var_integer_q(CellSlice& cs, td::RefInt256& res, int len_bits, bool sg
 bool load_coins_q(CellSlice& cs, td::RefInt256& res, bool quiet) {
   return load_var_integer_q(cs, res, 4, false, quiet);
 }
-bool load_msg_addr_q(CellSlice& cs, CellSlice& res, bool quiet) {
+bool load_msg_addr_q(CellSlice& cs, CellSlice& res, int global_version, bool quiet) {
   res = cs;
-  if (!skip_message_addr(cs)) {
+  if (!skip_message_addr(cs, global_version)) {
     cs = res;
     if (quiet) {
       return false;
@@ -2038,10 +2156,11 @@ bool load_msg_addr_q(CellSlice& cs, CellSlice& res, bool quiet) {
   res.cut_tail(cs);
   return true;
 }
-bool parse_std_addr_q(CellSlice cs, ton::WorkchainId& res_wc, ton::StdSmcAddress& res_addr, bool quiet) {
+bool parse_std_addr_q(CellSlice cs, ton::WorkchainId& res_wc, ton::StdSmcAddress& res_addr, int global_version,
+                      bool quiet) {
   // Like exec_rewrite_message_addr, but for std address case
   std::vector<StackEntry> tuple;
-  if (!(parse_message_addr(cs, tuple) && cs.empty_ext())) {
+  if (!(parse_message_addr(cs, tuple, global_version) && cs.empty_ext())) {
     if (quiet) {
       return false;
     }
@@ -2076,14 +2195,14 @@ td::RefInt256 load_var_integer(CellSlice& cs, int len_bits, bool sgnd) {
 td::RefInt256 load_coins(CellSlice& cs) {
   return load_var_integer(cs, 4, false);
 }
-CellSlice load_msg_addr(CellSlice& cs) {
+CellSlice load_msg_addr(CellSlice& cs, int global_version) {
   CellSlice addr;
-  load_msg_addr_q(cs, addr, false);
+  load_msg_addr_q(cs, addr, global_version, false);
   return addr;
 }
-std::pair<ton::WorkchainId, ton::StdSmcAddress> parse_std_addr(CellSlice cs) {
+std::pair<ton::WorkchainId, ton::StdSmcAddress> parse_std_addr(CellSlice cs, int global_version) {
   std::pair<ton::WorkchainId, ton::StdSmcAddress> res;
-  parse_std_addr_q(std::move(cs), res.first, res.second, false);
+  parse_std_addr_q(std::move(cs), res.first, res.second, global_version, false);
   return res;
 }
 

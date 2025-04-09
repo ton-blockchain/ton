@@ -606,9 +606,6 @@ void CellDbIn::gc_cont2(BlockHandle handle) {
   if (r_cell.is_ok()) {
     cell = r_cell.move_as_ok();
     boc_->dec(cell);
-    LOG(ERROR) << "GC of " << handle->id().to_str();
-  } else {
-    LOG(ERROR) << "GC of UNKNOWN root: " << handle->id().to_str();
   }
 
   db_busy_ = true;
@@ -806,7 +803,6 @@ void CellDb::load_cell(RootHash hash, td::Promise<td::Ref<vm::DataCell>> promise
     if (result.is_ok()) {
       return async_apply("load_cell_result", std::move(promise), std::move(result));
     } else {
-      LOG(ERROR) << "load_root_thread_safe failed - this is suspicious";
       send_closure(cell_db_, &CellDbIn::load_cell, hash, std::move(promise));
       return;
     }
