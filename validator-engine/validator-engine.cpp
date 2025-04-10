@@ -1976,7 +1976,12 @@ void ValidatorEngine::started_adnl() {
 }
 
 void ValidatorEngine::add_dht(ton::PublicKeyHash id) {
-  auto D = ton::dht::Dht::create(ton::adnl::AdnlNodeIdShort{id}, db_root_, dht_config_, keyring_.get(), adnl_.get());
+  auto creator = ton::dht::Dht::create;
+  if (!tunnel_config_.empty()) {
+     creator = ton::dht::Dht::create_client;
+  }
+
+  auto D = creator(ton::adnl::AdnlNodeIdShort{id}, db_root_, dht_config_, keyring_.get(), adnl_.get());
   D.ensure();
 
   dht_nodes_[id] = D.move_as_ok();
