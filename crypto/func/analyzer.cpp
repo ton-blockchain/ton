@@ -187,6 +187,17 @@ std::size_t VarDescrList::count_used(const std::vector<var_idx_t> idx_list) cons
   return res;
 }
 
+std::size_t VarDescrList::count_unreplaced(const std::vector<var_idx_t> idx_list) const {
+  std::size_t res = 0;
+  for (var_idx_t idx : idx_list) {
+    auto v = operator[](idx);
+    if (!v || !v->is_replaced()) {
+      ++res;
+    }
+  }
+  return res;
+}
+
 VarDescrList& VarDescrList::operator-=(var_idx_t idx) {
   auto it = std::lower_bound(list.begin(), list.end(), idx);
   if (it != list.end() && it->idx == idx) {
@@ -202,19 +213,22 @@ VarDescrList& VarDescrList::operator-=(const std::vector<var_idx_t>& idx_list) {
   return *this;
 }
 
-VarDescrList& VarDescrList::add_var(var_idx_t idx, bool unused) {
+VarDescrList& VarDescrList::add_var(var_idx_t idx, bool unused, bool replaced) {
   auto it = std::lower_bound(list.begin(), list.end(), idx);
   if (it == list.end() || it->idx != idx) {
-    list.emplace(it, idx, VarDescr::_Last | (unused ? VarDescr::_Unused : 0));
+    list.emplace(it, idx, VarDescr::_Last | (unused ? VarDescr::_Unused : 0)
+	  | (replaced ? (VarDescr::_Unused | VarDescr::_Replaced) : 0));
   } else if (it->is_unused() && !unused) {
     it->clear_unused();
+  } else if (it->is_replaced() && !replaced) {
+    it->clear_replaced();
   }
   return *this;
 }
 
-VarDescrList& VarDescrList::add_vars(const std::vector<var_idx_t>& idx_list, bool unused) {
+VarDescrList& VarDescrList::add_vars(const std::vector<var_idx_t>& idx_list, bool unused, bool replaced) {
   for (var_idx_t idx : idx_list) {
-    add_var(idx, unused);
+    add_var(idx, unused, replaced);
   }
   return *this;
 }
@@ -330,7 +344,7 @@ VarDescrList& VarDescrList::import_values(const VarDescrList& values) {
   return *this;
 }
 
-bool Op::std_compute_used_vars(bool disabled) {
+bool Op::std_compute_used_vars(bool disabled, bool replaced) {
   // left = OP right
   // var_info := (var_info - left) + right
   VarDescrList new_var_info{next->var_info};
@@ -338,10 +352,10 @@ bool Op::std_compute_used_vars(bool disabled) {
   new_var_info.clear_last();
   if (args.size() == right.size() && !disabled) {
     for (const VarDescr& arg : args) {
-      new_var_info.add_var(arg.idx, arg.is_unused());
+      new_var_info.add_var(arg.idx, arg.is_unused(), arg.is_replaced());
     }
   } else {
-    new_var_info.add_vars(right, disabled);
+    new_var_info.add_vars(right, disabled, replaced);
   }
   return set_var_info(std::move(new_var_info));
 }
@@ -363,10 +377,13 @@ bool Op::compute_used_vars(const CodeBlob& code, bool edit) {
       // left = EXEC right;
       if (!next_var_info.count_used(left) && is_pure()) {
         // all variables in `left` are not needed
+		bool repl = left.size() && !next_var_info.count_unreplaced(left);
         if (edit) {
           disable();
+          if (repl)
+            replace(); // mark as replaced
         }
-        return std_compute_used_vars(true);
+        return std_compute_used_vars(true, repl);
       }
       return std_compute_used_vars();
     }
@@ -380,6 +397,7 @@ bool Op::compute_used_vars(const CodeBlob& code, bool edit) {
     case _Let: {
       // left = right
       std::size_t cnt = next_var_info.count_used(left);
+      std::size_t unr = next_var_info.count_unreplaced(left);
       func_assert(left.size() == right.size());
       auto l_it = left.cbegin(), r_it = right.cbegin();
       VarDescrList new_var_info{next_var_info};
@@ -389,7 +407,7 @@ bool Op::compute_used_vars(const CodeBlob& code, bool edit) {
       for (; l_it < left.cend(); ++l_it, ++r_it) {
         if (std::find(l_it + 1, left.cend(), *l_it) == left.cend()) {
           auto p = next_var_info[*l_it];
-          new_var_info.add_var(*r_it, edit && (!p || p->is_unused()));
+          new_var_info.add_var(*r_it, edit && (!p || p->is_unused()), p && p->is_replaced());
           new_left.push_back(*l_it);
           new_right.push_back(*r_it);
         }
@@ -401,6 +419,8 @@ bool Op::compute_used_vars(const CodeBlob& code, bool edit) {
       if (!cnt && edit) {
         // all variables in `left` are not needed
         disable();
+        if (left.size() && !unr)
+          replaced();
       }
       return set_var_info(std::move(new_var_info));
     }
