@@ -3672,7 +3672,7 @@ void LiteQuery::finish_getDispatchQueueMessages(StdSmcAddress addr, LogicalTime 
       fatal_error(r_messages_boc.move_as_error());
       return;
     }
-    messages_boc = std::move(messages_boc);
+    messages_boc = r_messages_boc.move_as_ok();
   }
   LOG(INFO) << "getDispatchQueueMessages(" << blk_id_.to_str() << ", " << mode_ << ") query completed";
   auto b = ton::create_serialize_tl_object<ton::lite_api::liteServer_dispatchQueueMessages>(
