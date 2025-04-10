@@ -35,6 +35,8 @@ typedef void (*RecvCallback)(void* next, uint8_t* data, size_t num);
 
 typedef void (*ReinitCallback)(void* next, struct sockaddr* data);
 
+typedef void (*Logger)(const char *text, const size_t len, const int level);
+
 
 // we need it because we cannot call C func by pointer directly from go
 static inline void on_recv_batch_ready(RecvCallback cb, void* next, void* data, size_t num) {
@@ -43,6 +45,10 @@ static inline void on_recv_batch_ready(RecvCallback cb, void* next, void* data, 
 
 static inline void on_reinit(ReinitCallback cb, void* next, void* data) {
 	cb(next, (struct sockaddr*)data);
+}
+
+static inline void write_log(Logger log, const char *text, const size_t len, const int level) {
+	log(text, len, level);
 }
 
 #line 1 "cgo-generated-wrapper"
@@ -103,7 +109,7 @@ extern "C" {
 
 
 //goland:noinspection ALL
-extern Tunnel PrepareTunnel(RecvCallback onRecv, ReinitCallback onReinit, void* nextOnRecv, void* nextOnReinit, char* configJson, int configJsonLen, char* networkConfigJson, int networkConfigJsonLen);
+extern Tunnel PrepareTunnel(Logger logger, RecvCallback onRecv, ReinitCallback onReinit, void* nextOnRecv, void* nextOnReinit, char* configPath, int configPathLen, char* networkConfigJson, int networkConfigJsonLen);
 extern int WriteTunnel(size_t tunIdx, uint8_t* data, size_t num);
 
 #ifdef __cplusplus

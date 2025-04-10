@@ -67,6 +67,26 @@ private:
   static void on_recv_batch(void *next, uint8_t *data, size_t num);
   static void on_reinit(void *next, sockaddr *addr);
 
+  static void log(const char *text, const size_t len, const int level) {
+    const string str(text, len);
+    switch (level) {
+      case 0:
+        LOG(FATAL) << "[TUNNEL] " << str;
+        break;
+      case 1:
+        LOG(ERROR) << "[TUNNEL] " << str;
+        break;
+      case 2:
+        LOG(WARNING) << "[TUNNEL] " << str;
+        break;
+      case 3:
+        LOG(INFO) << "[TUNNEL] " << str;
+        break;
+      default:
+        LOG(DEBUG) << "[TUNNEL] " << str;
+        break;
+    }
+  }
 };
 
 void UdpServerTunnelImpl::send(td::UdpMessage &&message) {
@@ -129,7 +149,7 @@ void UdpServerTunnelImpl::start_up() {
   auto global_cfg = global_conf_data_R.move_as_ok();
 
   LOG(INFO) << "Initializing ADNL Tunnel...";
-  const auto res = PrepareTunnel(&on_recv_batch, &on_reinit, callback_.get(), callback_.get(), tunnel_config_.data(), tunnel_config_.size(), global_cfg.data(), global_cfg.size());
+  const auto res = PrepareTunnel(&log, &on_recv_batch, &on_reinit, callback_.get(), callback_.get(), tunnel_config_.data(), tunnel_config_.size(), global_cfg.data(), global_cfg.size());
   if (!res.index) {
     // the reason will be displayed in logs from lib part
     exit(1);
