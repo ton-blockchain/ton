@@ -1464,7 +1464,7 @@ td::Status ValidatorEngine::load_global_config() {
   if (!session_logs_file_.empty()) {
     validator_options_.write().set_session_logs_file(session_logs_file_);
   }
-  if (celldb_in_memory_ || celldb_v2_) {
+  if (celldb_in_memory_) {
     celldb_compress_depth_ = 0;
   }
   validator_options_.write().set_celldb_compress_depth(celldb_compress_depth_);
