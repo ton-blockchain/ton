@@ -5043,7 +5043,7 @@ void TonlibClient::do_dns_request(std::string name, td::Bits256 category, td::in
     return;
   }
 
-  TRY_RESULT_PROMISE(promise, args, ton::DnsInterface::resolve_args(name, category, address));
+  TRY_RESULT_PROMISE(new_promise, args, ton::DnsInterface::resolve_args(name, category, address));
   int_api::RemoteRunSmcMethod query;
   query.address = std::move(address);
   query.args = std::move(args);
