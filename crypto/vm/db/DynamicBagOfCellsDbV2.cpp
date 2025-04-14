@@ -1008,7 +1008,7 @@ class DynamicBagOfCellsDbImplV2 : public DynamicBagOfCellsDb {
   }
 
   void set_celldb_compress_depth(td::uint32 value) override {
-    CHECK(value == 0);
+    celldb_compress_depth_ = value;
   }
 
   vm::ExtCellCreator &as_ext_cell_creator() override {
@@ -1250,6 +1250,7 @@ class DynamicBagOfCellsDbImplV2 : public DynamicBagOfCellsDb {
   };
 
   CreateV2Options options_;
+  td::int32 celldb_compress_depth_{0};
   std::vector<Ref<Cell>> to_inc_;
   std::vector<Ref<Cell>> to_dec_;
   std::vector<std::vector<CellStorer::Diff>> diff_chunks_;
@@ -1416,6 +1417,7 @@ class DynamicBagOfCellsDbImplV2 : public DynamicBagOfCellsDb {
       stats_.diff_zero.inc();
       return;
     }
+    auto should_compress = celldb_compress_depth_ != 0 && info->cell->get_depth() == celldb_compress_depth_;
 
     bool merge_supported = true;
     if (merge_supported) {
@@ -1443,7 +1445,7 @@ class DynamicBagOfCellsDbImplV2 : public DynamicBagOfCellsDb {
           stats_.diff_full.inc();
           worker.add_result({.type = CellStorer::Diff::Set,
                              .key = info->cell->get_hash(),
-                             .value = CellStorer::serialize_value(ref_cnt_diff + state.db_ref_cnt, data_cell, false)});
+                             .value = CellStorer::serialize_value(ref_cnt_diff + state.db_ref_cnt, data_cell, should_compress)});
         } else {
           stats_.diff_ref_cnt.inc();
           worker.add_result({.type = CellStorer::Diff::Merge,
@@ -1479,7 +1481,7 @@ class DynamicBagOfCellsDbImplV2 : public DynamicBagOfCellsDb {
         worker.add_result(
             {.type = CellStorer::Diff::Set,
              .key = info->cell->get_hash(),
-             .value = CellStorer::serialize_value(new_ref_cnt, info->cell->load_cell().move_as_ok().data_cell, false)});
+             .value = CellStorer::serialize_value(new_ref_cnt, info->cell->load_cell().move_as_ok().data_cell, should_compress)});
         stats_.dec_save_full.inc();
       }
     } else {
@@ -1496,7 +1498,7 @@ class DynamicBagOfCellsDbImplV2 : public DynamicBagOfCellsDb {
       worker.add_result(
           {.type = CellStorer::Diff::Set,
            .key = info->cell->get_hash(),
-           .value = CellStorer::serialize_value(new_ref_cnt, info->cell->load_cell().move_as_ok().data_cell, false)});
+           .value = CellStorer::serialize_value(new_ref_cnt, info->cell->load_cell().move_as_ok().data_cell, should_compress)});
       stats_.inc_save_full.inc();
     }
   }
