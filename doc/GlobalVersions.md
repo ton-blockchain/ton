@@ -215,3 +215,9 @@ Reserve modes `+1`, `+4` and `+8` ("reserve all except", "add original balance" 
 - `x GETPARAMLONG` - same as `x GETPARAM`, but `x` is in range `[0..254]`. Gas cost: `34`.
 - `x INMSGPARAM` - equivalent to `INMSGPARAMS` `x INDEX`. Gas cost: `26`.
   - Aliases: `INMSG_BOUNCE`, `INMSG_BOUNCED`, `INMSG_SRC`, `INMSG_FWDFEE`, `INMSG_LT`, `INMSG_UTIME`, `INMSG_ORIGVALUE`, `INMSG_VALUE`, `INMSG_VALUEEXTRA`, `INMSG_STATEINIT`.
+
+### New account storage stat
+Along with the storage stat (cells and bits count), each account now stores the hash of the **storage dict**.
+
+**Storage dict** is the dictionary that stores refcnt for each cell in the account state.
+This is required to help computing storage stats in the future, after collator-validator separation.

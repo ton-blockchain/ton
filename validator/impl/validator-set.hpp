@@ -74,7 +74,7 @@ class ValidatorSetCompute {
 
  private:
   const block::Config* config_{nullptr};
-  std::unique_ptr<block::ValidatorSet> cur_validators_, next_validators_;
+  std::shared_ptr<block::ValidatorSet> cur_validators_, next_validators_;
   td::Ref<ValidatorSet> compute_validator_set(ShardIdFull shard, const block::ValidatorSet& vset, UnixTime time,
                                               CatchainSeqno seqno) const;
 };

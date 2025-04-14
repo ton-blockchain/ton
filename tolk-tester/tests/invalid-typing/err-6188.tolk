@@ -1,8 +1,11 @@
+type MInt = int;
+
 fun failMathOnBoolean(c: cell) {
-    return (null == c) * 10;
+    var ten: MInt = 10;
+    return (null == c) * ten;
 }
 
 /**
 @compilation_should_fail
-@stderr can not apply operator `*` to `bool` and `int`
+@stderr can not apply operator `*` to `bool` and `MInt`
  */

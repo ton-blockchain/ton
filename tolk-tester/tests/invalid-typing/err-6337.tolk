@@ -9,5 +9,5 @@ fun testCantCallDictMethodsOnNullable(c: cell) {
 
 /**
 @compilation_should_fail
-@stderr can not call method for `cell` with object of type `cell?`
+@stderr can not call method for `cell` with object of type `dict`
  */

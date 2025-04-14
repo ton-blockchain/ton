@@ -133,10 +133,15 @@ static AnyExprV unwrap_not_null_operator(AnyExprV expr) {
 // 3) when two data flows rejoin
 //    example: `if (tensorVar != null) ... else ...` rejoin `(int,int)` and `null` into `(int,int)?`
 // when lca can't be calculated (example: `(int,int)` and `(int,int,int)`), nullptr is returned
-static TypePtr calculate_type_lca(TypePtr a, TypePtr b) {
-  if (a == b) {
+static TypePtr calculate_type_lca(TypePtr a, TypePtr b, bool* became_union = nullptr) {
+  if (a->equal_to(b)) {
     return a;
   }
+
+  if (a == TypeDataUnknown::create() || b == TypeDataUnknown::create()) {
+    return TypeDataUnknown::create();
+  }
+
   if (a == TypeDataNever::create()) {
     return b;
   }
@@ -144,22 +149,11 @@ static TypePtr calculate_type_lca(TypePtr a, TypePtr b) {
     return a;
   }
 
-  if (a->can_rhs_be_assigned(b)) {
-    return a;
-  }
-  if (b->can_rhs_be_assigned(a)) {
-    return b;
-  }
-
-  if (a == TypeDataUnknown::create() || b == TypeDataUnknown::create()) {
-    return TypeDataUnknown::create();
-  }
-
   if (a == TypeDataNullLiteral::create()) {
-    return TypeDataNullable::create(b);
+    return TypeDataUnion::create_nullable(b);
   }
   if (b == TypeDataNullLiteral::create()) {
-    return TypeDataNullable::create(a);
+    return TypeDataUnion::create_nullable(a);
   }
 
   const auto* tensor1 = a->try_as<TypeDataTensor>();
@@ -168,7 +162,7 @@ static TypePtr calculate_type_lca(TypePtr a, TypePtr b) {
     std::vector<TypePtr> types_lca;
     types_lca.reserve(tensor1->size());
     for (int i = 0; i < tensor1->size(); ++i) {
-      TypePtr next = calculate_type_lca(tensor1->items[i], tensor2->items[i]);
+      TypePtr next = calculate_type_lca(tensor1->items[i], tensor2->items[i], became_union);
       if (next == nullptr) {
         return nullptr;
       }
@@ -183,7 +177,7 @@ static TypePtr calculate_type_lca(TypePtr a, TypePtr b) {
     std::vector<TypePtr> types_lca;
     types_lca.reserve(tuple1->size());
     for (int i = 0; i < tuple1->size(); ++i) {
-      TypePtr next = calculate_type_lca(tuple1->items[i], tuple2->items[i]);
+      TypePtr next = calculate_type_lca(tuple1->items[i], tuple2->items[i], became_union);
       if (next == nullptr) {
         return nullptr;
       }
@@ -192,11 +186,18 @@ static TypePtr calculate_type_lca(TypePtr a, TypePtr b) {
     return TypeDataTypedTuple::create(std::move(types_lca));
   }
 
-  if (a->try_as<TypeDataIntN>() && b->try_as<TypeDataIntN>()) {   // cond ? int32 : int64
-    return TypeDataInt::create();
+  if (const auto* a_alias = a->try_as<TypeDataAlias>()) {
+    return calculate_type_lca(a_alias->underlying_type, b, became_union);
+  }
+  if (const auto* b_alias = b->try_as<TypeDataAlias>()) {
+    return calculate_type_lca(a, b_alias->underlying_type, became_union);
   }
 
-  return nullptr;
+  TypePtr resulting_union = TypeDataUnion::create(std::vector{a, b});
+  if (became_union != nullptr && !a->equal_to(resulting_union) && !b->equal_to(resulting_union)) {
+    *became_union = true;
+  }
+  return resulting_union;
 }
 
 // merge (unify) of two sign states: what sign do we definitely have
@@ -241,31 +242,28 @@ BoolState calculate_bool_lca(BoolState a, BoolState b) {
 
 // see comments above TypeInferringUnifyStrategy
 // this function calculates lca or currently stored result and next
-bool TypeInferringUnifyStrategy::unify_with(TypePtr next) {
+void TypeInferringUnifyStrategy::unify_with(TypePtr next, TypePtr dest_hint) {
+  // example: `var r = ... ? int8 : int16`, will be inferred as `int8 | int16` (via unification)
+  // but `var r: int = ... ? int8 : int16`, will be inferred as `int` (it's dest_hint)
+  if (dest_hint && dest_hint != TypeDataUnknown::create() && !dest_hint->unwrap_alias()->try_as<TypeDataUnion>()) {
+    if (dest_hint->can_rhs_be_assigned(next)) {
+      next = dest_hint;
+    }
+  }
+
   if (unified_result == nullptr) {
     unified_result = next;
-    return true;
+    return;
   }
   if (unified_result == next) {
-    return true;
+    return;
   }
 
-  TypePtr combined = calculate_type_lca(unified_result, next);
-  if (!combined) {
-    return false;
-  }
+  bool became_union = false;
+  TypePtr combined = calculate_type_lca(unified_result, next, &became_union);
+  different_types_became_union |= became_union;
 
   unified_result = combined;
-  return true;
-}
-
-bool TypeInferringUnifyStrategy::unify_with_implicit_return_void() {
-  if (unified_result == nullptr) {
-    unified_result = TypeDataVoid::create();
-    return true;
-  }
-
-  return unified_result == TypeDataVoid::create();
 }
 
 // invalidate knowledge about sub-fields of a variable or its field
@@ -349,14 +347,43 @@ FlowContext FlowContext::merge_flow(FlowContext&& c1, FlowContext&& c2) {
   return FlowContext(std::move(unified), c1.unreachable && c2.unreachable);
 }
 
-// return `T`, so that `T?` = type
-// what for: `if (x != null)`, to smart cast x inside if
-TypePtr calculate_type_subtract_null(TypePtr type) {
-  if (const auto* as_nullable = type->try_as<TypeDataNullable>()) {
-    return as_nullable->inner;
+// return `T`, so that `T + subtract_type` = type
+// example: `int?` - `null` = `int`
+// example: `int | slice | builder | bool` - `bool | slice` = `int | builder`
+// what for: `if (x != null)` / `if (x is T)`, to smart cast x inside if
+TypePtr calculate_type_subtract_rhs_type(TypePtr type, TypePtr subtract_type) {
+  const TypeDataUnion* lhs_union = type->try_as<TypeDataUnion>();
+  if (!lhs_union) {
+    return TypeDataNever::create();
   }
-  // union types will be handled here
-  return TypeDataNever::create();
+
+  std::vector<TypePtr> rest_variants;
+
+  if (const TypeDataUnion* sub_union = subtract_type->try_as<TypeDataUnion>()) {
+    if (lhs_union->has_all_variants_of(sub_union)) {
+      rest_variants.reserve(lhs_union->variants.size() - sub_union->variants.size());
+      for (TypePtr lhs_variant : lhs_union->variants) {
+        if (!sub_union->has_variant_with_type_id(lhs_variant)) {
+          rest_variants.push_back(lhs_variant);
+        }
+      }
+    }
+  } else if (lhs_union->has_variant_with_type_id(subtract_type)) {
+    rest_variants.reserve(lhs_union->variants.size() - 1);
+    for (TypePtr lhs_variant : lhs_union->variants) {
+      if (lhs_variant->get_type_id() != subtract_type->get_type_id()) {
+        rest_variants.push_back(lhs_variant);
+      }
+    }
+  }
+
+  if (rest_variants.empty()) {
+    return TypeDataNever::create();
+  }
+  if (rest_variants.size() == 1) {
+    return rest_variants[0];
+  }
+  return TypeDataUnion::create(std::move(rest_variants));
 }
 
 // given any expression vertex, extract SinkExpression is possible
@@ -400,6 +427,13 @@ SinkExpression extract_sink_expression_from_vertex(AnyExprV v) {
     return extract_sink_expression_from_vertex(as_assign->get_lhs());
   }
 
+  if (auto as_decl = v->try_as<ast_local_vars_declaration>()) {
+    if (auto decl_var = as_decl->get_expr()->try_as<ast_local_var_lhs>()) {
+      tolk_assert(decl_var->var_ref);
+      return SinkExpression(decl_var->var_ref);
+    }
+  }
+
   return {};
 }
 
@@ -415,7 +449,7 @@ TypePtr calc_declared_type_before_smart_cast(AnyExprV v) {
   }
 
   if (auto as_dot = v->try_as<ast_dot_access>(); as_dot && as_dot->is_target_indexed_access()) {
-    TypePtr obj_type = as_dot->get_obj()->inferred_type;    // v already inferred; hence, index_at is correct
+    TypePtr obj_type = as_dot->get_obj()->inferred_type->unwrap_alias();    // v already inferred; hence, index_at is correct
     int index_at = std::get<int>(as_dot->target);
     if (const auto* t_tensor = obj_type->try_as<TypeDataTensor>()) {
       return t_tensor->items[index_at];
@@ -434,18 +468,32 @@ TypePtr calc_declared_type_before_smart_cast(AnyExprV v) {
 // obvious example: `var x: (int,int)? = null`, it's `null` (`x == null` is always true, `x` can be passed to any `T?`)
 // not obvious example: `var x: (int?, int?)? = (3,null)`, result is `(int?,int?)`, whereas type of rhs is `(int,null)`
 TypePtr calc_smart_cast_type_on_assignment(TypePtr lhs_declared_type, TypePtr rhs_inferred_type) {
-  // assign `T` to `T?` (or at least "assignable-to-T" to "T?")
-  // smart cast to `T`
-  if (const auto* lhs_nullable = lhs_declared_type->try_as<TypeDataNullable>()) {
-    if (lhs_nullable->inner->can_rhs_be_assigned(rhs_inferred_type)) {
-      return lhs_nullable->inner;
+  if (const TypeDataUnion* lhs_union = lhs_declared_type->unwrap_alias()->try_as<TypeDataUnion>()) {
+    // example: `var x: T? = null`, result is null
+    // example: `var x: int | (int, User?) = (5, null)`, result is `(int, User?)`
+    if (TypePtr lhs_subtype = lhs_union->calculate_exact_variant_to_fit_rhs(rhs_inferred_type)) {
+      return lhs_subtype;
     }
-  }
-
-  // assign `null` to `T?`
-  // smart cast to `null`
-  if (lhs_declared_type->try_as<TypeDataNullable>() && rhs_inferred_type == TypeDataNullLiteral::create()) {
-    return TypeDataNullLiteral::create();
+    // example: `var x: int | slice | cell = 4`, result is int
+    // example: `var x: T1 | T2 | T3 = y as T3 | T1`, result is `T1 | T3`
+    if (const TypeDataUnion* rhs_union = rhs_inferred_type->try_as<TypeDataUnion>()) {
+      bool lhs_has_all_variants_of_rhs = true;
+      for (TypePtr rhs_variant : rhs_union->variants) {
+        lhs_has_all_variants_of_rhs &= lhs_union->has_variant_with_type_id(rhs_variant);
+      }
+      if (lhs_has_all_variants_of_rhs && rhs_union->variants.size() < lhs_union->variants.size()) {
+        std::vector<TypePtr> subtypes_of_lhs;
+        for (TypePtr lhs_variant : lhs_union->variants) {
+          if (rhs_union->has_variant_with_type_id(lhs_variant)) {
+            subtypes_of_lhs.push_back(lhs_variant);
+          }
+        }
+        if (subtypes_of_lhs.size() == 1) {
+          return subtypes_of_lhs[0];
+        }
+        return TypeDataUnion::create(std::move(subtypes_of_lhs));
+      }
+    }
   }
 
   // no smart cast, type is the same as declared

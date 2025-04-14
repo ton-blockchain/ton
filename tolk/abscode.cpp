@@ -410,10 +410,19 @@ std::vector<var_idx_t> CodeBlob::create_var(TypePtr var_type, SrcLocation loc, s
       std::vector<var_idx_t> nested = create_var(t_tensor->items[i], loc, std::move(sub_name));
       ir_idx.insert(ir_idx.end(), nested.begin(), nested.end());
     }
-  } else if (const TypeDataNullable* t_nullable = var_type->try_as<TypeDataNullable>(); t_nullable && stack_w != 1) {
-    std::string null_flag_name = name.empty() ? name : name + ".NNFlag";
-    ir_idx = create_var(t_nullable->inner, loc, std::move(name));
-    ir_idx.emplace_back(create_var(TypeDataBool::create(), loc, std::move(null_flag_name))[0]);
+  } else if (const TypeDataAlias* t_alias = var_type->try_as<TypeDataAlias>()) {
+    ir_idx = create_var(t_alias->underlying_type, loc, std::move(name));
+  } else if (const TypeDataUnion* t_union = var_type->try_as<TypeDataUnion>(); t_union && stack_w != 1) {
+    std::string utag_name = name.empty() ? "'UTag" : name + ".UTag";
+    if (t_union->or_null) {   // in stack comments, `a:(int,int)?` will be "a.0 a.1 a.UTag"
+      ir_idx = create_var(t_union->or_null, loc, std::move(name));
+    } else {                  // in stack comments, `a:int|slice` will be "a.USlot1 a.UTag"
+      for (int i = 0; i < stack_w - 1; ++i) {
+        std::string slot_name = name.empty() ? "'USlot" + std::to_string(i + 1) : name + ".USlot" + std::to_string(i + 1);
+        ir_idx.emplace_back(create_var(TypeDataUnknown::create(), loc, std::move(slot_name))[0]);
+      }
+    }
+    ir_idx.emplace_back(create_var(TypeDataInt::create(), loc, std::move(utag_name))[0]);
   } else if (var_type != TypeDataVoid::create() && var_type != TypeDataNever::create()) {
 #ifdef TOLK_DEBUG
     tolk_assert(stack_w == 1);
