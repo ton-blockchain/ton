@@ -1713,17 +1713,18 @@ bool MtCarloComputeShare::compute() {
 }
 
 void MtCarloComputeShare::gen_vset() {
-  double total_wt = 1.;
+  constexpr int precision = 1000000;
+  int total_wt = precision;
   int hc = 0;
   for (int i = 0; i < K; i++) {
     CHECK(total_wt > 0);
-    double inv_wt = 1. / total_wt;
+    double inv_wt = (double)precision / total_wt;
     R0 += inv_wt;
     for (int j = 0; j < i; j++) {
       RW[A[j]] -= inv_wt;
     }
     // double p = drand48() * total_wt;
-    double p = (double)td::Random::fast_uint64() * total_wt / (1. * (1LL << 32) * (1LL << 32));
+    double p = (double)td::Random::fast_uint64() / precision * total_wt / (1. * (1LL << 32) * (1LL << 32));
     for (int h = 0; h < hc; h++) {
       if (p < H[h].first) {
         break;
@@ -1740,8 +1741,9 @@ void MtCarloComputeShare::gen_vset() {
       }
     }
     CHECK(a >= 0 && a < N);
-    CHECK(total_wt >= W[a]);
-    total_wt -= W[a];
+    const int Wa = static_cast<int>(W[a] * precision);
+    CHECK(total_wt >= Wa);
+    total_wt -= Wa;
     double x = CW[a];
     c = hc++;
     while (c > 0 && H[c - 1].first > x) {
