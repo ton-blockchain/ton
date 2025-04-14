@@ -889,6 +889,18 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
     return rvect;
   }
 
+  // pass slice to address
+  // no changes in rvect: address is TVM slice under the hood
+  if (original_type == TypeDataSlice::create() && target_type == TypeDataAddress::create()) {
+    return rvect;
+  }
+
+  // pass address to slice
+  // same, no changes in rvect
+  if (original_type == TypeDataAddress::create() && target_type == TypeDataSlice::create()) {
+    return rvect;
+  }
+
   throw Fatal("unhandled transition_expr_to_runtime_type_impl() combination");
 }
 
@@ -1028,6 +1040,20 @@ static std::vector<var_idx_t> process_binary_operator(V<ast_binary_operator> v, 
     code.emplace_back(v->loc, Op::_Let, rvect, pre_compile_expr(t == tok_logical_and ? v_0 : v_b_ne_0, code, nullptr));
     code.close_pop_cur(v->loc);
     return transition_to_target_type(std::move(rvect), code, target_type, v);
+  }
+  if (t == tok_eq || t == tok_neq) {
+    if (v->get_lhs()->inferred_type->unwrap_alias() == TypeDataAddress::create() && v->get_rhs()->inferred_type->unwrap_alias() == TypeDataAddress::create()) {
+      FunctionPtr f_sliceEq = lookup_global_symbol("slice.bitsEqual")->try_as<FunctionPtr>();
+      std::vector<var_idx_t> ir_lhs_slice = pre_compile_expr(v->get_lhs(), code);
+      std::vector<var_idx_t> ir_rhs_slice = pre_compile_expr(v->get_rhs(), code);
+      std::vector<var_idx_t> rvect = code.create_tmp_var(TypeDataBool::create(), v->loc, "(addr-eq)");
+      code.emplace_back(v->loc, Op::_Call, rvect, std::vector{ir_lhs_slice[0], ir_rhs_slice[0]}, f_sliceEq);
+      if (t == tok_neq) {
+        FunctionPtr not_sym = lookup_global_symbol("!b_")->try_as<FunctionPtr>();
+        code.emplace_back(v->loc, Op::_Call, rvect, rvect, not_sym);
+      }
+      return transition_to_target_type(std::move(rvect), code, target_type, v);
+    }
   }
 
   throw UnexpectedASTNodeKind(v, "process_binary_operator");

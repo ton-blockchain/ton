@@ -183,7 +183,7 @@ fun test111() {
         .endCell().beginParse();
     var op1 = s.loadUint(32);
     var q1 = s.loadUint(64);
-    if (addressIsNone(s)) {
+    if ((s as address).isNone()) {
         s.skipBits(2);
     }
     if (s.loadBool() == false) {

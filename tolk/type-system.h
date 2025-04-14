@@ -256,6 +256,25 @@ public:
 };
 
 /*
+ * `address` is TypeDataAddress — TVM slice under the hood, but since it's a very common use case,
+ * it's extracted as a separate type (not as a struct with slice field, but just a dedicated type).
+ */
+class TypeDataAddress final : public TypeData {
+  TypeDataAddress() : TypeData(0, 1) {}
+
+  static TypePtr singleton;
+  friend void type_system_init();
+
+public:
+  static TypePtr create() { return singleton; }
+
+  int get_type_id() const override { return 8; }
+  std::string as_human_readable() const override { return "address"; }
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+};
+
+/*
  * `null` has TypeDataNullLiteral type.
  * It can be assigned only to nullable types (`int?`, etc.), to ensure null safety.
  * Note, that `var i = null`, though valid (i would be constant null), fires an "always-null" compilation error

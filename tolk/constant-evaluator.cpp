@@ -73,9 +73,9 @@ static bool parse_raw_address(std::string_view acc_string, int& workchain, ton::
     int x;
     if (c >= '0' && c <= '9') {
       x = c - '0';
-    } else if (c >= 'a' && c <= 'z') {
+    } else if (c >= 'a' && c <= 'f') {
       x = c - 'a' + 10;
-    } else if (c >= 'A' && c <= 'Z') {
+    } else if (c >= 'A' && c <= 'F') {
       x = c - 'A' + 10;
     } else {
       return false;
@@ -88,6 +88,23 @@ static bool parse_raw_address(std::string_view acc_string, int& workchain, ton::
     }
   }
   return true;
+}
+
+static void parse_any_std_address(std::string_view str, SrcLocation loc, unsigned char (*data)[3 + 8 + 256]) {
+  ton::WorkchainId workchain;
+  ton::StdSmcAddress addr;
+  bool correct = (str.size() == 48 && parse_friendly_address(str.data(), workchain, addr)) ||
+                 (str.size() != 48 && parse_raw_address(str, workchain, addr));
+  if (!correct) {
+    throw ParseError(loc, "invalid standard address");
+  }
+  if (workchain < -128 || workchain >= 128) {
+    throw ParseError(loc, "anycast addresses not supported");
+  }
+
+  td::bitstring::bits_store_long_top(*data, 0, static_cast<uint64_t>(4) << (64 - 3), 3);
+  td::bitstring::bits_store_long_top(*data, 3, static_cast<uint64_t>(workchain) << (64 - 8), 8);
+  td::bitstring::bits_memcpy(*data, 3 + 8, addr.bits().ptr, 0, ton::StdSmcAddress::size());
 }
 
 // internal helper: for `ton("0.05")`, parse string literal "0.05" to 50000000
@@ -106,6 +123,7 @@ static td::RefInt256 parse_nanotons_as_floating_string(SrcLocation loc, std::str
   // parse "0.05" into integer part (before dot) and fractional (after)
   int64_t integer_part = 0;
   int64_t fractional_part = 0;
+  int integer_digits = 0;
   int fractional_digits = 0;
   bool seen_dot = false;
 
@@ -119,6 +137,9 @@ static td::RefInt256 parse_nanotons_as_floating_string(SrcLocation loc, std::str
     } else if (c >= '0' && c <= '9') {
       if (!seen_dot) {
         integer_part = integer_part * 10 + (c - '0');
+        if (++integer_digits > 9) {
+          throw ParseError(loc, "argument is too big and leads to overflow");
+        }
       } else if (fractional_digits < 9) {
         fractional_part = fractional_part * 10 + (c - '0');
         fractional_digits++;
@@ -161,6 +182,12 @@ static CompileTimeFunctionResult parse_vertex_call_to_compile_time_function(V<as
     return parse_nanotons_as_floating_string(v_arg->loc, str);
   }
 
+  if (f_name == "address")     {          // previously, postfix "..."a, but it returned `slice` (now returns `address`)
+    unsigned char data[3 + 8 + 256];      // addr_std$10 anycast:(Maybe Anycast) workchain_id:int8 address:bits256 = MsgAddressInt;
+    parse_any_std_address(str, v_arg->loc, &data);
+    return td::BitSlice{data, sizeof(data)}.to_hex();
+  }
+
   if (f_name == "stringCrc32") {          // previously, postfix "..."c
     return td::make_refint(td::crc32(td::Slice{str.data(), str.size()}));
   }
@@ -179,25 +206,6 @@ static CompileTimeFunctionResult parse_vertex_call_to_compile_time_function(V<as
     unsigned char hash[32];
     digest::hash_str<digest::SHA256>(hash, str.data(), str.size());
     return td::bits_to_refint(hash, 32, false);
-  }
-
-  if (f_name == "stringAddressToSlice") { // previously, postfix "..."a
-    ton::WorkchainId workchain;
-    ton::StdSmcAddress addr;
-    bool correct = (str.size() == 48 && parse_friendly_address(str.data(), workchain, addr)) ||
-                   (str.size() != 48 && parse_raw_address(str, workchain, addr));
-    if (!correct) {
-      v_arg->error("invalid standard address");
-    }
-    if (workchain < -128 || workchain >= 128) {
-      v_arg->error("anycast addresses not supported");
-    }
-
-    unsigned char data[3 + 8 + 256];  // addr_std$10 anycast:(Maybe Anycast) workchain_id:int8 address:bits256 = MsgAddressInt;
-    td::bitstring::bits_store_long_top(data, 0, static_cast<uint64_t>(4) << (64 - 3), 3);
-    td::bitstring::bits_store_long_top(data, 3, static_cast<uint64_t>(workchain) << (64 - 8), 8);
-    td::bitstring::bits_memcpy(data, 3 + 8, addr.bits().ptr, 0, ton::StdSmcAddress::size());
-    return td::BitSlice{data, sizeof(data)}.to_hex();
   }
 
   if (f_name == "stringHexToSlice") {     // previously, postfix "..."s

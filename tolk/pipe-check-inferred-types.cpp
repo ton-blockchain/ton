@@ -155,6 +155,20 @@ static bool expect_boolean(AnyExprV v_inferred) {
   return expect_boolean(v_inferred->inferred_type);
 }
 
+static bool expect_address(TypePtr inferred_type) {
+  if (inferred_type == TypeDataAddress::create()) {
+    return true;
+  }
+  if (const TypeDataAlias* as_alias = inferred_type->try_as<TypeDataAlias>()) {
+    return expect_address(as_alias->underlying_type);
+  }
+  return false;
+}
+
+static bool expect_address(AnyExprV v_inferred) {
+  return expect_address(v_inferred->inferred_type);
+}
+
 class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
   FunctionPtr cur_f = nullptr;          // may be nullptr if checking `const a = ...` init_value
 
@@ -211,7 +225,10 @@ protected:
         bool both_int = expect_integer(lhs) && expect_integer(rhs);
         bool both_bool = expect_boolean(lhs) && expect_boolean(rhs);
         if (!both_int && !both_bool) {
-          if (lhs->inferred_type->equal_to(rhs->inferred_type)) {  // compare slice with slice, int? with int?
+          bool both_address = expect_address(lhs) && expect_address(rhs);
+          if (both_address) {     // address can be compared with ==, but it's not integer comparison, it's handled specially
+            v->mutate()->assign_fun_ref(nullptr);
+          } else if (lhs->inferred_type->equal_to(rhs->inferred_type)) {  // compare slice with slice, int? with int?
             fire(cur_f, v->loc, "type " + to_string(lhs) + " can not be compared with `== !=`");
           } else {
             fire_error_cannot_apply_operator(cur_f, v->loc, v->operator_name, lhs, rhs);

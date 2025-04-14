@@ -107,6 +107,7 @@ static TypePtr try_parse_predefined_type(std::string_view str) {
       break;
     case 7:
       if (str == "builder") return TypeDataBuilder::create();
+      if (str == "address") return TypeDataAddress::create();
       break;
     case 8:
       if (str == "varint16") return TypeDataIntN::create(false, true, 16);

@@ -133,10 +133,10 @@ fun mulDivMod(x: int, y: int, z: int): (int, int)
 /// Example: `contract.getCode()` and other methods.
 struct contract {}
 
-/// Returns the internal address of the current smart contract as a Slice with a `MsgAddressInt`.
-/// If necessary, it can be parsed further using primitives such as [parseStandardAddress].
+/// Returns the internal address of the current smart contract.
+/// If necessary, it can be parsed further using [address.getWorkchain] and others.
 @pure
-fun contract.getAddress(): slice
+fun contract.getAddress(): address
     asm "MYADDR";
 
 /// Returns the balance (in nanotoncoins) of the smart contract at the start of Computation Phase.
@@ -407,15 +407,6 @@ fun debug.dumpStack(): void
     When you _preload_ some data, you just get the result without mutating the slice.
  */
 
-/// Compile-time function that converts a constant string to TL-encoded MsgAddressInt (TVM slice).
-/// Example: stringAddressToSlice("EQCRDM9h4k3UJdOePPuyX40mCgA4vxge5Dc5vjBR8djbEKC5")
-/// Example: stringAddressToSlice("0:527964d55cfa6eb731f4bfc07e9d025098097ef8505519e853986279bd8400d8")
-/// Note: it's a compile-time function, `stringAddressToSlice(slice_var)` does not work.
-/// Use `parseStandardAddress` to decode a slice at runtime into workchain and hash.
-@pure
-fun stringAddressToSlice(constStringAddress: slice): slice
-    builtin;
-
 /// Compile-time function that converts a constant hex-encoded string to N/2 bytes.
 /// Example: `const v = stringHexToSlice("abcdef")` = slice with 3 bytes `[ 0xAB, 0xCD, 0xEF ]`
 /// Note: stringHexToSlice(slice_var) does not work! It accepts a constant string and works at compile-time.
@@ -573,6 +564,11 @@ fun builder.storeUint(mutate self, x: int, len: int): self
 fun builder.storeSlice(mutate self, s: slice): self
     asm "STSLICER";
 
+/// Stores an address into a builder.
+@pure
+fun builder.storeAddress(mutate self, addr: address): self
+    asm "STSLICER";
+
 /// Stores amount of Toncoins into a builder.
 @pure
 fun builder.storeCoins(mutate self, x: coins): self
@@ -694,37 +690,64 @@ fun builder.bitsCount(self): int
     where `u`, `x`, and `s` have the same meaning as for `addr_std`.
  */
 
-/// Loads from slice [s] the only prefix that is a valid `MsgAddress`,
-/// and returns both this prefix `s'` and the remainder `s''` of [s] as slices.
+/// Compile-time function that parses a valid contract address.
+/// Example: address("EQCRDM9h4k3UJdOePPuyX40mCgA4vxge5Dc5vjBR8djbEKC5")
+/// Example: address("0:527964d55cfa6eb731f4bfc07e9d025098097ef8505519e853986279bd8400d8")
+/// Returns `address`, which can be stored in a builder, compared with `==`, etc.
 @pure
-fun slice.loadAddress(mutate self): slice
-    asm( -> 1 0) "LDMSGADDR";
-
-/// Decomposes slice [s] containing a valid `MsgAddress` into a `tuple t` with separate fields of this `MsgAddress`.
-/// If [s] is not a valid `MsgAddress`, a cell deserialization exception is thrown.
-@pure
-fun parseAddress(s: slice): tuple
-    asm "PARSEMSGADDR";
-
-/// Parses slice [s] containing a valid `MsgAddressInt` (usually a `msg_addr_std`),
-/// applies rewriting from the anycast (if present) to the same-length prefix of the address,
-/// and returns both the workchain and the 256-bit address as integers.
-/// If the address is not 256-bit, or if [s] is not a valid serialization of `MsgAddressInt`,
-/// throws a cell deserialization exception.
-@pure
-fun parseStandardAddress(s: slice): (int, int)
-    asm "REWRITESTDADDR";
+fun address(stdAddress: slice): address
+    builtin;
 
 /// Creates a slice representing TL addr_none$00 (two `0` bits).
 @pure
-fun createAddressNone(): slice
+fun createAddressNone(): address
     asm "b{00} PUSHSLICE";
 
-/// Returns if a slice pointer contains an empty address.
-/// In other words, a slice starts with two `0` bits (TL addr_none$00).
+/// Returns if it's an empty address.
+/// Don't confuse it with null! Empty address is a slice with two `0` bits.
+/// In TL/B, it's addr_none$00.
 @pure
-fun addressIsNone(s: slice): bool
-    asm "2 PLDU" "0 EQINT";
+fun address.isNone(self): bool
+    asm "b{00} SDBEGINSQ" "NIP";
+
+/// Returns if it's a standard (internal) address. Such addresses contain workchain (8 bits) and hash (256 bits).
+/// All contract addresses are internal, so it's the most practical use case.
+/// In TL/B it's addr_std$10.
+/// For internal addresses, you can call [address.getWorkchain] and [address.getWorkchainAndHash].
+@pure
+fun address.isInternal(self): bool
+    asm "b{10} SDBEGINSQ" "NIP";
+
+/// Returns if it's an external address, used to communication with the outside world.
+/// In TL/B it's addr_extern$01.
+@pure
+fun address.isExternal(self): bool
+    asm "b{01} SDBEGINSQ" "NIP";
+
+/// Extracts workchain and hash from a standard (internal) address.
+/// If the address is not internal, throws a cell deserialization exception.
+@pure
+fun address.getWorkchainAndHash(self): (int8, uint256)
+    asm "REWRITESTDADDR";
+
+/// Extracts workchain from a standard (internal) address.
+/// If the address is not internal, throws a cell deserialization exception.
+@pure
+fun address.getWorkchain(self): int8
+    asm "REWRITESTDADDR" "DROP";
+
+/// Checks whether two addresses are equal. Equivalent to `a == b`.
+/// Deprecated! Left for smoother transition from FunC, where you used `slice` everywhere.
+/// Use just `a == b` and `a != b` to compare addresses, don't use bitsEqual.
+@pure
+@deprecated("use `senderAddress == ownerAddress`, not `senderAddress.bitsEqual(ownerAddress)`")
+fun address.bitsEqual(self, b: address): bool
+    asm "SDEQ";
+
+/// Loads from slice [s] a valid `MsgAddress` (none/internal/external).
+@pure
+fun slice.loadAddress(mutate self): address
+    asm( -> 1 0) "LDMSGADDR";
 
 
 /**

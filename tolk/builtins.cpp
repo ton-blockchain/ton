@@ -1263,10 +1263,10 @@ void define_builtins() {
   define_builtin_func("stringToBase256", {TypeDataUnknown::create()}, TypeDataInt::create(), nullptr,
                               compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeOnly);
-  define_builtin_func("stringAddressToSlice", {TypeDataUnknown::create()}, TypeDataSlice::create(), nullptr,
+  define_builtin_func("stringHexToSlice", {TypeDataUnknown::create()}, TypeDataSlice::create(), nullptr,
                               compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeOnly);
-  define_builtin_func("stringHexToSlice", {TypeDataUnknown::create()}, TypeDataSlice::create(), nullptr,
+  define_builtin_func("address", {TypeDataUnknown::create()}, TypeDataAddress::create(), nullptr,
                               compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeOnly);
 

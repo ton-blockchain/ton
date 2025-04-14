@@ -135,6 +135,7 @@ TypePtr TypeDataSlice::singleton;
 TypePtr TypeDataBuilder::singleton;
 TypePtr TypeDataTuple::singleton;
 TypePtr TypeDataContinuation::singleton;
+TypePtr TypeDataAddress::singleton;
 TypePtr TypeDataNullLiteral::singleton;
 TypePtr TypeDataCoins::singleton;
 TypePtr TypeDataUnknown::singleton;
@@ -149,6 +150,7 @@ void type_system_init() {
   TypeDataBuilder::singleton = new TypeDataBuilder;
   TypeDataTuple::singleton = new TypeDataTuple;
   TypeDataContinuation::singleton = new TypeDataContinuation;
+  TypeDataAddress::singleton = new TypeDataAddress;
   TypeDataNullLiteral::singleton = new TypeDataNullLiteral;
   TypeDataCoins::singleton = new TypeDataCoins;
   TypeDataUnknown::singleton = new TypeDataUnknown;
@@ -691,7 +693,7 @@ bool TypeDataSlice::can_rhs_be_assigned(TypePtr rhs) const {
   if (const TypeDataAlias* rhs_alias = rhs->try_as<TypeDataAlias>()) {
     return can_rhs_be_assigned(rhs_alias->underlying_type);
   }
-  return rhs == TypeDataNever::create();   // note, that bytesN is NOT automatically cast to slice without `as` operator
+  return rhs == TypeDataNever::create();   // note, that bytesN/address is NOT automatically cast to slice without `as` operator
 }
 
 bool TypeDataBuilder::can_rhs_be_assigned(TypePtr rhs) const {
@@ -722,6 +724,16 @@ bool TypeDataContinuation::can_rhs_be_assigned(TypePtr rhs) const {
     return can_rhs_be_assigned(rhs_alias->underlying_type);
   }
   return rhs == TypeDataNever::create();
+}
+
+bool TypeDataAddress::can_rhs_be_assigned(TypePtr rhs) const {
+  if (rhs == this) {
+    return true;
+  }
+  if (const TypeDataAlias* rhs_alias = rhs->try_as<TypeDataAlias>()) {
+    return can_rhs_be_assigned(rhs_alias->underlying_type);
+  }
+  return rhs == TypeDataNever::create();   // note, that slice is NOT automatically cast to address without `as` operator
 }
 
 bool TypeDataNullLiteral::can_rhs_be_assigned(TypePtr rhs) const {
@@ -952,6 +964,9 @@ bool TypeDataSlice::can_be_casted_with_as_operator(TypePtr cast_to) const {
   if (cast_to->try_as<TypeDataBytesN>()) {  // `slice` to `bytes32` / `slice` to `bits8`
     return true;
   }
+  if (cast_to == TypeDataAddress::create()) {
+    return true;
+  }
   if (const TypeDataUnion* to_union = cast_to->try_as<TypeDataUnion>()) {
     return can_be_casted_to_union(this, to_union);
   }
@@ -982,6 +997,19 @@ bool TypeDataTuple::can_be_casted_with_as_operator(TypePtr cast_to) const {
 }
 
 bool TypeDataContinuation::can_be_casted_with_as_operator(TypePtr cast_to) const {
+  if (const TypeDataUnion* to_union = cast_to->try_as<TypeDataUnion>()) {
+    return can_be_casted_to_union(this, to_union);
+  }
+  if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
+    return can_be_casted_with_as_operator(to_alias->underlying_type);
+  }
+  return cast_to == this;
+}
+
+bool TypeDataAddress::can_be_casted_with_as_operator(TypePtr cast_to) const {
+  if (cast_to == TypeDataSlice::create()) {
+    return true;
+  }
   if (const TypeDataUnion* to_union = cast_to->try_as<TypeDataUnion>()) {
     return can_be_casted_to_union(this, to_union);
   }
@@ -1106,7 +1134,7 @@ bool TypeDataBytesN::can_be_casted_with_as_operator(TypePtr cast_to) const {
   if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
     return can_be_casted_with_as_operator(to_alias->underlying_type);
   }
-  return cast_to == TypeDataSlice::create();
+  return cast_to == TypeDataSlice::create() || cast_to == TypeDataAddress::create();
 }
 
 bool TypeDataCoins::can_be_casted_with_as_operator(TypePtr cast_to) const {
