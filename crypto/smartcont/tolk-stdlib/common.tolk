@@ -843,7 +843,7 @@ fun slice.remainingBitsAndRefsCount(self): (int, int)
 
 /// Checks whether a slice is empty (i.e., contains no bits of data and no cell references).
 @pure
-fun slice.isEnd(self): bool
+fun slice.isEmpty(self): bool
     asm "SEMPTY";
 
 /// Checks whether a slice has no bits of data.
@@ -1311,6 +1311,45 @@ fun sendRawMessage(msg: cell, mode: int): void
     Receiving and handling messages.
 */
 
+/// InMessage is an input for `onInternalMessage` — when your contract accepts a non-bounced message.
+/// Internally, some data exist on the stack, some can be acquired with TVM instructions.
+/// The compiler replaces `in.someField` and gets a value correctly.
+/// Example:
+/// ```
+/// fun onInternalMessage(in: InMessage) {
+///     in.senderAddress   // actually calls `INMSG_SRC` asm instruction
+///     in.body            // actually gets from a TVM stack
+/// ```
+struct InMessage {
+    senderAddress: address;         // an internal address from which the message arrived
+    valueCoins: coins;              // ton amount attached to an incoming message
+    valueExtra: dict;               // extra currencies attached to an incoming message
+    originalForwardFee: coins;      // fee that was paid by the sender
+    createdLt: uint64;              // logical time when a message was created
+    createdAt: uint32;              // unixtime when a message was created
+    body: slice;                    // message body, parse it with `lazy AllowedMsg.fromSlice(in.body)`
+}
+
+/// InMessageBounced is an input for `onBouncedMessage`.
+/// Very similar to a non-bounced input [InMessage].
+/// Note, that `bouncedBody` is currently 256 bits: 0xFFFFFFFF + 224 bits from the originally sent message.
+/// Parse it with care!
+/// Example:
+/// ```
+/// fun onBouncedMessage(in: InMessageBounced) {
+///     in.bouncedBody.skipBouncedPrefix();
+///     val originalOpcode = in.bouncedBody.loadUint(32);
+/// ```
+struct InMessageBounced {
+    senderAddress: address;         // an internal address from which the message was bounced
+    valueCoins: coins;              // ton amount attached to a message
+    valueExtra: dict;               // extra currencies attached to a message
+    originalForwardFee: coins;      // comission that the sender has payed to send this message
+    createdLt: uint64;              // logical time when a message was created (and bounced)
+    createdAt: uint32;              // unixtime when a message was created (and bounced)
+    bouncedBody: slice;             // currently 256 bits: 0xFFFFFFFF + 224 bits sent originally
+}
+
 /// Skip 0xFFFFFFFF prefix (when a message is bounced).
 @pure
 fun slice.skipBouncedPrefix(mutate self): self
@@ -1318,7 +1357,7 @@ fun slice.skipBouncedPrefix(mutate self): self
 
 /// Load msgFlags from incoming message body (4 bits).
 @pure
-@deprecated("use `onInternalMessage(in: InMessage)` and `in.isBounced` instead of parsing msgCell manually")
+@deprecated("use `onBouncedMessage` handler instead of parsing msgCell flags manually")
 fun slice.loadMessageFlags(mutate self): int
     asm( -> 1 0) "4 LDU";
 
@@ -1348,4 +1387,5 @@ fun slice.skipMessageQueryId(mutate self): self
 @deprecated("use `createMessage` instead of composing messages manually")
 fun builder.storeMessageQueryId(mutate self, queryId: int): self
     asm(queryId self) "64 STU";
+
 

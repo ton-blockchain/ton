@@ -23,8 +23,10 @@
 #include "common/refint.h"
 #include "smart-casts-cfg.h"
 #include "pack-unpack-api.h"
+#include "gen-entrypoints.h"
 #include "generics-helpers.h"
 #include "send-message-api.h"
+#include "gen-entrypoints.h"
 
 /*
  *   This pipe is the last one operating AST: it transforms AST to IR.
@@ -1965,6 +1967,11 @@ static std::vector<var_idx_t> process_artificial_aux_vertex(V<ast_artificial_aux
     return transition_to_target_type(std::move(ir_match), code, target_type, v);
   }
 
+  if (const auto* data = dynamic_cast<const AuxData_OnInternalMessage_getField*>(v->aux_data)) {
+    std::vector<var_idx_t> rvect = data->generate_get_InMessage_field(code, v->loc);
+    return transition_to_target_type(std::move(rvect), code, target_type, v);
+  }
+
   tolk_assert(false);
 }
 
@@ -2303,6 +2310,10 @@ static void convert_function_body_to_CodeBlob(FunctionPtr fun_ref, FunctionBodyC
   blob->emplace_back(fun_ref->loc, Op::_Import, rvect_import);
   blob->in_var_cnt = blob->var_cnt;
   tolk_assert(blob->var_cnt == total_arg_width);
+
+  if (fun_ref->name == "onInternalMessage") {
+    handle_onInternalMessage_codegen_start(fun_ref, rvect_import, *blob, fun_ref->loc);
+  }
 
   process_block_statement(v_body, *blob);
   append_implicit_return_statement(v_body->loc_end, *blob);

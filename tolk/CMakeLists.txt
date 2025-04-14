@@ -6,6 +6,7 @@ set(TOLK_SOURCE
         ast.cpp
         ast-from-tokens.cpp
         constant-evaluator.cpp
+		gen-entrypoints.cpp
         pack-unpack-api.cpp
         pack-unpack-serializers.cpp
         send-message-api.cpp
@@ -24,6 +25,7 @@ set(TOLK_SOURCE
         pipe-optimize-boolean-expr.cpp
         pipe-detect-inline-in-place.cpp
         pipe-lazy-load-insertions.cpp
+        pipe-transform-on-message.cpp
         pipe-ast-to-legacy.cpp
         pipe-find-unused-symbols.cpp
         pipe-generate-fif-output.cpp

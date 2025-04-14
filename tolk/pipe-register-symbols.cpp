@@ -52,6 +52,9 @@ static int calculate_tvm_method_id_for_entrypoint(std::string_view func_name) {
   if (func_name == "onSplitInstall") {
     return -4;
   }
+  if (func_name == "onBouncedMessage") {
+    return FunctionData::EMPTY_TVM_METHOD_ID;
+  }
   tolk_assert(false);
 }
 

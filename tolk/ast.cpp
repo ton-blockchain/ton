@@ -75,6 +75,9 @@ AnnotationKind Vertex<ast_annotation>::parse_kind(std::string_view name) {
   if (name == "@overflow1023_policy") {
     return AnnotationKind::overflow1023_policy;
   }
+  if (name == "@on_bounced_policy") {
+    return AnnotationKind::on_bounced_policy;
+  }
   return AnnotationKind::unknown;
 }
 

@@ -975,6 +975,24 @@ static AsmOp compile_throw_if_unless(std::vector<VarDescr>& res, std::vector<Var
   }
 }
 
+static AsmOp compile_calc_InMessage_originalForwardFee(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
+  return exec_op(loc, "GETORIGINALFWDFEE", 2);
+}
+
+static AsmOp compile_calc_InMessage_getInMsgParam(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
+  // instead of "0 INMSGPARAM", generate "INMSG_BOUNCE", etc. — these are aliases in Asm.fif
+  static const char* aliases[] = {
+    "INMSG_BOUNCE", "INMSG_BOUNCED", "INMSG_SRC", "INMSG_FWDFEE", "INMSG_LT", "INMSG_UTIME", "INMSG_ORIGVALUE", "INMSG_VALUE", "INMSG_VALUEEXTRA", "INMSG_STATEINIT",
+  };
+  tolk_assert(res.size() == 1 && args.size() == 1 && args[0].is_int_const());
+  args[0].unused();
+  size_t idx = args[0].int_const->to_long();
+  if (idx < std::size(aliases)) {
+    return exec_op(loc, aliases[idx], 0);
+  }
+  return exec_arg_op(loc, "INMSGPARAM", args[0].int_const, 1);
+}
+
 static AsmOp compile_throw_arg(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
   tolk_assert(res.empty() && args.size() == 2);
   VarDescr &x = args[1];
@@ -1363,6 +1381,12 @@ void define_builtins() {
                                 0);
   define_builtin_func("__throw_if_unless", ParamsInt3, Unit, nullptr,
                               compile_throw_if_unless,
+                                0);
+  define_builtin_func("__InMessage.originalForwardFee", ParamsInt2, Int, nullptr,
+                                compile_calc_InMessage_originalForwardFee,
+                                0);
+  define_builtin_func("__InMessage.getInMsgParam", ParamsInt1, Int, nullptr,
+                                compile_calc_InMessage_getInMsgParam,
                                 0);
 
   // compile-time only functions, evaluated essentially at compile-time, no runtime implementation

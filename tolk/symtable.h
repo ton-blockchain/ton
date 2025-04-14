@@ -112,7 +112,7 @@ struct FunctionData final : Symbol {
     flagMarkedAsPure = 16,      // declared as `pure`, can't call impure and access globals, unused invocations are optimized out
     flagImplicitReturn = 32,    // control flow reaches end of function, so it needs implicit return at the end
     flagContractGetter = 64,    // was declared via `get func(): T`, tvm_method_id is auto-assigned
-    flagIsEntrypoint = 128,     // it's `main` / `onExternalMessage` / etc.
+    flagIsEntrypoint = 128,    // it's `main` / `onExternalMessage` / etc.
     flagHasMutateParams = 256,  // has parameters declared as `mutate`
     flagAcceptsSelf = 512,      // is a member function (has `self` first parameter)
     flagReturnsSelf = 1024,     // return type is `self` (returns the mutated 1st argument), calls can be chainable
@@ -120,6 +120,7 @@ struct FunctionData final : Symbol {
     flagCompileTimeVal = 4096,  // calculated only at compile-time for constant arguments: `ton("0.05")`, `stringCrc32`, and others
     flagCompileTimeGen = 8192,  // at compile-time it's handled specially, not as a regular function: `T.toCell`, etc.
     flagAllowAnyWidthT = 16384, // for built-in generic functions that <T> is not restricted to be 1-slot type
+    flagManualOnBounce = 32768, // for onInternalMessage, don't insert "if (isBounced) return"
   };
 
   int tvm_method_id = EMPTY_TVM_METHOD_ID;
@@ -184,6 +185,7 @@ struct FunctionData final : Symbol {
 
   int get_num_params() const { return static_cast<int>(parameters.size()); }
   const LocalVarData& get_param(int idx) const { return parameters[idx]; }
+  LocalVarPtr find_param(std::string_view name) const;
 
   bool is_code_function() const { return std::holds_alternative<FunctionBodyCode*>(body); }
   bool is_asm_function() const { return std::holds_alternative<FunctionBodyAsm*>(body); }
@@ -210,6 +212,7 @@ struct FunctionData final : Symbol {
   bool is_compile_time_const_val() const { return flags & flagCompileTimeVal; }
   bool is_compile_time_special_gen() const { return flags & flagCompileTimeGen; }
   bool is_variadic_width_T_allowed() const { return flags & flagAllowAnyWidthT; }
+  bool is_manual_on_bounce() const { return flags & flagManualOnBounce; }
 
   bool does_need_codegen() const;
 

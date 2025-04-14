@@ -953,6 +953,9 @@ class InferTypesAndCallsAndFieldsVisitor final {
         if (fun_ref->is_compile_time_const_val() || fun_ref->is_compile_time_special_gen()) {
           fire(cur_f, v->loc, "can not get reference to this function, it's compile-time only");
         }
+        if (fun_ref->is_entrypoint()) {
+          fire(cur_f, v->loc, "can not get reference to this function, it's a special entrypoint");
+        }
         fun_ref->mutate()->assign_is_used_as_noncall();
         get_or_infer_return_type(fun_ref);
         assign_inferred_type(v, fun_ref->inferred_full_type);
@@ -1157,6 +1160,11 @@ class InferTypesAndCallsAndFieldsVisitor final {
       }
       assign_inferred_type(v, f_callable->return_type);
       return ExprFlow(std::move(flow), used_as_condition);
+    }
+
+    // prevent calling `onBouncedMessage()` and other special functions directly
+    if (fun_ref->is_entrypoint()) {
+      fire(cur_f, v->loc, fun_ref->name + " is a special entrypoint, it can not be called as a regular function");
     }
 
     // so, we have a call `f(args)` or `obj.f(args)`, f is fun_ref (function / method) (code / asm / builtin)

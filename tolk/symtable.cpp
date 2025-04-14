@@ -42,6 +42,15 @@ std::string StructData::as_human_readable() const {
   return name + genericTs->as_human_readable();
 }
 
+LocalVarPtr FunctionData::find_param(std::string_view name) const {
+  for (const LocalVarData& param_data : parameters) {
+    if (param_data.name == name) {
+      return &param_data;
+    }
+  }
+  return nullptr;
+}
+
 bool FunctionData::does_need_codegen() const {
   // when a function is declared, but not referenced from code in any way, don't generate its body
   if (!is_really_used() && G.settings.remove_unused_functions) {

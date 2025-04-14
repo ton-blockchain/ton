@@ -227,7 +227,9 @@ protected:
     }
 
     // okay, this function will be inlined, mark the flag
-    if (will_inline && fun_ref->n_times_called) {
+    bool is_called = fun_ref->n_times_called
+                  || fun_ref->name == "onBouncedMessage";   // implicitly called by the compiler from onInternalMessage()
+    if (will_inline && is_called) {
       fun_ref->mutate()->assign_inline_mode_in_place();
     }
   }

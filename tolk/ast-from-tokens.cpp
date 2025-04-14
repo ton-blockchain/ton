@@ -1376,7 +1376,8 @@ static V<ast_annotation> parse_annotation(Lexer& lex) {
         throw ParseError(loc, "expecting `(number)` after " + static_cast<std::string>(name));
       }
       break;
-    case AnnotationKind::overflow1023_policy: {
+    case AnnotationKind::overflow1023_policy:
+    case AnnotationKind::on_bounced_policy: {
       if (!v_arg || v_arg->size() != 1 || v_arg->get_item(0)->kind != ast_string_const) {
         throw ParseError(loc, "expecting `(\"policy_name\")` after " + static_cast<std::string>(name));
       }
@@ -1410,7 +1411,8 @@ static AnyV parse_function_declaration(Lexer& lex, const std::vector<V<ast_annot
   std::string_view f_name = lex.cur_str();
   bool is_entrypoint = !receiver_type && (
         f_name == "main" || f_name == "onInternalMessage" || f_name == "onExternalMessage" ||
-        f_name == "onRunTickTock" || f_name == "onSplitPrepare" || f_name == "onSplitInstall");
+        f_name == "onRunTickTock" || f_name == "onSplitPrepare" || f_name == "onSplitInstall" ||
+        f_name == "onBouncedMessage");
   bool is_FunC_entrypoint = !receiver_type && (
         f_name == "recv_internal" || f_name == "recv_external" ||
         f_name == "run_ticktock" || f_name == "split_prepare" || f_name == "split_install");
@@ -1509,6 +1511,18 @@ static AnyV parse_function_declaration(Lexer& lex, const std::vector<V<ast_annot
           v_int->error("invalid integer constant");
         }
         tvm_method_id = v_int->intval;
+        break;
+      }
+      case AnnotationKind::on_bounced_policy: {
+        std::string_view str = v_annotation->get_arg()->get_item(0)->as<ast_string_const>()->str_val;
+        if (str == "manual") {
+          flags |= FunctionData::flagManualOnBounce;
+        } else {
+          v_annotation->error("incorrect value for " + static_cast<std::string>(v_annotation->name));
+        }
+        if (f_name != "onInternalMessage") {
+          v_annotation->error("this annotation is applicable only to onInternalMessage()");
+        }
         break;
       }
       case AnnotationKind::deprecated:

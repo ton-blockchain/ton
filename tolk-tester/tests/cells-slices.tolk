@@ -112,11 +112,11 @@ fun slice.sumNumbersInSlice(mutate self): int {
 fun test10() {
     var ref = beginCell().storeInt(100, 32).endCell();
     var s: slice = beginCell().storeInt(1, 32).storeInt(2, 32).storeRef(ref).endCell().beginParse();
-    var result = (s.remainingBitsCount(), s.sumNumbersInSlice(), s.remainingBitsCount(), s.isEnd(), s.isEndOfBits(), s.isEndOfRefs());
+    var result = (s.remainingBitsCount(), s.sumNumbersInSlice(), s.remainingBitsCount(), s.isEmpty(), s.isEndOfBits(), s.isEndOfRefs());
     var ref2: cell = s.loadRef();
     var s2: slice = ref2.beginParse();
     s.assertEnd();
-    return (result, s2.loadInt(32), s2.isEnd());
+    return (result, s2.loadInt(32), s2.isEmpty());
 }
 
 @method_id(111)

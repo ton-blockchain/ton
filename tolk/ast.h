@@ -146,6 +146,7 @@ enum class AnnotationKind {
   deprecated,
   custom,
   overflow1023_policy,
+  on_bounced_policy,
   unknown,
 };
 
@@ -522,6 +523,7 @@ struct Vertex<ast_braced_yield_result> final : ASTExprUnary {
 template<>
 // ast_artificial_aux_vertex is a compiler-inserted vertex that can't occur in source code
 // example: special vertex to force location in Fift output at constant usage
+// example: `msg.isBounced` / `msg.xxx` in onInternalMessage are handled specially
 struct Vertex<ast_artificial_aux_vertex> final : ASTExprUnary {
   const ASTAuxData* aux_data;     // custom payload, see ast-aux-data.h
 

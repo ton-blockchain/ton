@@ -18,6 +18,7 @@
 
 #include "ast.h"
 #include "lazy-helpers.h"
+#include "tolk.h"
 
 /*
  *   This file contains a schema of aux_data inside ast_artificial_aux_vertex
@@ -57,6 +58,18 @@ struct AuxData_LazyMatchForUnion final : ASTAuxData {
   AuxData_LazyMatchForUnion(LocalVarPtr var_ref, StructFieldPtr field_ref)
     : var_ref(var_ref), field_ref(field_ref) {
   }
+};
+
+struct AuxData_OnInternalMessage_getField final : ASTAuxData {
+  FunctionPtr f_onInternalMessage;
+  const std::string_view field_name;
+
+  AuxData_OnInternalMessage_getField(FunctionPtr f_onInternalMessage, std::string_view field_name)
+    : f_onInternalMessage(f_onInternalMessage)
+    , field_name(field_name) {
+  }
+
+  std::vector<var_idx_t> generate_get_InMessage_field(CodeBlob& code, SrcLocation loc) const;
 };
 
 } // namespace tolk

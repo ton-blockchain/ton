@@ -701,7 +701,7 @@ fun demo139(s: slice, skip: bool): int {
     match (msg) {
         CounterIncrement => {
             try {
-                if (s.isEnd()) { return 100; }
+                if (s.isEmpty()) { return 100; }
                 __expect_lazy("[msg] load byValue");
                 return msg.byValue;
             } catch (excno) { return excno }
