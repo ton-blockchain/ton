@@ -71,7 +71,6 @@
 #include "td/actor/actor.h"
 #include "td/utils/overloaded.h"
 
-
 class ActorExecutor : public vm::DynamicBagOfCellsDb::AsyncExecutor {
  public:
   ActorExecutor(size_t tn) : tn_(tn) {
@@ -1085,7 +1084,9 @@ struct BocOptions {
   };
   KvOptions kv_options;
   std::variant<CreateV1Options, CreateV2Options, CreateInMemoryOptions> options;
+  std::pair<int, int> compress_depth_range{0, 0};
   td::uint64 seed{123};
+  td::Random::Xorshift128plus rnd{123};
 
   std::shared_ptr<KeyValue> create_kv(std::shared_ptr<KeyValue> old_key_value, bool no_reads = false) {
     if (kv_options.kv_type == KvOptions::InMemory) {
@@ -1151,33 +1152,37 @@ struct BocOptions {
     auto old_kv = std::move(db.kv);
     old_boc.reset();
     using ResT = DB;
-    return std::visit(td::overloaded(
-                          [&](CreateV1Options &) -> ResT {
-                            auto new_kv = create_kv(std::move(old_kv));
-                            auto res = DynamicBagOfCellsDb::create();
-                            res->set_loader(std::make_unique<CellLoader>(new_kv->snapshot()));
-                            return DB{.dboc = std::move(res), .kv = std::move(new_kv)};
-                          },
-                          [&](CreateV2Options &options) -> ResT {
-                            auto new_kv = create_kv(std::move(old_kv));
-                            auto res = DynamicBagOfCellsDb::create_v2(options);
-                            res->set_loader(std::make_unique<CellLoader>(new_kv->snapshot()));
-                            return DB{.dboc = std::move(res), .kv = std::move(new_kv)};
-                          },
-                          [&](CreateInMemoryOptions &options) -> ResT {
-                            auto read_kv = create_kv(std::move(old_kv), false);
-                            auto res = DynamicBagOfCellsDb::create_in_memory(read_kv.get(), options);
-                            auto new_kv = create_kv(std::move(read_kv), true);
-                            res->set_loader(std::make_unique<CellLoader>(new_kv->snapshot()));
-                            auto stats = res->get_stats().move_as_ok();
-                            if (o_root_n) {
-                              ASSERT_EQ(*o_root_n, stats.roots_total_count);
-                            }
-                            VLOG(boc) << "reset roots_n=" << stats.roots_total_count
-                                      << " cells_n=" << stats.cells_total_count;
-                            return DB{.dboc = std::move(res), .kv = std::move(new_kv)};
-                          }),
-                      options);
+    auto res = std::visit(td::overloaded(
+                              [&](CreateV1Options &) -> ResT {
+                                auto new_kv = create_kv(std::move(old_kv));
+                                auto res = DynamicBagOfCellsDb::create();
+                                res->set_loader(std::make_unique<CellLoader>(new_kv->snapshot()));
+                                return DB{.dboc = std::move(res), .kv = std::move(new_kv)};
+                              },
+                              [&](CreateV2Options &options) -> ResT {
+                                auto new_kv = create_kv(std::move(old_kv));
+                                auto res = DynamicBagOfCellsDb::create_v2(options);
+                                res->set_loader(std::make_unique<CellLoader>(new_kv->snapshot()));
+                                return DB{.dboc = std::move(res), .kv = std::move(new_kv)};
+                              },
+                              [&](CreateInMemoryOptions &options) -> ResT {
+                                auto read_kv = create_kv(std::move(old_kv), false);
+                                auto res = DynamicBagOfCellsDb::create_in_memory(read_kv.get(), options);
+                                auto new_kv = create_kv(std::move(read_kv), true);
+                                res->set_loader(std::make_unique<CellLoader>(new_kv->snapshot()));
+                                auto stats = res->get_stats().move_as_ok();
+                                if (o_root_n) {
+                                  ASSERT_EQ(*o_root_n, stats.roots_total_count);
+                                }
+                                VLOG(boc) << "reset roots_n=" << stats.roots_total_count
+                                          << " cells_n=" << stats.cells_total_count;
+                                return DB{.dboc = std::move(res), .kv = std::move(new_kv)};
+                              }),
+                          options);
+    if (compress_depth_range.second != 0) {
+      res.dboc->set_celldb_compress_depth(rnd.fast(compress_depth_range.first, compress_depth_range.second));
+    }
+    return res;
   };
   void prepare_commit(DynamicBagOfCellsDb &dboc) {
     td::PerfWarningTimer warning_timer("test_db_prepare_commit");
@@ -1249,6 +1254,9 @@ struct BocOptions {
     if (async_executor) {
       sb << ", executor=" << async_executor->describe();
     }
+    if (compress_depth_range.second != 0) {
+      sb << ", compress_depth=[" << compress_depth_range.first << ";" << compress_depth_range.second << "]";
+    }
     sb << ")";
 
     return sb.as_cslice().str();
@@ -1270,6 +1278,7 @@ void with_all_boc_options(F &&f, size_t tests_n, bool single_thread = false) {
       auto before = counter();
 
       options.seed = i == 0 ? 123 : i;
+      options.rnd = td::Random::Xorshift128plus{options.seed};
       auto stats_diff = f(options);
       stats.apply_diff(stats_diff);
 
@@ -1293,39 +1302,51 @@ void with_all_boc_options(F &&f, size_t tests_n, bool single_thread = false) {
       BocOptions::KvOptions{
           .kv_type = BocOptions::KvOptions::RocksDb, .experimental = false, .cache_size = size_t{128 << 20}},
   };
+  std::vector<std::pair<int, int>> compress_depth_ranges = {{0, 5}, {5, 5}, {0, 0}};
   std::vector<bool> has_executor_options = {false, true};
-  for (auto kv_options : kv_options_list) {
-    for (bool has_executor : has_executor_options) {
-      std::shared_ptr<DynamicBagOfCellsDb::AsyncExecutor> executor;
-      if (has_executor) {
-        executor = std::make_shared<ActorExecutor>(
-            4);  // 4 - to compare V1 and V2, because V1 has parallel_load = 4 by default
-      }
-      // V2 - 4 threads
-      run({.async_executor = executor,
-           .kv_options = kv_options,
-           .options = DynamicBagOfCellsDb::CreateV2Options{
-               .extra_threads = 3, .executor = executor, .cache_ttl_max = 5}});
+  for (auto compress_depth_range : compress_depth_ranges) {
+    for (auto kv_options : kv_options_list) {
+      for (bool has_executor : has_executor_options) {
+        std::shared_ptr<DynamicBagOfCellsDb::AsyncExecutor> executor;
+        if (has_executor) {
+          executor = std::make_shared<ActorExecutor>(
+              4);  // 4 - to compare V1 and V2, because V1 has parallel_load = 4 by default
+        }
+        // V2 - 4 threads
+        run({
+            .async_executor = executor,
+            .kv_options = kv_options,
+            .options =
+                DynamicBagOfCellsDb::CreateV2Options{.extra_threads = 3, .executor = executor, .cache_ttl_max = 5},
+            .compress_depth_range = compress_depth_range,
+        });
 
-      // V1
-      run({.async_executor = executor, .kv_options = kv_options, .options = DynamicBagOfCellsDb::CreateV1Options{}});
+        // V1
+        run({.async_executor = executor,
+             .kv_options = kv_options,
+             .options = DynamicBagOfCellsDb::CreateV1Options{},
+             .compress_depth_range = compress_depth_range});
 
-      // V2 - one thread
-      run({.async_executor = executor,
-           .kv_options = kv_options,
-           .options =
-               DynamicBagOfCellsDb::CreateV2Options{.extra_threads = 0, .executor = executor, .cache_ttl_max = 5}});
+        // V2 - one thread
+        run({.async_executor = executor,
+             .kv_options = kv_options,
+             .options =
+                 DynamicBagOfCellsDb::CreateV2Options{.extra_threads = 0, .executor = executor, .cache_ttl_max = 5},
+             .compress_depth_range = compress_depth_range});
 
-      // InMemory
-      for (auto use_arena : {false, true}) {
-        for (auto less_memory : {false, true}) {
-          run({.async_executor = executor,
-               .kv_options = kv_options,
-               .options =
-                   DynamicBagOfCellsDb::CreateInMemoryOptions{.extra_threads = std::thread::hardware_concurrency(),
-                                                              .verbose = false,
-                                                              .use_arena = use_arena,
-                                                              .use_less_memory_during_creation = less_memory}});
+        // InMemory
+        if (compress_depth_range.second == 0) {
+          for (auto use_arena : {false, true}) {
+            for (auto less_memory : {false, true}) {
+              run({.async_executor = executor,
+                   .kv_options = kv_options,
+                   .options =
+                       DynamicBagOfCellsDb::CreateInMemoryOptions{.extra_threads = std::thread::hardware_concurrency(),
+                                                                  .verbose = false,
+                                                                  .use_arena = use_arena,
+                                                                  .use_less_memory_during_creation = less_memory}});
+            }
+          }
         }
       }
     }
@@ -1342,7 +1363,7 @@ void with_all_boc_options(F &&f, size_t tests_n, bool single_thread = false) {
 
 DynamicBagOfCellsDb::Stats test_dynamic_boc(BocOptions options) {
   DynamicBagOfCellsDb::Stats stats;
-  td::Random::Xorshift128plus rnd{options.seed};
+  auto &rnd = options.rnd;
   std::string old_root_hash;
   std::string old_root_serialization;
   DB db;
@@ -1392,7 +1413,7 @@ TEST(TonDb, DynamicBoc) {
 };
 
 DynamicBagOfCellsDb::Stats test_dynamic_boc2(BocOptions options) {
-  td::Random::Xorshift128plus rnd{options.seed};
+  auto &rnd = options.rnd;
   DynamicBagOfCellsDb::Stats stats;
 
   int total_roots = rnd.fast(1, !rnd.fast(0, 30) * 100 + 10);
@@ -1879,8 +1900,7 @@ DynamicBagOfCellsDb::Stats bench_dboc_get_and_set(BocOptions options) {
     db.reset_loader();
   }
 
-  for (auto p :
-       std::vector<std::pair<size_t, size_t>>{{10000, 0}, {10000, 5}, {5000, 5000}, {5, 10000}, {0, 10000}}) {
+  for (auto p : std::vector<std::pair<size_t, size_t>>{{10000, 0}, {10000, 5}, {5000, 5000}, {5, 10000}, {0, 10000}}) {
     auto get_n = p.first;
     auto set_n = p.second;
     auto hash = arr.root()->get_hash();
@@ -2912,7 +2932,7 @@ TEST(UsageTree, ThreadSafe) {
     auto cell = vm::gen_random_cell(rnd.fast(2, 100), rnd, false);
     auto usage_tree = std::make_shared<vm::CellUsageTree>();
     auto usage_cell = vm::UsageCell::create(cell, usage_tree->root_ptr());
-    std::ptrdiff_t threads_n = 1; // TODO: when CellUsageTree is thread safe, change it to 4
+    std::ptrdiff_t threads_n = 1;  // TODO: when CellUsageTree is thread safe, change it to 4
     auto barrier = std::barrier{threads_n};
     std::vector<std::thread> threads;
     std::vector<vm::CellExplorer::Exploration> explorations(threads_n);
