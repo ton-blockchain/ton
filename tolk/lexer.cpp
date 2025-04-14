@@ -337,6 +337,7 @@ struct ChunkIdentifierOrKeyword final : ChunkLexerBase {
       case 2:
         if (str == "do") return tok_do;
         if (str == "if") return tok_if;
+        if (str == "is") return tok_is;
         if (str == "as") return tok_as;
         break;
       case 3:
@@ -359,6 +360,7 @@ struct ChunkIdentifierOrKeyword final : ChunkLexerBase {
       case 5:
         if (str == "const") return tok_const;
         if (str == "false") return tok_false;
+        if (str == "match") return tok_match;
         if (str == "redef") return tok_redef;
         if (str == "while") return tok_while;
         if (str == "break") return tok_break;
@@ -521,6 +523,7 @@ struct TolkLanguageGrammar {
     register_token("|=", 2, tok_set_bitwise_or);
     register_token("^=", 2, tok_set_bitwise_xor);
     register_token("->", 2, tok_arrow);
+    register_token("=>", 2, tok_double_arrow);
     register_token("<=>", 3, tok_spaceship);
     register_token("~>>", 3, tok_rshiftR);
     register_token("^>>", 3, tok_rshiftC);
@@ -587,13 +590,14 @@ void Lexer::next_special(TokenType parse_next_as, const char* str_expected) {
 }
 
 Lexer::SavedPositionForLookahead Lexer::save_parsing_position() const {
-  return {p_next, cur_token_idx, cur_token};
+  return {p_next, cur_token_idx, cur_token, location};
 }
 
 void Lexer::restore_position(SavedPositionForLookahead saved) {
   p_next = saved.p_next;
   cur_token_idx = last_token_idx = saved.cur_token_idx;
   cur_token = saved.cur_token;
+  location = saved.loc;
 }
 
 void Lexer::error(const std::string& err_msg) const {

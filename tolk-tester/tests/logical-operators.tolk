@@ -13,9 +13,9 @@ fun compileTimeEval1(x: int) {
 
 @method_id(101)
 fun withIfNot(x: int, y: int) {
-    if (!x) { return 10; }
-    else if (!y) { return 20; }
-    return x+y;
+    if (!x) { return 10 }
+    else if (!y) { { return 20 } }
+    return x+y
 }
 
 @method_id(102)

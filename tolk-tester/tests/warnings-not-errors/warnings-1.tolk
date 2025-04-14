@@ -21,8 +21,8 @@ fun main() {
 /**
 @testcase | 0 |    | 0
 
-@stderr warning: variable `c` of type `int` is always not null, this condition is always false
-@stderr warning: variable `d` of type `int` is always not null, this condition is always true
-@stderr warning: variable `e` is always null, this condition is always true
-@stderr warning: expression is always null, this condition is always false
+@stderr warning: variable `c` of type `int` can never be `null`, this condition is always false
+@stderr warning: variable `d` of type `int` can never be `null`, this condition is always true
+@stderr warning: variable `e` is always `null`, this condition is always true
+@stderr warning: expression is always `null`, this condition is always false
  */

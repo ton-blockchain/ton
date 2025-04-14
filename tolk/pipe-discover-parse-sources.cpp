@@ -25,7 +25,6 @@
 */
 #include "tolk.h"
 #include "ast.h"
-#include "ast-from-tokens.h"
 #include "compiler-state.h"
 
 /*
@@ -37,6 +36,8 @@
  */
 
 namespace tolk {
+
+AnyV parse_src_file_to_ast(const SrcFile* file);
 
 void pipeline_discover_and_parse_sources(const std::string& stdlib_filename, const std::string& entrypoint_filename) {
   G.all_src_files.locate_and_register_source_file(stdlib_filename, {});
@@ -64,7 +65,7 @@ void pipeline_discover_and_parse_sources(const std::string& stdlib_filename, con
   }
 
   // todo #ifdef TOLK_PROFILING
-  lexer_measure_performance(G.all_src_files);
+  // lexer_measure_performance(G.all_src_files);
 }
 
 } // namespace tolk

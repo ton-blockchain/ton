@@ -15,12 +15,12 @@ fun main() {
 /**
 @testcase | 0 |    | -1
 
-@stderr warning: variable `a` of type `int` is always not null, this condition is always true
+@stderr warning: variable `a` of type `int` can never be `null`, this condition is always true
 @stderr warning: condition of ternary operator is always true
-@stderr warning: variable `c` of type `slice` is always not null, this condition is always false
+@stderr warning: variable `c` of type `slice` can never be `null`, this condition is always false
 @stderr warning: condition of `if` is always true
-@stderr warning: variable `b` of type `builder` is always not null, this condition is always false
+@stderr warning: variable `b` of type `builder` can never be `null`, this condition is always false
 @stderr warning: condition of `assert` is always false
 @stderr warning: condition of `while` is always false
-@stderr warning: expression of type `bool` is always not null, this condition is always true
+@stderr warning: expression of type `bool` can never be `null`, this condition is always true
  */

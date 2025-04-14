@@ -773,6 +773,14 @@ bool CellSlice::prefetch_maybe_ref(Ref<vm::Cell>& res) const {
   }
 }
 
+std::vector<Ref<Cell>> CellSlice::prefetch_all_refs() const {
+  std::vector<Ref<Cell>> res(size_refs());
+  for (unsigned i = 0; i < size_refs(); ++i) {
+    res[i] = prefetch_ref(i);
+  }
+  return res;
+}
+
 bool CellSlice::fetch_maybe_ref(Ref<vm::Cell>& res) {
   auto z = prefetch_ulong(1);
   if (!z) {

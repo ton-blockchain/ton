@@ -212,6 +212,8 @@ set(BLOCK_SOURCE
   block/mc-config.cpp
   block/output-queue-merger.cpp
   block/transaction.cpp
+  block/account-storage-stat.h
+  block/account-storage-stat.cpp
   block/precompiled-smc/PrecompiledSmartContract.cpp
   ${TLB_BLOCK_AUTO}
 

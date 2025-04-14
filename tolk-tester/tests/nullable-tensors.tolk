@@ -1,3 +1,7 @@
+type TensorOf2IntNull = (int?, int?);
+type MInt = int;
+type MIntN = int?;
+
 fun getNullableInt(): int? { return 5; }
 
 fun sumOfNullableTensorComponents(t: (int, int)?): int {
@@ -385,7 +389,9 @@ fun getNormalNullableTensorWidth1(vLess100: int?): ([int?], ())? {
     return ([vLess100], ());    // such a nullable tensor can store NULL in the same slot
 }
 
-fun getTrickyNullableTensorWidth1(vLess100: int?): (int?, ())? {
+type TrickyActually2SlotTensor = (MIntN, ())?;
+
+fun getTrickyNullableTensorWidth1(vLess100: int?): TrickyActually2SlotTensor {
     if (vLess100 != null && vLess100 >= 100) {
         return null;
     }
@@ -424,70 +430,109 @@ fun test136(x: int?, ) {
 
 @method_id(140)
 fun test140(x: int8, y: int16) {
-    var t1: (int32, int)? = (x, y) as (int32, int64)?;
-    var t2: (int32, int)? = null as (int32, int64)?;
+    var t1: (int32, int64)? = ((x, y) as (int32, int64)) as (int32, int64)?;
+    var t2: (int32, int64)? = null as (int32, int64)?;
     return (t1, t2);
 }
 
+@method_id(141)
+fun test141() {
+    var t: TensorOf2IntNull = (1, 2);
+    if (t.0 != null) {
+        t.0 = null;
+    }
+    t.1 != null ? t.1 = 10 : t.1 = null;
+    return t;
+}
+
+type T142 = (int, MInt)?;
+
+@method_id(142)
+fun test142() {
+    var t = (1, 2) as T142;
+    __expect_type(t!, "(int, MInt)");
+    var sum1 = sumOfNullableTensorComponents(t);
+    var sum2 = sumOfTensor(t!);
+    return (sum1, sum2, t!);
+}
+
+@method_id(143)
+fun test143(setBNull: bool, setANullMid: bool) {
+    var a: (int, int | slice | null, int)? = (1, 2, 3);
+    var b = setBNull ? null : a;
+    if (setANullMid) {
+        a.1 = null;
+    }
+    if (a.1 != null && b != null) {
+        b.0 += match (a.1) { int => 100, slice => 200 };
+    }
+    __expect_type(a, "(int, int | slice | null, int)");
+    __expect_type(b, "(int, int | slice | null, int)?");
+    return (a, 777, b);
+}
 
 fun main(){}
 
 /**
-@testcase | 101 |      | 1 2 -1
-@testcase | 102 |      | 1 2 -1 (null) (null) 0
+@testcase | 101 |      | 1 2 129
+@testcase | 102 |      | 1 2 129 (null) (null) 0
 @testcase | 103 | 1 2  | 3 3 0 1 2
 @testcase | 104 |      | 1 2 (null) (null) 0
-@testcase | 105 |      | (null) (null) (null) 0 1 2 3 -1
+@testcase | 105 |      | (null) (null) (null) 0 1 2 3 131
 @testcase | 106 |      | 1 2
 @testcase | 107 |      | 0 0 -1 0 0 -1
-@testcase | 108 | 5 6  | 7 8 10 11 -1 (null) (null) 0
+@testcase | 108 | 5 6  | 7 8 10 11 129 (null) (null) 0
 @testcase | 109 |      | 0 0 -1 0 -1 0 0 -1 -1
-@testcase | 110 |      | 3 4 (null) (null) 0 6 7 -1
+@testcase | 110 |      | 3 4 (null) (null) 0 6 7 129
 @testcase | 111 |      | 50 30 70 90 100
 @testcase | 112 |      | 12 22
 @testcase | 113 |      | -1
 @testcase | 114 |      | (null) (null) (null) 0 (null) (null) (null) 0
-@testcase | 115 |      | 2 3 7 (null) (null) 0 5 0 -1 0
+@testcase | 115 |      | 2 3 7 (null) (null) 0 5 0 129 0
 @testcase | 116 | -1   | (null) (null) 0 (null) (null) 0
-@testcase | 116 | 0    | 1 2 -1 1 2 -1
+@testcase | 116 | 0    | 1 2 129 1 2 129
 @testcase | 117 |      | (null) 1 3
-@testcase | 118 | 5    | 5 10 -1
+@testcase | 118 | 5    | 5 10 129
 @testcase | 118 | null | (null) (null) 0
-@testcase | 119 |      | (null) (null) 1 2 -1 100
+@testcase | 119 |      | (null) (null) 1 2 129 100
 @testcase | 120 | -1   | (null) (null) 0
-@testcase | 120 | 0    | 1 2 -1
+@testcase | 120 | 0    | 1 2 129
 @testcase | 121 |      | [ 1 [ 3 4 ] ]
 @testcase | 122 | 0    | [ 1 [ 3 4 ] 4 (null) ]
 @testcase | 122 | -1   | [ 1 (null) 4 (null) ]
-@testcase | 123 |      | 1 3 4 -1
-@testcase | 124 | 0    | 1 3 4 -1 4 (null) (null) 0
+@testcase | 123 |      | 1 3 4 132
+@testcase | 124 | 0    | 1 3 4 132 4 (null) (null) 0
 @testcase | 124 | -1   | 1 (null) (null) 0 4 (null) (null) 0
 @testcase | 125 |      | 3
 @testcase | 126 |      | 1 (null) 2
 @testcase | 127 | 1    | 1 (null) (null) 0 2
-@testcase | 127 | 2    | 1 2 3 -1 4
+@testcase | 127 | 2    | 1 2 3 129 4
 @testcase | 127 | 3    | 1 (null) (null) 0 5
-@testcase | 128 | 1    | 1 (null) (null) 0 2 -1
+@testcase | 128 | 1    | 1 (null) (null) 0 2 139
 @testcase | 128 | 2    | (null) (null) (null) (null) (null) 0
-@testcase | 128 | 3    | 1 2 3 -1 4 -1
+@testcase | 128 | 3    | 1 2 3 129 4 139
 @testcase | 129 | 0    | 5 5 0 -1 1 2 0 -1
 @testcase | 129 | -1   | 5 5 0 -1 (null) (null) 0 -1
-@testcase | 130 | 0    | 1 2 3 -1
+@testcase | 130 | 0    | 1 2 3 129
 @testcase | 130 | -1   | 1 (null) (null) 0
-@testcase | 131 |      | -1 777 0 777 777 777 0 0 -1 -1 777 -1 -1 -1 777
+@testcase | 131 |      | 140 777 0 777 777 777 0 0 140 140 777 140 140 141 777
 @testcase | 132 |      | -1 0 -1 0 777 (null) (null) -1 0 0
 @testcase | 133 |      | 60
-@testcase | 134 |      | 11 21 -1
-@testcase | 135 |      | [ 10 ] [ (null) ] (null) 777 10 -1 (null) -1 (null) 0 777 10 -1 (null) -1 (null) 0 777 0 0 -1 0 0 -1 0 0 -1 777 0 -1 0 0 -1 0
+@testcase | 134 |      | 11 21 129
+@testcase | 135 |      | [ 10 ] [ (null) ] (null) 777 10 146 (null) 146 (null) 0 777 10 143 (null) 143 (null) 0 777 0 0 -1 0 0 -1 0 0 -1 777 0 -1 0 0 -1 0
 @testcase | 136 | 9    | 9 0
 @testcase | 136 | null | (null) -1
-@testcase | 140 | 8 9  | 8 9 -1 (null) (null) 0
+@testcase | 140 | 8 9  | 8 9 144 (null) (null) 0
+@testcase | 141 |      | (null) 10
+@testcase | 142 |      | 3 3 1 2
+@testcase | 143 | -1 0 | 1 2 1 3 777 (null) (null) (null) (null) 0
+@testcase | 143 | 0 -1 | 1 (null) 0 3 777 1 2 1 3 145
 
 @fif_codegen
 """
   isTensorNull PROC:<{
-    //  t.0 t.1 t.NNFlag
-    2 1 BLKDROP2	//  t.NNFlag
+    //  t.0 t.1 t.UTag
+    2 1 BLKDROP2	//  t.UTag
     0 EQINT	//  '3
   }>
 """

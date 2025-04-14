@@ -9,9 +9,11 @@ fun increment(mutate self: int) { self += 1; }
 fun assignToInt(mutate self: int, value: int) { self = value; }
 fun assignToNullableInt(mutate self: int?, value: int) { self = value; }
 fun sameTensor(t: (int, int)) { return t; }
-fun sameTensor2(t: (int?, (slice, slice, slice, builder)?)) { return t; }
+fun sameTensor2(t: (int?, Pair4N)) { return t; }
 fun eq<T>(v: T) { return v; }
 fun getTwo<X>(): X { return 2 as X; }
+
+type Pair4N = (slice, slice, slice, builder)?;
 
 fun test1(): int {
     var x = getNullableInt();
@@ -45,8 +47,8 @@ fun test3(): int {
         return x;
     }
     if (random() > -1) {
-        if (y == null) { return -1; }
-        else { return y; }
+        if (y == null) { return -1 }
+        else { return y }
     }
     return 0;
 }
@@ -342,8 +344,8 @@ fun test33(): int {
 
 fun test34() {
     var (x, y) = (getNullableInt(), getNullableInt());
-    if (random()) { throw (x = 1, y = 2); }
-    else { throw (x = 3, y = (1, getNullableInt()!).1); }
+    if (random()) { throw (x = 1, y = 2) }
+    else { throw (x = 3, y = (1, getNullableInt()!).1) }
     return x + y;
 }
 
@@ -643,6 +645,18 @@ fun test59() {
     __expect_type(x1, "int");
 }
 
+@method_id(160)
+fun test60() {
+    var cc1 = match (val a: int | slice = 0 + 10 + 90) {
+        int => a + 1,
+    };
+    var cc2 = match (var a = (0 + 10 + 90) as int | slice) {
+        int => (a = 108) + 1,
+        slice => 120,
+    };
+    return (cc1, cc2);
+}
+
 
 
 fun main(x: int?): int {
@@ -661,18 +675,28 @@ fun main(x: int?): int {
 @testcase | 139 |       | 16
 @testcase | 140 | 5     | 25
 @testcase | 141 |       | 1 2
-@testcase | 142 |       | 5 3 (null) (null) 0 -1 3 (null) (null) 0
+@testcase | 142 |       | 5 3 (null) (null) 0 132 3 (null) (null) 0
 @testcase | 143 |       | 10 11 (null) 10 11 (null) (null) 0
 @testcase | 144 |       | 10 11 (null) 10 11 (null) (null) 0
-@testcase | 145 |       | 5 3 (null) (null) 0 -1 3 (null) (null) (null) (null) 0 3 (null) (null) 0
-@testcase | 146 |       | 3 4 5 3 4 5 -1
+@testcase | 145 |       | 5 3 (null) (null) 0 132 3 (null) (null) (null) (null) 0 3 (null) (null) 0
+@testcase | 146 |       | 3 4 5 3 4 5 131
 @testcase | 147 |       | (null) (null) 100 (null) 100 (null) (null) 0
 @testcase | 158 |       | 123 10 123 5
+@testcase | 160 |       | 101 109
 
-@stderr warning: expression of type `int` is always not null, this condition is always true
+@stderr warning: expression of type `int` can never be `null`, this condition is always true
 @stderr warning: unreachable code
 @stderr var t2 redef = getNullableInt()!;
 
 @fif_codegen  eq55<int?> PROC:<{
 @fif_codegen  eq55<int> PROC:<{
+
+@fif_codegen
+"""
+  test60 PROC:<{
+    //
+    101 PUSHINT	//  cc1
+    109 PUSHINT	//  cc1 cc2
+  }>
+"""
 */
