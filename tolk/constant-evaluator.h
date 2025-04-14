@@ -49,6 +49,7 @@ public:
 
 ConstantValue eval_string_const_standalone(AnyExprV v_string);
 ConstantValue eval_call_to_compile_time_function(AnyExprV v_call);
+ConstantValue eval_expression_expected_to_be_constant(AnyExprV v);
 void eval_and_assign_const_init_value(GlobalConstPtr const_ref);
 
 } // namespace tolk

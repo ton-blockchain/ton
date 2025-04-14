@@ -31,11 +31,13 @@ struct LocalVarData;
 struct FunctionData;
 struct GlobalVarData;
 struct GlobalConstData;
+struct AliasDefData;
 
 using LocalVarPtr = const LocalVarData*;
 using FunctionPtr = const FunctionData*;
 using GlobalVarPtr = const GlobalVarData*;
 using GlobalConstPtr = const GlobalConstData*;
+using AliasDefPtr = const AliasDefData*;
 
 class TypeData;
 using TypePtr = const TypeData*;

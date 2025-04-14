@@ -1,13 +1,16 @@
+type MInt = int;
+type MSlice = slice;
+
 const int1 = 1;
 const int2 = 2;
 
 const int101: int = 101;
-const int111: int = 111;
+const int111: MInt = 111;
 
 const int1r = int1;
 
 const str1 = "const1";
-const str2 = stringHexToSlice("aabbcc");
+const str2: MSlice = stringHexToSlice("aabbcc");
 
 const str2r: slice = str2;
 
@@ -17,7 +20,7 @@ const str2int = 0xAABBCC;
 const nibbles: int = 4;
 
 const strange_zero = (!10 as int);
-const strange_minus_1: int = (!0 as int);
+const strange_minus_1: MInt = (!0 as int);
 
 const true1 = true;
 const true2 = !!true;
@@ -38,7 +41,7 @@ fun sget2r(): slice { return str2r; }
 
 const int240: int = ((int1+int2)*10)<<3;
 
-fun iget240(): int { return int240; }
+fun iget240(): MInt { return int240; }
 
 @pure
 fun newc(): builder
@@ -47,7 +50,7 @@ asm "NEWC";
 fun endcs(b: builder): slice
 asm "ENDC" "CTOS";
 @pure
-fun sdeq(s1: slice, s2: slice): int
+fun sdeq(s1: slice, s2: slice): MInt
 asm "SDEQ";
 @pure
 fun stslicer(b: builder, s: slice): builder

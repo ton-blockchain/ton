@@ -1,15 +1,20 @@
+type MInt = int;
+type MIntN = int?;
+type MBuilder = builder;
+type CallbackIntToInt = int -> int;
+
 fun getBeginCell() {
-    return beginCell;
+    return beginCell
 }
 
 fun getBeginParse() {
-    return beginParse;
+    return beginParse
 }
 
 @method_id(101)
 fun testVarApply1() {
     var (_, f_end_cell) = (0, endCell);
-    var b: builder = (getBeginCell())().storeInt(1, 32);
+    var b: MBuilder = (getBeginCell())().storeInt(1, 32);
     b.storeInt(2, 32);
     var s = (getBeginParse())(f_end_cell(b));
     return (s.loadInt(32), s.loadInt(32));
@@ -55,7 +60,7 @@ fun demo_handler(op: int, query_id: int, a: int, b: int): int {
         return 0;  // result not used, we test that func is nevertheless called
     }
     if (op == 0xF4) {
-        val func = query_id % 2 == 0 ? sum : mul;
+        val func: (MInt, int) -> MInt = query_id % 2 == 0 ? sum : mul;
         val result = func(a, b);
         return result;
     }
@@ -71,28 +76,28 @@ fun testVarApplyInTernary() {
         t.tuplePush(code);
     }
     try {
-        t.tuplePush(demo_handler(0xF4, 122, 100, 200));
+        t.tuplePush(demo_handler(0xF4, 122, 100, 200))
     } catch(code) {
-        t.tuplePush(code);
+        t.tuplePush(code)
     }
     try {
-        t.tuplePush(demo_handler(0xF2, 122, 10, 10));
+        t.tuplePush(demo_handler(0xF2, 122, 10, 10))
     } catch(code) {
-        t.tuplePush(code);
+        t.tuplePush(code)
     }
     try {
-        t.tuplePush(demo_handler(0xF2, 123, 10, 10));
+        t.tuplePush(demo_handler(0xF2, 123, 10, 10))
     } catch(code) {
-        t.tuplePush(code);
+        t.tuplePush(code)
     }
     return t;
 }
 
 fun always_throw2(x: int) {
-    throw 239 + x;
+    throw 239 + x
 }
 
-global global_f: int -> void;
+global global_f: MInt -> void;
 
 @method_id(104)
 fun testGlobalVarApply() {
@@ -124,7 +129,7 @@ fun testVarApply3() {
     t.tuplePush(1);
     t.tuplePush([2]);
     var getIntAt = t.tupleAt<int>;
-    var getTupleFirstInt = createEmptyTuple().tupleFirst<int>;
+    var getTupleFirstInt = createEmptyTuple().tupleFirst<MInt>;
     var getTupleLastTuple = getTupleLastGetter<tuple>();
     return (getIntAt(t, 0), getTupleFirstInt(t), getTupleLastTuple(t), getTupleLastGetter<tuple>()(t));
 }
@@ -138,14 +143,14 @@ fun testIndexedAccessApply() {
     return functions2.0(functions1.1(b)).loadInt(32);
 }
 
-fun getNullable4(): int? { return 4; }
+fun getNullable4(): int? { return 4 }
 fun myBeginCell(): builder? asm "NEWC";
 
 @method_id(108)
 fun testCallingNotNull() {
-    var n4: () -> int? = getNullable4;
+    var n4: () -> MIntN = getNullable4;
     var creator: (() -> builder?)? = myBeginCell;
-    var end2: [int, (builder -> cell)?] = [0, endCell];
+    var end2: [int, (MBuilder -> cell)?] = [0, endCell];
     var c: cell = end2.1!((creator!()!)!.storeInt(getNullable4()!, 32));
     return c.beginParse().loadInt(32);
 }
@@ -186,8 +191,8 @@ fun testApplyNativePlus(x: int, y: int, z: int): bool {
 
 global op: (int, int) -> int;
 
-fun check_assoc_2(a: int, b: int, c: int): bool {
-    return op(op(a, b), c) == op(a, op(b, c));
+fun check_assoc_2(a: int, b: MInt, c: MIntN): bool {
+    return op(op(a, b), c!) == op(a, op(b, c!));
 }
 
 @method_id(112)
@@ -195,6 +200,26 @@ fun testApplyGlobalVar(x: int, y: int, z: int): bool? {
   op = `_+_`;
   if (0) { return null; }
   return check_assoc_2(x, y, z);
+}
+
+fun justAdd2(x: MInt): int { return x + 2; }
+
+@method_id(113)
+fun testCallbackAlias(secondNull: bool) {
+    var adder1: CallbackIntToInt = justAdd2;
+    var adder2: CallbackIntToInt? = secondNull ? null : justAdd2;
+    return (adder1(10), adder2 == null ? -1 : adder2(10));
+}
+
+fun justGetTensor2() { return (2, 3) }
+
+@method_id(114)
+fun testCallbackUnion(call1st: bool): (int, int) | int {
+    var cb: (int -> int) | (() -> (MInt, int)) = call1st ? justGetTensor2 : justAdd2;
+    if (cb is () -> (int, int)) {
+        return cb()
+    }
+    return cb(10) as int
 }
 
 fun main() {}
@@ -209,7 +234,7 @@ fun main() {}
 @testcase | 107 |    | 65537
 @testcase | 108 |    | 4
 @testcase | 109 |    | 0 3 0 7
-@testcase | 110 | 5  | 5 10 100 100 100 -1
+@testcase | 110 | 5  | 5 10 100 100 100 134
 @testcase | 110 | 0  | (null) (null) (null) (null) (null) 0
 @testcase | 111 | 2 3 9      | -1
 @testcase | 111 | 11 22 44   | -1
@@ -217,4 +242,8 @@ fun main() {}
 @testcase | 112 | 2 3 9      | -1
 @testcase | 112 | 11 22 44   | -1
 @testcase | 112 | -1 -10 -20 | -1
-*/
+@testcase | 113 | 0          | 12 12
+@testcase | 113 | -1         | 12 -1
+@testcase | 114 | -1         | 2 3 130
+@testcase | 114 | 0          | (null) 12 1
+ */

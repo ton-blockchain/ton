@@ -68,10 +68,37 @@ fun doNothing(): void {}
 
 @method_id(107)
 fun test7() {
-    if (random()) { return doNothing(); }
+    if (random()) { return doNothing() }
     // here we test that no "missing return" error
 }
 
+fun withNoElse(op: int): int {
+    if (op == 123) { return 100 }
+    if (op == 234) { return 200 }
+    if (op == 345) { return 300 }
+    throw 0xFF
+}
+
+fun withElse(op: int): int {
+    if (op == 123) { return 100 }
+    else if (op == 234) { return 200 }
+    else if (op == 345) { return 300 }
+    return 0xFF
+}
+
+fun withMatch(op: int): int {
+    match (op) {
+        123 => return 100,
+        234 => return 200,
+        345 => return 300,
+    }
+    throw 0xFF
+}
+
+@method_id(108)
+fun test8(op: int) {
+    return (withNoElse(op), withElse(op), withMatch(op));
+}
 
 fun main() {
 
@@ -96,6 +123,8 @@ fun main() {
 @testcase | 105 | 3  | 7 222
 @testcase | 106 | -5 | -1
 @testcase | 106 | 5  | 5000
+@testcase | 108 | 123 | 100 100 100
+@testcase | 108 | 345 | 300 300 300
 
 @fif_codegen
 """
@@ -110,5 +139,83 @@ fun main() {
     DUP	//  x x
     50 EQINT	//  x '5
     IFNOTJMP:<{	//  x
+"""
+
+@fif_codegen
+"""
+  withNoElse PROC:<{
+    //  op
+    DUP
+    123 EQINT
+    IFJMP:<{
+      DROP
+      100 PUSHINT
+    }>
+    DUP
+    234 PUSHINT
+    EQUAL
+    IFJMP:<{
+      DROP
+      200 PUSHINT
+    }>
+    345 PUSHINT
+    EQUAL
+    IFJMP:<{
+      300 PUSHINT
+    }>
+    255 THROW
+  }>
+"""
+
+@fif_codegen
+"""
+  withElse PROC:<{
+    //  op
+    DUP
+    123 EQINT
+    IFJMP:<{
+      DROP
+      100 PUSHINT
+    }>
+    DUP
+    234 PUSHINT
+    EQUAL
+    IFJMP:<{
+      DROP
+      200 PUSHINT
+    }>
+    345 PUSHINT
+    EQUAL
+    IFJMP:<{
+      300 PUSHINT
+    }>
+    8 PUSHPOW2DEC
+  }>
+"""
+
+@fif_codegen
+"""
+  withMatch PROC:<{
+    //  op
+    DUP
+    123 EQINT
+    IFJMP:<{
+      DROP
+      100 PUSHINT
+    }>
+    DUP
+    234 PUSHINT
+    EQUAL
+    IFJMP:<{
+      DROP
+      200 PUSHINT
+    }>
+    345 PUSHINT
+    EQUAL
+    IFJMP:<{
+      300 PUSHINT
+    }>
+    255 THROW
+  }>
 """
 */
