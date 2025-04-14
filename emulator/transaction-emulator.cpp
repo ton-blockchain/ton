@@ -141,7 +141,7 @@ td::Result<TransactionEmulator::EmulationSuccess> TransactionEmulator::emulate_t
         return td::Status::Error("account hash mismatch");
       }
 
-      return emulation_result;
+      return std::move(emulation_result);
 
     } else if (auto emulation_not_accepted_ptr = dynamic_cast<EmulationExternalNotAccepted*>(emulation.get())) {
       return td::Status::Error( PSTRING()

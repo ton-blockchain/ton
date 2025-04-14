@@ -527,13 +527,15 @@ class Dictionary final : public DictionaryFixed {
   auto range(bool rev = false, bool sgnd = false) {
     return dict_range(*this, rev, sgnd);
   }
+  bool multiset(td::MutableSpan<std::pair<td::ConstBitPtr, Ref<CellBuilder>>> new_values);
 
  private:
   bool check_fork(CellSlice& cs, Ref<Cell> c1, Ref<Cell> c2, int n) const override {
     return cs.empty_ext();
   }
   static Ref<Cell> extract_value_ref(Ref<CellSlice> cs);
-  std::pair<Ref<Cell>, int> dict_filter(Ref<Cell> dict, td::BitPtr key, int n, const filter_func_t& check_leaf) const;
+  static Ref<Cell> dict_multiset(Ref<Cell> dict1, td::Span<std::pair<td::ConstBitPtr, Ref<CellBuilder>>> values2,
+                                 td::BitPtr key_buffer, int n, int total_key_len, int skip1);
 };
 
 class PrefixDictionary final : public DictionaryBase {
