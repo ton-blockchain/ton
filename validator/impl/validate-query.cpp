@@ -633,6 +633,23 @@ bool ValidateQuery::extract_collated_data_from(Ref<vm::Cell> croot, int idx) {
     top_shard_descr_dict_ = std::make_unique<vm::Dictionary>(cs.prefetch_ref(), 96);
     return true;
   }
+  if (block::gen::t_AccountStorageDictProof.has_valid_tag(cs)) {
+    if (!block::gen::t_AccountStorageDictProof.validate_upto(10000, cs)) {
+      return reject_query("invalid AccountStorageDictProof");
+    }
+    // account_storage_dict_proof#37c1e3fc proof:^Cell = AccountStorageDictProof;
+    Ref<vm::Cell> proof = cs.prefetch_ref();
+    auto virt_root = vm::MerkleProof::virtualize(proof, 1);
+    if (virt_root.is_null()) {
+      return reject_query("invalid Merkle proof in AccountStorageDictProof");
+    }
+    LOG(DEBUG) << "collated datum # " << idx << " is an AccountStorageDictProof with hash "
+               << virt_root->get_hash().to_hex();
+    if (!virt_account_storage_dicts_.emplace(virt_root->get_hash().bits(), virt_root).second) {
+      return reject_query("duplicate AccountStorageDictProof");
+    }
+    return true;
+  }
   LOG(WARNING) << "collated datum # " << idx << " has unknown type (magic " << cs.prefetch_ulong(32) << "), ignoring";
   return true;
 }
@@ -5252,6 +5269,18 @@ std::unique_ptr<block::Account> ValidateQuery::unpack_account(td::ConstBitPtr ad
     reject_query(PSTRING() << "old state of account " << addr.to_hex(256)
                            << " does not really belong to current shard");
     return {};
+  }
+  if (new_acc->storage_dict_hash) {
+    auto it = virt_account_storage_dicts_.find(new_acc->storage_dict_hash.value());
+    if (it != virt_account_storage_dicts_.end()) {
+      LOG(DEBUG) << "Using account storage dict proof for account " << addr.to_hex(256)
+                 << ", hash=" << it->second->get_hash().to_hex();
+      auto S = new_acc->init_account_storage_stat(it->second);
+      if (S.is_error()) {
+        reject_query(PSTRING() << "Failed to init account storage stat for account " << addr.to_hex(256), std::move(S));
+        return {};
+      }
+    }
   }
   return new_acc;
 }

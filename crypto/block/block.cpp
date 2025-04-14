@@ -751,14 +751,13 @@ td::uint64 BlockLimitStatus::estimate_block_size(const vm::NewCellStorageStat::S
 }
 
 int BlockLimitStatus::classify() const {
-  return limits.classify(estimate_block_size(), gas_used, cur_lt, collated_data_stat.estimate_proof_size());
+  return limits.classify(estimate_block_size(), gas_used, cur_lt, collated_data_size_estimate);
 }
 
 bool BlockLimitStatus::fits(unsigned cls) const {
   return cls >= ParamLimits::limits_cnt ||
          (limits.gas.fits(cls, gas_used) && limits.lt_delta.fits(cls, cur_lt - limits.start_lt) &&
-          limits.bytes.fits(cls, estimate_block_size()) &&
-          limits.collated_data.fits(cls, collated_data_stat.estimate_proof_size()));
+          limits.bytes.fits(cls, estimate_block_size()) && limits.collated_data.fits(cls, collated_data_size_estimate));
 }
 
 bool BlockLimitStatus::would_fit(unsigned cls, ton::LogicalTime end_lt, td::uint64 more_gas,
@@ -766,7 +765,7 @@ bool BlockLimitStatus::would_fit(unsigned cls, ton::LogicalTime end_lt, td::uint
   return cls >= ParamLimits::limits_cnt || (limits.gas.fits(cls, gas_used + more_gas) &&
                                             limits.lt_delta.fits(cls, std::max(cur_lt, end_lt) - limits.start_lt) &&
                                             limits.bytes.fits(cls, estimate_block_size(extra)) &&
-                                            limits.collated_data.fits(cls, collated_data_stat.estimate_proof_size()));
+                                            limits.collated_data.fits(cls, collated_data_size_estimate));
 }
 
 // SETS: account_dict, shard_libraries_, mc_state_extra

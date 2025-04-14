@@ -170,6 +170,7 @@ class ValidateQuery : public td::actor::Actor {
   std::vector<Ref<vm::Cell>> collated_roots_;
   std::map<RootHash, Ref<vm::Cell>> virt_roots_;
   std::unique_ptr<vm::Dictionary> top_shard_descr_dict_;
+  std::map<td::Bits256, Ref<vm::Cell>> virt_account_storage_dicts_;
 
   Ref<vm::CellSlice> shard_hashes_;              // from McBlockExtra
   Ref<vm::CellSlice> blk_config_params_;         // from McBlockExtra

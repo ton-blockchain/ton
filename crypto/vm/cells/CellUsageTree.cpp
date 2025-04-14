@@ -112,7 +112,7 @@ void CellUsageTree::set_use_mark_for_is_loaded(bool use_mark) {
 }
 
 void CellUsageTree::on_load(NodeId node_id, const td::Ref<vm::DataCell>& cell) {
-  if (nodes_[node_id].is_loaded) {
+  if (ignore_loads_ || nodes_[node_id].is_loaded) {
     return;
   }
   nodes_[node_id].is_loaded = true;

@@ -1254,35 +1254,52 @@ bool VmStorageStat::add_storage(const CellSlice& cs) {
   return true;
 }
 
-static td::uint64 estimate_prunned_size() {
-  return 41;
-}
-
-static td::uint64 estimate_serialized_size(const Ref<DataCell>& cell) {
-  return cell->get_serialized_size() + cell->size_refs() * 3 + 3;
-}
-
-void ProofStorageStat::add_cell(const Ref<DataCell>& cell) {
-  auto& status = cells_[cell->get_hash()];
+void ProofStorageStat::add_loaded_cell(const Ref<DataCell>& cell) {
+  auto& [status, size] = cells_[cell->get_hash()];
   if (status == c_loaded) {
     return;
   }
-  if (status == c_prunned) {
-    proof_size_ -= estimate_prunned_size();
-  }
+  proof_size_ -= size;
   status = c_loaded;
-  proof_size_ += estimate_serialized_size(cell);
+  proof_size_ += size = estimate_serialized_size(cell);
   for (unsigned i = 0; i < cell->size_refs(); ++i) {
-    auto& child_status = cells_[cell->get_ref(i)->get_hash()];
+    auto& [child_status, child_size] = cells_[cell->get_ref(i)->get_hash()];
     if (child_status == c_none) {
       child_status = c_prunned;
-      proof_size_ += estimate_prunned_size();
+      proof_size_ += child_size = estimate_prunned_size();
     }
   }
 }
 
+void ProofStorageStat::add_loaded_cells(const ProofStorageStat& other) {
+  for (const auto& [hash, x] : other.cells_) {
+    const auto& [new_status, new_size] = x;
+    auto& [old_status, old_size] = cells_[hash];
+    if (old_status >= new_status) {
+      continue;
+    }
+    proof_size_ -= old_size;
+    old_status = new_status;
+    proof_size_ += old_size = new_size;
+  }
+}
+
+
 td::uint64 ProofStorageStat::estimate_proof_size() const {
   return proof_size_;
+}
+
+ProofStorageStat::CellStatus ProofStorageStat::get_cell_status(const Cell::Hash& hash) const {
+  auto it = cells_.find(hash);
+  return it == cells_.end() ? c_none : it->second.first;
+}
+
+td::uint64 ProofStorageStat::estimate_prunned_size() {
+  return 41;
+}
+
+td::uint64 ProofStorageStat::estimate_serialized_size(const Ref<DataCell>& cell) {
+  return cell->get_serialized_size() + cell->size_refs() * 3 + 3;
 }
 
 }  // namespace vm

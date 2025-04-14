@@ -208,6 +208,7 @@ struct ComputePhase {
   Ref<vm::Cell> actions;
   std::string vm_log;
   td::optional<td::uint64> precompiled_gas_usage;
+  td::HashSet<vm::CellHash> vm_loaded_cells;
 };
 
 struct ActionPhase {
@@ -272,6 +273,7 @@ struct Account {
   ton::UnixTime last_paid;
   StorageUsed storage_used;
   td::optional<td::Bits256> storage_dict_hash;
+  td::optional<td::Bits256> orig_storage_dict_hash;
   td::optional<AccountStorageStat> account_storage_stat;
 
   block::CurrencyCollection balance;
@@ -281,7 +283,8 @@ struct Account {
   Ref<vm::CellSlice> storage;      // AccountStorage
   Ref<vm::CellSlice> inner_state;  // StateInit
   ton::Bits256 state_hash;         // hash of StateInit for frozen accounts
-  Ref<vm::Cell> code, data, library, orig_library;
+  Ref<vm::Cell> code, data, library;
+  Ref<vm::Cell> orig_code, orig_data, orig_library;
   std::vector<LtCellRef> transactions;
   Account() = default;
   Account(ton::WorkchainId wc, td::ConstBitPtr _addr) : workchain(wc), addr(_addr) {
@@ -295,6 +298,8 @@ struct Account {
   bool set_address(ton::WorkchainId wc, td::ConstBitPtr new_addr);
   bool unpack(Ref<vm::CellSlice> account, ton::UnixTime now, bool special);
   bool init_new(ton::UnixTime now);
+  td::Result<Ref<vm::Cell>> compute_account_storage_dict() const;
+  td::Status init_account_storage_stat(Ref<vm::Cell> dict_root);
   bool deactivate();
   bool recompute_tmp_addr(Ref<vm::CellSlice>& tmp_addr, int split_depth, td::ConstBitPtr orig_addr_rewrite) const;
   td::RefInt256 compute_storage_fees(ton::UnixTime now, const std::vector<block::StoragePrices>& pricing) const;
@@ -387,6 +392,7 @@ struct Transaction {
   td::optional<AccountStorageStat> new_account_storage_stat;
   td::optional<td::Bits256> new_storage_dict_hash;
   bool gas_limit_overridden{false};
+  std::vector<Ref<vm::Cell>> storage_stats_updates;
   Transaction(const Account& _account, int ttype, ton::LogicalTime req_start_lt, ton::UnixTime _now,
               Ref<vm::Cell> _inmsg = {});
   bool unpack_input_msg(bool ihr_delivered, const ActionPhaseConfig* cfg);
@@ -400,7 +406,7 @@ struct Transaction {
   bool run_precompiled_contract(const ComputePhaseConfig& cfg, precompiled::PrecompiledSmartContract& precompiled);
   bool prepare_compute_phase(const ComputePhaseConfig& cfg);
   bool prepare_action_phase(const ActionPhaseConfig& cfg);
-  td::Status check_state_limits(const SizeLimitsConfig& size_limits, bool update_storage_stat = true);
+  td::Status check_state_limits(const SizeLimitsConfig& size_limits, bool is_account_stat = true);
   bool prepare_bounce_phase(const ActionPhaseConfig& cfg);
   bool compute_state(const SerializeConfig& cfg);
   bool serialize(const SerializeConfig& cfg);
