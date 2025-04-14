@@ -4,10 +4,10 @@ fun main(x: int): (int, int) {
         x *= 2;
         y += 1;
         if (x == -10) {
-            return (111, 0);
+            return (111, 0)
         }
     }
-    return (x + 1, y);
+    return (x + 1, y)
 }
 
 @inline
@@ -41,7 +41,7 @@ fun bar2(x: int, y: int): (int, int) {
         y = foo2(y);
         x *= 2;
         if (x == -10) {
-            return (111, y);
+            return (111, y)
         }
     }
     return (x + 1, y);

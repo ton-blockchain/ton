@@ -1,4 +1,6 @@
-fun getNullableInt(): int? { return 5; }
+type MIntN = int?;
+
+fun getNullableInt(): MIntN { return 5; }
 
 fun testNeverTypeOccurs() {
     var x: int? = getNullableInt();

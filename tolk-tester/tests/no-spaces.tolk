@@ -1,13 +1,13 @@
 const int10:int=10;
 
 fun just10(): int { return int10; }
-fun eq(v: int): int { return`v`; }
+fun eq(v: int): int { return`v` }
 
-@method_id(101,) fun `get_-1`  (): int {return-1;}
-@method_id(102,) fun `get_--1` (): int {return--1;}
-@method_id(103,) fun `get_---1`(): int {return---1;}
-@method_id(104,) fun `get_+++1`(): int {return+++1;}
-@method_id(105,) fun `get_+-+1`(): int {return+-+1;}
+@method_id(101,) fun `get_-1`  (): int {return-1}
+@method_id(102,) fun `get_--1` (): int {return--1}
+@method_id(103,) fun `get_---1`(): int {return---1}
+@method_id(104,) fun `get_+++1`(): int {return+++1}
+@method_id(105,) fun `get_+-+1`(): int {return+-+1}
 
 global `some()var`:int;
 
@@ -26,7 +26,7 @@ global `some()var`:int;
     return[
         (just10()-3==just10()-(4)--1)|((2==2)&(eq(eq(10)) -3==just10()--13)),
         ((flags&0xFF)!=0)
-    ];
+    ]
 }
 
 @method_id(113)fun`unary+bitwise-constant`():[int,int,int]{
@@ -48,7 +48,7 @@ fun add3(a: int, b: int, c: int) { return a+b+c; }
 }
 
 fun `load:u32`(mutate self: slice): int {
-    return self.loadUint(32);
+    return self.loadUint(32)
 }
 
 @method_id(116) fun `call_~_via_backticks`():[int,int,int,int] {

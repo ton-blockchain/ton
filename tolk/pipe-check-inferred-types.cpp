@@ -118,21 +118,58 @@ static void handle_possible_compiler_internal_call(FunctionPtr cur_f, V<ast_func
   if (fun_ref->name == "__expect_type") {
     tolk_assert(v->get_num_args() == 2);
     TypePtr expected_type = parse_type_from_string(v->get_arg(1)->get_expr()->as<ast_string_const>()->str_val);
+    if (expected_type->has_unresolved_inside()) {   // only aliases can be inside
+      expected_type = expected_type->replace_children_custom([cur_f, v](TypePtr child) -> TypePtr {
+        if (const auto* as_unresolved = child->try_as<TypeDataUnresolved>()) {
+          const Symbol* sym = lookup_global_symbol(as_unresolved->text);
+          if (!sym) {
+            throw ParseError(cur_f, v->loc, "invalid __expect_type");
+          }
+          if (AliasDefPtr alias_ref = sym->try_as<AliasDefPtr>()) {
+            return TypeDataAlias::create(alias_ref);
+          }
+          tolk_assert(false);
+        }
+        return child;
+      });
+    }
     TypePtr expr_type = v->get_arg(0)->inferred_type;
-    if (expected_type != expr_type) {
+    if (expected_type->as_human_readable() != expr_type->as_human_readable()) {
       fire(cur_f, v->loc, "__expect_type failed: expected " + to_string(expected_type) + ", got " + to_string(expr_type));
     }
   }
 }
 
+static bool expect_integer(TypePtr inferred_type) {
+  if (inferred_type == TypeDataInt::create()) {
+    return true;
+  }
+  if (inferred_type->try_as<TypeDataIntN>() || inferred_type == TypeDataCoins::create()) {
+    return true;
+  }
+  if (const TypeDataAlias* as_alias = inferred_type->try_as<TypeDataAlias>()) {
+    return expect_integer(as_alias->underlying_type);
+  }
+  return false;
+}
+
 static bool expect_integer(AnyExprV v_inferred) {
-  return v_inferred->inferred_type == TypeDataInt::create() || v_inferred->inferred_type->try_as<TypeDataIntN>() || v_inferred->inferred_type == TypeDataCoins::create();
+  return expect_integer(v_inferred->inferred_type);
+}
+
+static bool expect_boolean(TypePtr inferred_type) {
+  if (inferred_type == TypeDataBool::create()) {
+    return true;
+  }
+  if (const TypeDataAlias* as_alias = inferred_type->try_as<TypeDataAlias>()) {
+    return expect_boolean(as_alias->underlying_type);
+  }
+  return false;
 }
 
 static bool expect_boolean(AnyExprV v_inferred) {
-  return v_inferred->inferred_type == TypeDataBool::create();
+  return expect_boolean(v_inferred->inferred_type);
 }
-
 
 class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
   FunctionPtr cur_f = nullptr;          // may be nullptr if checking `const a = ...` init_value
@@ -190,7 +227,7 @@ protected:
         bool both_int = expect_integer(lhs) && expect_integer(rhs);
         bool both_bool = expect_boolean(lhs) && expect_boolean(rhs);
         if (!both_int && !both_bool) {
-          if (lhs->inferred_type == rhs->inferred_type) {  // compare slice with slice, int? with int?
+          if (lhs->inferred_type->equal_to(rhs->inferred_type)) {  // compare slice with slice, int? with int?
             fire(cur_f, v->loc, "type " + to_string(lhs) + " can not be compared with `== !=`");
           } else {
             fire_error_cannot_apply_operator(cur_f, v->loc, v->operator_name, lhs, rhs);
@@ -247,6 +284,21 @@ protected:
     }
   }
 
+  void visit(V<ast_is_type_operator> v) override {
+    parent::visit(v->get_expr());
+
+    if (v->rhs_type->unwrap_alias()->try_as<TypeDataUnion>()) {   // `v is T1 | T2` / `v is T?` is disallowed
+      fire(cur_f, v->loc, "union types are not allowed, use concrete types in `is`");
+    }
+
+    if ((v->is_always_true && !v->is_negated) || (v->is_always_false && v->is_negated)) {
+      v->loc.show_warning(expression_as_string(v->get_expr()) + " is always " + to_string(v->rhs_type) + ", this condition is always " + (v->is_always_true ? "true" : "false"));
+    }
+    if ((v->is_always_false && !v->is_negated) || (v->is_always_true && v->is_negated)) {
+      v->loc.show_warning(expression_as_string(v->get_expr()) + " of type " + to_string(v->get_expr()) + " can never be " + to_string(v->rhs_type) + ", this condition is always " + (v->is_always_true ? "true" : "false"));
+    }
+  }
+
   void visit(V<ast_not_null_operator> v) override {
     parent::visit(v->get_expr());
 
@@ -255,17 +307,6 @@ protected:
       fire(cur_f, v->loc, "operator `!` used for always null expression");
     }
     // if operator `!` used for non-nullable, probably a warning should be printed
-  }
-
-  void visit(V<ast_is_null_check> v) override {
-    parent::visit(v->get_expr());
-
-    if ((v->is_always_true && !v->is_negated) || (v->is_always_false && v->is_negated)) {
-      v->loc.show_warning(expression_as_string(v->get_expr()) + " is always null, this condition is always " + (v->is_always_true ? "true" : "false"));
-    }
-    if ((v->is_always_false && !v->is_negated) || (v->is_always_true && v->is_negated)) {
-      v->loc.show_warning(expression_as_string(v->get_expr()) + " of type " + to_string(v->get_expr()) + " is always not null, this condition is always " + (v->is_always_true ? "true" : "false"));
-    }
   }
 
   void visit(V<ast_typed_tuple> v) override {
@@ -282,9 +323,9 @@ protected:
   void visit(V<ast_dot_access> v) override {
     parent::visit(v);
 
-    TypePtr obj_type = v->get_obj()->inferred_type;
     if (v->is_target_indexed_access()) {
-      if (obj_type->try_as<TypeDataTuple>() && v->inferred_type->get_width_on_stack() != 1) {
+      TypePtr obj_type = v->get_obj()->inferred_type->unwrap_alias();
+      if (v->inferred_type->get_width_on_stack() != 1 && (obj_type->try_as<TypeDataTuple>() || obj_type->try_as<TypeDataTypedTuple>())) {
         fire_error_cannot_put_non1_stack_width_arg_to_tuple(cur_f, v->loc, v->inferred_type);
       }
     }
@@ -296,7 +337,7 @@ protected:
     FunctionPtr fun_ref = v->fun_maybe;
     if (!fun_ref) {
       // `local_var(args)` and similar
-      const TypeDataFunCallable* f_callable = v->get_callee()->inferred_type->try_as<TypeDataFunCallable>();
+      const TypeDataFunCallable* f_callable = v->get_callee()->inferred_type->unwrap_alias()->try_as<TypeDataFunCallable>();
       tolk_assert(f_callable && f_callable->params_size() == v->get_num_args());
       for (int i = 0; i < v->get_num_args(); ++i) {
         auto arg_i = v->get_arg(i)->get_expr();
@@ -381,7 +422,7 @@ protected:
     // `(v1, v2) = rhs` / `var (v1, v2) = rhs` (rhs may be `(1,2)` or `tensorVar` or `someF()`, doesn't matter)
     // dig recursively into v1 and v2 with corresponding rhs i-th item of a tensor
     if (auto lhs_tensor = lhs->try_as<ast_tensor>()) {
-      const TypeDataTensor* rhs_type_tensor = rhs_type->try_as<TypeDataTensor>();
+      const TypeDataTensor* rhs_type_tensor = rhs_type->unwrap_alias()->try_as<TypeDataTensor>();
       if (!rhs_type_tensor) {
         fire(cur_f, err_loc->loc, "can not assign " + to_string(rhs_type) + " to a tensor");
       }
@@ -398,7 +439,7 @@ protected:
     // `[v1, v2] = rhs` / `var [v1, v2] = rhs` (rhs may be `[1,2]` or `tupleVar` or `someF()`, doesn't matter)
     // dig recursively into v1 and v2 with corresponding rhs i-th item of a tuple
     if (auto lhs_tuple = lhs->try_as<ast_typed_tuple>()) {
-      const TypeDataTypedTuple* rhs_type_tuple = rhs_type->try_as<TypeDataTypedTuple>();
+      const TypeDataTypedTuple* rhs_type_tuple = rhs_type->unwrap_alias()->try_as<TypeDataTypedTuple>();
       if (!rhs_type_tuple) {
         fire(cur_f, err_loc->loc, "can not assign " + to_string(rhs_type) + " to a tuple");
       }
@@ -414,7 +455,7 @@ protected:
 
     // check `untypedTuple.0 = rhs_tensor` and other non-1 width elements
     if (auto lhs_dot = lhs->try_as<ast_dot_access>()) {
-      if (lhs_dot->is_target_indexed_access() && lhs_dot->get_obj()->inferred_type == TypeDataTuple::create()) {
+      if (lhs_dot->is_target_indexed_access() && lhs_dot->get_obj()->inferred_type->unwrap_alias() == TypeDataTuple::create()) {
         if (rhs_type->get_width_on_stack() != 1) {
           fire_error_cannot_put_non1_stack_width_arg_to_tuple(cur_f, err_loc->loc, rhs_type);
         }
@@ -475,6 +516,103 @@ protected:
 
     if (cond->is_always_true || cond->is_always_false) {
       warning_condition_always_true_or_false(cur_f, v->loc, cond, "ternary operator");
+    }
+  }
+
+  void visit(V<ast_match_expression> v) override {
+    parent::visit(v);
+
+    bool has_type_arm = false;
+    bool has_expr_arm = false;
+    bool has_else_arm = false;
+    AnyExprV v_subject = v->get_subject();
+    TypePtr subject_type = v_subject->inferred_type->unwrap_alias();
+    const TypeDataUnion* subject_union = subject_type->try_as<TypeDataUnion>();
+
+    std::vector<int> covered_type_ids;    // for type-based `match`, what types are on the left of `=>`
+
+    for (int i = 0; i < v->get_arms_count(); ++i) {
+      auto v_arm = v->get_arm(i);
+      switch (v_arm->pattern_kind) {
+        case MatchArmKind::exact_type: {
+          if (has_expr_arm) {
+            fire(cur_f, v_arm->loc, "can not mix type and expression patterns in `match`");
+          }
+          if (has_else_arm) {
+            fire(cur_f, v_arm->loc, "`else` branch should be the last");
+          }
+          has_type_arm = true;
+
+          TypePtr lhs_type = v_arm->exact_type->unwrap_alias();   // `lhs_type => ...`
+          if (lhs_type->try_as<TypeDataUnion>()) {
+            fire(cur_f, v_arm->loc, "wrong pattern matching: union types are not allowed, use concrete types in `match`");
+          }
+          bool can_happen = (subject_union && subject_union->has_variant_with_type_id(lhs_type)) ||
+                           (!subject_union && subject_type->equal_to(lhs_type));
+          if (!can_happen) {
+            fire(cur_f, v_arm->loc, "wrong pattern matching: " + to_string(lhs_type) + " is not a variant of " + to_string(subject_type));
+          }
+          if (std::find(covered_type_ids.begin(), covered_type_ids.end(), lhs_type->get_type_id()) != covered_type_ids.end()) {
+            fire(cur_f, v_arm->loc, "wrong pattern matching: duplicated " + to_string(lhs_type));
+          }
+          covered_type_ids.push_back(lhs_type->get_type_id());
+          break;
+        }
+        case MatchArmKind::const_expression: {
+          if (has_type_arm) {
+            fire(cur_f, v_arm->loc, "can not mix type and expression patterns in `match`");
+          }
+          if (has_else_arm) {
+            fire(cur_f, v_arm->loc, "`else` branch should be the last");
+          }
+          has_expr_arm = true;
+          TypePtr pattern_type = v_arm->get_pattern_expr()->inferred_type->unwrap_alias();
+          bool both_int = expect_integer(pattern_type) && expect_integer(subject_type);
+          bool both_bool = expect_boolean(pattern_type) && expect_boolean(subject_type);
+          if (!both_int && !both_bool) {
+            if (pattern_type->equal_to(subject_type)) {   // `match` over `slice` etc., where operator `==` can't be applied
+              fire(cur_f, v_arm->loc, "wrong pattern matching: can not compare type " + to_string(subject_type) + " in `match`");
+            } else {
+              fire(cur_f, v_arm->loc, "wrong pattern matching: can not compare type " + to_string(v_arm->get_pattern_expr()) + " with match subject of type " + to_string(v_subject));
+            }
+          }
+          break;
+        }
+        default:
+          if (has_else_arm) {
+            fire(cur_f, v_arm->loc, "duplicated `else` branch");
+          }
+          if (has_type_arm) {
+            fire(cur_f, v_arm->loc, "`else` is not allowed in `match` by type; you should cover all possible types");
+          }
+          has_else_arm = true;
+      }
+    }
+
+    // fire if `match` by type is not exhaustive
+    if (has_type_arm && subject_union && subject_union->variants.size() != covered_type_ids.size()) {
+      std::string missing;
+      for (TypePtr variant : subject_union->variants) {
+        if (std::find(covered_type_ids.begin(), covered_type_ids.end(), variant->get_type_id()) == covered_type_ids.end()) {
+          if (!missing.empty()) {
+            missing += ", ";
+          }
+          missing += to_string(variant);
+        }
+      }
+      throw ParseError(cur_f, v->loc, "`match` does not cover all possible types; missing types are: " + missing);
+    }
+    // `match` by expression, if it's not statement, should have `else` (unless it's match over bool with const true/false)
+    if (has_expr_arm && !has_else_arm && !v->is_statement()) {
+      bool needs_else_branch = true;
+      if (expect_boolean(subject_type) && v->get_arms_count() == 2) {
+        auto arm0 = v->get_arm(0)->get_pattern_expr()->try_as<ast_bool_const>();
+        auto arm1 = v->get_arm(1)->get_pattern_expr()->try_as<ast_bool_const>();
+        needs_else_branch = !(arm0 && arm1 && arm0->bool_val != arm1->bool_val);
+      }
+      if (needs_else_branch) {
+        fire(cur_f, v->loc, "`match` expression should have `else` branch");
+      }
     }
   }
 
@@ -553,7 +691,7 @@ protected:
     }
   }
 
-  void visit(V<ast_sequence> v) override {
+  void visit(V<ast_block_statement> v) override {
     parent::visit(v);
 
     if (v->first_unreachable) {
@@ -577,7 +715,7 @@ protected:
 
     if (fun_ref->is_implicit_return() && fun_ref->declared_return_type) {
       if (!fun_ref->declared_return_type->can_rhs_be_assigned(TypeDataVoid::create()) || fun_ref->does_return_self()) {
-        fire(fun_ref, v_function->get_body()->as<ast_sequence>()->loc_end, "missing return");
+        fire(fun_ref, v_function->get_body()->as<ast_block_statement>()->loc_end, "missing return");
       }
     }
   }

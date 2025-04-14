@@ -216,6 +216,18 @@ struct GlobalConstData final : Symbol {
   void assign_const_value(ConstantValue&& value);
 };
 
+struct AliasDefData final : Symbol {
+  TypePtr underlying_type;
+
+  AliasDefData(std::string name, SrcLocation loc, TypePtr underlying_type)
+    : Symbol(std::move(name), loc)
+    , underlying_type(underlying_type) {
+  }
+
+  AliasDefData* mutate() const { return const_cast<AliasDefData*>(this); }
+  void assign_resolved_type(TypePtr underlying_type);
+};
+
 class GlobalSymbolTable {
   std::unordered_map<uint64_t, const Symbol*> entries;
 
@@ -227,6 +239,7 @@ public:
   void add_function(FunctionPtr f_sym);
   void add_global_var(GlobalVarPtr g_sym);
   void add_global_const(GlobalConstPtr c_sym);
+  void add_type_alias(AliasDefPtr a_sym);
 
   const Symbol* lookup(std::string_view name) const {
     const auto it = entries.find(key_hash(name));
