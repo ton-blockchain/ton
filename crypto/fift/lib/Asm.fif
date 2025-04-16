@@ -2,7 +2,7 @@ library TVM_Asm
 // simple TVM Assembler
 namespace Asm
 Asm definitions
-"0.4.5" constant asm-fif-version
+"0.4.6" constant asm-fif-version
 
 variable @atend
 variable @was-split
@@ -750,26 +750,37 @@ x{D723} @Defop SDSKIPLAST
 x{D724} @Defop SDSUBSTR
 x{D726} @Defop SDBEGINSX
 x{D727} @Defop SDBEGINSXQ
+
+/*
+if (rembits >= opcodebits) or (rembits <= 18)
+  just write
+else
+  PUSHSLICE SDBEGINSXQ
+
+---
+18 - size of PUSHREFSLICE
+*/
+
 { tuck sbits tuck 5 + 3 >> swap x{D72A_} s, over 7 u, 3 roll s,
   -rot 3 << 3 + swap - @scomplete } : SDBEGINS:imm
-{ tuck sbitrefs abort"no references allowed in slice" dup 26 <=
-  { drop <b rot SDBEGINS:imm @addopb }
-  { @havebits
-    { swap SDBEGINS:imm }
-    { swap PUSHSLICE SDBEGINSX
-    } cond
-  } cond
+{ tuck sbitrefs abort"no references allowed in slice" // slice builder slicebits
+  5 + 3 >> 8 * 3 + 21 + // slice builder opcodebits ((sbits + 5) // 8) * 8 + 3 + 21
+  over brembits <= // total op bits <= remaining free bits in slice
+  { <b rot SDBEGINS:imm @addopb }
+  { swap PUSHSLICE SDBEGINSX }
+  cond
 } : SDBEGINS
+
 { tuck sbits tuck 5 + 3 >> swap x{D72E_} s, over 7 u, 3 roll s,
   -rot 3 << 3 + swap - @scomplete } : SDBEGINSQ:imm
-{ tuck sbitrefs abort"no references allowed in slice" dup 26 <=
-  { drop <b rot SDBEGINSQ:imm @addopb }
-  { @havebits
-    { swap SDBEGINSQ:imm }
-    { swap PUSHSLICE SDBEGINSXQ
-    } cond
-  } cond
+{ tuck sbitrefs abort"no references allowed in slice" // slice builder slicebits
+  5 + 3 >> 8 * 3 + 21 + // slice builder opcodebits
+  over brembits <= // total op bits <= remaining free bits in slice
+  { <b rot SDBEGINSQ:imm @addopb }
+  { swap PUSHSLICE SDBEGINSXQ }
+  cond
 } : SDBEGINSQ
+
 x{D730} @Defop SCUTFIRST
 x{D731} @Defop SSKIPFIRST
 x{D732} @Defop SCUTLAST
