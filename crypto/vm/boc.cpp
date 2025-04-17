@@ -1254,16 +1254,18 @@ bool VmStorageStat::add_storage(const CellSlice& cs) {
   return true;
 }
 
-void ProofStorageStat::add_loaded_cell(const Ref<DataCell>& cell) {
-  auto& [status, size] = cells_[cell->get_hash()];
+void ProofStorageStat::add_loaded_cell(const Ref<DataCell>& cell, td::uint8 max_level) {
+  auto& [status, size] = cells_[cell->get_hash(max_level)];
   if (status == c_loaded) {
     return;
   }
   proof_size_ -= size;
   status = c_loaded;
   proof_size_ += size = estimate_serialized_size(cell);
+  max_level += (cell->special_type() == CellTraits::SpecialType::MerkleProof ||
+                cell->special_type() == CellTraits::SpecialType::MerkleUpdate);
   for (unsigned i = 0; i < cell->size_refs(); ++i) {
-    auto& [child_status, child_size] = cells_[cell->get_ref(i)->get_hash()];
+    auto& [child_status, child_size] = cells_[cell->get_ref(i)->get_hash(max_level)];
     if (child_status == c_none) {
       child_status = c_prunned;
       proof_size_ += child_size = estimate_prunned_size();

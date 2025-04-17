@@ -944,7 +944,7 @@ void Collator::got_neighbor_msg_queue(unsigned i, Ref<OutMsgQueueProof> res) {
     neighbor_proof_builders_.push_back(vm::MerkleProofBuilder{res->state_root_});
     state_root = neighbor_proof_builders_.back().root();
     if (full_collated_data_ && !block_id.is_masterchain()) {
-      neighbor_proof_builders_.back().set_cell_load_callback([&](const Ref<vm::DataCell>& cell) {
+      neighbor_proof_builders_.back().set_cell_load_callback([&](const vm::LoadedCell& cell) {
         on_cell_loaded(cell);
       });
     }
@@ -1054,7 +1054,7 @@ bool Collator::unpack_merge_last_state() {
   // 1. prepare for creating a MerkleUpdate based on previous state
   state_usage_tree_ = std::make_shared<vm::CellUsageTree>();
   if (full_collated_data_ && !is_masterchain()) {
-    state_usage_tree_->set_cell_load_callback([&](const Ref<vm::DataCell>& cell) {
+    state_usage_tree_->set_cell_load_callback([&](const vm::LoadedCell& cell) {
       on_cell_loaded(cell);
     });
   }
@@ -1103,7 +1103,7 @@ bool Collator::unpack_last_state() {
   // prepare for creating a MerkleUpdate based on previous state
   state_usage_tree_ = std::make_shared<vm::CellUsageTree>();
   if (full_collated_data_ && !is_masterchain()) {
-    state_usage_tree_->set_cell_load_callback([&](const Ref<vm::DataCell>& cell) {
+    state_usage_tree_->set_cell_load_callback([&](const vm::LoadedCell& cell) {
       on_cell_loaded(cell);
     });
   }
@@ -2648,7 +2648,7 @@ bool Collator::init_account_storage_dict(block::Account& account) {
                                    << ": dict is empty");
     }
     dict.mpb = vm::MerkleProofBuilder(res.move_as_ok());
-    dict.mpb.set_cell_load_callback([&](const Ref<vm::DataCell>& cell) {
+    dict.mpb.set_cell_load_callback([&](const vm::LoadedCell& cell) {
       on_cell_loaded(cell);
     });
   }
@@ -6382,9 +6382,9 @@ void Collator::finalize_stats() {
  * When storage stat is calculated, StorageStatCalculationContext::calculating_storage_stat() returns true.
  * In this case, loaded cell is stored in a separate StorageStat for the storage dict of the account (if it exists).
  *
- * @param cell Loaded cell
+ * @param loaded_cell Loaded cell
  */
-void Collator::on_cell_loaded(const Ref<vm::DataCell>& cell) {
+void Collator::on_cell_loaded(const vm::LoadedCell& loaded_cell) {
   auto context = block::StorageStatCalculationContext::get();
   vm::ProofStorageStat* stat = (context && context->calculating_storage_stat() && current_tx_storage_dict_
                                     ? &current_tx_storage_dict_->proof_stat
@@ -6392,7 +6392,7 @@ void Collator::on_cell_loaded(const Ref<vm::DataCell>& cell) {
   if (block_limit_status_) {
     block_limit_status_->collated_data_size_estimate -= stat->estimate_proof_size();
   }
-  stat->add_loaded_cell(cell);
+  stat->add_loaded_cell(loaded_cell.data_cell, loaded_cell.virt.get_level());
   if (block_limit_status_) {
     block_limit_status_->collated_data_size_estimate += stat->estimate_proof_size();
   }

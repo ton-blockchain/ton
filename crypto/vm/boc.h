@@ -165,7 +165,7 @@ struct VmStorageStat {
 
 class ProofStorageStat {
  public:
-  void add_loaded_cell(const Ref<DataCell>& cell);
+  void add_loaded_cell(const Ref<DataCell>& cell, td::uint8 max_level = Cell::max_level);
   void add_loaded_cells(const ProofStorageStat& other);
   td::uint64 estimate_proof_size() const;
 

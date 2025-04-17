@@ -408,7 +408,7 @@ class Collator final : public td::actor::Actor {
 
   AccountStorageDict* current_tx_storage_dict_ = nullptr;
 
-  void on_cell_loaded(const Ref<vm::DataCell>& cell);
+  void on_cell_loaded(const vm::LoadedCell& cell);
   void set_current_tx_storage_dict(const block::Account& account);
 };
 
