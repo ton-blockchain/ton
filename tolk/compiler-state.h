@@ -99,6 +99,7 @@ struct CompilerState {
   std::vector<FunctionPtr> all_get_methods;
   std::vector<GlobalVarPtr> all_global_vars;
   std::vector<GlobalConstPtr> all_constants;
+  std::vector<StructPtr> all_structs;
   AllRegisteredSrcFiles all_src_files;
 
   bool is_verbosity(int gt_eq) const { return settings.verbosity >= gt_eq; }

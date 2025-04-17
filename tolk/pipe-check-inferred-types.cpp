@@ -747,6 +747,16 @@ protected:
       }
     }
   }
+
+  // given struct field `a: int = 2 + 3` check types within its default_value
+  void start_visiting_field_default(StructFieldPtr field_ref) {
+    parent::visit(field_ref->default_value);
+
+    TypePtr inferred_type = field_ref->default_value->inferred_type;
+    if (!field_ref->declared_type->can_rhs_be_assigned(inferred_type)) {
+      throw ParseError(field_ref->loc, "can not assign " + to_string(inferred_type) + " to " + to_string(field_ref->declared_type));
+    }
+  }
 };
 
 void pipeline_check_inferred_types() {
@@ -755,6 +765,13 @@ void pipeline_check_inferred_types() {
   CheckInferredTypesVisitor visitor;
   for (GlobalConstPtr const_ref : get_all_declared_constants()) {
     visitor.start_visiting_constant(const_ref);
+  }
+  for (StructPtr struct_ref : get_all_declared_structs()) {
+    for (StructFieldPtr field_ref : struct_ref->fields) {
+      if (field_ref->has_default_value()) {
+        visitor.start_visiting_field_default(field_ref);
+      }
+    }
   }
 }
 

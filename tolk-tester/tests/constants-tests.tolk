@@ -29,6 +29,12 @@ const true3 = true1 && true2;
 const false1 = !true;
 const false2 = false1 || false;
 
+const tens1 = (1, 2);
+const tens2: (int, int, (int8, int16)) = (tens1.1, tens1.0 << 2, tens1);
+
+const intOrN: int? = null;
+const int32Or64: int32 | int64 = 7 as int64;
+
 fun iget1(): int { return int1; }
 fun iget2(): int { return int2; }
 fun iget3(): int { return int1+int2; }
@@ -71,6 +77,17 @@ fun test3() {
     return (false1, false2);
 }
 
+@method_id(104)
+fun test4() {
+    __expect_type(tens1, "(int, int)");
+    return (tens1.0, tens2.2);
+}
+
+@method_id(105)
+fun test5() {
+    return (intOrN == null, int32Or64 is int32, int32Or64);
+}
+
 fun main() {
     var i1: int = iget1();
     var i2: int = iget2();
@@ -98,6 +115,8 @@ fun main() {
 @testcase | 101 |   | 0 -1
 @testcase | 102 |   | -1 -1 -1
 @testcase | 103 |   | 0 0
+@testcase | 104 |   | 1 1 2
+@testcase | 105 |   | -1 0 7 48
 
-@code_hash 28102194299745406750019953961984060488024870092664444642078578246708959881688
+@code_hash 80040709432962217077682091261201772251141677197885524779745956896218368868623
 */

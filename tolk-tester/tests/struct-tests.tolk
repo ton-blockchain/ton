@@ -428,7 +428,38 @@ fun test31() {
     return (s1, s2, s3, 777, s1 == null, s2 == null, s3 == null, 777, s1!.x == null, s2!.x == null);
 }
 
+struct PointDef0 {
+    x: int = 0,
+    y: int = 0,
+}
 
+@method_id(132)
+fun test32() {
+    var p1: PointDef0 = { x: 10, y: 20 };
+    var p2: PointDef0 = { x: 10 };
+    var p3: PointDef0 = { y: 20 };
+    var p4: PointDef0 = { };
+    return (p1, p2, p3, p4, PointDef0{});
+}
+
+struct WithDefaults {
+    f1: (bool, int) = (true, 0),
+    f2: int,
+    f3: slice? = stringHexToSlice("010203"),
+    f4: PointDef0? = null,
+    f5: int32 | int64 = 0 as int32,
+}
+
+@method_id(133)
+fun test33(): WithDefaults {
+    var w1: WithDefaults = { f2: 0 };
+    assert(w1.f1.0 && w1.f1.1 == 0 && w1.f3!.getRemainingBitsCount() == 24 && w1.f4 == null && w1.f5 is int32) throw 100;
+    var w2: WithDefaults? = { f1: (false, 55), f2: 10, f5: 8 as int64 };
+    assert(w2.f1.0 != true && w2.f3!.getRemainingBitsCount() == 24 && w2.f4 == null && w2.f5 is int64 && w2.f5 == 8) throw 100;
+    var w3: (int, WithDefaults) = (0, { f2: 7, f4: {y: 20} });
+    assert(w3.1.f4 != null && w3.1.f4.x == 0 && w3.1.f4.y == 20) throw 100;
+    return { f2: 5, f3: null };
+}
 
 
 
@@ -480,6 +511,8 @@ type PointAlias = Point;
 @testcase | 130 | -1   | 140 777 (null) 140 777 0 777 0 0
 @testcase | 130 | 0    | 139 777 4 1 777 139 777 0 0
 @testcase | 131 |      | 5 141 (null) 141 (null) 0 777 0 0 -1 777 0 -1
+@testcase | 132 |      | 10 20 10 0 0 20 0 0 0 0
+@testcase | 133 |      | -1 0 5 (null) (null) (null) 0 0 46
 
 @fif_codegen
 """

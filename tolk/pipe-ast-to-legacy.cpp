@@ -20,7 +20,6 @@
 #include "ast-visitor.h"
 #include "type-system.h"
 #include "common/refint.h"
-#include "constant-evaluator.h"
 #include "smart-casts-cfg.h"
 #include <unordered_set>
 
@@ -876,15 +875,8 @@ std::vector<var_idx_t> pre_compile_symbol(SrcLocation loc, const Symbol* sym, Co
     return local_ir_idx;
   }
   if (GlobalConstPtr const_ref = sym->try_as<GlobalConstPtr>()) {
-    if (const_ref->value.is_int()) {
-      std::vector<var_idx_t> rvect = code.create_tmp_var(TypeDataInt::create(), loc, "(glob-const)");
-      code.emplace_back(loc, Op::_IntConst, rvect, const_ref->value.as_int());
-      return rvect;
-    } else {
-      std::vector<var_idx_t> rvect = code.create_tmp_var(TypeDataSlice::create(), loc, "(glob-const)");
-      code.emplace_back(loc, Op::_SliceConst, rvect, const_ref->value.as_slice());
-      return rvect;
-    }
+    tolk_assert(lval_ctx == nullptr);
+    return pre_compile_expr(const_ref->init_value, code, const_ref->declared_type);
   }
   if (FunctionPtr fun_ref = sym->try_as<FunctionPtr>()) {
     std::vector<var_idx_t> rvect = code.create_tmp_var(fun_ref->inferred_full_type, loc, "(glob-var-fun)");
@@ -1341,7 +1333,10 @@ static std::vector<var_idx_t> process_object_literal(V<ast_object_literal> v, Co
         break;
       }
     }
-    tolk_assert(v_init_val);
+    if (!v_init_val) {
+      tolk_assert(field_ref->has_default_value());
+      v_init_val = field_ref->default_value;   // it may be a complex expression, but it's constant, checked earlier
+    }
     tensor_items.push_back(v_init_val);
     target_types.push_back(field_ref->declared_type);
   }
@@ -1359,9 +1354,8 @@ static std::vector<var_idx_t> process_int_const(V<ast_int_const> v, CodeBlob& co
 }
 
 static std::vector<var_idx_t> process_string_const(V<ast_string_const> v, CodeBlob& code, TypePtr target_type) {
-  tolk_assert(v->literal_value.is_slice());
   std::vector<var_idx_t> rvect = code.create_tmp_var(v->inferred_type, v->loc, "(str-const)");
-  code.emplace_back(v->loc, Op::_SliceConst, rvect, v->literal_value.as_slice());
+  code.emplace_back(v->loc, Op::_SliceConst, rvect, v->literal_value);
   return transition_to_target_type(std::move(rvect), code, target_type, v);
 }
 

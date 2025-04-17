@@ -1275,11 +1275,15 @@ static AnyV parse_struct_field(Lexer& lex) {
   lex.expect(tok_colon, "`: <type>`");
   TypePtr declared_type = parse_type_from_tokens(lex);
 
+  AnyExprV default_value = nullptr;
   if (lex.tok() == tok_assign) {    // `id: int = 3`
-    lex.error("default values for fields not supported yet");
+    lex.next();
+    default_value = parse_expr(lex);
+  } else {
+    default_value = createV<ast_empty_expression>(lex.cur_location());
   }
 
-  return createV<ast_struct_field>(loc, v_ident, declared_type);
+  return createV<ast_struct_field>(loc, v_ident, default_value, declared_type);
 }
 
 static V<ast_struct_body> parse_struct_body(Lexer& lex) {

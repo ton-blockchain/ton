@@ -1212,7 +1212,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
       assign_inferred_type(v_field, v_field->get_init_val());
     }
     for (StructFieldPtr field_ref : struct_ref->fields) {
-      if (!(occurred_mask & (1ULL << field_ref->field_idx))) {
+      if (!(occurred_mask & (1ULL << field_ref->field_idx)) && !field_ref->has_default_value()) {
         fire(cur_f, v->get_body()->loc, "field `" + field_ref->name + "` missed in initialization of struct `" + struct_ref->name + "`");
       }
     }
@@ -1439,6 +1439,12 @@ public:
     infer_any_expr(const_ref->init_value, std::move(const_flow), false, const_ref->declared_type);
     const_ref->mutate()->assign_inferred_type(const_ref->declared_type == nullptr ? const_ref->init_value->inferred_type : const_ref->declared_type);
   }
+
+  // given struct field `a: int = 2 + 3` infer that default value is int, assign inferred_type to all nodes
+  void start_visiting_field_default(StructFieldPtr field_ref) {
+    FlowContext field_flow;
+    infer_any_expr(field_ref->default_value, std::move(field_flow), false, field_ref->declared_type);
+  }
 };
 
 class LaunchInferTypesAndMethodsOnce final {
@@ -1510,7 +1516,15 @@ void pipeline_infer_types_and_calls_and_fields() {
       visitor.start_visiting_constant(const_ref);
     }
   }
-  // (later, at constant folding, `const a = 2 + 3` will be evaluated to 5)
+
+  // infer types for default values in structs
+  for (StructPtr struct_ref : get_all_declared_structs()) {
+    for (StructFieldPtr field_ref : struct_ref->fields) {
+      if (field_ref->has_default_value()) {
+        visitor.start_visiting_field_default(field_ref);
+      }
+    }
+  }
 }
 
 void pipeline_infer_types_and_calls_and_fields(FunctionPtr fun_ref) {

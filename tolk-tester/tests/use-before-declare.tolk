@@ -58,7 +58,7 @@ const first = 1;
 """
   test2 PROC:<{
     //
-    2 PUSHINT  // '0=2
+    2 PUSHINT  // '2
   }>
 """
  */

@@ -501,10 +501,10 @@ template<>
 // note, that TVM doesn't have strings, it has only slices, so "hello" has type slice
 struct Vertex<ast_string_const> final : ASTExprLeaf {
   std::string_view str_val;
-  ConstantValue literal_value;      // value of type `slice`, calculated after type inferring, at constants evaluation
+  std::string literal_value;      // when "some_str" is a standalone string, value of type `slice`, for x{...} Fift output
 
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
-  void assign_literal_value(ConstantValue&& literal_value);
+  void assign_literal_value(std::string&& literal_value);
 
   Vertex(SrcLocation loc, std::string_view str_val)
     : ASTExprLeaf(ast_string_const, loc)
@@ -1196,13 +1196,15 @@ struct Vertex<ast_struct_field> final : ASTOtherVararg {
   TypePtr declared_type;
 
   auto get_identifier() const { return children.at(0)->as<ast_identifier>(); }
+  bool has_default_value() const { return children.at(1)->type != ast_empty_expression; }
+  auto get_default_value() const { return child_as_expr(1); }
 
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
   void assign_field_ref(StructFieldPtr field_ref);
   void assign_resolved_type(TypePtr declared_type);
 
-  Vertex(SrcLocation loc, V<ast_identifier> name_identifier, TypePtr declared_type)
-    : ASTOtherVararg(ast_struct_field, loc, {name_identifier})
+  Vertex(SrcLocation loc, V<ast_identifier> name_identifier, AnyExprV default_value, TypePtr declared_type)
+    : ASTOtherVararg(ast_struct_field, loc, {name_identifier, default_value})
     , declared_type(declared_type) {}
 };
 

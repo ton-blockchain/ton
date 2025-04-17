@@ -18,7 +18,6 @@
 
 #include "src-file.h"
 #include "fwd-declarations.h"
-#include "constant-evaluator.h"
 #include "crypto/common/refint.h"
 #include <unordered_map>
 #include <variant>
@@ -200,7 +199,6 @@ struct GlobalVarData final : Symbol {
 
 struct GlobalConstData final : Symbol {
   AnyExprV init_value;
-  ConstantValue value;
   TypePtr declared_type;            // `const a: int = ...`; nullptr for `const a = ...`
   TypePtr inferred_type = nullptr;  // filled at type inferring pass
 
@@ -213,7 +211,7 @@ struct GlobalConstData final : Symbol {
   GlobalConstData* mutate() const { return const_cast<GlobalConstData*>(this); }
   void assign_resolved_type(TypePtr declared_type);
   void assign_inferred_type(TypePtr inferred_type);
-  void assign_const_value(ConstantValue&& value);
+  void assign_init_value(AnyExprV init_value);
 };
 
 struct AliasDefData final : Symbol {
@@ -231,14 +229,19 @@ struct AliasDefData final : Symbol {
 struct StructFieldData final : Symbol {
   int field_idx;
   TypePtr declared_type;
+  AnyExprV default_value;     // nullptr if no default
+
+  bool has_default_value() const { return default_value != nullptr; }
 
   StructFieldData* mutate() const { return const_cast<StructFieldData*>(this); }
   void assign_resolved_type(TypePtr declared_type);
+  void assign_default_value(AnyExprV default_value);
 
-  StructFieldData(std::string name, SrcLocation loc, int field_idx, TypePtr declared_type)
+  StructFieldData(std::string name, SrcLocation loc, int field_idx, TypePtr declared_type, AnyExprV default_value)
     : Symbol(std::move(name), loc)
     , field_idx(field_idx)
-    , declared_type(declared_type) {
+    , declared_type(declared_type)
+    , default_value(default_value) {
   }
 };
 

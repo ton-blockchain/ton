@@ -422,6 +422,11 @@ public:
     // `const a = b`, resolve `b`
     parent::visit(v->get_init_value());
   }
+
+  void start_visiting_struct_field(V<ast_struct_field> v) {
+    // field `a: int = C`, resolve `C`
+    parent::visit(v->get_default_value());
+  }
 };
 
 NameAndScopeResolver AssignSymInsideFunctionVisitor::current_scope;
@@ -458,6 +463,7 @@ void pipeline_resolve_identifiers_and_assign_symbols() {
         auto v_body = v_struct->get_struct_body();
         for (int i = 0; i < v_body->get_num_fields(); ++i) {
           auto v_field = v_body->get_field(i);
+          visitor.start_visiting_struct_field(v_field);
           v_field->mutate()->assign_resolved_type(v_struct->struct_ref->get_field(i)->declared_type);
         }
       }

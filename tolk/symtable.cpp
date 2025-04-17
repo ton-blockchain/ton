@@ -97,8 +97,8 @@ void GlobalConstData::assign_inferred_type(TypePtr inferred_type) {
   this->inferred_type = inferred_type;
 }
 
-void GlobalConstData::assign_const_value(ConstantValue&& value) {
-  this->value = std::move(value);
+void GlobalConstData::assign_init_value(AnyExprV init_value) {
+  this->init_value = init_value;
 }
 
 void LocalVarData::assign_ir_idx(std::vector<int>&& ir_idx) {
@@ -119,6 +119,10 @@ void AliasDefData::assign_resolved_type(TypePtr underlying_type) {
 
 void StructFieldData::assign_resolved_type(TypePtr declared_type) {
   this->declared_type = declared_type;
+}
+
+void StructFieldData::assign_default_value(AnyExprV default_value) {
+  this->default_value = default_value;
 }
 
 void StructData::assign_resolved_type(TypePtr struct_type) {

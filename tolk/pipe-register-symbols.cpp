@@ -19,7 +19,6 @@
 #include "src-file.h"
 #include "ast.h"
 #include "compiler-state.h"
-#include "constant-evaluator.h"
 #include "generics-helpers.h"
 #include "td/utils/crypto.h"
 #include "type-system.h"
@@ -116,9 +115,6 @@ static const GenericsDeclaration* construct_genericTs(V<ast_genericsT_list> v_li
 
 static void register_constant(V<ast_constant_declaration> v) {
   GlobalConstData* c_sym = new GlobalConstData(static_cast<std::string>(v->get_identifier()->name), v->loc, v->declared_type, v->get_init_value());
-  // init value of constant is not evaluated here
-  // at first, it will be type checked (in type inference pipe)
-  // then, at constant folding pipe, `const a = 2 + 3` will be evaluated to 5
 
   G.symtable.add_global_const(c_sym);
   G.all_constants.push_back(c_sym);
@@ -147,7 +143,8 @@ static void register_struct(V<ast_struct_declaration> v) {
   fields.reserve(v_body->get_num_fields());
   for (int i = 0; i < v_body->get_num_fields(); ++i) {
     auto v_field = v_body->get_field(i);
-    StructFieldData* field_ref = new StructFieldData(static_cast<std::string>(v_field->get_identifier()->name), v_field->loc, i, v_field->declared_type);
+    AnyExprV default_value = v_field->has_default_value() ? v_field->get_default_value() : nullptr;
+    StructFieldData* field_ref = new StructFieldData(static_cast<std::string>(v_field->get_identifier()->name), v_field->loc, i, v_field->declared_type, default_value);
     fields.emplace_back(field_ref);
     v_field->mutate()->assign_field_ref(field_ref);
   }
@@ -155,6 +152,7 @@ static void register_struct(V<ast_struct_declaration> v) {
   StructData* s_sym = new StructData(static_cast<std::string>(v->get_identifier()->name), v->loc, std::move(fields));
 
   G.symtable.add_struct(s_sym);
+  G.all_structs.push_back(s_sym);
   v->mutate()->assign_struct_ref(s_sym);
 }
 
