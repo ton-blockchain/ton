@@ -2040,6 +2040,7 @@ td::Result<SizeLimitsConfig> Config::do_get_size_limits_config(td::Ref<vm::CellS
     limits.max_acc_public_libraries = rec.max_acc_public_libraries;
     limits.defer_out_queue_size_limit = rec.defer_out_queue_size_limit;
     limits.max_msg_extra_currencies = rec.max_msg_extra_currencies;
+    limits.max_acc_fixed_prefix_length = rec.max_acc_fixed_prefix_length;
   };
   gen::SizeLimitsConfig::Record_size_limits_config rec_v1;
   gen::SizeLimitsConfig::Record_size_limits_config_v2 rec_v2;
