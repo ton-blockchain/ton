@@ -2,7 +2,7 @@ library TVM_Asm
 // simple TVM Assembler
 namespace Asm
 Asm definitions
-"0.4.5" constant asm-fif-version
+"0.4.6" constant asm-fif-version
 
 variable @atend
 variable @was-split
@@ -750,26 +750,37 @@ x{D723} @Defop SDSKIPLAST
 x{D724} @Defop SDSUBSTR
 x{D726} @Defop SDBEGINSX
 x{D727} @Defop SDBEGINSXQ
+
+/*
+if (rembits >= opcodebits) or (rembits <= 18)
+  just write
+else
+  PUSHSLICE SDBEGINSXQ
+
+---
+18 - size of PUSHREFSLICE
+*/
+
 { tuck sbits tuck 5 + 3 >> swap x{D72A_} s, over 7 u, 3 roll s,
   -rot 3 << 3 + swap - @scomplete } : SDBEGINS:imm
-{ tuck sbitrefs abort"no references allowed in slice" dup 26 <=
-  { drop <b rot SDBEGINS:imm @addopb }
-  { @havebits
-    { swap SDBEGINS:imm }
-    { swap PUSHSLICE SDBEGINSX
-    } cond
-  } cond
+{ tuck sbitrefs abort"no references allowed in slice" // slice builder slicebits
+  5 + 3 >> 8 * 3 + 21 + // slice builder opcodebits ((sbits + 5) // 8) * 8 + 3 + 21
+  over brembits <= // total op bits <= remaining free bits in slice
+  { <b rot SDBEGINS:imm @addopb }
+  { swap PUSHSLICE SDBEGINSX }
+  cond
 } : SDBEGINS
+
 { tuck sbits tuck 5 + 3 >> swap x{D72E_} s, over 7 u, 3 roll s,
   -rot 3 << 3 + swap - @scomplete } : SDBEGINSQ:imm
-{ tuck sbitrefs abort"no references allowed in slice" dup 26 <=
-  { drop <b rot SDBEGINSQ:imm @addopb }
-  { @havebits
-    { swap SDBEGINSQ:imm }
-    { swap PUSHSLICE SDBEGINSXQ
-    } cond
-  } cond
+{ tuck sbitrefs abort"no references allowed in slice" // slice builder slicebits
+  5 + 3 >> 8 * 3 + 21 + // slice builder opcodebits
+  over brembits <= // total op bits <= remaining free bits in slice
+  { <b rot SDBEGINSQ:imm @addopb }
+  { swap PUSHSLICE SDBEGINSXQ }
+  cond
 } : SDBEGINSQ
+
 x{D730} @Defop SCUTFIRST
 x{D731} @Defop SSKIPFIRST
 x{D732} @Defop SCUTLAST
@@ -1294,6 +1305,7 @@ x{F814} @Defop SETRAND
 x{F815} dup @Defop ADDRAND @Defop RANDOMIZE
 
 x{F82} @Defop(4u) GETPARAM
+x{F881} @Defop(8u) GETPARAMLONG
 x{F823} @Defop NOW
 x{F824} @Defop BLOCKLT
 x{F825} @Defop LTIME
@@ -1307,6 +1319,8 @@ x{F82C} @Defop STORAGEFEES
 x{F82D} @Defop PREVBLOCKSINFOTUPLE
 x{F82E} @Defop UNPACKEDCONFIGTUPLE
 x{F82F} @Defop DUEPAYMENT
+x{F88111} @Defop INMSGPARAMS
+
 x{F830} @Defop CONFIGDICT
 x{F832} @Defop CONFIGPARAM
 x{F833} @Defop CONFIGOPTPARAM
@@ -1322,10 +1336,24 @@ x{F83A} @Defop GETORIGINALFWDFEE
 x{F83B} @Defop GETGASFEESIMPLE
 x{F83C} @Defop GETFORWARDFEESIMPLE
 
+x{F89} @Defop(4u) INMSGPARAM
+x{F890} @Defop INMSG_BOUNCE
+x{F891} @Defop INMSG_BOUNCED
+x{F892} @Defop INMSG_SRC
+x{F893} @Defop INMSG_FWDFEE
+x{F894} @Defop INMSG_LT
+x{F895} @Defop INMSG_UTIME
+x{F896} @Defop INMSG_ORIGVALUE
+x{F897} @Defop INMSG_VALUE
+x{F898} @Defop INMSG_VALUEEXTRA
+x{F899} @Defop INMSG_STATEINIT
+
 x{F840} @Defop GETGLOBVAR
 { dup 1 31 @rangechk <b x{F85_} s, swap 5 u, @addopb } : GETGLOB
 x{F860} @Defop SETGLOBVAR
 { dup 1 31 @rangechk <b x{F87_} s, swap 5 u, @addopb } : SETGLOB
+
+x{F880} @Defop GETEXTRABALANCE
 
 x{F900} @Defop HASHCU
 x{F901} @Defop HASHSU
