@@ -36,6 +36,7 @@
 #include "queue-size-counter.hpp"
 #include "validator-telemetry.hpp"
 #include "impl/candidates-buffer.hpp"
+#include "td/utils/LRUCache.h"
 
 #include <map>
 #include <set>
@@ -234,8 +235,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   // DATA FOR COLLATOR
   std::map<ShardTopBlockDescriptionId, td::Ref<ShardTopBlockDescription>> shard_blocks_;
 
-  std::map<BlockIdExt, ReceivedBlock> cached_block_candidates_;
-  std::list<BlockIdExt> cached_block_candidates_lru_;
+  td::LRUCache<BlockIdExt, td::BufferSlice> cached_block_data_{/* max_size = */ 128};
+  td::LRUCache<BlockIdExt, td::Unit> cached_checked_shard_block_descriptions_{/* max_size = */ 1024};
 
   struct ExtMessages {
     std::map<MessageId<ExtMessage>, std::unique_ptr<MessageExt<ExtMessage>>> ext_messages_;
@@ -366,7 +367,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void validate_block_proof_rel(BlockIdExt block_id, BlockIdExt rel_block_id, td::BufferSlice proof,
                                 td::Promise<td::Unit> promise) override;
   void validate_block(ReceivedBlock block, td::Promise<BlockHandle> promise) override;
-  void prevalidate_block(BlockBroadcast broadcast, td::Promise<td::Unit> promise) override;
+  void new_block_broadcast(BlockBroadcast broadcast, td::Promise<td::Unit> promise) override;
   void validated_block_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno);
 
   //void create_validate_block(BlockId block, td::BufferSlice data, td::Promise<Block> promise) = 0;
@@ -396,8 +397,9 @@ class ValidatorManagerImpl : public ValidatorManager {
   void check_external_message(td::BufferSlice data, td::Promise<td::Ref<ExtMessage>> promise) override;
 
   void new_ihr_message(td::BufferSlice data) override;
-  void new_shard_block(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) override;
-  void new_block_candidate(BlockIdExt block_id, td::BufferSlice data) override;
+  void new_shard_block_description_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
+                                             td::BufferSlice data) override;
+  void new_block_candidate_broadcast(BlockIdExt block_id, td::BufferSlice data) override;
 
   void add_ext_server_id(adnl::AdnlNodeIdShort id) override;
   void add_ext_server_port(td::uint16 port) override;
@@ -445,7 +447,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void set_block_candidate(BlockIdExt id, BlockCandidate candidate, CatchainSeqno cc_seqno,
                            td::uint32 validator_set_hash, td::Promise<td::Unit> promise) override;
   void send_block_candidate_broadcast(BlockIdExt id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
-                                      td::BufferSlice data) override;
+                                      td::BufferSlice data, int mode) override;
 
   void wait_block_state_merge(BlockIdExt left_id, BlockIdExt right_id, td::uint32 priority, td::Timestamp timeout,
                               td::Promise<td::Ref<ShardState>> promise) override;
@@ -545,7 +547,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   }
 
   void add_shard_block_description(td::Ref<ShardTopBlockDescription> desc);
-  void add_cached_block_candidate(ReceivedBlock block);
+  void add_cached_block_data(BlockIdExt block_id, td::BufferSlice data);
 
   void register_block_handle(BlockHandle handle);
 
@@ -695,9 +697,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   }
   double max_mempool_num() const {
     return opts_->max_mempool_num();
-  }
-  size_t max_cached_candidates() const {
-    return 128;
   }
   static double max_ext_msg_per_addr_time_window() {
     return 10.0;
