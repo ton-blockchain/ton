@@ -49,6 +49,9 @@ variable @default-subwallet-id
 8 constant capReportVersion
 16 constant capSplitMergeTransactions
 32 constant capShortDequeue
+64 constant capStoreOutMsgQueueSize
+128 constant capMsgMetadata
+256 constant capDeferMessages
 
 // max-validators masterchain-validators min-validators --
 { swap rot <b swap 16 u, swap 16 u, swap 16 u, b> 16 config! } : config.validator_num!

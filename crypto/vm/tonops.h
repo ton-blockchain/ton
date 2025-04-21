@@ -32,14 +32,15 @@ namespace util {
 // "_q" functions throw on error if not quiet, return false if quiet (leaving cs unchanged)
 bool load_var_integer_q(CellSlice& cs, td::RefInt256& res, int len_bits, bool sgnd, bool quiet);
 bool load_coins_q(CellSlice& cs, td::RefInt256& res, bool quiet);
-bool load_msg_addr_q(CellSlice& cs, CellSlice& res, bool quiet);
-bool parse_std_addr_q(CellSlice cs, ton::WorkchainId& res_wc, ton::StdSmcAddress& res_addr, bool quiet);
+bool load_msg_addr_q(CellSlice& cs, CellSlice& res, int global_version, bool quiet);
+bool parse_std_addr_q(CellSlice cs, ton::WorkchainId& res_wc, ton::StdSmcAddress& res_addr, int global_version,
+                      bool quiet);
 
 // Non-"_q" functions throw on error
 td::RefInt256 load_var_integer(CellSlice& cs, int len_bits, bool sgnd);
 td::RefInt256 load_coins(CellSlice& cs);
-CellSlice load_msg_addr(CellSlice& cs);
-std::pair<ton::WorkchainId, ton::StdSmcAddress> parse_std_addr(CellSlice cs);
+CellSlice load_msg_addr(CellSlice& cs, int global_version);
+std::pair<ton::WorkchainId, ton::StdSmcAddress> parse_std_addr(CellSlice cs, int global_version);
 
 // store_... functions throw on error if not quiet, return false if quiet (leaving cb unchanged)
 bool store_var_integer(CellBuilder& cb, const td::RefInt256& x, int len_bits, bool sgnd, bool quiet = false);

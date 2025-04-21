@@ -738,7 +738,7 @@ const TickTock t_TickTock;
 const RefAnything t_RefCell;
 
 bool StateInit::validate_skip(int* ops, vm::CellSlice& cs, bool weak) const {
-  return Maybe<UInt>{5}.validate_skip(ops, cs, weak)            // split_depth:(Maybe (## 5))
+  return Maybe<UInt>{5}.validate_skip(ops, cs, weak)            // fixed_prefix_length:(Maybe (## 5))
          && Maybe<TickTock>{}.validate_skip(ops, cs, weak)      // special:(Maybe TickTock)
          && Maybe<RefAnything>{}.validate_skip(ops, cs, weak)   // code:(Maybe ^Cell)
          && Maybe<RefAnything>{}.validate_skip(ops, cs, weak)   // data:(Maybe ^Cell)
@@ -1078,7 +1078,7 @@ bool Account::skip_copy_depth_balance(vm::CellBuilder& cb, vm::CellSlice& cs) co
     case account:
       return cs.advance(1)                                   // account$1
              && t_MsgAddressInt.skip_get_depth(cs, depth)    // addr:MsgAddressInt
-             && cb.store_uint_leq(30, depth)                 // -> store split_depth:(#<= 30)
+             && cb.store_uint_leq(30, depth)                 // -> store fixed_prefix_length:(#<= 30)
              && t_StorageInfo.skip(cs)                       // storage_stat:StorageInfo
              && t_AccountStorage.skip_copy_balance(cb, cs);  // storage:AccountStorage
   }
@@ -1223,13 +1223,14 @@ bool HashmapAugE::extract_extra(vm::CellSlice& cs) const {
 bool DepthBalanceInfo::skip(vm::CellSlice& cs) const {
   return cs.advance(5) &&
          t_CurrencyCollection.skip(
-             cs);  // depth_balance$_ split_depth:(#<= 30) balance:CurrencyCollection = DepthBalanceInfo;
+             cs);  // depth_balance$_ fixed_prefix_length:(#<= 30) balance:CurrencyCollection = DepthBalanceInfo;
 }
 
 bool DepthBalanceInfo::validate_skip(int* ops, vm::CellSlice& cs, bool weak) const {
   return cs.fetch_ulong(5) <= 30 &&
-         t_CurrencyCollection.validate_skip(ops, cs,
-                                            weak);  // depth_balance$_ split_depth:(#<= 30) balance:CurrencyCollection
+         t_CurrencyCollection.validate_skip(
+             ops, cs,
+             weak);  // depth_balance$_ fixed_prefix_length:(#<= 30) balance:CurrencyCollection
 }
 
 bool DepthBalanceInfo::null_value(vm::CellBuilder& cb) const {
