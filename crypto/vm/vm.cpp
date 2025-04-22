@@ -729,6 +729,10 @@ void VmState::run_child_vm(VmState&& new_state, bool return_data, bool return_ac
   new_state.chksgn_counter = chksgn_counter;
   new_state.free_gas_consumed = free_gas_consumed;
   new_state.get_extra_balance_counter = get_extra_balance_counter;
+  if (global_version >= 10) {
+    new_state.gas = GasLimits{std::min(new_state.gas.gas_limit, gas.gas_remaining),
+                              std::min(new_state.gas.gas_max, gas.gas_remaining)};
+  }
 
   auto new_parent = std::make_unique<ParentVmState>();
   new_parent->return_data = return_data;
