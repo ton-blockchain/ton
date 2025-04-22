@@ -3295,6 +3295,9 @@ bool Transaction::compute_state(const SerializeConfig& cfg) {
     acc_status = Account::acc_nonexist;
     was_created = false;
   }
+  if (acc_status == Account::acc_deleted && !balance.is_zero()) {
+    acc_status = Account::acc_uninit;
+  }
   if (acc_status == Account::acc_nonexist || acc_status == Account::acc_deleted) {
     CHECK(balance.is_zero());
     vm::CellBuilder cb;
