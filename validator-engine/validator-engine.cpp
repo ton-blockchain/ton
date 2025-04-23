@@ -4663,7 +4663,7 @@ int main(int argc, char *argv[]) {
       });
   p.add_checked_option(
       '\0', "broadcast-speed-catchain",
-      "multiplier for broadcast speed in catchain overlays (experimental, default is 1.0, which is ~300 KB/s)",
+      "multiplier for broadcast speed in catchain overlays (experimental, default is 3.33, which is ~1 MB/s)",
       [&](td::Slice s) -> td::Status {
         auto v = td::to_double(s);
         if (v <= 0.0) {
@@ -4675,7 +4675,7 @@ int main(int argc, char *argv[]) {
       });
   p.add_checked_option(
       '\0', "broadcast-speed-public",
-      "multiplier for broadcast speed in public shard overlays (experimental, default is 1.0, which is ~300 KB/s)",
+      "multiplier for broadcast speed in public shard overlays (experimental, default is 3.33, which is ~1 MB/s)",
       [&](td::Slice s) -> td::Status {
         auto v = td::to_double(s);
         if (v <= 0.0) {
@@ -4687,7 +4687,7 @@ int main(int argc, char *argv[]) {
       });
   p.add_checked_option(
       '\0', "broadcast-speed-private",
-      "multiplier for broadcast speed in private block overlays (experimental, default is 1.0, which is ~300 KB/s)",
+      "multiplier for broadcast speed in private block overlays (experimental, default is 3.33, which is ~1 MB/s)",
       [&](td::Slice s) -> td::Status {
         auto v = td::to_double(s);
         if (v <= 0.0) {
