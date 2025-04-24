@@ -236,6 +236,17 @@ fun testCodegen3(numberId: int, paramVal: cell) {
   paramVal.beginParse();
 }
 
+@method_id(112)
+fun testCatchUsesVars(x1: int) {
+  var x2 = x1 * 2;
+  try { alwaysThrow123(); }
+  catch (excno) {
+    var result = x1 + x2 + excno;
+    return result;
+  }
+  return -1;
+}
+
 @method_id(113)
 fun testBigExcno() {
   try {
@@ -274,9 +285,10 @@ fun main() {
 @testcase | 110 | 0     | 5
 @testcase | 111 | -1    | 123
 @testcase | 111 | 0     | 456
+@testcase | 112 | 5     | 138
 @testcase | 113 |       | 2048
 
-@code_hash 26411074751358281917876479601714698321674833208179417883888954015536273820035
+@code_hash 100812963733861852648745958727639570706776197131971804296829155862118445447691
 
 @fif_codegen
 """

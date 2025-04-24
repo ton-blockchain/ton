@@ -843,11 +843,6 @@ bool Op::generate_code_step(Stack& stack) {
       catch_stack.push_new_var(left[1]);
       stack.rearrange_top(loc, catch_vars, catch_last);
       stack.opt_show();
-      stack.o << AsmOp::Custom(loc, "c1 PUSH");
-      stack.o << AsmOp::Custom(loc, "c3 PUSH");
-      stack.o << AsmOp::Custom(loc, "c4 PUSH");
-      stack.o << AsmOp::Custom(loc, "c5 PUSH");
-      stack.o << AsmOp::Custom(loc, "c7 PUSH");
       stack.o << AsmOp::Custom(loc, "<{");
       stack.o.indent();
       if (block1->noreturn()) {
@@ -858,11 +853,7 @@ bool Op::generate_code_step(Stack& stack) {
       catch_stack.opt_show();
       stack.o.undent();
       stack.o << AsmOp::Custom({}, "}>CONT");
-      stack.o << AsmOp::Custom(loc, "c7 SETCONT");
-      stack.o << AsmOp::Custom(loc, "c5 SETCONT");
-      stack.o << AsmOp::Custom(loc, "c4 SETCONT");
-      stack.o << AsmOp::Custom(loc, "c3 SETCONT");
-      stack.o << AsmOp::Custom(loc, "c1 SETCONT");
+      stack.o << AsmOp::Custom(loc, "0b10111010 SETCONTMANY");
       for (size_t begin = catch_vars.size(), end = begin; end > 0; end = begin) {
         begin = end >= block_size ? end - block_size : 0;
         stack.o << AsmOp::Custom(loc, std::to_string(end - begin) + " PUSHINT");
