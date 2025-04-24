@@ -542,6 +542,11 @@ td::Result<std::shared_ptr<ValidatorSet>> Config::unpack_validator_set(Ref<vm::C
   if (vset_root.is_null()) {
     return td::Status::Error("validator set is absent");
   }
+  TRY_RESULT(loaded_root, vset_root->load_cell());
+  if (!loaded_root.tree_node.empty()) {
+    // Do not use cache during Merkle proof generation
+    use_cache = false;
+  }
   static ValidatorSetCache cache;
   if (use_cache) {
     auto result = cache.get(vset_root->get_hash());
