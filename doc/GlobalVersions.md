@@ -188,6 +188,7 @@ Reserve modes `+1`, `+4` and `+8` ("reserve all except", "add original balance" 
     - With "isolate gas" mode, in the beginning of `RUNVM` the parent VM spends full gas for all already executed `GETEXTRABALANCE` and resets the counter.
 - `LDMSGADDR(Q)`, `PARSEMSGADDR(Q)`, `REWRITESTDADDR(Q)`, `REWRITEVARADDR(Q)` no more support anycast addresses and `addr_var`.
 - Fixed bug in `RUNVM` caused by throwing out-of-gas exception with "isolate gas" enabled.
+- Fixed setting gas limits in `RUNVM` after consuming "free gas" (e.g. after `CHKSIGN` instructions).
 
 ### Other changes
 - Exceeding state limits in transaction now reverts `end_lt` back to `start_lt + 1` and collects action fines.
