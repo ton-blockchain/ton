@@ -1,18 +1,19 @@
-cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
-
 #SOURCE SETS
 set(TDACTOR_SOURCE
   td/actor/core/ActorExecutor.cpp
+  td/actor/core/ActorTypeStat.cpp
   td/actor/core/CpuWorker.cpp
   td/actor/core/IoWorker.cpp
   td/actor/core/Scheduler.cpp
 
+  td/actor/ActorStats.cpp
   td/actor/MultiPromise.cpp
 
   td/actor/actor.h
   td/actor/ActorId.h
   td/actor/ActorOwn.h
   td/actor/ActorShared.h
+  td/actor/ActorStats.h
   td/actor/common.h
   td/actor/PromiseFuture.h
   td/actor/MultiPromise.h
@@ -27,6 +28,7 @@ set(TDACTOR_SOURCE
   td/actor/core/ActorMessage.h
   td/actor/core/ActorSignals.h
   td/actor/core/ActorState.h
+  td/actor/core/ActorTypeStat.h
   td/actor/core/CpuWorker.h
   td/actor/core/Context.h
   td/actor/core/IoWorker.h

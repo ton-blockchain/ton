@@ -107,7 +107,7 @@ void DownloadProof::start_up() {
 }
 
 void DownloadProof::checked_db() {
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<std::unique_ptr<DownloadToken>> R) {
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<std::unique_ptr<ActionToken>> R) {
     if (R.is_error()) {
       td::actor::send_closure(SelfId, &DownloadProof::abort_query,
                               R.move_as_error_prefix("failed to get download token: "));
@@ -119,7 +119,7 @@ void DownloadProof::checked_db() {
                           std::move(P));
 }
 
-void DownloadProof::got_download_token(std::unique_ptr<DownloadToken> token) {
+void DownloadProof::got_download_token(std::unique_ptr<ActionToken> token) {
   token_ = std::move(token);
 
   if (download_from_.is_zero() && client_.empty()) {

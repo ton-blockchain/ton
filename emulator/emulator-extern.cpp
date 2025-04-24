@@ -496,6 +496,59 @@ bool tvm_emulator_set_c7(void *tvm_emulator, const char *address, uint32_t unixt
   return true;
 }
 
+bool tvm_emulator_set_extra_currencies(void *tvm_emulator, const char *extra_currencies) {
+  auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
+  vm::Dictionary dict{32};
+  td::Slice extra_currencies_str{extra_currencies};
+  while (true) {
+    auto next_space_pos = extra_currencies_str.find(' ');
+    auto currency_id_amount = next_space_pos == td::Slice::npos ? 
+      extra_currencies_str.substr(0) : extra_currencies_str.substr(0, next_space_pos);
+
+    if (!currency_id_amount.empty()) {
+      auto delim_pos = currency_id_amount.find('=');
+      if (delim_pos == td::Slice::npos) {
+        LOG(ERROR) << "Invalid extra currency format, missing '='";
+        return false;
+      }
+
+      auto currency_id_str = currency_id_amount.substr(0, delim_pos);
+      auto amount_str = currency_id_amount.substr(delim_pos + 1);
+
+      auto currency_id = td::to_integer_safe<uint32_t>(currency_id_str);
+      if (currency_id.is_error()) {
+        LOG(ERROR) << "Invalid extra currency id: " << currency_id_str;
+        return false;
+      }
+      auto amount = td::dec_string_to_int256(amount_str);
+      if (amount.is_null()) {
+        LOG(ERROR) << "Invalid extra currency amount: " << amount_str;
+        return false;
+      }
+      if (amount == 0) {
+        continue;
+      }
+      if (amount < 0) {
+        LOG(ERROR) << "Negative extra currency amount: " << amount_str;
+        return false;
+      }
+
+      vm::CellBuilder cb;
+      block::tlb::t_VarUInteger_32.store_integer_value(cb, *amount);
+      if (!dict.set_builder(td::BitArray<32>(currency_id.ok()), cb, vm::DictionaryBase::SetMode::Add)) {
+        LOG(ERROR) << "Duplicate extra currency id";
+        return false;
+      }
+    }
+    if (next_space_pos == td::Slice::npos) {
+      break;
+    }
+    extra_currencies_str.remove_prefix(next_space_pos + 1);
+  }
+  emulator->set_extra_currencies(std::move(dict).extract_root_cell());
+  return true;
+}
+
 bool tvm_emulator_set_config_object(void* tvm_emulator, void* config) {
   auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
   auto global_config = std::shared_ptr<block::Config>(static_cast<block::Config *>(config), config_deleter);
@@ -615,7 +668,7 @@ const char *tvm_emulator_emulate_run_method(uint32_t len, const char *params_boc
   emulator->set_vm_verbosity_level(0);
   emulator->set_gas_limit(gas_limit);
   emulator->set_c7_raw(c7->fetch(0).as_tuple());
-  if (libs.is_empty()) {
+  if (!libs.is_empty()) {
     emulator->set_libraries(std::move(libs));
   }
   auto result = emulator->run_get_method(int(method_id), stack);

@@ -45,7 +45,7 @@ bool Bool::print_skip(PrettyPrinter& pp, vm::CellSlice& cs) const {
 }
 
 bool NatWidth::print_skip(PrettyPrinter& pp, vm::CellSlice& cs) const {
-  long long value = (long long)cs.fetch_ulong(32);
+  long long value = (long long)cs.fetch_ulong(n);
   return value >= 0 && pp.out_int(value);
 }
 
@@ -133,7 +133,13 @@ bool TLB::validate_ref_internal(int* ops, Ref<vm::Cell> cell_ref, bool weak) con
   }
   bool is_special;
   auto cs = load_cell_slice_special(std::move(cell_ref), is_special);
-  return always_special() ? is_special : (is_special ? weak : (validate_skip(ops, cs) && cs.empty_ext()));
+  if (cs.special_type() == vm::Cell::SpecialType::PrunnedBranch && weak) {
+    return true;
+  }
+  if (always_special() != is_special) {
+    return false;
+  }
+  return validate_skip(ops, cs, weak) && cs.empty_ext();
 }
 
 bool TLB::print_skip(PrettyPrinter& pp, vm::CellSlice& cs) const {
@@ -188,6 +194,13 @@ bool TLB::print_ref(std::ostream& os, Ref<vm::Cell> cell_ref, int indent, int re
   PrettyPrinter pp{os, indent};
   pp.set_limit(rec_limit);
   return pp.fail_unless(print_ref(pp, std::move(cell_ref)));
+}
+
+bool TLB::print_ref(td::StringBuilder& sb, Ref<vm::Cell> cell_ref, int indent, int rec_limit) const {
+  std::ostringstream ss;
+  auto result = print_ref(ss, std::move(cell_ref), indent, rec_limit);
+  sb << ss.str();
+  return result;
 }
 
 std::string TLB::as_string_skip(vm::CellSlice& cs, int indent) const {

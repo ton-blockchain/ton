@@ -659,11 +659,12 @@ TEST(Tonlib, ConfigCache) {
     ],
     "validator": {
       "@type": "validator.config.global",
-      "zero_state": {
+      "init_block": {
         "workchain": -1,
         "shard": -9223372036854775808,
         "seqno": 0,
         "file_hash": "eh9yveSz1qMdJ7mOsO+I+H77jkLr9NpAuEkoJuseXBo="
+        "root_hash": "ZXSXxDHhTALFxReyTZRd8E4Ya3ySOmpOWAS4rBX9XBY=",
       }
     }
   })abc";

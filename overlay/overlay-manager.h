@@ -53,11 +53,19 @@ class OverlayManager : public Overlays {
   void create_public_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
                              std::unique_ptr<Callback> callback, OverlayPrivacyRules rules, td::string scope) override;
   void create_public_overlay_ex(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
-                                 std::unique_ptr<Callback> callback, OverlayPrivacyRules rules, td::string scope,
-                                 OverlayOptions opts) override;
+                                std::unique_ptr<Callback> callback, OverlayPrivacyRules rules, td::string scope,
+                                OverlayOptions opts) override;
+  void create_semiprivate_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
+                                  std::vector<adnl::AdnlNodeIdShort> nodes, std::vector<PublicKeyHash> root_public_keys,
+                                  OverlayMemberCertificate certificate,
+                                  std::unique_ptr<Callback> callback, OverlayPrivacyRules rules, td::string scope,
+                                  OverlayOptions opts) override;
   void create_private_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
                               std::vector<adnl::AdnlNodeIdShort> nodes, std::unique_ptr<Callback> callback,
                               OverlayPrivacyRules rules, std::string scope) override;
+  void create_private_overlay_ex(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
+                                 std::vector<adnl::AdnlNodeIdShort> nodes, std::unique_ptr<Callback> callback,
+                                 OverlayPrivacyRules rules, std::string scope, OverlayOptions opts) override;
   void delete_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id) override;
   void send_query(adnl::AdnlNodeIdShort dst, adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id, std::string name,
                   td::Promise<td::BufferSlice> promise, td::Timestamp timeout, td::BufferSlice query) override {
@@ -84,6 +92,11 @@ class OverlayManager : public Overlays {
   void set_privacy_rules(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id, OverlayPrivacyRules rules) override;
   void update_certificate(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id, PublicKeyHash key,
                           std::shared_ptr<Certificate> cert) override;
+  void update_member_certificate(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
+                                 OverlayMemberCertificate certificate) override;
+  void update_root_member_list(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
+                               std::vector<adnl::AdnlNodeIdShort> nodes, std::vector<PublicKeyHash> root_public_keys,
+                               OverlayMemberCertificate certificate) override;
 
   void get_overlay_random_peers(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay, td::uint32 max_peers,
                                 td::Promise<std::vector<adnl::AdnlNodeIdShort>> promise) override;
@@ -92,9 +105,11 @@ class OverlayManager : public Overlays {
                      td::Promise<td::BufferSlice> promise);
   void receive_message(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::BufferSlice data);
 
-  void register_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
+  void register_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id, OverlayMemberCertificate cert,
                         td::actor::ActorOwn<Overlay> overlay);
   void get_stats(td::Promise<tl_object_ptr<ton_api::engine_validator_overlaysStats>> promise) override;
+
+  void forget_peer(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay, adnl::AdnlNodeIdShort peer_id) override;
 
   struct PrintId {};
 
@@ -103,7 +118,11 @@ class OverlayManager : public Overlays {
   }
 
  private:
-  std::map<adnl::AdnlNodeIdShort, std::map<OverlayIdShort, td::actor::ActorOwn<Overlay>>> overlays_;
+  struct OverlayDescription {
+    td::actor::ActorOwn<Overlay> overlay;
+    OverlayMemberCertificate member_certificate;
+  };
+  std::map<adnl::AdnlNodeIdShort, std::map<OverlayIdShort, OverlayDescription>> overlays_;
 
   std::string db_root_;
 
@@ -112,6 +131,7 @@ class OverlayManager : public Overlays {
   td::actor::ActorId<dht::Dht> dht_node_;
 
   using DbType = td::KeyValueAsync<td::Bits256, td::BufferSlice>;
+  bool with_db_ = false;
   DbType db_;
 
   class AdnlCallback : public adnl::Adnl::Callback {

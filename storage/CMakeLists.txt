@@ -1,5 +1,3 @@
-cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
-
 if (NOT OPENSSL_FOUND)
   find_package(OpenSSL REQUIRED)
 endif()
@@ -41,13 +39,11 @@ set(STORAGE_CLI_SOURCE
 
 add_library(storage STATIC ${STORAGE_SOURCE})
 target_link_libraries(storage tdutils tdactor tddb ton_crypto tl_api ${JEMALLOC_LIBRARIES})
-target_include_directories(storage PUBLIC
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+target_include_directories(storage PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
 )
 
 add_executable(storage-cli ${STORAGE_CLI_SOURCE})
-target_link_libraries(storage-cli storage overlay tdutils tdactor adnl tl_api dht
-  rldp rldp2 fift-lib memprof terminal git ${JEMALLOC_LIBRARIES})
+target_link_libraries(storage-cli storage overlay tdutils tdactor adnl tl_api dht rldp rldp2 fift-lib memprof terminal git ${JEMALLOC_LIBRARIES})
 
 set(STORAGE_TEST_SOURCE
   ${CMAKE_CURRENT_SOURCE_DIR}/test/storage.cpp

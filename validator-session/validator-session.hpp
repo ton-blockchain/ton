@@ -53,7 +53,7 @@ class ValidatorSessionImpl : public ValidatorSession {
   const ValidatorSessionState *real_state_ = nullptr;
   const ValidatorSessionState *virtual_state_ = nullptr;
 
-  td::uint32 cur_round_ = 0;
+  td::uint32 cur_round_ = 0, first_block_round_ = 0;
   td::Timestamp round_started_at_ = td::Timestamp::never();
   td::Timestamp round_debug_at_ = td::Timestamp::never();
   std::set<ValidatorSessionCandidateId> pending_approve_;
@@ -91,6 +91,7 @@ class ValidatorSessionImpl : public ValidatorSession {
   std::unique_ptr<ValidatorSessionDescription> description_;
 
   double catchain_max_block_delay_ = 0.4;
+  double catchain_max_block_delay_slow_ = 1.0;
 
   void on_new_round(td::uint32 round);
   void on_catchain_started();
@@ -150,6 +151,7 @@ class ValidatorSessionImpl : public ValidatorSession {
   }
 
   void request_new_block(bool now);
+  double get_current_max_block_delay() const;
   void get_broadcast_p2p(PublicKeyHash node, ValidatorSessionFileHash file_hash,
                          ValidatorSessionCollatedDataFileHash collated_data_file_hash, PublicKeyHash src,
                          td::uint32 round, ValidatorSessionRootHash root_hash, td::Promise<td::BufferSlice> promise,
@@ -191,8 +193,10 @@ class ValidatorSessionImpl : public ValidatorSession {
   void get_validator_group_info_for_litequery(
       td::uint32 cur_round,
       td::Promise<std::vector<tl_object_ptr<lite_api::liteServer_nonfinal_candidateInfo>>> promise) override;
-  void set_catchain_max_block_delay(double value) override {
-    catchain_max_block_delay_ = value;
+
+  void set_catchain_max_block_delay(double delay, double delay_slow) override {
+    catchain_max_block_delay_ = delay;
+    catchain_max_block_delay_slow_ = delay_slow;
   }
 
   void process_blocks(std::vector<catchain::CatChainBlock *> blocks);

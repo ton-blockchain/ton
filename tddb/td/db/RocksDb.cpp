@@ -65,12 +65,16 @@ Result<RocksDb> RocksDb::open(std::string path, RocksDbOptions options) {
     rocksdb::Options db_options;
 
     static auto default_cache = rocksdb::NewLRUCache(1 << 30);
-    if (options.block_cache == nullptr) {
+    if (!options.no_block_cache && options.block_cache == nullptr) {
       options.block_cache = default_cache;
     }
 
     rocksdb::BlockBasedTableOptions table_options;
-    table_options.block_cache = options.block_cache;
+    if (options.no_block_cache) {
+      table_options.no_block_cache = true;
+    } else {
+      table_options.block_cache = options.block_cache;
+    }
     db_options.table_factory.reset(rocksdb::NewBlockBasedTableFactory(table_options));
 
     db_options.use_direct_reads = options.use_direct_reads;
@@ -81,6 +85,8 @@ Result<RocksDb> RocksDb::open(std::string path, RocksDbOptions options) {
     db_options.bytes_per_sync = 1 << 20;
     db_options.writable_file_max_buffer_size = 2 << 14;
     db_options.statistics = options.statistics;
+    db_options.max_log_file_size = 100 << 20;
+    db_options.keep_log_file_num = 1;
     rocksdb::OptimisticTransactionDBOptions occ_options;
     occ_options.validate_policy = rocksdb::OccValidationPolicy::kValidateSerial;
     rocksdb::ColumnFamilyOptions cf_options(db_options);
@@ -210,6 +216,32 @@ Status RocksDb::for_each(std::function<Status(Slice, Slice)> f) {
     return from_rocksdb(iterator->status());
   }
   return Status::OK();
+}
+
+Status RocksDb::for_each_in_range(Slice begin, Slice end, std::function<Status(Slice, Slice)> f) {
+  rocksdb::ReadOptions options;
+  options.snapshot = snapshot_.get();
+  std::unique_ptr<rocksdb::Iterator> iterator;
+  if (snapshot_ || !transaction_) {
+    iterator.reset(db_->NewIterator(options));
+  } else {
+    iterator.reset(transaction_->GetIterator(options));
+  }
+
+  auto comparator = rocksdb::BytewiseComparator();
+  iterator->Seek(to_rocksdb(begin));
+  for (; iterator->Valid(); iterator->Next()) {
+    auto key = from_rocksdb(iterator->key());
+    if (comparator->Compare(to_rocksdb(key), to_rocksdb(end)) >= 0) {
+      break;
+    }
+    auto value = from_rocksdb(iterator->value());
+    TRY_STATUS(f(key, value));
+  }
+  if (!iterator->status().ok()) {
+    return from_rocksdb(iterator->status());
+  }
+  return td::Status::OK();
 }
 
 Status RocksDb::begin_write_batch() {

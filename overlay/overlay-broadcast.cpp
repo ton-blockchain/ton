@@ -68,7 +68,7 @@ td::Status BroadcastSimple::run_checks() {
 
 td::Status BroadcastSimple::distribute() {
   auto B = serialize();
-  auto nodes = overlay_->get_neighbours(3);
+  auto nodes = overlay_->get_neighbours(overlay_->propagate_broadcast_to());
 
   auto manager = overlay_->overlay_manager();
   for (auto &n : nodes) {
@@ -115,7 +115,8 @@ td::Status BroadcastSimple::run() {
   return run_continue();
 }
 
-td::Status BroadcastSimple::create(OverlayImpl *overlay, adnl::AdnlNodeIdShort src_peer_id, tl_object_ptr<ton_api::overlay_broadcast> broadcast) {
+td::Status BroadcastSimple::create(OverlayImpl *overlay, adnl::AdnlNodeIdShort src_peer_id,
+                                   tl_object_ptr<ton_api::overlay_broadcast> broadcast) {
   auto src = PublicKey{broadcast->src_};
   auto data_hash = sha256_bits256(broadcast->data_.as_slice());
   auto broadcast_hash = compute_broadcast_id(src, data_hash, broadcast->flags_);

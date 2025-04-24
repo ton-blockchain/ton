@@ -70,39 +70,34 @@ void ShardClient::got_init_handle_from_db(BlockHandle handle) {
 }
 
 void ShardClient::got_init_state_from_db(td::Ref<MasterchainState> state) {
-  masterchain_state_ = std::move(state);
-  build_shard_overlays();
-  masterchain_state_.clear();
-
   saved_to_db();
 }
 
 void ShardClient::start_up_init_mode() {
-  build_shard_overlays();
-
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
-    R.ensure();
-    td::actor::send_closure(SelfId, &ShardClient::applied_all_shards);
-  });
-
-  td::MultiPromise mp;
-  auto ig = mp.init_guard();
-  ig.add_promise(std::move(P));
-
-  auto vec = masterchain_state_->get_shards();
-  for (auto &shard : vec) {
-    if (opts_->need_monitor(shard->shard())) {
-      auto P = td::PromiseCreator::lambda([promise = ig.get_promise()](td::Result<td::Ref<ShardState>> R) mutable {
-        R.ensure();
-        promise.set_value(td::Unit());
-      });
-
-      td::actor::create_actor<DownloadShardState>("downloadstate", shard->top_block_id(),
-                                                  masterchain_block_handle_->id(), 2, manager_,
-                                                  td::Timestamp::in(3600 * 3), std::move(P))
-          .release();
+  std::vector<BlockIdExt> shards;
+  for (const auto& s : masterchain_state_->get_shards()) {
+    if (opts_->need_monitor(s->shard(), masterchain_state_)) {
+      shards.push_back(s->top_block_id());
     }
   }
+  download_shard_states(masterchain_block_handle_->id(), std::move(shards), 0);
+}
+
+void ShardClient::download_shard_states(BlockIdExt masterchain_block_id, std::vector<BlockIdExt> shards, size_t idx) {
+  if (idx >= shards.size()) {
+    LOG(WARNING) << "downloaded all shard states";
+    applied_all_shards();
+    return;
+  }
+  BlockIdExt block_id = shards[idx];
+  td::actor::create_actor<DownloadShardState>(
+      "downloadstate", block_id, masterchain_block_handle_->id(), 2, manager_, td::Timestamp::in(3600 * 5),
+      [=, SelfId = actor_id(this), shards = std::move(shards)](td::Result<td::Ref<ShardState>> R) {
+        R.ensure();
+        td::actor::send_closure(SelfId, &ShardClient::download_shard_states, masterchain_block_id, std::move(shards),
+                                idx + 1);
+      })
+      .release();
 }
 
 void ShardClient::applied_all_shards() {
@@ -166,7 +161,6 @@ void ShardClient::download_masterchain_state() {
 
 void ShardClient::got_masterchain_block_state(td::Ref<MasterchainState> state) {
   masterchain_state_ = std::move(state);
-  build_shard_overlays();
   if (started_) {
     apply_all_shards();
   }
@@ -189,8 +183,10 @@ void ShardClient::apply_all_shards() {
   ig.add_promise(std::move(P));
 
   auto vec = masterchain_state_->get_shards();
+  std::set<WorkchainId> workchains;
   for (auto &shard : vec) {
-    if (opts_->need_monitor(shard->shard())) {
+    workchains.insert(shard->shard().workchain);
+    if (opts_->need_monitor(shard->shard(), masterchain_state_)) {
       auto Q = td::PromiseCreator::lambda([SelfId = actor_id(this), promise = ig.get_promise(),
                                            shard = shard->shard()](td::Result<td::Ref<ShardState>> R) mutable {
         if (R.is_error()) {
@@ -200,7 +196,22 @@ void ShardClient::apply_all_shards() {
         }
       });
       td::actor::send_closure(manager_, &ValidatorManager::wait_block_state_short, shard->top_block_id(),
-                              shard_client_priority(), td::Timestamp::in(600), std::move(Q));
+                              shard_client_priority(), td::Timestamp::in(1500), std::move(Q));
+    }
+  }
+  for (const auto &[wc, desc] : masterchain_state_->get_workchain_list()) {
+    if (!workchains.count(wc) && desc->active && opts_->need_monitor(ShardIdFull{wc, shardIdAll}, masterchain_state_)) {
+      auto Q = td::PromiseCreator::lambda([SelfId = actor_id(this), promise = ig.get_promise(),
+                                           workchain = wc](td::Result<td::Ref<ShardState>> R) mutable {
+        if (R.is_error()) {
+          promise.set_error(R.move_as_error_prefix(PSTRING() << "workchain " << workchain << ": "));
+        } else {
+          td::actor::send_closure(SelfId, &ShardClient::downloaded_shard_state, R.move_as_ok(), std::move(promise));
+        }
+      });
+      td::actor::send_closure(manager_, &ValidatorManager::wait_block_state_short,
+                              BlockIdExt{wc, shardIdAll, 0, desc->zerostate_root_hash, desc->zerostate_file_hash},
+                              shard_client_priority(), td::Timestamp::in(1500), std::move(Q));
     }
   }
 }
@@ -223,7 +234,6 @@ void ShardClient::new_masterchain_block_notification(BlockHandle handle, td::Ref
   masterchain_block_handle_ = std::move(handle);
   masterchain_state_ = std::move(state);
   waiting_ = false;
-  build_shard_overlays();
 
   apply_all_shards();
 }
@@ -241,26 +251,6 @@ void ShardClient::get_processed_masterchain_block_id(td::Promise<BlockIdExt> pro
     promise.set_result(masterchain_block_handle_->id());
   } else {
     promise.set_error(td::Status::Error(ErrorCode::notready, "shard client not started"));
-  }
-}
-
-void ShardClient::build_shard_overlays() {
-  auto v = masterchain_state_->get_shards();
-
-  for (auto &x : v) {
-    auto shard = x->shard();
-    if (opts_->need_monitor(shard)) {
-      auto d = masterchain_state_->soft_min_split_depth(shard.workchain);
-      auto l = shard_prefix_length(shard.shard);
-      if (l > d) {
-        shard = shard_prefix(shard, d);
-      }
-
-      if (created_overlays_.count(shard) == 0) {
-        created_overlays_.insert(shard);
-        td::actor::send_closure(manager_, &ValidatorManager::subscribe_to_shard, shard);
-      }
-    }
   }
 }
 
@@ -294,8 +284,11 @@ void ShardClient::force_update_shard_client_ex(BlockHandle handle, td::Ref<Maste
   masterchain_block_handle_ = std::move(handle);
   masterchain_state_ = std::move(state);
   promise_ = std::move(promise);
-  build_shard_overlays();
   applied_all_shards();
+}
+
+void ShardClient::update_options(td::Ref<ValidatorManagerOptions> opts) {
+  opts_ = std::move(opts);
 }
 
 }  // namespace validator

@@ -84,7 +84,7 @@ void AdnlPeerTableImpl::receive_packet(td::IPAddress addr, AdnlCategoryMask cat_
                    << " (len=" << (data.size() + 32) << ")";
 }
 
-void AdnlPeerTableImpl::receive_decrypted_packet(AdnlNodeIdShort dst, AdnlPacket packet) {
+void AdnlPeerTableImpl::receive_decrypted_packet(AdnlNodeIdShort dst, AdnlPacket packet, td::uint64 serialized_size) {
   packet.run_basic_checks().ensure();
 
   if (!packet.inited_from_short()) {
@@ -119,7 +119,7 @@ void AdnlPeerTableImpl::receive_decrypted_packet(AdnlNodeIdShort dst, AdnlPacket
     return;
   }
   td::actor::send_closure(it->second, &AdnlPeer::receive_packet, dst, it2->second.mode, it2->second.local_id.get(),
-                          std::move(packet));
+                          std::move(packet), serialized_size);
 }
 
 void AdnlPeerTableImpl::add_peer(AdnlNodeIdShort local_id, AdnlNodeIdFull id, AdnlAddressList addr_list) {
@@ -383,6 +383,88 @@ void AdnlPeerTableImpl::get_conn_ip_str(AdnlNodeIdShort l_id, AdnlNodeIdShort p_
     return;
   }
   td::actor::send_closure(it->second, &AdnlPeer::get_conn_ip_str, l_id, std::move(promise));
+}
+
+void AdnlPeerTableImpl::get_stats(bool all, td::Promise<tl_object_ptr<ton_api::adnl_stats>> promise) {
+  class Cb : public td::actor::Actor {
+   public:
+    explicit Cb(td::Promise<tl_object_ptr<ton_api::adnl_stats>> promise) : promise_(std::move(promise)) {
+    }
+
+    void got_local_id_stats(tl_object_ptr<ton_api::adnl_stats_localId> local_id) {
+      auto &local_id_stats = local_id_stats_[local_id->short_id_];
+      if (local_id_stats) {
+        local_id->peers_ = std::move(local_id_stats->peers_);
+      }
+      local_id_stats = std::move(local_id);
+      dec_pending();
+    }
+
+    void got_peer_stats(std::vector<tl_object_ptr<ton_api::adnl_stats_peerPair>> peer_pairs) {
+      for (auto &peer_pair : peer_pairs) {
+        auto &local_id_stats = local_id_stats_[peer_pair->local_id_];
+        if (local_id_stats == nullptr) {
+          local_id_stats = create_tl_object<ton_api::adnl_stats_localId>();
+          local_id_stats->short_id_ = peer_pair->local_id_;
+        }
+        local_id_stats->peers_.push_back(std::move(peer_pair));
+      }
+      dec_pending();
+    }
+
+    void inc_pending() {
+      ++pending_;
+    }
+
+    void dec_pending() {
+      CHECK(pending_ > 0);
+      --pending_;
+      if (pending_ == 0) {
+        auto stats = create_tl_object<ton_api::adnl_stats>();
+        stats->timestamp_ = td::Clocks::system();
+        for (auto &[id, local_id_stats] : local_id_stats_) {
+          stats->local_ids_.push_back(std::move(local_id_stats));
+        }
+        promise_.set_result(std::move(stats));
+        stop();
+      }
+    }
+
+   private:
+    td::Promise<tl_object_ptr<ton_api::adnl_stats>> promise_;
+    size_t pending_ = 1;
+
+    std::map<td::Bits256, tl_object_ptr<ton_api::adnl_stats_localId>> local_id_stats_;
+  };
+  auto callback = td::actor::create_actor<Cb>("adnlstats", std::move(promise)).release();
+
+  for (auto &[id, local_id] : local_ids_) {
+    td::actor::send_closure(callback, &Cb::inc_pending);
+    td::actor::send_closure(local_id.local_id, &AdnlLocalId::get_stats, all,
+                            [id = id, callback](td::Result<tl_object_ptr<ton_api::adnl_stats_localId>> R) {
+                              if (R.is_error()) {
+                                VLOG(ADNL_NOTICE)
+                                    << "failed to get stats for local id " << id << " : " << R.move_as_error();
+                                td::actor::send_closure(callback, &Cb::dec_pending);
+                              } else {
+                                td::actor::send_closure(callback, &Cb::got_local_id_stats, R.move_as_ok());
+                              }
+                            });
+  }
+  for (auto &[id, peer] : peers_) {
+    td::actor::send_closure(callback, &Cb::inc_pending);
+    td::actor::send_closure(
+        peer, &AdnlPeer::get_stats, all,
+        [id = id, callback](td::Result<std::vector<tl_object_ptr<ton_api::adnl_stats_peerPair>>> R) {
+          if (R.is_error()) {
+            VLOG(ADNL_NOTICE) << "failed to get stats for peer " << id << " : " << R.move_as_error();
+            td::actor::send_closure(callback, &Cb::dec_pending);
+          } else {
+            td::actor::send_closure(callback, &Cb::got_peer_stats, R.move_as_ok());
+          }
+        });
+  }
+  td::actor::send_closure(callback, &Cb::dec_pending);
 }
 
 }  // namespace adnl

@@ -279,6 +279,7 @@ int exec_get_global_id(VmState* st) {
 int exec_get_gas_fee(VmState* st) {
   VM_LOG(st) << "execute GETGASFEE";
   Stack& stack = st->get_stack();
+  stack.check_underflow(st->get_global_version() >= 9 ? 2 : 0);
   bool is_masterchain = stack.pop_bool();
   td::uint64 gas = stack.pop_long_range(std::numeric_limits<td::int64>::max(), 0);
   block::GasLimitsPrices prices = util::get_gas_prices(get_unpacked_config_tuple(st), is_masterchain);
@@ -289,6 +290,7 @@ int exec_get_gas_fee(VmState* st) {
 int exec_get_storage_fee(VmState* st) {
   VM_LOG(st) << "execute GETSTORAGEFEE";
   Stack& stack = st->get_stack();
+  stack.check_underflow(st->get_global_version() >= 9 ? 4 : 0);
   bool is_masterchain = stack.pop_bool();
   td::int64 delta = stack.pop_long_range(std::numeric_limits<td::int64>::max(), 0);
   td::uint64 bits = stack.pop_long_range(std::numeric_limits<td::int64>::max(), 0);
@@ -302,6 +304,7 @@ int exec_get_storage_fee(VmState* st) {
 int exec_get_forward_fee(VmState* st) {
   VM_LOG(st) << "execute GETFORWARDFEE";
   Stack& stack = st->get_stack();
+  stack.check_underflow(st->get_global_version() >= 9 ? 3 : 0);
   bool is_masterchain = stack.pop_bool();
   td::uint64 bits = stack.pop_long_range(std::numeric_limits<td::int64>::max(), 0);
   td::uint64 cells = stack.pop_long_range(std::numeric_limits<td::int64>::max(), 0);
@@ -320,6 +323,7 @@ int exec_get_precompiled_gas(VmState* st) {
 int exec_get_original_fwd_fee(VmState* st) {
   VM_LOG(st) << "execute GETORIGINALFWDFEE";
   Stack& stack = st->get_stack();
+  stack.check_underflow(st->get_global_version() >= 9 ? 2 : 0);
   bool is_masterchain = stack.pop_bool();
   td::RefInt256 fwd_fee = stack.pop_int_finite();
   if (fwd_fee->sgn() < 0) {
@@ -333,6 +337,7 @@ int exec_get_original_fwd_fee(VmState* st) {
 int exec_get_gas_fee_simple(VmState* st) {
   VM_LOG(st) << "execute GETGASFEESIMPLE";
   Stack& stack = st->get_stack();
+  stack.check_underflow(st->get_global_version() >= 9 ? 2 : 0);
   bool is_masterchain = stack.pop_bool();
   td::uint64 gas = stack.pop_long_range(std::numeric_limits<td::int64>::max(), 0);
   block::GasLimitsPrices prices = util::get_gas_prices(get_unpacked_config_tuple(st), is_masterchain);
@@ -343,6 +348,7 @@ int exec_get_gas_fee_simple(VmState* st) {
 int exec_get_forward_fee_simple(VmState* st) {
   VM_LOG(st) << "execute GETFORWARDFEESIMPLE";
   Stack& stack = st->get_stack();
+  stack.check_underflow(st->get_global_version() >= 9 ? 3 : 0);
   bool is_masterchain = stack.pop_bool();
   td::uint64 bits = stack.pop_long_range(std::numeric_limits<td::int64>::max(), 0);
   td::uint64 cells = stack.pop_long_range(std::numeric_limits<td::int64>::max(), 0);
@@ -373,6 +379,7 @@ void register_ton_config_ops(OpcodeTable& cp0) {
       .insert(OpcodeInstr::mksimple(0xf833, 16, "CONFIGOPTPARAM", std::bind(exec_get_config_param, _1, true)))
       .insert(OpcodeInstr::mksimple(0xf83400, 24, "PREVMCBLOCKS", std::bind(exec_get_prev_blocks_info, _1, 0, "PREVMCBLOCKS"))->require_version(4))
       .insert(OpcodeInstr::mksimple(0xf83401, 24, "PREVKEYBLOCK", std::bind(exec_get_prev_blocks_info, _1, 1, "PREVKEYBLOCK"))->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf83402, 24, "PREVMCBLOCKS_100", std::bind(exec_get_prev_blocks_info, _1, 2, "PREVMCBLOCKS_100"))->require_version(9))
       .insert(OpcodeInstr::mksimple(0xf835, 16, "GLOBALID", exec_get_global_id)->require_version(4))
       .insert(OpcodeInstr::mksimple(0xf836, 16, "GETGASFEE", exec_get_gas_fee)->require_version(6))
       .insert(OpcodeInstr::mksimple(0xf837, 16, "GETSTORAGEFEE", exec_get_storage_fee)->require_version(6))
@@ -538,9 +545,10 @@ int exec_hash_ext(VmState* st, unsigned args) {
   VM_LOG(st) << "execute HASHEXT" << (append ? "A" : "") << (rev ? "R" : "") << " " << (hash_id == 255 ? -1 : hash_id);
   Stack& stack = st->get_stack();
   if (hash_id == 255) {
+    stack.check_underflow(st->get_global_version() >= 9 ? 2 : 0);
     hash_id = stack.pop_smallint_range(254);
   }
-  int cnt = stack.pop_smallint_range(stack.depth() - 1);
+  int cnt = stack.pop_smallint_range(stack.depth() - 1 - (st->get_global_version() >= 9 ? (int)append : 0));
   Hasher hasher{hash_id};
   size_t total_bits = 0;
   long long gas_consumed = 0;
@@ -661,7 +669,38 @@ int exec_ecrecover(VmState* st) {
   }
   st->consume_gas(VmState::ecrecover_gas_price);
   unsigned char public_key[65];
-  if (td::ecrecover(hash_bytes, signature, public_key)) {
+  if (td::secp256k1::ecrecover(hash_bytes, signature, public_key)) {
+    td::uint8 h = public_key[0];
+    td::RefInt256 x1{true}, x2{true};
+    CHECK(x1.write().import_bytes(public_key + 1, 32, false));
+    CHECK(x2.write().import_bytes(public_key + 33, 32, false));
+    stack.push_smallint(h);
+    stack.push_int(std::move(x1));
+    stack.push_int(std::move(x2));
+    stack.push_bool(true);
+  } else {
+    stack.push_bool(false);
+  }
+  return 0;
+}
+
+int exec_secp256k1_xonly_pubkey_tweak_add(VmState* st) {
+  VM_LOG(st) << "execute SECP256K1_XONLY_PUBKEY_TWEAK_ADD";
+  Stack& stack = st->get_stack();
+  stack.check_underflow(2);
+  auto tweak_int = stack.pop_int();
+  auto key_int = stack.pop_int();
+
+  unsigned char key[32], tweak[32];
+  if (!key_int->export_bytes(key, 32, false)) {
+    throw VmError{Excno::range_chk, "key must fit in an unsigned 256-bit integer"};
+  }
+  if (!tweak_int->export_bytes(tweak, 32, false)) {
+    throw VmError{Excno::range_chk, "tweak must fit in an unsigned 256-bit integer"};
+  }
+  st->consume_gas(VmState::secp256k1_xonly_pubkey_tweak_add_gas_price);
+  unsigned char public_key[65];
+  if (td::secp256k1::xonly_pubkey_tweak_add(key, tweak, public_key)) {
     td::uint8 h = public_key[0];
     td::RefInt256 x1{true}, x2{true};
     CHECK(x1.write().import_bytes(public_key + 1, 32, false));
@@ -1214,6 +1253,7 @@ void register_ton_crypto_ops(OpcodeTable& cp0) {
       .insert(OpcodeInstr::mksimple(0xf910, 16, "CHKSIGNU", std::bind(exec_ed25519_check_signature, _1, false)))
       .insert(OpcodeInstr::mksimple(0xf911, 16, "CHKSIGNS", std::bind(exec_ed25519_check_signature, _1, true)))
       .insert(OpcodeInstr::mksimple(0xf912, 16, "ECRECOVER", exec_ecrecover)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf913, 16, "SECP256K1_XONLY_PUBKEY_TWEAK_ADD", exec_secp256k1_xonly_pubkey_tweak_add)->require_version(9))
       .insert(OpcodeInstr::mksimple(0xf914, 16, "P256_CHKSIGNU", std::bind(exec_p256_chksign, _1, false))->require_version(4))
       .insert(OpcodeInstr::mksimple(0xf915, 16, "P256_CHKSIGNS", std::bind(exec_p256_chksign, _1, true))->require_version(4))
 
@@ -1261,7 +1301,7 @@ void register_ton_crypto_ops(OpcodeTable& cp0) {
 }
 
 int exec_compute_data_size(VmState* st, int mode) {
-  VM_LOG(st) << (mode & 2 ? 'S' : 'C') << "DATASIZE" << (mode & 1 ? "Q" : "");
+  VM_LOG(st) << "execute " << (mode & 2 ? 'S' : 'C') << "DATASIZE" << (mode & 1 ? "Q" : "");
   Stack& stack = st->get_stack();
   stack.check_underflow(2);
   auto bound = stack.pop_int();
@@ -1721,6 +1761,10 @@ int exec_send_message(VmState* st) {
   vm::VmStorageStat stat(max_cells);
   CellSlice cs = load_cell_slice(msg_cell);
   cs.skip_first(cs.size());
+  if (st->get_global_version() >= 10 && have_extra_currencies) {
+    // Skip extra currency dict
+    cs.advance_refs(1);
+  }
   stat.add_storage(cs);
 
   if (!ext_msg) {
@@ -1733,7 +1777,9 @@ int exec_send_message(VmState* st) {
       if (value.is_null()) {
         throw VmError{Excno::type_chk, "invalid param BALANCE"};
       }
-      have_extra_currencies |= !tuple_index(balance, 1).as_cell().is_null();
+      if (st->get_global_version() < 10) {
+        have_extra_currencies |= !tuple_index(balance, 1).as_cell().is_null();
+      }
     } else if (mode & 64) {  // value += value of incoming message
       Ref<Tuple> balance = get_param(st, 11).as_tuple();
       if (balance.is_null()) {
@@ -1744,7 +1790,9 @@ int exec_send_message(VmState* st) {
         throw VmError{Excno::type_chk, "invalid param INCOMINGVALUE"};
       }
       value += balance_grams;
-      have_extra_currencies |= !tuple_index(balance, 1).as_cell().is_null();
+      if (st->get_global_version() < 10) {
+        have_extra_currencies |= !tuple_index(balance, 1).as_cell().is_null();
+      }
     }
   }
 

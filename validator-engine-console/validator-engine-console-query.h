@@ -36,6 +36,7 @@
 #include "ton/ton-types.h"
 
 #include "keys/keys.hpp"
+#include "td/utils/base64.h"
 
 class ValidatorEngineConsole;
 
@@ -95,27 +96,25 @@ inline td::Result<td::SharedSlice> Tokenizer::get_token() {
 }
 
 template <>
-inline td::Result<ton::PublicKeyHash> Tokenizer::get_token() {
-  TRY_RESULT(S, get_raw_token());
-  TRY_RESULT(F, td::hex_decode(S));
-  if (F.size() == 32) {
-    return ton::PublicKeyHash{td::Slice{F}};
+inline td::Result<td::Bits256> Tokenizer::get_token() {
+  TRY_RESULT(word, get_raw_token());
+  std::string data;
+  if (word.size() == 64) {
+    TRY_RESULT_ASSIGN(data, td::hex_decode(word));
+  } else if (word.size() == 44) {
+    TRY_RESULT_ASSIGN(data, td::base64_decode(word));
   } else {
     return td::Status::Error("cannot parse keyhash: bad length");
   }
+  td::Bits256 v;
+  v.as_slice().copy_from(data);
+  return v;
 }
 
 template <>
-inline td::Result<td::Bits256> Tokenizer::get_token() {
-  TRY_RESULT(S, get_raw_token());
-  TRY_RESULT(F, td::hex_decode(S));
-  if (F.size() == 32) {
-    td::Bits256 v;
-    v.as_slice().copy_from(F);
-    return v;
-  } else {
-    return td::Status::Error("cannot parse keyhash: bad length");
-  }
+inline td::Result<ton::PublicKeyHash> Tokenizer::get_token() {
+  TRY_RESULT(x, get_token<td::Bits256>());
+  return ton::PublicKeyHash{x};
 }
 
 template <>
@@ -144,6 +143,18 @@ inline td::Result<std::vector<T>> Tokenizer::get_token_vector() {
     TRY_RESULT(val, get_token<T>());
     res.push_back(std::move(val));
   }
+}
+
+template <>
+inline td::Result<ton::ShardIdFull> Tokenizer::get_token() {
+  TRY_RESULT(word, get_raw_token());
+  auto r_wc = td::to_integer_safe<ton::WorkchainId>(word);
+  if (r_wc.is_ok()) {
+    TRY_RESULT_ASSIGN(word, get_raw_token());
+    TRY_RESULT(shard, td::to_integer_safe<ton::ShardId>(word));
+    return ton::ShardIdFull{r_wc.move_as_ok(), shard};
+  }
+  return ton::ShardIdFull::parse(word);
 }
 
 class QueryRunner {
@@ -222,10 +233,10 @@ class GetTimeQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice R) override;
   static std::string get_name() {
-    return "gettime";
+    return "get-time";
   }
   static std::string get_help() {
-    return "gettime\tshows current server unixtime";
+    return "get-time\tshows current server unixtime";
   }
   std::string name() const override {
     return get_name();
@@ -287,10 +298,10 @@ class NewKeyQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice R) override;
   static std::string get_name() {
-    return "newkey";
+    return "new-key";
   }
   static std::string get_help() {
-    return "newkey\tgenerates new key pair on server";
+    return "new-key\tgenerates new key pair on server";
   }
   std::string name() const override {
     return get_name();
@@ -308,10 +319,10 @@ class ImportPrivateKeyFileQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice R) override;
   static std::string get_name() {
-    return "importf";
+    return "import-f";
   }
   static std::string get_help() {
-    return "importf <filename>\timport private key";
+    return "import-f <filename>\timport private key";
   }
   std::string name() const override {
     return get_name();
@@ -330,10 +341,10 @@ class ExportPublicKeyQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice R) override;
   static std::string get_name() {
-    return "exportpub";
+    return "export-pub";
   }
   static std::string get_help() {
-    return "exportpub <keyhash>\texports public key by key hash";
+    return "export-pub <keyhash>\texports public key by key hash";
   }
   std::string name() const override {
     return get_name();
@@ -352,10 +363,10 @@ class ExportPublicKeyFileQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice R) override;
   static std::string get_name() {
-    return "exportpubf";
+    return "export-pubf";
   }
   static std::string get_help() {
-    return "exportpubf <keyhash> <filename>\texports public key by key hash";
+    return "export-pub-f <keyhash> <filename>\texports public key by key hash";
   }
   std::string name() const override {
     return get_name();
@@ -398,10 +409,10 @@ class SignFileQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "signf";
+    return "sign-f";
   }
   static std::string get_help() {
-    return "signf <keyhash> <infile> <outfile>\tsigns bytestring with privkey";
+    return "sign-f <keyhash> <infile> <outfile>\tsigns bytestring with privkey";
   }
   std::string name() const override {
     return get_name();
@@ -413,6 +424,30 @@ class SignFileQuery : public Query {
   std::string out_file_;
 };
 
+class ExportAllPrivateKeysQuery : public Query {
+ public:
+  ExportAllPrivateKeysQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice R) override;
+  static std::string get_name() {
+    return "export-all-private-keys";
+  }
+  static std::string get_help() {
+    return "export-all-private-keys <directory>\texports all private keys from validator engine and stores them to "
+           "<directory>";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  std::string directory_;
+  ton::PrivateKey client_pk_;
+};
+
 class AddAdnlAddrQuery : public Query {
  public:
   AddAdnlAddrQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
@@ -422,10 +457,10 @@ class AddAdnlAddrQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "addadnl";
+    return "add-adnl";
   }
   static std::string get_help() {
-    return "addadnl <keyhash> <category>\tuse key as ADNL addr";
+    return "add-adnl <keyhash> <category>\tuse key as ADNL addr";
   }
   std::string name() const override {
     return get_name();
@@ -445,10 +480,10 @@ class AddDhtIdQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "adddht";
+    return "add-dht";
   }
   static std::string get_help() {
-    return "adddht <keyhash>\tcreate DHT node with specified ADNL addr";
+    return "add-dht <keyhash>\tcreate DHT node with specified ADNL addr";
   }
   std::string name() const override {
     return get_name();
@@ -467,10 +502,10 @@ class AddValidatorPermanentKeyQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "addpermkey";
+    return "add-perm-key";
   }
   static std::string get_help() {
-    return "addpermkey <keyhash> <election-date> <expire-at>\tadd validator permanent key";
+    return "add-perm-key <keyhash> <election-date> <expire-at>\tadd validator permanent key";
   }
   std::string name() const override {
     return get_name();
@@ -491,10 +526,10 @@ class AddValidatorTempKeyQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "addtempkey";
+    return "add-temp-key";
   }
   static std::string get_help() {
-    return "addtempkey <permkeyhash> <keyhash> <expireat>\tadd validator temp key";
+    return "add-temp-key <permkeyhash> <keyhash> <expireat>\tadd validator temp key";
   }
   std::string name() const override {
     return get_name();
@@ -515,10 +550,10 @@ class AddValidatorAdnlAddrQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "addvalidatoraddr";
+    return "add-validator-addr";
   }
   static std::string get_help() {
-    return "addvalidatoraddr <permkeyhash> <keyhash> <expireat>\tadd validator ADNL addr";
+    return "add-validator-addr <permkeyhash> <keyhash> <expireat>\tadd validator ADNL addr";
   }
   std::string name() const override {
     return get_name();
@@ -539,10 +574,10 @@ class ChangeFullNodeAdnlAddrQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "changefullnodeaddr";
+    return "change-full-node-addr";
   }
   static std::string get_help() {
-    return "changefullnodeaddr <keyhash>\tchanges fullnode ADNL address";
+    return "change-full-node-addr <keyhash>\tchanges fullnode ADNL address";
   }
   std::string name() const override {
     return get_name();
@@ -561,10 +596,10 @@ class AddLiteServerQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "addliteserver";
+    return "add-liteserver";
   }
   static std::string get_help() {
-    return "addliteserver <port> <keyhash>\tadd liteserver";
+    return "add-liteserver <port> <keyhash>\tadd liteserver";
   }
   std::string name() const override {
     return get_name();
@@ -584,10 +619,10 @@ class DelAdnlAddrQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "deladnl";
+    return "del-adnl";
   }
   static std::string get_help() {
-    return "deladnl <keyhash>\tdel unused ADNL addr";
+    return "del-adnl <keyhash>\tdel unused ADNL addr";
   }
   std::string name() const override {
     return get_name();
@@ -606,10 +641,10 @@ class DelDhtIdQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "deldht";
+    return "del-dht";
   }
   static std::string get_help() {
-    return "deldht <keyhash>\tdel unused DHT node";
+    return "del-dht <keyhash>\tdel unused DHT node";
   }
   std::string name() const override {
     return get_name();
@@ -628,10 +663,10 @@ class DelValidatorPermanentKeyQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "delpermkey";
+    return "del-perm-key";
   }
   static std::string get_help() {
-    return "delpermkey <keyhash>\tforce del unused validator permanent key";
+    return "del-perm-key <keyhash>\tforce del unused validator permanent key";
   }
   std::string name() const override {
     return get_name();
@@ -650,10 +685,10 @@ class DelValidatorTempKeyQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "deltempkey";
+    return "del-temp-key";
   }
   static std::string get_help() {
-    return "deltempkey <permkeyhash> <keyhash>\tforce del unused validator temp key";
+    return "del-temp-key <permkeyhash> <keyhash>\tforce del unused validator temp key";
   }
   std::string name() const override {
     return get_name();
@@ -673,10 +708,10 @@ class DelValidatorAdnlAddrQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "delvalidatoraddr";
+    return "del-validator-addr";
   }
   static std::string get_help() {
-    return "delvalidatoraddr <permkeyhash> <keyhash>\tforce del unused validator ADNL addr";
+    return "del-validator-addr <permkeyhash> <keyhash>\tforce del unused validator ADNL addr";
   }
   std::string name() const override {
     return get_name();
@@ -696,10 +731,10 @@ class GetConfigQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "getconfig";
+    return "get-config";
   }
   static std::string get_help() {
-    return "getconfig\tdownloads current config";
+    return "get-config\tdownloads current config";
   }
   std::string name() const override {
     return get_name();
@@ -717,10 +752,10 @@ class SetVerbosityQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "setverbosity";
+    return "set-verbosity";
   }
   static std::string get_help() {
-    return "setverbosity <value>\tchanges verbosity level";
+    return "set-verbosity <value>\tchanges verbosity level";
   }
   std::string name() const override {
     return get_name();
@@ -739,10 +774,10 @@ class GetStatsQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "getstats";
+    return "get-stats";
   }
   static std::string get_help() {
-    return "getstats\tprints stats";
+    return "get-stats\tprints stats";
   }
   std::string name() const override {
     return get_name();
@@ -783,10 +818,10 @@ class AddNetworkAddressQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "addaddr";
+    return "add-addr";
   }
   static std::string get_help() {
-    return "addaddr <ip> {cats...} {priocats...}\tadds ip address to address list";
+    return "add-addr <ip> {cats...} {priocats...}\tadds ip address to address list";
   }
   std::string name() const override {
     return get_name();
@@ -807,10 +842,10 @@ class AddNetworkProxyAddressQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "addproxyaddr";
+    return "add-proxy-addr";
   }
   static std::string get_help() {
-    return "addproxyaddr <inip> <outip> <id> <secret> {cats...} {priocats...}\tadds ip address to address list";
+    return "add-proxy-addr <inip> <outip> <id> <secret> {cats...} {priocats...}\tadds ip address to address list";
   }
   std::string name() const override {
     return get_name();
@@ -834,10 +869,10 @@ class CreateElectionBidQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "createelectionbid";
+    return "create-election-bid";
   }
   static std::string get_help() {
-    return "createelectionbid <date> <elector> <wallet> <fname>\tcreate election bid";
+    return "create-election-bid <date> <elector> <wallet> <fname>\tcreate election bid";
   }
   std::string name() const override {
     return get_name();
@@ -859,10 +894,10 @@ class CreateProposalVoteQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "createproposalvote";
+    return "create-proposal-vote";
   }
   static std::string get_help() {
-    return "createproposalvote <data> <fname>\tcreate proposal vote";
+    return "create-proposal-vote <data> <fname>\tcreate proposal vote";
   }
   std::string name() const override {
     return get_name();
@@ -882,10 +917,10 @@ class CreateComplaintVoteQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "createcomplaintvote";
+    return "create-complaint-vote";
   }
   static std::string get_help() {
-    return "createcomplaintvote <election-id> <data> <fname>\tcreate proposal vote";
+    return "create-complaint-vote <election-id> <data> <fname>\tcreate proposal vote";
   }
   std::string name() const override {
     return get_name();
@@ -906,10 +941,10 @@ class CheckDhtServersQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "checkdht";
+    return "check-dht";
   }
   static std::string get_help() {
-    return "checkdht <adnlid>\tchecks, which root DHT servers are accessible from this ADNL addr";
+    return "check-dht <adnlid>\tchecks, which root DHT servers are accessible from this ADNL addr";
   }
   std::string name() const override {
     return get_name();
@@ -928,10 +963,10 @@ class GetOverlaysStatsQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "getoverlaysstats";
+    return "get-overlays-stats";
   }
   static std::string get_help() {
-    return "getoverlaysstats\tgets stats for all overlays";
+    return "get-overlays-stats\tgets stats for all overlays";
   }
   std::string name() const override {
     return get_name();
@@ -947,10 +982,10 @@ class GetOverlaysStatsJsonQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "getoverlaysstatsjson";
+    return "get-overlays-stats-json";
   }
   static std::string get_help() {
-    return "getoverlaysstatsjson <outfile>\tgets stats for all overlays and writes to json file";
+    return "get-overlays-stats-json <outfile>\tgets stats for all overlays and writes to json file";
   }
   std::string name() const override {
     return get_name();
@@ -969,10 +1004,11 @@ class SignCertificateQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "signcert";
+    return "sign-cert";
   }
   static std::string get_help() {
-    return "signcert <overlayid> <adnlid> <expireat> <maxsize> <signwith> <outfile>\tsign overlay certificate by <signwith> key";
+    return "sign-cert <overlayid> <adnlid> <expireat> <maxsize> <signwith> <outfile>\tsign overlay certificate by "
+           "<signwith> key";
   }
   std::string name() const override {
     return get_name();
@@ -1005,10 +1041,10 @@ class ImportCertificateQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "importcert";
+    return "import-cert";
   }
   static std::string get_help() {
-    return "importcert <overlayid> <adnlid> <key> <certfile>\timport overlay certificate for specific key";
+    return "import-cert <overlayid> <adnlid> <key> <certfile>\timport overlay certificate for specific key";
   }
   std::string name() const override {
     return get_name();
@@ -1030,10 +1066,11 @@ class SignShardOverlayCertificateQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "signshardoverlaycert";
+    return "sign-shard-overlay-cert";
   }
   static std::string get_help() {
-    return "signshardoverlaycert <workchain> <shardprefix> <key> <expireat> <maxsize> <outfile>\tsign certificate for <key> in currently active shard overlay";
+    return "sign-shard-overlay-cert <wc>:<shard> <key> <expireat> <maxsize> <outfile>\tsign certificate "
+           "for <key> in currently active shard overlay";
   }
   std::string name() const override {
     return get_name();
@@ -1041,8 +1078,7 @@ class SignShardOverlayCertificateQuery : public Query {
 
  private:
 
-  td::int32 wc_;
-  td::int64 shard_;
+  ton::ShardIdFull shard_;
   td::int32 expire_at_;
   ton::PublicKeyHash key_;
   td::uint32 max_size_;
@@ -1059,10 +1095,11 @@ class ImportShardOverlayCertificateQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "importshardoverlaycert";
+    return "import-shard-overlay-cert";
   }
   static std::string get_help() {
-    return "importshardoverlaycert <workchain> <shardprefix> <key> <certfile>\timport certificate for <key> in currently active shard overlay";
+    return "import-shard-overlay-cert <wc>:<shard> <key> <certfile>\timport certificate for <key> in "
+           "currently active shard overlay";
   }
   std::string name() const override {
     return get_name();
@@ -1070,10 +1107,31 @@ class ImportShardOverlayCertificateQuery : public Query {
 
  private:
 
-  td::int32 wc_;
-  td::int64 shard_;
+  ton::ShardIdFull shard_;
   ton::PublicKeyHash key_;
   std::string in_file_;
+};
+
+class GetActorStatsQuery : public Query {
+ public:
+  GetActorStatsQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "get-actor-stats";
+  }
+  static std::string get_help() {
+    return "get-actor-stats [<outfile>]\tget actor stats and print it either in stdout or in <outfile>";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  std::string file_name_;
 };
 
 class GetPerfTimerStatsJsonQuery : public Query {
@@ -1085,10 +1143,11 @@ class GetPerfTimerStatsJsonQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "getperftimerstatsjson";
+    return "get-perf-timer-stats-json";
   }
   static std::string get_help() {
-    return "getperftimerstatsjson <outfile>\tgets min, average and max event processing time for last 60, 300 and 3600 seconds and writes to json file";
+    return "get-perf-timer-stats-json <outfile>\tgets min, average and max event processing time for last 60, 300 and "
+           "3600 seconds and writes to json file";
   }
   std::string name() const override {
     return get_name();
@@ -1107,10 +1166,10 @@ class GetShardOutQueueSizeQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "getshardoutqueuesize";
+    return "get-shard-out-queue-size";
   }
   static std::string get_help() {
-    return "getshardoutqueuesize <wc> <shard> <seqno> [<dest_wc> <dest_shard>]\treturns number of messages in the "
+    return "get-shard-out-queue-size <wc>:<shard> <seqno> [<dest_wc>:<dest_shard>]\treturns number of messages in the "
            "queue of the given shard. Destination shard is optional.";
   }
   std::string name() const override {
@@ -1119,7 +1178,7 @@ class GetShardOutQueueSizeQuery : public Query {
 
  private:
   ton::BlockId block_id_;
-  td::optional<ton::ShardIdFull> dest_;
+  ton::ShardIdFull dest_ = ton::ShardIdFull{ton::workchainInvalid};
 };
 
 class SetExtMessagesBroadcastDisabledQuery : public Query {
@@ -1131,11 +1190,11 @@ class SetExtMessagesBroadcastDisabledQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "setextmessagesbroadcastdisabled";
+    return "set-ext-messages-broadcast-disabled";
   }
   static std::string get_help() {
-    return "setextmessagesbroadcastdisabled <value>\tdisable broadcasting and rebroadcasting ext messages; value is 0 "
-           "or 1.";
+    return "set-ext-messages-broadcast-disabled <value>\tdisable broadcasting and rebroadcasting ext messages; value "
+           "is 0 or 1.";
   }
   std::string name() const override {
     return get_name();
@@ -1154,10 +1213,10 @@ class AddCustomOverlayQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "addcustomoverlay";
+    return "add-custom-overlay";
   }
   static std::string get_help() {
-    return "addcustomoverlay <filename>\tadd custom overlay with config from file <filename>";
+    return "add-custom-overlay <filename>\tadd custom overlay with config from file <filename>";
   }
   std::string name() const override {
     return get_name();
@@ -1176,10 +1235,10 @@ class DelCustomOverlayQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "delcustomoverlay";
+    return "del-custom-overlay";
   }
   static std::string get_help() {
-    return "delcustomoverlay <name>\tdelete custom overlay with name <name>";
+    return "del-custom-overlay <name>\tdelete custom overlay with name <name>";
   }
   std::string name() const override {
     return get_name();
@@ -1198,10 +1257,10 @@ class ShowCustomOverlaysQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "showcustomoverlays";
+    return "show-custom-overlays";
   }
   static std::string get_help() {
-    return "showcustomoverlays\tshow all custom overlays";
+    return "show-custom-overlays\tshow all custom overlays";
   }
   std::string name() const override {
     return get_name();
@@ -1217,10 +1276,10 @@ class SetStateSerializerEnabledQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "setstateserializerenabled";
+    return "set-state-serializer-enabled";
   }
   static std::string get_help() {
-    return "setstateserializerenabled <value>\tdisable or enable persistent state serializer; value is 0 or 1";
+    return "set-state-serializer-enabled <value>\tdisable or enable persistent state serializer; value is 0 or 1";
   }
   std::string name() const override {
     return get_name();
@@ -1239,10 +1298,10 @@ class SetCollatorOptionsJsonQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "setcollatoroptionsjson";
+    return "set-collator-options-json";
   }
   static std::string get_help() {
-    return "setcollatoroptionsjson <filename>\tset collator options from file <filename>";
+    return "set-collator-options-json <filename>\tset collator options from file <filename>";
   }
   std::string name() const override {
     return get_name();
@@ -1261,10 +1320,10 @@ class ResetCollatorOptionsQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "resetcollatoroptions";
+    return "reset-collator-options";
   }
   static std::string get_help() {
-    return "resetcollatoroptions\tset collator options to default values";
+    return "reset-collator-options\tset collator options to default values";
   }
   std::string name() const override {
     return get_name();
@@ -1280,10 +1339,10 @@ class GetCollatorOptionsJsonQuery : public Query {
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "getcollatoroptionsjson";
+    return "get-collator-options-json";
   }
   static std::string get_help() {
-    return "getcollatoroptionsjson <filename>\tsave current collator options to file <filename>";
+    return "get-collator-options-json <filename>\tsave current collator options to file <filename>";
   }
   std::string name() const override {
     return get_name();
@@ -1291,4 +1350,96 @@ class GetCollatorOptionsJsonQuery : public Query {
 
  private:
   std::string file_name_;
+};
+
+class GetAdnlStatsJsonQuery : public Query {
+ public:
+  GetAdnlStatsJsonQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "get-adnl-stats-json";
+  }
+  static std::string get_help() {
+    return "get-adnl-stats-json <filename> [all]\tsave adnl stats to <filename>. all - returns all peers (default - "
+           "only peers with traffic in the last 10 minutes)";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  std::string file_name_;
+  bool all_ = false;
+};
+
+class GetAdnlStatsQuery : public Query {
+ public:
+  GetAdnlStatsQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "get-adnl-stats";
+  }
+  static std::string get_help() {
+    return "get-adnl-stats [all]\tdisplay adnl stats. all - returns all peers (default - only peers with traffic in "
+           "the last 10 minutes)";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  std::string file_name_;
+  bool all_ = false;
+};
+
+class AddShardQuery : public Query {
+ public:
+  AddShardQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "add-shard";
+  }
+  static std::string get_help() {
+    return "add-shard <wc>:<shard>\tstart monitoring shard";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  ton::ShardIdFull shard_;
+};
+
+class DelShardQuery : public Query {
+ public:
+  DelShardQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "del-shard";
+  }
+  static std::string get_help() {
+    return "del-shard <wc>:<shard>\tstop monitoring shard";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  ton::ShardIdFull shard_;
 };

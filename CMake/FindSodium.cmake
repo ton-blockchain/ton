@@ -127,10 +127,16 @@ elseif (WIN32)
     endif()
     string(APPEND _PLATFORM_PATH "/$$CONFIG$$")
 
+    message(STATUS "MSVC_VERSION ${MSVC_VERSION}")
     if (MSVC_VERSION LESS 1900)
       math(EXPR _VS_VERSION "${MSVC_VERSION} / 10 - 60")
     else()
-      math(EXPR _VS_VERSION "${MSVC_VERSION} / 10 - 50")
+      if (MSVC_VERSION EQUAL 1941)
+        math(EXPR _VS_VERSION "${MSVC_VERSION} / 10 - 51")
+      else()
+        math(EXPR _VS_VERSION "${MSVC_VERSION} / 10 - 50")
+      endif()
+
     endif()
     string(APPEND _PLATFORM_PATH "/v${_VS_VERSION}")
 

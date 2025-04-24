@@ -128,8 +128,8 @@ void ValidatorManagerImpl::sync_complete(td::Promise<td::Unit> promise) {
   }
   Ed25519_PublicKey created_by{td::Bits256::zero()};
   td::as<td::uint32>(created_by.as_bits256().data() + 32 - 4) = ((unsigned)std::time(nullptr) >> 8);
-  run_collate_query(shard_id, 0, last_masterchain_block_id_, prev, created_by, val_set, td::Ref<CollatorOptions>{true},
-                    actor_id(this), td::Timestamp::in(10.0), std::move(P));
+  run_collate_query(shard_id, last_masterchain_block_id_, prev, created_by, val_set, td::Ref<CollatorOptions>{true},
+                    actor_id(this), td::Timestamp::in(10.0), std::move(P), td::CancellationToken{}, 0);
 }
 
 void ValidatorManagerImpl::validate_fake(BlockCandidate candidate, std::vector<BlockIdExt> prev, BlockIdExt last,
@@ -152,7 +152,7 @@ void ValidatorManagerImpl::validate_fake(BlockCandidate candidate, std::vector<B
     }
   });
   auto shard = candidate.id.shard_full();
-  run_validate_query(shard, 0, last, prev, std::move(candidate), std::move(val_set), actor_id(this),
+  run_validate_query(shard, last, prev, std::move(candidate), std::move(val_set), actor_id(this),
                      td::Timestamp::in(10.0), std::move(P), true /* fake */);
 }
 
@@ -589,6 +589,11 @@ void ValidatorManagerImpl::get_block_candidate_from_db(PublicKey source, BlockId
   td::actor::send_closure(db_, &Db::get_block_candidate, source, id, collated_data_file_hash, std::move(promise));
 }
 
+void ValidatorManagerImpl::get_candidate_data_by_block_id_from_db(BlockIdExt id, td::Promise<td::BufferSlice> promise) {
+  td::actor::send_closure(db_, &Db::get_block_candidate_by_block_id, id,
+                          promise.wrap([](BlockCandidate &&b) { return std::move(b.data); }));
+}
+
 void ValidatorManagerImpl::get_block_proof_from_db(ConstBlockHandle handle, td::Promise<td::Ref<Proof>> promise) {
   td::actor::send_closure(db_, &Db::get_block_proof, std::move(handle), std::move(promise));
 }
@@ -778,6 +783,11 @@ void ValidatorManagerImpl::set_next_block(BlockIdExt block_id, BlockIdExt next, 
 void ValidatorManagerImpl::set_block_candidate(BlockIdExt id, BlockCandidate candidate, CatchainSeqno cc_seqno,
                                                td::uint32 validator_set_hash, td::Promise<td::Unit> promise) {
   td::actor::send_closure(db_, &Db::store_block_candidate, std::move(candidate), std::move(promise));
+}
+
+void ValidatorManagerImpl::send_block_candidate_broadcast(BlockIdExt id, CatchainSeqno cc_seqno,
+                                                          td::uint32 validator_set_hash, td::BufferSlice data) {
+  callback_->send_block_candidate(id, cc_seqno, validator_set_hash, std::move(data));
 }
 
 void ValidatorManagerImpl::write_handle(BlockHandle handle, td::Promise<td::Unit> promise) {

@@ -11,13 +11,15 @@ crypto/smartcont/auto/
 test/regression-tests.cache/
 *.swp
 **/*build*/
+.cache
 .idea
 .vscode
+.DS_Store
+dev/
 zlib/
 libsodium/
 libmicrohttpd-0.9.77-w32-bin/
 readline-5.0-1-lib/
-secp256k1/
 openssl-3.1.4/
 libsodium-1.0.18-stable-msvc.zip
 libmicrohttpd-0.9.77-w32-bin.zip

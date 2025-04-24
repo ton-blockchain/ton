@@ -169,10 +169,16 @@ struct ActionPhaseConfig {
   bool bounce_on_fail_enabled{false};
   bool message_skip_enabled{false};
   bool disable_custom_fess{false};
+  bool reserve_extra_enabled{false};
+  bool extra_currency_v2{false};
   td::optional<td::Bits256> mc_blackhole_addr;
   const MsgPrices& fetch_msg_prices(bool is_masterchain) const {
     return is_masterchain ? fwd_mc : fwd_std;
   }
+};
+
+struct SerializeConfig {
+  bool extra_currency_v2{false};
 };
 
 struct CreditPhase {
@@ -388,8 +394,8 @@ struct Transaction {
   bool prepare_action_phase(const ActionPhaseConfig& cfg);
   td::Status check_state_limits(const SizeLimitsConfig& size_limits, bool update_storage_stat = true);
   bool prepare_bounce_phase(const ActionPhaseConfig& cfg);
-  bool compute_state();
-  bool serialize();
+  bool compute_state(const SerializeConfig& cfg);
+  bool serialize(const SerializeConfig& cfg);
   td::uint64 gas_used() const {
     return compute_phase ? compute_phase->gas_used : 0;
   }
@@ -427,14 +433,14 @@ struct FetchConfigParams {
                                         std::vector<block::StoragePrices>* storage_prices,
                                         StoragePhaseConfig* storage_phase_cfg, td::BitArray<256>* rand_seed,
                                         ComputePhaseConfig* compute_phase_cfg, ActionPhaseConfig* action_phase_cfg,
-                                        td::RefInt256* masterchain_create_fee, td::RefInt256* basechain_create_fee,
-                                        ton::WorkchainId wc, ton::UnixTime now);
+                                        SerializeConfig* serialize_cfg, td::RefInt256* masterchain_create_fee,
+                                        td::RefInt256* basechain_create_fee, ton::WorkchainId wc, ton::UnixTime now);
   static td::Status fetch_config_params(const block::Config& config, Ref<vm::Tuple> prev_blocks_info,
                                         Ref<vm::Cell>* old_mparams, std::vector<block::StoragePrices>* storage_prices,
                                         StoragePhaseConfig* storage_phase_cfg, td::BitArray<256>* rand_seed,
                                         ComputePhaseConfig* compute_phase_cfg, ActionPhaseConfig* action_phase_cfg,
-                                        td::RefInt256* masterchain_create_fee, td::RefInt256* basechain_create_fee,
-                                        ton::WorkchainId wc, ton::UnixTime now);
+                                        SerializeConfig* serialize_cfg, td::RefInt256* masterchain_create_fee,
+                                        td::RefInt256* basechain_create_fee, ton::WorkchainId wc, ton::UnixTime now);
 };
 
 }  // namespace block

@@ -40,6 +40,7 @@
 #include "td/utils/Slice.h"
 #include "td/utils/StackAllocator.h"
 #include "td/utils/StringBuilder.h"
+#include "td/utils/port/Clocks.h"
 
 #include <atomic>
 #include <type_traits>
@@ -73,6 +74,7 @@
 
 #define LOG(level) LOG_IMPL(level, level, true, ::td::Slice())
 #define LOG_IF(level, condition) LOG_IMPL(level, level, condition, #condition)
+#define FLOG(level) LOG_IMPL(level, level, true, ::td::Slice()) << td::LambdaPrint{} << [&](auto &sb)
 
 #define VLOG(level) LOG_IMPL(DEBUG, level, true, TD_DEFINE_STR(level))
 #define VLOG_IF(level, condition) LOG_IMPL(DEBUG, level, condition, TD_DEFINE_STR(level) " " #condition)
@@ -94,13 +96,13 @@ inline bool no_return_func() {
 #define DUMMY_LOG_CHECK(condition) LOG_IF(NEVER, !(condition))
 
 #ifdef TD_DEBUG
-  #if TD_MSVC
+#if TD_MSVC
     #define LOG_CHECK(condition)        \
       __analysis_assume(!!(condition)); \
       LOG_IMPL(FATAL, FATAL, !(condition), #condition)
-  #else
+#else
     #define LOG_CHECK(condition) LOG_IMPL(FATAL, FATAL, !(condition) && no_return_func(), #condition)
-  #endif
+#endif
 #else
   #define LOG_CHECK DUMMY_LOG_CHECK
 #endif
@@ -251,7 +253,8 @@ class Logger {
       , log_(log)
       , sb_(buffer_.as_slice())
       , options_(options)
-      , log_level_(log_level) {
+      , log_level_(log_level)
+      , start_at_(Clocks::rdtsc()) {
   }
 
   Logger(LogInterface &log, const LogOptions &options, int log_level, Slice file_name, int line_num, Slice comment);
@@ -260,6 +263,9 @@ class Logger {
   Logger &operator<<(const T &other) {
     sb_ << other;
     return *this;
+  }
+  LambdaPrintHelper<td::StringBuilder> operator<<(const LambdaPrint &) {
+    return LambdaPrintHelper<td::StringBuilder>{sb_};
   }
 
   MutableCSlice as_cslice() {
@@ -283,6 +289,7 @@ class Logger {
   StringBuilder sb_;
   const LogOptions &options_;
   int log_level_;
+  td::uint64 start_at_;
 };
 
 namespace detail {
@@ -336,7 +343,10 @@ class TsLog : public LogInterface {
 
  private:
   LogInterface *log_ = nullptr;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-pragma"
   std::atomic_flag lock_ = ATOMIC_FLAG_INIT;
+#pragma clang diagnostic pop
   void enter_critical() {
     while (lock_.test_and_set(std::memory_order_acquire)) {
       // spin
@@ -346,5 +356,4 @@ class TsLog : public LogInterface {
     lock_.clear(std::memory_order_release);
   }
 };
-
 }  // namespace td

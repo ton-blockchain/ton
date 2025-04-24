@@ -39,9 +39,9 @@ class AdnlPeer;
 
 class AdnlPeerPair : public td::actor::Actor {
  public:
-  virtual void receive_packet_from_channel(AdnlChannelIdShort id, AdnlPacket packet) = 0;
+  virtual void receive_packet_from_channel(AdnlChannelIdShort id, AdnlPacket packet, td::uint64 serialized_size) = 0;
   virtual void receive_packet_checked(AdnlPacket packet) = 0;
-  virtual void receive_packet(AdnlPacket packet) = 0;
+  virtual void receive_packet(AdnlPacket packet, td::uint64 serialized_size) = 0;
 
   virtual void send_messages(std::vector<OutboundAdnlMessage> message) = 0;
   inline void send_message(OutboundAdnlMessage message) {
@@ -59,6 +59,7 @@ class AdnlPeerPair : public td::actor::Actor {
   virtual void update_peer_id(AdnlNodeIdFull id) = 0;
   virtual void update_addr_list(AdnlAddressList addr_list) = 0;
   virtual void get_conn_ip_str(td::Promise<td::string> promise) = 0;
+  virtual void get_stats(bool all, td::Promise<tl_object_ptr<ton_api::adnl_stats_peerPair>> promise) = 0;
 
   static td::actor::ActorOwn<AdnlPeerPair> create(td::actor::ActorId<AdnlNetworkManager> network_manager,
                                                   td::actor::ActorId<AdnlPeerTable> peer_table, td::uint32 local_mode,
@@ -71,7 +72,7 @@ class AdnlPeerPair : public td::actor::Actor {
 class AdnlPeer : public td::actor::Actor {
  public:
   virtual void receive_packet(AdnlNodeIdShort dst, td::uint32 dst_mode, td::actor::ActorId<AdnlLocalId> dst_actor,
-                              AdnlPacket message) = 0;
+                              AdnlPacket message, td::uint64 serialized_size) = 0;
   virtual void send_messages(AdnlNodeIdShort src, td::uint32 src_mode, td::actor::ActorId<AdnlLocalId> src_actor,
                              std::vector<OutboundAdnlMessage> messages) = 0;
   virtual void send_query(AdnlNodeIdShort src, td::uint32 src_mode, td::actor::ActorId<AdnlLocalId> src_actor,
@@ -100,6 +101,7 @@ class AdnlPeer : public td::actor::Actor {
                                 td::actor::ActorId<AdnlLocalId> local_actor, AdnlAddressList addr_list) = 0;
   virtual void update_dht_node(td::actor::ActorId<dht::Dht> dht_node) = 0;
   virtual void get_conn_ip_str(AdnlNodeIdShort l_id, td::Promise<td::string> promise) = 0;
+  virtual void get_stats(bool all, td::Promise<std::vector<tl_object_ptr<ton_api::adnl_stats_peerPair>>> promise) = 0;
 };
 
 }  // namespace adnl

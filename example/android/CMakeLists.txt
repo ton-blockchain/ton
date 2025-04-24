@@ -3,7 +3,9 @@
 
 # Sets the minimum version of CMake required to build the native library.
 
-cmake_minimum_required(VERSION 3.4.1 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.16 FATAL_ERROR)
+
+project(TON_ANDROID VERSION 0.5 LANGUAGES C CXX)
 
 option(TONLIB_ENABLE_JNI "Enable JNI-compatible TonLib API" ON)
 

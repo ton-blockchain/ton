@@ -1,0 +1,154 @@
+name: Create tolk release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'tolk release and tag name'
+        required: true
+
+permissions: write-all
+
+jobs:
+  create-release:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Download and unzip Linux arm64 artifacts
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: build-ton-linux-arm64-appimage.yml
+          path: artifacts
+          workflow_conclusion: success
+          branch: master
+          skip_unpack: false
+
+      - name: Download and unzip Linux x86-64 artifacts
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: build-ton-linux-x86-64-appimage.yml
+          path: artifacts
+          workflow_conclusion: success
+          branch: master
+          skip_unpack: false
+
+      - name: Download and unzip Mac x86-64 artifacts
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: build-ton-macos-13-x86-64-portable.yml
+          path: artifacts
+          workflow_conclusion: success
+          branch: master
+          skip_unpack: false
+
+      - name: Download and unzip arm64 artifacts
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: build-ton-macos-14-arm64-portable.yml
+          path: artifacts
+          workflow_conclusion: success
+          branch: master
+          skip_unpack: false
+
+      - name: Download and unzip Windows artifacts
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: ton-x86-64-windows.yml
+          path: artifacts
+          workflow_conclusion: success
+          branch: master
+          skip_unpack: false
+
+      - name: Download WASM artifacts
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: build-ton-wasm-emscripten.yml
+          path: artifacts
+          workflow_conclusion: success
+          branch: master
+          skip_unpack: true
+
+      - name: Show all artifacts
+        run: |
+          tree artifacts
+      
+
+      # create release
+      - name: Get registration token
+        id: getRegToken
+        run: |
+          curl -X POST -H \"Accept: application/vnd.github+json\"  -H 'Authorization: token ${{ secrets.GITHUB_TOKEN }}' https://api.github.com/repos/ton-blockchain/ton/actions/runners/registration-token
+
+      - name: Create release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ inputs.tag }}
+          release_name: ${{ inputs.tag }}
+          draft: false
+          prerelease: false
+
+      # upload
+
+      # win
+
+      - name: Upload Windows 2019 single artifact - tolk
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86-64-windows/tolk.exe
+          asset_name: tolk.exe
+          tag: ${{ inputs.tag }}
+
+      # mac x86-64
+
+      - name: Upload Mac x86-64 single artifact - tolk
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-macos/tolk
+          asset_name: tolk-mac-x86-64
+          tag: ${{ inputs.tag }}
+
+      # mac arm64
+
+      - name: Upload Mac arm64 single artifact - tolk
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-arm64-macos/tolk
+          asset_name: tolk-mac-arm64
+          tag: ${{ inputs.tag }}
+
+      # linux x86-64
+
+      - name: Upload Linux x86-64 single artifact - tolk
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-x86_64-linux/tolk
+          asset_name: tolk-linux-x86_64
+          tag: ${{ inputs.tag }}
+
+      # linux arm64
+
+      - name: Upload Linux arm64 single artifact - tolk
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-arm64-linux/tolk
+          asset_name: tolk-linux-arm64
+          tag: ${{ inputs.tag }}
+
+      - name: Upload WASM artifacts
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/ton-wasm.zip
+          asset_name: ton-wasm.zip
+          tag: ${{ inputs.tag }}
+

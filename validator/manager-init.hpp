@@ -27,6 +27,8 @@
 
 #include "manager-init.h"
 
+#include <stats-provider.h>
+
 namespace ton {
 
 namespace validator {
@@ -77,6 +79,8 @@ class ValidatorManagerMasterchainReiniter : public td::actor::Actor {
 
   td::uint32 pending_ = 0;
   td::actor::ActorOwn<ShardClient> client_;
+
+  ProcessStatus status_;
 };
 
 class ValidatorManagerMasterchainStarter : public td::actor::Actor {

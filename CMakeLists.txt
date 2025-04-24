@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.16 FATAL_ERROR)
 
 project(TON VERSION 0.5 LANGUAGES C CXX)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -79,11 +79,12 @@ else()
   set(HAVE_SSE42 FALSE)
 endif()
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
 set(CMAKE_CXX_EXTENSIONS FALSE)
 
 #BEGIN internal
+option(BUILD_SHARED_LIBS "Use \"ON\" to build shared libraries instead of static where it's not specified (not recommended)" OFF)
 option(USE_EMSCRIPTEN "Use \"ON\" for config building wasm." OFF)
 option(TON_ONLY_TONLIB "Use \"ON\" to build only tonlib." OFF)
 if (USE_EMSCRIPTEN)
@@ -158,6 +159,9 @@ if (TON_USE_ROCKSDB)
   set(FAIL_ON_WARNINGS OFF CACHE BOOL "fail on warnings")
   message("Add rocksdb")
   add_subdirectory(third-party/rocksdb EXCLUDE_FROM_ALL)
+  # Broken CMake in rocksdb alters properties it has no business changing.
+  set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE)
+  set_property(GLOBAL PROPERTY RULE_LAUNCH_LINK)
 endif()
 
 option(USE_COROUTINES "experimental support of coroutines" OFF)
@@ -183,14 +187,16 @@ message("Add ton")
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake" ${CMAKE_MODULE_PATH})
 
 include(BuildBLST)
+include(BuildSECP256K1)
 
 # Configure CCache if available
 find_program(CCACHE_FOUND ccache)
-#set(CCACHE_FOUND 0)
 if (CCACHE_FOUND)
-  message(STATUS "Found ccache")
-  set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE ccache)
-  set_property(GLOBAL PROPERTY RULE_LAUNCH_LINK ccache)
+  if (NOT DEFINED CMAKE_C_COMPILER_LAUNCHER AND NOT DEFINED CMAKE_CXX_COMPILER_LAUNCHER)
+    message(STATUS "Using ccache")
+    set(CMAKE_C_COMPILER_LAUNCHER ccache)
+    set(CMAKE_CXX_COMPILER_LAUNCHER ccache)
+  endif()
 else()
   message(STATUS "Could NOT find ccache")
 endif()
@@ -236,6 +242,11 @@ endif()
 if (TON_USE_JEMALLOC)
   find_package(jemalloc REQUIRED)
 endif()
+
+if (NIX)
+  find_package(Secp256k1 REQUIRED)
+endif()
+
 
 set(MEMPROF "" CACHE STRING "Use one of \"ON\", \"FAST\" or \"SAFE\" to enable memory profiling. \
 Works under macOS and Linux when compiled using glibc. \
@@ -333,6 +344,18 @@ add_cxx_compiler_flag("-Wno-sign-conversion")
 add_cxx_compiler_flag("-Qunused-arguments")
 add_cxx_compiler_flag("-Wno-unused-private-field")
 add_cxx_compiler_flag("-Wno-redundant-move")
+
+if (GCC OR CLANG)
+  if (CMAKE_BUILD_TYPE MATCHES "RelWithDebInfo")
+    # For historical reasons, CMake falls back to -O2 optimization level when CMAKE_BUILD_TYPE is
+    # set to RelWithDebInfo.
+    add_compile_options(-O3)
+  endif()
+endif()
+
+#add_cxx_compiler_flag("-Wno-unused-function")
+#add_cxx_compiler_flag("-Wno-unused-variable")
+#add_cxx_compiler_flag("-Wno-shorten-64-to-32")
 #add_cxx_compiler_flag("-Werror")
 
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -isystem /usr/include/c++/v1")
@@ -340,22 +363,13 @@ if (CLANG)
   #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
 endif()
 if (TON_USE_ASAN)
-  if (CLANG)
-    add_cxx_compiler_flag("-stdlib=libc++")
-  endif()
   add_cxx_compiler_flag("-fsanitize=address")
   add_definitions(-DTD_USE_ASAN=1)
 endif()
 if (TON_USE_TSAN)
-  if (CLANG)
-    add_cxx_compiler_flag("-stdlib=libc++")
-  endif()
   add_cxx_compiler_flag("-fsanitize=thread")
 endif()
 if (TON_USE_UBSAN)
-  if (CLANG)
-    add_cxx_compiler_flag("-stdlib=libc++")
-  endif()
   add_cxx_compiler_flag("-fsanitize=undefined")
 endif()
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=thread")
@@ -409,6 +423,7 @@ add_subdirectory(adnl)
 add_subdirectory(crypto)
 add_subdirectory(lite-client)
 add_subdirectory(emulator)
+add_subdirectory(tolk)
 
 #BEGIN tonlib
 add_subdirectory(tonlib)
@@ -484,10 +499,10 @@ target_link_libraries(test-net PRIVATE tdnet tdutils ${CMAKE_THREAD_LIBS_INIT})
 
 #BEGIN tonlib
 add_executable(test-tonlib ${TONLIB_ONLINE_TEST_SOURCE})
-target_link_libraries(test-tonlib tdutils tdactor adnllite tl_api ton_crypto ton_block tl_tonlib_api tonlib)
+target_link_libraries(test-tonlib tdactor adnllite tl_api ton_crypto tl_tonlib_api tonlib)
 
 add_executable(test-tonlib-offline test/test-td-main.cpp ${TONLIB_OFFLINE_TEST_SOURCE})
-target_link_libraries(test-tonlib-offline tdutils tdactor adnllite tl_api ton_crypto ton_block fift-lib tl_tonlib_api tonlib)
+target_link_libraries(test-tonlib-offline tdactor adnllite tl_api ton_crypto fift-lib tl_tonlib_api tonlib)
 
 if (NOT CMAKE_CROSSCOMPILING)
   add_dependencies(test-tonlib-offline gen_fif)
@@ -529,6 +544,8 @@ target_link_libraries(test-rldp2 adnl adnltest dht rldp2 tl_api)
 add_executable(test-validator-session-state test/test-validator-session-state.cpp)
 target_link_libraries(test-validator-session-state adnl dht rldp validatorsession tl_api)
 
+add_executable(test-overlay test/test-overlay.cpp)
+target_link_libraries(test-overlay overlay tdutils tdactor adnl adnltest tl_api dht )
 add_executable(test-catchain test/test-catchain.cpp)
 target_link_libraries(test-catchain overlay tdutils tdactor adnl adnltest rldp tl_api dht
   catchain )
@@ -615,6 +632,30 @@ if (NOT NIX)
     else()
         set_property(TEST test-func-legacy PROPERTY ENVIRONMENT
           "FUNC_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/crypto/func"
+          "FIFT_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/crypto/fift"
+          "FIFTPATH=${CMAKE_CURRENT_SOURCE_DIR}/crypto/fift/lib/")
+    endif()
+endif()
+
+# Tolk tests
+if (NOT NIX)
+    if (MSVC)
+      set(PYTHON_VER "python")
+    else()
+      set(PYTHON_VER "python3")
+    endif()
+    add_test(
+      NAME test-tolk
+      COMMAND ${PYTHON_VER} tolk-tester.py tests/
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/tolk-tester)
+    if (WIN32)
+        set_property(TEST test-tolk PROPERTY ENVIRONMENT
+          "TOLK_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/tolk/tolk.exe"
+          "FIFT_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/crypto/fift.exe"
+          "FIFTPATH=${CMAKE_CURRENT_SOURCE_DIR}/crypto/fift/lib/")
+    else()
+        set_property(TEST test-tolk PROPERTY ENVIRONMENT
+          "TOLK_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/tolk/tolk"
           "FIFT_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/crypto/fift"
           "FIFTPATH=${CMAKE_CURRENT_SOURCE_DIR}/crypto/fift/lib/")
     endif()

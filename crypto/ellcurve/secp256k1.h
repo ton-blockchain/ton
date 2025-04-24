@@ -16,8 +16,10 @@
 */
 #pragma once
 
-namespace td {
+namespace td::secp256k1 {
 
 bool ecrecover(const unsigned char* hash, const unsigned char* signature, unsigned char* public_key);
+bool xonly_pubkey_tweak_add(const unsigned char* xonly_pubkey_bytes, const unsigned char* tweak,
+                            unsigned char* output_pubkey_bytes);
 
-}
+}  // namespace td::secp256k1

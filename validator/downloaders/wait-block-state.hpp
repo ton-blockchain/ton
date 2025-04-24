@@ -27,12 +27,14 @@ namespace validator {
 class WaitBlockState : public td::actor::Actor {
  public:
   WaitBlockState(BlockHandle handle, td::uint32 priority, td::actor::ActorId<ValidatorManager> manager,
-                 td::Timestamp timeout, td::Promise<td::Ref<ShardState>> promise)
+                 td::Timestamp timeout, td::Promise<td::Ref<ShardState>> promise,
+                 td::Ref<PersistentStateDescription> persistent_state_desc = {})
       : handle_(std::move(handle))
       , priority_(priority)
       , manager_(manager)
       , timeout_(timeout)
       , promise_(std::move(promise))
+      , persistent_state_desc_(std::move(persistent_state_desc))
       , perf_timer_("waitstate", 1.0, [manager](double duration) {
           send_closure(manager, &ValidatorManager::add_perf_timer_stat, "waitstate", duration);
         }) {
@@ -90,6 +92,7 @@ class WaitBlockState : public td::actor::Actor {
   td::actor::ActorId<ValidatorManager> manager_;
   td::Timestamp timeout_;
   td::Promise<td::Ref<ShardState>> promise_;
+  td::Ref<PersistentStateDescription> persistent_state_desc_;
 
   td::Ref<ShardState> prev_state_;
   td::Ref<BlockData> block_;
@@ -99,7 +102,15 @@ class WaitBlockState : public td::actor::Actor {
   bool waiting_proof_ = false;
   td::Timestamp next_static_file_attempt_;
 
-  td::PerfWarningTimer perf_timer_;
+  td::PerfWarningTimer perf_timer_{"waitstate", 1.0};
+
+  bool check_persistent_state_desc() const {
+    if (persistent_state_desc_.is_null()) {
+      return false;
+    }
+    auto now = (UnixTime)td::Clocks::system();
+    return persistent_state_desc_->end_time > now + 3600 && persistent_state_desc_->start_time < now - 6 * 3600;
+  }
 };
 
 }  // namespace validator

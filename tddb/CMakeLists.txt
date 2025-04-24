@@ -1,5 +1,3 @@
-cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
-
 #SOURCE SETS
 set(TDDB_UTILS_SOURCE
   td/db/utils/BlobView.cpp
@@ -59,7 +57,7 @@ target_link_libraries(tddb PUBLIC tdutils tdactor tddb_utils)
 if (TDDB_USE_ROCKSDB)
   target_sources(tddb PRIVATE ${TDDB_ROCKSDB_SOURCE})
   target_compile_definitions(tddb PUBLIC -DTDDB_USE_ROCKSDB)
-  target_link_libraries(tddb PRIVATE rocksdb)
+  target_link_libraries(tddb PUBLIC rocksdb)
   target_include_directories(tddb PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../third-party/rocksdb/include>)
 endif()
 

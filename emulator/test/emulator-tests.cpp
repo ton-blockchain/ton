@@ -400,3 +400,58 @@ TEST(Emulator, tvm_emulator) {
   CHECK(stack_res->depth() == 1);
   CHECK(stack_res.write().pop_int()->to_long() == init_data.seqno);
 }
+
+TEST(Emulator, tvm_emulator_extra_currencies) {
+  void *tvm_emulator = tvm_emulator_create("te6cckEBBAEAHgABFP8A9KQT9LzyyAsBAgFiAgMABtBfBAAJofpP8E8XmGlj", "te6cckEBAQEAAgAAAEysuc0=", 1);
+  std::string addr = "0:" + std::string(64, 'F');
+  tvm_emulator_set_c7(tvm_emulator, addr.c_str(), 1337, 1000, std::string(64, 'F').c_str(), nullptr);
+  CHECK(tvm_emulator_set_extra_currencies(tvm_emulator, "100=20000 200=1"));
+  unsigned method_crc = td::crc16("get_balance");
+  unsigned method_id = (method_crc & 0xffff) | 0x10000;
+
+  auto stack = td::make_ref<vm::Stack>();
+  vm::CellBuilder stack_cb;
+  CHECK(stack->serialize(stack_cb));
+  auto stack_cell = stack_cb.finalize();
+  auto stack_boc = td::base64_encode(std_boc_serialize(stack_cell).move_as_ok());
+
+  std::string tvm_res = tvm_emulator_run_get_method(tvm_emulator, method_id, stack_boc.c_str());
+
+  auto result_json = td::json_decode(td::MutableSlice(tvm_res));
+  auto result = result_json.move_as_ok();
+  auto& result_obj = result.get_object();
+
+  auto success_field = td::get_json_object_field(result_obj, "success", td::JsonValue::Type::Boolean, false);
+  auto success = success_field.move_as_ok().get_boolean();
+  CHECK(success);
+
+  auto stack_field = td::get_json_object_field(result_obj, "stack", td::JsonValue::Type::String, false);
+  auto stack_val = stack_field.move_as_ok();
+  auto& stack_obj = stack_val.get_string();
+  auto stack_res_boc = td::base64_decode(stack_obj);
+  auto stack_res_cell = vm::std_boc_deserialize(stack_res_boc.move_as_ok());
+  td::Ref<vm::Stack> stack_res;
+  auto stack_res_cs = vm::load_cell_slice(stack_res_cell.move_as_ok());
+  CHECK(vm::Stack::deserialize_to(stack_res_cs, stack_res));
+  CHECK(stack_res->depth() == 1);
+  auto tuple = stack_res.write().pop_tuple();
+  CHECK(tuple->size() == 2);
+
+  auto ton_balance = tuple->at(0).as_int();
+  CHECK(ton_balance == 1000);
+
+  auto cell = tuple->at(1).as_cell();
+  auto dict = vm::Dictionary{cell, 32};
+  auto it = dict.begin();
+  std::map<uint32_t, td::RefInt256> ec_balance;
+  while (!it.eof()) {
+    auto id = static_cast<uint32_t>(td::BitArray<32>(it.cur_pos()).to_ulong());
+    auto value_cs = it.cur_value();
+    auto value = block::tlb::t_VarUInteger_32.as_integer(value_cs);
+    ec_balance[id] = value;
+    ++it;
+  }
+  CHECK(ec_balance.size() == 2);
+  CHECK(ec_balance[100] == 20000);
+  CHECK(ec_balance[200] == 1);
+}

@@ -39,6 +39,7 @@ class ShardState : public td::CntObject {
 
   virtual UnixTime get_unix_time() const = 0;
   virtual LogicalTime get_logical_time() const = 0;
+  virtual td::int32 get_global_id() const = 0;
   virtual ShardIdFull get_shard() const = 0;
   virtual BlockSeqno get_seqno() const = 0;
   virtual BlockIdExt get_block_id() const = 0;
@@ -70,18 +71,20 @@ class MasterchainState : virtual public ShardState {
   virtual std::vector<td::Ref<McShardHash>> get_shards() const = 0;
   virtual td::Ref<McShardHash> get_shard_from_config(ShardIdFull shard) const = 0;
   virtual bool workchain_is_active(WorkchainId workchain_id) const = 0;
+  virtual td::uint32 monitor_min_split_depth(WorkchainId workchain_id) const = 0;
   virtual td::uint32 min_split_depth(WorkchainId workchain_id) const = 0;
-  virtual td::uint32 soft_min_split_depth(WorkchainId workchain_id) const = 0;
   virtual BlockSeqno min_ref_masterchain_seqno() const = 0;
   virtual bool ancestor_is_valid(BlockIdExt id) const = 0;
   virtual ValidatorSessionConfig get_consensus_config() const = 0;
   virtual BlockIdExt last_key_block_id() const = 0;
   virtual BlockIdExt next_key_block_id(BlockSeqno seqno) const = 0;
   virtual BlockIdExt prev_key_block_id(BlockSeqno seqno) const = 0;
+  virtual bool is_key_state() const = 0;
   virtual bool get_old_mc_block_id(ton::BlockSeqno seqno, ton::BlockIdExt& blkid,
                                    ton::LogicalTime* end_lt = nullptr) const = 0;
   virtual bool check_old_mc_block_id(const ton::BlockIdExt& blkid, bool strict = false) const = 0;
   virtual td::Result<td::Ref<ConfigHolder>> get_config_holder() const = 0;
+  virtual block::WorkchainSet get_workchain_list() const = 0;
   virtual td::Status prepare() {
     return td::Status::OK();
   }

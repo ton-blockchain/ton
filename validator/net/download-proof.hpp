@@ -45,7 +45,7 @@ class DownloadProof : public td::actor::Actor {
 
   void start_up() override;
   void checked_db();
-  void got_download_token(std::unique_ptr<DownloadToken> token);
+  void got_download_token(std::unique_ptr<ActionToken> token);
   void got_node_to_download(adnl::AdnlNodeIdShort node);
   void got_block_proof_description(td::BufferSlice proof_description);
   void got_block_proof(td::BufferSlice data);
@@ -72,7 +72,7 @@ class DownloadProof : public td::actor::Actor {
 
   td::BufferSlice data_;
 
-  std::unique_ptr<DownloadToken> token_;
+  std::unique_ptr<ActionToken> token_;
 };
 
 }  // namespace fullnode

@@ -1,5 +1,3 @@
-cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
-
 #BEGIN internal
 if (NOT TON_ONLY_TONLIB)
 set(ADNL_HEADERS
@@ -88,17 +86,15 @@ target_link_libraries(adnl PUBLIC tdactor ton_crypto tl_api tdnet tddb keys keyr
 
 add_executable(adnl-proxy ${ADNL_PROXY_SOURCE})
 target_include_directories(adnl-proxy PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
-target_link_libraries(adnl-proxy PUBLIC tdactor ton_crypto tl_api tdnet common
-  tl-utils git)
+target_link_libraries(adnl-proxy PUBLIC tdactor ton_crypto tl_api tdnet common tl-utils git)
 
 add_executable(adnl-pong adnl-pong.cpp)
 target_include_directories(adnl-pong PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
-target_link_libraries(adnl-pong PUBLIC tdactor ton_crypto tl_api tdnet common
-  tl-utils adnl dht git)
+target_link_libraries(adnl-pong PUBLIC tdactor ton_crypto tl_api tdnet common tl-utils adnl dht git)
 
 add_library(adnltest STATIC ${ADNL_TEST_SOURCE})
 target_include_directories(adnltest PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
-target_link_libraries(adnltest PUBLIC adnl )
+target_link_libraries(adnltest PUBLIC adnl)
 
 install(TARGETS adnl-proxy RUNTIME DESTINATION bin)
 endif()

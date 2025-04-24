@@ -360,7 +360,6 @@ MsgProcessedUptoCollection::MsgProcessedUptoCollection(ton::ShardIdFull _owner, 
     z.shard = key.get_uint(64);
     z.mc_seqno = (unsigned)((key + 64).get_uint(32));
     z.last_inmsg_lt = value.write().fetch_ulong(64);
-    // std::cerr << "ProcessedUpto shard " << std::hex << z.shard << std::dec << std::endl;
     return value.write().fetch_bits_to(z.last_inmsg_hash) && z.shard && ton::shard_contains(owner.shard, z.shard);
   });
 }
@@ -660,6 +659,12 @@ bool EnqueuedMsgDescr::check_key(td::ConstBitPtr key) const {
          hash_ == key + 96;
 }
 
+bool ImportedMsgQueueLimits::deserialize(vm::CellSlice& cs) {
+  return cs.fetch_ulong(8) == 0xd3           // imported_msg_queue_limits#d3
+         && cs.fetch_uint_to(32, max_bytes)  // max_bytes:#
+         && cs.fetch_uint_to(32, max_msgs);  // max_msgs:#
+}
+
 bool ParamLimits::deserialize(vm::CellSlice& cs) {
   return cs.fetch_ulong(8) == 0xc3            // param_limits#c3
          && cs.fetch_uint_to(32, limits_[0])  // underload:uint32
@@ -719,8 +724,8 @@ td::uint64 BlockLimitStatus::estimate_block_size(const vm::NewCellStorageStat::S
   if (extra) {
     sum += *extra;
   }
-  return 2000 + (sum.bits >> 3) + sum.cells * 12 + sum.internal_refs * 3 + sum.external_refs * 40 + accounts * 200 +
-         transactions * 200 + (extra ? 200 : 0) + extra_out_msgs * 300 + public_library_diff * 700;
+  return 2000 + (sum.bits >> 3) + sum.cells * 12 + sum.internal_refs * 3 + sum.external_refs * 40 + transactions * 200 +
+         (extra ? 200 : 0) + extra_out_msgs * 300 + public_library_diff * 700;
 }
 
 int BlockLimitStatus::classify() const {
@@ -856,8 +861,10 @@ td::Status ShardState::unpack_out_msg_queue_info(Ref<vm::Cell> out_msg_queue_inf
   out_msg_queue_ =
       std::make_unique<vm::AugmentedDictionary>(std::move(qinfo.out_queue), 352, block::tlb::aug_OutMsgQueue);
   if (verbosity >= 3 * 1) {
-    LOG(DEBUG) << "unpacking ProcessedUpto of our previous block " << id_.to_str();
-    block::gen::t_ProcessedInfo.print(std::cerr, qinfo.proc_info);
+    FLOG(DEBUG) {
+      sb << "unpacking ProcessedUpto of our previous block " << id_.to_str();
+      block::gen::t_ProcessedInfo.print(sb, qinfo.proc_info);
+    };
   }
   if (!block::gen::t_ProcessedInfo.validate_csr(1024, qinfo.proc_info)) {
     return td::Status::Error(
@@ -1311,6 +1318,65 @@ CurrencyCollection CurrencyCollection::operator-(td::RefInt256 other_grams) cons
   } else {
     return {};
   }
+}
+
+bool CurrencyCollection::clamp(const CurrencyCollection& other) {
+  if (!is_valid() || !other.is_valid()) {
+    return invalidate();
+  }
+  grams = std::min(grams, other.grams);
+  vm::Dictionary dict1{extra, 32}, dict2(other.extra, 32);
+  bool ok = dict1.check_for_each([&](td::Ref<vm::CellSlice> cs1, td::ConstBitPtr key, int n) {
+    CHECK(n == 32);
+    td::Ref<vm::CellSlice> cs2 = dict2.lookup(key, 32);
+    td::RefInt256 val1 = tlb::t_VarUIntegerPos_32.as_integer(cs1);
+    if (val1.is_null()) {
+      return false;
+    }
+    td::RefInt256 val2 = cs2.is_null() ? td::zero_refint() : tlb::t_VarUIntegerPos_32.as_integer(cs2);
+    if (val2.is_null()) {
+      return false;
+    }
+    if (val1 > val2) {
+      if (val2->sgn() == 0) {
+        dict1.lookup_delete(key, 32);
+      } else {
+        dict1.set(key, 32, cs2);
+      }
+    }
+    return true;
+  });
+  extra = dict1.get_root_cell();
+  return ok || invalidate();
+}
+
+bool CurrencyCollection::check_extra_currency_limit(td::uint32 max_currencies) const {
+  td::uint32 count = 0;
+  return vm::Dictionary{extra, 32}.check_for_each([&](td::Ref<vm::CellSlice>, td::ConstBitPtr, int) {
+    ++count;
+    return count <= max_currencies;
+  });
+}
+
+bool CurrencyCollection::remove_zero_extra_currencies(Ref<vm::Cell>& root, td::uint32 max_currencies) {
+  td::uint32 count = 0;
+  vm::Dictionary dict{root, 32};
+  int res = dict.filter([&](const vm::CellSlice& cs, td::ConstBitPtr, int) -> int {
+    ++count;
+    if (count > max_currencies) {
+      return -1;
+    }
+    td::RefInt256 val = tlb::t_VarUInteger_32.as_integer(cs);
+    if (val.is_null()) {
+      return -1;
+    }
+    return val->sgn() > 0;
+  });
+  if (res < 0) {
+    return false;
+  }
+  root = dict.get_root_cell();
+  return true;
 }
 
 bool CurrencyCollection::operator==(const CurrencyCollection& other) const {

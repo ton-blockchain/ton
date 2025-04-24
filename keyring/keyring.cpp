@@ -28,7 +28,7 @@ namespace ton {
 namespace keyring {
 
 KeyringImpl::PrivateKeyDescr::PrivateKeyDescr(PrivateKey private_key, bool is_temp)
-    : public_key(private_key.compute_public_key()), is_temp(is_temp) {
+    : public_key(private_key.compute_public_key()), private_key(private_key), is_temp(is_temp) {
   auto D = private_key.create_decryptor_async();
   D.ensure();
   decryptor_sign = D.move_as_ok();
@@ -188,6 +188,16 @@ void KeyringImpl::decrypt_message(PublicKeyHash key_hash, td::BufferSlice data, 
     td::actor::send_closure(S.move_as_ok()->decryptor_decrypt, &DecryptorAsync::decrypt, std::move(data),
                             std::move(promise));
   }
+}
+
+void KeyringImpl::export_all_private_keys(td::Promise<std::vector<PrivateKey>> promise) {
+  std::vector<PrivateKey> keys;
+  for (auto& [_, descr] : map_) {
+    if (!descr->is_temp && descr->private_key.exportable()) {
+      keys.push_back(descr->private_key);
+    }
+  }
+  promise.set_value(std::move(keys));
 }
 
 td::actor::ActorOwn<Keyring> Keyring::create(std::string db_root) {

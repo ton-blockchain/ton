@@ -216,6 +216,16 @@ static inline std::ostream& operator<<(std::ostream& os, const MsgProcessedUptoC
   return proc_coll.print(os);
 }
 
+struct ImportedMsgQueueLimits {
+  // Default values
+  td::uint32 max_bytes = 1 << 16;
+  td::uint32 max_msgs = 30;
+  bool deserialize(vm::CellSlice& cs);
+  ImportedMsgQueueLimits operator*(td::uint32 x) const {
+    return {max_bytes * x, max_msgs * x};
+  }
+};
+
 struct ParamLimits {
   enum { limits_cnt = 4 };
   enum { cl_underload = 0, cl_normal = 1, cl_soft = 2, cl_medium = 3, cl_hard = 4 };
@@ -239,6 +249,12 @@ struct ParamLimits {
   bool deserialize(vm::CellSlice& cs);
   int classify(td::uint64 value) const;
   bool fits(unsigned cls, td::uint64 value) const;
+  void multiply_by(double x) {
+    CHECK(x > 0.0);
+    for (td::uint32& y : limits_) {
+      y = (td::uint32)std::min<double>(y * x, 1e9);
+    }
+  }
 
  private:
   std::array<td::uint32, limits_cnt> limits_;
@@ -374,6 +390,9 @@ struct CurrencyCollection {
   CurrencyCollection operator-(const CurrencyCollection& other) const;
   CurrencyCollection operator-(CurrencyCollection&& other) const;
   CurrencyCollection operator-(td::RefInt256 other_grams) const;
+  bool clamp(const CurrencyCollection& other);
+  bool check_extra_currency_limit(td::uint32 max_currencies) const;
+  static bool remove_zero_extra_currencies(Ref<vm::Cell>& root, td::uint32 max_currencies);
   bool store(vm::CellBuilder& cb) const;
   bool store_or_zero(vm::CellBuilder& cb) const;
   bool fetch(vm::CellSlice& cs);

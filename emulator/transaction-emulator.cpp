@@ -16,6 +16,7 @@ td::Result<std::unique_ptr<TransactionEmulator::EmulationResult>> TransactionEmu
     block::StoragePhaseConfig storage_phase_cfg{&storage_prices};
     block::ComputePhaseConfig compute_phase_cfg;
     block::ActionPhaseConfig action_phase_cfg;
+    block::SerializeConfig serialize_config;
     td::RefInt256 masterchain_create_fee, basechain_create_fee;
     
     if (!utime) {
@@ -25,11 +26,9 @@ td::Result<std::unique_ptr<TransactionEmulator::EmulationResult>> TransactionEmu
       utime = (unsigned)std::time(nullptr);
     }
 
-    auto fetch_res = block::FetchConfigParams::fetch_config_params(*config_, prev_blocks_info_, &old_mparams,
-                                                                   &storage_prices, &storage_phase_cfg,
-                                                                   &rand_seed_, &compute_phase_cfg,
-                                                                   &action_phase_cfg, &masterchain_create_fee,
-                                                                   &basechain_create_fee, account.workchain, utime);
+    auto fetch_res = block::FetchConfigParams::fetch_config_params(
+        *config_, prev_blocks_info_, &old_mparams, &storage_prices, &storage_phase_cfg, &rand_seed_, &compute_phase_cfg,
+        &action_phase_cfg, &serialize_config, &masterchain_create_fee, &basechain_create_fee, account.workchain, utime);
     if(fetch_res.is_error()) {
         return fetch_res.move_as_error_prefix("cannot fetch config params ");
     }
@@ -66,7 +65,7 @@ td::Result<std::unique_ptr<TransactionEmulator::EmulationResult>> TransactionEmu
       return std::make_unique<TransactionEmulator::EmulationExternalNotAccepted>(std::move(vm_log), vm_exit_code, elapsed);
     }
 
-    if (!trans->serialize()) {
+    if (!trans->serialize(serialize_config)) {
       return td::Status::Error(-669,"cannot serialize new transaction for smart contract "s + trans->account.addr.to_hex());
     }
 

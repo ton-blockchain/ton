@@ -38,6 +38,7 @@ class ShardStateQ : virtual public ShardState {
   Ref<vm::Cell> root;
   LogicalTime lt{0};
   UnixTime utime{0};
+  td::int32 global_id_{0};
   bool before_split_{false};
   bool fake_split_{false};
   bool fake_merge_{false};
@@ -81,6 +82,9 @@ class ShardStateQ : virtual public ShardState {
   LogicalTime get_logical_time() const override {
     return lt;
   }
+  td::int32 get_global_id() const override {
+    return global_id_;
+  }
   td::optional<BlockIdExt> get_master_ref() const override {
     return master_ref;
   }
@@ -120,8 +124,8 @@ class MasterchainStateQ : public MasterchainState, public ShardStateQ {
   bool has_workchain(WorkchainId workchain) const {
     return config_ && config_->has_workchain(workchain);
   }
+  td::uint32 monitor_min_split_depth(WorkchainId workchain_id) const override;
   td::uint32 min_split_depth(WorkchainId workchain_id) const override;
-  td::uint32 soft_min_split_depth(WorkchainId workchain_id) const override;
   BlockSeqno min_ref_masterchain_seqno() const override;
   td::Status prepare() override;
   ZeroStateIdExt get_zerostate_id() const {
@@ -137,6 +141,7 @@ class MasterchainStateQ : public MasterchainState, public ShardStateQ {
   BlockIdExt last_key_block_id() const override;
   BlockIdExt next_key_block_id(BlockSeqno seqno) const override;
   BlockIdExt prev_key_block_id(BlockSeqno seqno) const override;
+  bool is_key_state() const override;
   MasterchainStateQ* make_copy() const override;
 
   static td::Result<Ref<MasterchainStateQ>> fetch(const BlockIdExt& _id, td::BufferSlice _data,
@@ -154,6 +159,9 @@ class MasterchainStateQ : public MasterchainState, public ShardStateQ {
     } else {
       return td::make_ref<ConfigHolderQ>(config_);
     }
+  }
+  block::WorkchainSet get_workchain_list() const override {
+    return config_ ? config_->get_workchain_list() : block::WorkchainSet();
   }
 
  private:

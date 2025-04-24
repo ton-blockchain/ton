@@ -15,16 +15,37 @@ jobs:
     - name: Install system libraries
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential git openssl cmake ninja-build zlib1g-dev libssl-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev liblz4-dev
+        sudo apt-get install -y build-essential git openssl cmake ninja-build zlib1g-dev libssl-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev liblz4-dev libjemalloc-dev
 
     - name: Build TON WASM artifacts
       run: |
+        git submodule sync --recursive
+        git submodule update
         cp assembly/wasm/fift-func-wasm-build-ubuntu.sh .
         chmod +x fift-func-wasm-build-ubuntu.sh
         ./fift-func-wasm-build-ubuntu.sh -a
 
+    - name: Prepare test
+      run: |
+        cp assembly/wasm/*.fc .
+        git clone https://github.com/ton-community/func-js.git
+        cd func-js        
+        npm install
+        npm run build
+        npm link
+
+    - name: Test TON WASM artifacts
+      run: |
+        base64 -w 0 artifacts/funcfiftlib.wasm > artifacts/funcfiftlib.wasm.js
+        printf "module.exports = { FuncFiftLibWasm: '" | cat - artifacts/funcfiftlib.wasm.js > temp.txt && mv temp.txt artifacts/funcfiftlib.wasm.js
+        echo "'}" >> artifacts/funcfiftlib.wasm.js
+        cp artifacts/funcfiftlib.wasm.js func-js/node_modules/@ton-community/func-js-bin/dist/funcfiftlib.wasm.js
+        cp artifacts/funcfiftlib.js func-js/node_modules/@ton-community/func-js-bin/dist/funcfiftlib.js
+        npx func-js stdlib.fc intrinsics.fc --fift ./output.f
+    
+
     - name: Upload artifacts
       uses: actions/upload-artifact@master
       with:
-        name: ton-wasm-binaries
+        name: ton-wasm
         path: artifacts

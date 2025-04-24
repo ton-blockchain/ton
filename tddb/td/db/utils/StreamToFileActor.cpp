@@ -81,7 +81,7 @@ Result<bool> StreamToFileActor::do_loop() {
     sync_at_ = {};
   }
 
-  bool need_update = sync_state_.set_synced_size(synced_size_) | sync_state_.set_flushed_size(flushed_size_);
+  bool need_update = int(sync_state_.set_synced_size(synced_size_)) | int(sync_state_.set_flushed_size(flushed_size_));
   if (need_update && callback_) {
     callback_->on_sync_state_changed();
   }

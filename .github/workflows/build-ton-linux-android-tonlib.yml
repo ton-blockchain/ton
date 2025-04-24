@@ -21,6 +21,8 @@ jobs:
 
     - name: Build TON
       run: |
+        git submodule sync --recursive
+        git submodule update
         cp assembly/android/build-android-tonlib.sh .
         chmod +x build-android-tonlib.sh
         ./build-android-tonlib.sh -a
@@ -28,5 +30,5 @@ jobs:
     - name: Upload artifacts
       uses: actions/upload-artifact@master
       with:
-        name: tonlib-android
+        name: ton-android-tonlib
         path: artifacts

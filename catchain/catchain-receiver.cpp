@@ -27,6 +27,8 @@
 
 #include "catchain-receiver.hpp"
 
+#include "td/utils/ThreadSafeCounter.h"
+
 namespace ton {
 
 namespace catchain {
@@ -368,6 +370,12 @@ void CatChainReceiverImpl::add_block(td::BufferSlice payload, std::vector<CatCha
   }
 
   int height = prev->height_ + 1;
+  auto max_block_height = get_max_block_height(opts_, sources_.size());
+  if (td::narrow_cast<td::uint64>(height) > max_block_height) {
+    VLOG(CATCHAIN_WARNING) << this << ": cannot create block: max height exceeded (" << max_block_height << ")";
+    active_send_ = false;
+    return;
+  }
   auto block_data = create_tl_object<ton_api::catchain_block_data>(std::move(prev), std::move(deps_arr));
   auto block = create_tl_object<ton_api::catchain_block>(incarnation_, local_idx_, height, std::move(block_data),
                                                          td::BufferSlice());
@@ -518,10 +526,12 @@ void CatChainReceiverImpl::start_up() {
   for (td::uint32 i = 0; i < get_sources_cnt(); i++) {
     root_keys.emplace(get_source(i)->get_hash(), OVERLAY_MAX_ALLOWED_PACKET_SIZE);
   }
-  td::actor::send_closure(overlay_manager_, &overlay::Overlays::create_private_overlay,
+  overlay::OverlayOptions overlay_options;
+  overlay_options.broadcast_speed_multiplier_ = opts_.broadcast_speed_multiplier;
+  td::actor::send_closure(overlay_manager_, &overlay::Overlays::create_private_overlay_ex,
                           get_source(local_idx_)->get_adnl_id(), overlay_full_id_.clone(), std::move(ids),
                           make_callback(), overlay::OverlayPrivacyRules{0, 0, std::move(root_keys)},
-                          R"({ "type": "catchain" })");
+                          R"({ "type": "catchain" })", std::move(overlay_options));
 
   CHECK(root_block_);
 
@@ -679,6 +689,7 @@ void CatChainReceiverImpl::receive_query_from_overlay(adnl::AdnlNodeIdShort src,
     promise.set_error(td::Status::Error(ErrorCode::notready, "db not read"));
     return;
   }
+  TD_PERF_COUNTER(catchain_query_process);
   td::PerfWarningTimer t{"catchain query process", 0.05};
   auto F = fetch_tl_object<ton_api::Function>(data.clone(), true);
   if (F.is_error()) {

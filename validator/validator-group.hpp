@@ -34,24 +34,24 @@ class ValidatorManager;
 
 class ValidatorGroup : public td::actor::Actor {
  public:
-  void generate_block_candidate(td::uint32 round_id,
+  void generate_block_candidate(validatorsession::BlockSourceInfo source_info,
                                 td::Promise<validatorsession::ValidatorSession::GeneratedCandidate> promise);
-  void validate_block_candidate(td::uint32 round_id, BlockCandidate block,
+  void validate_block_candidate(validatorsession::BlockSourceInfo source_info, BlockCandidate block,
                                 td::Promise<std::pair<UnixTime, bool>> promise);
-  void accept_block_candidate(td::uint32 round_id, PublicKeyHash src, td::BufferSlice block, RootHash root_hash,
+  void accept_block_candidate(validatorsession::BlockSourceInfo source_info, td::BufferSlice block, RootHash root_hash,
                               FileHash file_hash, std::vector<BlockSignature> signatures,
                               std::vector<BlockSignature> approve_signatures,
                               validatorsession::ValidatorSessionStats stats, td::Promise<td::Unit> promise);
   void skip_round(td::uint32 round);
   void retry_accept_block_query(BlockIdExt block_id, td::Ref<BlockData> block, std::vector<BlockIdExt> prev,
                                 td::Ref<BlockSignatureSet> sigs, td::Ref<BlockSignatureSet> approve_sigs,
-                                bool send_broadcast, td::Promise<td::Unit> promise);
+                                int send_broadcast_mode, td::Promise<td::Unit> promise);
   void get_approved_candidate(PublicKey source, RootHash root_hash, FileHash file_hash,
                               FileHash collated_data_file_hash, td::Promise<BlockCandidate> promise);
   BlockIdExt create_next_block_id(RootHash root_hash, FileHash file_hash) const;
   BlockId create_next_block_id_simple() const;
 
-  void start(std::vector<BlockIdExt> prev, BlockIdExt min_masterchain_block_id, UnixTime min_ts);
+  void start(std::vector<BlockIdExt> prev, BlockIdExt min_masterchain_block_id);
   void create_session();
   void destroy();
   void start_up() override {
@@ -114,7 +114,6 @@ class ValidatorGroup : public td::actor::Actor {
 
   std::vector<BlockIdExt> prev_block_ids_;
   BlockIdExt min_masterchain_block_id_;
-  UnixTime min_ts_;
 
   td::Ref<ValidatorSet> validator_set_;
   BlockSeqno last_key_block_seqno_;
@@ -139,10 +138,12 @@ class ValidatorGroup : public td::actor::Actor {
     std::vector<td::Promise<BlockCandidate>> promises;
   };
   std::shared_ptr<CachedCollatedBlock> cached_collated_block_;
+  td::CancellationTokenSource cancellation_token_source_;
 
-  void generated_block_candidate(std::shared_ptr<CachedCollatedBlock> cache, td::Result<BlockCandidate> R);
+  void generated_block_candidate(validatorsession::BlockSourceInfo source_info,
+                                 std::shared_ptr<CachedCollatedBlock> cache, td::Result<BlockCandidate> R);
 
-  typedef std::tuple<td::Bits256, BlockIdExt, FileHash, FileHash> CacheKey;
+  using CacheKey = std::tuple<td::Bits256, BlockIdExt, FileHash, FileHash>;
   std::map<CacheKey, UnixTime> approved_candidates_cache_;
 
   void update_approve_cache(CacheKey key, UnixTime value);
@@ -160,6 +161,16 @@ class ValidatorGroup : public td::actor::Actor {
 
   void add_available_block_candidate(td::Bits256 source, BlockIdExt id, FileHash collated_data_hash) {
     available_block_candidates_.emplace(source, id, collated_data_hash);
+  }
+
+  std::set<BlockIdExt> sent_candidate_broadcasts_;
+
+  void send_block_candidate_broadcast(BlockIdExt id, td::BufferSlice data) {
+    if (sent_candidate_broadcasts_.insert(id).second) {
+      td::actor::send_closure(manager_, &ValidatorManager::send_block_candidate_broadcast, id,
+                              validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash(),
+                              std::move(data));
+    }
   }
 };
 

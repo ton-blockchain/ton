@@ -1,4 +1,4 @@
-name: MacOS TON build (shared, arm64)
+name: MacOS-14 TON build (shared, arm64)
 
 on: [push,workflow_dispatch,workflow_call]
 
@@ -14,6 +14,8 @@ jobs:
 
       - name: Build TON
         run: |
+          git submodule sync --recursive
+          git submodule update
           cp assembly/native/build-macos-shared.sh .
           chmod +x build-macos-shared.sh
           ./build-macos-shared.sh -t -a

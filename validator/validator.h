@@ -20,6 +20,7 @@
 
 #include <vector>
 #include <deque>
+#include <functional>
 
 #include "td/actor/actor.h"
 
@@ -35,15 +36,16 @@
 #include "interfaces/proof.h"
 #include "interfaces/shard.h"
 #include "catchain/catchain-types.h"
+#include "interfaces/out-msg-queue-proof.h"
 #include "interfaces/external-message.h"
 
 namespace ton {
 
 namespace validator {
 
-class DownloadToken {
+class ActionToken {
  public:
-  virtual ~DownloadToken() = default;
+  virtual ~ActionToken() = default;
 };
 
 struct PerfTimerStats {
@@ -64,6 +66,11 @@ struct CollatorOptions : public td::CntObject {
   td::uint32 dispatch_phase_3_max_total = 150;
   td::uint32 dispatch_phase_2_max_per_initiator = 20;
   td::optional<td::uint32> dispatch_phase_3_max_per_initiator;  // Default - depends on out msg queue size
+
+  // Don't defer messages from these accounts
+  std::set<std::pair<WorkchainId, StdSmcAddress>> whitelist;
+  // Prioritize these accounts on each phase of process_dispatch_queue
+  std::set<std::pair<WorkchainId, StdSmcAddress>> prioritylist;
 };
 
 struct ValidatorManagerOptions : public td::CntObject {
@@ -72,8 +79,7 @@ struct ValidatorManagerOptions : public td::CntObject {
 
   virtual BlockIdExt zero_block_id() const = 0;
   virtual BlockIdExt init_block_id() const = 0;
-  virtual bool need_monitor(ShardIdFull shard) const = 0;
-  virtual bool need_validate(ShardIdFull shard, CatchainSeqno cc_seqno) const = 0;
+  virtual bool need_monitor(ShardIdFull shard, const td::Ref<MasterchainState>& state) const = 0;
   virtual bool allow_blockchain_init() const = 0;
   virtual double sync_blocks_before() const = 0;
   virtual double block_ttl() const = 0;
@@ -97,6 +103,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual BlockSeqno sync_upto() const = 0;
   virtual std::string get_session_logs_file() const = 0;
   virtual td::uint32 get_celldb_compress_depth() const = 0;
+  virtual bool get_celldb_in_memory() const = 0;
   virtual size_t get_max_open_archive_files() const = 0;
   virtual double get_archive_preload_period() const = 0;
   virtual bool get_disable_rocksdb_stats() const = 0;
@@ -105,14 +112,15 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual bool get_celldb_direct_io() const = 0;
   virtual bool get_celldb_preload_all() const = 0;
   virtual td::optional<double> get_catchain_max_block_delay() const = 0;
+  virtual td::optional<double> get_catchain_max_block_delay_slow() const = 0;
   virtual bool get_state_serializer_enabled() const = 0;
   virtual td::Ref<CollatorOptions> get_collator_options() const = 0;
   virtual bool get_fast_state_serializer_enabled() const = 0;
+  virtual double get_catchain_broadcast_speed_multiplier() const = 0;
 
   virtual void set_zero_block_id(BlockIdExt block_id) = 0;
   virtual void set_init_block_id(BlockIdExt block_id) = 0;
-  virtual void set_shard_check_function(
-      std::function<bool(ShardIdFull, CatchainSeqno, ShardCheckMode)> check_shard) = 0;
+  virtual void set_shard_check_function(std::function<bool(ShardIdFull)> check_shard) = 0;
   virtual void set_allow_blockchain_init(bool value) = 0;
   virtual void set_sync_blocks_before(double value) = 0;
   virtual void set_block_ttl(double value) = 0;
@@ -135,19 +143,21 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual void set_celldb_cache_size(td::uint64 value) = 0;
   virtual void set_celldb_direct_io(bool value) = 0;
   virtual void set_celldb_preload_all(bool value) = 0;
+  virtual void set_celldb_in_memory(bool value) = 0;
   virtual void set_catchain_max_block_delay(double value) = 0;
+  virtual void set_catchain_max_block_delay_slow(double value) = 0;
   virtual void set_state_serializer_enabled(bool value) = 0;
   virtual void set_collator_options(td::Ref<CollatorOptions> value) = 0;
   virtual void set_fast_state_serializer_enabled(bool value) = 0;
+  virtual void set_catchain_broadcast_speed_multiplier(double value) = 0;
 
   static td::Ref<ValidatorManagerOptions> create(
       BlockIdExt zero_block_id, BlockIdExt init_block_id,
-      std::function<bool(ShardIdFull, CatchainSeqno, ShardCheckMode)> check_shard = [](ShardIdFull, CatchainSeqno,
-                                                                                       ShardCheckMode) { return true; },
+
+      std::function<bool(ShardIdFull)> check_shard = [](ShardIdFull) { return true; },
       bool allow_blockchain_init = false, double sync_blocks_before = 3600, double block_ttl = 86400,
       double state_ttl = 86400, double archive_ttl = 86400 * 7, double key_proof_ttl = 86400 * 3650,
-      double max_mempool_num = 999999,
-      bool initial_sync_disabled = false);
+      double max_mempool_num = 999999, bool initial_sync_disabled = false);
 };
 
 class ValidatorManagerInterface : public td::actor::Actor {
@@ -157,15 +167,15 @@ class ValidatorManagerInterface : public td::actor::Actor {
     virtual ~Callback() = default;
 
     virtual void initial_read_complete(BlockHandle top_masterchain_blocks) = 0;
-    virtual void add_shard(ShardIdFull shard) = 0;
-    virtual void del_shard(ShardIdFull shard) = 0;
+    virtual void on_new_masterchain_block(td::Ref<ton::validator::MasterchainState> state,
+                                          std::set<ShardIdFull> shards_to_monitor) = 0;
 
     virtual void send_ihr_message(AccountIdPrefixFull dst, td::BufferSlice data) = 0;
     virtual void send_ext_message(AccountIdPrefixFull dst, td::BufferSlice data) = 0;
     virtual void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) = 0;
     virtual void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                                       td::BufferSlice data) = 0;
-    virtual void send_broadcast(BlockBroadcast broadcast, bool custom_overlays_only = false) = 0;
+    virtual void send_broadcast(BlockBroadcast broadcast, int mode) = 0;
     virtual void download_block(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
                                 td::Promise<ReceivedBlock> promise) = 0;
     virtual void download_zero_state(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
@@ -178,10 +188,14 @@ class ValidatorManagerInterface : public td::actor::Actor {
                                            td::Promise<td::BufferSlice> promise) = 0;
     virtual void get_next_key_blocks(BlockIdExt block_id, td::Timestamp timeout,
                                      td::Promise<std::vector<BlockIdExt>> promise) = 0;
-    virtual void download_archive(BlockSeqno masterchain_seqno, std::string tmp_dir, td::Timestamp timeout,
-                                  td::Promise<std::string> promise) = 0;
+    virtual void download_archive(BlockSeqno masterchain_seqno, ShardIdFull shard_prefix, std::string tmp_dir,
+                                  td::Timestamp timeout, td::Promise<std::string> promise) = 0;
+    virtual void download_out_msg_queue_proof(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
+                                              block::ImportedMsgQueueLimits limits, td::Timestamp timeout,
+                                              td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise) = 0;
 
     virtual void new_key_block(BlockHandle handle) = 0;
+    virtual void send_validator_telemetry(PublicKeyHash key, tl_object_ptr<ton_api::validator_telemetry> telemetry) = 0;
   };
 
   virtual ~ValidatorManagerInterface() = default;
@@ -241,12 +255,13 @@ class ValidatorManagerInterface : public td::actor::Actor {
   virtual void add_ext_server_port(td::uint16 port) = 0;
 
   virtual void get_download_token(size_t download_size, td::uint32 priority, td::Timestamp timeout,
-                                  td::Promise<std::unique_ptr<DownloadToken>> promise) = 0;
+                                  td::Promise<std::unique_ptr<ActionToken>> promise) = 0;
 
   virtual void get_block_data_from_db(ConstBlockHandle handle, td::Promise<td::Ref<BlockData>> promise) = 0;
   virtual void get_block_data_from_db_short(BlockIdExt block_id, td::Promise<td::Ref<BlockData>> promise) = 0;
   virtual void get_block_candidate_from_db(PublicKey source, BlockIdExt id, FileHash collated_data_file_hash,
                                            td::Promise<BlockCandidate> promise) = 0;
+  virtual void get_candidate_data_by_block_id_from_db(BlockIdExt id, td::Promise<td::BufferSlice> promise) = 0;
   virtual void get_shard_state_from_db(ConstBlockHandle handle, td::Promise<td::Ref<ShardState>> promise) = 0;
   virtual void get_shard_state_from_db_short(BlockIdExt block_id, td::Promise<td::Ref<ShardState>> promise) = 0;
   virtual void get_block_proof_from_db(ConstBlockHandle handle, td::Promise<td::Ref<Proof>> promise) = 0;
@@ -261,18 +276,32 @@ class ValidatorManagerInterface : public td::actor::Actor {
   virtual void get_block_by_seqno_from_db(AccountIdPrefixFull account, BlockSeqno seqno,
                                           td::Promise<ConstBlockHandle> promise) = 0;
 
-  virtual void get_archive_id(BlockSeqno masterchain_seqno, td::Promise<td::uint64> promise) = 0;
+  virtual void wait_block_state(BlockHandle handle, td::uint32 priority, td::Timestamp timeout,
+                                td::Promise<td::Ref<ShardState>> promise) = 0;
+  virtual void wait_block_state_short(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
+                                      td::Promise<td::Ref<ShardState>> promise) = 0;
+
+  virtual void get_archive_id(BlockSeqno masterchain_seqno, ShardIdFull shard_prefix,
+                              td::Promise<td::uint64> promise) = 0;
   virtual void get_archive_slice(td::uint64 archive_id, td::uint64 offset, td::uint32 limit,
                                  td::Promise<td::BufferSlice> promise) = 0;
 
   virtual void run_ext_query(td::BufferSlice data, td::Promise<td::BufferSlice> promise) = 0;
   virtual void prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise) = 0;
+  virtual void prepare_actor_stats(td::Promise<std::string> promise) = 0;
 
   virtual void prepare_perf_timer_stats(td::Promise<std::vector<PerfTimerStats>> promise) = 0;
   virtual void add_perf_timer_stat(std::string name, double duration) = 0;
   virtual void get_out_msg_queue_size(BlockIdExt block_id, td::Promise<td::uint64> promise) = 0;
 
   virtual void update_options(td::Ref<ValidatorManagerOptions> opts) = 0;
+
+  virtual void register_stats_provider(
+      td::uint64 idx, std::string prefix,
+      std::function<void(td::Promise<std::vector<std::pair<std::string, std::string>>>)> callback) {
+  }
+  virtual void unregister_stats_provider(td::uint64 idx) {
+  }
 };
 
 }  // namespace validator

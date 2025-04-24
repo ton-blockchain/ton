@@ -160,6 +160,8 @@ std::string lite_query_name_by_id(int id) {
       {lite_api::liteServer_getShardBlockProof::ID, "getShardBlockProof"},
       {lite_api::liteServer_getOutMsgQueueSizes::ID, "getOutMsgQueueSizes"},
       {lite_api::liteServer_getBlockOutMsgQueueSize::ID, "getBlockOutMsgQueueSize"},
+      {lite_api::liteServer_getDispatchQueueInfo::ID, "getDispatchQueueInfo"},
+      {lite_api::liteServer_getDispatchQueueMessages::ID, "getDispatchQueueMessages"},
       {lite_api::liteServer_nonfinal_getCandidate::ID, "nonfinal.getCandidate"},
       {lite_api::liteServer_nonfinal_getValidatorGroups::ID, "nonfinal.getValidatorGroups"}};
   auto it = names.find(id);

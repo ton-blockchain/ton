@@ -57,6 +57,7 @@
 #include "auto/tl/lite_api.h"
 #include "ton/lite-tl.hpp"
 #include "tl-utils/lite-utils.hpp"
+#include "lite-client/ext-client.h"
 
 #include <microhttpd.h>
 
@@ -127,7 +128,7 @@ class CoreActor : public CoreActorInterface {
  private:
   std::string global_config_ = "ton-global.config";
 
-  std::vector<td::actor::ActorOwn<ton::adnl::AdnlExtClient>> clients_;
+  td::actor::ActorOwn<liteclient::ExtClient> client_;
 
   td::uint32 http_port_ = 80;
   MHD_Daemon* daemon_ = nullptr;
@@ -137,35 +138,29 @@ class CoreActor : public CoreActorInterface {
 
   bool hide_ips_ = false;
 
-  std::unique_ptr<ton::adnl::AdnlExtClient::Callback> make_callback(td::uint32 idx) {
-    class Callback : public ton::adnl::AdnlExtClient::Callback {
+  td::unique_ptr<liteclient::ExtClient::Callback> make_callback() {
+    class Callback : public liteclient::ExtClient::Callback {
      public:
-      void on_ready() override {
-        td::actor::send_closure(id_, &CoreActor::conn_ready, idx_);
-      }
-      void on_stop_ready() override {
-        td::actor::send_closure(id_, &CoreActor::conn_closed, idx_);
-      }
-      Callback(td::actor::ActorId<CoreActor> id, td::uint32 idx) : id_(std::move(id)), idx_(idx) {
+      Callback(td::actor::ActorId<CoreActor> id) : id_(std::move(id)) {
       }
 
      private:
       td::actor::ActorId<CoreActor> id_;
-      td::uint32 idx_;
     };
 
-    return std::make_unique<Callback>(actor_id(this), idx);
+    return td::make_unique<Callback>(actor_id(this));
   }
 
   std::shared_ptr<RemoteNodeStatus> new_result_;
   td::int32 attempt_ = 0;
   td::int32 waiting_ = 0;
 
-  std::vector<bool> ready_;
+  size_t n_servers_ = 0;
 
   void run_queries();
-  void got_result(td::uint32 idx, td::int32 attempt, td::Result<td::BufferSlice> data);
-  void send_query(td::uint32 idx);
+  void got_servers_ready(td::int32 attempt, std::vector<bool> ready);
+  void send_ping(td::uint32 idx);
+  void got_ping_result(td::uint32 idx, td::int32 attempt, td::Result<td::BufferSlice> data);
 
   void add_result() {
     if (new_result_) {
@@ -196,12 +191,6 @@ class CoreActor : public CoreActorInterface {
   static CoreActor* instance_;
   td::actor::ActorId<CoreActor> self_id_;
 
-  void conn_ready(td::uint32 idx) {
-    ready_.at(idx) = true;
-  }
-  void conn_closed(td::uint32 idx) {
-    ready_.at(idx) = false;
-  }
   void set_global_config(std::string str) {
     global_config_ = str;
   }
@@ -226,10 +215,7 @@ class CoreActor : public CoreActorInterface {
     hide_ips_ = value;
   }
 
-  void send_lite_query(td::uint32 idx, td::BufferSlice query, td::Promise<td::BufferSlice> promise);
-  void send_lite_query(td::BufferSlice data, td::Promise<td::BufferSlice> promise) override {
-    return send_lite_query(0, std::move(data), std::move(promise));
-  }
+  void send_lite_query(td::BufferSlice query, td::Promise<td::BufferSlice> promise) override;
   void get_last_result(td::Promise<std::shared_ptr<RemoteNodeStatus>> promise) override {
   }
   void get_results(td::uint32 max, td::Promise<RemoteNodeStatusList> promise) override {
@@ -449,33 +435,27 @@ class CoreActor : public CoreActorInterface {
   }
 
   void run() {
+    std::vector<liteclient::LiteServerConfig> servers;
     if (remote_public_key_.empty()) {
       auto G = td::read_file(global_config_).move_as_ok();
       auto gc_j = td::json_decode(G.as_slice()).move_as_ok();
       ton::ton_api::liteclient_config_global gc;
       ton::ton_api::from_json(gc, gc_j.get_object()).ensure();
-
-      CHECK(gc.liteservers_.size() > 0);
-      td::uint32 size = static_cast<td::uint32>(gc.liteservers_.size());
-      ready_.resize(size, false);
-
-      for (td::uint32 i = 0; i < size; i++) {
-        auto& cli = gc.liteservers_[i];
-        td::IPAddress addr;
-        addr.init_host_port(td::IPAddress::ipv4_to_str(cli->ip_), cli->port_).ensure();
-        addrs_.push_back(addr);
-        clients_.emplace_back(ton::adnl::AdnlExtClient::create(ton::adnl::AdnlNodeIdFull::create(cli->id_).move_as_ok(),
-                                                               addr, make_callback(i)));
+      auto r_servers = liteclient::LiteServerConfig::parse_global_config(gc);
+      r_servers.ensure();
+      servers = r_servers.move_as_ok();
+      for (const auto& serv : servers) {
+        addrs_.push_back(serv.addr);
       }
     } else {
       if (!remote_addr_.is_valid()) {
         LOG(FATAL) << "remote addr not set";
       }
-      ready_.resize(1, false);
       addrs_.push_back(remote_addr_);
-      clients_.emplace_back(ton::adnl::AdnlExtClient::create(ton::adnl::AdnlNodeIdFull{remote_public_key_},
-                                                             remote_addr_, make_callback(0)));
+      servers.push_back(liteclient::LiteServerConfig{ton::adnl::AdnlNodeIdFull{remote_public_key_}, remote_addr_});
     }
+    n_servers_ = servers.size();
+    client_ = liteclient::ExtClient::create(std::move(servers), make_callback(), true);
     daemon_ = MHD_start_daemon(MHD_USE_SELECT_INTERNALLY, static_cast<td::uint16>(http_port_), nullptr, nullptr,
                                &process_http_request, nullptr, MHD_OPTION_NOTIFY_COMPLETED, request_completed, nullptr,
                                MHD_OPTION_THREAD_POOL_SIZE, 16, MHD_OPTION_END);
@@ -483,7 +463,46 @@ class CoreActor : public CoreActorInterface {
   }
 };
 
-void CoreActor::got_result(td::uint32 idx, td::int32 attempt, td::Result<td::BufferSlice> R) {
+void CoreActor::run_queries() {
+  waiting_ = 0;
+  new_result_ = std::make_shared<RemoteNodeStatus>(n_servers_, td::Timestamp::at_unix(attempt_ * 60));
+  td::actor::send_closure(client_, &liteclient::ExtClient::get_servers_status,
+                          [SelfId = actor_id(this), attempt = attempt_](td::Result<std::vector<bool>> R) {
+                            R.ensure();
+                            td::actor::send_closure(SelfId, &CoreActor::got_servers_ready, attempt, R.move_as_ok());
+                          });
+}
+
+void CoreActor::got_servers_ready(td::int32 attempt, std::vector<bool> ready) {
+  if (attempt != attempt_) {
+    return;
+  }
+  CHECK(ready.size() == n_servers_);
+  for (td::uint32 i = 0; i < n_servers_; i++) {
+    if (ready[i]) {
+      send_ping(i);
+    }
+  }
+  CHECK(waiting_ >= 0);
+  if (waiting_ == 0) {
+    add_result();
+  }
+}
+
+void CoreActor::send_ping(td::uint32 idx) {
+  waiting_++;
+  auto query = ton::create_tl_object<ton::lite_api::liteServer_getMasterchainInfo>();
+  auto q = ton::create_tl_object<ton::lite_api::liteServer_query>(serialize_tl_object(query, true));
+
+  auto P =
+      td::PromiseCreator::lambda([SelfId = actor_id(this), idx, attempt = attempt_](td::Result<td::BufferSlice> R) {
+        td::actor::send_closure(SelfId, &CoreActor::got_ping_result, idx, attempt, std::move(R));
+      });
+  td::actor::send_closure(client_, &liteclient::ExtClient::send_query_to_server, "query", serialize_tl_object(q, true),
+                          idx, td::Timestamp::in(10.0), std::move(P));
+}
+
+void CoreActor::got_ping_result(td::uint32 idx, td::int32 attempt, td::Result<td::BufferSlice> R) {
   if (attempt != attempt_) {
     return;
   }
@@ -524,39 +543,7 @@ void CoreActor::got_result(td::uint32 idx, td::int32 attempt, td::Result<td::Buf
   }
 }
 
-void CoreActor::send_query(td::uint32 idx) {
-  if (!ready_[idx]) {
-    return;
-  }
-  waiting_++;
-  auto query = ton::create_tl_object<ton::lite_api::liteServer_getMasterchainInfo>();
-  auto q = ton::create_tl_object<ton::lite_api::liteServer_query>(serialize_tl_object(query, true));
-
-  auto P =
-      td::PromiseCreator::lambda([SelfId = actor_id(this), idx, attempt = attempt_](td::Result<td::BufferSlice> R) {
-        td::actor::send_closure(SelfId, &CoreActor::got_result, idx, attempt, std::move(R));
-      });
-  td::actor::send_closure(clients_[idx], &ton::adnl::AdnlExtClient::send_query, "query", serialize_tl_object(q, true),
-                          td::Timestamp::in(10.0), std::move(P));
-}
-
-void CoreActor::run_queries() {
-  waiting_ = 0;
-  new_result_ = std::make_shared<RemoteNodeStatus>(ready_.size(), td::Timestamp::at_unix(attempt_ * 60));
-  for (td::uint32 i = 0; i < ready_.size(); i++) {
-    send_query(i);
-  }
-  CHECK(waiting_ >= 0);
-  if (waiting_ == 0) {
-    add_result();
-  }
-}
-
-void CoreActor::send_lite_query(td::uint32 idx, td::BufferSlice query, td::Promise<td::BufferSlice> promise) {
-  if (!ready_[idx]) {
-    promise.set_error(td::Status::Error(ton::ErrorCode::notready, "ext conn not ready"));
-    return;
-  }
+void CoreActor::send_lite_query(td::BufferSlice query, td::Promise<td::BufferSlice> promise) {
   auto P = td::PromiseCreator::lambda([promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
     if (R.is_error()) {
       promise.set_error(R.move_as_error());
@@ -574,7 +561,7 @@ void CoreActor::send_lite_query(td::uint32 idx, td::BufferSlice query, td::Promi
     promise.set_value(std::move(B));
   });
   auto q = ton::create_tl_object<ton::lite_api::liteServer_query>(std::move(query));
-  td::actor::send_closure(clients_[idx], &ton::adnl::AdnlExtClient::send_query, "query", serialize_tl_object(q, true),
+  td::actor::send_closure(client_, &liteclient::ExtClient::send_query, "query", serialize_tl_object(q, true),
                           td::Timestamp::in(10.0), std::move(P));
 }
 

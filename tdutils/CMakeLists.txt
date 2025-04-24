@@ -1,5 +1,3 @@
-cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
-
 option(TDUTILS_MIME_TYPE "Generate mime types conversion (gperf is required)" ON)
 
 if (WIN32)
@@ -356,6 +354,7 @@ if (LZ4_FOUND)
   message(STATUS "Found LZ4 ${LZ4_LIBRARIES} ${LZ4_INCLUDE_DIRS}")
   target_link_libraries(tdutils PRIVATE ${LZ4_LIBRARIES})
   target_include_directories(tdutils SYSTEM PRIVATE ${LZ4_INCLUDE_DIRS})
+  target_link_directories(tdutils PUBLIC ${LZ4_LIBRARY_DIRS})
 endif()
 
 if (ABSL_FOUND)

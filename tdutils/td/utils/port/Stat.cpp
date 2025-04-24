@@ -58,8 +58,7 @@
 #define PSAPI_VERSION 1
 #endif
 #include <psapi.h>
-#pragma comment( lib, "psapi.lib" )
-
+#pragma comment(lib, "psapi.lib")
 
 #endif
 
@@ -413,7 +412,7 @@ Result<CpuStat> cpu_stat() {
 #endif
 }
 
-Result<uint64> get_total_ram() {
+Result<TotalMemStat> get_total_mem_stat() {
 #if TD_LINUX
   TRY_RESULT(fd, FileFd::open("/proc/meminfo", FileFd::Read));
   SCOPE_EXIT {
@@ -425,8 +424,10 @@ Result<uint64> get_total_ram() {
   if (size >= TMEM_SIZE - 1) {
     return Status::Error("Failed for read /proc/meminfo");
   }
+  TotalMemStat stat;
   mem[size] = 0;
-  const char* s = mem;
+  const char *s = mem;
+  size_t got = 0;
   while (*s) {
     const char *name_begin = s;
     while (*s != 0 && *s != '\n') {
@@ -437,18 +438,28 @@ Result<uint64> get_total_ram() {
       name_end++;
     }
     Slice name(name_begin, name_end);
+    td::uint64 *dest = nullptr;
     if (name == "MemTotal") {
+      dest = &stat.total_ram;
+    } else if (name == "MemAvailable") {
+      dest = &stat.available_ram;
+    }
+    if (dest != nullptr) {
       Slice value(name_end, s);
       if (!value.empty() && value[0] == ':') {
         value.remove_prefix(1);
       }
       value = trim(value);
       value = split(value).first;
-      TRY_RESULT_PREFIX(mem, to_integer_safe<uint64>(value), "Invalid value of MemTotal");
+      TRY_RESULT_PREFIX(mem, to_integer_safe<uint64>(value), PSLICE() << "Invalid value of " << name);
       if (mem >= 1ULL << (64 - 10)) {
         return Status::Error("Invalid value of MemTotal");
       }
-      return mem * 1024;
+      *dest = mem * 1024;
+      got++;
+      if (got == 2) {
+        return stat;
+      }
     }
     if (*s == 0) {
       break;
@@ -456,6 +467,47 @@ Result<uint64> get_total_ram() {
     s++;
   }
   return Status::Error("No MemTotal in /proc/meminfo");
+#else
+  return Status::Error("Not supported");
+#endif
+}
+
+Result<uint32> get_cpu_cores() {
+#if TD_LINUX
+  uint32 result = 0;
+  TRY_RESULT(fd, FileFd::open("/proc/cpuinfo", FileFd::Read));
+  SCOPE_EXIT {
+    fd.close();
+  };
+  std::string data;
+  char buf[10000];
+  while (true) {
+    TRY_RESULT(size, fd.read(MutableSlice{buf, sizeof(buf) - 1}));
+    if (size == 0) {
+      break;
+    }
+    buf[size] = '\0';
+    data += buf;
+  }
+  size_t i = 0;
+  while (i < data.size()) {
+    const char *line_begin = data.data() + i;
+    while (i < data.size() && data[i] != '\n') {
+      ++i;
+    }
+    auto line_end = data.data() + i;
+    ++i;
+    Slice line{line_begin, line_end};
+    size_t j = 0;
+    while (j < line.size() && line[j] != ' ' && line[j] != '\t' && line[j] != ':') {
+      ++j;
+    }
+    Slice name = line.substr(0, j);
+    if (name == "processor") {
+      ++result;
+    }
+  }
+  return result;
 #else
   return Status::Error("Not supported");
 #endif

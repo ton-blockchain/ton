@@ -44,7 +44,7 @@ class AdnlPeerTableImpl : public AdnlPeerTable {
   void add_static_nodes_from_config(AdnlNodesList nodes) override;
 
   void receive_packet(td::IPAddress addr, AdnlCategoryMask cat_mask, td::BufferSlice data) override;
-  void receive_decrypted_packet(AdnlNodeIdShort dst, AdnlPacket data) override;
+  void receive_decrypted_packet(AdnlNodeIdShort dst, AdnlPacket data, td::uint64 serialized_size) override;
   void send_message_in(AdnlNodeIdShort src, AdnlNodeIdShort dst, AdnlMessage message, td::uint32 flags) override;
   void send_message(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data) override {
     send_message_ex(src, dst, std::move(data), 0);
@@ -107,6 +107,8 @@ class AdnlPeerTableImpl : public AdnlPeerTable {
   void create_tunnel(AdnlNodeIdShort dst, td::uint32 size,
                      td::Promise<std::pair<td::actor::ActorOwn<AdnlTunnel>, AdnlAddress>> promise) override;
   void get_conn_ip_str(AdnlNodeIdShort l_id, AdnlNodeIdShort p_id, td::Promise<td::string> promise) override;
+
+  void get_stats(bool all, td::Promise<tl_object_ptr<ton_api::adnl_stats>> promise) override;
 
   struct PrintId {};
   PrintId print_id() const {

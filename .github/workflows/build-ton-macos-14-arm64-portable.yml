@@ -1,0 +1,27 @@
+name: MacOS-14 TON build (portable, arm64)
+
+on: [push,workflow_dispatch,workflow_call]
+
+jobs:
+  build:
+    runs-on: macos-14
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v3
+        with:
+          submodules: 'recursive'
+
+      - name: Build TON
+        run: |
+          git submodule sync --recursive
+          git submodule update
+          cp assembly/native/build-macos-portable.sh .
+          chmod +x build-macos-portable.sh
+          ./build-macos-portable.sh -t -a
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@master
+        with:
+          name: ton-arm64-macos
+          path: artifacts

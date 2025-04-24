@@ -58,10 +58,13 @@ stdenv227.mkDerivation {
     ];
 
   dontAddStaticConfigureFlags = false;
+  doCheck = false;
+  doInstallCheck = false;
 
   cmakeFlags = [
-    "-DTON_USE_ABSEIL=OFF"
+    "-DTON_USE_ABSEIL=ON"
     "-DNIX=ON"
+    "-DTON_ONLY_TONLIB=ON"
   ];
 
   LDFLAGS = [

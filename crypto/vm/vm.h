@@ -118,6 +118,7 @@ class VmState final : public VmStateInterface {
     stack_entry_gas_price = 1,
     runvm_gas_price = 40,
     hash_ext_entry_gas_price = 1,
+    free_nested_cont_jump = 8,
 
     rist255_mul_gas_price = 2000,
     rist255_mulbase_gas_price = 750,
@@ -126,6 +127,7 @@ class VmState final : public VmStateInterface {
     rist255_validate_gas_price = 200,
 
     ecrecover_gas_price = 1500,
+    secp256k1_xonly_pubkey_tweak_add_gas_price = 1250,
     chksgn_free_count = 10,
     chksgn_gas_price = 4000,
     p256_chksgn_gas_price = 3500,
@@ -162,14 +164,12 @@ class VmState final : public VmStateInterface {
     bls_pairing_element_gas_price = 11800
   };
   VmState();
-  VmState(Ref<CellSlice> _code);
-  VmState(Ref<CellSlice> _code, Ref<Stack> _stack, int flags = 0, Ref<Cell> _data = {}, VmLog log = {},
-          std::vector<Ref<Cell>> _libraries = {}, Ref<Tuple> init_c7 = {});
-  VmState(Ref<CellSlice> _code, Ref<Stack> _stack, const GasLimits& _gas, int flags = 0, Ref<Cell> _data = {},
+  VmState(Ref<CellSlice> _code, int global_version, Ref<Stack> _stack, const GasLimits& _gas, int flags = 0, Ref<Cell> _data = {},
           VmLog log = {}, std::vector<Ref<Cell>> _libraries = {}, Ref<Tuple> init_c7 = {});
-  template <typename... Args>
-  VmState(Ref<Cell> code_cell, Args&&... args)
-      : VmState(convert_code_cell(std::move(code_cell)), std::forward<Args>(args)...) {
+  VmState(Ref<Cell> _code, int global_version, Ref<Stack> _stack, const GasLimits& _gas, int flags = 0,
+          Ref<Cell> _data = {}, VmLog log = {}, std::vector<Ref<Cell>> _libraries = {}, Ref<Tuple> init_c7 = {})
+      : VmState(convert_code_cell(std::move(_code), global_version, _libraries), global_version, std::move(_stack),
+                _gas, flags, std::move(_data), std::move(log), _libraries, std::move(init_c7)) {
   }
   VmState(const VmState&) = delete;
   VmState(VmState&&) = default;
@@ -343,13 +343,11 @@ class VmState final : public VmStateInterface {
   int get_global_version() const override {
     return global_version;
   }
-  void set_global_version(int version) {
-    global_version = version;
-  }
   int call(Ref<Continuation> cont);
   int call(Ref<Continuation> cont, int pass_args, int ret_args = -1);
   int jump(Ref<Continuation> cont);
   int jump(Ref<Continuation> cont, int pass_args);
+  Ref<Continuation> adjust_jump_cont(Ref<Continuation> cont, int pass_args);
   int ret();
   int ret(int ret_args);
   int ret_alt();
@@ -366,13 +364,29 @@ class VmState final : public VmStateInterface {
     return cond ? c1_envelope(std::move(cont), save) : std::move(cont);
   }
   void c1_save_set(bool save = true);
-  void fatal(void) const {
+  void fatal() const {
     throw VmFatal{};
   }
   int jump_to(Ref<Continuation> cont) {
-    return cont->is_unique() ? cont.unique_write().jump_w(this) : cont->jump(this);
+    int res = 0, cnt = 0;
+    while (cont.not_null()) {
+      cont = cont->is_unique() ? cont.unique_write().jump_w(this, res) : cont->jump(this, res);
+      cnt++;
+      if (cnt > free_nested_cont_jump && global_version >= 9) {
+        consume_gas(1);
+      }
+      if (cont.not_null() && global_version >= 9) {
+        const ControlData* cont_data = cont->get_cdata();
+        if (cont_data && (cont_data->stack.not_null() || cont_data->nargs >= 0)) {
+          // if cont has non-empty stack or expects fixed number of arguments, jump is not simple
+          cont = adjust_jump_cont(std::move(cont), -1);
+        }
+      }
+    }
+    return res;
   }
-  static Ref<CellSlice> convert_code_cell(Ref<Cell> code_cell);
+  static Ref<CellSlice> convert_code_cell(Ref<Cell> code_cell, int global_version,
+                                          const std::vector<Ref<Cell>>& libraries);
   bool try_commit();
   void force_commit();
 

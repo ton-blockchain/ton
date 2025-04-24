@@ -1,0 +1,132 @@
+tuple empty_tuple() asm "NIL";
+forall X -> (tuple, ()) ~tpush(tuple t, X value) asm "TPUSH";
+builder begin_cell() asm "NEWC";
+cell end_cell(builder b) asm "ENDC";
+slice begin_parse(cell c) asm "CTOS";
+
+
+_ getBeginCell() {
+    return begin_cell;
+}
+
+_ getBeginParse() {
+    return begin_parse;
+}
+
+(int, int) test101() method_id(101) {
+    var (_, f_end_cell) = (0, end_cell);
+    builder b = (getBeginCell())().store_int(1, 32);
+    b~store_int(2, 32);
+    var s = (getBeginParse())(f_end_cell(b));
+    return (s~load_int(32), s~load_int(32));
+}
+
+() my_throw_always() inline {
+    throw(1000);
+}
+
+_ get_raiser() inline {
+    return my_throw_always;
+}
+
+int test102() method_id(102) {
+    try {
+        var raiser = get_raiser();
+        raiser();   ;; `some_var()` is always impure, the compiler has no considerations about its runtime value
+        return 0;
+    } catch (_, code) {
+        return code;
+    }
+}
+
+int sum(int a, int b) impure inline {
+    throw_unless(1000, a + b < 24);
+    return a + b;
+}
+
+int mul(int a, int b) impure inline {
+    throw_unless(1001, a * b < 24);
+    return a * b;
+}
+
+int sum_pure(int a, int b) inline {
+    throw_unless(1000, a + b < 24);
+    return a + b;
+}
+
+int mul_pure(int a, int b) inline {
+    throw_unless(1001, a * b < 24);
+    return a * b;
+}
+
+int demo_handler(int op, int query_id, int a, int b) {
+    if (op == 0xF2) {
+        var func = query_id % 2 == 0 ? sum : mul;
+        int result = func(a, b);
+        return 0;  ;; result not used, we test that func is nevertheless called
+    }
+    if (op == 0xF3) {
+        var func = query_id % 2 == 0 ? sum_pure : mul_pure;
+        int result = func(a, b);
+        return 0;  ;; the same for sum_pure, since `some_var()` is always impure
+    }
+    if (op == 0xF4) {
+        var func = query_id % 2 == 0 ? sum : mul;
+        int result = func(a, b);
+        return result;
+    }
+    return -1;
+}
+
+tuple test103() method_id(103) {
+    tuple t = empty_tuple();
+    try {
+        t~tpush(demo_handler(0xF2, 122, 100, 200));
+    } catch(_, code) {
+        t~tpush(code);
+    }
+    try {
+        t~tpush(demo_handler(0xF4, 122, 100, 200));
+    } catch(_, code) {
+        t~tpush(code);
+    }
+    try {
+        t~tpush(demo_handler(0xF3, 122, 10, 10));
+    } catch(_, code) {
+        t~tpush(code);
+    }
+    try {
+        t~tpush(demo_handler(0xF3, 123, 10, 10));
+    } catch(_, code) {
+        t~tpush(code);
+    }
+    return t;
+}
+
+() always_throw2(int x) impure {
+    throw (239 + x);
+}
+
+global int -> () global_f;
+
+int test104() method_id(104) {
+    try {
+        global_f = always_throw2;
+        global_f(1);
+        return 0;
+    } catch (_, code) {
+        return code;
+    }
+}
+
+() main() {
+}
+
+
+{-
+   method_id   | in    | out
+TESTCASE | 101 |       | 1 2
+TESTCASE | 102 |       | 1000
+TESTCASE | 103 |       | [ 1000 1000 0 1001 ]
+TESTCASE | 104 |       | 240
+-}

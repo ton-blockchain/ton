@@ -29,22 +29,16 @@
 
 #include "lite-client-common.h"
 
-#include "adnl/adnl-ext-client.h"
 #include "tl-utils/lite-utils.hpp"
 #include "auto/tl/ton_api_json.h"
 #include "auto/tl/lite_api.hpp"
 #include "td/utils/OptionParser.h"
 #include "td/utils/Time.h"
 #include "td/utils/filesystem.h"
-#include "td/utils/format.h"
 #include "td/utils/Random.h"
 #include "td/utils/crypto.h"
-#include "td/utils/overloaded.h"
 #include "td/utils/port/signals.h"
-#include "td/utils/port/stacktrace.h"
-#include "td/utils/port/StdStreams.h"
 #include "td/utils/port/FileFd.h"
-#include "terminal/terminal.h"
 #include "ton/lite-tl.hpp"
 #include "block/block-db.h"
 #include "block/block.h"
@@ -58,42 +52,20 @@
 #include "vm/vm.h"
 #include "vm/cp0.h"
 #include "vm/memo.h"
-#include "ton/ton-shard.h"
-#include "openssl/rand.hpp"
 #include "crypto/vm/utils.h"
 #include "crypto/common/util.h"
 #include "common/checksum.h"
 
 #if TD_DARWIN || TD_LINUX
 #include <unistd.h>
-#include <fcntl.h>
 #endif
 #include <iostream>
-#include <sstream>
 #include "git.h"
 
 using namespace std::literals::string_literals;
 using td::Ref;
 
 int verbosity;
-
-std::unique_ptr<ton::adnl::AdnlExtClient::Callback> TestNode::make_callback() {
-  class Callback : public ton::adnl::AdnlExtClient::Callback {
-   public:
-    void on_ready() override {
-      td::actor::send_closure(id_, &TestNode::conn_ready);
-    }
-    void on_stop_ready() override {
-      td::actor::send_closure(id_, &TestNode::conn_closed);
-    }
-    Callback(td::actor::ActorId<TestNode> id) : id_(std::move(id)) {
-    }
-
-   private:
-    td::actor::ActorId<TestNode> id_;
-  };
-  return std::make_unique<Callback>(actor_id(this));
-}
 
 void TestNode::run() {
   class Cb : public td::TerminalIO::Callback {
@@ -110,19 +82,20 @@ void TestNode::run() {
   io_ = td::TerminalIO::create("> ", readline_enabled_, ex_mode_, std::make_unique<Cb>(actor_id(this)));
   td::actor::send_closure(io_, &td::TerminalIO::set_log_interface);
 
-  if (remote_public_key_.empty()) {
+  std::vector<liteclient::LiteServerConfig> servers;
+  if (!single_remote_public_key_.empty()) {  // Use single provided liteserver
+    servers.push_back(
+        liteclient::LiteServerConfig{ton::adnl::AdnlNodeIdFull{single_remote_public_key_}, single_remote_addr_});
+    td::TerminalIO::out() << "using liteserver " << single_remote_addr_ << "\n";
+  } else {
     auto G = td::read_file(global_config_).move_as_ok();
     auto gc_j = td::json_decode(G.as_slice()).move_as_ok();
     ton::ton_api::liteclient_config_global gc;
     ton::ton_api::from_json(gc, gc_j.get_object()).ensure();
-    CHECK(gc.liteservers_.size() > 0);
-    auto idx = liteserver_idx_ >= 0 ? liteserver_idx_
-                                    : td::Random::fast(0, static_cast<td::uint32>(gc.liteservers_.size() - 1));
-    CHECK(idx >= 0 && static_cast<td::uint32>(idx) <= gc.liteservers_.size());
-    auto& cli = gc.liteservers_[idx];
-    remote_addr_.init_host_port(td::IPAddress::ipv4_to_str(cli->ip_), cli->port_).ensure();
-    remote_public_key_ = ton::PublicKey{cli->id_};
-    td::TerminalIO::out() << "using liteserver " << idx << " with addr " << remote_addr_ << "\n";
+    auto r_servers = liteclient::LiteServerConfig::parse_global_config(gc);
+    r_servers.ensure();
+    servers = r_servers.move_as_ok();
+
     if (gc.validator_ && gc.validator_->zero_state_) {
       zstate_id_.workchain = gc.validator_->zero_state_->workchain_;
       if (zstate_id_.workchain != ton::workchainInvalid) {
@@ -131,10 +104,19 @@ void TestNode::run() {
         td::TerminalIO::out() << "zerostate set to " << zstate_id_.to_str() << "\n";
       }
     }
-  }
 
-  client_ =
-      ton::adnl::AdnlExtClient::create(ton::adnl::AdnlNodeIdFull{remote_public_key_}, remote_addr_, make_callback());
+    if (single_liteserver_idx_ != -1) {  // Use single liteserver from config
+      CHECK(single_liteserver_idx_ >= 0 && (size_t)single_liteserver_idx_ < servers.size());
+      td::TerminalIO::out() << "using liteserver #" << single_liteserver_idx_ << " with addr "
+                            << servers[single_liteserver_idx_].addr << "\n";
+      servers = {servers[single_liteserver_idx_]};
+    }
+  }
+  CHECK(!servers.empty());
+  client_ = liteclient::ExtClient::create(std::move(servers), nullptr);
+  ready_ = true;
+
+  run_init_queries();
 }
 
 void TestNode::got_result(td::Result<td::BufferSlice> R, td::Promise<td::BufferSlice> promise) {
@@ -191,8 +173,8 @@ bool TestNode::envelope_send_query(td::BufferSlice query, td::Promise<td::Buffer
       });
   td::BufferSlice b =
       ton::serialize_tl_object(ton::create_tl_object<ton::lite_api::liteServer_query>(std::move(query)), true);
-  td::actor::send_closure(client_, &ton::adnl::AdnlExtClient::send_query, "query", std::move(b),
-                          td::Timestamp::in(10.0), std::move(P));
+  td::actor::send_closure(client_, &liteclient::ExtClient::send_query, "query", std::move(b), td::Timestamp::in(10.0),
+                          std::move(P));
   return true;
 }
 
@@ -319,9 +301,10 @@ bool TestNode::get_server_time() {
       if (F.is_error()) {
         LOG(ERROR) << "cannot parse answer to liteServer.getTime";
       } else {
-        server_time_ = F.move_as_ok()->now_;
-        server_time_got_at_ = now();
-        LOG(INFO) << "server time is " << server_time_ << " (delta " << server_time_ - server_time_got_at_ << ")";
+        mc_server_time_ = F.move_as_ok()->now_;
+        mc_server_time_got_at_ = now();
+        LOG(INFO) << "server time is " << mc_server_time_ << " (delta " << mc_server_time_ - mc_server_time_got_at_
+                  << ")";
       }
     }
   });
@@ -335,7 +318,7 @@ bool TestNode::get_server_version(int mode) {
 };
 
 void TestNode::got_server_version(td::Result<td::BufferSlice> res, int mode) {
-  server_ok_ = false;
+  mc_server_ok_ = false;
   if (res.is_error()) {
     LOG(ERROR) << "cannot get server version and time (server too old?)";
   } else {
@@ -344,11 +327,11 @@ void TestNode::got_server_version(td::Result<td::BufferSlice> res, int mode) {
       LOG(ERROR) << "cannot parse answer to liteServer.getVersion";
     } else {
       auto a = F.move_as_ok();
-      set_server_version(a->version_, a->capabilities_);
-      set_server_time(a->now_);
+      set_mc_server_version(a->version_, a->capabilities_);
+      set_mc_server_time(a->now_);
     }
   }
-  if (!server_ok_) {
+  if (!mc_server_ok_) {
     LOG(ERROR) << "server version is too old (at least " << (min_ls_version >> 8) << "." << (min_ls_version & 0xff)
                << " with capabilities " << min_ls_capabilities << " required), some queries are unavailable";
   }
@@ -357,24 +340,24 @@ void TestNode::got_server_version(td::Result<td::BufferSlice> res, int mode) {
   }
 }
 
-void TestNode::set_server_version(td::int32 version, td::int64 capabilities) {
-  if (server_version_ != version || server_capabilities_ != capabilities) {
-    server_version_ = version;
-    server_capabilities_ = capabilities;
-    LOG(WARNING) << "server version is " << (server_version_ >> 8) << "." << (server_version_ & 0xff)
-                 << ", capabilities " << server_capabilities_;
+void TestNode::set_mc_server_version(td::int32 version, td::int64 capabilities) {
+  if (mc_server_version_ != version || mc_server_capabilities_ != capabilities) {
+    mc_server_version_ = version;
+    mc_server_capabilities_ = capabilities;
+    LOG(WARNING) << "server version is " << (mc_server_version_ >> 8) << "." << (mc_server_version_ & 0xff)
+                 << ", capabilities " << mc_server_capabilities_;
   }
-  server_ok_ = (server_version_ >= min_ls_version) && !(~server_capabilities_ & min_ls_capabilities);
+  mc_server_ok_ = (mc_server_version_ >= min_ls_version) && !(~mc_server_capabilities_ & min_ls_capabilities);
 }
 
-void TestNode::set_server_time(int server_utime) {
-  server_time_ = server_utime;
-  server_time_got_at_ = now();
-  LOG(INFO) << "server time is " << server_time_ << " (delta " << server_time_ - server_time_got_at_ << ")";
+void TestNode::set_mc_server_time(int server_utime) {
+  mc_server_time_ = server_utime;
+  mc_server_time_got_at_ = now();
+  LOG(INFO) << "server time is " << mc_server_time_ << " (delta " << mc_server_time_ - mc_server_time_got_at_ << ")";
 }
 
 bool TestNode::get_server_mc_block_id() {
-  int mode = (server_capabilities_ & 2) ? 0 : -1;
+  int mode = (mc_server_capabilities_ & 2) ? 0 : -1;
   if (mode < 0) {
     auto b = ton::serialize_tl_object(ton::create_tl_object<ton::lite_api::liteServer_getMasterchainInfo>(), true);
     return envelope_send_query(std::move(b), [Self = actor_id(this)](td::Result<td::BufferSlice> res) -> void {
@@ -448,8 +431,8 @@ void TestNode::got_server_mc_block_id(ton::BlockIdExt blkid, ton::ZeroStateIdExt
 
 void TestNode::got_server_mc_block_id_ext(ton::BlockIdExt blkid, ton::ZeroStateIdExt zstateid, int mode, int version,
                                           long long capabilities, int last_utime, int server_now) {
-  set_server_version(version, capabilities);
-  set_server_time(server_now);
+  set_mc_server_version(version, capabilities);
+  set_mc_server_time(server_now);
   if (last_utime > server_now) {
     LOG(WARNING) << "server claims to have a masterchain block " << blkid.to_str() << " created at " << last_utime
                  << " (" << last_utime - server_now << " seconds in the future)";
@@ -457,10 +440,10 @@ void TestNode::got_server_mc_block_id_ext(ton::BlockIdExt blkid, ton::ZeroStateI
     LOG(WARNING) << "server appears to be out of sync: its newest masterchain block is " << blkid.to_str()
                  << " created at " << last_utime << " (" << server_now - last_utime
                  << " seconds ago according to the server's clock)";
-  } else if (last_utime < server_time_got_at_ - 60) {
+  } else if (last_utime < mc_server_time_got_at_ - 60) {
     LOG(WARNING) << "either the server is out of sync, or the local clock is set incorrectly: the newest masterchain "
                     "block known to server is "
-                 << blkid.to_str() << " created at " << last_utime << " (" << server_now - server_time_got_at_
+                 << blkid.to_str() << " created at " << last_utime << " (" << server_now - mc_server_time_got_at_
                  << " seconds ago according to the local clock)";
   }
   got_server_mc_block_id(blkid, zstateid, last_utime);
@@ -926,7 +909,7 @@ bool TestNode::show_help(std::string command) {
          "saveaccount[code|data] <filename> <addr> [<block-id-ext>]\tSaves into specified file the most recent state "
          "(StateInit) or just the code or data of specified account; <addr> is in "
          "[<workchain>:]<hex-or-base64-addr> format\n"
-         "runmethod[full] <addr> [<block-id-ext>] <method-id> <params>...\tRuns GET method <method-id> of account "
+         "runmethod[full] <addr> [<block-id-ext>] <name> <params>...\tRuns GET method <name> of account "
          "<addr> "
          "with specified parameters\n"
          "dnsresolve [<block-id-ext>] <domain> [<category>]\tResolves a domain starting from root dns smart contract\n"
@@ -965,8 +948,8 @@ bool TestNode::show_help(std::string command) {
          "recentcreatorstats <block-id-ext> <start-utime> [<count> [<start-pubkey>]]\tLists block creator statistics "
          "updated after <start-utime> by validator public "
          "key\n"
-         "checkload[all|severe] <start-utime> <end-utime> [<savefile-prefix>]\tChecks whether all validators worked "
-         "properly during specified time "
+         "checkload[all|severe][-v2] <start-utime> <end-utime> [<savefile-prefix>]\tChecks whether all validators "
+         "worked properly during specified time "
          "interval, and optionally saves proofs into <savefile-prefix>-<n>.boc\n"
          "loadproofcheck <filename>\tChecks a validator misbehavior proof previously created by checkload\n"
          "pastvalsets\tLists known past validator set ids and their hashes\n"
@@ -974,6 +957,11 @@ bool TestNode::show_help(std::string command) {
          "into files <filename-pfx><complaint-hash>.boc\n"
          "complaintprice <expires-in> <complaint-boc>\tComputes the price (in nanograms) for creating a complaint\n"
          "msgqueuesizes\tShows current sizes of outbound message queues in all shards\n"
+         "dispatchqueueinfo <block-id>\tShows list of account dispatch queue of a block\n"
+         "dispatchqueuemessages <block-id> <addr> [<after-lt>]\tShows deferred messages from account <addr>, lt > "
+         "<after_lt>\n"
+         "dispatchqueuemessagesall <block-id> [<after-addr> [<after-lt>]]\tShows messages from dispatch queue of a "
+         "block, starting after <after_addr>, <after-lt>\n"
          "known\tShows the list of all known block ids\n"
          "knowncells\tShows the list of hashes of all known (cached) cells\n"
          "dumpcell <hex-hash-pfx>\nDumps a cached cell by a prefix of its hash\n"
@@ -988,9 +976,9 @@ bool TestNode::show_help(std::string command) {
 bool TestNode::do_parse_line() {
   ton::WorkchainId workchain = ton::masterchainId;  // change to basechain later
   int addr_ext = 0;
-  ton::StdSmcAddress addr{};
+  ton::StdSmcAddress addr = ton::StdSmcAddress::zero();
   ton::BlockIdExt blkid{};
-  ton::LogicalTime lt{};
+  ton::LogicalTime lt = 0;
   ton::Bits256 hash{};
   ton::ShardIdFull shard{};
   ton::BlockSeqno seqno{};
@@ -1097,8 +1085,15 @@ bool TestNode::do_parse_line() {
     return parse_block_id_ext(blkid) && (!mode || parse_uint32(utime)) &&
            (seekeoln() ? (mode |= 0x100) : parse_uint32(count)) && (seekeoln() || (parse_hash(hash) && (mode |= 1))) &&
            seekeoln() && get_creator_stats(blkid, mode, count, hash, utime);
-  } else if (word == "checkload" || word == "checkloadall" || word == "checkloadsevere") {
-    int time1, time2, mode = (word == "checkloadsevere");
+  } else if (word == "checkload" || word == "checkloadall" || word == "checkloadsevere" || word == "checkload-v2" ||
+             word == "checkloadall-v2" || word == "checkloadsevere-v2") {
+    int time1, time2, mode = 0;
+    if (word == "checkloadsevere" || word == "checkloadsevere-v2") {
+      mode |= 1;
+    }
+    if (td::ends_with(word, "-v2")) {
+      mode |= 4;
+    }
     std::string file_pfx;
     return parse_int32(time1) && parse_int32(time2) && (seekeoln() || ((mode |= 2) && get_word_to(file_pfx))) &&
            seekeoln() && check_validator_load(time1, time2, mode, file_pfx);
@@ -1118,6 +1113,16 @@ bool TestNode::do_parse_line() {
            set_error(get_complaint_price(expire_in, filename));
   } else if (word == "msgqueuesizes") {
     return get_msg_queue_sizes();
+  } else if (word == "dispatchqueueinfo") {
+    return parse_block_id_ext(blkid) && seekeoln() && get_dispatch_queue_info(blkid);
+  } else if (word == "dispatchqueuemessages" || word == "dispatchqueuemessagesall") {
+    bool one_account = word == "dispatchqueuemessages";
+    if (!parse_block_id_ext(blkid)) {
+      return false;
+    }
+    workchain = blkid.id.workchain;
+    return ((!one_account && seekeoln()) || parse_account_addr(workchain, addr)) && (seekeoln() || parse_lt(lt)) &&
+           seekeoln() && get_dispatch_queue_messages(blkid, workchain, addr, lt, one_account);
   } else if (word == "known") {
     return eoln() && show_new_blkids(true);
   } else if (word == "knowncells") {
@@ -1645,6 +1650,81 @@ void TestNode::got_msg_queue_sizes(ton::tl_object_ptr<ton::lite_api::liteServer_
   td::TerminalIO::out() << "External message queue size limit: " << f->ext_msg_queue_size_limit_ << std::endl;
 }
 
+bool TestNode::get_dispatch_queue_info(ton::BlockIdExt block_id) {
+  td::TerminalIO::out() << "Dispatch queue in block: " << block_id.id.to_str() << std::endl;
+  return get_dispatch_queue_info_cont(block_id, true, td::Bits256::zero());
+}
+
+bool TestNode::get_dispatch_queue_info_cont(ton::BlockIdExt block_id, bool first, td::Bits256 after_addr) {
+  auto q = ton::create_serialize_tl_object<ton::lite_api::liteServer_getDispatchQueueInfo>(
+      first ? 0 : 2, ton::create_tl_lite_block_id(block_id), after_addr, 32, false);
+  return envelope_send_query(std::move(q), [=, Self = actor_id(this)](td::Result<td::BufferSlice> res) -> void {
+    if (res.is_error()) {
+      LOG(ERROR) << "liteServer.getDispatchQueueInfo error: " << res.move_as_error();
+      return;
+    }
+    auto F = ton::fetch_tl_object<ton::lite_api::liteServer_dispatchQueueInfo>(res.move_as_ok(), true);
+    if (F.is_error()) {
+      LOG(ERROR) << "cannot parse answer to liteServer.getDispatchQueueInfo";
+      return;
+    }
+    td::actor::send_closure_later(Self, &TestNode::got_dispatch_queue_info, block_id, F.move_as_ok());
+  });
+}
+
+void TestNode::got_dispatch_queue_info(ton::BlockIdExt block_id,
+                                       ton::tl_object_ptr<ton::lite_api::liteServer_dispatchQueueInfo> info) {
+  for (auto& acc : info->account_dispatch_queues_) {
+    td::TerminalIO::out() << block_id.id.workchain << ":" << acc->addr_.to_hex() << " : size=" << acc->size_
+                          << " lt=" << acc->min_lt_ << ".." << acc->max_lt_ << std::endl;
+  }
+  if (info->complete_) {
+    td::TerminalIO::out() << "Done" << std::endl;
+    return;
+  }
+  get_dispatch_queue_info_cont(block_id, false, info->account_dispatch_queues_.back()->addr_);
+}
+
+bool TestNode::get_dispatch_queue_messages(ton::BlockIdExt block_id, ton::WorkchainId wc, ton::StdSmcAddress addr,
+                                           ton::LogicalTime lt, bool one_account) {
+  if (wc != block_id.id.workchain) {
+    return set_error("workchain mismatch");
+  }
+  auto q = ton::create_serialize_tl_object<ton::lite_api::liteServer_getDispatchQueueMessages>(
+      one_account ? 2 : 0, ton::create_tl_lite_block_id(block_id), addr, lt, 64, false, one_account, false);
+  return envelope_send_query(std::move(q), [=, Self = actor_id(this)](td::Result<td::BufferSlice> res) -> void {
+    if (res.is_error()) {
+      LOG(ERROR) << "liteServer.getDispatchQueueMessages error: " << res.move_as_error();
+      return;
+    }
+    auto F = ton::fetch_tl_object<ton::lite_api::liteServer_dispatchQueueMessages>(res.move_as_ok(), true);
+    if (F.is_error()) {
+      LOG(ERROR) << "cannot parse answer to liteServer.getDispatchQueueMessages";
+      return;
+    }
+    td::actor::send_closure_later(Self, &TestNode::got_dispatch_queue_messages, F.move_as_ok());
+  });
+}
+
+void TestNode::got_dispatch_queue_messages(ton::tl_object_ptr<ton::lite_api::liteServer_dispatchQueueMessages> msgs) {
+  td::TerminalIO::out() << "Dispatch queue messages (" << msgs->messages_.size() << "):\n";
+  int count = 0;
+  for (auto& m : msgs->messages_) {
+    auto& meta = m->metadata_;
+    td::TerminalIO::out() << "Msg #" << ++count << ": " << msgs->id_->workchain_ << ":" << m->addr_.to_hex() << " "
+                          << m->lt_ << " : "
+                          << (meta->initiator_->workchain_ == ton::workchainInvalid
+                                  ? "[ no metadata ]"
+                                  : block::MsgMetadata{(td::uint32)meta->depth_, meta->initiator_->workchain_,
+                                                       meta->initiator_->id_, (ton::LogicalTime)meta->initiator_lt_}
+                                        .to_str())
+                          << "\n";
+  }
+  if (!msgs->complete_) {
+    td::TerminalIO::out() << "(incomplete list)\n";
+  }
+}
+
 bool TestNode::dns_resolve_start(ton::WorkchainId workchain, ton::StdSmcAddress addr, ton::BlockIdExt blkid,
                                  std::string domain, td::Bits256 cat, int mode) {
   if (domain.size() >= 2 && domain[0] == '"' && domain.back() == '"') {
@@ -2147,7 +2227,7 @@ void TestNode::run_smc_method(int mode, ton::BlockIdExt ref_blk, ton::BlockIdExt
     // auto log = create_vm_log(ctx.error_stream ? &ostream_logger : nullptr);
     vm::GasLimits gas{gas_limit};
     LOG(DEBUG) << "creating VM";
-    vm::VmState vm{code, std::move(stack), gas, 1, data, vm::VmLog()};
+    vm::VmState vm{code, ton::SUPPORTED_VERSION, std::move(stack), gas, 1, data, vm::VmLog()};
     vm.set_c7(liteclient::prepare_vm_c7(info.gen_utime, info.gen_lt, td::make_ref<vm::CellSlice>(acc.addr->clone()),
                                         balance));  // tuple with SmartContractInfo
     // vm.incr_stack_trace(1);    // enable stack dump after each step
@@ -3616,7 +3696,7 @@ void TestNode::continue_check_validator_load2(std::unique_ptr<TestNode::Validato
   load_creator_stats(std::move(info2), std::move(P.second), true);
 }
 
-// computes the probability of creating <= x masterchain blocks if the expected value is y
+// computes the probability of creating <= x blocks if the expected value is y
 static double create_prob(int x, double y) {
   if (x < 0 || y < 0) {
     return .5;
@@ -3657,49 +3737,79 @@ void TestNode::continue_check_validator_load3(std::unique_ptr<TestNode::Validato
                                               std::unique_ptr<TestNode::ValidatorLoadInfo> info2, int mode,
                                               std::string file_pfx) {
   LOG(INFO) << "continue_check_validator_load3 for blocks " << info1->blk_id.to_str() << " and "
-            << info1->blk_id.to_str() << " with mode=" << mode << " and file prefix `" << file_pfx
-            << "`: comparing block creators data";
+            << info2->blk_id.to_str() << " with mode=" << mode << " and file prefix `" << file_pfx;
+
+  if (mode & 4) {
+    ton::BlockSeqno start_seqno = info1->blk_id.seqno();
+    ton::BlockSeqno end_seqno = info2->blk_id.seqno();
+    block::ValidatorSet validator_set = *info1->vset;
+    if (info1->config->get_config_param(28)->get_hash() != info2->config->get_config_param(28)->get_hash()) {
+      LOG(ERROR) << "Catchain validator config (28) changed between the first and the last block";
+      return;
+    }
+    auto catchain_config = std::make_unique<block::CatchainValidatorsConfig>(
+        block::Config::unpack_catchain_validators_config(info1->config->get_config_param(28)));
+    load_validator_shard_shares(
+        start_seqno, end_seqno, std::move(validator_set), std::move(catchain_config),
+        [=, this, info1 = std::move(info1),
+         info2 = std::move(info2)](td::Result<std::map<td::Bits256, td::uint64>> R) mutable {
+          if (R.is_error()) {
+            LOG(ERROR) << "failed to load validator shard shares: " << R.move_as_error();
+          } else {
+            continue_check_validator_load4(std::move(info1), std::move(info2), mode, file_pfx, R.move_as_ok());
+          }
+        });
+  } else {
+    continue_check_validator_load4(std::move(info1), std::move(info2), mode, std::move(file_pfx), {});
+  }
+}
+
+void TestNode::continue_check_validator_load4(std::unique_ptr<TestNode::ValidatorLoadInfo> info1,
+                                              std::unique_ptr<TestNode::ValidatorLoadInfo> info2, int mode,
+                                              std::string file_pfx,
+                                              std::map<td::Bits256, td::uint64> exact_shard_shares) {
+  LOG(INFO) << "continue_check_validator_load4 for blocks " << info1->blk_id.to_str() << " and "
+            << info2->blk_id.to_str() << " with mode=" << mode << " and file prefix `" << file_pfx;
   if (info1->created_total.first <= 0 || info2->created_total.first <= 0) {
     LOG(ERROR) << "no total created blocks statistics";
     return;
   }
   td::TerminalIO::out() << "total: (" << info1->created_total.first << "," << info1->created_total.second << ") -> ("
                         << info2->created_total.first << "," << info2->created_total.second << ")\n";
-  auto x = info2->created_total.first - info1->created_total.first;
-  auto y = info2->created_total.second - info1->created_total.second;
-  td::int64 xs = 0, ys = 0;
-  if (x <= 0 || y < 0 || (x | y) >= (1u << 31)) {
-    LOG(ERROR) << "impossible situation: zero or no blocks created: " << x << " masterchain blocks, " << y
-               << " shardchain blocks";
+  auto created_total_mc = info2->created_total.first - info1->created_total.first;
+  auto created_total_bc = info2->created_total.second - info1->created_total.second;
+  td::int64 created_mc_sum = 0, created_bc_sum = 0;
+  if (created_total_mc <= 0 || created_total_bc < 0 || (created_total_mc | created_total_bc) >= (1U << 31)) {
+    LOG(ERROR) << "impossible situation: zero or no blocks created: " << created_total_mc << " masterchain blocks, "
+               << created_total_bc << " shardchain blocks";
     return;
   }
-  std::pair<int, int> created_total{(int)x, (int)y};
   int count = info1->vset->total;
   CHECK(info2->vset->total == count);
   CHECK((int)info1->created.size() == count);
   CHECK((int)info2->created.size() == count);
-  std::vector<std::pair<int, int>> d;
-  d.reserve(count);
+  std::vector<std::pair<int, int>> vals_created;
+  vals_created.reserve(count);
   for (int i = 0; i < count; i++) {
-    auto x1 = info2->created[i].first - info1->created[i].first;
-    auto y1 = info2->created[i].second - info1->created[i].second;
-    if (x1 < 0 || y1 < 0 || (x1 | y1) >= (1u << 31)) {
-      LOG(ERROR) << "impossible situation: validator #" << i << " created a negative amount of blocks: " << x1
-                 << " masterchain blocks, " << y1 << " shardchain blocks";
+    auto created_mc = info2->created[i].first - info1->created[i].first;
+    auto created_bc = info2->created[i].second - info1->created[i].second;
+    if (created_mc < 0 || created_bc < 0 || (created_mc | created_bc) >= (1u << 31)) {
+      LOG(ERROR) << "impossible situation: validator #" << i << " created a negative amount of blocks: " << created_mc
+                 << " masterchain blocks, " << created_bc << " shardchain blocks";
       return;
     }
-    xs += x1;
-    ys += y1;
-    d.emplace_back((int)x1, (int)y1);
-    td::TerminalIO::out() << "val #" << i << ": created (" << x1 << "," << y1 << ") ; was (" << info1->created[i].first
-                          << "," << info1->created[i].second << ")\n";
+    created_mc_sum += created_mc;
+    created_bc_sum += created_bc;
+    vals_created.emplace_back((int)created_mc, (int)created_bc);
+    td::TerminalIO::out() << "val #" << i << ": created (" << created_mc << "," << created_bc << ") ; was ("
+                          << info1->created[i].first << "," << info1->created[i].second << ")\n";
   }
-  if (xs != x || ys != y) {
-    LOG(ERROR) << "cannot account for all blocks created: total is (" << x << "," << y
-               << "), but the sum for all validators is (" << xs << "," << ys << ")";
+  if (created_mc_sum != created_total_mc || created_bc_sum != created_total_bc) {
+    LOG(ERROR) << "cannot account for all blocks created: total is (" << created_total_mc << "," << created_total_bc
+               << "), but the sum for all validators is (" << created_mc_sum << "," << created_bc_sum << ")";
     return;
   }
-  td::TerminalIO::out() << "total: (" << x << "," << y << ")\n";
+  td::TerminalIO::out() << "total: (" << created_total_mc << "," << created_total_bc << ")\n";
   auto ccfg = block::Config::unpack_catchain_validators_config(info2->config->get_config_param(28));
   auto ccfg_old = block::Config::unpack_catchain_validators_config(info1->config->get_config_param(28));
   if (ccfg.shard_val_num != ccfg_old.shard_val_num || ccfg.shard_val_num <= 0) {
@@ -3707,54 +3817,214 @@ void TestNode::continue_check_validator_load3(std::unique_ptr<TestNode::Validato
                << ", or is not positive";
     return;
   }
-  int shard_count = ccfg.shard_val_num, main_count = info2->vset->main;
-  if (info1->vset->main != main_count || main_count <= 0) {
-    LOG(ERROR) << "masterchain validator group size changed from " << info1->vset->main << " to " << main_count
+  int shard_vals = ccfg.shard_val_num, master_vals = info2->vset->main;
+  if (info1->vset->main != master_vals || master_vals <= 0) {
+    LOG(ERROR) << "masterchain validator group size changed from " << info1->vset->main << " to " << master_vals
                << ", or is not positive";
     return;
   }
-  int cnt = 0, cnt_ok = 0;
-  double chunk_size = ccfg.shard_val_lifetime / 3. / shard_count;
-  block::MtCarloComputeShare shard_share(shard_count, info2->vset->export_scaled_validator_weights());
+
+  bool use_exact_shard_share = mode & 4;
+  int proofs_cnt = 0, proofs_cnt_ok = 0;
+  double chunk_size = ccfg.shard_val_lifetime / 3. / shard_vals;
+
+  std::vector<double> mtc_shard_share;
+  if (use_exact_shard_share) {
+    LOG(INFO) << "using exact shard shares";
+    td::uint64 exact_shard_shares_sum = 0;
+    for (auto& [_, count] : exact_shard_shares) {
+      exact_shard_shares_sum += count;
+    }
+    if ((td::int64)exact_shard_shares_sum != shard_vals * created_bc_sum) {
+      LOG(ERROR) << "unexpected total shard shares: blocks=" << created_bc_sum << ", shard_vals=" << shard_vals
+                 << ", expected_sum=" << shard_vals * created_bc_sum << ", found=" << exact_shard_shares_sum;
+      return;
+    }
+  } else {
+    LOG(INFO) << "using MtCarloComputeShare";
+    block::MtCarloComputeShare mtc(shard_vals, info2->vset->export_scaled_validator_weights());
+    if (!mtc.is_ok()) {
+      LOG(ERROR) << "failed to compute shard shares";
+      return;
+    }
+    mtc_shard_share.resize(count);
+    for (size_t i = 0; i < count; ++i) {
+      mtc_shard_share[i] = mtc[i];
+    }
+  }
+
+  auto validators = info1->vset->export_validator_set();
   for (int i = 0; i < count; i++) {
-    int x1 = d[i].first, y1 = d[i].second;
-    double xe = (i < main_count ? (double)xs / main_count : 0);
-    double ye = shard_share[i] * (double)ys / shard_count;
+    int created_mc = vals_created[i].first, created_bc = vals_created[i].second;
+    bool is_masterchain_validator = i < master_vals;
+
+    double expected_created_mc = (is_masterchain_validator ? (double)created_mc_sum / master_vals : 0);
+    double prob_mc = create_prob(created_mc, .9 * expected_created_mc);
+
+    double expected_created_bc, prob_bc;
+    if (use_exact_shard_share) {
+      expected_created_bc = (double)exact_shard_shares[validators[i].key.as_bits256()] / shard_vals;
+      prob_bc = create_prob(created_bc, .9 * expected_created_bc);
+    } else {
+      expected_created_bc = mtc_shard_share[i] * (double)created_bc_sum / shard_vals;
+      prob_bc = shard_create_prob(created_bc, .9 * expected_created_bc, chunk_size);
+    }
+
     td::Bits256 pk = info2->vset->list[i].pubkey.as_bits256();
-    double p1 = create_prob(x1, .9 * xe), p2 = shard_create_prob(y1, .9 * ye, chunk_size);
-    td::TerminalIO::out() << "val #" << i << ": pubkey " << pk.to_hex() << ", blocks created (" << x1 << "," << y1
-                          << "), expected (" << xe << "," << ye << "), probabilities " << p1 << " and " << p2 << "\n";
-    if (std::min(p1, p2) < .00001) {
+    td::TerminalIO::out() << "val #" << i << ": pubkey " << pk.to_hex() << ", blocks created (" << created_mc << ","
+                          << created_bc << "), expected (" << expected_created_mc << "," << expected_created_bc
+                          << "), probabilities " << prob_mc << " and " << prob_bc << "\n";
+    if ((is_masterchain_validator ? prob_mc : prob_bc) < .00001) {
       LOG(ERROR) << "validator #" << i << " with pubkey " << pk.to_hex()
                  << " : serious misbehavior detected: created less than 90% of the expected amount of blocks with "
                     "probability 99.999% : created ("
-                 << x1 << "," << y1 << "), expected (" << xe << "," << ye << ") masterchain/shardchain blocks\n";
+                 << created_mc << "," << created_bc << "), expected (" << expected_created_mc << ","
+                 << expected_created_bc << ") masterchain/shardchain blocks\n";
       if (mode & 2) {
-        auto st = write_val_create_proof(*info1, *info2, i, true, file_pfx, ++cnt);
+        auto st = write_val_create_proof(*info1, *info2, i, true, file_pfx, ++proofs_cnt);
         if (st.is_error()) {
           LOG(ERROR) << "cannot create proof: " << st.move_as_error();
         } else {
-          cnt_ok++;
+          proofs_cnt_ok++;
         }
       }
-    } else if (std::min(p1, p2) < .005) {
+    } else if ((is_masterchain_validator ? prob_mc : prob_bc) < .005) {
       LOG(ERROR) << "validator #" << i << " with pubkey " << pk.to_hex()
                  << " : moderate misbehavior detected: created less than 90% of the expected amount of blocks with "
                     "probability 99.5% : created ("
-                 << x1 << "," << y1 << "), expected (" << xe << "," << ye << ") masterchain/shardchain blocks\n";
+                 << created_mc << "," << created_bc << "), expected (" << expected_created_mc << ","
+                 << expected_created_bc << ") masterchain/shardchain blocks\n";
       if ((mode & 3) == 2) {
-        auto st = write_val_create_proof(*info1, *info2, i, false, file_pfx, ++cnt);
+        auto st = write_val_create_proof(*info1, *info2, i, false, file_pfx, ++proofs_cnt);
         if (st.is_error()) {
           LOG(ERROR) << "cannot create proof: " << st.move_as_error();
         } else {
-          cnt_ok++;
+          proofs_cnt_ok++;
         }
       }
     }
   }
-  if (cnt > 0) {
-    LOG(INFO) << cnt_ok << " out of " << cnt << " proofs written to " << file_pfx << "-*.boc";
+  if (proofs_cnt > 0) {
+    LOG(INFO) << proofs_cnt_ok << " out of " << proofs_cnt << " proofs written to " << file_pfx << "-*.boc";
   }
+}
+
+void TestNode::load_validator_shard_shares(ton::BlockSeqno start_seqno, ton::BlockSeqno end_seqno,
+                                           block::ValidatorSet validator_set,
+                                           std::unique_ptr<block::CatchainValidatorsConfig> catchain_config,
+                                           td::Promise<std::map<td::Bits256, td::uint64>> promise) {
+  CHECK(start_seqno <= end_seqno);
+  LOG(INFO) << "loading shard shares from mc blocks " << start_seqno << ".." << end_seqno << " ("
+            << end_seqno - start_seqno + 1 << " blocks)";
+  auto state = std::make_shared<LoadValidatorShardSharesState>();
+  state->start_seqno = start_seqno;
+  state->end_seqno = end_seqno;
+  state->validator_set = std::move(validator_set);
+  state->catchain_config = std::move(catchain_config);
+  state->shard_configs.resize(end_seqno - start_seqno + 1);
+  state->promise = std::move(promise);
+  load_validator_shard_shares_cont(std::move(state));
+}
+
+void TestNode::load_validator_shard_shares_cont(std::shared_ptr<LoadValidatorShardSharesState> state) {
+  if (!state->promise) {
+    return;
+  }
+  if (state->loaded % 100 == 0) {
+    LOG(INFO) << "loaded " << state->loaded << "/" << state->shard_configs.size() << " mc blocks";
+  }
+  while (state->cur_idx < state->shard_configs.size() && state->pending < 8) {
+    load_block_shard_configuration(state->start_seqno + state->cur_idx,
+                                   [this, state, idx = state->cur_idx](td::Result<block::ShardConfig> R) mutable {
+                                     if (R.is_error()) {
+                                       state->promise.set_error(R.move_as_error());
+                                       state->promise = {};
+                                     } else {
+                                       state->shard_configs[idx] = R.move_as_ok();
+                                       --state->pending;
+                                       ++state->loaded;
+                                       load_validator_shard_shares_cont(std::move(state));
+                                     }
+                                   });
+    ++state->pending;
+    ++state->cur_idx;
+  }
+
+  if (state->loaded != state->shard_configs.size()) {
+    return;
+  }
+  LOG(INFO) << "loaded all " << state->shard_configs.size() << " mc blocks, computing shard shares";
+  std::map<td::Bits256, td::uint64> result;
+  try {
+    for (size_t idx = 0; idx + 1 < state->shard_configs.size(); ++idx) {
+      block::ShardConfig& shards1 = state->shard_configs[idx];
+      block::ShardConfig& shards2 = state->shard_configs[idx + 1];
+
+      // Compute validator groups, see ValidatorManagerImpl::update_shards
+      auto process_shard = [&](ton::ShardIdFull shard, ton::BlockSeqno first_seqno) {
+        auto desc2 = shards2.get_shard_hash(shard);
+        if (desc2.is_null() || desc2->seqno() < first_seqno) {
+          return;
+        }
+        td::uint32 blocks_count = desc2->seqno() - first_seqno + 1;
+        ton::CatchainSeqno cc_seqno = shards1.get_shard_cc_seqno(shard);
+        auto val_set =
+            block::ConfigInfo::do_compute_validator_set(*state->catchain_config, shard, state->validator_set, cc_seqno);
+        for (const auto &val : val_set) {
+          result[val.key.as_bits256()] += blocks_count;
+        }
+      };
+
+      for (const ton::BlockId& id : shards1.get_shard_hash_ids()) {
+        ton::ShardIdFull shard = id.shard_full();
+        auto desc = shards1.get_shard_hash(shard);
+        CHECK(desc.not_null());
+        if (desc->before_split()) {
+          ton::ShardIdFull l_shard = shard_child(shard, true);
+          ton::ShardIdFull r_shard = shard_child(shard, false);
+          process_shard(l_shard, desc->seqno() + 1);
+          process_shard(r_shard, desc->seqno() + 1);
+        } else if (desc->before_merge()) {
+          if (is_right_child(shard)) {
+            continue;
+          }
+          ton::ShardIdFull sibling_shard = shard_sibling(shard);
+          auto sibling_desc = shards1.get_shard_hash(sibling_shard);
+          CHECK(sibling_desc.not_null());
+          ton::ShardIdFull p_shard = shard_parent(shard);
+          process_shard(p_shard, std::max(desc->seqno(), sibling_desc->seqno()) + 1);
+        } else {
+          process_shard(shard, desc->seqno() + 1);
+        }
+      }
+    }
+  } catch (vm::VmError &e) {
+    state->promise.set_error(e.as_status("cannot parse shard hashes: "));
+    return;
+  }
+  state->promise.set_value(std::move(result));
+}
+
+void TestNode::load_block_shard_configuration(ton::BlockSeqno seqno, td::Promise<block::ShardConfig> promise) {
+  lookup_block(
+      ton::ShardIdFull{ton::masterchainId}, 1, seqno,
+      [this, promise = std::move(promise)](td::Result<BlockHdrInfo> R) mutable {
+        TRY_RESULT_PROMISE(promise, res, std::move(R));
+        auto b = ton::serialize_tl_object(
+            ton::create_tl_object<ton::lite_api::liteServer_getAllShardsInfo>(ton::create_tl_lite_block_id(res.blk_id)),
+            true);
+        envelope_send_query(std::move(b), [this, promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
+          TRY_RESULT_PROMISE(promise, data, std::move(R));
+          TRY_RESULT_PROMISE(promise, f, ton::fetch_tl_object<ton::lite_api::liteServer_allShardsInfo>(data, true));
+          TRY_RESULT_PROMISE(promise, root, vm::std_boc_deserialize(f->data_));
+          block::ShardConfig sh_conf;
+          if (!sh_conf.unpack(load_cell_slice_ref(root))) {
+            promise.set_error(td::Status::Error("cannot extract shard block list from shard configuration"));
+          } else {
+            promise.set_value(std::move(sh_conf));
+          }
+        });
+      });
 }
 
 bool compute_punishment_default(int interval, bool severe, td::RefInt256& fine, unsigned& fine_part) {
@@ -4322,7 +4592,7 @@ int main(int argc, char* argv[]) {
   });
   p.add_option('V', "version", "shows lite-client build information", [&]() {
     std::cout << "lite-client build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
-    
+
     std::exit(0);
   });
   p.add_option('i', "idx", "set liteserver idx", [&](td::Slice arg) {

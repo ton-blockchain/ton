@@ -85,11 +85,10 @@ class ValidatorSession : public td::actor::Actor {
 
   class Callback {
    public:
-    virtual void on_candidate(td::uint32 round, PublicKey source, ValidatorSessionRootHash root_hash,
-                              td::BufferSlice data, td::BufferSlice collated_data,
-                              td::Promise<CandidateDecision> promise) = 0;
-    virtual void on_generate_slot(td::uint32 round, td::Promise<GeneratedCandidate> promise) = 0;
-    virtual void on_block_committed(td::uint32 round, PublicKey source, ValidatorSessionRootHash root_hash,
+    virtual void on_candidate(BlockSourceInfo source_info, ValidatorSessionRootHash root_hash, td::BufferSlice data,
+                              td::BufferSlice collated_data, td::Promise<CandidateDecision> promise) = 0;
+    virtual void on_generate_slot(BlockSourceInfo source_info, td::Promise<GeneratedCandidate> promise) = 0;
+    virtual void on_block_committed(BlockSourceInfo source_info, ValidatorSessionRootHash root_hash,
                                     ValidatorSessionFileHash file_hash, td::BufferSlice data,
                                     std::vector<std::pair<PublicKeyHash, td::BufferSlice>> signatures,
                                     std::vector<std::pair<PublicKeyHash, td::BufferSlice>> approve_signatures,
@@ -109,7 +108,7 @@ class ValidatorSession : public td::actor::Actor {
   virtual void get_validator_group_info_for_litequery(
       td::uint32 cur_round,
       td::Promise<std::vector<tl_object_ptr<lite_api::liteServer_nonfinal_candidateInfo>>> promise) = 0;
-  virtual void set_catchain_max_block_delay(double value) = 0;
+  virtual void set_catchain_max_block_delay(double delay, double delay_slow) = 0;
 
   static td::actor::ActorOwn<ValidatorSession> create(
       catchain::CatChainSessionId session_id, ValidatorSessionOptions opts, PublicKeyHash local_id,

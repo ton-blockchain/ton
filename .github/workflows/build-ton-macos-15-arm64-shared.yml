@@ -1,0 +1,27 @@
+name: MacOS-15 TON build (shared, arm64)
+
+on: [push,workflow_dispatch,workflow_call]
+
+jobs:
+  build:
+    runs-on: macos-15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v3
+        with:
+          submodules: 'recursive'
+
+      - name: Build TON
+        run: |
+          git submodule sync --recursive
+          git submodule update
+          cp assembly/native/build-macos-shared.sh .
+          chmod +x build-macos-shared.sh
+          ./build-macos-shared.sh -t -a
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@master
+        with:
+          name: ton-binaries-macos-15
+          path: artifacts

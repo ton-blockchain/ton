@@ -117,7 +117,7 @@ class ValidateQuery : public td::actor::Actor {
   }
 
  public:
-  ValidateQuery(ShardIdFull shard, UnixTime min_ts, BlockIdExt min_masterchain_block_id, std::vector<BlockIdExt> prev,
+  ValidateQuery(ShardIdFull shard, BlockIdExt min_masterchain_block_id, std::vector<BlockIdExt> prev,
                 BlockCandidate candidate, td::Ref<ValidatorSet> validator_set,
                 td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
                 td::Promise<ValidateCandidateResult> promise, bool is_fake = false);
@@ -127,7 +127,6 @@ class ValidateQuery : public td::actor::Actor {
   int pending{0};
   const ShardIdFull shard_;
   const BlockIdExt id_;
-  UnixTime min_ts;
   BlockIdExt min_mc_block_id;
   std::vector<BlockIdExt> prev_blocks;
   std::vector<Ref<ShardState>> prev_states;
@@ -206,6 +205,7 @@ class ValidateQuery : public td::actor::Actor {
   block::StoragePhaseConfig storage_phase_cfg_{&storage_prices_};
   block::ComputePhaseConfig compute_phase_cfg_;
   block::ActionPhaseConfig action_phase_cfg_;
+  block::SerializeConfig serialize_cfg_;
   td::RefInt256 masterchain_create_fee_, basechain_create_fee_;
 
   std::vector<block::McShardDescr> neighbors_;
@@ -224,8 +224,7 @@ class ValidateQuery : public td::actor::Actor {
   td::RefInt256 import_fees_;
 
   ton::LogicalTime proc_lt_{0}, claimed_proc_lt_{0}, min_enq_lt_{~0ULL};
-  ton::Bits256 proc_hash_, claimed_proc_hash_, min_enq_hash_;
-  bool inbound_queues_empty_{false};
+  ton::Bits256 proc_hash_ = ton::Bits256::zero(), claimed_proc_hash_, min_enq_hash_;
 
   std::vector<std::tuple<Bits256, LogicalTime, LogicalTime>> msg_proc_lt_;
   std::vector<std::tuple<Bits256, LogicalTime, LogicalTime>> msg_emitted_lt_;
@@ -286,6 +285,7 @@ class ValidateQuery : public td::actor::Actor {
     return actor_id(this);
   }
 
+  void request_latest_mc_state();
   void after_get_latest_mc_state(td::Result<std::pair<Ref<MasterchainState>, BlockIdExt>> res);
   void after_get_mc_state(td::Result<Ref<ShardState>> res);
   void got_mc_handle(td::Result<BlockHandle> res);
@@ -401,7 +401,7 @@ class ValidateQuery : public td::actor::Actor {
 
   td::Timer work_timer_{true};
   td::ThreadCpuTimer cpu_work_timer_{true};
-  void record_stats();
+  void record_stats(bool success);
 };
 
 }  // namespace validator

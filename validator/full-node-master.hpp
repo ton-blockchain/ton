@@ -28,10 +28,10 @@ namespace fullnode {
 
 class FullNodeMasterImpl : public FullNodeMaster {
  public:
-  static constexpr td::uint32 proto_version() {
+  static constexpr td::uint32 proto_version_major() {
     return 1;
   }
-  static constexpr td::uint64 proto_capabilities() {
+  static constexpr td::uint32 proto_version_minor() {
     return 0;
   }
   void start_up() override;

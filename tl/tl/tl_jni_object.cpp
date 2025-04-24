@@ -115,8 +115,9 @@ static size_t get_utf8_from_utf16_length(const jchar *p, jsize len) {
   for (jsize i = 0; i < len; i++) {
     unsigned int cur = p[i];
     if ((cur & 0xF800) == 0xD800) {
+      ++i;
       if (i < len) {
-        unsigned int next = p[++i];
+        unsigned int next = p[i];
         if ((next & 0xFC00) == 0xDC00 && (cur & 0x400) == 0) {
           result += 4;
           continue;

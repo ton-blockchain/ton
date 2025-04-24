@@ -32,8 +32,9 @@ namespace fullnode {
 
 class DownloadArchiveSlice : public td::actor::Actor {
  public:
-  DownloadArchiveSlice(BlockSeqno masterchain_seqno, std::string tmp_dir, adnl::AdnlNodeIdShort local_id,
-                       overlay::OverlayIdShort overlay_id, adnl::AdnlNodeIdShort download_from, td::Timestamp timeout,
+  DownloadArchiveSlice(BlockSeqno masterchain_seqno, ShardIdFull shard_prefix, std::string tmp_dir,
+                       adnl::AdnlNodeIdShort local_id, overlay::OverlayIdShort overlay_id,
+                       adnl::AdnlNodeIdShort download_from, td::Timestamp timeout,
                        td::actor::ActorId<ValidatorManagerInterface> validator_manager,
                        td::actor::ActorId<adnl::AdnlSenderInterface> rldp,
                        td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<adnl::Adnl> adnl,
@@ -55,6 +56,7 @@ class DownloadArchiveSlice : public td::actor::Actor {
 
  private:
   BlockSeqno masterchain_seqno_;
+  ShardIdFull shard_prefix_;
   std::string tmp_dir_;
   std::string tmp_name_;
   td::FileFd fd_;

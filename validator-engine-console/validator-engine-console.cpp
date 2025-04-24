@@ -112,6 +112,7 @@ void ValidatorEngineConsole::run() {
   add_query_runner(std::make_unique<QueryRunnerImpl<ExportPublicKeyFileQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<SignQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<SignFileQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<ExportAllPrivateKeysQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<AddAdnlAddrQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<AddDhtIdQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<AddValidatorPermanentKeyQuery>>());
@@ -140,6 +141,7 @@ void ValidatorEngineConsole::run() {
   add_query_runner(std::make_unique<QueryRunnerImpl<GetOverlaysStatsJsonQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<ImportShardOverlayCertificateQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<SignShardOverlayCertificateQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<GetActorStatsQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<GetPerfTimerStatsJsonQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<GetShardOutQueueSizeQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<SetExtMessagesBroadcastDisabledQuery>>());
@@ -150,6 +152,10 @@ void ValidatorEngineConsole::run() {
   add_query_runner(std::make_unique<QueryRunnerImpl<SetCollatorOptionsJsonQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<ResetCollatorOptionsQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<GetCollatorOptionsJsonQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<GetAdnlStatsJsonQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<GetAdnlStatsQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<AddShardQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<DelShardQuery>>());
 }
 
 bool ValidatorEngineConsole::envelope_send_query(td::BufferSlice query, td::Promise<td::BufferSlice> promise) {
@@ -200,9 +206,8 @@ void ValidatorEngineConsole::show_help(std::string command, td::Promise<td::Buff
       td::TerminalIO::out() << cmd.second->help() << "\n";
     }
   } else {
-    auto it = query_runners_.find(command);
-    if (it != query_runners_.end()) {
-      td::TerminalIO::out() << it->second->help() << "\n";
+    if (auto query = get_query(command)) {
+      td::TerminalIO::out() << query->help() << "\n";
     } else {
       td::TerminalIO::out() << "unknown command '" << command << "'\n";
     }
@@ -226,10 +231,9 @@ void ValidatorEngineConsole::parse_line(td::BufferSlice data) {
   }
   auto name = tokenizer.get_token<std::string>().move_as_ok();
 
-  auto it = query_runners_.find(name);
-  if (it != query_runners_.end()) {
+  if (auto query = get_query(name)) {
     running_queries_++;
-    it->second->run(actor_id(this), std::move(tokenizer));
+    query->run(actor_id(this), std::move(tokenizer));
   } else {
     td::TerminalIO::out() << "unknown command '" << name << "'\n";
   }

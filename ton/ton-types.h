@@ -51,6 +51,8 @@ using ValidatorSessionId = td::Bits256;
 constexpr WorkchainId masterchainId = -1, basechainId = 0, workchainInvalid = 0x80000000;
 constexpr ShardId shardIdAll = (1ULL << 63);
 
+constexpr int max_shard_pfx_len = 60;
+
 enum GlobalCapabilities {
   capIhrEnabled = 1,
   capCreateStatsEnabled = 2,
@@ -117,6 +119,26 @@ struct ShardIdFull {
   std::string to_str() const {
     char buffer[64];
     return std::string{buffer, (unsigned)snprintf(buffer, 63, "(%d,%016llx)", workchain, (unsigned long long)shard)};
+  }
+  static td::Result<ShardIdFull> parse(td::Slice s) {
+    // Formats: (0,2000000000000000) (0:2000000000000000) 0,2000000000000000 0:2000000000000000
+    if (s.empty()) {
+      return td::Status::Error("empty string");
+    }
+    if (s[0] == '(' && s.back() == ')') {
+      s = s.substr(1, s.size() - 2);
+    }
+    auto sep = s.find(':');
+    if (sep == td::Slice::npos) {
+      sep = s.find(',');
+    }
+    if (sep == td::Slice::npos || s.size() - sep - 1 != 16) {
+      return td::Status::Error(PSTRING() << "invalid shard " << s);
+    }
+    ShardIdFull shard;
+    TRY_RESULT_ASSIGN(shard.workchain, td::to_integer_safe<td::int32>(s.substr(0, sep)));
+    TRY_RESULT_ASSIGN(shard.shard, td::hex_to_integer_safe<td::uint64>(s.substr(sep + 1)));
+    return shard;
   }
 };
 
@@ -406,6 +428,9 @@ struct Ed25519_PublicKey {
   bool operator==(const Ed25519_PublicKey& other) const {
     return _pubkey == other._pubkey;
   }
+  bool operator!=(const Ed25519_PublicKey& other) const {
+    return _pubkey != other._pubkey;
+  }
   bool clear() {
     _pubkey.set_zero();
     return true;
@@ -468,6 +493,7 @@ struct CatChainOptions {
   td::uint64 max_block_height_coeff = 0;
 
   bool debug_disable_db = false;
+  double broadcast_speed_multiplier = 1.0;
 };
 
 struct ValidatorSessionConfig {
@@ -486,6 +512,16 @@ struct ValidatorSessionConfig {
   bool new_catchain_ids = false;
 
   static const td::uint32 BLOCK_HASH_COVERS_DATA_FROM_VERSION = 2;
+};
+
+struct PersistentStateDescription : public td::CntObject {
+  BlockIdExt masterchain_id;
+  std::vector<BlockIdExt> shard_blocks;
+  UnixTime start_time, end_time;
+
+  virtual CntObject* make_copy() const {
+    return new PersistentStateDescription(*this);
+  }
 };
 
 }  // namespace ton
