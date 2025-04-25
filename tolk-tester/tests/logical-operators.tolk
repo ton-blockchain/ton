@@ -148,6 +148,31 @@ fun testConvertIfToIfnot(x: bool) {
     return -4;
 }
 
+@pure
+fun get123(): int
+    asm "123 PUSHINT";
+
+@method_id(114)
+fun test114() {
+    val fals = (get123() < 0) as int;
+    return (fals ? -1 : fals) != 0;
+}
+
+@method_id(115)
+fun test115() {
+    val tru = get123() >= 0;
+    val fals = get123() < 0;
+
+    if ((true || false) && (false || false)) {
+        throw 123;
+    }
+    if ((tru || fals) && (fals || fals)) {
+        throw 456;
+    }
+    return (tru, fals);
+}
+
+
 fun main() {
 
 }
@@ -187,6 +212,8 @@ fun main() {
 @testcase | 112 | 5 0    | 0 -1 0 -1 -1
 @testcase | 112 | 0 -1   | -1 -1 -1 -1 -1
 @testcase | 113 | 0      | 1
+@testcase | 114 |        | 0
+@testcase | 115 |        | -1 0
 
 @fif_codegen
 """

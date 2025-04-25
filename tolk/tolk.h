@@ -68,7 +68,6 @@ struct VarDescr {
   enum { _Last = 1, _Unused = 2 };
   int flags;
   enum {
-    _Const = 16,
     _Int = 32,
     _Zero = 64,
     _NonZero = 128,
@@ -79,16 +78,15 @@ struct VarDescr {
     _Even = 16384,
     _Odd = 32768,
   };
-  static constexpr int ConstZero  = _Const | _Int | _Zero | _Pos | _Neg | _Finite | _Even;
-  static constexpr int ConstOne   = _Const | _Int | _NonZero | _Pos | _Finite | _Odd;
-  static constexpr int ConstTrue  = _Const | _Int | _NonZero | _Neg | _Finite | _Odd;
+  static constexpr int ConstZero  = _Int | _Zero | _Pos | _Neg | _Finite | _Even;
+  static constexpr int ConstOne   = _Int | _NonZero | _Pos | _Finite | _Odd;
+  static constexpr int ConstTrue  = _Int | _NonZero | _Neg | _Finite | _Odd;
   static constexpr int ValBit     = _Int | _Pos | _Finite;
   static constexpr int ValBool    = _Int | _Neg | _Finite;
   static constexpr int FiniteInt  = _Int | _Finite;
   static constexpr int FiniteUInt = _Int | _Finite | _Pos;
   int val;
   td::RefInt256 int_const;
-  std::string str_const;
 
   explicit VarDescr(var_idx_t _idx = -1, int _flags = 0, int _val = 0) : idx(_idx), flags(_flags), val(_val) {
   }
@@ -120,7 +118,12 @@ struct VarDescr {
     return val & _Odd;
   }
   bool is_int_const() const {
-    return (val & (_Int | _Const)) == (_Int | _Const) && int_const.not_null();
+#ifdef TOLK_DEBUG
+    if (int_const.not_null()) {
+      tolk_assert(val & _Int);
+    }
+#endif
+    return int_const.not_null();
   }
   bool always_nonpos() const {
     return val & _Neg;
@@ -151,7 +154,7 @@ struct VarDescr {
   }
   void set_const(long long value);
   void set_const(td::RefInt256 value);
-  void set_const(std::string value);
+  void set_const(const std::string& value);
   void operator+=(const VarDescr& y) {
     flags &= y.flags;
   }

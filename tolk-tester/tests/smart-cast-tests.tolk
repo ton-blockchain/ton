@@ -148,9 +148,10 @@ fun test10(): int {
     return x + y;
 }
 
+@method_id(111)
 fun test11() {
     var [x, y] = [getNullableInt(), getNullableInt()];
-    if (random()) { return x == null || y == null ? -1 : x + y; }
+    if (eq(10) < 0) { return x == null || y == null ? -1 : x + y; }
     if (true && (x == null || y == null) && !!true) { return 0; }
     return x + y;
 }
@@ -665,6 +666,7 @@ fun main(x: int?): int {
 
 /**
 @testcase | 0   | 1     | 1
+@testcase | 111 |       | 10
 @testcase | 123 |       | 7
 @testcase | 124 | 4     | 6
 @testcase | 124 | null  | 15

@@ -59,9 +59,6 @@ void VarDescr::show_value(std::ostream& os) const {
   if (val & _Int) {
     os << 'i';
   }
-  if (val & _Const) {
-    os << 'c';
-  }
   if (val & _Zero) {
     os << '0';
   }
@@ -114,7 +111,7 @@ void VarDescr::set_const(td::RefInt256 value) {
   if (!int_const->signed_fits_bits(257)) {
     int_const.write().invalidate();
   }
-  val = _Const | _Int;
+  val = _Int;
   int s = sgn(int_const);
   if (s < -1) {
     val |= _Nan | _NonZero;
@@ -130,41 +127,41 @@ void VarDescr::set_const(td::RefInt256 value) {
   }
 }
 
-void VarDescr::set_const(std::string value) {
-  str_const = value;
-  val = _Const;
+void VarDescr::set_const(const std::string&) {
+  int_const.clear();
+  val = 0;
 }
 
 void VarDescr::operator|=(const VarDescr& y) {
+  if (is_int_const()) {
+    bool y_same = y.is_int_const() && *int_const == *y.int_const;
+    if (!y_same) {
+      int_const.clear();
+    }
+  }
   val &= y.val;
-  if (is_int_const() && y.is_int_const() && cmp(int_const, y.int_const) != 0) {
-    val &= ~_Const;
-  }
-  if (!(val & _Const)) {
-    int_const.clear();
-  }
 }
 
 void VarDescr::operator&=(const VarDescr& y) {
-  val |= y.val;
-  if (y.int_const.not_null() && int_const.is_null()) {
+  if (y.is_int_const()) {
     int_const = y.int_const;
   }
+  val |= y.val;
 }
 
 void VarDescr::set_value(const VarDescr& y) {
-  val = y.val;
   int_const = y.int_const;
+  val = y.val;
 }
 
 void VarDescr::set_value(VarDescr&& y) {
-  val = y.val;
   int_const = std::move(y.int_const);
+  val = y.val;
 }
 
 void VarDescr::clear_value() {
-  val = 0;
   int_const.clear();
+  val = 0;
 }
 
 void VarDescrList::show(std::ostream& os) const {

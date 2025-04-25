@@ -62,10 +62,10 @@ bool operator==(const VarDescrList& x, const VarDescrList& y) {
 }
 
 bool same_values(const VarDescr& x, const VarDescr& y) {
-  if (x.val != y.val || x.int_const.is_null() != y.int_const.is_null()) {
+  if (x.val != y.val || x.is_int_const() != y.is_int_const()) {
     return false;
   }
-  if (x.int_const.not_null() && cmp(x.int_const, y.int_const) != 0) {
+  if (x.is_int_const() && *x.int_const != *y.int_const) {
     return false;
   }
   return true;
