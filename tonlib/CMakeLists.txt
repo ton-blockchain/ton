@@ -102,6 +102,17 @@ else()
   target_link_libraries(tonlibjson PRIVATE tonlibjson_private)
 endif()
 
+if (APPLE)
+  set(CMAKE_MACOSX_RPATH ON)
+  set(CMAKE_CXX_VISIBILITY_PRESET hidden)
+  set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
+endif()
+
+if (APPLE AND PORTABLE)
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libstdc++")
+  set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -static-libstdc++")
+endif()
+
 generate_export_header(tonlibjson EXPORT_FILE_NAME ${CMAKE_CURRENT_BINARY_DIR}/tonlib/tonlibjson_export.h)
 if (TONLIBJSON_STATIC OR USE_EMSCRIPTEN)
   target_compile_definitions(tonlibjson PUBLIC TONLIBJSON_STATIC_DEFINE)
