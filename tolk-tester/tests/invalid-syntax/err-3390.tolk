@@ -1,8 +1,8 @@
 fun main(): int {
-    ;; here is not a comment
+    ;; here not a comment
 }
 
 /**
 @compilation_should_fail
-@stderr error: expected `;`, got `is`
+@stderr error: expected `;`, got `not`
  */

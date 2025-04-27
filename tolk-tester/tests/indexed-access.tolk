@@ -1,5 +1,8 @@
+type Tup2Int = [int, MInt];
+type Tensor2Int = (int, MInt);
+type MInt = int;
 
-fun increment(mutate self: int) {
+fun increment(mutate self: MInt) {
     self += 1;
 }
 
@@ -8,7 +11,7 @@ fun increment2(mutate a: int, mutate b: int) {
     b += 1;
 }
 
-fun assign1020(mutate a: int, mutate b: int) {
+fun assign1020(mutate a: int, mutate b: MInt) {
     a = 10;
     b = 20;
 }
@@ -51,7 +54,7 @@ fun test101() {
     return t;
 }
 
-global t102: (int, (int, int), [int, int, [int, int]], int);
+global t102: (int, (int, MInt), [int, int, Tup2Int], MInt);
 
 @method_id(102)
 fun test102() {
@@ -137,7 +140,7 @@ fun test110(f: int, s: int) {
     return (x, x.1, x.1.plus(x.1 / 20), x.1, x.1 = x.1 * 2, x.1, x.1 += 1, x.1, x);
 }
 
-global xx: (int, int);
+global xx: Tensor2Int;
 
 @method_id(111)
 fun test111(x: (int, int)) {
@@ -154,7 +157,7 @@ fun test112(f: int, s: int) {
 }
 
 @pure
-fun getConstTuple() {
+fun getConstTuple(): Tup2Int {
     return [1,2];
 }
 
@@ -197,7 +200,7 @@ fun test117() {
     var t = createEmptyTuple();
     t.tuplePush(1);
     try {
-        return (t.0 as tuple).0 as int;
+        return (t.0 as tuple).0 as MInt;
     } catch(excNo) {
         return excNo;
     }

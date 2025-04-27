@@ -231,9 +231,9 @@ class ValidatorEngine : public td::actor::Actor {
   bool not_all_shards_ = false;
   std::vector<ton::ShardIdFull> add_shard_cmds_;
   bool state_serializer_disabled_flag_ = false;
-  double broadcast_speed_multiplier_catchain_ = 1.0;
-  double broadcast_speed_multiplier_public_ = 1.0;
-  double broadcast_speed_multiplier_private_ = 1.0;
+  double broadcast_speed_multiplier_catchain_ = 3.33;
+  double broadcast_speed_multiplier_public_ = 3.33;
+  double broadcast_speed_multiplier_private_ = 3.33;
 
   std::set<ton::CatchainSeqno> unsafe_catchains_;
   std::map<ton::BlockSeqno, std::pair<ton::CatchainSeqno, td::uint32>> unsafe_catchain_rotations_;

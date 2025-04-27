@@ -977,6 +977,7 @@ bool ValidateQuery::fetch_config_params() {
     compute_phase_cfg_.size_limits = size_limits;
     compute_phase_cfg_.precompiled_contracts = config_->get_precompiled_contracts_config();
     compute_phase_cfg_.allow_external_unfreeze = compute_phase_cfg_.global_version >= 8;
+    compute_phase_cfg_.disable_anycast = config_->get_global_version() >= 10;
   }
   {
     // compute action_phase_cfg
@@ -1005,9 +1006,12 @@ bool ValidateQuery::fetch_config_params() {
     action_phase_cfg_.reserve_extra_enabled = config_->get_global_version() >= 9;
     action_phase_cfg_.mc_blackhole_addr = config_->get_burning_config().blackhole_addr;
     action_phase_cfg_.extra_currency_v2 = config_->get_global_version() >= 10;
+    action_phase_cfg_.disable_anycast = config_->get_global_version() >= 10;
   }
   {
     serialize_cfg_.extra_currency_v2 = config_->get_global_version() >= 10;
+    serialize_cfg_.disable_anycast = config_->get_global_version() >= 10;
+    serialize_cfg_.store_storage_dict_hash = config_->get_global_version() >= 11;
   }
   {
     // fetch block_grams_created

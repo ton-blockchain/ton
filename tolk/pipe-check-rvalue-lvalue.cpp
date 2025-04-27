@@ -29,65 +29,80 @@
 
 namespace tolk {
 
+// fire a general error, just a wrapper over `throw`
 GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-static void fire_error_cannot_be_used_as_lvalue(AnyV v, const std::string& details) {
-  // example: `f() = 32`
-  // example: `loadUint(c.beginParse(), 32)` (since `loadUint()` mutates the first argument)
-  v->error(details + " can not be used as lvalue");
+static void fire(FunctionPtr cur_f, SrcLocation loc, const std::string& message) {
+  throw ParseError(cur_f, loc, message);
 }
 
 GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-static void fire_error_modifying_immutable_variable(AnyExprV v, LocalVarPtr var_ref) {
+static void fire_error_cannot_be_used_as_lvalue(FunctionPtr cur_f, AnyV v, const std::string& details) {
+  // example: `f() = 32`
+  // example: `loadUint(c.beginParse(), 32)` (since `loadUint()` mutates the first argument)
+  throw ParseError(cur_f, v->loc, details + " can not be used as lvalue");
+}
+
+GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
+static void fire_error_modifying_immutable_variable(FunctionPtr cur_f, AnyExprV v, LocalVarPtr var_ref) {
   if (var_ref->param_idx == 0 && var_ref->name == "self") {
-    v->error("modifying `self`, which is immutable by default; probably, you want to declare `mutate self`");
+    throw ParseError(cur_f, v->loc, "modifying `self`, which is immutable by default; probably, you want to declare `mutate self`");
   } else {
-    v->error("modifying immutable variable `" + var_ref->name + "`");
+    throw ParseError(cur_f, v->loc, "modifying immutable variable `" + var_ref->name + "`");
   }
 }
 
 // validate a function used as rvalue, like `var cb = f`
 // it's not a generic function (ensured earlier at type inferring) and has some more restrictions
-static void validate_function_used_as_noncall(AnyExprV v, FunctionPtr fun_ref) {
+static void validate_function_used_as_noncall(FunctionPtr cur_f, AnyExprV v, FunctionPtr fun_ref) {
   if (!fun_ref->arg_order.empty() || !fun_ref->ret_order.empty()) {
-    v->error("saving `" + fun_ref->name + "` into a variable will most likely lead to invalid usage, since it changes the order of variables on the stack");
+    fire(cur_f, v->loc, "saving `" + fun_ref->name + "` into a variable will most likely lead to invalid usage, since it changes the order of variables on the stack");
   }
   if (fun_ref->has_mutate_params()) {
-    v->error("saving `" + fun_ref->name + "` into a variable is impossible, since it has `mutate` parameters and thus can only be called directly");
+    fire(cur_f, v->loc, "saving `" + fun_ref->name + "` into a variable is impossible, since it has `mutate` parameters and thus can only be called directly");
   }
 }
 
 class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
+  FunctionPtr cur_f = nullptr;
+
+  void visit(V<ast_braced_expression> v) override {
+    if (v->is_lvalue) {
+      fire_error_cannot_be_used_as_lvalue(cur_f, v, "braced expression");
+    }
+    parent::visit(v);
+  }
+
   void visit(V<ast_assign> v) override {
     if (v->is_lvalue) {
-      fire_error_cannot_be_used_as_lvalue(v, "assignment");
+      fire_error_cannot_be_used_as_lvalue(cur_f, v, "assignment");
     }
     parent::visit(v);
   }
 
   void visit(V<ast_set_assign> v) override {
     if (v->is_lvalue) {
-      fire_error_cannot_be_used_as_lvalue(v, "assignment");
+      fire_error_cannot_be_used_as_lvalue(cur_f, v, "assignment");
     }
     parent::visit(v);
   }
 
   void visit(V<ast_binary_operator> v) override {
     if (v->is_lvalue) {
-      fire_error_cannot_be_used_as_lvalue(v, "operator " + static_cast<std::string>(v->operator_name));
+      fire_error_cannot_be_used_as_lvalue(cur_f, v, "operator " + static_cast<std::string>(v->operator_name));
     }
     parent::visit(v);
   }
 
   void visit(V<ast_unary_operator> v) override {
     if (v->is_lvalue) {
-      fire_error_cannot_be_used_as_lvalue(v, "operator " + static_cast<std::string>(v->operator_name));
+      fire_error_cannot_be_used_as_lvalue(cur_f, v, "operator " + static_cast<std::string>(v->operator_name));
     }
     parent::visit(v);
   }
 
   void visit(V<ast_ternary_operator> v) override {
     if (v->is_lvalue) {
-      fire_error_cannot_be_used_as_lvalue(v, "operator ?:");
+      fire_error_cannot_be_used_as_lvalue(cur_f, v, "operator ?:");
     }
     parent::visit(v);
   }
@@ -97,52 +112,52 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
     parent::visit(v->get_expr());
   }
 
+  void visit(V<ast_is_type_operator> v) override {
+    if (v->is_lvalue) {
+      fire_error_cannot_be_used_as_lvalue(cur_f, v, v->is_negated ? "operator !is" : "operator is");
+    }
+    parent::visit(v->get_expr());
+  }
+
   void visit(V<ast_not_null_operator> v) override {
     // if `x!` is lvalue, then `x` is also lvalue, so check that `x` is ok
     parent::visit(v->get_expr());
   }
 
-  void visit(V<ast_is_null_check> v) override {
-    if (v->is_lvalue) {
-      fire_error_cannot_be_used_as_lvalue(v, v->is_negated ? "operator !=" : "operator ==");
-    }
-    parent::visit(v->get_expr());
-  }
-
   void visit(V<ast_int_const> v) override {
     if (v->is_lvalue) {
-      fire_error_cannot_be_used_as_lvalue(v, "literal");
+      fire_error_cannot_be_used_as_lvalue(cur_f, v, "literal");
     }
   }
 
   void visit(V<ast_string_const> v) override {
     if (v->is_lvalue) {
-      fire_error_cannot_be_used_as_lvalue(v, "literal");
+      fire_error_cannot_be_used_as_lvalue(cur_f, v, "literal");
     }
   }
 
   void visit(V<ast_bool_const> v) override {
     if (v->is_lvalue) {
-      fire_error_cannot_be_used_as_lvalue(v, "literal");
+      fire_error_cannot_be_used_as_lvalue(cur_f, v, "literal");
     }
   }
 
   void visit(V<ast_null_keyword> v) override {
     if (v->is_lvalue) {
-      fire_error_cannot_be_used_as_lvalue(v, "literal");
+      fire_error_cannot_be_used_as_lvalue(cur_f, v, "literal");
     }
   }
 
   void visit(V<ast_dot_access> v) override {
     // a reference to a method used as rvalue, like `var v = t.tupleAt`
     if (v->is_rvalue && v->is_target_fun_ref()) {
-      validate_function_used_as_noncall(v, std::get<FunctionPtr>(v->target));
+      validate_function_used_as_noncall(cur_f, v, std::get<FunctionPtr>(v->target));
     }
   }
 
   void visit(V<ast_function_call> v) override {
     if (v->is_lvalue) {
-      fire_error_cannot_be_used_as_lvalue(v, "function call");
+      fire_error_cannot_be_used_as_lvalue(cur_f, v, "function call");
     }
     if (!v->fun_maybe) {
       parent::visit(v->get_callee());
@@ -158,11 +173,18 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
     }
   }
 
+  void visit(V<ast_match_expression> v) override {
+    if (v->is_lvalue) {
+      fire_error_cannot_be_used_as_lvalue(cur_f, v, "`match` expression");
+    }
+    parent::visit(v);
+  }
+
   void visit(V<ast_local_var_lhs> v) override {
     if (v->marked_as_redef) {
       tolk_assert(v->var_ref);
       if (v->var_ref->is_immutable()) {
-        v->error("`redef` for immutable variable");
+        fire(cur_f, v->loc, "`redef` for immutable variable");
       }
     }
   }
@@ -171,23 +193,23 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
     if (v->is_lvalue) {
       tolk_assert(v->sym);
       if (LocalVarPtr var_ref = v->sym->try_as<LocalVarPtr>(); var_ref && var_ref->is_immutable()) {
-        fire_error_modifying_immutable_variable(v, var_ref);
+        fire_error_modifying_immutable_variable(cur_f, v, var_ref);
       } else if (v->sym->try_as<GlobalConstPtr>()) {
-        v->error("modifying immutable constant");
+        fire(cur_f, v->loc, "modifying immutable constant");
       } else if (v->sym->try_as<FunctionPtr>()) {
-        v->error("function can't be used as lvalue");
+        fire(cur_f, v->loc, "function can't be used as lvalue");
       }
     }
 
     // a reference to a function used as rvalue, like `var v = someFunction`
     if (FunctionPtr fun_ref = v->sym->try_as<FunctionPtr>(); fun_ref && v->is_rvalue) {
-      validate_function_used_as_noncall(v, fun_ref);
+      validate_function_used_as_noncall(cur_f, v, fun_ref);
     }
   }
 
   void visit(V<ast_underscore> v) override {
     if (v->is_rvalue) {
-      v->error("`_` can't be used as a value; it's a placeholder for a left side of assignment");
+      fire(cur_f, v->loc, "`_` can't be used as a value; it's a placeholder for a left side of assignment");
     }
   }
 
@@ -200,6 +222,12 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
 public:
   bool should_visit_function(FunctionPtr fun_ref) override {
     return fun_ref->is_code_function() && !fun_ref->is_generic_function();
+  }
+
+  void start_visiting_function(FunctionPtr fun_ref, V<ast_function_declaration> v_function) override {
+    cur_f = fun_ref;
+    parent::visit(v_function->get_body());
+    cur_f = nullptr;
   }
 };
 

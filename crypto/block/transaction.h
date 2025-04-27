@@ -17,6 +17,7 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
+#include "account-storage-stat.h"
 #include "common/refcnt.hpp"
 #include "common/refint.h"
 #include "vm/cells.h"
@@ -30,6 +31,7 @@
 #include "block/block.h"
 #include "block/mc-config.h"
 #include "precompiled-smc/PrecompiledSmartContract.h"
+#include "block/block-auto.h"
 
 namespace block {
 using td::Ref;
@@ -130,6 +132,7 @@ struct ComputePhaseConfig {
   PrecompiledContractsConfig precompiled_contracts;
   bool dont_run_precompiled_ = false;
   bool allow_external_unfreeze{false};
+  bool disable_anycast{false};
 
   ComputePhaseConfig() : gas_price(0), gas_limit(0), special_gas_limit(0), gas_credit(0) {
     compute_threshold();
@@ -172,6 +175,7 @@ struct ActionPhaseConfig {
   bool reserve_extra_enabled{false};
   bool extra_currency_v2{false};
   td::optional<td::Bits256> mc_blackhole_addr;
+  bool disable_anycast{false};
   const MsgPrices& fetch_msg_prices(bool is_masterchain) const {
     return is_masterchain ? fwd_mc : fwd_std;
   }
@@ -179,6 +183,8 @@ struct ActionPhaseConfig {
 
 struct SerializeConfig {
   bool extra_currency_v2{false};
+  bool disable_anycast{false};
+  bool store_storage_dict_hash{false};
 };
 
 struct CreditPhase {
@@ -252,12 +258,13 @@ struct Account {
   bool is_special{false};
   bool tick{false};
   bool tock{false};
-  bool split_depth_set_{false};
-  unsigned char split_depth_{0};
+  int fixed_prefix_length{0};
   int verbosity{3 * 0};
   ton::UnixTime now_{0};
   ton::WorkchainId workchain{ton::workchainInvalid};
-  td::BitArray<32> addr_rewrite;     // rewrite (anycast) data, split_depth bits
+  td::BitArray<32> addr_rewrite;     // rewrite (anycast) data, addr_rewrite_length bits
+  bool addr_rewrite_length_set{false};
+  unsigned char addr_rewrite_length{0};
   ton::StdSmcAddress addr;           // rewritten address (by replacing a prefix of `addr_orig` with `addr_rewrite`); it is the key in ShardAccounts
   ton::StdSmcAddress addr_orig;      // address indicated in smart-contract data (must coincide with hash of StateInit)
   Ref<vm::CellSlice> my_addr;        // address as stored in the smart contract (MsgAddressInt); corresponds to `addr_orig` + anycast info
@@ -266,8 +273,12 @@ struct Account {
   ton::LogicalTime last_trans_lt_;
   ton::Bits256 last_trans_hash_;
   ton::LogicalTime block_lt;
+
   ton::UnixTime last_paid;
-  vm::CellStorageStat storage_stat;
+  StorageUsed storage_used;
+  td::optional<td::Bits256> storage_dict_hash;
+  td::optional<AccountStorageStat> account_storage_stat;
+
   block::CurrencyCollection balance;
   td::RefInt256 due_payment;
   Ref<vm::Cell> orig_total_state;  // ^Account
@@ -280,9 +291,6 @@ struct Account {
   Account() = default;
   Account(ton::WorkchainId wc, td::ConstBitPtr _addr) : workchain(wc), addr(_addr) {
   }
-  Account(ton::WorkchainId wc, td::ConstBitPtr _addr, int depth)
-      : split_depth_set_(true), split_depth_((unsigned char)depth), workchain(wc), addr(_addr) {
-  }
   block::CurrencyCollection get_balance() const {
     return balance;
   }
@@ -290,7 +298,7 @@ struct Account {
   bool unpack(Ref<vm::CellSlice> account, ton::UnixTime now, bool special);
   bool init_new(ton::UnixTime now);
   bool deactivate();
-  bool recompute_tmp_addr(Ref<vm::CellSlice>& tmp_addr, int split_depth, td::ConstBitPtr orig_addr_rewrite) const;
+  bool recompute_tmp_addr(Ref<vm::CellSlice>& tmp_addr, int fixed_prefix_length, td::ConstBitPtr orig_addr_rewrite) const;
   td::RefInt256 compute_storage_fees(ton::UnixTime now, const std::vector<block::StoragePrices>& pricing) const;
   bool is_masterchain() const {
     return workchain == ton::masterchainId;
@@ -306,10 +314,10 @@ struct Account {
 
  protected:
   friend struct transaction::Transaction;
-  bool set_split_depth(int split_depth);
-  bool check_split_depth(int split_depth) const;
-  bool forget_split_depth();
-  bool init_rewrite_addr(int split_depth, td::ConstBitPtr orig_addr_rewrite);
+  bool set_addr_rewrite_length(int new_length);
+  bool check_addr_rewrite_length(int length) const;
+  bool forget_addr_rewrite_length();
+  bool init_rewrite_addr(int rewrite_length, td::ConstBitPtr orig_addr_rewrite);
 
  private:
   bool unpack_address(vm::CellSlice& addr_cs);
@@ -341,12 +349,15 @@ struct Transaction {
   bool was_created{false};
   bool bounce_enabled{false};
   bool in_msg_extern{false};
+  gen::CommonMsgInfo::Record_int_msg_info in_msg_info;
   bool use_msg_state{false};
   bool is_first{false};
   bool orig_addr_rewrite_set{false};
   bool new_tick;
   bool new_tock;
-  signed char new_split_depth{-1};
+  int new_fixed_prefix_length{-1};
+  int new_addr_rewrite_length{-1};
+  bool force_remove_anycast_address = false;
   ton::UnixTime now;
   int acc_status;
   int verbosity{3 * 0};
@@ -377,12 +388,14 @@ struct Transaction {
   std::unique_ptr<ComputePhase> compute_phase;
   std::unique_ptr<ActionPhase> action_phase;
   std::unique_ptr<BouncePhase> bounce_phase;
-  vm::CellStorageStat new_storage_stat;
+  StorageUsed new_storage_used;
+  td::optional<AccountStorageStat> new_account_storage_stat;
+  td::optional<td::Bits256> new_storage_dict_hash;
   bool gas_limit_overridden{false};
   Transaction(const Account& _account, int ttype, ton::LogicalTime req_start_lt, ton::UnixTime _now,
               Ref<vm::Cell> _inmsg = {});
   bool unpack_input_msg(bool ihr_delivered, const ActionPhaseConfig* cfg);
-  bool check_in_msg_state_hash();
+  bool check_in_msg_state_hash(const ComputePhaseConfig& cfg);
   bool prepare_storage_phase(const StoragePhaseConfig& cfg, bool force_collect = true, bool adjust_msg_value = false);
   bool prepare_credit_phase();
   td::uint64 gas_bought_for(const ComputePhaseConfig& cfg, td::RefInt256 nanograms);
@@ -418,13 +431,18 @@ struct Transaction {
   int try_action_reserve_currency(vm::CellSlice& cs, ActionPhase& ap, const ActionPhaseConfig& cfg);
   bool check_replace_src_addr(Ref<vm::CellSlice>& src_addr) const;
   bool check_rewrite_dest_addr(Ref<vm::CellSlice>& dest_addr, const ActionPhaseConfig& cfg,
-                               bool* is_mc = nullptr) const;
+                               bool* is_mc = nullptr, bool allow_anycast = true) const;
   bool serialize_storage_phase(vm::CellBuilder& cb);
   bool serialize_credit_phase(vm::CellBuilder& cb);
   bool serialize_compute_phase(vm::CellBuilder& cb);
   bool serialize_action_phase(vm::CellBuilder& cb);
   bool serialize_bounce_phase(vm::CellBuilder& cb);
   bool unpack_msg_state(const ComputePhaseConfig& cfg, bool lib_only = false, bool forbid_public_libs = false);
+
+ public:
+  static Ref<vm::Tuple> prepare_in_msg_params_tuple(const gen::CommonMsgInfo::Record_int_msg_info* info,
+                                                    const Ref<vm::Cell>& state_init,
+                                                    const CurrencyCollection& msg_balance_remaining);
 };
 }  // namespace transaction
 

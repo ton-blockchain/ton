@@ -156,6 +156,10 @@ class McShardHashI : public td::CntObject {
   virtual bool before_merge() const = 0;
 };
 
+struct StorageUsed {
+  td::uint64 cells = 0, bits = 0;
+};
+
 struct McShardHash : public McShardHashI {
   ton::BlockIdExt blk_;
   ton::LogicalTime start_lt_, end_lt_;
@@ -336,7 +340,7 @@ struct StoragePrices {
       , mc_cell_price(_mc_cprice) {
   }
   static td::RefInt256 compute_storage_fees(ton::UnixTime now, const std::vector<block::StoragePrices>& pricing,
-                                            const vm::CellStorageStat& storage_stat, ton::UnixTime last_paid,
+                                            const StorageUsed& storage_used, ton::UnixTime last_paid,
                                             bool is_special, bool is_masterchain);
 };
 
@@ -398,6 +402,7 @@ struct SizeLimitsConfig {
   td::uint32 max_acc_public_libraries = 256;
   td::uint32 defer_out_queue_size_limit = 256;
   td::uint32 max_msg_extra_currencies = 2;
+  td::uint32 max_acc_fixed_prefix_length = 8;
 };
 
 struct CatchainValidatorsConfig {

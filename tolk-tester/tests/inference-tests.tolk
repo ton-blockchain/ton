@@ -75,7 +75,7 @@ fun test5(x: int) {
     __expect_type([x, x >= 1], "[int, bool]");
     __expect_type([x, x >= 1, null as slice?], "[int, bool, slice?]");
     __expect_type((x, [x], [[x], x]), "(int, [int], [[int], int])");
-    __expect_type(getMyOriginalBalanceWithExtraCurrencies(), "[int, cell?]");
+    __expect_type(getMyOriginalBalanceWithExtraCurrencies(), "[int, dict]");
 }
 
 fun test6() {

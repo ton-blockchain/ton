@@ -874,7 +874,32 @@ bool Op::mark_noreturn() {
       return set_noreturn();
     case _Call:
       return set_noreturn(next->mark_noreturn() || does_function_always_throw(f_sym));
-    case _If:
+    case _If: {
+      // this very-not-beautiful code does the following:
+      // replace `if (cond) { return; } else { block1; } next;` with `if (cond) { return; } block1; next`
+      // purpose: to make code like `if (...) { ... return; } else if (...) { ... return; } ...` act like without else
+      // similarly, `match (...) { v1 => { ... return; } ...}` is internally transformed to IF-ELSE
+      // (that's why such transformation is done at IR level, not in AST)
+      // without these code (without else removed), extra RETALT instructions are inserted, not necessary actually
+      // implementation is UGLY, because currently there is no way to perform IR replacements
+      // in the future, anyway, IR implementation should be rewritten, for easier traversing and replacement
+      // btw, now it doesn't work with `if (!...)` (v->is_ifnot), else "keyword" is not removed
+      if (block0->mark_noreturn() && !block1->is_empty()) {
+        VarDescrList block1_var_info = block1->var_info;  // important to keep it
+        Op* last_in_block1 = block1.get();
+        while (last_in_block1->next->cl != Op::_Nop) {    // find the tail of a forward list of Ops
+          last_in_block1 = last_in_block1->next.get();
+        }
+        last_in_block1->next = std::move(next);
+        next = std::move(block1);
+        block1 = std::make_unique<Op>(where, Op::_Nop);
+        block1->var_info = std::move(block1_var_info);
+      } else {
+        block1->mark_noreturn();
+      }
+      bool next_noreturn = next->mark_noreturn();
+      return set_noreturn((block0->noreturn() && block1->noreturn()) || next_noreturn);
+    }
     case _TryCatch:
       // note, that & | (not && ||) here and below is mandatory to invoke both left and right calls
       return set_noreturn((static_cast<int>(block0->mark_noreturn()) & static_cast<int>(block1 && block1->mark_noreturn())) | static_cast<int>(next->mark_noreturn()));

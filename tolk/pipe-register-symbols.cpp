@@ -133,6 +133,13 @@ static void register_global_var(V<ast_global_var_declaration> v) {
   v->mutate()->assign_var_ref(g_sym);
 }
 
+static void register_type_alias(V<ast_type_alias_declaration> v) {
+  AliasDefData* a_sym = new AliasDefData(static_cast<std::string>(v->get_identifier()->name), v->loc, v->underlying_type);
+
+  G.symtable.add_type_alias(a_sym);
+  v->mutate()->assign_alias_ref(a_sym);
+}
+
 static LocalVarData register_parameter(V<ast_parameter> v, int idx) {
   if (v->is_underscore()) {
     return {"", v->loc, v->declared_type, 0, idx};
@@ -183,7 +190,7 @@ static void register_function(V<ast_function_declaration> v) {
     std::cerr << "fun " << func_name << " : " << v->declared_return_type << std::endl;
   }
 
-  FunctionBody f_body = v->get_body()->type == ast_sequence ? static_cast<FunctionBody>(new FunctionBodyCode) : static_cast<FunctionBody>(new FunctionBodyAsm);
+  FunctionBody f_body = v->get_body()->type == ast_block_statement ? static_cast<FunctionBody>(new FunctionBodyCode) : static_cast<FunctionBody>(new FunctionBodyAsm);
   FunctionData* f_sym = new FunctionData(static_cast<std::string>(func_name), v->loc, v->declared_return_type, std::move(parameters), 0, genericTs, nullptr, f_body, v);
 
   if (const auto* v_asm = v->get_body()->try_as<ast_asm_body>()) {
@@ -237,6 +244,9 @@ static void iterate_through_file_symbols(const SrcFile* file) {
         break;
       case ast_global_var_declaration:
         register_global_var(v->as<ast_global_var_declaration>());
+        break;
+      case ast_type_alias_declaration:
+        register_type_alias(v->as<ast_type_alias_declaration>());
         break;
       case ast_function_declaration:
         register_function(v->as<ast_function_declaration>());
