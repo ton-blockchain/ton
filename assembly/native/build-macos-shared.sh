@@ -66,7 +66,6 @@ brew install openssl@3
 brew unlink openssl@3 &&  brew link --overwrite openssl@3
 
 cmake -GNinja -DCMAKE_BUILD_TYPE=Release .. \
--DCMAKE_CXX_FLAGS="-stdlib=libc++" \
 -DLZ4_FOUND=1 \
 -DLZ4_LIBRARIES=$lz4Path/lib/liblz4.a \
 -DLZ4_INCLUDE_DIRS=$lz4Path/lib
