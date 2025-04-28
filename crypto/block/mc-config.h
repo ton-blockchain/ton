@@ -156,6 +156,10 @@ class McShardHashI : public td::CntObject {
   virtual bool before_merge() const = 0;
 };
 
+struct StorageUsed {
+  td::uint64 cells = 0, bits = 0;
+};
+
 struct McShardHash : public McShardHashI {
   ton::BlockIdExt blk_;
   ton::LogicalTime start_lt_, end_lt_;
@@ -336,7 +340,7 @@ struct StoragePrices {
       , mc_cell_price(_mc_cprice) {
   }
   static td::RefInt256 compute_storage_fees(ton::UnixTime now, const std::vector<block::StoragePrices>& pricing,
-                                            const vm::CellStorageStat& storage_stat, ton::UnixTime last_paid,
+                                            const StorageUsed& storage_used, ton::UnixTime last_paid,
                                             bool is_special, bool is_masterchain);
 };
 
@@ -398,6 +402,7 @@ struct SizeLimitsConfig {
   td::uint32 max_acc_public_libraries = 256;
   td::uint32 defer_out_queue_size_limit = 256;
   td::uint32 max_msg_extra_currencies = 2;
+  td::uint32 max_acc_fixed_prefix_length = 8;
 };
 
 struct CatchainValidatorsConfig {
@@ -559,7 +564,7 @@ class Config {
   td::BitArray<256> config_addr;
   Ref<vm::Cell> config_root;
   std::unique_ptr<vm::Dictionary> config_dict;
-  std::unique_ptr<ValidatorSet> cur_validators_;
+  std::shared_ptr<ValidatorSet> cur_validators_;
   std::unique_ptr<vm::Dictionary> workchains_dict_;
   WorkchainSet workchains_;
   int version_{-1};
@@ -623,7 +628,7 @@ class Config {
   bool set_block_id_ext(const ton::BlockIdExt& block_id_ext);
   td::Result<std::vector<ton::StdSmcAddress>> get_special_smartcontracts(bool without_config = false) const;
   bool is_special_smartcontract(const ton::StdSmcAddress& addr) const;
-  static td::Result<std::unique_ptr<ValidatorSet>> unpack_validator_set(Ref<vm::Cell> valset_root);
+  static td::Result<std::shared_ptr<ValidatorSet>> unpack_validator_set(Ref<vm::Cell> valset_root, bool use_cache = false);
   td::Result<std::vector<StoragePrices>> get_storage_prices() const;
   static td::Result<StoragePrices> do_get_one_storage_prices(vm::CellSlice cs);
   td::Result<GasLimitsPrices> get_gas_limits_prices(bool is_masterchain = false) const;

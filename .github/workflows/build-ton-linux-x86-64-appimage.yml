@@ -4,7 +4,7 @@ on: [push,workflow_dispatch,workflow_call]
 
 jobs:
   build:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
 
     steps:
     - name: Check out repository
@@ -12,23 +12,44 @@ jobs:
       with:      
         submodules: 'recursive'
 
+    - name: Date Stamp
+      shell: bash
+      id: date-stamp
+      run: |
+        echo "timestamp=$(date -u "+%Y%m%d%H%M_%S")" >> "$GITHUB_OUTPUT"
+
     - name: Install system libraries
       run: |
         sudo apt update
-        sudo apt install -y build-essential git cmake ninja-build zlib1g-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev liblz4-dev
+        sudo apt install -y build-essential git cmake ninja-build zlib1g-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev liblz4-dev ccache
         sudo apt remove libgsl-dev
-
-    - name: Install gcc-11 g++-11
-      run: |
-        sudo apt install -y manpages-dev software-properties-common
-        sudo add-apt-repository ppa:ubuntu-toolchain-r/test
-        sudo apt update && sudo apt install gcc-11 g++-11
+        mkdir ~/.ccache 3pp
 
     - name: Install clang-16
       run: |
         wget https://apt.llvm.org/llvm.sh
         chmod +x llvm.sh
-        sudo ./llvm.sh 16 all
+        sudo ./llvm.sh 16 clang
+
+    - name: Cache 3pp
+      id: cache-3pp
+      uses: actions/cache@v4
+      with:
+        path: 3pp
+        key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-3pp-${{ hashFiles('**/assembly/native/build-ubuntu-appimages.sh') }}
+
+    - name: Cache OpenSSL
+      id: cache-openssl
+      uses: actions/cache@v4
+      with:
+        path: openssl_3
+        key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-openssl_3-${{ hashFiles('**/assembly/native/build-ubuntu-appimages.sh') }}
+
+    - name: Restore cache TON
+      uses: actions/cache/restore@v4
+      with:
+        path: ~/.ccache
+        key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-portable-ccache
 
     - name: Build TON
       run: |
@@ -36,7 +57,14 @@ jobs:
         git submodule update
         cp assembly/native/build-ubuntu-appimages.sh .
         chmod +x build-ubuntu-appimages.sh
-        ./build-ubuntu-appimages.sh -a
+        ./build-ubuntu-appimages.sh -a -c
+        ccache -sp
+
+    - name: Save cache TON
+      uses: actions/cache/save@v4
+      with:
+        path: ~/.ccache
+        key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-portable-ccache-${{ steps.date-stamp.outputs.timestamp }}
 
     - name: Make AppImages
       run: |
@@ -47,12 +75,18 @@ jobs:
         ./create-appimages.sh x86_64
         rm -rf artifacts
 
+    - name: Save/Restore cache TON libs
+      uses: actions/cache@v4
+      with:
+        path: ~/.ccache
+        key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-portable-libs-ccache-${{ steps.date-stamp.outputs.timestamp }}
+        restore-keys: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-portable-libs-ccache
 
     - name: Build TON libs
       run: |
         cp assembly/native/build-ubuntu-portable-libs.sh .
         chmod +x build-ubuntu-portable-libs.sh
-        ./build-ubuntu-portable-libs.sh -a
+        ./build-ubuntu-portable-libs.sh -a -c
         cp ./artifacts/libtonlibjson.so appimages/artifacts/
         cp ./artifacts/libemulator.so appimages/artifacts/
 

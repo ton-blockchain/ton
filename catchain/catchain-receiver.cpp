@@ -528,6 +528,7 @@ void CatChainReceiverImpl::start_up() {
   }
   overlay::OverlayOptions overlay_options;
   overlay_options.broadcast_speed_multiplier_ = opts_.broadcast_speed_multiplier;
+  overlay_options.private_ping_peers_ = true;
   td::actor::send_closure(overlay_manager_, &overlay::Overlays::create_private_overlay_ex,
                           get_source(local_idx_)->get_adnl_id(), overlay_full_id_.clone(), std::move(ids),
                           make_callback(), overlay::OverlayPrivacyRules{0, 0, std::move(root_keys)},

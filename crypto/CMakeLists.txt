@@ -70,7 +70,6 @@ set(TON_CRYPTO_CORE_SOURCE
   vm/cells/CellString.h
   vm/cells/CellTraits.h
   vm/cells/CellUsageTree.h
-  vm/cells/CellWithStorage.h
   vm/cells/DataCell.h
   vm/cells/ExtCell.h
   vm/cells/LevelMask.h
@@ -142,6 +141,7 @@ set(TON_CRYPTO_SOURCE
 
 set(TON_DB_SOURCE
   vm/db/DynamicBagOfCellsDb.cpp
+  vm/db/DynamicBagOfCellsDbV2.cpp
   vm/db/CellStorage.cpp
   vm/db/TonDb.cpp
 
@@ -212,6 +212,8 @@ set(BLOCK_SOURCE
   block/mc-config.cpp
   block/output-queue-merger.cpp
   block/transaction.cpp
+  block/account-storage-stat.h
+  block/account-storage-stat.cpp
   block/precompiled-smc/PrecompiledSmartContract.cpp
   ${TLB_BLOCK_AUTO}
 
@@ -539,7 +541,7 @@ target_include_directories(create-state PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT
 if (INTERNAL_COMPILE)
   target_link_libraries(create-state PUBLIC ton_crypto fift-lib tonlib git)
 else()
-  if (TONLIB_COMPILE) 
+  if (TONLIB_COMPILE)
     target_link_libraries(create-state PUBLIC ton_crypto fift-lib tonlib git)
   else()
     target_link_libraries(create-state PUBLIC ton_crypto fift-lib git)

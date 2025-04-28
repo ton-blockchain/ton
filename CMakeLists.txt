@@ -29,56 +29,6 @@ if (TON_REAL_BINARY_DIR STREQUAL TON_REAL_SOURCE_DIR)
   message(FATAL_ERROR "In-source build failed.")
 endif()
 
-# HAVE_SSE42 for crc32c and rocksdb
-include(CheckCXXSourceCompiles)
-# Check for SSE4.2 support in the compiler.
-set(OLD_CMAKE_REQURED_FLAGS ${CMAKE_REQUIRED_FLAGS})
-if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-  set(CMAKE_REQUIRED_FLAGS "${CMAKE_REQUIRED_FLAGS} /arch:AVX")
-else(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-  set(CMAKE_REQUIRED_FLAGS "${CMAKE_REQUIRED_FLAGS} -msse4.2")
-endif(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-check_cxx_source_compiles("
-#if defined(_MSC_VER)
-#include <intrin.h>
-#else  // !defined(_MSC_VER)
-#include <cpuid.h>
-#include <nmmintrin.h>
-#endif  // defined(_MSC_VER)
-
-int main() {
-  _mm_crc32_u8(0, 0); _mm_crc32_u32(0, 0);
-#if defined(_M_X64) || defined(__x86_64__)
-   _mm_crc32_u64(0, 0);
-#endif // defined(_M_X64) || defined(__x86_64__)
-  return 0;
-}
-"  CRC32C_HAVE_SSE42)
-set(CMAKE_REQUIRED_FLAGS ${OLD_CMAKE_REQURED_FLAGS})
-
-if(NOT MSVC)
-  set(CMAKE_REQUIRED_FLAGS "-msse4.2 -mpclmul")
-endif()
-CHECK_CXX_SOURCE_COMPILES("
-#include <cstdint>
-#include <nmmintrin.h>
-#include <wmmintrin.h>
-int main() {
-  volatile uint32_t x = _mm_crc32_u32(0, 0);
-  const auto a = _mm_set_epi64x(0, 0);
-  const auto b = _mm_set_epi64x(0, 0);
-  const auto c = _mm_clmulepi64_si128(a, b, 0x00);
-  auto d = _mm_cvtsi128_si64(c);
-}
-" ROCKSDB_HAVE_SSE42)
-unset(CMAKE_REQUIRED_FLAGS)
-
-if (ROCKSDB_HAVE_SSE42 AND CRC32C_HAVE_SSE42)
-  set(HAVE_SSE42 TRUE)
-else()
-  set(HAVE_SSE42 FALSE)
-endif()
-
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
 set(CMAKE_CXX_EXTENSIONS FALSE)
@@ -127,9 +77,12 @@ endif()
 
 if (WIN32)
   message("Add wingetopt")
-  add_subdirectory(third-party/wingetopt EXCLUDE_FROM_ALL)
+  function(wingetopt_scope)
+    set(CMAKE_POLICY_VERSION_MINIMUM "3.10")
+    add_subdirectory(third-party/wingetopt EXCLUDE_FROM_ALL)
+  endfunction()
+  wingetopt_scope()
   set(WINGETOPT_FOUND 1)
-  message(STATUS "Use wingetopt")
 endif()
 
 set(CRC32C_BUILD_TESTS OFF CACHE BOOL "Build CRC32C's unit tests")
@@ -137,16 +90,15 @@ set(CRC32C_BUILD_BENCHMARKS OFF CACHE BOOL "Build CRC32C's benchmarks")
 set(CRC32C_USE_GLOG OFF CACHE BOOL "Build CRC32C's tests with Google Logging")
 set(CRC32C_INSTALL OFF CACHE BOOL "Install CRC32C's header and library")
 message("Add crc32c")
-if (NOT MSVC)
-  set(OLD_CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS})
-  # fix aarch64 build @ crc32c/src/crc32c_arm64_linux_check.h
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=address")
+function(crc32_scope)
+  set(CMAKE_POLICY_VERSION_MINIMUM "3.10")
+  if (NOT MSVC)
+    # fix aarch64 build @ crc32c/src/crc32c_arm64_linux_check.h
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=address")
+  endif()
   add_subdirectory(third-party/crc32c EXCLUDE_FROM_ALL)
-  set(CMAKE_CXX_FLAGS ${OLD_CMAKE_CXX_FLAGS})
-  unset(OLD_CMAKE_CXX_FLAGS)
-else()
-  add_subdirectory(third-party/crc32c EXCLUDE_FROM_ALL)
-endif()
+endfunction()
+crc32_scope()
 set(CRC32C_FOUND 1)
 
 if (TON_USE_ROCKSDB)
@@ -156,6 +108,7 @@ if (TON_USE_ROCKSDB)
   set(WITH_GFLAGS OFF CACHE BOOL "build with GFlags")
   set(WITH_TESTS OFF CACHE BOOL "build with tests")
   set(WITH_TOOLS OFF CACHE BOOL "build with tools")
+  set(USE_RTTI ON CACHE BOOL "use rtti")
   set(FAIL_ON_WARNINGS OFF CACHE BOOL "fail on warnings")
   message("Add rocksdb")
   add_subdirectory(third-party/rocksdb EXCLUDE_FROM_ALL)

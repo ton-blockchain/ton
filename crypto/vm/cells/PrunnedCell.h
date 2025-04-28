@@ -17,8 +17,8 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "vm/cells/CellWithStorage.h"
-#include "vm/cells/Cell.h"
+
+#include "vm/cells/DataCell.h"
 
 namespace vm {
 struct PrunnedCellInfo {
@@ -28,7 +28,7 @@ struct PrunnedCellInfo {
 };
 
 template <class ExtraT>
-class PrunnedCell : public Cell {
+class PrunnedCell final : public Cell {
  public:
   ExtraT& get_extra() {
     return extra_;
@@ -37,22 +37,33 @@ class PrunnedCell : public Cell {
     return extra_;
   }
 
-  static td::Result<Ref<PrunnedCell<ExtraT>>> create(const PrunnedCellInfo& prunned_cell_info, ExtraT&& extra) {
-    return create(detail::DefaultAllocator<PrunnedCell<ExtraT>>(), prunned_cell_info, std::forward<ExtraT>(extra));
+  void operator delete(PrunnedCell* ptr, std::destroying_delete_t) {
+    bool allocated_in_arena = ptr->info_.allocated_in_arena_;
+    ptr->~PrunnedCell();
+    if (!allocated_in_arena) {
+      ::operator delete(ptr);
+    }
   }
 
-  template <class AllocatorT>
-  static td::Result<Ref<PrunnedCell<ExtraT>>> create(AllocatorT allocator, const PrunnedCellInfo& prunned_cell_info,
-                                                     ExtraT&& extra) {
+  static td::Result<Ref<PrunnedCell<ExtraT>>> create(const PrunnedCellInfo& prunned_cell_info, ExtraT&& extra) {
+    auto allocator = [](size_t bytes) { return ::operator new(bytes); };
+    return create(allocator, true, prunned_cell_info, std::move(extra));
+  }
+
+  template <typename AllocatorFunc>
+  static td::Result<Ref<PrunnedCell<ExtraT>>> create(AllocatorFunc&& allocator, bool should_free,
+                                                     const PrunnedCellInfo& prunned_cell_info, ExtraT&& extra) {
     auto level_mask = prunned_cell_info.level_mask;
     if (level_mask.get_level() > max_level) {
       return td::Status::Error("Level is too big");
     }
     Info info(level_mask);
-    auto prunned_cell =
-        detail::CellWithArrayStorage<PrunnedCell<ExtraT>>::create(allocator, info.get_storage_size(), info, std::move(extra));
-    TRY_STATUS(prunned_cell->init(prunned_cell_info));
-    return Ref<PrunnedCell<ExtraT>>(prunned_cell.release(), typename Ref<PrunnedCell<ExtraT>>::acquire_t{});
+
+    auto storage = allocator(sizeof(PrunnedCell) + info.get_storage_size());
+    auto* result = new (storage) PrunnedCell{info, std::move(extra)};
+    result->info_.allocated_in_arena_ = !should_free;
+    TRY_STATUS(result->init(prunned_cell_info));
+    return Ref<PrunnedCell<ExtraT>>(result, typename Ref<PrunnedCell<ExtraT>>::acquire_t{});
   }
 
   LevelMask get_level_mask() const override {
@@ -68,6 +79,7 @@ class PrunnedCell : public Cell {
     }
     unsigned char level_mask_ : 3;
     unsigned char hash_count_ : 3;
+    unsigned char allocated_in_arena_ : 1;
     size_t get_hashes_offset() const {
       return 0;
     }
@@ -93,16 +105,10 @@ class PrunnedCell : public Cell {
 
   Info info_;
   ExtraT extra_;
-  virtual char* get_storage() = 0;
-  virtual const char* get_storage() const = 0;
-  void destroy_storage(char* storage) {
-    // noop
-  }
 
   td::Status init(const PrunnedCellInfo& prunned_cell_info) {
-    auto storage = get_storage();
     auto& new_hash = prunned_cell_info.hash;
-    auto* hash = info_.get_hashes(storage);
+    auto* hash = info_.get_hashes(trailer_);
     size_t n = prunned_cell_info.level_mask.get_hashes_count();
     CHECK(new_hash.size() == n * hash_bytes);
     for (td::uint32 i = 0; i < n; i++) {
@@ -111,7 +117,7 @@ class PrunnedCell : public Cell {
 
     auto& new_depth = prunned_cell_info.depth;
     CHECK(new_depth.size() == n * depth_bytes);
-    auto* depth = info_.get_depth(storage);
+    auto* depth = info_.get_depth(trailer_);
     for (td::uint32 i = 0; i < n; i++) {
       depth[i] = DataCell::load_depth(new_depth.substr(i * Cell::depth_bytes, Cell::depth_bytes).ubegin());
       if (depth[i] > max_depth) {
@@ -135,15 +141,21 @@ class PrunnedCell : public Cell {
 
  private:
   const Hash do_get_hash(td::uint32 level) const override {
-    return info_.get_hashes(get_storage())[get_level_mask().apply(level).get_hash_i()];
+    return info_.get_hashes(trailer_)[get_level_mask().apply(level).get_hash_i()];
   }
 
   td::uint16 do_get_depth(td::uint32 level) const override {
-    return info_.get_depth(get_storage())[get_level_mask().apply(level).get_hash_i()];
+    return info_.get_depth(trailer_)[get_level_mask().apply(level).get_hash_i()];
+  }
+
+  td::Status set_data_cell(Ref<DataCell> &&data_cell) const override {
+    return td::Status::OK();
   }
 
   td::Result<LoadedCell> load_cell() const override {
     return td::Status::Error("Can't load prunned branch");
   }
+
+  char trailer_[];
 };
 }  // namespace vm

@@ -1414,6 +1414,9 @@ td::Status ValidatorEngine::load_global_config() {
   if (zero_state.root_hash.is_zero() || zero_state.file_hash.is_zero()) {
     return td::Status::Error(ton::ErrorCode::error, "[validator] section contains incomplete [zero_state]");
   }
+  if (celldb_in_memory_ && celldb_v2_) {
+    return td::Status::Error(ton::ErrorCode::error, "at most one of --celldb-in-memory --celldb-v2 could be used");
+  }
 
   ton::BlockIdExt init_block;
   if (!conf.validator_->init_block_) {
@@ -1466,6 +1469,8 @@ td::Status ValidatorEngine::load_global_config() {
   }
   validator_options_.write().set_celldb_compress_depth(celldb_compress_depth_);
   validator_options_.write().set_celldb_in_memory(celldb_in_memory_);
+  validator_options_.write().set_celldb_v2(celldb_v2_);
+  validator_options_.write().set_celldb_disable_bloom_filter(celldb_disable_bloom_filter_);
   validator_options_.write().set_max_open_archive_files(max_open_archive_files_);
   validator_options_.write().set_archive_preload_period(archive_preload_period_);
   validator_options_.write().set_disable_rocksdb_stats(disable_rocksdb_stats_);
@@ -4355,7 +4360,7 @@ int main(int argc, char *argv[]) {
     acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_max_mempool_num, v); });
     return td::Status::OK();
   });
-  p.add_checked_option('b', "block-ttl", "blocks will be gc'd after this time (in seconds) default=86400",
+  p.add_checked_option('b', "block-ttl", "deprecated",
                        [&](td::Slice fname) {
                          auto v = td::to_double(fname);
                          if (v <= 0) {
@@ -4365,7 +4370,9 @@ int main(int argc, char *argv[]) {
                          return td::Status::OK();
                        });
   p.add_checked_option(
-      'A', "archive-ttl", "archived blocks will be deleted after this time (in seconds) default=7*86400",
+      'A', "archive-ttl",
+      "ttl for archived blocks (in seconds) default=7*86400. Note: archived blocks are gc'd after state-ttl + "
+      "archive-ttl seconds",
       [&](td::Slice fname) {
         auto v = td::to_double(fname);
         if (v <= 0) {
@@ -4375,7 +4382,7 @@ int main(int argc, char *argv[]) {
         return td::Status::OK();
       });
   p.add_checked_option(
-      'K', "key-proof-ttl", "key blocks will be deleted after this time (in seconds) default=365*86400*10",
+      'K', "key-proof-ttl", "deprecated",
       [&](td::Slice fname) {
         auto v = td::to_double(fname);
         if (v <= 0) {
@@ -4526,6 +4533,18 @@ int main(int argc, char *argv[]) {
       [&]() {
         acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_celldb_in_memory, true); });
       });
+  p.add_option(
+      '\0', "celldb-v2",
+      "use new version off celldb",
+      [&]() {
+        acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_celldb_v2, true); });
+      });
+  p.add_option(
+      '\0', "celldb-disable-bloom-filter",
+      "disable using bloom filter in CellDb. Enabled bloom filter reduces read latency, but increases memory usage", 
+      [&]() {
+        acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_celldb_disable_bloom_filter, true); });
+      });
   p.add_checked_option(
       '\0', "catchain-max-block-delay", "delay before creating a new catchain block, in seconds (default: 0.4)",
       [&](td::Slice s) -> td::Status {
@@ -4569,7 +4588,7 @@ int main(int argc, char *argv[]) {
       });
   p.add_checked_option(
       '\0', "broadcast-speed-catchain",
-      "multiplier for broadcast speed in catchain overlays (experimental, default is 1.0, which is ~300 KB/s)",
+      "multiplier for broadcast speed in catchain overlays (experimental, default is 3.33, which is ~1 MB/s)",
       [&](td::Slice s) -> td::Status {
         auto v = td::to_double(s);
         if (v <= 0.0) {
@@ -4581,7 +4600,7 @@ int main(int argc, char *argv[]) {
       });
   p.add_checked_option(
       '\0', "broadcast-speed-public",
-      "multiplier for broadcast speed in public shard overlays (experimental, default is 1.0, which is ~300 KB/s)",
+      "multiplier for broadcast speed in public shard overlays (experimental, default is 3.33, which is ~1 MB/s)",
       [&](td::Slice s) -> td::Status {
         auto v = td::to_double(s);
         if (v <= 0.0) {
@@ -4593,7 +4612,7 @@ int main(int argc, char *argv[]) {
       });
   p.add_checked_option(
       '\0', "broadcast-speed-private",
-      "multiplier for broadcast speed in private block overlays (experimental, default is 1.0, which is ~300 KB/s)",
+      "multiplier for broadcast speed in private block overlays (experimental, default is 3.33, which is ~1 MB/s)",
       [&](td::Slice s) -> td::Status {
         auto v = td::to_double(s);
         if (v <= 0.0) {

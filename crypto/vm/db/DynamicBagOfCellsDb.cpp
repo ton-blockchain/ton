@@ -66,19 +66,27 @@ struct CellInfo {
 
   struct Eq {
     using is_transparent = void;  // Pred to use
-    bool operator()(const CellInfo &info, const CellInfo &other_info) const { return info.key() == other_info.key();}
-    bool operator()(const CellInfo &info, td::Slice hash) const { return info.key().as_slice() == hash;}
-    bool operator()(td::Slice hash, const CellInfo &info) const { return info.key().as_slice() == hash;}
-
+    bool operator()(const CellInfo &info, const CellInfo &other_info) const {
+      return info.key() == other_info.key();
+    }
+    bool operator()(const CellInfo &info, td::Slice hash) const {
+      return info.key().as_slice() == hash;
+    }
+    bool operator()(td::Slice hash, const CellInfo &info) const {
+      return info.key().as_slice() == hash;
+    }
   };
   struct Hash {
     using is_transparent = void;  // Pred to use
     using transparent_key_equal = Eq;
-    size_t operator()(td::Slice hash) const { return cell_hash_slice_hash(hash); }
-    size_t operator()(const CellInfo &info) const { return cell_hash_slice_hash(info.key().as_slice());}
+    size_t operator()(td::Slice hash) const {
+      return cell_hash_slice_hash(hash);
+    }
+    size_t operator()(const CellInfo &info) const {
+      return cell_hash_slice_hash(info.key().as_slice());
+    }
   };
 };
-
 bool operator<(const CellInfo &a, td::Slice b) {
   return a.key().as_slice() < b;
 }
@@ -99,6 +107,36 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
   td::Result<Ref<Cell>> ext_cell(Cell::LevelMask level_mask, td::Slice hash, td::Slice depth) override {
     return get_cell_info_lazy(level_mask, hash, depth).cell;
   }
+  td::Result<std::vector<std::pair<std::string, std::string>>> meta_get_all(size_t max_count) const override {
+    std::vector<std::pair<std::string, std::string>> result;
+    auto s = loader_->key_value_reader().for_each_in_range("desc", "desd",
+                                                           [&](const td::Slice &key, const td::Slice &value) {
+                                                             if (result.size() >= max_count) {
+                                                               return td::Status::Error("COUNT_LIMIT");
+                                                             }
+                                                             if (td::begins_with(key, "desc") && key.size() != 32) {
+                                                               result.emplace_back(key.str(), value.str());
+                                                             }
+                                                             return td::Status::OK();
+                                                           });
+    if (s.message() == "COUNT_LIMIT") {
+      s = td::Status::OK();
+    }
+    TRY_STATUS(std::move(s));
+    return result;
+  }
+  td::Result<KeyValue::GetStatus> meta_get(td::Slice key, std::string &value) override {
+    return loader_->key_value_reader().get(key, value);
+  }
+  td::Status meta_set(td::Slice key, td::Slice value) override {
+    meta_diffs_.push_back(
+        CellStorer::MetaDiff{.type = CellStorer::MetaDiff::Set, .key = key.str(), .value = value.str()});
+    return td::Status::OK();
+  }
+  td::Status meta_erase(td::Slice key) override {
+    meta_diffs_.push_back(CellStorer::MetaDiff{.type = CellStorer::MetaDiff::Erase, .key = key.str()});
+    return td::Status::OK();
+  }
   td::Result<Ref<DataCell>> load_cell(td::Slice hash) override {
     auto info = hash_table_.get_if_exists(hash);
     if (info && info->sync_with_db) {
@@ -115,6 +153,18 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
   }
   td::Result<Ref<DataCell>> load_root(td::Slice hash) override {
     return load_cell(hash);
+  }
+  td::Result<std::vector<Ref<DataCell>>> load_bulk(td::Span<td::Slice> hashes) override {
+    std::vector<Ref<DataCell>> result;
+    result.reserve(hashes.size());
+    for (auto &hash : hashes) {
+      auto cell = load_cell(hash);
+      if (cell.is_error()) {
+        return cell.move_as_error();
+      }
+      result.push_back(cell.move_as_ok());
+    }
+    return result;
   }
   td::Result<Ref<DataCell>> load_root_thread_safe(td::Slice hash) const override {
     return td::Status::Error("Not implemented");
@@ -198,21 +248,29 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
     if (is_prepared_for_commit()) {
       return td::Status::OK();
     }
+    td::PerfWarningTimer timer_dfs_new_cells_in_db("dfs_new_cells_in_db");
     for (auto &new_cell : to_inc_) {
       auto &new_cell_info = get_cell_info(new_cell);
       dfs_new_cells_in_db(new_cell_info);
     }
+    timer_dfs_new_cells_in_db.reset();
+    td::PerfWarningTimer timer_dfs_new_cells("dfs_new_cells");
     for (auto &new_cell : to_inc_) {
       auto &new_cell_info = get_cell_info(new_cell);
       dfs_new_cells(new_cell_info);
     }
+    timer_dfs_new_cells.reset();
 
+    td::PerfWarningTimer timer_dfs_old_cells("dfs_old_cells");
     for (auto &old_cell : to_dec_) {
       auto &old_cell_info = get_cell_info(old_cell);
       dfs_old_cells(old_cell_info);
     }
+    timer_dfs_old_cells.reset();
 
+    td::PerfWarningTimer timer_save_diff_prepare("save_diff_prepare");
     save_diff_prepare();
+    timer_save_diff_prepare.reset();
 
     to_inc_.clear();
     to_dec_.clear();
@@ -222,6 +280,7 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
 
   td::Status commit(CellStorer &storer) override {
     prepare_commit();
+    td::PerfWarningTimer times_save_diff("save diff", 0.01);
     save_diff(storer);
     // Some elements are erased from hash table, to keep it small.
     // Hash table is no longer represents the difference between the loader and
@@ -249,7 +308,7 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
     celldb_compress_depth_ = value;
   }
 
-  vm::ExtCellCreator& as_ext_cell_creator() override {
+  vm::ExtCellCreator &as_ext_cell_creator() override {
     return *this;
   }
 
@@ -259,6 +318,7 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
   std::vector<Ref<Cell>> to_dec_;
   CellHashTable<CellInfo> hash_table_;
   std::vector<CellInfo *> visited_;
+  std::vector<CellStorer::MetaDiff> meta_diffs_;
   Stats stats_diff_;
   td::uint32 celldb_compress_depth_{0};
 
@@ -269,8 +329,9 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
 
   class SimpleExtCellCreator : public ExtCellCreator {
    public:
-    explicit SimpleExtCellCreator(std::shared_ptr<CellDbReader> cell_db_reader) :
-        cell_db_reader_(std::move(cell_db_reader)) {}
+    explicit SimpleExtCellCreator(std::shared_ptr<CellDbReader> cell_db_reader)
+        : cell_db_reader_(std::move(cell_db_reader)) {
+    }
 
     td::Result<Ref<Cell>> ext_cell(Cell::LevelMask level_mask, td::Slice hash, td::Slice depth) override {
       TRY_RESULT(ext_cell, DynamicBocExtCell::create(PrunnedCellInfo{level_mask, hash, depth},
@@ -279,7 +340,7 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
       return std::move(ext_cell);
     }
 
-    std::vector<Ref<Cell>>& get_created_cells() {
+    std::vector<Ref<Cell>> &get_created_cells() {
       return created_cells_;
     }
 
@@ -334,6 +395,23 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
       return std::move(load_result.cell());
     }
 
+    td::Result<std::vector<Ref<DataCell>>> load_bulk(td::Span<td::Slice> hashes) override {
+      if (db_) {
+        return db_->load_bulk(hashes);
+      }
+      TRY_RESULT(load_result, cell_loader_->load_bulk(hashes, true, *this));
+      
+      std::vector<Ref<DataCell>> res;
+      res.reserve(load_result.size());
+      for (auto &load_res : load_result) {
+        if (load_res.status != CellLoader::LoadResult::Ok) {
+          return td::Status::Error("cell not found");
+        }
+        res.push_back(std::move(load_res.cell()));
+      }
+      return res;
+    }
+
    private:
     static td::NamedThreadSafeCounter::CounterRef get_thread_safe_counter() {
       static auto res = td::NamedThreadSafeCounter::get_default().get_counter("DynamicBagOfCellsDbLoader");
@@ -382,8 +460,7 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
     }
 
     bool not_in_db = false;
-    for_each(
-        info, [&not_in_db, this](auto &child_info) { not_in_db |= !dfs_new_cells_in_db(child_info); }, false);
+    for_each(info, [&not_in_db, this](auto &child_info) { not_in_db |= !dfs_new_cells_in_db(child_info); }, false);
 
     if (not_in_db) {
       CHECK(!info.in_db);
@@ -441,6 +518,10 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
     for (auto info_ptr : visited_) {
       save_cell(*info_ptr, storer);
     }
+    for (auto meta_diff : meta_diffs_) {
+      storer.apply_meta_diff(meta_diff);
+    }
+    meta_diffs_.clear();
     visited_.clear();
   }
 
@@ -558,6 +639,8 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
       }
       auto res = r_res.move_as_ok();
       if (res.status != CellLoader::LoadResult::Ok) {
+        LOG_CHECK(info.cell.not_null()) << "Trying to load nonexistent cell from db "
+                                        << CellHash::from_slice(hash).to_hex();
         break;
       }
       info.cell = std::move(res.cell());
@@ -651,7 +734,7 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
 
     CellHashTable<CellInfo2> cells_;
 
-    std::queue<CellInfo2*> load_queue_;
+    std::queue<CellInfo2 *> load_queue_;
     td::uint32 active_load_ = 0;
     td::uint32 max_parallel_load_ = 4;
   };
@@ -814,11 +897,10 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
     pca_state_->promise_.set_result(td::Unit());
     pca_state_ = {};
   }
-
 };
 }  // namespace
 
-std::unique_ptr<DynamicBagOfCellsDb> DynamicBagOfCellsDb::create() {
+std::unique_ptr<DynamicBagOfCellsDb> DynamicBagOfCellsDb::create(CreateV1Options) {
   return std::make_unique<DynamicBagOfCellsDbImpl>();
 }
 }  // namespace vm

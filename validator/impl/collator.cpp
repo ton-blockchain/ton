@@ -5723,7 +5723,7 @@ void Collator::return_block_candidate(td::Result<td::Unit> saved) {
  * @returns Result indicating the success or failure of the registration.
  *          - If the external message is invalid, returns an error.
  *          - If the external message has been previously rejected, returns an error
- *          - If the external message has been previuosly registered and accepted, returns false.
+ *          - If the external message has been previously registered and accepted, returns false.
  *          - Otherwise returns true.
  */
 td::Result<bool> Collator::register_external_message_cell(Ref<vm::Cell> ext_msg, const ExtMessage::Hash& ext_hash,

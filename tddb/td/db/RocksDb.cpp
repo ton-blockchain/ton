@@ -24,10 +24,12 @@
 #include "rocksdb/write_batch.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/transaction.h"
+#include "rocksdb/filter_policy.h"
+#include "td/utils/misc.h"
 
 namespace td {
 namespace {
-static Status from_rocksdb(rocksdb::Status status) {
+static Status from_rocksdb(const rocksdb::Status &status) {
   if (status.ok()) {
     return Status::OK();
   }
@@ -56,62 +58,92 @@ RocksDb::~RocksDb() {
 }
 
 RocksDb RocksDb::clone() const {
+  if (transaction_db_) {
+    return RocksDb{transaction_db_, options_};
+  }
   return RocksDb{db_, options_};
 }
 
 Result<RocksDb> RocksDb::open(std::string path, RocksDbOptions options) {
-  rocksdb::OptimisticTransactionDB *db;
-  {
-    rocksdb::Options db_options;
+  rocksdb::Options db_options;
+  db_options.merge_operator = options.merge_operator;
+  db_options.compaction_filter = options.compaction_filter;
 
-    static auto default_cache = rocksdb::NewLRUCache(1 << 30);
-    if (!options.no_block_cache && options.block_cache == nullptr) {
-      options.block_cache = default_cache;
+  static auto default_cache = rocksdb::NewLRUCache(1 << 30);
+  if (!options.no_block_cache && options.block_cache == nullptr) {
+    options.block_cache = default_cache;
+  }
+
+  rocksdb::BlockBasedTableOptions table_options;
+  if (options.no_block_cache) {
+    table_options.no_block_cache = true;
+  } else {
+    table_options.block_cache = options.block_cache;
+  }
+  if (options.enable_bloom_filter) {
+    table_options.filter_policy.reset(rocksdb::NewBloomFilterPolicy(10, false));
+    if (options.two_level_index_and_filter) {
+      table_options.index_type = rocksdb::BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+      table_options.partition_filters = true;
+      table_options.cache_index_and_filter_blocks = true;
+      table_options.pin_l0_filter_and_index_blocks_in_cache = true;
     }
+  }
+  db_options.table_factory.reset(rocksdb::NewBlockBasedTableFactory(table_options));
 
-    rocksdb::BlockBasedTableOptions table_options;
-    if (options.no_block_cache) {
-      table_options.no_block_cache = true;
-    } else {
-      table_options.block_cache = options.block_cache;
-    }
-    db_options.table_factory.reset(rocksdb::NewBlockBasedTableFactory(table_options));
+  // table_options.block_align = true;
+  if (options.no_reads) {
+    db_options.memtable_factory.reset(new rocksdb::VectorRepFactory());
+    db_options.allow_concurrent_memtable_write = false;
+  }
 
-    db_options.use_direct_reads = options.use_direct_reads;
-    db_options.manual_wal_flush = true;
-    db_options.create_if_missing = true;
-    db_options.max_background_compactions = 4;
-    db_options.max_background_flushes = 2;
-    db_options.bytes_per_sync = 1 << 20;
-    db_options.writable_file_max_buffer_size = 2 << 14;
-    db_options.statistics = options.statistics;
-    db_options.max_log_file_size = 100 << 20;
-    db_options.keep_log_file_num = 1;
-    rocksdb::OptimisticTransactionDBOptions occ_options;
-    occ_options.validate_policy = rocksdb::OccValidationPolicy::kValidateSerial;
+  db_options.wal_recovery_mode = rocksdb::WALRecoveryMode::kTolerateCorruptedTailRecords;
+  db_options.use_direct_reads = options.use_direct_reads;
+  db_options.manual_wal_flush = true;
+  db_options.create_if_missing = true;
+  db_options.max_background_compactions = 4;
+  db_options.max_background_flushes = 2;
+  db_options.bytes_per_sync = 1 << 20;
+  db_options.writable_file_max_buffer_size = 2 << 14;
+  db_options.statistics = options.statistics;
+  db_options.max_log_file_size = 100 << 20;
+  db_options.keep_log_file_num = 1;
+
+  if (options.experimental) {
+    // Place your experimental options here
+  }
+
+  if (options.no_transactions) {
+    rocksdb::DB *db{nullptr};
+    TRY_STATUS(from_rocksdb(rocksdb::DB::Open(db_options, std::move(path), &db)));
+    return RocksDb(std::shared_ptr<rocksdb::DB>(db), std::move(options));
+  } else {
+    rocksdb::OptimisticTransactionDB *db{nullptr};
     rocksdb::ColumnFamilyOptions cf_options(db_options);
     std::vector<rocksdb::ColumnFamilyDescriptor> column_families;
     column_families.push_back(rocksdb::ColumnFamilyDescriptor(rocksdb::kDefaultColumnFamilyName, cf_options));
     std::vector<rocksdb::ColumnFamilyHandle *> handles;
+    rocksdb::OptimisticTransactionDBOptions occ_options;
+    occ_options.validate_policy = rocksdb::OccValidationPolicy::kValidateSerial;
     TRY_STATUS(from_rocksdb(rocksdb::OptimisticTransactionDB::Open(db_options, occ_options, std::move(path),
                                                                    column_families, &handles, &db)));
     CHECK(handles.size() == 1);
     // i can delete the handle since DBImpl is always holding a reference to
     // default column family
     delete handles[0];
+    return RocksDb(std::shared_ptr<rocksdb::OptimisticTransactionDB>(db), std::move(options));
   }
-  return RocksDb(std::shared_ptr<rocksdb::OptimisticTransactionDB>(db), std::move(options));
 }
 
 std::shared_ptr<rocksdb::Statistics> RocksDb::create_statistics() {
   return rocksdb::CreateDBStatistics();
 }
 
-std::string RocksDb::statistics_to_string(const std::shared_ptr<rocksdb::Statistics> statistics) {
+std::string RocksDb::statistics_to_string(const std::shared_ptr<rocksdb::Statistics> &statistics) {
   return statistics->ToString();
 }
 
-void RocksDb::reset_statistics(const std::shared_ptr<rocksdb::Statistics> statistics) {
+void RocksDb::reset_statistics(const std::shared_ptr<rocksdb::Statistics> &statistics) {
   statistics->Reset();
 }
 
@@ -133,7 +165,9 @@ std::string RocksDb::stats() const {
 }
 
 Result<RocksDb::GetStatus> RocksDb::get(Slice key, std::string &value) {
-  //LOG(ERROR) << "GET";
+  if (options_.no_reads) {
+    return td::Status::Error("trying to read from write-only database");
+  }
   rocksdb::Status status;
   if (snapshot_) {
     rocksdb::ReadOptions options;
@@ -153,6 +187,40 @@ Result<RocksDb::GetStatus> RocksDb::get(Slice key, std::string &value) {
   return from_rocksdb(status);
 }
 
+Result<std::vector<RocksDb::GetStatus>> RocksDb::get_multi(td::Span<Slice> keys, std::vector<std::string> *values) {
+  std::vector<rocksdb::Status> statuses(keys.size());
+  std::vector<rocksdb::Slice> keys_rocksdb;
+  keys_rocksdb.reserve(keys.size());
+  for (auto &key : keys) {
+    keys_rocksdb.push_back(to_rocksdb(key));
+  }
+  std::vector<rocksdb::PinnableSlice> values_rocksdb(keys.size());
+  rocksdb::ReadOptions options;
+  if (snapshot_) {
+    options.snapshot = snapshot_.get();
+    db_->MultiGet(options, db_->DefaultColumnFamily(), keys_rocksdb.size(), keys_rocksdb.data(), values_rocksdb.data(), statuses.data());
+  } else if (transaction_) {
+    transaction_->MultiGet(options, db_->DefaultColumnFamily(), keys_rocksdb.size(), keys_rocksdb.data(), values_rocksdb.data(), statuses.data());
+  } else {
+    db_->MultiGet(options, db_->DefaultColumnFamily(), keys_rocksdb.size(), keys_rocksdb.data(), values_rocksdb.data(), statuses.data());
+  }
+  std::vector<GetStatus> res(statuses.size());
+  values->resize(statuses.size());
+  for (size_t i = 0; i < statuses.size(); i++) {
+    auto &status = statuses[i];
+    if (status.ok()) {
+      res[i] = GetStatus::Ok;
+      values->at(i) = values_rocksdb[i].ToString();
+    } else if (status.code() == rocksdb::Status::kNotFound) {
+      res[i] = GetStatus::NotFound;
+      values->at(i) = "";
+    } else {
+      return from_rocksdb(status);
+    }
+  }
+  return res;
+}
+
 Status RocksDb::set(Slice key, Slice value) {
   if (write_batch_) {
     return from_rocksdb(write_batch_->Put(to_rocksdb(key), to_rocksdb(value)));
@@ -161,6 +229,18 @@ Status RocksDb::set(Slice key, Slice value) {
     return from_rocksdb(transaction_->Put(to_rocksdb(key), to_rocksdb(value)));
   }
   return from_rocksdb(db_->Put({}, to_rocksdb(key), to_rocksdb(value)));
+}
+Status RocksDb::merge(Slice key, Slice value) {
+  if (write_batch_) {
+    return from_rocksdb(write_batch_->Merge(to_rocksdb(key), to_rocksdb(value)));
+  }
+  if (transaction_) {
+    return from_rocksdb(transaction_->Merge(to_rocksdb(key), to_rocksdb(value)));
+  }
+  return from_rocksdb(db_->Merge({}, to_rocksdb(key), to_rocksdb(value)));
+}
+Status RocksDb::run_gc() {
+  return from_rocksdb(db_->CompactRange({}, nullptr, nullptr));
 }
 
 Status RocksDb::erase(Slice key) {
@@ -174,7 +254,11 @@ Status RocksDb::erase(Slice key) {
 }
 
 Result<size_t> RocksDb::count(Slice prefix) {
+  if (options_.no_reads) {
+    return td::Status::Error("trying to read from write-only database");
+  }
   rocksdb::ReadOptions options;
+  options.auto_prefix_mode = true;
   options.snapshot = snapshot_.get();
   std::unique_ptr<rocksdb::Iterator> iterator;
   if (snapshot_ || !transaction_) {
@@ -197,7 +281,11 @@ Result<size_t> RocksDb::count(Slice prefix) {
 }
 
 Status RocksDb::for_each(std::function<Status(Slice, Slice)> f) {
+  if (options_.no_reads) {
+    return td::Status::Error("trying to read from write-only database");
+  }
   rocksdb::ReadOptions options;
+  options.auto_prefix_mode = true;
   options.snapshot = snapshot_.get();
   std::unique_ptr<rocksdb::Iterator> iterator;
   if (snapshot_ || !transaction_) {
@@ -219,7 +307,11 @@ Status RocksDb::for_each(std::function<Status(Slice, Slice)> f) {
 }
 
 Status RocksDb::for_each_in_range(Slice begin, Slice end, std::function<Status(Slice, Slice)> f) {
+  if (options_.no_reads) {
+    return td::Status::Error("trying to read from write-only database");
+  }
   rocksdb::ReadOptions options;
+  options.auto_prefix_mode = true;
   options.snapshot = snapshot_.get();
   std::unique_ptr<rocksdb::Iterator> iterator;
   if (snapshot_ || !transaction_) {
@@ -252,9 +344,10 @@ Status RocksDb::begin_write_batch() {
 
 Status RocksDb::begin_transaction() {
   CHECK(!write_batch_);
+  CHECK(transaction_db_);
   rocksdb::WriteOptions options;
   options.sync = true;
-  transaction_.reset(db_->BeginTransaction(options, {}));
+  transaction_.reset(transaction_db_->BeginTransaction(options, {}));
   return Status::OK();
 }
 
@@ -307,7 +400,11 @@ Status RocksDb::end_snapshot() {
 }
 
 RocksDb::RocksDb(std::shared_ptr<rocksdb::OptimisticTransactionDB> db, RocksDbOptions options)
-    : db_(std::move(db)), options_(options) {
+    : transaction_db_{db}, db_(std::move(db)), options_(std::move(options)) {
+}
+
+RocksDb::RocksDb(std::shared_ptr<rocksdb::DB> db, RocksDbOptions options)
+    : db_(std::move(db)), options_(std::move(options)) {
 }
 
 void RocksDbSnapshotStatistics::begin_snapshot(const rocksdb::Snapshot *snapshot) {

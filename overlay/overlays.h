@@ -270,6 +270,7 @@ struct OverlayOptions {
   td::uint32 propagate_broadcast_to_ = 5;
   td::uint32 default_permanent_members_flags_ = 0;
   double broadcast_speed_multiplier_ = 1.0;
+  bool private_ping_peers_ = false;
 };
 
 class Overlays : public td::actor::Actor {

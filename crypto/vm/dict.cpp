@@ -1772,6 +1772,260 @@ void Dictionary::map(const simple_map_func_t& simple_map_func) {
   map(map_func);
 }
 
+bool Dictionary::multiset(td::MutableSpan<std::pair<td::ConstBitPtr, td::Ref<vm::CellBuilder>>> new_values) {
+  force_validate();
+  auto cmp = [&](const std::pair<td::ConstBitPtr, td::Ref<vm::CellBuilder>>& a,
+                 const std::pair<td::ConstBitPtr, td::Ref<vm::CellBuilder>>& b) {
+    return td::bitstring::bits_memcmp(a.first, b.first, key_bits) < 0;
+  };
+  if (!std::is_sorted(new_values.begin(), new_values.end(), cmp)) {
+    std::sort(new_values.begin(), new_values.end(), cmp);
+  }
+  for (size_t i = 0; i + 1 < new_values.size(); ++i) {
+    if (td::bitstring::bits_memcmp(new_values[i].first, new_values[i + 1].first, key_bits) == 0) {
+      return false;
+    }
+  }
+  unsigned char key_buffer[max_key_bytes];
+  try {
+    Ref<Cell> root = dict_multiset(get_root_cell(), new_values, key_buffer, key_bits, key_bits, 0);
+    set_root_cell(std::move(root));
+    return true;
+  } catch (CombineError) {
+    return false;
+  }
+}
+
+static Ref<Cell> dict_build(td::Span<std::pair<td::ConstBitPtr, Ref<CellBuilder>>> values, int total_key_len,
+                            int prefix_len) {
+  if (values.empty()) {
+    return {};
+  }
+  if (values.size() == 1) {
+    if (values[0].second.is_null()) {
+      throw CombineError{};
+    }
+    CellBuilder cb;
+    append_dict_label(cb, values[0].first + prefix_len, total_key_len - prefix_len, total_key_len - prefix_len);
+    if (!cb.append_builder_bool(values[0].second)) {
+      throw VmError{Excno::cell_ov, "cannot store new value into a dictionary cell"};
+    }
+    return cb.finalize();
+  }
+  size_t common_prefix_len;
+  td::bitstring::bits_memcmp(values.front().first + prefix_len, values.back().first + prefix_len,
+                             total_key_len - prefix_len, &common_prefix_len);
+  CHECK(prefix_len + common_prefix_len < total_key_len);
+  size_t idx = 0;
+  while (values[idx].first[prefix_len + common_prefix_len] == 0) {
+    ++idx;
+  }
+  Ref<Cell> left = dict_build(values.substr(0, idx), total_key_len, prefix_len + common_prefix_len + 1);
+  Ref<Cell> right = dict_build(values.substr(idx), total_key_len, prefix_len + common_prefix_len + 1);
+  CellBuilder cb;
+  append_dict_label(cb, values[0].first + prefix_len, common_prefix_len, total_key_len - prefix_len);
+  if (!(cb.store_ref_bool(std::move(left)) && cb.store_ref_bool(std::move(right)))) {
+    throw VmError{Excno::dict_err, "cannot store branch references into a dictionary fork cell"};
+  }
+  return cb.finalize();
+}
+
+// Based on DictionaryFixed::dict_combine_with, but dict2 is replaced with a list of values, mode is false
+Ref<Cell> Dictionary::dict_multiset(Ref<Cell> dict1, td::Span<std::pair<td::ConstBitPtr, Ref<CellBuilder>>> values2,
+                                    td::BitPtr key_buffer, int n, int total_key_len, int skip1) {
+  int prefix_len = total_key_len - n;
+  for (auto& [k, _] : values2) {
+    CHECK(td::bitstring::bits_memcmp(k, key_buffer - prefix_len, prefix_len) == 0);
+  }
+  if (dict1.is_null()) {
+    return dict_build(values2, total_key_len, prefix_len);
+  }
+  if (values2.empty()) {
+    assert(!skip1);
+    return dict1;
+  }
+  size_t common_prefix_len;
+  td::bitstring::bits_memcmp(values2.front().first + prefix_len, values2.back().first + prefix_len,
+                             total_key_len - prefix_len, &common_prefix_len);
+  assert(prefix_len + common_prefix_len < total_key_len || values2.size() == 1);
+  // both dictionaries non-empty
+  // skip1: remove that much first bits from all keys in dictionary dict1 (its keys are actually n + skip1 bits long)
+  // resulting dictionary will have n-bit keys
+  LabelParser label1{dict1, n + skip1, LabelParser::chk_all};
+  int l1 = label1.l_bits - skip1, l2 = (int)common_prefix_len;
+  assert(l1 >= 0 && l2 >= 0);
+  assert(!skip1 || label1.common_prefix_len(key_buffer - skip1, skip1) == skip1);
+  int c = label1.common_prefix_len(values2[0].first + prefix_len - skip1, skip1 + l2) - skip1;
+  label1.extract_label_to(key_buffer - skip1);
+  assert(c >= 0 && c <= l1 && c <= l2);
+  if (c < l1 && c < l2) {
+    // the two dictionaries have disjoint keys
+    CellBuilder cb;
+    append_dict_label(cb, key_buffer + c + 1, l1 - c - 1, n - c - 1);
+    if (!cell_builder_add_slice_bool(cb, *label1.remainder)) {
+      throw VmError{Excno::cell_ov, "cannot prune label of an old dictionary cell while merging dictionaries"};
+    }
+    label1.remainder.clear();
+    dict1 = cb.finalize();
+    // cb.reset(); // included into finalize();
+    // now dict1 has been "pruned" -- first skip1+c+1 bits removed from its root egde label
+    Ref<Cell> dict2 = dict_build(values2, total_key_len, prefix_len + c + 1);
+    if (!values2[0].first[prefix_len + c]) {
+      std::swap(dict1, dict2);
+    }
+    // put dict1 into the left tree (with smaller labels), dict2 into the right tree
+    append_dict_label(cb, key_buffer, c, n);
+    if (!(cb.store_ref_bool(std::move(dict1)) && cb.store_ref_bool(std::move(dict2)))) {
+      throw VmError{Excno::dict_err, "cannot store branch references into a dictionary fork cell"};
+    }
+    return cb.finalize();
+  }
+
+  auto combine_func = [&](CellBuilder& cb, const Ref<CellBuilder>& cb2) -> bool {
+    if (cb2.is_null()) {
+      return false;
+    }
+    cb.append_builder(*cb2);
+    return true;
+  };
+  size_t idx = 0;
+  while (prefix_len + common_prefix_len < total_key_len && idx < values2.size() &&
+         values2[idx].first[prefix_len + common_prefix_len] == 0) {
+    ++idx;
+  }
+  auto values2_left = values2.substr(0, idx);
+  auto values2_right = values2.substr(idx);
+
+  if (c == l1 && c == l2) {
+    // funny enough, the non-skipped parts of labels of l1 and l2 match
+    CellBuilder cb;
+    append_dict_label(cb, key_buffer, c, n);
+    if (c == n) {
+      // our two dictionaries are in fact leafs with matching edge labels (keys)
+      if (!combine_func(cb, values2[0].second)) {
+        // alas, the two values did not combine, this key will be absent from resulting dictionary
+        return {};
+      }
+      return cb.finalize();
+    }
+    assert(c < n);
+    key_buffer += c + 1;
+    key_buffer[-1] = 0;
+    // combine left subtrees
+    auto c1 = dict_multiset(label1.remainder->prefetch_ref(0), values2_left, key_buffer, n - c - 1, total_key_len, 0);
+    key_buffer[-1] = 1;
+    // combine right subtrees
+    auto c2 = dict_multiset(label1.remainder->prefetch_ref(1), values2_right, key_buffer, n - c - 1, total_key_len, 0);
+    label1.remainder.clear();
+    // c1 and c2 are merged left and right children of dict1 and dict2
+    if (!c1.is_null() && !c2.is_null()) {
+      // both children non-empty, simply put them into the new node
+      if (!(cb.store_ref_bool(std::move(c1)) && cb.store_ref_bool(std::move(c2)))) {
+        throw VmError{Excno::dict_err, "cannot store branch references into a dictionary fork cell"};
+      }
+      return cb.finalize();
+    }
+    if (c1.is_null() && c2.is_null()) {
+      return {};  // both children empty, resulting dictionary also empty
+    }
+    // exactly one of c1 and c2 is non-empty, have to merge labels
+    bool sw = c1.is_null();
+    key_buffer[-1] = sw;
+    if (sw) {
+      c1 = std::move(c2);
+    }
+    LabelParser label3{std::move(c1), n - c - 1, LabelParser::chk_all};
+    label3.extract_label_to(key_buffer);
+    key_buffer -= c + 1;
+    // store combined label for the new edge
+    cb.reset();
+    append_dict_label(cb, key_buffer, c + 1 + label3.l_bits, n);
+    // store payload
+    if (!cell_builder_add_slice_bool(cb, *label3.remainder)) {
+      throw VmError{Excno::cell_ov, "cannot change label of an old dictionary cell while merging edges"};
+    }
+    return cb.finalize();
+  }
+  if (c == l1) {
+    assert(c < l2);
+    dict1.clear();
+    // children of root node of dict1
+    auto c1 = label1.remainder->prefetch_ref(0);
+    auto c2 = label1.remainder->prefetch_ref(1);
+    label1.remainder.clear();
+    // have to merge dict2 with one of the children of dict1
+    td::bitstring::bits_memcpy(key_buffer, values2[0].first + prefix_len, l2);  // dict2 has longer label, extract it
+    bool sw = key_buffer[c];
+    if (!sw) {
+      // merge c1 with dict2
+      c1 = dict_multiset(std::move(c1), values2, key_buffer + c + 1, n - c - 1, total_key_len, 0);
+    } else {
+      // merge c2 with dict2
+      c2 = dict_multiset(std::move(c2), values2, key_buffer + c + 1, n - c - 1, total_key_len, 0);
+    }
+    if (!c1.is_null() && !c2.is_null()) {
+      CellBuilder cb;
+      append_dict_label(cb, key_buffer, c, n);
+      if (!(cb.store_ref_bool(std::move(c1)) && cb.store_ref_bool(std::move(c2)))) {
+        throw VmError{Excno::dict_err, "cannot store branch references into a dictionary fork cell"};
+      }
+      return cb.finalize();
+    }
+    // one of children is empty, have to merge root edges
+    key_buffer[c] = !sw;
+    if (!sw) {
+      std::swap(c1, c2);
+    }
+    assert(!c1.is_null() && c2.is_null());
+    LabelParser label3{std::move(c1), n - c - 1, LabelParser::chk_all};
+    label3.extract_label_to(key_buffer + c + 1);
+    CellBuilder cb;
+    append_dict_label(cb, key_buffer, c + 1 + label3.l_bits, n);
+    // store payload
+    if (!cell_builder_add_slice_bool(cb, *label3.remainder)) {
+      throw VmError{Excno::cell_ov, "cannot change label of an old dictionary cell while merging edges"};
+    }
+    return cb.finalize();
+  } else {
+    assert(c == l2 && c < l1);
+    // have to merge dict1 with one of the children of dict2
+    bool sw = key_buffer[c];
+    Ref<Cell> c1, c2;
+    if (!sw) {
+      // merge dict1 with c1
+      c1 = dict_multiset(std::move(dict1), values2_left, key_buffer + c + 1, n - c - 1, total_key_len, skip1 + c + 1);
+      c2 = dict_build(values2_right, total_key_len, prefix_len + l2 + 1);
+    } else {
+      // merge dict1 with c2
+      c2 = dict_multiset(std::move(dict1), values2_right, key_buffer + c + 1, n - c - 1, total_key_len, skip1 + c + 1);
+      c1 = dict_build(values2_left, total_key_len, prefix_len + l2 + 1);
+    }
+    if (!c1.is_null() && !c2.is_null()) {
+      CellBuilder cb;
+      append_dict_label(cb, key_buffer, c, n);
+      if (!(cb.store_ref_bool(std::move(c1)) && cb.store_ref_bool(std::move(c2)))) {
+        throw VmError{Excno::dict_err, "cannot store branch references into a dictionary fork cell"};
+      }
+      return cb.finalize();
+    }
+    // one of children is empty, have to merge root edges
+    key_buffer[c] = !sw;
+    if (!sw) {
+      std::swap(c1, c2);
+    }
+    assert(!c1.is_null() && c2.is_null());
+    LabelParser label3{std::move(c1), n - c - 1, LabelParser::chk_all};
+    label3.extract_label_to(key_buffer + c + 1);
+    CellBuilder cb;
+    append_dict_label(cb, key_buffer, c + 1 + label3.l_bits, n);
+    // store payload
+    if (!cell_builder_add_slice_bool(cb, *label3.remainder)) {
+      throw VmError{Excno::cell_ov, "cannot change label of an old dictionary cell while merging edges"};
+    }
+    return cb.finalize();
+  }
+}
+
 // mode: +1 = forbid empty dict1 with non-empty dict2
 //       +2 = forbid empty dict2 with non-empty dict1
 Ref<Cell> DictionaryFixed::dict_combine_with(Ref<Cell> dict1, Ref<Cell> dict2, td::BitPtr key_buffer, int n,

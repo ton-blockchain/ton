@@ -141,12 +141,12 @@ ext_out_msg_info$11 src:MsgAddress dest:MsgAddressExt
 
 tick_tock$_ tick:Bool tock:Bool = TickTock;
 
-_ split_depth:(Maybe (## 5)) special:(Maybe TickTock)
+_ fixed_prefix_length:(Maybe (## 5)) special:(Maybe TickTock)
   code:(Maybe ^Cell) data:(Maybe ^Cell)
   library:(Maybe ^Cell) = StateInit;
 
 // StateInitWithLibs is used to validate sent and received messages
-_ split_depth:(Maybe (## 5)) special:(Maybe TickTock)
+_ fixed_prefix_length:(Maybe (## 5)) special:(Maybe TickTock)
   code:(Maybe ^Cell) data:(Maybe ^Cell)
   library:(HashmapE 256 SimpleLib) = StateInitWithLibs;
 
@@ -246,14 +246,13 @@ out_msg_queue_extra#0 dispatch_queue:DispatchQueue out_queue_size:(Maybe uint48)
 
 _ out_queue:OutMsgQueue proc_info:ProcessedInfo
   extra:(Maybe OutMsgQueueExtra) = OutMsgQueueInfo;
-//
-storage_used$_ cells:(VarUInteger 7) bits:(VarUInteger 7) 
-  public_cells:(VarUInteger 7) = StorageUsed;
 
-storage_used_short$_ cells:(VarUInteger 7) 
-  bits:(VarUInteger 7) = StorageUsedShort;
+storage_extra_none$000 = StorageExtraInfo;
+storage_extra_info$001 dict_hash:uint256 = StorageExtraInfo;
 
-storage_info$_ used:StorageUsed last_paid:uint32
+storage_used$_ cells:(VarUInteger 7) bits:(VarUInteger 7) = StorageUsed;
+
+storage_info$_ used:StorageUsed storage_extra:StorageExtraInfo last_paid:uint32
               due_payment:(Maybe Grams) = StorageInfo;
 
 account_none$0 = Account;
@@ -272,14 +271,6 @@ acc_state_uninit$00 = AccountStatus;
 acc_state_frozen$01 = AccountStatus;
 acc_state_active$10 = AccountStatus;
 acc_state_nonexist$11 = AccountStatus;
-
-/* duplicates
-tick_tock$_ tick:Bool tock:Bool = TickTock;
-
-_ split_depth:(Maybe (## 5)) special:(Maybe TickTock)
-  code:(Maybe ^Cell) data:(Maybe ^Cell)
-  library:(Maybe ^Cell) = StateInit;
-*/
 
 account_descr$_ account:^Account last_trans_hash:bits256 
   last_trans_lt:uint64 = ShardAccount;
@@ -341,13 +332,13 @@ tr_phase_action$_ success:Bool valid:Bool no_funds:Bool
   total_fwd_fees:(Maybe Grams) total_action_fees:(Maybe Grams)
   result_code:int32 result_arg:(Maybe int32) tot_actions:uint16
   spec_actions:uint16 skipped_actions:uint16 msgs_created:uint16 
-  action_list_hash:bits256 tot_msg_size:StorageUsedShort 
+  action_list_hash:bits256 tot_msg_size:StorageUsed
   = TrActionPhase;
 
 tr_phase_bounce_negfunds$00 = TrBouncePhase;
-tr_phase_bounce_nofunds$01 msg_size:StorageUsedShort
+tr_phase_bounce_nofunds$01 msg_size:StorageUsed
   req_fwd_fees:Grams = TrBouncePhase;
-tr_phase_bounce_ok$1 msg_size:StorageUsedShort 
+tr_phase_bounce_ok$1 msg_size:StorageUsed
   msg_fees:Grams fwd_fees:Grams = TrBouncePhase;
 //
 trans_ord$0000 credit_first:Bool
@@ -801,7 +792,8 @@ size_limits_config#01 max_msg_bits:uint32 max_msg_cells:uint32 max_library_cells
   max_ext_msg_size:uint32 max_ext_msg_depth:uint16 = SizeLimitsConfig;
 size_limits_config_v2#02 max_msg_bits:uint32 max_msg_cells:uint32 max_library_cells:uint32 max_vm_data_depth:uint16
   max_ext_msg_size:uint32 max_ext_msg_depth:uint16 max_acc_state_cells:uint32 max_acc_state_bits:uint32
-  max_acc_public_libraries:uint32 defer_out_queue_size_limit:uint32 max_msg_extra_currencies:uint32 = SizeLimitsConfig;
+  max_acc_public_libraries:uint32 defer_out_queue_size_limit:uint32 max_msg_extra_currencies:uint32
+  max_acc_fixed_prefix_length:uint8 = SizeLimitsConfig;
 _ SizeLimitsConfig = ConfigParam 43;
 
 // key is [ wc:int32 addr:uint256 ]

@@ -89,14 +89,9 @@ td::Result<int> CellSerializationInfo::get_bits(td::Slice cell) const {
 // TODO: check usage when result is empty
 td::Result<Ref<DataCell>> CellSerializationInfo::create_data_cell(td::Slice cell_slice,
                                                                   td::Span<Ref<Cell>> refs) const {
-  CellBuilder cb;
-  TRY_RESULT(bits, get_bits(cell_slice));
-  cb.store_bits(cell_slice.ubegin() + data_offset, bits);
   DCHECK(refs_cnt == (td::int64)refs.size());
-  for (int k = 0; k < refs_cnt; k++) {
-    cb.store_ref(std::move(refs[k]));
-  }
-  TRY_RESULT(res, cb.finalize_novm_nothrow(special));
+  TRY_RESULT(bits, get_bits(cell_slice));
+  TRY_RESULT(res, DataCell::create(cell_slice.substr(data_offset), bits, refs, special));
   CHECK(!res.is_null());
   if (res->is_special() != special) {
     return td::Status::Error("is_special mismatch");
@@ -214,7 +209,7 @@ td::Result<int> BagOfCells::import_cell(td::Ref<vm::Cell> cell, int depth) {
     return td::Status::Error("error while importing a cell into a bag of cells: cell is null");
   }
   if (logger_ptr_) {
-    TRY_STATUS(logger_ptr_->on_cell_processed());
+    TRY_STATUS(logger_ptr_->on_cells_processed(1));
   }
   auto it = cells.find(cell->get_hash());
   if (it != cells.end()) {
@@ -560,7 +555,7 @@ td::Result<std::size_t> BagOfCells::serialize_to_impl(WriterT& writer, int mode)
       }
       store_offset(fixed_offset);
       if (logger_ptr_) {
-        TRY_STATUS(logger_ptr_->on_cell_processed());
+        TRY_STATUS(logger_ptr_->on_cells_processed(1));
       }
     }
     if (logger_ptr_) {
@@ -593,7 +588,7 @@ td::Result<std::size_t> BagOfCells::serialize_to_impl(WriterT& writer, int mode)
     }
     // std::cerr << std::endl;
     if (logger_ptr_) {
-      TRY_STATUS(logger_ptr_->on_cell_processed());
+      TRY_STATUS(logger_ptr_->on_cells_processed(1));
     }
   }
   writer.chk();

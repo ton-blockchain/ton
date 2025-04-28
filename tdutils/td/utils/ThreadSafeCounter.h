@@ -19,13 +19,17 @@
 
 #pragma once
 
-#include "td/utils/common.h"
+#include "port/thread.h"
 #include "td/utils/Slice.h"
 #include "td/utils/StringBuilder.h"
 #include "td/utils/ThreadLocalStorage.h"
+#include "td/utils/common.h"
+#include "td/utils/logging.h"
+#include "td/utils/port/Clocks.h"
 
 #include <array>
 #include <atomic>
+#include <map>
 #include <mutex>
 
 namespace td {
@@ -69,6 +73,50 @@ class ThreadSafeCounter {
   ThreadSafeMultiCounter<1> counter_;
 };
 
+struct NamedStats {
+  std::map<std::string, td::int64> stats_int;
+  std::map<std::string, std::string> stats_str;
+
+  NamedStats with_suffix(const std::string &suffix) const {
+    NamedStats res;
+    for (auto &p : stats_int) {
+      res.stats_int[p.first + suffix] = p.second;
+    }
+    for (auto &p : stats_str) {
+      res.stats_str[p.first + suffix] = p.second;
+    }
+    return res;
+  }
+  NamedStats with_prefix(const std::string &prefix) const {
+    NamedStats res;
+    for (auto &p : stats_int) {
+      res.stats_int[prefix + p.first] = p.second;
+    }
+    for (auto &p : stats_str) {
+      res.stats_str[prefix + p.first] = p.second;
+    }
+    return res;
+  }
+  void apply_diff(const NamedStats &other) {
+    for (auto &p : other.stats_int) {
+      stats_int[p.first] += p.second;
+    }
+    for (auto &p : other.stats_str) {
+      stats_str[p.first] = p.second;
+    }
+  }
+  void subtract_diff(const NamedStats &other) {
+    for (auto &p : other.stats_int) {
+      stats_int[p.first] -= p.second;
+    }
+  }
+  NamedStats combine_with(const NamedStats &other) const {
+    NamedStats res = *this;
+    res.apply_diff(other);
+    return res;
+  }
+};
+
 class NamedThreadSafeCounter {
   static constexpr int N = 128;
   using Counter = ThreadSafeMultiCounter<N>;
@@ -78,6 +126,9 @@ class NamedThreadSafeCounter {
    public:
     CounterRef() = default;
     CounterRef(size_t index, Counter *counter) : index_(index), counter_(counter) {
+    }
+    void inc() {
+      add(1);
     }
     void add(int64 diff) {
       counter_->add(index_, diff);
@@ -118,6 +169,11 @@ class NamedThreadSafeCounter {
     for (size_t i = 0; i < names_.size(); i++) {
       f(names_[i], counter_.sum(i));
     }
+  }
+  NamedStats get_stats() const {
+    NamedStats res;
+    for_each([&](Slice name, int64 cnt) { res.stats_int.emplace(name.str(), cnt); });
+    return res;
   }
 
   void clear() {
@@ -181,11 +237,11 @@ struct NamedPerfCounter {
 
 }  // namespace td
 
-#define TD_PERF_COUNTER(name)                                                    \
+#define TD_PERF_COUNTER(name)                                                                  \
   static auto perf_##name = td::NamedPerfCounter::get_default().get_counter(td::Slice(#name)); \
   auto scoped_perf_##name = td::NamedPerfCounter::ScopedPerfCounterRef{.perf_counter = perf_##name};
 
-#define TD_PERF_COUNTER_SINCE(name, since)                                       \
+#define TD_PERF_COUNTER_SINCE(name, since)                                                     \
   static auto perf_##name = td::NamedPerfCounter::get_default().get_counter(td::Slice(#name)); \
-  auto scoped_perf_##name =                                                      \
+  auto scoped_perf_##name =                                                                    \
       td::NamedPerfCounter::ScopedPerfCounterRef{.perf_counter = perf_##name, .started_at_ticks = since};

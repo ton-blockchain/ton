@@ -7,7 +7,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-20.04, ubuntu-22.04, ubuntu-24.04]
+        os: [ubuntu-22.04, ubuntu-24.04]
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -16,22 +16,37 @@ jobs:
       with:      
         submodules: 'recursive'
 
+    - name: Date Stamp
+      shell: bash
+      id: date-stamp
+      run: |
+        echo "timestamp=$(date -u "+%Y%m%d%H%M_%S")" >> "$GITHUB_OUTPUT"
+
     - name: Install system libraries
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential git cmake ninja-build zlib1g-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev liblz4-dev libjemalloc-dev
-
-    - if: matrix.os == 'ubuntu-20.04'
-      run: |
-        sudo apt install -y manpages-dev software-properties-common
-        sudo add-apt-repository ppa:ubuntu-toolchain-r/test
-        sudo apt update && sudo apt install gcc-11 g++-11
+        sudo apt-get install -y build-essential git cmake ninja-build zlib1g-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev liblz4-dev libjemalloc-dev ccache
+        mkdir ~/.ccache
 
     - if: matrix.os != 'ubuntu-24.04'
       run: |
         wget https://apt.llvm.org/llvm.sh
         chmod +x llvm.sh
-        sudo ./llvm.sh 16 all
+        sudo ./llvm.sh 16 clang
+
+    - name: Cache OpenSSL
+      id: cache-openssl
+      uses: actions/cache@v4
+      with:
+        path: openssl_3
+        key: ${{ runner.os }}-${{ runner.arch }}-${{ matrix.os }}-openssl_3-${{ hashFiles('**/assembly/native/build-ubuntu-shared.sh') }}
+
+    - name: Restore cache TON
+      uses: actions/cache@v4
+      with:
+        path: ~/.ccache
+        key: ${{ runner.os }}-${{ runner.arch }}-${{ matrix.os }}-shared-ccache-${{ steps.date-stamp.outputs.timestamp }}
+        restore-keys: ${{ runner.os }}-${{ runner.arch }}-${{ matrix.os }}-shared-ccache
 
     - name: Build TON
       run: |
@@ -39,10 +54,10 @@ jobs:
         git submodule update
         cp assembly/native/build-ubuntu-shared.sh .
         chmod +x build-ubuntu-shared.sh
-        ./build-ubuntu-shared.sh -t -a
+        ./build-ubuntu-shared.sh -t -c
+        ccache -sp
 
-    - name: Upload artifacts
-      uses: actions/upload-artifact@master
-      with:
-        name: ton-binaries-${{ matrix.os }}
-        path: artifacts
+    - name: Run Tests
+      run: |
+        cd build        
+        ctest --output-on-failure --timeout 1800

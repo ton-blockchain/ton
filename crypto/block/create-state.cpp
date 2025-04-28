@@ -94,12 +94,12 @@ typedef td::BitArray<256> hash_t;
 
 struct SmcDescr {
   hash_t addr;
-  int split_depth;
+  int fixed_prefix_length;
   bool preinit_only;
   td::RefInt256 gram_balance;
   Ref<vm::DataCell> state_init;  // StateInit
   Ref<vm::DataCell> account;     // Account
-  SmcDescr(const hash_t& _addr) : addr(_addr), split_depth(0), preinit_only(false) {
+  SmcDescr(const hash_t& _addr) : addr(_addr), fixed_prefix_length(0), preinit_only(false) {
   }
 };
 
@@ -123,7 +123,7 @@ vm::Dictionary config_dict{32};
 ton::UnixTime now;
 
 bool set_config_smc(const SmcDescr& smc) {
-  if (config_addr_set || smc.preinit_only || workchain_id != wc_master || smc.split_depth) {
+  if (config_addr_set || smc.preinit_only || workchain_id != wc_master || smc.fixed_prefix_length) {
     return false;
   }
   vm::CellSlice cs = load_cell_slice(smc.state_init);
@@ -221,7 +221,7 @@ bool add_public_library(hash_t lib_addr, hash_t smc_addr, Ref<vm::Cell> lib_root
 }
 
 td::RefInt256 create_smartcontract(td::RefInt256 smc_addr, Ref<vm::Cell> code, Ref<vm::Cell> data,
-                                   Ref<vm::Cell> library, td::RefInt256 balance, int special, int split_depth,
+                                   Ref<vm::Cell> library, td::RefInt256 balance, int special, int fixed_prefix_length,
                                    int mode) {
   if (is_empty_cell(code)) {
     code.clear();
@@ -238,12 +238,12 @@ td::RefInt256 create_smartcontract(td::RefInt256 smc_addr, Ref<vm::Cell> code, R
     THRERR("not a valid library collection");
   }
   vm::CellBuilder cb;
-  if (!split_depth) {
+  if (!fixed_prefix_length) {
     PDO(cb.store_long_bool(0, 1));
   } else {
-    PDO(cb.store_long_bool(1, 1) && cb.store_ulong_rchk_bool(split_depth, 5));
+    PDO(cb.store_long_bool(1, 1) && cb.store_ulong_rchk_bool(fixed_prefix_length, 5));
   }
-  THRERR("invalid split_depth for a smart contract");
+  THRERR("invalid fixed_prefix_length for a smart contract");
   if (!special) {
     PDO(cb.store_long_bool(0, 1));
   } else {
@@ -287,7 +287,7 @@ td::RefInt256 create_smartcontract(td::RefInt256 smc_addr, Ref<vm::Cell> code, R
   auto ins = smart_contracts.emplace(addr, addr);
   assert(ins.second);
   SmcDescr& smc = ins.first->second;
-  smc.split_depth = split_depth;
+  smc.fixed_prefix_length = fixed_prefix_length;
   smc.preinit_only = (mode == 1);
   smc.gram_balance = balance;
   total_smc_balance += balance;
@@ -328,20 +328,21 @@ td::RefInt256 create_smartcontract(td::RefInt256 smc_addr, Ref<vm::Cell> code, R
     ctor = 2;  // addr_std$10
   }
   PDO(cb.store_long_bool(ctor, 2));  // addr_std$10 or addr_var$11
-  if (split_depth) {
+  if (fixed_prefix_length) {
     PDO(cb.store_long_bool(1, 1)                            // just$1
-        && cb.store_ulong_rchk_bool(split_depth, 5)         // depth:(## 5)
-        && cb.store_bits_bool(addr.cbits(), split_depth));  // rewrite pfx:(depth * Bit)
+        && cb.store_ulong_rchk_bool(fixed_prefix_length, 5)         // depth:(## 5)
+        && cb.store_bits_bool(addr.cbits(), fixed_prefix_length));  // rewrite pfx:(depth * Bit)
   } else {
     PDO(cb.store_long_bool(0, 1));  // nothing$0
   }
   PDO(cb.store_long_rchk_bool(workchain_id, ctor == 2 ? 8 : 32) && cb.store_bits_bool(addr.cbits(), 256));
   THRERR("Cannot serialize addr:MsgAddressInt of the new smart contract");
   // storage_stat:StorageInfo -> storage_stat.used:StorageUsed
-  PDO(block::store_UInt7(cb, stats.cells)              // cells:(VarUInteger 7)
-      && block::store_UInt7(cb, stats.bits)            // bits:(VarUInteger 7)
-      && block::store_UInt7(cb, stats.public_cells));  // public_cells:(VarUInteger 7)
+  PDO(block::store_UInt7(cb, stats.cells)     // cells:(VarUInteger 7)
+      && block::store_UInt7(cb, stats.bits))  // bits:(VarUInteger 7)
   THRERR("Cannot serialize used:StorageUsed of the new smart contract");
+  PDO(cb.store_zeroes_bool(3));  // extra:StorageExtraInfo
+  THRERR("Cannot serialize storage_extra:StorageExtraInfo of the new smart contract");
   PDO(cb.store_long_bool(0, 33));          // last_paid:uint32 due_payment:(Maybe Grams)
   PDO(cb.append_data_cell_bool(storage));  // storage:AccountStorage
   THRERR("Cannot create Account of the new smart contract");
@@ -514,7 +515,7 @@ Ref<vm::Cell> create_state() {
 // data (cell)
 // library (cell)
 // balance (int)
-// split_depth (int 0..32)
+// fixed_prefix_length (int 0..32)
 // special (int 0..3, +2 = tick, +1 = tock)
 // [ address (uint256) ]
 // mode (0 = compute address only, 1 = create uninit, 2 = create complete; +4 = with specified address)
@@ -536,7 +537,7 @@ void interpret_register_smartcontract(vm::Stack& stack) {
   if (special && workchain_id != wc_master) {
     throw fift::IntError{"cannot create special smartcontracts outside of the masterchain"};
   }
-  int split_depth = stack.pop_smallint_range(32);
+  int fixed_prefix_length = stack.pop_smallint_range(32);
   td::RefInt256 balance = stack.pop_int_finite();
   if (sgn(balance) < 0) {
     throw fift::IntError{"initial balance of a smartcontract cannot be negative"};
@@ -548,7 +549,7 @@ void interpret_register_smartcontract(vm::Stack& stack) {
   Ref<vm::Cell> data = stack.pop_cell();
   Ref<vm::Cell> code = stack.pop_cell();
   td::RefInt256 addr = create_smartcontract(std::move(spec_addr), std::move(code), std::move(data), std::move(library),
-                                            std::move(balance), special, split_depth, mode);
+                                            std::move(balance), special, fixed_prefix_length, mode);
   if (addr.is_null()) {
     throw fift::IntError{"internal error while creating smartcontract"};
   }

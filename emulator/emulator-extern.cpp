@@ -187,7 +187,7 @@ const char *transaction_emulator_emulate_transaction(void *transaction_emulator,
                                           external_not_accepted->elapsed_time);
   }
 
-  auto emulation_success = dynamic_cast<emulator::TransactionEmulator::EmulationSuccess&>(*emulation_result);
+  auto emulation_success = std::move(dynamic_cast<emulator::TransactionEmulator::EmulationSuccess&>(*emulation_result));
   auto trans_boc_b64 = cell_to_boc_b64(std::move(emulation_success.transaction));
   if (trans_boc_b64.is_error()) {
     ERROR_RESPONSE(PSTRING() << "Can't serialize Transaction to boc " << trans_boc_b64.move_as_error());
@@ -260,7 +260,8 @@ const char *transaction_emulator_emulate_tick_tock_transaction(void *transaction
   }
   auto emulation_result = result.move_as_ok();
 
-  auto emulation_success = dynamic_cast<emulator::TransactionEmulator::EmulationSuccess&>(*emulation_result);
+  auto emulation_success =
+      std::move(dynamic_cast<emulator::TransactionEmulator::EmulationSuccess &>(*emulation_result));
   auto trans_boc_b64 = cell_to_boc_b64(std::move(emulation_success.transaction));
   if (trans_boc_b64.is_error()) {
     ERROR_RESPONSE(PSTRING() << "Can't serialize Transaction to boc " << trans_boc_b64.move_as_error());

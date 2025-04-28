@@ -377,8 +377,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   void get_block_data(BlockHandle handle, td::Promise<td::BufferSlice> promise) override;
   void check_zero_state_exists(BlockIdExt block_id, td::Promise<bool> promise) override;
   void get_zero_state(BlockIdExt block_id, td::Promise<td::BufferSlice> promise) override;
-  void check_persistent_state_exists(BlockIdExt block_id, BlockIdExt masterchain_block_id,
-                                     td::Promise<bool> promise) override;
+  void get_persistent_state_size(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+                                 td::Promise<td::uint64> promise) override;
   void get_persistent_state(BlockIdExt block_id, BlockIdExt masterchain_block_id,
                             td::Promise<td::BufferSlice> promise) override;
   void get_persistent_state_slice(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::int64 offset,
@@ -568,30 +568,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   }
 
  public:
-  void allow_delete(BlockIdExt block_id, td::Promise<bool> promise);
-  void allow_archive(BlockIdExt block_id, td::Promise<bool> promise);
-  void allow_block_data_gc(BlockIdExt block_id, bool is_archive, td::Promise<bool> promise) override {
-    allow_archive(block_id, std::move(promise));
-  }
   void allow_block_state_gc(BlockIdExt block_id, td::Promise<bool> promise) override;
-  void allow_zero_state_file_gc(BlockIdExt block_id, td::Promise<bool> promise) override {
-    promise.set_result(false);
-  }
-  void allow_persistent_state_file_gc(BlockIdExt block_id, BlockIdExt masterchain_block_id,
-                                      td::Promise<bool> promise) override;
-  void allow_block_signatures_gc(BlockIdExt block_id, td::Promise<bool> promise) override {
-    allow_archive(block_id, std::move(promise));
-  }
-  void allow_block_proof_gc(BlockIdExt block_id, bool is_archive, td::Promise<bool> promise) override {
-    allow_archive(block_id, std::move(promise));
-  }
-  void allow_block_proof_link_gc(BlockIdExt block_id, bool is_archive, td::Promise<bool> promise) override {
-    allow_archive(block_id, std::move(promise));
-  }
-  void allow_block_candidate_gc(BlockIdExt block_id, td::Promise<bool> promise) override {
-    allow_block_state_gc(block_id, std::move(promise));
-  }
-  void allow_block_info_gc(BlockIdExt block_id, td::Promise<bool> promise) override;
   void archive(BlockHandle handle, td::Promise<td::Unit> promise) override {
     td::actor::send_closure(db_, &Db::archive, std::move(handle), std::move(promise));
   }
@@ -715,9 +692,6 @@ class ValidatorManagerImpl : public ValidatorManager {
  private:
   double state_ttl() const {
     return opts_->state_ttl();
-  }
-  double block_ttl() const {
-    return opts_->block_ttl();
   }
   double max_mempool_num() const {
     return opts_->max_mempool_num();

@@ -38,6 +38,7 @@
 #include "openssl/digest.hpp"
 #include <stack>
 #include <algorithm>
+#include <mutex>
 
 namespace block {
 using namespace std::literals::string_literals;
@@ -253,7 +254,7 @@ td::Status Config::unpack() {
   }
   config_dict = std::make_unique<vm::Dictionary>(config_root, 32);
   if (mode & needValidatorSet) {
-    auto vset_res = unpack_validator_set(get_config_param(35, 34));
+    auto vset_res = unpack_validator_set(get_config_param(35, 34), true);
     if (vset_res.is_error()) {
       return vset_res.move_as_error();
     }
@@ -486,15 +487,79 @@ td::Result<WorkchainSet> Config::unpack_workchain_list(Ref<vm::Cell> root) {
   return std::move(pair.first);
 }
 
-td::Result<std::unique_ptr<ValidatorSet>> Config::unpack_validator_set(Ref<vm::Cell> vset_root) {
+class ValidatorSetCache {
+public:
+  ValidatorSetCache() {
+    cache_.reserve(MAX_CACHE_SIZE + 1);
+  }
+
+  std::shared_ptr<ValidatorSet> get(const vm::CellHash& hash) {
+    std::lock_guard lock{mutex_};
+    auto it = cache_.find(hash);
+    if (it == cache_.end()) {
+      return {};
+    }
+    auto entry = it->second.get();
+    entry->remove();
+    lru_.put(entry);
+    return entry->value;
+  }
+
+  void set(const vm::CellHash& hash, std::shared_ptr<ValidatorSet> vset) {
+    std::lock_guard lock{mutex_};
+    std::unique_ptr<CacheEntry>& entry = cache_[hash];
+    if (entry == nullptr) {
+      entry = std::make_unique<CacheEntry>(hash, std::move(vset));
+    } else {
+      entry->value = std::move(vset);
+      entry->remove();
+    }
+    lru_.put(entry.get());
+    if (cache_.size() > MAX_CACHE_SIZE) {
+      auto to_remove = (CacheEntry*)lru_.get();
+      CHECK(to_remove);
+      to_remove->remove();
+      cache_.erase(to_remove->key);
+    }
+  }
+
+private:
+  std::mutex mutex_;
+
+  struct CacheEntry : td::ListNode {
+    explicit CacheEntry(vm::CellHash key, std::shared_ptr<ValidatorSet> value) : key(key), value(std::move(value)) {
+    }
+    vm::CellHash key;
+    std::shared_ptr<ValidatorSet> value;
+  };
+  td::HashMap<vm::CellHash, std::unique_ptr<CacheEntry>> cache_;
+  td::ListNode lru_;
+
+  static constexpr size_t MAX_CACHE_SIZE = 100;
+};
+
+td::Result<std::shared_ptr<ValidatorSet>> Config::unpack_validator_set(Ref<vm::Cell> vset_root, bool use_cache) {
   if (vset_root.is_null()) {
     return td::Status::Error("validator set is absent");
   }
+  TRY_RESULT(loaded_root, vset_root->load_cell());
+  if (!loaded_root.tree_node.empty()) {
+    // Do not use cache during Merkle proof generation
+    use_cache = false;
+  }
+  static ValidatorSetCache cache;
+  if (use_cache) {
+    auto result = cache.get(vset_root->get_hash());
+    if (result) {
+      return result;
+    }
+  }
+
   gen::ValidatorSet::Record_validators_ext rec;
   Ref<vm::Cell> dict_root;
   if (!tlb::unpack_cell(vset_root, rec)) {
     gen::ValidatorSet::Record_validators rec0;
-    if (!tlb::unpack_cell(std::move(vset_root), rec0)) {
+    if (!tlb::unpack_cell(vset_root, rec0)) {
       return td::Status::Error("validator set is invalid");
     }
     rec.utime_since = rec0.utime_since;
@@ -515,38 +580,57 @@ td::Result<std::unique_ptr<ValidatorSet>> Config::unpack_validator_set(Ref<vm::C
     return td::Status::Error(
         "maximal index in a validator set dictionary must be one less than the total number of validators");
   }
-  auto ptr = std::make_unique<ValidatorSet>(rec.utime_since, rec.utime_until, rec.total, rec.main);
-  for (int i = 0; i < rec.total; i++) {
-    key_buffer.store_ulong(i);
-    auto descr_cs = dict.lookup(key_buffer.bits(), 16);
-    if (descr_cs.is_null()) {
-      return td::Status::Error("indices in a validator set dictionary must be integers 0..total-1");
-    }
+  auto ptr = std::make_shared<ValidatorSet>(rec.utime_since, rec.utime_until, rec.total, rec.main);
+
+  std::vector<bool> seen_keys(rec.total);
+  td::Status error;
+
+  auto validator_set_check_fn = [&](Ref<vm::CellSlice> descr_cs, td::ConstBitPtr key, int n) -> bool {
+    int i = static_cast<int>(key.get_uint(n));
+    CHECK(i >= 0 && i < rec.total && !seen_keys[i]);
+    seen_keys[i] = true;
+
     gen::ValidatorDescr::Record_validator_addr descr;
     if (!tlb::csr_unpack(descr_cs, descr)) {
       descr.adnl_addr.set_zero();
       if (!(gen::t_ValidatorDescr.unpack_validator(descr_cs.write(), descr.public_key, descr.weight) &&
             descr_cs->empty_ext())) {
-        return td::Status::Error(PSLICE() << "validator #" << i
-                                          << " has an invalid ValidatorDescr record in the validator set dictionary");
+        error = td::Status::Error(PSLICE() << "validator #" << i
+                                           << " has an invalid ValidatorDescr record in the validator set dictionary");
+        return false;
       }
     }
     gen::SigPubKey::Record sig_pubkey;
     if (!tlb::csr_unpack(std::move(descr.public_key), sig_pubkey)) {
-      return td::Status::Error(PSLICE() << "validator #" << i
-                                        << " has no public key or its public key is in unsupported format");
+      error = td::Status::Error(PSLICE() << "validator #" << i
+                                         << " has no public key or its public key is in unsupported format");
+      return false;
     }
     if (!descr.weight) {
-      return td::Status::Error(PSLICE() << "validator #" << i << " has zero weight");
+      error = td::Status::Error(PSLICE() << "validator #" << i << " has zero weight");
+      return false;
     }
     if (descr.weight > ~(ptr->total_weight)) {
-      return td::Status::Error("total weight of all validators in validator set exceeds 2^64");
+      error = td::Status::Error("total weight of all validators in validator set exceeds 2^64");
+      return false;
     }
     ptr->list.emplace_back(sig_pubkey.pubkey, descr.weight, ptr->total_weight, descr.adnl_addr);
     ptr->total_weight += descr.weight;
+    return true;
+  };
+
+  if (!dict.check_for_each(validator_set_check_fn)) {
+    CHECK(error.is_error());
+    return error;
+  }
+  if (std::find(seen_keys.begin(), seen_keys.end(), false) != seen_keys.end()) {
+    return td::Status::Error("indices in a validator set dictionary must be integers 0..total-1");
   }
   if (rec.total_weight && rec.total_weight != ptr->total_weight) {
     return td::Status::Error("validator set declares incorrect total weight");
+  }
+  if (use_cache) {
+    cache.set(vset_root->get_hash(), ptr);
   }
   return std::move(ptr);
 }
@@ -1961,6 +2045,7 @@ td::Result<SizeLimitsConfig> Config::do_get_size_limits_config(td::Ref<vm::CellS
     limits.max_acc_public_libraries = rec.max_acc_public_libraries;
     limits.defer_out_queue_size_limit = rec.defer_out_queue_size_limit;
     limits.max_msg_extra_currencies = rec.max_msg_extra_currencies;
+    limits.max_acc_fixed_prefix_length = rec.max_acc_fixed_prefix_length;
   };
   gen::SizeLimitsConfig::Record_size_limits_config rec_v1;
   gen::SizeLimitsConfig::Record_size_limits_config_v2 rec_v2;

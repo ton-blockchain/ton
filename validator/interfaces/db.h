@@ -62,8 +62,8 @@ class Db : public td::actor::Actor {
                                          td::Promise<td::BufferSlice> promise) = 0;
   virtual void get_persistent_state_file_slice(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::int64 offset,
                                                td::int64 max_length, td::Promise<td::BufferSlice> promise) = 0;
-  virtual void check_persistent_state_file_exists(BlockIdExt block_id, BlockIdExt masterchain_block_id,
-                                                  td::Promise<bool> promise) = 0;
+  virtual void get_persistent_state_file_size(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+                                              td::Promise<td::uint64> promise) = 0;
   virtual void store_zero_state_file(BlockIdExt block_id, td::BufferSlice state, td::Promise<td::Unit> promise) = 0;
   virtual void get_zero_state_file(BlockIdExt block_id, td::Promise<td::BufferSlice> promise) = 0;
   virtual void check_zero_state_file_exists(BlockIdExt block_id, td::Promise<bool> promise) = 0;
@@ -123,7 +123,7 @@ class Db : public td::actor::Actor {
                                  td::Promise<td::BufferSlice> promise) = 0;
   virtual void set_async_mode(bool mode, td::Promise<td::Unit> promise) = 0;
 
-  virtual void run_gc(UnixTime mc_ts, UnixTime gc_ts, UnixTime archive_ttl) = 0;
+  virtual void run_gc(UnixTime mc_ts, UnixTime gc_ts, double archive_ttl) = 0;
 
   virtual void add_persistent_state_description(td::Ref<PersistentStateDescription> desc,
                                                 td::Promise<td::Unit> promise) = 0;
