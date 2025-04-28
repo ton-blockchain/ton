@@ -66,11 +66,16 @@ bool FunctionData::does_need_codegen() const {
   return true;
 }
 
-void FunctionData::assign_resolved_receiver_type(TypePtr receiver_type, const GenericsDeclaration* genericTs, std::string&& name_prefix) {
+void FunctionData::assign_resolved_receiver_type(TypePtr receiver_type, std::string&& name_prefix) {
   this->receiver_type = receiver_type;
   if (!this->substitutedTs) {   // after receiver has been resolve, update name to "receiver.method"
     name_prefix.erase(std::remove(name_prefix.begin(), name_prefix.end(), ' '), name_prefix.end());
     this->name = name_prefix + "." + this->method_name;
+  }
+}
+
+void FunctionData::assign_resolved_genericTs(const GenericsDeclaration* genericTs) {
+  if (this->substitutedTs == nullptr) {
     this->genericTs = genericTs;
   }
 }
@@ -140,6 +145,12 @@ void AliasDefData::assign_visited_by_resolver() {
   this->flags |= flagVisitedByResolver;
 }
 
+void AliasDefData::assign_resolved_genericTs(const GenericsDeclaration* genericTs) {
+  if (this->substitutedTs == nullptr) {
+    this->genericTs = genericTs;
+  }
+}
+
 void AliasDefData::assign_resolved_type(TypePtr underlying_type) {
   this->underlying_type = underlying_type;
 }
@@ -154,6 +165,12 @@ void StructFieldData::assign_default_value(AnyExprV default_value) {
 
 void StructData::assign_visited_by_resolver() {
   this->flags |= flagVisitedByResolver;
+}
+
+void StructData::assign_resolved_genericTs(const GenericsDeclaration* genericTs) {
+  if (this->substitutedTs == nullptr) {
+    this->genericTs = genericTs;
+  }
 }
 
 StructFieldPtr StructData::find_field(std::string_view field_name) const {

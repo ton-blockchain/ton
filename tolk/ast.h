@@ -1127,12 +1127,14 @@ struct Vertex<ast_asm_body> final : ASTStatementVararg {
 template<>
 // ast_genericsT_item is generics T at declaration
 // example: `fun f<T1, T2>` has a list of 2 generic Ts
+// example: `struct Params<TInit=null>` has 1 generic T with default
 struct Vertex<ast_genericsT_item> final : ASTOtherLeaf {
   std::string_view nameT;
+  AnyTypeV default_type_node;       // exists for `<T = int>`, nullptr otherwise
 
-  Vertex(SrcLocation loc, std::string_view nameT)
+  Vertex(SrcLocation loc, std::string_view nameT, AnyTypeV default_type_node)
     : ASTOtherLeaf(ast_genericsT_item, loc)
-    , nameT(nameT) {}
+    , nameT(nameT), default_type_node(default_type_node) {}
 };
 
 template<>

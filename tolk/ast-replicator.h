@@ -211,7 +211,7 @@ class ASTReplicator final {
     return createV<ast_identifier>(v->loc, v->name);
   }
   static V<ast_genericsT_item> clone(V<ast_genericsT_item> v) {
-    return createV<ast_genericsT_item>(v->loc, v->nameT);
+    return createV<ast_genericsT_item>(v->loc, v->nameT, clone(v->default_type_node));
   }
   static V<ast_genericsT_list> clone(V<ast_genericsT_list> v) {
     return createV<ast_genericsT_list>(v->loc, clone(v->get_items()));

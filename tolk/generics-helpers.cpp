@@ -25,16 +25,22 @@
 namespace tolk {
 
 // given orig `(int, T)` and substitutions [slice], return `(int, slice)`
-static TypePtr replace_genericT_with_deduced(TypePtr orig, const GenericsSubstitutions* substitutedTs) {
+static TypePtr replace_genericT_with_deduced(TypePtr orig, const GenericsSubstitutions* substitutedTs, bool apply_defaultTs = false, std::string_view* out_unknownT = nullptr) {
   if (!orig || !orig->has_genericT_inside()) {
     return orig;
   }
 
-  return orig->replace_children_custom([substitutedTs](TypePtr child) {
+  return orig->replace_children_custom([substitutedTs, apply_defaultTs, &out_unknownT](TypePtr child) {
     if (const TypeDataGenericT* asT = child->try_as<TypeDataGenericT>()) {
       TypePtr typeT = substitutedTs->get_substitution_for_nameT(asT->nameT);
+      if (typeT == nullptr && apply_defaultTs) {
+        typeT = substitutedTs->get_default_for_nameT(asT->nameT);
+      }
       if (typeT == nullptr) {     // T was not deduced yet, leave T as generic
         typeT = child;
+        if (out_unknownT && out_unknownT->empty()) {
+          *out_unknownT = asT->nameT;
+        }
       }
       return typeT;
     }
@@ -97,6 +103,14 @@ void GenericsSubstitutions::provide_type_arguments(const std::vector<TypePtr>& t
   tolk_assert(static_cast<int>(type_arguments.size()) + start_from == genericTs->size());
   for (int i = start_from; i < genericTs->size(); ++i) {
     valuesTs[i] = type_arguments[i - start_from];
+  }
+}
+
+void GenericsSubstitutions::rewrite_missing_with_defaults() {
+  for (int i = 0; i < size(); ++i) {
+    if (valuesTs[i] == nullptr) {
+      valuesTs[i] = genericTs->get_defaultT(i);   // if no default, left nullptr
+    }
   }
 }
 
@@ -188,6 +202,12 @@ void GenericSubstitutionsDeducing::consider_next_condition(TypePtr param_type, T
         }
       }
     }
+    // `arg: int | MyData<T>` called as `f(MyData<int>)` => T is int
+    else {
+      for (TypePtr p_variant : p_union->variants) {
+        consider_next_condition(p_variant, arg_type);
+      }
+    }
   } else if (const auto* p_instSt = param_type->try_as<TypeDataGenericTypeWithTs>(); p_instSt && p_instSt->struct_ref) {
     // `arg: Wrapper<T>` called as `f(wrappedInt)` => T is int
     if (const auto* a_struct = arg_type->try_as<TypeDataStruct>(); a_struct && a_struct->struct_ref->is_instantiation_of_generic_struct() && a_struct->struct_ref->base_struct_ref == p_instSt->struct_ref) {
@@ -217,9 +237,11 @@ TypePtr GenericSubstitutionsDeducing::auto_deduce_from_argument(TypePtr param_ty
 }
 
 TypePtr GenericSubstitutionsDeducing::auto_deduce_from_argument(FunctionPtr cur_f, SrcLocation loc, TypePtr param_type, TypePtr arg_type) {
-  param_type = auto_deduce_from_argument(param_type, arg_type);
+  std::string_view unknown_nameT;
+  consider_next_condition(param_type, arg_type);
+  param_type = replace_genericT_with_deduced(param_type, &deducedTs, true, &unknown_nameT);
   if (param_type->has_genericT_inside()) {
-    fire_error_can_not_deduce(cur_f, loc, get_first_not_deduced_nameT());
+    fire_error_can_not_deduce(cur_f, loc, unknown_nameT);
   }
   return param_type;
 }
@@ -231,6 +253,10 @@ std::string_view GenericSubstitutionsDeducing::get_first_not_deduced_nameT() con
     }
   }
   return "";
+}
+
+void GenericSubstitutionsDeducing::apply_defaults_from_declaration() {
+  deducedTs.rewrite_missing_with_defaults();
 }
 
 void GenericSubstitutionsDeducing::fire_error_can_not_deduce(FunctionPtr cur_f, SrcLocation loc, std::string_view nameT) const {
@@ -249,7 +275,7 @@ std::string GenericsDeclaration::as_human_readable(bool include_from_receiver) c
       if (result.size() > 1) {
         result += ", ";
       }
-      result += namesT[i];
+      result += itemsT[i].nameT;
     }
     result += '>';
   }
@@ -257,25 +283,12 @@ std::string GenericsDeclaration::as_human_readable(bool include_from_receiver) c
 }
 
 int GenericsDeclaration::find_nameT(std::string_view nameT) const {
-  for (int i = 0; i < static_cast<int>(namesT.size()); ++i) {
-    if (namesT[i] == nameT) {
+  for (int i = 0; i < static_cast<int>(itemsT.size()); ++i) {
+    if (itemsT[i].nameT == nameT) {
       return i;
     }
   }
   return -1;
-}
-
-void GenericsDeclaration::append_ast_list_checking_duplicates(AnyV v_genericsT_list, std::vector<std::string_view>& out) {
-  for (int i = 0; i < v_genericsT_list->as<ast_genericsT_list>()->size(); ++i) {
-    auto v_item = v_genericsT_list->as<ast_genericsT_list>()->get_item(i);
-    auto it_existing = std::find_if(out.begin(), out.end(), [v_item](const std::string_view& prevT) {
-      return prevT == v_item->nameT;
-    });
-    if (it_existing != out.end()) {
-      v_item->error("duplicate generic parameter `" + static_cast<std::string>(v_item->nameT) + "`");
-    }
-    out.emplace_back(v_item->nameT);
-  }
 }
 
 bool GenericsSubstitutions::has_nameT(std::string_view nameT) const {
@@ -285,6 +298,11 @@ bool GenericsSubstitutions::has_nameT(std::string_view nameT) const {
 TypePtr GenericsSubstitutions::get_substitution_for_nameT(std::string_view nameT) const {
   int idx = genericTs->find_nameT(nameT);
   return idx == -1 ? nullptr : valuesTs[idx];
+}
+
+TypePtr GenericsSubstitutions::get_default_for_nameT(std::string_view nameT) const {
+  int idx = genericTs->find_nameT(nameT);
+  return idx == -1 ? nullptr : genericTs->get_defaultT(idx);
 }
 
 // given this=<T1> and rhs=<T2>, check that T1 is equal to T2 in terms of "equal_to" of TypePtr

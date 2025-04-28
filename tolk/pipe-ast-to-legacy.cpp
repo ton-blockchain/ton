@@ -1344,6 +1344,9 @@ static std::vector<var_idx_t> process_object_literal(V<ast_object_literal> v, Co
       }
     }
     if (!v_init_val) {
+      if (field_ref->declared_type == TypeDataNever::create()) {
+        continue;   // field of `never` type can be missed out of object literal (useful in generics defaults)
+      }             // (it occupies 0 slots, nothing is assignable to it — like this field is missing from a struct)
       tolk_assert(field_ref->has_default_value());
       ASTAuxData *aux_data = new AuxData_ForceFiftLocation(prev_loc);
       auto v_force_loc = createV<ast_artificial_aux_vertex>(v->loc, field_ref->default_value, aux_data, field_ref->declared_type);

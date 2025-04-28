@@ -474,6 +474,18 @@ fun test33(): WithDefaults {
     return { f2: 5, f3: null };
 }
 
+struct WithNever {
+    f1: int;
+    f2: never;
+    f3: int;
+}
+
+@method_id(134)
+fun test34() {
+    var o1: WithNever = { f1: 10, f3: 20 };   // f2 is `never`, it can be omitted
+    __expect_type(o1.f2, "never");
+    return o1;
+}
 
 
 fun main(x: int8, y: MInt) {
@@ -526,6 +538,7 @@ type PointAlias = Point;
 @testcase | 131 |      | 5 141 (null) 141 (null) 0 777 0 0 -1 777 0 -1
 @testcase | 132 |      | 10 20 10 0 0 20 0 0 0 0
 @testcase | 133 |      | -1 0 5 (null) (null) (null) 0 0 46
+@testcase | 134 |      | 10 20
 
 @fif_codegen
 """

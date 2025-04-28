@@ -143,28 +143,6 @@ static TypePtr try_parse_predefined_type(std::string_view str) {
   return nullptr;
 }
 
-static const GenericsDeclaration* combine_genericTs_from_receiver_and_declaration(TypePtr receiver_type, V<ast_genericsT_list> v_list) {
-  std::vector<std::string_view> namesT;
-  receiver_type->replace_children_custom([&namesT](TypePtr child) {
-    if (const TypeDataGenericT* asT = child->try_as<TypeDataGenericT>()) {
-      auto it_existing = std::find_if(namesT.begin(), namesT.end(), [asT](const std::string_view& prevT) {
-        return prevT == asT->nameT;
-      });
-      if (it_existing == namesT.end()) {
-        namesT.emplace_back(asT->nameT);
-      }
-    }
-    return child;
-  });
-  int n_from_receiver = static_cast<int>(namesT.size());
-
-  if (v_list) {
-    GenericsDeclaration::append_ast_list_checking_duplicates(v_list, namesT);
-  }
-
-  return new GenericsDeclaration(std::move(namesT), n_from_receiver);
-}
-
 class TypeNodesVisitorResolver {
   FunctionPtr cur_f;                                // exists if we're inside its body
   const GenericsDeclaration* genericTs;             // `<T>` if we're inside `f<T>` or `f<int>`
@@ -375,6 +353,11 @@ public:
       throw ParseError(alias_ref->loc, "type `" + alias_ref->name + "` circularly references itself");
     }
 
+    if (auto v_genericsT_list = alias_ref->ast_root->as<ast_type_alias_declaration>()->genericsT_list) {
+      const GenericsDeclaration* genericTs = construct_genericTs(nullptr, v_genericsT_list);
+      alias_ref->mutate()->assign_resolved_genericTs(genericTs);
+    }
+
     called_stack.push_back(alias_ref);
     TypeNodesVisitorResolver visitor(nullptr, alias_ref->genericTs, alias_ref->substitutedTs, false);
     TypePtr underlying_type = visitor.finalize_type_node(alias_ref->underlying_type_node);
@@ -394,6 +377,11 @@ public:
       throw ParseError(struct_ref->loc, "struct `" + struct_ref->name + "` size is infinity due to recursive fields");
     }
 
+    if (auto v_genericsT_list = struct_ref->ast_root->as<ast_struct_declaration>()->genericsT_list) {
+      const GenericsDeclaration* genericTs = construct_genericTs(nullptr, v_genericsT_list);
+      struct_ref->mutate()->assign_resolved_genericTs(genericTs);
+    }
+
     called_stack.push_back(struct_ref);
     TypeNodesVisitorResolver visitor(nullptr, struct_ref->genericTs, struct_ref->substitutedTs, false);
     for (int i = 0; i < struct_ref->get_num_fields(); ++i) {
@@ -403,6 +391,44 @@ public:
     }
     struct_ref->mutate()->assign_visited_by_resolver();
     called_stack.pop_back();
+  }
+
+  static const GenericsDeclaration* construct_genericTs(TypePtr receiver_type, V<ast_genericsT_list> v_list) {
+    std::vector<GenericsDeclaration::ItemT> itemsT;
+    if (receiver_type && receiver_type->has_genericT_inside()) {
+      receiver_type->replace_children_custom([&itemsT](TypePtr child) {
+        if (const TypeDataGenericT* asT = child->try_as<TypeDataGenericT>()) {
+          auto it_existing = std::find_if(itemsT.begin(), itemsT.end(), [asT](const GenericsDeclaration::ItemT& prevT) {
+            return prevT.nameT == asT->nameT;
+          });
+          if (it_existing == itemsT.end()) {
+            itemsT.emplace_back(asT->nameT, nullptr);
+          }
+        }
+        return child;
+      });
+    }
+    int n_from_receiver = static_cast<int>(itemsT.size());
+
+    if (v_list) {
+      TypeNodesVisitorResolver visitor(nullptr, nullptr, nullptr, false);
+      for (int i = 0; i < v_list->size(); ++i) {
+        auto v_item = v_list->get_item(i);
+        auto it_existing = std::find_if(itemsT.begin(), itemsT.end(), [v_item](const GenericsDeclaration::ItemT& prevT) {
+          return prevT.nameT == v_item->nameT;
+        });
+        if (it_existing != itemsT.end()) {
+          v_item->error("duplicate generic parameter `" + static_cast<std::string>(v_item->nameT) + "`");
+        }
+        TypePtr default_type = nullptr;
+        if (v_list->get_item(i)->default_type_node) {
+          default_type = visitor.finalize_type_node(v_list->get_item(i)->default_type_node);
+        }
+        itemsT.emplace_back(v_item->nameT, default_type);
+      }
+    }
+
+    return new GenericsDeclaration(std::move(itemsT), n_from_receiver);
   }
 };
 
@@ -502,17 +528,17 @@ public:
     if (fun_ref->receiver_type_node) {
       TypeNodesVisitorResolver receiver_visitor(fun_ref, fun_ref->genericTs, fun_ref->substitutedTs, true);
       TypePtr receiver_type = receiver_visitor.finalize_type_node(fun_ref->receiver_type_node);
-      const GenericsDeclaration* genericTs = fun_ref->genericTs;
-      if (receiver_type->has_genericT_inside()) {
-        genericTs = combine_genericTs_from_receiver_and_declaration(receiver_type, v->genericsT_list);
-      }
       std::string name_prefix = receiver_type->as_human_readable();
       bool embrace = receiver_type->try_as<TypeDataUnion>() && !receiver_type->try_as<TypeDataUnion>()->or_null;
       if (embrace) {
         name_prefix = "(" + name_prefix + ")";
       }
-      fun_ref->mutate()->assign_resolved_receiver_type(receiver_type, genericTs, std::move(name_prefix));
+      fun_ref->mutate()->assign_resolved_receiver_type(receiver_type, std::move(name_prefix));
       G.symtable.add_function(fun_ref);
+    }
+    if (v->genericsT_list || (fun_ref->receiver_type && fun_ref->receiver_type->has_genericT_inside())) {
+      const GenericsDeclaration* genericTs = TypeNodesVisitorResolver::construct_genericTs(fun_ref->receiver_type, v->genericsT_list);
+      fun_ref->mutate()->assign_resolved_genericTs(genericTs);
     }
 
     type_nodes_visitor = TypeNodesVisitorResolver(fun_ref, fun_ref->genericTs, fun_ref->substitutedTs, false);

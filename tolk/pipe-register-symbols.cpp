@@ -91,13 +91,6 @@ static void validate_arg_ret_order_of_asm_function(V<ast_asm_body> v_body, int n
   }
 }
 
-static const GenericsDeclaration* construct_genericTs(V<ast_genericsT_list> v_list) {
-  std::vector<std::string_view> namesT;
-  namesT.reserve(v_list->size());
-  GenericsDeclaration::append_ast_list_checking_duplicates(v_list, namesT);
-  return new GenericsDeclaration(std::move(namesT), 0);
-}
-
 static GlobalConstPtr register_constant(V<ast_constant_declaration> v) {
   GlobalConstData* c_sym = new GlobalConstData(static_cast<std::string>(v->get_identifier()->name), v->loc, v->type_node, v->get_init_value());
 
@@ -117,15 +110,11 @@ static GlobalVarPtr register_global_var(V<ast_global_var_declaration> v) {
 }
 
 static AliasDefPtr register_type_alias(V<ast_type_alias_declaration> v, AliasDefPtr base_alias_ref = nullptr, std::string override_name = {}, const GenericsSubstitutions* substitutedTs = nullptr) {
-  const GenericsDeclaration* genericTs = nullptr;
-  if (v->genericsT_list && !substitutedTs) {
-    genericTs = construct_genericTs(v->genericsT_list);
-  }
-
   std::string name = std::move(override_name);
   if (name.empty()) {
     name = v->get_identifier()->name;
   }
+  const GenericsDeclaration* genericTs = nullptr;   // at registering it's null; will be assigned after types resolving
   AliasDefData* a_sym = new AliasDefData(std::move(name), v->loc, v->underlying_type_node, genericTs, substitutedTs, v);
   a_sym->base_alias_ref = base_alias_ref;   // for `Response<int>`, here is `Response<T>`
 
@@ -152,15 +141,11 @@ static StructPtr register_struct(V<ast_struct_declaration> v, StructPtr base_str
     fields.emplace_back(new StructFieldData(static_cast<std::string>(v_field->get_identifier()->name), v_field->loc, i, v_field->type_node, default_value));
   }
 
-  const GenericsDeclaration* genericTs = nullptr;
-  if (v->genericsT_list && !substitutedTs) {
-    genericTs = construct_genericTs(v->genericsT_list);
-  }
-
   std::string name = std::move(override_name);
   if (name.empty()) {
     name = v->get_identifier()->name;
   }
+  const GenericsDeclaration* genericTs = nullptr;   // at registering it's null; will be assigned after types resolving
   StructData* s_sym = new StructData(std::move(name), v->loc, std::move(fields), genericTs, substitutedTs, v);
   s_sym->base_struct_ref = base_struct_ref;   // for `Container<int>`, here is `Container<T>`
 
@@ -201,11 +186,6 @@ static FunctionPtr register_function(V<ast_function_declaration> v, FunctionPtr 
     n_mutate_params += static_cast<int>(v_param->declared_as_mutate);
   }
 
-  const GenericsDeclaration* genericTs = nullptr;
-  if (v->genericsT_list && !substitutedTs) {
-    genericTs = construct_genericTs(v->genericsT_list);
-  }
-
   std::string method_name;
   if (v->receiver_type_node) {
     method_name = f_identifier;
@@ -215,6 +195,7 @@ static FunctionPtr register_function(V<ast_function_declaration> v, FunctionPtr 
     name = f_identifier;
   }
 
+  const GenericsDeclaration* genericTs = nullptr;   // at registering it's null; will be assigned after types resolving
   FunctionBody f_body = v->get_body()->kind == ast_block_statement ? static_cast<FunctionBody>(new FunctionBodyCode) : static_cast<FunctionBody>(new FunctionBodyAsm);
   FunctionData* f_sym = new FunctionData(std::move(name), v->loc, std::move(method_name), v->receiver_type_node, v->return_type_node, std::move(parameters), 0, genericTs, substitutedTs, f_body, v);
   f_sym->base_fun_ref = base_fun_ref;   // for `f<int>`, here is `f<T>`

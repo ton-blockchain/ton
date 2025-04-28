@@ -1,4 +1,4 @@
-struct Wrapper<T> {
+struct Wrapper<T = int> {
     item: T;
     value: int;
 }
@@ -11,6 +11,6 @@ fun main() {
 
 /**
 @compilation_should_fail
-@stderr can not deduce T for generic struct `Wrapper<T>`
+@stderr field `item` missed in initialization of struct `Wrapper<int>`
 @stderr = Wrapper {
  */

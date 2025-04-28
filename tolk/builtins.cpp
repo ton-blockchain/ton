@@ -1119,7 +1119,7 @@ void define_builtins() {
   TypePtr Never = TypeDataNever::create();
 
   TypePtr typeT = TypeDataGenericT::create("T");
-  const GenericsDeclaration* declGenericT = new GenericsDeclaration(std::vector<std::string_view>{"T"}, 0);
+  const GenericsDeclaration* declGenericT = new GenericsDeclaration(std::vector<GenericsDeclaration::ItemT>{{"T", nullptr}}, 0);
 
   std::vector ParamsInt1 = {Int};
   std::vector ParamsInt2 = {Int, Int};

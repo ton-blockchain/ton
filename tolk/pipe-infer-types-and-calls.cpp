@@ -1161,6 +1161,10 @@ class InferTypesAndCallsAndFieldsVisitor final {
         nameT_unknown = deducingTs.get_first_not_deduced_nameT();
       }
       if (!nameT_unknown.empty()) {
+        deducingTs.apply_defaults_from_declaration();
+        nameT_unknown = deducingTs.get_first_not_deduced_nameT();
+      }
+      if (!nameT_unknown.empty()) {
         deducingTs.fire_error_can_not_deduce(cur_f, v->get_arg_list()->loc, nameT_unknown);
       }
       fun_ref = check_and_instantiate_generic_function(v->loc, fun_ref, deducingTs.flush());
@@ -1303,10 +1307,17 @@ class InferTypesAndCallsAndFieldsVisitor final {
             last_struct = variant_struct->struct_ref;
             n_structs++;
           }
+          if (const TypeDataGenericTypeWithTs* hint_withTs = variant->unwrap_alias()->try_as<TypeDataGenericTypeWithTs>()) {
+            last_struct = hint_withTs->struct_ref;
+            n_structs++;
+          }
         }
         if (n_structs == 1) {
           struct_ref = last_struct;
         }
+      }
+      if (const TypeDataGenericTypeWithTs* hint_withTs = hint->unwrap_alias()->try_as<TypeDataGenericTypeWithTs>()) {
+        struct_ref = hint_withTs->struct_ref;
       }
     }
     if (!struct_ref) {
@@ -1343,22 +1354,32 @@ class InferTypesAndCallsAndFieldsVisitor final {
       }
       assign_inferred_type(field_i, val_i);
     }
-    for (StructFieldPtr field_ref : struct_ref->fields) {
-      if (!(occurred_mask & (1ULL << field_ref->field_idx)) && !field_ref->has_default_value()) {
-        fire(cur_f, v->get_body()->loc, "field `" + field_ref->name + "` missed in initialization of struct " + to_string(struct_ref));
-      }
-    }
 
     // if it's a generic struct `Wrapper<T>`, we need to instantiate it, like `Wrapper<int>`
     if (struct_ref->is_generic_struct()) {
-      if (std::string_view nameT = deducingTs.get_first_not_deduced_nameT(); !nameT.empty()) {
-        deducingTs.fire_error_can_not_deduce(cur_f, v->loc, nameT);
+      std::string_view nameT_unknown = deducingTs.get_first_not_deduced_nameT();
+      if (!nameT_unknown.empty()) {
+        deducingTs.apply_defaults_from_declaration();
+        nameT_unknown = deducingTs.get_first_not_deduced_nameT();
+      }
+      if (!nameT_unknown.empty()) {
+        deducingTs.fire_error_can_not_deduce(cur_f, v->loc, nameT_unknown);
       }
       struct_ref = instantiate_generic_struct(struct_ref, deducingTs.flush());
       // re-assign field_ref (it was earlier assigned into a field of a generic struct)
       for (int i = 0; i < v->get_body()->get_num_fields(); ++i) {
         auto field_i = v->get_body()->get_field(i);
         field_i->mutate()->assign_field_ref(struct_ref->find_field(field_i->get_field_name()));
+      }
+    }
+
+    // check that all fields are present (do it after potential generic instantiation, when types are known)
+    for (StructFieldPtr field_ref : struct_ref->fields) {
+      if (!(occurred_mask & (1ULL << field_ref->field_idx))) {
+        bool allow_missing = field_ref->has_default_value() || field_ref->declared_type == TypeDataNever::create();
+        if (!allow_missing) {
+          fire(cur_f, v->get_body()->loc, "field `" + field_ref->name + "` missed in initialization of struct " + to_string(struct_ref));
+        }
       }
     }
 

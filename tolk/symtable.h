@@ -199,7 +199,8 @@ struct FunctionData final : Symbol {
   bool does_need_codegen() const;
 
   FunctionData* mutate() const { return const_cast<FunctionData*>(this); }
-  void assign_resolved_receiver_type(TypePtr receiver_type, const GenericsDeclaration* genericTs, std::string&& name_prefix);
+  void assign_resolved_receiver_type(TypePtr receiver_type, std::string&& name_prefix);
+  void assign_resolved_genericTs(const GenericsDeclaration* genericTs);
   void assign_resolved_type(TypePtr declared_return_type);
   void assign_inferred_type(TypePtr inferred_return_type, TypePtr inferred_full_type);
   void assign_is_used_as_noncall();
@@ -279,6 +280,7 @@ struct AliasDefData final : Symbol {
 
   AliasDefData* mutate() const { return const_cast<AliasDefData*>(this); }
   void assign_visited_by_resolver();
+  void assign_resolved_genericTs(const GenericsDeclaration* genericTs);
   void assign_resolved_type(TypePtr underlying_type);
 };
 
@@ -326,6 +328,7 @@ struct StructData final : Symbol {
 
   StructData* mutate() const { return const_cast<StructData*>(this); }
   void assign_visited_by_resolver();
+  void assign_resolved_genericTs(const GenericsDeclaration* genericTs);
 
   StructData(std::string name, SrcLocation loc, std::vector<StructFieldPtr>&& fields, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, AnyV ast_root)
     : Symbol(std::move(name), loc)

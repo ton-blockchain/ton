@@ -279,9 +279,15 @@ static V<ast_genericsT_list> parse_genericsT_list(Lexer& lex) {
   lex.expect(tok_lt, "`<`");
   while (true) {
     lex.check(tok_identifier, "T");
+    SrcLocation locT = lex.cur_location();
     std::string_view nameT = lex.cur_str();
-    genericsT_items.emplace_back(createV<ast_genericsT_item>(lex.cur_location(), nameT));
     lex.next();
+    AnyTypeV default_type = nullptr;
+    if (lex.tok() == tok_assign) {          // <T = int?>
+      lex.next();
+      default_type = parse_type_expression(lex);
+    }
+    genericsT_items.emplace_back(createV<ast_genericsT_item>(locT, nameT, default_type));
     if (lex.tok() != tok_comma) {
       break;
     }

@@ -870,7 +870,7 @@ bool TypeDataUnknown::can_rhs_be_assigned(TypePtr rhs) const {
 }
 
 bool TypeDataNever::can_rhs_be_assigned(TypePtr rhs) const {
-  return true;
+  return rhs == TypeDataNever::create();
 }
 
 bool TypeDataVoid::can_rhs_be_assigned(TypePtr rhs) const {
