@@ -1708,6 +1708,36 @@ void ValidatorEngine::load_collators_list() {
   }
 }
 
+void ValidatorEngine::load_shard_block_verifier_config() {
+  shard_block_verifier_config_ = {};
+  auto data_R = td::read_file(shard_block_verifier_config_file());
+  if (data_R.is_error()) {
+    return;
+  }
+  auto data = data_R.move_as_ok();
+  auto json_R = td::json_decode(data.as_slice());
+  if (json_R.is_error()) {
+    LOG(ERROR) << "Failed to parse shard block verifier config: " << json_R.move_as_error();
+    return;
+  }
+  auto json = json_R.move_as_ok();
+  shard_block_verifier_config_ = ton::create_tl_object<ton::ton_api::engine_validator_shardBlockVerifierConfig>();
+  auto S = ton::ton_api::from_json(*shard_block_verifier_config_, json.get_object());
+  if (S.is_error()) {
+    LOG(ERROR) << "Failed to parse shard block verifier config: " << S;
+    shard_block_verifier_config_ = {};
+    return;
+  }
+  td::Ref<ton::validator::ShardBlockVerifierConfig> config{true};
+  S = config.write().unpack(*shard_block_verifier_config_);
+  if (S.is_ok()) {
+    validator_options_.write().set_shard_block_verifier_config(std::move(config));
+  } else {
+    LOG(ERROR) << "Invalid shard block verifier config: " << S.move_as_error();
+    shard_block_verifier_config_ = {};
+  }
+}
+
 void ValidatorEngine::load_empty_local_config(td::Promise<td::Unit> promise) {
   auto ret_promise = td::PromiseCreator::lambda(
       [SelfId = actor_id(this), promise = std::move(promise)](td::Result<td::Unit> R) mutable {
@@ -2018,6 +2048,7 @@ void ValidatorEngine::got_key(ton::PublicKey key) {
 void ValidatorEngine::start() {
   set_shard_check_function();
   load_collators_list();
+  load_shard_block_verifier_config();
   read_config_ = true;
   start_adnl();
 }
@@ -2150,6 +2181,15 @@ void ValidatorEngine::start_validator() {
     for (auto &t : v.second.temp_keys) {
       td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::add_temp_key, t.first,
                               [](td::Unit) {});
+    }
+  }
+
+  if (!shard_block_retainer_adnl_id_.is_zero()) {
+    if (config_.adnl_ids.contains(shard_block_retainer_adnl_id_.pubkey_hash())) {
+      td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::add_shard_block_retainer,
+                              shard_block_retainer_adnl_id_);
+    } else {
+      LOG(ERROR) << "Cannot start shard block retainer: no adnl id " << shard_block_retainer_adnl_id_;
     }
   }
 
@@ -4974,6 +5014,55 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_delFastSy
   });
 }
 
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_setShardBlockVerifierConfig &query,
+                                        td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
+                                        td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_modify)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+  if (!started_) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "not started")));
+    return;
+  }
+
+  td::Ref<ton::validator::ShardBlockVerifierConfig> config{true};
+  auto S = config.write().unpack(*query.config_);
+  if (S.is_error()) {
+    promise.set_value(create_control_query_error(S.move_as_error_prefix("Invalid config: ")));
+    return;
+  }
+  auto s = td::json_encode<std::string>(td::ToJson(*query.config_), true);
+  S = td::write_file(shard_block_verifier_config_file(), s);
+  if (S.is_error()) {
+    promise.set_value(create_control_query_error(std::move(S)));
+    return;
+  }
+  shard_block_verifier_config_ = std::move(query.config_);
+  validator_options_.write().set_shard_block_verifier_config(std::move(config));
+  td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::update_options,
+                          validator_options_);
+  promise.set_value(ton::serialize_tl_object(ton::create_tl_object<ton::ton_api::engine_validator_success>(), true));
+}
+
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_showShardBlockVerifierConfig &query,
+                                        td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
+                                        td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_default)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+  if (!started_) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "not started")));
+    return;
+  }
+  if (shard_block_verifier_config_) {
+    promise.set_value(ton::serialize_tl_object(shard_block_verifier_config_, true));
+  } else {
+    promise.set_value(create_control_query_error(td::Status::Error("shard block verifier config is empty")));
+  }
+}
+
 void ValidatorEngine::process_control_query(td::uint16 port, ton::adnl::AdnlNodeIdShort src,
                                             ton::adnl::AdnlNodeIdShort dst, td::BufferSlice data,
                                             td::Promise<td::BufferSlice> promise) {
@@ -5459,6 +5548,17 @@ int main(int argc, char *argv[]) {
         }
         acts.push_back(
             [&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_broadcast_speed_multiplier_private, v); });
+        return td::Status::OK();
+      });
+  p.add_checked_option(
+      '\0', "shard-block-retainer", "adnl id for shard block retainer (hex)", [&](td::Slice arg) -> td::Status {
+        td::Bits256 v;
+        if (v.from_hex(arg) != 256) {
+          return td::Status::Error("invalid adnl-id");
+        }
+        acts.push_back([&x, v]() {
+          td::actor::send_closure(x, &ValidatorEngine::set_shard_block_retainer_adnl_id, ton::adnl::AdnlNodeIdShort{v});
+        });
         return td::Status::OK();
       });
   auto S = p.run(argc, argv);

@@ -170,6 +170,9 @@ void ValidatorEngineConsole::run() {
   add_query_runner(std::make_unique<QueryRunnerImpl<ImportFastSyncMemberCertificateQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<AddFastSyncOverlayClientQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<DelFastSyncOverlayClientQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<SetShardBlockVerifierConfigQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<ClearShardBlockVerifierConfigQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<ShowShardBlockVerifierConfigQuery>>());
 }
 
 bool ValidatorEngineConsole::envelope_send_query(td::BufferSlice query, td::Promise<td::BufferSlice> promise) {

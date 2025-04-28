@@ -114,7 +114,7 @@ class MasterchainStateQ : public MasterchainState, public ShardStateQ {
   Ref<ValidatorSet> get_validator_set(ShardIdFull shard, UnixTime ts, CatchainSeqno cc_seqno) const;
   bool rotated_all_shards() const override;
   std::vector<Ref<McShardHash>> get_shards() const override;
-  td::Ref<McShardHash> get_shard_from_config(ShardIdFull shard) const override;
+  td::Ref<McShardHash> get_shard_from_config(ShardIdFull shard, bool exact) const override;
   bool ancestor_is_valid(BlockIdExt id) const override {
     return check_old_mc_block_id(id);
   }

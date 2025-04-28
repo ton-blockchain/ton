@@ -37,6 +37,8 @@
 #include "validator-telemetry.hpp"
 #include "impl/candidates-buffer.hpp"
 #include "collator-node.hpp"
+#include "shard-block-verifier.hpp"
+#include "shard-block-retainer.hpp"
 
 #include <map>
 #include <set>
@@ -235,9 +237,10 @@ class ValidatorManagerImpl : public ValidatorManager {
     }
   };
   // DATA FOR COLLATOR
-  // Shard block will not be used until queue is ready (to avoid too long masterchain collation)
+  // Shard block will not be used until it is confirmed by trusted nodes (see ShardBlockVerifier) and
+  // msg queue to masterchain is ready (to avoid too long masterchain collation)
   // latest_desc - latest known block
-  // ready_desc - block with ready msg queue (may be null)
+  // ready_desc - block ready to be used (may be null)
   struct ShardTopBlock {
     td::Ref<ShardTopBlockDescription> latest_desc;
     td::Ref<ShardTopBlockDescription> ready_desc;
@@ -562,8 +565,10 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   void add_shard_block_description(td::Ref<ShardTopBlockDescription> desc);
   void add_cached_block_candidate(ReceivedBlock block);
-  void preload_msg_queue_to_masterchain(td::Ref<ShardTopBlockDescription> desc);
-  void loaded_msg_queue_to_masterchain(td::Ref<ShardTopBlockDescription> desc, td::Ref<OutMsgQueueProof> res);
+  void preload_msg_queue_to_masterchain(td::Ref<ShardTopBlockDescription> desc, td::Promise<td::Unit> promise);
+  void loaded_msg_queue_to_masterchain(td::Ref<ShardTopBlockDescription> desc, td::Ref<OutMsgQueueProof> res,
+                                       td::Promise<td::Unit> promise);
+  void set_shard_block_description_ready(td::Ref<ShardTopBlockDescription> desc);
 
   void register_block_handle(BlockHandle handle);
 
@@ -769,6 +774,10 @@ class ValidatorManagerImpl : public ValidatorManager {
       std::function<void(td::Promise<std::vector<std::pair<std::string, std::string>>>)> callback) override;
   void unregister_stats_provider(td::uint64 idx) override;
 
+  void wait_verify_shard_blocks(std::vector<BlockIdExt> blocks, td::Promise<td::Unit> promise) override;
+
+  void add_shard_block_retainer(adnl::AdnlNodeIdShort id) override;
+
   std::map<PublicKeyHash, td::actor::ActorOwn<ValidatorTelemetry>> validator_telemetry_;
 
   void init_validator_telemetry();
@@ -795,6 +804,12 @@ class ValidatorManagerImpl : public ValidatorManager {
   void init_session_stats();
   template<typename T>
   void write_session_stats(const T &obj);
+
+  td::actor::ActorOwn<ShardBlockVerifier> shard_block_verifier_;
+  adnl::AdnlNodeIdShort shard_block_verifier_local_id_ = adnl::AdnlNodeIdShort::zero();
+  std::map<adnl::AdnlNodeIdShort, td::actor::ActorOwn<ShardBlockRetainer>> shard_block_retainers_;
+
+  void init_shard_block_verifier(adnl::AdnlNodeIdShort local_id);
 };
 
 }  // namespace validator

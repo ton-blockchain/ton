@@ -1801,11 +1801,13 @@ void ValidateQuery::after_get_aux_shard_state(ton::BlockIdExt blkid, td::Result<
  * @param sibling The sibling shard information.
  * @param wc_info The workchain information.
  * @param ccvc The Catchain validators configuration.
+ * @param is_new Set to true if the top shard block is new, false if it existed in the previous shard configuration.
  *
  * @returns True if the validation wasa successful, false otherwise.
  */
 bool ValidateQuery::check_one_shard(const block::McShardHash& info, const block::McShardHash* sibling,
-                                    const block::WorkchainInfo* wc_info, const block::CatchainValidatorsConfig& ccvc) {
+                                    const block::WorkchainInfo* wc_info, const block::CatchainValidatorsConfig& ccvc,
+                                    bool& is_new) {
   auto shard = info.shard();
   LOG(DEBUG) << "checking shard " << shard.to_str() << " in new shard configuration";
   if (info.next_validator_shard_ != shard.shard) {
@@ -1814,6 +1816,7 @@ bool ValidateQuery::check_one_shard(const block::McShardHash& info, const block:
                         ton::ShardIdFull{shard.workchain, info.next_validator_shard_}.to_str());
   }
   auto old = old_shard_conf_->get_shard_hash(shard - 1, false);
+  is_new = (old.is_null() || old->top_block_id() != info.top_block_id());
   Ref<block::McShardHash> prev;
   CatchainSeqno cc_seqno;
   bool old_before_merge = false, fsm_inherited = false, workchain_created = false;
@@ -2113,8 +2116,10 @@ bool ValidateQuery::check_shard_layout() {
   WorkchainId wc_id{ton::workchainInvalid};
   Ref<block::WorkchainInfo> wc_info;
 
-  if (!new_shard_conf_->process_sibling_shard_hashes([self = this, &wc_set, &wc_id, &wc_info, &ccvc](
-                                                         block::McShardHash& cur, const block::McShardHash* sibling) {
+  std::vector<BlockIdExt> new_top_shard_blocks;
+  if (!new_shard_conf_->process_sibling_shard_hashes([self = this, &new_top_shard_blocks, &wc_set, &wc_id, &wc_info,
+                                                      &ccvc](block::McShardHash& cur,
+                                                             const block::McShardHash* sibling) {
         if (!cur.is_valid()) {
           return -2;
         }
@@ -2131,7 +2136,15 @@ bool ValidateQuery::check_shard_layout() {
             wc_info = it->second;
           }
         }
-        return self->check_one_shard(cur, sibling, wc_info.get(), ccvc) ? 0 : -1;
+        bool is_new;
+        int res = self->check_one_shard(cur, sibling, wc_info.get(), ccvc, is_new);
+        if (!res) {
+          return -1;
+        }
+        if (is_new) {
+          new_top_shard_blocks.push_back(cur.top_block_id());
+        }
+        return 0;
       })) {
     return reject_query("new shard configuration is invalid");
   }
@@ -2147,6 +2160,14 @@ bool ValidateQuery::check_shard_layout() {
       return reject_query(PSTRING() << "workchain " << pair.first
                                     << " is active, but is absent from new shard configuration");
     }
+  }
+  if (!new_top_shard_blocks.empty()) {
+    ++pending;
+    td::actor::send_closure(manager, &ValidatorManager::wait_verify_shard_blocks, std::move(new_top_shard_blocks),
+                            [SelfId = actor_id(this)](td::Result<td::Unit> R) {
+                              td::actor::send_closure(SelfId, &ValidateQuery::verified_shard_blocks,
+                                                      R.move_as_status());
+                            });
   }
   return check_mc_validator_info(is_key_block_ || (now_ / ccvc.mc_cc_lifetime > prev_now_ / ccvc.mc_cc_lifetime));
 }
@@ -2348,6 +2369,23 @@ void ValidateQuery::got_out_queue_size(size_t i, td::Result<td::uint64> res) {
   td::uint64 size = res.move_as_ok();
   LOG(DEBUG) << "got outbound queue size from prev block #" << i << ": " << size;
   old_out_msg_queue_size_ += size;
+  try_validate();
+}
+
+/**
+ * Handles the result of ValidatorManager::wait_verify_shard_blocks.
+ *
+ * This is called after new top shard blocks were confirmed by trusted nodes.
+ *
+ * @param S The status of the operation (OK on success).
+ */
+void ValidateQuery::verified_shard_blocks(td::Status S) {
+  --pending;
+  if (S.is_error()) {
+    fatal_error(S.move_as_error_prefix("failed to verify shard blocks: "));
+    return;
+  }
+  LOG(DEBUG) << "Verified shard blocks";
   try_validate();
 }
 

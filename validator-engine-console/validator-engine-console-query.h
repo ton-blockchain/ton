@@ -1747,3 +1747,63 @@ class DelFastSyncOverlayClientQuery : public Query {
  private:
   td::Bits256 adnl_id_;
 };
+
+class SetShardBlockVerifierConfigQuery : public Query {
+ public:
+  SetShardBlockVerifierConfigQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "set-shard-block-verifier-config";
+  }
+  static std::string get_help() {
+    return "set-shard-block-verifier-config <filename>\tset config for shard block verifier from file <filename>";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  std::string file_name_;
+};
+
+class ClearShardBlockVerifierConfigQuery : public Query {
+ public:
+  ClearShardBlockVerifierConfigQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "clear-shard-block-verifier-config";
+  }
+  static std::string get_help() {
+    return "clear-shard-block-verifier-config <filename>\treset config for shard block verifier";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+};
+
+class ShowShardBlockVerifierConfigQuery : public Query {
+ public:
+  ShowShardBlockVerifierConfigQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "show-shard-block-verifier-config";
+  }
+  static std::string get_help() {
+    return "show-shard-block-verifier-config\tshow config of shard block verifier";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+};

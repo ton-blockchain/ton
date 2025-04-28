@@ -56,6 +56,8 @@ set(VALIDATOR_HEADERS
   import-db-slice.hpp
   queue-size-counter.hpp
   validator-telemetry.hpp
+  shard-block-verifier.hpp
+  shard-block-retainer.hpp
 
   collation-manager.hpp
   collator-node.hpp
@@ -87,6 +89,8 @@ set(VALIDATOR_SOURCE
   validator-options.cpp
   queue-size-counter.cpp
   validator-telemetry.cpp
+  shard-block-verifier.cpp
+  shard-block-retainer.cpp
 
   downloaders/wait-block-data.cpp
   downloaders/wait-block-state.cpp

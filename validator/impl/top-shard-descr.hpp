@@ -74,6 +74,9 @@ class ShardTopBlockDescrQ final : public ShardTopBlockDescrQBase {
   std::size_t size() const {
     return chain_blk_ids_.size();
   }
+  const std::vector<BlockIdExt>& get_chain_blocks() const override {
+    return chain_blk_ids_;
+  }
   UnixTime generated_at() const override {
     return gen_utime_;
   }

@@ -95,6 +95,17 @@ struct CollatorsList : public td::CntObject {
   static CollatorsList default_list();
 };
 
+struct ShardBlockVerifierConfig : public td::CntObject {
+  struct Shard {
+    ShardIdFull shard_id;
+    std::vector<adnl::AdnlNodeIdShort> trusted_nodes;
+    td::uint32 required_confirms;
+  };
+  std::vector<Shard> shards;
+
+  td::Status unpack(const ton_api::engine_validator_shardBlockVerifierConfig& obj);
+};
+
 struct ValidatorManagerOptions : public td::CntObject {
  public:
   virtual BlockIdExt zero_block_id() const = 0;
@@ -141,6 +152,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual double get_catchain_broadcast_speed_multiplier() const = 0;
   virtual td::Ref<CollatorsList> get_collators_list() const = 0;
   virtual bool check_collator_node_whitelist(adnl::AdnlNodeIdShort id) const = 0;
+  virtual td::Ref<ShardBlockVerifierConfig> get_shard_block_verifier_config() const = 0;
 
   virtual void set_zero_block_id(BlockIdExt block_id) = 0;
   virtual void set_init_block_id(BlockIdExt block_id) = 0;
@@ -179,6 +191,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual void set_collators_list(td::Ref<CollatorsList> list) = 0;
   virtual void set_collator_node_whitelisted_validator(adnl::AdnlNodeIdShort id, bool add) = 0;
   virtual void set_collator_node_whitelist_enabled(bool enabled) = 0;
+  virtual void set_shard_block_verifier_config(td::Ref<ShardBlockVerifierConfig> config) = 0;
 
   static td::Ref<ValidatorManagerOptions> create(
       BlockIdExt zero_block_id, BlockIdExt init_block_id,
@@ -348,6 +361,10 @@ class ValidatorManagerInterface : public td::actor::Actor {
 
   virtual void get_collation_manager_stats(
       td::Promise<tl_object_ptr<ton_api::engine_validator_collationManagerStats>> promise) = 0;
+
+  virtual void add_shard_block_retainer(adnl::AdnlNodeIdShort id) {
+    LOG(ERROR) << "Unimplemented add_shard_block_retainer";
+  }
 };
 
 }  // namespace validator

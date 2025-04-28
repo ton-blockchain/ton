@@ -696,6 +696,11 @@ engine.validator.collatorsList.shard shard_id:tonNode.shardId collators:(vector 
     self_collate:Bool select_mode:string = engine.validator.collatorsList.Shard;
 engine.validator.collatorsList shards:(vector engine.validator.collatorsList.shard) = engine.validator.CollatorsList;
 
+engine.validator.shardBlockVerifierConfig.shard shard_id:(tonNode.shardId) trusted_nodes:(vector int256)
+    required_confirms:int = engine.validator.shardBlockVerifierConfig.Shard;
+engine.validator.shardBlockVerifierConfig shards:(vector engine.validator.shardBlockVerifierConfig.shard)
+    = engine.validator.ShardBlockVerifierConfig;
+
 ---functions---
 ---types---
 
@@ -855,6 +860,9 @@ engine.validator.importFastSyncMemberCertificate adnl_id:int256 certificate:over
 engine.validator.addFastSyncClient adnl_id:int256 slot:int = engine.validator.Success;
 engine.validator.delFastSyncClient adnl_id:int256 = engine.validator.Success;
 
+engine.validator.setShardBlockVerifierConfig config:engine.validator.shardBlockVerifierConfig = engine.validator.Success;
+engine.validator.showShardBlockVerifierConfig = engine.validator.ShardBlockVerifierConfig;
+
 ---types---
 
 storage.pong = storage.Pong;
@@ -962,10 +970,15 @@ collatorNode.compressedCandidate flags:# source:PublicKey id:tonNode.blockIdExt 
 collatorNode.pong flags:# = collatorNode.Pong;
 collatorNode.error code:int message:string = collatorNode.Error;
 
+shardBlockVerifier.subscribed flags:# = shardBlockVerifier.Subscribed;
+shardBlockVerifier.confirmBlocks blocks:(vector tonNode.blockIdExt) = shardBlockVerifier.ConfirmBlocks;
+
 ---functions---
 collatorNode.generateBlock shard:tonNode.shardId cc_seqno:int prev_blocks:(vector tonNode.blockIdExt)
     creator:int256 round:int first_block_round:int priority:int = collatorNode.Candidate;
 collatorNode.ping flags:# = collatorNode.Pong;
+
+shardBlockVerifier.subscribe shard:tonNode.shardId flags:# = shardBlockVerifier.Subscribed;
 
 ---types---
 

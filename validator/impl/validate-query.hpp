@@ -323,7 +323,7 @@ class ValidateQuery : public td::actor::Actor {
   void after_get_aux_shard_state(ton::BlockIdExt blkid, td::Result<Ref<ShardState>> res);
 
   bool check_one_shard(const block::McShardHash& info, const block::McShardHash* sibling,
-                       const block::WorkchainInfo* wc_info, const block::CatchainValidatorsConfig& ccvc);
+                       const block::WorkchainInfo* wc_info, const block::CatchainValidatorsConfig& ccvc, bool& is_new);
   bool check_shard_layout();
   bool register_shard_block_creators(std::vector<td::Bits256> creator_list);
   bool check_cur_validator_set();
@@ -331,6 +331,7 @@ class ValidateQuery : public td::actor::Actor {
   bool check_utime_lt();
   bool prepare_out_msg_queue_size();
   void got_out_queue_size(size_t i, td::Result<td::uint64> res);
+  void verified_shard_blocks(td::Status S);
 
   bool fix_one_processed_upto(block::MsgProcessedUpto& proc, ton::ShardIdFull owner, bool allow_cur = false);
   bool fix_processed_upto(block::MsgProcessedUptoCollection& upto, bool allow_cur = false);

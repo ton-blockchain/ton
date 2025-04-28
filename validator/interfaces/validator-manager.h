@@ -270,6 +270,10 @@ class ValidatorManager : public ValidatorManagerInterface {
 
   virtual void add_persistent_state_description(td::Ref<PersistentStateDescription> desc) = 0;
 
+  virtual void wait_verify_shard_blocks(std::vector<BlockIdExt> blocks, td::Promise<td::Unit> promise) {
+    promise.set_result(td::Unit());
+  }
+
   static bool is_persistent_state(UnixTime ts, UnixTime prev_ts) {
     return ts / (1 << 17) != prev_ts / (1 << 17);
   }

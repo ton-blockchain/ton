@@ -69,6 +69,34 @@ CollatorsList CollatorsList::default_list() {
   return list;
 }
 
+td::Status ShardBlockVerifierConfig::unpack(const ton_api::engine_validator_shardBlockVerifierConfig& obj) {
+  shards.clear();
+  for (const auto& shard_obj : obj.shards_) {
+    Shard shard;
+    shard.shard_id = create_shard_id(shard_obj->shard_id_);
+    if (shard.shard_id.is_masterchain() || !shard.shard_id.is_valid_ext()) {
+      return td::Status::Error(PSTRING() << "invalid shard " << shard.shard_id.to_str());
+    }
+    std::set<adnl::AdnlNodeIdShort> trusted_nodes;
+    for (const td::Bits256& id : shard_obj->trusted_nodes_) {
+      adnl::AdnlNodeIdShort node_id{id};
+      if (!trusted_nodes.insert(node_id).second) {
+        return td::Status::Error(PSTRING() << "duplicate node " << node_id);
+      }
+      shard.trusted_nodes.push_back(node_id);
+      if (shard_obj->required_confirms_ < 0 || shard_obj->required_confirms_ > (int)shard.trusted_nodes.size()) {
+        return td::Status::Error(PSTRING()
+                                 << "invalid required_confirms " << shard_obj->required_confirms_ << " for shard "
+                                 << shard.shard_id.to_str() << " (nodes: " << shard.trusted_nodes.size() << ")");
+      }
+      shard.required_confirms = shard_obj->required_confirms_;
+      shards.push_back(std::move(shard));
+    }
+  }
+  return td::Status::OK();
+}
+
+
 td::Ref<ValidatorManagerOptions> ValidatorManagerOptions::create(BlockIdExt zero_block_id, BlockIdExt init_block_id,
                                                                  std::function<bool(ShardIdFull)> check_shard,
                                                                  bool allow_blockchain_init, double sync_blocks_before,
