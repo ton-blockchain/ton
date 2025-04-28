@@ -49,7 +49,6 @@ const first = 1;
 @fif_codegen
 """
   test1 PROC:<{
-    //
     30 PUSHINT  // '10
   }>
 """
@@ -57,7 +56,6 @@ const first = 1;
 @fif_codegen
 """
   test2 PROC:<{
-    //
     2 PUSHINT  // '2
   }>
 """

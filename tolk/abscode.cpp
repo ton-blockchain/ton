@@ -202,9 +202,6 @@ void Op::show(std::ostream& os, const std::vector<TmpVar>& vars, std::string pfx
     dis += "<impure> ";
   }
   switch (cl) {
-    case _Undef:
-      os << pfx << dis << "???\n";
-      break;
     case _Nop:
       os << pfx << dis << "NOP\n";
       break;

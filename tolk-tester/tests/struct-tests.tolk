@@ -517,7 +517,6 @@ type PointAlias = Point;
 @fif_codegen
 """
   test6 PROC:<{
-    //
     10 PUSHINT   // p.x
     20 PUSHINT   // p.x p.y
   }>
@@ -525,8 +524,7 @@ type PointAlias = Point;
 
 @fif_codegen
 """
-  sumXY<Point> PROC:<{
-    // point.x point.y
+  sumXY<Point> PROC:<{  // point.x point.y
     ADD   // '2
   }>
 """
@@ -534,8 +532,7 @@ type PointAlias = Point;
 
 @fif_codegen
 """
-  test23 PROC:<{
-    // p.x p.y
+  test23 PROC:<{ // p.x p.y
     2DROP
     20 PUSHINT   // '10=20
   }>
@@ -544,7 +541,6 @@ type PointAlias = Point;
 @fif_codegen
 """
   test29 PROC:<{
-    //
     PUSHNULL   // '5
   }>
 """

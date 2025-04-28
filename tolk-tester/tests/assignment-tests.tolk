@@ -245,16 +245,15 @@ fun main(value: int, ) {
 
 @fif_codegen
 """
-  test116 PROC:<{
-    //
-    1 PUSHINT	//  '10=1
-    2 PUSHINT	//  '10=1 '11=2
-    3 PUSHINT	//  '10=1 '11=2 '12=3
-    4 PUSHINT	//  '10=1 '11=2 '12=3 '13=4
-    4 TUPLE	//  rhs
-    DUP	//  rhs rhs
-    4 UNTUPLE	//  rhs2 a b c d
-    4 ROLL	//  a b c d rhs2
+  test116 PROC:<{   //
+    1 PUSHINT	    //  '10=1
+    2 PUSHINT	    //  '10=1 '11=2
+    3 PUSHINT	    //  '10=1 '11=2 '12=3
+    4 PUSHINT	    //  '10=1 '11=2 '12=3 '13=4
+    4 TUPLE	        //  rhs
+    DUP	            //  rhs rhs
+    4 UNTUPLE	    //  rhs2 a b c d
+    4 ROLL	        //  a b c d rhs2
   }>
 """
 */

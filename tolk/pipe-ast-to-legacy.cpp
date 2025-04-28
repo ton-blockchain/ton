@@ -17,6 +17,7 @@
 #include "tolk.h"
 #include "src-file.h"
 #include "ast.h"
+#include "ast-aux-data.h"
 #include "ast-visitor.h"
 #include "type-system.h"
 #include "common/refint.h"
@@ -883,7 +884,9 @@ std::vector<var_idx_t> pre_compile_symbol(SrcLocation loc, const Symbol* sym, Co
   }
   if (GlobalConstPtr const_ref = sym->try_as<GlobalConstPtr>()) {
     tolk_assert(lval_ctx == nullptr);
-    return pre_compile_expr(const_ref->init_value, code, const_ref->declared_type);
+    ASTAuxData* aux_data = new AuxData_ForceFiftLocation(loc);
+    auto v_force_loc = createV<ast_artificial_aux_vertex>(loc, const_ref->init_value, aux_data, const_ref->inferred_type);
+    return pre_compile_expr(v_force_loc, code, const_ref->declared_type);
   }
   if (FunctionPtr fun_ref = sym->try_as<FunctionPtr>()) {
     std::vector<var_idx_t> rvect = code.create_tmp_var(fun_ref->inferred_full_type, loc, "(glob-var-fun)");
@@ -1327,6 +1330,7 @@ static std::vector<var_idx_t> process_object_literal(V<ast_object_literal> v, Co
   // an object (an instance of a struct) is actually a tensor at low-level
   // for example, `struct User { id: int; name: slice; }` occupies 2 slots
   // fields of a tensor are placed in order of declaration (in a literal they might be shuffled)
+  SrcLocation prev_loc = v->loc;
   std::vector<AnyExprV> tensor_items;
   std::vector<TypePtr> target_types;
   tensor_items.reserve(v->struct_ref->get_num_fields());
@@ -1342,10 +1346,13 @@ static std::vector<var_idx_t> process_object_literal(V<ast_object_literal> v, Co
     }
     if (!v_init_val) {
       tolk_assert(field_ref->has_default_value());
-      v_init_val = field_ref->default_value;   // it may be a complex expression, but it's constant, checked earlier
+      ASTAuxData *aux_data = new AuxData_ForceFiftLocation(prev_loc);
+      auto v_force_loc = createV<ast_artificial_aux_vertex>(v->loc, field_ref->default_value, aux_data, field_ref->declared_type);
+      v_init_val = v_force_loc;   // it may be a complex expression, but it's a constant, checked earlier
     }
     tensor_items.push_back(v_init_val);
     target_types.push_back(field_ref->declared_type);
+    prev_loc = v_init_val->loc;
   }
   const auto* tensor_target_type = TypeDataTensor::create(std::move(target_types))->try_as<TypeDataTensor>();
   std::vector<var_idx_t> rvect = pre_compile_tensor(code, tensor_items, lval_ctx, tensor_target_type);
@@ -1406,6 +1413,18 @@ static std::vector<var_idx_t> process_empty_expression(V<ast_empty_expression> v
   return transition_to_target_type(std::move(empty_rvect), code, target_type, v);
 }
 
+static std::vector<var_idx_t> process_artificial_aux_vertex(V<ast_artificial_aux_vertex> v, CodeBlob& code, TypePtr target_type, LValContext* lval_ctx) {
+  if (const auto* data = dynamic_cast<const AuxData_ForceFiftLocation*>(v->aux_data)) {
+    SrcLocation backup = code.forced_loc;
+    code.forced_loc = data->forced_loc;
+    std::vector<var_idx_t> rvect = pre_compile_expr(v->get_wrapped_expr(), code, target_type, lval_ctx);
+    code.forced_loc = backup;
+    return rvect;
+  }
+
+  tolk_assert(false);
+}
+
 std::vector<var_idx_t> pre_compile_expr(AnyExprV v, CodeBlob& code, TypePtr target_type, LValContext* lval_ctx) {
   switch (v->kind) {
     case ast_reference:
@@ -1458,6 +1477,8 @@ std::vector<var_idx_t> pre_compile_expr(AnyExprV v, CodeBlob& code, TypePtr targ
       return process_underscore(v->as<ast_underscore>(), code);
     case ast_empty_expression:
       return process_empty_expression(v->as<ast_empty_expression>(), code, target_type);
+    case ast_artificial_aux_vertex:
+      return process_artificial_aux_vertex(v->as<ast_artificial_aux_vertex>(), code, target_type, lval_ctx);
     default:
       throw UnexpectedASTNodeKind(v, "pre_compile_expr");
   }
@@ -1681,7 +1702,7 @@ void process_any_statement(AnyV v, CodeBlob& code) {
 
 static void convert_function_body_to_CodeBlob(FunctionPtr fun_ref, FunctionBodyCode* code_body) {
   auto v_body = fun_ref->ast_root->as<ast_function_declaration>()->get_body()->as<ast_block_statement>();
-  CodeBlob* blob = new CodeBlob{fun_ref->name, fun_ref->loc, fun_ref};
+  CodeBlob* blob = new CodeBlob(fun_ref);
 
   std::vector<var_idx_t> rvect_import;
   int total_arg_width = 0;
@@ -1720,7 +1741,7 @@ static void convert_asm_body_to_AsmOp(FunctionPtr fun_ref, FunctionBodyAsm* asm_
     for (char c : ops) {
       if (c == '\n' || c == '\r') {
         if (!op.empty()) {
-          asm_ops.push_back(AsmOp::Parse(op, cnt, width));
+          asm_ops.push_back(AsmOp::Parse({}, op, cnt, width));
           if (asm_ops.back().is_custom()) {
             cnt = width;
           }
@@ -1731,7 +1752,7 @@ static void convert_asm_body_to_AsmOp(FunctionPtr fun_ref, FunctionBodyAsm* asm_
       }
     }
     if (!op.empty()) {
-      asm_ops.push_back(AsmOp::Parse(op, cnt, width));
+      asm_ops.push_back(AsmOp::Parse({}, op, cnt, width));
       if (asm_ops.back().is_custom()) {
         cnt = width;
       }

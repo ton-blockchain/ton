@@ -104,6 +104,7 @@ protected:
   virtual void visit(V<ast_empty_expression> v)          { return visit_children(v); }
   virtual void visit(V<ast_parenthesized_expression> v)  { return visit_children(v); }
   virtual void visit(V<ast_braced_expression> v)         { return visit_children(v); }
+  virtual void visit(V<ast_artificial_aux_vertex> v)     { return visit_children(v); }
   virtual void visit(V<ast_tensor> v)                    { return visit_children(v); }
   virtual void visit(V<ast_bracket_tuple> v)             { return visit_children(v); }
   virtual void visit(V<ast_reference> v)                 { return visit_children(v); }
@@ -149,6 +150,7 @@ protected:
       case ast_empty_expression:                return visit(v->as<ast_empty_expression>());
       case ast_parenthesized_expression:        return visit(v->as<ast_parenthesized_expression>());
       case ast_braced_expression:               return visit(v->as<ast_braced_expression>());
+      case ast_artificial_aux_vertex:           return visit(v->as<ast_artificial_aux_vertex>());
       case ast_tensor:                          return visit(v->as<ast_tensor>());
       case ast_bracket_tuple:                   return visit(v->as<ast_bracket_tuple>());
       case ast_reference:                       return visit(v->as<ast_reference>());

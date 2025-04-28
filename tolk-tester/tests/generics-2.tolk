@@ -453,7 +453,6 @@ fun main(c: Wrapper<slice>, d: WrappedInt) {
 @fif_codegen
 """
   test1 PROC:<{
-    //
     23 PUSHINT   // c1=23
     DUP          // c1=23 c2=23
   }>

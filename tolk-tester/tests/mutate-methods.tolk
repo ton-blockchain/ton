@@ -295,8 +295,7 @@ fun main(){}
 
 @fif_codegen
 """
-  incrementInPlace PROC:<{
-    //  self byValue
+  incrementInPlace PROC:<{  //  self byValue
     ADD //  self
   }>
 """
@@ -315,8 +314,7 @@ fun main(){}
 
 @fif_codegen
 """
- load_next PROC:<{
-    //  cs
+ load_next PROC:<{  //  cs
     32 LDI      //  '4 cs
     SWAP        //  cs '4
   }>
@@ -325,7 +323,6 @@ fun main(){}
 @fif_codegen
 """
   testStoreUintPureUnusedResult PROC:<{
-    //
     0 PUSHINT	//  '11=0
   }>
 """
@@ -333,7 +330,6 @@ fun main(){}
 @fif_codegen
 """
   testStoreUintImpureUnusedResult PROC:<{
-    //
     NEWC	//  b
     STIX	//  '2
     DROP	//

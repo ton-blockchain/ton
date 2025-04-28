@@ -89,10 +89,10 @@ fun main() {
 @testcase | 103 | 15   | -1
 @testcase | 104 |      | (null)
 @testcase | 107 |      | -11
+
 @fif_codegen
 """
   test1 PROC:<{
-    //
     PUSHNULL	//  numbers
     1 PUSHINT	//  numbers '2=1
     SWAP	//  '2=1 numbers
@@ -114,7 +114,6 @@ fun main() {
 @fif_codegen
 """
   main PROC:<{
-    //
     1 PUSHINT   // '3=1
   }>
 """

@@ -1209,7 +1209,7 @@ static AnyV parse_asm_func_body(Lexer& lex, V<ast_parameter_list> param_list) {
   lex.expect(tok_asm, "`asm`");
   size_t n_params = param_list->size();
   if (n_params > 16) {
-    throw ParseError{loc, "assembler built-in function can have at most 16 arguments"};
+    throw ParseError(loc, "assembler built-in function can have at most 16 arguments");
   }
   std::vector<int> arg_order, ret_order;
   if (lex.tok() == tok_oppar) {

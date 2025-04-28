@@ -286,7 +286,6 @@ fun main(){}
 @fif_codegen
 """
   testCodegenSimple PROC:<{
-    //
     1 PUSHINT	    //  '2=1
     SINGLE	        //  t1
     2 PUSHINT	    //  t1 '3=2
@@ -336,15 +335,13 @@ fun main(){}
 @fif_codegen
 """
   testCodegenNoPureIndexedAccess PROC:<{
-    //
     0 PUSHINT  // '8=0
   }>
 """
 
 @fif_codegen
 """
-  testCodegenIndexPostfix1 PROC:<{
-    //  x.0 x.1
+  testCodegenIndexPostfix1 PROC:<{   //  x.0 x.1
     //  ab.1 ab.0
     SWAP	//  ab.0 ab.1
   }>
@@ -352,8 +349,7 @@ fun main(){}
 
 @fif_codegen
 """
-  testCodegenIndexPostfix2 PROC:<{
-    //  x.0 x.1.0 x.1.1 x.2
+  testCodegenIndexPostfix2 PROC:<{   //  x.0 x.1.0 x.1.1 x.2
     s2 POP	//  y.0 y.2 y.1.1
     s1 s2 XCHG	//  y.2 y.0 y.1.1
   }>

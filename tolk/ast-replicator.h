@@ -84,6 +84,9 @@ class ASTReplicator final {
   static V<ast_braced_expression> clone(V<ast_braced_expression> v) {
     return createV<ast_braced_expression>(v->loc, clone(v->get_block_statement()));
   }
+  static V<ast_artificial_aux_vertex> clone(V<ast_artificial_aux_vertex> v) {
+    return createV<ast_artificial_aux_vertex>(v->loc, clone(v->get_wrapped_expr()), v->aux_data, v->inferred_type);
+  }
   static V<ast_tensor> clone(V<ast_tensor> v) {
     return createV<ast_tensor>(v->loc, clone(v->get_items()));
   }
@@ -270,6 +273,7 @@ class ASTReplicator final {
       case ast_empty_expression:                return clone(v->as<ast_empty_expression>());
       case ast_parenthesized_expression:        return clone(v->as<ast_parenthesized_expression>());
       case ast_braced_expression:               return clone(v->as<ast_braced_expression>());
+      case ast_artificial_aux_vertex:           return clone(v->as<ast_artificial_aux_vertex>());
       case ast_tensor:                          return clone(v->as<ast_tensor>());
       case ast_bracket_tuple:                   return clone(v->as<ast_bracket_tuple>());
       case ast_reference:                       return clone(v->as<ast_reference>());

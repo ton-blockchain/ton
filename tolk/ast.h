@@ -75,6 +75,7 @@ enum ASTNodeKind {
   ast_empty_expression,
   ast_parenthesized_expression,
   ast_braced_expression,
+  ast_artificial_aux_vertex,
   ast_tensor,
   ast_bracket_tuple,
   ast_reference,
@@ -147,6 +148,10 @@ enum class MatchArmKind {    // for `match` expression, each of arms `pattern =>
   const_expression,          // `-1 => body` / `SOME_CONST + ton("0.05") => body` (any expr at parsing, resulting in const)
   exact_type,                // `int => body` / `User | slice => body`
   else_branch,               // `else => body`
+};
+
+struct ASTAuxData {          // base class for data in ast_artificial_aux_vertex, see ast-aux-data.h
+  virtual ~ASTAuxData() = default;
 };
 
 template<ASTNodeKind node_kind>
@@ -496,6 +501,21 @@ struct Vertex<ast_braced_expression> final : ASTExprBlockOfStatements {
 
   Vertex(SrcLocation loc, AnyV child_block_statement)
     : ASTExprBlockOfStatements(ast_braced_expression, loc, child_block_statement) {}
+};
+
+template<>
+// ast_artificial_aux_vertex is a compiler-inserted vertex that can't occur in source code
+// example: special vertex to force location in Fift output at constant usage
+struct Vertex<ast_artificial_aux_vertex> final : ASTExprUnary {
+  const ASTAuxData* aux_data;     // custom payload, see ast-aux-data.h
+
+  AnyExprV get_wrapped_expr() const { return child; }
+
+  Vertex(SrcLocation loc, AnyExprV wrapped_expr, const ASTAuxData* aux_data, TypePtr inferred_type)
+    : ASTExprUnary(ast_artificial_aux_vertex, loc, wrapped_expr)
+    , aux_data(aux_data) {
+    assign_inferred_type(inferred_type);
+  }
 };
 
 template<>

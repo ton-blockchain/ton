@@ -222,29 +222,24 @@ fun main() { }
 
 @fif_codegen
 """
-  incChained PROC:<{
-    //  self
-    INC	//  self
+  incChained PROC:<{    //  self
+    INC	                //  self
   }>
-  incChained2 PROC:<{
-    //  self
+  incChained2 PROC:<{   //  self
     incChained CALLDICT	//  self
   }>
-  incChained3 PROC:<{
-    //  self
+  incChained3 PROC:<{   //  self
     incChained CALLDICT	//  self
   }>
-  incChained4 PROC:<{
-    //  self
+  incChained4 PROC:<{   //  self
     incChained CALLDICT	//  self
   }>
 """
 
 @fif_codegen
 """
-  testIncChainedCodegen PROC:<{
-    // x
-    incChained CALLDICT	//  x
+  testIncChainedCodegen PROC:<{ // x
+    incChained CALLDICT	    //  x
     incChained2 CALLDICT	//  x
     incChained3 CALLDICT	//  x
     incChained4 CALLDICT	//  x

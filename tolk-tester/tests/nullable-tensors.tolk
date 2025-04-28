@@ -530,9 +530,8 @@ fun main(){}
 
 @fif_codegen
 """
-  isTensorNull PROC:<{
-    //  t.0 t.1 t.UTag
-    2 1 BLKDROP2	//  t.UTag
+  isTensorNull PROC:<{  //  t.0 t.1 t.UTag
+    2 1 BLKDROP2	    //  t.UTag
     0 EQINT	//  '3
   }>
 """
@@ -540,7 +539,6 @@ fun main(){}
 @fif_codegen
 """
   test113 PROC:<{
-    //
     1 PUSHINT	//  '2=1
     PUSHNULL	//  '2=1 '3
     PAIR	//  t

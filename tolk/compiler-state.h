@@ -52,6 +52,7 @@ struct CompilerSettings {
   int verbosity = 0;
   int optimization_level = 2;
   bool stack_layout_comments = true;
+  bool tolk_src_as_line_comments = true;
 
   std::string output_filename;
   std::string boc_output_filename;

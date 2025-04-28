@@ -218,7 +218,6 @@ fun main() {
 @fif_codegen
 """
   simpleAllConst PROC:<{
-    //
     TRUE
     0 PUSHINT
     TRUE
@@ -233,8 +232,7 @@ fun main() {
 
 @fif_codegen
 """
-  compileTimeEval1 PROC:<{
-    //  x
+  compileTimeEval1 PROC:<{  //  x
     DUP	//  x x
     0 EQINT	//  x '1
     FALSE	//  x '1 '4
@@ -250,9 +248,9 @@ fun main() {
 
 @fif_codegen
 """
-  withIfNot PROC:<{
+  withIfNot PROC:<{  //  x y
     c2 SAVE
-    SAMEALTSAVE	//  x y
+    SAMEALTSAVE
     OVER	//  x y x
     IFNOTJMP:<{	//  x y
       2DROP	//
@@ -271,7 +269,6 @@ fun main() {
 @fif_codegen
 """
   testAndConstCodegen PROC:<{
-    //
     FALSE
     0 PUSHINT
     DUP
@@ -294,7 +291,6 @@ fun main() {
 @fif_codegen
 """
   testOrConstCodegen PROC:<{
-    //
     -1 PUSHINT
     TRUE
     FALSE
@@ -319,8 +315,7 @@ For example, `a && b` can be expressed without IFs.
 These are moments of future optimizations. For now, it's more than enough.
 @fif_codegen
 """
-  testAndSimpleCodegen PROC:<{
-    //  a b
+  testAndSimpleCodegen PROC:<{  //  a b
     SWAP	//  b a
     IF:<{	//  b
       0 NEQINT	//  '2
@@ -333,8 +328,7 @@ These are moments of future optimizations. For now, it's more than enough.
 
 @fif_codegen
 """
-  testOrSimpleCodegen PROC:<{
-    //  a b
+  testOrSimpleCodegen PROC:<{   //  a b
     SWAP	//  b a
     0 GTINT	//  b '3
     IF:<{	//  b
@@ -349,8 +343,7 @@ These are moments of future optimizations. For now, it's more than enough.
 
 @fif_codegen
 """
-  testConvertIfToIfnot PROC:<{
-    //  x
+  testConvertIfToIfnot PROC:<{  //  x
     DUP	//  x x
     100 THROWIF
     DUP	//  x x

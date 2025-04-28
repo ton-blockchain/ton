@@ -80,7 +80,6 @@ fun`main`(){}
 @fif_codegen
 """
   get_+-+1 PROC:<{
-    //
     -1 PUSHINT
   }>
 """
@@ -88,7 +87,6 @@ fun`main`(){}
 @fif_codegen
 """
   unary+bitwise-constant PROC:<{
-    //
     -4 PUSHINT
     6 PUSHINT
     -4 PUSHINT
@@ -99,7 +97,6 @@ fun`main`(){}
 @fif_codegen
 """
   unary_const_check PROC:<{
-    //
     -1 PUSHINT	//  fst1=-1
     DUP	//  fst1=-1 snd1=-1
     2 PUSHINT	//  fst1=-1 snd1=-1 trd1=2

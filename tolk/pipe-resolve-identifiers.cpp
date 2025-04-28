@@ -86,7 +86,7 @@ struct NameAndScopeResolver {
   void close_scope([[maybe_unused]] SrcLocation loc) {
     // std::cerr << "close_scope " << scopes.size() << " at " << loc << std::endl;
     if (UNLIKELY(scopes.empty())) {
-      throw Fatal{"cannot close the outer scope"};
+      throw Fatal("cannot close the outer scope");
     }
     scopes.pop_back();
   }

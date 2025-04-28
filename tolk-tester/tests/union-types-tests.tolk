@@ -854,17 +854,15 @@ fun main() {
 @fif_codegen
 """
   test26 PROC:<{
-    //
     42 PUSHINT  // result
   }>
 """
 
 @fif_codegen
 """
-  checkSimple PROC:<{
-    //  a.USlot1 a.UTag
-    NIP	//  a.UTag
-    DUP	//  a.UTag a.UTag
+  checkSimple PROC:<{   //  a.USlot1 a.UTag
+    NIP	    //  a.UTag
+    DUP	    //  a.UTag a.UTag
     1 EQINT	//  a.UTag '3
     IF:<{	//  a.UTag
       DROP	//
@@ -883,7 +881,6 @@ fun main() {
 @fif_codegen
 """
   test61 PROC:<{
-    //  i.USlot1 i.UTag
     NIP
     DUP
     46 EQINT

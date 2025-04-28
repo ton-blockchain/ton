@@ -106,7 +106,6 @@ fun test95() {
 @fif_codegen
 """
   touchCodegen2 PROC:<{
-    //
     get10 CALLDICT	//  f
   }>
 """
@@ -125,7 +124,6 @@ fun test95() {
 @fif_codegen
 """
   testStartBalanceCodegen1 PROC:<{
-    //
     BALANCE // t
     FIRST	//  first
   }>
@@ -134,7 +132,6 @@ fun test95() {
 @fif_codegen
 """
   testStartBalanceCodegen2 PROC:<{
-    //
     BALANCE
     FIRST	//  first
   }>

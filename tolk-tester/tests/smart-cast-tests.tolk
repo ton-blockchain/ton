@@ -748,7 +748,6 @@ fun main(x: int?): int {
 @fif_codegen
 """
   test60 PROC:<{
-    //
     101 PUSHINT	//  cc1
     109 PUSHINT	//  cc1 cc2
   }>

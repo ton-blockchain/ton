@@ -157,8 +157,7 @@ fun main() {
 
 @fif_codegen
 """
-  test1 PROC:<{
-    //  x
+  test1 PROC:<{ //  x
     DUP         //  x x
     1 EQINT     //  x '3
     IF:<{       //  x
@@ -185,15 +184,13 @@ fun main() {
 @fif_codegen
 """
   test2 PROC:<{
-    //
     300 PUSHINT
   }>
 """
 
 @fif_codegen
 """
-  test3 PROC:<{
-    //  init
+  test3 PROC:<{         //  init
     DUP                 // init init
     isGt10 CALLDICT     // init '2
     -1 EQINT	        // init '5
@@ -206,8 +203,7 @@ fun main() {
 
 @fif_codegen
 """
-  test8 PROC:<{
-    // x
+  test8 PROC:<{     // x
     DROP            //
     30 PUSHINT      // r1
   }>

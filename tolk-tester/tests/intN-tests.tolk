@@ -254,7 +254,6 @@ fun main() {
 @fif_codegen
 """
   test12 PROC:<{
-    //
     100000000 PUSHINT	//  '4=100000000
   }>
 """

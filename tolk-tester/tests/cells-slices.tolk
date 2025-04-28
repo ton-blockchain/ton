@@ -216,7 +216,6 @@ Note, that since 'compute-asm-ltr' became on be default, chaining methods codege
 @fif_codegen
 """
   test6 PROC:<{
-    //
     NEWC	//  '0
     1 PUSHINT	//  '0 '1=1
     SWAP	//  '1=1 '0

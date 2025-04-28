@@ -44,11 +44,6 @@ static void define_builtin_func(const std::string& name, const std::vector<TypeP
   G.symtable.add_function(f_sym);
 }
 
-static void define_builtin_func(const std::string& name, const std::vector<TypePtr>& params_types, TypePtr return_type, const GenericsDeclaration* genericTs, const AsmOp& macro, int flags) {
-  auto* f_sym = new FunctionData(name, {}, return_type, define_builtin_parameters(params_types, flags), flags, genericTs, nullptr, new FunctionBodyBuiltin(make_simple_compile(macro)), nullptr);
-  G.symtable.add_function(f_sym);
-}
-
 static void define_builtin_func(const std::string& name, const std::vector<TypePtr>& params_types, TypePtr return_type, const GenericsDeclaration* genericTs, const simple_compile_func_t& func, int flags,
                                 std::initializer_list<int> arg_order, std::initializer_list<int> ret_order) {
   auto* f_sym = new FunctionData(name, {}, return_type, define_builtin_parameters(params_types, flags), flags, genericTs, nullptr, new FunctionBodyBuiltin(func), nullptr);
@@ -58,12 +53,16 @@ static void define_builtin_func(const std::string& name, const std::vector<TypeP
 }
 
 void FunctionBodyBuiltin::compile(AsmOpList& dest, std::vector<VarDescr>& out, std::vector<VarDescr>& in,
-                                     SrcLocation where) const {
-  dest.append(simple_compile(out, in, where));
+                                     SrcLocation loc) const {
+  dest << simple_compile(out, in, loc);
 }
 
-void FunctionBodyAsm::compile(AsmOpList& dest) const {
-  dest.append(ops);
+void FunctionBodyAsm::compile(AsmOpList& dest, SrcLocation loc) const {
+  for (const AsmOp& op : ops) {
+    AsmOp copy = op;
+    copy.loc = loc;
+    dest << std::move(copy);
+  }
 }
 
 
@@ -331,101 +330,89 @@ bool VarDescr::always_neq(const VarDescr& other) const {
          (always_odd() && other.always_even());
 }
 
-AsmOp exec_op(std::string op) {
-  return AsmOp::Custom(op);
+AsmOp exec_op(SrcLocation loc, std::string op) {
+  return AsmOp::Custom(loc, op);
 }
 
-AsmOp exec_op(std::string op, int args, int retv = 1) {
-  return AsmOp::Custom(op, args, retv);
+AsmOp exec_op(SrcLocation loc, std::string op, int args, int retv = 1) {
+  return AsmOp::Custom(loc, op, args, retv);
 }
 
-AsmOp exec_arg_op(std::string op, long long arg) {
+AsmOp exec_arg_op(SrcLocation loc, std::string op, long long arg, int args, int retv) {
   std::ostringstream os;
   os << arg << ' ' << op;
-  return AsmOp::Custom(os.str());
+  return AsmOp::Custom(loc, os.str(), args, retv);
 }
 
-AsmOp exec_arg_op(std::string op, long long arg, int args, int retv) {
+AsmOp exec_arg_op(SrcLocation loc, std::string op, td::RefInt256 arg, int args, int retv) {
   std::ostringstream os;
   os << arg << ' ' << op;
-  return AsmOp::Custom(os.str(), args, retv);
+  return AsmOp::Custom(loc, os.str(), args, retv);
 }
 
-AsmOp exec_arg_op(std::string op, td::RefInt256 arg) {
-  std::ostringstream os;
-  os << arg << ' ' << op;
-  return AsmOp::Custom(os.str());
-}
-
-AsmOp exec_arg_op(std::string op, td::RefInt256 arg, int args, int retv) {
-  std::ostringstream os;
-  os << arg << ' ' << op;
-  return AsmOp::Custom(os.str(), args, retv);
-}
-
-AsmOp exec_arg2_op(std::string op, long long imm1, long long imm2, int args, int retv) {
+AsmOp exec_arg2_op(SrcLocation loc, std::string op, long long imm1, long long imm2, int args, int retv) {
   std::ostringstream os;
   os << imm1 << ' ' << imm2 << ' ' << op;
-  return AsmOp::Custom(os.str(), args, retv);
+  return AsmOp::Custom(loc, os.str(), args, retv);
 }
 
-AsmOp push_const(td::RefInt256 x) {
-  return AsmOp::IntConst(std::move(x));
+AsmOp push_const(SrcLocation loc, td::RefInt256 x) {
+  return AsmOp::IntConst(loc, std::move(x));
 }
 
-AsmOp compile_add(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation where) {
+static AsmOp compile_add(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
   tolk_assert(res.size() == 1 && args.size() == 2);
   VarDescr &r = res[0], &x = args[0], &y = args[1];
   if (x.is_int_const() && y.is_int_const()) {
     r.set_const(x.int_const + y.int_const);
     if (!r.int_const->is_valid()) {
-      throw ParseError(where, "integer overflow");
+      throw ParseError(loc, "integer overflow");
     }
     x.unused();
     y.unused();
-    return push_const(r.int_const);
+    return push_const(loc, r.int_const);
   }
   r.val = emulate_add(x.val, y.val);
   if (y.is_int_const() && y.int_const->signed_fits_bits(8)) {
     y.unused();
     if (y.always_zero()) {
-      return AsmOp::Nop();
+      return AsmOp::Nop(loc);
     }
     if (*y.int_const == 1) {
-      return exec_op("INC", 1);
+      return exec_op(loc, "INC", 1);
     }
     if (*y.int_const == -1) {
-      return exec_op("DEC", 1);
+      return exec_op(loc, "DEC", 1);
     }
-    return exec_arg_op("ADDCONST", y.int_const, 1);
+    return exec_arg_op(loc, "ADDCONST", y.int_const, 1);
   }
   if (x.is_int_const() && x.int_const->signed_fits_bits(8)) {
     x.unused();
     if (x.always_zero()) {
-      return AsmOp::Nop();
+      return AsmOp::Nop(loc);
     }
     if (*x.int_const == 1) {
-      return exec_op("INC", 1);
+      return exec_op(loc, "INC", 1);
     }
     if (*x.int_const == -1) {
-      return exec_op("DEC", 1);
+      return exec_op(loc, "DEC", 1);
     }
-    return exec_arg_op("ADDCONST", x.int_const, 1);
+    return exec_arg_op(loc, "ADDCONST", x.int_const, 1);
   }
-  return exec_op("ADD", 2);
+  return exec_op(loc, "ADD", 2);
 }
 
-AsmOp compile_sub(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation where) {
+static AsmOp compile_sub(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
   tolk_assert(res.size() == 1 && args.size() == 2);
   VarDescr &r = res[0], &x = args[0], &y = args[1];
   if (x.is_int_const() && y.is_int_const()) {
     r.set_const(x.int_const - y.int_const);
     if (!r.int_const->is_valid()) {
-      throw ParseError(where, "integer overflow");
+      throw ParseError(loc, "integer overflow");
     }
     x.unused();
     y.unused();
-    return push_const(r.int_const);
+    return push_const(loc, r.int_const);
   }
   r.val = emulate_sub(x.val, y.val);
   if (y.is_int_const() && (-y.int_const)->signed_fits_bits(8)) {
@@ -434,121 +421,121 @@ AsmOp compile_sub(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLo
       return {};
     }
     if (*y.int_const == 1) {
-      return exec_op("DEC", 1);
+      return exec_op(loc, "DEC", 1);
     }
     if (*y.int_const == -1) {
-      return exec_op("INC", 1);
+      return exec_op(loc, "INC", 1);
     }
-    return exec_arg_op("ADDCONST", -y.int_const, 1);
+    return exec_arg_op(loc, "ADDCONST", -y.int_const, 1);
   }
   if (x.always_zero()) {
     x.unused();
-    return exec_op("NEGATE", 1);
+    return exec_op(loc, "NEGATE", 1);
   }
-  return exec_op("SUB", 2);
+  return exec_op(loc, "SUB", 2);
 }
 
-AsmOp compile_unary_minus(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation where) {
+static AsmOp compile_unary_minus(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
   tolk_assert(res.size() == 1 && args.size() == 1);
   VarDescr &r = res[0], &x = args[0];
   if (x.is_int_const()) {
     r.set_const(-x.int_const);
     if (!r.int_const->is_valid()) {
-      throw ParseError(where, "integer overflow");
+      throw ParseError(loc, "integer overflow");
     }
     x.unused();
-    return push_const(r.int_const);
+    return push_const(loc, r.int_const);
   }
   r.val = emulate_negate(x.val);
-  return exec_op("NEGATE", 1);
+  return exec_op(loc, "NEGATE", 1);
 }
 
-AsmOp compile_unary_plus(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation where) {
+static AsmOp compile_unary_plus(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
   tolk_assert(res.size() == 1 && args.size() == 1);
   VarDescr &r = res[0], &x = args[0];
   if (x.is_int_const()) {
     r.set_const(x.int_const);
     x.unused();
-    return push_const(r.int_const);
+    return push_const(loc, r.int_const);
   }
   r.val = x.val;
-  return AsmOp::Nop();
+  return AsmOp::Nop(loc);
 }
 
-AsmOp compile_logical_not(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation where, bool for_int_arg) {
+static AsmOp compile_logical_not(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc, bool for_int_arg) {
   tolk_assert(res.size() == 1 && args.size() == 1);
   VarDescr &r = res[0], &x = args[0];
   if (x.is_int_const()) {
     r.set_const(x.int_const == 0 ? -1 : 0);
     x.unused();
-    return push_const(r.int_const);
+    return push_const(loc, r.int_const);
   }
   r.val = VarDescr::ValBool;
   // for integers, `!var` is `var != 0`
   // for booleans, `!var` can be shortened to `~var` (works the same for 0/-1 but consumes less)
-  return for_int_arg ? exec_op("0 EQINT", 1) : exec_op("NOT", 1);
+  return for_int_arg ? exec_op(loc, "0 EQINT", 1) : exec_op(loc, "NOT", 1);
 }
 
-AsmOp compile_bitwise_and(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation where) {
+static AsmOp compile_bitwise_and(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
   tolk_assert(res.size() == 1 && args.size() == 2);
   VarDescr &r = res[0], &x = args[0], &y = args[1];
   if (x.is_int_const() && y.is_int_const()) {
     r.set_const(x.int_const & y.int_const);
     x.unused();
     y.unused();
-    return push_const(r.int_const);
+    return push_const(loc, r.int_const);
   }
   r.val = emulate_bitwise_and(x.val, y.val);
-  return exec_op("AND", 2);
+  return exec_op(loc, "AND", 2);
 }
 
-AsmOp compile_bitwise_or(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation where) {
+static AsmOp compile_bitwise_or(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
   tolk_assert(res.size() == 1 && args.size() == 2);
   VarDescr &r = res[0], &x = args[0], &y = args[1];
   if (x.is_int_const() && y.is_int_const()) {
     r.set_const(x.int_const | y.int_const);
     x.unused();
     y.unused();
-    return push_const(r.int_const);
+    return push_const(loc, r.int_const);
   }
   r.val = emulate_bitwise_or(x.val, y.val);
-  return exec_op("OR", 2);
+  return exec_op(loc, "OR", 2);
 }
 
-AsmOp compile_bitwise_xor(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation where) {
+static AsmOp compile_bitwise_xor(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
   tolk_assert(res.size() == 1 && args.size() == 2);
   VarDescr &r = res[0], &x = args[0], &y = args[1];
   if (x.is_int_const() && y.is_int_const()) {
     r.set_const(x.int_const ^ y.int_const);
     x.unused();
     y.unused();
-    return push_const(r.int_const);
+    return push_const(loc, r.int_const);
   }
   r.val = emulate_bitwise_xor(x.val, y.val);
-  return exec_op("XOR", 2);
+  return exec_op(loc, "XOR", 2);
 }
 
-AsmOp compile_bitwise_not(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation where) {
+static AsmOp compile_bitwise_not(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
   tolk_assert(res.size() == 1 && args.size() == 1);
   VarDescr &r = res[0], &x = args[0];
   if (x.is_int_const()) {
     r.set_const(~x.int_const);
     x.unused();
-    return push_const(r.int_const);
+    return push_const(loc, r.int_const);
   }
   r.val = emulate_bitwise_not(x.val);
-  return exec_op("NOT", 1);
+  return exec_op(loc, "NOT", 1);
 }
 
-AsmOp compile_mul_internal(VarDescr& r, VarDescr& x, VarDescr& y, SrcLocation where) {
+static AsmOp compile_mul_internal(VarDescr& r, VarDescr& x, VarDescr& y, SrcLocation loc) {
   if (x.is_int_const() && y.is_int_const()) {
     r.set_const(x.int_const * y.int_const);
     if (!r.int_const->is_valid()) {
-      throw ParseError(where, "integer overflow");
+      throw ParseError(loc, "integer overflow");
     }
     x.unused();
     y.unused();
-    return push_const(r.int_const);
+    return push_const(loc, r.int_const);
   }
   r.val = emulate_mul(x.val, y.val);
   if (y.is_int_const()) {
@@ -559,23 +546,23 @@ AsmOp compile_mul_internal(VarDescr& r, VarDescr& x, VarDescr& y, SrcLocation wh
         // dubious optimization: NaN * 0 = ?
         r.set_const(y.int_const);
         x.unused();
-        return push_const(r.int_const);
+        return push_const(loc, r.int_const);
       }
       if (*y.int_const == 1 && x.always_finite()) {
-        return AsmOp::Nop();
+        return AsmOp::Nop(loc);
       }
       if (*y.int_const == -1) {
-        return exec_op("NEGATE", 1);
+        return exec_op(loc, "NEGATE", 1);
       }
-      return exec_arg_op("MULCONST", y.int_const, 1);
+      return exec_arg_op(loc, "MULCONST", y.int_const, 1);
     }
     if (k > 0) {
       y.unused();
-      return exec_arg_op("LSHIFT#", k, 1);
+      return exec_arg_op(loc, "LSHIFT#", k, 1);
     }
     if (k == 0) {
       y.unused();
-      return AsmOp::Nop();
+      return AsmOp::Nop(loc);
     }
   }
   if (x.is_int_const()) {
@@ -586,48 +573,48 @@ AsmOp compile_mul_internal(VarDescr& r, VarDescr& x, VarDescr& y, SrcLocation wh
         // dubious optimization: NaN * 0 = ?
         r.set_const(x.int_const);
         y.unused();
-        return push_const(r.int_const);
+        return push_const(loc, r.int_const);
       }
       if (*x.int_const == 1 && y.always_finite()) {
-        return AsmOp::Nop();
+        return AsmOp::Nop(loc);
       }
       if (*x.int_const == -1) {
-        return exec_op("NEGATE", 1);
+        return exec_op(loc, "NEGATE", 1);
       }
-      return exec_arg_op("MULCONST", x.int_const, 1);
+      return exec_arg_op(loc, "MULCONST", x.int_const, 1);
     }
     if (k > 0) {
       x.unused();
-      return exec_arg_op("LSHIFT#", k, 1);
+      return exec_arg_op(loc, "LSHIFT#", k, 1);
     }
     if (k == 0) {
       x.unused();
-      return AsmOp::Nop();
+      return AsmOp::Nop(loc);
     }
   }
-  return exec_op("MUL", 2);
+  return exec_op(loc, "MUL", 2);
 }
 
-AsmOp compile_mul(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation where) {
+static AsmOp compile_mul(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
   tolk_assert(res.size() == 1 && args.size() == 2);
-  return compile_mul_internal(res[0], args[0], args[1], where);
+  return compile_mul_internal(res[0], args[0], args[1], loc);
 }
 
-AsmOp compile_lshift(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation where) {
+static AsmOp compile_lshift(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
   tolk_assert(res.size() == 1 && args.size() == 2);
   VarDescr &r = res[0], &x = args[0], &y = args[1];
   if (y.is_int_const()) {
     auto yv = y.int_const->to_long();
     if (yv < 0 || yv > 256) {
-      throw ParseError(where, "lshift argument is out of range");
+      throw ParseError(loc, "lshift argument is out of range");
     } else if (x.is_int_const()) {
       r.set_const(x.int_const << (int)yv);
       if (!r.int_const->is_valid()) {
-        throw ParseError(where, "integer overflow");
+        throw ParseError(loc, "integer overflow");
       }
       x.unused();
       y.unused();
-      return push_const(r.int_const);
+      return push_const(loc, r.int_const);
     }
   }
   r.val = emulate_lshift(x.val, y.val);
@@ -636,38 +623,38 @@ AsmOp compile_lshift(std::vector<VarDescr>& res, std::vector<VarDescr>& args, Sr
     if (!k /* && x.always_finite() */) {
       // dubious optimization: what if x=NaN ?
       y.unused();
-      return AsmOp::Nop();
+      return AsmOp::Nop(loc);
     }
     y.unused();
-    return exec_arg_op("LSHIFT#", k, 1);
+    return exec_arg_op(loc, "LSHIFT#", k, 1);
   }
   if (x.is_int_const()) {
     auto xv = x.int_const->to_long();
     if (xv == 1) {
       x.unused();
-      return exec_op("POW2", 1);
+      return exec_op(loc, "POW2", 1);
     }
     if (xv == -1) {
       x.unused();
-      return exec_op("-1 PUSHINT SWAP LSHIFT", 1);
+      return exec_op(loc, "-1 PUSHINT SWAP LSHIFT", 1);
     }
   }
-  return exec_op("LSHIFT", 2);
+  return exec_op(loc, "LSHIFT", 2);
 }
 
-AsmOp compile_rshift(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation where,
+static AsmOp compile_rshift(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc,
                      int round_mode) {
   tolk_assert(res.size() == 1 && args.size() == 2);
   VarDescr &r = res[0], &x = args[0], &y = args[1];
   if (y.is_int_const()) {
     auto yv = y.int_const->to_long();
     if (yv < 0 || yv > 256) {
-      throw ParseError(where, "rshift argument is out of range");
+      throw ParseError(loc, "rshift argument is out of range");
     } else if (x.is_int_const()) {
       r.set_const(td::rshift(x.int_const, (int)yv, round_mode));
       x.unused();
       y.unused();
-      return push_const(r.int_const);
+      return push_const(loc, r.int_const);
     }
   }
   r.val = emulate_rshift(x.val, y.val);
@@ -677,36 +664,36 @@ AsmOp compile_rshift(std::vector<VarDescr>& res, std::vector<VarDescr>& args, Sr
     if (!k /* && x.always_finite() */) {
       // dubious optimization: what if x=NaN ?
       y.unused();
-      return AsmOp::Nop();
+      return AsmOp::Nop(loc);
     }
     y.unused();
-    return exec_arg_op(rshift + "#", k, 1);
+    return exec_arg_op(loc, rshift + "#", k, 1);
   }
-  return exec_op(rshift, 2);
+  return exec_op(loc, rshift, 2);
 }
 
-AsmOp compile_div_internal(VarDescr& r, VarDescr& x, VarDescr& y, SrcLocation where, int round_mode) {
+static AsmOp compile_div_internal(VarDescr& r, VarDescr& x, VarDescr& y, SrcLocation loc, int round_mode) {
   if (x.is_int_const() && y.is_int_const()) {
     r.set_const(div(x.int_const, y.int_const, round_mode));
     if (!r.int_const->is_valid()) {
-      throw ParseError(where, *y.int_const == 0 ? "division by zero" : "integer overflow");
+      throw ParseError(loc, *y.int_const == 0 ? "division by zero" : "integer overflow");
     }
     x.unused();
     y.unused();
-    return push_const(r.int_const);
+    return push_const(loc, r.int_const);
   }
   r.val = emulate_div(x.val, y.val);
   if (y.is_int_const()) {
     if (*y.int_const == 0) {
-      throw ParseError(where, "division by zero");
+      throw ParseError(loc, "division by zero");
     }
     if (*y.int_const == 1 && x.always_finite()) {
       y.unused();
-      return AsmOp::Nop();
+      return AsmOp::Nop(loc);
     }
     if (*y.int_const == -1) {
       y.unused();
-      return exec_op("NEGATE", 1);
+      return exec_op(loc, "NEGATE", 1);
     }
     int k = is_pos_pow2(y.int_const);
     if (k > 0) {
@@ -715,44 +702,44 @@ AsmOp compile_div_internal(VarDescr& r, VarDescr& x, VarDescr& y, SrcLocation wh
       if (round_mode >= 0) {
         op += (round_mode > 0 ? 'C' : 'R');
       }
-      return exec_arg_op(op + '#', k, 1);
+      return exec_arg_op(loc, op + '#', k, 1);
     }
   }
   std::string op = "DIV";
   if (round_mode >= 0) {
     op += (round_mode > 0 ? 'C' : 'R');
   }
-  return exec_op(op, 2);
+  return exec_op(loc, op, 2);
 }
 
-AsmOp compile_div(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation where, int round_mode) {
+static AsmOp compile_div(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc, int round_mode) {
   tolk_assert(res.size() == 1 && args.size() == 2);
-  return compile_div_internal(res[0], args[0], args[1], where, round_mode);
+  return compile_div_internal(res[0], args[0], args[1], loc, round_mode);
 }
 
-AsmOp compile_mod(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation where,
+static AsmOp compile_mod(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc,
                   int round_mode) {
   tolk_assert(res.size() == 1 && args.size() == 2);
   VarDescr &r = res[0], &x = args[0], &y = args[1];
   if (x.is_int_const() && y.is_int_const()) {
     r.set_const(mod(x.int_const, y.int_const, round_mode));
     if (!r.int_const->is_valid()) {
-      throw ParseError(where, *y.int_const == 0 ? "division by zero" : "integer overflow");
+      throw ParseError(loc, *y.int_const == 0 ? "division by zero" : "integer overflow");
     }
     x.unused();
     y.unused();
-    return push_const(r.int_const);
+    return push_const(loc, r.int_const);
   }
   r.val = emulate_mod(x.val, y.val);
   if (y.is_int_const()) {
     if (*y.int_const == 0) {
-      throw ParseError(where, "division by zero");
+      throw ParseError(loc, "division by zero");
     }
     if ((*y.int_const == 1 || *y.int_const == -1) && x.always_finite()) {
       x.unused();
       y.unused();
       r.set_const(td::zero_refint());
-      return push_const(r.int_const);
+      return push_const(loc, r.int_const);
     }
     int k = is_pos_pow2(y.int_const);
     if (k > 0) {
@@ -761,29 +748,29 @@ AsmOp compile_mod(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLo
       if (round_mode >= 0) {
         op += (round_mode > 0 ? 'C' : 'R');
       }
-      return exec_arg_op(op + '#', k, 1);
+      return exec_arg_op(loc, op + '#', k, 1);
     }
   }
   std::string op = "MOD";
   if (round_mode >= 0) {
     op += (round_mode > 0 ? 'C' : 'R');
   }
-  return exec_op(op, 2);
+  return exec_op(loc, op, 2);
 }
 
-AsmOp compile_muldiv(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation where,
+static AsmOp compile_muldiv(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc,
                      int round_mode) {
   tolk_assert(res.size() == 1 && args.size() == 3);
   VarDescr &r = res[0], &x = args[0], &y = args[1], &z = args[2];
   if (x.is_int_const() && y.is_int_const() && z.is_int_const()) {
     r.set_const(muldiv(x.int_const, y.int_const, z.int_const, round_mode));
     if (!r.int_const->is_valid()) {
-      throw ParseError(where, *z.int_const == 0 ? "division by zero" : "integer overflow");
+      throw ParseError(loc, *z.int_const == 0 ? "division by zero" : "integer overflow");
     }
     x.unused();
     y.unused();
     z.unused();
-    return push_const(r.int_const);
+    return push_const(loc, r.int_const);
   }
   if (x.always_zero() || y.always_zero()) {
     // dubious optimization for z=0...
@@ -791,26 +778,26 @@ AsmOp compile_muldiv(std::vector<VarDescr>& res, std::vector<VarDescr>& args, Sr
     y.unused();
     z.unused();
     r.set_const(td::make_refint(0));
-    return push_const(r.int_const);
+    return push_const(loc, r.int_const);
   }
   char c = (round_mode < 0) ? 0 : (round_mode > 0 ? 'C' : 'R');
   r.val = emulate_div(emulate_mul(x.val, y.val), z.val);
   if (z.is_int_const()) {
     if (*z.int_const == 0) {
-      throw ParseError(where, "division by zero");
+      throw ParseError(loc, "division by zero");
     }
     if (*z.int_const == 1) {
       z.unused();
-      return compile_mul_internal(r, x, y, where);
+      return compile_mul_internal(r, x, y, loc);
     }
   }
   if (y.is_int_const() && *y.int_const == 1) {
     y.unused();
-    return compile_div_internal(r, x, z, where, round_mode);
+    return compile_div_internal(r, x, z, loc, round_mode);
   }
   if (x.is_int_const() && *x.int_const == 1) {
     x.unused();
-    return compile_div_internal(r, y, z, where, round_mode);
+    return compile_div_internal(r, y, z, loc, round_mode);
   }
   if (z.is_int_const()) {
     int k = is_pos_pow2(z.int_const);
@@ -820,7 +807,7 @@ AsmOp compile_muldiv(std::vector<VarDescr>& res, std::vector<VarDescr>& args, Sr
       if (c) {
         op += c;
       }
-      return exec_arg_op(op + '#', k, 2);
+      return exec_arg_op(loc, op + '#', k, 2);
     }
   }
   if (y.is_int_const()) {
@@ -831,7 +818,7 @@ AsmOp compile_muldiv(std::vector<VarDescr>& res, std::vector<VarDescr>& args, Sr
       if (c) {
         op += c;
       }
-      return exec_arg_op(op, k, 2);
+      return exec_arg_op(loc, op, k, 2);
     }
   }
   if (x.is_int_const()) {
@@ -842,17 +829,22 @@ AsmOp compile_muldiv(std::vector<VarDescr>& res, std::vector<VarDescr>& args, Sr
       if (c) {
         op += c;
       }
-      return exec_arg_op(op, k, 2);
+      return exec_arg_op(loc, op, k, 2);
     }
   }
   std::string op = "MULDIV";
   if (c) {
     op += c;
   }
-  return exec_op(op, 3);
+  return exec_op(loc, op, 3);
 }
 
-int compute_compare(td::RefInt256 x, td::RefInt256 y, int mode) {
+// fun mulDivMod(x: int, y: int, z: int): (int, int)    asm "MULDIVMOD";
+static AsmOp compile_muldivmod(std::vector<VarDescr>&, std::vector<VarDescr>&, SrcLocation loc) {
+  return AsmOp::Custom(loc, "MULDIVMOD", 3, 2);
+}
+
+static int compute_compare(td::RefInt256 x, td::RefInt256 y, int mode) {
   int s = td::cmp(x, y);
   if (mode == 7) {
     return s;
@@ -866,7 +858,7 @@ int compute_compare(td::RefInt256 x, td::RefInt256 y, int mode) {
 // 2 -> constant 0
 // 1 -> constant -1
 // 3 -> 0 or -1
-int compute_compare(const VarDescr& x, const VarDescr& y, int mode) {
+static int compute_compare(const VarDescr& x, const VarDescr& y, int mode) {
   switch (mode) {
     case 1:  // >
       return x.always_greater(y) ? 1 : (x.always_leq(y) ? 2 : 3);
@@ -893,7 +885,7 @@ int compute_compare(const VarDescr& x, const VarDescr& y, int mode) {
   }
 }
 
-AsmOp compile_cmp_int(std::vector<VarDescr>& res, std::vector<VarDescr>& args, int mode) {
+static AsmOp compile_cmp_int(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc, int mode) {
   tolk_assert(mode >= 1 && mode <= 7);
   tolk_assert(res.size() == 1 && args.size() == 2);
   VarDescr &r = res[0], &x = args[0], &y = args[1];
@@ -902,7 +894,7 @@ AsmOp compile_cmp_int(std::vector<VarDescr>& res, std::vector<VarDescr>& args, i
     r.set_const(v);
     x.unused();
     y.unused();
-    return mode == 7 ? push_const(r.int_const) : AsmOp::BoolConst(v != 0);
+    return mode == 7 ? push_const(loc, r.int_const) : AsmOp::BoolConst(loc, v != 0);
   }
   int v = compute_compare(x, y, mode);
   // std::cerr << "compute_compare(" << x << ", " << y << ", " << mode << ") = " << v << std::endl;
@@ -911,7 +903,7 @@ AsmOp compile_cmp_int(std::vector<VarDescr>& res, std::vector<VarDescr>& args, i
     r.set_const(v - (v >> 2) - 2);
     x.unused();
     y.unused();
-    return mode == 7 ? push_const(r.int_const) : AsmOp::BoolConst(v & 1);
+    return mode == 7 ? push_const(loc, r.int_const) : AsmOp::BoolConst(loc, v & 1);
   }
   r.val = ~0;
   if (v & 1) {
@@ -930,29 +922,29 @@ AsmOp compile_cmp_int(std::vector<VarDescr>& res, std::vector<VarDescr>& args, i
   if (mode != 7) {
     if (y.is_int_const() && y.int_const >= -128 && y.int_const <= 127) {
       y.unused();
-      return exec_arg_op(cmp_int_names[mode], y.int_const + cmp_int_delta[mode], 1);
+      return exec_arg_op(loc, cmp_int_names[mode], y.int_const + cmp_int_delta[mode], 1);
     }
     if (x.is_int_const() && x.int_const >= -128 && x.int_const <= 127) {
       x.unused();
       mode = ((mode & 4) >> 2) | (mode & 2) | ((mode & 1) << 2);
-      return exec_arg_op(cmp_int_names[mode], x.int_const + cmp_int_delta[mode], 1);
+      return exec_arg_op(loc, cmp_int_names[mode], x.int_const + cmp_int_delta[mode], 1);
     }
   }
-  return exec_op(cmp_names[mode], 2);
+  return exec_op(loc, cmp_names[mode], 2);
 }
 
-AsmOp compile_throw(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation) {
+static AsmOp compile_throw(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
   tolk_assert(res.empty() && args.size() == 1);
   VarDescr& x = args[0];
   if (x.is_int_const() && x.int_const->unsigned_fits_bits(11)) {
     x.unused();
-    return exec_arg_op("THROW", x.int_const, 0, 0);
+    return exec_arg_op(loc, "THROW", x.int_const, 0, 0);
   } else {
-    return exec_op("THROWANY", 1, 0);
+    return exec_op(loc, "THROWANY", 1, 0);
   }
 }
 
-AsmOp compile_throw_if_unless(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation) {
+static AsmOp compile_throw_if_unless(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
   tolk_assert(res.empty() && args.size() == 3);
   VarDescr &x = args[0], &y = args[1], &z = args[2];
   if (!z.always_true() && !z.always_false()) {
@@ -967,40 +959,40 @@ AsmOp compile_throw_if_unless(std::vector<VarDescr>& res, std::vector<VarDescr>&
     skip_cond = true;
     if (y.always_true() != mode) {
       x.unused();
-      return AsmOp::Nop();
+      return AsmOp::Nop(loc);
     }
   }
   if (x.is_int_const() && x.int_const->unsigned_fits_bits(11)) {
     x.unused();
-    return skip_cond ? exec_arg_op("THROW", x.int_const, 0, 0) : exec_arg_op("THROW"s + suff, x.int_const, 1, 0);
+    return skip_cond ? exec_arg_op(loc, "THROW", x.int_const, 0, 0) : exec_arg_op(loc, "THROW"s + suff, x.int_const, 1, 0);
   } else {
-    return skip_cond ? exec_op("THROWANY", 1, 0) : exec_op("THROWANY"s + suff, 2, 0);
+    return skip_cond ? exec_op(loc, "THROWANY", 1, 0) : exec_op(loc, "THROWANY"s + suff, 2, 0);
   }
 }
 
-AsmOp compile_throw_arg(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation) {
+static AsmOp compile_throw_arg(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
   tolk_assert(res.empty() && args.size() == 2);
   VarDescr &x = args[1];
   if (x.is_int_const() && x.int_const->unsigned_fits_bits(11)) {
     x.unused();
-    return exec_arg_op("THROWARG", x.int_const, 1, 0);
+    return exec_arg_op(loc, "THROWARG", x.int_const, 1, 0);
   } else {
-    return exec_op("THROWARGANY", 2, 0);
+    return exec_op(loc, "THROWARGANY", 2, 0);
   }
 }
 
-AsmOp compile_bool_const(std::vector<VarDescr>& res, std::vector<VarDescr>& args, bool val) {
+static AsmOp compile_bool_const(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc, bool val) {
   tolk_assert(res.size() == 1 && args.empty());
   VarDescr& r = res[0];
   r.set_const(val ? -1 : 0);
-  return AsmOp::Const(val ? "TRUE" : "FALSE");
+  return AsmOp::Const(loc, val ? "TRUE" : "FALSE");
 }
 
 // fun loadInt    (mutate s: slice, len: int): int   asm(s len -> 1 0) "LDIX";
 // fun loadUint   (mutate s: slice, len: int): int   asm( -> 1 0) "LDUX";
 // fun preloadInt (s: slice, len: int): int          asm "PLDIX";
 // fun preloadUint(s: slice, len: int): int          asm "PLDUX";
-AsmOp compile_fetch_int(std::vector<VarDescr>& res, std::vector<VarDescr>& args, bool fetch, bool sgnd) {
+static AsmOp compile_fetch_int(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc, bool fetch, bool sgnd) {
   tolk_assert(args.size() == 2 && res.size() == 1 + (unsigned)fetch);
   auto &y = args[1], &r = res.back();
   r.val = (sgnd ? VarDescr::FiniteInt : VarDescr::FiniteUInt);
@@ -1015,27 +1007,27 @@ AsmOp compile_fetch_int(std::vector<VarDescr>& res, std::vector<VarDescr>& args,
     }
     if (v > 0) {
       y.unused();
-      return exec_arg_op((fetch ? "LD"s : "PLD"s) + (sgnd ? 'I' : 'U'), v, 1, 1 + (unsigned)fetch);
+      return exec_arg_op(loc, (fetch ? "LD"s : "PLD"s) + (sgnd ? 'I' : 'U'), v, 1, 1 + (unsigned)fetch);
     }
   }
-  return exec_op((fetch ? "LD"s : "PLD"s) + (sgnd ? "IX" : "UX"), 2, 1 + (unsigned)fetch);
+  return exec_op(loc, (fetch ? "LD"s : "PLD"s) + (sgnd ? "IX" : "UX"), 2, 1 + (unsigned)fetch);
 }
 
 // fun storeInt  (mutate self: builder, x: int, len: int): self   asm(x b len) "STIX";
 // fun storeUint (mutate self: builder, x: int, len: int): self   asm(x b len) "STUX";
-AsmOp compile_store_int(std::vector<VarDescr>& res, std::vector<VarDescr>& args, bool sgnd) {
+static AsmOp compile_store_int(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc, bool sgnd) {
   tolk_assert(args.size() == 3 && res.size() == 1);
   auto& z = args[2];
   if (z.is_int_const() && z.int_const > 0 && z.int_const <= 256) {
     z.unused();
-    return exec_arg_op("ST"s + (sgnd ? 'I' : 'U'), z.int_const, 2, 1);
+    return exec_arg_op(loc, "ST"s + (sgnd ? 'I' : 'U'), z.int_const, 2, 1);
   }
-  return exec_op("ST"s + (sgnd ? "IX" : "UX"), 3, 1);
+  return exec_op(loc, "ST"s + (sgnd ? "IX" : "UX"), 3, 1);
 }
 
 // fun loadBits   (mutate self: slice, len: int): self    asm(s len -> 1 0) "LDSLICEX"
 // fun preloadBits(self: slice, len: int): slice          asm(s len -> 1 0) "PLDSLICEX"
-AsmOp compile_fetch_slice(std::vector<VarDescr>& res, std::vector<VarDescr>& args, bool fetch) {
+static AsmOp compile_fetch_slice(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc, bool fetch) {
   tolk_assert(args.size() == 2 && res.size() == 1 + (unsigned)fetch);
   auto& y = args[1];
   int v = -1;
@@ -1043,47 +1035,73 @@ AsmOp compile_fetch_slice(std::vector<VarDescr>& res, std::vector<VarDescr>& arg
     v = (int)y.int_const->to_long();
     if (v > 0) {
       y.unused();
-      return exec_arg_op(fetch ? "LDSLICE" : "PLDSLICE", v, 1, 1 + (unsigned)fetch);
+      return exec_arg_op(loc, fetch ? "LDSLICE" : "PLDSLICE", v, 1, 1 + (unsigned)fetch);
     }
   }
-  return exec_op(fetch ? "LDSLICEX" : "PLDSLICEX", 2, 1 + (unsigned)fetch);
+  return exec_op(loc, fetch ? "LDSLICEX" : "PLDSLICEX", 2, 1 + (unsigned)fetch);
 }
 
 // fun tupleAt<X>(t: tuple, index: int): X   asm "INDEXVAR";
-AsmOp compile_tuple_at(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation) {
+static AsmOp compile_tuple_at(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
   tolk_assert(args.size() == 2 && res.size() == 1);
   auto& y = args[1];
   if (y.is_int_const() && y.int_const >= 0 && y.int_const < 16) {
     y.unused();
-    return exec_arg_op("INDEX", y.int_const, 1, 1);
+    return exec_arg_op(loc, "INDEX", y.int_const, 1, 1);
   }
-  return exec_op("INDEXVAR", 2, 1);
+  return exec_op(loc, "INDEXVAR", 2, 1);
 }
 
 // fun tupleSetAt<X>(mutate self: tuple, value: X, index: int): void   asm "SETINDEXVAR";
-AsmOp compile_tuple_set_at(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation) {
+static AsmOp compile_tuple_set_at(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
   tolk_assert(args.size() == 3 && res.size() == 1);
   auto& y = args[2];
   if (y.is_int_const() && y.int_const >= 0 && y.int_const < 16) {
     y.unused();
-    return exec_arg_op("SETINDEX", y.int_const, 1, 1);
+    return exec_arg_op(loc, "SETINDEX", y.int_const, 1, 1);
   }
-  return exec_op("SETINDEXVAR", 2, 1);
+  return exec_op(loc, "SETINDEXVAR", 2, 1);
+}
+
+// fun debugDumpStack(): void   asm "DUMPSTK";
+static AsmOp compile_dumpstk(std::vector<VarDescr>&, std::vector<VarDescr>&, SrcLocation loc) {
+  return AsmOp::Custom(loc, "DUMPSTK", 0, 0);
+}
+
+// fun debugPrintString<T>(x: T): void   asm "STRDUMP";
+static AsmOp compile_strdump(std::vector<VarDescr>&, std::vector<VarDescr>&, SrcLocation loc) {
+  return AsmOp::Custom(loc, "STRDUMP DROP", 1, 1);
+}
+
+// fun debugPrint<T>(x: T): void;
+static AsmOp compile_debug_print_to_string(std::vector<VarDescr>&, std::vector<VarDescr>&, SrcLocation loc) {
+  return AsmOp::Custom(loc, "s0 DUMP DROP", 1, 1);
 }
 
 // fun ton(amount: slice): coins; ton("0.05") replaced by 50000000 at compile-time
 // same for stringCrc32(constString: slice) and others
-AsmOp compile_time_only_function(std::vector<VarDescr>&, std::vector<VarDescr>&, SrcLocation) {
+AsmOp compile_time_only_function(std::vector<VarDescr>&, std::vector<VarDescr>&, SrcLocation loc) {
   // all ton() invocations are constants, replaced by integers; no dynamic values allowed, no work at runtime
   tolk_assert(false);
-  return AsmOp::Nop();
+  return AsmOp::Nop(loc);
+}
+
+// `null` literal is under the hood transformed to PUSHNULL
+static AsmOp compile_push_null(std::vector<VarDescr>&, std::vector<VarDescr>&, SrcLocation loc) {
+  return AsmOp::Const(loc, "PUSHNULL");
 }
 
 // fun __isNull<X>(X arg): bool
-AsmOp compile_is_null(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation) {
+static AsmOp compile_is_null(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
   tolk_assert(args.size() == 1 && res.size() == 1);
   res[0].val = VarDescr::ValBool;
-  return exec_op("ISNULL", 1, 1);
+  return exec_op(loc, "ISNULL", 1, 1);
+}
+
+// fun __expect_type(<expression>, "<expected_type>"): void;
+static AsmOp compile_expect_type(std::vector<VarDescr>&, std::vector<VarDescr>&, SrcLocation loc) {
+  // handled by type checker, does nothing at runtime
+  return AsmOp::Nop(loc);
 }
 
 
@@ -1175,37 +1193,37 @@ void define_builtins() {
                               compile_bitwise_xor,
                                 FunctionData::flagMarkedAsPure);
   define_builtin_func("_==_", ParamsInt2, Int, nullptr,       // also works for bool
-                              std::bind(compile_cmp_int, _1, _2, 2),
+                              std::bind(compile_cmp_int, _1, _2, _3, 2),
                                 FunctionData::flagMarkedAsPure);
   define_builtin_func("_!=_", ParamsInt2, Int, nullptr,       // also works for bool
-                              std::bind(compile_cmp_int, _1, _2, 5),
+                              std::bind(compile_cmp_int, _1, _2, _3, 5),
                                 FunctionData::flagMarkedAsPure);
   define_builtin_func("_<_", ParamsInt2, Int, nullptr,
-                              std::bind(compile_cmp_int, _1, _2, 4),
+                              std::bind(compile_cmp_int, _1, _2, _3, 4),
                                 FunctionData::flagMarkedAsPure);
   define_builtin_func("_>_", ParamsInt2, Int, nullptr,
-                              std::bind(compile_cmp_int, _1, _2, 1),
+                              std::bind(compile_cmp_int, _1, _2, _3, 1),
                                 FunctionData::flagMarkedAsPure);
   define_builtin_func("_<=_", ParamsInt2, Int, nullptr,
-                              std::bind(compile_cmp_int, _1, _2, 6),
+                              std::bind(compile_cmp_int, _1, _2, _3, 6),
                                 FunctionData::flagMarkedAsPure);
   define_builtin_func("_>=_", ParamsInt2, Int, nullptr,
-                              std::bind(compile_cmp_int, _1, _2, 3),
+                              std::bind(compile_cmp_int, _1, _2, _3, 3),
                                 FunctionData::flagMarkedAsPure);
   define_builtin_func("_<=>_", ParamsInt2, Int, nullptr,
-                              std::bind(compile_cmp_int, _1, _2, 7),
+                              std::bind(compile_cmp_int, _1, _2, _3, 7),
                                 FunctionData::flagMarkedAsPure);
 
   // special function used for internal compilation of some lexical constructs
   // for example, `throw 123;` is actually calling `__throw(123)`
   define_builtin_func("__true", {}, Bool, nullptr, /* AsmOp::Const("TRUE") */
-                              std::bind(compile_bool_const, _1, _2, true),
+                              std::bind(compile_bool_const, _1, _2, _3, true),
                                 FunctionData::flagMarkedAsPure);
   define_builtin_func("__false", {}, Bool, nullptr, /* AsmOp::Const("FALSE") */
-                              std::bind(compile_bool_const, _1, _2, false),
+                              std::bind(compile_bool_const, _1, _2, _3, false),
                                 FunctionData::flagMarkedAsPure);
   define_builtin_func("__null", {}, typeT, declGenericT,
-                              AsmOp::Const("PUSHNULL"),
+                              compile_push_null,
                                 FunctionData::flagMarkedAsPure);
   define_builtin_func("__isNull", {typeT}, Bool, declGenericT,
                               compile_is_null,
@@ -1260,35 +1278,35 @@ void define_builtins() {
                               std::bind(compile_muldiv, _1, _2, _3, 1),
                                 FunctionData::flagMarkedAsPure);
   define_builtin_func("mulDivMod", ParamsInt3, TypeDataTensor::create({Int, Int}), nullptr,
-                              AsmOp::Custom("MULDIVMOD", 3, 2),
+                              compile_muldivmod,
                                 FunctionData::flagMarkedAsPure);
   define_builtin_func("loadInt", ParamsSliceInt, Int, nullptr,
-                              std::bind(compile_fetch_int, _1, _2, true, true),
+                              std::bind(compile_fetch_int, _1, _2, _3, true, true),
                                 FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf,
                                 {}, {1, 0});
   define_builtin_func("loadUint", ParamsSliceInt, Int, nullptr,
-                              std::bind(compile_fetch_int, _1, _2, true, false),
+                              std::bind(compile_fetch_int, _1, _2, _3, true, false),
                                 FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf,
                                 {}, {1, 0});
   define_builtin_func("loadBits", ParamsSliceInt, Slice, nullptr,
-                              std::bind(compile_fetch_slice, _1, _2, true),
+                              std::bind(compile_fetch_slice, _1, _2, _3, true),
                                 FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf,
                                 {}, {1, 0});
   define_builtin_func("preloadInt", ParamsSliceInt, Int, nullptr,
-                              std::bind(compile_fetch_int, _1, _2, false, true),
+                              std::bind(compile_fetch_int, _1, _2, _3, false, true),
                                 FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf);
   define_builtin_func("preloadUint", ParamsSliceInt, Int, nullptr,
-                              std::bind(compile_fetch_int, _1, _2, false, false),
+                              std::bind(compile_fetch_int, _1, _2, _3, false, false),
                                 FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf);
   define_builtin_func("preloadBits", ParamsSliceInt, Slice, nullptr,
-                              std::bind(compile_fetch_slice, _1, _2, false),
+                              std::bind(compile_fetch_slice, _1, _2, _3, false),
                                 FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf);
   define_builtin_func("storeInt", {Builder, Int, Int}, Unit, nullptr,
-                              std::bind(compile_store_int, _1, _2, true),
+                              std::bind(compile_store_int, _1, _2, _3, true),
                                 FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf,
                                 {1, 0, 2}, {});
   define_builtin_func("storeUint", {Builder, Int, Int}, Unit, nullptr,
-                              std::bind(compile_store_int, _1, _2, false),
+                              std::bind(compile_store_int, _1, _2, _3, false),
                                 FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf,
                                 {1, 0, 2}, {});
   define_builtin_func("tupleAt", {Tuple, Int}, typeT, declGenericT,
@@ -1298,20 +1316,20 @@ void define_builtins() {
                               compile_tuple_set_at,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf);
   define_builtin_func("debugPrint", {typeT}, Unit, declGenericT,
-                                AsmOp::Custom("s0 DUMP DROP", 1, 1),
+                                compile_debug_print_to_string,
                                 0);
   define_builtin_func("debugPrintString", {typeT}, Unit, declGenericT,
-                                AsmOp::Custom("STRDUMP DROP", 1, 1),
+                                compile_strdump,
                                 0);
   define_builtin_func("debugDumpStack", {}, Unit, nullptr,
-                                AsmOp::Custom("DUMPSTK", 0, 0),
+                                compile_dumpstk,
                                 0);
 
   // functions not presented in stdlib at all
   // used in tolk-tester to check/expose internal compiler state
   // each of them is handled in a special way, search by its name
   define_builtin_func("__expect_type", {TypeDataUnknown::create(), Slice}, Unit, nullptr,
-                                AsmOp::Nop(),
+                                compile_expect_type,
                                 FunctionData::flagMarkedAsPure);
 }
 

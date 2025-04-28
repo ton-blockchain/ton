@@ -128,15 +128,14 @@ fun main() {
 
 @fif_codegen
 """
-  test3 PROC:<{
-    //  x
-    DUP	//  x x
+  test3 PROC:<{ //  x
+    DUP	        //  x x
     20 NEQINT	//  x '2
     IFNOTJMP:<{	//  x
-      DROP	//
+      DROP	    //
       20 PUSHINT	//  '3=20
-    }>	//  x
-    DUP	//  x x
+    }>	        //  x
+    DUP	        //  x x
     50 EQINT	//  x '5
     IFNOTJMP:<{	//  x
 """
@@ -144,7 +143,6 @@ fun main() {
 @fif_codegen
 """
   withNoElse PROC:<{
-    //  op
     DUP
     123 EQINT
     IFJMP:<{
@@ -170,7 +168,6 @@ fun main() {
 @fif_codegen
 """
   withElse PROC:<{
-    //  op
     DUP
     123 EQINT
     IFJMP:<{
@@ -196,7 +193,6 @@ fun main() {
 @fif_codegen
 """
   withMatch PROC:<{
-    //  op
     DUP
     123 EQINT
     IFJMP:<{
