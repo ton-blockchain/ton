@@ -274,6 +274,9 @@ class ValidatorManager : public ValidatorManagerInterface {
     promise.set_result(td::Unit());
   }
 
+  virtual void iterate_temp_block_handles(std::function<void(const BlockHandleInterface &)> f) {
+  }
+
   static bool is_persistent_state(UnixTime ts, UnixTime prev_ts) {
     return ts / (1 << 17) != prev_ts / (1 << 17);
   }

@@ -778,6 +778,8 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   void add_shard_block_retainer(adnl::AdnlNodeIdShort id) override;
 
+  void iterate_temp_block_handles(std::function<void(const BlockHandleInterface &)> f) override;
+
   std::map<PublicKeyHash, td::actor::ActorOwn<ValidatorTelemetry>> validator_telemetry_;
 
   void init_validator_telemetry();

@@ -686,6 +686,24 @@ void ArchiveSlice::close_files() {
   }
 }
 
+void ArchiveSlice::iterate_block_handles(std::function<void(const BlockHandleInterface &)> f) {
+  before_query();
+  td::uint32 range_start = ton_api::db_blockdb_key_value::ID;
+  td::uint32 range_end = ton_api::db_blockdb_key_value::ID + 1;
+  kv_->for_each_in_range(td::Slice{(char *)&range_start, 4}, td::Slice{(char *)&range_end, 4},
+                         [&](td::Slice key, td::Slice value) -> td::Status {
+                           auto r_key = fetch_tl_object<ton_api::db_blockdb_key_value>(key, true);
+                           if (r_key.is_error()) {
+                             return td::Status::OK();
+                           }
+                           auto r_handle = create_block_handle(value);
+                           if (r_handle.is_ok()) {
+                             f(*r_handle.ok());
+                           }
+                           return td::Status::OK();
+                         });
+}
+
 void ArchiveSlice::do_close() {
   if (destroyed_) {
     return;

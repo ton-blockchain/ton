@@ -1224,6 +1224,15 @@ void ArchiveManager::prepare_stats(td::Promise<std::vector<std::pair<std::string
   promise.set_value(std::move(stats));
 }
 
+void ArchiveManager::iterate_temp_block_handles(std::function<void(const BlockHandleInterface &)> f) {
+  for (auto &[_, file] : temp_files_) {
+    if (file.deleted) {
+      continue;
+    }
+    td::actor::send_closure(file.file_actor_id(), &ArchiveSlice::iterate_block_handles, f);
+  }
+}
+
 void ArchiveManager::truncate(BlockSeqno masterchain_seqno, ConstBlockHandle handle, td::Promise<td::Unit> promise) {
   index_->begin_transaction().ensure();
   td::MultiPromise mp;

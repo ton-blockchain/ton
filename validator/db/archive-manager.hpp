@@ -84,6 +84,8 @@ class ArchiveManager : public td::actor::Actor {
 
   void prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise);
 
+  void iterate_temp_block_handles(std::function<void(const BlockHandleInterface &)> f);
+
   static constexpr td::uint32 archive_size() {
     return 20000;
   }

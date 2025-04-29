@@ -62,6 +62,8 @@ class ShardBlockRetainer : public td::actor::Actor {
   void confirm_shard_block_description(td::Ref<ShardTopBlockDescription> desc);
   void confirm_block(BlockIdExt block_id);
 
+  void got_block_from_db(BlockIdExt block_id);
+
   bool is_block_outdated(const BlockIdExt& block_id) const;
 
   static constexpr double SUBSCRIPTION_TTL = 60.0;

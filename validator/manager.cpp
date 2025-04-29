@@ -3710,6 +3710,10 @@ void ValidatorManagerImpl::add_shard_block_retainer(adnl::AdnlNodeIdShort id) {
       "shardblockretainer", id, last_masterchain_state_, opts_, actor_id(this), adnl_, rldp_);
 }
 
+void ValidatorManagerImpl::iterate_temp_block_handles(std::function<void(const BlockHandleInterface &)> f) {
+  td::actor::send_closure(db_, &Db::iterate_temp_block_handles, std::move(f));
+}
+
 }  // namespace validator
 
 }  // namespace ton

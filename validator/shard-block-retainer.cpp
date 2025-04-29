@@ -15,6 +15,7 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include "shard-block-retainer.hpp"
+#include <delay.h>
 
 namespace ton::validator {
 
@@ -86,6 +87,18 @@ void ShardBlockRetainer::update_masterchain_state(td::Ref<MasterchainState> stat
       }
       ++it;
     }
+  }
+  if (!inited_) {
+    delay_action(
+        [SelfId = actor_id(this), manager = manager_]() {
+          td::actor::send_closure(
+              manager, &ValidatorManager::iterate_temp_block_handles, [SelfId](const BlockHandleInterface& handle) {
+                if (!handle.id().is_masterchain() && handle.received_state()) {
+                  td::actor::send_closure(SelfId, &ShardBlockRetainer::got_block_from_db, handle.id());
+                }
+              });
+        },
+        td::Timestamp::in(1.0));
   }
   inited_ = true;
 }
@@ -171,8 +184,17 @@ void ShardBlockRetainer::confirm_block(BlockIdExt block_id) {
   LOG(INFO) << "Confirmed block " << block_id.to_str() << ", sending " << sent << " confirmations";
 }
 
+void ShardBlockRetainer::got_block_from_db(BlockIdExt block_id) {
+  if (!is_block_outdated(block_id)) {
+    LOG(INFO) << "Loaded confirmed block from DB: " << block_id.to_str();
+    confirm_block(block_id);
+  }
+}
+
 bool ShardBlockRetainer::is_block_outdated(const BlockIdExt& block_id) const {
-  auto shard_desc = last_masterchain_state_->get_shard_from_config(block_id.shard_full(), false);
+  ShardIdFull shard = block_id.shard_full();
+  shard.shard |= 1;
+  auto shard_desc = last_masterchain_state_->get_shard_from_config(shard, false);
   return shard_desc.not_null() && shard_desc->top_block_id().seqno() >= block_id.seqno();
 }
 

@@ -138,7 +138,9 @@ int ShardBlockVerifier::get_config_shard_idx(const ShardIdFull& shard_id) const 
 }
 
 bool ShardBlockVerifier::is_block_outdated(const BlockIdExt& block_id) const {
-  auto shard_desc = last_masterchain_state_->get_shard_from_config(block_id.shard_full(), false);
+  ShardIdFull shard = block_id.shard_full();
+  shard.shard |= 1;
+  auto shard_desc = last_masterchain_state_->get_shard_from_config(shard, false);
   return shard_desc.not_null() && shard_desc->top_block_id().seqno() >= block_id.seqno();
 }
 
