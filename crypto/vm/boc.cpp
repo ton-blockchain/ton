@@ -1255,6 +1255,7 @@ bool VmStorageStat::add_storage(const CellSlice& cs) {
 }
 
 void ProofStorageStat::add_loaded_cell(const Ref<DataCell>& cell, td::uint8 max_level) {
+  max_level = std::min<td::uint32>(max_level, Cell::max_level);
   auto& [status, size] = cells_[cell->get_hash(max_level)];
   if (status == c_loaded) {
     return;
