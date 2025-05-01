@@ -287,7 +287,7 @@ struct Op {
     _SliceConst,
   };
   OpKind cl;
-  enum { _Disabled = 1, _NoReturn = 4, _Impure = 24 };
+  enum { _Disabled = 1, _NoReturn = 2, _Impure = 4, _ArgOrderAlreadyEqualsAsm = 8 };
   int flags;
   std::unique_ptr<Op> next;
   FunctionPtr f_sym = nullptr;
@@ -346,6 +346,9 @@ struct Op {
 
   bool impure() const { return flags & _Impure; }
   void set_impure_flag();
+
+  bool arg_order_already_equals_asm() const { return flags & _ArgOrderAlreadyEqualsAsm; }
+  void set_arg_order_already_equals_asm_flag();
 
   void show(std::ostream& os, const std::vector<TmpVar>& vars, std::string pfx = "", int mode = 0) const;
   void show_var_list(std::ostream& os, const std::vector<var_idx_t>& idx_list, const std::vector<TmpVar>& vars) const;

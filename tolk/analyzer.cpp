@@ -851,6 +851,10 @@ void Op::set_impure_flag() {
   flags |= _Impure;
 }
 
+void Op::set_arg_order_already_equals_asm_flag() {
+  flags |= _ArgOrderAlreadyEqualsAsm;
+}
+
 bool Op::mark_noreturn() {
   switch (cl) {
     case _Nop:

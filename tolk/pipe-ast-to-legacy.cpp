@@ -278,6 +278,53 @@ public:
   }
 };
 
+// the purpose of this class is having a call `f(a1,a2,...)` when f has asm arg_order, to check
+// whether it's safe to rearrange arguments (to evaluate them in arg_order right here for fewer stack manipulations)
+// or it's unsafe, and we should evaluate them left-to-right;
+// example: `f(1,2,3)` / `b.storeUint(2,32)` is safe
+// example: `f(x,x+=5,x)` / `f(impureF1(), global_var)` is unsafe
+class CheckReorderingForAsmArgOrderIsSafeVisitor final : public ASTVisitorFunctionBody {
+  bool has_side_effects = false;
+
+protected:
+  void visit(V<ast_function_call> v) override {
+    has_side_effects |= v->fun_maybe == nullptr || !v->fun_maybe->is_marked_as_pure();
+    parent::visit(v);
+  }
+
+  void visit(V<ast_assign> v) override {
+    has_side_effects = true;
+    parent::visit(v);
+  }
+
+  void visit(V<ast_set_assign> v) override {
+    has_side_effects = true;
+    parent::visit(v);
+  }
+
+public:
+  bool should_visit_function(FunctionPtr fun_ref) override {
+    tolk_assert(false);
+  }
+
+  static bool is_safe_to_reorder(V<ast_function_call> v) {
+    for (const LocalVarData& param : v->fun_maybe->parameters) {
+      if (param.declared_type->get_width_on_stack() != 1) {
+        return false;
+      }
+    }
+
+    CheckReorderingForAsmArgOrderIsSafeVisitor visitor;
+    for (int i = 0; i < v->get_num_args(); ++i) {
+      visitor.ASTVisitorFunctionBody::visit(v->get_arg(i)->get_expr());
+    }
+    if (v->dot_obj_is_self) {
+      visitor.ASTVisitorFunctionBody::visit(v->get_self_obj());
+    }
+    return !visitor.has_side_effects;
+  }
+};
+
 // given `{some_expr}!`, return some_expr
 static AnyExprV unwrap_not_null_operator(AnyExprV v) {
   while (auto v_notnull = v->try_as<ast_not_null_operator>()) {
@@ -469,11 +516,15 @@ static std::vector<var_idx_t> pre_compile_is_type(CodeBlob& code, TypePtr expr_t
 }
 
 static std::vector<var_idx_t> gen_op_call(CodeBlob& code, TypePtr ret_type, SrcLocation loc,
-                                          std::vector<var_idx_t>&& args_vars, FunctionPtr fun_ref, const char* debug_desc) {
+                                          std::vector<var_idx_t>&& args_vars, FunctionPtr fun_ref, const char* debug_desc,
+                                          bool arg_order_already_equals_asm = false) {
   std::vector<var_idx_t> rvect = code.create_tmp_var(ret_type, loc, debug_desc);
   Op& op = code.emplace_back(loc, Op::_Call, rvect, std::move(args_vars), fun_ref);
   if (!fun_ref->is_marked_as_pure()) {
     op.set_impure_flag();
+  }
+  if (arg_order_already_equals_asm) {
+    op.set_arg_order_already_equals_asm_flag();
   }
   return rvect;
 }
@@ -1234,9 +1285,31 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
   for (int i = 0; i < v->get_num_args(); ++i) {
     args.push_back(v->get_arg(i)->get_expr());
   }
+
   // the purpose of tensor_tt ("tensor target type") is to transition `null` to `(int, int)?` and so on
   // the purpose of calling `pre_compile_tensor_inner` is to have 0-th IR vars to handle return self
   std::vector<TypePtr> params_types = fun_ref->inferred_full_type->try_as<TypeDataFunCallable>()->params_types;
+
+  // if fun_ref has asm arg_order, maybe it's safe to swap arguments here (to put them onto a stack in the right way);
+  // (if it's not safe, arguments are evaluated left-to-right, involving stack transformations later)
+  bool arg_order_already_equals_asm = false;
+  int asm_self_idx = 0;
+  if (!fun_ref->arg_order.empty() && CheckReorderingForAsmArgOrderIsSafeVisitor::is_safe_to_reorder(v)) {
+    std::vector<AnyExprV> new_args(args.size());
+    std::vector<TypePtr> new_params_types(params_types.size());
+    for (int i = 0; i < static_cast<int>(fun_ref->arg_order.size()); ++i) {
+      int real_i = fun_ref->arg_order[i];
+      new_args[i] = args[real_i];
+      new_params_types[i] = params_types[real_i];
+      if (real_i == 0) {
+        asm_self_idx = i;
+      }
+    }
+    args = std::move(new_args);
+    params_types = std::move(new_params_types);
+    arg_order_already_equals_asm = true;
+  }
+
   const TypeDataTensor* tensor_tt = TypeDataTensor::create(std::move(params_types))->try_as<TypeDataTensor>();
   std::vector<std::vector<var_idx_t>> vars_per_arg = pre_compile_tensor_inner(code, args, tensor_tt, nullptr);
 
@@ -1263,20 +1336,21 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
   for (const std::vector<var_idx_t>& list : vars_per_arg) {
     args_vars.insert(args_vars.end(), list.cbegin(), list.cend());
   }
-  std::vector<var_idx_t> rvect_apply = gen_op_call(code, op_call_type, v->loc, std::move(args_vars), fun_ref, "(fun-call)");
+  std::vector<var_idx_t> rvect_apply = gen_op_call(code, op_call_type, v->loc, std::move(args_vars), fun_ref, "(fun-call)", arg_order_already_equals_asm);
 
   if (fun_ref->has_mutate_params()) {
     LValContext local_lval;
     std::vector<var_idx_t> left;
     for (int i = 0; i < delta_self + v->get_num_args(); ++i) {
+      int real_i = arg_order_already_equals_asm ? i == 0 && delta_self ? asm_self_idx : fun_ref->arg_order[i - delta_self] : i;
       if (fun_ref->parameters[i].is_mutate_parameter()) {
-        AnyExprV arg_i = obj_leftmost && i == 0 ? obj_leftmost : args[i];
+        AnyExprV arg_i = obj_leftmost && i == 0 ? obj_leftmost : args[real_i];
         tolk_assert(arg_i->is_lvalue || i == 0);
         if (arg_i->is_lvalue) {
           std::vector<var_idx_t> ith_var_idx = pre_compile_expr(arg_i, code, nullptr, &local_lval);
           left.insert(left.end(), ith_var_idx.begin(), ith_var_idx.end());
         } else {
-          left.insert(left.end(), vars_per_arg[0].begin(), vars_per_arg[0].end());
+          left.insert(left.end(), vars_per_arg[asm_self_idx].begin(), vars_per_arg[asm_self_idx].end());
         }
       }
     }
@@ -1292,7 +1366,7 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
     if (obj_leftmost->is_lvalue) {    // to handle if obj is global var, potentially re-assigned inside a chain
       rvect_apply = pre_compile_expr(obj_leftmost, code, nullptr);
     } else {                          // temporary object, not lvalue, pre_compile_expr
-      rvect_apply = vars_per_arg[0];
+      rvect_apply = vars_per_arg[asm_self_idx];
     }
   }
 

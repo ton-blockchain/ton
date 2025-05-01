@@ -198,6 +198,37 @@ fun test111() {
     return (op1, q1, op2, q2);
 }
 
+global g8: int;
+global g10: int;
+global g16: int;
+global g32: int;
+
+@inline_ref
+fun initGlobals() {
+    g8 = 8;
+    g10 = 10;
+    g16 = 16;
+    g32 = 32;
+}
+
+@method_id(116)
+fun test16() {
+    initGlobals();
+    var b1 = beginCell().storeUint(g8, g16).storeUint(0xFF, g32).storeUint(g8, g16 * 2);
+    var b2 = beginCell().storeUint(8, 16).storeUint(0xFF, 32).storeUint(8, 16 * 2);
+    assert(b1.bitsCount() == b2.bitsCount(), 400);
+    var c1 = b1.endCell().beginParse();
+    var c2 = b2.endCell().beginParse();
+    assert(c1.bitsEqual(c2), 400);
+    assert(c1.loadUint(g16) == g8, 400);
+    assert(c1.loadUint(g32) == 0xFF, 400);
+    assert(c1.loadUint(2 * g16) == 8, 400);
+    return b1;
+    // 00140008000000ff00000008
+    // 00140008000000ff00000008
+}
+
+
 fun main(): int {
     return 0;
 }
@@ -217,21 +248,19 @@ fun main(): int {
 @testcase | 114 | -1  | -1 0 -1
 @testcase | 114 | 0   | 0 0 0
 @testcase | 115 |     | 123 456 123 456
+@testcase | 116 |     | BC{00140008000000ff00000008}
 
 Note, that since 'compute-asm-ltr' became on be default, chaining methods codegen is not quite optimal.
 @fif_codegen
 """
   test6 PROC:<{
-    NEWC	//  '0
-    1 PUSHINT	//  '0 '1=1
-    SWAP	//  '1=1 '0
-    32 STU	//  '0
-    2 PUSHINT	//  '0 '4=2
-    SWAP	//  '4=2 '0
-    32 STU	//  '0
-    3 PUSHINT	//  '0 '7=3
-    SWAP	//  '7=3 '0
-    32 STU	//  '0
+    3 PUSHINT                   //  '0=3
+    2 PUSHINT                   //  '0=3 '1=2
+    1 PUSHINT                   //  '0=3 '1=2 '2=1
+    NEWC                        //  '0=3 '1=2 '2=1 '3
+    32 STU                      //  '0=3 '1=2 '3
+    32 STU                      //  '0=3 '3
+    32 STU                      //  '3
   }>
 """
  */

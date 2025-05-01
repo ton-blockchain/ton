@@ -453,8 +453,10 @@ bool Op::generate_code_step(Stack& stack) {
       if (disabled()) {
         return true;
       }
-      // f_sym can be nullptr for Op::_CallInd (invoke a variable, not a function)
-      const std::vector<int>* arg_order = f_sym ? f_sym->get_arg_order() : nullptr;
+      // f_sym can be nullptr for Op::_CallInd (invoke a variable, not a function);
+      // if f has arg_order, when it's safe, the compiler evaluates arguments in that order in advance (for fewer stack manipulations);
+      // when it's unsafe, arguments are evaluated left-to-right, and we need to match asm arg_order here
+      const std::vector<int>* arg_order = f_sym && !arg_order_already_equals_asm() ? f_sym->get_arg_order() : nullptr;
       const std::vector<int>* ret_order = f_sym ? f_sym->get_ret_order() : nullptr;
       tolk_assert(!arg_order || arg_order->size() == right.size());
       tolk_assert(!ret_order || ret_order->size() == left.size());
