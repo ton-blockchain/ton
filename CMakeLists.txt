@@ -33,6 +33,8 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
 set(CMAKE_CXX_EXTENSIONS FALSE)
 
+set(CMAKE_COLOR_DIAGNOSTICS TRUE)
+
 #BEGIN internal
 option(BUILD_SHARED_LIBS "Use \"ON\" to build shared libraries instead of static where it's not specified (not recommended)" OFF)
 option(USE_EMSCRIPTEN "Use \"ON\" for config building wasm." OFF)
