@@ -366,7 +366,7 @@ HttpAnswer& HttpAnswer::operator<<(AccountCell acc_c) {
   last_trans_hash.set_zero();
   block::CurrencyCollection balance = block::CurrencyCollection::zero();
   try {
-    auto state_root = vm::MerkleProof::virtualize(acc_c.q_roots[1], 1);
+    auto state_root = vm::MerkleProof::virtualize(acc_c.q_roots[1]);
     if (state_root.is_null()) {
       abort("account state proof is invalid");
       return *this;
@@ -474,7 +474,7 @@ HttpAnswer& HttpAnswer::operator<<(BlockHeaderCell head_c) {
   vm::CellSlice cs{vm::NoVm(), head_c.root};
   auto block_id = head_c.block_id;
   try {
-    auto virt_root = vm::MerkleProof::virtualize(head_c.root, 1);
+    auto virt_root = vm::MerkleProof::virtualize(head_c.root);
     if (virt_root.is_null()) {
       abort("invalid merkle proof");
       return *this;

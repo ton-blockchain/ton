@@ -192,7 +192,7 @@ td::Result<std::vector<td::Ref<OutMsgQueueProof>>> OutMsgQueueProof::fetch(Shard
         block_state_proof = block_state_proofs[j++];
         TRY_RESULT_ASSIGN(state_root_hash, unpack_block_state_proof(blocks[i], block_state_proof));
       }
-      auto state_root = vm::MerkleProof::virtualize(queue_proofs[i], 1);
+      auto state_root = vm::MerkleProof::virtualize(queue_proofs[i]);
       if (state_root->get_hash().as_slice() != state_root_hash.as_slice()) {
         return td::Status::Error("state root hash mismatch");
       }
