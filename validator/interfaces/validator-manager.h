@@ -129,6 +129,10 @@ class ValidatorManager : public ValidatorManagerInterface {
   }
   virtual void set_block_state(BlockHandle handle, td::Ref<ShardState> state,
                                td::Promise<td::Ref<ShardState>> promise) = 0;
+  virtual void set_block_state_from_data(BlockHandle handle, td::Ref<BlockData> block,
+                                         td::Promise<td::Ref<ShardState>> promise) = 0;
+  virtual void set_block_state_from_data_preliminary(std::vector<td::Ref<BlockData>> blocks,
+                                                     td::Promise<td::Unit> promise) = 0;
   virtual void get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) = 0;
   virtual void store_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::BufferSlice state,
                                            td::Promise<td::Unit> promise) = 0;
@@ -210,6 +214,11 @@ class ValidatorManager : public ValidatorManagerInterface {
                                                     td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise) = 0;
   virtual void send_download_archive_request(BlockSeqno mc_seqno, ShardIdFull shard_prefix, std::string tmp_dir,
                                              td::Timestamp timeout, td::Promise<std::string> promise) = 0;
+
+  virtual void get_block_proof_link_from_import(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+                                                td::Promise<td::BufferSlice> promise) {
+    promise.set_error(td::Status::Error("not supported"));
+  }
 
   virtual void update_shard_client_state(BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise) = 0;
   virtual void get_shard_client_state(bool from_db, td::Promise<BlockIdExt> promise) = 0;

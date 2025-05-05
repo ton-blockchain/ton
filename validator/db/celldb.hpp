@@ -66,6 +66,8 @@ class CellDbIn : public CellDbBase {
   void load_cell(RootHash hash, td::Promise<td::Ref<vm::DataCell>> promise);
   void store_cell(BlockIdExt block_id, td::Ref<vm::Cell> cell, td::Promise<td::Ref<vm::DataCell>> promise);
   void get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise);
+  void store_block_state_permanent(td::Ref<BlockData> block, td::Promise<td::Ref<vm::DataCell>> promise);
+  void store_block_state_permanent_bulk(std::vector<td::Ref<BlockData>> blocks, td::Promise<td::Unit> promise);
 
   void migrate_cell(td::Bits256 hash);
 
@@ -137,9 +139,12 @@ class CellDbIn : public CellDbBase {
   std::unique_ptr<MigrationStats> migration_stats_;
 
   struct CellDbStatistics {
+    bool permanent_mode_;
     PercentileStats store_cell_time_;
     PercentileStats store_cell_prepare_time_;
     PercentileStats store_cell_write_time_;
+    size_t store_cell_bulk_queries_ = 0;
+    size_t store_cell_bulk_total_blocks_ = 0;
     PercentileStats gc_cell_time_;
     td::Timestamp stats_start_time_ = td::Timestamp::now();
     std::optional<double> in_memory_load_time_;
@@ -156,6 +161,7 @@ class CellDbIn : public CellDbBase {
   CellDbStatistics cell_db_statistics_;
   td::Timestamp statistics_flush_at_ = td::Timestamp::never();
   BlockSeqno last_deleted_mc_state_ = 0;
+  bool permanent_mode_ = false;
 
   bool db_busy_ = false;
   std::queue<td::Promise<td::Unit>> action_queue_;
@@ -188,6 +194,8 @@ class CellDb : public CellDbBase {
   void prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise);
   void load_cell(RootHash hash, td::Promise<td::Ref<vm::DataCell>> promise);
   void store_cell(BlockIdExt block_id, td::Ref<vm::Cell> cell, td::Promise<td::Ref<vm::DataCell>> promise);
+  void store_block_state_permanent(td::Ref<BlockData> block, td::Promise<td::Ref<vm::DataCell>> promise);
+  void store_block_state_permanent_bulk(std::vector<td::Ref<BlockData>> blocks, td::Promise<td::Unit> promise);
   void update_snapshot(std::unique_ptr<td::KeyValueReader> snapshot) {
     CHECK(!opts_->get_celldb_in_memory());
     if (!started_) {

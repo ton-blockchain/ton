@@ -73,16 +73,20 @@ void DownloadState::start_up() {
   status_ = ProcessStatus(validator_manager_, "process.download_state_net");
   alarm_timestamp() = timeout_;
 
-  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_persistent_state, block_id_,
-                          masterchain_block_id_,
-                          [SelfId = actor_id(this), block_id = block_id_](td::Result<td::BufferSlice> R) {
-                            if (R.is_error()) {
-                              td::actor::send_closure(SelfId, &DownloadState::get_block_handle);
-                            } else {
-                              LOG(WARNING) << "got block state from disk: " << block_id.to_str();
-                              td::actor::send_closure(SelfId, &DownloadState::got_block_state, R.move_as_ok());
-                            }
-                          });
+  td::Promise<td::BufferSlice> P = [SelfId = actor_id(this), block_id = block_id_](td::Result<td::BufferSlice> R) {
+    if (R.is_error()) {
+      td::actor::send_closure(SelfId, &DownloadState::get_block_handle);
+    } else {
+      LOG(WARNING) << "got block state from disk: " << block_id.to_str();
+      td::actor::send_closure(SelfId, &DownloadState::got_block_state, R.move_as_ok());
+    }
+  };
+  if (block_id_.seqno() == 0) {
+    td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_zero_state, block_id_, std::move(P));
+  } else {
+    td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_persistent_state, block_id_,
+                            masterchain_block_id_, std::move(P));
+  }
 }
 
 void DownloadState::get_block_handle() {

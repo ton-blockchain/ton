@@ -45,7 +45,10 @@ ArchiveImporter::ArchiveImporter(std::string db_root, td::Ref<MasterchainState> 
     , manager_(manager)
     , to_import_files_(std::move(to_import_files))
     , use_imported_files_(!to_import_files_.empty())
-    , promise_(std::move(promise)) {
+    , promise_(std::move(promise))
+    , perf_timer_("import-slice", 10.0, [manager](double duration) {
+      send_closure(manager, &ValidatorManager::add_perf_timer_stat, "import-slice", duration);
+    }) {
 }
 
 void ArchiveImporter::start_up() {
@@ -85,7 +88,7 @@ void ArchiveImporter::downloaded_mc_archive(std::string path) {
 
 void ArchiveImporter::processed_mc_archive() {
   if (masterchain_blocks_.empty()) {
-    LOG(DEBUG) << "No masterhchain blocks in archive";
+    LOG(DEBUG) << "No masterchain blocks in archive";
     last_masterchain_seqno_ = last_masterchain_state_->get_seqno();
     checked_all_masterchain_blocks();
     return;
@@ -525,6 +528,7 @@ void ArchiveImporter::finish_query() {
     td::unlink(f).ignore();
   }
   if (promise_) {
+    LOG(INFO) << "Imported archive in " << perf_timer_.elapsed();
     promise_.set_value({last_masterchain_state_->get_seqno(),
                         std::min<BlockSeqno>(last_masterchain_state_->get_seqno(), shard_client_seqno_)});
   }

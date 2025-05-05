@@ -255,6 +255,9 @@ class ValidatorEngine : public td::actor::Actor {
   double broadcast_speed_multiplier_catchain_ = 3.33;
   double broadcast_speed_multiplier_public_ = 3.33;
   double broadcast_speed_multiplier_private_ = 3.33;
+  bool permanent_celldb_ = false;
+  bool skip_key_sync_ = false;
+  td::optional<ton::BlockSeqno> sync_shards_upto_;
   ton::adnl::AdnlNodeIdShort shard_block_retainer_adnl_id_ = ton::adnl::AdnlNodeIdShort::zero();
 
   std::set<ton::CatchainSeqno> unsafe_catchains_;
@@ -370,6 +373,15 @@ class ValidatorEngine : public td::actor::Actor {
   }
   void set_broadcast_speed_multiplier_private(double value) {
     broadcast_speed_multiplier_private_ = value;
+  }
+  void set_permanent_celldb(bool value) {
+    permanent_celldb_ = value;
+  }
+  void set_skip_key_sync(bool value) {
+    skip_key_sync_ = value;
+  }
+  void set_sync_shards_upto(ton::BlockSeqno seqno) {
+    sync_shards_upto_ = seqno;
   }
   void set_shard_block_retainer_adnl_id(ton::adnl::AdnlNodeIdShort id) {
     shard_block_retainer_adnl_id_ = id;

@@ -259,6 +259,41 @@ void RootDb::store_block_state(BlockHandle handle, td::Ref<ShardState> state,
   }
 }
 
+void RootDb::store_block_state_from_data(BlockHandle handle, td::Ref<BlockData> block,
+                                         td::Promise<td::Ref<ShardState>> promise) {
+  if (handle->id() != block->block_id()) {
+    promise.set_error(td::Status::Error("block id mismatch"));
+    return;
+  }
+  if (handle->moved_to_archive() || handle->inited_state_boc()) {
+    get_block_state(handle, std::move(promise));
+    return;
+  }
+  auto P = td::PromiseCreator::lambda(
+      [b = archive_db_.get(), handle, promise = std::move(promise)](td::Result<td::Ref<vm::DataCell>> R) mutable {
+        TRY_RESULT_PROMISE(promise, root, std::move(R));
+        handle->set_state_root_hash(root->get_hash().bits());
+        handle->set_state_boc();
+
+        auto S = create_shard_state(handle->id(), std::move(root));
+        S.ensure();
+
+        auto P = td::PromiseCreator::lambda(
+            [promise = std::move(promise), state = S.move_as_ok()](td::Result<td::Unit> R) mutable {
+              R.ensure();
+              promise.set_value(std::move(state));
+            });
+
+        td::actor::send_closure(b, &ArchiveManager::update_handle, std::move(handle), std::move(P));
+      });
+  td::actor::send_closure(cell_db_, &CellDb::store_block_state_permanent, std::move(block), std::move(P));
+}
+
+void RootDb::store_block_state_from_data_preliminary(std::vector<td::Ref<BlockData>> blocks,
+                                                     td::Promise<td::Unit> promise) {
+  td::actor::send_closure(cell_db_, &CellDb::store_block_state_permanent_bulk, std::move(blocks), std::move(promise));
+}
+
 void RootDb::get_block_state(ConstBlockHandle handle, td::Promise<td::Ref<ShardState>> promise) {
   if (handle->inited_state_boc()) {
     if (handle->deleted_state_boc()) {
