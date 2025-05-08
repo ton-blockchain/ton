@@ -28,7 +28,6 @@
 #include "adnl-local-id.h"
 #include "adnl-query.h"
 #include "utils.hpp"
-#include "adnl-static-nodes.h"
 #include "adnl-ext-server.h"
 #include "adnl-address-list.h"
 
@@ -86,15 +85,12 @@ class AdnlPeerTableImpl : public AdnlPeerTable {
   void get_addr_list_from_db(AdnlNodeIdShort local_id, AdnlNodeIdShort peer_id,
                              td::Promise<AdnlDbItem> promise) override;
 
-  void add_static_node(AdnlNode node) override {
-    CHECK(!static_nodes_manager_.empty());
-    td::actor::send_closure(static_nodes_manager_, &AdnlStaticNodesManager::add_node, std::move(node));
-  }
-  void del_static_node(AdnlNodeIdShort id) override {
-    td::actor::send_closure(static_nodes_manager_, &AdnlStaticNodesManager::del_node, id);
-  }
-  void get_static_node(AdnlNodeIdShort id, td::Promise<AdnlNode> promise) override {
-    td::actor::send_closure(static_nodes_manager_, &AdnlStaticNodesManager::get_node, id, std::move(promise));
+  td::Result<AdnlNode> get_static_node(AdnlNodeIdShort id) override {
+    auto it = static_nodes_.find(id);
+    if (it == static_nodes_.end()) {
+      return td::Status::Error(ErrorCode::notready, "static node not found");
+    }
+    return it->second;
   }
   void deliver(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data) override;
   void deliver_query(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data,
@@ -125,7 +121,7 @@ class AdnlPeerTableImpl : public AdnlPeerTable {
 
   td::actor::ActorId<AdnlNetworkManager> network_manager_;
   td::actor::ActorId<dht::Dht> dht_node_;
-  td::actor::ActorOwn<AdnlStaticNodesManager> static_nodes_manager_;
+  std::map<AdnlNodeIdShort, AdnlNode> static_nodes_;
 
   void deliver_one_message(AdnlNodeIdShort src, AdnlNodeIdShort dst, AdnlMessage message);
 

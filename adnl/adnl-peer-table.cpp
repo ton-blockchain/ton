@@ -142,8 +142,10 @@ void AdnlPeerTableImpl::add_peer(AdnlNodeIdShort local_id, AdnlNodeIdFull id, Ad
 }
 
 void AdnlPeerTableImpl::add_static_nodes_from_config(AdnlNodesList nodes) {
-  for (auto &it : nodes.nodes()) {
-    add_static_node(it);
+  for (auto &node : nodes.nodes()) {
+    auto id_short = node.compute_short_id();
+    VLOG(ADNL_INFO) << "[staticnodes] adding static node " << id_short;
+    static_nodes_.emplace(id_short, std::move(node));
   }
 }
 
@@ -332,8 +334,6 @@ void AdnlPeerTableImpl::get_addr_list_from_db(AdnlNodeIdShort local_id, AdnlNode
 
 AdnlPeerTableImpl::AdnlPeerTableImpl(std::string db_root, td::actor::ActorId<keyring::Keyring> keyring) {
   keyring_ = keyring;
-  static_nodes_manager_ = AdnlStaticNodesManager::create();
-
   if (!db_root.empty()) {
     db_ = AdnlDb::create(db_root + "/adnl");
   }
