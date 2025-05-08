@@ -672,6 +672,37 @@ const char *tvm_emulator_emulate_run_method(uint32_t len, const char *params_boc
   if (!libs.is_empty()) {
     emulator->set_libraries(std::move(libs));
   }
+
+  if (c7->depth() > 0) {
+    vm::StackEntry c7_stack = c7->fetch(0);
+    if (!c7_stack.is_null() && c7_stack.is_tuple()) {
+      td::Ref<vm::Tuple> c7_root = c7_stack.as_tuple();
+      if (!c7_root.is_null()) {
+        vm::StackEntry c7_top = tuple_index(c7_root, 0);
+        if (!c7_top.is_null() && c7_top.is_tuple()) {
+          td::Ref<vm::Tuple> c7_top_tuple = c7_top.as_tuple();
+          if (!c7_top_tuple.is_null()) {
+            vm::StackEntry config_entry = tuple_index(c7_top_tuple, 9);
+            if (!config_entry.is_null() && config_entry.is_cell() && config_entry.as_cell().not_null()) {
+              vm::CellSlice config_cell_slice = vm::load_cell_slice(config_entry.as_cell());
+              if (config_cell_slice.size() > 0) {
+                block::Config config(config_entry.as_cell(), td::Bits256::zero(),
+                    block::Config::needWorkchainInfo | block::Config::needSpecialSmc | block::Config::needCapabilities);
+                auto config_ptr = std::make_shared<block::Config>(std::move(config));
+                td::Status unpack_res = config_ptr->unpack();
+                if (unpack_res.is_error()) {
+                  LOG(ERROR) << "Can't unpack config params";
+                  return nullptr;
+                }
+                emulator->set_config(config_ptr);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
   auto result = emulator->run_get_method(int(method_id), stack);
   delete emulator;
 
