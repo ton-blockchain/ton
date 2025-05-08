@@ -255,6 +255,18 @@ EMULATOR_EXPORT const char *tvm_emulator_run_get_method(void *tvm_emulator, int 
 EMULATOR_EXPORT const char *tvm_emulator_emulate_run_method(uint32_t len, const char *params_boc, int64_t gas_limit);
 
 /**
+ * @brief Optimized version of "run get method" with all passed parameters in a single call. Also returns log.
+ * @param len Length of params_boc buffer
+ * @param params_boc BoC serialized parameters, scheme: request$_ code:^Cell data:^Cell stack:^VmStack params:^[c7:^VmStack libs:^Cell] method_id:(## 32)
+ * @param gas_limit Gas limit
+ * @return Struct with two fields:
+ * - response: Char* with first 4 bytes defining length, and the rest BoC serialized result
+ *         Scheme: result$_ exit_code:(## 32) gas_used:(## 32) stack:^VmStack
+ * - log: Char* with first 4 bytes defining length, and the rest is log
+ */
+EMULATOR_EXPORT const char *tvm_emulator_emulate_run_method_detailed(uint32_t len, const char *params_boc, int64_t gas_limit);
+
+/**
  * @brief Send external message
  * @param tvm_emulator Pointer to TVM emulator
  * @param message_body_boc Base64 encoded BoC serialized message body cell.
