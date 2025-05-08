@@ -112,11 +112,17 @@ class AdnlPeerTableImpl : public AdnlPeerTable {
   }
 
  private:
+  struct PeerInfo {
+    AdnlNodeIdFull peer_id;
+    std::map<AdnlNodeIdShort, td::actor::ActorOwn<AdnlPeerPair>> peers;
+  };
+
   struct LocalIdInfo {
     td::actor::ActorOwn<AdnlLocalId> local_id;
     td::uint8 cat;
     td::uint32 mode;
   };
+
   td::actor::ActorId<keyring::Keyring> keyring_;
 
   td::actor::ActorId<AdnlNetworkManager> network_manager_;
@@ -125,7 +131,7 @@ class AdnlPeerTableImpl : public AdnlPeerTable {
 
   void deliver_one_message(AdnlNodeIdShort src, AdnlNodeIdShort dst, AdnlMessage message);
 
-  std::map<AdnlNodeIdShort, td::actor::ActorOwn<AdnlPeer>> peers_;
+  std::map<AdnlNodeIdShort, PeerInfo> peers_;
   std::map<AdnlNodeIdShort, LocalIdInfo> local_ids_;
   std::map<AdnlChannelIdShort, std::pair<td::actor::ActorId<AdnlChannel>, td::uint8>> channels_;
 
@@ -136,6 +142,11 @@ class AdnlPeerTableImpl : public AdnlPeerTable {
   AdnlNodeIdShort proxy_addr_;
   //std::map<td::uint64, td::actor::ActorId<AdnlQuery>> out_queries_;
   //td::uint64 last_query_id_ = 1;
+
+  static void update_id(PeerInfo &peer_info, AdnlNodeIdFull &&peer_id);
+  td::actor::ActorOwn<AdnlPeerPair> &get_peer_pair(AdnlNodeIdShort peer_id, PeerInfo &peer_info, AdnlNodeIdShort local_id, LocalIdInfo &local_id_info);
+  static void get_stats_peer(AdnlNodeIdShort peer_id, PeerInfo &peer_info, bool all,
+    td::Promise<std::vector<tl_object_ptr<ton_api::adnl_stats_peerPair>>> promise);
 };
 
 inline td::StringBuilder &operator<<(td::StringBuilder &sb, const AdnlPeerTableImpl::PrintId &id) {

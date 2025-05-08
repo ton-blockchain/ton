@@ -60,7 +60,7 @@ class AdnlPeerPairImpl : public AdnlPeerPair {
 
   AdnlPeerPairImpl(td::actor::ActorId<AdnlNetworkManager> network_manager, td::actor::ActorId<AdnlPeerTable> peer_table,
                    td::uint32 local_mode, td::actor::ActorId<AdnlLocalId> local_actor,
-                   td::actor::ActorId<AdnlPeer> peer, td::actor::ActorId<dht::Dht> dht_node, AdnlNodeIdShort local_id,
+                   td::actor::ActorId<dht::Dht> dht_node, AdnlNodeIdShort local_id,
                    AdnlNodeIdShort peer_id);
   void start_up() override;
   void alarm() override;
@@ -209,7 +209,6 @@ class AdnlPeerPairImpl : public AdnlPeerPair {
   td::actor::ActorId<AdnlNetworkManager> network_manager_;
   td::actor::ActorId<AdnlPeerTable> peer_table_;
   td::actor::ActorId<AdnlLocalId> local_actor_;
-  td::actor::ActorId<AdnlPeer> peer_;
   td::actor::ActorId<dht::Dht> dht_node_;
 
   td::uint32 priority_ = 0;
@@ -287,67 +286,11 @@ class AdnlPeerPairImpl : public AdnlPeerPair {
   void prepare_packet_stats();
 };
 
-class AdnlPeerImpl : public AdnlPeer {
- public:
-  void receive_packet(AdnlNodeIdShort dst, td::uint32 dst_mode, td::actor::ActorId<AdnlLocalId> dst_actor,
-                      AdnlPacket packet, td::uint64 serialized_size) override;
-  void send_messages(AdnlNodeIdShort src, td::uint32 src_mode, td::actor::ActorId<AdnlLocalId> src_actor,
-                     std::vector<OutboundAdnlMessage> messages) override;
-  void send_query(AdnlNodeIdShort src, td::uint32 src_mode, td::actor::ActorId<AdnlLocalId> src_actor, std::string name,
-                  td::Promise<td::BufferSlice> promise, td::Timestamp timeout, td::BufferSlice data,
-                  td::uint32 flags) override;
-
-  void del_local_id(AdnlNodeIdShort local_id) override;
-  void update_id(AdnlNodeIdFull id) override;
-  void update_addr_list(AdnlNodeIdShort local_id, td::uint32 local_mode, td::actor::ActorId<AdnlLocalId> local_actor,
-                        AdnlAddressList addr_list) override;
-  void update_dht_node(td::actor::ActorId<dht::Dht> dht_node) override;
-  void get_conn_ip_str(AdnlNodeIdShort l_id, td::Promise<td::string> promise) override;
-  void get_stats(bool all, td::Promise<std::vector<tl_object_ptr<ton_api::adnl_stats_peerPair>>> promise) override;
-  //void check_signature(td::BufferSlice data, td::BufferSlice signature, td::Promise<td::Unit> promise) override;
-
-  AdnlPeerImpl(td::actor::ActorId<AdnlNetworkManager> network_manager, td::actor::ActorId<AdnlPeerTable> peer_table,
-               td::actor::ActorId<dht::Dht> dht_node, AdnlNodeIdShort peer_id)
-      : peer_id_short_(peer_id), dht_node_(dht_node), peer_table_(peer_table), network_manager_(network_manager) {
-  }
-
-  struct PrintId {
-    AdnlNodeIdShort peer_id;
-  };
-
-  PrintId print_id() const {
-    return PrintId{peer_id_short_};
-  }
-
- private:
-  AdnlNodeIdShort peer_id_short_;
-  AdnlNodeIdFull peer_id_;
-  std::map<AdnlNodeIdShort, td::actor::ActorOwn<AdnlPeerPair>> peer_pairs_;
-  td::actor::ActorId<dht::Dht> dht_node_;
-  td::actor::ActorId<AdnlPeerTable> peer_table_;
-  td::actor::ActorId<AdnlNetworkManager> network_manager_;
-};
-
 }  // namespace adnl
 
 }  // namespace ton
 
 namespace td {
-
-inline td::StringBuilder &operator<<(td::StringBuilder &sb, const ton::adnl::AdnlPeerImpl::PrintId &id) {
-  sb << "[peer " << id.peer_id << "]";
-  return sb;
-}
-
-inline td::StringBuilder &operator<<(td::StringBuilder &sb, const ton::adnl::AdnlPeerImpl &peer) {
-  sb << peer.print_id();
-  return sb;
-}
-
-inline td::StringBuilder &operator<<(td::StringBuilder &sb, const ton::adnl::AdnlPeerImpl *peer) {
-  sb << peer->print_id();
-  return sb;
-}
 
 inline td::StringBuilder &operator<<(td::StringBuilder &sb, const ton::adnl::AdnlPeerPairImpl::PrintId &id) {
   sb << "[peerpair " << id.peer_id << "-" << id.local_id << "]";
