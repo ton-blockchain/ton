@@ -69,7 +69,7 @@ class FullNodeImpl : public FullNode {
   void send_ext_message(AccountIdPrefixFull dst, td::BufferSlice data);
   void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqnp, td::BufferSlice data);
   void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
-                            td::BufferSlice data);
+                            td::BufferSlice data, int mode);
   void send_broadcast(BlockBroadcast broadcast, int mode);
   void send_out_msg_queue_proof_broadcast(td::Ref<OutMsgQueueProofBroadcast> broadcats);
   void download_block(BlockIdExt id, td::uint32 priority, td::Timestamp timeout, td::Promise<ReceivedBlock> promise);
@@ -162,7 +162,6 @@ class FullNodeImpl : public FullNode {
   //     for validators and authorized nodes
   bool use_old_private_overlays_ = true;
   std::map<PublicKeyHash, td::actor::ActorOwn<FullNodePrivateBlockOverlay>> private_block_overlays_;
-  bool broadcast_block_candidates_in_public_overlay_ = false;
   FullNodeFastSyncOverlays fast_sync_overlays_;
 
   struct CustomOverlayInfo {

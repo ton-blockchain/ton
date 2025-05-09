@@ -216,7 +216,7 @@ class ValidatorManagerInterface : public td::actor::Actor {
     virtual void send_ext_message(AccountIdPrefixFull dst, td::BufferSlice data) = 0;
     virtual void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) = 0;
     virtual void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
-                                      td::BufferSlice data) = 0;
+                                      td::BufferSlice data, int mode) = 0;
     virtual void send_broadcast(BlockBroadcast broadcast, int mode) = 0;
     virtual void send_out_msg_queue_proof_broadcast(td::Ref<OutMsgQueueProofBroadcast> broadcats) {
       LOG(ERROR) << "Unimplemented send_out_msg_queue_proof_broadcast - ignore broadcast";
@@ -257,7 +257,7 @@ class ValidatorManagerInterface : public td::actor::Actor {
   virtual void validate_block_proof_rel(BlockIdExt block_id, BlockIdExt rel_block_id, td::BufferSlice proof,
                                         td::Promise<td::Unit> promise) = 0;
   virtual void validate_block(ReceivedBlock block, td::Promise<BlockHandle> promise) = 0;
-  virtual void prevalidate_block(BlockBroadcast broadcast, td::Promise<td::Unit> promise) = 0;
+  virtual void new_block_broadcast(BlockBroadcast broadcast, td::Promise<td::Unit> promise) = 0;
 
   //virtual void create_validate_block(BlockId block, td::BufferSlice data, td::Promise<Block> promise) = 0;
   virtual void sync_complete(td::Promise<td::Unit> promise) = 0;
@@ -293,8 +293,9 @@ class ValidatorManagerInterface : public td::actor::Actor {
   virtual void new_external_message(td::BufferSlice data, int priority) = 0;
   virtual void check_external_message(td::BufferSlice data, td::Promise<td::Ref<ExtMessage>> promise) = 0;
   virtual void new_ihr_message(td::BufferSlice data) = 0;
-  virtual void new_shard_block(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) = 0;
-  virtual void new_block_candidate(BlockIdExt block_id, td::BufferSlice data) = 0;
+  virtual void new_shard_block_description_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
+                                                     td::BufferSlice data) = 0;
+  virtual void new_block_candidate_broadcast(BlockIdExt block_id, td::BufferSlice data) = 0;
 
   virtual void add_ext_server_id(adnl::AdnlNodeIdShort id) = 0;
   virtual void add_ext_server_port(td::uint16 port) = 0;

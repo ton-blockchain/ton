@@ -107,7 +107,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void validate_block(ReceivedBlock block, td::Promise<BlockHandle> promise) override {
     UNREACHABLE();
   }
-  void prevalidate_block(BlockBroadcast broadcast, td::Promise<td::Unit> promise) override {
+  void new_block_broadcast(BlockBroadcast broadcast, td::Promise<td::Unit> promise) override {
     UNREACHABLE();
   }
 
@@ -154,10 +154,11 @@ class ValidatorManagerImpl : public ValidatorManager {
     UNREACHABLE();
   }
   void new_ihr_message(td::BufferSlice data) override;
-  void new_shard_block(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) override {
+  void new_shard_block_description_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
+                                             td::BufferSlice data) override {
     UNREACHABLE();
   }
-  void new_block_candidate(BlockIdExt block_id, td::BufferSlice data) override {
+  void new_block_candidate_broadcast(BlockIdExt block_id, td::BufferSlice data) override {
     UNREACHABLE();
   }
 
@@ -239,8 +240,8 @@ class ValidatorManagerImpl : public ValidatorManager {
     promise.set_value(td::Unit());
   }
   void send_block_candidate_broadcast(BlockIdExt id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
-                                      td::BufferSlice data) {
-    callback_->send_block_candidate(id, cc_seqno, validator_set_hash, std::move(data));
+                                      td::BufferSlice data, int mode) {
+    callback_->send_block_candidate(id, cc_seqno, validator_set_hash, std::move(data), mode);
   }
 
   void wait_block_state_merge(BlockIdExt left_id, BlockIdExt right_id, td::uint32 priority, td::Timestamp timeout,

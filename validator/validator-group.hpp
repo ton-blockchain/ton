@@ -175,13 +175,7 @@ class ValidatorGroup : public td::actor::Actor {
 
   std::set<BlockIdExt> sent_candidate_broadcasts_;
 
-  void send_block_candidate_broadcast(BlockIdExt id, td::BufferSlice data) {
-    if (sent_candidate_broadcasts_.insert(id).second) {
-      td::actor::send_closure(manager_, &ValidatorManager::send_block_candidate_broadcast, id,
-                              validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash(),
-                              std::move(data));
-    }
-  }
+  void send_block_candidate_broadcast(BlockIdExt id, td::BufferSlice data);
 };
 
 }  // namespace validator
