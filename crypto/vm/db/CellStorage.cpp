@@ -32,8 +32,9 @@ namespace {
 
 class RefcntCellStorer {
  public:
-  RefcntCellStorer(td::int32 refcnt, const td::Ref<DataCell> &cell, bool as_boc)
-      : refcnt_(refcnt), cell_(cell), as_boc_(as_boc) {
+  RefcntCellStorer(td::int32 refcnt, const td::Ref<DataCell> &cell, bool as_boc, int max_level = vm::Cell::max_level)
+      : refcnt_(refcnt), cell_(cell), as_boc_(as_boc), max_level_(max_level) {
+    CHECK(!as_boc_ || max_level_ == vm::Cell::max_level);
   }
 
   template <class StorerT>
@@ -51,10 +52,25 @@ class RefcntCellStorer {
     CHECK(refcnt_ > 0);
     store(refcnt_, storer);
     CHECK(cell_.not_null())
-    store(*cell_, storer);
+    if (max_level_ == vm::Cell::max_level) {
+      store(*cell_, storer);
+    } else {
+      auto level_mask = cell_->get_level_mask().apply(max_level_);
+      storer.template store_binary<td::uint8>(
+          static_cast<unsigned char>(cell_->get_refs_cnt() + 8 * cell_->is_special() + 32 * level_mask.get_mask()));
+      auto d2 = static_cast<unsigned char>((cell_->get_bits() / 8) * 2);
+      if ((cell_->get_bits() & 7) != 0) {
+        d2 = static_cast<unsigned char>(d2 + 1);
+      }
+      storer.template store_binary<td::uint8>(d2);
+      storer.store_slice(td::Slice(cell_->get_data(), (cell_->get_bits() + 7) / 8));
+    }
+
     for (unsigned i = 0; i < cell_->size_refs(); i++) {
       auto cell = cell_->get_ref(i);
-      auto level_mask = cell->get_level_mask();
+      auto level_mask =
+          cell->get_level_mask().apply(max_level_ + (cell_->special_type() == CellTraits::SpecialType::MerkleProof ||
+                                                     cell_->special_type() == CellTraits::SpecialType::MerkleUpdate));
       auto level = level_mask.get_level();
       td::uint8 x = static_cast<td::uint8>(level_mask.get_mask());
       storer.store_slice(td::Slice(&x, 1));
@@ -79,6 +95,7 @@ class RefcntCellStorer {
   td::int32 refcnt_;
   td::Ref<DataCell> cell_;
   bool as_boc_;
+  int max_level_;
 };
 
 class RefcntCellParser {
@@ -120,13 +137,13 @@ class RefcntCellParser {
       Ref<Cell> refs[Cell::max_refs];
       for (int i = 0; i < info.refs_cnt; i++) {
         if (data.size() < 1) {
-          return td::Status::Error("Not enought data");
+          return td::Status::Error("Not enough data");
         }
         Cell::LevelMask level_mask(data[0]);
         auto n = level_mask.get_hashes_count();
         auto end_offset = 1 + n * (Cell::hash_bytes + Cell::depth_bytes);
         if (data.size() < end_offset) {
-          return td::Status::Error("Not enought data");
+          return td::Status::Error("Not enough data");
         }
 
         TRY_RESULT(ext_cell, ext_cell_creator.ext_cell(level_mask, data.substr(1, n * Cell::hash_bytes),
@@ -243,8 +260,8 @@ td::Status CellStorer::erase(td::Slice hash) {
   return kv_.erase(hash);
 }
 
-std::string CellStorer::serialize_value(td::int32 refcnt, const td::Ref<DataCell> &cell, bool as_boc) {
-  return td::serialize(RefcntCellStorer(refcnt, cell, as_boc));
+std::string CellStorer::serialize_value(td::int32 refcnt, const td::Ref<DataCell> &cell, bool as_boc, int max_level) {
+  return td::serialize(RefcntCellStorer(refcnt, cell, as_boc, max_level));
 }
 
 td::Status CellStorer::set(td::int32 refcnt, const td::Ref<DataCell> &cell, bool as_boc) {
