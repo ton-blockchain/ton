@@ -152,7 +152,7 @@ td::Result<int> LargeBocSerializer::import_cell(Hash root_hash, int root_depth) 
       for (size_t i = 0; i < loaded_results.size(); ++i) {
         auto& cell = loaded_results[i];
 
-        if (cell->get_virtualization() != 0) {
+        if (cell->is_virtualized()) {
           return td::Status::Error(
             "error while importing a cell into a bag of cells: cell has non-zero virtualization level");
         }
