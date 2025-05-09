@@ -214,6 +214,7 @@ set(TDUTILS_SOURCE
   td/utils/invoke.h
   td/utils/JsonBuilder.h
   td/utils/List.h
+  td/utils/LRUCache.h
   td/utils/logging.h
   td/utils/MemoryLog.h
   td/utils/misc.h
