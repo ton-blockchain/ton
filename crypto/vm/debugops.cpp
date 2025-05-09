@@ -23,6 +23,7 @@
 #include "vm/stack.hpp"
 #include "vm/excno.hpp"
 #include "vm/vm.h"
+#include "crypto/block/block-auto.h"
 
 namespace vm {
 
@@ -47,6 +48,59 @@ int exec_dummy_debug_str(VmState* st, CellSlice& cs, unsigned args, int pfx_bits
   auto slice = cs.fetch_subslice(data_bits);
   VM_LOG(st) << "execute DEBUGSTR " << slice->as_bitslice().to_hex();
   return 0;
+}
+
+int dump_tlb_s0(Stack& stack, const std::string& tlb_type) {
+  if (stack.depth() > 0) {
+    vm::CellSlice to_dump;
+    auto element = stack[0].as_cell();
+
+    if (element.not_null()) {
+      tlb::TypenameLookup tlb_dict0;
+      tlb_dict0.register_types(block::gen::register_simple_types);
+
+      auto _template = tlb_dict0.lookup(tlb_type);
+      if (!_template) {
+        std::cerr << "#DEBUG#: TL-B type not supported" << std::endl;
+        return 0;
+      }
+
+      std::stringstream ss;
+      _template->print_ref(9 << 20, ss, element);
+
+      std::cerr << "#DEBUG#: " << ss.str() << std::endl;
+    } else {
+      // TODO: add slice support (?)
+      std::cerr << "#DEBUG#: s0 is not a cell" << std::endl;
+    }
+  } else {
+    std::cerr << "#DEBUG#: s0 is absent" << std::endl;
+  }
+
+  return 0;
+}
+
+int exec_debug_dumptosfmt(VmState* st, CellSlice& cs, unsigned args, int pfx_bits) {
+  if (!vm_debug_enabled) {
+    VM_LOG(st) << "execute DUMPTOSFMT";
+    return 0;
+  }
+
+  int data_bits = ((args & 15) + 1) * 8;
+  if (!cs.have(pfx_bits + data_bits)) {
+    throw VmError{Excno::inv_opcode, "not enough data bits for a DUMPTOSFMT instruction"};
+  }
+  cs.advance(pfx_bits);
+  auto slice = cs.fetch_subslice(data_bits);
+
+  unsigned char tmp[128];
+  slice.write().fetch_bytes(tmp, data_bits / 8);
+  std::string s{tmp, tmp + (data_bits / 8)};
+
+  VM_LOG(st) << "execute DUMPTOSFMT " << s;
+
+  Stack& stack = st->get_stack();
+  return dump_tlb_s0(stack, s);
 }
 
 std::string dump_dummy_debug_str(CellSlice& cs, unsigned args, int pfx_bits) {
@@ -113,7 +167,7 @@ int exec_dump_string(VmState* st) {
 
   Stack& stack = st->get_stack();
 
-  if (stack.depth() > 0){
+  if (stack.depth() > 0) {
     auto cs = stack[0].as_slice();
 
     if (cs.not_null()) {  // wanted t_slice
@@ -127,8 +181,7 @@ int exec_dump_string(VmState* st) {
         std::string s{tmp, tmp + cnt};
 
         std::cerr << "#DEBUG#: " << s << std::endl;
-      }
-      else {
+      } else {
         std::cerr << "#DEBUG#: slice contains not valid bits count" << std::endl;
       }
 
@@ -151,11 +204,11 @@ void register_debug_ops(OpcodeTable& cp0) {
     // NB: all non-redefined opcodes in fe00..feff should be redirected to dummy debug definitions
     cp0.insert(OpcodeInstr::mksimple(0xfe00, 16, "DUMPSTK", exec_dump_stack))
         .insert(OpcodeInstr::mkfixedrange(0xfe01, 0xfe14, 16, 8, instr::dump_1c_and(0xff, "DEBUG "), exec_dummy_debug))
-        .insert(OpcodeInstr::mksimple(0xfe14, 16,"STRDUMP", exec_dump_string))
+        .insert(OpcodeInstr::mksimple(0xfe14, 16, "STRDUMP", exec_dump_string))
         .insert(OpcodeInstr::mkfixedrange(0xfe15, 0xfe20, 16, 8, instr::dump_1c_and(0xff, "DEBUG "), exec_dummy_debug))
         .insert(OpcodeInstr::mkfixed(0xfe2, 12, 4, instr::dump_1sr("DUMP"), exec_dump_value))
         .insert(OpcodeInstr::mkfixedrange(0xfe30, 0xfef0, 16, 8, instr::dump_1c_and(0xff, "DEBUG "), exec_dummy_debug))
-        .insert(OpcodeInstr::mkext(0xfef, 12, 4, dump_dummy_debug_str, exec_dummy_debug_str, compute_len_debug_str));
+        .insert(OpcodeInstr::mkext(0xfef, 12, 4, dump_dummy_debug_str, exec_debug_dumptosfmt, compute_len_debug_str));
   }
 }
 
