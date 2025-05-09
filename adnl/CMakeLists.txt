@@ -23,8 +23,6 @@ set(ADNL_HEADERS
   adnl-peer.h
   adnl-peer.hpp
   adnl-query.h
-  adnl-static-nodes.h
-  adnl-static-nodes.hpp
   adnl-proxy-types.h
   adnl-proxy-types.hpp
   adnl.h
@@ -46,7 +44,6 @@ set(ADNL_SOURCE
   adnl-peer.cpp
   adnl-query.cpp
   adnl-channel.cpp
-  adnl-static-nodes.cpp
   adnl-proxy-types.cpp
   utils.cpp
   ${ADNL_HEADERS}

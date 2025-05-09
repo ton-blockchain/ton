@@ -97,9 +97,7 @@ class AdnlPeerTable : public Adnl {
                                 td::actor::ActorId<AdnlChannel> channel) = 0;
   virtual void unregister_channel(AdnlChannelIdShort id) = 0;
 
-  virtual void add_static_node(AdnlNode node) = 0;
-  virtual void del_static_node(AdnlNodeIdShort id) = 0;
-  virtual void get_static_node(AdnlNodeIdShort id, td::Promise<AdnlNode> promise) = 0;
+  virtual td::Result<AdnlNode> get_static_node(AdnlNodeIdShort id) = 0;
 
   virtual void write_new_addr_list_to_db(AdnlNodeIdShort local_id, AdnlNodeIdShort peer_id, AdnlDbItem node,
                                          td::Promise<td::Unit> promise) = 0;
