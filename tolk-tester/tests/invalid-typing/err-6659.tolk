@@ -1,15 +1,17 @@
-fun cantAutoInferUnionInTernary() {
-    var dd: int | slice = random() ? 1 : "";        // ok
-    var cc = (random() ? 1 : "") as int|slice;      // ok
-    random() ? 1 as int|slice : "" as int|slice;    // ok
-    random() ? 1 as int|slice : "";                 // ok
-    random() ? 1 : "" as int|slice|builder;         // ok
-    random() ? 1 as int|slice|null : "" as slice?;  // ok
+fun rand() { return random.uint256() }
 
-    var sub = random() ? (1, 2 as int|slice) : (1, "");
+fun cantAutoInferUnionInTernary() {
+    var dd: int | slice = rand() ? 1 : "";        // ok
+    var cc = (rand() ? 1 : "") as int|slice;      // ok
+    rand() ? 1 as int|slice : "" as int|slice;    // ok
+    rand() ? 1 as int|slice : "";                 // ok
+    rand() ? 1 : "" as int|slice|builder;         // ok
+    rand() ? 1 as int|slice|null : "" as slice?;  // ok
+
+    var sub = rand() ? (1, 2 as int|slice) : (1, "");
     __expect_type(sub, "(int, int | slice)");
 
-    random() ? 1 : "";
+    rand() ? 1 : "";
 }
 
 /**

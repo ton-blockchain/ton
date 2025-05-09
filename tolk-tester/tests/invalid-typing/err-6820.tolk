@@ -1,6 +1,6 @@
 fun cantUnifyBytesNAndBytesM(n: bytes8, c: bytes16) {
-    __expect_type(random() ? n : c as bytes8, "bytes8");
-    random() ? n : c;
+    __expect_type(random.uint256() ? n : c as bytes8, "bytes8");
+    random.uint256() ? n : c;
 }
 
 /**

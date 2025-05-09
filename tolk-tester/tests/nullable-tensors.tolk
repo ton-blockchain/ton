@@ -13,7 +13,18 @@ fun isTensorNull(t: (int, int)?) {
     return t == null;
 }
 
-fun incrementNullableTensorComponents(mutate self: (int, int)?): self {
+fun (int, int)?.isTensorNull(self) {
+    return self == null;
+}
+
+fun incrementNullableTensorComponents(mutate t: (int, int)?) {
+    if (t != null) {
+        t!.0 += 1;
+        t!.1 += 1;
+    }
+}
+
+fun (int, int)?.incrementNullableTensorComponents(mutate self): self {
     if (self != null) {
         self!.0 += 1;
         self!.1 += 1;
@@ -21,7 +32,12 @@ fun incrementNullableTensorComponents(mutate self: (int, int)?): self {
     return self;
 }
 
-fun incrementTensorComponents(mutate self: (int, int)): self {
+fun incrementTensorComponents(mutate t: (int, int)) {
+    t.0 += 1;
+    t.1 += 1;
+}
+
+fun (int, int).incrementTensorComponents(mutate self): self {
     self.0 += 1;
     self.1 += 1;
     return self;
@@ -120,6 +136,10 @@ fun isTensorNullGen<T1, T2>(t: (T1, T2)?) {
     return t == null;
 }
 
+fun (T1, T2)?.isTensorNullGen(self) {
+    return self == null;
+}
+
 @method_id(109)
 fun test109() {
     var x1 = (1, 2);
@@ -128,7 +148,7 @@ fun test109() {
     return (
         isTensorNullGen(x1), isTensorNullGen(x2), isTensorNullGen<int,int>(null),
         isTensorNullGen<int,int>(x1), isTensorNullGen<int,int>(x3),
-        x1.isTensorNullGen(), x2.isTensorNullGen(), x3.isTensorNullGen(), null.isTensorNullGen<int,int>()
+        x1.isTensorNullGen(), x2.isTensorNullGen(), x3.isTensorNullGen(), (null as (int,int)?).isTensorNullGen()
     );
 }
 
@@ -519,20 +539,19 @@ fun main(){}
 @testcase | 132 |      | -1 0 -1 0 777 (null) (null) -1 0 0
 @testcase | 133 |      | 60
 @testcase | 134 |      | 11 21 129
-@testcase | 135 |      | [ 10 ] [ (null) ] (null) 777 10 146 (null) 146 (null) 0 777 10 143 (null) 143 (null) 0 777 0 0 -1 0 0 -1 0 0 -1 777 0 -1 0 0 -1 0
+@testcase | 135 |      | [ 10 ] [ (null) ] (null) 777 10 143 (null) 143 (null) 0 777 10 144 (null) 144 (null) 0 777 0 0 -1 0 0 -1 0 0 -1 777 0 -1 0 0 -1 0
 @testcase | 136 | 9    | 9 0
 @testcase | 136 | null | (null) -1
-@testcase | 140 | 8 9  | 8 9 144 (null) (null) 0
+@testcase | 140 | 8 9  | 8 9 145 (null) (null) 0
 @testcase | 141 |      | (null) 10
 @testcase | 142 |      | 3 3 1 2
 @testcase | 143 | -1 0 | 1 2 1 3 777 (null) (null) (null) (null) 0
-@testcase | 143 | 0 -1 | 1 (null) 0 3 777 1 2 1 3 145
+@testcase | 143 | 0 -1 | 1 (null) 0 3 777 1 2 1 3 146
 
 @fif_codegen
 """
-  isTensorNull PROC:<{
-    //  t.0 t.1 t.UTag
-    2 1 BLKDROP2	//  t.UTag
+  isTensorNull PROC:<{  //  t.0 t.1 t.UTag
+    2 1 BLKDROP2	    //  t.UTag
     0 EQINT	//  '3
   }>
 """
@@ -540,7 +559,6 @@ fun main(){}
 @fif_codegen
 """
   test113 PROC:<{
-    //
     1 PUSHINT	//  '2=1
     PUSHNULL	//  '2=1 '3
     PAIR	//  t

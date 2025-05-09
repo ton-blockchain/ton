@@ -125,13 +125,6 @@ void Optimizer::show_right() const {
   std::cerr << std::endl;
 }
 
-bool Optimizer::say(std::string str) const {
-  if (debug_) {
-    std::cerr << str << std::endl;
-  }
-  return true;
-}
-
 bool Optimizer::find_const_op(int* op_idx, int cst) {
   for (int i = 0; i < l2_; i++) {
     if (op_[i]->is_gconst() && tr_[i].get(0) == cst) {
@@ -157,7 +150,7 @@ bool Optimizer::rewrite_push_const(int i, int c) {
   show_left();
   oq_[1] = std::move(op_[idx]);
   oq_[0] = std::move(op_[!idx]);
-  *oq_[0] = AsmOp::Push(i);
+  *oq_[0] = AsmOp::Push(oq_[0]->loc, i);
   show_right();
   return true;
 }
@@ -176,7 +169,7 @@ bool Optimizer::rewrite_const_rot(int c) {
   show_left();
   oq_[0] = std::move(op_[idx]);
   oq_[1] = std::move(op_[!idx]);
-  *oq_[1] = AsmOp::Custom("ROT", 3, 3);
+  *oq_[1] = AsmOp::Custom(oq_[0]->loc, "ROT", 3, 3);
   show_right();
   return true;
 }
@@ -195,7 +188,7 @@ bool Optimizer::rewrite_const_pop(int c, int i) {
   show_left();
   oq_[0] = std::move(op_[idx]);
   oq_[1] = std::move(op_[!idx]);
-  *oq_[1] = AsmOp::Pop(i);
+  *oq_[1] = AsmOp::Pop(oq_[0]->loc, i);
   show_right();
   return true;
 }
@@ -553,40 +546,41 @@ bool Optimizer::find_at_least(int pb) {
   pb_ = pb;
   // show_stack_transforms();
   int i, j, k, l, c;
+  SrcLocation loc;      // for asm ops inserted by optimizer, leave location empty (in fift output, it'll be attached to above)
   return (is_push_const(&i, &c) && rewrite_push_const(i, c)) || (is_nop() && rewrite_nop()) ||
          (!(mode_ & 1) && is_const_rot(&c) && rewrite_const_rot(c)) ||
          (is_const_push_xchgs() && rewrite_const_push_xchgs()) || (is_const_pop(&c, &i) && rewrite_const_pop(c, i)) ||
-         (is_xchg(&i, &j) && rewrite(AsmOp::Xchg(i, j))) || (is_push(&i) && rewrite(AsmOp::Push(i))) ||
-         (is_pop(&i) && rewrite(AsmOp::Pop(i))) || (is_pop_pop(&i, &j) && rewrite(AsmOp::Pop(i), AsmOp::Pop(j))) ||
-         (is_xchg_xchg(&i, &j, &k, &l) && rewrite(AsmOp::Xchg(i, j), AsmOp::Xchg(k, l))) ||
+         (is_xchg(&i, &j) && rewrite(AsmOp::Xchg(loc, i, j))) || (is_push(&i) && rewrite(AsmOp::Push(loc, i))) ||
+         (is_pop(&i) && rewrite(AsmOp::Pop(loc, i))) || (is_pop_pop(&i, &j) && rewrite(AsmOp::Pop(loc, i), AsmOp::Pop(loc, j))) ||
+         (is_xchg_xchg(&i, &j, &k, &l) && rewrite(AsmOp::Xchg(loc, i, j), AsmOp::Xchg(loc, k, l))) ||
          (!(mode_ & 1) &&
-          ((is_rot() && rewrite(AsmOp::Custom("ROT", 3, 3))) || (is_rotrev() && rewrite(AsmOp::Custom("-ROT", 3, 3))) ||
-           (is_2dup() && rewrite(AsmOp::Custom("2DUP", 2, 4))) ||
-           (is_2swap() && rewrite(AsmOp::Custom("2SWAP", 2, 4))) ||
-           (is_2over() && rewrite(AsmOp::Custom("2OVER", 2, 4))) ||
-           (is_tuck() && rewrite(AsmOp::Custom("TUCK", 2, 3))) ||
-           (is_2drop() && rewrite(AsmOp::Custom("2DROP", 2, 0))) || (is_xchg2(&i, &j) && rewrite(AsmOp::Xchg2(i, j))) ||
-           (is_xcpu(&i, &j) && rewrite(AsmOp::XcPu(i, j))) || (is_puxc(&i, &j) && rewrite(AsmOp::PuXc(i, j))) ||
-           (is_push2(&i, &j) && rewrite(AsmOp::Push2(i, j))) || (is_blkswap(&i, &j) && rewrite(AsmOp::BlkSwap(i, j))) ||
-           (is_blkpush(&i, &j) && rewrite(AsmOp::BlkPush(i, j))) || (is_blkdrop(&i) && rewrite(AsmOp::BlkDrop(i))) ||
-           (is_push_rot(&i) && rewrite(AsmOp::Push(i), AsmOp::Custom("ROT"))) ||
-           (is_push_rotrev(&i) && rewrite(AsmOp::Push(i), AsmOp::Custom("-ROT"))) ||
-           (is_push_xchg(&i, &j, &k) && rewrite(AsmOp::Push(i), AsmOp::Xchg(j, k))) ||
-           (is_reverse(&i, &j) && rewrite(AsmOp::BlkReverse(i, j))) ||
-           (is_blkdrop2(&i, &j) && rewrite(AsmOp::BlkDrop2(i, j))) ||
-           (is_nip_seq(&i, &j) && rewrite(AsmOp::Xchg(i, j), AsmOp::BlkDrop(i))) ||
-           (is_pop_blkdrop(&i, &k) && rewrite(AsmOp::Pop(i), AsmOp::BlkDrop(k))) ||
+          ((is_rot() && rewrite(AsmOp::Custom(loc, "ROT", 3, 3))) || (is_rotrev() && rewrite(AsmOp::Custom(loc, "-ROT", 3, 3))) ||
+           (is_2dup() && rewrite(AsmOp::Custom(loc, "2DUP", 2, 4))) ||
+           (is_2swap() && rewrite(AsmOp::Custom(loc, "2SWAP", 2, 4))) ||
+           (is_2over() && rewrite(AsmOp::Custom(loc, "2OVER", 2, 4))) ||
+           (is_tuck() && rewrite(AsmOp::Custom(loc, "TUCK", 2, 3))) ||
+           (is_2drop() && rewrite(AsmOp::Custom(loc, "2DROP", 2, 0))) || (is_xchg2(&i, &j) && rewrite(AsmOp::Xchg2(loc, i, j))) ||
+           (is_xcpu(&i, &j) && rewrite(AsmOp::XcPu(loc, i, j))) || (is_puxc(&i, &j) && rewrite(AsmOp::PuXc(loc, i, j))) ||
+           (is_push2(&i, &j) && rewrite(AsmOp::Push2(loc, i, j))) || (is_blkswap(&i, &j) && rewrite(AsmOp::BlkSwap(loc, i, j))) ||
+           (is_blkpush(&i, &j) && rewrite(AsmOp::BlkPush(loc, i, j))) || (is_blkdrop(&i) && rewrite(AsmOp::BlkDrop(loc, i))) ||
+           (is_push_rot(&i) && rewrite(AsmOp::Push(loc, i), AsmOp::Custom(loc, "ROT"))) ||
+           (is_push_rotrev(&i) && rewrite(AsmOp::Push(loc, i), AsmOp::Custom(loc, "-ROT"))) ||
+           (is_push_xchg(&i, &j, &k) && rewrite(AsmOp::Push(loc, i), AsmOp::Xchg(loc, j, k))) ||
+           (is_reverse(&i, &j) && rewrite(AsmOp::BlkReverse(loc, i, j))) ||
+           (is_blkdrop2(&i, &j) && rewrite(AsmOp::BlkDrop2(loc, i, j))) ||
+           (is_nip_seq(&i, &j) && rewrite(AsmOp::Xchg(loc, i, j), AsmOp::BlkDrop(loc, i))) ||
+           (is_pop_blkdrop(&i, &k) && rewrite(AsmOp::Pop(loc, i), AsmOp::BlkDrop(loc, k))) ||
            (is_2pop_blkdrop(&i, &j, &k) && (k >= 3 && k <= 13 && i != j + 1 && i <= 15 && j <= 14
-                                                ? rewrite(AsmOp::Xchg2(j + 1, i), AsmOp::BlkDrop(k + 2))
-                                                : rewrite(AsmOp::Pop(i), AsmOp::Pop(j), AsmOp::BlkDrop(k)))) ||
-           (is_xchg3(&i, &j, &k) && rewrite(AsmOp::Xchg3(i, j, k))) ||
-           (is_xc2pu(&i, &j, &k) && rewrite(AsmOp::Xc2Pu(i, j, k))) ||
-           (is_xcpuxc(&i, &j, &k) && rewrite(AsmOp::XcPuXc(i, j, k))) ||
-           (is_xcpu2(&i, &j, &k) && rewrite(AsmOp::XcPu2(i, j, k))) ||
-           (is_puxc2(&i, &j, &k) && rewrite(AsmOp::PuXc2(i, j, k))) ||
-           (is_puxcpu(&i, &j, &k) && rewrite(AsmOp::PuXcPu(i, j, k))) ||
-           (is_pu2xc(&i, &j, &k) && rewrite(AsmOp::Pu2Xc(i, j, k))) ||
-           (is_push3(&i, &j, &k) && rewrite(AsmOp::Push3(i, j, k)))));
+                                                ? rewrite(AsmOp::Xchg2(loc, j + 1, i), AsmOp::BlkDrop(loc, k + 2))
+                                                : rewrite(AsmOp::Pop(loc, i), AsmOp::Pop(loc, j), AsmOp::BlkDrop(loc, k)))) ||
+           (is_xchg3(&i, &j, &k) && rewrite(AsmOp::Xchg3(loc, i, j, k))) ||
+           (is_xc2pu(&i, &j, &k) && rewrite(AsmOp::Xc2Pu(loc, i, j, k))) ||
+           (is_xcpuxc(&i, &j, &k) && rewrite(AsmOp::XcPuXc(loc, i, j, k))) ||
+           (is_xcpu2(&i, &j, &k) && rewrite(AsmOp::XcPu2(loc, i, j, k))) ||
+           (is_puxc2(&i, &j, &k) && rewrite(AsmOp::PuXc2(loc, i, j, k))) ||
+           (is_puxcpu(&i, &j, &k) && rewrite(AsmOp::PuXcPu(loc, i, j, k))) ||
+           (is_pu2xc(&i, &j, &k) && rewrite(AsmOp::Pu2Xc(loc, i, j, k))) ||
+           (is_push3(&i, &j, &k) && rewrite(AsmOp::Push3(loc, i, j, k)))));
 }
 
 bool Optimizer::find() {

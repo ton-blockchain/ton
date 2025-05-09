@@ -120,7 +120,7 @@ fun testLogicalOps2(first: int) {
         (10 == s.loadUint(32)) || (20 == s.loadUint(32)) || (3 == s.loadUint(32)) || (4 == s.loadUint(32));
         sum += s.loadUint(32);
     }
-    return (s.getRemainingBitsCount(), sum);
+    return (s.remainingBitsCount(), sum);
 }
 
 @method_id(112)
@@ -147,6 +147,31 @@ fun testConvertIfToIfnot(x: bool) {
     assert(!!x, 100);
     return -4;
 }
+
+@pure
+fun get123(): int
+    asm "123 PUSHINT";
+
+@method_id(114)
+fun test114() {
+    val fals = (get123() < 0) as int;
+    return (fals ? -1 : fals) != 0;
+}
+
+@method_id(115)
+fun test115() {
+    val tru = get123() >= 0;
+    val fals = get123() < 0;
+
+    if ((true || false) && (false || false)) {
+        throw 123;
+    }
+    if ((tru || fals) && (fals || fals)) {
+        throw 456;
+    }
+    return (tru, fals);
+}
+
 
 fun main() {
 
@@ -187,11 +212,12 @@ fun main() {
 @testcase | 112 | 5 0    | 0 -1 0 -1 -1
 @testcase | 112 | 0 -1   | -1 -1 -1 -1 -1
 @testcase | 113 | 0      | 1
+@testcase | 114 |        | 0
+@testcase | 115 |        | -1 0
 
 @fif_codegen
 """
   simpleAllConst PROC:<{
-    //
     TRUE
     0 PUSHINT
     TRUE
@@ -206,8 +232,7 @@ fun main() {
 
 @fif_codegen
 """
-  compileTimeEval1 PROC:<{
-    //  x
+  compileTimeEval1 PROC:<{  //  x
     DUP	//  x x
     0 EQINT	//  x '1
     FALSE	//  x '1 '4
@@ -223,9 +248,9 @@ fun main() {
 
 @fif_codegen
 """
-  withIfNot PROC:<{
+  withIfNot PROC:<{  //  x y
     c2 SAVE
-    SAMEALTSAVE	//  x y
+    SAMEALTSAVE
     OVER	//  x y x
     IFNOTJMP:<{	//  x y
       2DROP	//
@@ -244,7 +269,6 @@ fun main() {
 @fif_codegen
 """
   testAndConstCodegen PROC:<{
-    //
     FALSE
     0 PUSHINT
     DUP
@@ -267,7 +291,6 @@ fun main() {
 @fif_codegen
 """
   testOrConstCodegen PROC:<{
-    //
     -1 PUSHINT
     TRUE
     FALSE
@@ -292,8 +315,7 @@ For example, `a && b` can be expressed without IFs.
 These are moments of future optimizations. For now, it's more than enough.
 @fif_codegen
 """
-  testAndSimpleCodegen PROC:<{
-    //  a b
+  testAndSimpleCodegen PROC:<{  //  a b
     SWAP	//  b a
     IF:<{	//  b
       0 NEQINT	//  '2
@@ -306,8 +328,7 @@ These are moments of future optimizations. For now, it's more than enough.
 
 @fif_codegen
 """
-  testOrSimpleCodegen PROC:<{
-    //  a b
+  testOrSimpleCodegen PROC:<{   //  a b
     SWAP	//  b a
     0 GTINT	//  b '3
     IF:<{	//  b
@@ -322,8 +343,7 @@ These are moments of future optimizations. For now, it's more than enough.
 
 @fif_codegen
 """
-  testConvertIfToIfnot PROC:<{
-    //  x
+  testConvertIfToIfnot PROC:<{  //  x
     DUP	//  x x
     100 THROWIF
     DUP	//  x x
