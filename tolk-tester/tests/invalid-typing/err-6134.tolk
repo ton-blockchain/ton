@@ -1,4 +1,4 @@
-fun incNotChained(mutate self: int) {
+fun int.incNotChained(mutate self) {
     self = self + 1;
 }
 
@@ -8,5 +8,5 @@ fun cantCallNotChainedMethodsInAChain(x: int) {
 
 /**
 @compilation_should_fail
-@stderr can not call method for `int` with object of type `void`
+@stderr method `incNotChained` not found for type `void`
  */

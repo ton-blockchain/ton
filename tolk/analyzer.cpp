@@ -62,10 +62,10 @@ bool operator==(const VarDescrList& x, const VarDescrList& y) {
 }
 
 bool same_values(const VarDescr& x, const VarDescr& y) {
-  if (x.val != y.val || x.int_const.is_null() != y.int_const.is_null()) {
+  if (x.val != y.val || x.is_int_const() != y.is_int_const()) {
     return false;
   }
-  if (x.int_const.not_null() && cmp(x.int_const, y.int_const) != 0) {
+  if (x.is_int_const() && *x.int_const != *y.int_const) {
     return false;
   }
   return true;
@@ -501,7 +501,7 @@ bool Op::compute_used_vars(const CodeBlob& code, bool edit) {
     }
     default:
       std::cerr << "fatal: unknown operation <??" << cl << "> in compute_used_vars()\n";
-      throw ParseError{where, "unknown operation"};
+      throw ParseError(loc, "unknown operation");
   }
 }
 
@@ -583,7 +583,7 @@ bool prune_unreachable(std::unique_ptr<Op>& ops) {
           op.cl = Op::_If;
           std::unique_ptr<Op> new_op = std::move(op.block0);
           op.block0 = std::move(op.block1);
-          op.block1 = std::make_unique<Op>(op.next->where, Op::_Nop);
+          op.block1 = std::make_unique<Op>(op.next->loc, Op::_Nop);
           new_op->last().next = std::move(ops);
           ops = std::move(new_op);
         }
@@ -629,7 +629,7 @@ bool prune_unreachable(std::unique_ptr<Op>& ops) {
     }
     default:
       std::cerr << "fatal: unknown operation <??" << op.cl << ">\n";
-      throw ParseError{op.where, "unknown operation in prune_unreachable()"};
+      throw ParseError(op.loc, "unknown operation in prune_unreachable()");
   }
   if (reach) {
     return prune_unreachable(op.next);
@@ -643,7 +643,7 @@ bool prune_unreachable(std::unique_ptr<Op>& ops) {
 
 void CodeBlob::prune_unreachable_code() {
   if (prune_unreachable(ops)) {
-    throw ParseError{loc, "control reaches end of function"};
+    throw ParseError(fun_ref->loc, "control reaches end of function");
   }
 }
 
@@ -704,10 +704,8 @@ VarDescrList Op::fwd_analyze(VarDescrList values) {
           res.emplace_back(i);
         }
         AsmOpList tmp;
-        if (f_sym->is_asm_function()) {
-          std::get<FunctionBodyAsm*>(f_sym->body)->compile(tmp);  // abstract interpretation of res := f (args)
-        } else {
-          std::get<FunctionBodyBuiltin*>(f_sym->body)->compile(tmp, res, args, where);
+        if (!f_sym->is_asm_function()) {
+          std::get<FunctionBodyBuiltin*>(f_sym->body)->compile(tmp, res, args, loc);
         }
         int j = 0;
         for (var_idx_t i : left) {
@@ -822,7 +820,7 @@ VarDescrList Op::fwd_analyze(VarDescrList values) {
     }
     default:
       std::cerr << "fatal: unknown operation <??" << cl << ">\n";
-      throw ParseError{where, "unknown operation in fwd_analyze()"};
+      throw ParseError(loc, "unknown operation in fwd_analyze()");
   }
   if (next) {
     return next->fwd_analyze(std::move(values));
@@ -851,6 +849,10 @@ bool Op::set_noreturn(bool flag) {
 
 void Op::set_impure_flag() {
   flags |= _Impure;
+}
+
+void Op::set_arg_order_already_equals_asm_flag() {
+  flags |= _ArgOrderAlreadyEqualsAsm;
 }
 
 bool Op::mark_noreturn() {
@@ -892,7 +894,7 @@ bool Op::mark_noreturn() {
         }
         last_in_block1->next = std::move(next);
         next = std::move(block1);
-        block1 = std::make_unique<Op>(where, Op::_Nop);
+        block1 = std::make_unique<Op>(loc, Op::_Nop);
         block1->var_info = std::move(block1_var_info);
       } else {
         block1->mark_noreturn();
@@ -916,7 +918,7 @@ bool Op::mark_noreturn() {
       return set_noreturn(next->mark_noreturn());
     default:
       std::cerr << "fatal: unknown operation <??" << cl << ">\n";
-      throw ParseError{where, "unknown operation in mark_noreturn()"};
+      throw ParseError(loc, "unknown operation in mark_noreturn()");
   }
 }
 

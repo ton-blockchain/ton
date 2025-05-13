@@ -4,11 +4,11 @@ fun main(x: int): int {
     } else {
         var y: slice = "20";
     }
-    debugPrint(y);
+    debug.print(y);
 }
 
 /**
 @compilation_should_fail
-@stderr debugPrint(y);
+@stderr debug.print(y);
 @stderr undefined symbol `y`
  */

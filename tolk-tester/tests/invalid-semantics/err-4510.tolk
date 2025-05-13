@@ -7,5 +7,5 @@ fun main() {
 
 /**
 @compilation_should_fail
-@stderr generic T not expected here
+@stderr type arguments not expected here
  */

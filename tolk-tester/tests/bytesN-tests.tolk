@@ -6,8 +6,8 @@ const someBytes = "asdf" as bytes16;
 const anotherBytes: bytes16 = "asdf" as bytes16;
 
 fun autoInferBytes16() {
-    if (random()) { return someBytes; }
-    else if (random()) { return true ? "" as bytes16 : anotherBytes; }
+    if (random.uint256()) { return someBytes; }
+    else if (random.uint256()) { return true ? "" as bytes16 : anotherBytes; }
     else { return someBytes!; }
 }
 
@@ -20,7 +20,7 @@ fun test1() {
     __expect_type(ss as bytes128, "bytes128");
     __expect_type(someBytes, "bytes16");
     __expect_type(10>3 ? (null, ss as bits1) : (ss as bytes1, null), "(bytes1?, bits1?)");
-    return (getRemainingBitsCount(ss as slice), loadInt(mutate ss as slice, 32), (ss as slice).loadInt(32));
+    return ((ss as slice).remainingBitsCount(), (ss as slice).loadInt(32), (ss as slice).loadInt(32));
 }
 
 fun test2(a: bytes8, b: bits64) {
@@ -35,7 +35,7 @@ fun test3() {
     var slice = beginCell().storeInt(1, 32).storeInt(2, 32).endCell().beginParse();
     var bq = slice as bits16?;
     if (bq != null) {
-        return (bq as slice).loadInt(32 as uint8) + (slice = bq as slice).getRemainingBitsCount();
+        return (bq as slice).loadInt(32 as uint8) + (slice = bq as slice).remainingBitsCount();
     }
     return -1;
 }

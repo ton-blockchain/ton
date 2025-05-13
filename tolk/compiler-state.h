@@ -52,6 +52,7 @@ struct CompilerSettings {
   int verbosity = 0;
   int optimization_level = 2;
   bool stack_layout_comments = true;
+  bool tolk_src_as_line_comments = true;
 
   std::string output_filename;
   std::string boc_output_filename;
@@ -95,10 +96,12 @@ struct CompilerState {
   GlobalSymbolTable symtable;
   PersistentHeapAllocator persistent_mem;
 
-  std::vector<FunctionPtr> all_functions;       // all user-defined (not built-in) functions, with generic instantiations
-  std::vector<FunctionPtr> all_get_methods;
+  std::vector<FunctionPtr> all_functions;       // all user-defined (not built-in) global-scope functions, with generic instantiations
+  std::vector<FunctionPtr> all_methods;         // all user-defined and built-in extension methods for arbitrary types (receivers)
+  std::vector<FunctionPtr> all_contract_getters;
   std::vector<GlobalVarPtr> all_global_vars;
   std::vector<GlobalConstPtr> all_constants;
+  std::vector<StructPtr> all_structs;
   AllRegisteredSrcFiles all_src_files;
 
   bool is_verbosity(int gt_eq) const { return settings.verbosity >= gt_eq; }

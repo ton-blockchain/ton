@@ -6,5 +6,5 @@ fun main() {
 
 /**
 @compilation_should_fail
-@stderr type `MInt` can not be used as a value
+@stderr `MInt` only refers to a type, but is being used as a value here
 */

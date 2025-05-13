@@ -15,7 +15,7 @@ fun test1(x: int, y: int) {
     __expect_type(x = x, "int");
     __expect_type(x += x, "int");
     __expect_type(x &= x, "int");
-    __expect_type(random() ? x : y, "int");
+    __expect_type(random.uint256() ? x : y, "int");
     __expect_type(eq(x), "int");
     __expect_type(eq<int>(x), "int");
     __expect_type(eq<int?>(null), "int?");
@@ -47,7 +47,7 @@ fun test2(x: int, y: bool) {
     __expect_type(x <= x, "bool");
     __expect_type(x <=> x, "bool");
     __expect_type(x <=> x, "bool");
-    __expect_type(!random(), "bool");
+    __expect_type(!random.uint256(), "bool");
     __expect_type(!!(x != null), "bool");
     __expect_type(x ? x != null : null == x, "bool");
     __expect_type(y & true, "bool");
@@ -60,7 +60,7 @@ fun test2(x: int, y: bool) {
 
 fun test3() {
     __expect_type(true as int, "int");
-    __expect_type(!random() as int, "int");
+    __expect_type(!random.uint256() as int, "int");
 }
 
 fun test4(x: int) {
@@ -75,13 +75,13 @@ fun test5(x: int) {
     __expect_type([x, x >= 1], "[int, bool]");
     __expect_type([x, x >= 1, null as slice?], "[int, bool, slice?]");
     __expect_type((x, [x], [[x], x]), "(int, [int], [[int], int])");
-    __expect_type(getMyOriginalBalanceWithExtraCurrencies(), "[int, dict]");
+    __expect_type(contract.getOriginalBalanceWithExtraCurrencies(), "[coins, dict]");
 }
 
 fun test6() {
     var t = createEmptyTuple();
     __expect_type(t, "tuple");
-    t.tuplePush(1);
+    t.push(1);
     __expect_type(t, "tuple");
 }
 

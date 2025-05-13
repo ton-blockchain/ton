@@ -16,10 +16,10 @@
 */
 #pragma once
 
-#include "src-file.h"
-#include <cstdint>
-#include <string>
+#include "fwd-declarations.h"
 #include <functional>
+#include <string>
+#include <vector>
 
 namespace tolk {
 
@@ -29,21 +29,14 @@ namespace tolk {
  *   Every unique TypeData is created only once, so for example TypeDataTensor::create(int, int)
  * returns one and the same pointer always.
  *
- *   In Tolk code, types after colon `var v: (int, T)` are parsed to TypeData.
- *   See parse_type_from_tokens().
- *   So, AST nodes which can have declared types (local/global variables and others) store a pointer to TypeData.
- *
- *   Type inferring also creates TypeData for inferred expressions. All AST expression nodes have inferred_type.
+ *   Type inferring creates TypeData for inferred expressions. All AST expression nodes have inferred_type.
  * For example, `1 + 2`, both operands are TypeDataInt, its result is also TypeDataInt.
  *   Type checking also uses TypeData. For example, `var i: slice = 1 + 2`, at first rhs (TypeDataInt) is inferred,
  * then lhs (TypeDataSlice from declaration) is checked whether rhs can be assigned.
  *   See can_rhs_be_assigned().
  *
- *   Note, that while initial parsing Tolk files to AST, known types (`int`, `cell`, etc.) are created as-is,
- * but user-defined types (`T`, `MyStruct`, `MyAlias`) are saved as TypeDataUnresolved.
- *   After all symbols have been registered, resolving identifiers step is executed, where particularly
- * all TypeDataUnresolved instances are converted to a resolved type. At inferring, no unresolved remain.
- *   For instance, `fun f<T>(v: T)`, at first "T" of `v` is unresolved, and then converted to TypeDataGenericT.
+ *   At the moment of parsing, types after colon `var v: (int, T)` are parsed to AST (AnyTypeV),
+ * and all symbols have been registered, AST representation resolved to TypeData, see pipe-resolve-types.cpp.
  */
 class TypeData {
   // bits of flag_mask, to store often-used properties and return them without tree traversing
@@ -57,8 +50,7 @@ protected:
   enum flag_mask {
     flag_contains_unknown_inside = 1 << 1,
     flag_contains_genericT_inside = 1 << 2,
-    flag_contains_unresolved_inside = 1 << 3,
-    flag_contains_type_alias_inside = 1 << 4,
+    flag_contains_type_alias_inside = 1 << 3,
   };
 
   explicit TypeData(int flags_with_children, int width_on_stack)
@@ -88,10 +80,8 @@ public:
 
   bool has_unknown_inside() const { return flags & flag_contains_unknown_inside; }
   bool has_genericT_inside() const { return flags & flag_contains_genericT_inside; }
-  bool has_unresolved_inside() const { return flags & flag_contains_unresolved_inside; }
   bool has_type_alias_inside() const { return flags & flag_contains_type_alias_inside; }
 
-  using TraverserCallbackT = std::function<void(TypePtr child)>;
   using ReplacerCallbackT = std::function<TypePtr(TypePtr child)>;
 
   virtual int get_type_id() const = 0;
@@ -101,10 +91,6 @@ public:
 
   virtual bool can_hold_tvm_null_instead() const {
     return true;
-  }
-
-  virtual void traverse(const TraverserCallbackT& callback) const {
-    callback(this);
   }
 
   virtual TypePtr replace_children_custom(const ReplacerCallbackT& callback) const {
@@ -117,6 +103,8 @@ public:
  * It never occurs at runtime: at IR generation it's erased, replaced by an underlying type.
  * But until IR generation, aliases exists, and `var t: MyTensor2 = (1,2)` is alias "MyTensor", not tensor (int,int).
  * That's why lots of code comparing types use `type->unwrap_alias()` or `try_as<TypeDataAlias>`.
+ * Note, that generic aliases, when instantiated, are inserted into in symtable (like structs and functions),
+ * so for `WrapperAlias<T>` alias_ref points to a generic alias, and for `WrapperAlias<int>` to an instantiated one.
  */
 class TypeDataAlias final : public TypeData {
   explicit TypeDataAlias(int children_flags, AliasDefPtr alias_ref, TypePtr underlying_type)
@@ -134,7 +122,6 @@ public:
   std::string as_human_readable() const override;
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
-  void traverse(const TraverserCallbackT& callback) const override;
   bool can_hold_tvm_null_instead() const override;
 };
 
@@ -312,13 +299,13 @@ public:
   std::string as_human_readable() const override;
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
-  void traverse(const TraverserCallbackT& callback) const override;
   TypePtr replace_children_custom(const ReplacerCallbackT& callback) const override;
 };
 
 /*
- * `T` inside generic functions is TypeDataGenericT.
+ * `T` inside generic functions and structs is TypeDataGenericT.
  * Example: `fun f<X,Y>(a: X, b: Y): [X, Y]` (here X and Y are).
+ * Example: `struct Wrapper<T> { value: T }` (type of field is generic T).
  * On instantiation like `f(1,"")`, a new function `f<int,slice>` is created with type `fun(int,slice)->[int,slice]`.
  */
 class TypeDataGenericT final : public TypeData {
@@ -335,6 +322,59 @@ public:
   std::string as_human_readable() const override { return nameT; }
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+};
+
+/*
+ * `Wrapper<T>` when T is a generic (a struct is not ready to instantiate) is TypeDataGenericTypeWithTs.
+ * `Wrapper<int>` is NOT here, it's an instantiated struct. Here is only when type arguments contain generics.
+ * Example: `type WrapperAlias<T> = Wrapper<T>`, then `Wrapper<T>` (underlying type of alias) is here.
+ * Since structs and type aliases both can be generic, either struct_ref of alias_ref is filled.
+ */
+class TypeDataGenericTypeWithTs final : public TypeData {
+  TypeDataGenericTypeWithTs(int children_flags, StructPtr struct_ref, AliasDefPtr alias_ref, std::vector<TypePtr>&& type_arguments)
+    : TypeData(children_flags, -999999)
+    , struct_ref(struct_ref)
+    , alias_ref(alias_ref)
+    , type_arguments(std::move(type_arguments)) {}
+
+public:
+  const StructPtr struct_ref;                 // for `Wrapper<T>`, then alias_ref = nullptr
+  const AliasDefPtr alias_ref;                // for `PairAlias<int, T2>`, then struct_ref = nullptr
+  const std::vector<TypePtr> type_arguments;  // `<T>`, `<int, T2>`, at least one of them contains generic T
+
+  static TypePtr create(StructPtr struct_ref, AliasDefPtr alias_ref, std::vector<TypePtr>&& type_arguments);
+
+  int size() const { return static_cast<int>(type_arguments.size()); }
+
+  int get_type_id() const override;
+  std::string as_human_readable() const override;
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+  TypePtr replace_children_custom(const ReplacerCallbackT& callback) const override;
+};
+
+/*
+ * `A`, `User`, `SomeStruct`, `Wrapper<int>` is TypeDataStruct. At TVM level, structs are tensors.
+ * In the code, creating a struct is either `var v: A = { ... }` (by hint) or `var v = A { ... }`.
+ * Fields of a struct have their own types (accessed by struct_ref).
+ * Note, that instantiated structs like "Wrapper<int>" exist in symtable (like aliases and functions),
+ * so for `Wrapper<T>` struct_ref points to a generic struct, and for `Wrapper<int>` to an instantiated one.
+ */
+class TypeDataStruct final : public TypeData {
+  TypeDataStruct(int width_on_stack, StructPtr struct_ref)
+    : TypeData(0, width_on_stack)
+    , struct_ref(struct_ref) {}
+
+public:
+  StructPtr struct_ref;
+
+  static TypePtr create(StructPtr struct_ref);
+
+  int get_type_id() const override;
+  std::string as_human_readable() const override;
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+  bool can_hold_tvm_null_instead() const override;
 };
 
 /*
@@ -359,18 +399,17 @@ public:
   std::string as_human_readable() const override;
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
-  void traverse(const TraverserCallbackT& callback) const override;
   TypePtr replace_children_custom(const ReplacerCallbackT& callback) const override;
   bool can_hold_tvm_null_instead() const override;
 };
 
 /*
- * `[int, slice]` is TypeDataTypedTuple, a TVM 'tuple' under the hood, contained in 1 stack slot.
+ * `[int, slice]` is TypeDataBrackets, a TVM 'tuple' under the hood, contained in 1 stack slot.
  * Unlike TypeDataTuple (untyped tuples), it has a predefined inner structure and can be assigned as
- * `var [i, cs] = [0, ""]`  (where a and b become two separate variables on a stack, int and slice).
+ * `var [i, cs] = [0, ""]`  (where i and cs become two separate variables on a stack, int and slice).
  */
-class TypeDataTypedTuple final : public TypeData {
-  TypeDataTypedTuple(int children_flags, std::vector<TypePtr>&& items)
+class TypeDataBrackets final : public TypeData {
+  TypeDataBrackets(int children_flags, std::vector<TypePtr>&& items)
     : TypeData(children_flags, 1)
     , items(std::move(items)) {}
 
@@ -385,7 +424,6 @@ public:
   std::string as_human_readable() const override;
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
-  void traverse(const TraverserCallbackT& callback) const override;
   TypePtr replace_children_custom(const ReplacerCallbackT& callback) const override;
 };
 
@@ -483,6 +521,8 @@ public:
   static TypePtr create(std::vector<TypePtr>&& variants);
   static TypePtr create_nullable(TypePtr nullable);
 
+  int size() const { return static_cast<int>(variants.size()); }
+
   // "primitive nullable" is `T?` which holds TVM NULL in the same slot (it other words, has no UTag slot)
   // true : `int?`, `slice?`, `StructWith1IntField?`
   // false: `(int, int)?`, `ComplexStruct?`, `()?`
@@ -510,7 +550,6 @@ public:
   std::string as_human_readable() const override;
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
-  void traverse(const TraverserCallbackT& callback) const override;
   TypePtr replace_children_custom(const ReplacerCallbackT& callback) const override;
   bool can_hold_tvm_null_instead() const override;
 };
@@ -532,30 +571,6 @@ public:
 
   int get_type_id() const override;
   std::string as_human_readable() const override { return "unknown"; }
-  bool can_rhs_be_assigned(TypePtr rhs) const override;
-  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
-};
-
-/*
- * "Unresolved" is not actually a type — it's an intermediate state between parsing and resolving.
- * At parsing to AST, unrecognized type names (MyEnum, MyStruct, T) are parsed as TypeDataUnresolved,
- * and after all source files parsed and global symbols registered, they are replaced by actual ones.
- * Example: `fun f<T>(v: T)` at first v is TypeDataUnresolved("T"), later becomes TypeDataGenericT.
- */
-class TypeDataUnresolved final : public TypeData {
-  TypeDataUnresolved(std::string&& text, SrcLocation loc)
-    : TypeData(flag_contains_unresolved_inside, -999999)
-    , text(std::move(text))
-    , loc(loc) {}
-
-public:
-  const std::string text;
-  const SrcLocation loc;
-
-  static TypePtr create(std::string&& text, SrcLocation loc);
-
-  int get_type_id() const override;
-  std::string as_human_readable() const override { return text + "*"; }
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
 };
@@ -605,10 +620,6 @@ public:
 
 
 // --------------------------------------------
-
-class Lexer;
-TypePtr parse_type_from_tokens(Lexer& lex);
-TypePtr parse_type_from_string(std::string_view text);
 
 void type_system_init();
 

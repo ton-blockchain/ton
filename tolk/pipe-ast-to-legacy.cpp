@@ -17,10 +17,10 @@
 #include "tolk.h"
 #include "src-file.h"
 #include "ast.h"
+#include "ast-aux-data.h"
 #include "ast-visitor.h"
 #include "type-system.h"
 #include "common/refint.h"
-#include "constant-evaluator.h"
 #include "smart-casts-cfg.h"
 #include <unordered_set>
 
@@ -100,6 +100,23 @@ public:
 static VarsModificationWatcher vars_modification_watcher;
 
 
+static int calc_offset_on_stack(const TypeDataTensor* t_tensor, int index_at) {
+  int stack_offset = 0;
+  for (int i = 0; i < index_at; ++i) {
+    stack_offset += t_tensor->items[i]->get_width_on_stack();
+  }
+  return stack_offset;
+}
+
+static int calc_offset_on_stack(const TypeDataStruct* t_struct, int field_idx) {
+  int stack_offset = 0;
+  for (int i = 0; i < field_idx; ++i) {
+    stack_offset += t_struct->struct_ref->fields[i]->declared_type->get_width_on_stack();
+  }
+  return stack_offset;
+}
+
+
 // Main goal of LValContext is to handle non-primitive lvalues. At IR level, a usual local variable
 // exists, but on its change, something non-trivial should happen.
 // Example: `globalVar = 9` actually does `Const $5 = 9` + `Let $6 = $5` + `SetGlob "globVar" = $6`
@@ -143,20 +160,25 @@ class LValContext {
   // example: `global v: (int, int); v.1 = 5`, implicit var is created `$tmp = 5`, and when it's modified,
   // we need to partially update w; essentially, apply_partially_rewrite() above will be called
   struct ModifiedFieldOfGlobal {
-    AnyExprV tensor_obj;
-    int index_at;
+    AnyExprV tensor_obj;      // it's a tensor or struct
+    int index_at;             // for tensors, it's index_at; for structs, it's field_idx
     std::vector<var_idx_t> lval_ir_idx;
 
     void apply(CodeBlob& code, SrcLocation loc) const {
       LValContext local_lval;
       local_lval.enter_rval_inside_lval();
       std::vector<var_idx_t> obj_ir_idx = pre_compile_expr(tensor_obj, code, nullptr, &local_lval);
-      const TypeDataTensor* t_tensor = tensor_obj->inferred_type->unwrap_alias()->try_as<TypeDataTensor>();
-      tolk_assert(t_tensor);
-      int stack_width = t_tensor->items[index_at]->get_width_on_stack();
-      int stack_offset = 0;
-      for (int i = 0; i < index_at; ++i) {
-        stack_offset += t_tensor->items[i]->get_width_on_stack();
+
+      int stack_width, stack_offset;
+      TypePtr obj_type = tensor_obj->inferred_type->unwrap_alias();
+      if (const TypeDataTensor* t_tensor = obj_type->try_as<TypeDataTensor>()) {
+        stack_width = t_tensor->items[index_at]->get_width_on_stack();
+        stack_offset = calc_offset_on_stack(t_tensor, index_at);
+      } else if (const TypeDataStruct* t_struct = obj_type->try_as<TypeDataStruct>()) {
+        stack_width = t_struct->struct_ref->get_field(index_at)->declared_type->get_width_on_stack();
+        stack_offset = calc_offset_on_stack(t_struct, index_at);
+      } else {
+        tolk_assert(false);
       }
       std::vector<var_idx_t> field_ir_idx = {obj_ir_idx.begin() + stack_offset, obj_ir_idx.begin() + stack_offset + stack_width};
       tolk_assert(field_ir_idx.size() == lval_ir_idx.size());
@@ -183,7 +205,7 @@ class LValContext {
       code.emplace_back(loc, Op::_IntConst, index_ir_idx, td::make_refint(index_at));
 
       vars_modification_watcher.trigger_callbacks(tuple_ir_idx, loc);
-      FunctionPtr builtin_sym = lookup_global_symbol("tupleSetAt")->try_as<FunctionPtr>();
+      FunctionPtr builtin_sym = lookup_global_symbol("tuple.set")->try_as<FunctionPtr>();
       code.emplace_back(loc, Op::_Call, std::vector{tuple_ir_idx}, std::vector{tuple_ir_idx[0], lval_ir_idx[0], index_ir_idx[0]}, builtin_sym);
       local_lval.after_let(std::move(tuple_ir_idx), code, loc);
     }
@@ -256,6 +278,53 @@ public:
   }
 };
 
+// the purpose of this class is having a call `f(a1,a2,...)` when f has asm arg_order, to check
+// whether it's safe to rearrange arguments (to evaluate them in arg_order right here for fewer stack manipulations)
+// or it's unsafe, and we should evaluate them left-to-right;
+// example: `f(1,2,3)` / `b.storeUint(2,32)` is safe
+// example: `f(x,x+=5,x)` / `f(impureF1(), global_var)` is unsafe
+class CheckReorderingForAsmArgOrderIsSafeVisitor final : public ASTVisitorFunctionBody {
+  bool has_side_effects = false;
+
+protected:
+  void visit(V<ast_function_call> v) override {
+    has_side_effects |= v->fun_maybe == nullptr || !v->fun_maybe->is_marked_as_pure();
+    parent::visit(v);
+  }
+
+  void visit(V<ast_assign> v) override {
+    has_side_effects = true;
+    parent::visit(v);
+  }
+
+  void visit(V<ast_set_assign> v) override {
+    has_side_effects = true;
+    parent::visit(v);
+  }
+
+public:
+  bool should_visit_function(FunctionPtr fun_ref) override {
+    tolk_assert(false);
+  }
+
+  static bool is_safe_to_reorder(V<ast_function_call> v) {
+    for (const LocalVarData& param : v->fun_maybe->parameters) {
+      if (param.declared_type->get_width_on_stack() != 1) {
+        return false;
+      }
+    }
+
+    CheckReorderingForAsmArgOrderIsSafeVisitor visitor;
+    for (int i = 0; i < v->get_num_args(); ++i) {
+      visitor.ASTVisitorFunctionBody::visit(v->get_arg(i)->get_expr());
+    }
+    if (v->dot_obj_is_self) {
+      visitor.ASTVisitorFunctionBody::visit(v->get_self_obj());
+    }
+    return !visitor.has_side_effects;
+  }
+};
+
 // given `{some_expr}!`, return some_expr
 static AnyExprV unwrap_not_null_operator(AnyExprV v) {
   while (auto v_notnull = v->try_as<ast_not_null_operator>()) {
@@ -270,12 +339,12 @@ static AnyExprV unwrap_not_null_operator(AnyExprV v) {
 static V<ast_reference> calc_sink_leftmost_obj(V<ast_dot_access> v) {
   AnyExprV leftmost_obj = unwrap_not_null_operator(v->get_obj());
   while (auto v_dot = leftmost_obj->try_as<ast_dot_access>()) {
-    if (!v_dot->is_target_indexed_access()) {
+    if (!v_dot->is_target_indexed_access() && !v_dot->is_target_struct_field()) {
       break;
     }
     leftmost_obj = unwrap_not_null_operator(v_dot->get_obj());
   }
-  return leftmost_obj->type == ast_reference ? leftmost_obj->as<ast_reference>() : nullptr;
+  return leftmost_obj->kind == ast_reference ? leftmost_obj->as<ast_reference>() : nullptr;
 }
 
 
@@ -350,13 +419,15 @@ static std::vector<std::vector<var_idx_t>> pre_compile_tensor_inner(CodeBlob& co
 }
 
 static std::vector<var_idx_t> pre_compile_tensor(CodeBlob& code, const std::vector<AnyExprV>& args,
-                                          LValContext* lval_ctx = nullptr) {
-  std::vector<TypePtr> types_list;
-  types_list.reserve(args.size());
-  for (AnyExprV item : args) {
-    types_list.push_back(item->inferred_type);
+                                          LValContext* lval_ctx = nullptr, const TypeDataTensor* tensor_target_type = nullptr) {
+  if (tensor_target_type == nullptr) {
+    std::vector<TypePtr> types_list;
+    types_list.reserve(args.size());
+    for (AnyExprV item : args) {
+      types_list.push_back(item->inferred_type);
+    }
+    tensor_target_type = TypeDataTensor::create(std::move(types_list))->try_as<TypeDataTensor>();
   }
-  const TypeDataTensor* tensor_target_type = TypeDataTensor::create(std::move(types_list))->try_as<TypeDataTensor>();
   std::vector<std::vector<var_idx_t>> res_lists = pre_compile_tensor_inner(code, args, tensor_target_type, lval_ctx);
   std::vector<var_idx_t> res;
   for (const std::vector<var_idx_t>& list : res_lists) {
@@ -367,12 +438,12 @@ static std::vector<var_idx_t> pre_compile_tensor(CodeBlob& code, const std::vect
 
 static std::vector<var_idx_t> pre_compile_let(CodeBlob& code, AnyExprV lhs, AnyExprV rhs, SrcLocation loc) {
   // [lhs] = [rhs]; since type checking is ok, it's the same as "lhs = rhs"
-  if (lhs->type == ast_typed_tuple && rhs->type == ast_typed_tuple) {
+  if (lhs->kind == ast_bracket_tuple && rhs->kind == ast_bracket_tuple) {
     // note: there are no type transitions (adding nullability flag, etc.), since only 1-slot elements allowed in tuples
     LValContext local_lval;
-    std::vector<var_idx_t> left = pre_compile_tensor(code, lhs->as<ast_typed_tuple>()->get_items(), &local_lval);
+    std::vector<var_idx_t> left = pre_compile_tensor(code, lhs->as<ast_bracket_tuple>()->get_items(), &local_lval);
     vars_modification_watcher.trigger_callbacks(left, loc);
-    std::vector<var_idx_t> rvect = pre_compile_tensor(code, rhs->as<ast_typed_tuple>()->get_items());
+    std::vector<var_idx_t> rvect = pre_compile_tensor(code, rhs->as<ast_bracket_tuple>()->get_items());
     code.emplace_back(loc, Op::_Let, left, rvect);
     local_lval.after_let(std::move(left), code, loc);
     std::vector<var_idx_t> right = code.create_tmp_var(TypeDataTuple::create(), loc, "(tuple)");
@@ -380,12 +451,12 @@ static std::vector<var_idx_t> pre_compile_let(CodeBlob& code, AnyExprV lhs, AnyE
     return right;
   }
   // [lhs] = rhs; it's un-tuple to N left vars
-  if (lhs->type == ast_typed_tuple) {
+  if (lhs->kind == ast_bracket_tuple) {
     LValContext local_lval;
-    std::vector<var_idx_t> left = pre_compile_tensor(code, lhs->as<ast_typed_tuple>()->get_items(), &local_lval);
+    std::vector<var_idx_t> left = pre_compile_tensor(code, lhs->as<ast_bracket_tuple>()->get_items(), &local_lval);
     vars_modification_watcher.trigger_callbacks(left, loc);
     std::vector<var_idx_t> right = pre_compile_expr(rhs, code, nullptr);
-    const TypeDataTypedTuple* inferred_tuple = rhs->inferred_type->unwrap_alias()->try_as<TypeDataTypedTuple>();
+    const TypeDataBrackets* inferred_tuple = rhs->inferred_type->unwrap_alias()->try_as<TypeDataBrackets>();
     std::vector<TypePtr> types_list = inferred_tuple->items;
     std::vector<var_idx_t> rvect = code.create_tmp_var(TypeDataTensor::create(std::move(types_list)), rhs->loc, "(unpack-tuple)");
     code.emplace_back(lhs->loc, Op::_UnTuple, rvect, std::move(right));
@@ -394,7 +465,7 @@ static std::vector<var_idx_t> pre_compile_let(CodeBlob& code, AnyExprV lhs, AnyE
     return right;
   }
   // small optimization: `var x = rhs` or `local_var = rhs` (90% cases), LValContext not needed actually
-  if (lhs->type == ast_local_var_lhs || (lhs->type == ast_reference && lhs->as<ast_reference>()->sym->try_as<LocalVarPtr>())) {
+  if (lhs->kind == ast_local_var_lhs || (lhs->kind == ast_reference && lhs->as<ast_reference>()->sym->try_as<LocalVarPtr>())) {
     std::vector<var_idx_t> left = pre_compile_expr(lhs, code, nullptr);    // effectively, local_var->ir_idx
     vars_modification_watcher.trigger_callbacks(left, loc);
     std::vector<var_idx_t> right = pre_compile_expr(rhs, code, lhs->inferred_type);
@@ -445,11 +516,15 @@ static std::vector<var_idx_t> pre_compile_is_type(CodeBlob& code, TypePtr expr_t
 }
 
 static std::vector<var_idx_t> gen_op_call(CodeBlob& code, TypePtr ret_type, SrcLocation loc,
-                                          std::vector<var_idx_t>&& args_vars, FunctionPtr fun_ref, const char* debug_desc) {
+                                          std::vector<var_idx_t>&& args_vars, FunctionPtr fun_ref, const char* debug_desc,
+                                          bool arg_order_already_equals_asm = false) {
   std::vector<var_idx_t> rvect = code.create_tmp_var(ret_type, loc, debug_desc);
   Op& op = code.emplace_back(loc, Op::_Call, rvect, std::move(args_vars), fun_ref);
   if (!fun_ref->is_marked_as_pure()) {
     op.set_impure_flag();
+  }
+  if (arg_order_already_equals_asm) {
+    op.set_arg_order_already_equals_asm_flag();
   }
   return rvect;
 }
@@ -489,10 +564,8 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
   // - `null` to `int?`
   // - `int8?` to `int16?`
   // - `null` to `StructWith1Int?`
-  // in general, pass `T1` to `T2?` when `T2` is a primitive and `T2?` still occupies 1 stack slot (value or TVM NULL)
-  if (t_union && target_w == 1 && orig_w == 1 && t_union->or_null->get_width_on_stack() == 1) {
-    // a generalized union type "T | ..." takes at least 2 slots, but "T | null" can be 1
-    tolk_assert(t_union->or_null);
+  // in general, pass `T1` to `T2?` when `T2?` still occupies 1 stack slot (value or TVM NULL)
+  if (t_union && t_union->is_primitive_nullable() && orig_w == 1) {
     // rvect has 1 slot, either value or TVM NULL
     return rvect;
   }
@@ -502,8 +575,8 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
   // - `int?` to `null`
   // - `StructWith1Int?` to `null`
   // this value (one slot) is either a TVM primitive or TVM NULL at runtime
-  if (o_union && orig_w == 1 && target_w == 1 && o_union->or_null->get_width_on_stack() == 1) {
-    tolk_assert(o_union->or_null);
+  if (o_union && o_union->is_primitive_nullable() && target_w == 1) {
+    // rvect has 1 slot, but its contents is compile-time guaranteed to match target_type
     return rvect;
   }
 
@@ -518,7 +591,7 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
   // - `int | slice | null` to `slice?`
   // - `A | int | null` to `int?`
   // so, originally a type occupies N slots, but needs to be converted to 1 slot
-  if (t_union && target_w == 1 && orig_w > 0 && t_union->or_null->get_width_on_stack() == 1) {
+  if (t_union && t_union->is_primitive_nullable() && orig_w > 0) {
     // nothing except "T1 | T2 | ... null" can be cast to 1-slot nullable `T1?`
     tolk_assert(o_union && o_union->has_null() && o_union->has_variant_with_type_id(t_union->or_null));
     // here we exploit rvect shape, how union types and multi-slot nullables are stored on a stack
@@ -527,7 +600,7 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
     return {rvect[rvect.size() - 2]};
   }
 
-  // pass `null` to `T?` when T is not a primitive (1-slot T was handled above)
+  // pass `null` to `T?` when T is wide (stores some nulls and UTag=0 at runtime)
   // - `null` to `(int, int)?`
   // - `null` to `int | slice | null`
   // to represent a non-primitive null value, we need N nulls + 1 null flag (UTag=0, type_id of TypeDataNullLiteral)
@@ -546,12 +619,13 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
     return rvect;
   }
 
-  // pass `null` to nullable empty tensor
+  // pass `null` to nullable empty type
   // - `null` to `()?`
   // - `null` to `EmptyStruct?`
+  // - `null` to `Empty1 | Empty2 | null`
   // so, rvect contains TVM NULL, but instead, we should push UTag=0
   if (t_union && original_type == TypeDataNullLiteral::create()) {
-    tolk_assert(t_union->or_null && t_union->or_null->get_width_on_stack() == 0);
+    tolk_assert(t_union->has_null() && target_w == 1);
     std::vector<var_idx_t> new_rvect = code.create_tmp_var(TypeDataInt::create(), loc, "(UTag)");
     code.emplace_back(loc, Op::_IntConst, new_rvect, td::make_refint(0));
     return new_rvect;
@@ -569,10 +643,11 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
 
   // smart cast of nullable empty tensor to plain `null`
   // - `()?` to `null`
-  // `EmptyStruct?` to `null`
+  // - `EmptyStruct?` to `null`
+  // - `Empty1 | Empty2 | null` to `null`
   // so, rvect contains UTag, we need TVM NULL
   if (o_union && target_type == TypeDataNullLiteral::create()) {
-    tolk_assert(orig_w == 1 && o_union->or_null);
+    tolk_assert(orig_w == 1 && o_union->has_null());
     FunctionPtr null_sym = lookup_global_symbol("__null")->try_as<FunctionPtr>();
     std::vector<var_idx_t> new_rvect = code.create_tmp_var(TypeDataNullLiteral::create(), loc, "(null-literal)");
     code.emplace_back(loc, Op::_Call, new_rvect, std::vector<var_idx_t>{}, null_sym);
@@ -583,7 +658,7 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
   // - `int?` to `int | slice | null`
   // - `slice?` to `(int, int) | slice | builder | null`
   // so, originally `T?` is 1-slot, but needs to be converted to N+1 slots, keeping its value
-  if (o_union && orig_w == 1 && t_union && o_union->or_null->get_width_on_stack() == 1) {
+  if (o_union && o_union->is_primitive_nullable() && t_union) {
     tolk_assert(t_union->has_null() && t_union->has_variant_with_type_id(o_union->or_null) && target_w > 1);
     // the transformation is tricky:
     // when value is null, we need to achieve "... (null) 0"         (value is already null, so "... value 0")
@@ -658,7 +733,7 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
   // - `int | slice` to `int | slice | builder`
   // - `int | slice` to `int | (int, int) | slice | null`
   // so, both original and target have UTag slot, but rvect probably needs to be prepended by nulls
-  if (t_union && o_union && t_union->variants.size() >= o_union->variants.size()) {
+  if (t_union && o_union && t_union->size() >= o_union->size()) {
     tolk_assert(target_w >= orig_w && t_union->has_all_variants_of(o_union));
     std::vector<var_idx_t> prepend_nulls;
     prepend_nulls.reserve(target_w - orig_w);
@@ -795,7 +870,7 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
 
   // pass tuple to tuple, e.g. `[1, null]` to `[int, int?]` / `[1, null]` to `[int, [int?,int?]?]`
   // to changes to rvect, since tuples contain only 1-slot elements
-  if (target_type->try_as<TypeDataTypedTuple>() && original_type->try_as<TypeDataTypedTuple>()) {
+  if (target_type->try_as<TypeDataBrackets>() && original_type->try_as<TypeDataBrackets>()) {
     tolk_assert(target_w == 1 && orig_w == 1);
     return rvect;
   }
@@ -804,6 +879,13 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
   // their types aren't exactly equal, but they match (containing aliases, for example)
   if (original_type->try_as<TypeDataFunCallable>() && target_type->try_as<TypeDataFunCallable>()) {
     tolk_assert(rvect.size() == 1);
+    return rvect;
+  }
+
+  // pass struct A to struct B
+  // different structs are typically not assignable, but Wrapper<WrapperAlias<int>> is ok to Wrapper<Wrapper<int>>
+  if (original_type->try_as<TypeDataStruct>() && target_type->try_as<TypeDataStruct>()) {
+    tolk_assert(target_type->can_rhs_be_assigned(original_type) && orig_w == target_w);
     return rvect;
   }
 
@@ -852,15 +934,10 @@ std::vector<var_idx_t> pre_compile_symbol(SrcLocation loc, const Symbol* sym, Co
     return local_ir_idx;
   }
   if (GlobalConstPtr const_ref = sym->try_as<GlobalConstPtr>()) {
-    if (const_ref->value.is_int()) {
-      std::vector<var_idx_t> rvect = code.create_tmp_var(TypeDataInt::create(), loc, "(glob-const)");
-      code.emplace_back(loc, Op::_IntConst, rvect, const_ref->value.as_int());
-      return rvect;
-    } else {
-      std::vector<var_idx_t> rvect = code.create_tmp_var(TypeDataSlice::create(), loc, "(glob-const)");
-      code.emplace_back(loc, Op::_SliceConst, rvect, const_ref->value.as_slice());
-      return rvect;
-    }
+    tolk_assert(lval_ctx == nullptr);
+    ASTAuxData* aux_data = new AuxData_ForceFiftLocation(loc);
+    auto v_force_loc = createV<ast_artificial_aux_vertex>(loc, const_ref->init_value, aux_data, const_ref->inferred_type);
+    return pre_compile_expr(v_force_loc, code, const_ref->declared_type);
   }
   if (FunctionPtr fun_ref = sym->try_as<FunctionPtr>()) {
     std::vector<var_idx_t> rvect = code.create_tmp_var(fun_ref->inferred_full_type, loc, "(glob-var-fun)");
@@ -953,7 +1030,7 @@ static std::vector<var_idx_t> process_binary_operator(V<ast_binary_operator> v, 
     return transition_to_target_type(std::move(rvect), code, target_type, v);
   }
 
-  throw UnexpectedASTNodeType(v, "process_binary_operator");
+  throw UnexpectedASTNodeKind(v, "process_binary_operator");
 }
 
 static std::vector<var_idx_t> process_unary_operator(V<ast_unary_operator> v, CodeBlob& code, TypePtr target_type) {
@@ -985,14 +1062,14 @@ static std::vector<var_idx_t> process_ternary_operator(V<ast_ternary_operator> v
 }
 
 static std::vector<var_idx_t> process_cast_as_operator(V<ast_cast_as_operator> v, CodeBlob& code, TypePtr target_type, LValContext* lval_ctx) {
-  TypePtr child_target_type = v->cast_to_type;
+  TypePtr child_target_type = v->type_node->resolved_type;
   std::vector<var_idx_t> rvect = pre_compile_expr(v->get_expr(), code, child_target_type, lval_ctx);
   return transition_to_target_type(std::move(rvect), code, target_type, v);
 }
 
 static std::vector<var_idx_t> process_is_type_operator(V<ast_is_type_operator> v, CodeBlob& code, TypePtr target_type) {
   TypePtr lhs_type = v->get_expr()->inferred_type->unwrap_alias();
-  TypePtr cmp_type = v->rhs_type->unwrap_alias();
+  TypePtr cmp_type = v->type_node->resolved_type->unwrap_alias();
   bool is_null_check = cmp_type == TypeDataNullLiteral::create();    // `v == null`, not `v is T`
   tolk_assert(!cmp_type->try_as<TypeDataUnion>());  // `v is int|slice` is a type checker error
 
@@ -1045,7 +1122,7 @@ static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v
     auto v_ith_arm = v->get_arm(i);
     std::vector<var_idx_t> eq_ith_ir_idx;
     if (is_match_by_type) {
-      TypePtr cmp_type = v_ith_arm->exact_type->unwrap_alias();
+      TypePtr cmp_type = v_ith_arm->pattern_type_node->resolved_type->unwrap_alias();
       tolk_assert(!cmp_type->try_as<TypeDataUnion>());  // `match` over `int|slice` is a type checker error
       eq_ith_ir_idx = pre_compile_is_type(code, lhs_type, cmp_type, subj_ir_idx, v_ith_arm->loc, "(arm-cond-eq)");
     } else {
@@ -1089,10 +1166,31 @@ static std::vector<var_idx_t> process_dot_access(V<ast_dot_access> v, CodeBlob& 
   // it's `t.0`, `getUser().id`, and `t.tupleSize` (as a reference, not as a call)
   if (!v->is_target_fun_ref()) {
     TypePtr obj_type = v->get_obj()->inferred_type->unwrap_alias();
-    int index_at = std::get<int>(v->target);
+    // `user.id`; internally, a struct (an object) is a tensor
+    if (const auto* t_struct = obj_type->try_as<TypeDataStruct>()) {
+      StructFieldPtr field_ref = std::get<StructFieldPtr>(v->target);
+      // handle `globalObj.field = rhs`, special case, then the global will be read on demand
+      if (lval_ctx && !lval_ctx->is_rval_inside_lval()) {
+        if (auto sink = calc_sink_leftmost_obj(v); sink && sink->sym->try_as<GlobalVarPtr>()) {
+          std::vector<var_idx_t> lval_ir_idx = code.create_tmp_var(v->inferred_type, v->loc, "(lval-global-field)");
+          lval_ctx->capture_field_of_global_modification(v->get_obj(), field_ref->field_idx, lval_ir_idx);
+          return lval_ir_idx;
+        }
+      }
+      std::vector<var_idx_t> lhs_vars = pre_compile_expr(v->get_obj(), code, nullptr, lval_ctx);
+      int stack_width = field_ref->declared_type->get_width_on_stack();
+      int stack_offset = calc_offset_on_stack(t_struct, field_ref->field_idx);
+      std::vector<var_idx_t> rvect{lhs_vars.begin() + stack_offset, lhs_vars.begin() + stack_offset + stack_width};
+      // an object field might be smart cast at this point, for example we're in `if (user.t != null)`
+      // it means that we must drop the null flag (if `user.t` is a tensor), or maybe perform other stack transformations
+      // (from original rvect = (vars of user.t) to fit smart cast)
+      rvect = transition_to_target_type(std::move(rvect), code, field_ref->declared_type, v->inferred_type, v->loc);
+      return transition_to_target_type(std::move(rvect), code, target_type, v);
+    }
     // `tensorVar.0`
     if (const auto* t_tensor = obj_type->try_as<TypeDataTensor>()) {
-      // handle `tensorVar.0 = rhs` if tensors is a global, special case, then the global will be read on demand
+      int index_at = std::get<int>(v->target);
+      // handle `globalTensorVar.0 = rhs`, special case, then the global will be read on demand
       if (lval_ctx && !lval_ctx->is_rval_inside_lval()) {
         if (auto sink = calc_sink_leftmost_obj(v); sink && sink->sym->try_as<GlobalVarPtr>()) {
           std::vector<var_idx_t> lval_ir_idx = code.create_tmp_var(v->inferred_type, v->loc, "(lval-global-tensor)");
@@ -1103,10 +1201,7 @@ static std::vector<var_idx_t> process_dot_access(V<ast_dot_access> v, CodeBlob& 
       // since a tensor of N elems are N vars on a stack actually, calculate offset
       std::vector<var_idx_t> lhs_vars = pre_compile_expr(v->get_obj(), code, nullptr, lval_ctx);
       int stack_width = t_tensor->items[index_at]->get_width_on_stack();
-      int stack_offset = 0;
-      for (int i = 0; i < index_at; ++i) {
-        stack_offset += t_tensor->items[i]->get_width_on_stack();
-      }
+      int stack_offset = calc_offset_on_stack(t_tensor, index_at);
       std::vector<var_idx_t> rvect{lhs_vars.begin() + stack_offset, lhs_vars.begin() + stack_offset + stack_width};
       // a tensor index might be smart cast at this point, for example we're in `if (t.1 != null)`
       // it means that we must drop the null flag (if `t.1` is a tensor), or maybe perform other stack transformations
@@ -1115,20 +1210,21 @@ static std::vector<var_idx_t> process_dot_access(V<ast_dot_access> v, CodeBlob& 
       return transition_to_target_type(std::move(rvect), code, target_type, v);
     }
     // `tupleVar.0`
-    if (obj_type->try_as<TypeDataTypedTuple>() || obj_type->try_as<TypeDataTuple>()) {
+    if (obj_type->try_as<TypeDataBrackets>() || obj_type->try_as<TypeDataTuple>()) {
+      int index_at = std::get<int>(v->target);
       // handle `tupleVar.0 = rhs`, "0 SETINDEX" will be called when this was is modified
       if (lval_ctx && !lval_ctx->is_rval_inside_lval() && calc_sink_leftmost_obj(v)) {
         std::vector<var_idx_t> lval_ir_idx = code.create_tmp_var(v->inferred_type, v->loc, "(lval-tuple-field)");
         lval_ctx->capture_tuple_index_modification(v->get_obj(), index_at, lval_ir_idx);
         return lval_ir_idx;
       }
-      // `tupleVar.0` as rvalue: the same as "tupleAt(tupleVar, 0)" written in terms of IR vars
+      // `tupleVar.0` as rvalue: the same as "tuple.get(tupleVar, 0)" written in terms of IR vars
       std::vector<var_idx_t> tuple_ir_idx = pre_compile_expr(v->get_obj(), code);
       std::vector<var_idx_t> index_ir_idx = code.create_tmp_var(TypeDataInt::create(), v->get_identifier()->loc, "(tuple-idx)");
       code.emplace_back(v->loc, Op::_IntConst, index_ir_idx, td::make_refint(index_at));
       std::vector<var_idx_t> field_ir_idx = code.create_tmp_var(v->inferred_type, v->loc, "(tuple-field)");
       tolk_assert(tuple_ir_idx.size() == 1 && field_ir_idx.size() == 1);  // tuples contain only 1-slot values
-      FunctionPtr builtin_sym = lookup_global_symbol("tupleAt")->try_as<FunctionPtr>();
+      FunctionPtr builtin_sym = lookup_global_symbol("tuple.get")->try_as<FunctionPtr>();
       code.emplace_back(v->loc, Op::_Call, field_ir_idx, std::vector{tuple_ir_idx[0], index_ir_idx[0]}, builtin_sym);
       if (lval_ctx && calc_sink_leftmost_obj(v)) {    // `tupleVar.0.1 = rhs`, then `tupleVar.0` is rval inside lval
         lval_ctx->capture_tuple_index_modification(v->get_obj(), index_at, field_ir_idx);
@@ -1176,29 +1272,50 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
     return transition_to_target_type(std::move(rvect), code, target_type, v);
   }
 
-  int delta_self = v->is_dot_call();
-  AnyExprV obj_leftmost = nullptr;
+  AnyExprV obj_leftmost = v->get_self_obj();
+  int delta_self = obj_leftmost != nullptr;
   std::vector<AnyExprV> args;
   args.reserve(delta_self + v->get_num_args());
   if (delta_self) {
-    args.push_back(v->get_dot_obj());
-    obj_leftmost = v->get_dot_obj();
-    while (obj_leftmost->type == ast_function_call && obj_leftmost->as<ast_function_call>()->is_dot_call() && obj_leftmost->as<ast_function_call>()->fun_maybe && obj_leftmost->as<ast_function_call>()->fun_maybe->does_return_self()) {
-      obj_leftmost = obj_leftmost->as<ast_function_call>()->get_dot_obj();
+    args.push_back(obj_leftmost);
+    while (obj_leftmost->kind == ast_function_call && obj_leftmost->as<ast_function_call>()->get_self_obj() && obj_leftmost->as<ast_function_call>()->fun_maybe && obj_leftmost->as<ast_function_call>()->fun_maybe->does_return_self()) {
+      obj_leftmost = obj_leftmost->as<ast_function_call>()->get_self_obj();
     }
   }
   for (int i = 0; i < v->get_num_args(); ++i) {
     args.push_back(v->get_arg(i)->get_expr());
   }
+
   // the purpose of tensor_tt ("tensor target type") is to transition `null` to `(int, int)?` and so on
   // the purpose of calling `pre_compile_tensor_inner` is to have 0-th IR vars to handle return self
   std::vector<TypePtr> params_types = fun_ref->inferred_full_type->try_as<TypeDataFunCallable>()->params_types;
+
+  // if fun_ref has asm arg_order, maybe it's safe to swap arguments here (to put them onto a stack in the right way);
+  // (if it's not safe, arguments are evaluated left-to-right, involving stack transformations later)
+  bool arg_order_already_equals_asm = false;
+  int asm_self_idx = 0;
+  if (!fun_ref->arg_order.empty() && CheckReorderingForAsmArgOrderIsSafeVisitor::is_safe_to_reorder(v)) {
+    std::vector<AnyExprV> new_args(args.size());
+    std::vector<TypePtr> new_params_types(params_types.size());
+    for (int i = 0; i < static_cast<int>(fun_ref->arg_order.size()); ++i) {
+      int real_i = fun_ref->arg_order[i];
+      new_args[i] = args[real_i];
+      new_params_types[i] = params_types[real_i];
+      if (real_i == 0) {
+        asm_self_idx = i;
+      }
+    }
+    args = std::move(new_args);
+    params_types = std::move(new_params_types);
+    arg_order_already_equals_asm = true;
+  }
+
   const TypeDataTensor* tensor_tt = TypeDataTensor::create(std::move(params_types))->try_as<TypeDataTensor>();
   std::vector<std::vector<var_idx_t>> vars_per_arg = pre_compile_tensor_inner(code, args, tensor_tt, nullptr);
 
   TypePtr op_call_type = v->inferred_type;
   TypePtr real_ret_type = v->inferred_type;
-  if (delta_self && fun_ref->does_return_self()) {
+  if (obj_leftmost && fun_ref->does_return_self()) {
     real_ret_type = TypeDataVoid::create();
     if (!fun_ref->parameters[0].is_mutate_parameter()) {
       op_call_type = TypeDataVoid::create();
@@ -1219,20 +1336,21 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
   for (const std::vector<var_idx_t>& list : vars_per_arg) {
     args_vars.insert(args_vars.end(), list.cbegin(), list.cend());
   }
-  std::vector<var_idx_t> rvect_apply = gen_op_call(code, op_call_type, v->loc, std::move(args_vars), fun_ref, "(fun-call)");
+  std::vector<var_idx_t> rvect_apply = gen_op_call(code, op_call_type, v->loc, std::move(args_vars), fun_ref, "(fun-call)", arg_order_already_equals_asm);
 
   if (fun_ref->has_mutate_params()) {
     LValContext local_lval;
     std::vector<var_idx_t> left;
     for (int i = 0; i < delta_self + v->get_num_args(); ++i) {
+      int real_i = arg_order_already_equals_asm ? i == 0 && delta_self ? asm_self_idx : fun_ref->arg_order[i - delta_self] : i;
       if (fun_ref->parameters[i].is_mutate_parameter()) {
-        AnyExprV arg_i = obj_leftmost && i == 0 ? obj_leftmost : args[i];
+        AnyExprV arg_i = obj_leftmost && i == 0 ? obj_leftmost : args[real_i];
         tolk_assert(arg_i->is_lvalue || i == 0);
         if (arg_i->is_lvalue) {
           std::vector<var_idx_t> ith_var_idx = pre_compile_expr(arg_i, code, nullptr, &local_lval);
           left.insert(left.end(), ith_var_idx.begin(), ith_var_idx.end());
         } else {
-          left.insert(left.end(), vars_per_arg[0].begin(), vars_per_arg[0].end());
+          left.insert(left.end(), vars_per_arg[asm_self_idx].begin(), vars_per_arg[asm_self_idx].end());
         }
       }
     }
@@ -1248,7 +1366,7 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
     if (obj_leftmost->is_lvalue) {    // to handle if obj is global var, potentially re-assigned inside a chain
       rvect_apply = pre_compile_expr(obj_leftmost, code, nullptr);
     } else {                          // temporary object, not lvalue, pre_compile_expr
-      rvect_apply = vars_per_arg[0];
+      rvect_apply = vars_per_arg[asm_self_idx];
     }
   }
 
@@ -1271,7 +1389,7 @@ static std::vector<var_idx_t> process_tensor(V<ast_tensor> v, CodeBlob& code, Ty
   return transition_to_target_type(std::move(rvect), code, target_type, v);
 }
 
-static std::vector<var_idx_t> process_typed_tuple(V<ast_typed_tuple> v, CodeBlob& code, TypePtr target_type, LValContext* lval_ctx) {
+static std::vector<var_idx_t> process_typed_tuple(V<ast_bracket_tuple> v, CodeBlob& code, TypePtr target_type, LValContext* lval_ctx) {
   if (lval_ctx) {       // todo some time, make "var (a, [b,c]) = (1, [2,3])" work
     v->error("[...] can not be used as lvalue here");
   }
@@ -1279,6 +1397,42 @@ static std::vector<var_idx_t> process_typed_tuple(V<ast_typed_tuple> v, CodeBlob
   std::vector<var_idx_t> right = pre_compile_tensor(code, v->get_items(), lval_ctx);
   code.emplace_back(v->loc, Op::_Tuple, left, std::move(right));
   return transition_to_target_type(std::move(left), code, target_type, v);
+}
+
+static std::vector<var_idx_t> process_object_literal(V<ast_object_literal> v, CodeBlob& code, TypePtr target_type, LValContext* lval_ctx) {
+  // an object (an instance of a struct) is actually a tensor at low-level
+  // for example, `struct User { id: int; name: slice; }` occupies 2 slots
+  // fields of a tensor are placed in order of declaration (in a literal they might be shuffled)
+  SrcLocation prev_loc = v->loc;
+  std::vector<AnyExprV> tensor_items;
+  std::vector<TypePtr> target_types;
+  tensor_items.reserve(v->struct_ref->get_num_fields());
+  target_types.reserve(v->struct_ref->get_num_fields());
+  for (StructFieldPtr field_ref : v->struct_ref->fields) {
+    AnyExprV v_init_val = nullptr;
+    for (int i = 0; i < v->get_body()->get_num_fields(); ++i) {
+      auto v_field = v->get_body()->get_field(i);
+      if (v_field->get_field_name() == field_ref->name) {
+        v_init_val = v_field->get_init_val();
+        break;
+      }
+    }
+    if (!v_init_val) {
+      if (field_ref->declared_type == TypeDataNever::create()) {
+        continue;   // field of `never` type can be missed out of object literal (useful in generics defaults)
+      }             // (it occupies 0 slots, nothing is assignable to it — like this field is missing from a struct)
+      tolk_assert(field_ref->has_default_value());
+      ASTAuxData *aux_data = new AuxData_ForceFiftLocation(prev_loc);
+      auto v_force_loc = createV<ast_artificial_aux_vertex>(v->loc, field_ref->default_value, aux_data, field_ref->declared_type);
+      v_init_val = v_force_loc;   // it may be a complex expression, but it's a constant, checked earlier
+    }
+    tensor_items.push_back(v_init_val);
+    target_types.push_back(field_ref->declared_type);
+    prev_loc = v_init_val->loc;
+  }
+  const auto* tensor_target_type = TypeDataTensor::create(std::move(target_types))->try_as<TypeDataTensor>();
+  std::vector<var_idx_t> rvect = pre_compile_tensor(code, tensor_items, lval_ctx, tensor_target_type);
+  return transition_to_target_type(std::move(rvect), code, target_type, v);
 }
 
 static std::vector<var_idx_t> process_int_const(V<ast_int_const> v, CodeBlob& code, TypePtr target_type) {
@@ -1290,9 +1444,8 @@ static std::vector<var_idx_t> process_int_const(V<ast_int_const> v, CodeBlob& co
 }
 
 static std::vector<var_idx_t> process_string_const(V<ast_string_const> v, CodeBlob& code, TypePtr target_type) {
-  tolk_assert(v->literal_value.is_slice());
   std::vector<var_idx_t> rvect = code.create_tmp_var(v->inferred_type, v->loc, "(str-const)");
-  code.emplace_back(v->loc, Op::_SliceConst, rvect, v->literal_value.as_slice());
+  code.emplace_back(v->loc, Op::_SliceConst, rvect, v->literal_value);
   return transition_to_target_type(std::move(rvect), code, target_type, v);
 }
 
@@ -1336,8 +1489,20 @@ static std::vector<var_idx_t> process_empty_expression(V<ast_empty_expression> v
   return transition_to_target_type(std::move(empty_rvect), code, target_type, v);
 }
 
+static std::vector<var_idx_t> process_artificial_aux_vertex(V<ast_artificial_aux_vertex> v, CodeBlob& code, TypePtr target_type, LValContext* lval_ctx) {
+  if (const auto* data = dynamic_cast<const AuxData_ForceFiftLocation*>(v->aux_data)) {
+    SrcLocation backup = code.forced_loc;
+    code.forced_loc = data->forced_loc;
+    std::vector<var_idx_t> rvect = pre_compile_expr(v->get_wrapped_expr(), code, target_type, lval_ctx);
+    code.forced_loc = backup;
+    return rvect;
+  }
+
+  tolk_assert(false);
+}
+
 std::vector<var_idx_t> pre_compile_expr(AnyExprV v, CodeBlob& code, TypePtr target_type, LValContext* lval_ctx) {
-  switch (v->type) {
+  switch (v->kind) {
     case ast_reference:
       return process_reference(v->as<ast_reference>(), code, target_type, lval_ctx);
     case ast_assign:
@@ -1368,8 +1533,10 @@ std::vector<var_idx_t> pre_compile_expr(AnyExprV v, CodeBlob& code, TypePtr targ
       return process_braced_expression(v->as<ast_braced_expression>(), code, target_type);
     case ast_tensor:
       return process_tensor(v->as<ast_tensor>(), code, target_type, lval_ctx);
-    case ast_typed_tuple:
-      return process_typed_tuple(v->as<ast_typed_tuple>(), code, target_type, lval_ctx);
+    case ast_bracket_tuple:
+      return process_typed_tuple(v->as<ast_bracket_tuple>(), code, target_type, lval_ctx);
+    case ast_object_literal:
+      return process_object_literal(v->as<ast_object_literal>(), code, target_type, lval_ctx);
     case ast_int_const:
       return process_int_const(v->as<ast_int_const>(), code, target_type);
     case ast_string_const:
@@ -1386,8 +1553,10 @@ std::vector<var_idx_t> pre_compile_expr(AnyExprV v, CodeBlob& code, TypePtr targ
       return process_underscore(v->as<ast_underscore>(), code);
     case ast_empty_expression:
       return process_empty_expression(v->as<ast_empty_expression>(), code, target_type);
+    case ast_artificial_aux_vertex:
+      return process_artificial_aux_vertex(v->as<ast_artificial_aux_vertex>(), code, target_type, lval_ctx);
     default:
-      throw UnexpectedASTNodeType(v, "pre_compile_expr");
+      throw UnexpectedASTNodeKind(v, "pre_compile_expr");
   }
 }
 
@@ -1581,7 +1750,7 @@ static void append_implicit_return_statement(SrcLocation loc_end, CodeBlob& code
 
 
 void process_any_statement(AnyV v, CodeBlob& code) {
-  switch (v->type) {
+  switch (v->kind) {
     case ast_block_statement:
       return process_block_statement(v->as<ast_block_statement>(), code);
     case ast_return_statement:
@@ -1609,7 +1778,7 @@ void process_any_statement(AnyV v, CodeBlob& code) {
 
 static void convert_function_body_to_CodeBlob(FunctionPtr fun_ref, FunctionBodyCode* code_body) {
   auto v_body = fun_ref->ast_root->as<ast_function_declaration>()->get_body()->as<ast_block_statement>();
-  CodeBlob* blob = new CodeBlob{fun_ref->name, fun_ref->loc, fun_ref};
+  CodeBlob* blob = new CodeBlob(fun_ref);
 
   std::vector<var_idx_t> rvect_import;
   int total_arg_width = 0;
@@ -1648,7 +1817,7 @@ static void convert_asm_body_to_AsmOp(FunctionPtr fun_ref, FunctionBodyAsm* asm_
     for (char c : ops) {
       if (c == '\n' || c == '\r') {
         if (!op.empty()) {
-          asm_ops.push_back(AsmOp::Parse(op, cnt, width));
+          asm_ops.push_back(AsmOp::Parse({}, op, cnt, width));
           if (asm_ops.back().is_custom()) {
             cnt = width;
           }
@@ -1659,7 +1828,7 @@ static void convert_asm_body_to_AsmOp(FunctionPtr fun_ref, FunctionBodyAsm* asm_
       }
     }
     if (!op.empty()) {
-      asm_ops.push_back(AsmOp::Parse(op, cnt, width));
+      asm_ops.push_back(AsmOp::Parse({}, op, cnt, width));
       if (asm_ops.back().is_custom()) {
         cnt = width;
       }

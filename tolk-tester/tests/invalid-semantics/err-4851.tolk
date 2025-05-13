@@ -1,4 +1,4 @@
-fun increment(self: int) {
+fun int.increment(self) {
     self = self + 1;
 }
 

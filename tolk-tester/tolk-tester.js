@@ -273,6 +273,8 @@ class TolkTestFile {
         this.expected_hash = null
         /** @type {string | null} */
         this.experimental_options = null
+        /** @type {boolean} */
+        this.enable_tolk_lines_comments = false
     }
 
     parse_input_from_tolk_file() {
@@ -292,6 +294,8 @@ class TolkTestFile {
                 this.stderr_includes.push(new TolkTestCaseStderr(this.parse_string_value(lines), false))
             } else if (line.startsWith("@fif_codegen_avoid")) {
                 this.fif_codegen.push(new TolkTestCaseFifCodegen(this.parse_string_value(lines), true))
+            } else if (line.startsWith("@fif_codegen_enable_comments")) {
+                this.enable_tolk_lines_comments = true
             } else if (line.startsWith("@fif_codegen")) {
                 this.fif_codegen.push(new TolkTestCaseFifCodegen(this.parse_string_value(lines), false))
             } else if (line.startsWith("@code_hash")) {
@@ -345,9 +349,9 @@ class TolkTestFile {
 
     async run_and_check() {
         const wasmModule = await compileWasm(TOLKFIFTLIB_MODULE, TOLKFIFTLIB_WASM)
-        let res = compileFile(wasmModule, this.tolk_filename, this.experimental_options)
+        let res = compileFile(wasmModule, this.tolk_filename, this.experimental_options, this.enable_tolk_lines_comments)
         let exit_code = res.status === 'ok' ? 0 : 1
-        let stderr = res.message
+        let stderr = res.message || res.stderr
         let stdout = ''
 
         if (exit_code === 0 && this.compilation_should_fail)
@@ -488,7 +492,7 @@ function copyFromCString(mod, ptr) {
 }
 
 /** @return {{status: string, message: string, fiftCode: string, codeBoc: string, codeHashHex: string}} */
-function compileFile(mod, filename, experimentalOptions) {
+function compileFile(mod, filename, experimentalOptions, withSrcLineComments) {
     // see tolk-wasm.cpp: typedef void (*WasmFsReadCallback)(int, char const*, char**, char**)
     const callbackPtr = mod.addFunction((kind, dataPtr, destContents, destError) => {
         if (kind === 0) { // realpath
@@ -520,6 +524,7 @@ function compileFile(mod, filename, experimentalOptions) {
     const config = {
         optimizationLevel: 2,
         withStackComments: true,
+        withSrcLineComments: withSrcLineComments,
         experimentalOptions: experimentalOptions || undefined,
         entrypointFileName: filename
     };

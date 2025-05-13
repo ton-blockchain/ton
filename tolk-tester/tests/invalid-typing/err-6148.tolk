@@ -9,6 +9,6 @@ fun testSmartCastsDropAfterMutate() {
 
 /**
 @compilation_should_fail
-@stderr type `(int, int)?` is not indexable
+@stderr field `1` doesn't exist in type `(int, int)?`
 @stderr return x.1
  */
