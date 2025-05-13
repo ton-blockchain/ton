@@ -35,6 +35,7 @@ class ShardTopBlockDescription : public td::CntObject {
   virtual bool after_split() const = 0;
   virtual bool after_merge() const = 0;
   virtual CatchainSeqno catchain_seqno() const = 0;
+  virtual const std::vector<BlockIdExt>& get_chain_blocks() const = 0;
   virtual UnixTime generated_at() const = 0;
 
   // if method returns false this shard block description is discarded

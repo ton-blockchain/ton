@@ -1,4 +1,4 @@
-fun acceptMutateNullableTensor(mutate self: (int, int)?) {
+fun (int, int)?.acceptMutateNullableTensor(mutate self) {
 }
 
 fun cantModifyTupleIndexWithTypeTransition() {

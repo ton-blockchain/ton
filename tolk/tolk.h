@@ -34,6 +34,12 @@ namespace tolk {
 GNU_ATTRIBUTE_COLD GNU_ATTRIBUTE_NORETURN
 void on_assertion_failed(const char *description, const char *file_name, int line_number);
 
+// fire a general error, just a wrapper over `throw`
+GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
+inline void fire(FunctionPtr cur_f, SrcLocation loc, const std::string& message) {
+  throw ParseError(cur_f, loc, message);
+}
+
 /*
  * 
  *   ABSTRACT CODE
@@ -68,7 +74,6 @@ struct VarDescr {
   enum { _Last = 1, _Unused = 2 };
   int flags;
   enum {
-    _Const = 16,
     _Int = 32,
     _Zero = 64,
     _NonZero = 128,
@@ -79,16 +84,15 @@ struct VarDescr {
     _Even = 16384,
     _Odd = 32768,
   };
-  static constexpr int ConstZero  = _Const | _Int | _Zero | _Pos | _Neg | _Finite | _Even;
-  static constexpr int ConstOne   = _Const | _Int | _NonZero | _Pos | _Finite | _Odd;
-  static constexpr int ConstTrue  = _Const | _Int | _NonZero | _Neg | _Finite | _Odd;
+  static constexpr int ConstZero  = _Int | _Zero | _Pos | _Neg | _Finite | _Even;
+  static constexpr int ConstOne   = _Int | _NonZero | _Pos | _Finite | _Odd;
+  static constexpr int ConstTrue  = _Int | _NonZero | _Neg | _Finite | _Odd;
   static constexpr int ValBit     = _Int | _Pos | _Finite;
   static constexpr int ValBool    = _Int | _Neg | _Finite;
   static constexpr int FiniteInt  = _Int | _Finite;
   static constexpr int FiniteUInt = _Int | _Finite | _Pos;
   int val;
   td::RefInt256 int_const;
-  std::string str_const;
 
   explicit VarDescr(var_idx_t _idx = -1, int _flags = 0, int _val = 0) : idx(_idx), flags(_flags), val(_val) {
   }
@@ -120,7 +124,12 @@ struct VarDescr {
     return val & _Odd;
   }
   bool is_int_const() const {
-    return (val & (_Int | _Const)) == (_Int | _Const) && int_const.not_null();
+#ifdef TOLK_DEBUG
+    if (int_const.not_null()) {
+      tolk_assert(val & _Int);
+    }
+#endif
+    return int_const.not_null();
   }
   bool always_nonpos() const {
     return val & _Neg;
@@ -151,7 +160,7 @@ struct VarDescr {
   }
   void set_const(long long value);
   void set_const(td::RefInt256 value);
-  void set_const(std::string value);
+  void set_const(const std::string& value);
   void operator+=(const VarDescr& y) {
     flags &= y.flags;
   }
@@ -258,7 +267,6 @@ struct Stack;
 
 struct Op {
   enum OpKind {
-    _Undef,
     _Nop,
     _Call,
     _CallInd,
@@ -279,53 +287,53 @@ struct Op {
     _SliceConst,
   };
   OpKind cl;
-  enum { _Disabled = 1, _NoReturn = 4, _Impure = 24 };
+  enum { _Disabled = 1, _NoReturn = 2, _Impure = 4, _ArgOrderAlreadyEqualsAsm = 8 };
   int flags;
   std::unique_ptr<Op> next;
   FunctionPtr f_sym = nullptr;
   GlobalVarPtr g_sym = nullptr;
-  SrcLocation where;
+  SrcLocation loc;
   VarDescrList var_info;
   std::vector<VarDescr> args;
   std::vector<var_idx_t> left, right;
   std::unique_ptr<Op> block0, block1;
   td::RefInt256 int_const;
   std::string str_const;
-  Op(SrcLocation _where = {}, OpKind _cl = _Undef) : cl(_cl), flags(0), f_sym(nullptr), where(_where) {
+  Op(SrcLocation loc, OpKind cl) : cl(cl), flags(0), loc(loc) {
   }
-  Op(SrcLocation _where, OpKind _cl, const std::vector<var_idx_t>& _left)
-      : cl(_cl), flags(0), f_sym(nullptr), where(_where), left(_left) {
+  Op(SrcLocation loc, OpKind cl, const std::vector<var_idx_t>& left)
+      : cl(cl), flags(0), loc(loc), left(left) {
   }
-  Op(SrcLocation _where, OpKind _cl, std::vector<var_idx_t>&& _left)
-      : cl(_cl), flags(0), f_sym(nullptr), where(_where), left(std::move(_left)) {
+  Op(SrcLocation loc, OpKind cl, std::vector<var_idx_t>&& left)
+      : cl(cl), flags(0), loc(loc), left(std::move(left)) {
   }
-  Op(SrcLocation _where, OpKind _cl, const std::vector<var_idx_t>& _left, td::RefInt256 _const)
-      : cl(_cl), flags(0), f_sym(nullptr), where(_where), left(_left), int_const(_const) {
+  Op(SrcLocation loc, OpKind cl, const std::vector<var_idx_t>& left, td::RefInt256 int_const)
+      : cl(cl), flags(0), loc(loc), left(left), int_const(std::move(int_const)) {
   }
-  Op(SrcLocation _where, OpKind _cl, const std::vector<var_idx_t>& _left, std::string _const)
-      : cl(_cl), flags(0), f_sym(nullptr), where(_where), left(_left), str_const(_const) {
+  Op(SrcLocation loc, OpKind cl, const std::vector<var_idx_t>& left, std::string str_const)
+      : cl(cl), flags(0), loc(loc), left(left), str_const(std::move(str_const)) {
   }
-  Op(SrcLocation _where, OpKind _cl, const std::vector<var_idx_t>& _left, const std::vector<var_idx_t>& _right)
-      : cl(_cl), flags(0), f_sym(nullptr), where(_where), left(_left), right(_right) {
+  Op(SrcLocation loc, OpKind cl, const std::vector<var_idx_t>& left, const std::vector<var_idx_t>& right)
+      : cl(cl), flags(0), loc(loc), left(left), right(right) {
   }
-  Op(SrcLocation _where, OpKind _cl, std::vector<var_idx_t>&& _left, std::vector<var_idx_t>&& _right)
-      : cl(_cl), flags(0), f_sym(nullptr), where(_where), left(std::move(_left)), right(std::move(_right)) {
+  Op(SrcLocation loc, OpKind cl, std::vector<var_idx_t>&& left, std::vector<var_idx_t>&& right)
+      : cl(cl), flags(0), loc(loc), left(std::move(left)), right(std::move(right)) {
   }
-  Op(SrcLocation _where, OpKind _cl, const std::vector<var_idx_t>& _left, const std::vector<var_idx_t>& _right,
+  Op(SrcLocation loc, OpKind cl, const std::vector<var_idx_t>& left, const std::vector<var_idx_t>& right,
      FunctionPtr _fun)
-      : cl(_cl), flags(0), f_sym(_fun), where(_where), left(_left), right(_right) {
+      : cl(cl), flags(0), f_sym(_fun), loc(loc), left(left), right(right) {
   }
-  Op(SrcLocation _where, OpKind _cl, std::vector<var_idx_t>&& _left, std::vector<var_idx_t>&& _right,
-     FunctionPtr _fun)
-      : cl(_cl), flags(0), f_sym(_fun), where(_where), left(std::move(_left)), right(std::move(_right)) {
+  Op(SrcLocation loc, OpKind cl, std::vector<var_idx_t>&& left, std::vector<var_idx_t>&& right,
+     FunctionPtr fun_ref)
+      : cl(cl), flags(0), f_sym(fun_ref), loc(loc), left(std::move(left)), right(std::move(right)) {
   }
-  Op(SrcLocation _where, OpKind _cl, const std::vector<var_idx_t>& _left, const std::vector<var_idx_t>& _right,
+  Op(SrcLocation loc, OpKind cl, const std::vector<var_idx_t>& left, const std::vector<var_idx_t>& right,
+     GlobalVarPtr glob_ref)
+      : cl(cl), flags(0), g_sym(glob_ref), loc(loc), left(left), right(right) {
+  }
+  Op(SrcLocation loc, OpKind cl, std::vector<var_idx_t>&& left, std::vector<var_idx_t>&& right,
      GlobalVarPtr _gvar)
-      : cl(_cl), flags(0), g_sym(_gvar), where(_where), left(_left), right(_right) {
-  }
-  Op(SrcLocation _where, OpKind _cl, std::vector<var_idx_t>&& _left, std::vector<var_idx_t>&& _right,
-     GlobalVarPtr _gvar)
-      : cl(_cl), flags(0), g_sym(_gvar), where(_where), left(std::move(_left)), right(std::move(_right)) {
+      : cl(cl), flags(0), g_sym(_gvar), loc(loc), left(std::move(left)), right(std::move(right)) {
   }
 
   bool disabled() const { return flags & _Disabled; }
@@ -338,6 +346,9 @@ struct Op {
 
   bool impure() const { return flags & _Impure; }
   void set_impure_flag();
+
+  bool arg_order_already_equals_asm() const { return flags & _ArgOrderAlreadyEqualsAsm; }
+  void set_arg_order_already_equals_asm_flag();
 
   void show(std::ostream& os, const std::vector<TmpVar>& vars, std::string pfx = "", int mode = 0) const;
   void show_var_list(std::ostream& os, const std::vector<var_idx_t>& idx_list, const std::vector<TmpVar>& vars) const;
@@ -399,45 +410,46 @@ typedef std::vector<var_idx_t> StackLayout;
 typedef std::pair<var_idx_t, const_idx_t> var_const_idx_t;
 typedef std::vector<var_const_idx_t> StackLayoutExt;
 constexpr const_idx_t not_const = -1;
-using Const = td::RefInt256;
 
 struct AsmOp {
-  enum Type { a_none, a_xchg, a_push, a_pop, a_const, a_custom, a_magic };
-  Type t{a_none};
+  enum Type { a_nop, a_comment, a_xchg, a_push, a_pop, a_const, a_custom };
+  Type t;
+  SrcLocation loc;
   int indent{0};
   int a, b;
   bool gconst{false};
   std::string op;
   struct SReg {
     int idx;
-    SReg(int _idx) : idx(_idx) {
+    explicit SReg(int _idx) : idx(_idx) {
     }
+    int calc_out_strlen() const;
   };
   AsmOp() = default;
-  AsmOp(Type _t) : t(_t) {
+  AsmOp(Type t, SrcLocation loc) : t(t), loc(loc) {
   }
-  AsmOp(Type _t, std::string _op) : t(_t), op(std::move(_op)) {
+  AsmOp(Type t, SrcLocation loc, std::string _op) : t(t), loc(loc), op(std::move(_op)) {
   }
-  AsmOp(Type _t, int _a) : t(_t), a(_a) {
+  AsmOp(Type t, SrcLocation loc, int a) : t(t), loc(loc), a(a) {
   }
-  AsmOp(Type _t, int _a, std::string _op) : t(_t), a(_a), op(std::move(_op)) {
+  AsmOp(Type t, SrcLocation loc, int a, std::string _op) : t(t), loc(loc), a(a), op(std::move(_op)) {
   }
-  AsmOp(Type _t, int _a, int _b) : t(_t), a(_a), b(_b) {
+  AsmOp(Type t, SrcLocation loc, int a, int b) : t(t), loc(loc), a(a), b(b) {
   }
-  AsmOp(Type _t, int _a, int _b, std::string _op) : t(_t), a(_a), b(_b), op(std::move(_op)) {
+  AsmOp(Type t, SrcLocation loc, int a, int b, std::string op) : t(t), loc(loc), a(a), b(b), op(std::move(op)) {
     compute_gconst();
   }
-  void out(std::ostream& os) const;
-  void out_indent_nl(std::ostream& os, bool no_nl = false) const;
+  int out(std::ostream& os) const;
+  int out_indented(std::ostream& os, bool print_src_line_above) const;
   std::string to_string() const;
   void compute_gconst() {
     gconst = (is_custom() && (op == "PUSHNULL" || op == "NEWC" || op == "NEWB" || op == "TRUE" || op == "FALSE" || op == "NOW"));
   }
   bool is_nop() const {
-    return t == a_none && op.empty();
+    return t == a_nop;
   }
   bool is_comment() const {
-    return t == a_none && !op.empty();
+    return t == a_comment;
   }
   bool is_custom() const {
     return t == a_custom;
@@ -484,80 +496,80 @@ struct AsmOp {
   bool is_gconst() const {
     return !a && b == 1 && (t == a_const || gconst);
   }
-  static AsmOp Nop() {
-    return AsmOp(a_none);
+  static AsmOp Nop(SrcLocation loc) {
+    return AsmOp(a_nop, loc);
   }
-  static AsmOp Xchg(int a, int b = 0) {
-    return a == b ? AsmOp(a_none) : (a < b ? AsmOp(a_xchg, a, b) : AsmOp(a_xchg, b, a));
+  static AsmOp Xchg(SrcLocation loc, int a, int b = 0) {
+    return a == b ? AsmOp(a_nop, loc) : (a < b ? AsmOp(a_xchg, loc, a, b) : AsmOp(a_xchg, loc, b, a));
   }
-  static AsmOp Push(int a) {
-    return AsmOp(a_push, a);
+  static AsmOp Push(SrcLocation loc, int a) {
+    return AsmOp(a_push, loc, a);
   }
-  static AsmOp Pop(int a = 0) {
-    return AsmOp(a_pop, a);
+  static AsmOp Pop(SrcLocation loc, int a) {
+    return AsmOp(a_pop, loc, a);
   }
-  static AsmOp Xchg2(int a, int b) {
-    return make_stk2(a, b, "XCHG2", 0);
+  static AsmOp Xchg2(SrcLocation loc, int a, int b) {
+    return make_stk2(loc, a, b, "XCHG2", 0);
   }
-  static AsmOp XcPu(int a, int b) {
-    return make_stk2(a, b, "XCPU", 1);
+  static AsmOp XcPu(SrcLocation loc, int a, int b) {
+    return make_stk2(loc, a, b, "XCPU", 1);
   }
-  static AsmOp PuXc(int a, int b) {
-    return make_stk2(a, b, "PUXC", 1);
+  static AsmOp PuXc(SrcLocation loc, int a, int b) {
+    return make_stk2(loc, a, b, "PUXC", 1);
   }
-  static AsmOp Push2(int a, int b) {
-    return make_stk2(a, b, "PUSH2", 2);
+  static AsmOp Push2(SrcLocation loc, int a, int b) {
+    return make_stk2(loc, a, b, "PUSH2", 2);
   }
-  static AsmOp Xchg3(int a, int b, int c) {
-    return make_stk3(a, b, c, "XCHG3", 0);
+  static AsmOp Xchg3(SrcLocation loc, int a, int b, int c) {
+    return make_stk3(loc, a, b, c, "XCHG3", 0);
   }
-  static AsmOp Xc2Pu(int a, int b, int c) {
-    return make_stk3(a, b, c, "XC2PU", 1);
+  static AsmOp Xc2Pu(SrcLocation loc, int a, int b, int c) {
+    return make_stk3(loc, a, b, c, "XC2PU", 1);
   }
-  static AsmOp XcPuXc(int a, int b, int c) {
-    return make_stk3(a, b, c, "XCPUXC", 1);
+  static AsmOp XcPuXc(SrcLocation loc, int a, int b, int c) {
+    return make_stk3(loc, a, b, c, "XCPUXC", 1);
   }
-  static AsmOp XcPu2(int a, int b, int c) {
-    return make_stk3(a, b, c, "XCPU2", 3);
+  static AsmOp XcPu2(SrcLocation loc, int a, int b, int c) {
+    return make_stk3(loc, a, b, c, "XCPU2", 3);
   }
-  static AsmOp PuXc2(int a, int b, int c) {
-    return make_stk3(a, b, c, "PUXC2", 3);
+  static AsmOp PuXc2(SrcLocation loc, int a, int b, int c) {
+    return make_stk3(loc, a, b, c, "PUXC2", 3);
   }
-  static AsmOp PuXcPu(int a, int b, int c) {
-    return make_stk3(a, b, c, "PUXCPU", 3);
+  static AsmOp PuXcPu(SrcLocation loc, int a, int b, int c) {
+    return make_stk3(loc, a, b, c, "PUXCPU", 3);
   }
-  static AsmOp Pu2Xc(int a, int b, int c) {
-    return make_stk3(a, b, c, "PU2XC", 3);
+  static AsmOp Pu2Xc(SrcLocation loc, int a, int b, int c) {
+    return make_stk3(loc, a, b, c, "PU2XC", 3);
   }
-  static AsmOp Push3(int a, int b, int c) {
-    return make_stk3(a, b, c, "PUSH3", 3);
+  static AsmOp Push3(SrcLocation loc, int a, int b, int c) {
+    return make_stk3(loc, a, b, c, "PUSH3", 3);
   }
-  static AsmOp BlkSwap(int a, int b);
-  static AsmOp BlkPush(int a, int b);
-  static AsmOp BlkDrop(int a);
-  static AsmOp BlkDrop2(int a, int b);
-  static AsmOp BlkReverse(int a, int b);
-  static AsmOp make_stk2(int a, int b, const char* str, int delta);
-  static AsmOp make_stk3(int a, int b, int c, const char* str, int delta);
-  static AsmOp IntConst(const td::RefInt256& x);
-  static AsmOp BoolConst(bool f);
-  static AsmOp Const(std::string push_op) {
-    return AsmOp(a_const, 0, 1, std::move(push_op));
+  static AsmOp BlkSwap(SrcLocation loc, int a, int b);
+  static AsmOp BlkPush(SrcLocation loc, int a, int b);
+  static AsmOp BlkDrop(SrcLocation loc, int a);
+  static AsmOp BlkDrop2(SrcLocation loc, int a, int b);
+  static AsmOp BlkReverse(SrcLocation loc, int a, int b);
+  static AsmOp make_stk2(SrcLocation loc, int a, int b, const char* str, int delta);
+  static AsmOp make_stk3(SrcLocation loc, int a, int b, int c, const char* str, int delta);
+  static AsmOp IntConst(SrcLocation loc, const td::RefInt256& x);
+  static AsmOp BoolConst(SrcLocation loc, bool f);
+  static AsmOp Const(SrcLocation loc, std::string push_op) {
+    return AsmOp(a_const, loc, 0, 1, std::move(push_op));
   }
-  static AsmOp Const(int arg, const std::string& push_op);
-  static AsmOp Comment(const std::string& comment) {
-    return AsmOp(a_none, std::string{"// "} + comment);
+  static AsmOp Const(SrcLocation loc, int arg, const std::string& push_op);
+  static AsmOp Comment(SrcLocation loc, const std::string& comment) {
+    return AsmOp(a_comment, loc, std::string{"// "} + comment);
   }
-  static AsmOp Custom(const std::string& custom_op) {
-    return AsmOp(a_custom, 255, 255, custom_op);
+  static AsmOp Custom(SrcLocation loc, const std::string& custom_op) {
+    return AsmOp(a_custom, loc, 255, 255, custom_op);
   }
-  static AsmOp Parse(const std::string& custom_op);
-  static AsmOp Custom(const std::string& custom_op, int args, int retv = 1) {
-    return AsmOp(a_custom, args, retv, custom_op);
+  static AsmOp Parse(SrcLocation loc, const std::string& custom_op);
+  static AsmOp Custom(SrcLocation loc, const std::string& custom_op, int args, int retv = 1) {
+    return AsmOp(a_custom, loc, args, retv, custom_op);
   }
-  static AsmOp Parse(std::string custom_op, int args, int retv = 1);
-  static AsmOp Tuple(int a);
-  static AsmOp UnTuple(int a);
+  static AsmOp Parse(SrcLocation loc, std::string custom_op, int args, int retv = 1);
+  static AsmOp Tuple(SrcLocation loc, int a);
+  static AsmOp UnTuple(SrcLocation loc, int a);
 };
 
 inline std::ostream& operator<<(std::ostream& os, const AsmOp& op) {
@@ -572,38 +584,19 @@ struct AsmOpList {
   std::vector<AsmOp> list_;
   int indent_{0};
   const std::vector<TmpVar>* var_names_{nullptr};
-  std::vector<Const> constants_;
+  std::vector<td::RefInt256> constants_;
   bool retalt_{false};
   bool retalt_inserted_{false};
   void out(std::ostream& os, int mode = 0) const;
   AsmOpList(int indent = 0, const std::vector<TmpVar>* var_names = nullptr) : indent_(indent), var_names_(var_names) {
   }
-  template <typename... Args>
-  AsmOpList& add(Args&&... args) {
-    append(AsmOp(std::forward<Args>(args)...));
+  AsmOpList& operator<<(AsmOp&& op) {
+    list_.emplace_back(op);
     adjust_last();
     return *this;
   }
-  bool append(const AsmOp& op) {
-    list_.push_back(op);
-    adjust_last();
-    return true;
-  }
-  bool append(const std::vector<AsmOp>& ops);
-  bool append(std::initializer_list<AsmOp> ops) {
-    return append(std::vector<AsmOp>(std::move(ops)));
-  }
-  AsmOpList& operator<<(const AsmOp& op) {
-    return add(op);
-  }
-  AsmOpList& operator<<(AsmOp&& op) {
-    return add(std::move(op));
-  }
-  AsmOpList& operator<<(std::string str) {
-    return add(AsmOp::Type::a_custom, 255, 255, str);
-  }
-  const_idx_t register_const(Const new_const);
-  Const get_const(const_idx_t idx);
+  const_idx_t register_const(td::RefInt256 new_const);
+  td::RefInt256 get_const(const_idx_t idx);
   void show_var_ext(std::ostream& os, std::pair<var_idx_t, const_idx_t> idx_pair) const;
   void adjust_last() {
     if (list_.back().is_nop()) {
@@ -618,11 +611,8 @@ struct AsmOpList {
   void undent() {
     --indent_;
   }
-  void set_indent(int new_indent) {
-    indent_ = new_indent;
-  }
-  void insert(size_t pos, std::string str) {
-    insert(pos, AsmOp(AsmOp::a_custom, 255, 255, str));
+  void insert(size_t pos, SrcLocation loc, std::string str) {
+    insert(pos, AsmOp(AsmOp::a_custom, loc, 255, 255, std::move(str)));
   }
   void insert(size_t pos, const AsmOp& op) {
     auto ip = list_.begin() + pos;
@@ -635,11 +625,6 @@ struct AsmOpList {
     }
   }
 };
-
-inline std::ostream& operator<<(std::ostream& os, const AsmOpList& op_list) {
-  op_list.out(os);
-  return os;
-}
 
 struct AsmOpCons {
   std::unique_ptr<AsmOp> car;
@@ -875,7 +860,6 @@ struct Optimizer {
   bool find();
   bool optimize();
   bool compute_stack_transforms();
-  bool say(std::string str) const;
   bool show_stack_transforms() const;
   void show_head() const;
   void show_left() const;
@@ -951,17 +935,17 @@ struct Stack {
   StackLayoutExt s;
   AsmOpList& o;
   enum {
-    _StkCmt = 1, _CptStkCmt = 2, _DisableOut = 128, _Shown = 256,
+    _StackComments = 1, _LineComments = 2, _DisableOut = 128, _Shown = 256,
     _InlineFunc = 512, _NeedRetAlt = 1024, _InlineAny = 2048,
     _ModeSave = _InlineFunc | _NeedRetAlt | _InlineAny,
     _Garbage = -0x10000
   };
   int mode;
-  Stack(AsmOpList& _o, int _mode = 0) : o(_o), mode(_mode) {
+  Stack(AsmOpList& _o, int _mode) : o(_o), mode(_mode) {
   }
-  Stack(AsmOpList& _o, const StackLayoutExt& _s, int _mode = 0) : s(_s), o(_o), mode(_mode) {
+  Stack(AsmOpList& _o, const StackLayoutExt& _s, int _mode) : s(_s), o(_o), mode(_mode) {
   }
-  Stack(AsmOpList& _o, StackLayoutExt&& _s, int _mode = 0) : s(std::move(_s)), o(_o), mode(_mode) {
+  Stack(AsmOpList& _o, StackLayoutExt&& _s, int _mode) : s(std::move(_s)), o(_o), mode(_mode) {
   }
   int depth() const {
     return (int)s.size();
@@ -998,55 +982,56 @@ struct Stack {
   void forget_const();
   void validate(int i) const {
     if (i > 255) {
-      throw Fatal{"Too deep stack"};
+      throw Fatal("Too deep stack");
     }
     tolk_assert(i >= 0 && i < depth() && "invalid stack reference");
   }
   void modified() {
     mode &= ~_Shown;
   }
-  void issue_pop(int i);
-  void issue_push(int i);
-  void issue_xchg(int i, int j);
-  int drop_vars_except(const VarDescrList& var_info, int excl_var = 0x80000000);
+  void issue_pop(SrcLocation loc, int i);
+  void issue_push(SrcLocation loc, int i);
+  void issue_xchg(SrcLocation loc, int i, int j);
+  int drop_vars_except(SrcLocation loc, const VarDescrList& var_info, int excl_var = 0x80000000);
   void forget_var(var_idx_t idx);
   void push_new_var(var_idx_t idx);
   void push_new_const(var_idx_t idx, const_idx_t cidx);
   void assign_var(var_idx_t new_idx, var_idx_t old_idx);
-  void do_copy_var(var_idx_t new_idx, var_idx_t old_idx);
-  void enforce_state(const StackLayout& req_stack);
-  void rearrange_top(const StackLayout& top, std::vector<bool> last);
-  void rearrange_top(var_idx_t top, bool last);
+  void do_copy_var(SrcLocation loc, var_idx_t new_idx, var_idx_t old_idx);
+  void enforce_state(SrcLocation loc, const StackLayout& req_stack);
+  void rearrange_top(SrcLocation loc, const StackLayout& top, std::vector<bool> last);
+  void rearrange_top(SrcLocation loc, var_idx_t top, bool last);
   void merge_const(const Stack& req_stack);
-  void merge_state(const Stack& req_stack);
+  void merge_state(SrcLocation loc, const Stack& req_stack);
   void show();
   void opt_show() {
-    if ((mode & (_StkCmt | _Shown)) == _StkCmt) {
+    if ((mode & (_StackComments | _Shown)) == _StackComments) {
       show();
     }
   }
   bool operator==(const Stack& y) const & {
     return s == y.s;
   }
-  void apply_wrappers(int callxargs_count) {
+  void apply_wrappers(SrcLocation loc, int callxargs_count) {
+    int pos0 = (mode & _StackComments && !o.list_.empty() && o.list_[0].is_comment()) ? 1 : 0;
     bool is_inline = mode & _InlineFunc;
     if (o.retalt_inserted_) {
-      o.insert(0, "SAMEALTSAVE");
-      o.insert(0, "c2 SAVE");
+      o.insert(pos0, loc, "SAMEALTSAVE");
+      o.insert(pos0, loc, "c2 SAVE");
     }
     if (callxargs_count != -1 || (is_inline && o.retalt_)) {
       o.indent_all();
-      o.insert(0, "CONT:<{");
-      o << "}>";
+      o.insert(pos0, loc, "CONT:<{");
+      o << AsmOp::Custom(loc, "}>");
       if (callxargs_count != -1) {
         if (callxargs_count <= 15) {
-          o << AsmOp::Custom(PSTRING() << callxargs_count << " -1 CALLXARGS");
+          o << AsmOp::Custom(loc, PSTRING() << callxargs_count << " -1 CALLXARGS");
         } else {
           tolk_assert(callxargs_count <= 254);
-          o << AsmOp::Custom(PSTRING() << callxargs_count << " PUSHINT -1 PUSHINT CALLXVARARGS");
+          o << AsmOp::Custom(loc, PSTRING() << callxargs_count << " PUSHINT -1 PUSHINT CALLXVARARGS");
         }
       } else {
-        o << "EXECUTE";
+        o << AsmOp::Custom(loc, "EXECUTE");
       }
     }
   }
@@ -1061,31 +1046,27 @@ struct Stack {
 
 typedef std::function<AsmOp(std::vector<VarDescr>&, std::vector<VarDescr>&, SrcLocation)> simple_compile_func_t;
 
-inline simple_compile_func_t make_simple_compile(AsmOp op) {
-  return [op](std::vector<VarDescr>& out, std::vector<VarDescr>& in, SrcLocation) -> AsmOp { return op; };
-}
-
 struct FunctionBodyBuiltin {
   simple_compile_func_t simple_compile;
 
   explicit FunctionBodyBuiltin(simple_compile_func_t compile)
     : simple_compile(std::move(compile)) {}
 
-  void compile(AsmOpList& dest, std::vector<VarDescr>& out, std::vector<VarDescr>& in, SrcLocation where) const;
+  void compile(AsmOpList& dest, std::vector<VarDescr>& out, std::vector<VarDescr>& in, SrcLocation loc) const;
 };
 
 struct FunctionBodyAsm {
   std::vector<AsmOp> ops;
 
   void set_code(std::vector<AsmOp>&& code);
-  void compile(AsmOpList& dest) const;
+  void compile(AsmOpList& dest, SrcLocation loc) const;
 };
 
 struct CodeBlob {
   int var_cnt, in_var_cnt;
   FunctionPtr fun_ref;
   std::string name;
-  SrcLocation loc;
+  SrcLocation forced_loc;
   std::vector<TmpVar> vars;
   std::unique_ptr<Op> ops;
   std::unique_ptr<Op>* cur_ops;
@@ -1094,12 +1075,15 @@ struct CodeBlob {
 #endif
   std::stack<std::unique_ptr<Op>*> cur_ops_stack;
   bool require_callxargs = false;
-  CodeBlob(std::string name, SrcLocation loc, FunctionPtr fun_ref)
-    : var_cnt(0), in_var_cnt(0), fun_ref(fun_ref), name(std::move(name)), loc(loc), cur_ops(&ops) {
+  explicit CodeBlob(FunctionPtr fun_ref)
+    : var_cnt(0), in_var_cnt(0), fun_ref(fun_ref), name(fun_ref->name), cur_ops(&ops) {
   }
   template <typename... Args>
   Op& emplace_back(Args&&... args) {
     Op& res = *(*cur_ops = std::make_unique<Op>(args...));
+    if (forced_loc.is_defined()) {
+      res.loc = forced_loc;
+    }
     cur_ops = &(res.next);
 #ifdef TOLK_DEBUG
     _vector_of_ops.push_back(&res);
@@ -1137,19 +1121,17 @@ struct CodeBlob {
   void prune_unreachable_code();
   void fwd_analyze();
   void mark_noreturn();
-  void generate_code(AsmOpList& out_list, int mode = 0);
-  void generate_code(std::ostream& os, int mode = 0, int indent = 0);
+  void generate_code(std::ostream& os, int mode = 0, int indent = 0) const;
 };
 
 // defined in builtins.cpp
-AsmOp exec_arg_op(std::string op, long long arg);
-AsmOp exec_arg_op(std::string op, long long arg, int args, int retv = 1);
-AsmOp exec_arg_op(std::string op, td::RefInt256 arg);
-AsmOp exec_arg_op(std::string op, td::RefInt256 arg, int args, int retv = 1);
-AsmOp exec_arg2_op(std::string op, long long imm1, long long imm2, int args, int retv = 1);
-AsmOp push_const(td::RefInt256 x);
+AsmOp exec_arg_op(SrcLocation loc, std::string op, long long arg, int args, int retv = 1);
+AsmOp exec_arg_op(SrcLocation loc, std::string op, td::RefInt256 arg, int args, int retv = 1);
+AsmOp exec_arg2_op(SrcLocation loc, std::string op, long long imm1, long long imm2, int args, int retv = 1);
+AsmOp push_const(SrcLocation loc, td::RefInt256 x);
 
 void define_builtins();
+void patch_builtins_after_stdlib_loaded();
 
 
 

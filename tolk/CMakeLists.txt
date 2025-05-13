@@ -9,6 +9,7 @@ set(TOLK_SOURCE
         pipe-discover-parse-sources.cpp
         pipe-register-symbols.cpp
         pipe-resolve-identifiers.cpp
+        pipe-resolve-types.cpp
         pipe-calc-rvalue-lvalue.cpp
         pipe-infer-types-and-calls.cpp
         pipe-check-inferred-types.cpp

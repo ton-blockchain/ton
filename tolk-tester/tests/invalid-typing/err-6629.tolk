@@ -6,6 +6,6 @@ fun wrongTCountPassed() {
 
 /**
 @compilation_should_fail
-@stderr wrong count of generic T: expected 2, got 1
+@stderr expected 2 type arguments, got 1
 @stderr <int>
  */

@@ -1,6 +1,6 @@
 import "@stdlib/tvm-dicts"
 
-fun addIntToIDict(mutate self: cell?, key: int, number: int): void {
+fun cell?.addIntToIDict(mutate self, key: int, number: int): void {
     return self.iDictSetBuilder(32, key, beginCell().storeInt(number, 32));
 }
 
@@ -14,7 +14,7 @@ fun calculateDictLen(d: cell?) {
     return len;
 }
 
-fun loadTwoDigitNumberFromSlice(mutate self: slice): int {
+fun slice.loadTwoDigitNumberFromSlice(mutate self): int {
     var n1 = self.loadInt(8);
     var n2 = self.loadInt(8);
     return (n1 - 48) * 10 + (n2 - 48);
@@ -47,7 +47,7 @@ fun test102() {
     while (!shouldBreak) {
         var (kDel, kVal, wasDel) = dict.iDictDeleteLastAndGet(32);
         if (wasDel) {
-            deleted.tuplePush([kDel, kVal!.loadInt(32)]);
+            deleted.push([kDel, kVal!.loadInt(32)]);
         } else {
             shouldBreak = true;
         }
@@ -82,8 +82,8 @@ fun test104() {
     var (old2, _) = dict.sDictDeleteAndGet(32, "key1");
     var (restK, restV, _) = dict.sDictGetFirst(32);
     var (restK1, restV1, _) = dict.sDictDeleteLastAndGet(32);
-    assert (restK!.isSliceBitsEqual(restK1!)) throw 123;
-    assert (restV!.isSliceBitsEqual(restV1!)) throw 123;
+    assert (restK!.bitsEqual(restK1!)) throw 123;
+    assert (restV!.bitsEqual(restV1!)) throw 123;
     return (
         old1!.loadTwoDigitNumberFromSlice(),
         old2!.loadTwoDigitNumberFromSlice(),

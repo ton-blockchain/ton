@@ -117,7 +117,18 @@ fun test11(x: bool) {
 }
 
 
-fun main() {}
+type asdf = int;
+
+fun main() {
+    match (10) {
+        asdf => 1,      // it's match by type
+    };
+
+    var asdf = 5;
+    return match (10) {
+        asdf => 2,      // also match by type, regardless of local var
+    };
+}
 
 /**
 @testcase | 101 | 1        | 100
@@ -146,8 +157,7 @@ fun main() {}
 
 @fif_codegen
 """
-  test1 PROC:<{
-    //  x
+  test1 PROC:<{ //  x
     DUP         //  x x
     1 EQINT     //  x '3
     IF:<{       //  x
@@ -155,12 +165,12 @@ fun main() {}
       100 PUSHINT       //  '1=100
     }>ELSE<{    //  x
       DUP       //  x x
-      2 EQINT   //  x '6
+      2 EQINT   //  x '8
       IF:<{     //  x
         DROP    //
         200 PUSHINT     //  '1=200
       }>ELSE<{  //  x
-        3 EQINT //  '9
+        3 EQINT //  '13
         IF:<{   //
           300 PUSHINT   //  '1=300
         }>ELSE<{        //
@@ -174,15 +184,13 @@ fun main() {}
 @fif_codegen
 """
   test2 PROC:<{
-    //
     300 PUSHINT
   }>
 """
 
 @fif_codegen
 """
-  test3 PROC:<{
-    //  init
+  test3 PROC:<{         //  init
     DUP                 // init init
     isGt10 CALLDICT     // init '2
     -1 EQINT	        // init '5
@@ -195,8 +203,7 @@ fun main() {}
 
 @fif_codegen
 """
-  test8 PROC:<{
-    // x
+  test8 PROC:<{     // x
     DROP            //
     30 PUSHINT      // r1
   }>

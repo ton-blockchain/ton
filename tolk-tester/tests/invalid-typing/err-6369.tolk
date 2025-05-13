@@ -6,6 +6,6 @@ fun failIncompatibleTypesForT() {
 
 /**
 @compilation_should_fail
-@stderr T is both int and slice for generic function `f<T>`
+@stderr can not pass `slice` to `int`
 @stderr f(32
  */

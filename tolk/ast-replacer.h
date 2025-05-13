@@ -95,8 +95,9 @@ protected:
   virtual AnyExprV replace(V<ast_empty_expression> v)          { return replace_children(v); }
   virtual AnyExprV replace(V<ast_parenthesized_expression> v)  { return replace_children(v); }
   virtual AnyExprV replace(V<ast_braced_expression> v)         { return replace_children(v); }
+  virtual AnyExprV replace(V<ast_artificial_aux_vertex> v)     { return replace_children(v); }
   virtual AnyExprV replace(V<ast_tensor> v)                    { return replace_children(v); }
-  virtual AnyExprV replace(V<ast_typed_tuple> v)               { return replace_children(v); }
+  virtual AnyExprV replace(V<ast_bracket_tuple> v)             { return replace_children(v); }
   virtual AnyExprV replace(V<ast_reference> v)                 { return replace_children(v); }
   virtual AnyExprV replace(V<ast_local_var_lhs> v)             { return replace_children(v); }
   virtual AnyExprV replace(V<ast_local_vars_declaration> v)    { return replace_children(v); }
@@ -119,6 +120,9 @@ protected:
   virtual AnyExprV replace(V<ast_not_null_operator> v)         { return replace_children(v); }
   virtual AnyExprV replace(V<ast_match_expression> v)          { return replace_children(v); }
   virtual AnyExprV replace(V<ast_match_arm> v)                 { return replace_children(v); }
+  virtual AnyExprV replace(V<ast_object_field> v)              { return replace_children(v); }
+  virtual AnyExprV replace(V<ast_object_body> v)               { return replace_children(v); }
+  virtual AnyExprV replace(V<ast_object_literal> v)            { return replace_children(v); }
   // statements
   virtual AnyV replace(V<ast_empty_statement> v)               { return replace_children(v); }
   virtual AnyV replace(V<ast_block_statement> v)               { return replace_children(v); }
@@ -132,12 +136,13 @@ protected:
   virtual AnyV replace(V<ast_try_catch_statement> v)           { return replace_children(v); }
 
   AnyExprV replace(AnyExprV v) final {
-    switch (v->type) {
+    switch (v->kind) {
       case ast_empty_expression:                return replace(v->as<ast_empty_expression>());
       case ast_parenthesized_expression:        return replace(v->as<ast_parenthesized_expression>());
       case ast_braced_expression:               return replace(v->as<ast_braced_expression>());
+      case ast_artificial_aux_vertex:           return replace(v->as<ast_artificial_aux_vertex>());
       case ast_tensor:                          return replace(v->as<ast_tensor>());
-      case ast_typed_tuple:                     return replace(v->as<ast_typed_tuple>());
+      case ast_bracket_tuple:                   return replace(v->as<ast_bracket_tuple>());
       case ast_reference:                       return replace(v->as<ast_reference>());
       case ast_local_var_lhs:                   return replace(v->as<ast_local_var_lhs>());
       case ast_local_vars_declaration:          return replace(v->as<ast_local_vars_declaration>());
@@ -160,13 +165,16 @@ protected:
       case ast_not_null_operator:               return replace(v->as<ast_not_null_operator>());
       case ast_match_expression:                return replace(v->as<ast_match_expression>());
       case ast_match_arm:                       return replace(v->as<ast_match_arm>());
+      case ast_object_field:                    return replace(v->as<ast_object_field>());
+      case ast_object_body:                     return replace(v->as<ast_object_body>());
+      case ast_object_literal:                  return replace(v->as<ast_object_literal>());
       default:
-        throw UnexpectedASTNodeType(v, "ASTReplacerInFunctionBody::replace");
+        throw UnexpectedASTNodeKind(v, "ASTReplacerInFunctionBody::replace");
     }
   }
 
   AnyV replace(AnyV v) final {
-    switch (v->type) {
+    switch (v->kind) {
       case ast_empty_statement:                 return replace(v->as<ast_empty_statement>());
       case ast_block_statement:                 return replace(v->as<ast_block_statement>());
       case ast_return_statement:                return replace(v->as<ast_return_statement>());
@@ -179,7 +187,7 @@ protected:
       case ast_try_catch_statement:             return replace(v->as<ast_try_catch_statement>());
 #ifdef TOLK_DEBUG
       case ast_asm_body:
-        throw UnexpectedASTNodeType(v, "ASTReplacer::replace");
+        throw UnexpectedASTNodeKind(v, "ASTReplacer::replace");
 #endif
       default: {
         // be very careful, don't forget to handle all statements (not expressions) above!
@@ -200,6 +208,7 @@ public:
 
 const std::vector<FunctionPtr>& get_all_not_builtin_functions();
 const std::vector<GlobalConstPtr>& get_all_declared_constants();
+const std::vector<StructPtr>& get_all_declared_structs();
 
 template<class BodyReplacerT>
 void replace_ast_of_all_functions() {

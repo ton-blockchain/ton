@@ -50,6 +50,7 @@ void usage(const char* progname) {
          "-O<level>\tSets optimization level (2 by default)\n"
          "-x<option-names>\tEnables experimental options, comma-separated\n"
          "-S\tDon't include stack layout comments into Fift output\n"
+         "-L\tDon't include original lines from Tolk src into Fift output\n"
          "-e\tIncreases verbosity level (extra output into stderr)\n"
          "-v\tOutput version of Tolk and exit\n";
   std::exit(2);
@@ -214,7 +215,7 @@ public:
 
 int main(int argc, char* const argv[]) {
   int i;
-  while ((i = getopt(argc, argv, "o:b:O:x:Sevh")) != -1) {
+  while ((i = getopt(argc, argv, "o:b:O:x:SLevh")) != -1) {
     switch (i) {
       case 'o':
         G.settings.output_filename = optarg;
@@ -230,6 +231,9 @@ int main(int argc, char* const argv[]) {
         break;
       case 'S':
         G.settings.stack_layout_comments = false;
+        break;
+      case 'L':
+        G.settings.tolk_src_as_line_comments = false;
         break;
       case 'e':
         G.settings.verbosity++;

@@ -1,3 +1,6 @@
+fun tupleLast<T>(t: tuple): T
+    asm "LAST";
+
 fun getTupleLastGetter<X>(): tuple -> X {
     return tupleLast<X>;
 }

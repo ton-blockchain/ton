@@ -1,6 +1,6 @@
 fun cantCallMutatingFunctionWithAssignmentLValue() {
     var t: tuple = createEmptyTuple();
-    (t = createEmptyTuple()).tuplePush(1);
+    (t = createEmptyTuple()).push(1);
 }
 
 /**

@@ -4,5 +4,5 @@ int main() {
 
 /**
 @compilation_should_fail
-@stderr expected fun or get, got `int`
+@stderr expected top-level declaration, got `int`
 */

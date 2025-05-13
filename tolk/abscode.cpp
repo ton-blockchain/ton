@@ -59,9 +59,6 @@ void VarDescr::show_value(std::ostream& os) const {
   if (val & _Int) {
     os << 'i';
   }
-  if (val & _Const) {
-    os << 'c';
-  }
   if (val & _Zero) {
     os << '0';
   }
@@ -114,7 +111,7 @@ void VarDescr::set_const(td::RefInt256 value) {
   if (!int_const->signed_fits_bits(257)) {
     int_const.write().invalidate();
   }
-  val = _Const | _Int;
+  val = _Int;
   int s = sgn(int_const);
   if (s < -1) {
     val |= _Nan | _NonZero;
@@ -130,41 +127,41 @@ void VarDescr::set_const(td::RefInt256 value) {
   }
 }
 
-void VarDescr::set_const(std::string value) {
-  str_const = value;
-  val = _Const;
+void VarDescr::set_const(const std::string&) {
+  int_const.clear();
+  val = 0;
 }
 
 void VarDescr::operator|=(const VarDescr& y) {
+  if (is_int_const()) {
+    bool y_same = y.is_int_const() && *int_const == *y.int_const;
+    if (!y_same) {
+      int_const.clear();
+    }
+  }
   val &= y.val;
-  if (is_int_const() && y.is_int_const() && cmp(int_const, y.int_const) != 0) {
-    val &= ~_Const;
-  }
-  if (!(val & _Const)) {
-    int_const.clear();
-  }
 }
 
 void VarDescr::operator&=(const VarDescr& y) {
-  val |= y.val;
-  if (y.int_const.not_null() && int_const.is_null()) {
+  if (y.is_int_const()) {
     int_const = y.int_const;
   }
+  val |= y.val;
 }
 
 void VarDescr::set_value(const VarDescr& y) {
-  val = y.val;
   int_const = y.int_const;
+  val = y.val;
 }
 
 void VarDescr::set_value(VarDescr&& y) {
-  val = y.val;
   int_const = std::move(y.int_const);
+  val = y.val;
 }
 
 void VarDescr::clear_value() {
-  val = 0;
   int_const.clear();
+  val = 0;
 }
 
 void VarDescrList::show(std::ostream& os) const {
@@ -205,9 +202,6 @@ void Op::show(std::ostream& os, const std::vector<TmpVar>& vars, std::string pfx
     dis += "<impure> ";
   }
   switch (cl) {
-    case _Undef:
-      os << pfx << dis << "???\n";
-      break;
     case _Nop:
       os << pfx << dis << "NOP\n";
       break;
@@ -404,7 +398,14 @@ std::vector<var_idx_t> CodeBlob::create_var(TypePtr var_type, SrcLocation loc, s
   std::vector<var_idx_t> ir_idx;
   int stack_w = var_type->get_width_on_stack();
   ir_idx.reserve(stack_w);
-  if (const TypeDataTensor* t_tensor = var_type->try_as<TypeDataTensor>()) {
+  if (const TypeDataStruct* t_struct = var_type->try_as<TypeDataStruct>()) {
+    for (int i = 0; i < t_struct->struct_ref->get_num_fields(); ++i) {
+      StructFieldPtr field_ref = t_struct->struct_ref->get_field(i);
+      std::string sub_name = name.empty() || t_struct->struct_ref->get_num_fields() == 1 ? name : name + "." + field_ref->name;
+      std::vector<var_idx_t> nested = create_var(field_ref->declared_type, loc, std::move(sub_name));
+      ir_idx.insert(ir_idx.end(), nested.begin(), nested.end());
+    }
+  } else if (const TypeDataTensor* t_tensor = var_type->try_as<TypeDataTensor>()) {
     for (int i = 0; i < t_tensor->size(); ++i) {
       std::string sub_name = name.empty() ? name : name + "." + std::to_string(i);
       std::vector<var_idx_t> nested = create_var(t_tensor->items[i], loc, std::move(sub_name));

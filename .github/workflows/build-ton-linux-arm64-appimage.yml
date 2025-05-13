@@ -36,21 +36,21 @@ jobs:
       uses: actions/cache@v4
       with:
         path: 3pp
-        key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-20.04-arm-3pp-${{ hashFiles('**/assembly/native/build-ubuntu-appimages.sh') }}
+        key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-arm-3pp-${{ hashFiles('**/assembly/native/build-ubuntu-appimages.sh') }}
 
     - name: Cache OpenSSL
       id: cache-openssl
       uses: actions/cache@v4
       with:
         path: openssl_3
-        key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-20.04-arm-openssl_3-${{ hashFiles('**/assembly/native/build-ubuntu-appimages.sh') }}
+        key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-arm-openssl_3-${{ hashFiles('**/assembly/native/build-ubuntu-appimages.sh') }}
 
     - name: Restore cache TON
       uses: actions/cache/restore@v4
       with:
         path: ~/.ccache
-        key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-20.04-arm-portable-ccache-${{ steps.date-stamp.outputs.timestamp }}
-        restore-keys: ${{ runner.os }}-${{ runner.arch }}-ubuntu-20.04-arm-portable-ccache
+        key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-arm-portable-ccache-${{ steps.date-stamp.outputs.timestamp }}
+        restore-keys: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-arm-portable-ccache
 
     - name: Build TON
       run: |
@@ -65,7 +65,7 @@ jobs:
       uses: actions/cache/save@v4
       with:
         path: ~/.ccache
-        key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-20.04-arm-portable-ccache-${{ steps.date-stamp.outputs.timestamp }}
+        key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-arm-portable-ccache-${{ steps.date-stamp.outputs.timestamp }}
 
     - name: Make AppImages
       run: |
@@ -80,8 +80,8 @@ jobs:
       uses: actions/cache@v4
       with:
         path: ~/.ccache
-        key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-20.04-arm-portable-libs-ccache-${{ steps.date-stamp.outputs.timestamp }}
-        restore-keys: ${{ runner.os }}-${{ runner.arch }}-ubuntu-20.04-arm-portable-libs-ccache
+        key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-arm-portable-libs-ccache-${{ steps.date-stamp.outputs.timestamp }}
+        restore-keys: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-arm-portable-libs-ccache
 
     - name: Build TON libs
       run: |

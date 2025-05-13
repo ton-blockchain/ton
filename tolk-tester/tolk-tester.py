@@ -260,6 +260,7 @@ class TolkTestFile:
         self.fif_codegen: List[TolkTestCaseFifCodegen] = []
         self.expected_hash: TolkTestCaseExpectedHash | None = None
         self.experimental_options: str | None = None
+        self.enable_tolk_lines_comments = False
 
     def parse_input_from_tolk_file(self):
         with open(self.tolk_filename, "r") as fd:
@@ -279,6 +280,8 @@ class TolkTestFile:
                 self.stderr_includes.append(TolkTestCaseStderr(self.parse_string_value(lines), False))
             elif line.startswith("@fif_codegen_avoid"):
                 self.fif_codegen.append(TolkTestCaseFifCodegen(self.parse_string_value(lines), True))
+            elif line.startswith("@fif_codegen_enable_comments"):
+                self.enable_tolk_lines_comments = True
             elif line.startswith("@fif_codegen"):
                 self.fif_codegen.append(TolkTestCaseFifCodegen(self.parse_string_value(lines), False))
             elif line.startswith("@code_hash"):
@@ -326,6 +329,8 @@ class TolkTestFile:
         cmd_args = [TOLK_EXECUTABLE, "-o", self.get_compiled_fif_filename()]
         if self.experimental_options:
             cmd_args = cmd_args + ["-x", self.experimental_options]
+        if not self.enable_tolk_lines_comments:
+            cmd_args = cmd_args + ["-L"]
         res = subprocess.run(cmd_args + [self.tolk_filename], capture_output=True, timeout=10)
         exit_code = res.returncode
         stderr = str(res.stderr, "utf-8")

@@ -64,7 +64,7 @@ void ValidatorManagerImpl::validate_block(ReceivedBlock block, td::Promise<Block
   UNREACHABLE();
 }
 
-void ValidatorManagerImpl::prevalidate_block(BlockBroadcast broadcast, td::Promise<td::Unit> promise) {
+void ValidatorManagerImpl::new_block_broadcast(BlockBroadcast broadcast, td::Promise<td::Unit> promise) {
   UNREACHABLE();
 }
 
@@ -276,7 +276,8 @@ void ValidatorManagerImpl::new_ihr_message(td::BufferSlice data) {
   }
 }
 
-void ValidatorManagerImpl::new_shard_block(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) {
+void ValidatorManagerImpl::new_shard_block_description_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
+                                                                 td::BufferSlice data) {
   if (!last_masterchain_block_handle_) {
     shard_blocks_raw_.push_back(std::move(data));
     return;
@@ -528,7 +529,7 @@ void ValidatorManagerImpl::get_shard_blocks(BlockIdExt masterchain_block_id,
   }
   if (!shard_blocks_raw_.empty()) {
     for (auto &raw : shard_blocks_raw_) {
-      new_shard_block(BlockIdExt{}, 0, std::move(raw));
+      new_shard_block_description_broadcast(BlockIdExt{}, 0, std::move(raw));
     }
     shard_blocks_raw_.clear();
   }
@@ -786,8 +787,9 @@ void ValidatorManagerImpl::set_block_candidate(BlockIdExt id, BlockCandidate can
 }
 
 void ValidatorManagerImpl::send_block_candidate_broadcast(BlockIdExt id, CatchainSeqno cc_seqno,
-                                                          td::uint32 validator_set_hash, td::BufferSlice data) {
-  callback_->send_block_candidate(id, cc_seqno, validator_set_hash, std::move(data));
+                                                          td::uint32 validator_set_hash, td::BufferSlice data,
+                                                          int mode) {
+  callback_->send_block_candidate(id, cc_seqno, validator_set_hash, std::move(data), mode);
 }
 
 void ValidatorManagerImpl::write_handle(BlockHandle handle, td::Promise<td::Unit> promise) {
@@ -947,7 +949,7 @@ void ValidatorManagerImpl::update_shard_blocks() {
   }
   if (!shard_blocks_raw_.empty()) {
     for (auto &raw : shard_blocks_raw_) {
-      new_shard_block(BlockIdExt{}, 0, std::move(raw));
+      new_shard_block_description_broadcast(BlockIdExt{}, 0, std::move(raw));
     }
     shard_blocks_raw_.clear();
   }
