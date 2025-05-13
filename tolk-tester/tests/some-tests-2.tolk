@@ -1,6 +1,6 @@
 import "@stdlib/tvm-lowlevel"
 
-fun pair_first<X, Y>(p: [X, Y]): X asm "FIRST";
+fun [X, Y].pair_first(self): X asm "FIRST";
 
 fun one(dummy: tuple?) {
     return 1;
@@ -37,11 +37,11 @@ fun test88(x: int) {
 @method_id(89)
 fun test89(last: int): (int, int, int, int) {
     var t: tuple = createEmptyTuple();
-    t.tuplePush(1);
-    t.tuplePush(2);
-    t.tuplePush(3);
-    t.tuplePush(last);
-    return (t.tupleAt(0), t.tupleAt(t.tupleSize() - 1), t.tupleFirst(), t.tupleLast());
+    t.push(1);
+    t.push(2);
+    t.push(3);
+    t.push(last);
+    return (t.get(0), t.get(t.size() - 1), t.first(), t.last());
 }
 
 @pure fun get10() { return 10; }
@@ -56,25 +56,25 @@ fun touchCodegen2() {
 @method_id(92)
 fun testDumpDontPolluteStack() {
     var f = get10();
-    f.debugPrint();
-    debugPrint(10);
+    debug.print(f);
+    debug.print(10);
     var s = "asdf";
-    s.debugPrintString();
-    debugDumpStack();
-    debugPrintString("my");
-    return (f, getRemainingBitsCount(s));
+    debug.printString(s);
+    debug.dumpStack();
+    debug.printString("my");
+    return (f, s.remainingBitsCount());
 }
 
 @method_id(93)
 fun testStartBalanceCodegen1() {
-    var t = getMyOriginalBalanceWithExtraCurrencies();
+    var t = contract.getOriginalBalanceWithExtraCurrencies();
     var first = t.pair_first();
     return first;
 }
 
 @method_id(94)
 fun testStartBalanceCodegen2() {
-    var first = getMyOriginalBalance();
+    var first = contract.getOriginalBalance();
     return first;
 }
 
@@ -106,7 +106,6 @@ fun test95() {
 @fif_codegen
 """
   touchCodegen2 PROC:<{
-    //
     get10 CALLDICT	//  f
   }>
 """
@@ -125,7 +124,6 @@ fun test95() {
 @fif_codegen
 """
   testStartBalanceCodegen1 PROC:<{
-    //
     BALANCE // t
     FIRST	//  first
   }>
@@ -134,7 +132,6 @@ fun test95() {
 @fif_codegen
 """
   testStartBalanceCodegen2 PROC:<{
-    //
     BALANCE
     FIRST	//  first
   }>

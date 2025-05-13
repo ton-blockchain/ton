@@ -921,7 +921,7 @@ fun nrand_f252(): int {
     var (x, s, t, A, B, r0) = (nan(), 29483 << 236, -3167 << 239, 12845, 16693, 9043);
     // 4/sqrt(e*Pi) = 1.369 loop iterations on average
     do {
-        var (u, v) = (random() / 16 + 1, mulDivRound(random() - (1 << 255), 7027, 1 << 16));   // fixed252; 7027=ceil(sqrt(8/e)*2^12)
+        var (u, v) = (random.uint256() / 16 + 1, mulDivRound(random.uint256() - (1 << 255), 7027, 1 << 16));   // fixed252; 7027=ceil(sqrt(8/e)*2^12)
         var va: int = abs(v);
         var (u1, v1) = (u - s, va - t);   // (u - 29483/2^16, abs(v) + 3167/2^13) as fixed252
         // Q := u1^2 + v1 * (A*v1 - B*u1) as fixed252 where A=12845/2^16, B=16693/2^16
@@ -952,7 +952,7 @@ fun nrand_f252(): int {
 fun nrand_fast_f252(): int {
     var t: int = -3 << 253;   // -6. as fixed252
     repeat (12) {
-        t += random() / 16;         // add together 12 uniformly random numbers
+        t += random.uint256() / 16;         // add together 12 uniformly random numbers
     }
     return t;
 }
@@ -961,7 +961,7 @@ fun nrand_fast_f252(): int {
 /// fixed248 random();
 @inline
 fun fixed248_random(): int {
-    return random() >> 8;
+    return random.uint256() >> 8;
 }
 
 /// random number with standard normal distribution
@@ -979,7 +979,7 @@ fun fixed248_nrand_fast(): int {
 }
 
 @pure
-fun tset<X>(mutate self: tuple, idx: int, value: X): void
+fun tuple.tset<X>(mutate self, idx: int, value: X): void
     asm(self value idx) "SETINDEXVAR";
 
 // computes 1-acos(x)/Pi by a very simple, extremely slow (~70k gas) and imprecise method
@@ -1014,12 +1014,12 @@ fun asin_slow_f255(x: int): int {
 fun test_nrand(n: int): tuple {
   var t: tuple = createEmptyTuple();
   repeat (255) {
-    t.tuplePush(0);
+    t.push(0);
   }
   repeat (n) {
     var x: int = fixed248_nrand();
     var bucket: int = (abs(x) >> 243);   // 255 buckets starting from x=0, each 1/32 wide
-    var at_bucket: int = t.tupleAt(bucket);
+    var at_bucket: int = t.get(bucket);
     t.tset(bucket, at_bucket + 1);
   }
   return t;

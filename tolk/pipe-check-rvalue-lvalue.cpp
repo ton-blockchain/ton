@@ -29,12 +29,6 @@
 
 namespace tolk {
 
-// fire a general error, just a wrapper over `throw`
-GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-static void fire(FunctionPtr cur_f, SrcLocation loc, const std::string& message) {
-  throw ParseError(cur_f, loc, message);
-}
-
 GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
 static void fire_error_cannot_be_used_as_lvalue(FunctionPtr cur_f, AnyV v, const std::string& details) {
   // example: `f() = 32`
@@ -149,6 +143,31 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
   }
 
   void visit(V<ast_dot_access> v) override {
+    // check for `immutableVal.field = rhs` or any other mutation of an immutable tensor/tuple/object
+    // don't allow cheating like `((immutableVal!)).field = rhs`
+    if (v->is_lvalue) {
+      AnyExprV leftmost_obj = v->get_obj();
+      while (true) {
+        if (auto as_dot = leftmost_obj->try_as<ast_dot_access>()) {
+          leftmost_obj = as_dot->get_obj();
+        } else if (auto as_par = leftmost_obj->try_as<ast_parenthesized_expression>()) {
+          leftmost_obj = as_par->get_expr();
+        } else if (auto as_cast = leftmost_obj->try_as<ast_cast_as_operator>()) {
+          leftmost_obj = as_cast->get_expr();
+        } else if (auto as_nn = leftmost_obj->try_as<ast_not_null_operator>()) {
+          leftmost_obj = as_nn->get_expr();
+        } else {
+          break;
+        }
+      }
+
+      if (auto as_ref = leftmost_obj->try_as<ast_reference>()) {
+        if (LocalVarPtr var_ref = as_ref->sym->try_as<LocalVarPtr>(); var_ref && var_ref->is_immutable()) {
+          fire_error_modifying_immutable_variable(cur_f, leftmost_obj, var_ref);
+        }
+      }
+    }
+
     // a reference to a method used as rvalue, like `var v = t.tupleAt`
     if (v->is_rvalue && v->is_target_fun_ref()) {
       validate_function_used_as_noncall(cur_f, v, std::get<FunctionPtr>(v->target));
@@ -164,8 +183,8 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
     }
     // for `f()` don't visit ast_reference `f`, to detect `f` usage as non-call, like `var cb = f`
     // same for `obj.method()`, don't visit ast_reference method, visit only obj
-    if (v->is_dot_call()) {
-      parent::visit(v->get_dot_obj());
+    if (AnyExprV self_obj = v->get_self_obj()) {
+      parent::visit(self_obj);
     }
 
     for (int i = 0; i < v->get_num_args(); ++i) {

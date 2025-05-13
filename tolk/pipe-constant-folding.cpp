@@ -18,6 +18,7 @@
 #include "ast.h"
 #include "ast-replacer.h"
 #include "type-system.h"
+#include "constant-evaluator.h"
 
 /*
  *   This pipe is supposed to do constant folding, like replacing `2 + 3` with `5`.
@@ -57,8 +58,8 @@ class ConstantFoldingReplacer final : public ASTReplacerInFunctionBody {
     return inner;
   }
 
-  static V<ast_string_const> create_string_const(SrcLocation loc, ConstantValue&& literal_value) {
-    auto v_string = createV<ast_string_const>(loc, literal_value.as_slice());
+  static V<ast_string_const> create_string_const(SrcLocation loc, std::string&& literal_value) {
+    auto v_string = createV<ast_string_const>(loc, literal_value);
     v_string->assign_inferred_type(TypeDataSlice::create());
     v_string->assign_literal_value(std::move(literal_value));
     v_string->assign_rvalue_true();
@@ -70,7 +71,7 @@ class ConstantFoldingReplacer final : public ASTReplacerInFunctionBody {
 
     TokenType t = v->tok;
     // convert "-1" (tok_minus tok_int_const) to a const -1
-    if (t == tok_minus && v->get_rhs()->type == ast_int_const) {
+    if (t == tok_minus && v->get_rhs()->kind == ast_int_const) {
       td::RefInt256 intval = v->get_rhs()->as<ast_int_const>()->intval;
       tolk_assert(!intval.is_null());
       intval = -intval;
@@ -80,16 +81,16 @@ class ConstantFoldingReplacer final : public ASTReplacerInFunctionBody {
       return create_int_const(v->loc, std::move(intval));
     }
     // same for "+1"
-    if (t == tok_plus && v->get_rhs()->type == ast_int_const) {
+    if (t == tok_plus && v->get_rhs()->kind == ast_int_const) {
       return v->get_rhs();
     }
 
     // `!true` / `!false`
-    if (t == tok_logical_not && v->get_rhs()->type == ast_bool_const) {
+    if (t == tok_logical_not && v->get_rhs()->kind == ast_bool_const) {
       return create_bool_const(v->loc, !v->get_rhs()->as<ast_bool_const>()->bool_val);
     }
     // `!0`
-    if (t == tok_logical_not && v->get_rhs()->type == ast_int_const) {
+    if (t == tok_logical_not && v->get_rhs()->kind == ast_int_const) {
       return create_bool_const(v->loc, v->get_rhs()->as<ast_int_const>()->intval == 0);
     }
 
@@ -100,7 +101,7 @@ class ConstantFoldingReplacer final : public ASTReplacerInFunctionBody {
     parent::replace(v);
 
     // `null == null` / `null != null`
-    if (v->get_expr()->type == ast_null_keyword && v->rhs_type == TypeDataNullLiteral::create()) {
+    if (v->get_expr()->kind == ast_null_keyword && v->type_node->resolved_type == TypeDataNullLiteral::create()) {
       return create_bool_const(v->loc, !v->is_negated);
     }
 
@@ -112,14 +113,12 @@ class ConstantFoldingReplacer final : public ASTReplacerInFunctionBody {
 
     // replace `ton("0.05")` with 50000000 / `stringCrc32("some_str")` with calculated value / etc.
     if (v->fun_maybe && v->fun_maybe->is_compile_time_only()) {
-      ConstantValue value = eval_call_to_compile_time_function(v);
-      if (value.is_int()) {
-        return create_int_const(v->loc, value.as_int());
+      CompileTimeFunctionResult value = eval_call_to_compile_time_function(v);
+      if (std::holds_alternative<td::RefInt256>(value)) {
+        return create_int_const(v->loc, std::move(std::get<td::RefInt256>(value)));
+      } else {
+        return create_string_const(v->loc, std::move(std::get<std::string>(value)));
       }
-      if (value.is_slice()) {
-        return create_string_const(v->loc, std::move(value));
-      }
-      tolk_assert(false);
     }
 
     return v;
@@ -128,7 +127,7 @@ class ConstantFoldingReplacer final : public ASTReplacerInFunctionBody {
   AnyExprV replace(V<ast_string_const> v) override {
     // when "some_str" occurs as a standalone constant (not inside `stringCrc32("some_str")`,
     // it's actually a slice
-    ConstantValue literal_value = eval_string_const_standalone(v);
+    std::string literal_value = eval_string_const_standalone(v);
     v->mutate()->assign_literal_value(std::move(literal_value));
 
     return v;
@@ -139,11 +138,8 @@ class ConstantFoldingReplacer final : public ASTReplacerInFunctionBody {
 
     // replace `2 + 3 => ...` with `5 => ...`
     // non-constant expressions like `foo() => ...` fire an error here
-    if (v->pattern_kind == MatchArmKind::const_expression && v->get_pattern_expr()->type != ast_int_const) {
-      ConstantValue value = eval_expression_expected_to_be_constant(v->get_pattern_expr());
-      tolk_assert(value.is_int());
-      AnyExprV v_new_pattern = create_int_const(v->get_pattern_expr()->loc, value.as_int());
-      v->mutate()->assign_resolved_pattern(MatchArmKind::const_expression, nullptr, v_new_pattern);
+    if (v->pattern_kind == MatchArmKind::const_expression && v->get_pattern_expr()->kind != ast_int_const) {
+      check_expression_is_constant(v->get_pattern_expr());
     }
 
     return v;
@@ -153,15 +149,32 @@ public:
   bool should_visit_function(FunctionPtr fun_ref) override {
     return fun_ref->is_code_function() && !fun_ref->is_generic_function();
   }
+
+  // used to replace `ton("0.05")` and other compile-time functions inside fields defaults, etc.
+  AnyExprV replace_in_expression(AnyExprV init_value) {
+    return parent::replace(init_value);
+  }
 };
 
 void pipeline_constant_folding() {
-  // here (after type inferring) evaluate `const a = 2 + 3` into `5`
+  ConstantFoldingReplacer replacer;
+
+  // here (after type inferring) check that `const a = 2 + 3` is a valid constant expression
   // non-constant expressions like `const a = foo()` fire an error here
+  // also, replace `const a = ton("0.05")` with `const a = 50000000`
   for (GlobalConstPtr const_ref : get_all_declared_constants()) {
-    // for `const a = b`, `b` could be already calculated while calculating `a`
-    if (!const_ref->value.initialized()) {
-      eval_and_assign_const_init_value(const_ref);
+    check_expression_is_constant(const_ref->init_value);
+    AnyExprV replaced = replacer.replace_in_expression(const_ref->init_value);
+    const_ref->mutate()->assign_init_value(replaced);
+  }
+  // do the same for default values of struct fields, they must be constant expressions
+  for (StructPtr struct_ref : get_all_declared_structs()) {
+    for (StructFieldPtr field_ref : struct_ref->fields) {
+      if (field_ref->has_default_value() && !struct_ref->is_generic_struct()) {
+        check_expression_is_constant(field_ref->default_value);
+        AnyExprV replaced = replacer.replace_in_expression(field_ref->default_value);
+        field_ref->mutate()->assign_default_value(replaced);
+      }
     }
   }
 

@@ -26,7 +26,6 @@ enum TokenType {
   tok_empty,
 
   tok_fun,
-  tok_get,
   tok_type,
   tok_enum,
   tok_struct,
@@ -168,7 +167,6 @@ public:
   };
 
   explicit Lexer(const SrcFile* file);
-  explicit Lexer(std::string_view text);
   Lexer(const Lexer&) = delete;
   Lexer &operator=(const Lexer&) = delete;
 
@@ -213,6 +211,7 @@ public:
 
   SavedPositionForLookahead save_parsing_position() const;
   void restore_position(SavedPositionForLookahead saved);
+  void hack_replace_rshift_with_one_triangle();
 
   void check(TokenType next_tok, const char* str_expected) const {
     if (cur_token.type != next_tok) {

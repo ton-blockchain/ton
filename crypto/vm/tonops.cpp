@@ -166,6 +166,9 @@ int exec_get_in_msg_param(VmState* st, unsigned idx, const char* name) {
     VM_LOG(st) << "execute " << name;
   }
   Ref<Tuple> t = get_param(st, inmsgparams_idx).as_tuple();
+  if (t.is_null()) {
+    throw VmError{Excno::type_chk, "intermediate value is not a tuple"};
+  }
   st->get_stack().push(tuple_index(t, idx));
   return 0;
 }

@@ -33,7 +33,7 @@ get fun string_crc16(): int {
 @pure
 fun newc(): builder
 asm "NEWC";
-fun endcs(b: builder): slice
+fun builder.endcs(self): slice
 asm "ENDC" "CTOS";
 @pure
 fun sdeq(s1: slice, s2: slice): int
@@ -42,8 +42,8 @@ asm "SDEQ";
 fun calcSliceBytes(slice: slice): tuple {
   var t = createEmptyTuple();
   var n = 0;
-  while (n = slice.getRemainingBitsCount()) {
-    t.tuplePush(slice.loadUint(min(8, n)));
+  while (n = slice.remainingBitsCount()) {
+    t.push(slice.loadUint(min(8, n)));
   }
   return t;
 }
@@ -78,5 +78,5 @@ fun test1() {
 @testcase | 0   | | 0
 @testcase | 101 | | [ 65 66 67 68 ]
 
-@code_hash 38184847030631877916087987911699475358017315230885358090110033079289166112584
+@code_hash 55974318379341089957961227475446008591490555692181953973486962465702042912657
 */

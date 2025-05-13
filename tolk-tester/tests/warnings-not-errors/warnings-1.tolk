@@ -6,7 +6,7 @@ fun main() {
     if (c == null) {}
 
     var d: int? = c;
-    if (((d)) != null && tupleSize(createEmptyTuple())) {}
+    if (((d)) != null && createEmptyTuple().size()) {}
 
     var e: int? = getNullableInt();
     if (e != null) {

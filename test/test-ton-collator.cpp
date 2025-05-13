@@ -303,8 +303,9 @@ class TestNode : public td::actor::Actor {
                               std::move(msg), 0);
     }
     for (auto &topmsg : top_shard_descrs_) {
-      td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManager::new_shard_block, ton::BlockIdExt{},
-                              0, std::move(topmsg));
+      td::actor::send_closure(validator_manager_,
+                              &ton::validator::ValidatorManager::new_shard_block_description_broadcast,
+                              ton::BlockIdExt{}, 0, std::move(topmsg));
     }
     class Callback : public ton::validator::ValidatorManagerInterface::Callback {
      private:
@@ -347,7 +348,7 @@ class TestNode : public td::actor::Actor {
         }
       }
       void send_block_candidate(ton::BlockIdExt block_id, ton::CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
-                                td::BufferSlice data) override {
+                                td::BufferSlice data, int mode) override {
       }
       void send_broadcast(ton::BlockBroadcast broadcast, int mode) override {
       }

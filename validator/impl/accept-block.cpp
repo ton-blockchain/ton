@@ -951,6 +951,11 @@ void AcceptBlockQuery::applied() {
   // do not wait for answer
   td::actor::send_closure_later(manager_, &ValidatorManager::send_block_broadcast, std::move(b), send_broadcast_mode_);
 
+  // Do this for shard blocks later:
+  // td::actor::send_closure(manager_, &ValidatorManager::send_block_candidate_broadcast, id_,
+  //                         validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash(),
+  //                         std::move(b.data), send_broadcast_mode_);
+
   finish_query();
 }
 

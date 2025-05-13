@@ -95,7 +95,7 @@ class CalculateRvalueLvalueVisitor final : public ASTVisitorFunctionBody {
     restore_state(saved);
   }
   
-  void visit(V<ast_typed_tuple> v) override {
+  void visit(V<ast_bracket_tuple> v) override {
     mark_vertex(v);
     MarkingState saved = enter_rvalue_if_none();
     parent::visit(v);
@@ -224,6 +224,25 @@ class CalculateRvalueLvalueVisitor final : public ASTVisitorFunctionBody {
     tolk_assert(cur_state == MarkingState::RValue);
     mark_vertex(v);
     parent::visit(v);
+  }
+
+  void visit(V<ast_object_field> v) override {
+    tolk_assert(cur_state == MarkingState::RValue);
+    mark_vertex(v);
+    parent::visit(v);
+  }
+
+  void visit(V<ast_object_body> v) override {
+    tolk_assert(cur_state == MarkingState::RValue);
+    mark_vertex(v);
+    parent::visit(v);
+  }
+
+  void visit(V<ast_object_literal> v) override {
+    mark_vertex(v);
+    MarkingState saved = enter_state(MarkingState::RValue);
+    parent::visit(v);
+    restore_state(saved);
   }
 
   void visit(V<ast_local_var_lhs> v) override {
