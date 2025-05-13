@@ -22,8 +22,22 @@
 namespace tolk {
 
 std::string FunctionData::as_human_readable() const {
-  if (!genericTs) {
+  if (!is_generic_function()) {
     return name;  // if it's generic instantiation like `f<int>`, its name is "f<int>", not "f"
+  }
+  return name + genericTs->as_human_readable();
+}
+
+std::string AliasDefData::as_human_readable() const {
+  if (!is_generic_alias()) {
+    return name;
+  }
+  return name + genericTs->as_human_readable();
+}
+
+std::string StructData::as_human_readable() const {
+  if (!is_generic_struct()) {
+    return name;
   }
   return name + genericTs->as_human_readable();
 }
@@ -50,6 +64,20 @@ bool FunctionData::does_need_codegen() const {
   // (but actually, unused ones are later removed by Fift)
   // in the future, we may want to implement a true AST inlining for "simple" functions
   return true;
+}
+
+void FunctionData::assign_resolved_receiver_type(TypePtr receiver_type, std::string&& name_prefix) {
+  this->receiver_type = receiver_type;
+  if (!this->substitutedTs) {   // after receiver has been resolve, update name to "receiver.method"
+    name_prefix.erase(std::remove(name_prefix.begin(), name_prefix.end(), ' '), name_prefix.end());
+    this->name = name_prefix + "." + this->method_name;
+  }
+}
+
+void FunctionData::assign_resolved_genericTs(const GenericsDeclaration* genericTs) {
+  if (this->substitutedTs == nullptr) {
+    this->genericTs = genericTs;
+  }
 }
 
 void FunctionData::assign_resolved_type(TypePtr declared_return_type) {
@@ -97,8 +125,8 @@ void GlobalConstData::assign_inferred_type(TypePtr inferred_type) {
   this->inferred_type = inferred_type;
 }
 
-void GlobalConstData::assign_const_value(ConstantValue&& value) {
-  this->value = std::move(value);
+void GlobalConstData::assign_init_value(AnyExprV init_value) {
+  this->init_value = init_value;
 }
 
 void LocalVarData::assign_ir_idx(std::vector<int>&& ir_idx) {
@@ -113,8 +141,45 @@ void LocalVarData::assign_inferred_type(TypePtr inferred_type) {
   this->declared_type = inferred_type;
 }
 
+void AliasDefData::assign_visited_by_resolver() {
+  this->flags |= flagVisitedByResolver;
+}
+
+void AliasDefData::assign_resolved_genericTs(const GenericsDeclaration* genericTs) {
+  if (this->substitutedTs == nullptr) {
+    this->genericTs = genericTs;
+  }
+}
+
 void AliasDefData::assign_resolved_type(TypePtr underlying_type) {
   this->underlying_type = underlying_type;
+}
+
+void StructFieldData::assign_resolved_type(TypePtr declared_type) {
+  this->declared_type = declared_type;
+}
+
+void StructFieldData::assign_default_value(AnyExprV default_value) {
+  this->default_value = default_value;
+}
+
+void StructData::assign_visited_by_resolver() {
+  this->flags |= flagVisitedByResolver;
+}
+
+void StructData::assign_resolved_genericTs(const GenericsDeclaration* genericTs) {
+  if (this->substitutedTs == nullptr) {
+    this->genericTs = genericTs;
+  }
+}
+
+StructFieldPtr StructData::find_field(std::string_view field_name) const {
+  for (StructFieldPtr field : fields) {
+    if (field->name == field_name) {
+      return field;
+    }
+  }
+  return nullptr;
 }
 
 GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
@@ -161,8 +226,20 @@ void GlobalSymbolTable::add_type_alias(AliasDefPtr a_sym) {
   }
 }
 
+void GlobalSymbolTable::add_struct(StructPtr s_sym) {
+  auto key = key_hash(s_sym->name);
+  auto [it, inserted] = entries.emplace(key, s_sym);
+  if (!inserted) {
+    fire_error_redefinition_of_symbol(s_sym->loc, it->second);
+  }
+}
+
 const Symbol* lookup_global_symbol(std::string_view name) {
   return G.symtable.lookup(name);
+}
+
+FunctionPtr lookup_function(std::string_view name) {
+  return G.symtable.lookup(name)->try_as<FunctionPtr>();
 }
 
 }  // namespace tolk

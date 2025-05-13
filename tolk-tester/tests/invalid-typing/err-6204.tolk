@@ -1,9 +1,9 @@
 fun cantUnifyCoinsAndUInt8(n: int8, c: coins) {
-    __expect_type(random() ? n : c as int8, "int8");
-    __expect_type(random() ? n as int16 : c as int16, "int16");
+    __expect_type(random.uint256() ? n : c as int8, "int8");
+    __expect_type(random.uint256() ? n as int16 : c as int16, "int16");
 
-    var withHint: int = random() ? n : c;  // ok
-    var withoutHint   = random() ? n : c;  // error
+    var withHint: int = random.uint256() ? n : c;  // ok
+    var withoutHint   = random.uint256() ? n : c;  // error
 }
 
 /**

@@ -1,5 +1,5 @@
 // A part of standard library for Tolk
-tolk 0.11
+tolk 0.12
 
 /// Usually `c3` has a continuation initialized by the whole code of the contract. It is used for function calls.
 /// The primitive returns the current value of `c3`.
@@ -21,5 +21,5 @@ fun transformSliceToContinuation(s: slice): continuation
 
 /// Moves a variable or a value [x] to the top of the stack.
 @pure
-fun stackMoveToTop<X>(mutate self: X): void
+fun T.stackMoveToTop(mutate self): void
     asm "NOP";

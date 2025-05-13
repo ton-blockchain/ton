@@ -1,17 +1,35 @@
 // the goal of this file is not only to @testcase results —
 // but to check that this file compiles
 
+struct Point {
+    x: int;
+    y: int;
+}
+
+struct PointOfNulls {
+    x: int?;
+    y: int?;
+    sub: Point?;
+}
+
+fun rand(): int
+    asm "RANDU256";
+
 fun getNullableInt(): int? { return 5; }
 fun getNullableSlice(): slice? { return null; }
 fun takeNullableInt(a: int?) {}
 fun takeNullableSlice(a: slice?) {}
-fun increment(mutate self: int) { self += 1; }
-fun assignToInt(mutate self: int, value: int) { self = value; }
-fun assignToNullableInt(mutate self: int?, value: int) { self = value; }
+fun increment(mutate x: int) { x += 1; }
+fun int.increment(mutate self) { self += 1; }
+fun assignToInt(mutate x: int, value: int) { x = value; }
+fun int.assignToInt(mutate self, value: int) { self = value; }
+fun assignToNullableInt(mutate x: int?, value: int) { x = value; }
+fun int?.assignToNullableInt(mutate self, value: int) { self = value; }
 fun sameTensor(t: (int, int)) { return t; }
 fun sameTensor2(t: (int?, Pair4N)) { return t; }
 fun eq<T>(v: T) { return v; }
 fun getTwo<X>(): X { return 2 as X; }
+fun assignNullTo<T>(mutate v: T?) { v = null; }
 
 type Pair4N = (slice, slice, slice, builder)?;
 
@@ -46,7 +64,7 @@ fun test3(): int {
         }
         return x;
     }
-    if (random() > -1) {
+    if (rand() > -1) {
         if (y == null) { return -1 }
         else { return y }
     }
@@ -76,7 +94,7 @@ fun test5() {
     var (a, (b, c)) = (getNullableInt(), (getNullableInt(), getNullableInt()));
     if (a == null) { return -1; }
     if (!(b != null)) { return -2; }
-    if (random() ? c == null && c == null : c == null) { return -3; }
+    if (rand() ? c == null && c == null : c == null) { return -3; }
     return a + b + c;
 }
 
@@ -87,10 +105,10 @@ fun test6() {
     __expect_type(a == null ? "" : a, "int");
     takeNullableInt(a);
     __expect_type(a, "int");
-    if (random()) {
+    if (rand()) {
         a = null;
     } else {
-        if (random()) { a = null; }
+        if (rand()) { a = null; }
         else { a = null; }
     }
     __expect_type(a, "null");
@@ -109,7 +127,7 @@ fun test7() {
     if (a == null && true) { return -1; }
     if (true && true && 1 && !0 && b == null) { return -2; }
     if (true ? c == null && (((c))) == null && true : false) { return -3; }
-    if (!true ? random() > 0 : a != null && (d == null && b != null)) { return -4; }
+    if (!true ? rand() > 0 : a != null && (d == null && b != null)) { return -4; }
     return a + b + c + d;
 }
 
@@ -117,7 +135,7 @@ fun test8(x: int?, y: int?) {
     var allGt1 = x != null && x > 1 && y != null && y > 1;
     var xGtY = x != null && y != null && x > y;
     var xLtEq0 = x == null || x < 0;
-    (x = 0) < random() || x > 10;
+    (x = 0) < rand() || x > 10;
     return x + 0;
 }
 
@@ -148,16 +166,17 @@ fun test10(): int {
     return x + y;
 }
 
+@method_id(111)
 fun test11() {
     var [x, y] = [getNullableInt(), getNullableInt()];
-    if (random()) { return x == null || y == null ? -1 : x + y; }
+    if (eq(10) < 0) { return x == null || y == null ? -1 : x + y; }
     if (true && (x == null || y == null) && !!true) { return 0; }
     return x + y;
 }
 
 fun test12() {
     var (x, y) = (getNullableInt(), getNullableInt());
-    if (random() ? x == null || y == null : x == null || y == null) { return -1; }
+    if (rand() ? x == null || y == null : x == null || y == null) { return -1; }
     __expect_type(x, "int");
     __expect_type(y, "int");
     return x + y;
@@ -179,7 +198,7 @@ fun test14() {
         x = 0;
     }
     if (y == null) {
-        if (random()) { return 0; }
+        if (rand()) { return 0; }
         else { y = 0; }
     }
     return x + y;
@@ -249,45 +268,45 @@ fun test24(x: int?) {
 
 fun test25() {
     var x = (getNullableInt(), getNullableInt(), getNullableInt());
-    x.0 = x.2 = random();
+    x.0 = x.2 = rand();
     return (x.0) + ((x.2));
 }
 
 fun test26() {
     var x = [getNullableInt(), getNullableInt(), getNullableInt(), getNullableInt(), getNullableInt(),
         getNullableInt(), getNullableInt(), getNullableInt(), getNullableInt(), getNullableInt()];
-    if (~(x.0 = random())) { return; }
-    if ((x.1 = random()) < (x.2 = random())) { return; }
-    else if (!(x.2 <=> (x.3 = random()))) { return; }
-    x.5 = (x.4 = random()) ? (x.6 = random()) : (x.6 = random());
-    if ((x.7 = random()) as int) { return; }
-    if (((((x.8 = random()) != null)))) { return; }
-    if ([x.1, (x.9 = random())!].1) { return; }
+    if (~(x.0 = rand())) { return; }
+    if ((x.1 = rand()) < (x.2 = rand())) { return; }
+    else if (!(x.2 <=> (x.3 = rand()))) { return; }
+    x.5 = (x.4 = rand()) ? (x.6 = rand()) : (x.6 = rand());
+    if ((x.7 = rand()) as int) { return; }
+    if (((((x.8 = rand()) != null)))) { return; }
+    if ([x.1, (x.9 = rand())!].1) { return; }
     val result = x.0+x.1+x.2+x.3+x.4+x.5+x.6+x.7+x.8+x.9;
 }
 
 fun test27() {
     var (x, _) = ([getNullableInt(), getNullableInt(), getNullableInt(), getNullableInt(), getNullableInt(),
         getNullableInt(), getNullableInt(), getNullableInt(), getNullableInt(), getNullableInt()], []);
-    +(x.0 = random());
-    x.0 += [((x.1 = random()) < (x.2 = random() + x.1)) as int].0;
-    !(x.2 <=> (x.3 = random() + x.2));
-    x.5 = (x.4 = random()) ? (x.6 = random()) : (x.6 = random());
-    (x.7 = random()) as int;
-    (((((x.8 = random()) != null))));
-    [x.1, (x.9 = random())!].1;
+    +(x.0 = rand());
+    x.0 += [((x.1 = rand()) < (x.2 = rand() + x.1)) as int].0;
+    !(x.2 <=> (x.3 = rand() + x.2));
+    x.5 = (x.4 = rand()) ? (x.6 = rand()) : (x.6 = rand());
+    (x.7 = rand()) as int;
+    (((((x.8 = rand()) != null))));
+    [x.1, (x.9 = rand())!].1;
     return x.0+x.1+x.2+x.3+x.4+x.5+x.6+x.7+x.8+x.9;
 }
 
 fun test28() {
     var x = (getNullableInt(), getNullableInt(), getNullableInt(), getNullableInt());
-    __expect_type((x.0 = random(), x.0 += (x.1 = random()) as int, !(x.1 <=> (x.2 = random() + x.0)) == null, (x.3 = random()) ? x.3 : (!x.3) as int),
+    __expect_type((x.0 = rand(), x.0 += (x.1 = rand()) as int, !(x.1 <=> (x.2 = rand() + x.0)) == null, (x.3 = rand()) ? x.3 : (!x.3) as int),
                   "(int, int, bool, int)");
 }
 
 fun test29() {
     var x = (getNullableInt(), getNullableInt(), getNullableInt(), getNullableInt());
-    __expect_type([x.0 = random(), ((x.0 += (x.1 = random()) as int)), !(x.1 <=> (x.2 = random() + x.0)) == null, (x.3 = random()) ? x.3 : (!x.3) as int],
+    __expect_type([x.0 = rand(), ((x.0 += (x.1 = rand()) as int)), !(x.1 <=> (x.2 = rand() + x.0)) == null, (x.3 = rand()) ? x.3 : (!x.3) as int],
                   "[int, int, bool, int]");
 }
 
@@ -344,7 +363,7 @@ fun test33(): int {
 
 fun test34() {
     var (x, y) = (getNullableInt(), getNullableInt());
-    if (random()) { throw (x = 1, y = 2) }
+    if (rand()) { throw (x = 1, y = 2) }
     else { throw (x = 3, y = (1, getNullableInt()!).1) }
     return x + y;
 }
@@ -398,8 +417,8 @@ fun test38() {
     assignNull2(mutate t.0, mutate t.1);
     __expect_type(t.0, "int?");
     __expect_type(t.1, "slice?");
-    t.0 != null && t.1 != null ? t.0 + loadInt(mutate t.1, 32) : -1;
-    return t.0 != null && t.1 != null ? t.0 + loadInt(mutate t.1, 32) : -1;
+    t.0 != null && t.1 != null ? t.0 + t.1.loadInt(32) : -1;
+    return t.0 != null && t.1 != null ? t.0 + t.1.loadInt(32) : -1;
 }
 
 @method_id(139)
@@ -572,7 +591,7 @@ fun test54() {
         x1 = getNullableInt();
         __expect_type(x1, "int?");
         assignToNullableInt(mutate x2, 5);
-        if (random()) { x3.assignToNullableInt(5); }
+        if (rand()) { x3.assignToNullableInt(5); }
         x11 = 10;
         assignToInt(mutate x12, 5);
     } while (x1 != null);
@@ -593,7 +612,7 @@ fun test55() {
         // (checked via codegen)
         eq55(x);
         __expect_type(x, "int?");   // types are checked (unlike generics instantiated) after inferring
-        x = random() ? 1 : null;
+        x = rand() ? 1 : null;
     }
     __expect_type(x, "int?");
 }
@@ -658,6 +677,44 @@ fun test60() {
 }
 
 
+@method_id(161)
+fun test61(p: Point) {
+    var p2: Point? = p;
+    __expect_type(p2, "Point");
+    if (p.x < 10) {
+        assignNullTo(mutate p2);
+    }
+    __expect_type(p2, "Point?");
+    return (p2, p2!);
+}
+
+fun test62() {
+    var p = PointOfNulls { x: 1, y: null, sub: null };
+    __expect_type(p.x, "int?");
+    __expect_type(p.sub, "Point?");
+    if (p.sub == null) {
+        p.x! > 10 ? p.sub = { x: 1, y : 2 } : Point { x: 3, y: 4 };
+        __expect_type(p.sub, "Point?");
+        p.x! > 10 ? p.sub = { x: 1, y : 2 } : p.sub = eq<Point>({ x: 3, y: 4 });
+    }
+    __expect_type(p.sub, "Point");
+    __expect_type(p!!.sub!!, "Point");
+    p.sub.x + p.x! + p.y!;
+    return rand() ? null : p;
+}
+
+fun test63() {
+    __expect_type(test62, "() -> PointOfNulls?");
+    var r = test62();
+    __expect_type(r!.sub, "Point?");
+    if (r != null) {
+        r.sub = { x: 1, y: 2 };
+    }
+    __expect_type(r!.sub, "Point?");
+    r!.sub = { x: 1, y: 2 };
+    __expect_type(r!.sub, "Point");
+}
+
 
 fun main(x: int?): int {
     return x == null ? -1 : x;
@@ -665,6 +722,7 @@ fun main(x: int?): int {
 
 /**
 @testcase | 0   | 1     | 1
+@testcase | 111 |       | 10
 @testcase | 123 |       | 7
 @testcase | 124 | 4     | 6
 @testcase | 124 | null  | 15
@@ -675,14 +733,16 @@ fun main(x: int?): int {
 @testcase | 139 |       | 16
 @testcase | 140 | 5     | 25
 @testcase | 141 |       | 1 2
-@testcase | 142 |       | 5 3 (null) (null) 0 132 3 (null) (null) 0
+@testcase | 142 |       | 5 3 (null) (null) 0 133 3 (null) (null) 0
 @testcase | 143 |       | 10 11 (null) 10 11 (null) (null) 0
 @testcase | 144 |       | 10 11 (null) 10 11 (null) (null) 0
-@testcase | 145 |       | 5 3 (null) (null) 0 132 3 (null) (null) (null) (null) 0 3 (null) (null) 0
-@testcase | 146 |       | 3 4 5 3 4 5 131
+@testcase | 145 |       | 5 3 (null) (null) 0 133 3 (null) (null) (null) (null) 0 3 (null) (null) 0
+@testcase | 146 |       | 3 4 5 3 4 5 132
 @testcase | 147 |       | (null) (null) 100 (null) 100 (null) (null) 0
 @testcase | 158 |       | 123 10 123 5
 @testcase | 160 |       | 101 109
+@testcase | 161 | 9 9   | (null) (null) 0 (null) (null)
+@testcase | 161 | 19 0  | 19 0 129 19 0
 
 @stderr warning: expression of type `int` can never be `null`, this condition is always true
 @stderr warning: unreachable code
@@ -694,7 +754,6 @@ fun main(x: int?): int {
 @fif_codegen
 """
   test60 PROC:<{
-    //
     101 PUSHINT	//  cc1
     109 PUSHINT	//  cc1 cc2
   }>

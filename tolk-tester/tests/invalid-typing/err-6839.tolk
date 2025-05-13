@@ -1,9 +1,9 @@
-fun incInt(mutate self: int): self {
+fun int.incInt(mutate self): self {
     self += 1;
     return self;
 }
 
-fun appendBuilder(mutate self: builder): self {
+fun builder.appendBuilder(mutate self): self {
     self.storeUint(1, 32);
     return self;
 }
@@ -15,5 +15,5 @@ fun cantMixDifferentThis() {
 
 /**
 @compilation_should_fail
-@stderr can not call method for `builder` with object of type `int`
+@stderr method `appendBuilder` not found for type `int`
  */

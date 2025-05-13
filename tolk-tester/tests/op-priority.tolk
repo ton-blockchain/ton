@@ -92,28 +92,25 @@ fun main() {
 
 @fif_codegen
 """
-  unary_minus_1 PROC:<{
-    //  a b c
+  unary_minus_1 PROC:<{ //  a b c
     -ROT	//  c a b
-    ADD	//  c '3
+    ADD	    //  c '3
     NEGATE	//  c '4
     SWAP	//  '4 c
-    MUL	//  '5
+    MUL	    //  '5
   }>
-  unary_minus_2 PROC:<{
-    //  a b c
+  unary_minus_2 PROC:<{  //  a b c
     -ROT	//  c a b
-    ADD	//  c '3
+    ADD	    //  c '3
     NEGATE	//  c '4
     SWAP	//  '4 c
-    MUL	//  '5
+    MUL	    //  '5
   }>
-  unary_minus_3 PROC:<{
-    //  a b c
+  unary_minus_3 PROC:<{ //  a b c
     -ROT	//  c a b
-    ADD	//  c '3
+    ADD	    //  c '3
     SWAP	//  '3 c
-    MUL	//  '4
+    MUL	    //  '4
     NEGATE	//  '5
   }>
 """

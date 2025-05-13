@@ -596,7 +596,7 @@ fun test50() {
     if (match(b) { int => 1, null => null } !is int) {
         return 100
     }
-    return (b! + (match (a) { int => a, slice => a, null => a } as int|slice?).test49());
+    return (b! + test49(match (a) { int => a, slice => a, null => a } as int|slice?));
 }
 
 @method_id(151)
@@ -671,7 +671,7 @@ fun test54(): int|slice {
             __expect_type(a, "int");
             a = beginCell().storeInt(100, 32).endCell().beginParse();
             __expect_type(a, "slice");
-            if (a.getRemainingBitsCount() < 100) { a = a.loadInt(32); }
+            if (a.remainingBitsCount() < 100) { a = a.loadInt(32); }
             else { a = 0; }
             __expect_type(a, "int");
             return a;
@@ -791,11 +791,11 @@ fun main() {
 @testcase | 105 |           | 5 5 1 5 1 5
 @testcase | 106 | 1         | (null) 0
 @testcase | 106 | 2         | 2 1
-@testcase | 107 | 1         | (null) 2 3 131 (null) 2 3 131
-@testcase | 107 | 3         | 6 7 8 132 6 7 8 132
-@testcase | 108 |           | (null) 2 3 131 (null) (null) (null) 0 (null) 2 3 131 (null) 2 3 131 (null) (null) (null) 0
-@testcase | 109 |           | 6 7 8 132 0 (null) -1 (null) (null) (null) 0 -1 (null) (null) (null) 0
-@testcase | 110 |           | 1 (null) (null) 0 (null) (null) 0 134
+@testcase | 107 | 1         | (null) 2 3 129 (null) 2 3 129
+@testcase | 107 | 3         | 6 7 8 130 6 7 8 130
+@testcase | 108 |           | (null) 2 3 129 (null) (null) (null) 0 (null) 2 3 129 (null) 2 3 129 (null) (null) (null) 0
+@testcase | 109 |           | 6 7 8 130 0 (null) -1 (null) (null) (null) 0 -1 (null) (null) (null) 0
+@testcase | 110 |           | 1 (null) (null) 0 (null) (null) 0 135
 @testcase | 120 |           | 5
 @testcase | 121 |           | -1 0 0 -1 -1 0
 @testcase | 122 | 0 0 1     | 36
@@ -807,21 +807,21 @@ fun main() {
 @testcase | 125 | 1 1       | 42
 @testcase | 126 |           | 42
 @testcase | 127 |           | 1 2 5 1
-@testcase | 128 |           | (null) (null) 0 777 (null) 2 1 777 3 4 131
+@testcase | 128 |           | (null) (null) 0 777 (null) 2 1 777 3 4 129
 @testcase | 129 |           | (null) (null) 0 (null) 5 1
-@testcase | 130 | 0         | (null) 5 1 777 (null) (null) 0 777 1 2 131 777 (null) [ 6 ] 135 777 (null) (null) 0
-@testcase | 130 | -1        | (null) (null) 0 777 (null) (null) 0 777 1 2 131 777 (null) [ 6 ] 135 777 (null) (null) 0
-@testcase | 131 |           | (null) 777 5 777 1 2 777 (null) 777 5 777 (null) (null) 0 777 1 2 131
-@testcase | 132 |           | (null) (null) 5 1 777 (null) (null) 5 42 777 (null) 4 5 131 777 (null) (null) (null) 0
-@testcase | 133 |           | (null) (null) 5 1 777 (null) (null) 5 42 777 (null) 4 5 131 777 (null) (null) (null) 0
-@testcase | 134 |           | (null) 5 1 777 (null) 5 1 777 1 2 131 777 1 2 131 777 (null) 5 42 777 5 42 777 5 42
-@testcase | 135 |           | (null) 5 1 777 (null) (null) 1 2 131 777 (null) (null) 1 2 131 777 (null) (null) 0
-@testcase | 136 |           | 1 2 131 777 1 2 140 777 1 2 141 777 (null) 1 2 138
+@testcase | 130 | 0         | (null) 5 1 777 (null) (null) 0 777 1 2 129 777 (null) [ 6 ] 136 777 (null) (null) 0
+@testcase | 130 | -1        | (null) (null) 0 777 (null) (null) 0 777 1 2 129 777 (null) [ 6 ] 136 777 (null) (null) 0
+@testcase | 131 |           | (null) 777 5 777 1 2 777 (null) 777 5 777 (null) (null) 0 777 1 2 129
+@testcase | 132 |           | (null) (null) 5 1 777 (null) (null) 5 42 777 (null) 4 5 129 777 (null) (null) (null) 0
+@testcase | 133 |           | (null) (null) 5 1 777 (null) (null) 5 42 777 (null) 4 5 129 777 (null) (null) (null) 0
+@testcase | 134 |           | (null) 5 1 777 (null) 5 1 777 1 2 129 777 1 2 129 777 (null) 5 42 777 5 42 777 5 42
+@testcase | 135 |           | (null) 5 1 777 (null) (null) 1 2 129 777 (null) (null) 1 2 129 777 (null) (null) 0
+@testcase | 136 |           | 1 2 129 777 1 2 140 777 1 2 141 777 (null) 1 2 142
 @testcase | 137 | 1 2       | 1 2 777 1 2 777 1 2 777 [ 1 2 ]
-@testcase | 138 |           | 1 (null) (null) (null) (null) 0 2 149 777 1 (null) 0 2 143 777 1 5 1 2 143 777 1 (null) 5 1 2 144
+@testcase | 138 |           | 1 (null) (null) (null) (null) 0 2 146 777 1 (null) 0 2 147 777 1 5 1 2 147 777 1 (null) 5 1 2 148
 @testcase | 139 |           | 1 (null) (null) (null) (null) 0 2 777 1 (null) 0 2 777 1 5 1 2 777 1 (null) 5 1 2
 @testcase | 140 | 5         | 5 42
-@testcase | 140 | 15        | 15 129
+@testcase | 140 | 15        | 15 131
 @testcase | 140 | 90        | 90 49
 @testcase | 141 | 7 8       | 7 7 1 8 8 1
 @testcase | 141 | null null | (null) (null) 0 (null) (null) 0
@@ -842,9 +842,9 @@ fun main() {
 @testcase | 154 |           | 100 1
 @testcase | 155 |           | 5 1 5 1
 @testcase | 156 | 1 2 -1    | 2 44 2 2 44 2 2 44 2 44 2 2 2
-@testcase | 157 | 1         | (null) 0 (null) 145 777 1 2 131 777 145 145 777 0 0 -1 0 -1 0 0 777 -1 0
-@testcase | 157 | 0         | (null) 0 (null) 145 777 (null) (null) 145 777 0 0 777 0 0 -1 0 0 -1 0 777 0 -1
-@testcase | 158 |           | (null) (null) 145 (null) (null) 145 (null) 0 (null)
+@testcase | 157 | 1         | (null) 0 (null) 149 777 1 2 129 777 149 149 777 0 0 -1 0 -1 0 0 777 -1 0
+@testcase | 157 | 0         | (null) 0 (null) 149 777 (null) (null) 149 777 0 0 777 0 0 -1 0 0 -1 0 777 0 -1
+@testcase | 158 |           | (null) (null) 149 (null) (null) 149 (null) 0 (null)
 @testcase | 159 | 0 4       | 456
 @testcase | 159 | null 0    | 123
 @testcase | 160 |           | 10 0
@@ -854,17 +854,15 @@ fun main() {
 @fif_codegen
 """
   test26 PROC:<{
-    //
     42 PUSHINT  // result
   }>
 """
 
 @fif_codegen
 """
-  checkSimple PROC:<{
-    //  a.USlot1 a.UTag
-    NIP	//  a.UTag
-    DUP	//  a.UTag a.UTag
+  checkSimple PROC:<{   //  a.USlot1 a.UTag
+    NIP	    //  a.UTag
+    DUP	    //  a.UTag a.UTag
     1 EQINT	//  a.UTag '3
     IF:<{	//  a.UTag
       DROP	//
@@ -883,7 +881,6 @@ fun main() {
 @fif_codegen
 """
   test61 PROC:<{
-    //  i.USlot1 i.UTag
     NIP
     DUP
     46 EQINT

@@ -6,5 +6,5 @@ fun failCantDeduceWithoutArgument() {
 
 /**
 @compilation_should_fail
-@stderr too few arguments in call to `f`, expected 2, have 1
+@stderr too few arguments in call to `f<X>`, expected 2, have 1
  */
