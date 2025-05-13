@@ -74,7 +74,7 @@ void ValidatorManagerMasterchainReiniter::got_masterchain_handle(BlockHandle han
   download_proof_link();
 }
 
-void ValidatorManagerMasterchainReiniter::download_proof_link() {
+void ValidatorManagerMasterchainReiniter::download_proof_link(bool try_local) {
   if (handle_->id().id.seqno == 0) {
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
       R.ensure();
@@ -84,18 +84,29 @@ void ValidatorManagerMasterchainReiniter::download_proof_link() {
                                                 td::Timestamp::in(3600), std::move(P))
         .release();
   } else {
-    auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::BufferSlice> R) {
+    auto P = td::PromiseCreator::lambda([=, SelfId = actor_id(this)](td::Result<td::BufferSlice> R) {
       if (R.is_error()) {
-        LOG(WARNING) << "failed to download proof link: " << R.move_as_error();
+        if (try_local) {
+          LOG(DEBUG) << "failed to get proof link from local import: " << R.move_as_error();
+        } else {
+          LOG(WARNING) << "failed to download proof link: " << R.move_as_error();
+        }
         delay_action(
-            [SelfId]() { td::actor::send_closure(SelfId, &ValidatorManagerMasterchainReiniter::download_proof_link); },
+            [SelfId]() {
+              td::actor::send_closure(SelfId, &ValidatorManagerMasterchainReiniter::download_proof_link, false);
+            },
             td::Timestamp::in(1.0));
       } else {
         td::actor::send_closure(SelfId, &ValidatorManagerMasterchainReiniter::downloaded_proof_link, R.move_as_ok());
       }
     });
-    td::actor::send_closure(manager_, &ValidatorManager::get_block_proof_link_from_import, handle_->id(), handle_->id(),
-                            std::move(P));
+    if (try_local) {
+      td::actor::send_closure(manager_, &ValidatorManager::get_block_proof_link_from_import, handle_->id(),
+                              handle_->id(), std::move(P));
+    } else {
+      td::actor::send_closure(manager_, &ValidatorManager::send_get_block_proof_link_request, handle_->id(), 2,
+                              std::move(P));
+    }
   }
 }
 
@@ -111,7 +122,7 @@ void ValidatorManagerMasterchainReiniter::downloaded_proof_link(td::BufferSlice 
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), db = db_, proof](td::Result<BlockHandle> R) {
     if (R.is_error()) {
       LOG(WARNING) << "downloaded proof link failed: " << R.move_as_error();
-      td::actor::send_closure(SelfId, &ValidatorManagerMasterchainReiniter::download_proof_link);
+      td::actor::send_closure(SelfId, &ValidatorManagerMasterchainReiniter::download_proof_link, false);
     } else {
       auto P = td::PromiseCreator::lambda([SelfId, handle = R.move_as_ok()](td::Result<td::Unit> R) {
         R.ensure();
