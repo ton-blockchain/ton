@@ -3199,6 +3199,11 @@ td::Status Transaction::check_state_limits(const SizeLimitsConfig& size_limits, 
     }
     StorageStatCalculationContext context{is_account_stat};
     StorageStatCalculationContext::Guard guard{&context};
+    if (is_account_stat) {
+      storage_stats_updates.push_back(new_code);
+      storage_stats_updates.push_back(new_data);
+      storage_stats_updates.push_back(new_library);
+    }
     TRY_STATUS(storage_stat.replace_roots({new_code, new_data, new_library}, /* check_merkle_depth = */ true));
     if (timer.elapsed() > 0.1) {
       LOG(INFO) << "Compute used storage (1) took " << timer.elapsed() << "s";
@@ -3224,9 +3229,6 @@ td::Status Transaction::check_state_limits(const SizeLimitsConfig& size_limits, 
   if (is_account_stat) {
     // storage_stat will be reused in compute_state()
     new_account_storage_stat.value_force() = std::move(storage_stat);
-    storage_stats_updates.push_back(new_code);
-    storage_stats_updates.push_back(new_data);
-    storage_stats_updates.push_back(new_library);
   }
   return td::Status::OK();
 }
