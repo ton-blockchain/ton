@@ -785,11 +785,20 @@ void VmState::restore_parent_vm(int res) {
     cur_stack.push(std::move(child_state.stack->at(i)));
   }
   cur_stack.push_smallint(res);
-  if (parent->return_data) {
-    cur_stack.push_cell(child_state.get_committed_state().c4);
-  }
-  if (parent->return_actions) {
-    cur_stack.push_cell(child_state.get_committed_state().c5);
+  if (global_version >= 11 && !child_state.get_committed_state().committed) {
+    if (parent->return_data) {
+      cur_stack.push_null();
+    }
+    if (parent->return_actions) {
+      cur_stack.push_null();
+    }
+  } else {
+    if (parent->return_data) {
+      cur_stack.push_cell(child_state.get_committed_state().c4);
+    }
+    if (parent->return_actions) {
+      cur_stack.push_cell(child_state.get_committed_state().c5);
+    }
   }
   if (parent->return_gas) {
     cur_stack.push_smallint(child_state.gas.gas_consumed());
