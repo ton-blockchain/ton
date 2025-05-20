@@ -154,7 +154,7 @@ td::Status AccountStorageStat::remove_cell(const Ref<vm::Cell>& cell) {
   if (e.refcnt_diff < 0 && !e.refcnt) {
     TRY_STATUS(fetch_from_dict(e));
   }
-  if (e.refcnt.value() + e.refcnt_diff != 0) {
+  if (e.refcnt_diff >= 0 || e.refcnt.value() + e.refcnt_diff != 0) {
     return td::Status::OK();
   }
   bool spec;
