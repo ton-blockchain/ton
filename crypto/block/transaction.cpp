@@ -602,9 +602,11 @@ static td::Ref<vm::CellSlice> storage_without_extra_currencies(td::Ref<vm::CellS
  * This requires storage_dict_hash to be set, as it guarantees that the stored storage_used was computed recently
  * (in older versions it included extra currency balance, in newer versions it does not).
  *
+ * @param storage_cells If not null, store all hashes of cells in storage to storage_cells.
+ *
  * @returns Root of the dictionary, or Error
  */
-td::Result<Ref<vm::Cell>> Account::compute_account_storage_dict() const {
+td::Result<Ref<vm::Cell>> Account::compute_account_storage_dict(td::HashSet<vm::CellHash>* storage_cells) const {
   if (storage.is_null()) {
     return td::Status::Error("cannot compute storage dict: empty storage");
   }
@@ -616,7 +618,7 @@ td::Result<Ref<vm::Cell>> Account::compute_account_storage_dict() const {
   if (storage_for_stat.is_null()) {
     return td::Status::Error("cannot compute storage dict: invalid storage");
   }
-  TRY_STATUS(stat.replace_roots(storage_for_stat->prefetch_all_refs()));
+  TRY_STATUS(stat.replace_roots(storage_for_stat->prefetch_all_refs(), false, storage_cells));
   // Root of AccountStorage is not counted in AccountStorageStat
   td::uint64 expected_cells = stat.get_total_cells() + 1;
   td::uint64 expected_bits = stat.get_total_bits() + storage->size();
@@ -3200,9 +3202,9 @@ td::Status Transaction::check_state_limits(const SizeLimitsConfig& size_limits, 
     StorageStatCalculationContext context{is_account_stat};
     StorageStatCalculationContext::Guard guard{&context};
     if (is_account_stat) {
-      storage_stats_updates.push_back(new_code);
-      storage_stats_updates.push_back(new_data);
-      storage_stats_updates.push_back(new_library);
+      storage_stat_updates.push_back(new_code);
+      storage_stat_updates.push_back(new_data);
+      storage_stat_updates.push_back(new_library);
     }
     TRY_STATUS(storage_stat.replace_roots({new_code, new_data, new_library}, /* check_merkle_depth = */ true));
     if (timer.elapsed() > 0.1) {
@@ -3506,7 +3508,7 @@ bool Transaction::compute_state(const SerializeConfig& cfg) {
     AccountStorageStat& stats = new_account_storage_stat.value_force();
     // Don't check Merkle depth and size here - they were checked in check_state_limits
     auto roots = new_storage_for_stat->prefetch_all_refs();
-    storage_stats_updates.insert(storage_stats_updates.end(), roots.begin(), roots.end());
+    storage_stat_updates.insert(storage_stat_updates.end(), roots.begin(), roots.end());
     {
       StorageStatCalculationContext context{true};
       StorageStatCalculationContext::Guard guard{&context};

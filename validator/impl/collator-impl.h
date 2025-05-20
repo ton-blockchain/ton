@@ -227,6 +227,7 @@ class Collator final : public td::actor::Actor {
     vm::ProofStorageStat proof_stat;
     bool add_to_collated_data = false;
     std::vector<Ref<vm::Cell>> storage_stat_updates;
+    td::HashSet<vm::CellHash> original_storage_cells;
   };
   std::map<td::Bits256, AccountStorageDict> account_storage_dicts_;
 

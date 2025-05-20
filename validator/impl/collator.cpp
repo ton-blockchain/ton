@@ -2625,9 +2625,6 @@ bool Collator::init_account_storage_dict(block::Account& account) {
   if (!full_collated_data_ || is_masterchain() || !account.storage_dict_hash || account.storage.is_null()) {
     return true;
   }
-  if (account.storage_used.cells < 10) {  // TODO: some other threshold?
-    return true;
-  }
   td::Bits256 storage_dict_hash = account.storage_dict_hash.value();
   if (storage_dict_hash.is_zero()) {
     return true;
@@ -2637,7 +2634,7 @@ bool Collator::init_account_storage_dict(block::Account& account) {
     dict.inited = true;
     // don't mark cells in account state as loaded during compute_account_storage_dict
     state_usage_tree_->set_ignore_loads(true);
-    auto res = account.compute_account_storage_dict();
+    auto res = account.compute_account_storage_dict(&dict.original_storage_cells);
     state_usage_tree_->set_ignore_loads(false);
     if (res.is_error()) {
       return fatal_error(res.move_as_error_prefix(PSTRING() << "Failed to init account storage dict for "
@@ -2740,37 +2737,38 @@ bool Collator::process_account_storage_dict(const block::Account& account) {
   td::HashSet<vm::CellHash> visited;
   bool calculate_proof_size_diff = true;
   td::int64 proof_size_diff = 0;
-  std::function<void(const Ref<vm::Cell>&, bool)> dfs = [&](const Ref<vm::Cell>& cell, bool from_old_state) {
+  std::function<void(const Ref<vm::Cell>&)> dfs = [&](const Ref<vm::Cell>& cell) {
     if (cell.is_null() || !visited.emplace(cell->get_hash()).second) {
       return;
     }
     auto loaded_cell = cell->load_cell().move_as_ok();
-    if (!loaded_cell.tree_node.empty()) {
-      from_old_state = true;
-    }
-    if (calculate_proof_size_diff && from_old_state) {
-      switch (collated_data_stat.get_cell_status(cell->get_hash())) {
-        case vm::ProofStorageStat::c_none:
+    if (dict.original_storage_cells.contains(cell->get_hash())) {
+      if (calculate_proof_size_diff) {
+        switch (collated_data_stat.get_cell_status(cell->get_hash())) {
+          case vm::ProofStorageStat::c_none:
+            proof_size_diff += vm::ProofStorageStat::estimate_serialized_size(loaded_cell.data_cell);
+          break;
+          case vm::ProofStorageStat::c_prunned:
+            proof_size_diff -= vm::ProofStorageStat::estimate_prunned_size();
           proof_size_diff += vm::ProofStorageStat::estimate_serialized_size(loaded_cell.data_cell);
           break;
-        case vm::ProofStorageStat::c_prunned:
-          proof_size_diff -= vm::ProofStorageStat::estimate_prunned_size();
-          proof_size_diff += vm::ProofStorageStat::estimate_serialized_size(loaded_cell.data_cell);
-          break;
-        case vm::ProofStorageStat::c_loaded:
-          break;
+          case vm::ProofStorageStat::c_loaded:
+            break;
+        }
+      } else {
+        collated_data_stat.add_loaded_cell(loaded_cell.data_cell, loaded_cell.virt.get_level());
       }
     }
-    vm::CellSlice cs{std::move(loaded_cell)};
+    vm::CellSlice cs{std::move(loaded_cell.data_cell)};
     for (unsigned i = 0; i < cs.size_refs(); ++i) {
-      dfs(cs.prefetch_ref(i), from_old_state);
+      dfs(cs.prefetch_ref(i));
     }
   };
 
   // Visit cells that were used in storage stat computation to calculate collated data increase
   state_usage_tree_->set_ignore_loads(true);
   for (const auto& cell : dict.storage_stat_updates) {
-    dfs(cell, false);
+    dfs(cell);
   }
   state_usage_tree_->set_ignore_loads(false);
 
@@ -2789,7 +2787,7 @@ bool Collator::process_account_storage_dict(const block::Account& account) {
     calculate_proof_size_diff = false;
     visited.clear();
     for (const auto& cell : dict.storage_stat_updates) {
-      dfs(cell, false);
+      dfs(cell);
     }
   }
 
@@ -5465,7 +5463,7 @@ void Collator::update_account_storage_dict_info(const block::transaction::Transa
   if (it == account_storage_dicts_.end()) {
     return;
   }
-  for (const Ref<vm::Cell>& cell : trans.storage_stats_updates) {
+  for (const Ref<vm::Cell>& cell : trans.storage_stat_updates) {
     if (cell.not_null()) {
       it->second.storage_stat_updates.push_back(cell);
     }

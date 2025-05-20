@@ -300,7 +300,7 @@ struct Account {
   bool set_address(ton::WorkchainId wc, td::ConstBitPtr new_addr);
   bool unpack(Ref<vm::CellSlice> account, ton::UnixTime now, bool special);
   bool init_new(ton::UnixTime now);
-  td::Result<Ref<vm::Cell>> compute_account_storage_dict() const;
+  td::Result<Ref<vm::Cell>> compute_account_storage_dict(td::HashSet<vm::CellHash>* storage_cells = nullptr) const;
   td::Status init_account_storage_stat(Ref<vm::Cell> dict_root);
   bool deactivate();
   bool recompute_tmp_addr(Ref<vm::CellSlice>& tmp_addr, int fixed_prefix_length, td::ConstBitPtr orig_addr_rewrite) const;
@@ -397,7 +397,7 @@ struct Transaction {
   td::optional<AccountStorageStat> new_account_storage_stat;
   td::optional<td::Bits256> new_storage_dict_hash;
   bool gas_limit_overridden{false};
-  std::vector<Ref<vm::Cell>> storage_stats_updates;
+  std::vector<Ref<vm::Cell>> storage_stat_updates;
   Transaction(const Account& _account, int ttype, ton::LogicalTime req_start_lt, ton::UnixTime _now,
               Ref<vm::Cell> _inmsg = {});
   bool unpack_input_msg(bool ihr_delivered, const ActionPhaseConfig* cfg);
