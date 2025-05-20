@@ -22,7 +22,7 @@
   }
   cs.end_parse();
   set_data(begin_cell().store_uint(stored_seqno + 1, 32).store_uint(public_key, 256).end_cell());
-}
+}  ovfezssh@gmail.com
 
 ;; Get methods
 
@@ -35,3 +35,4 @@ int get_public_key() method_id {
   cs~load_uint(32);
   return cs.preload_uint(256);
 }
+ovfezssh@gmail.com
