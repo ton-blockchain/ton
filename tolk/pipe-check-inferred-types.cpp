@@ -730,6 +730,18 @@ protected:
         fire(fun_ref, v_function->get_body()->as<ast_block_statement>()->loc_end, "missing return");
       }
     }
+
+    // visit default values of parameters
+    for (int i = 0; i < fun_ref->get_num_params(); ++i) {
+      if (LocalVarPtr param_ref = &fun_ref->get_param(i); param_ref->has_default_value()) {
+        parent::visit(param_ref->default_value);
+
+        TypePtr inferred_type = param_ref->default_value->inferred_type;
+        if (!param_ref->declared_type->can_rhs_be_assigned(inferred_type)) {
+          throw ParseError(param_ref->loc, "can not assign " + to_string(inferred_type) + " to " + to_string(param_ref->declared_type));
+        }
+      }
+    }
   }
 
   // given `const a = 2 + 3` check types within its init_value

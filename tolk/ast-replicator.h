@@ -223,13 +223,13 @@ class ASTReplicator final {
     return createV<ast_instantiationT_list>(v->loc, clone(v->get_items()));
   }
   static V<ast_parameter> clone(V<ast_parameter> v) {
-    return createV<ast_parameter>(v->loc, v->param_name, clone(v->type_node), v->declared_as_mutate);
+    return createV<ast_parameter>(v->loc, v->param_name, clone(v->type_node), v->default_value ? clone(v->default_value) : nullptr,  v->declared_as_mutate);
   }
   static V<ast_parameter_list> clone(V<ast_parameter_list> v) {
     return createV<ast_parameter_list>(v->loc, clone(v->get_params()));
   }
   static V<ast_struct_field> clone(V<ast_struct_field> v) {
-    return createV<ast_struct_field>(v->loc, clone(v->get_identifier()), clone(v->get_default_value()), clone(v->type_node));
+    return createV<ast_struct_field>(v->loc, clone(v->get_identifier()), v->default_value ? clone(v->default_value) : nullptr, clone(v->type_node));
   }
   static V<ast_struct_body> clone(V<ast_struct_body> v) {
     return createV<ast_struct_body>(v->loc, clone(v->get_all_fields()));

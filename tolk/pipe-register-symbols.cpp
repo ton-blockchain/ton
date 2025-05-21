@@ -132,14 +132,13 @@ static StructPtr register_struct(V<ast_struct_declaration> v, StructPtr base_str
   for (int i = 0; i < v_body->get_num_fields(); ++i) {
     auto v_field = v_body->get_field(i);
     std::string field_name = static_cast<std::string>(v_field->get_identifier()->name);
-    AnyExprV default_value = v_field->has_default_value() ? v_field->get_default_value() : nullptr;
 
     for (StructFieldPtr prev : fields) {
       if (UNLIKELY(prev->name == field_name)) {
         v_field->error("redeclaration of field `" + field_name + "`");
       }
     }
-    fields.emplace_back(new StructFieldData(static_cast<std::string>(v_field->get_identifier()->name), v_field->loc, i, v_field->type_node, default_value));
+    fields.emplace_back(new StructFieldData(field_name, v_field->loc, i, v_field->type_node, v_field->default_value));
   }
 
   PackOpcode opcode(0, 0);
@@ -176,7 +175,7 @@ static StructPtr register_struct(V<ast_struct_declaration> v, StructPtr base_str
 
 static LocalVarData register_parameter(V<ast_parameter> v, int idx) {
   if (v->is_underscore()) {
-    return LocalVarData{"", v->loc, v->type_node, 0, idx};
+    return LocalVarData{"", v->loc, v->type_node, v->default_value, 0, idx};
   }
 
   int flags = 0;
@@ -186,7 +185,7 @@ static LocalVarData register_parameter(V<ast_parameter> v, int idx) {
   if (!v->declared_as_mutate && idx == 0 && v->param_name == "self") {
     flags |= LocalVarData::flagImmutable;
   }
-  return LocalVarData(static_cast<std::string>(v->param_name), v->loc, v->type_node, flags, idx);
+  return LocalVarData(static_cast<std::string>(v->param_name), v->loc, v->type_node, v->default_value, flags, idx);
 }
 
 static FunctionPtr register_function(V<ast_function_declaration> v, FunctionPtr base_fun_ref = nullptr, std::string override_name = {}, const GenericsSubstitutions* substitutedTs = nullptr) {

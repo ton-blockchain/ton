@@ -254,6 +254,28 @@ static MethodCallCandidate choose_only_method_to_call(FunctionPtr cur_f, SrcLoca
   fire(cur_f, loc, msg.str());
 }
 
+// given fun `f` and a call `f(a,b,c)`, check that argument count is expected;
+// (parameters may have default values, so it's not as trivial as to compare params and args size)
+void check_arguments_count_at_fun_call(FunctionPtr cur_f, V<ast_function_call> v, FunctionPtr called_f, AnyExprV self_obj) {
+  int delta_self = self_obj != nullptr;
+  int n_arguments = v->get_num_args() + delta_self;
+  int n_max_params = called_f->get_num_params();
+  int n_min_params = n_max_params;
+  while (n_min_params && called_f->get_param(n_min_params - 1).has_default_value()) {
+    n_min_params--;
+  }
+
+  if (!called_f->does_accept_self() && self_obj) {   // static method `Point.create(...)` called as `p.create()`
+    fire(cur_f, v->loc, "method " + to_string(called_f) + " can not be called via dot\n(it's a static method, it does not accept `self`)");
+  }
+  if (n_max_params < n_arguments) {
+    fire(cur_f, v->loc, "too many arguments in call to " + to_string(called_f) + ", expected " + std::to_string(n_max_params - delta_self) + ", have " + std::to_string(n_arguments - delta_self));
+  }
+  if (n_arguments < n_min_params) {
+    fire(cur_f, v->loc, "too few arguments in call to " + to_string(called_f) + ", expected " + std::to_string(n_min_params - delta_self) + ", have " + std::to_string(n_arguments - delta_self));
+  }
+}
+
 /*
  * This class handles all types of AST vertices and traverses them, filling all AnyExprV::inferred_type.
  * Note, that it isn't derived from ASTVisitor, it has manual `switch` over all existing vertex types.
@@ -1119,19 +1141,9 @@ class InferTypesAndCallsAndFieldsVisitor final {
 
     // so, we have a call `f(args)` or `obj.f(args)`, f is fun_ref (function / method) (code / asm / builtin)
     // we're going to iterate over passed arguments, and (if generic) infer substitutedTs
-    // at first, check arguments count (Tolk doesn't have optional parameters, so just compare counts)
+    // at first, check argument count
     int delta_self = self_obj != nullptr;
-    int n_arguments = v->get_num_args() + delta_self;
-    int n_parameters = fun_ref->get_num_params();
-    if (!fun_ref->does_accept_self() && self_obj) {   // static method `Point.create(...)` called as `p.create()`
-      fire(cur_f, v->loc, "method " + to_string(fun_ref) + " can not be called via dot\n(it's a static method, it does not accept `self`)");
-    }
-    if (n_parameters < n_arguments) {
-      fire(cur_f, v->loc, "too many arguments in call to " + to_string(fun_ref) + ", expected " + std::to_string(n_parameters - delta_self) + ", have " + std::to_string(n_arguments - delta_self));
-    }
-    if (n_arguments < n_parameters) {
-      fire(cur_f, v->loc, "too few arguments in call to " + to_string(fun_ref) + ", expected " + std::to_string(n_parameters - delta_self) + ", have " + std::to_string(n_arguments - delta_self));
-    }
+    check_arguments_count_at_fun_call(cur_f, v, fun_ref, self_obj);
 
     // for every passed argument, we need to infer its type
     // for generic functions, we need to infer type arguments (substitutedTs) on the fly
@@ -1636,6 +1648,16 @@ public:
     } else {
       // asm functions should be strictly typed, this was checked earlier
       tolk_assert(fun_ref->declared_return_type);
+    }
+
+    // visit default values of parameters; to correctly track symbols in `fun f(a: int, b: int = a)`, use flow context
+    FlowContext params_flow;
+    for (int i = 0; i < fun_ref->get_num_params(); ++i) {
+      LocalVarPtr param_ref = &fun_ref->get_param(i);
+      if (param_ref->has_default_value()) {
+        params_flow = infer_any_expr(param_ref->default_value, std::move(params_flow), false, param_ref->declared_type).out_flow;
+      }
+      params_flow.register_known_type(SinkExpression(param_ref), param_ref->declared_type);
     }
 
     assign_fun_full_type(fun_ref, inferred_return_type);

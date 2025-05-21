@@ -331,7 +331,17 @@ static AnyV parse_parameter(Lexer& lex, AnyTypeV self_type) {
     lex.error("`self` parameter should not have a type");
   }
 
-  return createV<ast_parameter>(loc, param_name, param_type, declared_as_mutate);
+  // optional default value
+  AnyExprV default_value = nullptr;
+  if (lex.tok() == tok_assign && !is_self) {      // `a: int = 0`
+    if (declared_as_mutate) {
+      lex.error("`mutate` parameter can't have a default value");
+    }
+    lex.next();
+    default_value = parse_expr(lex);
+  }
+
+  return createV<ast_parameter>(loc, param_name, param_type, default_value, declared_as_mutate);
 }
 
 static AnyV parse_global_var_declaration(Lexer& lex, const std::vector<V<ast_annotation>>& annotations) {
@@ -1489,8 +1499,6 @@ static AnyV parse_struct_field(Lexer& lex) {
   if (lex.tok() == tok_assign) {    // `id: int = 3`
     lex.next();
     default_value = parse_expr(lex);
-  } else {
-    default_value = createV<ast_empty_expression>(lex.cur_location());
   }
 
   return createV<ast_struct_field>(loc, v_ident, default_value, declared_type);

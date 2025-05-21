@@ -133,7 +133,7 @@ class AssignSymInsideFunctionVisitor final : public ASTVisitorFunctionBody {
   static FunctionPtr cur_f;
 
   static LocalVarPtr create_local_var_sym(std::string_view name, SrcLocation loc, AnyTypeV declared_type_node, bool immutable, bool lateinit) {
-    LocalVarData* v_sym = new LocalVarData(static_cast<std::string>(name), loc, declared_type_node, immutable * LocalVarData::flagImmutable + lateinit * LocalVarData::flagLateInit, -1);
+    LocalVarData* v_sym = new LocalVarData(static_cast<std::string>(name), loc, declared_type_node, nullptr, immutable * LocalVarData::flagImmutable + lateinit * LocalVarData::flagLateInit, -1);
     current_scope.add_local_var(v_sym);
     return v_sym;
   }
@@ -274,7 +274,11 @@ public:
     auto v_block = v->get_body()->as<ast_block_statement>();
     current_scope.open_scope(v->loc);
     for (int i = 0; i < fun_ref->get_num_params(); ++i) {
-      current_scope.add_local_var(&fun_ref->parameters[i]);
+      LocalVarPtr param_ref = &fun_ref->parameters[i];
+      current_scope.add_local_var(param_ref);
+      if (param_ref->has_default_value()) {
+        parent::visit(param_ref->default_value);
+      }
     }
     parent::visit(v_block);
     current_scope.close_scope(v_block->loc_end);

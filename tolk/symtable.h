@@ -54,20 +54,23 @@ struct LocalVarData final : Symbol {
 
   AnyTypeV type_node;               // either at declaration `var x:int`, or if omitted, from assigned value `var x=2`
   TypePtr declared_type = nullptr;  // = resolved type_node
+  AnyExprV default_value = nullptr; // for function parameters, if it has a default value
   int flags;
   int param_idx;                    // 0...N for function parameters, -1 for local vars
   std::vector<int> ir_idx;
 
-  LocalVarData(std::string name, SrcLocation loc, AnyTypeV type_node, int flags, int param_idx)
+  LocalVarData(std::string name, SrcLocation loc, AnyTypeV type_node, AnyExprV default_value, int flags, int param_idx)
     : Symbol(std::move(name), loc)
     , type_node(type_node)
+    , default_value(default_value)
     , flags(flags)
     , param_idx(param_idx) {
   }
-  LocalVarData(std::string name, SrcLocation loc, TypePtr declared_type, int flags, int param_idx)
+  LocalVarData(std::string name, SrcLocation loc, TypePtr declared_type, AnyExprV default_value, int flags, int param_idx)
     : Symbol(std::move(name), loc)
     , type_node(nullptr)         // for built-in functions (their parameters)
     , declared_type(declared_type)
+    , default_value(default_value)
     , flags(flags)
     , param_idx(param_idx) {
   }
@@ -77,11 +80,13 @@ struct LocalVarData final : Symbol {
   bool is_immutable() const { return flags & flagImmutable; }
   bool is_lateinit() const { return flags & flagLateInit; }
   bool is_mutate_parameter() const { return flags & flagMutateParameter; }
+  bool has_default_value() const { return default_value != nullptr; }
 
   LocalVarData* mutate() const { return const_cast<LocalVarData*>(this); }
   void assign_ir_idx(std::vector<int>&& ir_idx);
   void assign_resolved_type(TypePtr declared_type);
   void assign_inferred_type(TypePtr inferred_type);
+  void assign_default_value(AnyExprV default_value);
 };
 
 struct FunctionBodyCode;

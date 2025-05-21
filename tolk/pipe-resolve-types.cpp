@@ -537,9 +537,12 @@ public:
     type_nodes_visitor = TypeNodesVisitorResolver(fun_ref, fun_ref->genericTs, fun_ref->substitutedTs, false);
 
     for (int i = 0; i < fun_ref->get_num_params(); ++i) {
-      const LocalVarData& param_var = fun_ref->parameters[i];
-      TypePtr declared_type = finalize_type_node(param_var.type_node);
-      param_var.mutate()->assign_resolved_type(declared_type);
+      LocalVarPtr param_ref = &fun_ref->parameters[i];
+      TypePtr declared_type = finalize_type_node(param_ref->type_node);
+      param_ref->mutate()->assign_resolved_type(declared_type);
+      if (param_ref->has_default_value()) {
+        parent::visit(param_ref->default_value);
+      }
     }
     if (fun_ref->return_type_node) {
       TypePtr declared_return_type = finalize_type_node(fun_ref->return_type_node);

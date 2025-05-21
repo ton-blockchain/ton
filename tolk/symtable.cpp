@@ -141,6 +141,10 @@ void LocalVarData::assign_inferred_type(TypePtr inferred_type) {
   this->declared_type = inferred_type;
 }
 
+void LocalVarData::assign_default_value(AnyExprV default_value) {
+  this->default_value = default_value;
+}
+
 void AliasDefData::assign_resolved_genericTs(const GenericsDeclaration* genericTs) {
   if (this->substitutedTs == nullptr) {
     this->genericTs = genericTs;

@@ -1179,16 +1179,18 @@ struct Vertex<ast_instantiationT_list> final : ASTOtherVararg {
 template<>
 // ast_parameter is a parameter of a function in its declaration
 // example: `fun f(a: int, mutate b: slice)` has 2 parameters
+// example: `fun f(a: int = 0)` has 1 parameter with default value
 struct Vertex<ast_parameter> final : ASTOtherLeaf {
   std::string_view param_name;
   AnyTypeV type_node;                         // always exists, typing parameters is mandatory
+  AnyExprV default_value;                     // default value of the parameter or nullptr
   bool declared_as_mutate;                    // declared as `mutate param_name`
 
   bool is_underscore() const { return param_name.empty(); }
 
-  Vertex(SrcLocation loc, std::string_view param_name, AnyTypeV type_node, bool declared_as_mutate)
+  Vertex(SrcLocation loc, std::string_view param_name, AnyTypeV type_node, AnyExprV default_value, bool declared_as_mutate)
     : ASTOtherLeaf(ast_parameter, loc)
-    , param_name(param_name), type_node(type_node), declared_as_mutate(declared_as_mutate) {}
+    , param_name(param_name), type_node(type_node), default_value(default_value), declared_as_mutate(declared_as_mutate) {}
 };
 
 template<>
@@ -1314,14 +1316,13 @@ template<>
 // example: `struct Point { x: int, y: int }` is struct declaration, its body contains 2 fields
 struct Vertex<ast_struct_field> final : ASTOtherVararg {
   AnyTypeV type_node;             // always exists, typing struct fields is mandatory
+  AnyExprV default_value;         // nullptr if no default
 
   auto get_identifier() const { return children.at(0)->as<ast_identifier>(); }
-  bool has_default_value() const { return children.at(1)->kind != ast_empty_expression; }
-  auto get_default_value() const { return child_as_expr(1); }
 
   Vertex(SrcLocation loc, V<ast_identifier> name_identifier, AnyExprV default_value, AnyTypeV type_node)
-    : ASTOtherVararg(ast_struct_field, loc, {name_identifier, default_value})
-    , type_node(type_node) {}
+    : ASTOtherVararg(ast_struct_field, loc, {name_identifier})
+    , type_node(type_node), default_value(default_value) {}
 };
 
 template<>

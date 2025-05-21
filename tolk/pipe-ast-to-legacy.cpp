@@ -1380,10 +1380,11 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
     return transition_to_target_type(std::move(rvect), code, target_type, v);
   }
 
+  // fill args for evaluation: dot object + passed arguments + parameters defaults if not all passed
   AnyExprV obj_leftmost = v->get_self_obj();
   int delta_self = obj_leftmost != nullptr;
   std::vector<AnyExprV> args;
-  args.reserve(delta_self + v->get_num_args());
+  args.reserve(fun_ref->get_num_params());
   if (delta_self) {
     args.push_back(obj_leftmost);
     while (obj_leftmost->kind == ast_function_call && obj_leftmost->as<ast_function_call>()->get_self_obj() && obj_leftmost->as<ast_function_call>()->fun_maybe && obj_leftmost->as<ast_function_call>()->fun_maybe->does_return_self()) {
@@ -1392,6 +1393,14 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
   }
   for (int i = 0; i < v->get_num_args(); ++i) {
     args.push_back(v->get_arg(i)->get_expr());
+  }
+  for (int i = delta_self + v->get_num_args(); i < fun_ref->get_num_params(); ++i) {
+    LocalVarPtr param_ref = &fun_ref->get_param(i);
+    tolk_assert(param_ref->has_default_value());
+    SrcLocation last_loc = args.empty() ? v->loc : args.back()->loc;
+    ASTAuxData *aux_data = new AuxData_ForceFiftLocation(last_loc);
+    auto v_force_loc = createV<ast_artificial_aux_vertex>(last_loc, param_ref->default_value, aux_data, param_ref->declared_type);
+    args.push_back(v_force_loc);
   }
 
   // the purpose of tensor_tt ("tensor target type") is to transition `null` to `(int, int)?` and so on

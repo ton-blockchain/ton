@@ -266,6 +266,13 @@ struct ConstantExpressionChecker {
     }
   }
 
+  // `a: Options = {}`, object literal may occur as a default value for parameters
+  static void handle_object_literal(V<ast_object_body> v) {
+    for (int i = 0; i < v->get_num_fields(); ++i) {
+      visit(v->get_field(i)->get_init_val());
+    }
+  }
+
   static void visit(AnyExprV v) {
     if (v->try_as<ast_int_const>() || v->try_as<ast_bool_const>() || v->try_as<ast_string_const>() || v->try_as<ast_null_keyword>()) {
       return;
@@ -284,6 +291,9 @@ struct ConstantExpressionChecker {
     }
     if (auto v_tensor = v->try_as<ast_tensor>()) {
       return handle_tensor(v_tensor);
+    }
+    if (auto v_obj = v->try_as<ast_object_literal>()) {
+      return handle_object_literal(v_obj->get_body());
     }
     if (auto v_par = v->try_as<ast_parenthesized_expression>()) {
       return visit(v_par->get_expr());

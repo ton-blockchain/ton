@@ -150,6 +150,19 @@ public:
     return fun_ref->is_code_function() && !fun_ref->is_generic_function();
   }
 
+  void start_replacing_in_function(FunctionPtr fun_ref, V<ast_function_declaration> v_function) override {
+    // visit default values of parameters
+    for (int i = 0; i < fun_ref->get_num_params(); ++i) {
+      if (LocalVarPtr param_ref = &fun_ref->get_param(i); param_ref->has_default_value()) {
+        check_expression_is_constant(param_ref->default_value);
+        AnyExprV replaced = replace_in_expression(param_ref->default_value);
+        param_ref->mutate()->assign_default_value(replaced);
+      }
+    }
+
+    parent::replace(v_function->get_body());
+  }
+
   // used to replace `ton("0.05")` and other compile-time functions inside fields defaults, etc.
   AnyExprV replace_in_expression(AnyExprV init_value) {
     return parent::replace(init_value);
