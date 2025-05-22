@@ -421,16 +421,8 @@ if (WINGETOPT_FOUND)
   target_link_libraries_system(tlbc wingetopt)
 endif()
 
-add_library(pow-miner-lib util/Miner.cpp util/Miner.h)
-target_include_directories(pow-miner-lib PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
-target_link_libraries(pow-miner-lib PUBLIC ton_crypto)
-
-add_executable(pow-miner util/pow-miner.cpp)
-target_link_libraries(pow-miner PRIVATE ton_crypto pow-miner-lib git)
-
 if (WINGETOPT_FOUND)
   target_link_libraries_system(fift wingetopt)
-  target_link_libraries_system(pow-miner wingetopt)
 endif()
 
 add_executable(mintless-proof-generator util/mintless-proof-generator.cpp)
