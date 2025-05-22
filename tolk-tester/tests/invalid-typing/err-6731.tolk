@@ -4,5 +4,5 @@ fun main(cs: slice) {
 
 /**
 @compilation_should_fail
-@stderr referencing a method for `tuple` with object of type `slice`
+@stderr field `tupleSize` doesn't exist in type `slice`
 */

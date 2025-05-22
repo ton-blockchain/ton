@@ -12,9 +12,6 @@ fun main(): int {
 
 /**
 @compilation_should_fail
-@stderr
-"""
-an impure operation in a pure function
-return f_impure();
-"""
+@stderr an impure operation in a pure function
+@stderr in function `f_pure`
 */

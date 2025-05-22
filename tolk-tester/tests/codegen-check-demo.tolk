@@ -33,8 +33,7 @@ Below, I just give examples of @fif_codegen tag:
 
 @fif_codegen
 """
-main PROC:<{
-  // s
+main PROC:<{     // s
   17 PUSHINT     //  s '3=17
   OVER           //  s z=17 t
   WHILE:<{
@@ -78,7 +77,6 @@ main PROC:<{
 @fif_codegen
 """
 test1 PROC:<{
-//
 FALSE
 }>
 """

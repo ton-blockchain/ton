@@ -9,7 +9,7 @@ fun main(): int {
 fun my_begin_cell(): builder
 asm "NEWC";
 @pure
-fun my_end_cell(b: builder): cell
+fun builder.my_end_cell(self): cell
 asm "ENDC";
 @pure
 fun my_begin_parse(c: cell): slice
@@ -49,7 +49,6 @@ const first = 1;
 @fif_codegen
 """
   test1 PROC:<{
-    //
     30 PUSHINT  // '10
   }>
 """
@@ -57,8 +56,7 @@ const first = 1;
 @fif_codegen
 """
   test2 PROC:<{
-    //
-    2 PUSHINT  // '0=2
+    2 PUSHINT  // '2
   }>
 """
  */

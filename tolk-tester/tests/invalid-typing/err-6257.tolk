@@ -1,9 +1,9 @@
-fun increment(mutate self: int): self {
+fun int.increment(mutate self): self {
     self = self + 1;
     return self;
 }
 
-fun cantReturnAnotherSelf(mutate self: int): self {
+fun int.cantReturnAnotherSelf(mutate self): self {
     self = self + 1;
     var x = 0;
     return x.increment();

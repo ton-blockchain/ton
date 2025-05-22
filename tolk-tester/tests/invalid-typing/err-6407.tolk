@@ -1,5 +1,5 @@
 fun invalidNever(): never {
-    if (random()) { throw 123; }
+    if (random.uint256()) { throw 123; }
 }
 
 /**

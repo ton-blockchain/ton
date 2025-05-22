@@ -34,30 +34,22 @@
 namespace tolk {
 
 GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-static void fire_error_invalid_mutate_arg_passed(AnyExprV v, FunctionPtr fun_ref, const LocalVarData& p_sym, bool called_as_method, bool arg_passed_as_mutate, AnyV arg_expr) {
-  std::string arg_str(arg_expr->type == ast_reference ? arg_expr->as<ast_reference>()->get_name() : "obj");
+static void fire_error_invalid_mutate_arg_passed(FunctionPtr cur_f, SrcLocation loc, FunctionPtr fun_ref, const LocalVarData& p_sym, bool arg_passed_as_mutate, AnyV arg_expr) {
+  std::string arg_str(arg_expr->kind == ast_reference ? arg_expr->as<ast_reference>()->get_name() : "obj");
 
-  // case: `loadInt(cs, 32)`; suggest: `cs.loadInt(32)`
-  if (p_sym.is_mutate_parameter() && !arg_passed_as_mutate && !called_as_method && p_sym.param_idx == 0 && fun_ref->does_accept_self()) {
-    v->error("`" + fun_ref->name + "` is a mutating method; consider calling `" + arg_str + "." + fun_ref->name + "()`, not `" + fun_ref->name + "(" + arg_str + ")`");
-  }
-  // case: `cs.mutating_function()`; suggest: `mutating_function(mutate cs)` or make it a method
-  if (p_sym.is_mutate_parameter() && called_as_method && p_sym.param_idx == 0 && !fun_ref->does_accept_self()) {
-    v->error("function `" + fun_ref->name + "` mutates parameter `" + p_sym.name + "`; consider calling `" + fun_ref->name + "(mutate " + arg_str + ")`, not `" + arg_str + "." + fun_ref->name + "`(); alternatively, rename parameter to `self` to make it a method");
-  }
-  // case: `mutating_function(arg)`; suggest: `mutate arg`
   if (p_sym.is_mutate_parameter() && !arg_passed_as_mutate) {
-    v->error("function `" + fun_ref->name + "` mutates parameter `" + p_sym.name + "`; you need to specify `mutate` when passing an argument, like `mutate " + arg_str + "`");
+    // called `mutating_function(arg)`; suggest: `mutate arg`
+    fire(cur_f, loc, "function `" + fun_ref->as_human_readable() + "` mutates parameter `" + p_sym.name + "`\nyou need to specify `mutate` when passing an argument, like `mutate " + arg_str + "`");
+  } else {
+    // called `usual_function(mutate arg)`
+    fire(cur_f, loc, "incorrect `mutate`, since `" + fun_ref->as_human_readable() + "` does not mutate this parameter");
   }
-  // case: `usual_function(mutate arg)`
-  if (!p_sym.is_mutate_parameter() && arg_passed_as_mutate) {
-    v->error("incorrect `mutate`, since `" + fun_ref->name + "` does not mutate this parameter");
-  }
-  throw Fatal("unreachable");
 }
 
 
 class RefineLvalueForMutateArgumentsVisitor final : public ASTVisitorFunctionBody {
+  FunctionPtr cur_f = nullptr;
+
   void visit(V<ast_function_call> v) override {
     // v is `globalF(args)` / `globalF<int>(args)` / `obj.method(args)` / `local_var(args)` / `getF()(args)`
     FunctionPtr fun_ref = v->fun_maybe;
@@ -66,41 +58,35 @@ class RefineLvalueForMutateArgumentsVisitor final : public ASTVisitorFunctionBod
       for (int i = 0; i < v->get_num_args(); ++i) {
         auto v_arg = v->get_arg(i);
         if (v_arg->passed_as_mutate) {
-          v_arg->error("`mutate` used for non-mutate argument");
+          v_arg->error("`mutate` used for non-mutate parameter");
         }
       }
       return;
     }
 
-    int delta_self = v->is_dot_call();
+    int delta_self = v->get_self_obj() != nullptr;
     tolk_assert(fun_ref->get_num_params() == delta_self + v->get_num_args());
 
-    if (v->is_dot_call()) {
-      if (fun_ref->does_mutate_self()) {
-        // for `b.storeInt()`, `b` should become lvalue, since `storeInt` is a method mutating self
-        // but: `beginCell().storeInt()`, then `beginCell()` is not lvalue
-        // (it will be extracted as tmp var when transforming AST to IR)
-        AnyExprV leftmost_obj = v->get_dot_obj();
-        while (true) {
-          if (auto as_par = leftmost_obj->try_as<ast_parenthesized_expression>()) {
-            leftmost_obj = as_par->get_expr();
-          } else if (auto as_cast = leftmost_obj->try_as<ast_cast_as_operator>()) {
-            leftmost_obj = as_cast->get_expr();
-          } else if (auto as_nn = leftmost_obj->try_as<ast_not_null_operator>()) {
-            leftmost_obj = as_nn->get_expr();
-          } else {
-            break;
-          }
-        }
-        bool will_be_extracted_as_tmp_var = leftmost_obj->type == ast_function_call;
-        if (!will_be_extracted_as_tmp_var) {
-          leftmost_obj->mutate()->assign_lvalue_true();
-          v->get_dot_obj()->mutate()->assign_lvalue_true();
+    if (delta_self && fun_ref->does_mutate_self()) {
+      // for `b.storeInt()`, `b` should become lvalue, since `storeInt` is a method mutating self
+      // but: `beginCell().storeInt()`, then `beginCell()` is not lvalue
+      // (it will be extracted as tmp var when transforming AST to IR)
+      AnyExprV leftmost_obj = v->get_self_obj();
+      while (true) {
+        if (auto as_par = leftmost_obj->try_as<ast_parenthesized_expression>()) {
+          leftmost_obj = as_par->get_expr();
+        } else if (auto as_cast = leftmost_obj->try_as<ast_cast_as_operator>()) {
+          leftmost_obj = as_cast->get_expr();
+        } else if (auto as_nn = leftmost_obj->try_as<ast_not_null_operator>()) {
+          leftmost_obj = as_nn->get_expr();
+        } else {
+          break;
         }
       }
-
-      if (!fun_ref->does_accept_self() && fun_ref->parameters[0].is_mutate_parameter()) {
-        fire_error_invalid_mutate_arg_passed(v, fun_ref, fun_ref->parameters[0], true, false, v->get_dot_obj());
+      bool will_be_extracted_as_tmp_var = leftmost_obj->kind == ast_function_call;
+      if (!will_be_extracted_as_tmp_var) {
+        leftmost_obj->mutate()->assign_lvalue_true();
+        v->get_self_obj()->mutate()->assign_lvalue_true();
       }
     }
 
@@ -108,7 +94,7 @@ class RefineLvalueForMutateArgumentsVisitor final : public ASTVisitorFunctionBod
       const LocalVarData& p_sym = fun_ref->parameters[delta_self + i];
       auto arg_i = v->get_arg(i);
       if (p_sym.is_mutate_parameter() != arg_i->passed_as_mutate) {
-        fire_error_invalid_mutate_arg_passed(arg_i, fun_ref, p_sym, false, arg_i->passed_as_mutate, arg_i->get_expr());
+        fire_error_invalid_mutate_arg_passed(cur_f, arg_i->loc, fun_ref, p_sym, arg_i->passed_as_mutate, arg_i->get_expr());
       }
       parent::visit(arg_i);
     }
@@ -118,6 +104,11 @@ class RefineLvalueForMutateArgumentsVisitor final : public ASTVisitorFunctionBod
 public:
   bool should_visit_function(FunctionPtr fun_ref) override {
     return fun_ref->is_code_function() && !fun_ref->is_generic_function();
+  }
+
+  void start_visiting_function(FunctionPtr fun_ref, V<ast_function_declaration> v_function) override {
+    cur_f = fun_ref;
+    parent::visit(v_function->get_body());
   }
 };
 

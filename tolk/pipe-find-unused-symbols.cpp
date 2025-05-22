@@ -67,7 +67,7 @@ static void mark_function_used_dfs(const std::unique_ptr<Op>& op) {
 
 void pipeline_find_unused_symbols() {
   for (FunctionPtr fun_ref : G.all_functions) {
-    if (fun_ref->is_method_id_not_empty()) {    // get methods, main and other entrypoints, regular functions with @method_id
+    if (fun_ref->has_tvm_method_id()) {    // get methods, main and other entrypoints, regular functions with @method_id
       mark_function_used(fun_ref);
     }
   }
