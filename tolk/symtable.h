@@ -358,5 +358,6 @@ public:
 
 const Symbol* lookup_global_symbol(std::string_view name);
 FunctionPtr lookup_function(std::string_view name);
+std::vector<FunctionPtr> lookup_methods_with_name(std::string_view name);
 
 }  // namespace tolk

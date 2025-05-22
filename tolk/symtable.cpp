@@ -234,4 +234,14 @@ FunctionPtr lookup_function(std::string_view name) {
   return G.symtable.lookup(name)->try_as<FunctionPtr>();
 }
 
+std::vector<FunctionPtr> lookup_methods_with_name(std::string_view name) {
+  std::vector<FunctionPtr> result;
+  for (FunctionPtr method_ref : G.all_methods) {
+    if (method_ref->method_name == name) {
+      result.push_back(method_ref);
+    }
+  }
+  return result;
+}
+
 }  // namespace tolk

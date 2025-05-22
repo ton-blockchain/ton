@@ -443,7 +443,11 @@ AliasDefPtr instantiate_generic_alias(AliasDefPtr alias_ref, GenericsSubstitutio
 }
 
 // find `builder.storeInt` for called_receiver = "builder" and called_name = "storeInt"
-// most practical case, when a direct method for receiver exists
+// most practical case, when a direct method for receiver exists;
+// note, that having an alias `type WorkchainNum = int` and methods `WorkchainNum.isMasterchain()`,
+// it's okay to call `-1.isMasterchain()`, because int equals to any alias;
+// currently there is no chance to change this logic, say, `type AssetList = dict` to have separate methods,
+// due to smart casts, types merge of control flow rejoin, etc., which immediately become `cell?`
 FunctionPtr match_exact_method_for_call_not_generic(TypePtr called_receiver, std::string_view called_name) {
   FunctionPtr exact_found = nullptr;
 

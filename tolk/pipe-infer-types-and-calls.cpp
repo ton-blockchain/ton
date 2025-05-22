@@ -156,6 +156,18 @@ static void fire_error_using_lateinit_variable_uninitialized(FunctionPtr cur_f, 
   fire(cur_f, loc, "using variable `" + static_cast<std::string>(name) + "` before it's definitely assigned");
 }
 
+// fire an error when `obj.f()`, method `f` not found, try to locate a method for another type
+GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
+static void fire_error_method_not_found(FunctionPtr cur_f, SrcLocation loc, TypePtr receiver_type, std::string_view method_name) {
+  if (std::vector<FunctionPtr> other = lookup_methods_with_name(method_name); !other.empty()) {
+    fire(cur_f, loc, "method `" + to_string(method_name) + "` not found for type " + to_string(receiver_type) + "\n(but it exists for type " + to_string(other.front()->receiver_type) + ")");
+  }
+  if (const Symbol* sym = lookup_global_symbol(method_name); sym && sym->try_as<FunctionPtr>()) {
+    fire(cur_f, loc, "method `" + to_string(method_name) + "` not found, but there is a global function named `" + to_string(method_name) + "`\n(a function should be called `foo(arg)`, not `arg.foo()`)");
+  }
+  fire(cur_f, loc, "method `" + to_string(method_name) + "` not found");
+}
+
 // helper function: given hint = `Ok<int> | Err<slice>` and struct `Ok`, return `Ok<int>`
 // example: `match (...) { Ok => ... }` we need to deduce `Ok<T>` based on subject
 static TypePtr try_pick_instantiated_generic_from_hint(TypePtr hint, StructPtr lookup_ref) {
@@ -1018,7 +1030,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
         }
       }
       if (out_f_called) {
-        fire(cur_f, v_ident->loc, "method `" + to_string(v->get_field_name()) + "` not found for type " + to_string(obj_type));
+        fire_error_method_not_found(cur_f, v_ident->loc, dot_obj->inferred_type, v->get_field_name());
       } else {
         fire(cur_f, v_ident->loc, "field `" + static_cast<std::string>(field_name) + "` doesn't exist in type " + to_string(dot_obj));
       }
