@@ -192,8 +192,8 @@ for %%I in (build\storage\storage-daemon\storage-daemon.exe ^
   build\http\http-proxy.exe ^
   build\rldp-http-proxy\rldp-http-proxy.exe ^
   build\dht-server\dht-server.exe ^
-  build\dht\dht-ping-servers ^
-  build\dht\dht-resolve ^
+  build\dht\dht-ping-servers.exe ^
+  build\dht\dht-resolve.exe ^
   build\lite-client\lite-client.exe ^
   build\validator-engine\validator-engine.exe ^
   build\utils\generate-random-id.exe ^
