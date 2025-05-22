@@ -147,7 +147,7 @@ IF "%1"=="-t" (
 ninja storage-daemon storage-daemon-cli blockchain-explorer fift func tolk tonlib tonlibjson  ^
 tonlib-cli validator-engine lite-client validator-engine-console generate-random-id ^
 json2tlo dht-server http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork emulator ^
-test-ed25519 test-ed25519-crypto test-bigint test-vm test-fift test-cells test-smartcont test-net ^
+test-ed25519 test-bigint test-vm test-fift test-cells test-smartcont test-net ^
 test-tdactor test-tdutils test-tonlib-offline test-adnl test-dht test-rldp test-rldp2 test-catchain ^
 test-fec test-tddb test-db test-validator-session-state test-emulator proxy-liteserver
 IF %errorlevel% NEQ 0 (

@@ -18,11 +18,7 @@
 */
 #include "crypto/Ed25519.h"
 
-#if TD_HAVE_OPENSSL
-
 #include <openssl/opensslv.h>
-
-#if OPENSSL_VERSION_NUMBER >= 0x10101000L && OPENSSL_VERSION_NUMBER != 0x20000000L || defined(OPENSSL_IS_BORINGSSL)
 
 #include "td/utils/base64.h"
 #include "td/utils/BigNum.h"
@@ -34,12 +30,6 @@
 #include <openssl/evp.h>
 #include <openssl/pem.h>
 #include <openssl/x509.h>
-
-#else
-
-#include "crypto/ellcurve/Ed25519.h"
-
-#endif
 
 namespace td {
 
@@ -56,8 +46,6 @@ Ed25519::PrivateKey::PrivateKey(SecureString octet_string) : octet_string_(std::
 SecureString Ed25519::PrivateKey::as_octet_string() const {
   return octet_string_.copy();
 }
-
-#if OPENSSL_VERSION_NUMBER >= 0x10101000L && OPENSSL_VERSION_NUMBER != 0x20000000L || defined(OPENSSL_IS_BORINGSSL)
 
 namespace detail {
 
@@ -314,89 +302,4 @@ int Ed25519::version() {
   return OPENSSL_VERSION_NUMBER;
 }
 
-#else
-
-Result<Ed25519::PrivateKey> Ed25519::generate_private_key() {
-  crypto::Ed25519::PrivateKey private_key;
-  if (!private_key.random_private_key(true)) {
-    return Status::Error("Can't generate random private key");
-  }
-  SecureString private_key_buf(32);
-  if (!private_key.export_private_key(private_key_buf.as_mutable_slice())) {
-    return Status::Error("Failed to export private key");
-  }
-  return PrivateKey(std::move(private_key_buf));
-}
-
-Result<Ed25519::PublicKey> Ed25519::PrivateKey::get_public_key() const {
-  crypto::Ed25519::PrivateKey private_key;
-  if (!private_key.import_private_key(Slice(octet_string_).ubegin())) {
-    return Status::Error("Bad private key");
-  }
-  SecureString public_key(32);
-  if (!private_key.get_public_key().export_public_key(public_key.as_mutable_slice())) {
-    return Status::Error("Failed to export public key");
-  }
-  return PublicKey(std::move(public_key));
-}
-
-Result<SecureString> Ed25519::PrivateKey::as_pem(Slice password) const {
-  return Status::Error("Not supported");
-}
-
-Result<Ed25519::PrivateKey> Ed25519::PrivateKey::from_pem(Slice pem, Slice password) {
-  return Status::Error("Not supported");
-}
-
-Result<SecureString> Ed25519::PrivateKey::sign(Slice data) const {
-  crypto::Ed25519::PrivateKey private_key;
-  if (!private_key.import_private_key(Slice(octet_string_).ubegin())) {
-    return Status::Error("Bad private key");
-  }
-  SecureString signature(crypto::Ed25519::sign_bytes, '\0');
-  if (!private_key.sign_message(signature.as_mutable_slice(), data)) {
-    return Status::Error("Failed to sign message");
-  }
-  return std::move(signature);
-}
-
-Status Ed25519::PublicKey::verify_signature(Slice data, Slice signature) const {
-  if (signature.size() != crypto::Ed25519::sign_bytes) {
-    return Status::Error("Signature has invalid length");
-  }
-
-  crypto::Ed25519::PublicKey public_key;
-  if (!public_key.import_public_key(Slice(octet_string_).ubegin())) {
-    return Status::Error("Bad public key");
-  }
-  if (public_key.check_message_signature(signature, data)) {
-    return Status::OK();
-  }
-  return Status::Error("Wrong signature");
-}
-
-Result<SecureString> Ed25519::compute_shared_secret(const PublicKey &public_key, const PrivateKey &private_key) {
-  crypto::Ed25519::PrivateKey tmp_private_key;
-  if (!tmp_private_key.import_private_key(Slice(private_key.as_octet_string()).ubegin())) {
-    return Status::Error("Bad private key");
-  }
-  crypto::Ed25519::PublicKey tmp_public_key;
-  if (!tmp_public_key.import_public_key(Slice(public_key.as_octet_string()).ubegin())) {
-    return Status::Error("Bad public key");
-  }
-  SecureString shared_secret(32, '\0');
-  if (!tmp_private_key.compute_shared_secret(shared_secret.as_mutable_slice(), tmp_public_key)) {
-    return Status::Error("Failed to compute shared secret");
-  }
-  return std::move(shared_secret);
-}
-
-int Ed25519::version() {
-  return 0;
-}
-
-#endif
-
 }  // namespace td
-
-#endif
