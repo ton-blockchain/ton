@@ -75,7 +75,7 @@ test $? -eq 0 || { echo "Can't configure ton"; exit 1; }
 if [ "$with_tests" = true ]; then
   ninja storage-daemon storage-daemon-cli blockchain-explorer   \
   tonlib tonlibjson tonlib-cli validator-engine func tolk fift \
-  lite-client pow-miner validator-engine-console generate-random-id json2tlo dht-server \
+  lite-client validator-engine-console generate-random-id json2tlo dht-server \
   http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork tlbc emulator \
   test-ed25519 test-ed25519-crypto test-bigint test-vm test-fift test-cells test-smartcont \
   test-net test-tdactor test-tdutils test-tonlib-offline test-adnl test-dht test-rldp \
@@ -84,7 +84,7 @@ if [ "$with_tests" = true ]; then
 else
   ninja storage-daemon storage-daemon-cli blockchain-explorer   \
   tonlib tonlibjson tonlib-cli validator-engine func tolk fift \
-  lite-client pow-miner validator-engine-console generate-random-id json2tlo dht-server \
+  lite-client validator-engine-console generate-random-id json2tlo dht-server \
   http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork tlbc emulator proxy-liteserver
   test $? -eq 0 || { echo "Can't compile ton"; exit 1; }
 fi
