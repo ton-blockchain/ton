@@ -184,6 +184,8 @@ if [ "$with_artifacts" = true ]; then
   cp build/http/http-proxy artifacts/
   cp build/rldp-http-proxy/rldp-http-proxy artifacts/
   cp build/dht-server/dht-server artifacts/
+  cp build/dht/dht-ping-servers artifacts/
+  cp build/dht/dht-resolve artifacts/
   cp build/lite-client/lite-client artifacts/
   cp build/validator-engine/validator-engine artifacts/
   cp build/utils/generate-random-id artifacts/

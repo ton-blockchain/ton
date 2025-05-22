@@ -167,6 +167,7 @@ if [ "$with_artifacts" = true ]; then
      build/tonlib/libtonlibjson.so build/http/http-proxy build/rldp-http-proxy/rldp-http-proxy \
      build/dht-server/dht-server build/lite-client/lite-client build/validator-engine/validator-engine \
      build/utils/generate-random-id build/utils/json2tlo build/adnl/adnl-proxy build/emulator/libemulator.so \
+     build/dht/dht-ping-servers build/dht/dht-resolve \
      artifacts
   test $? -eq 0 || { echo "Can't copy final binaries"; exit 1; }
   cp -R crypto/smartcont artifacts
