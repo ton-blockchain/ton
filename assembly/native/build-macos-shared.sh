@@ -61,6 +61,19 @@ else
   echo "Using compiled lz4"
 fi
 
+if [ ! -d "zlib" ]; then
+  git clone https://github.com/madler/zlib.git
+  cd zlib
+  zlibPath=`pwd`
+  ./configure --static
+  make -j4
+  test $? -eq 0 || { echo "Can't compile zlib"; exit 1; }
+  cd ..
+else
+  zlibPath=$(pwd)/zlib
+  echo "Using compiled zlib"
+fi
+
 brew unlink openssl@1.1
 brew install openssl@3
 brew unlink openssl@3 &&  brew link --overwrite openssl@3
@@ -75,7 +88,7 @@ test $? -eq 0 || { echo "Can't configure ton"; exit 1; }
 if [ "$with_tests" = true ]; then
   ninja storage-daemon storage-daemon-cli blockchain-explorer   \
   tonlib tonlibjson tonlib-cli validator-engine func tolk fift \
-  lite-client pow-miner validator-engine-console generate-random-id json2tlo dht-server \
+  lite-client pow-miner validator-engine-console generate-random-id json2tlo dht-server dht-ping-servers dht-resolve \
   http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork tlbc emulator \
   test-ed25519 test-ed25519-crypto test-bigint test-vm test-fift test-cells test-smartcont \
   test-net test-tdactor test-tdutils test-tonlib-offline test-adnl test-dht test-rldp \
@@ -84,7 +97,7 @@ if [ "$with_tests" = true ]; then
 else
   ninja storage-daemon storage-daemon-cli blockchain-explorer   \
   tonlib tonlibjson tonlib-cli validator-engine func tolk fift \
-  lite-client pow-miner validator-engine-console generate-random-id json2tlo dht-server \
+  lite-client pow-miner validator-engine-console generate-random-id json2tlo dht-server dht-ping-servers dht-resolve \
   http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork tlbc emulator proxy-liteserver
   test $? -eq 0 || { echo "Can't compile ton"; exit 1; }
 fi
