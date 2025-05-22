@@ -49,6 +49,7 @@ void usage(const char* progname) {
          "-R\tInclude operation rewrite comments in the output code\n"
          "-W<output-boc-file>\tInclude Fift code to serialize and save generated code into specified BoC file. Enables "
          "-A and -P.\n"
+         "-u\tEnable warnings about unused calls and variables (once for assigns, twice also for calls)\n"
          "\t-s\tOutput semantic version of FunC and exit\n"
          "\t-V<version>\tShow func build information\n";
   std::exit(2);
@@ -57,7 +58,7 @@ void usage(const char* progname) {
 int main(int argc, char* const argv[]) {
   int i;
   std::string output_filename;
-  while ((i = getopt(argc, argv, "Ahi:Io:O:PRsSvW:V")) != -1) {
+  while ((i = getopt(argc, argv, "Ahi:Io:O:PRsSuvW:V")) != -1) {
     switch (i) {
       case 'A':
         funC::asm_preamble = true;
@@ -82,6 +83,9 @@ int main(int argc, char* const argv[]) {
         break;
       case 'S':
         funC::stack_layout_comments = true;
+        break;
+      case 'u':
+        ++funC::warn_unused;
         break;
       case 'v':
         ++funC::verbosity;
