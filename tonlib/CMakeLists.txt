@@ -72,14 +72,14 @@ if (TONLIB_ENABLE_JNI AND NOT ANDROID) # jni is available by default on Android
 endif()
 
 add_executable(tonlib-cli tonlib/tonlib-cli.cpp)
-target_link_libraries(tonlib-cli tonlib tdactor tdutils terminal pow-miner-lib git)
+target_link_libraries(tonlib-cli tonlib tdactor tdutils terminal ton_crypto git)
 
 if (NOT CMAKE_CROSSCOMPILING)
   if (TONLIB_ENABLE_JNI)
 	  #FIXME
 	  #add_dependencies(tonlib tonlib_generate_java_api)
   endif()
-endif() 
+endif()
 add_library(tonlibjson_private STATIC tonlib/ClientJson.cpp tonlib/ClientJson.h)
 target_include_directories(tonlibjson_private PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
