@@ -141,10 +141,6 @@ void LocalVarData::assign_inferred_type(TypePtr inferred_type) {
   this->declared_type = inferred_type;
 }
 
-void AliasDefData::assign_visited_by_resolver() {
-  this->flags |= flagVisitedByResolver;
-}
-
 void AliasDefData::assign_resolved_genericTs(const GenericsDeclaration* genericTs) {
   if (this->substitutedTs == nullptr) {
     this->genericTs = genericTs;
@@ -161,10 +157,6 @@ void StructFieldData::assign_resolved_type(TypePtr declared_type) {
 
 void StructFieldData::assign_default_value(AnyExprV default_value) {
   this->default_value = default_value;
-}
-
-void StructData::assign_visited_by_resolver() {
-  this->flags |= flagVisitedByResolver;
 }
 
 void StructData::assign_resolved_genericTs(const GenericsDeclaration* genericTs) {

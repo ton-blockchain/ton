@@ -252,13 +252,8 @@ struct GlobalConstData final : Symbol {
 };
 
 struct AliasDefData final : Symbol {
-  enum {
-    flagVisitedByResolver = 1,
-  };
-
   AnyTypeV underlying_type_node;
   TypePtr underlying_type = nullptr;    // = resolved underlying_type_node
-  int flags = 0;
 
   const GenericsDeclaration* genericTs;
   const GenericsSubstitutions* substitutedTs;
@@ -278,10 +273,7 @@ struct AliasDefData final : Symbol {
   bool is_generic_alias() const { return genericTs != nullptr; }
   bool is_instantiation_of_generic_alias() const { return substitutedTs != nullptr; }
 
-  bool was_visited_by_resolver() const { return flags & flagVisitedByResolver; }
-
   AliasDefData* mutate() const { return const_cast<AliasDefData*>(this); }
-  void assign_visited_by_resolver();
   void assign_resolved_genericTs(const GenericsDeclaration* genericTs);
   void assign_resolved_type(TypePtr underlying_type);
 };
@@ -307,12 +299,7 @@ struct StructFieldData final : Symbol {
 };
 
 struct StructData final : Symbol {
-  enum {
-    flagVisitedByResolver = 1,
-  };
-
   std::vector<StructFieldPtr> fields;
-  int flags = 0;
 
   const GenericsDeclaration* genericTs;
   const GenericsSubstitutions* substitutedTs;
@@ -326,10 +313,7 @@ struct StructData final : Symbol {
   bool is_generic_struct() const { return genericTs != nullptr; }
   bool is_instantiation_of_generic_struct() const { return substitutedTs != nullptr; }
 
-  bool was_visited_by_resolver() const { return flags & flagVisitedByResolver; }
-
   StructData* mutate() const { return const_cast<StructData*>(this); }
-  void assign_visited_by_resolver();
   void assign_resolved_genericTs(const GenericsDeclaration* genericTs);
 
   StructData(std::string name, SrcLocation loc, std::vector<StructFieldPtr>&& fields, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, AnyV ast_root)
