@@ -6,5 +6,5 @@ fun main() {
 
 /**
 @compilation_should_fail
-@stderr calling a not generic function with generic T
+@stderr type arguments not expected here
  */

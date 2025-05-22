@@ -1,4 +1,4 @@
-fun methodWith1Param(self: int, param: int) {
+fun int.methodWith1Param(self, param: int) {
 
 }
 
@@ -9,5 +9,5 @@ fun main() {
 
 /**
 @compilation_should_fail
-@stderr too many arguments in call to `methodWith1Param`, expected 1, have 2
+@stderr too many arguments in call to `int.methodWith1Param`, expected 1, have 2
  */

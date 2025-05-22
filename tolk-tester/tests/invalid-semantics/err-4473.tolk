@@ -1,4 +1,4 @@
-fun load32(self: slice): int {
+fun slice.load32(self): int {
     return self.loadUint(32);
 }
 

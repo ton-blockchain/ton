@@ -49,8 +49,8 @@ void FullNodePrivateBlockOverlay::process_broadcast(PublicKeyHash src, ton_api::
   BlockIdExt block_id = create_block_id(query.block_->block_);
   VLOG(FULL_NODE_DEBUG) << "Received newShardBlockBroadcast in private overlay from " << src << ": "
                         << block_id.to_str();
-  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_shard_block, block_id,
-                          query.block_->cc_seqno_, std::move(query.block_->data_));
+  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_shard_block_description_broadcast,
+                          block_id, query.block_->cc_seqno_, std::move(query.block_->data_));
 }
 
 void FullNodePrivateBlockOverlay::process_broadcast(PublicKeyHash src,

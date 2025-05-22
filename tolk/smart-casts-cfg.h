@@ -18,6 +18,7 @@
 
 #include "fwd-declarations.h"
 #include "type-system.h"
+#include <cstdint>
 #include <map>
 #include <vector>
 

@@ -7,6 +7,12 @@ type Pair2_v2 = (MInt, MInt);
 type MBool = bool;
 type Tuple2Int = [int, int];
 
+struct Point { x: int; y: int }
+type PointAlias = Point;
+type PointAlias2 = PointAlias;
+
+fun rand(): uint256
+    asm "RANDU256";
 
 fun test1(x: MInt): MVoid {
     var y = x;
@@ -21,20 +27,24 @@ fun test1(x: MInt): MVoid {
     __expect_type(~x, "int");
     __expect_type(x as int, "int");
     __expect_type(x as int8, "int8");
-    __expect_type(random() ? x : y, "MInt");
+    __expect_type(rand() ? x : y, "MInt");
     __expect_type((x, 1, y), "(MInt, int, MInt)");
 
-    __expect_type(random() ? (1, 2) : (1, 2) as Pair2_v1, "(int, int)");
-    __expect_type(random() ? (1, 2) : (1, 2) as Pair2_v2, "(int, int)");
-    __expect_type(random() ? (1, 2) as Pair2_v1 : (1, 2), "Pair2_v1");
-    __expect_type(random() ? (1, 2) as Pair2_v1 : (1, 2) as Pair2_v2, "(int, int)");
-    __expect_type(random() ? (1, 2) as Pair2_v2 : (1, 2) as Pair2_v2, "Pair2_v2");
+    __expect_type(rand() ? (1, 2) : (1, 2) as Pair2_v1, "(int, int)");
+    __expect_type(rand() ? (1, 2) : (1, 2) as Pair2_v2, "(int, int)");
+    __expect_type(rand() ? (1, 2) as Pair2_v1 : (1, 2), "Pair2_v1");
+    __expect_type(rand() ? (1, 2) as Pair2_v1 : (1, 2) as Pair2_v2, "(int, int)");
+    __expect_type(rand() ? (1, 2) as Pair2_v2 : (1, 2) as Pair2_v2, "Pair2_v2");
 
     __expect_type(!x, "bool");
 
     __expect_type(x as int?, "int?");
     __expect_type(x as MInt?, "MInt?");
     __expect_type(x as MIntN, "MIntN");
+
+    __expect_type(PointAlias{x:0,y:0}, "Point");
+    __expect_type(PointAlias2{x:0,y:0}, "Point");
+    __expect_type(Point{x:0,y:0} as PointAlias, "PointAlias");
 
     if (x) { return; }
 }
@@ -66,10 +76,10 @@ fun test4(x: MIntN, y: MIntN) {
     }
     __expect_type(x, "MInt?");
     __expect_type(x!, "MInt");
-    __expect_type(random() ? x : y, "MInt?");
-    __expect_type(random() ? x : 0, "MInt?");
-    __expect_type(random() ? 0 : x, "int?");
-    __expect_type(random() ? 0 : x!, "int");
+    __expect_type(rand() ? x : y, "MInt?");
+    __expect_type(rand() ? x : 0, "MInt?");
+    __expect_type(rand() ? 0 : x, "int?");
+    __expect_type(rand() ? 0 : x!, "int");
     return y!;
 }
 
@@ -177,12 +187,11 @@ fun main(x: MInt, y: MInt?) {
 
 @fif_codegen
 """
-  test9 PROC:<{
-    //  b
-    DUP	//  b b
+  test9 PROC:<{ //  b
+    DUP	        //  b b
     IFNOTJMP:<{	//  b
       NOT	//  '2
-    }>	//  b
+    }>	    //  b
     DROP	//
     TRUE	//  '5
   }>

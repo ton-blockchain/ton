@@ -24,15 +24,6 @@ namespace tolk {
 
 static_assert(sizeof(SrcLocation) == 8);
 
-const SrcFile* AllRegisteredSrcFiles::find_file(int file_id) const {
-  for (const SrcFile* file : all_src_files) {
-    if (file->file_id == file_id) {
-      return file;
-    }
-  }
-  return nullptr;
-}
-
 const SrcFile* AllRegisteredSrcFiles::find_file(const std::string& abs_filename) const {
   for (const SrcFile* file : all_src_files) {
     if (file->abs_filename == abs_filename) {
@@ -64,7 +55,8 @@ const SrcFile* AllRegisteredSrcFiles::locate_and_register_source_file(const std:
     throw Fatal("Failed to read " + rel_filename + ": " + text.move_as_error().message().str());
   }
 
-  SrcFile* created = new SrcFile(++last_registered_file_id, rel_filename, std::move(abs_filename), text.move_as_ok());
+  int file_id = static_cast<int>(all_src_files.size());   // SrcFile::file_id is the index in all files
+  SrcFile* created = new SrcFile(file_id, rel_filename, std::move(abs_filename), text.move_as_ok());
   if (G.is_verbosity(1)) {
     std::cerr << "register file_id " << created->file_id << " " << created->abs_filename << std::endl;
   }
@@ -73,6 +65,7 @@ const SrcFile* AllRegisteredSrcFiles::locate_and_register_source_file(const std:
 }
 
 SrcFile* AllRegisteredSrcFiles::get_next_unparsed_file() {
+  int last_registered_file_id = static_cast<int>(all_src_files.size() - 1);
   if (last_parsed_file_id >= last_registered_file_id) {
     return nullptr;
   }
@@ -93,6 +86,10 @@ SrcFile::SrcPosition SrcFile::convert_offset(int offset) const {
     return SrcPosition{offset, -1, -1, "invalid offset"};
   }
 
+  // currently, converting offset to line number is O(N): just read file contents char by char and detect lines
+  // since original Tolk src lines are now printed into Fift output, this is invoked for every asm instruction
+  // but anyway, it consumes a small amount of time relative to other work of the compiler
+  // in the future, it can be optimized by making lines index aside just std::string_view text
   int line_idx = 0;
   int char_idx = 0;
   int line_offset = 0;
@@ -129,7 +126,7 @@ std::ostream& operator<<(std::ostream& os, const Fatal& fatal) {
 }
 
 const SrcFile* SrcLocation::get_src_file() const {
-  return G.all_src_files.find_file(file_id);
+  return G.all_src_files.get_file(file_id);
 }
 
 void SrcLocation::show(std::ostream& os) const {
@@ -137,7 +134,10 @@ void SrcLocation::show(std::ostream& os) const {
   os << src_file;
   if (src_file && src_file->is_offset_valid(char_offset)) {
     SrcFile::SrcPosition pos = src_file->convert_offset(char_offset);
-    os << ':' << pos.line_no <<  ':' << pos.char_no;
+    os << ':' << pos.line_no;
+    if (pos.char_no != 1) {
+      os << ':' << pos.char_no;
+    }
   }
 }
 
@@ -155,6 +155,37 @@ void SrcLocation::show_context(std::ostream& os) const {
     os << ' ';
   }
   os << '^' << "\n";
+}
+
+// when generating Fift output, every block of asm instructions originated from the same Tolk line,
+// is preceded by an original line as a comment
+void SrcLocation::show_line_to_fif_output(std::ostream& os, int indent, int* last_line_no) const {
+  SrcFile::SrcPosition pos = G.all_src_files.get_file(file_id)->convert_offset(char_offset);
+  
+  // avoid duplicating one line multiple times in fift output
+  if (pos.line_no == *last_line_no) {
+    return;
+  }
+  *last_line_no = pos.line_no;
+
+  // trim some characters from start and end to see `else if (x)` not `} else if (x) {`
+  std::string_view s = pos.line_str;
+  int b = 0, e = static_cast<int>(s.size() - 1);
+  while (std::isspace(s[b]) || s[b] == '}') {
+    if (b < e) b++;
+    else break;
+  }
+  while (std::isspace(s[e]) || s[e] == '{' || s[e] == ';' || s[e] == ',') {
+    if (e > b) e--;
+    else break;
+  }
+
+  if (b < e) {
+    for (int i = 0; i < indent * 2; ++i) {
+      os << ' ';
+    }
+    os << "// " << pos.line_no << ": " << s.substr(b, e - b + 1) << std::endl;
+  }
 }
 
 std::string SrcLocation::to_string() const {
@@ -195,7 +226,27 @@ std::ostream& operator<<(std::ostream& os, const ParseError& error) {
 }
 
 void ParseError::show(std::ostream& os) const {
-  os << loc << ": error: " << message << std::endl;
+  if (message.find('\n') == std::string::npos) {
+    // just print a single-line message
+    os << loc << ": error: " << message << std::endl;
+  } else {
+    // print "location: line1 \n (spaces) line2 \n ..."
+    std::string_view message = this->message;
+    std::string loc_text = loc.to_string();
+    std::string loc_spaces(std::min(static_cast<int>(loc_text.size()), 30), ' ');
+    size_t start = 0, end;
+    os << loc_text << ": error: ";
+    while ((end = message.find('\n', start)) != std::string::npos) {
+      if (start > 0) {
+        os << loc_spaces << "  ";
+      }
+      os << message.substr(start, end - start) << std::endl;
+      start = end + 1;
+    }
+    if (start < message.size()) {
+      os << loc_spaces << "  " << message.substr(start) << std::endl;
+    }
+  }
   if (current_function) {
     os << "    // in function `" << current_function->as_human_readable() << "`" << std::endl;
   }

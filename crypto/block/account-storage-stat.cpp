@@ -63,7 +63,7 @@ td::Status AccountStorageStat::replace_roots(std::vector<Ref<vm::Cell>> new_root
   for (const Ref<vm::Cell>& root : to_add) {
     TRY_RESULT(info, add_cell(root));
     if (check_merkle_depth && info.max_merkle_depth > MAX_MERKLE_DEPTH) {
-      return td::Status::Error("too big Merkle depth");
+      return td::Status::Error(errorcode_limits_exceeded, "too big Merkle depth");
     }
   }
   for (const Ref<vm::Cell>& root : to_del) {
@@ -92,10 +92,10 @@ void AccountStorageStat::add_hint(const td::HashSet<vm::CellHash>& hint) {
         return;
       }
     }
+    e.max_merkle_depth = 0;
     if (hint.contains(cell->get_hash())) {
       bool spec;
       vm::CellSlice cs = vm::load_cell_slice_special(cell, spec);
-      e.size_bits = cs.size();
       for (unsigned i = 0; i < cs.size_refs(); ++i) {
         dfs(cs.prefetch_ref(i), false);
       }
@@ -108,11 +108,11 @@ void AccountStorageStat::add_hint(const td::HashSet<vm::CellHash>& hint) {
 
 td::Result<AccountStorageStat::CellInfo> AccountStorageStat::add_cell(const Ref<vm::Cell>& cell) {
   Entry& e = get_entry(cell);
-  if (!e.exists_known || e.refcnt_diff < 0) {
+  if (!e.exists_known) {
     TRY_STATUS(fetch_from_dict(e));
   }
   ++e.refcnt_diff;
-  if (e.exists || e.refcnt_diff > 1 || (e.refcnt && e.refcnt.value() + e.refcnt_diff != 1)) {
+  if (e.exists || e.refcnt_diff > 1) {
     if (!e.max_merkle_depth) {
       TRY_STATUS(fetch_from_dict(e));
       if (!e.max_merkle_depth) {
@@ -125,7 +125,6 @@ td::Result<AccountStorageStat::CellInfo> AccountStorageStat::add_cell(const Ref<
   td::uint32 max_merkle_depth = 0;
   bool spec;
   vm::CellSlice cs = vm::load_cell_slice_special(cell, spec);
-  e.size_bits = cs.size();
   for (unsigned i = 0; i < cs.size_refs(); ++i) {
     TRY_RESULT(info, add_cell(cs.prefetch_ref(i)));
     max_merkle_depth = std::max(max_merkle_depth, info.max_merkle_depth);
@@ -137,6 +136,8 @@ td::Result<AccountStorageStat::CellInfo> AccountStorageStat::add_cell(const Ref<
   max_merkle_depth = std::min(max_merkle_depth, MERKLE_DEPTH_LIMIT);
   Entry& e2 = get_entry(cell);
   e2.max_merkle_depth = max_merkle_depth;
+  ++total_cells_;
+  total_bits_ += cs.size();
   return CellInfo{max_merkle_depth};
 }
 
@@ -158,16 +159,28 @@ td::Status AccountStorageStat::remove_cell(const Ref<vm::Cell>& cell) {
   }
   bool spec;
   vm::CellSlice cs = vm::load_cell_slice_special(cell, spec);
-  e.size_bits = cs.size();
   for (unsigned i = 0; i < cs.size_refs(); ++i) {
     TRY_STATUS(remove_cell(cs.prefetch_ref(i)));
   }
+  --total_cells_;
+  total_bits_ -= cs.size();
   return td::Status::OK();
 }
 
 td::Result<Ref<vm::Cell>> AccountStorageStat::get_dict_root() {
   if (!dict_up_to_date_) {
     std::vector<std::pair<td::ConstBitPtr, Ref<vm::CellBuilder>>> values;
+    if (parent_ && !parent_->dict_up_to_date_) {
+      for (auto& [_, ep] : parent_->cache_) {
+        if (ep.dict_refcnt_diff == 0) {
+          continue;
+        }
+        Entry& e = cache_[ep.hash];
+        if (!e.inited) {
+          e = ep;
+        }
+      }
+    }
     for (auto& [_, e] : cache_) {
       if (e.dict_refcnt_diff == 0) {
         continue;
@@ -259,25 +272,9 @@ td::Status AccountStorageStat::finalize_entry(Entry& e) {
   e.refcnt.value() += e.refcnt_diff;
   e.dict_refcnt_diff += e.refcnt_diff;
   e.refcnt_diff = 0;
-  if (e.refcnt.value() == 0) {
-    if (!e.size_bits) {
-      return td::Status::Error(PSTRING() << "Failed to store entry " << e.hash.to_hex() << " : unknown cell bits");
-    }
-    --total_cells_;
-    total_bits_ -= e.size_bits.value();
-    e.exists = false;
-  } else {
-    if (!e.exists) {
-      if (!e.size_bits) {
-        return td::Status::Error(PSTRING() << "Failed to store entry " << e.hash.to_hex() << " : unknown cell bits");
-      }
-      ++total_cells_;
-      total_bits_ += e.size_bits.value();
-    }
-    e.exists = true;
-    if (!e.max_merkle_depth) {
-      return td::Status::Error(PSTRING() << "Failed to store entry " << e.hash.to_hex() << " : unknown merkle depth");
-    }
+  e.exists = (e.refcnt.value() != 0);
+  if (e.exists && !e.max_merkle_depth) {
+    return td::Status::Error(PSTRING() << "Error on entry " << e.hash.to_hex() << " : unknown merkle depth");
   }
   return td::Status::OK();
 }

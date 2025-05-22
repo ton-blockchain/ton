@@ -1,4 +1,4 @@
-fun cantReturnFromSelf(mutate self: int): self {
+fun int.cantReturnFromSelf(mutate self): self {
     return 2;
 }
 

@@ -1,5 +1,5 @@
 fun incrementOrSetNull(mutate x: int?) {
-    if (random()) { x! += 1; }
+    if (random.uint256()) { x! += 1; }
     else { x = null; }
 }
 

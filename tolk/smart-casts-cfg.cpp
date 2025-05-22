@@ -98,9 +98,16 @@ namespace tolk {
 std::string SinkExpression::to_string() const {
   std::string result = var_ref->name;
   uint64_t cur_path = index_path;
+  TypePtr cur_type = var_ref->declared_type;
   while (cur_path != 0) {
     result += ".";
-    result += std::to_string((cur_path & 0xFF) - 1);
+    if (const TypeDataStruct* t_struct = cur_type->try_as<TypeDataStruct>()) {
+      StructFieldPtr field_ref = t_struct->struct_ref->get_field((cur_path & 0xFF) - 1);
+      result += field_ref->name;
+      cur_type = field_ref->declared_type;
+    } else {
+      result += std::to_string((cur_path & 0xFF) - 1);
+    }
     cur_path >>= 8;
   }
   return result;
@@ -171,8 +178,8 @@ static TypePtr calculate_type_lca(TypePtr a, TypePtr b, bool* became_union = nul
     return TypeDataTensor::create(std::move(types_lca));
   }
 
-  const auto* tuple1 = a->try_as<TypeDataTypedTuple>();
-  const auto* tuple2 = b->try_as<TypeDataTypedTuple>();
+  const auto* tuple1 = a->try_as<TypeDataBrackets>();
+  const auto* tuple2 = b->try_as<TypeDataBrackets>();
   if (tuple1 && tuple2 && tuple1->size() == tuple2->size()) {
     std::vector<TypePtr> types_lca;
     types_lca.reserve(tuple1->size());
@@ -183,7 +190,7 @@ static TypePtr calculate_type_lca(TypePtr a, TypePtr b, bool* became_union = nul
       }
       types_lca.push_back(next);
     }
-    return TypeDataTypedTuple::create(std::move(types_lca));
+    return TypeDataBrackets::create(std::move(types_lca));
   }
 
   if (const auto* a_alias = a->try_as<TypeDataAlias>()) {
@@ -361,7 +368,7 @@ TypePtr calculate_type_subtract_rhs_type(TypePtr type, TypePtr subtract_type) {
 
   if (const TypeDataUnion* sub_union = subtract_type->try_as<TypeDataUnion>()) {
     if (lhs_union->has_all_variants_of(sub_union)) {
-      rest_variants.reserve(lhs_union->variants.size() - sub_union->variants.size());
+      rest_variants.reserve(lhs_union->size() - sub_union->size());
       for (TypePtr lhs_variant : lhs_union->variants) {
         if (!sub_union->has_variant_with_type_id(lhs_variant)) {
           rest_variants.push_back(lhs_variant);
@@ -369,7 +376,7 @@ TypePtr calculate_type_subtract_rhs_type(TypePtr type, TypePtr subtract_type) {
       }
     }
   } else if (lhs_union->has_variant_with_type_id(subtract_type)) {
-    rest_variants.reserve(lhs_union->variants.size() - 1);
+    rest_variants.reserve(lhs_union->size() - 1);
     for (TypePtr lhs_variant : lhs_union->variants) {
       if (lhs_variant->get_type_id() != subtract_type->get_type_id()) {
         rest_variants.push_back(lhs_variant);
@@ -400,11 +407,13 @@ SinkExpression extract_sink_expression_from_vertex(AnyExprV v) {
     }
   }
 
-  if (auto as_dot = v->try_as<ast_dot_access>(); as_dot && as_dot->is_target_indexed_access()) {
+  if (auto as_dot = v->try_as<ast_dot_access>()) {
     V<ast_dot_access> cur_dot = as_dot;
     uint64_t index_path = 0;
-    while (cur_dot->is_target_indexed_access()) {
-      int index_at = std::get<int>(cur_dot->target);
+    while (cur_dot->is_target_indexed_access() || cur_dot->is_target_struct_field()) {
+      int index_at = cur_dot->is_target_indexed_access()
+          ? std::get<int>(cur_dot->target)
+          : std::get<StructFieldPtr>(cur_dot->target)->field_idx;
       index_path = (index_path << 8) + index_at + 1;
       if (auto parent_dot = unwrap_not_null_operator(cur_dot->get_obj())->try_as<ast_dot_access>()) {
         cur_dot = parent_dot;
@@ -413,7 +422,7 @@ SinkExpression extract_sink_expression_from_vertex(AnyExprV v) {
       }
     }
     if (auto as_ref = unwrap_not_null_operator(cur_dot->get_obj())->try_as<ast_reference>()) {
-      if (LocalVarPtr var_ref = as_ref->sym->try_as<LocalVarPtr>()) {
+      if (LocalVarPtr var_ref = as_ref->sym->try_as<LocalVarPtr>(); var_ref && index_path) {
         return SinkExpression(var_ref, index_path);
       }
     }
@@ -448,14 +457,20 @@ TypePtr calc_declared_type_before_smart_cast(AnyExprV v) {
     }
   }
 
-  if (auto as_dot = v->try_as<ast_dot_access>(); as_dot && as_dot->is_target_indexed_access()) {
+  if (auto as_dot = v->try_as<ast_dot_access>()) {
     TypePtr obj_type = as_dot->get_obj()->inferred_type->unwrap_alias();    // v already inferred; hence, index_at is correct
-    int index_at = std::get<int>(as_dot->target);
-    if (const auto* t_tensor = obj_type->try_as<TypeDataTensor>()) {
-      return t_tensor->items[index_at];
+    if (as_dot->is_target_struct_field()) {
+      StructFieldPtr field_ref = std::get<StructFieldPtr>(as_dot->target);
+      return field_ref->declared_type;
     }
-    if (const auto* t_tuple = obj_type->try_as<TypeDataTypedTuple>()) {
-      return t_tuple->items[index_at];
+    if (as_dot->is_target_indexed_access()) {
+      int index_at = std::get<int>(as_dot->target);
+      if (const auto* t_tensor = obj_type->try_as<TypeDataTensor>()) {
+        return t_tensor->items[index_at];
+      }
+      if (const auto* t_tuple = obj_type->try_as<TypeDataBrackets>()) {
+        return t_tuple->items[index_at];
+      }
     }
   }
 
@@ -481,7 +496,7 @@ TypePtr calc_smart_cast_type_on_assignment(TypePtr lhs_declared_type, TypePtr rh
       for (TypePtr rhs_variant : rhs_union->variants) {
         lhs_has_all_variants_of_rhs &= lhs_union->has_variant_with_type_id(rhs_variant);
       }
-      if (lhs_has_all_variants_of_rhs && rhs_union->variants.size() < lhs_union->variants.size()) {
+      if (lhs_has_all_variants_of_rhs && rhs_union->size() < lhs_union->size()) {
         std::vector<TypePtr> subtypes_of_lhs;
         for (TypePtr lhs_variant : lhs_union->variants) {
           if (rhs_union->has_variant_with_type_id(lhs_variant)) {
