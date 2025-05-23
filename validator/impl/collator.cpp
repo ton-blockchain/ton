@@ -3063,6 +3063,7 @@ bool Collator::create_ticktock_transaction(const ton::StdSmcAddress& smc_addr, t
   update_max_lt(acc->last_trans_end_lt_);
   block::MsgMetadata new_msg_metadata{0, acc->workchain, acc->addr, trans->start_lt};
   register_new_msgs(*trans, std::move(new_msg_metadata));
+  ++stats_.transactions;
   return true;
 }
 
@@ -3170,6 +3171,7 @@ Ref<vm::Cell> Collator::create_ordinary_transaction(Ref<vm::Cell> msg_root,
   register_new_msgs(*trans, std::move(new_msg_metadata));
   update_max_lt(acc->last_trans_end_lt_);
   value_flow_.burned += trans->blackhole_burned;
+  ++stats_.transactions;
   return trans_root;
 }
 

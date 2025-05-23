@@ -936,6 +936,8 @@ validatorStats.blockLimitsStatus
     limits_log:string = validatorStats.BlockLimitsStatus;
 validatorStats.extMsgsStats
     ext_msgs_total:int ext_msgs_filtered:int ext_msgs_accepted:int ext_msgs_rejected:int = validatorStats.ExtMsgsStats;
+validatorStats.blockStats
+    ext_msgs:validatorStats.extMsgsStats transactions:int = validatorStats.BlockStats;
 
 validatorStats.collatedBlock
     block_id:tonNode.blockIdExt collated_data_hash:int256 cc_seqno:int collated_at:double
@@ -943,7 +945,7 @@ validatorStats.collatedBlock
     self:int256 is_validator:Bool
     total_time:double work_time:double cpu_work_time:double time_stats:string
     block_limits:validatorStats.blockLimitsStatus
-    ext_msgs_stats:validatorStats.extMsgsStats = validatorSession.stats.CollatedBlock;
+    block_stats:validatorStats.blockStats = validatorSession.stats.CollatedBlock;
 
 validatorStats.validatedBlock
     block_id:tonNode.blockIdExt collated_data_hash:int256 validated_at:double
@@ -954,7 +956,7 @@ validatorStats.validatedBlock
 
 validatorStats.newValidatorGroup.node id:int256 pubkey:PublicKey adnl_id:int256 weight:long = validatorStats.newValidatorGroup.Node;
 validatorStats.newValidatorGroup session_id:int256 shard:tonNode.shardId cc_seqno:int
-    last_key_block_seqno:int started_at:double
+    last_key_block_seqno:int started_at:double prev:(vector tonNode.blockIdExt)
     self_idx:int self:int256 nodes:(vector validatorStats.newValidatorGroup.node) = validatorStats.NewValidatorGroup;
 
 validatorStats.endValidatorGroup.node id:int256 catchain_blocks:int = validatorStats.endValidatorGroup.Node;

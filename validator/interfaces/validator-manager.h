@@ -69,6 +69,7 @@ struct CollationStats {
   td::uint32 estimated_bytes = 0, gas = 0, lt_delta = 0, estimated_collated_data_bytes = 0;
   int cat_bytes = 0, cat_gas = 0, cat_lt_delta = 0, cat_collated_data_bytes = 0;
   std::string limits_log;
+  td::uint32 transactions = 0;
   td::uint32 ext_msgs_total = 0;
   td::uint32 ext_msgs_filtered = 0;
   td::uint32 ext_msgs_accepted = 0;
@@ -77,6 +78,10 @@ struct CollationStats {
   std::string time_stats;
 
   tl_object_ptr<ton_api::validatorStats_collatedBlock> tl() const {
+    auto block_stats = create_tl_object<ton_api::validatorStats_blockStats>(
+        create_tl_object<ton_api::validatorStats_extMsgsStats>(ext_msgs_total, ext_msgs_filtered, ext_msgs_accepted,
+                                                               ext_msgs_rejected),
+        transactions);
     return create_tl_object<ton_api::validatorStats_collatedBlock>(
         create_tl_block_id(block_id), collated_data_hash, cc_seqno, collated_at, actual_bytes,
         actual_collated_data_bytes, attempt, self.bits256_value(), is_validator, total_time, work_time, cpu_work_time,
@@ -84,8 +89,7 @@ struct CollationStats {
         create_tl_object<ton_api::validatorStats_blockLimitsStatus>(estimated_bytes, gas, lt_delta,
                                                                     estimated_collated_data_bytes, cat_bytes, cat_gas,
                                                                     cat_lt_delta, cat_collated_data_bytes, limits_log),
-        create_tl_object<ton_api::validatorStats_extMsgsStats>(ext_msgs_total, ext_msgs_filtered, ext_msgs_accepted,
-                                                               ext_msgs_rejected));
+        std::move(block_stats));
   }
 };
 
