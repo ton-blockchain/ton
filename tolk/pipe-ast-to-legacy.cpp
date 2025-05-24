@@ -281,14 +281,15 @@ public:
 // the purpose of this class is having a call `f(a1,a2,...)` when f has asm arg_order, to check
 // whether it's safe to rearrange arguments (to evaluate them in arg_order right here for fewer stack manipulations)
 // or it's unsafe, and we should evaluate them left-to-right;
-// example: `f(1,2,3)` / `b.storeUint(2,32)` is safe
-// example: `f(x,x+=5,x)` / `f(impureF1(), global_var)` is unsafe
+// example: `f(1,2,3)` / `b.storeUint(2,32)` is safe;
+// example: `f(x,x+=5,x)` / `f(impureF1(), global_var)` / `f(s.loadInt(), s.loadInt())` is unsafe;
+// the same rules are used to check an object literal: is it safe to convert `{y:expr, x:expr}` to declaration order {x,y}
 class CheckReorderingForAsmArgOrderIsSafeVisitor final : public ASTVisitorFunctionBody {
   bool has_side_effects = false;
 
 protected:
   void visit(V<ast_function_call> v) override {
-    has_side_effects |= v->fun_maybe == nullptr || !v->fun_maybe->is_marked_as_pure();
+    has_side_effects |= v->fun_maybe == nullptr || !v->fun_maybe->is_marked_as_pure() || v->fun_maybe->has_mutate_params();
     parent::visit(v);
   }
 
@@ -320,6 +321,14 @@ public:
     }
     if (v->dot_obj_is_self) {
       visitor.ASTVisitorFunctionBody::visit(v->get_self_obj());
+    }
+    return !visitor.has_side_effects;
+  }
+
+  static bool is_safe_to_reorder(V<ast_object_body> v) {
+    CheckReorderingForAsmArgOrderIsSafeVisitor visitor;
+    for (int i = 0; i < v->get_num_fields(); ++i) {
+      visitor.ASTVisitorFunctionBody::visit(v->get_field(i)->get_init_val());
     }
     return !visitor.has_side_effects;
   }
@@ -1425,10 +1434,78 @@ static std::vector<var_idx_t> process_typed_tuple(V<ast_bracket_tuple> v, CodeBl
   return transition_to_target_type(std::move(left), code, target_type, v);
 }
 
+static std::vector<var_idx_t> process_object_literal_shuffled(V<ast_object_literal> v, CodeBlob& code, TypePtr target_type, LValContext* lval_ctx) {
+  // creating an object like `Point { y: getY(), x: getX() }`, where fields order doesn't match declaration;
+  // as opposed to a non-shuffled version `{x:..., y:...}`, we should at first evaluate fields as they created,
+  // and then to place them in a correct order
+  std::vector<AnyExprV> tensor_items;   // create a tensor of literal fields values
+  std::vector<TypePtr> target_types;
+  tensor_items.reserve(v->get_body()->get_num_fields());
+  target_types.reserve(v->get_body()->get_num_fields());
+  for (int i = 0; i < v->get_body()->get_num_fields(); ++i) {
+    auto v_field = v->get_body()->get_field(i);
+    StructFieldPtr field_ref = v->struct_ref->find_field(v_field->get_field_name());
+    tensor_items.push_back(v_field->get_init_val());
+    target_types.push_back(field_ref->declared_type);
+  }
+  const auto* tensor_target_type = TypeDataTensor::create(std::move(target_types))->try_as<TypeDataTensor>();
+  std::vector<var_idx_t> literal_rvect = pre_compile_tensor(code, tensor_items, lval_ctx, tensor_target_type);
+
+  std::vector<var_idx_t> rvect = code.create_tmp_var(TypeDataStruct::create(v->struct_ref), v->loc, "(object)");
+  int stack_offset = 0;
+  for (StructFieldPtr field_ref : v->struct_ref->fields) {
+    int stack_width = field_ref->declared_type->get_width_on_stack();
+    std::vector field_rvect(rvect.begin() + stack_offset, rvect.begin() + stack_offset + stack_width);
+    stack_offset += stack_width;
+
+    int tensor_offset = 0;
+    bool exists_in_literal = false;
+    for (int i = 0; i < v->get_body()->get_num_fields(); ++i) {
+      auto v_field = v->get_body()->get_field(i);
+      int tensor_item_width = v_field->field_ref->declared_type->get_width_on_stack();
+      if (v_field->get_field_name() == field_ref->name) {
+        exists_in_literal = true;
+        std::vector literal_field_rvect(literal_rvect.begin() + tensor_offset, literal_rvect.begin() + tensor_offset + tensor_item_width);
+        code.emplace_back(v->loc, Op::_Let, std::move(field_rvect), std::move(literal_field_rvect));
+        break;
+      }
+      tensor_offset += tensor_item_width;
+    }
+    if (exists_in_literal || field_ref->declared_type == TypeDataNever::create()) {
+      continue;
+    }
+
+    tolk_assert(field_ref->has_default_value());
+    SrcLocation last_loc = v->get_body()->empty() ? v->loc : v->get_body()->get_all_fields().back()->loc;
+    ASTAuxData *aux_data = new AuxData_ForceFiftLocation(last_loc);
+    auto v_force_loc = createV<ast_artificial_aux_vertex>(v->loc, field_ref->default_value, aux_data, field_ref->declared_type);
+    std::vector def_rvect = pre_compile_expr(v_force_loc, code, field_ref->declared_type);
+    code.emplace_back(v->loc, Op::_Let, std::move(field_rvect), std::move(def_rvect));
+  }
+
+  return transition_to_target_type(std::move(rvect), code, target_type, v);
+}
+
 static std::vector<var_idx_t> process_object_literal(V<ast_object_literal> v, CodeBlob& code, TypePtr target_type, LValContext* lval_ctx) {
   // an object (an instance of a struct) is actually a tensor at low-level
   // for example, `struct User { id: int; name: slice; }` occupies 2 slots
   // fields of a tensor are placed in order of declaration (in a literal they might be shuffled)
+  bool are_fields_shuffled = false;
+  for (int i = 1; i < v->get_body()->get_num_fields(); ++i) {
+    StructFieldPtr field_ref = v->struct_ref->find_field(v->get_body()->get_field(i)->get_field_name());
+    StructFieldPtr prev_field_ref = v->struct_ref->find_field(v->get_body()->get_field(i - 1)->get_field_name());
+    are_fields_shuffled |= prev_field_ref->field_idx > field_ref->field_idx;
+  }
+
+  // if fields are created {y,x} (not {x,y}), maybe, it's nevertheless safe to evaluate them as {x,y};
+  // for example, if they are just constants, calls to pure non-mutating functions, etc.;
+  // generally, rules of "can we evaluate {x,y} instead of {y,x}" follows the same logic
+  // as passing of calling `f(x,y)` with asm arg_order, is it safe to avoid SWAP
+  if (are_fields_shuffled && !CheckReorderingForAsmArgOrderIsSafeVisitor::is_safe_to_reorder(v->get_body())) {
+    // okay, we have `{y: getY(), x: getX()}` / `{y: v += 1, x: v}`, evaluate them in created order
+    return process_object_literal_shuffled(v, code, target_type, lval_ctx);
+  }
+
   SrcLocation prev_loc = v->loc;
   std::vector<AnyExprV> tensor_items;
   std::vector<TypePtr> target_types;

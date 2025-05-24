@@ -487,6 +487,81 @@ fun test34() {
     return o1;
 }
 
+@pure fun getXPure() { return 1; }
+@pure fun getYPure() { return 2; }
+global t_impure: tuple;
+fun getXImpure() { t_impure.push(1); return 1; }
+fun getYImpure() { t_impure.push(2); return 2; }
+
+@method_id(135)
+fun test35() {
+    var p: Point = {
+        y: getYPure(),
+        x: getXPure(),
+    };
+    return p;
+}
+
+@method_id(136)
+fun test36() {
+    t_impure = createEmptyTuple();
+    var p: Point = {
+        y: getYImpure(),
+        x: getXImpure(),
+    };
+    return (p, t_impure);
+}
+
+@method_id(137)
+fun test37() {
+    var num = 0;
+    var p: Point = {
+        y: num += 5,
+        x: (num *= 10) - 2,
+    };
+    return (p, num);
+}
+
+@method_id(138)
+fun test38(num: int) {
+    var p: Point = {
+        y: num += 5,
+        x: (num *= 10) - 2,
+    };
+    return (p, num);
+}
+
+struct TwoPoints {
+    p1: Point;
+    p2: Point;
+}
+
+@method_id(139)
+fun test39(): (TwoPoints, int) {
+    var cs = stringHexToSlice("0102030405");
+    return ({
+        p2: { y: cs.loadUint(8), x: cs.loadUint(8) },
+        p1: { x: cs.loadUint(8), y: cs.loadUint(8) },
+    }, cs.remainingBitsCount());
+}
+
+@method_id(140)
+fun test40() {
+    var cs = stringHexToSlice("0102030405");
+    return TwoPoints {
+        p1: { y: cs.loadUint(8), x: cs.loadUint(8) },
+        p2: { y: cs.loadUint(8), x: cs.loadUint(8) },
+    }
+}
+
+@method_id(141)
+fun test41(rev: bool) {
+    var cs = stringHexToSlice("0102030405");
+    return TwoPoints {
+        p2: rev ? { y: cs.loadUint(8), x: cs.loadUint(8) } : { x: cs.loadUint(8), y: cs.loadUint(8) },
+        p1: rev ? { y: cs.loadUint(8), x: cs.loadUint(8) } : { x: cs.loadUint(8), y: cs.loadUint(8) },
+    }
+}
 
 fun main(x: int8, y: MInt) {
     __expect_type(PointAlias{x,y}, "Point");
@@ -539,6 +614,14 @@ type PointAlias = Point;
 @testcase | 132 |      | 10 20 10 0 0 20 0 0 0 0
 @testcase | 133 |      | -1 0 5 (null) (null) (null) 0 0 46
 @testcase | 134 |      | 10 20
+@testcase | 135 |      | 1 2
+@testcase | 136 |      | 1 2 [ 2 1 ]
+@testcase | 137 |      | 48 5 50
+@testcase | 138 | 3    | 78 8 80
+@testcase | 139 |      | 3 4 2 1 8
+@testcase | 140 |      | 2 1 4 3
+@testcase | 141 | -1   | 4 3 2 1
+@testcase | 141 | 0    | 3 4 1 2
 
 @fif_codegen
 """
@@ -570,5 +653,26 @@ type PointAlias = Point;
     PUSHNULL   // '5
   }>
 """
+
+@fif_codegen
+"""
+  test35 PROC:<{                //
+    getXPure CALLDICT           //  '2
+    getYPure CALLDICT           //  p.x p.y
+  }>
+"""
+
+@fif_codegen
+"""
+  test36 PROC:<{                //
+    NIL                         //  '0
+    t_impure SETGLOB            //
+    getYImpure CALLDICT         //  '4
+    getXImpure CALLDICT         //  p.y p.x
+    t_impure GETGLOB            //  p.y p.x g_t_impure
+    s1 s2 XCHG                  //  p.x p.y g_t_impure
+  }>
+"""
+
 
  */
