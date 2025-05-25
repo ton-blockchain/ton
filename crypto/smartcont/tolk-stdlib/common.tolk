@@ -516,6 +516,14 @@ fun slice.depth(self): int
 fun builder.depth(self): int
     asm "BDEPTH";
 
+/// Returns the number of stack slots anyVariable occupies (works at compile-time).
+/// Example: sizeof(nullableInt) = 1, because `int?` is 1 TVM slot holding either NULL or a value.
+/// Example: sizeof(somePoint) = 2 for `struct Point { x:int, y: int }`: two fields one slot per each.
+/// Useful for debugging or when preparing stack contents for RUNVM.
+@pure
+fun sizeof<T>(anyVariable: T): int
+    builtin;
+
 
 /**
     Debug primitives.

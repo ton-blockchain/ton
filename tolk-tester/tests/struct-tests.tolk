@@ -98,6 +98,7 @@ fun test3() {
 @method_id(104)
 fun test4() {
     var p: Point = { x: 10, y: 20 };
+    assert(sizeof(p) == 2, 100);
     return (p == null, p, p = {x:30,y:40}, p != null);
 }
 

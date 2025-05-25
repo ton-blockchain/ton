@@ -1119,6 +1119,17 @@ static AsmOp compile_any_object_to_tuple(std::vector<VarDescr>& res, std::vector
   return exec_op(loc, std::to_string(args.size()) + " TUPLE", n, 1);
 }
 
+// fun sizeof<T>(anything: T): int;        // (returns the number of stack elements)
+static AsmOp compile_any_object_sizeof(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
+  tolk_assert(res.size() == 1);
+  int n = static_cast<int>(args.size());
+  res[0].set_const(n);
+  for (int i = 0; i < n; ++i) {
+    args[i].unused();
+  }
+  return AsmOp::IntConst(loc, td::make_refint(n));
+}
+
 // fun ton(amount: slice): coins; ton("0.05") replaced by 50000000 at compile-time
 // same for stringCrc32(constString: slice) and others
 AsmOp compile_time_only_function(std::vector<VarDescr>&, std::vector<VarDescr>&, SrcLocation loc) {
@@ -1372,6 +1383,9 @@ void define_builtins() {
   define_builtin_method("debug.dumpStack", debug, {}, Unit, nullptr,
                                 compile_dumpstk,
                                 0);
+  define_builtin_func("sizeof", {typeT}, TypeDataInt::create(), declGenericT,
+                                compile_any_object_sizeof,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT);
 
   // serialization/deserialization methods to/from cells (or, more low-level, slices/builders)
   // they work with structs (or, more low-level, with arbitrary types)
