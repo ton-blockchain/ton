@@ -174,6 +174,7 @@ struct ActionPhaseConfig {
   bool disable_custom_fess{false};
   bool reserve_extra_enabled{false};
   bool extra_currency_v2{false};
+  bool disable_ihr_flag{false};
   td::optional<td::Bits256> mc_blackhole_addr;
   bool disable_anycast{false};
   const MsgPrices& fetch_msg_prices(bool is_masterchain) const {
