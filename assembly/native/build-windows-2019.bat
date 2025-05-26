@@ -149,14 +149,14 @@ tonlib-cli validator-engine lite-client validator-engine-console generate-random
 json2tlo dht-server http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork emulator ^
 test-ed25519 test-bigint test-vm test-fift test-cells test-smartcont test-net ^
 test-tdactor test-tdutils test-tonlib-offline test-adnl test-dht test-rldp test-rldp2 test-catchain ^
-test-fec test-tddb test-db test-validator-session-state test-emulator proxy-liteserver
+test-fec test-tddb test-db test-validator-session-state test-emulator proxy-liteserver dht-ping-servers dht-resolve
 IF %errorlevel% NEQ 0 (
   echo Can't compile TON
   exit /b %errorlevel%
 )
 ) else (
 ninja storage-daemon storage-daemon-cli blockchain-explorer fift func tolk tonlib tonlibjson  ^
-tonlib-cli validator-engine lite-client validator-engine-console generate-random-id ^
+tonlib-cli validator-engine lite-client validator-engine-console generate-random-id dht-ping-servers dht-resolve ^
 json2tlo dht-server http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork emulator proxy-liteserver
 IF %errorlevel% NEQ 0 (
   echo Can't compile TON
@@ -192,6 +192,8 @@ for %%I in (build\storage\storage-daemon\storage-daemon.exe ^
   build\http\http-proxy.exe ^
   build\rldp-http-proxy\rldp-http-proxy.exe ^
   build\dht-server\dht-server.exe ^
+  build\dht\dht-ping-servers.exe ^
+  build\dht\dht-resolve.exe ^
   build\lite-client\lite-client.exe ^
   build\validator-engine\validator-engine.exe ^
   build\utils\generate-random-id.exe ^
