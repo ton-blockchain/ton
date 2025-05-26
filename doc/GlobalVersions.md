@@ -223,5 +223,6 @@ Along with the storage stat (cells and bits count), each account now stores the 
 **Storage dict** is the dictionary that stores refcnt for each cell in the account state.
 This is required to help computing storage stats in the future, after collator-validator separation.
 
-### Other TVM changes
+### Other changes
 - Fix returning `null` as `c4` and `c5` (when VM state is not committed) in `RUNVM`.
+- In new internal messages `ihr_disabled` is automatically set to `1`, `ihr_fee` is always zero.
