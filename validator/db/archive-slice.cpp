@@ -554,14 +554,14 @@ void ArchiveSlice::get_slice(td::uint64 archive_id, td::uint64 offset, td::uint3
   before_query();
   auto value = static_cast<td::uint32>(archive_id >> 32);
   PackageInfo *p;
-  if (shard_split_depth_ == 0) {
-    TRY_RESULT_PROMISE_ASSIGN(promise, p, choose_package(value, ShardIdFull{masterchainId}, false));
-  } else {
+  if (shard_separated_) {
     if (value >= packages_.size()) {
       promise.set_error(td::Status::Error(ErrorCode::notready, "no such package"));
       return;
     }
     p = &packages_[value];
+  } else {
+    TRY_RESULT_PROMISE_ASSIGN(promise, p, choose_package(value, ShardIdFull{masterchainId}, false));
   }
   promise = begin_async_query(std::move(promise));
   td::actor::create_actor<db::ReadFile>("readfile", p->path, offset, limit, 0, std::move(promise)).release();
@@ -574,10 +574,10 @@ void ArchiveSlice::get_archive_id(BlockSeqno masterchain_seqno, ShardIdFull shar
     promise.set_result(archive_id_);
   } else {
     TRY_RESULT_PROMISE(promise, p, choose_package(masterchain_seqno, shard_prefix, false));
-    if (shard_split_depth_ == 0) {
-      promise.set_result(p->seqno * (1ull << 32) + archive_id_);
-    } else {
+    if (shard_separated_) {
       promise.set_result(p->idx * (1ull << 32) + archive_id_);
+    } else {
+      promise.set_result(p->seqno * (1ull << 32) + archive_id_);
     }
   }
 }
@@ -609,8 +609,10 @@ void ArchiveSlice::before_query() {
         if (R2.move_as_ok() == td::KeyValue::GetStatus::Ok) {
           shard_split_depth_ = td::to_integer<td::uint32>(value);
           CHECK(shard_split_depth_ <= 60);
+          shard_separated_ = true;
         } else {
           shard_split_depth_ = 0;
+          shard_separated_ = false;
         }
         for (td::uint32 i = 0; i < tot; i++) {
           R2 = kv_->get(PSTRING() << "status." << i, value);
@@ -625,16 +627,16 @@ void ArchiveSlice::before_query() {
           }
           td::uint32 seqno;
           ShardIdFull shard_prefix;
-          if (shard_split_depth_ == 0) {
-            seqno = archive_id_ + slice_size_ * i;
-            shard_prefix = ShardIdFull{masterchainId};
-          } else {
+          if (shard_separated_) {
             R2 = kv_->get(PSTRING() << "info." << i, value);
             R2.ensure();
             CHECK(R2.move_as_ok() == td::KeyValue::GetStatus::Ok);
             unsigned long long shard;
             CHECK(sscanf(value.c_str(), "%u.%d:%016llx", &seqno, &shard_prefix.workchain, &shard) == 3);
             shard_prefix.shard = shard;
+          } else {
+            seqno = archive_id_ + slice_size_ * i;
+            shard_prefix = ShardIdFull{masterchainId};
           }
           add_package(seqno, shard_prefix, len, ver);
         }
@@ -651,10 +653,9 @@ void ArchiveSlice::before_query() {
         kv_->set("slice_size", td::to_string(slice_size_)).ensure();
         kv_->set("status.0", "0").ensure();
         kv_->set("version.0", td::to_string(default_package_version())).ensure();
-        if (shard_split_depth_ > 0) {
-          kv_->set("info.0", package_info_to_str(archive_id_, ShardIdFull{masterchainId})).ensure();
-          kv_->set("shard_split_depth", td::to_string(shard_split_depth_)).ensure();
-        }
+        shard_separated_ = true;
+        kv_->set("info.0", package_info_to_str(archive_id_, ShardIdFull{masterchainId})).ensure();
+        kv_->set("shard_split_depth", td::to_string(shard_split_depth_)).ensure();
         kv_->commit_transaction().ensure();
         add_package(archive_id_, ShardIdFull{masterchainId}, 0, default_package_version());
       } else {
@@ -797,7 +798,7 @@ td::Result<ArchiveSlice::PackageInfo *> ArchiveSlice::choose_package(BlockSeqno 
   }
   masterchain_seqno -= (masterchain_seqno - archive_id_) % slice_size_;
   CHECK((masterchain_seqno - archive_id_) % slice_size_ == 0);
-  if (shard_split_depth_ == 0) {
+  if (!shard_separated_) {
     shard_prefix = ShardIdFull{masterchainId};
   } else if (!shard_prefix.is_masterchain()) {
     shard_prefix.shard |= 1;  // In case length is < split depth
@@ -813,7 +814,7 @@ td::Result<ArchiveSlice::PackageInfo *> ArchiveSlice::choose_package(BlockSeqno 
     kv_->set("slices", td::to_string(v + 1)).ensure();
     kv_->set(PSTRING() << "status." << v, "0").ensure();
     kv_->set(PSTRING() << "version." << v, td::to_string(default_package_version())).ensure();
-    if (shard_split_depth_ > 0) {
+    if (shard_separated_) {
       kv_->set(PSTRING() << "info." << v, package_info_to_str(masterchain_seqno, shard_prefix)).ensure();
     }
     commit_transaction();
@@ -1097,7 +1098,7 @@ void ArchiveSlice::truncate(BlockSeqno masterchain_seqno, ConstBlockHandle, td::
       package.idx = i;
       kv_->set(PSTRING() << "status." << i, td::to_string(package.package->size())).ensure();
       kv_->set(PSTRING() << "version." << i, td::to_string(package.version)).ensure();
-      if (shard_split_depth_ > 0) {
+      if (shard_separated_) {
         kv_->set(PSTRING() << "info." << i, package_info_to_str(package.seqno, package.shard_prefix)).ensure();
       }
       id_to_package_[{package.seqno, package.shard_prefix}] = i;
