@@ -91,6 +91,8 @@ class ArchiveImporter : public td::actor::Actor {
   bool imported_any_ = false;
   bool have_shard_blocks_ = false;
   std::vector<std::string> files_to_cleanup_;
+
+  td::PerfWarningTimer perf_timer_;
 };
 
 }  // namespace validator
