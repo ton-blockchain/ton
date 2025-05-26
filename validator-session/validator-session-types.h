@@ -143,7 +143,9 @@ struct ValidatorSessionStats {
         signers_str[i] = '0' + signers[i];
       }
       int flags =
-          (block_status != status_none ? ton_api::validatorStats_stats_producer::Flags::BLOCK_ID_MASK : 0) |
+          (block_status != status_none || !candidate_id.is_zero()
+               ? ton_api::validatorStats_stats_producer::Flags::BLOCK_ID_MASK
+               : 0) |
           (collated_at >= 0.0 ? ton_api::validatorStats_stats_producer::Flags::COLLATED_AT_MASK : 0) |
           (!collator_node_id.is_zero() ? ton_api::validatorStats_stats_producer::Flags::COLLATOR_NODE_ID_MASK : 0) |
           (validated_at >= 0.0 ? ton_api::validatorStats_stats_producer::Flags::VALIDATED_AT_MASK : 0) |

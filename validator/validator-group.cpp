@@ -38,6 +38,10 @@ static bool need_send_candidate_broadcast(const validatorsession::BlockSourceInf
 
 void ValidatorGroup::generate_block_candidate(validatorsession::BlockSourceInfo source_info,
                                               td::Promise<GeneratedCandidate> promise) {
+  if (destroying_) {
+    promise.set_error(td::Status::Error("validator session finished"));
+    return;
+  }
   td::uint32 round_id = source_info.priority.round;
   if (round_id > last_known_round_id_) {
     last_known_round_id_ = round_id;
@@ -99,6 +103,10 @@ void ValidatorGroup::generated_block_candidate(validatorsession::BlockSourceInfo
 
 void ValidatorGroup::validate_block_candidate(validatorsession::BlockSourceInfo source_info, BlockCandidate block,
                                               td::Promise<std::pair<UnixTime, bool>> promise) {
+  if (destroying_) {
+    promise.set_error(td::Status::Error("validator session finished"));
+    return;
+  }
   td::uint32 round_id = source_info.priority.round;
   if (round_id > last_known_round_id_) {
     last_known_round_id_ = round_id;
@@ -451,6 +459,28 @@ void ValidatorGroup::start(std::vector<BlockIdExt> prev, BlockIdExt min_masterch
 }
 
 void ValidatorGroup::destroy() {
+  if (destroying_) {
+    return;
+  }
+  destroying_ = true;
+  if (!session_.empty()) {
+    td::actor::send_closure(session_, &validatorsession::ValidatorSession::get_end_stats,
+                            [manager = manager_](td::Result<validatorsession::EndValidatorGroupStats> R) {
+                              if (R.is_error()) {
+                                LOG(DEBUG) << "Failed to get validator session end stats: " << R.move_as_error();
+                                return;
+                              }
+                              auto stats = R.move_as_ok();
+                              td::actor::send_closure(manager, &ValidatorManager::log_end_validator_group_stats,
+                                                      std::move(stats));
+                            });
+  }
+  cancellation_token_source_.cancel();
+  delay_action([SelfId = actor_id(this)]() { td::actor::send_closure(SelfId, &ValidatorGroup::destroy_cont); },
+               td::Timestamp::in(10.0));
+}
+
+void ValidatorGroup::destroy_cont() {
   if (!session_.empty()) {
     td::actor::send_closure(session_, &validatorsession::ValidatorSession::get_current_stats,
                             [manager = manager_, cc_seqno = validator_set_->get_catchain_seqno(),
@@ -469,21 +499,9 @@ void ValidatorGroup::destroy() {
                               td::actor::send_closure(manager, &ValidatorManager::log_validator_session_stats,
                                                       std::move(stats));
                             });
-    td::actor::send_closure(session_, &validatorsession::ValidatorSession::get_end_stats,
-                            [manager = manager_](td::Result<validatorsession::EndValidatorGroupStats> R) {
-                              if (R.is_error()) {
-                                LOG(DEBUG) << "Failed to get validator session end stats: " << R.move_as_error();
-                                return;
-                              }
-                              auto stats = R.move_as_ok();
-                              td::actor::send_closure(manager, &ValidatorManager::log_end_validator_group_stats,
-                                                      std::move(stats));
-                            });
     auto ses = session_.release();
-    delay_action([ses]() mutable { td::actor::send_closure(ses, &validatorsession::ValidatorSession::destroy); },
-                 td::Timestamp::in(10.0));
+    td::actor::send_closure(ses, &validatorsession::ValidatorSession::destroy);
   }
-  cancellation_token_source_.cancel();
   stop();
 }
 

@@ -102,6 +102,7 @@ class ValidatorGroup : public td::actor::Actor {
 
  private:
   std::unique_ptr<validatorsession::ValidatorSession::Callback> make_validator_session_callback();
+  void destroy_cont();
 
   struct PostponedAccept {
     RootHash root_hash;
@@ -143,6 +144,7 @@ class ValidatorGroup : public td::actor::Actor {
   td::Ref<ValidatorManagerOptions> opts_;
   td::uint32 last_known_round_id_ = 0;
   bool monitoring_shard_ = true;
+  bool destroying_ = false;
 
   struct CachedCollatedBlock {
     td::optional<GeneratedCandidate> result;
