@@ -2194,6 +2194,9 @@ void ValidatorEngine::start_validator() {
     }
   }
 
+  if (shard_block_retainer_adnl_id_fullnode_) {
+    shard_block_retainer_adnl_id_ = ton::adnl::AdnlNodeIdShort{config_.full_node};
+  }
   if (!shard_block_retainer_adnl_id_.is_zero()) {
     if (config_.adnl_ids.contains(shard_block_retainer_adnl_id_.pubkey_hash())) {
       td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::add_shard_block_retainer,
@@ -5575,17 +5578,25 @@ int main(int argc, char *argv[]) {
         acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_sync_shards_upto, v); });
         return td::Status::OK();
       });
-  p.add_checked_option(
-      '\0', "shard-block-retainer", "adnl id for shard block retainer (hex)", [&](td::Slice arg) -> td::Status {
-        td::Bits256 v;
-        if (v.from_hex(arg) != 256) {
-          return td::Status::Error("invalid adnl-id");
-        }
-        acts.push_back([&x, v]() {
-          td::actor::send_closure(x, &ValidatorEngine::set_shard_block_retainer_adnl_id, ton::adnl::AdnlNodeIdShort{v});
-        });
-        return td::Status::OK();
-      });
+  p.add_checked_option('\0', "shard-block-retainer",
+                       "adnl id for shard block retainer (hex), or \"fullnode\" for full node id",
+                       [&](td::Slice arg) -> td::Status {
+                         if (arg == "fullnode") {
+                           acts.push_back([&x]() {
+                             td::actor::send_closure(x, &ValidatorEngine::set_shard_block_retainer_adnl_id_fullnode);
+                           });
+                         } else {
+                           td::Bits256 v;
+                           if (v.from_hex(arg) != 256) {
+                             return td::Status::Error("invalid adnl-id");
+                           }
+                           acts.push_back([&x, v]() {
+                             td::actor::send_closure(x, &ValidatorEngine::set_shard_block_retainer_adnl_id,
+                                                     ton::adnl::AdnlNodeIdShort{v});
+                           });
+                         }
+                         return td::Status::OK();
+                       });
   auto S = p.run(argc, argv);
   if (S.is_error()) {
     LOG(ERROR) << "failed to parse options: " << S.move_as_error();
