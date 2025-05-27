@@ -214,7 +214,7 @@ int exec_ret_data(VmState* st) {
 
 // Mode:
 // +1 = same_c3 (set c3 to code)
-// +2 = push_0 (push an implicit 0 before running the code)
+// +2 = push_0 (push an implicit 0 before running the code); only works with +1 enabled
 // +4 = load c4 (persistent data) from stack and return its final value
 // +8 = load gas limit from stack and return consumed gas
 // +16 = load c7 (smart-contract context)

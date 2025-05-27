@@ -300,10 +300,10 @@ void ArchiveImporter::checked_all_masterchain_blocks() {
 void ArchiveImporter::download_shard_archives(td::Ref<MasterchainState> start_state) {
   start_state_ = start_state;
   td::uint32 monitor_min_split = start_state->monitor_min_split_depth(basechainId);
-  LOG(DEBUG) << "Monitor min split = " << monitor_min_split;
-  // If monitor_min_split == 0, we use the old archive format (packages are not separated by shard)
+  LOG(DEBUG) << "Monitor min split = " << monitor_min_split
+             << (have_shard_blocks_ ? ", shard blocks in the main package" : ", no shard blocks in the main package");
   // If masterchain package has shard blocks then it's old archive format, don't need to download shards
-  if (monitor_min_split > 0 && !have_shard_blocks_ && !use_imported_files_) {
+  if (!have_shard_blocks_ && !use_imported_files_) {
     for (td::uint64 i = 0; i < (1ULL << monitor_min_split); ++i) {
       ShardIdFull shard_prefix{basechainId, (i * 2 + 1) << (64 - monitor_min_split - 1)};
       if (opts_->need_monitor(shard_prefix, start_state)) {
@@ -313,7 +313,7 @@ void ArchiveImporter::download_shard_archives(td::Ref<MasterchainState> start_st
       }
     }
   } else {
-    LOG(DEBUG) << "Skip downloading shard archives";
+    LOG(INFO) << "Skip downloading shard archives";
   }
   if (pending_shard_archives_ == 0) {
     check_next_shard_client_seqno(shard_client_seqno_ + 1);
