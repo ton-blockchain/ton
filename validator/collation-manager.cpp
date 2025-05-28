@@ -94,7 +94,7 @@ void CollationManager::collate_shard_block(ShardIdFull shard, BlockIdExt min_mas
     }
     case CollatorsList::mode_round_robin: {
       size_t iters = 0;
-      for (size_t i = s->cur_idx; iters < s->collators.size(); (++i) %= s->collators.size()) {
+      for (size_t i = s->cur_idx; iters < s->collators.size(); (++i) %= s->collators.size(), ++iters) {
         adnl::AdnlNodeIdShort& collator = s->collators[i];
         if (collators_[collator].alive) {
           selected_collator = collator;
