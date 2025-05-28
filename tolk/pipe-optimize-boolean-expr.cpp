@@ -53,7 +53,7 @@ struct OptimizerBooleanExpressionsReplacer final : ASTReplacerInFunctionBody {
     auto v_not = createV<ast_unary_operator>(loc, "!", tok_logical_not, rhs);
     v_not->assign_inferred_type(TypeDataBool::create());
     v_not->assign_rvalue_true();
-    v_not->assign_fun_ref(lookup_global_symbol("!b_")->try_as<FunctionPtr>());
+    v_not->assign_fun_ref(lookup_function("!b_"));
     return v_not;
   }
 
@@ -98,7 +98,7 @@ protected:
           auto v_neq = createV<ast_binary_operator>(v->loc, "!=", tok_neq, cond_not_not, v_zero);
           v_neq->mutate()->assign_rvalue_true();
           v_neq->mutate()->assign_inferred_type(TypeDataBool::create());
-          v_neq->mutate()->assign_fun_ref(lookup_global_symbol("_!=_")->try_as<FunctionPtr>());
+          v_neq->mutate()->assign_fun_ref(lookup_function("_!=_"));
           return v_neq;
         }
       }

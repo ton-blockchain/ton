@@ -577,7 +577,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
 
     assign_inferred_type(v, lhs);
 
-    FunctionPtr builtin_sym = lookup_global_symbol("_" + static_cast<std::string>(builtin_func) + "_")->try_as<FunctionPtr>();
+    FunctionPtr builtin_sym = lookup_function("_" + static_cast<std::string>(builtin_func) + "_");
     v->mutate()->assign_fun_ref(builtin_sym);
 
     return ExprFlow(std::move(after_rhs.out_flow), used_as_condition);
@@ -607,7 +607,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
         tolk_assert(false);
     }
 
-    FunctionPtr builtin_sym = lookup_global_symbol(static_cast<std::string>(builtin_func) + "_")->try_as<FunctionPtr>();
+    FunctionPtr builtin_sym = lookup_function(static_cast<std::string>(builtin_func) + "_");
     v->mutate()->assign_fun_ref(builtin_sym);
 
     return after_rhs;
@@ -685,7 +685,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
     }
 
     if (!builtin_func.empty()) {
-      FunctionPtr builtin_sym = lookup_global_symbol("_" + static_cast<std::string>(builtin_func) + "_")->try_as<FunctionPtr>();
+      FunctionPtr builtin_sym = lookup_function("_" + static_cast<std::string>(builtin_func) + "_");
       v->mutate()->assign_fun_ref(builtin_sym);
     }
 
@@ -849,7 +849,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
     // T for asm function must be a TVM primitive (width 1), otherwise, asm would act incorrectly
     if (fun_ref->is_asm_function() || fun_ref->is_builtin_function()) {
       for (int i = 0; i < substitutedTs.size(); ++i) {
-        if (substitutedTs.typeT_at(i)->get_width_on_stack() != 1) {
+        if (substitutedTs.typeT_at(i)->get_width_on_stack() != 1 && !fun_ref->is_variadic_width_T_allowed()) {
           fire_error_calling_asm_function_with_non1_stack_width_arg(cur_f, loc, fun_ref, substitutedTs, i);
         }
       }
@@ -908,7 +908,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
       if (out_f_called) {           // so, it's `globalF()` / `genericFn()` / `genericFn<int>()`
         *out_f_called = fun_ref;    // (it's still may be a generic one, then Ts will be deduced from arguments)
       } else {                      // so, it's `globalF` / `genericFn<int>` as a reference
-        if (fun_ref->is_compile_time_only()) {
+        if (fun_ref->is_compile_time_const_val() || fun_ref->is_compile_time_special_gen()) {
           fire(cur_f, v->loc, "can not get reference to this function, it's compile-time only");
         }
         fun_ref->mutate()->assign_is_used_as_noncall();
@@ -1071,7 +1071,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
       *out_f_called = fun_ref;    // (it's still may be a generic one, then Ts will be deduced from arguments)
       *out_dot_obj = dot_obj;
     } else {                      // so, it's `user.method` / `t.tupleAt<int>` as a reference
-      if (fun_ref->is_compile_time_only()) {
+      if (fun_ref->is_compile_time_const_val() || fun_ref->is_compile_time_special_gen()) {
         fire(cur_f, v->get_identifier()->loc, "can not get reference to this method, it's compile-time only");
       }
       fun_ref->mutate()->assign_is_used_as_noncall();
@@ -1186,7 +1186,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
     if (fun_ref->is_generic_function()) {
       // if `f(args)` was called, Ts were inferred; check that all of them are known
       std::string_view nameT_unknown = deducingTs.get_first_not_deduced_nameT();
-      if (!nameT_unknown.empty() && hint && fun_ref->declared_return_type) {
+      if (!nameT_unknown.empty() && hint && !hint->has_genericT_inside() && fun_ref->declared_return_type) {
         // example: `t.tupleFirst()`, T doesn't depend on arguments, but is determined by return type
         // if used like `var x: int = t.tupleFirst()` / `t.tupleFirst() as int` / etc., use hint
         deducingTs.auto_deduce_from_argument(cur_f, v->loc, fun_ref->declared_return_type, hint);

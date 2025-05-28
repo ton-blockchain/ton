@@ -6,7 +6,7 @@ tolk 0.12
  */
 
 /// Returns amount of gas (in gas units) consumed in current Computation Phase.
-fun getGasConsumedAtTheMoment(): coins
+fun getGasConsumedAtTheMoment(): int
     asm "GASCONSUMED";
 
 /// This function is required to be called when you process an external message (from an outer world)

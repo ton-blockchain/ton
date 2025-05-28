@@ -6,6 +6,8 @@ set(TOLK_SOURCE
         ast.cpp
         ast-from-tokens.cpp
         constant-evaluator.cpp
+        pack-unpack-api.cpp
+        pack-unpack-serializers.cpp
         pipe-discover-parse-sources.cpp
         pipe-register-symbols.cpp
         pipe-resolve-identifiers.cpp
@@ -16,6 +18,7 @@ set(TOLK_SOURCE
         pipe-refine-lvalue-for-mutate.cpp
         pipe-check-rvalue-lvalue.cpp
         pipe-check-pure-impure.cpp
+        pipe-check-serialized-fields.cpp
         pipe-constant-folding.cpp
         pipe-optimize-boolean-expr.cpp
         pipe-ast-to-legacy.cpp

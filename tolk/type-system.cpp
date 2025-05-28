@@ -721,6 +721,11 @@ bool TypeDataCell::can_rhs_be_assigned(TypePtr rhs) const {
   if (rhs == this) {
     return true;
   }
+  if (const TypeDataStruct* rhs_struct = rhs->try_as<TypeDataStruct>()) {
+    if (rhs_struct->struct_ref->is_instantiation_of_generic_struct() && rhs_struct->struct_ref->base_struct_ref->name == "Cell") {
+      return true;      // Cell<Something> to cell, e.g. `contract.setData(obj.toCell())`
+    }
+  }
   if (const TypeDataAlias* rhs_alias = rhs->try_as<TypeDataAlias>()) {
     return can_rhs_be_assigned(rhs_alias->underlying_type);
   }
@@ -995,6 +1000,9 @@ bool TypeDataCell::can_be_casted_with_as_operator(TypePtr cast_to) const {
   if (const TypeDataUnion* to_union = cast_to->try_as<TypeDataUnion>()) {
     return can_be_casted_to_union(this, to_union);
   }
+  if (const TypeDataStruct* to_struct = cast_to->try_as<TypeDataStruct>()) {    // cell as Cell<T>
+    return to_struct->struct_ref->is_instantiation_of_generic_struct() && to_struct->struct_ref->base_struct_ref->name == "Cell";
+  }
   if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
     return can_be_casted_with_as_operator(to_alias->underlying_type);
   }
@@ -1106,6 +1114,9 @@ bool TypeDataGenericTypeWithTs::can_be_casted_with_as_operator(TypePtr cast_to) 
 bool TypeDataStruct::can_be_casted_with_as_operator(TypePtr cast_to) const {
   if (const TypeDataUnion* to_union = cast_to->try_as<TypeDataUnion>()) {
     return can_be_casted_to_union(this, to_union);
+  }
+  if (cast_to == TypeDataCell::create()) {    // Cell<T> as cell
+    return struct_ref->is_instantiation_of_generic_struct() && struct_ref->base_struct_ref->name == "Cell";
   }
   if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
     return can_be_casted_with_as_operator(to_alias->underlying_type);

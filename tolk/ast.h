@@ -141,6 +141,8 @@ enum class AnnotationKind {
   method_id,
   pure,
   deprecated,
+  custom,
+  overflow1023_policy,
   unknown,
 };
 
@@ -1208,15 +1210,16 @@ template<>
 // ast_annotation is @annotation above a declaration
 // example: `@pure fun ...`
 struct Vertex<ast_annotation> final : ASTOtherVararg {
+  std::string_view name;
   AnnotationKind kind;
 
   auto get_arg() const { return children.at(0)->as<ast_tensor>(); }
 
   static AnnotationKind parse_kind(std::string_view name);
 
-  Vertex(SrcLocation loc, AnnotationKind kind, V<ast_tensor> arg_probably_empty)
+  Vertex(SrcLocation loc, std::string_view name, AnnotationKind kind, V<ast_tensor> arg_probably_empty)
     : ASTOtherVararg(ast_annotation, loc, {arg_probably_empty})
-    , kind(kind) {}
+    , name(name), kind(kind) {}
 };
 
 template<>
@@ -1336,20 +1339,24 @@ struct Vertex<ast_struct_body> final : ASTOtherVararg {
 template<>
 // ast_struct_declaration is declaring a struct with fields (each having declared_type), like interfaces in TypeScript
 // example: `struct Storage { owner: User; validUntil: int }`
+// example: `struct(0x0012) CounterIncrement { byValue: int32; }` (0x0012 is opcode, len 16)
 // currently, Tolk doesn't have "implements" or whatever, so struct declaration contains only body
 struct Vertex<ast_struct_declaration> final : ASTOtherVararg {
-  StructPtr struct_ref = nullptr;       // filled after register
+  StructPtr struct_ref = nullptr;           // filled after register
   V<ast_genericsT_list> genericsT_list;     // exists for `Wrapper<T>`; otherwise, nullptr
+  StructData::Overflow1023Policy overflow1023_policy;
 
   auto get_identifier() const { return children.at(0)->as<ast_identifier>(); }
-  auto get_struct_body() const { return children.at(1)->as<ast_struct_body>(); }
+  bool has_opcode() const { return children.at(1)->kind != ast_empty_expression; }
+  auto get_opcode() const { return children.at(1)->as<ast_int_const>(); }
+  auto get_struct_body() const { return children.at(2)->as<ast_struct_body>(); }
 
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
   void assign_struct_ref(StructPtr struct_ref);
 
-  Vertex(SrcLocation loc, V<ast_identifier> name_identifier, V<ast_genericsT_list> genericsT_list, V<ast_struct_body> struct_body)
-    : ASTOtherVararg(ast_struct_declaration, loc, {name_identifier, struct_body})
-    , genericsT_list(genericsT_list) {}
+  Vertex(SrcLocation loc, V<ast_identifier> name_identifier, V<ast_genericsT_list> genericsT_list, StructData::Overflow1023Policy overflow1023_policy, AnyExprV opcode, V<ast_struct_body> struct_body)
+    : ASTOtherVararg(ast_struct_declaration, loc, {name_identifier, opcode, struct_body})
+    , genericsT_list(genericsT_list), overflow1023_policy(overflow1023_policy) {}
 };
 
 template<>

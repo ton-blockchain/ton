@@ -226,10 +226,6 @@ static AnyTypeV parse_type_nullable(Lexer& lex) {
 }
 
 static AnyTypeV parse_type_expression(Lexer& lex) {
-  if (lex.tok() == tok_bitwise_or) {    // `type T = | T1 | T2 | ...` (each per line) (like in TypeScript)
-    lex.next();
-  }
-
   AnyTypeV result = parse_type_nullable(lex);
 
   if (lex.tok() == tok_bitwise_or) {  // `int | slice`, `Pair2 | (Pair3 | null)`
@@ -237,6 +233,9 @@ static AnyTypeV parse_type_expression(Lexer& lex) {
     items.emplace_back(result);
     while (lex.tok() == tok_bitwise_or) {
       lex.next();
+      if (lex.tok() == tok_clpar || lex.tok() == tok_clbracket || lex.tok() == tok_semicolon) {
+        break;  // allow trailing `|` (not leading, like in TypeScript, because of tree-sitter)
+      }
       items.emplace_back(parse_type_nullable(lex));
     }
     result = createV<ast_type_vertical_bar_union>(result->loc, std::move(items));
@@ -336,9 +335,6 @@ static AnyV parse_parameter(Lexer& lex, AnyTypeV self_type) {
 }
 
 static AnyV parse_global_var_declaration(Lexer& lex, const std::vector<V<ast_annotation>>& annotations) {
-  if (!annotations.empty()) {
-    lex.error("@annotations are not applicable to global var declaration");
-  }
   SrcLocation loc = lex.cur_location();
   lex.expect(tok_global, "`global`");
   lex.check(tok_identifier, "global variable name");
@@ -353,13 +349,21 @@ static AnyV parse_global_var_declaration(Lexer& lex, const std::vector<V<ast_ann
     lex.error("assigning to a global is not allowed at declaration");
   }
   lex.expect(tok_semicolon, "`;`");
+
+  for (auto v_annotation : annotations) {
+    switch (v_annotation->kind) {
+      case AnnotationKind::deprecated:
+      case AnnotationKind::custom:
+        break;
+      default:
+        v_annotation->error("this annotation is not applicable to global");
+    }
+  }
+
   return createV<ast_global_var_declaration>(loc, v_ident, declared_type);
 }
 
 static AnyV parse_constant_declaration(Lexer& lex, const std::vector<V<ast_annotation>>& annotations) {
-  if (!annotations.empty()) {
-    lex.error("@annotations are not applicable to global var declaration");
-  }
   SrcLocation loc = lex.cur_location();
   lex.expect(tok_const, "`const`");
   lex.check(tok_identifier, "constant name");
@@ -376,13 +380,21 @@ static AnyV parse_constant_declaration(Lexer& lex, const std::vector<V<ast_annot
     lex.error("multiple declarations are not allowed, split constants on separate lines");
   }
   lex.expect(tok_semicolon, "`;`");
+
+  for (auto v_annotation : annotations) {
+    switch (v_annotation->kind) {
+      case AnnotationKind::deprecated:
+      case AnnotationKind::custom:
+        break;
+      default:
+        v_annotation->error("this annotation is not applicable to constant");
+    }
+  }
+
   return createV<ast_constant_declaration>(loc, v_ident, declared_type, init_value);
 }
 
 static AnyV parse_type_alias_declaration(Lexer& lex, const std::vector<V<ast_annotation>>& annotations) {
-  if (!annotations.empty()) {
-    lex.error("@annotations are not applicable to type alias declaration");
-  }
   SrcLocation loc = lex.cur_location();
   lex.expect(tok_type, "`type`");
   lex.check(tok_identifier, "type name");
@@ -397,6 +409,17 @@ static AnyV parse_type_alias_declaration(Lexer& lex, const std::vector<V<ast_ann
   lex.expect(tok_assign, "`=`");
   AnyTypeV underlying_type = parse_type_from_tokens(lex);
   lex.expect(tok_semicolon, "`;`");
+
+  for (auto v_annotation : annotations) {
+    switch (v_annotation->kind) {
+      case AnnotationKind::deprecated:
+      case AnnotationKind::custom:
+        break;
+      default:
+        v_annotation->error("this annotation is not applicable to type alias");
+    }
+  }
+
   return createV<ast_type_alias_declaration>(loc, v_ident, genericsT_list, underlying_type);
 }
 
@@ -1303,6 +1326,7 @@ static V<ast_annotation> parse_annotation(Lexer& lex) {
       v_arg = createV<ast_tensor>(loc, {});
       break;
     case AnnotationKind::deprecated:
+    case AnnotationKind::custom:
       // allowed with and without arguments; it's IDE-only, the compiler doesn't analyze @deprecated
       break;
     case AnnotationKind::method_id:
@@ -1310,9 +1334,15 @@ static V<ast_annotation> parse_annotation(Lexer& lex) {
         throw ParseError(loc, "expecting `(number)` after " + static_cast<std::string>(name));
       }
       break;
+    case AnnotationKind::overflow1023_policy: {
+      if (!v_arg || v_arg->size() != 1 || v_arg->get_item(0)->kind != ast_string_const) {
+        throw ParseError(loc, "expecting `(\"policy_name\")` after " + static_cast<std::string>(name));
+      }
+      break;
+    }
   }
 
-  return createV<ast_annotation>(loc, kind, v_arg);
+  return createV<ast_annotation>(loc, name, kind, v_arg);
 }
 
 static AnyV parse_function_declaration(Lexer& lex, const std::vector<V<ast_annotation>>& annotations) {
@@ -1436,7 +1466,7 @@ static AnyV parse_function_declaration(Lexer& lex, const std::vector<V<ast_annot
         break;
       }
       case AnnotationKind::deprecated:
-        // no special handling
+      case AnnotationKind::custom:
         break;
 
       default:
@@ -1486,10 +1516,23 @@ static V<ast_struct_body> parse_struct_body(Lexer& lex) {
 
 static AnyV parse_struct_declaration(Lexer& lex, const std::vector<V<ast_annotation>>& annotations) {
   SrcLocation loc = lex.cur_location();
-  if (!annotations.empty()) {
-    lex.error("@annotations are not applicable to type alias declaration");
-  }
   lex.expect(tok_struct, "`struct`");
+
+  AnyExprV opcode = nullptr;
+  if (lex.tok() == tok_oppar) {     // struct(0x0012) CounterIncrement
+    lex.next();
+    lex.check(tok_int_const, "opcode `0x...` or `0b...`");
+    std::string_view opcode_str = lex.cur_str();
+    if (!opcode_str.starts_with("0x") && !opcode_str.starts_with("0b")) {
+      lex.unexpected("opcode `0x...` or `0b...`");
+    }
+    opcode = createV<ast_int_const>(lex.cur_location(), parse_tok_int_const(opcode_str), opcode_str);
+    lex.next();
+    lex.expect(tok_clpar, "`)`");
+  } else {
+    opcode = createV<ast_empty_expression>(lex.cur_location());
+  }
+
   lex.check(tok_identifier, "identifier");
   auto v_ident = createV<ast_identifier>(lex.cur_location(), lex.cur_str());
   lex.next();
@@ -1499,7 +1542,27 @@ static AnyV parse_struct_declaration(Lexer& lex, const std::vector<V<ast_annotat
     genericsT_list = parse_genericsT_list(lex);
   }
 
-  return createV<ast_struct_declaration>(loc, v_ident, genericsT_list, parse_struct_body(lex));
+  StructData::Overflow1023Policy overflow1023_policy = StructData::Overflow1023Policy::not_specified;
+  for (auto v_annotation : annotations) {
+    switch (v_annotation->kind) {
+      case AnnotationKind::deprecated:
+      case AnnotationKind::custom:
+        break;
+      case AnnotationKind::overflow1023_policy: {
+        std::string_view str = v_annotation->get_arg()->get_item(0)->as<ast_string_const>()->str_val;
+        if (str == "suppress") {
+          overflow1023_policy = StructData::Overflow1023Policy::suppress;
+        } else {
+          v_annotation->error("incorrect value for " + static_cast<std::string>(v_annotation->name));
+        }
+        break;
+      }
+      default:
+        v_annotation->error("this annotation is not applicable to struct");
+    }
+  }
+
+  return createV<ast_struct_declaration>(loc, v_ident, genericsT_list, overflow1023_policy, opcode, parse_struct_body(lex));
 }
 
 static AnyV parse_tolk_required_version(Lexer& lex) {

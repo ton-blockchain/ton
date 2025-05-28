@@ -345,6 +345,8 @@ public:
       v_orig->loc,
       new_name_ident,
       clone(v_orig->genericsT_list),
+      v_orig->overflow1023_policy,
+      v_orig->has_opcode() ? static_cast<AnyExprV>(clone(v_orig->get_opcode())) : createV<ast_empty_expression>(v_orig->loc),
       clone(v_orig->get_struct_body())
     );
   }

@@ -20,6 +20,7 @@
 #include "ast.h"
 #include "compiler-state.h"
 #include "generics-helpers.h"
+#include "pack-unpack-serializers.h"
 #include "td/utils/crypto.h"
 #include <unordered_set>
 
@@ -141,12 +142,30 @@ static StructPtr register_struct(V<ast_struct_declaration> v, StructPtr base_str
     fields.emplace_back(new StructFieldData(static_cast<std::string>(v_field->get_identifier()->name), v_field->loc, i, v_field->type_node, default_value));
   }
 
+  PackOpcode opcode(0, 0);
+  if (v->has_opcode()) {
+    auto v_opcode = v->get_opcode()->as<ast_int_const>();
+    if (v_opcode->intval < 0 || v_opcode->intval > (1ULL << 48)) {
+      v->error("opcode must not exceed 2^48");
+    }
+    opcode.pack_prefix = v_opcode->intval->to_long();
+
+    std::string_view prefix_str = v_opcode->orig_str;
+    if (prefix_str.starts_with("0x")) {
+      opcode.prefix_len = static_cast<int>(prefix_str.size() - 2) * 4;
+    } else if (prefix_str.starts_with("0b")) {
+      opcode.prefix_len = static_cast<int>(prefix_str.size() - 2);
+    } else {
+      tolk_assert(false);
+    }
+  }
+
   std::string name = std::move(override_name);
   if (name.empty()) {
     name = v->get_identifier()->name;
   }
   const GenericsDeclaration* genericTs = nullptr;   // at registering it's null; will be assigned after types resolving
-  StructData* s_sym = new StructData(std::move(name), v->loc, std::move(fields), genericTs, substitutedTs, v);
+  StructData* s_sym = new StructData(std::move(name), v->loc, std::move(fields), opcode, v->overflow1023_policy, genericTs, substitutedTs, v);
   s_sym->base_struct_ref = base_struct_ref;   // for `Container<int>`, here is `Container<T>`
 
   G.symtable.add_struct(s_sym);

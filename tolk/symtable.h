@@ -111,7 +111,9 @@ struct FunctionData final : Symbol {
     flagAcceptsSelf = 512,      // is a member function (has `self` first parameter)
     flagReturnsSelf = 1024,     // return type is `self` (returns the mutated 1st argument), calls can be chainable
     flagReallyUsed = 2048,      // calculated via dfs from used functions; declared but unused functions are not codegenerated
-    flagCompileTimeOnly = 4096, // calculated only at compile-time for constant arguments: `ton("0.05")`, `stringCrc32`, and others
+    flagCompileTimeVal = 4096,  // calculated only at compile-time for constant arguments: `ton("0.05")`, `stringCrc32`, and others
+    flagCompileTimeGen = 8192,  // at compile-time it's handled specially, not as a regular function: `T.toCell`, etc.
+    flagAllowAnyWidthT = 16384, // for built-in generic functions that <T> is not restricted to be 1-slot type
   };
 
   int tvm_method_id = EMPTY_TVM_METHOD_ID;
@@ -196,7 +198,9 @@ struct FunctionData final : Symbol {
   bool does_return_self() const { return flags & flagReturnsSelf; }
   bool does_mutate_self() const { return (flags & flagAcceptsSelf) && parameters[0].is_mutate_parameter(); }
   bool is_really_used() const { return flags & flagReallyUsed; }
-  bool is_compile_time_only() const { return flags & flagCompileTimeOnly; }
+  bool is_compile_time_const_val() const { return flags & flagCompileTimeVal; }
+  bool is_compile_time_special_gen() const { return flags & flagCompileTimeGen; }
+  bool is_variadic_width_T_allowed() const { return flags & flagAllowAnyWidthT; }
 
   bool does_need_codegen() const;
 
@@ -299,7 +303,26 @@ struct StructFieldData final : Symbol {
 };
 
 struct StructData final : Symbol {
+  enum class Overflow1023Policy {     // annotation @overflow1023_policy above a struct
+    not_specified,
+    suppress,
+  };
+
+  struct PackOpcode {
+    int64_t pack_prefix;
+    int prefix_len;
+
+    PackOpcode(int64_t pack_prefix, int prefix_len)
+      : pack_prefix(pack_prefix), prefix_len(prefix_len) {}
+
+    bool exists() const { return prefix_len != 0; }
+
+    std::string format_as_slice() const;    // "x{...}" (or "b{...}")
+  };
+
   std::vector<StructFieldPtr> fields;
+  PackOpcode opcode;
+  Overflow1023Policy overflow1023_policy;
 
   const GenericsDeclaration* genericTs;
   const GenericsSubstitutions* substitutedTs;
@@ -316,9 +339,11 @@ struct StructData final : Symbol {
   StructData* mutate() const { return const_cast<StructData*>(this); }
   void assign_resolved_genericTs(const GenericsDeclaration* genericTs);
 
-  StructData(std::string name, SrcLocation loc, std::vector<StructFieldPtr>&& fields, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, AnyV ast_root)
+  StructData(std::string name, SrcLocation loc, std::vector<StructFieldPtr>&& fields, PackOpcode opcode, Overflow1023Policy overflow1023_policy, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, AnyV ast_root)
     : Symbol(std::move(name), loc)
     , fields(std::move(fields))
+    , opcode(opcode)
+    , overflow1023_policy(overflow1023_policy)
     , genericTs(genericTs)
     , substitutedTs(substitutedTs)
     , ast_root(ast_root) {
@@ -349,6 +374,8 @@ public:
   void add_global_const(GlobalConstPtr c_sym);
   void add_type_alias(AliasDefPtr a_sym);
   void add_struct(StructPtr s_sym);
+
+  void replace_function(FunctionPtr f_sym);
 
   const Symbol* lookup(std::string_view name) const {
     const auto it = entries.find(key_hash(name));

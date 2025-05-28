@@ -252,7 +252,7 @@ struct ConstantExpressionChecker {
 
   // `const a = ton("0.05")`, we met `ton("0.05")`
   static void handle_function_call(V<ast_function_call> v) {
-    if (v->fun_maybe && v->fun_maybe->is_compile_time_only()) {
+    if (v->fun_maybe && v->fun_maybe->is_compile_time_const_val()) {
       // `ton(local_var)` is denied; it's validated not here, but when replacing its value with a calculated one
       return;
     }
@@ -318,7 +318,7 @@ std::string eval_string_const_standalone(AnyExprV v_string) {
 
 CompileTimeFunctionResult eval_call_to_compile_time_function(AnyExprV v_call) {
   auto v = v_call->try_as<ast_function_call>();
-  tolk_assert(v && v->fun_maybe->is_compile_time_only());
+  tolk_assert(v && v->fun_maybe->is_compile_time_const_val());
   return parse_vertex_call_to_compile_time_function(v, v->fun_maybe->name);
 }
 

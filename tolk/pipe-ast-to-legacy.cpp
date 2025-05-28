@@ -22,6 +22,8 @@
 #include "type-system.h"
 #include "common/refint.h"
 #include "smart-casts-cfg.h"
+#include "pack-unpack-api.h"
+#include "generics-helpers.h"
 #include <unordered_set>
 
 /*
@@ -205,7 +207,7 @@ class LValContext {
       code.emplace_back(loc, Op::_IntConst, index_ir_idx, td::make_refint(index_at));
 
       vars_modification_watcher.trigger_callbacks(tuple_ir_idx, loc);
-      FunctionPtr builtin_sym = lookup_global_symbol("tuple.set")->try_as<FunctionPtr>();
+      FunctionPtr builtin_sym = lookup_function("tuple.set");
       code.emplace_back(loc, Op::_Call, std::vector{tuple_ir_idx}, std::vector{tuple_ir_idx[0], lval_ir_idx[0], index_ir_idx[0]}, builtin_sym);
       local_lval.after_let(std::move(tuple_ir_idx), code, loc);
     }
@@ -491,10 +493,10 @@ static std::vector<var_idx_t> pre_compile_let(CodeBlob& code, AnyExprV lhs, AnyE
   return right;
 }
 
-static std::vector<var_idx_t> pre_compile_is_type(CodeBlob& code, TypePtr expr_type, TypePtr cmp_type, const std::vector<var_idx_t>& expr_ir_idx, SrcLocation loc, const char* debug_desc) {
-  FunctionPtr eq_sym = lookup_global_symbol("_==_")->try_as<FunctionPtr>();
-  FunctionPtr isnull_sym = lookup_global_symbol("__isNull")->try_as<FunctionPtr>();
-  FunctionPtr not_sym = lookup_global_symbol("!b_")->try_as<FunctionPtr>();
+std::vector<var_idx_t> pre_compile_is_type(CodeBlob& code, TypePtr expr_type, TypePtr cmp_type, const std::vector<var_idx_t>& expr_ir_idx, SrcLocation loc, const char* debug_desc) {
+  FunctionPtr eq_sym = lookup_function("_==_");
+  FunctionPtr isnull_sym = lookup_function("__isNull");
+  FunctionPtr not_sym = lookup_function("!b_");
   std::vector<var_idx_t> result_ir_idx = code.create_tmp_var(TypeDataBool::create(), loc, debug_desc);
 
   const TypeDataUnion* lhs_union = expr_type->try_as<TypeDataUnion>();
@@ -536,6 +538,66 @@ static std::vector<var_idx_t> gen_op_call(CodeBlob& code, TypePtr ret_type, SrcL
     op.set_arg_order_already_equals_asm_flag();
   }
   return rvect;
+}
+
+static std::vector<var_idx_t> gen_compile_time_code_instead_of_fun_call(CodeBlob& code, SrcLocation loc, std::vector<var_idx_t>&& rvect, FunctionPtr called_f) {
+  if (called_f->is_instantiation_of_generic_function()) {
+    std::string_view f_name = called_f->base_fun_ref->name;
+    TypePtr typeT = called_f->substitutedTs->typeT_at(0);
+    int n_rvect = static_cast<int>(rvect.size());
+
+    if (f_name == "T.toCell") {
+      // in: object T, out: Cell<T> (just a cell, wrapped)
+      tolk_assert(n_rvect == typeT->get_width_on_stack());
+      std::vector ir_obj = std::move(rvect);
+      return generate_pack_struct_to_cell(code, loc, typeT, std::move(ir_obj));
+    }
+    if (f_name == "T.fromCell") {
+      // in: cell, out: object T
+      tolk_assert(n_rvect == 1);
+      std::vector ir_cell = std::move(rvect);
+      return generate_unpack_struct_from_cell(code, loc, typeT, std::move(ir_cell));
+    }
+    if (f_name == "T.fromSlice") {
+      // in: slice, out: object T, input slice NOT mutated
+      tolk_assert(n_rvect == 1);
+      std::vector ir_slice = std::move(rvect);
+      return generate_unpack_struct_from_slice(code, loc, typeT, std::move(ir_slice), false);
+    }
+    if (f_name == "Cell<T>.load") {
+      // in: cell, out: object T
+      tolk_assert(n_rvect == 1);
+      std::vector ir_cell = std::move(rvect);
+      return generate_unpack_struct_from_cell(code, loc, typeT, std::move(ir_cell));
+    }
+    if (f_name == "slice.loadAny") {
+      // in: slice, out: object T, input slice is mutated, so prepend self before an object
+      var_idx_t ir_self = rvect[0];
+      std::vector ir_obj = generate_unpack_struct_from_slice(code, loc, typeT, std::move(rvect), true);
+      std::vector ir_result = {ir_self};
+      ir_result.insert(ir_result.end(), ir_obj.begin(), ir_obj.end());
+      return ir_result;
+    }
+    if (f_name == "slice.skipAny") {
+      // in: slice, out: the same slice, with a shifted pointer
+      tolk_assert(n_rvect == 1);
+      std::vector ir_slice = std::move(rvect);
+      return generate_skip_struct_in_slice(code, loc, typeT, std::move(ir_slice));
+    }
+    if (f_name == "builder.storeAny") {
+      // in: builder and object T, out: mutated builder
+      tolk_assert(n_rvect == 1 + typeT->get_width_on_stack());
+      std::vector ir_builder = {rvect[0]};
+      std::vector ir_obj(rvect.begin() + 1, rvect.end());
+      return generate_pack_struct_to_builder(code, loc, typeT, std::move(ir_builder), std::vector(ir_obj));
+    }
+    if (f_name == "T.estimatePackSize") {
+      tolk_assert(rvect.empty());
+      return generate_estimate_size_call(code, loc, typeT);
+    }
+  }
+
+  tolk_assert(false);
 }
 
 // "Transition to target (runtime) type" is the following process.
@@ -615,7 +677,7 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
   // to represent a non-primitive null value, we need N nulls + 1 null flag (UTag=0, type_id of TypeDataNullLiteral)
   if (t_union && target_w > 1 && original_type == TypeDataNullLiteral::create()) {
     tolk_assert(t_union->has_null());
-    FunctionPtr null_sym = lookup_global_symbol("__null")->try_as<FunctionPtr>();
+    FunctionPtr null_sym = lookup_function("__null");
     rvect.reserve(target_w);      // keep rvect[0], it's already null
     for (int i = 1; i < target_w - 1; ++i) {
       std::vector<var_idx_t> ith_null = code.create_tmp_var(TypeDataNullLiteral::create(), loc, "(null-literal)");
@@ -657,7 +719,7 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
   // so, rvect contains UTag, we need TVM NULL
   if (o_union && target_type == TypeDataNullLiteral::create()) {
     tolk_assert(orig_w == 1 && o_union->has_null());
-    FunctionPtr null_sym = lookup_global_symbol("__null")->try_as<FunctionPtr>();
+    FunctionPtr null_sym = lookup_function("__null");
     std::vector<var_idx_t> new_rvect = code.create_tmp_var(TypeDataNullLiteral::create(), loc, "(null-literal)");
     code.emplace_back(loc, Op::_Call, new_rvect, std::vector<var_idx_t>{}, null_sym);
     return new_rvect;
@@ -674,7 +736,7 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
     // when value is not null, we need to get "... value {type_id}"
     // this can be done only via IFs at runtime; luckily, this case is very uncommon in practice
     // for "...", we might need N-1 nulls: `int?` to `(int,int,int) | int | null` is `(null) (null) value/(null) 0/1`
-    FunctionPtr null_sym = lookup_global_symbol("__null")->try_as<FunctionPtr>();
+    FunctionPtr null_sym = lookup_function("__null");
     std::vector<var_idx_t> new_rvect;
     new_rvect.resize(target_w);
     for (int i = 0; i < target_w - 2; ++i) {    // N-1 nulls
@@ -686,7 +748,7 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
     new_rvect[target_w - 1] = code.create_tmp_var(TypeDataInt::create(), loc, "(UTag)")[0];
 
     std::vector<var_idx_t> eq_null_cond = code.create_tmp_var(TypeDataBool::create(), loc, "(value-is-null)");
-    FunctionPtr isnull_sym = lookup_global_symbol("__isNull")->try_as<FunctionPtr>();
+    FunctionPtr isnull_sym = lookup_function("__isNull");
     code.emplace_back(loc, Op::_Call, eq_null_cond, rvect, isnull_sym);
     Op& if_op = code.emplace_back(loc, Op::_If, eq_null_cond);
     code.push_set_cur(if_op.block0);
@@ -712,7 +774,7 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
     std::vector<var_idx_t> prepend_nulls;
     prepend_nulls.reserve(target_w - t_subtype->get_width_on_stack() - 1);
     for (int i = 0; i < target_w - t_subtype->get_width_on_stack() - 1; ++i) {
-      FunctionPtr null_sym = lookup_global_symbol("__null")->try_as<FunctionPtr>();
+      FunctionPtr null_sym = lookup_function("__null");
       std::vector<var_idx_t> ith_null = code.create_tmp_var(TypeDataNullLiteral::create(), loc, "(UVar.null)");
       prepend_nulls.push_back(ith_null[0]);
       code.emplace_back(loc, Op::_Call, std::move(ith_null), std::vector<var_idx_t>{}, null_sym);
@@ -747,7 +809,7 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
     std::vector<var_idx_t> prepend_nulls;
     prepend_nulls.reserve(target_w - orig_w);
     for (int i = 0; i < target_w - orig_w; ++i) {
-      FunctionPtr null_sym = lookup_global_symbol("__null")->try_as<FunctionPtr>();
+      FunctionPtr null_sym = lookup_function("__null");
       std::vector<var_idx_t> ith_null_ir_idx = code.create_tmp_var(TypeDataNullLiteral::create(), loc, "(UVar.null)");
       prepend_nulls.push_back(ith_null_ir_idx[0]);
       code.emplace_back(loc, Op::_Call, std::move(ith_null_ir_idx), std::vector<var_idx_t>{}, null_sym);
@@ -910,6 +972,17 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
     return rvect;
   }
 
+  // pass `Cell<Something>` to `cell`, e.g. `setContractData(obj.toCell())`
+  if (target_type == TypeDataCell::create() && original_type->try_as<TypeDataStruct>()) {
+    tolk_assert(orig_w == 1 && original_type->try_as<TypeDataStruct>()->struct_ref->is_instantiation_of_generic_struct());
+    return rvect;
+  }
+  // and vice versa, `cell as Cell<Something>`
+  if (original_type == TypeDataCell::create() && target_type->try_as<TypeDataStruct>()) {
+    tolk_assert(target_w == 1 && target_type->try_as<TypeDataStruct>()->struct_ref->is_instantiation_of_generic_struct());
+    return rvect;
+  }
+
   throw Fatal("unhandled transition_expr_to_runtime_type_impl() combination");
 }
 
@@ -929,7 +1002,7 @@ static std::vector<var_idx_t> transition_to_target_type(std::vector<var_idx_t>&&
 #ifndef TOLK_DEBUG
 GNU_ATTRIBUTE_ALWAYS_INLINE
 #endif
-static std::vector<var_idx_t> transition_to_target_type(std::vector<var_idx_t>&& rvect, CodeBlob& code, TypePtr original_type, TypePtr target_type, SrcLocation loc) {
+std::vector<var_idx_t> transition_to_target_type(std::vector<var_idx_t>&& rvect, CodeBlob& code, TypePtr original_type, TypePtr target_type, SrcLocation loc) {
   if (target_type != original_type) {
     rvect = transition_expr_to_runtime_type_impl(std::move(rvect), code, original_type, target_type, loc);
   }
@@ -1037,7 +1110,7 @@ static std::vector<var_idx_t> process_binary_operator(V<ast_binary_operator> v, 
     v_1->mutate()->assign_inferred_type(TypeDataInt::create());
     auto v_b_ne_0 = createV<ast_binary_operator>(v->loc, "!=", tok_neq, v->get_rhs(), v_0);
     v_b_ne_0->mutate()->assign_inferred_type(TypeDataInt::create());
-    v_b_ne_0->mutate()->assign_fun_ref(lookup_global_symbol("_!=_")->try_as<FunctionPtr>());
+    v_b_ne_0->mutate()->assign_fun_ref(lookup_function("_!=_"));
     std::vector<var_idx_t> cond = pre_compile_expr(v->get_lhs(), code, nullptr);
     tolk_assert(cond.size() == 1);
     std::vector<var_idx_t> rvect = code.create_tmp_var(v->inferred_type, v->loc, "(ternary)");
@@ -1052,13 +1125,13 @@ static std::vector<var_idx_t> process_binary_operator(V<ast_binary_operator> v, 
   }
   if (t == tok_eq || t == tok_neq) {
     if (v->get_lhs()->inferred_type->unwrap_alias() == TypeDataAddress::create() && v->get_rhs()->inferred_type->unwrap_alias() == TypeDataAddress::create()) {
-      FunctionPtr f_sliceEq = lookup_global_symbol("slice.bitsEqual")->try_as<FunctionPtr>();
+      FunctionPtr f_sliceEq = lookup_function("slice.bitsEqual");
       std::vector<var_idx_t> ir_lhs_slice = pre_compile_expr(v->get_lhs(), code);
       std::vector<var_idx_t> ir_rhs_slice = pre_compile_expr(v->get_rhs(), code);
       std::vector<var_idx_t> rvect = code.create_tmp_var(TypeDataBool::create(), v->loc, "(addr-eq)");
       code.emplace_back(v->loc, Op::_Call, rvect, std::vector{ir_lhs_slice[0], ir_rhs_slice[0]}, f_sliceEq);
       if (t == tok_neq) {
-        FunctionPtr not_sym = lookup_global_symbol("!b_")->try_as<FunctionPtr>();
+        FunctionPtr not_sym = lookup_function("!b_");
         code.emplace_back(v->loc, Op::_Call, rvect, rvect, not_sym);
       }
       return transition_to_target_type(std::move(rvect), code, target_type, v);
@@ -1112,7 +1185,7 @@ static std::vector<var_idx_t> process_is_type_operator(V<ast_is_type_operator> v
   std::vector<var_idx_t> result_ir_idx = pre_compile_is_type(code, lhs_type, cmp_type, expr_ir_idx, v->loc, is_null_check ? "(is-null)" : "(is-type)");
 
   if (v->is_negated) {
-    FunctionPtr not_sym = lookup_global_symbol("!b_")->try_as<FunctionPtr>();
+    FunctionPtr not_sym = lookup_function("!b_");
     code.emplace_back(v->loc, Op::_Call, result_ir_idx, result_ir_idx, not_sym);
   }
   return transition_to_target_type(std::move(result_ir_idx), code, target_type, v);
@@ -1152,7 +1225,7 @@ static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v
   // construct nested IFs: IF is int { ... } ELSE { IF is slice { ... } ELSE { ... } }
   // example 3 (not exhaustive): `match (v) { -1 => ... 0 => ... 1 => ... }`
   // construct nested IFs: IF == -1 { ... } ELSE { IF == 0 { ... } ELSE { IF == 1 { ... } } }
-  FunctionPtr eq_sym = lookup_global_symbol("_==_")->try_as<FunctionPtr>();
+  FunctionPtr eq_sym = lookup_function("_==_");
   for (int i = 0; i < n_arms - is_exhaustive; ++i) {
     auto v_ith_arm = v->get_arm(i);
     std::vector<var_idx_t> eq_ith_ir_idx;
@@ -1259,7 +1332,7 @@ static std::vector<var_idx_t> process_dot_access(V<ast_dot_access> v, CodeBlob& 
       code.emplace_back(v->loc, Op::_IntConst, index_ir_idx, td::make_refint(index_at));
       std::vector<var_idx_t> field_ir_idx = code.create_tmp_var(v->inferred_type, v->loc, "(tuple-field)");
       tolk_assert(tuple_ir_idx.size() == 1 && field_ir_idx.size() == 1);  // tuples contain only 1-slot values
-      FunctionPtr builtin_sym = lookup_global_symbol("tuple.get")->try_as<FunctionPtr>();
+      FunctionPtr builtin_sym = lookup_function("tuple.get");
       code.emplace_back(v->loc, Op::_Call, field_ir_idx, std::vector{tuple_ir_idx[0], index_ir_idx[0]}, builtin_sym);
       if (lval_ctx && calc_sink_leftmost_obj(v)) {    // `tupleVar.0.1 = rhs`, then `tupleVar.0` is rval inside lval
         lval_ctx->capture_tuple_index_modification(v->get_obj(), index_at, field_ir_idx);
@@ -1371,7 +1444,9 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
   for (const std::vector<var_idx_t>& list : vars_per_arg) {
     args_vars.insert(args_vars.end(), list.cbegin(), list.cend());
   }
-  std::vector<var_idx_t> rvect_apply = gen_op_call(code, op_call_type, v->loc, std::move(args_vars), fun_ref, "(fun-call)", arg_order_already_equals_asm);
+  std::vector<var_idx_t> rvect_apply = fun_ref->is_compile_time_special_gen()
+      ? gen_compile_time_code_instead_of_fun_call(code, v->loc, std::move(args_vars), fun_ref)
+      : gen_op_call(code, op_call_type, v->loc, std::move(args_vars), fun_ref, "(fun-call)", arg_order_already_equals_asm);
 
   if (fun_ref->has_mutate_params()) {
     LValContext local_lval;
@@ -1553,13 +1628,13 @@ static std::vector<var_idx_t> process_string_const(V<ast_string_const> v, CodeBl
 }
 
 static std::vector<var_idx_t> process_bool_const(V<ast_bool_const> v, CodeBlob& code, TypePtr target_type) {
-  FunctionPtr builtin_sym = lookup_global_symbol(v->bool_val ? "__true" : "__false")->try_as<FunctionPtr>();
+  FunctionPtr builtin_sym = lookup_function(v->bool_val ? "__true" : "__false");
   std::vector<var_idx_t> rvect = gen_op_call(code, v->inferred_type, v->loc, {}, builtin_sym, "(bool-const)");
   return transition_to_target_type(std::move(rvect), code, target_type, v);
 }
 
 static std::vector<var_idx_t> process_null_keyword(V<ast_null_keyword> v, CodeBlob& code, TypePtr target_type) {
-  FunctionPtr builtin_sym = lookup_global_symbol("__null")->try_as<FunctionPtr>();
+  FunctionPtr builtin_sym = lookup_function("__null");
   std::vector<var_idx_t> rvect = gen_op_call(code, v->inferred_type, v->loc, {}, builtin_sym, "(null-literal)");
   return transition_to_target_type(std::move(rvect), code, target_type, v);
 }
@@ -1685,7 +1760,7 @@ static void process_assert_statement(V<ast_assert_statement> v, CodeBlob& code) 
     args[2]->mutate()->assign_inferred_type(TypeDataInt::create());
   }
 
-  FunctionPtr builtin_sym = lookup_global_symbol("__throw_if_unless")->try_as<FunctionPtr>();
+  FunctionPtr builtin_sym = lookup_function("__throw_if_unless");
   std::vector<var_idx_t> args_vars = pre_compile_tensor(code, args);
   gen_op_call(code, TypeDataVoid::create(), v->loc, std::move(args_vars), builtin_sym, "(throw-call)");
 }
@@ -1781,9 +1856,9 @@ static void process_do_while_statement(V<ast_do_while_statement> v, CodeBlob& co
   }
   until_cond->mutate()->assign_inferred_type(TypeDataInt::create());
   if (auto v_bin = until_cond->try_as<ast_binary_operator>(); v_bin && !v_bin->fun_ref) {
-    v_bin->mutate()->assign_fun_ref(lookup_global_symbol("_" + static_cast<std::string>(v_bin->operator_name) + "_")->try_as<FunctionPtr>());
+    v_bin->mutate()->assign_fun_ref(lookup_function("_" + static_cast<std::string>(v_bin->operator_name) + "_"));
   } else if (auto v_un = until_cond->try_as<ast_unary_operator>(); v_un && !v_un->fun_ref) {
-    v_un->mutate()->assign_fun_ref(lookup_global_symbol(static_cast<std::string>(v_un->operator_name) + "_")->try_as<FunctionPtr>());
+    v_un->mutate()->assign_fun_ref(lookup_function(static_cast<std::string>(v_un->operator_name) + "_"));
   }
 
   until_op.left = pre_compile_expr(until_cond, code, nullptr);
@@ -1804,11 +1879,11 @@ static void process_while_statement(V<ast_while_statement> v, CodeBlob& code) {
 
 static void process_throw_statement(V<ast_throw_statement> v, CodeBlob& code) {
   if (v->has_thrown_arg()) {
-    FunctionPtr builtin_sym = lookup_global_symbol("__throw_arg")->try_as<FunctionPtr>();
+    FunctionPtr builtin_sym = lookup_function("__throw_arg");
     std::vector<var_idx_t> args_vars = pre_compile_tensor(code, {v->get_thrown_arg(), v->get_thrown_code()});
     gen_op_call(code, TypeDataVoid::create(), v->loc, std::move(args_vars), builtin_sym, "(throw-call)");
   } else {
-    FunctionPtr builtin_sym = lookup_global_symbol("__throw")->try_as<FunctionPtr>();
+    FunctionPtr builtin_sym = lookup_function("__throw");
     std::vector<var_idx_t> args_vars = pre_compile_tensor(code, {v->get_thrown_code()});
     gen_op_call(code, TypeDataVoid::create(), v->loc, std::move(args_vars), builtin_sym, "(throw-call)");
   }

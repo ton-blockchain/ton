@@ -107,16 +107,6 @@ class ASTStringifier final : public ASTVisitor {
 
   static_assert(std::size(name_pairs) == ast_tolk_file + 1, "name_pairs needs to be updated");
 
-  constexpr static std::pair<AnnotationKind, const char*> annotation_kinds[] = {
-    {AnnotationKind::inline_simple, "@inline"},
-    {AnnotationKind::inline_ref, "@inline_ref"},
-    {AnnotationKind::method_id, "@method_id"},
-    {AnnotationKind::pure, "@pure"},
-    {AnnotationKind::deprecated, "@deprecated"},
-  };
-
-  static_assert(std::size(annotation_kinds) == static_cast<size_t>(AnnotationKind::unknown), "annotation_kinds needs to be updated");
-
   template<ASTNodeKind node_kind>
   constexpr static const char* ast_node_kind_to_string() {
     return name_pairs[node_kind].second;
@@ -205,7 +195,7 @@ class ASTStringifier final : public ASTVisitor {
       case ast_if_statement:
         return v->as<ast_if_statement>()->is_ifnot ? "ifnot" : "";
       case ast_annotation:
-        return annotation_kinds[static_cast<int>(v->as<ast_annotation>()->kind)].second;
+        return static_cast<std::string>(v->as<ast_annotation>()->name);
       case ast_parameter:
         return static_cast<std::string>(v->as<ast_parameter>()->param_name) + ": " + ast_type_node_to_string(v->as<ast_parameter>()->type_node);
       case ast_function_declaration: {

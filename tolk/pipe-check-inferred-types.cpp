@@ -65,6 +65,10 @@ static void fire_error_cannot_apply_operator(FunctionPtr cur_f, SrcLocation loc,
 
 GNU_ATTRIBUTE_NOINLINE
 static void warning_condition_always_true_or_false(FunctionPtr cur_f, SrcLocation loc, AnyExprV cond, const char* operator_name) {
+  bool no_warning = cond->kind == ast_bool_const || cond->kind == ast_int_const;
+  if (no_warning) {     // allow `while(true)` without a warning
+    return;
+  }
   loc.show_warning("condition of " + static_cast<std::string>(operator_name) + " is always " + (cond->is_always_true ? "true" : "false"));
 }
 

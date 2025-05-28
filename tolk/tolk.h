@@ -1100,6 +1100,7 @@ struct CodeBlob {
 #endif
     return ir_idx;
   }
+  var_idx_t create_int(SrcLocation loc, int64_t value, const char* desc);
   bool compute_used_code_vars();
   bool compute_used_code_vars(std::unique_ptr<Op>& ops, const VarDescrList& var_info, bool edit) const;
   void print(std::ostream& os, int flags = 0) const;

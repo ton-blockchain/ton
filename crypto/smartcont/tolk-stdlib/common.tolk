@@ -55,6 +55,11 @@ fun tuple.size(self): int
 fun tuple.last<T>(self): T
     asm "LAST";
 
+/// Pops and returns the last element of a non-empty tuple.
+@pure
+fun tuple.pop<T>(mutate self): T
+    asm "TPOP";
+
 
 /**
     Mathematical primitives.
@@ -208,6 +213,139 @@ fun blockchain.configParam(x: int): cell?
 /// in Computation Phase is thrown later.
 fun commitContractDataAndActions(): void
     asm "COMMIT";
+
+
+/**
+    Auto packing structures to/from cells.
+*/
+
+/// Convert anything to a cell (most likely, you'll call it for structures).
+/// Example:
+/// ```
+/// var st: MyStorage = { ... };
+/// contract.setData(st.toCell());
+/// ```
+/// Internally, a builder is created, all fields are serialized one by one, and a builder is flushed
+/// (beginCell() + serialize fields + endCell()).
+@pure
+fun T.toCell(self): Cell<T>
+    builtin;
+
+/// Parse anything from a cell (most likely, you'll call it for structures).
+/// Example:
+/// ```
+/// var st = MyStorage.fromCell(contract.getData());
+/// ```
+/// Internally, a cell is unpacked to a slice, and that slice is parsed
+/// (packedCell.beginParse() + read from slice).
+@pure
+fun T.fromCell(packedCell: cell): T
+    builtin;
+
+/// Parse anything from a slice (most likely, you'll call it for structures).
+/// Example:
+/// ```
+/// var msg = CounterIncrement.fromSlice(cs);
+/// ```
+/// All fields are read from a slice immediately.
+/// If a slice is corrupted, an exception is thrown (most likely, excode 9 "cell underflow").
+/// Note, that a passed slice is NOT mutated, its internal pointer is NOT shifted.
+/// If you need to mutate it, like `cs.loadInt()`, consider calling `cs.loadAny<CounterIncrement>()`.
+@pure
+fun T.fromSlice(rawSlice: slice): T
+    builtin;
+
+/// Parse anything from a slice, shifting its internal pointer.
+/// Similar to `slice.loadUint()` and others, but allows loading structures.
+/// Example:
+/// ```
+/// var st: MyStorage = cs.loadAny();     // or cs.loadAny<MyStorage>()
+/// ```
+/// Similar to `MyStorage.fromSlice(cs)`, but called as a slice method and mutates the slice.
+@pure
+fun slice.loadAny<T>(mutate self): T
+    builtin;
+
+/// Skip anything in a slice, shifting its internal pointer.
+/// Similar to `slice.skipBits()` and others, but allows skipping structures.
+/// Example:
+/// ```
+/// struct TwoInts { a: int32; b: int32; }
+/// cs.skipAny<TwoInts>();    // skips 64 bits
+/// ```
+@pure
+fun slice.skipAny<T>(mutate self): self
+    builtin;
+
+/// Store anything to a builder.
+/// Similar to `builder.storeUint()` and others, but allows storing structures.
+/// Example:
+/// ```
+/// var b = beginCell().storeUint(32).storeAny(msgBody).endCell();
+/// ```
+@pure
+fun builder.storeAny<T>(mutate self, v: T): self
+    builtin;
+
+/// Cell<T> represents a typed cell reference (as opposed to untyped `cell`).
+/// Example:
+/// ```
+/// struct ExtraData { ... }
+///
+/// struct MyStorage {
+///     ...
+///     extra:    Cell<ExtraData>;    // TL-B `^ExtraData`
+///     optional: Cell<ExtraData>?;   // TL-B `(Maybe ^ExtraData)`
+///     code:     cell;               // TL-B `^Cell`
+///     data:     cell?;              // TL-B `(Maybe ^Cell)`
+/// }
+/// ```
+/// Note, that `st = MyStorage.fromSlice(s)` does NOT deep-load any refs; `st.extra` is `Cell<T>`, not `T`;
+/// you should manually call `st.extra.load()` to get T (ExtraData in this example).
+struct Cell<T> {
+    tvmCell: cell;
+}
+
+/// Parse data from already loaded cell reference.
+/// Example:
+/// ```
+/// struct MyStorage { ... extra: Cell<ExtraData>; }
+///
+/// var st = MyStorage.fromCell(contract.getData());
+/// // st.extra is cell; if we need to unpack it, we do
+/// var extra = st.extra.load();   // it's ExtraData, unpacked from loaded ref
+/// ```
+@pure
+fun Cell<T>.load(self): T
+    builtin;
+
+/// Converts a typed cell into a slice.
+@pure
+fun Cell<T>.beginParse(self): slice
+    asm "CTOS";
+
+/// RemainingBitsAndRefs is a special built-in type to get "all the rest" slice tail on reading.
+/// Example:
+/// ```
+/// struct JettonMessage {
+///     ... some fields
+///     forwardPayload: RemainingBitsAndRefs;
+/// }
+/// ```
+/// When you deserialize JettonMessage, forwardPayload contains "everything left after reading fields above".
+type RemainingBitsAndRefs = slice;
+
+/// Creates a cell with zero bits and references.
+/// Equivalent to `beginCell().endCell()` but cheaper.
+@pure
+fun createEmptyCell(): cell
+    asm "<b b> PUSHREF";
+
+/// Creates a slice with zero remaining bits and references.
+/// Equivalent to `beginCell().endCell().beginParse()` but cheaper.
+@pure
+fun createEmptySlice(): slice
+    asm "x{} PUSHSLICE";
 
 
 /**
@@ -421,7 +559,7 @@ fun stringHexToSlice(constStringBytesHex: slice): slice
 fun cell.beginParse(self): slice
     asm "CTOS";
 
-/// Checks if slice is empty. If not, throws an exception.
+/// Checks if slice is empty. If not, throws an exception with code 9.
 fun slice.assertEnd(self): void
     asm "ENDS";
 
