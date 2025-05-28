@@ -540,59 +540,52 @@ static std::vector<var_idx_t> gen_op_call(CodeBlob& code, TypePtr ret_type, SrcL
   return rvect;
 }
 
-static std::vector<var_idx_t> gen_compile_time_code_instead_of_fun_call(CodeBlob& code, SrcLocation loc, std::vector<var_idx_t>&& rvect, FunctionPtr called_f) {
+static std::vector<var_idx_t> gen_compile_time_code_instead_of_fun_call(CodeBlob& code, SrcLocation loc, const std::vector<std::vector<var_idx_t>>& vars_per_arg, FunctionPtr called_f) {
   if (called_f->is_instantiation_of_generic_function()) {
     std::string_view f_name = called_f->base_fun_ref->name;
     TypePtr typeT = called_f->substitutedTs->typeT_at(0);
-    int n_rvect = static_cast<int>(rvect.size());
 
     if (f_name == "T.toCell") {
       // in: object T, out: Cell<T> (just a cell, wrapped)
-      tolk_assert(n_rvect == typeT->get_width_on_stack());
-      std::vector ir_obj = std::move(rvect);
-      return generate_pack_struct_to_cell(code, loc, typeT, std::move(ir_obj));
+      std::vector ir_obj = vars_per_arg[0];
+      return generate_pack_struct_to_cell(code, loc, typeT, std::move(ir_obj), vars_per_arg[1]);
     }
     if (f_name == "T.fromCell") {
       // in: cell, out: object T
-      tolk_assert(n_rvect == 1);
-      std::vector ir_cell = std::move(rvect);
-      return generate_unpack_struct_from_cell(code, loc, typeT, std::move(ir_cell));
+      std::vector ir_cell = vars_per_arg[0];
+      return generate_unpack_struct_from_cell(code, loc, typeT, std::move(ir_cell), vars_per_arg[1]);
     }
     if (f_name == "T.fromSlice") {
       // in: slice, out: object T, input slice NOT mutated
-      tolk_assert(n_rvect == 1);
-      std::vector ir_slice = std::move(rvect);
-      return generate_unpack_struct_from_slice(code, loc, typeT, std::move(ir_slice), false);
+      std::vector ir_slice = vars_per_arg[0];
+      return generate_unpack_struct_from_slice(code, loc, typeT, std::move(ir_slice), false, vars_per_arg[1]);
     }
     if (f_name == "Cell<T>.load") {
       // in: cell, out: object T
-      tolk_assert(n_rvect == 1);
-      std::vector ir_cell = std::move(rvect);
-      return generate_unpack_struct_from_cell(code, loc, typeT, std::move(ir_cell));
+      std::vector ir_cell = vars_per_arg[0];
+      return generate_unpack_struct_from_cell(code, loc, typeT, std::move(ir_cell), vars_per_arg[1]);
     }
     if (f_name == "slice.loadAny") {
       // in: slice, out: object T, input slice is mutated, so prepend self before an object
-      var_idx_t ir_self = rvect[0];
-      std::vector ir_obj = generate_unpack_struct_from_slice(code, loc, typeT, std::move(rvect), true);
+      var_idx_t ir_self = vars_per_arg[0][0];
+      std::vector ir_slice = vars_per_arg[0];
+      std::vector ir_obj = generate_unpack_struct_from_slice(code, loc, typeT, std::move(ir_slice), true, vars_per_arg[1]);
       std::vector ir_result = {ir_self};
       ir_result.insert(ir_result.end(), ir_obj.begin(), ir_obj.end());
       return ir_result;
     }
     if (f_name == "slice.skipAny") {
       // in: slice, out: the same slice, with a shifted pointer
-      tolk_assert(n_rvect == 1);
-      std::vector ir_slice = std::move(rvect);
-      return generate_skip_struct_in_slice(code, loc, typeT, std::move(ir_slice));
+      std::vector ir_slice = vars_per_arg[0];
+      return generate_skip_struct_in_slice(code, loc, typeT, std::move(ir_slice), vars_per_arg[1]);
     }
     if (f_name == "builder.storeAny") {
       // in: builder and object T, out: mutated builder
-      tolk_assert(n_rvect == 1 + typeT->get_width_on_stack());
-      std::vector ir_builder = {rvect[0]};
-      std::vector ir_obj(rvect.begin() + 1, rvect.end());
-      return generate_pack_struct_to_builder(code, loc, typeT, std::move(ir_builder), std::vector(ir_obj));
+      std::vector ir_builder = vars_per_arg[0];
+      std::vector ir_obj = vars_per_arg[1];
+      return generate_pack_struct_to_builder(code, loc, typeT, std::move(ir_builder), std::move(ir_obj), vars_per_arg[2]);
     }
     if (f_name == "T.estimatePackSize") {
-      tolk_assert(rvect.empty());
       return generate_estimate_size_call(code, loc, typeT);
     }
   }
@@ -1454,7 +1447,7 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
     args_vars.insert(args_vars.end(), list.cbegin(), list.cend());
   }
   std::vector<var_idx_t> rvect_apply = fun_ref->is_compile_time_special_gen()
-      ? gen_compile_time_code_instead_of_fun_call(code, v->loc, std::move(args_vars), fun_ref)
+      ? gen_compile_time_code_instead_of_fun_call(code, v->loc, vars_per_arg, fun_ref)
       : gen_op_call(code, op_call_type, v->loc, std::move(args_vars), fun_ref, "(fun-call)", arg_order_already_equals_asm);
 
   if (fun_ref->has_mutate_params()) {

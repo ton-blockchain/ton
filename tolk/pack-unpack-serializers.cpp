@@ -40,8 +40,6 @@ namespace tolk {
 std::vector<var_idx_t> pre_compile_is_type(CodeBlob& code, TypePtr expr_type, TypePtr cmp_type, const std::vector<var_idx_t>& expr_ir_idx, SrcLocation loc, const char* debug_desc);
 std::vector<var_idx_t> transition_to_target_type(std::vector<var_idx_t>&& rvect, CodeBlob& code, TypePtr original_type, TypePtr target_type, SrcLocation loc);
 
-constexpr int ERR_CODEGEN_ASSERT = 9;
-
 bool is_type_cellT(TypePtr any_type) {
   if (const TypeDataStruct* t_struct = any_type->try_as<TypeDataStruct>()) {
     StructPtr struct_ref = t_struct->struct_ref;
@@ -59,13 +57,14 @@ bool is_type_cellT(TypePtr any_type) {
 //
 
 
-PackContext::PackContext(CodeBlob& code, SrcLocation loc, std::vector<var_idx_t> ir_builder)
+PackContext::PackContext(CodeBlob& code, SrcLocation loc, std::vector<var_idx_t> ir_builder, const std::vector<var_idx_t>& ir_options)
   : code(code)
   , loc(loc)
   , f_storeInt(lookup_function("builder.storeInt"))
   , f_storeUint(lookup_function("builder.storeUint"))
   , ir_builder(std::move(ir_builder))
-  , ir_builder0(this->ir_builder[0]) {
+  , ir_builder0(this->ir_builder[0])
+  , option_skipBitsNFieldsValidation(ir_options[0]) {
 }
 
 void PackContext::storeInt(var_idx_t ir_idx, int len) const {
@@ -119,14 +118,16 @@ void PackContext::storeOpcode(PackOpcode opcode) const {
 }
 
 
-UnpackContext::UnpackContext(CodeBlob& code, SrcLocation loc, std::vector<var_idx_t> ir_slice)
+UnpackContext::UnpackContext(CodeBlob& code, SrcLocation loc, std::vector<var_idx_t> ir_slice, const std::vector<var_idx_t>& ir_options)
   : code(code)
   , loc(loc)
   , f_loadInt(lookup_function("slice.loadInt"))
   , f_loadUint(lookup_function("slice.loadUint"))
   , f_skipBits(lookup_function("slice.skipBits"))
   , ir_slice(std::move(ir_slice))
-  , ir_slice0(this->ir_slice[0]) {
+  , ir_slice0(this->ir_slice[0])
+  , option_assertEndAfterReading(ir_options[0])
+  , option_throwIfOpcodeDoesNotMatch(ir_options[1]) {
 }
 
 std::vector<var_idx_t> UnpackContext::loadInt(int len, const char* debug_desc) const {
@@ -147,8 +148,7 @@ void UnpackContext::loadAndCheckOpcode(PackOpcode opcode) const {
   std::vector ir_prefix_eq = code.create_tmp_var(TypeDataInt::create(), loc, "(prefix-eq)");
   std::vector args = { ir_slice0, code.create_int(loc, opcode.pack_prefix, "(pack-prefix)"), code.create_int(loc, opcode.prefix_len, "(prefix-len)") };
   code.emplace_back(loc, Op::_Call, std::vector{ir_slice0, ir_prefix_eq[0]}, std::move(args), lookup_function("slice.tryStripPrefix"));
-
-  std::vector args_assert = { code.create_int(loc, ERR_CODEGEN_ASSERT, "(excno)"), ir_prefix_eq[0], code.create_int(loc, 0, "") };
+  std::vector args_assert = { option_throwIfOpcodeDoesNotMatch, ir_prefix_eq[0], code.create_int(loc, 0, "") };
   Op& op_assert = code.emplace_back(loc, Op::_Call, std::vector<var_idx_t>{}, std::move(args_assert), lookup_function("__throw_if_unless"));
   op_assert.set_impure_flag();
 }
@@ -163,6 +163,19 @@ void UnpackContext::skipBits_var(var_idx_t ir_len) const {
   code.emplace_back(loc, Op::_Call, ir_slice, std::move(args), f_skipBits);
 }
 
+void UnpackContext::assertEndIfOption() const {
+  Op& if_assertEnd = code.emplace_back(loc, Op::_If, std::vector{option_assertEndAfterReading});
+  {
+    code.push_set_cur(if_assertEnd.block0);
+    Op& op_ends = code.emplace_back(loc, Op::_Call, std::vector<var_idx_t>{}, ir_slice, lookup_function("slice.assertEnd"));
+    op_ends.set_impure_flag();
+    code.close_pop_cur(loc);
+  }
+  {
+    code.push_set_cur(if_assertEnd.block1);
+    code.close_pop_cur(loc);
+  }
+}
 
 // --------------------------------------------
 //    serializers with pack/unpack/skip/estimate
@@ -226,24 +239,27 @@ struct S_BytesN final : ISerializer {
   void pack(const PackContext* ctx, CodeBlob& code, SrcLocation loc, std::vector<var_idx_t>&& rvect) override {
     tolk_assert(rvect.size() == 1);
 
-    // bitsN/bytesN aren't checked upon writing (to have requested number of bits and 0 refs), probably to expose an option
-    if (false) {
+    Op& if_disabled_by_user = code.emplace_back(loc, Op::_If, std::vector{ctx->option_skipBitsNFieldsValidation});
+    {
+      code.push_set_cur(if_disabled_by_user.block0);
+      code.close_pop_cur(loc);
+    }
+    {
+      code.push_set_cur(if_disabled_by_user.block1);
       FunctionPtr f_assert = lookup_function("__throw_if_unless");
-      FunctionPtr f_equals = lookup_function("_==_");
-      FunctionPtr f_bitAnd = lookup_function("_&_");
-      FunctionPtr f_getCounts = lookup_function("slice.remainingBitsAndRefsCount");
+      constexpr int EXCNO = 9;
 
       std::vector ir_counts = code.create_tmp_var(TypeDataTensor::create({TypeDataInt::create(), TypeDataInt::create()}), loc, "(slice-size)");
-      code.emplace_back(loc, Op::_Call, ir_counts, rvect, f_getCounts);
-      std::vector ir_is_n = code.create_tmp_var(TypeDataInt::create(), loc, "(n-bits)");
-      code.emplace_back(loc, Op::_Call, ir_is_n, std::vector{ir_counts[0], code.create_int(loc, n_bits, "(expected-bits)")}, f_equals);
-      std::vector ir_is_0 = code.create_tmp_var(TypeDataInt::create(), loc, "(n-refs)");
-      code.emplace_back(loc, Op::_Call, ir_is_0, std::vector{ir_counts[1], code.create_int(loc, 0, "(expected-refs)")}, f_equals);
-      std::vector ir_both_eq = code.create_tmp_var(TypeDataInt::create(), loc, "(both-eq)");
-      code.emplace_back(loc, Op::_Call, ir_both_eq, std::vector{ir_is_n[0], ir_is_0[0]}, f_bitAnd);
-      std::vector args_assert = { code.create_int(loc, ERR_CODEGEN_ASSERT, "(excno)"), ir_both_eq[0], code.create_int(loc, 0, "") };
-      Op& op1 = code.emplace_back(loc, Op::_Call, std::vector<var_idx_t>{}, std::move(args_assert), f_assert);
-      op1.set_impure_flag();
+      code.emplace_back(loc, Op::_Call, ir_counts, rvect, lookup_function("slice.remainingBitsAndRefsCount"));
+      std::vector args_assert0 = { code.create_int(loc, EXCNO, "(excno)"), ir_counts[1], code.create_int(loc, 1, "") };
+      Op& op_assert0 = code.emplace_back(loc, Op::_Call, std::vector<var_idx_t>{}, std::move(args_assert0), f_assert);
+      op_assert0.set_impure_flag();
+      std::vector ir_eq_n = code.create_tmp_var(TypeDataInt::create(), loc, "(eq-n)");
+      code.emplace_back(loc, Op::_Call, ir_eq_n, std::vector{ir_counts[0], code.create_int(loc, n_bits, "(n-bits)")}, lookup_function("_==_"));
+      std::vector args_assertN = { code.create_int(loc, EXCNO, "(excno)"), ir_eq_n[0], code.create_int(loc, 0, "") };
+      Op& op_assertN = code.emplace_back(loc, Op::_Call, std::vector<var_idx_t>{}, std::move(args_assertN), f_assert);
+      op_assertN.set_impure_flag();
+      code.close_pop_cur(loc);
     }
 
     ctx->storeSlice(rvect[0]);
@@ -414,7 +430,7 @@ struct S_RemainingBitsAndRefs final : ISerializer {
   }
 
   PackSize estimate(const EstimateContext* ctx) override {
-    return PackSize(0, 0, 0, 0);
+    return PackSize::unpredictable_infinity();
   }
 };
 
@@ -434,7 +450,7 @@ struct S_Builder final : ISerializer {
   }
 
   PackSize estimate(const EstimateContext* ctx) override {
-    return PackSize(0, 0, 0, 0);
+    return PackSize::unpredictable_infinity();
   }
 };
 
@@ -661,27 +677,21 @@ struct S_MultipleConstructors final : ISerializer {
       TypePtr variant = t_union->variants[i];
       std::vector args = { ctx->ir_slice0, code.create_int(loc, opcodes[i].pack_prefix, "(pack-prefix)"), code.create_int(loc, opcodes[i].prefix_len, "(prefix-len)") };
       code.emplace_back(loc, Op::_Call, std::vector{ctx->ir_slice0, ir_prefix_eq[0]}, std::move(args), f_tryStripPrefix);
-      if (i != t_union->size() - 1) {
-        Op& if_op = code.emplace_back(loc, Op::_If, ir_prefix_eq);
-        code.push_set_cur(if_op.block0);
-        std::vector ith_rvect = ctx->generate_unpack_any(variant, PrefixReadMode::DoNothingAlreadyLoaded);
-        ith_rvect = transition_to_target_type(std::move(ith_rvect), code, variant, t_union, loc);
-        code.emplace_back(loc, Op::_Let, ir_result, std::move(ith_rvect));
-        code.close_pop_cur(loc);
-        code.push_set_cur(if_op.block1);    // open ELSE
-      } else {                                 // we're inside the last ELSE
-        if (!are_prefixes_exhaustive()) {
-          std::vector args_assert = { code.create_int(loc, ERR_CODEGEN_ASSERT, "(excno)"), ir_prefix_eq[0], code.create_int(loc, 0, "") };
-          Op& op_assert = code.emplace_back(loc, Op::_Call, std::vector<var_idx_t>{}, std::move(args_assert), lookup_function("__throw_if_unless"));
-          op_assert.set_impure_flag();
-        }
-        std::vector last_rvect = ctx->generate_unpack_any(variant, PrefixReadMode::DoNothingAlreadyLoaded);
-        last_rvect = transition_to_target_type(std::move(last_rvect), code, variant, t_union, loc);
-        code.emplace_back(loc, Op::_Let, ir_result, std::move(last_rvect));
-        for (int j = 0; j < t_union->size() - 1; ++j) {
-          code.close_pop_cur(loc);    // close all outer IFs
-        }
-      }
+      Op& if_prefix_eq = code.emplace_back(loc, Op::_If, ir_prefix_eq);
+      code.push_set_cur(if_prefix_eq.block0);
+      std::vector ith_rvect = ctx->generate_unpack_any(variant, PrefixReadMode::DoNothingAlreadyLoaded);
+      ith_rvect = transition_to_target_type(std::move(ith_rvect), code, variant, t_union, loc);
+      code.emplace_back(loc, Op::_Let, ir_result, std::move(ith_rvect));
+      code.close_pop_cur(loc);
+      code.push_set_cur(if_prefix_eq.block1);    // open ELSE
+    }
+
+    // we're inside last ELSE
+    std::vector args_throw = { ctx->option_throwIfOpcodeDoesNotMatch };
+    Op& op_throw = code.emplace_back(loc, Op::_Call, std::vector<var_idx_t>{}, std::move(args_throw), lookup_function("__throw"));
+    op_throw.set_impure_flag();
+    for (int j = 0; j < t_union->size(); ++j) {
+      code.close_pop_cur(loc);    // close all outer IFs
     }
     return ir_result;
   }
@@ -694,23 +704,19 @@ struct S_MultipleConstructors final : ISerializer {
       TypePtr variant = t_union->variants[i];
       std::vector args = { ctx->ir_slice0, code.create_int(loc, opcodes[i].pack_prefix, "(pack-prefix)"), code.create_int(loc, opcodes[i].prefix_len, "(prefix-len)") };
       code.emplace_back(loc, Op::_Call, std::vector{ctx->ir_slice0, ir_prefix_eq[0]}, std::move(args), f_tryStripPrefix);
-      if (i != t_union->size() - 1) {
-        Op& if_op = code.emplace_back(loc, Op::_If, ir_prefix_eq);
-        code.push_set_cur(if_op.block0);
-        ctx->generate_skip_any(variant, PrefixReadMode::DoNothingAlreadyLoaded);
-        code.close_pop_cur(loc);
-        code.push_set_cur(if_op.block1);    // open ELSE
-      } else {                                 // we're inside the last ELSE
-        if (!are_prefixes_exhaustive()) {
-          std::vector args_assert = { code.create_int(loc, ERR_CODEGEN_ASSERT, "(excno)"), ir_prefix_eq[0], code.create_int(loc, 0, "") };
-          Op& op_assert = code.emplace_back(loc, Op::_Call, std::vector<var_idx_t>{}, std::move(args_assert), lookup_function("__throw_if_unless"));
-          op_assert.set_impure_flag();
-        }
-        ctx->generate_skip_any(variant, PrefixReadMode::DoNothingAlreadyLoaded);
-        for (int j = 0; j < t_union->size() - 1; ++j) {
-          code.close_pop_cur(loc);    // close all outer IFs
-        }
-      }
+      Op& if_prefix_eq = code.emplace_back(loc, Op::_If, ir_prefix_eq);
+      code.push_set_cur(if_prefix_eq.block0);
+      ctx->generate_skip_any(variant, PrefixReadMode::DoNothingAlreadyLoaded);
+      code.close_pop_cur(loc);
+      code.push_set_cur(if_prefix_eq.block1);    // open ELSE
+    }
+
+    // we're inside last ELSE
+    std::vector args_throw = { ctx->option_throwIfOpcodeDoesNotMatch };
+    Op& op_throw = code.emplace_back(loc, Op::_Call, std::vector<var_idx_t>{}, std::move(args_throw), lookup_function("__throw"));
+    op_throw.set_impure_flag();
+    for (int j = 0; j < t_union->size(); ++j) {
+      code.close_pop_cur(loc);    // close all outer IFs
     }
   }
 
@@ -724,14 +730,6 @@ struct S_MultipleConstructors final : ISerializer {
     }
 
     return EstimateContext::sum(variants_size, prefix_size);
-  }
-
-  bool are_prefixes_exhaustive() const {
-    bool all_prefix_len_eq = true;
-    for (PackOpcode opcode : opcodes) {
-      all_prefix_len_eq &= opcode.prefix_len == opcodes[0].prefix_len;
-    }
-    return all_prefix_len_eq && t_union->size() == (1 << opcodes[0].prefix_len);
   }
 };
 

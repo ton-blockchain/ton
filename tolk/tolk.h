@@ -924,6 +924,9 @@ struct Optimizer {
   bool is_nip_seq(int* i, int* j);
   bool is_pop_blkdrop(int* i, int* k);
   bool is_2pop_blkdrop(int* i, int* j, int* k);
+
+  bool detect_rewrite_big_THROW();
+
   AsmOpConsList extract_code();
 };
 

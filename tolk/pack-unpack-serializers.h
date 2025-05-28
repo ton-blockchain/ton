@@ -29,6 +29,10 @@ struct PackSize {
   int min_refs;
   int max_refs;
 
+  bool is_unpredictable_infinity() const {
+    return max_bits >= 9999;
+  }
+
   explicit PackSize(int exact_bits)
     : min_bits(exact_bits), max_bits(exact_bits), min_refs(0), max_refs(0) {
   }
@@ -37,6 +41,10 @@ struct PackSize {
   }
   PackSize(int min_bits, int max_bits, int min_refs, int max_refs)
     : min_bits(min_bits), max_bits(max_bits), min_refs(min_refs), max_refs(max_refs) {
+  }
+
+  static PackSize unpredictable_infinity() {
+    return PackSize(0, 9999, 0, 4);
   }
 };
 
@@ -56,8 +64,9 @@ class PackContext {
 public:
   const std::vector<var_idx_t> ir_builder;
   const var_idx_t ir_builder0;
+  const var_idx_t option_skipBitsNFieldsValidation;
 
-  PackContext(CodeBlob& code, SrcLocation loc, std::vector<var_idx_t> ir_builder);
+  PackContext(CodeBlob& code, SrcLocation loc, std::vector<var_idx_t> ir_builder, const std::vector<var_idx_t>& ir_options);
 
   PrefixWriteMode get_prefix_mode() const { return prefix_mode; }
 
@@ -92,8 +101,10 @@ class UnpackContext {
 public:
   const std::vector<var_idx_t> ir_slice;
   const var_idx_t ir_slice0;
+  const var_idx_t option_assertEndAfterReading;
+  const var_idx_t option_throwIfOpcodeDoesNotMatch;
 
-  UnpackContext(CodeBlob& code, SrcLocation loc, std::vector<var_idx_t> ir_slice);
+  UnpackContext(CodeBlob& code, SrcLocation loc, std::vector<var_idx_t> ir_slice, const std::vector<var_idx_t>& ir_options);
 
   PrefixReadMode get_prefix_mode() const { return prefix_mode; }
 
@@ -102,6 +113,7 @@ public:
   void loadAndCheckOpcode(PackOpcode opcode) const;
   void skipBits(int len) const;
   void skipBits_var(var_idx_t ir_len) const;
+  void assertEndIfOption() const;
 
   std::vector<var_idx_t> generate_unpack_any(TypePtr any_type, PrefixReadMode prefix_mode = PrefixReadMode::LoadAndCheck) const;
   void generate_skip_any(TypePtr any_type, PrefixReadMode prefix_mode = PrefixReadMode::LoadAndCheck) const;
@@ -124,7 +136,7 @@ public:
     return PackSize(std::min(a.min_bits, b.min_bits), std::max(a.max_bits, b.max_bits), std::min(a.min_refs, b.min_refs), std::max(a.max_refs, b.max_refs));
   }
   static PackSize sum(PackSize a, PackSize b) {
-    return PackSize(a.min_bits + b.min_bits, a.max_bits + b.max_bits, a.min_refs + b.min_refs, a.max_refs + b.max_refs);
+    return PackSize(a.min_bits + b.min_bits, std::min(9999, a.max_bits + b.max_bits), a.min_refs + b.min_refs, a.max_refs + b.max_refs);
   }
 
   PackSize estimate_any(TypePtr any_type, PrefixEstimateMode prefix_mode = PrefixEstimateMode::IncludePrefixOfStruct) const;

@@ -166,18 +166,38 @@ fun test9() {
     return (Test9_f1.estimatePackSize(), Test9_f2.estimatePackSize(), Test9_f3.estimatePackSize(), Test9_f4.estimatePackSize());
 }
 
+struct Test10_1 {
+    a: int32;
+    b: builder;     // unpredictable
+}
+
+type Test10_2 = (Test10_1, bool?, RemainingBitsAndRefs);
+
+@method_id(110)
+fun test10() {
+    return (Test10_1.estimatePackSize(), Test10_2.estimatePackSize());
+}
+
+@method_id(120)
+fun test20() {
+    return (Test7_1 .getDeclaredPackPrefixLen(), Test7_1 .getDeclaredPackPrefix(),
+        CellInner8_1.getDeclaredPackPrefixLen(), CellInner8_1.getDeclaredPackPrefix());
+}
+
 fun main() {
     __expect_type(int8.estimatePackSize(), "[int, int, int, int]");
 }
 
 /**
-@testcase | 101 | | [ 32 32 0 0 ] [ 64 64 0 0 ] [ 1 1 0 0 ] [ 1 1 0 0 ] [ 0 0 0 0 ] [ 4 124 0 0 ] [ 6 6 0 0 ] [ 64 64 0 0 ]
+@testcase | 101 | | [ 32 32 0 0 ] [ 64 64 0 0 ] [ 1 1 0 0 ] [ 1 1 0 0 ] [ 0 9999 0 4 ] [ 4 124 0 0 ] [ 6 6 0 0 ] [ 64 64 0 0 ]
 @testcase | 102 | | [ 32 32 0 0 ] [ 1 33 0 0 ] [ 1 33 0 0 ] [ 17 33 0 0 ]
 @testcase | 103 | | [ 67 199 0 0 ] [ 69 599 0 0 ]
 @testcase | 104 | | [ 4 534 0 0 ] [ 2 536 0 0 ] [ 6 1070 0 0 ]
-@testcase | 105 | | [ 2 2 2 4 ] [ 5 5 0 5 ] [ 4 152 1 4 ]
+@testcase | 105 | | [ 2 2 2 4 ] [ 5 9999 0 9 ] [ 4 152 1 4 ]
 @testcase | 106 | | [ 64 64 0 0 ] [ 5 37 1 1 ] [ 5 65 0 1 ]
 @testcase | 107 | | [ 16 16 0 0 ] [ 16 16 0 0 ]
 @testcase | 108 | | [ 10 275 0 0 ] [ 34 158 0 0 ] [ 47 1143 0 1 ]
 @testcase | 109 | | [ 34 130 0 0 ] [ 33 159 0 0 ] [ 4 8 0 0 ] [ 3 7 0 0 ]
+@testcase | 110 | | [ 32 9999 0 4 ] [ 33 9999 0 8 ]
+@testcase | 120 | | 16 4128 1 1
  */

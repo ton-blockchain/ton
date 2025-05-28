@@ -18,6 +18,7 @@
 #include "compiler-state.h"
 #include "type-system.h"
 #include "generics-helpers.h"
+#include "ast.h"
 
 namespace tolk {
 using namespace std::literals::string_literals;
@@ -938,7 +939,9 @@ static AsmOp compile_cmp_int(std::vector<VarDescr>& res, std::vector<VarDescr>& 
 static AsmOp compile_throw(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
   tolk_assert(res.empty() && args.size() == 1);
   VarDescr& x = args[0];
-  if (x.is_int_const() && x.int_const->unsigned_fits_bits(11)) {
+  if (x.is_int_const() && x.int_const >= 0) {
+    // in Fift assembler, "N THROW" is valid if N < 2048; for big N (particularly, widely used 0xFFFF)
+    // we now still generate "N THROW", and later, in optimizer, transform it to "PUSHINT" + "THROWANY"
     x.unused();
     return exec_arg_op(loc, "THROW", x.int_const, 0, 0);
   } else {
@@ -1181,6 +1184,8 @@ void define_builtins() {
   // see patch_builtins_after_stdlib_loaded() below
   TypePtr debug = TypeDataUnknown::create();
   TypePtr CellT = TypeDataUnknown::create();
+  TypePtr PackOptions = TypeDataUnknown::create();
+  TypePtr UnpackOptions = TypeDataUnknown::create();
 
   // builtin operators
   // they are internally stored as functions, because at IR level, there is no difference
@@ -1389,28 +1394,34 @@ void define_builtins() {
 
   // serialization/deserialization methods to/from cells (or, more low-level, slices/builders)
   // they work with structs (or, more low-level, with arbitrary types)
-  define_builtin_method("T.toCell", typeT, {typeT}, CellT, declReceiverT,
+  define_builtin_method("T.toCell", typeT, {typeT, PackOptions}, CellT, declReceiverT,
                                 compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeGen | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
-  define_builtin_method("T.fromCell", typeT, {TypeDataCell::create()}, typeT, declReceiverT,
+  define_builtin_method("T.fromCell", typeT, {TypeDataCell::create(), UnpackOptions}, typeT, declReceiverT,
                                 compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeGen | FunctionData::flagAllowAnyWidthT);
-  define_builtin_method("T.fromSlice", typeT, {Slice}, typeT, declReceiverT,
+  define_builtin_method("T.fromSlice", typeT, {Slice, UnpackOptions}, typeT, declReceiverT,
                                 compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeGen | FunctionData::flagAllowAnyWidthT);
   define_builtin_method("T.estimatePackSize", typeT, {}, TypeDataBrackets::create({TypeDataInt::create(), TypeDataInt::create(), TypeDataInt::create(), TypeDataInt::create()}), declReceiverT,
                                 compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeGen | FunctionData::flagAllowAnyWidthT);
-  define_builtin_method("Cell<T>.load", CellT, {CellT}, typeT, declReceiverT,
+  define_builtin_method("T.getDeclaredPackPrefix", typeT, {}, Int, declReceiverT,
+                                compile_time_only_function,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAllowAnyWidthT);
+  define_builtin_method("T.getDeclaredPackPrefixLen", typeT, {}, Int, declReceiverT,
+                                compile_time_only_function,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAllowAnyWidthT);
+  define_builtin_method("Cell<T>.load", CellT, {CellT, UnpackOptions}, typeT, declReceiverT,
                                 compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeGen | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
-  define_builtin_method("slice.loadAny", Slice, {Slice}, typeT, declGenericT,
+  define_builtin_method("slice.loadAny", Slice, {Slice, UnpackOptions}, typeT, declGenericT,
                                 compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeGen | FunctionData::flagAcceptsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT);
-  define_builtin_method("slice.skipAny", Slice, {Slice}, Slice, declGenericT,
+  define_builtin_method("slice.skipAny", Slice, {Slice, UnpackOptions}, Slice, declGenericT,
                                 compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeGen | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT);
-  define_builtin_method("builder.storeAny", Builder, {Builder, typeT}, Builder, declGenericT,
+  define_builtin_method("builder.storeAny", Builder, {Builder, typeT, PackOptions}, Builder, declGenericT,
                                 compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeGen | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT);
 
@@ -1439,11 +1450,38 @@ void patch_builtins_after_stdlib_loaded() {
   lookup_function("debug.dumpStack")->mutate()->receiver_type = debug;
 
   StructPtr struct_ref_CellT = lookup_global_symbol("Cell")->try_as<StructPtr>();
+  StructPtr struct_ref_PackOptions = lookup_global_symbol("PackOptions")->try_as<StructPtr>();
+  StructPtr struct_ref_UnpackOptions = lookup_global_symbol("UnpackOptions")->try_as<StructPtr>();
   TypePtr CellT = TypeDataGenericTypeWithTs::create(struct_ref_CellT, nullptr, {typeT});
+  TypePtr PackOptions = TypeDataStruct::create(struct_ref_PackOptions);
+  TypePtr UnpackOptions = TypeDataStruct::create(struct_ref_UnpackOptions);
 
-  lookup_function("Cell<T>.load")->mutate()->parameters[0].declared_type = CellT;
-  lookup_function("Cell<T>.load")->mutate()->receiver_type = CellT;
+  // in stdlib, there is a default parameter `options = {}`; since default parameters are evaluated with AST,
+  // emulate its presence in built-in functions; it looks ugly, but currently I don't have a better solution
+  auto v_empty_PackOptions = createV<ast_object_literal>({}, nullptr, createV<ast_object_body>({}, {}));
+  v_empty_PackOptions->assign_struct_ref(struct_ref_PackOptions);
+  v_empty_PackOptions->assign_inferred_type(PackOptions);
+  auto v_empty_UnpackOptions = createV<ast_object_literal>({}, nullptr, createV<ast_object_body>({}, {}));
+  v_empty_UnpackOptions->assign_struct_ref(struct_ref_UnpackOptions);
+  v_empty_UnpackOptions->assign_inferred_type(UnpackOptions);
+
   lookup_function("T.toCell")->mutate()->declared_return_type = CellT;
+  lookup_function("T.toCell")->mutate()->parameters[1].declared_type = PackOptions;
+  lookup_function("T.toCell")->mutate()->parameters[1].default_value = v_empty_PackOptions;
+  lookup_function("T.fromCell")->mutate()->parameters[1].declared_type = UnpackOptions;
+  lookup_function("T.fromCell")->mutate()->parameters[1].default_value = v_empty_UnpackOptions;
+  lookup_function("T.fromSlice")->mutate()->parameters[1].declared_type = UnpackOptions;
+  lookup_function("T.fromSlice")->mutate()->parameters[1].default_value = v_empty_UnpackOptions;
+  lookup_function("Cell<T>.load")->mutate()->parameters[0].declared_type = CellT;
+  lookup_function("Cell<T>.load")->mutate()->parameters[1].declared_type = UnpackOptions;
+  lookup_function("Cell<T>.load")->mutate()->parameters[1].default_value = v_empty_UnpackOptions;
+  lookup_function("Cell<T>.load")->mutate()->receiver_type = CellT;
+  lookup_function("slice.loadAny")->mutate()->parameters[1].declared_type = UnpackOptions;
+  lookup_function("slice.loadAny")->mutate()->parameters[1].default_value = v_empty_UnpackOptions;
+  lookup_function("slice.skipAny")->mutate()->parameters[1].declared_type = UnpackOptions;
+  lookup_function("slice.skipAny")->mutate()->parameters[1].default_value = v_empty_UnpackOptions;
+  lookup_function("builder.storeAny")->mutate()->parameters[2].declared_type = PackOptions;
+  lookup_function("builder.storeAny")->mutate()->parameters[2].default_value = v_empty_PackOptions;
 }
 
 }  // namespace tolk

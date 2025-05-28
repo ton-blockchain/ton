@@ -219,6 +219,32 @@ fun commitContractDataAndActions(): void
     Auto packing structures to/from cells.
 */
 
+/// PackOptions allows you to control behavior of `obj.toCell()` and similar functions.
+struct PackOptions {
+    /// when a struct has a field of type `bits128` and similar (it's a slice under the hood),
+    /// by default, compiler inserts runtime checks (get bits/refs count + compare with 128 + compare with 0);
+    /// these checks ensure that serialized binary data will be correct, but they cost gas;
+    /// however, if you guarantee that a slice is valid (for example, it comes from trusted sources),
+    /// set this option to true to disable runtime checks;
+    /// note: `int32` and other are always validated for overflow without any extra gas,
+    /// so this flag controls only rarely used `bytesN` / `bitsN` types
+    skipBitsNFieldsValidation: bool = false,
+}
+
+/// UnpackOptions allows you to control behavior of `MyStruct.fromCell(c)` and similar functions.
+struct UnpackOptions {
+    // after finished reading all fields from a cell/slice, call [slice.assertEnd] to ensure no remaining data left;
+    // it's the default behavior, it ensures that you've fully described data you're reading with a struct;
+    // example: `struct Point { x: int8; y: int8 }`, input "0102" is ok, "0102FF" will throw excno 9;
+    // note: setting this to false does not decrease gas (DROP from a stack and ENDS cost the same);
+    // note: this option controls [T.fromCell] and [T.fromSlice], but is ignored by [slice.loadAny]
+    assertEndAfterReading: bool = true,
+
+    /// this excNo is thrown if a prefix doesn't match, e.g. for `struct (0x01) A` given input "88...";
+    /// similarly, for a union type, this is thrown when none of the opcodes match
+    throwIfOpcodeDoesNotMatch: int = 63,
+}
+
 /// Convert anything to a cell (most likely, you'll call it for structures).
 /// Example:
 /// ```
@@ -228,7 +254,7 @@ fun commitContractDataAndActions(): void
 /// Internally, a builder is created, all fields are serialized one by one, and a builder is flushed
 /// (beginCell() + serialize fields + endCell()).
 @pure
-fun T.toCell(self): Cell<T>
+fun T.toCell(self, options: PackOptions = {}): Cell<T>
     builtin;
 
 /// Parse anything from a cell (most likely, you'll call it for structures).
@@ -239,7 +265,7 @@ fun T.toCell(self): Cell<T>
 /// Internally, a cell is unpacked to a slice, and that slice is parsed
 /// (packedCell.beginParse() + read from slice).
 @pure
-fun T.fromCell(packedCell: cell): T
+fun T.fromCell(packedCell: cell, options: UnpackOptions = {}): T
     builtin;
 
 /// Parse anything from a slice (most likely, you'll call it for structures).
@@ -252,7 +278,7 @@ fun T.fromCell(packedCell: cell): T
 /// Note, that a passed slice is NOT mutated, its internal pointer is NOT shifted.
 /// If you need to mutate it, like `cs.loadInt()`, consider calling `cs.loadAny<CounterIncrement>()`.
 @pure
-fun T.fromSlice(rawSlice: slice): T
+fun T.fromSlice(rawSlice: slice, options: UnpackOptions = {}): T
     builtin;
 
 /// Parse anything from a slice, shifting its internal pointer.
@@ -262,8 +288,10 @@ fun T.fromSlice(rawSlice: slice): T
 /// var st: MyStorage = cs.loadAny();     // or cs.loadAny<MyStorage>()
 /// ```
 /// Similar to `MyStorage.fromSlice(cs)`, but called as a slice method and mutates the slice.
+/// Note: [options.assertEndAfterReading] is ignored by this function, because it's actually intended
+/// to read data from the middle.
 @pure
-fun slice.loadAny<T>(mutate self): T
+fun slice.loadAny<T>(mutate self, options: UnpackOptions = {}): T
     builtin;
 
 /// Skip anything in a slice, shifting its internal pointer.
@@ -274,7 +302,7 @@ fun slice.loadAny<T>(mutate self): T
 /// cs.skipAny<TwoInts>();    // skips 64 bits
 /// ```
 @pure
-fun slice.skipAny<T>(mutate self): self
+fun slice.skipAny<T>(mutate self, options: UnpackOptions = {}): self
     builtin;
 
 /// Store anything to a builder.
@@ -284,7 +312,19 @@ fun slice.skipAny<T>(mutate self): self
 /// var b = beginCell().storeUint(32).storeAny(msgBody).endCell();
 /// ```
 @pure
-fun builder.storeAny<T>(mutate self, v: T): self
+fun builder.storeAny<T>(mutate self, v: T, options: PackOptions = {}): self
+    builtin;
+
+/// Returns serialization prefix of a struct. Works at compile-time.
+/// Example: for `struct (0xF0) AssetRegular { ... }` will return `240`.
+@pure
+fun T.getDeclaredPackPrefix(): int
+    builtin;
+
+/// Returns serialization prefix length of a struct. Works at compile-time.
+/// Example: for `struct (0xF0) AssetRegular { ... }` will return `16`.
+@pure
+fun T.getDeclaredPackPrefixLen(): int
     builtin;
 
 /// Cell<T> represents a typed cell reference (as opposed to untyped `cell`).
@@ -316,7 +356,7 @@ struct Cell<T> {
 /// var extra = st.extra.load();   // it's ExtraData, unpacked from loaded ref
 /// ```
 @pure
-fun Cell<T>.load(self): T
+fun Cell<T>.load(self, options: UnpackOptions = {}): T
     builtin;
 
 /// Converts a typed cell into a slice.

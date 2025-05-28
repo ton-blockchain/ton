@@ -92,7 +92,7 @@ fun invalid105_slice(): slice asm "b{1100} PUSHSLICE";  // prefix 0b11 doesn't e
 @method_id(105)
 fun test5() {
     try {
-        var u = U105.fromSlice(invalid105_slice());
+        var u = U105.fromSlice(invalid105_slice(), {throwIfOpcodeDoesNotMatch: 9});
         return (u is int8) ? 8 : -8;
     } catch (excode) {
         return excode;
@@ -125,37 +125,37 @@ fun main() {}
 """
   test6 PROC:<{                 //
     b{010000000000001111} PUSHSLICE     //  s
-    b{00} SDBEGINSQ             //  s '6
+    b{00} SDBEGINSQ             //  s '8
     IF:<{                       //  s
-      8 LDI                     //  '10 s
-      DROP                      //  '10
-      42 PUSHINT                //  'USlot1 'UTag=42
+      8 LDI                     //  '12 s
+      42 PUSHINT                //  'USlot1 s 'UTag=42
     }>ELSE<{                    //  s
-      b{01} SDBEGINSQ           //  s '6
+      b{01} SDBEGINSQ           //  s '8
       IF:<{                     //  s
-        16 LDI                  //  '15 s
-        DROP                    //  '15
-        44 PUSHINT              //  'USlot1 'UTag=44
+        16 LDI                  //  '17 s
+        44 PUSHINT              //  'USlot1 s 'UTag=44
       }>ELSE<{                  //  s
-        b{10} SDBEGINSQ         //  s '6
+        b{10} SDBEGINSQ         //  s '8
         IF:<{                   //  s
-          32 LDI                //  '20 s
-          DROP                  //  '20
-          46 PUSHINT            //  'USlot1 'UTag=46
+          32 LDI                //  '22 s
+          46 PUSHINT            //  'USlot1 s 'UTag=46
         }>ELSE<{                //  s
-          b{11} SDBEGINSQ       //  s '6
-          DROP                  //  s
-          64 LDI                //  '25 s
-          DROP                  //  '25
-          48 PUSHINT            //  'USlot1 'UTag=48
+          b{11} SDBEGINSQ       //  s '8
+          IFNOTJMP:<{           //  s
+            63 THROW
+          }>
+          64 LDI                //  '27 s
+          48 PUSHINT            //  'USlot1 s 'UTag=48
         }>
       }>
-    }>                          //  u.USlot1 u.UTag
-    44 EQINT                    //  u.USlot1 '27
+    }>
+    SWAP                        //  'USlot1 'UTag s
+    ENDS                        //  u.USlot1 u.UTag
+    44 EQINT                    //  u.USlot1 '29
     IFJMP:<{                    //  u.USlot1
     }>                          //  u.USlot1
     DROP                        //
-    -1 PUSHINT                  //  '29=-1
+    -1 PUSHINT                  //  '31=-1
   }>
 """
  */

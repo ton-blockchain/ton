@@ -59,7 +59,7 @@ class CheckSerializedFieldsAndTypesVisitor final : public ASTVisitorFunctionBody
   static void check_struct_fits_cell_or_has_policy(const TypeDataStruct* t_struct) {
     StructPtr struct_ref = t_struct->struct_ref;
     PackSize size = estimate_serialization_size(t_struct);
-    if (size.max_bits > 1023) {
+    if (size.max_bits > 1023 && !size.is_unpredictable_infinity()) {
       if (struct_ref->overflow1023_policy == StructData::Overflow1023Policy::not_specified) {
         fire_error_theoretical_overflow_1023(struct_ref, size);
       }
@@ -84,7 +84,7 @@ class CheckSerializedFieldsAndTypesVisitor final : public ASTVisitorFunctionBody
     if (f_name == "Cell<T>.load" || f_name == "T.fromSlice" || f_name == "T.fromCell" || f_name == "T.toCell" ||
         f_name == "T.loadAny" || f_name == "slice.skipAny" || f_name == "slice.storeAny" || f_name == "T.estimatePackSize") {
       serialized_type = fun_ref->substitutedTs->typeT_at(0);
-      is_pack = f_name == "T.toCell" || f_name == "slice.storeAny";
+      is_pack = f_name == "T.toCell" || f_name == "slice.storeAny" || f_name == "T.estimatePackSize";
     } else {
       return;   // not a serialization function
     }

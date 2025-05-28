@@ -17,6 +17,7 @@
 #include "constant-evaluator.h"
 #include "ast.h"
 #include "tolk.h"
+#include "type-system.h"
 #include "openssl/digest.hpp"
 #include "crypto/common/util.h"
 #include "td/utils/crypto.h"
@@ -161,8 +162,21 @@ static td::RefInt256 parse_nanotons_as_floating_string(SrcLocation loc, std::str
 // given `ton("0.05")` evaluate it to 50000000
 // given `stringCrc32("some_str")` evaluate it
 // etc.
-// currently, all compile-time functions accept 1 argument, a literal string
 static CompileTimeFunctionResult parse_vertex_call_to_compile_time_function(V<ast_function_call> v, std::string_view f_name) {
+  // most functions accept 1 argument, but static compile-time methods like `MyStruct.getDeclaredPackPrefix()` have 0 args
+  if (v->get_num_args() == 0) {
+    TypePtr receiver = v->fun_maybe->receiver_type;
+    f_name = v->fun_maybe->method_name;
+
+    if (f_name == "getDeclaredPackPrefix" || f_name == "getDeclaredPackPrefixLen") {
+      const TypeDataStruct* t_struct = receiver->try_as<TypeDataStruct>();
+      if (!t_struct || !t_struct->struct_ref->opcode.exists()) {
+        throw ParseError(v->loc, "type `" + receiver->as_human_readable() + "` does not have a serialization prefix");
+      }
+      return td::make_refint(f_name.ends_with('x') ? t_struct->struct_ref->opcode.pack_prefix : t_struct->struct_ref->opcode.prefix_len);
+    }
+  }
+
   tolk_assert(v->get_num_args() == 1);    // checked by type inferring
   AnyExprV v_arg = v->get_arg(0)->get_expr();
 

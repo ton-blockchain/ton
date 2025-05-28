@@ -177,13 +177,14 @@ bool check_struct_can_be_packed_or_unpacked(TypePtr any_type, bool is_pack, std:
 //
 
 
-std::vector<var_idx_t> generate_pack_struct_to_cell(CodeBlob& code, SrcLocation loc, TypePtr any_type, std::vector<var_idx_t>&& ir_obj) {
+std::vector<var_idx_t> generate_pack_struct_to_cell(CodeBlob& code, SrcLocation loc, TypePtr any_type, std::vector<var_idx_t>&& ir_obj, const std::vector<var_idx_t>& ir_options) {
   FunctionPtr f_beginCell = lookup_function("beginCell");
   FunctionPtr f_endCell = lookup_function("builder.endCell");
   std::vector rvect_builder = code.create_var(TypeDataBuilder::create(), loc, "b");
   code.emplace_back(loc, Op::_Call, rvect_builder, std::vector<var_idx_t>{}, f_beginCell);
 
-  PackContext ctx(code, loc, rvect_builder);
+  tolk_assert(ir_options.size() == 1);      // struct PackOptions
+  PackContext ctx(code, loc, rvect_builder, ir_options);
   ctx.generate_pack_any(any_type, std::move(ir_obj));
 
   std::vector rvect_cell = code.create_tmp_var(TypeDataCell::create(), loc, "(cell)");
@@ -192,41 +193,51 @@ std::vector<var_idx_t> generate_pack_struct_to_cell(CodeBlob& code, SrcLocation 
   return rvect_cell;
 }
 
-std::vector<var_idx_t> generate_pack_struct_to_builder(CodeBlob& code, SrcLocation loc, TypePtr any_type, std::vector<var_idx_t>&& ir_builder, std::vector<var_idx_t>&& ir_obj) {
-  PackContext ctx(code, loc, ir_builder);   // mutate this builder
+std::vector<var_idx_t> generate_pack_struct_to_builder(CodeBlob& code, SrcLocation loc, TypePtr any_type, std::vector<var_idx_t>&& ir_builder, std::vector<var_idx_t>&& ir_obj, const std::vector<var_idx_t>& ir_options) {
+  PackContext ctx(code, loc, ir_builder, ir_options);   // mutate this builder
   ctx.generate_pack_any(any_type, std::move(ir_obj));
 
   return ir_builder;  // return mutated builder
 }
 
-std::vector<var_idx_t> generate_unpack_struct_from_slice(CodeBlob& code, SrcLocation loc, TypePtr any_type, std::vector<var_idx_t>&& ir_slice, bool mutate_slice) {
+std::vector<var_idx_t> generate_unpack_struct_from_slice(CodeBlob& code, SrcLocation loc, TypePtr any_type, std::vector<var_idx_t>&& ir_slice, bool mutate_slice, const std::vector<var_idx_t>& ir_options) {
   if (!mutate_slice) {
     std::vector slice_copy = code.create_var(TypeDataSlice::create(), loc, "s");
     code.emplace_back(loc, Op::_Let, slice_copy, std::move(ir_slice));
     ir_slice = std::move(slice_copy);
   }
 
-  UnpackContext ctx(code, loc, std::move(ir_slice));
+  tolk_assert(ir_options.size() == 2);      // struct UnpackOptions
+  UnpackContext ctx(code, loc, std::move(ir_slice), ir_options);
   std::vector rvect_struct = ctx.generate_unpack_any(any_type);
   tolk_assert(any_type->get_width_on_stack() == static_cast<int>(rvect_struct.size()));
 
+  // slice.loadAny() ignores options.assertEndAfterReading, because it's intended to read data in the middle
+  if (!mutate_slice && !estimate_serialization_size(any_type).is_unpredictable_infinity()) {
+    ctx.assertEndIfOption();
+  }
   return rvect_struct;
 }
 
-std::vector<var_idx_t> generate_unpack_struct_from_cell(CodeBlob& code, SrcLocation loc, TypePtr any_type, std::vector<var_idx_t>&& ir_cell) {
+std::vector<var_idx_t> generate_unpack_struct_from_cell(CodeBlob& code, SrcLocation loc, TypePtr any_type, std::vector<var_idx_t>&& ir_cell, const std::vector<var_idx_t>& ir_options) {
   FunctionPtr f_beginParse = lookup_function("cell.beginParse");
   std::vector ir_slice = code.create_var(TypeDataSlice::create(), loc, "s");
   code.emplace_back(loc, Op::_Call, ir_slice, std::move(ir_cell), f_beginParse);
 
-  UnpackContext ctx(code, loc, std::move(ir_slice));
+  tolk_assert(ir_options.size() == 2);      // struct UnpackOptions
+  UnpackContext ctx(code, loc, std::move(ir_slice), ir_options);
   std::vector rvect_struct = ctx.generate_unpack_any(any_type);
   tolk_assert(any_type->get_width_on_stack() == static_cast<int>(rvect_struct.size()));
 
+  // if a struct has RemainingBitsAndRefs, don't test it for assertEnd
+  if (!estimate_serialization_size(any_type).is_unpredictable_infinity()) {
+    ctx.assertEndIfOption();
+  }
   return rvect_struct;
 }
 
-std::vector<var_idx_t> generate_skip_struct_in_slice(CodeBlob& code, SrcLocation loc, TypePtr any_type, std::vector<var_idx_t>&& ir_slice) {
-  UnpackContext ctx(code, loc, ir_slice);    // mutate this slice
+std::vector<var_idx_t> generate_skip_struct_in_slice(CodeBlob& code, SrcLocation loc, TypePtr any_type, std::vector<var_idx_t>&& ir_slice, const std::vector<var_idx_t>& ir_options) {
+  UnpackContext ctx(code, loc, ir_slice, ir_options);    // mutate this slice
   ctx.generate_skip_any(any_type);
 
   return ir_slice;  // return mutated slice

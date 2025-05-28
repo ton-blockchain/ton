@@ -48,7 +48,7 @@ fun test3() {
 @method_id(104)
 fun test4() {
     var s = stringHexToSlice("000000010000000200000003");
-    var p = Point.fromSlice(s);     // does not mutate s
+    var p = Point.fromSlice(s, {assertEndAfterReading: false});     // does not mutate s
     return (p, s.remainingBitsCount());
 }
 
@@ -114,11 +114,11 @@ fun main(c: cell) {
     32 STI                      //  b
     ENDC                        //  c
     CTOS                        //  s
-    32 PUSHINT                  //  s '12=32
+    32 PUSHINT                  //  s '15=32
     SDSKIPFIRST                 //  s
-    32 PUSHINT                  //  s '13=32
+    32 PUSHINT                  //  s '16=32
     SDSKIPFIRST                 //  s
-    SBITS                       //  '14
+    SBITS                       //  '17
   }>
 """
 
