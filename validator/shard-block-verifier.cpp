@@ -41,7 +41,7 @@ void ShardBlockVerifier::start_up() {
   td::actor::send_closure(adnl_, &adnl::Adnl::subscribe, local_id_,
                           adnl::Adnl::int_to_bytestring(ton_api::shardBlockVerifier_confirmBlocks::ID),
                           std::make_unique<Callback>(actor_id(this)));
-  td::actor::send_closure(rldp_, &rldp::Rldp::add_id, local_id_);
+  td::actor::send_closure(rldp_, &rldp2::Rldp::add_id, local_id_);
 }
 
 void ShardBlockVerifier::tear_down() {
@@ -107,7 +107,7 @@ void ShardBlockVerifier::alarm() {
             LOG(WARNING) << "Subscribe to " << node_id << " for " << shard.to_str() << " : " << R.move_as_error();
           }
         };
-        td::actor::send_closure(rldp_, &rldp::Rldp::send_query, local_id_, node_id, "subscribe", std::move(P),
+        td::actor::send_closure(rldp_, &rldp2::Rldp::send_query, local_id_, node_id, "subscribe", std::move(P),
                                 td::Timestamp::in(3.0),
                                 create_serialize_tl_object<ton_api::shardBlockVerifier_subscribe>(
                                     create_tl_shard_id(shard_config.shard_id), 0));

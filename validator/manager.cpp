@@ -2643,7 +2643,7 @@ td::actor::ActorOwn<ValidatorGroup> ValidatorManagerImpl::create_validator_group
 td::actor::ActorId<CollationManager> ValidatorManagerImpl::get_collation_manager(adnl::AdnlNodeIdShort adnl_id) {
   auto &actor = collation_managers_[adnl_id];
   if (actor.empty()) {
-    actor = td::actor::create_actor<CollationManager>("collation", adnl_id, opts_, actor_id(this), rldp_);
+    actor = td::actor::create_actor<CollationManager>("collation", adnl_id, opts_, actor_id(this), rldp2_);
   }
   return actor.get();
 }
@@ -3486,7 +3486,7 @@ void ValidatorManagerImpl::add_collator(adnl::AdnlNodeIdShort id, ShardIdFull sh
   auto it = collator_nodes_.find(id);
   if (it == collator_nodes_.end()) {
     it = collator_nodes_.emplace(id, Collator()).first;
-    it->second.actor = td::actor::create_actor<CollatorNode>("collatornode", id, opts_, actor_id(this), adnl_, rldp_);
+    it->second.actor = td::actor::create_actor<CollatorNode>("collatornode", id, opts_, actor_id(this), adnl_, rldp2_);
     if (last_masterchain_state_.not_null()) {
       td::actor::send_closure(it->second.actor, &CollatorNode::new_masterchain_block_notification,
                               last_masterchain_state_);
@@ -3633,10 +3633,10 @@ td::Ref<PersistentStateDescription> ValidatorManagerImpl::get_block_persistent_s
 
 td::actor::ActorOwn<ValidatorManagerInterface> ValidatorManagerFactory::create(
     td::Ref<ValidatorManagerOptions> opts, std::string db_root, td::actor::ActorId<keyring::Keyring> keyring,
-    td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp,
+    td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
     td::actor::ActorId<overlay::Overlays> overlays) {
   return td::actor::create_actor<validator::ValidatorManagerImpl>("manager", std::move(opts), db_root, keyring, adnl,
-                                                                  rldp, overlays);
+                                                                  rldp, rldp2, overlays);
 }
 
 void ValidatorManagerImpl::log_collate_query_stats(CollationStats stats) {
@@ -3783,7 +3783,7 @@ void ValidatorManagerImpl::init_shard_block_verifier(adnl::AdnlNodeIdShort local
       shard_block_verifier_ = {};
     } else {
       shard_block_verifier_ = td::actor::create_actor<ShardBlockVerifier>(
-          "shardblockverifier", local_id, last_masterchain_state_, opts_, actor_id(this), adnl_, rldp_);
+          "shardblockverifier", local_id, last_masterchain_state_, opts_, actor_id(this), adnl_, rldp2_);
     }
   }
 }
@@ -3799,7 +3799,7 @@ void ValidatorManagerImpl::wait_verify_shard_blocks(std::vector<BlockIdExt> bloc
 
 void ValidatorManagerImpl::add_shard_block_retainer(adnl::AdnlNodeIdShort id) {
   shard_block_retainers_[id] = td::actor::create_actor<ShardBlockRetainer>(
-      "shardblockretainer", id, last_masterchain_state_, opts_, actor_id(this), adnl_, rldp_);
+      "shardblockretainer", id, last_masterchain_state_, opts_, actor_id(this), adnl_, rldp2_);
 }
 
 void ValidatorManagerImpl::iterate_temp_block_handles(std::function<void(const BlockHandleInterface &)> f) {

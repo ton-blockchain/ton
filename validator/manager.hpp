@@ -32,6 +32,7 @@
 #include "manager-init.h"
 #include "state-serializer.hpp"
 #include "rldp/rldp.h"
+#include "rldp2/rldp.h"
 #include "token-manager.h"
 #include "queue-size-counter.hpp"
 #include "validator-telemetry.hpp"
@@ -595,8 +596,15 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   ValidatorManagerImpl(td::Ref<ValidatorManagerOptions> opts, std::string db_root,
                        td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-                       td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays)
-      : opts_(std::move(opts)), db_root_(db_root), keyring_(keyring), adnl_(adnl), rldp_(rldp), overlays_(overlays) {
+                       td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
+                       td::actor::ActorId<overlay::Overlays> overlays)
+      : opts_(std::move(opts))
+      , db_root_(db_root)
+      , keyring_(keyring)
+      , adnl_(adnl)
+      , rldp_(rldp)
+      , rldp2_(rldp2)
+      , overlays_(overlays) {
   }
 
  public:
@@ -714,6 +722,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;
   td::actor::ActorId<rldp::Rldp> rldp_;
+  td::actor::ActorId<rldp2::Rldp> rldp2_;
   td::actor::ActorId<overlay::Overlays> overlays_;
 
   td::actor::ActorOwn<AsyncStateSerializer> serializer_;

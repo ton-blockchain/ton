@@ -29,7 +29,7 @@ namespace ton::validator {
 
 CollatorNode::CollatorNode(adnl::AdnlNodeIdShort local_id, td::Ref<ValidatorManagerOptions> opts,
                            td::actor::ActorId<ValidatorManager> manager, td::actor::ActorId<adnl::Adnl> adnl,
-                           td::actor::ActorId<rldp::Rldp> rldp)
+                           td::actor::ActorId<rldp2::Rldp> rldp)
     : local_id_(local_id)
     , opts_(std::move(opts))
     , manager_(std::move(manager))
@@ -58,7 +58,7 @@ void CollatorNode::start_up() {
   td::actor::send_closure(adnl_, &adnl::Adnl::subscribe, local_id_,
                           adnl::Adnl::int_to_bytestring(ton_api::collatorNode_ping::ID),
                           std::make_unique<Cb>(actor_id(this)));
-  td::actor::send_closure(rldp_, &rldp::Rldp::add_id, adnl::AdnlNodeIdShort(local_id_));
+  td::actor::send_closure(rldp_, &rldp2::Rldp::add_id, adnl::AdnlNodeIdShort(local_id_));
 }
 
 void CollatorNode::tear_down() {

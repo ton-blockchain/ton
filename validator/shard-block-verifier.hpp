@@ -16,7 +16,7 @@
 */
 #pragma once
 #include "interfaces/validator-manager.h"
-#include "rldp.h"
+#include "rldp2/rldp.h"
 #include <map>
 
 namespace ton::validator {
@@ -25,7 +25,7 @@ class ShardBlockVerifier : public td::actor::Actor {
  public:
   ShardBlockVerifier(adnl::AdnlNodeIdShort local_id, td::Ref<MasterchainState> last_masterchain_state,
                      td::Ref<ValidatorManagerOptions> opts, td::actor::ActorId<ValidatorManager> manager,
-                     td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp)
+                     td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp2::Rldp> rldp)
       : local_id_(local_id)
       , last_masterchain_state_(last_masterchain_state)
       , opts_(std::move(opts))
@@ -54,7 +54,7 @@ class ShardBlockVerifier : public td::actor::Actor {
   td::Ref<ValidatorManagerOptions> opts_;
   td::actor::ActorId<ValidatorManager> manager_;
   td::actor::ActorId<adnl::Adnl> adnl_;
-  td::actor::ActorId<rldp::Rldp> rldp_;
+  td::actor::ActorId<rldp2::Rldp> rldp_;
 
   td::Ref<ShardBlockVerifierConfig> config_;
 

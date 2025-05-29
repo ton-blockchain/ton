@@ -17,7 +17,7 @@
 #pragma once
 
 #include "interfaces/validator-manager.h"
-#include "rldp/rldp.h"
+#include "rldp2/rldp.h"
 #include <map>
 
 namespace ton::validator {
@@ -27,7 +27,7 @@ class ValidatorManager;
 class CollationManager : public td::actor::Actor {
  public:
   CollationManager(adnl::AdnlNodeIdShort local_id, td::Ref<ValidatorManagerOptions> opts,
-                   td::actor::ActorId<ValidatorManager> manager, td::actor::ActorId<rldp::Rldp> rldp)
+                   td::actor::ActorId<ValidatorManager> manager, td::actor::ActorId<rldp2::Rldp> rldp)
       : local_id_(local_id), opts_(opts), manager_(manager), rldp_(rldp) {
   }
 
@@ -50,7 +50,7 @@ class CollationManager : public td::actor::Actor {
   adnl::AdnlNodeIdShort local_id_;
   td::Ref<ValidatorManagerOptions> opts_;
   td::actor::ActorId<ValidatorManager> manager_;
-  td::actor::ActorId<rldp::Rldp> rldp_;
+  td::actor::ActorId<rldp2::Rldp> rldp_;
 
   void collate_shard_block(ShardIdFull shard, BlockIdExt min_masterchain_block_id, std::vector<BlockIdExt> prev,
                            Ed25519_PublicKey creator, BlockCandidatePriority priority,

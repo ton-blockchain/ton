@@ -41,7 +41,7 @@ void ShardBlockRetainer::start_up() {
   td::actor::send_closure(adnl_, &adnl::Adnl::subscribe, local_id_,
                           adnl::Adnl::int_to_bytestring(ton_api::shardBlockVerifier_subscribe::ID),
                           std::make_unique<Callback>(actor_id(this)));
-  td::actor::send_closure(rldp_, &rldp::Rldp::add_id, local_id_);
+  td::actor::send_closure(rldp_, &rldp2::Rldp::add_id, local_id_);
 }
 
 void ShardBlockRetainer::tear_down() {
@@ -154,7 +154,7 @@ void ShardBlockRetainer::send_confirmations(adnl::AdnlNodeIdShort dst, std::vect
     for (size_t i = l; i < r; ++i) {
       query->blocks_.push_back(create_tl_block_id(blocks[i]));
     }
-    td::actor::send_closure(rldp_, &rldp::Rldp::send_message, local_id_, dst, serialize_tl_object(query, true));
+    td::actor::send_closure(rldp_, &rldp2::Rldp::send_message, local_id_, dst, serialize_tl_object(query, true));
   }
 }
 

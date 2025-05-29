@@ -27,7 +27,7 @@
 namespace ton::validator {
 
 void CollationManager::start_up() {
-  td::actor::send_closure(rldp_, &rldp::Rldp::add_id, local_id_);
+  td::actor::send_closure(rldp_, &rldp2::Rldp::add_id, local_id_);
   update_collators_list(*opts_->get_collators_list());
 }
 
@@ -187,7 +187,7 @@ void CollationManager::collate_shard_block(ShardIdFull shard, BlockIdExt min_mas
               << selected_collator << ") in " << timer.elapsed() << "s";
     P.set_result(std::move(candidate));
   };
-  td::actor::send_closure(rldp_, &rldp::Rldp::send_query_ex, local_id_, selected_collator, "collatequery",
+  td::actor::send_closure(rldp_, &rldp2::Rldp::send_query_ex, local_id_, selected_collator, "collatequery",
                           std::move(P2), timeout, std::move(query), max_answer_size);
 }
 
@@ -339,7 +339,7 @@ void CollationManager::alarm() {
         td::actor::send_closure(SelfId, &CollationManager::got_pong, id, std::move(R));
       };
       LOG(DEBUG) << "sending ping to " << id;
-      td::actor::send_closure(rldp_, &rldp::Rldp::send_query, local_id_, id, "ping", std::move(P),
+      td::actor::send_closure(rldp_, &rldp2::Rldp::send_query, local_id_, id, "ping", std::move(P),
                               td::Timestamp::in(2.0), std::move(query));
     } else {
       alarm_timestamp().relax(collator.ping_at);
