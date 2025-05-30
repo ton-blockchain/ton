@@ -20,6 +20,7 @@
 #include "ast.h"
 #include "compiler-state.h"
 #include "generics-helpers.h"
+#include "pack-unpack-serializers.h"
 #include "td/utils/crypto.h"
 #include <unordered_set>
 
@@ -131,14 +132,31 @@ static StructPtr register_struct(V<ast_struct_declaration> v, StructPtr base_str
   for (int i = 0; i < v_body->get_num_fields(); ++i) {
     auto v_field = v_body->get_field(i);
     std::string field_name = static_cast<std::string>(v_field->get_identifier()->name);
-    AnyExprV default_value = v_field->has_default_value() ? v_field->get_default_value() : nullptr;
 
     for (StructFieldPtr prev : fields) {
       if (UNLIKELY(prev->name == field_name)) {
         v_field->error("redeclaration of field `" + field_name + "`");
       }
     }
-    fields.emplace_back(new StructFieldData(static_cast<std::string>(v_field->get_identifier()->name), v_field->loc, i, v_field->type_node, default_value));
+    fields.emplace_back(new StructFieldData(field_name, v_field->loc, i, v_field->type_node, v_field->default_value));
+  }
+
+  PackOpcode opcode(0, 0);
+  if (v->has_opcode()) {
+    auto v_opcode = v->get_opcode()->as<ast_int_const>();
+    if (v_opcode->intval < 0 || v_opcode->intval > (1ULL << 48)) {
+      v->error("opcode must not exceed 2^48");
+    }
+    opcode.pack_prefix = v_opcode->intval->to_long();
+
+    std::string_view prefix_str = v_opcode->orig_str;
+    if (prefix_str.starts_with("0x")) {
+      opcode.prefix_len = static_cast<int>(prefix_str.size() - 2) * 4;
+    } else if (prefix_str.starts_with("0b")) {
+      opcode.prefix_len = static_cast<int>(prefix_str.size() - 2);
+    } else {
+      tolk_assert(false);
+    }
   }
 
   std::string name = std::move(override_name);
@@ -146,7 +164,7 @@ static StructPtr register_struct(V<ast_struct_declaration> v, StructPtr base_str
     name = v->get_identifier()->name;
   }
   const GenericsDeclaration* genericTs = nullptr;   // at registering it's null; will be assigned after types resolving
-  StructData* s_sym = new StructData(std::move(name), v->loc, std::move(fields), genericTs, substitutedTs, v);
+  StructData* s_sym = new StructData(std::move(name), v->loc, std::move(fields), opcode, v->overflow1023_policy, genericTs, substitutedTs, v);
   s_sym->base_struct_ref = base_struct_ref;   // for `Container<int>`, here is `Container<T>`
 
   G.symtable.add_struct(s_sym);
@@ -157,7 +175,7 @@ static StructPtr register_struct(V<ast_struct_declaration> v, StructPtr base_str
 
 static LocalVarData register_parameter(V<ast_parameter> v, int idx) {
   if (v->is_underscore()) {
-    return LocalVarData{"", v->loc, v->type_node, 0, idx};
+    return LocalVarData{"", v->loc, v->type_node, v->default_value, 0, idx};
   }
 
   int flags = 0;
@@ -167,7 +185,7 @@ static LocalVarData register_parameter(V<ast_parameter> v, int idx) {
   if (!v->declared_as_mutate && idx == 0 && v->param_name == "self") {
     flags |= LocalVarData::flagImmutable;
   }
-  return LocalVarData(static_cast<std::string>(v->param_name), v->loc, v->type_node, flags, idx);
+  return LocalVarData(static_cast<std::string>(v->param_name), v->loc, v->type_node, v->default_value, flags, idx);
 }
 
 static FunctionPtr register_function(V<ast_function_declaration> v, FunctionPtr base_fun_ref = nullptr, std::string override_name = {}, const GenericsSubstitutions* substitutedTs = nullptr) {

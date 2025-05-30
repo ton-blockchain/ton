@@ -53,7 +53,7 @@ struct OptimizerBooleanExpressionsReplacer final : ASTReplacerInFunctionBody {
     auto v_not = createV<ast_unary_operator>(loc, "!", tok_logical_not, rhs);
     v_not->assign_inferred_type(TypeDataBool::create());
     v_not->assign_rvalue_true();
-    v_not->assign_fun_ref(lookup_global_symbol("!b_")->try_as<FunctionPtr>());
+    v_not->assign_fun_ref(lookup_function("!b_"));
     return v_not;
   }
 
@@ -98,7 +98,7 @@ protected:
           auto v_neq = createV<ast_binary_operator>(v->loc, "!=", tok_neq, cond_not_not, v_zero);
           v_neq->mutate()->assign_rvalue_true();
           v_neq->mutate()->assign_inferred_type(TypeDataBool::create());
-          v_neq->mutate()->assign_fun_ref(lookup_global_symbol("_!=_")->try_as<FunctionPtr>());
+          v_neq->mutate()->assign_fun_ref(lookup_function("_!=_"));
           return v_neq;
         }
       }
@@ -144,6 +144,15 @@ protected:
     if (auto v_cond_istype = v->get_cond()->try_as<ast_is_type_operator>(); v_cond_istype && v_cond_istype->is_negated) {
       v_cond_istype->mutate()->assign_is_negated(!v_cond_istype->is_negated);
       v = createV<ast_if_statement>(v->loc, !v->is_ifnot, v_cond_istype, v->get_if_body(), v->get_else_body());
+    }
+    // `if (addr1 != addr2)` -> ifnot(addr1 == addr2)
+    if (auto v_cond_neq = v->get_cond()->try_as<ast_binary_operator>()) {
+      if (v_cond_neq->tok == tok_neq && v_cond_neq->get_lhs()->inferred_type->unwrap_alias() == TypeDataAddress::create() && v_cond_neq->get_rhs()->inferred_type->unwrap_alias() == TypeDataAddress::create()) {
+        auto v_cond_eq = createV<ast_binary_operator>(v_cond_neq->loc, "==", tok_eq, v_cond_neq->get_lhs(), v_cond_neq->get_rhs());
+        v_cond_eq->mutate()->assign_inferred_type(v_cond_neq->inferred_type);
+        v_cond_eq->mutate()->assign_rvalue_true();
+        v = createV<ast_if_statement>(v->loc, !v->is_ifnot, v_cond_eq, v->get_if_body(), v->get_else_body());
+      }
     }
 
     return v;

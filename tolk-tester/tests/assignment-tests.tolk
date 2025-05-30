@@ -212,6 +212,43 @@ fun test117() {
     return c;
 }
 
+struct Storage {
+    owner: slice;
+}
+
+@method_id(118)
+fun test118(x: int) {
+    var i1: int;
+    if (10 > 3) {
+        i1 = 10;
+    } else { { (_, i1) = (5, 20); } }
+
+    var i2: int10;
+    match (x) {
+        1 => i2 = 1,
+        2 => i2 = 2,
+        3 => i2 = 3,
+        else => i2 = 4,
+    }
+
+    var st: Storage?;
+    if (x > 100) {
+        throw 123;
+    } else {
+        if (x < -100) { throw 456; }
+        else { st = { owner: "" }}
+    }
+
+    var i3: (int, int) | builder;
+    match (i1) {
+        int => i3 = (1, 2),
+    }
+
+    var unused: int8;
+
+    return (i1, i2, st.owner.remainingBitsCount(), i3.0);
+}
+
 
 
 fun main(value: int, ) {
@@ -241,6 +278,7 @@ fun main(value: int, ) {
 @testcase | 115 |        | [ 101 111 ] 9 9
 @testcase | 116 |        | 1 2 3 4 [ 1 2 3 4 ]
 @testcase | 117 |        | [ 20 ]
+@testcase | 118 | 3      | 10 3 0 1
 
 
 @fif_codegen
