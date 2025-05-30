@@ -116,7 +116,7 @@ class ValidatorSessionImpl : public ValidatorSession {
       }
       void process_broadcast(const PublicKeyHash &src, td::BufferSlice data) override {
         td::actor::send_closure(id_, &ValidatorSessionImpl::process_broadcast, src, std::move(data),
-                                td::optional<ValidatorSessionCandidateId>(), true);
+                                td::optional<ValidatorSessionCandidateId>(), true, false);
       }
       void process_message(const PublicKeyHash &src, td::BufferSlice data) override {
         td::actor::send_closure(id_, &ValidatorSessionImpl::process_message, src, std::move(data));
@@ -204,7 +204,7 @@ class ValidatorSessionImpl : public ValidatorSession {
   void preprocess_block(catchain::CatChainBlock *block);
   bool ensure_candidate_unique(td::uint32 src_idx, td::uint32 round, ValidatorSessionCandidateId block_id);
   void process_broadcast(PublicKeyHash src, td::BufferSlice data, td::optional<ValidatorSessionCandidateId> expected_id,
-                         bool is_overlay_broadcast);
+                         bool is_overlay_broadcast, bool is_startup);
   void process_message(PublicKeyHash src, td::BufferSlice data);
   void process_query(PublicKeyHash src, td::BufferSlice data, td::Promise<td::BufferSlice> promise);
 

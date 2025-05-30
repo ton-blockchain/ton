@@ -73,6 +73,7 @@ struct ValidatorSessionNode {
 
 struct ValidatorSessionStats {
   enum { status_none = 0, status_received = 1, status_rejected = 2, status_approved = 3 };
+  enum { recv_none = 0, recv_collated = 1, recv_broadcast = 2, recv_query = 3, recv_cached = 4, recv_startup = 5 };
 
   struct Producer {
     int block_status = status_none;
@@ -83,6 +84,7 @@ struct ValidatorSessionStats {
     bool is_accepted = false;
     bool is_ours = false;
     double got_block_at = -1.0;
+    int got_block_by = 0;
     double got_submit_at = -1.0;
     td::int32 gen_utime = -1;
     std::string comment;
@@ -154,8 +156,8 @@ struct ValidatorSessionStats {
                : 0);
       return create_tl_object<ton_api::validatorStats_stats_producer>(
           flags, validator_id.bits256_value(), block_status, candidate_id, create_tl_block_id(block_id),
-          collated_data_hash, is_accepted, is_ours, got_block_at, got_submit_at, gen_utime, comment, collation_time,
-          collated_at, collation_cached, self_collated, collator_node_id, validation_time, validated_at,
+          collated_data_hash, is_accepted, is_ours, got_block_at, got_block_by, got_submit_at, gen_utime, comment,
+          collation_time, collated_at, collation_cached, self_collated, collator_node_id, validation_time, validated_at,
           validation_cached, approved_weight, approved_33pct_at, approved_66pct_at, std::move(approvers_str),
           signed_weight, signed_33pct_at, signed_66pct_at, std::move(signers_str), serialize_time, deserialize_time,
           serialized_size);

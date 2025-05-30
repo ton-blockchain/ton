@@ -70,6 +70,7 @@ struct CollationStats {
   int cat_bytes = 0, cat_gas = 0, cat_lt_delta = 0, cat_collated_data_bytes = 0;
   std::string limits_log;
   td::uint32 transactions = 0;
+  std::vector<BlockIdExt> shard_configuration;
   td::uint32 ext_msgs_total = 0;
   td::uint32 ext_msgs_filtered = 0;
   td::uint32 ext_msgs_accepted = 0;
@@ -78,10 +79,14 @@ struct CollationStats {
   std::string time_stats;
 
   tl_object_ptr<ton_api::validatorStats_collatedBlock> tl() const {
+    std::vector<tl_object_ptr<ton_api::tonNode_blockIdExt>> shards;
+    for (const BlockIdExt& block_id : shard_configuration) {
+      shards.push_back(create_tl_block_id(block_id));
+    }
     auto block_stats = create_tl_object<ton_api::validatorStats_blockStats>(
         create_tl_object<ton_api::validatorStats_extMsgsStats>(ext_msgs_total, ext_msgs_filtered, ext_msgs_accepted,
                                                                ext_msgs_rejected),
-        transactions);
+        transactions, std::move(shards));
     return create_tl_object<ton_api::validatorStats_collatedBlock>(
         create_tl_block_id(block_id), collated_data_hash, cc_seqno, collated_at, actual_bytes,
         actual_collated_data_bytes, attempt, self.bits256_value(), is_validator, total_time, work_time, cpu_work_time,

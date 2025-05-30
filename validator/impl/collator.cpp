@@ -6374,6 +6374,12 @@ void Collator::finalize_stats() {
   stats_.work_time = work_time;
   stats_.cpu_work_time = cpu_work_time;
   stats_.time_stats = (PSTRING() << perf_log_);
+  if (is_masterchain() && shard_conf_) {
+    shard_conf_->process_shard_hashes([&](const block::McShardHash& shard) {
+      stats_.shard_configuration.push_back(shard.top_block_id());
+      return 0;
+    });
+  }
 }
 
 /**

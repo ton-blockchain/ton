@@ -222,7 +222,7 @@ bool ValidatorSessionImpl::ensure_candidate_unique(td::uint32 src_idx, td::uint3
 
 void ValidatorSessionImpl::process_broadcast(PublicKeyHash src, td::BufferSlice data,
                                              td::optional<ValidatorSessionCandidateId> expected_id,
-                                             bool is_overlay_broadcast) {
+                                             bool is_overlay_broadcast, bool is_startup) {
   // Note: src is not necessarily equal to the sender of this message:
   // If requested using get_broadcast_p2p, src is the creator of the block, sender possibly is some other node.
   auto src_idx = description().get_source_idx(src);
@@ -269,6 +269,13 @@ void ValidatorSessionImpl::process_broadcast(PublicKeyHash src, td::BufferSlice 
     }
     if (stat->got_block_at <= 0.0) {
       stat->got_block_at = td::Clocks::system();
+      if (is_overlay_broadcast) {
+        stat->got_block_by = ValidatorSessionStats::recv_broadcast;
+      } else if (is_startup) {
+        stat->got_block_by = ValidatorSessionStats::recv_startup;
+      } else {
+        stat->got_block_by = ValidatorSessionStats::recv_query;
+      }
     }
     stat->deserialize_time = deserialize_time;
     stat->serialized_size = data.size();
@@ -470,6 +477,7 @@ void ValidatorSessionImpl::generated_block(td::uint32 round, GeneratedCandidate 
     stat->collation_time = collation_time;
     stat->collated_at = td::Clocks::system();
     stat->got_block_at = td::Clocks::system();
+    stat->got_block_by = ValidatorSessionStats::recv_collated;
     stat->collation_cached = c.is_cached;
     stat->self_collated = c.self_collated;
     stat->collator_node_id = c.collator_node_id;
@@ -610,6 +618,7 @@ void ValidatorSessionImpl::try_approve_block(const SentBlock *block) {
         }
         if (stat->got_block_at <= 0.0) {
           stat->got_block_at = td::Clocks::system();
+          stat->got_block_by = ValidatorSessionStats::recv_cached;
         }
         stat->block_id.root_hash = B->root_hash_;
         stat->block_id.file_hash = td::sha256_bits256(B->data_);
@@ -656,8 +665,9 @@ void ValidatorSessionImpl::try_approve_block(const SentBlock *block) {
                   VLOG(VALIDATOR_SESSION_WARNING) << print_id << ": failed to get candidate " << hash << " from " << id
                                                   << ": " << R.move_as_error();
                 } else {
+                  LOG(ERROR) << "QQQQQ Got block " << R.ok().size();
                   td::actor::send_closure(SelfId, &ValidatorSessionImpl::process_broadcast, src_id, R.move_as_ok(),
-                                          candidate_id, false);
+                                          candidate_id, false, false);
                 }
               });
 
@@ -971,8 +981,8 @@ void ValidatorSessionImpl::on_catchain_started() {
           auto broadcast = create_tl_object<ton_api::validatorSession_candidate>(
               src.tl(), round, root_hash, std::move(B.data), std::move(B.collated_data));
           td::actor::send_closure(SelfId, &ValidatorSessionImpl::process_broadcast, src,
-                                  serialize_candidate(broadcast, compress).move_as_ok(), td::optional<ValidatorSessionCandidateId>(),
-                                  false);
+                                  serialize_candidate(broadcast, compress).move_as_ok(),
+                                  td::optional<ValidatorSessionCandidateId>(), false, true);
         }
       });
       callback_->get_approved_candidate(description().get_source_public_key(x->get_src_idx()), x->get_root_hash(),
