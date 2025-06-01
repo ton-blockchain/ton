@@ -366,7 +366,7 @@ FunctionPtr instantiate_generic_function(FunctionPtr fun_ref, GenericsSubstituti
     new_parameters.reserve(fun_ref->get_num_params());
     for (const LocalVarData& orig_p : fun_ref->parameters) {
       TypePtr new_param_type = replace_genericT_with_deduced(orig_p.declared_type, allocatedTs);
-      new_parameters.emplace_back(orig_p.name, orig_p.loc, new_param_type, orig_p.flags, orig_p.param_idx);
+      new_parameters.emplace_back(orig_p.name, orig_p.loc, new_param_type, orig_p.default_value, orig_p.flags, orig_p.param_idx);
     }
     TypePtr new_return_type = replace_genericT_with_deduced(fun_ref->declared_return_type, allocatedTs);
     TypePtr new_receiver_type = replace_genericT_with_deduced(fun_ref->receiver_type, allocatedTs);
@@ -443,7 +443,11 @@ AliasDefPtr instantiate_generic_alias(AliasDefPtr alias_ref, GenericsSubstitutio
 }
 
 // find `builder.storeInt` for called_receiver = "builder" and called_name = "storeInt"
-// most practical case, when a direct method for receiver exists
+// most practical case, when a direct method for receiver exists;
+// note, that having an alias `type WorkchainNum = int` and methods `WorkchainNum.isMasterchain()`,
+// it's okay to call `-1.isMasterchain()`, because int equals to any alias;
+// currently there is no chance to change this logic, say, `type AssetList = dict` to have separate methods,
+// due to smart casts, types merge of control flow rejoin, etc., which immediately become `cell?`
 FunctionPtr match_exact_method_for_call_not_generic(TypePtr called_receiver, std::string_view called_name) {
   FunctionPtr exact_found = nullptr;
 

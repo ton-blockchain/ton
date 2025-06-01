@@ -1,3 +1,5 @@
+import "@stdlib/tvm-dicts.tolk"
+
 type MIntN = MInt?;
 type MInt = int;
 type MInt_v2 = int;
@@ -175,6 +177,27 @@ fun test11() {
     __expect_type(analyzeTensor2(x3), "(MInt, MInt)?");
 }
 
+fun dict.getFakeDepth(self) { return 1; }
+fun cell.getFakeDepth(self) { return 2; }
+
+@method_id(112)
+fun test12(makeNotNull: bool) {
+    var d = createEmptyDict();
+    if (makeNotNull) {
+        d.iDictSet(32, 123, "");
+    }
+    var t = createEmptyTuple();
+    if (d != null) {
+        __expect_type(d.getFakeDepth, "(cell) -> int");
+        t.push(d.getFakeDepth());
+    } else {
+        __expect_type(d.getFakeDepth, "(dict) -> int");
+        t.push(d.getFakeDepth());
+    }
+    t.push(d.getFakeDepth());
+    return t;
+}
+
 
 fun main(x: MInt, y: MInt?) {
     return y == null ? x : x + y;
@@ -184,6 +207,8 @@ fun main(x: MInt, y: MInt?) {
 @testcase | 0   | 3 4 | 7
 @testcase | 104 | 1 2 | 3
 @testcase | 110 |     | 41
+@testcase | 112 | 0   | [ 1 1 ]
+@testcase | 112 | -1  | [ 2 1 ]
 
 @fif_codegen
 """

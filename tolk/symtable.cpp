@@ -141,8 +141,8 @@ void LocalVarData::assign_inferred_type(TypePtr inferred_type) {
   this->declared_type = inferred_type;
 }
 
-void AliasDefData::assign_visited_by_resolver() {
-  this->flags |= flagVisitedByResolver;
+void LocalVarData::assign_default_value(AnyExprV default_value) {
+  this->default_value = default_value;
 }
 
 void AliasDefData::assign_resolved_genericTs(const GenericsDeclaration* genericTs) {
@@ -163,10 +163,6 @@ void StructFieldData::assign_default_value(AnyExprV default_value) {
   this->default_value = default_value;
 }
 
-void StructData::assign_visited_by_resolver() {
-  this->flags |= flagVisitedByResolver;
-}
-
 void StructData::assign_resolved_genericTs(const GenericsDeclaration* genericTs) {
   if (this->substitutedTs == nullptr) {
     this->genericTs = genericTs;
@@ -180,6 +176,24 @@ StructFieldPtr StructData::find_field(std::string_view field_name) const {
     }
   }
   return nullptr;
+}
+
+// formats opcode as "x{...}" or "b{...}"
+std::string StructData::PackOpcode::format_as_slice() const {
+  const int base = prefix_len % 4 == 0 ? 16 : 2;
+  const int s_len = base == 16 ? prefix_len / 4 : prefix_len;
+  const char* digits = "0123456789abcdef";
+
+  std::string result(s_len + 3, '0');
+  result[0] = base == 16 ? 'x' : 'b';
+  result[1] = '{';
+  result[s_len + 3 - 1] = '}';
+  int64_t opcode = pack_prefix;
+  for (int i = s_len - 1; i >= 0 && opcode != 0; --i) {
+    result[2 + i] = digits[opcode % base];
+    opcode /= base;
+  }
+  return result;
 }
 
 GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
@@ -234,12 +248,28 @@ void GlobalSymbolTable::add_struct(StructPtr s_sym) {
   }
 }
 
+void GlobalSymbolTable::replace_function(FunctionPtr f_sym) {
+  auto key = key_hash(f_sym->name);
+  assert(entries.contains(key));
+  entries[key] = f_sym;
+}
+
 const Symbol* lookup_global_symbol(std::string_view name) {
   return G.symtable.lookup(name);
 }
 
 FunctionPtr lookup_function(std::string_view name) {
   return G.symtable.lookup(name)->try_as<FunctionPtr>();
+}
+
+std::vector<FunctionPtr> lookup_methods_with_name(std::string_view name) {
+  std::vector<FunctionPtr> result;
+  for (FunctionPtr method_ref : G.all_methods) {
+    if (method_ref->method_name == name) {
+      result.push_back(method_ref);
+    }
+  }
+  return result;
 }
 
 }  // namespace tolk

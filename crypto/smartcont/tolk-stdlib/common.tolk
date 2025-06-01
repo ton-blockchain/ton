@@ -1,7 +1,7 @@
 // Standard library for Tolk (LGPL licence).
 // It contains common functions that are available out of the box, the user doesn't have to import anything.
 // More specific functions are required to be imported explicitly, like "@stdlib/tvm-dicts".
-tolk 0.12
+tolk 0.13
 
 /// In Tolk v1.x there would be a type `map<K,V>`.
 /// Currently, working with dictionaries is still low-level, with raw cells.
@@ -54,6 +54,11 @@ fun tuple.size(self): int
 @pure
 fun tuple.last<T>(self): T
     asm "LAST";
+
+/// Pops and returns the last element of a non-empty tuple.
+@pure
+fun tuple.pop<T>(mutate self): T
+    asm "TPOP";
 
 
 /**
@@ -133,10 +138,10 @@ fun mulDivMod(x: int, y: int, z: int): (int, int)
 /// Example: `contract.getCode()` and other methods.
 struct contract {}
 
-/// Returns the internal address of the current smart contract as a Slice with a `MsgAddressInt`.
-/// If necessary, it can be parsed further using primitives such as [parseStandardAddress].
+/// Returns the internal address of the current smart contract.
+/// If necessary, it can be parsed further using [address.getWorkchain] and others.
 @pure
-fun contract.getAddress(): slice
+fun contract.getAddress(): address
     asm "MYADDR";
 
 /// Returns the balance (in nanotoncoins) of the smart contract at the start of Computation Phase.
@@ -208,6 +213,179 @@ fun blockchain.configParam(x: int): cell?
 /// in Computation Phase is thrown later.
 fun commitContractDataAndActions(): void
     asm "COMMIT";
+
+
+/**
+    Auto packing structures to/from cells.
+*/
+
+/// PackOptions allows you to control behavior of `obj.toCell()` and similar functions.
+struct PackOptions {
+    /// when a struct has a field of type `bits128` and similar (it's a slice under the hood),
+    /// by default, compiler inserts runtime checks (get bits/refs count + compare with 128 + compare with 0);
+    /// these checks ensure that serialized binary data will be correct, but they cost gas;
+    /// however, if you guarantee that a slice is valid (for example, it comes from trusted sources),
+    /// set this option to true to disable runtime checks;
+    /// note: `int32` and other are always validated for overflow without any extra gas,
+    /// so this flag controls only rarely used `bytesN` / `bitsN` types
+    skipBitsNFieldsValidation: bool = false,
+}
+
+/// UnpackOptions allows you to control behavior of `MyStruct.fromCell(c)` and similar functions.
+struct UnpackOptions {
+    // after finished reading all fields from a cell/slice, call [slice.assertEnd] to ensure no remaining data left;
+    // it's the default behavior, it ensures that you've fully described data you're reading with a struct;
+    // example: `struct Point { x: int8; y: int8 }`, input "0102" is ok, "0102FF" will throw excno 9;
+    // note: setting this to false does not decrease gas (DROP from a stack and ENDS cost the same);
+    // note: this option controls [T.fromCell] and [T.fromSlice], but is ignored by [slice.loadAny]
+    assertEndAfterReading: bool = true,
+
+    /// this excNo is thrown if a prefix doesn't match, e.g. for `struct (0x01) A` given input "88...";
+    /// similarly, for a union type, this is thrown when none of the opcodes match
+    throwIfOpcodeDoesNotMatch: int = 63,
+}
+
+/// Convert anything to a cell (most likely, you'll call it for structures).
+/// Example:
+/// ```
+/// var st: MyStorage = { ... };
+/// contract.setData(st.toCell());
+/// ```
+/// Internally, a builder is created, all fields are serialized one by one, and a builder is flushed
+/// (beginCell() + serialize fields + endCell()).
+@pure
+fun T.toCell(self, options: PackOptions = {}): Cell<T>
+    builtin;
+
+/// Parse anything from a cell (most likely, you'll call it for structures).
+/// Example:
+/// ```
+/// var st = MyStorage.fromCell(contract.getData());
+/// ```
+/// Internally, a cell is unpacked to a slice, and that slice is parsed
+/// (packedCell.beginParse() + read from slice).
+@pure
+fun T.fromCell(packedCell: cell, options: UnpackOptions = {}): T
+    builtin;
+
+/// Parse anything from a slice (most likely, you'll call it for structures).
+/// Example:
+/// ```
+/// var msg = CounterIncrement.fromSlice(cs);
+/// ```
+/// All fields are read from a slice immediately.
+/// If a slice is corrupted, an exception is thrown (most likely, excode 9 "cell underflow").
+/// Note, that a passed slice is NOT mutated, its internal pointer is NOT shifted.
+/// If you need to mutate it, like `cs.loadInt()`, consider calling `cs.loadAny<CounterIncrement>()`.
+@pure
+fun T.fromSlice(rawSlice: slice, options: UnpackOptions = {}): T
+    builtin;
+
+/// Parse anything from a slice, shifting its internal pointer.
+/// Similar to `slice.loadUint()` and others, but allows loading structures.
+/// Example:
+/// ```
+/// var st: MyStorage = cs.loadAny();     // or cs.loadAny<MyStorage>()
+/// ```
+/// Similar to `MyStorage.fromSlice(cs)`, but called as a slice method and mutates the slice.
+/// Note: [options.assertEndAfterReading] is ignored by this function, because it's actually intended
+/// to read data from the middle.
+@pure
+fun slice.loadAny<T>(mutate self, options: UnpackOptions = {}): T
+    builtin;
+
+/// Skip anything in a slice, shifting its internal pointer.
+/// Similar to `slice.skipBits()` and others, but allows skipping structures.
+/// Example:
+/// ```
+/// struct TwoInts { a: int32; b: int32; }
+/// cs.skipAny<TwoInts>();    // skips 64 bits
+/// ```
+@pure
+fun slice.skipAny<T>(mutate self, options: UnpackOptions = {}): self
+    builtin;
+
+/// Store anything to a builder.
+/// Similar to `builder.storeUint()` and others, but allows storing structures.
+/// Example:
+/// ```
+/// var b = beginCell().storeUint(32).storeAny(msgBody).endCell();
+/// ```
+@pure
+fun builder.storeAny<T>(mutate self, v: T, options: PackOptions = {}): self
+    builtin;
+
+/// Returns serialization prefix of a struct. Works at compile-time.
+/// Example: for `struct (0xF0) AssetRegular { ... }` will return `240`.
+@pure
+fun T.getDeclaredPackPrefix(): int
+    builtin;
+
+/// Returns serialization prefix length of a struct. Works at compile-time.
+/// Example: for `struct (0xF0) AssetRegular { ... }` will return `16`.
+@pure
+fun T.getDeclaredPackPrefixLen(): int
+    builtin;
+
+/// Cell<T> represents a typed cell reference (as opposed to untyped `cell`).
+/// Example:
+/// ```
+/// struct ExtraData { ... }
+///
+/// struct MyStorage {
+///     ...
+///     extra:    Cell<ExtraData>;    // TL-B `^ExtraData`
+///     optional: Cell<ExtraData>?;   // TL-B `(Maybe ^ExtraData)`
+///     code:     cell;               // TL-B `^Cell`
+///     data:     cell?;              // TL-B `(Maybe ^Cell)`
+/// }
+/// ```
+/// Note, that `st = MyStorage.fromSlice(s)` does NOT deep-load any refs; `st.extra` is `Cell<T>`, not `T`;
+/// you should manually call `st.extra.load()` to get T (ExtraData in this example).
+struct Cell<T> {
+    tvmCell: cell;
+}
+
+/// Parse data from already loaded cell reference.
+/// Example:
+/// ```
+/// struct MyStorage { ... extra: Cell<ExtraData>; }
+///
+/// var st = MyStorage.fromCell(contract.getData());
+/// // st.extra is cell; if we need to unpack it, we do
+/// var extra = st.extra.load();   // it's ExtraData, unpacked from loaded ref
+/// ```
+@pure
+fun Cell<T>.load(self, options: UnpackOptions = {}): T
+    builtin;
+
+/// Converts a typed cell into a slice.
+@pure
+fun Cell<T>.beginParse(self): slice
+    asm "CTOS";
+
+/// RemainingBitsAndRefs is a special built-in type to get "all the rest" slice tail on reading.
+/// Example:
+/// ```
+/// struct JettonMessage {
+///     ... some fields
+///     forwardPayload: RemainingBitsAndRefs;
+/// }
+/// ```
+/// When you deserialize JettonMessage, forwardPayload contains "everything left after reading fields above".
+type RemainingBitsAndRefs = slice;
+
+/// Creates a cell with zero bits and references.
+/// Equivalent to `beginCell().endCell()` but cheaper.
+@pure
+fun createEmptyCell(): cell
+    asm "<b b> PUSHREF";
+
+/// Creates a slice with zero remaining bits and references.
+/// Equivalent to `beginCell().endCell().beginParse()` but cheaper.
+@pure
+fun createEmptySlice(): slice
+    asm "x{} PUSHSLICE";
 
 
 /**
@@ -378,6 +556,14 @@ fun slice.depth(self): int
 fun builder.depth(self): int
     asm "BDEPTH";
 
+/// Returns the number of stack slots anyVariable occupies (works at compile-time).
+/// Example: sizeof(nullableInt) = 1, because `int?` is 1 TVM slot holding either NULL or a value.
+/// Example: sizeof(somePoint) = 2 for `struct Point { x:int, y: int }`: two fields one slot per each.
+/// Useful for debugging or when preparing stack contents for RUNVM.
+@pure
+fun sizeof<T>(anyVariable: T): int
+    builtin;
+
 
 /**
     Debug primitives.
@@ -407,15 +593,6 @@ fun debug.dumpStack(): void
     When you _preload_ some data, you just get the result without mutating the slice.
  */
 
-/// Compile-time function that converts a constant string to TL-encoded MsgAddressInt (TVM slice).
-/// Example: stringAddressToSlice("EQCRDM9h4k3UJdOePPuyX40mCgA4vxge5Dc5vjBR8djbEKC5")
-/// Example: stringAddressToSlice("0:527964d55cfa6eb731f4bfc07e9d025098097ef8505519e853986279bd8400d8")
-/// Note: it's a compile-time function, `stringAddressToSlice(slice_var)` does not work.
-/// Use `parseStandardAddress` to decode a slice at runtime into workchain and hash.
-@pure
-fun stringAddressToSlice(constStringAddress: slice): slice
-    builtin;
-
 /// Compile-time function that converts a constant hex-encoded string to N/2 bytes.
 /// Example: `const v = stringHexToSlice("abcdef")` = slice with 3 bytes `[ 0xAB, 0xCD, 0xEF ]`
 /// Note: stringHexToSlice(slice_var) does not work! It accepts a constant string and works at compile-time.
@@ -430,7 +607,7 @@ fun stringHexToSlice(constStringBytesHex: slice): slice
 fun cell.beginParse(self): slice
     asm "CTOS";
 
-/// Checks if slice is empty. If not, throws an exception.
+/// Checks if slice is empty. If not, throws an exception with code 9.
 fun slice.assertEnd(self): void
     asm "ENDS";
 
@@ -573,6 +750,11 @@ fun builder.storeUint(mutate self, x: int, len: int): self
 fun builder.storeSlice(mutate self, s: slice): self
     asm "STSLICER";
 
+/// Stores an address into a builder.
+@pure
+fun builder.storeAddress(mutate self, addr: address): self
+    asm "STSLICER";
+
 /// Stores amount of Toncoins into a builder.
 @pure
 fun builder.storeCoins(mutate self, x: coins): self
@@ -694,37 +876,64 @@ fun builder.bitsCount(self): int
     where `u`, `x`, and `s` have the same meaning as for `addr_std`.
  */
 
-/// Loads from slice [s] the only prefix that is a valid `MsgAddress`,
-/// and returns both this prefix `s'` and the remainder `s''` of [s] as slices.
+/// Compile-time function that parses a valid contract address.
+/// Example: address("EQCRDM9h4k3UJdOePPuyX40mCgA4vxge5Dc5vjBR8djbEKC5")
+/// Example: address("0:527964d55cfa6eb731f4bfc07e9d025098097ef8505519e853986279bd8400d8")
+/// Returns `address`, which can be stored in a builder, compared with `==`, etc.
 @pure
-fun slice.loadAddress(mutate self): slice
-    asm( -> 1 0) "LDMSGADDR";
-
-/// Decomposes slice [s] containing a valid `MsgAddress` into a `tuple t` with separate fields of this `MsgAddress`.
-/// If [s] is not a valid `MsgAddress`, a cell deserialization exception is thrown.
-@pure
-fun parseAddress(s: slice): tuple
-    asm "PARSEMSGADDR";
-
-/// Parses slice [s] containing a valid `MsgAddressInt` (usually a `msg_addr_std`),
-/// applies rewriting from the anycast (if present) to the same-length prefix of the address,
-/// and returns both the workchain and the 256-bit address as integers.
-/// If the address is not 256-bit, or if [s] is not a valid serialization of `MsgAddressInt`,
-/// throws a cell deserialization exception.
-@pure
-fun parseStandardAddress(s: slice): (int, int)
-    asm "REWRITESTDADDR";
+fun address(stdAddress: slice): address
+    builtin;
 
 /// Creates a slice representing TL addr_none$00 (two `0` bits).
 @pure
-fun createAddressNone(): slice
+fun createAddressNone(): address
     asm "b{00} PUSHSLICE";
 
-/// Returns if a slice pointer contains an empty address.
-/// In other words, a slice starts with two `0` bits (TL addr_none$00).
+/// Returns if it's an empty address.
+/// Don't confuse it with null! Empty address is a slice with two `0` bits.
+/// In TL/B, it's addr_none$00.
 @pure
-fun addressIsNone(s: slice): bool
-    asm "2 PLDU" "0 EQINT";
+fun address.isNone(self): bool
+    asm "b{00} SDBEGINSQ" "NIP";
+
+/// Returns if it's a standard (internal) address. Such addresses contain workchain (8 bits) and hash (256 bits).
+/// All contract addresses are internal, so it's the most practical use case.
+/// In TL/B it's addr_std$10.
+/// For internal addresses, you can call [address.getWorkchain] and [address.getWorkchainAndHash].
+@pure
+fun address.isInternal(self): bool
+    asm "b{10} SDBEGINSQ" "NIP";
+
+/// Returns if it's an external address, used to communication with the outside world.
+/// In TL/B it's addr_extern$01.
+@pure
+fun address.isExternal(self): bool
+    asm "b{01} SDBEGINSQ" "NIP";
+
+/// Extracts workchain and hash from a standard (internal) address.
+/// If the address is not internal, throws a cell deserialization exception.
+@pure
+fun address.getWorkchainAndHash(self): (int8, uint256)
+    asm "REWRITESTDADDR";
+
+/// Extracts workchain from a standard (internal) address.
+/// If the address is not internal, throws a cell deserialization exception.
+@pure
+fun address.getWorkchain(self): int8
+    asm "REWRITESTDADDR" "DROP";
+
+/// Checks whether two addresses are equal. Equivalent to `a == b`.
+/// Deprecated! Left for smoother transition from FunC, where you used `slice` everywhere.
+/// Use just `a == b` and `a != b` to compare addresses, don't use bitsEqual.
+@pure
+@deprecated("use `senderAddress == ownerAddress`, not `senderAddress.bitsEqual(ownerAddress)`")
+fun address.bitsEqual(self, b: address): bool
+    asm "SDEQ";
+
+/// Loads from slice [s] a valid `MsgAddress` (none/internal/external).
+@pure
+fun slice.loadAddress(mutate self): address
+    asm( -> 1 0) "LDMSGADDR";
 
 
 /**

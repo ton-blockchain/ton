@@ -246,7 +246,7 @@ class CalculateRvalueLvalueVisitor final : public ASTVisitorFunctionBody {
   }
 
   void visit(V<ast_local_var_lhs> v) override {
-    tolk_assert(cur_state == MarkingState::LValue);
+    tolk_assert(cur_state == MarkingState::LValue || v->is_lateinit);
     mark_vertex(v);
     parent::visit(v);
   }

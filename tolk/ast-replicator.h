@@ -97,7 +97,7 @@ class ASTReplicator final {
     return createV<ast_reference>(v->loc, clone(v->get_identifier()), v->has_instantiationTs() ? clone(v->get_instantiationTs()) : nullptr);
   }
   static V<ast_local_var_lhs> clone(V<ast_local_var_lhs> v) {
-    return createV<ast_local_var_lhs>(v->loc, clone(v->get_identifier()), clone(v->type_node), v->is_immutable, v->marked_as_redef);
+    return createV<ast_local_var_lhs>(v->loc, clone(v->get_identifier()), clone(v->type_node), v->is_immutable, v->is_lateinit, v->marked_as_redef);
   }
   static V<ast_local_vars_declaration> clone(V<ast_local_vars_declaration> v) {
     return createV<ast_local_vars_declaration>(v->loc, clone(v->get_expr()));
@@ -223,13 +223,13 @@ class ASTReplicator final {
     return createV<ast_instantiationT_list>(v->loc, clone(v->get_items()));
   }
   static V<ast_parameter> clone(V<ast_parameter> v) {
-    return createV<ast_parameter>(v->loc, v->param_name, clone(v->type_node), v->declared_as_mutate);
+    return createV<ast_parameter>(v->loc, v->param_name, clone(v->type_node), v->default_value ? clone(v->default_value) : nullptr,  v->declared_as_mutate);
   }
   static V<ast_parameter_list> clone(V<ast_parameter_list> v) {
     return createV<ast_parameter_list>(v->loc, clone(v->get_params()));
   }
   static V<ast_struct_field> clone(V<ast_struct_field> v) {
-    return createV<ast_struct_field>(v->loc, clone(v->get_identifier()), clone(v->get_default_value()), clone(v->type_node));
+    return createV<ast_struct_field>(v->loc, clone(v->get_identifier()), v->default_value ? clone(v->default_value) : nullptr, clone(v->type_node));
   }
   static V<ast_struct_body> clone(V<ast_struct_body> v) {
     return createV<ast_struct_body>(v->loc, clone(v->get_all_fields()));
@@ -345,6 +345,8 @@ public:
       v_orig->loc,
       new_name_ident,
       clone(v_orig->genericsT_list),
+      v_orig->overflow1023_policy,
+      v_orig->has_opcode() ? static_cast<AnyExprV>(clone(v_orig->get_opcode())) : createV<ast_empty_expression>(v_orig->loc),
       clone(v_orig->get_struct_body())
     );
   }
