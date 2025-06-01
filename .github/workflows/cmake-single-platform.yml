@@ -37,7 +37,7 @@ jobs:
       # See https://cmake.org/cmake/help/latest/manual/ctest.1.html for more detail
       run: ctest -C ${{env.BUILD_TYPE}}
 
-            - name: Setup Node.js environment
+            - name: 
   uses: actions/setup-node@v3.9.1
   with:
     # Set always-auth in npmrc.
