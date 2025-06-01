@@ -21,6 +21,10 @@ fun verifyAddr(addr: address, workchain: int, number: int) {
     assert (s.loadUint(256) == number) throw 111;
 }
 
+fun address.createNone() {
+    return createAddressNone()
+}
+
 fun check0(addr: address) {
     assert (addr.getWorkchain() == 0) throw 111;
 }
@@ -134,7 +138,7 @@ fun main() {
         cc2 != cc1,
         (cc1 as slice).bitsEqual(((cc2 as slice) as address) as slice),
         createAddressNone() == cc1,
-        createAddressNone() == createAddressNone(),
+        createAddressNone() == address.createNone(),
         check0(address("0:FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFfffffffffffffffffffffffffffff"))
     );
 }
