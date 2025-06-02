@@ -69,31 +69,63 @@ struct CollationStats {
   td::uint32 estimated_bytes = 0, gas = 0, lt_delta = 0, estimated_collated_data_bytes = 0;
   int cat_bytes = 0, cat_gas = 0, cat_lt_delta = 0, cat_collated_data_bytes = 0;
   std::string limits_log;
+  double total_time = 0.0, work_time = 0.0, cpu_work_time = 0.0;
+  std::string time_stats;
+
   td::uint32 transactions = 0;
   std::vector<BlockIdExt> shard_configuration;
   td::uint32 ext_msgs_total = 0;
   td::uint32 ext_msgs_filtered = 0;
   td::uint32 ext_msgs_accepted = 0;
   td::uint32 ext_msgs_rejected = 0;
-  double total_time = 0.0, work_time = 0.0, cpu_work_time = 0.0;
-  std::string time_stats;
+
+  td::uint64 old_out_msg_queue_size = 0;
+  td::uint64 new_out_msg_queue_size = 0;
+  td::uint32 msg_queue_cleaned = 0;
+  struct NeighborStats {
+    ShardIdFull shard;
+    bool is_trivial = false;
+    bool is_local = false;
+    int msg_limit = -1;
+    td::uint32 processed_msgs = 0;
+    td::uint32 skipped_msgs = 0;
+    bool limit_reached = false;
+
+    tl_object_ptr<ton_api::validatorStats_blockStats_neighborStats> tl() const {
+      return create_tl_object<ton_api::validatorStats_blockStats_neighborStats>(
+          create_tl_shard_id(shard), is_trivial, is_local, msg_limit, processed_msgs, skipped_msgs, limit_reached);
+    }
+  };
+  std::vector<NeighborStats> neighbors;
+
+  double load_fraction_queue_cleanup = -1.0;
+  double load_fraction_dispatch = -1.0;
+  double load_fraction_internals = -1.0;
+  double load_fraction_externals = -1.0;
+  double load_fraction_new_msgs = -1.0;
 
   tl_object_ptr<ton_api::validatorStats_collatedBlock> tl() const {
-    std::vector<tl_object_ptr<ton_api::tonNode_blockIdExt>> shards;
+    std::vector<tl_object_ptr<ton_api::tonNode_blockIdExt>> shards_obj;
     for (const BlockIdExt& block_id : shard_configuration) {
-      shards.push_back(create_tl_block_id(block_id));
+      shards_obj.push_back(create_tl_block_id(block_id));
+    }
+    std::vector<tl_object_ptr<ton_api::validatorStats_blockStats_neighborStats>> neighbors_obj;
+    for (const NeighborStats& neighbor : neighbors) {
+      neighbors_obj.push_back(neighbor.tl());
     }
     auto block_stats = create_tl_object<ton_api::validatorStats_blockStats>(
-        create_tl_object<ton_api::validatorStats_extMsgsStats>(ext_msgs_total, ext_msgs_filtered, ext_msgs_accepted,
-                                                               ext_msgs_rejected),
-        transactions, std::move(shards));
+        create_tl_object<ton_api::validatorStats_blockStats_extMsgsStats>(ext_msgs_total, ext_msgs_filtered,
+                                                                          ext_msgs_accepted, ext_msgs_rejected),
+        transactions, std::move(shards_obj), old_out_msg_queue_size, new_out_msg_queue_size, msg_queue_cleaned,
+        std::move(neighbors_obj));
     return create_tl_object<ton_api::validatorStats_collatedBlock>(
         create_tl_block_id(block_id), collated_data_hash, cc_seqno, collated_at, actual_bytes,
         actual_collated_data_bytes, attempt, self.bits256_value(), is_validator, total_time, work_time, cpu_work_time,
         time_stats,
-        create_tl_object<ton_api::validatorStats_blockLimitsStatus>(estimated_bytes, gas, lt_delta,
-                                                                    estimated_collated_data_bytes, cat_bytes, cat_gas,
-                                                                    cat_lt_delta, cat_collated_data_bytes, limits_log),
+        create_tl_object<ton_api::validatorStats_blockLimitsStatus>(
+            estimated_bytes, gas, lt_delta, estimated_collated_data_bytes, cat_bytes, cat_gas, cat_lt_delta,
+            cat_collated_data_bytes, load_fraction_queue_cleanup, load_fraction_dispatch, load_fraction_internals,
+            load_fraction_externals, load_fraction_new_msgs, limits_log),
         std::move(block_stats));
   }
 };

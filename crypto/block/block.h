@@ -242,6 +242,9 @@ struct ParamLimits {
   td::uint32 hard() const {
     return limits_[3];
   }
+  td::uint32 limit(unsigned cls) const {
+    return limits_[cls];
+  }
   bool compute_medium_limit() {
     limits_[2] = soft() + ((hard() - soft()) >> 1);
     return true;
@@ -299,6 +302,7 @@ struct BlockLimitStatus {
   bool fits(unsigned cls) const;
   bool would_fit(unsigned cls, ton::LogicalTime end_lt, td::uint64 more_gas,
                  const vm::NewCellStorageStat::Stat* extra = nullptr) const;
+  double load_fraction(unsigned cls) const;
   bool add_cell(Ref<vm::Cell> cell) {
     st_stat.add_cell(std::move(cell));
     return true;

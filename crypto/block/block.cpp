@@ -768,6 +768,15 @@ bool BlockLimitStatus::would_fit(unsigned cls, ton::LogicalTime end_lt, td::uint
                                             limits.collated_data.fits(cls, collated_data_size_estimate));
 }
 
+double BlockLimitStatus::load_fraction(unsigned cls) const {
+  if (cls >= ParamLimits::limits_cnt) {
+    return 0.0;
+  }
+  return std::max({(double)estimate_block_size() / (double)limits.bytes.limit(cls),
+                   (double)gas_used / (double)limits.gas.limit(cls),
+                   (double)collated_data_size_estimate / (double)limits.collated_data.limit(cls)});
+}
+
 // SETS: account_dict, shard_libraries_, mc_state_extra
 //    total_balance{,_extra}, total_validator_fees
 // SETS: out_msg_queue, processed_upto_, ihr_pending (via unpack_out_msg_queue_info)

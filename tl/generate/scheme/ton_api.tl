@@ -933,11 +933,18 @@ validatorStats.stats flags:#
 validatorStats.blockLimitsStatus
     bytes:int gas:int lt_delta:int collated_data_bytes:int
     cat_bytes:int cat_gas:int cat_lt_delta:int cat_collated_data_bytes:int
+    load_fraction_queue_cleanup:double load_fraction_dispatch:double
+    load_fraction_internals:double load_fraction_externals:double
+    load_fraction_new_msgs:double
     limits_log:string = validatorStats.BlockLimitsStatus;
-validatorStats.extMsgsStats
+validatorStats.blockStats.extMsgsStats
     ext_msgs_total:int ext_msgs_filtered:int ext_msgs_accepted:int ext_msgs_rejected:int = validatorStats.ExtMsgsStats;
+validatorStats.blockStats.neighborStats shard:tonNode.shardId is_trivial:Bool is_local:Bool msg_limit:int
+    processed_msgs:int skipped_msgs:int limit_reached:Bool = validatorStats.blockStats.NeighborStats;
 validatorStats.blockStats
-    ext_msgs:validatorStats.extMsgsStats transactions:int shard_configuration:(vector tonNode.blockIdExt) = validatorStats.BlockStats;
+    ext_msgs:validatorStats.blockStats.extMsgsStats transactions:int shard_configuration:(vector tonNode.blockIdExt)
+    old_out_msg_queue_size:long new_out_msg_queue_size:long msg_queue_cleaned:int
+    neighbors:(vector validatorStats.blockStats.neighborStats) = validatorStats.BlockStats;
 
 validatorStats.collatedBlock
     block_id:tonNode.blockIdExt collated_data_hash:int256 cc_seqno:int collated_at:double

@@ -335,8 +335,7 @@ class Collator final : public td::actor::Actor {
   int process_one_new_message(block::NewOutMsg msg, bool enqueue_only = false, Ref<vm::Cell>* is_special = nullptr);
   bool process_inbound_internal_messages();
   bool precheck_inbound_message(Ref<vm::CellSlice> msg, ton::LogicalTime lt);
-  bool process_inbound_message(Ref<vm::CellSlice> msg, ton::LogicalTime lt, td::ConstBitPtr key,
-                               const block::McShardDescr& src_nb);
+  bool process_inbound_message(Ref<vm::CellSlice> msg, ton::LogicalTime lt, td::ConstBitPtr key, int src_nb_idx);
   bool process_inbound_external_messages();
   int process_external_message(Ref<vm::Cell> msg);
   bool process_dispatch_queue();

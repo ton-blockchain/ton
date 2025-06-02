@@ -919,6 +919,7 @@ void Collator::got_neighbor_msg_queues(td::Result<std::map<BlockIdExt, Ref<OutMs
   LOG(INFO) << "neighbor output queues fetched, took " << duration << "s";
   auto res = R.move_as_ok();
   unsigned i = 0;
+  stats_.neighbors.resize(neighbors_.size());
   for (block::McShardDescr& descr : neighbors_) {
     LOG(DEBUG) << "neighbor #" << i << " : " << descr.blk_.to_str();
     auto it = res.find(descr.blk_);
@@ -937,6 +938,13 @@ void Collator::got_neighbor_msg_queue(unsigned i, Ref<OutMsgQueueProof> res) {
   if (res->block_state_proof_.not_null() && !block_id.is_masterchain()) {
     block_state_proofs_.emplace(block_id.root_hash, res->block_state_proof_);
   }
+
+  auto &neighbor_stats = stats_.neighbors.at(i);
+  neighbor_stats.shard = block_id.shard_full();
+  neighbor_stats.is_trivial = shard_intersects(block_id.shard_full(), shard_);
+  neighbor_stats.is_local = res->is_local_;
+  neighbor_stats.msg_limit = res->msg_count_;
+
   Ref<vm::Cell> state_root;
   if (block_id.is_masterchain()) {
     state_root = res->state_root_;
@@ -1000,18 +1008,16 @@ void Collator::got_neighbor_msg_queue(unsigned i, Ref<OutMsgQueueProof> res) {
     return;
   }
   outq_descr.clear();
-  do {
-    // require masterchain blocks referred to in ProcessedUpto
-    // TODO: perform this only if there are messages for this shard in our output queue
-    // .. (have to check the above condition and perform a `break` here) ..
-    // ..
-    for (const auto& entry : descr.processed_upto->list) {
-      Ref<MasterchainStateQ> state;
-      if (!request_aux_mc_state(entry.mc_seqno, state)) {
-        return;
-      }
+  // require masterchain blocks referred to in ProcessedUpto
+  // TODO: perform this only if there are messages for this shard in our output queue
+  // .. (have to check the above condition and perform a `break` here) ..
+  // ..
+  for (const auto& entry : descr.processed_upto->list) {
+    Ref<MasterchainStateQ> state;
+    if (!request_aux_mc_state(entry.mc_seqno, state)) {
+      return;
     }
-  } while (false);
+  }
 }
 
 /**
@@ -1940,7 +1946,7 @@ bool Collator::try_collate() {
   last_proc_int_msg_.second.set_zero();
   first_unproc_int_msg_.first = ~0ULL;
   first_unproc_int_msg_.second.set_ones();
-  old_out_msg_queue_size_ = out_msg_queue_size_;
+  stats_.old_out_msg_queue_size = old_out_msg_queue_size_ = out_msg_queue_size_;
   if (is_masterchain()) {
     LOG(DEBUG) << "getting the list of special smart contracts";
     auto res = config_->get_special_smartcontracts();
@@ -2407,6 +2413,9 @@ bool Collator::dequeue_message(Ref<vm::Cell> msg_envelope, ton::LogicalTime deli
  * @returns True if the cleanup operation was successful, false otherwise.
  */
 bool Collator::out_msg_queue_cleanup() {
+  SCOPE_EXIT {
+    stats_.load_fraction_queue_cleanup = block_limit_status_->load_fraction(block::ParamLimits::cl_normal);
+  };
   LOG(INFO) << "cleaning outbound queue from messages already imported by neighbors";
   if (verbosity >= 2) {
     FLOG(INFO) {
@@ -2492,6 +2501,7 @@ bool Collator::out_msg_queue_cleanup() {
       }
       return true;
     });
+    stats_.msg_queue_cleaned = deleted;
     LOG(WARNING) << "deleted " << deleted << " messages from out_msg_queue after merge, remaining queue size is "
                  << out_msg_queue_size_;
     if (!ok) {
@@ -2572,6 +2582,7 @@ bool Collator::out_msg_queue_cleanup() {
       std::swap(queue_parts[i], queue_parts.back());
       queue_parts.pop_back();
     }
+    stats_.msg_queue_cleaned = deleted;
     LOG(WARNING) << "deleted " << deleted << " messages from out_msg_queue, remaining queue size is "
                  << out_msg_queue_size_;
   }
@@ -3712,12 +3723,13 @@ bool Collator::precheck_inbound_message(Ref<vm::CellSlice> enq_msg, ton::Logical
  * @param enq_msg The inbound message serialized using EnqueuedMsg TLB-scheme.
  * @param lt The logical time of the message.
  * @param key The 32+64+256-bit key of the message.
- * @param src_nb The description of the source neighbor shard.
+ * @param src_nb_idx The index of the source neighbor shard.
  *
  * @returns True if the message was processed successfully, false otherwise.
  */
 bool Collator::process_inbound_message(Ref<vm::CellSlice> enq_msg, ton::LogicalTime lt, td::ConstBitPtr key,
-                                       const block::McShardDescr& src_nb) {
+                                       int src_nb_idx) {
+  const auto& src_nb = neighbors_.at(src_nb_idx);
   ton::LogicalTime enqueued_lt = enq_msg->prefetch_ulong(64);
   auto msg_env = enq_msg->prefetch_ref();
   // 1. unpack MsgEnvelope
@@ -3815,6 +3827,8 @@ bool Collator::process_inbound_message(Ref<vm::CellSlice> enq_msg, ton::LogicalT
                << " enqueued_lt=" << enq_msg_descr.enqueued_lt_ << " has been already processed by us before, skipping";
     // should we dequeue the message if it is ours (after a merge?)
     // (it should have been dequeued by out_msg_queue_cleanup() before)
+    auto &neighbor_stats = stats_.neighbors.at(src_nb_idx);
+    ++neighbor_stats.skipped_msgs;
     return true;
   }
   // 6.1. check whether we have already processed this message by IHR
@@ -3901,12 +3915,17 @@ static std::string block_full_comment(const block::BlockLimitStatus& block_limit
  * @returns True if the processing was successful, false otherwise.
  */
 bool Collator::process_inbound_internal_messages() {
+  SCOPE_EXIT {
+    stats_.load_fraction_internals = block_limit_status_->load_fraction(block::ParamLimits::cl_normal);
+  };
   while (!nb_out_msgs_->is_eof()) {
     block_full_ = !block_limit_status_->fits(block::ParamLimits::cl_normal);
     auto kv = nb_out_msgs_->extract_cur();
     CHECK(kv && kv->msg.not_null());
+    auto &neighbor_stats = stats_.neighbors.at(kv->source);
     if (kv->limit_exceeded) {
       LOG(INFO) << "limit for imported messages is reached, stop processing inbound internal messages";
+      neighbor_stats.limit_reached = true;
       block::EnqueuedMsgDescr enq;
       enq.unpack(kv->msg.write());  // Visit cells to include it in proof
       break;
@@ -3941,13 +3960,14 @@ bool Collator::process_inbound_internal_messages() {
     }
     LOG(DEBUG) << "processing inbound message with (lt,hash)=(" << kv->lt << "," << kv->key.to_hex()
                << ") from neighbor #" << kv->source;
+    ++neighbor_stats.processed_msgs;
     if (verbosity > 2) {
       FLOG(INFO) {
         sb << "inbound message: lt=" << kv->lt << " from=" << kv->source << " key=" << kv->key.to_hex() << " msg=";
         block::gen::t_EnqueuedMsg.print(sb, kv->msg);
       };
     }
-    if (!process_inbound_message(kv->msg, kv->lt, kv->key.cbits(), neighbors_.at(kv->source))) {
+    if (!process_inbound_message(kv->msg, kv->lt, kv->key.cbits(), kv->source)) {
       if (verbosity > 1) {
         FLOG(INFO) {
           sb << "invalid inbound message: lt=" << kv->lt << " from=" << kv->source << " key=" << kv->key.to_hex()
@@ -3970,6 +3990,9 @@ bool Collator::process_inbound_internal_messages() {
  * @returns True if the processing was successful, false otherwise.
  */
 bool Collator::process_inbound_external_messages() {
+  SCOPE_EXIT {
+    stats_.load_fraction_externals = block_limit_status_->load_fraction(block::ParamLimits::cl_soft);
+  };
   if (skip_extmsg_) {
     LOG(INFO) << "skipping processing of inbound external messages";
     return true;
@@ -4089,6 +4112,9 @@ int Collator::process_external_message(Ref<vm::Cell> msg) {
  * @returns True if the processing was successful, false otherwise.
  */
 bool Collator::process_dispatch_queue() {
+  SCOPE_EXIT {
+    stats_.load_fraction_dispatch = block_limit_status_->load_fraction(block::ParamLimits::cl_normal);
+  };
   if (out_msg_queue_size_ > defer_out_queue_size_limit_ && old_out_msg_queue_size_ > hard_defer_out_queue_size_limit_) {
     return true;
   }
@@ -4548,6 +4574,9 @@ bool Collator::enqueue_message(block::NewOutMsg msg, td::RefInt256 fwd_fees_rema
  * @returns True if all new messages were processed successfully, false otherwise.
  */
 bool Collator::process_new_messages(bool enqueue_only) {
+  SCOPE_EXIT {
+    stats_.load_fraction_new_msgs = block_limit_status_->load_fraction(block::ParamLimits::cl_normal);
+  };
   while (!new_msgs.empty()) {
     block::NewOutMsg msg = new_msgs.top();
     new_msgs.pop();
@@ -6380,6 +6409,7 @@ void Collator::finalize_stats() {
       return 0;
     });
   }
+  stats_.new_out_msg_queue_size = out_msg_queue_size_;
 }
 
 /**

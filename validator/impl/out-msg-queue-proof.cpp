@@ -196,7 +196,7 @@ td::Result<std::vector<td::Ref<OutMsgQueueProof>>> OutMsgQueueProof::fetch(Shard
       if (state_root->get_hash().as_slice() != state_root_hash.as_slice()) {
         return td::Status::Error("state root hash mismatch");
       }
-      res.emplace_back(true, blocks[i], state_root, block_state_proof, f.msg_counts_[i]);
+      res.emplace_back(true, blocks[i], state_root, block_state_proof, false, f.msg_counts_[i]);
 
       data[i].first = blocks[i];
       TRY_RESULT(state, ShardStateQ::fetch(blocks[i], {}, state_root));
@@ -346,7 +346,7 @@ void OutMsgQueueImporter::get_proof_local(std::shared_ptr<CacheEntry> entry, Blo
         auto state = R.move_as_ok();
         if (block.seqno() == 0) {
           std::vector<td::Ref<OutMsgQueueProof>> proof = {
-              td::Ref<OutMsgQueueProof>(true, block, state->root_cell(), td::Ref<vm::Cell>{})};
+              td::Ref<OutMsgQueueProof>(true, block, state->root_cell(), td::Ref<vm::Cell>{}, true)};
           td::actor::send_closure(SelfId, &OutMsgQueueImporter::got_proof, entry, std::move(proof), ProofSource::Local);
           return;
         }
@@ -362,7 +362,7 @@ void OutMsgQueueImporter::get_proof_local(std::shared_ptr<CacheEntry> entry, Blo
               }
               Ref<vm::Cell> block_state_proof = create_block_state_proof(R.ok()->root_cell()).move_as_ok();
               std::vector<td::Ref<OutMsgQueueProof>> proof = {
-                  td::Ref<OutMsgQueueProof>(true, block, state->root_cell(), std::move(block_state_proof))};
+                  td::Ref<OutMsgQueueProof>(true, block, state->root_cell(), std::move(block_state_proof), true)};
               td::actor::send_closure(SelfId, &OutMsgQueueImporter::got_proof, entry, std::move(proof),
                                       ProofSource::Local);
             });
