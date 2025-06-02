@@ -17,6 +17,7 @@
 #include "constant-evaluator.h"
 #include "ast.h"
 #include "tolk.h"
+#include "type-system.h"
 #include "openssl/digest.hpp"
 #include "crypto/common/util.h"
 #include "td/utils/crypto.h"
@@ -73,9 +74,9 @@ static bool parse_raw_address(std::string_view acc_string, int& workchain, ton::
     int x;
     if (c >= '0' && c <= '9') {
       x = c - '0';
-    } else if (c >= 'a' && c <= 'z') {
+    } else if (c >= 'a' && c <= 'f') {
       x = c - 'a' + 10;
-    } else if (c >= 'A' && c <= 'Z') {
+    } else if (c >= 'A' && c <= 'F') {
       x = c - 'A' + 10;
     } else {
       return false;
@@ -88,6 +89,23 @@ static bool parse_raw_address(std::string_view acc_string, int& workchain, ton::
     }
   }
   return true;
+}
+
+static void parse_any_std_address(std::string_view str, SrcLocation loc, unsigned char (*data)[3 + 8 + 256]) {
+  ton::WorkchainId workchain;
+  ton::StdSmcAddress addr;
+  bool correct = (str.size() == 48 && parse_friendly_address(str.data(), workchain, addr)) ||
+                 (str.size() != 48 && parse_raw_address(str, workchain, addr));
+  if (!correct) {
+    throw ParseError(loc, "invalid standard address");
+  }
+  if (workchain < -128 || workchain >= 128) {
+    throw ParseError(loc, "anycast addresses not supported");
+  }
+
+  td::bitstring::bits_store_long_top(*data, 0, static_cast<uint64_t>(4) << (64 - 3), 3);
+  td::bitstring::bits_store_long_top(*data, 3, static_cast<uint64_t>(workchain) << (64 - 8), 8);
+  td::bitstring::bits_memcpy(*data, 3 + 8, addr.bits().ptr, 0, ton::StdSmcAddress::size());
 }
 
 // internal helper: for `ton("0.05")`, parse string literal "0.05" to 50000000
@@ -106,6 +124,7 @@ static td::RefInt256 parse_nanotons_as_floating_string(SrcLocation loc, std::str
   // parse "0.05" into integer part (before dot) and fractional (after)
   int64_t integer_part = 0;
   int64_t fractional_part = 0;
+  int integer_digits = 0;
   int fractional_digits = 0;
   bool seen_dot = false;
 
@@ -119,6 +138,9 @@ static td::RefInt256 parse_nanotons_as_floating_string(SrcLocation loc, std::str
     } else if (c >= '0' && c <= '9') {
       if (!seen_dot) {
         integer_part = integer_part * 10 + (c - '0');
+        if (++integer_digits > 9) {
+          throw ParseError(loc, "argument is too big and leads to overflow");
+        }
       } else if (fractional_digits < 9) {
         fractional_part = fractional_part * 10 + (c - '0');
         fractional_digits++;
@@ -140,8 +162,21 @@ static td::RefInt256 parse_nanotons_as_floating_string(SrcLocation loc, std::str
 // given `ton("0.05")` evaluate it to 50000000
 // given `stringCrc32("some_str")` evaluate it
 // etc.
-// currently, all compile-time functions accept 1 argument, a literal string
 static CompileTimeFunctionResult parse_vertex_call_to_compile_time_function(V<ast_function_call> v, std::string_view f_name) {
+  // most functions accept 1 argument, but static compile-time methods like `MyStruct.getDeclaredPackPrefix()` have 0 args
+  if (v->get_num_args() == 0) {
+    TypePtr receiver = v->fun_maybe->receiver_type;
+    f_name = v->fun_maybe->method_name;
+
+    if (f_name == "getDeclaredPackPrefix" || f_name == "getDeclaredPackPrefixLen") {
+      const TypeDataStruct* t_struct = receiver->try_as<TypeDataStruct>();
+      if (!t_struct || !t_struct->struct_ref->opcode.exists()) {
+        throw ParseError(v->loc, "type `" + receiver->as_human_readable() + "` does not have a serialization prefix");
+      }
+      return td::make_refint(f_name.ends_with('x') ? t_struct->struct_ref->opcode.pack_prefix : t_struct->struct_ref->opcode.prefix_len);
+    }
+  }
+
   tolk_assert(v->get_num_args() == 1);    // checked by type inferring
   AnyExprV v_arg = v->get_arg(0)->get_expr();
 
@@ -159,6 +194,12 @@ static CompileTimeFunctionResult parse_vertex_call_to_compile_time_function(V<as
 
   if (f_name == "ton") {
     return parse_nanotons_as_floating_string(v_arg->loc, str);
+  }
+
+  if (f_name == "address")     {          // previously, postfix "..."a, but it returned `slice` (now returns `address`)
+    unsigned char data[3 + 8 + 256];      // addr_std$10 anycast:(Maybe Anycast) workchain_id:int8 address:bits256 = MsgAddressInt;
+    parse_any_std_address(str, v_arg->loc, &data);
+    return td::BitSlice{data, sizeof(data)}.to_hex();
   }
 
   if (f_name == "stringCrc32") {          // previously, postfix "..."c
@@ -179,25 +220,6 @@ static CompileTimeFunctionResult parse_vertex_call_to_compile_time_function(V<as
     unsigned char hash[32];
     digest::hash_str<digest::SHA256>(hash, str.data(), str.size());
     return td::bits_to_refint(hash, 32, false);
-  }
-
-  if (f_name == "stringAddressToSlice") { // previously, postfix "..."a
-    ton::WorkchainId workchain;
-    ton::StdSmcAddress addr;
-    bool correct = (str.size() == 48 && parse_friendly_address(str.data(), workchain, addr)) ||
-                   (str.size() != 48 && parse_raw_address(str, workchain, addr));
-    if (!correct) {
-      v_arg->error("invalid standard address");
-    }
-    if (workchain < -128 || workchain >= 128) {
-      v_arg->error("anycast addresses not supported");
-    }
-
-    unsigned char data[3 + 8 + 256];  // addr_std$10 anycast:(Maybe Anycast) workchain_id:int8 address:bits256 = MsgAddressInt;
-    td::bitstring::bits_store_long_top(data, 0, static_cast<uint64_t>(4) << (64 - 3), 3);
-    td::bitstring::bits_store_long_top(data, 3, static_cast<uint64_t>(workchain) << (64 - 8), 8);
-    td::bitstring::bits_memcpy(data, 3 + 8, addr.bits().ptr, 0, ton::StdSmcAddress::size());
-    return td::BitSlice{data, sizeof(data)}.to_hex();
   }
 
   if (f_name == "stringHexToSlice") {     // previously, postfix "..."s
@@ -244,7 +266,7 @@ struct ConstantExpressionChecker {
 
   // `const a = ton("0.05")`, we met `ton("0.05")`
   static void handle_function_call(V<ast_function_call> v) {
-    if (v->fun_maybe && v->fun_maybe->is_compile_time_only()) {
+    if (v->fun_maybe && v->fun_maybe->is_compile_time_const_val()) {
       // `ton(local_var)` is denied; it's validated not here, but when replacing its value with a calculated one
       return;
     }
@@ -255,6 +277,13 @@ struct ConstantExpressionChecker {
   static void handle_tensor(V<ast_tensor> v) {
     for (int i = 0; i < v->size(); ++i) {
       visit(v->get_item(i));
+    }
+  }
+
+  // `a: Options = {}`, object literal may occur as a default value for parameters
+  static void handle_object_literal(V<ast_object_body> v) {
+    for (int i = 0; i < v->get_num_fields(); ++i) {
+      visit(v->get_field(i)->get_init_val());
     }
   }
 
@@ -276,6 +305,9 @@ struct ConstantExpressionChecker {
     }
     if (auto v_tensor = v->try_as<ast_tensor>()) {
       return handle_tensor(v_tensor);
+    }
+    if (auto v_obj = v->try_as<ast_object_literal>()) {
+      return handle_object_literal(v_obj->get_body());
     }
     if (auto v_par = v->try_as<ast_parenthesized_expression>()) {
       return visit(v_par->get_expr());
@@ -310,7 +342,7 @@ std::string eval_string_const_standalone(AnyExprV v_string) {
 
 CompileTimeFunctionResult eval_call_to_compile_time_function(AnyExprV v_call) {
   auto v = v_call->try_as<ast_function_call>();
-  tolk_assert(v && v->fun_maybe->is_compile_time_only());
+  tolk_assert(v && v->fun_maybe->is_compile_time_const_val());
   return parse_vertex_call_to_compile_time_function(v, v->fun_maybe->name);
 }
 

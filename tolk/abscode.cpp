@@ -436,4 +436,15 @@ std::vector<var_idx_t> CodeBlob::create_var(TypePtr var_type, SrcLocation loc, s
   return ir_idx;
 }
 
+var_idx_t CodeBlob::create_int(SrcLocation loc, int64_t value, const char* desc) {
+  vars.emplace_back(var_cnt, TypeDataInt::create(), std::string{}, loc);
+#ifdef TOLK_DEBUG
+  vars.back().desc = desc;
+#endif
+  var_idx_t ir_int = var_cnt;
+  var_cnt++;
+  emplace_back(loc, Op::_IntConst, std::vector{ir_int}, td::make_refint(value));
+  return ir_int;
+}
+
 }  // namespace tolk

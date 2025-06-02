@@ -21,6 +21,7 @@
 #include "generics-helpers.h"
 #include "type-system.h"
 #include "smart-casts-cfg.h"
+#include <charconv>
 
 /*
  *   This is a complicated and crucial part of the pipeline. It simultaneously does the following:
@@ -150,6 +151,30 @@ static void fire_error_cannot_deduce_untyped_tuple_access(FunctionPtr cur_f, Src
   fire(cur_f, loc, "can not deduce type of `" + idx_access + "`\neither assign it to variable like `var c: int = " + idx_access + "` or cast the result like `" + idx_access + " as int`");
 }
 
+// fire an error on using lateinit variable before definite assignment
+GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
+static void fire_error_using_lateinit_variable_uninitialized(FunctionPtr cur_f, SrcLocation loc, std::string_view name) {
+  fire(cur_f, loc, "using variable `" + static_cast<std::string>(name) + "` before it's definitely assigned");
+}
+
+// fire an error when `obj.f()`, method `f` not found, try to locate a method for another type
+GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
+static void fire_error_method_not_found(FunctionPtr cur_f, SrcLocation loc, TypePtr receiver_type, std::string_view method_name) {
+  if (std::vector<FunctionPtr> other = lookup_methods_with_name(method_name); !other.empty()) {
+    fire(cur_f, loc, "method `" + to_string(method_name) + "` not found for type " + to_string(receiver_type) + "\n(but it exists for type " + to_string(other.front()->receiver_type) + ")");
+  }
+  if (const Symbol* sym = lookup_global_symbol(method_name); sym && sym->try_as<FunctionPtr>()) {
+    fire(cur_f, loc, "method `" + to_string(method_name) + "` not found, but there is a global function named `" + to_string(method_name) + "`\n(a function should be called `foo(arg)`, not `arg.foo()`)");
+  }
+  fire(cur_f, loc, "method `" + to_string(method_name) + "` not found");
+}
+
+// safe version of std::stoi that does not crash on long numbers
+static bool try_parse_string_to_int(std::string_view str, int& out) {
+  auto result = std::from_chars(str.data(), str.data() + str.size(), out);
+  return result.ec == std::errc() && result.ptr == str.data() + str.size();
+}
+
 // helper function: given hint = `Ok<int> | Err<slice>` and struct `Ok`, return `Ok<int>`
 // example: `match (...) { Ok => ... }` we need to deduce `Ok<T>` based on subject
 static TypePtr try_pick_instantiated_generic_from_hint(TypePtr hint, StructPtr lookup_ref) {
@@ -227,6 +252,28 @@ static MethodCallCandidate choose_only_method_to_call(FunctionPtr cur_f, SrcLoca
     }
   }
   fire(cur_f, loc, msg.str());
+}
+
+// given fun `f` and a call `f(a,b,c)`, check that argument count is expected;
+// (parameters may have default values, so it's not as trivial as to compare params and args size)
+void check_arguments_count_at_fun_call(FunctionPtr cur_f, V<ast_function_call> v, FunctionPtr called_f, AnyExprV self_obj) {
+  int delta_self = self_obj != nullptr;
+  int n_arguments = v->get_num_args() + delta_self;
+  int n_max_params = called_f->get_num_params();
+  int n_min_params = n_max_params;
+  while (n_min_params && called_f->get_param(n_min_params - 1).has_default_value()) {
+    n_min_params--;
+  }
+
+  if (!called_f->does_accept_self() && self_obj) {   // static method `Point.create(...)` called as `p.create()`
+    fire(cur_f, v->loc, "method " + to_string(called_f) + " can not be called via dot\n(it's a static method, it does not accept `self`)");
+  }
+  if (n_max_params < n_arguments) {
+    fire(cur_f, v->loc, "too many arguments in call to " + to_string(called_f) + ", expected " + std::to_string(n_max_params - delta_self) + ", have " + std::to_string(n_arguments - delta_self));
+  }
+  if (n_arguments < n_min_params) {
+    fire(cur_f, v->loc, "too few arguments in call to " + to_string(called_f) + ", expected " + std::to_string(n_min_params - delta_self) + ", have " + std::to_string(n_arguments - delta_self));
+  }
 }
 
 /*
@@ -406,6 +453,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
       assign_inferred_type(v, v->var_ref->declared_type);
     } else {
       assign_inferred_type(v, v->type_node ? v->type_node->resolved_type : TypeDataUnknown::create());
+      flow.register_known_type(SinkExpression(v->var_ref), TypeDataUnknown::create());    // it's unknown before assigned
     }
     return ExprFlow(std::move(flow), used_as_condition);
   }
@@ -551,7 +599,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
 
     assign_inferred_type(v, lhs);
 
-    FunctionPtr builtin_sym = lookup_global_symbol("_" + static_cast<std::string>(builtin_func) + "_")->try_as<FunctionPtr>();
+    FunctionPtr builtin_sym = lookup_function("_" + static_cast<std::string>(builtin_func) + "_");
     v->mutate()->assign_fun_ref(builtin_sym);
 
     return ExprFlow(std::move(after_rhs.out_flow), used_as_condition);
@@ -581,7 +629,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
         tolk_assert(false);
     }
 
-    FunctionPtr builtin_sym = lookup_global_symbol(static_cast<std::string>(builtin_func) + "_")->try_as<FunctionPtr>();
+    FunctionPtr builtin_sym = lookup_function(static_cast<std::string>(builtin_func) + "_");
     v->mutate()->assign_fun_ref(builtin_sym);
 
     return after_rhs;
@@ -659,7 +707,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
     }
 
     if (!builtin_func.empty()) {
-      FunctionPtr builtin_sym = lookup_global_symbol("_" + static_cast<std::string>(builtin_func) + "_")->try_as<FunctionPtr>();
+      FunctionPtr builtin_sym = lookup_function("_" + static_cast<std::string>(builtin_func) + "_");
       v->mutate()->assign_fun_ref(builtin_sym);
     }
 
@@ -823,7 +871,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
     // T for asm function must be a TVM primitive (width 1), otherwise, asm would act incorrectly
     if (fun_ref->is_asm_function() || fun_ref->is_builtin_function()) {
       for (int i = 0; i < substitutedTs.size(); ++i) {
-        if (substitutedTs.typeT_at(i)->get_width_on_stack() != 1) {
+        if (substitutedTs.typeT_at(i)->get_width_on_stack() != 1 && !fun_ref->is_variadic_width_T_allowed()) {
           fire_error_calling_asm_function_with_non1_stack_width_arg(cur_f, loc, fun_ref, substitutedTs, i);
         }
       }
@@ -842,6 +890,9 @@ class InferTypesAndCallsAndFieldsVisitor final {
       TypePtr declared_or_smart_casted = flow.smart_cast_if_exists(SinkExpression(var_ref));
       tolk_assert(declared_or_smart_casted != nullptr);   // all local vars are presented in flow
       assign_inferred_type(v, declared_or_smart_casted);
+      if (var_ref->is_lateinit() && declared_or_smart_casted == TypeDataUnknown::create() && v->is_rvalue) {
+        fire_error_using_lateinit_variable_uninitialized(cur_f, v->loc, v->get_name());
+      }
       // it might be `local_var()` also, don't fill out_f_called, we have no fun_ref, it's a call of arbitrary expression
 
     } else if (GlobalConstPtr const_ref = v->sym->try_as<GlobalConstPtr>()) {
@@ -879,7 +930,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
       if (out_f_called) {           // so, it's `globalF()` / `genericFn()` / `genericFn<int>()`
         *out_f_called = fun_ref;    // (it's still may be a generic one, then Ts will be deduced from arguments)
       } else {                      // so, it's `globalF` / `genericFn<int>` as a reference
-        if (fun_ref->is_compile_time_only()) {
+        if (fun_ref->is_compile_time_const_val() || fun_ref->is_compile_time_special_gen()) {
           fire(cur_f, v->loc, "can not get reference to this function, it's compile-time only");
         }
         fun_ref->mutate()->assign_is_used_as_noncall();
@@ -948,7 +999,10 @@ class InferTypesAndCallsAndFieldsVisitor final {
 
     // check for indexed access (`tensorVar.0` / `tupleVar.1`)
     if (!fun_ref && field_name[0] >= '0' && field_name[0] <= '9') {
-      int index_at = std::stoi(std::string(field_name));
+      int index_at;
+      if (!try_parse_string_to_int(field_name, index_at)) {
+        fire(cur_f, v_ident->loc, "invalid numeric index");
+      }
       if (const auto* t_tensor = obj_type->try_as<TypeDataTensor>()) {
         if (index_at >= t_tensor->size()) {
           fire(cur_f, v_ident->loc, "invalid tensor index, expected 0.." + std::to_string(t_tensor->items.size() - 1));
@@ -1008,7 +1062,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
         }
       }
       if (out_f_called) {
-        fire(cur_f, v_ident->loc, "method `" + to_string(v->get_field_name()) + "` not found for type " + to_string(obj_type));
+        fire_error_method_not_found(cur_f, v_ident->loc, dot_obj->inferred_type, v->get_field_name());
       } else {
         fire(cur_f, v_ident->loc, "field `" + static_cast<std::string>(field_name) + "` doesn't exist in type " + to_string(dot_obj));
       }
@@ -1039,7 +1093,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
       *out_f_called = fun_ref;    // (it's still may be a generic one, then Ts will be deduced from arguments)
       *out_dot_obj = dot_obj;
     } else {                      // so, it's `user.method` / `t.tupleAt<int>` as a reference
-      if (fun_ref->is_compile_time_only()) {
+      if (fun_ref->is_compile_time_const_val() || fun_ref->is_compile_time_special_gen()) {
         fire(cur_f, v->get_identifier()->loc, "can not get reference to this method, it's compile-time only");
       }
       fun_ref->mutate()->assign_is_used_as_noncall();
@@ -1087,19 +1141,9 @@ class InferTypesAndCallsAndFieldsVisitor final {
 
     // so, we have a call `f(args)` or `obj.f(args)`, f is fun_ref (function / method) (code / asm / builtin)
     // we're going to iterate over passed arguments, and (if generic) infer substitutedTs
-    // at first, check arguments count (Tolk doesn't have optional parameters, so just compare counts)
+    // at first, check argument count
     int delta_self = self_obj != nullptr;
-    int n_arguments = v->get_num_args() + delta_self;
-    int n_parameters = fun_ref->get_num_params();
-    if (!fun_ref->does_accept_self() && self_obj) {   // static method `Point.create(...)` called as `p.create()`
-      fire(cur_f, v->loc, "method " + to_string(fun_ref) + " can not be called via dot\n(it's a static method, it does not accept `self`)");
-    }
-    if (n_parameters < n_arguments) {
-      fire(cur_f, v->loc, "too many arguments in call to " + to_string(fun_ref) + ", expected " + std::to_string(n_parameters - delta_self) + ", have " + std::to_string(n_arguments - delta_self));
-    }
-    if (n_arguments < n_parameters) {
-      fire(cur_f, v->loc, "too few arguments in call to " + to_string(fun_ref) + ", expected " + std::to_string(n_parameters - delta_self) + ", have " + std::to_string(n_arguments - delta_self));
-    }
+    check_arguments_count_at_fun_call(cur_f, v, fun_ref, self_obj);
 
     // for every passed argument, we need to infer its type
     // for generic functions, we need to infer type arguments (substitutedTs) on the fly
@@ -1154,7 +1198,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
     if (fun_ref->is_generic_function()) {
       // if `f(args)` was called, Ts were inferred; check that all of them are known
       std::string_view nameT_unknown = deducingTs.get_first_not_deduced_nameT();
-      if (!nameT_unknown.empty() && hint && fun_ref->declared_return_type) {
+      if (!nameT_unknown.empty() && hint && !hint->has_genericT_inside() && fun_ref->declared_return_type) {
         // example: `t.tupleFirst()`, T doesn't depend on arguments, but is determined by return type
         // if used like `var x: int = t.tupleFirst()` / `t.tupleFirst() as int` / etc., use hint
         deducingTs.auto_deduce_from_argument(cur_f, v->loc, fun_ref->declared_return_type, hint);
@@ -1220,6 +1264,8 @@ class InferTypesAndCallsAndFieldsVisitor final {
     TypeInferringUnifyStrategy branches_unifier;
     FlowContext arms_entry_facts = flow.clone();
     FlowContext match_out_flow;
+    bool has_expr_arm = false;
+    bool has_else_arm = false;
 
     for (int i = 0; i < v->get_arms_count(); ++i) {
       auto v_arm = v->get_arm(i);
@@ -1245,13 +1291,23 @@ class InferTypesAndCallsAndFieldsVisitor final {
           }
         }
         arm_flow.register_known_type(s_expr, exact_type);
+
+      } else if (v_arm->pattern_kind == MatchArmKind::const_expression) {
+        has_expr_arm = true;
+      } else if (v_arm->pattern_kind == MatchArmKind::else_branch) {
+        has_else_arm = true;
       }
+
       arm_flow = infer_any_expr(v_arm->get_body(), std::move(arm_flow), false, hint).out_flow;
       match_out_flow = i == 0 ? std::move(arm_flow) : FlowContext::merge_flow(std::move(match_out_flow), std::move(arm_flow));
       branches_unifier.unify_with(v_arm->get_body()->inferred_type, hint);
     }
     if (v->get_arms_count() == 0) {
       match_out_flow = std::move(arms_entry_facts);
+    }
+    if (has_expr_arm && !has_else_arm) {
+      FlowContext else_flow = process_any_statement(createV<ast_empty_expression>(v->loc), std::move(arms_entry_facts));
+      match_out_flow = FlowContext::merge_flow(std::move(match_out_flow), std::move(else_flow));
     }
 
     if (v->is_statement()) {
@@ -1592,6 +1648,16 @@ public:
     } else {
       // asm functions should be strictly typed, this was checked earlier
       tolk_assert(fun_ref->declared_return_type);
+    }
+
+    // visit default values of parameters; to correctly track symbols in `fun f(a: int, b: int = a)`, use flow context
+    FlowContext params_flow;
+    for (int i = 0; i < fun_ref->get_num_params(); ++i) {
+      LocalVarPtr param_ref = &fun_ref->get_param(i);
+      if (param_ref->has_default_value()) {
+        params_flow = infer_any_expr(param_ref->default_value, std::move(params_flow), false, param_ref->declared_type).out_flow;
+      }
+      params_flow.register_known_type(SinkExpression(param_ref), param_ref->declared_type);
     }
 
     assign_fun_full_type(fun_ref, inferred_return_type);

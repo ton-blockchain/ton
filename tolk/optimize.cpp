@@ -135,6 +135,35 @@ bool Optimizer::find_const_op(int* op_idx, int cst) {
   return false;
 }
 
+// purpose: transform `65535 THROW` to `PUSHINT` + `THROWANY`;
+// such a technique allows pushing a number onto a stack just before THROW, even if a variable is created in advance;
+// used for `T.fromSlice(s, {code:0xFFFF})`, where `tmp = 0xFFFF` + serialization match + `else throw tmp` is generated;
+// but since it's constant, it transforms to (unused 0xFFFF) + ... + else "65535 THROW", unwrapped here
+bool Optimizer::detect_rewrite_big_THROW() {
+  bool is_throw = op_[0]->is_custom() && op_[0]->op.ends_with(" THROW");
+  if (!is_throw) {
+    return false;
+  }
+
+  std::string_view s_num_throw = op_[0]->op;
+  size_t sp = s_num_throw.find(' ');
+  if (sp != s_num_throw.rfind(' ') || s_num_throw[0] < '1' || s_num_throw[0] > '9') {
+    return false;
+  }
+
+  std::string s_number(s_num_throw.substr(0, sp));
+  uint64_t excno = std::stoul(s_number);
+  if (excno < 2048) {   // "9 THROW" left as is, but "N THROW" where N>=2^11 is invalid for Fift
+    return false;
+  }
+
+  p_ = 1;
+  q_ = 2;
+  oq_[0] = std::make_unique<AsmOp>(AsmOp::IntConst(op_[0]->loc, td::make_refint(excno)));
+  oq_[1] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->loc, "THROWANY", 1, 0));
+  return true;
+}
+
 bool Optimizer::is_push_const(int* i, int* c) const {
   return pb_ >= 3 && pb_ <= l2_ && tr_[pb_ - 1].is_push_const(i, c);
 }
@@ -553,6 +582,7 @@ bool Optimizer::find_at_least(int pb) {
          (is_xchg(&i, &j) && rewrite(AsmOp::Xchg(loc, i, j))) || (is_push(&i) && rewrite(AsmOp::Push(loc, i))) ||
          (is_pop(&i) && rewrite(AsmOp::Pop(loc, i))) || (is_pop_pop(&i, &j) && rewrite(AsmOp::Pop(loc, i), AsmOp::Pop(loc, j))) ||
          (is_xchg_xchg(&i, &j, &k, &l) && rewrite(AsmOp::Xchg(loc, i, j), AsmOp::Xchg(loc, k, l))) ||
+         detect_rewrite_big_THROW() ||
          (!(mode_ & 1) &&
           ((is_rot() && rewrite(AsmOp::Custom(loc, "ROT", 3, 3))) || (is_rotrev() && rewrite(AsmOp::Custom(loc, "-ROT", 3, 3))) ||
            (is_2dup() && rewrite(AsmOp::Custom(loc, "2DUP", 2, 4))) ||

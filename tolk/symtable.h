@@ -49,24 +49,28 @@ struct LocalVarData final : Symbol {
   enum {
     flagMutateParameter = 1,    // parameter was declared with `mutate` keyword
     flagImmutable = 2,          // variable was declared via `val` (not `var`)
+    flagLateInit = 4,           // variable was declared via `lateinit` (not assigned at declaration)
   };
 
   AnyTypeV type_node;               // either at declaration `var x:int`, or if omitted, from assigned value `var x=2`
   TypePtr declared_type = nullptr;  // = resolved type_node
+  AnyExprV default_value = nullptr; // for function parameters, if it has a default value
   int flags;
   int param_idx;                    // 0...N for function parameters, -1 for local vars
   std::vector<int> ir_idx;
 
-  LocalVarData(std::string name, SrcLocation loc, AnyTypeV type_node, int flags, int param_idx)
+  LocalVarData(std::string name, SrcLocation loc, AnyTypeV type_node, AnyExprV default_value, int flags, int param_idx)
     : Symbol(std::move(name), loc)
     , type_node(type_node)
+    , default_value(default_value)
     , flags(flags)
     , param_idx(param_idx) {
   }
-  LocalVarData(std::string name, SrcLocation loc, TypePtr declared_type, int flags, int param_idx)
+  LocalVarData(std::string name, SrcLocation loc, TypePtr declared_type, AnyExprV default_value, int flags, int param_idx)
     : Symbol(std::move(name), loc)
     , type_node(nullptr)         // for built-in functions (their parameters)
     , declared_type(declared_type)
+    , default_value(default_value)
     , flags(flags)
     , param_idx(param_idx) {
   }
@@ -74,12 +78,15 @@ struct LocalVarData final : Symbol {
   bool is_parameter() const { return param_idx >= 0; }
 
   bool is_immutable() const { return flags & flagImmutable; }
+  bool is_lateinit() const { return flags & flagLateInit; }
   bool is_mutate_parameter() const { return flags & flagMutateParameter; }
+  bool has_default_value() const { return default_value != nullptr; }
 
   LocalVarData* mutate() const { return const_cast<LocalVarData*>(this); }
   void assign_ir_idx(std::vector<int>&& ir_idx);
   void assign_resolved_type(TypePtr declared_type);
   void assign_inferred_type(TypePtr inferred_type);
+  void assign_default_value(AnyExprV default_value);
 };
 
 struct FunctionBodyCode;
@@ -109,7 +116,9 @@ struct FunctionData final : Symbol {
     flagAcceptsSelf = 512,      // is a member function (has `self` first parameter)
     flagReturnsSelf = 1024,     // return type is `self` (returns the mutated 1st argument), calls can be chainable
     flagReallyUsed = 2048,      // calculated via dfs from used functions; declared but unused functions are not codegenerated
-    flagCompileTimeOnly = 4096, // calculated only at compile-time for constant arguments: `ton("0.05")`, `stringCrc32`, and others
+    flagCompileTimeVal = 4096,  // calculated only at compile-time for constant arguments: `ton("0.05")`, `stringCrc32`, and others
+    flagCompileTimeGen = 8192,  // at compile-time it's handled specially, not as a regular function: `T.toCell`, etc.
+    flagAllowAnyWidthT = 16384, // for built-in generic functions that <T> is not restricted to be 1-slot type
   };
 
   int tvm_method_id = EMPTY_TVM_METHOD_ID;
@@ -194,7 +203,9 @@ struct FunctionData final : Symbol {
   bool does_return_self() const { return flags & flagReturnsSelf; }
   bool does_mutate_self() const { return (flags & flagAcceptsSelf) && parameters[0].is_mutate_parameter(); }
   bool is_really_used() const { return flags & flagReallyUsed; }
-  bool is_compile_time_only() const { return flags & flagCompileTimeOnly; }
+  bool is_compile_time_const_val() const { return flags & flagCompileTimeVal; }
+  bool is_compile_time_special_gen() const { return flags & flagCompileTimeGen; }
+  bool is_variadic_width_T_allowed() const { return flags & flagAllowAnyWidthT; }
 
   bool does_need_codegen() const;
 
@@ -250,13 +261,8 @@ struct GlobalConstData final : Symbol {
 };
 
 struct AliasDefData final : Symbol {
-  enum {
-    flagVisitedByResolver = 1,
-  };
-
   AnyTypeV underlying_type_node;
   TypePtr underlying_type = nullptr;    // = resolved underlying_type_node
-  int flags = 0;
 
   const GenericsDeclaration* genericTs;
   const GenericsSubstitutions* substitutedTs;
@@ -276,10 +282,7 @@ struct AliasDefData final : Symbol {
   bool is_generic_alias() const { return genericTs != nullptr; }
   bool is_instantiation_of_generic_alias() const { return substitutedTs != nullptr; }
 
-  bool was_visited_by_resolver() const { return flags & flagVisitedByResolver; }
-
   AliasDefData* mutate() const { return const_cast<AliasDefData*>(this); }
-  void assign_visited_by_resolver();
   void assign_resolved_genericTs(const GenericsDeclaration* genericTs);
   void assign_resolved_type(TypePtr underlying_type);
 };
@@ -305,12 +308,26 @@ struct StructFieldData final : Symbol {
 };
 
 struct StructData final : Symbol {
-  enum {
-    flagVisitedByResolver = 1,
+  enum class Overflow1023Policy {     // annotation @overflow1023_policy above a struct
+    not_specified,
+    suppress,
+  };
+
+  struct PackOpcode {
+    int64_t pack_prefix;
+    int prefix_len;
+
+    PackOpcode(int64_t pack_prefix, int prefix_len)
+      : pack_prefix(pack_prefix), prefix_len(prefix_len) {}
+
+    bool exists() const { return prefix_len != 0; }
+
+    std::string format_as_slice() const;    // "x{...}" (or "b{...}")
   };
 
   std::vector<StructFieldPtr> fields;
-  int flags = 0;
+  PackOpcode opcode;
+  Overflow1023Policy overflow1023_policy;
 
   const GenericsDeclaration* genericTs;
   const GenericsSubstitutions* substitutedTs;
@@ -324,15 +341,14 @@ struct StructData final : Symbol {
   bool is_generic_struct() const { return genericTs != nullptr; }
   bool is_instantiation_of_generic_struct() const { return substitutedTs != nullptr; }
 
-  bool was_visited_by_resolver() const { return flags & flagVisitedByResolver; }
-
   StructData* mutate() const { return const_cast<StructData*>(this); }
-  void assign_visited_by_resolver();
   void assign_resolved_genericTs(const GenericsDeclaration* genericTs);
 
-  StructData(std::string name, SrcLocation loc, std::vector<StructFieldPtr>&& fields, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, AnyV ast_root)
+  StructData(std::string name, SrcLocation loc, std::vector<StructFieldPtr>&& fields, PackOpcode opcode, Overflow1023Policy overflow1023_policy, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, AnyV ast_root)
     : Symbol(std::move(name), loc)
     , fields(std::move(fields))
+    , opcode(opcode)
+    , overflow1023_policy(overflow1023_policy)
     , genericTs(genericTs)
     , substitutedTs(substitutedTs)
     , ast_root(ast_root) {
@@ -364,6 +380,8 @@ public:
   void add_type_alias(AliasDefPtr a_sym);
   void add_struct(StructPtr s_sym);
 
+  void replace_function(FunctionPtr f_sym);
+
   const Symbol* lookup(std::string_view name) const {
     const auto it = entries.find(key_hash(name));
     return it == entries.end() ? nullptr : it->second;
@@ -372,5 +390,6 @@ public:
 
 const Symbol* lookup_global_symbol(std::string_view name);
 FunctionPtr lookup_function(std::string_view name);
+std::vector<FunctionPtr> lookup_methods_with_name(std::string_view name);
 
 }  // namespace tolk

@@ -6,5 +6,5 @@ fun main() {
 
 /**
 @compilation_should_fail
-@stderr method `3` not found for type `int`
+@stderr method `3` not found
  */
