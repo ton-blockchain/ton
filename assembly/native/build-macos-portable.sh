@@ -150,7 +150,7 @@ test $? -eq 0 || { echo "Can't configure ton"; exit 1; }
 if [ "$with_tests" = true ]; then
   ninja storage-daemon storage-daemon-cli blockchain-explorer   \
   tonlib tonlibjson tonlib-cli validator-engine func tolk fift \
-  lite-client validator-engine-console generate-random-id json2tlo dht-server \
+  lite-client validator-engine-console generate-random-id json2tlo dht-server dht-ping-servers dht-resolve \
   http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork tlbc emulator \
   test-ed25519 test-bigint test-vm test-fift test-cells test-smartcont \
   test-net test-tdactor test-tdutils test-tonlib-offline test-adnl test-dht test-rldp \
@@ -159,7 +159,7 @@ if [ "$with_tests" = true ]; then
 else
   ninja storage-daemon storage-daemon-cli blockchain-explorer   \
   tonlib tonlibjson tonlib-cli validator-engine func tolk fift \
-  lite-client validator-engine-console generate-random-id json2tlo dht-server \
+  lite-client validator-engine-console generate-random-id json2tlo dht-server dht-ping-servers dht-resolve \
   http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork tlbc emulator proxy-liteserver
   test $? -eq 0 || { echo "Can't compile ton"; exit 1; }
 fi
@@ -184,6 +184,8 @@ if [ "$with_artifacts" = true ]; then
   cp build/http/http-proxy artifacts/
   cp build/rldp-http-proxy/rldp-http-proxy artifacts/
   cp build/dht-server/dht-server artifacts/
+  cp build/dht/dht-ping-servers artifacts/
+  cp build/dht/dht-resolve artifacts/
   cp build/lite-client/lite-client artifacts/
   cp build/validator-engine/validator-engine artifacts/
   cp build/utils/generate-random-id artifacts/
