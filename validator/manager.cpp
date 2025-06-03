@@ -2633,8 +2633,8 @@ td::actor::ActorOwn<ValidatorGroup> ValidatorManagerImpl::create_validator_group
         descr->addr.is_zero() ? ValidatorFullId{descr->key}.compute_short_id().bits256_value() : descr->addr};
     auto G = td::actor::create_actor<ValidatorGroup>(
         PSTRING() << "valgroup" << shard.to_str(), shard, validator_id, session_id, validator_set, key_seqno, opts,
-        keyring_, adnl_, rldp_, overlays_, db_root_, actor_id(this), get_collation_manager(adnl_id), init_session,
-        opts_->check_unsafe_resync_allowed(validator_set->get_catchain_seqno()), opts_,
+        keyring_, adnl_, rldp_, rldp2_, overlays_, db_root_, actor_id(this), get_collation_manager(adnl_id),
+        init_session, opts_->check_unsafe_resync_allowed(validator_set->get_catchain_seqno()), opts_,
         opts_->need_monitor(shard, last_masterchain_state_));
     return G;
   }
