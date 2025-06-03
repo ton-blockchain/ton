@@ -528,11 +528,11 @@ void OutMsgQueueImporter::alarm() {
     td::remove_if(it->second.pending_entries,
                   [](const std::shared_ptr<CacheEntry>& entry) { return entry->done || entry->promises.empty(); });
     if (it->second.timeout.is_in_past()) {
-        if (it->second.pending_entries.empty()) {
-            it = small_cache_.erase(it);
-        } else {
-            ++it;
-        }
+      if (it->second.pending_entries.empty()) {
+        it = small_cache_.erase(it);
+      } else {
+        ++it;
+      }
     } else {
       alarm_timestamp().relax(it->second.timeout);
       ++it;
@@ -571,6 +571,33 @@ void BuildOutMsgQueueProof::abort_query(td::Status reason) {
 }
 
 void BuildOutMsgQueueProof::start_up() {
+  if (blocks_.size() > 16) {
+    abort_query(td::Status::Error("too many blocks"));
+    return;
+  }
+  td::actor::send_closure(manager_, &ValidatorManagerInterface::get_top_masterchain_state,
+                          [SelfId = actor_id(this)](td::Result<Ref<MasterchainState>> R) {
+                            if (R.is_error()) {
+                              td::actor::send_closure(SelfId, &BuildOutMsgQueueProof::abort_query,
+                                                      R.move_as_error_prefix("failed to get masterchain state: "));
+                            } else {
+                              td::actor::send_closure(SelfId, &BuildOutMsgQueueProof::got_masterchain_state,
+                                                      R.move_as_ok());
+                            }
+                          });
+}
+
+void BuildOutMsgQueueProof::got_masterchain_state(Ref<MasterchainState> mc_state) {
+  auto config_limits = mc_state->get_imported_msg_queue_limits(dst_shard_.is_masterchain());
+  if ((td::uint64)config_limits.max_msgs * blocks_.size() < limits_.max_msgs) {
+    abort_query(td::Status::Error("too big max_msgs"));
+    return;
+  }
+  if ((td::uint64)config_limits.max_bytes * blocks_.size() < limits_.max_bytes) {
+    abort_query(td::Status::Error("too big max_bytes"));
+    return;
+  }
+
   for (size_t i = 0; i < blocks_.size(); ++i) {
     BlockIdExt id = blocks_[i].id;
     ++pending;

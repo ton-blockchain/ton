@@ -105,6 +105,7 @@ class BuildOutMsgQueueProof : public td::actor::Actor {
 
   void abort_query(td::Status reason);
   void start_up() override;
+  void got_masterchain_state(Ref<MasterchainState> mc_state);
   void got_state_root(size_t i, Ref<vm::Cell> root);
   void got_block_root(size_t i, Ref<vm::Cell> root);
   void build_proof();

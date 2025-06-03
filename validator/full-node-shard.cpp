@@ -706,14 +706,6 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
     return;
   }
   block::ImportedMsgQueueLimits limits{(td::uint32)query.limits_->max_bytes_, (td::uint32)query.limits_->max_msgs_};
-  if (limits.max_msgs > 512) {
-    promise.set_error(td::Status::Error("max_msgs is too big"));
-    return;
-  }
-  if (limits.max_bytes > (1 << 21)) {
-    promise.set_error(td::Status::Error("max_bytes is too big"));
-    return;
-  }
   FLOG(DEBUG) {
     sb << "Got query getOutMsgQueueProof to shard " << dst_shard.to_str() << " from blocks";
     for (const BlockIdExt &id : blocks) {
