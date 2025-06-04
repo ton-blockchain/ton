@@ -189,7 +189,7 @@ void DownloadShardState::checked_shard_state() {
                             std::move(P));
   } else {
     td::actor::send_closure(manager_, &ValidatorManager::store_persistent_state_file, block_id_, masterchain_block_id_,
-                            std::move(data_), std::move(P));
+                            UnsplitStateType{}, std::move(data_), std::move(P));
   }
 }
 

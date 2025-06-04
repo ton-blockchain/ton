@@ -361,19 +361,20 @@ FileReferenceShort create_persistent_state_id(BlockIdExt block_id, BlockIdExt mc
 
 }  // namespace
 
-void ArchiveManager::add_persistent_state(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::BufferSlice data,
+void ArchiveManager::add_persistent_state(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+                                          PersistentStateType type, td::BufferSlice data,
                                           td::Promise<td::Unit> promise) {
   auto create_writer = [&](std::string path, td::Promise<std::string> P) {
     td::actor::create_actor<db::WriteFile>("writefile", db_root_ + "/archive/tmp/", std::move(path), std::move(data),
                                            std::move(P))
         .release();
   };
-  // TODO: Allow specifying state type.
-  add_persistent_state_impl(create_persistent_state_id(block_id, masterchain_block_id, UnsplitStateType{}),
-                            std::move(promise), std::move(create_writer));
+  add_persistent_state_impl(create_persistent_state_id(block_id, masterchain_block_id, type), std::move(promise),
+                            std::move(create_writer));
 }
 
 void ArchiveManager::add_persistent_state_gen(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+                                              PersistentStateType type,
                                               std::function<td::Status(td::FileFd &)> write_state,
                                               td::Promise<td::Unit> promise) {
   auto create_writer = [&](std::string path, td::Promise<std::string> P) {
@@ -381,9 +382,8 @@ void ArchiveManager::add_persistent_state_gen(BlockIdExt block_id, BlockIdExt ma
                                            std::move(write_state), std::move(P))
         .release();
   };
-  // TODO: Allow specifying state type.
-  add_persistent_state_impl(create_persistent_state_id(block_id, masterchain_block_id, UnsplitStateType{}),
-                            std::move(promise), std::move(create_writer));
+  add_persistent_state_impl(create_persistent_state_id(block_id, masterchain_block_id, type), std::move(promise),
+                            std::move(create_writer));
 }
 
 void ArchiveManager::add_persistent_state_impl(
@@ -450,9 +450,8 @@ void ArchiveManager::get_previous_persistent_state_files(
 }
 
 void ArchiveManager::get_persistent_state(BlockIdExt block_id, BlockIdExt masterchain_block_id,
-                                          td::Promise<td::BufferSlice> promise) {
-  // TODO: Allow specifying state type.
-  auto id = create_persistent_state_id(block_id, masterchain_block_id, UnsplitStateType{});
+                                          PersistentStateType type, td::Promise<td::BufferSlice> promise) {
+  auto id = create_persistent_state_id(block_id, masterchain_block_id, type);
   auto hash = id.hash();
   if (perm_states_.find({masterchain_block_id.seqno(), hash}) == perm_states_.end()) {
     promise.set_error(td::Status::Error(ErrorCode::notready, "state file not in db"));
@@ -463,10 +462,10 @@ void ArchiveManager::get_persistent_state(BlockIdExt block_id, BlockIdExt master
   td::actor::create_actor<db::ReadFile>("readfile", path, 0, -1, 0, std::move(promise)).release();
 }
 
-void ArchiveManager::get_persistent_state_slice(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::int64 offset,
-                                                td::int64 max_size, td::Promise<td::BufferSlice> promise) {
-  // TODO: Allow specifying state type.
-  auto id = create_persistent_state_id(block_id, masterchain_block_id, UnsplitStateType{});
+void ArchiveManager::get_persistent_state_slice(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+                                                PersistentStateType type, td::int64 offset, td::int64 max_size,
+                                                td::Promise<td::BufferSlice> promise) {
+  auto id = create_persistent_state_id(block_id, masterchain_block_id, type);
   auto hash = id.hash();
   if (perm_states_.find({masterchain_block_id.seqno(), hash}) == perm_states_.end()) {
     promise.set_error(td::Status::Error(ErrorCode::notready, "state file not in db"));
@@ -478,9 +477,8 @@ void ArchiveManager::get_persistent_state_slice(BlockIdExt block_id, BlockIdExt 
 }
 
 void ArchiveManager::get_persistent_state_file_size(BlockIdExt block_id, BlockIdExt masterchain_block_id,
-                                                    td::Promise<td::uint64> promise) {
-  // TODO: Allow specifying state type.
-  auto id = create_persistent_state_id(block_id, masterchain_block_id, UnsplitStateType{});
+                                                    PersistentStateType type, td::Promise<td::uint64> promise) {
+  auto id = create_persistent_state_id(block_id, masterchain_block_id, type);
   auto hash = id.hash();
   auto it = perm_states_.find({masterchain_block_id.seqno(), hash});
   if (it == perm_states_.end()) {

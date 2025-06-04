@@ -74,7 +74,7 @@ void DownloadState::start_up() {
   alarm_timestamp() = timeout_;
 
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_persistent_state, block_id_,
-                          masterchain_block_id_,
+                          masterchain_block_id_, UnsplitStateType{},
                           [SelfId = actor_id(this), block_id = block_id_](td::Result<td::BufferSlice> R) {
                             if (R.is_error()) {
                               td::actor::send_closure(SelfId, &DownloadState::get_block_handle);

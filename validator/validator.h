@@ -22,6 +22,7 @@
 #include <deque>
 #include <functional>
 
+#include "interfaces/persistent-state.h"
 #include "td/actor/actor.h"
 
 #include "ton/ton-types.h"
@@ -231,12 +232,13 @@ class ValidatorManagerInterface : public td::actor::Actor {
   virtual void get_block_data(BlockHandle handle, td::Promise<td::BufferSlice> promise) = 0;
   virtual void check_zero_state_exists(BlockIdExt block_id, td::Promise<bool> promise) = 0;
   virtual void get_zero_state(BlockIdExt block_id, td::Promise<td::BufferSlice> promise) = 0;
-  virtual void get_persistent_state_size(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+  virtual void get_persistent_state_size(BlockIdExt block_id, BlockIdExt masterchain_block_id, PersistentStateType type,
                                          td::Promise<td::uint64> promise) = 0;
-  virtual void get_persistent_state(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+  virtual void get_persistent_state(BlockIdExt block_id, BlockIdExt masterchain_block_id, PersistentStateType type,
                                     td::Promise<td::BufferSlice> promise) = 0;
-  virtual void get_persistent_state_slice(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::int64 offset,
-                                          td::int64 max_length, td::Promise<td::BufferSlice> promise) = 0;
+  virtual void get_persistent_state_slice(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+                                          PersistentStateType type, td::int64 offset, td::int64 max_length,
+                                          td::Promise<td::BufferSlice> promise) = 0;
   virtual void get_previous_persistent_state_files(
       BlockSeqno cur_mc_seqno, td::Promise<std::vector<std::pair<std::string, ShardIdFull>>> promise) = 0;
   virtual void get_block_proof(BlockHandle handle, td::Promise<td::BufferSlice> promise) = 0;

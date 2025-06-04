@@ -418,7 +418,7 @@ void AsyncStateSerializer::got_masterchain_state(td::Ref<MasterchainState> state
   });
 
   td::actor::send_closure(manager_, &ValidatorManager::store_persistent_state_file_gen, masterchain_handle_->id(),
-                          masterchain_handle_->id(), write_data, std::move(P));
+                          masterchain_handle_->id(), UnsplitStateType{}, write_data, std::move(P));
 
   current_status_ = PSTRING() << "serializing masterchain state " << state->get_block_id().id.to_str();
   current_status_ts_ = td::Timestamp::now();
@@ -488,7 +488,7 @@ void AsyncStateSerializer::got_shard_state(BlockHandle handle, td::Ref<ShardStat
     td::actor::send_closure(SelfId, &AsyncStateSerializer::success_handler);
   });
   td::actor::send_closure(manager_, &ValidatorManager::store_persistent_state_file_gen, handle->id(),
-                          masterchain_handle_->id(), write_data, std::move(P));
+                          masterchain_handle_->id(), UnsplitStateType{}, write_data, std::move(P));
   current_status_ = PSTRING() << "serializing shard state " << next_idx_ << "/" << shards_.size() << " "
                               << state->get_block_id().id.to_str();
   current_status_ts_ = td::Timestamp::now();
