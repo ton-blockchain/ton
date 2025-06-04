@@ -22,4 +22,7 @@ target_include_directories(pack-viewer PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_
 add_executable(proxy-liteserver proxy-liteserver.cpp)
 target_link_libraries(proxy-liteserver tdutils tdactor adnl dht tl_api ton_crypto git lite-client-common)
 
+add_executable(prepare-ls-slice-config prepare-ls-slice-config.cpp)
+target_link_libraries(prepare-ls-slice-config tdutils tdactor adnl dht tl_api ton_crypto git lite-client-common)
+
 install(TARGETS generate-random-id proxy-liteserver RUNTIME DESTINATION bin)
