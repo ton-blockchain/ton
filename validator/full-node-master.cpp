@@ -291,6 +291,12 @@ void FullNodeMasterImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNo
                           masterchain_block_id, UnsplitStateType{}, std::move(P));
 }
 
+void FullNodeMasterImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getPersistentStateSize &query,
+                                       td::Promise<td::BufferSlice> promise) {
+  auto query_v2 = create_tl_object<ton_api::tonNode_getPersistentStateSizeV2>(persistent_state_id_from_v1_query(query));
+  return process_query(src, *query_v2, std::move(promise));
+}
+
 void FullNodeMasterImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getNextKeyBlockIds &query,
                                        td::Promise<td::BufferSlice> promise) {
   auto cnt = static_cast<td::uint32>(query.max_size_);
@@ -351,6 +357,13 @@ void FullNodeMasterImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNo
                           masterchain_block_id, UnsplitStateType{}, std::move(P));
 }
 
+void FullNodeMasterImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadPersistentStateSlice &query,
+                                       td::Promise<td::BufferSlice> promise) {
+  auto query_v2 = create_tl_object<ton_api::tonNode_downloadPersistentStateSliceV2>(
+      persistent_state_id_from_v1_query(query), query.offset_, query.max_size_);
+  return process_query(src, *query_v2, std::move(promise));
+}
+
 void FullNodeMasterImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getCapabilities &query,
                                        td::Promise<td::BufferSlice> promise) {
   promise.set_value(
@@ -402,7 +415,8 @@ void FullNodeMasterImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNo
   promise.set_value(create_serialize_tl_object<ton_api::tonNode_success>());
 }
 
-void FullNodeMasterImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadPersistentStateSlice &query,
+void FullNodeMasterImpl::process_query(adnl::AdnlNodeIdShort src,
+                                       ton_api::tonNode_downloadPersistentStateSliceV2 &query,
                                        td::Promise<td::BufferSlice> promise) {
   auto P = td::PromiseCreator::lambda(
       [SelfId = actor_id(this), promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
@@ -413,13 +427,12 @@ void FullNodeMasterImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNo
 
         promise.set_value(R.move_as_ok());
       });
-  auto block_id = create_block_id(query.block_);
-  auto masterchain_block_id = create_block_id(query.masterchain_block_);
+  auto [block_id, mc_block_id, state_type] = persistent_state_from_v2_query(query);
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_persistent_state_slice, block_id,
-                          masterchain_block_id, UnsplitStateType{}, query.offset_, query.max_size_, std::move(P));
+                          mc_block_id, state_type, query.offset_, query.max_size_, std::move(P));
 }
 
-void FullNodeMasterImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getPersistentStateSize &query,
+void FullNodeMasterImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getPersistentStateSizeV2 &query,
                                        td::Promise<td::BufferSlice> promise) {
   auto P = td::PromiseCreator::lambda(
       [SelfId = actor_id(this), promise = std::move(promise)](td::Result<td::uint64> R) mutable {
@@ -429,10 +442,9 @@ void FullNodeMasterImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNo
           promise.set_value(create_serialize_tl_object<ton_api::tonNode_persistentStateSize>(R.move_as_ok()));
         }
       });
-  auto block_id = create_block_id(query.block_);
-  auto masterchain_block_id = create_block_id(query.masterchain_block_);
+  auto [block_id, mc_block_id, state_type] = persistent_state_from_v2_query(query);
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_persistent_state_size, block_id,
-                          masterchain_block_id, UnsplitStateType{}, std::move(P));
+                          mc_block_id, state_type, std::move(P));
 }
 
 void FullNodeMasterImpl::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice query,
