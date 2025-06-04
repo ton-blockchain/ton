@@ -106,6 +106,16 @@ std::string ZeroStateShort::filename_short() const {
   return PSTRING() << "zerostate_" << workchain << "_" << hash().to_hex();
 }
 
+std::string SplitAccountState::filename_short() const {
+  return PSTRING() << "stateaccount_" << masterchain_seqno << "_" << shard_id.workchain << "_"
+                   << shard_to_str(shard_id.shard) << "_" << shard_to_str(effective_shard) << "_" << hash().to_hex();
+}
+
+std::string SplitPersistentState::filename_short() const {
+  return PSTRING() << "statesplit_" << masterchain_seqno << "_" << shard_id.workchain << "_"
+                   << shard_to_str(shard_id.shard) << "_" << hash().to_hex();
+}
+
 PersistentStateShort PersistentState::shortref() const {
   return PersistentStateShort{block_id.shard_full(), masterchain_block_id.seqno(), hash()};
 }
@@ -288,6 +298,24 @@ ShardIdFull FileReferenceShort::shard() const {
   return h;
 }
 
+BlockSeqno FileReferenceShort::seqno_of_persistent_state() const {
+  BlockSeqno result;
+  ref_.visit(td::overloaded([&](const fileref::PersistentStateShort& x) { result = x.masterchain_seqno; },
+                            [&](const fileref::SplitAccountState& x) { result = x.masterchain_seqno; },
+                            [&](const fileref::SplitPersistentState& x) { result = x.masterchain_seqno; },
+                            [&](const fileref::ZeroStateShort) { result = 0; }, [&](const auto&) { CHECK(false); }));
+  return result;
+}
+
+bool FileReferenceShort::is_state_like() const {
+  bool result = false;
+  ref_.visit(td::overloaded([&](const fileref::PersistentStateShort& x) { result = true; },
+                            [&](const fileref::SplitAccountState& x) { result = true; },
+                            [&](const fileref::SplitPersistentState& x) { result = true; },
+                            [&](const fileref::ZeroStateShort) { result = true; }, [&](const auto&) {}));
+  return result;
+}
+
 std::string FileReference::filename() const {
   std::string h;
   ref_.visit([&](const auto& obj) { h = obj.filename(); });
@@ -420,6 +448,35 @@ td::Result<FileReferenceShort> FileReferenceShort::create(std::string filename) 
     } else {
       return td::Status::Error(ErrorCode::protoviolation, "too big file name");
     }
+  } else if (token == "stateaccount") {
+    std::getline(ss, token, '_');
+    TRY_RESULT(masterchain_seqno, td::to_integer_safe<BlockSeqno>(token));
+    std::getline(ss, token, '_');
+    TRY_RESULT(workchain, td::to_integer_safe<WorkchainId>(token));
+    std::getline(ss, token, '_');
+    TRY_RESULT(shard, td::hex_to_integer_safe<ShardId>(token));
+    std::getline(ss, token, '_');
+    TRY_RESULT(effective_shard, td::hex_to_integer_safe<ShardId>(token));
+    TRY_RESULT(vhash, get_token_hash(ss));
+    if (!ss.eof()) {
+      return td::Status::Error(ErrorCode::protoviolation, "too big file name");
+    }
+    if (!shard_is_proper_ancestor(shard, effective_shard)) {
+      return td::Status::Error(ErrorCode::protoviolation, "shard is not a proper ancestor of effective shard");
+    }
+    return fileref::SplitAccountState{ShardIdFull{workchain, shard}, effective_shard, masterchain_seqno, vhash};
+  } else if (token == "statesplit") {
+    std::getline(ss, token, '_');
+    TRY_RESULT(masterchain_seqno, td::to_integer_safe<BlockSeqno>(token));
+    std::getline(ss, token, '_');
+    TRY_RESULT(workchain, td::to_integer_safe<WorkchainId>(token));
+    std::getline(ss, token, '_');
+    TRY_RESULT(shard, td::hex_to_integer_safe<ShardId>(token));
+    TRY_RESULT(vhash, get_token_hash(ss));
+    if (!ss.eof()) {
+      return td::Status::Error(ErrorCode::protoviolation, "too big file name");
+    }
+    return fileref::SplitPersistentState{ShardIdFull{workchain, shard}, masterchain_seqno, vhash};
   } else if (token == "state") {
     std::getline(ss, token, '_');
     TRY_RESULT(masterchain_seqno, td::to_integer_safe<BlockSeqno>(token));

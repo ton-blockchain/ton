@@ -110,8 +110,77 @@ class ZeroState {
   BlockIdExt block_id;
 };
 
+class SplitAccountState {
+ public:
+  static SplitAccountState create(BlockIdExt block_id, BlockIdExt masterchain_block_id, ShardId effective_shard) {
+    auto hash = create_hash_tl_object<ton_api::db_filedb_key_splitAccountStateFile>(
+        create_tl_block_id(block_id), create_tl_block_id(masterchain_block_id), effective_shard);
+
+    return {
+        .shard_id = block_id.shard_full(),
+        .effective_shard = effective_shard,
+        .masterchain_seqno = masterchain_block_id.seqno(),
+        .hashv = hash,
+    };
+  }
+
+  FileHash hash() const {
+    return hashv;
+  }
+
+  ShardIdFull shard() const {
+    return {shard_id.workchain, effective_shard};
+  }
+
+  std::string filename_short() const;
+
+  ShardIdFull shard_id;
+  ShardId effective_shard;
+  BlockSeqno masterchain_seqno;
+  FileHash hashv;
+};
+
+class SplitPersistentState {
+ public:
+  static SplitPersistentState create(BlockIdExt block_id, BlockIdExt masterchain_block_id) {
+    auto hash = create_hash_tl_object<ton_api::db_filedb_key_splitPersistentStateFile>(
+        create_tl_block_id(block_id), create_tl_block_id(masterchain_block_id));
+
+    return {
+        .shard_id = block_id.shard_full(),
+        .masterchain_seqno = masterchain_block_id.seqno(),
+        .hashv = hash,
+    };
+  }
+
+  FileHash hash() const {
+    return hashv;
+  }
+
+  ShardIdFull shard() const {
+    return shard_id;
+  }
+
+  std::string filename_short() const;
+
+  ShardIdFull shard_id;
+  BlockSeqno masterchain_seqno;
+  FileHash hashv;
+};
+
 class PersistentStateShort {
  public:
+  static PersistentStateShort create(BlockIdExt block_id, BlockIdExt masterchain_block_id) {
+    auto hash = create_hash_tl_object<ton_api::db_filedb_key_persistentStateFile>(
+        create_tl_block_id(block_id), create_tl_block_id(masterchain_block_id));
+
+    return {
+        .shard_id = block_id.shard_full(),
+        .masterchain_seqno = masterchain_block_id.seqno(),
+        .hashv = hash,
+    };
+  }
+
   FileHash hash() const {
     return hashv;
   }
@@ -346,9 +415,10 @@ class BlockInfo {
 
 class FileReferenceShort {
  private:
-  td::Variant<fileref::Empty, fileref::BlockShort, fileref::ZeroStateShort, fileref::PersistentStateShort,
-              fileref::ProofShort, fileref::ProofShort, fileref::ProofLinkShort, fileref::SignaturesShort,
-              fileref::CandidateShort, fileref::CandidateRefShort, fileref::BlockInfoShort>
+  td::Variant<fileref::Empty, fileref::BlockShort, fileref::ZeroStateShort, fileref::SplitAccountState,
+              fileref::SplitPersistentState, fileref::PersistentStateShort, fileref::ProofShort, fileref::ProofShort,
+              fileref::ProofLinkShort, fileref::SignaturesShort, fileref::CandidateShort, fileref::CandidateRefShort,
+              fileref::BlockInfoShort>
       ref_;
 
  public:
@@ -366,6 +436,8 @@ class FileReferenceShort {
 
   td::Bits256 hash() const;
   ShardIdFull shard() const;
+  BlockSeqno seqno_of_persistent_state() const;
+  bool is_state_like() const;
   std::string filename_short() const;
 };
 
