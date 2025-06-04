@@ -561,10 +561,13 @@ void CellDbIn::store_block_state_permanent_bulk(std::vector<td::Ref<BlockData>> 
       new_blocks, async_executor,
       [this, SelfId = actor_id(this), timer = std::move(timer), timer_prepare = std::move(timer_prepare),
        promise = std::move(promise)](td::Result<std::vector<PermanentCellDbUpdate>> R) mutable {
-        TRY_RESULT_PROMISE(promise, updates, std::move(R));
         td::actor::send_lambda_later(
-            SelfId, [=, this, timer = std::move(timer), timer_prepare = std::move(timer_prepare),
-                     updates = std::move(updates), promise = std::move(promise)]() mutable {
+            SelfId, [=, this, timer = std::move(timer), timer_prepare = std::move(timer_prepare), R = std::move(R),
+                     promise = std::move(promise)]() mutable {
+              SCOPE_EXIT {
+                release_db();
+              };
+              TRY_RESULT_PROMISE(promise, updates, std::move(R));
               TD_PERF_COUNTER(celldb_store_cell_multi);
               timer_prepare.pause();
               td::Timer timer_write;
@@ -608,7 +611,6 @@ void CellDbIn::store_block_state_permanent_bulk(std::vector<td::Ref<BlockData>> 
                 cell_db_statistics_.store_cell_bulk_queries_++;
                 cell_db_statistics_.store_cell_bulk_total_blocks_ += updates.size();
               }
-              release_db();
               promise.set_result(td::Unit());
             });
       });
