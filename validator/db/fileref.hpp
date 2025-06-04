@@ -382,7 +382,6 @@ class FileReference {
   }
   FileReference() : ref_(fileref::Empty{}) {
   }
-  FileReference(tl_object_ptr<ton_api::db_filedb_Key> key);
 
   static td::Result<FileReference> create(std::string filename);
 

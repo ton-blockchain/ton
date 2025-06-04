@@ -258,37 +258,6 @@ std::string BlockInfoShort::filename_short() const {
 
 }  // namespace fileref
 
-FileReference::FileReference(tl_object_ptr<ton_api::db_filedb_Key> key) {
-  ton_api::downcast_call(
-      *key.get(),
-      td::overloaded(
-          [&](const ton_api::db_filedb_key_empty& key) { ref_ = fileref::Empty{}; },
-          [&](const ton_api::db_filedb_key_blockFile& key) { ref_ = fileref::Block{create_block_id(key.block_id_)}; },
-          [&](const ton_api::db_filedb_key_zeroStateFile& key) {
-            ref_ = fileref::ZeroState{create_block_id(key.block_id_)};
-          },
-          [&](const ton_api::db_filedb_key_persistentStateFile& key) {
-            ref_ = fileref::PersistentState{create_block_id(key.block_id_), create_block_id(key.masterchain_block_id_)};
-          },
-          [&](const ton_api::db_filedb_key_proof& key) { ref_ = fileref::Proof{create_block_id(key.block_id_)}; },
-          [&](const ton_api::db_filedb_key_proofLink& key) {
-            ref_ = fileref::ProofLink{create_block_id(key.block_id_)};
-          },
-          [&](const ton_api::db_filedb_key_signatures& key) {
-            ref_ = fileref::Signatures{create_block_id(key.block_id_)};
-          },
-          [&](const ton_api::db_filedb_key_candidate& key) {
-            ref_ = fileref::Candidate{PublicKey{key.id_->source_}, create_block_id(key.id_->id_),
-                                      key.id_->collated_data_file_hash_};
-          },
-          [&](const ton_api::db_filedb_key_candidateRef& key) {
-            ref_ = fileref::CandidateRef{create_block_id(key.id_)};
-          },
-          [&](const ton_api::db_filedb_key_blockInfo& key) {
-            ref_ = fileref::BlockInfo{create_block_id(key.block_id_)};
-          }));
-}
-
 FileReferenceShort FileReference::shortref() const {
   FileReferenceShort h;
   ref_.visit([&](const auto& obj) { h = obj.shortref(); });
