@@ -54,6 +54,7 @@ std::vector<var_idx_t> pre_compile_expr(AnyExprV v, CodeBlob& code, TypePtr targ
 std::vector<var_idx_t> pre_compile_symbol(SrcLocation loc, const Symbol* sym, CodeBlob& code, LValContext* lval_ctx);
 void process_any_statement(AnyV v, CodeBlob& code);
 
+static AnyV stmt_before_immediate_return = nullptr;
 
 // The goal of VarsModificationWatcher is to detect such cases: `return (x, x += y, x)`.
 // Without any changes, ops will be { _Call $2 = +($0_x, $1_y); _Return $0_x, $2, $0_x } - incorrect
@@ -1236,6 +1237,9 @@ static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v
     code.push_set_cur(if_op.block0);
     if (v->is_statement()) {
       pre_compile_expr(v_ith_arm->get_body(), code);
+      if (v == stmt_before_immediate_return) {
+        code.emplace_back(v_ith_arm->loc, Op::_Return);
+      }
     } else {
       std::vector<var_idx_t> arm_ir_idx = pre_compile_expr(v_ith_arm->get_body(), code, v->inferred_type);
       code.emplace_back(v->loc, Op::_Let, result_ir_idx, std::move(arm_ir_idx));
@@ -1249,6 +1253,9 @@ static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v
     auto v_last_arm = v->get_arm(n_arms - 1);
     if (v->is_statement()) {
       pre_compile_expr(v_last_arm->get_body(), code);
+      if (v == stmt_before_immediate_return) {
+        code.emplace_back(v_last_arm->loc, Op::_Return);
+      }
     } else {
       std::vector<var_idx_t> arm_ir_idx = pre_compile_expr(v_last_arm->get_body(), code, v->inferred_type);
       code.emplace_back(v->loc, Op::_Let, result_ir_idx, std::move(arm_ir_idx));
@@ -1743,9 +1750,30 @@ std::vector<var_idx_t> pre_compile_expr(AnyExprV v, CodeBlob& code, TypePtr targ
 
 
 static void process_block_statement(V<ast_block_statement> v, CodeBlob& code) {
-  for (AnyV item : v->get_items()) {
-    process_any_statement(item, code);
+  if (v->empty()) {
+    return;
   }
+
+  FunctionPtr cur_f = code.fun_ref;
+  bool does_f_return_nothing = cur_f->inferred_return_type == TypeDataVoid::create() && !cur_f->does_return_self() && !cur_f->has_mutate_params();
+  bool is_toplevel_block = v == cur_f->ast_root->as<ast_function_declaration>()->get_body();
+
+  // we want to optimize `match` and `if/else`: if it's the last statement, implicitly add "return" to every branch
+  // (to generate IFJMP instead of nested IF ELSE);
+  // a competent way is to do it at the IR level (building CST, etc.), it's impossible to tweak Ops for now;
+  // so, for every `f() { here }` of `... here; return;`, save it into a global, and handle within match/if
+  AnyV backup = stmt_before_immediate_return;
+  for (int i = 0; i < v->size() - 1; ++i) {
+    AnyV stmt = v->get_item(i);
+    AnyV next_stmt = v->get_item(i + 1);
+    bool next_is_empty_return = next_stmt->kind == ast_return_statement && !next_stmt->as<ast_return_statement>()->has_return_value();
+    stmt_before_immediate_return = next_is_empty_return && does_f_return_nothing ? stmt : nullptr;
+    process_any_statement(stmt, code);
+  }
+  AnyV last_stmt = v->get_item(v->size() - 1);
+  stmt_before_immediate_return = is_toplevel_block && does_f_return_nothing ? last_stmt : nullptr;
+  process_any_statement(last_stmt, code);
+  stmt_before_immediate_return = backup;
 }
 
 static void process_assert_statement(V<ast_assert_statement> v, CodeBlob& code) {
@@ -1817,9 +1845,15 @@ static void process_if_statement(V<ast_if_statement> v, CodeBlob& code) {
   Op& if_op = code.emplace_back(v->loc, Op::_If, std::move(cond));
   code.push_set_cur(if_op.block0);
   process_any_statement(v->get_if_body(), code);
+  if (v == stmt_before_immediate_return) {
+    code.emplace_back(v->get_if_body()->loc_end, Op::_Return);
+  }
   code.close_pop_cur(v->get_if_body()->loc_end);
   code.push_set_cur(if_op.block1);
   process_any_statement(v->get_else_body(), code);
+  if (v == stmt_before_immediate_return) {
+    code.emplace_back(v->get_else_body()->loc_end, Op::_Return);
+  }
   code.close_pop_cur(v->get_else_body()->loc_end);
   if (v->is_ifnot) {
     std::swap(if_op.block0, if_op.block1);
@@ -1978,9 +2012,7 @@ static void convert_function_body_to_CodeBlob(FunctionPtr fun_ref, FunctionBodyC
   blob->in_var_cnt = blob->var_cnt;
   tolk_assert(blob->var_cnt == total_arg_width);
 
-  for (AnyV item : v_body->get_items()) {
-    process_any_statement(item, *blob);
-  }
+  process_block_statement(v_body, *blob);
   append_implicit_return_statement(v_body->loc_end, *blob);
 
   blob->close_blk(v_body->loc_end);
