@@ -535,6 +535,7 @@ fun test47() {
     return (checkSimple(1), checkSimple(beginCell().endCell().beginParse()), checkSimple(100), checkSimple(beginCell()));
 }
 
+@noinline
 fun checkGeneric3<T1, T2, T3>(a: T1 | T2 | T3): (int, T1 | T2?) {
     var vv: T1? = match (a) { T1 => a, T2 => null, T3 => null };
     return match (a) {

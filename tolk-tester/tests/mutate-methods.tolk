@@ -1,17 +1,21 @@
+@noinline
 fun incrementInPlace(mutate x: int, byValue: int): void {
     x = x + byValue;
 }
 
+@noinline
 fun int.incrementInPlace(mutate self, byValue: int): void {
     self = self + byValue;
 }
 
+@noinline
 fun incrementTwoInPlace(mutate x: int, mutate y: int, byValue: int): int {
     x.incrementInPlace(byValue);
     y += byValue;
     return x + y;
 }
 
+@noinline
 fun int.incrementTwoInPlace(mutate self, mutate y: int, byValue: int): int {
     self.incrementInPlace(byValue);
     y += byValue;
@@ -40,6 +44,7 @@ fun testIncrement2() {
 }
 
 
+@noinline
 fun load_next(mutate cs: slice): int {
     return cs.loadInt(32);
 }

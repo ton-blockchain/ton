@@ -337,6 +337,32 @@ public:
   }
 };
 
+// when a call to `f()` was inlined, f's body was processed, leaving some state
+// that should be cleared upon next inlining;
+// for instance, ir_idx of local variables point to caller (where f was inlined)
+class ClearStateAfterInlineInPlace final : public ASTVisitorFunctionBody {
+  void visit(V<ast_local_var_lhs> v) override {
+    if (!v->marked_as_redef) {
+      v->var_ref->mutate()->assign_ir_idx({});
+    }
+  }
+
+public:
+  bool should_visit_function(FunctionPtr fun_ref) override {
+    tolk_assert(false);
+  }
+
+  void start_visiting_function(FunctionPtr fun_ref, V<ast_function_declaration> v_function) override {
+    tolk_assert(fun_ref->is_inlined_in_place());
+
+    for (int i = 0; i < fun_ref->get_num_params(); ++i) {
+      fun_ref->get_param(i).mutate()->assign_ir_idx({});
+    }
+
+    parent::visit(v_function->get_body());
+  }
+};
+
 // given `{some_expr}!`, return some_expr
 static AnyExprV unwrap_not_null_operator(AnyExprV v) {
   while (auto v_notnull = v->try_as<ast_not_null_operator>()) {
@@ -607,6 +633,54 @@ static std::vector<var_idx_t> gen_compile_time_code_instead_of_fun_call(CodeBlob
   }
 
   tolk_assert(false);
+}
+
+static std::vector<var_idx_t> gen_inline_fun_call_in_place(CodeBlob& code, TypePtr ret_type, V<ast_function_call> v_call, const std::vector<std::vector<var_idx_t>>& vars_per_arg) {
+  FunctionPtr fun_ref = v_call->fun_maybe;
+  tolk_assert(vars_per_arg.size() == fun_ref->parameters.size());
+  for (int i = 0; i < fun_ref->get_num_params(); ++i) {
+    const LocalVarData& param_i = fun_ref->get_param(i);
+    if (!param_i.is_used_as_lval() && !param_i.is_mutate_parameter()) {
+      // if param used for reading only, pass the same ir_idx as for an argument
+      // it decreases number of tmp variables and leads to better optimizations
+      // (being honest, it's quite strange that copy+LET may lead to more stack permutations)
+      param_i.mutate()->assign_ir_idx(std::vector(vars_per_arg[i]));
+    } else {
+      std::vector<var_idx_t> ith_param = code.create_var(param_i.declared_type, v_call->loc, param_i.name);
+      code.emplace_back(v_call->loc, Op::_Let, ith_param, vars_per_arg[i]);
+      param_i.mutate()->assign_ir_idx(std::move(ith_param));
+    }
+  }
+
+  std::vector<var_idx_t> rvect_call = code.create_tmp_var(ret_type, v_call->loc, "(inlined-return)");
+  std::vector<var_idx_t>* backup_outer_inline = code.inline_rvect_out;
+  FunctionPtr backup_cur_fun = code.fun_ref;
+  bool backup_inline_before_return = code.inlining_before_immediate_return;
+  code.inline_rvect_out = &rvect_call;
+  code.inlining_before_immediate_return = stmt_before_immediate_return == v_call;
+  code.fun_ref = fun_ref;
+
+  auto v_ast_root = fun_ref->ast_root->as<ast_function_declaration>();
+  auto v_block = v_ast_root->get_body()->as<ast_block_statement>();
+  process_any_statement(v_block, code);
+
+  if (fun_ref->has_mutate_params() && fun_ref->inferred_return_type == TypeDataVoid::create()) {
+    std::vector<var_idx_t> mutated_vars;
+    for (const LocalVarData& p_sym: fun_ref->parameters) {
+      if (p_sym.is_mutate_parameter()) {
+        mutated_vars.insert(mutated_vars.end(), p_sym.ir_idx.begin(), p_sym.ir_idx.end());
+      }
+    }
+    code.emplace_back(v_call->loc, Op::_Let, rvect_call, std::move(mutated_vars));
+  }
+
+  ClearStateAfterInlineInPlace visitor;
+  visitor.start_visiting_function(fun_ref, v_ast_root);
+
+  code.fun_ref = backup_cur_fun;
+  code.inline_rvect_out = backup_outer_inline;
+  code.inlining_before_immediate_return = backup_inline_before_return;
+  return rvect_call;
 }
 
 // "Transition to target (runtime) type" is the following process.
@@ -1468,9 +1542,14 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
   for (const std::vector<var_idx_t>& list : vars_per_arg) {
     args_vars.insert(args_vars.end(), list.cbegin(), list.cend());
   }
-  std::vector<var_idx_t> rvect_apply = fun_ref->is_compile_time_special_gen()
-      ? gen_compile_time_code_instead_of_fun_call(code, v->loc, vars_per_arg, fun_ref)
-      : gen_op_call(code, op_call_type, v->loc, std::move(args_vars), fun_ref, "(fun-call)", arg_order_already_equals_asm);
+  std::vector<var_idx_t> rvect_call;
+  if (fun_ref->is_compile_time_special_gen()) {
+    rvect_call = gen_compile_time_code_instead_of_fun_call(code, v->loc, vars_per_arg, fun_ref);
+  } else if (fun_ref->is_inlined_in_place() && fun_ref->is_code_function()) {
+    rvect_call = gen_inline_fun_call_in_place(code, op_call_type, v, vars_per_arg);
+  } else {
+    rvect_call = gen_op_call(code, op_call_type, v->loc, std::move(args_vars), fun_ref, "(fun-call)", arg_order_already_equals_asm);
+  }
 
   if (fun_ref->has_mutate_params()) {
     LValContext local_lval;
@@ -1491,20 +1570,20 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
     std::vector<var_idx_t> rvect = code.create_tmp_var(real_ret_type, v->loc, "(fun-call)");
     left.insert(left.end(), rvect.begin(), rvect.end());
     vars_modification_watcher.trigger_callbacks(left, v->loc);
-    code.emplace_back(v->loc, Op::_Let, left, rvect_apply);
+    code.emplace_back(v->loc, Op::_Let, left, rvect_call);
     local_lval.after_let(std::move(left), code, v->loc);
-    rvect_apply = rvect;
+    rvect_call = rvect;
   }
 
   if (obj_leftmost && fun_ref->does_return_self()) {
     if (obj_leftmost->is_lvalue) {    // to handle if obj is global var, potentially re-assigned inside a chain
-      rvect_apply = pre_compile_expr(obj_leftmost, code, nullptr);
+      rvect_call = pre_compile_expr(obj_leftmost, code, nullptr);
     } else {                          // temporary object, not lvalue, pre_compile_expr
-      rvect_apply = vars_per_arg[asm_self_idx];
+      rvect_call = vars_per_arg[asm_self_idx];
     }
   }
 
-  return transition_to_target_type(std::move(rvect_apply), code, target_type, v);
+  return transition_to_target_type(std::move(rvect_call), code, target_type, v);
 }
 
 static std::vector<var_idx_t> process_braced_expression(V<ast_braced_expression> v, CodeBlob& code, TypePtr target_type) {
@@ -1772,6 +1851,7 @@ static void process_block_statement(V<ast_block_statement> v, CodeBlob& code) {
   FunctionPtr cur_f = code.fun_ref;
   bool does_f_return_nothing = cur_f->inferred_return_type == TypeDataVoid::create() && !cur_f->does_return_self() && !cur_f->has_mutate_params();
   bool is_toplevel_block = v == cur_f->ast_root->as<ast_function_declaration>()->get_body();
+  bool inlining_doesnt_prevent = code.inline_rvect_out == nullptr || code.inlining_before_immediate_return;
 
   // we want to optimize `match` and `if/else`: if it's the last statement, implicitly add "return" to every branch
   // (to generate IFJMP instead of nested IF ELSE);
@@ -1782,11 +1862,11 @@ static void process_block_statement(V<ast_block_statement> v, CodeBlob& code) {
     AnyV stmt = v->get_item(i);
     AnyV next_stmt = v->get_item(i + 1);
     bool next_is_empty_return = next_stmt->kind == ast_return_statement && !next_stmt->as<ast_return_statement>()->has_return_value();
-    stmt_before_immediate_return = next_is_empty_return && does_f_return_nothing ? stmt : nullptr;
+    stmt_before_immediate_return = next_is_empty_return && does_f_return_nothing && inlining_doesnt_prevent ? stmt : nullptr;
     process_any_statement(stmt, code);
   }
   AnyV last_stmt = v->get_item(v->size() - 1);
-  stmt_before_immediate_return = is_toplevel_block && does_f_return_nothing ? last_stmt : nullptr;
+  stmt_before_immediate_return = is_toplevel_block && does_f_return_nothing && inlining_doesnt_prevent ? last_stmt : nullptr;
   process_any_statement(last_stmt, code);
   stmt_before_immediate_return = backup;
 }
@@ -1941,25 +2021,35 @@ static void process_throw_statement(V<ast_throw_statement> v, CodeBlob& code) {
 }
 
 static void process_return_statement(V<ast_return_statement> v, CodeBlob& code) {
-  TypePtr child_target_type = code.fun_ref->inferred_return_type;
-  if (code.fun_ref->does_return_self()) {
-    child_target_type = code.fun_ref->parameters[0].declared_type;
+  // it's a function we're traversing AST of;
+  // probably, it's called and inlined into another (outer) function, we handle this below
+  FunctionPtr fun_ref = code.fun_ref;
+
+  TypePtr child_target_type = fun_ref->inferred_return_type;
+  if (fun_ref->does_return_self()) {
+    child_target_type = fun_ref->parameters[0].declared_type;
   }
   std::vector<var_idx_t> return_vars = pre_compile_expr(v->get_return_value(), code, child_target_type);
 
-  if (code.fun_ref->does_return_self()) {
+  if (fun_ref->does_return_self()) {
     return_vars = {};
   }
-  if (code.fun_ref->has_mutate_params()) {
+  if (fun_ref->has_mutate_params()) {
     std::vector<var_idx_t> mutated_vars;
-    for (const LocalVarData& p_sym: code.fun_ref->parameters) {
+    for (const LocalVarData& p_sym: fun_ref->parameters) {
       if (p_sym.is_mutate_parameter()) {
         mutated_vars.insert(mutated_vars.end(), p_sym.ir_idx.begin(), p_sym.ir_idx.end());
       }
     }
     return_vars.insert(return_vars.begin(), mutated_vars.begin(), mutated_vars.end());
   }
-  code.emplace_back(v->loc, Op::_Return, std::move(return_vars));
+
+  // if fun_ref is called and inlined into a parent, assign a result instead of generating a return statement
+  if (code.inline_rvect_out) {
+    code.emplace_back(v->loc, Op::_Let, *code.inline_rvect_out, std::move(return_vars));
+  } else {
+    code.emplace_back(v->loc, Op::_Return, std::move(return_vars));
+  }
 }
 
 // append "return" (void) to the end of the function
@@ -2123,7 +2213,7 @@ public:
 
   static void start_visiting_function(FunctionPtr fun_ref, V<ast_function_declaration>) {
     tolk_assert(fun_ref->is_type_inferring_done());
-    if (fun_ref->is_code_function()) {
+    if (fun_ref->is_code_function() && !fun_ref->is_inlined_in_place()) {
       convert_function_body_to_CodeBlob(fun_ref, std::get<FunctionBodyCode*>(fun_ref->body));
     } else if (fun_ref->is_asm_function()) {
       convert_asm_body_to_AsmOp(fun_ref, std::get<FunctionBodyAsm*>(fun_ref->body));

@@ -15,6 +15,7 @@ global used_gv: int;
 fun receiveGetter(): () -> int { return used_as_noncall2; }
 
 @pure
+@noinline
 fun usedButOptimizedOut(x: int): int { return x + 2; }
 
 fun main(): (int, int, int) {

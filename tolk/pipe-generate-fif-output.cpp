@@ -79,13 +79,17 @@ static void generate_output_func(FunctionPtr fun_ref) {
     std::cerr << "\n---------- resulting code for " << fun_ref->name << " -------------\n";
   }
   const char* modifier = "";
-  if (fun_ref->is_inline()) {
+  if (fun_ref->inline_mode == FunctionInlineMode::inlineViaFif) {
     modifier = "INLINE";
-  } else if (fun_ref->is_inline_ref()) {
+  } else if (fun_ref->inline_mode == FunctionInlineMode::inlineRef) {
     modifier = "REF";
   }
   if (G.settings.tolk_src_as_line_comments) {
-    std::cout << "  // " << fun_ref->loc << std::endl;
+    std::cout << "  // " << fun_ref->loc;
+    if (!fun_ref->n_times_called && !fun_ref->is_used_as_noncall() && !fun_ref->is_entrypoint() && !fun_ref->has_tvm_method_id()) {
+      std::cout << "  (note: function never called!)";
+    }
+    std::cout << std::endl;
   }
   std::cout << "  " << fun_ref->name << " PROC" << modifier << ":<{";
   int mode = 0;
@@ -103,10 +107,10 @@ static void generate_output_func(FunctionPtr fun_ref) {
   if (G.settings.tolk_src_as_line_comments) {
     mode |= Stack::_LineComments;
   }
-  if (fun_ref->is_inline() && code->ops->noreturn()) {
+  if (fun_ref->inline_mode == FunctionInlineMode::inlineViaFif && code->ops->noreturn()) {
     mode |= Stack::_InlineFunc;
   }
-  if (fun_ref->is_inline() || fun_ref->is_inline_ref()) {
+  if (fun_ref->inline_mode == FunctionInlineMode::inlineViaFif || fun_ref->inline_mode == FunctionInlineMode::inlineRef) {
     mode |= Stack::_InlineAny;
   }
   code->generate_code(std::cout, mode, 2);
@@ -133,11 +137,13 @@ void pipeline_generate_fif_output_to_std_cout() {
   std::cout << "PROGRAM{\n";
 
   bool has_main_procedure = false;
+  int n_inlined_in_place = 0;
   for (FunctionPtr fun_ref : G.all_functions) {
-    if (!fun_ref->does_need_codegen()) {
+    if (fun_ref->is_asm_function() || !fun_ref->does_need_codegen()) {
       if (G.is_verbosity(2) && fun_ref->is_code_function()) {
         std::cerr << fun_ref->name << ": code not generated, function does not need codegen\n";
       }
+      n_inlined_in_place += fun_ref->is_inlined_in_place();
       continue;
     }
 
@@ -157,6 +163,15 @@ void pipeline_generate_fif_output_to_std_cout() {
     throw Fatal("the contract has no entrypoint; forgot `fun onInternalMessage(...)`?");
   }
 
+  if (n_inlined_in_place) {
+    std::cout << "  // " << n_inlined_in_place << " functions inlined in-place:" << "\n";
+    for (FunctionPtr fun_ref : G.all_functions) {
+      if (fun_ref->is_inlined_in_place()) {
+        std::cout << "  // - " << fun_ref->name << " (" << fun_ref->n_times_called << (fun_ref->n_times_called == 1 ? " call" : " calls") << ")\n";
+      }
+    }
+  }
+
   for (GlobalVarPtr var_ref : G.all_global_vars) {
     if (!var_ref->is_really_used() && G.settings.remove_unused_functions) {
       if (G.is_verbosity(2)) {
@@ -169,7 +184,7 @@ void pipeline_generate_fif_output_to_std_cout() {
   }
 
   for (FunctionPtr fun_ref : G.all_functions) {
-    if (!fun_ref->does_need_codegen()) {
+    if (fun_ref->is_asm_function() || !fun_ref->does_need_codegen()) {
       continue;
     }
     generate_output_func(fun_ref);

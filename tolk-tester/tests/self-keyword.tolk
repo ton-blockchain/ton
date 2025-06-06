@@ -1,17 +1,21 @@
+@noinline
 fun int.incChained(mutate self): self {
     self = self + 1;
     return self;
 }
 
+@noinline
 fun int.incChained2(mutate self): self {
     return self.incChained();
 }
 
+@noinline
 fun int.incChained3(mutate self): self {
     self.incChained();
     return self;
 }
 
+@noinline
 fun int.incChained4(mutate self): self {
     self.incChained();
     return self;

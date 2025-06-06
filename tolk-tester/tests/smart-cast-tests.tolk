@@ -600,6 +600,7 @@ fun test54() {
     __expect_type(x3, "int?");
 }
 
+@noinline
 fun eq55<T>(v: T) { return v; }
 
 fun test55() {

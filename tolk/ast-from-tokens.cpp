@@ -1347,6 +1347,7 @@ static V<ast_annotation> parse_annotation(Lexer& lex) {
       throw ParseError(loc, "unknown annotation " + static_cast<std::string>(name));
     case AnnotationKind::inline_simple:
     case AnnotationKind::inline_ref:
+    case AnnotationKind::noinline:
     case AnnotationKind::pure:
       if (v_arg) {
         throw ParseError(v_arg->loc, "arguments aren't allowed for " + static_cast<std::string>(name));
@@ -1471,13 +1472,17 @@ static AnyV parse_function_declaration(Lexer& lex, const std::vector<V<ast_annot
   }
 
   td::RefInt256 tvm_method_id;
+  FunctionInlineMode inline_mode = FunctionInlineMode::notCalculated;
   for (auto v_annotation : annotations) {
     switch (v_annotation->kind) {
       case AnnotationKind::inline_simple:
-        flags |= FunctionData::flagInline;
+        inline_mode = FunctionInlineMode::inlineViaFif;   // maybe will be replaced by inlineInPlace later
         break;
       case AnnotationKind::inline_ref:
-        flags |= FunctionData::flagInlineRef;
+        inline_mode = FunctionInlineMode::inlineRef;
+        break;
+      case AnnotationKind::noinline:
+        inline_mode = FunctionInlineMode::noInline;
         break;
       case AnnotationKind::pure:
         flags |= FunctionData::flagMarkedAsPure;
@@ -1502,7 +1507,7 @@ static AnyV parse_function_declaration(Lexer& lex, const std::vector<V<ast_annot
     }
   }
 
-  return createV<ast_function_declaration>(loc, v_ident, v_param_list, v_body, receiver_type, ret_type, genericsT_list, std::move(tvm_method_id), flags);
+  return createV<ast_function_declaration>(loc, v_ident, v_param_list, v_body, receiver_type, ret_type, genericsT_list, std::move(tvm_method_id), flags, inline_mode);
 }
 
 static AnyV parse_struct_field(Lexer& lex) {

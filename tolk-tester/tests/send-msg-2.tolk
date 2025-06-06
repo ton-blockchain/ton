@@ -104,6 +104,7 @@ fun calculateAddressInAnotherShard(pivotAddress: address, shardPrefixLen: uint5,
         .storeUint(prefixLess, 256 - shardPrefixLen);
 }
 
+@noinline
 fun test1_manual(toAddress: address, masterMsg: cell, jettonWalletCode: cell) {
     var shardPrefix = getAddressShard(toAddress, SHARD_DEPTH);
     var stateInitCell = calculateJettonWalletStateInitWithShard(toAddress, getMyAddressDev(), jettonWalletCode);
@@ -149,6 +150,7 @@ fun test1() {
     return b.hash()
 }
 
+@noinline
 fun test2_manual(toAddress: address, masterMsg: cell, jettonWalletCode: cell) {
     var shardPrefix = getAddressShard(toAddress, SHARD_DEPTH);
     var stateInit = calculateJettonWalletStateInitWithShard(toAddress, getMyAddressDev(), jettonWalletCode);
@@ -192,6 +194,7 @@ struct Test3Body {
     bigData: bits800;
 }
 
+@noinline
 fun test3_manual(myCode: cell, myData: cell, msgBody: Test3Body) {
     var addrInShard = calculateAddressInAnotherShard(getMyAddressDev(), 20, myCode, myData);
 

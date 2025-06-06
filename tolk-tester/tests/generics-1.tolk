@@ -2,6 +2,7 @@ type MInt = int;
 type Tensor2Int = (int, int);
 type Tensor2IntN = (int, int)?;
 
+@noinline
 fun eq1<X>(value: X): X { return value; }
 fun eq2<X>(value: X)    { return value; }
 fun eq3<X>(value: X): X { var cp: [X] = [eq1(value)]; var ((([v: X]))) = cp; return v; }
@@ -240,7 +241,10 @@ fun main(x: int): (int, [Tup2Int]) {
 @fif_codegen DECLPROC eq1<MInt?>
 @fif_codegen DECLPROC eq1<int|slice|null>
 @fif_codegen DECLPROC eq1<Wrapper<Wrapper<int8>>>
-@fif_codegen DECLPROC getTwo<int>
+
+// was inlined
+@fif_codegen_avoid DECLPROC getTwo<int>
+@fif_codegen_avoid getTwo
 
 @fif_codegen_avoid DECLPROC eq1
 @fif_codegen_avoid DECLPROC eq2

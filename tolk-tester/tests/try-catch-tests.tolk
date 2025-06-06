@@ -164,6 +164,7 @@ fun test109(): (int, int) {
   return (g_reg, l_reg);
 }
 
+@noinline
 fun alwaysThrow123(): never {
   throw 123;
 }
@@ -173,6 +174,7 @@ fun alwaysThrowX(x: int): never {
   else { throw (x, null); }
 }
 
+@noinline
 fun anotherNever(throw123: bool): never {
   if (throw123) { alwaysThrow123(); }
   alwaysThrowX(456);
@@ -224,8 +226,12 @@ fun test111(b: bool) {
   }
 }
 
-fun mySetCode(newCode: slice): void
+fun mySetCodeAsm(newCode: slice): void
     asm "SETCODE";
+
+fun mySetCode(newCode: slice) {
+  mySetCodeAsm(newCode);
+}
 
 fun testCodegen3(numberId: int, paramVal: cell) {
   if (numberId == -1000) {
@@ -288,7 +294,7 @@ fun main() {
 @testcase | 112 | 5     | 138
 @testcase | 113 |       | 2048
 
-@code_hash 100812963733861852648745958727639570706776197131971804296829155862118445447691
+@code_hash 91375323652563311931660098165979913104421063599680251769401655783153201389325
 
 @fif_codegen
 """

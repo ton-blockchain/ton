@@ -9,14 +9,17 @@ fun sumOfNullableTensorComponents(t: (int, int)?): int {
     return t!.0 + t!.1;
 }
 
+@noinline
 fun isTensorNull(t: (int, int)?) {
     return t == null;
 }
 
+@noinline
 fun (int, int)?.isTensorNull(self) {
     return self == null;
 }
 
+@noinline
 fun incrementNullableTensorComponents(mutate t: (int, int)?) {
     if (t != null) {
         t!.0 += 1;
@@ -37,12 +40,14 @@ fun incrementTensorComponents(mutate t: (int, int)) {
     t.1 += 1;
 }
 
+@noinline
 fun (int, int).incrementTensorComponents(mutate self): self {
     self.0 += 1;
     self.1 += 1;
     return self;
 }
 
+@noinline
 fun assignFirstComponent(mutate t: (int, int), first: int) {
     t!.0 = first;
 }

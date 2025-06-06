@@ -52,4 +52,12 @@ struct GenericsSubstitutions;
 
 struct SrcFile;
 
+enum class FunctionInlineMode {
+  notCalculated,
+  inlineViaFif,
+  inlineRef,
+  inlineInPlace,
+  noInline,
+};
+
 } // namespace tolk

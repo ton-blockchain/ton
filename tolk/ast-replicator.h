@@ -335,7 +335,8 @@ public:
       clone(v_orig->return_type_node),
       v_orig->genericsT_list ? clone(v_orig->genericsT_list) : nullptr,
       v_orig->tvm_method_id,
-      v_orig->flags
+      v_orig->flags,
+      v_orig->inline_mode
     );
   }
 

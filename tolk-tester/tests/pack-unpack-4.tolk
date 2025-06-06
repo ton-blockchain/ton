@@ -10,6 +10,7 @@ fun slice.assertEqDeeply(self, rhs: slice): slice {
 }
 
 
+@noinline
 fun run<TInputStruct>(input: TInputStruct, ans: slice) {
     repeat (2) {
         var s = input.toCell().beginParse();

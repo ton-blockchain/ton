@@ -517,7 +517,7 @@ bool Op::generate_code_step(Stack& stack) {
           }
         }
       } else {
-        if (f_sym->is_inline() || f_sym->is_inline_ref()) {
+        if (f_sym->inline_mode == FunctionInlineMode::inlineViaFif || f_sym->inline_mode == FunctionInlineMode::inlineRef) {
           stack.o << AsmOp::Custom(loc, f_sym->name + " INLINECALLDICT", (int)right.size(), (int)left.size());
         } else if (f_sym->is_code_function() && std::get<FunctionBodyCode*>(f_sym->body)->code->require_callxargs) {
           stack.o << AsmOp::Custom(loc, f_sym->name + (" PREPAREDICT"), 0, 2);

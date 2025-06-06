@@ -138,6 +138,7 @@ enum ASTNodeKind {
 enum class AnnotationKind {
   inline_simple,
   inline_ref,
+  noinline,
   method_id,
   pure,
   deprecated,
@@ -1243,6 +1244,7 @@ struct Vertex<ast_function_declaration> final : ASTOtherVararg {
   V<ast_genericsT_list> genericsT_list;   // for non-generics it's nullptr
   td::RefInt256 tvm_method_id;            // specified via @method_id annotation
   int flags;                              // from enum in FunctionData
+  FunctionInlineMode inline_mode;         // from annotations like `@inline` or auto-detected "in-place"
 
   bool is_asm_function() const { return children.at(2)->kind == ast_asm_body; }
   bool is_code_function() const { return children.at(2)->kind == ast_block_statement; }
@@ -1251,9 +1253,9 @@ struct Vertex<ast_function_declaration> final : ASTOtherVararg {
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
   void assign_fun_ref(FunctionPtr fun_ref);
 
-  Vertex(SrcLocation loc, V<ast_identifier> name_identifier, V<ast_parameter_list> parameters, AnyV body, AnyTypeV receiver_type_node, AnyTypeV return_type_node, V<ast_genericsT_list> genericsT_list, td::RefInt256 tvm_method_id, int flags)
+  Vertex(SrcLocation loc, V<ast_identifier> name_identifier, V<ast_parameter_list> parameters, AnyV body, AnyTypeV receiver_type_node, AnyTypeV return_type_node, V<ast_genericsT_list> genericsT_list, td::RefInt256 tvm_method_id, int flags, FunctionInlineMode inline_mode)
     : ASTOtherVararg(ast_function_declaration, loc, {name_identifier, parameters, body})
-    , receiver_type_node(receiver_type_node), return_type_node(return_type_node), genericsT_list(genericsT_list), tvm_method_id(std::move(tvm_method_id)), flags(flags) {}
+    , receiver_type_node(receiver_type_node), return_type_node(return_type_node), genericsT_list(genericsT_list), tvm_method_id(std::move(tvm_method_id)), flags(flags), inline_mode(inline_mode) {}
 };
 
 template<>

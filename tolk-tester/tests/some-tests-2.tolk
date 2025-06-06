@@ -44,7 +44,7 @@ fun test89(last: int): (int, int, int, int) {
     return (t.get(0), t.get(t.size() - 1), t.first(), t.last());
 }
 
-@pure fun get10() { return 10; }
+@pure @noinline fun get10() { return 10; }
 
 @method_id(91)
 fun touchCodegen2() {

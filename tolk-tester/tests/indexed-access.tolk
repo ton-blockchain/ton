@@ -174,6 +174,7 @@ fun test112(f: int, s: int) {
 }
 
 @pure
+@noinline
 fun getConstTuple(): Tup2Int {
     return [1,2];
 }

@@ -88,6 +88,7 @@ fun testBoolNegateOptimized(x: bool) {
     return (x, !x, !!x, !!!x, !!!!true);
 }
 
+@noinline
 fun eqX(x: bool) { return x; }
 
 @method_id(19)

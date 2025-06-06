@@ -67,6 +67,7 @@ int tolk_proceed(const std::string &entrypoint_filename) {
     pipeline_check_serialized_fields();
     pipeline_constant_folding();
     pipeline_optimize_boolean_expressions();
+    pipeline_detect_inline_in_place();
     pipeline_convert_ast_to_legacy_Expr_Op();
 
     pipeline_find_unused_symbols();

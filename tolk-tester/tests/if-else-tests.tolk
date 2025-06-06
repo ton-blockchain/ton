@@ -102,20 +102,24 @@ fun test8(op: int) {
     return (withNoElse(op), withElse(op), withMatch(op));
 }
 
+@noinline
 fun demo9_1(x: int) {
     if (x > 0) { t.push(123); }
     else { t.push(456) }
 }
 
+@noinline
 fun demo9_2(x: int) {
     if (x > 0) { t.push(123); }
 }
 
+@noinline
 fun demo9_3(x: int) {
     if (x > 0) { t.push(123); }
     return;
 }
 
+@noinline
 fun demo9_4(x: int) {
     if (x != -100) {
         if (x > 0) { t.push(123); }
@@ -130,6 +134,7 @@ fun test9(x: int) {
     return t;
 }
 
+@noinline
 fun demo10_1(x: int) {
     match(x) {
         0 => t.push(123),
@@ -137,6 +142,7 @@ fun demo10_1(x: int) {
     }
 }
 
+@noinline
 fun demo10_2(x: int) {
     if (x != -100) {
         match (x) {
@@ -155,6 +161,7 @@ fun test10(x: int) {
     return t;
 }
 
+@noinline
 fun demo_neg_11_1(mutate x: int) {
     match (x) {
         -1 => { x = 0; }
@@ -180,6 +187,38 @@ fun test11(x: int) {
     demo_neg_11_1(mutate x);
     demo_neg_11_2(x);
     return (x, t);
+}
+
+fun demo12_1(x: int) {
+    __expect_inline(true);
+    if (x > 0) { t.push(123); }
+    else { t.push(456) }
+}
+
+fun demo12_2(x: int) {
+    __expect_inline(true);
+    if (x > 0) { t.push(123); }
+}
+
+fun demo12_3(x: int) {
+    __expect_inline(true);
+    if (x > 0) { t.push(123); }
+    return;
+}
+
+fun demo12_4(x: int) {
+    __expect_inline(false);
+    if (x != -100) {
+        if (x > 0) { t.push(123); }
+        return;
+    }
+}
+
+@method_id(112)
+fun test12(x: int) {
+    t = createEmptyTuple();
+    demo12_1(x); demo12_2(x); demo12_3(x); demo12_4(x);
+    return t;
 }
 
 fun main() {
@@ -212,6 +251,8 @@ fun main() {
 @testcase | 110 | 0   | [ 123 123 ]
 @testcase | 110 | 5   | [ 456 ]
 @testcase | 111 | 5   | 1 [ 456 100 ]
+@testcase | 112 | 10  | [ 123 123 123 123 ]
+@testcase | 112 | -10 | [ 456 ]
 
 @fif_codegen
 """

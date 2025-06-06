@@ -16,6 +16,7 @@ struct(0x12345678) MyBody {
     queryId: uint64;
 }
 
+@noinline
 fun test1_manual(topic: int) {
     return beginCell()
         .storeUint(0b1100, 4)       // ext_out_msg_info$11 src:MsgAddressInt ()
@@ -42,6 +43,7 @@ fun test1(topic: int) {
 
 type Body750Bits = (uint250, uint250, uint250);      // this body is auto-ref
 
+@noinline
 fun test2_manual(bd: Body750Bits) {
     val bodyRef = beginCell().storeUint(bd.0,250).storeUint(bd.1,250).storeUint(bd.2,250).endCell();
     return beginCell()
@@ -81,6 +83,7 @@ fun test3(eventId: int) {
     return b.hash();
 }
 
+@noinline
 fun test4_manual(dest: address, body: cell) {
     return beginCell()
         .storeUint(0b1100, 4)       // ext_out_msg_info$11 src:MsgAddressInt ()
@@ -121,6 +124,7 @@ fun test6() {
     return b.hash();
 }
 
+@noinline
 fun test7_manual(dest: builder, queryId: uint64) {
     return beginCell()
         .storeUint(0b1100, 4)       // ext_out_msg_info$11 src:MsgAddressInt ()
@@ -174,6 +178,7 @@ fun test9(topic: int) {
     return b.hash();
 }
 
+@noinline
 fun test10_manual(topic: slice, queryIdRef: uint64) {
     return beginCell()
         .storeUint(0b1100, 4)       // ext_out_msg_info$11 src:MsgAddressInt ()

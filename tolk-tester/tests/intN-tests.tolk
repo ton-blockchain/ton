@@ -215,6 +215,7 @@ fun test14(firstComponent: int8?): (int, int16)? {
     return firstComponent! < 10 ? null : (firstComponent! as int, 2 as int16);
 }
 
+@noinline
 fun assign0<T>(mutate v: T) { v = 0; }
 
 fun main() {

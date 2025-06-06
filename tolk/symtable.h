@@ -50,6 +50,7 @@ struct LocalVarData final : Symbol {
     flagMutateParameter = 1,    // parameter was declared with `mutate` keyword
     flagImmutable = 2,          // variable was declared via `val` (not `var`)
     flagLateInit = 4,           // variable was declared via `lateinit` (not assigned at declaration)
+    flagUsedAsLVal = 8,         // variable is assigned or in another way used as lvalue inside a function
   };
 
   AnyTypeV type_node;               // either at declaration `var x:int`, or if omitted, from assigned value `var x=2`
@@ -80,9 +81,11 @@ struct LocalVarData final : Symbol {
   bool is_immutable() const { return flags & flagImmutable; }
   bool is_lateinit() const { return flags & flagLateInit; }
   bool is_mutate_parameter() const { return flags & flagMutateParameter; }
+  bool is_used_as_lval() const { return flags & flagUsedAsLVal; }
   bool has_default_value() const { return default_value != nullptr; }
 
   LocalVarData* mutate() const { return const_cast<LocalVarData*>(this); }
+  void assign_used_as_lval();
   void assign_ir_idx(std::vector<int>&& ir_idx);
   void assign_resolved_type(TypePtr declared_type);
   void assign_inferred_type(TypePtr inferred_type);
@@ -104,8 +107,6 @@ struct FunctionData final : Symbol {
   static constexpr int EMPTY_TVM_METHOD_ID = -10;
 
   enum {
-    flagInline = 1,             // marked `@inline`
-    flagInlineRef = 2,          // marked `@inline_ref`
     flagTypeInferringDone = 4,  // type inferring step of function's body (all AST nodes assigning v->inferred_type) is done
     flagUsedAsNonCall = 8,      // used not only as `f()`, but as a 1-st class function (assigned to var, pushed to tuple, etc.)
     flagMarkedAsPure = 16,      // declared as `pure`, can't call impure and access globals, unused invocations are optimized out
@@ -123,6 +124,8 @@ struct FunctionData final : Symbol {
 
   int tvm_method_id = EMPTY_TVM_METHOD_ID;
   int flags;
+  FunctionInlineMode inline_mode;
+  int n_times_called = 0;                     // calculated while building call graph; 9999 for recursions
 
   std::string method_name;                    // for `fun Container<T>.store<U>` here is "store"
   AnyTypeV receiver_type_node;                // for `fun Container<T>.store<U>` here is `Container<T>`
@@ -141,9 +144,10 @@ struct FunctionData final : Symbol {
   FunctionBody body;
   AnyV ast_root;                                  // V<ast_function_declaration> for user-defined (not builtin)
 
-  FunctionData(std::string name, SrcLocation loc, std::string method_name, AnyTypeV receiver_type_node, AnyTypeV return_type_node, std::vector<LocalVarData> parameters, int initial_flags, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, FunctionBody body, AnyV ast_root)
+  FunctionData(std::string name, SrcLocation loc, std::string method_name, AnyTypeV receiver_type_node, AnyTypeV return_type_node, std::vector<LocalVarData> parameters, int initial_flags, FunctionInlineMode inline_mode, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, FunctionBody body, AnyV ast_root)
     : Symbol(std::move(name), loc)
     , flags(initial_flags)
+    , inline_mode(inline_mode)
     , method_name(std::move(method_name))
     , receiver_type_node(receiver_type_node)
     , parameters(std::move(parameters))
@@ -153,9 +157,10 @@ struct FunctionData final : Symbol {
     , body(body)
     , ast_root(ast_root) {
   }
-  FunctionData(std::string name, SrcLocation loc, std::string method_name, TypePtr receiver_type, TypePtr declared_return_type, std::vector<LocalVarData> parameters, int initial_flags, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, FunctionBody body, AnyV ast_root)
+  FunctionData(std::string name, SrcLocation loc, std::string method_name, TypePtr receiver_type, TypePtr declared_return_type, std::vector<LocalVarData> parameters, int initial_flags, FunctionInlineMode inline_mode, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, FunctionBody body, AnyV ast_root)
     : Symbol(std::move(name), loc)
     , flags(initial_flags)
+    , inline_mode(inline_mode)
     , method_name(std::move(method_name))
     , receiver_type_node(nullptr)
     , receiver_type(receiver_type)
@@ -189,8 +194,7 @@ struct FunctionData final : Symbol {
   bool is_generic_function() const { return genericTs != nullptr; }
   bool is_instantiation_of_generic_function() const { return substitutedTs != nullptr; }
 
-  bool is_inline() const { return flags & flagInline; }
-  bool is_inline_ref() const { return flags & flagInlineRef; }
+  bool is_inlined_in_place() const { return inline_mode == FunctionInlineMode::inlineInPlace; }
   bool is_type_inferring_done() const { return flags & flagTypeInferringDone; }
   bool is_used_as_noncall() const { return flags & flagUsedAsNonCall; }
   bool is_marked_as_pure() const { return flags & flagMarkedAsPure; }
@@ -218,6 +222,7 @@ struct FunctionData final : Symbol {
   void assign_is_implicit_return();
   void assign_is_type_inferring_done();
   void assign_is_really_used();
+  void assign_inline_mode_in_place();
   void assign_arg_order(std::vector<int>&& arg_order);
 };
 

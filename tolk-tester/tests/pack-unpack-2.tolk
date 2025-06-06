@@ -41,11 +41,12 @@ fun assert_slice_is_44_and_ref45(s: slice) {
     s.assertEnd();
 }
 
-@inline
+@inline_ref
 fun slice.appendRef(self, refSlice: slice): slice {
     return beginCell().storeSlice(self).storeRef(beginCell().storeSlice(refSlice).endCell()).endCell().beginParse();
 }
 
+@noinline
 fun run<TInputStruct>(input: TInputStruct, ans: slice) {
     repeat (2) {
         var s = input.toCell().beginParse();

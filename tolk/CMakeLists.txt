@@ -22,6 +22,7 @@ set(TOLK_SOURCE
         pipe-check-serialized-fields.cpp
         pipe-constant-folding.cpp
         pipe-optimize-boolean-expr.cpp
+        pipe-detect-inline-in-place.cpp
         pipe-ast-to-legacy.cpp
         pipe-find-unused-symbols.cpp
         pipe-generate-fif-output.cpp

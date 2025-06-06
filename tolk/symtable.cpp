@@ -60,6 +60,10 @@ bool FunctionData::does_need_codegen() const {
   if (is_generic_function()) {
     return false;
   }
+  // if calls to this function were inlined in place, the function itself is omitted from fif
+  if (is_inlined_in_place()) {
+    return false;
+  }
   // currently, there is no inlining, all functions are codegenerated
   // (but actually, unused ones are later removed by Fift)
   // in the future, we may want to implement a true AST inlining for "simple" functions
@@ -105,6 +109,10 @@ void FunctionData::assign_is_really_used() {
   this->flags |= flagReallyUsed;
 }
 
+void FunctionData::assign_inline_mode_in_place() {
+  this->inline_mode = FunctionInlineMode::inlineInPlace;
+}
+
 void FunctionData::assign_arg_order(std::vector<int>&& arg_order) {
   this->arg_order = std::move(arg_order);
 }
@@ -127,6 +135,10 @@ void GlobalConstData::assign_inferred_type(TypePtr inferred_type) {
 
 void GlobalConstData::assign_init_value(AnyExprV init_value) {
   this->init_value = init_value;
+}
+
+void LocalVarData::assign_used_as_lval() {
+  this->flags |= flagUsedAsLVal;
 }
 
 void LocalVarData::assign_ir_idx(std::vector<int>&& ir_idx) {

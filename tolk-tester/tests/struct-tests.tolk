@@ -264,6 +264,7 @@ fun test17(x: JustInt?) {
     return (x, x!, x!.value, w1, w2);
 }
 
+@noinline
 fun sumXY<P>(point: P) { return point.x + point.y; }
 
 @method_id(118)
@@ -488,11 +489,11 @@ fun test34() {
     return o1;
 }
 
-@pure fun getXPure() { return 1; }
-@pure fun getYPure() { return 2; }
+@pure @noinline fun getXPure() { return 1; }
+@pure @noinline fun getYPure() { return 2; }
 global t_impure: tuple;
-fun getXImpure() { t_impure.push(1); return 1; }
-fun getYImpure() { t_impure.push(2); return 2; }
+@noinline fun getXImpure() { t_impure.push(1); return 1; }
+@noinline fun getYImpure() { t_impure.push(2); return 2; }
 
 @method_id(135)
 fun test35() {

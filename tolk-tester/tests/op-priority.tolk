@@ -1,7 +1,10 @@
 fun justTrue(): bool { return true; }
 
+@noinline
 fun unary_minus_1(a: int, b: int, c: int): int{return -(a+b) *c;}
+@noinline
 fun unary_minus_2(a: int, b: int, c: int): int{return(-(a+b))*c;}
+@noinline
 fun unary_minus_3(a: int, b: int, c: int): int{return-((a+b) *c);}
 
 

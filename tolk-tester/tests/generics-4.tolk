@@ -1,4 +1,6 @@
+@noinline
 fun eqUnusedT<T=null>(v: int) { return v; }
+@noinline
 fun eqUnusedU<T, U = never>(v: T) { if (v is int123) { __expect_type(v as U, "never"); } return v; }
 
 fun dup<T1 = int?, T2 = slice?>(x: T1, y: T2): (T1, T2) { return (x, y) }
@@ -45,6 +47,7 @@ fun createParameters<TBody = null, TInit = null>(bounce: bool, body: TBody, data
     return { bounce, body, init: { value: ton("0"), data } };
 }
 
+@noinline
 fun mySend<TBody = never, TInit = never>(p: Parameters<TBody, TInit>): int {
     var total = 0;
     if (p.bounce) {

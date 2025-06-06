@@ -60,6 +60,9 @@ AnnotationKind Vertex<ast_annotation>::parse_kind(std::string_view name) {
   if (name == "@inline_ref") {
     return AnnotationKind::inline_ref;
   }
+  if (name == "@noinline") {
+    return AnnotationKind::noinline;
+  }
   if (name == "@method_id") {
     return AnnotationKind::method_id;
   }

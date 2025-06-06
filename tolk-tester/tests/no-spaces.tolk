@@ -37,6 +37,7 @@ global `some()var`:int;
     return [~-~~+-c3, ~+c3-~`c9`, -(-~+-c20-~c10+c3+~c38&39)];
 }
 
+@noinline
 fun add3(a: int, b: int, c: int) { return a+b+c; }
 
 @method_id(115) fun unary_const_check(): [int,int] {

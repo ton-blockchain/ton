@@ -810,7 +810,7 @@ bool apply_op(StackTransform& trans, const AsmOp& op);
  */
 
 struct Optimizer {
-  static constexpr int optimize_depth = 20;
+  static constexpr int optimize_depth = 30;
   AsmOpConsList code_;
   int l_{0}, l2_{0}, p_, pb_, q_, indent_;
   bool debug_{false};
@@ -1048,6 +1048,8 @@ struct CodeBlob {
   std::string name;
   SrcLocation forced_loc;
   std::vector<TmpVar> vars;
+  std::vector<var_idx_t>* inline_rvect_out = nullptr;
+  bool inlining_before_immediate_return = false;
   std::unique_ptr<Op> ops;
   std::unique_ptr<Op>* cur_ops;
 #ifdef TOLK_DEBUG

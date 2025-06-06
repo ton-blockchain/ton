@@ -25,6 +25,7 @@ fun address.createNone() {
     return createAddressNone()
 }
 
+@noinline
 fun check0(addr: address) {
     assert (addr.getWorkchain() == 0) throw 111;
 }

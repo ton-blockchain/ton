@@ -61,6 +61,7 @@ fun test2(c: Wrapper<int>) {
 }
 
 @pure
+@noinline
 fun getWrappervalue1<T>(c: Wrapper<T>) {
     return c.value;
 }
@@ -71,6 +72,7 @@ fun Wrapper<T>.getWrappervalue1(self) {
 }
 
 @pure
+@noinline
 fun getWrappervalue2<T>(c: T) {
     return c.value;
 }

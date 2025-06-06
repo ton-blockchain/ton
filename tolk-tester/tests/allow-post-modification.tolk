@@ -1,18 +1,24 @@
 fun unsafe_tuple<X>(x: X): tuple
     asm "NOP";
 
+@noinline
 fun inc(x: int, y: int): (int, int) {
     return (x + y, y * 10);
 }
+@noinline
 fun int.`~inc`(mutate self, y: int): int {
     val (newX, newY) = inc(self, y);
     self = newX;
     return newY;
 }
 
+@noinline
 fun eq<X>(v: X): X { return v; }
+@noinline
 fun eq2(v: (int, int)) { return v; }
+@noinline
 fun mul2(mutate dest: int, v: int): int { dest = v*2; return dest; }
+@noinline
 fun (int, int).multens(mutate self, v: (int, int)): (int, int) { var (f, s) = self; var (m1, m2) = v; self = (f*m1, s*m2); return self; }
 
 @method_id(11)
@@ -38,6 +44,7 @@ fun test_tuple_assign(x: int): (int, int, int, int, int, int, int) {
     return (x1, x2, x3, x4, x5, x6, x7);
 }
 
+@noinline
 fun foo1(x1: int, x2: int, x3: int, x4: int, x5: int, x6: int, x7: int): (int, int, int, int, int, int, int) {
     return (x1, x2, x3, x4, x5, x6, x7);
 }
@@ -47,6 +54,7 @@ fun test_call_1(x: int): (int, int, int, int, int, int, int) {
     return foo1(x, x.`~inc`(x / 20), x, x = x * 2, x, x += 1, x);
 }
 
+@noinline
 fun foo2(x1: int, x2: int, x3456: (int, int, int, int), x7: int, ): (int, int, int, int, int, int, int) {
     var (x3: int, x4: int, x5: int, x6: int) = x3456;
     return (x1, x2, x3, x4, x5, x6, x7);

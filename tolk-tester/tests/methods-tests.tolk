@@ -33,12 +33,14 @@ fun Pair<int,int>.create0(): Pair<int?,int?> {
 fun Pair<A,B>.create0(): Pair<A,B> {
     return { first: 0, second: 0 };
 }
+@noinline
 fun Pair<A,B>.createFrom<U,V>(first: U, second: V): Pair<A,B> {
     return { first: first as A, second: second as B };
 }
 fun Pair<T1,T2>.is0(self) {
     return self.first == 0 && self.second == 0;
 }
+@noinline
 fun Pair<A,B>.compareWith<U,V>(self, f: U, s: V) {
     return self.first == f && self.second == s;
 }
@@ -243,9 +245,11 @@ struct CounterIncrement { inc_by: int; }
 struct CounterReset { initial_value: int; }
 type CounterMsg = CounterIncrement | CounterReset;
 
+@noinline
 fun CounterReset.onInternalMessage(self) {
     throw 123;
 }
+@noinline
 fun CounterMsg.onInternalMessage(self) {
     return match (self) {
         CounterIncrement => self.inc_by,

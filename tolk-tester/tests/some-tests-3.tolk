@@ -15,6 +15,7 @@ fun main(cs: slice) {
     return (cs.loadUint(8), cs.loadUint(8), cs.loadUint(8), cs.loadUint(8));
 }
 
+@noinline
 fun f(cs: slice) {
     return (cs.loadUint(8), cs.loadUint(8), cs.loadUint(8), cs.loadUint(8),
         cs.loadUint(8), cs.loadUint(8), cs.loadUint(8), cs.loadUint(8),

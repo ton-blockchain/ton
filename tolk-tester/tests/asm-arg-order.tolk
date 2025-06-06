@@ -129,11 +129,15 @@ fun int.plus1TimesB(self, b: int): int
     asm(b self) "1 ADDCONST MUL";
 
 @pure
+@noinline
 fun get2Pure() { return 2; }
 @pure
+@noinline
 fun get10Pure() { return 10; }
 
+@noinline
 fun get2Impure() { return 2; }
+@noinline
 fun get10Impure() { return 10; }
 
 global g2: int;
@@ -272,5 +276,5 @@ fun main() {
   }>
 """
 
-@code_hash 93297578247504549901423325446957614083213743835412767087757830691482809332788
+@code_hash 88343225778124778743440967192570181022747908733235053033508198051414837052492
 */
