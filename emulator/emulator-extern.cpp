@@ -639,10 +639,16 @@ const char *tvm_emulator_run_get_method(void *tvm_emulator, int method_id, const
   return strdup(jb.string_builder().as_cslice().c_str());
 }
 
-const char *tvm_emulator_emulate_run_method(uint32_t len, const char *params_boc, int64_t gas_limit) {
+struct TvmEulatorEmulateRunMethodResponse
+{
+  const char *response;
+  const char *log;
+};
+
+TvmEulatorEmulateRunMethodResponse emulate_run_method(uint32_t len, const char *params_boc, int64_t gas_limit) {
   auto params_cell = vm::std_boc_deserialize(td::Slice(params_boc, len));
   if (params_cell.is_error()) {
-    return nullptr;
+    return { nullptr, nullptr };
   }
   auto params_cs = vm::load_cell_slice(params_cell.move_as_ok());
   auto code = params_cs.fetch_ref();
@@ -657,12 +663,12 @@ const char *tvm_emulator_emulate_run_method(uint32_t len, const char *params_boc
 
   td::Ref<vm::Stack> stack;
   if (!vm::Stack::deserialize_to(stack_cs, stack)) {
-    return nullptr;
+    return { nullptr, nullptr };
   }
 
   td::Ref<vm::Stack> c7;
   if (!vm::Stack::deserialize_to(c7_cs, c7)) {
-    return nullptr;
+    return { nullptr, nullptr };
   }
 
   auto emulator = new emulator::TvmEmulator(code, data);
@@ -672,12 +678,43 @@ const char *tvm_emulator_emulate_run_method(uint32_t len, const char *params_boc
   if (!libs.is_empty()) {
     emulator->set_libraries(std::move(libs));
   }
+
+  if (c7->depth() > 0) {
+    vm::StackEntry c7_stack = c7->fetch(0);
+    if (!c7_stack.is_null() && c7_stack.is_tuple()) {
+      td::Ref<vm::Tuple> c7_root = c7_stack.as_tuple();
+      if (!c7_root.is_null()) {
+        vm::StackEntry c7_top = tuple_index(c7_root, 0);
+        if (!c7_top.is_null() && c7_top.is_tuple()) {
+          td::Ref<vm::Tuple> c7_top_tuple = c7_top.as_tuple();
+          if (!c7_top_tuple.is_null()) {
+            vm::StackEntry config_entry = tuple_index(c7_top_tuple, 9);
+            if (!config_entry.is_null() && config_entry.is_cell() && config_entry.as_cell().not_null()) {
+              vm::CellSlice config_cell_slice = vm::load_cell_slice(config_entry.as_cell());
+              if (config_cell_slice.size() > 0) {
+                block::Config config(config_entry.as_cell(), td::Bits256::zero(),
+                    block::Config::needWorkchainInfo | block::Config::needSpecialSmc | block::Config::needCapabilities);
+                auto config_ptr = std::make_shared<block::Config>(std::move(config));
+                td::Status unpack_res = config_ptr->unpack();
+                if (unpack_res.is_error()) {
+                  LOG(ERROR) << "Can't unpack config params";
+                  return { nullptr, nullptr };
+                }
+                emulator->set_config(config_ptr);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
   auto result = emulator->run_get_method(int(method_id), stack);
   delete emulator;
 
   vm::CellBuilder stack_cb;
   if (!result.stack->serialize(stack_cb)) {
-    return nullptr;
+    return { nullptr, nullptr };
   }
 
   vm::CellBuilder cb;
@@ -687,7 +724,7 @@ const char *tvm_emulator_emulate_run_method(uint32_t len, const char *params_boc
 
   auto ser = vm::std_boc_serialize(cb.finalize());
   if (!ser.is_ok()) {
-    return nullptr;
+    return { nullptr, nullptr };
   }
   auto sok = ser.move_as_ok();
 
@@ -696,7 +733,26 @@ const char *tvm_emulator_emulate_run_method(uint32_t len, const char *params_boc
   memcpy(rn, &sz, 4);
   memcpy(rn+4, sok.data(), sz);
 
-  return rn;
+  auto log_sz = uint32_t(result.vm_log.size());
+  char* log_buffer = (char*)malloc(log_sz + 4);
+  memcpy(log_buffer, &log_sz, 4);
+  memcpy(log_buffer+4, result.vm_log.data(), log_sz);
+
+  return { rn, log_buffer };
+}
+
+const char *tvm_emulator_emulate_run_method(uint32_t len, const char *params_boc, int64_t gas_limit) {
+  auto result = emulate_run_method(len, params_boc, gas_limit);
+  return result.response;
+}
+
+const char *tvm_emulator_emulate_run_method_detailed(uint32_t len, const char *params_boc, int64_t gas_limit) {
+  auto result = emulate_run_method(len, params_boc, gas_limit);
+  TvmEulatorEmulateRunMethodResponse* response_ptr =
+      (TvmEulatorEmulateRunMethodResponse*)malloc(sizeof(TvmEulatorEmulateRunMethodResponse));
+  response_ptr->response = result.response;
+  response_ptr->log = result.log;
+  return reinterpret_cast<const char*>(response_ptr);
 }
 
 const char *tvm_emulator_send_external_message(void *tvm_emulator, const char *message_body_boc) {
