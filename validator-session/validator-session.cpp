@@ -1240,6 +1240,9 @@ void ValidatorSessionImpl::stats_process_action(td::uint32 node_id, ton_api::val
                                            obj.round_, description().get_source_id(node_id), candidate_id);
                                        if (stat && stat->got_submit_at <= 0.0) {
                                          stat->got_submit_at = td::Clocks::system();
+                                         stat->block_id.root_hash = obj.root_hash_;
+                                         stat->block_id.file_hash = obj.file_hash_;
+                                         stat->collated_data_hash = obj.collated_data_file_hash_;
                                        }
                                      },
                                      [&](const ton_api::validatorSession_message_approvedBlock &obj) {
