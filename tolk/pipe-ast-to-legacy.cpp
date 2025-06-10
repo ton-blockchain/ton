@@ -24,7 +24,7 @@
 #include "smart-casts-cfg.h"
 #include "pack-unpack-api.h"
 #include "generics-helpers.h"
-#include <unordered_set>
+#include "send-message-api.h"
 
 /*
  *   This pipe is the last one operating AST: it transforms AST to IR.
@@ -589,6 +589,21 @@ static std::vector<var_idx_t> gen_compile_time_code_instead_of_fun_call(CodeBlob
     if (f_name == "T.estimatePackSize") {
       return generate_estimate_size_call(code, loc, typeT);
     }
+
+    if (f_name == "createMessage") {
+      std::vector ir_msg_params = vars_per_arg[0];
+      return generate_createMessage(code, loc, typeT->unwrap_alias(), std::move(ir_msg_params));
+    }
+    if (f_name == "createExternalLogMessage") {
+      std::vector ir_msg_params = vars_per_arg[0];
+      return generate_createExternalLogMessage(code, loc, typeT->unwrap_alias(), std::move(ir_msg_params));
+    }
+  }
+
+  if (called_f->name == "address.buildSameAddressInAnotherShard") {
+    std::vector ir_self_address = vars_per_arg[0];
+    std::vector ir_shard_options = vars_per_arg[1];
+    return generate_address_buildInAnotherShard(code, loc, std::move(ir_self_address), std::move(ir_shard_options));
   }
 
   tolk_assert(false);

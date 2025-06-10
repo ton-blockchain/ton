@@ -1,6 +1,10 @@
 fun builder.store_u32(mutate self, value: int): self {
     return self.storeUint(value, 32);
 }
+fun builder.storeMessageOp(mutate self, op: int): self
+    asm(op self) "32 STU";
+fun builder.storeMessageQueryId(mutate self, queryId: int): self
+    asm(queryId self) "64 STU";
 
 fun slice.load_u32(mutate self): int {
     return self.loadUint(32);
@@ -195,7 +199,6 @@ fun test111() {
     var q2 = s.loadMessageQueryId();
     s.skipBits(64);
     s.assertEnd();
-    assert(isMessageBounced(0x001) && !isMessageBounced(0x002)) throw 444;
     return (op1, q1, op2, q2);
 }
 

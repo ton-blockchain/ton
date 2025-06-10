@@ -1228,6 +1228,7 @@ void define_builtins() {
   TypePtr Bool = TypeDataBool::create();
   TypePtr Slice = TypeDataSlice::create();
   TypePtr Builder = TypeDataBuilder::create();
+  TypePtr Address = TypeDataAddress::create();
   TypePtr Tuple = TypeDataTuple::create();
   TypePtr Never = TypeDataNever::create();
 
@@ -1246,6 +1247,11 @@ void define_builtins() {
   TypePtr CellT = TypeDataUnknown::create();
   TypePtr PackOptions = TypeDataUnknown::create();
   TypePtr UnpackOptions = TypeDataUnknown::create();
+  TypePtr CreateMessageOptions = TypeDataUnknown::create();
+  TypePtr createExternalLogMessageOptions = TypeDataUnknown::create();
+  TypePtr OutMessage = TypeDataUnknown::create();
+  TypePtr AddressShardingOptions = TypeDataUnknown::create();
+  const GenericsDeclaration* declTBody = new GenericsDeclaration(std::vector<GenericsDeclaration::ItemT>{{"TBody", nullptr}}, 0);
 
   // builtin operators
   // they are internally stored as functions, because at IR level, there is no difference
@@ -1449,6 +1455,9 @@ void define_builtins() {
   define_builtin_method("tuple.set", Tuple, {Tuple, typeT, Int}, Unit, declGenericT,
                               compile_tuple_set_at,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf);
+  define_builtin_method("address.buildSameAddressInAnotherShard", Address, {Address, AddressShardingOptions}, Builder, nullptr,
+                              compile_time_only_function,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagCompileTimeGen);
   define_builtin_method("debug.print", debug, {typeT}, Unit, declGenericT,
                                 compile_debug_print_to_string,
                                 FunctionData::flagAllowAnyWidthT);
@@ -1495,6 +1504,13 @@ void define_builtins() {
                                 compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeGen | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT);
 
+  define_builtin_func("createMessage", {CreateMessageOptions}, OutMessage, declTBody,
+                                compile_time_only_function,
+                                FunctionData::flagCompileTimeGen | FunctionData::flagAllowAnyWidthT);
+  define_builtin_func("createExternalLogMessage", {createExternalLogMessageOptions}, OutMessage, declTBody,
+                                compile_time_only_function,
+                                FunctionData::flagCompileTimeGen | FunctionData::flagAllowAnyWidthT);
+
   // functions not presented in stdlib at all
   // used in tolk-tester to check/expose internal compiler state
   // each of them is handled in a special way, search by its name
@@ -1518,6 +1534,11 @@ void patch_builtins_after_stdlib_loaded() {
   lookup_function("debug.print")->mutate()->receiver_type = debug;
   lookup_function("debug.printString")->mutate()->receiver_type = debug;
   lookup_function("debug.dumpStack")->mutate()->receiver_type = debug;
+
+  StructPtr struct_ref_AddressShardingOptions = lookup_global_symbol("AddressShardingOptions")->try_as<StructPtr>();
+  TypePtr AddressShardingOptions = TypeDataStruct::create(struct_ref_AddressShardingOptions);
+
+  lookup_function("address.buildSameAddressInAnotherShard")->mutate()->parameters[1].declared_type = AddressShardingOptions;
 
   StructPtr struct_ref_CellT = lookup_global_symbol("Cell")->try_as<StructPtr>();
   StructPtr struct_ref_PackOptions = lookup_global_symbol("PackOptions")->try_as<StructPtr>();
@@ -1552,6 +1573,18 @@ void patch_builtins_after_stdlib_loaded() {
   lookup_function("slice.skipAny")->mutate()->parameters[1].default_value = v_empty_UnpackOptions;
   lookup_function("builder.storeAny")->mutate()->parameters[2].declared_type = PackOptions;
   lookup_function("builder.storeAny")->mutate()->parameters[2].default_value = v_empty_PackOptions;
+
+  StructPtr struct_ref_CreateMessageOptions = lookup_global_symbol("CreateMessageOptions")->try_as<StructPtr>();
+  StructPtr struct_ref_createExternalLogMessageOptions = lookup_global_symbol("createExternalLogMessageOptions")->try_as<StructPtr>();
+  StructPtr struct_ref_OutMessage = lookup_global_symbol("OutMessage")->try_as<StructPtr>();
+  TypePtr CreateMessageOptions = TypeDataGenericTypeWithTs::create(struct_ref_CreateMessageOptions, nullptr, {TypeDataGenericT::create("TBody")});
+  TypePtr createExternalLogMessageOptions = TypeDataGenericTypeWithTs::create(struct_ref_createExternalLogMessageOptions, nullptr, {TypeDataGenericT::create("TBody")});
+  TypePtr OutMessage = TypeDataStruct::create(struct_ref_OutMessage);
+
+  lookup_function("createMessage")->mutate()->parameters[0].declared_type = CreateMessageOptions;
+  lookup_function("createMessage")->mutate()->declared_return_type = OutMessage;
+  lookup_function("createExternalLogMessage")->mutate()->parameters[0].declared_type = createExternalLogMessageOptions;
+  lookup_function("createExternalLogMessage")->mutate()->declared_return_type = OutMessage;
 }
 
 }  // namespace tolk

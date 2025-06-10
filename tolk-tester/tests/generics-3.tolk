@@ -130,7 +130,7 @@ fun main() {
 @testcase | 101 | -1      | 10
 @testcase | 101 | 0       | -1
 @testcase | 103 |         | 10 -1 0
-@testcase | 104 |         | 12 129 132 -1 -1 -1 0 0 -1 0 0
+@testcase | 104 |         | 12 typeid-1 typeid-4 -1 -1 -1 0 0 -1 0 0
 @testcase | 105 |         | -1 -1 -1 -1 0 0
 @testcase | 108 |         | 50000000 (null) (null) 100000000 12 12 24
 

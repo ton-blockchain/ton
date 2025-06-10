@@ -77,6 +77,11 @@ void PackContext::storeUint(var_idx_t ir_idx, int len) const {
   code.emplace_back(loc, Op::_Call, ir_builder, std::move(args), f_storeUint);
 }
 
+void PackContext::storeUint_var(var_idx_t ir_idx, var_idx_t ir_len) const {
+  std::vector args = { ir_builder0, ir_idx, ir_len };
+  code.emplace_back(loc, Op::_Call, ir_builder, std::move(args), f_storeUint);
+}
+
 void PackContext::storeBool(var_idx_t ir_idx) const {
   std::vector args = { ir_builder0, ir_idx };
   code.emplace_back(loc, Op::_Call, ir_builder, std::move(args), lookup_function("builder.storeBool"));
@@ -447,6 +452,25 @@ struct S_Builder final : ISerializer {
 
   void skip(const UnpackContext* ctx, CodeBlob& code, SrcLocation loc) override {
     tolk_assert(false);   // `builder` can only be used for writing, checked earlier
+  }
+
+  PackSize estimate(const EstimateContext* ctx) override {
+    return PackSize::unpredictable_infinity();
+  }
+};
+
+struct S_Slice final : ISerializer {
+  void pack(const PackContext* ctx, CodeBlob& code, SrcLocation loc, std::vector<var_idx_t>&& rvect) override {
+    tolk_assert(rvect.size() == 1);
+    ctx->storeSlice(rvect[0]);
+  }
+
+  std::vector<var_idx_t> unpack(const UnpackContext* ctx, CodeBlob& code, SrcLocation loc) override {
+    tolk_assert(false);   // `slice` can only be used for writing, checked earlier
+  }
+
+  void skip(const UnpackContext* ctx, CodeBlob& code, SrcLocation loc) override {
+    tolk_assert(false);   // `slice` can only be used for writing, checked earlier
   }
 
   PackSize estimate(const EstimateContext* ctx) override {
@@ -940,6 +964,9 @@ static std::unique_ptr<ISerializer> get_serializer_for_type(TypePtr any_type) {
   }
   if (any_type == TypeDataBuilder::create()) {
     return std::make_unique<S_Builder>();
+  }
+  if (any_type == TypeDataSlice::create()) {
+    return std::make_unique<S_Slice>();
   }
   if (any_type == TypeDataNullLiteral::create()) {
     return std::make_unique<S_Null>();
