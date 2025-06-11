@@ -1,7 +1,7 @@
 // Standard library for Tolk (LGPL licence).
 // It contains common functions that are available out of the box, the user doesn't have to import anything.
 // More specific functions are required to be imported explicitly, like "@stdlib/tvm-dicts".
-tolk 0.13
+tolk 0.99
 
 /// In Tolk v1.x there would be a type `map<K,V>`.
 /// Currently, working with dictionaries is still low-level, with raw cells.
