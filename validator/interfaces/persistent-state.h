@@ -61,6 +61,14 @@ auto persistent_state_from_v2_query(auto const &query) {
   return std::tuple{block, mc_block, PersistentStateType{SplitAccountStateType{effective_shard}}};
 }
 
+inline ShardId persistent_state_to_effective_shard(ShardIdFull const &shard, PersistentStateType const &type) {
+  ShardId result = 0;
+  type.visit(td::overloaded([](UnsplitStateType) {},
+                            [&](SplitAccountStateType type) { result = type.effective_shard_id; },
+                            [&](SplitPersistentStateType) { result = shard.shard; }));
+  return result;
+}
+
 inline std::string persistent_state_type_to_string(ShardIdFull const &shard, PersistentStateType const &state) {
   std::string result;
   state.visit(td::overloaded([&](UnsplitStateType) { result = "unsplit"; },

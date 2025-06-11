@@ -990,8 +990,8 @@ void FullNodeShardImpl::download_persistent_state(BlockIdExt id, BlockIdExt mast
                                                   td::Timestamp timeout, td::Promise<td::BufferSlice> promise) {
   auto &b = choose_neighbour();
   td::actor::create_actor<DownloadState>(PSTRING() << "downloadstatereq" << id.id.to_str(), id, masterchain_block_id,
-                                         adnl_id_, overlay_id_, b.adnl_id, priority, timeout, validator_manager_,
-                                         rldp2_, overlays_, adnl_, client_, std::move(promise))
+                                         UnsplitStateType{}, adnl_id_, overlay_id_, b.adnl_id, priority, timeout,
+                                         validator_manager_, rldp2_, overlays_, adnl_, client_, std::move(promise))
       .release();
 }
 
