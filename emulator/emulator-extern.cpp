@@ -702,12 +702,7 @@ TvmEulatorEmulateRunMethodResponse emulate_run_method(uint32_t len, const char *
   memcpy(rn, &sz, 4);
   memcpy(rn+4, sok.data(), sz);
 
-  auto log_sz = uint32_t(result.vm_log.size());
-  char* log_buffer = (char*)malloc(log_sz + 4);
-  memcpy(log_buffer, &log_sz, 4);
-  memcpy(log_buffer+4, result.vm_log.data(), log_sz);
-
-  return { rn, log_buffer };
+  return { rn, strdup(result.vm_log.data()) };
 }
 
 const char *tvm_emulator_emulate_run_method(uint32_t len, const char *params_boc, int64_t gas_limit) {
@@ -715,13 +710,16 @@ const char *tvm_emulator_emulate_run_method(uint32_t len, const char *params_boc
   return result.response;
 }
 
-const char *tvm_emulator_emulate_run_method_detailed(uint32_t len, const char *params_boc, int64_t gas_limit) {
+void *tvm_emulator_emulate_run_method_detailed(uint32_t len, const char *params_boc, int64_t gas_limit) {
   auto result = emulate_run_method(len, params_boc, gas_limit);
-  TvmEulatorEmulateRunMethodResponse* response_ptr =
-      (TvmEulatorEmulateRunMethodResponse*)malloc(sizeof(TvmEulatorEmulateRunMethodResponse));
-  response_ptr->response = result.response;
-  response_ptr->log = result.log;
-  return reinterpret_cast<const char*>(response_ptr);
+  return new TvmEulatorEmulateRunMethodResponse(result);
+}
+
+void run_method_detailed_result_destroy(void *detailed_result) {
+  auto result = static_cast<TvmEulatorEmulateRunMethodResponse *>(detailed_result);
+  free((void *)result->response);
+  free((void *)result->log);
+  delete result;
 }
 
 const char *tvm_emulator_send_external_message(void *tvm_emulator, const char *message_body_boc) {
@@ -796,6 +794,12 @@ void tvm_emulator_destroy(void *tvm_emulator) {
 
 void emulator_config_destroy(void *config) {
   delete static_cast<block::Config *>(config);
+}
+
+void string_destroy(const char *str) {
+  if (str != nullptr) {
+    free((void *)str);
+  }
 }
 
 const char* emulator_version() {
