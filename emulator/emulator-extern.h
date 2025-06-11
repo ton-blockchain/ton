@@ -343,7 +343,7 @@ EMULATOR_EXPORT void emulator_config_destroy(void *config);
  * This function should be used to free strings returned by emulator library functions.
  * It is not safe to use caller's free() on them, as they may have been allocated using a different allocator.
  */
-EMULATOR_EXPORT void string_destroy(void *string);
+EMULATOR_EXPORT void string_destroy(const char *string);
 
 /**
  * @brief Get git commit hash and date of the library
