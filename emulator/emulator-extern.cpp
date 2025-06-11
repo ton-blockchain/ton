@@ -717,8 +717,8 @@ void *tvm_emulator_emulate_run_method_detailed(uint32_t len, const char *params_
 
 void run_method_detailed_result_destroy(void *detailed_result) {
   auto result = static_cast<TvmEulatorEmulateRunMethodResponse *>(detailed_result);
-  free((void *)result->response);
-  free((void *)result->log);
+  free(const_cast<char*>(result->response));
+  free(const_cast<char*>(result->log));
   delete result;
 }
 
@@ -798,7 +798,7 @@ void emulator_config_destroy(void *config) {
 
 void string_destroy(const char *str) {
   if (str != nullptr) {
-    free((void *)str);
+    free(const_cast<char *>(str));
   }
 }
 
