@@ -375,6 +375,12 @@ struct ReadWriteMid<T> {
     f3: coins;
 }
 
+struct WithTwoRestFields {
+    i32: int32;
+    rest1: RemainingBitsAndRefs;
+    rest2: RemainingBitsAndRefs;
+}
+
 
 
 // ---------------------------------------------
@@ -649,6 +655,20 @@ fun test_MidIsBuilderOrBitsN() {
     return (r.f1, mid.remainingBitsCount(), mid.loadAny<int32>(), mid.remainingBitsCount(), r.f3);
 }
 
+@method_id(226)
+fun test_MultipleRemainers() {
+    val m = WithTwoRestFields.fromSlice(stringHexToSlice("00000001FFFF"));
+    return (m.i32, m.rest1.remainingBitsCount(), m.rest2.remainingBitsCount());
+}
+
+@method_id(227)
+fun test_mutatingRemainder() {
+    var cs = stringHexToSlice("00000001FFFF");
+    val obj = cs.loadAny<IntAndRestInlineCell>();
+    cs.assertEnd();
+    return obj.rest.remainingBitsCount();
+}
+
 
 fun main() {
     var t: JustInt32 = { value: 10 };
@@ -686,4 +706,6 @@ fun main() {
 @testcase | 223 | | 10 55 (null)
 @testcase | 224 | | 60 50000000 5 9 123 -1
 @testcase | 225 | | 5 40 65535 8 50000000
+@testcase | 226 | | 1 16 0
+@testcase | 227 | | 16
  */

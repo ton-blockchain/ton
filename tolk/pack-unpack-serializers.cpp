@@ -419,7 +419,10 @@ struct S_RemainingBitsAndRefs final : ISerializer {
   }
 
   std::vector<var_idx_t> unpack(const UnpackContext* ctx, CodeBlob& code, SrcLocation loc) override {
-    return ctx->ir_slice;
+    std::vector ir_rem_slice = code.create_tmp_var(TypeDataSlice::create(), loc, "(remainder)");
+    code.emplace_back(loc, Op::_Let, ir_rem_slice, ctx->ir_slice);
+    code.emplace_back(loc, Op::_Call, ctx->ir_slice, std::vector<var_idx_t>{}, lookup_function("createEmptySlice"));
+    return ir_rem_slice;
   }
 
   void skip(const UnpackContext* ctx, CodeBlob& code, SrcLocation loc) override {
