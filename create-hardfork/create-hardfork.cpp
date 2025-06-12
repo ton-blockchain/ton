@@ -258,8 +258,8 @@ class HardforkCreator : public td::actor::Actor {
                                td::Promise<td::BufferSlice> promise) override {
       }
       void download_persistent_state(ton::BlockIdExt block_id, ton::BlockIdExt masterchain_block_id,
-                                     td::uint32 priority, td::Timestamp timeout,
-                                     td::Promise<td::BufferSlice> promise) override {
+                                     ton::validator::PersistentStateType type, td::uint32 priority,
+                                     td::Timestamp timeout, td::Promise<td::BufferSlice> promise) override {
       }
       void download_block_proof(ton::BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
                                 td::Promise<td::BufferSlice> promise) override {
