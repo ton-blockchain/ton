@@ -329,7 +329,7 @@ std::vector<var_idx_t> generate_createMessage(CodeBlob& code, SrcLocation loc, T
 }
 
 std::vector<var_idx_t> generate_createExternalLogMessage(CodeBlob& code, SrcLocation loc, TypePtr bodyT, std::vector<var_idx_t>&& rvect) {
-  StructPtr s_Options = lookup_global_symbol("createExternalLogMessageOptions")->try_as<StructPtr>();
+  StructPtr s_Options = lookup_global_symbol("CreateExternalLogMessageOptions")->try_as<StructPtr>();
   StructPtr s_ExtOutLogBucket = lookup_global_symbol("ExtOutLogBucket")->try_as<StructPtr>();
 
   const TypeDataUnion* t_dest = s_Options->find_field("dest")->declared_type->try_as<TypeDataUnion>();

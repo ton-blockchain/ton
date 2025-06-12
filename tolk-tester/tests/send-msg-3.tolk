@@ -171,7 +171,7 @@ fun test9(topic: int) {
     };
     var b = createExternalLogMessage({
         body: UnsafeBodyNoRef {
-            bodyForceNoRef: bd,
+            forceInline: bd,
         },
         dest: ExtOutLogBucket { topic: topic },
     });

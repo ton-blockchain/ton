@@ -388,7 +388,7 @@ fun Cell<T>.beginParse(self): slice
 
 /// Returns hash of a typed cell, same as [cell.hash].
 @pure
-fun Cell<T>.hash(self): slice
+fun Cell<T>.hash(self): uint256
     asm "HASHCU";
 
 /// RemainingBitsAndRefs is a special built-in type to get "all the rest" slice tail on reading.
@@ -458,20 +458,20 @@ fun stringToBase256(constString: slice): int
 /// Computes the representation hash of a `cell` and returns it as a 256-bit unsigned integer `x`.
 /// Useful for signing and checking signatures of arbitrary entities represented by a tree of cells.
 @pure
-fun cell.hash(self): int
+fun cell.hash(self): uint256
     asm "HASHCU";
 
 /// Computes the hash of a `slice` and returns it as a 256-bit unsigned integer `x`.
 /// The result is the same as if an ordinary cell containing only data and references from `s` had been created
 /// and its hash computed by [cell.hash].
 @pure
-fun slice.hash(self): int
+fun slice.hash(self): uint256
     asm "HASHSU";
 
 /// Computes sha256 of the data bits of a `slice`. If the bit length of `s` is not divisible by eight,
 /// throws a cell underflow exception. The hash value is returned as a 256-bit unsigned integer `x`.
 @pure
-fun slice.bitsHash(self): int
+fun slice.bitsHash(self): uint256
     asm "SHA256U";
 
 /// Checks the Ed25519-`signature` of a `hash` (a 256-bit unsigned integer, usually computed as the hash of some data)
@@ -1119,7 +1119,7 @@ struct (0x00) ExtOutLogBucket {
 
 /// Options for creating an external outgoing message.
 /// Consider [createExternalLogMessage] for examples.
-struct createExternalLogMessageOptions<TBody = never> {
+struct CreateExternalLogMessageOptions<TBody = never> {
     /// destination is either an external address or a pattern to calculate it
     dest: address |         // either some valid external/none address (not internal!)
           builder |         // ... or a manually constructed builder with a valid external address
@@ -1143,7 +1143,7 @@ struct createExternalLogMessageOptions<TBody = never> {
 ///       (if body is small, it will be inlined without an expensive cell creation)
 ///       (if body is large, the compiler will automatically wrap it into a cell)
 @pure
-fun createExternalLogMessage<TBody>(options: createExternalLogMessageOptions<TBody>): OutMessage
+fun createExternalLogMessage<TBody>(options: CreateExternalLogMessageOptions<TBody>): OutMessage
     builtin;
 
 /// UnsafeBodyNoRef is used to prevent default behavior: when message body is potentially large,
@@ -1157,13 +1157,13 @@ fun createExternalLogMessage<TBody>(options: createExternalLogMessageOptions<TBo
 /// createMessage({
 ///     // body: contents,                  // by default, it will be stored a ref (it's large)
 ///     body: UnsafeBodyNoRef {
-///         bodyForceNoRef: contents,       // but wrapping forces the compiler to inline it
+///         forceInline: contents,          // but wrapping forces the compiler to inline it
 ///     }
 /// ```
 /// Another example: your body contains `builder` or `RemainingBitsAndRefs`: unpredictable size.
 /// If you guarantee it's small and refs won't clash with code/data, avoid creating a cell.
 struct UnsafeBodyNoRef<T> {
-    bodyForceNoRef: T;
+    forceInline: T;
 }
 
 /// OutMessage is a result of [createMessage].
@@ -1202,6 +1202,13 @@ struct StateInit {
 }
 
 /// Calculates a hash of StateInit if only code+data are set.
+/// Example:
+/// ```
+/// val addrHash = StateInit.calcHashCodeData(codeCell, dataCell);
+/// createMessage({
+///     dest: (workchain, addrHash),
+///     ...
+/// ```
 @pure
 fun StateInit.calcHashCodeData(code: cell, data: cell): uint256 asm
 """                 // code data
@@ -1304,23 +1311,41 @@ fun sendRawMessage(msg: cell, mode: int): void
     Receiving and handling messages.
 */
 
-/// Load msgFlags from incoming message body (4 bits).
-@pure
-fun slice.loadMessageFlags(mutate self): int
-    asm( -> 1 0) "4 LDU";
-
 /// Skip 0xFFFFFFFF prefix (when a message is bounced).
 @pure
 fun slice.skipBouncedPrefix(mutate self): self
-    asm "32 PUSHINT" "SDSKIPFIRST";
+    asm "32 LDU" "NIP";
 
-/// The guideline recommends to start the body of an internal message with uint32 `op` and uint64 `queryId`.
+/// Load msgFlags from incoming message body (4 bits).
+@pure
+@deprecated("use `onInternalMessage(in: InMessage)` and `in.isBounced` instead of parsing msgCell manually")
+fun slice.loadMessageFlags(mutate self): int
+    asm( -> 1 0) "4 LDU";
+
+/// Loads a message opcode (32-bit integer) when parsing message body manually.
 @pure
 fun slice.loadMessageOp(mutate self): int
     asm( -> 1 0) "32 LDU";
 
-/// The guideline recommends that uint64 `queryId` should follow uint32 `op`.
+/// Stores a message opcode (32-bit integer) when composing an output message manually.
 @pure
+@deprecated("use `createMessage` instead of composing messages manually")
+fun builder.storeMessageOp(mutate self, op: int): self
+    asm(op self) "32 STU";
+
+/// Loads a message queryId (64-bit integer, immediately following the opcode) when parsing message body manually.
+@pure
+@deprecated("use structures and lazy match instead of parsing messages manually")
 fun slice.loadMessageQueryId(mutate self): int
     asm( -> 1 0) "64 LDU";
+
+@pure
+@deprecated("use structures and lazy loading instead of parsing messages manually")
+fun slice.skipMessageQueryId(mutate self): self
+    asm "64 LDU" "NIP";
+
+@pure
+@deprecated("use `createMessage` instead of composing messages manually")
+fun builder.storeMessageQueryId(mutate self, queryId: int): self
+    asm(queryId self) "64 STU";
 

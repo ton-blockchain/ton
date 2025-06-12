@@ -1,11 +1,6 @@
 fun builder.store_u32(mutate self, value: int): self {
     return self.storeUint(value, 32);
 }
-fun builder.storeMessageOp(mutate self, op: int): self
-    asm(op self) "32 STU";
-fun builder.storeMessageQueryId(mutate self, queryId: int): self
-    asm(queryId self) "64 STU";
-
 fun slice.load_u32(mutate self): int {
     return self.loadUint(32);
 }

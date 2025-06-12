@@ -643,7 +643,7 @@ fun test22(op: uint32, queryId: uint64) {
         dest: address("0:FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFfffffffffffffffffffffffffffff"),
         value: ton("0.08"),
         body: UnsafeBodyNoRef {
-            bodyForceNoRef: bodyB
+            forceInline: bodyB
         },
     });
     assert(b.hash() == test22_manual(bodyB).hash(), 122);
@@ -690,7 +690,7 @@ fun test23(state32: uint32) {
     var b = createMessage({
         bounce: true,
         body: UnsafeBodyNoRef {
-            bodyForceNoRef: bd,
+            forceInline: bd,
         },
         dest: { workchain: 9, stateInit: init },
         value: ton("0.10009"),

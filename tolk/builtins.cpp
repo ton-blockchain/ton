@@ -1248,7 +1248,7 @@ void define_builtins() {
   TypePtr PackOptions = TypeDataUnknown::create();
   TypePtr UnpackOptions = TypeDataUnknown::create();
   TypePtr CreateMessageOptions = TypeDataUnknown::create();
-  TypePtr createExternalLogMessageOptions = TypeDataUnknown::create();
+  TypePtr CreateExternalLogMessageOptions = TypeDataUnknown::create();
   TypePtr OutMessage = TypeDataUnknown::create();
   TypePtr AddressShardingOptions = TypeDataUnknown::create();
   const GenericsDeclaration* declTBody = new GenericsDeclaration(std::vector<GenericsDeclaration::ItemT>{{"TBody", nullptr}}, 0);
@@ -1510,7 +1510,7 @@ void define_builtins() {
   define_builtin_func("createMessage", {CreateMessageOptions}, OutMessage, declTBody,
                                 compile_time_only_function,
                                 FunctionData::flagCompileTimeGen | FunctionData::flagAllowAnyWidthT);
-  define_builtin_func("createExternalLogMessage", {createExternalLogMessageOptions}, OutMessage, declTBody,
+  define_builtin_func("createExternalLogMessage", {CreateExternalLogMessageOptions}, OutMessage, declTBody,
                                 compile_time_only_function,
                                 FunctionData::flagCompileTimeGen | FunctionData::flagAllowAnyWidthT);
 
@@ -1584,15 +1584,15 @@ void patch_builtins_after_stdlib_loaded() {
   lookup_function("builder.storeAny")->mutate()->parameters[2].default_value = v_empty_PackOptions;
 
   StructPtr struct_ref_CreateMessageOptions = lookup_global_symbol("CreateMessageOptions")->try_as<StructPtr>();
-  StructPtr struct_ref_createExternalLogMessageOptions = lookup_global_symbol("createExternalLogMessageOptions")->try_as<StructPtr>();
+  StructPtr struct_ref_CreateExternalLogMessageOptions = lookup_global_symbol("CreateExternalLogMessageOptions")->try_as<StructPtr>();
   StructPtr struct_ref_OutMessage = lookup_global_symbol("OutMessage")->try_as<StructPtr>();
   TypePtr CreateMessageOptions = TypeDataGenericTypeWithTs::create(struct_ref_CreateMessageOptions, nullptr, {TypeDataGenericT::create("TBody")});
-  TypePtr createExternalLogMessageOptions = TypeDataGenericTypeWithTs::create(struct_ref_createExternalLogMessageOptions, nullptr, {TypeDataGenericT::create("TBody")});
+  TypePtr CreateExternalLogMessageOptions = TypeDataGenericTypeWithTs::create(struct_ref_CreateExternalLogMessageOptions, nullptr, {TypeDataGenericT::create("TBody")});
   TypePtr OutMessage = TypeDataStruct::create(struct_ref_OutMessage);
 
   lookup_function("createMessage")->mutate()->parameters[0].declared_type = CreateMessageOptions;
   lookup_function("createMessage")->mutate()->declared_return_type = OutMessage;
-  lookup_function("createExternalLogMessage")->mutate()->parameters[0].declared_type = createExternalLogMessageOptions;
+  lookup_function("createExternalLogMessage")->mutate()->parameters[0].declared_type = CreateExternalLogMessageOptions;
   lookup_function("createExternalLogMessage")->mutate()->declared_return_type = OutMessage;
 }
 
