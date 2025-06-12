@@ -251,7 +251,10 @@ void AsyncStateSerializer::store_persistent_state_description(td::Ref<Masterchai
   desc.start_time = state->get_unix_time();
   desc.end_time = ValidatorManager::persistent_state_ttl(desc.start_time);
   for (const auto &v : state->get_shards()) {
-    desc.shard_blocks.push_back(v->top_block_id());
+    desc.shard_blocks.push_back({
+        .block = v->top_block_id(),
+        .split_depth = state->persistent_state_split_depth(v->shard().workchain),
+    });
   }
   td::actor::send_closure(manager_, &ValidatorManager::add_persistent_state_description,
                           td::Ref<PersistentStateDescription>(true, std::move(desc)));

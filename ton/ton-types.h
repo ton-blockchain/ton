@@ -515,8 +515,13 @@ struct ValidatorSessionConfig {
 };
 
 struct PersistentStateDescription : public td::CntObject {
+  struct ShardBlock {
+    BlockIdExt block;
+    td::uint32 split_depth;
+  };
+
   BlockIdExt masterchain_id;
-  std::vector<BlockIdExt> shard_blocks;
+  std::vector<ShardBlock> shard_blocks;
   UnixTime start_time, end_time;
 
   virtual CntObject* make_copy() const {
