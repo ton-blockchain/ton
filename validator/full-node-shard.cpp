@@ -980,18 +980,20 @@ void FullNodeShardImpl::download_block(BlockIdExt id, td::uint32 priority, td::T
 
 void FullNodeShardImpl::download_zero_state(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
                                             td::Promise<td::BufferSlice> promise) {
-  td::actor::create_actor<DownloadState>(PSTRING() << "downloadstatereq" << id.id.to_str(), id, BlockIdExt{}, adnl_id_,
-                                         overlay_id_, adnl::AdnlNodeIdShort::zero(), priority, timeout,
-                                         validator_manager_, rldp_, overlays_, adnl_, client_, std::move(promise))
+  td::actor::create_actor<DownloadState>(PSTRING() << "downloadstatereq" << id.id.to_str(), id, BlockIdExt{},
+                                         UnsplitStateType{}, adnl_id_, overlay_id_, adnl::AdnlNodeIdShort::zero(),
+                                         priority, timeout, validator_manager_, rldp_, overlays_, adnl_, client_,
+                                         std::move(promise))
       .release();
 }
 
-void FullNodeShardImpl::download_persistent_state(BlockIdExt id, BlockIdExt masterchain_block_id, td::uint32 priority,
-                                                  td::Timestamp timeout, td::Promise<td::BufferSlice> promise) {
+void FullNodeShardImpl::download_persistent_state(BlockIdExt id, BlockIdExt masterchain_block_id,
+                                                  PersistentStateType type, td::uint32 priority, td::Timestamp timeout,
+                                                  td::Promise<td::BufferSlice> promise) {
   auto &b = choose_neighbour();
   td::actor::create_actor<DownloadState>(PSTRING() << "downloadstatereq" << id.id.to_str(), id, masterchain_block_id,
-                                         UnsplitStateType{}, adnl_id_, overlay_id_, b.adnl_id, priority, timeout,
-                                         validator_manager_, rldp2_, overlays_, adnl_, client_, std::move(promise))
+                                         type, adnl_id_, overlay_id_, b.adnl_id, priority, timeout, validator_manager_,
+                                         rldp2_, overlays_, adnl_, client_, std::move(promise))
       .release();
 }
 
@@ -1007,9 +1009,9 @@ void FullNodeShardImpl::download_block_proof(BlockIdExt block_id, td::uint32 pri
 void FullNodeShardImpl::download_block_proof_link(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
                                                   td::Promise<td::BufferSlice> promise) {
   auto &b = choose_neighbour();
-  td::actor::create_actor<DownloadProof>("downloadproofreq", block_id, true, false, adnl_id_, overlay_id_,
-                                         b.adnl_id, priority, timeout, validator_manager_, rldp_,
-                                         overlays_, adnl_, client_, create_neighbour_promise(b, std::move(promise)))
+  td::actor::create_actor<DownloadProof>("downloadproofreq", block_id, true, false, adnl_id_, overlay_id_, b.adnl_id,
+                                         priority, timeout, validator_manager_, rldp_, overlays_, adnl_, client_,
+                                         create_neighbour_promise(b, std::move(promise)))
       .release();
 }
 

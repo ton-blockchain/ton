@@ -123,7 +123,7 @@ void DownloadShardState::checked_proof_link() {
     CHECK(masterchain_block_id_.is_valid());
     CHECK(masterchain_block_id_.is_masterchain());
     td::actor::send_closure(manager_, &ValidatorManager::send_get_persistent_state_request, block_id_,
-                            masterchain_block_id_, priority_, std::move(P));
+                            masterchain_block_id_, UnsplitStateType{}, priority_, std::move(P));
   }
   status_.set_status(PSTRING() << block_id_.id.to_str() << " : downloading state");
 }

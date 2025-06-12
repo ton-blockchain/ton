@@ -135,7 +135,8 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void send_get_block_request(BlockIdExt id, td::uint32 priority, td::Promise<ReceivedBlock> promise) = 0;
   virtual void send_get_zero_state_request(BlockIdExt id, td::uint32 priority,
                                            td::Promise<td::BufferSlice> promise) = 0;
-  virtual void send_get_persistent_state_request(BlockIdExt id, BlockIdExt masterchain_block_id, td::uint32 priority,
+  virtual void send_get_persistent_state_request(BlockIdExt id, BlockIdExt masterchain_block_id,
+                                                 PersistentStateType type, td::uint32 priority,
                                                  td::Promise<td::BufferSlice> promise) = 0;
   virtual void send_get_block_proof_request(BlockIdExt block_id, td::uint32 priority,
                                             td::Promise<td::BufferSlice> promise) = 0;
