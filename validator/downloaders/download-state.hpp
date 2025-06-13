@@ -27,7 +27,7 @@ namespace validator {
 
 class DownloadShardState : public td::actor::Actor {
  public:
-  DownloadShardState(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::uint32 priority,
+  DownloadShardState(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::uint32 split_depth, td::uint32 priority,
                      td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
                      td::Promise<td::Ref<ShardState>> promise);
 
@@ -58,6 +58,7 @@ class DownloadShardState : public td::actor::Actor {
  private:
   BlockIdExt block_id_;
   BlockIdExt masterchain_block_id_;
+  td::uint32 split_depth_;
 
   BlockHandle handle_;
   td::uint32 priority_;

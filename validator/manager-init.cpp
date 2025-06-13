@@ -65,7 +65,7 @@ void ValidatorManagerMasterchainReiniter::got_masterchain_handle(BlockHandle han
       R.ensure();
       td::actor::send_closure(SelfId, &ValidatorManagerMasterchainReiniter::download_masterchain_state);
     });
-    td::actor::create_actor<DownloadShardState>("downloadstate", handle_->id(), BlockIdExt{}, 2, manager_,
+    td::actor::create_actor<DownloadShardState>("downloadstate", handle_->id(), BlockIdExt{}, 0, 2, manager_,
                                                 td::Timestamp::in(3600), std::move(P))
         .release();
     return;
@@ -80,7 +80,7 @@ void ValidatorManagerMasterchainReiniter::download_proof_link() {
       R.ensure();
       td::actor::send_closure(SelfId, &ValidatorManagerMasterchainReiniter::downloaded_zero_state);
     });
-    td::actor::create_actor<DownloadShardState>("downloadstate", handle_->id(), BlockIdExt{}, 2, manager_,
+    td::actor::create_actor<DownloadShardState>("downloadstate", handle_->id(), BlockIdExt{}, 0, 2, manager_,
                                                 td::Timestamp::in(3600), std::move(P))
         .release();
   } else {
@@ -263,7 +263,7 @@ void ValidatorManagerMasterchainReiniter::download_masterchain_state() {
                               R.move_as_ok());
     }
   });
-  td::actor::create_actor<DownloadShardState>("downloadstate", block_id_, block_id_, 2, manager_,
+  td::actor::create_actor<DownloadShardState>("downloadstate", block_id_, block_id_, 0, 2, manager_,
                                               td::Timestamp::in(3600 * 3), std::move(P))
       .release();
 }
