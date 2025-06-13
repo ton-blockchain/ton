@@ -117,10 +117,26 @@ void WaitBlockState::start() {
         td::actor::send_closure(SelfId, &WaitBlockState::written_state, R.move_as_ok());
       }
     });
+
     BlockIdExt masterchain_id = persistent_state_desc_->masterchain_id;
-    td::actor::create_actor<DownloadShardState>("downloadstate", handle_->id(), masterchain_id, priority_, manager_,
-                                                timeout_, std::move(P))
-        .release();
+    td::uint32 split_depth = 0;
+    bool block_found = false;
+    for (auto const& [block, block_split_depth] : persistent_state_desc_->shard_blocks) {
+      if (block == handle_->id()) {
+        split_depth = block_split_depth;
+        block_found = true;
+        break;
+      }
+    }
+    if (!block_found) {
+      LOG(ERROR) << "invalid persistent state description passed to WaitBlockState for block "
+                 << handle_->id().to_str();
+      P.set_error(td::Status::Error("invalid persistent state description"));
+    } else {
+      td::actor::create_actor<DownloadShardState>("downloadstate", handle_->id(), masterchain_id, split_depth,
+                                                  priority_, manager_, timeout_, std::move(P))
+          .release();
+    }
   } else if (!handle_->inited_prev() || (!handle_->inited_proof() && !handle_->inited_proof_link())) {
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), handle = handle_](td::Result<td::BufferSlice> R) {
       if (R.is_error()) {

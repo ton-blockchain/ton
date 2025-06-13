@@ -26,15 +26,22 @@ namespace ton {
 
 namespace validator {
 
-DownloadShardState::DownloadShardState(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::uint32 priority,
-                                       td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
-                                       td::Promise<td::Ref<ShardState>> promise)
+DownloadShardState::DownloadShardState(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::uint32 split_depth,
+                                       td::uint32 priority, td::actor::ActorId<ValidatorManager> manager,
+                                       td::Timestamp timeout, td::Promise<td::Ref<ShardState>> promise)
     : block_id_(block_id)
     , masterchain_block_id_(masterchain_block_id)
+    , split_depth_(split_depth)
     , priority_(priority)
     , manager_(manager)
     , timeout_(timeout)
     , promise_(std::move(promise)) {
+  CHECK(masterchain_block_id_.is_valid() || split_depth_ == 0);
+
+  int shard_prefix_length = shard_pfx_len(block_id_.shard_full().shard);
+  if (shard_prefix_length >= static_cast<int>(split_depth_)) {
+    split_depth_ = 0;
+  }
 }
 
 void DownloadShardState::start_up() {
