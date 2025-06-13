@@ -1245,6 +1245,7 @@ bool Collator::add_trivial_neighbor_after_merge() {
         nb.set_queue_root(out_msg_queue_->get_root_cell());
         nb.processed_upto = processed_upto_;
         nb.blk_.id.shard = get_shard();
+        stats_.neighbors[i].shard = nb.blk_.shard_full();
         LOG(DEBUG) << "adjusted neighbor #" << i << " : " << nb.blk_.to_str()
                    << " with shard expansion (immediate after-merge adjustment)";
       } else {
@@ -1320,10 +1321,13 @@ bool Collator::add_trivial_neighbor() {
           CHECK(sibling_out_msg_queue_);
           CHECK(sibling_processed_upto_);
           neighbors_.emplace_back(*descr_ref);
+          stats_.neighbors.push_back(CollationStats::NeighborStats{
+              .shard = descr_ref->shard(), .is_trivial = true, .is_local = true, .msg_limit = -1});
           auto& nb2 = neighbors_.at(i);
           nb2.set_queue_root(sibling_out_msg_queue_->get_root_cell());
           nb2.processed_upto = sibling_processed_upto_;
           nb2.blk_.id.shard = ton::shard_sibling(get_shard());
+          stats_.neighbors[i].shard = nb2.blk_.shard_full();
           LOG(DEBUG) << "adjusted neighbor #" << i << " : " << nb2.blk_.to_str()
                      << " with shard shrinking to our sibling (immediate after-split adjustment)";
           auto& nb1 = neighbors_.at(n);
@@ -1343,6 +1347,8 @@ bool Collator::add_trivial_neighbor() {
         CHECK(!sibling_out_msg_queue_);
         CHECK(!sibling_processed_upto_);
         neighbors_.emplace_back(*descr_ref);
+        stats_.neighbors.push_back(CollationStats::NeighborStats{
+            .shard = descr_ref->shard(), .is_trivial = true, .is_local = true, .msg_limit = -1});
         auto& nb2 = neighbors_.at(i);
         auto sib_shard = ton::shard_sibling(shard_);
         // compute the part of virtual sibling's OutMsgQueue with destinations in our shard
@@ -1362,6 +1368,7 @@ bool Collator::add_trivial_neighbor() {
           return fatal_error("error splitting ProcessedUpto for our virtual sibling");
         }
         nb2.blk_.id.shard = ton::shard_sibling(get_shard());
+        stats_.neighbors[i].shard = nb2.blk_.shard_full();
         LOG(DEBUG) << "adjusted neighbor #" << i << " : " << nb2.blk_.to_str()
                    << " with shard shrinking to our sibling (continued after-split adjustment)";
         auto& nb1 = neighbors_.at(n);
@@ -6410,6 +6417,14 @@ void Collator::finalize_stats() {
     });
   }
   stats_.new_out_msg_queue_size = out_msg_queue_size_;
+
+  auto neighbors_stats = std::move(stats_.neighbors);
+  stats_.neighbors.clear();
+  for (size_t i = 0; i < neighbors_stats.size(); ++i) {
+    if (!neighbors_.at(i).is_disabled()) {
+      stats_.neighbors.push_back(std::move(neighbors_stats[i]));
+    }
+  }
 }
 
 /**
