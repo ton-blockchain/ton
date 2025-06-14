@@ -730,8 +730,11 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
                                       td::Promise<td::BufferSlice> promise) {
   auto P = td::PromiseCreator::lambda(
       [SelfId = actor_id(this), promise = std::move(promise)](td::Result<td::uint64> R) mutable {
-        TRY_RESULT_PROMISE(promise, size, std::move(R));
-        promise.set_value(create_serialize_tl_object<ton_api::tonNode_persistentStateSize>(size));
+        if (R.is_error()) {
+          promise.set_value(create_serialize_tl_object<ton_api::tonNode_persistentStateSizeNotFound>());
+        } else {
+          promise.set_value(create_serialize_tl_object<ton_api::tonNode_persistentStateSize>(R.move_as_ok()));
+        }
       });
   auto block_id = create_block_id(query.block_);
   auto masterchain_block_id = create_block_id(query.masterchain_block_);

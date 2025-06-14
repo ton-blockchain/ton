@@ -410,6 +410,7 @@ tonNode.preparedProofLink = tonNode.PreparedProof;
 tonNode.preparedState = tonNode.PreparedState;
 tonNode.notFoundState = tonNode.PreparedState;
 tonNode.persistentStateSize size:long = tonNode.PersistentStateSize;
+tonNode.persistentStateSizeNotFound = tonNode.PersistentStateSize;
 tonNode.prepared = tonNode.Prepared;
 tonNode.notFound = tonNode.Prepared;
 tonNode.data data:bytes = tonNode.Data;
