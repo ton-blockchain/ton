@@ -17,6 +17,7 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include "vm/cells/MerkleProof.h"
+#include "td/utils/Status.h"
 #include "vm/cells/CellBuilder.h"
 #include "vm/cells/CellSlice.h"
 #include "vm/boc.h"
@@ -150,6 +151,11 @@ Ref<Cell> MerkleProof::virtualize(Ref<Cell> cell, int virtualization) {
     return {};
   }
   return virtualize_raw(r_raw.move_as_ok(), {0 /*level*/, static_cast<td::uint8>(virtualization)});
+}
+
+td::Result<Ref<Cell>> MerkleProof::try_virtualize(Ref<Cell> cell, int virtualization) {
+  TRY_RESULT(unpacked_cell, unpack_proof(std::move(cell)));
+  return unpacked_cell->virtualize({0 /*level*/, static_cast<td::uint8>(virtualization)});
 }
 
 class MerkleProofCombineFast {

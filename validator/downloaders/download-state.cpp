@@ -21,10 +21,103 @@
 #include "common/checksum.h"
 #include "common/delay.h"
 #include "ton/ton-io.hpp"
+#include "vm/cells/MerkleProof.h"
+#include "crypto/block/block-auto.h"
+#include "crypto/block/block-parse.h"
 
 namespace ton {
 
 namespace validator {
+
+class SplitStateDeserializer {
+ public:
+  td::Result<std::vector<SplitStatePart>> get_effective_shards_from_header(ShardId shard_id, RootHash root_hash,
+                                                                           td::Ref<vm::Cell> wrapped_header,
+                                                                           td::uint32 split_depth) {
+    int shard_prefix_length = shard_pfx_len(shard_id);
+    CHECK(split_depth <= 63 && shard_prefix_length < static_cast<int>(split_depth));
+
+    try {
+      TRY_RESULT(header, vm::MerkleProof::try_virtualize(wrapped_header));
+
+      if (RootHash{header->get_hash().bits()} != root_hash) {
+        return td::Status::Error("Hash mismatch in split state header");
+      }
+
+      auto shard_state_cs = vm::load_cell_slice(header);
+      bool rc = block::gen::t_ShardStateUnsplit.unpack(shard_state_cs, shard_state_);
+      if (!rc) {
+        return td::Status::Error("Cannot deserialize ShardStateUnsplit");
+      }
+
+      vm::AugmentedDictionary accounts{
+          vm::load_cell_slice_ref(shard_state_.accounts),
+          256,
+          block::tlb::aug_ShardAccounts,
+          false,
+      };
+
+      std::vector<SplitStatePart> parts;
+
+      // The following loop is the same as in state-serializer.cpp.
+      ShardId effective_shard = shard_id ^ (1ULL << (63 - shard_prefix_length)) ^ (1ULL << (63 - split_depth));
+      ShardId increment = 1ULL << (64 - split_depth);
+
+      for (int i = 0; i < (1 << (split_depth - shard_prefix_length)); ++i, effective_shard += increment) {
+        td::BitArray<64> prefix;
+        prefix.store_ulong(effective_shard);
+        auto account_dict_part = accounts;
+        account_dict_part.cut_prefix_subdict(prefix.bits(), split_depth);
+
+        if (!account_dict_part.is_empty()) {
+          parts.push_back({effective_shard, account_dict_part.get_wrapped_dict_root()->get_hash()});
+        }
+      }
+
+      // Now check that header does not contain pruned cells outside of accounts dict. For that, we
+      // just replace account dict with an empty cell and see if header remains virtualized or not.
+      shard_state_.accounts = vm::DataCell::create("", 0, {}, false).move_as_ok();
+
+      vm::CellBuilder cb;
+      block::gen::t_ShardStateUnsplit.pack(cb, shard_state_);
+      if (cb.finalize()->get_virtualization() > 0) {
+        return td::Status::Error("State headers is pruned outside of account dict");
+      }
+
+      return parts;
+    } catch (vm::VmVirtError const&) {
+      return td::Status::Error("Insufficient number of cells in split state header");
+    }
+  }
+
+  td::Ref<vm::Cell> merge(std::vector<td::Ref<vm::Cell>> const& parts) {
+    vm::AugmentedDictionary accounts{256, block::tlb::aug_ShardAccounts, false};
+    for (auto const& part_root : parts) {
+      vm::AugmentedDictionary part{
+          vm::load_cell_slice_ref(part_root),
+          256,
+          block::tlb::aug_ShardAccounts,
+          false,
+      };
+      bool rc = accounts.combine_with(part);
+      LOG_CHECK(rc) << "Split state parts have been validated but merging them still resulted in a conflict";
+    }
+
+    accounts.validate();  // FIXME: Without this call, empty dictionary will be considered invalid.
+    CHECK(accounts.is_valid());
+
+    shard_state_.accounts = accounts.get_wrapped_dict_root();
+
+    vm::CellBuilder cb;
+    block::gen::t_ShardStateUnsplit.pack(cb, shard_state_);
+    auto state_root = cb.finalize();
+    CHECK(state_root->get_virtualization() == 0);
+    return state_root;
+  }
+
+ private:
+  block::gen::ShardStateUnsplit::Record shard_state_;
+};
 
 DownloadShardState::DownloadShardState(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::uint32 split_depth,
                                        td::uint32 priority, td::actor::ActorId<ValidatorManager> manager,
@@ -42,7 +135,12 @@ DownloadShardState::DownloadShardState(BlockIdExt block_id, BlockIdExt mastercha
   if (shard_prefix_length >= static_cast<int>(split_depth_)) {
     split_depth_ = 0;
   }
+
+  LOG(ERROR) << "we want to download shard state " << block_id.to_str() << " of masterchain block "
+             << masterchain_block_id.to_str() << " with split depth " << split_depth;
 }
+
+DownloadShardState::~DownloadShardState() = default;
 
 void DownloadShardState::start_up() {
   status_ = ProcessStatus(manager_, "process.download_state");
@@ -71,6 +169,8 @@ void DownloadShardState::got_block_handle(BlockHandle handle) {
 }
 
 void DownloadShardState::retry() {
+  deserializer_ = {};
+  parts_.clear();
   download_state();
 }
 
@@ -120,17 +220,30 @@ void DownloadShardState::checked_proof_link() {
     });
     td::actor::send_closure(manager_, &ValidatorManager::try_get_static_file, block_id_.file_hash, std::move(P));
   } else {
-    auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::BufferSlice> R) {
-      if (R.is_error()) {
-        fail_handler(SelfId, R.move_as_error());
-      } else {
-        td::actor::send_closure(SelfId, &DownloadShardState::downloaded_shard_state, R.move_as_ok());
-      }
-    });
     CHECK(masterchain_block_id_.is_valid());
     CHECK(masterchain_block_id_.is_masterchain());
-    td::actor::send_closure(manager_, &ValidatorManager::send_get_persistent_state_request, block_id_,
-                            masterchain_block_id_, UnsplitStateType{}, priority_, std::move(P));
+
+    if (split_depth_ == 0) {
+      auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::BufferSlice> R) {
+        if (R.is_error()) {
+          fail_handler(SelfId, R.move_as_error());
+        } else {
+          td::actor::send_closure(SelfId, &DownloadShardState::downloaded_shard_state, R.move_as_ok());
+        }
+      });
+      td::actor::send_closure(manager_, &ValidatorManager::send_get_persistent_state_request, block_id_,
+                              masterchain_block_id_, UnsplitStateType{}, priority_, std::move(P));
+    } else {
+      auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::BufferSlice> R) {
+        if (R.is_error()) {
+          fail_handler(SelfId, R.move_as_error());
+        } else {
+          td::actor::send_closure(SelfId, &DownloadShardState::downloaded_split_state_header, R.move_as_ok());
+        }
+      });
+      td::actor::send_closure(manager_, &ValidatorManager::send_get_persistent_state_request, block_id_,
+                              masterchain_block_id_, SplitPersistentStateType{}, priority_, std::move(P));
+    }
   }
   status_.set_status(PSTRING() << block_id_.id.to_str() << " : downloading state");
 }
@@ -198,6 +311,88 @@ void DownloadShardState::checked_shard_state() {
     td::actor::send_closure(manager_, &ValidatorManager::store_persistent_state_file, block_id_, masterchain_block_id_,
                             UnsplitStateType{}, std::move(data_), std::move(P));
   }
+}
+
+void DownloadShardState::downloaded_split_state_header(td::BufferSlice data) {
+  deserializer_ = std::make_unique<SplitStateDeserializer>();
+
+  auto maybe_header = vm::std_boc_deserialize(data);
+  if (maybe_header.is_error()) {
+    fail_handler(actor_id(this), maybe_header.move_as_error());
+    return;
+  }
+
+  auto maybe_parts = deserializer_->get_effective_shards_from_header(block_id_.shard_full().shard, handle_->state(),
+                                                                     maybe_header.move_as_ok(), split_depth_);
+  if (maybe_parts.is_error()) {
+    fail_handler(actor_id(this), maybe_parts.move_as_error());
+    return;
+  }
+
+  parts_ = maybe_parts.move_as_ok();
+
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
+    R.ensure();
+    td::actor::send_closure(SelfId, &DownloadShardState::written_split_state_file);
+  });
+  td::actor::send_closure(manager_, &ValidatorManager::store_persistent_state_file, block_id_, masterchain_block_id_,
+                          SplitPersistentStateType{}, std::move(data), std::move(P));
+}
+
+void DownloadShardState::written_split_state_file() {
+  if (stored_parts_.size() == parts_.size()) {
+    auto state_root = deserializer_->merge(stored_parts_);
+    auto maybe_state = create_shard_state(block_id_, state_root);
+
+    // We cannot rollback database changes here without significant elbow grease.
+    maybe_state.ensure();
+    state_ = maybe_state.move_as_ok();
+    CHECK(state_->root_hash() == handle_->state());
+
+    written_shard_state_file();
+    return;
+  }
+
+  size_t idx = stored_parts_.size();
+
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::BufferSlice> R) {
+    if (R.is_error()) {
+      fail_handler(SelfId, R.move_as_error());
+    } else {
+      td::actor::send_closure(SelfId, &DownloadShardState::downloaded_state_part, R.move_as_ok());
+    }
+  });
+  td::actor::send_closure(manager_, &ValidatorManager::send_get_persistent_state_request, block_id_,
+                          masterchain_block_id_, SplitAccountStateType{parts_[idx].effective_shard}, priority_,
+                          std::move(P));
+}
+
+void DownloadShardState::downloaded_state_part(td::BufferSlice data) {
+  size_t idx = stored_parts_.size();
+
+  auto maybe_part = vm::std_boc_deserialize(data);
+  if (maybe_part.is_error()) {
+    fail_handler(actor_id(this), maybe_part.move_as_error());
+    return;
+  }
+
+  auto root = maybe_part.move_as_ok();
+  if (root->get_hash() != parts_[idx].root_hash) {
+    fail_handler(actor_id(this),
+                 td::Status::Error("Hash mismatch for part " +
+                                   persistent_state_type_to_string(
+                                       block_id_.shard_full(), SplitAccountStateType{parts_[idx].effective_shard})));
+    return;
+  }
+
+  stored_parts_.push_back(root);
+
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
+    R.ensure();
+    td::actor::send_closure(SelfId, &DownloadShardState::written_split_state_file);
+  });
+  td::actor::send_closure(manager_, &ValidatorManager::store_persistent_state_file, block_id_, masterchain_block_id_,
+                          SplitAccountStateType{parts_[idx].effective_shard}, std::move(data), std::move(P));
 }
 
 void DownloadShardState::written_shard_state_file() {
