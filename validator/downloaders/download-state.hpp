@@ -54,8 +54,10 @@ class DownloadShardState : public td::actor::Actor {
   void checked_shard_state();
 
   void downloaded_split_state_header(td::BufferSlice data);
-  void written_split_state_file();
+  void download_next_part_or_finish();
   void downloaded_state_part(td::BufferSlice data);
+  void written_state_part_file();
+  void saved_state_part_into_celldb(td::Ref<vm::DataCell> cell);
 
   void written_shard_state_file();
   void written_shard_state(td::Ref<ShardState> state);

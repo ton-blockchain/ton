@@ -176,6 +176,11 @@ class ValidatorManagerImpl : public ValidatorManager {
                        td::Promise<td::Ref<ShardState>> promise) override {
     UNREACHABLE();
   }
+  void store_block_state_part(BlockId effective_block, td::Ref<vm::Cell> cell,
+                              td::Promise<td::Ref<vm::DataCell>> promise) override {
+    UNREACHABLE();
+  }
+
   void get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) override;
   void store_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id, PersistentStateType type,
                                    td::BufferSlice state, td::Promise<td::Unit> promise) override {

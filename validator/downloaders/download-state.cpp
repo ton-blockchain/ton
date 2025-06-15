@@ -337,7 +337,7 @@ void DownloadShardState::downloaded_split_state_header(td::BufferSlice data) {
 
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
     R.ensure();
-    td::actor::send_closure(SelfId, &DownloadShardState::written_split_state_file);
+    td::actor::send_closure(SelfId, &DownloadShardState::download_next_part_or_finish);
   });
   td::actor::send_closure(manager_, &ValidatorManager::store_persistent_state_file, block_id_, masterchain_block_id_,
                           SplitPersistentStateType{}, std::move(data), std::move(P));
@@ -347,13 +347,13 @@ namespace {
 
 void retry_part_download(td::actor::ActorId<DownloadShardState> SelfId, td::Status error) {
   LOG(WARNING) << "failed to download state part : " << error;
-  delay_action([=]() { td::actor::send_closure(SelfId, &DownloadShardState::written_split_state_file); },
+  delay_action([=]() { td::actor::send_closure(SelfId, &DownloadShardState::download_next_part_or_finish); },
                td::Timestamp::in(1.0));
 }
 
 }  // namespace
 
-void DownloadShardState::written_split_state_file() {
+void DownloadShardState::download_next_part_or_finish() {
   if (stored_parts_.size() == parts_.size()) {
     auto state_root = deserializer_->merge(stored_parts_);
     auto maybe_state = create_shard_state(block_id_, state_root);
@@ -411,7 +411,7 @@ void DownloadShardState::downloaded_state_part(td::BufferSlice data) {
 
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
     R.ensure();
-    td::actor::send_closure(SelfId, &DownloadShardState::written_split_state_file);
+    td::actor::send_closure(SelfId, &DownloadShardState::written_state_part_file);
   });
   td::actor::send_closure(manager_, &ValidatorManager::store_persistent_state_file, block_id_, masterchain_block_id_,
                           SplitAccountStateType{parts_[idx].effective_shard}, std::move(data), std::move(P));
@@ -419,6 +419,26 @@ void DownloadShardState::downloaded_state_part(td::BufferSlice data) {
   LOG(INFO) << "storing state part to file " << idx + 1 << " out of " << parts_.size();
   status_.set_status(PSTRING() << block_id_.id.to_str() << " : storing state part to file (part " << idx + 1
                                << " out of " << parts_.size() << ")");
+}
+
+void DownloadShardState::written_state_part_file() {
+  size_t idx = stored_parts_.size() - 1;
+
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<vm::DataCell>> R) {
+    R.ensure();
+    td::actor::send_closure(SelfId, &DownloadShardState::saved_state_part_into_celldb, R.move_as_ok());
+  });
+  td::actor::send_closure(manager_, &ValidatorManager::store_block_state_part,
+                          BlockId{block_id_.shard_full().workchain, parts_[idx].effective_shard, block_id_.seqno()},
+                          stored_parts_.back(), std::move(P));
+  LOG(INFO) << "saving to celldb state part " << idx + 1 << " out of " << parts_.size();
+  status_.set_status(PSTRING() << block_id_.id.to_str() << " : saving state part to celldb (part " << idx + 1
+                               << " out of " << parts_.size() << ")");
+}
+
+void DownloadShardState::saved_state_part_into_celldb(td::Ref<vm::DataCell> cell) {
+  stored_parts_.back() = cell;
+  download_next_part_or_finish();
 }
 
 void DownloadShardState::written_shard_state_file() {
