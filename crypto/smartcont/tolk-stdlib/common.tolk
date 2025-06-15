@@ -759,12 +759,12 @@ fun builder.storeUint(mutate self, x: int, len: int): self
 /// Stores a slice into a builder.
 @pure
 fun builder.storeSlice(mutate self, s: slice): self
-    asm "STSLICER";
+    asm(s self) "STSLICE";
 
 /// Stores an address into a builder.
 @pure
 fun builder.storeAddress(mutate self, addr: address): self
-    asm "STSLICER";
+    asm(addr self) "STSLICE";
 
 /// Stores amount of Toncoins into a builder.
 @pure
@@ -792,7 +792,7 @@ fun builder.storeMaybeRef(mutate self, c: cell?): self
 /// Concatenates two builders.
 @pure
 fun builder.storeBuilder(mutate self, from: builder): self
-    asm "STBR";
+    asm(from self) "STB";
 
 /// Stores a slice representing TL addr_none$00 (two `0` bits).
 @pure

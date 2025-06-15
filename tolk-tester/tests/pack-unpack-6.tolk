@@ -131,9 +131,9 @@ RETALT
 @fif_codegen
 """
   test3 PROC:<{
-    NEWC
     x{0109ab} PUSHSLICE
-    STSLICER
+    NEWC
+    STSLICE
     ENDC
     CTOS
     x{01} SDBEGINSQ
@@ -168,8 +168,7 @@ IF:<{
     9 THROWIF
     8 EQINT
     9 THROWIFNOT
-    SWAP
-    STSLICER
+    STSLICE
 """
 
 @fif_codegen
@@ -177,8 +176,7 @@ IF:<{
   test6 PROC:<{
     x{11} PUSHSLICE
     NEWC
-    SWAP
-    STSLICER
+    STSLICE
     ENDC
     HASHCU
 """
