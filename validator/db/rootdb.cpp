@@ -281,6 +281,11 @@ void RootDb::get_block_state(ConstBlockHandle handle, td::Promise<td::Ref<ShardS
   }
 }
 
+void RootDb::store_block_state_part(BlockId effective_block, td::Ref<vm::Cell> cell,
+                                    td::Promise<td::Ref<vm::DataCell>> promise) {
+  td::actor::send_closure(cell_db_, &CellDb::store_cell, BlockIdExt{effective_block}, cell, std::move(promise));
+}
+
 void RootDb::get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) {
   td::actor::send_closure(cell_db_, &CellDb::get_cell_db_reader, std::move(promise));
 }

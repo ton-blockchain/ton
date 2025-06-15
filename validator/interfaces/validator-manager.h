@@ -70,6 +70,8 @@ class ValidatorManager : public ValidatorManagerInterface {
   }
   virtual void set_block_state(BlockHandle handle, td::Ref<ShardState> state,
                                td::Promise<td::Ref<ShardState>> promise) = 0;
+  virtual void store_block_state_part(BlockId effective_block, td::Ref<vm::Cell> cell,
+                                      td::Promise<td::Ref<vm::DataCell>> promise) = 0;
   virtual void get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) = 0;
   virtual void store_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id,
                                            PersistentStateType type, td::BufferSlice state,
