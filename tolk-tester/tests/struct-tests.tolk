@@ -404,8 +404,8 @@ fun test28(getEmpty: bool) {
     return (t1, t1 is Empty, t1 is (int, int), t1 is builder, 777, t2, t2 is Empty, t2 is Has2EmptyNullable, t2 == null);
 }
 
-struct Empty1 {}
-struct Empty2 {}
+struct Empty1;
+struct Empty2;
 
 @method_id(129)
 fun test29() {

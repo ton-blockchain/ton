@@ -2,6 +2,7 @@
 fun main() {
     match (0 as int | slice) {
         int => 1,
+        slice => 2,
         else => 10,
     };
 }

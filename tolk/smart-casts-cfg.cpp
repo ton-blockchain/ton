@@ -113,6 +113,17 @@ std::string SinkExpression::to_string() const {
   return result;
 }
 
+SinkExpression SinkExpression::get_child_s_expr(int field_idx) const {
+  uint64_t new_index_path = index_path;    // if we have c.1 (index_path = 2) and construct c.1.N, calc (N<<8 + 2)
+  for (int empty_byte = 0; empty_byte < 8; ++empty_byte) {
+    if ((index_path & (0xFF << (empty_byte*8))) == 0) {
+      new_index_path += (field_idx + 1) << (empty_byte*8);
+      break;
+    }
+  }
+  return SinkExpression(var_ref, new_index_path);
+}
+
 static std::string to_string(SignState s) {
   static const char* txt[6 + 1] = {"sign=unknown", ">0", "<0", "=0", ">=0", "<=0", "sign=never"};
   return txt[static_cast<int>(s)];

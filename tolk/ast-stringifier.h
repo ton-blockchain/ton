@@ -45,6 +45,7 @@ class ASTStringifier final : public ASTVisitor {
     {ast_empty_expression, "ast_empty_expression"},
     {ast_parenthesized_expression, "ast_parenthesized_expression"},
     {ast_braced_expression, "ast_braced_expression"},
+    {ast_braced_yield_result, "ast_braced_yield_result"},
     {ast_artificial_aux_vertex, "ast_artificial_aux_vertex"},
     {ast_tensor, "ast_tensor"},
     {ast_bracket_tuple, "ast_bracket_tuple"},
@@ -68,6 +69,7 @@ class ASTStringifier final : public ASTVisitor {
     {ast_cast_as_operator, "ast_cast_as_operator"},
     {ast_is_type_operator, "ast_is_type_operator"},
     {ast_not_null_operator, "ast_not_null_operator"},
+    {ast_lazy_operator, "ast_lazy_operator"},
     {ast_match_expression, "ast_match_expression"},
     {ast_match_arm, "ast_match_arm"},
     {ast_object_field, "ast_object_field"},
@@ -302,6 +304,7 @@ public:
       case ast_empty_expression:              return handle_vertex(v->as<ast_empty_expression>());
       case ast_parenthesized_expression:      return handle_vertex(v->as<ast_parenthesized_expression>());
       case ast_braced_expression:             return handle_vertex(v->as<ast_braced_expression>());
+      case ast_braced_yield_result:           return handle_vertex(v->as<ast_braced_yield_result>());
       case ast_artificial_aux_vertex:         return handle_vertex(v->as<ast_artificial_aux_vertex>());
       case ast_tensor:                        return handle_vertex(v->as<ast_tensor>());
       case ast_bracket_tuple:                 return handle_vertex(v->as<ast_bracket_tuple>());
@@ -325,6 +328,7 @@ public:
       case ast_cast_as_operator:              return handle_vertex(v->as<ast_cast_as_operator>());
       case ast_is_type_operator:              return handle_vertex(v->as<ast_is_type_operator>());
       case ast_not_null_operator:             return handle_vertex(v->as<ast_not_null_operator>());
+      case ast_lazy_operator:                 return handle_vertex(v->as<ast_lazy_operator>());
       case ast_match_expression:              return handle_vertex(v->as<ast_match_expression>());
       case ast_match_arm:                     return handle_vertex(v->as<ast_match_arm>());
       case ast_object_field:                  return handle_vertex(v->as<ast_object_field>());

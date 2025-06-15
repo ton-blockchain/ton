@@ -23,12 +23,14 @@ set(TOLK_SOURCE
         pipe-constant-folding.cpp
         pipe-optimize-boolean-expr.cpp
         pipe-detect-inline-in-place.cpp
+        pipe-lazy-load-insertions.cpp
         pipe-ast-to-legacy.cpp
         pipe-find-unused-symbols.cpp
         pipe-generate-fif-output.cpp
         type-system.cpp
         smart-casts-cfg.cpp
         generics-helpers.cpp
+        lazy-helpers.cpp
         abscode.cpp
         analyzer.cpp
         asmops.cpp

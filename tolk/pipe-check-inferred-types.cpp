@@ -587,7 +587,9 @@ protected:
             fire(cur_f, v_arm->loc, "duplicated `else` branch");
           }
           if (has_type_arm) {
-            fire(cur_f, v_arm->loc, "`else` is not allowed in `match` by type; you should cover all possible types");
+            // `else` is not allowed in `match` by type, but we don't fire an error here,
+            // because it might turn out to be a lazy `match`, where `else` is allowed;
+            // if it's not lazy, an error is fired later
           }
           has_else_arm = true;
       }

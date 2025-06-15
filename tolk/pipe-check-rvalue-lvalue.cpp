@@ -125,6 +125,13 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
     parent::visit(v->get_expr());
   }
 
+  void visit(V<ast_lazy_operator> v) override {
+    if (v->is_lvalue) {
+      fire_error_cannot_be_used_as_lvalue(cur_f, v, "lazy expression");
+    }
+    parent::visit(v->get_expr());
+  }
+
   void visit(V<ast_int_const> v) override {
     if (v->is_lvalue) {
       fire_error_cannot_be_used_as_lvalue(cur_f, v, "literal");

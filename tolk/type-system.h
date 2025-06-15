@@ -569,6 +569,7 @@ public:
 
   TypePtr calculate_exact_variant_to_fit_rhs(TypePtr rhs_type) const;
   bool has_all_variants_of(const TypeDataUnion* rhs_type) const;
+  int get_variant_idx(TypePtr lookup_variant) const;
 
   int get_width_on_stack() const override;
   int get_type_id() const override;

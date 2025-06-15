@@ -36,7 +36,8 @@
 
 namespace tolk {
 
-
+class LValContext;
+std::vector<var_idx_t> pre_compile_expr(AnyExprV v, CodeBlob& code, TypePtr target_type = nullptr, LValContext* lval_ctx = nullptr);
 std::vector<var_idx_t> pre_compile_is_type(CodeBlob& code, TypePtr expr_type, TypePtr cmp_type, const std::vector<var_idx_t>& expr_ir_idx, SrcLocation loc, const char* debug_desc);
 std::vector<var_idx_t> transition_to_target_type(std::vector<var_idx_t>&& rvect, CodeBlob& code, TypePtr original_type, TypePtr target_type, SrcLocation loc);
 
@@ -181,6 +182,34 @@ void UnpackContext::assertEndIfOption() const {
     code.close_pop_cur(loc);
   }
 }
+
+void UnpackContext::throwInvalidOpcode() const {
+  std::vector args_throw = { option_throwIfOpcodeDoesNotMatch };
+  Op& op_throw = code.emplace_back(loc, Op::_Call, std::vector<var_idx_t>{}, std::move(args_throw), lookup_function("__throw"));
+  op_throw.set_impure_flag();
+}
+
+const LazyMatchOptions::MatchBlock* LazyMatchOptions::find_match_block(TypePtr variant) const {
+  for (const MatchBlock& b : match_blocks) {
+    if (b.arm_variant->get_type_id() == variant->get_type_id()) {
+      return &b;
+    }
+  }
+  tolk_assert(false);
+}
+
+void LazyMatchOptions::save_match_result_on_arm_end(CodeBlob& code, SrcLocation loc, const MatchBlock* arm_block, std::vector<var_idx_t>&& ir_arm_result, const std::vector<var_idx_t>& ir_match_expr_result) const {
+  if (!is_statement) {
+    // if it's `match` expression (not statement), then every arm has a result, assigned to a whole `match` result
+    ir_arm_result = transition_to_target_type(std::move(ir_arm_result), code, arm_block->block_expr_type, match_expr_type, loc);
+    code.emplace_back(loc, Op::_Let, ir_match_expr_result, std::move(ir_arm_result));
+  } else if (add_return_to_all_arms) {
+    // if it's `match` statement, even if an arm is an expression, it's void, actually
+    // moreover, if it's the last statement in a function, add implicit "return" to all match cases to produce IFJMP
+    code.emplace_back(loc, Op::_Return);
+  }
+}
+
 
 // --------------------------------------------
 //    serializers with pack/unpack/skip/estimate
@@ -638,6 +667,34 @@ struct S_Either final : ISerializer {
     return ir_result;
   }
 
+  std::vector<var_idx_t> lazy_match(const UnpackContext* ctx, CodeBlob& code, SrcLocation loc, const LazyMatchOptions& options) const {
+    for (const LazyMatchOptions::MatchBlock& m : options.match_blocks) {
+      if (m.arm_variant == nullptr) {   // `else => ...` not allowed for Either
+        // it's not the best place to fire an error, but let it be
+        throw ParseError(loc, "`else` is unreachable, because this `match` has only two options (0/1 prefixes)");
+      }
+    }
+    tolk_assert(options.match_blocks.size() == 2);
+    std::vector ir_result = code.create_tmp_var(options.match_expr_type, loc, "(match-expression)");
+    std::vector ir_is_right = ctx->loadUint(1, "(eitherBit)");
+    Op& if_op = code.emplace_back(loc, Op::_If, std::move(ir_is_right));
+    {
+      code.push_set_cur(if_op.block0);
+      const LazyMatchOptions::MatchBlock* m_block = options.find_match_block(t_right);
+      std::vector ith_result = pre_compile_expr(m_block->v_body, code);
+      options.save_match_result_on_arm_end(code, loc, m_block, std::move(ith_result), ir_result);
+      code.close_pop_cur(loc);
+    }
+    {
+      code.push_set_cur(if_op.block1);
+      const LazyMatchOptions::MatchBlock* m_block = options.find_match_block(t_left);
+      std::vector ith_result = pre_compile_expr(m_block->v_body, code);
+      options.save_match_result_on_arm_end(code, loc, m_block, std::move(ith_result), ir_result);
+      code.close_pop_cur(loc);
+    }
+    return ir_result;
+  }
+
   void skip(const UnpackContext* ctx, CodeBlob& code, SrcLocation loc) override {
     std::vector ir_is_right = ctx->loadUint(1, "(eitherBit)");
     Op& if_op = code.emplace_back(loc, Op::_If, std::move(ir_is_right));
@@ -714,12 +771,54 @@ struct S_MultipleConstructors final : ISerializer {
     }
 
     // we're inside last ELSE
-    std::vector args_throw = { ctx->option_throwIfOpcodeDoesNotMatch };
-    Op& op_throw = code.emplace_back(loc, Op::_Call, std::vector<var_idx_t>{}, std::move(args_throw), lookup_function("__throw"));
-    op_throw.set_impure_flag();
+    ctx->throwInvalidOpcode();
     for (int j = 0; j < t_union->size(); ++j) {
       code.close_pop_cur(loc);    // close all outer IFs
     }
+    return ir_result;
+  }
+
+  std::vector<var_idx_t> lazy_match(const UnpackContext* ctx, CodeBlob& code, SrcLocation loc, const LazyMatchOptions& options) const {
+    std::vector<int> opcodes_order_mapping(t_union->size(), -1);
+    const LazyMatchOptions::MatchBlock* else_block = nullptr;
+    for (int i = 0; i < static_cast<int>(options.match_blocks.size()); ++i) {
+      if (options.match_blocks[i].arm_variant) {
+        int variant_idx = t_union->get_variant_idx(options.match_blocks[i].arm_variant);
+        tolk_assert(variant_idx != -1);
+        opcodes_order_mapping[i] = variant_idx;
+      } else {
+        tolk_assert(else_block == nullptr);
+        else_block = &options.match_blocks[i];
+      }
+    }
+
+    FunctionPtr f_tryStripPrefix = lookup_function("slice.tryStripPrefix");
+
+    std::vector ir_result = code.create_tmp_var(options.match_expr_type, loc, "(match-expression)");
+    std::vector ir_prefix_eq = code.create_tmp_var(TypeDataInt::create(), loc, "(prefix-eq)");
+
+    for (int i = 0; i < t_union->size(); ++i) {
+      StructData::PackOpcode opcode = opcodes[opcodes_order_mapping[i]];
+      std::vector args = { ctx->ir_slice0, code.create_int(loc, opcode.pack_prefix, "(pack-prefix)"), code.create_int(loc, opcode.prefix_len, "(prefix-len)") };
+      code.emplace_back(loc, Op::_Call, std::vector{ctx->ir_slice0, ir_prefix_eq[0]}, std::move(args), f_tryStripPrefix);
+      Op& if_op = code.emplace_back(loc, Op::_If, ir_prefix_eq);
+      code.push_set_cur(if_op.block0);
+      std::vector ith_result = pre_compile_expr(options.match_blocks[i].v_body, code);
+      options.save_match_result_on_arm_end(code, loc, &options.match_blocks[i], std::move(ith_result), ir_result);
+      code.close_pop_cur(loc);
+      code.push_set_cur(if_op.block1);    // open ELSE
+    }
+
+    if (else_block) {
+      std::vector else_result = pre_compile_expr(else_block->v_body, code);
+      options.save_match_result_on_arm_end(code, loc, else_block, std::move(else_result), ir_result);
+    } else {
+      ctx->throwInvalidOpcode();
+    }
+    for (int j = 0; j < t_union->size(); ++j) {
+      code.close_pop_cur(loc);    // close all outer IFs
+    }
+
     return ir_result;
   }
 
@@ -739,9 +838,7 @@ struct S_MultipleConstructors final : ISerializer {
     }
 
     // we're inside last ELSE
-    std::vector args_throw = { ctx->option_throwIfOpcodeDoesNotMatch };
-    Op& op_throw = code.emplace_back(loc, Op::_Call, std::vector<var_idx_t>{}, std::move(args_throw), lookup_function("__throw"));
-    op_throw.set_impure_flag();
+    ctx->throwInvalidOpcode();
     for (int j = 0; j < t_union->size(); ++j) {
       code.close_pop_cur(loc);    // close all outer IFs
     }
@@ -840,6 +937,49 @@ struct S_CustomStruct final : ISerializer {
     }
     tolk_assert(static_cast<int>(ir_struct.size()) == total_stack_w);
     return ir_struct;
+  }
+
+  std::vector<var_idx_t> lazy_match(const UnpackContext* ctx, CodeBlob& code, SrcLocation loc, const LazyMatchOptions& options) const {
+    const LazyMatchOptions::MatchBlock* when_block = nullptr;   // Point => ...
+    const LazyMatchOptions::MatchBlock* else_block = nullptr;   // else  => ...
+    for (const LazyMatchOptions::MatchBlock& match_block : options.match_blocks) {
+      if (match_block.arm_variant) {
+        tolk_assert(match_block.arm_variant->equal_to(TypeDataStruct::create(struct_ref)));
+        when_block = &match_block;
+      } else {
+        else_block = &match_block;
+      }
+    }
+
+    std::vector ir_result = code.create_tmp_var(options.match_expr_type, loc, "(match-expression)");
+    std::vector ir_prefix_eq = code.create_tmp_var(TypeDataInt::create(), loc, "(prefix-eq)");
+
+    StructData::PackOpcode opcode = struct_ref->opcode;
+    if (opcode.exists()) {    // it's `match` over a struct (makes sense for a struct with prefix and `else` branch)
+      std::vector args = { ctx->ir_slice0, code.create_int(loc, opcode.pack_prefix, "(pack-prefix)"), code.create_int(loc, opcode.prefix_len, "(prefix-len)") };
+      code.emplace_back(loc, Op::_Call, std::vector{ctx->ir_slice0, ir_prefix_eq[0]}, std::move(args), lookup_function("slice.tryStripPrefix"));
+    } else {
+      code.emplace_back(loc, Op::_Let, ir_prefix_eq, std::vector{code.create_int(loc, -1, "(true)")});
+    }
+    Op& if_op = code.emplace_back(loc, Op::_If, ir_prefix_eq);
+    {
+      code.push_set_cur(if_op.block0);
+      std::vector when_result = pre_compile_expr(when_block->v_body, code);
+      options.save_match_result_on_arm_end(code, loc, when_block, std::move(when_result), ir_result);
+      code.close_pop_cur(loc);
+    }
+    {
+      code.push_set_cur(if_op.block1);
+      if (else_block) {
+        std::vector else_result = pre_compile_expr(else_block->v_body, code);
+        options.save_match_result_on_arm_end(code, loc, else_block, std::move(else_result), ir_result);
+      } else {
+        ctx->throwInvalidOpcode();
+      }
+      code.close_pop_cur(loc);
+    }
+
+    return ir_result;
   }
 
   void skip(const UnpackContext* ctx, CodeBlob& code, SrcLocation loc) override {
@@ -1046,6 +1186,20 @@ void UnpackContext::generate_skip_any(TypePtr any_type, PrefixReadMode prefix_mo
   this->prefix_mode = prefix_mode;
   get_serializer_for_type(any_type)->skip(this, code, loc);
   this->prefix_mode = backup;
+}
+
+std::vector<var_idx_t> UnpackContext::generate_lazy_match_any(TypePtr any_type, const LazyMatchOptions& options) const {
+  std::unique_ptr<ISerializer> serializer = get_serializer_for_type(any_type);
+  if (auto* s = dynamic_cast<S_MultipleConstructors*>(serializer.get())) {
+    return s->lazy_match(this, code, loc, options);
+  }
+  if (auto* s = dynamic_cast<S_Either*>(serializer.get())) {
+    return s->lazy_match(this, code, loc, options);
+  }
+  if (auto* s = dynamic_cast<S_CustomStruct*>(serializer.get())) {
+    return s->lazy_match(this, code, loc, options);
+  }
+  tolk_assert(false);
 }
 
 PackSize EstimateContext::estimate_any(TypePtr any_type, PrefixEstimateMode prefix_mode) const {

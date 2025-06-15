@@ -376,10 +376,12 @@ class InferTypesAndCallsAndFieldsVisitor final {
         return infer_is_type_operator(v->as<ast_is_type_operator>(), std::move(flow), used_as_condition);
       case ast_not_null_operator:
         return infer_not_null_operator(v->as<ast_not_null_operator>(), std::move(flow), used_as_condition);
+      case ast_lazy_operator:
+        return infer_lazy_operator(v->as<ast_lazy_operator>(), std::move(flow), used_as_condition);
       case ast_parenthesized_expression:
         return infer_parenthesized(v->as<ast_parenthesized_expression>(), std::move(flow), used_as_condition, hint);
       case ast_braced_expression:
-        return infer_braced_expression(v->as<ast_braced_expression>(), std::move(flow), used_as_condition);
+        return infer_braced_expression(v->as<ast_braced_expression>(), std::move(flow), used_as_condition, hint);
       case ast_reference:
         return infer_reference(v->as<ast_reference>(), std::move(flow), used_as_condition, hint);
       case ast_dot_access:
@@ -830,16 +832,34 @@ class InferTypesAndCallsAndFieldsVisitor final {
     return ExprFlow(std::move(after_expr.out_flow), true);
   }
 
+  ExprFlow infer_lazy_operator(V<ast_lazy_operator> v, FlowContext&& flow, bool used_as_condition) {
+    ExprFlow lazy_expr = infer_any_expr(v->get_expr(), std::move(flow), used_as_condition);
+    assign_inferred_type(v, v->get_expr());   // there is no Lazy<T>, so `lazy expr` is just typeof expr
+    return lazy_expr;
+  }
+
   ExprFlow infer_parenthesized(V<ast_parenthesized_expression> v, FlowContext&& flow, bool used_as_condition, TypePtr hint) {
     ExprFlow after_expr = infer_any_expr(v->get_expr(), std::move(flow), used_as_condition, hint);
     assign_inferred_type(v, v->get_expr());
     return after_expr;
   }
 
-  ExprFlow infer_braced_expression(V<ast_braced_expression> v, FlowContext&& flow, bool used_as_condition) {
-    // `{ ... }` used as an expression can not return a value currently (there is no syntax in a language)
-    flow = process_any_statement(v->get_block_statement(), std::move(flow));
-    assign_inferred_type(v, flow.is_unreachable() ? TypeDataNever::create() : TypeDataVoid::create());
+  ExprFlow infer_braced_expression(V<ast_braced_expression> v, FlowContext&& flow, bool used_as_condition, TypePtr hint) {
+    // generally, `{ ... }` is a block statement not returning a value; it's used to represent `match` braced arms;
+    // unless it's a special vertex (used to represent a non-braced `match` arm)
+    AnyExprV implicit_result = nullptr;
+    for (AnyV item : v->get_block_statement()->get_items()) {
+      if (auto v_return = item->try_as<ast_braced_yield_result>()) {
+        tolk_assert(implicit_result == nullptr);
+        implicit_result = v_return;
+        flow = infer_any_expr(v_return->get_expr(), std::move(flow), false, hint).out_flow;
+        assign_inferred_type(v_return, v_return->get_expr());
+      } else {
+        flow = process_any_statement(item, std::move(flow));
+      }
+    }
+
+    assign_inferred_type(v, flow.is_unreachable() ? TypeDataNever::create() : implicit_result ? implicit_result->inferred_type : TypeDataVoid::create());
     return ExprFlow(std::move(flow), used_as_condition);
   }
 

@@ -84,6 +84,9 @@ class ASTReplicator final {
   static V<ast_braced_expression> clone(V<ast_braced_expression> v) {
     return createV<ast_braced_expression>(v->loc, clone(v->get_block_statement()));
   }
+  static V<ast_braced_yield_result> clone(V<ast_braced_yield_result> v) {
+    return createV<ast_braced_yield_result>(v->loc, clone(v->get_expr()));
+  }
   static V<ast_artificial_aux_vertex> clone(V<ast_artificial_aux_vertex> v) {
     return createV<ast_artificial_aux_vertex>(v->loc, clone(v->get_wrapped_expr()), v->aux_data, v->inferred_type);
   }
@@ -152,6 +155,9 @@ class ASTReplicator final {
   }
   static V<ast_not_null_operator> clone(V<ast_not_null_operator> v) {
     return createV<ast_not_null_operator>(v->loc, clone(v->get_expr()));
+  }
+  static V<ast_lazy_operator> clone(V<ast_lazy_operator> v) {
+    return createV<ast_lazy_operator>(v->loc, clone(v->get_expr()));
   }
   static V<ast_match_expression> clone(V<ast_match_expression> v) {
     return createV<ast_match_expression>(v->loc, clone(v->get_all_children()));
@@ -273,6 +279,7 @@ class ASTReplicator final {
       case ast_empty_expression:                return clone(v->as<ast_empty_expression>());
       case ast_parenthesized_expression:        return clone(v->as<ast_parenthesized_expression>());
       case ast_braced_expression:               return clone(v->as<ast_braced_expression>());
+      case ast_braced_yield_result:             return clone(v->as<ast_braced_yield_result>());
       case ast_artificial_aux_vertex:           return clone(v->as<ast_artificial_aux_vertex>());
       case ast_tensor:                          return clone(v->as<ast_tensor>());
       case ast_bracket_tuple:                   return clone(v->as<ast_bracket_tuple>());
@@ -296,6 +303,7 @@ class ASTReplicator final {
       case ast_cast_as_operator:                return clone(v->as<ast_cast_as_operator>());
       case ast_is_type_operator:                return clone(v->as<ast_is_type_operator>());
       case ast_not_null_operator:               return clone(v->as<ast_not_null_operator>());
+      case ast_lazy_operator:                   return clone(v->as<ast_lazy_operator>());
       case ast_match_expression:                return clone(v->as<ast_match_expression>());
       case ast_match_arm:                       return clone(v->as<ast_match_arm>());
       case ast_object_field:                    return clone(v->as<ast_object_field>());

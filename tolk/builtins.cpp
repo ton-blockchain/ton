@@ -1491,6 +1491,9 @@ void define_builtins() {
   define_builtin_method("T.getDeclaredPackPrefixLen", typeT, {}, Int, declReceiverT,
                                 compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAllowAnyWidthT);
+  define_builtin_method("T.forceLoadLazyObject", typeT, {typeT}, Slice, declReceiverT,
+                                compile_time_only_function,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeGen | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
   define_builtin_method("Cell<T>.load", CellT, {CellT, UnpackOptions}, typeT, declReceiverT,
                                 compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeGen | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
@@ -1518,6 +1521,9 @@ void define_builtins() {
                                 compile_expect_type,
                                 FunctionData::flagMarkedAsPure);
   define_builtin_func("__expect_inline", {Bool}, Unit, nullptr,
+                                compile_expect_type,
+                                FunctionData::flagMarkedAsPure);
+  define_builtin_func("__expect_lazy", {Slice}, Unit, nullptr,
                                 compile_expect_type,
                                 FunctionData::flagMarkedAsPure);
   define_builtin_method("T.__toTuple", typeT, {typeT}, TypeDataTuple::create(), declReceiverT,

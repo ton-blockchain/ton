@@ -233,15 +233,17 @@ struct PackOptions {
 
 /// UnpackOptions allows you to control behavior of `MyStruct.fromCell(c)` and similar functions.
 struct UnpackOptions {
-    // after finished reading all fields from a cell/slice, call [slice.assertEnd] to ensure no remaining data left;
-    // it's the default behavior, it ensures that you've fully described data you're reading with a struct;
-    // example: `struct Point { x: int8; y: int8 }`, input "0102" is ok, "0102FF" will throw excno 9;
-    // note: setting this to false does not decrease gas (DROP from a stack and ENDS cost the same);
-    // note: this option controls [T.fromCell] and [T.fromSlice], but is ignored by [slice.loadAny]
+    /// after finished reading all fields from a cell/slice, call [slice.assertEnd] to ensure no remaining data left;
+    /// it's the default behavior, it ensures that you've fully described data you're reading with a struct;
+    /// example: `struct Point { x: int8; y: int8 }`, input "0102" is ok, "0102FF" will throw excno 9;
+    /// note: setting this to false does not decrease gas (DROP from a stack and ENDS cost the same);
+    /// note: this option controls [T.fromCell] and [T.fromSlice], but is ignored by [slice.loadAny];
+    /// note: `lazy` ignores this option, because it reads fields on demand or even skips them
     assertEndAfterReading: bool = true,
 
     /// this excNo is thrown if a prefix doesn't match, e.g. for `struct (0x01) A` given input "88...";
-    /// similarly, for a union type, this is thrown when none of the opcodes match
+    /// similarly, for a union type, this is thrown when none of the opcodes match;
+    /// note: `lazy` ignores this option if you have `else` in `match` (you write custom logic there)
     throwIfOpcodeDoesNotMatch: int = 63,
 }
 
@@ -325,6 +327,26 @@ fun T.getDeclaredPackPrefix(): int
 /// Example: for `struct (0xF0) AssetRegular { ... }` will return `16`.
 @pure
 fun T.getDeclaredPackPrefixLen(): int
+    builtin;
+
+/// Forces an object created by `lazy` to load fully. Returns the remaining slice (having read all fields).
+/// Since `options.assertEndAfterReading` is ignored by `lazy` (fields are loaded on demand),
+/// this method can help you overcome this, if you really need to check input consistency.
+/// Example:
+/// ```
+/// val msg = lazy CounterMessage.fromSlice(s);
+/// match (msg) {     // it's a lazy match, without creating a union on the stack
+///     CounterIncrement => {
+///         ...
+///         newCounter = curCounter + msg.incBy;   // `incBy` loaded here, on demand
+///         msg.forceLoadLazyObject().assertEnd()  // the purpose: get remainder
+///     }
+/// }
+/// ```
+/// Note: while [slice.assertEnd] may seem reasonable, these checks are avoided in practice,
+/// because the purpose of `lazy` is to auto-detect and load only necessary fields, not up to the end.
+@pure
+fun T.forceLoadLazyObject(self): slice
     builtin;
 
 /// Cell<T> represents a typed cell reference (as opposed to untyped `cell`).

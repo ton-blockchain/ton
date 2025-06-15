@@ -152,6 +152,10 @@ void Vertex<ast_is_type_operator>::assign_is_negated(bool is_negated) {
   this->is_negated = is_negated;
 }
 
+void Vertex<ast_lazy_operator>::assign_dest_var_ref(LocalVarPtr dest_var_ref) {
+  this->dest_var_ref = dest_var_ref;
+}
+
 void Vertex<ast_match_arm>::assign_resolved_pattern(MatchArmKind pattern_kind, AnyExprV pattern_expr) {
   this->pattern_type_node = nullptr;
   this->pattern_kind = pattern_kind;
@@ -188,6 +192,10 @@ void Vertex<ast_binary_operator>::assign_fun_ref(FunctionPtr fun_ref) {
 
 void Vertex<ast_block_statement>::assign_first_unreachable(AnyV first_unreachable) {
   this->first_unreachable = first_unreachable;
+}
+
+void Vertex<ast_block_statement>::assign_new_children(std::vector<AnyV>&& children) {
+  this->children = std::move(children);
 }
 
 void Vertex<ast_dot_access>::assign_target(const DotTarget& target) {

@@ -1316,6 +1316,15 @@ bool TypeDataUnion::has_all_variants_of(const TypeDataUnion* rhs_type) const {
   return true;
 }
 
+int TypeDataUnion::get_variant_idx(TypePtr lookup_variant) const {
+  for (int i = 0; i < size(); ++i) {
+    if (variants[i]->equal_to(lookup_variant)) {
+      return i;
+    }
+  }
+  return -1;
+}
+
 // given this = `T1 | T2 | ...` and rhs_type, find the only (not ambiguous) T_i that can accept it
 TypePtr TypeDataUnion::calculate_exact_variant_to_fit_rhs(TypePtr rhs_type) const {
   // primitive 1-slot nullable don't store type_id, they can be assigned less strict, like `int?` to `int16?`

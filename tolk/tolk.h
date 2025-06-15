@@ -46,7 +46,6 @@ inline void fire(FunctionPtr cur_f, SrcLocation loc, const std::string& message)
  * 
  */
 
-typedef int var_idx_t;
 typedef int const_idx_t;
 
 struct TmpVar {
@@ -1042,12 +1041,26 @@ struct FunctionBodyAsm {
   void compile(AsmOpList& dest, SrcLocation loc) const;
 };
 
+struct LazyVariableLoadedState;
+
+// LazyVarRefAtCodegen is a mutable state of a variable assigned by `lazy` operator:
+// > var p = lazy Point.fromSlice(s)
+// When inlining a method `p.getX()`, `self` also becomes lazy, pointing to the same state.
+struct LazyVarRefAtCodegen {
+  LocalVarPtr var_ref;
+  const LazyVariableLoadedState* var_state;
+
+  LazyVarRefAtCodegen(LocalVarPtr var_ref, const LazyVariableLoadedState* var_state)
+    : var_ref(var_ref), var_state(var_state) {}
+};
+
 struct CodeBlob {
   int var_cnt, in_var_cnt;
   FunctionPtr fun_ref;
   std::string name;
   SrcLocation forced_loc;
   std::vector<TmpVar> vars;
+  std::vector<LazyVarRefAtCodegen> lazy_variables;
   std::vector<var_idx_t>* inline_rvect_out = nullptr;
   bool inlining_before_immediate_return = false;
   std::unique_ptr<Op> ops;
@@ -1101,6 +1114,8 @@ struct CodeBlob {
     close_blk(location);
     pop_cur();
   }
+  const LazyVariableLoadedState* get_lazy_variable(LocalVarPtr var_ref) const;
+  const LazyVariableLoadedState* get_lazy_variable(AnyExprV v) const;
   void prune_unreachable_code();
   void fwd_analyze();
   void mark_noreturn();

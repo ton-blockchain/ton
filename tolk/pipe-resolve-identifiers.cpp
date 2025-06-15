@@ -211,7 +211,7 @@ protected:
 
   void visit(V<ast_match_arm> v) override {
     // resolve identifiers after => at first
-    parent::visit(v->get_body());
+    visit(v->get_body());
     // because handling lhs of => is comprehensive
 
     switch (v->pattern_kind) {

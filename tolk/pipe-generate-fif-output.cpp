@@ -47,7 +47,7 @@ static void generate_output_func(FunctionPtr fun_ref) {
 
   CodeBlob* code = std::get<FunctionBodyCode*>(fun_ref->body)->code;
   if (G.is_verbosity(3)) {
-    code->print(std::cerr, 9);
+    code->print(std::cerr, 0);
   }
   code->prune_unreachable_code();
   if (G.is_verbosity(5)) {
@@ -73,7 +73,7 @@ static void generate_output_func(FunctionPtr fun_ref) {
   }
   code->mark_noreturn();
   if (G.is_verbosity(3)) {
-    code->print(std::cerr, 15);
+    // code->print(std::cerr, 15);
   }
   if (G.is_verbosity(2)) {
     std::cerr << "\n---------- resulting code for " << fun_ref->name << " -------------\n";

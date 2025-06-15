@@ -690,7 +690,7 @@ static V<ast_match_arm> parse_match_arm(Lexer& lex) {
   }
   lex.expect(tok_double_arrow, "`=>`");
 
-  AnyExprV body;
+  V<ast_braced_expression> body = nullptr;
   if (lex.tok() == tok_opbrace) {         // pattern => { ... }
     AnyV v_block = parse_statement(lex);
     body = createV<ast_braced_expression>(v_block->loc, v_block);
@@ -704,7 +704,9 @@ static V<ast_match_arm> parse_match_arm(Lexer& lex) {
     AnyV v_block = createV<ast_block_statement>(v_return->loc, v_return->loc, {v_return});
     body = createV<ast_braced_expression>(v_block->loc, v_block);
   } else {
-    body = parse_expr(lex);
+    AnyExprV unbraced_expr = parse_expr(lex);
+    AnyV v_block = createV<ast_block_statement>(unbraced_expr->loc, unbraced_expr->loc, {createV<ast_braced_yield_result>(unbraced_expr->loc, unbraced_expr)});
+    body = createV<ast_braced_expression>(unbraced_expr->loc, v_block);
   }
 
   if (pattern_expr == nullptr) {  // for match by type / default case, empty vertex, not nullptr
@@ -731,18 +733,27 @@ static V<ast_match_expression> parse_match_expression(Lexer& lex) {
 
     // after `pattern => { ... }` comma is optional, after `pattern => expr` mandatory
     bool was_comma = lex.tok() == tok_comma;    // trailing comma is allowed always
+    bool was_unbraced = v_arm->get_body()->get_block_statement()->size() == 1 && v_arm->get_body()->get_block_statement()->get_item(0)->kind == ast_braced_yield_result;
     if (was_comma) {
       lex.next();
     }
     if (lex.tok() == tok_clbrace) {
       break;
     }
-    if (!was_comma && v_arm->get_body()->kind != ast_braced_expression) {
+    if (!was_comma && was_unbraced) {
       lex.unexpected("`,`");
     }
   }
   lex.expect(tok_clbrace, "`}`");
   return createV<ast_match_expression>(loc, std::move(subject_and_arms));
+}
+
+static V<ast_lazy_operator> parse_lazy_operator(Lexer& lex) {
+  SrcLocation loc = lex.cur_location();
+  lex.expect(tok_lazy, "`lazy`");
+
+  AnyExprV expr = parse_expr(lex);
+  return createV<ast_lazy_operator>(loc, expr);
 }
 
 // parse (expr) / [expr] / identifier / number
@@ -852,6 +863,8 @@ static AnyExprV parse_expr100(Lexer& lex) {
       return createV<ast_object_literal>(loc, nullptr, parse_object_body(lex));
     case tok_match:
       return parse_match_expression(lex);
+    case tok_lazy:
+      return parse_lazy_operator(lex);
     default:
       lex.unexpected("<expression>");
   }
@@ -1529,18 +1542,20 @@ static AnyV parse_struct_field(Lexer& lex) {
 
 static V<ast_struct_body> parse_struct_body(Lexer& lex) {
   SrcLocation loc = lex.cur_location();
-  lex.expect(tok_opbrace, "`{`");
-
   std::vector<AnyV> fields;
-  while (lex.tok() != tok_clbrace) {
-    fields.push_back(parse_struct_field(lex));
-    if (lex.tok() == tok_comma || lex.tok() == tok_semicolon) {
-      lex.next();
-    } else if (lex.tok() != tok_clbrace) {
-      lex.unexpected("`;` or `,`");
+
+  if (lex.tok() != tok_semicolon) {   // `struct A;` equal to `struct A {}`
+    lex.expect(tok_opbrace, "`{`");
+    while (lex.tok() != tok_clbrace) {
+      fields.push_back(parse_struct_field(lex));
+      if (lex.tok() == tok_comma || lex.tok() == tok_semicolon) {
+        lex.next();
+      } else if (lex.tok() != tok_clbrace) {
+        lex.unexpected("`;` or `,`");
+      }
     }
+    lex.expect(tok_clbrace, "`}`");
   }
-  lex.expect(tok_clbrace, "`}`");
 
   return createV<ast_struct_body>(loc, std::move(fields));
 }
