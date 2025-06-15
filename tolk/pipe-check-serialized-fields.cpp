@@ -69,12 +69,7 @@ class CheckSerializedFieldsAndTypesVisitor final : public ASTVisitorFunctionBody
         fire_error_theoretical_overflow_1023(struct_ref, size);
       }
     }
-    for (StructFieldPtr field_ref : struct_ref->fields) {
-      if (is_type_cellT(field_ref->declared_type)) {
-        const TypeDataStruct* f_struct = field_ref->declared_type->try_as<TypeDataStruct>();
-        check_type_fits_cell_or_has_policy(f_struct->struct_ref->substitutedTs->typeT_at(0));
-      }
-    }
+    // don't check Cell<T> fields for overflow of T: it would be checked on load() or other interaction with T
   }
 
   void visit(V<ast_function_call> v) override {

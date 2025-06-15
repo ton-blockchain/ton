@@ -178,6 +178,21 @@ fun test10() {
     return (Test10_1.estimatePackSize(), Test10_2.estimatePackSize());
 }
 
+struct Test11_1 {
+    data: bits1022;
+    next: Cell<Test11_1>?;
+}
+
+struct Test11_2 {
+    self1: Cell<Test11_2>;
+    self2: Cell<Test11_2>;
+}
+
+@method_id(111)
+fun test11() {
+    return (Test11_1.estimatePackSize(), Test11_2.estimatePackSize());
+}
+
 @method_id(120)
 fun test20() {
     return (Test7_1 .getDeclaredPackPrefixLen(), Test7_1 .getDeclaredPackPrefix(),
@@ -199,5 +214,6 @@ fun main() {
 @testcase | 108 | | [ 10 275 0 0 ] [ 34 158 0 0 ] [ 47 1143 0 1 ]
 @testcase | 109 | | [ 34 130 0 0 ] [ 33 159 0 0 ] [ 4 8 0 0 ] [ 3 7 0 0 ]
 @testcase | 110 | | [ 32 9999 0 4 ] [ 33 9999 0 8 ]
+@testcase | 111 | | [ 1023 1023 0 1 ] [ 0 0 2 2 ]
 @testcase | 120 | | 16 4128 1 1
  */

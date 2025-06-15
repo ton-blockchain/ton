@@ -50,8 +50,10 @@ struct CantSerializeBecause {
 };
 
 class PackUnpackAvailabilityChecker {
+  std::vector<StructPtr> already_checked;
+
 public:
-  static std::optional<CantSerializeBecause> detect_why_cant_serialize(TypePtr any_type, bool is_pack) {
+  std::optional<CantSerializeBecause> detect_why_cant_serialize(TypePtr any_type, bool is_pack) {
     if (any_type->try_as<TypeDataIntN>()) {
       return {};
     }
@@ -76,6 +78,11 @@ public:
 
     if (const auto* t_struct = any_type->try_as<TypeDataStruct>()) {
       StructPtr struct_ref = t_struct->struct_ref;
+      if (std::find(already_checked.begin(), already_checked.end(), struct_ref) != already_checked.end()) {
+        return {};
+      }
+      already_checked.push_back(struct_ref);    // prevent recursion and visiting one struct multiple times
+
       for (StructFieldPtr field_ref : struct_ref->fields) {
         if (auto why = detect_why_cant_serialize(field_ref->declared_type, is_pack)) {
           return CantSerializeBecause("because field `" + struct_ref->name + "." + field_ref->name + "` of type `" + field_ref->declared_type->as_human_readable() + "` can't be serialized", why.value());
@@ -167,7 +174,8 @@ public:
 };
 
 bool check_struct_can_be_packed_or_unpacked(TypePtr any_type, bool is_pack, std::string& because_msg) {
-  if (auto why = PackUnpackAvailabilityChecker::detect_why_cant_serialize(any_type, is_pack)) {
+  PackUnpackAvailabilityChecker checker;
+  if (auto why = checker.detect_why_cant_serialize(any_type, is_pack)) {
     because_msg = why.value().because_msg;
     return false;
   }

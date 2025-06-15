@@ -959,7 +959,7 @@ static std::unique_ptr<ISerializer> get_serializer_for_type(TypePtr any_type) {
   if (any_type == TypeDataBool::create()) {
     return std::make_unique<S_Bool>();
   }
-  if (any_type == TypeDataCell::create()) {
+  if (any_type == TypeDataCell::create() || is_type_cellT(any_type)) {
     return std::make_unique<S_RawTVMcell>();
   }
   if (any_type == TypeDataAddress::create()) {
