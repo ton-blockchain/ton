@@ -19,6 +19,7 @@
 #pragma once
 
 #include "archive-slice.hpp"
+#include "interfaces/persistent-state.h"
 
 namespace ton {
 
@@ -43,16 +44,16 @@ class ArchiveManager : public td::actor::Actor {
   void get_file(ConstBlockHandle handle, FileReference ref_id, td::Promise<td::BufferSlice> promise);
 
   void add_zero_state(BlockIdExt block_id, td::BufferSlice data, td::Promise<td::Unit> promise);
-  void add_persistent_state(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::BufferSlice data,
-                            td::Promise<td::Unit> promise);
-  void add_persistent_state_gen(BlockIdExt block_id, BlockIdExt masterchain_block_id,
-                                std::function<td::Status(td::FileFd&)> write_state,
-                                td::Promise<td::Unit> promise);
+  void add_persistent_state(BlockIdExt block_id, BlockIdExt masterchain_block_id, PersistentStateType type,
+                            td::BufferSlice data, td::Promise<td::Unit> promise);
+  void add_persistent_state_gen(BlockIdExt block_id, BlockIdExt masterchain_block_id, PersistentStateType type,
+                                std::function<td::Status(td::FileFd &)> write_state, td::Promise<td::Unit> promise);
   void get_zero_state(BlockIdExt block_id, td::Promise<td::BufferSlice> promise);
-  void get_persistent_state(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::Promise<td::BufferSlice> promise);
-  void get_persistent_state_slice(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::int64 offset,
-                                  td::int64 max_size, td::Promise<td::BufferSlice> promise);
-  void get_persistent_state_file_size(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+  void get_persistent_state(BlockIdExt block_id, BlockIdExt masterchain_block_id, PersistentStateType type,
+                            td::Promise<td::BufferSlice> promise);
+  void get_persistent_state_slice(BlockIdExt block_id, BlockIdExt masterchain_block_id, PersistentStateType type,
+                                  td::int64 offset, td::int64 max_size, td::Promise<td::BufferSlice> promise);
+  void get_persistent_state_file_size(BlockIdExt block_id, BlockIdExt masterchain_block_id, PersistentStateType type,
                                       td::Promise<td::uint64> promise);
   void check_zero_state(BlockIdExt block_id, td::Promise<bool> promise);
   void get_previous_persistent_state_files(BlockSeqno cur_mc_seqno,
@@ -219,7 +220,7 @@ class ArchiveManager : public td::actor::Actor {
   PackageId get_max_temp_file_desc_idx();
   PackageId get_prev_temp_file_desc_idx(PackageId id);
 
-  void add_persistent_state_impl(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise,
+  void add_persistent_state_impl(FileReferenceShort const &id, td::Promise<td::Unit> promise,
                                  std::function<void(std::string, td::Promise<std::string>)> create_writer);
   void register_perm_state(FileReferenceShort id);
 

@@ -2199,6 +2199,7 @@ bool WorkchainInfo::unpack(ton::WorkchainId wc, vm::CellSlice& cs) {
     split_merge_interval = rec.split_merge_interval;
     min_split_merge_interval = rec.min_split_merge_interval;
     max_split_merge_delay = rec.max_split_merge_delay;
+    persistent_state_split_depth = info.persistent_state_split_depth;
     return true;
   };
   block::gen::WorkchainDescr::Record_workchain info_v1;

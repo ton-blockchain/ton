@@ -63,6 +63,8 @@ class RootDb : public Db {
   void store_block_state(BlockHandle handle, td::Ref<ShardState> state,
                          td::Promise<td::Ref<ShardState>> promise) override;
   void get_block_state(ConstBlockHandle handle, td::Promise<td::Ref<ShardState>> promise) override;
+  void store_block_state_part(BlockId effective_block, td::Ref<vm::Cell> cell,
+                              td::Promise<td::Ref<vm::DataCell>> promise) override;
   void get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) override;
 
   void store_block_handle(BlockHandle handle, td::Promise<td::Unit> promise) override;
@@ -71,16 +73,17 @@ class RootDb : public Db {
     td::actor::send_closure(validator_manager_, &ValidatorManager::get_block_handle, id, force, std::move(promise));
   }
 
-  void store_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::BufferSlice state,
-                                   td::Promise<td::Unit> promise) override;
-  void store_persistent_state_file_gen(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+  void store_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id, PersistentStateType type,
+                                   td::BufferSlice state, td::Promise<td::Unit> promise) override;
+  void store_persistent_state_file_gen(BlockIdExt block_id, BlockIdExt masterchain_block_id, PersistentStateType type,
                                        std::function<td::Status(td::FileFd&)> write_data,
                                        td::Promise<td::Unit> promise) override;
-  void get_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+  void get_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id, PersistentStateType type,
                                  td::Promise<td::BufferSlice> promise) override;
-  void get_persistent_state_file_slice(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::int64 offset,
-                                       td::int64 max_length, td::Promise<td::BufferSlice> promise) override;
-  void get_persistent_state_file_size(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+  void get_persistent_state_file_slice(BlockIdExt block_id, BlockIdExt masterchain_block_id, PersistentStateType type,
+                                       td::int64 offset, td::int64 max_length,
+                                       td::Promise<td::BufferSlice> promise) override;
+  void get_persistent_state_file_size(BlockIdExt block_id, BlockIdExt masterchain_block_id, PersistentStateType type,
                                       td::Promise<td::uint64> promise) override;
   void store_zero_state_file(BlockIdExt block_id, td::BufferSlice state, td::Promise<td::Unit> promise) override;
   void get_zero_state_file(BlockIdExt block_id, td::Promise<td::BufferSlice> promise) override;

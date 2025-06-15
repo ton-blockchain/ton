@@ -54,9 +54,12 @@ class ArchiveImporter : public td::actor::Actor {
   void check_next_shard_client_seqno(BlockSeqno seqno);
   void checked_shard_client_seqno(BlockSeqno seqno);
   void got_masterchain_state(td::Ref<MasterchainState> state);
-  void apply_shard_block(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise);
-  void apply_shard_block_cont1(BlockHandle handle, BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise);
-  void apply_shard_block_cont2(BlockHandle handle, BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise);
+  void apply_shard_block(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::uint32 split_depth,
+                         td::Promise<td::Unit> promise);
+  void apply_shard_block_cont1(BlockHandle handle, BlockIdExt masterchain_block_id, td::uint32 split_depth,
+                               td::Promise<td::Unit> promise);
+  void apply_shard_block_cont2(BlockHandle handle, BlockIdExt masterchain_block_id, td::uint32 split_depth,
+                               td::Promise<td::Unit> promise);
   void apply_shard_block_cont3(BlockHandle handle, BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise);
   void check_shard_block_applied(BlockIdExt block_id, td::Promise<td::Unit> promise);
 

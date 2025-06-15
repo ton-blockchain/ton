@@ -378,12 +378,13 @@ class ValidatorManagerImpl : public ValidatorManager {
   void get_block_data(BlockHandle handle, td::Promise<td::BufferSlice> promise) override;
   void check_zero_state_exists(BlockIdExt block_id, td::Promise<bool> promise) override;
   void get_zero_state(BlockIdExt block_id, td::Promise<td::BufferSlice> promise) override;
-  void get_persistent_state_size(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+  void get_persistent_state_size(BlockIdExt block_id, BlockIdExt masterchain_block_id, PersistentStateType type,
                                  td::Promise<td::uint64> promise) override;
-  void get_persistent_state(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+  void get_persistent_state(BlockIdExt block_id, BlockIdExt masterchain_block_id, PersistentStateType type,
                             td::Promise<td::BufferSlice> promise) override;
-  void get_persistent_state_slice(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::int64 offset,
-                                  td::int64 max_length, td::Promise<td::BufferSlice> promise) override;
+  void get_persistent_state_slice(BlockIdExt block_id, BlockIdExt masterchain_block_id, PersistentStateType type,
+                                  td::int64 offset, td::int64 max_length,
+                                  td::Promise<td::BufferSlice> promise) override;
   void get_previous_persistent_state_files(
       BlockSeqno cur_mc_seqno, td::Promise<std::vector<std::pair<std::string, ShardIdFull>>> promise) override;
   void get_block_proof(BlockHandle handle, td::Promise<td::BufferSlice> promise) override;
@@ -409,11 +410,13 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   void set_block_state(BlockHandle handle, td::Ref<ShardState> state,
                        td::Promise<td::Ref<ShardState>> promise) override;
+  void store_block_state_part(BlockId effective_block, td::Ref<vm::Cell> cell,
+                              td::Promise<td::Ref<vm::DataCell>> promise) override;
   void get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) override;
-  void store_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::BufferSlice state,
-                                   td::Promise<td::Unit> promise) override;
-  void store_persistent_state_file_gen(BlockIdExt block_id, BlockIdExt masterchain_block_id,
-                                       std::function<td::Status(td::FileFd&)> write_data,
+  void store_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id, PersistentStateType type,
+                                   td::BufferSlice state, td::Promise<td::Unit> promise) override;
+  void store_persistent_state_file_gen(BlockIdExt block_id, BlockIdExt masterchain_block_id, PersistentStateType type,
+                                       std::function<td::Status(td::FileFd &)> write_data,
                                        td::Promise<td::Unit> promise) override;
   void store_zero_state_file(BlockIdExt block_id, td::BufferSlice state, td::Promise<td::Unit> promise) override;
   void wait_block_state(BlockHandle handle, td::uint32 priority, td::Timestamp timeout,
@@ -501,8 +504,8 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   void send_get_block_request(BlockIdExt id, td::uint32 priority, td::Promise<ReceivedBlock> promise) override;
   void send_get_zero_state_request(BlockIdExt id, td::uint32 priority, td::Promise<td::BufferSlice> promise) override;
-  void send_get_persistent_state_request(BlockIdExt id, BlockIdExt masterchain_block_id, td::uint32 priority,
-                                         td::Promise<td::BufferSlice> promise) override;
+  void send_get_persistent_state_request(BlockIdExt id, BlockIdExt masterchain_block_id, PersistentStateType type,
+                                         td::uint32 priority, td::Promise<td::BufferSlice> promise) override;
   void send_get_block_proof_request(BlockIdExt block_id, td::uint32 priority,
                                     td::Promise<td::BufferSlice> promise) override;
   void send_get_block_proof_link_request(BlockIdExt block_id, td::uint32 priority,

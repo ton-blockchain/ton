@@ -377,7 +377,8 @@ void ArchiveImporter::got_masterchain_state(td::Ref<MasterchainState> state) {
   auto ig = mp.init_guard();
   for (auto &shard : s) {
     if (opts_->need_monitor(shard->shard(), state)) {
-      apply_shard_block(shard->top_block_id(), state->get_block_id(), ig.get_promise());
+      apply_shard_block(shard->top_block_id(), state->get_block_id(),
+                        state->persistent_state_split_depth(shard->shard().workchain), ig.get_promise());
     }
   }
   ig.add_promise([SelfId = actor_id(this), seqno = state->get_seqno()](td::Result<td::Unit> R) {
@@ -396,20 +397,20 @@ void ArchiveImporter::checked_shard_client_seqno(BlockSeqno seqno) {
   check_next_shard_client_seqno(seqno + 1);
 }
 
-void ArchiveImporter::apply_shard_block(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+void ArchiveImporter::apply_shard_block(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::uint32 split_depth,
                                         td::Promise<td::Unit> promise) {
   LOG(DEBUG) << "Applying shard block " << block_id.id.to_str();
-  auto P = td::PromiseCreator::lambda(
-      [SelfId = actor_id(this), masterchain_block_id, promise = std::move(promise)](td::Result<BlockHandle> R) mutable {
-        R.ensure();
-        td::actor::send_closure(SelfId, &ArchiveImporter::apply_shard_block_cont1, R.move_as_ok(), masterchain_block_id,
-                                std::move(promise));
-      });
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), masterchain_block_id, split_depth,
+                                       promise = std::move(promise)](td::Result<BlockHandle> R) mutable {
+    R.ensure();
+    td::actor::send_closure(SelfId, &ArchiveImporter::apply_shard_block_cont1, R.move_as_ok(), masterchain_block_id,
+                            split_depth, std::move(promise));
+  });
   td::actor::send_closure(manager_, &ValidatorManager::get_block_handle, block_id, true, std::move(P));
 }
 
 void ArchiveImporter::apply_shard_block_cont1(BlockHandle handle, BlockIdExt masterchain_block_id,
-                                              td::Promise<td::Unit> promise) {
+                                              td::uint32 split_depth, td::Promise<td::Unit> promise) {
   if (handle->is_applied()) {
     promise.set_value(td::Unit());
     return;
@@ -418,8 +419,8 @@ void ArchiveImporter::apply_shard_block_cont1(BlockHandle handle, BlockIdExt mas
   if (handle->id().seqno() == 0) {
     auto P = td::PromiseCreator::lambda(
         [promise = std::move(promise)](td::Result<td::Ref<ShardState>>) mutable { promise.set_value(td::Unit()); });
-    td::actor::create_actor<DownloadShardState>("downloadstate", handle->id(), masterchain_block_id, 2, manager_,
-                                                td::Timestamp::in(3600), std::move(P))
+    td::actor::create_actor<DownloadShardState>("downloadstate", handle->id(), masterchain_block_id, split_depth, 2,
+                                                manager_, td::Timestamp::in(3600), std::move(P))
         .release();
     return;
   }
@@ -432,20 +433,20 @@ void ArchiveImporter::apply_shard_block_cont1(BlockHandle handle, BlockIdExt mas
   }
   TRY_RESULT_PROMISE(promise, proof_data, it->second.proof_pkg->read(it->second.proof_offset));
   TRY_RESULT_PROMISE(promise, proof, create_proof_link(handle->id(), std::move(proof_data.second)));
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), handle, masterchain_block_id,
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), handle, masterchain_block_id, split_depth,
                                        promise = std::move(promise)](td::Result<BlockHandle> R) mutable {
     if (R.is_error()) {
       promise.set_error(R.move_as_error());
     } else {
       td::actor::send_closure(SelfId, &ArchiveImporter::apply_shard_block_cont2, std::move(handle),
-                              masterchain_block_id, std::move(promise));
+                              masterchain_block_id, split_depth, std::move(promise));
     }
   });
   run_check_proof_link_query(handle->id(), std::move(proof), manager_, td::Timestamp::in(10.0), std::move(P));
 }
 
 void ArchiveImporter::apply_shard_block_cont2(BlockHandle handle, BlockIdExt masterchain_block_id,
-                                              td::Promise<td::Unit> promise) {
+                                              td::uint32 split_depth, td::Promise<td::Unit> promise) {
   if (handle->is_applied()) {
     promise.set_value(td::Unit());
     return;
@@ -462,7 +463,7 @@ void ArchiveImporter::apply_shard_block_cont2(BlockHandle handle, BlockIdExt mas
     }
   });
   if (!handle->merge_before() && handle->one_prev(true).shard_full() == handle->id().shard_full()) {
-    apply_shard_block(handle->one_prev(true), masterchain_block_id, std::move(P));
+    apply_shard_block(handle->one_prev(true), masterchain_block_id, split_depth, std::move(P));
   } else {
     td::MultiPromise mp;
     auto ig = mp.init_guard();

@@ -670,6 +670,7 @@ workchain_v2#a7 enabled_since:uint32 monitor_min_split:(## 8)
   zerostate_root_hash:bits256 zerostate_file_hash:bits256
   version:uint32 format:(WorkchainFormat basic)
   split_merge_timings:WcSplitMergeTimings
+  persistent_state_split_depth:(## 8) { persistent_state_split_depth <= 63 }
   = WorkchainDescr;
 
 _ workchains:(HashmapE 32 WorkchainDescr) = ConfigParam 12;

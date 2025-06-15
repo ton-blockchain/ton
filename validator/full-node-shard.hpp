@@ -143,6 +143,10 @@ class FullNodeShardImpl : public FullNodeShard {
                      td::Promise<td::BufferSlice> promise);
   void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getOutMsgQueueProof &query,
                      td::Promise<td::BufferSlice> promise);
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadPersistentStateSliceV2 &query,
+                     td::Promise<td::BufferSlice> promise);
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getPersistentStateSizeV2 &query,
+                     td::Promise<td::BufferSlice> promise);
   void receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice query, td::Promise<td::BufferSlice> promise);
   void receive_message(adnl::AdnlNodeIdShort src, td::BufferSlice data);
 
@@ -174,8 +178,9 @@ class FullNodeShardImpl : public FullNodeShard {
                       td::Promise<ReceivedBlock> promise) override;
   void download_zero_state(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
                            td::Promise<td::BufferSlice> promise) override;
-  void download_persistent_state(BlockIdExt id, BlockIdExt masterchain_block_id, td::uint32 priority,
-                                 td::Timestamp timeout, td::Promise<td::BufferSlice> promise) override;
+  void download_persistent_state(BlockIdExt id, BlockIdExt masterchain_block_id, PersistentStateType type,
+                                 td::uint32 priority, td::Timestamp timeout,
+                                 td::Promise<td::BufferSlice> promise) override;
 
   void download_block_proof(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
                             td::Promise<td::BufferSlice> promise) override;
