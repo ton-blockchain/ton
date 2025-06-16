@@ -197,8 +197,6 @@ void ValidatorManagerMasterchainReiniter::got_next_key_blocks(std::vector<BlockI
       download_new_key_blocks_until_ = td::Timestamp::in(600.0);
     }
   }
-  LOG(WARNING) << "last key block is " << vec[vec.size() - 1];
-  status_.set_status(PSTRING() << "last key block is " << vec.back().seqno());
   auto s = static_cast<td::uint32>(key_blocks_.size());
   key_blocks_.resize(key_blocks_.size() + vec.size(), nullptr);
 
@@ -218,6 +216,11 @@ void ValidatorManagerMasterchainReiniter::got_key_block_handle(td::uint32 idx, B
   CHECK(!key_blocks_[idx]);
   CHECK(handle->inited_proof());
   CHECK(handle->is_key_block());
+  if (idx + 1 == key_blocks_.size()) {
+    int ago = (int)td::Clocks::system() - (int)handle->unix_time();
+    LOG(WARNING) << "last key block is " << handle->id().to_str() << ", " << ago << "s ago";
+    status_.set_status(PSTRING() << "last key block is " << handle->id().seqno() << ", " << ago << " s ago");
+  }
   key_blocks_[idx] = std::move(handle);
   CHECK(pending_ > 0);
   if (!--pending_) {
