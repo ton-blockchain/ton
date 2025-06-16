@@ -200,7 +200,7 @@ protected:
 public:
   virtual bool should_visit_function(FunctionPtr fun_ref) = 0;
 
-  void start_replacing_in_function(FunctionPtr fun_ref, V<ast_function_declaration> v_function) {
+  virtual void start_replacing_in_function(FunctionPtr fun_ref, V<ast_function_declaration> v_function) {
     replace(v_function->get_body());
   }
 };

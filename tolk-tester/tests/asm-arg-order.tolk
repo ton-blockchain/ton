@@ -180,6 +180,12 @@ fun test33(x: int) {
     return ((x += 10).plus1TimesB(2), (x += 20).plus1TimesB(x), ((x /= (g2=2)).plus1TimesB(x*g2)), setG2(7).plus1TimesB(g2));
 }
 
+@method_id(34)
+fun test34() {
+    var cs = stringHexToSlice("020a");
+    return asmAPlus1TimesB(cs.loadUint(8), cs.loadUint(8));
+}
+
 
 fun main() {
 }
@@ -205,6 +211,7 @@ fun main() {
 @testcase | 31 |    | 70
 @testcase | 32 |    | 30
 @testcase | 33 | 0  | 22 930 480 56
+@testcase | 34 |    | 30
 
 @fif_codegen
 """
@@ -253,5 +260,17 @@ fun main() {
   }>
 """
 
-@code_hash 78671986831403867804966279036762472603849672357801214378328975900111280733054
+@fif_codegen
+"""
+  test34 PROC:<{
+    x{020a} PUSHSLICE
+    8 LDU
+    8 LDU
+    DROP
+    SWAP
+    1 ADDCONST MUL
+  }>
+"""
+
+@code_hash 93297578247504549901423325446957614083213743835412767087757830691482809332788
 */

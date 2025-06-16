@@ -41,6 +41,7 @@ void pipeline_check_inferred_types();
 void pipeline_refine_lvalue_for_mutate_arguments();
 void pipeline_check_rvalue_lvalue();
 void pipeline_check_pure_impure_operations();
+void pipeline_check_serialized_fields();
 void pipeline_constant_folding();
 void pipeline_optimize_boolean_expressions();
 void pipeline_convert_ast_to_legacy_Expr_Op();

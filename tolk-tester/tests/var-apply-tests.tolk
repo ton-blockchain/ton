@@ -314,6 +314,17 @@ fun testMethodsOfGenericStruct() {
     return (eq(w1, w2), w2.value = w1.value as int, eq(w1, w2), creator3());
 }
 
+fun add3WithDefaults(a: int, b: int = 0, c: int = 0) {
+    return a + b + c;
+}
+
+@method_id(119)
+fun testSavingFunWithDefaults() {
+    var cc = add3WithDefaults;
+    __expect_type(cc, "(int, int, int) -> int");
+    return cc(1, 2, 3);
+}
+
 
 fun main() {}
 
@@ -343,4 +354,5 @@ fun main() {}
 @testcase | 116 |            | 7 11 80
 @testcase | 117 |            | 6 8
 @testcase | 118 |            | 0 10 -1 (null)
+@testcase | 119 |            | 6
  */

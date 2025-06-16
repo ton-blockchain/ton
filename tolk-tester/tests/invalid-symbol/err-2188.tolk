@@ -9,6 +9,6 @@ fun main() {
 
 /**
 @compilation_should_fail
-@stderr method `storeUnexisting` not found for type `builder`
+@stderr method `storeUnexisting` not found
 @stderr .storeUnexisting()
  */

@@ -1834,7 +1834,7 @@ int exec_send_message(VmState* st) {
     if (!tlb::csr_unpack(msg.info, info)) {
       throw VmError{Excno::unknown, "invalid message"};
     }
-    ihr_disabled = info.ihr_disabled;
+    ihr_disabled = info.ihr_disabled || st->get_global_version() >= 11;
     dest = std::move(info.dest);
     Ref<vm::Cell> extra;
     if (!block::tlb::t_CurrencyCollection.unpack_special(info.value.write(), value, extra)) {

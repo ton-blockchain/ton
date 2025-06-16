@@ -3,8 +3,13 @@ struct A { b: BAlias }
 
 type BAlias = B;
 
+fun test(a: A) {
+    a.b;
+    a.b.a;
+}
+
 /**
 @compilation_should_fail
-@stderr struct `B` size is infinity due to recursive fields
-@stderr struct B {
+(error message not stable, sometimes about A, sometimes B, it's okay, they are in a hashmap)
+@stderr size is infinity due to recursive fields
  */

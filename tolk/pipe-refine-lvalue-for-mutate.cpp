@@ -65,7 +65,7 @@ class RefineLvalueForMutateArgumentsVisitor final : public ASTVisitorFunctionBod
     }
 
     int delta_self = v->get_self_obj() != nullptr;
-    tolk_assert(fun_ref->get_num_params() == delta_self + v->get_num_args());
+    tolk_assert(fun_ref->get_num_params() >= delta_self + v->get_num_args());
 
     if (delta_self && fun_ref->does_mutate_self()) {
       // for `b.storeInt()`, `b` should become lvalue, since `storeInt` is a method mutating self

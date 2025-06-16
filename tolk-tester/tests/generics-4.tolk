@@ -146,15 +146,36 @@ fun test7() {
     return (v1, v2, v3, v4);
 }
 
+struct FakeGeneric8<T> {
+    alwaysInt: int;
+}
+
+struct Snake8 {
+    next: FakeGeneric8<Snake8>;     // it's not a recursive struct, it's okay
+    next2: FakeGeneric8<Snake8>?;
+    next3: FakeGeneric8<FakeGeneric8<Snake8>>;
+}
+
+@method_id(108)
+fun test8() {
+    var sn: Snake8 = {
+        next: { alwaysInt: 10 },
+        next2: null,
+        next3: { alwaysInt: 20 }
+    };
+    return sn;
+}
+
 fun main() {
 }
 
 /**
 @testcase | 103 |      | 10 20 30 777 40 40
 @testcase | 104 |      | (null) (null) (null)
-@testcase | 105 |      | -1 (null) 0 (null) 133 777 0 123 0 456 132
+@testcase | 105 |      | -1 (null) 0 (null) 134 777 0 123 0 456 133
 @testcase | 106 |      | -1 0 -1 -1
 @testcase | 107 |      | 1 10 110 117
+@testcase | 108 |      | 10 (null) 20
 
 @fif_codegen DECLPROC eqUnusedT<null>
 @fif_codegen DECLPROC eqUnusedU<builder,never>

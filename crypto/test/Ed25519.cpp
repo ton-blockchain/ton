@@ -17,7 +17,6 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include "crypto/Ed25519.h"
-#include "ellcurve/Ed25519.h"
 
 #include "td/utils/logging.h"
 #include "td/utils/misc.h"
