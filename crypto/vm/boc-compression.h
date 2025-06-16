@@ -26,11 +26,12 @@ namespace vm {
 
 enum class CompressionAlgorithm : int { BaselineLZ4 = 0, ImprovedStructureLZ4 = 1 };
 
-td::Result<td::BufferSlice> boc_decompress_baseline_lz4(td::Slice data_compressed);
-td::Result<td::BufferSlice> boc_decompress_improved_structure_lz4(td::Slice data_compressed);
-td::Result<td::BufferSlice> boc_decompress(td::Slice data_compressed);
-
 td::Result<td::BufferSlice> boc_compress_baseline_lz4(td::Slice data_serialized_31);
+td::Result<td::BufferSlice> boc_decompress_baseline_lz4(td::Slice data_compressed, int max_decompressed_size);
+
 td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(td::Slice data_serialized_31);
+td::Result<td::BufferSlice> boc_decompress_improved_structure_lz4(td::Slice data_compressed, int max_decompressed_size);
+
+td::Result<td::BufferSlice> boc_decompress(td::Slice data_compressed, int max_decompressed_size);
 td::Result<td::BufferSlice> boc_compress(td::Slice data_serialized_31, CompressionAlgorithm algo = CompressionAlgorithm::BaselineLZ4);
 }  // namespace vm

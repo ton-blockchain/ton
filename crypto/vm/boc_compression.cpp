@@ -28,12 +28,12 @@
 
 namespace vm {
 
-td::Result<td::BufferSlice> boc_decompress_improved_structure_lz4(td::Slice data_compressed) {
+td::Result<td::BufferSlice> boc_decompress_improved_structure_lz4(td::Slice data_compressed, int max_decompressed_size) {
   assert(data_compressed[0] == int(CompressionAlgorithm::ImprovedStructureLZ4));
   data_compressed.remove_prefix(1);
 
   // Decompress LZ4 data with 2MB max size
-  td::BufferSlice serialized = td::lz4_decompress(data_compressed, 2 << 20).move_as_ok();
+  td::BufferSlice serialized = td::lz4_decompress(data_compressed, max_decompressed_size).move_as_ok();
 
   // Initialize bit reader
   td::BitSlice bit_reader(serialized.as_slice().ubegin(), serialized.as_slice().size() * 8);
@@ -163,16 +163,6 @@ td::Result<td::BufferSlice> boc_decompress_improved_structure_lz4(td::Slice data
   // Create final result
   auto result = vm::std_boc_serialize(nodes[0], 31).move_as_ok();
   return result;
-}
-
-td::Result<td::BufferSlice> boc_decompress(td::Slice data_compressed) {
-  switch (data_compressed[0]) {
-    case CompressionAlgorithm::BaselineLZ4:
-      return boc_decompress_baseline_lz4(data_compressed);
-    case CompressionAlgorithm::ImprovedStructureLZ4:
-      return boc_decompress_improved_structure_lz4(data_compressed);
-  }
-  return td::Status::Error("Unknown compression algorithm");
 }
 
 td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(td::Slice data_serialized_31) {
@@ -383,6 +373,18 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(td::Slice data_s
 
   return compressed;
 }
+
+td::Result<td::BufferSlice> boc_decompress(td::Slice data_compressed, int max_decompressed_size) {
+  switch (data_compressed[0]) {
+    case CompressionAlgorithm::BaselineLZ4:
+      return boc_decompress_baseline_lz4(data_compressed, max_decompressed_size);
+    case CompressionAlgorithm::ImprovedStructureLZ4:
+      return boc_decompress_improved_structure_lz4(data_compressed, max_decompressed_size);
+  }
+  return td::Status::Error("Unknown compression algorithm");
+}
+
+
 
 td::Result<td::BufferSlice> boc_compress(td::Slice data_serialized_31, CompressionAlgorithm algo = CompressionAlgorithm::BaselineLZ4) {
   switch (algo) {
