@@ -106,7 +106,7 @@ fun main(c: cell) {
 
 @fif_codegen
 """
-  test3 PROC:<{
+  test3() PROC:<{
     42949672980 PUSHINT
     NEWC
     64 STI                      //  b

@@ -749,12 +749,12 @@ fun main(x: int?): int {
 @stderr warning: unreachable code
 @stderr var t2 redef = getNullableInt()!;
 
-@fif_codegen  eq55<int?> PROC:<{
-@fif_codegen  eq55<int> PROC:<{
+@fif_codegen  eq55<int?>() PROC:<{
+@fif_codegen  eq55<int>() PROC:<{
 
 @fif_codegen
 """
-  test60 PROC:<{
+  test60() PROC:<{
     101 PUSHINT	//  cc1
     109 PUSHINT	//  cc1 cc2
   }>

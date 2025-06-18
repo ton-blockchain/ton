@@ -1494,7 +1494,7 @@ fun main() {
 
 @fif_codegen
 """
-  algo40 PROC:<{
+  algo40() PROC:<{
     x{0102} PUSHSLICE
     8 LDI
     NIP

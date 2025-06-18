@@ -1686,7 +1686,7 @@ fun main() {
 
 @fif_codegen
 """
-  demo101 PROC:<{               //
+  demo101() PROC:<{             //
     x{0102} PUSHSLICE           //  lazyS
     8 LDI                       //  '9 lazyS
     DROP                        //  p.x
@@ -1695,7 +1695,7 @@ fun main() {
 
 @fif_codegen
 """
-  demo103 PROC:<{               //
+  demo103() PROC:<{             //
     x{0102} PUSHSLICE           //  lazyS
     8 PUSHINT
     SDSKIPFIRST                 //  lazyS
@@ -1705,7 +1705,7 @@ fun main() {
 
 @fif_codegen
 """
-  demo106 PROC:<{               //  s
+  demo106() PROC:<{             //  s
                                 //  lazyS
     PUSHNULL                    //  lazyS x
     SWAP                        //  x lazyS
@@ -1716,7 +1716,7 @@ fun main() {
 
 @fif_codegen
 """
-  demo109 PROC:<{               //
+  demo109() PROC:<{             //
     x{8000003d800000e4000000000000000000000000000000000000000000000000000000000000000020_} PUSHSLICE    //  lazyS
     65 PUSHINT
     SDSKIPFIRST                 //  lazyS
@@ -1727,7 +1727,7 @@ fun main() {
 
 @fif_codegen
 """
-  demo113 PROC:<{
+  demo113() PROC:<{
   //  lazyS
     x{01} SDBEGINSQ
     IF:<{
@@ -1759,7 +1759,7 @@ fun main() {
 
 @fif_codegen
 """
-  demo134 PROC:<{               //
+  demo134() PROC:<{             //
     x{010f} PUSHSLICE           //  lazyS
     x{01} SDBEGINSQ             //  lazyS '6
     134 THROWIFNOT              //  lazyS
@@ -1770,7 +1770,7 @@ fun main() {
 
 @fif_codegen
 """
-  demo136 PROC:<{
+  demo136() PROC:<{
     x{0102} PUSHSLICE
     SWAP
     IFJMP:<{
@@ -1786,7 +1786,7 @@ fun main() {
 
 @fif_codegen
 """
-  demo146 PROC:<{
+  demo146() PROC:<{
     x{0000000} PUSHSLICE
     LDOPTREF
     DROP
@@ -1796,7 +1796,7 @@ fun main() {
 
 @fif_codegen
 """
-  demo201 PROC:<{
+  demo201() PROC:<{
     x{0102} PUSHSLICE
     DUP
     8 LDI
@@ -1819,7 +1819,7 @@ fun main() {
 
 @fif_codegen
 """
-  demo203 PROC:<{               //
+  demo203() PROC:<{             //
     x{010203040506070809} PUSHSLICE     //  lazyS
     DUP                         //  '14 lazyS
     8 LDU                       //  '14 '16 lazyS
@@ -1834,7 +1834,7 @@ fun main() {
 
 @fif_codegen
 """
-  demo206 PROC:<{               //
+  demo206() PROC:<{             //
     x{010203040506070809} PUSHSLICE     //  lazyS
     DUP                         //  '14 lazyS
     8 LDU                       //  '14 o.f1 lazyS
@@ -1851,7 +1851,7 @@ fun main() {
 
 @fif_codegen
 """
-  demo215 PROC:<{
+  demo215() PROC:<{
     x{0102} PUSHSLICE
     8 LDI
     8 LDI
@@ -1865,7 +1865,7 @@ fun main() {
 
 @fif_codegen
 """
-  demo302 PROC:<{
+  demo302() PROC:<{
     x{0102} PUSHSLICE
     8 LDI
     NIP
@@ -1877,9 +1877,9 @@ fun main() {
 
 @fif_codegen
 """
-  demo311 PROC:<{               //
+  demo311() PROC:<{             //
     777 PUSHINT                 //  '6=777
-    contract.getFakeData CALLDICT       //  '7
+    contract.getFakeData() CALLDICT       //  '7
     CTOS                        //  lazyS
     1 LDI                       //  '13 lazyS
     NIP                         //  lazyS
@@ -1899,7 +1899,7 @@ fun main() {
 
 @fif_codegen
 """
-  demo404 PROC:<{
+  demo404() PROC:<{
     //  lazyS
     x{12345678} SDBEGINSQ
     IF:<{
@@ -1939,7 +1939,7 @@ fun main() {
 
 @fif_codegen
 """
-  demo410 PROC:<{
+  demo410() PROC:<{
     // lazyS
     x{01} SDBEGINSQ
     IFJMP:<{
@@ -1965,7 +1965,7 @@ fun main() {
 
 @fif_codegen
 """
-  demo411 PROC:<{               //  s
+  demo411() PROC:<{             //  s
                                 //  lazyS
     1 LDU                       //  '10 lazyS
     DROP                        //  '10
@@ -1977,5 +1977,5 @@ fun main() {
   }>
 """
 
-@fif_codegen DECLPROC pushToGlobalTup<Point>
+@fif_codegen DECLPROC pushToGlobalTup<Point>()
  */

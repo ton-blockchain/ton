@@ -352,7 +352,7 @@ We test that consequtive storeInt/storeUint with constants are joined into a sin
 
 @fif_codegen
 """
-  test6 PROC:<{
+  test6() PROC:<{
     18446744082299486211 PUSHINT
     NEWC
     96 STU      //  '2
@@ -361,7 +361,7 @@ We test that consequtive storeInt/storeUint with constants are joined into a sin
 
 @fif_codegen
 """
-  test17 PROC:<{
+  test17() PROC:<{
     4219 PUSHINT
     NEWC
     16 STU
@@ -369,7 +369,7 @@ We test that consequtive storeInt/storeUint with constants are joined into a sin
 
 @fif_codegen
 """
-  test18 PROC:<{
+  test18() PROC:<{
     421 PUSHINT
     NEWC
     26 STU
@@ -377,7 +377,7 @@ We test that consequtive storeInt/storeUint with constants are joined into a sin
 
 @fif_codegen
 """
-  test19 PROC:<{
+  test19() PROC:<{
     NEWC
     123 PUSHINT
     SWAP
@@ -392,7 +392,7 @@ We test that consequtive storeInt/storeUint with constants are joined into a sin
 
 @fif_codegen
 """
-  test20 PROC:<{
+  test20() PROC:<{
     40976 PUSHINT
     NEWC
     16 STU
@@ -400,7 +400,7 @@ We test that consequtive storeInt/storeUint with constants are joined into a sin
 
 @fif_codegen
 """
-  test21 PROC:<{
+  test21() PROC:<{
     14 PUSHINT
     SDSKIPFIRST
   }>
@@ -408,7 +408,7 @@ We test that consequtive storeInt/storeUint with constants are joined into a sin
 
 @fif_codegen
 """
-  test22 PROC:<{
+  test22() PROC:<{
     NEWC                    	//  '2
     NEWC                    	//  b1 b2
     SWAP                    	//  b2 b1
@@ -421,7 +421,7 @@ We test that consequtive storeInt/storeUint with constants are joined into a sin
 
 @fif_codegen
 """
-  test23 PROC:<{
+  test23() PROC:<{
     NEWC
     SWAP
     IF:<{

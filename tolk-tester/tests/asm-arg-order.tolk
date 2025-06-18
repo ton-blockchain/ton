@@ -219,7 +219,7 @@ fun main() {
 
 @fif_codegen
 """
-  test27 PROC:<{
+  test27() PROC:<{
     10 PUSHINT
     2 PUSHINT
     1 ADDCONST MUL
@@ -228,18 +228,18 @@ fun main() {
 
 @fif_codegen
 """
-  test28 PROC:<{
-    get10Pure CALLDICT
-    get2Pure CALLDICT
+  test28() PROC:<{
+    get10Pure() CALLDICT
+    get2Pure() CALLDICT
     1 ADDCONST MUL
   }>
 """
 
 @fif_codegen
 """
-  test29 PROC:<{
-    get2Impure CALLDICT
-    get10Impure CALLDICT
+  test29() PROC:<{
+    get2Impure() CALLDICT
+    get10Impure() CALLDICT
     SWAP
     1 ADDCONST MUL
   }>
@@ -247,17 +247,17 @@ fun main() {
 
 @fif_codegen
 """
-  test30 PROC:<{
+  test30() PROC:<{
     ...
-    g10 GETGLOB
-    g2 GETGLOB
+    $g10 GETGLOB
+    $g2 GETGLOB
     1 ADDCONST MUL
   }>
 """
 
 @fif_codegen
 """
-  test32 PROC:<{
+  test32() PROC:<{
     10 PUSHINT
     2 PUSHINT
     1 ADDCONST MUL
@@ -266,7 +266,7 @@ fun main() {
 
 @fif_codegen
 """
-  test34 PROC:<{
+  test34() PROC:<{
     x{020a} PUSHSLICE
     8 LDU
     8 LDU

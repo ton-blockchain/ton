@@ -475,12 +475,12 @@ fun main(c: Wrapper<slice>, d: WrappedInt) {
 
 @fif_codegen
 """
-  test1 PROC:<{
+  test1() PROC:<{
     23 PUSHINT   // c1=23
     DUP          // c1=23 c2=23
   }>
 """
 
-@fif_codegen DECLPROC getWrappervalue1<Wrapper<(int,int)>>
-@fif_codegen DECLPROC getWrappervalue2<Wrapper<Wrapper<(int,int)>>>
+@fif_codegen DECLPROC getWrappervalue1<Wrapper<(int,int)>>()
+@fif_codegen DECLPROC getWrappervalue2<Wrapper<Wrapper<(int,int)>>>()
  */

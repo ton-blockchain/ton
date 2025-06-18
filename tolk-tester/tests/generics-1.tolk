@@ -234,19 +234,19 @@ fun main(x: int): (int, [Tup2Int]) {
 @testcase | 112 | 0 0 | 0 0 -1
 @testcase | 113 | 5 1 | 5 1 -100 (null) 5 1 -100 9 -100 (null) -100 (null) 5 1 -100 (null) (null) (null) 0
 
-@fif_codegen DECLPROC eq1<int>
-@fif_codegen DECLPROC eq1<tuple>
-@fif_codegen DECLPROC eq1<(int,int)>
-@fif_codegen DECLPROC eq1<[int,int]>
-@fif_codegen DECLPROC eq1<MInt?>
-@fif_codegen DECLPROC eq1<int|slice|null>
-@fif_codegen DECLPROC eq1<Wrapper<Wrapper<int8>>>
+@fif_codegen DECLPROC eq1<int>()
+@fif_codegen DECLPROC eq1<tuple>()
+@fif_codegen DECLPROC eq1<(int,int)>()
+@fif_codegen DECLPROC eq1<[int,int]>()
+@fif_codegen DECLPROC eq1<MInt?>()
+@fif_codegen DECLPROC eq1<int|slice|null>()
+@fif_codegen DECLPROC eq1<Wrapper<Wrapper<int8>>>()
 
 // was inlined
-@fif_codegen_avoid DECLPROC getTwo<int>
+@fif_codegen_avoid DECLPROC getTwo<int>()
 @fif_codegen_avoid getTwo
 
-@fif_codegen_avoid DECLPROC eq1
-@fif_codegen_avoid DECLPROC eq2
-@fif_codegen_avoid DECLPROC eq3
+@fif_codegen_avoid DECLPROC eq1()
+@fif_codegen_avoid DECLPROC eq2()
+@fif_codegen_avoid DECLPROC eq3()
  */

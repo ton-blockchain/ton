@@ -124,7 +124,7 @@ fun main() {}
 
 @fif_codegen
 """
-  test6 PROC:<{                 //
+  test6() PROC:<{               //
     b{010000000000001111} PUSHSLICE     //  s
     b{00} SDBEGINSQ             //  s '8
     IF:<{                       //  s

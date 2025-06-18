@@ -226,27 +226,29 @@ fun main() { }
 
 @fif_codegen
 """
-  int.incChained PROC:<{    //  self
-    INC	                    //  self
+  int.incChained() PROC:<{      //  self
+    INC	                        //  self
   }>
-  int.incChained2 PROC:<{   //  self
-    int.incChained CALLDICT	//  self
+  int.incChained2() PROC:<{     //  self
+    int.incChained() CALLDICT	//  self
   }>
-  int.incChained3 PROC:<{   //  self
-    int.incChained CALLDICT	//  self
+  int.incChained3() PROC:<{     //  self
+    int.incChained() CALLDICT	//  self
   }>
-  int.incChained4 PROC:<{   //  self
-    int.incChained CALLDICT	//  self
+  int.incChained4() PROC:<{     //  self
+    int.incChained() CALLDICT	//  self
   }>
 """
 
 @fif_codegen
 """
-  testIncChainedCodegen PROC:<{ // x
-    int.incChained CALLDICT	    //  x
-    int.incChained2 CALLDICT	//  x
-    int.incChained3 CALLDICT	//  x
-    int.incChained4 CALLDICT	//  x
+  testIncChainedCodegen() PROC:<{   // x
+    int.incChained() CALLDICT	    //  x
+    int.incChained2() CALLDICT	    //  x
+    int.incChained3() CALLDICT	    //  x
+    int.incChained4() CALLDICT	    //  x
   }>
 """
+
+@fif_codegen int.checkNotEqChainableMutateAnother() PREPAREDICT
  */

@@ -180,16 +180,16 @@ fun main() {
 @testcase | 107 |      | 1 10 110 117
 @testcase | 108 |      | 10 (null) 20
 
-@fif_codegen DECLPROC eqUnusedT<null>
-@fif_codegen DECLPROC eqUnusedU<builder,never>
-@fif_codegen DECLPROC mySend<never,never>
-@fif_codegen DECLPROC mySend<int,never>
-@fif_codegen DECLPROC mySend<int,builder>
-@fif_codegen DECLPROC mySend<never,[int]?>
+@fif_codegen DECLPROC eqUnusedT<null>()
+@fif_codegen DECLPROC eqUnusedU<builder,never>()
+@fif_codegen DECLPROC mySend<never,never>()
+@fif_codegen DECLPROC mySend<int,never>()
+@fif_codegen DECLPROC mySend<int,builder>()
+@fif_codegen DECLPROC mySend<never,[int]?>()
 
 @fif_codegen
 """
-  test6 PROC:<{                 //
+  test6() PROC:<{               //
     NEWC                        //  '8
     ENDC                        //  p.init.USlot2
     -1 PUSHINT                  //  p.init.USlot2 '11=-1

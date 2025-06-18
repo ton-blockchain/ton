@@ -854,14 +854,14 @@ fun main() {
 
 @fif_codegen
 """
-  test26 PROC:<{
+  test26() PROC:<{
     42 PUSHINT  // result
   }>
 """
 
 @fif_codegen
 """
-  checkSimple PROC:<{   //  a.USlot1 a.UTag
+  checkSimple() PROC:<{   //  a.USlot1 a.UTag
     NIP	    //  a.UTag
     DUP	    //  a.UTag a.UTag
     1 EQINT	//  a.UTag '3
@@ -881,7 +881,7 @@ fun main() {
 
 @fif_codegen
 """
-  test61 PROC:<{
+  test61() PROC:<{
     NIP
     DUP
     46 EQINT
@@ -897,6 +897,6 @@ fun main() {
   }>
 """
 
-@fif_codegen DECLPROC checkGeneric3<int,int8,int16>
+@fif_codegen DECLPROC checkGeneric3<int,int8,int16>()
 
  */

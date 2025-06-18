@@ -154,14 +154,14 @@ fun main() {
 
 @fif_codegen
 """
-  int.~inc PROC:<{      //  self y
-    inc CALLDICT    //  self newY
+  int.~inc() PROC:<{      //  self y
+    inc() CALLDICT    //  self newY
   }>
 """
 
 @fif_codegen
 """
-  test_assign_tensor_global PROC:<{   // x.0 x.1
+  test_assign_tensor_global() PROC:<{   // x.0 x.1
 """
 
 @code_hash 6737917279814799680932710799951154408447028229503449454536845752635763933556

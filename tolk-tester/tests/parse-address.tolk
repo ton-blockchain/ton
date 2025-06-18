@@ -241,7 +241,7 @@ fun main() {
 
 @fif_codegen
 """
-  check0 PROC:<{              	//  addr
+  check0() PROC:<{             	//  addr
     REWRITESTDADDR
     DROP                    	//  '2
     0 EQINT                 	//  '4
@@ -251,7 +251,7 @@ fun main() {
 
 @fif_codegen
 """
-  codegenAddrEq PROC:<{       	//  a b
+  codegenAddrEq() PROC:<{      	//  a b
     2DUP                    	//  a b a b
     SDEQ                    	//  a b '2
     IFJMP:<{                	//  a b

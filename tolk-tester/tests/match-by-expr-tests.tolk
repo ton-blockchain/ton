@@ -181,7 +181,7 @@ fun main() {
 
 @fif_codegen
 """
-  test1 PROC:<{ //  x
+  test1() PROC:<{ //  x
     DUP         //  x x
     1 EQINT     //  x '3
     IF:<{       //  x
@@ -207,16 +207,16 @@ fun main() {
 
 @fif_codegen
 """
-  test2 PROC:<{
+  test2() PROC:<{
     300 PUSHINT
   }>
 """
 
 @fif_codegen
 """
-  test3 PROC:<{         //  init
+  test3() PROC:<{       //  init
     DUP                 // init init
-    isGt10 CALLDICT     // init '2
+    isGt10() CALLDICT   // init '2
     -1 EQINT	        // init '5
     IF:<{	            // init
       10 PUSHINT	    // init '3=10
@@ -227,7 +227,7 @@ fun main() {
 
 @fif_codegen
 """
-  test8 PROC:<{     // x
+  test8() PROC:<{   // x
     DROP            //
     30 PUSHINT      // r1
   }>
@@ -235,29 +235,29 @@ fun main() {
 
 @fif_codegen
 """
-  helper12 PROC:<{
+  helper12() PROC:<{
     DUP
     1 EQINT
     IFJMP:<{
       DROP
       1 PUSHINT
-      g12 SETGLOB
+      $g12 SETGLOB
     }>
     DUP
     2 EQINT
     IFJMP:<{
       DROP
       2 PUSHINT
-      g12 SETGLOB
+      $g12 SETGLOB
     }>
     DUP
     3 EQINT
     IFJMP:<{
       DROP
       3 PUSHINT
-      g12 SETGLOB
+      $g12 SETGLOB
     }>
-    g12 SETGLOB
+    $g12 SETGLOB
   }>
 """
 

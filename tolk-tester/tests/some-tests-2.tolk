@@ -114,14 +114,14 @@ fun test96(p: Point) {
 
 @fif_codegen
 """
-  touchCodegen2 PROC:<{
-    get10 CALLDICT	//  f
+  touchCodegen2() PROC:<{
+    get10() CALLDICT	//  f
   }>
 """
 
 @fif_codegen
 """
-  testDumpDontPolluteStack PROC:<{
+  testDumpDontPolluteStack() PROC:<{
     ...
     DUMPSTK
     x{6d79} PUSHSLICE	//  f s '5
@@ -132,7 +132,7 @@ fun test96(p: Point) {
 
 @fif_codegen
 """
-  testStartBalanceCodegen1 PROC:<{
+  testStartBalanceCodegen1() PROC:<{
     BALANCE // t
     FIRST	//  first
   }>
@@ -140,7 +140,7 @@ fun test96(p: Point) {
 
 @fif_codegen
 """
-  testStartBalanceCodegen2 PROC:<{
+  testStartBalanceCodegen2() PROC:<{
     BALANCE
     FIRST	//  first
   }>
@@ -148,24 +148,24 @@ fun test96(p: Point) {
 
 @fif_codegen
 """
-  test95 PROC:<{
+  test95() PROC:<{
     ...
-    next GETGLOB	//  g_next
+    $next GETGLOB	//  g_next
     3 PUSHINT	    //  g_next '14=3
     4 PUSHINT	    //  g_next '14=3 '15=4
     5 PUSHINT	    //  g_next '14=3 '15=4 '16=5
     TRIPLE	        //  '10 '11
     SWAP
-    cur SETGLOB
-    next SETGLOB
-    cur GETGLOB	    //  g_cur
-    next GETGLOB	//  g_cur g_next
+    $cur SETGLOB
+    $next SETGLOB
+    $cur GETGLOB    //  g_cur
+    $next GETGLOB	//  g_cur g_next
   }>
 """
 
 @fif_codegen
 """
-  test96 PROC:<{
+  test96() PROC:<{
     s1 DUMP s0 DUMP 2 BLKDROP
   }>
 """

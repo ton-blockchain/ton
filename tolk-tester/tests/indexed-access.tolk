@@ -307,7 +307,7 @@ fun main(){}
 
 @fif_codegen
 """
-  testCodegenSimple PROC:<{
+  testCodegenSimple() PROC:<{
     1 PUSHINT	    //  '2=1
     SINGLE	        //  t1
     2 PUSHINT	    //  t1 '3=2
@@ -327,43 +327,43 @@ fun main(){}
     STRDUMP DROP
     1 PUSHINT	//  t1 t2 '20=1
     SINGLE	    //  t1 t2 '18
-    gTup SETGLOB
+    $gTup SETGLOB
     2 PUSHINT	    //  t1 t2 '21=2
-    gTup GETGLOB	//  t1 t2 '21=2 g_gTup
+    $gTup GETGLOB	//  t1 t2 '21=2 g_gTup
     SWAP	        //  t1 t2 g_gTup '21=2
     0 SETINDEX	    //  t1 t2 g_gTup
-    gTup SETGLOB
+    $gTup SETGLOB
     x{} PUSHSLICE	//  t1 t2 '25
     STRDUMP DROP
     1 PUSHINT	//  t1 t2 '28=1
     2 PUSHINT	//  t1 t2 '26=1 '27=2
     PAIR
-    gTens SETGLOB
+    $gTens SETGLOB
     4 PUSHINT	//  t1 t2 g_gTens.1=4
-    gTens GETGLOB
+    $gTens GETGLOB
     UNPAIR	    //  t1 t2 g_gTens.1=4 g_gTens.0 g_gTens.1
     DROP	    //  t1 t2 g_gTens.1=4 g_gTens.0
     SWAP	    //  t1 t2 g_gTens.0 g_gTens.1=4
     PAIR
-    gTens SETGLOB
+    $gTens SETGLOB
     x{} PUSHSLICE	//  t1 t2 '36
     STRDUMP DROP
-    gTup GETGLOB	//  t1 t2 g_gTup
-    gTens GETGLOB
+    $gTup GETGLOB	//  t1 t2 g_gTup
+    $gTens GETGLOB
     UNPAIR	    //  t1 t2 g_gTup g_gTens.0 g_gTens.1
   }>
 """
 
 @fif_codegen
 """
-  testCodegenNoPureIndexedAccess PROC:<{
+  testCodegenNoPureIndexedAccess() PROC:<{
     0 PUSHINT  // '8=0
   }>
 """
 
 @fif_codegen
 """
-  testCodegenIndexPostfix1 PROC:<{   //  x.0 x.1
+  testCodegenIndexPostfix1() PROC:<{   //  x.0 x.1
     //  ab.1 ab.0
     SWAP	//  ab.0 ab.1
   }>
@@ -371,7 +371,7 @@ fun main(){}
 
 @fif_codegen
 """
-  testCodegenIndexPostfix2 PROC:<{   //  x.0 x.1.0 x.1.1 x.2
+  testCodegenIndexPostfix2() PROC:<{   //  x.0 x.1.0 x.1.1 x.2
     s2 POP	//  y.0 y.2 y.1.1
     s1 s2 XCHG	//  y.2 y.0 y.1.1
   }>

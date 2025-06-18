@@ -450,7 +450,7 @@ fun usedIn10ButDeclaredBelow(x: int) {
 @fif_codegen_avoid Storage.save
 @fif_codegen
 """
-  test5 PROC:<{                 //
+  test5() PROC:<{               //
     c4 PUSH                     //  '7
     CTOS                        //  s
     LDMSGADDR                   //  '11 s
@@ -458,7 +458,7 @@ fun usedIn10ButDeclaredBelow(x: int) {
 
 @fif_codegen
 """
-  test6 PROC:<{
+  test6() PROC:<{
     11 PUSHINT
     DUP
   }>
@@ -466,7 +466,7 @@ fun usedIn10ButDeclaredBelow(x: int) {
 
 @fif_codegen
 """
-  test8 PROC:<{                 //
+  test8() PROC:<{               //
     5 PUSHINT
     NEWC
     32 STU                      //  '3
@@ -480,7 +480,7 @@ fun usedIn10ButDeclaredBelow(x: int) {
 
 @fif_codegen
 """
-  test9 PROC:<{                 //  x
+  test9() PROC:<{               //  x
     0 PUSHINT                   //  p1.x p1.y=0
     s0 s1 PUSH2                 //  p1.x p1.y=0 p2.x=0 p2.y
     NIL                         //  x p1.y=0 p2.x=0 p2.y self
@@ -506,7 +506,7 @@ fun usedIn10ButDeclaredBelow(x: int) {
 
 @fif_codegen
 """
-  test10 PROC:<{
+  test10() PROC:<{
     5 PUSHINT                   //  '3=5
     DUP                         //  '3=5 y=5
     5 PUSHINT
@@ -518,7 +518,7 @@ fun usedIn10ButDeclaredBelow(x: int) {
 
 @fif_codegen
 """
-  test12 PROC:<{                //  x
+  test12() PROC:<{              //  x
     40 PUSHINT                  //  x r1
     SWAP                        //  r1 x
     2 ADDCONST                  //  r1 y
@@ -527,7 +527,7 @@ fun usedIn10ButDeclaredBelow(x: int) {
 
 @fif_codegen
 """
-  wrapperNotInlined PROC:<{     //  x
+  wrapperNotInlined() PROC:<{   //  x
     DUP                         //  x x
     ISNULL                      //  x '1
     IFNOTJMP:<{                 //  x
@@ -538,7 +538,7 @@ fun usedIn10ButDeclaredBelow(x: int) {
 
 @fif_codegen
 """
-  wrap16 PROC:<{
+  wrap16() PROC:<{
     IFJMP:<{
       139 PUSHINT
       OVER

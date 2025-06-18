@@ -212,7 +212,7 @@ fun main(x: MInt, y: MInt?) {
 
 @fif_codegen
 """
-  test9 PROC:<{ //  b
+  test9() PROC:<{ //  b
     DUP	        //  b b
     IFNOTJMP:<{	//  b
       NOT	//  '2

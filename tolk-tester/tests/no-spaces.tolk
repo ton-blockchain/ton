@@ -80,14 +80,14 @@ fun`main`(){}
 
 @fif_codegen
 """
-  get_+-+1 PROC:<{
+  get_+-+1() PROC:<{
     -1 PUSHINT
   }>
 """
 
 @fif_codegen
 """
-  unary+bitwise-constant PROC:<{
+  unary+bitwise-constant() PROC:<{
     -4 PUSHINT
     6 PUSHINT
     -4 PUSHINT
@@ -97,14 +97,14 @@ fun`main`(){}
 
 @fif_codegen
 """
-  unary_const_check PROC:<{
+  unary_const_check() PROC:<{
     -1 PUSHINT	//  fst1=-1
     DUP	//  fst1=-1 snd1=-1
     2 PUSHINT	//  fst1=-1 snd1=-1 trd1=2
     s1 s1 s0 PUSH3	//  fst1=-1 snd1=-1 trd1=2 fst2=-1 snd2=-1 trd2=2
-    add3 CALLDICT	//  fst1=-1 snd1=-1 trd1=2 '13
+    add3() CALLDICT	//  fst1=-1 snd1=-1 trd1=2 '13
     3 -ROLL	//  '13 fst1=-1 snd1=-1 trd1=2
-    add3 CALLDICT	//  '13 '14
+    add3() CALLDICT	//  '13 '14
     PAIR	//  '12
   }>
 """

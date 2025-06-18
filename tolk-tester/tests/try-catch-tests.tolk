@@ -298,7 +298,7 @@ fun main() {
 
 @fif_codegen
 """
-  testCodegen1 PROC:<{  // x
+  testCodegen1() PROC:<{  // x
     DUP	//  x x
     10 GTINT	//  x '2
     IFJMP:<{	//  x
@@ -316,17 +316,17 @@ fun main() {
 
 @fif_codegen
 """
-  testCodegen2 PROC:<{  // x
+  testCodegen2() PROC:<{  // x
     DUP	//  x x
     10 GTINT	//  x '2
     IFJMP:<{	//  x
       DROP	//
-      alwaysThrow123 CALLDICT
+      alwaysThrow123() CALLDICT
     }>	//  x
     10 LESSINT	//  '5
     IFJMP:<{	//
       FALSE	//  '6
-      anotherNever CALLDICT
+      anotherNever() CALLDICT
     }>	//
     0 PUSHINT	//  '8=0
   }>
@@ -334,7 +334,7 @@ fun main() {
 
 @fif_codegen
 """
-  testCodegen3 PROC:<{  //  numberId paramVal
+  testCodegen3() PROC:<{  //  numberId paramVal
     SWAP
     -1000 PUSHINT	//  paramVal numberId '2=-1000
     EQUAL	    //  paramVal '3

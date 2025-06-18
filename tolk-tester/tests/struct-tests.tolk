@@ -627,7 +627,7 @@ type PointAlias = Point;
 
 @fif_codegen
 """
-  test6 PROC:<{
+  test6() PROC:<{
     10 PUSHINT   // p.x
     20 PUSHINT   // p.x p.y
   }>
@@ -635,7 +635,7 @@ type PointAlias = Point;
 
 @fif_codegen
 """
-  sumXY<Point> PROC:<{  // point.x point.y
+  sumXY<Point>() PROC:<{  // point.x point.y
     ADD   // '2
   }>
 """
@@ -643,7 +643,7 @@ type PointAlias = Point;
 
 @fif_codegen
 """
-  test23 PROC:<{ // p.x p.y
+  test23() PROC:<{ // p.x p.y
     2DROP
     20 PUSHINT   // '10=20
   }>
@@ -651,27 +651,27 @@ type PointAlias = Point;
 
 @fif_codegen
 """
-  test29 PROC:<{
+  test29() PROC:<{
     PUSHNULL   // '5
   }>
 """
 
 @fif_codegen
 """
-  test35 PROC:<{                //
-    getXPure CALLDICT           //  '2
-    getYPure CALLDICT           //  p.x p.y
+  test35() PROC:<{              //
+    getXPure() CALLDICT         //  '2
+    getYPure() CALLDICT         //  p.x p.y
   }>
 """
 
 @fif_codegen
 """
-  test36 PROC:<{                //
+  test36() PROC:<{              //
     NIL                         //  '0
-    t_impure SETGLOB            //
-    getYImpure CALLDICT         //  '4
-    getXImpure CALLDICT         //  p.y p.x
-    t_impure GETGLOB            //  p.y p.x g_t_impure
+    $t_impure SETGLOB           //
+    getYImpure() CALLDICT       //  '4
+    getXImpure() CALLDICT       //  p.y p.x
+    $t_impure GETGLOB           //  p.y p.x g_t_impure
     s1 s2 XCHG                  //  p.x p.y g_t_impure
   }>
 """

@@ -130,7 +130,7 @@ RETALT
 
 @fif_codegen
 """
-  test3 PROC:<{
+  test3() PROC:<{
     x{0109ab} PUSHSLICE
     NEWC
     STSLICE
@@ -160,7 +160,7 @@ IF:<{
 
 @fif_codegen
 """
-  test5 PROC:<{
+  test5() PROC:<{
     x{11} PUSHSLICE
     NEWC
     OVER
@@ -173,7 +173,7 @@ IF:<{
 
 @fif_codegen
 """
-  test6 PROC:<{
+  test6() PROC:<{
     x{11} PUSHSLICE
     NEWC
     STSLICE
@@ -183,7 +183,7 @@ IF:<{
 
 @fif_codegen
 """
-  test8 PROC:<{                 //
+  test8() PROC:<{               //
     x{010f} PUSHSLICE           //  '0
     16 PUSHPOW2DEC              //  s '2=65535
     SWAP                        //  '2=65535 s
@@ -197,7 +197,7 @@ IF:<{
 
 @fif_codegen
 """
-  test9 PROC:<{
+  test9() PROC:<{
     x{010f} PUSHSLICE
     x{01} SDBEGINSQ
     IF:<{

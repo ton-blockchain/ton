@@ -249,13 +249,13 @@ fun main() {
 @testcase | 114 | 5    | (null) (null) 0
 @testcase | 114 | 15   | 15 2 typeid-2
 
-@fif_codegen DECLPROC assign0<int8>
-@fif_codegen DECLPROC assign0<uint16>
-@fif_codegen DECLPROC assign0<int>
+@fif_codegen DECLPROC assign0<int8>()
+@fif_codegen DECLPROC assign0<uint16>()
+@fif_codegen DECLPROC assign0<int>()
 
 @fif_codegen
 """
-  test12 PROC:<{
+  test12() PROC:<{
     100000000 PUSHINT	//  '4=100000000
   }>
 """

@@ -136,7 +136,7 @@ fun main() {
 
 @fif_codegen
 """
-  test3 PROC:<{
+  test3() PROC:<{
     10 PUSHINT  // r.USlot1=10
     -1 PUSHINT  // r.USlot1=10 '22=-1
     FALSE       // r.USlot1=10 '22=-1 '24

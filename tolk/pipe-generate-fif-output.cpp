@@ -91,13 +91,13 @@ static void generate_output_func(FunctionPtr fun_ref) {
     }
     std::cout << std::endl;
   }
-  std::cout << "  " << fun_ref->name << " PROC" << modifier << ":<{";
+  std::cout << "  " << fun_ref->name << "() PROC" << modifier << ":<{";
   int mode = 0;
   if (G.settings.stack_layout_comments) {
     mode |= Stack::_StackComments;
     size_t len = 2 + fun_ref->name.size() + 5 + std::strlen(modifier) + 3;
     while (len < 28) {      // a bit weird, but okay for now:
-      std::cout << ' ';     // insert space after "xxx PROC" before `// stack state`
+      std::cout << ' ';     // insert space after "xxx() PROC" before `// stack state`
       len++;                // (the first AsmOp-comment that will be code generated)
     }                       // space is the same as used to align comments in asmops.cpp
     std::cout << '\t';
@@ -153,9 +153,9 @@ void pipeline_generate_fif_output_to_std_cout() {
 
     std::cout << "  ";
     if (fun_ref->has_tvm_method_id()) {
-      std::cout << fun_ref->tvm_method_id << " DECLMETHOD " << fun_ref->name << "\n";
+      std::cout << fun_ref->tvm_method_id << " DECLMETHOD " << fun_ref->name << "()\n";
     } else {
-      std::cout << "DECLPROC " << fun_ref->name << "\n";
+      std::cout << "DECLPROC " << fun_ref->name << "()\n";
     }
   }
 
@@ -180,7 +180,7 @@ void pipeline_generate_fif_output_to_std_cout() {
       continue;
     }
 
-    std::cout << "  " << "DECLGLOBVAR " << var_ref->name << "\n";
+    std::cout << "  " << "DECLGLOBVAR $" << var_ref->name << "\n";
   }
 
   for (FunctionPtr fun_ref : G.all_functions) {

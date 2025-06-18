@@ -283,7 +283,7 @@ fun main(value: int, ) {
 
 @fif_codegen
 """
-  test116 PROC:<{   //
+  test116() PROC:<{ //
     1 PUSHINT	    //  '10=1
     2 PUSHINT	    //  '10=1 '11=2
     3 PUSHINT	    //  '10=1 '11=2 '12=3
