@@ -39,25 +39,40 @@ td::Result<td::BufferSlice> boc_decompress_improved_structure_lz4(td::Slice data
   td::BitSlice bit_reader(serialized.as_slice().ubegin(), serialized.as_slice().size() * 8);
   int orig_size = bit_reader.size();
 
+  int root_count = bit_reader.bits().get_uint(16);
+  bit_reader.advance(16);
+  std::vector<int> root_indexes(root_count);
+  for (int i = 0; i < root_count; ++i) {
+    root_indexes[i] = bit_reader.bits().get_uint(16);
+    bit_reader.advance(16);
+  }
+
   // Read number of nodes from header
   int node_count = bit_reader.bits().get_uint(16);
   bit_reader.advance(16);
 
   // Initialize data structures
   std::vector<int> cell_data_length(node_count), is_data_small(node_count);
-  std::vector<int> cell_type(node_count), cell_refs_cnt(node_count);
+  std::vector<int> is_special(node_count), cell_refs_cnt(node_count);
+  std::vector<int> prunned_branch_level(node_count, 0);
+
   std::vector<vm::CellBuilder> cell_builders(node_count);
   std::vector<std::vector<int>> boc_graph(node_count);
 
   // Read cell metadata
   for (int i = 0; i < node_count; ++i) {
-    cell_type[i] = bit_reader.bits().get_uint(4);
+    int cell_type = bit_reader.bits().get_uint(4);
+    is_special[i] = bool(cell_type);
+    if (is_special[i]) {
+      prunned_branch_level[i] = cell_type - 1;
+    }
     bit_reader.advance(4);
     cell_refs_cnt[i] = bit_reader.bits().get_uint(4);
     bit_reader.advance(4);
 
-    if (cell_type[i] == 1) {
-      cell_data_length[i] = 256 + 16;
+    if (prunned_branch_level[i]) {
+      int coef = prunned_branch_level[i] == 3 ? 2 : 1;
+      cell_data_length[i] = (256 + 16) * coef;
     } else {
       is_data_small[i] = bit_reader.bits().get_uint(1);
       bit_reader.advance(1);
@@ -86,8 +101,8 @@ td::Result<td::BufferSlice> boc_decompress_improved_structure_lz4(td::Slice data
 
   // Read initial cell data
   for (int i = 0; i < node_count; ++i) {
-    if (cell_type[i] == 1) {
-      cell_builders[i].store_long(0x0101, 16);
+    if (prunned_branch_level[i]) {
+      cell_builders[i].store_long((1 << 8) + prunned_branch_level[i], 16);
     }
 
     int remainder_bits = cell_data_length[i] % 8;
@@ -138,7 +153,7 @@ td::Result<td::BufferSlice> boc_decompress_improved_structure_lz4(td::Slice data
   // Read remaining cell data
   for (int i = 0; i < node_count; ++i) {
     int padding_bits = 0;
-    if (cell_type[i] != 1 && !is_data_small[i]) {
+    if (!prunned_branch_level[i] && !is_data_small[i]) {
       while (bit_reader.bits()[0] == 0) {
         ++padding_bits;
         bit_reader.advance(1);
@@ -153,27 +168,33 @@ td::Result<td::BufferSlice> boc_decompress_improved_structure_lz4(td::Slice data
   // Build cell tree
   std::vector<td::Ref<vm::Cell>> nodes(node_count);
   for (int i = node_count - 1; i >= 0; --i) {
-    bool is_special = cell_type[i] != int(vm::CellTraits::SpecialType::Ordinary);
     for (int child : boc_graph[i]) {
       cell_builders[i].store_ref(nodes[child]);
     }
-    nodes[i] = cell_builders[i].finalize(is_special);
+    nodes[i] = cell_builders[i].finalize(is_special[i]);
+  }
+
+  std::vector<td::Ref<vm::Cell>> root_nodes;
+  for (int index : root_indexes) {
+    root_nodes.push_back(nodes[index]);
   }
 
   // Create final result
-  auto result = vm::std_boc_serialize(nodes[0], 31).move_as_ok();
+  auto result = vm::std_boc_serialize_multi(root_nodes, 31).move_as_ok();
   return result;
 }
 
 td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(td::Slice data_serialized_31) {
   // Deserialize input data
-  td::Ref<vm::Cell> root = vm::std_boc_deserialize(data_serialized_31).move_as_ok();
+  std::vector<td::Ref<vm::Cell>> roots = vm::std_boc_deserialize_multi(data).move_as_ok();
 
   // Initialize data structures for graph representation
   td::HashMap<vm::Cell::Hash, int> cell_hashes;
   std::vector<std::vector<int>> boc_graph;
   std::vector<td::BitSlice> cell_data;
   std::vector<int> cell_type;
+  std::vector<int> prunned_branch_level;
+  std::vector<int> root_indexes;
 
   // Build graph representation using recursive lambda
   const auto build_graph = [&](auto&& self, td::Ref<vm::Cell> cell) -> int {
@@ -192,10 +213,12 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(td::Slice data_s
     // Initialize new cell in graph
     boc_graph.emplace_back();
     cell_type.emplace_back(int(cell_slice.special_type()));
+    prunned_branch_level.push_back(0);
 
     // Process special cell of type PrunnedBranch
     if (cell_slice.special_type() == vm::CellTraits::SpecialType::PrunnedBranch) {
       cell_data.emplace_back(cell_slice.as_bitslice().subslice(16, cell_slice.as_bitslice().size() - 16));
+      prunned_branch_level.back() = cell_slice.data()[1];
     } else {
       cell_data.emplace_back(cell_slice.as_bitslice());
     }
@@ -209,8 +232,11 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(td::Slice data_s
     return current_cell_id;
   };
 
-  // Build the graph starting from root
-  build_graph(build_graph, root);
+  // Build the graph starting from roots
+  for (auto root : roots) {
+    root_indexes.push_back(boc_graph.size());
+    build_graph(build_graph, root);
+  }
 
   // Calculate graph properties
   const int node_count = boc_graph.size();
@@ -244,7 +270,7 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(td::Slice data_s
     for (int i = 0; i < node_count; ++i) {
       in_degree[i] = boc_graph[i].size();
       if (in_degree[i] == 0) {
-        queue.emplace_back(cell_type[i] == 0 ? 4 : cell_type[i], -int(cell_data[i].size()), -i);
+        queue.emplace_back(cell_type[i] == 0, -int(cell_data[i].size()), -i);
       }
     }
 
@@ -273,7 +299,11 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(td::Slice data_s
 
   // Build compressed representation
   td::BitString result;
-  result.reserve_bits(data_serialized_31.size() * 8);
+  result.reserve_bits(data.size() * 8);
+  result.reserve_bitslice(16).bits().store_uint(root_indexes.size(), 16);
+  for (int root_ind : root_indexes) {
+    result.reserve_bitslice(16).bits().store_uint(rank[root_ind], 16);
+  }
 
   // Store node count
   result.reserve_bitslice(16).bits().store_uint(node_count, 16);
@@ -281,7 +311,8 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(td::Slice data_s
   // Store cell types and sizes
   for (int i = 0; i < node_count; ++i) {
     int node = topo_order[i];
-    result.reserve_bitslice(4).bits().store_uint(cell_type[node], 4);
+    int currrent_cell_type = bool(cell_type[node]) + prunned_branch_level[node];
+    result.reserve_bitslice(4).bits().store_uint(currrent_cell_type, 4);
     result.reserve_bitslice(4).bits().store_uint(boc_graph[node].size(), 4);
 
     if (cell_type[node] != 1) {
