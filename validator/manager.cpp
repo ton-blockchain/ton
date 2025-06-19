@@ -1596,7 +1596,6 @@ void ValidatorManagerImpl::send_get_block_request(BlockIdExt id, td::uint32 prio
     LOG(DEBUG) << "send_get_block_request: got result from block data cache for " << id.to_str();
     return promise.set_value(ReceivedBlock{id, cached->clone()});
   }
-  LOG(ERROR) << "XXXX download " << id.id.to_str();
   callback_->download_block(id, priority, td::Timestamp::in(10.0), std::move(promise));
 }
 
@@ -1632,7 +1631,6 @@ void ValidatorManagerImpl::send_get_block_proof_link_request(BlockIdExt block_id
       return;
     }
   }
-  LOG(ERROR) << "XXXX download link " << block_id.id.to_str();
   callback_->download_block_proof_link(block_id, priority, td::Timestamp::in(10.0), std::move(promise));
 }
 
