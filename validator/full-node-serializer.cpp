@@ -20,6 +20,7 @@
 #include "auto/tl/ton_api.hpp"
 #include "tl-utils/tl-utils.hpp"
 #include "vm/boc.h"
+#include "vm/boc-compression.h"
 #include "td/utils/lz4.h"
 #include "full-node.h"
 #include "td/utils/overloaded.h"
@@ -108,8 +109,8 @@ td::Result<td::BufferSlice> serialize_block_full(const BlockIdExt& id, td::Slice
   }
   TRY_RESULT(proof_root, vm::std_boc_deserialize(proof));
   TRY_RESULT(data_root, vm::std_boc_deserialize(data));
-  TRY_RESULT(boc, vm::std_boc_serialize_multi({proof_root, data_root}, 2));
-  td::BufferSlice compressed = td::lz4_compress(boc);
+  TRY_RESULT(compressed, vm::boc_compress({proof_root, data_root}, vm::CompressionAlgorithm::ImprovedStructureLZ4));
+
   VLOG(FULL_NODE_DEBUG) << "Compressing block full: " << data.size() + proof.size() << " -> " << compressed.size();
   return create_serialize_tl_object<ton_api::tonNode_dataFullCompressed>(create_tl_block_id(id), 0,
                                                                          std::move(compressed), is_proof_link);
@@ -126,8 +127,7 @@ static td::Status deserialize_block_full(ton_api::tonNode_dataFull& f, BlockIdEx
 
 static td::Status deserialize_block_full(ton_api::tonNode_dataFullCompressed& f, BlockIdExt& id, td::BufferSlice& proof,
                                          td::BufferSlice& data, bool& is_proof_link, int max_decompressed_size) {
-  TRY_RESULT(decompressed, td::lz4_decompress(f.compressed_, max_decompressed_size));
-  TRY_RESULT(roots, vm::std_boc_deserialize_multi(decompressed, 2));
+  TRY_RESULT(roots, vm::boc_decompress(f.compressed_));
   if (roots.size() != 2) {
     return td::Status::Error("expected 2 roots in boc");
   }
