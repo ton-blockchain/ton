@@ -161,8 +161,7 @@ td::Result<td::BufferSlice> serialize_block_candidate_broadcast(BlockIdExt block
         create_tl_object<ton_api::tonNode_blockSignature>(Bits256::zero(), td::BufferSlice()), td::BufferSlice(data));
   }
   TRY_RESULT(root, vm::std_boc_deserialize(data));
-  TRY_RESULT(data_new, vm::std_boc_serialize(root, 2));
-  td::BufferSlice compressed = td::lz4_compress(data_new);
+  TRY_RESULT(compressed, vm::boc_compress({root}, vm::CompressionAlgorithm::ImprovedStructureLZ4));
   VLOG(FULL_NODE_DEBUG) << "Compressing block candidate broadcast: " << data.size() << " -> " << compressed.size();
   return create_serialize_tl_object<ton_api::tonNode_newBlockCandidateBroadcastCompressed>(
       create_tl_block_id(block_id), cc_seqno, validator_set_hash,
@@ -186,8 +185,13 @@ static td::Status deserialize_block_candidate_broadcast(ton_api::tonNode_newBloc
   block_id = create_block_id(obj.id_);
   cc_seqno = obj.catchain_seqno_;
   validator_set_hash = obj.validator_set_hash_;
-  TRY_RESULT(decompressed, td::lz4_decompress(obj.compressed_, max_decompressed_data_size));
-  TRY_RESULT(root, vm::std_boc_deserialize(decompressed));
+  // TRY_RESULT(decompressed, td::lz4_decompress(obj.compressed_, max_decompressed_data_size));
+  // TRY_RESULT(root, vm::std_boc_deserialize(decompressed));
+  TRY_RESULT(roots, vm::boc_decompress(obj.compressed_));
+  if (roots.size() != 1) {
+    return td::Status::Error("expected 1 root in boc");
+  }
+  auto root = std::move(roots[0]);
   TRY_RESULT_ASSIGN(data, vm::std_boc_serialize(root, 31));
   VLOG(FULL_NODE_DEBUG) << "Decompressing block candidate broadcast: " << obj.compressed_.size() << " -> "
                         << data.size();
