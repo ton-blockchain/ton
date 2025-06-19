@@ -129,8 +129,8 @@ class PrunnedCell final : public Cell {
 
   explicit PrunnedCell(Info info, ExtraT&& extra) : info_(info), extra_(std::move(extra)) {
   }
-  td::uint32 get_virtualization() const override {
-    return 0;
+  virtual bool is_virtualized() const override {
+    return false;
   }
   CellUsageTree::NodePtr get_tree_node() const override {
     return {};

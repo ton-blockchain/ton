@@ -163,7 +163,7 @@ int BagOfCells::add_root(td::Ref<vm::Cell> add_root) {
   if (add_root.is_null()) {
     return 0;
   }
-  LOG_CHECK(add_root->get_virtualization() == 0) << "TODO: support serialization of virtualized cells";
+  LOG_CHECK(!add_root->is_virtualized()) << "TODO: support serialization of virtualized cells";
   //const Cell::Hash& hash = add_root->get_hash();
   //for (const auto& root_info : roots) {
   //if (root_info.cell->get_hash() == hash) {
@@ -217,7 +217,7 @@ td::Result<int> BagOfCells::import_cell(td::Ref<vm::Cell> cell, int depth) {
     cell_list_[pos].should_cache = true;
     return pos;
   }
-  if (cell->get_virtualization() != 0) {
+  if (cell->is_virtualized()) {
     return td::Status::Error(
         "error while importing a cell into a bag of cells: cell has non-zero virtualization level");
   }
