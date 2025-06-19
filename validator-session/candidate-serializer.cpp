@@ -70,7 +70,7 @@ td::Result<td::BufferSlice> compress_candidate_data(td::Slice block, td::Slice c
 td::Result<std::pair<td::BufferSlice, td::BufferSlice>> decompress_candidate_data(td::Slice compressed,
                                                                                   int decompressed_size,
                                                                                   int proto_version) {
-  TRY_RESULT(roots, vm::boc_decompress(compressed, decompressed_size));
+  TRY_RESULT(roots, vm::boc_decompress(compressed));
   if (roots.empty()) {
     return td::Status::Error("boc is empty");
   }
