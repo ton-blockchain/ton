@@ -1,5 +1,5 @@
 /*
-    This file is part of TON Blockchain Library.
+This file is part of TON Blockchain Library.
 
     TON Blockchain Library is free software: you can redistribute it and/or modify
     it under the terms of the GNU Lesser General Public License as published by
@@ -18,20 +18,22 @@
 */
 #pragma once
 
-#include "vm/db/DynamicBagOfCellsDb.h"
+// #include "vm/db/DynamicBagOfCellsDb.h"
 #include "td/utils/Status.h"
 #include "td/utils/buffer.h"
+#include "vm/cells/CellSlice.h"
 
 namespace vm {
 
 enum class CompressionAlgorithm : int { BaselineLZ4 = 0, ImprovedStructureLZ4 = 1 };
 
-td::Result<td::BufferSlice> boc_compress_baseline_lz4(td::Slice data_serialized_31);
-td::Result<td::BufferSlice> boc_decompress_baseline_lz4(td::Slice data_compressed, int max_decompressed_size);
+td::Result<td::BufferSlice> boc_compress_baseline_lz4(const std::vector<td::Ref<vm::Cell>>& boc_roots);
+td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_baseline_lz4(td::Slice compressed, int max_decompressed_size);
 
-td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(td::Slice data_serialized_31);
-td::Result<td::BufferSlice> boc_decompress_improved_structure_lz4(td::Slice data_compressed, int max_decompressed_size);
+td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vector<td::Ref<vm::Cell>>& boc_roots);
+td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4(td::Slice compressed, int max_decompressed_size);
 
-td::Result<td::BufferSlice> boc_decompress(td::Slice data_compressed, int max_decompressed_size);
-td::Result<td::BufferSlice> boc_compress(td::Slice data_serialized_31, CompressionAlgorithm algo = CompressionAlgorithm::BaselineLZ4);
+td::Result<td::BufferSlice> boc_compress(const std::vector<td::Ref<vm::Cell>>& boc_roots, CompressionAlgorithm algo = CompressionAlgorithm::BaselineLZ4);
+td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress(td::Slice compressed, int max_decompressed_size);
+
 }  // namespace vm

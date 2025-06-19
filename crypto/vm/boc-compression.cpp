@@ -28,12 +28,242 @@
 
 namespace vm {
 
-td::Result<td::BufferSlice> boc_decompress_improved_structure_lz4(td::Slice data_compressed, int max_decompressed_size) {
-  assert(data_compressed[0] == int(CompressionAlgorithm::ImprovedStructureLZ4));
-  data_compressed.remove_prefix(1);
+td::Result<td::BufferSlice> boc_compress_baseline_lz4(const std::vector<td::Ref<vm::Cell>>& boc_roots) {
+  TRY_RESULT(data, vm::std_boc_serialize_multi(std::move(boc_roots), 2));
+  td::BufferSlice compressed = td::lz4_compress(data);
+  return compressed;
+}
 
+td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_baseline_lz4(td::Slice compressed, int max_decompressed_size) {
+  TRY_RESULT(decompressed, td::lz4_decompress(compressed, max_decompressed_size));
+  TRY_RESULT(roots, vm::std_boc_deserialize_multi(decompressed));
+  return roots;
+}
+
+td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vector<td::Ref<vm::Cell>>& boc_roots) {
+  // Initialize data structures for graph representation
+  td::HashMap<vm::Cell::Hash, int> cell_hashes;
+  std::vector<std::vector<int>> boc_graph;
+  std::vector<td::BitSlice> cell_data;
+  std::vector<int> cell_type;
+  std::vector<int> prunned_branch_level;
+  std::vector<int> root_indexes;
+  int total_size_estimate = 0;
+
+  // Build graph representation using recursive lambda
+  const auto build_graph = [&](auto&& self, td::Ref<vm::Cell> cell) -> int {
+    auto cell_hash = cell->get_hash();
+    auto it = cell_hashes.find(cell_hash);
+    if (it != cell_hashes.end()) {
+      return it->second;
+    }
+
+    int current_cell_id = boc_graph.size();
+    cell_hashes.emplace(cell_hash, current_cell_id);
+
+    bool is_special = false;
+    vm::CellSlice cell_slice = vm::load_cell_slice_special(cell, is_special);
+
+    // Initialize new cell in graph
+    boc_graph.emplace_back();
+    cell_type.emplace_back(int(cell_slice.special_type()));
+    prunned_branch_level.push_back(0);
+
+    // Process special cell of type PrunnedBranch
+    if (cell_slice.special_type() == vm::CellTraits::SpecialType::PrunnedBranch) {
+      cell_data.emplace_back(cell_slice.as_bitslice().subslice(16, cell_slice.as_bitslice().size() - 16));
+      prunned_branch_level.back() = cell_slice.data()[1];
+    } else {
+      cell_data.emplace_back(cell_slice.as_bitslice());
+    }
+    total_size_estimate += cell_slice.as_bitslice().size();
+
+    // Process cell references
+    for (int i = 0; i < cell_slice.size_refs(); ++i) {
+      int child_id = self(self, cell_slice.prefetch_ref(i));
+      boc_graph[current_cell_id].push_back(child_id);
+    }
+
+    return current_cell_id;
+  };
+
+  // Build the graph starting from roots
+  for (auto root : boc_roots) {
+    root_indexes.push_back(boc_graph.size());
+    build_graph(build_graph, root);
+  }
+
+  // Calculate graph properties
+  const int node_count = boc_graph.size();
+  std::vector<std::vector<int>> reverse_graph(node_count);
+  int edge_count = 0;
+
+  // Build reverse graph
+  for (int i = 0; i < node_count; ++i) {
+    for (int child : boc_graph[i]) {
+      ++edge_count;
+      reverse_graph[child].push_back(i);
+    }
+  }
+
+  // Process cell data sizes
+  std::vector<int> is_data_small(node_count, 0);
+  for (int i = 0; i < node_count; ++i) {
+    if (cell_type[i] != 1) {
+      is_data_small[i] = cell_data[i].size() < 128;
+    }
+  }
+
+  // Perform topological sort
+  std::vector<int> topo_order, rank(node_count);
+  const auto topological_sort = [&]() {
+    std::vector<std::tuple<int, int, int>> queue;
+    queue.reserve(node_count);
+    std::vector<int> in_degree(node_count);
+
+    // Calculate in-degrees and initialize queue
+    for (int i = 0; i < node_count; ++i) {
+      in_degree[i] = boc_graph[i].size();
+      if (in_degree[i] == 0) {
+        queue.emplace_back(cell_type[i] == 0, -int(cell_data[i].size()), -i);
+      }
+    }
+
+    std::sort(queue.begin(), queue.end());
+
+    // Process queue
+    while (!queue.empty()) {
+      int node = -std::get<2>(queue.back());
+      queue.pop_back();
+      topo_order.push_back(node);
+
+      for (int parent : reverse_graph[node]) {
+        if (--in_degree[parent] == 0) {
+          queue.emplace_back(0, 0, -parent);
+        }
+      }
+    }
+    std::reverse(topo_order.begin(), topo_order.end());
+  };
+  topological_sort();
+
+  // Calculate index of vertices in topsort
+  for (int i = 0; i < node_count; ++i) {
+    rank[topo_order[i]] = i;
+  }
+
+  // Build compressed representation
+  td::BitString result;
+  total_size_estimate += (node_count * 10 * 8);
+  result.reserve_bits(total_size_estimate);
+  result.reserve_bitslice(16).bits().store_uint(root_indexes.size(), 16);
+  for (int root_ind : root_indexes) {
+    result.reserve_bitslice(16).bits().store_uint(rank[root_ind], 16);
+  }
+
+  // Store node count
+  result.reserve_bitslice(16).bits().store_uint(node_count, 16);
+
+  // Store cell types and sizes
+  for (int i = 0; i < node_count; ++i) {
+    int node = topo_order[i];
+    int currrent_cell_type = bool(cell_type[node]) + prunned_branch_level[node];
+    result.reserve_bitslice(4).bits().store_uint(currrent_cell_type, 4);
+    result.reserve_bitslice(4).bits().store_uint(boc_graph[node].size(), 4);
+
+    if (cell_type[node] != 1) {
+      if (is_data_small[node]) {
+        result.reserve_bitslice(1).bits().store_uint(1, 1);
+        result.reserve_bitslice(7).bits().store_uint(cell_data[node].size(), 7);
+      } else {
+        result.reserve_bitslice(1).bits().store_uint(0, 1);
+        result.reserve_bitslice(7).bits().store_uint(1 + cell_data[node].size() / 8, 7);
+      }
+    }
+  }
+
+  // Store edge information
+  auto edge_bits = result.reserve_bitslice(edge_count).bits();
+  for (int i = 0; i < node_count; ++i) {
+    int node = topo_order[i];
+    for (int child : boc_graph[node]) {
+      edge_bits.store_uint(rank[child] == i + 1, 1);
+      ++edge_bits;
+    }
+  }
+
+  // Store cell data
+  for (int node : topo_order) {
+    if (cell_type[node] != 1 && !is_data_small[node]) {
+      continue;
+    }
+    result.append(cell_data[node].subslice(0, cell_data[node].size() % 8));
+  }
+
+  // Store BOC graph
+  for (int i = 0; i < node_count; ++i) {
+    int node = topo_order[i];
+    if (node_count - i - 3 <= 0)
+      continue;
+
+    for (int j = 0; j < boc_graph[node].size(); ++j) {
+      if (rank[boc_graph[node][j]] <= i + 1)
+        continue;
+
+      int delta = rank[boc_graph[node][j]] - i - 2;
+      size_t required_bits = 1 + (31 ^ __builtin_clz(node_count - i - 3));
+
+      if (required_bits < 8 - (result.size() + 1) % 8 + 1) {
+        result.reserve_bitslice(required_bits).bits().store_uint(delta, required_bits);
+      } else if (delta < (1 << (8 - (result.size() + 1) % 8))) {
+        size_t available_bits = 8 - (result.size() + 1) % 8;
+        result.reserve_bitslice(1).bits().store_uint(1, 1);
+        result.reserve_bitslice(available_bits).bits().store_uint(delta, available_bits);
+      } else {
+        result.reserve_bitslice(1).bits().store_uint(0, 1);
+        result.reserve_bitslice(required_bits).bits().store_uint(delta, required_bits);
+      }
+    }
+  }
+
+  // Pad result to byte boundary
+  while (result.size() % 8) {
+    result.reserve_bitslice(1).bits().store_uint(0, 1);
+  }
+
+  // Store remaining cell data
+  for (int node : topo_order) {
+    if (cell_type[node] == 1 || is_data_small[node]) {
+      int prefix_size = cell_data[node].size() % 8;
+      result.append(cell_data[node].subslice(prefix_size, cell_data[node].size() - prefix_size));
+    } else {
+      int data_size = cell_data[node].size() + 1;
+      int padding = (8 - data_size % 8) % 8;
+
+      if (padding) {
+        result.reserve_bitslice(padding).bits().store_uint(0, padding);
+      }
+      result.reserve_bitslice(1).bits().store_uint(1, 1);
+      result.append(cell_data[node]);
+    }
+  }
+
+  // Final padding
+  while (result.size() % 8) {
+    result.reserve_bitslice(1).bits().store_uint(0, 1);
+  }
+
+  // Create final compressed buffer
+  td::BufferSlice serialized((const char*)result.bits().get_byte_ptr(), result.size() / 8);
+
+  td::BufferSlice compressed = td::lz4_compress(serialized);
+
+  return compressed;
+}
+
+td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4(td::Slice compressed, int max_decompressed_size) {
   // Decompress LZ4 data with 2MB max size
-  td::BufferSlice serialized = td::lz4_decompress(data_compressed, max_decompressed_size).move_as_ok();
+  td::BufferSlice serialized = td::lz4_decompress(compressed, max_decompressed_size).move_as_ok();
 
   // Initialize bit reader
   td::BitSlice bit_reader(serialized.as_slice().ubegin(), serialized.as_slice().size() * 8);
@@ -179,250 +409,32 @@ td::Result<td::BufferSlice> boc_decompress_improved_structure_lz4(td::Slice data
     root_nodes.push_back(nodes[index]);
   }
 
-  // Create final result
-  auto result = vm::std_boc_serialize_multi(root_nodes, 31).move_as_ok();
-  return result;
+  return root_nodes;
 }
 
-td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(td::Slice data_serialized_31) {
-  // Deserialize input data
-  std::vector<td::Ref<vm::Cell>> roots = vm::std_boc_deserialize_multi(data).move_as_ok();
-
-  // Initialize data structures for graph representation
-  td::HashMap<vm::Cell::Hash, int> cell_hashes;
-  std::vector<std::vector<int>> boc_graph;
-  std::vector<td::BitSlice> cell_data;
-  std::vector<int> cell_type;
-  std::vector<int> prunned_branch_level;
-  std::vector<int> root_indexes;
-
-  // Build graph representation using recursive lambda
-  const auto build_graph = [&](auto&& self, td::Ref<vm::Cell> cell) -> int {
-    auto cell_hash = cell->get_hash();
-    auto it = cell_hashes.find(cell_hash);
-    if (it != cell_hashes.end()) {
-      return it->second;
-    }
-
-    int current_cell_id = boc_graph.size();
-    cell_hashes.emplace(cell_hash, current_cell_id);
-
-    bool is_special = false;
-    vm::CellSlice cell_slice = vm::load_cell_slice_special(cell, is_special);
-
-    // Initialize new cell in graph
-    boc_graph.emplace_back();
-    cell_type.emplace_back(int(cell_slice.special_type()));
-    prunned_branch_level.push_back(0);
-
-    // Process special cell of type PrunnedBranch
-    if (cell_slice.special_type() == vm::CellTraits::SpecialType::PrunnedBranch) {
-      cell_data.emplace_back(cell_slice.as_bitslice().subslice(16, cell_slice.as_bitslice().size() - 16));
-      prunned_branch_level.back() = cell_slice.data()[1];
-    } else {
-      cell_data.emplace_back(cell_slice.as_bitslice());
-    }
-
-    // Process cell references
-    for (int i = 0; i < cell_slice.size_refs(); ++i) {
-      int child_id = self(self, cell_slice.prefetch_ref(i));
-      boc_graph[current_cell_id].push_back(child_id);
-    }
-
-    return current_cell_id;
-  };
-
-  // Build the graph starting from roots
-  for (auto root : roots) {
-    root_indexes.push_back(boc_graph.size());
-    build_graph(build_graph, root);
+td::Result<td::BufferSlice> boc_compress(const std::vector<td::Ref<vm::Cell>>& boc_roots, CompressionAlgorithm algo) {
+  td::BufferSlice compressed;
+  if (algo == CompressionAlgorithm::BaselineLZ4) {
+    TRY_RESULT_ASSIGN(compressed, boc_compress_baseline_lz4(boc_roots));
+  } else if (algo == CompressionAlgorithm::ImprovedStructureLZ4) {
+    TRY_RESULT_ASSIGN(compressed, boc_compress_improved_structure_lz4(boc_roots));
+  } else {
+      return td::Status::Error("Unknown compression algorithm");
   }
-
-  // Calculate graph properties
-  const int node_count = boc_graph.size();
-  std::vector<std::vector<int>> reverse_graph(node_count);
-  int edge_count = 0;
-
-  // Build reverse graph
-  for (int i = 0; i < node_count; ++i) {
-    for (int child : boc_graph[i]) {
-      ++edge_count;
-      reverse_graph[child].push_back(i);
-    }
-  }
-
-  // Process cell data sizes
-  std::vector<int> is_data_small(node_count, 0);
-  for (int i = 0; i < node_count; ++i) {
-    if (cell_type[i] != 1) {
-      is_data_small[i] = cell_data[i].size() < 128;
-    }
-  }
-
-  // Perform topological sort
-  std::vector<int> topo_order, rank(node_count);
-  const auto topological_sort = [&]() {
-    std::vector<std::tuple<int, int, int>> queue;
-    queue.reserve(node_count);
-    std::vector<int> in_degree(node_count);
-
-    // Calculate in-degrees and initialize queue
-    for (int i = 0; i < node_count; ++i) {
-      in_degree[i] = boc_graph[i].size();
-      if (in_degree[i] == 0) {
-        queue.emplace_back(cell_type[i] == 0, -int(cell_data[i].size()), -i);
-      }
-    }
-
-    std::sort(queue.begin(), queue.end());
-
-    // Process queue
-    while (!queue.empty()) {
-      int node = -std::get<2>(queue.back());
-      queue.pop_back();
-      topo_order.push_back(node);
-
-      for (int parent : reverse_graph[node]) {
-        if (--in_degree[parent] == 0) {
-          queue.emplace_back(0, 0, -parent);
-        }
-      }
-    }
-    std::reverse(topo_order.begin(), topo_order.end());
-  };
-  topological_sort();
-
-  // Calculate index of vertices in topsort
-  for (int i = 0; i < node_count; ++i) {
-    rank[topo_order[i]] = i;
-  }
-
-  // Build compressed representation
-  td::BitString result;
-  result.reserve_bits(data.size() * 8);
-  result.reserve_bitslice(16).bits().store_uint(root_indexes.size(), 16);
-  for (int root_ind : root_indexes) {
-    result.reserve_bitslice(16).bits().store_uint(rank[root_ind], 16);
-  }
-
-  // Store node count
-  result.reserve_bitslice(16).bits().store_uint(node_count, 16);
-
-  // Store cell types and sizes
-  for (int i = 0; i < node_count; ++i) {
-    int node = topo_order[i];
-    int currrent_cell_type = bool(cell_type[node]) + prunned_branch_level[node];
-    result.reserve_bitslice(4).bits().store_uint(currrent_cell_type, 4);
-    result.reserve_bitslice(4).bits().store_uint(boc_graph[node].size(), 4);
-
-    if (cell_type[node] != 1) {
-      if (is_data_small[node]) {
-        result.reserve_bitslice(1).bits().store_uint(1, 1);
-        result.reserve_bitslice(7).bits().store_uint(cell_data[node].size(), 7);
-      } else {
-        result.reserve_bitslice(1).bits().store_uint(0, 1);
-        result.reserve_bitslice(7).bits().store_uint(1 + cell_data[node].size() / 8, 7);
-      }
-    }
-  }
-
-  // Store edge information
-  auto edge_bits = result.reserve_bitslice(edge_count).bits();
-  for (int i = 0; i < node_count; ++i) {
-    int node = topo_order[i];
-    for (int child : boc_graph[node]) {
-      edge_bits.store_uint(rank[child] == i + 1, 1);
-      ++edge_bits;
-    }
-  }
-
-  // Store cell data
-  for (int node : topo_order) {
-    if (cell_type[node] != 1 && !is_data_small[node]) {
-      continue;
-    }
-    result.append(cell_data[node].subslice(0, cell_data[node].size() % 8));
-  }
-
-  // Store BOC graph
-  for (int i = 0; i < node_count; ++i) {
-    int node = topo_order[i];
-    if (node_count - i - 3 <= 0)
-      continue;
-
-    for (int j = 0; j < boc_graph[node].size(); ++j) {
-      if (rank[boc_graph[node][j]] <= i + 1)
-        continue;
-
-      int delta = rank[boc_graph[node][j]] - i - 2;
-      size_t required_bits = 1 + (31 ^ __builtin_clz(node_count - i - 3));
-
-      if (required_bits < 8 - (result.size() + 1) % 8 + 1) {
-        result.reserve_bitslice(required_bits).bits().store_uint(delta, required_bits);
-      } else if (delta < (1 << (8 - (result.size() + 1) % 8))) {
-        size_t available_bits = 8 - (result.size() + 1) % 8;
-        result.reserve_bitslice(1).bits().store_uint(1, 1);
-        result.reserve_bitslice(available_bits).bits().store_uint(delta, available_bits);
-      } else {
-        result.reserve_bitslice(1).bits().store_uint(0, 1);
-        result.reserve_bitslice(required_bits).bits().store_uint(delta, required_bits);
-      }
-    }
-  }
-
-  // Pad result to byte boundary
-  while (result.size() % 8) {
-    result.reserve_bitslice(1).bits().store_uint(0, 1);
-  }
-
-  // Store remaining cell data
-  for (int node : topo_order) {
-    if (cell_type[node] == 1 || is_data_small[node]) {
-      int prefix_size = cell_data[node].size() % 8;
-      result.append(cell_data[node].subslice(prefix_size, cell_data[node].size() - prefix_size));
-    } else {
-      int data_size = cell_data[node].size() + 1;
-      int padding = (8 - data_size % 8) % 8;
-
-      if (padding) {
-        result.reserve_bitslice(padding).bits().store_uint(0, padding);
-      }
-      result.reserve_bitslice(1).bits().store_uint(1, 1);
-      result.append(cell_data[node]);
-    }
-  }
-
-  // Final padding
-  while (result.size() % 8) {
-    result.reserve_bitslice(1).bits().store_uint(0, 1);
-  }
-
-  // Create final compressed buffer
-  td::BufferSlice serialized((const char*)result.bits().get_byte_ptr(), result.size() / 8);
-
-  td::BufferSlice compressed = td::lz4_compress(serialized);
-
-  return compressed;
+  td::BufferSlice compressed_with_algo(compressed.size() + 1);
+  compressed_with_algo.data()[0] = int(algo);
+  memcpy(compressed_with_algo.data() + 1, compressed.data(), compressed.size());
+  return compressed_with_algo;
 }
 
-td::Result<td::BufferSlice> boc_decompress(td::Slice data_compressed, int max_decompressed_size) {
-  switch (data_compressed[0]) {
-    case CompressionAlgorithm::BaselineLZ4:
-      return boc_decompress_baseline_lz4(data_compressed, max_decompressed_size);
-    case CompressionAlgorithm::ImprovedStructureLZ4:
-      return boc_decompress_improved_structure_lz4(data_compressed, max_decompressed_size);
-  }
-  return td::Status::Error("Unknown compression algorithm");
-}
-
-
-
-td::Result<td::BufferSlice> boc_compress(td::Slice data_serialized_31, CompressionAlgorithm algo = CompressionAlgorithm::BaselineLZ4) {
+td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress(td::Slice compressed, int max_decompressed_size) {
+  int algo = int(compressed[0]);
+  compressed.remove_prefix(1);
   switch (algo) {
-    case CompressionAlgorithm::BaselineLZ4:
-      return boc_compress_baseline_lz4(data_serialized_31);
-    case CompressionAlgorithm::ImprovedStructureLZ4:
-      return boc_compress_improved_structure_lz4(data_serialized_31);
+    case int(CompressionAlgorithm::BaselineLZ4):
+      return boc_decompress_baseline_lz4(compressed, max_decompressed_size);
+    case int(CompressionAlgorithm::ImprovedStructureLZ4):
+      return boc_decompress_improved_structure_lz4(compressed, max_decompressed_size);
   }
   return td::Status::Error("Unknown compression algorithm");
 }
