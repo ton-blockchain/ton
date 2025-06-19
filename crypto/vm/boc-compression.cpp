@@ -31,11 +31,21 @@ namespace vm {
 td::Result<td::BufferSlice> boc_compress_baseline_lz4(const std::vector<td::Ref<vm::Cell>>& boc_roots) {
   TRY_RESULT(data, vm::std_boc_serialize_multi(std::move(boc_roots), 2));
   td::BufferSlice compressed = td::lz4_compress(data);
-  return compressed;
+
+  // Add decompressed size at the beginning
+  td::BufferSlice compressed_with_size(compressed.size() + 4);
+  td::BitSliceWrite(compressed_with_size.as_slice().ubegin(), 32).bits().store_uint(data.size(), 32);
+  memcpy(compressed_with_size.data() + 4, compressed.data(), compressed.size());
+
+  return compressed_with_size;
 }
 
-td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_baseline_lz4(td::Slice compressed, int max_decompressed_size) {
-  TRY_RESULT(decompressed, td::lz4_decompress(compressed, max_decompressed_size));
+td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_baseline_lz4(td::Slice compressed) {
+  // Read decompressed size
+  int decompressed_size = td::BitSlice(compressed.ubegin(), 32).bits().get_uint(32);
+  compressed.remove_prefix(4);
+
+  TRY_RESULT(decompressed, td::lz4_decompress(compressed, decompressed_size));
   TRY_RESULT(roots, vm::std_boc_deserialize_multi(decompressed));
   return roots;
 }
@@ -258,12 +268,21 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
 
   td::BufferSlice compressed = td::lz4_compress(serialized);
 
-  return compressed;
+  // Add decompressed size at the beginning
+  td::BufferSlice compressed_with_size(compressed.size() + 4);
+  td::BitSliceWrite(compressed_with_size.as_slice().ubegin(), 32).bits().store_uint(serialized.size(), 32);
+  memcpy(compressed_with_size.data() + 4, compressed.data(), compressed.size());
+
+  return compressed_with_size;
 }
 
-td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4(td::Slice compressed, int max_decompressed_size) {
+td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4(td::Slice compressed) {
+  // Read decompressed size
+  int decompressed_size = td::BitSlice(compressed.ubegin(), 32).bits().get_uint(32);
+  compressed.remove_prefix(4);
+
   // Decompress LZ4 data with 2MB max size
-  td::BufferSlice serialized = td::lz4_decompress(compressed, max_decompressed_size).move_as_ok();
+  td::BufferSlice serialized = td::lz4_decompress(compressed, decompressed_size).move_as_ok();
 
   // Initialize bit reader
   td::BitSlice bit_reader(serialized.as_slice().ubegin(), serialized.as_slice().size() * 8);
@@ -427,14 +446,14 @@ td::Result<td::BufferSlice> boc_compress(const std::vector<td::Ref<vm::Cell>>& b
   return compressed_with_algo;
 }
 
-td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress(td::Slice compressed, int max_decompressed_size) {
+td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress(td::Slice compressed) {
   int algo = int(compressed[0]);
   compressed.remove_prefix(1);
   switch (algo) {
     case int(CompressionAlgorithm::BaselineLZ4):
-      return boc_decompress_baseline_lz4(compressed, max_decompressed_size);
+      return boc_decompress_baseline_lz4(compressed);
     case int(CompressionAlgorithm::ImprovedStructureLZ4):
-      return boc_decompress_improved_structure_lz4(compressed, max_decompressed_size);
+      return boc_decompress_improved_structure_lz4(compressed);
   }
   return td::Status::Error("Unknown compression algorithm");
 }
