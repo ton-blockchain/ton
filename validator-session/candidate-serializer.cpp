@@ -17,7 +17,7 @@
 #include "candidate-serializer.h"
 #include "tl-utils/tl-utils.hpp"
 #include "vm/boc.h"
-#include "td/utils/lz4.h"
+#include "vm/boc-compression.h"
 #include "validator-session-types.h"
 
 namespace ton::validatorsession {
@@ -61,9 +61,8 @@ td::Result<td::BufferSlice> compress_candidate_data(td::Slice block, td::Slice c
   for (int i = 0; i < boc2.get_root_count(); ++i) {
     roots.push_back(boc2.get_root_cell(i));
   }
-  TRY_RESULT(data, vm::std_boc_serialize_multi(std::move(roots), 2));
-  decompressed_size = data.size();
-  td::BufferSlice compressed = td::lz4_compress(data);
+  decompressed_size = block.size() + collated_data.size();
+  TRY_RESULT(compressed, vm::boc_compress(roots, vm::CompressionAlgorithm::ImprovedStructureLZ4));
   LOG(DEBUG) << "Compressing block candidate: " << block.size() + collated_data.size() << " -> " << compressed.size();
   return compressed;
 }
@@ -71,11 +70,7 @@ td::Result<td::BufferSlice> compress_candidate_data(td::Slice block, td::Slice c
 td::Result<std::pair<td::BufferSlice, td::BufferSlice>> decompress_candidate_data(td::Slice compressed,
                                                                                   int decompressed_size,
                                                                                   int proto_version) {
-  TRY_RESULT(decompressed, td::lz4_decompress(compressed, decompressed_size));
-  if (decompressed.size() != (size_t)decompressed_size) {
-    return td::Status::Error("decompressed size mismatch");
-  }
-  TRY_RESULT(roots, vm::std_boc_deserialize_multi(decompressed));
+  TRY_RESULT(roots, vm::boc_decompress(compressed, decompressed_size));
   if (roots.empty()) {
     return td::Status::Error("boc is empty");
   }
