@@ -75,8 +75,8 @@ class FullNodeImpl : public FullNode {
   void download_block(BlockIdExt id, td::uint32 priority, td::Timestamp timeout, td::Promise<ReceivedBlock> promise);
   void download_zero_state(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
                            td::Promise<td::BufferSlice> promise);
-  void download_persistent_state(BlockIdExt id, BlockIdExt masterchain_block_id, td::uint32 priority,
-                                 td::Timestamp timeout, td::Promise<td::BufferSlice> promise);
+  void download_persistent_state(BlockIdExt id, BlockIdExt masterchain_block_id, PersistentStateType type,
+                                 td::uint32 priority, td::Timestamp timeout, td::Promise<td::BufferSlice> promise);
   void download_block_proof(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
                             td::Promise<td::BufferSlice> promise);
   void download_block_proof_link(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,

@@ -572,6 +572,7 @@ class AugmentedDictionary final : public DictionaryFixed {
   AugmentedDictionary(DictNonEmpty, Ref<CellSlice> _root, int _n, const AugmentationData& _aug, bool validate = true);
   Ref<CellSlice> get_empty_dictionary() const;
   Ref<CellSlice> get_root() const;
+  Ref<Cell> get_wrapped_dict_root() const;
   Ref<CellSlice> extract_root() &&;
   bool append_dict_to_bool(CellBuilder& cb) &&;
   bool append_dict_to_bool(CellBuilder& cb) const &;

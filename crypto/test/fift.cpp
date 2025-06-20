@@ -175,3 +175,7 @@ TEST(Fift, test_secp256k1) {
 TEST(Fift, test_get_extra_balance) {
   run_fift("get_extra_balance.fif");
 }
+
+TEST(Fift, test_p256) {
+  run_fift("p256.fif");
+}

@@ -5578,6 +5578,21 @@ int main(int argc, char *argv[]) {
         acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_sync_shards_upto, v); });
         return td::Status::OK();
       });
+  p.add_option(
+      '\0', "permanent-celldb",
+      "disable garbage collection in CellDb. This improves performance on archival nodes (once enabled, this option "
+      "cannot be disabled)",
+      [&]() { acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_permanent_celldb, true); }); });
+  p.add_option('\0', "skip-key-sync",
+               "don't select the best persistent state on initial sync, start on init_block from global config", [&]() {
+                 acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_skip_key_sync, true); });
+               });
+  p.add_checked_option(
+      '\0', "sync-shards-upto", "stop syncing shards on this masterchain seqno", [&](td::Slice s) -> td::Status {
+        TRY_RESULT(v, td::to_integer_safe<ton::BlockSeqno>(s));
+        acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_sync_shards_upto, v); });
+        return td::Status::OK();
+      });
   p.add_checked_option('\0', "shard-block-retainer",
                        "adnl id for shard block retainer (hex), or \"fullnode\" for full node id",
                        [&](td::Slice arg) -> td::Status {

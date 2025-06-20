@@ -438,6 +438,8 @@ struct WorkchainInfo : public td::CntObject {
   unsigned min_split_merge_interval = 30; // split/merge interval must be at least 30 seconds
   unsigned max_split_merge_delay = 1000;  // end of split/merge interval must be at most 1000 seconds in the future
 
+  td::uint32 persistent_state_split_depth = 0;
+
   bool is_valid() const {
     return workchain != ton::workchainInvalid;
   }
