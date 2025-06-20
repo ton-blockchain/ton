@@ -388,11 +388,8 @@ td::Status MasterchainStateQ::mc_reinit() {
   CHECK(config_);
   CHECK(config_->set_block_id_ext(get_block_id()));
 
-  auto cv_root = config_->get_config_param(35, 34);
-  if (cv_root.not_null()) {
-    TRY_RESULT(validators, block::Config::unpack_validator_set(std::move(cv_root), true));
-    cur_validators_ = std::move(validators);
-  }
+  cur_validators_ = config_->get_cur_validator_set();
+
   auto nv_root = config_->get_config_param(37, 36);
   if (nv_root.not_null()) {
     TRY_RESULT(validators, block::Config::unpack_validator_set(std::move(nv_root), true));

@@ -178,7 +178,22 @@ void DownloadShardState::download_state() {
     checked_proof_link();
     return;
   }
+  status_.set_status(PSTRING() << block_id_.id.to_str() << " : downloading proof");
 
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), block_id = block_id_](td::Result<td::BufferSlice> R) {
+    if (R.is_error()) {
+      LOG(DEBUG) << "Cannot get proof link from import: " << R.move_as_error();
+      td::actor::send_closure(SelfId, &DownloadShardState::download_proof_link);
+    } else {
+      LOG(INFO) << "Got proof link for " << block_id.to_str() << " from import";
+      td::actor::send_closure(SelfId, &DownloadShardState::downloaded_proof_link, R.move_as_ok());
+    }
+  });
+  td::actor::send_closure(manager_, &ValidatorManager::get_block_proof_link_from_import, block_id_,
+                          masterchain_block_id_, std::move(P));
+}
+
+void DownloadShardState::download_proof_link() {
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::BufferSlice> R) {
     if (R.is_error()) {
       fail_handler(SelfId, R.move_as_error());
@@ -188,7 +203,6 @@ void DownloadShardState::download_state() {
   });
   td::actor::send_closure(manager_, &ValidatorManager::send_get_block_proof_link_request, block_id_, priority_,
                           std::move(P));
-  status_.set_status(PSTRING() << block_id_.id.to_str() << " : downloading proof");
 }
 
 void DownloadShardState::downloaded_proof_link(td::BufferSlice data) {

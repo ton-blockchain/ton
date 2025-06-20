@@ -412,6 +412,9 @@ class ValidatorManagerImpl : public ValidatorManager {
                        td::Promise<td::Ref<ShardState>> promise) override;
   void store_block_state_part(BlockId effective_block, td::Ref<vm::Cell> cell,
                               td::Promise<td::Ref<vm::DataCell>> promise) override;
+  void set_block_state_from_data(BlockHandle handle, td::Ref<BlockData> block,
+                                 td::Promise<td::Ref<ShardState>> promise) override;
+  void set_block_state_from_data_preliminary(std::vector<td::Ref<BlockData>> blocks, td::Promise<td::Unit> promise) override;
   void get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) override;
   void store_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id, PersistentStateType type,
                                    td::BufferSlice state, td::Promise<td::Unit> promise) override;
@@ -522,6 +525,9 @@ class ValidatorManagerImpl : public ValidatorManager {
                                             td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise) override;
   void send_download_archive_request(BlockSeqno mc_seqno, ShardIdFull shard_prefix, std::string tmp_dir,
                                      td::Timestamp timeout, td::Promise<std::string> promise) override;
+
+  void get_block_proof_link_from_import(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+                                        td::Promise<td::BufferSlice> promise) override;
 
   void update_shard_client_state(BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise) override;
   void get_shard_client_state(bool from_db, td::Promise<BlockIdExt> promise) override;
@@ -685,6 +691,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   td::actor::ActorOwn<AsyncStateSerializer> serializer_;
 
   std::map<BlockSeqno, std::vector<std::string>> to_import_;
+  std::map<BlockSeqno, std::vector<std::string>> to_import_all_;
 
  private:
   std::unique_ptr<Callback> callback_;

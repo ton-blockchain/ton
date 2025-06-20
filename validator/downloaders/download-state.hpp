@@ -46,6 +46,7 @@ class DownloadShardState : public td::actor::Actor {
   void checked_proof_link();
 
   void download_state();
+  void download_proof_link();
 
   void download_zero_state();
   void downloaded_zero_state(td::BufferSlice data);
