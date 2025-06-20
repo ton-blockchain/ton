@@ -170,6 +170,9 @@ if (USE_LIBRAPTORQ)
   add_subdirectory(third-party/libraptorq EXCLUDE_FROM_ALL)
 endif()
 
+message("Add tl-parser")
+add_subdirectory(third-party/tl-parser EXCLUDE_FROM_ALL)
+
 message("Add ton")
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake" ${CMAKE_MODULE_PATH})
 
