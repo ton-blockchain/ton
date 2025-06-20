@@ -115,7 +115,7 @@ td::Status LargeBocSerializer::import_cells() {
 
 td::Result<int> LargeBocSerializer::import_cell(Hash root_hash, int root_depth) {
   const int start_ind = cell_count;
-  td::HashMap<Hash, std::pair<int, bool>> current_depth_hashes;
+  td::BTreeMap<Hash, std::pair<int, bool>> current_depth_hashes;
 
   auto existing_it = cells.find(root_hash);
   if (existing_it != cells.end()) {
@@ -131,7 +131,7 @@ td::Result<int> LargeBocSerializer::import_cell(Hash root_hash, int root_depth) 
     }
     
     cell_list.resize(cell_list.size() + current_depth_hashes.size());
-    td::HashMap<Hash, std::pair<int, bool>> next_depth_hashes;
+    td::BTreeMap<Hash, std::pair<int, bool>> next_depth_hashes;
     auto batch_start = current_depth_hashes.begin();
     while (batch_start != current_depth_hashes.end()) {
       std::vector<td::Slice> batch_hashes;
