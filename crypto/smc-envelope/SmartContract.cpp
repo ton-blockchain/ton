@@ -191,6 +191,42 @@ td::Ref<vm::Tuple> prepare_vm_c7(SmartContract::Args args, td::Ref<vm::Cell> cod
   return vm::make_tuple_ref(std::move(tuple_ref));
 }
 
+std::shared_ptr<const block::Config> try_fetch_config_from_c7(td::Ref<vm::Tuple> c7) {
+  if (c7.is_null() || c7->size() < 1) {
+    return nullptr;
+  }
+  auto c7_tuple = c7->at(0).as_tuple();
+  if (c7_tuple.is_null() || c7_tuple->size() < 10) {
+    return nullptr;
+  }
+  auto config_cell = c7_tuple->at(9).as_cell();
+  if (config_cell.is_null()) {
+    return nullptr;
+  }
+  auto config_dict = std::make_unique<vm::Dictionary>(config_cell, 32);
+  auto config_addr_cell = config_dict->lookup_ref(td::BitArray<32>::zero());
+  ton::StdSmcAddress config_addr;
+  if (config_addr_cell.is_null()) {
+    config_addr = ton::StdSmcAddress::zero();
+  } else {
+    auto config_addr_cs = vm::load_cell_slice(std::move(config_addr_cell));
+    if (config_addr_cs.size() != 0x100) {
+      LOG(WARNING) << "Config parameter 0 with config address has wrong size";
+      config_addr = ton::StdSmcAddress::zero();
+    } else {
+      config_addr_cs.fetch_bits_to(config_addr);
+    }
+  }
+  auto global_config = block::Config(config_cell, std::move(config_addr), 
+      block::Config::needWorkchainInfo | block::Config::needSpecialSmc | block::Config::needCapabilities);
+  auto unpack_res = global_config.unpack();
+  if (unpack_res.is_error()) {
+    LOG(ERROR) << "Failed to unpack config: " << unpack_res.error();
+    return nullptr;
+  }
+  return std::make_shared<block::Config>(std::move(global_config));
+}
+
 SmartContract::Answer run_smartcont(SmartContract::State state, td::Ref<vm::Stack> stack, td::Ref<vm::Tuple> c7,
                                     vm::GasLimits gas, bool ignore_chksig, td::Ref<vm::Cell> libraries,
                                     int vm_log_verbosity, bool debug_enabled,
@@ -314,6 +350,9 @@ td::Ref<vm::Cell> SmartContract::get_init_state() const {
 }
 
 SmartContract::Answer SmartContract::run_method(Args args) {
+  if (args.c7 && !args.config) {
+    args.config = try_fetch_config_from_c7(args.c7.value());
+  }
   if (!args.c7) {
     args.c7 = prepare_vm_c7(args, state_.code);
   }
@@ -335,6 +374,9 @@ SmartContract::Answer SmartContract::run_method(Args args) {
 }
 
 SmartContract::Answer SmartContract::run_get_method(Args args) const {
+  if (args.c7 && !args.config) {
+    args.config = try_fetch_config_from_c7(args.c7.value());
+  }
   if (!args.c7) {
     args.c7 = prepare_vm_c7(args, state_.code);
   }
