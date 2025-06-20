@@ -20,6 +20,7 @@
 
 #include "ton/ton-types.h"
 #include "validator/interfaces/block-handle.h"
+#include "validator/interfaces/persistent-state.h"
 #include "validator/interfaces/validator-manager.h"
 
 namespace ton {
@@ -51,19 +52,24 @@ class Db : public td::actor::Actor {
   virtual void store_block_state(BlockHandle handle, td::Ref<ShardState> state,
                                  td::Promise<td::Ref<ShardState>> promise) = 0;
   virtual void get_block_state(ConstBlockHandle handle, td::Promise<td::Ref<ShardState>> promise) = 0;
+  virtual void store_block_state_part(BlockId effective_block, td::Ref<vm::Cell> cell,
+                                      td::Promise<td::Ref<vm::DataCell>> promise) = 0;
   virtual void get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) = 0;
 
-  virtual void store_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::BufferSlice state,
+  virtual void store_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+                                           PersistentStateType type, td::BufferSlice state,
                                            td::Promise<td::Unit> promise) = 0;
   virtual void store_persistent_state_file_gen(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+                                               PersistentStateType type,
                                                std::function<td::Status(td::FileFd&)> write_data,
                                                td::Promise<td::Unit> promise) = 0;
-  virtual void get_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+  virtual void get_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id, PersistentStateType type,
                                          td::Promise<td::BufferSlice> promise) = 0;
-  virtual void get_persistent_state_file_slice(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::int64 offset,
-                                               td::int64 max_length, td::Promise<td::BufferSlice> promise) = 0;
+  virtual void get_persistent_state_file_slice(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+                                               PersistentStateType type, td::int64 offset, td::int64 max_length,
+                                               td::Promise<td::BufferSlice> promise) = 0;
   virtual void get_persistent_state_file_size(BlockIdExt block_id, BlockIdExt masterchain_block_id,
-                                              td::Promise<td::uint64> promise) = 0;
+                                              PersistentStateType type, td::Promise<td::uint64> promise) = 0;
   virtual void store_zero_state_file(BlockIdExt block_id, td::BufferSlice state, td::Promise<td::Unit> promise) = 0;
   virtual void get_zero_state_file(BlockIdExt block_id, td::Promise<td::BufferSlice> promise) = 0;
   virtual void check_zero_state_file_exists(BlockIdExt block_id, td::Promise<bool> promise) = 0;
