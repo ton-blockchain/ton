@@ -16,8 +16,13 @@
 */
 #pragma once
 
+#include "tolk.h"
+
 namespace tolk {
 
-constexpr const char* TOLK_VERSION = "0.99.0";
+std::vector<var_idx_t> generate_createMessage(CodeBlob& code, SrcLocation loc, TypePtr bodyT, std::vector<var_idx_t>&& rvect);
+std::vector<var_idx_t> generate_createExternalLogMessage(CodeBlob& code, SrcLocation loc, TypePtr bodyT, std::vector<var_idx_t>&& rvect);
+
+std::vector<var_idx_t> generate_address_buildInAnotherShard(CodeBlob& code, SrcLocation loc, std::vector<var_idx_t>&& ir_self_address, std::vector<var_idx_t>&& ir_shard_options);
 
 } // namespace tolk

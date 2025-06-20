@@ -164,6 +164,102 @@ bool Optimizer::detect_rewrite_big_THROW() {
   return true;
 }
 
+// purpose 1: for one constant b.storeInt(123, 32) generate not "123 PUSHINT; SWAP; STI", but "123 PUSHINT; STIR"
+// purpose 2: consecutive b.storeUint(ff, 16).storeUint(ff, 16) generate one "00ff00ff" STU
+// (since it works at IR level, it also works for const variables and auto-serialization)
+bool Optimizer::detect_rewrite_MY_store_int() {
+  bool first_my_store = op_[0]->is_custom() && op_[0]->op.starts_with("MY_store_int");
+  if (!first_my_store) {
+    return false;
+  }
+  bool first_unsigned = op_[0]->op[12] == 'U';
+
+  int n_merged = 0;
+  td::RefInt256 total_number = td::make_refint(0);
+  int total_len = 0;
+  for (int i = 0; i < pb_; ++i) {
+    std::string_view s_op_number_len = op_[i]->op;    // "MY_store_intU 123 32"
+    if (!s_op_number_len.starts_with("MY_store_int")) {
+      break;
+    }
+
+    size_t sp = s_op_number_len.rfind(' ');
+    std::string s_number(s_op_number_len.substr(13 + 1, sp - 13 - 1));
+    int len = std::stoi(std::string(s_op_number_len.substr(sp + 1)));
+
+    if (total_len + len > (255 + first_unsigned)) {
+      break;
+    }
+    if (total_number != 0) {
+      total_number <<= len;
+    }
+    total_number += td::string_to_int256(s_number);
+    total_len += len;
+    n_merged++;
+  }
+
+  p_ = n_merged;
+  q_ = 2;
+  oq_[0] = std::make_unique<AsmOp>(AsmOp::IntConst(op_[0]->loc, total_number));
+  if (total_number == 0 && total_len == 4 && first_unsigned) {    // "STGRAMS" stores four 0-bits cheaper than "4 STUR"
+    oq_[1] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->loc, "STGRAMS", 1, 1));
+  } else {
+    oq_[1] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->loc, std::to_string(total_len) + (first_unsigned ? " STUR" : " STIR"), 1, 1));
+  }
+  return true;
+}
+
+// purpose: consecutive `s.skipBits(8).skipBits(const_var_16)` will be joined into a single 24
+bool Optimizer::detect_rewrite_MY_skip_bits() {
+  bool first_my_skip = op_[0]->is_custom() && op_[0]->op.starts_with("MY_skip_bits");
+  if (!first_my_skip) {
+    return false;
+  }
+
+  int n_merged = 0;
+  int total_skip_bits = 0;
+  for (int i = 0; i < pb_; ++i) {
+    std::string_view s_op_len = op_[i]->op;       // "MY_skip_bits 32"
+    if (!s_op_len.starts_with("MY_skip_bits")) {
+      break;
+    }
+
+    std::string s_number(s_op_len.substr(s_op_len.find(' ') + 1));
+    total_skip_bits += std::stoi(s_number);
+    n_merged++;
+  }
+
+  p_ = n_merged;
+  q_ = 2;
+  oq_[0] = std::make_unique<AsmOp>(AsmOp::IntConst(op_[0]->loc, td::make_refint(total_skip_bits)));
+  oq_[1] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->loc, "SDSKIPFIRST"));
+  return true;
+}
+
+// pattern `NEWC` + `xxx PUSHINT` + `32 STUR` -> `xxx PUSHINT` + `NEWC` + `32 STU`, it's a bit cheaper
+bool Optimizer::detect_rewrite_NEWC_PUSH_STUR() {
+  bool first_newc = op_[0]->is_custom() && op_[0]->op == "NEWC";
+  if (!first_newc || pb_ < 3) {
+    return false;
+  }
+  bool next_push = op_[1]->is_const() && op_[1]->op.ends_with(" PUSHINT");  // actually there can be PUSHPOWDEC2, but ok
+  if (!next_push) {
+    return false;
+  }
+  bool next_stu_r = op_[2]->is_custom() && (op_[2]->op.ends_with(" STUR") || op_[2]->op.ends_with(" STIR"));
+  if (!next_stu_r) {
+    return false;
+  }
+
+  p_ = 3;
+  q_ = 3;
+  oq_[0] = std::move(op_[1]);
+  oq_[1] = std::move(op_[0]);
+  oq_[2] = std::make_unique<AsmOp>(AsmOp::Custom(oq_[0]->loc, op_[2]->op.substr(0, op_[2]->op.size() - 1), 1, 1));
+  return true;
+}
+
+
 bool Optimizer::is_push_const(int* i, int* c) const {
   return pb_ >= 3 && pb_ <= l2_ && tr_[pb_ - 1].is_push_const(i, c);
 }
@@ -583,6 +679,7 @@ bool Optimizer::find_at_least(int pb) {
          (is_pop(&i) && rewrite(AsmOp::Pop(loc, i))) || (is_pop_pop(&i, &j) && rewrite(AsmOp::Pop(loc, i), AsmOp::Pop(loc, j))) ||
          (is_xchg_xchg(&i, &j, &k, &l) && rewrite(AsmOp::Xchg(loc, i, j), AsmOp::Xchg(loc, k, l))) ||
          detect_rewrite_big_THROW() ||
+         detect_rewrite_MY_store_int() || detect_rewrite_MY_skip_bits() || detect_rewrite_NEWC_PUSH_STUR() ||
          (!(mode_ & 1) &&
           ((is_rot() && rewrite(AsmOp::Custom(loc, "ROT", 3, 3))) || (is_rotrev() && rewrite(AsmOp::Custom(loc, "-ROT", 3, 3))) ||
            (is_2dup() && rewrite(AsmOp::Custom(loc, "2DUP", 2, 4))) ||

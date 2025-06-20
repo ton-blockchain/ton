@@ -581,37 +581,37 @@ type PointAlias = Point;
 @testcase | 105 |      | 35 30 45
 @testcase | 106 |      | 10 20
 @testcase | 107 |      | 5 5 10 20 15
-@testcase | 108 |      | 777 131 777 0 777 777 777 131 777 132 777 777
+@testcase | 108 |      | 777 typeid-3 777 0 777 777 777 typeid-3 777 typeid-4 777 777
 @testcase | 109 |      | 70 30 20 20 -80
 @testcase | 110 | 0    | (null) (null) 0
-@testcase | 110 | -1   | 10 20 133
+@testcase | 110 | -1   | 10 20 typeid-5
 @testcase | 111 | 0    | 0 2 10 20 30
 @testcase | 111 | -1   | 0 0 3 4 7
 @testcase | 112 | 0    | (null) (null) 0
-@testcase | 112 | -1   | 1 2 133
+@testcase | 112 | -1   | 1 2 typeid-5
 @testcase | 113 |      | (null) (null) 0
 @testcase | 114 |      | 1 2
 @testcase | 115 |      | (null) (null) (null) (null) 0
-@testcase | 116 |      | -1 -4 [ 8 4 ] 7 (null) 0 [ 10 11 ] 135
+@testcase | 116 |      | -1 -4 [ 8 4 ] 7 (null) 0 [ 10 11 ] typeid-7
 @testcase | 117 | 5    | 5 5 5 5 5
 @testcase | 117 | null | (null) (null) (null) -1 (null)
 @testcase | 118 |      | 17
-@testcase | 119 |      | 10 20 9 10 133 9
-@testcase | 120 | 0    | 80 9 8 80 133
+@testcase | 119 |      | 10 20 9 10 typeid-5 9
+@testcase | 120 | 0    | 80 9 8 80 typeid-5
 @testcase | 120 | -1   | 8 14 (null) (null) 0
 @testcase | 121 | 0    | 17 17 8 136
 @testcase | 121 | -1   | 8 (null) 8 8
 @testcase | 122 | 100  | 101 50 106 212 100 101 101
 @testcase | 124 | 66   | 66
-@testcase | 125 |      | (null) (null) 40 60 133
+@testcase | 125 |      | (null) (null) 40 60 typeid-5
 @testcase | 126 |      | 118
-@testcase | 127 |      | 0 0 131 131 777 -1 -1 0 0 777 0 0 138 777 0 0 777 (null) (null) 0
-@testcase | 128 | -1   | (null) (null) 131 -1 0 0 777 (null) (null) 131 -1 0 0
-@testcase | 128 | 0    | 1 2 130 0 -1 0 777 0 131 138 0 -1 0
+@testcase | 127 |      | 0 0 typeid-3 typeid-3 777 -1 -1 0 0 777 0 0 typeid-10 777 0 0 777 (null) (null) 0
+@testcase | 128 | -1   | (null) (null) typeid-3 -1 0 0 777 (null) (null) typeid-3 -1 0 0
+@testcase | 128 | 0    | 1 2 typeid-2 0 -1 0 777 0 typeid-3 typeid-10 0 -1 0
 @testcase | 129 |      | (null)
-@testcase | 130 | -1   | 140 777 (null) 140 777 0 777 0 0
-@testcase | 130 | 0    | 139 777 4 1 777 139 777 0 0
-@testcase | 131 |      | 5 141 (null) 141 (null) 0 777 0 0 -1 777 0 -1
+@testcase | 130 | -1   | typeid-12 777 (null) typeid-12 777 0 777 0 0
+@testcase | 130 | 0    | typeid-11 777 4 1 777 typeid-11 777 0 0
+@testcase | 131 |      | 5 typeid-13 (null) typeid-13 (null) 0 777 0 0 -1 777 0 -1
 @testcase | 132 |      | 10 20 10 0 0 20 0 0 0 0
 @testcase | 133 |      | -1 0 5 (null) (null) (null) 0 0 46
 @testcase | 134 |      | 10 20
