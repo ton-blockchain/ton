@@ -317,7 +317,7 @@ static void block_stdin() {
 #endif
 }
 
-static void default_failure_signal_handler(int sig) {
+[[maybe_unused]] static void default_failure_signal_handler(int sig) {
   Stacktrace::init();
   signal_safe_write_signal_number(sig);
 
@@ -334,9 +334,11 @@ Status set_default_failure_signal_handler() {
   Stdin();  // init static variables before atexit
 #endif
   std::atexit(block_stdin);
+#ifndef TON_DISABLE_BACKTRACE
   TRY_STATUS(setup_signals_alt_stack());
   TRY_STATUS(set_signal_handler(SignalType::Abort, default_failure_signal_handler));
   TRY_STATUS(set_signal_handler(SignalType::Error, default_failure_signal_handler));
+#endif
   return Status::OK();
 }
 
