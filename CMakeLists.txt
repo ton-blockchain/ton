@@ -366,6 +366,10 @@ if (NOT LATEX_FOUND)
 endif()
 #END internal
 
+if (NOT OPENSSL_FOUND)
+  find_package(OpenSSL REQUIRED)
+endif()
+
 function(target_link_libraries_system target)
   set(libs ${ARGN})
   foreach(lib ${libs})

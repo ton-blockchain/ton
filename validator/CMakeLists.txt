@@ -1,7 +1,3 @@
-if (NOT OPENSSL_FOUND)
-  find_package(OpenSSL REQUIRED)
-endif()
-
 #add_subdirectory(dummy0)
 add_subdirectory(impl)
 
