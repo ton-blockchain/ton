@@ -438,6 +438,8 @@ struct WorkchainInfo : public td::CntObject {
   unsigned min_split_merge_interval = 30; // split/merge interval must be at least 30 seconds
   unsigned max_split_merge_delay = 1000;  // end of split/merge interval must be at most 1000 seconds in the future
 
+  td::uint32 persistent_state_split_depth = 0;
+
   bool is_valid() const {
     return workchain != ton::workchainInvalid;
   }
@@ -648,8 +650,8 @@ class Config {
   const WorkchainSet& get_workchain_list() const {
     return workchains_;
   }
-  const ValidatorSet* get_cur_validator_set() const {
-    return cur_validators_.get();
+  std::shared_ptr<ValidatorSet> const& get_cur_validator_set() const& {
+    return cur_validators_;
   }
   std::pair<ton::UnixTime, ton::UnixTime> get_validator_set_start_stop(int next = 0) const;
   ton::ValidatorSessionConfig get_consensus_config() const;

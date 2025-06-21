@@ -3007,12 +3007,12 @@ bool Collator::update_last_proc_int_msg(const std::pair<ton::LogicalTime, ton::B
  * Creates ticktock transactions for special accounts.
  * Used in masterchain collator.
  *
- * @param mask The value indicating whether the thansactions are tick (mask == 2) or tock (mask == 1).
+ * @param mask The value indicating whether the transactions are tick (mask == 2) or tock (mask == 1).
  *
  * @returns True if all ticktock transactions were successfully created, false otherwise.
  */
 bool Collator::create_ticktock_transactions(int mask) {
-  ton::LogicalTime req_lt = max_lt;
+  ton::LogicalTime req_lt = mask == 2 ? start_lt + 1 : max_lt;
   for (auto smc_addr : special_smcs) {
     auto found = lookup_account(smc_addr.cbits());
     int ticktock = (found ? found->tick * 2 + found->tock : config_->get_smc_tick_tock(smc_addr.cbits()));

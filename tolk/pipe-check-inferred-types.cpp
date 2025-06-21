@@ -65,6 +65,10 @@ static void fire_error_cannot_apply_operator(FunctionPtr cur_f, SrcLocation loc,
 
 GNU_ATTRIBUTE_NOINLINE
 static void warning_condition_always_true_or_false(FunctionPtr cur_f, SrcLocation loc, AnyExprV cond, const char* operator_name) {
+  bool no_warning = cond->kind == ast_bool_const || cond->kind == ast_int_const;
+  if (no_warning) {     // allow `while(true)` without a warning
+    return;
+  }
   loc.show_warning("condition of " + static_cast<std::string>(operator_name) + " is always " + (cond->is_always_true ? "true" : "false"));
 }
 
@@ -155,6 +159,20 @@ static bool expect_boolean(AnyExprV v_inferred) {
   return expect_boolean(v_inferred->inferred_type);
 }
 
+static bool expect_address(TypePtr inferred_type) {
+  if (inferred_type == TypeDataAddress::create()) {
+    return true;
+  }
+  if (const TypeDataAlias* as_alias = inferred_type->try_as<TypeDataAlias>()) {
+    return expect_address(as_alias->underlying_type);
+  }
+  return false;
+}
+
+static bool expect_address(AnyExprV v_inferred) {
+  return expect_address(v_inferred->inferred_type);
+}
+
 class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
   FunctionPtr cur_f = nullptr;          // may be nullptr if checking `const a = ...` init_value
 
@@ -211,7 +229,10 @@ protected:
         bool both_int = expect_integer(lhs) && expect_integer(rhs);
         bool both_bool = expect_boolean(lhs) && expect_boolean(rhs);
         if (!both_int && !both_bool) {
-          if (lhs->inferred_type->equal_to(rhs->inferred_type)) {  // compare slice with slice, int? with int?
+          bool both_address = expect_address(lhs) && expect_address(rhs);
+          if (both_address) {     // address can be compared with ==, but it's not integer comparison, it's handled specially
+            v->mutate()->assign_fun_ref(nullptr);
+          } else if (lhs->inferred_type->equal_to(rhs->inferred_type)) {  // compare slice with slice, int? with int?
             fire(cur_f, v->loc, "type " + to_string(lhs) + " can not be compared with `== !=`");
           } else {
             fire_error_cannot_apply_operator(cur_f, v->loc, v->operator_name, lhs, rhs);
@@ -707,6 +728,18 @@ protected:
     if (fun_ref->is_implicit_return() && fun_ref->declared_return_type) {
       if (!fun_ref->declared_return_type->can_rhs_be_assigned(TypeDataVoid::create()) || fun_ref->does_return_self()) {
         fire(fun_ref, v_function->get_body()->as<ast_block_statement>()->loc_end, "missing return");
+      }
+    }
+
+    // visit default values of parameters
+    for (int i = 0; i < fun_ref->get_num_params(); ++i) {
+      if (LocalVarPtr param_ref = &fun_ref->get_param(i); param_ref->has_default_value()) {
+        parent::visit(param_ref->default_value);
+
+        TypePtr inferred_type = param_ref->default_value->inferred_type;
+        if (!param_ref->declared_type->can_rhs_be_assigned(inferred_type)) {
+          throw ParseError(param_ref->loc, "can not assign " + to_string(inferred_type) + " to " + to_string(param_ref->declared_type));
+        }
       }
     }
   }

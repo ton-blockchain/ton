@@ -58,9 +58,9 @@ class ConstantFoldingReplacer final : public ASTReplacerInFunctionBody {
     return inner;
   }
 
-  static V<ast_string_const> create_string_const(SrcLocation loc, std::string&& literal_value) {
+  static V<ast_string_const> create_string_const(SrcLocation loc, std::string&& literal_value, TypePtr inferred_type) {
     auto v_string = createV<ast_string_const>(loc, literal_value);
-    v_string->assign_inferred_type(TypeDataSlice::create());
+    v_string->assign_inferred_type(inferred_type);
     v_string->assign_literal_value(std::move(literal_value));
     v_string->assign_rvalue_true();
     return v_string;
@@ -112,12 +112,12 @@ class ConstantFoldingReplacer final : public ASTReplacerInFunctionBody {
     parent::replace(v);
 
     // replace `ton("0.05")` with 50000000 / `stringCrc32("some_str")` with calculated value / etc.
-    if (v->fun_maybe && v->fun_maybe->is_compile_time_only()) {
+    if (v->fun_maybe && v->fun_maybe->is_compile_time_const_val()) {
       CompileTimeFunctionResult value = eval_call_to_compile_time_function(v);
       if (std::holds_alternative<td::RefInt256>(value)) {
         return create_int_const(v->loc, std::move(std::get<td::RefInt256>(value)));
       } else {
-        return create_string_const(v->loc, std::move(std::get<std::string>(value)));
+        return create_string_const(v->loc, std::move(std::get<std::string>(value)), v->fun_maybe->declared_return_type);
       }
     }
 
@@ -148,6 +148,19 @@ class ConstantFoldingReplacer final : public ASTReplacerInFunctionBody {
 public:
   bool should_visit_function(FunctionPtr fun_ref) override {
     return fun_ref->is_code_function() && !fun_ref->is_generic_function();
+  }
+
+  void start_replacing_in_function(FunctionPtr fun_ref, V<ast_function_declaration> v_function) override {
+    // visit default values of parameters
+    for (int i = 0; i < fun_ref->get_num_params(); ++i) {
+      if (LocalVarPtr param_ref = &fun_ref->get_param(i); param_ref->has_default_value()) {
+        check_expression_is_constant(param_ref->default_value);
+        AnyExprV replaced = replace_in_expression(param_ref->default_value);
+        param_ref->mutate()->assign_default_value(replaced);
+      }
+    }
+
+    parent::replace(v_function->get_body());
   }
 
   // used to replace `ton("0.05")` and other compile-time functions inside fields defaults, etc.

@@ -22,6 +22,7 @@
 #include <deque>
 #include <functional>
 
+#include "interfaces/persistent-state.h"
 #include "td/actor/actor.h"
 
 #include "ton/ton-types.h"
@@ -119,10 +120,11 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual td::Ref<CollatorOptions> get_collator_options() const = 0;
   virtual bool get_fast_state_serializer_enabled() const = 0;
   virtual double get_catchain_broadcast_speed_multiplier() const = 0;
+  virtual bool get_permanent_celldb() const = 0;
 
   virtual void set_zero_block_id(BlockIdExt block_id) = 0;
   virtual void set_init_block_id(BlockIdExt block_id) = 0;
-  virtual void set_shard_check_function(std::function<bool(ShardIdFull)> check_shard) = 0;
+  virtual void set_shard_check_function(std::function<bool(ShardIdFull, BlockSeqno)> check_shard) = 0;
   virtual void set_allow_blockchain_init(bool value) = 0;
   virtual void set_sync_blocks_before(double value) = 0;
   virtual void set_block_ttl(double value) = 0;
@@ -154,11 +156,10 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual void set_collator_options(td::Ref<CollatorOptions> value) = 0;
   virtual void set_fast_state_serializer_enabled(bool value) = 0;
   virtual void set_catchain_broadcast_speed_multiplier(double value) = 0;
+  virtual void set_permanent_celldb(bool value) = 0;
 
   static td::Ref<ValidatorManagerOptions> create(
       BlockIdExt zero_block_id, BlockIdExt init_block_id,
-
-      std::function<bool(ShardIdFull)> check_shard = [](ShardIdFull) { return true; },
       bool allow_blockchain_init = false, double sync_blocks_before = 3600, double block_ttl = 86400,
       double state_ttl = 86400, double archive_ttl = 86400 * 7, double key_proof_ttl = 86400 * 3650,
       double max_mempool_num = 999999, bool initial_sync_disabled = false);
@@ -184,8 +185,9 @@ class ValidatorManagerInterface : public td::actor::Actor {
                                 td::Promise<ReceivedBlock> promise) = 0;
     virtual void download_zero_state(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
                                      td::Promise<td::BufferSlice> promise) = 0;
-    virtual void download_persistent_state(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::uint32 priority,
-                                           td::Timestamp timeout, td::Promise<td::BufferSlice> promise) = 0;
+    virtual void download_persistent_state(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+                                           PersistentStateType type, td::uint32 priority, td::Timestamp timeout,
+                                           td::Promise<td::BufferSlice> promise) = 0;
     virtual void download_block_proof(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
                                       td::Promise<td::BufferSlice> promise) = 0;
     virtual void download_block_proof_link(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
@@ -231,12 +233,13 @@ class ValidatorManagerInterface : public td::actor::Actor {
   virtual void get_block_data(BlockHandle handle, td::Promise<td::BufferSlice> promise) = 0;
   virtual void check_zero_state_exists(BlockIdExt block_id, td::Promise<bool> promise) = 0;
   virtual void get_zero_state(BlockIdExt block_id, td::Promise<td::BufferSlice> promise) = 0;
-  virtual void get_persistent_state_size(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+  virtual void get_persistent_state_size(BlockIdExt block_id, BlockIdExt masterchain_block_id, PersistentStateType type,
                                          td::Promise<td::uint64> promise) = 0;
-  virtual void get_persistent_state(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+  virtual void get_persistent_state(BlockIdExt block_id, BlockIdExt masterchain_block_id, PersistentStateType type,
                                     td::Promise<td::BufferSlice> promise) = 0;
-  virtual void get_persistent_state_slice(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::int64 offset,
-                                          td::int64 max_length, td::Promise<td::BufferSlice> promise) = 0;
+  virtual void get_persistent_state_slice(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+                                          PersistentStateType type, td::int64 offset, td::int64 max_length,
+                                          td::Promise<td::BufferSlice> promise) = 0;
   virtual void get_previous_persistent_state_files(
       BlockSeqno cur_mc_seqno, td::Promise<std::vector<std::pair<std::string, ShardIdFull>>> promise) = 0;
   virtual void get_block_proof(BlockHandle handle, td::Promise<td::BufferSlice> promise) = 0;

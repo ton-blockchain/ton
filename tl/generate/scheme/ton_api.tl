@@ -409,7 +409,9 @@ tonNode.preparedProof = tonNode.PreparedProof;
 tonNode.preparedProofLink = tonNode.PreparedProof;
 tonNode.preparedState = tonNode.PreparedState;
 tonNode.notFoundState = tonNode.PreparedState;
+tonNode.persistentStateIdV2 block:tonNode.blockIdExt masterchain_block:tonNode.blockIdExt effective_shard:long = tonNode.PersistentStateIdV2;
 tonNode.persistentStateSize size:long = tonNode.PersistentStateSize;
+tonNode.persistentStateSizeNotFound = tonNode.PersistentStateSize;
 tonNode.prepared = tonNode.Prepared;
 tonNode.notFound = tonNode.Prepared;
 tonNode.data data:bytes = tonNode.Data;
@@ -475,15 +477,11 @@ tonNode.prepareBlockProofs blocks:(vector tonNode.blockIdExt) allow_partial:Bool
 tonNode.prepareKeyBlockProofs blocks:(vector tonNode.blockIdExt) allow_partial:Bool = tonNode.PreparedProof;
 tonNode.prepareBlock block:tonNode.blockIdExt = tonNode.Prepared;
 tonNode.prepareBlocks blocks:(vector tonNode.blockIdExt) = tonNode.Prepared;
-tonNode.preparePersistentState block:tonNode.blockIdExt masterchain_block:tonNode.blockIdExt = tonNode.PreparedState;
-tonNode.getPersistentStateSize block:tonNode.blockIdExt masterchain_block:tonNode.blockIdExt = tonNode.PersistentStateSize;
 tonNode.prepareZeroState block:tonNode.blockIdExt = tonNode.PreparedState;
 tonNode.getNextKeyBlockIds block:tonNode.blockIdExt max_size:int = tonNode.KeyBlocks;
 tonNode.downloadNextBlockFull prev_block:tonNode.blockIdExt = tonNode.DataFull;
 tonNode.downloadBlockFull block:tonNode.blockIdExt = tonNode.DataFull;
 tonNode.downloadBlock block:tonNode.blockIdExt = tonNode.Data;
-tonNode.downloadPersistentState block:tonNode.blockIdExt masterchain_block:tonNode.blockIdExt = tonNode.Data;
-tonNode.downloadPersistentStateSlice block:tonNode.blockIdExt masterchain_block:tonNode.blockIdExt offset:long max_size:long = tonNode.Data;
 tonNode.downloadZeroState block:tonNode.blockIdExt = tonNode.Data;
 tonNode.downloadBlockProof block:tonNode.blockIdExt = tonNode.Data;
 tonNode.downloadKeyBlockProof block:tonNode.blockIdExt = tonNode.Data;
@@ -494,6 +492,14 @@ tonNode.getShardArchiveInfo masterchain_seqno:int shard_prefix:tonNode.shardId =
 tonNode.getArchiveSlice archive_id:long offset:long max_size:int = tonNode.Data;
 tonNode.getOutMsgQueueProof dst_shard:tonNode.shardId blocks:(vector tonNode.blockIdExt)
     limits:tonNode.importedMsgQueueLimits = tonNode.OutMsgQueueProof;
+
+tonNode.downloadPersistentState block:tonNode.blockIdExt masterchain_block:tonNode.blockIdExt = tonNode.Data;
+tonNode.downloadPersistentStateSlice block:tonNode.blockIdExt masterchain_block:tonNode.blockIdExt offset:long max_size:long = tonNode.Data;
+tonNode.getPersistentStateSize block:tonNode.blockIdExt masterchain_block:tonNode.blockIdExt = tonNode.PersistentStateSize;
+tonNode.preparePersistentState block:tonNode.blockIdExt masterchain_block:tonNode.blockIdExt = tonNode.PreparedState;
+
+tonNode.downloadPersistentStateSliceV2 state:tonNode.persistentStateIdV2 offset:long max_size:long = tonNode.Data;
+tonNode.getPersistentStateSizeV2 state:tonNode.persistentStateIdV2 = tonNode.PersistentStateSize;
 
 tonNode.getCapabilities = tonNode.Capabilities;
 
@@ -542,7 +548,9 @@ db.candidate.id source:PublicKey id:tonNode.blockIdExt collated_data_file_hash:i
 db.filedb.key.empty = db.filedb.Key;
 db.filedb.key.blockFile block_id:tonNode.blockIdExt = db.filedb.Key; 
 db.filedb.key.zeroStateFile block_id:tonNode.blockIdExt = db.filedb.Key; 
-db.filedb.key.persistentStateFile block_id:tonNode.blockIdExt masterchain_block_id:tonNode.blockIdExt = db.filedb.Key; 
+db.filedb.key.persistentStateFile block_id:tonNode.blockIdExt masterchain_block_id:tonNode.blockIdExt = db.filedb.Key;
+db.filedb.key.splitAccountStateFile block_id:tonNode.blockIdExt masterchain_block_id:tonNode.blockIdExt effective_shard:long = db.filedb.Key;
+db.filedb.key.splitPersistentStateFile block_id:tonNode.blockIdExt masterchain_block_id:tonNode.blockIdExt = db.filedb.Key;
 db.filedb.key.proof block_id:tonNode.blockIdExt = db.filedb.Key;
 db.filedb.key.proofLink block_id:tonNode.blockIdExt = db.filedb.Key;
 db.filedb.key.signatures block_id:tonNode.blockIdExt = db.filedb.Key;
@@ -560,6 +568,8 @@ db.state.asyncSerializer block:tonNode.blockIdExt last:tonNode.blockIdExt last_t
 db.state.hardforks blocks:(vector tonNode.blockIdExt) = db.state.Hardforks;
 db.state.dbVersion version:int = db.state.DbVersion;
 db.state.persistentStateDescriptionShards shard_blocks:(vector tonNode.blockIdExt) = db.state.PersistentStateDescriptionShards;
+db.state.persistentStateDescriptionShard block:tonNode.blockIdExt split_depth:int = db.state.PersistentStateDescriptionShard;
+db.state.persistentStateDescriptionShardsV2 shard_blocks:(vector db.state.PersistentStateDescriptionShard) = db.state.PersistentStateDescriptionShards;
 db.state.persistentStateDescriptionHeader masterchain_id:tonNode.blockIdExt start_time:int end_time:int = db.state.PersistentStateDescriptionHeader;
 db.state.persistentStateDescriptionsList list:(vector db.state.persistentStateDescriptionHeader) = db.state.PersistentStateDescriptionsList;
 

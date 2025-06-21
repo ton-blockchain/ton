@@ -188,7 +188,8 @@ td::Result<td::Ref<vm::Cell>> MicrochunkTree::get_proof(td::uint64 l, td::uint64
   if (!torrent.inited_info()) {
     return td::Status::Error("Torrent info is not ready");
   }
-  if (!torrent.get_info().piece_size % MICROCHUNK_SIZE != 0) {
+  // piece_size must be an exact multiple of MICROCHUNK_SIZE
+  if ((torrent.get_info().piece_size % MICROCHUNK_SIZE) != 0) {
     return td::Status::Error("Invalid piece size in torrent");
   }
   td::Ref<vm::Cell> root_raw = vm::CellSlice(vm::NoVm(), root_proof_).prefetch_ref();

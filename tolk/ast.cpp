@@ -66,6 +66,12 @@ AnnotationKind Vertex<ast_annotation>::parse_kind(std::string_view name) {
   if (name == "@deprecated") {
     return AnnotationKind::deprecated;
   }
+  if (name == "@custom") {
+    return AnnotationKind::custom;
+  }
+  if (name == "@overflow1023_policy") {
+    return AnnotationKind::overflow1023_policy;
+  }
   return AnnotationKind::unknown;
 }
 

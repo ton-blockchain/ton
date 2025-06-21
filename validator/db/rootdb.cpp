@@ -259,6 +259,41 @@ void RootDb::store_block_state(BlockHandle handle, td::Ref<ShardState> state,
   }
 }
 
+void RootDb::store_block_state_from_data(BlockHandle handle, td::Ref<BlockData> block,
+                                         td::Promise<td::Ref<ShardState>> promise) {
+  if (handle->id() != block->block_id()) {
+    promise.set_error(td::Status::Error("block id mismatch"));
+    return;
+  }
+  if (handle->moved_to_archive() || handle->inited_state_boc()) {
+    get_block_state(handle, std::move(promise));
+    return;
+  }
+  auto P = td::PromiseCreator::lambda(
+      [b = archive_db_.get(), handle, promise = std::move(promise)](td::Result<td::Ref<vm::DataCell>> R) mutable {
+        TRY_RESULT_PROMISE(promise, root, std::move(R));
+        handle->set_state_root_hash(root->get_hash().bits());
+        handle->set_state_boc();
+
+        auto S = create_shard_state(handle->id(), std::move(root));
+        S.ensure();
+
+        auto P = td::PromiseCreator::lambda(
+            [promise = std::move(promise), state = S.move_as_ok()](td::Result<td::Unit> R) mutable {
+              R.ensure();
+              promise.set_value(std::move(state));
+            });
+
+        td::actor::send_closure(b, &ArchiveManager::update_handle, std::move(handle), std::move(P));
+      });
+  td::actor::send_closure(cell_db_, &CellDb::store_block_state_permanent, std::move(block), std::move(P));
+}
+
+void RootDb::store_block_state_from_data_preliminary(std::vector<td::Ref<BlockData>> blocks,
+                                                     td::Promise<td::Unit> promise) {
+  td::actor::send_closure(cell_db_, &CellDb::store_block_state_permanent_bulk, std::move(blocks), std::move(promise));
+}
+
 void RootDb::get_block_state(ConstBlockHandle handle, td::Promise<td::Ref<ShardState>> promise) {
   if (handle->inited_state_boc()) {
     if (handle->deleted_state_boc()) {
@@ -281,39 +316,46 @@ void RootDb::get_block_state(ConstBlockHandle handle, td::Promise<td::Ref<ShardS
   }
 }
 
+void RootDb::store_block_state_part(BlockId effective_block, td::Ref<vm::Cell> cell,
+                                    td::Promise<td::Ref<vm::DataCell>> promise) {
+  td::actor::send_closure(cell_db_, &CellDb::store_cell, BlockIdExt{effective_block}, cell, std::move(promise));
+}
+
 void RootDb::get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) {
   td::actor::send_closure(cell_db_, &CellDb::get_cell_db_reader, std::move(promise));
 }
 
-void RootDb::store_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::BufferSlice state,
-                                         td::Promise<td::Unit> promise) {
-  td::actor::send_closure(archive_db_, &ArchiveManager::add_persistent_state, block_id, masterchain_block_id,
+void RootDb::store_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id, PersistentStateType type,
+                                         td::BufferSlice state, td::Promise<td::Unit> promise) {
+  td::actor::send_closure(archive_db_, &ArchiveManager::add_persistent_state, block_id, masterchain_block_id, type,
                           std::move(state), std::move(promise));
 }
 
 void RootDb::store_persistent_state_file_gen(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+                                             PersistentStateType type,
                                              std::function<td::Status(td::FileFd&)> write_data,
                                              td::Promise<td::Unit> promise) {
-  td::actor::send_closure(archive_db_, &ArchiveManager::add_persistent_state_gen, block_id, masterchain_block_id,
+  td::actor::send_closure(archive_db_, &ArchiveManager::add_persistent_state_gen, block_id, masterchain_block_id, type,
                           std::move(write_data), std::move(promise));
 }
 
-void RootDb::get_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+void RootDb::get_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id, PersistentStateType type,
                                        td::Promise<td::BufferSlice> promise) {
-  td::actor::send_closure(archive_db_, &ArchiveManager::get_persistent_state, block_id, masterchain_block_id,
+  td::actor::send_closure(archive_db_, &ArchiveManager::get_persistent_state, block_id, masterchain_block_id, type,
                           std::move(promise));
 }
 
-void RootDb::get_persistent_state_file_slice(BlockIdExt block_id, BlockIdExt masterchain_block_id, td::int64 offset,
-                                             td::int64 max_size, td::Promise<td::BufferSlice> promise) {
+void RootDb::get_persistent_state_file_slice(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+                                             PersistentStateType type, td::int64 offset, td::int64 max_size,
+                                             td::Promise<td::BufferSlice> promise) {
   td::actor::send_closure(archive_db_, &ArchiveManager::get_persistent_state_slice, block_id, masterchain_block_id,
-                          offset, max_size, std::move(promise));
+                          type, offset, max_size, std::move(promise));
 }
 
 void RootDb::get_persistent_state_file_size(BlockIdExt block_id, BlockIdExt masterchain_block_id,
-                                            td::Promise<td::uint64> promise) {
+                                            PersistentStateType type, td::Promise<td::uint64> promise) {
   td::actor::send_closure(archive_db_, &ArchiveManager::get_persistent_state_file_size, block_id, masterchain_block_id,
-                          std::move(promise));
+                          type, std::move(promise));
 }
 
 void RootDb::store_zero_state_file(BlockIdExt block_id, td::BufferSlice state, td::Promise<td::Unit> promise) {

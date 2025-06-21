@@ -89,6 +89,15 @@ fun test95() {
     return (cur, next);
 }
 
+struct Point {
+    x: int, y: int
+}
+
+@method_id(96)
+fun test96(p: Point) {
+    debug.print(p);     // works ok with non-1 stack width, checked via codegen
+}
+
 /**
     method_id | in     | out
 @testcase |  0 | 101 15 | 100 1
@@ -151,6 +160,13 @@ fun test95() {
     next SETGLOB
     cur GETGLOB	    //  g_cur
     next GETGLOB	//  g_cur g_next
+  }>
+"""
+
+@fif_codegen
+"""
+  test96 PROC:<{
+    s1 DUMP s0 DUMP 2 BLKDROP
   }>
 """
 */
