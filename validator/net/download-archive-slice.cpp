@@ -44,6 +44,12 @@ struct NodeQuality {
   double avg_speed = 0.0;
   double total_download_time = 0.0;
   
+  // **NEW: Usage tracking for burden sharing**
+  td::uint32 usage_count = 0;                    // Total times this node was used
+  td::Timestamp last_used;                       // When this node was last used
+  td::uint32 recent_usage_count = 0;            // Usage count in recent time window
+  td::Timestamp recent_usage_window_start;       // Start of current usage window
+  
   // **NEW: Advanced metrics for explore-exploit strategy**
   td::uint32 total_attempts() const { return success_count + failure_count; }
   
@@ -63,9 +69,50 @@ struct NodeQuality {
     return total_attempts() < 3;  // Node with less than 3 attempts is considered "new"
   }
   
-  // **IMPROVED: More conservative scoring system**
+  // **NEW: Check if node has been overused recently**
+  bool is_overused() const {
+    double now = td::Timestamp::now().at();
+    
+    // Reset recent usage window if it's been more than 1 hour
+    if (now - recent_usage_window_start.at() > 3600.0) {
+      // This is a const method, so we can't modify the object directly
+      // The caller should handle the window reset
+      return false;
+    }
+    
+    // Consider node overused if used more than 3 times in the last hour
+    return recent_usage_count > 3;
+  }
+  
+  // **NEW: Get burden sharing penalty**
+  double get_usage_penalty() const {
+    double now = td::Timestamp::now().at();
+    double usage_penalty = 0.0;
+    
+    // **RECENT USAGE PENALTY: Reduce score for recently used nodes**
+    if (last_used.at() > 0.0) {
+      double time_since_use = now - last_used.at();
+      
+      if (time_since_use < 300.0) {  // 5 minutes
+        usage_penalty += 0.3;  // Heavy penalty for very recent usage
+      } else if (time_since_use < 900.0) {  // 15 minutes
+        usage_penalty += 0.2;  // Medium penalty
+      } else if (time_since_use < 1800.0) {  // 30 minutes
+        usage_penalty += 0.1;  // Light penalty
+      }
+    }
+    
+    // **OVERUSE PENALTY: Extra penalty for nodes used too frequently**
+    if (is_overused()) {
+      usage_penalty += 0.4;  // Heavy penalty for overused nodes
+    }
+    
+    return usage_penalty;
+  }
+  
+  // **ENHANCED: More balanced scoring system with burden sharing**
   double get_score() const {
-    if (total_attempts() == 0) return 0.4;  // **REDUCED from 0.8 to 0.4 for unknown nodes**
+    if (total_attempts() == 0) return 0.5;  // **INCREASED from 0.4 to 0.5 for unknown nodes**
     
     double base_score = success_rate();
     
@@ -83,11 +130,11 @@ struct NodeQuality {
       double time_since_failure = td::Timestamp::now().at() - last_failure.at();
       if (time_since_failure < 1800.0) {  // **EXTENDED from 600s to 1800s (30min)**
         // Base penalty for recent failures
-        time_penalty = 0.3;  // **INCREASED from 0.2 to 0.3**
+        time_penalty = 0.2;  // **REDUCED from 0.3 to 0.2 to balance with usage penalty**
         
         // **NEW: Extra penalty for consecutive failures**
         if (consecutive_failures >= 3) {
-          time_penalty += 0.2;  // Additional penalty for repeated failures
+          time_penalty += 0.15;  // **REDUCED from 0.2 to 0.15**
         }
         
         // **STRICTER: Less forgiveness for "archive not found"**
@@ -100,16 +147,19 @@ struct NodeQuality {
     // **NEW: Heavy penalty for nodes with very low success rates**
     double success_penalty = 0.0;
     if (total_attempts() >= 3 && success_rate() < 0.2) {
-      success_penalty = 0.4;  // Heavy penalty for consistently failing nodes
+      success_penalty = 0.3;  // **REDUCED from 0.4 to 0.3 to balance penalties**
     }
     
-    // **SPEED BONUS: Unchanged**
+    // **SPEED BONUS: Slightly increased for load balancing**
     double speed_bonus = 0.0;
     if (success_count > 0 && avg_speed > 0) {
-      speed_bonus = std::min(0.1, avg_speed / 10000000.0);  // Up to 0.1 bonus for 10MB/s+
+      speed_bonus = std::min(0.15, avg_speed / 8000000.0);  // **INCREASED to 0.15 and lowered threshold**
     }
     
-    return std::max(0.0, std::min(1.0, base_score + exploration_bonus - time_penalty - success_penalty + speed_bonus));
+    // **NEW: Apply usage penalty for burden sharing**
+    double usage_penalty = get_usage_penalty();
+    
+    return std::max(0.0, std::min(1.0, base_score + exploration_bonus - time_penalty - success_penalty + speed_bonus - usage_penalty));
   }
   
   // **STRICTER: More aggressive blacklisting**
@@ -153,12 +203,26 @@ struct NodeQuality {
     consecutive_failures = 0;  // Reset consecutive failures on success
     last_success = td::Timestamp::now();
   }
+  
+  // **NEW: Helper to record node usage**
+  void record_usage() {
+    usage_count++;
+    last_used = td::Timestamp::now();
+    
+    // Reset recent usage window if it's been more than 1 hour
+    double now = td::Timestamp::now().at();
+    if (now - recent_usage_window_start.at() > 3600.0) {
+      recent_usage_count = 1;
+      recent_usage_window_start = td::Timestamp::now();
+    } else {
+      recent_usage_count++;
+    }
+  }
 };
 
 // Static node quality tracking (shared across instances)
 static std::map<adnl::AdnlNodeIdShort, NodeQuality> node_qualities_;
 static std::set<adnl::AdnlNodeIdShort> active_attempts_;
-static td::uint32 strategy_attempt_ = 0;
 
 // **NEW: Block-level data availability tracking**
 struct BlockAvailability {
@@ -248,8 +312,47 @@ void DownloadArchiveSlice::finish_query() {
                 << " | Score: " << quality.get_score()
                 << " | Success Rate: " << (quality.success_rate() * 100) << "%"
                 << " | Attempts: " << quality.total_attempts()
+                << " | Usage: " << quality.usage_count
+                << " | Recent Usage: " << quality.recent_usage_count
                 << " | Speed: " << td::format::as_size(static_cast<td::uint64>(current_speed)) << "/s"
                 << " | Avg Speed: " << td::format::as_size(static_cast<td::uint64>(quality.avg_speed)) << "/s";
+      
+      // **NEW: Periodically log usage statistics for burden sharing analysis**
+      if (quality.success_count % 5 == 0) {  // Every 5 successful downloads
+        LOG(INFO) << "📊 BURDEN SHARING SUMMARY:";
+        
+        std::vector<std::pair<td::uint32, std::pair<adnl::AdnlNodeIdShort, NodeQuality*>>> usage_stats;
+        for (auto& pair : node_qualities_) {
+          if (pair.second.total_attempts() > 0) {
+            usage_stats.emplace_back(pair.second.usage_count, std::make_pair(pair.first, &pair.second));
+          }
+        }
+        
+        // Sort by usage count (descending)
+        std::sort(usage_stats.begin(), usage_stats.end(), 
+                  [](const auto& a, const auto& b) { return a.first > b.first; });
+        
+        // Show top 5 most used nodes
+        td::uint32 count = 0;
+        for (auto& stat : usage_stats) {
+          if (count >= 5) break;
+          auto& node = stat.second.first;
+          auto& qual = *stat.second.second;
+          
+          LOG(INFO) << "  " << (count + 1) << ". Node " << node
+                    << " | Usage: " << qual.usage_count
+                    << " | Recent: " << qual.recent_usage_count
+                    << " | Success Rate: " << (qual.success_rate() * 100) << "%"
+                    << " | Overused: " << (qual.is_overused() ? "YES" : "NO")
+                    << " | Last Used: " << (qual.last_used.at() > 0 ? 
+                        std::to_string(static_cast<int>(td::Timestamp::now().at() - qual.last_used.at())) + "s ago" : "never");
+          count++;
+        }
+        
+        LOG(INFO) << "  Total tracked nodes: " << usage_stats.size()
+                  << " | Overused nodes: " << std::count_if(usage_stats.begin(), usage_stats.end(),
+                      [](const auto& stat) { return stat.second.second->is_overused(); });
+      }
     }
     
     promise_.set_value(std::move(tmp_name_));
@@ -269,7 +372,6 @@ std::vector<adnl::AdnlNodeIdShort> select_best_nodes(const std::vector<adnl::Adn
   std::vector<std::pair<double, adnl::AdnlNodeIdShort>> new_nodes;
   
   td::uint32 new_count = 0;
-  td::uint32 experienced_count = 0;
   td::uint32 blacklisted_count = 0;
   td::uint32 high_quality_count = 0;
   
@@ -341,8 +443,6 @@ std::vector<adnl::AdnlNodeIdShort> select_best_nodes(const std::vector<adnl::Adn
       
       if (it->second.is_new_node()) {
         new_count++;
-      } else {
-        experienced_count++;
       }
     }
   }
@@ -362,26 +462,62 @@ std::vector<adnl::AdnlNodeIdShort> select_best_nodes(const std::vector<adnl::Adn
             << " | New: " << new_count 
             << " | Blacklisted: " << blacklisted_count;
   
-  // **STRATEGY 1: PRIORITIZE HIGH-QUALITY NODES**
+  // **STRATEGY 1: BALANCED SELECTION WITH BURDEN SHARING**
   if (!high_quality_nodes.empty()) {
-    // Sort high-quality nodes by score
-    std::sort(high_quality_nodes.begin(), high_quality_nodes.end(), 
-              [](const auto& a, const auto& b) { return a.first > b.first; });
+    // **NEW: Filter high-quality nodes by usage to avoid overuse**
+    std::vector<std::pair<double, adnl::AdnlNodeIdShort>> fresh_high_quality;
+    std::vector<std::pair<double, adnl::AdnlNodeIdShort>> used_high_quality;
     
-    // Select at least 60% from high-quality nodes
-    td::uint32 high_quality_slots = std::max(1u, static_cast<td::uint32>(selected_count * 0.6));
-    high_quality_slots = std::min(high_quality_slots, static_cast<td::uint32>(high_quality_nodes.size()));
-    
-    for (td::uint32 i = 0; i < high_quality_slots; i++) {
-      result.push_back(high_quality_nodes[i].second);
-      auto it = node_qualities_.find(high_quality_nodes[i].second);
-      LOG(INFO) << "✅ PRIORITY SELECT: " << high_quality_nodes[i].second 
-                << " | Score: " << high_quality_nodes[i].first
-                << " | Success Rate: " << (it->second.success_rate() * 100) << "%"
-                << " | Attempts: " << it->second.total_attempts();
+    for (auto& node_pair : high_quality_nodes) {
+      auto it = node_qualities_.find(node_pair.second);
+      if (it->second.is_overused()) {
+        used_high_quality.push_back(node_pair);
+      } else {
+        fresh_high_quality.push_back(node_pair);
+      }
     }
     
-    selected_count -= high_quality_slots;
+    // Sort by score (which now includes usage penalties)
+    std::sort(fresh_high_quality.begin(), fresh_high_quality.end(), 
+              [](const auto& a, const auto& b) { return a.first > b.first; });
+    std::sort(used_high_quality.begin(), used_high_quality.end(), 
+              [](const auto& a, const auto& b) { return a.first > b.first; });
+    
+    LOG(INFO) << "📊 HIGH-QUALITY NODE ANALYSIS - Total: " << high_quality_nodes.size()
+              << " | Fresh: " << fresh_high_quality.size() 
+              << " | Overused: " << used_high_quality.size();
+    
+    // **REDUCED: Select at most 40% from high-quality nodes (down from 60%)**
+    td::uint32 high_quality_slots = std::max(1u, static_cast<td::uint32>(selected_count * 0.4));
+    high_quality_slots = std::min(high_quality_slots, static_cast<td::uint32>(high_quality_nodes.size()));
+    
+    // **PRIORITIZE fresh nodes over overused ones**
+    td::uint32 fresh_slots = std::min(high_quality_slots, static_cast<td::uint32>(fresh_high_quality.size()));
+    td::uint32 used_slots = high_quality_slots - fresh_slots;
+    
+    // Select from fresh high-quality nodes first
+    for (td::uint32 i = 0; i < fresh_slots; i++) {
+      result.push_back(fresh_high_quality[i].second);
+      auto it = node_qualities_.find(fresh_high_quality[i].second);
+      LOG(INFO) << "✅ FRESH HIGH-QUALITY SELECT: " << fresh_high_quality[i].second 
+                << " | Score: " << fresh_high_quality[i].first
+                << " | Success Rate: " << (it->second.success_rate() * 100) << "%"
+                << " | Usage: " << it->second.usage_count
+                << " | Recent Usage: " << it->second.recent_usage_count;
+    }
+    
+    // Fill remaining slots with used high-quality nodes if needed
+    for (td::uint32 i = 0; i < used_slots && i < used_high_quality.size(); i++) {
+      result.push_back(used_high_quality[i].second);
+      auto it = node_qualities_.find(used_high_quality[i].second);
+      LOG(INFO) << "⚠️ USED HIGH-QUALITY SELECT: " << used_high_quality[i].second 
+                << " | Score: " << used_high_quality[i].first
+                << " | Success Rate: " << (it->second.success_rate() * 100) << "%"
+                << " | Usage: " << it->second.usage_count
+                << " | Recent Usage: " << it->second.recent_usage_count;
+    }
+    
+    selected_count -= (fresh_slots + used_slots);
   }
   
   // **STRATEGY 2: FILL REMAINING SLOTS WITH EXPLORATION/MEDIUM NODES**
@@ -495,35 +631,78 @@ void DownloadArchiveSlice::start_up() {
     }
     
     if (!known_good_nodes.empty()) {
-      // **NEW: 80% use known good nodes, 20% explore new nodes**
-      bool use_known_node = (td::Random::fast(1, 100) <= 80);  // 80% probability
+      // **ENHANCED: More balanced node selection with burden sharing**
+      // Filter out overused nodes first
+      std::vector<adnl::AdnlNodeIdShort> available_good_nodes;
+      std::vector<adnl::AdnlNodeIdShort> lightly_used_nodes;
       
-      if (use_known_node) {
-        // Sort by score and pick the best
-        std::sort(known_good_nodes.begin(), known_good_nodes.end(), 
+      for (auto& node : known_good_nodes) {
+        auto& quality = node_qualities_[node];
+        if (!quality.is_overused()) {
+          available_good_nodes.push_back(node);
+          // Check if node hasn't been used recently (more than 15 minutes ago)
+          if (quality.last_used.at() == 0.0 || 
+              (td::Timestamp::now().at() - quality.last_used.at()) > 900.0) {
+            lightly_used_nodes.push_back(node);
+          }
+        }
+      }
+      
+      LOG(INFO) << "📊 NODE USAGE ANALYSIS - Total Good: " << known_good_nodes.size()
+                << " | Available: " << available_good_nodes.size() 
+                << " | Lightly Used: " << lightly_used_nodes.size();
+      
+      // **NEW: 60% use known good nodes, 40% explore new nodes (more balanced)**
+      bool use_known_node = (td::Random::fast(1, 100) <= 60);  // **REDUCED from 80% to 60%**
+      
+      if (use_known_node && !available_good_nodes.empty()) {
+        // **PRIORITIZE lightly used nodes for burden sharing**
+        std::vector<adnl::AdnlNodeIdShort>* selection_pool = &available_good_nodes;
+        std::string selection_type = "AVAILABLE";
+        
+        if (!lightly_used_nodes.empty()) {
+          selection_pool = &lightly_used_nodes;
+          selection_type = "LIGHTLY_USED";
+        }
+        
+        // Sort by score (including usage penalties)
+        std::sort(selection_pool->begin(), selection_pool->end(), 
                   [](const adnl::AdnlNodeIdShort& a, const adnl::AdnlNodeIdShort& b) {
                     auto it_a = node_qualities_.find(a);
                     auto it_b = node_qualities_.find(b);
                     return it_a->second.get_score() > it_b->second.get_score();
                   });
         
-        // **NEW: Add some randomness among top nodes to avoid overusing single node**
-        td::uint32 top_nodes_count = std::min(3u, static_cast<td::uint32>(known_good_nodes.size()));
+        // **ENHANCED: More randomization among top nodes for load balancing**
+        td::uint32 top_nodes_count = std::min(5u, static_cast<td::uint32>(selection_pool->size()));  // **INCREASED from 3 to 5**
         td::uint32 selected_idx = td::Random::fast(0, static_cast<td::int32>(top_nodes_count - 1));
         
-        auto best_known = known_good_nodes[selected_idx];
-        auto it = node_qualities_.find(best_known);
-        LOG(INFO) << "🏆 PRIORITIZING known high-quality node: " << best_known
+        auto selected_node = (*selection_pool)[selected_idx];
+        auto it = node_qualities_.find(selected_node);
+        
+        // **NEW: Record usage before using the node**
+        it->second.record_usage();
+        
+        LOG(INFO) << "🏆 BURDEN-AWARE SELECT (" << selection_type << "): " << selected_node
                   << " | Score: " << it->second.get_score()
                   << " | Success Rate: " << (it->second.success_rate() * 100) << "%"
-                  << " | Attempts: " << it->second.total_attempts()
-                  << " | Rank: " << (selected_idx + 1) << "/" << known_good_nodes.size();
+                  << " | Usage: " << it->second.usage_count 
+                  << " | Recent Usage: " << it->second.recent_usage_count
+                  << " | Last Used: " << (it->second.last_used.at() > 0 ? 
+                      std::to_string(static_cast<int>(td::Timestamp::now().at() - it->second.last_used.at())) + "s ago" : "never")
+                  << " | Rank: " << (selected_idx + 1) << "/" << selection_pool->size();
         
-        got_node_to_download(best_known);
+        got_node_to_download(selected_node);
         return;
       } else {
-        LOG(INFO) << "🎲 EXPLORATION MODE: Skipping " << known_good_nodes.size() 
-                  << " known good nodes to explore new options";
+        if (known_good_nodes.empty()) {
+          LOG(INFO) << "🔍 No known high-quality nodes available, requesting from overlay...";
+        } else if (available_good_nodes.empty()) {
+          LOG(INFO) << "⚠️ All good nodes are overused, exploring new options for burden sharing";
+        } else {
+          LOG(INFO) << "🎲 EXPLORATION MODE: Skipping " << available_good_nodes.size() 
+                    << " available good nodes to explore new options";
+        }
       }
     } else {
       LOG(INFO) << "🔍 No known high-quality nodes available, requesting from overlay...";
@@ -596,15 +775,33 @@ void DownloadArchiveSlice::got_node_to_download(adnl::AdnlNodeIdShort download_f
     return;
   }
 
-  // **NEW: Log node selection details**
+  // **NEW: Record node usage for burden sharing (if not already recorded)**
   if (it != node_qualities_.end()) {
+    // Only record usage if this wasn't already recorded in start_up (to avoid double counting)
+    // We can tell by checking if the usage was recorded very recently (within 1 second)
+    double now = td::Timestamp::now().at();
+    if (it->second.last_used.at() == 0.0 || (now - it->second.last_used.at()) > 1.0) {
+      it->second.record_usage();
+      LOG(INFO) << "📝 Recording usage for node " << download_from 
+                << " | Total Usage: " << it->second.usage_count
+                << " | Recent Usage: " << it->second.recent_usage_count;
+    }
+    
     LOG(INFO) << "🚀 Using node " << download_from 
               << " | Score: " << it->second.get_score()
               << " | Success Rate: " << (it->second.success_rate() * 100) << "%"
               << " | Attempts: " << it->second.total_attempts()
-              << " | Type: " << (it->second.is_new_node() ? "NEW" : "EXPERIENCED");
+              << " | Usage: " << it->second.usage_count
+              << " | Recent Usage: " << it->second.recent_usage_count
+              << " | Type: " << (it->second.is_new_node() ? "NEW" : "EXPERIENCED")
+              << " | Last Used: " << (it->second.last_used.at() > 0 ? 
+                  std::to_string(static_cast<int>(now - it->second.last_used.at())) + "s ago" : "never");
   } else {
-    LOG(INFO) << "🆕 Using completely unknown node " << download_from;
+    // Initialize tracking for completely new node and record usage
+    auto& quality = node_qualities_[download_from];
+    quality.first_seen = td::Timestamp::now();
+    quality.record_usage();
+    LOG(INFO) << "🆕 Using completely unknown node " << download_from << " (first time)";
   }
 
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::BufferSlice> R) {
