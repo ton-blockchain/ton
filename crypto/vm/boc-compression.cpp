@@ -73,6 +73,7 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
 
     bool is_special = false;
     vm::CellSlice cell_slice = vm::load_cell_slice_special(cell, is_special);
+    td::BitSlice cell_bitslice = cell_slice.as_bitslice();
 
     // Initialize new cell in graph
     boc_graph.emplace_back();
@@ -81,12 +82,12 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
 
     // Process special cell of type PrunnedBranch
     if (cell_slice.special_type() == vm::CellTraits::SpecialType::PrunnedBranch) {
-      cell_data.emplace_back(cell_slice.as_bitslice().subslice(16, cell_slice.as_bitslice().size() - 16));
+      cell_data.emplace_back(cell_bitslice.subslice(16, cell_bitslice.size() - 16));
       prunned_branch_level.back() = cell_slice.data()[1];
     } else {
-      cell_data.emplace_back(cell_slice.as_bitslice());
+      cell_data.emplace_back(cell_bitslice);
     }
-    total_size_estimate += cell_slice.as_bitslice().size();
+    total_size_estimate += cell_bitslice.size();
 
     // Process cell references
     for (int i = 0; i < cell_slice.size_refs(); ++i) {
