@@ -53,7 +53,8 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_baseline_lz4(td::Slice
 td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vector<td::Ref<vm::Cell>>& boc_roots) {
   // Initialize data structures for graph representation
   td::HashMap<vm::Cell::Hash, int> cell_hashes;
-  std::vector<std::vector<int>> boc_graph;
+  std::vector<std::array<int, 4>> boc_graph;
+  std::vector<int> refs_cnt;
   std::vector<td::BitSlice> cell_data;
   std::vector<int> cell_type;
   std::vector<int> prunned_branch_level;
@@ -77,6 +78,7 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
 
     // Initialize new cell in graph
     boc_graph.emplace_back();
+    refs_cnt.emplace_back(cell_slice.size_refs());
     cell_type.emplace_back(int(cell_slice.special_type()));
     prunned_branch_level.push_back(0);
 
@@ -92,7 +94,7 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
     // Process cell references
     for (int i = 0; i < cell_slice.size_refs(); ++i) {
       int child_id = self(self, cell_slice.prefetch_ref(i));
-      boc_graph[current_cell_id].push_back(child_id);
+      boc_graph[current_cell_id][i] = child_id;
     }
 
     return current_cell_id;
@@ -111,7 +113,8 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
 
   // Build reverse graph
   for (int i = 0; i < node_count; ++i) {
-    for (int child : boc_graph[i]) {
+    for (int child_index = 0; child_index < refs_cnt[i]; ++child_index) {
+      int child = boc_graph[i][child_index];
       ++edge_count;
       reverse_graph[child].push_back(i);
     }
@@ -134,7 +137,7 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
 
     // Calculate in-degrees and initialize queue
     for (int i = 0; i < node_count; ++i) {
-      in_degree[i] = boc_graph[i].size();
+      in_degree[i] = refs_cnt[i];
       if (in_degree[i] == 0) {
         queue.emplace_back(cell_type[i] == 0, -int(cell_data[i].size()), -i);
       }
@@ -180,7 +183,7 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
     int node = topo_order[i];
     int currrent_cell_type = bool(cell_type[node]) + prunned_branch_level[node];
     result.reserve_bitslice(4).bits().store_uint(currrent_cell_type, 4);
-    result.reserve_bitslice(4).bits().store_uint(boc_graph[node].size(), 4);
+    result.reserve_bitslice(4).bits().store_uint(refs_cnt[node], 4);
 
     if (cell_type[node] != 1) {
       if (is_data_small[node]) {
@@ -197,7 +200,8 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
   auto edge_bits = result.reserve_bitslice(edge_count).bits();
   for (int i = 0; i < node_count; ++i) {
     int node = topo_order[i];
-    for (int child : boc_graph[node]) {
+    for (int child_index = 0; child_index < refs_cnt[node]; ++child_index) {
+      int child = boc_graph[node][child_index];
       edge_bits.store_uint(rank[child] == i + 1, 1);
       ++edge_bits;
     }
@@ -217,7 +221,7 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
     if (node_count - i - 3 <= 0)
       continue;
 
-    for (int j = 0; j < boc_graph[node].size(); ++j) {
+    for (int j = 0; j < refs_cnt[node]; ++j) {
       if (rank[boc_graph[node][j]] <= i + 1)
         continue;
 
@@ -307,7 +311,7 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
   std::vector<int> prunned_branch_level(node_count, 0);
 
   std::vector<vm::CellBuilder> cell_builders(node_count);
-  std::vector<std::vector<int>> boc_graph(node_count);
+  std::vector<std::array<int, 4>> boc_graph(node_count);
 
   // Read cell metadata
   for (int i = 0; i < node_count; ++i) {
@@ -336,7 +340,6 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
         }
       }
     }
-    boc_graph[i].resize(cell_refs_cnt[i]);
   }
 
   // Read direct edge connections
@@ -418,7 +421,8 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
   // Build cell tree
   std::vector<td::Ref<vm::Cell>> nodes(node_count);
   for (int i = node_count - 1; i >= 0; --i) {
-    for (int child : boc_graph[i]) {
+    for (int child_index = 0; child_index < cell_refs_cnt[i]; ++child_index) {
+      int child = boc_graph[i][child_index];
       cell_builders[i].store_ref(nodes[child]);
     }
     nodes[i] = cell_builders[i].finalize(is_special[i]);
