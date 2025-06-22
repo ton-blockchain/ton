@@ -218,6 +218,22 @@ static TypePtr calculate_type_lca(TypePtr a, TypePtr b, bool* became_union = nul
   return resulting_union;
 }
 
+// when `var v = rhs`, `v` is `unknown` before assignment (before rhs->inferred_type is assigned to it);
+// when `var (v1,v2,v3) = rhs`, left side is `(unknown,unknown,unknown)`
+static bool is_type_unknown_from_var_lhs_decl(TypePtr t) {
+  if (t == TypeDataUnknown::create()) {
+    return true;
+  }
+  if (const auto* t_tensor = t->try_as<TypeDataTensor>()) {
+    bool all_unknown = true;
+    for (TypePtr item : t_tensor->items) {
+      all_unknown &=is_type_unknown_from_var_lhs_decl(item);
+    }
+    return all_unknown;
+  }
+  return false;
+}
+
 // merge (unify) of two sign states: what sign do we definitely have
 // it's used on data flow rejoin
 // example: `if (x > 0) ... else ...`; lca(Positive, NonPositive) = Unknown
@@ -263,7 +279,7 @@ BoolState calculate_bool_lca(BoolState a, BoolState b) {
 void TypeInferringUnifyStrategy::unify_with(TypePtr next, TypePtr dest_hint) {
   // example: `var r = ... ? int8 : int16`, will be inferred as `int8 | int16` (via unification)
   // but `var r: int = ... ? int8 : int16`, will be inferred as `int` (it's dest_hint)
-  if (dest_hint && dest_hint != TypeDataUnknown::create() && !dest_hint->unwrap_alias()->try_as<TypeDataUnion>()) {
+  if (dest_hint && !is_type_unknown_from_var_lhs_decl(dest_hint) && !dest_hint->unwrap_alias()->try_as<TypeDataUnion>()) {
     if (dest_hint->can_rhs_be_assigned(next)) {
       next = dest_hint;
     }
