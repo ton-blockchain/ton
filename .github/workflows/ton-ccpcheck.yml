@@ -8,7 +8,7 @@ jobs:
 
     steps:
     - name: Check out repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:      
         submodules: 'recursive'
 
@@ -20,7 +20,7 @@ jobs:
         generate report: true
 
     - name: Upload report
-      uses: actions/upload-artifact@master
+      uses: actions/upload-artifact@v4
       with:
         name: ton-ccpcheck-report
         path: output

@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-22.04-arm
     steps:
       - name: Check out repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           submodules: 'recursive'
 
@@ -52,7 +52,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Check out repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           submodules: 'recursive'
 

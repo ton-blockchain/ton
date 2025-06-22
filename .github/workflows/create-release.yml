@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Download Linux arm64 artifacts
         uses: dawidd6/action-download-artifact@v6
@@ -159,12 +159,10 @@ jobs:
 
       - name: Create release
         id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.tag.outputs.TAG }}
-          release_name: TON ${{ steps.tag.outputs.TAG }}
+          name: TON ${{ steps.tag.outputs.TAG }}
           body: |
             ${{ steps.read_release.outputs.CHANGELOG_BODY }}
           draft: false
