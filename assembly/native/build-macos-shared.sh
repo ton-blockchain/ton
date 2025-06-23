@@ -26,12 +26,9 @@ else
 fi
 
 export NONINTERACTIVE=1
-brew install ninja libsodium libmicrohttpd pkg-config automake libtool autoconf gnutls
 export PATH=/usr/local/opt/ccache/libexec:$PATH
-brew install llvm@16
 
 if [ "$with_ccache" = true ]; then
-  brew install ccache
   mkdir -p ~/.ccache
   export CCACHE_DIR=~/.ccache
   ccache -M 0
@@ -48,40 +45,8 @@ else
   export CXX=/usr/local/opt/llvm@16/bin/clang++
 fi
 
-if [ ! -d "lz4" ]; then
-  git clone https://github.com/lz4/lz4
-  cd lz4
-  lz4Path=`pwd`
-  git checkout v1.9.4
-  make -j4
-  test $? -eq 0 || { echo "Can't compile lz4"; exit 1; }
-  cd ..
-else
-  lz4Path=$(pwd)/lz4
-  echo "Using compiled lz4"
-fi
-
-if [ ! -d "zlib" ]; then
-  git clone https://github.com/madler/zlib.git
-  cd zlib
-  zlibPath=`pwd`
-  ./configure --static
-  make -j4
-  test $? -eq 0 || { echo "Can't compile zlib"; exit 1; }
-  cd ..
-else
-  zlibPath=$(pwd)/zlib
-  echo "Using compiled zlib"
-fi
-
-brew unlink openssl@1.1
-brew install openssl@3
-brew unlink openssl@3 &&  brew link --overwrite openssl@3
-
 cmake -GNinja -DCMAKE_BUILD_TYPE=Release .. \
--DLZ4_FOUND=1 \
--DLZ4_LIBRARIES=$lz4Path/lib/liblz4.a \
--DLZ4_INCLUDE_DIRS=$lz4Path/lib
+-DOPENSSL_ROOT_DIR=$(brew --prefix openssl@3)
 
 test $? -eq 0 || { echo "Can't configure ton"; exit 1; }
 

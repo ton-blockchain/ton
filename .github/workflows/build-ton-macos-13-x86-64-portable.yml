@@ -21,19 +21,10 @@ jobs:
       - name: Setup build environment
         run: |
           # Install required tools for macOS build
-          brew install autoconf automake libtool ccache
-          mkdir -p ~/.ccache 3pp
+          brew install autoconf automake libtool ccache lz4 libsodium openssl@3 zlib libmicrohttpd ninja pkg-config texinfo llvm@16
+          mkdir -p ~/.ccache
 
       # Improved cache with better restore keys
-      - name: Restore 3pp cache
-        uses: actions/cache/restore@v4
-        with:
-          path: 3pp
-          key: ${{ runner.os }}-${{ runner.arch }}-macos-13-3pp-${{ steps.date-stamp.outputs.timestamp }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-macos-13-3pp-
-            ${{ runner.os }}-${{ runner.arch }}-3pp-
-
       - name: Restore ccache
         uses: actions/cache/restore@v4
         with:
@@ -51,13 +42,6 @@ jobs:
           chmod +x build-macos-portable.sh
           ./build-macos-portable.sh -t -a -c -o 13.0
           ccache -sp
-
-      - name: Save 3pp cache
-        uses: actions/cache/save@v4
-        if: always()  # Save cache even if build fails
-        with:
-          path: 3pp
-          key: ${{ runner.os }}-${{ runner.arch }}-macos-13-3pp-${{ steps.date-stamp.outputs.timestamp }}
 
       - name: Save ccache
         uses: actions/cache/save@v4
