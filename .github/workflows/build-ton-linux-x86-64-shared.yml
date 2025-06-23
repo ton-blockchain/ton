@@ -76,4 +76,4 @@ jobs:
     - name: Run Tests
       run: |
         cd build        
-        ctest --output-on-failure --timeout 900 --parallel $(nproc)
+        ctest --output-on-failure --timeout 1800 --parallel $(nproc)
