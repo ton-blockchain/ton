@@ -44,7 +44,6 @@ td::Result<td::BufferSlice> serialize_block_broadcast(const BlockBroadcast& broa
   td::BufferSlice data =
       create_serialize_tl_object<ton_api::tonNode_blockBroadcastCompressed_data>(std::move(sigs), std::move(compressed_boc));
   td::BufferSlice would_be_compressed_data = td::lz4_compress(data);
-  LOG(INFO) << "Compressing block broadcast: " << compressed_boc.size() << " + " << sigs.size() << "->" << data.size() << " but could be " << would_be_compressed_data.size();
   VLOG(FULL_NODE_DEBUG) << "Compressing block broadcast: "
                         << broadcast.data.size() + broadcast.proof.size() + broadcast.signatures.size() * 96 << " -> "
                         << data.size();
