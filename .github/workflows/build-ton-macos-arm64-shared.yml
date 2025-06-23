@@ -20,8 +20,22 @@ jobs:
 
       - name: Setup build environment
         run: |
-          # Install ccache for faster builds
-          brew install ccache ninja libsodium libmicrohttpd pkg-config automake libtool autoconf gnutls llvm@16 openssl@3 lz4 zlib
+          # Install dependencies using brew bundle
+          cat <<EOF | brew bundle install --no-upgrade --file=-
+          brew "ccache"
+          brew "ninja"
+          brew "libsodium"
+          brew "libmicrohttpd"
+          brew "pkg-config"
+          brew "automake"
+          brew "libtool"
+          brew "autoconf"
+          brew "gnutls"
+          brew "llvm@16"
+          brew "openssl@3"
+          brew "lz4"
+          brew "zlib"
+          EOF
           mkdir -p ~/.ccache
 
       # Improved cache with better restore keys

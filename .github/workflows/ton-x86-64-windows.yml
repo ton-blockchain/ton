@@ -60,8 +60,9 @@ jobs:
       # Re-enable tests with optimized settings
       - name: Run Tests
         run: |
+          set "PATH=%CD%\\build\\tonlib;%CD%\\build\\emulator;%PATH%"
           cd build
-          ctest -C Release --output-on-failure -E "test-bigint" --timeout 900 --parallel %NUMBER_OF_PROCESSORS%
+          ctest -C Release --output-on-failure -E "(test-bigint|test-tolk)" --timeout 900 --parallel %NUMBER_OF_PROCESSORS%
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

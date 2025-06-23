@@ -20,8 +20,22 @@ jobs:
 
       - name: Setup build environment
         run: |
-          # Install required tools for macOS build
-          brew install autoconf automake libtool ccache lz4 libsodium openssl@3 zlib libmicrohttpd ninja pkg-config texinfo llvm@16
+          # Install dependencies using brew bundle
+          cat <<EOF | brew bundle install --no-upgrade --file=-
+          brew "autoconf"
+          brew "automake"
+          brew "libtool"
+          brew "ccache"
+          brew "lz4"
+          brew "libsodium"
+          brew "openssl@3"
+          brew "zlib"
+          brew "libmicrohttpd"
+          brew "ninja"
+          brew "pkg-config"
+          brew "texinfo"
+          brew "llvm@16"
+          EOF
           mkdir -p ~/.ccache
 
       # Improved cache with better restore keys
