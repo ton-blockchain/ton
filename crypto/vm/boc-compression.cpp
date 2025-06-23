@@ -55,6 +55,9 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
   if (boc_roots.empty()) {
     return td::Status::Error("No root cells were provided for serialization");
   }
+  if (boc_roots.size() > BagOfCells::default_max_roots) {
+    return td::Status::Error("Too many root cells were provided for serialization");
+  }
   for (const auto& root : boc_roots) {
     if (root.is_null()) {
       return td::Status::Error("Cannot serialize a null cell reference into a bag of cells");
@@ -99,15 +102,11 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
     cell_type.emplace_back(int(cell_slice.special_type()));
     prunned_branch_level.push_back(0);
 
-    if (refs_cnt.back() > 4) {
-      return td::Status::Error("Too many references in cell");
-    }
+    DCHECK(cell_slice.size_refs() <= 4);
 
     // Process special cell of type PrunnedBranch
     if (cell_slice.special_type() == vm::CellTraits::SpecialType::PrunnedBranch) {
-      if (cell_bitslice.size() < 16) {
-        return td::Status::Error("Invalid pruned branch cell format");
-      }
+      DCHECK(cell_slice.size() >= 16);
       cell_data.emplace_back(cell_bitslice.subslice(16, cell_bitslice.size() - 16));
       prunned_branch_level.back() = cell_slice.data()[1];
     } else {
@@ -322,28 +321,75 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
 }
 
 td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4(td::Slice compressed) {
-  // Read decompressed size
-  int decompressed_size = td::BitSlice(compressed.ubegin(), 32).bits().get_uint(32);
-  compressed.remove_prefix(4);
+  constexpr size_t kDecompressedSizeBytes = 4;
+  constexpr size_t kMaxCellDataLengthBits = 1024;
+  constexpr size_t kMaxCntNodes = 65535;
+  constexpr size_t kMaxDecompressedSize = 10 << 20; // 10MB limit
 
-  // Decompress LZ4 data with 2MB max size
-  td::BufferSlice serialized = td::lz4_decompress(compressed, decompressed_size).move_as_ok();
+  // Check minimum input size for decompressed size header
+  if (compressed.size() < kDecompressedSizeBytes) {
+    return td::Status::Error("BOC decompression failed: input too small for header");
+  }
+
+  // Read decompressed size
+  constexpr size_t kSizeBits = kDecompressedSizeBytes * 8;
+  int decompressed_size = td::BitSlice(compressed.ubegin(), kSizeBits).bits().get_uint(kSizeBits);
+  compressed.remove_prefix(4);
+  if (decompressed_size <= 0 || decompressed_size > kMaxDecompressedSize) {
+    return td::Status::Error("BOC decompression failed: invalid decompressed size");
+  }
+
+  // Decompress LZ4 data
+  TRY_RESULT(serialized, td::lz4_decompress(compressed, decompressed_size));
+
+  if (serialized.size() != decompressed_size) {
+    return td::Status::Error("BOC decompression failed: decompressed size mismatch");
+  }
 
   // Initialize bit reader
   td::BitSlice bit_reader(serialized.as_slice().ubegin(), serialized.as_slice().size() * 8);
-  int orig_size = bit_reader.size();
+  size_t orig_size = bit_reader.size();
+
+  // Check enough bits for root count
+  if (bit_reader.size() < 16) {
+    return td::Status::Error("BOC decompression failed: not enough bits for root count");
+  }
 
   int root_count = bit_reader.bits().get_uint(16);
   bit_reader.advance(16);
+  if (root_count < 1 || root_count > BagOfCells::default_max_roots) {
+    return td::Status::Error("BOC decompression failed: invalid root count");
+  }
+
+  // Check enough bits for root indexes
+  if (bit_reader.size() < root_count * 16) {
+    return td::Status::Error("BOC decompression failed: not enough bits for root indexes");
+  }
+
   std::vector<int> root_indexes(root_count);
   for (int i = 0; i < root_count; ++i) {
     root_indexes[i] = bit_reader.bits().get_uint(16);
     bit_reader.advance(16);
   }
 
+  // Check enough bits for node count
+  if (bit_reader.size() < 16) {
+    return td::Status::Error("BOC decompression failed: not enough bits for node count");
+  }
+
   // Read number of nodes from header
   int node_count = bit_reader.bits().get_uint(16);
   bit_reader.advance(16);
+  if (node_count < 1) {
+    return td::Status::Error("BOC decompression failed: invalid node count");
+  }
+
+  // Validate root indexes
+  for (int i = 0; i < root_count; ++i) {
+    if (root_indexes[i] >= node_count) {
+      return td::Status::Error("BOC decompression failed: invalid root index");
+    }
+  }
 
   // Initialize data structures
   std::vector<int> cell_data_length(node_count), is_data_small(node_count);
@@ -355,19 +401,33 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
 
   // Read cell metadata
   for (int i = 0; i < node_count; ++i) {
+    // Check enough bits for cell type and refs count
+    if (bit_reader.size() < 8) {
+      return td::Status::Error("BOC decompression failed: not enough bits for cell metadata");
+    }
+
     int cell_type = bit_reader.bits().get_uint(4);
     is_special[i] = bool(cell_type);
     if (is_special[i]) {
       prunned_branch_level[i] = cell_type - 1;
     }
     bit_reader.advance(4);
+
     cell_refs_cnt[i] = bit_reader.bits().get_uint(4);
     bit_reader.advance(4);
+    if (cell_refs_cnt[i] > 4) {
+      return td::Status::Error("BOC decompression failed: invalid cell refs count");
+    }
 
     if (prunned_branch_level[i]) {
       int coef = prunned_branch_level[i] == 3 ? 2 : 1;
       cell_data_length[i] = (256 + 16) * coef;
     } else {
+      // Check enough bits for data length metadata
+      if (bit_reader.size() < 8) {
+        return td::Status::Error("BOC decompression failed: not enough bits for data length");
+      }
+
       is_data_small[i] = bit_reader.bits().get_uint(1);
       bit_reader.advance(1);
       cell_data_length[i] = bit_reader.bits().get_uint(7);
@@ -380,11 +440,20 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
         }
       }
     }
+
+    // Validate cell data length
+    if (cell_data_length[i] > kMaxCellDataLengthBits) {
+      return td::Status::Error("BOC decompression failed: invalid cell data length");
+    }
   }
 
   // Read direct edge connections
   for (int i = 0; i < node_count; ++i) {
     for (int j = 0; j < cell_refs_cnt[i]; ++j) {
+      if (bit_reader.size() < 1) {
+        return td::Status::Error("BOC decompression failed: not enough bits for edge connections");
+      }
+
       if (bit_reader.bits().get_uint(1)) {
         boc_graph[i][j] = i + 1;
       }
@@ -399,6 +468,10 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
     }
 
     int remainder_bits = cell_data_length[i] % 8;
+    if (bit_reader.size() < remainder_bits) {
+      return td::Status::Error("BOC decompression failed: not enough bits for initial cell data");
+    }
+
     cell_builders[i].store_bits(bit_reader.subslice(0, remainder_bits));
     bit_reader.advance(remainder_bits);
     cell_data_length[i] -= remainder_bits;
@@ -421,25 +494,56 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
         int required_bits = 1 + (31 ^ __builtin_clz(node_count - i - 3));
 
         if (required_bits < 8 - (pref_size + 1) % 8 + 1) {
+          if (bit_reader.size() < required_bits) {
+            return td::Status::Error("BOC decompression failed: not enough bits for edge connection");
+          }
           boc_graph[i][j] = bit_reader.bits().get_uint(required_bits) + i + 2;
           bit_reader.advance(required_bits);
-        } else if (bit_reader.bits().get_uint(1)) {
-          bit_reader.advance(1);
-          pref_size = (orig_size - bit_reader.size());
-          int available_bits = 8 - pref_size % 8;
-          boc_graph[i][j] = bit_reader.bits().get_uint(available_bits) + i + 2;
-          bit_reader.advance(available_bits);
         } else {
-          bit_reader.advance(1);
-          boc_graph[i][j] = bit_reader.bits().get_uint(required_bits) + i + 2;
-          bit_reader.advance(required_bits);
+          if (bit_reader.size() < 1) {
+            return td::Status::Error("BOC decompression failed: not enough bits for edge connection flag");
+          }
+
+          if (bit_reader.bits().get_uint(1)) {
+            bit_reader.advance(1);
+            pref_size = (orig_size - bit_reader.size());
+            int available_bits = 8 - pref_size % 8;
+            if (bit_reader.size() < available_bits) {
+              return td::Status::Error("BOC decompression failed: not enough bits for available connection");
+            }
+            boc_graph[i][j] = bit_reader.bits().get_uint(available_bits) + i + 2;
+            bit_reader.advance(available_bits);
+          } else {
+            bit_reader.advance(1);
+            if (bit_reader.size() < required_bits) {
+              return td::Status::Error("BOC decompression failed: not enough bits for required connection");
+            }
+            boc_graph[i][j] = bit_reader.bits().get_uint(required_bits) + i + 2;
+            bit_reader.advance(required_bits);
+          }
         }
+      }
+    }
+  }
+
+  // Check if all graph connections are valid
+  for (int node = 0; node < node_count; ++node) {
+    for (int j = 0; j < cell_refs_cnt[node]; ++j) {
+      int child_node = boc_graph[node][j];
+      if (child_node < 0 || child_node >= node_count) {
+        return td::Status::Error("BOC decompression failed: invalid graph connection");
+      }
+      if (child_node <= node) {
+        return td::Status::Error("BOC decompression failed: circular reference in graph");
       }
     }
   }
 
   // Align to byte boundary
   while ((orig_size - bit_reader.size()) % 8) {
+    if (bit_reader.size() < 1) {
+      return td::Status::Error("BOC decompression failed: not enough bits for alignment");
+    }
     bit_reader.advance(1);
   }
 
@@ -447,28 +551,42 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
   for (int i = 0; i < node_count; ++i) {
     int padding_bits = 0;
     if (!prunned_branch_level[i] && !is_data_small[i]) {
-      while (bit_reader.bits()[0] == 0) {
+      while (bit_reader.size() > 0 && bit_reader.bits()[0] == 0) {
         ++padding_bits;
         bit_reader.advance(1);
+      }
+      if (bit_reader.size() < 1) {
+        return td::Status::Error("BOC decompression failed: not enough bits for padding terminator");
       }
       bit_reader.advance(1);
       ++padding_bits;
     }
-    cell_builders[i].store_bits(bit_reader.subslice(0, cell_data_length[i] - padding_bits));
-    bit_reader.advance(cell_data_length[i] - padding_bits);
+
+    int remaining_data_bits = cell_data_length[i] - padding_bits;
+    if (bit_reader.size() < remaining_data_bits) {
+      return td::Status::Error("BOC decompression failed: not enough bits for remaining cell data");
+    }
+
+    cell_builders[i].store_bits(bit_reader.subslice(0, remaining_data_bits));
+    bit_reader.advance(remaining_data_bits);
   }
 
   // Build cell tree
   std::vector<td::Ref<vm::Cell>> nodes(node_count);
   for (int i = node_count - 1; i >= 0; --i) {
-    for (int child_index = 0; child_index < cell_refs_cnt[i]; ++child_index) {
-      int child = boc_graph[i][child_index];
-      cell_builders[i].store_ref(nodes[child]);
+    try {
+      for (int child_index = 0; child_index < cell_refs_cnt[i]; ++child_index) {
+        int child = boc_graph[i][child_index];
+        cell_builders[i].store_ref(nodes[child]);
+      }
+      nodes[i] = cell_builders[i].finalize(is_special[i]);
+    } catch (vm::VmError& e) {
+      return td::Status::Error("BOC decompression failed: VM error during cell construction");
     }
-    nodes[i] = cell_builders[i].finalize(is_special[i]);
   }
 
   std::vector<td::Ref<vm::Cell>> root_nodes;
+  root_nodes.reserve(root_count);
   for (int index : root_indexes) {
     root_nodes.push_back(nodes[index]);
   }
