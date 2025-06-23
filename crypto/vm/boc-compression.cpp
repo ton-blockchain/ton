@@ -51,6 +51,16 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_baseline_lz4(td::Slice
 }
 
 td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vector<td::Ref<vm::Cell>>& boc_roots) {
+  // Input validation
+  if (boc_roots.empty()) {
+    return td::Status::Error("No root cells were provided for serialization");
+  }
+  for (const auto& root : boc_roots) {
+    if (root.is_null()) {
+      return td::Status::Error("Cannot serialize a null cell reference into a bag of cells");
+    }
+  }
+
   // Initialize data structures for graph representation
   td::HashMap<vm::Cell::Hash, int> cell_hashes;
   std::vector<std::array<int, 4>> boc_graph;
@@ -62,7 +72,11 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
   int total_size_estimate = 0;
 
   // Build graph representation using recursive lambda
-  const auto build_graph = [&](auto&& self, td::Ref<vm::Cell> cell) -> int {
+  const auto build_graph = [&](auto&& self, td::Ref<vm::Cell> cell) -> td::Result<int> {
+    if (cell.is_null()) {
+      return td::Status::Error("Error while importing a cell during serialization: cell is null");
+    }
+
     auto cell_hash = cell->get_hash();
     auto it = cell_hashes.find(cell_hash);
     if (it != cell_hashes.end()) {
@@ -74,6 +88,9 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
 
     bool is_special = false;
     vm::CellSlice cell_slice = vm::load_cell_slice_special(cell, is_special);
+    if (!cell_slice.is_valid()) {
+      return td::Status::Error("Invalid loaded cell data");
+    }
     td::BitSlice cell_bitslice = cell_slice.as_bitslice();
 
     // Initialize new cell in graph
@@ -82,8 +99,15 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
     cell_type.emplace_back(int(cell_slice.special_type()));
     prunned_branch_level.push_back(0);
 
+    if (refs_cnt.back() > 4) {
+      return td::Status::Error("Too many references in cell");
+    }
+
     // Process special cell of type PrunnedBranch
     if (cell_slice.special_type() == vm::CellTraits::SpecialType::PrunnedBranch) {
+      if (cell_bitslice.size() < 16) {
+        return td::Status::Error("Invalid pruned branch cell format");
+      }
       cell_data.emplace_back(cell_bitslice.subslice(16, cell_bitslice.size() - 16));
       prunned_branch_level.back() = cell_slice.data()[1];
     } else {
@@ -93,7 +117,7 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
 
     // Process cell references
     for (int i = 0; i < cell_slice.size_refs(); ++i) {
-      int child_id = self(self, cell_slice.prefetch_ref(i));
+      TRY_RESULT(child_id, self(self, cell_slice.prefetch_ref(i)));
       boc_graph[current_cell_id][i] = child_id;
     }
 
@@ -102,11 +126,11 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
 
   // Build the graph starting from roots
   for (auto root : boc_roots) {
-    root_indexes.push_back(boc_graph.size());
-    build_graph(build_graph, root);
+    TRY_RESULT(root_cell_id, build_graph(build_graph, root));
+    root_indexes.push_back(root_cell_id);
   }
 
-  // Calculate graph properties
+  // Check graph properties
   const int node_count = boc_graph.size();
   std::vector<std::vector<int>> reverse_graph(node_count);
   int edge_count = 0;
@@ -130,7 +154,7 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
 
   // Perform topological sort
   std::vector<int> topo_order, rank(node_count);
-  const auto topological_sort = [&]() {
+  const auto topological_sort = [&]() -> td::Status {
     std::vector<std::tuple<int, int, int>> queue;
     queue.reserve(node_count);
     std::vector<int> in_degree(node_count);
@@ -141,6 +165,10 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
       if (in_degree[i] == 0) {
         queue.emplace_back(cell_type[i] == 0, -int(cell_data[i].size()), -i);
       }
+    }
+
+    if (queue.empty()) {
+      return td::Status::Error("Cycle detected in cell references");
     }
 
     std::sort(queue.begin(), queue.end());
@@ -157,9 +185,16 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
         }
       }
     }
+
+    if (topo_order.size() != node_count) {
+      return td::Status::Error("Invalid graph structure");
+    }
+
     std::reverse(topo_order.begin(), topo_order.end());
+    return td::Status::OK();
   };
-  topological_sort();
+
+  TRY_STATUS(topological_sort());
 
   // Calculate index of vertices in topsort
   for (int i = 0; i < node_count; ++i) {
@@ -170,6 +205,11 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
   td::BitString result;
   total_size_estimate += (node_count * 10 * 8);
   result.reserve_bits(total_size_estimate);
+
+  // Store roots information
+  if (root_indexes.size() >= (1 << 16)) {
+    return td::Status::Error("Too many root cells");
+  }
   result.reserve_bitslice(16).bits().store_uint(root_indexes.size(), 16);
   for (int root_ind : root_indexes) {
     result.reserve_bitslice(16).bits().store_uint(rank[root_ind], 16);
@@ -215,7 +255,7 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
     result.append(cell_data[node].subslice(0, cell_data[node].size() % 8));
   }
 
-  // Store BOC graph
+  // Store BOC graph with optimized encoding
   for (int i = 0; i < node_count; ++i) {
     int node = topo_order[i];
     if (node_count - i - 3 <= 0)
