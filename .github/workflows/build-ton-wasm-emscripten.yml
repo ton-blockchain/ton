@@ -91,7 +91,7 @@ jobs:
     - name: Setup func-js
       run: |
         cd func-js        
-        npm ci  # Use npm ci for faster, more reliable installs
+        npm install  # Use npm install as func-js may not have package-lock.json
         npm run build
         npm link
 

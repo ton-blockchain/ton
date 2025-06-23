@@ -22,13 +22,25 @@ jobs:
       run: |
         sudo apt update
         sudo apt install -y build-essential git cmake ninja-build zlib1g-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev liblz4-dev ccache libgsl-dev libblas-dev        
-        mkdir ~/.ccache 3pp
+        mkdir -p ~/.ccache 3pp
 
-    - name: Install clang-16
+    # Smart LLVM installation based on Ubuntu version
+    - name: Install LLVM/Clang
       run: |
-        wget https://apt.llvm.org/llvm.sh
-        chmod +x llvm.sh
-        sudo ./llvm.sh 16 clang
+        UBUNTU_VERSION=$(lsb_release -rs)
+        echo "Detected Ubuntu version: $UBUNTU_VERSION"
+        
+        if [[ "$UBUNTU_VERSION" == "24.04" ]]; then
+          # Ubuntu 24.04 has newer clang available in default repos
+          echo "Installing clang from default repos for Ubuntu 24.04"
+          sudo apt-get install -y clang-16 || sudo apt-get install -y clang
+        else
+          # For older Ubuntu versions, use LLVM script
+          echo "Installing clang-16 from LLVM repos for Ubuntu $UBUNTU_VERSION"
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 16 clang || echo "Warning: LLVM script failed, using system clang"
+        fi
 
     - name: Cache 3pp
       id: cache-3pp

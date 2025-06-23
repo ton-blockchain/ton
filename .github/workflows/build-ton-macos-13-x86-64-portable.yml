@@ -18,25 +18,30 @@ jobs:
         run: |
           echo "timestamp=$(date -u "+%Y%m%d%H%M_%S")" >> "$GITHUB_OUTPUT"
 
-      - name: Create directories
+      - name: Setup build environment
         run: |
-          mkdir -p ~/.ccache
-          mkdir -p 3pp
+          # Install required tools for macOS build
+          brew install autoconf automake libtool ccache
+          mkdir -p ~/.ccache 3pp
 
-      - name: Cache 3pp
-        id: cache-3pp
-        uses: actions/cache@v4
+      # Improved cache with better restore keys
+      - name: Restore 3pp cache
+        uses: actions/cache/restore@v4
         with:
           path: 3pp
-          key: ${{ runner.os }}-${{ runner.arch }}-13-3pp-${{ hashFiles('**/assembly/native/build-macos-portable.sh') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-macos-13-3pp-${{ steps.date-stamp.outputs.timestamp }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-macos-13-3pp-
+            ${{ runner.os }}-${{ runner.arch }}-3pp-
 
-      - name: Cache TON test
-        id: cache-ton
-        uses: actions/cache@v4
+      - name: Restore ccache
+        uses: actions/cache/restore@v4
         with:
           path: ~/.ccache
-          key: ${{ runner.os }}-${{ runner.arch }}-13-portable-ccache-${{ steps.date-stamp.outputs.timestamp }}
-          restore-keys: ${{ runner.os }}-${{ runner.arch }}-13-portable-ccache
+          key: ${{ runner.os }}-${{ runner.arch }}-macos-13-portable-ccache-${{ steps.date-stamp.outputs.timestamp }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-macos-13-portable-ccache-
+            ${{ runner.os }}-${{ runner.arch }}-portable-ccache-
 
       - name: Build TON
         run: |
@@ -47,10 +52,25 @@ jobs:
           ./build-macos-portable.sh -t -a -c -o 13.0
           ccache -sp
 
+      - name: Save 3pp cache
+        uses: actions/cache/save@v4
+        if: always()  # Save cache even if build fails
+        with:
+          path: 3pp
+          key: ${{ runner.os }}-${{ runner.arch }}-macos-13-3pp-${{ steps.date-stamp.outputs.timestamp }}
+
+      - name: Save ccache
+        uses: actions/cache/save@v4
+        if: always()  # Save cache even if build fails
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}-${{ runner.arch }}-macos-13-portable-ccache-${{ steps.date-stamp.outputs.timestamp }}
+
+      # Run tests in parallel with reduced timeout for faster feedback
       - name: Run Tests
         run: |
           cd build        
-          ctest --output-on-failure --timeout 1800
+          ctest --output-on-failure --timeout 900 --parallel $(sysctl -n hw.ncpu)
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

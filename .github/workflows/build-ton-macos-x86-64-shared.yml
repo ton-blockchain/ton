@@ -18,17 +18,21 @@ jobs:
         run: |
           echo "timestamp=$(date -u "+%Y%m%d%H%M_%S")" >> "$GITHUB_OUTPUT"
 
-      - name: Create ~/.ccache
+      - name: Setup build environment
         run: |
+          # Install ccache for faster builds
+          brew install ccache
           mkdir -p ~/.ccache
 
-      - name: Cache TON test
-        id: cache-ton
-        uses: actions/cache@v4
+      # Improved cache with better restore keys
+      - name: Restore ccache
+        uses: actions/cache/restore@v4
         with:
           path: ~/.ccache
-          key: ${{ runner.os }}-${{ runner.arch }}-13-shared-ccache-${{ steps.date-stamp.outputs.timestamp }}
-          restore-keys: ${{ runner.os }}-${{ runner.arch }}-13-shared-ccache
+          key: ${{ runner.os }}-${{ runner.arch }}-macos-13-shared-ccache-${{ steps.date-stamp.outputs.timestamp }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-macos-13-shared-ccache-
+            ${{ runner.os }}-${{ runner.arch }}-shared-ccache-
 
       - name: Build TON
         run: |
@@ -39,7 +43,15 @@ jobs:
           ./build-macos-shared.sh -t -c
           ccache -sp
 
+      - name: Save ccache
+        uses: actions/cache/save@v4
+        if: always()  # Save cache even if build fails
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}-${{ runner.arch }}-macos-13-shared-ccache-${{ steps.date-stamp.outputs.timestamp }}
+
+      # Run tests in parallel with reduced timeout for faster feedback
       - name: Run Tests
         run: |
           cd build        
-          ctest --output-on-failure --timeout 1800
+          ctest --output-on-failure --timeout 900 --parallel $(sysctl -n hw.ncpu)
