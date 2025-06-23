@@ -19,6 +19,7 @@
 #pragma once
 
 #include "td/utils/port/thread.h"
+#include "td/utils/port/config.h"
 
 #include <atomic>
 #include <memory>
@@ -67,9 +68,23 @@ class SpinLock {
 #pragma clang diagnostic ignored "-Wdeprecated-pragma"
   std::atomic_flag flag_ = ATOMIC_FLAG_INIT;
 #pragma clang diagnostic pop
-  void unlock() {
+
+#if TD_GCC || TD_CLANG
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wthread-safety-analysis"
+#endif
+  inline void unlock() noexcept {
     flag_.clear(std::memory_order_release);
   }
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
+
+#elif TD_MSVC
+#include "td/utils/port/windows.h"
+  // ... existing code ...
+#endif
 };
 
 }  // namespace td

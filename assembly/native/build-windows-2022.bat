@@ -136,7 +136,7 @@ cmake -GNinja  -DCMAKE_BUILD_TYPE=Release ^
 -DOPENSSL_FOUND=1 ^
 -DOPENSSL_INCLUDE_DIR=%third_libs%\openssl\include ^
 -DOPENSSL_CRYPTO_LIBRARY=%third_libs%\openssl\libcrypto_static.lib ^
--DCMAKE_CXX_FLAGS="/DTD_WINDOWS=1 /EHsc /bigobj" ..
+-DCMAKE_CXX_FLAGS="/DTD_WINDOWS=1 /EHsc /bigobj /wd4068 /wd4200 /wd4334" ..
 
 IF %errorlevel% NEQ 0 (
   echo Can't configure TON
