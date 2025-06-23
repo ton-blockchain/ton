@@ -25,7 +25,7 @@ jobs:
     - name: Install system libraries
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential git cmake ninja-build zlib1g-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev liblz4-dev libjemalloc-dev ccache
+        sudo apt-get install -y build-essential git cmake ninja-build zlib1g-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev liblz4-dev libjemalloc-dev ccache libssl-dev
         mkdir -p ~/.ccache
 
     # Smart LLVM installation based on Ubuntu version
@@ -45,13 +45,6 @@ jobs:
           chmod +x llvm.sh
           sudo ./llvm.sh 16 clang || echo "Warning: LLVM script failed, using system clang"
         fi
-
-    - name: Cache OpenSSL
-      id: cache-openssl
-      uses: actions/cache@v4
-      with:
-        path: openssl_3
-        key: ${{ runner.os }}-${{ runner.arch }}-${{ matrix.os }}-openssl_3-${{ hashFiles('**/assembly/native/build-ubuntu-shared.sh') }}
 
     # Improved ccache setup with better restore keys
     - name: Restore ccache

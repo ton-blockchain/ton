@@ -34,32 +34,14 @@ fi
 export CC=$(which clang-16)
 export CXX=$(which clang++-16)
 
-if [ ! -d "../openssl_3" ]; then
-  git clone https://github.com/openssl/openssl ../openssl_3
-  cd ../openssl_3
-  opensslPath=`pwd`
-  git checkout openssl-3.1.4
-  ./config
-  make build_libs -j$(nproc)
-  test $? -eq 0 || { echo "Can't compile openssl_3"; exit 1; }
-  cd ../build
-else
-  opensslPath=$(pwd)/../openssl_3
-  echo "Using compiled openssl_3"
-fi
-
 cmake -GNinja .. \
 -DCMAKE_BUILD_TYPE=Release \
--DPORTABLE=1 \
--DOPENSSL_ROOT_DIR=$opensslPath \
--DOPENSSL_INCLUDE_DIR=$opensslPath/include \
--DOPENSSL_CRYPTO_LIBRARY=$opensslPath/libcrypto.so
-
+-DPORTABLE=1
 
 test $? -eq 0 || { echo "Can't configure ton"; exit 1; }
 
 if [ "$with_tests" = true ]; then
-ninja storage-daemon storage-daemon-cli fift func tolk tonlib tonlibjson tonlib-cli \
+ninja -j$(nproc) storage-daemon storage-daemon-cli fift func tolk tonlib tonlibjson tonlib-cli \
       validator-engine lite-client validator-engine-console blockchain-explorer \
       generate-random-id json2tlo dht-server http-proxy rldp-http-proxy dht-ping-servers dht-resolve \
       adnl-proxy create-state emulator test-ed25519 test-bigint \
@@ -68,7 +50,7 @@ ninja storage-daemon storage-daemon-cli fift func tolk tonlib tonlibjson tonlib-
       test-fec test-tddb test-db test-validator-session-state test-emulator proxy-liteserver
       test $? -eq 0 || { echo "Can't compile ton"; exit 1; }
 else
-ninja storage-daemon storage-daemon-cli fift func tolk tonlib tonlibjson tonlib-cli \
+ninja -j$(nproc) storage-daemon storage-daemon-cli fift func tolk tonlib tonlibjson tonlib-cli \
       validator-engine lite-client validator-engine-console blockchain-explorer \
       generate-random-id json2tlo dht-server http-proxy rldp-http-proxy \
       adnl-proxy create-state emulator proxy-liteserver dht-ping-servers dht-resolve

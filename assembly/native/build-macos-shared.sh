@@ -51,7 +51,7 @@ cmake -GNinja -DCMAKE_BUILD_TYPE=Release .. \
 test $? -eq 0 || { echo "Can't configure ton"; exit 1; }
 
 if [ "$with_tests" = true ]; then
-  ninja storage-daemon storage-daemon-cli blockchain-explorer   \
+  ninja -j$(sysctl -n hw.ncpu) storage-daemon storage-daemon-cli blockchain-explorer   \
   tonlib tonlibjson tonlib-cli validator-engine func tolk fift \
   lite-client validator-engine-console generate-random-id json2tlo dht-server dht-ping-servers dht-resolve \
   http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork tlbc emulator \
@@ -60,7 +60,7 @@ if [ "$with_tests" = true ]; then
   test-rldp2 test-catchain test-fec test-tddb test-db test-validator-session-state test-emulator proxy-liteserver
   test $? -eq 0 || { echo "Can't compile ton"; exit 1; }
 else
-  ninja storage-daemon storage-daemon-cli blockchain-explorer   \
+  ninja -j$(sysctl -n hw.ncpu) storage-daemon storage-daemon-cli blockchain-explorer   \
   tonlib tonlibjson tonlib-cli validator-engine func tolk fift \
   lite-client validator-engine-console generate-random-id json2tlo dht-server dht-ping-servers dht-resolve \
   http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork tlbc emulator proxy-liteserver

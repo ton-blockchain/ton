@@ -21,8 +21,8 @@ jobs:
     - name: Install system libraries
       run: |
         sudo apt update
-        sudo apt install -y build-essential git cmake ninja-build zlib1g-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev liblz4-dev ccache libgsl-dev libblas-dev        
-        mkdir -p ~/.ccache 3pp
+        sudo apt install -y build-essential git cmake ninja-build zlib1g-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev liblz4-dev ccache libgsl-dev libblas-dev libssl-dev
+        mkdir -p ~/.ccache
 
     # Smart LLVM installation based on Ubuntu version
     - name: Install LLVM/Clang
@@ -41,20 +41,6 @@ jobs:
           chmod +x llvm.sh
           sudo ./llvm.sh 16 clang || echo "Warning: LLVM script failed, using system clang"
         fi
-
-    - name: Cache 3pp
-      id: cache-3pp
-      uses: actions/cache@v4
-      with:
-        path: 3pp
-        key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-3pp-${{ hashFiles('**/assembly/native/build-ubuntu-appimages.sh') }}
-
-    - name: Cache OpenSSL
-      id: cache-openssl
-      uses: actions/cache@v4
-      with:
-        path: openssl_3
-        key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-openssl_3-${{ hashFiles('**/assembly/native/build-ubuntu-appimages.sh') }}
 
     - name: Restore cache TON
       uses: actions/cache/restore@v4
