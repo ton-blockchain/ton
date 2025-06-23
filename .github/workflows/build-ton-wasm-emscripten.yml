@@ -12,17 +12,33 @@ jobs:
       with:
         submodules: 'recursive'
 
+    - name: Date Stamp
+      shell: bash
+      id: date-stamp
+      run: |
+        echo "timestamp=$(date -u "+%Y%m%d%H%M_%S")" >> "$GITHUB_OUTPUT"
+
     - name: Install system libraries
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential git openssl cmake ninja-build zlib1g-dev libssl-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev liblz4-dev libjemalloc-dev
-        mkdir -p 3pp_emscripten
+        sudo apt-get install -y build-essential git openssl cmake ninja-build zlib1g-dev libssl-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev liblz4-dev libjemalloc-dev ccache
+        mkdir -p 3pp_emscripten ~/.ccache
 
+    # Smart LLVM installation with fallback for Ubuntu 24.04 compatibility
     - name: Install clang-16
       run: |
-        wget https://apt.llvm.org/llvm.sh
-        chmod +x llvm.sh
-        sudo ./llvm.sh 16 clang
+        UBUNTU_VERSION=$(lsb_release -rs)
+        echo "Detected Ubuntu version: $UBUNTU_VERSION"
+        
+        if [[ "$UBUNTU_VERSION" == "24.04" ]]; then
+          echo "Installing clang from default repos for Ubuntu 24.04"
+          sudo apt-get install -y clang-16 || sudo apt-get install -y clang
+        else
+          echo "Installing clang-16 from LLVM repos"
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 16 clang || echo "Warning: LLVM script failed, using system clang"
+        fi
 
     - name: Cache OpenSSL
       id: cache-openssl
@@ -38,6 +54,16 @@ jobs:
         path: 3pp_emscripten
         key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-3pp_em-${{ hashFiles('**/assembly/wasm/fift-func-wasm-build-ubuntu.sh') }}
 
+    # Add ccache for faster rebuilds
+    - name: Restore ccache
+      uses: actions/cache/restore@v4
+      with:
+        path: ~/.ccache
+        key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-wasm-ccache-${{ steps.date-stamp.outputs.timestamp }}
+        restore-keys: |
+          ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-wasm-ccache-
+          ${{ runner.os }}-${{ runner.arch }}-wasm-ccache-
+
     - name: Build TON WASM artifacts
       run: |
         git submodule sync --recursive
@@ -45,23 +71,43 @@ jobs:
         cp assembly/wasm/fift-func-wasm-build-ubuntu.sh .
         chmod +x fift-func-wasm-build-ubuntu.sh
         ./fift-func-wasm-build-ubuntu.sh -a
+        ccache -sp
 
-    - name: Prepare test
+    - name: Save ccache
+      uses: actions/cache/save@v4
+      if: always()  # Save cache even if build fails
+      with:
+        path: ~/.ccache
+        key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-wasm-ccache-${{ steps.date-stamp.outputs.timestamp }}
+
+    # Parallelize test preparation and execution
+    - name: Prepare test dependencies
       run: |
-        cp assembly/wasm/*.fc .
-        git clone https://github.com/ton-community/func-js.git
+        # Prepare test files and clone func-js in parallel
+        cp assembly/wasm/*.fc . &
+        git clone --depth 1 https://github.com/ton-community/func-js.git &
+        wait
+
+    - name: Setup func-js
+      run: |
         cd func-js        
-        npm install
+        npm ci  # Use npm ci for faster, more reliable installs
         npm run build
         npm link
 
     - name: Test TON WASM artifacts
       run: |
+        # Optimize base64 encoding and file operations
         base64 -w 0 artifacts/funcfiftlib.wasm > artifacts/funcfiftlib.wasm.js
         printf "module.exports = { FuncFiftLibWasm: '" | cat - artifacts/funcfiftlib.wasm.js > temp.txt && mv temp.txt artifacts/funcfiftlib.wasm.js
         echo "'}" >> artifacts/funcfiftlib.wasm.js
-        cp artifacts/funcfiftlib.wasm.js func-js/node_modules/@ton-community/func-js-bin/dist/funcfiftlib.wasm.js
-        cp artifacts/funcfiftlib.js func-js/node_modules/@ton-community/func-js-bin/dist/funcfiftlib.js
+        
+        # Copy files in parallel
+        cp artifacts/funcfiftlib.wasm.js func-js/node_modules/@ton-community/func-js-bin/dist/funcfiftlib.wasm.js &
+        cp artifacts/funcfiftlib.js func-js/node_modules/@ton-community/func-js-bin/dist/funcfiftlib.js &
+        wait
+        
+        # Run test
         npx func-js stdlib.fc intrinsics.fc --fift ./output.f
     
     - name: Upload artifacts

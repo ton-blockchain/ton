@@ -10,16 +10,37 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  # Generate tag once and share across all jobs for consistency 
+  prepare-tag:
+    runs-on: ubuntu-22.04
+    outputs:
+      tag: ${{ steps.tag.outputs.TAG }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for tags
+
+      - name: Get next tag
+        id: tag
+        run: |
+          git fetch --all --tags
+          NEW_TAG=v$(date +'%Y.%m')
+          FOUND=$(git tag -l | grep -c "^$NEW_TAG" || true)
+          if [ $FOUND -eq 0 ]; then
+            echo "TAG=$NEW_TAG" >> $GITHUB_OUTPUT
+          else
+            echo "TAG=$NEW_TAG-$FOUND" >> $GITHUB_OUTPUT
+          fi
+
+  # Build both architectures in parallel with better caching
   build-arm64:
     runs-on: ubuntu-22.04-arm
+    needs: prepare-tag
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
         with:
           submodules: 'recursive'
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3.5.0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3.10.0
@@ -30,19 +51,6 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Get next tag
-        id: tag
-        run: |
-          git fetch --all --tags
-          git tag -l
-          NEW_TAG=v$(date +'%Y.%m')
-          FOUND=$(git tag -l | grep $NEW_TAG | wc -l)
-          if [ $FOUND -eq 0 ]; then
-            echo "TAG=$NEW_TAG" >> $GITHUB_OUTPUT
-          else
-            echo "TAG=$NEW_TAG-$FOUND" >> $GITHUB_OUTPUT
-          fi
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -50,18 +58,18 @@ jobs:
           platforms: linux/arm64
           push: true
           context: ./
-          tags:  ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.TAG }}-arm64
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.prepare-tag.outputs.tag }}-arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   build-amd64:
     runs-on: ubuntu-22.04
+    needs: prepare-tag
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
         with:
           submodules: 'recursive'
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3.5.0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3.10.0
@@ -73,49 +81,20 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Get next tag
-        id: tag
-        run: |
-          git fetch --all --tags
-          git tag -l
-          NEW_TAG=v$(date +'%Y.%m')
-          FOUND=$(git tag -l | grep $NEW_TAG | wc -l)
-          if [ $FOUND -eq 0 ]; then
-            echo "TAG=$NEW_TAG" >> $GITHUB_OUTPUT
-          else
-            echo "TAG=$NEW_TAG-$FOUND" >> $GITHUB_OUTPUT
-          fi
-
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           platforms: linux/amd64
           push: true
           context: ./
-          tags:  ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.TAG }}-amd64
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.prepare-tag.outputs.tag }}-amd64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   merge:
     runs-on: ubuntu-22.04
-    needs:
-      - build-amd64
-      - build-arm64
+    needs: [prepare-tag, build-amd64, build-arm64]
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Get next tag
-        id: tag
-        run: |
-          git fetch --all --tags
-          git tag -l
-          NEW_TAG=v$(date +'%Y.%m')
-          FOUND=$(git tag -l | grep $NEW_TAG | wc -l)
-          if [ $FOUND -eq 0 ]; then
-            echo "TAG=$NEW_TAG" >> $GITHUB_OUTPUT
-          else
-            echo "TAG=$NEW_TAG-$FOUND" >> $GITHUB_OUTPUT
-          fi
-
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -130,8 +109,8 @@ jobs:
         run: |
           docker buildx imagetools create \
             --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.TAG }}-arm64 \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.TAG }}-amd64
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.prepare-tag.outputs.tag }}-arm64 \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.prepare-tag.outputs.tag }}-amd64
 
       - name: Inspect image
         run: |
