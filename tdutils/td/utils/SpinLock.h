@@ -82,8 +82,10 @@ class SpinLock {
 #endif
 
 #elif TD_MSVC
-#include "td/utils/port/windows.h"
-  // ... existing code ...
+#include "td/utils/common.h"  // This includes Windows.h properly
+  inline void unlock() noexcept {
+    flag_.clear(std::memory_order_release);
+  }
 #endif
 };
 
