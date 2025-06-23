@@ -40,16 +40,17 @@ td::Result<td::BufferSlice> serialize_block_broadcast(const BlockBroadcast& broa
 
   TRY_RESULT(proof_root, vm::std_boc_deserialize(broadcast.proof));
   TRY_RESULT(data_root, vm::std_boc_deserialize(broadcast.data));
-  TRY_RESULT(boc, vm::std_boc_serialize_multi({proof_root, data_root}, 2));
+  TRY_RESULT(compressed_boc, vm::boc_compress({proof_root, data_root}, vm::CompressionAlgorithm::ImprovedStructureLZ4));
   td::BufferSlice data =
-      create_serialize_tl_object<ton_api::tonNode_blockBroadcastCompressed_data>(std::move(sigs), std::move(boc));
-  td::BufferSlice compressed = td::lz4_compress(data);
+      create_serialize_tl_object<ton_api::tonNode_blockBroadcastCompressed_data>(std::move(sigs), std::move(compressed_boc));
+  td::BufferSlice would_be_compressed_data = td::lz4_compress(data);
+  LOG(INFO) << "Compressing block broadcast: " << compressed_boc.size() << " + " << sigs.size() << "->" << data.size() << " but could be " << would_be_compressed_data.size();
   VLOG(FULL_NODE_DEBUG) << "Compressing block broadcast: "
                         << broadcast.data.size() + broadcast.proof.size() + broadcast.signatures.size() * 96 << " -> "
-                        << compressed.size();
+                        << data.size();
   return create_serialize_tl_object<ton_api::tonNode_blockBroadcastCompressed>(
       create_tl_block_id(broadcast.block_id), broadcast.catchain_seqno, broadcast.validator_set_hash, 0,
-      std::move(compressed));
+      std::move(data));
 }
 
 static td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_blockBroadcast& f) {
@@ -67,13 +68,12 @@ static td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_b
 
 static td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_blockBroadcastCompressed& f,
                                                               int max_decompressed_size) {
-  TRY_RESULT(decompressed, td::lz4_decompress(f.compressed_, max_decompressed_size));
-  TRY_RESULT(f2, fetch_tl_object<ton_api::tonNode_blockBroadcastCompressed_data>(decompressed, true));
+  TRY_RESULT(f2, fetch_tl_object<ton_api::tonNode_blockBroadcastCompressed_data>(f.compressed_, true));
   std::vector<BlockSignature> signatures;
   for (auto& sig : f2->signatures_) {
     signatures.emplace_back(BlockSignature{sig->who_, std::move(sig->signature_)});
   }
-  TRY_RESULT(roots, vm::std_boc_deserialize_multi(f2->proof_data_, 2));
+  TRY_RESULT(roots, vm::boc_decompress(f2->proof_data_));
   if (roots.size() != 2) {
     return td::Status::Error("expected 2 roots in boc");
   }
@@ -185,8 +185,6 @@ static td::Status deserialize_block_candidate_broadcast(ton_api::tonNode_newBloc
   block_id = create_block_id(obj.id_);
   cc_seqno = obj.catchain_seqno_;
   validator_set_hash = obj.validator_set_hash_;
-  // TRY_RESULT(decompressed, td::lz4_decompress(obj.compressed_, max_decompressed_data_size));
-  // TRY_RESULT(root, vm::std_boc_deserialize(decompressed));
   TRY_RESULT(roots, vm::boc_decompress(obj.compressed_));
   if (roots.size() != 1) {
     return td::Status::Error("expected 1 root in boc");
