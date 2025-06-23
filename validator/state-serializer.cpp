@@ -578,7 +578,9 @@ void AsyncStateSerializer::got_shard_state(BlockHandle handle, td::Ref<ShardStat
 void AsyncStateSerializer::write_shard_state(BlockHandle handle, ShardIdFull shard,
                                              std::shared_ptr<vm::CellDbReader> cell_db_reader,
                                              std::shared_ptr<std::vector<SerializablePart>> parts, size_t idx) {
-  auto [type, cell] = parts->at(idx);
+  auto part = parts->at(idx);
+  auto type = part.type;
+  auto cell = part.cell;
 
   auto write_data = [=, this,
                      cancellation_token = cancellation_token_source_.get_cancellation_token()](td::FileFd& fd) mutable {
