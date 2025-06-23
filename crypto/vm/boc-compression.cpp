@@ -595,6 +595,11 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
 }
 
 td::Result<td::BufferSlice> boc_compress(const std::vector<td::Ref<vm::Cell>>& boc_roots, CompressionAlgorithm algo) {
+  // Check for empty input
+  if (boc_roots.empty()) {
+    return td::Status::Error("Cannot compress empty BOC roots");
+  }
+
   td::BufferSlice compressed;
   if (algo == CompressionAlgorithm::BaselineLZ4) {
     TRY_RESULT_ASSIGN(compressed, boc_compress_baseline_lz4(boc_roots));
@@ -603,6 +608,7 @@ td::Result<td::BufferSlice> boc_compress(const std::vector<td::Ref<vm::Cell>>& b
   } else {
       return td::Status::Error("Unknown compression algorithm");
   }
+
   td::BufferSlice compressed_with_algo(compressed.size() + 1);
   compressed_with_algo.data()[0] = int(algo);
   memcpy(compressed_with_algo.data() + 1, compressed.data(), compressed.size());
@@ -610,8 +616,13 @@ td::Result<td::BufferSlice> boc_compress(const std::vector<td::Ref<vm::Cell>>& b
 }
 
 td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress(td::Slice compressed) {
+  if (compressed.size() == 0) {
+    return td::Status::Error("Can't decompress empty data");
+  }
+
   int algo = int(compressed[0]);
   compressed.remove_prefix(1);
+
   switch (algo) {
     case int(CompressionAlgorithm::BaselineLZ4):
       return boc_decompress_baseline_lz4(compressed);
