@@ -1,4 +1,4 @@
-#!/usr/bin/fift -s
+tuuputamadre/ton#!/usr/bin/fift -s
 "Asm.fif" include
 
 // New advanced wallet code adapted from `auto/wallet3-code.fif`
