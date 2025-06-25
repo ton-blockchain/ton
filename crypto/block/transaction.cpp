@@ -562,6 +562,44 @@ bool Account::init_new(ton::UnixTime now) {
 }
 
 /**
+ * Initializes account_storage_stat of the account using the existing dict_root.
+ * This is not strictly necessary, as the storage stat is recomputed in Transaction.
+ * However, it can be used to optimize cell usage.
+ * This requires storage_dict_hash to be set, as it guarantees that the stored storage_used was computed recently
+ * (in older versions it included extra currency balance, in newer versions it does not).
+ *
+ * @param dict_root Root of the storage dictionary.
+ *
+ * @returns Status of the operation.
+ */
+td::Status Account::init_account_storage_stat(Ref<vm::Cell> dict_root) {
+  if (storage.is_null()) {
+    if (dict_root.not_null()) {
+      return td::Status::Error("storage is null, but dict_root is not null");
+    }
+    account_storage_stat = {};
+    return td::Status::OK();
+  }
+  if (!storage_dict_hash) {
+    return td::Status::Error("cannot init storage dict: storage_dict_hash is not set");
+  }
+  // Root of AccountStorage is not counted in AccountStorageStat
+  if (storage_used.cells < 1 || storage_used.bits < storage->size()) {
+    return td::Status::Error(PSTRING() << "storage_used is too small: cells=" << storage_used.cells
+                                       << " bits=" << storage_used.bits << " storage_root_bits=" << storage->size());
+  }
+  AccountStorageStat new_stat(std::move(dict_root), storage->prefetch_all_refs(), storage_used.cells - 1,
+                              storage_used.bits - storage->size());
+  TRY_RESULT(root_hash, new_stat.get_dict_hash());
+  if (storage_dict_hash.value() != root_hash) {
+    return td::Status::Error(PSTRING() << "invalid storage dict hash: computed " << root_hash.to_hex() << ", found "
+                                       << storage_dict_hash.value().to_hex());
+  }
+  account_storage_stat = std::move(new_stat);
+  return td::Status::OK();
+}
+
+/**
  * Resets the fixed prefix length of the account.
  *
  * @returns True if the fixed prefix length was successfully reset, false otherwise.

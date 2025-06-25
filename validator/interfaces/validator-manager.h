@@ -221,6 +221,13 @@ class ValidatorManager : public ValidatorManagerInterface {
 
   virtual void add_persistent_state_description(td::Ref<PersistentStateDescription> desc) = 0;
 
+  virtual void get_storage_stat_cache(td::Promise<std::function<td::Ref<vm::Cell>(const td::Bits256&)>> promise) {
+    promise.set_error(td::Status::Error("not implemented"));
+  }
+  virtual void update_storage_stat_cache(std::vector<std::pair<td::Ref<vm::Cell>, td::uint32>> data) {
+    // not implemented
+  }
+
   static bool is_persistent_state(UnixTime ts, UnixTime prev_ts) {
     return ts / (1 << 17) != prev_ts / (1 << 17);
   }

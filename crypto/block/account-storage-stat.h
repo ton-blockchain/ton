@@ -57,6 +57,10 @@ class AccountStorageStat {
     return root.is_null() ? td::Bits256::zero() : td::Bits256{root->get_hash().bits()};
   }
 
+  bool is_dict_ready() const {
+    return dict_up_to_date_;
+  }
+
   void apply_child_stat(AccountStorageStat &&child);
 
   static constexpr int errorcode_limits_exceeded = 999;
