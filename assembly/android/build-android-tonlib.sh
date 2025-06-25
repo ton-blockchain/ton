@@ -38,7 +38,8 @@ rm -rf example/android/src/drinkless/org/ton/TonApi.java
 cd example/android/
 
 rm CMakeCache.txt .ninja_*
-cmake -GNinja -DTON_ONLY_TONLIB=ON .
+cmake -GNinja -DTON_ONLY_TONLIB=ON . \
+-DCMAKE_CXX_FLAGS="-w"
 
 test $? -eq 0 || { echo "Can't configure TON"; exit 1; }
 

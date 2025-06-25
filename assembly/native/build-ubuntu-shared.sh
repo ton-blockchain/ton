@@ -38,7 +38,8 @@ export CC=$(which clang-16)
 export CXX=$(which clang++-16)
 
 cmake -GNinja -DTON_USE_JEMALLOC=ON .. \
--DCMAKE_BUILD_TYPE=Release
+-DCMAKE_BUILD_TYPE=Release \
+-DCMAKE_CXX_FLAGS="-w"
 
 test $? -eq 0 || { echo "Can't configure ton"; exit 1; }
 

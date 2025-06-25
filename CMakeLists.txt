@@ -259,6 +259,10 @@ elseif (CLANG OR GCC)
   endif()
 endif()
 
+if (PORTABLE AND (CLANG OR GCC) AND NOT APPLE AND NOT ANDROID)
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-libstdc++ -latomic")
+endif()
+
 if (WIN32)
   add_definitions(-DNTDDI_VERSION=0x06020000 -DWINVER=0x0602 -D_WIN32_WINNT=0x0602 -DNOMINMAX -DUNICODE -D_UNICODE)
 endif()

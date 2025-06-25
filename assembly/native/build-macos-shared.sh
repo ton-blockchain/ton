@@ -46,7 +46,8 @@ else
 fi
 
 cmake -GNinja -DCMAKE_BUILD_TYPE=Release .. \
--DOPENSSL_ROOT_DIR=$(brew --prefix openssl@3)
+-DOPENSSL_ROOT_DIR=$(brew --prefix openssl@3) \
+-DCMAKE_CXX_FLAGS="-w"
 
 test $? -eq 0 || { echo "Can't configure ton"; exit 1; }
 
