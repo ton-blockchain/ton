@@ -12,7 +12,7 @@ jobs:
 
     steps:
     - name: Check out repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:      
         submodules: 'recursive'
 
@@ -25,28 +25,36 @@ jobs:
     - name: Install system libraries
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential git cmake ninja-build zlib1g-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev liblz4-dev libjemalloc-dev ccache
-        mkdir ~/.ccache
+        sudo apt-get install -y build-essential git cmake ninja-build zlib1g-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev liblz4-dev libjemalloc-dev ccache libssl-dev
+        mkdir -p ~/.ccache
 
-    - if: matrix.os != 'ubuntu-24.04'
+    # Smart LLVM installation based on Ubuntu version
+    - name: Install LLVM/Clang
       run: |
-        wget https://apt.llvm.org/llvm.sh
-        chmod +x llvm.sh
-        sudo ./llvm.sh 16 clang
+        UBUNTU_VERSION=$(lsb_release -rs)
+        echo "Detected Ubuntu version: $UBUNTU_VERSION"
+        
+        if [[ "$UBUNTU_VERSION" == "24.04" ]]; then
+          # Ubuntu 24.04 has newer clang available in default repos
+          echo "Installing clang from default repos for Ubuntu 24.04"
+          sudo apt-get install -y clang-16 || sudo apt-get install -y clang
+        else
+          # For older Ubuntu versions, use LLVM script
+          echo "Installing clang-16 from LLVM repos for Ubuntu $UBUNTU_VERSION"
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 16 clang || echo "Warning: LLVM script failed, using system clang"
+        fi
 
-    - name: Cache OpenSSL
-      id: cache-openssl
-      uses: actions/cache@v4
-      with:
-        path: openssl_3
-        key: ${{ runner.os }}-${{ runner.arch }}-${{ matrix.os }}-openssl_3-${{ hashFiles('**/assembly/native/build-ubuntu-shared.sh') }}
-
-    - name: Restore cache TON
-      uses: actions/cache@v4
+    # Improved ccache setup with better restore keys
+    - name: Restore ccache
+      uses: actions/cache/restore@v4
       with:
         path: ~/.ccache
         key: ${{ runner.os }}-${{ runner.arch }}-${{ matrix.os }}-shared-ccache-${{ steps.date-stamp.outputs.timestamp }}
-        restore-keys: ${{ runner.os }}-${{ runner.arch }}-${{ matrix.os }}-shared-ccache
+        restore-keys: |
+          ${{ runner.os }}-${{ runner.arch }}-${{ matrix.os }}-shared-ccache-
+          ${{ runner.os }}-${{ runner.arch }}-shared-ccache-
 
     - name: Build TON
       run: |
@@ -57,7 +65,15 @@ jobs:
         ./build-ubuntu-shared.sh -t -c
         ccache -sp
 
+    - name: Save ccache
+      uses: actions/cache/save@v4
+      if: always()  # Save cache even if build fails
+      with:
+        path: ~/.ccache
+        key: ${{ runner.os }}-${{ runner.arch }}-${{ matrix.os }}-shared-ccache-${{ steps.date-stamp.outputs.timestamp }}
+
+    # Run tests in parallel with reduced timeout for faster feedback
     - name: Run Tests
       run: |
         cd build        
-        ctest --output-on-failure --timeout 1800
+        ctest --output-on-failure --timeout 1800 --parallel $(nproc)

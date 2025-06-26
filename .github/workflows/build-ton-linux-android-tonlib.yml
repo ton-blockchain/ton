@@ -8,8 +8,8 @@ jobs:
 
     steps:
     - name: Check out repository
-      uses: actions/checkout@v3
-      with:      
+      uses: actions/checkout@v4
+      with:
         submodules: 'recursive'
 
     - name: Install system libraries
@@ -36,7 +36,7 @@ jobs:
         ./build-android-tonlib.sh -a
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@master
+      uses: actions/upload-artifact@v4
       with:
         name: ton-android-tonlib
         path: artifacts

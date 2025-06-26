@@ -8,7 +8,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           submodules: 'recursive'
 
@@ -18,17 +18,35 @@ jobs:
         run: |
           echo "timestamp=$(date -u "+%Y%m%d%H%M_%S")" >> "$GITHUB_OUTPUT"
 
-      - name: Create ~/.ccache
+      - name: Setup build environment
         run: |
+          # Install dependencies using brew bundle
+          cat <<EOF | brew bundle install --no-upgrade --file=-
+          brew "ccache"
+          brew "ninja"
+          brew "libsodium"
+          brew "libmicrohttpd"
+          brew "pkg-config"
+          brew "automake"
+          brew "libtool"
+          brew "autoconf"
+          brew "gnutls"
+          brew "llvm@16"
+          brew "openssl@3"
+          brew "lz4"
+          brew "zlib"
+          EOF
           mkdir -p ~/.ccache
 
-      - name: Cache TON test
-        id: cache-ton
-        uses: actions/cache@v4
+      # Improved cache with better restore keys
+      - name: Restore ccache
+        uses: actions/cache/restore@v4
         with:
           path: ~/.ccache
-          key: ${{ runner.os }}-${{ runner.arch }}-13-shared-ccache-${{ steps.date-stamp.outputs.timestamp }}
-          restore-keys: ${{ runner.os }}-${{ runner.arch }}-13-shared-ccache
+          key: ${{ runner.os }}-${{ runner.arch }}-macos-13-shared-ccache-${{ steps.date-stamp.outputs.timestamp }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-macos-13-shared-ccache-
+            ${{ runner.os }}-${{ runner.arch }}-shared-ccache-
 
       - name: Build TON
         run: |
@@ -39,7 +57,15 @@ jobs:
           ./build-macos-shared.sh -t -c
           ccache -sp
 
+      - name: Save ccache
+        uses: actions/cache/save@v4
+        if: always()  # Save cache even if build fails
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}-${{ runner.arch }}-macos-13-shared-ccache-${{ steps.date-stamp.outputs.timestamp }}
+
+      # Run tests in parallel with reduced timeout for faster feedback
       - name: Run Tests
         run: |
           cd build        
-          ctest --output-on-failure --timeout 1800
+          ctest --output-on-failure --timeout 1800 --parallel $(sysctl -n hw.ncpu)

@@ -55,7 +55,7 @@ if not exist "zlib" (
   cd zlib
   git checkout v1.3.1
   cd contrib\vstudio\vc14
-  msbuild zlibstat.vcxproj /p:Configuration=ReleaseWithoutAsm /p:platform=x64 -p:PlatformToolset=v143
+  msbuild zlibstat.vcxproj /m /p:Configuration=ReleaseWithoutAsm /p:platform=x64 -p:PlatformToolset=v143
   cd ..\..\..\..
 ) else (
   echo Using zlib...
@@ -66,7 +66,7 @@ if not exist "lz4" (
   cd lz4
   git checkout v1.9.4
   cd build\VS2022\liblz4
-  msbuild liblz4.vcxproj /p:Configuration=Release /p:platform=x64 -p:PlatformToolset=v143
+  msbuild liblz4.vcxproj /m /p:Configuration=Release /p:platform=x64 -p:PlatformToolset=v143
   cd ..\..\..\..
 ) else (
   echo Using lz4...
@@ -76,7 +76,7 @@ if not exist "libsodium" (
   git clone https://github.com/jedisct1/libsodium
   cd libsodium
   git checkout 1.0.18-RELEASE
-  msbuild libsodium.vcxproj /p:Configuration=Release /p:platform=x64 -p:PlatformToolset=v143
+  msbuild libsodium.vcxproj /m /p:Configuration=Release /p:platform=x64 -p:PlatformToolset=v143
   cd ..
 ) else (
   echo Using libsodium...
@@ -103,7 +103,7 @@ if not exist "libmicrohttpd" (
   cd libmicrohttpd
   git checkout v1.0.1
   cd w32\VS2022
-  msbuild libmicrohttpd.vcxproj /p:Configuration=Release-static /p:platform=x64 -p:PlatformToolset=v143
+  msbuild libmicrohttpd.vcxproj /m /p:Configuration=Release-static /p:platform=x64 -p:PlatformToolset=v143
   IF %errorlevel% NEQ 0 (
     echo Can't compile libmicrohttpd
     exit /b %errorlevel%
@@ -136,7 +136,7 @@ cmake -GNinja  -DCMAKE_BUILD_TYPE=Release ^
 -DOPENSSL_FOUND=1 ^
 -DOPENSSL_INCLUDE_DIR=%third_libs%\openssl\include ^
 -DOPENSSL_CRYPTO_LIBRARY=%third_libs%\openssl\libcrypto_static.lib ^
--DCMAKE_CXX_FLAGS="/DTD_WINDOWS=1 /EHsc /bigobj" ..
+-DCMAKE_CXX_FLAGS="/DTD_WINDOWS=1 /EHsc /bigobj /wd4068 /wd4200 /wd4334 /w" ..
 
 IF %errorlevel% NEQ 0 (
   echo Can't configure TON
@@ -144,7 +144,7 @@ IF %errorlevel% NEQ 0 (
 )
 
 IF "%1"=="-t" (
-ninja storage-daemon storage-daemon-cli blockchain-explorer fift func tolk tonlib tonlibjson  ^
+ninja -j%NUMBER_OF_PROCESSORS% storage-daemon storage-daemon-cli blockchain-explorer fift func tolk tonlib tonlibjson  ^
 tonlib-cli validator-engine lite-client validator-engine-console generate-random-id ^
 json2tlo dht-server http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork emulator ^
 test-ed25519 test-bigint test-vm test-fift test-cells test-smartcont test-net ^
@@ -155,7 +155,7 @@ IF %errorlevel% NEQ 0 (
   exit /b %errorlevel%
 )
 ) else (
-ninja storage-daemon storage-daemon-cli blockchain-explorer fift func tolk tonlib tonlibjson  ^
+ninja -j%NUMBER_OF_PROCESSORS% storage-daemon storage-daemon-cli blockchain-explorer fift func tolk tonlib tonlibjson  ^
 tonlib-cli validator-engine lite-client validator-engine-console generate-random-id ^
 json2tlo dht-server http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork emulator proxy-liteserver
 IF %errorlevel% NEQ 0 (

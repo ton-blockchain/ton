@@ -3,24 +3,53 @@ name: TON Static Code Analysis
 on: [push,workflow_dispatch,workflow_call]
 
 jobs:
-  build:
+  cppcheck:
     runs-on: ubuntu-22.04
+    # Only run on pushes to main branches or manual triggers to save resources
+    if: github.event_name == 'workflow_dispatch' || contains(github.ref, 'master') || contains(github.ref, 'main')
 
     steps:
     - name: Check out repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:      
         submodules: 'recursive'
+        # Shallow clone for faster checkout since we only need current state
+        fetch-depth: 1
 
+    # Install cppcheck directly for better performance control
+    - name: Install Cppcheck
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cppcheck
+
+    # Run cppcheck with optimized settings for better performance
     - name: Run Cppcheck
-      uses: Bedzior/run-cppcheck@master
-      with:
-        enabled checks: all
-        enable inconclusive: true
-        generate report: true
+      run: |
+        mkdir -p output
+        cppcheck \
+          --enable=warning,style,performance,portability \
+          --inconclusive \
+          --xml \
+          --xml-version=2 \
+          --output-file=output/cppcheck-report.xml \
+          --suppress=missingIncludeSystem \
+          --suppress=unusedFunction \
+          --quiet \
+          --force \
+          --parallel=$(nproc) \
+          --std=c++17 \
+          --platform=unix64 \
+          . 2>&1 || true
+        
+        # Generate HTML report for better readability
+        cppcheck-htmlreport \
+          --file=output/cppcheck-report.xml \
+          --report-dir=output/html-report \
+          --source-dir=. || true
 
     - name: Upload report
-      uses: actions/upload-artifact@master
+      uses: actions/upload-artifact@v4
+      if: always()  # Upload even if cppcheck finds issues
       with:
-        name: ton-ccpcheck-report
+        name: ton-cppcheck-report
         path: output

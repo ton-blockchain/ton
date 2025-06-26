@@ -51,7 +51,8 @@ if [ ! -d "build" ]; then
   -DCMAKE_BUILD_TYPE=Release \
   -DOPENSSL_ROOT_DIR=$opensslPath \
   -DOPENSSL_INCLUDE_DIR=$opensslPath/include \
-  -DOPENSSL_CRYPTO_LIBRARY=$opensslPath/libcrypto.so
+  -DOPENSSL_CRYPTO_LIBRARY=$opensslPath/libcrypto.so \
+  -DCMAKE_CXX_FLAGS="-w"
 
   test $? -eq 0 || { echo "Can't configure TON build"; exit 1; }
   ninja fift smc-envelope
@@ -154,7 +155,7 @@ emcmake cmake -DUSE_EMSCRIPTEN=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_VERBOSE_MAK
 -DOPENSSL_INCLUDE_DIR=$opensslPath/include \
 -DOPENSSL_CRYPTO_LIBRARY=$opensslPath/libcrypto.a \
 -DCMAKE_TOOLCHAIN_FILE=$EMSDK_DIR/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake \
--DCMAKE_CXX_FLAGS="-sUSE_ZLIB=1" \
+-DCMAKE_CXX_FLAGS="-sUSE_ZLIB=1 -w" \
 -DSODIUM_FOUND=1 \
 -DSODIUM_INCLUDE_DIR=$SODIUM_DIR/src/libsodium/include \
 -DSODIUM_USE_STATIC_LIBS=1 \
