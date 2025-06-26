@@ -65,9 +65,9 @@ else
   echo "Using compiled lz4"
 fi
 
-if [ ! -d "../3pp/libsodium" ]; then
+if [ ! -d "../3pp/libsodium-1.0.18" ]; then
   export LIBSODIUM_FULL_BUILD=1
-  cd ../3pp/libsodium
+  cd ../3pp
   curl -LO https://download.libsodium.org/libsodium/releases/libsodium-1.0.18.tar.gz
   tar -xzf libsodium-1.0.18.tar.gz
   cd libsodium-1.0.18
@@ -75,9 +75,9 @@ if [ ! -d "../3pp/libsodium" ]; then
   ./configure --with-pic --enable-static
   make -j4
   test $? -eq 0 || { echo "Can't compile libsodium"; exit 1; }
-  cd ../../../build
+  cd ../../build
 else
-  sodiumPath=$(pwd)/../3pp/libsodium/libsodium-1.0.18
+  sodiumPath=$(pwd)/../3pp/libsodium-1.0.18
   echo "Using compiled libsodium"
 fi
 
