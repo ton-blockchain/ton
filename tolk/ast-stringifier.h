@@ -247,7 +247,7 @@ class ASTStringifier final : public ASTVisitor {
       case ast_import_directive:
         return static_cast<std::string>(v->as<ast_import_directive>()->get_file_leaf()->str_val);
       case ast_tolk_file:
-        return v->as<ast_tolk_file>()->file->rel_filename;
+        return v->as<ast_tolk_file>()->file->realpath;
       default:
         return {};
     }

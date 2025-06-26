@@ -1,4 +1,4 @@
-import "imports/use-dicts.tolk"
+import "imports/use-dicts.ext.tolk"
 
 fun simpleAllConst() {
     return (!0, !!0 & !false, !!!0, !1, !!1, !-1, !!-1, (!5 as int == 0) == !0, !0 == true);

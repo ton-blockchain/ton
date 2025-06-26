@@ -168,6 +168,9 @@ class TypeNodesVisitorResolver {
         }
         if (const Symbol* sym = lookup_global_symbol(text)) {
           if (TypePtr custom_type = try_resolve_user_defined_type(cur_f, loc, sym, allow_without_type_arguments)) {
+            if (!v->loc.is_symbol_from_same_or_builtin_file(sym->loc)) {
+              sym->check_import_exists_when_used_from(cur_f, v->loc);
+            }
             return custom_type;
           }
         }

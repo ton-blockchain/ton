@@ -43,6 +43,8 @@ struct Symbol {
 #endif
     return dynamic_cast<ConstTPtr>(this);
   }
+
+  void check_import_exists_when_used_from(FunctionPtr cur_f, SrcLocation used_loc) const;
 };
 
 struct LocalVarData final : Symbol {

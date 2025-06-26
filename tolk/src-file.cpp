@@ -24,41 +24,44 @@ namespace tolk {
 
 static_assert(sizeof(SrcLocation) == 8);
 
-const SrcFile* AllRegisteredSrcFiles::find_file(const std::string& abs_filename) const {
+const SrcFile* AllRegisteredSrcFiles::find_file(const std::string& realpath) const {
+  // files with the same realpath are considered equal
   for (const SrcFile* file : all_src_files) {
-    if (file->abs_filename == abs_filename) {
+    if (file->realpath == realpath) {
       return file;
     }
   }
   return nullptr;
 }
 
-const SrcFile* AllRegisteredSrcFiles::locate_and_register_source_file(const std::string& rel_filename, SrcLocation included_from) {
-  td::Result<std::string> path = G.settings.read_callback(CompilerSettings::FsReadCallbackKind::Realpath, rel_filename.c_str());
+const SrcFile* AllRegisteredSrcFiles::locate_and_register_source_file(const std::string& filename, SrcLocation included_from) {
+  bool is_stdlib = filename.size() > 8 && filename.starts_with("@stdlib/");
+
+  td::Result<std::string> path = G.settings.read_callback(CompilerSettings::FsReadCallbackKind::Realpath, filename.c_str());
   if (path.is_error()) {
     if (included_from.is_defined()) {
       throw ParseError(included_from, "Failed to import: " + path.move_as_error().message().str());
     }
-    throw Fatal("Failed to locate " + rel_filename + ": " + path.move_as_error().message().str());
+    throw Fatal("Failed to locate " + filename + ": " + path.move_as_error().message().str());
   }
 
-  std::string abs_filename = path.move_as_ok();
-  if (const SrcFile* file = find_file(abs_filename)) {
+  std::string realpath = path.move_as_ok();
+  if (const SrcFile* file = find_file(realpath)) {
     return file;
   }
 
-  td::Result<std::string> text = G.settings.read_callback(CompilerSettings::FsReadCallbackKind::ReadFile, abs_filename.c_str());
+  td::Result<std::string> text = G.settings.read_callback(CompilerSettings::FsReadCallbackKind::ReadFile, realpath.c_str());
   if (text.is_error()) {
     if (included_from.is_defined()) {
       throw ParseError(included_from, "Failed to import: " + text.move_as_error().message().str());
     }
-    throw Fatal("Failed to read " + rel_filename + ": " + text.move_as_error().message().str());
+    throw Fatal("Failed to read " + realpath + ": " + text.move_as_error().message().str());
   }
 
   int file_id = static_cast<int>(all_src_files.size());   // SrcFile::file_id is the index in all files
-  SrcFile* created = new SrcFile(file_id, rel_filename, std::move(abs_filename), text.move_as_ok());
+  SrcFile* created = new SrcFile(file_id, is_stdlib, std::move(realpath), text.move_as_ok());
   if (G.is_verbosity(1)) {
-    std::cerr << "register file_id " << created->file_id << " " << created->abs_filename << std::endl;
+    std::cerr << "register file_id " << created->file_id << " " << created->realpath << std::endl;
   }
   all_src_files.push_back(created);
   return created;
@@ -70,11 +73,6 @@ SrcFile* AllRegisteredSrcFiles::get_next_unparsed_file() {
     return nullptr;
   }
   return const_cast<SrcFile*>(all_src_files[++last_parsed_file_id]);
-}
-
-bool SrcFile::is_stdlib_file() const {
-  std::string_view rel(rel_filename);
-  return rel.size() > 10 && rel.substr(0, 8) == "@stdlib/"; // common.tolk, tvm-dicts.tolk, etc
 }
 
 bool SrcFile::is_offset_valid(int offset) const {
@@ -116,9 +114,30 @@ SrcFile::SrcPosition SrcFile::convert_offset(int offset) const {
   return SrcPosition{offset, line_idx + 1, char_idx + 1, line_str};
 }
 
+std::string SrcFile::extract_short_name() const {
+  size_t last_slash = realpath.find_last_of("/\\");
+  if (last_slash == std::string::npos) {
+    return realpath;
+  }
+  std::string short_name = realpath.substr(last_slash + 1);    // "file.tolk" (no path)
+
+  if (is_stdlib_file) {   // not "common.tolk", but "@stdlib/common"
+    return "@stdlib/" + short_name.substr(0, short_name.size() - 5);
+  }
+  return short_name;
+}
+
+std::string SrcFile::extract_dirname() const {
+  size_t last_slash = realpath.find_last_of("/\\");
+  if (last_slash == std::string::npos) {
+    return "";
+  }
+  return realpath.substr(0, last_slash + 1);
+}
+
 
 std::ostream& operator<<(std::ostream& os, const SrcFile* src_file) {
-  return os << (src_file ? src_file->rel_filename : "unknown-location");
+  return os << (src_file ? src_file->realpath : "unknown-location");
 }
 
 std::ostream& operator<<(std::ostream& os, const Fatal& fatal) {
@@ -233,7 +252,7 @@ void ParseError::show(std::ostream& os) const {
     // print "location: line1 \n (spaces) line2 \n ..."
     std::string_view message = this->message;
     std::string loc_text = loc.to_string();
-    std::string loc_spaces(std::min(static_cast<int>(loc_text.size()), 30), ' ');
+    std::string loc_spaces(std::min(static_cast<int>(loc_text.size()), 9), ' ');
     size_t start = 0, end;
     os << loc_text << ": error: ";
     while ((end = message.find('\n', start)) != std::string::npos) {
@@ -248,7 +267,7 @@ void ParseError::show(std::ostream& os) const {
     }
   }
   if (current_function) {
-    os << "    // in function `" << current_function->as_human_readable() << "`" << std::endl;
+    os << std::endl << "    // in function `" << current_function->as_human_readable() << "`" << std::endl;
   }
   loc.show_context(os);
 }

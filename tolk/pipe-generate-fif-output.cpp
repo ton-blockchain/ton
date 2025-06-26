@@ -125,11 +125,11 @@ void pipeline_generate_fif_output_to_std_cout() {
   std::cout << "// automatically generated from ";
   bool need_comma = false;
   for (const SrcFile* file : G.all_src_files) {
-    if (!file->is_stdlib_file()) {
+    if (!file->is_stdlib_file) {
       if (need_comma) {
         std::cout << ", ";
       }
-      std::cout << file->rel_filename;
+      std::cout << file->extract_short_name();
       need_comma = true;
     }
   }

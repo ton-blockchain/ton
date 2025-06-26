@@ -21,6 +21,19 @@
 
 namespace tolk {
 
+void Symbol::check_import_exists_when_used_from(FunctionPtr cur_f, SrcLocation used_loc) const {
+  const SrcFile* declared_in = loc.get_src_file();
+  bool has_import = false;
+  for (const SrcFile::ImportDirective& import : used_loc.get_src_file()->imports) {
+    if (import.imported_file == declared_in) {
+      has_import = true;
+    }
+  }
+  if (!has_import) {
+    throw ParseError(cur_f, used_loc, "Using a non-imported symbol `" + name + "`\nhint: forgot to import \"" + declared_in->extract_short_name() + "\"?");
+  }
+}
+
 std::string FunctionData::as_human_readable() const {
   if (!is_generic_function()) {
     return name;  // if it's generic instantiation like `f<int>`, its name is "f<int>", not "f"
