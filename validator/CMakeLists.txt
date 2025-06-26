@@ -59,6 +59,7 @@ set(VALIDATOR_HEADERS
   import-db-slice-local.hpp
   queue-size-counter.hpp
   validator-telemetry.hpp
+  storage-stat-cache.hpp
 
   manager-disk.h
   manager-disk.hpp
@@ -87,6 +88,7 @@ set(VALIDATOR_SOURCE
   validator-options.cpp
   queue-size-counter.cpp
   validator-telemetry.cpp
+  storage-stat-cache.cpp
 
   downloaders/wait-block-data.cpp
   downloaders/wait-block-state.cpp

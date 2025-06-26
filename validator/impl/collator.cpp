@@ -277,7 +277,16 @@ void Collator::start_up() {
           td::actor::send_closure_later(std::move(self), &Collator::after_get_shard_blocks, std::move(res));
         });
   }
-  // 6. set timeout
+  // 6. get storage stat cache
+  ++pending;
+  LOG(DEBUG) << "sending get_storage_stat_cache() query to Manager";
+  td::actor::send_closure_later(
+      manager, &ValidatorManager::get_storage_stat_cache,
+      [self = get_self()](td::Result<std::function<td::Ref<vm::Cell>(const td::Bits256&)>> res) {
+        LOG(DEBUG) << "got answer to get_storage_stat_cache() query";
+        td::actor::send_closure_later(std::move(self), &Collator::after_get_storage_stat_cache, std::move(res));
+      });
+  // 7. set timeout
   alarm_timestamp() = timeout;
   CHECK(pending);
 }
@@ -683,6 +692,22 @@ void Collator::after_get_shard_blocks(td::Result<std::vector<Ref<ShardTopBlockDe
   auto vect = res.move_as_ok();
   shard_block_descr_ = std::move(vect);
   LOG(INFO) << "after_get_shard_blocks: got " << shard_block_descr_.size() << " ShardTopBlockDescriptions";
+  check_pending();
+}
+
+/**
+ * Callback function called after retrieving storage stat cache.
+ *
+ * @param res The retrieved storage stat cache.
+ */
+void Collator::after_get_storage_stat_cache(td::Result<std::function<td::Ref<vm::Cell>(const td::Bits256&)>> res) {
+  --pending;
+  if (res.is_error()) {
+    LOG(INFO) << "after_get_storage_stat_cache : " << res.error();
+  } else {
+    LOG(DEBUG) << "after_get_storage_stat_cache : OK";
+    storage_stat_cache_ = res.move_as_ok();
+  }
   check_pending();
 }
 
@@ -2448,6 +2473,20 @@ std::unique_ptr<block::Account> Collator::make_account_from(td::ConstBitPtr addr
     return nullptr;
   }
   ptr->block_lt = start_lt;
+  if (storage_stat_cache_ && ptr->storage_dict_hash) {
+    auto dict_root = storage_stat_cache_(ptr->storage_dict_hash.value());
+    if (dict_root.not_null()) {
+      auto S = ptr->init_account_storage_stat(dict_root);
+      if (S.is_error()) {
+        fatal_error(S.move_as_error_prefix(PSTRING() << "failed to init storage stat from cache for account "
+                                                     << addr.to_hex(256) << ": "));
+        return nullptr;
+      }
+      LOG(DEBUG) << "Inited storage stat from cache for account " << addr.to_hex(256) << " (" << ptr->storage_used.cells
+                 << " cells)";
+      storage_stat_cache_update_.emplace_back(dict_root, ptr->storage_used.cells);
+    }
+  }
   return ptr;
 }
 
@@ -2588,6 +2627,10 @@ bool Collator::combine_account_transactions() {
                                " in ShardAccounts");
           }
         }
+      }
+      if (acc.storage_dict_hash && acc.account_storage_stat && acc.account_storage_stat.value().is_dict_ready()) {
+        storage_stat_cache_update_.emplace_back(acc.account_storage_stat.value().get_dict_root().move_as_ok(),
+                                                acc.storage_used.cells);
       }
     } else {
       if (acc.total_state->get_hash() != acc.orig_total_state->get_hash()) {
@@ -5685,6 +5728,7 @@ bool Collator::create_block_candidate() {
   stats_.cat_lt_delta = block_limit_status_->limits.classify_lt(block_limit_status_->cur_lt);
   td::actor::send_closure(manager, &ValidatorManager::record_collate_query_stats, block_candidate->id, work_time,
                           cpu_work_time, std::move(stats_));
+  td::actor::send_closure(manager, &ValidatorManager::update_storage_stat_cache, std::move(storage_stat_cache_update_));
   return true;
 }
 

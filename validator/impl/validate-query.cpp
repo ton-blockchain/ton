@@ -381,6 +381,15 @@ void ValidateQuery::start_up() {
       return;
     }
   }
+  // 5. get storage stat cache
+  ++pending;
+  LOG(DEBUG) << "sending get_storage_stat_cache() query to Manager";
+  td::actor::send_closure_later(
+      manager, &ValidatorManager::get_storage_stat_cache,
+      [self = get_self()](td::Result<std::function<td::Ref<vm::Cell>(const td::Bits256&)>> res) {
+        LOG(DEBUG) << "got answer to get_storage_stat_cache() query";
+        td::actor::send_closure_later(std::move(self), &ValidateQuery::after_get_storage_stat_cache, std::move(res));
+      });
   // ...
   CHECK(pending);
 }
@@ -747,6 +756,26 @@ void ValidateQuery::got_mc_handle(td::Result<BlockHandle> res) {
         }
         td::actor::send_closure_later(std::move(self), &ValidateQuery::after_get_mc_state, std::move(res));
       });
+}
+
+/**
+ * Callback function called after retrieving storage stat cache.
+ *
+ * @param res The retrieved storage stat cache.
+ */
+void ValidateQuery::after_get_storage_stat_cache(td::Result<std::function<td::Ref<vm::Cell>(const td::Bits256&)>> res) {
+  --pending;
+  if (res.is_error()) {
+    LOG(INFO) << "after_get_storage_stat_cache : " << res.error();
+  } else {
+    LOG(DEBUG) << "after_get_storage_stat_cache : OK";
+    storage_stat_cache_ = res.move_as_ok();
+  }
+  if (!pending) {
+    if (!try_validate()) {
+      fatal_error("cannot validate new block");
+    }
+  }
 }
 
 /**
@@ -5133,6 +5162,20 @@ std::unique_ptr<block::Account> ValidateQuery::make_account_from(td::ConstBitPtr
     return nullptr;
   }
   ptr->block_lt = start_lt_;
+  if (storage_stat_cache_ && ptr->storage_dict_hash) {
+    auto dict_root = storage_stat_cache_(ptr->storage_dict_hash.value());
+    if (dict_root.not_null()) {
+      auto S = ptr->init_account_storage_stat(dict_root);
+      if (S.is_error()) {
+        fatal_error(S.move_as_error_prefix(PSTRING() << "failed to init storage stat from cache for account "
+                                                     << addr.to_hex(256) << ": "));
+        return nullptr;
+      }
+      LOG(DEBUG) << "Inited storage stat from cache for account " << addr.to_hex(256) << " (" << ptr->storage_used.cells
+                 << " cells)";
+      storage_stat_cache_update_.emplace_back(dict_root, ptr->storage_used.cells);
+    }
+  }
   return ptr;
 }
 
@@ -5745,6 +5788,11 @@ bool ValidateQuery::check_account_transactions(const StdSmcAddress& acc_addr, Re
         return check_one_transaction(account, lt, value->prefetch_ref(), lt == min_trans_lt, lt == max_trans_lt);
       })) {
     return reject_query("at least one Transaction of account "s + acc_addr.to_hex() + " is invalid");
+  }
+  if (account.storage_dict_hash && account.account_storage_stat &&
+      account.account_storage_stat.value().is_dict_ready()) {
+    storage_stat_cache_update_.emplace_back(account.account_storage_stat.value().get_dict_root().move_as_ok(),
+                                            account.storage_used.cells);
   }
   if (is_masterchain() && account.libraries_changed()) {
     return scan_account_libraries(account.orig_library, account.library, acc_addr);
@@ -6923,6 +6971,7 @@ bool ValidateQuery::save_candidate() {
 
   td::actor::send_closure(manager, &ValidatorManager::set_block_candidate, id_, block_candidate.clone(),
                           validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash(), std::move(P));
+  td::actor::send_closure(manager, &ValidatorManager::update_storage_stat_cache, std::move(storage_stat_cache_update_));
   return true;
 }
 

@@ -34,6 +34,7 @@
 #include "rldp/rldp.h"
 #include "token-manager.h"
 #include "queue-size-counter.hpp"
+#include "storage-stat-cache.hpp"
 #include "validator-telemetry.hpp"
 #include "impl/candidates-buffer.hpp"
 #include "td/utils/LRUCache.h"
@@ -648,6 +649,13 @@ class ValidatorManagerImpl : public ValidatorManager {
     ++(success ? total_ls_queries_ok_ : total_ls_queries_error_)[lite_query_id];
   }
 
+  void get_storage_stat_cache(td::Promise<std::function<td::Ref<vm::Cell>(const td::Bits256&)>> promise) override {
+    td::actor::send_closure(storage_stat_cache_, &StorageStatCache::get_cache, std::move(promise));
+  }
+  void update_storage_stat_cache(std::vector<std::pair<td::Ref<vm::Cell>, td::uint32>> data) override {
+    td::actor::send_closure(storage_stat_cache_, &StorageStatCache::update, std::move(data));
+  }
+
  private:
   td::Timestamp resend_shard_blocks_at_;
   td::Timestamp check_waiters_at_;
@@ -773,6 +781,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   std::map<td::uint64,
            std::pair<std::string, std::function<void(td::Promise<std::vector<std::pair<std::string, std::string>>>)>>>
       stats_providers_;
+
+  td::actor::ActorOwn<StorageStatCache> storage_stat_cache_;
 };
 
 }  // namespace validator
