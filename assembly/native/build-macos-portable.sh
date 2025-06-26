@@ -71,8 +71,8 @@ if [ ! -d "../3pp/libsodium" ]; then
   cd ../3pp/libsodium
   sodiumPath=`pwd`
   git checkout 1.0.18
-  autoupdate
   ./autogen.sh
+  chmod +x ./build-aux/config.sub
   ./configure --with-pic --enable-static
   make -j4
   test $? -eq 0 || { echo "Can't compile libsodium"; exit 1; }
