@@ -48,6 +48,7 @@
 #include <sstream>
 #include <cstdlib>
 #include <set>
+#include <regex>
 #include "git.h"
 
 Config::Config() {
@@ -483,9 +484,10 @@ void DhtServer::load_local_config(td::Promise<td::Unit> promise) {
     return;
   }
   auto conf_data = conf_data_R.move_as_ok();
+  
   auto conf_json_R = td::json_decode(conf_data.as_slice());
   if (conf_json_R.is_error()) {
-    promise.set_error(conf_data_R.move_as_error_prefix("failed to parse json: "));
+    promise.set_error(conf_json_R.move_as_error_prefix("failed to parse json: "));
     return;
   }
   auto conf_json = conf_json_R.move_as_ok();

@@ -63,12 +63,56 @@
 #if TD_DARWIN || TD_LINUX
 #include <unistd.h>
 #endif
+
+// Custom JSON processing for human-readable IP addresses
+namespace {
+
+// Convert IP address from JSON (supports both numeric and string formats)
+td::Status parse_ip_from_json(td::JsonValue &value, td::int32 &ip_result) {
+  if (value.type() == td::JsonValue::Type::Number) {
+    // Legacy numeric format
+    return td::from_json(ip_result, std::move(value));
+  } else if (value.type() == td::JsonValue::Type::String) {
+    // Human-readable IP format
+    auto ip_str = value.get_string();
+    auto r_addr = td::IPAddress::get_ipv4_address(td::CSlice(ip_str));
+    if (r_addr.is_error()) {
+      return td::Status::Error(PSLICE() << "Invalid IPv4 address: " << ip_str);
+    }
+    ip_result = static_cast<td::int32>(r_addr.ok().get_ipv4());
+    return td::Status::OK();
+  }
+  return td::Status::Error("IP address must be a number or string");
+}
+
+// Convert IP address to JSON (outputs human-readable format when possible)
+void ip_to_json(td::JsonValueScope &jv, td::int32 ip) {
+  if (ip == 0) {
+    // Special case for unspecified IP
+    jv << td::JsonInt(0);
+    return;
+  }
+  
+  try {
+    auto ip_str = td::IPAddress::ipv4_to_str(static_cast<td::uint32>(ip));
+    if (!ip_str.empty()) {
+      jv << td::JsonString(ip_str);
+      return;
+    }
+  } catch (...) {
+    // Fallback to numeric format on any error
+  }
+  jv << td::JsonInt(ip);
+}
+
+}  // namespace
 #include <algorithm>
 #include <iostream>
 #include <cstdlib>
 #include <limits>
 #include <set>
 #include <cstdio>
+#include <regex>
 #include "git.h"
 #include "block-auto.h"
 #include "block-parse.h"
@@ -101,7 +145,13 @@ Config::Config(const ton::ton_api::engine_validator_config &config) {
         *addr,
         td::overloaded(
             [&](const ton::ton_api::engine_addr &obj) {
-              in_ip.init_ipv4_port(td::IPAddress::ipv4_to_str(obj.ip_), static_cast<td::uint16>(obj.port_)).ensure();
+              // Support human-readable IP addresses in addition to numeric format
+              if (obj.ip_ == 0) {
+                // Try to parse from extensions or additional fields if needed
+                in_ip.init_ipv4_port(td::IPAddress::ipv4_to_str(obj.ip_), static_cast<td::uint16>(obj.port_)).ensure();
+              } else {
+                in_ip.init_ipv4_port(td::IPAddress::ipv4_to_str(obj.ip_), static_cast<td::uint16>(obj.port_)).ensure();
+              }
               out_ip = in_ip;
               for (auto cat : obj.categories_) {
                 categories.push_back(td::narrow_cast<td::uint8>(cat));
@@ -195,14 +245,30 @@ ton::tl_object_ptr<ton::ton_api::engine_validator_config> Config::tl() const {
   std::vector<ton::tl_object_ptr<ton::ton_api::engine_Addr>> addrs_vec;
   for (auto &x : addrs) {
     if (x.second.proxy) {
+      // For IPv6 or non-standard IPv4, preserve as much info as possible
+      td::int32 in_ip_val = 0;
+      td::int32 out_ip_val = 0;
+      
+      if (x.second.in_addr.is_ipv4()) {
+        in_ip_val = static_cast<td::int32>(x.second.in_addr.get_ipv4());
+      }
+      if (x.first.addr.is_ipv4()) {
+        out_ip_val = static_cast<td::int32>(x.first.addr.get_ipv4());
+      }
+      
       addrs_vec.push_back(ton::create_tl_object<ton::ton_api::engine_addrProxy>(
-          static_cast<td::int32>(x.second.in_addr.get_ipv4()), x.second.in_addr.get_port(),
-          static_cast<td::int32>(x.first.addr.get_ipv4()), x.first.addr.get_port(), x.second.proxy->tl(),
+          in_ip_val, x.second.in_addr.get_port(),
+          out_ip_val, x.first.addr.get_port(), x.second.proxy->tl(),
           std::vector<td::int32>(x.second.cats.begin(), x.second.cats.end()),
           std::vector<td::int32>(x.second.priority_cats.begin(), x.second.priority_cats.end())));
     } else {
+      td::int32 ip_val = 0;
+      if (x.first.addr.is_ipv4()) {
+        ip_val = static_cast<td::int32>(x.first.addr.get_ipv4());
+      }
+      
       addrs_vec.push_back(ton::create_tl_object<ton::ton_api::engine_addr>(
-          static_cast<td::int32>(x.first.addr.get_ipv4()), x.first.addr.get_port(),
+          ip_val, x.first.addr.get_port(),
           std::vector<td::int32>(x.second.cats.begin(), x.second.cats.end()),
           std::vector<td::int32>(x.second.priority_cats.begin(), x.second.priority_cats.end())));
     }
@@ -1785,7 +1851,53 @@ void ValidatorEngine::load_config(td::Promise<td::Unit> promise) {
   }
 
   auto conf_data = conf_data_R.move_as_ok();
-  auto conf_json_R = td::json_decode(conf_data.as_slice());
+  
+  // Pre-process JSON to convert human-readable IP addresses to numeric format for compatibility
+  auto conf_str = conf_data.as_slice().str();
+  
+  // Simple string-based conversion of human-readable IP addresses to numeric format
+  // This replaces "ip": "x.x.x.x" with "ip": numeric_value patterns
+  auto convert_ip_string = [](const std::string& input, const std::string& field_name) -> std::string {
+    std::string result = input;
+    std::string pattern = "\"" + field_name + "\"\\s*:\\s*\"([0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+)\"";
+    std::regex ip_regex(pattern);
+    std::sregex_iterator begin(result.begin(), result.end(), ip_regex);
+    std::sregex_iterator end;
+    
+    // Process matches in reverse order to avoid position shifts
+    std::vector<std::pair<size_t, size_t>> matches;
+    std::vector<std::string> replacements;
+    
+    for (std::sregex_iterator i = begin; i != end; ++i) {
+      std::smatch match = *i;
+      try {
+        auto ip_str = match[1].str();
+        auto r_addr = td::IPAddress::get_ipv4_address(td::CSlice(ip_str));
+        if (r_addr.is_ok()) {
+          auto ip_num = r_addr.ok().get_ipv4();
+          std::string replacement = "\"" + field_name + "\": " + std::to_string(ip_num);
+          matches.push_back({match.position(), match.length()});
+          replacements.push_back(replacement);
+        }
+      } catch (...) {
+        // Skip this match on error
+      }
+    }
+    
+    // Apply replacements in reverse order
+    for (int i = matches.size() - 1; i >= 0; --i) {
+      result.replace(matches[i].first, matches[i].second, replacements[i]);
+    }
+    
+    return result;
+  };
+  
+  // Convert IP fields to numeric format for TL parsing
+  conf_str = convert_ip_string(conf_str, "ip");
+  conf_str = convert_ip_string(conf_str, "in_ip");
+  conf_str = convert_ip_string(conf_str, "out_ip");
+  
+  auto conf_json_R = td::json_decode(conf_str);
   if (conf_json_R.is_error()) {
     promise.set_error(conf_json_R.move_as_error_prefix("failed to parse json: "));
     return;
@@ -1823,6 +1935,50 @@ void ValidatorEngine::load_config(td::Promise<td::Unit> promise) {
 
 void ValidatorEngine::write_config(td::Promise<td::Unit> promise) {
   auto s = td::json_encode<std::string>(td::ToJson(*config_.tl().get()), true);
+
+  // Post-process JSON to convert numeric IP addresses to human-readable format
+  // This replaces "ip": numeric_value with "ip": "x.x.x.x" patterns
+  auto convert_ip_numeric = [](const std::string& input, const std::string& field_name) -> std::string {
+    std::string result = input;
+    std::string pattern = "\"" + field_name + "\"\\s*:\\s*(\\d+)";
+    std::regex ip_regex(pattern);
+    std::sregex_iterator begin(result.begin(), result.end(), ip_regex);
+    std::sregex_iterator end;
+    
+    // Process matches in reverse order to avoid position shifts
+    std::vector<std::pair<size_t, size_t>> matches;
+    std::vector<std::string> replacements;
+    
+    for (std::sregex_iterator i = begin; i != end; ++i) {
+      std::smatch match = *i;
+      try {
+        auto ip_num = std::stoul(match[1].str());
+        if (ip_num == 0) {
+          continue;  // Keep 0 as numeric
+        }
+        auto ip_str = td::IPAddress::ipv4_to_str(static_cast<td::uint32>(ip_num));
+        if (!ip_str.empty()) {
+          std::string replacement = "\"" + field_name + "\": \"" + ip_str + "\"";
+          matches.push_back({match.position(), match.length()});
+          replacements.push_back(replacement);
+        }
+      } catch (...) {
+        // Skip this match on error
+      }
+    }
+    
+    // Apply replacements in reverse order
+    for (int i = matches.size() - 1; i >= 0; --i) {
+      result.replace(matches[i].first, matches[i].second, replacements[i]);
+    }
+    
+    return result;
+  };
+  
+  // Convert IP fields to human-readable format
+  s = convert_ip_numeric(s, "ip");
+  s = convert_ip_numeric(s, "in_ip");
+  s = convert_ip_numeric(s, "out_ip");
 
   auto S = td::write_file(temp_config_file(), s);
   if (S.is_error()) {

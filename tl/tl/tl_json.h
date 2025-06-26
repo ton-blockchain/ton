@@ -23,6 +23,7 @@
 #include "td/utils/format.h"
 #include "td/utils/JsonBuilder.h"
 #include "td/utils/misc.h"
+#include "td/utils/port/IPAddress.h"
 #include "td/utils/Slice.h"
 #include "td/utils/SharedSlice.h"
 #include "td/utils/Status.h"
@@ -301,6 +302,41 @@ std::enable_if_t<std::is_constructible<T>::value, Status> from_json(ton::tl_obje
   }
   to = ton::create_tl_object<T>();
   return from_json(*to, from.get_object());
+}
+
+// Support for human-readable IP addresses in JSON
+inline Status from_json_ip_address(std::int32_t &to, JsonValue from) {
+  if (from.type() == JsonValue::Type::Number) {
+    // Legacy numeric format - parse as integer
+    TRY_STATUS(from_json(to, std::move(from)));
+    return Status::OK();
+  } else if (from.type() == JsonValue::Type::String) {
+    // Human-readable IP format - parse as IPv4 string and convert to number
+    auto ip_str = from.get_string();
+    auto r_addr = td::IPAddress::get_ipv4_address(CSlice(ip_str));
+    if (r_addr.is_error()) {
+      return Status::Error(PSLICE() << "Invalid IPv4 address: " << ip_str);
+    }
+    to = static_cast<std::int32_t>(r_addr.ok().get_ipv4());
+    return Status::OK();
+  }
+  return Status::Error(PSLICE() << "Expected number or string for IP address, got " << from.type());
+}
+
+inline void to_json_ip_address(JsonValueScope &jv, std::int32_t ip) {
+  // Try to convert to human-readable format for IPv4
+  // For compatibility, we preserve numeric format for invalid IPs
+  try {
+    auto ip_str = td::IPAddress::ipv4_to_str(static_cast<td::uint32>(ip));
+    if (!ip_str.empty()) {
+      jv << JsonString(ip_str);
+      return;
+    }
+  } catch (...) {
+    // Fall back to numeric format on any error
+  }
+  // Fallback to numeric format
+  jv << JsonInt(ip);
 }
 
 }  // namespace td
