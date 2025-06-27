@@ -562,6 +562,44 @@ bool Account::init_new(ton::UnixTime now) {
 }
 
 /**
+ * Initializes account_storage_stat of the account using the existing dict_root.
+ * This is not strictly necessary, as the storage stat is recomputed in Transaction.
+ * However, it can be used to optimize cell usage.
+ * This requires storage_dict_hash to be set, as it guarantees that the stored storage_used was computed recently
+ * (in older versions it included extra currency balance, in newer versions it does not).
+ *
+ * @param dict_root Root of the storage dictionary.
+ *
+ * @returns Status of the operation.
+ */
+td::Status Account::init_account_storage_stat(Ref<vm::Cell> dict_root) {
+  if (storage.is_null()) {
+    if (dict_root.not_null()) {
+      return td::Status::Error("storage is null, but dict_root is not null");
+    }
+    account_storage_stat = {};
+    return td::Status::OK();
+  }
+  if (!storage_dict_hash) {
+    return td::Status::Error("cannot init storage dict: storage_dict_hash is not set");
+  }
+  // Root of AccountStorage is not counted in AccountStorageStat
+  if (storage_used.cells < 1 || storage_used.bits < storage->size()) {
+    return td::Status::Error(PSTRING() << "storage_used is too small: cells=" << storage_used.cells
+                                       << " bits=" << storage_used.bits << " storage_root_bits=" << storage->size());
+  }
+  AccountStorageStat new_stat(std::move(dict_root), storage->prefetch_all_refs(), storage_used.cells - 1,
+                              storage_used.bits - storage->size());
+  TRY_RESULT(root_hash, new_stat.get_dict_hash());
+  if (storage_dict_hash.value() != root_hash) {
+    return td::Status::Error(PSTRING() << "invalid storage dict hash: computed " << root_hash.to_hex() << ", found "
+                                       << storage_dict_hash.value().to_hex());
+  }
+  account_storage_stat = std::move(new_stat);
+  return td::Status::OK();
+}
+
+/**
  * Resets the fixed prefix length of the account.
  *
  * @returns True if the fixed prefix length was successfully reset, false otherwise.
@@ -1930,12 +1968,17 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
   ap.action_fine = td::zero_refint();
 
   td::Ref<vm::Cell> old_code = new_code, old_data = new_data, old_library = new_library;
-  auto enforce_state_limits = [&]() {
+  // 1 - ok, 0 - limits exceeded, -1 - fatal error
+  auto enforce_state_limits = [&]() -> int {
     if (account.is_special) {
-      return true;
+      return 1;
     }
     auto S = check_state_limits(cfg.size_limits);
     if (S.is_error()) {
+      if (S.code() != AccountStorageStat::errorcode_limits_exceeded) {
+        LOG(ERROR) << "Account storage stat error: " << S.move_as_error();
+        return -1;
+      }
       // Rollback changes to state, fail action phase
       LOG(INFO) << "Account state size exceeded limits: " << S.move_as_error();
       new_account_storage_stat = {};
@@ -1944,9 +1987,9 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
       new_library = old_library;
       ap.result_code = 50;
       ap.state_exceeds_limits = true;
-      return false;
+      return 0;
     }
-    return true;
+    return 1;
   };
 
   int n = 0;
@@ -2057,7 +2100,9 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
       }
       LOG(DEBUG) << "invalid action " << ap.result_arg << " in action list: error code " << ap.result_code;
       // This is required here because changes to libraries are applied even if action phase fails
-      enforce_state_limits();
+      if (enforce_state_limits() == -1) {
+        return false;
+      }
       if (cfg.action_fine_enabled) {
         ap.action_fine = std::min(ap.action_fine, balance.grams);
         ap.total_action_fees = ap.action_fine;
@@ -2079,7 +2124,11 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
     new_code = ap.new_code;
   }
   new_data = compute_phase->new_data;  // tentative persistent data update applied
-  if (!enforce_state_limits()) {
+  int res = enforce_state_limits();
+  if (res == -1) {
+    return false;
+  }
+  if (res == 0) {
     if (cfg.extra_currency_v2) {
       end_lt = ap.end_lt = start_lt + 1;
       if (cfg.action_fine_enabled) {
@@ -2557,6 +2606,9 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     } else {
       fwd_fee = block::tlb::t_Grams.as_integer(info.fwd_fee);
       ihr_fee = block::tlb::t_Grams.as_integer(info.ihr_fee);
+    }
+    if (cfg.disable_ihr_flag) {
+      info.ihr_disabled = true;
     }
   }
   // set created_at and created_lt to correct values
@@ -3054,7 +3106,8 @@ static td::uint32 get_public_libraries_diff_count(const td::Ref<vm::Cell>& old_l
  *
  * @returns A `td::Status` indicating the result of the check.
  *          - If the state limits are within the allowed range, returns OK.
- *          - If the state limits exceed the maximum allowed range, returns an error.
+ *          - If the state limits exceed the maximum allowed range, returns an error with AccountStorageStat::errorcode_limits_exceeded code.
+ *          - If an error occurred during storage stat calculation, returns other error.
  */
 td::Status Transaction::check_state_limits(const SizeLimitsConfig& size_limits, bool update_storage_stat) {
   auto cell_equal = [](const td::Ref<vm::Cell>& a, const td::Ref<vm::Cell>& b) -> bool {
@@ -3079,7 +3132,8 @@ td::Status Transaction::check_state_limits(const SizeLimitsConfig& size_limits, 
 
   if (storage_stat.get_total_cells() > size_limits.max_acc_state_cells ||
       storage_stat.get_total_bits() > size_limits.max_acc_state_bits) {
-    return td::Status::Error(PSTRING() << "account state is too big: cells=" << storage_stat.get_total_cells()
+    return td::Status::Error(AccountStorageStat::errorcode_limits_exceeded,
+                             PSTRING() << "account state is too big: cells=" << storage_stat.get_total_cells()
                                        << ", bits=" << storage_stat.get_total_bits()
                                        << " (max cells=" << size_limits.max_acc_state_cells
                                        << ", max bits=" << size_limits.max_acc_state_bits << ")");
@@ -3087,7 +3141,8 @@ td::Status Transaction::check_state_limits(const SizeLimitsConfig& size_limits, 
   if (account.is_masterchain() && !cell_equal(account.library, new_library)) {
     auto libraries_count = get_public_libraries_count(new_library);
     if (libraries_count > size_limits.max_acc_public_libraries) {
-      return td::Status::Error(PSTRING() << "too many public libraries: " << libraries_count << " (max "
+      return td::Status::Error(AccountStorageStat::errorcode_limits_exceeded,
+                               PSTRING() << "too many public libraries: " << libraries_count << " (max "
                                          << size_limits.max_acc_public_libraries << ")");
     }
   }
@@ -4066,6 +4121,7 @@ td::Status FetchConfigParams::fetch_config_params(
     action_phase_cfg->mc_blackhole_addr = config.get_burning_config().blackhole_addr;
     action_phase_cfg->extra_currency_v2 = config.get_global_version() >= 10;
     action_phase_cfg->disable_anycast = config.get_global_version() >= 10;
+    action_phase_cfg->disable_ihr_flag = config.get_global_version() >= 11;
   }
   {
     serialize_cfg->extra_currency_v2 = config.get_global_version() >= 10;

@@ -45,7 +45,10 @@ ArchiveImporter::ArchiveImporter(std::string db_root, td::Ref<MasterchainState> 
     , manager_(manager)
     , to_import_files_(std::move(to_import_files))
     , use_imported_files_(!to_import_files_.empty())
-    , promise_(std::move(promise)) {
+    , promise_(std::move(promise))
+    , perf_timer_("import-slice", 10.0, [manager](double duration) {
+      send_closure(manager, &ValidatorManager::add_perf_timer_stat, "import-slice", duration);
+    }) {
 }
 
 void ArchiveImporter::start_up() {
@@ -85,7 +88,7 @@ void ArchiveImporter::downloaded_mc_archive(std::string path) {
 
 void ArchiveImporter::processed_mc_archive() {
   if (masterchain_blocks_.empty()) {
-    LOG(DEBUG) << "No masterhchain blocks in archive";
+    LOG(DEBUG) << "No masterchain blocks in archive";
     last_masterchain_seqno_ = last_masterchain_state_->get_seqno();
     checked_all_masterchain_blocks();
     return;
@@ -300,10 +303,10 @@ void ArchiveImporter::checked_all_masterchain_blocks() {
 void ArchiveImporter::download_shard_archives(td::Ref<MasterchainState> start_state) {
   start_state_ = start_state;
   td::uint32 monitor_min_split = start_state->monitor_min_split_depth(basechainId);
-  LOG(DEBUG) << "Monitor min split = " << monitor_min_split;
-  // If monitor_min_split == 0, we use the old archive format (packages are not separated by shard)
+  LOG(DEBUG) << "Monitor min split = " << monitor_min_split
+             << (have_shard_blocks_ ? ", shard blocks in the main package" : ", no shard blocks in the main package");
   // If masterchain package has shard blocks then it's old archive format, don't need to download shards
-  if (monitor_min_split > 0 && !have_shard_blocks_ && !use_imported_files_) {
+  if (!have_shard_blocks_ && !use_imported_files_) {
     for (td::uint64 i = 0; i < (1ULL << monitor_min_split); ++i) {
       ShardIdFull shard_prefix{basechainId, (i * 2 + 1) << (64 - monitor_min_split - 1)};
       if (opts_->need_monitor(shard_prefix, start_state)) {
@@ -313,7 +316,7 @@ void ArchiveImporter::download_shard_archives(td::Ref<MasterchainState> start_st
       }
     }
   } else {
-    LOG(DEBUG) << "Skip downloading shard archives";
+    LOG(INFO) << "Skip downloading shard archives";
   }
   if (pending_shard_archives_ == 0) {
     check_next_shard_client_seqno(shard_client_seqno_ + 1);
@@ -418,8 +421,10 @@ void ArchiveImporter::apply_shard_block_cont1(BlockHandle handle, BlockIdExt mas
   if (handle->id().seqno() == 0) {
     auto P = td::PromiseCreator::lambda(
         [promise = std::move(promise)](td::Result<td::Ref<ShardState>>) mutable { promise.set_value(td::Unit()); });
-    td::actor::create_actor<DownloadShardState>("downloadstate", handle->id(), masterchain_block_id, 2, manager_,
-                                                td::Timestamp::in(3600), std::move(P))
+    td::actor::create_actor<DownloadShardState>(
+        "downloadstate", handle->id(), masterchain_block_id,
+        start_state_->persistent_state_split_depth(handle->id().shard_full().workchain), 2, manager_,
+        td::Timestamp::in(3600), std::move(P))
         .release();
     return;
   }
@@ -525,6 +530,7 @@ void ArchiveImporter::finish_query() {
     td::unlink(f).ignore();
   }
   if (promise_) {
+    LOG(INFO) << "Imported archive in " << perf_timer_.elapsed();
     promise_.set_value({last_masterchain_state_->get_seqno(),
                         std::min<BlockSeqno>(last_masterchain_state_->get_seqno(), shard_client_seqno_)});
   }

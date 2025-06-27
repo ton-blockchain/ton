@@ -13,30 +13,25 @@
 
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
-
-    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
+#include "vm/cells.h"
+#include "ton/ton-types.h"
+#include "interfaces/block.h"
+#include "vm/db/DynamicBagOfCellsDb.h"
 
-#include <map>
-#include "adnl-static-nodes.h"
+#include <vector>
+#include <string>
 
-namespace ton {
+namespace ton::validator {
 
-namespace adnl {
-
-class AdnlStaticNodesManagerImpl : public AdnlStaticNodesManager {
- public:
-  void add_node(AdnlNode node) override;
-  void del_node(AdnlNodeIdShort id) override;
-  td::Result<AdnlNode> get_node(AdnlNodeIdShort id) override;
-  AdnlStaticNodesManagerImpl() {
-  }
-
- private:
-  std::map<AdnlNodeIdShort, AdnlNode> nodes_;
+struct PermanentCellDbUpdate {
+  BlockIdExt block_id;
+  RootHash state_root_hash;
+  std::vector<std::pair<vm::CellHash, std::string>> to_store;
 };
+void calculate_permanent_celldb_update(const std::map<BlockIdExt, td::Ref<BlockData>>& blocks,
+                                       std::shared_ptr<vm::DynamicBagOfCellsDb::AsyncExecutor> executor,
+                                       td::Promise<std::vector<PermanentCellDbUpdate>> promise);
 
-}  // namespace adnl
-
-}  // namespace ton
+}  // namespace ton::validator

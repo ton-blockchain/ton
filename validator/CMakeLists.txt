@@ -14,6 +14,8 @@ set(VALIDATOR_DB_SOURCE
   db/archive-slice.hpp
   db/celldb.cpp
   db/celldb.hpp
+  db/permanent-celldb/permanent-celldb-utils.cpp
+  db/permanent-celldb/permanent-celldb-utils.h
   db/files-async.hpp
   db/fileref.hpp
   db/fileref.cpp
@@ -54,8 +56,10 @@ set(VALIDATOR_HEADERS
   invariants.hpp
   
   import-db-slice.hpp
+  import-db-slice-local.hpp
   queue-size-counter.hpp
   validator-telemetry.hpp
+  storage-stat-cache.hpp
 
   manager-disk.h
   manager-disk.hpp
@@ -74,6 +78,7 @@ set(VALIDATOR_SOURCE
   block-handle.cpp
   get-next-key-blocks.cpp
   import-db-slice.cpp
+  import-db-slice-local.cpp
   shard-client.cpp
   state-serializer.cpp
   token-manager.cpp
@@ -83,6 +88,7 @@ set(VALIDATOR_SOURCE
   validator-options.cpp
   queue-size-counter.cpp
   validator-telemetry.cpp
+  storage-stat-cache.cpp
 
   downloaders/wait-block-data.cpp
   downloaders/wait-block-state.cpp

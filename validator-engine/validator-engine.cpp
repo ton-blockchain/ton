@@ -1489,6 +1489,8 @@ td::Status ValidatorEngine::load_global_config() {
   if (catchain_max_block_delay_slow_) {
     validator_options_.write().set_catchain_max_block_delay_slow(catchain_max_block_delay_slow_.value());
   }
+  validator_options_.write().set_permanent_celldb(permanent_celldb_);
+  validator_options_.write().set_initial_sync_disabled(skip_key_sync_);
 
   std::vector<ton::BlockIdExt> h;
   for (auto &x : conf.validator_->hardforks_) {
@@ -1516,16 +1518,23 @@ td::Status ValidatorEngine::load_global_config() {
 
 void ValidatorEngine::set_shard_check_function() {
   if (!not_all_shards_) {
-    validator_options_.write().set_shard_check_function([](ton::ShardIdFull shard) -> bool { return true; });
+    validator_options_.write().set_shard_check_function(
+        [sync_shards_upto = sync_shards_upto_](ton::ShardIdFull shard, ton::BlockSeqno mc_seqno) -> bool {
+          return shard.is_masterchain() || !sync_shards_upto || mc_seqno <= sync_shards_upto.value();
+        });
   } else {
     std::vector<ton::ShardIdFull> shards = {ton::ShardIdFull(ton::masterchainId)};
-    for (const auto& s : config_.shards_to_monitor) {
+    for (const auto &s : config_.shards_to_monitor) {
       shards.push_back(s);
     }
     std::sort(shards.begin(), shards.end());
     shards.erase(std::unique(shards.begin(), shards.end()), shards.end());
     validator_options_.write().set_shard_check_function(
-        [shards = std::move(shards)](ton::ShardIdFull shard) -> bool {
+        [shards = std::move(shards), sync_shards_upto = sync_shards_upto_](ton::ShardIdFull shard,
+                                                                           ton::BlockSeqno mc_seqno) -> bool {
+          if (!shard.is_masterchain() && sync_shards_upto && mc_seqno > sync_shards_upto.value()) {
+            return false;
+          }
           for (auto s : shards) {
             if (shard_intersects(shard, s)) {
               return true;
@@ -4620,6 +4629,21 @@ int main(int argc, char *argv[]) {
         }
         acts.push_back(
             [&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_broadcast_speed_multiplier_private, v); });
+        return td::Status::OK();
+      });
+  p.add_option(
+      '\0', "permanent-celldb",
+      "disable garbage collection in CellDb. This improves performance on archival nodes (once enabled, this option "
+      "cannot be disabled)",
+      [&]() { acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_permanent_celldb, true); }); });
+  p.add_option('\0', "skip-key-sync",
+               "don't select the best persistent state on initial sync, start on init_block from global config", [&]() {
+                 acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_skip_key_sync, true); });
+               });
+  p.add_checked_option(
+      '\0', "sync-shards-upto", "stop syncing shards on this masterchain seqno", [&](td::Slice s) -> td::Status {
+        TRY_RESULT(v, td::to_integer_safe<ton::BlockSeqno>(s));
+        acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_sync_shards_upto, v); });
         return td::Status::OK();
       });
   auto S = p.run(argc, argv);

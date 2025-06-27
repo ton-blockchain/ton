@@ -174,6 +174,7 @@ struct ActionPhaseConfig {
   bool disable_custom_fess{false};
   bool reserve_extra_enabled{false};
   bool extra_currency_v2{false};
+  bool disable_ihr_flag{false};
   td::optional<td::Bits256> mc_blackhole_addr;
   bool disable_anycast{false};
   const MsgPrices& fetch_msg_prices(bool is_masterchain) const {
@@ -297,6 +298,7 @@ struct Account {
   bool set_address(ton::WorkchainId wc, td::ConstBitPtr new_addr);
   bool unpack(Ref<vm::CellSlice> account, ton::UnixTime now, bool special);
   bool init_new(ton::UnixTime now);
+  td::Status init_account_storage_stat(Ref<vm::Cell> dict_root);
   bool deactivate();
   bool recompute_tmp_addr(Ref<vm::CellSlice>& tmp_addr, int fixed_prefix_length, td::ConstBitPtr orig_addr_rewrite) const;
   td::RefInt256 compute_storage_fees(ton::UnixTime now, const std::vector<block::StoragePrices>& pricing) const;

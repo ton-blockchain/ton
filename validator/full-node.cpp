@@ -313,18 +313,20 @@ void FullNodeImpl::send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_s
 }
 
 void FullNodeImpl::send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
-                                        td::BufferSlice data) {
-  send_block_candidate_broadcast_to_custom_overlays(block_id, cc_seqno, validator_set_hash, data);
-  auto shard = get_shard(ShardIdFull{masterchainId, shardIdAll});
-  if (shard.empty()) {
-    VLOG(FULL_NODE_WARNING) << "dropping OUT shard block info message to unknown shard";
-    return;
+                                        td::BufferSlice data, int mode) {
+  if (mode & broadcast_mode_custom) {
+    send_block_candidate_broadcast_to_custom_overlays(block_id, cc_seqno, validator_set_hash, data);
   }
-  if (!private_block_overlays_.empty()) {
+  if ((mode & broadcast_mode_private_block) && !private_block_overlays_.empty()) {
     td::actor::send_closure(private_block_overlays_.begin()->second, &FullNodePrivateBlockOverlay::send_block_candidate,
                             block_id, cc_seqno, validator_set_hash, data.clone());
   }
-  if (broadcast_block_candidates_in_public_overlay_) {
+  if (mode & broadcast_mode_public) {
+    auto shard = get_shard(ShardIdFull{masterchainId, shardIdAll});
+    if (shard.empty()) {
+      VLOG(FULL_NODE_WARNING) << "dropping OUT shard block info message to unknown shard";
+      return;
+    }
     td::actor::send_closure(shard, &FullNodeShard::send_block_candidate, block_id, cc_seqno, validator_set_hash,
                             std::move(data));
   }
@@ -334,11 +336,6 @@ void FullNodeImpl::send_broadcast(BlockBroadcast broadcast, int mode) {
   if (mode & broadcast_mode_custom) {
     send_block_broadcast_to_custom_overlays(broadcast);
   }
-  auto shard = get_shard(broadcast.block_id.shard_full());
-  if (shard.empty()) {
-    VLOG(FULL_NODE_WARNING) << "dropping OUT broadcast to unknown shard";
-    return;
-  }
   if (mode & broadcast_mode_private_block) {
     if (!private_block_overlays_.empty()) {
       td::actor::send_closure(private_block_overlays_.begin()->second, &FullNodePrivateBlockOverlay::send_broadcast,
@@ -346,6 +343,11 @@ void FullNodeImpl::send_broadcast(BlockBroadcast broadcast, int mode) {
     }
   }
   if (mode & broadcast_mode_public) {
+    auto shard = get_shard(broadcast.block_id.shard_full());
+    if (shard.empty()) {
+      VLOG(FULL_NODE_WARNING) << "dropping OUT broadcast to unknown shard";
+      return;
+    }
     td::actor::send_closure(shard, &FullNodeShard::send_broadcast, std::move(broadcast));
   }
 }
@@ -372,16 +374,17 @@ void FullNodeImpl::download_zero_state(BlockIdExt id, td::uint32 priority, td::T
   td::actor::send_closure(shard, &FullNodeShard::download_zero_state, id, priority, timeout, std::move(promise));
 }
 
-void FullNodeImpl::download_persistent_state(BlockIdExt id, BlockIdExt masterchain_block_id, td::uint32 priority,
-                                             td::Timestamp timeout, td::Promise<td::BufferSlice> promise) {
+void FullNodeImpl::download_persistent_state(BlockIdExt id, BlockIdExt masterchain_block_id, PersistentStateType type,
+                                             td::uint32 priority, td::Timestamp timeout,
+                                             td::Promise<td::BufferSlice> promise) {
   auto shard = get_shard(id.shard_full());
   if (shard.empty()) {
     VLOG(FULL_NODE_WARNING) << "dropping download state diff query to unknown shard";
     promise.set_error(td::Status::Error(ErrorCode::notready, "shard not ready"));
     return;
   }
-  td::actor::send_closure(shard, &FullNodeShard::download_persistent_state, id, masterchain_block_id, priority, timeout,
-                          std::move(promise));
+  td::actor::send_closure(shard, &FullNodeShard::download_persistent_state, id, masterchain_block_id, type, priority,
+                          timeout, std::move(promise));
 }
 
 void FullNodeImpl::download_block_proof(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
@@ -556,7 +559,7 @@ void FullNodeImpl::send_validator_telemetry(PublicKeyHash key, tl_object_ptr<ton
 
 void FullNodeImpl::process_block_broadcast(BlockBroadcast broadcast) {
   send_block_broadcast_to_custom_overlays(broadcast);
-  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::prevalidate_block, std::move(broadcast),
+  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_block_broadcast, std::move(broadcast),
                           [](td::Result<td::Unit> R) {
                             if (R.is_error()) {
                               if (R.error().code() == ErrorCode::notready) {
@@ -572,7 +575,7 @@ void FullNodeImpl::process_block_candidate_broadcast(BlockIdExt block_id, Catcha
                                                      td::uint32 validator_set_hash, td::BufferSlice data) {
   send_block_candidate_broadcast_to_custom_overlays(block_id, cc_seqno, validator_set_hash, data);
   // ignore cc_seqno and validator_hash for now
-  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_block_candidate, block_id,
+  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_block_candidate_broadcast, block_id,
                           std::move(data));
 }
 
@@ -630,9 +633,9 @@ void FullNodeImpl::start_up() {
       td::actor::send_closure(id_, &FullNodeImpl::send_shard_block_info, block_id, cc_seqno, std::move(data));
     }
     void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
-                              td::BufferSlice data) override {
+                              td::BufferSlice data, int mode) override {
       td::actor::send_closure(id_, &FullNodeImpl::send_block_candidate, block_id, cc_seqno, validator_set_hash,
-                              std::move(data));
+                              std::move(data), mode);
     }
     void send_broadcast(BlockBroadcast broadcast, int mode) override {
       td::actor::send_closure(id_, &FullNodeImpl::send_broadcast, std::move(broadcast), mode);
@@ -645,9 +648,10 @@ void FullNodeImpl::start_up() {
                              td::Promise<td::BufferSlice> promise) override {
       td::actor::send_closure(id_, &FullNodeImpl::download_zero_state, id, priority, timeout, std::move(promise));
     }
-    void download_persistent_state(BlockIdExt id, BlockIdExt masterchain_block_id, td::uint32 priority,
-                                   td::Timestamp timeout, td::Promise<td::BufferSlice> promise) override {
-      td::actor::send_closure(id_, &FullNodeImpl::download_persistent_state, id, masterchain_block_id, priority,
+    void download_persistent_state(BlockIdExt id, BlockIdExt masterchain_block_id, PersistentStateType type,
+                                   td::uint32 priority, td::Timestamp timeout,
+                                   td::Promise<td::BufferSlice> promise) override {
+      td::actor::send_closure(id_, &FullNodeImpl::download_persistent_state, id, masterchain_block_id, type, priority,
                               timeout, std::move(promise));
     }
     void download_block_proof(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
