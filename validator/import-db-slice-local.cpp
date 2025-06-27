@@ -207,7 +207,7 @@ void ArchiveImporterLocal::import_first_key_block() {
         td::actor::send_closure(SelfId, &ArchiveImporterLocal::checked_key_block_proof, std::move(handle));
       });
 
-  run_check_proof_query(block_id, first_block.proof, manager_, td::Timestamp::in(10.0), std::move(P),
+  run_check_proof_query(block_id, first_block.proof, manager_, td::Timestamp::in(600.0), std::move(P),
                         last_masterchain_state_, opts_->is_hardfork(block_id));
 }
 
@@ -278,7 +278,7 @@ void ArchiveImporterLocal::process_masterchain_blocks_cont() {
           }
           promise.set_result(td::Unit());
         });
-    run_check_proof_query(block_id, info.proof, manager_, td::Timestamp::in(10.0), std::move(P),
+    run_check_proof_query(block_id, info.proof, manager_, td::Timestamp::in(600.0), std::move(P),
                           last_masterchain_state_, opts_->is_hardfork(block_id));
     prev_block_id = block_id;
   }
@@ -470,7 +470,7 @@ void ArchiveImporterLocal::store_data() {
                                     std::move(promise));
           });
       if (info.proof_link.not_null()) {
-        run_check_proof_link_query(block_id, info.proof_link, manager_, td::Timestamp::in(60.0),
+        run_check_proof_link_query(block_id, info.proof_link, manager_, td::Timestamp::in(600.0),
                                    ig.get_promise().wrap([](BlockHandle &&) { return td::Unit(); }));
       }
     }
