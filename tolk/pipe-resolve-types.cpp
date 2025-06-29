@@ -71,24 +71,24 @@ static void fire_error_generic_type_used_without_T(FunctionPtr cur_f, SrcLocatio
   fire(cur_f, loc, "type `" + type_name_with_Ts + "` is generic, you should provide type arguments");
 }
 
-static TypePtr parse_intN(std::string_view strN, bool is_unsigned) {
+static TypePtr parse_intN_uintN(std::string_view strN, bool is_unsigned) {
   int n;
-  auto result = std::from_chars(strN.data() + 3 + static_cast<int>(is_unsigned), strN.data() + strN.size(), n);
+  auto result = std::from_chars(strN.data(), strN.data() + strN.size(), n);
   bool parsed = result.ec == std::errc() && result.ptr == strN.data() + strN.size();
-  if (!parsed || n <= 0 || n > 256 + static_cast<int>(is_unsigned)) {
+  if (!parsed || n <= 0 || n > 257 - static_cast<int>(is_unsigned)) {
     return nullptr;   // `int1000`, maybe it's user-defined alias, let it be unresolved
   }
-  return TypeDataIntN::create(is_unsigned, false, n);
+  return TypeDataIntN::create(n, is_unsigned, false);
 }
 
-static TypePtr parse_bytesN(std::string_view strN, bool is_bits) {
+static TypePtr parse_bytesN_bitsN(std::string_view strN, bool is_bits) {
   int n;
-  auto result = std::from_chars(strN.data() + 5  - static_cast<int>(is_bits), strN.data() + strN.size(), n);
+  auto result = std::from_chars(strN.data(), strN.data() + strN.size(), n);
   bool parsed = result.ec == std::errc() && result.ptr == strN.data() + strN.size();
   if (!parsed || n <= 0 || n > 1024) {
     return nullptr;   // `bytes9999`, maybe it's user-defined alias, let it be unresolved
   }
-  return TypeDataBytesN::create(is_bits, n);
+  return TypeDataBitsN::create(n, is_bits);
 }
 
 static TypePtr try_parse_predefined_type(std::string_view str) {
@@ -113,8 +113,12 @@ static TypePtr try_parse_predefined_type(std::string_view str) {
       if (str == "address") return TypeDataAddress::create();
       break;
     case 8:
-      if (str == "varint16") return TypeDataIntN::create(false, true, 16);
-      if (str == "varint32") return TypeDataIntN::create(false, true, 32);
+      if (str == "varint16") return TypeDataIntN::create(16, false, true);
+      if (str == "varint32") return TypeDataIntN::create(32, false, true);
+      break;
+    case 9:
+      if (str == "varuint16") return TypeDataIntN::create(16, true, true);
+      if (str == "varuint32") return TypeDataIntN::create(32, true, true);
       break;
     case 12:
       if (str == "continuation") return TypeDataContinuation::create();
@@ -124,22 +128,22 @@ static TypePtr try_parse_predefined_type(std::string_view str) {
   }
 
   if (str.starts_with("int")) {
-    if (TypePtr intN = parse_intN(str, false)) {
+    if (TypePtr intN = parse_intN_uintN(str.substr(3), false)) {
       return intN;
     }
   }
-  if (str.size() > 4 && str.starts_with("uint")) {
-    if (TypePtr uintN = parse_intN(str, true)) {
+  if (str.starts_with("uint")) {
+    if (TypePtr uintN = parse_intN_uintN(str.substr(4), true)) {
       return uintN;
     }
   }
-  if (str.size() > 4 && str.starts_with("bits")) {
-    if (TypePtr bitsN = parse_bytesN(str, true)) {
+  if (str.starts_with("bits")) {
+    if (TypePtr bitsN = parse_bytesN_bitsN(str.substr(4), true)) {
       return bitsN;
     }
   }
-  if (str.size() > 5 && str.starts_with("bytes")) {
-    if (TypePtr bytesN = parse_bytesN(str, false)) {
+  if (str.starts_with("bytes")) {
+    if (TypePtr bytesN = parse_bytesN_bitsN(str.substr(5), false)) {
       return bytesN;
     }
   }

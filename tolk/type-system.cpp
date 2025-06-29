@@ -295,27 +295,27 @@ TypePtr TypeDataBrackets::create(std::vector<TypePtr>&& items) {
   return hash.register_unique(new TypeDataBrackets(hash.children_flags(), std::move(items)));
 }
 
-TypePtr TypeDataIntN::create(bool is_unsigned, bool is_variadic, int n_bits) {
+TypePtr TypeDataIntN::create(int n_bits, bool is_unsigned, bool is_variadic) {
   TypeDataHasherForUnique hash(1678330938771108027ULL);
+  hash.feed_hash(n_bits);
   hash.feed_hash(is_unsigned);
   hash.feed_hash(is_variadic);
-  hash.feed_hash(n_bits);
 
   if (TypePtr existing = hash.get_existing()) {
     return existing;
   }
-  return hash.register_unique(new TypeDataIntN(is_unsigned, is_variadic, n_bits));
+  return hash.register_unique(new TypeDataIntN(n_bits, is_unsigned, is_variadic));
 }
 
-TypePtr TypeDataBytesN::create(bool is_bits, int n_width) {
+TypePtr TypeDataBitsN::create(int n_width, bool is_bits) {
   TypeDataHasherForUnique hash(7810988137199333041ULL);
-  hash.feed_hash(is_bits);
   hash.feed_hash(n_width);
+  hash.feed_hash(is_bits);
 
   if (TypePtr existing = hash.get_existing()) {
     return existing;
   }
-  return hash.register_unique(new TypeDataBytesN(is_bits, n_width));
+  return hash.register_unique(new TypeDataBitsN(n_width, is_bits));
 }
 
 TypePtr TypeDataUnion::create(std::vector<TypePtr>&& variants) {
@@ -504,7 +504,7 @@ int TypeDataIntN::get_type_id() const {
   }
 }
 
-int TypeDataBytesN::get_type_id() const {
+int TypeDataBitsN::get_type_id() const {
   return TypeIdCalculation::assign_type_id(this);
 }
 
@@ -591,9 +591,9 @@ std::string TypeDataIntN::as_human_readable() const {
   return s_int + std::to_string(n_bits);
 }
 
-std::string TypeDataBytesN::as_human_readable() const {
-  std::string s_bytes = is_bits ? "bits" : "bytes";
-  return s_bytes + std::to_string(n_width);
+std::string TypeDataBitsN::as_human_readable() const {
+  std::string s_bits = is_bits ? "bits" : "bytes";
+  return s_bits + std::to_string(n_width);
 }
 
 std::string TypeDataUnion::as_human_readable() const {
@@ -739,7 +739,7 @@ bool TypeDataSlice::can_rhs_be_assigned(TypePtr rhs) const {
   if (const TypeDataAlias* rhs_alias = rhs->try_as<TypeDataAlias>()) {
     return can_rhs_be_assigned(rhs_alias->underlying_type);
   }
-  return rhs == TypeDataNever::create();   // note, that bytesN/address is NOT automatically cast to slice without `as` operator
+  return rhs == TypeDataNever::create();   // note, that bitsN/address is NOT automatically cast to slice without `as` operator
 }
 
 bool TypeDataBuilder::can_rhs_be_assigned(TypePtr rhs) const {
@@ -881,8 +881,8 @@ bool TypeDataIntN::can_rhs_be_assigned(TypePtr rhs) const {
   return rhs == TypeDataNever::create();   // `int8` is NOT assignable to `int32` without `as`
 }
 
-bool TypeDataBytesN::can_rhs_be_assigned(TypePtr rhs) const {
-  // `slice` is NOT assignable to bytesN without `as`
+bool TypeDataBitsN::can_rhs_be_assigned(TypePtr rhs) const {
+  // `slice` is NOT assignable to bitsN without `as`
   // `bytes32` is NOT assignable to `bytes256` and even to `bits256` without `as`
   if (rhs == this) {
     return true;
@@ -1010,7 +1010,7 @@ bool TypeDataCell::can_be_casted_with_as_operator(TypePtr cast_to) const {
 }
 
 bool TypeDataSlice::can_be_casted_with_as_operator(TypePtr cast_to) const {
-  if (cast_to->try_as<TypeDataBytesN>()) {  // `slice` to `bytes32` / `slice` to `bits8`
+  if (cast_to->try_as<TypeDataBitsN>()) {  // `slice` to `bytes32` / `slice` to `bits8`
     return true;
   }
   if (cast_to == TypeDataAddress::create()) {
@@ -1176,8 +1176,8 @@ bool TypeDataIntN::can_be_casted_with_as_operator(TypePtr cast_to) const {
   return cast_to == TypeDataInt::create() || cast_to == TypeDataCoins::create();
 }
 
-bool TypeDataBytesN::can_be_casted_with_as_operator(TypePtr cast_to) const {
-  if (cast_to->try_as<TypeDataBytesN>()) {  // `bytes256` as `bytes512`, `bits1` as `bytes8`
+bool TypeDataBitsN::can_be_casted_with_as_operator(TypePtr cast_to) const {
+  if (cast_to->try_as<TypeDataBitsN>()) {  // `bytes256` as `bytes512`, `bits1` as `bytes8`
     return true;
   }
   if (const TypeDataUnion* to_union = cast_to->try_as<TypeDataUnion>()) {   // `bytes8` as `slice?`

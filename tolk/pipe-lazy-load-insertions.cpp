@@ -433,10 +433,10 @@ struct ExprUsagesWhileCollecting {
       // okay, this field is not needed; we should skip it;
       // try to merge "skip 8 bits" + "skip 16 bits" into a single "skip 24 bits"
       if (!future_fields.empty() && future_fields.back().action == LazyStructLoadInfo::SkipField) {
-        if (const TypeDataBytesN* last_bitsN = future_fields.back().field_type->try_as<TypeDataBytesN>()) {
+        if (const TypeDataBitsN* last_bitsN = future_fields.back().field_type->try_as<TypeDataBitsN>()) {
           PackSize cur_size = estimate_serialization_size(field_type);
           if (cur_size.min_bits == cur_size.max_bits && cur_size.max_refs == 0) {
-            TypePtr total_bitsN = TypeDataBytesN::create(true, last_bitsN->n_width + cur_size.max_bits);
+            TypePtr total_bitsN = TypeDataBitsN::create(last_bitsN->n_width + cur_size.max_bits, true);
             future_fields.back().field_type = total_bitsN;
             continue;
           }
@@ -447,7 +447,7 @@ struct ExprUsagesWhileCollecting {
       TypePtr skip_type = field_type;
       PackSize skip_size = estimate_serialization_size(field_type);
       if (skip_size.min_bits == skip_size.max_bits && skip_size.max_refs == 0) {
-        skip_type = TypeDataBytesN::create(true, skip_size.max_bits);
+        skip_type = TypeDataBitsN::create(skip_size.max_bits, true);
       }
       future_fields.emplace_back(LazyStructLoadInfo::SkipField, "(gap)", skip_type);
     }

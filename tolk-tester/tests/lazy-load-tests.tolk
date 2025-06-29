@@ -217,6 +217,11 @@ struct OneIntOneRef {
     r: cell;
 }
 
+struct WithVariadicInts {
+    i1: varuint32;
+    i2: varuint32;
+}
+
 
 @noinline
 fun contract.getFakeData(seqno: int): Cell<WalletStorage> {
@@ -655,7 +660,7 @@ fun demo135(skip: bool) {
     cc.bin16 = stringHexToSlice("00000000") as bits16;
     try {
         return cc.toCell({
-            skipBitsNFieldsValidation: skip
+            skipBitsNValidation: skip
         }).beginParse().remainingBitsCount();
     } catch (excno) {
         return excno;
@@ -937,6 +942,13 @@ fun demo156(s: slice): int {
             return -100;
         }
     }
+}
+
+@method_id(157)
+fun demo157() {
+    var c: Cell<WithVariadicInts> = WithVariadicInts { i1: 1 << 100, i2: 1 << 200 }.toCell();
+    val d = lazy c.load();
+    return d.i2 == (1 << 200);
 }
 
 
@@ -1280,7 +1292,7 @@ fun demo310() {
         f9: "" as bits200,
         f10: ("" as bits400, ()),
         f11: 0,
-    }.toCell({skipBitsNFieldsValidation: true});
+    }.toCell({skipBitsNValidation: true});
     var st = lazy cell.load();
     var sm = lazy cell.load();
     var sk = lazy cell.load();
@@ -1625,6 +1637,7 @@ fun main() {
 @testcase | 155 |                 | 555
 @testcase | 156 | x{0110}         | 16
 @testcase | 156 | x{FF10}         | -100
+@testcase | 157 |                 | -1
 
 @testcase | 200 |                 | 1
 @testcase | 201 |                 | 1 2 -1

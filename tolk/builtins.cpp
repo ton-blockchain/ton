@@ -1036,6 +1036,25 @@ static AsmOp compile_fetch_int(std::vector<VarDescr>& res, std::vector<VarDescr>
   return exec_op(loc, (fetch ? "LD"s : "PLD"s) + (sgnd ? "IX" : "UX"), 2, 1 + (unsigned)fetch);
 }
 
+// fun slice.__loadVarInt(mutate self, bits: int, unsigned: bool): int
+static AsmOp compile_fetch_varint(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
+  tolk_assert(args.size() == 3 && res.size() == 2);
+  // it's a hidden function for auto-serialization (not exposed to stdlib), to bits/unsigned are not dynamic
+  tolk_assert(args[1].is_int_const() && args[2].is_int_const());
+  long n_bits = args[1].int_const->to_long();
+  long is_unsigned = args[2].int_const->to_long();
+
+  args[1].unused();
+  args[2].unused();
+  if (n_bits == 16) {
+    return exec_op(loc, is_unsigned ? "LDVARUINT16" : "LDVARINT16", 1, 2);
+  }
+  if (n_bits == 32) {
+    return exec_op(loc, is_unsigned ? "LDVARUINT32" : "LDVARINT32", 1, 2);
+  }
+  tolk_assert(false);
+}
+
 // fun builder.storeInt  (mutate self, x: int, len: int): self   asm(x b len) "STIX";
 // fun builder.storeUint (mutate self, x: int, len: int): self   asm(x b len) "STUX";
 static AsmOp compile_store_int(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc, bool sgnd) {
@@ -1061,6 +1080,25 @@ static AsmOp compile_store_int(std::vector<VarDescr>& res, std::vector<VarDescr>
     return exec_arg_op(loc, sgnd? "STI" : "STU", z.int_const, 2, 1);
   }
   return exec_op(loc, sgnd ? "STIX" : "STUX", 3, 1);
+}
+
+// fun builder.__storeVarInt (mutate self, x: int, bits: int, unsigned: bool): self
+static AsmOp compile_store_varint(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
+  tolk_assert(args.size() == 4 && res.size() == 1);
+  // it's a hidden function for auto-serialization (not exposed to stdlib), to bits/unsigned are not dynamic
+  tolk_assert(args[2].is_int_const() && args[3].is_int_const());
+  long n_bits = args[2].int_const->to_long();
+  long is_unsigned = args[3].int_const->to_long();
+
+  args[2].unused();
+  args[3].unused();
+  if (n_bits == 16) {
+    return exec_op(loc, is_unsigned ? "STVARUINT16" : "STVARINT16", 2, 1);
+  }
+  if (n_bits == 32) {
+    return exec_op(loc, is_unsigned ? "STVARUINT32" : "STVARINT32", 2, 1);
+  }
+  tolk_assert(false);
 }
 
 // fun builder.storeBool(mutate self, value: bool): self   asm( -> 1 0) "1 STI";
@@ -1388,6 +1426,13 @@ void define_builtins() {
   define_builtin_func("__InMessage.getInMsgParam", ParamsInt1, Int, nullptr,
                                 compile_calc_InMessage_getInMsgParam,
                                 0);
+  define_builtin_method("builder.__storeVarInt", Builder, {Builder, Int, Int, Bool}, Unit, nullptr,
+                                compile_store_varint,   // not exposed to stdlib, used in auto-serialization
+                                FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf);
+  define_builtin_method("slice.__loadVarInt", Slice, {Slice, Int, Bool}, Int, nullptr,
+                                compile_fetch_varint,   // not exposed to stdlib, used in auto-serialization
+                                FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf,
+                                {}, {1, 0});
 
   // compile-time only functions, evaluated essentially at compile-time, no runtime implementation
   // they are placed in stdlib and marked as `builtin`

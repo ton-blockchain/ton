@@ -58,7 +58,7 @@ public:
     if (any_type->try_as<TypeDataIntN>()) {
       return {};
     }
-    if (any_type->try_as<TypeDataBytesN>()) {
+    if (any_type->try_as<TypeDataBitsN>()) {
       return {};
     }
     if (any_type == TypeDataCoins::create()) {
@@ -345,7 +345,7 @@ std::vector<var_idx_t> generate_lazy_struct_to_cell(CodeBlob& code, SrcLocation 
       ctx.generate_pack_any(hidden_field->declared_type, std::move(ir_field));
     } else {
       std::vector ir_gap_or_tail = loaded_state->get_ir_loaded_aside_field(hidden_field);
-      if (hidden_field->declared_type->unwrap_alias()->try_as<TypeDataBytesN>()) {
+      if (hidden_field->declared_type->unwrap_alias()->try_as<TypeDataBitsN>()) {
         ctx.storeSlice(ir_gap_or_tail[0]);
       } else {
         ctx.generate_pack_any(hidden_field->declared_type, std::move(ir_gap_or_tail));

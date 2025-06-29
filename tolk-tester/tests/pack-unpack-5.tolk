@@ -22,6 +22,7 @@ fun test1() {
         coins.estimatePackSize(),
         bits6.estimatePackSize(),
         bytes8.estimatePackSize(),
+        varint32.estimatePackSize(),
     );
 }
 
@@ -204,7 +205,7 @@ fun main() {
 }
 
 /**
-@testcase | 101 | | [ 32 32 0 0 ] [ 64 64 0 0 ] [ 1 1 0 0 ] [ 1 1 0 0 ] [ 0 9999 0 4 ] [ 4 124 0 0 ] [ 6 6 0 0 ] [ 64 64 0 0 ]
+@testcase | 101 | | [ 32 32 0 0 ] [ 64 64 0 0 ] [ 1 1 0 0 ] [ 1 1 0 0 ] [ 0 9999 0 4 ] [ 4 124 0 0 ] [ 6 6 0 0 ] [ 64 64 0 0 ] [ 5 253 0 0 ]
 @testcase | 102 | | [ 32 32 0 0 ] [ 1 33 0 0 ] [ 1 33 0 0 ] [ 17 33 0 0 ]
 @testcase | 103 | | [ 67 199 0 0 ] [ 69 599 0 0 ]
 @testcase | 104 | | [ 4 534 0 0 ] [ 2 536 0 0 ] [ 6 1070 0 0 ]

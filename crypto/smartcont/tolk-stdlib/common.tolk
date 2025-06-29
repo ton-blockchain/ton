@@ -227,8 +227,8 @@ struct PackOptions {
     /// however, if you guarantee that a slice is valid (for example, it comes from trusted sources),
     /// set this option to true to disable runtime checks;
     /// note: `int32` and other are always validated for overflow without any extra gas,
-    /// so this flag controls only rarely used `bytesN` / `bitsN` types
-    skipBitsNFieldsValidation: bool = false,
+    /// so this flag controls only rarely used `bitsN` type
+    skipBitsNValidation: bool = false,
 }
 
 /// UnpackOptions allows you to control behavior of `MyStruct.fromCell(c)` and similar functions.

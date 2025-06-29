@@ -50,13 +50,13 @@ fun test5() {
 
 @method_id(106)
 fun test6() {
-    return SomeBytesFields { f1: stringHexToSlice("11") as bytes1 }.toCell({skipBitsNFieldsValidation: true}).hash() & 0xFFFF;
+    return SomeBytesFields { f1: stringHexToSlice("11") as bytes1 }.toCell({skipBitsNValidation: true}).hash() & 0xFFFF;
 }
 
 @method_id(107)
 fun test7(believe: bool) {
     try {
-        return SomeBytesFields { f1: stringHexToSlice("ffff") as bytes1 }.toCell({skipBitsNFieldsValidation: believe}).hash() & 0xFFFF;
+        return SomeBytesFields { f1: stringHexToSlice("ffff") as bytes1 }.toCell({skipBitsNValidation: believe}).hash() & 0xFFFF;
     } catch (excno) {
         return excno;
     }

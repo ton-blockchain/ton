@@ -65,7 +65,7 @@ PackContext::PackContext(CodeBlob& code, SrcLocation loc, std::vector<var_idx_t>
   , f_storeUint(lookup_function("builder.storeUint"))
   , ir_builder(std::move(ir_builder))
   , ir_builder0(this->ir_builder[0])
-  , option_skipBitsNFieldsValidation(ir_options[0]) {
+  , option_skipBitsNValidation(ir_options[0]) {
 }
 
 void PackContext::storeInt(var_idx_t ir_idx, int len) const {
@@ -264,16 +264,51 @@ struct S_IntN final : ISerializer {
   }
 };
 
-struct S_BytesN final : ISerializer {
+struct S_VariadicIntN final : ISerializer {
+  const int n_bits;           // only 16 and 32 available
+  const bool is_unsigned;
+
+  explicit S_VariadicIntN(int n_bits, bool is_unsigned)
+    : n_bits(n_bits), is_unsigned(is_unsigned) {}
+
+  void pack(const PackContext* ctx, CodeBlob& code, SrcLocation loc, std::vector<var_idx_t>&& rvect) override {
+    FunctionPtr f_storeVarInt = lookup_function("builder.__storeVarInt");
+    std::vector args = { ctx->ir_builder0, rvect[0], code.create_int(loc, n_bits, "(n-bits)"), code.create_int(loc, is_unsigned, "(is-unsigned)") };
+    code.emplace_back(loc, Op::_Call, ctx->ir_builder, std::move(args), f_storeVarInt);
+  }
+
+  std::vector<var_idx_t> unpack(const UnpackContext* ctx, CodeBlob& code, SrcLocation loc) override {
+    FunctionPtr f_loadVarInt = lookup_function("slice.__loadVarInt");
+    std::vector args = { ctx->ir_slice0, code.create_int(loc, n_bits, "(n-bits)"), code.create_int(loc, is_unsigned, "(is-unsigned)") };
+    std::vector result = code.create_tmp_var(TypeDataInt::create(), loc, "(loaded-varint)");
+    code.emplace_back(loc, Op::_Call, std::vector{ctx->ir_slice0, result[0]}, std::move(args), f_loadVarInt);
+    return result;
+  }
+
+  void skip(const UnpackContext* ctx, CodeBlob& code, SrcLocation loc) override {
+    // no TVM instruction to skip, just load but don't use the result
+    unpack(ctx, code, loc);
+  }
+
+  PackSize estimate(const EstimateContext* ctx) override {
+    if (n_bits == 32) {
+      return PackSize(5, 253);
+    } else {
+      return PackSize(4, 124);    // same as `coins`
+    }
+  }
+};
+
+struct S_BitsN final : ISerializer {
   const int n_bits;
 
-  explicit S_BytesN(int n_width, bool is_bits)
+  explicit S_BitsN(int n_width, bool is_bits)
     : n_bits(is_bits ? n_width : n_width * 8) {}
 
   void pack(const PackContext* ctx, CodeBlob& code, SrcLocation loc, std::vector<var_idx_t>&& rvect) override {
     tolk_assert(rvect.size() == 1);
 
-    Op& if_disabled_by_user = code.emplace_back(loc, Op::_If, std::vector{ctx->option_skipBitsNFieldsValidation});
+    Op& if_disabled_by_user = code.emplace_back(loc, Op::_If, std::vector{ctx->option_skipBitsNValidation});
     {
       code.push_set_cur(if_disabled_by_user.block0);
       code.close_pop_cur(loc);
@@ -400,10 +435,8 @@ struct S_Coins final : ISerializer {
   }
 
   void skip(const UnpackContext* ctx, CodeBlob& code, SrcLocation loc) override {
-    FunctionPtr f_loadCoins = lookup_function("slice.loadCoins");
-    std::vector args = ctx->ir_slice;
-    std::vector dummy_loaded = code.create_tmp_var(TypeDataInt::create(), loc, "(loaded-coins)");
-    code.emplace_back(loc, Op::_Call, std::vector{ctx->ir_slice0, dummy_loaded[0]}, std::move(args), f_loadCoins);
+    // no TVM instruction to skip, just load but don't use the result
+    unpack(ctx, code, loc);
   }
 
   PackSize estimate(const EstimateContext* ctx) override {
@@ -428,9 +461,7 @@ struct S_Address final : ISerializer {
     // we can't do just
     // ctx->skipBits(2 + 1 + 8 + 256);
     // because it may be addr_none or addr_extern; there is no "skip address" in TVM, so just load it
-    FunctionPtr f_loadAddress = lookup_function("slice.loadAddress");
-    std::vector ir_address = code.create_tmp_var(TypeDataSlice::create(), loc, "(tmp-addr)");
-    code.emplace_back(loc, Op::_Call, std::vector{ctx->ir_slice0, ir_address[0]}, ctx->ir_slice, f_loadAddress);
+    unpack(ctx, code, loc);
   }
 
   PackSize estimate(const EstimateContext* ctx) override {
@@ -1088,10 +1119,13 @@ std::vector<PackOpcode> auto_generate_opcodes_for_union(TypePtr union_type, std:
 
 static std::unique_ptr<ISerializer> get_serializer_for_type(TypePtr any_type) {
   if (const auto* t_intN = any_type->try_as<TypeDataIntN>()) {
+    if (t_intN->is_variadic) {
+      return std::make_unique<S_VariadicIntN>(t_intN->n_bits, t_intN->is_unsigned);
+    }
     return std::make_unique<S_IntN>(t_intN->n_bits, t_intN->is_unsigned);
   }
-  if (const auto* t_bytesN = any_type->try_as<TypeDataBytesN>()) {
-    return std::make_unique<S_BytesN>(t_bytesN->n_width, t_bytesN->is_bits);
+  if (const auto* t_bitsN = any_type->try_as<TypeDataBitsN>()) {
+    return std::make_unique<S_BitsN>(t_bitsN->n_width, t_bitsN->is_bits);
   }
   if (any_type == TypeDataCoins::create()) {
     return std::make_unique<S_Coins>();

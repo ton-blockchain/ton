@@ -64,7 +64,7 @@ class PackContext {
 public:
   const std::vector<var_idx_t> ir_builder;
   const var_idx_t ir_builder0;
-  const var_idx_t option_skipBitsNFieldsValidation;
+  const var_idx_t option_skipBitsNValidation;
 
   PackContext(CodeBlob& code, SrcLocation loc, std::vector<var_idx_t> ir_builder, const std::vector<var_idx_t>& ir_options);
 

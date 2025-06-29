@@ -80,7 +80,7 @@ fun test3(op: int32, qid: uint64) {
     if (op == qid) {}
     if ((op as int32?)! == qid) {}
     if (op == (qid as uint64)) {}
-    if ((op as uint257?)! != (qid as int256?)!) {}
+    if ((op as int257?)! != (qid as uint256?)!) {}
     __expect_type(op << qid, "int");
 
     takeAnyInt(op);
@@ -227,7 +227,7 @@ fun main() {
     assign0(mutate t.1 as uint16);
     assign0(mutate t.2 as int);
     __expect_type(t.0 as int1, "int1");
-    __expect_type(t.0 as uint257, "uint257");
+    __expect_type(t.0 as int257, "int257");
     __expect_type(0 as int32, "int32");
     __expect_type((0 as int32) as uint64?, "uint64?");
     __expect_type(null as (int8, [uint16?])?, "(int8, [uint16?])?");

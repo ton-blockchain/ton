@@ -458,18 +458,18 @@ public:
  * intN is smoothly cast from/to plain int, mathematical operators on intN also "fall back" to general int.
  */
 class TypeDataIntN final : public TypeData {
-  TypeDataIntN(bool is_unsigned, bool is_variadic, int n_bits)
+  TypeDataIntN(int n_bits, bool is_unsigned, bool is_variadic)
     : TypeData(0)
+    , n_bits(n_bits)
     , is_unsigned(is_unsigned)
-    , is_variadic(is_variadic)
-    , n_bits(n_bits) {}
+    , is_variadic(is_variadic) {}
 
 public:
+  const int n_bits;
   const bool is_unsigned;
   const bool is_variadic;
-  const int n_bits;
 
-  static TypePtr create(bool is_unsigned, bool is_variadic, int n_bits);
+  static TypePtr create(int n_bits, bool is_unsigned, bool is_variadic);
 
   int get_type_id() const override;
   std::string as_human_readable() const override;
@@ -497,22 +497,22 @@ public:
 };
 
 /*
- * `bytes256`, `bits512`, `bytes8` are TypeDataBytesN. At TVM level, it's just slice.
- * The purpose of bytesN is to be used in struct fields, describing the way of serialization (n bytes / n bits).
- * In this essence, bytesN is very similar to intN.
- * Note, that unlike intN automatically cast to/from int, bytesN does NOT auto cast to slice (without `as`).
+ * `bits512`, `bytes8`, `bits9` are TypeDataBitsN. At TVM level, it's just slice.
+ * The purpose of bitsN is to be used in struct fields, describing the way of serialization (n bytes / n bits).
+ * In this essence, bitsN is very similar to intN.
+ * Note that unlike intN automatically cast to/from int, bitsN does NOT auto cast to slice (without `as`).
  */
-class TypeDataBytesN final : public TypeData {
-  TypeDataBytesN(bool is_bits, int n_width)
+class TypeDataBitsN final : public TypeData {
+  TypeDataBitsN(int n_width, bool is_bits)
     : TypeData(0)
-    , is_bits(is_bits)
-    , n_width(n_width) {}
+    , n_width(n_width)
+    , is_bits(is_bits) {}
 
 public:
+  const int n_width;          // either in bits, or in bytes
   const bool is_bits;
-  const int n_width;
 
-  static TypePtr create(bool is_bits, int n_width);
+  static TypePtr create(int n_width, bool is_bits);
 
   int get_type_id() const override;
   std::string as_human_readable() const override;
