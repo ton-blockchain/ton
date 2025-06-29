@@ -222,6 +222,25 @@ struct WithVariadicInts {
     i2: varuint32;
 }
 
+global gModByCustom: int;
+
+type MagicGlobalModifier = ();
+
+fun MagicGlobalModifier.packToBuilder(self, mutate b: builder) {
+    b.storeUint(gModByCustom, 8);
+}
+
+fun MagicGlobalModifier.unpackFromSlice(mutate s: slice) {
+    gModByCustom = s.loadUint(8);
+    return ();
+}
+
+struct WithGlobalModifier {
+    a: int8;
+    g: MagicGlobalModifier = ();
+    n: int8;
+}
+
 
 @noinline
 fun contract.getFakeData(seqno: int): Cell<WalletStorage> {
@@ -951,6 +970,17 @@ fun demo157() {
     return d.i2 == (1 << 200);
 }
 
+@method_id(158)
+fun demo158() {
+    val m1 = lazy WithGlobalModifier.fromSlice(stringHexToSlice("01FF"));
+    __expect_lazy("[m1] skip (bits8), load g");
+    m1.g;       // modifies gModByCustom by a custom unpack function
+    val after1 = gModByCustom;
+    val m2 = lazy WithGlobalModifier.fromSlice(stringHexToSlice("010A02"));
+    __expect_lazy("[m2] skip (bits8) (MagicGlobalModifier), load n");
+    return (m2.n, gModByCustom, after1);  // also modifies by skipping (unpack called)
+}
+
 
 @method_id(200)
 fun demo200() {
@@ -1638,6 +1668,7 @@ fun main() {
 @testcase | 156 | x{0110}         | 16
 @testcase | 156 | x{FF10}         | -100
 @testcase | 157 |                 | -1
+@testcase | 158 |                 | 2 10 255
 
 @testcase | 200 |                 | 1
 @testcase | 201 |                 | 1 2 -1

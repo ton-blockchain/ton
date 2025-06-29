@@ -51,6 +51,19 @@ namespace tolk {
 // (purpose: functions in recursive call chains can't be inlined)
 static std::unordered_map<FunctionPtr, std::vector<FunctionPtr>> call_graph;
 
+static bool is_called_implicitly_by_compiler(FunctionPtr f) {
+  if (f->name == "onBouncedMessage") {
+    return true;
+  }
+  if (f->is_method() && f->method_name == "packToBuilder") {
+    return f->does_accept_self() && !f->does_mutate_self() && f->get_num_params() == 2 && f->has_mutate_params();
+  }
+  if (f->is_method() && f->method_name == "unpackFromSlice") {
+    return !f->does_accept_self() && f->get_num_params() == 1 && f->has_mutate_params();
+  }
+  return false;
+}
+
 // when traversing a function, collect some AST metrics used to detect whether it's lightweight
 struct StateWhileTraversingFunction {
   FunctionPtr fun_ref;
@@ -227,8 +240,7 @@ protected:
     }
 
     // okay, this function will be inlined, mark the flag
-    bool is_called = fun_ref->n_times_called
-                  || fun_ref->name == "onBouncedMessage";   // implicitly called by the compiler from onInternalMessage()
+    bool is_called = fun_ref->n_times_called || is_called_implicitly_by_compiler(fun_ref);
     if (will_inline && is_called) {
       fun_ref->mutate()->assign_inline_mode_in_place();
     }

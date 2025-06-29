@@ -53,6 +53,26 @@ struct CantSerializeBecause {
 class PackUnpackAvailabilityChecker {
   std::vector<StructPtr> already_checked;
 
+  static bool check_declared_packToBuilder(TypePtr receiver_type, FunctionPtr f_pack) {
+    if (!f_pack->does_accept_self() || f_pack->does_mutate_self() || f_pack->get_num_params() != 2) {
+      return false;
+    }
+    if (f_pack->get_param(1).declared_type != TypeDataBuilder::create() || !f_pack->has_mutate_params()) {
+      return false;
+    }
+    return f_pack->inferred_return_type->get_width_on_stack() == 0;
+  }
+
+  static bool check_declared_unpackFromSlice(TypePtr receiver_type, FunctionPtr f_unpack) {
+    if (f_unpack->does_accept_self() || f_unpack->get_num_params() != 1) {
+      return false;
+    }
+    if (f_unpack->get_param(0).declared_type != TypeDataSlice::create() || !f_unpack->has_mutate_params()) {
+      return false;
+    }
+    return f_unpack->inferred_return_type->equal_to(receiver_type);
+  }
+
 public:
   std::optional<CantSerializeBecause> detect_why_cant_serialize(TypePtr any_type, bool is_pack) {
     if (any_type->try_as<TypeDataIntN>()) {
@@ -135,6 +155,26 @@ public:
 
     if (const auto* t_alias = any_type->try_as<TypeDataAlias>()) {
       if (t_alias->alias_ref->name == "RemainingBitsAndRefs") {   // it's built-in RemainingBitsAndRefs (slice)
+        return {};
+      }
+      if (FunctionPtr f_pack = get_custom_pack_unpack_function(t_alias, true)) {
+        std::string receiver_name = t_alias->alias_ref->as_human_readable();
+        if (!check_declared_packToBuilder(t_alias, f_pack)) {
+          return CantSerializeBecause("because `" + receiver_name + ".packToBuilder()` is declared incorrectly\nhint: it must accept 2 parameters and return nothing:\n> fun " + receiver_name + ".packToBuilder(self, mutate b: builder)");
+        }
+        if (!f_pack->is_inlined_in_place()) {
+          return CantSerializeBecause("because `" + receiver_name + ".packToBuilder()` can't be inlined; probably, it contains `return` in the middle");
+        }
+        if (FunctionPtr f_unpack = get_custom_pack_unpack_function(t_alias, false)) {
+          if (!check_declared_unpackFromSlice(t_alias, f_unpack)) {
+            return CantSerializeBecause("because `" + receiver_name + ".unpackFromSlice()` is declared incorrectly\nhint: it must accept 1 parameter and return an object:\n> fun " + receiver_name + ".unpackFromSlice(mutate s: slice): " + receiver_name);
+          }
+          if (!f_unpack->is_inlined_in_place()) {
+            return CantSerializeBecause("because `" + receiver_name + ".unpackFromSlice()` can't be inlined; probably, it contains `return` in the middle");
+          }
+        } else if (!is_pack) {
+          return CantSerializeBecause("because type `" + receiver_name + "` defines a custom pack function, but does not define unpack\nhint: declare unpacker like this:\n> fun " + receiver_name + ".unpackFromSlice(mutate s: slice): " + receiver_name);
+        }
         return {};
       }
       if (auto why = detect_why_cant_serialize(t_alias->underlying_type, is_pack)) {

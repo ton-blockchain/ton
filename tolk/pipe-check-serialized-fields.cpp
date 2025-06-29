@@ -82,10 +82,10 @@ class CheckSerializedFieldsAndTypesVisitor final : public ASTVisitorFunctionBody
     TypePtr serialized_type = nullptr;
     bool is_pack = false;
     if (f_name == "Cell<T>.load" || f_name == "T.fromSlice" || f_name == "T.fromCell" || f_name == "T.toCell" ||
-        f_name == "T.loadAny" || f_name == "slice.skipAny" || f_name == "slice.storeAny" || f_name == "T.estimatePackSize" ||
+        f_name == "T.loadAny" || f_name == "slice.skipAny" || f_name == "slice.loadAny" || f_name == "builder.storeAny" || f_name == "T.estimatePackSize" ||
         f_name == "createMessage" || f_name == "createExternalLogMessage") {
       serialized_type = fun_ref->substitutedTs->typeT_at(0);
-      is_pack = f_name == "T.toCell" || f_name == "slice.storeAny" || f_name == "T.estimatePackSize" || f_name == "createMessage" || f_name == "createExternalLogMessage";
+      is_pack = f_name == "T.toCell" || f_name == "builder.storeAny" || f_name == "T.estimatePackSize" || f_name == "createMessage" || f_name == "createExternalLogMessage";
     } else {
       return;   // not a serialization function
     }
@@ -111,7 +111,7 @@ class CheckSerializedFieldsAndTypesVisitor final : public ASTVisitorFunctionBody
 };
 
 void pipeline_check_serialized_fields() {
-    visit_ast_of_all_functions<CheckSerializedFieldsAndTypesVisitor>();
+  visit_ast_of_all_functions<CheckSerializedFieldsAndTypesVisitor>();
 }
 
 } // namespace tolk

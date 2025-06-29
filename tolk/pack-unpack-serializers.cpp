@@ -40,6 +40,7 @@ class LValContext;
 std::vector<var_idx_t> pre_compile_expr(AnyExprV v, CodeBlob& code, TypePtr target_type = nullptr, LValContext* lval_ctx = nullptr);
 std::vector<var_idx_t> pre_compile_is_type(CodeBlob& code, TypePtr expr_type, TypePtr cmp_type, const std::vector<var_idx_t>& expr_ir_idx, SrcLocation loc, const char* debug_desc);
 std::vector<var_idx_t> transition_to_target_type(std::vector<var_idx_t>&& rvect, CodeBlob& code, TypePtr original_type, TypePtr target_type, SrcLocation loc);
+std::vector<var_idx_t> gen_inline_fun_call_in_place(CodeBlob& code, TypePtr ret_type, SrcLocation loc, FunctionPtr f_inlined, AnyExprV self_obj, bool is_before_immediate_return, const std::vector<std::vector<var_idx_t>>& vars_per_arg);
 
 bool is_type_cellT(TypePtr any_type) {
   if (const TypeDataStruct* t_struct = any_type->try_as<TypeDataStruct>()) {
@@ -49,6 +50,24 @@ bool is_type_cellT(TypePtr any_type) {
   return false;
 }
 
+// For any type alias, one can declare custom pack/unpack functions:
+// > type TelegramString = slice
+// > fun TelegramString.packToBuilder(self, mutate b: builder) { ... }
+// > fun TelegramString.unpackFromSlice(mutate s: slice): TelegramString { ... }
+// It's externally checked in advance that it's declared correctly.
+FunctionPtr get_custom_pack_unpack_function(TypePtr receiver_type, bool is_pack) {
+  if (const TypeDataAlias* t_alias = receiver_type->try_as<TypeDataAlias>()) {
+    if (t_alias->alias_ref->is_instantiation_of_generic_alias()) {
+      // does not work for generic aliases currently, because `MyAlias<ConcreteT>.pack` was not instantiated earlier
+      return nullptr;
+    }
+    std::string receiver_name = t_alias->alias_ref->as_human_readable();
+    if (const Symbol* sym = lookup_global_symbol(receiver_name + (is_pack ? ".packToBuilder" : ".unpackFromSlice"))) {
+      return sym->try_as<FunctionPtr>();
+    }
+  }
+  return nullptr;
+}
 
 // --------------------------------------------
 //    options, context, common helpers
@@ -1037,6 +1056,39 @@ struct S_CustomStruct final : ISerializer {
   }
 };
 
+struct S_CustomReceiverForPackUnpack final : ISerializer {
+  TypePtr receiver_type;
+
+  explicit S_CustomReceiverForPackUnpack(TypePtr receiver_type)
+    : receiver_type(receiver_type) {}
+
+  void pack(const PackContext* ctx, CodeBlob& code, SrcLocation loc, std::vector<var_idx_t>&& rvect) override {
+    FunctionPtr f_pack = get_custom_pack_unpack_function(receiver_type, true);
+    tolk_assert(f_pack && f_pack->does_accept_self() && f_pack->inferred_return_type->get_width_on_stack() == 0);
+    std::vector vars_per_arg = { std::move(rvect), ctx->ir_builder };
+    std::vector ir_mutated_builder = gen_inline_fun_call_in_place(code, TypeDataBuilder::create(), loc, f_pack, nullptr, false, vars_per_arg);
+    code.emplace_back(loc, Op::_Let, ctx->ir_builder, std::move(ir_mutated_builder));
+  }
+
+  std::vector<var_idx_t> unpack(const UnpackContext* ctx, CodeBlob& code, SrcLocation loc) override {
+    FunctionPtr f_unpack = get_custom_pack_unpack_function(receiver_type, false);
+    tolk_assert(f_unpack && f_unpack->inferred_return_type->get_width_on_stack() == receiver_type->get_width_on_stack());
+    TypePtr ret_type = TypeDataTensor::create({TypeDataSlice::create(), receiver_type});
+    std::vector ir_slice_and_res = gen_inline_fun_call_in_place(code, ret_type, loc, f_unpack, nullptr, false, {ctx->ir_slice});
+    code.emplace_back(loc, Op::_Let, ctx->ir_slice, std::vector{ir_slice_and_res.front()});
+    return std::vector(ir_slice_and_res.begin() + 1, ir_slice_and_res.end());
+  }
+
+  void skip(const UnpackContext* ctx, CodeBlob& code, SrcLocation loc) override {
+    // just load and ignore the result
+    unpack(ctx, code, loc);
+  }
+
+  PackSize estimate(const EstimateContext* ctx) override {
+    return PackSize::unpredictable_infinity();
+  }
+};
+
 
 // --------------------------------------------
 //    automatically generate opcodes
@@ -1191,6 +1243,9 @@ static std::unique_ptr<ISerializer> get_serializer_for_type(TypePtr any_type) {
   if (const auto* t_alias = any_type->try_as<TypeDataAlias>()) {
     if (t_alias->alias_ref->name == "RemainingBitsAndRefs") {
       return std::make_unique<S_RemainingBitsAndRefs>();
+    }
+    if (get_custom_pack_unpack_function(t_alias, true)) {
+      return std::make_unique<S_CustomReceiverForPackUnpack>(t_alias);
     }
     return get_serializer_for_type(t_alias->underlying_type);
   }

@@ -1073,7 +1073,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
     // check for method (`t.size` / `user.getId`); even `i.0()` can be here if `fun int.0(self)` exists
     // for `T.copy` / `Container<T>.create`, substitution for T is also returned
     if (!fun_ref) {
-      std::tie(fun_ref, substitutedTs) = choose_only_method_to_call(cur_f, dot_obj->loc, obj_type, field_name);
+      std::tie(fun_ref, substitutedTs) = choose_only_method_to_call(cur_f, dot_obj->loc, dot_obj->inferred_type, field_name);
     }
 
     // not a field, not a method — fire an error
