@@ -242,6 +242,9 @@ class ValidateQuery : public td::actor::Actor {
   bool out_msg_queue_size_known_ = false;
   bool have_out_msg_queue_size_in_state_ = false;
 
+  std::function<td::Ref<vm::Cell>(const td::Bits256&)> storage_stat_cache_;
+  std::vector<std::pair<td::Ref<vm::Cell>, td::uint32>> storage_stat_cache_update_;
+
   bool msg_metadata_enabled_ = false;
   bool deferring_messages_enabled_ = false;
   bool store_out_msg_queue_size_ = false;
@@ -295,6 +298,7 @@ class ValidateQuery : public td::actor::Actor {
   void after_get_latest_mc_state(td::Result<std::pair<Ref<MasterchainState>, BlockIdExt>> res);
   void after_get_mc_state(td::Result<Ref<ShardState>> res);
   void got_mc_handle(td::Result<BlockHandle> res);
+  void after_get_storage_stat_cache(td::Result<std::function<td::Ref<vm::Cell>(const td::Bits256&)>> res);
   void after_get_shard_state(int idx, td::Result<Ref<ShardState>> res);
   bool process_mc_state(Ref<MasterchainState> mc_state);
   bool try_unpack_mc_state();
