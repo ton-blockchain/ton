@@ -25,4 +25,7 @@ std::vector<var_idx_t> generate_createExternalLogMessage(CodeBlob& code, SrcLoca
 
 std::vector<var_idx_t> generate_address_buildInAnotherShard(CodeBlob& code, SrcLocation loc, std::vector<var_idx_t>&& ir_self_address, std::vector<var_idx_t>&& ir_shard_options);
 
+std::vector<var_idx_t> generate_AutoDeployAddress_buildAddress(CodeBlob& code, SrcLocation loc, std::vector<var_idx_t>&& ir_auto_deploy);
+std::vector<var_idx_t> generate_AutoDeployAddress_addressMatches(CodeBlob& code, SrcLocation loc, std::vector<var_idx_t>&& ir_auto_deploy, std::vector<var_idx_t>&& ir_address);
+
 } // namespace tolk

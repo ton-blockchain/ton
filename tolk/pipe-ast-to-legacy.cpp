@@ -678,6 +678,15 @@ static std::vector<var_idx_t> gen_compile_time_code_instead_of_fun_call(CodeBlob
     std::vector ir_shard_options = vars_per_arg[1];
     return generate_address_buildInAnotherShard(code, loc, std::move(ir_self_address), std::move(ir_shard_options));
   }
+  if (called_f->name == "AutoDeployAddress.buildAddress") {
+    std::vector ir_self = vars_per_arg[0];
+    return generate_AutoDeployAddress_buildAddress(code, loc, std::move(ir_self));
+  }
+  if (called_f->name == "AutoDeployAddress.addressMatches") {
+    std::vector ir_self = vars_per_arg[0];
+    std::vector ir_address = vars_per_arg[1];
+    return generate_AutoDeployAddress_addressMatches(code, loc, std::move(ir_self), std::move(ir_address));
+  }
 
   tolk_assert(false);
 }

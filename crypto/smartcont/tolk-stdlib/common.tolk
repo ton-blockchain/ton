@@ -1056,16 +1056,38 @@ struct AddressShardingOptions {
 ///     },
 ///     ...
 /// ```
-/// It's often called "deployment", but it's inaccurate. TON Blockchain doesn't have a dedicated
-/// deployment mechanism. You just send a message to some address — and if it doesn't exist, but you've
-/// attached a way to initialize it (code+data) — it's initialized immediately, and accepts your message.
 /// You just provide code+data, and the compiler automatically calculates the destination address,
 /// because in TON, the address of a contract, by definition, is a hash of its initial state.
+/// You can also use it without sending a message. See [buildAddress] and [addressMatches].
 struct AutoDeployAddress {
     workchain: int8 = BASECHAIN;
     stateInit: ContractState | cell;
     toShard: AddressShardingOptions? = null;
 }
+
+/// Constructs an address that a deployed contract will have.
+/// For example, from a jetton minter, you want to calculate an address of a jetton wallet:
+/// ```
+/// val jwDeployed = calcDeployedJettonWallet(...);
+/// val jwAddrBuilt = jwDeployed.buildAddress();
+/// ```
+/// Just instead of `dest` for [createMessage], you use it is to calculate a jetton/nft address.
+/// Note: returns `builder`, not `address`! It's cheap.
+/// If you really need `address`, use `address.fromValidBuilder(res)`.
+@pure
+fun AutoDeployAddress.buildAddress(self): builder
+    builtin;
+
+/// Checks that an address matches a deployed contract.
+/// For example, from a jetton minter, you're checking whether a message is from a jetton wallet:
+/// ```
+/// val jwDeployed = calcDeployedJettonWallet(...);
+/// val fromJW = jwDeployed.addressMatches(senderAddress);
+/// ```
+/// Just instead of `dest` for [createMessage], you use it is to check whether a sender is a jetton/nft.
+@pure
+fun AutoDeployAddress.addressMatches(self, addr: address): bool
+    builtin;
 
 /// Options for creating an outgoing message.
 /// Consider [createMessage] for examples.
