@@ -32,6 +32,7 @@
 #include <cassert>
 #include <algorithm>
 #include "fabric.h"
+#include "storage-stat-cache.hpp"
 #include "validator-set.hpp"
 #include "top-shard-descr.hpp"
 #include <ctime>
@@ -298,12 +299,14 @@ void Collator::start_up() {
   // 6. get storage stat cache
   ++pending;
   LOG(DEBUG) << "sending get_storage_stat_cache() query to Manager";
-  td::actor::send_closure_later(
-      manager, &ValidatorManager::get_storage_stat_cache,
-      [self = get_self()](td::Result<std::function<td::Ref<vm::Cell>(const td::Bits256&)>> res) {
-        LOG(DEBUG) << "got answer to get_storage_stat_cache() query";
-        td::actor::send_closure_later(std::move(self), &Collator::after_get_storage_stat_cache, std::move(res));
-      });
+  td::actor::send_closure_later(manager, &ValidatorManager::get_storage_stat_cache,
+                                [self = get_self(), token = perf_log_.start_action("get_storage_stat_cache")](
+                                    td::Result<std::function<td::Ref<vm::Cell>(const td::Bits256&)>> res) mutable {
+                                  LOG(DEBUG) << "got answer to get_storage_stat_cache() query";
+                                  td::actor::send_closure_later(std::move(self),
+                                                                &Collator::after_get_storage_stat_cache, std::move(res),
+                                                                std::move(token));
+                                });
   // 7. set timeout
   alarm_timestamp() = timeout;
   CHECK(pending);
@@ -741,8 +744,10 @@ void Collator::after_get_shard_blocks(td::Result<std::vector<Ref<ShardTopBlockDe
  *
  * @param res The retrieved storage stat cache.
  */
-void Collator::after_get_storage_stat_cache(td::Result<std::function<td::Ref<vm::Cell>(const td::Bits256&)>> res) {
+void Collator::after_get_storage_stat_cache(td::Result<std::function<td::Ref<vm::Cell>(const td::Bits256&)>> res,
+                                            td::PerfLogAction token) {
   --pending;
+  token.finish(res);
   if (res.is_error()) {
     LOG(INFO) << "after_get_storage_stat_cache : " << res.error();
   } else {
@@ -2655,20 +2660,6 @@ std::unique_ptr<block::Account> Collator::make_account_from(td::ConstBitPtr addr
   if (!init_account_storage_dict(*ptr)) {
     return nullptr;
   }
-  if (storage_stat_cache_ && ptr->storage_dict_hash) {
-    auto dict_root = storage_stat_cache_(ptr->storage_dict_hash.value());
-    if (dict_root.not_null()) {
-      auto S = ptr->init_account_storage_stat(dict_root);
-      if (S.is_error()) {
-        fatal_error(S.move_as_error_prefix(PSTRING() << "failed to init storage stat from cache for account "
-                                                     << addr.to_hex(256) << ": "));
-        return nullptr;
-      }
-      LOG(DEBUG) << "Inited storage stat from cache for account " << addr.to_hex(256) << " (" << ptr->storage_used.cells
-                 << " cells)";
-      storage_stat_cache_update_.emplace_back(dict_root, ptr->storage_used.cells);
-    }
-  }
   return ptr;
 }
 
@@ -2679,29 +2670,54 @@ std::unique_ptr<block::Account> Collator::make_account_from(td::ConstBitPtr addr
  * @return True on success, False on failure
  */
 bool Collator::init_account_storage_dict(block::Account& account) {
-  if (!full_collated_data_ || is_masterchain() || !account.storage_dict_hash || account.storage.is_null()) {
+  if (!account.storage_dict_hash || account.storage.is_null()) {
     return true;
   }
   td::Bits256 storage_dict_hash = account.storage_dict_hash.value();
   if (storage_dict_hash.is_zero()) {
     return true;
   }
+  td::Ref<vm::Cell> cached_dict_root =
+      storage_stat_cache_ ? storage_stat_cache_(storage_dict_hash) : td::Ref<vm::Cell>{};
+  if (cached_dict_root.not_null()) {
+    CHECK(td::Bits256{cached_dict_root->get_hash().bits()} == storage_dict_hash);
+    LOG(DEBUG) << "Inited storage stat from cache for account " << account.addr.to_hex() << " ("
+               << account.storage_used.cells << " cells)";
+    storage_stat_cache_update_.emplace_back(cached_dict_root, account.storage_used.cells);
+  }
+  if (!full_collated_data_ || is_masterchain()) {
+    if (cached_dict_root.not_null()) {
+      auto S = account.init_account_storage_stat(cached_dict_root);
+      if (S.is_error()) {
+        return fatal_error(S.move_as_error_prefix(PSTRING() << "failed to init storage stat from cache for account "
+                                                            << account.addr.to_hex() << ": "));
+      }
+    }
+    return true;
+  }
+
   AccountStorageDict& dict = account_storage_dicts_[storage_dict_hash];
   if (!dict.inited) {
     dict.inited = true;
-    // don't mark cells in account state as loaded during compute_account_storage_dict
-    state_usage_tree_->set_ignore_loads(true);
-    auto res = account.compute_account_storage_dict(&dict.original_storage_cells);
-    state_usage_tree_->set_ignore_loads(false);
-    if (res.is_error()) {
-      return fatal_error(res.move_as_error_prefix(PSTRING() << "Failed to init account storage dict for "
-                                                            << account.addr.to_hex() << ": "));
+    td::Ref<vm::Cell> dict_root;
+    if (cached_dict_root.not_null()) {
+      dict_root = cached_dict_root;
+    } else {
+      // don't mark cells in account state as loaded during compute_account_storage_dict
+      state_usage_tree_->set_ignore_loads(true);
+      auto res = account.compute_account_storage_dict();
+      state_usage_tree_->set_ignore_loads(false);
+      if (res.is_error()) {
+        return fatal_error(res.move_as_error_prefix(PSTRING() << "Failed to init account storage dict for "
+                                                              << account.addr.to_hex() << ": "));
+      }
+      dict_root = res.move_as_ok();
+      if (dict_root.is_null()) {  // Impossible if storage_dict_hash is not zero
+        return fatal_error(PSTRING() << "Failed to init account storage dict for " << account.addr.to_hex()
+                                     << ": dict is empty");
+      }
     }
-    if (res.ok().is_null()) {  // Impossible if storage_dict_hash is not zero
-      return fatal_error(PSTRING() << "Failed to init account storage dict for " << account.addr.to_hex()
-                                   << ": dict is empty");
-    }
-    dict.mpb = vm::MerkleProofBuilder(res.move_as_ok());
+    dict.mpb = vm::MerkleProofBuilder(std::move(dict_root));
     dict.mpb.set_cell_load_callback([&](const vm::LoadedCell& cell) {
       on_cell_loaded(cell);
     });
@@ -2765,23 +2781,99 @@ td::Result<block::Account*> Collator::make_account(td::ConstBitPtr addr, bool fo
 }
 
 /**
+ * Removes UsageCell's from new_root's subtree, replacing them with regular DataCell's
+ *
+ * @param old_root Original root (not wrapped in UsageCell)
+ * @param new_root Cell to remove UsageCell's from
+ * @param usage_tree CellUsageTree for old_root
+ *
+ * @returns new_root without UsageCell's
+ */
+static td::Ref<vm::Cell> clean_usage_cells(td::Ref<vm::Cell> old_root, td::Ref<vm::Cell> new_root,
+                                           const vm::CellUsageTree& usage_tree) {
+  if (new_root.is_null()) {
+    return {};
+  }
+
+  td::HashMap<vm::CellHash, td::Ref<vm::Cell>> visited_cells;
+  std::function<void(td::Ref<vm::Cell>, vm::CellUsageTree::NodeId)> dfs_old = [&](td::Ref<vm::Cell> cell,
+                                                                                  vm::CellUsageTree::NodeId node_id) {
+    visited_cells[cell->get_hash()] = cell;
+    if (!usage_tree.is_loaded(node_id)) {
+      return;
+    }
+    vm::CellSlice cs{vm::NoVm(), cell};
+    for (unsigned i = 0; i < cs.size_refs(); i++) {
+      dfs_old(cs.prefetch_ref(i), usage_tree.get_child(node_id, i));
+    }
+  };
+  if (old_root.not_null()) {
+    dfs_old(old_root, usage_tree.root_id());
+  }
+
+  std::function<td::Ref<vm::Cell>(td::Ref<vm::Cell>)> dfs = [&](td::Ref<vm::Cell> cell) -> td::Ref<vm::Cell> {
+    auto it = visited_cells.find(cell->get_hash());
+    if (it != visited_cells.end()) {
+      return it->second;
+    }
+    auto loaded_cell = cell->load_cell().move_as_ok();
+    CHECK(loaded_cell.virt.get_virtualization() == 0);
+    td::Ref<vm::DataCell> data_cell = std::move(loaded_cell.data_cell);
+    td::Ref<vm::Cell> children[vm::Cell::max_refs];
+    bool changed = false;
+    for (unsigned i = 0; i < data_cell->size_refs(); ++i) {
+      td::Ref<vm::Cell> child = data_cell->get_ref(i);
+      children[i] = dfs(child);
+      if (children[i] != child) {
+        changed = true;
+      }
+    }
+    if (changed) {
+      data_cell = vm::DataCell::create(td::Slice{data_cell->get_data(), (data_cell->size() + 7) / 8}, data_cell->size(),
+                                       {children, data_cell->size_refs()}, data_cell->is_special())
+                      .move_as_ok();
+      CHECK(data_cell->get_hash() == cell->get_hash());
+    }
+    return visited_cells[cell->get_hash()] = data_cell;
+  };
+  return dfs(new_root);
+}
+
+/**
  * Decides whether to include storage dict proof to collated data for this account or not.
  *
  * @param account Account object
  *
  * @returns True if the operation is successful, false otherwise.
  */
-bool Collator::process_account_storage_dict(const block::Account& account) {
+bool Collator::process_account_storage_dict(block::Account& account) {
+  bool store_dict_to_cache = account.storage_dict_hash && account.account_storage_stat &&
+                             account.account_storage_stat.value().is_dict_ready() &&
+                             account.storage_used.cells >= StorageStatCache::MIN_ACCOUNT_CELLS;
   if (!account.orig_storage_dict_hash) {
+    if (store_dict_to_cache) {
+      td::Ref<vm::Cell> dict_root = account.account_storage_stat.value().get_dict_root().move_as_ok();
+      storage_stat_cache_update_.emplace_back(dict_root, account.storage_used.cells);
+    }
     return true;
   }
   td::Bits256 storage_dict_hash = account.orig_storage_dict_hash.value();
   auto it = account_storage_dicts_.find(storage_dict_hash);
   if (it == account_storage_dicts_.end()) {
+    if (store_dict_to_cache) {
+      td::Ref<vm::Cell> dict_root = account.account_storage_stat.value().get_dict_root().move_as_ok();
+      storage_stat_cache_update_.emplace_back(dict_root, account.storage_used.cells);
+    }
     return true;
   }
   CHECK(full_collated_data_ && !is_masterchain());
   AccountStorageDict& dict = it->second;
+  td::Ref<vm::Cell> original_dict_root = dict.mpb.original_root();
+  if (store_dict_to_cache) {
+    td::Ref<vm::Cell> dict_root = account.account_storage_stat.value().get_dict_root().move_as_ok();
+    dict_root = clean_usage_cells(original_dict_root, dict_root, dict.mpb.get_usage_tree());
+    storage_stat_cache_update_.emplace_back(dict_root, account.storage_used.cells);
+  }
   if (dict.add_to_collated_data) {
     LOG(DEBUG) << "Storage dict proof of account " << account.addr.to_hex() << " : already included";
     return true;
@@ -2794,12 +2886,13 @@ bool Collator::process_account_storage_dict(const block::Account& account) {
   td::HashSet<vm::CellHash> visited;
   bool calculate_proof_size_diff = true;
   td::int64 proof_size_diff = 0;
-  std::function<void(const Ref<vm::Cell>&)> dfs = [&](const Ref<vm::Cell>& cell) {
+  vm::Dictionary original_dict{original_dict_root, 256};
+  std::function<bool(const Ref<vm::Cell>&)> dfs = [&](const Ref<vm::Cell>& cell) -> bool {
     if (cell.is_null() || !visited.emplace(cell->get_hash()).second) {
-      return;
+      return true;
     }
     auto loaded_cell = cell->load_cell().move_as_ok();
-    if (dict.original_storage_cells.contains(cell->get_hash())) {
+    if (original_dict.lookup(cell->get_hash().bits(), 256).not_null()) {
       if (calculate_proof_size_diff) {
         switch (collated_data_stat.get_cell_status(cell->get_hash())) {
           case vm::ProofStorageStat::c_none:
@@ -2812,26 +2905,36 @@ bool Collator::process_account_storage_dict(const block::Account& account) {
           case vm::ProofStorageStat::c_loaded:
             break;
         }
+        if (proof_size_diff > (td::int64)dict.proof_stat.estimate_proof_size()) {
+          return false;
+        }
       } else {
         collated_data_stat.add_loaded_cell(loaded_cell.data_cell, loaded_cell.virt.get_level());
       }
     }
     vm::CellSlice cs{std::move(loaded_cell.data_cell)};
     for (unsigned i = 0; i < cs.size_refs(); ++i) {
-      dfs(cs.prefetch_ref(i));
+      if (!dfs(cs.prefetch_ref(i))) {
+        return false;
+      }
     }
+    return true;
   };
 
   // Visit cells that were used in storage stat computation to calculate collated data increase
+  bool account_proof_too_big = false;
   state_usage_tree_->set_ignore_loads(true);
   for (const auto& cell : dict.storage_stat_updates) {
-    dfs(cell);
+    if (!dfs(cell)) {
+      account_proof_too_big = true;
+      break;
+    }
   }
   state_usage_tree_->set_ignore_loads(false);
 
-  if (proof_size_diff > (td::int64)dict.proof_stat.estimate_proof_size()) {
+  if (account_proof_too_big) {
     LOG(DEBUG) << "Storage dict proof of account " << account.addr.to_hex()
-               << " : account_proof_size=" << proof_size_diff
+               << " : account_proof_size>=" << proof_size_diff
                << ", dict_proof_size=" << dict.proof_stat.estimate_proof_size() << ", include dict in collated data";
     dict.add_to_collated_data = true;
     collated_data_stat.add_loaded_cells(dict.proof_stat);
@@ -2844,7 +2947,7 @@ bool Collator::process_account_storage_dict(const block::Account& account) {
     calculate_proof_size_diff = false;
     visited.clear();
     for (const auto& cell : dict.storage_stat_updates) {
-      dfs(cell);
+      CHECK(dfs(cell));
     }
   }
 
@@ -2942,10 +3045,6 @@ bool Collator::combine_account_transactions() {
       }
       if (!process_account_storage_dict(acc)) {
         return false;
-      }
-      if (acc.storage_dict_hash && acc.account_storage_stat && acc.account_storage_stat.value().is_dict_ready()) {
-        storage_stat_cache_update_.emplace_back(acc.account_storage_stat.value().get_dict_root().move_as_ok(),
-                                                acc.storage_used.cells);
       }
     } else {
       if (acc.total_state->get_hash() != acc.orig_total_state->get_hash()) {
@@ -6270,7 +6369,10 @@ bool Collator::create_block_candidate() {
     td::actor::send_closure_later(manager, &ValidatorManager::complete_external_messages, std::move(delay_ext_msgs_),
                                   std::move(bad_ext_msgs_));
   }
-  td::actor::send_closure(manager, &ValidatorManager::update_storage_stat_cache, std::move(storage_stat_cache_update_));
+  if (!storage_stat_cache_update_.empty()) {
+    td::actor::send_closure(manager, &ValidatorManager::update_storage_stat_cache,
+                            std::move(storage_stat_cache_update_));
+  }
   return true;
 }
 

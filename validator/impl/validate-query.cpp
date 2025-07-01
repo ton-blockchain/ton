@@ -32,6 +32,8 @@
 #include "vm/cells/MerkleUpdate.h"
 #include "common/errorlog.h"
 #include "fabric.h"
+#include "storage-stat-cache.hpp"
+
 #include <ctime>
 
 namespace ton {
@@ -657,6 +659,7 @@ bool ValidateQuery::extract_collated_data_from(Ref<vm::Cell> croot, int idx) {
     if (!virt_account_storage_dicts_.emplace(virt_root->get_hash().bits(), virt_root).second) {
       return reject_query("duplicate AccountStorageDictProof");
     }
+    full_collated_data_ = true;
     return true;
   }
   LOG(WARNING) << "collated datum # " << idx << " has unknown type (magic " << cs.prefetch_ulong(32) << "), ignoring";
@@ -5316,20 +5319,6 @@ std::unique_ptr<block::Account> ValidateQuery::make_account_from(td::ConstBitPtr
     return nullptr;
   }
   ptr->block_lt = start_lt_;
-  if (storage_stat_cache_ && ptr->storage_dict_hash) {
-    auto dict_root = storage_stat_cache_(ptr->storage_dict_hash.value());
-    if (dict_root.not_null()) {
-      auto S = ptr->init_account_storage_stat(dict_root);
-      if (S.is_error()) {
-        fatal_error(S.move_as_error_prefix(PSTRING() << "failed to init storage stat from cache for account "
-                                                     << addr.to_hex(256) << ": "));
-        return nullptr;
-      }
-      LOG(DEBUG) << "Inited storage stat from cache for account " << addr.to_hex(256) << " (" << ptr->storage_used.cells
-                 << " cells)";
-      storage_stat_cache_update_.emplace_back(dict_root, ptr->storage_used.cells);
-    }
-  }
   return ptr;
 }
 
@@ -5356,14 +5345,30 @@ std::unique_ptr<block::Account> ValidateQuery::unpack_account(td::ConstBitPtr ad
     return {};
   }
   if (new_acc->storage_dict_hash) {
-    auto it = virt_account_storage_dicts_.find(new_acc->storage_dict_hash.value());
-    if (it != virt_account_storage_dicts_.end()) {
-      LOG(DEBUG) << "Using account storage dict proof for account " << addr.to_hex(256)
-                 << ", hash=" << it->second->get_hash().to_hex();
-      auto S = new_acc->init_account_storage_stat(it->second);
-      if (S.is_error()) {
-        reject_query(PSTRING() << "Failed to init account storage stat for account " << addr.to_hex(256), std::move(S));
-        return {};
+    if (full_collated_data_ && !is_masterchain()) {
+      auto it = virt_account_storage_dicts_.find(new_acc->storage_dict_hash.value());
+      if (it != virt_account_storage_dicts_.end()) {
+        LOG(DEBUG) << "Using account storage dict proof for account " << addr.to_hex(256)
+                   << ", hash=" << it->second->get_hash().to_hex();
+        auto S = new_acc->init_account_storage_stat(it->second);
+        if (S.is_error()) {
+          reject_query(PSTRING() << "Failed to init account storage stat for account " << addr.to_hex(256),
+                       std::move(S));
+          return {};
+        }
+      }
+    } else if (storage_stat_cache_ && new_acc->storage_dict_hash) {
+      auto dict_root = storage_stat_cache_(new_acc->storage_dict_hash.value());
+      if (dict_root.not_null()) {
+        auto S = new_acc->init_account_storage_stat(dict_root);
+        if (S.is_error()) {
+          fatal_error(S.move_as_error_prefix(PSTRING() << "failed to init storage stat from cache for account "
+                                                       << addr.to_hex(256) << ": "));
+          return {};
+        }
+        LOG(DEBUG) << "Inited storage stat from cache for account " << addr.to_hex(256) << " ("
+                   << new_acc->storage_used.cells << " cells)";
+        storage_stat_cache_update_.emplace_back(dict_root, new_acc->storage_used.cells);
       }
     }
   }
@@ -5955,8 +5960,9 @@ bool ValidateQuery::check_account_transactions(const StdSmcAddress& acc_addr, Re
       })) {
     return reject_query("at least one Transaction of account "s + acc_addr.to_hex() + " is invalid");
   }
-  if (account.storage_dict_hash && account.account_storage_stat &&
-      account.account_storage_stat.value().is_dict_ready()) {
+  if ((!full_collated_data_ || is_masterchain()) && account.storage_dict_hash && account.account_storage_stat &&
+      account.account_storage_stat.value().is_dict_ready() &&
+      account.storage_used.cells >= StorageStatCache::MIN_ACCOUNT_CELLS) {
     storage_stat_cache_update_.emplace_back(account.account_storage_stat.value().get_dict_root().move_as_ok(),
                                             account.storage_used.cells);
   }
@@ -7156,7 +7162,10 @@ bool ValidateQuery::save_candidate() {
 
   td::actor::send_closure(manager, &ValidatorManager::set_block_candidate, id_, block_candidate.clone(),
                           validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash(), std::move(P));
-  td::actor::send_closure(manager, &ValidatorManager::update_storage_stat_cache, std::move(storage_stat_cache_update_));
+  if (!storage_stat_cache_update_.empty()) {
+    td::actor::send_closure(manager, &ValidatorManager::update_storage_stat_cache,
+                            std::move(storage_stat_cache_update_));
+  }
   return true;
 }
 

@@ -301,7 +301,7 @@ struct Account {
   bool set_address(ton::WorkchainId wc, td::ConstBitPtr new_addr);
   bool unpack(Ref<vm::CellSlice> account, ton::UnixTime now, bool special);
   bool init_new(ton::UnixTime now);
-  td::Result<Ref<vm::Cell>> compute_account_storage_dict(td::HashSet<vm::CellHash>* storage_cells = nullptr) const;
+  td::Result<Ref<vm::Cell>> compute_account_storage_dict() const;
   td::Status init_account_storage_stat(Ref<vm::Cell> dict_root);
   bool deactivate();
   bool recompute_tmp_addr(Ref<vm::CellSlice>& tmp_addr, int fixed_prefix_length, td::ConstBitPtr orig_addr_rewrite) const;

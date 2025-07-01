@@ -74,6 +74,9 @@ class MerkleProofBuilder {
   void set_cell_load_callback(std::function<void(const LoadedCell&)> f) {
     usage_tree->set_cell_load_callback(std::move(f));
   }
+  const CellUsageTree &get_usage_tree() const {
+    return *usage_tree;
+  }
 };
 
 }  // namespace vm

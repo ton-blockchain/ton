@@ -39,8 +39,7 @@ class AccountStorageStat {
   AccountStorageStat &operator=(const AccountStorageStat &other) = delete;
   AccountStorageStat &operator=(AccountStorageStat &&other) = default;
 
-  td::Status replace_roots(std::vector<Ref<vm::Cell>> new_roots, bool check_merkle_depth = false,
-                           td::HashSet<vm::CellHash> *store_added = nullptr);
+  td::Status replace_roots(std::vector<Ref<vm::Cell>> new_roots, bool check_merkle_depth = false);
   void add_hint(const td::HashSet<vm::CellHash> &visited);
 
   td::uint64 get_total_cells() const {
