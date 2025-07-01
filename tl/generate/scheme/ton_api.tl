@@ -232,7 +232,7 @@ overlay.node.toSignEx id:adnl.id.short overlay:int256 flags:int version:int = ov
 overlay.node id:PublicKey overlay:int256 version:int signature:bytes = overlay.Node;
 overlay.nodeV2 id:PublicKey overlay:int256 flags:int version:int signature:bytes certificate:overlay.MemberCertificate = overlay.NodeV2;
 overlay.nodes nodes:(vector overlay.node) = overlay.Nodes;
-overlay.nodesV2 nodes:(vector overlay.NodeV2) = overlay.NodesV2;
+overlay.nodesV2 nodes:(vector overlay.nodeV2) = overlay.NodesV2;
 
 overlay.pong = overlay.Pong;
 
@@ -271,7 +271,7 @@ overlay.broadcastNotFound = overlay.Broadcast;
 ---functions---
 
 overlay.getRandomPeers peers:overlay.nodes = overlay.Nodes;
-overlay.getRandomPeersV2 peers:overlay.NodesV2 = overlay.NodesV2;
+overlay.getRandomPeersV2 peers:overlay.nodesV2 = overlay.NodesV2;
 overlay.ping = overlay.Pong;
 
 overlay.query overlay:int256 = True;
