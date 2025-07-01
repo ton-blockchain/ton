@@ -433,14 +433,6 @@ td::Status DhtServer::load_global_config() {
   TRY_RESULT_PREFIX(dht, ton::dht::Dht::create_global_config(std::move(conf.dht_)), "bad [dht] section: ");
   dht_config_ = std::move(dht);
 
-  if (!conf.validator_) {
-    return td::Status::Error(ton::ErrorCode::error, "does not contain [validator] section");
-  }
-
-  if (!conf.validator_->zero_state_) {
-    return td::Status::Error(ton::ErrorCode::error, "[validator] section does not contain [zero_state]");
-  }
-
   return td::Status::OK();
 }
 
