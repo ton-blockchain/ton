@@ -6,8 +6,8 @@ struct JustIntWrapper {
     int: JustInt;
 }
 
-type MInt = int;
-type JustIntAlias = JustInt;
+type MInt = int
+type JustIntAlias = JustInt
 type JustIntAlias2 = JustIntAlias;
 
 struct Storage {
@@ -16,13 +16,13 @@ struct Storage {
 }
 
 struct Point {
-    x: int;
+    x: int
     y: MInt
 }
 
 struct User {
-    id: int;
-    name: slice;
+    id: int
+    name: slice
 }
 
 struct OuterStorage {
@@ -31,10 +31,10 @@ struct OuterStorage {
 }
 
 struct WithTensorInside {
-    coords: (int, int);
-    tup: [int, int];
-    otherCoords: (int, int)?;
-    otherTup: tuple;
+    coords: (int, int)
+    tup: [int, int]
+    otherCoords: (int, int)?
+    otherTup: tuple
 }
 
 fun sumCoords(p: Point) {
@@ -133,9 +133,12 @@ fun test7() {
     return (s.owner.name.loadInt(32), s2.owner.name.loadInt(32), s.lastPoint, s2.lastPoint.sumCoords());
 }
 
-struct Empty{}
+struct Empty
 struct OuterEmpty { nothing: EmptyAlias }
-type EmptyAlias = Empty;
+type EmptyAlias = Empty
+
+struct EmptyGeneric1<T>;
+struct EmptyGeneric2<T>
 
 @method_id(108)
 fun test8() {
@@ -152,6 +155,7 @@ fun test8() {
     __expect_type(o3, "Empty?");
     __expect_type(o6, "OuterEmpty");
     __expect_type(o8, "OuterEmpty?");
+    __expect_type(EmptyGeneric2<slice>{}, "EmptyGeneric2<slice>");
     return (e1, Empty{}, EmptyAlias{}, o2, o1, 777, o3, 777, o4, 777, o5, 777, o6, 777, o7, 777, o8, 777, o3!, 777);
 }
 

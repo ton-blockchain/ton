@@ -1,10 +1,10 @@
-type MInt = int;
-type MNull = null;
-type MSlice = slice;
-type MIntN = int | MNull;
-type IntOrSlice = MInt | slice;
-type IntOrSliceN = null | slice | int;
-type IntOrSliceOrBuilder = int | slice | builder;
+type MInt = int
+type MNull = | null
+type MSlice = slice
+type MIntN = int | MNull
+type IntOrSlice = MInt | slice
+type IntOrSliceN = null | slice | int
+type IntOrSliceOrBuilder = | int | slice | builder
 
 type Pair2 = (int, int);
 type Pair2Or3 = Pair2 | (int, int, int);
@@ -18,8 +18,8 @@ fun testFlatten() {
     __expect_type(0 as (int | int | slice | builder | slice), "int | slice | builder");
     __expect_type(0 as (int? | int), "int?");
     __expect_type(0 as (slice | int? | slice? | cell), "slice | int | null | cell");
-    __expect_type(0 as (int | (int | int)), "int");
-    __expect_type(0 as (slice | (slice | (slice | int) | (cell | slice?))), "slice | int | cell | null");
+    __expect_type(0 as (| int | (int | int)), "int");
+    __expect_type(0 as (slice | (slice | (slice | int) | (| cell | slice?))), "slice | int | cell | null");
 
     __expect_type(0 as (MInt | MNull), "MInt?");
     __expect_type(0 as (MInt | slice | int), "MInt | slice");
@@ -43,7 +43,7 @@ fun testFlatten() {
     __expect_type(0 as (int?)?, "int?");
     __expect_type(0 as (int?)? | (int)?, "int?");
 
-    __expect_type(0 is builder, "bool");
+    __expect_type(0 is (|builder), "bool");
     __expect_type(0 !is builder, "bool");
     __expect_type(0!!is builder, "bool");
 
@@ -80,7 +80,7 @@ fun test2() {
 }
 
 @method_id(103)
-fun test3(case: int): int | slice | null {
+fun test3(case: int): | int | slice | null {
     var a: int | slice | null = 4;
     if (case == 0) {
         a = getSlice32()

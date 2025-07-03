@@ -1,5 +1,5 @@
 fun extractFromTypedTuple(params: [int]) {
-    var [payload: int] = params;
+    var [payload: int, ] = params;
     return payload + 10;
 }
 
@@ -111,7 +111,7 @@ global t107: (int, int);
 
 @method_id(107)
 fun test107() {
-    ((t107 = (1, 2)).0, (t107 = (3, 4)).1) = (5, 6);
+    ((t107 = (1, 2)).0, (t107 = (3, 4)).1, ) = (5, 6, );
     return t107;
 }
 
@@ -168,7 +168,7 @@ fun test112() {
 
 @method_id(113)
 fun test113() {
-    var (a, t, z) = (1, [2,3], (-1,-1));
+    var (a, t, z, ) = (1, [2,3], (-1,-1));
     (a, t, a, z, t.1, z.1) = (10, [a,12], 13, (a, t.1), 14, t.1);
     return (a, t, z);
 }
@@ -252,7 +252,7 @@ fun test118(x: int) {
 
 
 fun main(value: int, ) {
-    var (x: int?, y) = (autoInferIntNull(value), autoInferIntNull(value * 2));
+    var (x: int?, y,) = (autoInferIntNull(value), autoInferIntNull(value * 2));
     if (x == null && y == null) { return null; }
     return x == null || y == null ? -1 : x! + y!;
 }

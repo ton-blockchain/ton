@@ -1,7 +1,9 @@
-const int10:int=10;
+const int10:int=10 const dd=1
 
 fun just10(): int { return int10; }
 fun eq(v: int): int { return`v` }
+
+const ONE = 1struct Point{x:int y:int}
 
 @method_id(101,) fun `get_-1`  (): int {return-1}
 @method_id(102,) fun `get_--1` (): int {return- -1}
@@ -13,7 +15,7 @@ global `some()var`:int;
 
 @method_id(110) fun `some_math`(): int {
     `some()var`=- -6;
-    return 1*-2*-3*-4*just10()*-5+-`some()var`+-(-`some()var`)-(-(-`some()var`));
+    return ONE*-2*-3*-4*just10()*-5+-`some()var`+-(-`some()var`)-(-(-`some()var`));
 }
 
 @method_id(111) fun `negative_nums`(a:int):int {

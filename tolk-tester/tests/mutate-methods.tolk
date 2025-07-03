@@ -138,8 +138,8 @@ fun updateTwoItems(mutate pair: Pair2, byValue: int) {
     pair = (first + byValue, second + byValue);
 }
 
-global t107_1: int;
-global t107_2: int;
+global t107_1: int
+global t107_2: int
 
 @method_id(107)
 fun testMutableTensor() {

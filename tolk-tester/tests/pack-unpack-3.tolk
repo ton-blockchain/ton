@@ -114,11 +114,10 @@ struct(0x00184300) CounterResetTo {
 }
 
 type MsgCounter1 =
-    CounterIncrement |
-    CounterDecrement |
-    CounterReset0 |
-    CounterResetTo |
-;
+    | CounterIncrement
+    | CounterDecrement
+    | CounterReset0
+    | CounterResetTo
 
 /*
 bodyPayload1$001
@@ -146,7 +145,7 @@ struct(0b01) BodyPayload2 {
     owner_address: address;
 }
 
-type BodyPayload = BodyPayload1 | BodyPayload2;
+type BodyPayload = BodyPayload1 | BodyPayload2
 
 /*
 sayHiAndGoodbye#89
@@ -172,7 +171,7 @@ struct(0x0013) SayStoreInChain {
     contents: Cell<BodyPayload>;
 }
 
-type MsgExternal1 = SayHiAndGoodbye | SayStoreInChain;
+type MsgExternal1 = SayHiAndGoodbye | SayStoreInChain
 
 /*
 transferParams1#794

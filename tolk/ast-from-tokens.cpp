@@ -236,6 +236,9 @@ static AnyTypeV parse_type_nullable(Lexer& lex) {
 }
 
 static AnyTypeV parse_type_expression(Lexer& lex) {
+  if (lex.tok() == tok_bitwise_or) {    // allow leading `|`, like in TypeScript
+    lex.next();
+  }
   AnyTypeV result = parse_type_nullable(lex);
 
   if (lex.tok() == tok_bitwise_or) {  // `int | slice`, `Pair2 | (Pair3 | null)`
@@ -243,9 +246,6 @@ static AnyTypeV parse_type_expression(Lexer& lex) {
     items.emplace_back(result);
     while (lex.tok() == tok_bitwise_or) {
       lex.next();
-      if (lex.tok() == tok_clpar || lex.tok() == tok_clbracket || lex.tok() == tok_semicolon) {
-        break;  // allow trailing `|` (not leading, like in TypeScript, because of tree-sitter)
-      }
       items.emplace_back(parse_type_nullable(lex));
     }
     result = createV<ast_type_vertical_bar_union>(result->loc, std::move(items));
@@ -368,7 +368,6 @@ static AnyV parse_global_var_declaration(Lexer& lex, const std::vector<V<ast_ann
   if (lex.tok() == tok_assign) {
     lex.error("assigning to a global is not allowed at declaration");
   }
-  lex.expect(tok_semicolon, "`;`");
 
   for (auto v_annotation : annotations) {
     switch (v_annotation->kind) {
@@ -399,7 +398,6 @@ static AnyV parse_constant_declaration(Lexer& lex, const std::vector<V<ast_annot
   if (lex.tok() == tok_comma) {
     lex.error("multiple declarations are not allowed, split constants on separate lines");
   }
-  lex.expect(tok_semicolon, "`;`");
 
   for (auto v_annotation : annotations) {
     switch (v_annotation->kind) {
@@ -428,7 +426,6 @@ static AnyV parse_type_alias_declaration(Lexer& lex, const std::vector<V<ast_ann
 
   lex.expect(tok_assign, "`=`");
   AnyTypeV underlying_type = parse_type_from_tokens(lex);
-  lex.expect(tok_semicolon, "`;`");
 
   for (auto v_annotation : annotations) {
     switch (v_annotation->kind) {
@@ -455,6 +452,9 @@ static AnyExprV parse_var_declaration_lhs(Lexer& lex, bool is_immutable, bool al
     std::vector<AnyExprV> args(1, first);
     while (lex.tok() == tok_comma) {
       lex.next();
+      if (lex.tok() == tok_clpar) {     // trailing comma
+        break;
+      }
       args.push_back(parse_var_declaration_lhs(lex, is_immutable, false));
     }
     lex.expect(tok_clpar, "`)`");
@@ -465,6 +465,9 @@ static AnyExprV parse_var_declaration_lhs(Lexer& lex, bool is_immutable, bool al
     std::vector<AnyExprV> args(1, parse_var_declaration_lhs(lex, is_immutable, false));
     while (lex.tok() == tok_comma) {
       lex.next();
+      if (lex.tok() == tok_clbracket) {     // trailing comma
+        break;
+      }
       args.push_back(parse_var_declaration_lhs(lex, is_immutable, false));
     }
     lex.expect(tok_clbracket, "`]`");
@@ -1327,7 +1330,6 @@ static AnyV parse_asm_func_body(Lexer& lex, V<ast_parameter_list> param_list) {
     asm_commands.push_back(createV<ast_string_const>(lex.cur_location(), asm_command));
     lex.next();
   }
-  lex.expect(tok_semicolon, "`;`");
   return createV<ast_asm_body>(loc, std::move(arg_order), std::move(ret_order), std::move(asm_commands));
 }
 
@@ -1388,13 +1390,9 @@ static V<ast_annotation> parse_annotation(Lexer& lex) {
   return createV<ast_annotation>(loc, name, kind, v_arg);
 }
 
-static AnyV parse_function_declaration(Lexer& lex, const std::vector<V<ast_annotation>>& annotations) {
+static AnyV parse_function_declaration(Lexer& lex, const std::vector<V<ast_annotation>>& annotations, bool is_contract_getter) {
   SrcLocation loc = lex.cur_location();
-  bool is_contract_getter = lex.cur_str() == "get";
-  lex.next();
-  if (is_contract_getter && lex.tok() == tok_fun) {
-    lex.next();   // 'get f()' and 'get fun f()' both correct
-  }
+  lex.expect(tok_fun, "`fun`");
 
   AnyTypeV receiver_type = nullptr;
   auto backup = lex.save_parsing_position();
@@ -1460,7 +1458,6 @@ static AnyV parse_function_declaration(Lexer& lex, const std::vector<V<ast_annot
   if (lex.tok() == tok_builtin) {
     v_body = createV<ast_empty_statement>(lex.cur_location());
     lex.next();
-    lex.expect(tok_semicolon, "`;`");
   } else if (lex.tok() == tok_opbrace) {
     v_body = parse_func_body(lex);
   } else if (lex.tok() == tok_asm) {
@@ -1558,14 +1555,12 @@ static V<ast_struct_body> parse_struct_body(Lexer& lex) {
   SrcLocation loc = lex.cur_location();
   std::vector<AnyV> fields;
 
-  if (lex.tok() != tok_semicolon) {   // `struct A;` equal to `struct A {}`
-    lex.expect(tok_opbrace, "`{`");
+  if (lex.tok() == tok_opbrace) {   // `struct A` equal to `struct A {}`
+    lex.next();
     while (lex.tok() != tok_clbrace) {
       fields.push_back(parse_struct_field(lex));
       if (lex.tok() == tok_comma || lex.tok() == tok_semicolon) {
         lex.next();
-      } else if (lex.tok() != tok_clbrace) {
-        lex.unexpected("`;` or `,`");
       }
     }
     lex.expect(tok_clbrace, "`}`");
@@ -1700,7 +1695,7 @@ AnyV parse_src_file_to_ast(const SrcFile* file) {
         annotations.clear();
         break;
       case tok_fun:
-        toplevel_declarations.push_back(parse_function_declaration(lex, annotations));
+        toplevel_declarations.push_back(parse_function_declaration(lex, annotations, false));
         annotations.clear();
         break;
       case tok_struct:
@@ -1715,8 +1710,9 @@ AnyV parse_src_file_to_ast(const SrcFile* file) {
         lex.error("`" + static_cast<std::string>(lex.cur_str()) +"` is not supported yet");
 
       case tok_identifier:
-        if (lex.cur_str() == "get") {     // tok-level "get", contract getter
-          toplevel_declarations.push_back(parse_function_declaration(lex, annotations));
+        if (lex.cur_str() == "get") {     // top-level "get", contract getter
+          lex.next();
+          toplevel_declarations.push_back(parse_function_declaration(lex, annotations, true));
           annotations.clear();
           break;
         }

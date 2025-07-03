@@ -1,13 +1,13 @@
 import "@stdlib/tvm-dicts.tolk"
 
-type MIntN = MInt?;
-type MInt = int;
-type MInt_v2 = int;
-type MVoid = void;
-type Pair2_v1 = (int, int);
-type Pair2_v2 = (MInt, MInt);
-type MBool = bool;
-type Tuple2Int = [int, int];
+type MIntN = MInt?
+type MInt = int
+type MInt_v2 = int
+type MVoid = void
+type Pair2_v1 = | (int, int)
+type Pair2_v2 = (MInt, MInt)
+type MBool = | bool
+type Tuple2Int = [int, int]
 
 struct Point { x: int; y: int }
 type PointAlias = Point;
@@ -160,7 +160,7 @@ fun test10() {
     var (a2, b2) = x2;
     __expect_type(a2, "MInt");
     var x3: Tuple2Int = [9, 10];
-    var [a3, b3] = x3;
+    var [a3, b3, ] = x3;
     return a1 + a2 + a3 + b1 + b2 + b3;
 }
 

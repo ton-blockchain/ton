@@ -207,12 +207,12 @@ fun test12() {
     __expect_type((null as slice?).arbitraryMethod(), "never");
 }
 
-type BuilderOrInt = builder|int;
-fun (int|builder).isInt(self) { return self is int; }
+type BuilderOrInt = |builder|int
+fun|int|builder.isInt(self) { return self is int; }
 
 @method_id(113)
 fun test13() {
-    var u1 = beginCell() as builder|int;
+    var u1 = beginCell() as|builder|int;
     var u2 = 10 as int|builder;
     var u3 = 20 as BuilderOrInt;
     return (u1.isInt(), u2.isInt(), u3.isInt(), 10.isInt(), beginCell().isInt(), (8 as int8).isInt());
@@ -224,7 +224,7 @@ fun (int|builder|T).isBuilder(self) { return self is builder; }
 fun test14() {
     var b1 = beginCell() as BuilderOrInt | slice;
     var b2 = beginCell() as builder|slice|int|Point;
-    var i1 = 5 as int|builder|continuation|(int, int);
+    var i1 = 5 as |int|builder|continuation|(int, int);
     var c = beginCell().endCell() as cell?|builder|int;
     var cn = null as cell?|int|int8|builder;
     return (b1.isBuilder(), b2.isBuilder(), i1.isBuilder(), c.isBuilder(), cn.isBuilder());

@@ -41,8 +41,8 @@ fun plus(mutate x: int, y: int): int {
 
 fun eq<X>(v: X): X { return v; }
 
-global gTup: [int];
-global gTens: (int, int);
+global gTup: [int]
+global gTens: (int, int)
 
 @method_id(100)
 fun testCodegenSimple() {

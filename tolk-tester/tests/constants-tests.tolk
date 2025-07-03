@@ -1,8 +1,8 @@
-type MInt = int;
-type MSlice = slice;
+type MInt = int
+type MSlice = slice
 
-const int1 = 1;
-const int2 = 2;
+const int1 = 1
+const int2 = 2
 
 const int101: int = 101;
 const int111: MInt = 111;
@@ -24,9 +24,8 @@ const strange_minus_1: MInt = (!0 as int);
 
 const addr1 = address("Ef8zMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM0vF");
 
-const true1 = true;
-const true2 = !!true;
-const true3 = true1 && true2;
+// since `;` is not mandatory, this is correct from a syntax point of view
+const true1 = true const true2 = !!true const true3 = true1 && true2
 
 const false1 = !true;
 const false2 = false1 || false;
