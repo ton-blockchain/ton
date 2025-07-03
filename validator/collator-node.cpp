@@ -664,7 +664,21 @@ td::Result<BlockCandidate> CollatorNode::deserialize_candidate(tl_object_ptr<ton
                                        return td::Status::Error("decompressed size is too big");
                                      }
                                      TRY_RESULT(p, validatorsession::decompress_candidate_data(
-                                                       c.data_, c.decompressed_size_, proto_version));
+                                                       c.data_, false, c.decompressed_size_, proto_version));
+                                     auto collated_data_hash = td::sha256_bits256(p.second);
+                                     auto key = ton::PublicKey{c.source_};
+                                     if (!key.is_ed25519()) {
+                                       return td::Status::Error("invalid pubkey");
+                                     }
+                                     auto e_key = Ed25519_PublicKey{key.ed25519_value().raw()};
+                                     return BlockCandidate{e_key, create_block_id(c.id_), collated_data_hash,
+                                                           std::move(p.first), std::move(p.second)};
+                                   }();
+                                 },
+                                 [&](ton_api::collatorNode_compressedCandidateV2& c) {
+                                   res = [&]() -> td::Result<BlockCandidate> {
+                                     TRY_RESULT(p, validatorsession::decompress_candidate_data(
+                                                       c.data_, true, 0, proto_version));
                                      auto collated_data_hash = td::sha256_bits256(p.second);
                                      auto key = ton::PublicKey{c.source_};
                                      if (!key.is_ed25519()) {

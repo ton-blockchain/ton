@@ -30,6 +30,7 @@ td::Result<tl_object_ptr<ton_api::validatorSession_candidate>> deserialize_candi
 td::Result<td::BufferSlice> compress_candidate_data(td::Slice block, td::Slice collated_data,
                                                     size_t& decompressed_size);
 td::Result<std::pair<td::BufferSlice, td::BufferSlice>> decompress_candidate_data(td::Slice compressed,
+                                                                                  bool improved_compression,
                                                                                   int decompressed_size,
                                                                                   int proto_version);
 
