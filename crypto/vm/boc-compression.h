@@ -25,6 +25,9 @@ This file is part of TON Blockchain Library.
 
 namespace vm {
 
+constexpr size_t kDecompressedSizeBytes = 4;
+constexpr size_t kMaxDecompressedSize = 10 << 20; // 10MB limit
+
 enum class CompressionAlgorithm : int { BaselineLZ4 = 0, ImprovedStructureLZ4 = 1 };
 
 td::Result<td::BufferSlice> boc_compress_baseline_lz4(const std::vector<td::Ref<vm::Cell>>& boc_roots);

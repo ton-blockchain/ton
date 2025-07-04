@@ -33,17 +33,27 @@ td::Result<td::BufferSlice> boc_compress_baseline_lz4(const std::vector<td::Ref<
   td::BufferSlice compressed = td::lz4_compress(data);
 
   // Add decompressed size at the beginning
-  td::BufferSlice compressed_with_size(compressed.size() + 4);
-  td::BitSliceWrite(compressed_with_size.as_slice().ubegin(), 32).bits().store_uint(data.size(), 32);
-  memcpy(compressed_with_size.data() + 4, compressed.data(), compressed.size());
+  td::BufferSlice compressed_with_size(compressed.size() + kDecompressedSizeBytes);
+  auto size_slice = td::BitSliceWrite(compressed_with_size.as_slice().ubegin(), kDecompressedSizeBytes * 8);
+  size_slice.bits().store_uint(data.size(), kDecompressedSizeBytes * 8);
+  memcpy(compressed_with_size.data() + kDecompressedSizeBytes, compressed.data(), compressed.size());
 
   return compressed_with_size;
 }
 
 td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_baseline_lz4(td::Slice compressed) {
+  // Check minimum input size for decompressed size header
+  if (compressed.size() < kDecompressedSizeBytes) {
+    return td::Status::Error("BOC decompression failed: input too small for header");
+  }
+
   // Read decompressed size
-  int decompressed_size = td::BitSlice(compressed.ubegin(), 32).bits().get_uint(32);
-  compressed.remove_prefix(4);
+  constexpr size_t kSizeBits = kDecompressedSizeBytes * 8;
+  int decompressed_size = td::BitSlice(compressed.ubegin(), kSizeBits).bits().get_uint(kSizeBits);
+  compressed.remove_prefix(kDecompressedSizeBytes);
+  if (decompressed_size <= 0 || decompressed_size > kMaxDecompressedSize) {
+    return td::Status::Error("BOC decompression failed: invalid decompressed size");
+  }
 
   TRY_RESULT(decompressed, td::lz4_decompress(compressed, decompressed_size));
   TRY_RESULT(roots, vm::std_boc_deserialize_multi(decompressed));
@@ -313,18 +323,16 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
   td::BufferSlice compressed = td::lz4_compress(serialized);
 
   // Add decompressed size at the beginning
-  td::BufferSlice compressed_with_size(compressed.size() + 4);
-  td::BitSliceWrite(compressed_with_size.as_slice().ubegin(), 32).bits().store_uint(serialized.size(), 32);
-  memcpy(compressed_with_size.data() + 4, compressed.data(), compressed.size());
+  td::BufferSlice compressed_with_size(compressed.size() + kDecompressedSizeBytes);
+  auto size_slice = td::BitSliceWrite(compressed_with_size.as_slice().ubegin(), kDecompressedSizeBytes * 8);
+  size_slice.bits().store_uint(serialized.size(), kDecompressedSizeBytes * 8);
+  memcpy(compressed_with_size.data() + kDecompressedSizeBytes, compressed.data(), compressed.size());
 
   return compressed_with_size;
 }
 
 td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4(td::Slice compressed) {
-  constexpr size_t kDecompressedSizeBytes = 4;
   constexpr size_t kMaxCellDataLengthBits = 1024;
-  constexpr size_t kMaxCntNodes = 65535;
-  constexpr size_t kMaxDecompressedSize = 10 << 20; // 10MB limit
 
   // Check minimum input size for decompressed size header
   if (compressed.size() < kDecompressedSizeBytes) {
@@ -334,7 +342,7 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
   // Read decompressed size
   constexpr size_t kSizeBits = kDecompressedSizeBytes * 8;
   int decompressed_size = td::BitSlice(compressed.ubegin(), kSizeBits).bits().get_uint(kSizeBits);
-  compressed.remove_prefix(4);
+  compressed.remove_prefix(kDecompressedSizeBytes);
   if (decompressed_size <= 0 || decompressed_size > kMaxDecompressedSize) {
     return td::Status::Error("BOC decompression failed: invalid decompressed size");
   }
