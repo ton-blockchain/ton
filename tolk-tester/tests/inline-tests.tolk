@@ -471,9 +471,9 @@ fun usedIn10ButDeclaredBelow(x: int) {
     NEWC
     32 STU                      //  '3
     25 PUSHINT                  //  '3 '9
-    SWAP                        //  x self
     107374182425 PUSHINT
-    64 STUR                     //  x '3
+    ROT
+    64 STU                      //  x '3
     SWAP                        //  '3 x
   }>
 """

@@ -318,6 +318,121 @@ fun test24(uns: bool) {
     }
 }
 
+fun builder.my_storeRef(mutate self, value: cell): self
+    asm(self value) "STREFR";
+
+fun builder.my_storeAddress(mutate self, value: address): self
+    asm(value self) "STSLICE";
+
+fun builder.my_storeBuilder(mutate self, value: builder): self
+    asm(value self) "STB";
+
+fun my_PUSHINT_SWAP_STU(mutate b: builder): void
+    asm "5 PUSHINT" "SWAP" "8 STU";
+
+
+@noinline
+fun demo30(value: cell, dest: builder) {
+    // SWAP + STREFR => STREF
+    return dest.my_storeRef(value);
+}
+
+@noinline
+fun demo31(dest: builder, value: cell) {
+    // SWAP + STREF => STREFR
+    return dest.storeRef(value);
+}
+
+@noinline
+fun demo32(dest: builder, value: builder) {
+    // SWAP + STB => STBR
+    return dest.my_storeBuilder(value);
+}
+
+@noinline
+fun demo33(value: builder, dest: builder) {
+    // SWAP + STBR => STB
+    return dest.storeBuilder(value);
+}
+
+@noinline
+fun demo34(dest: builder, value: address) {
+    // SWAP + STSLICE => STSLICER
+    return dest.my_storeAddress(value);
+}
+
+@noinline
+fun demo35(value: slice, dest: builder) {
+    // SWAP + STSLICER => STSLICE
+    return dest.storeSlice(value);
+}
+
+@noinline
+fun demo36(x: int) {
+    var b = beginCell();
+    if (x > 0) {
+        // inside IF: N PUSHINT + SWAP + L STU => N PUSHINT + L STUR
+        my_PUSHINT_SWAP_STU(mutate b);
+    }
+    return b;
+}
+
+@noinline
+fun demo37(op: int32, u: int8 | int256) {
+    var b = beginCell();
+    // b.storeUint(input.op, 32);
+    if (u is int8) {
+        // inside IF: SWAP + 0 PUSHINT + 3 STUR => 0 PUSHINT + 3 STU
+        b.storeUint(0, 3);
+        b.storeUint(u, 8);
+    }
+    return b;
+}
+
+@method_id(130)
+fun test30() {
+    return (demo37(10, 88 as int8), demo36(50));
+}
+
+@method_id(131)
+fun test31() {
+    var s = createAddressNone();
+    var dest = beginCell().storeUint(3, 32);
+    assert(demo35(s as slice, dest).endCell().hash() == demo34(dest, s).endCell().hash()) throw 300;
+    var r1 = demo35(s as slice, dest).endCell().hash();
+    var b = beginCell().storeUint(0xFF, 16);
+    assert(demo33(b, dest).endCell().hash() == demo32(dest, b).endCell().hash()) throw 301;
+    var r2 = demo33(b, dest).endCell().hash();
+    var r = createEmptyCell();
+    assert(demo30(r, dest).endCell().hash() == demo31(dest, r).endCell().hash()) throw 302;
+    var r3 = demo30(r, dest).endCell().hash();
+    return [r1 & 0xFFFFFFFF, r2 & 0xFFFFFFFF, r3 & 0xFFFFFFFF];
+}
+
+@method_id(132)
+fun test32(p: int) {
+    var b = beginCell();
+    var x = p + 10;
+    b.storeUint(x, 32);     // SWAP + n STU => n STUR
+    return b;
+}
+
+@method_id(133)
+fun test33(p: int) {
+    var b = beginCell();
+    var x = p + 10;
+    b.storeInt(x, 8);       // SWAP + n STI => n STIR
+    return b;
+}
+
+@method_id(134)
+fun test34(p: int, n: int) {
+    var b = beginCell();
+    var x = p + 10;
+    b.storeInt(x, n);       // no changes, it's STIX
+    return b;
+}
+
 fun main(): int {
     return 0;
 }
@@ -347,6 +462,11 @@ fun main(): int {
 @testcase | 123 | 0   | 255
 @testcase | 124 | -1  | 8
 @testcase | 124 | 0   | 10
+@testcase | 130 |     | BC{00030b10} BC{000205}
+@testcase | 131 |     | [ 225345949 901620178 1560646286 ]
+@testcase | 132 | 0   | BC{00080000000a}
+@testcase | 133 | 0   | BC{00020a}
+@testcase | 134 | 0 8 | BC{00020a}
 
 We test that consequtive storeInt/storeUint with constants are joined into a single number
 
@@ -378,15 +498,13 @@ We test that consequtive storeInt/storeUint with constants are joined into a sin
 @fif_codegen
 """
   test19() PROC:<{
-    NEWC
     123 PUSHINT
-    SWAP
+    NEWC
     4 STI
     16 PUSHPOW2DEC
     16 STUR
     -1 PUSHINT
-    SWAP
-    8 STI
+    8 STIR
   }>
 """
 
@@ -411,9 +529,9 @@ We test that consequtive storeInt/storeUint with constants are joined into a sin
   test22() PROC:<{
     NEWC                    	//  '2
     NEWC                    	//  b1 b2
-    SWAP                    	//  b2 b1
     2056 PUSHINT
-    24 STUR                 	//  b2 b1
+    ROT
+    24 STU                  	//  b2 b1
     SWAP                    	//  b1 b2
     10141514286835656557042350424064 PUSHINTX
     132 STUR                	//  b1 b2
@@ -434,6 +552,89 @@ We test that consequtive storeInt/storeUint with constants are joined into a sin
       255 STIR
     }>
     BBITS
+  }>
+"""
+
+@fif_codegen
+"""
+  demo30() PROC:<{            	//  value dest
+    STREF                   	//  dest
+  }>
+  demo31() PROC:<{            	//  dest value
+    STREFR                  	//  dest
+  }>
+  demo32() PROC:<{            	//  dest value
+    STBR                    	//  dest
+  }>
+  demo33() PROC:<{            	//  value dest
+    STB                     	//  dest
+  }>
+  demo34() PROC:<{            	//  dest value
+    STSLICER                	//  dest
+  }>
+  demo35() PROC:<{            	//  value dest
+    STSLICE                 	//  dest
+  }>
+"""
+
+@fif_codegen
+"""
+  demo36() PROC:<{            	//  x
+    NEWC                    	//  x b
+    SWAP                    	//  b x
+    0 GTINT                 	//  b '4
+    IF:<{                   	//  b
+      5 PUSHINT
+      8 STUR                 	//  b
+    }>                      	//  b
+  }>
+"""
+
+@fif_codegen
+"""
+  demo37() PROC:<{
+    NEWC
+    s3 POP
+    42 EQINT
+    IF:<{
+      0 PUSHINT
+      ROT
+      3 STU
+      8 STU                 	//  b
+    }>ELSE<{
+      DROP                  	//  b
+    }>
+  }>
+"""
+
+@fif_codegen
+"""
+  test32() PROC:<{              //  p
+    NEWC                        //  p b
+    SWAP                        //  b p
+    10 ADDCONST                 //  b x
+    32 STUR                     //  b
+  }>
+"""
+
+@fif_codegen
+"""
+  test33() PROC:<{              //  p
+    NEWC                        //  p b
+    SWAP                        //  b p
+    10 ADDCONST                 //  b x
+    8 STIR                      //  b
+  }>
+"""
+
+@fif_codegen
+"""
+  test34() PROC:<{
+    NEWC
+    s0 s2 XCHG
+    10 ADDCONST
+    -ROT
+    STIX
   }>
 """
 

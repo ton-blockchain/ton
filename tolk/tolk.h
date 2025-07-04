@@ -903,6 +903,9 @@ struct Optimizer {
   bool detect_rewrite_MY_skip_bits();
   bool detect_rewrite_NEWC_PUSH_STUR();
   bool detect_rewrite_LDxx_DROP();
+  bool detect_rewrite_SWAP_symmetric();
+  bool detect_rewrite_SWAP_PUSH_STUR();
+  bool detect_rewrite_SWAP_STxxxR();
 
   AsmOpConsList extract_code();
 };

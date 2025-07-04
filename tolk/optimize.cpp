@@ -298,6 +298,82 @@ bool Optimizer::detect_rewrite_LDxx_DROP() {
   return false;
 }
 
+// pattern `SWAP` + `EQUAL` -> `EQUAL`
+// and other symmetric operators: NEQ, MUL, etc.
+bool Optimizer::detect_rewrite_SWAP_symmetric() {
+  bool first_swap = op_[0]->is_swap();
+  if (!first_swap || pb_ < 2 || !op_[1]->is_custom()) {
+    return false;
+  }
+  std::string_view n = op_[1]->op;
+  bool next_symmetric = n == "EQUAL" || n == "NEQ" || n == "SDEQ" || n == "AND" || n == "OR"
+                     || n == "ADD" || n == "MUL" || n == "MIN" || n == "MAX";
+  if (!next_symmetric) {
+    return false;
+  }
+
+  p_ = 2;
+  q_ = 1;
+  oq_[0] = std::move(op_[1]);
+  return true;
+}
+
+// pattern `SWAP` + `xxx PUSHINT` + `32 STUR` -> `xxx PUSHINT` + `ROT` + `32 STU`
+bool Optimizer::detect_rewrite_SWAP_PUSH_STUR() {
+  bool first_swap = op_[0]->is_swap();
+  if (!first_swap || pb_ < 3) {
+    return false;
+  }
+  bool next_push = op_[1]->is_const() && op_[1]->op.ends_with(" PUSHINT");
+  if (!next_push) {
+    return false;
+  }
+  bool next_stu_r = op_[2]->is_custom() && (op_[2]->op.ends_with(" STUR") || op_[2]->op.ends_with(" STIR"));
+  if (!next_stu_r) {
+    return false;
+  }
+
+  p_ = 3;
+  q_ = 3;
+  oq_[0] = std::move(op_[1]);
+  oq_[1] = std::make_unique<AsmOp>(AsmOp::BlkSwap(oq_[0]->loc, 1, 2));     // ROT
+  oq_[2] = std::make_unique<AsmOp>(AsmOp::Custom(oq_[0]->loc,  op_[2]->op.substr(0, op_[2]->op.size() - 1), 1, 1));
+  return true;
+}
+
+// pattern `SWAP` + `STSLICER` -> `STSLICE` and vice versa: `SWAP` + `STSLICE` => `STSLICER`;
+// same for `STB` / `STREF` / `n STU` / `n STI`
+bool Optimizer::detect_rewrite_SWAP_STxxxR() {
+  bool first_swap = op_[0]->is_swap();
+  if (!first_swap || pb_ < 2 || !op_[1]->is_custom()) {
+    return false;
+  }
+
+  static const char* ends_with[] = {" STU",  " STI",  " STUR", " STIR"};
+  static const char* repl_with[] = {" STUR", " STIR", " STU",  " STI"};
+  static const char* equl_to[] = {"STSLICE",  "STSLICER",  "STB",  "STBR", "SUB",  "SUBR", "STREF",  "STREFR", "LESS",    "LEQ", "GREATER", "GEQ"};
+  static const char* repl_to[] = {"STSLICER", "STSLICE",   "STBR", "STB",  "SUBR", "SUB",  "STREFR", "STREF",  "GREATER", "GEQ", "LESS",    "LEQ"};
+
+  std::string_view f = op_[1]->op;
+  for (size_t i = 0; i < std::size(ends_with); ++i) {
+    if (f.ends_with(ends_with[i])) {
+      p_ = 2;
+      q_ = 1;
+      oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->loc, op_[1]->op.substr(0, f.rfind(' ')) + repl_with[i], 1, 1));
+      return true;
+    }
+  }
+  for (size_t i = 0; i < std::size(equl_to); ++i) {
+    if (f == equl_to[i]) {
+      p_ = 2;
+      q_ = 1;
+      oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->loc, repl_to[i], 0, 1));
+      return true;
+    }
+  }
+
+  return false;
+}
 
 bool Optimizer::is_push_const(int* i, int* c) const {
   return pb_ >= 3 && pb_ <= l2_ && tr_[pb_ - 1].is_push_const(i, c);
@@ -720,6 +796,7 @@ bool Optimizer::find_at_least(int pb) {
          detect_rewrite_big_THROW() ||
          detect_rewrite_MY_store_int() || detect_rewrite_MY_skip_bits() || detect_rewrite_NEWC_PUSH_STUR() ||
          detect_rewrite_LDxx_DROP() ||
+         detect_rewrite_SWAP_symmetric() || detect_rewrite_SWAP_PUSH_STUR() || detect_rewrite_SWAP_STxxxR() ||
          (!(mode_ & 1) &&
           ((is_rot() && rewrite(AsmOp::Custom(loc, "ROT", 3, 3))) || (is_rotrev() && rewrite(AsmOp::Custom(loc, "-ROT", 3, 3))) ||
            (is_2dup() && rewrite(AsmOp::Custom(loc, "2DUP", 2, 4))) ||

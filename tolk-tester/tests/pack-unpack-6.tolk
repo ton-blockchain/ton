@@ -212,7 +212,6 @@ IF:<{
       140 PUSHINT
     }>
     139 PUSHINT
-    SWAP
     EQUAL
   }>
 """
