@@ -571,6 +571,9 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
     }
 
     int remaining_data_bits = cell_data_length[i] - padding_bits;
+    if (remaining_data_bits < 0) {
+      return td::Status::Error("BOC decompression failed: invalid cell data length");
+    }
     if (bit_reader.size() < remaining_data_bits) {
       return td::Status::Error("BOC decompression failed: not enough bits for remaining cell data");
     }
