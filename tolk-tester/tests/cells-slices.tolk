@@ -473,26 +473,23 @@ We test that consequtive storeInt/storeUint with constants are joined into a sin
 @fif_codegen
 """
   test6() PROC:<{
-    18446744082299486211 PUSHINT
     NEWC
-    96 STU      //  '2
+    x{000000010000000200000003} STSLICECONST
     ENDC        //  '11
 """
 
 @fif_codegen
 """
   test17() PROC:<{
-    4219 PUSHINT
     NEWC
-    16 STU
+    x{107b} STSLICECONST
 """
 
 @fif_codegen
 """
   test18() PROC:<{
-    421 PUSHINT
     NEWC
-    26 STU
+    b{00000000000000000110100101} STSLICECONST
 """
 
 @fif_codegen
@@ -501,8 +498,7 @@ We test that consequtive storeInt/storeUint with constants are joined into a sin
     123 PUSHINT
     NEWC
     4 STI
-    16 PUSHPOW2DEC
-    16 STUR
+    x{ffff} STSLICECONST
     -1 PUSHINT
     8 STIR
   }>
@@ -511,9 +507,8 @@ We test that consequtive storeInt/storeUint with constants are joined into a sin
 @fif_codegen
 """
   test20() PROC:<{
-    40976 PUSHINT
     NEWC
-    16 STU
+    x{a010} STSLICECONST
 """
 
 @fif_codegen
@@ -529,12 +524,10 @@ We test that consequtive storeInt/storeUint with constants are joined into a sin
   test22() PROC:<{
     NEWC                    	//  '2
     NEWC                    	//  b1 b2
-    2056 PUSHINT
-    ROT
-    24 STU                  	//  b2 b1
+    SWAP                        //  b2 b1
+    x{000808} STSLICECONST      //  b2 b1
     SWAP                    	//  b1 b2
-    10141514286835656557042350424064 PUSHINTX
-    132 STUR                	//  b1 b2
+    x{000000080010000000000000000000000} STSLICECONST  //  b1 b2
 """
 
 @fif_codegen
@@ -543,13 +536,11 @@ We test that consequtive storeInt/storeUint with constants are joined into a sin
     NEWC
     SWAP
     IF:<{
-      91343852333181432387730302044911803916571639814 PUSHINT
-      256 STUR
+      x{0000000000000000000000001000000000000000000000000200000000000006} STSLICECONST
       8 PUSHINT
       256 STUR
     }>ELSE<{
-      56539106072908298546665520023773392506479484700019806659963456035401760775 PUSHINT
-      255 STIR
+      b{000000000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000111} STSLICECONST
     }>
     BBITS
   }>
@@ -597,9 +588,8 @@ We test that consequtive storeInt/storeUint with constants are joined into a sin
     s3 POP
     42 EQINT
     IF:<{
-      0 PUSHINT
-      ROT
-      3 STU
+      SWAP
+      b{000} STSLICECONST
       8 STU                 	//  b
     }>ELSE<{
       DROP                  	//  b

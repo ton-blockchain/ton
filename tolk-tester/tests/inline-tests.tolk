@@ -467,13 +467,11 @@ fun usedIn10ButDeclaredBelow(x: int) {
 @fif_codegen
 """
   test8() PROC:<{               //
-    5 PUSHINT
     NEWC
-    32 STU                      //  '3
+    x{00000005} STSLICECONST    //  '3
     25 PUSHINT                  //  '3 '9
-    107374182425 PUSHINT
-    ROT
-    64 STU                      //  x '3
+    SWAP                        //  x self
+    x{0000001900000019} STSLICECONST  //  x '3
     SWAP                        //  '3 x
   }>
 """
@@ -509,9 +507,8 @@ fun usedIn10ButDeclaredBelow(x: int) {
   test10() PROC:<{
     5 PUSHINT                   //  '3=5
     DUP                         //  '3=5 y=5
-    5 PUSHINT
     NEWC
-    32 STU                      //  a=5 b=5 c
+    x{00000005} STSLICECONST    //  a=5 b=5 c
     BBITS                       //  a=5 b=5 '18
   }>
 """

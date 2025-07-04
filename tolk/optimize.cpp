@@ -164,8 +164,8 @@ bool Optimizer::detect_rewrite_big_THROW() {
   return true;
 }
 
-// purpose 1: for one constant b.storeInt(123, 32) generate not "123 PUSHINT; SWAP; STI", but "123 PUSHINT; STIR"
-// purpose 2: consecutive b.storeUint(ff, 16).storeUint(ff, 16) generate one "00ff00ff" STU
+// purpose 1: for b.storeInt(123, 32) generate not "123 PUSHINT; SWAP; STI", but "x{...} STSLICECONST"
+// purpose 2: consecutive b.storeUint(ff, 16).storeUint(ff, 16) generate one "x{00ff00ff} STSLICECONST"
 // (since it works at IR level, it also works for const variables and auto-serialization)
 bool Optimizer::detect_rewrite_MY_store_int() {
   bool first_my_store = op_[0]->is_custom() && op_[0]->op.starts_with("MY_store_int");
@@ -198,14 +198,38 @@ bool Optimizer::detect_rewrite_MY_store_int() {
     n_merged++;
   }
 
-  p_ = n_merged;
-  q_ = 2;
-  oq_[0] = std::make_unique<AsmOp>(AsmOp::IntConst(op_[0]->loc, total_number));
-  if (total_number == 0 && total_len == 4 && first_unsigned) {    // "STGRAMS" stores four 0-bits cheaper than "4 STUR"
-    oq_[1] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->loc, "STGRAMS", 1, 1));
-  } else {
+  // we do not want to always use STSLICECONST; for example, storing "0" 64-bit via x{00...} is more effective
+  // for a single operation, but in practice, total bytecode becomes larger, which has a cumulative negative effect;
+  // here is a heuristic "when to use STSLICECONST, when leave PUSHINT + STUR", based on real contracts measurements
+  bool use_stsliceconst = total_len <= 32 || (total_len <= 48 && total_number >= 256) || (total_len <= 64 && total_number >= 65536)
+                      || (total_len <= 96 && total_number >= (1ULL<<32)) || (total_number > (1ULL<<62));
+  if (!use_stsliceconst) {
+    p_ = n_merged;
+    q_ = 2;
+    oq_[0] = std::make_unique<AsmOp>(AsmOp::IntConst(op_[0]->loc, total_number));
     oq_[1] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->loc, std::to_string(total_len) + (first_unsigned ? " STUR" : " STIR"), 1, 1));
+    return true;
   }
+
+  p_ = n_merged;
+  q_ = 1;
+
+  // output "x{...}" or "b{...}" (if length not divisible by 4)
+  const td::RefInt256 base = td::make_refint(total_len % 4 == 0 ? 16 : 2);
+  const int s_len = base == 16 ? total_len / 4 : total_len;
+  const char* digits = "0123456789abcdef";
+
+  std::string result(s_len + 3, '0');
+  result[0] = base == 16 ? 'x' : 'b';
+  result[1] = '{';
+  result[s_len + 3 - 1] = '}';
+  for (int i = s_len - 1; i >= 0 && total_number != 0; --i) {
+    result[2 + i] = digits[(total_number % base)->to_long()];
+    total_number /= base;
+  }
+
+  result += " STSLICECONST";
+  oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->loc, result, 0, 1));
   return true;
 }
 

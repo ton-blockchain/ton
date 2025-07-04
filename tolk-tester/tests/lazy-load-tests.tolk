@@ -1900,9 +1900,8 @@ fun main() {
     x{0102} PUSHSLICE
     8 LDI
     NIP
-    15 PUSHINT
     NEWC
-    8 STI
+    x{0f} STSLICECONST
     STSLICE
 """
 
@@ -1917,9 +1916,8 @@ fun main() {
     320 PUSHINT                 //  lazyS '14=320
     PLDSLICEX                   //  '15
     PUSHNULL                    //  '15 st.extensions
-    0 PUSHINT
     NEWC
-    1 STU                       //  '15 st.extensions b
+    b{0} STSLICECONST           //  '15 st.extensions b
     s1 s2 XCHG                  //  st.extensions '15 b
     STSLICE                     //  st.extensions b
     STOPTREF                    //  b
