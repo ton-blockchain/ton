@@ -137,7 +137,6 @@ td::Result<td::BufferSlice> serialize_block_full(const BlockIdExt& id, td::Slice
   TRY_RESULT(data_root, vm::std_boc_deserialize(data));
   TRY_RESULT(boc, vm::std_boc_serialize_multi({proof_root, data_root}, 2));
   td::BufferSlice compressed = td::lz4_compress(boc);
-
   VLOG(FULL_NODE_DEBUG) << "Compressing block full: " << data.size() + proof.size() << " -> " << compressed.size();
   return create_serialize_tl_object<ton_api::tonNode_dataFullCompressed>(create_tl_block_id(id), 0,
                                                                          std::move(compressed), is_proof_link);
