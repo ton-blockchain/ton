@@ -409,6 +409,29 @@ static V<ast_reference> calc_sink_leftmost_obj(V<ast_dot_access> v) {
   return leftmost_obj->kind == ast_reference ? leftmost_obj->as<ast_reference>() : nullptr;
 }
 
+// ternary `x ? y : z` can be optimized to asm `CONDSEL` (not IF/ELSE), if y and z don't require evaluation;
+// example when can: `cond ? 2 : null`, `x == null ? some_var : obj.field`;
+// example when not: `cond ? f() : g()` and other non-trivial arguments
+static bool is_ternary_arg_trivial_for_condsel(AnyExprV v, bool require_1slot = true) {
+  if (require_1slot && v->inferred_type->get_width_on_stack() != 1) {
+    return false;
+  }
+  if (v->kind == ast_int_const || v->kind == ast_string_const || v->kind == ast_bool_const ||
+      v->kind == ast_null_keyword || v->kind == ast_reference) {
+    return true;
+  }
+  if (auto v_par = v->try_as<ast_parenthesized_expression>()) {
+    return is_ternary_arg_trivial_for_condsel(v_par->get_expr(), require_1slot);
+  }
+  if (auto v_dot = v->try_as<ast_dot_access>()) {
+    return is_ternary_arg_trivial_for_condsel(v_dot->get_obj(), false);
+  }
+  if (auto v_cast = v->try_as<ast_not_null_operator>()) {
+    return is_ternary_arg_trivial_for_condsel(v_cast->get_expr(), require_1slot);
+  }
+  return false;
+}
+
 
 static std::vector<std::vector<var_idx_t>> pre_compile_tensor_inner(CodeBlob& code, const std::vector<AnyExprV>& args,
                                           const TypeDataTensor* tensor_target_type, LValContext* lval_ctx) {
@@ -1303,6 +1326,11 @@ static std::vector<var_idx_t> process_ternary_operator(V<ast_ternary_operator> v
     code.emplace_back(v->get_when_true()->loc, Op::_Let, rvect, pre_compile_expr(v->get_when_true(), code, v->inferred_type));
   } else if (v->get_cond()->is_always_false) {
     code.emplace_back(v->get_when_false()->loc, Op::_Let, rvect, pre_compile_expr(v->get_when_false(), code, v->inferred_type));
+  } else if (v->inferred_type->get_width_on_stack() == 1 && is_ternary_arg_trivial_for_condsel(v->get_when_true()) && is_ternary_arg_trivial_for_condsel(v->get_when_false())) {
+    std::vector<var_idx_t> ir_true = pre_compile_expr(v->get_when_true(), code, v->inferred_type);
+    std::vector<var_idx_t> ir_false = pre_compile_expr(v->get_when_false(), code, v->inferred_type);
+    std::vector<var_idx_t> condsel_args = { cond[0], ir_true[0], ir_false[0] };
+    code.emplace_back(v->loc, Op::_Call, rvect, std::move(condsel_args), lookup_function("__condsel"));
   } else {
     Op& if_op = code.emplace_back(v->loc, Op::_If, cond);
     code.push_set_cur(if_op.block0);

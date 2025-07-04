@@ -1004,6 +1004,23 @@ static AsmOp compile_throw_arg(std::vector<VarDescr>& res, std::vector<VarDescr>
   }
 }
 
+// `x ? y : z` can be compiled as `CONDSEL` asm instruction if y and z are don't require evaluation
+static AsmOp compile_ternary_as_condsel(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
+  tolk_assert(res.size() == 1 && args.size() == 3);
+  VarDescr& cond = args[0];     // args = [ cond, when_true, when_false ]
+  if (cond.always_true()) {
+    cond.unused();
+    args[2].unused();
+    return AsmOp::Nop(loc);
+  }
+  if (cond.always_false()) {
+    cond.unused();
+    args[1].unused();
+    return AsmOp::Nop(loc);
+  }
+  return exec_op(loc, "CONDSEL", 3, 1);
+}
+
 static AsmOp compile_bool_const(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc, bool val) {
   tolk_assert(res.size() == 1 && args.empty());
   VarDescr& r = res[0];
@@ -1434,6 +1451,9 @@ void define_builtins() {
                                 compile_fetch_varint,   // not exposed to stdlib, used in auto-serialization
                                 FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf,
                                 {}, {1, 0});
+  define_builtin_func("__condsel", ParamsInt3, Int, nullptr,
+                              compile_ternary_as_condsel,
+                                0);
 
   // compile-time only functions, evaluated essentially at compile-time, no runtime implementation
   // they are placed in stdlib and marked as `builtin`
