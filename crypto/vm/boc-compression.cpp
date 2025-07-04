@@ -590,7 +590,11 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
         int child = boc_graph[i][child_index];
         cell_builders[i].store_ref(nodes[child]);
       }
-      nodes[i] = cell_builders[i].finalize(is_special[i]);
+      try {
+        nodes[i] = cell_builders[i].finalize(is_special[i]);
+      } catch (vm::CellBuilder::CellWriteError& e) {
+        return td::Status::Error("BOC decompression failed: write error while finalizing cell.");
+      }
     } catch (vm::VmError& e) {
       return td::Status::Error("BOC decompression failed: VM error during cell construction");
     }
