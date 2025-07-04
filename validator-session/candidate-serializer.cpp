@@ -82,8 +82,9 @@ td::Result<td::BufferSlice> compress_candidate_data(td::Slice block, td::Slice c
   for (int i = 0; i < boc2.get_root_count(); ++i) {
     roots.push_back(boc2.get_root_cell(i));
   }
-  decompressed_size = block.size() + collated_data.size();
-  TRY_RESULT(compressed, vm::boc_compress(roots, vm::CompressionAlgorithm::ImprovedStructureLZ4));
+  TRY_RESULT(data, vm::std_boc_serialize_multi(std::move(roots), 2));
+  decompressed_size = data.size();
+  td::BufferSlice compressed = td::lz4_compress(data);
   LOG(DEBUG) << "Compressing block candidate: " << block.size() + collated_data.size() << " -> " << compressed.size();
   return compressed;
 }
