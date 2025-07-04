@@ -420,7 +420,7 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
     }
 
     if (prunned_branch_level[i]) {
-      int coef = prunned_branch_level[i] == 3 ? 2 : 1;
+      int coef = std::bitset<4>(prunned_branch_level[i]).count();
       cell_data_length[i] = (256 + 16) * coef;
     } else {
       // Check enough bits for data length metadata
