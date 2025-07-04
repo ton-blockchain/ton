@@ -264,6 +264,40 @@ bool Optimizer::detect_rewrite_NEWC_PUSH_STUR() {
   return true;
 }
 
+// pattern `N LDU` + `DROP` -> `N PLDU` (common after loading the last field manually or by `lazy`);
+// the same for LDI -> PLDI, LDREF -> PLDREF, etc.
+bool Optimizer::detect_rewrite_LDxx_DROP() {
+  bool second_drop = pb_ > 1 && op_[1]->is_pop() && op_[1]->a == 0;
+  if (!second_drop || !op_[0]->is_custom()) {
+    return false;
+  }
+
+  static const char* ends_with[] = { " LDI",  " LDU",  " LDBITS"};
+  static const char* repl_with[] = {" PLDI", " PLDU", " PLDBITS"};
+  static const char* equl_to[] = { "LDREF",  "LDDICT",  "LDOPTREF",  "LDSLICEX"};
+  static const char* repl_to[] = {"PLDREF", "PLDDICT", "PLDOPTREF", "PLDSLICEX"};
+
+  std::string_view f = op_[0]->op;
+  for (size_t i = 0; i < std::size(ends_with); ++i) {
+    if (f.ends_with(ends_with[i])) {
+      p_ = 2;
+      q_ = 1;
+      oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->loc, op_[0]->op.substr(0, f.rfind(' ')) + repl_with[i], 0, 1));
+      return true;
+    }
+  }
+  for (size_t i = 0; i < std::size(equl_to); ++i) {
+    if (f == equl_to[i]) {
+      p_ = 2;
+      q_ = 1;
+      oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->loc, repl_to[i], 0, 1));
+      return true;
+    }
+  }
+
+  return false;
+}
+
 
 bool Optimizer::is_push_const(int* i, int* c) const {
   return pb_ >= 3 && pb_ <= l2_ && tr_[pb_ - 1].is_push_const(i, c);
@@ -685,6 +719,7 @@ bool Optimizer::find_at_least(int pb) {
          (is_xchg_xchg(&i, &j, &k, &l) && rewrite(AsmOp::Xchg(loc, i, j), AsmOp::Xchg(loc, k, l))) ||
          detect_rewrite_big_THROW() ||
          detect_rewrite_MY_store_int() || detect_rewrite_MY_skip_bits() || detect_rewrite_NEWC_PUSH_STUR() ||
+         detect_rewrite_LDxx_DROP() ||
          (!(mode_ & 1) &&
           ((is_rot() && rewrite(AsmOp::Custom(loc, "ROT", 3, 3))) || (is_rotrev() && rewrite(AsmOp::Custom(loc, "-ROT", 3, 3))) ||
            (is_2dup() && rewrite(AsmOp::Custom(loc, "2DUP", 2, 4))) ||

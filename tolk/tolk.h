@@ -902,6 +902,7 @@ struct Optimizer {
   bool detect_rewrite_MY_store_int();
   bool detect_rewrite_MY_skip_bits();
   bool detect_rewrite_NEWC_PUSH_STUR();
+  bool detect_rewrite_LDxx_DROP();
 
   AsmOpConsList extract_code();
 };

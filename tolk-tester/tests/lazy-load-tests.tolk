@@ -1732,8 +1732,7 @@ fun main() {
 """
   demo101() PROC:<{             //
     x{0102} PUSHSLICE           //  lazyS
-    8 LDI                       //  '9 lazyS
-    DROP                        //  p.x
+    8 PLDI                      //  p.x
   }>
 """
 
@@ -1743,8 +1742,7 @@ fun main() {
     x{0102} PUSHSLICE           //  lazyS
     8 LDU
     NIP                         //  lazyS
-    8 LDI                       //  '10 lazyS
-    DROP                        //  p.y
+    8 PLDI                      //  p.y
 """
 
 @fif_codegen
@@ -1764,8 +1762,7 @@ fun main() {
     x{8000003d800000e4000000000000000000000000000000000000000000000000000000000000000020_} PUSHSLICE    //  lazyS
     65 LDU
     NIP                         //  lazyS
-    256 LDU                     //  '13 lazyS
-    DROP                        //  st.publicKey
+    256 PLDU                    //  st.publicKey
   }>
 """
 
@@ -1775,13 +1772,11 @@ fun main() {
   //  lazyS
     x{01} SDBEGINSQ
     IF:<{
-      8 LDI
-      DROP
+      8 PLDI
     }>ELSE<{
       x{02} SDBEGINSQ
       IF:<{
-        8 LDI
-        DROP
+        8 PLDI
         NEGATE
       }>ELSE<{
         x{03} SDBEGINSQ
@@ -1793,8 +1788,7 @@ fun main() {
           IFNOTJMP:<{
             63 THROW
           }>
-          32 LDI
-          DROP
+          32 PLDI
         }>
       }>
     }>
@@ -1807,8 +1801,7 @@ fun main() {
     x{010f} PUSHSLICE           //  lazyS
     x{01} SDBEGINSQ             //  lazyS '6
     134 THROWIFNOT              //  lazyS
-    8 LDI                       //  '11 lazyS
-    DROP                        //  cc
+    8 PLDI                      //  cc
   }>
 """
 
@@ -1823,8 +1816,7 @@ fun main() {
     }>
     8 LDU
     NIP
-    8 LDI
-    DROP
+    8 PLDI
   }>
 """
 
@@ -1832,8 +1824,7 @@ fun main() {
 """
   demo146() PROC:<{
     x{0000000} PUSHSLICE
-    LDOPTREF
-    DROP
+    PLDOPTREF
     ISNULL
   }>
 """
@@ -1844,8 +1835,7 @@ fun main() {
     x{0102} PUSHSLICE
     DUP
     8 LDI
-    8 LDI
-    DROP
+    8 PLDI
     s2 PUSH
     NEWC
     STSLICE
@@ -1866,8 +1856,7 @@ fun main() {
   demo203() PROC:<{             //
     x{010203040506070809} PUSHSLICE     //  lazyS
     DUP                         //  '14 lazyS
-    8 LDU                       //  '14 '16 lazyS
-    DROP                        //  '14 o.f1
+    8 PLDU                      //  '14 o.f1
     1 EQINT                     //  '14 '18
     IFJMP:<{                    //  '14
       NEWC                      //  '14 b
@@ -1889,8 +1878,7 @@ fun main() {
     8 LDU                       //  '14 o.f1 o.f2 o.f3 o.f4 o.f5 o.f6 lazyS
     8 LDU                       //  '14 o.f1 o.f2 o.f3 o.f4 o.f5 o.f6 o.f7 lazyS
     8 LDU                       //  '14 o.f1 o.f2 o.f3 o.f4 o.f5 o.f6 o.f7 o.f8 lazyS
-    8 LDU                       //  '14 o.f1 o.f2 o.f3 o.f4 o.f5 o.f6 o.f7 o.f8 '32 lazyS
-    DROP                        //  '14 o.f1 o.f2 o.f3 o.f4 o.f5 o.f6 o.f7 o.f8 o.f9
+    8 PLDU                      //  '14 o.f1 o.f2 o.f3 o.f4 o.f5 o.f6 o.f7 o.f8 o.f9
 """
 
 @fif_codegen
@@ -1898,8 +1886,7 @@ fun main() {
   demo215() PROC:<{
     x{0102} PUSHSLICE
     8 LDI
-    8 LDI
-    DROP
+    8 PLDI
     SWAP
     NEWC
     8 STI
@@ -1928,8 +1915,7 @@ fun main() {
     1 LDI                       //  '13 lazyS
     NIP                         //  lazyS
     320 PUSHINT                 //  lazyS '14=320
-    LDSLICEX                    //  '15 lazyS
-    DROP                        //  '15
+    PLDSLICEX                   //  '15
     PUSHNULL                    //  '15 st.extensions
     0 PUSHINT
     NEWC
@@ -1947,8 +1933,7 @@ fun main() {
     //  lazyS
     x{12345678} SDBEGINSQ
     IF:<{
-      32 LDI
-      DROP
+      32 PLDI
       10 ADDCONST
     }>ELSE<{
       x{23456789} SDBEGINSQ
@@ -1964,8 +1949,7 @@ fun main() {
         32 LDU
         8 LDU
         NIP
-        8 LDI
-        DROP
+        8 PLDI
         OVER
         100 GTINT
         IF:<{
@@ -2011,8 +1995,7 @@ fun main() {
 """
   demo411() PROC:<{             //  s
                                 //  lazyS
-    1 LDU                       //  '10 lazyS
-    DROP                        //  '10
+    1 PLDU                      //  '10
     IFJMP:<{                    //
       DUMPSTK                   //
     }>                          //

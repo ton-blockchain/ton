@@ -138,8 +138,7 @@ RETALT
     CTOS
     x{01} SDBEGINSQ
     63 THROWIFNOT
-    8 LDI
-    DROP
+    8 PLDI
   }>
 """
 

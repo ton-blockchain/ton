@@ -23,8 +23,7 @@ fun onInternalMessage(in: InMessage) {
     IFJMP:<{
        32 LDU
        NIP
-       32 LDU
-       DROP
+       32 PLDU
        THROWANY
     }>                      	//  in.body
   }>

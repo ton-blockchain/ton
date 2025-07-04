@@ -1498,8 +1498,7 @@ fun main() {
     x{0102} PUSHSLICE
     8 LDI
     NIP
-    8 LDI
-    DROP
+    8 PLDI
   }>
 """
  */
