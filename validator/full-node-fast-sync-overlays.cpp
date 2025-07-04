@@ -365,6 +365,7 @@ void FullNodeFastSyncOverlay::get_stats_extra(td::Promise<std::string> promise) 
   if (!member_certificate_.empty()) {
     res->member_certificate_ = member_certificate_.tl();
   }
+  res->receive_broadcasts_ = receive_broadcasts_;
   promise.set_result(td::json_encode<std::string>(td::ToJson(*res), true));
 }
 
@@ -525,7 +526,7 @@ void FullNodeFastSyncOverlays::update_overlays(td::Ref<MasterchainState> state,
 
     // Update shard overlays
     for (ShardIdFull shard : all_shards) {
-      bool receive_broadcasts = overlays_info.is_validator_ ? shard.is_masterchain() : monitoring_shards.count(shard);
+      bool receive_broadcasts = monitoring_shards.contains(shard);
       auto &overlay = overlays_info.overlays_[shard];
       if (overlay.empty()) {
         overlay = td::actor::create_actor<FullNodeFastSyncOverlay>(
