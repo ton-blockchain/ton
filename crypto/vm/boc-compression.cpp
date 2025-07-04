@@ -60,6 +60,10 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_baseline_lz4(td::Slice
   return roots;
 }
 
+void append_uint(td::BitString& bs, unsigned long long val, unsigned n) {
+  bs.reserve_bitslice(n).bits().store_uint(val, n);
+}
+
 td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vector<td::Ref<vm::Cell>>& boc_roots) {
   // Input validation
   if (boc_roots.empty()) {
@@ -219,28 +223,28 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
   if (root_indexes.size() >= (1 << 16)) {
     return td::Status::Error("Too many root cells");
   }
-  result.reserve_bitslice(16).bits().store_uint(root_indexes.size(), 16);
+  append_uint(result, root_indexes.size(), 16);
   for (int root_ind : root_indexes) {
-    result.reserve_bitslice(16).bits().store_uint(rank[root_ind], 16);
+    append_uint(result, rank[root_ind], 16);
   }
 
   // Store node count
-  result.reserve_bitslice(16).bits().store_uint(node_count, 16);
+  append_uint(result, node_count, 16);
 
   // Store cell types and sizes
   for (int i = 0; i < node_count; ++i) {
     int node = topo_order[i];
     int currrent_cell_type = bool(cell_type[node]) + prunned_branch_level[node];
-    result.reserve_bitslice(4).bits().store_uint(currrent_cell_type, 4);
-    result.reserve_bitslice(4).bits().store_uint(refs_cnt[node], 4);
+    append_uint(result, currrent_cell_type, 4);
+    append_uint(result, refs_cnt[node], 4);
 
     if (cell_type[node] != 1) {
       if (is_data_small[node]) {
-        result.reserve_bitslice(1).bits().store_uint(1, 1);
-        result.reserve_bitslice(7).bits().store_uint(cell_data[node].size(), 7);
+        append_uint(result, 1, 1);
+        append_uint(result, cell_data[node].size(), 7);
       } else {
-        result.reserve_bitslice(1).bits().store_uint(0, 1);
-        result.reserve_bitslice(7).bits().store_uint(1 + cell_data[node].size() / 8, 7);
+        append_uint(result, 0, 1);
+        append_uint(result, 1 + cell_data[node].size() / 8, 7);
       }
     }
   }
@@ -278,21 +282,21 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
       size_t required_bits = 1 + (31 ^ __builtin_clz(node_count - i - 3));
 
       if (required_bits < 8 - (result.size() + 1) % 8 + 1) {
-        result.reserve_bitslice(required_bits).bits().store_uint(delta, required_bits);
+        append_uint(result, delta, required_bits);
       } else if (delta < (1 << (8 - (result.size() + 1) % 8))) {
         size_t available_bits = 8 - (result.size() + 1) % 8;
-        result.reserve_bitslice(1).bits().store_uint(1, 1);
-        result.reserve_bitslice(available_bits).bits().store_uint(delta, available_bits);
+        append_uint(result, 1, 1);
+        append_uint(result, delta, available_bits);
       } else {
-        result.reserve_bitslice(1).bits().store_uint(0, 1);
-        result.reserve_bitslice(required_bits).bits().store_uint(delta, required_bits);
+        append_uint(result, 0, 1);
+        append_uint(result, delta, required_bits);
       }
     }
   }
 
   // Pad result to byte boundary
   while (result.size() % 8) {
-    result.reserve_bitslice(1).bits().store_uint(0, 1);
+    append_uint(result, 0, 1);
   }
 
   // Store remaining cell data
@@ -305,16 +309,16 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
       int padding = (8 - data_size % 8) % 8;
 
       if (padding) {
-        result.reserve_bitslice(padding).bits().store_uint(0, padding);
+        append_uint(result, 0, padding);
       }
-      result.reserve_bitslice(1).bits().store_uint(1, 1);
+      append_uint(result, 1, 1);
       result.append(cell_data[node]);
     }
   }
 
   // Final padding
   while (result.size() % 8) {
-    result.reserve_bitslice(1).bits().store_uint(0, 1);
+    append_uint(result, 0, 1);
   }
 
   // Create final compressed buffer
