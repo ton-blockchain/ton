@@ -60,8 +60,18 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_baseline_lz4(td::Slice
   return roots;
 }
 
-void append_uint(td::BitString& bs, unsigned long long val, unsigned n) {
+inline void append_uint(td::BitString& bs, unsigned val, unsigned n) {
   bs.reserve_bitslice(n).bits().store_uint(val, n);
+}
+
+inline td::Result<unsigned> read_uint(td::BitSlice& bs, int bits) {
+  // Check if there enough bits available
+  if (bs.size() < bits) {
+    return td::Status::Error("BOC decompression failed: not enough bits to read");
+  }
+  unsigned result = bs.bits().get_uint(bits);
+  bs.advance(bits);
+  return result;
 }
 
 td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vector<td::Ref<vm::Cell>>& boc_roots) {
@@ -362,36 +372,19 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
   td::BitSlice bit_reader(serialized.as_slice().ubegin(), serialized.as_slice().size() * 8);
   size_t orig_size = bit_reader.size();
 
-  // Check enough bits for root count
-  if (bit_reader.size() < 16) {
-    return td::Status::Error("BOC decompression failed: not enough bits for root count");
-  }
-
-  int root_count = bit_reader.bits().get_uint(16);
-  bit_reader.advance(16);
+  // Read root count
+  TRY_RESULT(root_count, read_uint(bit_reader, 16));
   if (root_count < 1 || root_count > BagOfCells::default_max_roots) {
     return td::Status::Error("BOC decompression failed: invalid root count");
   }
 
-  // Check enough bits for root indexes
-  if (bit_reader.size() < root_count * 16) {
-    return td::Status::Error("BOC decompression failed: not enough bits for root indexes");
-  }
-
   std::vector<int> root_indexes(root_count);
   for (int i = 0; i < root_count; ++i) {
-    root_indexes[i] = bit_reader.bits().get_uint(16);
-    bit_reader.advance(16);
-  }
-
-  // Check enough bits for node count
-  if (bit_reader.size() < 16) {
-    return td::Status::Error("BOC decompression failed: not enough bits for node count");
+    TRY_RESULT_ASSIGN(root_indexes[i], read_uint(bit_reader, 16));
   }
 
   // Read number of nodes from header
-  int node_count = bit_reader.bits().get_uint(16);
-  bit_reader.advance(16);
+  TRY_RESULT(node_count, read_uint(bit_reader, 16));
   if (node_count < 1) {
     return td::Status::Error("BOC decompression failed: invalid node count");
   }
@@ -462,14 +455,10 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
   // Read direct edge connections
   for (int i = 0; i < node_count; ++i) {
     for (int j = 0; j < cell_refs_cnt[i]; ++j) {
-      if (bit_reader.size() < 1) {
-        return td::Status::Error("BOC decompression failed: not enough bits for edge connections");
-      }
-
-      if (bit_reader.bits().get_uint(1)) {
+      TRY_RESULT(edge_connection, read_uint(bit_reader, 1));
+      if (edge_connection) {
         boc_graph[i][j] = i + 1;
       }
-      bit_reader.advance(1);
     }
   }
 
@@ -483,7 +472,6 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
     if (bit_reader.size() < remainder_bits) {
       return td::Status::Error("BOC decompression failed: not enough bits for initial cell data");
     }
-
     cell_builders[i].store_bits(bit_reader.subslice(0, remainder_bits));
     bit_reader.advance(remainder_bits);
     cell_data_length[i] -= remainder_bits;
@@ -506,32 +494,18 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
         int required_bits = 1 + (31 ^ __builtin_clz(node_count - i - 3));
 
         if (required_bits < 8 - (pref_size + 1) % 8 + 1) {
-          if (bit_reader.size() < required_bits) {
-            return td::Status::Error("BOC decompression failed: not enough bits for edge connection");
-          }
-          boc_graph[i][j] = bit_reader.bits().get_uint(required_bits) + i + 2;
-          bit_reader.advance(required_bits);
+          TRY_RESULT_ASSIGN(boc_graph[i][j], read_uint(bit_reader, required_bits));
+          boc_graph[i][j] += i + 2;
         } else {
-          if (bit_reader.size() < 1) {
-            return td::Status::Error("BOC decompression failed: not enough bits for edge connection flag");
-          }
-
-          if (bit_reader.bits().get_uint(1)) {
-            bit_reader.advance(1);
+          TRY_RESULT(edge_connection, read_uint(bit_reader, 1));
+          if (edge_connection) {
             pref_size = (orig_size - bit_reader.size());
             int available_bits = 8 - pref_size % 8;
-            if (bit_reader.size() < available_bits) {
-              return td::Status::Error("BOC decompression failed: not enough bits for available connection");
-            }
-            boc_graph[i][j] = bit_reader.bits().get_uint(available_bits) + i + 2;
-            bit_reader.advance(available_bits);
+            TRY_RESULT_ASSIGN(boc_graph[i][j], read_uint(bit_reader, available_bits));
+            boc_graph[i][j] += i + 2;
           } else {
-            bit_reader.advance(1);
-            if (bit_reader.size() < required_bits) {
-              return td::Status::Error("BOC decompression failed: not enough bits for required connection");
-            }
-            boc_graph[i][j] = bit_reader.bits().get_uint(required_bits) + i + 2;
-            bit_reader.advance(required_bits);
+            TRY_RESULT_ASSIGN(boc_graph[i][j], read_uint(bit_reader, required_bits));
+            boc_graph[i][j] += i + 2;
           }
         }
       }
@@ -553,10 +527,7 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
 
   // Align to byte boundary
   while ((orig_size - bit_reader.size()) % 8) {
-    if (bit_reader.size() < 1) {
-      return td::Status::Error("BOC decompression failed: not enough bits for alignment");
-    }
-    bit_reader.advance(1);
+    TRY_RESULT(bit, read_uint(bit_reader, 1));
   }
 
   // Read remaining cell data
@@ -567,10 +538,7 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
         ++padding_bits;
         bit_reader.advance(1);
       }
-      if (bit_reader.size() < 1) {
-        return td::Status::Error("BOC decompression failed: not enough bits for padding terminator");
-      }
-      bit_reader.advance(1);
+      TRY_RESULT(bit, read_uint(bit_reader, 1));
       ++padding_bits;
     }
 
