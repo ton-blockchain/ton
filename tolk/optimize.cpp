@@ -399,6 +399,29 @@ bool Optimizer::detect_rewrite_SWAP_STxxxR() {
   return false;
 }
 
+// pattern `NOT` + `123 THROWIFNOT` -> `123 THROWIF` (and THROWIF -> THROWIFNOT)
+bool Optimizer::detect_rewrite_NOT_THROWIF() {
+  bool first_not = op_[0]->is_custom() && op_[0]->op == "NOT";
+  if (!first_not || pb_ < 2 || !op_[1]->is_custom()) {
+    return false;
+  }
+
+  static const char* ends_with[] = {" THROWIF",    " THROWIFNOT"};
+  static const char* repl_with[] = {" THROWIFNOT", " THROWIF"};
+
+  std::string_view f = op_[1]->op;
+  for (size_t i = 0; i < std::size(ends_with); ++i) {
+    if (f.ends_with(ends_with[i])) {
+      p_ = 2;
+      q_ = 1;
+      oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->loc, op_[1]->op.substr(0, f.rfind(' ')) + repl_with[i], 1, 0));
+      return true;
+    }
+  }
+
+  return false;
+}
+
 bool Optimizer::is_push_const(int* i, int* c) const {
   return pb_ >= 3 && pb_ <= l2_ && tr_[pb_ - 1].is_push_const(i, c);
 }
@@ -821,6 +844,7 @@ bool Optimizer::find_at_least(int pb) {
          detect_rewrite_MY_store_int() || detect_rewrite_MY_skip_bits() || detect_rewrite_NEWC_PUSH_STUR() ||
          detect_rewrite_LDxx_DROP() ||
          detect_rewrite_SWAP_symmetric() || detect_rewrite_SWAP_PUSH_STUR() || detect_rewrite_SWAP_STxxxR() ||
+         detect_rewrite_NOT_THROWIF() ||
          (!(mode_ & 1) &&
           ((is_rot() && rewrite(AsmOp::Custom(loc, "ROT", 3, 3))) || (is_rotrev() && rewrite(AsmOp::Custom(loc, "-ROT", 3, 3))) ||
            (is_2dup() && rewrite(AsmOp::Custom(loc, "2DUP", 2, 4))) ||

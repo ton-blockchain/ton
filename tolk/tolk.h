@@ -906,6 +906,7 @@ struct Optimizer {
   bool detect_rewrite_SWAP_symmetric();
   bool detect_rewrite_SWAP_PUSH_STUR();
   bool detect_rewrite_SWAP_STxxxR();
+  bool detect_rewrite_NOT_THROWIF();
 
   AsmOpConsList extract_code();
 };

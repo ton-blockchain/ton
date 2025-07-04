@@ -2103,21 +2103,12 @@ static void process_block_statement(V<ast_block_statement> v, CodeBlob& code) {
 }
 
 static void process_assert_statement(V<ast_assert_statement> v, CodeBlob& code) {
-  std::vector<AnyExprV> args(3);
-  if (auto v_not = v->get_cond()->try_as<ast_unary_operator>(); v_not && v_not->tok == tok_logical_not) {
-    args[0] = v->get_thrown_code();
-    args[1] = v->get_cond()->as<ast_unary_operator>()->get_rhs();
-    args[2] = createV<ast_bool_const>(v->loc, true);
-    args[2]->mutate()->assign_inferred_type(TypeDataInt::create());
-  } else {
-    args[0] = v->get_thrown_code();
-    args[1] = v->get_cond();
-    args[2] = createV<ast_bool_const>(v->loc, false);
-    args[2]->mutate()->assign_inferred_type(TypeDataInt::create());
-  }
+  std::vector ir_thrown_code = pre_compile_expr(v->get_thrown_code(), code);
+  std::vector ir_cond = pre_compile_expr(v->get_cond(), code);
+  tolk_assert(ir_cond.size() == 1 && ir_thrown_code.size() == 1);
 
+  std::vector args_vars = { ir_thrown_code[0], ir_cond[0], code.create_int(v->loc, 0, "(assert-0)") };
   FunctionPtr builtin_sym = lookup_function("__throw_if_unless");
-  std::vector<var_idx_t> args_vars = pre_compile_tensor(code, args);
   gen_op_call(code, TypeDataVoid::create(), v->loc, std::move(args_vars), builtin_sym, "(throw-call)");
 }
 
