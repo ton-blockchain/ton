@@ -112,8 +112,8 @@ fun main(c: cell) {
     64 STI                      //  b
     ENDC                        //  c
     CTOS                        //  s
-    64 PUSHINT
-    SDSKIPFIRST                 //  s
+    64 LDU
+    NIP                         //  s
     SBITS                       //  '17
   }>
 """

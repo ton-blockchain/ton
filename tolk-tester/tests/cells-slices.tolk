@@ -401,8 +401,8 @@ We test that consequtive storeInt/storeUint with constants are joined into a sin
 @fif_codegen
 """
   test21() PROC:<{
-    14 PUSHINT
-    SDSKIPFIRST
+    14 LDU
+    NIP
   }>
 """
 

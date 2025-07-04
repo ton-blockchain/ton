@@ -1741,8 +1741,8 @@ fun main() {
 """
   demo103() PROC:<{             //
     x{0102} PUSHSLICE           //  lazyS
-    8 PUSHINT
-    SDSKIPFIRST                 //  lazyS
+    8 LDU
+    NIP                         //  lazyS
     8 LDI                       //  '10 lazyS
     DROP                        //  p.y
 """
@@ -1753,8 +1753,8 @@ fun main() {
                                 //  lazyS
     PUSHNULL                    //  lazyS x
     SWAP                        //  x lazyS
-    8 PUSHINT
-    SDSKIPFIRST                 //  x lazyS
+    8 LDU
+    NIP                         //  x lazyS
     1 LDU                       //  x '18 lazyS
 """
 
@@ -1762,8 +1762,8 @@ fun main() {
 """
   demo109() PROC:<{             //
     x{8000003d800000e4000000000000000000000000000000000000000000000000000000000000000020_} PUSHSLICE    //  lazyS
-    65 PUSHINT
-    SDSKIPFIRST                 //  lazyS
+    65 LDU
+    NIP                         //  lazyS
     256 LDU                     //  '13 lazyS
     DROP                        //  st.publicKey
   }>
@@ -1821,8 +1821,8 @@ fun main() {
       DROP
       -1 PUSHINT
     }>
-    8 PUSHINT
-    SDSKIPFIRST
+    8 LDU
+    NIP
     8 LDI
     DROP
   }>
@@ -1962,8 +1962,8 @@ fun main() {
           THROWANY
         }>
         32 LDU
-        8 PUSHINT
-        SDSKIPFIRST
+        8 LDU
+        NIP
         8 LDI
         DROP
         OVER

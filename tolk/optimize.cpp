@@ -231,8 +231,13 @@ bool Optimizer::detect_rewrite_MY_skip_bits() {
 
   p_ = n_merged;
   q_ = 2;
-  oq_[0] = std::make_unique<AsmOp>(AsmOp::IntConst(op_[0]->loc, td::make_refint(total_skip_bits)));
-  oq_[1] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->loc, "SDSKIPFIRST"));
+  if (total_skip_bits <= 256) {
+    oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->loc, std::to_string(total_skip_bits) + " LDU"));
+    oq_[1] = std::make_unique<AsmOp>(AsmOp::Pop(op_[0]->loc, 1));
+  } else {
+    oq_[0] = std::make_unique<AsmOp>(AsmOp::IntConst(op_[0]->loc, td::make_refint(total_skip_bits)));
+    oq_[1] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->loc, "SDSKIPFIRST"));
+  }
   return true;
 }
 
