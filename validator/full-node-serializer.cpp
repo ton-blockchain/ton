@@ -91,12 +91,11 @@ static td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_b
 
 static td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_blockBroadcastCompressedV2& f,
                                                               int max_decompressed_size) {
-  TRY_RESULT(f2, fetch_tl_object<ton_api::tonNode_blockBroadcastCompressed_data>(f.compressed_, true));
   std::vector<BlockSignature> signatures;
-  for (auto& sig : f2->signatures_) {
+  for (auto& sig : f.signatures_) {
     signatures.emplace_back(BlockSignature{sig->who_, std::move(sig->signature_)});
   }
-  TRY_RESULT(roots, vm::boc_decompress(f2->proof_data_));
+  TRY_RESULT(roots, vm::boc_decompress(f.compressed_));
   if (roots.size() != 2) {
     return td::Status::Error("expected 2 roots in boc");
   }
