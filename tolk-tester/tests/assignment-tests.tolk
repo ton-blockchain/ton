@@ -249,6 +249,14 @@ fun test118(x: int) {
     return (i1, i2, st.owner.remainingBitsCount(), i3.0);
 }
 
+@method_id(119)
+fun test119(a: int, b: int) {
+    var t: tuple = [a + 1, b * 2] as tuple;
+    val l = t.size();
+    val [c,d:int] = [t.0 as int, t.1];
+    return (l, c, d);
+}
+
 
 
 fun main(value: int, ) {
@@ -279,6 +287,7 @@ fun main(value: int, ) {
 @testcase | 116 |        | 1 2 3 4 [ 1 2 3 4 ]
 @testcase | 117 |        | [ 20 ]
 @testcase | 118 | 3      | 10 3 0 1
+@testcase | 119 | 1 2    | 2 2 4
 
 
 @fif_codegen

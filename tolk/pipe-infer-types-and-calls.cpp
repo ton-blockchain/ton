@@ -536,7 +536,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
         assign_inferred_type(lhs_var, rhs_type);
         assign_inferred_type(lhs_var->var_ref, rhs_type);
       }
-      TypePtr smart_casted_type = declared_type ? calc_smart_cast_type_on_assignment(declared_type, rhs_type) : rhs_type;
+      TypePtr smart_casted_type = declared_type && rhs_type != TypeDataUnknown::create() ? calc_smart_cast_type_on_assignment(declared_type, rhs_type) : rhs_type;
       out_flow.register_known_type(SinkExpression(lhs_var->var_ref), smart_casted_type);
       return;
     }
@@ -740,7 +740,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
       // example: `var v = ternary`, show an inference error
       // do NOT show an error for `var v: T = ternary` (T is hint); it will be checked by type checker later
       if (hint == nullptr || hint == TypeDataUnknown::create() || hint->has_genericT_inside()) {
-        fire(cur_f, v->loc, "types of ternary branches are incompatible: " + to_string(v->get_when_true()) + " and " + to_string(v->get_when_false()));
+        fire(cur_f, v->loc, "types of ternary branches are incompatible: " + to_string(v->get_when_true()) + " and " + to_string(v->get_when_false()) + "\nhint: maybe, you should use `<some_expr> as <type>` to make them identical");
       }
     }
     assign_inferred_type(v, branches_unifier.get_result());
@@ -1081,7 +1081,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
       // as a special case, handle accessing fields of nullable objects, to show a more precise error
       if (const TypeDataUnion* as_union = obj_type->try_as<TypeDataUnion>(); as_union && as_union->or_null) {
         if (const TypeDataStruct* n_struct = as_union->or_null->try_as<TypeDataStruct>(); n_struct && n_struct->struct_ref->find_field(field_name)) {
-          fire(cur_f, v_ident->loc, "can not access field `" + static_cast<std::string>(field_name) + "` of a possibly nullable object " + to_string(dot_obj) + "\ncheck it via `obj != null` or use non-null assertion `obj!` operator");
+          fire(cur_f, v_ident->loc, "can not access field `" + static_cast<std::string>(field_name) + "` of a possibly nullable object " + to_string(dot_obj) + "\nhint: check it via `obj != null` or use non-null assertion `obj!` operator");
         }
       }
       if (out_f_called) {

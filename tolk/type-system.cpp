@@ -1146,6 +1146,9 @@ bool TypeDataTensor::can_be_casted_with_as_operator(TypePtr cast_to) const {
 }
 
 bool TypeDataBrackets::can_be_casted_with_as_operator(TypePtr cast_to) const {
+  if (cast_to->try_as<TypeDataTuple>()) {   // `[int, int]` as `tuple`
+    return true;
+  }
   if (const auto* to_tuple = cast_to->try_as<TypeDataBrackets>(); to_tuple && to_tuple->size() == size()) {
     for (int i = 0; i < size(); ++i) {
       if (!items[i]->can_be_casted_with_as_operator(to_tuple->items[i])) {

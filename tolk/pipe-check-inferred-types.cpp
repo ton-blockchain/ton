@@ -49,6 +49,38 @@ static std::string expression_as_string(AnyExprV v) {
   return "expression";
 }
 
+// fire a general error on type mismatch; for example, "can not assign `cell` to `slice`";
+// for instance, if `as` operator is applicable, compiler will suggest it
+GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
+static void fire_error_type_mismatch(FunctionPtr cur_f, SrcLocation loc, const char* text_tpl, TypePtr src, TypePtr dst) {
+#ifdef TOLK_DEBUG
+  tolk_assert(!dst->can_rhs_be_assigned(src));
+#endif
+  std::string message = text_tpl;
+  message.replace(message.find("{src}"), 5, to_string(src));
+  message.replace(message.find("{dst}"), 5, to_string(dst));
+  if (src->can_be_casted_with_as_operator(dst)) {
+    bool suggest_as = !dst->try_as<TypeDataTensor>() && !dst->try_as<TypeDataBrackets>();
+    if ((src == TypeDataAddress::create() || src == TypeDataSlice::create()) && (dst == TypeDataAddress::create() || dst == TypeDataSlice::create())) {
+      message += "\nhint: unlike FunC, Tolk has a special type `address` (which is slice at the TVM level);";
+      message += "\n      most likely, you just need `address` everywhere";
+      message += "\nhint: alternatively, use `as` operator for unsafe casting: `<some_expr> as " + dst->as_human_readable() + "`";
+    } else if (suggest_as) {
+      message += "\nhint: use `as` operator for unsafe casting: `<some_expr> as " + dst->as_human_readable() + "`";
+    }
+    if (src == TypeDataBool::create() && dst == TypeDataInt::create()) {
+      message += "\ncaution! in TVM, bool TRUE is -1, not 1";
+    }
+  }
+  if (const TypeDataUnion* src_nullable = src->try_as<TypeDataUnion>(); src_nullable && src_nullable->or_null) {
+    if (dst->can_rhs_be_assigned(src_nullable->or_null)) {
+      message += "\nhint: probably, you should check on null";
+      message += "\nhint: alternatively, use `!` operator to bypass nullability checks: `<some_expr>!`";
+    }
+  }
+  fire(cur_f, loc, message);
+}
+
 // fire an error on `!cell` / `+slice`
 GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
 static void fire_error_cannot_apply_operator(FunctionPtr cur_f, SrcLocation loc, std::string_view operator_name, AnyExprV unary_expr) {
@@ -78,7 +110,7 @@ static void check_function_argument_passed(FunctionPtr cur_f, TypePtr param_type
     if (is_obj_of_dot_call) {
       fire(cur_f, ith_arg->loc, "can not call method for " + to_string(param_type) + " with object of type " + to_string(ith_arg));
     } else {
-      fire(cur_f, ith_arg->loc, "can not pass " + to_string(ith_arg) + " to " + to_string(param_type));
+      fire_error_type_mismatch(cur_f, ith_arg->loc, "can not pass {src} to {dst}", ith_arg->inferred_type, param_type);
     }
   }
 }
@@ -349,7 +381,7 @@ protected:
         auto arg_i = v->get_arg(i)->get_expr();
         TypePtr param_type = f_callable->params_types[i];
         if (!param_type->can_rhs_be_assigned(arg_i->inferred_type)) {
-          fire(cur_f, arg_i->loc, "can not pass " + to_string(arg_i) + " to " + to_string(param_type));
+          fire_error_type_mismatch(cur_f, arg_i->loc, "can not pass {src} to {dst}", arg_i->inferred_type, param_type);
         }
       }
       return;
@@ -411,7 +443,7 @@ protected:
       }
       if (declared_type) {
         if (!declared_type->can_rhs_be_assigned(rhs_type)) {
-          fire(cur_f, err_loc->loc, "can not assign " + to_string(rhs_type) + " to variable of type " + to_string(declared_type));
+          fire_error_type_mismatch(cur_f, err_loc->loc, "can not assign {src} to variable of type {dst}", rhs_type, declared_type);
         }
       } else {
         if (rhs_type == TypeDataNullLiteral::create()) {
@@ -469,11 +501,11 @@ protected:
     // for strange lhs like `f() = rhs` type checking will pass, but will fail lvalue check later
     if (!lhs->inferred_type->can_rhs_be_assigned(rhs_type)) {
       if (lhs->try_as<ast_reference>()) {
-        fire(cur_f, err_loc->loc, "can not assign " + to_string(rhs_type) + " to variable of type " + to_string(lhs));
+        fire_error_type_mismatch(cur_f, err_loc->loc, "can not assign {src} to variable of type {dst}", rhs_type, lhs->inferred_type);
       } else if (lhs->try_as<ast_dot_access>()) {
-        fire(cur_f, err_loc->loc, "can not assign " + to_string(rhs_type) + " to field of type " + to_string(lhs));
+        fire_error_type_mismatch(cur_f, err_loc->loc, "can not assign {src} to field of type {dst}", rhs_type, lhs->inferred_type);
       } else {
-        fire(cur_f, err_loc->loc, "can not assign " + to_string(rhs_type) + " to " + to_string(lhs));
+        fire_error_type_mismatch(cur_f, err_loc->loc, "can not assign {src} to {dst}", rhs_type, lhs->inferred_type);
       }
     }
   }
@@ -490,7 +522,7 @@ protected:
 
     TypePtr expr_type = v->get_return_value()->inferred_type;
     if (!cur_f->inferred_return_type->can_rhs_be_assigned(expr_type)) {
-      fire(cur_f, v->get_return_value()->loc, "can not convert type " + to_string(expr_type) + " to return type " + to_string(cur_f->inferred_return_type));
+      fire_error_type_mismatch(cur_f, v->get_return_value()->loc, "can not convert type {src} to return type {dst}", expr_type, cur_f->inferred_return_type);
     }
   }
 
@@ -626,7 +658,7 @@ protected:
     parent::visit(v->get_init_val());
 
     if (!v->field_ref->declared_type->can_rhs_be_assigned(v->get_init_val()->inferred_type)) {
-      fire(cur_f, v->get_init_val()->loc, "can not assign " + to_string(v->get_init_val()) + " to field of type " + to_string(v->field_ref->declared_type));
+      fire_error_type_mismatch(cur_f, v->get_init_val()->loc, "can not assign {src} to field of type {dst}", v->get_init_val()->inferred_type, v->field_ref->declared_type);
     }
   }
 
@@ -740,7 +772,7 @@ protected:
 
         TypePtr inferred_type = param_ref->default_value->inferred_type;
         if (!param_ref->declared_type->can_rhs_be_assigned(inferred_type)) {
-          throw ParseError(param_ref->loc, "can not assign " + to_string(inferred_type) + " to " + to_string(param_ref->declared_type));
+          fire_error_type_mismatch(fun_ref, param_ref->loc, "can not assign {src} to {dst}", inferred_type, param_ref->declared_type);
         }
       }
     }
@@ -756,7 +788,7 @@ protected:
     if (const_ref->declared_type) {     // `const a: int = ...`
       TypePtr inferred_type = const_ref->init_value->inferred_type;
       if (!const_ref->declared_type->can_rhs_be_assigned(inferred_type)) {
-        throw ParseError(const_ref->loc, "can not assign " + to_string(inferred_type) + " to " + to_string(const_ref->declared_type));
+        fire_error_type_mismatch(nullptr, const_ref->loc, "can not assign {src} to {dst}", inferred_type, const_ref->declared_type);
       }
     }
   }
@@ -767,7 +799,7 @@ protected:
 
     TypePtr inferred_type = field_ref->default_value->inferred_type;
     if (!field_ref->declared_type->can_rhs_be_assigned(inferred_type)) {
-      throw ParseError(field_ref->loc, "can not assign " + to_string(inferred_type) + " to " + to_string(field_ref->declared_type));
+      fire_error_type_mismatch(nullptr, field_ref->loc, "can not assign {src} to {dst}", inferred_type, field_ref->declared_type);
     }
   }
 };

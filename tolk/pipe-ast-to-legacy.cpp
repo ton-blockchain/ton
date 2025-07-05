@@ -1075,6 +1075,11 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
     return rvect;
   }
 
+  // pass a typed tuple `[int, int]` to an untyped (via `as` operator)
+  if (original_type->try_as<TypeDataBrackets>() && target_type->try_as<TypeDataTuple>()) {
+    return rvect;
+  }
+
   // pass something to `unknown`
   // probably, it comes from `_ = rhs`, type of `_` is unknown, it's target_type of rhs
   // no changes in rvect
