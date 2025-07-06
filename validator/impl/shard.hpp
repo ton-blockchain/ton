@@ -124,6 +124,7 @@ class MasterchainStateQ : public MasterchainState, public ShardStateQ {
   bool has_workchain(WorkchainId workchain) const {
     return config_ && config_->has_workchain(workchain);
   }
+  td::uint32 persistent_state_split_depth(WorkchainId workchain_id) const override;
   td::uint32 monitor_min_split_depth(WorkchainId workchain_id) const override;
   td::uint32 min_split_depth(WorkchainId workchain_id) const override;
   BlockSeqno min_ref_masterchain_seqno() const override;

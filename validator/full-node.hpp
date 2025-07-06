@@ -66,13 +66,13 @@ class FullNodeImpl : public FullNode {
   void send_ext_message(AccountIdPrefixFull dst, td::BufferSlice data);
   void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqnp, td::BufferSlice data);
   void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
-                            td::BufferSlice data);
+                            td::BufferSlice data, int mode);
   void send_broadcast(BlockBroadcast broadcast, int mode);
   void download_block(BlockIdExt id, td::uint32 priority, td::Timestamp timeout, td::Promise<ReceivedBlock> promise);
   void download_zero_state(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
                            td::Promise<td::BufferSlice> promise);
-  void download_persistent_state(BlockIdExt id, BlockIdExt masterchain_block_id, td::uint32 priority,
-                                 td::Timestamp timeout, td::Promise<td::BufferSlice> promise);
+  void download_persistent_state(BlockIdExt id, BlockIdExt masterchain_block_id, PersistentStateType type,
+                                 td::uint32 priority, td::Timestamp timeout, td::Promise<td::BufferSlice> promise);
   void download_block_proof(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
                             td::Promise<td::BufferSlice> promise);
   void download_block_proof_link(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
@@ -144,7 +144,6 @@ class FullNodeImpl : public FullNode {
   FullNodeOptions opts_;
 
   std::map<PublicKeyHash, td::actor::ActorOwn<FullNodePrivateBlockOverlay>> private_block_overlays_;
-  bool broadcast_block_candidates_in_public_overlay_ = false;
 
   struct CustomOverlayInfo {
     CustomOverlayParams params_;

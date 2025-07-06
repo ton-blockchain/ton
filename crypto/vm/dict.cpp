@@ -2790,6 +2790,12 @@ Ref<CellSlice> AugmentedDictionary::get_root() const {
   return root;
 }
 
+Ref<Cell> AugmentedDictionary::get_wrapped_dict_root() const {
+  vm::CellBuilder cb;
+  cb.append_cellslice(get_root());
+  return cb.finalize();
+}
+
 Ref<CellSlice> AugmentedDictionary::extract_root() && {
   if (!(flags & f_root_cached) && !compute_root()) {
     return {};

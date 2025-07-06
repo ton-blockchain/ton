@@ -171,8 +171,8 @@ void ValidatorManagerImpl::wait_block_state(BlockHandle handle, td::uint32 prior
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), handle](td::Result<td::Ref<ShardState>> R) {
       td::actor::send_closure(SelfId, &ValidatorManagerImpl::finished_wait_state, handle->id(), std::move(R));
     });
-    auto id = td::actor::create_actor<WaitBlockState>("waitstate", handle, 0, actor_id(this), td::Timestamp::in(10.0),
-                                                      std::move(P))
+    auto id = td::actor::create_actor<WaitBlockState>("waitstate", handle, 0, opts_, last_masterchain_state_,
+                                                      actor_id(this), td::Timestamp::in(10.0), std::move(P))
                   .release();
     wait_state_[handle->id()].actor_ = id;
     it = wait_state_.find(handle->id());

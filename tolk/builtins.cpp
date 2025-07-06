@@ -1022,12 +1022,57 @@ static AsmOp compile_fetch_int(std::vector<VarDescr>& res, std::vector<VarDescr>
 // fun builder.storeUint (mutate self, x: int, len: int): self   asm(x b len) "STUX";
 static AsmOp compile_store_int(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc, bool sgnd) {
   tolk_assert(args.size() == 3 && res.size() == 1);
+  auto& x = args[1];
   auto& z = args[2];
+  // purpose: to merge consecutive `b.storeUint(0, 1).storeUint(1, 1)` into one "1 PUSHINT + 2 STU",
+  // when constant arguments are passed, keep them as a separate (fake) instruction, to be handled by optimizer later
+  bool value_and_len_is_const = z.is_int_const() && x.is_int_const();
+  if (value_and_len_is_const && G.settings.optimization_level >= 2) {
+    // don't handle negative numbers or potential overflow, merging them is incorrect
+    bool value_is_safe = sgnd
+        ? x.int_const >= 0 && z.int_const < 64 && x.int_const < (1ULL << (z.int_const->to_long() - 1))
+        : x.int_const >= 0;
+    if (value_is_safe && z.int_const > 0 && z.int_const <= (255 + !sgnd)) {
+      z.unused();
+      x.unused();
+      return AsmOp::Custom(loc, "MY_store_int"s + (sgnd ? "I " : "U ") + x.int_const->to_dec_string() + " " + z.int_const->to_dec_string(), 1);
+    }
+  }
   if (z.is_int_const() && z.int_const > 0 && z.int_const <= 256) {
     z.unused();
     return exec_arg_op(loc, sgnd? "STI" : "STU", z.int_const, 2, 1);
   }
   return exec_op(loc, sgnd ? "STIX" : "STUX", 3, 1);
+}
+
+// fun builder.storeBool(mutate self, value: bool): self   asm( -> 1 0) "1 STI";
+static AsmOp compile_store_bool(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
+  tolk_assert(args.size() == 2 && res.size() == 1);
+  auto& v = args[1];
+  // same purpose as for storeInt/storeUint above
+  // (particularly, `b.storeUint(const_int,32).storeBool(const_bool)` will be joined)
+  if (v.is_int_const() && v.int_const == 0 && G.settings.optimization_level >= 2) {
+    v.unused();
+    return AsmOp::Custom(loc, "MY_store_intU 0 1", 1);
+  }
+  if (v.is_int_const() && v.int_const == -1 && G.settings.optimization_level >= 2) {
+    v.unused();
+    return AsmOp::Custom(loc, "MY_store_intU 1 1", 1);
+  }
+  return exec_op(loc, "1 STI", 2, 1);
+}
+
+// fun builder.storeCoins(mutate self, value: coins): self   asm "STGRAMS";
+static AsmOp compile_store_coins(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
+  tolk_assert(args.size() == 2 && res.size() == 1);
+  auto& v = args[1];
+  // same purpose as for storeInt/storeUint above
+  // (particularly, `b.storeUint(const_int,32).storeCoins(const_zero)` will be joined)
+  if (v.is_int_const() && v.int_const == 0 && G.settings.optimization_level >= 2) {
+    v.unused();
+    return AsmOp::Custom(loc, "MY_store_intU 0 4", 1);
+  }
+  return exec_op(loc, "STGRAMS", 2, 1);
 }
 
 // fun slice.loadBits   (mutate self, len: int): self    asm(s len -> 1 0) "LDSLICEX"
@@ -1061,6 +1106,21 @@ AsmOp compile_slice_sdbeginsq(std::vector<VarDescr>& res, std::vector<VarDescr>&
   }
   throw ParseError(loc, "slice.tryStripPrefix can be used only with constant arguments");
 }
+
+// fun slice.skipBits(mutate self, len: int): self    "SDSKIPFIRST"
+AsmOp compile_skip_bits_in_slice(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
+  tolk_assert(args.size() == 2 && res.size() == 1);
+  auto& len = args[1];
+  // same technique as for storeUint:
+  // consecutive `s.skipBits(8).skipBits(const_var_16)` will be joined into a single 24
+  // to track this, represent it as a separate fake instruction to be detected by optimizer later
+  if (len.is_int_const() && len.int_const >= 0 && G.settings.optimization_level >= 2) {
+    len.unused();
+    return AsmOp::Custom(loc, "MY_skip_bits " + len.int_const->to_dec_string(), 1);
+  }
+  return exec_op(loc, "SDSKIPFIRST", 2, 1);
+}
+
 
 // fun tuple.get<X>(t: tuple, index: int): X   asm "INDEXVAR";
 static AsmOp compile_tuple_get(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
@@ -1168,6 +1228,7 @@ void define_builtins() {
   TypePtr Bool = TypeDataBool::create();
   TypePtr Slice = TypeDataSlice::create();
   TypePtr Builder = TypeDataBuilder::create();
+  TypePtr Address = TypeDataAddress::create();
   TypePtr Tuple = TypeDataTuple::create();
   TypePtr Never = TypeDataNever::create();
 
@@ -1186,6 +1247,11 @@ void define_builtins() {
   TypePtr CellT = TypeDataUnknown::create();
   TypePtr PackOptions = TypeDataUnknown::create();
   TypePtr UnpackOptions = TypeDataUnknown::create();
+  TypePtr CreateMessageOptions = TypeDataUnknown::create();
+  TypePtr createExternalLogMessageOptions = TypeDataUnknown::create();
+  TypePtr OutMessage = TypeDataUnknown::create();
+  TypePtr AddressShardingOptions = TypeDataUnknown::create();
+  const GenericsDeclaration* declTBody = new GenericsDeclaration(std::vector<GenericsDeclaration::ItemT>{{"TBody", nullptr}}, 0);
 
   // builtin operators
   // they are internally stored as functions, because at IR level, there is no difference
@@ -1353,6 +1419,9 @@ void define_builtins() {
                               std::bind(compile_fetch_slice, _1, _2, _3, true),
                                 FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf,
                                 {}, {1, 0});
+  define_builtin_method("slice.skipBits", Slice, ParamsSliceInt, Slice, nullptr,
+                              compile_skip_bits_in_slice,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf);
   define_builtin_method("slice.preloadInt", Slice, ParamsSliceInt, Int, nullptr,
                               std::bind(compile_fetch_int, _1, _2, _3, false, true),
                                 FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf);
@@ -1373,12 +1442,22 @@ void define_builtins() {
                               std::bind(compile_store_int, _1, _2, _3, false),
                                 FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf,
                                 {1, 0, 2}, {});
+  define_builtin_method("builder.storeBool", Builder, {Builder, Bool}, Unit, nullptr,
+                              compile_store_bool,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf,
+                                {1, 0}, {});
+  define_builtin_method("builder.storeCoins", Builder, {Builder, TypeDataCoins::create()}, Unit, nullptr,
+                              compile_store_coins,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf);
   define_builtin_method("tuple.get", Tuple, {Tuple, Int}, typeT, declGenericT,
                               compile_tuple_get,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf);
   define_builtin_method("tuple.set", Tuple, {Tuple, typeT, Int}, Unit, declGenericT,
                               compile_tuple_set_at,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf);
+  define_builtin_method("address.buildSameAddressInAnotherShard", Address, {Address, AddressShardingOptions}, Builder, nullptr,
+                              compile_time_only_function,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagCompileTimeGen);
   define_builtin_method("debug.print", debug, {typeT}, Unit, declGenericT,
                                 compile_debug_print_to_string,
                                 FunctionData::flagAllowAnyWidthT);
@@ -1425,6 +1504,13 @@ void define_builtins() {
                                 compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeGen | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT);
 
+  define_builtin_func("createMessage", {CreateMessageOptions}, OutMessage, declTBody,
+                                compile_time_only_function,
+                                FunctionData::flagCompileTimeGen | FunctionData::flagAllowAnyWidthT);
+  define_builtin_func("createExternalLogMessage", {createExternalLogMessageOptions}, OutMessage, declTBody,
+                                compile_time_only_function,
+                                FunctionData::flagCompileTimeGen | FunctionData::flagAllowAnyWidthT);
+
   // functions not presented in stdlib at all
   // used in tolk-tester to check/expose internal compiler state
   // each of them is handled in a special way, search by its name
@@ -1448,6 +1534,11 @@ void patch_builtins_after_stdlib_loaded() {
   lookup_function("debug.print")->mutate()->receiver_type = debug;
   lookup_function("debug.printString")->mutate()->receiver_type = debug;
   lookup_function("debug.dumpStack")->mutate()->receiver_type = debug;
+
+  StructPtr struct_ref_AddressShardingOptions = lookup_global_symbol("AddressShardingOptions")->try_as<StructPtr>();
+  TypePtr AddressShardingOptions = TypeDataStruct::create(struct_ref_AddressShardingOptions);
+
+  lookup_function("address.buildSameAddressInAnotherShard")->mutate()->parameters[1].declared_type = AddressShardingOptions;
 
   StructPtr struct_ref_CellT = lookup_global_symbol("Cell")->try_as<StructPtr>();
   StructPtr struct_ref_PackOptions = lookup_global_symbol("PackOptions")->try_as<StructPtr>();
@@ -1482,6 +1573,18 @@ void patch_builtins_after_stdlib_loaded() {
   lookup_function("slice.skipAny")->mutate()->parameters[1].default_value = v_empty_UnpackOptions;
   lookup_function("builder.storeAny")->mutate()->parameters[2].declared_type = PackOptions;
   lookup_function("builder.storeAny")->mutate()->parameters[2].default_value = v_empty_PackOptions;
+
+  StructPtr struct_ref_CreateMessageOptions = lookup_global_symbol("CreateMessageOptions")->try_as<StructPtr>();
+  StructPtr struct_ref_createExternalLogMessageOptions = lookup_global_symbol("createExternalLogMessageOptions")->try_as<StructPtr>();
+  StructPtr struct_ref_OutMessage = lookup_global_symbol("OutMessage")->try_as<StructPtr>();
+  TypePtr CreateMessageOptions = TypeDataGenericTypeWithTs::create(struct_ref_CreateMessageOptions, nullptr, {TypeDataGenericT::create("TBody")});
+  TypePtr createExternalLogMessageOptions = TypeDataGenericTypeWithTs::create(struct_ref_createExternalLogMessageOptions, nullptr, {TypeDataGenericT::create("TBody")});
+  TypePtr OutMessage = TypeDataStruct::create(struct_ref_OutMessage);
+
+  lookup_function("createMessage")->mutate()->parameters[0].declared_type = CreateMessageOptions;
+  lookup_function("createMessage")->mutate()->declared_return_type = OutMessage;
+  lookup_function("createExternalLogMessage")->mutate()->parameters[0].declared_type = createExternalLogMessageOptions;
+  lookup_function("createExternalLogMessage")->mutate()->declared_return_type = OutMessage;
 }
 
 }  // namespace tolk

@@ -1,12 +1,11 @@
-## 2025.04 Update
+## 2025.06 Update
 
-1. Introduced substantial improvements of CellDB performance: celldb-v2, bloom filters.
-2. Accelerated a number of intrinsic node operations: SHA256, cell operations, large boc serialization, validator set checks.
-3. [TVM version v10](./doc/GlobalVersions.md)
-4. Overlay broadcast speed up and improved network stats.
-5. Fixed some issues in tonlib
-6. [Added normalized hash](https://github.com/ton-blockchain/TEPs/pull/467)
-7. Fix SDBEGINS(Q) in Asm.fif
+1. ADNL and candidate broadcast optimization
+2. [TVM version v11](./doc/GlobalVersions.md): new opcodes, and `c7` entry to improve developer experience. It also activates storage stats and `ihr_fee`  nullification.
+3. Fixed `start_lt` of tick transactions [see details on 01.06.2025 incident](https://telegra.ph/Report-on-June-1-2025-Operation-Incident-06-02).
+4. Introduction of persistent state sharding, as well as making serialization of large BOCs more deterministic
+5. Emulator improvements: in get methods, set config from provided `c7`; allow retrieval of logs from emulator runs for get methods
+6. Optimized package import for archive nodes
 
-Besides the work of the core team, this update is based on the efforts of  @Stanislav-Povolotsky (tonlib fixes), @ice-charon (tonlib fixes), RSquad team (due payments improvements in v10), Arayz @ TonBit (improvements in RUNVM), @Skydev0h and @pyAndr3w (Asm.fif).
+Besides the work of the core team, this update is based on the efforts of the RSquad team (deterministic large BOC serialization); AArayz, wy666444, Robinlzw, Lucian-code233 from TonBit (early discovery of the TVM 11 bug); @Skydev0h (uninitialized `BLOCKLT` in get methods); and @yma-het from TONWhales (emulator improvements).
 

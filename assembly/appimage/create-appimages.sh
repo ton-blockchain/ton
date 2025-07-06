@@ -35,6 +35,8 @@ for file in ../artifacts/*; do
       /lib/$ARCH-linux-gnu/libmicrohttpd.so.12 \
       /lib/$ARCH-linux-gnu/libreadline.so.8 \
       /lib/$ARCH-linux-gnu/libstdc++.so.6 \
+      /lib/$ARCH-linux-gnu/libgsl.so.27 \
+      /lib/$ARCH-linux-gnu/libblas.so.3 \
       $appName.AppDir/usr/lib/
 
     chmod +x ./$appName.AppDir/usr/bin/$appName

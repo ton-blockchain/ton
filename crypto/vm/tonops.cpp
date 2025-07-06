@@ -166,6 +166,9 @@ int exec_get_in_msg_param(VmState* st, unsigned idx, const char* name) {
     VM_LOG(st) << "execute " << name;
   }
   Ref<Tuple> t = get_param(st, inmsgparams_idx).as_tuple();
+  if (t.is_null()) {
+    throw VmError{Excno::type_chk, "intermediate value is not a tuple"};
+  }
   st->get_stack().push(tuple_index(t, idx));
   return 0;
 }
@@ -1831,7 +1834,7 @@ int exec_send_message(VmState* st) {
     if (!tlb::csr_unpack(msg.info, info)) {
       throw VmError{Excno::unknown, "invalid message"};
     }
-    ihr_disabled = info.ihr_disabled;
+    ihr_disabled = info.ihr_disabled || st->get_global_version() >= 11;
     dest = std::move(info.dest);
     Ref<vm::Cell> extra;
     if (!block::tlb::t_CurrencyCollection.unpack_special(info.value.write(), value, extra)) {

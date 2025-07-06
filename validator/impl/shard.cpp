@@ -388,11 +388,8 @@ td::Status MasterchainStateQ::mc_reinit() {
   CHECK(config_);
   CHECK(config_->set_block_id_ext(get_block_id()));
 
-  auto cv_root = config_->get_config_param(35, 34);
-  if (cv_root.not_null()) {
-    TRY_RESULT(validators, block::Config::unpack_validator_set(std::move(cv_root), true));
-    cur_validators_ = std::move(validators);
-  }
+  cur_validators_ = config_->get_cur_validator_set();
+
   auto nv_root = config_->get_config_param(37, 36);
   if (nv_root.not_null()) {
     TRY_RESULT(validators, block::Config::unpack_validator_set(std::move(nv_root), true));
@@ -522,6 +519,14 @@ bool MasterchainStateQ::get_old_mc_block_id(ton::BlockSeqno seqno, ton::BlockIdE
 
 bool MasterchainStateQ::check_old_mc_block_id(const ton::BlockIdExt& blkid, bool strict) const {
   return config_ && config_->check_old_mc_block_id(blkid, strict);
+}
+
+td::uint32 MasterchainStateQ::persistent_state_split_depth(WorkchainId workchain_id) const {
+  if (!config_) {
+    return 0;
+  }
+  auto wc_info = config_->get_workchain_info(workchain_id);
+  return wc_info.not_null() ? wc_info->persistent_state_split_depth : 0;
 }
 
 td::uint32 MasterchainStateQ::monitor_min_split_depth(WorkchainId workchain_id) const {

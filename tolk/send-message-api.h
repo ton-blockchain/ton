@@ -13,30 +13,16 @@
 
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
-
-    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
-#include <map>
-#include "adnl-static-nodes.h"
+#include "tolk.h"
 
-namespace ton {
+namespace tolk {
 
-namespace adnl {
+std::vector<var_idx_t> generate_createMessage(CodeBlob& code, SrcLocation loc, TypePtr bodyT, std::vector<var_idx_t>&& rvect);
+std::vector<var_idx_t> generate_createExternalLogMessage(CodeBlob& code, SrcLocation loc, TypePtr bodyT, std::vector<var_idx_t>&& rvect);
 
-class AdnlStaticNodesManagerImpl : public AdnlStaticNodesManager {
- public:
-  void add_node(AdnlNode node) override;
-  void del_node(AdnlNodeIdShort id) override;
-  td::Result<AdnlNode> get_node(AdnlNodeIdShort id) override;
-  AdnlStaticNodesManagerImpl() {
-  }
+std::vector<var_idx_t> generate_address_buildInAnotherShard(CodeBlob& code, SrcLocation loc, std::vector<var_idx_t>&& ir_self_address, std::vector<var_idx_t>&& ir_shard_options);
 
- private:
-  std::map<AdnlNodeIdShort, AdnlNode> nodes_;
-};
-
-}  // namespace adnl
-
-}  // namespace ton
+} // namespace tolk

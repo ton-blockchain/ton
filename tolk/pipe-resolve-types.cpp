@@ -467,7 +467,8 @@ protected:
     // for static method calls, like "int.zero()" or "Point.create()", dot obj symbol is unresolved for now
     // so, resolve it as a type and store as a "type reference symbol"
     if (auto obj_ref = v->get_obj()->try_as<ast_reference>()) {
-      if (obj_ref->sym == nullptr) {
+      // also, `someFn.prop` doesn't make any sense, show "unknown type"; it also forces `address.staticMethod()` to work
+      if (obj_ref->sym == nullptr || obj_ref->sym->try_as<FunctionPtr>()) {
         std::string_view obj_type_name = obj_ref->get_identifier()->name;
         AnyTypeV obj_type_node = createV<ast_type_leaf_text>(obj_ref->loc, obj_type_name);
         if (obj_ref->has_instantiationTs()) {     // Container<int>.create

@@ -13,21 +13,25 @@
 
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
-
-    Copyright 2017-2020 Telegram Systems LLP
 */
-#include "ellcurve/Fp25519.h"
+#pragma once
+#include "vm/cells.h"
+#include "ton/ton-types.h"
+#include "interfaces/block.h"
+#include "vm/db/DynamicBagOfCellsDb.h"
 
-namespace ellcurve {
-using namespace arith;
+#include <vector>
+#include <string>
 
-const Bignum& P25519() {
-  static const Bignum P25519 = (Bignum(1) << 255) - 19;
-  return P25519;
-}
+namespace ton::validator {
 
-td::Ref<ResidueRing> Fp25519() {
-  static const td::Ref<ResidueRing> Fp25519(true, P25519());
-  return Fp25519;
-}
-}  // namespace ellcurve
+struct PermanentCellDbUpdate {
+  BlockIdExt block_id;
+  RootHash state_root_hash;
+  std::vector<std::pair<vm::CellHash, std::string>> to_store;
+};
+void calculate_permanent_celldb_update(const std::map<BlockIdExt, td::Ref<BlockData>>& blocks,
+                                       std::shared_ptr<vm::DynamicBagOfCellsDb::AsyncExecutor> executor,
+                                       td::Promise<std::vector<PermanentCellDbUpdate>> promise);
+
+}  // namespace ton::validator

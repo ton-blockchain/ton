@@ -1691,6 +1691,31 @@ TEST(TonDb, BocDeserializerSimpleThreads) {
   test_boc_deserializer_threads<StaticBagOfCellsDbLazy>();
 }
 
+class RandomTree {
+  public:
+    RandomTree(size_t size, td::Random::Xorshift128plus rnd) : rnd_(rnd) {
+      root_ = create(size);
+    }
+    Ref<Cell> root() const {
+      return root_;
+    }
+  private:
+    Ref<Cell> root_;
+    td::Random::Xorshift128plus rnd_;
+    Ref<DataCell> create(size_t size) {
+      CellBuilder cb;
+      cb.store_long(rnd_(), rnd_() % 63 + 1);
+      if (size > 0) {
+        td::uint64 rc = (rnd_() % 4) + 1;
+        for (td::uint64 i = 0; i < rc; i++) {
+            auto ref = create(size / rc);
+            cb.store_ref(std::move(ref));
+        }
+      }
+      return cb.finalize();
+    }
+};
+
 class CompactArray {
  public:
   CompactArray(size_t size) {
@@ -2987,11 +3012,8 @@ TEST(TonDb, DynamicBocRespectsUsageCell) {
 
 TEST(TonDb, LargeBocSerializer) {
   td::Random::Xorshift128plus rnd{123};
-  size_t n = 1000000;
-  std::vector<td::uint64> data(n);
-  std::iota(data.begin(), data.end(), 0);
-  vm::CompactArray arr(data);
-  auto root = arr.root();
+  vm::RandomTree tree(100000, rnd);
+  auto root = tree.root();
   std::string path = "serialization";
   td::unlink(path).ignore();
   auto fd = td::FileFd::open(path, td::FileFd::Flags::Create | td::FileFd::Flags::Truncate | td::FileFd::Flags::Write)
@@ -3009,15 +3031,20 @@ TEST(TonDb, LargeBocSerializer) {
   dboc->commit(cell_storer);
   dboc->set_loader(std::make_unique<vm::CellLoader>(kv));
   td::unlink(path).ignore();
-  fd = td::FileFd::open(path, td::FileFd::Flags::Create | td::FileFd::Flags::Truncate | td::FileFd::Flags::Write)
-           .move_as_ok();
-  boc_serialize_to_file_large(dboc->get_cell_db_reader(), root->get_hash(), fd, 31);
-  fd.close();
-  auto b = td::read_file_str(path).move_as_ok();
-
+  td::string prev_b("");
   auto a_cell = vm::deserialize_boc(td::BufferSlice(a));
-  auto b_cell = vm::deserialize_boc(td::BufferSlice(b));
-  ASSERT_EQ(a_cell->get_hash(), b_cell->get_hash());
+  for (int i = 0; i < 4; i++) {
+    fd = td::FileFd::open(path, td::FileFd::Flags::Create | td::FileFd::Flags::Truncate | td::FileFd::Flags::Write)
+            .move_as_ok();
+    boc_serialize_to_file_large(dboc->get_cell_db_reader(), root->get_hash(), fd, 31);
+    fd.close();
+    auto b = td::read_file_str(path).move_as_ok();
+
+    auto b_cell = vm::deserialize_boc(td::BufferSlice(b));
+    ASSERT_EQ(a_cell->get_hash(), b_cell->get_hash());
+    if (i > 0) ASSERT_EQ(prev_b, b);
+    prev_b = b;
+  }
 }
 
 TEST(TonDb, DoNotMakeListsPrunned) {
