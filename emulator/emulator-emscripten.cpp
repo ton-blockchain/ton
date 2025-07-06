@@ -11,6 +11,7 @@ struct TransactionEmulationParams {
   uint32_t utime;
   uint64_t lt;
   td::optional<std::string> rand_seed_hex;
+  td::optional<std::string> prev_blocks_info;
   bool ignore_chksig;
   bool is_tick_tock;
   bool is_tock;
@@ -48,6 +49,11 @@ td::Result<TransactionEmulationParams> decode_transaction_emulation_params(const
 
   TRY_RESULT(is_tock, td::get_json_object_bool_field(obj, "is_tock", true, false));
   params.is_tock = is_tock;
+
+  TRY_RESULT(prev_blocks_info_str, td::get_json_object_string_field(obj, "prev_blocks_info", true));
+  if (prev_blocks_info_str.size() > 0) {
+    params.prev_blocks_info = prev_blocks_info_str;
+  }
 
   if (is_tock && !is_tick_tock) {
     return td::Status::Error("Inconsistent parameters is_tick_tock=false, is_tock=true");
@@ -200,12 +206,18 @@ const char *emulate_with_emulator(void* em, const char* libs, const char* accoun
       rand_seed_set = transaction_emulator_set_rand_seed(em, decoded_params.rand_seed_hex.unwrap().c_str());
     }
 
+    bool prev_blocks_set = true;
+    if (decoded_params.prev_blocks_info) {
+      prev_blocks_set = transaction_emulator_set_prev_blocks_info(em, decoded_params.prev_blocks_info.unwrap().c_str());
+    }
+
     if (!transaction_emulator_set_libs(em, libs) ||
         !transaction_emulator_set_lt(em, decoded_params.lt) ||
         !transaction_emulator_set_unixtime(em, decoded_params.utime) ||
         !transaction_emulator_set_ignore_chksig(em, decoded_params.ignore_chksig) ||
         !transaction_emulator_set_debug_enabled(em, decoded_params.debug_enabled) ||
-        !rand_seed_set) {
+        !rand_seed_set ||
+        !prev_blocks_set) {
         transaction_emulator_destroy(em);
         return strdup(R"({"fail":true,"message":"Can't set params"})");
     }
