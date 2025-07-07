@@ -41,7 +41,7 @@ td::Result<td::BufferSlice> boc_compress_baseline_lz4(const std::vector<td::Ref<
   return compressed_with_size;
 }
 
-td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_baseline_lz4(td::Slice compressed) {
+td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_baseline_lz4(td::Slice compressed, int max_decompressed_size) {
   // Check minimum input size for decompressed size header
   if (compressed.size() < kDecompressedSizeBytes) {
     return td::Status::Error("BOC decompression failed: input too small for header");
@@ -51,7 +51,7 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_baseline_lz4(td::Slice
   constexpr size_t kSizeBits = kDecompressedSizeBytes * 8;
   int decompressed_size = td::BitSlice(compressed.ubegin(), kSizeBits).bits().get_uint(kSizeBits);
   compressed.remove_prefix(kDecompressedSizeBytes);
-  if (decompressed_size <= 0 || decompressed_size > kMaxDecompressedSize) {
+  if (decompressed_size <= 0 || decompressed_size > max_decompressed_size) {
     return td::Status::Error("BOC decompression failed: invalid decompressed size");
   }
 
@@ -345,7 +345,7 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
   return compressed_with_size;
 }
 
-td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4(td::Slice compressed) {
+td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4(td::Slice compressed, int max_decompressed_size) {
   constexpr size_t kMaxCellDataLengthBits = 1024;
 
   // Check minimum input size for decompressed size header
@@ -357,7 +357,7 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
   constexpr size_t kSizeBits = kDecompressedSizeBytes * 8;
   int decompressed_size = td::BitSlice(compressed.ubegin(), kSizeBits).bits().get_uint(kSizeBits);
   compressed.remove_prefix(kDecompressedSizeBytes);
-  if (decompressed_size <= 0 || decompressed_size > kMaxDecompressedSize) {
+  if (decompressed_size <= 0 || decompressed_size > max_decompressed_size) {
     return td::Status::Error("BOC decompression failed: invalid decompressed size");
   }
 
@@ -602,7 +602,7 @@ td::Result<td::BufferSlice> boc_compress(const std::vector<td::Ref<vm::Cell>>& b
   return compressed_with_algo;
 }
 
-td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress(td::Slice compressed) {
+td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress(td::Slice compressed, int max_decompressed_size) {
   if (compressed.size() == 0) {
     return td::Status::Error("Can't decompress empty data");
   }
@@ -612,9 +612,9 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress(td::Slice compressed) 
 
   switch (algo) {
     case int(CompressionAlgorithm::BaselineLZ4):
-      return boc_decompress_baseline_lz4(compressed);
+      return boc_decompress_baseline_lz4(compressed, max_decompressed_size);
     case int(CompressionAlgorithm::ImprovedStructureLZ4):
-      return boc_decompress_improved_structure_lz4(compressed);
+      return boc_decompress_improved_structure_lz4(compressed, max_decompressed_size);
   }
   return td::Status::Error("Unknown compression algorithm");
 }

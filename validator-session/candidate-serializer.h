@@ -32,6 +32,7 @@ td::Result<td::BufferSlice> compress_candidate_data(td::Slice block, td::Slice c
 td::Result<std::pair<td::BufferSlice, td::BufferSlice>> decompress_candidate_data(td::Slice compressed,
                                                                                   bool improved_compression,
                                                                                   int decompressed_size,
+                                                                                  int max_decompressed_size,
                                                                                   int proto_version);
 
 }  // namespace ton::validatorsession

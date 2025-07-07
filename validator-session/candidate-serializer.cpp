@@ -52,7 +52,8 @@ td::Result<tl_object_ptr<ton_api::validatorSession_candidate>> deserialize_candi
                                      if (c.decompressed_size_ > max_decompressed_data_size) {
                                        return td::Status::Error("decompressed size is too big");
                                      }
-                                     TRY_RESULT(p, decompress_candidate_data(c.data_, false, c.decompressed_size_, proto_version));
+                                     TRY_RESULT(p, decompress_candidate_data(c.data_, false, c.decompressed_size_,
+                                                                             max_decompressed_data_size, proto_version));
                                      return create_tl_object<ton_api::validatorSession_candidate>(c.src_, c.round_, c.root_hash_, std::move(p.first),
                                                                                                      std::move(p.second));
                                    }();
@@ -62,7 +63,8 @@ td::Result<tl_object_ptr<ton_api::validatorSession_candidate>> deserialize_candi
                                      if (c.data_.size() > max_decompressed_data_size) {
                                        return td::Status::Error("Compressed data is too big");
                                      }
-                                     TRY_RESULT(p, decompress_candidate_data(c.data_, true, 0, proto_version));
+                                     TRY_RESULT(p, decompress_candidate_data(c.data_, true, 0,
+                                                                             max_decompressed_data_size, proto_version));
                                      return create_tl_object<ton_api::validatorSession_candidate>(c.src_, c.round_, c.root_hash_, std::move(p.first),
                                                                                                      std::move(p.second));
                                    }();
@@ -92,6 +94,7 @@ td::Result<td::BufferSlice> compress_candidate_data(td::Slice block, td::Slice c
 td::Result<std::pair<td::BufferSlice, td::BufferSlice>> decompress_candidate_data(td::Slice compressed,
                                                                                   bool improved_compression,
                                                                                   int decompressed_size,
+                                                                                  int max_decompressed_size,
                                                                                   int proto_version) {
   std::vector<td::Ref<vm::Cell>> roots;
   if (!improved_compression) {
@@ -101,7 +104,7 @@ td::Result<std::pair<td::BufferSlice, td::BufferSlice>> decompress_candidate_dat
     }
     TRY_RESULT_ASSIGN(roots, vm::std_boc_deserialize_multi(decompressed));
   } else {
-    TRY_RESULT_ASSIGN(roots, vm::boc_decompress(compressed));
+    TRY_RESULT_ASSIGN(roots, vm::boc_decompress(compressed, max_decompressed_size));
   }
   if (roots.empty()) {
     return td::Status::Error("boc is empty");

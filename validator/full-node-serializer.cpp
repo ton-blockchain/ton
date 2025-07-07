@@ -95,7 +95,7 @@ static td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_b
   for (auto& sig : f.signatures_) {
     signatures.emplace_back(BlockSignature{sig->who_, std::move(sig->signature_)});
   }
-  TRY_RESULT(roots, vm::boc_decompress(f.compressed_));
+  TRY_RESULT(roots, vm::boc_decompress(f.compressed_, max_decompressed_size));
   if (roots.size() != 2) {
     return td::Status::Error("expected 2 roots in boc");
   }
@@ -167,7 +167,7 @@ static td::Status deserialize_block_full(ton_api::tonNode_dataFullCompressed& f,
 
 static td::Status deserialize_block_full(ton_api::tonNode_dataFullCompressedV2& f, BlockIdExt& id, td::BufferSlice& proof,
                                          td::BufferSlice& data, bool& is_proof_link, int max_decompressed_size) {
-  TRY_RESULT(roots, vm::boc_decompress(f.compressed_));
+  TRY_RESULT(roots, vm::boc_decompress(f.compressed_, max_decompressed_size));
   if (roots.size() != 2) {
     return td::Status::Error("expected 2 roots in boc");
   }
@@ -244,7 +244,7 @@ static td::Status deserialize_block_candidate_broadcast(ton_api::tonNode_newBloc
   block_id = create_block_id(obj.id_);
   cc_seqno = obj.catchain_seqno_;
   validator_set_hash = obj.validator_set_hash_;
-  TRY_RESULT(roots, vm::boc_decompress(obj.compressed_));
+  TRY_RESULT(roots, vm::boc_decompress(obj.compressed_, max_decompressed_data_size));
   if (roots.size() != 1) {
     return td::Status::Error("expected 1 root in boc");
   }
