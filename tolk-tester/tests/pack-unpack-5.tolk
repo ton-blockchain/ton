@@ -160,7 +160,7 @@ struct Test9_bits4 { f: bits4; }
 type Test9_f1 = int32 | int64 | int128;                         // auto-generated 2-bit prefix
 type Test9_f2 = int32 | Inner8_2;                               // auto-generated 1-bit prefix (Either)
 type Test9_f3 = bits1 | Test9_bits2 | bits3 | bits4 | bits5;    // auto-generated 3-bit prefix
-type Test9_f4 = bits1 | Test9_bits2 | bits3 | Test9_bits4?;     // auto-generated 3-bit prefix
+type Test9_f4 = bits1 | Test9_bits2 | bits3 | Test9_bits4?;     // auto-generated 0 / 100/101/110/111
 
 @method_id(109)
 fun test9() {
@@ -213,7 +213,7 @@ fun main() {
 @testcase | 106 | | [ 64 64 0 0 ] [ 5 37 1 1 ] [ 5 65 0 1 ]
 @testcase | 107 | | [ 16 16 0 0 ] [ 16 16 0 0 ]
 @testcase | 108 | | [ 10 275 0 0 ] [ 34 158 0 0 ] [ 47 1143 0 1 ]
-@testcase | 109 | | [ 34 130 0 0 ] [ 33 159 0 0 ] [ 4 8 0 0 ] [ 3 7 0 0 ]
+@testcase | 109 | | [ 34 130 0 0 ] [ 33 159 0 0 ] [ 4 8 0 0 ] [ 1 7 0 0 ]
 @testcase | 110 | | [ 32 9999 0 4 ] [ 33 9999 0 8 ]
 @testcase | 111 | | [ 1023 1023 0 1 ] [ 0 0 2 2 ]
 @testcase | 120 | | 16 4128 1 1

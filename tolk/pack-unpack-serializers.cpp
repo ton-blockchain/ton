@@ -1146,13 +1146,16 @@ std::vector<PackOpcode> auto_generate_opcodes_for_union(TypePtr union_type, std:
 
   // okay, none of the opcodes are specified, generate a prefix tree;
   // examples: `int32 | int64 | int128` / `int32 | A | null` / `A | B` / `A | B | C`;
-  // create prefixes `0b00 0b01 0b10` / `0b01 0b10 0b00` (use 0b00 for null if exists):
-  // for 3/4 variants — two bits, for 5 — three
-  int prefix_len = static_cast<int>(std::ceil(std::log2(t_union->size())));
-  int cur_prefix = has_null ? 1 : 0;    // will use 0b00 for null, so start with 0b01
+  // if `null` exists, it's 0, all others are 1+tree: A|B|C|D|null => 0 | 100+A | 101+B | 110+C | 111+D;
+  // if no `null`, just distribute sequentially: A|B|C => 00+A | 01+B | 10+C
+  int n_without_null = t_union->size() - has_null; 
+  int prefix_len = static_cast<int>(std::ceil(std::log2(n_without_null)));
+  int cur_prefix = 0;
   for (TypePtr variant : t_union->variants) {
     if (variant == TypeDataNullLiteral::create()) {
-      result.emplace_back(0, prefix_len);
+      result.emplace_back(0, 1);
+    } else if (has_null) {
+      result.emplace_back((1<<prefix_len) + (cur_prefix++), prefix_len + 1);
     } else {
       result.emplace_back(cur_prefix++, prefix_len);
     }

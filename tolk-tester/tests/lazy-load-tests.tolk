@@ -241,6 +241,18 @@ struct WithGlobalModifier {
     n: int8;
 }
 
+struct WithN5 { n: uint5 }
+type U111 = int8 | int16 | WithN5 | bits100
+struct WithU111 {
+    a: U111
+    b: U111?
+    bit: bool
+}
+fun WithU111.getSlice_a8_bnull(): slice asm "b{000000000101} PUSHSLICE"
+fun WithU111.getSlice_a16_b8(): slice asm "b{010000000000000001100000000011} PUSHSLICE"
+fun WithU111.getSlice_a8_b5(): slice asm "b{0000000001110111111} PUSHSLICE"
+fun WithU111.getSlice_a8_b5_nobit(): slice asm "b{000000000111011111} PUSHSLICE"
+
 
 @noinline
 fun contract.getFakeData(seqno: int): Cell<WalletStorage> {
@@ -981,6 +993,21 @@ fun demo158() {
     return (m2.n, gModByCustom, after1);  // also modifies by skipping (unpack called)
 }
 
+@method_id(159)
+fun demo159() {
+    val p1 = lazy WithU111.fromSlice(WithU111.getSlice_a8_bnull());
+    val p2 = lazy WithU111.fromSlice(WithU111.getSlice_a16_b8());
+    val p3 = lazy WithU111.fromSlice(WithU111.getSlice_a8_b5());
+    val p4 = lazy WithU111.fromSlice(WithU111.getSlice_a8_b5_nobit());
+
+    val p1_bit = p1.bit;
+    val p2_bit = p2.bit;
+    val p3_bit = p3.bit;
+    val p4_b = p4.b;
+
+    return (p1_bit, p2_bit, (p3.b is WithN5) ? p3.b.n as int : 777, p3_bit, (p4_b is WithN5) ? p4_b.n as int: 777);
+}
+
 
 @method_id(200)
 fun demo200() {
@@ -1601,10 +1628,10 @@ fun main() {
 @testcase | 113 | x{03ffff}       | -1
 @testcase | 113 | x{04000000FF}   | 255
 @testcase | 114 | x{0110}         | 16 1
-@testcase | 114 | x{020f}         | [ -15 ] typeid-25
+@testcase | 114 | x{020f}         | [ -15 ] typeid-27
 @testcase | 114 | x{03}           | -1 1
 @testcase | 114 | x{03ffff}       | -1 1
-@testcase | 114 | x{04000000FF}   | [ 255 ] typeid-25
+@testcase | 114 | x{04000000FF}   | [ 255 ] typeid-27
 @testcase | 115 | x{08}           | 8 42
 @testcase | 115 | x{88}           | 0 2
 @testcase | 115 | x{83}           | -1 2
@@ -1669,6 +1696,7 @@ fun main() {
 @testcase | 156 | x{FF10}         | -100
 @testcase | 157 |                 | -1
 @testcase | 158 |                 | 2 10 255
+@testcase | 159 |                 | -1 -1 31 -1 31
 
 @testcase | 200 |                 | 1
 @testcase | 201 |                 | 1 2 -1
