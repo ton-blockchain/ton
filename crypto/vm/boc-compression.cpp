@@ -235,11 +235,11 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
   }
   append_uint(result, root_indexes.size(), 16);
   for (int root_ind : root_indexes) {
-    append_uint(result, rank[root_ind], 16);
+    append_uint(result, rank[root_ind], 32);
   }
 
   // Store node count
-  append_uint(result, node_count, 16);
+  append_uint(result, node_count, 32);
 
   // Store cell types and sizes
   for (int i = 0; i < node_count; ++i) {
@@ -380,14 +380,21 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
 
   std::vector<int> root_indexes(root_count);
   for (int i = 0; i < root_count; ++i) {
-    TRY_RESULT_ASSIGN(root_indexes[i], read_uint(bit_reader, 16));
+    TRY_RESULT_ASSIGN(root_indexes[i], read_uint(bit_reader, 32));
   }
 
   // Read number of nodes from header
-  TRY_RESULT(node_count, read_uint(bit_reader, 16));
+  TRY_RESULT(node_count, read_uint(bit_reader, 32));
   if (node_count < 1) {
     return td::Status::Error("BOC decompression failed: invalid node count");
   }
+
+  // We assume that each cell should take at least 1 byte, even effectively serialized
+  // Otherwise it means that provided node_count is incorrect
+  if (node_count > decompressed_size) {
+    return td::Status::Error("BOC decompression failed: incorrect node count provided");
+  }
+
 
   // Validate root indexes
   for (int i = 0; i < root_count; ++i) {
