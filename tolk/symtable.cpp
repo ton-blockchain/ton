@@ -21,6 +21,19 @@
 
 namespace tolk {
 
+void Symbol::check_import_exists_when_used_from(FunctionPtr cur_f, SrcLocation used_loc) const {
+  const SrcFile* declared_in = loc.get_src_file();
+  bool has_import = false;
+  for (const SrcFile::ImportDirective& import : used_loc.get_src_file()->imports) {
+    if (import.imported_file == declared_in) {
+      has_import = true;
+    }
+  }
+  if (!has_import) {
+    throw ParseError(cur_f, used_loc, "Using a non-imported symbol `" + name + "`\nhint: forgot to import \"" + declared_in->extract_short_name() + "\"?");
+  }
+}
+
 std::string FunctionData::as_human_readable() const {
   if (!is_generic_function()) {
     return name;  // if it's generic instantiation like `f<int>`, its name is "f<int>", not "f"
@@ -42,6 +55,15 @@ std::string StructData::as_human_readable() const {
   return name + genericTs->as_human_readable();
 }
 
+LocalVarPtr FunctionData::find_param(std::string_view name) const {
+  for (const LocalVarData& param_data : parameters) {
+    if (param_data.name == name) {
+      return &param_data;
+    }
+  }
+  return nullptr;
+}
+
 bool FunctionData::does_need_codegen() const {
   // when a function is declared, but not referenced from code in any way, don't generate its body
   if (!is_really_used() && G.settings.remove_unused_functions) {
@@ -58,6 +80,10 @@ bool FunctionData::does_need_codegen() const {
   }
   // generic functions also don't need code generation, only generic instantiations do
   if (is_generic_function()) {
+    return false;
+  }
+  // if calls to this function were inlined in place, the function itself is omitted from fif
+  if (is_inlined_in_place()) {
     return false;
   }
   // currently, there is no inlining, all functions are codegenerated
@@ -105,6 +131,10 @@ void FunctionData::assign_is_really_used() {
   this->flags |= flagReallyUsed;
 }
 
+void FunctionData::assign_inline_mode_in_place() {
+  this->inline_mode = FunctionInlineMode::inlineInPlace;
+}
+
 void FunctionData::assign_arg_order(std::vector<int>&& arg_order) {
   this->arg_order = std::move(arg_order);
 }
@@ -127,6 +157,10 @@ void GlobalConstData::assign_inferred_type(TypePtr inferred_type) {
 
 void GlobalConstData::assign_init_value(AnyExprV init_value) {
   this->init_value = init_value;
+}
+
+void LocalVarData::assign_used_as_lval() {
+  this->flags |= flagUsedAsLVal;
 }
 
 void LocalVarData::assign_ir_idx(std::vector<int>&& ir_idx) {

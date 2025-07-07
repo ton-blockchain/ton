@@ -11,7 +11,7 @@ struct B {
 }
 
 fun main(b: B) {
-    b.toCell();
+    B.fromSlice("").a.load();
 }
 
 /**

@@ -3,6 +3,6 @@ import "../imports/invalid-no-import.tolk";
 
 /**
 @compilation_should_fail
-@stderr ../imports/invalid-no-import.tolk:2:13
+@stderr tests/imports/invalid-no-import.tolk:2:13
 @stderr Using a non-imported symbol `someAdd`
  */

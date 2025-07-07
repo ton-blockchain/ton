@@ -75,6 +75,7 @@ enum ASTNodeKind {
   ast_empty_expression,
   ast_parenthesized_expression,
   ast_braced_expression,
+  ast_braced_yield_result,
   ast_artificial_aux_vertex,
   ast_tensor,
   ast_bracket_tuple,
@@ -98,6 +99,7 @@ enum ASTNodeKind {
   ast_cast_as_operator,
   ast_is_type_operator,
   ast_not_null_operator,
+  ast_lazy_operator,
   ast_match_expression,
   ast_match_arm,
   ast_object_field,
@@ -138,11 +140,13 @@ enum ASTNodeKind {
 enum class AnnotationKind {
   inline_simple,
   inline_ref,
+  noinline,
   method_id,
   pure,
   deprecated,
   custom,
   overflow1023_policy,
+  on_bounced_policy,
   unknown,
 };
 
@@ -498,6 +502,7 @@ template<>
 // it can contain arbitrary statements inside
 // it can occur only in special places within the input code, not anywhere
 // example: `match (intV) { 0 => { ... } }` rhs of 0 is braced expression
+// example: `match (intV) { 0 => 1 }` rhs is implicitly wrapped to a braced expression with `1` yielded
 struct Vertex<ast_braced_expression> final : ASTExprBlockOfStatements {
   auto get_block_statement() const { return child_block_statement->as<ast_block_statement>(); }
 
@@ -506,8 +511,19 @@ struct Vertex<ast_braced_expression> final : ASTExprBlockOfStatements {
 };
 
 template<>
+// ast_braced_yield_result is a special vertex to return a value from a braced expression
+// example: `match (intV) { 0 => 1 }` rhs of 0 is implicitly wrapped to a braced expression with `1` yielded
+struct Vertex<ast_braced_yield_result> final : ASTExprUnary {
+  AnyExprV get_expr() const { return child; }
+
+  Vertex(SrcLocation loc, AnyExprV expr)
+    : ASTExprUnary(ast_braced_yield_result, loc, expr) {}
+};
+
+template<>
 // ast_artificial_aux_vertex is a compiler-inserted vertex that can't occur in source code
 // example: special vertex to force location in Fift output at constant usage
+// example: `msg.isBounced` / `msg.xxx` in onInternalMessage are handled specially
 struct Vertex<ast_artificial_aux_vertex> final : ASTExprUnary {
   const ASTAuxData* aux_data;     // custom payload, see ast-aux-data.h
 
@@ -880,6 +896,21 @@ struct Vertex<ast_not_null_operator> final : ASTExprUnary {
 };
 
 template<>
+// ast_lazy_operator is `lazy (loading-expr)` for lazy/partial loading
+// example: `lazy Storage.fromCell(contract.getData())`
+struct Vertex<ast_lazy_operator> final : ASTExprUnary {
+  LocalVarPtr dest_var_ref = nullptr;   // `var st = lazy Storage.load()`
+
+  AnyExprV get_expr() const { return child; }
+
+  Vertex* mutate() const { return const_cast<Vertex*>(this); }
+  void assign_dest_var_ref(LocalVarPtr dest_var_ref);
+
+  Vertex(SrcLocation loc, AnyExprV expr)
+    : ASTExprUnary(ast_lazy_operator, loc, expr) {}
+};
+
+template<>
 // ast_match_expression is `match (subject) { ... arms ... }`, used either as a statement or as an expression
 // example: `match (intOrSliceVar) { int => 1, slice => 2 }`
 // example: `match (var c = getIntOrSlice()) { int => return 0, slice => throw 123 }`
@@ -906,12 +937,12 @@ struct Vertex<ast_match_arm> final : ASTExprBinary {
   AnyTypeV pattern_type_node;   // for MatchArmKind::exact_type; otherwise nullptr
 
   AnyExprV get_pattern_expr() const { return lhs; }
-  AnyExprV get_body() const { return rhs; }    // remember, it may be V<ast_braced_expression>
+  auto get_body() const { return rhs->as<ast_braced_expression>(); }
 
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
   void assign_resolved_pattern(MatchArmKind pattern_kind, AnyExprV pattern_expr);
 
-  Vertex(SrcLocation loc, MatchArmKind pattern_kind, AnyTypeV pattern_type_node, AnyExprV pattern_expr, AnyExprV body)
+  Vertex(SrcLocation loc, MatchArmKind pattern_kind, AnyTypeV pattern_type_node, AnyExprV pattern_expr, V<ast_braced_expression> body)
     : ASTExprBinary(ast_match_arm, loc, pattern_expr, body)
     , pattern_kind(pattern_kind), pattern_type_node(pattern_type_node) {}
 };
@@ -998,6 +1029,7 @@ struct Vertex<ast_block_statement> final : ASTStatementVararg {
 
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
   void assign_first_unreachable(AnyV first_unreachable);
+  void assign_new_children(std::vector<AnyV>&& children);
 
   Vertex(SrcLocation loc, SrcLocation loc_end, std::vector<AnyV>&& items)
     : ASTStatementVararg(ast_block_statement, loc, std::move(items))
@@ -1243,6 +1275,7 @@ struct Vertex<ast_function_declaration> final : ASTOtherVararg {
   V<ast_genericsT_list> genericsT_list;   // for non-generics it's nullptr
   td::RefInt256 tvm_method_id;            // specified via @method_id annotation
   int flags;                              // from enum in FunctionData
+  FunctionInlineMode inline_mode;         // from annotations like `@inline` or auto-detected "in-place"
 
   bool is_asm_function() const { return children.at(2)->kind == ast_asm_body; }
   bool is_code_function() const { return children.at(2)->kind == ast_block_statement; }
@@ -1251,9 +1284,9 @@ struct Vertex<ast_function_declaration> final : ASTOtherVararg {
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
   void assign_fun_ref(FunctionPtr fun_ref);
 
-  Vertex(SrcLocation loc, V<ast_identifier> name_identifier, V<ast_parameter_list> parameters, AnyV body, AnyTypeV receiver_type_node, AnyTypeV return_type_node, V<ast_genericsT_list> genericsT_list, td::RefInt256 tvm_method_id, int flags)
+  Vertex(SrcLocation loc, V<ast_identifier> name_identifier, V<ast_parameter_list> parameters, AnyV body, AnyTypeV receiver_type_node, AnyTypeV return_type_node, V<ast_genericsT_list> genericsT_list, td::RefInt256 tvm_method_id, int flags, FunctionInlineMode inline_mode)
     : ASTOtherVararg(ast_function_declaration, loc, {name_identifier, parameters, body})
-    , receiver_type_node(receiver_type_node), return_type_node(return_type_node), genericsT_list(genericsT_list), tvm_method_id(std::move(tvm_method_id)), flags(flags) {}
+    , receiver_type_node(receiver_type_node), return_type_node(return_type_node), genericsT_list(genericsT_list), tvm_method_id(std::move(tvm_method_id)), flags(flags), inline_mode(inline_mode) {}
 };
 
 template<>

@@ -1,8 +1,8 @@
-type MInt = int;
-type MSlice = slice;
+type MInt = int
+type MSlice = slice
 
-const int1 = 1;
-const int2 = 2;
+const int1 = 1
+const int2 = 2
 
 const int101: int = 101;
 const int111: MInt = 111;
@@ -24,9 +24,8 @@ const strange_minus_1: MInt = (!0 as int);
 
 const addr1 = address("Ef8zMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM0vF");
 
-const true1 = true;
-const true2 = !!true;
-const true3 = true1 && true2;
+// since `;` is not mandatory, this is correct from a syntax point of view
+const true1 = true const true2 = !!true const true3 = true1 && true2
 
 const false1 = !true;
 const false2 = false1 || false;
@@ -127,5 +126,5 @@ fun main() {
 @testcase | 105 |   | -1 0 7 48
 @testcase | 106 |   | -1 0 0 -1
 
-@code_hash 85012002134196298607946339234948178079079623823648671175958399073436861460061
+@code_hash 32362412747322136329528616455651783746542516198110452861733590440068294458753
 */

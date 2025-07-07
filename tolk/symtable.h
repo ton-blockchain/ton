@@ -43,6 +43,8 @@ struct Symbol {
 #endif
     return dynamic_cast<ConstTPtr>(this);
   }
+
+  void check_import_exists_when_used_from(FunctionPtr cur_f, SrcLocation used_loc) const;
 };
 
 struct LocalVarData final : Symbol {
@@ -50,6 +52,7 @@ struct LocalVarData final : Symbol {
     flagMutateParameter = 1,    // parameter was declared with `mutate` keyword
     flagImmutable = 2,          // variable was declared via `val` (not `var`)
     flagLateInit = 4,           // variable was declared via `lateinit` (not assigned at declaration)
+    flagUsedAsLVal = 8,         // variable is assigned or in another way used as lvalue inside a function
   };
 
   AnyTypeV type_node;               // either at declaration `var x:int`, or if omitted, from assigned value `var x=2`
@@ -80,9 +83,11 @@ struct LocalVarData final : Symbol {
   bool is_immutable() const { return flags & flagImmutable; }
   bool is_lateinit() const { return flags & flagLateInit; }
   bool is_mutate_parameter() const { return flags & flagMutateParameter; }
+  bool is_used_as_lval() const { return flags & flagUsedAsLVal; }
   bool has_default_value() const { return default_value != nullptr; }
 
   LocalVarData* mutate() const { return const_cast<LocalVarData*>(this); }
+  void assign_used_as_lval();
   void assign_ir_idx(std::vector<int>&& ir_idx);
   void assign_resolved_type(TypePtr declared_type);
   void assign_inferred_type(TypePtr inferred_type);
@@ -104,14 +109,12 @@ struct FunctionData final : Symbol {
   static constexpr int EMPTY_TVM_METHOD_ID = -10;
 
   enum {
-    flagInline = 1,             // marked `@inline`
-    flagInlineRef = 2,          // marked `@inline_ref`
     flagTypeInferringDone = 4,  // type inferring step of function's body (all AST nodes assigning v->inferred_type) is done
     flagUsedAsNonCall = 8,      // used not only as `f()`, but as a 1-st class function (assigned to var, pushed to tuple, etc.)
     flagMarkedAsPure = 16,      // declared as `pure`, can't call impure and access globals, unused invocations are optimized out
     flagImplicitReturn = 32,    // control flow reaches end of function, so it needs implicit return at the end
     flagContractGetter = 64,    // was declared via `get func(): T`, tvm_method_id is auto-assigned
-    flagIsEntrypoint = 128,     // it's `main` / `onExternalMessage` / etc.
+    flagIsEntrypoint = 128,    // it's `main` / `onExternalMessage` / etc.
     flagHasMutateParams = 256,  // has parameters declared as `mutate`
     flagAcceptsSelf = 512,      // is a member function (has `self` first parameter)
     flagReturnsSelf = 1024,     // return type is `self` (returns the mutated 1st argument), calls can be chainable
@@ -119,10 +122,13 @@ struct FunctionData final : Symbol {
     flagCompileTimeVal = 4096,  // calculated only at compile-time for constant arguments: `ton("0.05")`, `stringCrc32`, and others
     flagCompileTimeGen = 8192,  // at compile-time it's handled specially, not as a regular function: `T.toCell`, etc.
     flagAllowAnyWidthT = 16384, // for built-in generic functions that <T> is not restricted to be 1-slot type
+    flagManualOnBounce = 32768, // for onInternalMessage, don't insert "if (isBounced) return"
   };
 
   int tvm_method_id = EMPTY_TVM_METHOD_ID;
   int flags;
+  FunctionInlineMode inline_mode;
+  int n_times_called = 0;                     // calculated while building call graph; 9999 for recursions
 
   std::string method_name;                    // for `fun Container<T>.store<U>` here is "store"
   AnyTypeV receiver_type_node;                // for `fun Container<T>.store<U>` here is `Container<T>`
@@ -141,9 +147,10 @@ struct FunctionData final : Symbol {
   FunctionBody body;
   AnyV ast_root;                                  // V<ast_function_declaration> for user-defined (not builtin)
 
-  FunctionData(std::string name, SrcLocation loc, std::string method_name, AnyTypeV receiver_type_node, AnyTypeV return_type_node, std::vector<LocalVarData> parameters, int initial_flags, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, FunctionBody body, AnyV ast_root)
+  FunctionData(std::string name, SrcLocation loc, std::string method_name, AnyTypeV receiver_type_node, AnyTypeV return_type_node, std::vector<LocalVarData> parameters, int initial_flags, FunctionInlineMode inline_mode, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, FunctionBody body, AnyV ast_root)
     : Symbol(std::move(name), loc)
     , flags(initial_flags)
+    , inline_mode(inline_mode)
     , method_name(std::move(method_name))
     , receiver_type_node(receiver_type_node)
     , parameters(std::move(parameters))
@@ -153,9 +160,10 @@ struct FunctionData final : Symbol {
     , body(body)
     , ast_root(ast_root) {
   }
-  FunctionData(std::string name, SrcLocation loc, std::string method_name, TypePtr receiver_type, TypePtr declared_return_type, std::vector<LocalVarData> parameters, int initial_flags, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, FunctionBody body, AnyV ast_root)
+  FunctionData(std::string name, SrcLocation loc, std::string method_name, TypePtr receiver_type, TypePtr declared_return_type, std::vector<LocalVarData> parameters, int initial_flags, FunctionInlineMode inline_mode, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, FunctionBody body, AnyV ast_root)
     : Symbol(std::move(name), loc)
     , flags(initial_flags)
+    , inline_mode(inline_mode)
     , method_name(std::move(method_name))
     , receiver_type_node(nullptr)
     , receiver_type(receiver_type)
@@ -179,6 +187,7 @@ struct FunctionData final : Symbol {
 
   int get_num_params() const { return static_cast<int>(parameters.size()); }
   const LocalVarData& get_param(int idx) const { return parameters[idx]; }
+  LocalVarPtr find_param(std::string_view name) const;
 
   bool is_code_function() const { return std::holds_alternative<FunctionBodyCode*>(body); }
   bool is_asm_function() const { return std::holds_alternative<FunctionBodyAsm*>(body); }
@@ -189,8 +198,7 @@ struct FunctionData final : Symbol {
   bool is_generic_function() const { return genericTs != nullptr; }
   bool is_instantiation_of_generic_function() const { return substitutedTs != nullptr; }
 
-  bool is_inline() const { return flags & flagInline; }
-  bool is_inline_ref() const { return flags & flagInlineRef; }
+  bool is_inlined_in_place() const { return inline_mode == FunctionInlineMode::inlineInPlace; }
   bool is_type_inferring_done() const { return flags & flagTypeInferringDone; }
   bool is_used_as_noncall() const { return flags & flagUsedAsNonCall; }
   bool is_marked_as_pure() const { return flags & flagMarkedAsPure; }
@@ -206,6 +214,7 @@ struct FunctionData final : Symbol {
   bool is_compile_time_const_val() const { return flags & flagCompileTimeVal; }
   bool is_compile_time_special_gen() const { return flags & flagCompileTimeGen; }
   bool is_variadic_width_T_allowed() const { return flags & flagAllowAnyWidthT; }
+  bool is_manual_on_bounce() const { return flags & flagManualOnBounce; }
 
   bool does_need_codegen() const;
 
@@ -218,6 +227,7 @@ struct FunctionData final : Symbol {
   void assign_is_implicit_return();
   void assign_is_type_inferring_done();
   void assign_is_really_used();
+  void assign_inline_mode_in_place();
   void assign_arg_order(std::vector<int>&& arg_order);
 };
 

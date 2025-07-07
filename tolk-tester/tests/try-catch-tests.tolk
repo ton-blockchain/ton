@@ -164,6 +164,7 @@ fun test109(): (int, int) {
   return (g_reg, l_reg);
 }
 
+@noinline
 fun alwaysThrow123(): never {
   throw 123;
 }
@@ -173,6 +174,7 @@ fun alwaysThrowX(x: int): never {
   else { throw (x, null); }
 }
 
+@noinline
 fun anotherNever(throw123: bool): never {
   if (throw123) { alwaysThrow123(); }
   alwaysThrowX(456);
@@ -224,8 +226,12 @@ fun test111(b: bool) {
   }
 }
 
-fun mySetCode(newCode: slice): void
+fun mySetCodeAsm(newCode: slice): void
     asm "SETCODE";
+
+fun mySetCode(newCode: slice) {
+  mySetCodeAsm(newCode);
+}
 
 fun testCodegen3(numberId: int, paramVal: cell) {
   if (numberId == -1000) {
@@ -234,6 +240,17 @@ fun testCodegen3(numberId: int, paramVal: cell) {
     throw 0;
   }
   paramVal.beginParse();
+}
+
+@method_id(112)
+fun testCatchUsesVars(x1: int) {
+  var x2 = x1 * 2;
+  try { alwaysThrow123(); }
+  catch (excno) {
+    var result = x1 + x2 + excno;
+    return result;
+  }
+  return -1;
 }
 
 @method_id(113)
@@ -274,13 +291,14 @@ fun main() {
 @testcase | 110 | 0     | 5
 @testcase | 111 | -1    | 123
 @testcase | 111 | 0     | 456
+@testcase | 112 | 5     | 138
 @testcase | 113 |       | 2048
 
-@code_hash 26411074751358281917876479601714698321674833208179417883888954015536273820035
+@code_hash 3924051084946061509165180039638830343498397714643311802900659572522552334228
 
 @fif_codegen
 """
-  testCodegen1 PROC:<{  // x
+  testCodegen1() PROC:<{  // x
     DUP	//  x x
     10 GTINT	//  x '2
     IFJMP:<{	//  x
@@ -298,17 +316,17 @@ fun main() {
 
 @fif_codegen
 """
-  testCodegen2 PROC:<{  // x
+  testCodegen2() PROC:<{  // x
     DUP	//  x x
     10 GTINT	//  x '2
     IFJMP:<{	//  x
       DROP	//
-      alwaysThrow123 CALLDICT
+      alwaysThrow123() CALLDICT
     }>	//  x
     10 LESSINT	//  '5
     IFJMP:<{	//
       FALSE	//  '6
-      anotherNever CALLDICT
+      anotherNever() CALLDICT
     }>	//
     0 PUSHINT	//  '8=0
   }>
@@ -316,7 +334,7 @@ fun main() {
 
 @fif_codegen
 """
-  testCodegen3 PROC:<{  //  numberId paramVal
+  testCodegen3() PROC:<{  //  numberId paramVal
     SWAP
     -1000 PUSHINT	//  paramVal numberId '2=-1000
     EQUAL	    //  paramVal '3

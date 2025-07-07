@@ -27,7 +27,7 @@ fun main() {
 @fif_codegen_enable_comments
 @fif_codegen
 """
-  demo_fields_def PROC:<{   	//  x
+  demo_fields_def() PROC:<{   	//  x
     // 13: f1: x + C_20
     20 ADDCONST             	//  '6
     10 PUSHINT              	//  '6 '7=10

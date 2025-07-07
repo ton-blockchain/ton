@@ -149,19 +149,15 @@ static std::string auto_discover_stdlib_folder() {
 td::Result<std::string> fs_read_callback(CompilerSettings::FsReadCallbackKind kind, const char* query) {
   switch (kind) {
     case CompilerSettings::FsReadCallbackKind::Realpath: {
-      td::Result<std::string> res_realpath;
-      if (query[0] == '@' && strlen(query) > 8 && !strncmp(query, "@stdlib/", 8)) {
-        // import "@stdlib/filename" or import "@stdlib/filename.tolk"
-        std::string path = G.settings.stdlib_folder + static_cast<std::string>(query + 7);
-        if (strncmp(path.c_str() + path.size() - 5, ".tolk", 5) != 0) {
-          path += ".tolk";
-        }
-        res_realpath = td::realpath(td::CSlice(path.c_str()));
-      } else {
-        // import "relative/to/cwd/path.tolk"
-        res_realpath = td::realpath(td::CSlice(query));
-      }
+      bool is_stdlib = query[0] == '@' && strlen(query) > 8 && !strncmp(query, "@stdlib/", 8);
+      std::string path = is_stdlib
+            ? G.settings.stdlib_folder + static_cast<std::string>(query + 7)
+            : static_cast<std::string>(query);
 
+      if (strncmp(path.c_str() + path.size() - 5, ".tolk", 5) != 0) {
+        path += ".tolk";
+      }
+      td::Result<std::string> res_realpath = td::realpath(td::CSlice(path.c_str()));
       if (res_realpath.is_error()) {
         // note, that for non-existing files, `realpath()` on Linux/Mac returns an error,
         // whereas on Windows, it returns okay, but fails after, on reading, with a message "cannot open file"
