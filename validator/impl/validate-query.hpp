@@ -113,14 +113,14 @@ class ValidateQuery : public td::actor::Actor {
   }
   static constexpr long long supported_capabilities() {
     return ton::capCreateStatsEnabled | ton::capBounceMsgBody | ton::capReportVersion | ton::capShortDequeue |
-           ton::capStoreOutMsgQueueSize | ton::capMsgMetadata | ton::capDeferMessages;
+           ton::capStoreOutMsgQueueSize | ton::capMsgMetadata | ton::capDeferMessages | ton::capFullCollatedData;
   }
 
  public:
   ValidateQuery(ShardIdFull shard, BlockIdExt min_masterchain_block_id, std::vector<BlockIdExt> prev,
-                BlockCandidate candidate, td::Ref<ValidatorSet> validator_set,
+                BlockCandidate candidate, td::Ref<ValidatorSet> validator_set, PublicKeyHash local_validator_id,
                 td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
-                td::Promise<ValidateCandidateResult> promise, bool is_fake = false);
+                td::Promise<ValidateCandidateResult> promise, unsigned mode = 0);
 
  private:
   int verbosity{3 * 1};
@@ -132,6 +132,7 @@ class ValidateQuery : public td::actor::Actor {
   std::vector<Ref<ShardState>> prev_states;
   BlockCandidate block_candidate;
   td::Ref<ValidatorSet> validator_set_;
+  PublicKeyHash local_validator_id_ = PublicKeyHash::zero();
   td::actor::ActorId<ValidatorManager> manager;
   td::Timestamp timeout;
   td::Promise<ValidateCandidateResult> main_promise;
@@ -143,6 +144,7 @@ class ValidateQuery : public td::actor::Actor {
   bool is_key_block_{false};
   bool update_shard_cc_{false};
   bool is_fake_{false};
+  bool full_collated_data_{false};
   bool prev_key_block_exists_{false};
   bool debug_checks_{false};
   bool outq_cleanup_partial_{false};
@@ -168,6 +170,7 @@ class ValidateQuery : public td::actor::Actor {
   std::vector<Ref<vm::Cell>> collated_roots_;
   std::map<RootHash, Ref<vm::Cell>> virt_roots_;
   std::unique_ptr<vm::Dictionary> top_shard_descr_dict_;
+  std::map<td::Bits256, Ref<vm::Cell>> virt_account_storage_dicts_;
 
   Ref<vm::CellSlice> shard_hashes_;              // from McBlockExtra
   Ref<vm::CellSlice> blk_config_params_;         // from McBlockExtra
@@ -212,6 +215,7 @@ class ValidateQuery : public td::actor::Actor {
   std::map<BlockSeqno, Ref<MasterchainStateQ>> aux_mc_states_;
 
   block::ShardState ps_, ns_;
+  bool processed_upto_updated_{false};
   std::unique_ptr<vm::AugmentedDictionary> sibling_out_msg_queue_;
   std::shared_ptr<block::MsgProcessedUptoCollection> sibling_processed_upto_;
 
@@ -235,6 +239,8 @@ class ValidateQuery : public td::actor::Actor {
   std::map<std::pair<StdSmcAddress, td::uint64>, Ref<vm::Cell>> new_dispatch_queue_messages_;
   std::set<StdSmcAddress> account_expected_defer_all_messages_;
   td::uint64 old_out_msg_queue_size_ = 0, new_out_msg_queue_size_ = 0;
+  bool out_msg_queue_size_known_ = false;
+  bool have_out_msg_queue_size_in_state_ = false;
 
   std::function<td::Ref<vm::Cell>(const td::Bits256&)> storage_stat_cache_;
   std::vector<std::pair<td::Ref<vm::Cell>, td::uint32>> storage_stat_cache_update_;
@@ -321,7 +327,7 @@ class ValidateQuery : public td::actor::Actor {
   void after_get_aux_shard_state(ton::BlockIdExt blkid, td::Result<Ref<ShardState>> res);
 
   bool check_one_shard(const block::McShardHash& info, const block::McShardHash* sibling,
-                       const block::WorkchainInfo* wc_info, const block::CatchainValidatorsConfig& ccvc);
+                       const block::WorkchainInfo* wc_info, const block::CatchainValidatorsConfig& ccvc, bool& is_new);
   bool check_shard_layout();
   bool register_shard_block_creators(std::vector<td::Bits256> creator_list);
   bool check_cur_validator_set();
@@ -329,6 +335,7 @@ class ValidateQuery : public td::actor::Actor {
   bool check_utime_lt();
   bool prepare_out_msg_queue_size();
   void got_out_queue_size(size_t i, td::Result<td::uint64> res);
+  void verified_shard_blocks(td::Status S);
 
   bool fix_one_processed_upto(block::MsgProcessedUpto& proc, ton::ShardIdFull owner, bool allow_cur = false);
   bool fix_processed_upto(block::MsgProcessedUptoCollection& upto, bool allow_cur = false);
@@ -364,7 +371,8 @@ class ValidateQuery : public td::actor::Actor {
   bool check_dispatch_queue_update();
   bool check_processed_upto();
   bool check_neighbor_outbound_message(Ref<vm::CellSlice> enq_msg, ton::LogicalTime lt, td::ConstBitPtr key,
-                                       const block::McShardDescr& src_nb, bool& unprocessed);
+                                       const block::McShardDescr& src_nb, bool& unprocessed, bool& processed_here,
+                                       td::Bits256& msg_hash);
   bool check_in_queue();
   bool check_delivered_dequeued();
   std::unique_ptr<block::Account> make_account_from(td::ConstBitPtr addr, Ref<vm::CellSlice> account);
@@ -395,6 +403,8 @@ class ValidateQuery : public td::actor::Actor {
                            const block::CurrencyCollection& create);
   bool check_mc_block_extra();
 
+  Ref<vm::Cell> get_virt_state_root(const BlockIdExt& block_id);
+
   bool check_timeout() {
     if (timeout && timeout.is_in_past()) {
       abort_query(td::Status::Error(ErrorCode::timeout, "timeout"));
@@ -405,7 +415,7 @@ class ValidateQuery : public td::actor::Actor {
 
   td::Timer work_timer_{true};
   td::ThreadCpuTimer cpu_work_timer_{true};
-  void record_stats(bool success);
+  void record_stats(bool valid, std::string error_message = "");
 };
 
 }  // namespace validator

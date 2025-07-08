@@ -116,7 +116,7 @@ class ValidatorSessionImpl : public ValidatorSession {
       }
       void process_broadcast(const PublicKeyHash &src, td::BufferSlice data) override {
         td::actor::send_closure(id_, &ValidatorSessionImpl::process_broadcast, src, std::move(data),
-                                td::optional<ValidatorSessionCandidateId>(), true);
+                                td::optional<ValidatorSessionCandidateId>(), true, false);
       }
       void process_message(const PublicKeyHash &src, td::BufferSlice data) override {
         td::actor::send_closure(id_, &ValidatorSessionImpl::process_message, src, std::move(data));
@@ -204,7 +204,7 @@ class ValidatorSessionImpl : public ValidatorSession {
   void preprocess_block(catchain::CatChainBlock *block);
   bool ensure_candidate_unique(td::uint32 src_idx, td::uint32 round, ValidatorSessionCandidateId block_id);
   void process_broadcast(PublicKeyHash src, td::BufferSlice data, td::optional<ValidatorSessionCandidateId> expected_id,
-                         bool is_overlay_broadcast);
+                         bool is_overlay_broadcast, bool is_startup);
   void process_message(PublicKeyHash src, td::BufferSlice data);
   void process_query(PublicKeyHash src, td::BufferSlice data, td::Promise<td::BufferSlice> promise);
 
@@ -217,8 +217,7 @@ class ValidatorSessionImpl : public ValidatorSession {
   void candidate_approved_signed(td::uint32 round, ValidatorSessionCandidateId hash, td::uint32 ok_from,
                                  td::BufferSlice signature);
 
-  void generated_block(td::uint32 round, ValidatorSessionRootHash root_hash, td::BufferSlice data,
-                       td::BufferSlice collated, double collation_time, bool collation_cached);
+  void generated_block(td::uint32 round, GeneratedCandidate c, double collation_time);
   void signed_block(td::uint32 round, ValidatorSessionCandidateId hash, td::BufferSlice signature);
 
   void end_request(td::uint32 round, ValidatorSessionCandidateId block_id) {

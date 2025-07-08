@@ -1632,27 +1632,93 @@ void TestNode::send_compute_complaint_price_query(ton::StdSmcAddress elector_add
 }
 
 bool TestNode::get_msg_queue_sizes() {
-  auto q = ton::serialize_tl_object(ton::create_tl_object<ton::lite_api::liteServer_getOutMsgQueueSizes>(0, 0, 0), true);
-  return envelope_send_query(std::move(q), [Self = actor_id(this)](td::Result<td::BufferSlice> res) -> void {
-    if (res.is_error()) {
-      LOG(ERROR) << "liteServer.getOutMsgQueueSizes error: " << res.move_as_error();
+  ton::BlockIdExt blkid = mc_last_id_;
+  if (!blkid.is_valid_full()) {
+    return set_error("must obtain last block information before making other queries");
+  }
+  if (!(ready_ && !client_.empty())) {
+    return set_error("server connection not ready");
+  }
+  auto b =
+      ton::create_serialize_tl_object<ton::lite_api::liteServer_getAllShardsInfo>(ton::create_tl_lite_block_id(blkid));
+  LOG(INFO) << "requesting recent shard configuration";
+  return envelope_send_query(std::move(b), [Self = actor_id(this), blkid](td::Result<td::BufferSlice> R) -> void {
+    if (R.is_error()) {
       return;
     }
-    auto F = ton::fetch_tl_object<ton::lite_api::liteServer_outMsgQueueSizes>(res.move_as_ok(), true);
+    auto F = ton::fetch_tl_object<ton::lite_api::liteServer_allShardsInfo>(R.move_as_ok(), true);
     if (F.is_error()) {
-      LOG(ERROR) << "cannot parse answer to liteServer.getOutMsgQueueSizes";
-      return;
+      LOG(ERROR) << "cannot parse answer to liteServer.getAllShardsInfo";
+    } else {
+      auto f = F.move_as_ok();
+      td::actor::send_closure_later(Self, &TestNode::get_msg_queue_sizes_cont, blkid, std::move(f->data_));
     }
-    td::actor::send_closure_later(Self, &TestNode::got_msg_queue_sizes, F.move_as_ok());
   });
 }
 
-void TestNode::got_msg_queue_sizes(ton::tl_object_ptr<ton::lite_api::liteServer_outMsgQueueSizes> f) {
-  td::TerminalIO::out() << "Outbound message queue sizes:" << std::endl;
-  for (auto &x : f->shards_) {
-    td::TerminalIO::out() << ton::create_block_id(x->id_).id.to_str() << "    " << x->size_ << std::endl;
+void TestNode::get_msg_queue_sizes_cont(ton::BlockIdExt mc_blkid, td::BufferSlice data) {
+  LOG(INFO) << "got shard configuration with respect to block " << mc_blkid.to_str();
+  std::vector<ton::BlockIdExt> blocks;
+  blocks.push_back(mc_blkid);
+  auto R = vm::std_boc_deserialize(data.clone());
+  if (R.is_error()) {
+    set_error(R.move_as_error_prefix("cannot deserialize shard configuration: "));
+    return;
   }
-  td::TerminalIO::out() << "External message queue size limit: " << f->ext_msg_queue_size_limit_ << std::endl;
+  auto root = R.move_as_ok();
+  block::ShardConfig sh_conf;
+  if (!sh_conf.unpack(vm::load_cell_slice_ref(root))) {
+    set_error("cannot extract shard block list from shard configuration");
+    return;
+  }
+  auto ids = sh_conf.get_shard_hash_ids(true);
+  for (auto id : ids) {
+    auto ref = sh_conf.get_shard_hash(ton::ShardIdFull(id));
+    if (ref.not_null()) {
+      blocks.push_back(ref->top_block_id());
+    }
+  }
+
+  struct QueryInfo {
+    std::vector<ton::BlockIdExt> blocks;
+    std::vector<td::uint64> sizes;
+    size_t pending;
+  };
+  auto info = std::make_shared<QueryInfo>();
+  info->blocks = std::move(blocks);
+  info->sizes.resize(info->blocks.size(), 0);
+  info->pending = info->blocks.size();
+
+  for (size_t i = 0; i < info->blocks.size(); ++i) {
+    ton::BlockIdExt block_id = info->blocks[i];
+    auto b = ton::create_serialize_tl_object<ton::lite_api::liteServer_getBlockOutMsgQueueSize>(
+        0, ton::create_tl_lite_block_id(block_id), false);
+    LOG(DEBUG) << "requesting queue size for block " << block_id.to_str();
+    envelope_send_query(std::move(b), [=, this](td::Result<td::BufferSlice> R) -> void {
+      if (R.is_error()) {
+        return;
+      }
+      auto F = ton::fetch_tl_object<ton::lite_api::liteServer_blockOutMsgQueueSize>(R.move_as_ok(), true);
+      if (F.is_error()) {
+        set_error(F.move_as_error_prefix("failed to get queue size: "));
+        return;
+      }
+      auto f = F.move_as_ok();
+      LOG(DEBUG) << "got queue size for block " << block_id.to_str() << " : " << f->size_;
+      info->sizes[i] = f->size_;
+      if (--info->pending == 0) {
+        get_msg_queue_sizes_finish(std::move(info->blocks), std::move(info->sizes));
+      }
+    });
+  }
+}
+
+void TestNode::get_msg_queue_sizes_finish(std::vector<ton::BlockIdExt> blocks, std::vector<td::uint64> sizes) {
+  CHECK(blocks.size() == sizes.size());
+  td::TerminalIO::out() << "Outbound message queue sizes:" << std::endl;
+  for (size_t i = 0; i < blocks.size(); ++i) {
+    td::TerminalIO::out() << blocks[i].id.to_str() << "    " << sizes[i] << std::endl;
+  }
 }
 
 bool TestNode::get_dispatch_queue_info(ton::BlockIdExt block_id) {

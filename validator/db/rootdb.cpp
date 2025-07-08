@@ -569,6 +569,10 @@ void RootDb::get_persistent_state_descriptions(td::Promise<std::vector<td::Ref<P
   td::actor::send_closure(state_db_, &StateDb::get_persistent_state_descriptions, std::move(promise));
 }
 
+void RootDb::iterate_temp_block_handles(std::function<void(const BlockHandleInterface &)> f) {
+  td::actor::send_closure(archive_db_, &ArchiveManager::iterate_temp_block_handles, std::move(f));
+}
+
 }  // namespace validator
 
 }  // namespace ton

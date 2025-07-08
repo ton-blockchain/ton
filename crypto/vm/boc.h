@@ -165,13 +165,21 @@ struct VmStorageStat {
 
 class ProofStorageStat {
  public:
-  void add_cell(const Ref<DataCell>& cell);
+  void add_loaded_cell(const Ref<DataCell>& cell, td::uint8 max_level = Cell::max_level);
+  void add_loaded_cells(const ProofStorageStat& other);
   td::uint64 estimate_proof_size() const;
+
+  enum CellStatus { c_none = 0, c_prunned = 1, c_loaded = 2 };
+  CellStatus get_cell_status(const Cell::Hash& hash) const;
+  bool is_loaded(const Cell::Hash& hash) const {
+    return get_cell_status(hash) == c_loaded;
+  }
+
+  static td::uint64 estimate_prunned_size();
+  static td::uint64 estimate_serialized_size(const Ref<DataCell>& cell);
+
  private:
-  enum CellStatus {
-    c_none = 0, c_prunned = 1, c_loaded = 2
-  };
-  td::HashMap<vm::Cell::Hash, CellStatus> cells_;
+  td::HashMap<Cell::Hash, std::pair<CellStatus, td::uint64>> cells_;
   td::uint64 proof_size_ = 0;
 };
 

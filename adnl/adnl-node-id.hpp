@@ -37,7 +37,9 @@ class AdnlNodeIdShort {
   }
   explicit AdnlNodeIdShort(td::Bits256 value) : hash_(value) {
   }
-  explicit AdnlNodeIdShort(tl_object_ptr<ton_api::adnl_id_short> obj) : hash_(obj->id_) {
+  explicit AdnlNodeIdShort(tl_object_ptr<ton_api::adnl_id_short> &&obj) : hash_(obj->id_) {
+  }
+  explicit AdnlNodeIdShort(const tl_object_ptr<ton_api::adnl_id_short> &obj) : hash_(obj->id_) {
   }
 
   const auto &pubkey_hash() const {

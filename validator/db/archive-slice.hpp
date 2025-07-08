@@ -127,6 +127,8 @@ class ArchiveSlice : public td::actor::Actor {
   void open_files();
   void close_files();
 
+  void iterate_block_handles(std::function<void(const BlockHandleInterface &)> f);
+
  private:
   void before_query();
   void do_close();

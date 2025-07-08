@@ -129,7 +129,8 @@ void ValidatorManagerImpl::sync_complete(td::Promise<td::Unit> promise) {
   Ed25519_PublicKey created_by{td::Bits256::zero()};
   td::as<td::uint32>(created_by.as_bits256().data() + 32 - 4) = ((unsigned)std::time(nullptr) >> 8);
   run_collate_query(shard_id, last_masterchain_block_id_, prev, created_by, val_set, td::Ref<CollatorOptions>{true},
-                    actor_id(this), td::Timestamp::in(10.0), std::move(P), td::CancellationToken{}, 0);
+                    actor_id(this), td::Timestamp::in(10.0), std::move(P), adnl::AdnlNodeIdShort::zero(),
+                    td::CancellationToken{}, 0);
 }
 
 void ValidatorManagerImpl::validate_fake(BlockCandidate candidate, std::vector<BlockIdExt> prev, BlockIdExt last,
@@ -152,8 +153,8 @@ void ValidatorManagerImpl::validate_fake(BlockCandidate candidate, std::vector<B
     }
   });
   auto shard = candidate.id.shard_full();
-  run_validate_query(shard, last, prev, std::move(candidate), std::move(val_set), actor_id(this),
-                     td::Timestamp::in(10.0), std::move(P), true /* fake */);
+  run_validate_query(shard, last, prev, std::move(candidate), std::move(val_set), PublicKeyHash::zero(), actor_id(this),
+                     td::Timestamp::in(10.0), std::move(P), ValidateMode::fake);
 }
 
 void ValidatorManagerImpl::write_fake(BlockCandidate candidate, std::vector<BlockIdExt> prev, BlockIdExt last,
@@ -522,8 +523,8 @@ void ValidatorManagerImpl::get_ihr_messages(ShardIdFull shard, td::Promise<std::
   promise.set_result(ihr_messages_);
 }
 
-void ValidatorManagerImpl::get_shard_blocks(BlockIdExt masterchain_block_id,
-                                            td::Promise<std::vector<td::Ref<ShardTopBlockDescription>>> promise) {
+void ValidatorManagerImpl::get_shard_blocks_for_collator(
+    BlockIdExt masterchain_block_id, td::Promise<std::vector<td::Ref<ShardTopBlockDescription>>> promise) {
   if (!last_masterchain_block_handle_) {
     promise.set_result(std::vector<td::Ref<ShardTopBlockDescription>>{});
     return;
