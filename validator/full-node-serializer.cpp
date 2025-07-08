@@ -40,16 +40,13 @@ td::Result<td::BufferSlice> serialize_block_broadcast(const BlockBroadcast& broa
 
   TRY_RESULT(proof_root, vm::std_boc_deserialize(broadcast.proof));
   TRY_RESULT(data_root, vm::std_boc_deserialize(broadcast.data));
-  TRY_RESULT(boc, vm::std_boc_serialize_multi({proof_root, data_root}, 2));
-  td::BufferSlice data =
-      create_serialize_tl_object<ton_api::tonNode_blockBroadcastCompressed_data>(std::move(sigs), std::move(boc));
-  td::BufferSlice compressed = td::lz4_compress(data);
+  TRY_RESULT(compressed_boc, vm::boc_compress({proof_root, data_root}, vm::CompressionAlgorithm::ImprovedStructureLZ4));
   VLOG(FULL_NODE_DEBUG) << "Compressing block broadcast: "
                         << broadcast.data.size() + broadcast.proof.size() + broadcast.signatures.size() * 96 << " -> "
-                        << compressed.size();
-  return create_serialize_tl_object<ton_api::tonNode_blockBroadcastCompressed>(
-      create_tl_block_id(broadcast.block_id), broadcast.catchain_seqno, broadcast.validator_set_hash, 0,
-      std::move(compressed));
+                        << compressed_boc.size() + broadcast.signatures.size() * 96;
+  return create_serialize_tl_object<ton_api::tonNode_blockBroadcastCompressedV2>(
+      create_tl_block_id(broadcast.block_id), broadcast.catchain_seqno, broadcast.validator_set_hash, std::move(sigs),
+      0, std::move(compressed_boc));
 }
 
 static td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_blockBroadcast& f) {
@@ -134,10 +131,10 @@ td::Result<td::BufferSlice> serialize_block_full(const BlockIdExt& id, td::Slice
   }
   TRY_RESULT(proof_root, vm::std_boc_deserialize(proof));
   TRY_RESULT(data_root, vm::std_boc_deserialize(data));
-  TRY_RESULT(boc, vm::std_boc_serialize_multi({proof_root, data_root}, 2));
-  td::BufferSlice compressed = td::lz4_compress(boc);
+  TRY_RESULT(compressed, vm::boc_compress({proof_root, data_root}, vm::CompressionAlgorithm::ImprovedStructureLZ4));
+
   VLOG(FULL_NODE_DEBUG) << "Compressing block full: " << data.size() + proof.size() << " -> " << compressed.size();
-  return create_serialize_tl_object<ton_api::tonNode_dataFullCompressed>(create_tl_block_id(id), 0,
+  return create_serialize_tl_object<ton_api::tonNode_dataFullCompressedV2>(create_tl_block_id(id), 0,
                                                                          std::move(compressed), is_proof_link);
 }
 
@@ -204,10 +201,9 @@ td::Result<td::BufferSlice> serialize_block_candidate_broadcast(BlockIdExt block
         create_tl_object<ton_api::tonNode_blockSignature>(Bits256::zero(), td::BufferSlice()), td::BufferSlice(data));
   }
   TRY_RESULT(root, vm::std_boc_deserialize(data));
-  TRY_RESULT(data_new, vm::std_boc_serialize(root, 2));
-  td::BufferSlice compressed = td::lz4_compress(data_new);
+  TRY_RESULT(compressed, vm::boc_compress({root}, vm::CompressionAlgorithm::ImprovedStructureLZ4));
   VLOG(FULL_NODE_DEBUG) << "Compressing block candidate broadcast: " << data.size() << " -> " << compressed.size();
-  return create_serialize_tl_object<ton_api::tonNode_newBlockCandidateBroadcastCompressed>(
+  return create_serialize_tl_object<ton_api::tonNode_newBlockCandidateBroadcastCompressedV2>(
       create_tl_block_id(block_id), cc_seqno, validator_set_hash,
       create_tl_object<ton_api::tonNode_blockSignature>(Bits256::zero(), td::BufferSlice()), 0, std::move(compressed));
 }
