@@ -34,6 +34,11 @@ void FullNodePrivateBlockOverlay::process_broadcast(PublicKeyHash src,
   process_block_broadcast(src, query);
 }
 
+void FullNodePrivateBlockOverlay::process_broadcast(PublicKeyHash src,
+                                                    ton_api::tonNode_blockBroadcastCompressedV2 &query) {
+  process_block_broadcast(src, query);
+}
+
 void FullNodePrivateBlockOverlay::process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query) {
   auto B = deserialize_block_broadcast(query, overlay::Overlays::max_fec_broadcast_size());
   if (B.is_error()) {
@@ -60,6 +65,11 @@ void FullNodePrivateBlockOverlay::process_broadcast(PublicKeyHash src,
 
 void FullNodePrivateBlockOverlay::process_broadcast(PublicKeyHash src,
                                                     ton_api::tonNode_newBlockCandidateBroadcastCompressed &query) {
+  process_block_candidate_broadcast(src, query);
+}
+
+void FullNodePrivateBlockOverlay::process_broadcast(PublicKeyHash src,
+                                                    ton_api::tonNode_newBlockCandidateBroadcastCompressedV2 &query) {
   process_block_candidate_broadcast(src, query);
 }
 
@@ -292,6 +302,10 @@ void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNod
   process_block_broadcast(src, query);
 }
 
+void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 &query) {
+  process_block_broadcast(src, query);
+}
+
 void FullNodeCustomOverlay::process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query) {
   if (!block_senders_.count(adnl::AdnlNodeIdShort(src))) {
     VLOG(FULL_NODE_DEBUG) << "Dropping block broadcast in private overlay \"" << name_ << "\" from unauthorized sender "
@@ -327,6 +341,11 @@ void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNod
 
 void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src,
                                               ton_api::tonNode_newBlockCandidateBroadcastCompressed &query) {
+  process_block_candidate_broadcast(src, query);
+}
+
+void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src,
+                                              ton_api::tonNode_newBlockCandidateBroadcastCompressedV2 &query) {
   process_block_candidate_broadcast(src, query);
 }
 
