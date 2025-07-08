@@ -494,59 +494,59 @@ fun test143(setBNull: bool, setANullMid: bool) {
 fun main(){}
 
 /**
-@testcase | 101 |      | 1 2 129
-@testcase | 102 |      | 1 2 129 (null) (null) 0
+@testcase | 101 |      | 1 2 typeid-1
+@testcase | 102 |      | 1 2 typeid-1 (null) (null) 0
 @testcase | 103 | 1 2  | 3 3 0 1 2
 @testcase | 104 |      | 1 2 (null) (null) 0
-@testcase | 105 |      | (null) (null) (null) 0 1 2 3 131
+@testcase | 105 |      | (null) (null) (null) 0 1 2 3 typeid-3
 @testcase | 106 |      | 1 2
 @testcase | 107 |      | 0 0 -1 0 0 -1
-@testcase | 108 | 5 6  | 7 8 10 11 129 (null) (null) 0
+@testcase | 108 | 5 6  | 7 8 10 11 typeid-1 (null) (null) 0
 @testcase | 109 |      | 0 0 -1 0 -1 0 0 -1 -1
-@testcase | 110 |      | 3 4 (null) (null) 0 6 7 129
+@testcase | 110 |      | 3 4 (null) (null) 0 6 7 typeid-1
 @testcase | 111 |      | 50 30 70 90 100
 @testcase | 112 |      | 12 22
 @testcase | 113 |      | -1
 @testcase | 114 |      | (null) (null) (null) 0 (null) (null) (null) 0
-@testcase | 115 |      | 2 3 7 (null) (null) 0 5 0 129 0
+@testcase | 115 |      | 2 3 7 (null) (null) 0 5 0 typeid-1 0
 @testcase | 116 | -1   | (null) (null) 0 (null) (null) 0
-@testcase | 116 | 0    | 1 2 129 1 2 129
+@testcase | 116 | 0    | 1 2 typeid-1 1 2 typeid-1
 @testcase | 117 |      | (null) 1 3
-@testcase | 118 | 5    | 5 10 129
+@testcase | 118 | 5    | 5 10 typeid-1
 @testcase | 118 | null | (null) (null) 0
-@testcase | 119 |      | (null) (null) 1 2 129 100
+@testcase | 119 |      | (null) (null) 1 2 typeid-1 100
 @testcase | 120 | -1   | (null) (null) 0
-@testcase | 120 | 0    | 1 2 129
+@testcase | 120 | 0    | 1 2 typeid-1
 @testcase | 121 |      | [ 1 [ 3 4 ] ]
 @testcase | 122 | 0    | [ 1 [ 3 4 ] 4 (null) ]
 @testcase | 122 | -1   | [ 1 (null) 4 (null) ]
-@testcase | 123 |      | 1 3 4 132
-@testcase | 124 | 0    | 1 3 4 132 4 (null) (null) 0
+@testcase | 123 |      | 1 3 4 typeid-4
+@testcase | 124 | 0    | 1 3 4 typeid-4 4 (null) (null) 0
 @testcase | 124 | -1   | 1 (null) (null) 0 4 (null) (null) 0
 @testcase | 125 |      | 3
 @testcase | 126 |      | 1 (null) 2
 @testcase | 127 | 1    | 1 (null) (null) 0 2
-@testcase | 127 | 2    | 1 2 3 129 4
+@testcase | 127 | 2    | 1 2 3 typeid-1 4
 @testcase | 127 | 3    | 1 (null) (null) 0 5
-@testcase | 128 | 1    | 1 (null) (null) 0 2 139
+@testcase | 128 | 1    | 1 (null) (null) 0 2 typeid-11
 @testcase | 128 | 2    | (null) (null) (null) (null) (null) 0
-@testcase | 128 | 3    | 1 2 3 129 4 139
+@testcase | 128 | 3    | 1 2 3 typeid-1 4 typeid-11
 @testcase | 129 | 0    | 5 5 0 -1 1 2 0 -1
 @testcase | 129 | -1   | 5 5 0 -1 (null) (null) 0 -1
-@testcase | 130 | 0    | 1 2 3 129
+@testcase | 130 | 0    | 1 2 3 typeid-1
 @testcase | 130 | -1   | 1 (null) (null) 0
-@testcase | 131 |      | 140 777 0 777 777 777 0 0 140 140 777 140 140 141 777
+@testcase | 131 |      | typeid-12 777 0 777 777 777 0 0 typeid-12 typeid-12 777 typeid-12 typeid-12 typeid-13 777
 @testcase | 132 |      | -1 0 -1 0 777 (null) (null) -1 0 0
 @testcase | 133 |      | 60
-@testcase | 134 |      | 11 21 129
-@testcase | 135 |      | [ 10 ] [ (null) ] (null) 777 10 143 (null) 143 (null) 0 777 10 144 (null) 144 (null) 0 777 0 0 -1 0 0 -1 0 0 -1 777 0 -1 0 0 -1 0
+@testcase | 134 |      | 11 21 typeid-1
+@testcase | 135 |      | [ 10 ] [ (null) ] (null) 777 10 typeid-15 (null) typeid-15 (null) 0 777 10 typeid-16 (null) typeid-16 (null) 0 777 0 0 -1 0 0 -1 0 0 -1 777 0 -1 0 0 -1 0
 @testcase | 136 | 9    | 9 0
 @testcase | 136 | null | (null) -1
-@testcase | 140 | 8 9  | 8 9 145 (null) (null) 0
+@testcase | 140 | 8 9  | 8 9 typeid-17 (null) (null) 0
 @testcase | 141 |      | (null) 10
 @testcase | 142 |      | 3 3 1 2
 @testcase | 143 | -1 0 | 1 2 1 3 777 (null) (null) (null) (null) 0
-@testcase | 143 | 0 -1 | 1 (null) 0 3 777 1 2 1 3 146
+@testcase | 143 | 0 -1 | 1 (null) 0 3 777 1 2 1 3 typeid-18
 
 @fif_codegen
 """

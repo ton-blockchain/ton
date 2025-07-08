@@ -338,7 +338,7 @@ fun main() {}
 @testcase | 107 |    | 65537
 @testcase | 108 |    | 4
 @testcase | 109 |    | 0 3 0 7
-@testcase | 110 | 5  | 5 10 100 100 100 134
+@testcase | 110 | 5  | 5 10 100 100 100 typeid-6
 @testcase | 110 | 0  | (null) (null) (null) (null) (null) 0
 @testcase | 111 | 2 3 9      | -1
 @testcase | 111 | 11 22 44   | -1
@@ -348,7 +348,7 @@ fun main() {}
 @testcase | 112 | -1 -10 -20 | -1
 @testcase | 113 | 0          | 12 12
 @testcase | 113 | -1         | 12 -1
-@testcase | 114 | -1         | 2 3 131
+@testcase | 114 | -1         | 2 3 typeid-3
 @testcase | 114 | 0          | (null) 12 1
 @testcase | 115 |            | 7 6 7
 @testcase | 116 |            | 7 11 80

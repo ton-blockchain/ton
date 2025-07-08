@@ -26,8 +26,7 @@ namespace td {
 template <typename K, typename V>
 class LRUCache {
  public:
-  explicit LRUCache(size_t max_size) : max_size_(max_size) {
-    CHECK(max_size_ > 0);
+  explicit LRUCache(uint64 max_size) : max_size_(max_size) {
   }
   LRUCache(const LRUCache&) = delete;
   LRUCache& operator=(const LRUCache&) = delete;
@@ -49,13 +48,14 @@ class LRUCache {
     return cache_.contains(key);
   }
 
-  bool put(const K& key, V value, bool update = true) {
+  bool put(const K& key, V value, bool update = true, uint64 weight = 1) {
     bool added = false;
     auto it = cache_.find(key);
     if (it == cache_.end()) {
       update = true;
-      it = cache_.insert(std::make_unique<Entry>(key, std::move(value))).first;
+      it = cache_.insert(std::make_unique<Entry>(key, std::move(value), weight)).first;
       added = true;
+      total_weight_ += weight;
     } else {
       (*it)->value = std::move(value);
       if (update) {
@@ -69,11 +69,12 @@ class LRUCache {
     return added;
   }
 
-  V& get(const K& key, bool update = true) {
+  V& get(const K& key, bool update = true, uint64 weight = 1) {
     auto it = cache_.find(key);
     if (it == cache_.end()) {
       update = true;
-      it = cache_.insert(std::make_unique<Entry>(key)).first;
+      it = cache_.insert(std::make_unique<Entry>(key, weight)).first;
+      total_weight_ += weight;
     } else if (update) {
       (*it)->remove();
     }
@@ -87,12 +88,13 @@ class LRUCache {
 
  private:
   struct Entry : ListNode {
-    explicit Entry(K key) : key(std::move(key)) {
+    Entry(K key, uint64 weight) : key(std::move(key)), weight(weight) {
     }
-    Entry(K key, V value) : key(std::move(key)), value(std::move(value)) {
+    Entry(K key, V value, uint64 weight) : key(std::move(key)), value(std::move(value)), weight(weight) {
     }
     K key;
     V value;
+    uint64 weight;
   };
   struct Cmp {
     using is_transparent = void;
@@ -108,13 +110,15 @@ class LRUCache {
   };
   std::set<std::unique_ptr<Entry>, Cmp> cache_;
   ListNode lru_;
-  size_t max_size_;
+  uint64 max_size_;
+  uint64 total_weight_ = 0;
 
   void cleanup() {
-    while (cache_.size() > max_size_) {
+    while (total_weight_ > max_size_ && cache_.size() > 1) {
       auto to_remove = (Entry*)lru_.get();
       CHECK(to_remove);
       to_remove->remove();
+      total_weight_ -= to_remove->weight;
       cache_.erase(cache_.find(to_remove->key));
     }
   }

@@ -4,27 +4,27 @@ fun just10(): int { return int10; }
 fun eq(v: int): int { return`v` }
 
 @method_id(101,) fun `get_-1`  (): int {return-1}
-@method_id(102,) fun `get_--1` (): int {return--1}
-@method_id(103,) fun `get_---1`(): int {return---1}
-@method_id(104,) fun `get_+++1`(): int {return+++1}
+@method_id(102,) fun `get_--1` (): int {return- -1}
+@method_id(103,) fun `get_---1`(): int {return-(-(-1))}
+@method_id(104,) fun `get_+++1`(): int {return+(+(+1))}
 @method_id(105,) fun `get_+-+1`(): int {return+-+1}
 
 global `some()var`:int;
 
 @method_id(110) fun `some_math`(): int {
-    `some()var`=--6;
-    return 1*-2*-3*-4*just10()*-5+-`some()var`+--`some()var`---`some()var`;
+    `some()var`=- -6;
+    return 1*-2*-3*-4*just10()*-5+-`some()var`+-(-`some()var`)-(-(-`some()var`));
 }
 
 @method_id(111) fun `negative_nums`(a:int):int {
     var m$0:int=1;
     var m1:int=-(+0x1)*m$0;
-    return `a`*-1*-(1)*---(1)*+just10()+-`just10`()*m1*-m1+-eq(m1)----0x1;
+    return `a`*-1*-(1)*-(1)*+just10()+-`just10`()*m1*-m1+-eq(m1)-(-0x1);
 }
 
 @method_id(112) fun `bitwise~ops`(flags:int):[bool,bool] {
     return[
-        (just10()-3==just10()-(4)--1)|((2==2)&(eq(eq(10)) -3==just10()--13)),
+        (just10()-3==just10()-(4)- -1)|((2==2)&(eq(eq(10)) -3==just10()-(-13))),
         ((flags&0xFF)!=0)
     ]
 }

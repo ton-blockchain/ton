@@ -523,6 +523,8 @@ struct TolkLanguageGrammar {
     register_token("^=", 2, tok_set_bitwise_xor);
     register_token("->", 2, tok_arrow);
     register_token("=>", 2, tok_double_arrow);
+    register_token("++", 2, tok_double_plus);
+    register_token("--", 2, tok_double_minus);
     register_token("<=>", 3, tok_spaceship);
     register_token("~>>", 3, tok_rshiftR);
     register_token("^>>", 3, tok_rshiftC);

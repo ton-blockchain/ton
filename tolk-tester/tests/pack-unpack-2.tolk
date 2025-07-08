@@ -343,6 +343,11 @@ struct WriteWithBuilder {
     rest: builder;
 }
 
+struct WriteWithSlice {
+    f1: int32;
+    rest: slice;
+}
+
 struct ReadWrittenWithBuilder {
     f1: int32;
     someInt: uint32;
@@ -368,6 +373,12 @@ struct ReadWriteMid<T> {
     f1: int32;
     mid: T;
     f3: coins;
+}
+
+struct WithTwoRestFields {
+    i32: int32;
+    rest1: RemainingBitsAndRefs;
+    rest2: RemainingBitsAndRefs;
 }
 
 
@@ -607,6 +618,8 @@ fun test_DifferentMix3() {
 fun test_WriteWithBuilderReadWithOther() {
     var b = beginCell().storeUint(55, 32).storeMaybeRef(null);
     var w: WriteWithBuilder = { f1: 10, rest: b };
+    var w2: WriteWithSlice = { f1: 10, rest: stringHexToSlice("FFFF") };
+    assert(w2.toCell().beginParse().skipBits(32).loadUint(16) == 0xFFFF, 100);
     return ReadWrittenWithBuilder.fromCell(w.toCell());
 }
 
@@ -642,6 +655,20 @@ fun test_MidIsBuilderOrBitsN() {
     return (r.f1, mid.remainingBitsCount(), mid.loadAny<int32>(), mid.remainingBitsCount(), r.f3);
 }
 
+@method_id(226)
+fun test_MultipleRemainers() {
+    val m = WithTwoRestFields.fromSlice(stringHexToSlice("00000001FFFF"));
+    return (m.i32, m.rest1.remainingBitsCount(), m.rest2.remainingBitsCount());
+}
+
+@method_id(227)
+fun test_mutatingRemainder() {
+    var cs = stringHexToSlice("00000001FFFF");
+    val obj = cs.loadAny<IntAndRestInlineCell>();
+    cs.assertEnd();
+    return obj.rest.remainingBitsCount();
+}
+
 
 fun main() {
     var t: JustInt32 = { value: 10 };
@@ -664,19 +691,21 @@ fun main() {
 @testcase | 208 | | -1
 @testcase | 209 | | -1
 @testcase | 210 | | 123 555 46 (null)
-@testcase | 211 | | (null) 132 123
-@testcase | 212 | | (null) 133 123
+@testcase | 211 | | (null) typeid-4 123
+@testcase | 212 | | (null) typeid-5 123
 @testcase | 213 | | -1
 @testcase | 214 | | -1
 @testcase | 215 | | -1
 @testcase | 216 | | -1
 @testcase | 217 | | -1
 @testcase | 218 | | -1
-@testcase | 219 | | 44 (null) (null) 46 143
-@testcase | 220 | | 0 0 (null) 99 136 137 99 1234 (null) 889129 14
+@testcase | 219 | | 44 (null) (null) 46 typeid-15
+@testcase | 220 | | 0 0 (null) 99 typeid-8 typeid-9 99 1234 (null) 889129 14
 @testcase | 221 | | -1
-@testcase | 222 | | 510 567 9392843922 146 81923 81923 147 777 0 -1 (null) (null) 0 100000 100000 147
+@testcase | 222 | | 510 567 9392843922 typeid-18 81923 81923 typeid-19 777 0 -1 (null) (null) 0 100000 100000 typeid-19
 @testcase | 223 | | 10 55 (null)
 @testcase | 224 | | 60 50000000 5 9 123 -1
 @testcase | 225 | | 5 40 65535 8 50000000
+@testcase | 226 | | 1 16 0
+@testcase | 227 | | 16
  */

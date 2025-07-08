@@ -521,6 +521,14 @@ bool MasterchainStateQ::check_old_mc_block_id(const ton::BlockIdExt& blkid, bool
   return config_ && config_->check_old_mc_block_id(blkid, strict);
 }
 
+td::uint32 MasterchainStateQ::persistent_state_split_depth(WorkchainId workchain_id) const {
+  if (!config_) {
+    return 0;
+  }
+  auto wc_info = config_->get_workchain_info(workchain_id);
+  return wc_info.not_null() ? wc_info->persistent_state_split_depth : 0;
+}
+
 td::uint32 MasterchainStateQ::monitor_min_split_depth(WorkchainId workchain_id) const {
   if (!config_) {
     return 0;

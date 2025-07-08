@@ -432,7 +432,8 @@ void ArchiveImporterLocal::processed_shard_blocks() {
   for (const BlockIdExt &block_id : new_zerostates_) {
     LOG(INFO) << "Downloading zerostate " << block_id.to_str();
     td::actor::create_actor<DownloadShardState>(
-        "downloadstate", block_id, shard_client_state_->get_block_id(), 2, manager_, td::Timestamp::in(3600),
+        "downloadstate", block_id, shard_client_state_->get_block_id(),
+        shard_client_state_->persistent_state_split_depth(block_id.id.workchain), 2, manager_, td::Timestamp::in(3600),
         ig.get_promise().wrap([](td::Ref<ShardState> &&) { return td::Unit(); }))
         .release();
   }

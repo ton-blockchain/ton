@@ -362,6 +362,7 @@ struct Op {
   bool set_var_info_except(const VarDescrList& new_var_info, const std::vector<var_idx_t>& var_list);
   bool set_var_info_except(VarDescrList&& new_var_info, const std::vector<var_idx_t>& var_list);
   void prepare_args(VarDescrList values);
+  void maybe_swap_builtin_args_to_compile();
   VarDescrList fwd_analyze(VarDescrList values);
   bool mark_noreturn();
   bool is_empty() const {
@@ -707,9 +708,6 @@ struct StackTransform {
   bool almost_equal(const StackTransform& other) const {
     return equal(other, true);
   }
-  bool operator==(const StackTransform& other) const {
-    return dp == other.dp && almost_equal(other);
-  }
   bool operator<=(const StackTransform& other) const {
     return dp <= other.dp && almost_equal(other);
   }
@@ -724,28 +722,6 @@ struct StackTransform {
     return get(i);
   }
   bool set(int i, int v, bool relaxed = false);
-  int operator()(int i) const {
-    return get(i);
-  }
-  class Pos {
-    StackTransform& t_;
-    int p_;
-
-   public:
-    Pos(StackTransform& t, int p) : t_(t), p_(p) {
-    }
-    Pos& operator=(const Pos& other) = delete;
-    operator int() const {
-      return t_.get(p_);
-    }
-    const Pos& operator=(int v) const {
-      t_.set(p_, v);
-      return *this;
-    }
-  };
-  Pos operator[](int i) {
-    return Pos(*this, i);
-  }
   static const StackTransform rot;
   static const StackTransform rot_rev;
   bool is_id() const {
@@ -814,8 +790,6 @@ struct StackTransform {
   void show(std::ostream& os, int mode = 0) const;
 
   static StackTransform Xchg(int i, int j, bool relaxed = false);
-  static StackTransform Push(int i);
-  static StackTransform Pop(int i);
 
  private:
   int try_load(int& i, int offs = 0) const;  // returns A[i++].first + offs or inf_x
@@ -926,6 +900,9 @@ struct Optimizer {
   bool is_2pop_blkdrop(int* i, int* j, int* k);
 
   bool detect_rewrite_big_THROW();
+  bool detect_rewrite_MY_store_int();
+  bool detect_rewrite_MY_skip_bits();
+  bool detect_rewrite_NEWC_PUSH_STUR();
 
   AsmOpConsList extract_code();
 };

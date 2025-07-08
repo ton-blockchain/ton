@@ -278,7 +278,7 @@ fun main() {}
 /**
 @testcase | 201 | | 80 800000000
 @testcase | 202 | | 800000000 17 777 -1 0
-@testcase | 203 | | (null) 0 131 777 -1 0
+@testcase | 203 | | (null) 0 typeid-3 777 -1 0
 @testcase | 204 | | -1 0 -1
 @testcase | 205 | | 0 -1 0 -1
  */

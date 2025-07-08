@@ -733,16 +733,16 @@ fun main(x: int?): int {
 @testcase | 139 |       | 16
 @testcase | 140 | 5     | 25
 @testcase | 141 |       | 1 2
-@testcase | 142 |       | 5 3 (null) (null) 0 133 3 (null) (null) 0
+@testcase | 142 |       | 5 3 (null) (null) 0 typeid-5 3 (null) (null) 0
 @testcase | 143 |       | 10 11 (null) 10 11 (null) (null) 0
 @testcase | 144 |       | 10 11 (null) 10 11 (null) (null) 0
-@testcase | 145 |       | 5 3 (null) (null) 0 133 3 (null) (null) (null) (null) 0 3 (null) (null) 0
-@testcase | 146 |       | 3 4 5 3 4 5 132
+@testcase | 145 |       | 5 3 (null) (null) 0 typeid-5 3 (null) (null) (null) (null) 0 3 (null) (null) 0
+@testcase | 146 |       | 3 4 5 3 4 5 typeid-4
 @testcase | 147 |       | (null) (null) 100 (null) 100 (null) (null) 0
 @testcase | 158 |       | 123 10 123 5
 @testcase | 160 |       | 101 109
 @testcase | 161 | 9 9   | (null) (null) 0 (null) (null)
-@testcase | 161 | 19 0  | 19 0 129 19 0
+@testcase | 161 | 19 0  | 19 0 typeid-1 19 0
 
 @stderr warning: expression of type `int` can never be `null`, this condition is always true
 @stderr warning: unreachable code

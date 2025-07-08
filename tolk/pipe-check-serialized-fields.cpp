@@ -58,6 +58,11 @@ class CheckSerializedFieldsAndTypesVisitor final : public ASTVisitorFunctionBody
 
   static void check_struct_fits_cell_or_has_policy(const TypeDataStruct* t_struct) {
     StructPtr struct_ref = t_struct->struct_ref;
+    bool avoid_check = struct_ref->is_instantiation_of_generic_struct() && struct_ref->base_struct_ref->name == "UnsafeBodyNoRef";
+    if (avoid_check) {
+      return;
+    }
+
     PackSize size = estimate_serialization_size(t_struct);
     if (size.max_bits > 1023 && !size.is_unpredictable_infinity()) {
       if (struct_ref->overflow1023_policy == StructData::Overflow1023Policy::not_specified) {
@@ -82,16 +87,18 @@ class CheckSerializedFieldsAndTypesVisitor final : public ASTVisitorFunctionBody
     TypePtr serialized_type = nullptr;
     bool is_pack = false;
     if (f_name == "Cell<T>.load" || f_name == "T.fromSlice" || f_name == "T.fromCell" || f_name == "T.toCell" ||
-        f_name == "T.loadAny" || f_name == "slice.skipAny" || f_name == "slice.storeAny" || f_name == "T.estimatePackSize") {
+        f_name == "T.loadAny" || f_name == "slice.skipAny" || f_name == "slice.storeAny" || f_name == "T.estimatePackSize" ||
+        f_name == "createMessage" || f_name == "createExternalLogMessage") {
       serialized_type = fun_ref->substitutedTs->typeT_at(0);
-      is_pack = f_name == "T.toCell" || f_name == "slice.storeAny" || f_name == "T.estimatePackSize";
+      is_pack = f_name == "T.toCell" || f_name == "slice.storeAny" || f_name == "T.estimatePackSize" || f_name == "createMessage" || f_name == "createExternalLogMessage";
     } else {
       return;   // not a serialization function
     }
 
     std::string because_msg;
     if (!check_struct_can_be_packed_or_unpacked(serialized_type, is_pack, because_msg)) {
-      fire(cur_f, v->loc, "auto-serialization via " + fun_ref->method_name + "() is not available for type `" + serialized_type->as_human_readable() + "`\n" + because_msg);
+      std::string via_name = fun_ref->is_method() ? fun_ref->method_name : fun_ref->base_fun_ref->name;
+      fire(cur_f, v->loc, "auto-serialization via " + via_name + "() is not available for type `" + serialized_type->as_human_readable() + "`\n" + because_msg);
     }
 
     check_type_fits_cell_or_has_policy(serialized_type);

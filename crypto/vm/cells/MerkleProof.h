@@ -36,6 +36,7 @@ class MerkleProof {
 
   // cell must have zero level and must be a MerkleProof
   static Ref<Cell> virtualize(Ref<Cell> cell, int virtualization);
+  static td::Result<Ref<Cell>> try_virtualize(Ref<Cell> cell, int virtualization = 1);
 
   static Ref<Cell> combine(Ref<Cell> a, Ref<Cell> b);
   static td::Result<Ref<Cell>> combine_status(Ref<Cell> a, Ref<Cell> b);
@@ -72,6 +73,9 @@ class MerkleProofBuilder {
 
   void set_cell_load_callback(std::function<void(const LoadedCell&)> f) {
     usage_tree->set_cell_load_callback(std::move(f));
+  }
+  const CellUsageTree &get_usage_tree() const {
+    return *usage_tree;
   }
 };
 

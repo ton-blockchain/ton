@@ -150,6 +150,15 @@ fun test8() {
     return (createTFrom(), createTFrom((5, (8, createTFrom().0))));
 }
 
+fun int(initial: int) { return initial }
+fun int.create0() { return 0 }
+fun int.plus1(self) { return self + 1 }
+
+@method_id(109)
+fun test9() {
+    return int(10) + int(5).plus1() + int.create0() + int.create0().plus1();
+}
+
 fun main() {}
 
 /**
@@ -161,4 +170,5 @@ fun main() {}
 @testcase | 106 | 0       | 5 -5 50 -50 0
 @testcase | 107 |         | 16 5
 @testcase | 108 |         | [ 1 2 3 ] [ 5 8 1 ]
+@testcase | 109 |         | 17
  */

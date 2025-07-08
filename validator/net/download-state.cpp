@@ -28,15 +28,17 @@ namespace validator {
 
 namespace fullnode {
 
-DownloadState::DownloadState(BlockIdExt block_id, BlockIdExt masterchain_block_id, adnl::AdnlNodeIdShort local_id,
-                             overlay::OverlayIdShort overlay_id, adnl::AdnlNodeIdShort download_from,
-                             td::uint32 priority, td::Timestamp timeout,
+DownloadState::DownloadState(BlockIdExt block_id, BlockIdExt masterchain_block_id, PersistentStateType type,
+                             adnl::AdnlNodeIdShort local_id, overlay::OverlayIdShort overlay_id,
+                             adnl::AdnlNodeIdShort download_from, td::uint32 priority, td::Timestamp timeout,
                              td::actor::ActorId<ValidatorManagerInterface> validator_manager,
                              td::actor::ActorId<adnl::AdnlSenderInterface> rldp,
                              td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<adnl::Adnl> adnl,
                              td::actor::ActorId<adnl::AdnlExtClient> client, td::Promise<td::BufferSlice> promise)
     : block_id_(block_id)
     , masterchain_block_id_(masterchain_block_id)
+    , type_(type)
+    , effective_shard_(persistent_state_to_effective_shard(block_id_.shard_full(), type))
     , local_id_(local_id)
     , overlay_id_(overlay_id)
     , download_from_(download_from)
@@ -48,6 +50,7 @@ DownloadState::DownloadState(BlockIdExt block_id, BlockIdExt masterchain_block_i
     , adnl_(adnl)
     , client_(client)
     , promise_(std::move(promise)) {
+  CHECK(masterchain_block_id_.is_valid() || effective_shard_ == 0);
 }
 
 void DownloadState::abort_query(td::Status reason) {
@@ -85,7 +88,7 @@ void DownloadState::start_up() {
     td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_zero_state, block_id_, std::move(P));
   } else {
     td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_persistent_state, block_id_,
-                            masterchain_block_id_, std::move(P));
+                            masterchain_block_id_, type_, std::move(P));
   }
 }
 
@@ -128,22 +131,39 @@ void DownloadState::got_block_handle(BlockHandle handle) {
 
 void DownloadState::got_node_to_download(adnl::AdnlNodeIdShort node) {
   download_from_ = node;
-  LOG(WARNING) << "downloading state " << block_id_.to_str() << " from " << download_from_;
+  LOG(WARNING) << "downloading state " << block_id_.to_str() << " ("
+               << persistent_state_type_to_string(block_id_.shard_full(), type_) << ") from " << download_from_;
 
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::BufferSlice> R) mutable {
-    if (R.is_error()) {
-      td::actor::send_closure(SelfId, &DownloadState::abort_query, R.move_as_error());
-    } else {
-      td::actor::send_closure(SelfId, &DownloadState::got_block_state_description, R.move_as_ok());
-    }
-  });
-
+  td::Promise<td::BufferSlice> P;
   td::BufferSlice query;
-  if (masterchain_block_id_.is_valid()) {
-    query = create_serialize_tl_object<ton_api::tonNode_preparePersistentState>(
-        create_tl_block_id(block_id_), create_tl_block_id(masterchain_block_id_));
+
+  if (effective_shard_ == 0) {
+    P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::BufferSlice> R) mutable {
+      if (R.is_error()) {
+        td::actor::send_closure(SelfId, &DownloadState::abort_query, R.move_as_error());
+      } else {
+        td::actor::send_closure(SelfId, &DownloadState::got_block_state_description, R.move_as_ok());
+      }
+    });
+
+    if (masterchain_block_id_.is_valid()) {
+      query = create_serialize_tl_object<ton_api::tonNode_preparePersistentState>(
+          create_tl_block_id(block_id_), create_tl_block_id(masterchain_block_id_));
+    } else {
+      query = create_serialize_tl_object<ton_api::tonNode_prepareZeroState>(create_tl_block_id(block_id_));
+    }
   } else {
-    query = create_serialize_tl_object<ton_api::tonNode_prepareZeroState>(create_tl_block_id(block_id_));
+    P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::BufferSlice> R) mutable {
+      if (R.is_error()) {
+        td::actor::send_closure(SelfId, &DownloadState::abort_query, R.move_as_error());
+      } else {
+        td::actor::send_closure(SelfId, &DownloadState::got_state_size, R.move_as_ok());
+      }
+    });
+
+    query = create_serialize_tl_object<ton_api::tonNode_getPersistentStateSizeV2>(
+        create_tl_object<ton_api::tonNode_persistentStateIdV2>(
+            create_tl_block_id(block_id_), create_tl_block_id(masterchain_block_id_), effective_shard_));
   }
 
   if (client_.empty()) {
@@ -199,6 +219,25 @@ void DownloadState::got_block_state_description(td::BufferSlice data) {
           }));
 }
 
+void DownloadState::got_state_size(td::BufferSlice size_or_not_found) {
+  auto F = fetch_tl_object<ton_api::tonNode_PersistentStateSize>(std::move(size_or_not_found), true);
+  if (F.is_error()) {
+    abort_query(F.move_as_error());
+    return;
+  }
+  prev_logged_timer_ = td::Timer();
+
+  ton_api::downcast_call(*F.move_as_ok().get(),
+                         td::overloaded(
+                             [&](ton_api::tonNode_persistentStateSizeNotFound &f) {
+                               abort_query(td::Status::Error(ErrorCode::notready, "state not found"));
+                             },
+                             [&](ton_api::tonNode_persistentStateSize &f) {
+                               total_size_ = f.size_;
+                               got_block_state_part(td::BufferSlice{}, 0);
+                             }));
+}
+
 void DownloadState::request_total_size() {
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::BufferSlice> R) {
     if (R.is_error()) {
@@ -211,8 +250,15 @@ void DownloadState::request_total_size() {
     td::actor::send_closure(SelfId, &DownloadState::got_total_size, res.ok()->size_);
   });
 
-  td::BufferSlice query = create_serialize_tl_object<ton_api::tonNode_getPersistentStateSize>(
-      create_tl_block_id(block_id_), create_tl_block_id(masterchain_block_id_));
+  td::BufferSlice query;
+  if (effective_shard_ == 0) {
+    query = create_serialize_tl_object<ton_api::tonNode_getPersistentStateSize>(
+        create_tl_block_id(block_id_), create_tl_block_id(masterchain_block_id_));
+  } else {
+    query = create_serialize_tl_object<ton_api::tonNode_getPersistentStateSizeV2>(
+        create_tl_object<ton_api::tonNode_persistentStateIdV2>(
+            create_tl_block_id(block_id_), create_tl_block_id(masterchain_block_id_), effective_shard_));
+  }
   if (client_.empty()) {
     td::actor::send_closure(overlays_, &overlay::Overlays::send_query_via, download_from_, local_id_, overlay_id_,
                             "get size", std::move(P), td::Timestamp::in(3.0), std::move(query),
@@ -279,8 +325,16 @@ void DownloadState::got_block_state_part(td::BufferSlice data, td::uint32 reques
     }
   });
 
-  td::BufferSlice query = create_serialize_tl_object<ton_api::tonNode_downloadPersistentStateSlice>(
-      create_tl_block_id(block_id_), create_tl_block_id(masterchain_block_id_), sum_, part_size);
+  td::BufferSlice query;
+  if (effective_shard_ == 0) {
+    query = create_serialize_tl_object<ton_api::tonNode_downloadPersistentStateSlice>(
+        create_tl_block_id(block_id_), create_tl_block_id(masterchain_block_id_), sum_, part_size);
+  } else {
+    query = create_serialize_tl_object<ton_api::tonNode_downloadPersistentStateSliceV2>(
+        create_tl_object<ton_api::tonNode_persistentStateIdV2>(
+            create_tl_block_id(block_id_), create_tl_block_id(masterchain_block_id_), effective_shard_),
+        sum_, part_size);
+  }
   if (client_.empty()) {
     td::actor::send_closure(overlays_, &overlay::Overlays::send_query_via, download_from_, local_id_, overlay_id_,
                             "download state", std::move(P), td::Timestamp::in(20.0), std::move(query),

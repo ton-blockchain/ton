@@ -255,6 +255,27 @@ EMULATOR_EXPORT const char *tvm_emulator_run_get_method(void *tvm_emulator, int 
 EMULATOR_EXPORT const char *tvm_emulator_emulate_run_method(uint32_t len, const char *params_boc, int64_t gas_limit);
 
 /**
+ * @brief Optimized version of "run get method" with all passed parameters in a single call. Also returns log.
+ * @param len Length of params_boc buffer
+ * @param params_boc BoC serialized parameters, scheme: request$_ code:^Cell data:^Cell stack:^VmStack params:^[c7:^VmStack libs:^Cell] method_id:(## 32)
+ * @param gas_limit Gas limit
+ * @return Pointer to struct with two fields:
+ * - response: Char* with first 4 bytes defining length, and the rest BoC serialized result
+ *         Scheme: result$_ exit_code:(## 32) gas_used:(## 32) stack:^VmStack
+ * - log: Char* with VM log string
+ */
+EMULATOR_EXPORT void *tvm_emulator_emulate_run_method_detailed(uint32_t len, const char *params_boc, int64_t gas_limit);
+
+/**
+ * @brief Destroy detailed result of "tvm_emulator_emulate_run_method_detailed"
+ * @param detailed_result Pointer to detailed result struct returned by "tvm_emulator_emulate_run_method_detailed"
+ * 
+ * Caller should not use string_destroy() for fields of this struct,
+ * as they are already freed in this function.
+ */
+EMULATOR_EXPORT void run_method_detailed_result_destroy(void *detailed_result);
+
+/**
  * @brief Send external message
  * @param tvm_emulator Pointer to TVM emulator
  * @param message_body_boc Base64 encoded BoC serialized message body cell.
@@ -314,6 +335,15 @@ EMULATOR_EXPORT void tvm_emulator_destroy(void *tvm_emulator);
  * @param tvm_emulator Pointer to Config object
  */
 EMULATOR_EXPORT void emulator_config_destroy(void *config);
+
+/**
+ * @brief Destroy string created by emulator library
+ * @param string Pointer to string to destroy
+ * 
+ * This function should be used to free strings returned by emulator library functions.
+ * It is not safe to use caller's free() on them, as they may have been allocated using a different allocator.
+ */
+EMULATOR_EXPORT void string_destroy(const char *string);
 
 /**
  * @brief Get git commit hash and date of the library

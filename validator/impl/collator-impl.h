@@ -227,7 +227,6 @@ class Collator final : public td::actor::Actor {
     vm::ProofStorageStat proof_stat;
     bool add_to_collated_data = false;
     std::vector<Ref<vm::Cell>> storage_stat_updates;
-    td::HashSet<vm::CellHash> original_storage_cells;
   };
   std::map<td::Bits256, AccountStorageDict> account_storage_dicts_;
 
@@ -249,6 +248,9 @@ class Collator final : public td::actor::Actor {
   bool msg_metadata_enabled_ = false;
   bool deferring_messages_enabled_ = false;
   bool store_out_msg_queue_size_ = false;
+
+  std::function<td::Ref<vm::Cell>(const td::Bits256&)> storage_stat_cache_;
+  std::vector<std::pair<td::Ref<vm::Cell>, td::uint32>> storage_stat_cache_update_;
 
   td::PerfWarningTimer perf_timer_;
   td::PerfLog perf_log_;
@@ -272,6 +274,8 @@ class Collator final : public td::actor::Actor {
   void after_get_shard_state(int idx, td::Result<Ref<ShardState>> res, td::PerfLogAction token);
   void after_get_block_data(int idx, td::Result<Ref<BlockData>> res, td::PerfLogAction token);
   void after_get_shard_blocks(td::Result<std::vector<Ref<ShardTopBlockDescription>>> res, td::PerfLogAction token);
+  void after_get_storage_stat_cache(td::Result<std::function<td::Ref<vm::Cell>(const td::Bits256&)>> res,
+                                    td::PerfLogAction token);
   bool preprocess_prev_mc_state();
   bool register_mc_state(Ref<MasterchainStateQ> other_mc_state);
   bool request_aux_mc_state(BlockSeqno seqno, Ref<MasterchainStateQ>& state);
@@ -356,7 +360,7 @@ class Collator final : public td::actor::Actor {
   bool update_account_dict_estimation(const block::transaction::Transaction& trans);
   void update_account_storage_dict_info(const block::transaction::Transaction& trans);
   bool update_min_mc_seqno(ton::BlockSeqno some_mc_seqno);
-  bool process_account_storage_dict(const block::Account& account);
+  bool process_account_storage_dict(block::Account& account);
   bool combine_account_transactions();
   bool update_public_libraries();
   bool update_account_public_libraries(Ref<vm::Cell> orig_libs, Ref<vm::Cell> final_libs, const td::Bits256& addr);

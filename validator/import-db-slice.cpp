@@ -440,8 +440,10 @@ void ArchiveImporter::apply_shard_block_cont1(BlockHandle handle, BlockIdExt mas
   if (handle->id().seqno() == 0) {
     auto P = td::PromiseCreator::lambda(
         [promise = std::move(promise)](td::Result<td::Ref<ShardState>>) mutable { promise.set_value(td::Unit()); });
-    td::actor::create_actor<DownloadShardState>("downloadstate", handle->id(), masterchain_block_id, 2, manager_,
-                                                td::Timestamp::in(3600), std::move(P))
+    td::actor::create_actor<DownloadShardState>(
+        "downloadstate", handle->id(), masterchain_block_id,
+        start_state_->persistent_state_split_depth(handle->id().shard_full().workchain), 2, manager_,
+        td::Timestamp::in(3600), std::move(P))
         .release();
     return;
   }

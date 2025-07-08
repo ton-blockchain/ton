@@ -69,6 +69,16 @@ static void fire_error_mix_and_or_no_parenthesis(SrcLocation loc, std::string_vi
                                  "Use parenthesis to emphasize operator precedence.");
 }
 
+// fire an error "Tolk does not have ++i operator"
+GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
+static void fire_error_no_increment_operator(SrcLocation loc, bool is_increment) {
+  std::string op_name = is_increment ? "increment" : "decrement";
+  std::string op_wrong = is_increment ? "++" : "--";
+  std::string op_right = is_increment ? "+=" : "-=";
+  throw ParseError(loc, std::string("Tolk has no ") + op_name + " operator\n" +
+                        "hint: use `i " + op_right + " 1`, not `i" + op_wrong + "`");
+}
+
 // diagnose when bitwise operators are used in a probably wrong way due to tricky precedence
 // example: "flags & 0xFF != 0" is equivalent to "flags & 1", most likely it's unexpected
 // the only way to suppress this error for the programmer is to use parenthesis
@@ -847,7 +857,7 @@ static AnyExprV parse_expr100(Lexer& lex) {
   }
 }
 
-// parse E(...) and E! having parsed E already (left-to-right)
+// parse E(...) / E! / E++ / E-- having parsed E already (left-to-right)
 static AnyExprV parse_fun_call_postfix(Lexer& lex, AnyExprV lhs) {
   while (true) {
     if (lex.tok() == tok_oppar) {
@@ -855,6 +865,8 @@ static AnyExprV parse_fun_call_postfix(Lexer& lex, AnyExprV lhs) {
     } else if (lex.tok() == tok_logical_not) {
       lex.next();
       lhs = createV<ast_not_null_operator>(lhs->loc, lhs);
+    } else if (lex.tok() == tok_double_plus || lex.tok() == tok_double_minus) {
+      fire_error_no_increment_operator(lex.cur_location(), lex.tok() == tok_double_plus);
     } else {
       break;
     }
@@ -865,7 +877,7 @@ static AnyExprV parse_fun_call_postfix(Lexer& lex, AnyExprV lhs) {
 // parse E(...) and E! (left-to-right)
 static AnyExprV parse_expr90(Lexer& lex) {
   AnyExprV res = parse_expr100(lex);
-  if (lex.tok() == tok_oppar || lex.tok() == tok_logical_not) {
+  if (lex.tok() == tok_oppar || lex.tok() == tok_logical_not || lex.tok() == tok_double_plus || lex.tok() == tok_double_minus) {
     res = parse_fun_call_postfix(lex, res);
   }
   return res;
@@ -892,7 +904,7 @@ static AnyExprV parse_expr80(Lexer& lex) {
       lex.unexpected("method name");
     }
     lhs = createV<ast_dot_access>(loc, lhs, v_ident, v_instantiationTs);
-    if (lex.tok() == tok_oppar || lex.tok() == tok_logical_not) {
+    if (lex.tok() == tok_oppar || lex.tok() == tok_logical_not || lex.tok() == tok_double_plus || lex.tok() == tok_double_minus) {
       lhs = parse_fun_call_postfix(lex, lhs);
     }
   }
@@ -908,6 +920,12 @@ static AnyExprV parse_expr75(Lexer& lex) {
     lex.next();
     AnyExprV rhs = parse_expr75(lex);
     return createV<ast_unary_operator>(loc, operator_name, t, rhs);
+  }
+  if (t == tok_double_minus || t == tok_double_plus) {
+    SrcLocation loc = lex.cur_location();
+    lex.next();
+    parse_expr75(lex);
+    fire_error_no_increment_operator(loc, t == tok_double_plus);
   }
   return parse_expr80(lex);
 }

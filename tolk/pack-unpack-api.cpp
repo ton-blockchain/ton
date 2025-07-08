@@ -135,12 +135,18 @@ public:
       return {};
     }
 
-    // `builder` can be used for writing, but not for reading
+    // `builder` and `slice` can be used for writing, but not for reading
     if (any_type == TypeDataBuilder::create()) {
       if (is_pack) {
         return {};
       }
       return CantSerializeBecause("because type `builder` can not be used for reading, only for writing\nhint: use `bitsN` or `RemainingBitsAndRefs` for reading\nhint: using generics, you can substitute `builder` for writing and something other for reading");
+    }
+    if (any_type == TypeDataSlice::create()) {
+      if (is_pack) {
+        return {};
+      }
+      return CantSerializeBecause("because type `slice` can not be used for reading, it doesn't define binary width\nhint: replace `slice` with `address` if it's an address, actually\nhint: replace `slice` with `bits128` and similar if it represents fixed-width data without refs");
     }
 
     // serialization not available
@@ -148,9 +154,6 @@ public:
 
     if (any_type == TypeDataInt::create()) {
       return CantSerializeBecause("because type `int` is not serializable, it doesn't define binary width\nhint: replace `int` with `int32` / `uint64` / `coins` / etc.");
-    }
-    if (any_type == TypeDataSlice::create()) {
-      return CantSerializeBecause("because type `slice` is not serializable, it doesn't define binary width\nhint: replace `slice` with `address` if it's an address, actually\nhint: replace `slice` with `bits128` and similar if it represents fixed-width data without refs");
     }
     if (any_type == TypeDataNullLiteral::create()) {
       return CantSerializeBecause("because type `null` is not serializable\nhint: `int32?` and other nullable types will work");

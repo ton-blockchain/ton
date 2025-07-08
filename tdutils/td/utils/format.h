@@ -179,11 +179,12 @@ inline StringBuilder &operator<<(StringBuilder &logger, Time t) {
     double value;
   };
 
-  static constexpr NamedValue durations[] = {{"ns", 1e-9}, {"us", 1e-6}, {"ms", 1e-3}, {"s", 1}};
+  static constexpr NamedValue durations[] = {{"ns", 1e-9}, {"us", 1e-6}, {"ms", 1e-3},
+                                             {"s", 1},     {"h", 3600},  {"d", 86400}};
   static constexpr size_t durations_n = sizeof(durations) / sizeof(NamedValue);
 
   size_t i = 0;
-  while (i + 1 < durations_n && t.seconds_ > 10 * durations[i + 1].value) {
+  while (i + 1 < durations_n && std::abs(t.seconds_) > 10 * durations[i + 1].value) {
     i++;
   }
   logger << StringBuilder::FixedDouble(t.seconds_ / durations[i].value, 1) << durations[i].name;

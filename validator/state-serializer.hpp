@@ -27,6 +27,11 @@ namespace ton {
 
 namespace validator {
 
+struct SerializablePart {
+  PersistentStateType type;
+  td::Ref<vm::Cell> cell;
+};
+
 class AsyncStateSerializer : public td::actor::Actor {
  private:
   td::uint32 attempt_ = 0;
@@ -52,13 +57,18 @@ class AsyncStateSerializer : public td::actor::Actor {
   bool stored_persistent_state_description_ = false;
   bool have_masterchain_state_ = false;
 
-  std::vector<BlockIdExt> shards_;
+  struct ShardSerializationConfig {
+    BlockIdExt block_id;
+    td::uint32 split_depth;
+  };
+  std::vector<ShardSerializationConfig> shards_;
   struct PreviousStateCache {
     std::vector<std::pair<std::string, ShardIdFull>> state_files;
     std::shared_ptr<vm::CellHashSet> cache;
     std::vector<ShardIdFull> cur_shards;
 
-    void prepare_cache(ShardIdFull shard);
+    void prepare_cache(ShardIdFull shard, PersistentStateType type);
+    void add_new_cells(vm::CellDbReader& reader, Ref<vm::Cell> const& cell);
   };
   std::shared_ptr<PreviousStateCache> previous_state_cache_;
 
@@ -93,6 +103,8 @@ class AsyncStateSerializer : public td::actor::Actor {
   void stored_masterchain_state();
   void got_shard_handle(BlockHandle handle);
   void got_shard_state(BlockHandle handle, td::Ref<ShardState> state, std::shared_ptr<vm::CellDbReader> cell_db_reader);
+  void write_shard_state(BlockHandle handle, ShardIdFull shard, std::shared_ptr<vm::CellDbReader> cell_db_reader,
+                         std::shared_ptr<std::vector<SerializablePart>> parts, size_t idx);
 
   void get_masterchain_seqno(td::Promise<BlockSeqno> promise) {
     promise.set_result(last_block_id_.id.seqno);

@@ -59,8 +59,8 @@ class CellUsageTree : public std::enable_shared_from_this<CellUsageTree> {
   bool has_mark(NodeId node_id) const;
   void set_mark(NodeId node_id, bool mark = true);
   void mark_path(NodeId node_id);
-  NodeId get_parent(NodeId node_id);
-  NodeId get_child(NodeId node_id, unsigned ref_id);
+  NodeId get_parent(NodeId node_id) const;
+  NodeId get_child(NodeId node_id, unsigned ref_id) const;
   void set_use_mark_for_is_loaded(bool use_mark = true);
   NodeId create_child(NodeId node_id, unsigned ref_id);
 

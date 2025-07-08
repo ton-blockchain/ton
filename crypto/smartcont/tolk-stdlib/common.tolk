@@ -1,7 +1,7 @@
 // Standard library for Tolk (LGPL licence).
 // It contains common functions that are available out of the box, the user doesn't have to import anything.
 // More specific functions are required to be imported explicitly, like "@stdlib/tvm-dicts".
-tolk 0.13
+tolk 0.99
 
 /// In Tolk v1.x there would be a type `map<K,V>`.
 /// Currently, working with dictionaries is still low-level, with raw cells.
@@ -364,6 +364,11 @@ fun Cell<T>.load(self, options: UnpackOptions = {}): T
 fun Cell<T>.beginParse(self): slice
     asm "CTOS";
 
+/// Returns hash of a typed cell, same as [cell.hash].
+@pure
+fun Cell<T>.hash(self): slice
+    asm "HASHCU";
+
 /// RemainingBitsAndRefs is a special built-in type to get "all the rest" slice tail on reading.
 /// Example:
 /// ```
@@ -664,7 +669,7 @@ fun slice.loadBool(mutate self): bool
 /// Shifts a slice pointer to [len] bits forward, mutating the slice.
 @pure
 fun slice.skipBits(mutate self, len: int): self
-    asm "SDSKIPFIRST";
+    builtin;
 
 /// Returns the first `0 ≤ len ≤ 1023` bits of a slice.
 @pure
@@ -680,6 +685,12 @@ fun slice.removeLastBits(mutate self, len: int): self
 @pure
 fun slice.getLastBits(self, len: int): slice
     asm "SDCUTLAST";
+
+/// Returns `0 ≤ len ≤ 1023` bits of a slice starting from `0 ≤ offset ≤ 1023`.
+/// (in other words, extracts a bit substring `[offset, len)` out of the slice)
+@pure
+fun slice.getMiddleBits(self, offset: int, len: int): slice
+    asm "SDSUBSTR";
 
 /// Loads a dictionary (TL HashMapE structure, represented as TVM cell) from a slice.
 /// Returns `null` if `nothing` constructor is used.
@@ -758,13 +769,13 @@ fun builder.storeAddress(mutate self, addr: address): self
 /// Stores amount of Toncoins into a builder.
 @pure
 fun builder.storeCoins(mutate self, x: coins): self
-    asm "STGRAMS";
+    builtin;
 
 /// Stores bool (-1 or 0) into a builder.
 /// Attention: true value is `-1`, not 1! If you pass `1` here, TVM will throw an exception.
 @pure
 fun builder.storeBool(mutate self, x: bool): self
-    asm(x self) "1 STI";
+    builtin;
 
 /// Stores dictionary (represented by TVM `cell` or `null`) into a builder.
 /// In other words, stores a `1`-bit and a reference to [c] if [c] is not `null` and `0`-bit otherwise.
@@ -884,7 +895,7 @@ fun builder.bitsCount(self): int
 fun address(stdAddress: slice): address
     builtin;
 
-/// Creates a slice representing TL addr_none$00 (two `0` bits).
+/// Creates a slice representing "none address" (TL addr_none$00 — two zero bits).
 @pure
 fun createAddressNone(): address
     asm "b{00} PUSHSLICE";
@@ -965,61 +976,13 @@ fun reserveExtraCurrenciesOnBalance(nanoTonCoins: coins, extraAmount: dict, rese
 
 
 /**
-  Messages sending and parsing primitives.
-  Working with messages is low-level right now, but still, every contract should do that.
-
-  `Message` structure, its header and so on are specified in TL-B scheme, particularly:
-  int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool ... = CommonMsgInfo;
+    Creating and sending messages.
+    Basic scenario:
+    ```
+    val outMsg = createMessage({ ... options });   // you get OutMessage
+    outMsg.send(mode);
+    ```
  */
-
-/// 0b011000 tag - 0, ihr_disabled - 1, bounce - 1, bounced - 0, src = adr_none$00
-const BOUNCEABLE = 0x18;
-/// 0b010000 tag - 0, ihr_disabled - 1, bounce - 0, bounced - 0, src = adr_none$00
-const NON_BOUNCEABLE = 0x10;
-
-/// Load msgFlags from incoming message body (4 bits).
-@pure
-fun slice.loadMessageFlags(mutate self): int
-    asm( -> 1 0) "4 LDU";
-
-/// Having msgFlags (4 bits), check that a message is bounced.
-/// Effectively, it's `msgFlags & 1` (the lowest bit present).
-@pure
-fun isMessageBounced(msgFlags: int): bool
-    asm "2 PUSHINT" "MODR";
-
-/// Skip 0xFFFFFFFF prefix (when a message is bounced).
-@pure
-fun slice.skipBouncedPrefix(mutate self): self
-    asm "32 PUSHINT" "SDSKIPFIRST";
-
-/// The guideline recommends to start the body of an internal message with uint32 `op` and uint64 `queryId`.
-@pure
-fun slice.loadMessageOp(mutate self): int
-    asm( -> 1 0) "32 LDU";
-
-@pure
-fun slice.skipMessageOp(mutate self): self
-    asm "32 PUSHINT" "SDSKIPFIRST";
-
-@pure
-fun builder.storeMessageOp(mutate self, op: int): self
-    asm(op self) "32 STU";
-
-/// The guideline recommends that uint64 `queryId` should follow uint32 `op`.
-@pure
-fun slice.loadMessageQueryId(mutate self): int
-    asm( -> 1 0) "64 LDU";
-
-@pure
-fun slice.skipMessageQueryId(mutate self): self
-    asm "64 PUSHINT" "SDSKIPFIRST";
-
-@pure
-fun builder.storeMessageQueryId(mutate self, queryId: int): self
-    asm(queryId self) "64 STU";
-
-/// SEND MODES - https://docs.ton.org/tvm.pdf page 137, SENDRAWMSG
 
 /// mode = 0 is used for ordinary messages; the gas fees are deducted from the senging amount; action phaes should NOT be ignored.
 const SEND_MODE_REGULAR = 0;
@@ -1041,13 +1004,301 @@ const SEND_MODE_ESTIMATE_FEE_ONLY = 1024;
 /// +64 substitutes the entire balance of the incoming message as an outcoming value (slightly inaccurate, gas expenses that cannot be estimated before the computation is completed are not taken into account).
 /// +128 substitutes the value of the entire balance of the contract before the start of the computation phase (slightly inaccurate, since gas expenses that cannot be estimated before the completion of the computation phase are not taken into account).
 
+type ExtraCurrenciesDict = dict;
+
+/// ContractState is "code + data" of a contract.
+/// Used in outgoing messages (StateInit) to initialize a destination contract.
+struct ContractState {
+    code: cell;
+    data: cell;
+}
+
+/// AddressShardingOptions provides settings to calculate an address in another shard.
+/// Consider [createMessage] and [address.buildSameAddressInAnotherShard] for usage.
+struct AddressShardingOptions {
+    fixedPrefixLength: uint5;       // shard depth, formerly splitDepth
+    closeTo: address;
+}
+
+/// AutoDeployAddress is a destination that initializes a receiver contract if it does not exist yet.
+/// In order to do this, it contains StateInit — and calculates an address by a hash of StateInit.
+/// Example:
+/// ```
+/// createMessage({
+///     dest: {
+///         workchain: 0,
+///         stateInit: {
+///             code: jettonWalletCode,
+///             data: jettonWalletEmptyStorage.toCell()
+///         }
+///     },
+///     ...
+/// ```
+/// It's often called "deployment", but it's inaccurate. TON Blockchain doesn't have a dedicated
+/// deployment mechanism. You just send a message to some address — and if it doesn't exist, but you've
+/// attached a way to initialize it (code+data) — it's initialized immediately, and accepts your message.
+/// You just provide code+data, and the compiler automatically calculates the destination address,
+/// because in TON, the address of a contract, by definition, is a hash of its initial state.
+struct AutoDeployAddress {
+    workchain: int8 = BASECHAIN;
+    stateInit: ContractState | cell;
+    toShard: AddressShardingOptions? = null;
+}
+
+/// Options for creating an outgoing message.
+/// Consider [createMessage] for examples.
+struct CreateMessageOptions<TBody = never> {
+    /// whether a message will bounce back on error
+    bounce: bool;
+    /// message value: attached tons (or tons + extra currencies)
+    value: coins | (coins, ExtraCurrenciesDict);
+    /// destination is either a provided address, or is auto-calculated by stateInit
+    dest: address |             // either just send a message to some address
+          builder |             // ... or a manually constructed builder with a valid address
+          (int8, uint256) |     // ... or to workchain + hash (also known as accountID)
+          AutoDeployAddress;    // ... or "send to stateInit" aka deploy (address auto-calculated)
+    /// body is any serializable object (or just miss this field for empty body)
+    body: TBody;
+}
+
+/// Creates a message (`OutMessage`) — a well-formatted message cell.
+/// Typically, you just send it. In advanced scenarios, you can estimate fees or even postpone sending.
+/// Example:
+/// ```
+/// val reply = createMessage({
+///     bounce: false,
+///     value: ton("0.05"),
+///     dest: senderAddress,
+///     body: RequestedInfo { ... }        // note: no `toCell`! just pass an object
+/// });
+/// reply.send(SEND_MODE_REGULAR);
+/// ```
+/// Hint: don't call `body.toCell()`, pass `body` directly!
+///       (if body is small, it will be inlined without an expensive cell creation)
+///       (if body is large, the compiler will automatically wrap it into a cell)
+/// If you need an empty body, just miss the field `body`, fill other 3 fields.
+@pure
+fun createMessage<TBody>(options: CreateMessageOptions<TBody>): OutMessage
+    builtin;
+
+
+/// ExtOutLogBucket is a variant of a custom external address for emitting logs "to the outer world".
+/// It includes some "topic" (arbitrary number), that determines the format of the message body.
+/// For example, you emit "deposit event" (reserving topic "deposit" = 123):
+/// > `dest: ExtOutLogBucket { topic: 123 }, body: DepositData { ... }`
+/// and external indexers can index your emitted logs by destination address without parsing body.
+/// Currently, external messages are used only for emitting logs (for viewing them in indexers).
+/// In the future, there might be
+/// > 0x01 ExtOutOffchainContract { adnl: uint256 | bits256 }
+/// Serialization details: '01' (addr_extern) + 256 (len) + 0x00 (prefix) + 248 bits = 267 in total
+struct (0x00) ExtOutLogBucket {
+    topic: uint248 | bits248;
+}
+
+/// Options for creating an external outgoing message.
+/// Consider [createExternalLogMessage] for examples.
+struct createExternalLogMessageOptions<TBody = never> {
+    /// destination is either an external address or a pattern to calculate it
+    dest: address |         // either some valid external/none address (not internal!)
+          builder |         // ... or a manually constructed builder with a valid external address
+          ExtOutLogBucket;  // ... or encode topic/eventID in destination
+    /// body is any serializable object (or just miss this field for empty body)
+    body: TBody;
+}
+
+/// Creates an external message (`OutMessage`) — a well-formatted message cell.
+/// Typically, you just send it. In advanced scenarios, you can estimate fees or even postpone sending.
+/// Example:
+/// ```
+/// val emitMsg = createExternalLogMessage({
+///     dest: createAddressNone(),
+///     body: DepositEvent { ... }        // note: no `toCell`! just pass an object
+/// });
+/// emitMsg.send(SEND_MODE_REGULAR);
+/// ```
+/// Note: `createMessage` also returns `OutMessage`, it's okay: a composed message cell is universal.
+/// Hint: don't call `body.toCell()`, pass `body` directly!
+///       (if body is small, it will be inlined without an expensive cell creation)
+///       (if body is large, the compiler will automatically wrap it into a cell)
+@pure
+fun createExternalLogMessage<TBody>(options: createExternalLogMessageOptions<TBody>): OutMessage
+    builtin;
+
+/// UnsafeBodyNoRef is used to prevent default behavior: when message body is potentially large,
+/// it's packed into a separate ref. Wrapping body with this struct tells the compiler:
+/// "inline message body in-place, I guarantee it will fit".
+/// Example:
+/// ```
+/// struct ProbablyLarge { a: (coins, coins, coins, coins, coins) }  // max 620 bits
+///
+/// val contents: ProbablyLarge = { ... };  // you are sure: values are small
+/// createMessage({
+///     // body: contents,                  // by default, it will be stored a ref (it's large)
+///     body: UnsafeBodyNoRef {
+///         bodyForceNoRef: contents,       // but wrapping forces the compiler to inline it
+///     }
+/// ```
+/// Another example: your body contains `builder` or `RemainingBitsAndRefs`: unpredictable size.
+/// If you guarantee it's small and refs won't clash with code/data, avoid creating a cell.
+struct UnsafeBodyNoRef<T> {
+    bodyForceNoRef: T;
+}
+
+/// OutMessage is a result of [createMessage].
+/// Essentially, it's a composed message cell, ready to be sent.
+struct OutMessage {
+    messageCell: cell;
+}
+
+/// Sends a ready message cell.
+/// For `sendMode`, see the constants above (SEND_MODE_*).
+fun OutMessage.send(self, sendMode: int): void
+    asm "SENDRAWMSG";
+
+fun OutMessage.sendAndEstimateFee(self, sendMode: int): coins
+    asm "SENDMSG";
+
+@pure
+fun OutMessage.estimateFeeWithoutSending(self, sendMode: int): coins
+    asm "10 PUSHPOW2" "OR" "SENDMSG";
+
+@pure
+fun OutMessage.hash(self): uint256
+    asm "HASHCU";
+
+
+/// StateInit is a "canonical TL/B representation from block.tlb" of a contract initial state.
+/// But for everyday tasks, it's too complicated. It is not used in practice.
+/// To represent code+data, consider [ContractState].
+/// To represent sharding (fixedPrefixLength, formerly splitDepth), consider [AutoDeployAddress].
+struct StateInit {
+    fixedPrefixLength: uint5?;
+    special: (bool, bool)?;
+    code: cell?;
+    data: cell?;
+    library: cell?;
+}
+
+/// Calculates a hash of StateInit if only code+data are set.
+@pure
+fun StateInit.calcHashCodeData(code: cell, data: cell): uint256 asm
+"""                 // code data
+    DUP2            // code data code data
+    HASHCU
+    SWAP
+    HASHCU          // code data dataHash codeHash
+    SWAP2           // dataHash codeHash code data
+    CDEPTH
+    SWAP
+    CDEPTH          // dataHash codeHash dataDepth codeDepth
+
+    NEWC
+    x{020134} STSLICECONST // store refs_descriptor | bits_descriptor | data
+    16 STU                 // store codeDepth
+    16 STU                 // store dataDepth
+    256 STU                // store codeHash
+    256 STU                // store dataHash
+
+    ONE HASHEXT_SHA256
+""";
+
+/// Calculates a hash of StateInit if fixedPrefixLength+code+data are set.
+@pure
+fun StateInit.calcHashPrefixCodeData(fixedPrefixLength: uint5, code: cell, data: cell): uint256 asm
+"""                 // pDepth code data
+    DUP2            // pDepth code data code data
+    HASHCU
+    SWAP
+    HASHCU          // pDepth code data dataHash codeHash
+    SWAP2           // pDepth dataHash codeHash code data
+    CDEPTH
+    SWAP
+    CDEPTH          // pDepth dataHash codeHash dataDepth codeDepth
+
+    s4 PUSH         // pDepth dataHash codeHash dataDepth codeDepth pDepth
+    10 LSHIFT#
+    0x020381A0 PUSHINT
+    ADD             // calc refs_descriptor | bits_descriptor | data
+
+    NEWC
+    32 STU
+    16 STU
+    16 STU
+    256 STU
+    256 STU
+
+    ONE HASHEXT_SHA256     // pDepth hash
+    NIP
+""";
+
+
+/// Given an internal address A="aaaa...a" returns "bbaa...a" (D bits from address B, 256-D from A).
+/// Example for fixedPrefixLength (shard depth) = 8:
+/// | self (A)     | aaaaaaaaaaa...aaa |
+/// | closeTo (B)  | 01010101bbb...bbb |   shardPrefix = 01010101 (depth 8)
+/// | result       | 01010101aaa...aaa |   address of A in same shard as B
+/// More precisely, self (input) is 267 bits: '100' (std addr no anycast) + workchainA + "aaaa...a".
+/// The result is also 267 bits: '100' + workchainB + "bb" (D bits) + "aa...a" (256-D bits).
+/// Note: returns `builder`, not `address`! Because builder is cheap, and you can send a message to it:
+/// ```
+/// createMessage({
+///     dest: resBuilder, // a builder containing a valid address can be passed to createMessage()
+///     ...
+/// ```
+/// If you really need `address`, use `address.fromValidBuilder(resBuilder)`.
+@pure
+fun address.buildSameAddressInAnotherShard(self, options: AddressShardingOptions): builder
+    builtin;
+
+/// Converts a builder containing a valid address (internal/external/none) to `address` (slice under the hood).
+/// Gas-expensive! Because or a cell creation: essentially, it's `b.endCell().beginParse()`.
+/// Example: you've manually built a 267-bit address: '100' (std addr no anycast) + workchain + hash
+///          and you want to return `address` (TVM slice) from a contract getter:
+/// ```
+/// get calcWalletAddress(ownerAddress: address): address {
+///     val b = calculate(...);             // manually calculate into builder
+///     return address.fromValidBuilder(b)  // but really need address
+/// }
+/// ```
+/// Hint: if you want just to send a message, don't call this function, use a builder directly:
+/// ```
+/// createMessage({
+///     dest: someBuilder,   // a builder containing a valid address can be passed to createMessage()
+///     ...                  // so, don't call this expensive function in this case
+/// ```
+@pure
+fun address.fromValidBuilder(b: builder): address
+    asm "ENDC" "CTOS";
+
+
 /// Sends a raw message — a correctly serialized TL object `Message X`.
-/// For `mode`, see constants above (except SEND_MODE_ESTIMATE_FEE_ONLY).
+/// In practice, you'll use a high-level wrapper [createMessage].
 fun sendRawMessage(msg: cell, mode: int): void
     asm "SENDRAWMSG";
 
-/// Creates an output action and returns a fee for creating a message.
-/// Mode has the same effect as in the case of SENDRAWMSG.
-/// For mode including SEND_MODE_ESTIMATE_FEE_ONLY it just returns estimated fee without sending a message.
-fun sendMessage(msg: cell, mode: int): int
-    asm "SENDMSG";
+
+
+/**
+    Receiving and handling messages.
+*/
+
+/// Load msgFlags from incoming message body (4 bits).
+@pure
+fun slice.loadMessageFlags(mutate self): int
+    asm( -> 1 0) "4 LDU";
+
+/// Skip 0xFFFFFFFF prefix (when a message is bounced).
+@pure
+fun slice.skipBouncedPrefix(mutate self): self
+    asm "32 PUSHINT" "SDSKIPFIRST";
+
+/// The guideline recommends to start the body of an internal message with uint32 `op` and uint64 `queryId`.
+@pure
+fun slice.loadMessageOp(mutate self): int
+    asm( -> 1 0) "32 LDU";
+
+/// The guideline recommends that uint64 `queryId` should follow uint32 `op`.
+@pure
+fun slice.loadMessageQueryId(mutate self): int
+    asm( -> 1 0) "64 LDU";
+

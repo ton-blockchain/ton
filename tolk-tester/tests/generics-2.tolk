@@ -451,15 +451,15 @@ fun main(c: Wrapper<slice>, d: WrappedInt) {
 @testcase | 104 |         | 11 11 13 13 13 2
 @testcase | 105 | 0       | 80
 @testcase | 105 | -1      | (null)
-@testcase | 106 |         | (null) (null) 0 777 1 2 142
+@testcase | 106 |         | (null) (null) 0 777 1 2 typeid-14
 @testcase | 107 | 5       | 20 20 5 5 20 777 (null) (null) (null) 0
-@testcase | 108 | 0       | 777 143 777 143
+@testcase | 108 | 0       | 777 typeid-15 777 typeid-15
 @testcase | 108 | -1      | 777 0 777 0
 @testcase | 109 |         | 40 40 70
 @testcase | 110 |         | 20 1 20 42
-@testcase | 111 |         | 5 1 132 5 1 132 5 1 132 5 1 132 
-@testcase | 112 | -1      | 10 1 777 10 1 133
-@testcase | 112 | 0       | 20 1 777 (null) 0 134
+@testcase | 111 |         | 5 1 typeid-4 5 1 typeid-4 5 1 typeid-4 5 1 typeid-4
+@testcase | 112 | -1      | 10 1 777 10 1 typeid-5
+@testcase | 112 | 0       | 20 1 777 (null) 0 typeid-6
 @testcase | 113 |         | 30 -1
 @testcase | 114 |         | 999 (null) 2
 @testcase | 115 |         | 10 0 200 1 -1 200 1 -1
@@ -467,7 +467,7 @@ fun main(c: Wrapper<slice>, d: WrappedInt) {
 @testcase | 117 |         | 100 123
 @testcase | 118 |         | 123 1 777 123 1 -1 2
 @testcase | 119 |         | 40 40 -1 -1 -1 -1
-@testcase | 120 |         | (null) 137 777 (null) (null) 0 139 -1 -1
+@testcase | 120 |         | (null) typeid-9 777 (null) (null) 0 typeid-11 -1 -1
 @testcase | 123 |         | 10 10 10 10 10
 
 

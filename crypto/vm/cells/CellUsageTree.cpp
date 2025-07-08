@@ -99,11 +99,11 @@ void CellUsageTree::mark_path(NodeId node_id) {
   }
 }
 
-CellUsageTree::NodeId CellUsageTree::get_parent(NodeId node_id) {
+CellUsageTree::NodeId CellUsageTree::get_parent(NodeId node_id) const {
   return nodes_[node_id].parent;
 }
 
-CellUsageTree::NodeId CellUsageTree::get_child(NodeId node_id, unsigned ref_id) {
+CellUsageTree::NodeId CellUsageTree::get_child(NodeId node_id, unsigned ref_id) const {
   DCHECK(ref_id < CellTraits::max_refs);
   return nodes_[node_id].children[ref_id];
 }

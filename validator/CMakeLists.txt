@@ -59,6 +59,7 @@ set(VALIDATOR_HEADERS
   import-db-slice-local.hpp
   queue-size-counter.hpp
   validator-telemetry.hpp
+  storage-stat-cache.hpp
   shard-block-verifier.hpp
   shard-block-retainer.hpp
 
@@ -93,6 +94,7 @@ set(VALIDATOR_SOURCE
   validator-options.cpp
   queue-size-counter.cpp
   validator-telemetry.cpp
+  storage-stat-cache.cpp
   shard-block-verifier.cpp
   shard-block-retainer.cpp
 

@@ -422,7 +422,12 @@ void TestNode::got_server_mc_block_id(ton::BlockIdExt blkid, ton::ZeroStateIdExt
   }
   td::TerminalIO::out() << "latest masterchain block known to server is " << blkid.to_str();
   if (created > 0) {
-    td::TerminalIO::out() << " created at " << created << " (" << now() - created << " seconds ago)\n";
+    auto time = now();
+    if (time >= created) {
+      td::TerminalIO::out() << " created at " << created << " (" << time - created << " seconds ago)\n";
+    } else {
+        td::TerminalIO::out() << " created at " << created << " (" << created - time << " seconds in the future)\n";
+    }
   } else {
     td::TerminalIO::out() << "\n";
   }

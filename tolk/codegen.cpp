@@ -508,7 +508,13 @@ bool Op::generate_code_step(Stack& stack) {
         if (f_sym->is_asm_function()) {
           std::get<FunctionBodyAsm*>(f_sym->body)->compile(stack.o, loc);  // compile res := f (args)
         } else {
+          if (arg_order_already_equals_asm()) {
+            maybe_swap_builtin_args_to_compile();
+          }
           std::get<FunctionBodyBuiltin*>(f_sym->body)->compile(stack.o, res, args, loc);  // compile res := f (args)
+          if (arg_order_already_equals_asm()) {
+            maybe_swap_builtin_args_to_compile();
+          }
         }
       } else {
         if (f_sym->is_inline() || f_sym->is_inline_ref()) {
