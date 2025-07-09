@@ -1640,7 +1640,7 @@ bool Transaction::unpack_msg_state(const ComputePhaseConfig& cfg, bool lib_only,
   if (forbid_public_libs) {
     size_limits.max_acc_public_libraries = 0;
   }
-  auto S = check_state_limits(size_limits, false);
+  auto S = check_state_limits(size_limits, cfg.global_version, false);
   if (S.is_error()) {
     LOG(DEBUG) << "Cannot unpack msg state: " << S.move_as_error();
     new_code = old_code;
@@ -2046,7 +2046,7 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
     if (account.is_special) {
       return 1;
     }
-    auto S = check_state_limits(cfg.size_limits);
+    auto S = check_state_limits(cfg.size_limits, cfg.global_version);
     if (S.is_error()) {
       if (S.code() != AccountStorageStat::errorcode_limits_exceeded) {
         LOG(ERROR) << "Account storage stat error: " << S.move_as_error();
@@ -3175,6 +3175,7 @@ static td::uint32 get_public_libraries_diff_count(const td::Ref<vm::Cell>& old_l
  * This function is not called for special accounts.
  *
  * @param size_limits The size limits configuration.
+ * @param global_version Global version (ConfigParam 8).
  * @param is_account_stat Store storage stat in the Transaction's AccountStorageStat.
  *
  * @returns A `td::Status` indicating the result of the check.
@@ -3182,7 +3183,8 @@ static td::uint32 get_public_libraries_diff_count(const td::Ref<vm::Cell>& old_l
  *          - If the state limits exceed the maximum allowed range, returns an error with AccountStorageStat::errorcode_limits_exceeded code.
  *          - If an error occurred during storage stat calculation, returns other error.
  */
-td::Status Transaction::check_state_limits(const SizeLimitsConfig& size_limits, bool is_account_stat) {
+td::Status Transaction::check_state_limits(const SizeLimitsConfig& size_limits, int global_version,
+                                           bool is_account_stat) {
   auto cell_equal = [](const td::Ref<vm::Cell>& a, const td::Ref<vm::Cell>& b) -> bool {
     return a.is_null() || b.is_null() ? a.is_null() == b.is_null() : a->get_hash() == b->get_hash();
   };
@@ -3213,13 +3215,12 @@ td::Status Transaction::check_state_limits(const SizeLimitsConfig& size_limits, 
     }
   }
 
-  if (storage_stat.get_total_cells() > size_limits.max_acc_state_cells ||
-      storage_stat.get_total_bits() > size_limits.max_acc_state_bits) {
+  td::uint32 max_cells = account.is_masterchain() && global_version >= 12 ? size_limits.max_mc_acc_state_cells
+                                                                          : size_limits.max_acc_state_cells;
+  if (storage_stat.get_total_cells() > max_cells) {
     return td::Status::Error(AccountStorageStat::errorcode_limits_exceeded,
                              PSTRING() << "account state is too big: cells=" << storage_stat.get_total_cells()
-                                       << ", bits=" << storage_stat.get_total_bits()
-                                       << " (max cells=" << size_limits.max_acc_state_cells
-                                       << ", max bits=" << size_limits.max_acc_state_bits << ")");
+                                       << " (max cells=" << max_cells << ")");
   }
   if (account.is_masterchain() && !cell_equal(account.library, new_library)) {
     auto libraries_count = get_public_libraries_count(new_library);
@@ -4178,6 +4179,7 @@ td::Status FetchConfigParams::fetch_config_params(
     action_phase_cfg->extra_currency_v2 = config.get_global_version() >= 10;
     action_phase_cfg->disable_anycast = config.get_global_version() >= 10;
     action_phase_cfg->disable_ihr_flag = config.get_global_version() >= 11;
+    action_phase_cfg->global_version = config.get_global_version();
   }
   {
     serialize_cfg->extra_currency_v2 = config.get_global_version() >= 10;

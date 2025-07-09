@@ -237,3 +237,7 @@ This is required to help computing storage stats in the future, after collator-v
 
 ### Other TVM changes
 - `HASHSU` (`s - hash`) now does not spend gas for cell creation. Gas cost: `26`.
+
+### Other changes
+- Account size in masterchain is now limited to `2048` cells. This can be configured in size limits config (`ConfigParam 43`).
+  - The previous limit was the same as in basechain (`65536`).

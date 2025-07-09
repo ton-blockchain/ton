@@ -1074,6 +1074,7 @@ bool ValidateQuery::fetch_config_params() {
     action_phase_cfg_.extra_currency_v2 = config_->get_global_version() >= 10;
     action_phase_cfg_.disable_anycast = config_->get_global_version() >= 10;
     action_phase_cfg_.disable_ihr_flag = config_->get_global_version() >= 11;
+    action_phase_cfg_.global_version = config_->get_global_version();
   }
   {
     serialize_cfg_.extra_currency_v2 = config_->get_global_version() >= 10;

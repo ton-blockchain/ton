@@ -398,7 +398,7 @@ struct SizeLimitsConfig {
   td::uint16 max_vm_data_depth = 512;
   ExtMsgLimits ext_msg_limits;
   td::uint32 max_acc_state_cells = 1 << 16;
-  td::uint32 max_acc_state_bits = (1 << 16) * 1023;
+  td::uint32 max_mc_acc_state_cells = 1 << 11;  // enabled in global version 12
   td::uint32 max_acc_public_libraries = 256;
   td::uint32 defer_out_queue_size_limit = 256;
   td::uint32 max_msg_extra_currencies = 2;

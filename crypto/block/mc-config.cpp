@@ -2040,8 +2040,8 @@ td::Result<SizeLimitsConfig> Config::do_get_size_limits_config(td::Ref<vm::CellS
 
   auto unpack_v2 = [&](auto& rec) {
     unpack_v1(rec);
-    limits.max_acc_state_bits = rec.max_acc_state_bits;
     limits.max_acc_state_cells = rec.max_acc_state_cells;
+    limits.max_mc_acc_state_cells = rec.max_mc_acc_state_cells;
     limits.max_acc_public_libraries = rec.max_acc_public_libraries;
     limits.defer_out_queue_size_limit = rec.defer_out_queue_size_limit;
     limits.max_msg_extra_currencies = rec.max_msg_extra_currencies;
