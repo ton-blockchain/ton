@@ -144,6 +144,7 @@ Example: if the last masterchain block seqno is `19071` then the list contains b
 - Fix recursive jump to continuations with non-null control data.
 
 ## Version 10
+__Enabled in mainnet on 2025-05-07__
 
 ### Extra currencies
 - Internal messages cannot carry more than 2 different extra currencies. The limit can be changed in size limits config (`ConfigParam 43`).
@@ -194,6 +195,7 @@ Reserve modes `+1`, `+4` and `+8` ("reserve all except", "add original balance" 
 - Exceeding state limits in transaction now reverts `end_lt` back to `start_lt + 1` and collects action fines.
 
 ## Version 11
+__Enabled in mainnet on 2025-07-05__
 
 ### c7 tuple
 **c7** tuple extended from 17 to 18 elements:
@@ -226,3 +228,11 @@ This is required to help computing storage stats in the future, after collator-v
 ### Other changes
 - Fix returning `null` as `c4` and `c5` (when VM state is not committed) in `RUNVM`.
 - In new internal messages `ihr_disabled` is automatically set to `1`, `ihr_fee` is always zero.
+
+## Version 12
+
+### New TVM instructions
+- `BTOS` (`b - s`) - same as `ENDC CTOS`, but without gas cost for cell creation and loading. Gas cost: `26`.
+
+### Other TVM changes
+- `HASHSU` (`s - hash`) now does not spend gas for cell creation. Gas cost: `26`.

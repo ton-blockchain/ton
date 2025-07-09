@@ -618,10 +618,13 @@ int exec_compute_hash(VmState* st, int mode) {
     hash = cell->get_hash().as_array();
   } else {
     auto cs = stack.pop_cellslice();
-    vm::CellBuilder cb;
+    CellBuilder cb;
     CHECK(cb.append_cellslice_bool(std::move(cs)));
-    // TODO: use cb.get_hash() instead
-    hash = cb.finalize()->get_hash().as_array();
+    if (st->get_global_version() >= 12) {
+      hash = cb.finalize_novm()->get_hash().as_array();
+    } else {
+      hash = cb.finalize()->get_hash().as_array();
+    }
   }
   td::RefInt256 res{true};
   CHECK(res.write().import_bytes(hash.data(), hash.size(), false));
