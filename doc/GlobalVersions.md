@@ -233,6 +233,7 @@ This is required to help computing storage stats in the future, after collator-v
 
 ### New TVM instructions
 - `BTOS` (`b - s`) - same as `ENDC CTOS`, but without gas cost for cell creation and loading. Gas cost: `26`.
+- `HASHBU` (`b - hash`) - same as `ENDC HASHCU`, but without gas cost for cell creation. Gas cost: `26`.
 
 ### Other TVM changes
 - `HASHSU` (`s - hash`) now does not spend gas for cell creation. Gas cost: `26`.

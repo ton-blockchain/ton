@@ -610,13 +610,13 @@ void register_prng_ops(OpcodeTable& cp0) {
 }
 
 int exec_compute_hash(VmState* st, int mode) {
-  VM_LOG(st) << "execute HASH" << (mode & 1 ? 'S' : 'C') << 'U';
+  VM_LOG(st) << "execute HASH" << "CSB"[mode] << 'U';
   Stack& stack = st->get_stack();
   std::array<unsigned char, 32> hash;
-  if (!(mode & 1)) {
+  if (mode == 0) {  // cell
     auto cell = stack.pop_cell();
     hash = cell->get_hash().as_array();
-  } else {
+  } else if (mode == 1) {  // slice
     auto cs = stack.pop_cellslice();
     CellBuilder cb;
     CHECK(cb.append_cellslice_bool(std::move(cs)));
@@ -625,6 +625,9 @@ int exec_compute_hash(VmState* st, int mode) {
     } else {
       hash = cb.finalize()->get_hash().as_array();
     }
+  } else {  // builder
+    auto cb = stack.pop_builder();
+    hash = cb.write().finalize_novm()->get_hash().as_array();
   }
   td::RefInt256 res{true};
   CHECK(res.write().import_bytes(hash.data(), hash.size(), false));
@@ -1368,6 +1371,7 @@ void register_ton_crypto_ops(OpcodeTable& cp0) {
       .insert(OpcodeInstr::mksimple(0xf913, 16, "SECP256K1_XONLY_PUBKEY_TWEAK_ADD", exec_secp256k1_xonly_pubkey_tweak_add)->require_version(9))
       .insert(OpcodeInstr::mksimple(0xf914, 16, "P256_CHKSIGNU", std::bind(exec_p256_chksign, _1, false))->require_version(4))
       .insert(OpcodeInstr::mksimple(0xf915, 16, "P256_CHKSIGNS", std::bind(exec_p256_chksign, _1, true))->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf916, 16, "HASHBU", std::bind(exec_compute_hash, _1, 2))->require_version(12))
 
       .insert(OpcodeInstr::mksimple(0xf920, 16, "RIST255_FROMHASH", exec_ristretto255_from_hash)->require_version(4))
       .insert(OpcodeInstr::mksimple(0xf921, 16, "RIST255_VALIDATE", std::bind(exec_ristretto255_validate, _1, false))->require_version(4))
