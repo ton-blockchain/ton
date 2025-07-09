@@ -1079,6 +1079,7 @@ bool ValidateQuery::fetch_config_params() {
     serialize_cfg_.extra_currency_v2 = config_->get_global_version() >= 10;
     serialize_cfg_.disable_anycast = config_->get_global_version() >= 10;
     serialize_cfg_.store_storage_dict_hash = config_->get_global_version() >= 11;
+    serialize_cfg_.size_limits = size_limits;
   }
   {
     // fetch block_grams_created

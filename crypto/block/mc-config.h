@@ -403,6 +403,7 @@ struct SizeLimitsConfig {
   td::uint32 defer_out_queue_size_limit = 256;
   td::uint32 max_msg_extra_currencies = 2;
   td::uint32 max_acc_fixed_prefix_length = 8;
+  td::uint32 acc_state_cells_for_storage_dict = 26;
 };
 
 struct CatchainValidatorsConfig {

@@ -3522,8 +3522,7 @@ bool Transaction::compute_state(const SerializeConfig& cfg) {
     // Root of AccountStorage is not counted in AccountStorageStat
     new_storage_used.cells = stats.get_total_cells() + 1;
     new_storage_used.bits = stats.get_total_bits() + new_storage_for_stat->size();
-    // TODO: think about this limit (25)
-    if (store_storage_dict_hash && new_storage_used.cells > 25) {
+    if (store_storage_dict_hash && new_storage_used.cells >= cfg.size_limits.acc_state_cells_for_storage_dict) {
       auto r_hash = stats.get_dict_hash();
       if (r_hash.is_error()) {
         LOG(ERROR) << "Cannot compute storage dict hash for account " << account.addr.to_hex() << ": "
@@ -4184,6 +4183,7 @@ td::Status FetchConfigParams::fetch_config_params(
     serialize_cfg->extra_currency_v2 = config.get_global_version() >= 10;
     serialize_cfg->disable_anycast = config.get_global_version() >= 10;
     serialize_cfg->store_storage_dict_hash = config.get_global_version() >= 11;
+    serialize_cfg->size_limits = size_limits;
   }
   {
     // fetch block_grams_created

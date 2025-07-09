@@ -186,6 +186,7 @@ struct SerializeConfig {
   bool extra_currency_v2{false};
   bool disable_anycast{false};
   bool store_storage_dict_hash{false};
+  SizeLimitsConfig size_limits;
 };
 
 struct CreditPhase {
