@@ -1992,7 +1992,6 @@ void ValidatorManagerImpl::start_up() {
   }
 
   validator_manager_init(opts_, actor_id(this), db_.get(), std::move(P));
-  init_session_stats();
 
   check_waiters_at_ = td::Timestamp::in(1.0);
   alarm_timestamp().relax(check_waiters_at_);
@@ -3485,7 +3484,6 @@ void ValidatorManagerImpl::update_options(td::Ref<ValidatorManagerOptions> opts)
     td::actor::send_closure(shard_block_verifier_, &ShardBlockVerifier::update_options, opts);
   }
   opts_ = std::move(opts);
-  init_session_stats();
 }
 
 void ValidatorManagerImpl::add_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) {
@@ -3739,51 +3737,19 @@ void ValidatorManagerImpl::init_validator_telemetry() {
   }
 }
 
-void ValidatorManagerImpl::init_session_stats() {
-  if (opts_->get_session_logs_file() == session_stats_filename_) {
-    return;
-  }
-  session_stats_filename_ = opts_->get_session_logs_file();
-  if (session_stats_filename_.empty()) {
-    session_stats_enabled_ = false;
-    session_stats_fd_.close();
-    return;
-  }
-  auto r_fd = td::FileFd::open(session_stats_filename_,
-                               td::FileFd::Flags::Write | td::FileFd::Flags::Append | td::FileFd::Create);
-  if (r_fd.is_error()) {
-    LOG(ERROR) << "Failed to open session stats file for writing: " << r_fd.move_as_error();
-    session_stats_filename_.clear();
-    session_stats_enabled_ = false;
-    return;
-  }
-  session_stats_fd_ = r_fd.move_as_ok();
-  session_stats_enabled_ = true;
-}
-
 template <typename T>
 void ValidatorManagerImpl::write_session_stats(const T &obj) {
-  if (!session_stats_enabled_) {
+  std::string fname = opts_->get_session_logs_file();
+  if (fname.empty()) {
     return;
   }
   auto s = td::json_encode<std::string>(td::ToJson(*obj.tl()), false);
   s.erase(std::remove_if(s.begin(), s.end(), [](char c) { return c == '\n' || c == '\r'; }), s.end());
-  s += '\n';
-  td::Slice slice{s};
-  while (!slice.empty()) {
-    auto R = session_stats_fd_.write(slice);
-    if (R.is_error()) {
-      LOG(WARNING) << "Failed to write to session stats: " << R.move_as_error();
-    }
-    if (R.ok() == 0) {
-      LOG(WARNING) << "Failed to write to session stats";
-    }
-    slice.remove_prefix(R.ok());
-  }
-  auto S = session_stats_fd_.sync();
-  if (S.is_error()) {
-    LOG(WARNING) << "Failed to write to session stats: " << S;
-  }
+
+  std::ofstream file;
+  file.open(fname, std::ios_base::app);
+  file << s << "\n";
+  file.close();
 }
 
 void ValidatorManagerImpl::init_shard_block_verifier(adnl::AdnlNodeIdShort local_id) {
