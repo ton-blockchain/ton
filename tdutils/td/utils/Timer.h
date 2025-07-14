@@ -81,6 +81,52 @@ class ThreadCpuTimer {
   bool is_paused_{false};
 };
 
+class RealCpuTimer {
+ public:
+  RealCpuTimer() : RealCpuTimer(false) {
+  }
+  explicit RealCpuTimer(bool is_paused) : real_(is_paused), cpu_(is_paused) {
+  }
+  RealCpuTimer(const RealCpuTimer &other) = default;
+  RealCpuTimer &operator=(const RealCpuTimer &other) = default;
+
+  double elapsed_real() const {
+    return real_.elapsed();
+  }
+  double elapsed_cpu() const {
+    return cpu_.elapsed();
+  }
+  struct Time {
+    double real = 0.0, cpu = 0.0;
+    double get(bool is_cpu) const {
+      return is_cpu ? cpu : real;
+    }
+    Time &operator+=(const Time &other) {
+      real += other.real;
+      cpu += other.cpu;
+      return *this;
+    }
+    Time operator-(const Time &other) const {
+      return {.real = real - other.real, .cpu = cpu - other.cpu};
+    }
+  };
+  Time elapsed_both() const {
+    return {.real = real_.elapsed(), .cpu = cpu_.elapsed()};
+  }
+  void pause() {
+    real_.pause();
+    cpu_.pause();
+  }
+  void resume() {
+    real_.resume();
+    cpu_.resume();
+  }
+
+ private:
+  Timer real_;
+  ThreadCpuTimer cpu_;
+};
+
 class PerfLog;
 struct EmptyDeleter {
   template <class T>

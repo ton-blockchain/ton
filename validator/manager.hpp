@@ -827,11 +827,6 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   td::actor::ActorOwn<StorageStatCache> storage_stat_cache_;
 
-  bool session_stats_enabled_ = false;
-  std::string session_stats_filename_;
-  td::FileFd session_stats_fd_;
-
-  void init_session_stats();
   template<typename T>
   void write_session_stats(const T &obj);
 

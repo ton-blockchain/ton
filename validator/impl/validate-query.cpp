@@ -5369,6 +5369,14 @@ std::unique_ptr<block::Account> ValidateQuery::unpack_account(td::ConstBitPtr ad
         LOG(DEBUG) << "Inited storage stat from cache for account " << addr.to_hex(256) << " ("
                    << new_acc->storage_used.cells << " cells)";
         storage_stat_cache_update_.emplace_back(dict_root, new_acc->storage_used.cells);
+        stats_.storage_stat_cache.hit_cnt++;
+        stats_.storage_stat_cache.hit_cells += new_acc->storage_used.cells;
+      } else if (new_acc->storage_used.cells >= StorageStatCache::MIN_ACCOUNT_CELLS) {
+        stats_.storage_stat_cache.miss_cnt++;
+        stats_.storage_stat_cache.miss_cells += new_acc->storage_used.cells;
+      } else {
+        stats_.storage_stat_cache.small_cnt++;
+        stats_.storage_stat_cache.small_cells += new_acc->storage_used.cells;
       }
     }
   }
@@ -5780,6 +5788,12 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
   // ....
   std::unique_ptr<block::transaction::Transaction> trs =
       std::make_unique<block::transaction::Transaction>(account, trans_type, lt, now_, in_msg_root);
+  td::RealCpuTimer timer;
+  SCOPE_EXIT {
+    stats_.work_time.trx_tvm += trs->time_tvm;
+    stats_.work_time.trx_storage_stat += trs->time_storage_stat;
+    stats_.work_time.trx_other += timer.elapsed_both() - trs->time_tvm - trs->time_storage_stat;
+  };
   if (in_msg_root.not_null()) {
     if (!trs->unpack_input_msg(ihr_delivered, &action_phase_cfg_)) {
       // inbound external message was not accepted
@@ -7029,10 +7043,8 @@ bool ValidateQuery::try_validate() {
     return true;
   }
   work_timer_.resume();
-  cpu_work_timer_.resume();
   SCOPE_EXIT {
     work_timer_.pause();
-    cpu_work_timer_.pause();
   };
   try {
     if (!stage_) {
@@ -7181,25 +7193,24 @@ void ValidateQuery::written_candidate() {
  * Sends validation work time to manager.
  */
 void ValidateQuery::record_stats(bool valid, std::string error_message) {
-  ValidationStats stats;
-  stats.block_id = id_;
-  stats.collated_data_hash = block_candidate.collated_file_hash;
-  stats.validated_at = td::Clocks::system();
-  stats.self = local_validator_id_;
-  stats.valid = valid;
+  stats_.block_id = id_;
+  stats_.collated_data_hash = block_candidate.collated_file_hash;
+  stats_.validated_at = td::Clocks::system();
+  stats_.self = local_validator_id_;
+  stats_.valid = valid;
   if (valid) {
-    stats.comment = (PSTRING() << "OK ts=" << now_);
+    stats_.comment = (PSTRING() << "OK ts=" << now_);
   } else {
-    stats.comment = std::move(error_message);
+    stats_.comment = std::move(error_message);
   }
-  stats.actual_bytes = block_candidate.data.size();
-  stats.actual_collated_data_bytes = block_candidate.collated_data.size();
-  stats.total_time = perf_timer_.elapsed();
-  stats.work_time = work_timer_.elapsed();
-  stats.cpu_work_time = cpu_work_timer_.elapsed();
+  stats_.actual_bytes = block_candidate.data.size();
+  stats_.actual_collated_data_bytes = block_candidate.collated_data.size();
+  stats_.total_time = perf_timer_.elapsed();
+  stats_.work_time.total = work_timer_.elapsed_both();
   LOG(WARNING) << "validation took " << perf_timer_.elapsed() << "s";
-  LOG(WARNING) << "Validate query work time = " << stats.work_time << "s, cpu time = " << stats.cpu_work_time << "s";
-  td::actor::send_closure(manager, &ValidatorManager::log_validate_query_stats, std::move(stats));
+  LOG(WARNING) << "Validate query work time = " << stats_.work_time.total.real
+               << "s, cpu time = " << stats_.work_time.total.cpu << "s";
+  td::actor::send_closure(manager, &ValidatorManager::log_validate_query_stats, std::move(stats_));
 }
 
 }  // namespace validator
