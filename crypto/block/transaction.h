@@ -399,6 +399,7 @@ struct Transaction {
   td::optional<td::Bits256> new_storage_dict_hash;
   bool gas_limit_overridden{false};
   std::vector<Ref<vm::Cell>> storage_stat_updates;
+  td::RealCpuTimer::Time time_tvm, time_storage_stat;
   Transaction(const Account& _account, int ttype, ton::LogicalTime req_start_lt, ton::UnixTime _now,
               Ref<vm::Cell> _inmsg = {});
   bool unpack_input_msg(bool ihr_delivered, const ActionPhaseConfig* cfg);
