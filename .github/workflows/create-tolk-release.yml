@@ -9,6 +9,9 @@ on:
 
 permissions: write-all
 
+env:
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 jobs:
   create-release:
     runs-on: ubuntu-22.04
