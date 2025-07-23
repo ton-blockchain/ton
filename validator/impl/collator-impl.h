@@ -17,6 +17,7 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
+#include "block-parse.h"
 #include "interfaces/validator-manager.h"
 #include "shard.hpp"
 #include "top-shard-descr.hpp"
@@ -156,6 +157,7 @@ class Collator final : public td::actor::Actor {
   ton::LogicalTime shards_max_end_lt_{0};
   ton::UnixTime prev_state_utime_;
   int global_id_{0};
+  int global_version_{0};
   ton::BlockSeqno min_ref_mc_seqno_{~0U};
   ton::BlockSeqno vert_seqno_{~0U}, prev_vert_seqno_{~0U};
   ton::BlockIdExt prev_key_block_;
@@ -203,6 +205,8 @@ class Collator final : public td::actor::Actor {
   std::vector<ExtMsg> ext_msg_list_;
   std::priority_queue<NewOutMsg, std::vector<NewOutMsg>, std::greater<NewOutMsg>> new_msgs;
   std::pair<ton::LogicalTime, ton::Bits256> last_proc_int_msg_, first_unproc_int_msg_;
+  block::tlb::Aug_InMsgDescr aug_InMsgDescr{0};
+  block::tlb::Aug_OutMsgDescr aug_OutMsgDescr{0};
   std::unique_ptr<vm::AugmentedDictionary> in_msg_dict, out_msg_dict, old_out_msg_queue_, out_msg_queue_,
       sibling_out_msg_queue_;
   std::map<StdSmcAddress, size_t> unprocessed_deferred_messages_;  // number of messages from dispatch queue in new_msgs

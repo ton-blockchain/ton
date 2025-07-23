@@ -231,12 +231,45 @@ This is required to help computing storage stats in the future, after collator-v
 
 ## Version 12
 
+### Extra message flags and new bounce format
+Field `ihr_fee:Grams` in internal message is now called `extra_flags:(VarUInteger 16)` (it's the same format).
+This field does not represent fees. `ihr_fee` is always zero since version 11, so this field was essentially unused.
+
+`(extra_flags & 1) = 1` enables the new bounce format for the message. The bounced message contains information about the transaction.
+If `(extra_flags & 3) = 3`, the bounced message also contains the whole body of the original message.
+When the message with new bounce flag is bounced, the bounced message body has the following format (`new_bounce_body`):
+```
+_ value:CurrencyCollection created_lt:uint64 created_at:uint32 = NewBounceOriginalInfo;
+_ gas_used:uint32 vm_steps:uint32 = NewBounceComputePhaseInfo;
+
+new_bounce_body#fffffffe
+    original_body:(Maybe ^Cell)
+    original_info:^NewBounceOriginalInfo
+    bounced_by_phase:uint8 exit_code:int32
+    compute_phase:(Maybe NewBounceComputePhaseInfo)
+    = NewBounceBody;
+```
+- `original_body` - cell that contains the body of the original message (if `extra_flags & 2`) or nothing (if not `extra_flags & 2`).
+- `original_info` - value, lt and unixtime of the original message.
+- `bounced_by_phase`:
+  - `0` - compute phase was skipped. `exit_code` denotes the skip reason:
+    - `exit_code = 0` - no state (account is uninit or frozen, and no state init is present in the message).
+    - `exit_code = 1` - bad state (account is uninit or frozen, and state init in the message has the wrong hash).
+    - `exit_code = 2` - no gas.
+    - `exit_code = 3` - account is suspended.
+  - `1` - compute phase failed. `exit_code` is the value from the compute phase.
+  - `2` - action phase failed. `exit_code` is the value from the action phase.
+- `exit_code` - 32-bit exit code, see above.
+- `compute_phase` - exists if it was not skipped (`bounced_by_phase > 0`):
+  - `gas_used`, `vm_steps` - same as in `TrComputePhase` of the transaction.
+
 ### New TVM instructions
 - `BTOS` (`b - s`) - same as `ENDC CTOS`, but without gas cost for cell creation and loading. Gas cost: `26`.
 - `HASHBU` (`b - hash`) - same as `ENDC HASHCU`, but without gas cost for cell creation. Gas cost: `26`.
 
 ### Other TVM changes
 - `HASHSU` (`s - hash`) now does not spend gas for cell creation. Gas cost: `26`.
+- `SENDMSG` instruction treats `extra_flags` field accordingly (see above).
 
 ### Other changes
 - Account size in masterchain is now limited to `2048` cells. This can be configured in size limits config (`ConfigParam 43`).

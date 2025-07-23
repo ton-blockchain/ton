@@ -1826,6 +1826,7 @@ int exec_send_message(VmState* st) {
   Ref<CellSlice> dest;
   td::RefInt256 value;
   td::RefInt256 user_fwd_fee, user_ihr_fee;
+  unsigned extra_flags_len = 0;
   bool have_extra_currencies = false;
   bool ext_msg = msg.info->prefetch_ulong(1);
   if (ext_msg) { // External message
@@ -1843,17 +1844,23 @@ int exec_send_message(VmState* st) {
     }
     ihr_disabled = info.ihr_disabled || st->get_global_version() >= 11;
     dest = std::move(info.dest);
-    Ref<vm::Cell> extra;
+    Ref<Cell> extra;
     if (!block::tlb::t_CurrencyCollection.unpack_special(info.value.write(), value, extra)) {
       throw VmError{Excno::unknown, "invalid message"};
     }
     have_extra_currencies = !extra.is_null();
     user_fwd_fee = block::tlb::t_Grams.as_integer(info.fwd_fee);
-    user_ihr_fee = block::tlb::t_Grams.as_integer(info.ihr_fee);
+    if (st->get_global_version() >= 12) {
+      user_ihr_fee = td::zero_refint();
+      extra_flags_len = info.extra_flags->size();
+    } else {
+      // Legacy: extra_flags was previously ihr_fee
+      user_ihr_fee = block::tlb::t_Grams.as_integer(info.extra_flags);
+    }
   }
 
   bool is_masterchain = parse_addr_workchain(*my_addr) == -1 || (!ext_msg && parse_addr_workchain(*dest) == -1);
-  td::Ref<CellSlice> prices_cs;
+  Ref<CellSlice> prices_cs;
   if (st->get_global_version() >= 6) {
     prices_cs = tuple_index(get_unpacked_config_tuple(st), is_masterchain ? 4 : 5).as_slice();
   } else {
@@ -1886,7 +1893,7 @@ int exec_send_message(VmState* st) {
   } else {
     max_cells = 1 << 13;
   }
-  vm::VmStorageStat stat(max_cells);
+  VmStorageStat stat(max_cells);
   CellSlice cs = load_cell_slice(msg_cell);
   cs.skip_first(cs.size());
   if (st->get_global_version() >= 10 && have_extra_currencies) {
@@ -1967,7 +1974,8 @@ int exec_send_message(VmState* st) {
       bits = 4 + my_addr->size() + dest->size() + stored_grams_len(value) + 1 + 32 + 64;
       td::RefInt256 fwd_fee_first = (fwd_fee * prices.first_frac) >> 16;
       bits += stored_grams_len(fwd_fee - fwd_fee_first);
-      bits += stored_grams_len(ihr_fee);
+      // Legacy: extra_flags was previously ihr_fee
+      bits += st->get_global_version() >= 12 ? extra_flags_len : stored_grams_len(ihr_fee);
     }
     // init
     bits++;

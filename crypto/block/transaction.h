@@ -196,7 +196,7 @@ struct CreditPhase {
 };
 
 struct ComputePhase {
-  enum { sk_none, sk_no_state, sk_bad_state, sk_no_gas, sk_suspended };
+  enum { sk_none = 0, sk_no_state = 1, sk_bad_state = 2, sk_no_gas = 3, sk_suspended = 4 };
   int skip_reason{sk_none};
   bool success{false};
   bool msg_state_used{false};
@@ -358,6 +358,8 @@ struct Transaction {
   bool bounce_enabled{false};
   bool in_msg_extern{false};
   gen::CommonMsgInfo::Record_int_msg_info in_msg_info;
+  bool new_bounce_format{false};
+  bool new_bounce_format_with_body{false};
   bool use_msg_state{false};
   bool is_first{false};
   bool orig_addr_rewrite_set{false};

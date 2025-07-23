@@ -125,7 +125,7 @@ currencies$_ grams:Grams other:ExtraCurrencyCollection
 //
 int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool
   src:MsgAddressInt dest:MsgAddressInt 
-  value:CurrencyCollection ihr_fee:Grams fwd_fee:Grams
+  value:CurrencyCollection extra_flags:(VarUInteger 16) fwd_fee:Grams
   created_lt:uint64 created_at:uint32 = CommonMsgInfo;
 ext_in_msg_info$10 src:MsgAddressExt dest:MsgAddressInt 
   import_fee:Grams = CommonMsgInfo;
@@ -134,7 +134,7 @@ ext_out_msg_info$11 src:MsgAddressInt dest:MsgAddressExt
 
 int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool
   src:MsgAddress dest:MsgAddressInt 
-  value:CurrencyCollection ihr_fee:Grams fwd_fee:Grams
+  value:CurrencyCollection extra_flags:(VarUInteger 16) fwd_fee:Grams
   created_lt:uint64 created_at:uint32 = CommonMsgInfoRelaxed;
 ext_out_msg_info$11 src:MsgAddress dest:MsgAddressExt
   created_lt:uint64 created_at:uint32 = CommonMsgInfoRelaxed;
@@ -161,6 +161,16 @@ message$_ {X:Type} info:CommonMsgInfoRelaxed
   body:(Either X ^X) = MessageRelaxed X;
   
 _ (Message Any) = MessageAny;
+
+
+_ value:CurrencyCollection created_lt:uint64 created_at:uint32 = NewBounceOriginalInfo;
+_ gas_used:uint32 vm_steps:uint32 = NewBounceComputePhaseInfo;
+new_bounce_body#fffffffe
+    original_body:(Maybe ^Cell)
+    original_info:^NewBounceOriginalInfo
+    bounced_by_phase:uint8 exit_code:int32
+    compute_phase:(Maybe NewBounceComputePhaseInfo)
+    = NewBounceBody;
 
 //
 interm_addr_regular$0 use_dest_bits:(#<= 96) 
