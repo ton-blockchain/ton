@@ -54,7 +54,7 @@ ArchiveImporter::ArchiveImporter(std::string db_root, td::Ref<MasterchainState> 
 void ArchiveImporter::start_up() {
   if (use_imported_files_) {
     LOG(INFO) << "Importing archive for masterchain seqno #" << start_import_seqno_ << " from disk";
-    for (const std::string& path : to_import_files_) {
+    for (const std::string &path : to_import_files_) {
       LOG(INFO) << "Importing file from disk " << path;
       td::Status S = process_package(path, true);
       if (S.is_error()) {
@@ -271,13 +271,13 @@ void ArchiveImporter::applied_masterchain_block(BlockHandle handle) {
   LOG(DEBUG) << "Applied masterchain block #" << handle->id().seqno();
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
     R.ensure();
-    td::actor::send_closure(SelfId, &ArchiveImporter::got_new_materchain_state,
+    td::actor::send_closure(SelfId, &ArchiveImporter::got_new_masterchain_state,
                             td::Ref<MasterchainState>(R.move_as_ok()));
   });
   td::actor::send_closure(manager_, &ValidatorManager::get_shard_state_from_db, handle, std::move(P));
 }
 
-void ArchiveImporter::got_new_materchain_state(td::Ref<MasterchainState> state) {
+void ArchiveImporter::got_new_masterchain_state(td::Ref<MasterchainState> state) {
   last_masterchain_state_ = std::move(state);
   imported_any_ = true;
   check_masterchain_block(last_masterchain_state_->get_block_id().seqno() + 1);
@@ -300,6 +300,20 @@ void ArchiveImporter::checked_all_masterchain_blocks() {
                           });
 }
 
+static bool have_new_shards(td::Ref<MasterchainState> new_state, td::Ref<MasterchainState> old_state,
+                            ShardIdFull shard_prefix) {
+  for (auto &shard : new_state->get_shards()) {
+    if (!shard_intersects(shard_prefix, shard->shard())) {
+      continue;
+    }
+    auto old_shard = old_state->get_shard_from_config(shard->shard());
+    if (old_shard.is_null() || old_shard->top_block_id() != shard->top_block_id()) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void ArchiveImporter::download_shard_archives(td::Ref<MasterchainState> start_state) {
   start_state_ = start_state;
   td::uint32 monitor_min_split = start_state->monitor_min_split_depth(basechainId);
@@ -310,9 +324,14 @@ void ArchiveImporter::download_shard_archives(td::Ref<MasterchainState> start_st
     for (td::uint64 i = 0; i < (1ULL << monitor_min_split); ++i) {
       ShardIdFull shard_prefix{basechainId, (i * 2 + 1) << (64 - monitor_min_split - 1)};
       if (opts_->need_monitor(shard_prefix, start_state)) {
-        ++pending_shard_archives_;
-        LOG(DEBUG) << "Downloading shard archive #" << start_import_seqno_ << " " << shard_prefix.to_str();
-        download_shard_archive(shard_prefix);
+        if (have_new_shards(last_masterchain_state_, start_state_, shard_prefix)) {
+          ++pending_shard_archives_;
+          LOG(INFO) << "Downloading shard archive #" << start_import_seqno_ << " " << shard_prefix.to_str();
+          download_shard_archive(shard_prefix);
+        } else {
+          LOG(INFO) << "Not downloading shard archive #" << start_import_seqno_ << " " << shard_prefix.to_str()
+                    << " : no new shard blocks";
+        }
       }
     }
   } else {

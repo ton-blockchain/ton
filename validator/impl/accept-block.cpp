@@ -41,7 +41,7 @@ using namespace std::literals::string_literals;
 
 AcceptBlockQuery::AcceptBlockQuery(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
                                    td::Ref<ValidatorSet> validator_set, td::Ref<BlockSignatureSet> signatures,
-                                   td::Ref<BlockSignatureSet> approve_signatures, int send_broadcast_mode,
+                                   td::Ref<BlockSignatureSet> approve_signatures, int send_broadcast_mode, bool apply,
                                    td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise)
     : id_(id)
     , data_(std::move(data))
@@ -52,6 +52,7 @@ AcceptBlockQuery::AcceptBlockQuery(BlockIdExt id, td::Ref<BlockData> data, std::
     , is_fake_(false)
     , is_fork_(false)
     , send_broadcast_mode_(send_broadcast_mode)
+    , apply_(apply)
     , manager_(manager)
     , promise_(std::move(promise))
     , perf_timer_("acceptblock", 0.1, [manager](double duration) {
@@ -150,6 +151,7 @@ bool AcceptBlockQuery::precheck_header() {
   if (is_fork_ && !info.key_block) {
     return fatal_error("fork block is not a key block");
   }
+  before_split_ = info.before_split;
   return true;
 }
 
@@ -348,7 +350,9 @@ bool AcceptBlockQuery::check_send_error(td::actor::ActorId<AcceptBlockQuery> Sel
 }
 
 void AcceptBlockQuery::finish_query() {
-  ValidatorInvariants::check_post_accept(handle_);
+  if (apply_) {
+    ValidatorInvariants::check_post_accept(handle_);
+  }
   if (is_masterchain()) {
     CHECK(handle_->inited_proof());
   } else {
@@ -490,6 +494,10 @@ void AcceptBlockQuery::written_block_signatures() {
 void AcceptBlockQuery::written_block_info() {
   VLOG(VALIDATOR_DEBUG) << "written block info";
   if (data_.not_null()) {
+    if (!apply_) {
+      written_state({});
+      return;
+    }
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
       check_send_error(SelfId, R) ||
           td::actor::send_closure_bool(SelfId, &AcceptBlockQuery::got_prev_state, R.move_as_ok());
@@ -566,13 +574,14 @@ void AcceptBlockQuery::written_state(td::Ref<ShardState> upd_state) {
     return;
   }
 
-  if (state_keep_old_hash_ != state_old_hash_) {
+  if (apply_ && state_keep_old_hash_ != state_old_hash_) {
     fatal_error(PSTRING() << "invalid previous state hash in newly-created proof: expected "
                           << state_->root_hash().to_hex() << ", found in update " << state_old_hash_.to_hex());
     return;
   }
 
   //handle_->set_masterchain_block(prev_[0]);
+  handle_->set_split(before_split_);
   handle_->set_state_root_hash(state_hash_);
   handle_->set_logical_time(lt_);
   handle_->set_unix_time(created_at_);

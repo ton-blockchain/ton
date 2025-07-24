@@ -37,6 +37,7 @@ for file in ../artifacts/*; do
       /lib/$ARCH-linux-gnu/libstdc++.so.6 \
       /lib/$ARCH-linux-gnu/libgsl.so.27 \
       /lib/$ARCH-linux-gnu/libblas.so.3 \
+      /lib/$ARCH-linux-gnu/libgslcblas.so \
       $appName.AppDir/usr/lib/
 
     chmod +x ./$appName.AppDir/usr/bin/$appName

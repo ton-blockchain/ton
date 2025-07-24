@@ -106,7 +106,7 @@ void WaitBlockData::start() {
     });
 
     td::actor::send_closure(manager_, &ValidatorManager::try_get_static_file, handle_->id().file_hash, std::move(P));
-  } else if (try_get_candidate_) {
+  } else if (try_get_candidate_ && !handle_->id().is_masterchain()) {
     try_get_candidate_ = false;
     td::actor::send_closure(
         manager_, &ValidatorManager::get_candidate_data_by_block_id_from_db, handle_->id(),

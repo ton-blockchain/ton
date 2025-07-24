@@ -31,6 +31,66 @@ using td::Ref;
 class ValidatorManager;
 class ValidatorManagerInterface;
 
+class OutMsgQueueImporter : public td::actor::Actor {
+ public:
+  OutMsgQueueImporter(td::actor::ActorId<ValidatorManager> manager, td::Ref<ValidatorManagerOptions> opts,
+                      td::Ref<MasterchainState> last_masterchain_state)
+      : manager_(manager), opts_(opts), last_masterchain_state_(last_masterchain_state) {
+  }
+
+  void new_masterchain_block_notification(td::Ref<MasterchainState> state, std::set<ShardIdFull> collating_shards);
+  void get_neighbor_msg_queue_proofs(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks, td::Timestamp timeout,
+                                     td::Promise<std::map<BlockIdExt, td::Ref<OutMsgQueueProof>>> promise);
+  void add_out_msg_queue_proof(ShardIdFull dst_shard, td::Ref<OutMsgQueueProof> proof);
+
+  void update_options(td::Ref<ValidatorManagerOptions> opts) {
+    opts_ = std::move(opts);
+  }
+
+  void alarm() override;
+
+ private:
+  td::actor::ActorId<ValidatorManager> manager_;
+  td::Ref<ValidatorManagerOptions> opts_;
+  td::Ref<MasterchainState> last_masterchain_state_;
+
+  struct CacheEntry {
+    ShardIdFull dst_shard;
+    std::vector<BlockIdExt> blocks;
+    bool done = false;
+    std::map<BlockIdExt, td::Ref<OutMsgQueueProof>> result;
+    std::vector<std::pair<td::Promise<std::map<BlockIdExt, td::Ref<OutMsgQueueProof>>>, td::Timestamp>> promises;
+    td::Timestamp timeout = td::Timestamp::never();
+    td::Timer timer;
+    size_t pending = 0;
+    size_t from_small_cache = 0;
+    size_t from_broadcast = 0;
+    size_t from_query = 0;
+    size_t from_local = 0;
+  };
+  std::map<std::pair<ShardIdFull, std::vector<BlockIdExt>>, std::shared_ptr<CacheEntry>> cache_;
+
+  // This cache has smaller granularity, proof is stored for each block separately
+  struct SmallCacheEntry {
+    td::Ref<OutMsgQueueProof> result;
+    std::vector<std::shared_ptr<CacheEntry>> pending_entries;
+    td::Timestamp timeout = td::Timestamp::never();
+  };
+  std::map<std::pair<ShardIdFull, BlockIdExt>, SmallCacheEntry> small_cache_;
+
+  void get_proof_local(std::shared_ptr<CacheEntry> entry, BlockIdExt block);
+  void get_proof_import(std::shared_ptr<CacheEntry> entry, std::vector<BlockIdExt> blocks,
+                        block::ImportedMsgQueueLimits limits);
+  enum class ProofSource {
+    SmallCache, Broadcast, Query, Local
+  };
+  void got_proof(std::shared_ptr<CacheEntry> entry, std::vector<td::Ref<OutMsgQueueProof>> proofs, ProofSource proof_source);
+  void finish_query(std::shared_ptr<CacheEntry> entry);
+  bool check_timeout(std::shared_ptr<CacheEntry> entry);
+
+  constexpr static const double CACHE_TTL = 60.0;
+};
+
 class BuildOutMsgQueueProof : public td::actor::Actor {
  public:
   BuildOutMsgQueueProof(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks, block::ImportedMsgQueueLimits limits,
@@ -45,6 +105,7 @@ class BuildOutMsgQueueProof : public td::actor::Actor {
 
   void abort_query(td::Status reason);
   void start_up() override;
+  void got_masterchain_state(Ref<MasterchainState> mc_state);
   void got_state_root(size_t i, Ref<vm::Cell> root);
   void got_block_root(size_t i, Ref<vm::Cell> root);
   void build_proof();

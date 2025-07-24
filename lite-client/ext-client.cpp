@@ -99,7 +99,7 @@ class ExtClientImpl : public ExtClient {
                                       promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
       if (R.is_error() &&
           (R.error().code() == ton::ErrorCode::timeout || R.error().code() == ton::ErrorCode::cancelled)) {
-        td::actor::send_closure(SelfId, &ExtClientImpl::on_server_error, server_idx);
+        td::actor::send_closure(SelfId, &ExtClientImpl::on_server_status, server_idx, false);
       }
       promise.set_result(std::move(R));
     };
@@ -163,9 +163,10 @@ class ExtClientImpl : public ExtClient {
       explicit Callback(td::actor::ActorId<ExtClientImpl> parent, size_t idx) : parent_(std::move(parent)), idx_(idx) {
       }
       void on_ready() override {
+        td::actor::send_closure(parent_, &ExtClientImpl::on_server_status, idx_, true);
       }
       void on_stop_ready() override {
-        td::actor::send_closure(parent_, &ExtClientImpl::on_server_error, idx_);
+        td::actor::send_closure(parent_, &ExtClientImpl::on_server_status, idx_, false);
       }
 
      private:
@@ -199,19 +200,32 @@ class ExtClientImpl : public ExtClient {
       return;
     }
     for (Server& server : servers_) {
-      if (server.timeout && server.timeout.is_in_past()) {
+      if (!server.timeout) {
+        continue;
+      }
+      if (server.timeout.is_in_past()) {
         LOG(INFO) << "Closing connection to liteserver #" << server.idx << " (" << server.config.addr.get_ip_str()
                   << ":" << server.config.addr.get_port() << ")";
         server.client.reset();
         server.alive = false;
         server.ignore_until = {};
+        server.timeout = {};
+      } else {
+        alarm_timestamp().relax(server.timeout);
       }
     }
   }
 
-  void on_server_error(size_t idx) {
-    servers_[idx].alive = false;
-    servers_[idx].ignore_until = td::Timestamp::in(BAD_SERVER_TIMEOUT);
+  void on_server_status(size_t idx, bool ok) {
+    if (ok) {
+      if (connect_to_all_) {
+        servers_[idx].alive = true;
+        servers_[idx].ignore_until = td::Timestamp::never();
+      }
+    } else {
+      servers_[idx].alive = false;
+      servers_[idx].ignore_until = td::Timestamp::in(BAD_SERVER_TIMEOUT);
+    }
   }
 };
 

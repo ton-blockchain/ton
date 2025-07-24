@@ -179,8 +179,16 @@ variable special-dict
 // bytes-limits gas-limits lt-limits -- c
 { <b x{5d} s, 3 roll param_limits, rot param_limits, swap param_limits, b>
 } : make-block-limits
+// bytes-limits gas-limits lt-limits collated-data-limits imported_queue_bytes imported_queue_msgs -- c
+{ <b x{5e} s,
+  6 roll param_limits, 5 roll param_limits, 4 roll param_limits, 3 roll param_limits,
+  x{d3} s, 2 roll 32 u, 1 roll 32 u, b>
+} : make-block-limits-v2
+
 { make-block-limits 22 config! } : config.mc_block_limits!
 { make-block-limits 23 config! } : config.block_limits!
+{ make-block-limits-v2 22 config! } : config.mc_block_limits_v2!
+{ make-block-limits-v2 23 config! } : config.block_limits_v2!
 
 // mc-block-create-fee bc-block-create-fee
 { <b x{6b} s, rot Gram, swap Gram, b> } : make-block-create-fees

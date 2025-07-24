@@ -151,8 +151,8 @@ inline td::Result<ton::ShardIdFull> Tokenizer::get_token() {
   auto r_wc = td::to_integer_safe<ton::WorkchainId>(word);
   if (r_wc.is_ok()) {
     TRY_RESULT_ASSIGN(word, get_raw_token());
-    TRY_RESULT(shard, td::to_integer_safe<ton::ShardId>(word));
-    return ton::ShardIdFull{r_wc.move_as_ok(), shard};
+    TRY_RESULT(shard, td::to_integer_safe<td::int64>(word));
+    return ton::ShardIdFull{r_wc.move_as_ok(), (ton::ShardId)shard};
   }
   return ton::ShardIdFull::parse(word);
 }
@@ -990,9 +990,9 @@ class GetOverlaysStatsJsonQuery : public Query {
   std::string name() const override {
     return get_name();
   }
-  
-private:
- std::string file_name_;
+
+ private:
+  std::string file_name_;
 };
 
 class SignCertificateQuery : public Query {
@@ -1016,9 +1016,8 @@ class SignCertificateQuery : public Query {
   void receive_pubkey(td::BufferSlice R);
   void receive_signature(td::BufferSlice R);
 
-
  private:
-   void save_certificate();
+  void save_certificate();
 
   td::Bits256 overlay_;
   td::Bits256 id_;
@@ -1077,14 +1076,12 @@ class SignShardOverlayCertificateQuery : public Query {
   }
 
  private:
-
   ton::ShardIdFull shard_;
   td::int32 expire_at_;
   ton::PublicKeyHash key_;
   td::uint32 max_size_;
   std::string out_file_;
 };
-
 
 class ImportShardOverlayCertificateQuery : public Query {
  public:
@@ -1106,7 +1103,6 @@ class ImportShardOverlayCertificateQuery : public Query {
   }
 
  private:
-
   ton::ShardIdFull shard_;
   ton::PublicKeyHash key_;
   std::string in_file_;
@@ -1442,4 +1438,372 @@ class DelShardQuery : public Query {
 
  private:
   ton::ShardIdFull shard_;
+};
+
+class AddCollatorQuery : public Query {
+ public:
+  AddCollatorQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "add-collator";
+  }
+  static std::string get_help() {
+    return "add-collator <adnl_id> <workchain> <shard>\tadd collator with given adnl_id and shard";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  ton::PublicKeyHash adnl_id_;
+  ton::ShardIdFull shard_;
+};
+
+class DelCollatorQuery : public Query {
+ public:
+  DelCollatorQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "del-collator";
+  }
+  static std::string get_help() {
+    return "del-collator <adnl_id> <workchain> <shard>\tremove collator with given adnl_id and shard";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  ton::PublicKeyHash adnl_id_;
+  ton::ShardIdFull shard_;
+};
+
+class CollatorNodeAddWhitelistedValidatorQuery : public Query {
+ public:
+  CollatorNodeAddWhitelistedValidatorQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "collator-whitelist-add";
+  }
+  static std::string get_help() {
+    return "collator-whitelist-add <adnl_id>\tadd validator adnl id to collator node whitelist";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  ton::PublicKeyHash adnl_id_;
+};
+
+class CollatorNodeDelWhitelistedValidatorQuery : public Query {
+ public:
+  CollatorNodeDelWhitelistedValidatorQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "collator-whitelist-del";
+  }
+  static std::string get_help() {
+    return "collator-whitelist-del <adnl_id>\tremove validator adnl id from collator node whitelist";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  ton::PublicKeyHash adnl_id_;
+};
+
+class CollatorNodeEnableWhitelistQuery : public Query {
+ public:
+  CollatorNodeEnableWhitelistQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "collator-whitelist-enable";
+  }
+  static std::string get_help() {
+    return "collator-whitelist-enable <value>\tenable or disable collator node whiltelist (value is 0 or 1)";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  bool enabled_;
+};
+
+class CollatorNodeShowWhitelistQuery : public Query {
+ public:
+  CollatorNodeShowWhitelistQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "collator-whitelist-show";
+  }
+  static std::string get_help() {
+    return "collator-whitelist-show\tshow collator node whitelist";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+};
+
+class SetCollatorsListQuery : public Query {
+ public:
+  SetCollatorsListQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "set-collators-list";
+  }
+  static std::string get_help() {
+    return "set-collators-list <filename>\tset list of collators from file <filename>";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  std::string file_name_;
+};
+
+class ClearCollatorsListQuery : public Query {
+ public:
+  ClearCollatorsListQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "clear-collators-list";
+  }
+  static std::string get_help() {
+    return "clear-collators-list\tclear list of collators";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+};
+
+class ShowCollatorsListQuery : public Query {
+ public:
+  ShowCollatorsListQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "show-collators-list";
+  }
+  static std::string get_help() {
+    return "show-collators-list\tshow list of collators";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+};
+
+class GetCollationManagerStatsQuery : public Query {
+ public:
+  GetCollationManagerStatsQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "collation-manager-stats";
+  }
+  static std::string get_help() {
+    return "collation-manager-stats\tshow stats of collation manager";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+};
+
+class SignOverlayMemberCertificateQuery : public Query {
+ public:
+  SignOverlayMemberCertificateQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "sign-overlay-member-certificate";
+  }
+  static std::string get_help() {
+    return "sign-overlay-member-certificate <key_hash> <adnl_id> <slot> <expire_at> <filename>\tsign overlay member "
+           "certificate for <adnl_id> (hex) with <key_hash> (hex) in slot <slot>, valid until <expire_at>, "
+           "save to <filename>";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  td::Bits256 key_hash_;
+  td::Bits256 adnl_id_;
+  int slot_;
+  ton::UnixTime expire_at_;
+  std::string file_name_;
+};
+
+class ImportFastSyncMemberCertificateQuery : public Query {
+ public:
+  ImportFastSyncMemberCertificateQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "import-fast-sync-member-certificate";
+  }
+  static std::string get_help() {
+    return "import-fast-sync-membe-rcertificate <adnl_id> <filename>\timport member certificate for fast sync overlay "
+           "for <adnl_id> (hex) from <filename>";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  td::Bits256 adnl_id_;
+  std::string file_name_;
+};
+
+class AddFastSyncOverlayClientQuery : public Query {
+ public:
+  AddFastSyncOverlayClientQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "add-fast-sync-overlay-client";
+  }
+  static std::string get_help() {
+    return "add-fast-sync-overlay-client <adnl_id> <slot>\tstarts issuing member certificates to <adnl_id> (hex) on "
+           "slot (int)";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  td::Bits256 adnl_id_;
+  td::int32 slot_;
+};
+
+class DelFastSyncOverlayClientQuery : public Query {
+ public:
+  DelFastSyncOverlayClientQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "del-fast-sync-overlay-client";
+  }
+  static std::string get_help() {
+    return "del-fast-sync-overlay-client <adnl_id> <slot>\tstops issuing member certificates to <adnl_id> (hex)";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  td::Bits256 adnl_id_;
+};
+
+class SetShardBlockVerifierConfigQuery : public Query {
+ public:
+  SetShardBlockVerifierConfigQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "set-shard-block-verifier-config";
+  }
+  static std::string get_help() {
+    return "set-shard-block-verifier-config <filename>\tset config for shard block verifier from file <filename>";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  std::string file_name_;
+};
+
+class ClearShardBlockVerifierConfigQuery : public Query {
+ public:
+  ClearShardBlockVerifierConfigQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "clear-shard-block-verifier-config";
+  }
+  static std::string get_help() {
+    return "clear-shard-block-verifier-config <filename>\treset config for shard block verifier";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+};
+
+class ShowShardBlockVerifierConfigQuery : public Query {
+ public:
+  ShowShardBlockVerifierConfigQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "show-shard-block-verifier-config";
+  }
+  static std::string get_help() {
+    return "show-shard-block-verifier-config\tshow config of shard block verifier";
+  }
+  std::string name() const override {
+    return get_name();
+  }
 };

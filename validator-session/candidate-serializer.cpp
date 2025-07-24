@@ -35,7 +35,8 @@ td::Result<td::BufferSlice> serialize_candidate(const tl_object_ptr<ton_api::val
 
 td::Result<tl_object_ptr<ton_api::validatorSession_candidate>> deserialize_candidate(td::Slice data,
                                                                                      bool compression_enabled,
-                                                                                     int max_decompressed_data_size) {
+                                                                                     int max_decompressed_data_size,
+                                                                                     int proto_version) {
   if (!compression_enabled) {
     return fetch_tl_object<ton_api::validatorSession_candidate>(data, true);
   }
@@ -43,7 +44,7 @@ td::Result<tl_object_ptr<ton_api::validatorSession_candidate>> deserialize_candi
   if (f->decompressed_size_ > max_decompressed_data_size) {
     return td::Status::Error("decompressed size is too big");
   }
-  TRY_RESULT(p, decompress_candidate_data(f->data_, f->decompressed_size_));
+  TRY_RESULT(p, decompress_candidate_data(f->data_, f->decompressed_size_, proto_version));
   return create_tl_object<ton_api::validatorSession_candidate>(f->src_, f->round_, f->root_hash_, std::move(p.first),
                                                                std::move(p.second));
 }
@@ -68,7 +69,8 @@ td::Result<td::BufferSlice> compress_candidate_data(td::Slice block, td::Slice c
 }
 
 td::Result<std::pair<td::BufferSlice, td::BufferSlice>> decompress_candidate_data(td::Slice compressed,
-                                                                                  int decompressed_size) {
+                                                                                  int decompressed_size,
+                                                                                  int proto_version) {
   TRY_RESULT(decompressed, td::lz4_decompress(compressed, decompressed_size));
   if (decompressed.size() != (size_t)decompressed_size) {
     return td::Status::Error("decompressed size mismatch");
@@ -79,7 +81,8 @@ td::Result<std::pair<td::BufferSlice, td::BufferSlice>> decompress_candidate_dat
   }
   TRY_RESULT(block_data, vm::std_boc_serialize(roots[0], 31));
   roots.erase(roots.begin());
-  TRY_RESULT(collated_data, vm::std_boc_serialize_multi(std::move(roots), 31));
+  int collated_data_mode = proto_version >= 5 ? 2 : 31;
+  TRY_RESULT(collated_data, vm::std_boc_serialize_multi(std::move(roots), collated_data_mode));
   LOG(DEBUG) << "Decompressing block candidate: " << compressed.size() << " -> "
              << block_data.size() + collated_data.size();
   return std::make_pair(std::move(block_data), std::move(collated_data));
