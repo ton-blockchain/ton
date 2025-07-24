@@ -437,7 +437,7 @@ void FullNodeImpl::download_zero_state(BlockIdExt id, td::uint32 priority, td::T
 void FullNodeImpl::download_persistent_state(BlockIdExt id, BlockIdExt masterchain_block_id, PersistentStateType type,
                                              td::uint32 priority, td::Timestamp timeout,
                                              td::Promise<td::BufferSlice> promise) {
-  auto shard = get_shard(id.shard_full());
+  auto shard = get_shard(id.shard_full(), /* historical = */ true);
   if (shard.empty()) {
     VLOG(FULL_NODE_WARNING) << "dropping download state diff query to unknown shard";
     promise.set_error(td::Status::Error(ErrorCode::notready, "shard not ready"));
@@ -460,7 +460,7 @@ void FullNodeImpl::download_block_proof(BlockIdExt block_id, td::uint32 priority
 
 void FullNodeImpl::download_block_proof_link(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
                                              td::Promise<td::BufferSlice> promise) {
-  auto shard = get_shard(block_id.shard_full());
+  auto shard = get_shard(block_id.shard_full(), /* historical = */ true);
   if (shard.empty()) {
     VLOG(FULL_NODE_WARNING) << "dropping download proof link query to unknown shard";
     promise.set_error(td::Status::Error(ErrorCode::notready, "shard not ready"));
@@ -483,7 +483,7 @@ void FullNodeImpl::get_next_key_blocks(BlockIdExt block_id, td::Timestamp timeou
 
 void FullNodeImpl::download_archive(BlockSeqno masterchain_seqno, ShardIdFull shard_prefix, std::string tmp_dir,
                       td::Timestamp timeout, td::Promise<std::string> promise) {
-  auto shard = get_shard(shard_prefix);
+  auto shard = get_shard(shard_prefix, /* historical = */ true);
   if (shard.empty()) {
     VLOG(FULL_NODE_WARNING) << "dropping download archive query to unknown shard";
     promise.set_error(td::Status::Error(ErrorCode::notready, "shard not ready"));
@@ -512,7 +512,7 @@ void FullNodeImpl::download_out_msg_queue_proof(ShardIdFull dst_shard, std::vect
                           timeout, std::move(promise));
 }
 
-td::actor::ActorId<FullNodeShard> FullNodeImpl::get_shard(ShardIdFull shard) {
+td::actor::ActorId<FullNodeShard> FullNodeImpl::get_shard(ShardIdFull shard, bool historical) {
   if (shard.is_masterchain()) {
     return shards_[ShardIdFull{masterchainId}].actor.get();
   }
@@ -520,8 +520,12 @@ td::actor::ActorId<FullNodeShard> FullNodeImpl::get_shard(ShardIdFull shard) {
     return {};
   }
   int pfx_len = shard.pfx_len();
-  if (pfx_len > wc_monitor_min_split_) {
-    shard = shard_prefix(shard, wc_monitor_min_split_);
+  int min_split = wc_monitor_min_split_;
+  if (historical) {
+    min_split = td::Random::fast(0, min_split);
+  }
+  if (pfx_len > min_split) {
+    shard = shard_prefix(shard, min_split);
   }
   while (true) {
     auto it = shards_.find(shard);
