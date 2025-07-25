@@ -118,7 +118,7 @@ class Collator final : public td::actor::Actor {
       Ref<vm::Cell> msg_root, block::Account* acc, UnixTime utime, LogicalTime lt,
       block::StoragePhaseConfig* storage_phase_cfg, block::ComputePhaseConfig* compute_phase_cfg,
       block::ActionPhaseConfig* action_phase_cfg, block::SerializeConfig* serialize_cfg, bool external,
-      LogicalTime after_lt);
+      LogicalTime after_lt, CollationStats* stats = nullptr);
 
  private:
   void start_up() override;
@@ -404,8 +404,7 @@ class Collator final : public td::actor::Actor {
   static td::uint32 get_skip_externals_queue_size();
 
  private:
-  td::Timer work_timer_{true};
-  td::ThreadCpuTimer cpu_work_timer_{true};
+  td::RealCpuTimer work_timer_{true};
   CollationStats stats_;
 
   void finalize_stats();
