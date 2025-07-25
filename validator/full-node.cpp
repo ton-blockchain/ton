@@ -318,21 +318,28 @@ void FullNodeImpl::send_ihr_message(AccountIdPrefixFull dst, td::BufferSlice dat
 }
 
 void FullNodeImpl::send_ext_message(AccountIdPrefixFull dst, td::BufferSlice data) {
-  auto shard = get_shard(dst);
-  if (shard.empty()) {
-    VLOG(FULL_NODE_WARNING) << "dropping OUT ext message to unknown shard";
-    return;
-  }
+  bool skip_public = false;
   for (auto &[_, private_overlay] : custom_overlays_) {
     if (private_overlay.params_.send_shard(dst.as_leaf_shard())) {
       for (auto &[local_id, actor] : private_overlay.actors_) {
         if (private_overlay.params_.msg_senders_.contains(local_id)) {
           td::actor::send_closure(actor, &FullNodeCustomOverlay::send_external_message, data.clone());
+          if (private_overlay.params_.skip_public_msg_send_) {
+            skip_public = true;
+          }
         }
       }
     }
   }
-  td::actor::send_closure(shard, &FullNodeShard::send_external_message, std::move(data));
+
+  if (!skip_public) {
+    auto shard = get_shard(dst);
+    if (shard.empty()) {
+      VLOG(FULL_NODE_WARNING) << "dropping OUT ext message to unknown shard";
+      return;
+    }
+    td::actor::send_closure(shard, &FullNodeShard::send_external_message, std::move(data));
+  }
 }
 
 void FullNodeImpl::send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) {
@@ -964,6 +971,7 @@ CustomOverlayParams CustomOverlayParams::fetch(const ton_api::engine_validator_c
   for (const auto &shard : f.sender_shards_) {
     c.sender_shards_.push_back(create_shard_id(shard));
   }
+  c.skip_public_msg_send_ = f.skip_public_msg_send_;
   return c;
 }
 
