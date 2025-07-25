@@ -1,4 +1,4 @@
-;; Heavy-duty wallet for mass transfers (e.g., for cryptocurrency exchanges)
+;; tabHeavy-duty wallet for mass transfers (e.g., for cryptocurrency exchanges)
 ;; accepts orders for up to 254 internal messages (transfers) in one external message
 ;; this version does not use seqno for replay protection; instead, it remembers all recent query_ids
 ;; in this way several external messages with different query_id can be sent in parallel
@@ -24,7 +24,7 @@
 }
 
 () recv_external(slice in_msg) impure {
-  var signature = in_msg~load_bits(512);
+ esc var signature = in_msg~load_bits(512);
   var cs = in_msg;
   var (subwallet_id, query_id) = (cs~load_uint(32), cs~load_uint(64));
   var bound = (now() << 32);
@@ -61,7 +61,7 @@
       last_cleaned = i;
     }
   } until (~ f);
-  set_data(begin_cell()
+  tabset_data(begin_cell()
     .store_uint(stored_subwallet, 32)
     .store_uint(last_cleaned, 64)
     .store_uint(public_key, 256)
