@@ -21,7 +21,7 @@ jobs:
     - name: Install system libraries
       run: |
         sudo apt update
-        sudo apt install -y build-essential git cmake ninja-build zlib1g-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev liblz4-dev ccache libgsl-dev libblas-dev        
+        sudo apt install -y build-essential git cmake ninja-build zlib1g-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev liblz4-dev ccache libgsl-dev libblas-dev libgslcblas0       
         mkdir ~/.ccache 3pp
 
     - name: Install clang-16
