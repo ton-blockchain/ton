@@ -546,6 +546,11 @@ struct PrecompiledContractsConfig {
   td::optional<Contract> get_contract(td::Bits256 code_hash) const;
 };
 
+struct CollatorNodeDescr {
+  ton::ShardIdFull shard;
+  ton::NodeIdShort adnl_id;
+};
+
 class Config {
   enum {
     default_mc_catchain_lifetime = 200,

@@ -24,6 +24,7 @@
 #include "interfaces/proof.h"
 #include "interfaces/shard.h"
 #include "full-node-private-overlay.hpp"
+#include "full-node-fast-sync-overlays.hpp"
 
 #include <map>
 #include <set>
@@ -44,6 +45,8 @@ class FullNodeImpl : public FullNode {
 
   void add_permanent_key(PublicKeyHash key, td::Promise<td::Unit> promise) override;
   void del_permanent_key(PublicKeyHash key, td::Promise<td::Unit> promise) override;
+  void add_collator_adnl_id(adnl::AdnlNodeIdShort id) override;
+  void del_collator_adnl_id(adnl::AdnlNodeIdShort id) override;
 
   void sign_shard_overlay_certificate(ShardIdFull shard_id, PublicKeyHash signed_key, td::uint32 expiry_at,
                                       td::uint32 max_size, td::Promise<td::BufferSlice> promise) override;
@@ -68,6 +71,7 @@ class FullNodeImpl : public FullNode {
   void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                             td::BufferSlice data, int mode);
   void send_broadcast(BlockBroadcast broadcast, int mode);
+  void send_out_msg_queue_proof_broadcast(td::Ref<OutMsgQueueProofBroadcast> broadcats);
   void download_block(BlockIdExt id, td::uint32 priority, td::Timestamp timeout, td::Promise<ReceivedBlock> promise);
   void download_zero_state(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
                            td::Promise<td::BufferSlice> promise);
@@ -94,6 +98,14 @@ class FullNodeImpl : public FullNode {
   void get_out_msg_queue_query_token(td::Promise<std::unique_ptr<ActionToken>> promise) override;
 
   void set_validator_telemetry_filename(std::string value) override;
+
+  void import_fast_sync_member_certificate(adnl::AdnlNodeIdShort local_id,
+                                           overlay::OverlayMemberCertificate cert) override {
+    VLOG(FULL_NODE_DEBUG) << "Importing fast sync overlay certificate for " << local_id << " issued by "
+                          << cert.issued_by().compute_short_id() << " expires in "
+                          << (double)cert.expire_at() - td::Clocks::system();
+    fast_sync_overlays_.add_member_certificate(local_id, std::move(cert));
+  }
 
   void start_up() override;
 
@@ -139,11 +151,18 @@ class FullNodeImpl : public FullNode {
   std::map<PublicKeyHash, adnl::AdnlNodeIdShort> current_validators_;
 
   std::set<PublicKeyHash> local_keys_;
+  std::map<adnl::AdnlNodeIdShort, int> local_collator_nodes_;
 
   td::Promise<td::Unit> started_promise_;
   FullNodeOptions opts_;
 
+  // Private overlays:
+  // Old overlays - one private overlay for all validators
+  // New overlays (fast sync overlays) - semiprivate overlay per shard (monitor_min_split depth)
+  //     for validators and authorized nodes
+  bool use_old_private_overlays_ = true;
   std::map<PublicKeyHash, td::actor::ActorOwn<FullNodePrivateBlockOverlay>> private_block_overlays_;
+  FullNodeFastSyncOverlays fast_sync_overlays_;
 
   struct CustomOverlayInfo {
     CustomOverlayParams params_;

@@ -62,7 +62,8 @@ enum GlobalCapabilities {
   capShortDequeue = 32,
   capStoreOutMsgQueueSize = 64,
   capMsgMetadata = 128,
-  capDeferMessages = 256
+  capDeferMessages = 256,
+  capFullCollatedData = 512
 };
 
 inline int shard_pfx_len(ShardId shard) {
@@ -444,14 +445,46 @@ struct Ed25519_PublicKey {
 };
 
 // represents (the contents of) a block
+
+struct OutMsgQueueProofBroadcast : public td::CntObject {
+  OutMsgQueueProofBroadcast(ShardIdFull dst_shard, BlockIdExt block_id, td::int32 max_bytes, td::int32 max_msgs,
+                            td::BufferSlice queue_proof, td::BufferSlice block_state_proof, int msg_count)
+      : dst_shard(std::move(dst_shard))
+      , block_id(block_id)
+      , max_bytes(max_bytes)
+      , max_msgs(max_msgs)
+      , queue_proofs(std::move(queue_proof))
+      , block_state_proofs(std::move(block_state_proof))
+      , msg_count(std::move(msg_count)) {
+  }
+  ShardIdFull dst_shard;
+  BlockIdExt block_id;
+
+  // importedMsgQueueLimits
+  td::uint32 max_bytes;
+  td::uint32 max_msgs;
+
+  // outMsgQueueProof
+  td::BufferSlice queue_proofs;
+  td::BufferSlice block_state_proofs;
+  int msg_count;
+
+  OutMsgQueueProofBroadcast* make_copy() const override {
+    return new OutMsgQueueProofBroadcast(dst_shard, block_id, max_bytes, max_msgs, queue_proofs.clone(),
+                                         block_state_proofs.clone(), msg_count);
+  }
+};
+
 struct BlockCandidate {
   BlockCandidate(Ed25519_PublicKey pubkey, BlockIdExt id, FileHash collated_file_hash, td::BufferSlice data,
-                 td::BufferSlice collated_data)
+                 td::BufferSlice collated_data,
+                 std::vector<td::Ref<OutMsgQueueProofBroadcast>> out_msg_queue_broadcasts = {})
       : pubkey(pubkey)
       , id(id)
       , collated_file_hash(collated_file_hash)
       , data(std::move(data))
-      , collated_data(std::move(collated_data)) {
+      , collated_data(std::move(collated_data))
+      , out_msg_queue_proof_broadcasts(std::move(out_msg_queue_broadcasts)) {
   }
   Ed25519_PublicKey pubkey;
   BlockIdExt id;
@@ -459,9 +492,30 @@ struct BlockCandidate {
   td::BufferSlice data;
   td::BufferSlice collated_data;
 
+  // used only locally
+  std::vector<td::Ref<OutMsgQueueProofBroadcast>> out_msg_queue_proof_broadcasts;
+
   BlockCandidate clone() const {
-    return BlockCandidate{pubkey, id, collated_file_hash, data.clone(), collated_data.clone()};
+    return BlockCandidate{
+        pubkey, id, collated_file_hash, data.clone(), collated_data.clone(), out_msg_queue_proof_broadcasts};
   }
+};
+
+struct GeneratedCandidate {
+  BlockCandidate candidate;
+  bool is_cached = false;
+  bool self_collated = false;
+  td::Bits256 collator_node_id = td::Bits256::zero();
+
+  GeneratedCandidate clone() const {
+    return {candidate.clone(), is_cached, self_collated, collator_node_id};
+  }
+};
+
+struct BlockCandidatePriority {
+  td::uint32 round{};
+  td::uint32 first_block_round{};
+  td::int32 priority{};
 };
 
 struct ValidatorDescr {

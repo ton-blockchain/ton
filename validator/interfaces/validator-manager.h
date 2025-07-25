@@ -30,6 +30,9 @@
 #include "crypto/vm/db/DynamicBagOfCellsDb.h"
 #include "validator-session/validator-session-types.h"
 #include "auto/tl/lite_api.h"
+#include "impl/out-msg-queue-proof.hpp"
+
+#include <ton/ton-tl.hpp>
 
 namespace ton {
 
@@ -53,13 +56,110 @@ struct AsyncSerializerState {
 };
 
 struct CollationStats {
-  td::uint32 bytes, gas, lt_delta;
-  int cat_bytes, cat_gas, cat_lt_delta;
+  BlockIdExt block_id{workchainInvalid, 0, 0, RootHash::zero(), FileHash::zero()};
+  td::Status status = td::Status::OK();
+
+  td::Bits256 collated_data_hash = td::Bits256::zero();
+  CatchainSeqno cc_seqno = 0;
+  double collated_at = -1.0;
+  td::uint32 actual_bytes = 0, actual_collated_data_bytes = 0;
+  int attempt = 0;
+  PublicKeyHash self = PublicKeyHash::zero();
+  bool is_validator = false;
+  td::uint32 estimated_bytes = 0, gas = 0, lt_delta = 0, estimated_collated_data_bytes = 0;
+  int cat_bytes = 0, cat_gas = 0, cat_lt_delta = 0, cat_collated_data_bytes = 0;
   std::string limits_log;
+  double total_time = 0.0, work_time = 0.0, cpu_work_time = 0.0;
+  std::string time_stats;
+
+  td::uint32 transactions = 0;
+  std::vector<BlockIdExt> shard_configuration;
   td::uint32 ext_msgs_total = 0;
   td::uint32 ext_msgs_filtered = 0;
   td::uint32 ext_msgs_accepted = 0;
   td::uint32 ext_msgs_rejected = 0;
+
+  td::uint64 old_out_msg_queue_size = 0;
+  td::uint64 new_out_msg_queue_size = 0;
+  td::uint32 msg_queue_cleaned = 0;
+  struct NeighborStats {
+    ShardIdFull shard;
+    bool is_trivial = false;
+    bool is_local = false;
+    int msg_limit = -1;
+    td::uint32 processed_msgs = 0;
+    td::uint32 skipped_msgs = 0;
+    bool limit_reached = false;
+
+    tl_object_ptr<ton_api::validatorStats_blockStats_neighborStats> tl() const {
+      return create_tl_object<ton_api::validatorStats_blockStats_neighborStats>(
+          create_tl_shard_id(shard), is_trivial, is_local, msg_limit, processed_msgs, skipped_msgs, limit_reached);
+    }
+  };
+  std::vector<NeighborStats> neighbors;
+
+  double load_fraction_queue_cleanup = -1.0;
+  double load_fraction_dispatch = -1.0;
+  double load_fraction_internals = -1.0;
+  double load_fraction_externals = -1.0;
+  double load_fraction_new_msgs = -1.0;
+
+  tl_object_ptr<ton_api::validatorStats_collatedBlock> tl() const {
+    std::vector<tl_object_ptr<ton_api::tonNode_blockIdExt>> shards_obj;
+    for (const BlockIdExt& block_id : shard_configuration) {
+      shards_obj.push_back(create_tl_block_id(block_id));
+    }
+    std::vector<tl_object_ptr<ton_api::validatorStats_blockStats_neighborStats>> neighbors_obj;
+    for (const NeighborStats& neighbor : neighbors) {
+      neighbors_obj.push_back(neighbor.tl());
+    }
+    auto block_stats = create_tl_object<ton_api::validatorStats_blockStats>(
+        create_tl_object<ton_api::validatorStats_blockStats_extMsgsStats>(ext_msgs_total, ext_msgs_filtered,
+                                                                          ext_msgs_accepted, ext_msgs_rejected),
+        transactions, std::move(shards_obj), old_out_msg_queue_size, new_out_msg_queue_size, msg_queue_cleaned,
+        std::move(neighbors_obj));
+    return create_tl_object<ton_api::validatorStats_collatedBlock>(
+        create_tl_block_id(block_id), collated_data_hash, cc_seqno, collated_at, actual_bytes,
+        actual_collated_data_bytes, attempt, self.bits256_value(), is_validator, total_time, work_time, cpu_work_time,
+        time_stats,
+        create_tl_object<ton_api::validatorStats_blockLimitsStatus>(
+            estimated_bytes, gas, lt_delta, estimated_collated_data_bytes, cat_bytes, cat_gas, cat_lt_delta,
+            cat_collated_data_bytes, load_fraction_queue_cleanup, load_fraction_dispatch, load_fraction_internals,
+            load_fraction_externals, load_fraction_new_msgs, limits_log),
+        std::move(block_stats));
+  }
+};
+
+struct ValidationStats {
+  BlockIdExt block_id;
+  td::Bits256 collated_data_hash = td::Bits256::zero();
+  double validated_at = -1.0;
+  PublicKeyHash self = PublicKeyHash::zero();
+  bool valid = false;
+  std::string comment;
+  td::uint32 actual_bytes = 0, actual_collated_data_bytes = 0;
+  double total_time = 0.0, work_time = 0.0, cpu_work_time = 0.0;
+
+  tl_object_ptr<ton_api::validatorStats_validatedBlock> tl() const {
+    return create_tl_object<ton_api::validatorStats_validatedBlock>(
+        create_tl_block_id(block_id), collated_data_hash, validated_at, self.bits256_value(), valid, comment,
+        actual_bytes, actual_collated_data_bytes, total_time, work_time, cpu_work_time);
+  }
+};
+
+struct CollatorNodeResponseStats {
+  PublicKeyHash self = PublicKeyHash::zero();
+  PublicKeyHash validator_id = PublicKeyHash::zero();
+  double timestamp = -1.0;
+  BlockIdExt block_id, original_block_id;
+  td::Bits256 collated_data_hash = td::Bits256::zero();
+
+  tl_object_ptr<ton_api::validatorStats_collatorNodeResponse> tl() const {
+    return create_tl_object<ton_api::validatorStats_collatorNodeResponse>(
+        self.bits256_value(), validator_id.bits256_value(), timestamp, create_tl_block_id(block_id),
+        create_tl_block_id(original_block_id), collated_data_hash);
+    ;
+  }
 };
 
 using ValidateCandidateResult = td::Variant<UnixTime, CandidateReject>;
@@ -126,8 +226,8 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void get_external_messages(ShardIdFull shard,
                                      td::Promise<std::vector<std::pair<td::Ref<ExtMessage>, int>>> promise) = 0;
   virtual void get_ihr_messages(ShardIdFull shard, td::Promise<std::vector<td::Ref<IhrMessage>>> promise) = 0;
-  virtual void get_shard_blocks(BlockIdExt masterchain_block_id,
-                                td::Promise<std::vector<td::Ref<ShardTopBlockDescription>>> promise) = 0;
+  virtual void get_shard_blocks_for_collator(BlockIdExt masterchain_block_id,
+                                             td::Promise<std::vector<td::Ref<ShardTopBlockDescription>>> promise) = 0;
   virtual void complete_external_messages(std::vector<ExtMessage::Hash> to_delay,
                                           std::vector<ExtMessage::Hash> to_delete) = 0;
   virtual void complete_ihr_messages(std::vector<IhrMessage::Hash> to_delay,
@@ -191,9 +291,12 @@ class ValidatorManager : public ValidatorManagerInterface {
 
   virtual void wait_shard_client_state(BlockSeqno seqno, td::Timestamp timeout, td::Promise<td::Unit> promise) = 0;
 
-  virtual void log_validator_session_stats(BlockIdExt block_id, validatorsession::ValidatorSessionStats stats) = 0;
-  virtual void log_new_validator_group_stats(validatorsession::NewValidatorGroupStats stats) = 0;
-  virtual void log_end_validator_group_stats(validatorsession::EndValidatorGroupStats stats) = 0;
+  virtual void log_validator_session_stats(validatorsession::ValidatorSessionStats stats) {
+  }
+  virtual void log_new_validator_group_stats(validatorsession::NewValidatorGroupStats stats) {
+  }
+  virtual void log_end_validator_group_stats(validatorsession::EndValidatorGroupStats stats) {
+  }
 
   virtual void get_block_handle_for_litequery(BlockIdExt block_id, td::Promise<ConstBlockHandle> promise) = 0;
   virtual void get_block_data_for_litequery(BlockIdExt block_id, td::Promise<td::Ref<BlockData>> promise) = 0;
@@ -213,10 +316,11 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void add_lite_query_stats(int lite_query_id, bool success) {
   }
 
-  virtual void record_collate_query_stats(BlockIdExt block_id, double work_time, double cpu_work_time,
-                                          td::optional<CollationStats> stats) {
+  virtual void log_collate_query_stats(CollationStats stats) {
   }
-  virtual void record_validate_query_stats(BlockIdExt block_id, double work_time, double cpu_work_time, bool success) {
+  virtual void log_validate_query_stats(ValidationStats stats) {
+  }
+  virtual void log_collator_node_response_stats(CollatorNodeResponseStats stats) {
   }
 
   virtual void add_persistent_state_description(td::Ref<PersistentStateDescription> desc) = 0;
@@ -226,6 +330,13 @@ class ValidatorManager : public ValidatorManagerInterface {
   }
   virtual void update_storage_stat_cache(std::vector<std::pair<td::Ref<vm::Cell>, td::uint32>> data) {
     // not implemented
+  }
+
+  virtual void wait_verify_shard_blocks(std::vector<BlockIdExt> blocks, td::Promise<td::Unit> promise) {
+    promise.set_result(td::Unit());
+  }
+
+  virtual void iterate_temp_block_handles(std::function<void(const BlockHandleInterface &)> f) {
   }
 
   static bool is_persistent_state(UnixTime ts, UnixTime prev_ts) {

@@ -676,10 +676,25 @@ bool ParamLimits::deserialize(vm::CellSlice& cs) {
 }
 
 bool BlockLimits::deserialize(vm::CellSlice& cs) {
-  return cs.fetch_ulong(8) == 0x5d     // block_limits#5d
-         && bytes.deserialize(cs)      // bytes:ParamLimits
-         && gas.deserialize(cs)        // gas:ParamLimits
-         && lt_delta.deserialize(cs);  // lt_delta:ParamLimits
+  auto tag = cs.fetch_ulong(8);
+  if (tag != 0x5d && tag != 0x5e) {
+    return false;
+  }
+  // block_limits#5d
+  // block_limits_v2#5e
+  bool ok = bytes.deserialize(cs)         // bytes:ParamLimits
+            && gas.deserialize(cs)        // gas:ParamLimits
+            && lt_delta.deserialize(cs);  // lt_delta:ParamLimits
+  if (!ok) {
+    return false;
+  }
+  if (tag == 0x5e) {
+    return collated_data.deserialize(cs) &&     // collated_data:ParamLimits
+           imported_msg_queue.deserialize(cs);  // imported_msg_queue:ImportedMsgQueueLimits
+  } else {
+    collated_data = bytes;
+    return true;
+  }
 }
 
 int ParamLimits::classify(td::uint64 value) const {
@@ -711,12 +726,19 @@ int BlockLimits::classify_lt(ton::LogicalTime lt) const {
   return lt_delta.classify(lt - start_lt);
 }
 
-int BlockLimits::classify(td::uint64 size, td::uint64 gas, ton::LogicalTime lt) const {
-  return std::max(std::max(classify_size(size), classify_gas(gas)), classify_lt(lt));
+int BlockLimits::classify_collated_data_size(td::uint64 size) const {
+  return collated_data.classify(size);
 }
 
-bool BlockLimits::fits(unsigned cls, td::uint64 size, td::uint64 gas_value, ton::LogicalTime lt) const {
-  return bytes.fits(cls, size) && gas.fits(cls, gas_value) && lt_delta.fits(cls, lt - start_lt);
+int BlockLimits::classify(td::uint64 size, td::uint64 gas, ton::LogicalTime lt, td::uint64 collated_size) const {
+  return std::max(
+      {classify_size(size), classify_gas(gas), classify_lt(lt), classify_collated_data_size(collated_size)});
+}
+
+bool BlockLimits::fits(unsigned cls, td::uint64 size, td::uint64 gas_value, ton::LogicalTime lt,
+                       td::uint64 collated_size) const {
+  return bytes.fits(cls, size) && gas.fits(cls, gas_value) && lt_delta.fits(cls, lt - start_lt) &&
+         collated_data.fits(cls, collated_size);
 }
 
 td::uint64 BlockLimitStatus::estimate_block_size(const vm::NewCellStorageStat::Stat* extra) const {
@@ -729,20 +751,30 @@ td::uint64 BlockLimitStatus::estimate_block_size(const vm::NewCellStorageStat::S
 }
 
 int BlockLimitStatus::classify() const {
-  return limits.classify(estimate_block_size(), gas_used, cur_lt);
+  return limits.classify(estimate_block_size(), gas_used, cur_lt, collated_data_size_estimate);
 }
 
 bool BlockLimitStatus::fits(unsigned cls) const {
   return cls >= ParamLimits::limits_cnt ||
          (limits.gas.fits(cls, gas_used) && limits.lt_delta.fits(cls, cur_lt - limits.start_lt) &&
-          limits.bytes.fits(cls, estimate_block_size()));
+          limits.bytes.fits(cls, estimate_block_size()) && limits.collated_data.fits(cls, collated_data_size_estimate));
 }
 
 bool BlockLimitStatus::would_fit(unsigned cls, ton::LogicalTime end_lt, td::uint64 more_gas,
                                  const vm::NewCellStorageStat::Stat* extra) const {
   return cls >= ParamLimits::limits_cnt || (limits.gas.fits(cls, gas_used + more_gas) &&
                                             limits.lt_delta.fits(cls, std::max(cur_lt, end_lt) - limits.start_lt) &&
-                                            limits.bytes.fits(cls, estimate_block_size(extra)));
+                                            limits.bytes.fits(cls, estimate_block_size(extra)) &&
+                                            limits.collated_data.fits(cls, collated_data_size_estimate));
+}
+
+double BlockLimitStatus::load_fraction(unsigned cls) const {
+  if (cls >= ParamLimits::limits_cnt) {
+    return 0.0;
+  }
+  return std::max({(double)estimate_block_size() / (double)limits.bytes.limit(cls),
+                   (double)gas_used / (double)limits.gas.limit(cls),
+                   (double)collated_data_size_estimate / (double)limits.collated_data.limit(cls)});
 }
 
 // SETS: account_dict, shard_libraries_, mc_state_extra

@@ -684,14 +684,6 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
     return;
   }
   block::ImportedMsgQueueLimits limits{(td::uint32)query.limits_->max_bytes_, (td::uint32)query.limits_->max_msgs_};
-  if (limits.max_msgs > 512) {
-    promise.set_error(td::Status::Error("max_msgs is too big"));
-    return;
-  }
-  if (limits.max_bytes > (1 << 21)) {
-    promise.set_error(td::Status::Error("max_bytes is too big"));
-    return;
-  }
   FLOG(DEBUG) {
     sb << "Got query getOutMsgQueueProof to shard " << dst_shard.to_str() << " from blocks";
     for (const BlockIdExt &id : blocks) {
@@ -1041,7 +1033,7 @@ void FullNodeShardImpl::download_out_msg_queue_proof(ShardIdFull dst_shard, std:
                                                      block::ImportedMsgQueueLimits limits, td::Timestamp timeout,
                                                      td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise) {
   // TODO: maybe more complex download (like other requests here)
-  auto &b = choose_neighbour();
+  auto &b = choose_neighbour(3, 0);  // Required version: 3.0
   if (b.adnl_id == adnl::AdnlNodeIdShort::zero()) {
     promise.set_error(td::Status::Error(ErrorCode::notready, "no nodes"));
     return;
@@ -1288,24 +1280,36 @@ void FullNodeShardImpl::got_neighbours(std::vector<adnl::AdnlNodeIdShort> vec) {
   }
 }
 
-const Neighbour &FullNodeShardImpl::choose_neighbour() const {
+const Neighbour &FullNodeShardImpl::choose_neighbour(td::uint32 required_version_major,
+                                                     td::uint32 required_version_minor) const {
   if (neighbours_.size() == 0) {
     return Neighbour::zero;
   }
+  auto is_eligible =
+      [&](const Neighbour &n) {
+        return n.version_major > required_version_major ||
+               (n.version_major == required_version_major && n.version_minor >= required_version_minor);
+      };
 
   double min_unreliability = 1e9;
-  for (auto &x : neighbours_) {
-    min_unreliability = std::min(min_unreliability, x.second.unreliability);
+  for (auto &[_, x] : neighbours_) {
+    if (!is_eligible(x)) {
+      continue;
+    }
+    min_unreliability = std::min(min_unreliability, x.unreliability);
   }
   const Neighbour *best = nullptr;
   td::uint32 sum = 0;
 
-  for (auto &x : neighbours_) {
-    auto unr = static_cast<td::uint32>(x.second.unreliability - min_unreliability);
+  for (auto &[_, x] : neighbours_) {
+    if (!is_eligible(x)) {
+      continue;
+    }
+    auto unr = static_cast<td::uint32>(x.unreliability - min_unreliability);
 
-    if (x.second.version_major < proto_version_major()) {
+    if (x.version_major < proto_version_major()) {
       unr += 4;
-    } else if (x.second.version_major == proto_version_major() && x.second.version_minor < proto_version_minor()) {
+    } else if (x.version_major == proto_version_major() && x.version_minor < proto_version_minor()) {
       unr += 2;
     }
 
@@ -1315,7 +1319,7 @@ const Neighbour &FullNodeShardImpl::choose_neighbour() const {
       auto w = 1 << (f - unr);
       sum += w;
       if (td::Random::fast(0, sum - 1) <= w - 1) {
-        best = &x.second;
+        best = &x;
       }
     }
   }
