@@ -253,10 +253,10 @@ new_bounce_body#fffffffe
 - `original_info` - value, lt and unixtime of the original message.
 - `bounced_by_phase`:
   - `0` - compute phase was skipped. `exit_code` denotes the skip reason:
-    - `exit_code = 0` - no state (account is uninit or frozen, and no state init is present in the message).
-    - `exit_code = 1` - bad state (account is uninit or frozen, and state init in the message has the wrong hash).
-    - `exit_code = 2` - no gas.
-    - `exit_code = 3` - account is suspended.
+    - `exit_code = -1` - no state (account is uninit or frozen, and no state init is present in the message).
+    - `exit_code = -2` - bad state (account is uninit or frozen, and state init in the message has the wrong hash).
+    - `exit_code = -3` - no gas.
+    - `exit_code = -4` - account is suspended.
   - `1` - compute phase failed. `exit_code` is the value from the compute phase.
   - `2` - action phase failed. `exit_code` is the value from the action phase.
 - `exit_code` - 32-bit exit code, see above.

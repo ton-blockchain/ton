@@ -3288,8 +3288,8 @@ bool Transaction::prepare_bounce_phase(const ActionPhaseConfig& cfg) {
                        .store_long(in_msg_info.created_at, 32)  // created_at:uint32
                        .finalize_novm());                       // original_info:^NewBounceOriginalInfo
     if (compute_phase->skip_reason != ComputePhase::sk_none) {
-      body.store_long(0, 8);                                // bounced_by_phase:uint8
-      body.store_long(compute_phase->skip_reason - 1, 32);  // exit_code:int32
+      body.store_long(0, 8);                             // bounced_by_phase:uint8
+      body.store_long(-compute_phase->skip_reason, 32);  // exit_code:int32
     } else if (!compute_phase->success) {
       body.store_long(1, 8);                          // bounced_by_phase:uint8
       body.store_long(compute_phase->exit_code, 32);  // exit_code:int32
