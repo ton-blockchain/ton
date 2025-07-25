@@ -196,7 +196,6 @@ void OverlayImpl::add_peer(OverlayNode node) {
     if (R.is_error()) {
       VLOG(OVERLAY_WARNING) << this << ": bad peer certificate node=" << node.adnl_id_short() << ": "
                             << R.move_as_error();
-      UNREACHABLE();
       return;
     }
   }

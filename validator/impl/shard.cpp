@@ -498,11 +498,11 @@ std::vector<Ref<McShardHash>> MasterchainStateQ::get_shards() const {
   return v;
 }
 
-td::Ref<McShardHash> MasterchainStateQ::get_shard_from_config(ShardIdFull shard) const {
+td::Ref<McShardHash> MasterchainStateQ::get_shard_from_config(ShardIdFull shard, bool exact) const {
   if (!config_) {
     return {};
   }
-  return config_->get_shard_hash(shard);
+  return config_->get_shard_hash(shard, exact);
 }
 
 bool MasterchainStateQ::rotated_all_shards() const {

@@ -14,7 +14,6 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
-#pragma once
 #include "storage-stat-cache.hpp"
 
 namespace ton::validator {
@@ -27,7 +26,7 @@ void StorageStatCache::get_cache(td::Promise<std::function<td::Ref<vm::Cell>(con
 
 void StorageStatCache::update(std::vector<std::pair<td::Ref<vm::Cell>, td::uint32>> data) {
   for (auto &[cell, size] : data) {
-    if (size < 4000) {
+    if (size < MIN_ACCOUNT_CELLS) {
       continue;
     }
     td::Bits256 hash = cell->get_hash().bits();
