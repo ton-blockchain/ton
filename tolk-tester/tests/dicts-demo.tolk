@@ -93,6 +93,17 @@ fun test104() {
     );
 }
 
+@method_id(105)
+fun test105(takeNext: bool) {
+    var dict = createEmptyDict();
+    dict.uDictSet(32, 0, stringHexToSlice("01"));
+    dict.uDictSet(32, 8, stringHexToSlice("02"));
+    var (next, data, found) = takeNext ? dict.uDictGetNext(32, -1) : dict.uDictGetPrev(32, 9);
+    __expect_type(found, "bool");
+    assert(found, 10);
+    return data!.loadUint(8);
+}
+
 fun main() {}
 
 /**
@@ -102,4 +113,6 @@ fun main() {}
 @testcase | 102 |       | [ [ 4 104 ] [ 3 103 ] [ 2 102 ] [ 1 101 ] ] 
 @testcase | 103 |       | 1 1 2 1 3 (null)
 @testcase | 104 |       | 12 34 56 78 0
+@testcase | 105 | -1    | 1
+@testcase | 105 | 0     | 2
  */

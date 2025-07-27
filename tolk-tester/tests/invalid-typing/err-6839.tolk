@@ -16,4 +16,5 @@ fun cantMixDifferentThis() {
 /**
 @compilation_should_fail
 @stderr method `appendBuilder` not found for type `int`
+@stderr (but it exists for type `builder`)
  */

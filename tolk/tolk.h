@@ -46,7 +46,6 @@ inline void fire(FunctionPtr cur_f, SrcLocation loc, const std::string& message)
  * 
  */
 
-typedef int var_idx_t;
 typedef int const_idx_t;
 
 struct TmpVar {
@@ -362,6 +361,7 @@ struct Op {
   bool set_var_info_except(const VarDescrList& new_var_info, const std::vector<var_idx_t>& var_list);
   bool set_var_info_except(VarDescrList&& new_var_info, const std::vector<var_idx_t>& var_list);
   void prepare_args(VarDescrList values);
+  void maybe_swap_builtin_args_to_compile();
   VarDescrList fwd_analyze(VarDescrList values);
   bool mark_noreturn();
   bool is_empty() const {
@@ -707,9 +707,6 @@ struct StackTransform {
   bool almost_equal(const StackTransform& other) const {
     return equal(other, true);
   }
-  bool operator==(const StackTransform& other) const {
-    return dp == other.dp && almost_equal(other);
-  }
   bool operator<=(const StackTransform& other) const {
     return dp <= other.dp && almost_equal(other);
   }
@@ -724,28 +721,6 @@ struct StackTransform {
     return get(i);
   }
   bool set(int i, int v, bool relaxed = false);
-  int operator()(int i) const {
-    return get(i);
-  }
-  class Pos {
-    StackTransform& t_;
-    int p_;
-
-   public:
-    Pos(StackTransform& t, int p) : t_(t), p_(p) {
-    }
-    Pos& operator=(const Pos& other) = delete;
-    operator int() const {
-      return t_.get(p_);
-    }
-    const Pos& operator=(int v) const {
-      t_.set(p_, v);
-      return *this;
-    }
-  };
-  Pos operator[](int i) {
-    return Pos(*this, i);
-  }
   static const StackTransform rot;
   static const StackTransform rot_rev;
   bool is_id() const {
@@ -814,8 +789,6 @@ struct StackTransform {
   void show(std::ostream& os, int mode = 0) const;
 
   static StackTransform Xchg(int i, int j, bool relaxed = false);
-  static StackTransform Push(int i);
-  static StackTransform Pop(int i);
 
  private:
   int try_load(int& i, int offs = 0) const;  // returns A[i++].first + offs or inf_x
@@ -836,7 +809,7 @@ bool apply_op(StackTransform& trans, const AsmOp& op);
  */
 
 struct Optimizer {
-  static constexpr int optimize_depth = 20;
+  static constexpr int optimize_depth = 30;
   AsmOpConsList code_;
   int l_{0}, l2_{0}, p_, pb_, q_, indent_;
   bool debug_{false};
@@ -926,6 +899,14 @@ struct Optimizer {
   bool is_2pop_blkdrop(int* i, int* j, int* k);
 
   bool detect_rewrite_big_THROW();
+  bool detect_rewrite_MY_store_int();
+  bool detect_rewrite_MY_skip_bits();
+  bool detect_rewrite_NEWC_PUSH_STUR();
+  bool detect_rewrite_LDxx_DROP();
+  bool detect_rewrite_SWAP_symmetric();
+  bool detect_rewrite_SWAP_PUSH_STUR();
+  bool detect_rewrite_SWAP_STxxxR();
+  bool detect_rewrite_NOT_THROWIF();
 
   AsmOpConsList extract_code();
 };
@@ -1065,12 +1046,28 @@ struct FunctionBodyAsm {
   void compile(AsmOpList& dest, SrcLocation loc) const;
 };
 
+struct LazyVariableLoadedState;
+
+// LazyVarRefAtCodegen is a mutable state of a variable assigned by `lazy` operator:
+// > var p = lazy Point.fromSlice(s)
+// When inlining a method `p.getX()`, `self` also becomes lazy, pointing to the same state.
+struct LazyVarRefAtCodegen {
+  LocalVarPtr var_ref;
+  const LazyVariableLoadedState* var_state;
+
+  LazyVarRefAtCodegen(LocalVarPtr var_ref, const LazyVariableLoadedState* var_state)
+    : var_ref(var_ref), var_state(var_state) {}
+};
+
 struct CodeBlob {
   int var_cnt, in_var_cnt;
   FunctionPtr fun_ref;
   std::string name;
   SrcLocation forced_loc;
   std::vector<TmpVar> vars;
+  std::vector<LazyVarRefAtCodegen> lazy_variables;
+  std::vector<var_idx_t>* inline_rvect_out = nullptr;
+  bool inlining_before_immediate_return = false;
   std::unique_ptr<Op> ops;
   std::unique_ptr<Op>* cur_ops;
 #ifdef TOLK_DEBUG
@@ -1122,6 +1119,8 @@ struct CodeBlob {
     close_blk(location);
     pop_cur();
   }
+  const LazyVariableLoadedState* get_lazy_variable(LocalVarPtr var_ref) const;
+  const LazyVariableLoadedState* get_lazy_variable(AnyExprV v) const;
   void prune_unreachable_code();
   void fwd_analyze();
   void mark_noreturn();

@@ -262,6 +262,7 @@ bool Account::unpack_storage_info(vm::CellSlice& cs) {
   } else {
     storage_dict_hash = {};
   }
+  orig_storage_dict_hash = storage_dict_hash;
   if (info.due_payment->prefetch_ulong(1) == 1) {
     vm::CellSlice& cs2 = info.due_payment.write();
     cs2.advance(1);
@@ -307,8 +308,8 @@ bool Account::unpack_state(vm::CellSlice& cs) {
     tock = z & 1;
     LOG(DEBUG) << "tick=" << tick << ", tock=" << tock;
   }
-  code = state.code->prefetch_ref();
-  data = state.data->prefetch_ref();
+  code = orig_code = state.code->prefetch_ref();
+  data = orig_data = state.data->prefetch_ref();
   library = orig_library = state.library->prefetch_ref();
   return true;
 }
@@ -530,7 +531,7 @@ bool Account::init_new(ton::UnixTime now) {
   now_ = now;
   last_paid = 0;
   storage_used = {};
-  storage_dict_hash = {};
+  orig_storage_dict_hash = storage_dict_hash = {};
   due_payment = td::zero_refint();
   balance.set_zero();
   if (my_addr_exact.is_null()) {
@@ -559,6 +560,115 @@ bool Account::init_new(ton::UnixTime now) {
   status = orig_status = acc_nonexist;
   addr_rewrite_length_set = false;
   return true;
+}
+
+/**
+ * Removes extra currencies dict from AccountStorage.
+ *
+ * This is used for computing account storage stats.
+ *
+ * @param storage_cs AccountStorage as CellSlice.
+ *
+ * @returns AccountStorage without extra currencies as CellSlice.
+ */
+static td::Ref<vm::CellSlice> storage_without_extra_currencies(td::Ref<vm::CellSlice> storage_cs) {
+  block::gen::AccountStorage::Record rec;
+  if (!block::gen::csr_unpack(storage_cs, rec)) {
+    LOG(ERROR) << "failed to unpack AccountStorage";
+    return {};
+  }
+  if (rec.balance->size_refs() > 0) {
+    block::gen::CurrencyCollection::Record balance;
+    if (!block::gen::csr_unpack(rec.balance, balance)) {
+      LOG(ERROR) << "failed to unpack AccountStorage";
+      return {};
+    }
+    balance.other = vm::CellBuilder{}.store_zeroes(1).as_cellslice_ref();
+    if (!block::gen::csr_pack(rec.balance, balance)) {
+      LOG(ERROR) << "failed to pack AccountStorage";
+      return {};
+    }
+  }
+  td::Ref<vm::CellSlice> result;
+  if (!block::gen::csr_pack(result, rec)) {
+    LOG(ERROR) << "failed to pack AccountStorage";
+    return {};
+  }
+  return result;
+}
+
+/**
+ * Computes storage dict of the account from scratch.
+ * This requires storage_dict_hash to be set, as it guarantees that the stored storage_used was computed recently
+ * (in older versions it included extra currency balance, in newer versions it does not).
+ *
+ * @returns Root of the dictionary, or Error
+ */
+td::Result<Ref<vm::Cell>> Account::compute_account_storage_dict() const {
+  if (storage.is_null()) {
+    return td::Status::Error("cannot compute storage dict: empty storage");
+  }
+  if (!storage_dict_hash) {
+    return td::Status::Error("cannot compute storage dict: storage_dict_hash is not set");
+  }
+  AccountStorageStat stat;
+  auto storage_for_stat = storage_without_extra_currencies(storage);
+  if (storage_for_stat.is_null()) {
+    return td::Status::Error("cannot compute storage dict: invalid storage");
+  }
+  TRY_STATUS(stat.replace_roots(storage_for_stat->prefetch_all_refs()));
+  // Root of AccountStorage is not counted in AccountStorageStat
+  td::uint64 expected_cells = stat.get_total_cells() + 1;
+  td::uint64 expected_bits = stat.get_total_bits() + storage->size();
+  if (expected_cells != storage_used.cells || expected_bits != storage_used.bits) {
+    return td::Status::Error(PSTRING() << "invalid storage_used: computed cells=" << expected_cells
+                                       << " bits=" << expected_bits << ", found cells" << storage_used.cells
+                                       << " bits=" << storage_used.bits);
+  }
+  TRY_RESULT(root_hash, stat.get_dict_hash());
+  if (storage_dict_hash.value() != root_hash) {
+    return td::Status::Error(PSTRING() << "invalid storage dict hash: computed " << root_hash.to_hex() << ", found "
+                                       << storage_dict_hash.value().to_hex());
+  }
+  return stat.get_dict_root();
+}
+
+/**
+ * Initializes account_storage_stat of the account using the existing dict_root.
+ * This is not strictly necessary, as the storage stat is recomputed in Transaction.
+ * However, it can be used to optimize cell usage.
+ * This requires storage_dict_hash to be set, as it guarantees that the stored storage_used was computed recently
+ * (in older versions it included extra currency balance, in newer versions it does not).
+ *
+ * @param dict_root Root of the storage dictionary.
+ *
+ * @returns Status of the operation.
+ */
+td::Status Account::init_account_storage_stat(Ref<vm::Cell> dict_root) {
+  if (storage.is_null()) {
+    if (dict_root.not_null()) {
+      return td::Status::Error("storage is null, but dict_root is not null");
+    }
+    account_storage_stat = {};
+    return td::Status::OK();
+  }
+  if (!storage_dict_hash) {
+    return td::Status::Error("cannot init storage dict: storage_dict_hash is not set");
+  }
+  // Root of AccountStorage is not counted in AccountStorageStat
+  if (storage_used.cells < 1 || storage_used.bits < storage->size()) {
+    return td::Status::Error(PSTRING() << "storage_used is too small: cells=" << storage_used.cells
+                                       << " bits=" << storage_used.bits << " storage_root_bits=" << storage->size());
+  }
+  AccountStorageStat new_stat(std::move(dict_root), storage->prefetch_all_refs(), storage_used.cells - 1,
+                              storage_used.bits - storage->size());
+  TRY_RESULT(root_hash, new_stat.get_dict_hash());
+  if (storage_dict_hash.value() != root_hash) {
+    return td::Status::Error(PSTRING() << "invalid storage dict hash: computed " << root_hash.to_hex() << ", found "
+                                       << storage_dict_hash.value().to_hex());
+  }
+  account_storage_stat = std::move(new_stat);
+  return td::Status::OK();
 }
 
 /**
@@ -1900,6 +2010,7 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
                << cfg.flat_gas_limit << "]; remaining balance=" << balance.to_str();
     CHECK(td::sgn(balance.grams) >= 0);
   }
+  cp.vm_loaded_cells = vm.extract_loaded_cells();
   return true;
 }
 
@@ -1930,12 +2041,17 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
   ap.action_fine = td::zero_refint();
 
   td::Ref<vm::Cell> old_code = new_code, old_data = new_data, old_library = new_library;
-  auto enforce_state_limits = [&]() {
+  // 1 - ok, 0 - limits exceeded, -1 - fatal error
+  auto enforce_state_limits = [&]() -> int {
     if (account.is_special) {
-      return true;
+      return 1;
     }
     auto S = check_state_limits(cfg.size_limits);
     if (S.is_error()) {
+      if (S.code() != AccountStorageStat::errorcode_limits_exceeded) {
+        LOG(ERROR) << "Account storage stat error: " << S.move_as_error();
+        return -1;
+      }
       // Rollback changes to state, fail action phase
       LOG(INFO) << "Account state size exceeded limits: " << S.move_as_error();
       new_account_storage_stat = {};
@@ -1944,9 +2060,9 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
       new_library = old_library;
       ap.result_code = 50;
       ap.state_exceeds_limits = true;
-      return false;
+      return 0;
     }
-    return true;
+    return 1;
   };
 
   int n = 0;
@@ -2057,7 +2173,9 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
       }
       LOG(DEBUG) << "invalid action " << ap.result_arg << " in action list: error code " << ap.result_code;
       // This is required here because changes to libraries are applied even if action phase fails
-      enforce_state_limits();
+      if (enforce_state_limits() == -1) {
+        return false;
+      }
       if (cfg.action_fine_enabled) {
         ap.action_fine = std::min(ap.action_fine, balance.grams);
         ap.total_action_fees = ap.action_fine;
@@ -2079,7 +2197,11 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
     new_code = ap.new_code;
   }
   new_data = compute_phase->new_data;  // tentative persistent data update applied
-  if (!enforce_state_limits()) {
+  int res = enforce_state_limits();
+  if (res == -1) {
+    return false;
+  }
+  if (res == 0) {
     if (cfg.extra_currency_v2) {
       end_lt = ap.end_lt = start_lt + 1;
       if (cfg.action_fine_enabled) {
@@ -2557,6 +2679,9 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     } else {
       fwd_fee = block::tlb::t_Grams.as_integer(info.fwd_fee);
       ihr_fee = block::tlb::t_Grams.as_integer(info.ihr_fee);
+    }
+    if (cfg.disable_ihr_flag) {
+      info.ihr_disabled = true;
     }
   }
   // set created_at and created_lt to correct values
@@ -3050,13 +3175,14 @@ static td::uint32 get_public_libraries_diff_count(const td::Ref<vm::Cell>& old_l
  * This function is not called for special accounts.
  *
  * @param size_limits The size limits configuration.
- * @param update_storage_stat Store storage stat in the Transaction's AccountStorageStat.
+ * @param is_account_stat Store storage stat in the Transaction's AccountStorageStat.
  *
  * @returns A `td::Status` indicating the result of the check.
  *          - If the state limits are within the allowed range, returns OK.
- *          - If the state limits exceed the maximum allowed range, returns an error.
+ *          - If the state limits exceed the maximum allowed range, returns an error with AccountStorageStat::errorcode_limits_exceeded code.
+ *          - If an error occurred during storage stat calculation, returns other error.
  */
-td::Status Transaction::check_state_limits(const SizeLimitsConfig& size_limits, bool update_storage_stat) {
+td::Status Transaction::check_state_limits(const SizeLimitsConfig& size_limits, bool is_account_stat) {
   auto cell_equal = [](const td::Ref<vm::Cell>& a, const td::Ref<vm::Cell>& b) -> bool {
     return a.is_null() || b.is_null() ? a.is_null() == b.is_null() : a->get_hash() == b->get_hash();
   };
@@ -3065,12 +3191,22 @@ td::Status Transaction::check_state_limits(const SizeLimitsConfig& size_limits, 
     return td::Status::OK();
   }
   AccountStorageStat storage_stat;
-  if (update_storage_stat && account.account_storage_stat) {
+  if (is_account_stat && account.account_storage_stat) {
     storage_stat = AccountStorageStat{&account.account_storage_stat.value()};
   }
   {
     TD_PERF_COUNTER(transaction_storage_stat_a);
     td::Timer timer;
+    if (is_account_stat && compute_phase) {
+      storage_stat.add_hint(compute_phase->vm_loaded_cells);
+    }
+    StorageStatCalculationContext context{is_account_stat};
+    StorageStatCalculationContext::Guard guard{&context};
+    if (is_account_stat) {
+      storage_stat_updates.push_back(new_code);
+      storage_stat_updates.push_back(new_data);
+      storage_stat_updates.push_back(new_library);
+    }
     TRY_STATUS(storage_stat.replace_roots({new_code, new_data, new_library}, /* check_merkle_depth = */ true));
     if (timer.elapsed() > 0.1) {
       LOG(INFO) << "Compute used storage (1) took " << timer.elapsed() << "s";
@@ -3079,7 +3215,8 @@ td::Status Transaction::check_state_limits(const SizeLimitsConfig& size_limits, 
 
   if (storage_stat.get_total_cells() > size_limits.max_acc_state_cells ||
       storage_stat.get_total_bits() > size_limits.max_acc_state_bits) {
-    return td::Status::Error(PSTRING() << "account state is too big: cells=" << storage_stat.get_total_cells()
+    return td::Status::Error(AccountStorageStat::errorcode_limits_exceeded,
+                             PSTRING() << "account state is too big: cells=" << storage_stat.get_total_cells()
                                        << ", bits=" << storage_stat.get_total_bits()
                                        << " (max cells=" << size_limits.max_acc_state_cells
                                        << ", max bits=" << size_limits.max_acc_state_bits << ")");
@@ -3087,11 +3224,12 @@ td::Status Transaction::check_state_limits(const SizeLimitsConfig& size_limits, 
   if (account.is_masterchain() && !cell_equal(account.library, new_library)) {
     auto libraries_count = get_public_libraries_count(new_library);
     if (libraries_count > size_limits.max_acc_public_libraries) {
-      return td::Status::Error(PSTRING() << "too many public libraries: " << libraries_count << " (max "
+      return td::Status::Error(AccountStorageStat::errorcode_limits_exceeded,
+                               PSTRING() << "too many public libraries: " << libraries_count << " (max "
                                          << size_limits.max_acc_public_libraries << ")");
     }
   }
-  if (update_storage_stat) {
+  if (is_account_stat) {
     // storage_stat will be reused in compute_state()
     new_account_storage_stat.value_force() = std::move(storage_stat);
   }
@@ -3243,41 +3381,6 @@ bool Account::store_acc_status(vm::CellBuilder& cb, int acc_status) const {
   return cb.store_long_bool(v, 2);
 }
 
-/**
- * Removes extra currencies dict from AccountStorage.
- *
- * This is used for computing account storage stats.
- *
- * @param storage_cs AccountStorage as CellSlice.
- *
- * @returns AccountStorage without extra currencies as CellSlice.
- */
-static td::Ref<vm::CellSlice> storage_without_extra_currencies(td::Ref<vm::CellSlice> storage_cs) {
-  block::gen::AccountStorage::Record rec;
-  if (!block::gen::csr_unpack(storage_cs, rec)) {
-    LOG(ERROR) << "failed to unpack AccountStorage";
-    return {};
-  }
-  if (rec.balance->size_refs() > 0) {
-    block::gen::CurrencyCollection::Record balance;
-    if (!block::gen::csr_unpack(rec.balance, balance)) {
-      LOG(ERROR) << "failed to unpack AccountStorage";
-      return {};
-    }
-    balance.other = vm::CellBuilder{}.store_zeroes(1).as_cellslice_ref();
-    if (!block::gen::csr_pack(rec.balance, balance)) {
-      LOG(ERROR) << "failed to pack AccountStorage";
-      return {};
-    }
-  }
-  td::Ref<vm::CellSlice> result;
-  if (!block::gen::csr_pack(result, rec)) {
-    LOG(ERROR) << "failed to pack AccountStorage";
-    return {};
-  }
-  return result;
-}
-
 namespace transaction {
 /**
  * Computes the new state of the account.
@@ -3399,13 +3502,22 @@ bool Transaction::compute_state(const SerializeConfig& cfg) {
     td::Timer timer;
     if (!new_account_storage_stat && account.account_storage_stat) {
       new_account_storage_stat = AccountStorageStat(&account.account_storage_stat.value());
+      if (compute_phase) {
+        new_account_storage_stat.value().add_hint(compute_phase->vm_loaded_cells);
+      }
     }
     AccountStorageStat& stats = new_account_storage_stat.value_force();
     // Don't check Merkle depth and size here - they were checked in check_state_limits
-    td::Status S = stats.replace_roots(new_storage_for_stat->prefetch_all_refs());
-    if (S.is_error()) {
-      LOG(ERROR) << "Cannot recompute storage stats for account " << account.addr.to_hex() << ": " << S.move_as_error();
-      return false;
+    auto roots = new_storage_for_stat->prefetch_all_refs();
+    storage_stat_updates.insert(storage_stat_updates.end(), roots.begin(), roots.end());
+    {
+      StorageStatCalculationContext context{true};
+      StorageStatCalculationContext::Guard guard{&context};
+      td::Status S = stats.replace_roots(roots);
+      if (S.is_error()) {
+        LOG(ERROR) << "Cannot recompute storage stats for account " << account.addr.to_hex() << ": " << S.move_as_error();
+        return false;
+      }
     }
     // Root of AccountStorage is not counted in AccountStorageStat
     new_storage_used.cells = stats.get_total_cells() + 1;
@@ -4066,6 +4178,7 @@ td::Status FetchConfigParams::fetch_config_params(
     action_phase_cfg->mc_blackhole_addr = config.get_burning_config().blackhole_addr;
     action_phase_cfg->extra_currency_v2 = config.get_global_version() >= 10;
     action_phase_cfg->disable_anycast = config.get_global_version() >= 10;
+    action_phase_cfg->disable_ihr_flag = config.get_global_version() >= 11;
   }
   {
     serialize_cfg->extra_currency_v2 = config.get_global_version() >= 10;

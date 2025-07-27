@@ -1,3 +1,5 @@
+global t: tuple;
+
 @method_id(101)
 fun test1(x: int): int {
     if (x > 200) {
@@ -100,6 +102,125 @@ fun test8(op: int) {
     return (withNoElse(op), withElse(op), withMatch(op));
 }
 
+@noinline
+fun demo9_1(x: int) {
+    if (x > 0) { t.push(123); }
+    else { t.push(456) }
+}
+
+@noinline
+fun demo9_2(x: int) {
+    if (x > 0) { t.push(123); }
+}
+
+@noinline
+fun demo9_3(x: int) {
+    if (x > 0) { t.push(123); }
+    return;
+}
+
+@noinline
+fun demo9_4(x: int) {
+    if (x != -100) {
+        if (x > 0) { t.push(123); }
+        return;
+    }
+}
+
+@method_id(109)
+fun test9(x: int) {
+    t = createEmptyTuple();
+    demo9_1(x); demo9_2(x); demo9_3(x); demo9_4(x);
+    return t;
+}
+
+@noinline
+fun demo10_1(x: int) {
+    match(x) {
+        0 => t.push(123),
+        1 => t.push(456),
+    }
+}
+
+@noinline
+fun demo10_2(x: int) {
+    if (x != -100) {
+        match (x) {
+            0 => t.push(123),
+            else => t.push(456)
+        }
+        return;
+    }
+    t.push(789)
+}
+
+@method_id(110)
+fun test10(x: int) {
+    t = createEmptyTuple();
+    demo10_1(x); demo10_2(x);
+    return t;
+}
+
+@noinline
+fun demo_neg_11_1(mutate x: int) {
+    match (x) {
+        -1 => { x = 0; }
+        else => { x = 1; }
+    }
+}
+
+fun justVoidPush() {
+    t.push(100);
+}
+
+fun demo_neg_11_2(x: int) {
+    match (x) {
+        -1 => t.push(123),
+        else => t.push(456)
+    }
+    return justVoidPush();
+}
+
+@method_id(111)
+fun test11(x: int) {
+    t = createEmptyTuple();
+    demo_neg_11_1(mutate x);
+    demo_neg_11_2(x);
+    return (x, t);
+}
+
+fun demo12_1(x: int) {
+    __expect_inline(true);
+    if (x > 0) { t.push(123); }
+    else { t.push(456) }
+}
+
+fun demo12_2(x: int) {
+    __expect_inline(true);
+    if (x > 0) { t.push(123); }
+}
+
+fun demo12_3(x: int) {
+    __expect_inline(true);
+    if (x > 0) { t.push(123); }
+    return;
+}
+
+fun demo12_4(x: int) {
+    __expect_inline(false);
+    if (x != -100) {
+        if (x > 0) { t.push(123); }
+        return;
+    }
+}
+
+@method_id(112)
+fun test12(x: int) {
+    t = createEmptyTuple();
+    demo12_1(x); demo12_2(x); demo12_3(x); demo12_4(x);
+    return t;
+}
+
 fun main() {
 
 }
@@ -125,10 +246,17 @@ fun main() {
 @testcase | 106 | 5  | 5000
 @testcase | 108 | 123 | 100 100 100
 @testcase | 108 | 345 | 300 300 300
+@testcase | 109 | 10  | [ 123 123 123 123 ]
+@testcase | 109 | -10 | [ 456 ]
+@testcase | 110 | 0   | [ 123 123 ]
+@testcase | 110 | 5   | [ 456 ]
+@testcase | 111 | 5   | 1 [ 456 100 ]
+@testcase | 112 | 10  | [ 123 123 123 123 ]
+@testcase | 112 | -10 | [ 456 ]
 
 @fif_codegen
 """
-  test3 PROC:<{ //  x
+  test3() PROC:<{ //  x
     DUP	        //  x x
     20 NEQINT	//  x '2
     IFNOTJMP:<{	//  x
@@ -142,7 +270,7 @@ fun main() {
 
 @fif_codegen
 """
-  withNoElse PROC:<{
+  withNoElse() PROC:<{
     DUP
     123 EQINT
     IFJMP:<{
@@ -167,7 +295,7 @@ fun main() {
 
 @fif_codegen
 """
-  withElse PROC:<{
+  withElse() PROC:<{
     DUP
     123 EQINT
     IFJMP:<{
@@ -192,7 +320,7 @@ fun main() {
 
 @fif_codegen
 """
-  withMatch PROC:<{
+  withMatch() PROC:<{
     DUP
     123 EQINT
     IFJMP:<{
@@ -214,4 +342,88 @@ fun main() {
     255 THROW
   }>
 """
+
+@fif_codegen
+"""
+  demo9_1() PROC:<{
+    0 GTINT
+    IFJMP:<{
+      $t GETGLOB
+      123 PUSHINT
+      TPUSH
+      $t SETGLOB
+    }>
+    $t GETGLOB
+    456 PUSHINT
+    TPUSH
+    $t SETGLOB
+  }>
+"""
+
+@fif_codegen
+"""
+  demo9_2() PROC:<{
+    0 GTINT
+    IFJMP:<{
+      $t GETGLOB
+      123 PUSHINT
+      TPUSH
+      $t SETGLOB
+    }>
+  }>
+"""
+
+@fif_codegen
+"""
+  demo9_3() PROC:<{
+    0 GTINT
+    IFJMP:<{
+      $t GETGLOB
+      123 PUSHINT
+      TPUSH
+      $t SETGLOB
+    }>
+  }>
+"""
+
+@fif_codegen
+"""
+  demo9_4() PROC:<{
+    DUP
+    -100 NEQINT
+    IFJMP:<{
+      0 GTINT
+      IFJMP:<{
+        $t GETGLOB
+        123 PUSHINT
+        TPUSH
+        $t SETGLOB
+      }>
+    }>
+    DROP
+  }>
+"""
+
+@fif_codegen
+"""
+  demo10_1() PROC:<{
+    DUP
+    0 EQINT
+    IFJMP:<{
+      DROP
+      $t GETGLOB
+      123 PUSHINT
+      TPUSH
+      $t SETGLOB
+    }>
+    1 EQINT
+    IFJMP:<{
+      $t GETGLOB
+      456 PUSHINT
+      TPUSH
+      $t SETGLOB
+    }>
+  }>
+"""
+
 */

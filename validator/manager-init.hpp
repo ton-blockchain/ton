@@ -44,7 +44,7 @@ class ValidatorManagerMasterchainReiniter : public td::actor::Actor {
   void start_up() override;
   void written_hardforks();
   void got_masterchain_handle(BlockHandle handle);
-  void download_proof_link();
+  void download_proof_link(bool try_local = true);
   void downloaded_proof_link(td::BufferSlice data);
   void downloaded_zero_state();
 

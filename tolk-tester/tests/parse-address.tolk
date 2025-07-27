@@ -21,6 +21,11 @@ fun verifyAddr(addr: address, workchain: int, number: int) {
     assert (s.loadUint(256) == number) throw 111;
 }
 
+fun address.createNone() {
+    return createAddressNone()
+}
+
+@noinline
 fun check0(addr: address) {
     assert (addr.getWorkchain() == 0) throw 111;
 }
@@ -30,6 +35,7 @@ fun codegenAddrEq(a: address, b: address) {
     if (a != b) { return 2; }
     return 3;
 }
+
 
 fun main() {
     __expect_type(cc1, "address");
@@ -134,17 +140,17 @@ fun main() {
         cc2 != cc1,
         (cc1 as slice).bitsEqual(((cc2 as slice) as address) as slice),
         createAddressNone() == cc1,
-        createAddressNone() == createAddressNone(),
+        createAddressNone() == address.createNone(),
         check0(address("0:FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFfffffffffffffffffffffffffffff"))
     );
 }
 
 /**
-@testcase | 0 | | -1 0 -1 0 -1
+@testcase | 0   |   | -1 0 -1 0 -1
 
 @fif_codegen
 """
-  check0 PROC:<{              	//  addr
+  check0() PROC:<{             	//  addr
     REWRITESTDADDR
     DROP                    	//  '2
     0 EQINT                 	//  '4
@@ -154,7 +160,7 @@ fun main() {
 
 @fif_codegen
 """
-  codegenAddrEq PROC:<{       	//  a b
+  codegenAddrEq() PROC:<{      	//  a b
     2DUP                    	//  a b a b
     SDEQ                    	//  a b '2
     IFJMP:<{                	//  a b

@@ -354,6 +354,7 @@ struct ChunkIdentifierOrKeyword final : ChunkLexerBase {
         if (str == "self") return tok_self;
         if (str == "tolk") return tok_tolk;
         if (str == "type") return tok_type;
+        if (str == "lazy") return tok_lazy;
         if (str == "enum") return tok_enum;
         break;
       case 5:
@@ -523,6 +524,8 @@ struct TolkLanguageGrammar {
     register_token("^=", 2, tok_set_bitwise_xor);
     register_token("->", 2, tok_arrow);
     register_token("=>", 2, tok_double_arrow);
+    register_token("++", 2, tok_double_plus);
+    register_token("--", 2, tok_double_minus);
     register_token("<=>", 3, tok_spaceship);
     register_token("~>>", 3, tok_rshiftR);
     register_token("^>>", 3, tok_rshiftC);

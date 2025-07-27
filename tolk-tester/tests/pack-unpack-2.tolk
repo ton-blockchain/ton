@@ -41,11 +41,12 @@ fun assert_slice_is_44_and_ref45(s: slice) {
     s.assertEnd();
 }
 
-@inline
+@inline_ref
 fun slice.appendRef(self, refSlice: slice): slice {
     return beginCell().storeSlice(self).storeRef(beginCell().storeSlice(refSlice).endCell()).endCell().beginParse();
 }
 
+@noinline
 fun run<TInputStruct>(input: TInputStruct, ans: slice) {
     repeat (2) {
         var s = input.toCell().beginParse();
@@ -334,6 +335,30 @@ struct DifferentMix3 {
 }
 
 /*
+    ui16: VarUInteger 16
+    i16: VarInteger 16
+    ui32: VarUInteger 32
+    i32: VarInteger 32
+ */
+
+struct WithVariadicInts {
+    ui16: varuint16;
+    i16: varint16;
+    ui32: varuint32;
+    i32: varint32;
+}
+
+/*
+    Test MIN_INT and MAX_INT
+ */
+
+struct EdgeCaseInts {
+    maxUint: uint256 = +115792089237316195423570985008687907853269984665640564039457584007913129639935;
+    maxInt:   int257 = +115792089237316195423570985008687907853269984665640564039457584007913129639935;
+    minInt:   int257 = -115792089237316195423570985008687907853269984665640564039457584007913129639935 - 1;
+}
+
+/*
     Test: write with builder, read with other struct
     (type `builder` is available for writing, but not for reading)
  */
@@ -341,6 +366,11 @@ struct DifferentMix3 {
 struct WriteWithBuilder {
     f1: int32;
     rest: builder;
+}
+
+struct WriteWithSlice {
+    f1: int32;
+    rest: slice;
 }
 
 struct ReadWrittenWithBuilder {
@@ -368,6 +398,12 @@ struct ReadWriteMid<T> {
     f1: int32;
     mid: T;
     f3: coins;
+}
+
+struct WithTwoRestFields {
+    i32: int32;
+    rest1: RemainingBitsAndRefs;
+    rest2: RemainingBitsAndRefs;
 }
 
 
@@ -607,6 +643,8 @@ fun test_DifferentMix3() {
 fun test_WriteWithBuilderReadWithOther() {
     var b = beginCell().storeUint(55, 32).storeMaybeRef(null);
     var w: WriteWithBuilder = { f1: 10, rest: b };
+    var w2: WriteWithSlice = { f1: 10, rest: stringHexToSlice("FFFF") };
+    assert(w2.toCell().beginParse().skipBits(32).loadUint(16) == 0xFFFF, 100);
     return ReadWrittenWithBuilder.fromCell(w.toCell());
 }
 
@@ -642,6 +680,41 @@ fun test_MidIsBuilderOrBitsN() {
     return (r.f1, mid.remainingBitsCount(), mid.loadAny<int32>(), mid.remainingBitsCount(), r.f3);
 }
 
+@method_id(226)
+fun test_MultipleRemainers() {
+    val m = WithTwoRestFields.fromSlice(stringHexToSlice("00000001FFFF"));
+    return (m.i32, m.rest1.remainingBitsCount(), m.rest2.remainingBitsCount());
+}
+
+@method_id(227)
+fun test_mutatingRemainder() {
+    var cs = stringHexToSlice("00000001FFFF");
+    val obj = cs.loadAny<IntAndRestInlineCell>();
+    cs.assertEnd();
+    return obj.rest.remainingBitsCount();
+}
+
+@method_id(228)
+fun test_VariadicIntegers() {
+    var t: WithVariadicInts = {
+        ui16: (1 << 120) - 1,
+        i16: -(1 << 119),
+        ui32: (1 << 248) - 1,
+        i32: -(1 << 247),
+    };
+    run<WithVariadicInts>(t, stringHexToSlice("ffffffffffffffffffffffffffffffff800000000000000000000000000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe000000000000000000000000000000000000000000000000000000000000020_"));
+    run<WithVariadicInts>({ui16: 0, i16: 0, ui32: 0, i32: 0}, stringHexToSlice("000020_"));
+
+    var c = t.toCell().load();
+    return (c.ui16 == t.ui16) & (c.i16 == t.i16) & (c.ui32 == t.ui32) & (c.i32 == t.i32)
+}
+
+@method_id(229)
+fun test_EdgeCaseIntegers() {
+    var edge: EdgeCaseInts = {};
+    var manual = beginCell().storeUint(edge.maxUint, 256).storeInt(edge.maxInt, 257).storeInt(edge.minInt, 257);
+    return edge.toCell().hash() == manual.endCell().hash()
+}
 
 fun main() {
     var t: JustInt32 = { value: 10 };
@@ -664,19 +737,23 @@ fun main() {
 @testcase | 208 | | -1
 @testcase | 209 | | -1
 @testcase | 210 | | 123 555 46 (null)
-@testcase | 211 | | (null) 132 123
-@testcase | 212 | | (null) 133 123
+@testcase | 211 | | (null) typeid-4 123
+@testcase | 212 | | (null) typeid-5 123
 @testcase | 213 | | -1
 @testcase | 214 | | -1
 @testcase | 215 | | -1
 @testcase | 216 | | -1
 @testcase | 217 | | -1
 @testcase | 218 | | -1
-@testcase | 219 | | 44 (null) (null) 46 143
-@testcase | 220 | | 0 0 (null) 99 136 137 99 1234 (null) 889129 14
+@testcase | 219 | | 44 (null) (null) 46 typeid-15
+@testcase | 220 | | 0 0 (null) 99 typeid-8 typeid-9 99 1234 (null) 889129 14
 @testcase | 221 | | -1
-@testcase | 222 | | 510 567 9392843922 146 81923 81923 147 777 0 -1 (null) (null) 0 100000 100000 147
+@testcase | 222 | | 510 567 9392843922 typeid-18 81923 81923 typeid-19 777 0 -1 (null) (null) 0 100000 100000 typeid-19
 @testcase | 223 | | 10 55 (null)
 @testcase | 224 | | 60 50000000 5 9 123 -1
 @testcase | 225 | | 5 40 65535 8 50000000
+@testcase | 226 | | 1 16 0
+@testcase | 227 | | 16
+@testcase | 228 | | -1
+@testcase | 229 | | -1
  */

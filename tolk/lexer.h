@@ -64,6 +64,8 @@ enum TokenType {
   tok_set_div,
   tok_mod,
   tok_set_mod,
+  tok_double_plus,
+  tok_double_minus,
   tok_lshift,
   tok_set_lshift,
   tok_rshift,
@@ -116,6 +118,7 @@ enum TokenType {
   tok_if,
   tok_else,
   tok_match,
+  tok_lazy,
 
   tok_arrow,
   tok_double_arrow,

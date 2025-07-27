@@ -47,7 +47,7 @@ static void generate_output_func(FunctionPtr fun_ref) {
 
   CodeBlob* code = std::get<FunctionBodyCode*>(fun_ref->body)->code;
   if (G.is_verbosity(3)) {
-    code->print(std::cerr, 9);
+    code->print(std::cerr, 0);
   }
   code->prune_unreachable_code();
   if (G.is_verbosity(5)) {
@@ -73,27 +73,31 @@ static void generate_output_func(FunctionPtr fun_ref) {
   }
   code->mark_noreturn();
   if (G.is_verbosity(3)) {
-    code->print(std::cerr, 15);
+    // code->print(std::cerr, 15);
   }
   if (G.is_verbosity(2)) {
     std::cerr << "\n---------- resulting code for " << fun_ref->name << " -------------\n";
   }
   const char* modifier = "";
-  if (fun_ref->is_inline()) {
+  if (fun_ref->inline_mode == FunctionInlineMode::inlineViaFif) {
     modifier = "INLINE";
-  } else if (fun_ref->is_inline_ref()) {
+  } else if (fun_ref->inline_mode == FunctionInlineMode::inlineRef) {
     modifier = "REF";
   }
   if (G.settings.tolk_src_as_line_comments) {
-    std::cout << "  // " << fun_ref->loc << std::endl;
+    std::cout << "  // " << fun_ref->loc;
+    if (!fun_ref->n_times_called && !fun_ref->is_used_as_noncall() && !fun_ref->is_entrypoint() && !fun_ref->has_tvm_method_id()) {
+      std::cout << "  (note: function never called!)";
+    }
+    std::cout << std::endl;
   }
-  std::cout << "  " << fun_ref->name << " PROC" << modifier << ":<{";
+  std::cout << "  " << fun_ref->name << "() PROC" << modifier << ":<{";
   int mode = 0;
   if (G.settings.stack_layout_comments) {
     mode |= Stack::_StackComments;
     size_t len = 2 + fun_ref->name.size() + 5 + std::strlen(modifier) + 3;
     while (len < 28) {      // a bit weird, but okay for now:
-      std::cout << ' ';     // insert space after "xxx PROC" before `// stack state`
+      std::cout << ' ';     // insert space after "xxx() PROC" before `// stack state`
       len++;                // (the first AsmOp-comment that will be code generated)
     }                       // space is the same as used to align comments in asmops.cpp
     std::cout << '\t';
@@ -103,10 +107,10 @@ static void generate_output_func(FunctionPtr fun_ref) {
   if (G.settings.tolk_src_as_line_comments) {
     mode |= Stack::_LineComments;
   }
-  if (fun_ref->is_inline() && code->ops->noreturn()) {
+  if (fun_ref->inline_mode == FunctionInlineMode::inlineViaFif && code->ops->noreturn()) {
     mode |= Stack::_InlineFunc;
   }
-  if (fun_ref->is_inline() || fun_ref->is_inline_ref()) {
+  if (fun_ref->inline_mode == FunctionInlineMode::inlineViaFif || fun_ref->inline_mode == FunctionInlineMode::inlineRef) {
     mode |= Stack::_InlineAny;
   }
   code->generate_code(std::cout, mode, 2);
@@ -121,11 +125,11 @@ void pipeline_generate_fif_output_to_std_cout() {
   std::cout << "// automatically generated from ";
   bool need_comma = false;
   for (const SrcFile* file : G.all_src_files) {
-    if (!file->is_stdlib_file()) {
+    if (!file->is_stdlib_file) {
       if (need_comma) {
         std::cout << ", ";
       }
-      std::cout << file->rel_filename;
+      std::cout << file->extract_short_name();
       need_comma = true;
     }
   }
@@ -133,11 +137,13 @@ void pipeline_generate_fif_output_to_std_cout() {
   std::cout << "PROGRAM{\n";
 
   bool has_main_procedure = false;
+  int n_inlined_in_place = 0;
   for (FunctionPtr fun_ref : G.all_functions) {
-    if (!fun_ref->does_need_codegen()) {
+    if (fun_ref->is_asm_function() || !fun_ref->does_need_codegen()) {
       if (G.is_verbosity(2) && fun_ref->is_code_function()) {
         std::cerr << fun_ref->name << ": code not generated, function does not need codegen\n";
       }
+      n_inlined_in_place += fun_ref->is_inlined_in_place();
       continue;
     }
 
@@ -147,14 +153,23 @@ void pipeline_generate_fif_output_to_std_cout() {
 
     std::cout << "  ";
     if (fun_ref->has_tvm_method_id()) {
-      std::cout << fun_ref->tvm_method_id << " DECLMETHOD " << fun_ref->name << "\n";
+      std::cout << fun_ref->tvm_method_id << " DECLMETHOD " << fun_ref->name << "()\n";
     } else {
-      std::cout << "DECLPROC " << fun_ref->name << "\n";
+      std::cout << "DECLPROC " << fun_ref->name << "()\n";
     }
   }
 
   if (!has_main_procedure) {
     throw Fatal("the contract has no entrypoint; forgot `fun onInternalMessage(...)`?");
+  }
+
+  if (n_inlined_in_place) {
+    std::cout << "  // " << n_inlined_in_place << " functions inlined in-place:" << "\n";
+    for (FunctionPtr fun_ref : G.all_functions) {
+      if (fun_ref->is_inlined_in_place()) {
+        std::cout << "  // - " << fun_ref->name << " (" << fun_ref->n_times_called << (fun_ref->n_times_called == 1 ? " call" : " calls") << ")\n";
+      }
+    }
   }
 
   for (GlobalVarPtr var_ref : G.all_global_vars) {
@@ -165,11 +180,11 @@ void pipeline_generate_fif_output_to_std_cout() {
       continue;
     }
 
-    std::cout << "  " << "DECLGLOBVAR " << var_ref->name << "\n";
+    std::cout << "  " << "DECLGLOBVAR $" << var_ref->name << "\n";
   }
 
   for (FunctionPtr fun_ref : G.all_functions) {
-    if (!fun_ref->does_need_codegen()) {
+    if (fun_ref->is_asm_function() || !fun_ref->does_need_codegen()) {
       continue;
     }
     generate_output_func(fun_ref);

@@ -10,10 +10,6 @@ set(TON_CRYPTO_CORE_SOURCE
   common/bigexp.cpp
   common/bitstring.cpp
   common/util.cpp
-  ellcurve/Ed25519.cpp
-  ellcurve/Fp25519.cpp
-  ellcurve/Montgomery.cpp
-  ellcurve/TwEdwards.cpp
   openssl/bignum.cpp
   openssl/residue.cpp
   openssl/rand.cpp
@@ -31,11 +27,6 @@ set(TON_CRYPTO_CORE_SOURCE
   common/util.h
   common/linalloc.hpp
   common/promiseop.hpp
-
-  ellcurve/Ed25519.h
-  ellcurve/Fp25519.h
-  ellcurve/Montgomery.h
-  ellcurve/TwEdwards.h
 
   openssl/bignum.h
   openssl/digest.hpp
@@ -352,10 +343,6 @@ target_include_directories(ton_db PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURC
 	$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
 target_link_libraries(ton_db PUBLIC tdutils tddb ton_crypto)
 
-add_executable(test-ed25519-crypto test/test-ed25519-crypto.cpp)
-target_include_directories(test-ed25519-crypto PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
-target_link_libraries(test-ed25519-crypto PUBLIC ton_crypto)
-
 add_library(fift-lib STATIC ${FIFT_SOURCE})
 target_include_directories(fift-lib PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
 target_link_libraries(fift-lib PUBLIC ton_crypto)
@@ -421,16 +408,8 @@ if (WINGETOPT_FOUND)
   target_link_libraries_system(tlbc wingetopt)
 endif()
 
-add_library(pow-miner-lib util/Miner.cpp util/Miner.h)
-target_include_directories(pow-miner-lib PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
-target_link_libraries(pow-miner-lib PUBLIC ton_crypto)
-
-add_executable(pow-miner util/pow-miner.cpp)
-target_link_libraries(pow-miner PRIVATE ton_crypto pow-miner-lib git)
-
 if (WINGETOPT_FOUND)
   target_link_libraries_system(fift wingetopt)
-  target_link_libraries_system(pow-miner wingetopt)
 endif()
 
 add_executable(mintless-proof-generator util/mintless-proof-generator.cpp)

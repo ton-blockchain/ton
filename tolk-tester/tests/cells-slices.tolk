@@ -1,7 +1,6 @@
 fun builder.store_u32(mutate self, value: int): self {
     return self.storeUint(value, 32);
 }
-
 fun slice.load_u32(mutate self): int {
     return self.loadUint(32);
 }
@@ -77,7 +76,8 @@ fun test5(): [int,int] {
 
 @method_id(106)
 fun test6() {
-    return beginCell().storeUint(1, 32).storeUint(2, 32).storeUint(3, 32);
+    var st = beginCell().storeUint(1, 32).storeUint(2, 32).storeUint(3, 32).endCell().beginParse();
+    return st.loadUint(96) == ((1 << 64) + (2 << 32) + 3);
 }
 
 @method_id(107)
@@ -112,11 +112,11 @@ fun slice.sumNumbersInSlice(mutate self): int {
 fun test10() {
     var ref = beginCell().storeInt(100, 32).endCell();
     var s: slice = beginCell().storeInt(1, 32).storeInt(2, 32).storeRef(ref).endCell().beginParse();
-    var result = (s.remainingBitsCount(), s.sumNumbersInSlice(), s.remainingBitsCount(), s.isEnd(), s.isEndOfBits(), s.isEndOfRefs());
+    var result = (s.remainingBitsCount(), s.sumNumbersInSlice(), s.remainingBitsCount(), s.isEmpty(), s.isEndOfBits(), s.isEndOfRefs());
     var ref2: cell = s.loadRef();
     var s2: slice = ref2.beginParse();
     s.assertEnd();
-    return (result, s2.loadInt(32), s2.isEnd());
+    return (result, s2.loadInt(32), s2.isEmpty());
 }
 
 @method_id(111)
@@ -194,7 +194,6 @@ fun test111() {
     var q2 = s.loadMessageQueryId();
     s.skipBits(64);
     s.assertEnd();
-    assert(isMessageBounced(0x001) && !isMessageBounced(0x002)) throw 444;
     return (op1, q1, op2, q2);
 }
 
@@ -229,6 +228,211 @@ fun test16() {
 }
 
 
+@method_id(117)
+fun test17() {
+    var b = beginCell().storeUint(1, 4).storeCoins(0).storeInt(123, 8);
+    var s = b.endCell().beginParse();
+    return (s.loadUint(4), s.loadCoins(), s.loadUint(8));
+}
+
+@method_id(118)
+fun test18() {
+  var x = 0;
+  var b = beginCell();
+  b = b.storeUint(x, 14);
+  x += 12;
+  if (10 > 3) { x += x; }
+  if (true) {
+      b.storeInt(x + 2, 8).storeUint(x = match (x) { 24 => 5, else => 0 }, 4);
+  }
+  var s = b.endCell().beginParse();
+  return (s.loadUint(14), s.loadInt(8), s.loadUint(4));
+}
+
+fun test19() {
+    // numbers with potential overflow for STU are not joined, check via codegen
+    var b = beginCell();
+    b.storeInt(123, 4).storeUint(0xFF, 8).storeUint(0xFF, 8).storeInt(-1, 8);
+    return b;
+}
+
+@method_id(120)
+fun test20() {
+  var x = false;
+  var n = 4;
+  var b = true ? beginCell() : null;
+  b.storeBool(true).storeBool(x);
+  b = b.storeBool(true).storeUint(0, n *= 2).storeBool(!!true).storeCoins(0);
+  var s = b.endCell().beginParse();
+  return (s.loadBool(), s.loadBool(), s.loadBool(), s.loadUint(8), s.loadBool(), s.loadCoins());
+}
+
+fun test21(s: slice) {
+    // successive skipBits are also joined
+    var x = 8;
+    s.skipBits(x);
+    x -= 4;
+    s = s.skipBits(x).skipBits(2);
+    x *= 0;
+    s = s.skipBits(x);
+    return s;
+}
+
+@method_id(122)
+fun test22() {
+    // different builders aren't mixed, store inside them are joined independently
+    var (b1, b2) = (beginCell(), beginCell());
+    b1.storeUint(8, 16).storeUint(8, 8);
+    b2.storeUint(8, 32).storeUint(1<<88, 100);
+    return (
+        b1.endCell().beginParse().remainingBitsCount(),
+        b2.endCell().beginParse().skipBits(32).loadUint(100),
+    );
+}
+
+@method_id(123)
+fun test23(uns: bool) {
+    // corner values, signed/unsigned 255/256
+    var b = beginCell();
+    if (uns) {
+        b.storeUint(1, 100).storeUint(2, 100).storeInt(3, 55).storeInt(0, 1);
+        b.storeUint(8, 256);
+    } else {
+        b.storeInt(1, 10).storeUint(2, 190).storeInt(3, 54).storeUint(1, 1);
+    }
+    return b.bitsCount();
+}
+
+@method_id(124)
+fun test24(uns: bool) {
+    // doesn't fit into a single STI/STU instruction, is splitted
+    var b = beginCell();
+    if (uns) {
+        b.storeUint(1, 100).storeUint(2, 100)
+         .storeInt(3, 100).storeInt(8, 19);
+        return b.endCell().beginParse().skipBits(200+100).loadInt(19);
+    } else {
+        b.storeInt(1, 20).storeUint(2, 200).storeInt(3, 35)
+         .storeUint(1, 1).storeUint(5, 5).storeUint(10, 10);
+        return b.endCell().beginParse().skipBits(255+6).loadUint(10);
+    }
+}
+
+fun builder.my_storeRef(mutate self, value: cell): self
+    asm(self value) "STREFR";
+
+fun builder.my_storeAddress(mutate self, value: address): self
+    asm(value self) "STSLICE";
+
+fun builder.my_storeBuilder(mutate self, value: builder): self
+    asm(value self) "STB";
+
+fun my_PUSHINT_SWAP_STU(mutate b: builder): void
+    asm "5 PUSHINT" "SWAP" "8 STU";
+
+
+@noinline
+fun demo30(value: cell, dest: builder) {
+    // SWAP + STREFR => STREF
+    return dest.my_storeRef(value);
+}
+
+@noinline
+fun demo31(dest: builder, value: cell) {
+    // SWAP + STREF => STREFR
+    return dest.storeRef(value);
+}
+
+@noinline
+fun demo32(dest: builder, value: builder) {
+    // SWAP + STB => STBR
+    return dest.my_storeBuilder(value);
+}
+
+@noinline
+fun demo33(value: builder, dest: builder) {
+    // SWAP + STBR => STB
+    return dest.storeBuilder(value);
+}
+
+@noinline
+fun demo34(dest: builder, value: address) {
+    // SWAP + STSLICE => STSLICER
+    return dest.my_storeAddress(value);
+}
+
+@noinline
+fun demo35(value: slice, dest: builder) {
+    // SWAP + STSLICER => STSLICE
+    return dest.storeSlice(value);
+}
+
+@noinline
+fun demo36(x: int) {
+    var b = beginCell();
+    if (x > 0) {
+        // inside IF: N PUSHINT + SWAP + L STU => N PUSHINT + L STUR
+        my_PUSHINT_SWAP_STU(mutate b);
+    }
+    return b;
+}
+
+@noinline
+fun demo37(op: int32, u: int8 | int256) {
+    var b = beginCell();
+    // b.storeUint(input.op, 32);
+    if (u is int8) {
+        // inside IF: SWAP + 0 PUSHINT + 3 STUR => 0 PUSHINT + 3 STU
+        b.storeUint(0, 3);
+        b.storeUint(u, 8);
+    }
+    return b;
+}
+
+@method_id(130)
+fun test30() {
+    return (demo37(10, 88 as int8), demo36(50));
+}
+
+@method_id(131)
+fun test31() {
+    var s = createAddressNone();
+    var dest = beginCell().storeUint(3, 32);
+    assert(demo35(s as slice, dest).endCell().hash() == demo34(dest, s).endCell().hash()) throw 300;
+    var r1 = demo35(s as slice, dest).endCell().hash();
+    var b = beginCell().storeUint(0xFF, 16);
+    assert(demo33(b, dest).endCell().hash() == demo32(dest, b).endCell().hash()) throw 301;
+    var r2 = demo33(b, dest).endCell().hash();
+    var r = createEmptyCell();
+    assert(demo30(r, dest).endCell().hash() == demo31(dest, r).endCell().hash()) throw 302;
+    var r3 = demo30(r, dest).endCell().hash();
+    return [r1 & 0xFFFFFFFF, r2 & 0xFFFFFFFF, r3 & 0xFFFFFFFF];
+}
+
+@method_id(132)
+fun test32(p: int) {
+    var b = beginCell();
+    var x = p + 10;
+    b.storeUint(x, 32);     // SWAP + n STU => n STUR
+    return b;
+}
+
+@method_id(133)
+fun test33(p: int) {
+    var b = beginCell();
+    var x = p + 10;
+    b.storeInt(x, 8);       // SWAP + n STI => n STIR
+    return b;
+}
+
+@method_id(134)
+fun test34(p: int, n: int) {
+    var b = beginCell();
+    var x = p + 10;
+    b.storeInt(x, n);       // no changes, it's STIX
+    return b;
+}
+
 fun main(): int {
     return 0;
 }
@@ -239,6 +443,7 @@ fun main(): int {
 @testcase | 103 | 103 | 103
 @testcase | 104 |     | [ 1 3 ]
 @testcase | 105 |     | [ 210 1 ]
+@testcase | 106 |     | -1
 @testcase | 107 |     | 72 40 72
 @testcase | 108 |     | 0 40 32
 @testcase | 110 |     | 64 3 0 0 -1 0 100 -1
@@ -249,20 +454,178 @@ fun main(): int {
 @testcase | 114 | 0   | 0 0 0
 @testcase | 115 |     | 123 456 123 456
 @testcase | 116 |     | BC{00140008000000ff00000008}
+@testcase | 117 |     | 1 0 123
+@testcase | 118 |     | 0 26 5
+@testcase | 120 |     | -1 0 -1 0 -1 0
+@testcase | 122 |     | 24 309485009821345068724781056
+@testcase | 123 | -1  | 512
+@testcase | 123 | 0   | 255
+@testcase | 124 | -1  | 8
+@testcase | 124 | 0   | 10
+@testcase | 130 |     | BC{00030b10} BC{000205}
+@testcase | 131 |     | [ 225345949 901620178 1560646286 ]
+@testcase | 132 | 0   | BC{00080000000a}
+@testcase | 133 | 0   | BC{00020a}
+@testcase | 134 | 0 8 | BC{00020a}
 
-Note, that since 'compute-asm-ltr' became on be default, chaining methods codegen is not quite optimal.
+We test that consequtive storeInt/storeUint with constants are joined into a single number
+
 @fif_codegen
 """
-  test6 PROC:<{
-    1 PUSHINT                   //  '0=1
-    NEWC                        //  '0=1 '1
-    32 STU                      //  '1
-    2 PUSHINT                   //  '1 '4=2
-    SWAP                        //  '4=2 '1
-    32 STU                      //  '1
-    3 PUSHINT                   //  '1 '7=3
-    SWAP                        //  '7=3 '1
-    32 STU                      //  '1
+  test6() PROC:<{
+    NEWC
+    x{000000010000000200000003} STSLICECONST
+    ENDC        //  '11
+"""
+
+@fif_codegen
+"""
+  test17() PROC:<{
+    NEWC
+    x{107b} STSLICECONST
+"""
+
+@fif_codegen
+"""
+  test18() PROC:<{
+    NEWC
+    b{00000000000000000110100101} STSLICECONST
+"""
+
+@fif_codegen
+"""
+  test19() PROC:<{
+    123 PUSHINT
+    NEWC
+    4 STI
+    x{ffff} STSLICECONST
+    -1 PUSHINT
+    8 STIR
   }>
 """
+
+@fif_codegen
+"""
+  test20() PROC:<{
+    NEWC
+    x{a010} STSLICECONST
+"""
+
+@fif_codegen
+"""
+  test21() PROC:<{
+    14 LDU
+    NIP
+  }>
+"""
+
+@fif_codegen
+"""
+  test22() PROC:<{
+    NEWC                    	//  '2
+    NEWC                    	//  b1 b2
+    SWAP                        //  b2 b1
+    x{000808} STSLICECONST      //  b2 b1
+    SWAP                    	//  b1 b2
+    x{000000080010000000000000000000000} STSLICECONST  //  b1 b2
+"""
+
+@fif_codegen
+"""
+  test23() PROC:<{
+    NEWC
+    SWAP
+    IF:<{
+      x{0000000000000000000000001000000000000000000000000200000000000006} STSLICECONST
+      8 PUSHINT
+      256 STUR
+    }>ELSE<{
+      b{000000000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000111} STSLICECONST
+    }>
+    BBITS
+  }>
+"""
+
+@fif_codegen
+"""
+  demo30() PROC:<{            	//  value dest
+    STREF                   	//  dest
+  }>
+  demo31() PROC:<{            	//  dest value
+    STREFR                  	//  dest
+  }>
+  demo32() PROC:<{            	//  dest value
+    STBR                    	//  dest
+  }>
+  demo33() PROC:<{            	//  value dest
+    STB                     	//  dest
+  }>
+  demo34() PROC:<{            	//  dest value
+    STSLICER                	//  dest
+  }>
+  demo35() PROC:<{            	//  value dest
+    STSLICE                 	//  dest
+  }>
+"""
+
+@fif_codegen
+"""
+  demo36() PROC:<{            	//  x
+    NEWC                    	//  x b
+    SWAP                    	//  b x
+    0 GTINT                 	//  b '4
+    IF:<{                   	//  b
+      5 PUSHINT
+      8 STUR                 	//  b
+    }>                      	//  b
+  }>
+"""
+
+@fif_codegen
+"""
+  demo37() PROC:<{
+    NEWC
+    s3 POP
+    42 EQINT
+    IF:<{
+      SWAP
+      b{000} STSLICECONST
+      8 STU                 	//  b
+    }>ELSE<{
+      DROP                  	//  b
+    }>
+  }>
+"""
+
+@fif_codegen
+"""
+  test32() PROC:<{              //  p
+    NEWC                        //  p b
+    SWAP                        //  b p
+    10 ADDCONST                 //  b x
+    32 STUR                     //  b
+  }>
+"""
+
+@fif_codegen
+"""
+  test33() PROC:<{              //  p
+    NEWC                        //  p b
+    SWAP                        //  b p
+    10 ADDCONST                 //  b x
+    8 STIR                      //  b
+  }>
+"""
+
+@fif_codegen
+"""
+  test34() PROC:<{
+    NEWC
+    s0 s2 XCHG
+    10 ADDCONST
+    -ROT
+    STIX
+  }>
+"""
+
  */

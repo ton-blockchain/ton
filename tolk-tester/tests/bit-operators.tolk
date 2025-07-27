@@ -88,6 +88,7 @@ fun testBoolNegateOptimized(x: bool) {
     return (x, !x, !!x, !!!x, !!!!true);
 }
 
+@noinline
 fun eqX(x: bool) { return x; }
 
 @method_id(19)
@@ -125,7 +126,7 @@ fun testBoolCompareOptimized(x: bool) {
 
 @fif_codegen
 """
-  boolWithBitwiseConst PROC:<{
+  boolWithBitwiseConst() PROC:<{
     0 PUSHINT	                //  '3
     -1 PUSHINT	                //  '3 '5
     0 PUSHINT	                //  '3 '5 '7
@@ -135,7 +136,7 @@ fun testBoolCompareOptimized(x: bool) {
 
 @fif_codegen
 """
-  testDoUntilCodegen PROC:<{   //  i n
+  testDoUntilCodegen() PROC:<{   //  i n
     0 PUSHINT	//  i n cnt=0
     UNTIL:<{
       INC	//  i n cnt
@@ -161,7 +162,7 @@ fun testBoolCompareOptimized(x: bool) {
 
 @fif_codegen
 """
-  testConstNegateCodegen PROC:<{
+  testConstNegateCodegen() PROC:<{
     TRUE	//  '0
     FALSE	//  '0 '1
     FALSE	//  '0 '1 '2
@@ -173,7 +174,7 @@ fun testBoolCompareOptimized(x: bool) {
 
 @fif_codegen
 """
-  testBoolNegateOptimized PROC:<{   //  x
+  testBoolNegateOptimized() PROC:<{   //  x
     DUP	        //  x x
     NOT	        //  x '1
     OVER	    //  x '1 x
@@ -185,14 +186,14 @@ fun testBoolCompareOptimized(x: bool) {
 
 @fif_codegen
 """
-  testBoolCompareOptimized PROC:<{  //  x
+  testBoolCompareOptimized() PROC:<{  //  x
     DUP	    //  x x
     NOT	    //  x '1
     OVER	//  x '1 x
-    eqX CALLDICT	//  x '1 '2
+    eqX() CALLDICT	//  x '1 '2
     NOT	    //  x '1 '3
     s2 PUSH	//  x '1 '3 x
-    eqX CALLDICT	//  x '1 '3 '4
+    eqX() CALLDICT	//  x '1 '3 '4
     s3 PUSH	//  x '1 '3 '4 x
   }>
 """

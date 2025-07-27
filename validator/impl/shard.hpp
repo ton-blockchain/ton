@@ -114,7 +114,7 @@ class MasterchainStateQ : public MasterchainState, public ShardStateQ {
   Ref<ValidatorSet> get_validator_set(ShardIdFull shard, UnixTime ts, CatchainSeqno cc_seqno) const;
   bool rotated_all_shards() const override;
   std::vector<Ref<McShardHash>> get_shards() const override;
-  td::Ref<McShardHash> get_shard_from_config(ShardIdFull shard) const override;
+  td::Ref<McShardHash> get_shard_from_config(ShardIdFull shard, bool exact) const override;
   bool ancestor_is_valid(BlockIdExt id) const override {
     return check_old_mc_block_id(id);
   }
@@ -124,6 +124,7 @@ class MasterchainStateQ : public MasterchainState, public ShardStateQ {
   bool has_workchain(WorkchainId workchain) const {
     return config_ && config_->has_workchain(workchain);
   }
+  td::uint32 persistent_state_split_depth(WorkchainId workchain_id) const override;
   td::uint32 monitor_min_split_depth(WorkchainId workchain_id) const override;
   td::uint32 min_split_depth(WorkchainId workchain_id) const override;
   BlockSeqno min_ref_masterchain_seqno() const override;
@@ -137,6 +138,13 @@ class MasterchainStateQ : public MasterchainState, public ShardStateQ {
   block::SizeLimitsConfig::ExtMsgLimits get_ext_msg_limits() const override {
     auto R = config_->get_size_limits_config();
     return R.is_error() ? block::SizeLimitsConfig::ExtMsgLimits() : R.ok_ref().ext_msg_limits;
+  }
+  block::ImportedMsgQueueLimits get_imported_msg_queue_limits(bool is_masterchain) const override {
+    auto R = config_->get_block_limits(is_masterchain);
+    if (R.is_ok() && R.ok()) {
+      return R.ok()->imported_msg_queue;
+    }
+    return {};
   }
   BlockIdExt last_key_block_id() const override;
   BlockIdExt next_key_block_id(BlockSeqno seqno) const override;

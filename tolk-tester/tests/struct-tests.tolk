@@ -6,8 +6,8 @@ struct JustIntWrapper {
     int: JustInt;
 }
 
-type MInt = int;
-type JustIntAlias = JustInt;
+type MInt = int
+type JustIntAlias = JustInt
 type JustIntAlias2 = JustIntAlias;
 
 struct Storage {
@@ -16,13 +16,13 @@ struct Storage {
 }
 
 struct Point {
-    x: int;
+    x: int
     y: MInt
 }
 
 struct User {
-    id: int;
-    name: slice;
+    id: int
+    name: slice
 }
 
 struct OuterStorage {
@@ -31,10 +31,10 @@ struct OuterStorage {
 }
 
 struct WithTensorInside {
-    coords: (int, int);
-    tup: [int, int];
-    otherCoords: (int, int)?;
-    otherTup: tuple;
+    coords: (int, int)
+    tup: [int, int]
+    otherCoords: (int, int)?
+    otherTup: tuple
 }
 
 fun sumCoords(p: Point) {
@@ -133,9 +133,12 @@ fun test7() {
     return (s.owner.name.loadInt(32), s2.owner.name.loadInt(32), s.lastPoint, s2.lastPoint.sumCoords());
 }
 
-struct Empty{}
+struct Empty
 struct OuterEmpty { nothing: EmptyAlias }
-type EmptyAlias = Empty;
+type EmptyAlias = Empty
+
+struct EmptyGeneric1<T>;
+struct EmptyGeneric2<T>
 
 @method_id(108)
 fun test8() {
@@ -152,6 +155,7 @@ fun test8() {
     __expect_type(o3, "Empty?");
     __expect_type(o6, "OuterEmpty");
     __expect_type(o8, "OuterEmpty?");
+    __expect_type(EmptyGeneric2<slice>{}, "EmptyGeneric2<slice>");
     return (e1, Empty{}, EmptyAlias{}, o2, o1, 777, o3, 777, o4, 777, o5, 777, o6, 777, o7, 777, o8, 777, o3!, 777);
 }
 
@@ -264,6 +268,7 @@ fun test17(x: JustInt?) {
     return (x, x!, x!.value, w1, w2);
 }
 
+@noinline
 fun sumXY<P>(point: P) { return point.x + point.y; }
 
 @method_id(118)
@@ -403,8 +408,8 @@ fun test28(getEmpty: bool) {
     return (t1, t1 is Empty, t1 is (int, int), t1 is builder, 777, t2, t2 is Empty, t2 is Has2EmptyNullable, t2 == null);
 }
 
-struct Empty1 {}
-struct Empty2 {}
+struct Empty1;
+struct Empty2;
 
 @method_id(129)
 fun test29() {
@@ -488,11 +493,11 @@ fun test34() {
     return o1;
 }
 
-@pure fun getXPure() { return 1; }
-@pure fun getYPure() { return 2; }
+@pure @noinline fun getXPure() { return 1; }
+@pure @noinline fun getYPure() { return 2; }
 global t_impure: tuple;
-fun getXImpure() { t_impure.push(1); return 1; }
-fun getYImpure() { t_impure.push(2); return 2; }
+@noinline fun getXImpure() { t_impure.push(1); return 1; }
+@noinline fun getYImpure() { t_impure.push(2); return 2; }
 
 @method_id(135)
 fun test35() {
@@ -581,37 +586,37 @@ type PointAlias = Point;
 @testcase | 105 |      | 35 30 45
 @testcase | 106 |      | 10 20
 @testcase | 107 |      | 5 5 10 20 15
-@testcase | 108 |      | 777 131 777 0 777 777 777 131 777 132 777 777
+@testcase | 108 |      | 777 typeid-3 777 0 777 777 777 typeid-3 777 typeid-4 777 777
 @testcase | 109 |      | 70 30 20 20 -80
 @testcase | 110 | 0    | (null) (null) 0
-@testcase | 110 | -1   | 10 20 133
+@testcase | 110 | -1   | 10 20 typeid-5
 @testcase | 111 | 0    | 0 2 10 20 30
 @testcase | 111 | -1   | 0 0 3 4 7
 @testcase | 112 | 0    | (null) (null) 0
-@testcase | 112 | -1   | 1 2 133
+@testcase | 112 | -1   | 1 2 typeid-5
 @testcase | 113 |      | (null) (null) 0
 @testcase | 114 |      | 1 2
 @testcase | 115 |      | (null) (null) (null) (null) 0
-@testcase | 116 |      | -1 -4 [ 8 4 ] 7 (null) 0 [ 10 11 ] 135
+@testcase | 116 |      | -1 -4 [ 8 4 ] 7 (null) 0 [ 10 11 ] typeid-7
 @testcase | 117 | 5    | 5 5 5 5 5
 @testcase | 117 | null | (null) (null) (null) -1 (null)
 @testcase | 118 |      | 17
-@testcase | 119 |      | 10 20 9 10 133 9
-@testcase | 120 | 0    | 80 9 8 80 133
+@testcase | 119 |      | 10 20 9 10 typeid-5 9
+@testcase | 120 | 0    | 80 9 8 80 typeid-5
 @testcase | 120 | -1   | 8 14 (null) (null) 0
 @testcase | 121 | 0    | 17 17 8 136
 @testcase | 121 | -1   | 8 (null) 8 8
 @testcase | 122 | 100  | 101 50 106 212 100 101 101
 @testcase | 124 | 66   | 66
-@testcase | 125 |      | (null) (null) 40 60 133
+@testcase | 125 |      | (null) (null) 40 60 typeid-5
 @testcase | 126 |      | 118
-@testcase | 127 |      | 0 0 131 131 777 -1 -1 0 0 777 0 0 138 777 0 0 777 (null) (null) 0
-@testcase | 128 | -1   | (null) (null) 131 -1 0 0 777 (null) (null) 131 -1 0 0
-@testcase | 128 | 0    | 1 2 130 0 -1 0 777 0 131 138 0 -1 0
+@testcase | 127 |      | 0 0 typeid-3 typeid-3 777 -1 -1 0 0 777 0 0 typeid-10 777 0 0 777 (null) (null) 0
+@testcase | 128 | -1   | (null) (null) typeid-3 -1 0 0 777 (null) (null) typeid-3 -1 0 0
+@testcase | 128 | 0    | 1 2 typeid-2 0 -1 0 777 0 typeid-3 typeid-10 0 -1 0
 @testcase | 129 |      | (null)
-@testcase | 130 | -1   | 140 777 (null) 140 777 0 777 0 0
-@testcase | 130 | 0    | 139 777 4 1 777 139 777 0 0
-@testcase | 131 |      | 5 141 (null) 141 (null) 0 777 0 0 -1 777 0 -1
+@testcase | 130 | -1   | typeid-12 777 (null) typeid-12 777 0 777 0 0
+@testcase | 130 | 0    | typeid-11 777 4 1 777 typeid-11 777 0 0
+@testcase | 131 |      | 5 typeid-13 (null) typeid-13 (null) 0 777 0 0 -1 777 0 -1
 @testcase | 132 |      | 10 20 10 0 0 20 0 0 0 0
 @testcase | 133 |      | -1 0 5 (null) (null) (null) 0 0 46
 @testcase | 134 |      | 10 20
@@ -626,7 +631,7 @@ type PointAlias = Point;
 
 @fif_codegen
 """
-  test6 PROC:<{
+  test6() PROC:<{
     10 PUSHINT   // p.x
     20 PUSHINT   // p.x p.y
   }>
@@ -634,7 +639,7 @@ type PointAlias = Point;
 
 @fif_codegen
 """
-  sumXY<Point> PROC:<{  // point.x point.y
+  sumXY<Point>() PROC:<{  // point.x point.y
     ADD   // '2
   }>
 """
@@ -642,7 +647,7 @@ type PointAlias = Point;
 
 @fif_codegen
 """
-  test23 PROC:<{ // p.x p.y
+  test23() PROC:<{ // p.x p.y
     2DROP
     20 PUSHINT   // '10=20
   }>
@@ -650,27 +655,27 @@ type PointAlias = Point;
 
 @fif_codegen
 """
-  test29 PROC:<{
+  test29() PROC:<{
     PUSHNULL   // '5
   }>
 """
 
 @fif_codegen
 """
-  test35 PROC:<{                //
-    getXPure CALLDICT           //  '2
-    getYPure CALLDICT           //  p.x p.y
+  test35() PROC:<{              //
+    getXPure() CALLDICT         //  '2
+    getYPure() CALLDICT         //  p.x p.y
   }>
 """
 
 @fif_codegen
 """
-  test36 PROC:<{                //
+  test36() PROC:<{              //
     NIL                         //  '0
-    t_impure SETGLOB            //
-    getYImpure CALLDICT         //  '4
-    getXImpure CALLDICT         //  p.y p.x
-    t_impure GETGLOB            //  p.y p.x g_t_impure
+    $t_impure SETGLOB           //
+    getYImpure() CALLDICT       //  '4
+    getXImpure() CALLDICT       //  p.y p.x
+    $t_impure GETGLOB           //  p.y p.x g_t_impure
     s1 s2 XCHG                  //  p.x p.y g_t_impure
   }>
 """

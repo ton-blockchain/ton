@@ -106,18 +106,13 @@ fun main(c: cell) {
 
 @fif_codegen
 """
-  test3 PROC:<{
-    20 PUSHINT                  //  yy=20
-    10 PUSHINT                  //  p.y=20 p.x=10
-    NEWC                        //  p.y=20 p.x=10 b
-    32 STI                      //  p.y=20 b
-    32 STI                      //  b
+  test3() PROC:<{
+    NEWC
+    x{0000000a00000014} STSLICECONST  //  b
     ENDC                        //  c
     CTOS                        //  s
-    32 PUSHINT                  //  s '15=32
-    SDSKIPFIRST                 //  s
-    32 PUSHINT                  //  s '16=32
-    SDSKIPFIRST                 //  s
+    64 LDU
+    NIP                         //  s
     SBITS                       //  '17
   }>
 """

@@ -1,10 +1,10 @@
-type MInt = int;
-type MNull = null;
-type MSlice = slice;
-type MIntN = int | MNull;
-type IntOrSlice = MInt | slice;
-type IntOrSliceN = null | slice | int;
-type IntOrSliceOrBuilder = int | slice | builder;
+type MInt = int
+type MNull = | null
+type MSlice = slice
+type MIntN = int | MNull
+type IntOrSlice = MInt | slice
+type IntOrSliceN = null | slice | int
+type IntOrSliceOrBuilder = | int | slice | builder
 
 type Pair2 = (int, int);
 type Pair2Or3 = Pair2 | (int, int, int);
@@ -18,8 +18,8 @@ fun testFlatten() {
     __expect_type(0 as (int | int | slice | builder | slice), "int | slice | builder");
     __expect_type(0 as (int? | int), "int?");
     __expect_type(0 as (slice | int? | slice? | cell), "slice | int | null | cell");
-    __expect_type(0 as (int | (int | int)), "int");
-    __expect_type(0 as (slice | (slice | (slice | int) | (cell | slice?))), "slice | int | cell | null");
+    __expect_type(0 as (| int | (int | int)), "int");
+    __expect_type(0 as (slice | (slice | (slice | int) | (| cell | slice?))), "slice | int | cell | null");
 
     __expect_type(0 as (MInt | MNull), "MInt?");
     __expect_type(0 as (MInt | slice | int), "MInt | slice");
@@ -43,7 +43,7 @@ fun testFlatten() {
     __expect_type(0 as (int?)?, "int?");
     __expect_type(0 as (int?)? | (int)?, "int?");
 
-    __expect_type(0 is builder, "bool");
+    __expect_type(0 is (|builder), "bool");
     __expect_type(0 !is builder, "bool");
     __expect_type(0!!is builder, "bool");
 
@@ -80,7 +80,7 @@ fun test2() {
 }
 
 @method_id(103)
-fun test3(case: int): int | slice | null {
+fun test3(case: int): | int | slice | null {
     var a: int | slice | null = 4;
     if (case == 0) {
         a = getSlice32()
@@ -535,6 +535,7 @@ fun test47() {
     return (checkSimple(1), checkSimple(beginCell().endCell().beginParse()), checkSimple(100), checkSimple(beginCell()));
 }
 
+@noinline
 fun checkGeneric3<T1, T2, T3>(a: T1 | T2 | T3): (int, T1 | T2?) {
     var vv: T1? = match (a) { T1 => a, T2 => null, T3 => null };
     return match (a) {
@@ -791,11 +792,11 @@ fun main() {
 @testcase | 105 |           | 5 5 1 5 1 5
 @testcase | 106 | 1         | (null) 0
 @testcase | 106 | 2         | 2 1
-@testcase | 107 | 1         | (null) 2 3 129 (null) 2 3 129
-@testcase | 107 | 3         | 6 7 8 130 6 7 8 130
-@testcase | 108 |           | (null) 2 3 129 (null) (null) (null) 0 (null) 2 3 129 (null) 2 3 129 (null) (null) (null) 0
-@testcase | 109 |           | 6 7 8 130 0 (null) -1 (null) (null) (null) 0 -1 (null) (null) (null) 0
-@testcase | 110 |           | 1 (null) (null) 0 (null) (null) 0 135
+@testcase | 107 | 1         | (null) 2 3 typeid-1 (null) 2 3 typeid-1
+@testcase | 107 | 3         | 6 7 8 typeid-2 6 7 8 typeid-2
+@testcase | 108 |           | (null) 2 3 typeid-1 (null) (null) (null) 0 (null) 2 3 typeid-1 (null) 2 3 typeid-1 (null) (null) (null) 0
+@testcase | 109 |           | 6 7 8 typeid-2 0 (null) -1 (null) (null) (null) 0 -1 (null) (null) (null) 0
+@testcase | 110 |           | 1 (null) (null) 0 (null) (null) 0 typeid-7
 @testcase | 120 |           | 5
 @testcase | 121 |           | -1 0 0 -1 -1 0
 @testcase | 122 | 0 0 1     | 36
@@ -807,21 +808,21 @@ fun main() {
 @testcase | 125 | 1 1       | 42
 @testcase | 126 |           | 42
 @testcase | 127 |           | 1 2 5 1
-@testcase | 128 |           | (null) (null) 0 777 (null) 2 1 777 3 4 129
+@testcase | 128 |           | (null) (null) 0 777 (null) 2 1 777 3 4 typeid-1
 @testcase | 129 |           | (null) (null) 0 (null) 5 1
-@testcase | 130 | 0         | (null) 5 1 777 (null) (null) 0 777 1 2 129 777 (null) [ 6 ] 136 777 (null) (null) 0
-@testcase | 130 | -1        | (null) (null) 0 777 (null) (null) 0 777 1 2 129 777 (null) [ 6 ] 136 777 (null) (null) 0
-@testcase | 131 |           | (null) 777 5 777 1 2 777 (null) 777 5 777 (null) (null) 0 777 1 2 129
-@testcase | 132 |           | (null) (null) 5 1 777 (null) (null) 5 42 777 (null) 4 5 129 777 (null) (null) (null) 0
-@testcase | 133 |           | (null) (null) 5 1 777 (null) (null) 5 42 777 (null) 4 5 129 777 (null) (null) (null) 0
-@testcase | 134 |           | (null) 5 1 777 (null) 5 1 777 1 2 129 777 1 2 129 777 (null) 5 42 777 5 42 777 5 42
-@testcase | 135 |           | (null) 5 1 777 (null) (null) 1 2 129 777 (null) (null) 1 2 129 777 (null) (null) 0
-@testcase | 136 |           | 1 2 129 777 1 2 140 777 1 2 141 777 (null) 1 2 142
+@testcase | 130 | 0         | (null) 5 1 777 (null) (null) 0 777 1 2 typeid-1 777 (null) [ 6 ] typeid-8 777 (null) (null) 0
+@testcase | 130 | -1        | (null) (null) 0 777 (null) (null) 0 777 1 2 typeid-1 777 (null) [ 6 ] typeid-8 777 (null) (null) 0
+@testcase | 131 |           | (null) 777 5 777 1 2 777 (null) 777 5 777 (null) (null) 0 777 1 2 typeid-1
+@testcase | 132 |           | (null) (null) 5 1 777 (null) (null) 5 42 777 (null) 4 5 typeid-1 777 (null) (null) (null) 0
+@testcase | 133 |           | (null) (null) 5 1 777 (null) (null) 5 42 777 (null) 4 5 typeid-1 777 (null) (null) (null) 0
+@testcase | 134 |           | (null) 5 1 777 (null) 5 1 777 1 2 typeid-1 777 1 2 typeid-1 777 (null) 5 42 777 5 42 777 5 42
+@testcase | 135 |           | (null) 5 1 777 (null) (null) 1 2 typeid-1 777 (null) (null) 1 2 typeid-1 777 (null) (null) 0
+@testcase | 136 |           | 1 2 typeid-1 777 1 2 typeid-12 777 1 2 typeid-13 777 (null) 1 2 typeid-14
 @testcase | 137 | 1 2       | 1 2 777 1 2 777 1 2 777 [ 1 2 ]
-@testcase | 138 |           | 1 (null) (null) (null) (null) 0 2 146 777 1 (null) 0 2 147 777 1 5 1 2 147 777 1 (null) 5 1 2 148
+@testcase | 138 |           | 1 (null) (null) (null) (null) 0 2 typeid-18 777 1 (null) 0 2 typeid-19 777 1 5 1 2 typeid-19 777 1 (null) 5 1 2 typeid-20
 @testcase | 139 |           | 1 (null) (null) (null) (null) 0 2 777 1 (null) 0 2 777 1 5 1 2 777 1 (null) 5 1 2
 @testcase | 140 | 5         | 5 42
-@testcase | 140 | 15        | 15 131
+@testcase | 140 | 15        | 15 typeid-3
 @testcase | 140 | 90        | 90 49
 @testcase | 141 | 7 8       | 7 7 1 8 8 1
 @testcase | 141 | null null | (null) (null) 0 (null) (null) 0
@@ -842,9 +843,9 @@ fun main() {
 @testcase | 154 |           | 100 1
 @testcase | 155 |           | 5 1 5 1
 @testcase | 156 | 1 2 -1    | 2 44 2 2 44 2 2 44 2 44 2 2 2
-@testcase | 157 | 1         | (null) 0 (null) 149 777 1 2 129 777 149 149 777 0 0 -1 0 -1 0 0 777 -1 0
-@testcase | 157 | 0         | (null) 0 (null) 149 777 (null) (null) 149 777 0 0 777 0 0 -1 0 0 -1 0 777 0 -1
-@testcase | 158 |           | (null) (null) 149 (null) (null) 149 (null) 0 (null)
+@testcase | 157 | 1         | (null) 0 (null) typeid-21 777 1 2 typeid-1 777 typeid-21 typeid-21 777 0 0 -1 0 -1 0 0 777 -1 0
+@testcase | 157 | 0         | (null) 0 (null) typeid-21 777 (null) (null) typeid-21 777 0 0 777 0 0 -1 0 0 -1 0 777 0 -1
+@testcase | 158 |           | (null) (null) typeid-21 (null) (null) typeid-21 (null) 0 (null)
 @testcase | 159 | 0 4       | 456
 @testcase | 159 | null 0    | 123
 @testcase | 160 |           | 10 0
@@ -853,14 +854,14 @@ fun main() {
 
 @fif_codegen
 """
-  test26 PROC:<{
+  test26() PROC:<{
     42 PUSHINT  // result
   }>
 """
 
 @fif_codegen
 """
-  checkSimple PROC:<{   //  a.USlot1 a.UTag
+  checkSimple() PROC:<{   //  a.USlot1 a.UTag
     NIP	    //  a.UTag
     DUP	    //  a.UTag a.UTag
     1 EQINT	//  a.UTag '3
@@ -880,7 +881,7 @@ fun main() {
 
 @fif_codegen
 """
-  test61 PROC:<{
+  test61() PROC:<{
     NIP
     DUP
     46 EQINT
@@ -896,6 +897,6 @@ fun main() {
   }>
 """
 
-@fif_codegen DECLPROC checkGeneric3<int,int8,int16>
+@fif_codegen DECLPROC checkGeneric3<int,int8,int16>()
 
  */

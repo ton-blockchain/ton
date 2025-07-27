@@ -24,11 +24,13 @@ td::Result<td::BufferSlice> serialize_candidate(const tl_object_ptr<ton_api::val
                                                 bool compression_enabled);
 td::Result<tl_object_ptr<ton_api::validatorSession_candidate>> deserialize_candidate(td::Slice data,
                                                                                      bool compression_enabled,
-                                                                                     int max_decompressed_data_size);
+                                                                                     int max_decompressed_data_size,
+                                                                                     int proto_version);
 
 td::Result<td::BufferSlice> compress_candidate_data(td::Slice block, td::Slice collated_data,
                                                     size_t& decompressed_size);
 td::Result<std::pair<td::BufferSlice, td::BufferSlice>> decompress_candidate_data(td::Slice compressed,
-                                                                                  int decompressed_size);
+                                                                                  int decompressed_size,
+                                                                                  int proto_version);
 
 }  // namespace ton::validatorsession

@@ -127,6 +127,8 @@ class ArchiveSlice : public td::actor::Actor {
   void open_files();
   void close_files();
 
+  void iterate_block_handles(std::function<void(const BlockHandleInterface &)> f);
+
  private:
   void before_query();
   void do_close();
@@ -159,6 +161,7 @@ class ArchiveSlice : public td::actor::Actor {
   bool sliced_mode_{false};
   td::uint32 huge_transaction_size_ = 0;
   td::uint32 slice_size_{100};
+  bool shard_separated_{false};
   td::uint32 shard_split_depth_ = 0;
 
   enum Status {

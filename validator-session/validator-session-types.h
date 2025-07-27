@@ -23,6 +23,8 @@
 #include "adnl/adnl-node-id.hpp"
 #include "ton/ton-types.h"
 
+#include <ton/ton-tl.hpp>
+
 namespace ton {
 
 namespace validatorsession {
@@ -71,26 +73,29 @@ struct ValidatorSessionNode {
 
 struct ValidatorSessionStats {
   enum { status_none = 0, status_received = 1, status_rejected = 2, status_approved = 3 };
+  enum { recv_none = 0, recv_collated = 1, recv_broadcast = 2, recv_query = 3, recv_cached = 4, recv_startup = 5 };
 
   struct Producer {
-    PublicKeyHash id = PublicKeyHash::zero();
-    ValidatorSessionCandidateId candidate_id = ValidatorSessionCandidateId::zero();
     int block_status = status_none;
-    double block_timestamp = -1.0;
-    td::Bits256 root_hash = td::Bits256::zero();
-    td::Bits256 file_hash = td::Bits256::zero();
-    std::string comment;
-
+    PublicKeyHash validator_id = PublicKeyHash::zero();
+    ValidatorSessionCandidateId candidate_id = ValidatorSessionCandidateId::zero();
+    BlockIdExt block_id{workchainIdNotYet, 0, 0, td::Bits256::zero(), td::Bits256::zero()};
+    td::Bits256 collated_data_hash = td::Bits256::zero();
     bool is_accepted = false;
     bool is_ours = false;
+    double got_block_at = -1.0;
+    int got_block_by = 0;
     double got_submit_at = -1.0;
-    double collation_time = -1.0;
-    double validation_time = -1.0;
-    double collated_at = -1.0;
-    double validated_at = -1.0;
+    td::int32 gen_utime = -1;
+    std::string comment;
+
+    double collation_time = -1.0, collated_at = -1.0;
     bool collation_cached = false;
+    bool self_collated = false;
+    td::Bits256 collator_node_id = td::Bits256::zero();
+
+    double validation_time = -1.0, validated_at = -1.0;
     bool validation_cached = false;
-    double gen_utime = -1.0;
 
     std::vector<bool> approvers, signers;
     ValidatorWeight approved_weight = 0;
@@ -129,20 +134,54 @@ struct ValidatorSessionStats {
         }
       }
     }
+
+    tl_object_ptr<ton_api::validatorStats_stats_producer> tl() const {
+      std::string approvers_str(approvers.size(), '0');
+      for (size_t i = 0; i < approvers.size(); ++i) {
+        approvers_str[i] = '0' + approvers[i];
+      }
+      std::string signers_str(signers.size(), '0');
+      for (size_t i = 0; i < signers.size(); ++i) {
+        signers_str[i] = '0' + signers[i];
+      }
+      int flags =
+          (block_status != status_none || !candidate_id.is_zero()
+               ? ton_api::validatorStats_stats_producer::Flags::BLOCK_ID_MASK
+               : 0) |
+          (collated_at >= 0.0 ? ton_api::validatorStats_stats_producer::Flags::COLLATED_AT_MASK : 0) |
+          (!collator_node_id.is_zero() ? ton_api::validatorStats_stats_producer::Flags::COLLATOR_NODE_ID_MASK : 0) |
+          (validated_at >= 0.0 ? ton_api::validatorStats_stats_producer::Flags::VALIDATED_AT_MASK : 0) |
+          (serialize_time >= 0.0 || deserialize_time >= 0.0 || serialized_size >= 0
+               ? ton_api::validatorStats_stats_producer::Flags::SERIALIZE_TIME_MASK
+               : 0);
+      return create_tl_object<ton_api::validatorStats_stats_producer>(
+          flags, validator_id.bits256_value(), block_status, candidate_id, create_tl_block_id(block_id),
+          collated_data_hash, is_accepted, is_ours, got_block_at, got_block_by, got_submit_at, gen_utime, comment,
+          collation_time, collated_at, collation_cached, self_collated, collator_node_id, validation_time, validated_at,
+          validation_cached, approved_weight, approved_33pct_at, approved_66pct_at, std::move(approvers_str),
+          signed_weight, signed_33pct_at, signed_66pct_at, std::move(signers_str), serialize_time, deserialize_time,
+          serialized_size);
+    }
   };
   struct Round {
-    double timestamp = -1.0;
+    double started_at = -1.0;
     std::vector<Producer> producers;
+
+    tl_object_ptr<ton_api::validatorStats_stats_round> tl() const {
+      std::vector<tl_object_ptr<ton_api::validatorStats_stats_producer>> producers_tl;
+      for (const auto &producer : producers) {
+        producers_tl.push_back(producer.tl());
+      }
+      return create_tl_object<ton_api::validatorStats_stats_round>(started_at, std::move(producers_tl));
+    }
   };
 
-  td::uint32 first_round;
-  std::vector<Round> rounds;
-
-  bool success = false;
   ValidatorSessionId session_id = ValidatorSessionId::zero();
-  CatchainSeqno cc_seqno = 0;
-  double timestamp = -1.0;
   PublicKeyHash self = PublicKeyHash::zero();
+  BlockIdExt block_id{workchainIdNotYet, 0, 0, td::Bits256::zero(), td::Bits256::zero()};
+  CatchainSeqno cc_seqno = 0;
+  bool success = false;
+  double timestamp = -1.0;
   PublicKeyHash creator = PublicKeyHash::zero();
   td::uint32 total_validators = 0;
   ValidatorWeight total_weight = 0;
@@ -150,11 +189,36 @@ struct ValidatorSessionStats {
   ValidatorWeight signatures_weight = 0;
   td::uint32 approve_signatures = 0;
   ValidatorWeight approve_signatures_weight = 0;
+
+  td::uint32 first_round = 0;
+  std::vector<Round> rounds;
+
+  void fix_block_ids() {
+    for (auto &round : rounds) {
+      for (auto &producer : round.producers) {
+        producer.block_id.id = block_id.id;
+      }
+    }
+  }
+
+  tl_object_ptr<ton_api::validatorStats_stats> tl() const {
+    std::vector<tl_object_ptr<ton_api::validatorStats_stats_round>> rounds_tl;
+    for (const auto &round : rounds) {
+      rounds_tl.push_back(round.tl());
+    }
+    int flags = success ? ton_api::validatorStats_stats::Flags::CREATOR_MASK : 0;
+    return create_tl_object<ton_api::validatorStats_stats>(
+        flags, session_id, self.bits256_value(), create_tl_block_id(block_id), cc_seqno, success, timestamp,
+        creator.bits256_value(), total_validators, total_weight, signatures, signatures_weight, approve_signatures,
+        approve_signatures_weight, first_round, std::move(rounds_tl));
+  }
 };
 
 struct NewValidatorGroupStats {
   struct Node {
     PublicKeyHash id = PublicKeyHash::zero();
+    PublicKey pubkey;
+    adnl::AdnlNodeIdShort adnl_id = adnl::AdnlNodeIdShort::zero();
     ValidatorWeight weight = 0;
   };
 
@@ -162,9 +226,26 @@ struct NewValidatorGroupStats {
   ShardIdFull shard{masterchainId};
   CatchainSeqno cc_seqno = 0;
   BlockSeqno last_key_block_seqno = 0;
-  double timestamp = -1.0;
+  double started_at = -1.0;
+  std::vector<BlockIdExt> prev;
   td::uint32 self_idx = 0;
+  PublicKeyHash self = PublicKeyHash::zero();
   std::vector<Node> nodes;
+
+  tl_object_ptr<ton_api::validatorStats_newValidatorGroup> tl() const {
+    std::vector<tl_object_ptr<ton_api::tonNode_blockIdExt>> prev_arr;
+    for (const auto &p : prev) {
+      prev_arr.push_back(create_tl_block_id(p));
+    }
+    std::vector<tl_object_ptr<ton_api::validatorStats_newValidatorGroup_node>> nodes_arr;
+    for (const auto &node : nodes) {
+      nodes_arr.push_back(create_tl_object<ton_api::validatorStats_newValidatorGroup_node>(
+          node.id.bits256_value(), node.pubkey.tl(), node.adnl_id.bits256_value(), node.weight));
+    }
+    return create_tl_object<ton_api::validatorStats_newValidatorGroup>(
+        session_id, create_tl_shard_id(shard), cc_seqno, last_key_block_seqno, started_at, std::move(prev_arr),
+        self_idx, self.bits256_value(), std::move(nodes_arr));
+  }
 };
 
 struct EndValidatorGroupStats {
@@ -175,13 +256,23 @@ struct EndValidatorGroupStats {
 
   ValidatorSessionId session_id = ValidatorSessionId::zero();
   double timestamp = -1.0;
+  PublicKeyHash self = PublicKeyHash::zero();
   std::vector<Node> nodes;
+
+  tl_object_ptr<ton_api::validatorStats_endValidatorGroup> tl() const {
+    std::vector<tl_object_ptr<ton_api::validatorStats_endValidatorGroup_node>> nodes_arr;
+    for (const auto &node : nodes) {
+      nodes_arr.push_back(create_tl_object<ton_api::validatorStats_endValidatorGroup_node>(node.id.bits256_value(),
+                                                                                           node.catchain_blocks));
+    }
+    return create_tl_object<ton_api::validatorStats_endValidatorGroup>(session_id, timestamp, self.bits256_value(),
+                                                                       std::move(nodes_arr));
+  }
 };
 
 struct BlockSourceInfo {
-  td::uint32 round, first_block_round;
   PublicKey source;
-  td::int32 source_priority;
+  BlockCandidatePriority priority;
 };
 
 }  // namespace validatorsession

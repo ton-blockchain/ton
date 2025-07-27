@@ -71,6 +71,7 @@ struct SinkExpression {
   explicit operator bool() const { return var_ref != nullptr; }
 
   std::string to_string() const;
+  SinkExpression get_child_s_expr(int field_idx) const;
 };
 
 // UnreachableKind is a reason of why control flow is unreachable or interrupted

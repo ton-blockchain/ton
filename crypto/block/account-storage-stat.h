@@ -57,7 +57,13 @@ class AccountStorageStat {
     return root.is_null() ? td::Bits256::zero() : td::Bits256{root->get_hash().bits()};
   }
 
+  bool is_dict_ready() const {
+    return dict_up_to_date_;
+  }
+
   void apply_child_stat(AccountStorageStat &&child);
+
+  static constexpr int errorcode_limits_exceeded = 999;
 
  private:
   vm::Dictionary dict_;
@@ -76,7 +82,6 @@ class AccountStorageStat {
   struct Entry {
     bool inited = false;
     vm::CellHash hash;
-    td::optional<unsigned> size_bits;
     bool exists_known = false;
     bool exists = false;
     td::optional<td::uint32> refcnt, max_merkle_depth;
