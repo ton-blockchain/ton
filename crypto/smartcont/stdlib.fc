@@ -197,7 +197,7 @@ int check_data_signature(slice data, slice signature, int public_key) asm "CHKSI
 (int, int, int, int) compute_data_size?(cell c, int max_cells) asm "CDATASIZEQ NULLSWAPIFNOT2 NULLSWAPIFNOT";
 
 ;;; A non-quiet version of [slice_compute_data_size?] that throws a cell overflow exception (8) on failure.
-(int, int, int, int) slice_compute_data_size?(cell c, int max_cells) asm "SDATASIZEQ NULLSWAPIFNOT2 NULLSWAPIFNOT";
+(int, int, int, int) slice_compute_data_size?(slice s, int max_cells) asm "SDATASIZEQ NULLSWAPIFNOT2 NULLSWAPIFNOT";
 
 ;;; Throws an exception with exit_code excno if cond is not 0 (commented since implemented in compilator)
 ;; () throw_if(int excno, int cond) impure asm "THROWARGIF";
