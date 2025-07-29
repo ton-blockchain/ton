@@ -10,29 +10,34 @@ struct JustMaybeInt32 {
     value: MaybeInt32;
 }
 
+fun T.estimate(): [int, int, int, int] {
+    // convert a tensor to a tuple for better output readability
+    val (minBits, maxBits, minRefs, maxRefs) = T.estimatePackSize();
+    return [minBits, maxBits, minRefs, maxRefs];
+}
 
 @method_id(101)
 fun test1() {
     return (
-        int32.estimatePackSize(),
-        uint64.estimatePackSize(),
-        int1.estimatePackSize(),
-        bool.estimatePackSize(),
-        RemainingBitsAndRefs.estimatePackSize(),
-        coins.estimatePackSize(),
-        bits6.estimatePackSize(),
-        bytes8.estimatePackSize(),
-        varint32.estimatePackSize(),
+        int32.estimate(),
+        uint64.estimate(),
+        int1.estimate(),
+        bool.estimate(),
+        RemainingBitsAndRefs.estimate(),
+        coins.estimate(),
+        bits6.estimate(),
+        bytes8.estimate(),
+        varint32.estimate(),
     );
 }
 
 @method_id(102)
 fun test2() {
     return (
-        JustInt32.estimatePackSize(),
-        JustMaybeInt32.estimatePackSize(),
-        MaybeInt32.estimatePackSize(),
-        Int16Or32.estimatePackSize(),
+        JustInt32.estimate(),
+        JustMaybeInt32.estimate(),
+        MaybeInt32.estimate(),
+        Int16Or32.estimate(),
     );
 }
 
@@ -51,7 +56,7 @@ struct Test3_2 {
 
 @method_id(103)
 fun test3() {
-    return (Test3_1.estimatePackSize(), Test3_2.estimatePackSize());
+    return (Test3_1.estimate(), Test3_2.estimate());
 }
 
 struct Test4_1 {
@@ -71,7 +76,7 @@ struct Test4_3 {
 
 @method_id(104)
 fun test4() {
-    return (Test4_1.estimatePackSize(), Test4_2.estimatePackSize(), Test4_3.estimatePackSize());
+    return (Test4_1.estimate(), Test4_2.estimate(), Test4_3.estimate());
 }
 
 struct Test5_1 {
@@ -99,7 +104,7 @@ struct Test5_3 {
 
 @method_id(105)
 fun test5() {
-    return (Test5_1.estimatePackSize(), Test5_2.estimatePackSize(), Test5_3.estimatePackSize());
+    return (Test5_1.estimate(), Test5_2.estimate(), Test5_3.estimate());
 }
 
 struct(0x00112233) Test6_1 {
@@ -115,7 +120,7 @@ type Test6_or = Test6_1 | Test6_2;
 
 @method_id(106)
 fun test6() {
-    return (Test6_1.estimatePackSize(), Test6_2.estimatePackSize(), Test6_or.estimatePackSize());
+    return (Test6_1.estimate(), Test6_2.estimate(), Test6_or.estimate());
 }
 
 struct(0x1020) Test7_1;
@@ -127,7 +132,7 @@ type Test7_or = | Test7_1 | Test7_2 | Test7_3
 @method_id(107)
 fun test7() {
     assert((Test7_1{} as Test7_or).toCell().beginParse().remainingBitsCount() == Test7_or.estimatePackSize().0, 400);
-    return (Test7_1.estimatePackSize(), Test7_or.estimatePackSize());
+    return (Test7_1.estimate(), Test7_or.estimate());
 }
 
 struct(0x10) Inner8_1 {
@@ -151,7 +156,7 @@ struct Test8 {
 
 @method_id(108)
 fun test8() {
-    return (Inner8_1.estimatePackSize(), Inner8_2.estimatePackSize(), Test8.estimatePackSize());
+    return (Inner8_1.estimate(), Inner8_2.estimate(), Test8.estimate());
 }
 
 struct Test9_bits2 { f: bits2; }
@@ -164,7 +169,7 @@ type Test9_f4 = bits1 | Test9_bits2 | bits3 | Test9_bits4?;     // auto-generate
 
 @method_id(109)
 fun test9() {
-    return (Test9_f1.estimatePackSize(), Test9_f2.estimatePackSize(), Test9_f3.estimatePackSize(), Test9_f4.estimatePackSize());
+    return (Test9_f1.estimate(), Test9_f2.estimate(), Test9_f3.estimate(), Test9_f4.estimate());
 }
 
 struct Test10_1 {
@@ -176,7 +181,7 @@ type Test10_2 = (Test10_1, bool?, RemainingBitsAndRefs);
 
 @method_id(110)
 fun test10() {
-    return (Test10_1.estimatePackSize(), Test10_2.estimatePackSize());
+    return (Test10_1.estimate(), Test10_2.estimate());
 }
 
 struct Test11_1 {
@@ -191,7 +196,7 @@ struct Test11_2 {
 
 @method_id(111)
 fun test11() {
-    return (Test11_1.estimatePackSize(), Test11_2.estimatePackSize());
+    return (Test11_1.estimate(), Test11_2.estimate());
 }
 
 @method_id(120)
@@ -201,7 +206,7 @@ fun test20() {
 }
 
 fun main() {
-    __expect_type(int8.estimatePackSize(), "[int, int, int, int]");
+    __expect_type(int8.estimatePackSize(), "(int, int, int, int)");
 }
 
 /**

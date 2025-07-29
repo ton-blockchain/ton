@@ -237,15 +237,16 @@ static int calc_offset_on_stack(StructPtr struct_ref, int field_idx) {
 //
 
 
-std::vector<var_idx_t> generate_pack_struct_to_cell(CodeBlob& code, SrcLocation loc, TypePtr any_type, std::vector<var_idx_t>&& ir_obj, const std::vector<var_idx_t>& ir_options) {
+// fun T.toCell(self, options: PackOptions): Cell<T>
+std::vector<var_idx_t> generate_T_toCell(FunctionPtr called_f, CodeBlob& code, SrcLocation loc, const std::vector<std::vector<var_idx_t>>& args) {
+  TypePtr typeT = called_f->substitutedTs->typeT_at(0);
   FunctionPtr f_beginCell = lookup_function("beginCell");
   FunctionPtr f_endCell = lookup_function("builder.endCell");
   std::vector rvect_builder = code.create_var(TypeDataBuilder::create(), loc, "b");
   code.emplace_back(loc, Op::_Call, rvect_builder, std::vector<var_idx_t>{}, f_beginCell);
 
-  tolk_assert(ir_options.size() == 1);      // struct PackOptions
-  PackContext ctx(code, loc, rvect_builder, ir_options);
-  ctx.generate_pack_any(any_type, std::move(ir_obj));
+  PackContext ctx(code, loc, rvect_builder, args[1]);
+  ctx.generate_pack_any(typeT, std::vector(args[0]));
 
   std::vector rvect_cell = code.create_tmp_var(TypeDataCell::create(), loc, "(cell)");
   code.emplace_back(loc, Op::_Call, rvect_cell, std::move(rvect_builder), f_endCell);
@@ -253,54 +254,70 @@ std::vector<var_idx_t> generate_pack_struct_to_cell(CodeBlob& code, SrcLocation 
   return rvect_cell;
 }
 
-std::vector<var_idx_t> generate_pack_struct_to_builder(CodeBlob& code, SrcLocation loc, TypePtr any_type, std::vector<var_idx_t>&& ir_builder, std::vector<var_idx_t>&& ir_obj, const std::vector<var_idx_t>& ir_options) {
-  PackContext ctx(code, loc, ir_builder, ir_options);   // mutate this builder
-  ctx.generate_pack_any(any_type, std::move(ir_obj));
+// fun builder.storeAny<T>(mutate self, v: T, options: PackOptions = {}): self
+std::vector<var_idx_t> generate_builder_storeAny(FunctionPtr called_f, CodeBlob& code, SrcLocation loc, const std::vector<std::vector<var_idx_t>>& args) {
+  TypePtr typeT = called_f->substitutedTs->typeT_at(0);
+  PackContext ctx(code, loc, args[0], args[2]);   // mutate this builder
+  ctx.generate_pack_any(typeT, std::vector(args[1]));
 
-  return ir_builder;  // return mutated builder
+  return args[0];  // return mutated builder
 }
 
-std::vector<var_idx_t> generate_unpack_struct_from_slice(CodeBlob& code, SrcLocation loc, TypePtr any_type, std::vector<var_idx_t>&& ir_slice, bool mutate_slice, const std::vector<var_idx_t>& ir_options) {
-  if (!mutate_slice) {
-    std::vector slice_copy = code.create_var(TypeDataSlice::create(), loc, "s");
-    code.emplace_back(loc, Op::_Let, slice_copy, std::move(ir_slice));
-    ir_slice = std::move(slice_copy);
-  }
+// fun T.fromSlice(rawSlice: slice, options: UnpackOptions): T
+std::vector<var_idx_t> generate_T_fromSlice(FunctionPtr called_f, CodeBlob& code, SrcLocation loc, const std::vector<std::vector<var_idx_t>>& args) {
+  std::vector slice_copy = code.create_var(TypeDataSlice::create(), loc, "s");
+  code.emplace_back(loc, Op::_Let, slice_copy, args[0]);
 
-  tolk_assert(ir_options.size() == 2);      // struct UnpackOptions
-  UnpackContext ctx(code, loc, std::move(ir_slice), ir_options);
-  std::vector rvect_struct = ctx.generate_unpack_any(any_type);
-  tolk_assert(any_type->get_width_on_stack() == static_cast<int>(rvect_struct.size()));
+  TypePtr typeT = called_f->substitutedTs->typeT_at(0);
+  UnpackContext ctx(code, loc, std::move(slice_copy), args[1]);
+  std::vector rvect_struct = ctx.generate_unpack_any(typeT);
+  tolk_assert(typeT->get_width_on_stack() == static_cast<int>(rvect_struct.size()));
+
+  if (!estimate_serialization_size(typeT).is_unpredictable_infinity()) {
+    ctx.assertEndIfOption();
+  }
+  return rvect_struct;
+}
+
+// fun slice.loadAny<T>(mutate self, options: UnpackOptions): T
+std::vector<var_idx_t> generate_slice_loadAny(FunctionPtr called_f, CodeBlob& code, SrcLocation loc, const std::vector<std::vector<var_idx_t>>& args) {
+  TypePtr typeT = called_f->substitutedTs->typeT_at(0);
+  UnpackContext ctx(code, loc, args[0], args[1]);
+  std::vector rvect_struct = ctx.generate_unpack_any(typeT);
+  tolk_assert(typeT->get_width_on_stack() == static_cast<int>(rvect_struct.size()));
 
   // slice.loadAny() ignores options.assertEndAfterReading, because it's intended to read data in the middle
-  if (!mutate_slice && !estimate_serialization_size(any_type).is_unpredictable_infinity()) {
-    ctx.assertEndIfOption();
-  }
-  return rvect_struct;
+  std::vector ir_slice_and_result = args[0];
+  ir_slice_and_result.insert(ir_slice_and_result.end(), rvect_struct.begin(), rvect_struct.end());
+  return ir_slice_and_result;
 }
 
-std::vector<var_idx_t> generate_unpack_struct_from_cell(CodeBlob& code, SrcLocation loc, TypePtr any_type, std::vector<var_idx_t>&& ir_cell, const std::vector<var_idx_t>& ir_options) {
+// fun T.fromCell(packedCell: cell, options: UnpackOptions): T
+// fun Cell<T>.load(self, options: UnpackOptions): T
+std::vector<var_idx_t> generate_T_fromCell(FunctionPtr called_f, CodeBlob& code, SrcLocation loc, const std::vector<std::vector<var_idx_t>>& args) {
+  TypePtr typeT = called_f->substitutedTs->typeT_at(0);
   FunctionPtr f_beginParse = lookup_function("cell.beginParse");
   std::vector ir_slice = code.create_var(TypeDataSlice::create(), loc, "s");
-  code.emplace_back(loc, Op::_Call, ir_slice, std::move(ir_cell), f_beginParse);
+  code.emplace_back(loc, Op::_Call, ir_slice, args[0], f_beginParse);
 
-  tolk_assert(ir_options.size() == 2);      // struct UnpackOptions
-  UnpackContext ctx(code, loc, std::move(ir_slice), ir_options);
-  std::vector rvect_struct = ctx.generate_unpack_any(any_type);
-  tolk_assert(any_type->get_width_on_stack() == static_cast<int>(rvect_struct.size()));
+  UnpackContext ctx(code, loc, std::move(ir_slice), args[1]);
+  std::vector rvect_struct = ctx.generate_unpack_any(typeT);
+  tolk_assert(typeT->get_width_on_stack() == static_cast<int>(rvect_struct.size()));
 
   // if a struct has RemainingBitsAndRefs, don't test it for assertEnd
-  if (!estimate_serialization_size(any_type).is_unpredictable_infinity()) {
+  if (!estimate_serialization_size(typeT).is_unpredictable_infinity()) {
     ctx.assertEndIfOption();
   }
   return rvect_struct;
 }
 
-std::vector<var_idx_t> generate_skip_struct_in_slice(CodeBlob& code, SrcLocation loc, TypePtr any_type, std::vector<var_idx_t>&& ir_slice, const std::vector<var_idx_t>& ir_options) {
-  UnpackContext ctx(code, loc, ir_slice, ir_options);    // mutate this slice
-  ctx.generate_skip_any(any_type);
+// fun slice.skipAny<T>(mutate self, options: UnpackOptions): self
+std::vector<var_idx_t> generate_slice_skipAny(FunctionPtr called_f, CodeBlob& code, SrcLocation loc, const std::vector<std::vector<var_idx_t>>& args) {
+  TypePtr typeT = called_f->substitutedTs->typeT_at(0);
+  UnpackContext ctx(code, loc, args[0], args[1]);    // mutate this slice
+  ctx.generate_skip_any(typeT);
 
-  return ir_slice;  // return mutated slice
+  return args[0];  // return mutated slice
 }
 
 void generate_lazy_struct_from_slice(CodeBlob& code, SrcLocation loc, const LazyVariableLoadedState* lazy_variable, const LazyStructLoadInfo& load_info, const std::vector<var_idx_t>& ir_obj) {
@@ -423,14 +440,19 @@ std::vector<var_idx_t> generate_lazy_object_finish_loading(CodeBlob& code, SrcLo
   return lazy_variable->ir_slice;
 }
 
+std::vector<var_idx_t> generate_T_forceLoadLazyObject(FunctionPtr called_f, CodeBlob& code, SrcLocation loc, const std::vector<std::vector<var_idx_t>>& args) {
+  // a call to `T.forceLoadLazyObject()` was handled separately
+  tolk_assert(false);
+}
+
 PackSize estimate_serialization_size(TypePtr any_type) {
   EstimateContext ctx;
   return ctx.estimate_any(any_type);
 }
 
-std::vector<var_idx_t> generate_estimate_size_call(CodeBlob& code, SrcLocation loc, TypePtr any_type) {
-  EstimateContext ctx;
-  PackSize pack_size = ctx.estimate_any(any_type);
+std::vector<var_idx_t> generate_T_estimatePackSize(FunctionPtr called_f, CodeBlob& code, SrcLocation loc, const std::vector<std::vector<var_idx_t>>& args) {
+  TypePtr typeT = called_f->substitutedTs->typeT_at(0);
+  PackSize pack_size = estimate_serialization_size(typeT);
 
   std::vector ir_tensor = code.create_tmp_var(TypeDataTensor::create({TypeDataInt::create(), TypeDataInt::create(), TypeDataInt::create(), TypeDataInt::create()}), loc, "(result-tensor)");
   code.emplace_back(loc, Op::_IntConst, std::vector{ir_tensor[0]}, td::make_refint(pack_size.min_bits));
@@ -438,11 +460,7 @@ std::vector<var_idx_t> generate_estimate_size_call(CodeBlob& code, SrcLocation l
   code.emplace_back(loc, Op::_IntConst, std::vector{ir_tensor[2]}, td::make_refint(pack_size.min_refs));
   code.emplace_back(loc, Op::_IntConst, std::vector{ir_tensor[3]}, td::make_refint(pack_size.max_refs));
 
-  FunctionPtr f_toTuple = lookup_function("T.__toTuple");
-  std::vector ir_tuple = code.create_tmp_var(TypeDataTuple::create(), loc, "(result-tuple)");
-  code.emplace_back(loc, Op::_Call, ir_tuple, ir_tensor, f_toTuple);
-
-  return ir_tuple;
+  return ir_tensor;
 }
 
 } // namespace tolk

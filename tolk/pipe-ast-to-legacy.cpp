@@ -24,9 +24,6 @@
 #include "smart-casts-cfg.h"
 #include "pack-unpack-api.h"
 #include "gen-entrypoints.h"
-#include "generics-helpers.h"
-#include "send-message-api.h"
-#include "gen-entrypoints.h"
 
 /*
  *   This pipe is the last one operating AST: it transforms AST to IR.
@@ -620,57 +617,12 @@ static std::vector<var_idx_t> gen_compile_time_code_instead_of_fun_call(CodeBlob
 
   if (called_f->is_method() && called_f->is_instantiation_of_generic_function()) {
     std::string_view f_name = called_f->base_fun_ref->name;
-    TypePtr typeT = called_f->substitutedTs->typeT_at(0);
-
     const LazyVariableLoadedState* lazy_variable = v_call->dot_obj_is_self ? code.get_lazy_variable(v_call->get_self_obj()) : nullptr;
 
     if (f_name == "T.toCell" && lazy_variable && lazy_variable->is_struct()) {
       // in: object Lazy<T> (partially loaded), out: Cell<T>
       std::vector ir_obj = vars_per_arg[0];   // = lazy_var_ref->ir_idx
       return generate_lazy_struct_to_cell(code, loc, &lazy_variable->loaded_state, std::move(ir_obj), vars_per_arg[1]);
-    }
-    if (f_name == "T.toCell") {
-      // in: object T, out: Cell<T> (just a cell, wrapped)
-      std::vector ir_obj = vars_per_arg[0];
-      return generate_pack_struct_to_cell(code, loc, typeT, std::move(ir_obj), vars_per_arg[1]);
-    }
-    if (f_name == "T.fromCell") {
-      // in: cell, out: object T
-      std::vector ir_cell = vars_per_arg[0];
-      return generate_unpack_struct_from_cell(code, loc, typeT, std::move(ir_cell), vars_per_arg[1]);
-    }
-    if (f_name == "T.fromSlice") {
-      // in: slice, out: object T, input slice NOT mutated
-      std::vector ir_slice = vars_per_arg[0];
-      return generate_unpack_struct_from_slice(code, loc, typeT, std::move(ir_slice), false, vars_per_arg[1]);
-    }
-    if (f_name == "Cell<T>.load") {
-      // in: cell, out: object T
-      std::vector ir_cell = vars_per_arg[0];
-      return generate_unpack_struct_from_cell(code, loc, typeT, std::move(ir_cell), vars_per_arg[1]);
-    }
-    if (f_name == "slice.loadAny") {
-      // in: slice, out: object T, input slice is mutated, so prepend self before an object
-      var_idx_t ir_self = vars_per_arg[0][0];
-      std::vector ir_slice = vars_per_arg[0];
-      std::vector ir_obj = generate_unpack_struct_from_slice(code, loc, typeT, std::move(ir_slice), true, vars_per_arg[1]);
-      std::vector ir_result = {ir_self};
-      ir_result.insert(ir_result.end(), ir_obj.begin(), ir_obj.end());
-      return ir_result;
-    }
-    if (f_name == "slice.skipAny") {
-      // in: slice, out: the same slice, with a shifted pointer
-      std::vector ir_slice = vars_per_arg[0];
-      return generate_skip_struct_in_slice(code, loc, typeT, std::move(ir_slice), vars_per_arg[1]);
-    }
-    if (f_name == "builder.storeAny") {
-      // in: builder and object T, out: mutated builder
-      std::vector ir_builder = vars_per_arg[0];
-      std::vector ir_obj = vars_per_arg[1];
-      return generate_pack_struct_to_builder(code, loc, typeT, std::move(ir_builder), std::move(ir_obj), vars_per_arg[2]);
-    }
-    if (f_name == "T.estimatePackSize") {
-      return generate_estimate_size_call(code, loc, typeT);
     }
     if (f_name == "T.forceLoadLazyObject") {
       // in: object T, out: slice (same slice that a lazy variable holds, after loading/skipping all its fields)
@@ -682,36 +634,9 @@ static std::vector<var_idx_t> gen_compile_time_code_instead_of_fun_call(CodeBlob
     }
   }
 
-  if (called_f->is_instantiation_of_generic_function()) {
-    std::string_view f_name = called_f->base_fun_ref->name;
-    TypePtr typeT = called_f->substitutedTs->typeT_at(0);
-
-    if (f_name == "createMessage") {
-      std::vector ir_msg_params = vars_per_arg[0];
-      return generate_createMessage(code, loc, typeT->unwrap_alias(), std::move(ir_msg_params));
-    }
-    if (f_name == "createExternalLogMessage") {
-      std::vector ir_msg_params = vars_per_arg[0];
-      return generate_createExternalLogMessage(code, loc, typeT->unwrap_alias(), std::move(ir_msg_params));
-    }
-  }
-
-  if (called_f->name == "address.buildSameAddressInAnotherShard") {
-    std::vector ir_self_address = vars_per_arg[0];
-    std::vector ir_shard_options = vars_per_arg[1];
-    return generate_address_buildInAnotherShard(code, loc, std::move(ir_self_address), std::move(ir_shard_options));
-  }
-  if (called_f->name == "AutoDeployAddress.buildAddress") {
-    std::vector ir_self = vars_per_arg[0];
-    return generate_AutoDeployAddress_buildAddress(code, loc, std::move(ir_self));
-  }
-  if (called_f->name == "AutoDeployAddress.addressMatches") {
-    std::vector ir_self = vars_per_arg[0];
-    std::vector ir_address = vars_per_arg[1];
-    return generate_AutoDeployAddress_addressMatches(code, loc, std::move(ir_self), std::move(ir_address));
-  }
-
-  tolk_assert(false);
+  auto gen = std::get_if<FunctionBodyBuiltinGenerateOps*>(&called_f->body);
+  tolk_assert(gen);
+  return (*gen)->generate_ops(called_f, code, loc, vars_per_arg);
 }
 
 std::vector<var_idx_t> gen_inline_fun_call_in_place(CodeBlob& code, TypePtr ret_type, SrcLocation loc, FunctionPtr f_inlined, AnyExprV self_obj, bool is_before_immediate_return, const std::vector<std::vector<var_idx_t>>& vars_per_arg) {

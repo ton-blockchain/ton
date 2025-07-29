@@ -718,7 +718,7 @@ VarDescrList Op::fwd_analyze(VarDescrList values) {
           if (arg_order_already_equals_asm()) {
             maybe_swap_builtin_args_to_compile();
           }
-          std::get<FunctionBodyBuiltin*>(f_sym->body)->compile(tmp, res, args, loc);
+          std::get<FunctionBodyBuiltinAsmOp*>(f_sym->body)->compile(tmp, res, args, loc);
           if (arg_order_already_equals_asm()) {
             maybe_swap_builtin_args_to_compile();
           }

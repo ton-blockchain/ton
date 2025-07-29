@@ -1028,15 +1028,24 @@ struct Stack {
  * 
  */
 
-typedef std::function<AsmOp(std::vector<VarDescr>&, std::vector<VarDescr>&, SrcLocation)> simple_compile_func_t;
+struct FunctionBodyBuiltinAsmOp {
+  using CompileToAsmOpImpl = AsmOp(std::vector<VarDescr>&, std::vector<VarDescr>&, SrcLocation);
+  
+  std::function<CompileToAsmOpImpl> simple_compile;
 
-struct FunctionBodyBuiltin {
-  simple_compile_func_t simple_compile;
-
-  explicit FunctionBodyBuiltin(simple_compile_func_t compile)
+  explicit FunctionBodyBuiltinAsmOp(std::function<CompileToAsmOpImpl> compile)
     : simple_compile(std::move(compile)) {}
 
   void compile(AsmOpList& dest, std::vector<VarDescr>& out, std::vector<VarDescr>& in, SrcLocation loc) const;
+};
+
+struct FunctionBodyBuiltinGenerateOps {
+  using GenerateOpsImpl = std::vector<var_idx_t>(FunctionPtr, CodeBlob&, SrcLocation, const std::vector<std::vector<var_idx_t>>&);
+
+  std::function<GenerateOpsImpl> generate_ops;
+  
+  explicit FunctionBodyBuiltinGenerateOps(std::function<GenerateOpsImpl> generate_ops)
+    : generate_ops(std::move(generate_ops)) {}
 };
 
 struct FunctionBodyAsm {

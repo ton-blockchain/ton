@@ -14,8 +14,8 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "send-message-api.h"
 #include "pack-unpack-serializers.h"
+#include "generics-helpers.h"
 #include "type-system.h"
 
 namespace tolk {
@@ -86,7 +86,9 @@ struct IR_AutoDeployAddress {
   }
 };
 
-std::vector<var_idx_t> generate_createMessage(CodeBlob& code, SrcLocation loc, TypePtr bodyT, std::vector<var_idx_t>&& rvect) {
+// fun createMessage<TBody>(options: CreateMessageOptions<TBody>): OutMessage
+std::vector<var_idx_t> generate_createMessage(FunctionPtr called_f, CodeBlob& code, SrcLocation loc, const std::vector<std::vector<var_idx_t>>& args) {
+  TypePtr bodyT = called_f->substitutedTs->typeT_at(0);
   StructPtr s_Options = lookup_global_symbol("CreateMessageOptions")->try_as<StructPtr>();
   StructPtr s_AutoDeployAddress = lookup_global_symbol("AutoDeployAddress")->try_as<StructPtr>();
 
@@ -98,6 +100,7 @@ std::vector<var_idx_t> generate_createMessage(CodeBlob& code, SrcLocation loc, T
   tolk_assert(t_value && t_value->get_width_on_stack() == (2+1) && t_value->size() == 2);
 
   int offset = 0;
+  std::vector rvect = args[0];
   auto next_slice = [&rvect, &offset](int width) -> std::vector<var_idx_t> {
     int start = offset;
     offset += width;
@@ -356,7 +359,9 @@ std::vector<var_idx_t> generate_createMessage(CodeBlob& code, SrcLocation loc, T
   return ir_cell;
 }
 
-std::vector<var_idx_t> generate_createExternalLogMessage(CodeBlob& code, SrcLocation loc, TypePtr bodyT, std::vector<var_idx_t>&& rvect) {
+// fun createExternalLogMessage<TBody>(options: CreateExternalLogMessageOptions<TBody>): OutMessage
+std::vector<var_idx_t> generate_createExternalLogMessage(FunctionPtr called_f, CodeBlob& code, SrcLocation loc, const std::vector<std::vector<var_idx_t>>& args) {
+  TypePtr bodyT = called_f->substitutedTs->typeT_at(0);
   StructPtr s_Options = lookup_global_symbol("CreateExternalLogMessageOptions")->try_as<StructPtr>();
   StructPtr s_ExtOutLogBucket = lookup_global_symbol("ExtOutLogBucket")->try_as<StructPtr>();
 
@@ -366,6 +371,7 @@ std::vector<var_idx_t> generate_createExternalLogMessage(CodeBlob& code, SrcLoca
   tolk_assert(t_topic && t_topic->get_width_on_stack() == (1+1) && t_topic->size() == 2);
 
   int offset = 0;
+  std::vector rvect = args[0];
   auto next_slice = [&rvect, &offset](int width) -> std::vector<var_idx_t> {
     int start = offset;
     offset += width;
@@ -490,7 +496,9 @@ std::vector<var_idx_t> generate_createExternalLogMessage(CodeBlob& code, SrcLoca
   return ir_cell;
 }
 
-std::vector<var_idx_t> generate_address_buildInAnotherShard(CodeBlob& code, SrcLocation loc, std::vector<var_idx_t>&& ir_self_address, std::vector<var_idx_t>&& ir_shard_options) {
+// fun address.buildSameAddressInAnotherShard(self, options: AddressShardingOptions): builder
+std::vector<var_idx_t> generate_address_buildInAnotherShard(FunctionPtr called_f, CodeBlob& code, SrcLocation loc, const std::vector<std::vector<var_idx_t>>& args) {
+  std::vector ir_shard_options = args[1];
   tolk_assert(ir_shard_options.size() == 2);
 
   // example for fixedPrefixLength (shard depth) = 8:
@@ -515,14 +523,15 @@ std::vector<var_idx_t> generate_address_buildInAnotherShard(CodeBlob& code, SrcL
   std::vector ir_restLenA = {code.create_int(loc, 256, "(last-addrA)")};
   code.emplace_back(loc, Op::_Call, ir_restLenA, std::vector{ir_restLenA[0], ir_shard_options[0]}, lookup_function("_-_"));
   std::vector ir_tailA = code.create_tmp_var(TypeDataSlice::create(), loc, "(tailA)");
-  code.emplace_back(loc, Op::_Call, ir_tailA, std::vector{ir_self_address[0], ir_restLenA[0]}, lookup_function("slice.getLastBits"));
+  code.emplace_back(loc, Op::_Call, ir_tailA, std::vector{args[0][0], ir_restLenA[0]}, lookup_function("slice.getLastBits"));
   code.emplace_back(loc, Op::_Call, ir_builder, std::vector{ir_builder[0], ir_tailA[0]}, lookup_function("builder.storeSlice"));
 
   return ir_builder;
 }
 
-std::vector<var_idx_t> generate_AutoDeployAddress_buildAddress(CodeBlob& code, SrcLocation loc, std::vector<var_idx_t>&& ir_auto_deploy) {
-  IR_AutoDeployAddress ir_self(code, loc, ir_auto_deploy);
+// fun AutoDeployAddress.buildAddress(self): builder
+std::vector<var_idx_t> generate_AutoDeployAddress_buildAddress(FunctionPtr called_f, CodeBlob& code, SrcLocation loc, const std::vector<std::vector<var_idx_t>>& args) {
+  IR_AutoDeployAddress ir_self(code, loc, args[0]);
 
   std::vector ir_builder = code.create_tmp_var(TypeDataSlice::create(), loc, "(addr-b)");
   // important! unlike `createMessage()`, we calculate hash and shard prefix BEFORE creating a cell
@@ -599,8 +608,9 @@ std::vector<var_idx_t> generate_AutoDeployAddress_buildAddress(CodeBlob& code, S
   return ir_builder;
 }
 
-std::vector<var_idx_t> generate_AutoDeployAddress_addressMatches(CodeBlob& code, SrcLocation loc, std::vector<var_idx_t>&& ir_auto_deploy, std::vector<var_idx_t>&& ir_address) {
-  IR_AutoDeployAddress ir_self(code, loc, ir_auto_deploy);
+// fun AutoDeployAddress.addressMatches(self, addr: address): bool
+std::vector<var_idx_t> generate_AutoDeployAddress_addressMatches(FunctionPtr called_f, CodeBlob& code, SrcLocation loc, const std::vector<std::vector<var_idx_t>>& args) {
+  IR_AutoDeployAddress ir_self(code, loc, args[0]);
 
   // at first, calculate stateInitHash = (hash of StateInit cell would be, but without constructing a cell)
   std::vector ir_hash = code.create_tmp_var(TypeDataInt::create(), loc, "(addr-hash)");
@@ -647,7 +657,7 @@ std::vector<var_idx_t> generate_AutoDeployAddress_addressMatches(CodeBlob& code,
 
   // now do `(wc, hash) = addr.getWorkchainAndHash()`
   std::vector ir_addr_wc_hash = code.create_tmp_var(TypeDataTensor::create({TypeDataInt::create(), TypeDataInt::create()}), loc, "(self-wc-hash)");
-  code.emplace_back(loc, Op::_Call, ir_addr_wc_hash, ir_address, lookup_function("address.getWorkchainAndHash"));
+  code.emplace_back(loc, Op::_Call, ir_addr_wc_hash, args[1], lookup_function("address.getWorkchainAndHash"));
 
   // now calculate `hash &= mask` (the same as we did earlier for stateInitHash)
   Op& if_sharded2 = code.emplace_back(loc, Op::_If, ir_self.is_AddressSharding);

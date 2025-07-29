@@ -96,13 +96,15 @@ struct LocalVarData final : Symbol {
 
 struct FunctionBodyCode;
 struct FunctionBodyAsm;
-struct FunctionBodyBuiltin;
+struct FunctionBodyBuiltinAsmOp;
+struct FunctionBodyBuiltinGenerateOps;
 struct GenericsDeclaration;
 
 typedef std::variant<
   FunctionBodyCode*,
   FunctionBodyAsm*,
-  FunctionBodyBuiltin*
+  FunctionBodyBuiltinAsmOp*,
+  FunctionBodyBuiltinGenerateOps*
 > FunctionBody;
 
 struct FunctionData final : Symbol {
@@ -120,7 +122,6 @@ struct FunctionData final : Symbol {
     flagReturnsSelf = 1024,     // return type is `self` (returns the mutated 1st argument), calls can be chainable
     flagReallyUsed = 2048,      // calculated via dfs from used functions; declared but unused functions are not codegenerated
     flagCompileTimeVal = 4096,  // calculated only at compile-time for constant arguments: `ton("0.05")`, `stringCrc32`, and others
-    flagCompileTimeGen = 8192,  // at compile-time it's handled specially, not as a regular function: `T.toCell`, etc.
     flagAllowAnyWidthT = 16384, // for built-in generic functions that <T> is not restricted to be 1-slot type
     flagManualOnBounce = 32768, // for onInternalMessage, don't insert "if (isBounced) return"
   };
@@ -212,7 +213,7 @@ struct FunctionData final : Symbol {
   bool does_mutate_self() const { return (flags & flagAcceptsSelf) && parameters[0].is_mutate_parameter(); }
   bool is_really_used() const { return flags & flagReallyUsed; }
   bool is_compile_time_const_val() const { return flags & flagCompileTimeVal; }
-  bool is_compile_time_special_gen() const { return flags & flagCompileTimeGen; }
+  bool is_compile_time_special_gen() const { return std::holds_alternative<FunctionBodyBuiltinGenerateOps*>(body); }
   bool is_variadic_width_T_allowed() const { return flags & flagAllowAnyWidthT; }
   bool is_manual_on_bounce() const { return flags & flagManualOnBounce; }
 
