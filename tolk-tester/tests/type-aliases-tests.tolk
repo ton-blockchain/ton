@@ -143,6 +143,7 @@ fun test8() {
     someFn1 as (MInt_v2) -> MInt_v2?;
 }
 
+@method_id(109)
 fun test9(b: MBool): MBool {
     if (!b) {
         __expect_type(b, "MBool");

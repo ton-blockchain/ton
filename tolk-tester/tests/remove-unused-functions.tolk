@@ -28,8 +28,6 @@ fun main(): (int, int, int) {
 }
 
 /**
-@experimental_options remove-unused-functions
-
 @testcase | 0 | | 3 10 20
 
 @fif_codegen DECLPROC used_as_noncall1()

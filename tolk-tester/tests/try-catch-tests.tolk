@@ -264,6 +264,8 @@ fun testBigExcno() {
 }
 
 fun main() {
+  // mark used to codegen them
+  testCodegen3;
 }
 
 /**

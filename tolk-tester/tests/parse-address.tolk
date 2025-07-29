@@ -30,6 +30,7 @@ fun check0(addr: address) {
     assert (addr.getWorkchain() == 0) throw 111;
 }
 
+@method_id(90)
 fun codegenAddrEq(a: address, b: address) {
     if (a == b) { return 1; }
     if (a != b) { return 2; }

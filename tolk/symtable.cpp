@@ -66,7 +66,7 @@ LocalVarPtr FunctionData::find_param(std::string_view name) const {
 
 bool FunctionData::does_need_codegen() const {
   // when a function is declared, but not referenced from code in any way, don't generate its body
-  if (!is_really_used() && G.settings.remove_unused_functions) {
+  if (!is_really_used()) {
     return false;
   }
   // functions with asm body don't need code generation

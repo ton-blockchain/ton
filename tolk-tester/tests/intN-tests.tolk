@@ -201,6 +201,7 @@ fun test11() {
     ];
 }
 
+@method_id(112)
 fun test12() {
     var a = ton("1") + ton("2");    // check absence in fif codegen
     return ton("0.1");

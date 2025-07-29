@@ -610,7 +610,7 @@ fun test55() {
         // in case of loops, type inferring is re-enterable
         // first iteration: x is int, eq<int> instantiated
         // second (final) iteration: x is int?, eq<int?> instantiated
-        // (checked via codegen)
+        // (but since eq<int> finally becomes unused, it's not generated to fift)
         eq55(x);
         __expect_type(x, "int?");   // types are checked (unlike generics instantiated) after inferring
         x = rand() ? 1 : null;
@@ -718,6 +718,9 @@ fun test63() {
 
 
 fun main(x: int?): int {
+    // mark used to codegen them
+    test55;
+    
     return x == null ? -1 : x;
 }
 
@@ -749,8 +752,8 @@ fun main(x: int?): int {
 @stderr warning: unreachable code
 @stderr var t2 redef = getNullableInt()!;
 
-@fif_codegen  eq55<int?>() PROC:<{
-@fif_codegen  eq55<int>() PROC:<{
+@fif_codegen        eq55<int?>() PROC:<{
+@fif_codegen_avoid  eq55<int>() PROC:<{
 
 @fif_codegen
 """

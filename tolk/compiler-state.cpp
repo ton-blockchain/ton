@@ -43,9 +43,9 @@ void PersistentHeapAllocator::clear() {
 void CompilerSettings::enable_experimental_option(std::string_view name) {
   ExperimentalOption* to_enable = nullptr;
 
-  if (name == remove_unused_functions.name) {
-    to_enable = &remove_unused_functions;
-  }
+  // if (name == some_option.name) {
+    // to_enable = &some_option;
+  // }
 
   if (to_enable == nullptr) {
     std::cerr << "unknown experimental option: " << name << std::endl;

@@ -60,7 +60,7 @@ struct CompilerSettings {
 
   FsReadCallback read_callback;
 
-  ExperimentalOption remove_unused_functions{"remove-unused-functions"};
+  // ExperimentalOption some_option{"some-option"};
 
   void enable_experimental_option(std::string_view name);
   void parse_experimental_options_cmd_arg(const std::string& cmd_arg);

@@ -249,6 +249,7 @@ fun test18() {
   return (s.loadUint(14), s.loadInt(8), s.loadUint(4));
 }
 
+@method_id(119)
 fun test19() {
     // numbers with potential overflow for STU are not joined, check via codegen
     var b = beginCell();
@@ -267,6 +268,7 @@ fun test20() {
   return (s.loadBool(), s.loadBool(), s.loadBool(), s.loadUint(8), s.loadBool(), s.loadCoins());
 }
 
+@method_id(121)
 fun test21(s: slice) {
     // successive skipBits are also joined
     var x = 8;
