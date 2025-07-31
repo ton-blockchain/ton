@@ -1068,6 +1068,12 @@ struct LazyVarRefAtCodegen {
     : var_ref(var_ref), var_state(var_state) {}
 };
 
+// CachedConstValueAtCodegen is used for a map [some_const => '5]
+struct CachedConstValueAtCodegen {
+  GlobalConstPtr const_ref;
+  std::vector<var_idx_t> ir_idx;
+};
+
 struct CodeBlob {
   int var_cnt, in_var_cnt;
   FunctionPtr fun_ref;
@@ -1075,7 +1081,9 @@ struct CodeBlob {
   SrcLocation forced_loc;
   std::vector<TmpVar> vars;
   std::vector<LazyVarRefAtCodegen> lazy_variables;
+  std::vector<CachedConstValueAtCodegen> cached_consts;
   std::vector<var_idx_t>* inline_rvect_out = nullptr;
+  bool inside_evaluating_constant = false;
   bool inlining_before_immediate_return = false;
   std::unique_ptr<Op> ops;
   std::unique_ptr<Op>* cur_ops;
@@ -1130,6 +1138,7 @@ struct CodeBlob {
   }
   const LazyVariableLoadedState* get_lazy_variable(LocalVarPtr var_ref) const;
   const LazyVariableLoadedState* get_lazy_variable(AnyExprV v) const;
+  const CachedConstValueAtCodegen* get_cached_const(GlobalConstPtr const_ref) const;
   void prune_unreachable_code();
   void fwd_analyze();
   void mark_noreturn();

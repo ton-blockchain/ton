@@ -383,6 +383,15 @@ const LazyVariableLoadedState* CodeBlob::get_lazy_variable(AnyExprV v) const {
   return nullptr;
 }
 
+const CachedConstValueAtCodegen* CodeBlob::get_cached_const(GlobalConstPtr const_ref) const {
+  for (const CachedConstValueAtCodegen& c : cached_consts) {
+    if (c.const_ref == const_ref) {
+      return &c;
+    }
+  }
+  return nullptr;
+}
+
 
 // given `{some_expr}!`, return some_expr
 static AnyExprV unwrap_not_null_operator(AnyExprV v) {
@@ -1111,6 +1120,38 @@ std::vector<var_idx_t> transition_to_target_type(std::vector<var_idx_t>&& rvect,
 
 
 std::vector<var_idx_t> pre_compile_symbol(SrcLocation loc, const Symbol* sym, CodeBlob& code, LValContext* lval_ctx) {
+  // referencing a local variable (not its declaration, but its usage)
+  if (LocalVarPtr var_ref = sym->try_as<LocalVarPtr>()) {
+#ifdef TOLK_DEBUG
+    tolk_assert(static_cast<int>(var_ref->ir_idx.size()) == var_ref->declared_type->get_width_on_stack());
+#endif
+    return var_ref->ir_idx;
+  }
+
+  // referencing a global constant, embed its init_value directly (so, it will be evaluated to a const val later)
+  if (GlobalConstPtr const_ref = sym->try_as<GlobalConstPtr>()) {
+    tolk_assert(lval_ctx == nullptr);
+    // when evaluating `a1` in `const a2 = a1 + a1`, cache a1's IR vars to prevent exponential explosion
+    if (code.inside_evaluating_constant) {
+      if (const CachedConstValueAtCodegen* cached = code.get_cached_const(const_ref)) {
+        return cached->ir_idx;
+      }
+      std::vector<var_idx_t> ir_sub_const = pre_compile_expr(const_ref->init_value, code, const_ref->declared_type);
+      code.cached_consts.emplace_back(CachedConstValueAtCodegen{const_ref, ir_sub_const});
+      return ir_sub_const; 
+    }
+    // just referencing `a1` in a function body
+    // (note that `a1` occurred 2 times has 2 different ir_idx, caching above is done only within another const)
+    ASTAuxData* aux_data = new AuxData_ForceFiftLocation(loc);
+    auto v_force_loc = createV<ast_artificial_aux_vertex>(loc, const_ref->init_value, aux_data, const_ref->inferred_type);
+    code.inside_evaluating_constant = true;
+    std::vector<var_idx_t> ir_const = pre_compile_expr(v_force_loc, code, const_ref->declared_type);
+    code.inside_evaluating_constant = false;
+    code.cached_consts.clear();
+    return ir_const; 
+  }
+
+  // referencing a global variable, copy it to a local tmp var
   if (GlobalVarPtr glob_ref = sym->try_as<GlobalVarPtr>()) {
     // handle `globalVar = rhs` / `mutate globalVar`
     if (lval_ctx && !lval_ctx->is_rval_inside_lval()) {
@@ -1127,23 +1168,14 @@ std::vector<var_idx_t> pre_compile_symbol(SrcLocation loc, const Symbol* sym, Co
     }
     return local_ir_idx;
   }
-  if (GlobalConstPtr const_ref = sym->try_as<GlobalConstPtr>()) {
-    tolk_assert(lval_ctx == nullptr);
-    ASTAuxData* aux_data = new AuxData_ForceFiftLocation(loc);
-    auto v_force_loc = createV<ast_artificial_aux_vertex>(loc, const_ref->init_value, aux_data, const_ref->inferred_type);
-    return pre_compile_expr(v_force_loc, code, const_ref->declared_type);
-  }
+
+  // referencing a function (not calling it! using as a callback, works similar to a global var)
   if (FunctionPtr fun_ref = sym->try_as<FunctionPtr>()) {
     std::vector<var_idx_t> rvect = code.create_tmp_var(fun_ref->inferred_full_type, loc, "(glob-var-fun)");
     code.emplace_back(loc, Op::_GlobVar, rvect, std::vector<var_idx_t>{}, fun_ref);
     return rvect;
   }
-  if (LocalVarPtr var_ref = sym->try_as<LocalVarPtr>()) {
-#ifdef TOLK_DEBUG
-    tolk_assert(static_cast<int>(var_ref->ir_idx.size()) == var_ref->declared_type->get_width_on_stack());
-#endif
-    return var_ref->ir_idx;
-  }
+
   throw Fatal("pre_compile_symbol");
 }
 
