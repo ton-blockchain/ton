@@ -79,9 +79,6 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
   if (boc_roots.empty()) {
     return td::Status::Error("No root cells were provided for serialization");
   }
-  if (boc_roots.size() > BagOfCells::default_max_roots) {
-    return td::Status::Error("Too many root cells were provided for serialization");
-  }
   for (const auto& root : boc_roots) {
     if (root.is_null()) {
       return td::Status::Error("Cannot serialize a null cell reference into a bag of cells");
@@ -230,10 +227,7 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
   result.reserve_bits(total_size_estimate);
 
   // Store roots information
-  if (root_indexes.size() >= (1 << 16)) {
-    return td::Status::Error("Too many root cells");
-  }
-  append_uint(result, root_indexes.size(), 16);
+  append_uint(result, root_indexes.size(), 32);
   for (int root_ind : root_indexes) {
     append_uint(result, rank[root_ind], 32);
   }
@@ -373,8 +367,10 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
   size_t orig_size = bit_reader.size();
 
   // Read root count
-  TRY_RESULT(root_count, read_uint(bit_reader, 16));
-  if (root_count < 1 || root_count > BagOfCells::default_max_roots) {
+  TRY_RESULT(root_count, read_uint(bit_reader, 32));
+  // We assume that each cell should take at least 1 byte, even effectively serialized
+  // Otherwise it means that provided root_count is incorrect
+  if (root_count < 1 || root_count > decompressed_size) {
     return td::Status::Error("BOC decompression failed: invalid root count");
   }
 
