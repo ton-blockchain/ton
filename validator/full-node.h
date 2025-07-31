@@ -67,6 +67,7 @@ struct CustomOverlayParams {
   std::map<adnl::AdnlNodeIdShort, int> msg_senders_;
   std::set<adnl::AdnlNodeIdShort> block_senders_;
   std::vector<ShardIdFull> sender_shards_;
+  bool skip_public_msg_send_ = false;
 
   bool send_shard(const ShardIdFull& shard) const;
   static CustomOverlayParams fetch(const ton_api::engine_validator_customOverlay& f);
@@ -117,7 +118,7 @@ class FullNode : public td::actor::Actor {
   }
   enum { broadcast_mode_public = 1, broadcast_mode_private_block = 2, broadcast_mode_custom = 4 };
 
-  static constexpr td::int32 MAX_FAST_SYNC_OVERLAY_CLIENTS = 5000;  // TODO: set lower limit (high limit for testing)
+  static constexpr td::int32 MAX_FAST_SYNC_OVERLAY_CLIENTS = 5;
 
   static td::actor::ActorOwn<FullNode> create(
       ton::PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash, FullNodeOptions opts,

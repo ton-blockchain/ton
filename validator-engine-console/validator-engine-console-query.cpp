@@ -1294,6 +1294,9 @@ td::Status ShowCustomOverlaysQuery::receive(td::BufferSlice data) {
         td::TerminalIO::out() << "  " << ton::create_shard_id(shard).to_str() << "\n";
       }
     }
+    if (overlay->skip_public_msg_send_) {
+      td::TerminalIO::out() << "Don't send external messages to public overlays\n";
+    }
     td::TerminalIO::out() << "\n";
   }
   return td::Status::OK();

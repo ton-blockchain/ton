@@ -602,11 +602,9 @@ static td::Ref<vm::CellSlice> storage_without_extra_currencies(td::Ref<vm::CellS
  * This requires storage_dict_hash to be set, as it guarantees that the stored storage_used was computed recently
  * (in older versions it included extra currency balance, in newer versions it does not).
  *
- * @param storage_cells If not null, store all hashes of cells in storage to storage_cells.
- *
  * @returns Root of the dictionary, or Error
  */
-td::Result<Ref<vm::Cell>> Account::compute_account_storage_dict(td::HashSet<vm::CellHash>* storage_cells) const {
+td::Result<Ref<vm::Cell>> Account::compute_account_storage_dict() const {
   if (storage.is_null()) {
     return td::Status::Error("cannot compute storage dict: empty storage");
   }
@@ -618,7 +616,7 @@ td::Result<Ref<vm::Cell>> Account::compute_account_storage_dict(td::HashSet<vm::
   if (storage_for_stat.is_null()) {
     return td::Status::Error("cannot compute storage dict: invalid storage");
   }
-  TRY_STATUS(stat.replace_roots(storage_for_stat->prefetch_all_refs(), false, storage_cells));
+  TRY_STATUS(stat.replace_roots(storage_for_stat->prefetch_all_refs()));
   // Root of AccountStorage is not counted in AccountStorageStat
   td::uint64 expected_cells = stat.get_total_cells() + 1;
   td::uint64 expected_bits = stat.get_total_bits() + storage->size();
@@ -1712,12 +1710,12 @@ bool Transaction::run_precompiled_contract(const ComputePhaseConfig& cfg, precom
   ComputePhase& cp = *compute_phase;
   CHECK(cp.precompiled_gas_usage);
   td::uint64 gas_usage = cp.precompiled_gas_usage.value();
-  td::Timer timer;
+  td::RealCpuTimer timer;
   auto result =
       impl.run(my_addr, now, start_lt, balance, new_data, *in_msg_body, in_msg, msg_balance_remaining, in_msg_extern,
                compute_vm_libraries(cfg), cfg.global_version, cfg.max_vm_data_depth, new_code,
                cfg.unpacked_config_tuple, due_payment.not_null() ? due_payment : td::zero_refint(), gas_usage);
-  double elapsed = timer.elapsed();
+  time_tvm = timer.elapsed_both();
   cp.vm_init_state_hash = td::Bits256::zero();
   cp.exit_code = result.exit_code;
   cp.out_of_gas = false;
@@ -1728,7 +1726,7 @@ bool Transaction::run_precompiled_contract(const ComputePhaseConfig& cfg, precom
   cp.success = (cp.accepted && result.committed);
   LOG(INFO) << "Running precompiled smart contract " << impl.get_name() << ": exit_code=" << result.exit_code
             << " accepted=" << result.accepted << " success=" << cp.success << " gas_used=" << gas_usage
-            << " time=" << elapsed << "s";
+            << " time=" << time_tvm.real << "s cpu_time=" << time_tvm.cpu;
   if (cp.accepted & use_msg_state) {
     was_activated = true;
     acc_status = Account::acc_active;
@@ -1736,7 +1734,7 @@ bool Transaction::run_precompiled_contract(const ComputePhaseConfig& cfg, precom
   if (cfg.with_vm_log) {
     cp.vm_log = PSTRING() << "Running precompiled smart contract " << impl.get_name()
                           << ": exit_code=" << result.exit_code << " accepted=" << result.accepted
-                          << " success=" << cp.success << " gas_used=" << gas_usage << " time=" << elapsed << "s";
+                          << " success=" << cp.success << " gas_used=" << gas_usage << " time=" << time_tvm.real << "s";
   }
   if (cp.success) {
     cp.new_data = impl.get_c4();
@@ -1945,9 +1943,9 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
 
   LOG(DEBUG) << "starting VM";
   cp.vm_init_state_hash = vm.get_state_hash();
-  td::Timer timer;
+  td::RealCpuTimer timer;
   cp.exit_code = ~vm.run();
-  double elapsed = timer.elapsed();
+  time_tvm = timer.elapsed_both();
   LOG(DEBUG) << "VM terminated with exit code " << cp.exit_code;
   cp.out_of_gas = (cp.exit_code == ~(int)vm::Excno::out_of_gas);
   cp.vm_final_state_hash = vm.get_final_state_hash(cp.exit_code);
@@ -1973,7 +1971,7 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
   LOG(INFO) << "steps: " << vm.get_steps_count() << " gas: used=" << gas.gas_consumed() << ", max=" << gas.gas_max
             << ", limit=" << gas.gas_limit << ", credit=" << gas.gas_credit;
   LOG(INFO) << "out_of_gas=" << cp.out_of_gas << ", accepted=" << cp.accepted << ", success=" << cp.success
-            << ", time=" << elapsed << "s";
+            << ", time=" << time_tvm.real << "s, cpu_time=" << time_tvm.cpu;
   if (logger != nullptr) {
     cp.vm_log = logger->get_log();
   }
@@ -3198,7 +3196,13 @@ td::Status Transaction::check_state_limits(const SizeLimitsConfig& size_limits, 
   }
   {
     TD_PERF_COUNTER(transaction_storage_stat_a);
-    td::Timer timer;
+    td::RealCpuTimer timer;
+    SCOPE_EXIT {
+      LOG_IF(INFO, timer.elapsed_real() > 0.1) << "Compute used storage (1) took " << timer.elapsed_real() << "s";
+      if (is_account_stat) {
+        time_storage_stat += timer.elapsed_both();
+      }
+    };
     if (is_account_stat && compute_phase) {
       storage_stat.add_hint(compute_phase->vm_loaded_cells);
     }
@@ -3210,9 +3214,6 @@ td::Status Transaction::check_state_limits(const SizeLimitsConfig& size_limits, 
       storage_stat_updates.push_back(new_library);
     }
     TRY_STATUS(storage_stat.replace_roots({new_code, new_data, new_library}, /* check_merkle_depth = */ true));
-    if (timer.elapsed() > 0.1) {
-      LOG(INFO) << "Compute used storage (1) took " << timer.elapsed() << "s";
-    }
   }
 
   if (storage_stat.get_total_cells() > size_limits.max_acc_state_cells ||
@@ -3513,9 +3514,11 @@ bool Transaction::compute_state(const SerializeConfig& cfg) {
     auto roots = new_storage_for_stat->prefetch_all_refs();
     storage_stat_updates.insert(storage_stat_updates.end(), roots.begin(), roots.end());
     {
+      td::RealCpuTimer timer;
       StorageStatCalculationContext context{true};
       StorageStatCalculationContext::Guard guard{&context};
       td::Status S = stats.replace_roots(roots);
+      time_storage_stat += timer.elapsed_both();
       if (S.is_error()) {
         LOG(ERROR) << "Cannot recompute storage stats for account " << account.addr.to_hex() << ": " << S.move_as_error();
         return false;

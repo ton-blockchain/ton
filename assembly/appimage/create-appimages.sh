@@ -27,7 +27,7 @@ for file in ../artifacts/*; do
     printf '[Desktop Entry]\nName='$appName'\nExec='$appName'\nIcon='$appName'\nType=Application\nCategories=Utility;\n' > $appName.AppDir/$appName.desktop
     cp ../ton.png $appName.AppDir/$appName.png
     cp $file $appName.AppDir/usr/bin/
-    cp ../build/openssl_3/libcrypto.so.3 \
+    cp ../openssl_3/libcrypto.so.3 \
       /lib/$ARCH-linux-gnu/libatomic.so.1 \
       /lib/$ARCH-linux-gnu/libsodium.so.23 \
       /lib/$ARCH-linux-gnu/libz.so.1 \
@@ -35,6 +35,9 @@ for file in ../artifacts/*; do
       /lib/$ARCH-linux-gnu/libmicrohttpd.so.12 \
       /lib/$ARCH-linux-gnu/libreadline.so.8 \
       /lib/$ARCH-linux-gnu/libstdc++.so.6 \
+      /lib/$ARCH-linux-gnu/libgsl.so.27 \
+      /lib/$ARCH-linux-gnu/libblas.so.3 \
+      /lib/$ARCH-linux-gnu/libgslcblas.so.0 \
       $appName.AppDir/usr/lib/
 
     chmod +x ./$appName.AppDir/usr/bin/$appName

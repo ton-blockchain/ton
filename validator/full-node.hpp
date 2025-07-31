@@ -75,8 +75,8 @@ class FullNodeImpl : public FullNode {
   void download_block(BlockIdExt id, td::uint32 priority, td::Timestamp timeout, td::Promise<ReceivedBlock> promise);
   void download_zero_state(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
                            td::Promise<td::BufferSlice> promise);
-  void download_persistent_state(BlockIdExt id, BlockIdExt masterchain_block_id, td::uint32 priority,
-                                 td::Timestamp timeout, td::Promise<td::BufferSlice> promise);
+  void download_persistent_state(BlockIdExt id, BlockIdExt masterchain_block_id, PersistentStateType type,
+                                 td::uint32 priority, td::Timestamp timeout, td::Promise<td::BufferSlice> promise);
   void download_block_proof(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
                             td::Promise<td::BufferSlice> promise);
   void download_block_proof_link(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
@@ -131,7 +131,7 @@ class FullNodeImpl : public FullNode {
   FileHash zero_state_file_hash_;
 
   td::actor::ActorId<FullNodeShard> get_shard(AccountIdPrefixFull dst);
-  td::actor::ActorId<FullNodeShard> get_shard(ShardIdFull shard);
+  td::actor::ActorId<FullNodeShard> get_shard(ShardIdFull shard, bool historical = false);
   std::map<ShardIdFull, ShardInfo> shards_;
   int wc_monitor_min_split_ = 0;
 

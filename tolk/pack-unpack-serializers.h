@@ -72,6 +72,7 @@ public:
 
   void storeInt(var_idx_t ir_idx, int len) const;
   void storeUint(var_idx_t ir_idx, int len) const;
+  void storeUint_var(var_idx_t ir_idx, var_idx_t ir_len) const;
   void storeBool(var_idx_t ir_idx) const;
   void storeCoins(var_idx_t ir_idx) const;
   void storeRef(var_idx_t ir_idx) const;

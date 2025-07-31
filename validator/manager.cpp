@@ -314,19 +314,21 @@ void ValidatorManagerImpl::get_zero_state(BlockIdExt block_id, td::Promise<td::B
 }
 
 void ValidatorManagerImpl::get_persistent_state_size(BlockIdExt block_id, BlockIdExt masterchain_block_id,
-                                                     td::Promise<td::uint64> promise) {
-  td::actor::send_closure(db_, &Db::get_persistent_state_file_size, block_id, masterchain_block_id, std::move(promise));
+                                                     PersistentStateType type, td::Promise<td::uint64> promise) {
+  td::actor::send_closure(db_, &Db::get_persistent_state_file_size, block_id, masterchain_block_id, type,
+                          std::move(promise));
 }
 void ValidatorManagerImpl::get_persistent_state(BlockIdExt block_id, BlockIdExt masterchain_block_id,
-                                                td::Promise<td::BufferSlice> promise) {
-  td::actor::send_closure(db_, &Db::get_persistent_state_file, block_id, masterchain_block_id, std::move(promise));
+                                                PersistentStateType type, td::Promise<td::BufferSlice> promise) {
+  td::actor::send_closure(db_, &Db::get_persistent_state_file, block_id, masterchain_block_id, type,
+                          std::move(promise));
 }
 
 void ValidatorManagerImpl::get_persistent_state_slice(BlockIdExt block_id, BlockIdExt masterchain_block_id,
-                                                      td::int64 offset, td::int64 max_length,
+                                                      PersistentStateType type, td::int64 offset, td::int64 max_length,
                                                       td::Promise<td::BufferSlice> promise) {
-  td::actor::send_closure(db_, &Db::get_persistent_state_file_slice, block_id, masterchain_block_id, offset, max_length,
-                          std::move(promise));
+  td::actor::send_closure(db_, &Db::get_persistent_state_file_slice, block_id, masterchain_block_id, type, offset,
+                          max_length, std::move(promise));
 }
 
 void ValidatorManagerImpl::get_previous_persistent_state_files(
@@ -1385,6 +1387,11 @@ void ValidatorManagerImpl::set_block_state(BlockHandle handle, td::Ref<ShardStat
   td::actor::send_closure(db_, &Db::store_block_state, handle, state, std::move(P));
 }
 
+void ValidatorManagerImpl::store_block_state_part(BlockId effective_block, td::Ref<vm::Cell> cell,
+                                                  td::Promise<td::Ref<vm::DataCell>> promise) {
+  td::actor::send_closure(db_, &Db::store_block_state_part, effective_block, cell, std::move(promise));
+}
+
 void ValidatorManagerImpl::set_block_state_from_data(BlockHandle handle, td::Ref<BlockData> block,
                                                      td::Promise<td::Ref<ShardState>> promise) {
   td::actor::send_closure(db_, &Db::store_block_state_from_data, handle, block, std::move(promise));
@@ -1400,15 +1407,17 @@ void ValidatorManagerImpl::get_cell_db_reader(td::Promise<std::shared_ptr<vm::Ce
 }
 
 void ValidatorManagerImpl::store_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id,
-                                                       td::BufferSlice state, td::Promise<td::Unit> promise) {
-  td::actor::send_closure(db_, &Db::store_persistent_state_file, block_id, masterchain_block_id, std::move(state),
+                                                       PersistentStateType type, td::BufferSlice state,
+                                                       td::Promise<td::Unit> promise) {
+  td::actor::send_closure(db_, &Db::store_persistent_state_file, block_id, masterchain_block_id, type, std::move(state),
                           std::move(promise));
 }
 
 void ValidatorManagerImpl::store_persistent_state_file_gen(BlockIdExt block_id, BlockIdExt masterchain_block_id,
+                                                           PersistentStateType type,
                                                            std::function<td::Status(td::FileFd &)> write_data,
                                                            td::Promise<td::Unit> promise) {
-  td::actor::send_closure(db_, &Db::store_persistent_state_file_gen, block_id, masterchain_block_id,
+  td::actor::send_closure(db_, &Db::store_persistent_state_file_gen, block_id, masterchain_block_id, type,
                           std::move(write_data), std::move(promise));
 }
 
@@ -1773,9 +1782,9 @@ void ValidatorManagerImpl::send_get_zero_state_request(BlockIdExt id, td::uint32
 }
 
 void ValidatorManagerImpl::send_get_persistent_state_request(BlockIdExt id, BlockIdExt masterchain_block_id,
-                                                             td::uint32 priority,
+                                                             PersistentStateType type, td::uint32 priority,
                                                              td::Promise<td::BufferSlice> promise) {
-  callback_->download_persistent_state(id, masterchain_block_id, priority, td::Timestamp::in(3600 * 3),
+  callback_->download_persistent_state(id, masterchain_block_id, type, priority, td::Timestamp::in(3600 * 3),
                                        std::move(promise));
 }
 
@@ -1919,6 +1928,7 @@ void ValidatorManagerImpl::start_up() {
   actor_stats_ = td::actor::create_actor<td::actor::ActorStats>("actor_stats");
   lite_server_cache_ = create_liteserver_cache_actor(actor_id(this), db_root_);
   token_manager_ = td::actor::create_actor<TokenManager>("tokenmanager");
+  storage_stat_cache_ = td::actor::create_actor<StorageStatCache>("storagestatcache");
   td::mkdir(db_root_ + "/tmp/").ensure();
   td::mkdir(db_root_ + "/catchains/").ensure();
 
@@ -1982,7 +1992,6 @@ void ValidatorManagerImpl::start_up() {
   }
 
   validator_manager_init(opts_, actor_id(this), db_.get(), std::move(P));
-  init_session_stats();
 
   check_waiters_at_ = td::Timestamp::in(1.0);
   alarm_timestamp().relax(check_waiters_at_);
@@ -3475,7 +3484,6 @@ void ValidatorManagerImpl::update_options(td::Ref<ValidatorManagerOptions> opts)
     td::actor::send_closure(shard_block_verifier_, &ShardBlockVerifier::update_options, opts);
   }
   opts_ = std::move(opts);
-  init_session_stats();
 }
 
 void ValidatorManagerImpl::add_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) {
@@ -3587,7 +3595,7 @@ void ValidatorManagerImpl::add_persistent_state_description(td::Ref<PersistentSt
   while (it != persistent_state_descriptions_.end()) {
     const auto &prev_desc = it->second;
     if (prev_desc->end_time <= now) {
-      for (const BlockIdExt &block_id : prev_desc->shard_blocks) {
+      for (auto const &[block_id, _] : prev_desc->shard_blocks) {
         persistent_state_blocks_.erase(block_id);
       }
       it = persistent_state_descriptions_.erase(it);
@@ -3604,7 +3612,7 @@ void ValidatorManagerImpl::add_persistent_state_description_impl(td::Ref<Persist
   }
   LOG(DEBUG) << "Add persistent state description for mc block " << desc->masterchain_id.to_str()
              << " start_time=" << desc->start_time << " end_time=" << desc->end_time;
-  for (const BlockIdExt &block_id : desc->shard_blocks) {
+  for (auto const &[block_id, _] : desc->shard_blocks) {
     persistent_state_blocks_[block_id] = desc;
     LOG(DEBUG) << "Persistent state description: shard block " << block_id.to_str();
   }
@@ -3729,51 +3737,19 @@ void ValidatorManagerImpl::init_validator_telemetry() {
   }
 }
 
-void ValidatorManagerImpl::init_session_stats() {
-  if (opts_->get_session_logs_file() == session_stats_filename_) {
-    return;
-  }
-  session_stats_filename_ = opts_->get_session_logs_file();
-  if (session_stats_filename_.empty()) {
-    session_stats_enabled_ = false;
-    session_stats_fd_.close();
-    return;
-  }
-  auto r_fd = td::FileFd::open(session_stats_filename_,
-                               td::FileFd::Flags::Write | td::FileFd::Flags::Append | td::FileFd::Create);
-  if (r_fd.is_error()) {
-    LOG(ERROR) << "Failed to open session stats file for writing: " << r_fd.move_as_error();
-    session_stats_filename_.clear();
-    session_stats_enabled_ = false;
-    return;
-  }
-  session_stats_fd_ = r_fd.move_as_ok();
-  session_stats_enabled_ = true;
-}
-
 template <typename T>
 void ValidatorManagerImpl::write_session_stats(const T &obj) {
-  if (!session_stats_enabled_) {
+  std::string fname = opts_->get_session_logs_file();
+  if (fname.empty()) {
     return;
   }
   auto s = td::json_encode<std::string>(td::ToJson(*obj.tl()), false);
   s.erase(std::remove_if(s.begin(), s.end(), [](char c) { return c == '\n' || c == '\r'; }), s.end());
-  s += '\n';
-  td::Slice slice{s};
-  while (!slice.empty()) {
-    auto R = session_stats_fd_.write(slice);
-    if (R.is_error()) {
-      LOG(WARNING) << "Failed to write to session stats: " << R.move_as_error();
-    }
-    if (R.ok() == 0) {
-      LOG(WARNING) << "Failed to write to session stats";
-    }
-    slice.remove_prefix(R.ok());
-  }
-  auto S = session_stats_fd_.sync();
-  if (S.is_error()) {
-    LOG(WARNING) << "Failed to write to session stats: " << S;
-  }
+
+  std::ofstream file;
+  file.open(fname, std::ios_base::app);
+  file << s << "\n";
+  file.close();
 }
 
 void ValidatorManagerImpl::init_shard_block_verifier(adnl::AdnlNodeIdShort local_id) {

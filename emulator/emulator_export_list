@@ -27,4 +27,7 @@ _tvm_emulator_send_external_message
 _tvm_emulator_send_internal_message
 _tvm_emulator_destroy
 _tvm_emulator_emulate_run_method
+_tvm_emulator_emulate_run_method_detailed
+_run_method_detailed_result_destroy
+_string_destroy
 _emulator_version

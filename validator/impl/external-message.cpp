@@ -112,6 +112,7 @@ void ExtMessageQ::run_message(td::Ref<ExtMessage> message, td::actor::ActorId<to
           if (!acc.unpack(shard_acc, utime, special)) {
             promise.set_error(td::Status::Error(PSLICE() << "Failed to unpack account state"));
           } else {
+            acc.block_lt = lt;
             auto status = run_message_on_account(wc, &acc, utime, lt + 1, msg_root, std::move(config));
             if (status.is_ok()) {
               promise.set_value(std::move(message));

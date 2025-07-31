@@ -32,6 +32,8 @@
 #include "vm/cells/MerkleUpdate.h"
 #include "common/errorlog.h"
 #include "fabric.h"
+#include "storage-stat-cache.hpp"
+
 #include <ctime>
 
 namespace ton {
@@ -394,6 +396,15 @@ void ValidateQuery::start_up() {
       return;
     }
   }
+  // 5. get storage stat cache
+  ++pending;
+  LOG(DEBUG) << "sending get_storage_stat_cache() query to Manager";
+  td::actor::send_closure_later(
+      manager, &ValidatorManager::get_storage_stat_cache,
+      [self = get_self()](td::Result<std::function<td::Ref<vm::Cell>(const td::Bits256&)>> res) {
+        LOG(DEBUG) << "got answer to get_storage_stat_cache() query";
+        td::actor::send_closure_later(std::move(self), &ValidateQuery::after_get_storage_stat_cache, std::move(res));
+      });
   // ...
   CHECK(pending);
 }
@@ -648,6 +659,7 @@ bool ValidateQuery::extract_collated_data_from(Ref<vm::Cell> croot, int idx) {
     if (!virt_account_storage_dicts_.emplace(virt_root->get_hash().bits(), virt_root).second) {
       return reject_query("duplicate AccountStorageDictProof");
     }
+    full_collated_data_ = true;
     return true;
   }
   LOG(WARNING) << "collated datum # " << idx << " has unknown type (magic " << cs.prefetch_ulong(32) << "), ignoring";
@@ -781,6 +793,26 @@ void ValidateQuery::got_mc_handle(td::Result<BlockHandle> res) {
         }
         td::actor::send_closure_later(std::move(self), &ValidateQuery::after_get_mc_state, std::move(res));
       });
+}
+
+/**
+ * Callback function called after retrieving storage stat cache.
+ *
+ * @param res The retrieved storage stat cache.
+ */
+void ValidateQuery::after_get_storage_stat_cache(td::Result<std::function<td::Ref<vm::Cell>(const td::Bits256&)>> res) {
+  --pending;
+  if (res.is_error()) {
+    LOG(INFO) << "after_get_storage_stat_cache : " << res.error();
+  } else {
+    LOG(DEBUG) << "after_get_storage_stat_cache : OK";
+    storage_stat_cache_ = res.move_as_ok();
+  }
+  if (!pending) {
+    if (!try_validate()) {
+      fatal_error("cannot validate new block");
+    }
+  }
 }
 
 /**
@@ -5313,14 +5345,38 @@ std::unique_ptr<block::Account> ValidateQuery::unpack_account(td::ConstBitPtr ad
     return {};
   }
   if (new_acc->storage_dict_hash) {
-    auto it = virt_account_storage_dicts_.find(new_acc->storage_dict_hash.value());
-    if (it != virt_account_storage_dicts_.end()) {
-      LOG(DEBUG) << "Using account storage dict proof for account " << addr.to_hex(256)
-                 << ", hash=" << it->second->get_hash().to_hex();
-      auto S = new_acc->init_account_storage_stat(it->second);
-      if (S.is_error()) {
-        reject_query(PSTRING() << "Failed to init account storage stat for account " << addr.to_hex(256), std::move(S));
-        return {};
+    if (full_collated_data_ && !is_masterchain()) {
+      auto it = virt_account_storage_dicts_.find(new_acc->storage_dict_hash.value());
+      if (it != virt_account_storage_dicts_.end()) {
+        LOG(DEBUG) << "Using account storage dict proof for account " << addr.to_hex(256)
+                   << ", hash=" << it->second->get_hash().to_hex();
+        auto S = new_acc->init_account_storage_stat(it->second);
+        if (S.is_error()) {
+          reject_query(PSTRING() << "Failed to init account storage stat for account " << addr.to_hex(256),
+                       std::move(S));
+          return {};
+        }
+      }
+    } else if (storage_stat_cache_ && new_acc->storage_dict_hash) {
+      auto dict_root = storage_stat_cache_(new_acc->storage_dict_hash.value());
+      if (dict_root.not_null()) {
+        auto S = new_acc->init_account_storage_stat(dict_root);
+        if (S.is_error()) {
+          fatal_error(S.move_as_error_prefix(PSTRING() << "failed to init storage stat from cache for account "
+                                                       << addr.to_hex(256) << ": "));
+          return {};
+        }
+        LOG(DEBUG) << "Inited storage stat from cache for account " << addr.to_hex(256) << " ("
+                   << new_acc->storage_used.cells << " cells)";
+        storage_stat_cache_update_.emplace_back(dict_root, new_acc->storage_used.cells);
+        stats_.storage_stat_cache.hit_cnt++;
+        stats_.storage_stat_cache.hit_cells += new_acc->storage_used.cells;
+      } else if (new_acc->storage_used.cells >= StorageStatCache::MIN_ACCOUNT_CELLS) {
+        stats_.storage_stat_cache.miss_cnt++;
+        stats_.storage_stat_cache.miss_cells += new_acc->storage_used.cells;
+      } else {
+        stats_.storage_stat_cache.small_cnt++;
+        stats_.storage_stat_cache.small_cells += new_acc->storage_used.cells;
       }
     }
   }
@@ -5732,6 +5788,12 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
   // ....
   std::unique_ptr<block::transaction::Transaction> trs =
       std::make_unique<block::transaction::Transaction>(account, trans_type, lt, now_, in_msg_root);
+  td::RealCpuTimer timer;
+  SCOPE_EXIT {
+    stats_.work_time.trx_tvm += trs->time_tvm;
+    stats_.work_time.trx_storage_stat += trs->time_storage_stat;
+    stats_.work_time.trx_other += timer.elapsed_both() - trs->time_tvm - trs->time_storage_stat;
+  };
   if (in_msg_root.not_null()) {
     if (!trs->unpack_input_msg(ihr_delivered, &action_phase_cfg_)) {
       // inbound external message was not accepted
@@ -5911,6 +5973,12 @@ bool ValidateQuery::check_account_transactions(const StdSmcAddress& acc_addr, Re
         return check_one_transaction(account, lt, value->prefetch_ref(), lt == min_trans_lt, lt == max_trans_lt);
       })) {
     return reject_query("at least one Transaction of account "s + acc_addr.to_hex() + " is invalid");
+  }
+  if ((!full_collated_data_ || is_masterchain()) && account.storage_dict_hash && account.account_storage_stat &&
+      account.account_storage_stat.value().is_dict_ready() &&
+      account.storage_used.cells >= StorageStatCache::MIN_ACCOUNT_CELLS) {
+    storage_stat_cache_update_.emplace_back(account.account_storage_stat.value().get_dict_root().move_as_ok(),
+                                            account.storage_used.cells);
   }
   if (is_masterchain() && account.libraries_changed()) {
     return scan_account_libraries(account.orig_library, account.library, acc_addr);
@@ -6975,10 +7043,8 @@ bool ValidateQuery::try_validate() {
     return true;
   }
   work_timer_.resume();
-  cpu_work_timer_.resume();
   SCOPE_EXIT {
     work_timer_.pause();
-    cpu_work_timer_.pause();
   };
   try {
     if (!stage_) {
@@ -7108,6 +7174,10 @@ bool ValidateQuery::save_candidate() {
 
   td::actor::send_closure(manager, &ValidatorManager::set_block_candidate, id_, block_candidate.clone(),
                           validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash(), std::move(P));
+  if (!storage_stat_cache_update_.empty()) {
+    td::actor::send_closure(manager, &ValidatorManager::update_storage_stat_cache,
+                            std::move(storage_stat_cache_update_));
+  }
   return true;
 }
 
@@ -7123,25 +7193,24 @@ void ValidateQuery::written_candidate() {
  * Sends validation work time to manager.
  */
 void ValidateQuery::record_stats(bool valid, std::string error_message) {
-  ValidationStats stats;
-  stats.block_id = id_;
-  stats.collated_data_hash = block_candidate.collated_file_hash;
-  stats.validated_at = td::Clocks::system();
-  stats.self = local_validator_id_;
-  stats.valid = valid;
+  stats_.block_id = id_;
+  stats_.collated_data_hash = block_candidate.collated_file_hash;
+  stats_.validated_at = td::Clocks::system();
+  stats_.self = local_validator_id_;
+  stats_.valid = valid;
   if (valid) {
-    stats.comment = (PSTRING() << "OK ts=" << now_);
+    stats_.comment = (PSTRING() << "OK ts=" << now_);
   } else {
-    stats.comment = std::move(error_message);
+    stats_.comment = std::move(error_message);
   }
-  stats.actual_bytes = block_candidate.data.size();
-  stats.actual_collated_data_bytes = block_candidate.collated_data.size();
-  stats.total_time = perf_timer_.elapsed();
-  stats.work_time = work_timer_.elapsed();
-  stats.cpu_work_time = cpu_work_timer_.elapsed();
+  stats_.actual_bytes = block_candidate.data.size();
+  stats_.actual_collated_data_bytes = block_candidate.collated_data.size();
+  stats_.total_time = perf_timer_.elapsed();
+  stats_.work_time.total = work_timer_.elapsed_both();
   LOG(WARNING) << "validation took " << perf_timer_.elapsed() << "s";
-  LOG(WARNING) << "Validate query work time = " << stats.work_time << "s, cpu time = " << stats.cpu_work_time << "s";
-  td::actor::send_closure(manager, &ValidatorManager::log_validate_query_stats, std::move(stats));
+  LOG(WARNING) << "Validate query work time = " << stats_.work_time.total.real
+               << "s, cpu time = " << stats_.work_time.total.cpu << "s";
+  td::actor::send_closure(manager, &ValidatorManager::log_validate_query_stats, std::move(stats_));
 }
 
 }  // namespace validator

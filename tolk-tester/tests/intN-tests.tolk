@@ -246,7 +246,7 @@ fun main() {
 @testcase | 110 |      | 50000000 50000100 1234000000 51000000
 @testcase | 111 |      | [ 1000000000 1000000000 1000000000 -321123456789 321123456789 1100000000 ]
 @testcase | 114 | 5    | (null) (null) 0
-@testcase | 114 | 15   | 15 2 130
+@testcase | 114 | 15   | 15 2 typeid-2
 
 @fif_codegen DECLPROC assign0<int8>
 @fif_codegen DECLPROC assign0<uint16>

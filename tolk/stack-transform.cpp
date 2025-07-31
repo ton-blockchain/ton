@@ -254,7 +254,7 @@ bool StackTransform::compose(const StackTransform &a, const StackTransform &b, S
         x1 = a.try_load(i);
       }
       int y = b.A[j - 1].second;
-      if (!c.try_store(x2, a(y))) {
+      if (!c.try_store(x2, a.get(y))) {
         return false;
       }
       x2 = b.try_load(j, a.d);
@@ -357,18 +357,6 @@ bool StackTransform::equal(const StackTransform &other, bool relaxed) const {
 StackTransform StackTransform::Xchg(int i, int j, bool relaxed) {
   StackTransform t;
   t.apply_xchg(i, j, relaxed);
-  return t;
-}
-
-StackTransform StackTransform::Push(int i) {
-  StackTransform t;
-  t.apply_push(i);
-  return t;
-}
-
-StackTransform StackTransform::Pop(int i) {
-  StackTransform t;
-  t.apply_pop(i);
   return t;
 }
 

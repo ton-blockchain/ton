@@ -232,7 +232,7 @@ overlay.node.toSignEx id:adnl.id.short overlay:int256 flags:int version:int = ov
 overlay.node id:PublicKey overlay:int256 version:int signature:bytes = overlay.Node;
 overlay.nodeV2 id:PublicKey overlay:int256 flags:int version:int signature:bytes certificate:overlay.MemberCertificate = overlay.NodeV2;
 overlay.nodes nodes:(vector overlay.node) = overlay.Nodes;
-overlay.nodesV2 nodes:(vector overlay.NodeV2) = overlay.NodesV2;
+overlay.nodesV2 nodes:(vector overlay.nodeV2) = overlay.NodesV2;
 
 overlay.pong = overlay.Pong;
 
@@ -271,7 +271,7 @@ overlay.broadcastNotFound = overlay.Broadcast;
 ---functions---
 
 overlay.getRandomPeers peers:overlay.nodes = overlay.Nodes;
-overlay.getRandomPeersV2 peers:overlay.NodesV2 = overlay.NodesV2;
+overlay.getRandomPeersV2 peers:overlay.nodesV2 = overlay.NodesV2;
 overlay.ping = overlay.Pong;
 
 overlay.query overlay:int256 = True;
@@ -410,7 +410,9 @@ tonNode.preparedProof = tonNode.PreparedProof;
 tonNode.preparedProofLink = tonNode.PreparedProof;
 tonNode.preparedState = tonNode.PreparedState;
 tonNode.notFoundState = tonNode.PreparedState;
+tonNode.persistentStateIdV2 block:tonNode.blockIdExt masterchain_block:tonNode.blockIdExt effective_shard:long = tonNode.PersistentStateIdV2;
 tonNode.persistentStateSize size:long = tonNode.PersistentStateSize;
+tonNode.persistentStateSizeNotFound = tonNode.PersistentStateSize;
 tonNode.prepared = tonNode.Prepared;
 tonNode.notFound = tonNode.Prepared;
 tonNode.data data:bytes = tonNode.Data;
@@ -488,15 +490,11 @@ tonNode.prepareBlockProofs blocks:(vector tonNode.blockIdExt) allow_partial:Bool
 tonNode.prepareKeyBlockProofs blocks:(vector tonNode.blockIdExt) allow_partial:Bool = tonNode.PreparedProof;
 tonNode.prepareBlock block:tonNode.blockIdExt = tonNode.Prepared;
 tonNode.prepareBlocks blocks:(vector tonNode.blockIdExt) = tonNode.Prepared;
-tonNode.preparePersistentState block:tonNode.blockIdExt masterchain_block:tonNode.blockIdExt = tonNode.PreparedState;
-tonNode.getPersistentStateSize block:tonNode.blockIdExt masterchain_block:tonNode.blockIdExt = tonNode.PersistentStateSize;
 tonNode.prepareZeroState block:tonNode.blockIdExt = tonNode.PreparedState;
 tonNode.getNextKeyBlockIds block:tonNode.blockIdExt max_size:int = tonNode.KeyBlocks;
 tonNode.downloadNextBlockFull prev_block:tonNode.blockIdExt = tonNode.DataFull;
 tonNode.downloadBlockFull block:tonNode.blockIdExt = tonNode.DataFull;
 tonNode.downloadBlock block:tonNode.blockIdExt = tonNode.Data;
-tonNode.downloadPersistentState block:tonNode.blockIdExt masterchain_block:tonNode.blockIdExt = tonNode.Data;
-tonNode.downloadPersistentStateSlice block:tonNode.blockIdExt masterchain_block:tonNode.blockIdExt offset:long max_size:long = tonNode.Data;
 tonNode.downloadZeroState block:tonNode.blockIdExt = tonNode.Data;
 tonNode.downloadBlockProof block:tonNode.blockIdExt = tonNode.Data;
 tonNode.downloadKeyBlockProof block:tonNode.blockIdExt = tonNode.Data;
@@ -507,6 +505,14 @@ tonNode.getShardArchiveInfo masterchain_seqno:int shard_prefix:tonNode.shardId =
 tonNode.getArchiveSlice archive_id:long offset:long max_size:int = tonNode.Data;
 tonNode.getOutMsgQueueProof dst_shard:tonNode.shardId blocks:(vector tonNode.blockIdExt)
     limits:tonNode.importedMsgQueueLimits = tonNode.OutMsgQueueProof;
+
+tonNode.downloadPersistentState block:tonNode.blockIdExt masterchain_block:tonNode.blockIdExt = tonNode.Data;
+tonNode.downloadPersistentStateSlice block:tonNode.blockIdExt masterchain_block:tonNode.blockIdExt offset:long max_size:long = tonNode.Data;
+tonNode.getPersistentStateSize block:tonNode.blockIdExt masterchain_block:tonNode.blockIdExt = tonNode.PersistentStateSize;
+tonNode.preparePersistentState block:tonNode.blockIdExt masterchain_block:tonNode.blockIdExt = tonNode.PreparedState;
+
+tonNode.downloadPersistentStateSliceV2 state:tonNode.persistentStateIdV2 offset:long max_size:long = tonNode.Data;
+tonNode.getPersistentStateSizeV2 state:tonNode.persistentStateIdV2 = tonNode.PersistentStateSize;
 
 tonNode.getCapabilities = tonNode.Capabilities;
 
@@ -557,7 +563,9 @@ db.candidate.id source:PublicKey id:tonNode.blockIdExt collated_data_file_hash:i
 db.filedb.key.empty = db.filedb.Key;
 db.filedb.key.blockFile block_id:tonNode.blockIdExt = db.filedb.Key; 
 db.filedb.key.zeroStateFile block_id:tonNode.blockIdExt = db.filedb.Key; 
-db.filedb.key.persistentStateFile block_id:tonNode.blockIdExt masterchain_block_id:tonNode.blockIdExt = db.filedb.Key; 
+db.filedb.key.persistentStateFile block_id:tonNode.blockIdExt masterchain_block_id:tonNode.blockIdExt = db.filedb.Key;
+db.filedb.key.splitAccountStateFile block_id:tonNode.blockIdExt masterchain_block_id:tonNode.blockIdExt effective_shard:long = db.filedb.Key;
+db.filedb.key.splitPersistentStateFile block_id:tonNode.blockIdExt masterchain_block_id:tonNode.blockIdExt = db.filedb.Key;
 db.filedb.key.proof block_id:tonNode.blockIdExt = db.filedb.Key;
 db.filedb.key.proofLink block_id:tonNode.blockIdExt = db.filedb.Key;
 db.filedb.key.signatures block_id:tonNode.blockIdExt = db.filedb.Key;
@@ -575,6 +583,8 @@ db.state.asyncSerializer block:tonNode.blockIdExt last:tonNode.blockIdExt last_t
 db.state.hardforks blocks:(vector tonNode.blockIdExt) = db.state.Hardforks;
 db.state.dbVersion version:int = db.state.DbVersion;
 db.state.persistentStateDescriptionShards shard_blocks:(vector tonNode.blockIdExt) = db.state.PersistentStateDescriptionShards;
+db.state.persistentStateDescriptionShard block:tonNode.blockIdExt split_depth:int = db.state.PersistentStateDescriptionShard;
+db.state.persistentStateDescriptionShardsV2 shard_blocks:(vector db.state.PersistentStateDescriptionShard) = db.state.PersistentStateDescriptionShards;
 db.state.persistentStateDescriptionHeader masterchain_id:tonNode.blockIdExt start_time:int end_time:int = db.state.PersistentStateDescriptionHeader;
 db.state.persistentStateDescriptionsList list:(vector db.state.persistentStateDescriptionHeader) = db.state.PersistentStateDescriptionsList;
 
@@ -687,7 +697,7 @@ engine.validator.config out_port:int addrs:(vector engine.Addr) adnl:(vector eng
 
 engine.validator.customOverlayNode adnl_id:int256 msg_sender:Bool msg_sender_priority:int block_sender:Bool = engine.validator.CustomOverlayNode;
 engine.validator.customOverlay name:string nodes:(vector engine.validator.customOverlayNode) sender_shards:(vector tonNode.shardId)
-    = engine.validator.CustomOverlay;
+    skip_public_msg_send:Bool = engine.validator.CustomOverlay;
 engine.validator.customOverlaysConfig overlays:(vector engine.validator.customOverlay) = engine.validator.CustomOverlaysConfig;
 
 engine.validator.collatorOptions
@@ -764,7 +774,7 @@ engine.validator.shardOverlayStats.neighbour id:string verison_major:int version
 engine.validator.shardOverlayStats shard:string active:Bool
     neighbours:(vector engine.validator.shardOverlayStats.neighbour) = engine.validator.ShardOverlayStats;
 engine.validator.fastSyncOverlayStats shard:string validators_adnl:(vector int256) root_public_keys:(vector int256)
-    member_certificate:overlay.MemberCertificate = engine.validator.FastSyncOverlayStats;
+    member_certificate:overlay.MemberCertificate receive_broadcasts:Bool = engine.validator.FastSyncOverlayStats;
 
 engine.validator.onePerfTimerStat time:int min:double avg:double max:double = engine.validator.OnePerfTimerStat;
 engine.validator.perfTimerStatsByName name:string stats:(vector engine.validator.OnePerfTimerStat) = engine.validator.PerfTimerStatsByName;
@@ -951,21 +961,35 @@ validatorStats.blockStats
     ext_msgs:validatorStats.blockStats.extMsgsStats transactions:int shard_configuration:(vector tonNode.blockIdExt)
     old_out_msg_queue_size:long new_out_msg_queue_size:long msg_queue_cleaned:int
     neighbors:(vector validatorStats.blockStats.neighborStats) = validatorStats.BlockStats;
+validatorStats.collateWorkTimeStats
+    total:double queue_cleanup:double prelim_storage_stat:double trx_tvm:double trx_storage_stat:double
+    trx_other:double final_storage_stat:double create_block:double create_collated_data:double create_block_candidate:double
+    = validatorStats.CollateWorkTimeStats;
+validatorStats.storageStatCacheStats
+    small_cnt:long small_cells:long hit_cnt:long hit_cells:long miss_cnt:long miss_cells:long = validatorStats.StorageStatCacheStats;
 
 validatorStats.collatedBlock
     block_id:tonNode.blockIdExt collated_data_hash:int256 cc_seqno:int collated_at:double
     bytes:int collated_data_bytes:int attempt:int
     self:int256 is_validator:Bool
     total_time:double work_time:double cpu_work_time:double time_stats:string
+    work_time_real_stats:validatorStats.collateWorkTimeStats
+    work_time_cpu_stats:validatorStats.collateWorkTimeStats
     block_limits:validatorStats.blockLimitsStatus
-    block_stats:validatorStats.blockStats = validatorSession.stats.CollatedBlock;
+    block_stats:validatorStats.blockStats
+    storage_stat_cache:validatorStats.storageStatCacheStats = validatorSession.stats.CollatedBlock;
 
+validatorStats.validateWorkTimeStats
+    total:double trx_tvm:double trx_storage_stat:double trx_other:double = validatorStats.ValidateWorkTimeStats;
 validatorStats.validatedBlock
     block_id:tonNode.blockIdExt collated_data_hash:int256 validated_at:double
     self:int256
     valid:Bool comment:string
     bytes:int collated_data_bytes:int
-    total_time:double work_time:double cpu_work_time:double = validatorStats.ValidatedBlock;
+    total_time:double work_time:double cpu_work_time:double
+    work_time_real_stats:validatorStats.validateWorkTimeStats
+    work_time_cpu_stats:validatorStats.validateWorkTimeStats
+    storage_stat_cache:validatorStats.storageStatCacheStats = validatorStats.ValidatedBlock;
 
 validatorStats.newValidatorGroup.node id:int256 pubkey:PublicKey adnl_id:int256 weight:long = validatorStats.newValidatorGroup.Node;
 validatorStats.newValidatorGroup session_id:int256 shard:tonNode.shardId cc_seqno:int
