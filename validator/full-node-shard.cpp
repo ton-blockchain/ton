@@ -804,6 +804,11 @@ void FullNodeShardImpl::process_broadcast(PublicKeyHash src,
   process_block_candidate_broadcast(src, query);
 }
 
+void FullNodeShardImpl::process_broadcast(PublicKeyHash src,
+                                          ton_api::tonNode_newBlockCandidateBroadcastCompressedV2 &query) {
+  process_block_candidate_broadcast(src, query);
+}
+
 void FullNodeShardImpl::process_block_candidate_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query) {
   BlockIdExt block_id;
   CatchainSeqno cc_seqno;
@@ -829,6 +834,10 @@ void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_bl
 }
 
 void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressed &query) {
+  process_block_broadcast(src, query);
+}
+
+void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 &query) {
   process_block_broadcast(src, query);
 }
 
