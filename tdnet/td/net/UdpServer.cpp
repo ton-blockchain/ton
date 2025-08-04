@@ -35,9 +35,9 @@ int VERBOSITY_NAME(udp_server) = VERBOSITY_NAME(DEBUG) + 10;
 }
 namespace detail {
 
-#define TUNNEL_BUFFER_SZ_PACKETS 100
-#define TUNNEL_MAX_PACKET_MTU 1500
-#define TUNNEL_ALARM_EVERY 0.01
+constexpr int TUNNEL_BUFFER_SZ_PACKETS = 100;
+constexpr int TUNNEL_MAX_PACKET_MTU = 1500;
+constexpr double TUNNEL_ALARM_EVERY = 0.01;
 
 class UdpServerTunnelImpl : public UdpServer {
  public:

@@ -76,7 +76,7 @@ size_t AdnlNetworkManagerImpl::add_listening_udp_port(td::uint16 port) {
   return idx;
 }
 
-#define TUNNEL_FAKE_PORT 1
+constexpr int TUNNEL_FAKE_PORT = 0;
 
 size_t AdnlNetworkManagerImpl::add_tunnel_udp_port(std::string global_config, std::string tunnel_config, td::Promise<td::IPAddress> on_ready,
                                                    td::actor::Scheduler *scheduler) {

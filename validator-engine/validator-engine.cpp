@@ -2094,31 +2094,24 @@ void ValidatorEngine::start_adnl() {
 
     class Handler : public ton::adnl::AdnlNetworkManager::TunnelEventsHandler {
     public:
-      Handler(ValidatorEngine *scheduler)
-          : validator_engine_(scheduler) {
+      Handler(ValidatorEngine *scheduler, const td::actor::ActorId<ValidatorEngine> &actor)
+          : validator_engine_(scheduler), validator_engine_actor_(actor) {
       }
 
     private:
       ValidatorEngine *validator_engine_;
+      td::actor::ActorId<ValidatorEngine> validator_engine_actor_;
+
       void on_in_addr_update(td::IPAddress ip) override {
+        LOG(INFO) << "[EVENT] Tunnel reinitialized, addr: " << ip;
+
         validator_engine_->scheduler_->run_in_context_external([&] {
-          LOG(INFO) << "[EVENT] Tunnel reinitialized, addr: " << ip;
-
-          validator_engine_->addr_lists_.clear();
-          validator_engine_->add_addr(Config::Addr{}, Config::AddrCats{
-            .in_addr = ip,
-            .is_tunnel = true,
-            .cats = {0, 1, 2, 3},
-          });
-
-          for (auto &adnl : validator_engine_->config_.adnl_ids) {
-            validator_engine_->add_adnl(adnl.first, adnl.second);
-          }
+          td::actor::send_closure(validator_engine_actor_, &ValidatorEngine::reinit_tunnel, ip);
         });
       }
     };
 
-    td::actor::send_closure(adnl_network_manager_, &ton::adnl::AdnlNetworkManager::install_tunnel_events_handler, std::make_unique<Handler>(this));
+    td::actor::send_closure(adnl_network_manager_, &ton::adnl::AdnlNetworkManager::install_tunnel_events_handler, std::make_unique<Handler>(this, actor_id(this)));
 
     ton::adnl::AdnlCategoryMask cat_mask;
     for (int i = 0; i <= 3; i++) {
@@ -2140,6 +2133,19 @@ void ValidatorEngine::start_adnl() {
 
   td::actor::send_closure(adnl_, &ton::adnl::Adnl::add_static_nodes_from_config, std::move(adnl_static_nodes_));
   started_adnl();
+}
+
+void ValidatorEngine::reinit_tunnel(td::IPAddress ip) {
+  this->addr_lists_.clear();
+  this->add_addr(Config::Addr{}, Config::AddrCats{
+    .in_addr = ip,
+    .is_tunnel = true,
+    .cats = {0, 1, 2, 3},
+  });
+
+  for (auto &adnl : this->config_.adnl_ids) {
+    this->add_adnl(adnl.first, adnl.second);
+  }
 }
 
 void ValidatorEngine::add_addr(const Config::Addr &addr, const Config::AddrCats &cats) {
