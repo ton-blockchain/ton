@@ -299,7 +299,7 @@ void Collator::load_prev_states_blocks() {
     ++pending;
     auto token = perf_log_.start_action(PSTRING() << "wait_block_state #" << i);
     td::actor::send_closure_later(
-        manager, &ValidatorManager::wait_block_state_short, prev_blocks[i], priority(), timeout,
+        manager, &ValidatorManager::wait_block_state_short, prev_blocks[i], priority(), timeout, false,
         [self = get_self(), i, token = std::move(token)](td::Result<Ref<ShardState>> res) mutable {
           LOG(DEBUG) << "got answer to wait_block_state query #" << i;
           td::actor::send_closure_later(std::move(self), &Collator::after_get_shard_state, i, std::move(res),
@@ -340,7 +340,7 @@ void Collator::process_optimistic_prev_block() {
     ++pending;
     auto token = perf_log_.start_action("opt wait_block_state");
     td::actor::send_closure_later(
-        manager, &ValidatorManager::wait_block_state_short, prev_prev[0], priority(), timeout,
+        manager, &ValidatorManager::wait_block_state_short, prev_prev[0], priority(), timeout, false,
         [self = get_self(), token = std::move(token)](td::Result<Ref<ShardState>> res) mutable {
           LOG(DEBUG) << "got answer to wait_block_state query (opt)";
           td::actor::send_closure_later(std::move(self), &Collator::after_get_shard_state_optimistic, std::move(res),
@@ -574,7 +574,7 @@ bool Collator::request_aux_mc_state(BlockSeqno seqno, Ref<MasterchainStateQ>& st
   ++pending;
   auto token = perf_log_.start_action(PSTRING() << "auxiliary wait_block_state " << blkid.to_str());
   td::actor::send_closure_later(
-      manager, &ValidatorManager::wait_block_state_short, blkid, priority(), timeout,
+      manager, &ValidatorManager::wait_block_state_short, blkid, priority(), timeout, false,
       [self = get_self(), blkid, token = std::move(token)](td::Result<Ref<ShardState>> res) mutable {
         LOG(DEBUG) << "got answer to wait_block_state query for " << blkid.to_str();
         td::actor::send_closure_later(std::move(self), &Collator::after_get_aux_shard_state, blkid, std::move(res),
