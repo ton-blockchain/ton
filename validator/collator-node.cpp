@@ -539,18 +539,21 @@ void CollatorNode::generate_block(ShardIdFull shard, CatchainSeqno cc_seqno, std
   };
   cache_entry->started = true;
   cache_entry->block_seqno = block_seqno;
-  run_collate_query(
-      shard, last_masterchain_state_->get_block_id(), std::move(prev_blocks), Ed25519_PublicKey{td::Bits256::zero()},
-      last_masterchain_state_->get_validator_set(shard), opts_->get_collator_options(), manager_, timeout,
-      [=, SelfId = actor_id(this), timer = td::Timer{}](td::Result<BlockCandidate> R) {
-        FLOG(INFO) {
-          prefix_inner(sb, shard, cc_seqno, block_seqno, o_priority);
-          sb << timer.elapsed() << ": " << (R.is_ok() ? "OK" : R.error().to_string());
-        };
-        td::actor::send_closure(SelfId, &CollatorNode::process_result, cache_entry, std::move(R));
-      },
-      local_id_, cache_entry->cancellation_token_source.get_cancellation_token(),
-      CollateMode::skip_store_candidate | CollateMode::from_collator_node);
+  run_collate_query(CollateParams{.shard = shard,
+                                  .min_masterchain_block_id = last_masterchain_state_->get_block_id(),
+                                  .prev = std::move(prev_blocks),
+                                  .validator_set = last_masterchain_state_->get_validator_set(shard),
+                                  .collator_opts = opts_->get_collator_options(),
+                                  .collator_node_id = local_id_,
+                                  .skip_store_candidate = true},
+                    manager_, timeout, cache_entry->cancellation_token_source.get_cancellation_token(),
+                    [=, SelfId = actor_id(this), timer = td::Timer{}](td::Result<BlockCandidate> R) {
+                      FLOG(INFO) {
+                        prefix_inner(sb, shard, cc_seqno, block_seqno, o_priority);
+                        sb << timer.elapsed() << ": " << (R.is_ok() ? "OK" : R.error().to_string());
+                      };
+                      td::actor::send_closure(SelfId, &CollatorNode::process_result, cache_entry, std::move(R));
+                    });
 }
 
 void CollatorNode::process_result(std::shared_ptr<CacheEntry> cache_entry, td::Result<BlockCandidate> R) {

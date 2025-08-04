@@ -128,9 +128,12 @@ void ValidatorManagerImpl::sync_complete(td::Promise<td::Unit> promise) {
   }
   Ed25519_PublicKey created_by{td::Bits256::zero()};
   td::as<td::uint32>(created_by.as_bits256().data() + 32 - 4) = ((unsigned)std::time(nullptr) >> 8);
-  run_collate_query(shard_id, last_masterchain_block_id_, prev, created_by, val_set, td::Ref<CollatorOptions>{true},
-                    actor_id(this), td::Timestamp::in(10.0), std::move(P), adnl::AdnlNodeIdShort::zero(),
-                    td::CancellationToken{}, 0);
+  run_collate_query(CollateParams{.shard = shard_id,
+                                  .min_masterchain_block_id = last_masterchain_block_id_,
+                                  .prev = prev,
+                                  .creator = created_by,
+                                  .validator_set = val_set},
+                    actor_id(this), td::Timestamp::in(10.0), {}, std::move(P));
 }
 
 void ValidatorManagerImpl::validate_fake(BlockCandidate candidate, std::vector<BlockIdExt> prev, BlockIdExt last,

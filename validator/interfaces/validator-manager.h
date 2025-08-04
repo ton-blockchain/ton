@@ -117,6 +117,7 @@ struct CollationStats {
 
   struct WorkTimeStats {
     td::RealCpuTimer::Time total;
+    td::RealCpuTimer::Time optimistic_apply;
     td::RealCpuTimer::Time queue_cleanup;
     td::RealCpuTimer::Time prelim_storage_stat;
     td::RealCpuTimer::Time trx_tvm;
@@ -129,9 +130,9 @@ struct CollationStats {
 
     tl_object_ptr<ton_api::validatorStats_collateWorkTimeStats> tl(bool is_cpu) const {
       return create_tl_object<ton_api::validatorStats_collateWorkTimeStats>(
-          total.get(is_cpu), queue_cleanup.get(is_cpu), prelim_storage_stat.get(is_cpu), trx_tvm.get(is_cpu),
-          trx_storage_stat.get(is_cpu), trx_other.get(is_cpu), final_storage_stat.get(is_cpu), create_block.get(is_cpu),
-          create_collated_data.get(is_cpu), create_block_candidate.get(is_cpu));
+          total.get(is_cpu), optimistic_apply.get(is_cpu), queue_cleanup.get(is_cpu), prelim_storage_stat.get(is_cpu),
+          trx_tvm.get(is_cpu), trx_storage_stat.get(is_cpu), trx_other.get(is_cpu), final_storage_stat.get(is_cpu),
+          create_block.get(is_cpu), create_collated_data.get(is_cpu), create_block_candidate.get(is_cpu));
     }
   };
   WorkTimeStats work_time;
