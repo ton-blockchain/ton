@@ -2094,24 +2094,24 @@ void ValidatorEngine::start_adnl() {
 
     class Handler : public ton::adnl::AdnlNetworkManager::TunnelEventsHandler {
     public:
-      Handler(ValidatorEngine *scheduler, const td::actor::ActorId<ValidatorEngine> &actor)
-          : validator_engine_(scheduler), validator_engine_actor_(actor) {
+      Handler(td::actor::Scheduler *scheduler, const td::actor::ActorId<ValidatorEngine> &actor)
+          : scheduler_(scheduler), validator_engine_actor_(actor) {
       }
 
     private:
-      ValidatorEngine *validator_engine_;
+      td::actor::Scheduler* scheduler_;
       td::actor::ActorId<ValidatorEngine> validator_engine_actor_;
 
       void on_in_addr_update(td::IPAddress ip) override {
         LOG(INFO) << "[EVENT] Tunnel reinitialized, addr: " << ip;
 
-        validator_engine_->scheduler_->run_in_context_external([&] {
+        scheduler_->run_in_context_external([&] {
           td::actor::send_closure(validator_engine_actor_, &ValidatorEngine::reinit_tunnel, ip);
         });
       }
     };
 
-    td::actor::send_closure(adnl_network_manager_, &ton::adnl::AdnlNetworkManager::install_tunnel_events_handler, std::make_unique<Handler>(this, actor_id(this)));
+    td::actor::send_closure(adnl_network_manager_, &ton::adnl::AdnlNetworkManager::install_tunnel_events_handler, std::make_unique<Handler>(this->scheduler_, actor_id(this)));
 
     ton::adnl::AdnlCategoryMask cat_mask;
     for (int i = 0; i <= 3; i++) {
