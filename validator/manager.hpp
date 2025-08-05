@@ -38,7 +38,7 @@
 #include "storage-stat-cache.hpp"
 #include "validator-telemetry.hpp"
 #include "impl/candidates-buffer.hpp"
-#include "collator-node.hpp"
+#include "collator-node/collator-node.hpp"
 #include "shard-block-verifier.hpp"
 #include "shard-block-retainer.hpp"
 #include "td/utils/LRUCache.h"

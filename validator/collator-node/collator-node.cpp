@@ -75,6 +75,17 @@ void CollatorNode::add_shard(ShardIdFull shard) {
   }
   LOG(INFO) << "Collator node: local_id=" << local_id_ << " , shard=" << shard.to_str();
   collating_shards_.push_back(shard);
+  if (last_masterchain_state_.is_null()) {
+    return;
+  }
+  for (auto& [group_shard, validator_group] : validator_groups_) {
+    if (validator_group.actor.empty() && shard_intersects(shard, group_shard)) {
+      validator_group.actor = td::actor::create_actor<CollatorNodeSession>(
+          PSTRING() << "collatornode" << shard.to_str(), shard, validator_group.prev,
+          last_masterchain_state_->get_validator_set(group_shard), last_masterchain_state_->get_block_id(),
+          can_generate(), local_id_, opts_, manager_, adnl_, rldp_);
+    }
+  }
 }
 
 void CollatorNode::del_shard(ShardIdFull shard) {
@@ -82,6 +93,20 @@ void CollatorNode::del_shard(ShardIdFull shard) {
   if (it != collating_shards_.end()) {
     collating_shards_.erase(it);
   }
+  for (auto& [group_shard, validator_group] : validator_groups_) {
+    if (!validator_group.actor.empty() && shard_intersects(shard, group_shard) && !can_collate_shard(group_shard)) {
+      validator_group.actor = {};
+    }
+  }
+}
+
+void CollatorNode::update_options(td::Ref<ValidatorManagerOptions> opts) {
+  for (auto& [_, shard] : validator_groups_) {
+    if (!shard.actor.empty()) {
+      td::actor::send_closure(shard.actor, &CollatorNodeSession::update_options, opts);
+    }
+  }
+  opts_ = std::move(opts);
 }
 
 void CollatorNode::new_masterchain_block_notification(td::Ref<MasterchainState> state) {
@@ -91,7 +116,7 @@ void CollatorNode::new_masterchain_block_notification(td::Ref<MasterchainState> 
     last_key_block_seqno_ = state->last_key_block_id().seqno();
     mc_config_status_ = check_mc_config();
     if (mc_config_status_.is_error()) {
-      LOG(ERROR) << "Cannot validate masterchain config (possibly outdated software):" << mc_config_status_;
+      LOG(ERROR) << "Cannot validate masterchain config (possibly outdated software): " << mc_config_status_;
     }
   }
 
@@ -131,36 +156,42 @@ void CollatorNode::new_masterchain_block_notification(td::Ref<MasterchainState> 
       new_shards.emplace(shard, std::vector{v->top_block_id()});
     }
   }
-
-  for (auto& [shard, prev] : new_shards) {
-    CatchainSeqno cc_seqno = state->get_validator_set(shard)->get_catchain_seqno();
-    auto it = validator_groups_.emplace(shard, ValidatorGroupInfo{});
-    ValidatorGroupInfo& info = it.first->second;
-    if (it.second || info.cc_seqno != cc_seqno) {
-      info.cleanup();
-      info.cc_seqno = cc_seqno;
-    }
-  }
   for (auto it = validator_groups_.begin(); it != validator_groups_.end();) {
     if (new_shards.contains(it->first)) {
       ++it;
     } else {
-      it->second.cleanup();
       it = validator_groups_.erase(it);
     }
   }
   for (auto& [shard, prev] : new_shards) {
-    ValidatorGroupInfo& info = validator_groups_[shard];
-    update_validator_group_info(shard, std::move(prev), info.cc_seqno);
-    auto it = future_validator_groups_.find({shard, info.cc_seqno});
-    if (it != future_validator_groups_.end()) {
-      for (auto& new_prev : it->second.pending_blocks) {
-        update_validator_group_info(shard, std::move(new_prev), info.cc_seqno);
+    auto validator_set = state->get_validator_set(shard);
+    CatchainSeqno cc_seqno = validator_set->get_catchain_seqno();
+    auto [it, created] = validator_groups_.emplace(shard, ValidatorGroupInfo{});
+    it->second.prev = std::move(prev);
+    if (created || it->second.cc_seqno != cc_seqno) {
+      it->second.cc_seqno = cc_seqno;
+      if (can_collate_shard(shard)) {
+        it->second.actor = td::actor::create_actor<CollatorNodeSession>(
+            PSTRING() << "collatornode" << shard.to_str(), shard, it->second.prev, validator_set,
+            last_masterchain_state_->get_block_id(), can_generate(), local_id_, opts_, manager_, adnl_, rldp_);
       }
-      for (auto& promise : it->second.promises) {
+    } else if (!it->second.actor.empty() && prev.size() == 1) {
+      td::actor::send_closure(it->second.actor, &CollatorNodeSession::new_shard_block_accepted, prev[0],
+                              can_generate());
+    }
+    auto it2 = future_validator_groups_.find({shard, cc_seqno});
+    if (it2 != future_validator_groups_.end()) {
+      FutureValidatorGroup& future_group = it2->second;
+      if (!it->second.actor.empty()) {
+        for (const BlockIdExt& block_id : future_group.pending_blocks) {
+          td::actor::send_closure(it->second.actor, &CollatorNodeSession::new_shard_block_accepted, block_id,
+                                  can_generate());
+        }
+      }
+      for (auto& promise : future_group.promises) {
         promise.set_value(td::Unit());
       }
-      future_validator_groups_.erase(it);
+      future_validator_groups_.erase(it2);
     }
   }
 
@@ -181,82 +212,24 @@ void CollatorNode::update_shard_client_handle(BlockHandle shard_client_handle) {
   shard_client_handle_ = shard_client_handle;
 }
 
-void CollatorNode::update_validator_group_info(ShardIdFull shard, std::vector<BlockIdExt> prev,
-                                               CatchainSeqno cc_seqno) {
-  if (!can_collate_shard(shard)) {
+void CollatorNode::new_shard_block_accepted(BlockIdExt block_id, CatchainSeqno cc_seqno) {
+  if (!can_collate_shard(block_id.shard_full())) {
     return;
   }
-  CHECK(prev.size() == 1 || prev.size() == 2);
-  BlockSeqno next_block_seqno = prev[0].seqno() + 1;
-  if (prev.size() == 2) {
-    next_block_seqno = std::max(next_block_seqno, prev[1].seqno() + 1);
-  }
-  auto it = validator_groups_.find(shard);
-  if (it != validator_groups_.end()) {
-    ValidatorGroupInfo& info = it->second;
-    if (info.cc_seqno == cc_seqno) {  // block from currently known validator group
-      if (info.next_block_seqno < next_block_seqno) {
-        LOG(DEBUG) << "updated validator group info: shard=" << shard.to_str() << ", cc_seqno=" << cc_seqno
-                   << ", next_block_seqno=" << next_block_seqno;
-        info.next_block_seqno = next_block_seqno;
-        info.prev = std::move(prev);
-        for (auto cache_it = info.cache.begin(); cache_it != info.cache.end();) {
-          auto& [cached_prev, cache_entry] = *cache_it;
-          if (cache_entry->block_seqno < info.next_block_seqno) {
-            cache_entry->cancel(td::Status::Error(PSTRING() << "next block seqno " << cache_entry->block_seqno
-                                                            << " is too small, expected " << info.next_block_seqno));
-            if (!cache_entry->has_external_query_at && cache_entry->has_internal_query_at) {
-              LOG(INFO) << "generate block query"
-                        << ": shard=" << shard.to_str() << ", cc_seqno=" << cc_seqno
-                        << ", next_block_seqno=" << cache_entry->block_seqno
-                        << ": nobody asked for block, but we tried to generate it";
-            }
-            if (cache_entry->has_external_query_at && !cache_entry->has_internal_query_at) {
-              LOG(INFO) << "generate block query"
-                        << ": shard=" << shard.to_str() << ", cc_seqno=" << cc_seqno
-                        << ", next_block_seqno=" << cache_entry->block_seqno
-                        << ": somebody asked for block we didn't even tried to generate";
-            }
-            cache_it = info.cache.erase(cache_it);
-            continue;
-          }
-          if (cache_entry->block_seqno == info.next_block_seqno && cached_prev != info.prev) {
-            cache_entry->cancel(td::Status::Error("invalid prev blocks"));
-            if (!cache_entry->has_external_query_at && cache_entry->has_internal_query_at) {
-              LOG(INFO) << "generate block query"
-                        << ": shard=" << shard.to_str() << ", cc_seqno=" << cc_seqno
-                        << ", next_block_seqno=" << cache_entry->block_seqno
-                        << ": nobody asked for block, but we tried to generate it";
-            }
-            if (cache_entry->has_external_query_at && !cache_entry->has_internal_query_at) {
-              LOG(INFO) << "generate block query"
-                        << ": shard=" << shard.to_str() << ", cc_seqno=" << cc_seqno
-                        << ", next_block_seqno=" << cache_entry->block_seqno
-                        << ": somebody asked for block we didn't even tried to generate";
-            }
-            cache_it = info.cache.erase(cache_it);
-            continue;
-          }
-          ++cache_it;
-        }
-        auto S = check_out_of_sync();
-        if (S.is_error()) {
-          LOG(DEBUG) << "not generating block automatically: " << S;
-          return;
-        }
-        if (mc_config_status_.is_error()) {
-          LOG(DEBUG) << "not generating block automatically: unsupported mc config: " << mc_config_status_;
-          return;
-        }
-        generate_block(shard, cc_seqno, info.prev, {}, td::Timestamp::in(10.0), [](td::Result<BlockCandidate>) {});
-      }
-      return;
+  auto it = validator_groups_.find(block_id.shard_full());
+  if (it == validator_groups_.end() || it->second.cc_seqno != cc_seqno) {
+    auto future_group = get_future_validator_group(block_id.shard_full(), cc_seqno);
+    if (future_group.is_error()) {
+      LOG(DEBUG) << "Dropping new shard block " << block_id.to_str() << " cc_seqno=" << cc_seqno << " : "
+                 << future_group.error();
+    } else {
+      LOG(DEBUG) << "New shard block in future validator group " << block_id.to_str() << " cc_seqno=" << cc_seqno;
+      future_group.ok()->pending_blocks.push_back(block_id);
     }
+    return;
   }
-  auto future_validator_group = get_future_validator_group(shard, cc_seqno);
-  if (future_validator_group.is_ok()) {
-    // future validator group, remember for later
-    future_validator_group.ok()->pending_blocks.push_back(std::move(prev));
+  if (!it->second.actor.empty()) {
+    td::actor::send_closure(it->second.actor, &CollatorNodeSession::new_shard_block_accepted, block_id, can_generate());
   }
 }
 
@@ -276,32 +249,15 @@ td::Result<CollatorNode::FutureValidatorGroup*> CollatorNode::get_future_validat
     return td::Status::Error("no such shard");
   }
   if (cc_seqno < it->second.cc_seqno) {  // past validator group
-    return td::Status::Error(PSTRING() << "cc_seqno " << cc_seqno << " is outdated (current is" << it->second.cc_seqno
-                                       << ")");
+    return td::Status::Error(PSTRING() << "cc_seqno " << cc_seqno << " for shard " << shard.to_str()
+                                       << " is outdated (current is" << it->second.cc_seqno << ")");
   }
   if (cc_seqno - it->second.cc_seqno > 1) {  // future validator group, cc_seqno too big
-    return td::Status::Error(PSTRING() << "cc_seqno " << cc_seqno << " is too big (currently known is"
-                                       << it->second.cc_seqno << ")");
+    return td::Status::Error(PSTRING() << "cc_seqno " << cc_seqno << " for shard " << shard.to_str()
+                                       << " is too big (currently known is" << it->second.cc_seqno << ")");
   }
   // future validator group
   return &future_validator_groups_[{shard, cc_seqno}];
-}
-
-void CollatorNode::ValidatorGroupInfo::cleanup() {
-  prev.clear();
-  next_block_seqno = 0;
-  for (auto& [_, cache_entry] : cache) {
-    cache_entry->cancel(td::Status::Error("validator group is outdated"));
-  }
-  cache.clear();
-}
-
-void CollatorNode::CacheEntry::cancel(td::Status reason) {
-  for (auto& promise : promises) {
-    promise.set_error(reason.clone());
-  }
-  promises.clear();
-  cancellation_token_source.cancel();
 }
 
 static td::BufferSlice serialize_error(td::Status error) {
@@ -423,19 +379,19 @@ void CollatorNode::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data
     return;
   }
   LOG(INFO) << "got adnl query from " << src << ": shard=" << shard.to_str() << ", cc_seqno=" << cc_seqno;
-  generate_block(shard, cc_seqno, std::move(prev_blocks), priority, td::Timestamp::in(10.0), std::move(new_promise));
+  process_generate_block_query(shard, cc_seqno, std::move(prev_blocks), priority, td::Timestamp::in(10.0),
+                               std::move(new_promise));
 }
 
-void CollatorNode::generate_block(ShardIdFull shard, CatchainSeqno cc_seqno, std::vector<BlockIdExt> prev_blocks,
-                                  std::optional<BlockCandidatePriority> o_priority, td::Timestamp timeout,
-                                  td::Promise<BlockCandidate> promise) {
-  bool is_external = !o_priority;
+void CollatorNode::process_generate_block_query(ShardIdFull shard, CatchainSeqno cc_seqno,
+                                                std::vector<BlockIdExt> prev_blocks, BlockCandidatePriority priority,
+                                                td::Timestamp timeout, td::Promise<BlockCandidate> promise) {
   if (last_masterchain_state_.is_null()) {
     promise.set_error(td::Status::Error(ErrorCode::notready, "not ready"));
     return;
   }
-  if (!can_collate_shard(shard)) {
-    promise.set_error(td::Status::Error(PSTRING() << "this node can't collate shard " << shard.to_str()));
+  if (timeout.is_in_past()) {
+    promise.set_error(td::Status::Error(ErrorCode::timeout));
     return;
   }
   auto it = validator_groups_.find(shard);
@@ -443,133 +399,19 @@ void CollatorNode::generate_block(ShardIdFull shard, CatchainSeqno cc_seqno, std
     TRY_RESULT_PROMISE(promise, future_validator_group, get_future_validator_group(shard, cc_seqno));
     future_validator_group->promises.push_back([=, SelfId = actor_id(this), prev_blocks = std::move(prev_blocks),
                                                 promise = std::move(promise)](td::Result<td::Unit> R) mutable {
-      if (R.is_error()) {
-        promise.set_error(R.move_as_error());
-        return;
-      }
-      if (timeout.is_in_past()) {
-        promise.set_error(td::Status::Error(ErrorCode::timeout));
-        return;
-      }
-      td::actor::send_closure(SelfId, &CollatorNode::generate_block, shard, cc_seqno, std::move(prev_blocks),
-                              std::move(o_priority), timeout, std::move(promise));
+      TRY_STATUS_PROMISE(promise, R.move_as_status());
+      td::actor::send_closure(SelfId, &CollatorNode::process_generate_block_query, shard, cc_seqno,
+                              std::move(prev_blocks), std::move(priority), timeout, std::move(promise));
     });
     return;
   }
   ValidatorGroupInfo& validator_group_info = it->second;
-  BlockSeqno block_seqno = prev_blocks.at(0).seqno() + 1;
-  if (prev_blocks.size() == 2) {
-    block_seqno = std::max(block_seqno, prev_blocks.at(1).seqno() + 1);
-  }
-  if (validator_group_info.next_block_seqno > block_seqno) {
-    promise.set_error(td::Status::Error(PSTRING() << "next block seqno " << block_seqno << " is too small, expected "
-                                                  << validator_group_info.next_block_seqno));
+  if (validator_group_info.actor.empty()) {
+    promise.set_error(td::Status::Error(PSTRING() << "cannot collate shard " << shard.to_str()));
     return;
   }
-  if (validator_group_info.next_block_seqno == block_seqno && validator_group_info.prev != prev_blocks) {
-    promise.set_error(td::Status::Error("invalid prev_blocks"));
-    return;
-  }
-
-  static auto prefix_inner = [](auto& sb, auto& shard, auto cc_seqno, auto block_seqno,
-                                const std::optional<BlockCandidatePriority>& o_priority) {
-    sb << "generate block query"
-       << ": shard=" << shard.to_str() << ", cc_seqno=" << cc_seqno << ", next_block_seqno=" << block_seqno;
-    if (o_priority) {
-      sb << " external{";
-      sb << "round_offset=" << o_priority->round - o_priority->first_block_round
-         << ",priority=" << o_priority->priority;
-      sb << ",first_block_round=" << o_priority->first_block_round;
-      sb << "}";
-    } else {
-      sb << " internal";
-    }
-  };
-  auto prefix = [&](auto& sb) { prefix_inner(sb, shard, cc_seqno, block_seqno, o_priority); };
-
-  auto cache_entry = validator_group_info.cache[prev_blocks];
-  if (cache_entry == nullptr) {
-    cache_entry = validator_group_info.cache[prev_blocks] = std::make_shared<CacheEntry>();
-  }
-  if (is_external && !cache_entry->has_external_query_at) {
-    cache_entry->has_external_query_at = td::Timestamp::now();
-    if (cache_entry->has_internal_query_at && cache_entry->has_external_query_at) {
-      FLOG(INFO) {
-        prefix(sb);
-        sb << ": got external query "
-           << cache_entry->has_external_query_at.at() - cache_entry->has_internal_query_at.at()
-           << "s  after internal query [WON]";
-      };
-    }
-  }
-  if (!is_external && !cache_entry->has_internal_query_at) {
-    cache_entry->has_internal_query_at = td::Timestamp::now();
-    if (cache_entry->has_internal_query_at && cache_entry->has_external_query_at) {
-      FLOG(INFO) {
-        prefix(sb);
-        sb << ": got internal query "
-           << cache_entry->has_internal_query_at.at() - cache_entry->has_external_query_at.at()
-           << "s after external query [LOST]";
-      };
-    }
-  }
-  if (cache_entry->result) {
-    auto has_result_ago = td::Timestamp::now().at() - cache_entry->has_result_at.at();
-    FLOG(INFO) {
-      prefix(sb);
-      sb << ": using cached result " << " generated " << has_result_ago << "s ago";
-      sb << (is_external ? " for external query [WON]" : " for internal query ");
-    };
-
-    promise.set_result(cache_entry->result.value().clone());
-    return;
-  }
-  cache_entry->promises.push_back(std::move(promise));
-
-  if (cache_entry->started) {
-    FLOG(INFO) {
-      prefix(sb);
-      sb << ": collation in progress, waiting";
-    };
-    return;
-  }
-  FLOG(INFO) {
-    prefix(sb);
-    sb << ": starting collation";
-  };
-  cache_entry->started = true;
-  cache_entry->block_seqno = block_seqno;
-  run_collate_query(CollateParams{.shard = shard,
-                                  .min_masterchain_block_id = last_masterchain_state_->get_block_id(),
-                                  .prev = std::move(prev_blocks),
-                                  .validator_set = last_masterchain_state_->get_validator_set(shard),
-                                  .collator_opts = opts_->get_collator_options(),
-                                  .collator_node_id = local_id_,
-                                  .skip_store_candidate = true},
-                    manager_, timeout, cache_entry->cancellation_token_source.get_cancellation_token(),
-                    [=, SelfId = actor_id(this), timer = td::Timer{}](td::Result<BlockCandidate> R) {
-                      FLOG(INFO) {
-                        prefix_inner(sb, shard, cc_seqno, block_seqno, o_priority);
-                        sb << timer.elapsed() << ": " << (R.is_ok() ? "OK" : R.error().to_string());
-                      };
-                      td::actor::send_closure(SelfId, &CollatorNode::process_result, cache_entry, std::move(R));
-                    });
-}
-
-void CollatorNode::process_result(std::shared_ptr<CacheEntry> cache_entry, td::Result<BlockCandidate> R) {
-  if (R.is_error()) {
-    cache_entry->started = false;
-    for (auto& p : cache_entry->promises) {
-      p.set_error(R.error().clone());
-    }
-  } else {
-    cache_entry->result = R.move_as_ok();
-    cache_entry->has_result_at = td::Timestamp::now();
-    for (auto& p : cache_entry->promises) {
-      p.set_result(cache_entry->result.value().clone());
-    }
-  }
-  cache_entry->promises.clear();
+  td::actor::send_closure(validator_group_info.actor, &CollatorNodeSession::generate_block, std::move(prev_blocks),
+                          priority, timeout, std::move(promise));
 }
 
 td::Status CollatorNode::check_out_of_sync() {
@@ -645,53 +487,54 @@ tl_object_ptr<ton_api::collatorNode_Candidate> CollatorNode::serialize_candidate
 td::Result<BlockCandidate> CollatorNode::deserialize_candidate(tl_object_ptr<ton_api::collatorNode_Candidate> f,
                                                                int max_decompressed_data_size, int proto_version) {
   td::Result<BlockCandidate> res;
-  ton_api::downcast_call(*f, td::overloaded(
-                                 [&](ton_api::collatorNode_candidate& c) {
-                                   res = [&]() -> td::Result<BlockCandidate> {
-                                     auto hash = td::sha256_bits256(c.collated_data_);
-                                     auto key = ton::PublicKey{c.source_};
-                                     if (!key.is_ed25519()) {
-                                       return td::Status::Error("invalid pubkey");
-                                     }
-                                     auto e_key = Ed25519_PublicKey{key.ed25519_value().raw()};
-                                     return BlockCandidate{e_key, create_block_id(c.id_), hash, std::move(c.data_),
-                                                           std::move(c.collated_data_)};
-                                   }();
-                                 },
-                                 [&](ton_api::collatorNode_compressedCandidate& c) {
-                                   res = [&]() -> td::Result<BlockCandidate> {
-                                     if (c.decompressed_size_ <= 0) {
-                                       return td::Status::Error("invalid decompressed size");
-                                     }
-                                     if (c.decompressed_size_ > max_decompressed_data_size) {
-                                       return td::Status::Error("decompressed size is too big");
-                                     }
-                                     TRY_RESULT(p, validatorsession::decompress_candidate_data(
-                                                       c.data_, false, c.decompressed_size_, max_decompressed_data_size, proto_version));
-                                     auto collated_data_hash = td::sha256_bits256(p.second);
-                                     auto key = ton::PublicKey{c.source_};
-                                     if (!key.is_ed25519()) {
-                                       return td::Status::Error("invalid pubkey");
-                                     }
-                                     auto e_key = Ed25519_PublicKey{key.ed25519_value().raw()};
-                                     return BlockCandidate{e_key, create_block_id(c.id_), collated_data_hash,
-                                                           std::move(p.first), std::move(p.second)};
-                                   }();
-                                 },
-                                 [&](ton_api::collatorNode_compressedCandidateV2& c) {
-                                   res = [&]() -> td::Result<BlockCandidate> {
-                                     TRY_RESULT(p, validatorsession::decompress_candidate_data(
-                                                       c.data_, true, 0, max_decompressed_data_size, proto_version));
-                                     auto collated_data_hash = td::sha256_bits256(p.second);
-                                     auto key = ton::PublicKey{c.source_};
-                                     if (!key.is_ed25519()) {
-                                       return td::Status::Error("invalid pubkey");
-                                     }
-                                     auto e_key = Ed25519_PublicKey{key.ed25519_value().raw()};
-                                     return BlockCandidate{e_key, create_block_id(c.id_), collated_data_hash,
-                                                           std::move(p.first), std::move(p.second)};
-                                   }();
-                                 }));
+  ton_api::downcast_call(
+      *f, td::overloaded(
+              [&](ton_api::collatorNode_candidate& c) {
+                res = [&]() -> td::Result<BlockCandidate> {
+                  auto hash = td::sha256_bits256(c.collated_data_);
+                  auto key = PublicKey{c.source_};
+                  if (!key.is_ed25519()) {
+                    return td::Status::Error("invalid pubkey");
+                  }
+                  auto e_key = Ed25519_PublicKey{key.ed25519_value().raw()};
+                  return BlockCandidate{e_key, create_block_id(c.id_), hash, std::move(c.data_),
+                                        std::move(c.collated_data_)};
+                }();
+              },
+              [&](ton_api::collatorNode_compressedCandidate& c) {
+                res = [&]() -> td::Result<BlockCandidate> {
+                  if (c.decompressed_size_ <= 0) {
+                    return td::Status::Error("invalid decompressed size");
+                  }
+                  if (c.decompressed_size_ > max_decompressed_data_size) {
+                    return td::Status::Error("decompressed size is too big");
+                  }
+                  TRY_RESULT(p, validatorsession::decompress_candidate_data(c.data_, false, c.decompressed_size_,
+                                                                            max_decompressed_data_size, proto_version));
+                  auto collated_data_hash = td::sha256_bits256(p.second);
+                  auto key = PublicKey{c.source_};
+                  if (!key.is_ed25519()) {
+                    return td::Status::Error("invalid pubkey");
+                  }
+                  auto e_key = Ed25519_PublicKey{key.ed25519_value().raw()};
+                  return BlockCandidate{e_key, create_block_id(c.id_), collated_data_hash, std::move(p.first),
+                                        std::move(p.second)};
+                }();
+              },
+              [&](ton_api::collatorNode_compressedCandidateV2& c) {
+                res = [&]() -> td::Result<BlockCandidate> {
+                  TRY_RESULT(p, validatorsession::decompress_candidate_data(c.data_, true, 0,
+                                                                            max_decompressed_data_size, proto_version));
+                  auto collated_data_hash = td::sha256_bits256(p.second);
+                  auto key = PublicKey{c.source_};
+                  if (!key.is_ed25519()) {
+                    return td::Status::Error("invalid pubkey");
+                  }
+                  auto e_key = Ed25519_PublicKey{key.ed25519_value().raw()};
+                  return BlockCandidate{e_key, create_block_id(c.id_), collated_data_hash, std::move(p.first),
+                                        std::move(p.second)};
+                }();
+              }));
   return res;
 }
 

@@ -16,7 +16,7 @@
 */
 #include "collation-manager.hpp"
 
-#include "collator-node.hpp"
+#include "collator-node/collator-node.hpp"
 #include "fabric.h"
 #include "td/utils/Random.h"
 

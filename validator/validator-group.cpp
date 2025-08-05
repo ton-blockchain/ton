@@ -24,7 +24,7 @@
 #include "common/delay.h"
 #include "ton/lite-tl.hpp"
 #include "td/utils/Random.h"
-#include "collator-node.hpp"
+#include "collator-node/collator-node.hpp"
 
 namespace ton {
 
@@ -213,7 +213,7 @@ void ValidatorGroup::accept_block_candidate(validatorsession::BlockSourceInfo so
     return;
   }
   auto next_block_id = create_next_block_id(root_hash, file_hash);
-  LOG(WARNING) << "Accepted block " << next_block_id;
+  LOG(WARNING) << "Accepted block " << next_block_id.to_str();
   stats.block_id = next_block_id;
   td::actor::send_closure(manager_, &ValidatorManager::log_validator_session_stats, std::move(stats));
   auto block =
