@@ -48,14 +48,14 @@ const first = 1;
 
 @fif_codegen
 """
-  test1 PROC:<{
+  test1() PROC:<{
     30 PUSHINT  // '10
   }>
 """
 
 @fif_codegen
 """
-  test2 PROC:<{
+  test2() PROC:<{
     2 PUSHINT  // '2
   }>
 """

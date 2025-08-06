@@ -40,4 +40,10 @@ fun onInternalMessage(curCounter: int, mode: int) {
 @testcase | 0 | 50 0 | 0
 @testcase | 0 | 50 1 | 51
 @testcase | 0 | 50 9 | 59
+
+@fif_codegen
+"""
+  onInternalMessage() PROC:<{ 	//  curCounter mode
+    fakeParseMessage() CALLDICT	//  curCounter m.USlot1 m.UTag
+"""
  */

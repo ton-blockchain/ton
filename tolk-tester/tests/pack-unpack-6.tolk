@@ -50,13 +50,13 @@ fun test5() {
 
 @method_id(106)
 fun test6() {
-    return SomeBytesFields { f1: stringHexToSlice("11") as bytes1 }.toCell({skipBitsNFieldsValidation: true}).hash() & 0xFFFF;
+    return SomeBytesFields { f1: stringHexToSlice("11") as bytes1 }.toCell({skipBitsNValidation: true}).hash() & 0xFFFF;
 }
 
 @method_id(107)
 fun test7(believe: bool) {
     try {
-        return SomeBytesFields { f1: stringHexToSlice("ffff") as bytes1 }.toCell({skipBitsNFieldsValidation: believe}).hash() & 0xFFFF;
+        return SomeBytesFields { f1: stringHexToSlice("ffff") as bytes1 }.toCell({skipBitsNValidation: believe}).hash() & 0xFFFF;
     } catch (excno) {
         return excno;
     }
@@ -130,16 +130,15 @@ RETALT
 
 @fif_codegen
 """
-  test3 PROC:<{
-    NEWC
+  test3() PROC:<{
     x{0109ab} PUSHSLICE
-    STSLICER
+    NEWC
+    STSLICE
     ENDC
     CTOS
     x{01} SDBEGINSQ
     63 THROWIFNOT
-    8 LDI
-    DROP
+    8 PLDI
   }>
 """
 
@@ -160,7 +159,7 @@ IF:<{
 
 @fif_codegen
 """
-  test5 PROC:<{
+  test5() PROC:<{
     x{11} PUSHSLICE
     NEWC
     OVER
@@ -168,24 +167,22 @@ IF:<{
     9 THROWIF
     8 EQINT
     9 THROWIFNOT
-    SWAP
-    STSLICER
+    STSLICE
 """
 
 @fif_codegen
 """
-  test6 PROC:<{
+  test6() PROC:<{
     x{11} PUSHSLICE
     NEWC
-    SWAP
-    STSLICER
+    STSLICE
     ENDC
     HASHCU
 """
 
 @fif_codegen
 """
-  test8 PROC:<{                 //
+  test8() PROC:<{               //
     x{010f} PUSHSLICE           //  '0
     16 PUSHPOW2DEC              //  s '2=65535
     SWAP                        //  '2=65535 s
@@ -199,7 +196,7 @@ IF:<{
 
 @fif_codegen
 """
-  test9 PROC:<{
+  test9() PROC:<{
     x{010f} PUSHSLICE
     x{01} SDBEGINSQ
     IF:<{
@@ -215,7 +212,6 @@ IF:<{
       140 PUSHINT
     }>
     139 PUSHINT
-    SWAP
     EQUAL
   }>
 """

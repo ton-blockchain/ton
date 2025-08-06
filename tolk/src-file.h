@@ -35,25 +35,26 @@ struct SrcFile {
   };
 
   int file_id;                          // an incremental counter through all parsed files
-  std::string rel_filename;             // relative to cwd
-  std::string abs_filename;             // absolute from root
+  bool is_stdlib_file;                  // is a part of Tolk distribution, imported via "@stdlib/..."
+  std::string realpath;                 // what "realpath" returned to locate (either abs path or what tolk-js returns)
   std::string text;                     // file contents loaded into memory, every Token::str_val points inside it
   AnyV ast = nullptr;                   // when a file has been parsed, its ast_tolk_file is kept here
   std::vector<ImportDirective> imports; // to check strictness (can't use a symbol without importing its file)
 
-  SrcFile(int file_id, std::string rel_filename, std::string abs_filename, std::string&& text)
+  SrcFile(int file_id, bool is_stdlib_file, std::string realpath, std::string&& text)
     : file_id(file_id)
-    , rel_filename(std::move(rel_filename))
-    , abs_filename(std::move(abs_filename))
+    , is_stdlib_file(is_stdlib_file)
+    , realpath(std::move(realpath))
     , text(std::move(text)) { }
 
   SrcFile(const SrcFile& other) = delete;
   SrcFile &operator=(const SrcFile&) = delete;
 
-  bool is_stdlib_file() const;
-
   bool is_offset_valid(int offset) const;
   SrcPosition convert_offset(int offset) const;
+
+  std::string extract_short_name() const;
+  std::string extract_dirname() const;
 };
 
 
@@ -102,9 +103,9 @@ class AllRegisteredSrcFiles {
 
 public:
   const SrcFile* get_file(int file_id) const { return all_src_files.at(file_id); }
-  const SrcFile* find_file(const std::string& abs_filename) const;
+  const SrcFile* find_file(const std::string& realpath) const;
 
-  const SrcFile* locate_and_register_source_file(const std::string& rel_filename, SrcLocation included_from);
+  const SrcFile* locate_and_register_source_file(const std::string& filename, SrcLocation included_from);
   SrcFile* get_next_unparsed_file();
 
   auto begin() const { return all_src_files.begin(); }

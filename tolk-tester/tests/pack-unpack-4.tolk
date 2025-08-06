@@ -10,6 +10,7 @@ fun slice.assertEqDeeply(self, rhs: slice): slice {
 }
 
 
+@noinline
 fun run<TInputStruct>(input: TInputStruct, ans: slice) {
     repeat (2) {
         var s = input.toCell().beginParse();
@@ -37,10 +38,10 @@ fun test1() {
 
 type Union_8_16_32_n = int8 | null | int16 | int32;
 
-fun ans102n_8(): slice asm "b{0100001111} PUSHSLICE";
-fun ans102n_16(): slice asm "b{100000000000001111} PUSHSLICE";
-fun ans102n_32(): slice asm "b{1100000000000000000000000000001111} PUSHSLICE";
-fun ans102n_null(): slice asm "b{00} PUSHSLICE";
+fun ans102n_8(): slice asm "b{10000001111} PUSHSLICE";
+fun ans102n_16(): slice asm "b{1010000000000001111} PUSHSLICE";
+fun ans102n_32(): slice asm "b{11000000000000000000000000000001111} PUSHSLICE";
+fun ans102n_null(): slice asm "b{0} PUSHSLICE";
 
 @method_id(102)
 fun test2() {
@@ -64,10 +65,10 @@ fun ans104_8(): slice asm "b{0000001111} PUSHSLICE";
 fun ans104_16(): slice asm "b{010000000000001111} PUSHSLICE";
 fun ans104_32(): slice asm "b{1000000000000000000000000000001111} PUSHSLICE";
 
-fun ans104n_8(): slice asm "b{0100001111} PUSHSLICE";
-fun ans104n_16(): slice asm "b{100000000000001111} PUSHSLICE";
-fun ans104n_32(): slice asm "b{1100000000000000000000000000001111} PUSHSLICE";
-fun ans104n_null(): slice asm "b{00} PUSHSLICE";
+fun ans104n_8(): slice asm "b{10000001111} PUSHSLICE";
+fun ans104n_16(): slice asm "b{1010000000000001111} PUSHSLICE";
+fun ans104n_32(): slice asm "b{11000000000000000000000000000001111} PUSHSLICE";
+fun ans104n_null(): slice asm "b{0} PUSHSLICE";
 
 @method_id(104)
 fun test4() {
@@ -123,7 +124,7 @@ fun main() {}
 
 @fif_codegen
 """
-  test6 PROC:<{                 //
+  test6() PROC:<{               //
     b{010000000000001111} PUSHSLICE     //  s
     b{00} SDBEGINSQ             //  s '8
     IF:<{                       //  s

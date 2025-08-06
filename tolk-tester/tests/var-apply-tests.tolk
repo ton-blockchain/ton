@@ -325,6 +325,18 @@ fun testSavingFunWithDefaults() {
     return cc(1, 2, 3);
 }
 
+@noinline
+fun tupleCreator() { return createEmptyTuple() }
+@noinline
+fun getTupleCreator() { return tupleCreator }
+
+@method_id(120)
+fun testNoInlineSaving() {
+    var creator = getTupleCreator();
+    __expect_type(creator, "() -> tuple");
+    return creator();
+}
+
 
 fun main() {}
 
@@ -355,4 +367,5 @@ fun main() {}
 @testcase | 117 |            | 6 8
 @testcase | 118 |            | 0 10 -1 (null)
 @testcase | 119 |            | 6
+@testcase | 120 |            | []
  */

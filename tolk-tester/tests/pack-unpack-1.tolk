@@ -106,14 +106,13 @@ fun main(c: cell) {
 
 @fif_codegen
 """
-  test3 PROC:<{
-    42949672980 PUSHINT
+  test3() PROC:<{
     NEWC
-    64 STI                      //  b
+    x{0000000a00000014} STSLICECONST  //  b
     ENDC                        //  c
     CTOS                        //  s
-    64 PUSHINT
-    SDSKIPFIRST                 //  s
+    64 LDU
+    NIP                         //  s
     SBITS                       //  '17
   }>
 """

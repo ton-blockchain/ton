@@ -57,7 +57,7 @@ static td::Result<std::string> compile_internal(char *config_json) {
   std::cerr.rdbuf(errs.rdbuf());
   int exit_code = tolk_proceed(entrypoint_filename);
   if (exit_code != 0) {
-    return td::Status::Error("Tolk compilation error: " + errs.str());
+    return td::Status::Error(errs.str());
   }
 
   TRY_RESULT(fift_res, fift::compile_asm_program(outs.str(), "/fiftlib/"));

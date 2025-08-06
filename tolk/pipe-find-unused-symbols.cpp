@@ -37,7 +37,7 @@ namespace tolk {
 static void mark_function_used_dfs(const std::unique_ptr<Op>& op);
 
 static void mark_function_used(FunctionPtr fun_ref) {
-  if (!fun_ref->is_code_function() || fun_ref->is_really_used()) { // already handled
+  if (!fun_ref->is_code_function() || fun_ref->is_really_used() || fun_ref->is_inlined_in_place()) { // already handled
     return;
   }
 

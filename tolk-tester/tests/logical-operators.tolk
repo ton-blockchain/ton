@@ -1,4 +1,4 @@
-import "imports/use-dicts.tolk"
+import "imports/use-dicts.ext.tolk"
 
 fun simpleAllConst() {
     return (!0, !!0 & !false, !!!0, !1, !!1, !-1, !!-1, (!5 as int == 0) == !0, !0 == true);
@@ -217,7 +217,7 @@ fun main() {
 
 @fif_codegen
 """
-  simpleAllConst PROC:<{
+  simpleAllConst() PROC:<{
     TRUE
     0 PUSHINT
     TRUE
@@ -232,7 +232,7 @@ fun main() {
 
 @fif_codegen
 """
-  compileTimeEval1 PROC:<{  //  x
+  compileTimeEval1() PROC:<{  //  x
     DUP	//  x x
     0 EQINT	//  x '1
     FALSE	//  x '1 '4
@@ -248,7 +248,7 @@ fun main() {
 
 @fif_codegen
 """
-  withIfNot PROC:<{  //  x y
+  withIfNot() PROC:<{  //  x y
     c2 SAVE
     SAMEALTSAVE
     OVER	//  x y x
@@ -268,7 +268,7 @@ fun main() {
 
 @fif_codegen
 """
-  testAndConstCodegen PROC:<{
+  testAndConstCodegen() PROC:<{
     FALSE
     0 PUSHINT
     DUP
@@ -290,7 +290,7 @@ fun main() {
 
 @fif_codegen
 """
-  testOrConstCodegen PROC:<{
+  testOrConstCodegen() PROC:<{
     -1 PUSHINT
     TRUE
     FALSE
@@ -315,7 +315,7 @@ For example, `a && b` can be expressed without IFs.
 These are moments of future optimizations. For now, it's more than enough.
 @fif_codegen
 """
-  testAndSimpleCodegen PROC:<{  //  a b
+  testAndSimpleCodegen() PROC:<{  //  a b
     SWAP	//  b a
     IF:<{	//  b
       0 NEQINT	//  '2
@@ -328,7 +328,7 @@ These are moments of future optimizations. For now, it's more than enough.
 
 @fif_codegen
 """
-  testOrSimpleCodegen PROC:<{   //  a b
+  testOrSimpleCodegen() PROC:<{   //  a b
     SWAP	//  b a
     0 GTINT	//  b '3
     IF:<{	//  b
@@ -343,7 +343,7 @@ These are moments of future optimizations. For now, it's more than enough.
 
 @fif_codegen
 """
-  testConvertIfToIfnot PROC:<{  //  x
+  testConvertIfToIfnot() PROC:<{  //  x
     DUP	//  x x
     100 THROWIF
     DUP	//  x x
@@ -351,15 +351,15 @@ These are moments of future optimizations. For now, it's more than enough.
     DUP	//  x x
     IFNOTJMP:<{	//  x
       DROP	//
-      1 PUSHINT	//  '5=1
+      1 PUSHINT	//  '7=1
     }>	//  x
     DUP	//  x x
     IFNOTJMP:<{	//  x
       DROP	//
-      1 PUSHINT	//  '6=1
+      1 PUSHINT	//  '8=1
     }>	//  x
     100 THROWIFNOT
-    -4 PUSHINT	//  '9=-4
+    -4 PUSHINT	//  '11=-4
   }>
 """
 

@@ -15,6 +15,7 @@ fun main(cs: slice) {
     return (cs.loadUint(8), cs.loadUint(8), cs.loadUint(8), cs.loadUint(8));
 }
 
+@noinline
 fun f(cs: slice) {
     return (cs.loadUint(8), cs.loadUint(8), cs.loadUint(8), cs.loadUint(8),
         cs.loadUint(8), cs.loadUint(8), cs.loadUint(8), cs.loadUint(8),
@@ -30,5 +31,5 @@ fun f(cs: slice) {
 @testcase | 101 | x{000102030405060708090a0b0c0d0e0f10111213} | 6
 @testcase | 0   | x{000102030405060708090a0b0c0d0e0f10111213} | 0 1 2 3
 
-@code_hash 58474889199998908444151060994149070836199913191952040273624197630531731101157
+@code_hash 110494322917670257289501183090765859207486616122530510808569169535563021169176
 */

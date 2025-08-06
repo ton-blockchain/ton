@@ -1,4 +1,4 @@
-get int.seqno(self) {
+get fun int.seqno(self) {
     return 0;
 }
 

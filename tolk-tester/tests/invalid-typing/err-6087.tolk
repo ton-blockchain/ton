@@ -6,4 +6,5 @@ fun cantAutoCastBytesNToSlice() {
 /**
 @compilation_should_fail
 @stderr method `loadInt` not found for type `bits32`
+@stderr but it exists for type `slice`
  */

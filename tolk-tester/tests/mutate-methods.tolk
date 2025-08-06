@@ -1,17 +1,21 @@
+@noinline
 fun incrementInPlace(mutate x: int, byValue: int): void {
     x = x + byValue;
 }
 
+@noinline
 fun int.incrementInPlace(mutate self, byValue: int): void {
     self = self + byValue;
 }
 
+@noinline
 fun incrementTwoInPlace(mutate x: int, mutate y: int, byValue: int): int {
     x.incrementInPlace(byValue);
     y += byValue;
     return x + y;
 }
 
+@noinline
 fun int.incrementTwoInPlace(mutate self, mutate y: int, byValue: int): int {
     self.incrementInPlace(byValue);
     y += byValue;
@@ -40,6 +44,7 @@ fun testIncrement2() {
 }
 
 
+@noinline
 fun load_next(mutate cs: slice): int {
     return cs.loadInt(32);
 }
@@ -133,8 +138,8 @@ fun updateTwoItems(mutate pair: Pair2, byValue: int) {
     pair = (first + byValue, second + byValue);
 }
 
-global t107_1: int;
-global t107_2: int;
+global t107_1: int
+global t107_2: int
 
 @method_id(107)
 fun testMutableTensor() {
@@ -321,26 +326,26 @@ fun main(){}
 
 @fif_codegen
 """
-  int.incrementInPlace PROC:<{  //  self byValue
+  int.incrementInPlace() PROC:<{  //  self byValue
     ADD //  self
   }>
 """
 
 @fif_codegen
 """
-  testIncrement2 PROC:<{
+  testIncrement2() PROC:<{
     ...
-    incrementTwoInPlace CALLDICT        //  x y sum1
+    incrementTwoInPlace() CALLDICT        //  x y sum1
     -ROT
     10 PUSHINT  //  sum1 x y '11=10
-    int.incrementTwoInPlace CALLDICT        //  sum1 x y sum2
+    int.incrementTwoInPlace() CALLDICT        //  sum1 x y sum2
     s1 s3 s0 XCHG3       //  x y sum1 sum2
   }>
 """
 
 @fif_codegen
 """
- load_next PROC:<{  //  cs
+ load_next() PROC:<{  //  cs
     32 LDI      //  '4 cs
     SWAP        //  cs '4
   }>
@@ -348,14 +353,14 @@ fun main(){}
 
 @fif_codegen
 """
-  testStoreUintPureUnusedResult PROC:<{
+  testStoreUintPureUnusedResult() PROC:<{
     0 PUSHINT	//  '11=0
   }>
 """
 
 @fif_codegen
 """
-  testStoreUintImpureUnusedResult PROC:<{
+  testStoreUintImpureUnusedResult() PROC:<{
     NEWC	//  b
     STIX	//  '2
     DROP	//

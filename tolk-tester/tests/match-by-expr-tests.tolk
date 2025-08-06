@@ -22,6 +22,7 @@ fun test2() {
     }
 }
 
+@noinline
 fun isGt10(x: int) { return x > 10; }
 
 @method_id(103)
@@ -116,6 +117,26 @@ fun test11(x: bool) {
     }
 }
 
+global g12: int;
+
+@noinline
+fun helper12(x: int) {
+    // via codegen, check that `return` is added implicitly to every case, and `IFJMP` is produced
+    match (x) {
+        1 => g12 = 1,
+        2 => g12 = 2,
+        3 => g12 = 3,
+        else => g12 = x,
+    }
+}
+
+@method_id(112)
+fun test12(x: int) {
+    g12 = 0;
+    helper12(x);
+    return g12
+}
+
 
 type asdf = int;
 
@@ -131,6 +152,7 @@ fun main() {
 }
 
 /**
+@testcase | 0   |          | 2
 @testcase | 101 | 1        | 100
 @testcase | 101 | 2        | 200
 @testcase | 101 | 3        | 300
@@ -154,10 +176,12 @@ fun main() {
 @testcase | 110 | 50       | 100
 @testcase | 111 | 0        | -1
 @testcase | 111 | -1       | 0
+@testcase | 112 | 2        | 2
+@testcase | 112 | 20       | 20
 
 @fif_codegen
 """
-  test1 PROC:<{ //  x
+  test1() PROC:<{ //  x
     DUP         //  x x
     1 EQINT     //  x '3
     IF:<{       //  x
@@ -183,16 +207,16 @@ fun main() {
 
 @fif_codegen
 """
-  test2 PROC:<{
+  test2() PROC:<{
     300 PUSHINT
   }>
 """
 
 @fif_codegen
 """
-  test3 PROC:<{         //  init
+  test3() PROC:<{       //  init
     DUP                 // init init
-    isGt10 CALLDICT     // init '2
+    isGt10() CALLDICT   // init '2
     -1 EQINT	        // init '5
     IF:<{	            // init
       10 PUSHINT	    // init '3=10
@@ -203,9 +227,37 @@ fun main() {
 
 @fif_codegen
 """
-  test8 PROC:<{     // x
+  test8() PROC:<{   // x
     DROP            //
     30 PUSHINT      // r1
+  }>
+"""
+
+@fif_codegen
+"""
+  helper12() PROC:<{
+    DUP
+    1 EQINT
+    IFJMP:<{
+      DROP
+      1 PUSHINT
+      $g12 SETGLOB
+    }>
+    DUP
+    2 EQINT
+    IFJMP:<{
+      DROP
+      2 PUSHINT
+      $g12 SETGLOB
+    }>
+    DUP
+    3 EQINT
+    IFJMP:<{
+      DROP
+      3 PUSHINT
+      $g12 SETGLOB
+    }>
+    $g12 SETGLOB
   }>
 """
 

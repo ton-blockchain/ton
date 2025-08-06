@@ -25,6 +25,7 @@ fun address.createNone() {
     return createAddressNone()
 }
 
+@noinline
 fun check0(addr: address) {
     assert (addr.getWorkchain() == 0) throw 111;
 }
@@ -33,90 +34,6 @@ fun codegenAddrEq(a: address, b: address) {
     if (a == b) { return 1; }
     if (a != b) { return 2; }
     return 3;
-}
-
-@inline_ref
-fun buildAddrInShard_manual(a: address, options: AddressShardingOptions) {
-    var sb = options.closeTo as slice;
-    sb.skipBits(3);         // addr_std$10 + anycast 0
-    val wc_b = sb.loadInt(8);
-    val shardPrefix = sb.loadUint(options.fixedPrefixLength);
-
-    var sa = a as slice;
-    sa.skipBits(3 + 8 + options.fixedPrefixLength);
-
-    return beginCell()
-        .storeUint(0b100, 3)        // addr_std$10 + anycast 0
-        .storeInt(wc_b, 8)
-        .storeUint(shardPrefix, options.fixedPrefixLength)
-        .storeSlice(sa);
-}
-
-@method_id(101)
-fun test1() {
-    val a = address("0:00000000000000000000000000000000000000000000000000000000000000FF");
-    val b = address("1:1100000000000000000000000000000000000000000000000000000000000000");
-    val dd1 = buildAddrInShard_manual(a, {fixedPrefixLength: 8, closeTo: b});
-    val dd2 = a.buildSameAddressInAnotherShard({fixedPrefixLength: 8, closeTo: b});
-    assert(dd1.endCell().hash() == dd2.endCell().hash(), 400);
-    return dd1.endCell().beginParse() as address
-         == address("1:11000000000000000000000000000000000000000000000000000000000000FF");
-}
-
-@method_id(102)
-fun test2() {
-    val a = address("0:1234aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-    val b = address("0:FFFFbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-    val dd1 = buildAddrInShard_manual(a, {closeTo: b, fixedPrefixLength: 16});
-    val dd2 = a.buildSameAddressInAnotherShard({fixedPrefixLength: 16, closeTo: b});
-    assert((a as slice).remainingBitsCount() == 267, 267);
-    assert((b as slice).remainingBitsCount() == 267, 267);
-    assert(dd1.endCell().hash() == dd2.endCell().hash(), 400);
-    return address.fromValidBuilder(dd2)
-        == address("0:FFFFaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-}
-
-@method_id(103)
-fun test3() {
-    var t1_a = address("EQCRDM9h4k3UJdOePPuyX40mCgA4vxge5Dc5vjBR8djbEKC5");
-    var t1_b = address("9:527964d55cfa6eb731f4bfc07e9d025098097ef8505519e853986279bd8400d8");
-    var t2_a = address("EQCe4AYIBce1pAk2qJJPSs1OzyZRlKjkfq8zuC8D7erv6DUP");
-    var t2_b = address("EQCtrtTXEAoSpoERmiqOnICe9LHxn2N89N4BH9qdHlrG-U0i");
-    var t3_a = address("EQAUTbQiM522Y_XJ_T98QPhPhTmb4nV--VSPiha8kC6kRfPO");
-    var t3_b = address("EQBlqsm144Dq6SjbPI4jjZvA1hqTIP3CvHovbIfW_t-SCALE");
-    return (
-        t1_a.buildSameAddressInAnotherShard({fixedPrefixLength: 8, closeTo: t1_b}).endCell().hash() & 0xFFFF,
-        t1_a.buildSameAddressInAnotherShard({fixedPrefixLength: 4, closeTo: t1_b}).endCell().hash() & 0xFFFF,
-        t2_a.buildSameAddressInAnotherShard({fixedPrefixLength: 2, closeTo: t2_b}).endCell().hash() & 0xFFFF,
-        t3_a.buildSameAddressInAnotherShard({fixedPrefixLength: 30, closeTo: t2_b}).endCell().hash() & 0xFFFF,
-        t2_a.buildSameAddressInAnotherShard({fixedPrefixLength: 1, closeTo: t3_b}).endCell().hash() & 0xFFFF,
-        t2_a.buildSameAddressInAnotherShard({fixedPrefixLength: 0, closeTo: t3_b}).endCell().hash() & 0xFFFF,
-    )
-}
-
-@method_id(104)
-fun test4(shardDepth: int) {
-    var a = address("EQCRDM9h4k3UJdOePPuyX40mCgA4vxge5Dc5vjBR8djbEKC5");
-    var b = address("9:527964d55cfa6eb731f4bfc07e9d025098097ef8505519e853986279bd8400d8");
-    return a.buildSameAddressInAnotherShard({fixedPrefixLength: shardDepth, closeTo: b}).endCell().hash() & 0xFFFF;
-}
-
-@method_id(105)
-fun test5() {
-    var b = beginCell()
-        .storeUint(0b100, 3)       // std addr no anycast
-        .storeInt(MASTERCHAIN, 8)
-        .storeUint(0xFFFF, 256);
-    val a = address("-1:000000000000000000000000000000000000000000000000000000000000FFFF");
-    return address.fromValidBuilder(b) == a;
-}
-
-@method_id(106)
-fun test6() {
-    val a = address("0:00000000000000000000000000000000000000000000000000000000000000FF");
-    val b = address("1:1100000000000000000000000000000000000000000000000000000000000000");
-    return  address.fromValidBuilder(a.buildSameAddressInAnotherShard({fixedPrefixLength: 8, closeTo: b})) ==
-            address("1:11000000000000000000000000000000000000000000000000000000000000FF");
 }
 
 
@@ -230,17 +147,10 @@ fun main() {
 
 /**
 @testcase | 0   |   | -1 0 -1 0 -1
-@testcase | 101 |   | -1
-@testcase | 102 |   | -1
-@testcase | 103 |   | 39876 24338 15241 50719 11252 15241
-@testcase | 104 | 2 | 24338
-@testcase | 104 | 9 | 39876
-@testcase | 105 |   | -1
-@testcase | 106 |   | -1
 
 @fif_codegen
 """
-  check0 PROC:<{              	//  addr
+  check0() PROC:<{             	//  addr
     REWRITESTDADDR
     DROP                    	//  '2
     0 EQINT                 	//  '4
@@ -250,7 +160,7 @@ fun main() {
 
 @fif_codegen
 """
-  codegenAddrEq PROC:<{       	//  a b
+  codegenAddrEq() PROC:<{      	//  a b
     2DUP                    	//  a b a b
     SDEQ                    	//  a b '2
     IFJMP:<{                	//  a b
