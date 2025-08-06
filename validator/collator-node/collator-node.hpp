@@ -16,6 +16,7 @@
 */
 #pragma once
 
+#include "collator-node-session.hpp"
 #include "interfaces/validator-manager.h"
 #include "rldp/rldp.h"
 #include "rldp2/rldp.h"
@@ -36,16 +37,17 @@ class CollatorNode : public td::actor::Actor {
   void add_shard(ShardIdFull shard);
   void del_shard(ShardIdFull shard);
 
+  void update_options(td::Ref<ValidatorManagerOptions> opts);
+
   void new_masterchain_block_notification(td::Ref<MasterchainState> state);
   void update_shard_client_handle(BlockHandle shard_client_handle);
-  void update_validator_group_info(ShardIdFull shard, std::vector<BlockIdExt> prev, CatchainSeqno cc_seqno);
-
-  void update_options(td::Ref<ValidatorManagerOptions> opts) {
-    opts_ = std::move(opts);
-  }
+  void new_shard_block_accepted(BlockIdExt block_id, CatchainSeqno cc_seqno);
 
  private:
   void receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data, td::Promise<td::BufferSlice> promise);
+  void process_generate_block_query(ShardIdFull shard, CatchainSeqno cc_seqno, std::vector<BlockIdExt> prev_blocks,
+                                    BlockCandidatePriority priority, td::Timestamp timeout,
+                                    td::Promise<BlockCandidate> promise);
   void process_ping(adnl::AdnlNodeIdShort src, ton_api::collatorNode_ping& ping, td::Promise<td::BufferSlice> promise);
 
   bool can_collate_shard(ShardIdFull shard) const;
@@ -58,28 +60,13 @@ class CollatorNode : public td::actor::Actor {
   std::vector<ShardIdFull> collating_shards_;
   std::set<adnl::AdnlNodeIdShort> validator_adnl_ids_;
 
-  struct CacheEntry {
-    bool started = false;
-    td::Timestamp has_internal_query_at;
-    td::Timestamp has_external_query_at;
-    td::Timestamp has_result_at;
-    BlockSeqno block_seqno = 0;
-    td::optional<BlockCandidate> result;
-    td::CancellationTokenSource cancellation_token_source;
-    std::vector<td::Promise<BlockCandidate>> promises;
-
-    void cancel(td::Status reason);
-  };
   struct ValidatorGroupInfo {
     CatchainSeqno cc_seqno{0};
     std::vector<BlockIdExt> prev;
-    BlockSeqno next_block_seqno{0};
-    std::map<std::vector<BlockIdExt>, std::shared_ptr<CacheEntry>> cache;
-
-    void cleanup();
+    td::actor::ActorOwn<CollatorNodeSession> actor;
   };
   struct FutureValidatorGroup {
-    std::vector<std::vector<BlockIdExt>> pending_blocks;
+    std::vector<BlockIdExt> pending_blocks;
     std::vector<td::Promise<td::Unit>> promises;
   };
   std::map<ShardIdFull, ValidatorGroupInfo> validator_groups_;
@@ -93,13 +80,12 @@ class CollatorNode : public td::actor::Actor {
 
   td::Result<FutureValidatorGroup*> get_future_validator_group(ShardIdFull shard, CatchainSeqno cc_seqno);
 
-  void generate_block(ShardIdFull shard, CatchainSeqno cc_seqno, std::vector<BlockIdExt> prev_blocks,
-                      std::optional<BlockCandidatePriority> o_priority, td::Timestamp timeout,
-                      td::Promise<BlockCandidate> promise);
-  void process_result(std::shared_ptr<CacheEntry> cache_entry, td::Result<BlockCandidate> R);
-
   td::Status check_out_of_sync();
   td::Status check_mc_config();
+
+  bool can_generate() {
+    return check_out_of_sync().is_ok() && mc_config_status_.is_ok();
+  }
 
  public:
   static tl_object_ptr<ton_api::collatorNode_Candidate> serialize_candidate(const BlockCandidate& block, bool compress);

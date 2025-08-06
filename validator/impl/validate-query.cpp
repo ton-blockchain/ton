@@ -372,7 +372,7 @@ void ValidateQuery::start_up() {
       LOG(DEBUG) << "sending wait_block_state() query #" << i << " for " << prev_blocks[i].to_str() << " to Manager";
       ++pending;
       td::actor::send_closure_later(manager, &ValidatorManager::wait_block_state_short, prev_blocks[i], priority(),
-                                    timeout, [self = get_self(), i](td::Result<Ref<ShardState>> res) -> void {
+                                    timeout, false, [self = get_self(), i](td::Result<Ref<ShardState>> res) -> void {
                                       LOG(DEBUG) << "got answer to wait_block_state_short query #" << i;
                                       td::actor::send_closure_later(
                                           std::move(self), &ValidateQuery::after_get_shard_state, i, std::move(res));
@@ -784,7 +784,7 @@ void ValidateQuery::got_mc_handle(td::Result<BlockHandle> res) {
   }
   auto mc_handle = res.move_as_ok();
   td::actor::send_closure_later(
-      manager, &ValidatorManager::wait_block_state, mc_handle, priority(), timeout,
+      manager, &ValidatorManager::wait_block_state, mc_handle, priority(), timeout, false,
       [self = get_self(), id = id_, mc_handle](td::Result<Ref<ShardState>> res) {
         LOG(DEBUG) << "got answer to wait_block_state() query for masterchain block";
         if (res.is_ok() && mc_handle->id().seqno() > 0 && !mc_handle->inited_proof()) {
@@ -1764,7 +1764,7 @@ bool ValidateQuery::request_aux_mc_state(BlockSeqno seqno, Ref<MasterchainStateQ
   CHECK(blkid.is_valid_ext() && blkid.is_masterchain());
   LOG(DEBUG) << "sending auxiliary wait_block_state() query for " << blkid.to_str() << " to Manager";
   ++pending;
-  td::actor::send_closure_later(manager, &ValidatorManager::wait_block_state_short, blkid, priority(), timeout,
+  td::actor::send_closure_later(manager, &ValidatorManager::wait_block_state_short, blkid, priority(), timeout, false,
                                 [self = get_self(), blkid](td::Result<Ref<ShardState>> res) {
                                   LOG(DEBUG) << "got answer to wait_block_state query for " << blkid.to_str();
                                   td::actor::send_closure_later(std::move(self),

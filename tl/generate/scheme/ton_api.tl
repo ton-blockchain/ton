@@ -344,6 +344,7 @@ validatorSession.blockUpdate ts:long actions:(vector validatorSession.round.Mess
 validatorSession.candidate src:int256 round:int root_hash:int256 data:bytes collated_data:bytes = validatorSession.Candidate;
 validatorSession.compressedCandidate flags:# src:int256 round:int root_hash:int256 decompressed_size:int data:bytes = validatorSession.Candidate;
 validatorSession.compressedCandidateV2 flags:# src:int256 round:int root_hash:int256 data:bytes = validatorSession.Candidate;
+validatorSession.optimisticCandidateBroadcast flags:# prev_candidate_id:int256 data:bytes = validatorSession.OptimisticCandidateBroadcast;
 
 validatorSession.config catchain_idle_timeout:double catchain_max_deps:int round_candidates:int next_candidate_delay:double round_attempt_duration:int
         max_round_attempts:int max_block_size:int max_collated_data_size:int = validatorSession.Config;
@@ -962,7 +963,7 @@ validatorStats.blockStats
     old_out_msg_queue_size:long new_out_msg_queue_size:long msg_queue_cleaned:int
     neighbors:(vector validatorStats.blockStats.neighborStats) = validatorStats.BlockStats;
 validatorStats.collateWorkTimeStats
-    total:double queue_cleanup:double prelim_storage_stat:double trx_tvm:double trx_storage_stat:double
+    total:double optimistic_apply:double queue_cleanup:double prelim_storage_stat:double trx_tvm:double trx_storage_stat:double
     trx_other:double final_storage_stat:double create_block:double create_collated_data:double create_block_candidate:double
     = validatorStats.CollateWorkTimeStats;
 validatorStats.storageStatCacheStats

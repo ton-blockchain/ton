@@ -334,7 +334,7 @@ void OutMsgQueueImporter::get_proof_local(std::shared_ptr<CacheEntry> entry, Blo
     return;
   }
   td::actor::send_closure(
-      manager_, &ValidatorManager::wait_block_state_short, block, 0, entry->timeout,
+      manager_, &ValidatorManager::wait_block_state_short, block, 0, entry->timeout, false,
       [=, SelfId = actor_id(this), manager = manager_, timeout = entry->timeout,
        retry_after = td::Timestamp::in(0.1)](td::Result<Ref<ShardState>> R) mutable {
         if (R.is_error()) {

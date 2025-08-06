@@ -58,33 +58,21 @@ static constexpr int MAX_ATTEMPTS = 5;
 /**
  * Constructs a Collator object.
  *
- * @param shard The shard of the new block.
- * @param is_hardfork A boolean indicating whether the new block is a hardfork.
- * @param min_masterchain_block_id The the minimum reference masterchain block.
- * @param prev A vector of BlockIdExt representing the previous blocks.
- * @param validator_set A reference to the ValidatorSet.
- * @param collator_id The public key of the block creator.
- * @param collator_opts A reference to CollatorOptions.
+ * @param params Collator parameters
  * @param manager The ActorId of the ValidatorManager.
  * @param timeout The timeout for the collator.
- * @param promise The promise to return the result.
- * @param collator_node_id ADNL id of the collator node that generates the block (zero if it's not a collator node)
  * @param cancellation_token Token to cancel collation.
- * @param mode +1 - skip storing candidate to disk, +2 - called from CollatorNode.
- * @param attempt_idx The index of the attempt, starting from 0. On later attempts collator decreases block limits and skips some steps.
+ * @param promise The promise to return the result.
  */
-Collator::Collator(ShardIdFull shard, bool is_hardfork, BlockIdExt min_masterchain_block_id,
-                   std::vector<BlockIdExt> prev, td::Ref<ValidatorSet> validator_set, Ed25519_PublicKey collator_id,
-                   Ref<CollatorOptions> collator_opts, td::actor::ActorId<ValidatorManager> manager,
-                   td::Timestamp timeout, td::Promise<BlockCandidate> promise, adnl::AdnlNodeIdShort collator_node_id,
-                   td::CancellationToken cancellation_token, unsigned mode, int attempt_idx)
-    : shard_(shard)
-    , is_hardfork_(is_hardfork)
-    , min_mc_block_id{min_masterchain_block_id}
-    , prev_blocks(std::move(prev))
-    , created_by_(collator_id)
-    , collator_opts_(collator_opts)
-    , validator_set_(std::move(validator_set))
+Collator::Collator(CollateParams params, td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
+         td::CancellationToken cancellation_token, td::Promise<BlockCandidate> promise)
+    : shard_(params.shard)
+    , is_hardfork_(params.is_hardfork)
+    , min_mc_block_id{params.min_masterchain_block_id}
+    , prev_blocks(std::move(params.prev))
+    , created_by_(params.creator)
+    , collator_opts_(params.collator_opts.is_null() ? td::Ref<CollatorOptions>{true} : params.collator_opts)
+    , validator_set_(std::move(params.validator_set))
     , manager(manager)
     , timeout(timeout)
     // default timeout is 10 seconds, declared in validator/validator-group.cpp:generate_block_candidate:run_collate_query
@@ -92,9 +80,10 @@ Collator::Collator(ShardIdFull shard, bool is_hardfork, BlockIdExt min_mastercha
     , soft_timeout_(td::Timestamp::at(timeout.at() - 3.0))
     , medium_timeout_(td::Timestamp::at(timeout.at() - 1.5))
     , main_promise(std::move(promise))
-    , collator_node_id_(collator_node_id)
-    , mode_(mode)
-    , attempt_idx_(attempt_idx)
+    , collator_node_id_(params.collator_node_id)
+    , skip_store_candidate_(params.skip_store_candidate)
+    , optimistic_prev_block_(std::move(params.optimistic_prev_block_))
+    , attempt_idx_(params.attempt_idx)
     , perf_timer_("collate", 0.1,
                   [manager](double duration) {
                     send_closure(manager, &ValidatorManager::add_perf_timer_stat, "collate", duration);
@@ -204,6 +193,16 @@ void Collator::start_up() {
       return;
     }
   }
+  if (optimistic_prev_block_.not_null()) {
+    if (prev_blocks.size() != 1) {
+      fatal_error(-666, "optimistic prev block is not null, which is not allowed after merge");
+      return;
+    }
+    if (prev_blocks[0] != optimistic_prev_block_->block_id()) {
+      fatal_error(-666, "optimistic prev block is not null, but has invalid block id");
+      return;
+    }
+  }
   busy_ = true;
   step = 1;
   if (!is_masterchain()) {
@@ -239,32 +238,10 @@ void Collator::start_up() {
   // 3. load previous block(s) and corresponding state(s)
   prev_states.resize(prev_blocks.size());
   prev_block_data.resize(prev_blocks.size());
-  for (int i = 0; (unsigned)i < prev_blocks.size(); i++) {
-    // 3.1. load state
-    LOG(DEBUG) << "sending wait_block_state() query #" << i << " for " << prev_blocks[i].to_str() << " to Manager";
-    ++pending;
-    auto token = perf_log_.start_action(PSTRING() << "wait_block_state #" << i);
-    td::actor::send_closure_later(
-        manager, &ValidatorManager::wait_block_state_short, prev_blocks[i], priority(), timeout,
-        [self = get_self(), i, token = std::move(token)](td::Result<Ref<ShardState>> res) mutable {
-          LOG(DEBUG) << "got answer to wait_block_state query #" << i;
-          td::actor::send_closure_later(std::move(self), &Collator::after_get_shard_state, i, std::move(res),
-                                        std::move(token));
-        });
-    if (prev_blocks[i].seqno()) {
-      // 3.2. load block
-      // NB: we need the block itself only for extracting start_lt and end_lt to create correct prev_blk:ExtBlkRef and related Merkle proofs
-      LOG(DEBUG) << "sending wait_block_data() query #" << i << " for " << prev_blocks[i].to_str() << " to Manager";
-      ++pending;
-      auto token = perf_log_.start_action(PSTRING() << "wait_block_data #" << i);
-      td::actor::send_closure_later(
-          manager, &ValidatorManager::wait_block_data_short, prev_blocks[i], priority(), timeout,
-          [self = get_self(), i, token = std::move(token)](td::Result<Ref<BlockData>> res) mutable {
-            LOG(DEBUG) << "got answer to wait_block_data query #" << i;
-            td::actor::send_closure_later(std::move(self), &Collator::after_get_block_data, i, std::move(res),
-                                          std::move(token));
-          });
-    }
+  if (optimistic_prev_block_.is_null()) {
+    load_prev_states_blocks();
+  } else {
+    process_optimistic_prev_block();
   }
   if (is_hardfork_) {
     LOG(WARNING) << "generating a hardfork block";
@@ -311,6 +288,86 @@ void Collator::start_up() {
   alarm_timestamp() = timeout;
   CHECK(pending);
 }
+
+/**
+ * Load previous states and blocks from DB
+ */
+void Collator::load_prev_states_blocks() {
+  for (int i = 0; (unsigned)i < prev_blocks.size(); i++) {
+    // 3.1. load state
+    LOG(DEBUG) << "sending wait_block_state() query #" << i << " for " << prev_blocks[i].to_str() << " to Manager";
+    ++pending;
+    auto token = perf_log_.start_action(PSTRING() << "wait_block_state #" << i);
+    td::actor::send_closure_later(
+        manager, &ValidatorManager::wait_block_state_short, prev_blocks[i], priority(), timeout, false,
+        [self = get_self(), i, token = std::move(token)](td::Result<Ref<ShardState>> res) mutable {
+          LOG(DEBUG) << "got answer to wait_block_state query #" << i;
+          td::actor::send_closure_later(std::move(self), &Collator::after_get_shard_state, i, std::move(res),
+                                        std::move(token));
+        });
+    if (prev_blocks[i].seqno()) {
+      // 3.2. load block
+      LOG(DEBUG) << "sending wait_block_data() query #" << i << " for " << prev_blocks[i].to_str() << " to Manager";
+      ++pending;
+      auto token = perf_log_.start_action(PSTRING() << "wait_block_data #" << i);
+      td::actor::send_closure_later(
+          manager, &ValidatorManager::wait_block_data_short, prev_blocks[i], priority(), timeout,
+          [self = get_self(), i, token = std::move(token)](td::Result<Ref<BlockData>> res) mutable {
+            LOG(DEBUG) << "got answer to wait_block_data query #" << i;
+            td::actor::send_closure_later(std::move(self), &Collator::after_get_block_data, i, std::move(res),
+                                          std::move(token));
+          });
+    }
+  }
+}
+
+/**
+ * Write optimistic prev block as block data, load previous state to apply Merkle update to it
+ */
+void Collator::process_optimistic_prev_block() {
+  std::vector<BlockIdExt> prev_prev;
+  BlockIdExt mc_blkid;
+  bool after_split;
+  auto S = block::unpack_block_prev_blk_try(optimistic_prev_block_->root_cell(), optimistic_prev_block_->block_id(),
+                                            prev_prev, mc_blkid, after_split);
+  if (S.is_error()) {
+    fatal_error(S.move_as_error_prefix("failed to unpack optimistic prev block: "));
+    return;
+  }
+  // 3.1. load state
+  if (prev_prev.size() == 1) {
+    LOG(DEBUG) << "sending wait_block_state() query for " << prev_prev[0].to_str() << " to Manager (opt)";
+    ++pending;
+    auto token = perf_log_.start_action("opt wait_block_state");
+    td::actor::send_closure_later(
+        manager, &ValidatorManager::wait_block_state_short, prev_prev[0], priority(), timeout, false,
+        [self = get_self(), token = std::move(token)](td::Result<Ref<ShardState>> res) mutable {
+          LOG(DEBUG) << "got answer to wait_block_state query (opt)";
+          td::actor::send_closure_later(std::move(self), &Collator::after_get_shard_state_optimistic, std::move(res),
+                                        std::move(token));
+        });
+  } else {
+    CHECK(prev_prev.size() == 2);
+    LOG(DEBUG) << "sending wait_block_state_merge() query for " << prev_prev[0].to_str() << " and "
+               << prev_prev[1].to_str() << " to Manager (opt)";
+    ++pending;
+    auto token = perf_log_.start_action("opt wait_block_state_merge");
+    td::actor::send_closure_later(
+        manager, &ValidatorManager::wait_block_state_merge, prev_prev[0], prev_prev[1], priority(), timeout,
+        [self = get_self(), token = std::move(token)](td::Result<Ref<ShardState>> res) mutable {
+          LOG(DEBUG) << "got answer to wait_block_state_merge query (opt)";
+          td::actor::send_closure_later(std::move(self), &Collator::after_get_shard_state_optimistic, std::move(res),
+                                        std::move(token));
+        });
+  }
+  // 3.2. load block
+  LOG(DEBUG) << "use optimistic prev block " << prev_blocks[0].to_str();
+  ++pending;
+  auto token = perf_log_.start_action(PSTRING() << "opt wait_block_data");
+  td::actor::send_closure_later(actor_id(this), &Collator::after_get_block_data, 0, optimistic_prev_block_,
+                                std::move(token));
+}
+
 
 /**
  * Raises an error when timeout is reached.
@@ -377,9 +434,18 @@ bool Collator::fatal_error(td::Status error) {
     if (allow_repeat_collation_ && error.code() != ErrorCode::cancelled && attempt_idx_ + 1 < MAX_ATTEMPTS &&
         !is_hardfork_ && !timeout.is_in_past()) {
       LOG(WARNING) << "Repeating collation (attempt #" << attempt_idx_ + 1 << ")";
-      run_collate_query(shard_, min_mc_block_id, prev_blocks, created_by_, validator_set_, collator_opts_, manager,
-                        td::Timestamp::in(10.0), std::move(main_promise), collator_node_id_,
-                        std::move(cancellation_token_), mode_, attempt_idx_ + 1);
+      run_collate_query(CollateParams{.shard = shard_,
+                                      .min_masterchain_block_id = min_mc_block_id,
+                                      .prev = prev_blocks,
+                                      .is_hardfork = false,
+                                      .creator = created_by_,
+                                      .validator_set = validator_set_,
+                                      .collator_opts = collator_opts_,
+                                      .collator_node_id = collator_node_id_,
+                                      .skip_store_candidate = skip_store_candidate_,
+                                      .attempt_idx = attempt_idx_ + 1,
+                                      .optimistic_prev_block_ = optimistic_prev_block_},
+                        manager, td::Timestamp::in(10.0), std::move(cancellation_token_), std::move(main_promise));
     } else {
       LOG(INFO) << "collation failed in " << perf_timer_.elapsed() << " s " << error;
       LOG(INFO) << perf_log_;
@@ -508,7 +574,7 @@ bool Collator::request_aux_mc_state(BlockSeqno seqno, Ref<MasterchainStateQ>& st
   ++pending;
   auto token = perf_log_.start_action(PSTRING() << "auxiliary wait_block_state " << blkid.to_str());
   td::actor::send_closure_later(
-      manager, &ValidatorManager::wait_block_state_short, blkid, priority(), timeout,
+      manager, &ValidatorManager::wait_block_state_short, blkid, priority(), timeout, false,
       [self = get_self(), blkid, token = std::move(token)](td::Result<Ref<ShardState>> res) mutable {
         LOG(DEBUG) << "got answer to wait_block_state query for " << blkid.to_str();
         td::actor::send_closure_later(std::move(self), &Collator::after_get_aux_shard_state, blkid, std::move(res),
@@ -678,7 +744,7 @@ void Collator::after_get_shard_state(int idx, td::Result<Ref<ShardState>> res, t
  * Callback function called after retrieving block data for a previous block.
  *
  * @param idx The index of the previous block (0 or 1).
- * @param res The retreved block data.
+ * @param res The retrieved block data.
  */
 void Collator::after_get_block_data(int idx, td::Result<Ref<BlockData>> res, td::PerfLogAction token) {
   LOG(DEBUG) << "in Collator::after_get_block_data(" << idx << ")";
@@ -755,6 +821,31 @@ void Collator::after_get_storage_stat_cache(td::Result<std::function<td::Ref<vm:
     storage_stat_cache_ = res.move_as_ok();
   }
   check_pending();
+}
+
+/**
+ * Callback function called after retrieving previous state for optimistic prev block
+ *
+ * @param res The retrieved state.
+ */
+void Collator::after_get_shard_state_optimistic(td::Result<Ref<ShardState>> res, td::PerfLogAction token) {
+  LOG(DEBUG) << "in Collator::after_get_shard_state_optimistic()";
+  token.finish(res);
+  if (res.is_error()) {
+    fatal_error(res.move_as_error());
+    return;
+  }
+  td::RealCpuTimer timer;
+  work_timer_.resume();
+  auto state = res.move_as_ok();
+  auto S = state.write().apply_block(optimistic_prev_block_->block_id(), optimistic_prev_block_);
+  if (S.is_error()) {
+    fatal_error(S.move_as_error_prefix("apply error: "));
+    return;
+  }
+  work_timer_.pause();
+  stats_.work_time.optimistic_apply = timer.elapsed_both();
+  after_get_shard_state(0, std::move(state), {});
 }
 
 /**
@@ -896,7 +987,9 @@ bool Collator::request_neighbor_msg_queues() {
   unsigned i = 0;
   for (block::McShardDescr& descr : neighbors_) {
     LOG(DEBUG) << "neighbor #" << i << " : " << descr.blk_.to_str();
-    top_blocks.push_back(descr.blk_);
+    if (prev_block_idx(descr.blk_) == -1) {
+      top_blocks.push_back(descr.blk_);
+    }
     ++i;
   }
   ++pending;
@@ -935,8 +1028,7 @@ bool Collator::request_out_msg_queue_size() {
 /**
  * Handles the result of obtaining the outbound queue for a neighbor.
  *
- * @param i The index of the neighbor.
- * @param res The obtained outbound queue.
+ * @param R The result of retrieving neighbor message queues (top block id -> queue).
  */
 void Collator::got_neighbor_msg_queues(td::Result<std::map<BlockIdExt, Ref<OutMsgQueueProof>>> R,
                                        td::PerfLogAction token) {
@@ -952,12 +1044,17 @@ void Collator::got_neighbor_msg_queues(td::Result<std::map<BlockIdExt, Ref<OutMs
   stats_.neighbors.resize(neighbors_.size());
   for (block::McShardDescr& descr : neighbors_) {
     LOG(DEBUG) << "neighbor #" << i << " : " << descr.blk_.to_str();
-    auto it = res.find(descr.blk_);
-    if (it == res.end()) {
-      fatal_error(PSTRING() << "no msg queue from neighbor #" << i);
-      return;
+    if (int prev_idx = prev_block_idx(descr.blk_); prev_idx >= 0) {
+      got_neighbor_msg_queue(
+          i, Ref<OutMsgQueueProof>{true, descr.blk_, prev_states[prev_idx]->root_cell(), td::Ref<vm::Cell>{}, true});
+    } else {
+      auto it = res.find(descr.blk_);
+      if (it == res.end()) {
+        fatal_error(PSTRING() << "no msg queue from neighbor #" << i);
+        return;
+      }
+      got_neighbor_msg_queue(i, it->second);
     }
-    got_neighbor_msg_queue(i, it->second);
     ++i;
   }
   check_pending();
@@ -6393,7 +6490,7 @@ bool Collator::create_block_candidate() {
                                  << consensus_config.max_collated_data_size << ")");
   }
   // 4. save block candidate
-  if (mode_ & CollateMode::skip_store_candidate) {
+  if (skip_store_candidate_) {
     td::actor::send_closure_later(actor_id(this), &Collator::return_block_candidate, td::Unit());
   } else {
     LOG(INFO) << "saving new BlockCandidate";
@@ -6579,7 +6676,7 @@ void Collator::finalize_stats() {
   stats_.cc_seqno = validator_set_.not_null() ? validator_set_->get_catchain_seqno() : 0;
   stats_.collated_at = td::Clocks::system();
   stats_.attempt = attempt_idx_;
-  stats_.is_validator = !(mode_ & CollateMode::from_collator_node);
+  stats_.is_validator = collator_node_id_.is_zero();
   stats_.self = stats_.is_validator ? PublicKey(pubkeys::Ed25519(created_by_)).compute_short_id()
                                     : collator_node_id_.pubkey_hash();
   if (block_limit_status_) {

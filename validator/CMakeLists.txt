@@ -64,7 +64,8 @@ set(VALIDATOR_HEADERS
   shard-block-retainer.hpp
 
   collation-manager.hpp
-  collator-node.hpp
+  collator-node/collator-node.hpp
+  collator-node/collator-node-session.hpp
   manager-disk.h
   manager-disk.hpp
   manager-init.h
@@ -81,7 +82,8 @@ set(VALIDATOR_SOURCE
   apply-block.cpp
   block-handle.cpp
   collation-manager.cpp
-  collator-node.cpp
+  collator-node/collator-node.cpp
+  collator-node/collator-node-session.cpp
   get-next-key-blocks.cpp
   import-db-slice.cpp
   import-db-slice-local.cpp

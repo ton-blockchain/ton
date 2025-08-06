@@ -160,6 +160,9 @@ class PerfLog {
 };
 template <class T>
 double PerfLogAction::finish(const T &result) {
+  if (!perf_log_) {
+    return 0.0;
+  }
   if (result.is_ok()) {
     return perf_log_->finish_action(i_, td::Status::OK());
   } else {

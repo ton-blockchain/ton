@@ -93,6 +93,9 @@ class ValidatorSession : public td::actor::Actor {
                                         ValidatorSessionFileHash file_hash,
                                         ValidatorSessionCollatedDataFileHash collated_data_file_hash,
                                         td::Promise<BlockCandidate> promise) = 0;
+    virtual void generate_block_optimistic(BlockSourceInfo source_info, td::BufferSlice prev_block, RootHash prev_root_hash,
+                                    FileHash prev_file_hash, td::Promise<GeneratedCandidate> promise) {
+    }
     virtual ~Callback() = default;
   };
 

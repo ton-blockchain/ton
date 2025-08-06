@@ -39,6 +39,12 @@ class CollationManager : public td::actor::Actor {
                      td::uint64 max_answer_size, td::CancellationToken cancellation_token,
                      td::Promise<GeneratedCandidate> promise, int proto_version);
 
+  void collate_next_block(ShardIdFull shard, BlockIdExt min_masterchain_block_id, BlockIdExt prev_block_id,
+                          td::BufferSlice prev_block, Ed25519_PublicKey creator, BlockCandidatePriority priority,
+                          td::Ref<ValidatorSet> validator_set, td::uint64 max_answer_size,
+                          td::CancellationToken cancellation_token, td::Promise<GeneratedCandidate> promise,
+                          int proto_version);
+
   void update_options(td::Ref<ValidatorManagerOptions> opts);
 
   void validator_group_started(ShardIdFull shard);
