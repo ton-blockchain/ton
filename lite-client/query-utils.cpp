@@ -320,14 +320,18 @@ td::Result<std::vector<LiteServerConfig>> LiteServerConfig::parse_global_config(
   std::vector<LiteServerConfig> servers;
   for (const auto& f : config.liteservers_) {
     LiteServerConfig server;
-    TRY_STATUS(server.addr.init_host_port(td::IPAddress::ipv4_to_str(f->ip_), f->port_));
+    // Support both numeric and human-readable IP formats
+    auto ip_str = td::IPAddress::ipv4_to_str(f->ip_);
+    TRY_STATUS(server.addr.init_host_port(ip_str, f->port_));
     server.adnl_id = adnl::AdnlNodeIdFull{PublicKey{f->id_}};
     server.is_full = true;
     servers.push_back(std::move(server));
   }
   for (const auto& f : config.liteservers_v2_) {
     LiteServerConfig server;
-    TRY_STATUS(server.addr.init_host_port(td::IPAddress::ipv4_to_str(f->ip_), f->port_));
+    // Support both numeric and human-readable IP formats
+    auto ip_str = td::IPAddress::ipv4_to_str(f->ip_);
+    TRY_STATUS(server.addr.init_host_port(ip_str, f->port_));
     server.adnl_id = adnl::AdnlNodeIdFull{PublicKey{f->id_}};
     server.is_full = false;
     for (const auto& slice_obj : f->slices_) {
