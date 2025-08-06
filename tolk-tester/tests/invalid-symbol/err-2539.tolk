@@ -1,9 +1,9 @@
 import "@stdlib/tvm-dicts"
-import "../imports/use-dicts-err.tolk"
+import "../imports/use-dicts-err"
 
 /**
 @compilation_should_fail
-@stderr ../imports/use-dicts-err.tolk:2:22
+@stderr tests/imports/use-dicts-err.tolk:2:22
 @stderr Using a non-imported symbol `createEmptyDict`
-@stderr Forgot to import "@stdlib/tvm-dicts"?
+@stderr hint: forgot to import "@stdlib/tvm-dicts"?
  */

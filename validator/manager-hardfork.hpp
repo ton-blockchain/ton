@@ -201,9 +201,9 @@ class ValidatorManagerImpl : public ValidatorManager {
   void store_zero_state_file(BlockIdExt block_id, td::BufferSlice state, td::Promise<td::Unit> promise) override {
     UNREACHABLE();
   }
-  void wait_block_state(BlockHandle handle, td::uint32 priority, td::Timestamp timeout,
+  void wait_block_state(BlockHandle handle, td::uint32 priority, td::Timestamp timeout, bool wait_store,
                         td::Promise<td::Ref<ShardState>> promise) override;
-  void wait_block_state_short(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
+  void wait_block_state_short(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout, bool wait_store,
                               td::Promise<td::Ref<ShardState>> promise) override;
   void wait_neighbor_msg_queue_proofs(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks, td::Timestamp timeout,
                                       td::Promise<std::map<BlockIdExt, td::Ref<OutMsgQueueProof>>> promise) override {

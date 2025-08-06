@@ -64,7 +64,7 @@ class PackContext {
 public:
   const std::vector<var_idx_t> ir_builder;
   const var_idx_t ir_builder0;
-  const var_idx_t option_skipBitsNFieldsValidation;
+  const var_idx_t option_skipBitsNValidation;
 
   PackContext(CodeBlob& code, SrcLocation loc, std::vector<var_idx_t> ir_builder, const std::vector<var_idx_t>& ir_options);
 
@@ -91,6 +91,22 @@ enum class PrefixReadMode {
   DoNothingAlreadyLoaded,
 };
 
+struct LazyMatchOptions {
+  struct MatchBlock {
+    TypePtr arm_variant;          // left of `V => ...`; nullptr for `else => ...`
+    AnyExprV v_body;              // right of `V => ...`
+    TypePtr block_expr_type;      // for match expression, if `V => expr`, it's expr's inferred_type
+  };
+
+  TypePtr match_expr_type;        // type of `match` expression, `void` for statement
+  bool is_statement;              // it's `match` statement, not expression, so it does not return any result
+  bool add_return_to_all_arms;    // it's the last statement in a function, add "return" to its cases for better Fift code
+  std::vector<MatchBlock> match_blocks;
+
+  const MatchBlock* find_match_block(TypePtr variant) const;
+  void save_match_result_on_arm_end(CodeBlob& code, SrcLocation loc, const MatchBlock* arm_block, std::vector<var_idx_t>&& ir_arm_result, const std::vector<var_idx_t>& ir_match_expr_result) const;
+};
+
 class UnpackContext {
   CodeBlob& code;
   SrcLocation loc;
@@ -115,9 +131,11 @@ public:
   void skipBits(int len) const;
   void skipBits_var(var_idx_t ir_len) const;
   void assertEndIfOption() const;
+  void throwInvalidOpcode() const;
 
   std::vector<var_idx_t> generate_unpack_any(TypePtr any_type, PrefixReadMode prefix_mode = PrefixReadMode::LoadAndCheck) const;
   void generate_skip_any(TypePtr any_type, PrefixReadMode prefix_mode = PrefixReadMode::LoadAndCheck) const;
+  std::vector<var_idx_t> generate_lazy_match_any(TypePtr any_type, const LazyMatchOptions& options) const;
 };
 
 
@@ -145,6 +163,7 @@ public:
 
 
 bool is_type_cellT(TypePtr any_type);
+FunctionPtr get_custom_pack_unpack_function(TypePtr receiver_type, bool is_pack);
 std::vector<PackOpcode> auto_generate_opcodes_for_union(TypePtr union_type, std::string& because_msg);
 
 } // namespace tolk

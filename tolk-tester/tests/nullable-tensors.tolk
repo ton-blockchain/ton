@@ -9,14 +9,17 @@ fun sumOfNullableTensorComponents(t: (int, int)?): int {
     return t!.0 + t!.1;
 }
 
+@noinline
 fun isTensorNull(t: (int, int)?) {
     return t == null;
 }
 
+@noinline
 fun (int, int)?.isTensorNull(self) {
     return self == null;
 }
 
+@noinline
 fun incrementNullableTensorComponents(mutate t: (int, int)?) {
     if (t != null) {
         t!.0 += 1;
@@ -37,12 +40,14 @@ fun incrementTensorComponents(mutate t: (int, int)) {
     t.1 += 1;
 }
 
+@noinline
 fun (int, int).incrementTensorComponents(mutate self): self {
     self.0 += 1;
     self.1 += 1;
     return self;
 }
 
+@noinline
 fun assignFirstComponent(mutate t: (int, int), first: int) {
     t!.0 = first;
 }
@@ -550,7 +555,7 @@ fun main(){}
 
 @fif_codegen
 """
-  isTensorNull PROC:<{  //  t.0 t.1 t.UTag
+  isTensorNull() PROC:<{//  t.0 t.1 t.UTag
     2 1 BLKDROP2	    //  t.UTag
     0 EQINT	//  '3
   }>
@@ -558,14 +563,14 @@ fun main(){}
 
 @fif_codegen
 """
-  test113 PROC:<{
+  test113() PROC:<{
     1 PUSHINT	//  '2=1
     PUSHNULL	//  '2=1 '3
     PAIR	//  t
     1 INDEX	//  '5
     PUSHNULL	//  '5 '6
     0 PUSHINT	//  '5 '6 '7=0
-    isTensorNull CALLDICT	//  '8
+    isTensorNull() CALLDICT	//  '8
   }>
 """
 */

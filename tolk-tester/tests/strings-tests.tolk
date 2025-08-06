@@ -1,20 +1,20 @@
-get ascii_slice(): slice {
+get fun ascii_slice(): slice {
   return"string";
 }
 
-get raw_slice(): slice {
+get fun raw_slice(): slice {
   return stringHexToSlice("abcdef");
 }
 
-get addr_slice(): address {
+get fun addr_slice(): address {
   return address("Ef8zMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM0vF");
 }
 
-get string_hex(): int {
+get fun string_hex(): int {
   return stringToBase256("ABCDEFGHIJKLMNOPQRSTUVWXYZ012345");
 }
 
-get fun string_minihash(): int {    // 'get' and 'get fun' both possible
+get fun string_minihash(): int {
   return stringSha256_32("transfer(slice, int)");
 }
 
@@ -78,5 +78,5 @@ fun test1() {
 @testcase | 0   | | 0
 @testcase | 101 | | [ 65 66 67 68 ]
 
-@code_hash 61963905046482786665931036224265588524206004864815957521622605110240907698574
+@code_hash 52991558142486159683575375539594116045551936710713942466413832119934760926753
 */

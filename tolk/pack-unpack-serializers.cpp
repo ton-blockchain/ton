@@ -36,9 +36,11 @@
 
 namespace tolk {
 
-
+class LValContext;
+std::vector<var_idx_t> pre_compile_expr(AnyExprV v, CodeBlob& code, TypePtr target_type = nullptr, LValContext* lval_ctx = nullptr);
 std::vector<var_idx_t> pre_compile_is_type(CodeBlob& code, TypePtr expr_type, TypePtr cmp_type, const std::vector<var_idx_t>& expr_ir_idx, SrcLocation loc, const char* debug_desc);
 std::vector<var_idx_t> transition_to_target_type(std::vector<var_idx_t>&& rvect, CodeBlob& code, TypePtr original_type, TypePtr target_type, SrcLocation loc);
+std::vector<var_idx_t> gen_inline_fun_call_in_place(CodeBlob& code, TypePtr ret_type, SrcLocation loc, FunctionPtr f_inlined, AnyExprV self_obj, bool is_before_immediate_return, const std::vector<std::vector<var_idx_t>>& vars_per_arg);
 
 bool is_type_cellT(TypePtr any_type) {
   if (const TypeDataStruct* t_struct = any_type->try_as<TypeDataStruct>()) {
@@ -48,6 +50,24 @@ bool is_type_cellT(TypePtr any_type) {
   return false;
 }
 
+// For any type alias, one can declare custom pack/unpack functions:
+// > type TelegramString = slice
+// > fun TelegramString.packToBuilder(self, mutate b: builder) { ... }
+// > fun TelegramString.unpackFromSlice(mutate s: slice): TelegramString { ... }
+// It's externally checked in advance that it's declared correctly.
+FunctionPtr get_custom_pack_unpack_function(TypePtr receiver_type, bool is_pack) {
+  if (const TypeDataAlias* t_alias = receiver_type->try_as<TypeDataAlias>()) {
+    if (t_alias->alias_ref->is_instantiation_of_generic_alias()) {
+      // does not work for generic aliases currently, because `MyAlias<ConcreteT>.pack` was not instantiated earlier
+      return nullptr;
+    }
+    std::string receiver_name = t_alias->alias_ref->as_human_readable();
+    if (const Symbol* sym = lookup_global_symbol(receiver_name + (is_pack ? ".packToBuilder" : ".unpackFromSlice"))) {
+      return sym->try_as<FunctionPtr>();
+    }
+  }
+  return nullptr;
+}
 
 // --------------------------------------------
 //    options, context, common helpers
@@ -64,7 +84,7 @@ PackContext::PackContext(CodeBlob& code, SrcLocation loc, std::vector<var_idx_t>
   , f_storeUint(lookup_function("builder.storeUint"))
   , ir_builder(std::move(ir_builder))
   , ir_builder0(this->ir_builder[0])
-  , option_skipBitsNFieldsValidation(ir_options[0]) {
+  , option_skipBitsNValidation(ir_options[0]) {
 }
 
 void PackContext::storeInt(var_idx_t ir_idx, int len) const {
@@ -182,6 +202,34 @@ void UnpackContext::assertEndIfOption() const {
   }
 }
 
+void UnpackContext::throwInvalidOpcode() const {
+  std::vector args_throw = { option_throwIfOpcodeDoesNotMatch };
+  Op& op_throw = code.emplace_back(loc, Op::_Call, std::vector<var_idx_t>{}, std::move(args_throw), lookup_function("__throw"));
+  op_throw.set_impure_flag();
+}
+
+const LazyMatchOptions::MatchBlock* LazyMatchOptions::find_match_block(TypePtr variant) const {
+  for (const MatchBlock& b : match_blocks) {
+    if (b.arm_variant->get_type_id() == variant->get_type_id()) {
+      return &b;
+    }
+  }
+  tolk_assert(false);
+}
+
+void LazyMatchOptions::save_match_result_on_arm_end(CodeBlob& code, SrcLocation loc, const MatchBlock* arm_block, std::vector<var_idx_t>&& ir_arm_result, const std::vector<var_idx_t>& ir_match_expr_result) const {
+  if (!is_statement) {
+    // if it's `match` expression (not statement), then every arm has a result, assigned to a whole `match` result
+    ir_arm_result = transition_to_target_type(std::move(ir_arm_result), code, arm_block->block_expr_type, match_expr_type, loc);
+    code.emplace_back(loc, Op::_Let, ir_match_expr_result, std::move(ir_arm_result));
+  } else if (add_return_to_all_arms) {
+    // if it's `match` statement, even if an arm is an expression, it's void, actually
+    // moreover, if it's the last statement in a function, add implicit "return" to all match cases to produce IFJMP
+    code.emplace_back(loc, Op::_Return);
+  }
+}
+
+
 // --------------------------------------------
 //    serializers with pack/unpack/skip/estimate
 //
@@ -235,16 +283,51 @@ struct S_IntN final : ISerializer {
   }
 };
 
-struct S_BytesN final : ISerializer {
+struct S_VariadicIntN final : ISerializer {
+  const int n_bits;           // only 16 and 32 available
+  const bool is_unsigned;
+
+  explicit S_VariadicIntN(int n_bits, bool is_unsigned)
+    : n_bits(n_bits), is_unsigned(is_unsigned) {}
+
+  void pack(const PackContext* ctx, CodeBlob& code, SrcLocation loc, std::vector<var_idx_t>&& rvect) override {
+    FunctionPtr f_storeVarInt = lookup_function("builder.__storeVarInt");
+    std::vector args = { ctx->ir_builder0, rvect[0], code.create_int(loc, n_bits, "(n-bits)"), code.create_int(loc, is_unsigned, "(is-unsigned)") };
+    code.emplace_back(loc, Op::_Call, ctx->ir_builder, std::move(args), f_storeVarInt);
+  }
+
+  std::vector<var_idx_t> unpack(const UnpackContext* ctx, CodeBlob& code, SrcLocation loc) override {
+    FunctionPtr f_loadVarInt = lookup_function("slice.__loadVarInt");
+    std::vector args = { ctx->ir_slice0, code.create_int(loc, n_bits, "(n-bits)"), code.create_int(loc, is_unsigned, "(is-unsigned)") };
+    std::vector result = code.create_tmp_var(TypeDataInt::create(), loc, "(loaded-varint)");
+    code.emplace_back(loc, Op::_Call, std::vector{ctx->ir_slice0, result[0]}, std::move(args), f_loadVarInt);
+    return result;
+  }
+
+  void skip(const UnpackContext* ctx, CodeBlob& code, SrcLocation loc) override {
+    // no TVM instruction to skip, just load but don't use the result
+    unpack(ctx, code, loc);
+  }
+
+  PackSize estimate(const EstimateContext* ctx) override {
+    if (n_bits == 32) {
+      return PackSize(5, 253);
+    } else {
+      return PackSize(4, 124);    // same as `coins`
+    }
+  }
+};
+
+struct S_BitsN final : ISerializer {
   const int n_bits;
 
-  explicit S_BytesN(int n_width, bool is_bits)
+  explicit S_BitsN(int n_width, bool is_bits)
     : n_bits(is_bits ? n_width : n_width * 8) {}
 
   void pack(const PackContext* ctx, CodeBlob& code, SrcLocation loc, std::vector<var_idx_t>&& rvect) override {
     tolk_assert(rvect.size() == 1);
 
-    Op& if_disabled_by_user = code.emplace_back(loc, Op::_If, std::vector{ctx->option_skipBitsNFieldsValidation});
+    Op& if_disabled_by_user = code.emplace_back(loc, Op::_If, std::vector{ctx->option_skipBitsNValidation});
     {
       code.push_set_cur(if_disabled_by_user.block0);
       code.close_pop_cur(loc);
@@ -371,10 +454,8 @@ struct S_Coins final : ISerializer {
   }
 
   void skip(const UnpackContext* ctx, CodeBlob& code, SrcLocation loc) override {
-    FunctionPtr f_loadCoins = lookup_function("slice.loadCoins");
-    std::vector args = ctx->ir_slice;
-    std::vector dummy_loaded = code.create_tmp_var(TypeDataInt::create(), loc, "(loaded-coins)");
-    code.emplace_back(loc, Op::_Call, std::vector{ctx->ir_slice0, dummy_loaded[0]}, std::move(args), f_loadCoins);
+    // no TVM instruction to skip, just load but don't use the result
+    unpack(ctx, code, loc);
   }
 
   PackSize estimate(const EstimateContext* ctx) override {
@@ -399,9 +480,7 @@ struct S_Address final : ISerializer {
     // we can't do just
     // ctx->skipBits(2 + 1 + 8 + 256);
     // because it may be addr_none or addr_extern; there is no "skip address" in TVM, so just load it
-    FunctionPtr f_loadAddress = lookup_function("slice.loadAddress");
-    std::vector ir_address = code.create_tmp_var(TypeDataSlice::create(), loc, "(tmp-addr)");
-    code.emplace_back(loc, Op::_Call, std::vector{ctx->ir_slice0, ir_address[0]}, ctx->ir_slice, f_loadAddress);
+    unpack(ctx, code, loc);
   }
 
   PackSize estimate(const EstimateContext* ctx) override {
@@ -638,6 +717,34 @@ struct S_Either final : ISerializer {
     return ir_result;
   }
 
+  std::vector<var_idx_t> lazy_match(const UnpackContext* ctx, CodeBlob& code, SrcLocation loc, const LazyMatchOptions& options) const {
+    for (const LazyMatchOptions::MatchBlock& m : options.match_blocks) {
+      if (m.arm_variant == nullptr) {   // `else => ...` not allowed for Either
+        // it's not the best place to fire an error, but let it be
+        throw ParseError(loc, "`else` is unreachable, because this `match` has only two options (0/1 prefixes)");
+      }
+    }
+    tolk_assert(options.match_blocks.size() == 2);
+    std::vector ir_result = code.create_tmp_var(options.match_expr_type, loc, "(match-expression)");
+    std::vector ir_is_right = ctx->loadUint(1, "(eitherBit)");
+    Op& if_op = code.emplace_back(loc, Op::_If, std::move(ir_is_right));
+    {
+      code.push_set_cur(if_op.block0);
+      const LazyMatchOptions::MatchBlock* m_block = options.find_match_block(t_right);
+      std::vector ith_result = pre_compile_expr(m_block->v_body, code);
+      options.save_match_result_on_arm_end(code, loc, m_block, std::move(ith_result), ir_result);
+      code.close_pop_cur(loc);
+    }
+    {
+      code.push_set_cur(if_op.block1);
+      const LazyMatchOptions::MatchBlock* m_block = options.find_match_block(t_left);
+      std::vector ith_result = pre_compile_expr(m_block->v_body, code);
+      options.save_match_result_on_arm_end(code, loc, m_block, std::move(ith_result), ir_result);
+      code.close_pop_cur(loc);
+    }
+    return ir_result;
+  }
+
   void skip(const UnpackContext* ctx, CodeBlob& code, SrcLocation loc) override {
     std::vector ir_is_right = ctx->loadUint(1, "(eitherBit)");
     Op& if_op = code.emplace_back(loc, Op::_If, std::move(ir_is_right));
@@ -714,12 +821,54 @@ struct S_MultipleConstructors final : ISerializer {
     }
 
     // we're inside last ELSE
-    std::vector args_throw = { ctx->option_throwIfOpcodeDoesNotMatch };
-    Op& op_throw = code.emplace_back(loc, Op::_Call, std::vector<var_idx_t>{}, std::move(args_throw), lookup_function("__throw"));
-    op_throw.set_impure_flag();
+    ctx->throwInvalidOpcode();
     for (int j = 0; j < t_union->size(); ++j) {
       code.close_pop_cur(loc);    // close all outer IFs
     }
+    return ir_result;
+  }
+
+  std::vector<var_idx_t> lazy_match(const UnpackContext* ctx, CodeBlob& code, SrcLocation loc, const LazyMatchOptions& options) const {
+    std::vector<int> opcodes_order_mapping(t_union->size(), -1);
+    const LazyMatchOptions::MatchBlock* else_block = nullptr;
+    for (int i = 0; i < static_cast<int>(options.match_blocks.size()); ++i) {
+      if (options.match_blocks[i].arm_variant) {
+        int variant_idx = t_union->get_variant_idx(options.match_blocks[i].arm_variant);
+        tolk_assert(variant_idx != -1);
+        opcodes_order_mapping[i] = variant_idx;
+      } else {
+        tolk_assert(else_block == nullptr);
+        else_block = &options.match_blocks[i];
+      }
+    }
+
+    FunctionPtr f_tryStripPrefix = lookup_function("slice.tryStripPrefix");
+
+    std::vector ir_result = code.create_tmp_var(options.match_expr_type, loc, "(match-expression)");
+    std::vector ir_prefix_eq = code.create_tmp_var(TypeDataInt::create(), loc, "(prefix-eq)");
+
+    for (int i = 0; i < t_union->size(); ++i) {
+      StructData::PackOpcode opcode = opcodes[opcodes_order_mapping[i]];
+      std::vector args = { ctx->ir_slice0, code.create_int(loc, opcode.pack_prefix, "(pack-prefix)"), code.create_int(loc, opcode.prefix_len, "(prefix-len)") };
+      code.emplace_back(loc, Op::_Call, std::vector{ctx->ir_slice0, ir_prefix_eq[0]}, std::move(args), f_tryStripPrefix);
+      Op& if_op = code.emplace_back(loc, Op::_If, ir_prefix_eq);
+      code.push_set_cur(if_op.block0);
+      std::vector ith_result = pre_compile_expr(options.match_blocks[i].v_body, code);
+      options.save_match_result_on_arm_end(code, loc, &options.match_blocks[i], std::move(ith_result), ir_result);
+      code.close_pop_cur(loc);
+      code.push_set_cur(if_op.block1);    // open ELSE
+    }
+
+    if (else_block) {
+      std::vector else_result = pre_compile_expr(else_block->v_body, code);
+      options.save_match_result_on_arm_end(code, loc, else_block, std::move(else_result), ir_result);
+    } else {
+      ctx->throwInvalidOpcode();
+    }
+    for (int j = 0; j < t_union->size(); ++j) {
+      code.close_pop_cur(loc);    // close all outer IFs
+    }
+
     return ir_result;
   }
 
@@ -739,9 +888,7 @@ struct S_MultipleConstructors final : ISerializer {
     }
 
     // we're inside last ELSE
-    std::vector args_throw = { ctx->option_throwIfOpcodeDoesNotMatch };
-    Op& op_throw = code.emplace_back(loc, Op::_Call, std::vector<var_idx_t>{}, std::move(args_throw), lookup_function("__throw"));
-    op_throw.set_impure_flag();
+    ctx->throwInvalidOpcode();
     for (int j = 0; j < t_union->size(); ++j) {
       code.close_pop_cur(loc);    // close all outer IFs
     }
@@ -842,6 +989,49 @@ struct S_CustomStruct final : ISerializer {
     return ir_struct;
   }
 
+  std::vector<var_idx_t> lazy_match(const UnpackContext* ctx, CodeBlob& code, SrcLocation loc, const LazyMatchOptions& options) const {
+    const LazyMatchOptions::MatchBlock* when_block = nullptr;   // Point => ...
+    const LazyMatchOptions::MatchBlock* else_block = nullptr;   // else  => ...
+    for (const LazyMatchOptions::MatchBlock& match_block : options.match_blocks) {
+      if (match_block.arm_variant) {
+        tolk_assert(match_block.arm_variant->equal_to(TypeDataStruct::create(struct_ref)));
+        when_block = &match_block;
+      } else {
+        else_block = &match_block;
+      }
+    }
+
+    std::vector ir_result = code.create_tmp_var(options.match_expr_type, loc, "(match-expression)");
+    std::vector ir_prefix_eq = code.create_tmp_var(TypeDataInt::create(), loc, "(prefix-eq)");
+
+    StructData::PackOpcode opcode = struct_ref->opcode;
+    if (opcode.exists()) {    // it's `match` over a struct (makes sense for a struct with prefix and `else` branch)
+      std::vector args = { ctx->ir_slice0, code.create_int(loc, opcode.pack_prefix, "(pack-prefix)"), code.create_int(loc, opcode.prefix_len, "(prefix-len)") };
+      code.emplace_back(loc, Op::_Call, std::vector{ctx->ir_slice0, ir_prefix_eq[0]}, std::move(args), lookup_function("slice.tryStripPrefix"));
+    } else {
+      code.emplace_back(loc, Op::_Let, ir_prefix_eq, std::vector{code.create_int(loc, -1, "(true)")});
+    }
+    Op& if_op = code.emplace_back(loc, Op::_If, ir_prefix_eq);
+    {
+      code.push_set_cur(if_op.block0);
+      std::vector when_result = pre_compile_expr(when_block->v_body, code);
+      options.save_match_result_on_arm_end(code, loc, when_block, std::move(when_result), ir_result);
+      code.close_pop_cur(loc);
+    }
+    {
+      code.push_set_cur(if_op.block1);
+      if (else_block) {
+        std::vector else_result = pre_compile_expr(else_block->v_body, code);
+        options.save_match_result_on_arm_end(code, loc, else_block, std::move(else_result), ir_result);
+      } else {
+        ctx->throwInvalidOpcode();
+      }
+      code.close_pop_cur(loc);
+    }
+
+    return ir_result;
+  }
+
   void skip(const UnpackContext* ctx, CodeBlob& code, SrcLocation loc) override {
     if (struct_ref->opcode.exists() && ctx->get_prefix_mode() == PrefixReadMode::LoadAndCheck) {
       ctx->loadAndCheckOpcode(struct_ref->opcode);
@@ -863,6 +1053,39 @@ struct S_CustomStruct final : ISerializer {
       sum = EstimateContext::sum(sum, ctx->estimate_any(field_ref->declared_type));
     }
     return sum;
+  }
+};
+
+struct S_CustomReceiverForPackUnpack final : ISerializer {
+  TypePtr receiver_type;
+
+  explicit S_CustomReceiverForPackUnpack(TypePtr receiver_type)
+    : receiver_type(receiver_type) {}
+
+  void pack(const PackContext* ctx, CodeBlob& code, SrcLocation loc, std::vector<var_idx_t>&& rvect) override {
+    FunctionPtr f_pack = get_custom_pack_unpack_function(receiver_type, true);
+    tolk_assert(f_pack && f_pack->does_accept_self() && f_pack->inferred_return_type->get_width_on_stack() == 0);
+    std::vector vars_per_arg = { std::move(rvect), ctx->ir_builder };
+    std::vector ir_mutated_builder = gen_inline_fun_call_in_place(code, TypeDataBuilder::create(), loc, f_pack, nullptr, false, vars_per_arg);
+    code.emplace_back(loc, Op::_Let, ctx->ir_builder, std::move(ir_mutated_builder));
+  }
+
+  std::vector<var_idx_t> unpack(const UnpackContext* ctx, CodeBlob& code, SrcLocation loc) override {
+    FunctionPtr f_unpack = get_custom_pack_unpack_function(receiver_type, false);
+    tolk_assert(f_unpack && f_unpack->inferred_return_type->get_width_on_stack() == receiver_type->get_width_on_stack());
+    TypePtr ret_type = TypeDataTensor::create({TypeDataSlice::create(), receiver_type});
+    std::vector ir_slice_and_res = gen_inline_fun_call_in_place(code, ret_type, loc, f_unpack, nullptr, false, {ctx->ir_slice});
+    code.emplace_back(loc, Op::_Let, ctx->ir_slice, std::vector{ir_slice_and_res.front()});
+    return std::vector(ir_slice_and_res.begin() + 1, ir_slice_and_res.end());
+  }
+
+  void skip(const UnpackContext* ctx, CodeBlob& code, SrcLocation loc) override {
+    // just load and ignore the result
+    unpack(ctx, code, loc);
+  }
+
+  PackSize estimate(const EstimateContext* ctx) override {
+    return PackSize::unpredictable_infinity();
   }
 };
 
@@ -923,13 +1146,16 @@ std::vector<PackOpcode> auto_generate_opcodes_for_union(TypePtr union_type, std:
 
   // okay, none of the opcodes are specified, generate a prefix tree;
   // examples: `int32 | int64 | int128` / `int32 | A | null` / `A | B` / `A | B | C`;
-  // create prefixes `0b00 0b01 0b10` / `0b01 0b10 0b00` (use 0b00 for null if exists):
-  // for 3/4 variants — two bits, for 5 — three
-  int prefix_len = static_cast<int>(std::ceil(std::log2(t_union->size())));
-  int cur_prefix = has_null ? 1 : 0;    // will use 0b00 for null, so start with 0b01
+  // if `null` exists, it's 0, all others are 1+tree: A|B|C|D|null => 0 | 100+A | 101+B | 110+C | 111+D;
+  // if no `null`, just distribute sequentially: A|B|C => 00+A | 01+B | 10+C
+  int n_without_null = t_union->size() - has_null; 
+  int prefix_len = static_cast<int>(std::ceil(std::log2(n_without_null)));
+  int cur_prefix = 0;
   for (TypePtr variant : t_union->variants) {
     if (variant == TypeDataNullLiteral::create()) {
-      result.emplace_back(0, prefix_len);
+      result.emplace_back(0, 1);
+    } else if (has_null) {
+      result.emplace_back((1<<prefix_len) + (cur_prefix++), prefix_len + 1);
     } else {
       result.emplace_back(cur_prefix++, prefix_len);
     }
@@ -948,10 +1174,13 @@ std::vector<PackOpcode> auto_generate_opcodes_for_union(TypePtr union_type, std:
 
 static std::unique_ptr<ISerializer> get_serializer_for_type(TypePtr any_type) {
   if (const auto* t_intN = any_type->try_as<TypeDataIntN>()) {
+    if (t_intN->is_variadic) {
+      return std::make_unique<S_VariadicIntN>(t_intN->n_bits, t_intN->is_unsigned);
+    }
     return std::make_unique<S_IntN>(t_intN->n_bits, t_intN->is_unsigned);
   }
-  if (const auto* t_bytesN = any_type->try_as<TypeDataBytesN>()) {
-    return std::make_unique<S_BytesN>(t_bytesN->n_width, t_bytesN->is_bits);
+  if (const auto* t_bitsN = any_type->try_as<TypeDataBitsN>()) {
+    return std::make_unique<S_BitsN>(t_bitsN->n_width, t_bitsN->is_bits);
   }
   if (any_type == TypeDataCoins::create()) {
     return std::make_unique<S_Coins>();
@@ -959,7 +1188,7 @@ static std::unique_ptr<ISerializer> get_serializer_for_type(TypePtr any_type) {
   if (any_type == TypeDataBool::create()) {
     return std::make_unique<S_Bool>();
   }
-  if (any_type == TypeDataCell::create()) {
+  if (any_type == TypeDataCell::create() || is_type_cellT(any_type)) {
     return std::make_unique<S_RawTVMcell>();
   }
   if (any_type == TypeDataAddress::create()) {
@@ -1018,6 +1247,9 @@ static std::unique_ptr<ISerializer> get_serializer_for_type(TypePtr any_type) {
     if (t_alias->alias_ref->name == "RemainingBitsAndRefs") {
       return std::make_unique<S_RemainingBitsAndRefs>();
     }
+    if (get_custom_pack_unpack_function(t_alias, true)) {
+      return std::make_unique<S_CustomReceiverForPackUnpack>(t_alias);
+    }
     return get_serializer_for_type(t_alias->underlying_type);
   }
 
@@ -1046,6 +1278,20 @@ void UnpackContext::generate_skip_any(TypePtr any_type, PrefixReadMode prefix_mo
   this->prefix_mode = prefix_mode;
   get_serializer_for_type(any_type)->skip(this, code, loc);
   this->prefix_mode = backup;
+}
+
+std::vector<var_idx_t> UnpackContext::generate_lazy_match_any(TypePtr any_type, const LazyMatchOptions& options) const {
+  std::unique_ptr<ISerializer> serializer = get_serializer_for_type(any_type);
+  if (auto* s = dynamic_cast<S_MultipleConstructors*>(serializer.get())) {
+    return s->lazy_match(this, code, loc, options);
+  }
+  if (auto* s = dynamic_cast<S_Either*>(serializer.get())) {
+    return s->lazy_match(this, code, loc, options);
+  }
+  if (auto* s = dynamic_cast<S_CustomStruct*>(serializer.get())) {
+    return s->lazy_match(this, code, loc, options);
+  }
+  tolk_assert(false);
 }
 
 PackSize EstimateContext::estimate_any(TypePtr any_type, PrefixEstimateMode prefix_mode) const {

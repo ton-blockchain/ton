@@ -33,6 +33,7 @@
 #include <map>
 #include <queue>
 #include "common/global-version.h"
+#include "fabric.h"
 
 namespace ton {
 
@@ -80,7 +81,8 @@ class Collator final : public td::actor::Actor {
   td::Timestamp queue_cleanup_timeout_, soft_timeout_, medium_timeout_;
   td::Promise<BlockCandidate> main_promise;
   adnl::AdnlNodeIdShort collator_node_id_ = adnl::AdnlNodeIdShort::zero();
-  unsigned mode_ = 0;
+  bool skip_store_candidate_ = false;
+  Ref<BlockData> optimistic_prev_block_;
   int attempt_idx_;
   bool allow_repeat_collation_ = false;
   ton::BlockSeqno last_block_seqno{0};
@@ -95,11 +97,8 @@ class Collator final : public td::actor::Actor {
   static constexpr bool shard_splitting_enabled = true;
 
  public:
-  Collator(ShardIdFull shard, bool is_hardfork, BlockIdExt min_masterchain_block_id, std::vector<BlockIdExt> prev,
-           Ref<ValidatorSet> validator_set, Ed25519_PublicKey collator_id, Ref<CollatorOptions> collator_opts,
-           td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout, td::Promise<BlockCandidate> promise,
-           adnl::AdnlNodeIdShort collator_node_id, td::CancellationToken cancellation_token, unsigned mode,
-           int attempt_idx);
+  Collator(CollateParams params, td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
+           td::CancellationToken cancellation_token, td::Promise<BlockCandidate> promise);
   ~Collator() override = default;
   bool is_busy() const {
     return busy_;
@@ -118,10 +117,12 @@ class Collator final : public td::actor::Actor {
       Ref<vm::Cell> msg_root, block::Account* acc, UnixTime utime, LogicalTime lt,
       block::StoragePhaseConfig* storage_phase_cfg, block::ComputePhaseConfig* compute_phase_cfg,
       block::ActionPhaseConfig* action_phase_cfg, block::SerializeConfig* serialize_cfg, bool external,
-      LogicalTime after_lt);
+      LogicalTime after_lt, CollationStats* stats = nullptr);
 
  private:
   void start_up() override;
+  void load_prev_states_blocks();
+  void process_optimistic_prev_block();
   void alarm() override;
   int verbosity{3 * 0};
   int verify{1};
@@ -276,6 +277,7 @@ class Collator final : public td::actor::Actor {
   void after_get_shard_blocks(td::Result<std::vector<Ref<ShardTopBlockDescription>>> res, td::PerfLogAction token);
   void after_get_storage_stat_cache(td::Result<std::function<td::Ref<vm::Cell>(const td::Bits256&)>> res,
                                     td::PerfLogAction token);
+  void after_get_shard_state_optimistic(td::Result<Ref<ShardState>> res, td::PerfLogAction token);
   bool preprocess_prev_mc_state();
   bool register_mc_state(Ref<MasterchainStateQ> other_mc_state);
   bool request_aux_mc_state(BlockSeqno seqno, Ref<MasterchainStateQ>& state);
@@ -325,6 +327,14 @@ class Collator final : public td::actor::Actor {
   void update_max_lt(ton::LogicalTime lt);
   bool is_masterchain() const {
     return shard_.is_masterchain();
+  }
+  int prev_block_idx(const BlockIdExt& id) const {
+    for (size_t i = 0; i < prev_blocks.size(); ++i) {
+      if (prev_blocks[i] == id) {
+        return i;
+      }
+    }
+    return -1;
   }
   bool is_our_address(Ref<vm::CellSlice> addr_ref) const;
   bool is_our_address(ton::AccountIdPrefixFull addr_prefix) const;
@@ -404,8 +414,7 @@ class Collator final : public td::actor::Actor {
   static td::uint32 get_skip_externals_queue_size();
 
  private:
-  td::Timer work_timer_{true};
-  td::ThreadCpuTimer cpu_work_timer_{true};
+  td::RealCpuTimer work_timer_{true};
   CollationStats stats_;
 
   void finalize_stats();

@@ -16,7 +16,7 @@
 */
 #include "collation-manager.hpp"
 
-#include "collator-node.hpp"
+#include "collator-node/collator-node.hpp"
 #include "fabric.h"
 #include "td/utils/Random.h"
 
@@ -38,16 +38,41 @@ void CollationManager::collate_block(ShardIdFull shard, BlockIdExt min_mastercha
                                      td::Promise<GeneratedCandidate> promise, int proto_version) {
   if (shard.is_masterchain()) {
     run_collate_query(
-        shard, min_masterchain_block_id, std::move(prev), creator, std::move(validator_set),
-        opts_->get_collator_options(), manager_, td::Timestamp::in(10.0), promise.wrap([](BlockCandidate&& candidate) {
+        CollateParams{.shard = shard,
+                      .min_masterchain_block_id = min_masterchain_block_id,
+                      .prev = std::move(prev),
+                      .creator = creator,
+                      .validator_set = std::move(validator_set),
+                      .collator_opts = opts_->get_collator_options()},
+        manager_, td::Timestamp::in(10.0), std::move(cancellation_token), promise.wrap([](BlockCandidate&& candidate) {
           return GeneratedCandidate{.candidate = std::move(candidate), .is_cached = false, .self_collated = true};
-        }),
-        adnl::AdnlNodeIdShort::zero(), std::move(cancellation_token), 0);
+        }));
     return;
   }
   collate_shard_block(shard, min_masterchain_block_id, std::move(prev), creator, priority, std::move(validator_set),
                       max_answer_size, std::move(cancellation_token), std::move(promise), td::Timestamp::in(10.0),
                       proto_version);
+}
+
+void CollationManager::collate_next_block(ShardIdFull shard, BlockIdExt min_masterchain_block_id,
+                                          BlockIdExt prev_block_id, td::BufferSlice prev_block,
+                                          Ed25519_PublicKey creator, BlockCandidatePriority priority,
+                                          td::Ref<ValidatorSet> validator_set, td::uint64 max_answer_size,
+                                          td::CancellationToken cancellation_token,
+                                          td::Promise<GeneratedCandidate> promise, int proto_version) {
+  TRY_RESULT_PROMISE(promise, prev_block_data, create_block(prev_block_id, std::move(prev_block)));
+  run_collate_query(
+      CollateParams{.shard = shard,
+                    .min_masterchain_block_id = min_masterchain_block_id,
+                    .prev = {prev_block_id},
+                    .creator = creator,
+                    .validator_set = std::move(validator_set),
+                    .collator_opts = opts_->get_collator_options(),
+                    .optimistic_prev_block_ = std::move(prev_block_data)},
+      manager_, td::Timestamp::in(10.0), std::move(cancellation_token), promise.wrap([](BlockCandidate&& candidate) {
+        return GeneratedCandidate{.candidate = std::move(candidate), .is_cached = false, .self_collated = true};
+      }));
+  // TODO: request to collator node
 }
 
 void CollationManager::collate_shard_block(ShardIdFull shard, BlockIdExt min_masterchain_block_id,
@@ -109,11 +134,15 @@ void CollationManager::collate_shard_block(ShardIdFull shard, BlockIdExt min_mas
 
   if (selected_collator.is_zero() && s->self_collate) {
     run_collate_query(
-        shard, min_masterchain_block_id, std::move(prev), creator, std::move(validator_set),
-        opts_->get_collator_options(), manager_, td::Timestamp::in(10.0), promise.wrap([](BlockCandidate&& candidate) {
+        CollateParams{.shard = shard,
+                      .min_masterchain_block_id = min_masterchain_block_id,
+                      .prev = std::move(prev),
+                      .creator = creator,
+                      .validator_set = std::move(validator_set),
+                      .collator_opts = opts_->get_collator_options()},
+        manager_, td::Timestamp::in(10.0), std::move(cancellation_token), promise.wrap([](BlockCandidate&& candidate) {
           return GeneratedCandidate{.candidate = std::move(candidate), .is_cached = false, .self_collated = true};
-        }),
-        adnl::AdnlNodeIdShort::zero(), std::move(cancellation_token), 0);
+        }));
     return;
   }
 

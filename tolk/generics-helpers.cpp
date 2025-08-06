@@ -370,7 +370,7 @@ FunctionPtr instantiate_generic_function(FunctionPtr fun_ref, GenericsSubstituti
     }
     TypePtr new_return_type = replace_genericT_with_deduced(fun_ref->declared_return_type, allocatedTs);
     TypePtr new_receiver_type = replace_genericT_with_deduced(fun_ref->receiver_type, allocatedTs);
-    FunctionData* new_fun_ref = new FunctionData(new_name, fun_ref->loc, fun_ref->method_name, new_receiver_type, new_return_type, std::move(new_parameters), fun_ref->flags, nullptr, allocatedTs, fun_ref->body, fun_ref->ast_root);
+    FunctionData* new_fun_ref = new FunctionData(new_name, fun_ref->loc, fun_ref->method_name, new_receiver_type, new_return_type, std::move(new_parameters), fun_ref->flags, fun_ref->inline_mode, nullptr, allocatedTs, fun_ref->body, fun_ref->ast_root);
     new_fun_ref->arg_order = fun_ref->arg_order;
     new_fun_ref->ret_order = fun_ref->ret_order;
     new_fun_ref->base_fun_ref = fun_ref;

@@ -88,6 +88,13 @@ class CalculateRvalueLvalueVisitor final : public ASTVisitorFunctionBody {
     restore_state(saved);
   }
 
+  void visit(V<ast_braced_yield_result> v) override {
+    mark_vertex(v);
+    MarkingState saved = enter_rvalue_if_none();
+    parent::visit(v);
+    restore_state(saved);
+  }
+
   void visit(V<ast_tensor> v) override {
     mark_vertex(v);
     MarkingState saved = enter_rvalue_if_none();
@@ -211,6 +218,13 @@ class CalculateRvalueLvalueVisitor final : public ASTVisitorFunctionBody {
   void visit(V<ast_not_null_operator> v) override {
     mark_vertex(v);
     parent::visit(v->get_expr());   // leave lvalue state unchanged, for `mutate x!` both `x!` and `x` are lvalue
+  }
+
+  void visit(V<ast_lazy_operator> v) override {
+    mark_vertex(v);
+    MarkingState saved = enter_state(MarkingState::RValue);
+    parent::visit(v);
+    restore_state(saved);
   }
 
   void visit(V<ast_match_expression> v) override {

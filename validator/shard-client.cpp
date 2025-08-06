@@ -161,7 +161,7 @@ void ShardClient::download_masterchain_state() {
     }
   });
   td::actor::send_closure(manager_, &ValidatorManager::wait_block_state, masterchain_block_handle_,
-                          shard_client_priority(), td::Timestamp::in(600), std::move(P));
+                          shard_client_priority(), td::Timestamp::in(600), true, std::move(P));
 }
 
 void ShardClient::got_masterchain_block_state(td::Ref<MasterchainState> state) {
@@ -201,7 +201,7 @@ void ShardClient::apply_all_shards() {
         }
       });
       td::actor::send_closure(manager_, &ValidatorManager::wait_block_state_short, shard->top_block_id(),
-                              shard_client_priority(), td::Timestamp::in(1500), std::move(Q));
+                              shard_client_priority(), td::Timestamp::in(1500), true, std::move(Q));
     }
   }
   for (const auto &[wc, desc] : masterchain_state_->get_workchain_list()) {
@@ -216,7 +216,7 @@ void ShardClient::apply_all_shards() {
       });
       td::actor::send_closure(manager_, &ValidatorManager::wait_block_state_short,
                               BlockIdExt{wc, shardIdAll, 0, desc->zerostate_root_hash, desc->zerostate_file_hash},
-                              shard_client_priority(), td::Timestamp::in(1500), std::move(Q));
+                              shard_client_priority(), td::Timestamp::in(1500), true, std::move(Q));
     }
   }
 }

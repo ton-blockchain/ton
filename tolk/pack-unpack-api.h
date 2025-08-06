@@ -32,4 +32,13 @@ std::vector<var_idx_t> generate_skip_struct_in_slice(CodeBlob& code, SrcLocation
 PackSize estimate_serialization_size(TypePtr any_type);
 std::vector<var_idx_t> generate_estimate_size_call(CodeBlob& code, SrcLocation loc, TypePtr any_type);
 
+struct LazyStructLoadInfo;
+struct LazyStructLoadedState;
+struct LazyVariableLoadedState;
+
+void generate_lazy_struct_from_slice(CodeBlob& code, SrcLocation loc, const LazyVariableLoadedState* lazy_variable, const LazyStructLoadInfo& load_info, const std::vector<var_idx_t>& ir_obj);
+std::vector<var_idx_t> generate_lazy_struct_to_cell(CodeBlob& code, SrcLocation loc, const LazyStructLoadedState* loaded_state, std::vector<var_idx_t>&& ir_obj, const std::vector<var_idx_t>& ir_options);
+std::vector<var_idx_t> generate_lazy_match_for_union(CodeBlob& code, SrcLocation loc, TypePtr union_type, const LazyVariableLoadedState* lazy_variable, const LazyMatchOptions& options);
+std::vector<var_idx_t> generate_lazy_object_finish_loading(CodeBlob& code, SrcLocation loc, const LazyVariableLoadedState* lazy_variable, std::vector<var_idx_t>&& ir_obj);
+
 } // namespace tolk

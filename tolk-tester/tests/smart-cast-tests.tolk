@@ -168,7 +168,7 @@ fun test10(): int {
 
 @method_id(111)
 fun test11() {
-    var [x, y] = [getNullableInt(), getNullableInt()];
+    var [x, y,] = [getNullableInt(), getNullableInt()];
     if (eq(10) < 0) { return x == null || y == null ? -1 : x + y; }
     if (true && (x == null || y == null) && !!true) { return 0; }
     return x + y;
@@ -600,6 +600,7 @@ fun test54() {
     __expect_type(x3, "int?");
 }
 
+@noinline
 fun eq55<T>(v: T) { return v; }
 
 fun test55() {
@@ -748,12 +749,12 @@ fun main(x: int?): int {
 @stderr warning: unreachable code
 @stderr var t2 redef = getNullableInt()!;
 
-@fif_codegen  eq55<int?> PROC:<{
-@fif_codegen  eq55<int> PROC:<{
+@fif_codegen  eq55<int?>() PROC:<{
+@fif_codegen  eq55<int>() PROC:<{
 
 @fif_codegen
 """
-  test60 PROC:<{
+  test60() PROC:<{
     101 PUSHINT	//  cc1
     109 PUSHINT	//  cc1 cc2
   }>

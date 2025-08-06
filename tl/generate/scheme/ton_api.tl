@@ -343,6 +343,8 @@ validatorSession.candidateId src:int256 root_hash:int256 file_hash:int256 collat
 validatorSession.blockUpdate ts:long actions:(vector validatorSession.round.Message) state:int = validatorSession.BlockUpdate;
 validatorSession.candidate src:int256 round:int root_hash:int256 data:bytes collated_data:bytes = validatorSession.Candidate;
 validatorSession.compressedCandidate flags:# src:int256 round:int root_hash:int256 decompressed_size:int data:bytes = validatorSession.Candidate;
+validatorSession.compressedCandidateV2 flags:# src:int256 round:int root_hash:int256 data:bytes = validatorSession.Candidate;
+validatorSession.optimisticCandidateBroadcast flags:# prev_candidate_id:int256 data:bytes = validatorSession.OptimisticCandidateBroadcast;
 
 validatorSession.config catchain_idle_timeout:double catchain_max_deps:int round_candidates:int next_candidate_delay:double round_attempt_duration:int
         max_round_attempts:int max_block_size:int max_collated_data_size:int = validatorSession.Config;
@@ -430,6 +432,8 @@ tonNode.blockBroadcast id:tonNode.blockIdExt catchain_seqno:int validator_set_ha
               proof:bytes data:bytes = tonNode.Broadcast;
 tonNode.blockBroadcastCompressed id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int
               flags:# compressed:bytes = tonNode.Broadcast;
+tonNode.blockBroadcastCompressedV2 id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int
+              signatures:(vector tonNode.blockSignature) flags:# compressed:bytes = tonNode.Broadcast;
 tonNode.ihrMessageBroadcast message:tonNode.ihrMessage = tonNode.Broadcast;
 tonNode.externalMessageBroadcast message:tonNode.externalMessage = tonNode.Broadcast;
 tonNode.newShardBlockBroadcast block:tonNode.newShardBlock = tonNode.Broadcast;
@@ -437,6 +441,8 @@ tonNode.newShardBlockBroadcast block:tonNode.newShardBlock = tonNode.Broadcast;
 tonNode.newBlockCandidateBroadcast id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int
               collator_signature:tonNode.blockSignature data:bytes = tonNode.Broadcast;
 tonNode.newBlockCandidateBroadcastCompressed id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int
+              collator_signature:tonNode.blockSignature flags:# compressed:bytes = tonNode.Broadcast;
+tonNode.newBlockCandidateBroadcastCompressedV2 id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int
               collator_signature:tonNode.blockSignature flags:# compressed:bytes = tonNode.Broadcast;
 
 // optimistic broadcast of response to tonNode.getOutMsgQueueProof with dst_shard, block and limits arguments
@@ -456,6 +462,7 @@ ton.blockIdApprove root_cell_hash:int256 file_hash:int256 = ton.BlockId;
 
 tonNode.dataFull id:tonNode.blockIdExt proof:bytes block:bytes is_link:Bool = tonNode.DataFull;
 tonNode.dataFullCompressed id:tonNode.blockIdExt flags:# compressed:bytes is_link:Bool = tonNode.DataFull;
+tonNode.dataFullCompressedV2 id:tonNode.blockIdExt flags:# compressed:bytes is_link:Bool = tonNode.DataFull;
 tonNode.dataFullEmpty = tonNode.DataFull;
 
 tonNode.capabilities#f5bf60c0 version_major:int version_minor:int flags:# = tonNode.Capabilities;
@@ -691,7 +698,7 @@ engine.validator.config out_port:int addrs:(vector engine.Addr) adnl:(vector eng
 
 engine.validator.customOverlayNode adnl_id:int256 msg_sender:Bool msg_sender_priority:int block_sender:Bool = engine.validator.CustomOverlayNode;
 engine.validator.customOverlay name:string nodes:(vector engine.validator.customOverlayNode) sender_shards:(vector tonNode.shardId)
-    = engine.validator.CustomOverlay;
+    skip_public_msg_send:Bool = engine.validator.CustomOverlay;
 engine.validator.customOverlaysConfig overlays:(vector engine.validator.customOverlay) = engine.validator.CustomOverlaysConfig;
 
 engine.validator.collatorOptions
@@ -955,21 +962,35 @@ validatorStats.blockStats
     ext_msgs:validatorStats.blockStats.extMsgsStats transactions:int shard_configuration:(vector tonNode.blockIdExt)
     old_out_msg_queue_size:long new_out_msg_queue_size:long msg_queue_cleaned:int
     neighbors:(vector validatorStats.blockStats.neighborStats) = validatorStats.BlockStats;
+validatorStats.collateWorkTimeStats
+    total:double optimistic_apply:double queue_cleanup:double prelim_storage_stat:double trx_tvm:double trx_storage_stat:double
+    trx_other:double final_storage_stat:double create_block:double create_collated_data:double create_block_candidate:double
+    = validatorStats.CollateWorkTimeStats;
+validatorStats.storageStatCacheStats
+    small_cnt:long small_cells:long hit_cnt:long hit_cells:long miss_cnt:long miss_cells:long = validatorStats.StorageStatCacheStats;
 
 validatorStats.collatedBlock
     block_id:tonNode.blockIdExt collated_data_hash:int256 cc_seqno:int collated_at:double
     bytes:int collated_data_bytes:int attempt:int
     self:int256 is_validator:Bool
     total_time:double work_time:double cpu_work_time:double time_stats:string
+    work_time_real_stats:validatorStats.collateWorkTimeStats
+    work_time_cpu_stats:validatorStats.collateWorkTimeStats
     block_limits:validatorStats.blockLimitsStatus
-    block_stats:validatorStats.blockStats = validatorSession.stats.CollatedBlock;
+    block_stats:validatorStats.blockStats
+    storage_stat_cache:validatorStats.storageStatCacheStats = validatorSession.stats.CollatedBlock;
 
+validatorStats.validateWorkTimeStats
+    total:double trx_tvm:double trx_storage_stat:double trx_other:double = validatorStats.ValidateWorkTimeStats;
 validatorStats.validatedBlock
     block_id:tonNode.blockIdExt collated_data_hash:int256 validated_at:double
     self:int256
     valid:Bool comment:string
     bytes:int collated_data_bytes:int
-    total_time:double work_time:double cpu_work_time:double = validatorStats.ValidatedBlock;
+    total_time:double work_time:double cpu_work_time:double
+    work_time_real_stats:validatorStats.validateWorkTimeStats
+    work_time_cpu_stats:validatorStats.validateWorkTimeStats
+    storage_stat_cache:validatorStats.storageStatCacheStats = validatorStats.ValidatedBlock;
 
 validatorStats.newValidatorGroup.node id:int256 pubkey:PublicKey adnl_id:int256 weight:long = validatorStats.newValidatorGroup.Node;
 validatorStats.newValidatorGroup session_id:int256 shard:tonNode.shardId cc_seqno:int
@@ -986,6 +1007,7 @@ validatorStats.collatorNodeResponse self:int256 validator_id:int256 timestamp:do
 
 collatorNode.candidate source:PublicKey id:tonNode.blockIdExt data:bytes collated_data:bytes = collatorNode.Candidate;
 collatorNode.compressedCandidate flags:# source:PublicKey id:tonNode.blockIdExt decompressed_size:int data:bytes = collatorNode.Candidate;
+collatorNode.compressedCandidateV2 flags:# source:PublicKey id:tonNode.blockIdExt data:bytes = collatorNode.Candidate;
 collatorNode.pong flags:# = collatorNode.Pong;
 collatorNode.error code:int message:string = collatorNode.Error;
 

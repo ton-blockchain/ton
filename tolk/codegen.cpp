@@ -338,7 +338,7 @@ bool Op::generate_code_step(Stack& stack) {
         if (!used || disabled()) {
           return true;
         }
-        stack.o << AsmOp::Custom(loc, g_sym->name + " GETGLOB", 0, 1);
+        stack.o << AsmOp::Custom(loc, "$" + g_sym->name + " GETGLOB", 0, 1);
         if (left.size() != 1) {
           tolk_assert(left.size() <= 15);
           stack.o << AsmOp::UnTuple(loc, (int)left.size());
@@ -376,7 +376,7 @@ bool Op::generate_code_step(Stack& stack) {
             std::get<FunctionBodyBuiltin*>(f_sym->body)->compile(stack.o, res, args0, loc);  // compile res := f (args0)
           }
         } else {
-          stack.o << AsmOp::Custom(loc, f_sym->name + " CALLDICT", (int)right.size(), (int)left.size());
+          stack.o << AsmOp::Custom(loc, f_sym->name + "() CALLDICT", (int)right.size(), (int)left.size());
         }
         stack.o.undent();
         stack.o << AsmOp::Custom({}, "}>");
@@ -517,13 +517,13 @@ bool Op::generate_code_step(Stack& stack) {
           }
         }
       } else {
-        if (f_sym->is_inline() || f_sym->is_inline_ref()) {
-          stack.o << AsmOp::Custom(loc, f_sym->name + " INLINECALLDICT", (int)right.size(), (int)left.size());
+        if (f_sym->inline_mode == FunctionInlineMode::inlineViaFif || f_sym->inline_mode == FunctionInlineMode::inlineRef) {
+          stack.o << AsmOp::Custom(loc, f_sym->name + "() INLINECALLDICT", (int)right.size(), (int)left.size());
         } else if (f_sym->is_code_function() && std::get<FunctionBodyCode*>(f_sym->body)->code->require_callxargs) {
-          stack.o << AsmOp::Custom(loc, f_sym->name + (" PREPAREDICT"), 0, 2);
+          stack.o << AsmOp::Custom(loc, f_sym->name + ("() PREPAREDICT"), 0, 2);
           exec_callxargs((int)right.size() + 1, (int)left.size());
         } else {
-          stack.o << AsmOp::Custom(loc, f_sym->name + " CALLDICT", (int)right.size(), (int)left.size());
+          stack.o << AsmOp::Custom(loc, f_sym->name + "() CALLDICT", (int)right.size(), (int)left.size());
         }
       }
       stack.modified();
@@ -551,7 +551,7 @@ bool Op::generate_code_step(Stack& stack) {
         stack.o << AsmOp::Tuple(loc, (int)right.size());
       }
       if (!right.empty()) {
-        stack.o << AsmOp::Custom(loc, g_sym->name + " SETGLOB", 1, 0);
+        stack.o << AsmOp::Custom(loc, "$" + g_sym->name + " SETGLOB", 1, 0);
         stack.modified();
       }
       stack.s.resize(k);
@@ -843,11 +843,6 @@ bool Op::generate_code_step(Stack& stack) {
       catch_stack.push_new_var(left[1]);
       stack.rearrange_top(loc, catch_vars, catch_last);
       stack.opt_show();
-      stack.o << AsmOp::Custom(loc, "c1 PUSH");
-      stack.o << AsmOp::Custom(loc, "c3 PUSH");
-      stack.o << AsmOp::Custom(loc, "c4 PUSH");
-      stack.o << AsmOp::Custom(loc, "c5 PUSH");
-      stack.o << AsmOp::Custom(loc, "c7 PUSH");
       stack.o << AsmOp::Custom(loc, "<{");
       stack.o.indent();
       if (block1->noreturn()) {
@@ -858,11 +853,7 @@ bool Op::generate_code_step(Stack& stack) {
       catch_stack.opt_show();
       stack.o.undent();
       stack.o << AsmOp::Custom({}, "}>CONT");
-      stack.o << AsmOp::Custom(loc, "c7 SETCONT");
-      stack.o << AsmOp::Custom(loc, "c5 SETCONT");
-      stack.o << AsmOp::Custom(loc, "c4 SETCONT");
-      stack.o << AsmOp::Custom(loc, "c3 SETCONT");
-      stack.o << AsmOp::Custom(loc, "c1 SETCONT");
+      stack.o << AsmOp::Custom(loc, "0b10111010 SETCONTMANY");
       for (size_t begin = catch_vars.size(), end = begin; end > 0; end = begin) {
         begin = end >= block_size ? end - block_size : 0;
         stack.o << AsmOp::Custom(loc, std::to_string(end - begin) + " PUSHINT");
