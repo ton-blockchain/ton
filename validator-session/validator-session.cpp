@@ -1095,7 +1095,7 @@ ValidatorSessionImpl::ValidatorSessionImpl(catchain::CatChainSessionId session_i
     , overlay_manager_(overlays)
     , allow_unsafe_self_blocks_resync_(allow_unsafe_self_blocks_resync) {
   compress_block_candidates_ = opts.proto_version >= 4;
-  allow_optimistic_generation_ = opts.proto_version >= 5;
+  allow_optimistic_generation_ = opts.proto_version >= 6;
   description_ = ValidatorSessionDescription::create(std::move(opts), nodes, local_id);
   src_round_candidate_.resize(description_->get_total_nodes());
 }
