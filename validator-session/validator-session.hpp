@@ -76,6 +76,7 @@ class ValidatorSessionImpl : public ValidatorSession {
   std::map<ValidatorSessionCandidateId, tl_object_ptr<ton_api::validatorSession_candidate>> blocks_;
   // src_round_candidate_[src_id][round] -> candidate id
   std::vector<std::map<td::uint32, ValidatorSessionCandidateId>> src_round_candidate_;
+  std::map<ValidatorSessionCandidateId, std::vector<td::Promise<td::Unit>>> block_waiters_;
 
   catchain::CatChainSessionId unique_hash_;
 
@@ -202,7 +203,7 @@ class ValidatorSessionImpl : public ValidatorSession {
                                                                   ValidatorSessionCandidateId candidate_id);
   void stats_process_action(td::uint32 node_id, ton_api::validatorSession_round_Message &action);
   void process_approve(td::uint32 node_id, td::uint32 round, ValidatorSessionCandidateId candidate_id);
-
+  void generate_block_optimistic(td::uint32 cur_round, ValidatorSessionCandidateId prev_candidate_id);
   void generated_optimistic_candidate(td::uint32 round, GeneratedCandidate candidate,
                                       ValidatorSessionCandidateId prev_candidate);
 

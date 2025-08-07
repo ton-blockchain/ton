@@ -361,6 +361,12 @@ void ValidatorSessionImpl::process_received_block(td::uint32 block_round, Public
   }
 
   blocks_[block_id] = std::move(candidate);
+  if (auto it = block_waiters_.find(block_id); it != block_waiters_.end()) {
+    for (auto &promise : it->second) {
+      promise.set_result(td::Unit());
+    }
+    block_waiters_.erase(it);
+  }
 
   VLOG(VALIDATOR_SESSION_WARNING) << this << ": received broadcast " << block_id;
   if (block_round != cur_round_) {
@@ -552,6 +558,12 @@ void ValidatorSessionImpl::generated_block(td::uint32 round, GeneratedCandidate 
   blocks_[block_id] = create_tl_object<ton_api::validatorSession_candidate>(
       local_id().tl(), round, c.candidate.id.root_hash, std::move(c.candidate.data),
       std::move(c.candidate.collated_data));
+  if (auto it = block_waiters_.find(block_id); it != block_waiters_.end()) {
+    for (auto &promise : it->second) {
+      promise.set_result(td::Unit());
+    }
+    block_waiters_.erase(it);
+  }
   pending_generate_ = false;
   generated_ = true;
   generated_block_ = block_id;
@@ -742,7 +754,6 @@ void ValidatorSessionImpl::try_approve_block(const SentBlock *block) {
                   VLOG(VALIDATOR_SESSION_WARNING) << print_id << ": failed to get candidate " << hash << " from " << id
                                                   << ": " << R.move_as_error();
                 } else {
-                  LOG(ERROR) << "QQQQQ Got block " << R.ok().size();
                   td::actor::send_closure(SelfId, &ValidatorSessionImpl::process_broadcast, src_id, R.move_as_ok(),
                                           candidate_id, false, false);
                 }
@@ -1369,23 +1380,46 @@ void ValidatorSessionImpl::process_approve(td::uint32 node_id, td::uint32 round,
   bool is_approved_66pct = stat->approved_66pct_at > 0.0;
 
   if (allow_optimistic_generation_ && !was_approved_66pct && is_approved_66pct && cur_round_ == round &&
-      description().get_node_priority(local_idx(), round + 1) == 0 && blocks_.contains(candidate_id)) {
-    auto &block = blocks_[candidate_id];
-    if (cur_round_ == first_block_round_ &&
-        description().get_node_priority(description().get_source_idx(PublicKeyHash{block->src_}), cur_round_) == 0) {
-      callback_->generate_block_optimistic(BlockSourceInfo{description().get_source_public_key(local_idx()),
-                                                           BlockCandidatePriority{round + 1, round + 1, 0}},
-                                           block->data_.clone(), block->root_hash_, stat->block_id.file_hash,
-                                           [=, SelfId = actor_id(this)](td::Result<GeneratedCandidate> R) {
-                                             if (R.is_error()) {
-                                               return;
-                                             }
-                                             td::actor::send_closure(
-                                                 SelfId, &ValidatorSessionImpl::generated_optimistic_candidate,
-                                                 round + 1, R.move_as_ok(), candidate_id);
-                                           });
+      cur_round_ == first_block_round_ && description().get_node_priority(local_idx(), round + 1) == 0 &&
+      blocks_.contains(candidate_id) &&
+      description().get_node_priority(description().get_source_idx(stat->validator_id), cur_round_) == 0) {
+    if (blocks_.contains(candidate_id)) {
+      generate_block_optimistic(round, candidate_id);
+    } else {
+      block_waiters_[candidate_id].push_back([=, SelfId = actor_id(this)](td::Result<td::Unit> R) {
+        if (R.is_ok()) {
+          td::actor::send_closure(SelfId, &ValidatorSessionImpl::generate_block_optimistic, round, candidate_id);
+        }
+      });
     }
   }
+}
+
+void ValidatorSessionImpl::generate_block_optimistic(td::uint32 cur_round,
+                                                     ValidatorSessionCandidateId prev_candidate_id) {
+  if (cur_round != cur_round_) {
+    return;
+  }
+  auto it = blocks_.find(prev_candidate_id);
+  if (it == blocks_.end()) {
+    return;
+  }
+  auto &block = it->second;
+  auto stat = stats_get_candidate_stat_by_id(cur_round, prev_candidate_id);
+  if (!stat) {
+    return;
+  }
+  callback_->generate_block_optimistic(BlockSourceInfo{description().get_source_public_key(local_idx()),
+                                                       BlockCandidatePriority{cur_round + 1, cur_round + 1, 0}},
+                                       block->data_.clone(), block->root_hash_, stat->block_id.file_hash,
+                                       [=, SelfId = actor_id(this)](td::Result<GeneratedCandidate> R) {
+                                         if (R.is_error()) {
+                                           return;
+                                         }
+                                         td::actor::send_closure(SelfId,
+                                                                 &ValidatorSessionImpl::generated_optimistic_candidate,
+                                                                 cur_round + 1, R.move_as_ok(), prev_candidate_id);
+                                       });
 }
 
 void ValidatorSessionImpl::generated_optimistic_candidate(td::uint32 round, GeneratedCandidate candidate,
