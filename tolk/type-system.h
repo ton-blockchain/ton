@@ -561,7 +561,7 @@ public:
   // true : `int?`, `slice?`, `StructWith1IntField?`
   // false: `(int, int)?`, `ComplexStruct?`, `()?`
   bool is_primitive_nullable() const {
-    return get_width_on_stack() == 1 && or_null != nullptr && or_null->get_width_on_stack() == 1;
+    return !has_genericT_inside() && get_width_on_stack() == 1 && or_null != nullptr && or_null->get_width_on_stack() == 1;
   }
   bool has_null() const {
     return or_null != nullptr || has_variant_equal_to(TypeDataNullLiteral::create());

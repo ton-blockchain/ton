@@ -19,6 +19,7 @@
 #include "ast.h"
 #include "ast-visitor.h"
 #include "generics-helpers.h"
+#include "overload-resolution.h"
 #include "type-system.h"
 #include "smart-casts-cfg.h"
 #include <charconv>
@@ -223,16 +224,10 @@ static TypePtr try_pick_instantiated_generic_from_hint(TypePtr hint, AliasDefPtr
 
 // given `p.create` (called_receiver = Point, called_name = "create")
 // look up a corresponding method (it may be `Point.create` / `Point?.create` / `T.create`)
-static MethodCallCandidate choose_only_method_to_call(FunctionPtr cur_f, SrcLocation loc, TypePtr called_receiver, std::string_view called_name) {
-  // most practical cases: `builder.storeInt` etc., when a direct method for receiver exists
-  if (FunctionPtr exact_method = match_exact_method_for_call_not_generic(called_receiver, called_name)) {
-    return {exact_method, GenericsSubstitutions(exact_method->genericTs)};
-  }
-
-  // else, try to match, for example `10.copy` with `int?.copy`, with `T.copy`, etc.
-  std::vector<MethodCallCandidate> candidates = match_methods_for_call_including_generic(called_receiver, called_name);
+static std::pair<FunctionPtr, GenericsSubstitutions> choose_only_method_to_call(FunctionPtr cur_f, SrcLocation loc, TypePtr called_receiver, std::string_view called_name) {
+  std::vector<MethodCallCandidate> candidates = resolve_methods_for_call(called_receiver, called_name);
   if (candidates.size() == 1) {
-    return candidates[0];
+    return {candidates[0].method_ref, candidates[0].substitutedTs};
   }
   if (candidates.empty()) {   // return nullptr, the caller side decides how to react on this
     return {nullptr, GenericsSubstitutions(nullptr)};
@@ -240,10 +235,11 @@ static MethodCallCandidate choose_only_method_to_call(FunctionPtr cur_f, SrcLoca
 
   std::ostringstream msg;
   msg << "call to method `" << called_name << "` for type `" << called_receiver << "` is ambiguous\n";
-  for (const auto& [method_ref, substitutedTs] : candidates) {
+  for (const MethodCallCandidate& candidate : candidates) {
+    FunctionPtr method_ref = candidate.method_ref;
     msg << "candidate function: `" << method_ref->as_human_readable() << "`";
     if (method_ref->is_generic_function()) {
-      msg << " with " << substitutedTs.as_human_readable(false);
+      msg << " with " << candidate.substitutedTs.as_human_readable(false);
     }
     if (method_ref->loc.is_defined()) {
       msg << " (declared at " << method_ref->loc << ")\n";
@@ -891,7 +887,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
     // T for asm function must be a TVM primitive (width 1), otherwise, asm would act incorrectly
     if (fun_ref->is_asm_function() || fun_ref->is_builtin_function()) {
       for (int i = 0; i < substitutedTs.size(); ++i) {
-        if (substitutedTs.typeT_at(i)->get_width_on_stack() != 1 && !fun_ref->is_variadic_width_T_allowed()) {
+        if (substitutedTs.typeT_at(i)->get_width_on_stack() != 1 && !is_allowed_asm_generic_function_with_non1_width_T(fun_ref, i)) {
           fire_error_calling_asm_function_with_non1_stack_width_arg(cur_f, loc, fun_ref, substitutedTs, i);
         }
       }
@@ -989,7 +985,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
         TypePtr receiver_type = obj_as_type->resolved_type;
         std::tie(fun_ref, substitutedTs) = choose_only_method_to_call(cur_f, v_ident->loc, receiver_type, v->get_field_name());
         if (!fun_ref) {
-          fire(cur_f, v_ident->loc, "method `" + to_string(v->get_field_name()) + "` not found for type " + to_string(receiver_type));
+          fire_error_method_not_found(cur_f, v_ident->loc, receiver_type, v->get_field_name());
         }
       }
     }

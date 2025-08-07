@@ -97,6 +97,7 @@ class GenericSubstitutionsDeducing {
 public:
   explicit GenericSubstitutionsDeducing(FunctionPtr fun_ref);
   explicit GenericSubstitutionsDeducing(StructPtr struct_ref);
+  explicit GenericSubstitutionsDeducing(const GenericsDeclaration* genericTs);
 
   TypePtr replace_Ts_with_currently_deduced(TypePtr orig) const;
   TypePtr auto_deduce_from_argument(TypePtr param_type, TypePtr arg_type);
@@ -110,13 +111,10 @@ public:
   }
 };
 
-typedef std::pair<FunctionPtr, GenericsSubstitutions> MethodCallCandidate;
-
 FunctionPtr instantiate_generic_function(FunctionPtr fun_ref, GenericsSubstitutions&& substitutedTs);
 StructPtr instantiate_generic_struct(StructPtr struct_ref, GenericsSubstitutions&& substitutedTs);
 AliasDefPtr instantiate_generic_alias(AliasDefPtr alias_ref, GenericsSubstitutions&& substitutedTs);
 
-FunctionPtr match_exact_method_for_call_not_generic(TypePtr called_receiver, std::string_view called_name);
-std::vector<MethodCallCandidate> match_methods_for_call_including_generic(TypePtr called_receiver, std::string_view called_name);
+bool is_allowed_asm_generic_function_with_non1_width_T(FunctionPtr fun_ref, int idxT);
 
 }  // namespace tolk

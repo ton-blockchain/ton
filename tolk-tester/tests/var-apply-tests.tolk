@@ -309,7 +309,7 @@ fun testMethodsOfGenericStruct() {
     __expect_type(w2, "Wrapper<coins?>");
     var eq = Wrapper<int8>.equalsNotNull<coins?>;
     __expect_type(eq, "(Wrapper<int8>, Wrapper<coins?>) -> bool");
-    var creator3 = Wrapper<int8>.createFromNull;
+    var creator3 = Wrapper<int8?>.createFromNull;
     __expect_type(creator3, "() -> Wrapper<int8?>");
     return (eq(w1, w2), w2.value = w1.value as int, eq(w1, w2), creator3());
 }
