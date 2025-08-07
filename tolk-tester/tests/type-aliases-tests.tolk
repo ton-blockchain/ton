@@ -8,6 +8,8 @@ type Pair2_v1 = | (int, int)
 type Pair2_v2 = (MInt, MInt)
 type MBool = | bool
 type Tuple2Int = [int, int]
+type UserId = int
+type OwnerId = int
 
 struct Point { x: int; y: int }
 type PointAlias = Point;
@@ -35,8 +37,14 @@ fun test1(x: MInt): MVoid {
     __expect_type(rand() ? (1, 2) : (1, 2) as Pair2_v1, "(int, int)");
     __expect_type(rand() ? (1, 2) : (1, 2) as Pair2_v2, "(int, int)");
     __expect_type(rand() ? (1, 2) as Pair2_v1 : (1, 2), "Pair2_v1");
-    __expect_type(rand() ? (1, 2) as Pair2_v1 : (1, 2) as Pair2_v2, "(int, int)");
     __expect_type(rand() ? (1, 2) as Pair2_v2 : (1, 2) as Pair2_v2, "Pair2_v2");
+
+    // since `Pair2_v1` and `Pair2_v2` underlying type is equal, a union of them can't be created
+    var d1 = (1, 2) as Pair2_v1 | Pair2_v2;
+    var d2 = (1, 2) as Pair2_v2 | Pair2_v1;
+    __expect_type(d1, "Pair2_v1");
+    __expect_type(d2, "Pair2_v2");
+    __expect_type(rand() ? (1, 2) as Pair2_v1 : (1, 2) as Pair2_v2, "Pair2_v1");
 
     __expect_type(!x, "bool");
 
@@ -63,9 +71,9 @@ fun test3(x: MIntN, y: MInt?) {
     if (x != null) {
         __expect_type(x, "MInt");
     }
-    __expect_type(x, "MInt?");
+    __expect_type(x, "MIntN");
     var (z1, z2) = (x, x!, );
-    __expect_type(z1, "MInt?");
+    __expect_type(z1, "MIntN");
     __expect_type(z2, "MInt");
 }
 
@@ -76,9 +84,9 @@ fun test4(x: MIntN, y: MIntN) {
         __expect_type(x + y, "int");
         return x + y;
     }
-    __expect_type(x, "MInt?");
+    __expect_type(x, "MIntN");
     __expect_type(x!, "MInt");
-    __expect_type(rand() ? x : y, "MInt?");
+    __expect_type(rand() ? x : y, "MIntN");
     __expect_type(rand() ? x : 0, "MInt?");
     __expect_type(rand() ? 0 : x, "int?");
     __expect_type(rand() ? 0 : x!, "int");
@@ -97,8 +105,8 @@ fun test5() {
     __expect_type(x, "Pair2_v1");
     __expect_type(y, "Pair2_v2");
 
-    takeTensor_v1(x); takeTensor_v2(x); takeTensor_v3(x);
-    takeTensor_v1(y); takeTensor_v2(y); takeTensor_v3(y);
+    takeTensor_v1(x); takeTensor_v2(x as Pair2_v2); takeTensor_v3(x);
+    takeTensor_v1(y as Pair2_v1); takeTensor_v2(y); takeTensor_v3(y);
     takeTensor_v1(z); takeTensor_v2(z); takeTensor_v3(z);
 
     var t = (y, x);
@@ -117,16 +125,16 @@ fun test6() {
     __expect_type(z.0, "MInt");
 }
 
-fun someFn1(v: MInt): MIntN { return v; }
+fun someFn1(v: MInt): MIntN { return v as MIntN; }
 
 fun test7() {
     var f1: (int) -> int? = someFn1;
     var f2: (int) -> MInt? = someFn1;
-    var f3: (MInt_v2) -> MInt_v2? = someFn1;
+    var f3: (MInt_v2) -> MInt_v2? = someFn1 as (MInt_v2) -> MInt_v2?;
 
     f1 = f2; f1 = f3;
-    f2 = f1; f2 = f3;
-    f3 = f1; f3 = f2;
+    f2 = f1; f2 = f3 as (int) -> MInt?;
+    f3 = f1; f3 = f2 as (MInt_v2) -> MInt_v2?;
 }
 
 fun test8() {
@@ -157,7 +165,7 @@ fun test10() {
     var x1: Pair2_v1 = (5, 6);
     var (a1, b1) = x1;
     __expect_type(a1, "int");
-    var x2: Pair2_v2? = x1;
+    var x2: Pair2_v2? = x1 as (int, int);
     var (a2, b2) = x2;
     __expect_type(a2, "MInt");
     var x3: Tuple2Int = [9, 10];
@@ -199,6 +207,188 @@ fun test12(makeNotNull: bool) {
     return t;
 }
 
+struct Wrapper<T> {
+    value: T;
+}
+type WrapperOfInt = Wrapper<int>
+type WrapperOfMInt = Wrapper<MInt>
+type WrapperAlias<T> = Wrapper<T>
+type WrapperAliasOfInt = WrapperAlias<int>
+type WrapperAliasOfMInt = WrapperAlias<MInt>
+
+fun WrapperOfInt.myFn(self): int1 { return 0 }
+fun WrapperOfMInt.myFn(self): int2 { return 0 }
+fun WrapperAliasOfInt.myFn(self): int3 { return 0 }
+fun WrapperAliasOfMInt.myFn(self): int4 { return 0 }
+
+fun test13(a: WrapperAlias<int>, b: WrapperAlias<MInt>, c: Wrapper<int>, d: Wrapper<MInt>,
+    e: WrapperAliasOfInt, f: WrapperAliasOfMInt, g: WrapperOfInt, h: WrapperOfMInt) {
+    __expect_type(g.myFn(), "int1");
+    __expect_type(h.myFn(), "int2");
+    __expect_type(e.myFn(), "int3");
+    __expect_type(f.myFn(), "int4");
+
+    a = a; a = b; a = c; a = d; a = e;
+    b = a; b = b; b = c; b = d;        b = f;
+    c = a; c = b; c = c; c = d; c = e; c = f; c = g; c = h;
+    d = a; d = b; d = c; d = d; d = e; d = f; d = g; d = h;
+    e = a;        e = c; e = d; e = e;
+           f = b; f = c; f = d;        f = f;
+                  g = c; g = d;               g = g;
+                  h = c; h = d;                      h = h;
+
+    a as WrapperAlias<int>;
+    a as WrapperAlias<MInt>;
+    a as Wrapper<int>;
+    a as Wrapper<MInt>;
+    a as WrapperOfInt;
+    a as WrapperOfMInt;
+    a as WrapperAliasOfInt;
+    a as WrapperAliasOfMInt;
+
+    match (a) { WrapperAlias<int> => {} }
+    match (a) { WrapperAlias<MInt> => {} }
+    match (a) { Wrapper<int> => {} }
+    match (a) { Wrapper<MInt> => {} }
+    // match (a) { WrapperOfInt => {} }
+    // match (a) { WrapperOfMInt => {} }
+    match (a) { WrapperAliasOfInt => {} }
+    // match (a) { WrapperAliasOfMInt => {} }
+
+    b as WrapperAlias<int>;
+    b as WrapperAlias<MInt>;
+    b as Wrapper<int>;
+    b as Wrapper<MInt>;
+    b as WrapperOfInt;
+    b as WrapperOfMInt;
+    b as WrapperAliasOfInt;
+    b as WrapperAliasOfMInt;
+
+    match (b) { WrapperAlias<int> => {} }
+    match (b) { WrapperAlias<MInt> => {} }
+    match (b) { Wrapper<int> => {} }
+    match (b) { Wrapper<MInt> => {} }
+    // match (b) { WrapperOfInt => {} }
+    // match (b) { WrapperOfMInt => {} }
+    // match (b) { WrapperAliasOfInt => {} }
+    match (b) { WrapperAliasOfMInt => {} }
+
+    match (e) { WrapperAliasOfInt => {} }
+
+    match (f) { WrapperAliasOfMInt => {} }
+    match (f) { Wrapper<int> => {} }
+    match (f) { Wrapper<MInt> => {} }
+    // match (f) { WrapperAlias<int> => {} }
+    match (f) { WrapperAlias<MInt> => {} }
+
+    __expect_type(a, "WrapperAlias<int>");
+    __expect_type(b, "WrapperAlias<MInt>");
+    __expect_type(c, "Wrapper<int>");
+    __expect_type(d, "Wrapper<MInt>");
+    __expect_type(e, "WrapperAliasOfInt");
+    __expect_type(f, "WrapperAliasOfMInt");
+    __expect_type(g, "WrapperOfInt");
+    __expect_type(h, "WrapperOfMInt");
+
+    __expect_type(g.myFn(), "int1");
+    __expect_type(h.myFn(), "int2");
+    __expect_type(e.myFn(), "int3");
+    __expect_type(f.myFn(), "int4");
+}
+
+type Payload14 = MInt | MBool | PointAlias2
+
+fun test14(i: MInt, b: MBool, c: PointAlias2) {
+    var p: Payload14 = i;
+    p = b;
+    p = c;
+    p = i as int;
+    p = b as bool;
+    p = c as Point;
+    p = c as PointAlias;
+}
+
+type MInt1 = int
+type MInt2 = MInt1
+
+fun int.plus0(self) { return self + 0 }
+fun MInt1.plus1(self) { return self + 1 }
+fun MInt2.plus2(self) { return self + 2 }
+
+@method_id(115)
+fun test15() {
+    var i: int = 0;
+    var m: MInt1 = 10;
+    var t: MInt2 = 20;
+
+    if (0) {
+        i = m; i = t;
+        m = i; m = t;
+        t = i; t = m;
+    }
+    
+    return (
+        i.plus0(), i.plus1(), i.plus2(),
+        m.plus0(), m.plus1(), m.plus2(),
+        t.plus0(), t.plus1(), t.plus2(),
+    )
+}
+
+type StrangeUnionInt = int | UserId
+type StrangeUnionInt2 = UserId | OwnerId
+
+struct ManyUnionFields {
+    f1: int | UserId
+    f2: StrangeUnionInt
+    f3: UserId | OwnerId
+    f4: OwnerId | UserId
+    f5: int | StrangeUnionInt2
+    f6: StrangeUnionInt2
+
+    f10: slice | int | UserId
+    f11: slice | UserId | int
+    f12: OwnerId | () | int | UserId | slice
+    f13: OwnerId | cell | StrangeUnionInt2?
+}
+
+fun test16(a: ManyUnionFields) {
+    __expect_type(a.f1, "int");
+    __expect_type(a.f2, "StrangeUnionInt");
+    __expect_type(a.f3, "UserId");
+    __expect_type(a.f5, "int");
+    __expect_type(a.f6, "StrangeUnionInt2");
+    a.f1 + a.f2 + a.f3 + a.f4 + a.f5 + a.f6;
+
+    __expect_type(a.f10, "slice | int");
+    __expect_type(a.f11, "slice | UserId");
+    __expect_type(a.f12, "OwnerId | () | slice");
+    __expect_type(a.f13, "OwnerId | cell | null");
+
+    match (a.f13) {
+        int => {}
+        cell => {}
+        null => {}
+    }
+}
+
+type SnakedCell<T> = cell
+
+fun test17(a: SnakedCell<int>, b: SnakedCell<MInt>, c: SnakedCell<MInt_v2>) {
+    a = a; a = b; a = c;
+    b = a;
+    c = a;
+
+    a as SnakedCell<int>;
+    a as SnakedCell<MInt>;
+    a as SnakedCell<MInt_v2>;
+    b as SnakedCell<int>;
+    b as SnakedCell<MInt>;
+    b as SnakedCell<MInt_v2>;
+    c as SnakedCell<int>;
+    c as SnakedCell<MInt>;
+    c as SnakedCell<MInt_v2>;
+}
+
 
 fun main(x: MInt, y: MInt?) {
     return y == null ? x : x + y;
@@ -210,6 +400,7 @@ fun main(x: MInt, y: MInt?) {
 @testcase | 110 |     | 41
 @testcase | 112 | 0   | [ 1 1 ]
 @testcase | 112 | -1  | [ 2 1 ]
+@testcase | 115 |     | 0 1 2 10 11 12 20 21 22
 
 @fif_codegen
 """

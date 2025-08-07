@@ -210,7 +210,7 @@ void UnpackContext::throwInvalidOpcode() const {
 
 const LazyMatchOptions::MatchBlock* LazyMatchOptions::find_match_block(TypePtr variant) const {
   for (const MatchBlock& b : match_blocks) {
-    if (b.arm_variant->get_type_id() == variant->get_type_id()) {
+    if (b.arm_variant->equal_to(variant)) {
       return &b;
     }
   }

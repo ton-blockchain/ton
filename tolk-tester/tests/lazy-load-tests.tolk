@@ -1628,10 +1628,10 @@ fun main() {
 @testcase | 113 | x{03ffff}       | -1
 @testcase | 113 | x{04000000FF}   | 255
 @testcase | 114 | x{0110}         | 16 1
-@testcase | 114 | x{020f}         | [ -15 ] typeid-27
+@testcase | 114 | x{020f}         | [ -15 ] typeid-2
 @testcase | 114 | x{03}           | -1 1
 @testcase | 114 | x{03ffff}       | -1 1
-@testcase | 114 | x{04000000FF}   | [ 255 ] typeid-27
+@testcase | 114 | x{04000000FF}   | [ 255 ] typeid-2
 @testcase | 115 | x{08}           | 8 42
 @testcase | 115 | x{88}           | 0 2
 @testcase | 115 | x{83}           | -1 2
@@ -1646,9 +1646,9 @@ fun main() {
 @testcase | 122 | x{010288}       | -8 1
 @testcase | 123 | x{010280}       | 5
 @testcase | 124 | x{010283}       | [ -3 2 ]
-@testcase | 125 |                 | 127 32 15 2 3 typeid-1 15 3 -1
-@testcase | 126 | x{7F0F20}       | 127 (null) (null) 15 typeid-3 32 15 -1
-@testcase | 126 | x{7F8F020320}   | 127 15 2 3 typeid-4 32 -1 2
+@testcase | 125 |                 | 127 32 15 2 3 typeid-6 15 3 -1
+@testcase | 126 | x{7F0F20}       | 127 (null) (null) 15 typeid-8 32 15 -1
+@testcase | 126 | x{7F8F020320}   | 127 15 2 3 typeid-7 32 -1 2
 @testcase | 127 |                 | 1 2 -1 255
 @testcase | 128 | x{5500}         | -1 -1
 @testcase | 128 | x{558F01024}    | 0 2

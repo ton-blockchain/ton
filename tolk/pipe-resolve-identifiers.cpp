@@ -64,6 +64,15 @@ static void fire_error_type_used_as_symbol(FunctionPtr cur_f, V<ast_identifier> 
   }
 }
 
+GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
+static void fire_error_using_self_not_in_method(FunctionPtr cur_f, SrcLocation loc) {
+  if (cur_f->is_static_method()) {
+    fire(cur_f, loc, "using `self` in a static method");
+  } else {
+    fire(cur_f, loc, "using `self` in a regular function (not a method)");
+  }
+}
+
 struct NameAndScopeResolver {
   std::vector<std::unordered_map<uint64_t, const Symbol*>> scopes;
 
@@ -174,9 +183,12 @@ protected:
     try {
       parent::visit(v->get_obj());
     } catch (const ParseError&) {
-      if (v->get_obj()->kind == ast_reference) {
+      if (auto v_type_name = v->get_obj()->try_as<ast_reference>()) {
         // for `Point.create` / `int.zero`, "undefined symbol" is fired for Point/int
         // suppress this exception till a later pipe, it will be tried to be resolved as a type
+        if (v_type_name->get_identifier()->name == "self") {
+          fire_error_using_self_not_in_method(cur_f, v_type_name->loc);
+        }
         return;
       }
       throw;

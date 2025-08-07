@@ -279,7 +279,7 @@ class TolkTestFile {
         /** @type {boolean} */
         this.enable_tolk_lines_comments = false
         /** @type {number} */
-        this.pivot_typeid = 138  // may be changed when stdlib introduces new union types
+        this.pivot_typeid = 128
     }
 
     parse_input_from_tolk_file() {

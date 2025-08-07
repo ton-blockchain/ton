@@ -146,14 +146,14 @@ RETALT
 """
 IF:<{
   DROP
-  139 PUSHINT
+  129 PUSHINT
 }>ELSE<{
   x{03} SDBEGINSQ
   NIP
   IFNOTJMP:<{
     104 THROW
   }>
-  140 PUSHINT
+  130 PUSHINT
 }>
 """
 
@@ -201,7 +201,7 @@ IF:<{
     x{01} SDBEGINSQ
     IF:<{
       DROP
-      139 PUSHINT
+      129 PUSHINT
     }>ELSE<{
       x{03} SDBEGINSQ
       NIP
@@ -209,9 +209,9 @@ IF:<{
         16 PUSHPOW2DEC
         THROWANY
       }>
-      140 PUSHINT
+      130 PUSHINT
     }>
-    139 PUSHINT
+    129 PUSHINT
     EQUAL
   }>
 """

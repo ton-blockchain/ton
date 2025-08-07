@@ -288,6 +288,25 @@ fun test18() {
     return cb(10);
 }
 
+type BalanceList = dict
+type AssetList = dict
+
+fun BalanceList.validate(self): int1 { return 0 }
+fun AssetList.validate(self): int2 { return 0 }
+
+fun test19(b: BalanceList, a: AssetList) {
+    __expect_type(b.validate(), "int1");
+    __expect_type(a.validate(), "int2");
+    
+    if (b == null) {}
+    match (a) {
+        null => {}
+        cell => {}
+    }
+    __expect_type(b, "BalanceList");
+    __expect_type(a, "AssetList");
+}
+
 fun main() {}
 
 /**

@@ -716,6 +716,65 @@ fun test63() {
     __expect_type(r!.sub, "Point");
 }
 
+type BalanceDict = dict
+
+fun cell.myDepth(self): int1 { return 0 }
+fun BalanceDict.myDepth(self): int3 { return 0 }
+fun null.myDepth(self): int4 { return 0 }
+
+fun test64(d: dict, b: BalanceDict) {
+    match (d) {
+        null => { __expect_type(d.myDepth(), "int4") }
+        cell => { __expect_type(d.myDepth(), "int1") }
+    }
+    __expect_type(d, "dict");
+    __expect_type(d.myDepth(), "int3");
+    
+    match (b) {
+        null => { __expect_type(b.myDepth(), "int4") }
+        cell => { __expect_type(b.myDepth(), "int1") }
+    }
+    __expect_type(b, "BalanceDict");
+    __expect_type(b.myDepth(), "int3");
+    
+    if (d == null) { return; }
+    if (b != null) { return; }
+
+    __expect_type(d.myDepth(), "int1");
+    __expect_type(b.myDepth(), "int4");
+    
+    if ([0].0) {
+        (b, d) = (createEmptyCell(), null)
+    }
+    __expect_type(b, "BalanceDict");
+    __expect_type(d, "dict");
+}
+
+struct WithDict {
+    d: dict
+    b: BalanceDict
+}
+
+fun test65(w: WithDict, t: (dict, BalanceDict)) {
+    match (w.d) {
+        null => { __expect_type(w.d, "null") }
+        cell => { __expect_type(w.d, "cell") }
+    }
+    if (w.b == null) {}
+    else { __expect_type(w.b, "cell") }
+
+    match (t.1) {
+        null => { __expect_type(t.1.myDepth(), "int4") }
+        cell => { __expect_type(t.1.myDepth(), "int1") }
+    }
+    if (t.0 != null) { __expect_type(t.0, "cell") }
+
+    __expect_type(w.d, "dict");
+    __expect_type(w.b, "BalanceDict");
+    __expect_type(t.0, "dict");
+    __expect_type(t.1, "BalanceDict");
+}
+
 
 fun main(x: int?): int {
     // mark used to codegen them
@@ -737,16 +796,16 @@ fun main(x: int?): int {
 @testcase | 139 |       | 16
 @testcase | 140 | 5     | 25
 @testcase | 141 |       | 1 2
-@testcase | 142 |       | 5 3 (null) (null) 0 typeid-5 3 (null) (null) 0
+@testcase | 142 |       | 5 3 (null) (null) 0 typeid-3 3 (null) (null) 0
 @testcase | 143 |       | 10 11 (null) 10 11 (null) (null) 0
 @testcase | 144 |       | 10 11 (null) 10 11 (null) (null) 0
-@testcase | 145 |       | 5 3 (null) (null) 0 typeid-5 3 (null) (null) (null) (null) 0 3 (null) (null) 0
-@testcase | 146 |       | 3 4 5 3 4 5 typeid-4
+@testcase | 145 |       | 5 3 (null) (null) 0 typeid-3 3 (null) (null) (null) (null) 0 3 (null) (null) 0
+@testcase | 146 |       | 3 4 5 3 4 5 typeid-2
 @testcase | 147 |       | (null) (null) 100 (null) 100 (null) (null) 0
 @testcase | 158 |       | 123 10 123 5
 @testcase | 160 |       | 101 109
 @testcase | 161 | 9 9   | (null) (null) 0 (null) (null)
-@testcase | 161 | 19 0  | 19 0 typeid-1 19 0
+@testcase | 161 | 19 0  | 19 0 typeid-4 19 0
 
 @stderr warning: expression of type `int` can never be `null`, this condition is always true
 @stderr warning: unreachable code

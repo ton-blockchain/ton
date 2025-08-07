@@ -1122,7 +1122,7 @@ static V<ast_block_statement> parse_block_statement(Lexer& lex) {
 static AnyV parse_return_statement(Lexer& lex) {
   SrcLocation loc = lex.cur_location();
   lex.expect(tok_return, "`return`");
-  AnyExprV child = lex.tok() == tok_semicolon   // `return;` actually means "nothing" (inferred as void)
+  AnyExprV child = lex.tok() == tok_semicolon || lex.tok() == tok_clbrace
     ? createV<ast_empty_expression>(lex.cur_location())
     : parse_expr(lex);
   return createV<ast_return_statement>(loc, child);

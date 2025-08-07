@@ -579,7 +579,7 @@ std::vector<var_idx_t> pre_compile_is_type(CodeBlob& code, TypePtr expr_type, Ty
   FunctionPtr not_sym = lookup_function("!b_");
   std::vector<var_idx_t> result_ir_idx = code.create_tmp_var(TypeDataBool::create(), loc, debug_desc);
 
-  const TypeDataUnion* lhs_union = expr_type->try_as<TypeDataUnion>();
+  const TypeDataUnion* lhs_union = expr_type->unwrap_alias()->try_as<TypeDataUnion>();
   if (!lhs_union) {
     // `int` is `int` / `int` is `builder`, it's compile-time, either 0, or -1
     bool types_eq = expr_type->get_type_id() == cmp_type->get_type_id();
@@ -720,12 +720,12 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
   tolk_assert(static_cast<int>(rvect.size()) == original_type->get_width_on_stack());
 #endif
 
+  // aliases are erased at the TVM level
   original_type = original_type->unwrap_alias();
   target_type = target_type->unwrap_alias();
 
   // pass `T` to `T`
-  // could occur for passing tensor `(..., T, ...)` to `(..., T, ...)` while traversing tensor's components
-  if (target_type == original_type) {
+  if (target_type->equal_to(original_type)) {
     return rvect;
   }
 
@@ -768,7 +768,7 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
   // so, originally a type occupies N slots, but needs to be converted to 1 slot
   if (t_union && t_union->is_primitive_nullable() && orig_w > 0) {
     // nothing except "T1 | T2 | ... null" can be cast to 1-slot nullable `T1?`
-    tolk_assert(o_union && o_union->has_null() && o_union->has_variant_with_type_id(t_union->or_null));
+    tolk_assert(o_union && o_union->has_null() && o_union->has_variant_equal_to(t_union->or_null));
     // here we exploit rvect shape, how union types and multi-slot nullables are stored on a stack
     // `T1 | T2 | ... | null` occupies N+1 slots, where the last is for UTag
     // when it holds null value, N slots are null, and UTag slot is 0 (it's type_id of TypeDataNullLiteral)
@@ -834,7 +834,7 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
   // - `slice?` to `(int, int) | slice | builder | null`
   // so, originally `T?` is 1-slot, but needs to be converted to N+1 slots, keeping its value
   if (o_union && o_union->is_primitive_nullable() && t_union) {
-    tolk_assert(t_union->has_null() && t_union->has_variant_with_type_id(o_union->or_null) && target_w > 1);
+    tolk_assert(t_union->has_null() && t_union->has_variant_equal_to(o_union->or_null) && target_w > 1);
     // the transformation is tricky:
     // when value is null, we need to achieve "... (null) 0"         (value is already null, so "... value 0")
     // when value is not null, we need to get "... value {type_id}"
@@ -1313,8 +1313,8 @@ static std::vector<var_idx_t> process_cast_as_operator(V<ast_cast_as_operator> v
 }
 
 static std::vector<var_idx_t> process_is_type_operator(V<ast_is_type_operator> v, CodeBlob& code, TypePtr target_type) {
-  TypePtr lhs_type = v->get_expr()->inferred_type->unwrap_alias();
-  TypePtr cmp_type = v->type_node->resolved_type->unwrap_alias();
+  TypePtr lhs_type = v->get_expr()->inferred_type;
+  TypePtr cmp_type = v->type_node->resolved_type;
   bool is_null_check = cmp_type == TypeDataNullLiteral::create();    // `v == null`, not `v is T`
   tolk_assert(!cmp_type->try_as<TypeDataUnion>());  // `v is int|slice` is a type checker error
 
@@ -1329,7 +1329,7 @@ static std::vector<var_idx_t> process_is_type_operator(V<ast_is_type_operator> v
 }
 
 static std::vector<var_idx_t> process_not_null_operator(V<ast_not_null_operator> v, CodeBlob& code, TypePtr target_type, LValContext* lval_ctx) {
-  TypePtr expr_type = v->get_expr()->inferred_type->unwrap_alias();
+  TypePtr expr_type = v->get_expr()->inferred_type;
   TypePtr without_null_type = calculate_type_subtract_rhs_type(expr_type, TypeDataNullLiteral::create());
   TypePtr child_target_type = without_null_type != TypeDataNever::create() ? without_null_type : expr_type;
 
@@ -1390,7 +1390,7 @@ static std::vector<var_idx_t> process_lazy_operator(V<ast_lazy_operator> v, Code
 }
 
 static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v, CodeBlob& code, TypePtr target_type) {
-  TypePtr lhs_type = v->get_subject()->inferred_type->unwrap_alias();
+  TypePtr lhs_type = v->get_subject()->inferred_type;
 
   int n_arms = v->get_arms_count();
   std::vector<var_idx_t> subj_ir_idx = pre_compile_expr(v->get_subject(), code, nullptr);
@@ -1427,8 +1427,8 @@ static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v
     auto v_ith_arm = v->get_arm(i);
     std::vector<var_idx_t> eq_ith_ir_idx;
     if (is_match_by_type) {
-      TypePtr cmp_type = v_ith_arm->pattern_type_node->resolved_type->unwrap_alias();
-      tolk_assert(!cmp_type->try_as<TypeDataUnion>());  // `match` over `int|slice` is a type checker error
+      TypePtr cmp_type = v_ith_arm->pattern_type_node->resolved_type;
+      tolk_assert(!cmp_type->unwrap_alias()->try_as<TypeDataUnion>());  // `match` over `int|slice` is a type checker error
       eq_ith_ir_idx = pre_compile_is_type(code, lhs_type, cmp_type, subj_ir_idx, v_ith_arm->loc, "(arm-cond-eq)");
     } else {
       std::vector<var_idx_t> ith_ir_idx = pre_compile_expr(v_ith_arm->get_pattern_expr(), code);
@@ -1946,7 +1946,7 @@ static std::vector<var_idx_t> process_artificial_aux_vertex(V<ast_artificial_aux
       auto v_arm = v_match->get_arm(i);
       TypePtr arm_variant = nullptr;
       if (v_arm->pattern_kind == MatchArmKind::exact_type) {
-        arm_variant = v_arm->pattern_type_node->resolved_type->unwrap_alias();
+        arm_variant = v_arm->pattern_type_node->resolved_type;
       } else {
         tolk_assert(v_arm->pattern_kind == MatchArmKind::else_branch);   // `else` allowed in a lazy match
       }

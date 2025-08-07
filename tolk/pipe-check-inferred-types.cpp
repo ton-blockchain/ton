@@ -562,10 +562,10 @@ protected:
     bool has_expr_arm = false;
     bool has_else_arm = false;
     AnyExprV v_subject = v->get_subject();
-    TypePtr subject_type = v_subject->inferred_type->unwrap_alias();
-    const TypeDataUnion* subject_union = subject_type->try_as<TypeDataUnion>();
+    TypePtr subject_type = v_subject->inferred_type;
+    const TypeDataUnion* subject_union = subject_type->unwrap_alias()->try_as<TypeDataUnion>();
 
-    std::vector<int> covered_type_ids;    // for type-based `match`, what types are on the left of `=>`
+    std::vector<TypePtr> covered_types;    // for type-based `match`, what types are on the left of `=>`
 
     for (int i = 0; i < v->get_arms_count(); ++i) {
       auto v_arm = v->get_arm(i);
@@ -579,19 +579,22 @@ protected:
           }
           has_type_arm = true;
 
-          TypePtr lhs_type = v_arm->pattern_type_node->resolved_type->unwrap_alias();   // `lhs_type => ...`
-          if (lhs_type->try_as<TypeDataUnion>()) {
+          TypePtr lhs_type = v_arm->pattern_type_node->resolved_type;   // `lhs_type => ...`
+          if (lhs_type->unwrap_alias()->try_as<TypeDataUnion>()) {
             fire(cur_f, v_arm->loc, "wrong pattern matching: union types are not allowed, use concrete types in `match`");
           }
-          bool can_happen = (subject_union && subject_union->has_variant_with_type_id(lhs_type)) ||
+          bool can_happen = (subject_union && subject_union->has_variant_equal_to(lhs_type)) ||
                            (!subject_union && subject_type->equal_to(lhs_type));
           if (!can_happen) {
             fire(cur_f, v_arm->loc, "wrong pattern matching: " + to_string(lhs_type) + " is not a variant of " + to_string(subject_type));
           }
-          if (std::find(covered_type_ids.begin(), covered_type_ids.end(), lhs_type->get_type_id()) != covered_type_ids.end()) {
+          auto it_mentioned = std::find_if(covered_types.begin(), covered_types.end(), [lhs_type](TypePtr existing) {
+            return existing->equal_to(lhs_type);
+          });
+          if (it_mentioned != covered_types.end()) {
             fire(cur_f, v_arm->loc, "wrong pattern matching: duplicated " + to_string(lhs_type));
           }
-          covered_type_ids.push_back(lhs_type->get_type_id());
+          covered_types.push_back(lhs_type);
           break;
         }
         case MatchArmKind::const_expression: {
@@ -602,7 +605,7 @@ protected:
             fire(cur_f, v_arm->loc, "`else` branch should be the last");
           }
           has_expr_arm = true;
-          TypePtr pattern_type = v_arm->get_pattern_expr()->inferred_type->unwrap_alias();
+          TypePtr pattern_type = v_arm->get_pattern_expr()->inferred_type;
           bool both_int = expect_integer(pattern_type) && expect_integer(subject_type);
           bool both_bool = expect_boolean(pattern_type) && expect_boolean(subject_type);
           if (!both_int && !both_bool) {
@@ -627,11 +630,19 @@ protected:
       }
     }
 
+    // only `else` branch
+    if (has_else_arm && !has_type_arm && !has_expr_arm) {
+      fire(cur_f, v->loc, "`match` contains only `else`, but no variants");
+    }
+
     // fire if `match` by type is not exhaustive
-    if (has_type_arm && subject_union && subject_union->variants.size() != covered_type_ids.size()) {
+    if (has_type_arm && subject_union && subject_union->variants.size() != covered_types.size()) {
       std::string missing;
       for (TypePtr variant : subject_union->variants) {
-        if (std::find(covered_type_ids.begin(), covered_type_ids.end(), variant->get_type_id()) == covered_type_ids.end()) {
+        auto it_mentioned = std::find_if(covered_types.begin(), covered_types.end(), [variant](TypePtr existing) {
+          return existing->equal_to(variant);
+        });
+        if (it_mentioned == covered_types.end()) {
           if (!missing.empty()) {
             missing += ", ";
           }

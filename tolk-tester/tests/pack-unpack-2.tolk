@@ -737,18 +737,18 @@ fun main() {
 @testcase | 208 | | -1
 @testcase | 209 | | -1
 @testcase | 210 | | 123 555 46 (null)
-@testcase | 211 | | (null) typeid-4 123
-@testcase | 212 | | (null) typeid-5 123
+@testcase | 211 | | (null) typeid-3 123
+@testcase | 212 | | (null) typeid-4 123
 @testcase | 213 | | -1
 @testcase | 214 | | -1
 @testcase | 215 | | -1
 @testcase | 216 | | -1
 @testcase | 217 | | -1
 @testcase | 218 | | -1
-@testcase | 219 | | 44 (null) (null) 46 typeid-15
+@testcase | 219 | | 44 (null) (null) 46 typeid-11
 @testcase | 220 | | 0 0 (null) 99 typeid-8 typeid-9 99 1234 (null) 889129 14
 @testcase | 221 | | -1
-@testcase | 222 | | 510 567 9392843922 typeid-18 81923 81923 typeid-19 777 0 -1 (null) (null) 0 100000 100000 typeid-19
+@testcase | 222 | | 510 567 9392843922 typeid-13 81923 81923 typeid-14 777 0 -1 (null) (null) 0 100000 100000 typeid-14
 @testcase | 223 | | 10 55 (null)
 @testcase | 224 | | 60 50000000 5 9 123 -1
 @testcase | 225 | | 5 40 65535 8 50000000

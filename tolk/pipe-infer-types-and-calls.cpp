@@ -786,7 +786,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
     }
 
     rhs_type = rhs_type->unwrap_alias();
-    TypePtr expr_type = v->get_expr()->inferred_type->unwrap_alias();
+    TypePtr expr_type = v->get_expr()->inferred_type;
     TypePtr non_rhs_type = calculate_type_subtract_rhs_type(expr_type, rhs_type);
     if (expr_type->equal_to(rhs_type)) {                          // `expr is <type>` is always true
       v->mutate()->assign_always_true_or_false(v->is_negated ? 2 : 1);
@@ -823,7 +823,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
   ExprFlow infer_not_null_operator(V<ast_not_null_operator> v, FlowContext&& flow, bool used_as_condition) {
     ExprFlow after_expr = infer_any_expr(v->get_expr(), std::move(flow), false);
     TypePtr expr_type = v->get_expr()->inferred_type;
-    TypePtr without_null_type = calculate_type_subtract_rhs_type(expr_type->unwrap_alias(), TypeDataNullLiteral::create());
+    TypePtr without_null_type = calculate_type_subtract_rhs_type(expr_type, TypeDataNullLiteral::create());
     assign_inferred_type(v, without_null_type != TypeDataNever::create() ? without_null_type : expr_type);
 
     if (!used_as_condition) {
@@ -907,8 +907,8 @@ class InferTypesAndCallsAndFieldsVisitor final {
     // - or inside a call: `globalF()` / `genericFn()` / `genericFn<int>()` / `local_var()`
 
     if (LocalVarPtr var_ref = v->sym->try_as<LocalVarPtr>()) {
-      TypePtr declared_or_smart_casted = flow.smart_cast_if_exists(SinkExpression(var_ref));
-      tolk_assert(declared_or_smart_casted != nullptr);   // all local vars are presented in flow
+      tolk_assert(flow.smart_cast_exists(SinkExpression(var_ref)));   // all local vars are presented in flow
+      TypePtr declared_or_smart_casted = flow.smart_cast_or_original(SinkExpression(var_ref), var_ref->declared_type);
       assign_inferred_type(v, declared_or_smart_casted);
       if (var_ref->is_lateinit() && declared_or_smart_casted == TypeDataUnknown::create() && v->is_rvalue) {
         fire_error_using_lateinit_variable_uninitialized(cur_f, v->loc, v->get_name());
@@ -1010,9 +1010,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
         v->mutate()->assign_target(field_ref);
         TypePtr inferred_type = field_ref->declared_type;
         if (SinkExpression s_expr = extract_sink_expression_from_vertex(v)) {
-          if (TypePtr smart_casted = flow.smart_cast_if_exists(s_expr)) {
-            inferred_type = smart_casted;
-          }
+          inferred_type = flow.smart_cast_or_original(s_expr, inferred_type);
         }
         assign_inferred_type(v, inferred_type);
         return ExprFlow(std::move(flow), used_as_condition);
@@ -1033,9 +1031,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
         v->mutate()->assign_target(index_at);
         TypePtr inferred_type = t_tensor->items[index_at];
         if (SinkExpression s_expr = extract_sink_expression_from_vertex(v)) {
-          if (TypePtr smart_casted = flow.smart_cast_if_exists(s_expr)) {
-            inferred_type = smart_casted;
-          }
+          inferred_type = flow.smart_cast_or_original(s_expr, inferred_type);
         }
         assign_inferred_type(v, inferred_type);
         return ExprFlow(std::move(flow), used_as_condition);
@@ -1047,9 +1043,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
         v->mutate()->assign_target(index_at);
         TypePtr inferred_type = t_tuple->items[index_at];
         if (SinkExpression s_expr = extract_sink_expression_from_vertex(v)) {
-          if (TypePtr smart_casted = flow.smart_cast_if_exists(s_expr)) {
-            inferred_type = smart_casted;
-          }
+          inferred_type = flow.smart_cast_or_original(s_expr, inferred_type);
         }
         assign_inferred_type(v, inferred_type);
         return ExprFlow(std::move(flow), used_as_condition);
@@ -1185,7 +1179,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
       if (param_type->has_genericT_inside()) {
         param_type = deducingTs.auto_deduce_from_argument(cur_f, self_obj->loc, param_type, self_obj->inferred_type);
       }
-      if (param_0.is_mutate_parameter() && self_obj->inferred_type->unwrap_alias() != param_type->unwrap_alias()) {
+      if (param_0.is_mutate_parameter() && !self_obj->inferred_type->equal_to(param_type)) {
         if (SinkExpression s_expr = extract_sink_expression_from_vertex(self_obj)) {
           assign_inferred_type(self_obj, calc_declared_type_before_smart_cast(self_obj));
           flow.register_known_type(s_expr, param_type);
@@ -1212,7 +1206,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
         param_type = deducingTs.auto_deduce_from_argument(cur_f, arg_i->loc, param_type, arg_i->inferred_type);
       }
       assign_inferred_type(v->get_arg(i), arg_i);  // arg itself is an expression
-      if (param_i.is_mutate_parameter() && arg_i->inferred_type->unwrap_alias() != param_type->unwrap_alias()) {
+      if (param_i.is_mutate_parameter() && !arg_i->inferred_type->equal_to(param_type)) {
         if (SinkExpression s_expr = extract_sink_expression_from_vertex(arg_i)) {
           assign_inferred_type(arg_i, calc_declared_type_before_smart_cast(arg_i));
           flow.register_known_type(s_expr, param_type);

@@ -42,7 +42,7 @@ class TypeData {
   // bits of flag_mask, to store often-used properties and return them without tree traversing
   const int flags;
 
-  friend class TypeDataHasherForUnique;
+  friend class CalcChildrenFlags;
 
 protected:
   enum flag_mask {
@@ -55,7 +55,6 @@ protected:
     : flags(flags_with_children) {
   }
 
-  static bool equal_to_slow_path(TypePtr lhs, TypePtr rhs);
   static TypePtr unwrap_alias_slow_path(TypePtr lhs);
 
 public:
@@ -71,9 +70,6 @@ public:
     return 1;   // most types occupy 1 stack slot (int, cell, slice, etc.)
   }
 
-  bool equal_to(TypePtr rhs) const {
-    return this == rhs || equal_to_slow_path(this, rhs);
-  }
   TypePtr unwrap_alias() const {
     return has_type_alias_inside() ? unwrap_alias_slow_path(this) : this;
   }
@@ -91,6 +87,10 @@ public:
 
   virtual bool can_hold_tvm_null_instead() const {
     return true;
+  }
+
+  virtual bool equal_to(TypePtr rhs) const {
+    return this == rhs->unwrap_alias();
   }
 
   virtual TypePtr replace_children_custom(const ReplacerCallbackT& callback) const {
@@ -124,6 +124,7 @@ public:
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
   bool can_hold_tvm_null_instead() const override;
+  bool equal_to(TypePtr rhs) const override;
 };
 
 /*
@@ -320,6 +321,7 @@ public:
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
   TypePtr replace_children_custom(const ReplacerCallbackT& callback) const override;
+  bool equal_to(TypePtr rhs) const override;
 };
 
 /*
@@ -343,6 +345,7 @@ public:
   std::string as_human_readable() const override { return nameT; }
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+  bool equal_to(TypePtr rhs) const override;
 };
 
 /*
@@ -373,6 +376,7 @@ public:
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
   TypePtr replace_children_custom(const ReplacerCallbackT& callback) const override;
+  bool equal_to(TypePtr rhs) const override;
 };
 
 /*
@@ -398,6 +402,7 @@ public:
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
   bool can_hold_tvm_null_instead() const override;
+  bool equal_to(TypePtr rhs) const override;
 };
 
 /*
@@ -425,6 +430,7 @@ public:
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
   TypePtr replace_children_custom(const ReplacerCallbackT& callback) const override;
   bool can_hold_tvm_null_instead() const override;
+  bool equal_to(TypePtr rhs) const override;
 };
 
 /*
@@ -449,6 +455,7 @@ public:
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
   TypePtr replace_children_custom(const ReplacerCallbackT& callback) const override;
+  bool equal_to(TypePtr rhs) const override;
 };
 
 /*
@@ -475,6 +482,7 @@ public:
   std::string as_human_readable() const override;
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+  bool equal_to(TypePtr rhs) const override;
 };
 
 /*
@@ -518,6 +526,7 @@ public:
   std::string as_human_readable() const override;
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+  bool equal_to(TypePtr rhs) const override;
 };
 
 /*
@@ -528,6 +537,8 @@ public:
  * - `T | null`, if T is 1 slot  (like `int | null`), then it's still 1 slot
  * - `T | null`, if T is N slots (like `(int, int)?`), it's stored as N+1 slots (the last for type_id if T or 0 if null)
  * - `T1 | T2 | ...` is a tagged union: occupy max(T_i)+1 slots (1 for type_id)
+ * When a union is created, variants are flattened, duplicates are removed: `int | UserId | IntOrSlice` = `int | slice`,
+ * duplicates are detected based on `equal_to()`, and a union can be tested on having `has_variant_equal_to()`.
  */
 class TypeDataUnion final : public TypeData {
   TypeDataUnion(int children_flags, TypePtr or_null, std::vector<TypePtr>&& variants)
@@ -535,7 +546,6 @@ class TypeDataUnion final : public TypeData {
     , or_null(or_null)
     , variants(std::move(variants)) {}
 
-  bool has_variant_with_type_id(int type_id) const;
   static void append_union_type_variant(TypePtr variant, std::vector<TypePtr>& out_unique_variants);
 
 public:
@@ -543,7 +553,7 @@ public:
   const std::vector<TypePtr> variants;    // T_i, flattened, no duplicates; may include aliases, but not other unions
 
   static TypePtr create(std::vector<TypePtr>&& variants);
-  static TypePtr create_nullable(TypePtr nullable);
+  static TypePtr create_nullable(TypePtr nullable) { return create({nullable, TypeDataNullLiteral::create()}); }
 
   int size() const { return static_cast<int>(variants.size()); }
 
@@ -554,20 +564,11 @@ public:
     return get_width_on_stack() == 1 && or_null != nullptr && or_null->get_width_on_stack() == 1;
   }
   bool has_null() const {
-    if (or_null) {
-      return true;
-    }
-    return has_variant_with_type_id(0);
-  }
-  bool has_variant_with_type_id(TypePtr rhs_type) const {
-    int type_id = rhs_type->get_type_id();
-    if (or_null) {
-      return type_id == 0 || type_id == or_null->get_type_id();
-    }
-    return has_variant_with_type_id(type_id);
+    return or_null != nullptr || has_variant_equal_to(TypeDataNullLiteral::create());
   }
 
   TypePtr calculate_exact_variant_to_fit_rhs(TypePtr rhs_type) const;
+  bool has_variant_equal_to(TypePtr rhs_type) const;
   bool has_all_variants_of(const TypeDataUnion* rhs_type) const;
   int get_variant_idx(TypePtr lookup_variant) const;
 
@@ -578,6 +579,7 @@ public:
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
   TypePtr replace_children_custom(const ReplacerCallbackT& callback) const override;
   bool can_hold_tvm_null_instead() const override;
+  bool equal_to(TypePtr rhs) const override;
 };
 
 /*

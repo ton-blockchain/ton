@@ -184,7 +184,9 @@ void GenericSubstitutionsDeducing::consider_next_condition(TypePtr param_type, T
       bool is_sub_correct = true;
       for (TypePtr p_variant : p_union->variants) {
         if (!p_variant->has_genericT_inside()) {
-          auto it = std::find(a_sub_p.begin(), a_sub_p.end(), p_variant);
+          auto it = std::find_if(a_sub_p.begin(), a_sub_p.end(), [p_variant](TypePtr a) {
+            return a->equal_to(p_variant);
+          });
           if (it != a_sub_p.end()) {
             a_sub_p.erase(it);
           } else {
@@ -210,7 +212,7 @@ void GenericSubstitutionsDeducing::consider_next_condition(TypePtr param_type, T
     }
   } else if (const auto* p_instSt = param_type->try_as<TypeDataGenericTypeWithTs>(); p_instSt && p_instSt->struct_ref) {
     // `arg: Wrapper<T>` called as `f(wrappedInt)` => T is int
-    if (const auto* a_struct = arg_type->try_as<TypeDataStruct>(); a_struct && a_struct->struct_ref->is_instantiation_of_generic_struct() && a_struct->struct_ref->base_struct_ref == p_instSt->struct_ref) {
+    if (const auto* a_struct = arg_type->unwrap_alias()->try_as<TypeDataStruct>(); a_struct && a_struct->struct_ref->is_instantiation_of_generic_struct() && a_struct->struct_ref->base_struct_ref == p_instSt->struct_ref) {
       tolk_assert(p_instSt->size() == a_struct->struct_ref->substitutedTs->size());
       for (int i = 0; i < p_instSt->size(); ++i) {
         consider_next_condition(p_instSt->type_arguments[i], a_struct->struct_ref->substitutedTs->typeT_at(i));
