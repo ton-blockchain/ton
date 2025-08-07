@@ -7203,8 +7203,8 @@ void ValidateQuery::record_stats(bool valid, std::string error_message) {
   } else {
     stats_.comment = std::move(error_message);
   }
-  stats_.actual_bytes = block_candidate.data.size();
-  stats_.actual_collated_data_bytes = block_candidate.collated_data.size();
+  stats_.actual_bytes = (td::uint32)block_candidate.data.size();
+  stats_.actual_collated_data_bytes = (td::uint32)block_candidate.collated_data.size();
   stats_.total_time = perf_timer_.elapsed();
   stats_.work_time.total = work_timer_.elapsed_both();
   LOG(WARNING) << "validation took " << perf_timer_.elapsed() << "s";

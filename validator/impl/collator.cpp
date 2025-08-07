@@ -82,7 +82,7 @@ Collator::Collator(CollateParams params, td::actor::ActorId<ValidatorManager> ma
     , main_promise(std::move(promise))
     , collator_node_id_(params.collator_node_id)
     , skip_store_candidate_(params.skip_store_candidate)
-    , optimistic_prev_block_(std::move(params.optimistic_prev_block_))
+    , optimistic_prev_block_(std::move(params.optimistic_prev_block))
     , attempt_idx_(params.attempt_idx)
     , perf_timer_("collate", 0.1,
                   [manager](double duration) {
@@ -368,7 +368,6 @@ void Collator::process_optimistic_prev_block() {
                                 std::move(token));
 }
 
-
 /**
  * Raises an error when timeout is reached.
  */
@@ -444,7 +443,7 @@ bool Collator::fatal_error(td::Status error) {
                                       .collator_node_id = collator_node_id_,
                                       .skip_store_candidate = skip_store_candidate_,
                                       .attempt_idx = attempt_idx_ + 1,
-                                      .optimistic_prev_block_ = optimistic_prev_block_},
+                                      .optimistic_prev_block = optimistic_prev_block_},
                         manager, td::Timestamp::in(10.0), std::move(cancellation_token_), std::move(main_promise));
     } else {
       LOG(INFO) << "collation failed in " << perf_timer_.elapsed() << " s " << error;
@@ -6668,8 +6667,8 @@ void Collator::finalize_stats() {
   if (block_candidate) {
     stats_.block_id = block_candidate->id;
     stats_.collated_data_hash = block_candidate->collated_file_hash;
-    stats_.actual_bytes = block_candidate->data.size();
-    stats_.actual_collated_data_bytes = block_candidate->collated_data.size();
+    stats_.actual_bytes = (td::uint32)block_candidate->data.size();
+    stats_.actual_collated_data_bytes = (td::uint32)block_candidate->collated_data.size();
   } else {
     stats_.block_id.id = new_id;
   }
@@ -6680,10 +6679,10 @@ void Collator::finalize_stats() {
   stats_.self = stats_.is_validator ? PublicKey(pubkeys::Ed25519(created_by_)).compute_short_id()
                                     : collator_node_id_.pubkey_hash();
   if (block_limit_status_) {
-    stats_.estimated_bytes = block_limit_status_->estimate_block_size();
-    stats_.gas = block_limit_status_->gas_used;
-    stats_.lt_delta = block_limit_status_->cur_lt - block_limit_status_->limits.start_lt;
-    stats_.estimated_collated_data_bytes = block_limit_status_->collated_data_size_estimate;
+    stats_.estimated_bytes = (td::uint32)block_limit_status_->estimate_block_size();
+    stats_.gas = (td::uint32)block_limit_status_->gas_used;
+    stats_.lt_delta = (td::uint32)(block_limit_status_->cur_lt - block_limit_status_->limits.start_lt);
+    stats_.estimated_collated_data_bytes = (td::uint32)block_limit_status_->collated_data_size_estimate;
     stats_.cat_bytes = block_limit_status_->limits.classify_size(stats_.estimated_bytes);
     stats_.cat_gas = block_limit_status_->limits.classify_gas(stats_.gas);
     stats_.cat_lt_delta = block_limit_status_->limits.classify_lt(block_limit_status_->cur_lt);

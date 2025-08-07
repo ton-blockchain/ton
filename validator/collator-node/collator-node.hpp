@@ -45,9 +45,9 @@ class CollatorNode : public td::actor::Actor {
 
  private:
   void receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data, td::Promise<td::BufferSlice> promise);
-  void process_generate_block_query(ShardIdFull shard, CatchainSeqno cc_seqno, std::vector<BlockIdExt> prev_blocks,
-                                    BlockCandidatePriority priority, td::Timestamp timeout,
-                                    td::Promise<BlockCandidate> promise);
+  void process_generate_block_query(adnl::AdnlNodeIdShort src, ShardIdFull shard, CatchainSeqno cc_seqno,
+                                    std::vector<BlockIdExt> prev_blocks, BlockCandidatePriority priority,
+                                    bool is_optimistic, td::Timestamp timeout, td::Promise<BlockCandidate> promise);
   void process_ping(adnl::AdnlNodeIdShort src, ton_api::collatorNode_ping& ping, td::Promise<td::BufferSlice> promise);
 
   bool can_collate_shard(ShardIdFull shard) const;
@@ -87,10 +87,10 @@ class CollatorNode : public td::actor::Actor {
     return check_out_of_sync().is_ok() && mc_config_status_.is_ok();
   }
 
+  static constexpr int COLLATOR_NODE_VERSION = 1;
+
  public:
-  static tl_object_ptr<ton_api::collatorNode_Candidate> serialize_candidate(const BlockCandidate& block, bool compress);
-  static td::Result<BlockCandidate> deserialize_candidate(tl_object_ptr<ton_api::collatorNode_Candidate> f,
-                                                          int max_decompressed_data_size, int proto_version);
+  static constexpr int VERSION_OPTIMISTIC_COLLATE = 1;
 };
 
 }  // namespace ton::validator

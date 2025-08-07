@@ -230,7 +230,7 @@ struct NewValidatorGroupStats {
   std::vector<BlockIdExt> prev;
   td::uint32 self_idx = 0;
   PublicKeyHash self = PublicKeyHash::zero();
-  std::vector<Node> nodes;
+  std::vector<Node> nodes{};
 
   tl_object_ptr<ton_api::validatorStats_newValidatorGroup> tl() const {
     std::vector<tl_object_ptr<ton_api::tonNode_blockIdExt>> prev_arr;
@@ -257,7 +257,7 @@ struct EndValidatorGroupStats {
   ValidatorSessionId session_id = ValidatorSessionId::zero();
   double timestamp = -1.0;
   PublicKeyHash self = PublicKeyHash::zero();
-  std::vector<Node> nodes;
+  std::vector<Node> nodes{};
 
   tl_object_ptr<ton_api::validatorStats_endValidatorGroup> tl() const {
     std::vector<tl_object_ptr<ton_api::validatorStats_endValidatorGroup_node>> nodes_arr;

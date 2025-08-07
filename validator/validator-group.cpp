@@ -320,7 +320,7 @@ void ValidatorGroup::generate_block_optimistic(validatorsession::BlockSourceInfo
   };
   LOG(WARNING) << "Optimistically generating next block after " << block_id.to_str();
   td::uint64 max_answer_size = config_.max_block_size + config_.max_collated_data_size + 1024;
-  td::actor::send_closure(collation_manager_, &CollationManager::collate_next_block, shard_, min_masterchain_block_id_,
+  td::actor::send_closure(collation_manager_, &CollationManager::collate_block_optimistic, shard_, min_masterchain_block_id_,
                           block_id, std::move(prev_block), Ed25519_PublicKey{local_id_full_.ed25519_value().raw()},
                           source_info.priority, validator_set_, max_answer_size,
                           optimistic_generation_->cancellation_token_source.get_cancellation_token(), std::move(P),

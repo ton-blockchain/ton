@@ -336,7 +336,7 @@ void ValidatorSessionImpl::process_received_block(td::uint32 block_round, Public
       }
     }
     stat->deserialize_time = info.deserialize_time;
-    stat->serialized_size = info.serialized_size;
+    stat->serialized_size = (int)info.serialized_size;
     stat->block_id.root_hash = candidate->root_hash_;
     stat->block_id.file_hash = info.file_hash;
     stat->collated_data_hash = info.collated_data_hash;
@@ -473,7 +473,7 @@ void ValidatorSessionImpl::candidate_decision_ok(td::uint32 round, ValidatorSess
     stat->block_status = ValidatorSessionStats::status_approved;
     stat->comment = PSTRING() << "ts=" << ok_from;
     stat->validation_time = validation_time;
-    stat->gen_utime = (double)ok_from;
+    stat->gen_utime = (int)ok_from;
     stat->validated_at = td::Clocks::system();
     stat->validation_cached = validation_cached;
   }
@@ -528,7 +528,11 @@ void ValidatorSessionImpl::generated_block(td::uint32 round, GeneratedCandidate 
     stat->block_status = ValidatorSessionStats::status_received;
     stat->collation_time = collation_time;
     stat->collated_at = td::Clocks::system();
-    stat->got_block_at = td::Clocks::system();
+    if (auto it = sent_candidates_.find(block_id); it != sent_candidates_.end()) {
+      stat->got_block_at = it->second.sent_at;
+    } else {
+      stat->got_block_at = td::Clocks::system();
+    }
     stat->got_block_by = ValidatorSessionStats::recv_collated;
     stat->collation_cached = c.is_cached;
     stat->self_collated = c.self_collated;

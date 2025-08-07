@@ -1008,7 +1008,7 @@ validatorStats.collatorNodeResponse self:int256 validator_id:int256 timestamp:do
 collatorNode.candidate source:PublicKey id:tonNode.blockIdExt data:bytes collated_data:bytes = collatorNode.Candidate;
 collatorNode.compressedCandidate flags:# source:PublicKey id:tonNode.blockIdExt decompressed_size:int data:bytes = collatorNode.Candidate;
 collatorNode.compressedCandidateV2 flags:# source:PublicKey id:tonNode.blockIdExt data:bytes = collatorNode.Candidate;
-collatorNode.pong flags:# = collatorNode.Pong;
+collatorNode.pong#5bbf0521 flags:# version:flags.0?int = collatorNode.Pong;
 collatorNode.error code:int message:string = collatorNode.Error;
 
 shardBlockVerifier.subscribed flags:# = shardBlockVerifier.Subscribed;
@@ -1017,6 +1017,9 @@ shardBlockVerifier.confirmBlocks blocks:(vector tonNode.blockIdExt) = shardBlock
 ---functions---
 collatorNode.generateBlock shard:tonNode.shardId cc_seqno:int prev_blocks:(vector tonNode.blockIdExt)
     creator:int256 round:int first_block_round:int priority:int = collatorNode.Candidate;
+collatorNode.generateBlockOptimistic shard:tonNode.shardId cc_seqno:int prev_blocks:(vector tonNode.blockIdExt)
+    creator:int256 round:int first_block_round:int priority:int = collatorNode.Candidate;
+collatorNode.requestBlockCallback flags:# block_id:tonNode.BlockIdExt = collatorNode.Candidate;
 collatorNode.ping flags:# = collatorNode.Pong;
 
 shardBlockVerifier.subscribe shard:tonNode.shardId flags:# = shardBlockVerifier.Subscribed;

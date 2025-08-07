@@ -185,7 +185,8 @@ class ValidatorManagerImpl : public ValidatorManager {
                                  td::Promise<td::Ref<ShardState>> promise) override {
     UNREACHABLE();
   }
-  void set_block_state_from_data_preliminary(std::vector<td::Ref<BlockData>> blocks, td::Promise<td::Unit> promise) {
+  void set_block_state_from_data_preliminary(std::vector<td::Ref<BlockData>> blocks,
+                                             td::Promise<td::Unit> promise) override {
     UNREACHABLE();
   }
   void get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) override;
@@ -246,7 +247,7 @@ class ValidatorManagerImpl : public ValidatorManager {
     promise.set_value(td::Unit());
   }
   void send_block_candidate_broadcast(BlockIdExt id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
-                                      td::BufferSlice data, int mode) {
+                                      td::BufferSlice data, int mode) override {
     callback_->send_block_candidate(id, cc_seqno, validator_set_hash, std::move(data), mode);
   }
 

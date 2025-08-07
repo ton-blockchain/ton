@@ -331,7 +331,7 @@ class Collator final : public td::actor::Actor {
   int prev_block_idx(const BlockIdExt& id) const {
     for (size_t i = 0; i < prev_blocks.size(); ++i) {
       if (prev_blocks[i] == id) {
-        return i;
+        return (int)i;
       }
     }
     return -1;

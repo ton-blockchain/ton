@@ -39,7 +39,7 @@ struct CollateParams {
   int attempt_idx = 0;
 
   // Optional - used for optimistic collation
-  Ref<BlockData> optimistic_prev_block_ = {};
+  Ref<BlockData> optimistic_prev_block = {};
 };
 
 enum ValidateMode { fake = 1 };
