@@ -657,8 +657,8 @@ liteserver.descV2.sliceSimple shards:(vector tonNode.shardId) = liteserver.descV
 liteserver.descV2.shardInfo shard_id:tonNode.shardId seqno:int utime:int lt:long = liteserver.descV2.ShardInfo;
 liteserver.descV2.sliceTimed shards_from:(vector liteserver.descV2.shardInfo) shards_to:(vector liteserver.descV2.shardInfo) = liteserver.descV2.Slice;
 
-liteserver.desc id:PublicKey ip:int port:int = liteserver.Desc;
-liteserver.descV2 id:PublicKey ip:int port:int slices:(vector liteserver.descV2.Slice) = liteserver.DescV2;
+liteserver.desc id:PublicKey ip:int port:int hostname:string = liteserver.Desc;
+liteserver.descV2 id:PublicKey ip:int port:int hostname:string slices:(vector liteserver.descV2.Slice) = liteserver.DescV2;
 liteclient.config.global liteservers:(vector liteserver.desc) liteservers_v2:(vector liteserver.descV2) validator:validator.config.global = liteclient.config.Global;
 
 engine.adnl id:int256 category:int = engine.Adnl;
