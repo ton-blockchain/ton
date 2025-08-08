@@ -212,6 +212,7 @@ public:
 
 
 const std::vector<FunctionPtr>& get_all_not_builtin_functions();
+const std::vector<GlobalVarPtr>& get_all_declared_global_vars();
 const std::vector<GlobalConstPtr>& get_all_declared_constants();
 const std::vector<StructPtr>& get_all_declared_structs();
 

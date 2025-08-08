@@ -238,12 +238,46 @@ void GenericSubstitutionsDeducing::consider_next_condition(TypePtr param_type, T
         consider_next_condition(p_instSt->type_arguments[i], a_instSt->type_arguments[i]);
       }
     }
+    // `arg: Wrapper<T>?` called as `f(Wrapper<int>)` => T is int
+    if (const auto* a_union = arg_type->unwrap_alias()->try_as<TypeDataUnion>()) {
+      TypePtr variant_matches = nullptr;
+      int n_matches = 0;
+      for (TypePtr a_variant : a_union->variants) {
+        if (const auto* a_struct = a_variant->unwrap_alias()->try_as<TypeDataStruct>(); a_struct && a_struct->struct_ref->is_instantiation_of_generic_struct() && a_struct->struct_ref->base_struct_ref == p_instSt->struct_ref) {
+          variant_matches = a_variant;
+          n_matches++;
+        }
+      }
+      if (n_matches == 1) {
+        consider_next_condition(param_type, variant_matches);
+      }
+    }
   } else if (const auto* p_instAl = param_type->try_as<TypeDataGenericTypeWithTs>(); p_instAl && p_instAl->alias_ref) {
     // `arg: WrapperAlias<T>` called as `f(wrappedInt)` => T is int
     if (const auto* a_alias = arg_type->try_as<TypeDataAlias>(); a_alias && a_alias->alias_ref->is_instantiation_of_generic_alias() && a_alias->alias_ref->base_alias_ref == p_instAl->alias_ref) {
       tolk_assert(p_instAl->size() == a_alias->alias_ref->substitutedTs->size());
       for (int i = 0; i < p_instAl->size(); ++i) {
         consider_next_condition(p_instAl->type_arguments[i], a_alias->alias_ref->substitutedTs->typeT_at(i));
+      }
+    }
+  } else if (const auto* p_map = param_type->try_as<TypeDataMapKV>()) {
+    // `arg: map<K, V>` called as `f(someMapInt32Slice)` => K = int32, V = slice
+    if (const auto* a_map = arg_type->unwrap_alias()->try_as<TypeDataMapKV>()) {
+      consider_next_condition(p_map->TKey, a_map->TKey);
+      consider_next_condition(p_map->TValue, a_map->TValue);
+    }
+    // `arg: map<K, V>?` called as `f(someMapInt32Slice)` => K = int32, V = slice
+    if (const auto* a_union = arg_type->unwrap_alias()->try_as<TypeDataUnion>()) {
+      TypePtr variant_matches = nullptr;
+      int n_matches = 0;
+      for (TypePtr a_variant : a_union->variants) {
+        if (a_variant->unwrap_alias()->try_as<TypeDataMapKV>()) {
+          variant_matches = a_variant;
+          n_matches++;
+        }
+      }
+      if (n_matches == 1) {
+        consider_next_condition(param_type, variant_matches);
       }
     }
   }
@@ -477,6 +511,9 @@ bool is_allowed_asm_generic_function_with_non1_width_T(FunctionPtr fun_ref, int 
     TypePtr receiver = fun_ref->receiver_type->unwrap_alias(); 
     if (const auto* r_withTs = receiver->try_as<TypeDataGenericTypeWithTs>()) {
       return r_withTs->struct_ref && r_withTs->struct_ref->name == "Cell";
+    }
+    if (receiver->try_as<TypeDataMapKV>()) {
+      return true;
     }
   }
 

@@ -1,13 +1,7 @@
 // Standard library for Tolk (LGPL licence).
 // It contains common functions that are available out of the box, the user doesn't have to import anything.
-// More specific functions are required to be imported explicitly, like "@stdlib/tvm-dicts".
+// More specific functions are required to be imported explicitly, like "@stdlib/gas-payments".
 tolk 1.0
-
-/// In Tolk v1.x there would be a type `map<K,V>`.
-/// Currently, working with dictionaries is still low-level, with raw cells.
-/// But just for clarity, we use "dict" instead of a "cell?" where a cell-dictionary is assumed.
-/// Every dictionary object can be null. TVM NULL is essentially "empty dictionary".
-type dict = cell?
 
 /**
     Tuple manipulation primitives.
@@ -150,11 +144,9 @@ fun contract.getAddress(): address
 fun contract.getOriginalBalance(): coins
     asm "BALANCE" "FIRST"
 
-/// Same as [contract.getOriginalBalance], but returns a tuple:
-/// `int` — balance in nanotoncoins;
-/// `dict` — a dictionary with 32-bit keys representing the balance of "extra currencies".
+/// Same as [contract.getOriginalBalance], but returns a tuple: balance in nanotoncoins and extra currencies
 @pure
-fun contract.getOriginalBalanceWithExtraCurrencies(): [coins, dict]
+fun contract.getOriginalBalanceWithExtraCurrencies(): [coins, ExtraCurrenciesMap]
     asm "BALANCE"
 
 /// Returns the persistent contract storage cell. It can be parsed or modified with slice and builder primitives later.
@@ -614,6 +606,289 @@ fun debug.dumpStack(): void
     builtin
 
 
+/*
+    Implementation of `map<K, V>` and methods over it.
+
+    Note: maps in TVM are called "dictionaries". They are stored as nested cells 
+  (each value in a separate cell, probably with intermediate cells-nodes).
+  Constructing even small dicts is gas-expensive, because cell creation costs a lot.
+
+    `map<K, V>` is a "human-readable interface" over low-level dictionaries. The compiler,
+  knowing types of K and V, effectively generates asm instructions for storing/loading values.
+  But still, of course, it's a tree of cells, it's just a TVM dictionary.
+ */
+
+/// `map<K, V>` is a built-in high-level type. Internally, it's an optional cell.
+/// - an empty map is represented as `null`.
+/// - a non-empty map points to a root cell.
+/// Note about some restrictions for K and V types:
+/// - a key must be fixed-with; valid: int32, uint64, address, bits256, Point; invalid: int, coins
+/// - a value must be serializable; valid: int32, coins, AnyStruct, Cell<AnyStruct>; invalid: int, builder
+struct map<K, V> {
+    tvmDict: cell?
+}
+
+/// A low-level TVM dictionary is called "dict".
+/// Think of it as "a map with unknown keys and unknown values".
+type dict = cell?
+
+/// Returns an empty typed map. It's essentially "PUSHNULL", since TVM NULL represents an empty map.
+/// Example:
+/// ```
+/// var m: map<int8, int32> = createEmptyMap();
+/// ```
+@pure
+fun createEmptyMap<K, V>(): map<K, V>
+    builtin
+
+/// Converts a low-level TVM dictionary to a typed map.
+/// Actually, does nothing: accepts an "optional cell" and returns the same "optional cell",
+/// so if you specify key/value types incorrectly, it will fail later, at [map.get] and similar.
+@pure
+fun createMapFromLowLevelDict<K, V>(d: dict): map<K, V>
+    builtin
+
+/// Converts a high-level map to a low-level TVM dictionary.
+/// Actually, does nothing: returns the same "optional cell".
+@pure
+fun map<K, V>.toLowLevelDict(self): dict
+    asm "NOP"
+
+/// Checks whether a map is empty (whether a cell is null).
+/// Note: a check `m == null` will not work, use `m.isEmpty()`.
+@pure
+fun map<K, V>.isEmpty(self): bool
+    asm "DICTEMPTY"
+
+/// Checks whether a key exists in a map.
+@pure
+fun map<K, V>.exists(self, key: K): bool
+    builtin
+
+/// Gets an element by key. If not found, does NOT throw, just returns isFound = false.
+/// Example:
+/// ```
+/// val r = m.get(123);
+/// if (r.isFound) {
+///     r.loadValue()
+/// }
+/// ```
+@pure
+fun map<K, V>.get(self, key: K): MapLookupResult<V>
+    builtin
+
+/// Gets an element by key and throws if it doesn't exist.
+@pure
+fun map<K, V>.mustGet(self, key: K, throwIfNotFound: int = 9): V
+    builtin
+
+/// Sets an element by key.
+/// Example:
+/// ```
+/// m.set(k, 3);
+/// ```
+/// Since it returns `self`, calls may be chained.
+@pure
+fun map<K, V>.set(mutate self, key: K, value: V): self
+    builtin
+
+/// Sets an element and returns the previous element at that key. If no previous, isFound = false.
+/// Example:
+/// ```
+/// val prev = m.setAndGetPrevious(k, 3);
+/// if (prev.isFound) {
+///     prev.loadValue()
+/// }
+/// ```
+@pure
+fun map<K, V>.setAndGetPrevious(mutate self, key: K, value: V): MapLookupResult<V>
+    builtin
+
+/// Sets an element only if the key already exists. Returns whether an element was replaced.
+@pure
+fun map<K, V>.replaceIfExists(mutate self, key: K, value: V): bool
+    builtin
+
+/// Sets an element only if the key already exists and returns the previous element at that key.
+@pure
+fun map<K, V>.replaceAndGetPrevious(mutate self, key: K, value: V): MapLookupResult<V>
+    builtin
+
+/// Sets an element only if the key does not exist. Returns whether an element was added.
+@pure
+fun map<K, V>.addIfNotExists(mutate self, key: K, value: V): bool
+    builtin
+
+/// Sets an element only if the key does not exist. If exists, returns an old value.
+@pure
+fun map<K, V>.addOrGetExisting(mutate self, key: K, value: V): MapLookupResult<V>
+    builtin
+
+/// Delete an element at the key. Returns whether an element was deleted. 
+@pure
+fun map<K, V>.delete(mutate self, key: K): bool
+    builtin
+
+/// Delete an element at the key and returns the deleted element. If not exists, isFound = false.
+/// Example:
+/// ```
+/// val prev = m.deleteAndGetDeleted(k);
+/// if (prev.isFound) {
+///     prev.loadValue()
+/// }
+/// ```
+@pure
+fun map<K, V>.deleteAndGetDeleted(mutate self, key: K): MapLookupResult<V>
+    builtin
+
+/// Finds the first (minimal) element in a map. If key are integers, it's the minimal integer.
+/// If keys are addresses or complex structures (represented as slices), it's lexicographically smallest.
+/// For an empty map, just returns isFound = false.
+/// Useful for iterating over a map:
+/// ```
+/// var r = m.findFirst();
+/// while (r.isFound) {
+///     ... use r.getKey() and r.loadValue()
+///     r = m.iterateNext(r)
+/// }
+/// ```
+@pure
+fun map<K, V>.findFirst(self): MapEntry<K, V>
+    builtin
+
+/// Finds the last (maximal) element in a map. If key are integers, it's the maximal integer.
+/// If keys are addresses or complex structures (represented as slices), it's lexicographically largest.
+/// For an empty map, just returns isFound = false.
+/// Useful for iterating over a map:
+/// ```
+/// var r = m.findLast();
+/// while (r.isFound) {
+///     ... use r.getKey() and r.loadValue()
+///     r = m.iteratePrev(r)
+/// }
+/// ```
+@pure
+fun map<K, V>.findLast(self): MapEntry<K, V>
+    builtin
+
+/// Finds an element with key > pivotKey.
+/// Don't forget to check `isFound` before using `getKey()` and `loadValue()` of the result.
+@pure
+fun map<K, V>.findKeyGreater(self, pivotKey: K): MapEntry<K, V>
+    builtin
+
+/// Finds an element with key >= pivotKey.
+/// Don't forget to check `isFound` before using `getKey()` and `loadValue()` of the result.
+@pure
+fun map<K, V>.findKeyGreaterOrEqual(self, pivotKey: K): MapEntry<K, V>
+    builtin
+
+/// Finds an element with key < pivotKey.
+/// Don't forget to check `isFound` before using `getKey()` and `loadValue()` of the result.
+@pure
+fun map<K, V>.findKeyLess(self, pivotKey: K): MapEntry<K, V>
+    builtin
+
+/// Finds an element with key <= pivotKey.
+/// Don't forget to check `isFound` before using `getKey()` and `loadValue()` of the result.
+@pure
+fun map<K, V>.findKeyLessOrEqual(self, pivotKey: K): MapEntry<K, V>
+    builtin
+
+/// Iterate over a map in ascending order.
+/// Example:
+/// ```
+/// // iterate for all keys >= 10 up to the end
+/// var r = m.findKeyGreaterOrEqual(10);
+/// while (r.isFound) {
+///     ... use r.getKey() and r.loadValue()
+///     r = m.iterateNext(r)
+/// }
+/// ```
+@pure
+fun map<K, V>.iterateNext(self, current: MapEntry<K, V>): MapEntry<K, V>
+    builtin
+
+/// Iterate over a map in reverse order.
+/// Example:
+/// ```
+/// // iterate for all keys < 10 down lo lowest
+/// var r = m.findKeyLess(10);
+/// while (r.isFound) {
+///     ... use r.getKey() and r.loadValue()
+///     r = m.iteratePrev(r)
+/// }
+/// ```@pure
+fun map<K, V>.iteratePrev(self, current: MapEntry<K, V>): MapEntry<K, V>
+    builtin
+
+/// MapLookupResult is a return value of [map.get], [map.setAndGetPrevious], and similar.
+/// Instead of returning a nullable value (that you'd check on null before usage),
+/// this struct is returned (and you check on `isFound` before usage).
+/// Example:
+/// ```
+/// val r = m.get(key);
+/// if (r.isFound) {
+///     r.loadValue()    // unpacks a returned slice
+/// }
+/// ```
+struct MapLookupResult<TValue> {
+    rawSlice: slice?        // holds encoded value, present if isFound
+    isFound: bool
+}
+
+@pure
+fun MapLookupResult<TValue>.loadValue(self): TValue {
+    // it's assumed that you check for `isFound` before calling `loadValue()`;
+    // note that `assertEnd` is called to ensure no remaining data left besides TValue
+    return TValue.fromSlice(self.rawSlice!, {
+        assertEndAfterReading: true
+    })
+}
+
+@pure
+fun MapLookupResult<slice>.loadValue(self): slice {
+    return self.rawSlice!
+}
+
+/// MapEntry is a return value of [map.findFirst], [map.iterateNext], and similar.
+/// You should check for `isFound` before calling `getKey()` and `loadValue()`.
+/// Example:
+/// ```
+/// var r = m.findFirst();
+/// while (r.isFound) {
+///     ... use r.getKey() and r.loadValue()
+///     r = m.iterateNext(r)
+/// }
+/// ```
+struct MapEntry<K, V> {
+    rawValue: slice?        // holds encoded value, present if isFound
+    key: K
+    isFound: bool
+}
+
+@pure
+fun MapEntry<K, V>.getKey(self): K {
+    // it's assumed that you check for `isFound` before calling `getKey()`;
+    // (otherwise, it will contain an incorrect stack slot with `null` value, not K)
+    return self.key
+}
+
+@pure
+fun MapEntry<K, V>.loadValue(self): V {
+    // it's assumed that you check for `isFound` before calling `loadValue()`;
+    // note that `assertEnd` is inserted to ensure no remaining data left besides TValue
+    return V.fromSlice(self.rawValue!, {
+        assertEndAfterReading: true
+    })
+}
+
+@pure
+fun MapEntry<K, slice>.loadValue(self): slice {
+    return self.rawValue!
+}
+
+
 /**
     Slice primitives: parsing cells.
     When you _load_ some data, you mutate the slice (shifting an internal pointer on the stack).
@@ -715,7 +990,6 @@ fun slice.getMiddleBits(self, offset: int, len: int): slice
     asm "SDSUBSTR"
 
 /// Loads a dictionary (TL HashMapE structure, represented as TVM cell) from a slice.
-/// Returns `null` if `nothing` constructor is used.
 @pure
 fun slice.loadDict(mutate self): dict
     asm( -> 1 0) "LDDICT"
@@ -993,7 +1267,10 @@ const SEND_MODE_ESTIMATE_FEE_ONLY = 1024
 /// +64 substitutes the entire balance of the incoming message as an outcoming value (slightly inaccurate, gas expenses that cannot be estimated before the computation is completed are not taken into account).
 /// +128 substitutes the value of the entire balance of the contract before the start of the computation phase (slightly inaccurate, since gas expenses that cannot be estimated before the completion of the computation phase are not taken into account).
 
-type ExtraCurrenciesDict = dict
+/// `ExtraCurrenciesMap` represents a dictionary of "extra currencies" other than TON coin.
+/// They can be attached to a message (incoming and outgoing) and stored on contract's balance.
+/// It's a dictionary `[currencyID => amount]` (amount is like `coins`, but encoded with a high precision). 
+type ExtraCurrenciesMap = map<int32, varuint32>
 
 /// ContractState is "code + data" of a contract.
 /// Used in outgoing messages (StateInit) to initialize a destination contract.
@@ -1062,7 +1339,7 @@ struct CreateMessageOptions<TBody = never> {
     /// whether a message will bounce back on error
     bounce: bool
     /// message value: attached tons (or tons + extra currencies)
-    value: coins | (coins, ExtraCurrenciesDict)
+    value: coins | (coins, ExtraCurrenciesMap)
     /// destination is either a provided address, or is auto-calculated by stateInit
     dest: address               // either just send a message to some address
         | builder               // ... or a manually constructed builder with a valid address
@@ -1312,7 +1589,7 @@ fun sendRawMessage(msg: cell, mode: int): void
 struct InMessage {
     senderAddress: address          // an internal address from which the message arrived
     valueCoins: coins               // ton amount attached to an incoming message
-    valueExtra: dict                // extra currencies attached to an incoming message
+    valueExtra: ExtraCurrenciesMap  // extra currencies attached to an incoming message
     originalForwardFee: coins       // fee that was paid by the sender
     createdLt: uint64               // logical time when a message was created
     createdAt: uint32               // unixtime when a message was created
@@ -1332,7 +1609,7 @@ struct InMessage {
 struct InMessageBounced {
     senderAddress: address          // an internal address from which the message was bounced
     valueCoins: coins               // ton amount attached to a message
-    valueExtra: dict                // extra currencies attached to a message
+    valueExtra: ExtraCurrenciesMap  // extra currencies attached to a message
     originalForwardFee: coins       // comission that the sender has payed to send this message
     createdLt: uint64               // logical time when a message was created (and bounced)
     createdAt: uint32               // unixtime when a message was created (and bounced)

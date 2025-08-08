@@ -236,6 +236,13 @@ TypePtr TypeDataUnion::create(std::vector<TypePtr>&& variants) {
   return new TypeDataUnion(reg.children_flags(), or_null, std::move(flat_variants));
 }
 
+TypePtr TypeDataMapKV::create(TypePtr TKey, TypePtr TValue) {
+  CalcChildrenFlags reg;
+  reg.feed_child(TKey);
+  reg.feed_child(TValue);
+  return new TypeDataMapKV(reg.children_flags(), TKey, TValue);
+}
+
 
 // --------------------------------------------
 //    get_width_on_stack()
@@ -362,6 +369,11 @@ int TypeDataUnion::get_type_id() const {
   throw Fatal("unexpected get_type_id() call");
 }
 
+int TypeDataMapKV::get_type_id() const {
+  assert(!has_genericT_inside());
+  return TypeIdCalculation::assign_type_id(this);
+}
+
 int TypeDataUnknown::get_type_id() const {
   assert(false);    // unknown can not be inside a union
   throw Fatal("unexpected get_type_id() call");
@@ -469,6 +481,10 @@ std::string TypeDataUnion::as_human_readable() const {
   return result;
 }
 
+std::string TypeDataMapKV::as_human_readable() const {
+  return "map<" + TKey->as_human_readable() + ", " + TValue->as_human_readable() + ">";
+}
+
 
 // --------------------------------------------
 //    replace_children_custom()
@@ -521,6 +537,10 @@ TypePtr TypeDataUnion::replace_children_custom(const ReplacerCallbackT& callback
     mapped.push_back(variant->replace_children_custom(callback));
   }
   return callback(create(std::move(mapped)));
+}
+
+TypePtr TypeDataMapKV::replace_children_custom(const ReplacerCallbackT& callback) const {
+  return callback(create(TKey->replace_children_custom(callback), TValue->replace_children_custom(callback)));
 }
 
 
@@ -760,6 +780,16 @@ bool TypeDataUnion::can_rhs_be_assigned(TypePtr rhs) const {
   }
   if (const TypeDataUnion* rhs_union = rhs->try_as<TypeDataUnion>()) {
     return has_all_variants_of(rhs_union);
+  }
+  if (const TypeDataAlias* rhs_alias = rhs->try_as<TypeDataAlias>()) {
+    return can_rhs_be_assigned(rhs_alias->underlying_type);
+  }
+  return rhs == TypeDataNever::create();
+}
+
+bool TypeDataMapKV::can_rhs_be_assigned(TypePtr rhs) const {
+  if (const TypeDataMapKV* rhs_map = rhs->try_as<TypeDataMapKV>()) {
+    return TKey->equal_to(rhs_map->TKey) && TValue->equal_to(rhs_map->TValue);
   }
   if (const TypeDataAlias* rhs_alias = rhs->try_as<TypeDataAlias>()) {
     return can_rhs_be_assigned(rhs_alias->underlying_type);
@@ -1065,6 +1095,19 @@ bool TypeDataUnion::can_be_casted_with_as_operator(TypePtr cast_to) const {
   return false;
 }
 
+bool TypeDataMapKV::can_be_casted_with_as_operator(TypePtr cast_to) const {
+  if (const TypeDataMapKV* to_map = cast_to->try_as<TypeDataMapKV>()) {
+    return TKey->equal_to(to_map->TKey) && TValue->equal_to(to_map->TValue);
+  }
+  if (const TypeDataUnion* to_union = cast_to->try_as<TypeDataUnion>()) {
+    return can_be_casted_to_union(this, to_union);
+  }
+  if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
+    return can_be_casted_with_as_operator(to_alias->underlying_type);
+  }
+  return false;
+}
+
 bool TypeDataUnknown::can_be_casted_with_as_operator(TypePtr cast_to) const {
   // 'unknown' can be cast to any TVM value
   return cast_to->get_width_on_stack() == 1;
@@ -1121,6 +1164,10 @@ bool TypeDataUnion::can_hold_tvm_null_instead() const {
     return false;                     // only `int?` / `cell?` / `StructWith1IntField?` can
   }                                   // and some tricky situations like `(int, ())?`, but not `(int?, ())?`
   return or_null && !or_null->can_hold_tvm_null_instead();
+}
+
+bool TypeDataMapKV::can_hold_tvm_null_instead() const {
+  return false;   // map is an optional cell, so `map?` requires a nullable presence slot
 }
 
 bool TypeDataNever::can_hold_tvm_null_instead() const {
@@ -1258,6 +1305,16 @@ bool TypeDataBitsN::equal_to(TypePtr rhs) const {
 bool TypeDataUnion::equal_to(TypePtr rhs) const {
   if (const TypeDataUnion* rhs_union = rhs->try_as<TypeDataUnion>()) {
     return variants.size() == rhs_union->variants.size() && has_all_variants_of(rhs_union);
+  }
+  if (const TypeDataAlias* rhs_alias = rhs->try_as<TypeDataAlias>()) {
+    return equal_to(rhs_alias->underlying_type);
+  }
+  return false;
+}
+
+bool TypeDataMapKV::equal_to(TypePtr rhs) const {
+  if (const TypeDataMapKV* rhs_map = rhs->try_as<TypeDataMapKV>()) {
+    return TKey->equal_to(rhs_map->TKey) && TValue->equal_to(rhs_map->TValue);
   }
   if (const TypeDataAlias* rhs_alias = rhs->try_as<TypeDataAlias>()) {
     return equal_to(rhs_alias->underlying_type);

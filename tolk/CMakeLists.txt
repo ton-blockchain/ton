@@ -10,6 +10,7 @@ set(TOLK_SOURCE
         pack-unpack-api.cpp
         pack-unpack-serializers.cpp
         send-message-api.cpp
+        maps-kv-api.cpp
         pipe-discover-parse-sources.cpp
         pipe-register-symbols.cpp
         pipe-resolve-identifiers.cpp

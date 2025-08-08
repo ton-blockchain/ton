@@ -170,6 +170,12 @@ class TypeNodesVisitorResolver {
           // if we're inside `f<int>`, replace "T" with TypeDataInt
           return substitutedTs->get_substitution_for_nameT(text);
         }
+        if (text == "map") {
+          if (!allow_without_type_arguments) {
+            fire_error_generic_type_used_without_T(cur_f, loc, "map<K,V>");
+          }
+          return TypeDataMapKV::create(TypeDataGenericT::create("K"), TypeDataGenericT::create("V"));
+        }
         if (const Symbol* sym = lookup_global_symbol(text)) {
           if (TypePtr custom_type = try_resolve_user_defined_type(cur_f, loc, sym, allow_without_type_arguments)) {
             if (!v->loc.is_symbol_from_same_or_builtin_file(sym->loc)) {
@@ -297,6 +303,12 @@ class TypeNodesVisitorResolver {
         return TypeDataGenericTypeWithTs::create(nullptr, alias_ref, std::move(type_arguments));
       }
       return TypeDataAlias::create(instantiate_generic_alias(alias_ref, GenericsSubstitutions(alias_ref->genericTs, type_arguments)));
+    }
+    if (const TypeDataMapKV* t_map = type_to_instantiate->try_as<TypeDataMapKV>(); t_map && t_map->TKey->try_as<TypeDataGenericT>()) {
+      if (type_arguments.size() != 2) {
+        fire(cur_f, loc, "type `map<K,V>` expects 2 type arguments, but " + std::to_string(type_arguments.size()) + " provided");
+      }
+      return TypeDataMapKV::create(type_arguments[0], type_arguments[1]);
     }
     if (const TypeDataGenericT* asT = type_to_instantiate->try_as<TypeDataGenericT>()) {
       fire_error_unknown_type_name(cur_f, loc, asT->nameT);

@@ -34,9 +34,21 @@ fun wrap2<T>(value: T) {
     return WrapperAlias<T> { value };
 }
 
+fun wrap0<T>(): Wrapper<T> {
+    return { value: 0 }
+}
+
+fun wrapNull<T>(): Wrapper<T> {
+    return { value: null }
+}
+
 fun makePair<A, B>(a: A, b: B) {
     var c: Pair<A,B> = { first: a, second: b };
     return c;
+}
+
+fun makePairOf0<A, B>(): Pair<A, B> {
+    return { first: 0, second: 0 }
 }
 
 
@@ -428,6 +440,29 @@ fun test25() {
     }
 }
 
+@method_id(126)
+fun test26() {
+    var m1: Wrapper<int>? = wrap0();
+    var m2 = wrap0() as Wrapper<int8>?;
+    var m3: WrapperAlias<uint32?>? = wrap0();
+    var m4: Wrapper<uint32?>? = wrapNull();
+    var m5 = wrap0() as Wrapper<uint32?>?;
+    var m6 = wrapNull() as WrapperAlias<uint32?>?;
+    var m7 = null as Wrapper<uint32?>?;
+    __expect_type(m1, "Wrapper<int>");
+    __expect_type(m2, "Wrapper<int8>?");
+    __expect_type(m3, "WrapperAlias<uint32?>");
+    __expect_type(m4, "Wrapper<uint32?>");
+    return (m1, m2, m3.value, m4.value, 777, m5, m6, m7);
+}
+
+fun test27() {
+    var pp1: Pair<int8, int10> | int = makePairOf0();
+    var pp2 = makePairOf0() as Pair<coins, coins?> | Wrapper<int>;
+    __expect_type(pp1, "Pair<int8, int10>");
+    __expect_type(pp2, "Pair<coins, coins?> | Wrapper<int>");
+}
+
 
 fun main(c: Wrapper<slice>, d: WrappedInt) {
     __expect_type(c, "Wrapper<slice>");
@@ -453,7 +488,7 @@ fun main(c: Wrapper<slice>, d: WrappedInt) {
 @testcase | 104 |         | 11 11 13 13 13 2
 @testcase | 105 | 0       | 80
 @testcase | 105 | -1      | (null)
-@testcase | 106 |         | (null) (null) 0 777 1 2 typeid-12
+@testcase | 106 |         | (null) (null) 0 777 1 2 typeid-15
 @testcase | 107 | 5       | 20 20 5 5 20 777 (null) (null) (null) 0
 @testcase | 108 | 0       | 777 typeid-1 777 typeid-1
 @testcase | 108 | -1      | 777 0 777 0
@@ -471,6 +506,7 @@ fun main(c: Wrapper<slice>, d: WrappedInt) {
 @testcase | 119 |         | 40 40 -1 -1 -1 -1
 @testcase | 120 |         | (null) typeid-9 777 (null) (null) 0 typeid-10 -1 -1
 @testcase | 123 |         | 10 10 10 10 10
+@testcase | 126 |         | 0 0 0 (null) 777 0 typeid-12 (null) typeid-12 (null) 0
 
 
 @fif_codegen

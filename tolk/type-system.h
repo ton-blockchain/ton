@@ -49,6 +49,7 @@ protected:
     flag_contains_unknown_inside = 1 << 1,
     flag_contains_genericT_inside = 1 << 2,
     flag_contains_type_alias_inside = 1 << 3,
+    flag_contains_mapKV_inside = 1 << 4,
   };
 
   explicit TypeData(int flags_with_children)
@@ -77,6 +78,7 @@ public:
   bool has_unknown_inside() const { return flags & flag_contains_unknown_inside; }
   bool has_genericT_inside() const { return flags & flag_contains_genericT_inside; }
   bool has_type_alias_inside() const { return flags & flag_contains_type_alias_inside; }
+  bool has_mapKV_inside() const { return flags & flag_contains_mapKV_inside; }
 
   using ReplacerCallbackT = std::function<TypePtr(TypePtr child)>;
 
@@ -573,6 +575,33 @@ public:
   int get_variant_idx(TypePtr lookup_variant) const;
 
   int get_width_on_stack() const override;
+  int get_type_id() const override;
+  std::string as_human_readable() const override;
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+  TypePtr replace_children_custom(const ReplacerCallbackT& callback) const override;
+  bool can_hold_tvm_null_instead() const override;
+  bool equal_to(TypePtr rhs) const override;
+};
+
+/*
+ * `map<K, V>` is a built-in type, a high-level wrapper over TVM dictionaries.
+ * Internally, a map is just a nullable cell: null represents an empty dict, otherwise it points to a root cell.
+ * The compiler checks that key-value types are correct, generates optimal TVM instructions,
+ * auto-serialization of V and non-primitive K to slices, etc. Deeply integrated with stdlib.
+ */
+class TypeDataMapKV final : public TypeData {
+  TypeDataMapKV(int children_flags, TypePtr TKey, TypePtr TValue)
+    : TypeData(children_flags | flag_contains_mapKV_inside)
+    , TKey(TKey)
+    , TValue(TValue) {}
+
+public:
+  TypePtr TKey;
+  TypePtr TValue;
+  
+  static TypePtr create(TypePtr TKey, TypePtr TValue);
+
   int get_type_id() const override;
   std::string as_human_readable() const override;
   bool can_rhs_be_assigned(TypePtr rhs) const override;

@@ -97,6 +97,11 @@ static ShapeScore calculate_shape_score(TypePtr t) {
     return {ShapeKind::Instantiated, 1 + d};
   }
 
+  if (const auto* t_map = t->try_as<TypeDataMapKV>()) {
+    int d = std::max(calculate_shape_score(t_map->TKey).depth, calculate_shape_score(t_map->TValue).depth);
+    return {ShapeKind::Instantiated, 1 + d};
+  }
+
   if (const auto* t_alias = t->try_as<TypeDataAlias>()) {
     return calculate_shape_score(t_alias->underlying_type);
   }

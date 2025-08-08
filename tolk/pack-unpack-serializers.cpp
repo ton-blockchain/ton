@@ -1163,6 +1163,33 @@ std::vector<PackOpcode> auto_generate_opcodes_for_union(TypePtr union_type, std:
   return result;
 }
 
+// there is no way to pass custom pack options to createMessage / map.set / etc., using hardcoded ones
+std::vector<var_idx_t> create_default_PackOptions(CodeBlob& code, SrcLocation loc) {
+  StructPtr s_PackOptions = lookup_global_symbol("PackOptions")->try_as<StructPtr>();
+  std::vector ir_options = code.create_tmp_var(TypeDataStruct::create(s_PackOptions), loc, "(pack-options)");
+  tolk_assert(ir_options.size() == 1);
+
+  std::vector ir_defaults = {
+    code.create_int(loc, 0, "(zero)"),    // skipBitsNFieldsValidation
+  };
+  code.emplace_back(loc, Op::_Let, ir_options, std::move(ir_defaults));  
+  return ir_options;
+}
+
+// there is no way to pass custom unpack options to map.get / etc., using hardcoded ones
+std::vector<var_idx_t> create_default_UnpackOptions(CodeBlob& code, SrcLocation loc) {
+  StructPtr s_UnpackOptions = lookup_global_symbol("UnpackOptions")->try_as<StructPtr>();
+  std::vector ir_options = code.create_tmp_var(TypeDataStruct::create(s_UnpackOptions), loc, "(unpack-options)");
+  tolk_assert(ir_options.size() == 2);
+
+  std::vector ir_defaults = {
+    code.create_int(loc, -1, "(true)"),     // assertEndAfterReading
+    code.create_int(loc, 63, "(excno)"),    // throwIfOpcodeDoesNotMatch
+  };
+  code.emplace_back(loc, Op::_Let, ir_options, std::move(ir_defaults));  
+  return ir_options;
+}
+
 
 // --------------------------------------------
 //    detect serializer by TypePtr
@@ -1207,6 +1234,9 @@ static std::unique_ptr<ISerializer> get_serializer_for_type(TypePtr any_type) {
     return std::make_unique<S_Never>();
   }
 
+  if (any_type->try_as<TypeDataMapKV>()) {
+    return std::make_unique<S_RawTVMcellOrNull>();
+  }
   if (const auto* t_struct = any_type->try_as<TypeDataStruct>()) {
     return std::make_unique<S_CustomStruct>(t_struct->struct_ref);
   }

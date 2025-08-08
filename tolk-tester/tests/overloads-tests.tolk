@@ -249,6 +249,35 @@ fun test13() {
 }
 
 
+fun map<K, V>.mySize(self): int1 { return 0 }
+fun map<K, V|cell>.mySize(self): int2 { return 0 }
+fun map<int8, V>.mySize(self): int3 { return 0 }
+fun map<int8, map<K, V>>.mySize(self): int4 { return 0 }
+fun map<int8, map<int16, V>>.mySize(self): int5 { return 0 }
+
+type MInt16 = int16
+type MInt16ov = MInt16
+type MMap32 = map<int32, map<bool, varint16>>
+type MMap8Of32 = map<int8, MMap32>
+
+fun test14(
+    m1: map<int8, map<int16, int32>>, m2: map<int8, map<MInt16ov, MInt16ov>>,
+    m3: map<int8, map<Point, slice>>, m4: map<int8, MMap32>, m5: MMap8Of32,
+    m6: map<int8, map<int8,int8>?>, 
+    m7: map<int8, bool|cell>, m8: map<MInt16, ()|cell|Point>,
+    m9: map<address, address>,
+) {
+    __expect_type(m1.mySize(), "int5");
+    __expect_type(m2.mySize(), "int5");
+    __expect_type(m3.mySize(), "int4");
+    __expect_type(m4.mySize(), "int4");
+    __expect_type(m5.mySize(), "int4");
+    __expect_type(m6.mySize(), "int3");
+    __expect_type(m7.mySize(), "int2");
+    __expect_type(m8.mySize(), "int2");
+    __expect_type(m9.mySize(), "int1");
+}
+
 fun main() {
     // besides these positive tests, there are many negative resulting in "ambiguous call"
     return 0

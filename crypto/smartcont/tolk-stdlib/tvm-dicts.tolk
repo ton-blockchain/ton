@@ -2,8 +2,11 @@
 tolk 1.0
 
 /**
-    Dictionaries are represented as `cell` data type (cells can store anything, dicts in particular).
-    Currently, they have very low-level API very close to TVM internals.
+    Low-level API working with TVM dictionaries.
+    Not recommended to use, since it's very complicated and error-prone.
+    Use `map<K, V>` instead, it's even more efficient then low-level dict API.
+
+    Dictionaries are represented as `cell` data type.
     Most of functions are duplicated for three common cases:
     - iDict* - dicts with signed integer keys
     - uDict* - dicts with unsigned integer keys
@@ -86,28 +89,28 @@ fun dict.uDictSetIfExists(mutate self, keyLen: int, key: int, value: slice): boo
 
 
 @pure
-fun dict.iDictGetRef(self, keyLen: int, key: int): (dict, bool)
+fun dict.iDictGetRef(self, keyLen: int, key: int): (cell?, bool)
     asm(key self keyLen) "DICTIGETREF" "NULLSWAPIFNOT"
 
 @pure
-fun dict.uDictGetRef(self, keyLen: int, key: int): (dict, bool)
+fun dict.uDictGetRef(self, keyLen: int, key: int): (cell?, bool)
     asm(key self keyLen) "DICTUGETREF" "NULLSWAPIFNOT"
 
 @pure
-fun dict.sDictGetRef(self, keyLen: int, key: slice): (dict, bool)
+fun dict.sDictGetRef(self, keyLen: int, key: slice): (cell?, bool)
     asm(key self keyLen) "DICTGETREF" "NULLSWAPIFNOT"
 
 
 @pure
-fun dict.iDictGetRefOrNull(self, keyLen: int, key: int): dict
+fun dict.iDictGetRefOrNull(self, keyLen: int, key: int): cell?
     asm(key self keyLen) "DICTIGETOPTREF"
 
 @pure
-fun dict.uDictGetRefOrNull(self, keyLen: int, key: int): dict
+fun dict.uDictGetRefOrNull(self, keyLen: int, key: int): cell?
     asm(key self keyLen) "DICTUGETOPTREF"
 
 @pure
-fun dict.sDictGetRefOrNull(self, keyLen: int, key: slice): dict
+fun dict.sDictGetRefOrNull(self, keyLen: int, key: slice): cell?
     asm(key self keyLen) "DICTGETOPTREF"
 
 
@@ -138,11 +141,11 @@ fun dict.sDictSetAndGet(mutate self, keyLen: int, key: slice, value: slice): (sl
 
 
 @pure
-fun dict.iDictSetAndGetRefOrNull(mutate self, keyLen: int, key: int, value: cell): dict
+fun dict.iDictSetAndGetRefOrNull(mutate self, keyLen: int, key: int, value: cell): cell?
     asm(value key self keyLen) "DICTISETGETOPTREF"
 
 @pure
-fun dict.uDictSetAndGetRefOrNull(mutate self, keyLen: int, key: int, value: cell): dict
+fun dict.uDictSetAndGetRefOrNull(mutate self, keyLen: int, key: int, value: cell): cell?
     asm(value key self keyLen) "DICTUSETGETOPTREF"
 
 
@@ -228,15 +231,15 @@ fun dict.sDictGetFirst(self, keyLen: int): (slice?, slice?, bool)
     asm (-> 1 0 2) "DICTMIN" "NULLSWAPIFNOT2"
 
 @pure
-fun dict.iDictGetFirstAsRef(self, keyLen: int): (int?, dict, bool)
+fun dict.iDictGetFirstAsRef(self, keyLen: int): (int?, cell?, bool)
     asm (-> 1 0 2) "DICTIMINREF" "NULLSWAPIFNOT2"
 
 @pure
-fun dict.uDictGetFirstAsRef(self, keyLen: int): (int?, dict, bool)
+fun dict.uDictGetFirstAsRef(self, keyLen: int): (int?, cell?, bool)
     asm (-> 1 0 2) "DICTUMINREF" "NULLSWAPIFNOT2"
 
 @pure
-fun dict.sDictGetFirstAsRef(self, keyLen: int): (slice?, dict, bool)
+fun dict.sDictGetFirstAsRef(self, keyLen: int): (slice?, cell?, bool)
     asm (-> 1 0 2) "DICTMINREF" "NULLSWAPIFNOT2"
 
 
@@ -253,15 +256,15 @@ fun dict.sDictGetLast(self, keyLen: int): (slice?, slice?, bool)
     asm (-> 1 0 2) "DICTMAX" "NULLSWAPIFNOT2"
 
 @pure
-fun dict.iDictGetLastAsRef(self, keyLen: int): (int?, dict, bool)
+fun dict.iDictGetLastAsRef(self, keyLen: int): (int?, cell?, bool)
     asm (-> 1 0 2) "DICTIMAXREF" "NULLSWAPIFNOT2"
 
 @pure
-fun dict.uDictGetLastAsRef(self, keyLen: int): (int?, dict, bool)
+fun dict.uDictGetLastAsRef(self, keyLen: int): (int?, cell?, bool)
     asm (-> 1 0 2) "DICTUMAXREF" "NULLSWAPIFNOT2"
 
 @pure
-fun dict.sDictGetLastAsRef(self, keyLen: int): (slice?, dict, bool)
+fun dict.sDictGetLastAsRef(self, keyLen: int): (slice?, cell?, bool)
     asm (-> 1 0 2) "DICTMAXREF" "NULLSWAPIFNOT2"
 
 
@@ -274,12 +277,20 @@ fun dict.uDictGetNext(self, keyLen: int, pivot: int): (int?, slice?, bool)
     asm(pivot self keyLen -> 1 0 2) "DICTUGETNEXT" "NULLSWAPIFNOT2"
 
 @pure
+fun dict.sDictGetNext(self, keyLen: int, pivot: slice): (slice?, slice?, bool)
+    asm(pivot self keyLen -> 1 0 2) "DICTGETNEXT" "NULLSWAPIFNOT2"
+
+@pure
 fun dict.iDictGetNextOrEqual(self, keyLen: int, pivot: int): (int?, slice?, bool)
     asm(pivot self keyLen -> 1 0 2) "DICTIGETNEXTEQ" "NULLSWAPIFNOT2"
 
 @pure
 fun dict.uDictGetNextOrEqual(self, keyLen: int, pivot: int): (int?, slice?, bool)
     asm(pivot self keyLen -> 1 0 2) "DICTUGETNEXTEQ" "NULLSWAPIFNOT2"
+
+@pure
+fun dict.sDictGetNextOrEqual(self, keyLen: int, pivot: slice): (slice?, slice?, bool)
+    asm(pivot self keyLen -> 1 0 2) "DICTGETNEXTEQ" "NULLSWAPIFNOT2"
 
 
 @pure
@@ -291,12 +302,20 @@ fun dict.uDictGetPrev(self, keyLen: int, pivot: int): (int?, slice?, bool)
     asm(pivot self keyLen -> 1 0 2) "DICTUGETPREV" "NULLSWAPIFNOT2"
 
 @pure
+fun dict.sDictGetPrev(self, keyLen: int, pivot: slice): (slice?, slice?, bool)
+    asm(pivot self keyLen -> 1 0 2) "DICTGETPREV" "NULLSWAPIFNOT2"
+
+@pure
 fun dict.iDictGetPrevOrEqual(self, keyLen: int, pivot: int): (int?, slice?, bool)
     asm(pivot self keyLen -> 1 0 2) "DICTIGETPREVEQ" "NULLSWAPIFNOT2"
 
 @pure
 fun dict.uDictGetPrevOrEqual(self, keyLen: int, pivot: int): (int?, slice?, bool)
     asm(pivot self keyLen -> 1 0 2) "DICTUGETPREVEQ" "NULLSWAPIFNOT2"
+
+@pure
+fun dict.sDictGetPrevOrEqual(self, keyLen: int, pivot: slice): (slice?, slice?, bool)
+    asm(pivot self keyLen -> 1 0 2) "DICTGETPREVEQ" "NULLSWAPIFNOT2"
 
 
 /**

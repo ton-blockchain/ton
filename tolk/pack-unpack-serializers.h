@@ -166,4 +166,7 @@ bool is_type_cellT(TypePtr any_type);
 FunctionPtr get_custom_pack_unpack_function(TypePtr receiver_type, bool is_pack);
 std::vector<PackOpcode> auto_generate_opcodes_for_union(TypePtr union_type, std::string& because_msg);
 
+std::vector<var_idx_t> create_default_PackOptions(CodeBlob& code, SrcLocation loc);
+std::vector<var_idx_t> create_default_UnpackOptions(CodeBlob& code, SrcLocation loc);
+
 } // namespace tolk

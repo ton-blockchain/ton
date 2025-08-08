@@ -96,6 +96,9 @@ public:
     if (any_type == TypeDataNever::create()) {
       return {};
     }
+    if (any_type->try_as<TypeDataMapKV>()) {
+      return {};
+    }
 
     if (const auto* t_struct = any_type->try_as<TypeDataStruct>()) {
       StructPtr struct_ref = t_struct->struct_ref;

@@ -32,17 +32,6 @@ static bool is_type_UnsafeBodyNoRef_T(TypePtr bodyT) {
   return false;
 }
 
-// currently, there is no way to pass custom pack options to createMessage, using hardcoded ones
-static std::vector<var_idx_t> create_default_PackOptions(CodeBlob& code, SrcLocation loc) {
-  StructPtr s_PackOptions = lookup_global_symbol("PackOptions")->try_as<StructPtr>();
-  std::vector ir_options = code.create_tmp_var(TypeDataStruct::create(s_PackOptions), loc, "(pack-options)");
-  tolk_assert(ir_options.size() == 1);
-
-  var_idx_t ir_zero = code.create_int(loc, 0, "(zero)");
-  code.emplace_back(loc, Op::_Let, std::vector{ir_options[0]}, std::vector{ir_zero});  // skipBitsNFieldsValidation
-  return ir_options;
-}
-
 // calculate `addrHash &= mask` where mask = `(1 << (256 - SHARD_DEPTH)) - 1`
 static void append_bitwise_and_shard_mask(CodeBlob& code, SrcLocation loc, var_idx_t ir_addr_hash, var_idx_t ir_shard_depth) {
   var_idx_t ir_one = code.create_int(loc, 1, "(one)");

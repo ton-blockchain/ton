@@ -70,6 +70,10 @@ const std::vector<FunctionPtr>& get_all_not_builtin_functions() {
   return G.all_functions;
 }
 
+const std::vector<GlobalVarPtr>& get_all_declared_global_vars() {
+  return G.all_global_vars;
+}
+
 const std::vector<GlobalConstPtr>& get_all_declared_constants() {
   return G.all_constants;
 }

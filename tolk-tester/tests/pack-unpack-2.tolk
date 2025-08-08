@@ -406,6 +406,17 @@ struct WithTwoRestFields {
     rest2: RemainingBitsAndRefs;
 }
 
+struct WithMaps {
+    m1: map<int8, RemainingBitsAndRefs>
+    m2: map<JustInt32, (int8, int8)>
+}
+
+struct WithNullableMaps {
+    m1: map<int32, int64>?
+    m2: map<int32, int64>?
+    m3: map<int32, int64>?
+    m4: map<int32, int64> | int32
+}
 
 
 // ---------------------------------------------
@@ -716,6 +727,51 @@ fun test_EdgeCaseIntegers() {
     return edge.toCell().hash() == manual.endCell().hash()
 }
 
+@method_id(230)
+fun test_serializeMaps() {
+    var (
+        m1: map<int8, RemainingBitsAndRefs>,
+        m2: map<JustInt32, (int8, int8)>,
+    ) = (createEmptyMap(), createEmptyMap());
+    m1.set(1, "");
+    m1.set(2, stringHexToSlice("01").appendRef(stringHexToSlice("02")));
+    m2.set({value: 3}, (3, 30));
+    m2.set({value: 4}, (4, 40));
+
+    var w = (WithMaps { m1, m2 }).toCell().load();
+    w.m2.delete({value: 4});
+    val d3 = w.m2.deleteAndGetDeleted({value: 3});
+    var r = w.m1.findFirst();
+    var kl = (0, 0);
+    while (r.isFound) {
+        kl = r.loadValue().remainingBitsAndRefsCount();
+        r = w.m1.iterateNext(r);
+    }
+    return (w.m1.isEmpty(), w.m2.isEmpty(), d3.isFound, d3.loadValue(), kl);
+}
+
+@method_id(231)
+fun test_nullableMaps() {
+    var o: WithNullableMaps = {
+        m1: createEmptyMap(),
+        m2: createEmptyMap(),
+        m3: null,
+        m4: createEmptyMap(),
+    };
+    if (o.m2 != null && o.m4 is map<int32, int64>) {
+        o.m2.set(1, 10);
+        o.m4.set(1, 10);
+    }
+    var c = o.toCell();
+    var s = c.beginParse();
+    var (bits, refs) = s.remainingBitsAndRefsCount();
+    assert(bits == 2+2+1+2) throw 123;
+    assert(refs == 0+1+0+1) throw 234;
+
+    o = c.load();
+    return (o.m1 == null, o.m1!.isEmpty(), o.m2 == null, o.m2!.isEmpty(), o.m3 == null, o.m4 is int32);
+}
+
 fun main() {
     var t: JustInt32 = { value: 10 };
     var c = t.toCell();
@@ -756,4 +812,6 @@ fun main() {
 @testcase | 227 | | 16
 @testcase | 228 | | -1
 @testcase | 229 | | -1
+@testcase | 230 | | 0 -1 -1 3 30 8 1
+@testcase | 231 | | 0 -1 0 0 -1 0
  */
