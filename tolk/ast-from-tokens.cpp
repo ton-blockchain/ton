@@ -425,6 +425,11 @@ static AnyV parse_type_alias_declaration(Lexer& lex, const std::vector<V<ast_ann
   }
 
   lex.expect(tok_assign, "`=`");
+  if (lex.tok() == tok_builtin) {   // type map<K, V> = builtin
+    lex.next();
+    return createV<ast_empty_statement>(loc);
+  }
+
   AnyTypeV underlying_type = parse_type_from_tokens(lex);
 
   for (auto v_annotation : annotations) {

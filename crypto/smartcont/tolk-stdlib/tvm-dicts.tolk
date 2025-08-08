@@ -17,10 +17,12 @@ tolk 1.0
  */
 
 /// In @stdlib/common.tolk, there is a type alias:
-/// `type dict = cell?`
+/// ```
+/// type dict = cell?
+/// ```
 /// For clarity, we use "dict" instead of a "cell?" where a cell-dictionary is assumed.
 
-/// Creates an empty dictionary, which is actually a null value. Equivalent to PUSHNULL
+/// Creates an empty dictionary, which is actually a null value. Equivalent to `PUSHNULL`
 @pure
 fun createEmptyDict(): dict
     asm "NEWDICT"
@@ -319,7 +321,7 @@ fun dict.sDictGetPrevOrEqual(self, keyLen: int, pivot: slice): (slice?, slice?, 
 
 
 /**
- Prefix dictionary primitives.
+    Prefix dictionary primitives.
  */
 
 @pure
