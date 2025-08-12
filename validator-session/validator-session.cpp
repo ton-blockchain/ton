@@ -1413,6 +1413,7 @@ void ValidatorSessionImpl::generate_block_optimistic(td::uint32 cur_round,
                                        block->data_.clone(), block->root_hash_, stat->block_id.file_hash,
                                        [=, SelfId = actor_id(this)](td::Result<GeneratedCandidate> R) {
                                          if (R.is_error()) {
+                                           LOG(DEBUG) << "Optimistic generation error: " << R.move_as_error();
                                            return;
                                          }
                                          td::actor::send_closure(SelfId,

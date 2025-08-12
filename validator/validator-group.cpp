@@ -301,12 +301,19 @@ void ValidatorGroup::generate_block_optimistic(validatorsession::BlockSourceInfo
                                                td::BufferSlice prev_block, RootHash prev_root_hash,
                                                FileHash prev_file_hash, td::Promise<GeneratedCandidate> promise) {
   if (destroying_) {
+    promise.set_error(td::Status::Error("validator session finished"));
+    return;
+  }
+  if (shard_.is_masterchain()) {
+    promise.set_error(td::Status::Error("no optimistic generation in masterchain"));
     return;
   }
   if (last_known_round_id_ + 1 != source_info.priority.round) {
+    promise.set_error(td::Status::Error("too old round"));
     return;
   }
   if (optimistic_generation_ && optimistic_generation_->round >= source_info.priority.round) {
+    promise.set_error(td::Status::Error("optimistic generation already in progress"));
     return;
   }
   BlockIdExt block_id{create_next_block_id_simple(), prev_root_hash, prev_file_hash};
