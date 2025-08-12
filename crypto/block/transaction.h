@@ -359,7 +359,7 @@ struct Transaction {
   bool in_msg_extern{false};
   gen::CommonMsgInfo::Record_int_msg_info in_msg_info;
   bool new_bounce_format{false};
-  bool new_bounce_format_with_body{false};
+  bool new_bounce_format_full_body{false};
   bool use_msg_state{false};
   bool is_first{false};
   bool orig_addr_rewrite_set{false};

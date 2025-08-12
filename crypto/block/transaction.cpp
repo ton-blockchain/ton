@@ -877,7 +877,7 @@ bool Transaction::unpack_input_msg(bool ihr_delivered, const ActionPhaseConfig* 
         ihr_fee = td::zero_refint();
         td::RefInt256 extra_flags = tlb::t_Grams.as_integer(in_msg_info.extra_flags);
         new_bounce_format = extra_flags->get_bit(0);
-        new_bounce_format_with_body = extra_flags->get_bit(1);
+        new_bounce_format_full_body = extra_flags->get_bit(1);
       } else {
         // Legacy: extra_flags was previously ihr_fee
         ihr_fee = tlb::t_Grams.as_integer(in_msg_info.extra_flags);
@@ -3276,11 +3276,10 @@ bool Transaction::prepare_bounce_phase(const ActionPhaseConfig& cfg) {
   vm::CellBuilder body;
   if (new_bounce_format) {
     body.store_long(0xfffffffeU, 32);   // new_bounce_body#fffffffe
-    if (new_bounce_format_with_body) {  // original_body:(Maybe ^Cell)
-      body.store_long(1, 1);
+    if (new_bounce_format_full_body) {  // original_body:^Cell
       body.store_ref(vm::CellBuilder().append_cellslice(in_msg_body).finalize_novm());
     } else {
-      body.store_long(0, 1);
+      body.store_ref(vm::CellBuilder().store_bits(in_msg_body->as_bitslice()).finalize_novm());
     }
     body.store_ref(vm::CellBuilder()
                        .append_cellslice(in_msg_info.value)     // value:CurrencyCollection

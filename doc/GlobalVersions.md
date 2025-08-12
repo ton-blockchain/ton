@@ -236,20 +236,20 @@ Field `ihr_fee:Grams` in internal message is now called `extra_flags:(VarUIntege
 This field does not represent fees. `ihr_fee` is always zero since version 11, so this field was essentially unused.
 
 `(extra_flags & 1) = 1` enables the new bounce format for the message. The bounced message contains information about the transaction.
-If `(extra_flags & 3) = 3`, the bounced message also contains the whole body of the original message.
+If `(extra_flags & 3) = 3`, the bounced message contains the whole body of the original message. Otherwise, only the bits from the root of the original body are returned.
 When the message with new bounce flag is bounced, the bounced message body has the following format (`new_bounce_body`):
 ```
 _ value:CurrencyCollection created_lt:uint64 created_at:uint32 = NewBounceOriginalInfo;
 _ gas_used:uint32 vm_steps:uint32 = NewBounceComputePhaseInfo;
 
 new_bounce_body#fffffffe
-    original_body:(Maybe ^Cell)
+    original_body:^Cell
     original_info:^NewBounceOriginalInfo
     bounced_by_phase:uint8 exit_code:int32
     compute_phase:(Maybe NewBounceComputePhaseInfo)
     = NewBounceBody;
 ```
-- `original_body` - cell that contains the body of the original message (if `extra_flags & 2`) or nothing (if not `extra_flags & 2`).
+- `original_body` - cell that contains the body of the original message. If `extra_flags & 2` then the whole body is returned, otherwise it is only the root without refs.
 - `original_info` - value, lt and unixtime of the original message.
 - `bounced_by_phase`:
   - `0` - compute phase was skipped. `exit_code` denotes the skip reason:

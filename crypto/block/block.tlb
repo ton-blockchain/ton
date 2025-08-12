@@ -166,7 +166,7 @@ _ (Message Any) = MessageAny;
 _ value:CurrencyCollection created_lt:uint64 created_at:uint32 = NewBounceOriginalInfo;
 _ gas_used:uint32 vm_steps:uint32 = NewBounceComputePhaseInfo;
 new_bounce_body#fffffffe
-    original_body:(Maybe ^Cell)
+    original_body:^Cell
     original_info:^NewBounceOriginalInfo
     bounced_by_phase:uint8 exit_code:int32
     compute_phase:(Maybe NewBounceComputePhaseInfo)
