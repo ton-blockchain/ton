@@ -473,14 +473,17 @@ void ValidatorGroup::create_session() {
   }
   CHECK(found);
 
+  td::actor::send_closure(rldp_, &rldp::Rldp::add_id, local_adnl_id_);
+  td::actor::send_closure(rldp2_, &rldp2::Rldp::add_id, local_adnl_id_);
+
   config_.catchain_opts.broadcast_speed_multiplier = opts_->get_catchain_broadcast_speed_multiplier();
   if (!config_.new_catchain_ids) {
     session_ = validatorsession::ValidatorSession::create(session_id_, config_, local_id_, std::move(vec),
-                                                          make_validator_session_callback(), keyring_, adnl_, rldp_,
+                                                          make_validator_session_callback(), keyring_, adnl_, rldp2_,
                                                           overlays_, db_root_, "-", allow_unsafe_self_blocks_resync_);
   } else {
     session_ = validatorsession::ValidatorSession::create(
-        session_id_, config_, local_id_, std::move(vec), make_validator_session_callback(), keyring_, adnl_, rldp_,
+        session_id_, config_, local_id_, std::move(vec), make_validator_session_callback(), keyring_, adnl_, rldp2_,
         overlays_, db_root_ + "/catchains/",
         PSTRING() << "." << shard_.workchain << "." << shard_.shard << "." << validator_set_->get_catchain_seqno()
                   << ".",
@@ -495,9 +498,6 @@ void ValidatorGroup::create_session() {
   if (started_) {
     td::actor::send_closure(session_, &validatorsession::ValidatorSession::start);
   }
-
-  td::actor::send_closure(rldp_, &rldp::Rldp::add_id, local_adnl_id_);
-  td::actor::send_closure(rldp2_, &rldp2::Rldp::add_id, local_adnl_id_);
 }
 
 void ValidatorGroup::start(std::vector<BlockIdExt> prev, BlockIdExt min_masterchain_block_id) {
