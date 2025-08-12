@@ -1156,6 +1156,16 @@ td::Result<CellStorageStat::CellInfo> CellStorageStat::add_used_storage(Ref<vm::
   return res;
 }
 
+td::Result<CellStorageStat::CellInfo> CellStorageStat::add_used_storage(td::Span<Ref<Cell>> cells, bool kill_dup,
+                                      unsigned skip_count_root) {
+  CellInfo result;
+  for (const auto& cell : cells) {
+    TRY_RESULT(info, add_used_storage(cell, kill_dup, skip_count_root));
+    result.max_merkle_depth = std::max(result.max_merkle_depth, info.max_merkle_depth);
+  }
+  return result;
+}
+
 void NewCellStorageStat::add_cell(Ref<Cell> cell) {
   dfs(std::move(cell), true, false);
 }

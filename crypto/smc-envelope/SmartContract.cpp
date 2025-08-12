@@ -61,9 +61,9 @@ td::Ref<vm::Cell> build_internal_message(td::RefInt256 amount, td::Ref<vm::CellS
   b.append_cellslice(address);  // dest:MsgAddressInt
   unsigned len = (((unsigned)amount->bit_size(false) + 7) >> 3);
   b.store_long_bool(len, 4) && b.store_int256_bool(*amount, len * 8, false); // grams:Grams
-  b.store_zeroes(1 + 4 + 4 + 64 + 32 + 1);      // extre, ihr_fee, fwd_fee, created_lt, created_at, init
+  b.store_zeroes(1 + 4 + 4 + 64 + 32 + 1);      // extra currencies, extra_flags, fwd_fee, created_lt, created_at, init
   // body:(Either X ^X)
-  if (b.remaining_bits() >= 1 + (*body).size() && b.remaining_refs() >= (*body).size_refs()) {
+  if (b.remaining_bits() >= 1 + body->size() && b.remaining_refs() >= body->size_refs()) {
       b.store_zeroes(1);
       b.append_cellslice(body);
   } else {

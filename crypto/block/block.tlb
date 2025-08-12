@@ -125,7 +125,7 @@ currencies$_ grams:Grams other:ExtraCurrencyCollection
 //
 int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool
   src:MsgAddressInt dest:MsgAddressInt 
-  value:CurrencyCollection ihr_fee:Grams fwd_fee:Grams
+  value:CurrencyCollection extra_flags:(VarUInteger 16) fwd_fee:Grams
   created_lt:uint64 created_at:uint32 = CommonMsgInfo;
 ext_in_msg_info$10 src:MsgAddressExt dest:MsgAddressInt 
   import_fee:Grams = CommonMsgInfo;
@@ -134,7 +134,7 @@ ext_out_msg_info$11 src:MsgAddressInt dest:MsgAddressExt
 
 int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool
   src:MsgAddress dest:MsgAddressInt 
-  value:CurrencyCollection ihr_fee:Grams fwd_fee:Grams
+  value:CurrencyCollection extra_flags:(VarUInteger 16) fwd_fee:Grams
   created_lt:uint64 created_at:uint32 = CommonMsgInfoRelaxed;
 ext_out_msg_info$11 src:MsgAddress dest:MsgAddressExt
   created_lt:uint64 created_at:uint32 = CommonMsgInfoRelaxed;
@@ -161,6 +161,16 @@ message$_ {X:Type} info:CommonMsgInfoRelaxed
   body:(Either X ^X) = MessageRelaxed X;
   
 _ (Message Any) = MessageAny;
+
+
+_ value:CurrencyCollection created_lt:uint64 created_at:uint32 = NewBounceOriginalInfo;
+_ gas_used:uint32 vm_steps:uint32 = NewBounceComputePhaseInfo;
+new_bounce_body#fffffffe
+    original_body:^Cell
+    original_info:^NewBounceOriginalInfo
+    bounced_by_phase:uint8 exit_code:int32
+    compute_phase:(Maybe NewBounceComputePhaseInfo)
+    = NewBounceBody;
 
 //
 interm_addr_regular$0 use_dest_bits:(#<= 96) 
@@ -796,9 +806,9 @@ _ MisbehaviourPunishmentConfig = ConfigParam 40;
 size_limits_config#01 max_msg_bits:uint32 max_msg_cells:uint32 max_library_cells:uint32 max_vm_data_depth:uint16
   max_ext_msg_size:uint32 max_ext_msg_depth:uint16 = SizeLimitsConfig;
 size_limits_config_v2#02 max_msg_bits:uint32 max_msg_cells:uint32 max_library_cells:uint32 max_vm_data_depth:uint16
-  max_ext_msg_size:uint32 max_ext_msg_depth:uint16 max_acc_state_cells:uint32 max_acc_state_bits:uint32
+  max_ext_msg_size:uint32 max_ext_msg_depth:uint16 max_acc_state_cells:uint32 max_mc_acc_state_cells:uint32
   max_acc_public_libraries:uint32 defer_out_queue_size_limit:uint32 max_msg_extra_currencies:uint32
-  max_acc_fixed_prefix_length:uint8 = SizeLimitsConfig;
+  max_acc_fixed_prefix_length:uint8 acc_state_cells_for_storage_dict:uint32 = SizeLimitsConfig;
 _ SizeLimitsConfig = ConfigParam 43;
 
 // key is [ wc:int32 addr:uint256 ]
