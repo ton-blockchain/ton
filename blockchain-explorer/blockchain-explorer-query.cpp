@@ -1429,10 +1429,10 @@ void HttpQueryStatus::finish_query() {
         A << "<td>" << static_cast<td::int32>(x->ts_.at_unix()) << "</td>";
       }
       A << "</tr>\n";
-      for (td::uint32 i = 0; i < results_.ips.size(); i++) {
+      for (td::uint32 i = 0; i < results_.addrs.size(); i++) {
         A << "<tr>";
-        if (results_.ips[i].is_valid()) {
-          A << "<td>" << results_.ips[i].get_ip_str() << ":" << results_.ips[i].get_port() << "</td>";
+        if (!results_.addrs[i].empty()) {
+          A << "<td>" << results_.addrs[i] << "</td>";
         } else {
           A << "<td>hidden</td>";
         }
