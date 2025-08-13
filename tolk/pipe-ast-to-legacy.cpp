@@ -1092,6 +1092,18 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
     return rvect;
   }
 
+  // `Color.Red` as `int` and vice versa
+  if (target_type == TypeDataInt::create() && original_type->try_as<TypeDataEnum>()) {
+    return rvect;
+  }
+  if (original_type == TypeDataInt::create() && target_type->try_as<TypeDataEnum>()) {
+    return rvect;
+  }
+  // `Color.Red` as `BounceMode` (all enums are integers, they can be cast one to another)
+  if (original_type->try_as<TypeDataEnum>() && target_type->try_as<TypeDataEnum>()) {
+    return rvect;
+  }
+
   throw Fatal("unhandled transition_expr_to_runtime_type_impl() combination");
 }
 
@@ -1390,7 +1402,8 @@ static std::vector<var_idx_t> process_lazy_operator(V<ast_lazy_operator> v, Code
 }
 
 static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v, CodeBlob& code, TypePtr target_type) {
-  TypePtr lhs_type = v->get_subject()->inferred_type;
+  TypePtr subject_type = v->get_subject()->inferred_type;
+  const TypeDataEnum* subject_enum = subject_type->unwrap_alias()->try_as<TypeDataEnum>();
 
   int n_arms = v->get_arms_count();
   std::vector<var_idx_t> subj_ir_idx = pre_compile_expr(v->get_subject(), code, nullptr);
@@ -1401,18 +1414,28 @@ static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v
     return {};
   }
 
+  bool has_type_arm = false;
+  bool has_expr_arm = false;
+  bool has_else_arm = false;
+  for (int i = 0; i < n_arms; ++i) {
+    auto v_arm = v->get_arm(i);
+    has_type_arm |= v_arm->pattern_kind == MatchArmKind::exact_type;
+    has_expr_arm |= v_arm->pattern_kind == MatchArmKind::const_expression;
+    has_else_arm |= v_arm->pattern_kind == MatchArmKind::else_branch;
+  }
+
   // it's either `match` by type (all arms patterns are types) or `match` by expression
-  bool is_match_by_type = v->get_arm(0)->pattern_kind == MatchArmKind::exact_type;
-  bool last_else_branch = v->get_arm(n_arms - 1)->pattern_kind == MatchArmKind::else_branch;
+  bool is_match_by_type = has_type_arm;
   // detect whether `match` is exhaustive
   bool is_exhaustive = is_match_by_type   // match by type covers all cases, checked earlier
-       || !v->is_statement()              // match by expression is guaranteely exhaustive, checked earlier
-       || last_else_branch;
+       || !v->is_statement()              // match by expression is exhaustive, checked earlier
+       || (has_expr_arm && subject_enum)  // match by enum (either covers all cases or contains else, checked earlier)
+       || has_else_arm;
 
   // `else` is not allowed in `match` by type; this was not fired at type checking,
   // because it might turned out to be a lazy match, where `else` is allowed;
   // if we are here, it's not a lazy match, it's a regular one (the lazy one is handled specially, in aux vertex)
-  if (is_match_by_type && last_else_branch) {
+  if (is_match_by_type && has_else_arm) {
     throw ParseError(v->get_arm(n_arms - 1)->loc, "`else` is not allowed in `match` by type; you should cover all possible types");
   }
 
@@ -1429,7 +1452,7 @@ static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v
     if (is_match_by_type) {
       TypePtr cmp_type = v_ith_arm->pattern_type_node->resolved_type;
       tolk_assert(!cmp_type->unwrap_alias()->try_as<TypeDataUnion>());  // `match` over `int|slice` is a type checker error
-      eq_ith_ir_idx = pre_compile_is_type(code, lhs_type, cmp_type, subj_ir_idx, v_ith_arm->loc, "(arm-cond-eq)");
+      eq_ith_ir_idx = pre_compile_is_type(code, subject_type, cmp_type, subj_ir_idx, v_ith_arm->loc, "(arm-cond-eq)");
     } else {
       std::vector<var_idx_t> ith_ir_idx = pre_compile_expr(v_ith_arm->get_pattern_expr(), code);
       tolk_assert(subj_ir_idx.size() == 1 && ith_ir_idx.size() == 1);
@@ -1475,7 +1498,7 @@ static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v
 static std::vector<var_idx_t> process_dot_access(V<ast_dot_access> v, CodeBlob& code, TypePtr target_type, LValContext* lval_ctx) {
   // it's NOT a method call `t.tupleSize()` (since such cases are handled by process_function_call)
   // it's `t.0`, `getUser().id`, and `t.tupleSize` (as a reference, not as a call)
-  if (!v->is_target_fun_ref()) {
+  if (v->is_target_indexed_access() || v->is_target_struct_field()) {
     TypePtr obj_type = v->get_obj()->inferred_type->unwrap_alias();
     // `user.id`; internally, a struct (an object) is a tensor
     if (const auto* t_struct = obj_type->try_as<TypeDataStruct>()) {
@@ -1550,6 +1573,15 @@ static std::vector<var_idx_t> process_dot_access(V<ast_dot_access> v, CodeBlob& 
       return transition_to_target_type(std::move(field_ir_idx), code, target_type, v);
     }
     tolk_assert(false);
+  }
+  // `Color.Red`
+  if (v->is_target_enum_member()) {
+    // all enums are integers, and their integer values have already been assigned or auto-calculated
+    EnumMemberPtr member_ref = std::get<EnumMemberPtr>(v->target);
+    tolk_assert(!member_ref->computed_value.is_null());
+    std::vector<var_idx_t> enum_ir_idx = code.create_tmp_var(TypeDataInt::create(), v->get_identifier()->loc, "(enum-member)");
+    code.emplace_back(v->loc, Op::_IntConst, enum_ir_idx, member_ref->computed_value);
+    return transition_to_target_type(std::move(enum_ir_idx), code, target_type, v);
   }
 
   // okay, v->target refs a function, like `obj.method`, filled at type inferring

@@ -1591,6 +1591,14 @@ fun demo411(s: slice) {
     }
 }
 
+@method_id(412)
+fun demo412() {
+    val msg = lazy AOrB.fromSlice("");
+    match (msg) {
+    }
+    return 123;
+}
+
 
 fun main() {
     val s = stringHexToSlice("0102");
@@ -1755,6 +1763,7 @@ fun main() {
 @testcase | 407 | x{BF}                       | -1
 @testcase | 408 |                             | 24
 @testcase | 409 |                             | 255 3
+@testcase | 412 |                             | 123
 
 @fif_codegen
 """

@@ -1625,6 +1625,58 @@ static AnyV parse_struct_declaration(Lexer& lex, const std::vector<V<ast_annotat
   return createV<ast_struct_declaration>(loc, v_ident, genericsT_list, overflow1023_policy, opcode, parse_struct_body(lex));
 }
 
+static AnyV parse_enum_member(Lexer& lex) {
+  SrcLocation loc = lex.cur_location();
+  lex.check(tok_identifier, "member name");
+  auto v_ident = createV<ast_identifier>(lex.cur_location(), lex.cur_str());
+  lex.next();
+
+  AnyExprV init_value = nullptr;
+  if (lex.tok() == tok_assign) {    // `Red = 1`
+    lex.next();
+    init_value = parse_expr(lex);
+  }
+
+  return createV<ast_enum_member>(loc, v_ident, init_value);  
+}
+
+static V<ast_enum_body> parse_enum_body(Lexer& lex) {
+  SrcLocation loc = lex.cur_location();
+  lex.expect(tok_opbrace, "`{`");
+
+  std::vector<AnyV> members;
+  while (lex.tok() != tok_clbrace) {
+    members.push_back(parse_enum_member(lex));
+    if (lex.tok() == tok_comma || lex.tok() == tok_semicolon) {
+      lex.next();
+    }
+  }
+  lex.expect(tok_clbrace, "`}`");
+
+  return createV<ast_enum_body>(loc, std::move(members));
+}
+
+static AnyV parse_enum_declaration(Lexer& lex, const std::vector<V<ast_annotation>>& annotations) {
+  SrcLocation loc = lex.cur_location();
+  lex.expect(tok_enum, "`enum`");
+
+  lex.check(tok_identifier, "identifier");
+  auto v_ident = createV<ast_identifier>(lex.cur_location(), lex.cur_str());
+  lex.next();
+
+  for (auto v_annotation : annotations) {
+    switch (v_annotation->kind) {
+      case AnnotationKind::deprecated:
+      case AnnotationKind::custom:
+        break;
+      default:
+        v_annotation->error("this annotation is not applicable to enum");
+    }
+  }
+
+  return createV<ast_enum_declaration>(loc, v_ident, parse_enum_body(lex));
+}
+
 static AnyV parse_tolk_required_version(Lexer& lex) {
   SrcLocation loc = lex.cur_location();
   lex.next_special(tok_semver, "semver");   // syntax: "tolk 0.6"
@@ -1707,9 +1759,12 @@ AnyV parse_src_file_to_ast(const SrcFile* file) {
         toplevel_declarations.push_back(parse_struct_declaration(lex, annotations));
         annotations.clear();
         break;
+      case tok_enum:
+        toplevel_declarations.push_back(parse_enum_declaration(lex, annotations));
+        annotations.clear();
+        break;
 
       case tok_export:
-      case tok_enum:
       case tok_operator:
       case tok_infix:
         lex.error("`" + static_cast<std::string>(lex.cur_str()) +"` is not supported yet");

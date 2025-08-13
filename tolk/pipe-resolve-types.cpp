@@ -271,6 +271,9 @@ class TypeNodesVisitorResolver {
       }
       return TypeDataStruct::create(struct_ref);
     }
+    if (EnumDefPtr enum_ref = sym->try_as<EnumDefPtr>()) {
+      return TypeDataEnum::create(enum_ref);
+    }
     return nullptr;
   }
 
@@ -592,6 +595,17 @@ public:
       }
     }
   }
+
+  void start_visiting_enum_members(EnumDefPtr enum_ref) {
+    type_nodes_visitor = TypeNodesVisitorResolver(nullptr, nullptr, nullptr, false);
+
+    // same for struct field `v: int8 = 0 as int8`
+    for (EnumMemberPtr member_ref : enum_ref->members) {
+      if (member_ref->has_init_value()) {
+        parent::visit(member_ref->init_value);
+      }
+    }
+  }
 };
 
 // prevent recursion like `struct A { field: A }`;
@@ -664,6 +678,9 @@ void pipeline_resolve_types_and_aliases() {
           TypeNodesVisitorResolver::visit_symbol(v_struct->struct_ref);
         }
         visitor.start_visiting_struct_fields(v_struct->struct_ref);
+
+      } else if (auto v_enum = v->try_as<ast_enum_declaration>()) {
+        visitor.start_visiting_enum_members(v_enum->enum_ref);
       }
     }
   }

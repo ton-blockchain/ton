@@ -424,6 +424,9 @@ std::vector<var_idx_t> generate_lazy_struct_to_cell(CodeBlob& code, SrcLocation 
 
 std::vector<var_idx_t> generate_lazy_match_for_union(CodeBlob& code, SrcLocation loc, TypePtr union_type, const LazyVariableLoadedState* lazy_variable, const LazyMatchOptions& options) {
   tolk_assert(lazy_variable->ir_options.size() == 2);
+  if (options.match_blocks.empty()) {   // empty `match` statement, no arms
+    return {};
+  }
   UnpackContext ctx(code, loc, lazy_variable->ir_slice, lazy_variable->ir_options);
   std::vector rvect_match = ctx.generate_lazy_match_any(union_type, options);
 

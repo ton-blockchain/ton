@@ -184,6 +184,10 @@ TypePtr TypeDataStruct::create(StructPtr struct_ref) {
   return new TypeDataStruct(struct_ref);
 }
 
+TypePtr TypeDataEnum::create(EnumDefPtr enum_ref) {
+  return new TypeDataEnum(enum_ref);
+}
+
 TypePtr TypeDataTensor::create(std::vector<TypePtr>&& items) {
   CalcChildrenFlags reg;
   reg.feed_child(items);
@@ -338,6 +342,10 @@ int TypeDataStruct::get_type_id() const {
   return TypeIdCalculation::assign_type_id(this);
 }
 
+int TypeDataEnum::get_type_id() const {
+  return TypeIdCalculation::assign_type_id(this);
+}
+
 int TypeDataTensor::get_type_id() const {
   assert(!has_genericT_inside());
   return TypeIdCalculation::assign_type_id(this);
@@ -419,6 +427,10 @@ std::string TypeDataGenericTypeWithTs::as_human_readable() const {
 
 std::string TypeDataStruct::as_human_readable() const {
   return struct_ref->name;
+}
+
+std::string TypeDataEnum::as_human_readable() const {
+  return enum_ref->name;
 }
 
 std::string TypeDataTensor::as_human_readable() const {
@@ -705,6 +717,16 @@ bool TypeDataStruct::can_rhs_be_assigned(TypePtr rhs) const {
   return rhs == TypeDataNever::create();
 }
 
+bool TypeDataEnum::can_rhs_be_assigned(TypePtr rhs) const {
+  if (const TypeDataEnum* rhs_enum = rhs->try_as<TypeDataEnum>()) {
+    return enum_ref == rhs_enum->enum_ref;
+  }
+  if (const TypeDataAlias* rhs_alias = rhs->try_as<TypeDataAlias>()) {
+    return can_rhs_be_assigned(rhs_alias->underlying_type);
+  }
+  return rhs == TypeDataNever::create();
+}
+
 bool TypeDataTensor::can_rhs_be_assigned(TypePtr rhs) const {
   if (const auto* as_tensor = rhs->try_as<TypeDataTensor>(); as_tensor && as_tensor->size() == size()) {
     for (int i = 0; i < size(); ++i) {
@@ -846,6 +868,9 @@ bool TypeDataInt::can_be_casted_with_as_operator(TypePtr cast_to) const {
     return true;
   }
   if (cast_to == TypeDataCoins::create()) {   // `int` as `coins`
+    return true;
+  }
+  if (cast_to->try_as<TypeDataEnum>()) {  // `int` as `Color` (all enums are integer)
     return true;
   }
   if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
@@ -997,6 +1022,22 @@ bool TypeDataStruct::can_be_casted_with_as_operator(TypePtr cast_to) const {
   }
   if (const TypeDataStruct* to_struct = cast_to->try_as<TypeDataStruct>()) {   // C<C<int>> as C<CIntAlias>
     return equal_to(to_struct);
+  }
+  return false;
+}
+
+bool TypeDataEnum::can_be_casted_with_as_operator(TypePtr cast_to) const {
+  if (cast_to == TypeDataInt::create()) {
+    return true;
+  }
+  if (cast_to->try_as<TypeDataEnum>()) {
+    return true;    // all enums are integers, they can be `as` cast to each other
+  }
+  if (const TypeDataUnion* to_union = cast_to->try_as<TypeDataUnion>()) {
+    return can_be_casted_to_union(this, to_union);
+  }
+  if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
+    return can_be_casted_with_as_operator(to_alias->underlying_type);
   }
   return false;
 }
@@ -1245,6 +1286,16 @@ bool TypeDataStruct::equal_to(TypePtr rhs) const {
       return struct_ref->base_struct_ref == rhs_struct->struct_ref->base_struct_ref
           && struct_ref->substitutedTs->equal_to(rhs_struct->struct_ref->substitutedTs);
     }
+  }
+  if (const TypeDataAlias* rhs_alias = rhs->try_as<TypeDataAlias>()) {
+    return equal_to(rhs_alias->underlying_type);
+  }
+  return false;
+}
+
+bool TypeDataEnum::equal_to(TypePtr rhs) const {
+  if (const TypeDataEnum* rhs_enum = rhs->try_as<TypeDataEnum>()) {
+    return enum_ref == rhs_enum->enum_ref;
   }
   if (const TypeDataAlias* rhs_alias = rhs->try_as<TypeDataAlias>()) {
     return equal_to(rhs_alias->underlying_type);

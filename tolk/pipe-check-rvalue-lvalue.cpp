@@ -179,6 +179,12 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
         if (LocalVarPtr var_ref = as_ref->sym->try_as<LocalVarPtr>()) {
           on_var_used_as_lvalue(leftmost_obj->loc, var_ref);
         }
+        if (as_ref->sym->try_as<const TypeReferenceUsedAsSymbol*>()) {  // `Point.create = f`
+          if (v->is_target_enum_member()) {
+            fire(cur_f, v->loc, "modifying immutable constant");
+          }
+          fire(cur_f, v->loc, "invalid left side of assignment");
+        }
       }
     }
 

@@ -191,18 +191,29 @@ static bool expect_boolean(AnyExprV v_inferred) {
   return expect_boolean(v_inferred->inferred_type);
 }
 
-static bool expect_address(TypePtr inferred_type) {
-  if (inferred_type == TypeDataAddress::create()) {
-    return true;
-  }
-  if (const TypeDataAlias* as_alias = inferred_type->try_as<TypeDataAlias>()) {
-    return expect_address(as_alias->underlying_type);
-  }
-  return false;
+static bool expect_thrown_code(TypePtr t_ex_no) {
+  return expect_integer(t_ex_no) || t_ex_no->unwrap_alias()->try_as<TypeDataEnum>();
 }
 
-static bool expect_address(AnyExprV v_inferred) {
-  return expect_address(v_inferred->inferred_type);
+static bool check_eq_neq_operator(TypePtr lhs_type, TypePtr rhs_type, bool& not_integer_comparison) {
+  if (expect_integer(lhs_type) && expect_integer(rhs_type)) {
+    return true;
+  }
+  if (expect_boolean(lhs_type) && expect_boolean(rhs_type)) {
+    return true;
+  }
+  if (lhs_type->equal_to(TypeDataAddress::create()) && rhs_type->equal_to(TypeDataAddress::create())) {
+    not_integer_comparison = true;   // `address` can be compared with ==, but it's handled specially
+    return true;
+  }
+
+  const TypeDataEnum* lhs_enum = lhs_type->unwrap_alias()->try_as<TypeDataEnum>();
+  const TypeDataEnum* rhs_enum = rhs_type->unwrap_alias()->try_as<TypeDataEnum>();
+  if (lhs_enum && rhs_enum) {   // allow `someColor == anotherColor`, don't allow `someColor == 123`
+    return lhs_enum->enum_ref == rhs_enum->enum_ref;
+  }
+  
+  return false;
 }
 
 class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
@@ -258,17 +269,16 @@ protected:
       // (if to allow `int?`/`int8?` in the future, `==` must be expressed in a complicated Fift code considering TVM NULL)
       case tok_eq:
       case tok_neq: {
-        bool both_int = expect_integer(lhs) && expect_integer(rhs);
-        bool both_bool = expect_boolean(lhs) && expect_boolean(rhs);
-        if (!both_int && !both_bool) {
-          bool both_address = expect_address(lhs) && expect_address(rhs);
-          if (both_address) {     // address can be compared with ==, but it's not integer comparison, it's handled specially
-            v->mutate()->assign_fun_ref(nullptr);
-          } else if (lhs->inferred_type->equal_to(rhs->inferred_type)) {  // compare slice with slice, int? with int?
+        bool not_integer_comparison = false;
+        if (!check_eq_neq_operator(lhs->inferred_type, rhs->inferred_type, not_integer_comparison)) {
+          if (lhs->inferred_type->equal_to(rhs->inferred_type)) {  // compare slice with slice, int? with int?
             fire(cur_f, v->loc, "type " + to_string(lhs) + " can not be compared with `== !=`");
           } else {
             fire_error_cannot_apply_operator(cur_f, v->loc, v->operator_name, lhs, rhs);
           }
+        } 
+        if (not_integer_comparison) {    // special handling at IR generation like for `address`
+          v->mutate()->assign_fun_ref(nullptr);
         }
         break;
       }
@@ -563,9 +573,11 @@ protected:
     bool has_else_arm = false;
     AnyExprV v_subject = v->get_subject();
     TypePtr subject_type = v_subject->inferred_type;
+    const TypeDataEnum* subject_enum = subject_type->unwrap_alias()->try_as<TypeDataEnum>();
     const TypeDataUnion* subject_union = subject_type->unwrap_alias()->try_as<TypeDataUnion>();
 
-    std::vector<TypePtr> covered_types;    // for type-based `match`, what types are on the left of `=>`
+    std::vector<TypePtr> covered_types;       // for type-based `match`, what types are on the left of `=>`
+    std::vector<EnumMemberPtr> covered_enum;  // for `match` over an enum, we want it to be exhaustive
 
     for (int i = 0; i < v->get_arms_count(); ++i) {
       auto v_arm = v->get_arm(i);
@@ -606,14 +618,24 @@ protected:
           }
           has_expr_arm = true;
           TypePtr pattern_type = v_arm->get_pattern_expr()->inferred_type;
-          bool both_int = expect_integer(pattern_type) && expect_integer(subject_type);
-          bool both_bool = expect_boolean(pattern_type) && expect_boolean(subject_type);
-          if (!both_int && !both_bool) {
+          bool not_integer_comparison = false;
+          if (!check_eq_neq_operator(pattern_type, subject_type, not_integer_comparison) || not_integer_comparison) {
             if (pattern_type->equal_to(subject_type)) {   // `match` over `slice` etc., where operator `==` can't be applied
               fire(cur_f, v_arm->loc, "wrong pattern matching: can not compare type " + to_string(subject_type) + " in `match`");
             } else {
               fire(cur_f, v_arm->loc, "wrong pattern matching: can not compare type " + to_string(v_arm->get_pattern_expr()) + " with match subject of type " + to_string(v_subject));
             }
+          }
+          if (subject_enum) {
+            auto l_dot = v_arm->get_pattern_expr()->try_as<ast_dot_access>();
+            if (!l_dot || !l_dot->is_target_enum_member()) {    // match (someColor) { anotherColor => } 
+              fire(cur_f, v_arm->loc, "wrong pattern matching: `match` should contain members of a enum");
+            }
+            EnumMemberPtr member_ref = std::get<EnumMemberPtr>(l_dot->target);
+            if (std::find(covered_enum.begin(), covered_enum.end(), member_ref) != covered_enum.end()) {
+              fire(cur_f, v_arm->loc, "wrong pattern matching: duplicated enum member in `match`");
+            }
+            covered_enum.push_back(member_ref);
           }
           break;
         }
@@ -651,8 +673,30 @@ protected:
       }
       fire(cur_f, v->loc, "`match` does not cover all possible types; missing types are: " + missing);
     }
-    // `match` by expression, if it's not statement, should have `else` (unless it's match over bool with const true/false)
-    if (has_expr_arm && !has_else_arm && !v->is_statement()) {
+    // fire if `match` by enum is not exhaustive
+    if (has_expr_arm && subject_enum && !has_else_arm && subject_enum->enum_ref->members.size() != covered_enum.size()) {
+      std::string missing;
+      for (EnumMemberPtr member_ref : subject_enum->enum_ref->members) {
+        if (std::find(covered_enum.begin(), covered_enum.end(), member_ref) == covered_enum.end()) {
+          if (!missing.empty()) {
+            missing += ", ";
+          }
+          missing += member_ref->name;
+        }
+      }
+      fire(cur_f, v->loc, "`match` does not cover all possible enum members; missing members are: " + missing);
+    }
+    // fire if `match` by enum covers all cases, but contains `else`
+    // (note that `else` for types could exist for a lazy match; for non-lazy, it's fired later)
+    if (has_expr_arm && subject_enum && has_else_arm && subject_enum->enum_ref->members.size() == covered_enum.size()) {
+      for (int i = 0; i < v->get_arms_count(); ++i) {
+        if (auto v_arm = v->get_arm(i); v_arm->pattern_kind == MatchArmKind::else_branch) {
+          fire(cur_f, v_arm->loc, "`match` already covers all possible enum members, `else` is invalid");
+        }
+      }
+    }
+    // `match` by expression, if it's not a statement, should have `else` (unless exhaustive)
+    if (has_expr_arm && !has_else_arm && !v->is_statement() && !subject_enum) {
       bool needs_else_branch = true;
       if (expect_boolean(subject_type) && v->get_arms_count() == 2) {
         auto arm0 = v->get_arm(0)->get_pattern_expr()->try_as<ast_bool_const>();
@@ -724,7 +768,7 @@ protected:
   void visit(V<ast_throw_statement> v) override {
     parent::visit(v);
 
-    if (!expect_integer(v->get_thrown_code())) {
+    if (!expect_thrown_code(v->get_thrown_code()->inferred_type)) {
       fire(cur_f, v->get_thrown_code()->loc, "excNo of `throw` must be an integer, got " + to_string(v->get_thrown_code()));
     }
     if (v->has_thrown_arg() && v->get_thrown_arg()->inferred_type->get_width_on_stack() != 1) {
@@ -739,7 +783,7 @@ protected:
     if (!expect_integer(cond) && !expect_boolean(cond)) {
       fire(cur_f, cond->loc, "can not use " + to_string(cond) + " as a boolean condition");
     }
-    if (!expect_integer(v->get_thrown_code())) {
+    if (!expect_thrown_code(v->get_thrown_code()->inferred_type)) {
       fire(cur_f, v->get_thrown_code()->loc, "thrown excNo of `assert` must be an integer, got " + to_string(v->get_thrown_code()));
     }
 
@@ -813,6 +857,16 @@ protected:
       fire_error_type_mismatch(nullptr, field_ref->loc, "can not assign {src} to {dst}", inferred_type, field_ref->declared_type);
     }
   }
+
+  // given enum member `Red = 1` check types within its init_value and the whole expression itself
+  void start_visiting_enum_member(EnumDefPtr enum_ref, EnumMemberPtr member_ref) {
+    parent::visit(member_ref->init_value);
+
+    TypePtr inferred_type = member_ref->init_value->inferred_type;
+    if (!inferred_type->equal_to(TypeDataInt::create()) && !inferred_type->equal_to(TypeDataEnum::create(enum_ref))) {
+      fire(nullptr, member_ref->loc, "enum member is " + to_string(inferred_type) + ", not `int`\nhint: all enums must be integers");
+    }
+  }
 };
 
 void pipeline_check_inferred_types() {
@@ -826,6 +880,13 @@ void pipeline_check_inferred_types() {
     for (StructFieldPtr field_ref : struct_ref->fields) {
       if (field_ref->has_default_value() && !struct_ref->is_generic_struct()) {
         visitor.start_visiting_field_default(field_ref);
+      }
+    }
+  }
+  for (EnumDefPtr enum_ref : get_all_declared_enums()) {
+    for (EnumMemberPtr member_ref : enum_ref->members) {
+      if (member_ref->has_init_value()) {
+        visitor.start_visiting_enum_member(enum_ref, member_ref);
       }
     }
   }

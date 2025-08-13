@@ -82,4 +82,8 @@ const std::vector<StructPtr>& get_all_declared_structs() {
   return G.all_structs;
 }
 
+const std::vector<EnumDefPtr>& get_all_declared_enums() {
+  return G.all_enums;
+}
+
 } // namespace tolk

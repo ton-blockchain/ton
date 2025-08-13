@@ -368,6 +368,35 @@ struct StructData final : Symbol {
   std::string as_human_readable() const;
 };
 
+struct EnumMemberData final : Symbol {
+  AnyExprV init_value;                // nullptr if no init (`Red`, not `Red = 1`)
+  td::RefInt256 computed_value;       // auto-calculated or assigned from init if integer
+
+  bool has_init_value() const { return init_value != nullptr; }
+
+  EnumMemberData(std::string name, SrcLocation loc, AnyExprV init_value)
+    : Symbol(std::move(name), loc)
+    , init_value(init_value) {
+  }
+
+  EnumMemberData* mutate() const { return const_cast<EnumMemberData*>(this); }
+  void assign_init_value(AnyExprV init_value);
+  void assign_computed_value(td::RefInt256 computed_value);
+};
+
+struct EnumDefData final : Symbol {
+  std::vector<EnumMemberPtr> members;
+
+  EnumMemberPtr find_member(std::string_view member_name) const;
+
+  EnumDefData(std::string name, SrcLocation loc, std::vector<EnumMemberPtr>&& members)
+    : Symbol(std::move(name), loc)
+    , members(std::move(members)) {
+  }
+
+  std::string as_human_readable() const;
+};
+
 struct TypeReferenceUsedAsSymbol final : Symbol {
   TypePtr resolved_type;
 
@@ -385,13 +414,8 @@ class GlobalSymbolTable {
   }
 
 public:
-  void add_function(FunctionPtr f_sym);
-  void add_global_var(GlobalVarPtr g_sym);
-  void add_global_const(GlobalConstPtr c_sym);
-  void add_type_alias(AliasDefPtr a_sym);
-  void add_struct(StructPtr s_sym);
-
-  void replace_function(FunctionPtr f_sym);
+  void add_global_symbol(const Symbol* sym);
+  void add_function(FunctionPtr f_sym) { add_global_symbol(f_sym); }
 
   const Symbol* lookup(std::string_view name) const {
     const auto it = entries.find(key_hash(name));

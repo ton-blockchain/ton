@@ -55,6 +55,10 @@ std::string StructData::as_human_readable() const {
   return name + genericTs->as_human_readable();
 }
 
+std::string EnumDefData::as_human_readable() const {
+  return name;
+}
+
 LocalVarPtr FunctionData::find_param(std::string_view name) const {
   for (const LocalVarData& param_data : parameters) {
     if (param_data.name == name) {
@@ -189,6 +193,14 @@ void AliasDefData::assign_resolved_type(TypePtr underlying_type) {
   this->underlying_type = underlying_type;
 }
 
+void EnumMemberData::assign_init_value(AnyExprV init_value) {
+  this->init_value = init_value;
+}
+
+void EnumMemberData::assign_computed_value(td::RefInt256 computed_value) {
+  this->computed_value = std::move(computed_value);
+}
+
 void StructFieldData::assign_resolved_type(TypePtr declared_type) {
   this->declared_type = declared_type;
 }
@@ -230,6 +242,15 @@ std::string StructData::PackOpcode::format_as_slice() const {
   return result;
 }
 
+EnumMemberPtr EnumDefData::find_member(std::string_view member_name) const {
+  for (EnumMemberPtr member_ref : members) {
+    if (member_ref->name == member_name) {
+      return member_ref;
+    }
+  }
+  return nullptr;
+}
+
 GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
 static void fire_error_redefinition_of_symbol(SrcLocation loc, const Symbol* previous) {
   SrcLocation prev_loc = previous->loc;
@@ -242,50 +263,12 @@ static void fire_error_redefinition_of_symbol(SrcLocation loc, const Symbol* pre
   throw ParseError(loc, "redefinition of built-in symbol");
 }
 
-void GlobalSymbolTable::add_function(FunctionPtr f_sym) {
-  auto key = key_hash(f_sym->name);
-  auto [it, inserted] = entries.emplace(key, f_sym);
+void GlobalSymbolTable::add_global_symbol(const Symbol* sym) {
+  auto key = key_hash(sym->name);
+  auto [it, inserted] = entries.emplace(key, sym);
   if (!inserted) {
-    fire_error_redefinition_of_symbol(f_sym->loc, it->second);
+    fire_error_redefinition_of_symbol(sym->loc, it->second);
   }
-}
-
-void GlobalSymbolTable::add_global_var(GlobalVarPtr g_sym) {
-  auto key = key_hash(g_sym->name);
-  auto [it, inserted] = entries.emplace(key, g_sym);
-  if (!inserted) {
-    fire_error_redefinition_of_symbol(g_sym->loc, it->second);
-  }
-}
-
-void GlobalSymbolTable::add_global_const(GlobalConstPtr c_sym) {
-  auto key = key_hash(c_sym->name);
-  auto [it, inserted] = entries.emplace(key, c_sym);
-  if (!inserted) {
-    fire_error_redefinition_of_symbol(c_sym->loc, it->second);
-  }
-}
-
-void GlobalSymbolTable::add_type_alias(AliasDefPtr a_sym) {
-  auto key = key_hash(a_sym->name);
-  auto [it, inserted] = entries.emplace(key, a_sym);
-  if (!inserted) {
-    fire_error_redefinition_of_symbol(a_sym->loc, it->second);
-  }
-}
-
-void GlobalSymbolTable::add_struct(StructPtr s_sym) {
-  auto key = key_hash(s_sym->name);
-  auto [it, inserted] = entries.emplace(key, s_sym);
-  if (!inserted) {
-    fire_error_redefinition_of_symbol(s_sym->loc, it->second);
-  }
-}
-
-void GlobalSymbolTable::replace_function(FunctionPtr f_sym) {
-  auto key = key_hash(f_sym->name);
-  assert(entries.contains(key));
-  entries[key] = f_sym;
 }
 
 const Symbol* lookup_global_symbol(std::string_view name) {

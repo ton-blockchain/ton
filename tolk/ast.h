@@ -132,6 +132,9 @@ enum ASTNodeKind {
   ast_struct_field,
   ast_struct_body,
   ast_struct_declaration,
+  ast_enum_member,
+  ast_enum_body,
+  ast_enum_declaration,
   ast_tolk_required_version,
   ast_import_directive,
   ast_tolk_file,
@@ -716,12 +719,14 @@ public:
   typedef std::variant<
     FunctionPtr,                 // for `t.tupleAt` target is `tupleAt` global function
     StructFieldPtr,              // for `user.id` target is field `id` of struct `User`
+    EnumMemberPtr,               // for `Color.Red` target is `Red` enum member
     int                          // for `t.0` target is "indexed access" 0
   > DotTarget;
   DotTarget target = static_cast<FunctionPtr>(nullptr); // filled at type inferring
 
   bool is_target_fun_ref() const { return std::holds_alternative<FunctionPtr>(target); }
   bool is_target_struct_field() const { return std::holds_alternative<StructFieldPtr>(target); }
+  bool is_target_enum_member() const { return std::holds_alternative<EnumMemberPtr>(target); }
   bool is_target_indexed_access() const { return std::holds_alternative<int>(target); }
 
   AnyExprV get_obj() const { return child; }
@@ -1366,8 +1371,8 @@ struct Vertex<ast_struct_body> final : ASTOtherVararg {
   auto get_field(int i) const { return children.at(i)->as<ast_struct_field>(); }
   const std::vector<AnyV>& get_all_fields() const { return children; }
 
-  Vertex(SrcLocation loc, std::vector<AnyV>&& fields)
-    : ASTOtherVararg(ast_struct_body, loc, std::move(fields)) {}
+  Vertex(SrcLocation loc, std::vector<AnyV>&& members)
+    : ASTOtherVararg(ast_struct_body, loc, std::move(members)) {}
 };
 
 template<>
@@ -1391,6 +1396,47 @@ struct Vertex<ast_struct_declaration> final : ASTOtherVararg {
   Vertex(SrcLocation loc, V<ast_identifier> name_identifier, V<ast_genericsT_list> genericsT_list, StructData::Overflow1023Policy overflow1023_policy, AnyExprV opcode, V<ast_struct_body> struct_body)
     : ASTOtherVararg(ast_struct_declaration, loc, {name_identifier, opcode, struct_body})
     , genericsT_list(genericsT_list), overflow1023_policy(overflow1023_policy) {}
+};
+
+template<>
+// ast_enum_member is one member at enum declaration
+// example: `enum Color { Red = 1, Green, Blue }` is enum declaration, its body contains 3 members
+struct Vertex<ast_enum_member> final : ASTOtherVararg {
+  AnyExprV init_value;         // nullptr if no default
+
+  auto get_identifier() const { return children.at(0)->as<ast_identifier>(); }
+
+  Vertex(SrcLocation loc, V<ast_identifier> name_identifier, AnyExprV init_value)
+    : ASTOtherVararg(ast_enum_member, loc, {name_identifier})
+    , init_value(init_value) {}
+};
+
+template<>
+// ast_enum_body is `{ ... }` inside enum declaration, it contains enum members
+// example: `enum Color { Red = 1, Green, Blue }` its body contains 3 members
+struct Vertex<ast_enum_body> final : ASTOtherVararg {
+  int get_num_members() const { return size(); }
+  auto get_member(int i) const { return children.at(i)->as<ast_enum_member>(); }
+  const std::vector<AnyV>& get_all_members() const { return children; }
+
+  Vertex(SrcLocation loc, std::vector<AnyV>&& members)
+    : ASTOtherVararg(ast_enum_body, loc, std::move(members)) {}
+};
+
+template<>
+// ast_enum_declaration is a declaring a `enum` similar to TypeScript (not to Rust, we don't need structural enums, we have unions)
+// example: `enum Color { Red, Green, Blue }`
+struct Vertex<ast_enum_declaration> final : ASTOtherVararg {
+  EnumDefPtr enum_ref = nullptr;          // filled after register
+
+  auto get_identifier() const { return children.at(0)->as<ast_identifier>(); }
+  auto get_enum_body() const { return children.at(1)->as<ast_enum_body>(); }
+
+  Vertex* mutate() const { return const_cast<Vertex*>(this); }
+  void assign_enum_ref(EnumDefPtr enum_ref);
+
+  Vertex(SrcLocation loc, V<ast_identifier> name_identifier, V<ast_enum_body> enum_body)
+    : ASTOtherVararg(ast_enum_declaration, loc, {name_identifier, enum_body}) {}
 };
 
 template<>

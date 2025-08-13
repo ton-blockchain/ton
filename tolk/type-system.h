@@ -408,6 +408,27 @@ public:
 };
 
 /*
+ * `Color.Red`, `BounceMode.NoBounce` is TypeDataEnum. At TVM level, it's `int`.
+ * Its value is either assigned like `Red = 1` or auto-calculated.
+ */
+class TypeDataEnum final : public TypeData {
+  explicit TypeDataEnum(EnumDefPtr enum_ref)
+    : TypeData(0)
+    , enum_ref(enum_ref) {}
+
+public:
+  EnumDefPtr enum_ref;
+
+  static TypePtr create(EnumDefPtr enum_ref);
+
+  int get_type_id() const override;
+  std::string as_human_readable() const override;
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+  bool equal_to(TypePtr rhs) const override;
+};
+
+/*
  * `(int, slice)` is TypeDataTensor of 2 elements. Tensor of N elements occupies N stack slots.
  * Of course, there may be nested tensors, like `(int, (int, slice), cell)`.
  * Arguments, variables, globals, return values, etc. can be tensors.
