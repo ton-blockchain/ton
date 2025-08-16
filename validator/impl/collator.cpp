@@ -241,7 +241,9 @@ void Collator::start_up() {
   if (optimistic_prev_block_.is_null()) {
     load_prev_states_blocks();
   } else {
-    process_optimistic_prev_block();
+    if (!process_optimistic_prev_block()) {
+      return;
+    }
   }
   if (is_hardfork_) {
     LOG(WARNING) << "generating a hardfork block";
@@ -324,15 +326,14 @@ void Collator::load_prev_states_blocks() {
 /**
  * Write optimistic prev block as block data, load previous state to apply Merkle update to it
  */
-void Collator::process_optimistic_prev_block() {
+bool Collator::process_optimistic_prev_block() {
   std::vector<BlockIdExt> prev_prev;
   BlockIdExt mc_blkid;
   bool after_split;
   auto S = block::unpack_block_prev_blk_try(optimistic_prev_block_->root_cell(), optimistic_prev_block_->block_id(),
                                             prev_prev, mc_blkid, after_split);
   if (S.is_error()) {
-    fatal_error(S.move_as_error_prefix("failed to unpack optimistic prev block: "));
-    return;
+    return fatal_error(S.move_as_error_prefix("failed to unpack optimistic prev block: "));
   }
   // 3.1. load state
   if (prev_prev.size() == 1) {
@@ -366,6 +367,7 @@ void Collator::process_optimistic_prev_block() {
   auto token = perf_log_.start_action(PSTRING() << "opt wait_block_data");
   td::actor::send_closure_later(actor_id(this), &Collator::after_get_block_data, 0, optimistic_prev_block_,
                                 std::move(token));
+  return true;
 }
 
 /**

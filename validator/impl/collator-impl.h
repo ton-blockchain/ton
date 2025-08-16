@@ -122,7 +122,7 @@ class Collator final : public td::actor::Actor {
  private:
   void start_up() override;
   void load_prev_states_blocks();
-  void process_optimistic_prev_block();
+  bool process_optimistic_prev_block();
   void alarm() override;
   int verbosity{3 * 0};
   int verify{1};
