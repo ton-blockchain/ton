@@ -1093,12 +1093,10 @@ static AsmOp compile_store_int(std::vector<VarDescr>& res, std::vector<VarDescr>
   // purpose: to merge consecutive `b.storeUint(0, 1).storeUint(1, 1)` into one "1 PUSHINT + 2 STU",
   // when constant arguments are passed, keep them as a separate (fake) instruction, to be handled by optimizer later
   bool value_and_len_is_const = z.is_int_const() && x.is_int_const();
-  if (value_and_len_is_const && G.settings.optimization_level >= 2) {
+  if (value_and_len_is_const && x.int_const >= 0 && z.int_const > 0 && z.int_const <= 256 && G.settings.optimization_level >= 2) {
     // don't handle negative numbers or potential overflow, merging them is incorrect
-    bool value_is_safe = sgnd
-        ? x.int_const >= 0 && z.int_const < 64 && x.int_const < (1ULL << (z.int_const->to_long() - 1))
-        : x.int_const >= 0;
-    if (value_is_safe && z.int_const > 0 && z.int_const <= (255 + !sgnd)) {
+    int len = static_cast<int>(z.int_const->to_long());
+    if (x.int_const->fits_bits(len, sgnd)) {
       z.unused();
       x.unused();
       return AsmOp::Custom(loc, "MY_store_int"s + (sgnd ? "I " : "U ") + x.int_const->to_dec_string() + " " + z.int_const->to_dec_string(), 1);
