@@ -73,6 +73,13 @@ static void check_mapKV_inside_type(AnyTypeV type_node) {
   }
 }
 
+// given `enum Role: int8` check colon type (not struct/slice etc.)
+static void check_enum_colon_type_to_be_intN(AnyTypeV colon_type_node) {
+  if (!colon_type_node->resolved_type->try_as<TypeDataIntN>()) {
+    fire(nullptr, colon_type_node->loc, "serialization type of `enum` must be intN: `int8` / `uint32` / etc.");
+  }
+}
+
 
 class CheckSerializedFieldsAndTypesVisitor final : public ASTVisitorFunctionBody {
   FunctionPtr cur_f = nullptr;
@@ -167,6 +174,11 @@ void pipeline_check_serialized_fields() {
   }
   for (GlobalVarPtr glob_ref : get_all_declared_global_vars()) {
     check_mapKV_inside_type(glob_ref->type_node);
+  }
+  for (EnumDefPtr enum_ref : get_all_declared_enums()) {
+    if (enum_ref->colon_type_node) {
+      check_enum_colon_type_to_be_intN(enum_ref->colon_type_node);
+    }
   }
 }
 

@@ -418,6 +418,15 @@ struct WithNullableMaps {
     m4: map<int32, int64> | int32
 }
 
+enum EStoredAsInt8 { M100 = -100, Z = 0, P100 = 100 }
+enum EStoredAsUint1 { ZERO, ONE }
+
+struct WithEnums {
+    e1: EStoredAsInt8
+    e2: EStoredAsUint1
+    rem: uint7 = 0
+}
+
 
 // ---------------------------------------------
 
@@ -749,7 +758,7 @@ fun test_serializeMaps() {
     }
     return (w.m1.isEmpty(), w.m2.isEmpty(), d3.isFound, d3.loadValue(), kl);
 }
-
+    
 @method_id(231)
 fun test_nullableMaps() {
     var o: WithNullableMaps = {
@@ -771,6 +780,15 @@ fun test_nullableMaps() {
     o = c.load();
     return (o.m1 == null, o.m1!.isEmpty(), o.m2 == null, o.m2!.isEmpty(), o.m3 == null, o.m4 is int32);
 }
+
+@method_id(232)
+fun test_SimpleEnums() {
+    run<WithEnums>({e1: EStoredAsInt8.M100, e2: EStoredAsUint1.ZERO}, stringHexToSlice("9c00"));
+    run<WithEnums>({e1: EStoredAsInt8.Z, e2: EStoredAsUint1.ZERO}, stringHexToSlice("0000"));
+    run<WithEnums>({e1: EStoredAsInt8.P100, e2: EStoredAsUint1.ONE, rem: 1}, stringHexToSlice("6481"));
+    return -1;
+}
+
 
 fun main() {
     var t: JustInt32 = { value: 10 };
@@ -814,4 +832,5 @@ fun main() {
 @testcase | 229 | | -1
 @testcase | 230 | | 0 -1 -1 3 30 8 1
 @testcase | 231 | | 0 -1 0 0 -1 0
+@testcase | 232 | | -1
  */

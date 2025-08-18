@@ -385,16 +385,22 @@ struct EnumMemberData final : Symbol {
 };
 
 struct EnumDefData final : Symbol {
+  AnyTypeV colon_type_node;             // nullptr if no serialization type after `:`
+  TypePtr colon_type = nullptr;         // = resolved colon_type_node
   std::vector<EnumMemberPtr> members;
 
   EnumMemberPtr find_member(std::string_view member_name) const;
 
-  EnumDefData(std::string name, SrcLocation loc, std::vector<EnumMemberPtr>&& members)
+  EnumDefData(std::string name, SrcLocation loc, AnyTypeV colon_type_node, std::vector<EnumMemberPtr>&& members)
     : Symbol(std::move(name), loc)
+    , colon_type_node(colon_type_node)
     , members(std::move(members)) {
   }
 
   std::string as_human_readable() const;
+
+  EnumDefData* mutate() const { return const_cast<EnumDefData*>(this); }
+  void assign_resolved_colon_type(TypePtr colon_type);
 };
 
 struct TypeReferenceUsedAsSymbol final : Symbol {

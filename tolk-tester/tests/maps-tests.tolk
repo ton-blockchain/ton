@@ -32,6 +32,12 @@ struct DataWithCell {
     payload: cell? = null
 }
 
+enum HashMode: uint16 {
+    NoHash = 0,
+    PartialHash = 80,
+    TotalHash = 255,
+}
+
 fun map<K, V>.calculateSize(self) {
     var size = 0;
     var r = self.findFirst();
@@ -500,6 +506,21 @@ fun test40() {
     );
 }
 
+@method_id(141)
+fun test41() {
+    var m = createEmptyMap<int8, HashMode>();
+    m.set(-7, HashMode.NoHash);
+    m.addIfNotExists(111, HashMode.TotalHash);
+    m.replaceIfExists(-7, HashMode.PartialHash);
+
+    val k7 = m.get(-7);
+    return (
+        m.exists(8), m.mustGet(111) == HashMode.TotalHash, 
+        k7.isFound, k7.loadValue() == HashMode.NoHash, k7.loadValue() == HashMode.PartialHash
+    );
+}
+
+
 fun main() {
     __expect_type(createEmptyMap<int8, (int32, int64)>, "() -> map<int8, (int32, int64)>");
 }
@@ -546,6 +567,7 @@ fun main() {
 @testcase | 138 | 4          | 55
 @testcase | 139 |            | 0 -1 2
 @testcase | 140 |            | 0 0 -1 777 -1 0 777 (null) typeid-1 (null) 0
+@testcase | 141 |            | 0 -1 -1 0 -1
 
 @fif_codegen
 """

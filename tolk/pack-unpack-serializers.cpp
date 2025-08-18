@@ -1056,6 +1056,85 @@ struct S_CustomStruct final : ISerializer {
   }
 };
 
+struct S_IntegerEnum final : ISerializer {
+  EnumDefPtr enum_ref;
+
+  explicit S_IntegerEnum(EnumDefPtr enum_ref)
+    : enum_ref(enum_ref) {
+  }
+
+  void pack(const PackContext* ctx, CodeBlob& code, SrcLocation loc, std::vector<var_idx_t>&& rvect) override {
+    TypePtr intN = calculate_intN_to_serialize_enum(enum_ref);
+    return ctx->generate_pack_any(intN, std::move(rvect));
+  }
+
+  std::vector<var_idx_t> unpack(const UnpackContext* ctx, CodeBlob& code, SrcLocation loc) override {
+    const TypeDataIntN* intN = calculate_intN_to_serialize_enum(enum_ref)->try_as<TypeDataIntN>();
+    std::vector ir_num = ctx->generate_unpack_any(intN);
+
+    // when reading an integer value, we need to validate that it's a valid enum member;
+    // at first, detect whether it's a sequence (A, A+1, ..., A+N)
+    bool is_sequence = true;
+    td::RefInt256 expected_cur = enum_ref->members.front()->computed_value;
+    for (EnumMemberPtr member_ref : enum_ref->members) {
+      is_sequence &= td::cmp(member_ref->computed_value, expected_cur) == 0;
+      expected_cur += 1;
+    }
+
+    if (is_sequence) {
+      // enum's members are A...B one by one (probably, 0...M);
+      // then validation is: "throw if v<A or v>B", but "LESSINT + THROWIF" 2 times is more generalized
+      td::RefInt256 min_value = enum_ref->members.front()->computed_value;
+      bool dont_check_min = intN->is_unsigned && min_value == 0;
+      if (!dont_check_min) {    // LDU can't load < 0 
+        std::vector ir_min_value = code.create_tmp_var(TypeDataInt::create(), loc, "(enum-min)");
+        code.emplace_back(loc, Op::_IntConst, ir_min_value, min_value);
+        std::vector ir_lt_min = code.create_tmp_var(TypeDataInt::create(), loc, "(enum-lt-min)");
+        code.emplace_back(loc, Op::_Call, ir_lt_min, std::vector{ir_num[0], ir_min_value[0]}, lookup_function("_<_"));
+        std::vector args_assert1 = { code.create_int(loc, 5, "(excno)"), ir_lt_min[0], code.create_int(loc, 1, "") };
+        Op& op_assert1 = code.emplace_back(loc, Op::_Call, std::vector<var_idx_t>{}, std::move(args_assert1), lookup_function("__throw_if_unless"));
+        op_assert1.set_impure_flag();
+      }
+      td::RefInt256 max_value = enum_ref->members.back()->computed_value;
+      bool dont_check_max = intN->is_unsigned && max_value == (1ULL << intN->n_bits) - 1;
+      if (!dont_check_max) {    // LDU can't load >= 1<<N
+        std::vector ir_max_value = code.create_tmp_var(TypeDataInt::create(), loc, "(enum-max)");
+        code.emplace_back(loc, Op::_IntConst, ir_max_value, max_value);
+        std::vector ir_gt_max = code.create_tmp_var(TypeDataInt::create(), loc, "(enum-gt-ax)");
+        code.emplace_back(loc, Op::_Call, ir_gt_max, std::vector{ir_num[0], ir_max_value[0]}, lookup_function("_>_"));
+        std::vector args_assert2 = { code.create_int(loc, 5, "(excno)"), ir_gt_max[0], code.create_int(loc, 1, "") };
+        Op& op_assert2 = code.emplace_back(loc, Op::_Call, std::vector<var_idx_t>{}, std::move(args_assert2), lookup_function("__throw_if_unless"));
+        op_assert2.set_impure_flag();
+      }
+    } else {
+      // okay, enum is not a sequence, just a set of values;
+      // then validation is: "throw if v is not contained in V", check v==V_i and combine with OR
+      var_idx_t ir_any_of = code.create_int(loc, 0, "(any-of-equals)");
+      for (EnumMemberPtr member_ref : enum_ref->members) {
+        std::vector ir_ith_value = code.create_tmp_var(TypeDataInt::create(), loc, "(enum-ith)");
+        code.emplace_back(loc, Op::_IntConst, ir_ith_value, member_ref->computed_value);
+        std::vector ir_ith_eq = code.create_tmp_var(TypeDataInt::create(), loc, "(enum-ith-eq)");
+        code.emplace_back(loc, Op::_Call, ir_ith_eq, std::vector{ir_num[0], ir_ith_value[0]}, lookup_function("_==_"));
+        code.emplace_back(loc, Op::_Call, std::vector{ir_any_of}, std::vector{ir_any_of, ir_ith_eq[0]}, lookup_function("_|_"));
+      }
+      std::vector args_assert = { code.create_int(loc, 5, "(excno)"), ir_any_of, code.create_int(loc, 0, "") };
+      Op& op_assert = code.emplace_back(loc, Op::_Call, std::vector<var_idx_t>{}, std::move(args_assert), lookup_function("__throw_if_unless"));
+      op_assert.set_impure_flag();
+    }
+    return ir_num;
+  }
+
+  void skip(const UnpackContext* ctx, CodeBlob& code, SrcLocation loc) override {
+    TypePtr intN = calculate_intN_to_serialize_enum(enum_ref);
+    return ctx->generate_skip_any(intN);
+  }
+
+  PackSize estimate(const EstimateContext* ctx) override {
+    TypePtr intN = calculate_intN_to_serialize_enum(enum_ref);
+    return ctx->estimate_any(intN);
+  }
+};
+
 struct S_CustomReceiverForPackUnpack final : ISerializer {
   TypePtr receiver_type;
 
@@ -1163,6 +1242,35 @@ std::vector<PackOpcode> auto_generate_opcodes_for_union(TypePtr union_type, std:
   return result;
 }
 
+// given a `enum`, calculate N bits enough to store all values;
+// example: `enum Color { Red, Green, Blue }` is 00/01/10 - uint2
+// example: `enum Role: int8 { ... }` — manually specified
+TypePtr calculate_intN_to_serialize_enum(EnumDefPtr enum_ref) {
+  if (enum_ref->colon_type) {
+    return enum_ref->colon_type;
+  }
+  
+  bool is_unsigned = false;
+  int n_bits = 1;
+  for (; n_bits <= 256; ++n_bits) {
+    bool fits_unsigned = std::all_of(enum_ref->members.begin(), enum_ref->members.end(), [n_bits](EnumMemberPtr member_ref) {
+      return member_ref->computed_value->unsigned_fits_bits(n_bits);
+    });
+    if (fits_unsigned) {
+      is_unsigned = true;
+      break;
+    }
+    bool fits_signed = std::all_of(enum_ref->members.begin(), enum_ref->members.end(), [n_bits](EnumMemberPtr member_ref) {
+      return member_ref->computed_value->signed_fits_bits(n_bits);
+    });
+    if (fits_signed) {
+      break;
+    }
+  }
+
+  return TypeDataIntN::create(n_bits, is_unsigned, false);
+}
+
 // there is no way to pass custom pack options to createMessage / map.set / etc., using hardcoded ones
 std::vector<var_idx_t> create_default_PackOptions(CodeBlob& code, SrcLocation loc) {
   StructPtr s_PackOptions = lookup_global_symbol("PackOptions")->try_as<StructPtr>();
@@ -1239,6 +1347,9 @@ static std::unique_ptr<ISerializer> get_serializer_for_type(TypePtr any_type) {
   }
   if (const auto* t_struct = any_type->try_as<TypeDataStruct>()) {
     return std::make_unique<S_CustomStruct>(t_struct->struct_ref);
+  }
+  if (const auto* t_enum = any_type->try_as<TypeDataEnum>()) {
+    return std::make_unique<S_IntegerEnum>(t_enum->enum_ref);
   }
 
   if (const auto* t_union = any_type->try_as<TypeDataUnion>()) {

@@ -1426,8 +1426,10 @@ struct Vertex<ast_enum_body> final : ASTOtherVararg {
 template<>
 // ast_enum_declaration is a declaring a `enum` similar to TypeScript (not to Rust, we don't need structural enums, we have unions)
 // example: `enum Color { Red, Green, Blue }`
+// example: `enum Role: int8 { Admin, User }`
 struct Vertex<ast_enum_declaration> final : ASTOtherVararg {
   EnumDefPtr enum_ref = nullptr;          // filled after register
+  AnyTypeV colon_type = nullptr;          // serialization type after `:` if exists
 
   auto get_identifier() const { return children.at(0)->as<ast_identifier>(); }
   auto get_enum_body() const { return children.at(1)->as<ast_enum_body>(); }
@@ -1435,8 +1437,9 @@ struct Vertex<ast_enum_declaration> final : ASTOtherVararg {
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
   void assign_enum_ref(EnumDefPtr enum_ref);
 
-  Vertex(SrcLocation loc, V<ast_identifier> name_identifier, V<ast_enum_body> enum_body)
-    : ASTOtherVararg(ast_enum_declaration, loc, {name_identifier, enum_body}) {}
+  Vertex(SrcLocation loc, V<ast_identifier> name_identifier, AnyTypeV colon_type, V<ast_enum_body> enum_body)
+    : ASTOtherVararg(ast_enum_declaration, loc, {name_identifier, enum_body})
+    , colon_type(colon_type) {}
 };
 
 template<>

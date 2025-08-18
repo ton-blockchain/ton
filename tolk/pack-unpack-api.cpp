@@ -121,6 +121,13 @@ public:
       return {};
     }
 
+    if (const auto* t_enum = any_type->try_as<TypeDataEnum>()) {
+      if (t_enum->enum_ref->members.empty()) {
+        return CantSerializeBecause("because `enum` is empty");
+      }
+      return {};
+    }
+    
     if (const auto* t_union = any_type->try_as<TypeDataUnion>()) {
       // a union can almost always be serialized if every of its variants can:
       // - `T?` is TL/B `(Maybe T)`

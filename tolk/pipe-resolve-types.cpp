@@ -605,6 +605,12 @@ public:
         parent::visit(member_ref->init_value);
       }
     }
+
+    // serialization type: `enum Role: int8`
+    if (enum_ref->colon_type_node) {
+      TypePtr colon_type = finalize_type_node(enum_ref->colon_type_node);
+      enum_ref->mutate()->assign_resolved_colon_type(colon_type); // later it will be checked to be intN
+    }
   }
 };
 

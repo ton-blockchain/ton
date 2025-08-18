@@ -144,7 +144,7 @@ static EnumDefPtr register_enum(V<ast_enum_declaration> v) {
     members.emplace_back(new EnumMemberData(member_name, v_member->loc, v_member->init_value));
   }
 
-  EnumDefData* e_sym = new EnumDefData(static_cast<std::string>(v->get_identifier()->name), v->loc, std::move(members));
+  EnumDefData* e_sym = new EnumDefData(static_cast<std::string>(v->get_identifier()->name), v->loc, v->colon_type, std::move(members));
 
   G.symtable.add_global_symbol(e_sym);
   G.all_enums.push_back(e_sym);

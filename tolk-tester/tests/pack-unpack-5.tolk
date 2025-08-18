@@ -205,6 +205,23 @@ fun test20() {
         CellInner8_1.getDeclaredPackPrefixLen(), CellInner8_1.getDeclaredPackPrefix());
 }
 
+enum Color { Red, Green, Blue }
+enum EInt9 { P133 = 133, M1 = -1 }
+enum EUint6 { P63 = 63, P30 = 30, P1 = 1 }
+enum EUint1 { A, B }
+enum EInt1 { A = -1, B }
+enum EUint123 { Z, V5 = 5, E123 = 1<<122, E123_2 = (1<<122) + (1<<121) }
+type EUint123Alias = EUint123
+
+@method_id(121)
+fun test21() {
+    return (
+        Color.estimate(), EInt9.estimate(), EUint6.estimate(), 
+        EUint1.estimate(), EInt1.estimate(), EInt1.estimate(), 
+        EUint123.estimate(), EUint123Alias.estimate(),
+    )
+}
+
 fun main() {
     __expect_type(int8.estimatePackSize(), "(int, int, int, int)");
 }
@@ -222,4 +239,5 @@ fun main() {
 @testcase | 110 | | [ 32 9999 0 4 ] [ 33 9999 0 8 ]
 @testcase | 111 | | [ 1023 1023 0 1 ] [ 0 0 2 2 ]
 @testcase | 120 | | 16 4128 1 1
+@testcase | 121 | | [ 2 2 0 0 ] [ 9 9 0 0 ] [ 6 6 0 0 ] [ 1 1 0 0 ] [ 1 1 0 0 ] [ 1 1 0 0 ] [ 123 123 0 0 ] [ 123 123 0 0 ] 
  */

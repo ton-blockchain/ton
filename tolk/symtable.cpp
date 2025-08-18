@@ -215,6 +215,10 @@ void StructData::assign_resolved_genericTs(const GenericsDeclaration* genericTs)
   }
 }
 
+void EnumDefData::assign_resolved_colon_type(TypePtr colon_type) {
+  this->colon_type = colon_type;
+}
+
 StructFieldPtr StructData::find_field(std::string_view field_name) const {
   for (StructFieldPtr field : fields) {
     if (field->name == field_name) {

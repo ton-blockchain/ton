@@ -1664,6 +1664,12 @@ static AnyV parse_enum_declaration(Lexer& lex, const std::vector<V<ast_annotatio
   auto v_ident = createV<ast_identifier>(lex.cur_location(), lex.cur_str());
   lex.next();
 
+  AnyTypeV colon_type = nullptr;
+  if (lex.tok() == tok_colon) {   // enum Role: int8
+    lex.next();
+    colon_type = parse_type_expression(lex);
+  }
+
   for (auto v_annotation : annotations) {
     switch (v_annotation->kind) {
       case AnnotationKind::deprecated:
@@ -1674,7 +1680,7 @@ static AnyV parse_enum_declaration(Lexer& lex, const std::vector<V<ast_annotatio
     }
   }
 
-  return createV<ast_enum_declaration>(loc, v_ident, parse_enum_body(lex));
+  return createV<ast_enum_declaration>(loc, v_ident, colon_type, parse_enum_body(lex));
 }
 
 static AnyV parse_tolk_required_version(Lexer& lex) {
