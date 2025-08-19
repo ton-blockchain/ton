@@ -404,7 +404,7 @@ class Collator final : public td::actor::Actor {
   bool create_collated_data();
 
   bool create_block_candidate();
-  void return_block_candidate(td::Result<td::Unit> saved);
+  void return_block_candidate(td::Result<td::Unit> saved, td::PerfLogAction token);
   bool update_last_proc_int_msg(const std::pair<ton::LogicalTime, ton::Bits256>& new_lt_hash);
 
   td::CancellationToken cancellation_token_;

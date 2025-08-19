@@ -573,7 +573,7 @@ bool Collator::request_aux_mc_state(BlockSeqno seqno, Ref<MasterchainStateQ>& st
   CHECK(blkid.is_valid_ext() && blkid.is_masterchain());
   LOG(DEBUG) << "sending auxiliary wait_block_state() query for " << blkid.to_str() << " to Manager";
   ++pending;
-  auto token = perf_log_.start_action(PSTRING() << "auxiliary wait_block_state " << blkid.to_str());
+  auto token = perf_log_.start_action(PSTRING() << "auxiliary wait_block_state " << blkid.seqno());
   td::actor::send_closure_later(
       manager, &ValidatorManager::wait_block_state_short, blkid, priority(), timeout, false,
       [self = get_self(), blkid, token = std::move(token)](td::Result<Ref<ShardState>> res) mutable {
@@ -6492,16 +6492,18 @@ bool Collator::create_block_candidate() {
   }
   // 4. save block candidate
   if (skip_store_candidate_) {
-    td::actor::send_closure_later(actor_id(this), &Collator::return_block_candidate, td::Unit());
+    td::actor::send_closure_later(actor_id(this), &Collator::return_block_candidate, td::Unit(), td::PerfLogAction{});
   } else {
     LOG(INFO) << "saving new BlockCandidate";
-    td::actor::send_closure_later(
-        manager, &ValidatorManager::set_block_candidate, block_candidate->id, block_candidate->clone(),
-        validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash(),
-        [self = get_self()](td::Result<td::Unit> saved) -> void {
-          LOG(DEBUG) << "got answer to set_block_candidate";
-          td::actor::send_closure_later(std::move(self), &Collator::return_block_candidate, std::move(saved));
-        });
+    auto token = perf_log_.start_action("set_block_candidate");
+    td::actor::send_closure_later(manager, &ValidatorManager::set_block_candidate, block_candidate->id,
+                                  block_candidate->clone(), validator_set_->get_catchain_seqno(),
+                                  validator_set_->get_validator_set_hash(),
+                                  [self = get_self(), token = std::move(token)](td::Result<td::Unit> saved) mutable {
+                                    LOG(DEBUG) << "got answer to set_block_candidate";
+                                    td::actor::send_closure_later(std::move(self), &Collator::return_block_candidate,
+                                                                  std::move(saved), std::move(token));
+                                  });
   }
   // 5. communicate about bad and delayed external messages
   if (!bad_ext_msgs_.empty() || !delay_ext_msgs_.empty()) {
@@ -6521,8 +6523,9 @@ bool Collator::create_block_candidate() {
  *
  * @param saved The result of saving the block candidate to the disk.
  */
-void Collator::return_block_candidate(td::Result<td::Unit> saved) {
+void Collator::return_block_candidate(td::Result<td::Unit> saved, td::PerfLogAction token) {
   // 6. return data to the original "caller"
+  token.finish(saved);
   if (saved.is_error()) {
     auto err = saved.move_as_error();
     LOG(ERROR) << "cannot save block candidate: " << err.to_string();
