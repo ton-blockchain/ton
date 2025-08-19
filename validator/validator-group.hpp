@@ -40,7 +40,8 @@ class ValidatorGroup : public td::actor::Actor {
   void generate_block_candidate_cont(validatorsession::BlockSourceInfo source_info,
                                      td::Promise<GeneratedCandidate> promise, td::CancellationToken cancellation_token);
   void validate_block_candidate(validatorsession::BlockSourceInfo source_info, BlockCandidate block,
-                                td::Promise<std::pair<UnixTime, bool>> promise);
+                                td::Promise<std::pair<UnixTime, bool>> promise,
+                                td::optional<BlockCandidate> optimistic_prev_block);
   void accept_block_candidate(validatorsession::BlockSourceInfo source_info, td::BufferSlice block, RootHash root_hash,
                               FileHash file_hash, std::vector<BlockSignature> signatures,
                               std::vector<BlockSignature> approve_signatures,

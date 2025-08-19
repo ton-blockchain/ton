@@ -18,6 +18,7 @@
 */
 #pragma once
 
+#include "fabric.h"
 #include "interfaces/validator-manager.h"
 #include "vm/cells.h"
 #include "vm/dict.h"
@@ -112,15 +113,13 @@ class ValidateQuery : public td::actor::Actor {
     return SUPPORTED_VERSION;
   }
   static constexpr long long supported_capabilities() {
-    return ton::capCreateStatsEnabled | ton::capBounceMsgBody | ton::capReportVersion | ton::capShortDequeue |
-           ton::capStoreOutMsgQueueSize | ton::capMsgMetadata | ton::capDeferMessages | ton::capFullCollatedData;
+    return capCreateStatsEnabled | capBounceMsgBody | capReportVersion | capShortDequeue | capStoreOutMsgQueueSize |
+           capMsgMetadata | capDeferMessages | capFullCollatedData;
   }
 
  public:
-  ValidateQuery(ShardIdFull shard, BlockIdExt min_masterchain_block_id, std::vector<BlockIdExt> prev,
-                BlockCandidate candidate, td::Ref<ValidatorSet> validator_set, PublicKeyHash local_validator_id,
-                td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
-                td::Promise<ValidateCandidateResult> promise, unsigned mode = 0);
+  ValidateQuery(BlockCandidate candidate, ValidateParams params, td::actor::ActorId<ValidatorManager> manager,
+                td::Timestamp timeout, td::Promise<ValidateCandidateResult> promise);
 
  private:
   int verbosity{3 * 1};
@@ -153,6 +152,7 @@ class ValidateQuery : public td::actor::Actor {
   td::BitArray<64> shard_pfx_;
   int shard_pfx_len_;
   td::Bits256 created_by_;
+  Ref<BlockData> optimistic_prev_block_;
 
   Ref<vm::Cell> prev_state_root_;
   Ref<vm::Cell> state_root_;
@@ -269,6 +269,10 @@ class ValidateQuery : public td::actor::Actor {
   void alarm() override;
   void start_up() override;
 
+  void load_prev_states();
+  bool process_optimistic_prev_block();
+  void after_get_shard_state_optimistic(td::Result<Ref<ShardState>> res);
+
   bool save_candidate();
   void written_candidate();
 
@@ -289,6 +293,14 @@ class ValidateQuery : public td::actor::Actor {
 
   bool is_masterchain() const {
     return shard_.is_masterchain();
+  }
+  int prev_block_idx(const BlockIdExt& id) const {
+    for (size_t i = 0; i < prev_blocks.size(); ++i) {
+      if (prev_blocks[i] == id) {
+        return (int)i;
+      }
+    }
+    return -1;
   }
   td::actor::ActorId<ValidateQuery> get_self() {
     return actor_id(this);

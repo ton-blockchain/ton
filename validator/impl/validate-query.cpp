@@ -59,33 +59,29 @@ std::string ErrorCtx::as_string() const {
 /**
  * Constructs a ValidateQuery object.
  *
- * @param shard The shard of the block being validated.
- * @param min_masterchain_block_id The minimum allowed masterchain block reference for the block.
- * @param prev A vector of BlockIdExt representing the previous blocks.
  * @param candidate The BlockCandidate to be validated.
- * @param validator_set A reference to the ValidatorSet.
+ * @param params Validation parameters
  * @param manager The ActorId of the ValidatorManager.
  * @param timeout The timeout for the validation.
  * @param promise The Promise to return the ValidateCandidateResult to.
- * @param mode +1 - fake mode
  */
-ValidateQuery::ValidateQuery(ShardIdFull shard, BlockIdExt min_masterchain_block_id, std::vector<BlockIdExt> prev,
-                             BlockCandidate candidate, Ref<ValidatorSet> validator_set,
-                             PublicKeyHash local_validator_id, td::actor::ActorId<ValidatorManager> manager,
-                             td::Timestamp timeout, td::Promise<ValidateCandidateResult> promise, unsigned mode)
-    : shard_(shard)
+ValidateQuery::ValidateQuery(BlockCandidate candidate, ValidateParams params,
+                             td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
+                             td::Promise<ValidateCandidateResult> promise)
+    : shard_(params.shard)
     , id_(candidate.id)
-    , min_mc_block_id(min_masterchain_block_id)
-    , prev_blocks(std::move(prev))
+    , min_mc_block_id(params.min_masterchain_block_id)
+    , prev_blocks(std::move(params.prev))
     , block_candidate(std::move(candidate))
-    , validator_set_(std::move(validator_set))
-    , local_validator_id_(local_validator_id)
+    , validator_set_(std::move(params.validator_set))
+    , local_validator_id_(params.local_validator_id)
     , manager(manager)
     , timeout(timeout)
     , main_promise(std::move(promise))
-    , is_fake_(mode & ValidateMode::fake)
+    , is_fake_(params.is_fake)
     , shard_pfx_(shard_.shard)
     , shard_pfx_len_(ton::shard_prefix_length(shard_))
+    , optimistic_prev_block_(std::move(params.optimistic_prev_block))
     , perf_timer_("validateblock", 0.1, [manager](double duration) {
       send_closure(manager, &ValidatorManager::add_perf_timer_stat, "validateblock", duration);
     }) {
@@ -350,6 +346,21 @@ void ValidateQuery::start_up() {
       // return;
     }
   }
+  if (optimistic_prev_block_.not_null()) {
+    if (is_masterchain()) {
+      fatal_error("optimistic validation in masterchain is not supported");
+      return;
+    }
+    if (prev_blocks.size() != 1) {
+      fatal_error("optimistic prev block is not null, which is not allowed after merge");
+      return;
+    }
+    if (prev_blocks[0] != optimistic_prev_block_->block_id()) {
+      fatal_error("optimistic prev block is not null, but has invalid block id");
+      return;
+    }
+    LOG(WARNING) << "Optimistic prev block id = " << optimistic_prev_block_->block_id().to_str();
+  }
   // 2. learn latest masterchain state and block id
   LOG(DEBUG) << "sending get_top_masterchain_state_block() to Manager";
   ++pending;
@@ -366,17 +377,13 @@ void ValidateQuery::start_up() {
   }
   // 4. load state(s) corresponding to previous block(s) (not full-collated-data or masterchain)
   prev_states.resize(prev_blocks.size());
-  if  (is_masterchain() || !full_collated_data_) {
-    for (int i = 0; (unsigned)i < prev_blocks.size(); i++) {
-      // 4.1. load state
-      LOG(DEBUG) << "sending wait_block_state() query #" << i << " for " << prev_blocks[i].to_str() << " to Manager";
-      ++pending;
-      td::actor::send_closure_later(manager, &ValidatorManager::wait_block_state_short, prev_blocks[i], priority(),
-                                    timeout, false, [self = get_self(), i](td::Result<Ref<ShardState>> res) -> void {
-                                      LOG(DEBUG) << "got answer to wait_block_state_short query #" << i;
-                                      td::actor::send_closure_later(
-                                          std::move(self), &ValidateQuery::after_get_shard_state, i, std::move(res));
-                                    });
+  if (is_masterchain() || !full_collated_data_) {
+    if (optimistic_prev_block_.is_null()) {
+      load_prev_states();
+    } else {
+      if (!process_optimistic_prev_block()) {
+        return;
+      }
     }
   }
   // 4. request masterchain handle and state referred to in the block
@@ -407,6 +414,84 @@ void ValidateQuery::start_up() {
       });
   // ...
   CHECK(pending);
+}
+
+/**
+ * Load previous states from DB
+ */
+void ValidateQuery::load_prev_states() {
+  for (int i = 0; (unsigned)i < prev_blocks.size(); i++) {
+    // 4.1. load state
+    LOG(DEBUG) << "sending wait_block_state() query #" << i << " for " << prev_blocks[i].to_str() << " to Manager";
+    ++pending;
+    td::actor::send_closure_later(manager, &ValidatorManager::wait_block_state_short, prev_blocks[i], priority(),
+                                  timeout, false, [self = get_self(), i](td::Result<Ref<ShardState>> res) -> void {
+                                    LOG(DEBUG) << "got answer to wait_block_state_short query #" << i;
+                                    td::actor::send_closure_later(
+                                        std::move(self), &ValidateQuery::after_get_shard_state, i, std::move(res));
+                                  });
+  }
+}
+
+/**
+ * Load previous state for optimistic prev block to apply Merkle update to it
+ */
+bool ValidateQuery::process_optimistic_prev_block() {
+  std::vector<BlockIdExt> prev_prev;
+  BlockIdExt mc_blkid;
+  bool after_split;
+  auto S = block::unpack_block_prev_blk_try(optimistic_prev_block_->root_cell(), optimistic_prev_block_->block_id(),
+                                            prev_prev, mc_blkid, after_split);
+  if (S.is_error()) {
+    return fatal_error(S.move_as_error_prefix("failed to unpack optimistic prev block: "));
+  }
+  // 4.1. load state
+  if (prev_prev.size() == 1) {
+    LOG(DEBUG) << "sending wait_block_state() query for " << prev_prev[0].to_str() << " to Manager (opt)";
+    ++pending;
+    td::actor::send_closure_later(manager, &ValidatorManager::wait_block_state_short, prev_prev[0], priority(), timeout,
+                                  false, [self = get_self()](td::Result<Ref<ShardState>> res) mutable {
+                                    LOG(DEBUG) << "got answer to wait_block_state query (opt)";
+                                    td::actor::send_closure_later(std::move(self),
+                                                                  &ValidateQuery::after_get_shard_state_optimistic,
+                                                                  std::move(res));
+                                  });
+  } else {
+    CHECK(prev_prev.size() == 2);
+    LOG(DEBUG) << "sending wait_block_state_merge() query for " << prev_prev[0].to_str() << " and "
+               << prev_prev[1].to_str() << " to Manager (opt)";
+    ++pending;
+    td::actor::send_closure_later(manager, &ValidatorManager::wait_block_state_merge, prev_prev[0], prev_prev[1],
+                                  priority(), timeout, [self = get_self()](td::Result<Ref<ShardState>> res) mutable {
+                                    LOG(DEBUG) << "got answer to wait_block_state_merge query (opt)";
+                                    td::actor::send_closure_later(std::move(self),
+                                                                  &ValidateQuery::after_get_shard_state_optimistic,
+                                                                  std::move(res));
+                                  });
+  }
+  return true;
+}
+
+/**
+ * Callback function called after retrieving previous state for optimistic prev block
+ *
+ * @param res The retrieved state.
+ */
+void ValidateQuery::after_get_shard_state_optimistic(td::Result<Ref<ShardState>> res) {
+  LOG(DEBUG) << "in ValidateQuery::after_get_shard_state_optimistic()";
+  if (res.is_error()) {
+    fatal_error(res.move_as_error());
+    return;
+  }
+  work_timer_.resume();
+  auto state = res.move_as_ok();
+  auto S = state.write().apply_block(optimistic_prev_block_->block_id(), optimistic_prev_block_);
+  if (S.is_error()) {
+    fatal_error(S.move_as_error_prefix("apply error: "));
+    return;
+  }
+  work_timer_.pause();
+  after_get_shard_state(0, std::move(state));
 }
 
 /**
@@ -1619,11 +1704,16 @@ bool ValidateQuery::request_neighbor_queues() {
     for (block::McShardDescr& descr : neighbors_) {
       LOG(DEBUG) << "requesting outbound queue of neighbor #" << i << " : " << descr.blk_.to_str();
       ++pending;
-      send_closure_later(manager, &ValidatorManager::wait_block_message_queue_short, descr.blk_, priority(), timeout,
-                         [self = get_self(), i](td::Result<Ref<MessageQueue>> res) {
-                           td::actor::send_closure(std::move(self), &ValidateQuery::got_neighbor_out_queue, i,
-                                                   std::move(res));
-                         });
+      if (int prev_idx = prev_block_idx(descr.blk_); prev_idx >= 0) {
+        td::actor::send_closure(actor_id(this), &ValidateQuery::got_neighbor_out_queue, i,
+                                prev_states.at(prev_idx)->message_queue());
+      } else {
+        send_closure_later(manager, &ValidatorManager::wait_block_message_queue_short, descr.blk_, priority(), timeout,
+                           [self = get_self(), i](td::Result<Ref<MessageQueue>> res) {
+                             td::actor::send_closure(std::move(self), &ValidateQuery::got_neighbor_out_queue, i,
+                                                     std::move(res));
+                           });
+      }
       ++i;
     }
   }

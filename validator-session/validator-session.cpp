@@ -294,6 +294,12 @@ void ValidatorSessionImpl::process_broadcast(PublicKeyHash src, td::BufferSlice 
                                       << "]: duplicate optimistic broadcast for round " << block_round;
       return;
     }
+    int priority = description().get_node_priority(src_idx, block_round);
+    if (priority < 0) {
+      VLOG(VALIDATOR_SESSION_WARNING) << this << "[node " << src << "][broadcast " << sha256_bits256(data.as_slice())
+                                      << "]: node is not a producer in round " << block_round;
+      return;
+    }
     if (block_round > cur_round_) {
       OptimisticBroadcast &optimistic_broadcast = optimistic_broadcasts_[{block_round, src_idx}];
       optimistic_broadcast.candidate = std::move(candidate);
@@ -301,6 +307,11 @@ void ValidatorSessionImpl::process_broadcast(PublicKeyHash src, td::BufferSlice 
       optimistic_broadcast.broadcast_info = broadcast_info;
       VLOG(VALIDATOR_SESSION_WARNING) << this << ": received optimistic broadcast " << block_id << " from " << src
                                       << ", round " << block_round;
+      validate_optimistic_broadcast(
+          BlockSourceInfo{description().get_source_public_key(src_idx),
+                          BlockCandidatePriority{block_round, block_round, priority}},
+          optimistic_broadcast.candidate->root_hash_, optimistic_broadcast.candidate->data_.clone(),
+          optimistic_broadcast.candidate->collated_data_.clone(), optimistic_broadcast.prev_candidate_id);
       return;
     }
     if (SentBlock::get_block_id(real_state_->get_committed_block(description(), block_round - 1)) !=
@@ -385,6 +396,37 @@ void ValidatorSessionImpl::process_received_block(td::uint32 block_round, Public
       break;
     }
   }
+}
+
+void ValidatorSessionImpl::validate_optimistic_broadcast(BlockSourceInfo source_info,
+                                                         ValidatorSessionRootHash root_hash, td::BufferSlice data,
+                                                         td::BufferSlice collated_data,
+                                                         ValidatorSessionCandidateId prev_candidate_id) {
+  if (source_info.priority.round <= cur_round_) {
+    VLOG(VALIDATOR_SESSION_DEBUG) << this << ": validate optimistic broadcast from "
+                                  << source_info.source.compute_short_id() << " : too old";
+    return;
+  }
+  auto it = blocks_.find(prev_candidate_id);
+  if (it == blocks_.end()) {
+    VLOG(VALIDATOR_SESSION_DEBUG) << this << ": validate optimistic broadcast from "
+                                  << source_info.source.compute_short_id() << " : wait for prev block";
+    block_waiters_[prev_candidate_id].push_back(
+        [=, SelfId = actor_id(this), data = std::move(data),
+         collated_data = std::move(collated_data)](td::Result<td::Unit> R) mutable {
+          if (R.is_ok()) {
+            td::actor::send_closure(SelfId, &ValidatorSessionImpl::validate_optimistic_broadcast, source_info,
+                                    root_hash, std::move(data), std::move(collated_data), prev_candidate_id);
+          }
+        });
+    return;
+  }
+  VLOG(VALIDATOR_SESSION_DEBUG) << this << ": validate optimistic broadcast from "
+                                << source_info.source.compute_short_id();
+  callback_->on_optimistic_candidate(
+      source_info, root_hash, std::move(data), std::move(collated_data),
+      description().get_source_public_key(description().get_source_idx(PublicKeyHash{it->second->src_})),
+      it->second->root_hash_, it->second->data_.clone(), it->second->collated_data_.clone());
 }
 
 void ValidatorSessionImpl::process_message(PublicKeyHash src, td::BufferSlice data) {

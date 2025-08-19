@@ -42,7 +42,17 @@ struct CollateParams {
   Ref<BlockData> optimistic_prev_block = {};
 };
 
-enum ValidateMode { fake = 1 };
+struct ValidateParams {
+  ShardIdFull shard;
+  BlockIdExt min_masterchain_block_id;
+  std::vector<BlockIdExt> prev;
+  td::Ref<ValidatorSet> validator_set = {};
+  PublicKeyHash local_validator_id = PublicKeyHash::zero();;
+  bool is_fake = false;
+
+  // Optional - used for validation of optimistic candidates
+  Ref<BlockData> optimistic_prev_block = {};
+};
 
 td::actor::ActorOwn<Db> create_db_actor(td::actor::ActorId<ValidatorManager> manager, std::string db_root_,
                                         td::Ref<ValidatorManagerOptions> opts);
@@ -96,10 +106,8 @@ void run_check_proof_query(BlockIdExt id, td::Ref<Proof> proof, td::actor::Actor
                            td::Ref<ProofLink> rel_key_block_proof, bool skip_check_signatures = false);
 void run_check_proof_link_query(BlockIdExt id, td::Ref<ProofLink> proof, td::actor::ActorId<ValidatorManager> manager,
                                 td::Timestamp timeout, td::Promise<BlockHandle> promise);
-void run_validate_query(ShardIdFull shard, BlockIdExt min_masterchain_block_id, std::vector<BlockIdExt> prev,
-                        BlockCandidate candidate, td::Ref<ValidatorSet> validator_set, PublicKeyHash local_validator_id,
-                        td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
-                        td::Promise<ValidateCandidateResult> promise, unsigned mode = 0);
+void run_validate_query(BlockCandidate candidate, ValidateParams params, td::actor::ActorId<ValidatorManager> manager,
+                        td::Timestamp timeout, td::Promise<ValidateCandidateResult> promise);
 void run_collate_query(CollateParams params, td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
                        td::CancellationToken cancellation_token, td::Promise<BlockCandidate> promise);
 void run_liteserver_query(td::BufferSlice data, td::actor::ActorId<ValidatorManager> manager,

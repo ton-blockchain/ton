@@ -238,6 +238,9 @@ class ValidatorSessionImpl : public ValidatorSession {
   void process_received_block(td::uint32 block_round, PublicKeyHash src, td::uint32 src_idx,
                               tl_object_ptr<ton_api::validatorSession_candidate> candidate, const BroadcastInfo &info,
                               bool is_overlay_broadcast, bool is_startup);
+  void validate_optimistic_broadcast(BlockSourceInfo source_info, ValidatorSessionRootHash root_hash,
+                                     td::BufferSlice data, td::BufferSlice collated_data,
+                                     ValidatorSessionCandidateId prev_candidate_id);
   void process_message(PublicKeyHash src, td::BufferSlice data);
   void process_query(PublicKeyHash src, td::BufferSlice data, td::Promise<td::BufferSlice> promise);
 
