@@ -66,6 +66,7 @@ set(VALIDATOR_HEADERS
   collation-manager.hpp
   collator-node/collator-node.hpp
   collator-node/collator-node-session.hpp
+  collator-node/utils.hpp
   manager-disk.h
   manager-disk.hpp
   manager-init.h
@@ -84,6 +85,7 @@ set(VALIDATOR_SOURCE
   collation-manager.cpp
   collator-node/collator-node.cpp
   collator-node/collator-node-session.cpp
+  collator-node/utils.cpp
   get-next-key-blocks.cpp
   import-db-slice.cpp
   import-db-slice-local.cpp

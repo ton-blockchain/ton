@@ -962,10 +962,6 @@ validatorStats.blockStats
     ext_msgs:validatorStats.blockStats.extMsgsStats transactions:int shard_configuration:(vector tonNode.blockIdExt)
     old_out_msg_queue_size:long new_out_msg_queue_size:long msg_queue_cleaned:int
     neighbors:(vector validatorStats.blockStats.neighborStats) = validatorStats.BlockStats;
-validatorStats.collateWorkTimeStats
-    total:double optimistic_apply:double queue_cleanup:double prelim_storage_stat:double trx_tvm:double trx_storage_stat:double
-    trx_other:double final_storage_stat:double create_block:double create_collated_data:double create_block_candidate:double
-    = validatorStats.CollateWorkTimeStats;
 validatorStats.storageStatCacheStats
     small_cnt:long small_cells:long hit_cnt:long hit_cells:long miss_cnt:long miss_cells:long = validatorStats.StorageStatCacheStats;
 
@@ -974,22 +970,20 @@ validatorStats.collatedBlock
     bytes:int collated_data_bytes:int attempt:int
     self:int256 is_validator:Bool
     total_time:double work_time:double cpu_work_time:double time_stats:string
-    work_time_real_stats:validatorStats.collateWorkTimeStats
-    work_time_cpu_stats:validatorStats.collateWorkTimeStats
+    work_time_real_stats:string
+    work_time_cpu_stats:string
     block_limits:validatorStats.blockLimitsStatus
     block_stats:validatorStats.blockStats
     storage_stat_cache:validatorStats.storageStatCacheStats = validatorSession.stats.CollatedBlock;
 
-validatorStats.validateWorkTimeStats
-    total:double trx_tvm:double trx_storage_stat:double trx_other:double = validatorStats.ValidateWorkTimeStats;
 validatorStats.validatedBlock
     block_id:tonNode.blockIdExt collated_data_hash:int256 validated_at:double
     self:int256
     valid:Bool comment:string
     bytes:int collated_data_bytes:int
-    total_time:double work_time:double cpu_work_time:double
-    work_time_real_stats:validatorStats.validateWorkTimeStats
-    work_time_cpu_stats:validatorStats.validateWorkTimeStats
+    total_time:double work_time:double cpu_work_time:double time_stats:string
+    work_time_real_stats:string
+    work_time_cpu_stats:string
     storage_stat_cache:validatorStats.storageStatCacheStats = validatorStats.ValidatedBlock;
 
 validatorStats.newValidatorGroup.node id:int256 pubkey:PublicKey adnl_id:int256 weight:long = validatorStats.newValidatorGroup.Node;
@@ -1008,7 +1002,7 @@ validatorStats.collatorNodeResponse self:int256 validator_id:int256 timestamp:do
 collatorNode.candidate source:PublicKey id:tonNode.blockIdExt data:bytes collated_data:bytes = collatorNode.Candidate;
 collatorNode.compressedCandidate flags:# source:PublicKey id:tonNode.blockIdExt decompressed_size:int data:bytes = collatorNode.Candidate;
 collatorNode.compressedCandidateV2 flags:# source:PublicKey id:tonNode.blockIdExt data:bytes = collatorNode.Candidate;
-collatorNode.pong flags:# = collatorNode.Pong;
+collatorNode.pong#5bbf0521 flags:# version:flags.0?int = collatorNode.Pong;
 collatorNode.error code:int message:string = collatorNode.Error;
 
 shardBlockVerifier.subscribed flags:# = shardBlockVerifier.Subscribed;
@@ -1017,6 +1011,9 @@ shardBlockVerifier.confirmBlocks blocks:(vector tonNode.blockIdExt) = shardBlock
 ---functions---
 collatorNode.generateBlock shard:tonNode.shardId cc_seqno:int prev_blocks:(vector tonNode.blockIdExt)
     creator:int256 round:int first_block_round:int priority:int = collatorNode.Candidate;
+collatorNode.generateBlockOptimistic shard:tonNode.shardId cc_seqno:int prev_blocks:(vector tonNode.blockIdExt)
+    creator:int256 round:int first_block_round:int priority:int = collatorNode.Candidate;
+collatorNode.requestBlockCallback flags:# block_id:tonNode.BlockIdExt = collatorNode.Candidate;
 collatorNode.ping flags:# = collatorNode.Pong;
 
 shardBlockVerifier.subscribe shard:tonNode.shardId flags:# = shardBlockVerifier.Subscribed;

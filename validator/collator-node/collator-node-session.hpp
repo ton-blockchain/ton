@@ -29,9 +29,10 @@ class ValidatorManager;
 class CollatorNodeSession : public td::actor::Actor {
  public:
   CollatorNodeSession(ShardIdFull shard, std::vector<BlockIdExt> prev, td::Ref<ValidatorSet> validator_set,
-                      BlockIdExt min_masterchain_block_id, bool can_generate, adnl::AdnlNodeIdShort local_id,
-                      td::Ref<ValidatorManagerOptions> opts, td::actor::ActorId<ValidatorManager> manager,
-                      td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp2::Rldp> rldp);
+                      BlockIdExt min_masterchain_block_id, bool can_generate, td::Ref<MasterchainState> state,
+                      adnl::AdnlNodeIdShort local_id, td::Ref<ValidatorManagerOptions> opts,
+                      td::actor::ActorId<ValidatorManager> manager, td::actor::ActorId<adnl::Adnl> adnl,
+                      td::actor::ActorId<rldp2::Rldp> rldp);
 
   void start_up() override;
   void tear_down() override;
@@ -42,8 +43,9 @@ class CollatorNodeSession : public td::actor::Actor {
 
   void new_shard_block_accepted(BlockIdExt block_id, bool can_generate);
 
-  void generate_block(std::vector<BlockIdExt> prev_blocks, td::optional<BlockCandidatePriority> o_priority,
-                      td::Timestamp timeout, td::Promise<BlockCandidate> promise);
+  void process_request(adnl::AdnlNodeIdShort src, std::vector<BlockIdExt> prev_blocks, BlockCandidatePriority priority,
+                       bool is_optimistic, td::Timestamp timeout, td::Promise<BlockCandidate> promise);
+  void update_masterchain_config(td::Ref<MasterchainState> state);
 
  private:
   ShardIdFull shard_;
@@ -73,7 +75,21 @@ class CollatorNodeSession : public td::actor::Actor {
   BlockSeqno next_block_seqno_;
   std::map<std::vector<BlockIdExt>, std::shared_ptr<CacheEntry>> cache_;
 
+  td::uint32 proto_version_ = 0;
+  td::uint32 max_candidate_size_ = 0;
+
+  void generate_block(std::vector<BlockIdExt> prev_blocks, td::optional<BlockCandidatePriority> o_priority,
+                      td::Ref<BlockData> o_optimistic_prev_block, td::Timestamp timeout,
+                      td::Promise<BlockCandidate> promise);
   void process_result(std::shared_ptr<CacheEntry> cache_entry, td::Result<BlockCandidate> R);
+
+  void process_request_optimistic_cont(adnl::AdnlNodeIdShort src, BlockIdExt prev_block_id,
+                                       BlockCandidatePriority priority, td::Timestamp timeout,
+                                       td::Promise<BlockCandidate> promise,
+                                       td::Result<td::BufferSlice> prev_block_data);
+  void process_request_optimistic_cont2(BlockIdExt prev_block_id, BlockCandidatePriority priority,
+                                        td::Timestamp timeout, td::Promise<BlockCandidate> promise,
+                                        td::Result<td::BufferSlice> R);
 };
 
 }  // namespace ton::validator
