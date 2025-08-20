@@ -82,7 +82,7 @@ Collator::Collator(CollateParams params, td::actor::ActorId<ValidatorManager> ma
     , main_promise(std::move(promise))
     , collator_node_id_(params.collator_node_id)
     , skip_store_candidate_(params.skip_store_candidate)
-    , optimistic_prev_block_(std::move(params.optimistic_prev_block_))
+    , optimistic_prev_block_(std::move(params.optimistic_prev_block))
     , attempt_idx_(params.attempt_idx)
     , perf_timer_("collate", 0.1,
                   [manager](double duration) {
@@ -241,7 +241,9 @@ void Collator::start_up() {
   if (optimistic_prev_block_.is_null()) {
     load_prev_states_blocks();
   } else {
-    process_optimistic_prev_block();
+    if (!process_optimistic_prev_block()) {
+      return;
+    }
   }
   if (is_hardfork_) {
     LOG(WARNING) << "generating a hardfork block";
@@ -324,15 +326,14 @@ void Collator::load_prev_states_blocks() {
 /**
  * Write optimistic prev block as block data, load previous state to apply Merkle update to it
  */
-void Collator::process_optimistic_prev_block() {
+bool Collator::process_optimistic_prev_block() {
   std::vector<BlockIdExt> prev_prev;
   BlockIdExt mc_blkid;
   bool after_split;
   auto S = block::unpack_block_prev_blk_try(optimistic_prev_block_->root_cell(), optimistic_prev_block_->block_id(),
                                             prev_prev, mc_blkid, after_split);
   if (S.is_error()) {
-    fatal_error(S.move_as_error_prefix("failed to unpack optimistic prev block: "));
-    return;
+    return fatal_error(S.move_as_error_prefix("failed to unpack optimistic prev block: "));
   }
   // 3.1. load state
   if (prev_prev.size() == 1) {
@@ -366,8 +367,8 @@ void Collator::process_optimistic_prev_block() {
   auto token = perf_log_.start_action(PSTRING() << "opt wait_block_data");
   td::actor::send_closure_later(actor_id(this), &Collator::after_get_block_data, 0, optimistic_prev_block_,
                                 std::move(token));
+  return true;
 }
-
 
 /**
  * Raises an error when timeout is reached.
@@ -444,7 +445,7 @@ bool Collator::fatal_error(td::Status error) {
                                       .collator_node_id = collator_node_id_,
                                       .skip_store_candidate = skip_store_candidate_,
                                       .attempt_idx = attempt_idx_ + 1,
-                                      .optimistic_prev_block_ = optimistic_prev_block_},
+                                      .optimistic_prev_block = optimistic_prev_block_},
                         manager, td::Timestamp::in(10.0), std::move(cancellation_token_), std::move(main_promise));
     } else {
       LOG(INFO) << "collation failed in " << perf_timer_.elapsed() << " s " << error;
@@ -572,7 +573,7 @@ bool Collator::request_aux_mc_state(BlockSeqno seqno, Ref<MasterchainStateQ>& st
   CHECK(blkid.is_valid_ext() && blkid.is_masterchain());
   LOG(DEBUG) << "sending auxiliary wait_block_state() query for " << blkid.to_str() << " to Manager";
   ++pending;
-  auto token = perf_log_.start_action(PSTRING() << "auxiliary wait_block_state " << blkid.to_str());
+  auto token = perf_log_.start_action(PSTRING() << "auxiliary wait_block_state " << blkid.seqno());
   td::actor::send_closure_later(
       manager, &ValidatorManager::wait_block_state_short, blkid, priority(), timeout, false,
       [self = get_self(), blkid, token = std::move(token)](td::Result<Ref<ShardState>> res) mutable {
@@ -6491,16 +6492,18 @@ bool Collator::create_block_candidate() {
   }
   // 4. save block candidate
   if (skip_store_candidate_) {
-    td::actor::send_closure_later(actor_id(this), &Collator::return_block_candidate, td::Unit());
+    td::actor::send_closure_later(actor_id(this), &Collator::return_block_candidate, td::Unit(), td::PerfLogAction{});
   } else {
     LOG(INFO) << "saving new BlockCandidate";
-    td::actor::send_closure_later(
-        manager, &ValidatorManager::set_block_candidate, block_candidate->id, block_candidate->clone(),
-        validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash(),
-        [self = get_self()](td::Result<td::Unit> saved) -> void {
-          LOG(DEBUG) << "got answer to set_block_candidate";
-          td::actor::send_closure_later(std::move(self), &Collator::return_block_candidate, std::move(saved));
-        });
+    auto token = perf_log_.start_action("set_block_candidate");
+    td::actor::send_closure_later(manager, &ValidatorManager::set_block_candidate, block_candidate->id,
+                                  block_candidate->clone(), validator_set_->get_catchain_seqno(),
+                                  validator_set_->get_validator_set_hash(),
+                                  [self = get_self(), token = std::move(token)](td::Result<td::Unit> saved) mutable {
+                                    LOG(DEBUG) << "got answer to set_block_candidate";
+                                    td::actor::send_closure_later(std::move(self), &Collator::return_block_candidate,
+                                                                  std::move(saved), std::move(token));
+                                  });
   }
   // 5. communicate about bad and delayed external messages
   if (!bad_ext_msgs_.empty() || !delay_ext_msgs_.empty()) {
@@ -6520,8 +6523,9 @@ bool Collator::create_block_candidate() {
  *
  * @param saved The result of saving the block candidate to the disk.
  */
-void Collator::return_block_candidate(td::Result<td::Unit> saved) {
+void Collator::return_block_candidate(td::Result<td::Unit> saved, td::PerfLogAction token) {
   // 6. return data to the original "caller"
+  token.finish(saved);
   if (saved.is_error()) {
     auto err = saved.move_as_error();
     LOG(ERROR) << "cannot save block candidate: " << err.to_string();
@@ -6668,8 +6672,8 @@ void Collator::finalize_stats() {
   if (block_candidate) {
     stats_.block_id = block_candidate->id;
     stats_.collated_data_hash = block_candidate->collated_file_hash;
-    stats_.actual_bytes = block_candidate->data.size();
-    stats_.actual_collated_data_bytes = block_candidate->collated_data.size();
+    stats_.actual_bytes = (td::uint32)block_candidate->data.size();
+    stats_.actual_collated_data_bytes = (td::uint32)block_candidate->collated_data.size();
   } else {
     stats_.block_id.id = new_id;
   }
@@ -6680,10 +6684,10 @@ void Collator::finalize_stats() {
   stats_.self = stats_.is_validator ? PublicKey(pubkeys::Ed25519(created_by_)).compute_short_id()
                                     : collator_node_id_.pubkey_hash();
   if (block_limit_status_) {
-    stats_.estimated_bytes = block_limit_status_->estimate_block_size();
-    stats_.gas = block_limit_status_->gas_used;
-    stats_.lt_delta = block_limit_status_->cur_lt - block_limit_status_->limits.start_lt;
-    stats_.estimated_collated_data_bytes = block_limit_status_->collated_data_size_estimate;
+    stats_.estimated_bytes = (td::uint32)block_limit_status_->estimate_block_size();
+    stats_.gas = (td::uint32)block_limit_status_->gas_used;
+    stats_.lt_delta = (td::uint32)(block_limit_status_->cur_lt - block_limit_status_->limits.start_lt);
+    stats_.estimated_collated_data_bytes = (td::uint32)block_limit_status_->collated_data_size_estimate;
     stats_.cat_bytes = block_limit_status_->limits.classify_size(stats_.estimated_bytes);
     stats_.cat_gas = block_limit_status_->limits.classify_gas(stats_.gas);
     stats_.cat_lt_delta = block_limit_status_->limits.classify_lt(block_limit_status_->cur_lt);

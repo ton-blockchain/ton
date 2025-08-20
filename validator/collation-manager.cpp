@@ -17,6 +17,7 @@
 #include "collation-manager.hpp"
 
 #include "collator-node/collator-node.hpp"
+#include "collator-node/utils.hpp"
 #include "fabric.h"
 #include "td/utils/Random.h"
 
@@ -29,6 +30,29 @@ namespace ton::validator {
 void CollationManager::start_up() {
   td::actor::send_closure(rldp_, &rldp2::Rldp::add_id, local_id_);
   update_collators_list(*opts_->get_collators_list());
+
+  class Cb : public adnl::Adnl::Callback {
+   public:
+    explicit Cb(td::actor::ActorId<CollationManager> id) : id_(std::move(id)) {
+    }
+    void receive_message(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::BufferSlice data) override {
+    }
+    void receive_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::BufferSlice data,
+                       td::Promise<td::BufferSlice> promise) override {
+      td::actor::send_closure(id_, &CollationManager::receive_query, src, std::move(data), std::move(promise));
+    }
+
+   private:
+    td::actor::ActorId<CollationManager> id_;
+  };
+  td::actor::send_closure(adnl_, &adnl::Adnl::subscribe, local_id_,
+                          adnl::Adnl::int_to_bytestring(ton_api::collatorNode_requestBlockCallback::ID),
+                          std::make_unique<Cb>(actor_id(this)));
+}
+
+void CollationManager::tear_down() {
+  td::actor::send_closure(adnl_, &adnl::Adnl::unsubscribe, local_id_,
+                          adnl::Adnl::int_to_bytestring(ton_api::collatorNode_requestBlockCallback::ID));
 }
 
 void CollationManager::collate_block(ShardIdFull shard, BlockIdExt min_masterchain_block_id,
@@ -54,25 +78,47 @@ void CollationManager::collate_block(ShardIdFull shard, BlockIdExt min_mastercha
                       proto_version);
 }
 
-void CollationManager::collate_next_block(ShardIdFull shard, BlockIdExt min_masterchain_block_id,
-                                          BlockIdExt prev_block_id, td::BufferSlice prev_block,
-                                          Ed25519_PublicKey creator, BlockCandidatePriority priority,
-                                          td::Ref<ValidatorSet> validator_set, td::uint64 max_answer_size,
-                                          td::CancellationToken cancellation_token,
-                                          td::Promise<GeneratedCandidate> promise, int proto_version) {
-  TRY_RESULT_PROMISE(promise, prev_block_data, create_block(prev_block_id, std::move(prev_block)));
-  run_collate_query(
-      CollateParams{.shard = shard,
-                    .min_masterchain_block_id = min_masterchain_block_id,
-                    .prev = {prev_block_id},
-                    .creator = creator,
-                    .validator_set = std::move(validator_set),
-                    .collator_opts = opts_->get_collator_options(),
-                    .optimistic_prev_block_ = std::move(prev_block_data)},
-      manager_, td::Timestamp::in(10.0), std::move(cancellation_token), promise.wrap([](BlockCandidate&& candidate) {
-        return GeneratedCandidate{.candidate = std::move(candidate), .is_cached = false, .self_collated = true};
-      }));
-  // TODO: request to collator node
+void CollationManager::collate_block_optimistic(ShardIdFull shard, BlockIdExt min_masterchain_block_id,
+                                                BlockIdExt prev_block_id, td::BufferSlice prev_block,
+                                                Ed25519_PublicKey creator, BlockCandidatePriority priority,
+                                                td::Ref<ValidatorSet> validator_set, td::uint64 max_answer_size,
+                                                td::CancellationToken cancellation_token,
+                                                td::Promise<GeneratedCandidate> promise, int proto_version) {
+  if (shard.is_masterchain()) {
+    TRY_RESULT_PROMISE(promise, prev_block_data, create_block(prev_block_id, std::move(prev_block)));
+    run_collate_query(
+        CollateParams{.shard = shard,
+                      .min_masterchain_block_id = min_masterchain_block_id,
+                      .prev = {prev_block_id},
+                      .creator = creator,
+                      .validator_set = std::move(validator_set),
+                      .collator_opts = opts_->get_collator_options(),
+                      .optimistic_prev_block = std::move(prev_block_data)},
+        manager_, td::Timestamp::in(10.0), std::move(cancellation_token), promise.wrap([](BlockCandidate&& candidate) {
+          return GeneratedCandidate{.candidate = std::move(candidate), .is_cached = false, .self_collated = true};
+        }));
+    return;
+  }
+
+  auto& entry = optimistic_prev_cache_[prev_block_id];
+  entry.block_data = std::move(prev_block);
+  ++entry.refcnt;
+  promise = [this, SelfId = actor_id(this), prev_block_id,
+             promise = std::move(promise)](td::Result<GeneratedCandidate> R) mutable {
+    promise.set_result(std::move(R));
+    td::actor::send_lambda_later(SelfId, [=, this]() {
+      auto it = optimistic_prev_cache_.find(prev_block_id);
+      CHECK(it != optimistic_prev_cache_.end());
+      CHECK(it->second.refcnt > 0);
+      if (--it->second.refcnt == 0) {
+        optimistic_prev_cache_.erase(it);
+      }
+    });
+  };
+
+  collate_shard_block(shard, min_masterchain_block_id, {prev_block_id}, creator, priority, std::move(validator_set),
+                      max_answer_size, std::move(cancellation_token), std::move(promise), td::Timestamp::in(10.0),
+                      proto_version, true);
 }
 
 void CollationManager::collate_shard_block(ShardIdFull shard, BlockIdExt min_masterchain_block_id,
@@ -80,7 +126,7 @@ void CollationManager::collate_shard_block(ShardIdFull shard, BlockIdExt min_mas
                                            BlockCandidatePriority priority, td::Ref<ValidatorSet> validator_set,
                                            td::uint64 max_answer_size, td::CancellationToken cancellation_token,
                                            td::Promise<GeneratedCandidate> promise, td::Timestamp timeout,
-                                           int proto_version) {
+                                           int proto_version, bool is_optimistic) {
   TRY_STATUS_PROMISE(promise, cancellation_token.check());
   ShardInfo* s = select_shard_info(shard);
   if (s == nullptr) {
@@ -91,12 +137,22 @@ void CollationManager::collate_shard_block(ShardIdFull shard, BlockIdExt min_mas
 
   adnl::AdnlNodeIdShort selected_collator = adnl::AdnlNodeIdShort::zero();
   size_t selected_idx = 0;
+  auto check_collator = [&](const adnl::AdnlNodeIdShort& id) -> bool {
+    auto& collator = collators_[id];
+    if (!collator.alive) {
+      return false;
+    }
+    if (is_optimistic && collator.version < CollatorNode::VERSION_OPTIMISTIC_COLLATE) {
+      return false;
+    }
+    return true;
+  };
   switch (s->select_mode) {
     case CollatorsList::mode_random: {
       int cnt = 0;
       for (size_t i = 0; i < s->collators.size(); ++i) {
         adnl::AdnlNodeIdShort collator = s->collators[i];
-        if (collators_[collator].alive) {
+        if (check_collator(collator)) {
           ++cnt;
           if (td::Random::fast(1, cnt) == 1) {
             selected_collator = collator;
@@ -109,7 +165,7 @@ void CollationManager::collate_shard_block(ShardIdFull shard, BlockIdExt min_mas
     case CollatorsList::mode_ordered: {
       for (size_t i = 0; i < s->collators.size(); ++i) {
         adnl::AdnlNodeIdShort collator = s->collators[i];
-        if (collators_[collator].alive) {
+        if (check_collator(collator)) {
           selected_collator = collator;
           selected_idx = i;
           break;
@@ -121,7 +177,7 @@ void CollationManager::collate_shard_block(ShardIdFull shard, BlockIdExt min_mas
       size_t iters = 0;
       for (size_t i = s->cur_idx; iters < s->collators.size(); (++i) %= s->collators.size(), ++iters) {
         adnl::AdnlNodeIdShort& collator = s->collators[i];
-        if (collators_[collator].alive) {
+        if (check_collator(collator)) {
           selected_collator = collator;
           selected_idx = i;
           s->cur_idx = (i + 1) % s->collators.size();
@@ -133,13 +189,20 @@ void CollationManager::collate_shard_block(ShardIdFull shard, BlockIdExt min_mas
   }
 
   if (selected_collator.is_zero() && s->self_collate) {
+    td::Ref<BlockData> optimistic_prev_block;
+    if (is_optimistic) {
+      CHECK(prev.size() == 1);
+      TRY_RESULT_PROMISE_ASSIGN(promise, optimistic_prev_block,
+                                create_block(prev[0], optimistic_prev_cache_.at(prev[0]).block_data.clone()));
+    }
     run_collate_query(
         CollateParams{.shard = shard,
                       .min_masterchain_block_id = min_masterchain_block_id,
                       .prev = std::move(prev),
                       .creator = creator,
                       .validator_set = std::move(validator_set),
-                      .collator_opts = opts_->get_collator_options()},
+                      .collator_opts = opts_->get_collator_options(),
+                      .optimistic_prev_block = std::move(optimistic_prev_block)},
         manager_, td::Timestamp::in(10.0), std::move(cancellation_token), promise.wrap([](BlockCandidate&& candidate) {
           return GeneratedCandidate{.candidate = std::move(candidate), .is_cached = false, .self_collated = true};
         }));
@@ -175,19 +238,26 @@ void CollationManager::collate_shard_block(ShardIdFull shard, BlockIdExt min_mas
         [=, promise = std::move(promise)]() mutable {
           td::actor::send_closure(SelfId, &CollationManager::collate_shard_block, shard, min_masterchain_block_id, prev,
                                   creator, priority, validator_set, max_answer_size, cancellation_token,
-                                  std::move(promise), timeout, proto_version);
+                                  std::move(promise), timeout, proto_version, is_optimistic);
         },
         retry_at);
   };
 
   if (selected_collator.is_zero()) {
-    P.set_error(td::Status::Error(PSTRING() << "shard " << shard.to_str() << " has no alive collator node"));
+    P.set_error(td::Status::Error(PSTRING() << "shard " << shard.to_str() << " has no suitable collator node"));
     return;
   }
 
-  td::BufferSlice query = create_serialize_tl_object<ton_api::collatorNode_generateBlock>(
-      create_tl_shard_id(shard), validator_set->get_catchain_seqno(), std::move(prev_blocks), creator.as_bits256(),
-      priority.round, priority.first_block_round, priority.priority);
+  td::BufferSlice query;
+  if (is_optimistic) {
+    query = create_serialize_tl_object<ton_api::collatorNode_generateBlockOptimistic>(
+        create_tl_shard_id(shard), validator_set->get_catchain_seqno(), std::move(prev_blocks), creator.as_bits256(),
+        priority.round, priority.first_block_round, priority.priority);
+  } else {
+    query = create_serialize_tl_object<ton_api::collatorNode_generateBlock>(
+        create_tl_shard_id(shard), validator_set->get_catchain_seqno(), std::move(prev_blocks), creator.as_bits256(),
+        priority.round, priority.first_block_round, priority.priority);
+  }
   LOG(INFO) << "sending collate query for " << next_block_id.to_str() << ": send to #" << selected_idx << "("
             << selected_collator << ")";
 
@@ -201,9 +271,8 @@ void CollationManager::collate_shard_block(ShardIdFull shard, BlockIdExt min_mas
       return;
     }
     TRY_RESULT_PROMISE(P, f, fetch_tl_object<ton_api::collatorNode_Candidate>(data, true));
-    TRY_RESULT_PROMISE(
-        P, candidate,
-        CollatorNode::deserialize_candidate(std::move(f), td::narrow_cast<int>(max_answer_size), proto_version));
+    TRY_RESULT_PROMISE(P, candidate,
+                       deserialize_candidate(std::move(f), td::narrow_cast<int>(max_answer_size), proto_version));
     if (candidate.pubkey.as_bits256() != creator.as_bits256()) {
       P.set_error(td::Status::Error("collate query: block candidate source mismatch"));
       return;
@@ -363,7 +432,8 @@ void CollationManager::alarm() {
     }
     if (collator.ping_at.is_in_past()) {
       collator.sent_ping = true;
-      td::BufferSlice query = create_serialize_tl_object<ton_api::collatorNode_ping>(0);
+      td::BufferSlice query =
+          create_serialize_tl_object<ton_api::collatorNode_ping>(ton_api::collatorNode_pong::VERSION_MASK);
       td::Promise<td::BufferSlice> P = [=, id = id, SelfId = actor_id(this)](td::Result<td::BufferSlice> R) mutable {
         td::actor::send_closure(SelfId, &CollationManager::got_pong, id, std::move(R));
       };
@@ -399,9 +469,11 @@ void CollationManager::got_pong(adnl::AdnlNodeIdShort id, td::Result<td::BufferS
     collator.alive = false;
     collator.last_ping_status = r_pong.move_as_error();
   } else {
-    LOG(DEBUG) << "pong from " << id << " : OK";
     collator.alive = true;
     collator.last_ping_status = td::Status::OK();
+    auto pong = r_pong.move_as_ok();
+    collator.version = pong->flags_ & ton_api::collatorNode_pong::VERSION_MASK ? pong->version_ : 0;
+    LOG(DEBUG) << "pong from " << id << " : OK, version=" << collator.version;
   }
   collator.ping_at = td::Timestamp::in(td::Random::fast(10.0, 20.0));
   if (collator.active_cnt && !collator.sent_ping) {
@@ -419,6 +491,28 @@ void CollationManager::on_collate_query_error(adnl::AdnlNodeIdShort id) {
   if (collator.active_cnt && !collator.sent_ping) {
     alarm_timestamp().relax(collator.ping_at);
   }
+}
+
+void CollationManager::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data,
+                                     td::Promise<td::BufferSlice> promise) {
+  if (!collators_.contains(src)) {
+    promise.set_error(td::Status::Error("got request from unknown collator"));
+    return;
+  }
+  TRY_RESULT_PROMISE(promise, query, fetch_tl_object<ton_api::collatorNode_requestBlockCallback>(data, true));
+  BlockIdExt block_id = create_block_id(query->block_id_);
+  auto it = optimistic_prev_cache_.find(block_id);
+  if (it == optimistic_prev_cache_.end()) {
+    LOG(INFO) << "collatorNode.requestBlockCallback from " << src << " block " << block_id.to_str() << " : not found";
+    promise.set_error(td::Status::Error("block not found"));
+    return;
+  }
+  LOG(INFO) << "collatorNode.requestBlockCallback from " << src << " block " << block_id.to_str() << " : OK";
+  promise.set_value(
+      serialize_tl_object(serialize_candidate(BlockCandidate(Ed25519_PublicKey{td::Bits256::zero()}, block_id,
+                                                             td::Bits256::zero(), it->second.block_data.clone(), {}),
+                                              true),
+                          true));
 }
 
 }  // namespace ton::validator

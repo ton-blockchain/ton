@@ -122,7 +122,7 @@ class Collator final : public td::actor::Actor {
  private:
   void start_up() override;
   void load_prev_states_blocks();
-  void process_optimistic_prev_block();
+  bool process_optimistic_prev_block();
   void alarm() override;
   int verbosity{3 * 0};
   int verify{1};
@@ -331,7 +331,7 @@ class Collator final : public td::actor::Actor {
   int prev_block_idx(const BlockIdExt& id) const {
     for (size_t i = 0; i < prev_blocks.size(); ++i) {
       if (prev_blocks[i] == id) {
-        return i;
+        return (int)i;
       }
     }
     return -1;
@@ -404,7 +404,7 @@ class Collator final : public td::actor::Actor {
   bool create_collated_data();
 
   bool create_block_candidate();
-  void return_block_candidate(td::Result<td::Unit> saved);
+  void return_block_candidate(td::Result<td::Unit> saved, td::PerfLogAction token);
   bool update_last_proc_int_msg(const std::pair<ton::LogicalTime, ton::Bits256>& new_lt_hash);
 
   td::CancellationToken cancellation_token_;

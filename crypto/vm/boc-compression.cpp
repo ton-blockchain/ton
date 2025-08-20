@@ -283,7 +283,7 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
         continue;
 
       int delta = rank[boc_graph[node][j]] - i - 2; // Always >= 0 because of above check
-      size_t required_bits = 1 + (31 ^ __builtin_clz(node_count - i - 3));
+      size_t required_bits = 1 + (31 ^ td::count_leading_zeroes32(node_count - i - 3));
 
       if (required_bits < 8 - (result.size() + 1) % 8 + 1) {
         append_uint(result, delta, required_bits);
@@ -494,7 +494,7 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
     for (int j = 0; j < cell_refs_cnt[i]; ++j) {
       if (!boc_graph[i][j]) {
         size_t pref_size = (orig_size - bit_reader.size());
-        size_t required_bits = 1 + (31 ^ __builtin_clz(node_count - i - 3));
+        size_t required_bits = 1 + (31 ^ td::count_leading_zeroes32(node_count - i - 3));
 
         if (required_bits < 8 - (pref_size + 1) % 8 + 1) {
           TRY_RESULT_ASSIGN(boc_graph[i][j], read_uint(bit_reader, required_bits));
