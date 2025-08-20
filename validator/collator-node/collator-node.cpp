@@ -432,7 +432,8 @@ td::Status CollatorNode::check_mc_config() {
   }
   TRY_RESULT_PREFIX(
       config,
-      block::ConfigInfo::extract_config(last_masterchain_state_->root_cell(), block::ConfigInfo::needCapabilities),
+      block::ConfigInfo::extract_config(last_masterchain_state_->root_cell(), last_masterchain_state_->get_block_id(),
+                                        block::ConfigInfo::needCapabilities),
       "cannot unpack masterchain config");
   if (config->get_global_version() > Collator::supported_version()) {
     return td::Status::Error(PSTRING() << "unsupported global version " << config->get_global_version()

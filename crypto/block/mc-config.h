@@ -775,9 +775,8 @@ class ConfigInfo : public Config, public ShardConfig {
   std::vector<ton::ValidatorDescr> compute_validator_set_cc(ton::ShardIdFull shard, ton::UnixTime time,
                                                             ton::CatchainSeqno* cc_seqno_delta = nullptr) const;
   td::Result<Ref<vm::Tuple>> get_prev_blocks_info() const;
-  static td::Result<std::unique_ptr<ConfigInfo>> extract_config(std::shared_ptr<vm::StaticBagOfCellsDb> static_boc,
-                                                                int mode = 0);
-  static td::Result<std::unique_ptr<ConfigInfo>> extract_config(Ref<vm::Cell> mc_state_root, int mode = 0);
+  static td::Result<std::unique_ptr<ConfigInfo>> extract_config(Ref<vm::Cell> mc_state_root,
+                                                                ton::BlockIdExt mc_block_id, int mode = 0);
 
  private:
   ConfigInfo(Ref<vm::Cell> mc_state_root, int _mode = 0);

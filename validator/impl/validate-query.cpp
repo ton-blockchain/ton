@@ -901,7 +901,7 @@ bool ValidateQuery::try_unpack_mc_state() {
       return fatal_error(-666, "latest masterchain state does not have a root cell");
     }
     auto res = block::ConfigInfo::extract_config(
-        mc_state_root_,
+        mc_state_root_, mc_blkid_,
         block::ConfigInfo::needShardHashes | block::ConfigInfo::needLibraries | block::ConfigInfo::needValidatorSet |
             block::ConfigInfo::needWorkchainInfo | block::ConfigInfo::needStateExtraRoot |
             block::ConfigInfo::needCapabilities | block::ConfigInfo::needPrevBlocks |
@@ -912,7 +912,6 @@ bool ValidateQuery::try_unpack_mc_state() {
     }
     config_ = res.move_as_ok();
     CHECK(config_);
-    config_->set_block_id_ext(mc_blkid_);
     ihr_enabled_ = config_->ihr_enabled();
     create_stats_enabled_ = config_->create_stats_enabled();
     if (config_->has_capabilities() && (config_->get_capabilities() & ~supported_capabilities())) {
@@ -1406,17 +1405,17 @@ bool ValidateQuery::compute_next_state() {
       }
     }
     auto r_config_info = block::ConfigInfo::extract_config(
-        state_root_, block::ConfigInfo::needShardHashes | block::ConfigInfo::needLibraries |
-                         block::ConfigInfo::needValidatorSet | block::ConfigInfo::needWorkchainInfo |
-                         block::ConfigInfo::needStateExtraRoot | block::ConfigInfo::needAccountsRoot |
-                         block::ConfigInfo::needSpecialSmc | block::ConfigInfo::needCapabilities);
+        state_root_, id_,
+        block::ConfigInfo::needShardHashes | block::ConfigInfo::needLibraries | block::ConfigInfo::needValidatorSet |
+            block::ConfigInfo::needWorkchainInfo | block::ConfigInfo::needStateExtraRoot |
+            block::ConfigInfo::needAccountsRoot | block::ConfigInfo::needSpecialSmc |
+            block::ConfigInfo::needCapabilities);
     if (r_config_info.is_error()) {
       return reject_query("cannot extract configuration from new masterchain state "s + mc_blkid_.to_str() + " : " +
                           r_config_info.error().to_string());
     }
     new_config_ = r_config_info.move_as_ok();
     CHECK(new_config_);
-    new_config_->set_block_id_ext(id_);
   }
   return true;
 }
