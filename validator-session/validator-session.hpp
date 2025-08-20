@@ -76,6 +76,7 @@ class ValidatorSessionImpl : public ValidatorSession {
   std::map<ValidatorSessionCandidateId, tl_object_ptr<ton_api::validatorSession_candidate>> blocks_;
   // src_round_candidate_[src_id][round] -> candidate id
   std::vector<std::map<td::uint32, ValidatorSessionCandidateId>> src_round_candidate_;
+  std::map<ValidatorSessionCandidateId, std::vector<td::Promise<td::Unit>>> block_waiters_;
 
   catchain::CatChainSessionId unique_hash_;
 
@@ -85,7 +86,7 @@ class ValidatorSessionImpl : public ValidatorSession {
 
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;
-  td::actor::ActorId<rldp::Rldp> rldp_;
+  td::actor::ActorId<rldp2::Rldp> rldp_;
   td::actor::ActorId<overlay::Overlays> overlay_manager_;
   td::actor::ActorOwn<catchain::CatChain> catchain_;
   std::unique_ptr<ValidatorSessionDescription> description_;
@@ -202,7 +203,7 @@ class ValidatorSessionImpl : public ValidatorSession {
                                                                   ValidatorSessionCandidateId candidate_id);
   void stats_process_action(td::uint32 node_id, ton_api::validatorSession_round_Message &action);
   void process_approve(td::uint32 node_id, td::uint32 round, ValidatorSessionCandidateId candidate_id);
-
+  void generate_block_optimistic(td::uint32 cur_round, ValidatorSessionCandidateId prev_candidate_id);
   void generated_optimistic_candidate(td::uint32 round, GeneratedCandidate candidate,
                                       ValidatorSessionCandidateId prev_candidate);
 
@@ -210,7 +211,7 @@ class ValidatorSessionImpl : public ValidatorSession {
   ValidatorSessionImpl(catchain::CatChainSessionId session_id, ValidatorSessionOptions opts, PublicKeyHash local_id,
                        std::vector<ValidatorSessionNode> nodes, std::unique_ptr<Callback> callback,
                        td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-                       td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays,
+                       td::actor::ActorId<rldp2::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays,
                        std::string db_root, std::string db_suffix, bool allow_unsafe_self_blocks_resync);
   void start_up() override;
   void alarm() override;
@@ -237,6 +238,9 @@ class ValidatorSessionImpl : public ValidatorSession {
   void process_received_block(td::uint32 block_round, PublicKeyHash src, td::uint32 src_idx,
                               tl_object_ptr<ton_api::validatorSession_candidate> candidate, const BroadcastInfo &info,
                               bool is_overlay_broadcast, bool is_startup);
+  void validate_optimistic_broadcast(BlockSourceInfo source_info, ValidatorSessionRootHash root_hash,
+                                     td::BufferSlice data, td::BufferSlice collated_data,
+                                     ValidatorSessionCandidateId prev_candidate_id);
   void process_message(PublicKeyHash src, td::BufferSlice data);
   void process_query(PublicKeyHash src, td::BufferSlice data, td::Promise<td::BufferSlice> promise);
 

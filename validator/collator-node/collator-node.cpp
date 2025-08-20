@@ -23,7 +23,7 @@
 #include "checksum.h"
 #include "impl/collator-impl.h"
 #include "impl/shard.hpp"
-#include "validator-session/candidate-serializer.h"
+#include "utils.hpp"
 
 namespace ton::validator {
 
@@ -56,6 +56,9 @@ void CollatorNode::start_up() {
                           adnl::Adnl::int_to_bytestring(ton_api::collatorNode_generateBlock::ID),
                           std::make_unique<Cb>(actor_id(this)));
   td::actor::send_closure(adnl_, &adnl::Adnl::subscribe, local_id_,
+                          adnl::Adnl::int_to_bytestring(ton_api::collatorNode_generateBlockOptimistic::ID),
+                          std::make_unique<Cb>(actor_id(this)));
+  td::actor::send_closure(adnl_, &adnl::Adnl::subscribe, local_id_,
                           adnl::Adnl::int_to_bytestring(ton_api::collatorNode_ping::ID),
                           std::make_unique<Cb>(actor_id(this)));
   td::actor::send_closure(rldp_, &rldp2::Rldp::add_id, adnl::AdnlNodeIdShort(local_id_));
@@ -64,6 +67,8 @@ void CollatorNode::start_up() {
 void CollatorNode::tear_down() {
   td::actor::send_closure(adnl_, &adnl::Adnl::unsubscribe, local_id_,
                           adnl::Adnl::int_to_bytestring(ton_api::collatorNode_generateBlock::ID));
+  td::actor::send_closure(adnl_, &adnl::Adnl::unsubscribe, local_id_,
+                          adnl::Adnl::int_to_bytestring(ton_api::collatorNode_generateBlockOptimistic::ID));
   td::actor::send_closure(adnl_, &adnl::Adnl::unsubscribe, local_id_,
                           adnl::Adnl::int_to_bytestring(ton_api::collatorNode_ping::ID));
 }
@@ -83,7 +88,7 @@ void CollatorNode::add_shard(ShardIdFull shard) {
       validator_group.actor = td::actor::create_actor<CollatorNodeSession>(
           PSTRING() << "collatornode" << shard.to_str(), shard, validator_group.prev,
           last_masterchain_state_->get_validator_set(group_shard), last_masterchain_state_->get_block_id(),
-          can_generate(), local_id_, opts_, manager_, adnl_, rldp_);
+          can_generate(), last_masterchain_state_, local_id_, opts_, manager_, adnl_, rldp_);
     }
   }
 }
@@ -118,9 +123,7 @@ void CollatorNode::new_masterchain_block_notification(td::Ref<MasterchainState> 
     if (mc_config_status_.is_error()) {
       LOG(ERROR) << "Cannot validate masterchain config (possibly outdated software): " << mc_config_status_;
     }
-  }
 
-  if (validator_adnl_ids_.empty() || state->is_key_state()) {
     validator_adnl_ids_.clear();
     for (int next : {-1, 0, 1}) {
       td::Ref<ValidatorSet> vals = state->get_total_validator_set(next);
@@ -133,6 +136,11 @@ void CollatorNode::new_masterchain_block_notification(td::Ref<MasterchainState> 
             validator_adnl_ids_.insert(adnl::AdnlNodeIdShort(descr.addr));
           }
         }
+      }
+    }
+    for (auto& [_, group] : validator_groups_) {
+      if (!group.actor.empty()) {
+        td::actor::send_closure(group.actor, &CollatorNodeSession::update_masterchain_config, state);
       }
     }
   }
@@ -173,7 +181,8 @@ void CollatorNode::new_masterchain_block_notification(td::Ref<MasterchainState> 
       if (can_collate_shard(shard)) {
         it->second.actor = td::actor::create_actor<CollatorNodeSession>(
             PSTRING() << "collatornode" << shard.to_str(), shard, it->second.prev, validator_set,
-            last_masterchain_state_->get_block_id(), can_generate(), local_id_, opts_, manager_, adnl_, rldp_);
+            last_masterchain_state_->get_block_id(), can_generate(), last_masterchain_state_, local_id_, opts_,
+            manager_, adnl_, rldp_);
       }
     } else if (!it->second.actor.empty() && prev.size() == 1) {
       td::actor::send_closure(it->second.actor, &CollatorNodeSession::new_shard_block_accepted, prev[0],
@@ -250,11 +259,11 @@ td::Result<CollatorNode::FutureValidatorGroup*> CollatorNode::get_future_validat
   }
   if (cc_seqno < it->second.cc_seqno) {  // past validator group
     return td::Status::Error(PSTRING() << "cc_seqno " << cc_seqno << " for shard " << shard.to_str()
-                                       << " is outdated (current is" << it->second.cc_seqno << ")");
+                                       << " is outdated (current is " << it->second.cc_seqno << ")");
   }
   if (cc_seqno - it->second.cc_seqno > 1) {  // future validator group, cc_seqno too big
     return td::Status::Error(PSTRING() << "cc_seqno " << cc_seqno << " for shard " << shard.to_str()
-                                       << " is too big (currently known is" << it->second.cc_seqno << ")");
+                                       << " is too big (currently known is " << it->second.cc_seqno << ")");
   }
   // future validator group
   return &future_validator_groups_[{shard, cc_seqno}];
@@ -326,17 +335,39 @@ void CollatorNode::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data
     return;
   }
 
-  TRY_RESULT_PROMISE(promise, f, fetch_tl_object<ton_api::collatorNode_generateBlock>(data, true));
-  ShardIdFull shard = create_shard_id(f->shard_);
-  CatchainSeqno cc_seqno = f->cc_seqno_;
+  bool is_optimistic = false;
+  ShardIdFull shard;
+  CatchainSeqno cc_seqno;
   std::vector<BlockIdExt> prev_blocks;
-  for (const auto& b : f->prev_blocks_) {
-    prev_blocks.push_back(create_block_id(b));
+  BlockCandidatePriority priority;
+  Ed25519_PublicKey creator;
+  if (auto R = fetch_tl_object<ton_api::collatorNode_generateBlock>(data, true); R.is_ok()) {
+    auto f = R.move_as_ok();
+    shard = create_shard_id(f->shard_);
+    cc_seqno = f->cc_seqno_;
+    for (const auto& b : f->prev_blocks_) {
+      prev_blocks.push_back(create_block_id(b));
+    }
+    priority = BlockCandidatePriority{.round = static_cast<td::uint32>(f->round_),
+                                      .first_block_round = static_cast<td::uint32>(f->first_block_round_),
+                                      .priority = f->priority_};
+    creator = Ed25519_PublicKey(f->creator_);
+  } else if (auto R = fetch_tl_object<ton_api::collatorNode_generateBlockOptimistic>(data, true); R.is_ok()) {
+    is_optimistic = true;
+    auto f = R.move_as_ok();
+    shard = create_shard_id(f->shard_);
+    cc_seqno = f->cc_seqno_;
+    for (const auto& b : f->prev_blocks_) {
+      prev_blocks.push_back(create_block_id(b));
+    }
+    priority = BlockCandidatePriority{.round = static_cast<td::uint32>(f->round_),
+                                      .first_block_round = static_cast<td::uint32>(f->first_block_round_),
+                                      .priority = f->priority_};
+    creator = Ed25519_PublicKey(f->creator_);
+  } else {
+    promise.set_error(td::Status::Error("cannot parse request"));
+    return;
   }
-  auto priority = BlockCandidatePriority{.round = static_cast<td::uint32>(f->round_),
-                                         .first_block_round = static_cast<td::uint32>(f->first_block_round_),
-                                         .priority = f->priority_};
-  Ed25519_PublicKey creator(f->creator_);
   td::Promise<BlockCandidate> new_promise = [promise = std::move(promise), src,
                                              shard](td::Result<BlockCandidate> R) mutable {
     if (R.is_error()) {
@@ -378,14 +409,16 @@ void CollatorNode::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data
     new_promise.set_error(td::Status::Error(PSTRING() << "invalid size of prev_blocks: " << prev_blocks.size()));
     return;
   }
-  LOG(INFO) << "got adnl query from " << src << ": shard=" << shard.to_str() << ", cc_seqno=" << cc_seqno;
-  process_generate_block_query(shard, cc_seqno, std::move(prev_blocks), priority, td::Timestamp::in(10.0),
-                               std::move(new_promise));
+  LOG(INFO) << "got adnl query from " << src << ": shard=" << shard.to_str() << ", cc_seqno=" << cc_seqno
+            << (is_optimistic ? ", optimistic" : "");
+  process_generate_block_query(src, shard, cc_seqno, std::move(prev_blocks), priority, is_optimistic,
+                               td::Timestamp::in(10.0), std::move(new_promise));
 }
 
-void CollatorNode::process_generate_block_query(ShardIdFull shard, CatchainSeqno cc_seqno,
+void CollatorNode::process_generate_block_query(adnl::AdnlNodeIdShort src, ShardIdFull shard, CatchainSeqno cc_seqno,
                                                 std::vector<BlockIdExt> prev_blocks, BlockCandidatePriority priority,
-                                                td::Timestamp timeout, td::Promise<BlockCandidate> promise) {
+                                                bool is_optimistic, td::Timestamp timeout,
+                                                td::Promise<BlockCandidate> promise) {
   if (last_masterchain_state_.is_null()) {
     promise.set_error(td::Status::Error(ErrorCode::notready, "not ready"));
     return;
@@ -400,8 +433,8 @@ void CollatorNode::process_generate_block_query(ShardIdFull shard, CatchainSeqno
     future_validator_group->promises.push_back([=, SelfId = actor_id(this), prev_blocks = std::move(prev_blocks),
                                                 promise = std::move(promise)](td::Result<td::Unit> R) mutable {
       TRY_STATUS_PROMISE(promise, R.move_as_status());
-      td::actor::send_closure(SelfId, &CollatorNode::process_generate_block_query, shard, cc_seqno,
-                              std::move(prev_blocks), std::move(priority), timeout, std::move(promise));
+      td::actor::send_closure(SelfId, &CollatorNode::process_generate_block_query, src, shard, cc_seqno,
+                              std::move(prev_blocks), std::move(priority), is_optimistic, timeout, std::move(promise));
     });
     return;
   }
@@ -410,8 +443,8 @@ void CollatorNode::process_generate_block_query(ShardIdFull shard, CatchainSeqno
     promise.set_error(td::Status::Error(PSTRING() << "cannot collate shard " << shard.to_str()));
     return;
   }
-  td::actor::send_closure(validator_group_info.actor, &CollatorNodeSession::generate_block, std::move(prev_blocks),
-                          priority, timeout, std::move(promise));
+  td::actor::send_closure(validator_group_info.actor, &CollatorNodeSession::process_request, src,
+                          std::move(prev_blocks), priority, is_optimistic, timeout, std::move(promise));
 }
 
 td::Status CollatorNode::check_out_of_sync() {
@@ -462,81 +495,17 @@ void CollatorNode::process_ping(adnl::AdnlNodeIdShort src, ton_api::collatorNode
   LOG(DEBUG) << "got ping from " << src;
   TRY_STATUS_PROMISE(promise, check_out_of_sync());
   TRY_STATUS_PROMISE_PREFIX(promise, mc_config_status_.clone(), "unsupported mc config: ");
-  promise.set_result(create_serialize_tl_object<ton_api::collatorNode_pong>(0));
+  auto pong = create_tl_object<ton_api::collatorNode_pong>();
+  if (ping.flags_ & ton_api::collatorNode_pong::VERSION_MASK) {
+    pong->flags_ |= ton_api::collatorNode_pong::VERSION_MASK;
+    pong->version_ = COLLATOR_NODE_VERSION;
+  }
+  promise.set_result(serialize_tl_object(pong, true));
 }
 
 bool CollatorNode::can_collate_shard(ShardIdFull shard) const {
   return std::any_of(collating_shards_.begin(), collating_shards_.end(),
                      [&](const ShardIdFull& our_shard) { return shard_intersects(shard, our_shard); });
-}
-
-tl_object_ptr<ton_api::collatorNode_Candidate> CollatorNode::serialize_candidate(const BlockCandidate& block,
-                                                                                 bool compress) {
-  if (!compress) {
-    return create_tl_object<ton_api::collatorNode_candidate>(
-        PublicKey{pubkeys::Ed25519{block.pubkey.as_bits256()}}.tl(), create_tl_block_id(block.id), block.data.clone(),
-        block.collated_data.clone());
-  }
-  size_t decompressed_size;
-  td::BufferSlice compressed =
-      validatorsession::compress_candidate_data(block.data, block.collated_data, decompressed_size).move_as_ok();
-  return create_tl_object<ton_api::collatorNode_compressedCandidate>(
-      0, PublicKey{pubkeys::Ed25519{block.pubkey.as_bits256()}}.tl(), create_tl_block_id(block.id),
-      (int)decompressed_size, std::move(compressed));
-}
-
-td::Result<BlockCandidate> CollatorNode::deserialize_candidate(tl_object_ptr<ton_api::collatorNode_Candidate> f,
-                                                               int max_decompressed_data_size, int proto_version) {
-  td::Result<BlockCandidate> res;
-  ton_api::downcast_call(
-      *f, td::overloaded(
-              [&](ton_api::collatorNode_candidate& c) {
-                res = [&]() -> td::Result<BlockCandidate> {
-                  auto hash = td::sha256_bits256(c.collated_data_);
-                  auto key = PublicKey{c.source_};
-                  if (!key.is_ed25519()) {
-                    return td::Status::Error("invalid pubkey");
-                  }
-                  auto e_key = Ed25519_PublicKey{key.ed25519_value().raw()};
-                  return BlockCandidate{e_key, create_block_id(c.id_), hash, std::move(c.data_),
-                                        std::move(c.collated_data_)};
-                }();
-              },
-              [&](ton_api::collatorNode_compressedCandidate& c) {
-                res = [&]() -> td::Result<BlockCandidate> {
-                  if (c.decompressed_size_ <= 0) {
-                    return td::Status::Error("invalid decompressed size");
-                  }
-                  if (c.decompressed_size_ > max_decompressed_data_size) {
-                    return td::Status::Error("decompressed size is too big");
-                  }
-                  TRY_RESULT(p, validatorsession::decompress_candidate_data(c.data_, false, c.decompressed_size_,
-                                                                            max_decompressed_data_size, proto_version));
-                  auto collated_data_hash = td::sha256_bits256(p.second);
-                  auto key = PublicKey{c.source_};
-                  if (!key.is_ed25519()) {
-                    return td::Status::Error("invalid pubkey");
-                  }
-                  auto e_key = Ed25519_PublicKey{key.ed25519_value().raw()};
-                  return BlockCandidate{e_key, create_block_id(c.id_), collated_data_hash, std::move(p.first),
-                                        std::move(p.second)};
-                }();
-              },
-              [&](ton_api::collatorNode_compressedCandidateV2& c) {
-                res = [&]() -> td::Result<BlockCandidate> {
-                  TRY_RESULT(p, validatorsession::decompress_candidate_data(c.data_, true, 0,
-                                                                            max_decompressed_data_size, proto_version));
-                  auto collated_data_hash = td::sha256_bits256(p.second);
-                  auto key = PublicKey{c.source_};
-                  if (!key.is_ed25519()) {
-                    return td::Status::Error("invalid pubkey");
-                  }
-                  auto e_key = Ed25519_PublicKey{key.ed25519_value().raw()};
-                  return BlockCandidate{e_key, create_block_id(c.id_), collated_data_hash, std::move(p.first),
-                                        std::move(p.second)};
-                }();
-              }));
-  return res;
 }
 
 }  // namespace ton::validator

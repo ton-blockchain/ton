@@ -192,23 +192,19 @@ void run_check_proof_link_query(BlockIdExt id, td::Ref<ProofLink> proof, td::act
       .release();
 }
 
-void run_validate_query(ShardIdFull shard, BlockIdExt min_masterchain_block_id, std::vector<BlockIdExt> prev,
-                        BlockCandidate candidate, td::Ref<ValidatorSet> validator_set, PublicKeyHash local_validator_id,
-                        td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
-                        td::Promise<ValidateCandidateResult> promise, unsigned mode) {
+void run_validate_query(BlockCandidate candidate, ValidateParams params, td::actor::ActorId<ValidatorManager> manager,
+                        td::Timestamp timeout, td::Promise<ValidateCandidateResult> promise) {
   BlockSeqno seqno = 0;
-  for (auto& p : prev) {
+  for (auto& p : params.prev) {
     if (p.seqno() > seqno) {
       seqno = p.seqno();
     }
   }
-  bool is_fake = mode & ValidateMode::fake;
   static std::atomic<size_t> idx;
-  td::actor::create_actor<ValidateQuery>(PSTRING() << (is_fake ? "fakevalidate" : "validateblock") << shard.to_str()
-                                                   << ":" << (seqno + 1) << "#" << idx.fetch_add(1),
-                                         shard, min_masterchain_block_id, std::move(prev), std::move(candidate),
-                                         std::move(validator_set), local_validator_id, std::move(manager), timeout,
-                                         std::move(promise), mode)
+  td::actor::create_actor<ValidateQuery>(
+      PSTRING() << (params.is_fake ? "fakevalidate" : "validateblock") << params.shard.to_str() << ":" << (seqno + 1)
+                << "#" << idx.fetch_add(1),
+      std::move(candidate), std::move(params), std::move(manager), timeout, std::move(promise))
       .release();
 }
 

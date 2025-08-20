@@ -34,7 +34,7 @@ void WaitBlockState::alarm() {
 void WaitBlockState::abort_query(td::Status reason) {
   if (promise_no_store_) {
     promise_no_store_.set_error(
-        reason.move_as_error_prefix(PSTRING() << "failed to download state " << handle_->id() << ": "));
+        reason.clone().move_as_error_prefix(PSTRING() << "failed to download state " << handle_->id() << ": "));
   }
   if (promise_final_) {
     if (priority_ > 0 || (reason.code() != ErrorCode::timeout && reason.code() != ErrorCode::notready)) {

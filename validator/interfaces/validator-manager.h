@@ -128,11 +128,16 @@ struct CollationStats {
     td::RealCpuTimer::Time create_collated_data;
     td::RealCpuTimer::Time create_block_candidate;
 
-    tl_object_ptr<ton_api::validatorStats_collateWorkTimeStats> tl(bool is_cpu) const {
-      return create_tl_object<ton_api::validatorStats_collateWorkTimeStats>(
-          total.get(is_cpu), optimistic_apply.get(is_cpu), queue_cleanup.get(is_cpu), prelim_storage_stat.get(is_cpu),
-          trx_tvm.get(is_cpu), trx_storage_stat.get(is_cpu), trx_other.get(is_cpu), final_storage_stat.get(is_cpu),
-          create_block.get(is_cpu), create_collated_data.get(is_cpu), create_block_candidate.get(is_cpu));
+    std::string to_str(bool is_cpu) const {
+      return PSTRING() << "total=" << total.get(is_cpu) << " optimistic_apply=" << optimistic_apply.get(is_cpu)
+                       << " queue_cleanup=" << queue_cleanup.get(is_cpu)
+                       << " prelim_storage_stat=" << prelim_storage_stat.get(is_cpu)
+                       << " trx_tvm=" << trx_tvm.get(is_cpu) << " trx_storage_stat=" << trx_storage_stat.get(is_cpu)
+                       << " trx_other=" << trx_other.get(is_cpu)
+                       << " final_storage_stat=" << final_storage_stat.get(is_cpu)
+                       << " create_block=" << create_block.get(is_cpu)
+                       << " create_collated_data=" << create_collated_data.get(is_cpu)
+                       << " create_block_candidate=" << create_block_candidate.get(is_cpu);
     }
   };
   WorkTimeStats work_time;
@@ -155,7 +160,7 @@ struct CollationStats {
     return create_tl_object<ton_api::validatorStats_collatedBlock>(
         create_tl_block_id(block_id), collated_data_hash, cc_seqno, collated_at, actual_bytes,
         actual_collated_data_bytes, attempt, self.bits256_value(), is_validator, total_time, work_time.total.real,
-        work_time.total.cpu, time_stats, work_time.tl(false), work_time.tl(true),
+        work_time.total.cpu, time_stats, work_time.to_str(false), work_time.to_str(true),
         create_tl_object<ton_api::validatorStats_blockLimitsStatus>(
             estimated_bytes, gas, lt_delta, estimated_collated_data_bytes, cat_bytes, cat_gas, cat_lt_delta,
             cat_collated_data_bytes, load_fraction_queue_cleanup, load_fraction_dispatch, load_fraction_internals,
@@ -173,16 +178,19 @@ struct ValidationStats {
   std::string comment;
   td::uint32 actual_bytes = 0, actual_collated_data_bytes = 0;
   double total_time = 0.0;
+  std::string time_stats;
 
   struct WorkTimeStats {
     td::RealCpuTimer::Time total;
+    td::RealCpuTimer::Time optimistic_apply;
     td::RealCpuTimer::Time trx_tvm;
     td::RealCpuTimer::Time trx_storage_stat;
     td::RealCpuTimer::Time trx_other;
 
-    tl_object_ptr<ton_api::validatorStats_validateWorkTimeStats> tl(bool is_cpu) const {
-      return create_tl_object<ton_api::validatorStats_validateWorkTimeStats>(
-          total.get(is_cpu), trx_tvm.get(is_cpu), trx_storage_stat.get(is_cpu), trx_other.get(is_cpu));
+    std::string to_str(bool is_cpu) const {
+      return PSTRING() << "total=" << total.get(is_cpu) << " optimistic_apply=" << optimistic_apply.get(is_cpu)
+                       << " trx_tvm=" << trx_tvm.get(is_cpu) << " trx_storage_stat=" << trx_storage_stat.get(is_cpu)
+                       << " trx_other=" << trx_other.get(is_cpu);
     }
   };
   WorkTimeStats work_time;
@@ -192,7 +200,7 @@ struct ValidationStats {
     return create_tl_object<ton_api::validatorStats_validatedBlock>(
         create_tl_block_id(block_id), collated_data_hash, validated_at, self.bits256_value(), valid, comment,
         actual_bytes, actual_collated_data_bytes, total_time, work_time.total.real, work_time.total.cpu,
-        work_time.tl(false), work_time.tl(true), storage_stat_cache.tl());
+        time_stats, work_time.to_str(false), work_time.to_str(true), storage_stat_cache.tl());
   }
 };
 

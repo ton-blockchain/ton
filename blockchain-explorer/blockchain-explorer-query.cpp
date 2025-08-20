@@ -525,8 +525,8 @@ HttpQueryBlockSearch::HttpQueryBlockSearch(std::map<std::string, std::string> op
   }
   if (opts.count("utime") == 1) {
     try {
-      seqno_ = static_cast<td::uint32>(std::stoull(opts["utime"]));
-      mode_ = 1;
+      utime_ = static_cast<td::uint32>(std::stoull(opts["utime"]));
+      mode_ = 4;
     } catch (...) {
       error_ = td::Status::Error("cannot parse utime");
       return;
