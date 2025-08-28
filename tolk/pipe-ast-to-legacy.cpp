@@ -1009,6 +1009,16 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
     return rvect;
   }
 
+  // pass `bits267` to `address`
+  if (target_type == TypeDataAddress::create() && original_type->try_as<TypeDataBitsN>()) {
+    return rvect;
+  }
+
+  // pass `address` to `bits267`
+  if (original_type == TypeDataAddress::create() && target_type->try_as<TypeDataBitsN>()) {
+    return rvect;
+  }
+
   // pass a typed tuple `[int, int]` to an untyped (via `as` operator)
   if (original_type->try_as<TypeDataBrackets>() && target_type->try_as<TypeDataTuple>()) {
     return rvect;

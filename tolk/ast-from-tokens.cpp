@@ -951,23 +951,24 @@ static AnyExprV parse_expr75(Lexer& lex) {
   return parse_expr80(lex);
 }
 
-// parse E as / is / !is <type>
+// parse E as / is / !is <type> (left-to-right)
 static AnyExprV parse_expr40(Lexer& lex) {
   AnyExprV lhs = parse_expr75(lex);
-  if (lex.tok() == tok_as) {
-    SrcLocation loc = lex.cur_location();
-    lex.next();
-    AnyTypeV cast_to_type = parse_type_from_tokens(lex);
-    lhs = createV<ast_cast_as_operator>(loc, lhs, cast_to_type);
-  } else if (lex.tok() == tok_is) {
+  TokenType t = lex.tok();
+  while (t == tok_as || t == tok_is) {
     SrcLocation loc = lex.cur_location();
     lex.next();
     AnyTypeV rhs_type = parse_type_from_tokens(lex);
-    bool is_negated = lhs->kind == ast_not_null_operator;   // `a !is ...`, now lhs = `a!`
-    if (is_negated) {
-      lhs = lhs->as<ast_not_null_operator>()->get_expr();
+    if (t == tok_as) {
+      lhs = createV<ast_cast_as_operator>(loc, lhs, rhs_type);
+    } else {
+      bool is_negated = lhs->kind == ast_not_null_operator;   // `a !is ...`, now lhs = `a!`
+      if (is_negated) {
+        lhs = lhs->as<ast_not_null_operator>()->get_expr();
+      }
+      lhs = createV<ast_is_type_operator>(loc, lhs, rhs_type, is_negated);
     }
-    lhs = createV<ast_is_type_operator>(loc, lhs, rhs_type, is_negated);
+    t = lex.tok();
   }
   return lhs;
 }

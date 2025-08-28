@@ -81,7 +81,7 @@ fun test7(x: int8) {
 
 @method_id(108)
 fun test8(x: int) {
-    var r1 = match (x is int) { false => 0, else => 10 };
+    var r1 = match (x is int && x is int is bool) { false => 0, else => 10 };
     match (x) { }
     match (x * 0) { 1 => {} else => { r1 += 20; } }
     return r1;

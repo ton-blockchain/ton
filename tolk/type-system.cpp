@@ -955,7 +955,7 @@ bool TypeDataContinuation::can_be_casted_with_as_operator(TypePtr cast_to) const
 }
 
 bool TypeDataAddress::can_be_casted_with_as_operator(TypePtr cast_to) const {
-  if (cast_to == TypeDataSlice::create()) {
+  if (cast_to == TypeDataSlice::create() || cast_to->try_as<TypeDataBitsN>()) {
     return true;
   }
   if (const TypeDataUnion* to_union = cast_to->try_as<TypeDataUnion>()) {
