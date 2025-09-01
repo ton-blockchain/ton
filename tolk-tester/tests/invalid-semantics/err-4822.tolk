@@ -8,8 +8,8 @@ struct Coord2 {
     p2: Point;
 }
 
-fun increment(mutate x: int) {
-    x += 1;
+fun int.increment(mutate self) {
+    self += 1;
 }
 
 fun checkCantMutateFieldOfImmutableTuple(p1: Point?, p2: Point) {
@@ -19,5 +19,5 @@ fun checkCantMutateFieldOfImmutableTuple(p1: Point?, p2: Point) {
 
 /**
 @compilation_should_fail
-@modifying immutable variable `c2`
+@stderr modifying immutable variable `c2`
  */

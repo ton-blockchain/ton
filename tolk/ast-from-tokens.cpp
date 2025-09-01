@@ -1542,6 +1542,13 @@ static AnyV parse_function_declaration(Lexer& lex, const std::vector<V<ast_annot
 
 static AnyV parse_struct_field(Lexer& lex) {
   SrcLocation loc = lex.cur_location();
+
+  bool is_readonly = false;
+  if (lex.tok() == tok_readonly) {
+    lex.next();
+    is_readonly = true;
+  }
+  
   lex.check(tok_identifier, "field name");
   auto v_ident = createV<ast_identifier>(lex.cur_location(), lex.cur_str());
   lex.next();
@@ -1554,7 +1561,7 @@ static AnyV parse_struct_field(Lexer& lex) {
     default_value = parse_expr(lex);
   }
 
-  return createV<ast_struct_field>(loc, v_ident, default_value, declared_type);
+  return createV<ast_struct_field>(loc, v_ident, is_readonly, default_value, declared_type);
 }
 
 static V<ast_struct_body> parse_struct_body(Lexer& lex) {

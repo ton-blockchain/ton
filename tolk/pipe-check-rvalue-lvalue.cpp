@@ -18,6 +18,7 @@
 #include "ast.h"
 #include "ast-visitor.h"
 #include "platform-utils.h"
+#include "type-system.h"
 
 /*
  *   This pipe checks lvalue/rvalue for validity.
@@ -43,6 +44,11 @@ static void fire_error_modifying_immutable_variable(FunctionPtr cur_f, SrcLocati
   } else {
     throw ParseError(cur_f, loc, "modifying immutable variable `" + var_ref->name + "`");
   }
+}
+
+GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
+static void fire_error_modifying_readonly_field(FunctionPtr cur_f, SrcLocation loc, StructPtr struct_ref, StructFieldPtr field_ref) {
+  throw ParseError(cur_f, loc, "modifying readonly field `" + struct_ref->as_human_readable() + "." + field_ref->name + "`");
 }
 
 // validate a function used as rvalue, like `var cb = f`
@@ -159,10 +165,20 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
   void visit(V<ast_dot_access> v) override {
     // check for `immutableVal.field = rhs` or any other mutation of an immutable tensor/tuple/object
     // don't allow cheating like `((immutableVal!)).field = rhs`
+    // same here: check for `obj.readonlyField = rhs` or any other mutation of a readonly field
     if (v->is_lvalue) {
-      AnyExprV leftmost_obj = v->get_obj();
+      AnyExprV leftmost_obj = v;
       while (true) {
         if (auto as_dot = leftmost_obj->try_as<ast_dot_access>()) {
+          if (as_dot->is_target_struct_field()) {
+            StructFieldPtr field_ref = std::get<StructFieldPtr>(as_dot->target);
+            const TypeDataStruct* obj_type = as_dot->get_obj()->inferred_type->unwrap_alias()->try_as<TypeDataStruct>();
+            tolk_assert(obj_type);
+            if (field_ref->is_readonly) {
+              fire_error_modifying_readonly_field(cur_f, as_dot->loc, obj_type->struct_ref, field_ref);
+            }
+          }
+
           leftmost_obj = as_dot->get_obj();
         } else if (auto as_par = leftmost_obj->try_as<ast_parenthesized_expression>()) {
           leftmost_obj = as_par->get_expr();
@@ -192,6 +208,8 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
     if (v->is_rvalue && v->is_target_fun_ref()) {
       validate_function_used_as_noncall(cur_f, v, std::get<FunctionPtr>(v->target));
     }
+
+    parent::visit(v);
   }
 
   void visit(V<ast_function_call> v) override {

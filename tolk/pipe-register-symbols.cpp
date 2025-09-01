@@ -166,7 +166,7 @@ static StructPtr register_struct(V<ast_struct_declaration> v, StructPtr base_str
         v_field->error("redeclaration of field `" + field_name + "`");
       }
     }
-    fields.emplace_back(new StructFieldData(field_name, v_field->loc, i, v_field->type_node, v_field->default_value));
+    fields.emplace_back(new StructFieldData(field_name, v_field->loc, i, v_field->is_readonly, v_field->type_node, v_field->default_value));
   }
 
   PackOpcode opcode(0, 0);

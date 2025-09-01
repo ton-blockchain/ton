@@ -1,6 +1,8 @@
+fun eq<T>(v: T) { return v }
+
 fun checkCantMutateFieldOfImmutableTuple() {
     val ks = null as [int, [int, [int]]]?;
-    ks!.1.1.0 = 10;
+    eq(ks!.1.1 = [10]).0 = 10;
 }
 
 /**
