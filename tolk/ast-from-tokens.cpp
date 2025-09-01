@@ -1543,8 +1543,14 @@ static AnyV parse_function_declaration(Lexer& lex, const std::vector<V<ast_annot
 static AnyV parse_struct_field(Lexer& lex) {
   SrcLocation loc = lex.cur_location();
 
+  bool is_private = false;
+  if (lex.tok() == tok_private) {
+    lex.next();
+    is_private = true;
+  }
+
   bool is_readonly = false;
-  if (lex.tok() == tok_readonly) {
+  if (lex.tok() == tok_readonly) {    // `private readonly` ok, `readonly private` not
     lex.next();
     is_readonly = true;
   }
@@ -1561,7 +1567,7 @@ static AnyV parse_struct_field(Lexer& lex) {
     default_value = parse_expr(lex);
   }
 
-  return createV<ast_struct_field>(loc, v_ident, is_readonly, default_value, declared_type);
+  return createV<ast_struct_field>(loc, v_ident, is_private, is_readonly, default_value, declared_type);
 }
 
 static V<ast_struct_body> parse_struct_body(Lexer& lex) {

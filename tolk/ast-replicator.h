@@ -235,7 +235,7 @@ class ASTReplicator final {
     return createV<ast_parameter_list>(v->loc, clone(v->get_params()));
   }
   static V<ast_struct_field> clone(V<ast_struct_field> v) {
-    return createV<ast_struct_field>(v->loc, clone(v->get_identifier()), v->is_readonly, v->default_value ? clone(v->default_value) : nullptr, clone(v->type_node));
+    return createV<ast_struct_field>(v->loc, clone(v->get_identifier()), v->is_private, v->is_readonly, v->default_value ? clone(v->default_value) : nullptr, clone(v->type_node));
   }
   static V<ast_struct_body> clone(V<ast_struct_body> v) {
     return createV<ast_struct_body>(v->loc, clone(v->get_all_fields()));

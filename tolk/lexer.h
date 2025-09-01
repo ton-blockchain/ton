@@ -44,6 +44,7 @@ enum TokenType {
   tok_colon,
   tok_asm,
   tok_builtin,
+  tok_private,
   tok_readonly,
 
   tok_int_const,

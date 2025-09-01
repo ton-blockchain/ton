@@ -113,7 +113,7 @@ fun test106() {
     dict.addIntToIDict(3, 103);
 
     var m = createMapFromLowLevelDict<int32, int32>(dict);
-    val fk = m.findFirst().key;
+    val fk = m.findFirst().getKey();
     val fv = m.findFirst().loadValue();
     var t = createEmptyTuple();
     var r = m.findKeyLess(3);

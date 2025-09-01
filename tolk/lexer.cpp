@@ -380,6 +380,7 @@ struct ChunkIdentifierOrKeyword final : ChunkLexerBase {
         break;
       case 7:
         if (str == "builtin") return tok_builtin;
+        if (str == "private") return tok_private;
         break;
       case 8:
         if (str == "readonly") return tok_readonly;

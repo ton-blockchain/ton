@@ -468,7 +468,7 @@ fun test_TwoInts32And64() {
 
 @method_id(205)
 fun test_TwoInts32AndRef64() {
-    run<TwoInts32AndRef64>({ op: 123, query_id_ref: { tvmCell: beginCell().storeUint(255,64).endCell() } }, stringHexToSlice("0000007B").appendRef(stringHexToSlice("00000000000000FF")));
+    run<TwoInts32AndRef64>({ op: 123, query_id_ref: (255 as uint64).toCell() }, stringHexToSlice("0000007B").appendRef(stringHexToSlice("00000000000000FF")));
     return true;
 }
 
@@ -627,7 +627,7 @@ fun test_DifferentMix2() {
     assert(iae1.query_id_maybe_ref == null, 400);
     assert_slice_is_44_and_ref45(r1.rest);
 
-    run<DifferentMix2>({ iae: { tvmCell: IntAndEither32OrRef64{ op: 778, i32orRef: { tvmCell: Inner2{ i64_in_ref: 9919992 }.toCell() }, query_id_maybe_ref: Inner1{ query_id_ref: 889477 }.toCell() }.toCell() }, tic: { op: 123, amount: 500000 }, rest: beginCell().endCell().beginParse() },
+    run<DifferentMix2>({ iae: IntAndEither32OrRef64{ op: 778, i32orRef: Inner2{ i64_in_ref: 9919992 }.toCell(), query_id_maybe_ref: Inner1{ query_id_ref: 889477 }.toCell() }.toCell(), tic: { op: 123, amount: 500000 }, rest: beginCell().endCell().beginParse() },
         stringHexToSlice("0000007B307A120").appendRef(stringHexToSlice("0000030AE_").appendRef(stringHexToSlice("0000000000975DF8")).appendRef(stringHexToSlice("00000000000D9285"))));
     var r2 = DifferentMix2.fromSlice(stringHexToSlice("0000007B307A120").appendRef(stringHexToSlice("0000030AE_").appendRef(stringHexToSlice("0000000000975DF8")).appendRef(stringHexToSlice("00000000000D9285"))));
     val iae2 = r2.iae.load();

@@ -95,7 +95,7 @@ type bytesN = builtin
 /// - a key must be fixed-width; valid: `int32`, `uint64`, `address`, `bits256`, `Point`; invalid: `int`, `coins`
 /// - a value must be serializable; valid: `int32`, `coins`, `AnyStruct`, `Cell<AnyStruct>`; invalid: `int`, `builder`
 struct map<K, V> {
-    tvmDict: dict
+    private tvmDict: dict
 }
 
 /// `dict` is a low-level TVM dictionary.
@@ -123,7 +123,7 @@ type void = builtin
 /// Note, that `st = MyStorage.fromSlice(s)` does NOT deep-load any refs; `st.extra` is `Cell<T>`, not `T`;
 /// you should manually call `st.extra.load()` to get `T` (ExtraData in this example).
 struct Cell<T> {
-    tvmCell: cell
+    private readonly tvmCell: cell
 }
 
 
@@ -910,7 +910,7 @@ fun map<K, V>.iteratePrev(self, current: MapEntry<K, V>): MapEntry<K, V>
 /// }
 /// ```
 struct MapLookupResult<TValue> {
-    rawSlice: slice?        // holds encoded value, present if isFound
+    private readonly rawSlice: slice?        // holds encoded value, present if isFound
     isFound: bool
 }
 
@@ -938,8 +938,8 @@ fun MapLookupResult<slice>.loadValue(self): slice {
 /// }
 /// ```
 struct MapEntry<K, V> {
-    rawValue: slice?        // holds encoded value, present if isFound
-    key: K
+    private readonly rawValue: slice?        // holds encoded value, present if isFound
+    private readonly key: K
     isFound: bool
 }
 

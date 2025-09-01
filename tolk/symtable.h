@@ -300,6 +300,7 @@ struct AliasDefData final : Symbol {
 
 struct StructFieldData final : Symbol {
   int field_idx;
+  bool is_private;
   bool is_readonly;
   AnyTypeV type_node;
   TypePtr declared_type = nullptr;      // = resolved type_node
@@ -311,9 +312,10 @@ struct StructFieldData final : Symbol {
   void assign_resolved_type(TypePtr declared_type);
   void assign_default_value(AnyExprV default_value);
 
-  StructFieldData(std::string name, SrcLocation loc, int field_idx, bool is_readonly, AnyTypeV type_node, AnyExprV default_value)
+  StructFieldData(std::string name, SrcLocation loc, int field_idx, bool is_private, bool is_readonly, AnyTypeV type_node, AnyExprV default_value)
     : Symbol(std::move(name), loc)
     , field_idx(field_idx)
+    , is_private(is_private)
     , is_readonly(is_readonly)
     , type_node(type_node)
     , default_value(default_value) {

@@ -569,6 +569,47 @@ fun test41(rev: bool) {
     }
 }
 
+struct PrivPoint {
+    private readonly x: int
+    private y: int
+    z: int
+}
+
+fun PrivPoint.create(x: int, y: int): PrivPoint {
+    return { x, y, z: 0 }
+}
+
+fun PrivPoint.modifyY(mutate self, newY: int) {
+    self.y = newY
+}
+
+fun PrivPoint.getSum(self) {
+    return self.x + self.y + self.z
+}
+
+@method_id(142)
+fun test42() {
+    var p1 = PrivPoint.create(10, 20);
+    p1.modifyY(80);
+    p1.z += 5;
+    return (p1, p1.getSum());
+}
+
+struct PrivWithDefaults {
+    private a: int32 = 0
+    private b: bool = false
+}
+
+fun PrivWithDefaults.createA<U>(a: U) {
+    return PrivWithDefaults { a: a }
+}
+
+@method_id(143)
+fun test43() {
+    var obj: PrivWithDefaults = {};
+    return (obj, PrivWithDefaults.createA(20));
+}
+
 fun main(x: int8, y: MInt) {
     __expect_type(PointAlias{x,y}, "Point");
     __expect_type(Point{x,y} as Point, "Point");
@@ -628,6 +669,8 @@ type PointAlias = Point;
 @testcase | 140 |      | 2 1 4 3
 @testcase | 141 | -1   | 4 3 2 1
 @testcase | 141 | 0    | 3 4 1 2
+@testcase | 142 |      | 10 80 5 95
+@testcase | 143 |      | 0 0 20 0
 
 @fif_codegen
 """

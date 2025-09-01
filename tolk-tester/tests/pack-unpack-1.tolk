@@ -34,7 +34,7 @@ fun test1(value: int) {
 fun test2() {
     var t: JustInt32 = { value: 10 };
     var c = t.toCell();
-    var s = c.tvmCell.beginParse();
+    var s = c.beginParse();
     __expect_type(s.skipAny<JustInt32>(), "slice");
     s.assertEnd();
     return true;

@@ -20,6 +20,7 @@ set(TOLK_SOURCE
         pipe-check-inferred-types.cpp
         pipe-refine-lvalue-for-mutate.cpp
         pipe-check-rvalue-lvalue.cpp
+        pipe-check-private-fields.cpp
         pipe-check-pure-impure.cpp
         pipe-constant-folding.cpp
         pipe-optimize-boolean-expr.cpp

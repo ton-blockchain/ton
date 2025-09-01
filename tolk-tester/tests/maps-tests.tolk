@@ -204,7 +204,7 @@ fun test14(fromV: int) {
     m.set({v: 1}, 10);
     m.set({v: 2}, 20);
     m.set({v: 3}, 30);
-    return m.findKeyGreater({v: fromV}).key
+    return m.findKeyGreater({v: fromV}).getKey()
 }
 
 @method_id(115)
@@ -227,7 +227,7 @@ fun test16() {
 fun test17() {
     var m = createEmptyMap<bool, MInt32>();
     m.set(true, 123);
-    return m.findFirst().key;
+    return m.findFirst().getKey();
 }
 
 @method_id(118)
@@ -274,7 +274,7 @@ fun test22() {
     m.set(3, Point{x:30,y:30}.toCell());
     m.set(2, Point{x:20,y:20}.toCell());
     m.set(1, Point{x:10,y:10}.toCell());
-    return (m.findFirst().key, m.findLast().key, m.findKeyGreater(2).key, m.findKeyGreaterOrEqual(2).loadValue().load(), m.mustGet(2).load().x);
+    return (m.findFirst().getKey(), m.findLast().getKey(), m.findKeyGreater(2).getKey(), m.findKeyGreaterOrEqual(2).loadValue().load(), m.mustGet(2).load().x);
 }
 
 @method_id(123)
@@ -329,7 +329,7 @@ fun test26() {
 fun test27() {
     var m = createEmptyMap<int8, slice>();
     m.set(1, "");
-    return (m.findFirst().key, m.findFirst().loadValue().remainingBitsCount());
+    return (m.findFirst().getKey(), m.findFirst().loadValue().remainingBitsCount());
 }
 
 @method_id(128)
@@ -359,7 +359,7 @@ fun test29() {
         DataWithCell.fromSlice(m.mustGet(2)).payload, 
         m.get(3).loadValue().loadAny<DataWithCell>().p!.load(),
         m.get(3).loadValue().remainingRefsCount(),
-        m.findLast().key,
+        m.findLast().getKey(),
         m.findLast().loadValue().remainingRefsCount(),
     );
 }
@@ -406,7 +406,7 @@ fun test32() {
     m.set(stringHexToSlice("0304") as bits16, stringHexToSlice("bbbb") as bits16);
     val repl = m.replaceAndGetPrevious(stringHexToSlice("0304") as bits16, stringHexToSlice("0000") as bits16);
     var r = m.iteratePrev(m.findLast());
-    return ((r.key as slice).remainingBitsCount(), (r.key as slice).loadAny<Point>(), (r.loadValue() as slice).remainingBitsCount(), repl.isFound, (repl.loadValue() as slice).loadUint(8));
+    return ((r.getKey() as slice).remainingBitsCount(), (r.getKey() as slice).loadAny<Point>(), (r.loadValue() as slice).remainingBitsCount(), repl.isFound, (repl.loadValue() as slice).loadUint(8));
 }
 
 @method_id(133)

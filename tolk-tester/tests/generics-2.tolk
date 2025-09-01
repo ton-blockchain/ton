@@ -463,6 +463,49 @@ fun test27() {
     __expect_type(pp2, "Pair<coins, coins?> | Wrapper<int>");
 }
 
+struct Box<T> {
+    private readonly item: T
+}
+
+fun Box<T>.create(v: T) {
+    return Box { item: v }
+}
+
+fun Box<T>.itemEquals(self, cmp: T) {
+    return self.item == cmp
+}
+
+fun Box<T>.itemEqualsTo<U>(self, cmp: Box<U>) {
+    return self.item == cmp.item
+}
+
+fun Box<T>.clone<U>(self) {
+    var b = Box { item: self.item as U };
+    b.item;
+    return b;
+}
+
+fun Box<KKK>.areEqual(b1: Box<KKK>, b2: Box<KKK>) {
+    return b1.item == b2.item
+}
+
+fun Box<int32>.specifiedGetItem(self) {
+    return self.item
+}
+
+@method_id(128)
+fun test28() {
+    var b1 = Box<int32>.create(5);
+    var b2 = Box<int256>.create(4);
+    var b3 = b2.clone<int>();
+    __expect_type(b3, "Box<int>");
+    return (
+        b1.itemEquals(0), b2.itemEquals(4),
+        b1.itemEqualsTo(b2), b2.itemEqualsTo(b3),
+        Box<int32>.areEqual(b1, b1),
+    );
+}
+
 
 fun main(c: Wrapper<slice>, d: WrappedInt) {
     __expect_type(c, "Wrapper<slice>");
@@ -507,6 +550,7 @@ fun main(c: Wrapper<slice>, d: WrappedInt) {
 @testcase | 120 |         | (null) typeid-9 777 (null) (null) 0 typeid-10 -1 -1
 @testcase | 123 |         | 10 10 10 10 10
 @testcase | 126 |         | 0 0 0 (null) 777 0 typeid-12 (null) typeid-12 (null) 0
+@testcase | 128 |         | 0 -1 0 -1 -1
 
 
 @fif_codegen

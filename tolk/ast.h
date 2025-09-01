@@ -1353,15 +1353,16 @@ template<>
 // ast_struct_field is one field at struct declaration
 // example: `struct Point { x: int, y: int }` is struct declaration, its body contains 2 fields
 struct Vertex<ast_struct_field> final : ASTOtherVararg {
+  bool is_private;                // declared as `private field: int`
   bool is_readonly;               // declared as `readonly field: int`
   AnyTypeV type_node;             // always exists, typing struct fields is mandatory
   AnyExprV default_value;         // nullptr if no default
 
   auto get_identifier() const { return children.at(0)->as<ast_identifier>(); }
 
-  Vertex(SrcLocation loc, V<ast_identifier> name_identifier, bool is_readonly, AnyExprV default_value, AnyTypeV type_node)
+  Vertex(SrcLocation loc, V<ast_identifier> name_identifier, bool is_private, bool is_readonly, AnyExprV default_value, AnyTypeV type_node)
     : ASTOtherVararg(ast_struct_field, loc, {name_identifier})
-    , is_readonly(is_readonly), type_node(type_node), default_value(default_value) {}
+    , is_private(is_private), is_readonly(is_readonly), type_node(type_node), default_value(default_value) {}
 };
 
 template<>
