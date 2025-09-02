@@ -1410,11 +1410,40 @@ fun AutoDeployAddress.buildAddress(self): builder
 fun AutoDeployAddress.addressMatches(self, addr: address): bool
     builtin
 
+/// `BounceMode` represents behavior of an outgoing message when a receiver failed to handle it.
+/// If you specify to bounce a message, don't forget about the `onBouncedMessage` entrypoint.
+/// ```
+/// val outMsg = createMessage({
+///     bounce: BounceMode.Only256BitsOfBody,
+///     ...
+/// });
+/// 
+/// fun onBouncedMessage(in: InMessageBounced) {
+///     // in.bouncedBody is populated depending on BounceMode
+///     // for instance, "Only256BitsOfBody" means 
+///     // "bounced prefix 0xFFFFFFFF" and 256 bits of data
+///     in.bouncedBody.skipBouncedPrefix();
+///     val originalOpcode = in.bouncedBody.loadUint(32);
+///     ...
+/// }
+/// ```
+enum BounceMode {
+    NoBounce                // a message will just disappear on error
+    Only256BitsOfBody       // `in.bouncedBody` will be "0xFFFFFFFF" and the first 256 bits of outgoing body (most cheap)
+    RichBounce              // `in.bouncedBody` will be struct RichBounceBody (most expensive, but allows accessing all data sent)
+    RichBounceOnlyRootCell  // `in.bouncedBody` will be struct RichBounceBody without refs in `originalBody`
+}
+
+/// Before TVM-12, `bounce` was only true or false.
+/// Now, use `enum BounceMode` instead. "true" behaves like `Only256BitsOfBody`.
+@deprecated("use `BounceMode.NoBounce` instead of `false`")
+type OldBounceMode = bool
+
 /// Options for creating an outgoing message.
 /// Consider [createMessage] for examples.
 struct CreateMessageOptions<TBody = never> {
-    /// whether a message will bounce back on error
-    bounce: bool
+    /// whether a message will bounce back on error, and what piece of outgoing `body` it will contain
+    bounce: BounceMode | OldBounceMode
     /// message value: attached tons (or tons + extra currencies)
     value: coins | (coins, ExtraCurrenciesMap)
     /// destination is either a provided address, or is auto-calculated by stateInit
@@ -1430,7 +1459,7 @@ struct CreateMessageOptions<TBody = never> {
 /// Typically, you just send it. In advanced scenarios, you can estimate fees or even postpone sending.
 /// ```
 /// val reply = createMessage({
-///     bounce: false,
+///     bounce: BounceMode.NoBounce,
 ///     value: ton("0.05"),
 ///     dest: senderAddress,
 ///     body: RequestedInfo { ... }    // note: no toCell! just pass an object
@@ -1675,10 +1704,12 @@ struct InMessage {
 
 /// `InMessageBounced` is an input for `onBouncedMessage`.
 /// Very similar to a non-bounced input [InMessage].
-/// Note, that `bouncedBody` is currently 256 bits: 0xFFFFFFFF + 224 bits from the originally sent message.
-/// Parse it with care!
+/// Note that `bouncedBody` is populated depending on [BounceMode] specified for [createMessage].
 /// ```
 /// fun onBouncedMessage(in: InMessageBounced) {
+///     // in.bouncedBody is populated depending on BounceMode
+///     // for instance, "Only256BitsOfBody" means 
+///     // "bounced prefix 0xFFFFFFFF" and 256 bits of data
 ///     in.bouncedBody.skipBouncedPrefix();
 ///     val originalOpcode = in.bouncedBody.loadUint(32);
 /// ```
@@ -1689,10 +1720,48 @@ struct InMessageBounced {
     originalForwardFee: coins       // comission that the sender has payed to send this message
     createdLt: uint64               // logical time when a message was created (and bounced)
     createdAt: uint32               // unixtime when a message was created (and bounced)
-    bouncedBody: slice              // currently 256 bits: 0xFFFFFFFF + 224 bits sent originally
+    bouncedBody: slice              // populated depending on `BounceMode` for `createMessage`
+}
+
+/// When you use [createMessage] with "rich bounce mode", and a message is bounced,
+/// then `in.bouncedBody` inside `onBouncedMessage` has this format.
+/// ```
+/// fun onBouncedMessage(in: InMessageBounced) {
+///     // suppose you ALWAYS use BounceMode.RichBounce in createMessage
+///     // so you parse ALL bounces as follows
+///     val rich = lazy RichBounceBody.fromSlice(in.bouncedBody);
+///     // handle rich.originalBody, probably with lazy match
+///     // use rich.xxx to get exitCode, gasUsed, and so on
+/// ```
+struct (0xfffffffe) RichBounceBody {
+    originalBody: cell                              // a cell with original body, but for `RichBounceOnlyRootCell` without refs (cheaper)
+    originalInfo: Cell<RichBounceOriginalMsgInfo>   // some fields of an original (outgoing) message
+    bouncedByPhase: uint8                           // see docs
+    exitCode: int32                                 // exception code from `throw` or TVM internals
+    computePhase: RichBounceComputePhaseInfo?       // filled if compute phase executed
+}
+
+/// Describes compute phase details of a bounced message. 
+struct RichBounceComputePhaseInfo {
+    gasUsed: uint32
+    vmSteps: uint32
+}
+
+/// Describes original outgoing message fields (besides body) of a bounced message.
+/// ```
+/// createMessage({
+///     bounce: BounceMode.RichBounce,
+///     value: ton("0.05")   // it will be `valueCoins` if this message is bounced
+/// ```
+struct RichBounceOriginalMsgInfo {
+    valueCoins: coins
+    valueExtra: ExtraCurrenciesMap
+    createdLt: uint64
+    createdAt: uint32
 }
 
 /// Skip 0xFFFFFFFF prefix (when a message is bounced).
+/// Used when parsing `in.bounceBody` for "not rich" `BounceMode.Only256BitsOfBody` bounces.
 @pure
 fun slice.skipBouncedPrefix(mutate self): self
     asm "32 LDU" "NIP"

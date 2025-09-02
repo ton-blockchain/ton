@@ -91,10 +91,10 @@ std::vector<var_idx_t> generate_createMessage(FunctionPtr called_f, CodeBlob& co
   StructPtr s_Options = lookup_global_symbol("CreateMessageOptions")->try_as<StructPtr>();
   StructPtr s_AutoDeployAddress = lookup_global_symbol("AutoDeployAddress")->try_as<StructPtr>();
 
-  const TypeDataBool* t_bounce = s_Options->find_field("bounce")->declared_type->try_as<TypeDataBool>();
+  const TypeDataUnion* t_bounce = s_Options->find_field("bounce")->declared_type->try_as<TypeDataUnion>();
   const TypeDataUnion* t_dest = s_Options->find_field("dest")->declared_type->try_as<TypeDataUnion>();
   const TypeDataUnion* t_value = s_Options->find_field("value")->declared_type->try_as<TypeDataUnion>();
-  tolk_assert(t_bounce);
+  tolk_assert(t_bounce && t_bounce->get_width_on_stack() == (1+1) && t_bounce->size() == 2);
   tolk_assert(t_dest && t_dest->get_width_on_stack() == (1+3+3+1) && t_dest->size() == 4);
   tolk_assert(t_value && t_value->get_width_on_stack() == (2+1) && t_value->size() == 2);
 
@@ -112,6 +112,9 @@ std::vector<var_idx_t> generate_createMessage(FunctionPtr called_f, CodeBlob& co
   std::vector ir_body   = next_slice(bodyT->get_width_on_stack());
   tolk_assert(offset == static_cast<int>(rvect.size()));
 
+  // since TVM 12, field `bounce` is a union: `bounce: BounceMode | bool`
+  std::vector ir_bounce_is_bool = pre_compile_is_type(code, t_bounce, TypeDataBool::create(), ir_bounce, loc, "(bounce-is-bool)");
+  
   // field `dest` is `dest: address | AutoDeployAddress | (int8, uint256) | builder`;
   // struct AutoDeployAddress { workchain: int8; stateInit: ContractState | cell; toShard: AddressShardingOptions?; }
   // struct ContractState { code: cell; data: cell; }
@@ -132,7 +135,7 @@ std::vector<var_idx_t> generate_createMessage(FunctionPtr called_f, CodeBlob& co
   bool body_already_ref = bodyT == TypeDataCell::create() || is_type_cellT(bodyT);
   // if `body` is `UnsafeBodyNoRef<T>`
   bool body_force_no_ref = is_type_UnsafeBodyNoRef_T(bodyT);
-  // max size of all fields before body = 514 (502 CommonMsgInfoRelaxed + 12 StateInit), so 500 bits will fit
+  // max size of all fields before body = 522 (510 CommonMsgInfoRelaxed + 12 StateInit), so 500 bits will fit
   bool body_100p_fits_no_ref = body_size.max_bits <= 500 && body_size.max_refs < 2;
   // final decision: 1 (^X) or 0 (X)
   bool body_store_as_ref = body_already_ref || (!body_100p_fits_no_ref && !body_force_no_ref);
@@ -160,7 +163,21 @@ std::vector<var_idx_t> generate_createMessage(FunctionPtr called_f, CodeBlob& co
   // fill `ihr_disabled:Bool` always 1
   ctx.storeUint(ir_one, 1);
   // fill `bounce:Bool` from p.bounce (if it's constant (most likely), it will be concatenated with prev and next)
-  ctx.storeBool(ir_bounce[0]);
+  Op& if_oldBounceFormat = code.emplace_back(loc, Op::_If, ir_bounce_is_bool);
+  {
+    // input is `bounce: true` or false (old bounce mode), so 0-th slot is 0 or -1
+    code.push_set_cur(if_oldBounceFormat.block0);
+    ctx.storeBool(ir_bounce[0]);
+    code.close_pop_cur(loc);
+  }
+  {
+    // input is `bounce: BounceMode.*` (enum), then write 0 for `NoBounce=0` or 1 otherwise
+    code.push_set_cur(if_oldBounceFormat.block1);
+    std::vector ir_not_NoBounce = code.create_tmp_var(TypeDataInt::create(), loc, "(not-eq-NoBounce)");
+    code.emplace_back(loc, Op::_Call, ir_not_NoBounce, std::vector{ir_bounce[0], ir_zero}, lookup_function("_!=_"));
+    ctx.storeBool(ir_not_NoBounce[0]);
+    code.close_pop_cur(loc);
+  }  
   // fill `bounced:Bool` + `src:MsgAddress` 00
   ctx.storeUint(ir_zero, 1 + 2);
 
@@ -287,8 +304,45 @@ std::vector<var_idx_t> generate_createMessage(FunctionPtr called_f, CodeBlob& co
     code.close_pop_cur(loc);
   }
 
-  // tail of CommonMsgInfoRelaxed: 4*0 ihr_fee + 4*0 fwd_fee + 64*0 created_lt + 32*0 created_at
-  ctx.storeUint(ir_zero, 4 + 4 + 64 + 32);
+  // fill `extra_flags:Grams` (formerly `ihr_fee` always 0, now renamed and used for "new bounce format" only)
+  Op& if_oldBounceFormat2 = code.emplace_back(loc, Op::_If, ir_bounce_is_bool);
+  {
+    code.push_set_cur(if_oldBounceFormat2.block0);
+    ctx.storeCoins(ir_zero);    // extra_flags = 0
+    code.close_pop_cur(loc);
+  }
+  {
+    code.push_set_cur(if_oldBounceFormat2.block1);
+    std::vector ir_eq_RichBounce = code.create_tmp_var(TypeDataInt::create(), loc, "(eq-RichBounce)");
+    code.emplace_back(loc, Op::_Call, ir_eq_RichBounce, std::vector{ir_bounce[0], code.create_int(loc, 2, "(enum-RichBounce)")}, lookup_function("_==_"));
+    Op& if_RichBounce = code.emplace_back(loc, Op::_If, ir_eq_RichBounce);
+    {
+      code.push_set_cur(if_RichBounce.block0);
+      ctx.storeCoins(code.create_int(loc, 3, "(extra-flags-3)"));
+      code.close_pop_cur(loc);
+    }
+    {
+      code.push_set_cur(if_RichBounce.block1);
+      std::vector ir_eq_RichBounceRoot = code.create_tmp_var(TypeDataInt::create(), loc, "(eq-ir_eq_RichBounceRoot)");
+      code.emplace_back(loc, Op::_Call, ir_eq_RichBounceRoot, std::vector{ir_bounce[0], code.create_int(loc, 3, "(enum-RichBounceRoot)")}, lookup_function("_==_"));
+      Op& if_RichBounceRoot = code.emplace_back(loc, Op::_If, ir_eq_RichBounceRoot);
+      {
+        code.push_set_cur(if_RichBounceRoot.block0);
+        ctx.storeCoins(code.create_int(loc, 1, "(extra-flags-1)"));
+        code.close_pop_cur(loc);
+      }
+      {
+        code.push_set_cur(if_RichBounceRoot.block1);
+        ctx.storeCoins(ir_zero);    // extra_flags = 0
+        code.close_pop_cur(loc);
+      }
+      code.close_pop_cur(loc);
+    }
+    code.close_pop_cur(loc);
+  }
+
+  // tail of CommonMsgInfoRelaxed: 4*0 fwd_fee + 64*0 created_lt + 32*0 created_at
+  ctx.storeUint(ir_zero, 4 + 64 + 32);
 
   // fill `init: (Maybe (Either StateInit ^StateInit))`
   // it's present only if p.dest contains StateInit
