@@ -1898,8 +1898,7 @@ fun main() {
     IFJMP:<{                    //  '14
       NEWC                      //  '14 b
       STSLICE                   //  b
-      ENDC                      //  '21
-      CTOS                      //  s
+      BTOS                      //  s
 """
 
 @fif_codegen
@@ -1928,7 +1927,7 @@ fun main() {
     NEWC
     8 STI
     8 STI
-    ENDC
+    BTOS
 """
 
 @fif_codegen

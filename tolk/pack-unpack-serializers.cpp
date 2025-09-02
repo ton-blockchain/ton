@@ -505,15 +505,7 @@ struct S_RemainingBitsAndRefs final : ISerializer {
   }
 
   void skip(const UnpackContext* ctx, CodeBlob& code, SrcLocation loc) override {
-    FunctionPtr f_beginCell = lookup_function("beginCell");
-    FunctionPtr f_endCell = lookup_function("builder.endCell");
-    FunctionPtr f_beginParse = lookup_function("cell.beginParse");
-
-    std::vector ir_builder = code.create_tmp_var(TypeDataBuilder::create(), loc, "(tmp-builder)");
-    std::vector ir_cell = code.create_tmp_var(TypeDataCell::create(), loc, "(tmp-cell)");
-    code.emplace_back(loc, Op::_Call, ir_builder, std::vector<var_idx_t>{}, f_beginCell);
-    code.emplace_back(loc, Op::_Call, ir_cell, ir_builder, f_endCell);
-    code.emplace_back(loc, Op::_Call, ctx->ir_slice, ir_cell, f_beginParse);
+    unpack(ctx, code, loc);
   }
 
   PackSize estimate(const EstimateContext* ctx) override {

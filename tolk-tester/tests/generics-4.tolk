@@ -191,8 +191,7 @@ fun main() {
 @fif_codegen
 """
   test6() PROC:<{               //
-    NEWC                        //  '8
-    ENDC                        //  p.init.USlot2
+    <b b> PUSHREF               //  p.init.USlot2
     -1 PUSHINT                  //  p.init.USlot2 '11=-1
     FALSE                       //  p.init.USlot2 '11=-1 '12
     TRUE                        //  p.init.USlot2 '11=-1 '12 '14

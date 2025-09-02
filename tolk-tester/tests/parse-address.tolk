@@ -13,6 +13,7 @@ fun verifyAddr(addr: address, workchain: int, number: int) {
     assert (wc == workchain) throw 111;
     assert (h == number) throw 111;
     assert (addr.getWorkchain() == workchain) throw 111;
+    assert (address.fromWorkchainAndHash(workchain, number) == addr) throw 113;
 
     var s = addr as slice;
     assert (s.remainingBitsCount() == 3 + 8 + 256) throw 112;

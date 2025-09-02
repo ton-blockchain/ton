@@ -579,6 +579,14 @@ std::vector<var_idx_t> generate_address_buildInAnotherShard(FunctionPtr called_f
   return ir_builder;
 }
 
+// fun address.calculateSameAddressInAnotherShard(self, options: AddressShardingOptions): address
+std::vector<var_idx_t> generate_address_calculateInAnotherShard(FunctionPtr called_f, CodeBlob& code, SrcLocation loc, const std::vector<std::vector<var_idx_t>>& args) {
+  // it's "build address" + BTOS (until a deprecated "build" function removed)
+  std::vector ir_builder = generate_address_buildInAnotherShard(called_f, code, loc, args);
+  code.emplace_back(loc, Op::_Call, ir_builder, ir_builder, lookup_function("builder.toSlice"));
+  return ir_builder;
+}
+
 // fun AutoDeployAddress.buildAddress(self): builder
 std::vector<var_idx_t> generate_AutoDeployAddress_buildAddress(FunctionPtr called_f, CodeBlob& code, SrcLocation loc, const std::vector<std::vector<var_idx_t>>& ir_options) {
   IR_AutoDeployAddress ir_self(code, loc, ir_options[0]);
@@ -655,6 +663,14 @@ std::vector<var_idx_t> generate_AutoDeployAddress_buildAddress(FunctionPtr calle
     code.close_pop_cur(loc);
   }
 
+  return ir_builder;
+}
+
+// fun AutoDeployAddress.calculateAddress(self): address
+std::vector<var_idx_t> generate_AutoDeployAddress_calculateAddress(FunctionPtr called_f, CodeBlob& code, SrcLocation loc, const std::vector<std::vector<var_idx_t>>& ir_options) {
+  // it's "build address" + BTOS (until a deprecated "build" function removed)
+  std::vector ir_builder = generate_AutoDeployAddress_buildAddress(called_f, code, loc, ir_options);
+  code.emplace_back(loc, Op::_Call, ir_builder, ir_builder, lookup_function("builder.toSlice"));
   return ir_builder;
 }
 

@@ -908,6 +908,12 @@ struct Optimizer {
   bool detect_rewrite_SWAP_STxxxR();
   bool detect_rewrite_NOT_THROWIF();
   bool detect_rewrite_DICTSETB_DICTSET();
+  bool detect_rewrite_ENDC_CTOS();
+  bool detect_rewrite_ENDC_HASHCU();
+  bool detect_rewrite_NEWC_BTOS();
+  bool detect_rewrite_NEWC_STSLICECONST_BTOS();
+  bool detect_rewrite_NEWC_ENDC_CTOS();
+  bool detect_rewrite_NEWC_ENDC();
 
   AsmOpConsList extract_code();
 };

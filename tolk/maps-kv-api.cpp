@@ -230,9 +230,7 @@ public:
         PackContext ctx(code, loc, ir_builder, create_default_PackOptions(code, loc));
         ctx.generate_pack_any(TKey, std::vector(*exact_key));
         std::vector ir_slice = code.create_tmp_var(TypeDataSlice::create(), loc, "(map-key)");
-        // todo BTOS
-        code.emplace_back(loc, Op::_Call, ir_slice, ir_builder, lookup_function("builder.endCell"));
-        code.emplace_back(loc, Op::_Call, ir_slice, ir_slice, lookup_function("cell.beginParse"));
+        code.emplace_back(loc, Op::_Call, ir_slice, ir_builder, lookup_function("builder.toSlice"));
         key_irv = ir_slice[0];
       }
     }

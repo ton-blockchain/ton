@@ -191,8 +191,7 @@ fun main() {
   test4() PROC:<{               //  v
     NEWC                        //  v b
     3 STU                       //  b
-    ENDC                        //  '4
-    CTOS                        //  s
+    BTOS                        //  s
     3 LDU                       //  '9 s
     ENDS                        //  '9
   }>

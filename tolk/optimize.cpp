@@ -458,6 +458,117 @@ bool Optimizer::detect_rewrite_DICTSETB_DICTSET() {
   return false;
 }
 
+// pattern `ENDC` + `CTOS` -> `BTOS` (a new TVM 12 instruction "builder to slice")
+bool Optimizer::detect_rewrite_ENDC_CTOS() {
+  bool first_endc = op_[0]->is_custom() && op_[0]->op == "ENDC";
+  if (!first_endc || pb_ < 2) {
+    return false;
+  }
+
+  bool next_ctos = op_[1]->is_custom() && op_[1]->op == "CTOS";
+  if (!next_ctos) {
+    return false;
+  }
+
+  p_ = 2;
+  q_ = 1;
+  oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->loc, "BTOS", 1, 1));
+  return true;
+}
+
+// pattern `ENDC` + `HASHCU` -> `HASHBU` (a new TVM 12 instruction "hash of a builder")
+bool Optimizer::detect_rewrite_ENDC_HASHCU() {
+  bool first_endc = op_[0]->is_custom() && op_[0]->op == "ENDC";
+  if (!first_endc || pb_ < 2) {
+    return false;
+  }
+
+  bool next_hashcu = op_[1]->is_custom() && op_[1]->op == "HASHCU";
+  if (!next_hashcu) {
+    return false;
+  }
+
+  p_ = 2;
+  q_ = 1;
+  oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->loc, "HASHBU", 1, 1));
+  return true;
+}
+
+// pattern `NEWC` + `BTOS` -> `x{} PUSHSLICE`
+bool Optimizer::detect_rewrite_NEWC_BTOS() {
+  bool first_newc = op_[0]->is_custom() && op_[0]->op == "NEWC";
+  if (!first_newc || pb_ < 2) {                               
+    return false;
+  }
+
+  bool next_btos = op_[1]->is_custom() && op_[1]->op == "BTOS";
+  if (!next_btos) {
+    return false;
+  }
+
+  p_ = 2;
+  q_ = 1;
+  oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->loc, "x{} PUSHSLICE", 0, 1));
+  return true;
+}
+
+// pattern `NEWC` + `x{...} STSLICECONST` + `BTOS` -> `x{...} PUSHSLICE`
+bool Optimizer::detect_rewrite_NEWC_STSLICECONST_BTOS() {
+  bool first_newc = op_[0]->is_custom() && op_[0]->op == "NEWC";
+  if (!first_newc || pb_ < 3) {                               
+    return false;
+  }
+
+  bool next_stsliceconst = op_[1]->is_custom() && op_[1]->op.ends_with(" STSLICECONST");
+  bool next_btos = op_[2]->is_custom() && op_[2]->op == "BTOS";
+  if (!next_stsliceconst || !next_btos) {
+    return false;
+  }
+
+  std::string op_pushslice = op_[1]->op.substr(0, op_[1]->op.rfind(' ')) + " PUSHSLICE";
+  p_ = 3;
+  q_ = 1;
+  oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->loc, op_pushslice, 0, 1));
+  return true;
+}
+
+
+// pattern `NEWC` + `ENDC` + `CTOS` -> `x{} PUSHSLICE`
+bool Optimizer::detect_rewrite_NEWC_ENDC_CTOS() {
+  bool first_newc = op_[0]->is_custom() && op_[0]->op == "NEWC";
+  if (!first_newc || pb_ < 3) {                               
+    return false;
+  }
+
+  bool next_endc = op_[1]->is_custom() && op_[1]->op == "ENDC";
+  bool next_ctos = op_[2]->is_custom() && op_[2]->op == "CTOS";
+  if (!next_endc || !next_ctos) {                                          
+    return false;
+  }
+
+  p_ = 3;
+  q_ = 1;
+  oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->loc, "x{} PUSHSLICE", 0, 1));
+  return true;
+}
+
+// pattern `NEWC` + `ENDC` -> `<b b> PUSHREF`
+bool Optimizer::detect_rewrite_NEWC_ENDC() {
+  bool first_newc = op_[0]->is_custom() && op_[0]->op == "NEWC";
+  if (!first_newc || pb_ < 2) {                               
+    return false;
+  }
+
+  bool next_endc = op_[1]->is_custom() && op_[1]->op == "ENDC";
+  if (!next_endc) {
+    return false;
+  }
+
+  p_ = 2;
+  q_ = 1;
+  oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->loc, "<b b> PUSHREF", 0, 1));
+  return true;
+}
 
 bool Optimizer::is_push_const(int* i, int* c) const {
   return pb_ >= 3 && pb_ <= l2_ && tr_[pb_ - 1].is_push_const(i, c);
@@ -882,6 +993,9 @@ bool Optimizer::find_at_least(int pb) {
          detect_rewrite_LDxx_DROP() ||
          detect_rewrite_SWAP_symmetric() || detect_rewrite_SWAP_PUSH_STUR() || detect_rewrite_SWAP_STxxxR() ||
          detect_rewrite_NOT_THROWIF() || detect_rewrite_DICTSETB_DICTSET() ||
+         detect_rewrite_ENDC_CTOS() || detect_rewrite_ENDC_HASHCU() ||
+         detect_rewrite_NEWC_BTOS() || detect_rewrite_NEWC_STSLICECONST_BTOS() ||
+         detect_rewrite_NEWC_ENDC_CTOS() || detect_rewrite_NEWC_ENDC() ||
          (!(mode_ & 1) &&
           ((is_rot() && rewrite(AsmOp::Custom(loc, "ROT", 3, 3))) || (is_rotrev() && rewrite(AsmOp::Custom(loc, "-ROT", 3, 3))) ||
            (is_2dup() && rewrite(AsmOp::Custom(loc, "2DUP", 2, 4))) ||

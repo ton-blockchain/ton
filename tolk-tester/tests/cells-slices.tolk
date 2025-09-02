@@ -50,7 +50,7 @@ fun test2(): [int,int,int] {
     // operator ! here and below is used just for testing purposes, it doesn't affect the result
     b!.myStoreInt(3, 32);
 
-    var cs: slice = b.endCell().beginParse();
+    var cs: slice = b.toSlice();
     var one: int = cs.myLoadInt(32);
     var (two: int, three: int) = (cs.myLoadInt(32), cs.myLoadInt(32));
 
@@ -59,7 +59,7 @@ fun test2(): [int,int,int] {
 
 @method_id(103)
 fun test3(ret: int): int {
-    val same: int = beginCell()!.storeUint(ret,32).endCell().beginParse().loadUint(32);
+    val same: int = beginCell()!.storeUint(ret,32).toSlice().loadUint(32);
     return same;
 }
 
@@ -255,7 +255,7 @@ fun test18() {
   if (true) {
       b.storeInt(x + 2, 8).storeUint(x = match (x) { 24 => 5, else => 0 }, 4);
   }
-  var s = b.endCell().beginParse();
+  var s = [b.endCell()].0.beginParse();
   return (s.loadUint(14), s.loadInt(8), s.loadUint(4));
 }
 
@@ -274,7 +274,7 @@ fun test20() {
   var b = true ? beginCell() : null;
   b.storeBool(true).storeBool(x);
   b = b.storeBool(true).storeUint(0, n *= 2).storeBool(!!true).storeCoins(0);
-  var s = b.endCell().beginParse();
+  var s = b.toSlice();
   return (s.loadBool(), s.loadBool(), s.loadBool(), s.loadUint(8), s.loadBool(), s.loadCoins());
 }
 
@@ -469,6 +469,26 @@ fun test36() {
     return beginCell().storeInt(0, 0)
 }
 
+@method_id(137)
+fun test37() {
+    return beginCell().storeInt(12, 32).endCell().hash() & 0xFFFF
+}
+
+@method_id(138)
+fun test38() {
+    return beginCell().endCell().beginParse().remainingBitsCount()
+}
+
+@method_id(139)
+fun test39() {
+    return beginCell().endCell()
+}
+
+@method_id(140)
+fun test40() {
+    return beginCell().toSlice().remainingBitsAndRefsCount()
+}
+
 fun main(): int {
     return 0;
 }
@@ -512,22 +532,22 @@ fun main(): int {
 @testcase | 135 | 7   | 5
 @testcase | 135 | 8   | 5
 @testcase | 136 |     | BC{0000}
+@testcase | 137 |     | 39065
+@testcase | 138 |     | 0
+@testcase | 140 |     | 0 0
 
 We test that consequtive storeInt/storeUint with constants are joined into a single number
 
 @fif_codegen
 """
   test6() PROC:<{
-    NEWC
-    x{000000010000000200000003} STSLICECONST
-    ENDC        //  '11
+    x{000000010000000200000003} PUSHSLICE
 """
 
 @fif_codegen
 """
   test17() PROC:<{
-    NEWC
-    x{107b} STSLICECONST
+    x{107b} PUSHSLICE
 """
 
 @fif_codegen
@@ -552,8 +572,7 @@ We test that consequtive storeInt/storeUint with constants are joined into a sin
 @fif_codegen
 """
   test20() PROC:<{
-    NEWC
-    x{a010} STSLICECONST
+    x{a010} PUSHSLICE
 """
 
 @fif_codegen
@@ -698,6 +717,37 @@ We test that consequtive storeInt/storeUint with constants are joined into a sin
     NEWC
     OVER
     STIX
+  }>
+"""
+
+@fif_codegen
+"""
+  test37() PROC:<{
+    NEWC
+    x{0000000c} STSLICECONST
+    HASHBU
+"""
+
+@fif_codegen
+"""
+  test38() PROC:<{ 
+    x{} PUSHSLICE
+    SBITS
+  }>
+"""
+
+@fif_codegen
+"""
+  test39() PROC:<{ 
+    <b b> PUSHREF
+  }>
+"""
+
+@fif_codegen
+"""
+  test40() PROC:<{ 
+    x{} PUSHSLICE
+    SBITREFS
   }>
 """
 

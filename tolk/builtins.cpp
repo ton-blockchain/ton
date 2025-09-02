@@ -1323,7 +1323,9 @@ GenerateOpsImpl generate_T_estimatePackSize;
 GenerateOpsImpl generate_createMessage;
 GenerateOpsImpl generate_createExternalLogMessage;
 GenerateOpsImpl generate_address_buildInAnotherShard;
+GenerateOpsImpl generate_address_calculateInAnotherShard;
 GenerateOpsImpl generate_AutoDeployAddress_buildAddress;
+GenerateOpsImpl generate_AutoDeployAddress_calculateAddress;
 GenerateOpsImpl generate_AutoDeployAddress_addressMatches;
 
 GenerateOpsImpl generate_mapKV_exists;
@@ -1620,6 +1622,9 @@ void define_builtins() {
   define_builtin_method("address.buildSameAddressInAnotherShard", Address, {Address, AddressShardingOptions}, Builder, nullptr,
                                 generate_address_buildInAnotherShard,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf);
+  define_builtin_method("address.calculateSameAddressInAnotherShard", Address, {Address, AddressShardingOptions}, Address, nullptr,
+                                generate_address_calculateInAnotherShard,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf);
   define_builtin_method("debug.print", debug, {typeT}, Unit, declGenericT,
                                 compile_debug_print_to_string,
                                 FunctionData::flagAllowAnyWidthT);
@@ -1677,6 +1682,9 @@ void define_builtins() {
                                 FunctionData::flagAllowAnyWidthT);
   define_builtin_method("AutoDeployAddress.buildAddress", AutoDeployAddress, {AutoDeployAddress}, Builder, nullptr,
                                 generate_AutoDeployAddress_buildAddress,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf);
+  define_builtin_method("AutoDeployAddress.calculateAddress", AutoDeployAddress, {AutoDeployAddress}, Address, nullptr,
+                                generate_AutoDeployAddress_calculateAddress,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf);
   define_builtin_method("AutoDeployAddress.addressMatches", AutoDeployAddress, {AutoDeployAddress, Address}, Bool, nullptr,
                                 generate_AutoDeployAddress_addressMatches,
@@ -1833,8 +1841,11 @@ void patch_builtins_after_stdlib_loaded() {
   TypePtr AutoDeployAddress = TypeDataStruct::create(struct_ref_AutoDeployAddress);
 
   lookup_function("address.buildSameAddressInAnotherShard")->mutate()->parameters[1].declared_type = AddressShardingOptions;
+  lookup_function("address.calculateSameAddressInAnotherShard")->mutate()->parameters[1].declared_type = AddressShardingOptions;
   lookup_function("AutoDeployAddress.buildAddress")->mutate()->receiver_type = AutoDeployAddress;
   lookup_function("AutoDeployAddress.buildAddress")->mutate()->parameters[0].declared_type = AutoDeployAddress;
+  lookup_function("AutoDeployAddress.calculateAddress")->mutate()->receiver_type = AutoDeployAddress;
+  lookup_function("AutoDeployAddress.calculateAddress")->mutate()->parameters[0].declared_type = AutoDeployAddress;
   lookup_function("AutoDeployAddress.addressMatches")->mutate()->receiver_type = AutoDeployAddress;
   lookup_function("AutoDeployAddress.addressMatches")->mutate()->parameters[0].declared_type = AutoDeployAddress;
 

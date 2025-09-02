@@ -563,6 +563,12 @@ fun cell.hash(self): uint256
 fun slice.hash(self): uint256
     asm "HASHSU"
 
+/// Computes the hash of a builder and returns it as a 256-bit unsigned integer.
+/// The same as "transform builder to cell + calc hash of that cell", but without cell creation.
+@pure
+fun builder.hash(self): uint256
+    asm "HASHBU"
+
 /// Computes sha256 of the data bits of a slice (without refs). 
 /// If the bit length is not divisible by eight, throws a cell underflow exception.
 @pure
@@ -1114,6 +1120,12 @@ fun beginCell(): builder
 fun builder.endCell(self): cell
     asm "ENDC"
 
+/// Converts a builder into a slice.
+/// The same as `b.endCell().beginParse()`
+@pure
+fun builder.toSlice(self): slice
+    asm "BTOS"
+
 /// Stores a reference to a cell into a builder.
 @pure
 fun builder.storeRef(mutate self, c: cell): self
@@ -1357,7 +1369,7 @@ struct ContractState {
 }
 
 /// `AddressShardingOptions` provides settings to calculate an address in another shard.
-/// Consider [createMessage] and [address.buildSameAddressInAnotherShard] for usage.
+/// Consider [createMessage] and [address.calculateSameAddressInAnotherShard] for usage.
 struct AddressShardingOptions {
     fixedPrefixLength: uint5        // shard depth, formerly splitDepth
     closeTo: address
@@ -1379,24 +1391,31 @@ struct AddressShardingOptions {
 /// You just provide code+data, and the compiler automatically calculates the destination address,
 /// because in TON, the address of a contract, by definition, is a hash of its initial state.
 /// You can also use it without sending a message. 
-/// See [AutoDeployAddress.buildAddress] and [AutoDeployAddress.addressMatches].
+/// See [AutoDeployAddress.calculateAddress].
 struct AutoDeployAddress {
     workchain: int8 = BASECHAIN
     stateInit: ContractState | cell
     toShard: AddressShardingOptions? = null
 }
 
+/// Deprecated, use [AutoDeployAddress.calculateAddress] instead.
+/// Since late 2025 (TVM 12 has a cheap "builder-to-slice" instruction),
+/// there is no need to use this function.
+/// Historically its purpose was to avoid creating a cell and to return `builder` with a valid address.
+@pure
+@deprecated("use calculateAddress instead")
+fun AutoDeployAddress.buildAddress(self): builder
+    builtin
+
 /// Constructs an address that a deployed contract will have.
 /// For example, from a jetton minter, you want to calculate an address of a jetton wallet:
 /// ```
 /// val jwDeployed = calcDeployedJettonWallet(...);
-/// val jwAddrBuilt = jwDeployed.buildAddress();
+/// val jwAddress = jwDeployed.calculateAddress();
 /// ```
 /// Just instead of `dest` for [createMessage], you use it is to calculate a jetton/nft address.
-/// Note: returns `builder`, not `address`! It's cheap.
-/// If you really need `address`, use `address.fromValidBuilder(res)`.
 @pure
-fun AutoDeployAddress.buildAddress(self): builder
+fun AutoDeployAddress.calculateAddress(self): address
     builtin
 
 /// Checks that an address matches a deployed contract.
@@ -1406,7 +1425,9 @@ fun AutoDeployAddress.buildAddress(self): builder
 /// val fromJW = jwDeployed.addressMatches(senderAddress);
 /// ```
 /// Just instead of `dest` for [createMessage], you use it is to check whether a sender is a jetton/nft.
+/// Deprecated since late 2025 (TVM 12 with a cheap "builder-to-slice" instruction), to be removed later.
 @pure
+@deprecated("Use `a == jwDeployed.calculateAddress()` instead of `jwDeployed.addressMatches(a)")
 fun AutoDeployAddress.addressMatches(self, addr: address): bool
     builtin
 
@@ -1579,56 +1600,33 @@ struct StateInit {
 ///     ...
 /// ```
 @pure
-fun StateInit.calcHashCodeData(code: cell, data: cell): uint256 asm
-"""                 // code data
-    DUP2            // code data code data
-    HASHCU
-    SWAP
-    HASHCU          // code data dataHash codeHash
-    SWAP2           // dataHash codeHash code data
-    CDEPTH
-    SWAP
-    CDEPTH          // dataHash codeHash dataDepth codeDepth
-
-    NEWC
-    x{020134} STSLICECONST // store refs_descriptor | bits_descriptor | data
-    16 STU                 // store codeDepth
-    16 STU                 // store dataDepth
-    256 STU                // store codeHash
-    256 STU                // store dataHash
-
-    ONE HASHEXT_SHA256
-"""
+fun StateInit.calcHashCodeData(code: cell, data: cell): uint256 asm (data code)
+    "NEWC"
+    "b{00110} STSLICECONST"
+    "STREF"
+    "STREF"
+    "HASHBU"
 
 /// Calculates a hash of StateInit if fixedPrefixLength+code+data are set.
 @pure
-fun StateInit.calcHashPrefixCodeData(fixedPrefixLength: uint5, code: cell, data: cell): uint256 asm
-"""                 // pDepth code data
-    DUP2            // pDepth code data code data
-    HASHCU
-    SWAP
-    HASHCU          // pDepth code data dataHash codeHash
-    SWAP2           // pDepth dataHash codeHash code data
-    CDEPTH
-    SWAP
-    CDEPTH          // pDepth dataHash codeHash dataDepth codeDepth
+fun StateInit.calcHashPrefixCodeData(fixedPrefixLength: uint5, code: cell, data: cell): uint256 asm (data code fixedPrefixLength)
+    "NEWC"
+    "b{1} STSLICECONST"
+    "5 STU"
+    "b{0110} STSLICECONST"
+    "STREF"
+    "STREF"
+    "HASHBU"
 
-    s4 PUSH         // pDepth dataHash codeHash dataDepth codeDepth pDepth
-    10 LSHIFT#
-    0x020381A0 PUSHINT
-    ADD             // calc refs_descriptor | bits_descriptor | data
 
-    NEWC
-    32 STU
-    16 STU
-    16 STU
-    256 STU
-    256 STU
-
-    ONE HASHEXT_SHA256     // pDepth hash
-    NIP
-"""
-
+/// Deprecated, use [address.calculateSameAddressInAnotherShard] instead.
+/// Since late 2025 (TVM 12 has a cheap "builder-to-slice" instruction),
+/// there is no need to use this function.
+/// Historically its purpose was to avoid creating a cell and to return `builder` with a valid address.
+@pure
+@deprecated("use calculateSameAddressInAnotherShard instead")
+fun address.buildSameAddressInAnotherShard(self, options: AddressShardingOptions): builder
+    builtin
 
 /// Given an internal address A="aaaa...a" returns "bbaa...a" (D bits from address B, 256-D from A).
 ///
@@ -1640,37 +1638,32 @@ fun StateInit.calcHashPrefixCodeData(fixedPrefixLength: uint5, code: cell, data:
 /// ```
 /// More precisely, self (input) is 267 bits: '100' (std addr no anycast) + workchainA + "aaaa...a".
 /// The result is also 267 bits: '100' + workchainB + "bb" (D bits) + "aa...a" (256-D bits).
-/// 
-/// Note: returns `builder`, not `address`! Because builder is cheap, and you can send a message to it:
-/// ```
-/// createMessage({
-///     dest: resBuilder, // a builder containing a valid address can be passed to createMessage()
-///     ...
-/// ```
-/// If you really need `address`, use `address.fromValidBuilder(resBuilder)`.
 @pure
-fun address.buildSameAddressInAnotherShard(self, options: AddressShardingOptions): builder
+fun address.calculateSameAddressInAnotherShard(self, options: AddressShardingOptions): address
     builtin
 
-/// Converts a builder containing a valid address (internal/external/none) to `address` (slice under the hood).
-/// Gas-expensive! Because or a cell creation: essentially, it's `b.endCell().beginParse()`.
-/// Example: you've manually built a 267-bit address: '100' (std addr no anycast) + workchain + hash
-///          and you want to return `address` (TVM slice) from a contract getter:
-/// ```
-/// get calcWalletAddress(ownerAddress: address): address {
-///     val b = calculate(...);             // manually calculate into builder
-///     return address.fromValidBuilder(b)  // but really need address
-/// }
-/// ```
-/// Hint: if you want just to send a message, don't call this function, use a builder directly:
-/// ```
-/// createMessage({
-///     dest: someBuilder,   // a builder containing a valid address can be passed to createMessage()
-///     ...                  // so, don't call this expensive function in this case
-/// ```
+/// Converts a builder containing a valid address to `address` (slice under the hood).
+/// Deprecated! Since late 2025 (TVM 12 has a cheap "builder-to-slice" instruction),
+/// all compiler built-ins return `address` directly, not `builder`.
 @pure
+@deprecated("prefer using `address` everywhere, avoid using `builder` and manual address construction")
 fun address.fromValidBuilder(b: builder): address
     asm "ENDC" "CTOS"
+
+/// Constructs an internal address (267 bits) from workchain and hash.
+/// Hint: if you just want to send a message, don't call this function, pass workchain+hash directly:
+/// ```
+/// createMessage({
+///     dest: (workchain, hash),   // a pair can be passed instead of `address`
+///     ...                        // so, don't call this function in such a case
+/// ```
+fun address.fromWorkchainAndHash(workchain: int8, hash: uint256): address 
+    asm (hash workchain)
+    "NEWC"
+    "b{100} STSLICECONST"       // addr_std$10 + 0 (no anycast)
+    "8 STI"
+    "256 STU"
+    "BTOS"
 
 
 /// Sends a raw message — a correctly serialized TL object `Message X`.

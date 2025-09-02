@@ -53,7 +53,7 @@ fun main() {
 /**
 @testcase | 0 | | 0
 
-@fif_codegen ONE HASHEXT_SHA256
+@fif_codegen HASHBU
 @fif_codegen }>ELSE<{
 @fif_codegen HASHCU
 @fif_codegen 256 STU

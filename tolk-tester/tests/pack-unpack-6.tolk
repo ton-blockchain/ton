@@ -132,8 +132,7 @@ RETALT
     x{0109ab} PUSHSLICE
     NEWC
     STSLICE
-    ENDC
-    CTOS
+    BTOS
     x{01} SDBEGINSQ
     63 THROWIFNOT
     8 PLDI
@@ -174,8 +173,7 @@ IF:<{
     x{11} PUSHSLICE
     NEWC
     STSLICE
-    ENDC
-    HASHCU
+    HASHBU
 """
 
 @fif_codegen
