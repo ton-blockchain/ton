@@ -44,6 +44,9 @@ class ActorExecuteContext : public Context<ActorExecuteContext> {
     CHECK(actor_);
     return *actor_;
   }
+  Actor *actor_ptr() const {
+    return actor_;
+  }
   bool has_flags() const {
     return flags_ != 0;
   }
