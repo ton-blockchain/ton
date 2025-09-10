@@ -27,6 +27,7 @@
 #include "td/utils/overloaded.h"
 #include "tl-utils/tl-utils.hpp"
 #include "auto/tl/ton_api.hpp"
+#include "common/delay.h"
 #include "td/actor/MultiPromise.h"
 
 namespace ton {
@@ -545,8 +546,9 @@ void NodeActor::loop_queries() {
     auto it = peers_.find(part.peer_id);
     CHECK(it != peers_.end());
     auto &state = it->second.state;
-    CHECK(state->peer_state_ready_);
-    CHECK(state->peer_state_.load().will_upload);
+    if (!state->peer_state_ready_ || !state->peer_state_.load().will_upload) {
+      continue;
+    }
     CHECK(state->node_queries_active_.size() < MAX_PEER_TOTAL_QUERIES);
     auto part_id = part.part_id;
     if (state->node_queries_active_.insert(static_cast<td::uint32>(part_id)).second) {
@@ -787,15 +789,21 @@ void NodeActor::db_store_torrent_meta() {
     return;
   }
   next_db_store_meta_at_ = td::Timestamp::never();
-  auto meta = torrent_.get_meta_str();
-  db_->set(create_hash_tl_object<ton_api::storage_db_key_torrentMeta>(torrent_.get_hash()), td::BufferSlice(meta),
-           [new_count = (td::int64)torrent_.get_ready_parts_count(), SelfId = actor_id(this)](td::Result<td::Unit> R) {
-             if (R.is_error()) {
-               td::actor::send_closure(SelfId, &NodeActor::after_db_store_torrent_meta, R.move_as_error());
-             } else {
-               td::actor::send_closure(SelfId, &NodeActor::after_db_store_torrent_meta, new_count);
-             }
-           });
+  auto meta = torrent_.get_meta();
+  delay_action(
+      [SelfId = actor_id(this), meta = std::move(meta), db = db_, hash = torrent_.get_hash(),
+       new_count = (td::int64)torrent_.get_ready_parts_count()]() {
+        auto meta_str = meta.serialize();
+        db->set(create_hash_tl_object<ton_api::storage_db_key_torrentMeta>(hash), td::BufferSlice(meta_str),
+                [=](td::Result<td::Unit> R) {
+                  if (R.is_error()) {
+                    td::actor::send_closure(SelfId, &NodeActor::after_db_store_torrent_meta, R.move_as_error());
+                  } else {
+                    td::actor::send_closure(SelfId, &NodeActor::after_db_store_torrent_meta, new_count);
+                  }
+                });
+      },
+      td::Timestamp::now());
 }
 
 void NodeActor::after_db_store_torrent_meta(td::Result<td::int64> R) {
