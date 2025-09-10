@@ -856,7 +856,7 @@ void Collator::after_get_shard_state_optimistic(td::Result<Ref<ShardState>> res,
  */
 bool Collator::unpack_last_mc_state() {
   auto res = block::ConfigInfo::extract_config(
-      mc_state_root,
+      mc_state_root, mc_block_id_,
       block::ConfigInfo::needShardHashes | block::ConfigInfo::needLibraries | block::ConfigInfo::needValidatorSet |
           block::ConfigInfo::needWorkchainInfo | block::ConfigInfo::needCapabilities |
           block::ConfigInfo::needPrevBlocks |
@@ -868,7 +868,6 @@ bool Collator::unpack_last_mc_state() {
   }
   config_ = res.move_as_ok();
   CHECK(config_);
-  config_->set_block_id_ext(mc_block_id_);
   global_id_ = config_->get_global_blockchain_id();
   ihr_enabled_ = config_->ihr_enabled();
   create_stats_enabled_ = config_->create_stats_enabled();
