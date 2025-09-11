@@ -36,7 +36,6 @@
 #include "token-manager.h"
 #include "queue-size-counter.hpp"
 #include "storage-stat-cache.hpp"
-#include "validator-telemetry.hpp"
 #include "impl/candidates-buffer.hpp"
 #include "collator-node/collator-node.hpp"
 #include "shard-block-verifier.hpp"
@@ -384,7 +383,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   }
   void add_temp_key(PublicKeyHash key, td::Promise<td::Unit> promise) override {
     temp_keys_.insert(key);
-    init_validator_telemetry();
     promise.set_value(td::Unit());
   }
   void del_permanent_key(PublicKeyHash key, td::Promise<td::Unit> promise) override {
@@ -393,7 +391,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   }
   void del_temp_key(PublicKeyHash key, td::Promise<td::Unit> promise) override {
     temp_keys_.erase(key);
-    init_validator_telemetry();
     promise.set_value(td::Unit());
   }
 
@@ -558,7 +555,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   void send_ihr_message(td::Ref<IhrMessage> message) override;
   void send_top_shard_block_description(td::Ref<ShardTopBlockDescription> desc) override;
   void send_block_broadcast(BlockBroadcast broadcast, int mode) override;
-  void send_validator_telemetry(PublicKeyHash key, tl_object_ptr<ton_api::validator_telemetry> telemetry) override;
   void send_get_out_msg_queue_proof_request(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
                                             block::ImportedMsgQueueLimits limits,
                                             td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise) override;
@@ -823,10 +819,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   void add_shard_block_retainer(adnl::AdnlNodeIdShort id) override;
 
   void iterate_temp_block_handles(std::function<void(const BlockHandleInterface &)> f) override;
-
-  std::map<PublicKeyHash, td::actor::ActorOwn<ValidatorTelemetry>> validator_telemetry_;
-
-  void init_validator_telemetry();
 
   struct Collator {
     td::actor::ActorOwn<CollatorNode> actor;

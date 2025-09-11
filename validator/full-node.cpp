@@ -625,24 +625,6 @@ void FullNodeImpl::new_key_block(BlockHandle handle) {
   }
 }
 
-void FullNodeImpl::send_validator_telemetry(PublicKeyHash key, tl_object_ptr<ton_api::validator_telemetry> telemetry) {
-  if (use_old_private_overlays_) {
-    auto it = private_block_overlays_.find(key);
-    if (it == private_block_overlays_.end()) {
-      VLOG(FULL_NODE_INFO) << "Cannot send validator telemetry for " << key << " : no private block overlay";
-      return;
-    }
-    td::actor::send_closure(it->second, &FullNodePrivateBlockOverlay::send_validator_telemetry, std::move(telemetry));
-  } else {
-    auto overlay = fast_sync_overlays_.get_masterchain_overlay_for(adnl::AdnlNodeIdShort{telemetry->adnl_id_});
-    if (overlay.empty()) {
-      VLOG(FULL_NODE_INFO) << "Cannot send validator telemetry for adnl id " << key << " : no fast sync overlay";
-      return;
-    }
-    td::actor::send_closure(overlay, &FullNodeFastSyncOverlay::send_validator_telemetry, std::move(telemetry));
-  }
-}
-
 void FullNodeImpl::process_block_broadcast(BlockBroadcast broadcast) {
   send_block_broadcast_to_custom_overlays(broadcast);
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_block_broadcast, std::move(broadcast),
@@ -787,9 +769,6 @@ void FullNodeImpl::start_up() {
 
     void new_key_block(BlockHandle handle) override {
       td::actor::send_closure(id_, &FullNodeImpl::new_key_block, std::move(handle));
-    }
-    void send_validator_telemetry(PublicKeyHash key, tl_object_ptr<ton_api::validator_telemetry> telemetry) override {
-      td::actor::send_closure(id_, &FullNodeImpl::send_validator_telemetry, key, std::move(telemetry));
     }
 
     explicit Callback(td::actor::ActorId<FullNodeImpl> id) : id_(id) {
