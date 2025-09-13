@@ -19,6 +19,25 @@ class TransactionEmulator {
   bool debug_enabled_;
   td::Ref<vm::Tuple> prev_blocks_info_;
 
+  // Emulation state that persists throughout execution
+
+  /**
+   * Instance of VM used in step by step mode, otherwise it is nullptr.
+   */
+  std::unique_ptr<vm::VmState> vm{};
+  /**
+   * Logger used in step by step mode, otherwise it is nullptr.
+   */
+  std::unique_ptr<block::StringLoggerTail> logger{};
+  std::vector<block::StoragePrices> storage_prices;
+  block::StoragePhaseConfig storage_phase_cfg{&storage_prices};
+  block::ComputePhaseConfig compute_phase_cfg{};
+  block::ActionPhaseConfig action_phase_cfg{};
+  std::unique_ptr<block::transaction::Transaction> trans{};
+  block::Account account_{};
+  bool external{false};
+  block::SerializeConfig serialize_config{};
+
 public:
   TransactionEmulator(std::shared_ptr<block::Config> config, int vm_log_verbosity = 0) :
     config_(std::move(config)), libraries_(256), vm_log_verbosity_(vm_log_verbosity),
@@ -68,8 +87,21 @@ public:
     return unixtime_;
   }
 
-  td::Result<std::unique_ptr<EmulationResult>> emulate_transaction(
-      block::Account&& account, td::Ref<vm::Cell> msg_root, ton::UnixTime utime, ton::LogicalTime lt, int trans_type);
+  const vm::VmState& get_vm() const {
+    return *vm;
+  }
+
+  td::Result<> prepare_emulation(block::Account& account, ton::UnixTime& utime, ton::LogicalTime& lt);
+  void cleanup_shared_state();
+  td::Result<std::unique_ptr<EmulationResult>> emulate_transaction(block::Account&& account, td::Ref<vm::Cell> msg_root,
+                                                                   ton::UnixTime utime, ton::LogicalTime lt,
+                                                                   int trans_type);
+  td::Result<std::unique_ptr<EmulationResult>> finish_emulation(block::Account&& account,
+                                                                double elapsed);
+  td::Result<bool> prepare_emulate_transaction_debug(block::Account&& account, td::Ref<vm::Cell> msg_root,
+                                                     ton::UnixTime utime, ton::LogicalTime lt, int trans_type);
+  td::Result<bool> debug_step();
+  td::Result<std::unique_ptr<EmulationResult>> get_emulation_result();
 
   td::Result<EmulationSuccess> emulate_transaction(block::Account&& account, td::Ref<vm::Cell> original_trans);
   td::Result<EmulationChain> emulate_transactions_chain(block::Account&& account, std::vector<td::Ref<vm::Cell>>&& original_transactions);
@@ -85,12 +117,16 @@ public:
 
 private:
   bool check_state_update(const block::Account& account, const block::gen::Transaction::Record& trans);
+  td::Result<> prepare_transaction(td::Ref<vm::Cell> msg_root, block::Account* acc, ton::UnixTime utime,
+                                   ton::LogicalTime lt, int trans_type);
 
-  td::Result<std::unique_ptr<block::transaction::Transaction>> create_transaction(
+ td::Result<> run_transaction(
                                                          td::Ref<vm::Cell> msg_root, block::Account* acc,
-                                                         ton::UnixTime utime, ton::LogicalTime lt, int trans_type,
-                                                         block::StoragePhaseConfig* storage_phase_cfg,
-                                                         block::ComputePhaseConfig* compute_phase_cfg,
-                                                         block::ActionPhaseConfig* action_phase_cfg);
+                                                         ton::UnixTime utime, ton::LogicalTime lt, int trans_type);
+
+  td::Result<bool> run_transaction_debug(td::Ref<vm::Cell> msg_root, block::Account* acc, ton::UnixTime utime,
+                                            ton::LogicalTime lt, int trans_type);
+
+  td::Result<bool> transaction_step_debug();
 };
 } // namespace emulator

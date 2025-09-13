@@ -3192,7 +3192,7 @@ bool Collator::create_ticktock_transaction(const ton::StdSmcAddress& smc_addr, t
     return fatal_error(td::Status::Error(
         -666, std::string{"cannot create storage phase of a new transaction for smart contract "} + smc_addr.to_hex()));
   }
-  if (!trans->prepare_compute_phase(compute_phase_cfg_)) {
+  if (!trans->execute_compute_phase(compute_phase_cfg_)) {
     return fatal_error(td::Status::Error(
         -666, std::string{"cannot create compute phase of a new transaction for smart contract "} + smc_addr.to_hex()));
   }
@@ -3400,7 +3400,7 @@ td::Result<std::unique_ptr<block::transaction::Transaction>> Collator::impl_crea
           -669, "cannot create storage phase of a new transaction for smart contract "s + acc->addr.to_hex());
     }
   }
-  if (!trans->prepare_compute_phase(*compute_phase_cfg)) {
+  if (!trans->execute_compute_phase(*compute_phase_cfg)) {
     return td::Status::Error(
         -669, "cannot create compute phase of a new transaction for smart contract "s + acc->addr.to_hex());
   }
