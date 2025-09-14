@@ -1640,7 +1640,7 @@ public:
 
       if (!body_end.is_unreachable()) {
         fun_ref->mutate()->assign_is_implicit_return();
-        if (fun_ref->declared_return_type == TypeDataNever::create()) {   // `never` can only be declared, it can't be inferred
+        if (fun_ref->declared_return_type == TypeDataNever::create()) {
           fire(fun_ref, v_function->get_body()->as<ast_block_statement>()->loc_end, "a function returning `never` can not have a reachable endpoint");
         }
       }
@@ -1660,7 +1660,7 @@ public:
         }
         inferred_return_type = return_unifier.get_result();
         if (inferred_return_type == nullptr) {    // if no return statements at all
-          inferred_return_type = TypeDataVoid::create();
+          inferred_return_type = body_end.is_unreachable() ? TypeDataNever::create() : TypeDataVoid::create();
         }
 
         if (!body_end.is_unreachable() && inferred_return_type != TypeDataVoid::create()) {
@@ -1780,7 +1780,15 @@ static void infer_and_save_type_of_constant(GlobalConstPtr const_ref) {
 }
 
 void pipeline_infer_types_and_calls_and_fields() {
+  // loop over user-defined functions
   visit_ast_of_all_functions<LaunchInferTypesAndMethodsOnce>();
+
+  // assign inferred_type to built-in functions like __throw() 
+  for (FunctionPtr fun_ref : get_all_builtin_functions()) {
+    if (LaunchInferTypesAndMethodsOnce::should_visit_function(fun_ref)) {
+      infer_and_save_return_type_of_function(fun_ref);      
+    }    
+  }
 
   // analyze constants that weren't referenced by any function
   InferTypesAndCallsAndFieldsVisitor visitor;

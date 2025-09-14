@@ -43,11 +43,13 @@ static std::vector<LocalVarData> define_builtin_parameters(const std::vector<Typ
 static void define_builtin_func(const std::string& name, const std::vector<TypePtr>& params_types, TypePtr return_type, const GenericsDeclaration* genericTs, const std::function<FunctionBodyBuiltinAsmOp::CompileToAsmOpImpl>& func, int flags) {
   auto* f_sym = new FunctionData(name, {}, "", nullptr, return_type, define_builtin_parameters(params_types, flags), flags, FunctionInlineMode::notCalculated, genericTs, nullptr, new FunctionBodyBuiltinAsmOp(func), nullptr);
   G.symtable.add_function(f_sym);
+  G.all_builtins.push_back(f_sym);
 }
 
 static void define_builtin_func(const std::string& name, const std::vector<TypePtr>& params_types, TypePtr return_type, const GenericsDeclaration* genericTs, const std::function<FunctionBodyBuiltinGenerateOps::GenerateOpsImpl>& func, int flags) {
   auto* f_sym = new FunctionData(name, {}, "", nullptr, return_type, define_builtin_parameters(params_types, flags), flags, FunctionInlineMode::notCalculated, genericTs, nullptr, new FunctionBodyBuiltinGenerateOps(func), nullptr);
   G.symtable.add_function(f_sym);
+  G.all_builtins.push_back(f_sym);
 }
 
 static void define_builtin_method(const std::string& name, TypePtr receiver_type, const std::vector<TypePtr>& params_types, TypePtr return_type, const GenericsDeclaration* genericTs, const std::function<FunctionBodyBuiltinAsmOp::CompileToAsmOpImpl>& func, int flags,
@@ -57,6 +59,7 @@ static void define_builtin_method(const std::string& name, TypePtr receiver_type
   f_sym->arg_order = arg_order;
   f_sym->ret_order = ret_order;
   G.symtable.add_function(f_sym);
+  G.all_builtins.push_back(f_sym);
   G.all_methods.push_back(f_sym);
 }
 
@@ -64,6 +67,7 @@ void define_builtin_method(const std::string& name, TypePtr receiver_type, const
   std::string method_name = name.substr(name.find('.') + 1);
   auto* f_sym = new FunctionData(name, {}, std::move(method_name), receiver_type, return_type, define_builtin_parameters(params_types, flags), flags, FunctionInlineMode::notCalculated, genericTs, nullptr, new FunctionBodyBuiltinGenerateOps(func), nullptr);
   G.symtable.add_function(f_sym);
+  G.all_builtins.push_back(f_sym);
   G.all_methods.push_back(f_sym);
 }
 
@@ -1500,7 +1504,7 @@ void define_builtins() {
   define_builtin_func("__throw", ParamsInt1, Never, nullptr,
                               compile_throw,
                                 0);
-  define_builtin_func("__throw_arg", {typeT, Int}, Never, declGenericT,
+  define_builtin_func("__throw_arg", {TypeDataUnknown::create(), Int}, Never, nullptr,
                               compile_throw_arg,
                                 0);
   define_builtin_func("__throw_if_unless", ParamsInt3, Unit, nullptr,

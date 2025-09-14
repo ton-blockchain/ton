@@ -101,7 +101,7 @@ fun testVarApplyInTernary() {
     return t;
 }
 
-fun always_throw2(x: int) {
+fun always_throw2(x: int): void {
     throw 239 + x
 }
 
