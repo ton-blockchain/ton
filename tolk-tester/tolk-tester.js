@@ -500,29 +500,31 @@ function copyFromCString(mod, ptr) {
 function compileFile(mod, filename, experimentalOptions, withSrcLineComments) {
     // see tolk-wasm.cpp: typedef void (*WasmFsReadCallback)(int, char const*, char**, char**)
     const callbackPtr = mod.addFunction((kind, dataPtr, destContents, destError) => {
-        if (kind === 0) { // realpath
-            try {
-                let relative = copyFromCString(mod, dataPtr)
-                if (relative.startsWith('@stdlib/')) {
-                    // import "@stdlib/filename" or import "@stdlib/filename.tolk"
-                    relative = STDLIB_FOLDER + '/' + relative.substring(7)
-                    if (!relative.endsWith('.tolk')) {
-                        relative += '.tolk'
-                    }
+        switch (kind) {   // enum ReadCallback::Kind in C++
+            case 0:       // realpath
+                let relativeFilename = copyFromCString(mod, dataPtr)  // from `import` statement, relative to cur file
+                if (!relativeFilename.endsWith('.tolk')) {
+                    relativeFilename += '.tolk'
                 }
-                copyToCStringPtr(mod, fs.realpathSync(relative), destContents);
-            } catch (err) {
-                copyToCStringPtr(mod, 'cannot find file', destError);
-            }
-        } else if (kind === 1) { // read file
-            try {
-                const absolute = copyFromCString(mod, dataPtr) // already normalized (as returned above)
-                copyToCStringPtr(mod, fs.readFileSync(absolute).toString('utf-8'), destContents);
-            } catch (err) {
-                copyToCStringPtr(mod, err.message || err.toString(), destError);
-            }
-        } else {
-            copyToCStringPtr(mod, 'Unknown callback kind=' + kind, destError);
+                copyToCStringPtr(mod, path.normalize(relativeFilename), destContents)
+                break
+            case 1:       // read file
+                try {
+                    const filename = copyFromCString(mod, dataPtr) // already normalized (as returned above)
+                    if (filename.startsWith('@stdlib/')) {
+                        const contents = fs.readFileSync(STDLIB_FOLDER + '/' + filename.substring(8)).toString('utf-8');
+                        copyToCStringPtr(mod, contents, destContents)
+                    } else {
+                        const contents = fs.readFileSync(filename).toString('utf-8');
+                        copyToCStringPtr(mod, contents, destContents)
+                    }
+                } catch (err) {
+                    copyToCStringPtr(mod, err.message || err.toString(), destError)
+                }
+                break
+            default:
+                copyToCStringPtr(mod, 'Unknown callback kind=' + kind, destError)
+                break
         }
     }, 'viiii');
 
