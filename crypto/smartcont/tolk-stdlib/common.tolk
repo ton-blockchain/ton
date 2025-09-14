@@ -1,7 +1,7 @@
 // Standard library for Tolk (LGPL licence).
 // It contains common functions that are available out of the box, the user doesn't have to import anything.
 // More specific functions are required to be imported explicitly, like "@stdlib/gas-payments".
-tolk 1.0
+tolk 1.1
 
 /**
     Built-in types.
