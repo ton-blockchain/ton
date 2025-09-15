@@ -1294,6 +1294,9 @@ td::Status ShowCustomOverlaysQuery::receive(td::BufferSlice data) {
         td::TerminalIO::out() << "  " << ton::create_shard_id(shard).to_str() << "\n";
       }
     }
+    if (overlay->skip_public_msg_send_) {
+      td::TerminalIO::out() << "Don't send external messages to public overlays\n";
+    }
     td::TerminalIO::out() << "\n";
   }
   return td::Status::OK();
@@ -1852,6 +1855,9 @@ td::Status GetCollationManagerStatsQuery::receive(td::BufferSlice data) {
             status.resize(128);
           }
           sb << td::StringBuilder::FixedDouble(collator->last_ping_ago_, 3) << ": " << status;
+        }
+        if (collator->banned_for_ > 0.0) {
+          sb << " banned_for=" << td::StringBuilder::FixedDouble(std::max(collator->banned_for_, 0.0), 3);
         }
         td::TerminalIO::out() << sb.as_cslice() << "\n";
       }

@@ -22,6 +22,7 @@ fun test1() {
         coins.estimatePackSize(),
         bits6.estimatePackSize(),
         bytes8.estimatePackSize(),
+        varint32.estimatePackSize(),
     );
 }
 
@@ -117,11 +118,11 @@ fun test6() {
     return (Test6_1.estimatePackSize(), Test6_2.estimatePackSize(), Test6_or.estimatePackSize());
 }
 
-struct(0x1020) Test7_1 { }
-struct(0x1030) Test7_2 { }
-struct(0x1040) Test7_3 { }
+struct(0x1020) Test7_1;
+struct(0x1030) Test7_2;
+struct(0x1040) Test7_3;
 
-type Test7_or = Test7_1 | Test7_2 | Test7_3 |;
+type Test7_or = | Test7_1 | Test7_2 | Test7_3
 
 @method_id(107)
 fun test7() {
@@ -159,7 +160,7 @@ struct Test9_bits4 { f: bits4; }
 type Test9_f1 = int32 | int64 | int128;                         // auto-generated 2-bit prefix
 type Test9_f2 = int32 | Inner8_2;                               // auto-generated 1-bit prefix (Either)
 type Test9_f3 = bits1 | Test9_bits2 | bits3 | bits4 | bits5;    // auto-generated 3-bit prefix
-type Test9_f4 = bits1 | Test9_bits2 | bits3 | Test9_bits4?;     // auto-generated 3-bit prefix
+type Test9_f4 = bits1 | Test9_bits2 | bits3 | Test9_bits4?;     // auto-generated 0 / 100/101/110/111
 
 @method_id(109)
 fun test9() {
@@ -178,6 +179,21 @@ fun test10() {
     return (Test10_1.estimatePackSize(), Test10_2.estimatePackSize());
 }
 
+struct Test11_1 {
+    data: bits1022;
+    next: Cell<Test11_1>?;
+}
+
+struct Test11_2 {
+    self1: Cell<Test11_2>;
+    self2: Cell<Test11_2>;
+}
+
+@method_id(111)
+fun test11() {
+    return (Test11_1.estimatePackSize(), Test11_2.estimatePackSize());
+}
+
 @method_id(120)
 fun test20() {
     return (Test7_1 .getDeclaredPackPrefixLen(), Test7_1 .getDeclaredPackPrefix(),
@@ -189,7 +205,7 @@ fun main() {
 }
 
 /**
-@testcase | 101 | | [ 32 32 0 0 ] [ 64 64 0 0 ] [ 1 1 0 0 ] [ 1 1 0 0 ] [ 0 9999 0 4 ] [ 4 124 0 0 ] [ 6 6 0 0 ] [ 64 64 0 0 ]
+@testcase | 101 | | [ 32 32 0 0 ] [ 64 64 0 0 ] [ 1 1 0 0 ] [ 1 1 0 0 ] [ 0 9999 0 4 ] [ 4 124 0 0 ] [ 6 6 0 0 ] [ 64 64 0 0 ] [ 5 253 0 0 ]
 @testcase | 102 | | [ 32 32 0 0 ] [ 1 33 0 0 ] [ 1 33 0 0 ] [ 17 33 0 0 ]
 @testcase | 103 | | [ 67 199 0 0 ] [ 69 599 0 0 ]
 @testcase | 104 | | [ 4 534 0 0 ] [ 2 536 0 0 ] [ 6 1070 0 0 ]
@@ -197,7 +213,8 @@ fun main() {
 @testcase | 106 | | [ 64 64 0 0 ] [ 5 37 1 1 ] [ 5 65 0 1 ]
 @testcase | 107 | | [ 16 16 0 0 ] [ 16 16 0 0 ]
 @testcase | 108 | | [ 10 275 0 0 ] [ 34 158 0 0 ] [ 47 1143 0 1 ]
-@testcase | 109 | | [ 34 130 0 0 ] [ 33 159 0 0 ] [ 4 8 0 0 ] [ 3 7 0 0 ]
+@testcase | 109 | | [ 34 130 0 0 ] [ 33 159 0 0 ] [ 4 8 0 0 ] [ 1 7 0 0 ]
 @testcase | 110 | | [ 32 9999 0 4 ] [ 33 9999 0 8 ]
+@testcase | 111 | | [ 1023 1023 0 1 ] [ 0 0 2 2 ]
 @testcase | 120 | | 16 4128 1 1
  */

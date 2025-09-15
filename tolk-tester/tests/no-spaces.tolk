@@ -1,7 +1,9 @@
-const int10:int=10;
+const int10:int=10 const dd=1
 
 fun just10(): int { return int10; }
 fun eq(v: int): int { return`v` }
+
+const ONE = 1struct Point{x:int y:int}
 
 @method_id(101,) fun `get_-1`  (): int {return-1}
 @method_id(102,) fun `get_--1` (): int {return- -1}
@@ -13,7 +15,7 @@ global `some()var`:int;
 
 @method_id(110) fun `some_math`(): int {
     `some()var`=- -6;
-    return 1*-2*-3*-4*just10()*-5+-`some()var`+-(-`some()var`)-(-(-`some()var`));
+    return ONE*-2*-3*-4*just10()*-5+-`some()var`+-(-`some()var`)-(-(-`some()var`));
 }
 
 @method_id(111) fun `negative_nums`(a:int):int {
@@ -37,6 +39,7 @@ global `some()var`:int;
     return [~-~~+-c3, ~+c3-~`c9`, -(-~+-c20-~c10+c3+~c38&39)];
 }
 
+@noinline
 fun add3(a: int, b: int, c: int) { return a+b+c; }
 
 @method_id(115) fun unary_const_check(): [int,int] {
@@ -79,14 +82,14 @@ fun`main`(){}
 
 @fif_codegen
 """
-  get_+-+1 PROC:<{
+  get_+-+1() PROC:<{
     -1 PUSHINT
   }>
 """
 
 @fif_codegen
 """
-  unary+bitwise-constant PROC:<{
+  unary+bitwise-constant() PROC:<{
     -4 PUSHINT
     6 PUSHINT
     -4 PUSHINT
@@ -96,14 +99,14 @@ fun`main`(){}
 
 @fif_codegen
 """
-  unary_const_check PROC:<{
+  unary_const_check() PROC:<{
     -1 PUSHINT	//  fst1=-1
     DUP	//  fst1=-1 snd1=-1
     2 PUSHINT	//  fst1=-1 snd1=-1 trd1=2
     s1 s1 s0 PUSH3	//  fst1=-1 snd1=-1 trd1=2 fst2=-1 snd2=-1 trd2=2
-    add3 CALLDICT	//  fst1=-1 snd1=-1 trd1=2 '13
+    add3() CALLDICT	//  fst1=-1 snd1=-1 trd1=2 '13
     3 -ROLL	//  '13 fst1=-1 snd1=-1 trd1=2
-    add3 CALLDICT	//  '13 '14
+    add3() CALLDICT	//  '13 '14
     PAIR	//  '12
   }>
 """

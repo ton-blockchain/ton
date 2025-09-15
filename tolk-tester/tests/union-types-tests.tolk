@@ -1,10 +1,10 @@
-type MInt = int;
-type MNull = null;
-type MSlice = slice;
-type MIntN = int | MNull;
-type IntOrSlice = MInt | slice;
-type IntOrSliceN = null | slice | int;
-type IntOrSliceOrBuilder = int | slice | builder;
+type MInt = int
+type MNull = | null
+type MSlice = slice
+type MIntN = int | MNull
+type IntOrSlice = MInt | slice
+type IntOrSliceN = null | slice | int
+type IntOrSliceOrBuilder = | int | slice | builder
 
 type Pair2 = (int, int);
 type Pair2Or3 = Pair2 | (int, int, int);
@@ -18,8 +18,8 @@ fun testFlatten() {
     __expect_type(0 as (int | int | slice | builder | slice), "int | slice | builder");
     __expect_type(0 as (int? | int), "int?");
     __expect_type(0 as (slice | int? | slice? | cell), "slice | int | null | cell");
-    __expect_type(0 as (int | (int | int)), "int");
-    __expect_type(0 as (slice | (slice | (slice | int) | (cell | slice?))), "slice | int | cell | null");
+    __expect_type(0 as (| int | (int | int)), "int");
+    __expect_type(0 as (slice | (slice | (slice | int) | (| cell | slice?))), "slice | int | cell | null");
 
     __expect_type(0 as (MInt | MNull), "MInt?");
     __expect_type(0 as (MInt | slice | int), "MInt | slice");
@@ -43,7 +43,7 @@ fun testFlatten() {
     __expect_type(0 as (int?)?, "int?");
     __expect_type(0 as (int?)? | (int)?, "int?");
 
-    __expect_type(0 is builder, "bool");
+    __expect_type(0 is (|builder), "bool");
     __expect_type(0 !is builder, "bool");
     __expect_type(0!!is builder, "bool");
 
@@ -80,7 +80,7 @@ fun test2() {
 }
 
 @method_id(103)
-fun test3(case: int): int | slice | null {
+fun test3(case: int): | int | slice | null {
     var a: int | slice | null = 4;
     if (case == 0) {
         a = getSlice32()
@@ -535,6 +535,7 @@ fun test47() {
     return (checkSimple(1), checkSimple(beginCell().endCell().beginParse()), checkSimple(100), checkSimple(beginCell()));
 }
 
+@noinline
 fun checkGeneric3<T1, T2, T3>(a: T1 | T2 | T3): (int, T1 | T2?) {
     var vv: T1? = match (a) { T1 => a, T2 => null, T3 => null };
     return match (a) {
@@ -853,14 +854,14 @@ fun main() {
 
 @fif_codegen
 """
-  test26 PROC:<{
+  test26() PROC:<{
     42 PUSHINT  // result
   }>
 """
 
 @fif_codegen
 """
-  checkSimple PROC:<{   //  a.USlot1 a.UTag
+  checkSimple() PROC:<{   //  a.USlot1 a.UTag
     NIP	    //  a.UTag
     DUP	    //  a.UTag a.UTag
     1 EQINT	//  a.UTag '3
@@ -880,7 +881,7 @@ fun main() {
 
 @fif_codegen
 """
-  test61 PROC:<{
+  test61() PROC:<{
     NIP
     DUP
     46 EQINT
@@ -896,6 +897,6 @@ fun main() {
   }>
 """
 
-@fif_codegen DECLPROC checkGeneric3<int,int8,int16>
+@fif_codegen DECLPROC checkGeneric3<int,int8,int16>()
 
  */

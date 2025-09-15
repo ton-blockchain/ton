@@ -525,8 +525,8 @@ HttpQueryBlockSearch::HttpQueryBlockSearch(std::map<std::string, std::string> op
   }
   if (opts.count("utime") == 1) {
     try {
-      seqno_ = static_cast<td::uint32>(std::stoull(opts["utime"]));
-      mode_ = 1;
+      utime_ = static_cast<td::uint32>(std::stoull(opts["utime"]));
+      mode_ = 4;
     } catch (...) {
       error_ = td::Status::Error("cannot parse utime");
       return;
@@ -1429,10 +1429,10 @@ void HttpQueryStatus::finish_query() {
         A << "<td>" << static_cast<td::int32>(x->ts_.at_unix()) << "</td>";
       }
       A << "</tr>\n";
-      for (td::uint32 i = 0; i < results_.ips.size(); i++) {
+      for (td::uint32 i = 0; i < results_.addrs.size(); i++) {
         A << "<tr>";
-        if (results_.ips[i].is_valid()) {
-          A << "<td>" << results_.ips[i].get_ip_str() << ":" << results_.ips[i].get_port() << "</td>";
+        if (!results_.addrs[i].empty()) {
+          A << "<td>" << results_.addrs[i] << "</td>";
         } else {
           A << "<td>hidden</td>";
         }

@@ -52,6 +52,9 @@ static int calculate_tvm_method_id_for_entrypoint(std::string_view func_name) {
   if (func_name == "onSplitInstall") {
     return -4;
   }
+  if (func_name == "onBouncedMessage") {
+    return FunctionData::EMPTY_TVM_METHOD_ID;
+  }
   tolk_assert(false);
 }
 
@@ -215,7 +218,7 @@ static FunctionPtr register_function(V<ast_function_declaration> v, FunctionPtr 
 
   const GenericsDeclaration* genericTs = nullptr;   // at registering it's null; will be assigned after types resolving
   FunctionBody f_body = v->get_body()->kind == ast_block_statement ? static_cast<FunctionBody>(new FunctionBodyCode) : static_cast<FunctionBody>(new FunctionBodyAsm);
-  FunctionData* f_sym = new FunctionData(std::move(name), v->loc, std::move(method_name), v->receiver_type_node, v->return_type_node, std::move(parameters), 0, genericTs, substitutedTs, f_body, v);
+  FunctionData* f_sym = new FunctionData(std::move(name), v->loc, std::move(method_name), v->receiver_type_node, v->return_type_node, std::move(parameters), 0, v->inline_mode, genericTs, substitutedTs, f_body, v);
   f_sym->base_fun_ref = base_fun_ref;   // for `f<int>`, here is `f<T>`
 
   if (auto v_asm = v->get_body()->try_as<ast_asm_body>()) {

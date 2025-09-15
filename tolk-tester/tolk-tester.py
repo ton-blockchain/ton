@@ -116,6 +116,8 @@ class TolkTestCaseInputOutput:
                 continue
             elif in_arg.startswith("x{") or TolkTestCaseInputOutput.reJustNumber.fullmatch(in_arg):
                 processed_inputs.append(in_arg)
+            elif in_arg.startswith("cell{"):
+                processed_inputs.append("<b " + in_arg.replace("cell{", "x{") + " s, b>")
             elif TolkTestCaseInputOutput.reMathExpr.fullmatch(in_arg):
                 processed_inputs.append(str(eval(in_arg)))
             elif in_arg == "null":

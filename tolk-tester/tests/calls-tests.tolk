@@ -159,6 +159,26 @@ fun test9() {
     return int(10) + int(5).plus1() + int.create0() + int.create0().plus1();
 }
 
+@noinline fun cmp1(a: int, b: int) { return a == b }
+@noinline fun cmp2(a: int, b: int) { return b == a }
+@noinline fun cmp3(a: int, b: int) { return a != b }
+@noinline fun cmp4(a: int, b: int) { return b != a }
+
+@method_id(110)
+fun test10(a: int, b: int) {
+    return b - a
+}
+
+@noinline fun leq1(a: int, b: int) { return b <  a }
+@noinline fun leq2(a: int, b: int) { return b <= a }
+@noinline fun leq3(a: int, b: int) { return b >  a }
+@noinline fun leq4(a: int, b: int) { return b >= a }
+
+@method_id(111)
+fun test11(a: int, b: int) {
+    return ((b < a), (b <= a), (b > a), (b >= a));
+}
+
 fun main() {}
 
 /**
@@ -171,4 +191,47 @@ fun main() {}
 @testcase | 107 |         | 16 5
 @testcase | 108 |         | [ 1 2 3 ] [ 5 8 1 ]
 @testcase | 109 |         | 17
+@testcase | 110 | 5 8     | 3
+@testcase | 111 | 5 8     | 0 0 -1 -1
+@testcase | 111 | 7 7     | 0 -1 0 -1
+
+@fif_codegen
+"""
+  cmp1() PROC:<{
+    EQUAL
+  }>
+  cmp2() PROC:<{
+    EQUAL
+  }>
+  cmp3() PROC:<{
+    NEQ
+  }>
+  cmp4() PROC:<{
+    NEQ
+  }>
+"""
+
+@fif_codegen
+"""
+  test10() PROC:<{
+    SUBR
+  }>
+"""
+
+@fif_codegen
+"""
+  leq1() PROC:<{
+    GREATER
+  }>
+  leq2() PROC:<{
+    GEQ
+  }>
+  leq3() PROC:<{
+    LESS
+  }>
+  leq4() PROC:<{
+    LEQ
+  }>
+"""
+
  */
