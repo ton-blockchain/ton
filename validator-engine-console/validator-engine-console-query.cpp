@@ -1856,6 +1856,9 @@ td::Status GetCollationManagerStatsQuery::receive(td::BufferSlice data) {
           }
           sb << td::StringBuilder::FixedDouble(collator->last_ping_ago_, 3) << ": " << status;
         }
+        if (collator->banned_for_ > 0.0) {
+          sb << " banned_for=" << td::StringBuilder::FixedDouble(std::max(collator->banned_for_, 0.0), 3);
+        }
         td::TerminalIO::out() << sb.as_cslice() << "\n";
       }
     }
