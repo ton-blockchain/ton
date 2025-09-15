@@ -17,6 +17,8 @@
 #pragma once
 
 #include "full-node.h"
+#include "validator-telemetry.hpp"
+
 #include <fstream>
 
 namespace ton::validator::fullnode {
@@ -108,6 +110,7 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
   void init();
   void get_stats_extra(td::Promise<std::string> promise);
 
+  td::actor::ActorOwn<ValidatorTelemetry> telemetry_sender_;
   bool collect_telemetry_ = false;
   std::ofstream telemetry_file_;
 };
