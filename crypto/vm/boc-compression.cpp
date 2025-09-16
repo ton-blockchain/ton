@@ -19,6 +19,7 @@
 #include "boc-compression.h"
 
 #include <algorithm>
+#include <bitset>
 #include "vm/boc.h"
 #include "vm/boc-writers.h"
 #include "vm/cells.h"
