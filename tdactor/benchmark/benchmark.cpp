@@ -313,6 +313,10 @@ class ActorExecutorBenchmark : public td::Benchmark {
         //queue.push_back(std::move(ptr));
         q.push(ptr, 0);
       }
+      void add_token_to_cpu_queue(SchedulerToken token, SchedulerId scheduler_id) override {
+        SchedulerMessage::Raw *raw = reinterpret_cast<SchedulerMessage::Raw *>(token);
+        q.push(SchedulerMessage(SchedulerMessage::acquire_t{}, raw), 0);
+      }
       void set_alarm_timestamp(const ActorInfoPtr &actor_info_ptr) override {
         UNREACHABLE();
       }

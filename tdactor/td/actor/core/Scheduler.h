@@ -55,10 +55,8 @@
 
 #include <atomic>
 #include <condition_variable>
-#include <limits>
 #include <memory>
 #include <mutex>
-#include <type_traits>
 #include <utility>
 
 namespace td {
@@ -151,10 +149,10 @@ struct LocalQueue {
 struct SchedulerInfo {
   SchedulerId id;
   // will be read by all workers is any thread
-  std::unique_ptr<MpmcQueue<SchedulerMessage::Raw *>> cpu_queue;
+  std::unique_ptr<MpmcQueue<SchedulerToken>> cpu_queue;
   std::unique_ptr<MpmcWaiter> cpu_queue_waiter;
 
-  std::vector<LocalQueue<SchedulerMessage::Raw *>> cpu_local_queue;
+  std::vector<LocalQueue<SchedulerToken>> cpu_local_queue;
   //std::vector<td::StealingQueue<SchedulerMessage>> cpu_stealing_queue;
 
   // only scheduler itself may read from io_queue_
@@ -244,6 +242,7 @@ class Scheduler {
 
     SchedulerId get_scheduler_id() const override;
     void add_to_queue(ActorInfoPtr actor_info_ptr, SchedulerId scheduler_id, bool need_poll) override;
+    void add_token_to_cpu_queue(SchedulerToken token, SchedulerId scheduler_id) override;
 
     ActorInfoCreator &get_actor_info_creator() override;
 

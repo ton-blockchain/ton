@@ -63,7 +63,7 @@ ninja storage-daemon storage-daemon-cli fift func tolk tonlib tonlibjson tonlib-
       validator-engine lite-client validator-engine-console blockchain-explorer \
       generate-random-id json2tlo dht-server http-proxy rldp-http-proxy dht-ping-servers dht-resolve \
       adnl-proxy create-state emulator test-ed25519 test-bigint \
-      test-vm test-fift test-cells test-smartcont test-net test-tdactor test-tdutils \
+      test-vm test-fift test-cells test-smartcont test-net test-tdactor test-coro test-tdutils \
       test-tonlib-offline test-adnl test-dht test-rldp test-rldp2 test-catchain \
       test-fec test-tddb test-db test-validator-session-state test-emulator proxy-liteserver
       test $? -eq 0 || { echo "Can't compile ton"; exit 1; }

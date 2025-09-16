@@ -155,7 +155,7 @@ if [ "$with_tests" = true ]; then
   lite-client validator-engine-console generate-random-id json2tlo dht-server dht-ping-servers dht-resolve \
   http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork tlbc emulator \
   test-ed25519 test-bigint test-vm test-fift test-cells test-smartcont \
-  test-net test-tdactor test-tdutils test-tonlib-offline test-adnl test-dht test-rldp \
+  test-net test-tdactor test-coro test-tdutils test-tonlib-offline test-adnl test-dht test-rldp \
   test-rldp2 test-catchain test-fec test-tddb test-db test-validator-session-state test-emulator proxy-liteserver
   test $? -eq 0 || { echo "Can't compile ton"; exit 1; }
 else

@@ -443,6 +443,12 @@ class Status {
   }
 };
 
+// Forward declarations for Result wrappers
+template <class T>
+struct ResultUnwrap;
+template <class T>
+struct ResultWrap;
+
 template <class T = Unit>
 class Result {
  public:
@@ -604,11 +610,34 @@ class Result {
     return f(move_as_ok());
   }
 
+  // Returns a wrapper that can be co_awaited to propagate errors in coroutines
+  ResultUnwrap<T> try_unwrap() && {
+    return ResultUnwrap<T>(std::move(*this));
+  }
+  
+  // Returns a wrapper that prevents error propagation when co_awaited
+  ResultWrap<T> wrap() && {
+    return ResultWrap<T>(std::move(*this));
+  }
+
  private:
   Status status_;
   union {
     T value_;
   };
+};
+
+
+// Wrapper to prevent error propagation when co_awaiting Result
+template <class T>
+struct ResultWrap {
+  Result<T> result;
+};
+
+template <class T>
+struct ResultUnwrap {
+  Result<T> result;
+
 };
 
 template <>
