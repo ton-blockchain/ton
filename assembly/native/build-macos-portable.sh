@@ -127,6 +127,8 @@ fi
 cmake -GNinja .. \
 -DPORTABLE=1 \
 -DCMAKE_OSX_DEPLOYMENT_TARGET:STRING=$OSX_TARGET \
+-DCMAKE_CXX_FLAGS="-stdlib=libc++" \
+-DCMAKE_SYSROOT=$(xcrun --show-sdk-path) \
 -DCMAKE_BUILD_TYPE=Release \
 -DOPENSSL_FOUND=1 \
 -DOPENSSL_INCLUDE_DIR=$opensslPath/include \
