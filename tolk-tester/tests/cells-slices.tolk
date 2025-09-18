@@ -16,6 +16,16 @@ fun endCell(b: builder): cell
 fun beginParse(c: cell): slice
     asm "CTOS";
 
+@noinline
+fun triggerOverflowIntConst() {
+    return beginCell().storeInt(10, 4)
+}
+
+@noinline
+fun triggerOverflowUintConst() {
+    return beginCell().storeUint(123, 6)
+}
+
 @method_id(101)
 fun test1(): [int,int,int,int,int] {
     var b: builder = beginCell().storeUint(1, 32);
@@ -249,6 +259,7 @@ fun test18() {
   return (s.loadUint(14), s.loadInt(8), s.loadUint(4));
 }
 
+@method_id(119)
 fun test19() {
     // numbers with potential overflow for STU are not joined, check via codegen
     var b = beginCell();
@@ -267,6 +278,7 @@ fun test20() {
   return (s.loadBool(), s.loadBool(), s.loadBool(), s.loadUint(8), s.loadBool(), s.loadCoins());
 }
 
+@method_id(121)
 fun test21(s: slice) {
     // successive skipBits are also joined
     var x = 8;
@@ -433,6 +445,30 @@ fun test34(p: int, n: int) {
     return b;
 }
 
+@method_id(135)
+fun test35(overflowMode: int) {
+    try {
+        val b: builder = match (overflowMode) {
+            1 => triggerOverflowIntConst(), 
+            2 => triggerOverflowUintConst(),
+            3 => beginCell().storeUint(10, -4),
+            4 => beginCell().storeInt(100, 1),
+            5 => beginCell().storeInt(1, 0),
+            6 => beginCell().storeInt(115792089237316195423570985008687907853269984665640564039457584007913129639935, 256),
+            7 => beginCell().storeInt(15, 4),
+            8 => beginCell().storeUint(1<<170, 169),
+            else => beginCell(),
+        };
+        return b.endCell().beginParse().loadUint(1) * 1000
+    }
+    catch (ex) { return ex }
+}
+
+@method_id(136)
+fun test36() {
+    return beginCell().storeInt(0, 0)
+}
+
 fun main(): int {
     return 0;
 }
@@ -467,6 +503,15 @@ fun main(): int {
 @testcase | 132 | 0   | BC{00080000000a}
 @testcase | 133 | 0   | BC{00020a}
 @testcase | 134 | 0 8 | BC{00020a}
+@testcase | 135 | 1   | 5
+@testcase | 135 | 2   | 5
+@testcase | 135 | 3   | 5
+@testcase | 135 | 4   | 5
+@testcase | 135 | 5   | 5
+@testcase | 135 | 6   | 5
+@testcase | 135 | 7   | 5
+@testcase | 135 | 8   | 5
+@testcase | 136 |     | BC{0000}
 
 We test that consequtive storeInt/storeUint with constants are joined into a single number
 
@@ -624,6 +669,34 @@ We test that consequtive storeInt/storeUint with constants are joined into a sin
     s0 s2 XCHG
     10 ADDCONST
     -ROT
+    STIX
+  }>
+"""
+
+@fif_codegen
+"""
+  triggerOverflowIntConst() PROC:<{ 
+    10 PUSHINT
+    NEWC
+    4 STI
+  }>
+"""
+
+@fif_codegen
+"""
+  triggerOverflowUintConst() PROC:<{ 
+    123 PUSHINT
+    NEWC
+    6 STU
+  }>
+"""
+
+@fif_codegen
+"""
+  test36() PROC:<{ 
+    0 PUSHINT
+    NEWC
+    OVER
     STIX
   }>
 """

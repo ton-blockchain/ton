@@ -30,6 +30,7 @@ fun check0(addr: address) {
     assert (addr.getWorkchain() == 0) throw 111;
 }
 
+@method_id(90)
 fun codegenAddrEq(a: address, b: address) {
     if (a == b) { return 1; }
     if (a != b) { return 2; }
@@ -141,12 +142,14 @@ fun main() {
         (cc1 as slice).bitsEqual(((cc2 as slice) as address) as slice),
         createAddressNone() == cc1,
         createAddressNone() == address.createNone(),
-        check0(address("0:FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFfffffffffffffffffffffffffffff"))
+        check0(address("0:FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFfffffffffffffffffffffffffffff")),
+        cc1 == cc1 as bits267 as address,
+        cc1 == cc1 as slice as bits999 as address,
     );
 }
 
 /**
-@testcase | 0   |   | -1 0 -1 0 -1
+@testcase | 0   |   | -1 0 -1 0 -1 -1 -1
 
 @fif_codegen
 """

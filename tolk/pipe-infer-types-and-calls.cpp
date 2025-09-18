@@ -19,6 +19,7 @@
 #include "ast.h"
 #include "ast-visitor.h"
 #include "generics-helpers.h"
+#include "overload-resolution.h"
 #include "type-system.h"
 #include "smart-casts-cfg.h"
 #include <charconv>
@@ -159,14 +160,20 @@ static void fire_error_using_lateinit_variable_uninitialized(FunctionPtr cur_f, 
 
 // fire an error when `obj.f()`, method `f` not found, try to locate a method for another type
 GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-static void fire_error_method_not_found(FunctionPtr cur_f, SrcLocation loc, TypePtr receiver_type, std::string_view method_name) {
-  if (std::vector<FunctionPtr> other = lookup_methods_with_name(method_name); !other.empty()) {
-    fire(cur_f, loc, "method `" + to_string(method_name) + "` not found for type " + to_string(receiver_type) + "\n(but it exists for type " + to_string(other.front()->receiver_type) + ")");
+static void fire_error_method_or_field_not_found(FunctionPtr cur_f, SrcLocation loc, TypePtr receiver_type, std::string_view field_name, bool called_as_method, bool is_static_dot) {
+  if (!called_as_method && is_static_dot && receiver_type->unwrap_alias()->try_as<TypeDataEnum>()) {
+    fire(cur_f, loc, "member `" + to_string(field_name) + "` does not exist in enum " + to_string(receiver_type));
   }
-  if (const Symbol* sym = lookup_global_symbol(method_name); sym && sym->try_as<FunctionPtr>()) {
-    fire(cur_f, loc, "method `" + to_string(method_name) + "` not found, but there is a global function named `" + to_string(method_name) + "`\n(a function should be called `foo(arg)`, not `arg.foo()`)");
+  if (!called_as_method && !is_static_dot) {
+    fire(cur_f, loc, "field `" + to_string(field_name) + "` doesn't exist in type " + to_string(receiver_type));
+  } 
+  if (std::vector<FunctionPtr> other = lookup_methods_with_name(field_name); !other.empty()) {
+    fire(cur_f, loc, "method `" + to_string(field_name) + "` not found for type " + to_string(receiver_type) + "\n(but it exists for type " + to_string(other.front()->receiver_type) + ")");
   }
-  fire(cur_f, loc, "method `" + to_string(method_name) + "` not found");
+  if (const Symbol* sym = lookup_global_symbol(field_name); sym && sym->try_as<FunctionPtr>()) {
+    fire(cur_f, loc, "method `" + to_string(field_name) + "` not found, but there is a global function named `" + to_string(field_name) + "`\n(a function should be called `foo(arg)`, not `arg.foo()`)");
+  }
+  fire(cur_f, loc, "method `" + to_string(field_name) + "` not found");
 }
 
 // safe version of std::stoi that does not crash on long numbers
@@ -223,16 +230,10 @@ static TypePtr try_pick_instantiated_generic_from_hint(TypePtr hint, AliasDefPtr
 
 // given `p.create` (called_receiver = Point, called_name = "create")
 // look up a corresponding method (it may be `Point.create` / `Point?.create` / `T.create`)
-static MethodCallCandidate choose_only_method_to_call(FunctionPtr cur_f, SrcLocation loc, TypePtr called_receiver, std::string_view called_name) {
-  // most practical cases: `builder.storeInt` etc., when a direct method for receiver exists
-  if (FunctionPtr exact_method = match_exact_method_for_call_not_generic(called_receiver, called_name)) {
-    return {exact_method, GenericsSubstitutions(exact_method->genericTs)};
-  }
-
-  // else, try to match, for example `10.copy` with `int?.copy`, with `T.copy`, etc.
-  std::vector<MethodCallCandidate> candidates = match_methods_for_call_including_generic(called_receiver, called_name);
+static std::pair<FunctionPtr, GenericsSubstitutions> choose_only_method_to_call(FunctionPtr cur_f, SrcLocation loc, TypePtr called_receiver, std::string_view called_name) {
+  std::vector<MethodCallCandidate> candidates = resolve_methods_for_call(called_receiver, called_name);
   if (candidates.size() == 1) {
-    return candidates[0];
+    return {candidates[0].method_ref, candidates[0].substitutedTs};
   }
   if (candidates.empty()) {   // return nullptr, the caller side decides how to react on this
     return {nullptr, GenericsSubstitutions(nullptr)};
@@ -240,10 +241,11 @@ static MethodCallCandidate choose_only_method_to_call(FunctionPtr cur_f, SrcLoca
 
   std::ostringstream msg;
   msg << "call to method `" << called_name << "` for type `" << called_receiver << "` is ambiguous\n";
-  for (const auto& [method_ref, substitutedTs] : candidates) {
+  for (const MethodCallCandidate& candidate : candidates) {
+    FunctionPtr method_ref = candidate.method_ref;
     msg << "candidate function: `" << method_ref->as_human_readable() << "`";
     if (method_ref->is_generic_function()) {
-      msg << " with " << substitutedTs.as_human_readable(false);
+      msg << " with " << candidate.substitutedTs.as_human_readable(false);
     }
     if (method_ref->loc.is_defined()) {
       msg << " (declared at " << method_ref->loc << ")\n";
@@ -252,6 +254,12 @@ static MethodCallCandidate choose_only_method_to_call(FunctionPtr cur_f, SrcLoca
     }
   }
   fire(cur_f, loc, msg.str());
+}
+
+static void check_no_unexpected_type_arguments(FunctionPtr cur_f, V<ast_instantiationT_list> v_instantiationTs) {
+  if (v_instantiationTs != nullptr) {
+    fire(cur_f, v_instantiationTs->loc, "type arguments not expected here");
+  }
 }
 
 // given fun `f` and a call `f(a,b,c)`, check that argument count is expected;
@@ -786,7 +794,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
     }
 
     rhs_type = rhs_type->unwrap_alias();
-    TypePtr expr_type = v->get_expr()->inferred_type->unwrap_alias();
+    TypePtr expr_type = v->get_expr()->inferred_type;
     TypePtr non_rhs_type = calculate_type_subtract_rhs_type(expr_type, rhs_type);
     if (expr_type->equal_to(rhs_type)) {                          // `expr is <type>` is always true
       v->mutate()->assign_always_true_or_false(v->is_negated ? 2 : 1);
@@ -823,7 +831,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
   ExprFlow infer_not_null_operator(V<ast_not_null_operator> v, FlowContext&& flow, bool used_as_condition) {
     ExprFlow after_expr = infer_any_expr(v->get_expr(), std::move(flow), false);
     TypePtr expr_type = v->get_expr()->inferred_type;
-    TypePtr without_null_type = calculate_type_subtract_rhs_type(expr_type->unwrap_alias(), TypeDataNullLiteral::create());
+    TypePtr without_null_type = calculate_type_subtract_rhs_type(expr_type, TypeDataNullLiteral::create());
     assign_inferred_type(v, without_null_type != TypeDataNever::create() ? without_null_type : expr_type);
 
     if (!used_as_condition) {
@@ -891,7 +899,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
     // T for asm function must be a TVM primitive (width 1), otherwise, asm would act incorrectly
     if (fun_ref->is_asm_function() || fun_ref->is_builtin_function()) {
       for (int i = 0; i < substitutedTs.size(); ++i) {
-        if (substitutedTs.typeT_at(i)->get_width_on_stack() != 1 && !fun_ref->is_variadic_width_T_allowed()) {
+        if (substitutedTs.typeT_at(i)->get_width_on_stack() != 1 && !is_allowed_asm_generic_function_with_non1_width_T(fun_ref, i)) {
           fire_error_calling_asm_function_with_non1_stack_width_arg(cur_f, loc, fun_ref, substitutedTs, i);
         }
       }
@@ -907,8 +915,8 @@ class InferTypesAndCallsAndFieldsVisitor final {
     // - or inside a call: `globalF()` / `genericFn()` / `genericFn<int>()` / `local_var()`
 
     if (LocalVarPtr var_ref = v->sym->try_as<LocalVarPtr>()) {
-      TypePtr declared_or_smart_casted = flow.smart_cast_if_exists(SinkExpression(var_ref));
-      tolk_assert(declared_or_smart_casted != nullptr);   // all local vars are presented in flow
+      tolk_assert(flow.smart_cast_exists(SinkExpression(var_ref)));   // all local vars are presented in flow
+      TypePtr declared_or_smart_casted = flow.smart_cast_or_original(SinkExpression(var_ref), var_ref->declared_type);
       assign_inferred_type(v, declared_or_smart_casted);
       if (var_ref->is_lateinit() && declared_or_smart_casted == TypeDataUnknown::create() && v->is_rvalue) {
         fire_error_using_lateinit_variable_uninitialized(cur_f, v->loc, v->get_name());
@@ -942,9 +950,9 @@ class InferTypesAndCallsAndFieldsVisitor final {
         fun_ref = check_and_instantiate_generic_function(v->loc, fun_ref, std::move(substitutedTs));
         v->mutate()->assign_sym(fun_ref);
 
-      } else if (UNLIKELY(v_instantiationTs != nullptr)) {
+      } else {
         // non-generic function referenced like `return beginCell<builder>;`
-        fire(cur_f, v_instantiationTs->loc, "type arguments not expected here");
+        check_no_unexpected_type_arguments(cur_f, v_instantiationTs);
       }
 
       if (out_f_called) {           // so, it's `globalF()` / `genericFn()` / `genericFn<int>()`
@@ -967,9 +975,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
     }
 
     // for non-functions: `local_var<int>` and similar not allowed
-    if (UNLIKELY(v->has_instantiationTs())) {
-      fire(cur_f, v->get_instantiationTs()->loc, "type arguments not expected here");
-    }
+    check_no_unexpected_type_arguments(cur_f, v->get_instantiationTs());
     return ExprFlow(std::move(flow), used_as_condition);
   }
 
@@ -982,14 +988,25 @@ class InferTypesAndCallsAndFieldsVisitor final {
     FunctionPtr fun_ref = nullptr;  // to be filled for `<any_expr>.method` / `Point.create` (both standalone or in a call)
     GenericsSubstitutions substitutedTs(nullptr);
     V<ast_identifier> v_ident = v->get_identifier();    // field/method name vertex
+    V<ast_instantiationT_list> v_instantiationTs = v->get_instantiationTs();
+    std::string_view field_name = v_ident->name;
 
-    // handle `Point.create` / `Container<int>.wrap`: no dot_obj expression actually, lhs is a type, looking up a method
+    // handle `Point.create` / `Container<int>.wrap` / `Color.Red`: lhs is a type, looking up a constant/method
     if (auto obj_ref = v->get_obj()->try_as<ast_reference>()) {
       if (const auto* obj_as_type = obj_ref->sym->try_as<const TypeReferenceUsedAsSymbol*>()) {
         TypePtr receiver_type = obj_as_type->resolved_type;
-        std::tie(fun_ref, substitutedTs) = choose_only_method_to_call(cur_f, v_ident->loc, receiver_type, v->get_field_name());
+        // `Color.Red` (enum member) — just fill v->target and done
+        if (const TypeDataEnum* enum_receiver = receiver_type->unwrap_alias()->try_as<TypeDataEnum>()) {
+          if (EnumMemberPtr member_ref = enum_receiver->enum_ref->find_member(field_name)) {
+            v->mutate()->assign_target(member_ref);
+            check_no_unexpected_type_arguments(cur_f, v_instantiationTs);
+            assign_inferred_type(v, enum_receiver);   // `Color.Red` is `Color`
+            return ExprFlow(std::move(flow), used_as_condition);
+          }
+        }
+        std::tie(fun_ref, substitutedTs) = choose_only_method_to_call(cur_f, v_ident->loc, receiver_type, field_name);
         if (!fun_ref) {
-          fire(cur_f, v_ident->loc, "method `" + to_string(v->get_field_name()) + "` not found for type " + to_string(receiver_type));
+          fire_error_method_or_field_not_found(cur_f, v_ident->loc, receiver_type, field_name, out_f_called != nullptr, true);
         }
       }
     }
@@ -1001,8 +1018,6 @@ class InferTypesAndCallsAndFieldsVisitor final {
 
     // our goal is to fill v->target (field/index/method) knowing type of obj
     TypePtr obj_type = dot_obj ? dot_obj->inferred_type->unwrap_alias() : TypeDataUnknown::create();
-    V<ast_instantiationT_list> v_instantiationTs = v->get_instantiationTs();
-    std::string_view field_name = v_ident->name;
 
     // check for field access (`user.id`), when obj is a struct
     if (const TypeDataStruct* obj_struct = obj_type->try_as<TypeDataStruct>()) {
@@ -1010,10 +1025,9 @@ class InferTypesAndCallsAndFieldsVisitor final {
         v->mutate()->assign_target(field_ref);
         TypePtr inferred_type = field_ref->declared_type;
         if (SinkExpression s_expr = extract_sink_expression_from_vertex(v)) {
-          if (TypePtr smart_casted = flow.smart_cast_if_exists(s_expr)) {
-            inferred_type = smart_casted;
-          }
+          inferred_type = flow.smart_cast_or_original(s_expr, inferred_type);
         }
+        check_no_unexpected_type_arguments(cur_f, v_instantiationTs);
         assign_inferred_type(v, inferred_type);
         return ExprFlow(std::move(flow), used_as_condition);
       }
@@ -1033,9 +1047,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
         v->mutate()->assign_target(index_at);
         TypePtr inferred_type = t_tensor->items[index_at];
         if (SinkExpression s_expr = extract_sink_expression_from_vertex(v)) {
-          if (TypePtr smart_casted = flow.smart_cast_if_exists(s_expr)) {
-            inferred_type = smart_casted;
-          }
+          inferred_type = flow.smart_cast_or_original(s_expr, inferred_type);
         }
         assign_inferred_type(v, inferred_type);
         return ExprFlow(std::move(flow), used_as_condition);
@@ -1047,9 +1059,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
         v->mutate()->assign_target(index_at);
         TypePtr inferred_type = t_tuple->items[index_at];
         if (SinkExpression s_expr = extract_sink_expression_from_vertex(v)) {
-          if (TypePtr smart_casted = flow.smart_cast_if_exists(s_expr)) {
-            inferred_type = smart_casted;
-          }
+          inferred_type = flow.smart_cast_or_original(s_expr, inferred_type);
         }
         assign_inferred_type(v, inferred_type);
         return ExprFlow(std::move(flow), used_as_condition);
@@ -1084,11 +1094,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
           fire(cur_f, v_ident->loc, "can not access field `" + static_cast<std::string>(field_name) + "` of a possibly nullable object " + to_string(dot_obj) + "\nhint: check it via `obj != null` or use non-null assertion `obj!` operator");
         }
       }
-      if (out_f_called) {
-        fire_error_method_not_found(cur_f, v_ident->loc, dot_obj->inferred_type, v->get_field_name());
-      } else {
-        fire(cur_f, v_ident->loc, "field `" + static_cast<std::string>(field_name) + "` doesn't exist in type " + to_string(dot_obj));
-      }
+      fire_error_method_or_field_not_found(cur_f, v_ident->loc, dot_obj->inferred_type, field_name, out_f_called != nullptr, false);
     }
 
     // if `fun T.copy(self)` and reference `int.copy` — all generic parameters are determined by the receiver, we know it
@@ -1107,9 +1113,9 @@ class InferTypesAndCallsAndFieldsVisitor final {
       substitutedTs.provide_type_arguments(collect_type_arguments_for_fun(v->loc, fun_ref->genericTs, v_instantiationTs));
       fun_ref = check_and_instantiate_generic_function(v->loc, fun_ref, std::move(substitutedTs));
 
-    } else if (UNLIKELY(v_instantiationTs != nullptr)) {
+    } else {
       // non-generic method referenced like `var cb = c.hash<int>;`
-      fire(cur_f, v_instantiationTs->loc, "type arguments not expected here");
+      check_no_unexpected_type_arguments(cur_f, v_instantiationTs);
     }
 
     if (out_f_called) {           // so, it's `user.method()` / `t.tupleAt()` / `t.tupleAt<int>()` / `Point.create`
@@ -1185,7 +1191,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
       if (param_type->has_genericT_inside()) {
         param_type = deducingTs.auto_deduce_from_argument(cur_f, self_obj->loc, param_type, self_obj->inferred_type);
       }
-      if (param_0.is_mutate_parameter() && self_obj->inferred_type->unwrap_alias() != param_type->unwrap_alias()) {
+      if (param_0.is_mutate_parameter() && !self_obj->inferred_type->equal_to(param_type)) {
         if (SinkExpression s_expr = extract_sink_expression_from_vertex(self_obj)) {
           assign_inferred_type(self_obj, calc_declared_type_before_smart_cast(self_obj));
           flow.register_known_type(s_expr, param_type);
@@ -1212,7 +1218,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
         param_type = deducingTs.auto_deduce_from_argument(cur_f, arg_i->loc, param_type, arg_i->inferred_type);
       }
       assign_inferred_type(v->get_arg(i), arg_i);  // arg itself is an expression
-      if (param_i.is_mutate_parameter() && arg_i->inferred_type->unwrap_alias() != param_type->unwrap_alias()) {
+      if (param_i.is_mutate_parameter() && !arg_i->inferred_type->equal_to(param_type)) {
         if (SinkExpression s_expr = extract_sink_expression_from_vertex(arg_i)) {
           assign_inferred_type(arg_i, calc_declared_type_before_smart_cast(arg_i));
           flow.register_known_type(s_expr, param_type);
@@ -1634,7 +1640,7 @@ public:
 
       if (!body_end.is_unreachable()) {
         fun_ref->mutate()->assign_is_implicit_return();
-        if (fun_ref->declared_return_type == TypeDataNever::create()) {   // `never` can only be declared, it can't be inferred
+        if (fun_ref->declared_return_type == TypeDataNever::create()) {
           fire(fun_ref, v_function->get_body()->as<ast_block_statement>()->loc_end, "a function returning `never` can not have a reachable endpoint");
         }
       }
@@ -1654,7 +1660,7 @@ public:
         }
         inferred_return_type = return_unifier.get_result();
         if (inferred_return_type == nullptr) {    // if no return statements at all
-          inferred_return_type = TypeDataVoid::create();
+          inferred_return_type = body_end.is_unreachable() ? TypeDataNever::create() : TypeDataVoid::create();
         }
 
         if (!body_end.is_unreachable() && inferred_return_type != TypeDataVoid::create()) {
@@ -1706,6 +1712,11 @@ public:
         infer_any_expr(field_ref->default_value, FlowContext(), false, field_ref->declared_type);
       }
     }
+  }
+
+  // given `enum Color { Red = 1 }` infer that it's int
+  void start_visiting_enum_member(EnumMemberPtr member_ref) {
+    infer_any_expr(member_ref->init_value, FlowContext(), false);
   }
 };
 
@@ -1769,7 +1780,15 @@ static void infer_and_save_type_of_constant(GlobalConstPtr const_ref) {
 }
 
 void pipeline_infer_types_and_calls_and_fields() {
+  // loop over user-defined functions
   visit_ast_of_all_functions<LaunchInferTypesAndMethodsOnce>();
+
+  // assign inferred_type to built-in functions like __throw() 
+  for (FunctionPtr fun_ref : get_all_builtin_functions()) {
+    if (LaunchInferTypesAndMethodsOnce::should_visit_function(fun_ref)) {
+      infer_and_save_return_type_of_function(fun_ref);      
+    }    
+  }
 
   // analyze constants that weren't referenced by any function
   InferTypesAndCallsAndFieldsVisitor visitor;
@@ -1783,6 +1802,15 @@ void pipeline_infer_types_and_calls_and_fields() {
   for (StructPtr struct_ref : get_all_declared_structs()) {
     if (!struct_ref->is_generic_struct()) {
       visitor.start_visiting_struct_fields(struct_ref);
+    }
+  }
+
+  // infer types for init_value of enum members
+  for (EnumDefPtr enum_ref : get_all_declared_enums()) {
+    for (EnumMemberPtr member_ref : enum_ref->members) {
+      if (member_ref->has_init_value()) {
+        visitor.start_visiting_enum_member(member_ref);
+      }
     }
   }
 }

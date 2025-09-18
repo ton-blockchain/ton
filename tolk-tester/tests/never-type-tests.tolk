@@ -1,5 +1,14 @@
 fun takeInt(a: int) {}
 
+fun alwaysThrows() {
+    throw 123;
+}
+
+fun alwaysThrowsButReturns() {
+    throw 123;
+    return 123;
+}
+
 @method_id(101)
 fun test1(x: int?) {
     if (x == null && x != null) {
@@ -21,6 +30,8 @@ fun test1(x: int?) {
 
 fun main() {
     __expect_type(test1, "(int?) -> int");
+    __expect_type(alwaysThrows(), "never");
+    __expect_type(alwaysThrowsButReturns(), "int");
 }
 
 /**

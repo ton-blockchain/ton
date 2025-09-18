@@ -406,6 +406,26 @@ struct WithTwoRestFields {
     rest2: RemainingBitsAndRefs;
 }
 
+struct WithMaps {
+    m1: map<int8, RemainingBitsAndRefs>
+    m2: map<JustInt32, (int8, int8)>
+}
+
+struct WithNullableMaps {
+    m1: map<int32, int64>?
+    m2: map<int32, int64>?
+    m3: map<int32, int64>?
+    m4: map<int32, int64> | int32
+}
+
+enum EStoredAsInt8 { M100 = -100, Z = 0, P100 = 100 }
+enum EStoredAsUint1 { ZERO, ONE }
+
+struct WithEnums {
+    e1: EStoredAsInt8
+    e2: EStoredAsUint1
+    rem: uint7 = 0
+}
 
 
 // ---------------------------------------------
@@ -448,7 +468,7 @@ fun test_TwoInts32And64() {
 
 @method_id(205)
 fun test_TwoInts32AndRef64() {
-    run<TwoInts32AndRef64>({ op: 123, query_id_ref: { tvmCell: beginCell().storeUint(255,64).endCell() } }, stringHexToSlice("0000007B").appendRef(stringHexToSlice("00000000000000FF")));
+    run<TwoInts32AndRef64>({ op: 123, query_id_ref: (255 as uint64).toCell() }, stringHexToSlice("0000007B").appendRef(stringHexToSlice("00000000000000FF")));
     return true;
 }
 
@@ -607,7 +627,7 @@ fun test_DifferentMix2() {
     assert(iae1.query_id_maybe_ref == null, 400);
     assert_slice_is_44_and_ref45(r1.rest);
 
-    run<DifferentMix2>({ iae: { tvmCell: IntAndEither32OrRef64{ op: 778, i32orRef: { tvmCell: Inner2{ i64_in_ref: 9919992 }.toCell() }, query_id_maybe_ref: Inner1{ query_id_ref: 889477 }.toCell() }.toCell() }, tic: { op: 123, amount: 500000 }, rest: beginCell().endCell().beginParse() },
+    run<DifferentMix2>({ iae: IntAndEither32OrRef64{ op: 778, i32orRef: Inner2{ i64_in_ref: 9919992 }.toCell(), query_id_maybe_ref: Inner1{ query_id_ref: 889477 }.toCell() }.toCell(), tic: { op: 123, amount: 500000 }, rest: beginCell().endCell().beginParse() },
         stringHexToSlice("0000007B307A120").appendRef(stringHexToSlice("0000030AE_").appendRef(stringHexToSlice("0000000000975DF8")).appendRef(stringHexToSlice("00000000000D9285"))));
     var r2 = DifferentMix2.fromSlice(stringHexToSlice("0000007B307A120").appendRef(stringHexToSlice("0000030AE_").appendRef(stringHexToSlice("0000000000975DF8")).appendRef(stringHexToSlice("00000000000D9285"))));
     val iae2 = r2.iae.load();
@@ -716,6 +736,60 @@ fun test_EdgeCaseIntegers() {
     return edge.toCell().hash() == manual.endCell().hash()
 }
 
+@method_id(230)
+fun test_serializeMaps() {
+    var (
+        m1: map<int8, RemainingBitsAndRefs>,
+        m2: map<JustInt32, (int8, int8)>,
+    ) = (createEmptyMap(), createEmptyMap());
+    m1.set(1, "");
+    m1.set(2, stringHexToSlice("01").appendRef(stringHexToSlice("02")));
+    m2.set({value: 3}, (3, 30));
+    m2.set({value: 4}, (4, 40));
+
+    var w = (WithMaps { m1, m2 }).toCell().load();
+    w.m2.delete({value: 4});
+    val d3 = w.m2.deleteAndGetDeleted({value: 3});
+    var r = w.m1.findFirst();
+    var kl = (0, 0);
+    while (r.isFound) {
+        kl = r.loadValue().remainingBitsAndRefsCount();
+        r = w.m1.iterateNext(r);
+    }
+    return (w.m1.isEmpty(), w.m2.isEmpty(), d3.isFound, d3.loadValue(), kl);
+}
+    
+@method_id(231)
+fun test_nullableMaps() {
+    var o: WithNullableMaps = {
+        m1: createEmptyMap(),
+        m2: createEmptyMap(),
+        m3: null,
+        m4: createEmptyMap(),
+    };
+    if (o.m2 != null && o.m4 is map<int32, int64>) {
+        o.m2.set(1, 10);
+        o.m4.set(1, 10);
+    }
+    var c = o.toCell();
+    var s = c.beginParse();
+    var (bits, refs) = s.remainingBitsAndRefsCount();
+    assert(bits == 2+2+1+2) throw 123;
+    assert(refs == 0+1+0+1) throw 234;
+
+    o = c.load();
+    return (o.m1 == null, o.m1!.isEmpty(), o.m2 == null, o.m2!.isEmpty(), o.m3 == null, o.m4 is int32);
+}
+
+@method_id(232)
+fun test_SimpleEnums() {
+    run<WithEnums>({e1: EStoredAsInt8.M100, e2: EStoredAsUint1.ZERO}, stringHexToSlice("9c00"));
+    run<WithEnums>({e1: EStoredAsInt8.Z, e2: EStoredAsUint1.ZERO}, stringHexToSlice("0000"));
+    run<WithEnums>({e1: EStoredAsInt8.P100, e2: EStoredAsUint1.ONE, rem: 1}, stringHexToSlice("6481"));
+    return -1;
+}
+
+
 fun main() {
     var t: JustInt32 = { value: 10 };
     var c = t.toCell();
@@ -737,18 +811,18 @@ fun main() {
 @testcase | 208 | | -1
 @testcase | 209 | | -1
 @testcase | 210 | | 123 555 46 (null)
-@testcase | 211 | | (null) typeid-4 123
-@testcase | 212 | | (null) typeid-5 123
+@testcase | 211 | | (null) typeid-3 123
+@testcase | 212 | | (null) typeid-4 123
 @testcase | 213 | | -1
 @testcase | 214 | | -1
 @testcase | 215 | | -1
 @testcase | 216 | | -1
 @testcase | 217 | | -1
 @testcase | 218 | | -1
-@testcase | 219 | | 44 (null) (null) 46 typeid-15
+@testcase | 219 | | 44 (null) (null) 46 typeid-11
 @testcase | 220 | | 0 0 (null) 99 typeid-8 typeid-9 99 1234 (null) 889129 14
 @testcase | 221 | | -1
-@testcase | 222 | | 510 567 9392843922 typeid-18 81923 81923 typeid-19 777 0 -1 (null) (null) 0 100000 100000 typeid-19
+@testcase | 222 | | 510 567 9392843922 typeid-13 81923 81923 typeid-14 777 0 -1 (null) (null) 0 100000 100000 typeid-14
 @testcase | 223 | | 10 55 (null)
 @testcase | 224 | | 60 50000000 5 9 123 -1
 @testcase | 225 | | 5 40 65535 8 50000000
@@ -756,4 +830,7 @@ fun main() {
 @testcase | 227 | | 16
 @testcase | 228 | | -1
 @testcase | 229 | | -1
+@testcase | 230 | | 0 -1 -1 3 30 8 1
+@testcase | 231 | | 0 -1 0 0 -1 0
+@testcase | 232 | | -1
  */

@@ -85,11 +85,7 @@ static void generate_output_func(FunctionPtr fun_ref) {
     modifier = "REF";
   }
   if (G.settings.tolk_src_as_line_comments) {
-    std::cout << "  // " << fun_ref->loc;
-    if (!fun_ref->n_times_called && !fun_ref->is_used_as_noncall() && !fun_ref->is_entrypoint() && !fun_ref->has_tvm_method_id()) {
-      std::cout << "  (note: function never called!)";
-    }
-    std::cout << std::endl;
+    std::cout << "  // " << fun_ref->loc << std::endl;
   }
   std::cout << "  " << fun_ref->name << "() PROC" << modifier << ":<{";
   int mode = 0;
@@ -173,7 +169,7 @@ void pipeline_generate_fif_output_to_std_cout() {
   }
 
   for (GlobalVarPtr var_ref : G.all_global_vars) {
-    if (!var_ref->is_really_used() && G.settings.remove_unused_functions) {
+    if (!var_ref->is_really_used()) {
       if (G.is_verbosity(2)) {
         std::cerr << var_ref->name << ": variable not generated, it's unused\n";
       }

@@ -1,4 +1,5 @@
 fun cantReturnVoidAndNonVoid(a: int | slice | builder) {
+    throw 123;
     match (a) {
         int => { return; }
         slice => {}

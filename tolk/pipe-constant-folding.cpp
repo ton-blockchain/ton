@@ -35,6 +35,21 @@
 
 namespace tolk {
 
+// assign `enum` members values (either auto-compute sequentially or use manual initializers)
+static void assign_enum_members_values(EnumDefPtr enum_ref) {
+  td::RefInt256 prev_value = td::make_refint(-1);
+  for (EnumMemberPtr member_ref : enum_ref->members) {
+    td::RefInt256 cur_value = member_ref->init_value ? eval_enum_member_init_value(member_ref->init_value) : prev_value + 1;
+    if (!cur_value->is_valid() || !cur_value->signed_fits_bits(257)) {
+      fire(nullptr, member_ref->loc, "integer overflow");
+    }
+
+    member_ref->mutate()->assign_computed_value(cur_value);
+    prev_value = std::move(cur_value);
+  }
+}
+
+
 class ConstantFoldingReplacer final : public ASTReplacerInFunctionBody {
   static V<ast_int_const> create_int_const(SrcLocation loc, td::RefInt256&& intval) {
     auto v_int = createV<ast_int_const>(loc, std::move(intval), {});
@@ -189,6 +204,10 @@ void pipeline_constant_folding() {
         field_ref->mutate()->assign_default_value(replaced);
       }
     }
+  }
+  // assign `enum` members values (either auto-compute sequentially or use manual initializers)
+  for (EnumDefPtr enum_ref : get_all_declared_enums()) {
+    assign_enum_members_values(enum_ref);
   }
 
   replace_ast_of_all_functions<ConstantFoldingReplacer>();

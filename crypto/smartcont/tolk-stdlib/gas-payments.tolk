@@ -1,5 +1,5 @@
 // A part of standard library for Tolk
-tolk 1.0
+tolk 1.1
 
 /**
   Gas and payment related primitives.
@@ -32,16 +32,16 @@ fun setGasLimitToMaximum(): void
 fun setGasLimit(limit: int): void
     asm "SETGASLIMIT"
 
-/// Calculates fee (amount in nanotoncoins to be paid) for a transaction which consumed [gasUsed] gas units.
+/// Calculates fee (amount in nanotoncoins to be paid) for a transaction which consumed `gasUsed` gas units.
 fun calculateGasFee(workchain: int8, gasUsed: int): coins
     asm(gasUsed workchain) "GETGASFEE"
 
-/// Same as [calculateGasFee], but without flat price (you have supposed to read https://docs.ton.org/develop/howto/fees-low-level)
+/// Same as [calculateGasFee], but without flat price. [Docs about fees](https://docs.ton.org/develop/howto/fees-low-level)
 fun calculateGasFeeWithoutFlatPrice(workchain: int8, gasUsed: coins): coins
     asm(gasUsed workchain) "GETGASFEESIMPLE"
 
-/// Calculates amount of nanotoncoins you should pay for storing a contract of provided size for [seconds].
-/// [bits] and [cells] represent contract state (code + data).
+/// Calculates amount of nanotoncoins you should pay for storing a contract of provided size for `seconds`.
+/// `bits` and `cells` represent contract state (code + data).
 fun calculateStorageFee(workchain: int8, seconds: int, bits: int, cells: int): coins
     asm(cells bits seconds workchain) "GETSTORAGEFEE"
 
@@ -49,7 +49,7 @@ fun calculateStorageFee(workchain: int8, seconds: int, bits: int, cells: int): c
 fun calculateForwardFee(workchain: int8, bits: int, cells: int): coins
     asm(cells bits workchain) "GETFORWARDFEE"
 
-/// Same as [calculateForwardFee], but without lump price (you have supposed to read https://docs.ton.org/develop/howto/fees-low-level)
+/// Same as [calculateForwardFee], but without lump price. [Docs about fees](https://docs.ton.org/develop/howto/fees-low-level)
 fun calculateForwardFeeWithoutLumpPrice(workchain: int8, bits: int, cells: int): coins
     asm(cells bits workchain) "GETFORWARDFEESIMPLE"
 

@@ -15,7 +15,7 @@ fun tuplePush<T>(mutate t: tuple, value: T): void
 @method_id(101)
 fun test101(x: int) {
     var (a, b, c) = (x, (x,x), [x,x]);
-    return (eq1(a), eq1(b), eq1(c), eq2(a), eq2(b), eq2(c), eq3(a), eq4(b), eq3(createEmptyTuple()));
+    return (eq1(a), eq1(b), eq1(c), eq2(a), eq2(b), eq2(c), eq3(a), eq4(b), eq3(createEmptyTuple()), eq1(Color.Red));
 }
 
 fun getTwo<X>(): X { return 2 as X; }
@@ -28,6 +28,7 @@ struct Wrapper<T> {
 struct Err<T> {
     errPayload: T
 }
+enum Color { Red, Green, Blue }
 
 @method_id(102)
 fun test102(): (int, int, int, [int, int], Wrapper< Wrapper<int8> >) {
@@ -211,6 +212,7 @@ fun test113(a: int | slice) {
 
 fun main(x: int): (int, [Tup2Int]) {
     __expect_type(test110, "() -> (Tensor2Int, Tensor2Int)");
+    __expect_type(eq2(10 as Color), "Color");
 
     try { if(x) { throw (1, x); } }
     catch (excNo, arg) { return (arg as int, [[eq2(arg as int), getTwo()]]); }
@@ -219,7 +221,7 @@ fun main(x: int): (int, [Tup2Int]) {
 
 /**
 @testcase | 0   | 1 | 1 [ [ 1 2 ] ]
-@testcase | 101 | 0 | 0 0 0 [ 0 0 ] 0 0 0 [ 0 0 ] 0 0 0 []
+@testcase | 101 | 0 | 0 0 0 [ 0 0 ] 0 0 0 [ 0 0 ] 0 0 0 [] 0
 @testcase | 102 |   | 2 2 2 [ 2 2 ] 2
 @testcase | 103 | 0 | 0 100 100
 @testcase | 104 | 0 | [ 1 (null) 2 ] [ 2 -1 0 ]
@@ -241,6 +243,7 @@ fun main(x: int): (int, [Tup2Int]) {
 @fif_codegen DECLPROC eq1<MInt?>()
 @fif_codegen DECLPROC eq1<int|slice|null>()
 @fif_codegen DECLPROC eq1<Wrapper<Wrapper<int8>>>()
+@fif_codegen DECLPROC eq1<Color>()
 
 // was inlined
 @fif_codegen_avoid DECLPROC getTwo<int>()

@@ -422,6 +422,43 @@ bool Optimizer::detect_rewrite_NOT_THROWIF() {
   return false;
 }
 
+// pattern `NEWC` + store const slice + XCHG + keyLen + DICTSETB -> push const slice + XCHG + keyLen + DICTSET
+// (useful for `someMap.set(k, constVal)` where constVal is represented as a const slice)
+bool Optimizer::detect_rewrite_DICTSETB_DICTSET() {
+  bool fifth_dict = pb_ >= 5 && op_[4]->is_custom() && op_[4]->op.starts_with("DICT");
+  if (!fifth_dict) {
+    return false;
+  }
+
+  bool first_newc = op_[0]->op == "NEWC";
+  bool second_stsliceconst = op_[1]->op.ends_with(" STSLICECONST");
+  bool third_xchg = op_[2]->is_xchg() || op_[2]->op == "ROT" || op_[2]->op == "-ROT" || op_[2]->op.ends_with(" PUXC");
+  bool fourth_pushint = op_[3]->is_const() && op_[3]->op.ends_with(" PUSHINT");
+  if (!first_newc || !second_stsliceconst || !third_xchg || !fourth_pushint) {
+    return false;
+  }
+
+  static const char* contains_b[] = {"SETB", "REPLACEB", "ADDB", "GETB"};
+  static const char* repl_with[]  = {"SET",  "REPLACE",  "ADD",  "GET" };
+
+  std::string new_op = op_[4]->op;  // "DICTSET" / "DICTSETGET NULLSWAPIFNOT"
+  for (size_t i = 0; i < std::size(contains_b); ++i) {
+    if (size_t pos = new_op.find(contains_b[i]); pos == 4 || pos == 5) {
+      new_op.replace(pos, std::strlen(contains_b[i]), repl_with[i]); 
+      p_ = 5;
+      q_ = 4;
+      oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[1]->loc, op_[1]->op.substr(0, op_[1]->op.rfind(' ')) + " PUSHSLICE", 0, 1));
+      oq_[1] = std::move(op_[2]);
+      oq_[2] = std::move(op_[3]);
+      oq_[3] = std::make_unique<AsmOp>(AsmOp::Custom(op_[4]->loc, new_op));
+      return true;
+    } 
+  }
+
+  return false;
+}
+
+
 bool Optimizer::is_push_const(int* i, int* c) const {
   return pb_ >= 3 && pb_ <= l2_ && tr_[pb_ - 1].is_push_const(i, c);
 }
@@ -844,7 +881,7 @@ bool Optimizer::find_at_least(int pb) {
          detect_rewrite_MY_store_int() || detect_rewrite_MY_skip_bits() || detect_rewrite_NEWC_PUSH_STUR() ||
          detect_rewrite_LDxx_DROP() ||
          detect_rewrite_SWAP_symmetric() || detect_rewrite_SWAP_PUSH_STUR() || detect_rewrite_SWAP_STxxxR() ||
-         detect_rewrite_NOT_THROWIF() ||
+         detect_rewrite_NOT_THROWIF() || detect_rewrite_DICTSETB_DICTSET() ||
          (!(mode_ & 1) &&
           ((is_rot() && rewrite(AsmOp::Custom(loc, "ROT", 3, 3))) || (is_rotrev() && rewrite(AsmOp::Custom(loc, "-ROT", 3, 3))) ||
            (is_2dup() && rewrite(AsmOp::Custom(loc, "2DUP", 2, 4))) ||
