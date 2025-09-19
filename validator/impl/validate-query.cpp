@@ -5807,7 +5807,7 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
                                     << addr.to_hex());
     }
   }
-  if (!trs->prepare_compute_phase(compute_phase_cfg_)) {
+  if (!trs->execute_compute_phase(compute_phase_cfg_)) {
     return reject_query(PSTRING() << "cannot re-create compute phase of transaction " << lt << " for smart contract "
                                   << addr.to_hex());
   }

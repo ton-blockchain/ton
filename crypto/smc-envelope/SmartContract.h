@@ -33,6 +33,17 @@ class SmartContract : public td::CntObject {
   static td::Ref<vm::CellSlice> empty_slice();
 
  public:
+  class Logger : public td::LogInterface {
+  public:
+    void append(td::CSlice slice) override {
+      res.append(slice.data(), slice.size());
+    }
+    void clear() {
+      res.clear();
+    }
+    std::string res;
+  };
+
   struct State {
     td::Ref<vm::Cell> code;
     td::Ref<vm::Cell> data;
@@ -169,6 +180,10 @@ class SmartContract : public td::CntObject {
   Answer run_get_method(td::Slice method, Args args = {}) const;
   Answer send_external_message(td::Ref<vm::Cell> cell, Args args = {});
   Answer send_internal_message(td::Ref<vm::Cell> cell, Args args = {});
+
+  int run_get_method_debug(Args args, std::unique_ptr<vm::VmState>& vm, std::unique_ptr<Logger>& logger) const;
+  td::optional<Answer> debug_step(std::unique_ptr<vm::VmState>& vm, std::unique_ptr<Logger>& logger);
+  Answer get_result(const vm::VmState& vm, const Logger& logger) const;
 
   size_t code_size() const;
   size_t data_size() const;
