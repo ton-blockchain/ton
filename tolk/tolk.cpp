@@ -63,6 +63,7 @@ int tolk_proceed(const std::string &entrypoint_filename) {
     pipeline_check_inferred_types();
     pipeline_refine_lvalue_for_mutate_arguments();
     pipeline_check_rvalue_lvalue();
+    pipeline_check_private_fields_usage();
     pipeline_check_pure_impure_operations();
     pipeline_constant_folding();
     pipeline_optimize_boolean_expressions();

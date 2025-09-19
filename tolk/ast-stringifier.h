@@ -102,6 +102,9 @@ class ASTStringifier final : public ASTVisitor {
     {ast_struct_field, "ast_struct_field"},
     {ast_struct_body, "ast_struct_body"},
     {ast_struct_declaration, "ast_struct_declaration"},
+    {ast_enum_member, "ast_enum_member"},
+    {ast_enum_body, "ast_enum_body"},
+    {ast_enum_declaration, "ast_enum_declaration"},
     {ast_tolk_required_version, "ast_tolk_required_version"},
     {ast_import_directive, "ast_import_directive"},
     {ast_tolk_file, "ast_tolk_file"},
@@ -176,6 +179,8 @@ class ASTStringifier final : public ASTVisitor {
         return static_cast<std::string>(v->as<ast_struct_field>()->get_identifier()->name) + ": " + ast_type_node_to_string(v->as<ast_struct_field>()->type_node);
       case ast_struct_declaration:
         return "struct " + static_cast<std::string>(v->as<ast_struct_declaration>()->get_identifier()->name);
+      case ast_enum_declaration:
+        return "enum " + static_cast<std::string>(v->as<ast_enum_declaration>()->get_identifier()->name);
       case ast_assign:
         return "=";
       case ast_set_assign:
@@ -361,6 +366,9 @@ public:
       case ast_struct_field:                  return handle_vertex(v->as<ast_struct_field>());
       case ast_struct_body:                   return handle_vertex(v->as<ast_struct_body>());
       case ast_struct_declaration:            return handle_vertex(v->as<ast_struct_declaration>());
+      case ast_enum_member:                   return handle_vertex(v->as<ast_enum_member>());
+      case ast_enum_body:                     return handle_vertex(v->as<ast_enum_body>());
+      case ast_enum_declaration:              return handle_vertex(v->as<ast_enum_declaration>());
       case ast_tolk_required_version:         return handle_vertex(v->as<ast_tolk_required_version>());
       case ast_import_directive:              return handle_vertex(v->as<ast_import_directive>());
       case ast_tolk_file:                     return handle_vertex(v->as<ast_tolk_file>());

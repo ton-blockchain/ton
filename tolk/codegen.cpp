@@ -373,7 +373,7 @@ bool Op::generate_code_step(Stack& stack) {
           if (f_sym->is_asm_function()) {
             std::get<FunctionBodyAsm*>(f_sym->body)->compile(stack.o, loc);  // compile res := f (args0)
           } else {
-            std::get<FunctionBodyBuiltin*>(f_sym->body)->compile(stack.o, res, args0, loc);  // compile res := f (args0)
+            std::get<FunctionBodyBuiltinAsmOp*>(f_sym->body)->compile(stack.o, res, args0, loc);  // compile res := f (args0)
           }
         } else {
           stack.o << AsmOp::Custom(loc, f_sym->name + "() CALLDICT", (int)right.size(), (int)left.size());
@@ -511,7 +511,7 @@ bool Op::generate_code_step(Stack& stack) {
           if (arg_order_already_equals_asm()) {
             maybe_swap_builtin_args_to_compile();
           }
-          std::get<FunctionBodyBuiltin*>(f_sym->body)->compile(stack.o, res, args, loc);  // compile res := f (args)
+          std::get<FunctionBodyBuiltinAsmOp*>(f_sym->body)->compile(stack.o, res, args, loc);  // compile res := f (args)
           if (arg_order_already_equals_asm()) {
             maybe_swap_builtin_args_to_compile();
           }

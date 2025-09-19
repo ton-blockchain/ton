@@ -89,7 +89,6 @@ void GenericsSubstitutions::set_typeT(std::string_view nameT, TypePtr typeT) {
   for (int i = 0; i < size(); ++i) {
     if (genericTs->get_nameT(i) == nameT) {
       if (valuesTs[i] == nullptr) {
-        tolk_assert(!typeT->has_genericT_inside());
         valuesTs[i] = typeT;
       }
       break;
@@ -126,6 +125,12 @@ GenericSubstitutionsDeducing::GenericSubstitutionsDeducing(StructPtr struct_ref)
   , deducedTs(struct_ref->genericTs) {
 }
 
+GenericSubstitutionsDeducing::GenericSubstitutionsDeducing(const GenericsDeclaration* genericTs)
+  : fun_ref(nullptr)
+  , struct_ref(nullptr)
+  , deducedTs(genericTs) {
+}
+
 // purpose: having `f<T>(value: T)` and call `f(5)`, deduce T = int
 // generally, there may be many generic Ts for declaration, and many arguments
 // for every argument, `consider_next_condition()` is called
@@ -146,8 +151,16 @@ void GenericSubstitutionsDeducing::consider_next_condition(TypePtr param_type, T
     deducedTs.set_typeT(asT->nameT, arg_type);
   } else if (const auto* p_nullable = param_type->try_as<TypeDataUnion>(); p_nullable && p_nullable->or_null) {
     // `arg: T?` called as `f(nullableInt)` => T is int
-    if (const auto* a_nullable = arg_type->unwrap_alias()->try_as<TypeDataUnion>(); a_nullable && a_nullable->or_null) {
-      consider_next_condition(p_nullable->or_null, a_nullable->or_null);
+    // `arg: T?` called as `f(T1|T2|null)` => T is T1|T2
+    if (const auto* a_nullable = arg_type->unwrap_alias()->try_as<TypeDataUnion>(); a_nullable && a_nullable->has_null()) {
+      std::vector<TypePtr> rest_but_null;
+      rest_but_null.reserve(a_nullable->size() - 1);
+      for (TypePtr a_variant : a_nullable->variants) {
+        if (a_variant != TypeDataNullLiteral::create()) {
+          rest_but_null.push_back(a_variant);
+        }
+      }
+      consider_next_condition(p_nullable->or_null, TypeDataUnion::create(std::move(rest_but_null)));
     }
     // `arg: T?` called as `f(int)` => T is int
     else {
@@ -184,7 +197,9 @@ void GenericSubstitutionsDeducing::consider_next_condition(TypePtr param_type, T
       bool is_sub_correct = true;
       for (TypePtr p_variant : p_union->variants) {
         if (!p_variant->has_genericT_inside()) {
-          auto it = std::find(a_sub_p.begin(), a_sub_p.end(), p_variant);
+          auto it = std::find_if(a_sub_p.begin(), a_sub_p.end(), [p_variant](TypePtr a) {
+            return a->equal_to(p_variant);
+          });
           if (it != a_sub_p.end()) {
             a_sub_p.erase(it);
           } else {
@@ -210,10 +225,31 @@ void GenericSubstitutionsDeducing::consider_next_condition(TypePtr param_type, T
     }
   } else if (const auto* p_instSt = param_type->try_as<TypeDataGenericTypeWithTs>(); p_instSt && p_instSt->struct_ref) {
     // `arg: Wrapper<T>` called as `f(wrappedInt)` => T is int
-    if (const auto* a_struct = arg_type->try_as<TypeDataStruct>(); a_struct && a_struct->struct_ref->is_instantiation_of_generic_struct() && a_struct->struct_ref->base_struct_ref == p_instSt->struct_ref) {
+    if (const auto* a_struct = arg_type->unwrap_alias()->try_as<TypeDataStruct>(); a_struct && a_struct->struct_ref->is_instantiation_of_generic_struct() && a_struct->struct_ref->base_struct_ref == p_instSt->struct_ref) {
       tolk_assert(p_instSt->size() == a_struct->struct_ref->substitutedTs->size());
       for (int i = 0; i < p_instSt->size(); ++i) {
         consider_next_condition(p_instSt->type_arguments[i], a_struct->struct_ref->substitutedTs->typeT_at(i));
+      }
+    }
+    // `arg: Wrapper<T>` called as `f(Wrapper<Wrapper<T>>)` => T is Wrapper<T>
+    if (const auto* a_instSt = arg_type->try_as<TypeDataGenericTypeWithTs>(); a_instSt && a_instSt->struct_ref == p_instSt->struct_ref) {
+      tolk_assert(p_instSt->size() == a_instSt->size());
+      for (int i = 0; i < p_instSt->size(); ++i) {
+        consider_next_condition(p_instSt->type_arguments[i], a_instSt->type_arguments[i]);
+      }
+    }
+    // `arg: Wrapper<T>?` called as `f(Wrapper<int>)` => T is int
+    if (const auto* a_union = arg_type->unwrap_alias()->try_as<TypeDataUnion>()) {
+      TypePtr variant_matches = nullptr;
+      int n_matches = 0;
+      for (TypePtr a_variant : a_union->variants) {
+        if (const auto* a_struct = a_variant->unwrap_alias()->try_as<TypeDataStruct>(); a_struct && a_struct->struct_ref->is_instantiation_of_generic_struct() && a_struct->struct_ref->base_struct_ref == p_instSt->struct_ref) {
+          variant_matches = a_variant;
+          n_matches++;
+        }
+      }
+      if (n_matches == 1) {
+        consider_next_condition(param_type, variant_matches);
       }
     }
   } else if (const auto* p_instAl = param_type->try_as<TypeDataGenericTypeWithTs>(); p_instAl && p_instAl->alias_ref) {
@@ -222,6 +258,26 @@ void GenericSubstitutionsDeducing::consider_next_condition(TypePtr param_type, T
       tolk_assert(p_instAl->size() == a_alias->alias_ref->substitutedTs->size());
       for (int i = 0; i < p_instAl->size(); ++i) {
         consider_next_condition(p_instAl->type_arguments[i], a_alias->alias_ref->substitutedTs->typeT_at(i));
+      }
+    }
+  } else if (const auto* p_map = param_type->try_as<TypeDataMapKV>()) {
+    // `arg: map<K, V>` called as `f(someMapInt32Slice)` => K = int32, V = slice
+    if (const auto* a_map = arg_type->unwrap_alias()->try_as<TypeDataMapKV>()) {
+      consider_next_condition(p_map->TKey, a_map->TKey);
+      consider_next_condition(p_map->TValue, a_map->TValue);
+    }
+    // `arg: map<K, V>?` called as `f(someMapInt32Slice)` => K = int32, V = slice
+    if (const auto* a_union = arg_type->unwrap_alias()->try_as<TypeDataUnion>()) {
+      TypePtr variant_matches = nullptr;
+      int n_matches = 0;
+      for (TypePtr a_variant : a_union->variants) {
+        if (a_variant->unwrap_alias()->try_as<TypeDataMapKV>()) {
+          variant_matches = a_variant;
+          n_matches++;
+        }
+      }
+      if (n_matches == 1) {
+        consider_next_condition(param_type, variant_matches);
       }
     }
   }
@@ -442,86 +498,26 @@ AliasDefPtr instantiate_generic_alias(AliasDefPtr alias_ref, GenericsSubstitutio
   return new_alias_ref;
 }
 
-// find `builder.storeInt` for called_receiver = "builder" and called_name = "storeInt"
-// most practical case, when a direct method for receiver exists;
-// note, that having an alias `type WorkchainNum = int` and methods `WorkchainNum.isMasterchain()`,
-// it's okay to call `-1.isMasterchain()`, because int equals to any alias;
-// currently there is no chance to change this logic, say, `type AssetList = dict` to have separate methods,
-// due to smart casts, types merge of control flow rejoin, etc., which immediately become `cell?`
-FunctionPtr match_exact_method_for_call_not_generic(TypePtr called_receiver, std::string_view called_name) {
-  FunctionPtr exact_found = nullptr;
+// a function `tuple.push<T>(self, v: T) asm "TPUSH"` can't be called with T=Point (2 stack slots);
+// almost all asm/built-in generic functions expect one stack slot, but there are exceptions
+bool is_allowed_asm_generic_function_with_non1_width_T(FunctionPtr fun_ref, int idxT) {
+  // if a built-in function is marked with a special flag
+  if (fun_ref->is_variadic_width_T_allowed()) {
+    return true;
+  }
 
-  for (FunctionPtr method_ref : G.all_methods) {
-    if (method_ref->method_name == called_name && !method_ref->receiver_type->has_genericT_inside()) {
-      if (method_ref->receiver_type->equal_to(called_receiver)) {
-        if (exact_found) {
-          return nullptr;
-        }
-        exact_found = method_ref;
-      }
+  // allow "Cell<T>.hash", "map<K, V>.isEmpty" and other methods that don't depend on internal structure
+  if (fun_ref->is_method() && idxT < fun_ref->genericTs->n_from_receiver) {
+    TypePtr receiver = fun_ref->receiver_type->unwrap_alias(); 
+    if (const auto* r_withTs = receiver->try_as<TypeDataGenericTypeWithTs>()) {
+      return r_withTs->struct_ref && r_withTs->struct_ref->name == "Cell";
+    }
+    if (receiver->try_as<TypeDataMapKV>()) {
+      return true;
     }
   }
 
-  return exact_found;
-}
-
-// find `int?.copy` / `T.copy` for called_receiver = "int" and called_name = "copy"
-std::vector<MethodCallCandidate> match_methods_for_call_including_generic(TypePtr called_receiver, std::string_view called_name) {
-  std::vector<MethodCallCandidate> candidates;
-
-  // step1: find all methods where a receiver equals to provided, e.g. `MInt.copy`
-  for (FunctionPtr method_ref : G.all_methods) {
-    if (method_ref->method_name == called_name && !method_ref->receiver_type->has_genericT_inside()) {
-      if (method_ref->receiver_type->equal_to(called_receiver)) {
-        candidates.emplace_back(method_ref, GenericsSubstitutions(method_ref->genericTs));
-      }
-    }
-  }
-  if (!candidates.empty()) {
-    return candidates;
-  }
-
-  // step2: find all methods where a receiver can accept provided, e.g. `int8.copy` / `int?.copy` / `(int|slice).copy`
-  for (FunctionPtr method_ref : G.all_methods) {
-    if (method_ref->method_name == called_name && !method_ref->receiver_type->has_genericT_inside()) {
-      if (method_ref->receiver_type->can_rhs_be_assigned(called_receiver)) {
-        candidates.emplace_back(method_ref, GenericsSubstitutions(method_ref->genericTs));
-      }
-    }
-  }
-  if (!candidates.empty()) {
-    return candidates;
-  }
-
-  // step 3: try to match generic receivers, e.g. `Container<T>.copy` / `(T?|slice).copy` but NOT `T.copy`
-  for (FunctionPtr method_ref : G.all_methods) {
-    if (method_ref->method_name == called_name && method_ref->receiver_type->has_genericT_inside() && !method_ref->receiver_type->try_as<TypeDataGenericT>()) {
-      try {
-        GenericSubstitutionsDeducing deducingTs(method_ref);
-        TypePtr replaced = deducingTs.auto_deduce_from_argument(method_ref->receiver_type, called_receiver);
-        if (!replaced->has_genericT_inside()) {
-          candidates.emplace_back(method_ref, deducingTs.flush());
-        }
-      } catch (...) {}
-    }
-  }
-  if (!candidates.empty()) {
-    return candidates;
-  }
-
-  // step 4: try to match `T.copy`
-  for (FunctionPtr method_ref : G.all_methods) {
-    if (method_ref->method_name == called_name && method_ref->receiver_type->try_as<TypeDataGenericT>()) {
-      try {
-        GenericSubstitutionsDeducing deducingTs(method_ref);
-        TypePtr replaced = deducingTs.auto_deduce_from_argument(method_ref->receiver_type, called_receiver);
-        if (!replaced->has_genericT_inside()) {
-          candidates.emplace_back(method_ref, deducingTs.flush());
-        }
-      } catch (...) {}
-    }
-  }
-  return candidates;
+  return false;
 }
 
 } // namespace tolk
