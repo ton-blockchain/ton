@@ -7,7 +7,11 @@ set(COMMON_SOURCE
   errorlog.h
   errorlog.cpp
 
-  global-version.h)
+  global-version.h
+
+  threadpool.hpp
+  threadpool.cpp
+)
 
 
 add_library(common STATIC ${COMMON_SOURCE})

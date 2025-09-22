@@ -19,6 +19,8 @@
 #include "vm/cells/CellUsageTree.h"
 #include "DataCell.h"
 
+#include <mutex>
+
 namespace vm {
 //
 // CellUsageTree::NodePtr
@@ -134,9 +136,8 @@ CellUsageTree::NodeId CellUsageTree::create_child(NodeId node_id, unsigned ref_i
 }
 
 CellUsageTree::NodeId CellUsageTree::create_node(NodeId parent) {
-  NodeId res = static_cast<NodeId>(nodes_.size());
-  nodes_.emplace_back();
-  nodes_.back().parent = parent;
+  NodeId res = nodes_.emplace_back();
+  nodes_[res].parent = parent;
   return res;
 }
 
