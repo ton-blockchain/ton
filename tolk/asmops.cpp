@@ -330,6 +330,21 @@ void AsmOpList::show_var_ext(std::ostream& os, std::pair<var_idx_t, const_idx_t>
   }
 }
 
+std::optional<std::tuple<TmpVar, std::string>> AsmOpList::get_var(const std::pair<var_idx_t, const_idx_t>& idx_pair) const {
+  const var_idx_t var_idx = idx_pair.first;
+  const const_idx_t const_idx = idx_pair.second;
+  if (!var_names_ || static_cast<size_t>(var_idx) >= var_names_->size()) {
+    return std::nullopt;
+  }
+  const auto var = var_names_->at(var_idx);
+  if (static_cast<size_t>(const_idx) < constants_.size() && constants_[const_idx].not_null()) {
+    const auto value = constants_[const_idx];
+    const auto value_str = value->to_dec_string();
+    return std::tie(var, value_str);
+  }
+  return std::tie(var, "");
+}
+
 void AsmOpList::out(std::ostream& os, int mode) const {
   std::size_t n = list_.size();
   for (std::size_t i = 0; i < n; i++) {

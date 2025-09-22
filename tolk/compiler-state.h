@@ -22,6 +22,7 @@
 #include <functional>
 #include <set>
 #include <string>
+#include <tolk.h>
 
 namespace tolk {
 
@@ -53,9 +54,11 @@ struct CompilerSettings {
   int optimization_level = 2;
   bool stack_layout_comments = true;
   bool tolk_src_as_line_comments = true;
+  bool collect_source_map = false;
 
   std::string output_filename;
   std::string boc_output_filename;
+  std::string source_map_output_filename;
   std::string stdlib_folder;    // path to tolk-stdlib/; note: from tolk-js it's empty! tolk-js reads files via js callback
 
   FsReadCallback read_callback;
@@ -105,6 +108,8 @@ struct CompilerState {
   std::vector<StructPtr> all_structs;
   std::vector<EnumDefPtr> all_enums;
   AllRegisteredSrcFiles all_src_files;
+
+  std::vector<SourceMapEntry> source_map;
 
   bool is_verbosity(int gt_eq) const { return settings.verbosity >= gt_eq; }
 };

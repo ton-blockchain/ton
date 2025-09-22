@@ -1,0 +1,239 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Tolk Source Map Schema v1",
+  "description": "JSON Schema for Tolk compiler source map v1 files",
+  "type": "object",
+  "properties": {
+    "version": {
+      "description": "Schema version",
+      "type": "string",
+      "enum": [
+        "1"
+      ]
+    },
+    "files": {
+      "description": "Array of source files processed by the compiler",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/sourceFile"
+      }
+    },
+    "globals": {
+      "description": "Array of global variables declared in the program",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/globalVariable"
+      }
+    },
+    "locations": {
+      "description": "Array of debug locations with variable state information",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/debugLocation"
+      }
+    }
+  },
+  "required": [
+    "version",
+    "files",
+    "globals",
+    "locations"
+  ],
+  "$defs": {
+    "sourceFile": {
+      "description": "Information about a source file",
+      "type": "object",
+      "properties": {
+        "path": {
+          "description": "Path to the source file",
+          "type": "string"
+        },
+        "is_stdlib": {
+          "description": "Whether this is a standard library file",
+          "type": "boolean"
+        },
+        "content": {
+          "description": "Complete source code content of the file",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "is_stdlib",
+        "content"
+      ]
+    },
+    "globalVariable": {
+      "description": "Information about a global variable",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Name of the global variable",
+          "type": "string"
+        },
+        "type": "string"
+      },
+      "required": [
+        "name",
+        "type"
+      ]
+    },
+    "sourceLocation": {
+      "description": "Source code location information",
+      "type": "object",
+      "properties": {
+        "file": {
+          "description": "Path to the source file",
+          "type": "string"
+        },
+        "line": {
+          "description": "0-based line number",
+          "type": "integer"
+        },
+        "col": {
+          "description": "0-based column number",
+          "type": "integer"
+        },
+        "line_offset": {
+          "description": "Offset within the line",
+          "type": "integer",
+          "minimum": 0
+        },
+        "length": {
+          "description": "Length of the relevant code segment",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "file",
+        "line",
+        "col",
+        "line_offset",
+        "length"
+      ]
+    },
+    "functionContext": {
+      "description": "Function execution context",
+      "type": "object",
+      "properties": {
+        "descr": {
+          "description": "Human-readable description",
+          "type": "string"
+        },
+        "is_entry": {
+          "description": "Whether this is a function entry point",
+          "type": "boolean"
+        },
+        "ast_kind": {
+          "description": "AST node type",
+          "type": "string"
+        },
+        "func_name": {
+          "description": "Name of the containing function",
+          "type": "string"
+        },
+        "inlined_to_func": {
+          "description": "Name of function where this was inlined (if applicable)",
+          "type": "string"
+        },
+        "func_inline_mode": {
+          "description": "Function inline mode: 0 = notCalculated (inline mode not yet determined), 1 = inlineViaFif (inlined via .fif representation), 2 = inlineRef (inlined by reference), 3 = inlineInPlace (inlined directly in place), 4 = noInline (function is not inlined)",
+          "type": "integer",
+          "enum": [0, 1, 2, 3, 4]
+        },
+        "before_inlined_function_call": {
+          "description": "Whether this is before an inlined function call",
+          "type": "boolean"
+        },
+        "after_inlined_function_call": {
+          "description": "Whether this is after an inlined function call",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "func_name",
+        "func_inline_mode",
+        "ast_kind"
+      ]
+    },
+    "debugInfo": {
+      "description": "Debug-specific information (only present in debug builds)",
+      "type": "object",
+      "properties": {
+        "opcode": {
+          "description": "Generated TVM opcode",
+          "type": "string"
+        },
+        "line_str": {
+          "description": "Source line content",
+          "type": "string"
+        },
+        "line_off": {
+          "description": "Visual pointer showing the location in the source line (spaces followed by ^)",
+          "type": "string"
+        }
+      }
+    },
+    "debugLocation": {
+      "description": "Debug location with variable state and context",
+      "type": "object",
+      "properties": {
+        "idx": {
+          "description": "Unique identifier for this debug location",
+          "type": "integer",
+          "minimum": 0
+        },
+        "loc": {
+          "description": "Source code location",
+          "$ref": "#/$defs/sourceLocation"
+        },
+        "vars": {
+          "description": "Variables available at this debug location",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/variable"
+          }
+        },
+        "context": {
+          "description": "Execution context information",
+          "$ref": "#/$defs/functionContext"
+        },
+        "debug": {
+          "description": "Debug-specific information",
+          "$ref": "#/$defs/debugInfo"
+        }
+      },
+      "required": [
+        "idx",
+        "loc",
+        "context"
+      ]
+    },
+    "variable": {
+      "description": "Variable information at a debug location",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Variable name",
+          "type": "string"
+        },
+        "type": "string",
+        "constant_value": {
+          "description": "Constant value if variable has one",
+          "type": "string"
+        },
+        "possible_qualifier_types": {
+          "description": "Possible types for union variables",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "name",
+        "type"
+      ]
+    }
+  }
+}

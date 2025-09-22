@@ -227,7 +227,7 @@ td::Result<td::Ref<vm::Cell>> compile_asm(td::Slice asm_code) {
 
 td::Result<CompiledProgramOutput> compile_asm_program(std::string&& program_code, const std::string& fift_dir) {
   std::string main_fif;
-  main_fif.reserve(program_code.size() + 100);
+  main_fif.reserve(program_code.size() + 200);
   main_fif.append(program_code.data(), program_code.size());
   main_fif.append(R"( dup hashB B>X      $>B "hex" B>file)");   // write codeHashHex to a file
   main_fif.append(R"(     boc>B B>base64 $>B "boc" B>file)");   // write codeBoc64 to a file

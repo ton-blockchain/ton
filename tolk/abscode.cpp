@@ -254,6 +254,10 @@ void Op::show(std::ostream& os, const std::vector<TmpVar>& vars, std::string pfx
       show_var_list(os, left, vars);
       os << " := " << str_const << std::endl;
       break;
+    case _DebugInfo:
+      os << pfx << dis << "DEBUGINFO ";
+      os << source_map_entry_idx << std::endl;
+      break;
     case _Import:
       os << pfx << dis << "IMPORT ";
       show_var_list(os, left, vars);
@@ -394,7 +398,7 @@ void CodeBlob::print(std::ostream& os, int flags) const {
   os << "-------- END ---------\n\n";
 }
 
-std::vector<var_idx_t> CodeBlob::create_var(TypePtr var_type, SrcLocation loc, std::string name) {
+std::vector<var_idx_t> CodeBlob::create_var(TypePtr var_type, SrcLocation loc, std::string name, TypePtr parent_type) {
   std::vector<var_idx_t> ir_idx;
   int stack_w = var_type->get_width_on_stack();
   ir_idx.reserve(stack_w);
@@ -402,33 +406,33 @@ std::vector<var_idx_t> CodeBlob::create_var(TypePtr var_type, SrcLocation loc, s
     for (int i = 0; i < t_struct->struct_ref->get_num_fields(); ++i) {
       StructFieldPtr field_ref = t_struct->struct_ref->get_field(i);
       std::string sub_name = name.empty() || t_struct->struct_ref->get_num_fields() == 1 ? name : name + "." + field_ref->name;
-      std::vector<var_idx_t> nested = create_var(field_ref->declared_type, loc, std::move(sub_name));
+      std::vector<var_idx_t> nested = create_var(field_ref->declared_type, loc, std::move(sub_name), parent_type);
       ir_idx.insert(ir_idx.end(), nested.begin(), nested.end());
     }
   } else if (const TypeDataTensor* t_tensor = var_type->try_as<TypeDataTensor>()) {
     for (int i = 0; i < t_tensor->size(); ++i) {
       std::string sub_name = name.empty() ? name : name + "." + std::to_string(i);
-      std::vector<var_idx_t> nested = create_var(t_tensor->items[i], loc, std::move(sub_name));
+      std::vector<var_idx_t> nested = create_var(t_tensor->items[i], loc, std::move(sub_name), parent_type);
       ir_idx.insert(ir_idx.end(), nested.begin(), nested.end());
     }
   } else if (const TypeDataAlias* t_alias = var_type->try_as<TypeDataAlias>()) {
-    ir_idx = create_var(t_alias->underlying_type, loc, std::move(name));
+    ir_idx = create_var(t_alias->underlying_type, loc, std::move(name), parent_type);
   } else if (const TypeDataUnion* t_union = var_type->try_as<TypeDataUnion>(); t_union && stack_w != 1) {
     std::string utag_name = name.empty() ? "'UTag" : name + ".UTag";
     if (t_union->or_null) {   // in stack comments, `a:(int,int)?` will be "a.0 a.1 a.UTag"
-      ir_idx = create_var(t_union->or_null, loc, std::move(name));
+      ir_idx = create_var(t_union->or_null, loc, std::move(name), parent_type);
     } else {                  // in stack comments, `a:int|slice` will be "a.USlot1 a.UTag"
       for (int i = 0; i < stack_w - 1; ++i) {
         std::string slot_name = name.empty() ? "'USlot" + std::to_string(i + 1) : name + ".USlot" + std::to_string(i + 1);
-        ir_idx.emplace_back(create_var(TypeDataUnknown::create(), loc, std::move(slot_name))[0]);
+        ir_idx.emplace_back(create_var(TypeDataUnknown::create(), loc, std::move(slot_name), var_type)[0]);
       }
     }
-    ir_idx.emplace_back(create_var(TypeDataInt::create(), loc, std::move(utag_name))[0]);
+    ir_idx.emplace_back(create_var(TypeDataInt::create(), loc, std::move(utag_name), parent_type)[0]);
   } else if (var_type != TypeDataVoid::create() && var_type != TypeDataNever::create()) {
 #ifdef TOLK_DEBUG
     tolk_assert(stack_w == 1);
 #endif
-    vars.emplace_back(var_cnt, var_type, std::move(name), loc);
+    vars.emplace_back(var_cnt, var_type, std::move(name), loc, parent_type);
     ir_idx.emplace_back(var_cnt);
     var_cnt++;
   }

@@ -94,6 +94,7 @@ enum class PrefixReadMode {
 struct LazyMatchOptions {
   struct MatchBlock {
     TypePtr arm_variant;          // left of `V => ...`; nullptr for `else => ...`
+    AnyV arm_variant_node;        // left of `V => ...` as node for debug info; nullptr for `else => ...`
     AnyExprV v_body;              // right of `V => ...`
     TypePtr block_expr_type;      // for match expression, if `V => expr`, it's expr's inferred_type
   };
