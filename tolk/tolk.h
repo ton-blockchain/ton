@@ -299,6 +299,15 @@ struct SourceMapEntry {
    * If true, entry represents code before first statement.
    */
   bool is_entry{};
+  /**
+   * If true, entry represents code after last statement.
+   */
+  bool is_leave{};
+
+  /**
+   * If true, entry represent assert throw call.
+   */
+  bool is_assert_throw{};
 
   /**
    * Human-readable description of current entry.
@@ -1178,7 +1187,7 @@ struct LazyVarRefAtCodegen {
     : var_ref(var_ref), var_state(var_state) {}
 };
 
-void insert_debug_info(SrcLocation loc, ASTNodeKind kind, CodeBlob& code, size_t line_offset = 0, std::string descr = "");
+void insert_debug_info(SrcLocation loc, ASTNodeKind kind, CodeBlob& code, bool is_leave = false, std::string descr = "");
 void insert_debug_info(AnyV v, CodeBlob& code);
 
 // CachedConstValueAtCodegen is used for a map [some_const => '5]

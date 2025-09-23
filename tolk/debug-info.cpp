@@ -5,7 +5,7 @@
 
 namespace tolk {
 
-void insert_debug_info(SrcLocation loc, ASTNodeKind kind, CodeBlob& code, size_t line_offset, std::string descr) {
+void insert_debug_info(SrcLocation loc, ASTNodeKind kind, CodeBlob& code, bool is_leave, std::string descr) {
   if (!G.settings.collect_source_map) {
     return;
   }
@@ -28,6 +28,7 @@ void insert_debug_info(SrcLocation loc, ASTNodeKind kind, CodeBlob& code, size_t
   info.idx = op.source_map_entry_idx;
   info.descr = descr;
   info.is_entry = kind == ast_function_declaration;
+  info.is_leave = is_leave;
 
 #ifdef TOLK_DEBUG
   if (last_op_ptr) {
@@ -46,7 +47,7 @@ void insert_debug_info(SrcLocation loc, ASTNodeKind kind, CodeBlob& code, size_t
     info.loc.file = src_file->realpath;
     info.loc.offset = loc.get_char_offset();
     info.loc.line = pos.line_no;
-    info.loc.line_offset = line_offset;
+    info.loc.line_offset = is_leave;
     info.loc.col = pos.char_no - 1;
     info.loc.length = 1; // Once we have the actual length of node, we should use it here
   }

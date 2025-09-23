@@ -2173,14 +2173,23 @@ static void process_block_statement(V<ast_block_statement> v, CodeBlob& code) {
 }
 
 static void process_assert_statement(V<ast_assert_statement> v, CodeBlob& code) {
+  const auto cond = v->get_cond();
+
   insert_debug_info(v->loc, ast_assert_statement, code);
   std::vector ir_thrown_code = pre_compile_expr(v->get_thrown_code(), code);
-  std::vector ir_cond = pre_compile_expr(v->get_cond(), code);
+  std::vector ir_cond = pre_compile_expr(cond, code);
   tolk_assert(ir_cond.size() == 1 && ir_thrown_code.size() == 1);
 
   std::vector args_vars = { ir_thrown_code[0], ir_cond[0], code.create_int(v->loc, 0, "(assert-0)") };
   FunctionPtr builtin_sym = lookup_function("__throw_if_unless");
   gen_op_call(code, TypeDataVoid::create(), v->loc, std::move(args_vars), builtin_sym, "(throw-call)");
+
+  if (G.settings.collect_source_map && G.source_map.size() > 0) {
+    const auto cond_loc = cond->loc.get_src_file()->convert_offset(cond->loc.get_char_offset());
+    auto& last_entry = G.source_map.at(G.source_map.size() - 1);
+    last_entry.descr = std::string(cond_loc.line_str);
+    last_entry.is_assert_throw = true;
+  }
 }
 
 static void process_catch_variable(AnyExprV v_catch_var, CodeBlob& code) {
@@ -2342,8 +2351,8 @@ static void process_return_statement(V<ast_return_statement> v, CodeBlob& code) 
     return_vars.insert(return_vars.begin(), mutated_vars.begin(), mutated_vars.end());
   }
 
-  // Point to the next line after return
-  insert_debug_info(v->loc, ast_return_statement, code, 1);
+  // Explicitly mark as leave instruction
+  insert_debug_info(v->loc, ast_return_statement, code, true);
 
   // if fun_ref is called and inlined into a parent, assign a result instead of generating a return statement
   if (code.inline_rvect_out) {

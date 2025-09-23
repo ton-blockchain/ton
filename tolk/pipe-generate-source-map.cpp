@@ -8,6 +8,8 @@
 
 namespace tolk {
 
+static std::string extract_assert_condition(const std::string& assert_str);
+
 void pipeline_generate_source_map(std::ostream& debug_out) {
   if (!G.settings.collect_source_map) {
     return;
@@ -16,7 +18,7 @@ void pipeline_generate_source_map(std::ostream& debug_out) {
   td::JsonBuilder root_builder;
   auto root_builder_obj = root_builder.enter_object();
 
-  root_builder_obj("version", "1");
+  root_builder_obj("version", "1.0.0");
   root_builder_obj("language", "tolk");
   root_builder_obj("compiler_version", TOLK_VERSION);
 
@@ -45,6 +47,23 @@ void pipeline_generate_source_map(std::ostream& debug_out) {
 
       ob("name", glob_var->name);
       ob("type", glob_var->declared_type->as_human_readable());
+
+      const auto global_loc = glob_var->loc;
+      if (const SrcFile* src_file = global_loc.get_src_file(); src_file != nullptr) {
+        const auto pos = src_file->convert_offset(global_loc.get_char_offset());
+
+        td::JsonBuilder locb;
+        auto loc_builder = locb.enter_object();
+        loc_builder("file", src_file->realpath);
+        loc_builder("line", static_cast<td::int64>(pos.line_no - 1));
+        loc_builder("column", static_cast<td::int64>(pos.char_no - 1));
+        loc_builder("end_line", static_cast<td::int64>(0));
+        loc_builder("end_column", static_cast<td::int64>(0));
+        loc_builder("length", static_cast<td::int64>(1));
+        loc_builder.leave();
+
+        ob("loc", td::JsonRaw(locb.string_builder().as_cslice()));
+      }
     }
     array_builder.leave();
 
@@ -93,9 +112,10 @@ void pipeline_generate_source_map(std::ostream& debug_out) {
         td::JsonBuilder locb;
         auto loc_builder = locb.enter_object();
         loc_builder("file", entry.loc.file);
-        loc_builder("line", static_cast<td::int64>(entry.loc.line));
-        loc_builder("col", static_cast<td::int64>(entry.loc.col));
-        loc_builder("line_offset", static_cast<td::int64>(entry.loc.line_offset));
+        loc_builder("line", static_cast<td::int64>(entry.loc.line - 1));
+        loc_builder("column", static_cast<td::int64>(entry.loc.col - 1));
+        loc_builder("end_line", static_cast<td::int64>(0));
+        loc_builder("end_column", static_cast<td::int64>(0));
         loc_builder("length", static_cast<td::int64>(entry.loc.length));
         loc_builder.leave();
 
@@ -110,6 +130,11 @@ void pipeline_generate_source_map(std::ostream& debug_out) {
 
         var_array_value_object("name", var.name.empty() ? "'" + std::to_string(var.ir_idx) : var.name);
         var_array_value_object("type", var.v_type == nullptr ? "" : var.v_type->as_human_readable());
+
+        if (!var.name.empty() && (var.name[0] == '\'' || var.name == "lazyS")) {
+          // '1 or lazyS
+          var_array_value_object("is_temporary", td::JsonBool(true));
+        }
 
         if (var.parent_type != nullptr) {
           const auto union_parent = var.parent_type->try_as<TypeDataUnion>();
@@ -134,36 +159,57 @@ void pipeline_generate_source_map(std::ostream& debug_out) {
       }
       var_array_builder.leave();
 
-      ob("vars", td::JsonRaw(var_builder.string_builder().as_cslice()));
+      ob("variables", td::JsonRaw(var_builder.string_builder().as_cslice()));
 
       {
         td::JsonBuilder ctxb;
         auto ctx_builder = ctxb.enter_object();
 
-        if (entry.descr.size() != 0) {
-          ctx_builder("descr", entry.descr);  // Human-readable description
+        {
+          td::JsonBuilder descb;
+          auto desc_builder = descb.enter_object();
+          desc_builder("ast_kind", entry.ast_kind);
+
+          if (entry.ast_kind == "ast_function_call" && entry.is_assert_throw && !entry.descr.empty()) {
+            std::string condition = extract_assert_condition(entry.descr);
+            desc_builder("condition", condition);
+            desc_builder("is_assert_throw", td::JsonBool(true));
+          } else if (entry.ast_kind == "ast_binary_operator" && !entry.descr.empty()) {
+            desc_builder("description", entry.descr);
+          }
+
+          desc_builder.leave();
+          ctx_builder("description", td::JsonRaw(descb.string_builder().as_cslice()));
         }
 
+        {
+          td::JsonBuilder inlb;
+          auto inl_builder = inlb.enter_object();
+          if (entry.inlined_to_func_name != "") {
+            inl_builder("inlined_to_func", entry.inlined_to_func_name);
+          }
+          inl_builder("containing_func_inline_mode", static_cast<td::int64>(entry.func_inline_mode));
+          inl_builder.leave();
+          ctx_builder("inlining", td::JsonRaw(inlb.string_builder().as_cslice()));
+        }
+
+        std::string event_type;
         if (entry.is_entry) {
-          ctx_builder("is_entry", td::JsonBool(entry.is_entry));  // Marks function entry points
+          event_type = "EnterFunction";
+        } else if (entry.is_leave) {
+          event_type = "LeaveFunction";
+        } else if (entry.before_inlined_function_call) {
+          event_type = "EnterInlinedFunction";
+        } else if (entry.after_inlined_function_call) {
+          event_type = "LeaveInlinedFunction";
         }
 
-        ctx_builder("ast_kind", entry.ast_kind);  // AST node type
-
-        ctx_builder("func_name", entry.func_name);
-        if (entry.inlined_to_func_name != "") {
-          ctx_builder("inlined_to_func", entry.inlined_to_func_name);
+        if (event_type != "") {
+          ctx_builder("event", event_type);
         }
 
-        ctx_builder("func_inline_mode", static_cast<td::int64>(entry.func_inline_mode));
+        ctx_builder("containing_function", entry.func_name);
 
-        if (entry.before_inlined_function_call) {
-          ctx_builder("before_inlined_function_call", td::JsonBool(entry.before_inlined_function_call));
-        }
-
-        if (entry.after_inlined_function_call) {
-          ctx_builder("after_inlined_function_call", td::JsonBool(entry.after_inlined_function_call));
-        }
         ctx_builder.leave();
 
         ob("context", td::JsonRaw(ctxb.string_builder().as_cslice()));
@@ -177,6 +223,74 @@ void pipeline_generate_source_map(std::ostream& debug_out) {
   root_builder_obj.leave();
 
   debug_out << root_builder.string_builder().as_cslice().str();
+}
+
+/// Extracts condition from assert statement string
+/// Examples:
+/// "assert (a > 10) throw 5" -> "a > 10"
+/// "assert(a > 10, 5)" -> "a > 10"
+static std::string extract_assert_condition(const std::string& assert_str) {
+  if (assert_str.empty()) {
+    return "";
+  }
+
+  std::string s = assert_str;
+
+  size_t start = s.find_first_not_of(" \t");
+  if (start != std::string::npos) {
+    s = s.substr(start);
+  } else {
+    return "";
+  }
+
+  if (s.substr(0, 6) == "assert") {
+    s = s.substr(6);
+  }
+
+  start = s.find_first_not_of(" \t");
+  if (start != std::string::npos) {
+    s = s.substr(start);
+  } else {
+    return "";
+  }
+
+  if (!s.empty() && s[0] == '(') {
+    // Format: assert (condition) throw/error
+    if (size_t paren_end = s.rfind(')'); paren_end != std::string::npos) {
+      std::string condition = s.substr(1, paren_end - 1);
+      const size_t cond_start = condition.find_first_not_of(" \t");
+      size_t cond_end = condition.find_last_not_of(" \t");
+      if (cond_start != std::string::npos && cond_end != std::string::npos) {
+        return condition.substr(cond_start, cond_end - cond_start + 1);
+      }
+      return condition;
+    }
+  } else if (!s.empty()) {
+    // Format: assert(condition, error) or assert condition throw/error
+    size_t comma_pos = s.rfind(',');
+    size_t throw_pos = s.find(" throw");
+    size_t error_pos = s.find(" error");
+
+    size_t end_pos = std::string::npos;
+    if (comma_pos != std::string::npos) {
+      end_pos = comma_pos;
+    } else if (throw_pos != std::string::npos) {
+      end_pos = throw_pos;
+    } else if (error_pos != std::string::npos) {
+      end_pos = error_pos;
+    }
+
+    if (end_pos != std::string::npos) {
+      std::string condition = s.substr(0, end_pos);
+      size_t cond_end = condition.find_last_not_of(" \t");
+      if (cond_end != std::string::npos) {
+        return condition.substr(0, cond_end + 1);
+      }
+      return condition;
+    }
+  }
+
+  return s;
 }
 
 }  // namespace tolk

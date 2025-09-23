@@ -8,7 +8,7 @@
       "description": "Schema version",
       "type": "string",
       "enum": [
-        "1"
+        "1.0.0"
       ]
     },
     "language": {
@@ -83,11 +83,16 @@
           "description": "Name of the global variable",
           "type": "string"
         },
-        "type": "string"
+        "type": "string",
+        "loc": {
+          "description": "Location of this global variable declaration",
+          "$ref": "#/$defs/sourceLocation"
+        }
       },
       "required": [
         "name",
-        "type"
+        "type",
+        "loc"
       ]
     },
     "sourceLocation": {
@@ -102,76 +107,129 @@
           "description": "0-based line number",
           "type": "integer"
         },
-        "col": {
+        "column": {
           "description": "0-based column number",
           "type": "integer"
         },
-        "line_offset": {
-          "description": "Offset within the line",
-          "type": "integer",
-          "minimum": 0
+        "end_line": {
+          "description": "0-based end line number (currently always 0)",
+          "type": "integer"
+        },
+        "end_column": {
+          "description": "0-based end column number (currently always 0)",
+          "type": "integer"
         },
         "length": {
-          "description": "Length of the relevant code segment",
+          "description": "Length of the relevant code segment in characters",
           "type": "integer"
         }
       },
       "required": [
         "file",
         "line",
-        "col",
-        "line_offset",
+        "column",
+        "end_line",
+        "end_column",
         "length"
       ]
     },
-    "functionContext": {
-      "description": "Function execution context",
+    "entryContextDescription": {
+      "description": "Description of the entry context depending on AST kind",
+      "oneOf": [
+        {
+          "description": "Basic entry with AST kind and other optional properties",
+          "type": "object",
+          "properties": {
+            "ast_kind": {
+              "description": "AST node type",
+              "type": "string"
+            }
+          },
+          "required": ["ast_kind"]
+        },
+        {
+          "description": "Assert statement entry",
+          "type": "object",
+          "properties": {
+            "ast_kind": {
+              "description": "AST node type",
+              "type": "string",
+              "enum": ["ast_function_call"]
+            },
+            "is_assert_throw": {
+              "description": "Whether this is an assert throw call",
+              "type": "boolean",
+              "enum": [true]
+            },
+            "condition": {
+              "description": "Extracted assert condition",
+              "type": "string"
+            }
+          },
+          "required": ["ast_kind", "is_assert_throw", "condition"]
+        },
+        {
+          "description": "Binary operator entry",
+          "type": "object",
+          "properties": {
+            "ast_kind": {
+              "description": "AST node type",
+              "type": "string",
+              "enum": ["ast_binary_operator"]
+            },
+            "description": {
+              "description": "Human-readable description for complex expressions",
+              "type": "string"
+            }
+          },
+          "required": ["ast_kind", "description"]
+        }
+      ]
+    },
+    "inliningInfo": {
+      "description": "Inlining information for the entry",
       "type": "object",
       "properties": {
-        "descr": {
-          "description": "Human-readable description",
-          "type": "string"
-        },
-        "is_entry": {
-          "description": "Whether this is a function entry point",
-          "type": "boolean"
-        },
-        "ast_kind": {
-          "description": "AST node type",
-          "type": "string"
-        },
-        "func_name": {
-          "description": "Name of the containing function",
-          "type": "string"
-        },
         "inlined_to_func": {
           "description": "Name of function where this was inlined (if applicable)",
           "type": "string"
         },
-        "func_inline_mode": {
-          "description": "Function inline mode: 0 = notCalculated (inline mode not yet determined), 1 = inlineViaFif (inlined via .fif representation), 2 = inlineRef (inlined by reference), 3 = inlineInPlace (inlined directly in place), 4 = noInline (function is not inlined)",
+        "containing_func_inline_mode": {
+          "description": "Inlining mode of the containing function",
           "type": "integer",
+          "enum": [0, 1, 2, 3, 4]
+        }
+      },
+      "required": ["containing_func_inline_mode"]
+    },
+    "entryContext": {
+      "description": "Execution context for a debug location",
+      "type": "object",
+      "properties": {
+        "description": "Context description depending on AST kind",
+        "inlining": {
+          "description": "Inlining properties of current entry",
+          "$ref": "#/$defs/inliningInfo"
+        },
+        "event": {
+          "description": "Pseudo-event type",
+          "type": "string",
           "enum": [
-            0,
-            1,
-            2,
-            3,
-            4
+            "EnterFunction",
+            "LeaveFunction",
+            "EnterInlinedFunction",
+            "ExitInlinedFunction"
           ]
         },
-        "before_inlined_function_call": {
-          "description": "Whether this is before an inlined function call",
-          "type": "boolean"
-        },
-        "after_inlined_function_call": {
-          "description": "Whether this is after an inlined function call",
-          "type": "boolean"
+        "containing_function": {
+          "description": "Name of the containing function",
+          "type": "string"
         }
       },
       "required": [
-        "func_name",
-        "func_inline_mode",
-        "ast_kind"
+        "description",
+        "inlining",
+        "containing_function"
       ]
     },
     "debugInfo": {
@@ -205,7 +263,7 @@
           "description": "Source code location",
           "$ref": "#/$defs/sourceLocation"
         },
-        "vars": {
+        "variables": {
           "description": "Variables available at this debug location",
           "type": "array",
           "items": {
@@ -214,7 +272,7 @@
         },
         "context": {
           "description": "Execution context information",
-          "$ref": "#/$defs/functionContext"
+          "$ref": "#/$defs/entryContext"
         },
         "debug": {
           "description": "Debug-specific information",
@@ -224,6 +282,7 @@
       "required": [
         "idx",
         "loc",
+        "variables",
         "context"
       ]
     },
@@ -232,10 +291,14 @@
       "type": "object",
       "properties": {
         "name": {
-          "description": "Variable name",
+          "description": "Variable name (may start with ' for temporary variables)",
           "type": "string"
         },
         "type": "string",
+        "is_temporary": {
+          "description": "Whether this is a temporary variable",
+          "type": "boolean"
+        },
         "constant_value": {
           "description": "Constant value if variable has one",
           "type": "string"
