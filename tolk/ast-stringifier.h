@@ -16,8 +16,6 @@
 */
 #pragma once
 
-#ifdef TOLK_DEBUG
-
 #include "ast.h"
 #include "ast-visitor.h"
 #include "type-system.h"
@@ -379,5 +377,3 @@ public:
 };
 
 } // namespace tolk
-
-#endif // TOLK_DEBUG
