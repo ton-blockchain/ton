@@ -11,6 +11,18 @@
         "1"
       ]
     },
+    "language": {
+      "description": "The language for which this source map was generated",
+      "type": "string",
+      "enum": [
+        "tolk",
+        "func"
+      ]
+    },
+    "compiler_version": {
+      "description": "The compiler version that generated this source map",
+      "type": "string"
+    },
     "files": {
       "description": "Array of source files processed by the compiler",
       "type": "array",
@@ -139,7 +151,13 @@
         "func_inline_mode": {
           "description": "Function inline mode: 0 = notCalculated (inline mode not yet determined), 1 = inlineViaFif (inlined via .fif representation), 2 = inlineRef (inlined by reference), 3 = inlineInPlace (inlined directly in place), 4 = noInline (function is not inlined)",
           "type": "integer",
-          "enum": [0, 1, 2, 3, 4]
+          "enum": [
+            0,
+            1,
+            2,
+            3,
+            4
+          ]
         },
         "before_inlined_function_call": {
           "description": "Whether this is before an inlined function call",

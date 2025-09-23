@@ -1,6 +1,7 @@
 #include "tolk.h"
 #include "pipeline.h"
 #include "compiler-state.h"
+#include "tolk-version.h"
 #include "type-system.h"
 #include "td/utils/JsonBuilder.h"
 #include <fstream>
@@ -16,6 +17,8 @@ void pipeline_generate_source_map(std::ostream& debug_out) {
   auto root_builder_obj = root_builder.enter_object();
 
   root_builder_obj("version", "1");
+  root_builder_obj("language", "tolk");
+  root_builder_obj("compiler_version", TOLK_VERSION);
 
   {
     td::JsonBuilder jsonb;
