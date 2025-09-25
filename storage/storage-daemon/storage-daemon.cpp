@@ -42,6 +42,8 @@
 #if TD_DARWIN || TD_LINUX
 #include <unistd.h>
 #endif
+#include "td/utils/port/rlimit.h"
+
 #include <iostream>
 
 namespace ton {
@@ -950,6 +952,7 @@ int main(int argc, char *argv[]) {
   SCOPE_EXIT {
     td::log_interface = td::default_log_interface;
   };
+  LOG_STATUS(td::change_maximize_rlimit(td::RlimitType::nofile, 786432));
 
   td::IPAddress ip_addr;
   bool client_mode = false;

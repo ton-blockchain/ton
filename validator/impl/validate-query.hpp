@@ -18,6 +18,8 @@
 */
 #pragma once
 
+
+#include "block-parse.h"
 #include "fabric.h"
 #include "interfaces/validator-manager.h"
 #include "vm/cells.h"
@@ -190,6 +192,7 @@ class ValidateQuery : public td::actor::Actor {
   ton::LogicalTime max_shard_lt_{0};
 
   int global_id_{0};
+  int global_version_{0};
   ton::BlockSeqno vert_seqno_{~0U};
   bool ihr_enabled_{false};
   bool create_stats_enabled_{false};
@@ -222,6 +225,8 @@ class ValidateQuery : public td::actor::Actor {
   std::map<td::Bits256, int> block_create_count_;
   unsigned block_create_total_{0};
 
+  block::tlb::InMsgDescr t_InMsgDescr{0};
+  block::tlb::OutMsgDescr t_OutMsgDescr{0};
   std::unique_ptr<vm::AugmentedDictionary> in_msg_dict_, out_msg_dict_, account_blocks_dict_;
   block::ValueFlow value_flow_;
   block::CurrencyCollection import_created_, transaction_fees_, total_burned_{0}, fees_burned_{0};
