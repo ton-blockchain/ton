@@ -2391,7 +2391,8 @@ void LiteQuery::perform_listBlockTransactions(BlockIdExt blkid, int mode, int co
 
 static td::Result<tl_object_ptr<lite_api::liteServer_transactionMetadata>> get_in_msg_metadata(
     const Ref<vm::Cell>& in_msg_descr_root, const Ref<vm::Cell>& trans_root) {
-  vm::AugmentedDictionary in_msg_descr{vm::load_cell_slice_ref(in_msg_descr_root), 256, block::tlb::aug_InMsgDescr};
+  vm::AugmentedDictionary in_msg_descr{vm::load_cell_slice_ref(in_msg_descr_root), 256,
+                                       block::tlb::aug_InMsgDescrDefault};
   block::gen::Transaction::Record transaction;
   if (!block::tlb::unpack_cell(trans_root, transaction)) {
     return td::Status::Error("invalid Transaction in block");
@@ -2550,7 +2551,8 @@ void LiteQuery::perform_listBlockTransactionsExt(BlockIdExt blkid, int mode, int
 
 static td::Status process_all_in_msg_metadata(const Ref<vm::Cell>& in_msg_descr_root,
                                               const std::vector<Ref<vm::Cell>>& trans_roots) {
-  vm::AugmentedDictionary in_msg_descr{vm::load_cell_slice_ref(in_msg_descr_root), 256, block::tlb::aug_InMsgDescr};
+  vm::AugmentedDictionary in_msg_descr{vm::load_cell_slice_ref(in_msg_descr_root), 256,
+                                       block::tlb::aug_InMsgDescrDefault};
   for (const Ref<vm::Cell>& trans_root : trans_roots) {
     block::gen::Transaction::Record transaction;
     if (!block::tlb::unpack_cell(trans_root, transaction)) {

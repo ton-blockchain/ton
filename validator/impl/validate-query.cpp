@@ -1050,6 +1050,7 @@ bool ValidateQuery::try_unpack_mc_state() {
       return reject_query(PSTRING() << "vertical seqno mismatch: new block has " << vert_seqno_
                                     << " while the masterchain configuration expects " << config_->get_vert_seqno());
     }
+    global_version_ = config_->get_global_version();
     prev_key_block_exists_ = config_->get_last_key_block(prev_key_block_, prev_key_block_lt_);
     if (prev_key_block_exists_) {
       prev_key_block_seqno_ = prev_key_block_.seqno();
@@ -1181,11 +1182,13 @@ bool ValidateQuery::fetch_config_params() {
     action_phase_cfg_.extra_currency_v2 = config_->get_global_version() >= 10;
     action_phase_cfg_.disable_anycast = config_->get_global_version() >= 10;
     action_phase_cfg_.disable_ihr_flag = config_->get_global_version() >= 11;
+    action_phase_cfg_.global_version = config_->get_global_version();
   }
   {
     serialize_cfg_.extra_currency_v2 = config_->get_global_version() >= 10;
     serialize_cfg_.disable_anycast = config_->get_global_version() >= 10;
     serialize_cfg_.store_storage_dict_hash = config_->get_global_version() >= 11;
+    serialize_cfg_.size_limits = size_limits;
   }
   {
     // fetch block_grams_created
@@ -2828,17 +2831,19 @@ bool ValidateQuery::unpack_block_data() {
   auto outmsg_cs = vm::load_cell_slice_ref(std::move(extra.out_msg_descr));
   // run some hand-written checks from block::tlb::
   // (automatic tests from block::gen:: have been already run for the entire block)
-  if (!block::tlb::t_InMsgDescr.validate_upto(10000000, *inmsg_cs)) {
+  t_InMsgDescr.aug.global_version = global_version_;
+  t_OutMsgDescr.aug.global_version = global_version_;
+  if (!t_InMsgDescr.validate_upto(10000000, *inmsg_cs)) {
     return reject_query("InMsgDescr of the new block failed to pass handwritten validity tests");
   }
-  if (!block::tlb::t_OutMsgDescr.validate_upto(10000000, *outmsg_cs)) {
+  if (!t_OutMsgDescr.validate_upto(10000000, *outmsg_cs)) {
     return reject_query("OutMsgDescr of the new block failed to pass handwritten validity tests");
   }
   if (!block::tlb::t_ShardAccountBlocks.validate_ref(10000000, extra.account_blocks)) {
     return reject_query("ShardAccountBlocks of the new block failed to pass handwritten validity tests");
   }
-  in_msg_dict_ = std::make_unique<vm::AugmentedDictionary>(std::move(inmsg_cs), 256, block::tlb::aug_InMsgDescr);
-  out_msg_dict_ = std::make_unique<vm::AugmentedDictionary>(std::move(outmsg_cs), 256, block::tlb::aug_OutMsgDescr);
+  in_msg_dict_ = std::make_unique<vm::AugmentedDictionary>(std::move(inmsg_cs), 256, t_InMsgDescr.aug);
+  out_msg_dict_ = std::make_unique<vm::AugmentedDictionary>(std::move(outmsg_cs), 256, t_OutMsgDescr.aug);
   account_blocks_dict_ = std::make_unique<vm::AugmentedDictionary>(
       vm::load_cell_slice_ref(std::move(extra.account_blocks)), 256, block::tlb::aug_ShardAccountBlocks);
   LOG(DEBUG) << "validating InMsgDescr";
@@ -3897,7 +3902,7 @@ bool ValidateQuery::check_in_msg(td::ConstBitPtr key, Ref<vm::CellSlice> in_msg)
   block::tlb::MsgEnvelope::Record_std env;
   // int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool
   //   src:MsgAddressInt dest:MsgAddressInt
-  //   value:CurrencyCollection ihr_fee:Grams fwd_fee:Grams
+  //   value:CurrencyCollection extra_flags:(VarUInteger 16) fwd_fee:Grams
   //   created_lt:uint64 created_at:uint32 = CommonMsgInfo;
   block::gen::CommonMsgInfo::Record_int_msg_info info;
   ton::AccountIdPrefixFull src_prefix, dest_prefix, cur_prefix, next_prefix;
@@ -4459,7 +4464,7 @@ bool ValidateQuery::check_out_msg(td::ConstBitPtr key, Ref<vm::CellSlice> out_ms
   block::tlb::MsgEnvelope::Record_std env;
   // int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool
   //   src:MsgAddressInt dest:MsgAddressInt
-  //   value:CurrencyCollection ihr_fee:Grams fwd_fee:Grams
+  //   value:CurrencyCollection extra_flags:(VarUInteger 16) fwd_fee:Grams
   //   created_lt:uint64 created_at:uint32 = CommonMsgInfo;
   block::gen::CommonMsgInfo::Record_int_msg_info info;
   ton::AccountIdPrefixFull src_prefix, dest_prefix, cur_prefix, next_prefix;
@@ -5510,6 +5515,22 @@ std::unique_ptr<block::Account> ValidateQuery::unpack_account(td::ConstBitPtr ad
 }
 
 /**
+ * Gets IHR fee of the internal message
+ *
+ * In earlier versions (before 12) the field extra_flags was ihr_fee.
+ * Since version 12 ihr_fee is always zero.
+ *
+ * @param info CommonMsgInfo of the internal message
+ * @param global_version global version from ConfigParam 8
+ *
+ * @returns IHR fee
+ */
+static td::RefInt256 get_ihr_fee(const block::gen::CommonMsgInfo::Record_int_msg_info &info, int global_version) {
+  // Legacy: extra_flags was previously ihr_fee
+  return global_version >= 12 ? td::zero_refint() : block::tlb::t_Grams.as_integer(std::move(info.extra_flags));
+}
+
+/**
  * Checks the validity of a single transaction for a given account.
  * Performs transaction execution.
  *
@@ -5596,7 +5617,7 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
       CHECK(money_imported.validate_unpack(info.value));
       ihr_delivered = (in_msg_tag == block::gen::InMsg::msg_import_ihr);
       if (!ihr_delivered) {
-        money_imported += block::tlb::t_Grams.as_integer(info.ihr_fee);
+        money_imported += get_ihr_fee(info, global_version_);
       }
       CHECK(money_imported.is_valid());
     }
@@ -5665,7 +5686,7 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
       // unpack exported message value (from this transaction)
       block::CurrencyCollection msg_export_value;
       CHECK(msg_export_value.unpack(info.value));
-      msg_export_value += block::tlb::t_Grams.as_integer(info.ihr_fee);
+      msg_export_value += get_ihr_fee(info, global_version_);
       msg_export_value += msg_env.fwd_fee_remaining;
       CHECK(msg_export_value.is_valid());
       money_exported += msg_export_value;
@@ -6283,8 +6304,11 @@ bool ValidateQuery::check_special_message(Ref<vm::Cell> in_msg_root, const block
   if (block::tlb::t_Grams.as_integer(info.fwd_fee)->sgn()) {
     return reject_query("special message with hash "s + msg_hash.to_hex() + " has a non-zero fwd_fee");
   }
-  if (block::tlb::t_Grams.as_integer(info.ihr_fee)->sgn()) {
+  if (get_ihr_fee(info, global_version_)->sgn()) {
     return reject_query("special message with hash "s + msg_hash.to_hex() + " has a non-zero ihr_fee");
+  }
+  if (block::tlb::t_Grams.as_integer(info.extra_flags)->sgn()) {
+    return reject_query("special message with hash "s + msg_hash.to_hex() + " has a non-zero extra_flags");
   }
   block::CurrencyCollection value;
   if (!value.validate_unpack(info.value)) {
