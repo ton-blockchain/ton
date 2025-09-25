@@ -318,16 +318,25 @@ bool LiteServerConfig::Slice::accepts_query(const QueryInfo& query_info) const {
 td::Result<std::vector<LiteServerConfig>> LiteServerConfig::parse_global_config(
     const ton_api::liteclient_config_global& config) {
   std::vector<LiteServerConfig> servers;
+  auto get_hostname = [](const auto& f) -> std::string {
+    if (f->hostname_.empty()) {
+      return PSTRING() << td::IPAddress::ipv4_to_str(f->ip_) << ":" << f->port_;
+    }
+    if (f->port_ == 0) {
+      return f->hostname_;
+    }
+    return PSTRING() << f->hostname_ << ":" << f->port_;
+  };
   for (const auto& f : config.liteservers_) {
     LiteServerConfig server;
-    TRY_STATUS(server.addr.init_host_port(td::IPAddress::ipv4_to_str(f->ip_), f->port_));
+    server.hostname = get_hostname(f);
     server.adnl_id = adnl::AdnlNodeIdFull{PublicKey{f->id_}};
     server.is_full = true;
     servers.push_back(std::move(server));
   }
   for (const auto& f : config.liteservers_v2_) {
     LiteServerConfig server;
-    TRY_STATUS(server.addr.init_host_port(td::IPAddress::ipv4_to_str(f->ip_), f->port_));
+    server.hostname = get_hostname(f);
     server.adnl_id = adnl::AdnlNodeIdFull{PublicKey{f->id_}};
     server.is_full = false;
     for (const auto& slice_obj : f->slices_) {

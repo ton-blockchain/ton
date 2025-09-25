@@ -64,22 +64,6 @@ static void fire_error_type_used_as_symbol(FunctionPtr cur_f, V<ast_identifier> 
   }
 }
 
-static void check_import_exists_when_using_sym(FunctionPtr cur_f, AnyV v_usage, const Symbol* used_sym) {
-  SrcLocation sym_loc = used_sym->loc;
-  if (!v_usage->loc.is_symbol_from_same_or_builtin_file(sym_loc)) {
-    const SrcFile* declared_in = sym_loc.get_src_file();
-    bool has_import = false;
-    for (const SrcFile::ImportDirective& import : v_usage->loc.get_src_file()->imports) {
-      if (import.imported_file == declared_in) {
-        has_import = true;
-      }
-    }
-    if (!has_import) {
-      throw ParseError(cur_f, v_usage->loc, "Using a non-imported symbol `" + used_sym->name + "`. Forgot to import \"" + declared_in->rel_filename + "\"?");
-    }
-  }
-}
-
 struct NameAndScopeResolver {
   std::vector<std::unordered_map<uint64_t, const Symbol*>> scopes;
 
@@ -180,7 +164,9 @@ protected:
 
     // for global functions, global vars and constants, `import` must exist
     if (!sym->try_as<LocalVarPtr>()) {
-      check_import_exists_when_using_sym(cur_f, v, sym);
+      if (!v->loc.is_symbol_from_same_or_builtin_file(sym->loc)) {
+        sym->check_import_exists_when_used_from(cur_f, v->loc);
+      }
     }
   }
 
@@ -211,7 +197,7 @@ protected:
 
   void visit(V<ast_match_arm> v) override {
     // resolve identifiers after => at first
-    parent::visit(v->get_body());
+    visit(v->get_body());
     // because handling lhs of => is comprehensive
 
     switch (v->pattern_kind) {

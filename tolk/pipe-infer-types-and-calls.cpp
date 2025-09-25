@@ -376,10 +376,12 @@ class InferTypesAndCallsAndFieldsVisitor final {
         return infer_is_type_operator(v->as<ast_is_type_operator>(), std::move(flow), used_as_condition);
       case ast_not_null_operator:
         return infer_not_null_operator(v->as<ast_not_null_operator>(), std::move(flow), used_as_condition);
+      case ast_lazy_operator:
+        return infer_lazy_operator(v->as<ast_lazy_operator>(), std::move(flow), used_as_condition);
       case ast_parenthesized_expression:
         return infer_parenthesized(v->as<ast_parenthesized_expression>(), std::move(flow), used_as_condition, hint);
       case ast_braced_expression:
-        return infer_braced_expression(v->as<ast_braced_expression>(), std::move(flow), used_as_condition);
+        return infer_braced_expression(v->as<ast_braced_expression>(), std::move(flow), used_as_condition, hint);
       case ast_reference:
         return infer_reference(v->as<ast_reference>(), std::move(flow), used_as_condition, hint);
       case ast_dot_access:
@@ -534,7 +536,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
         assign_inferred_type(lhs_var, rhs_type);
         assign_inferred_type(lhs_var->var_ref, rhs_type);
       }
-      TypePtr smart_casted_type = declared_type ? calc_smart_cast_type_on_assignment(declared_type, rhs_type) : rhs_type;
+      TypePtr smart_casted_type = declared_type && rhs_type != TypeDataUnknown::create() ? calc_smart_cast_type_on_assignment(declared_type, rhs_type) : rhs_type;
       out_flow.register_known_type(SinkExpression(lhs_var->var_ref), smart_casted_type);
       return;
     }
@@ -738,7 +740,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
       // example: `var v = ternary`, show an inference error
       // do NOT show an error for `var v: T = ternary` (T is hint); it will be checked by type checker later
       if (hint == nullptr || hint == TypeDataUnknown::create() || hint->has_genericT_inside()) {
-        fire(cur_f, v->loc, "types of ternary branches are incompatible: " + to_string(v->get_when_true()) + " and " + to_string(v->get_when_false()));
+        fire(cur_f, v->loc, "types of ternary branches are incompatible: " + to_string(v->get_when_true()) + " and " + to_string(v->get_when_false()) + "\nhint: maybe, you should use `<some_expr> as <type>` to make them identical");
       }
     }
     assign_inferred_type(v, branches_unifier.get_result());
@@ -830,16 +832,34 @@ class InferTypesAndCallsAndFieldsVisitor final {
     return ExprFlow(std::move(after_expr.out_flow), true);
   }
 
+  ExprFlow infer_lazy_operator(V<ast_lazy_operator> v, FlowContext&& flow, bool used_as_condition) {
+    ExprFlow lazy_expr = infer_any_expr(v->get_expr(), std::move(flow), used_as_condition);
+    assign_inferred_type(v, v->get_expr());   // there is no Lazy<T>, so `lazy expr` is just typeof expr
+    return lazy_expr;
+  }
+
   ExprFlow infer_parenthesized(V<ast_parenthesized_expression> v, FlowContext&& flow, bool used_as_condition, TypePtr hint) {
     ExprFlow after_expr = infer_any_expr(v->get_expr(), std::move(flow), used_as_condition, hint);
     assign_inferred_type(v, v->get_expr());
     return after_expr;
   }
 
-  ExprFlow infer_braced_expression(V<ast_braced_expression> v, FlowContext&& flow, bool used_as_condition) {
-    // `{ ... }` used as an expression can not return a value currently (there is no syntax in a language)
-    flow = process_any_statement(v->get_block_statement(), std::move(flow));
-    assign_inferred_type(v, flow.is_unreachable() ? TypeDataNever::create() : TypeDataVoid::create());
+  ExprFlow infer_braced_expression(V<ast_braced_expression> v, FlowContext&& flow, bool used_as_condition, TypePtr hint) {
+    // generally, `{ ... }` is a block statement not returning a value; it's used to represent `match` braced arms;
+    // unless it's a special vertex (used to represent a non-braced `match` arm)
+    AnyExprV implicit_result = nullptr;
+    for (AnyV item : v->get_block_statement()->get_items()) {
+      if (auto v_return = item->try_as<ast_braced_yield_result>()) {
+        tolk_assert(implicit_result == nullptr);
+        implicit_result = v_return;
+        flow = infer_any_expr(v_return->get_expr(), std::move(flow), false, hint).out_flow;
+        assign_inferred_type(v_return, v_return->get_expr());
+      } else {
+        flow = process_any_statement(item, std::move(flow));
+      }
+    }
+
+    assign_inferred_type(v, flow.is_unreachable() ? TypeDataNever::create() : implicit_result ? implicit_result->inferred_type : TypeDataVoid::create());
     return ExprFlow(std::move(flow), used_as_condition);
   }
 
@@ -932,6 +952,9 @@ class InferTypesAndCallsAndFieldsVisitor final {
       } else {                      // so, it's `globalF` / `genericFn<int>` as a reference
         if (fun_ref->is_compile_time_const_val() || fun_ref->is_compile_time_special_gen()) {
           fire(cur_f, v->loc, "can not get reference to this function, it's compile-time only");
+        }
+        if (fun_ref->is_entrypoint()) {
+          fire(cur_f, v->loc, "can not get reference to this function, it's a special entrypoint");
         }
         fun_ref->mutate()->assign_is_used_as_noncall();
         get_or_infer_return_type(fun_ref);
@@ -1050,7 +1073,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
     // check for method (`t.size` / `user.getId`); even `i.0()` can be here if `fun int.0(self)` exists
     // for `T.copy` / `Container<T>.create`, substitution for T is also returned
     if (!fun_ref) {
-      std::tie(fun_ref, substitutedTs) = choose_only_method_to_call(cur_f, dot_obj->loc, obj_type, field_name);
+      std::tie(fun_ref, substitutedTs) = choose_only_method_to_call(cur_f, dot_obj->loc, dot_obj->inferred_type, field_name);
     }
 
     // not a field, not a method — fire an error
@@ -1058,7 +1081,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
       // as a special case, handle accessing fields of nullable objects, to show a more precise error
       if (const TypeDataUnion* as_union = obj_type->try_as<TypeDataUnion>(); as_union && as_union->or_null) {
         if (const TypeDataStruct* n_struct = as_union->or_null->try_as<TypeDataStruct>(); n_struct && n_struct->struct_ref->find_field(field_name)) {
-          fire(cur_f, v_ident->loc, "can not access field `" + static_cast<std::string>(field_name) + "` of a possibly nullable object " + to_string(dot_obj) + "\ncheck it via `obj != null` or use non-null assertion `obj!` operator");
+          fire(cur_f, v_ident->loc, "can not access field `" + static_cast<std::string>(field_name) + "` of a possibly nullable object " + to_string(dot_obj) + "\nhint: check it via `obj != null` or use non-null assertion `obj!` operator");
         }
       }
       if (out_f_called) {
@@ -1137,6 +1160,11 @@ class InferTypesAndCallsAndFieldsVisitor final {
       }
       assign_inferred_type(v, f_callable->return_type);
       return ExprFlow(std::move(flow), used_as_condition);
+    }
+
+    // prevent calling `onBouncedMessage()` and other special functions directly
+    if (fun_ref->is_entrypoint()) {
+      fire(cur_f, v->loc, fun_ref->name + " is a special entrypoint, it can not be called as a regular function");
     }
 
     // so, we have a call `f(args)` or `obj.f(args)`, f is fun_ref (function / method) (code / asm / builtin)

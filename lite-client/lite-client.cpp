@@ -108,7 +108,7 @@ void TestNode::run() {
     if (single_liteserver_idx_ != -1) {  // Use single liteserver from config
       CHECK(single_liteserver_idx_ >= 0 && (size_t)single_liteserver_idx_ < servers.size());
       td::TerminalIO::out() << "using liteserver #" << single_liteserver_idx_ << " with addr "
-                            << servers[single_liteserver_idx_].addr << "\n";
+                            << servers[single_liteserver_idx_].hostname << "\n";
       servers = {servers[single_liteserver_idx_]};
     }
   }

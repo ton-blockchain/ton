@@ -118,6 +118,7 @@ enum TokenType {
   tok_if,
   tok_else,
   tok_match,
+  tok_lazy,
 
   tok_arrow,
   tok_double_arrow,

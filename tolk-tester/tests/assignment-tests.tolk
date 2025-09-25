@@ -1,5 +1,5 @@
 fun extractFromTypedTuple(params: [int]) {
-    var [payload: int] = params;
+    var [payload: int, ] = params;
     return payload + 10;
 }
 
@@ -111,7 +111,7 @@ global t107: (int, int);
 
 @method_id(107)
 fun test107() {
-    ((t107 = (1, 2)).0, (t107 = (3, 4)).1) = (5, 6);
+    ((t107 = (1, 2)).0, (t107 = (3, 4)).1, ) = (5, 6, );
     return t107;
 }
 
@@ -168,7 +168,7 @@ fun test112() {
 
 @method_id(113)
 fun test113() {
-    var (a, t, z) = (1, [2,3], (-1,-1));
+    var (a, t, z, ) = (1, [2,3], (-1,-1));
     (a, t, a, z, t.1, z.1) = (10, [a,12], 13, (a, t.1), 14, t.1);
     return (a, t, z);
 }
@@ -249,10 +249,18 @@ fun test118(x: int) {
     return (i1, i2, st.owner.remainingBitsCount(), i3.0);
 }
 
+@method_id(119)
+fun test119(a: int, b: int) {
+    var t: tuple = [a + 1, b * 2] as tuple;
+    val l = t.size();
+    val [c,d:int] = [t.0 as int, t.1];
+    return (l, c, d);
+}
+
 
 
 fun main(value: int, ) {
-    var (x: int?, y) = (autoInferIntNull(value), autoInferIntNull(value * 2));
+    var (x: int?, y,) = (autoInferIntNull(value), autoInferIntNull(value * 2));
     if (x == null && y == null) { return null; }
     return x == null || y == null ? -1 : x! + y!;
 }
@@ -279,11 +287,12 @@ fun main(value: int, ) {
 @testcase | 116 |        | 1 2 3 4 [ 1 2 3 4 ]
 @testcase | 117 |        | [ 20 ]
 @testcase | 118 | 3      | 10 3 0 1
+@testcase | 119 | 1 2    | 2 2 4
 
 
 @fif_codegen
 """
-  test116 PROC:<{   //
+  test116() PROC:<{ //
     1 PUSHINT	    //  '10=1
     2 PUSHINT	    //  '10=1 '11=2
     3 PUSHINT	    //  '10=1 '11=2 '12=3

@@ -18,7 +18,9 @@
 */
 #pragma once
 
+
 #include "block-parse.h"
+#include "fabric.h"
 #include "interfaces/validator-manager.h"
 #include "vm/cells.h"
 #include "vm/dict.h"
@@ -113,15 +115,13 @@ class ValidateQuery : public td::actor::Actor {
     return SUPPORTED_VERSION;
   }
   static constexpr long long supported_capabilities() {
-    return ton::capCreateStatsEnabled | ton::capBounceMsgBody | ton::capReportVersion | ton::capShortDequeue |
-           ton::capStoreOutMsgQueueSize | ton::capMsgMetadata | ton::capDeferMessages | ton::capFullCollatedData;
+    return capCreateStatsEnabled | capBounceMsgBody | capReportVersion | capShortDequeue | capStoreOutMsgQueueSize |
+           capMsgMetadata | capDeferMessages | capFullCollatedData;
   }
 
  public:
-  ValidateQuery(ShardIdFull shard, BlockIdExt min_masterchain_block_id, std::vector<BlockIdExt> prev,
-                BlockCandidate candidate, td::Ref<ValidatorSet> validator_set, PublicKeyHash local_validator_id,
-                td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
-                td::Promise<ValidateCandidateResult> promise, unsigned mode = 0);
+  ValidateQuery(BlockCandidate candidate, ValidateParams params, td::actor::ActorId<ValidatorManager> manager,
+                td::Timestamp timeout, td::Promise<ValidateCandidateResult> promise);
 
  private:
   int verbosity{3 * 1};
@@ -154,6 +154,7 @@ class ValidateQuery : public td::actor::Actor {
   td::BitArray<64> shard_pfx_;
   int shard_pfx_len_;
   td::Bits256 created_by_;
+  Ref<BlockData> optimistic_prev_block_;
 
   Ref<vm::Cell> prev_state_root_;
   Ref<vm::Cell> state_root_;
@@ -257,6 +258,7 @@ class ValidateQuery : public td::actor::Actor {
   bool have_unprocessed_account_dispatch_queue_ = false;
 
   td::PerfWarningTimer perf_timer_;
+  td::PerfLog perf_log_;
 
   static constexpr td::uint32 priority() {
     return 2;
@@ -273,8 +275,12 @@ class ValidateQuery : public td::actor::Actor {
   void alarm() override;
   void start_up() override;
 
+  void load_prev_states();
+  bool process_optimistic_prev_block();
+  void after_get_shard_state_optimistic(td::Result<Ref<ShardState>> res, td::PerfLogAction token);
+
   bool save_candidate();
-  void written_candidate();
+  void written_candidate(td::PerfLogAction token);
 
   bool fatal_error(td::Status error);
   bool fatal_error(int err_code, std::string err_msg);
@@ -294,16 +300,25 @@ class ValidateQuery : public td::actor::Actor {
   bool is_masterchain() const {
     return shard_.is_masterchain();
   }
+  int prev_block_idx(const BlockIdExt& id) const {
+    for (size_t i = 0; i < prev_blocks.size(); ++i) {
+      if (prev_blocks[i] == id) {
+        return (int)i;
+      }
+    }
+    return -1;
+  }
   td::actor::ActorId<ValidateQuery> get_self() {
     return actor_id(this);
   }
 
   void request_latest_mc_state();
-  void after_get_latest_mc_state(td::Result<std::pair<Ref<MasterchainState>, BlockIdExt>> res);
-  void after_get_mc_state(td::Result<Ref<ShardState>> res);
-  void got_mc_handle(td::Result<BlockHandle> res);
-  void after_get_storage_stat_cache(td::Result<std::function<td::Ref<vm::Cell>(const td::Bits256&)>> res);
-  void after_get_shard_state(int idx, td::Result<Ref<ShardState>> res);
+  void after_get_latest_mc_state(td::Result<std::pair<Ref<MasterchainState>, BlockIdExt>> res, td::PerfLogAction token);
+  void after_get_mc_state(td::Result<Ref<ShardState>> res, td::PerfLogAction token);
+  void got_mc_handle(td::Result<BlockHandle> res, td::PerfLogAction token);
+  void after_get_storage_stat_cache(td::Result<std::function<td::Ref<vm::Cell>(const td::Bits256&)>> res,
+                                    td::PerfLogAction token);
+  void after_get_shard_state(int idx, td::Result<Ref<ShardState>> res, td::PerfLogAction token);
   bool process_mc_state(Ref<MasterchainState> mc_state);
   bool try_unpack_mc_state();
   bool fetch_config_params();
@@ -323,12 +338,12 @@ class ValidateQuery : public td::actor::Actor {
   bool unpack_one_prev_state(block::ShardState& ss, BlockIdExt blkid, Ref<vm::Cell> prev_state_root);
   bool split_prev_state(block::ShardState& ss);
   bool request_neighbor_queues();
-  void got_neighbor_out_queue(int i, td::Result<Ref<MessageQueue>> res);
+  void got_neighbor_out_queue(int i, td::Result<Ref<MessageQueue>> res, td::PerfLogAction token);
 
   bool register_mc_state(Ref<MasterchainStateQ> other_mc_state);
   bool request_aux_mc_state(BlockSeqno seqno, Ref<MasterchainStateQ>& state);
   Ref<MasterchainStateQ> get_aux_mc_state(BlockSeqno seqno) const;
-  void after_get_aux_shard_state(ton::BlockIdExt blkid, td::Result<Ref<ShardState>> res);
+  void after_get_aux_shard_state(ton::BlockIdExt blkid, td::Result<Ref<ShardState>> res, td::PerfLogAction token);
 
   bool check_one_shard(const block::McShardHash& info, const block::McShardHash* sibling,
                        const block::WorkchainInfo* wc_info, const block::CatchainValidatorsConfig& ccvc, bool& is_new);
@@ -338,8 +353,8 @@ class ValidateQuery : public td::actor::Actor {
   bool check_mc_validator_info(bool update_mc_cc);
   bool check_utime_lt();
   bool prepare_out_msg_queue_size();
-  void got_out_queue_size(size_t i, td::Result<td::uint64> res);
-  void verified_shard_blocks(td::Status S);
+  void got_out_queue_size(size_t i, td::Result<td::uint64> res, td::PerfLogAction token);
+  void verified_shard_blocks(td::Status S, td::PerfLogAction token);
 
   bool fix_one_processed_upto(block::MsgProcessedUpto& proc, ton::ShardIdFull owner, bool allow_cur = false);
   bool fix_processed_upto(block::MsgProcessedUptoCollection& upto, bool allow_cur = false);
@@ -417,8 +432,8 @@ class ValidateQuery : public td::actor::Actor {
     return true;
   }
 
-  td::Timer work_timer_{true};
-  td::ThreadCpuTimer cpu_work_timer_{true};
+  td::RealCpuTimer work_timer_{true};
+  ValidationStats stats_;
   void record_stats(bool valid, std::string error_message = "");
 };
 

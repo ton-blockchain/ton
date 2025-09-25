@@ -92,22 +92,16 @@ td::Result<std::unique_ptr<Config>> Config::extract_from_state(Ref<vm::Cell> mc_
   return unpack_config(std::move(extra.config), mode);
 }
 
-td::Result<std::unique_ptr<ConfigInfo>> ConfigInfo::extract_config(std::shared_ptr<vm::StaticBagOfCellsDb> static_boc,
-                                                                   int mode) {
-  TRY_RESULT(rc, static_boc->get_root_count());
-  if (rc != 1) {
-    return td::Status::Error(-668, "Masterchain state BoC is invalid");
-  }
-  TRY_RESULT(root, static_boc->get_root_cell(0));
-  return extract_config(std::move(root), mode);
-}
-
-td::Result<std::unique_ptr<ConfigInfo>> ConfigInfo::extract_config(Ref<vm::Cell> mc_state_root, int mode) {
+td::Result<std::unique_ptr<ConfigInfo>> ConfigInfo::extract_config(Ref<vm::Cell> mc_state_root,
+                                                                   ton::BlockIdExt mc_block_id, int mode) {
   if (mc_state_root.is_null()) {
     return td::Status::Error("configuration state root cell is null");
   }
   auto config = std::unique_ptr<ConfigInfo>{new ConfigInfo(std::move(mc_state_root), mode)};
   TRY_STATUS(config->unpack_wrapped());
+  if (!config->set_block_id_ext(mc_block_id)) {
+    return td::Status::Error("failed to set mc block id");
+  }
   return std::move(config);
 }
 
