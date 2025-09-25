@@ -162,7 +162,9 @@ td::Ref<vm::Tuple> prepare_vm_c7(SmartContract::Args args, td::Ref<vm::Cell> cod
       vm::load_cell_slice_ref(address),  //   myself:MsgAddressInt
       vm::StackEntry::maybe(config)      //   vm::StackEntry::maybe(td::Ref<vm::Cell>())
   };
-  if (args.config && args.config.value()->get_global_version() >= 4) {
+
+  int global_version = args.config ? args.config.value()->get_global_version() : SUPPORTED_VERSION;
+  if (global_version >= 4) {
     tuple.push_back(vm::StackEntry::maybe(code));                      // code:Cell
     tuple.push_back(block::CurrencyCollection::zero().as_vm_tuple());  // in_msg_value:[Integer (Maybe Cell)]
     tuple.push_back(td::zero_refint());                                // storage_fees:Integer
@@ -173,17 +175,18 @@ td::Ref<vm::Tuple> prepare_vm_c7(SmartContract::Args args, td::Ref<vm::Cell> cod
     //   prev_key_block:BlockId ] : PrevBlocksInfo
     tuple.push_back(args.prev_blocks_info ? args.prev_blocks_info.value() : vm::StackEntry{});  // prev_block_info
   }
-  if (args.config && args.config.value()->get_global_version() >= 6) {
-    tuple.push_back(args.config.value()->get_unpacked_config_tuple(now));  // unpacked_config_tuple
+  if (global_version >= 6) {
+    tuple.push_back(args.config ? args.config.value()->get_unpacked_config_tuple(now)
+                                : vm::StackEntry{});                       // unpacked_config_tuple
     tuple.push_back(td::zero_refint());                                    // due_payment
     // precompiled_gas_usage:(Maybe Integer)
     td::optional<block::PrecompiledContractsConfig::Contract> precompiled;
-    if (code.not_null()) {
+    if (code.not_null() && args.config) {
       precompiled = args.config.value()->get_precompiled_contracts_config().get_contract(code->get_hash().bits());
     }
     tuple.push_back(precompiled ? td::make_refint(precompiled.value().gas_usage) : vm::StackEntry());
   }
-  if (args.config && args.config.value()->get_global_version() >= 11) {
+  if (global_version >= 11) {
     tuple.push_back(block::transaction::Transaction::prepare_in_msg_params_tuple(nullptr, {}, {}));
   }
   auto tuple_ref = td::make_cnt_ref<std::vector<vm::StackEntry>>(std::move(tuple));
@@ -263,7 +266,7 @@ SmartContract::Answer run_smartcont(SmartContract::State state, td::Ref<vm::Stac
     stack->dump(os, 2);
     LOG(DEBUG) << "VM stack:\n" << os.str();
   }
-  int global_version = config ? config->get_global_version() : 0;
+  int global_version = config ? config->get_global_version() : SUPPORTED_VERSION;
   vm::VmState vm{state.code, global_version, std::move(stack), gas, 1, state.data, log};
   vm.set_c7(std::move(c7));
   vm.set_chksig_always_succeed(ignore_chksig);
