@@ -284,6 +284,7 @@ class ValidateQuery : public td::actor::Actor {
 
   void finish_query();
   void abort_query(td::Status error);
+  void abort_query_ts(td::Status error) const;
   bool reject_query(std::string error, td::BufferSlice reason = {});
   bool reject_query_ts(std::string error, td::BufferSlice reason = {}) const;
   bool reject_query(std::string err_msg, td::Status error, td::BufferSlice reason = {});
@@ -455,9 +456,9 @@ class ValidateQuery : public td::actor::Actor {
 
   Ref<vm::Cell> get_virt_state_root(const BlockIdExt& block_id);
 
-  bool check_timeout() {
+  bool check_timeout_ts() const {
     if (timeout && timeout.is_in_past()) {
-      abort_query(td::Status::Error(ErrorCode::timeout, "timeout"));
+      abort_query_ts(td::Status::Error(ErrorCode::timeout, "timeout"));
       return false;
     }
     return true;

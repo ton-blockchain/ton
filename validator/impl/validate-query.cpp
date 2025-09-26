@@ -104,6 +104,10 @@ void ValidateQuery::abort_query(td::Status error) {
   (void)fatal_error(std::move(error));
 }
 
+void ValidateQuery::abort_query_ts(td::Status error) const {
+  (void)fatal_error_ts(std::move(error));
+}
+
 /**
  * Rejects the validation and logs an error message.
  *
@@ -5561,10 +5565,9 @@ std::unique_ptr<block::Account> ValidateQuery::unpack_account_ts(td::ConstBitPtr
 bool ValidateQuery::check_one_transaction_ts(block::Account& account, ton::LogicalTime lt,
                                                     Ref<vm::Cell> trans_root, bool is_first, bool is_last,
                                                     CheckAccountTxsCtx& ctx) const {
-  // todo(vadim@avevad.com): implement timeout
-  // if (!check_timeout()) {
-  //  return false;
-  // }
+  if (!check_timeout_ts()) {
+   return false;
+  }
   LOG(DEBUG) << "checking transaction " << lt << " of account " << account.addr.to_hex();
   const StdSmcAddress& addr = account.addr;
   block::gen::Transaction::Record trans;
