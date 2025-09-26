@@ -47,6 +47,7 @@ struct CheckAccountTxsCtx {
   block::CurrencyCollection total_burned{0};
   std::vector<std::tuple<Bits256, Bits256, bool>> lib_publishers_{};
   bool defer_all_messages = false;
+  std::vector<std::pair<td::Ref<vm::Cell>, td::uint32>> storage_stat_cache_update;
 };
 
 struct ErrorCtx {
@@ -425,7 +426,7 @@ class ValidateQuery : public td::actor::Actor {
   bool check_in_queue();
   bool check_delivered_dequeued();
   std::unique_ptr<block::Account> make_account_from_ts(td::ConstBitPtr addr, Ref<vm::CellSlice> account) const;
-  std::unique_ptr<block::Account> unpack_account_ts(td::ConstBitPtr addr) const;
+  std::unique_ptr<block::Account> unpack_account_ts(td::ConstBitPtr addr, CheckAccountTxsCtx& ctx) const;
   bool check_one_transaction_ts(block::Account& account, LogicalTime lt, Ref<vm::Cell> trans_root, bool is_first,
                                 bool is_last, CheckAccountTxsCtx& ctx) const;
   bool check_account_transactions_ts(const StdSmcAddress& acc_addr, Ref<vm::CellSlice> acc_tr,

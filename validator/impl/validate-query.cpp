@@ -5495,7 +5495,7 @@ std::unique_ptr<block::Account> ValidateQuery::make_account_from_ts(td::ConstBit
  * @returns Pointer to the account if found or created successfully.
  *          Returns nullptr if an error occured.
  */
-std::unique_ptr<block::Account> ValidateQuery::unpack_account_ts(td::ConstBitPtr addr) const {
+std::unique_ptr<block::Account> ValidateQuery::unpack_account_ts(td::ConstBitPtr addr, CheckAccountTxsCtx &ctx) const {
   auto dict_entry = ps_.account_dict_->lookup_extra(addr, 256);
   auto new_acc = make_account_from_ts(addr, std::move(dict_entry.first));
   if (!new_acc) {
@@ -5532,18 +5532,15 @@ std::unique_ptr<block::Account> ValidateQuery::unpack_account_ts(td::ConstBitPtr
         LOG(DEBUG) << "Inited storage stat from cache for account " << addr.to_hex(256) << " ("
                    << new_acc->storage_used.cells << " cells)";
 
-        // todo(vadim@avevad.com): implement storage stat cache
-        // storage_stat_cache_update_.emplace_back(dict_root, new_acc->storage_used.cells);
-        // stats_.storage_stat_cache.hit_cnt++;
-        // stats_.storage_stat_cache.hit_cells += new_acc->storage_used.cells;
+        ctx.storage_stat_cache_update.emplace_back(dict_root, new_acc->storage_used.cells);
+        stats_.storage_stat_cache.hit_cnt.fetch_add(1);
+        stats_.storage_stat_cache.hit_cells.fetch_add(new_acc->storage_used.cells);
       } else if (new_acc->storage_used.cells >= StorageStatCache::MIN_ACCOUNT_CELLS) {
-        // todo(vadim@avevad.com): implement storage stat cache
-        // stats_.storage_stat_cache.miss_cnt++;
-        // stats_.storage_stat_cache.miss_cells += new_acc->storage_used.cells;
+        stats_.storage_stat_cache.miss_cnt.fetch_add(1);
+        stats_.storage_stat_cache.miss_cells.fetch_add(new_acc->storage_used.cells);
       } else {
-        // todo(vadim@avevad.com): implement storage stat cache
-        // stats_.storage_stat_cache.small_cnt++;
-        // stats_.storage_stat_cache.small_cells += new_acc->storage_used.cells;
+        stats_.storage_stat_cache.small_cnt.fetch_add(1);
+        stats_.storage_stat_cache.small_cells.fetch_add(new_acc->storage_used.cells);
       }
     }
   }
@@ -6128,7 +6125,7 @@ bool ValidateQuery::check_one_transaction_ts(block::Account& account, ton::Logic
 bool ValidateQuery::check_account_transactions_ts(const StdSmcAddress& acc_addr, Ref<vm::CellSlice> acc_blk_root, CheckAccountTxsCtx& ctx) const {
   block::gen::AccountBlock::Record acc_blk;
   CHECK(tlb::csr_unpack(std::move(acc_blk_root), acc_blk) && acc_blk.account_addr == acc_addr);
-  auto account_p = unpack_account_ts(acc_addr.cbits());
+  auto account_p = unpack_account_ts(acc_addr.cbits(), ctx);
   if (!account_p) {
     return reject_query_ts("cannot unpack old state of account "s + acc_addr.to_hex());
   }
@@ -6153,9 +6150,8 @@ bool ValidateQuery::check_account_transactions_ts(const StdSmcAddress& acc_addr,
   if ((!full_collated_data_ || is_masterchain()) && account.storage_dict_hash && account.account_storage_stat &&
       account.account_storage_stat.value().is_dict_ready() &&
       account.storage_used.cells >= StorageStatCache::MIN_ACCOUNT_CELLS) {
-    // todo(vadim@avevad.com): implement storage stat cache
-    // storage_stat_cache_update_.emplace_back(account.account_storage_stat.value().get_dict_root().move_as_ok(),
-    //                                        account.storage_used.cells);
+    ctx.storage_stat_cache_update.emplace_back(account.account_storage_stat.value().get_dict_root().move_as_ok(),
+                                            account.storage_used.cells);
   }
   if (is_masterchain() && account.libraries_changed()) {
     return scan_account_libraries_ts(account.orig_library, account.library, acc_addr, ctx);
@@ -6216,6 +6212,9 @@ bool ValidateQuery::check_transactions() {
     }
     if (account_contexts[pos].defer_all_messages) {
       account_expected_defer_all_messages_.insert(account_addresses[pos]);
+    }
+    for (auto& e : account_contexts[pos].storage_stat_cache_update) {
+      storage_stat_cache_update_.push_back(e);
     }
     total_burned_ += account_contexts[pos].total_burned;
   }

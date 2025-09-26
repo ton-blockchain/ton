@@ -56,9 +56,20 @@ struct AsyncSerializerState {
 };
 
 struct StorageStatCacheStats {
-  td::uint64 small_cnt = 0, small_cells = 0;
-  td::uint64 hit_cnt = 0, hit_cells = 0;
-  td::uint64 miss_cnt = 0, miss_cells = 0;
+  std::atomic<td::uint64> small_cnt = 0, small_cells = 0;
+  std::atomic<td::uint64> hit_cnt = 0, hit_cells = 0;
+  std::atomic<td::uint64> miss_cnt = 0, miss_cells = 0;
+
+  StorageStatCacheStats() {}
+
+  StorageStatCacheStats(const StorageStatCacheStats& other)
+      : small_cnt(other.small_cnt.load())
+      , small_cells(other.small_cells.load())
+      , hit_cnt(other.hit_cnt.load())
+      , hit_cells(other.hit_cells.load())
+      , miss_cnt(other.miss_cnt.load())
+      , miss_cells(other.miss_cells.load()) {
+  }
 
   tl_object_ptr<ton_api::validatorStats_storageStatCacheStats> tl() const {
     return create_tl_object<ton_api::validatorStats_storageStatCacheStats>(small_cnt, small_cells, hit_cnt, hit_cells,
@@ -194,7 +205,7 @@ struct ValidationStats {
     }
   };
   WorkTimeStats work_time;
-  StorageStatCacheStats storage_stat_cache;
+  mutable StorageStatCacheStats storage_stat_cache;
 
   tl_object_ptr<ton_api::validatorStats_validatedBlock> tl() const {
     return create_tl_object<ton_api::validatorStats_validatedBlock>(
