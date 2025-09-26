@@ -46,6 +46,7 @@ struct CheckAccountTxsCtx {
   std::vector<std::tuple<Bits256, LogicalTime, LogicalTime>> msg_proc_lt{};
   block::CurrencyCollection total_burned{0};
   std::vector<std::tuple<Bits256, Bits256, bool>> lib_publishers_{};
+  bool defer_all_messages = false;
 };
 
 struct ErrorCtx {

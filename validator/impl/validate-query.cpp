@@ -5734,29 +5734,28 @@ bool ValidateQuery::check_one_transaction_ts(block::Account& account, ton::Logic
                                        << " of account " << addr.to_hex()
                                        << " refers to a different processing transaction");
     }
-    // todo(vadim@avevad.com): implement defer messages
-    // if (tag != block::gen::OutMsg::msg_export_ext) {
-    //   bool is_deferred = tag == block::gen::OutMsg::msg_export_new_defer;
-    //   if (account_expected_defer_all_messages_.count(ss_addr) && !is_deferred) {
-    //     return reject_query_ts(
-    //         PSTRING() << "outbound message #" << i + 1 << " on account " << workchain() << ":" << ss_addr.to_hex()
-    //                   << " must be deferred because this account has earlier messages in DispatchQueue");
-    //   }
-    //   if (is_deferred) {
-    //     LOG(INFO) << "message from account " << workchain() << ":" << ss_addr.to_hex() << " with lt " << message_lt
-    //               << " was deferred";
-    //     if (!deferring_messages_enabled_ && !account_expected_defer_all_messages_.count(ss_addr)) {
-    //       return reject_query_ts(PSTRING() << "outbound message #" << i + 1 << " on account " << workchain() << ":"
-    //                                     << ss_addr.to_hex() << " is deferred, but deferring messages is disabled");
-    //     }
-    //     if (i == 0 && !account_expected_defer_all_messages_.count(ss_addr)) {
-    //       return reject_query_ts(PSTRING() << "outbound message #1 on account " << workchain() << ":" << ss_addr.to_hex()
-    //                                     << " must not be deferred (the first message cannot be deferred unless some "
-    //                                        "prevoius messages are deferred)");
-    //     }
-    //     account_expected_defer_all_messages_.insert(ss_addr);
-    //   }
-    // }
+    if (tag != block::gen::OutMsg::msg_export_ext) {
+      bool is_deferred = tag == block::gen::OutMsg::msg_export_new_defer;
+      if (ctx.defer_all_messages && !is_deferred) {
+        return reject_query_ts(
+            PSTRING() << "outbound message #" << i + 1 << " on account " << workchain() << ":" << ss_addr.to_hex()
+                      << " must be deferred because this account has earlier messages in DispatchQueue");
+      }
+      if (is_deferred) {
+        LOG(INFO) << "message from account " << workchain() << ":" << ss_addr.to_hex() << " with lt " << message_lt
+                  << " was deferred";
+        if (!deferring_messages_enabled_ && !ctx.defer_all_messages) {
+          return reject_query_ts(PSTRING() << "outbound message #" << i + 1 << " on account " << workchain() << ":"
+                                        << ss_addr.to_hex() << " is deferred, but deferring messages is disabled");
+        }
+        if (i == 0 && !ctx.defer_all_messages) {
+          return reject_query_ts(PSTRING() << "outbound message #1 on account " << workchain() << ":" << ss_addr.to_hex()
+                                        << " must not be deferred (the first message cannot be deferred unless some "
+                                           "prevoius messages are deferred)");
+        }
+        ctx.defer_all_messages = true;
+      }
+    }
   }
   CHECK(money_exported.is_valid());
   // check general transaction data
@@ -6021,11 +6020,10 @@ bool ValidateQuery::check_one_transaction_ts(block::Account& account, ton::Logic
     return reject_query_ts(PSTRING() << "cannot re-create the serialization of  transaction " << lt
                                      << " for smart contract " << addr.to_hex());
   }
-  // todo(vadim@avevad.com): implement limits update
-  // if (!trs->update_limits(*block_limit_status_, /* with_gas = */ false, /* with_size = */ false)) {
-  // return fatal_error_ts(PSTRING() << "cannot update block limit status to include transaction " << lt
-  // << " of account " << addr.to_hex());
-  // }
+  if (!trs->update_limits(*block_limit_status_, /* with_gas = */ false, /* with_size = */ false)) {
+    return fatal_error_ts(PSTRING() << "cannot update block limit status to include transaction " << lt
+                                    << " of account " << addr.to_hex());
+  }
 
   // Collator should stop if total gas usage exceeds limits, including transactions on special accounts, but without
   // ticktocks and mint/recover.
@@ -6181,6 +6179,9 @@ bool ValidateQuery::check_transactions() {
 
     account_contexts.emplace_back();
     CheckAccountTxsCtx& ctx = account_contexts.back();
+    if (account_expected_defer_all_messages_.count(address)) {
+      ctx.defer_all_messages = true;
+    }
 
     account_tasks.emplace_back([this, address, &ctx, acc_tr = std::move(value)] {
       unsigned char result = check_account_transactions_ts(address, acc_tr, ctx);
@@ -6209,6 +6210,9 @@ bool ValidateQuery::check_transactions() {
     }
     for (auto& e : account_contexts[pos].lib_publishers_) {
       lib_publishers_.push_back(e);
+    }
+    if (account_contexts[pos].defer_all_messages) {
+      account_expected_defer_all_messages_.insert(account_addresses[pos]);
     }
     total_burned_ += account_contexts[pos].total_burned;
   }
