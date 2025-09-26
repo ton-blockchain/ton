@@ -5959,12 +5959,11 @@ bool ValidateQuery::check_one_transaction_ts(block::Account& account, ton::Logic
   std::unique_ptr<block::transaction::Transaction> trs =
       std::make_unique<block::transaction::Transaction>(account, trans_type, lt, now_, in_msg_root);
   td::RealCpuTimer timer;
-  // todo(vadim@avevad.com): implement work time stats
-  // SCOPE_EXIT {
-  //   stats_.work_time.trx_tvm += trs->time_tvm;
-  //   stats_.work_time.trx_storage_stat += trs->time_storage_stat;
-  //   stats_.work_time.trx_other += timer.elapsed_both() - trs->time_tvm - trs->time_storage_stat;
-  // };
+  SCOPE_EXIT {
+     ctx.work_time.trx_tvm += trs->time_tvm;
+     ctx.work_time.trx_storage_stat += trs->time_storage_stat;
+     ctx.work_time.trx_other += timer.elapsed_both() - trs->time_tvm - trs->time_storage_stat;
+  };
   if (in_msg_root.not_null()) {
     if (!trs->unpack_input_msg(ihr_delivered, &action_phase_cfg_)) {
       // inbound external message was not accepted
@@ -6204,19 +6203,29 @@ bool ValidateQuery::check_transactions() {
   }
 
   for (size_t pos = 0; pos < account_addresses.size(); pos++) {
-    for (auto& e : account_contexts[pos].msg_proc_lt) {
+    auto &ctx = account_contexts[pos];
+
+    for (auto& e : ctx.msg_proc_lt) {
       msg_proc_lt_.emplace_back(std::move(e));
     }
-    for (auto& e : account_contexts[pos].lib_publishers_) {
+
+    for (auto& e : ctx.lib_publishers_) {
       lib_publishers_.push_back(e);
     }
-    if (account_contexts[pos].defer_all_messages) {
+
+    if (ctx.defer_all_messages) {
       account_expected_defer_all_messages_.insert(account_addresses[pos]);
     }
-    for (auto& e : account_contexts[pos].storage_stat_cache_update) {
+
+    for (auto& e : ctx.storage_stat_cache_update) {
       storage_stat_cache_update_.push_back(e);
     }
-    total_burned_ += account_contexts[pos].total_burned;
+
+    stats_.work_time.trx_tvm += ctx.work_time.trx_tvm;
+    stats_.work_time.trx_storage_stat += ctx.work_time.trx_storage_stat;
+    stats_.work_time.trx_other += ctx.work_time.trx_other;
+
+    total_burned_ += ctx.total_burned;
   }
 
   return true;

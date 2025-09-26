@@ -39,16 +39,17 @@ namespace ton {
 namespace validator {
 using td::Ref;
 
-class ErrorCtxAdd;
-class ErrorCtxSet;
-
 struct CheckAccountTxsCtx {
   std::vector<std::tuple<Bits256, LogicalTime, LogicalTime>> msg_proc_lt{};
   block::CurrencyCollection total_burned{0};
   std::vector<std::tuple<Bits256, Bits256, bool>> lib_publishers_{};
   bool defer_all_messages = false;
   std::vector<std::pair<td::Ref<vm::Cell>, td::uint32>> storage_stat_cache_update;
+  ValidationStats::WorkTimeStats work_time;
 };
+
+class ErrorCtxAdd;
+class ErrorCtxSet;
 
 struct ErrorCtx {
  protected:
