@@ -6157,9 +6157,7 @@ bool ValidateQuery::check_account_transactions_ts(const StdSmcAddress& acc_addr,
     //                                        account.storage_used.cells);
   }
   if (is_masterchain() && account.libraries_changed()) {
-    // todo(vadim@avevad.com): implement libraries scan
-    // return scan_account_libraries(account.orig_library, account.library, acc_addr);
-    return true;
+    return scan_account_libraries_ts(account.orig_library, account.library, acc_addr, ctx);
   } else {
     return true;
   }
@@ -6208,6 +6206,9 @@ bool ValidateQuery::check_transactions() {
   for (size_t pos = 0; pos < account_addresses.size(); pos++) {
     for (auto& e : account_contexts[pos].msg_proc_lt) {
       msg_proc_lt_.emplace_back(std::move(e));
+    }
+    for (auto& e : account_contexts[pos].lib_publishers_) {
+      lib_publishers_.push_back(e);
     }
     total_burned_ += account_contexts[pos].total_burned;
   }
@@ -6263,21 +6264,21 @@ bool ValidateQuery::check_message_processing_order() {
  *
  * @returns True if the update was successful, false otherwise.
  */
-bool ValidateQuery::scan_account_libraries(Ref<vm::Cell> orig_libs, Ref<vm::Cell> final_libs, const td::Bits256& addr) {
+bool ValidateQuery::scan_account_libraries_ts(Ref<vm::Cell> orig_libs, Ref<vm::Cell> final_libs, const td::Bits256& addr, CheckAccountTxsCtx& ctx) const {
   vm::Dictionary dict1{std::move(orig_libs), 256}, dict2{std::move(final_libs), 256};
   return dict1.scan_diff(
              dict2,
-             [this, &addr](td::ConstBitPtr key, int n, Ref<vm::CellSlice> val1, Ref<vm::CellSlice> val2) -> bool {
+             [this, &addr, &ctx](td::ConstBitPtr key, int n, Ref<vm::CellSlice> val1, Ref<vm::CellSlice> val2) -> bool {
                CHECK(n == 256);
                bool f = block::is_public_library(key, std::move(val1));
                bool g = block::is_public_library(key, val2);
                if (f != g) {
-                 lib_publishers_.emplace_back(key, addr, g);
+                 ctx.lib_publishers_.emplace_back(key, addr, g);
                }
                return true;
              },
              3) ||
-         reject_query("error scanning old and new libraries of account "s + addr.to_hex());
+         reject_query_ts("error scanning old and new libraries of account "s + addr.to_hex());
 }
 
 /**

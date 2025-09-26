@@ -45,6 +45,7 @@ class ErrorCtxSet;
 struct CheckAccountTxsCtx {
   std::vector<std::tuple<Bits256, LogicalTime, LogicalTime>> msg_proc_lt{};
   block::CurrencyCollection total_burned{0};
+  std::vector<std::tuple<Bits256, Bits256, bool>> lib_publishers_{};
 };
 
 struct ErrorCtx {
@@ -428,7 +429,8 @@ class ValidateQuery : public td::actor::Actor {
   bool check_account_transactions_ts(const StdSmcAddress& acc_addr, Ref<vm::CellSlice> acc_tr,
                                      CheckAccountTxsCtx& ctx) const;
   bool check_transactions();
-  bool scan_account_libraries(Ref<vm::Cell> orig_libs, Ref<vm::Cell> final_libs, const td::Bits256& addr);
+  bool scan_account_libraries_ts(Ref<vm::Cell> orig_libs, Ref<vm::Cell> final_libs, const td::Bits256& addr,
+                                 CheckAccountTxsCtx& ctx) const;
   bool check_all_ticktock_processed();
   bool check_message_processing_order();
   bool check_special_message(Ref<vm::Cell> in_msg_root, const block::CurrencyCollection& amount,
