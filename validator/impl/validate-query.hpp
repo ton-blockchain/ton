@@ -42,7 +42,7 @@ using td::Ref;
 struct CheckAccountTxsCtx {
   std::vector<std::tuple<Bits256, LogicalTime, LogicalTime>> msg_proc_lt{};
   block::CurrencyCollection total_burned{0};
-  std::vector<std::tuple<Bits256, Bits256, bool>> lib_publishers_{};
+  std::vector<std::tuple<Bits256, Bits256, bool>> lib_publishers{};
   bool defer_all_messages = false;
   std::vector<std::pair<td::Ref<vm::Cell>, td::uint32>> storage_stat_cache_update;
   ValidationStats::WorkTimeStats work_time;
@@ -159,7 +159,7 @@ class ValidateQuery : public td::actor::Actor {
   bool prev_key_block_exists_{false};
   bool debug_checks_{false};
   bool outq_cleanup_partial_{false};
-  bool parallel_accounts_validation{false};
+  bool parallel_accounts_validation_{false};
   BlockSeqno prev_key_seqno_{~0u};
   int stage_{0};
   td::BitArray<64> shard_pfx_;
@@ -275,9 +275,9 @@ class ValidateQuery : public td::actor::Actor {
     return shard_.workchain;
   }
 
-  class ConcurrentQueryReject final : public std::exception {
+  class ThreadsafeQueryReject final : public std::exception {
    public:
-    explicit ConcurrentQueryReject(std::string error);
+    explicit ThreadsafeQueryReject(std::string error);
 
     bool rethrow_in(ValidateQuery& cvq);
 
@@ -296,9 +296,9 @@ class ValidateQuery : public td::actor::Actor {
   void alarm() override;
   void start_up() override;
 
-  class ConcurrentQueryError final : public std::exception {
+  class ThreadsafeQueryError final : public std::exception {
    public:
-    explicit ConcurrentQueryError(td::Status error);
+    explicit ThreadsafeQueryError(td::Status error);
 
     bool rethrow_in(ValidateQuery& cvq);
 
@@ -433,8 +433,8 @@ class ValidateQuery : public td::actor::Actor {
                                 bool is_last, CheckAccountTxsCtx& ctx) const;
   bool check_account_transactions_ts(const StdSmcAddress& acc_addr, Ref<vm::CellSlice> acc_tr,
                                      CheckAccountTxsCtx& ctx) const;
-  CheckAccountTxsCtx load_check_account_transactions_context(const StdSmcAddress &address);
-  void save_account_transactions_context(const StdSmcAddress &address, CheckAccountTxsCtx& ctx);
+  CheckAccountTxsCtx load_check_account_transactions_context(const StdSmcAddress& address);
+  void save_account_transactions_context(const StdSmcAddress& address, CheckAccountTxsCtx& ctx);
   bool check_transactions_p();
   bool check_transactions();
   bool scan_account_libraries_ts(Ref<vm::Cell> orig_libs, Ref<vm::Cell> final_libs, const td::Bits256& addr,

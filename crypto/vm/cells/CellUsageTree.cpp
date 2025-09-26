@@ -19,8 +19,6 @@
 #include "vm/cells/CellUsageTree.h"
 #include "DataCell.h"
 
-#include <mutex>
-
 namespace vm {
 //
 // CellUsageTree::NodePtr

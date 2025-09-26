@@ -138,7 +138,7 @@ class DictionaryBase {
     return std::move(root_cell);
   }
   bool append_dict_to_bool(CellBuilder& cb) &&;
-  bool append_dict_to_bool(CellBuilder& cb) const&;
+  bool append_dict_to_bool(CellBuilder& cb) const &;
   int get_key_bits() const {
     return key_bits;
   }
@@ -575,7 +575,7 @@ class AugmentedDictionary final : public DictionaryFixed {
   Ref<Cell> get_wrapped_dict_root() const;
   Ref<CellSlice> extract_root() &&;
   bool append_dict_to_bool(CellBuilder& cb) &&;
-  bool append_dict_to_bool(CellBuilder& cb) const&;
+  bool append_dict_to_bool(CellBuilder& cb) const &;
   Ref<CellSlice> get_root_extra() const;
   Ref<CellSlice> lookup(td::ConstBitPtr key, int key_len);
   Ref<Cell> lookup_ref(td::ConstBitPtr key, int key_len);

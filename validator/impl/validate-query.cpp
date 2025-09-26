@@ -80,7 +80,7 @@ ValidateQuery::ValidateQuery(BlockCandidate candidate, ValidateParams params,
     , timeout(timeout)
     , main_promise(std::move(promise))
     , is_fake_(params.is_fake)
-    , parallel_accounts_validation(params.parallel_accounts_validation)
+    , parallel_accounts_validation_(params.parallel_accounts_validation)
     , shard_pfx_(shard_.shard)
     , shard_pfx_len_(ton::shard_prefix_length(shard_))
     , optimistic_prev_block_(std::move(params.optimistic_prev_block))
@@ -134,7 +134,7 @@ bool ValidateQuery::reject_query(std::string error, td::BufferSlice reason) {
 }
 
 bool ValidateQuery::reject_query_ts(std::string error, td::BufferSlice reason) const {
-  throw ConcurrentQueryReject(error);
+  throw ThreadsafeQueryReject(error);
 }
 
 /**
@@ -207,7 +207,7 @@ bool ValidateQuery::fatal_error(td::Status error) {
 }
 
 bool ValidateQuery::fatal_error_ts(td::Status error) const {
-  throw ConcurrentQueryError(std::move(error));
+  throw ThreadsafeQueryError(std::move(error));
 }
 
 /**
@@ -252,10 +252,10 @@ bool ValidateQuery::fatal_error_ts(std::string err_msg, int err_code) const {
   return fatal_error_ts(td::Status::Error(err_code, error_ctx() + err_msg));
 }
 
-ValidateQuery::ConcurrentQueryReject::ConcurrentQueryReject(std::string error) : error_(std::move(error)) {
+ValidateQuery::ThreadsafeQueryReject::ThreadsafeQueryReject(std::string error) : error_(std::move(error)) {
 }
 
-bool ValidateQuery::ConcurrentQueryReject::rethrow_in(ValidateQuery& cvq) {
+bool ValidateQuery::ThreadsafeQueryReject::rethrow_in(ValidateQuery& cvq) {
   return cvq.reject_query(std::move(error_));
 }
 
@@ -536,10 +536,10 @@ void ValidateQuery::after_get_shard_state_optimistic(td::Result<Ref<ShardState>>
   after_get_shard_state(0, std::move(state), {});
 }
 
-ValidateQuery::ConcurrentQueryError::ConcurrentQueryError(td::Status error) : error_(std::move(error)) {
+ValidateQuery::ThreadsafeQueryError::ThreadsafeQueryError(td::Status error) : error_(std::move(error)) {
 }
 
-bool ValidateQuery::ConcurrentQueryError::rethrow_in(ValidateQuery& cvq) {
+bool ValidateQuery::ThreadsafeQueryError::rethrow_in(ValidateQuery& cvq) {
   return cvq.fatal_error(std::move(error_));
 }
 
@@ -5472,7 +5472,8 @@ bool ValidateQuery::check_delivered_dequeued() {
  *
  * @returns A unique pointer to the created Account object, or nullptr if the creation failed.
  */
-std::unique_ptr<block::Account> ValidateQuery::make_account_from_ts(td::ConstBitPtr addr, Ref<vm::CellSlice> account) const {
+std::unique_ptr<block::Account> ValidateQuery::make_account_from_ts(td::ConstBitPtr addr,
+                                                                    Ref<vm::CellSlice> account) const {
   auto ptr = std::make_unique<block::Account>(workchain(), addr);
   if (account.is_null()) {
     if (!ptr->init_new(now_)) {
@@ -5497,7 +5498,7 @@ std::unique_ptr<block::Account> ValidateQuery::make_account_from_ts(td::ConstBit
  * @returns Pointer to the account if found or created successfully.
  *          Returns nullptr if an error occured.
  */
-std::unique_ptr<block::Account> ValidateQuery::unpack_account_ts(td::ConstBitPtr addr, CheckAccountTxsCtx &ctx) const {
+std::unique_ptr<block::Account> ValidateQuery::unpack_account_ts(td::ConstBitPtr addr, CheckAccountTxsCtx& ctx) const {
   auto dict_entry = ps_.account_dict_->lookup_extra(addr, 256);
   auto new_acc = make_account_from_ts(addr, std::move(dict_entry.first));
   if (!new_acc) {
@@ -5518,7 +5519,7 @@ std::unique_ptr<block::Account> ValidateQuery::unpack_account_ts(td::ConstBitPtr
         auto S = new_acc->init_account_storage_stat(it->second);
         if (S.is_error()) {
           reject_query_ts(PSTRING() << "Failed to init account storage stat for account " << addr.to_hex(256),
-                       std::move(S));
+                          std::move(S));
           return {};
         }
       }
@@ -5562,11 +5563,10 @@ std::unique_ptr<block::Account> ValidateQuery::unpack_account_ts(td::ConstBitPtr
  *
  * @returns True if the transaction is valid, false otherwise.
  */
-bool ValidateQuery::check_one_transaction_ts(block::Account& account, ton::LogicalTime lt,
-                                                    Ref<vm::Cell> trans_root, bool is_first, bool is_last,
-                                                    CheckAccountTxsCtx& ctx) const {
+bool ValidateQuery::check_one_transaction_ts(block::Account& account, ton::LogicalTime lt, Ref<vm::Cell> trans_root,
+                                             bool is_first, bool is_last, CheckAccountTxsCtx& ctx) const {
   if (!check_timeout_ts()) {
-   return false;
+    return false;
   }
   LOG(DEBUG) << "checking transaction " << lt << " of account " << account.addr.to_hex();
   const StdSmcAddress& addr = account.addr;
@@ -5749,12 +5749,13 @@ bool ValidateQuery::check_one_transaction_ts(block::Account& account, ton::Logic
                   << " was deferred";
         if (!deferring_messages_enabled_ && !ctx.defer_all_messages) {
           return reject_query_ts(PSTRING() << "outbound message #" << i + 1 << " on account " << workchain() << ":"
-                                        << ss_addr.to_hex() << " is deferred, but deferring messages is disabled");
+                                           << ss_addr.to_hex() << " is deferred, but deferring messages is disabled");
         }
         if (i == 0 && !ctx.defer_all_messages) {
-          return reject_query_ts(PSTRING() << "outbound message #1 on account " << workchain() << ":" << ss_addr.to_hex()
-                                        << " must not be deferred (the first message cannot be deferred unless some "
-                                           "prevoius messages are deferred)");
+          return reject_query_ts(PSTRING()
+                                 << "outbound message #1 on account " << workchain() << ":" << ss_addr.to_hex()
+                                 << " must not be deferred (the first message cannot be deferred unless some "
+                                    "prevoius messages are deferred)");
         }
         ctx.defer_all_messages = true;
       }
@@ -5802,12 +5803,13 @@ bool ValidateQuery::check_one_transaction_ts(block::Account& account, ton::Logic
   }
   if (tag == block::gen::TransactionDescr::trans_tick_tock) {
     if (!is_masterchain()) {
-      return reject_query_ts(PSTRING() << "transaction " << lt << " of account " << addr.to_hex()
-                                    << " is a tick-tock transaction, which is impossible outside a masterchain block");
+      return reject_query_ts(
+          PSTRING() << "transaction " << lt << " of account " << addr.to_hex()
+                    << " is a tick-tock transaction, which is impossible outside a masterchain block");
     }
     if (!account.is_special) {
       return reject_query_ts(PSTRING() << "transaction " << lt << " of account " << addr.to_hex()
-                                    << " is a tick-tock transaction, but this account is not listed as special");
+                                       << " is a tick-tock transaction, but this account is not listed as special");
     }
     bool is_tock = td_cs.prefetch_ulong(4) & 1;  // trans_tick_tock$001 is_tock:Bool ...
     if (!is_tock) {
@@ -5823,8 +5825,9 @@ bool ValidateQuery::check_one_transaction_ts(block::Account& account, ton::Logic
                       << start_lt_ << " by more than one");
       }
       if (!account.tick) {
-        return reject_query_ts(PSTRING() << "transaction " << lt << " of account " << addr.to_hex()
-                                      << " is a tick transaction, but this account has not enabled tick transactions");
+        return reject_query_ts(
+            PSTRING() << "transaction " << lt << " of account " << addr.to_hex()
+                      << " is a tick transaction, but this account has not enabled tick transactions");
       }
     } else {
       if (!is_last) {
@@ -5833,24 +5836,26 @@ bool ValidateQuery::check_one_transaction_ts(block::Account& account, ton::Logic
                       << " is a tock transaction, but this is not the last transaction of this account");
       }
       if (!account.tock) {
-        return reject_query_ts(PSTRING() << "transaction " << lt << " of account " << addr.to_hex()
-                                      << " is a tock transaction, but this account has not enabled tock transactions");
+        return reject_query_ts(
+            PSTRING() << "transaction " << lt << " of account " << addr.to_hex()
+                      << " is a tock transaction, but this account has not enabled tock transactions");
       }
     }
   }
   if (is_first && is_masterchain() && account.is_special && account.tick &&
       (tag != block::gen::TransactionDescr::trans_tick_tock || (td_cs.prefetch_ulong(4) & 1)) &&
       account.orig_status == block::Account::acc_active) {
-    return reject_query_ts(PSTRING() << "transaction " << lt << " of account " << addr.to_hex()
-                                  << " is the first transaction for this special tick account in this block, but the "
-                                     "transaction is not a tick transaction");
+    return reject_query_ts(
+        PSTRING() << "transaction " << lt << " of account " << addr.to_hex()
+                  << " is the first transaction for this special tick account in this block, but the "
+                     "transaction is not a tick transaction");
   }
   if (is_last && is_masterchain() && account.is_special && account.tock &&
       (tag != block::gen::TransactionDescr::trans_tick_tock || !(td_cs.prefetch_ulong(4) & 1)) &&
       trans.end_status == block::gen::AccountStatus::acc_state_active) {
     return reject_query_ts(PSTRING() << "transaction " << lt << " of account " << addr.to_hex()
-                                  << " is the last transaction for this special tock account in this block, but the "
-                                     "transaction is not a tock transaction");
+                                     << " is the last transaction for this special tock account in this block, but the "
+                                        "transaction is not a tock transaction");
   }
   if (tag == block::gen::TransactionDescr::trans_storage && !is_first) {
     return reject_query_ts(
@@ -5963,9 +5968,9 @@ bool ValidateQuery::check_one_transaction_ts(block::Account& account, ton::Logic
       std::make_unique<block::transaction::Transaction>(account, trans_type, lt, now_, in_msg_root);
   td::RealCpuTimer timer;
   SCOPE_EXIT {
-     ctx.work_time.trx_tvm += trs->time_tvm;
-     ctx.work_time.trx_storage_stat += trs->time_storage_stat;
-     ctx.work_time.trx_other += timer.elapsed_both() - trs->time_tvm - trs->time_storage_stat;
+    ctx.work_time.trx_tvm += trs->time_tvm;
+    ctx.work_time.trx_storage_stat += trs->time_storage_stat;
+    ctx.work_time.trx_other += timer.elapsed_both() - trs->time_tvm - trs->time_storage_stat;
   };
   if (in_msg_root.not_null()) {
     if (!trs->unpack_input_msg(ihr_delivered, &action_phase_cfg_)) {
@@ -6124,7 +6129,8 @@ bool ValidateQuery::check_one_transaction_ts(block::Account& account, ton::Logic
  *
  * @returns True if the account transactions are valid, false otherwise.
  */
-bool ValidateQuery::check_account_transactions_ts(const StdSmcAddress& acc_addr, Ref<vm::CellSlice> acc_blk_root, CheckAccountTxsCtx& ctx) const {
+bool ValidateQuery::check_account_transactions_ts(const StdSmcAddress& acc_addr, Ref<vm::CellSlice> acc_blk_root,
+                                                  CheckAccountTxsCtx& ctx) const {
   block::gen::AccountBlock::Record acc_blk;
   CHECK(tlb::csr_unpack(std::move(acc_blk_root), acc_blk) && acc_blk.account_addr == acc_addr);
   auto account_p = unpack_account_ts(acc_addr.cbits(), ctx);
@@ -6153,7 +6159,7 @@ bool ValidateQuery::check_account_transactions_ts(const StdSmcAddress& acc_addr,
       account.account_storage_stat.value().is_dict_ready() &&
       account.storage_used.cells >= StorageStatCache::MIN_ACCOUNT_CELLS) {
     ctx.storage_stat_cache_update.emplace_back(account.account_storage_stat.value().get_dict_root().move_as_ok(),
-                                            account.storage_used.cells);
+                                               account.storage_used.cells);
   }
   if (is_masterchain() && account.libraries_changed()) {
     return scan_account_libraries_ts(account.orig_library, account.library, acc_addr, ctx);
@@ -6162,7 +6168,7 @@ bool ValidateQuery::check_account_transactions_ts(const StdSmcAddress& acc_addr,
   }
 }
 
-CheckAccountTxsCtx ValidateQuery::load_check_account_transactions_context(const StdSmcAddress &address) {
+CheckAccountTxsCtx ValidateQuery::load_check_account_transactions_context(const StdSmcAddress& address) {
   CheckAccountTxsCtx ctx;
   if (account_expected_defer_all_messages_.count(address)) {
     ctx.defer_all_messages = true;
@@ -6170,12 +6176,12 @@ CheckAccountTxsCtx ValidateQuery::load_check_account_transactions_context(const 
   return ctx;
 }
 
-void ValidateQuery::save_account_transactions_context(const StdSmcAddress &address, CheckAccountTxsCtx &ctx) {
+void ValidateQuery::save_account_transactions_context(const StdSmcAddress& address, CheckAccountTxsCtx& ctx) {
   for (auto& e : ctx.msg_proc_lt) {
     msg_proc_lt_.emplace_back(std::move(e));
   }
 
-  for (auto& e : ctx.lib_publishers_) {
+  for (auto& e : ctx.lib_publishers) {
     lib_publishers_.push_back(e);
   }
 
@@ -6230,9 +6236,9 @@ bool ValidateQuery::check_transactions_p() {
         return false;
       }
     }
-  } catch (ConcurrentQueryError& err) {
+  } catch (ThreadsafeQueryError& err) {
     return err.rethrow_in(*this);
-  } catch (ConcurrentQueryReject& rej) {
+  } catch (ThreadsafeQueryReject& rej) {
     return rej.rethrow_in(*this);
   }
 
@@ -6251,8 +6257,7 @@ bool ValidateQuery::check_transactions_p() {
 bool ValidateQuery::check_transactions() {
   LOG(INFO) << "checking all transactions";
   return account_blocks_dict_->check_for_each_extra(
-      [this](
-          Ref<vm::CellSlice> value, Ref<vm::CellSlice> extra, td::ConstBitPtr key, int key_len) {
+      [this](Ref<vm::CellSlice> value, Ref<vm::CellSlice> extra, td::ConstBitPtr key, int key_len) {
         CHECK(key_len == 256);
         StdSmcAddress address = key;
         try {
@@ -6261,9 +6266,9 @@ bool ValidateQuery::check_transactions() {
           save_account_transactions_context(address, ctx);
           return result;
 
-        } catch (ConcurrentQueryError& err) {
+        } catch (ThreadsafeQueryError& err) {
           return err.rethrow_in(*this);
-        } catch (ConcurrentQueryReject& rej) {
+        } catch (ThreadsafeQueryReject& rej) {
           return rej.rethrow_in(*this);
         }
       });
@@ -6318,7 +6323,8 @@ bool ValidateQuery::check_message_processing_order() {
  *
  * @returns True if the update was successful, false otherwise.
  */
-bool ValidateQuery::scan_account_libraries_ts(Ref<vm::Cell> orig_libs, Ref<vm::Cell> final_libs, const td::Bits256& addr, CheckAccountTxsCtx& ctx) const {
+bool ValidateQuery::scan_account_libraries_ts(Ref<vm::Cell> orig_libs, Ref<vm::Cell> final_libs,
+                                              const td::Bits256& addr, CheckAccountTxsCtx& ctx) const {
   vm::Dictionary dict1{std::move(orig_libs), 256}, dict2{std::move(final_libs), 256};
   return dict1.scan_diff(
              dict2,
@@ -6327,7 +6333,7 @@ bool ValidateQuery::scan_account_libraries_ts(Ref<vm::Cell> orig_libs, Ref<vm::C
                bool f = block::is_public_library(key, std::move(val1));
                bool g = block::is_public_library(key, val2);
                if (f != g) {
-                 ctx.lib_publishers_.emplace_back(key, addr, g);
+                 ctx.lib_publishers.emplace_back(key, addr, g);
                }
                return true;
              },
@@ -7395,7 +7401,7 @@ bool ValidateQuery::try_validate() {
     /*if (!check_delivered_dequeued()) {
       return reject_query("cannot check delivery status of all outbound messages");
     }*/
-    if (parallel_accounts_validation ? !check_transactions_p() : !check_transactions()) {
+    if (parallel_accounts_validation_ ? !check_transactions_p() : !check_transactions()) {
       return reject_query("invalid collection of account transactions in ShardAccountBlocks");
     }
     if (!check_all_ticktock_processed()) {

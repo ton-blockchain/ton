@@ -5483,7 +5483,7 @@ int main(int argc, char *argv[]) {
       });
   p.add_option(
       '\0', "celldb-disable-bloom-filter",
-      "disable using bloom filter in CellDb. Enabled bloom filter reduces read latency, but increases memory usage", 
+      "disable using bloom filter in CellDb. Enabled bloom filter reduces read latency, but increases memory usage",
       [&]() {
         acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_celldb_disable_bloom_filter, true); });
       });
@@ -5598,13 +5598,9 @@ int main(int argc, char *argv[]) {
                          }
                          return td::Status::OK();
                        });
-  p.add_option(
-      '\0', "parallel-accounts-validation",
-      "parallel validation over different accounts",
-      [&]() {
-        acts.push_back(
-            [&x]() { td::actor::send_closure(x, &ValidatorEngine::set_parallel_accounts_validation, true); });
-      });
+  p.add_option('\0', "parallel-accounts-validation", "parallel validation over different accounts", [&]() {
+    acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_parallel_accounts_validation, true); });
+  });
   auto S = p.run(argc, argv);
   if (S.is_error()) {
     LOG(ERROR) << "failed to parse options: " << S.move_as_error();

@@ -87,7 +87,7 @@ class CellUsageTree : public std::enable_shared_from_this<CellUsageTree> {
     std::array<td::uint32, CellTraits::max_refs> children{};
   };
   bool use_mark_{false};
-  DynamicArray<Node> nodes_{2};
+  CellUsageContainer<Node> nodes_{2};
   std::function<void(const LoadedCell&)> cell_load_callback_;
 
   void on_load(NodeId node_id, const LoadedCell& loaded_cell);

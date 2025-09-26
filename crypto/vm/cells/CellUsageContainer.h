@@ -5,36 +5,40 @@
 #include <vector>
 #include <mutex>
 
+/**
+ * Thread-safe container for storing cell usage tree nodes.
+ * @tparam T node type
+ */
 template <typename T>
-class DynamicArray {
-  static constexpr size_t kBlockSize = std::max(1ul, 4096 / sizeof(T));
-  static constexpr size_t kDefaultSize = 512;
+class CellUsageContainer {
+  static constexpr size_t BLOCK_SIZE = std::max(1ul, 4096 / sizeof(T));
+  static constexpr size_t DEFAULT_CAP = 512;
 
  public:
-  explicit DynamicArray(size_t initial_size) : size_(0), cap_(0) {
+  explicit CellUsageContainer(size_t initial_size) : size_(0), cap_(0) {
     static_assert(std::atomic<T**>::is_always_lock_free);
-    resize(0, (std::max(kDefaultSize, initial_size) + kBlockSize - 1) / kBlockSize);
+    ensure_capacity(0, (std::max(DEFAULT_CAP, initial_size) + BLOCK_SIZE - 1) / BLOCK_SIZE);
     size_ = initial_size;
   }
 
   const T& operator[](size_t i) const {
-    return pointer_[i / kBlockSize][i % kBlockSize];
+    return pointer_[i / BLOCK_SIZE][i % BLOCK_SIZE];
   }
 
   T& operator[](size_t i) {
-    return pointer_[i / kBlockSize][i % kBlockSize];
+    return pointer_[i / BLOCK_SIZE][i % BLOCK_SIZE];
   }
 
   size_t emplace_back() {
     size_t pos = size_.fetch_add(1);
     size_t current_cap;
-    while (pos / kBlockSize >= (current_cap = cap_.load())) {
-      resize(current_cap, 2 * current_cap);
+    while (pos / BLOCK_SIZE >= (current_cap = cap_.load())) {
+      ensure_capacity(current_cap, 2 * current_cap);
     }
     return pos;
   }
 
-  ~DynamicArray() {
+  ~CellUsageContainer() {
     for (size_t i = 0; i < cap_; ++i) {
       delete[] pointer_[i];
     }
@@ -53,7 +57,7 @@ class DynamicArray {
 
   std::vector<T**> storage_;
 
-  void resize(size_t current_cap, size_t target_cap) {
+  void ensure_capacity(size_t current_cap, size_t target_cap) {
     std::lock_guard lock(resize_lock_);
     if (current_cap != cap_) {
       return;
@@ -64,7 +68,7 @@ class DynamicArray {
       new_data[i] = pointer_[i];
     }
     for (size_t i = cap_; i < target_cap; ++i) {
-      new_data[i] = new T[kBlockSize];
+      new_data[i] = new T[BLOCK_SIZE];
     }
     storage_.emplace_back(new_data);
     pointer_.store(new_data);

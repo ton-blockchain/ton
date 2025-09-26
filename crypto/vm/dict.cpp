@@ -180,7 +180,7 @@ bool DictionaryBase::append_dict_to_bool(CellBuilder& cb) && {
   return cb.store_maybe_ref(std::move(root_cell));
 }
 
-bool DictionaryBase::append_dict_to_bool(CellBuilder& cb) const& {
+bool DictionaryBase::append_dict_to_bool(CellBuilder& cb) const & {
   return is_valid() && cb.store_maybe_ref(root_cell);
 }
 
@@ -1102,8 +1102,8 @@ Ref<CellSlice> Dictionary::lookup_set_gen(td::ConstBitPtr key, int key_len, cons
 }
 
 Ref<CellSlice> Dictionary::lookup_set(td::ConstBitPtr key, int key_len, Ref<CellSlice> value, SetMode mode) {
-  return lookup_set_gen(
-      key, key_len, [value](CellBuilder& cb) { return cell_builder_add_slice_bool(cb, *value); }, mode);
+  return lookup_set_gen(key, key_len, [value](CellBuilder& cb) { return cell_builder_add_slice_bool(cb, *value); },
+                      mode);
 }
 
 Ref<Cell> Dictionary::lookup_set_ref(td::ConstBitPtr key, int key_len, Ref<Cell> val_ref, SetMode mode) {
@@ -2282,7 +2282,7 @@ bool DictionaryFixed::dict_check_for_each(Ref<Cell> dict, td::BitPtr key_buffer,
   if (l) {
     invert_first = false;
   }
-  bool invert = shuffle ? td::Random::fast(0, 1) == 1 : invert_first;
+  bool invert = shuffle ? td::Random::fast(0, 1) == 1: invert_first;
   if (invert) {
     std::swap(c1, c2);
   }
@@ -2804,7 +2804,7 @@ Ref<CellSlice> AugmentedDictionary::extract_root() && {
   return std::move(root);
 }
 
-bool AugmentedDictionary::append_dict_to_bool(CellBuilder& cb) const& {
+bool AugmentedDictionary::append_dict_to_bool(CellBuilder& cb) const & {
   if (!is_valid()) {
     return false;
   }
