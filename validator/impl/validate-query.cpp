@@ -6168,29 +6168,30 @@ bool ValidateQuery::check_transactions() {
   LOG(INFO) << "checking all transactions";
   std::deque<StdSmcAddress> account_addresses;
   std::deque<CheckAccountTxsCtx> account_contexts;
-  std::vector<std::function<unsigned char /*bool*/ ()>> account_tasks;
+  std::vector<std::function<bool()>> account_tasks;
 
-  account_blocks_dict_->check_for_each_extra([this, &account_addresses, &account_contexts, &account_tasks] (Ref<vm::CellSlice> value, Ref<vm::CellSlice> extra, td::ConstBitPtr key, int key_len) {
-    CHECK(key_len == 256);
-    StdSmcAddress address = key;
-    account_addresses.push_back(address);
+  account_blocks_dict_->check_for_each_extra(
+      [this, &account_addresses, &account_contexts, &account_tasks](Ref<vm::CellSlice> value, Ref<vm::CellSlice> extra,
+                                                                    td::ConstBitPtr key, int key_len) {
+        CHECK(key_len == 256);
+        StdSmcAddress address = key;
+        account_addresses.push_back(address);
 
-    account_contexts.emplace_back();
-    CheckAccountTxsCtx& ctx = account_contexts.back();
-    if (account_expected_defer_all_messages_.count(address)) {
-      ctx.defer_all_messages = true;
-    }
+        account_contexts.emplace_back();
+        CheckAccountTxsCtx& ctx = account_contexts.back();
+        if (account_expected_defer_all_messages_.count(address)) {
+          ctx.defer_all_messages = true;
+        }
 
-    account_tasks.emplace_back([this, address, &ctx, acc_tr = std::move(value)] {
-      unsigned char result = check_account_transactions_ts(address, acc_tr, ctx);
-      return result;
-    });
-    return true;
-  });
+        account_tasks.emplace_back([this, address, &ctx, acc_tr = std::move(value)] {
+          return check_account_transactions_ts(address, acc_tr, ctx);
+        });
+        return true;
+      });
 
   try {
-    std::vector<unsigned char /*bool*/> account_results(account_tasks.size(), false);
-    ThreadPool::invoke_task_group(account_tasks.begin(), account_tasks.end(), account_results.begin());
+    std::vector<int> account_results(account_tasks.size(), false);
+    invoke_task_group(account_tasks.begin(), account_tasks.end(), account_results.begin());
     for (auto& ok : account_results) {
       if (!ok) {
         return false;
@@ -6203,7 +6204,7 @@ bool ValidateQuery::check_transactions() {
   }
 
   for (size_t pos = 0; pos < account_addresses.size(); pos++) {
-    auto &ctx = account_contexts[pos];
+    auto& ctx = account_contexts[pos];
 
     for (auto& e : ctx.msg_proc_lt) {
       msg_proc_lt_.emplace_back(std::move(e));

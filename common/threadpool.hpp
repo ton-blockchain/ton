@@ -11,17 +11,8 @@
 
 namespace ton {
 
-class ThreadPool {
-public:
-  ThreadPool(size_t num_threads = std::thread::hardware_concurrency()) = delete;
-  ~ThreadPool() = delete;
-
-  template <typename Iter, typename OIter>
-  static void invoke_task_group(Iter tasks_beg, Iter tasks_end, OIter res_beg, size_t num_threads = 0);
-};
-
-template <typename Iter, typename  OIter>
-void ThreadPool::invoke_task_group(Iter tasks_beg, Iter tasks_end, OIter res_beg, size_t num_threads) {
+template <typename Iter, typename OIter>
+void invoke_task_group(Iter tasks_beg, Iter tasks_end, OIter res_beg, size_t num_threads = 0) {
   if (num_threads == 0) {
     num_threads = std::thread::hardware_concurrency();
   }
@@ -34,14 +25,14 @@ void ThreadPool::invoke_task_group(Iter tasks_beg, Iter tasks_end, OIter res_beg
   }
   num_threads = std::min(num_threads, n);
   std::atomic_size_t cur_pos{0};
-  std::mutex panic_mutex;
+  std::mutex error_mutex;
   std::optional<std::exception_ptr> error;
 
   {
     std::vector<std::thread> workers;
     workers.reserve(num_threads);
     for (size_t id = 0; id < num_threads && cur_pos.load() < n; id++) {
-      workers.emplace_back([&cur_pos, n, in, out, &error, &panic_mutex]() -> void {
+      workers.emplace_back([&cur_pos, n, in, out, &error, &error_mutex]() -> void {
         while (true) {
           size_t pos = cur_pos.fetch_add(1);
           if (pos >= n) {
@@ -50,14 +41,14 @@ void ThreadPool::invoke_task_group(Iter tasks_beg, Iter tasks_end, OIter res_beg
           try {
             out[pos] = in[pos]();
           } catch (...) {
-            std::lock_guard panic_lock(panic_mutex);
+            std::lock_guard error_lock(error_mutex);
             error = std::current_exception();
           }
         }
       });
     }
 
-    for (auto &worker : workers) {
+    for (auto& worker : workers) {
       worker.join();
     }
   }
@@ -71,4 +62,4 @@ void ThreadPool::invoke_task_group(Iter tasks_beg, Iter tasks_end, OIter res_beg
   }
 }
 
-}
+}  // namespace ton
