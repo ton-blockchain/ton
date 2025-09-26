@@ -6172,9 +6172,6 @@ bool ValidateQuery::check_account_transactions_ts(const StdSmcAddress& acc_addr,
  */
 bool ValidateQuery::check_transactions() {
   LOG(INFO) << "checking all transactions";
-  ns_.account_dict_ =
-      std::make_unique<vm::AugmentedDictionary>(ps_.account_dict_->get_root(), 256, block::tlb::aug_ShardAccounts);
-
   std::deque<StdSmcAddress> account_addresses;
   std::deque<CheckAccountTxsCtx> account_contexts;
   std::vector<std::function<unsigned char /*bool*/ ()>> account_tasks;
@@ -6213,11 +6210,6 @@ bool ValidateQuery::check_transactions() {
       msg_proc_lt_.emplace_back(std::move(e));
     }
     total_burned_ += account_contexts[pos].total_burned;
-    if (account_contexts[pos].state.is_null()) {
-      ns_.account_dict_->lookup_delete(account_addresses[pos]);
-    } else {
-      ns_.account_dict_->set(account_addresses[pos], account_contexts[pos].state);
-    }
   }
 
   return true;

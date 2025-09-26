@@ -45,7 +45,6 @@ class ErrorCtxSet;
 struct CheckAccountTxsCtx {
   std::vector<std::tuple<Bits256, LogicalTime, LogicalTime>> msg_proc_lt{};
   block::CurrencyCollection total_burned{0};
-  Ref<vm::CellSlice> state{};
 };
 
 struct ErrorCtx {
