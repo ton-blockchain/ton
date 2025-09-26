@@ -159,6 +159,7 @@ class ValidateQuery : public td::actor::Actor {
   bool prev_key_block_exists_{false};
   bool debug_checks_{false};
   bool outq_cleanup_partial_{false};
+  bool parallel_accounts_validation{false};
   BlockSeqno prev_key_seqno_{~0u};
   int stage_{0};
   td::BitArray<64> shard_pfx_;
@@ -432,6 +433,9 @@ class ValidateQuery : public td::actor::Actor {
                                 bool is_last, CheckAccountTxsCtx& ctx) const;
   bool check_account_transactions_ts(const StdSmcAddress& acc_addr, Ref<vm::CellSlice> acc_tr,
                                      CheckAccountTxsCtx& ctx) const;
+  CheckAccountTxsCtx load_check_account_transactions_context(const StdSmcAddress &address);
+  void save_account_transactions_context(const StdSmcAddress &address, CheckAccountTxsCtx& ctx);
+  bool check_transactions_p();
   bool check_transactions();
   bool scan_account_libraries_ts(Ref<vm::Cell> orig_libs, Ref<vm::Cell> final_libs, const td::Bits256& addr,
                                  CheckAccountTxsCtx& ctx) const;

@@ -80,6 +80,7 @@ ValidateQuery::ValidateQuery(BlockCandidate candidate, ValidateParams params,
     , timeout(timeout)
     , main_promise(std::move(promise))
     , is_fake_(params.is_fake)
+    , parallel_accounts_validation(params.parallel_accounts_validation)
     , shard_pfx_(shard_.shard)
     , shard_pfx_len_(ton::shard_prefix_length(shard_))
     , optimistic_prev_block_(std::move(params.optimistic_prev_block))
@@ -5487,7 +5488,8 @@ std::unique_ptr<block::Account> ValidateQuery::make_account_from_ts(td::ConstBit
 /**
  * Retreives an Account object from the data in the shard state.
  * Accounts are cached in the ValidatorQuery's map.
- * Similar to Collator::make_account()
+ * Similar to `Collator::make_account()`.
+ * Thread-safe.
  *
  * @param addr The 256-bit address of the account.
  * @param value
@@ -5550,6 +5552,7 @@ std::unique_ptr<block::Account> ValidateQuery::unpack_account_ts(td::ConstBitPtr
 /**
  * Checks the validity of a single transaction for a given account.
  * Performs transaction execution.
+ * Thread-safe.
  *
  * @param account The account of the transaction.
  * @param lt The logical time of the transaction.
@@ -6114,7 +6117,7 @@ bool ValidateQuery::check_one_transaction_ts(block::Account& account, ton::Logic
 
 /**
  * Checks the validity of transactions for a given account block.
- * NB: may be run in parallel for different accounts
+ * Thread-safe.
  *
  * @param acc_addr The address of the account.
  * @param acc_blk_root The root of the AccountBlock.
@@ -6159,13 +6162,46 @@ bool ValidateQuery::check_account_transactions_ts(const StdSmcAddress& acc_addr,
   }
 }
 
+CheckAccountTxsCtx ValidateQuery::load_check_account_transactions_context(const StdSmcAddress &address) {
+  CheckAccountTxsCtx ctx;
+  if (account_expected_defer_all_messages_.count(address)) {
+    ctx.defer_all_messages = true;
+  }
+  return ctx;
+}
+
+void ValidateQuery::save_account_transactions_context(const StdSmcAddress &address, CheckAccountTxsCtx &ctx) {
+  for (auto& e : ctx.msg_proc_lt) {
+    msg_proc_lt_.emplace_back(std::move(e));
+  }
+
+  for (auto& e : ctx.lib_publishers_) {
+    lib_publishers_.push_back(e);
+  }
+
+  if (ctx.defer_all_messages) {
+    account_expected_defer_all_messages_.insert(address);
+  }
+
+  for (auto& e : ctx.storage_stat_cache_update) {
+    storage_stat_cache_update_.push_back(e);
+  }
+
+  stats_.work_time.trx_tvm += ctx.work_time.trx_tvm;
+  stats_.work_time.trx_storage_stat += ctx.work_time.trx_storage_stat;
+  stats_.work_time.trx_other += ctx.work_time.trx_other;
+
+  total_burned_ += ctx.total_burned;
+}
+
 /**
  * Checks all transactions in the account blocks.
+ * Parallel over different accounts.
  *
  * @returns True if all transactions pass the check, False otherwise.
  */
-bool ValidateQuery::check_transactions() {
-  LOG(INFO) << "checking all transactions";
+bool ValidateQuery::check_transactions_p() {
+  LOG(INFO) << "checking all transactions (in parallel)";
   std::deque<StdSmcAddress> account_addresses;
   std::deque<CheckAccountTxsCtx> account_contexts;
   std::vector<std::function<bool()>> account_tasks;
@@ -6177,11 +6213,8 @@ bool ValidateQuery::check_transactions() {
         StdSmcAddress address = key;
         account_addresses.push_back(address);
 
-        account_contexts.emplace_back();
+        account_contexts.push_back(load_check_account_transactions_context(address));
         CheckAccountTxsCtx& ctx = account_contexts.back();
-        if (account_expected_defer_all_messages_.count(address)) {
-          ctx.defer_all_messages = true;
-        }
 
         account_tasks.emplace_back([this, address, &ctx, acc_tr = std::move(value)] {
           return check_account_transactions_ts(address, acc_tr, ctx);
@@ -6204,32 +6237,36 @@ bool ValidateQuery::check_transactions() {
   }
 
   for (size_t pos = 0; pos < account_addresses.size(); pos++) {
-    auto& ctx = account_contexts[pos];
-
-    for (auto& e : ctx.msg_proc_lt) {
-      msg_proc_lt_.emplace_back(std::move(e));
-    }
-
-    for (auto& e : ctx.lib_publishers_) {
-      lib_publishers_.push_back(e);
-    }
-
-    if (ctx.defer_all_messages) {
-      account_expected_defer_all_messages_.insert(account_addresses[pos]);
-    }
-
-    for (auto& e : ctx.storage_stat_cache_update) {
-      storage_stat_cache_update_.push_back(e);
-    }
-
-    stats_.work_time.trx_tvm += ctx.work_time.trx_tvm;
-    stats_.work_time.trx_storage_stat += ctx.work_time.trx_storage_stat;
-    stats_.work_time.trx_other += ctx.work_time.trx_other;
-
-    total_burned_ += ctx.total_burned;
+    save_account_transactions_context(account_addresses[pos], account_contexts[pos]);
   }
 
   return true;
+}
+
+/**
+ * Checks all transactions in the account blocks.
+ *
+ * @returns True if all transactions pass the check, False otherwise.
+ */
+bool ValidateQuery::check_transactions() {
+  LOG(INFO) << "checking all transactions";
+  return account_blocks_dict_->check_for_each_extra(
+      [this](
+          Ref<vm::CellSlice> value, Ref<vm::CellSlice> extra, td::ConstBitPtr key, int key_len) {
+        CHECK(key_len == 256);
+        StdSmcAddress address = key;
+        try {
+          CheckAccountTxsCtx ctx = load_check_account_transactions_context(address);
+          auto result = check_account_transactions_ts(address, std::move(value), ctx);
+          save_account_transactions_context(address, ctx);
+          return result;
+
+        } catch (ConcurrentQueryError& err) {
+          return err.rethrow_in(*this);
+        } catch (ConcurrentQueryReject& rej) {
+          return rej.rethrow_in(*this);
+        }
+      });
 }
 
 /**
@@ -6272,7 +6309,8 @@ bool ValidateQuery::check_message_processing_order() {
 /**
  * Processes changes in libraries of an account.
  * Used in masterchain validation.
- * Similar to Collator::update_account_public_libraries()
+ * Similar to `Collator::update_account_public_libraries()`.
+ * Thread-safe.
  *
  * @param orig_libs The original libraries of the account.
  * @param final_libs The final libraries of the account.
@@ -7357,7 +7395,7 @@ bool ValidateQuery::try_validate() {
     /*if (!check_delivered_dequeued()) {
       return reject_query("cannot check delivery status of all outbound messages");
     }*/
-    if (!check_transactions()) {
+    if (parallel_accounts_validation ? !check_transactions_p() : !check_transactions()) {
       return reject_query("invalid collection of account transactions in ShardAccountBlocks");
     }
     if (!check_all_ticktock_processed()) {

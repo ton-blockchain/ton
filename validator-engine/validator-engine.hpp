@@ -260,6 +260,7 @@ class ValidatorEngine : public td::actor::Actor {
   td::optional<ton::BlockSeqno> sync_shards_upto_;
   ton::adnl::AdnlNodeIdShort shard_block_retainer_adnl_id_ = ton::adnl::AdnlNodeIdShort::zero();
   bool shard_block_retainer_adnl_id_fullnode_ = false;
+  bool parallel_accounts_validation_ = false;
 
   std::set<ton::CatchainSeqno> unsafe_catchains_;
   std::map<ton::BlockSeqno, std::pair<ton::CatchainSeqno, td::uint32>> unsafe_catchain_rotations_;
@@ -389,6 +390,9 @@ class ValidatorEngine : public td::actor::Actor {
   }
   void set_shard_block_retainer_adnl_id_fullnode() {
     shard_block_retainer_adnl_id_fullnode_ = true;
+  }
+  void set_parallel_accounts_validation(bool value) {
+    parallel_accounts_validation_ = value;
   }
 
   void start_up() override;

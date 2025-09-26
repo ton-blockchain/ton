@@ -176,6 +176,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   td::Ref<ShardBlockVerifierConfig> get_shard_block_verifier_config() const override {
     return shard_block_verifier_config_;
   }
+  bool get_parallel_blocks_validation() const override {
+    return parallel_accounts_validation;
+  }
 
   void set_zero_block_id(BlockIdExt block_id) override {
     zero_block_id_ = block_id;
@@ -300,6 +303,10 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
     shard_block_verifier_config_ = std::move(config);
   }
 
+  void set_parallel_accounts_validation(bool value) override {
+    parallel_accounts_validation = value;
+  }
+
   ValidatorManagerOptionsImpl *make_copy() const override {
     return new ValidatorManagerOptionsImpl(*this);
   }
@@ -358,6 +365,7 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   std::set<adnl::AdnlNodeIdShort> collator_node_whitelist_;
   bool collator_node_whitelist_enabled_ = false;
   td::Ref<ShardBlockVerifierConfig> shard_block_verifier_config_{true};
+  bool parallel_accounts_validation = false;
 };
 
 }  // namespace validator
