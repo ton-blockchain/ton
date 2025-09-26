@@ -2260,110 +2260,9 @@ bool DictionaryFixed::combine_with(DictionaryFixed& dict2) {
                       });
 }
 
-void DictionaryFixed::dict_traverse_leaves(Ref<Cell> dict, td::BitPtr key_buffer, int n, int total_key_len,
-                                           const DictionaryFixed::leaf_func_t& leaf_func) const {
-  if (dict.is_null()) {
-    return;
-  }
-  try {
-    LabelParser label{std::move(dict), n, label_mode()};
-    int l = label.l_bits;
-    label.extract_label_to(key_buffer);
-    if (l == n) {
-      leaf_func(std::move(label.remainder), key_buffer + n - total_key_len, total_key_len);
-      return;
-    }
-    assert(l >= 0 && l < n);
-    auto c1 = label.remainder->prefetch_ref(0);
-    auto c2 = label.remainder->prefetch_ref(1);
-    label.remainder.clear();
-    key_buffer += l + 1;
-    key_buffer[-1] = false;
-    dict_traverse_leaves(std::move(c1), key_buffer, n - l - 1, total_key_len, leaf_func);
-    key_buffer[-1] = true;
-    dict_traverse_leaves(std::move(c2), key_buffer, n - l - 1, total_key_len, leaf_func);
-  } catch (VmVirtError&) {
-  }
-}
-
-void DictionaryFixed::dict_traverse_leaves_sync_nochk(Ref<Cell> dict1, Ref<CellSlice> dict2, td::BitPtr key_buffer,
-                                                      int pos1, int pos2, int key_len,
-                                                      const DictionaryFixed::leaf2_func_t& leaf_func) {
-  if (dict1.is_null()) {
-    return;
-  }
-  LabelParser label1{std::move(dict1), key_len - pos1, LabelParser::chk_none};
-  int l1 = label1.l_bits;
-  label1.extract_label_to(key_buffer);
-
-  // move dict2 while we know where to go correctly
-  while (true) {
-    if (dict2.is_null()) {
-      break;
-    }
-    LabelParser label2{dict2, key_len - pos2, LabelParser::chk_none};
-    int l2 = label2.l_bits;
-    if (pos2 + l2 == key_len) {
-      // there is only one way, however we should check if it is correct
-      if (pos1 + l1 == key_len) {
-        if (!label2.is_prefix_of(key_buffer - (pos1 - pos2), pos1 + l1 - pos2)) {
-          dict2 = {};
-          break;
-        }
-        label2.skip_label();
-        dict2 = std::move(label2.remainder);
-        pos2 += l2;
-        break;
-      } else {
-        // we don't know whether it is correct or not
-        break;
-      }
-    } else {
-      // we check whether we can know where to go
-      if (pos2 + l2 < pos1 + l1) {
-        // now we check whether any of the ways is correct
-        if (!label2.is_prefix_of(key_buffer - (pos1 - pos2), pos1 + l1 - pos2)) {
-          dict2 = {};
-          break;
-        }
-        // select the correct way
-        if (key_buffer[pos2 + l2 - pos1]) {
-          dict2 = load_cell_slice_ref(label2.remainder->prefetch_ref(1));
-        } else {
-          dict2 = load_cell_slice_ref(label2.remainder->prefetch_ref(0));
-        }
-        pos2 += l2 + 1;
-      } else {
-        // we can't know where to go
-        break;
-      }
-    }
-  }
-
-  key_buffer += l1;
-  pos1 += l1;
-
-  if (pos1 == key_len) {
-    leaf_func(std::move(label1.remainder), std::move(dict2), key_buffer - key_len, key_len);
-    return;
-  }
-
-  ++key_buffer;
-  ++pos1;
-
-  auto c1 = label1.remainder->prefetch_ref(0);
-  auto c2 = label1.remainder->prefetch_ref(1);
-  label1.remainder.clear();
-
-  key_buffer[-1] = false;
-  dict_traverse_leaves_sync_nochk(std::move(c1), dict2, key_buffer, pos1, pos2, key_len, leaf_func);
-  key_buffer[-1] = true;
-  dict_traverse_leaves_sync_nochk(std::move(c2), std::move(dict2), key_buffer, pos1, pos2, key_len, leaf_func);
-}
-
 bool DictionaryFixed::dict_check_for_each(Ref<Cell> dict, td::BitPtr key_buffer, int n, int total_key_len,
-                                          const DictionaryFixed::foreach_func_t& foreach_func, bool invert_first,
-                                          bool shuffle) const {
+                                          const DictionaryFixed::foreach_func_t& foreach_func,
+                                          bool invert_first, bool shuffle) const {
   if (dict.is_null()) {
     return true;
   }
@@ -2405,25 +2304,6 @@ bool DictionaryFixed::check_for_each(const foreach_func_t& foreach_func, bool in
   unsigned char key_buffer[max_key_bytes];
   return dict_check_for_each(get_root_cell(), td::BitPtr{key_buffer}, key_len, key_len, foreach_func, invert_first,
                              shuffle);
-}
-
-void DictionaryFixed::traverse_leaves(const leaf_func_t& leaf_func) {
-  if (is_empty()) {
-    return;
-  }
-  int key_len = get_key_bits();
-  unsigned char key_buffer[max_key_bytes];
-  return dict_traverse_leaves(get_root_cell(), td::BitPtr{key_buffer}, key_len, key_len, leaf_func);
-}
-
-void DictionaryFixed::traverse_leaves_sync_nochk(const DictionaryFixed& other, const leaf2_func_t& leaf_func) {
-  if (is_empty()) {
-    return;
-  }
-  int key_len = get_key_bits();
-  unsigned char key_buffer[max_key_bytes];
-  return dict_traverse_leaves_sync_nochk(get_root_cell(), load_cell_slice_ref(other.get_root_cell()),
-                                         td::BitPtr{key_buffer}, 0, 0, key_len, leaf_func);
 }
 
 static inline bool set_bit(td::BitPtr ptr, bool value = true) {

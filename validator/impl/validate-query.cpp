@@ -5491,10 +5491,9 @@ std::unique_ptr<block::Account> ValidateQuery::make_account_from_ts(td::ConstBit
  * @returns Pointer to the account if found or created successfully.
  *          Returns nullptr if an error occured.
  */
-std::unique_ptr<block::Account> ValidateQuery::unpack_account_ts(td::ConstBitPtr addr,
-                                                                        Ref<vm::CellSlice> value) const {
-  // auto dict_entry = ps_.account_dict_->lookup_extra(addr, 256);
-  auto new_acc = make_account_from_ts(addr, std::move(value));
+std::unique_ptr<block::Account> ValidateQuery::unpack_account_ts(td::ConstBitPtr addr) const {
+  auto dict_entry = ps_.account_dict_->lookup_extra(addr, 256);
+  auto new_acc = make_account_from_ts(addr, std::move(dict_entry.first));
   if (!new_acc) {
     reject_query_ts("cannot load state of account "s + addr.to_hex(256) + " from previous shardchain state");
     return {};
@@ -6125,15 +6124,10 @@ bool ValidateQuery::check_one_transaction_ts(block::Account& account, ton::Logic
  *
  * @returns True if the account transactions are valid, false otherwise.
  */
-bool ValidateQuery::check_account_transactions_ts(const StdSmcAddress& acc_addr, Ref<vm::CellSlice> acc_blk_root,
-                                                         Ref<vm::CellSlice> prev_state, CheckAccountTxsCtx& ctx) const {
-  if (!prev_state.is_null()) {
-    ctx.state = prev_state;
-  }
-
+bool ValidateQuery::check_account_transactions_ts(const StdSmcAddress& acc_addr, Ref<vm::CellSlice> acc_blk_root, CheckAccountTxsCtx& ctx) const {
   block::gen::AccountBlock::Record acc_blk;
   CHECK(tlb::csr_unpack(std::move(acc_blk_root), acc_blk) && acc_blk.account_addr == acc_addr);
-  auto account_p = unpack_account_ts(acc_addr.cbits(), prev_state);
+  auto account_p = unpack_account_ts(acc_addr.cbits());
   if (!account_p) {
     return reject_query_ts("cannot unpack old state of account "s + acc_addr.to_hex());
   }
@@ -6185,23 +6179,20 @@ bool ValidateQuery::check_transactions() {
   std::deque<CheckAccountTxsCtx> account_contexts;
   std::vector<std::function<unsigned char /*bool*/ ()>> account_tasks;
 
-  account_blocks_dict_->traverse_leaves_sync_nochk(
-      *ps_.account_dict_,
-      [this, &account_addresses, &account_contexts, &account_tasks](
-          Ref<vm::CellSlice> tr_extra, Ref<vm::CellSlice> state_extra, td::ConstBitPtr key, int /*k_len*/) {
-        StdSmcAddress address = key;
-        account_addresses.push_back(address);
+  account_blocks_dict_->check_for_each_extra([this, &account_addresses, &account_contexts, &account_tasks] (Ref<vm::CellSlice> value, Ref<vm::CellSlice> extra, td::ConstBitPtr key, int key_len) {
+    CHECK(key_len == 256);
+    StdSmcAddress address = key;
+    account_addresses.push_back(address);
 
-        account_contexts.emplace_back();
-        CheckAccountTxsCtx& ctx = account_contexts.back();
+    account_contexts.emplace_back();
+    CheckAccountTxsCtx& ctx = account_contexts.back();
 
-        account_tasks.emplace_back(
-            [this, address, &ctx, acc_tr = account_blocks_dict_->extract_value(std::move(tr_extra)),
-             prev_state = ps_.account_dict_->extract_value(std::move(state_extra))]() -> unsigned char {
-              bool result = check_account_transactions_ts(address, acc_tr, prev_state, ctx);
-              return result;
-            });
-      });
+    account_tasks.emplace_back([this, address, &ctx, acc_tr = std::move(value)] {
+      unsigned char result = check_account_transactions_ts(address, acc_tr, ctx);
+      return result;
+    });
+    return true;
+  });
 
   try {
     std::vector<unsigned char /*bool*/> account_results(account_tasks.size(), false);

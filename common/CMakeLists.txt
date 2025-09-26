@@ -10,7 +10,6 @@ set(COMMON_SOURCE
   global-version.h
 
   threadpool.hpp
-  threadpool.cpp
 )
 
 

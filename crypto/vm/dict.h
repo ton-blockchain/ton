@@ -184,8 +184,6 @@ class DictionaryFixed : public DictionaryBase {
   typedef std::function<bool(CellBuilder&, Ref<CellSlice>, Ref<CellSlice>)> simple_combine_func_t;
   typedef std::function<bool(CellBuilder&, Ref<CellSlice>, Ref<CellSlice>, td::ConstBitPtr, int)> combine_func_t;
   typedef std::function<bool(Ref<CellSlice>, td::ConstBitPtr, int)> foreach_func_t;
-  typedef std::function<void(Ref<CellSlice>, td::ConstBitPtr, int)> leaf_func_t;
-  typedef std::function<void(Ref<CellSlice>, Ref<CellSlice>, td::ConstBitPtr, int)> leaf2_func_t;
   typedef std::function<bool(td::ConstBitPtr, int, Ref<CellSlice>, Ref<CellSlice>)> scan_diff_func_t;
 
   DictionaryFixed(int _n, bool validate = true) : DictionaryBase(_n, validate) {
@@ -226,8 +224,6 @@ class DictionaryFixed : public DictionaryBase {
   bool cut_prefix_subdict(td::ConstBitPtr prefix, int prefix_len, bool remove_prefix = false);
   Ref<vm::Cell> extract_prefix_subdict_root(td::ConstBitPtr prefix, int prefix_len, bool remove_prefix = false);
   bool check_for_each(const foreach_func_t& foreach_func, bool invert_first = false, bool shuffle = false);
-  void traverse_leaves(const leaf_func_t& leaf_func);
-  void traverse_leaves_sync_nochk(const DictionaryFixed &other, const leaf2_func_t& leaf_func);
   int filter(filter_func_t check);
   bool combine_with(DictionaryFixed& dict2, const combine_func_t& combine_func, int mode = 0);
   bool combine_with(DictionaryFixed& dict2, const simple_combine_func_t& simple_combine_func, int mode = 0);
@@ -297,10 +293,6 @@ class DictionaryFixed : public DictionaryBase {
                                                              bool remove_prefix = false) const;
   bool dict_check_for_each(Ref<Cell> dict, td::BitPtr key_buffer, int n, int total_key_len,
                            const foreach_func_t& foreach_func, bool invert_first = false, bool shuffle = false) const;
-  void dict_traverse_leaves(Ref<Cell> dict, td::BitPtr key_buffer, int n, int total_key_len,
-                            const leaf_func_t& leaf_func) const;
-  static void dict_traverse_leaves_sync_nochk(Ref<Cell> dict1, Ref<CellSlice> dict2, td::BitPtr key_buffer, int pos1,
-                                              int pos2, int key_len, const leaf2_func_t& leaf_func);
   std::pair<Ref<Cell>, int> dict_filter(Ref<Cell> dict, td::BitPtr key, int n, const filter_func_t& check_leaf,
                                         int& skip_rest) const;
   Ref<Cell> dict_combine_with(Ref<Cell> dict1, Ref<Cell> dict2, td::BitPtr key_buffer, int n, int total_key_len,

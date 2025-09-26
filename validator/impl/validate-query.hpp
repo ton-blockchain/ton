@@ -272,11 +272,12 @@ class ValidateQuery : public td::actor::Actor {
   }
 
   class ConcurrentQueryReject final : public std::exception {
-  public:
+   public:
     explicit ConcurrentQueryReject(std::string error);
 
-    bool rethrow_in(ValidateQuery &cvq);
-  private:
+    bool rethrow_in(ValidateQuery& cvq);
+
+   private:
     std::string error_;
   };
 
@@ -291,11 +292,12 @@ class ValidateQuery : public td::actor::Actor {
   void start_up() override;
 
   class ConcurrentQueryError final : public std::exception {
-  public:
+   public:
     explicit ConcurrentQueryError(td::Status error);
 
-    bool rethrow_in(ValidateQuery &cvq);
-  private:
+    bool rethrow_in(ValidateQuery& cvq);
+
+   private:
     td::Status error_;
   };
 
@@ -421,10 +423,10 @@ class ValidateQuery : public td::actor::Actor {
   bool check_in_queue();
   bool check_delivered_dequeued();
   std::unique_ptr<block::Account> make_account_from_ts(td::ConstBitPtr addr, Ref<vm::CellSlice> account) const;
-  std::unique_ptr<block::Account> unpack_account_ts(td::ConstBitPtr addr, Ref<vm::CellSlice> value) const;
+  std::unique_ptr<block::Account> unpack_account_ts(td::ConstBitPtr addr) const;
   bool check_one_transaction_ts(block::Account& account, LogicalTime lt, Ref<vm::Cell> trans_root, bool is_first,
                                 bool is_last, CheckAccountTxsCtx& ctx) const;
-  bool check_account_transactions_ts(const StdSmcAddress& acc_addr, Ref<vm::CellSlice> acc_tr, Ref<vm::CellSlice> prev_state,
+  bool check_account_transactions_ts(const StdSmcAddress& acc_addr, Ref<vm::CellSlice> acc_tr,
                                      CheckAccountTxsCtx& ctx) const;
   bool check_transactions();
   bool scan_account_libraries(Ref<vm::Cell> orig_libs, Ref<vm::Cell> final_libs, const td::Bits256& addr);
