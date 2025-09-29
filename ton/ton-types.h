@@ -566,6 +566,7 @@ struct ValidatorSessionConfig {
   td::uint32 max_collated_data_size = (4 << 20);
 
   bool new_catchain_ids = false;
+  bool merge_collated_data = false;
 
   static const td::uint32 BLOCK_HASH_COVERS_DATA_FROM_VERSION = 2;
 };

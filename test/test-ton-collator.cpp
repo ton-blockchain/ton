@@ -347,8 +347,9 @@ class TestNode : public td::actor::Actor {
           }
         }
       }
-      void send_block_candidate(ton::BlockIdExt block_id, ton::CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
-                                td::BufferSlice data, int mode) override {
+      void send_block_candidate_broadcast(ton::BlockIdExt block_id, ton::CatchainSeqno cc_seqno,
+                                          td::uint32 validator_set_hash, td::BufferSlice data,
+                                          td::optional<td::BufferSlice> collated_data, int mode) override {
       }
       void send_broadcast(ton::BlockBroadcast broadcast, int mode) override {
       }
@@ -377,6 +378,9 @@ class TestNode : public td::actor::Actor {
       void download_out_msg_queue_proof(
           ton::ShardIdFull dst_shard, std::vector<ton::BlockIdExt> blocks, block::ImportedMsgQueueLimits limits,
           td::Timestamp timeout, td::Promise<std::vector<td::Ref<ton::validator::OutMsgQueueProof>>> promise) override {
+      }
+      void download_block_candidate(ton::BlockIdExt block_id, bool only_collated_data, td::Timestamp timeout,
+                                    td::Promise<std::pair<td::BufferSlice, td::BufferSlice>> promise) override {
       }
 
       void new_key_block(ton::validator::BlockHandle handle) override {

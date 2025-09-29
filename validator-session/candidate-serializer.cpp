@@ -102,7 +102,7 @@ td::Result<std::pair<td::BufferSlice, td::BufferSlice>> decompress_candidate_dat
     if (decompressed.size() != (size_t)decompressed_size) {
       return td::Status::Error("decompressed size mismatch");
     }
-    TRY_RESULT_ASSIGN(roots, vm::std_boc_deserialize_multi(decompressed));
+    TRY_RESULT_ASSIGN(roots, vm::std_boc_deserialize_multi(decompressed, 1000000, true));
   } else {
     TRY_RESULT_ASSIGN(roots, vm::boc_decompress(compressed, max_decompressed_size));
   }

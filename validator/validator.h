@@ -216,8 +216,9 @@ class ValidatorManagerInterface : public td::actor::Actor {
     virtual void send_ihr_message(AccountIdPrefixFull dst, td::BufferSlice data) = 0;
     virtual void send_ext_message(AccountIdPrefixFull dst, td::BufferSlice data) = 0;
     virtual void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) = 0;
-    virtual void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
-                                      td::BufferSlice data, int mode) = 0;
+    virtual void send_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
+                                                td::uint32 validator_set_hash, td::BufferSlice data,
+                                                td::optional<td::BufferSlice> collated_data, int mode) = 0;
     virtual void send_broadcast(BlockBroadcast broadcast, int mode) = 0;
     virtual void send_out_msg_queue_proof_broadcast(td::Ref<OutMsgQueueProofBroadcast> broadcats) {
       LOG(ERROR) << "Unimplemented send_out_msg_queue_proof_broadcast - ignore broadcast";
@@ -240,6 +241,8 @@ class ValidatorManagerInterface : public td::actor::Actor {
     virtual void download_out_msg_queue_proof(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
                                               block::ImportedMsgQueueLimits limits, td::Timestamp timeout,
                                               td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise) = 0;
+    virtual void download_block_candidate(BlockIdExt block_id, bool only_collated_data, td::Timestamp timeout,
+                                          td::Promise<std::pair<td::BufferSlice, td::BufferSlice>> promise) = 0;
 
     virtual void new_key_block(BlockHandle handle) = 0;
   };
@@ -297,7 +300,9 @@ class ValidatorManagerInterface : public td::actor::Actor {
   virtual void new_ihr_message(td::BufferSlice data) = 0;
   virtual void new_shard_block_description_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
                                                      td::BufferSlice data) = 0;
-  virtual void new_block_candidate_broadcast(BlockIdExt block_id, td::BufferSlice data) = 0;
+  virtual void new_block_candidate_broadcast(BlockIdExt block_id, td::BufferSlice data,
+                                             td::optional<td::BufferSlice> collated_data) {
+  }
 
   virtual void add_ext_server_id(adnl::AdnlNodeIdShort id) = 0;
   virtual void add_ext_server_port(td::uint16 port) = 0;
@@ -310,6 +315,7 @@ class ValidatorManagerInterface : public td::actor::Actor {
   virtual void get_block_candidate_from_db(PublicKey source, BlockIdExt id, FileHash collated_data_file_hash,
                                            td::Promise<BlockCandidate> promise) = 0;
   virtual void get_candidate_data_by_block_id_from_db(BlockIdExt id, td::Promise<td::BufferSlice> promise) = 0;
+  virtual void get_block_candidate_by_block_id_from_db(BlockIdExt id, td::Promise<BlockCandidate> promise) = 0;
   virtual void get_shard_state_from_db(ConstBlockHandle handle, td::Promise<td::Ref<ShardState>> promise) = 0;
   virtual void get_shard_state_from_db_short(BlockIdExt block_id, td::Promise<td::Ref<ShardState>> promise) = 0;
   virtual void get_block_proof_from_db(ConstBlockHandle handle, td::Promise<td::Ref<Proof>> promise) = 0;

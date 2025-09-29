@@ -55,83 +55,31 @@ void CollationManager::tear_down() {
                           adnl::Adnl::int_to_bytestring(ton_api::collatorNode_requestBlockCallback::ID));
 }
 
-void CollationManager::collate_block(ShardIdFull shard, BlockIdExt min_masterchain_block_id,
-                                     std::vector<BlockIdExt> prev, Ed25519_PublicKey creator,
-                                     BlockCandidatePriority priority, td::Ref<ValidatorSet> validator_set,
-                                     td::uint64 max_answer_size, td::CancellationToken cancellation_token,
-                                     td::Promise<GeneratedCandidate> promise, int proto_version) {
-  if (shard.is_masterchain()) {
-    run_collate_query(
-        CollateParams{.shard = shard,
-                      .min_masterchain_block_id = min_masterchain_block_id,
-                      .prev = std::move(prev),
-                      .creator = creator,
-                      .validator_set = std::move(validator_set),
-                      .collator_opts = opts_->get_collator_options()},
-        manager_, td::Timestamp::in(10.0), std::move(cancellation_token), promise.wrap([](BlockCandidate&& candidate) {
-          return GeneratedCandidate{.candidate = std::move(candidate), .is_cached = false, .self_collated = true};
-        }));
+void CollationManager::collate_block(CollateParams params, BlockCandidatePriority priority, td::uint64 max_answer_size,
+                                     td::CancellationToken cancellation_token, td::Promise<GeneratedCandidate> promise,
+                                     int proto_version) {
+  if (params.shard.is_masterchain()) {
+    run_collate_query(std::move(params), manager_, td::Timestamp::in(10.0), std::move(cancellation_token),
+                      promise.wrap([](BlockCandidate&& candidate) {
+                        return GeneratedCandidate{
+                            .candidate = std::move(candidate), .is_cached = false, .self_collated = true};
+                      }));
     return;
   }
-  collate_shard_block(shard, min_masterchain_block_id, std::move(prev), creator, priority, std::move(validator_set),
-                      max_answer_size, std::move(cancellation_token), std::move(promise), td::Timestamp::in(10.0),
-                      proto_version);
+  collate_shard_block(std::move(params), priority, max_answer_size, std::move(cancellation_token), std::move(promise),
+                      td::Timestamp::in(10.0), proto_version);
 }
 
-void CollationManager::collate_block_optimistic(ShardIdFull shard, BlockIdExt min_masterchain_block_id,
-                                                BlockIdExt prev_block_id, td::BufferSlice prev_block,
-                                                Ed25519_PublicKey creator, BlockCandidatePriority priority,
-                                                td::Ref<ValidatorSet> validator_set, td::uint64 max_answer_size,
-                                                td::CancellationToken cancellation_token,
-                                                td::Promise<GeneratedCandidate> promise, int proto_version) {
-  if (shard.is_masterchain()) {
-    TRY_RESULT_PROMISE(promise, prev_block_data, create_block(prev_block_id, std::move(prev_block)));
-    run_collate_query(
-        CollateParams{.shard = shard,
-                      .min_masterchain_block_id = min_masterchain_block_id,
-                      .prev = {prev_block_id},
-                      .creator = creator,
-                      .validator_set = std::move(validator_set),
-                      .collator_opts = opts_->get_collator_options(),
-                      .optimistic_prev_block = std::move(prev_block_data)},
-        manager_, td::Timestamp::in(10.0), std::move(cancellation_token), promise.wrap([](BlockCandidate&& candidate) {
-          return GeneratedCandidate{.candidate = std::move(candidate), .is_cached = false, .self_collated = true};
-        }));
-    return;
-  }
-
-  auto& entry = optimistic_prev_cache_[prev_block_id];
-  entry.block_data = std::move(prev_block);
-  ++entry.refcnt;
-  promise = [this, SelfId = actor_id(this), prev_block_id,
-             promise = std::move(promise)](td::Result<GeneratedCandidate> R) mutable {
-    promise.set_result(std::move(R));
-    td::actor::send_lambda_later(SelfId, [=, this]() {
-      auto it = optimistic_prev_cache_.find(prev_block_id);
-      CHECK(it != optimistic_prev_cache_.end());
-      CHECK(it->second.refcnt > 0);
-      if (--it->second.refcnt == 0) {
-        optimistic_prev_cache_.erase(it);
-      }
-    });
-  };
-
-  collate_shard_block(shard, min_masterchain_block_id, {prev_block_id}, creator, priority, std::move(validator_set),
-                      max_answer_size, std::move(cancellation_token), std::move(promise), td::Timestamp::in(10.0),
-                      proto_version, true);
-}
-
-void CollationManager::collate_shard_block(ShardIdFull shard, BlockIdExt min_masterchain_block_id,
-                                           std::vector<BlockIdExt> prev, Ed25519_PublicKey creator,
-                                           BlockCandidatePriority priority, td::Ref<ValidatorSet> validator_set,
+void CollationManager::collate_shard_block(CollateParams params, BlockCandidatePriority priority,
                                            td::uint64 max_answer_size, td::CancellationToken cancellation_token,
                                            td::Promise<GeneratedCandidate> promise, td::Timestamp timeout,
-                                           int proto_version, bool is_optimistic) {
+                                           int proto_version) {
+  bool is_optimistic = params.optimistic_prev_block.not_null();
   TRY_STATUS_PROMISE(promise, cancellation_token.check());
-  ShardInfo* s = select_shard_info(shard);
+  ShardInfo* s = select_shard_info(params.shard);
   if (s == nullptr) {
     promise.set_error(
-        td::Status::Error(PSTRING() << "shard " << shard.to_str() << " is not configured in collators list"));
+        td::Status::Error(PSTRING() << "shard " << params.shard.to_str() << " is not configured in collators list"));
     return;
   }
 
@@ -197,29 +145,17 @@ void CollationManager::collate_shard_block(ShardIdFull shard, BlockIdExt min_mas
   }
 
   if (selected_collator.is_zero() && s->self_collate) {
-    td::Ref<BlockData> optimistic_prev_block;
-    if (is_optimistic) {
-      CHECK(prev.size() == 1);
-      TRY_RESULT_PROMISE_ASSIGN(promise, optimistic_prev_block,
-                                create_block(prev[0], optimistic_prev_cache_.at(prev[0]).block_data.clone()));
-    }
-    run_collate_query(
-        CollateParams{.shard = shard,
-                      .min_masterchain_block_id = min_masterchain_block_id,
-                      .prev = std::move(prev),
-                      .creator = creator,
-                      .validator_set = std::move(validator_set),
-                      .collator_opts = opts_->get_collator_options(),
-                      .optimistic_prev_block = std::move(optimistic_prev_block)},
-        manager_, td::Timestamp::in(10.0), std::move(cancellation_token), promise.wrap([](BlockCandidate&& candidate) {
-          return GeneratedCandidate{.candidate = std::move(candidate), .is_cached = false, .self_collated = true};
-        }));
+    run_collate_query(std::move(params), manager_, td::Timestamp::in(10.0), std::move(cancellation_token),
+                      promise.wrap([](BlockCandidate&& candidate) {
+                        return GeneratedCandidate{
+                            .candidate = std::move(candidate), .is_cached = false, .self_collated = true};
+                      }));
     return;
   }
 
   std::vector<tl_object_ptr<ton_api::tonNode_blockIdExt>> prev_blocks;
-  BlockId next_block_id{shard, 0};
-  for (const BlockIdExt& p : prev) {
+  BlockId next_block_id{params.shard, 0};
+  for (const BlockIdExt& p : params.prev) {
     prev_blocks.push_back(create_tl_block_id(p));
     next_block_id.seqno = std::max(next_block_id.seqno, p.seqno() + 1);
   }
@@ -244,27 +180,26 @@ void CollationManager::collate_shard_block(ShardIdFull shard, BlockIdExt min_mas
     }
     delay_action(
         [=, promise = std::move(promise)]() mutable {
-          td::actor::send_closure(SelfId, &CollationManager::collate_shard_block, shard, min_masterchain_block_id, prev,
-                                  creator, priority, validator_set, max_answer_size, cancellation_token,
-                                  std::move(promise), timeout, proto_version, is_optimistic);
+          td::actor::send_closure(SelfId, &CollationManager::collate_shard_block, params, priority, max_answer_size,
+                                  cancellation_token, std::move(promise), timeout, proto_version);
         },
         retry_at);
   };
 
   if (selected_collator.is_zero()) {
-    P.set_error(td::Status::Error(PSTRING() << "shard " << shard.to_str() << " has no suitable collator node"));
+    P.set_error(td::Status::Error(PSTRING() << "shard " << params.shard.to_str() << " has no suitable collator node"));
     return;
   }
 
   td::BufferSlice query;
   if (is_optimistic) {
     query = create_serialize_tl_object<ton_api::collatorNode_generateBlockOptimistic>(
-        create_tl_shard_id(shard), validator_set->get_catchain_seqno(), std::move(prev_blocks), creator.as_bits256(),
-        priority.round, priority.first_block_round, priority.priority);
+        create_tl_shard_id(params.shard), params.validator_set->get_catchain_seqno(), std::move(prev_blocks),
+        params.creator.as_bits256(), priority.round, priority.first_block_round, priority.priority);
   } else {
     query = create_serialize_tl_object<ton_api::collatorNode_generateBlock>(
-        create_tl_shard_id(shard), validator_set->get_catchain_seqno(), std::move(prev_blocks), creator.as_bits256(),
-        priority.round, priority.first_block_round, priority.priority);
+        create_tl_shard_id(params.shard), params.validator_set->get_catchain_seqno(), std::move(prev_blocks),
+        params.creator.as_bits256(), priority.round, priority.first_block_round, priority.priority);
   }
   LOG(INFO) << "sending collate query for " << next_block_id.to_str() << ": send to #" << selected_idx << "("
             << selected_collator << ")";
@@ -281,7 +216,7 @@ void CollationManager::collate_shard_block(ShardIdFull shard, BlockIdExt min_mas
     TRY_RESULT_PROMISE(P, f, fetch_tl_object<ton_api::collatorNode_Candidate>(data, true));
     TRY_RESULT_PROMISE(P, candidate,
                        deserialize_candidate(std::move(f), td::narrow_cast<int>(max_answer_size), proto_version));
-    if (candidate.pubkey.as_bits256() != creator.as_bits256()) {
+    if (candidate.pubkey.as_bits256() != params.creator.as_bits256()) {
       P.set_error(td::Status::Error("collate query: block candidate source mismatch"));
       return;
     }
@@ -293,6 +228,25 @@ void CollationManager::collate_shard_block(ShardIdFull shard, BlockIdExt min_mas
               << selected_collator << ") in " << timer.elapsed() << "s";
     P.set_result(std::move(candidate));
   };
+
+  if (is_optimistic) {
+    BlockIdExt prev_block_id = params.optimistic_prev_block->block_id();
+    auto& entry = optimistic_prev_cache_[prev_block_id];
+    entry.block_data = params.optimistic_prev_block->data().clone();
+    ++entry.refcnt;
+    P2 = [this, SelfId = actor_id(this), prev_block_id, P2 = std::move(P2)](td::Result<td::BufferSlice> R) mutable {
+      P2.set_result(std::move(R));
+      td::actor::send_lambda_later(SelfId, [=, this]() {
+        auto it = optimistic_prev_cache_.find(prev_block_id);
+        CHECK(it != optimistic_prev_cache_.end());
+        CHECK(it->second.refcnt > 0);
+        if (--it->second.refcnt == 0) {
+          optimistic_prev_cache_.erase(it);
+        }
+      });
+    };
+  }
+
   td::actor::send_closure(rldp_, &rldp2::Rldp::send_query_ex, local_id_, selected_collator, "collatequery",
                           std::move(P2), timeout, std::move(query), max_answer_size);
 }

@@ -59,17 +59,12 @@ void FullNodePrivateBlockOverlay::process_broadcast(PublicKeyHash src, ton_api::
 }
 
 void FullNodePrivateBlockOverlay::process_broadcast(PublicKeyHash src,
-                                                    ton_api::tonNode_newBlockCandidateBroadcast &query) {
+                                                    ton_api::tonNode_blockCandidateBroadcastCompressed &query) {
   process_block_candidate_broadcast(src, query);
 }
 
 void FullNodePrivateBlockOverlay::process_broadcast(PublicKeyHash src,
-                                                    ton_api::tonNode_newBlockCandidateBroadcastCompressed &query) {
-  process_block_candidate_broadcast(src, query);
-}
-
-void FullNodePrivateBlockOverlay::process_broadcast(PublicKeyHash src,
-                                                    ton_api::tonNode_newBlockCandidateBroadcastCompressedV2 &query) {
+                                                    ton_api::tonNode_blockCandidateBroadcastCompressedV2 &query) {
   process_block_candidate_broadcast(src, query);
 }
 
@@ -79,7 +74,8 @@ void FullNodePrivateBlockOverlay::process_block_candidate_broadcast(PublicKeyHas
   CatchainSeqno cc_seqno;
   td::uint32 validator_set_hash;
   td::BufferSlice data;
-  auto S = deserialize_block_candidate_broadcast(query, block_id, cc_seqno, validator_set_hash, data,
+  td::optional<td::BufferSlice> collated_data;
+  auto S = deserialize_block_candidate_broadcast(query, block_id, cc_seqno, validator_set_hash, data, collated_data,
                                                  overlay::Overlays::max_fec_broadcast_size());
   if (S.is_error()) {
     LOG(DEBUG) << "dropped broadcast: " << S;
@@ -93,9 +89,10 @@ void FullNodePrivateBlockOverlay::process_block_candidate_broadcast(PublicKeyHas
     VLOG(FULL_NODE_WARNING) << "received block candidate with incorrect file hash from " << src;
     return;
   }
-  VLOG(FULL_NODE_DEBUG) << "Received newBlockCandidate in private overlay from " << src << ": " << block_id.to_str();
+  VLOG(FULL_NODE_DEBUG) << "Received block candidate broadcast (" << (collated_data ? "with" : "no")
+                        << " cdata) in private overlay from " << src << ": " << block_id.to_str();
   td::actor::send_closure(full_node_, &FullNode::process_block_candidate_broadcast, block_id, cc_seqno,
-                          validator_set_hash, std::move(data));
+                          validator_set_hash, std::move(data), std::move(collated_data));
 }
 
 void FullNodePrivateBlockOverlay::process_telemetry_broadcast(
@@ -159,18 +156,20 @@ void FullNodePrivateBlockOverlay::send_shard_block_info(BlockIdExt block_id, Cat
   }
 }
 
-void FullNodePrivateBlockOverlay::send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno,
-                                                       td::uint32 validator_set_hash, td::BufferSlice data) {
+void FullNodePrivateBlockOverlay::send_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
+                                                                 td::uint32 validator_set_hash, td::BufferSlice data,
+                                                                 td::optional<td::BufferSlice> collated_data) {
   if (!inited_) {
     return;
   }
-  auto B =
-      serialize_block_candidate_broadcast(block_id, cc_seqno, validator_set_hash, data, true);  // compression enabled
+  auto B = serialize_block_candidate_broadcast(block_id, cc_seqno, validator_set_hash, data,
+                                               collated_data ? collated_data.value() : td::optional<td::Slice>{});
   if (B.is_error()) {
     VLOG(FULL_NODE_WARNING) << "failed to serialize block candidate broadcast: " << B.move_as_error();
     return;
   }
-  VLOG(FULL_NODE_DEBUG) << "Sending newBlockCandidate in private overlay: " << block_id.to_str();
+  VLOG(FULL_NODE_DEBUG) << "Sending blockDataBroadcast in private overlay (" << (collated_data ? "with" : "no")
+                        << " cdata): " << block_id.to_str();
   td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_,
                           local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagAnySender(), B.move_as_ok());
 }
@@ -345,22 +344,18 @@ void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNod
                           std::move(query.message_->data_), it->second);
 }
 
-void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcast &query) {
+void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src,
+                                              ton_api::tonNode_blockCandidateBroadcastCompressed &query) {
   process_block_candidate_broadcast(src, query);
 }
 
 void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src,
-                                              ton_api::tonNode_newBlockCandidateBroadcastCompressed &query) {
-  process_block_candidate_broadcast(src, query);
-}
-
-void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src,
-                                              ton_api::tonNode_newBlockCandidateBroadcastCompressedV2 &query) {
+                                              ton_api::tonNode_blockCandidateBroadcastCompressedV2 &query) {
   process_block_candidate_broadcast(src, query);
 }
 
 void FullNodeCustomOverlay::process_block_candidate_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query) {
-  if (!block_senders_.count(adnl::AdnlNodeIdShort(src))) {
+  if (!block_senders_.contains(adnl::AdnlNodeIdShort(src))) {
     VLOG(FULL_NODE_DEBUG) << "Dropping block candidate broadcast in private overlay \"" << name_
                           << "\" from unauthorized sender " << src;
     return;
@@ -369,7 +364,8 @@ void FullNodeCustomOverlay::process_block_candidate_broadcast(PublicKeyHash src,
   CatchainSeqno cc_seqno;
   td::uint32 validator_set_hash;
   td::BufferSlice data;
-  auto S = deserialize_block_candidate_broadcast(query, block_id, cc_seqno, validator_set_hash, data,
+  td::optional<td::BufferSlice> collated_data;
+  auto S = deserialize_block_candidate_broadcast(query, block_id, cc_seqno, validator_set_hash, data, collated_data,
                                                  overlay::Overlays::max_fec_broadcast_size());
   if (S.is_error()) {
     LOG(DEBUG) << "dropped broadcast: " << S;
@@ -383,10 +379,10 @@ void FullNodeCustomOverlay::process_block_candidate_broadcast(PublicKeyHash src,
     VLOG(FULL_NODE_WARNING) << "received block candidate with incorrect file hash from " << src;
     return;
   }
-  VLOG(FULL_NODE_DEBUG) << "Received newBlockCandidate in custom overlay \"" << name_ << "\" from " << src << ": "
-                        << block_id.to_str();
+  VLOG(FULL_NODE_DEBUG) << "Received block candidate broadcast (" << (collated_data ? "with" : "no")
+                        << " cdata) in custom overlay \"" << name_ << "\" from " << src << ": " << block_id.to_str();
   td::actor::send_closure(full_node_, &FullNode::process_block_candidate_broadcast, block_id, cc_seqno,
-                          validator_set_hash, std::move(data));
+                          validator_set_hash, std::move(data), std::move(collated_data));
 }
 
 void FullNodeCustomOverlay::receive_broadcast(PublicKeyHash src, td::BufferSlice broadcast) {
@@ -431,18 +427,20 @@ void FullNodeCustomOverlay::send_broadcast(BlockBroadcast broadcast) {
                           local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagAnySender(), B.move_as_ok());
 }
 
-void FullNodeCustomOverlay::send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno,
-                                                 td::uint32 validator_set_hash, td::BufferSlice data) {
+void FullNodeCustomOverlay::send_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
+                                                           td::uint32 validator_set_hash, td::BufferSlice data,
+                                                           td::optional<td::BufferSlice> collated_data) {
   if (!inited_) {
     return;
   }
-  auto B =
-      serialize_block_candidate_broadcast(block_id, cc_seqno, validator_set_hash, data, true);  // compression enabled
+  auto B = serialize_block_candidate_broadcast(block_id, cc_seqno, validator_set_hash, data,
+                                               collated_data ? collated_data.value() : td::optional<td::Slice>{});
   if (B.is_error()) {
     VLOG(FULL_NODE_WARNING) << "failed to serialize block candidate broadcast: " << B.move_as_error();
     return;
   }
-  VLOG(FULL_NODE_DEBUG) << "Sending newBlockCandidate in custom overlay \"" << name_ << "\": " << block_id.to_str();
+  VLOG(FULL_NODE_DEBUG) << "Sending blockDataBroadcast in custom overlay \"" << name_ << "\" ("
+                        << (collated_data ? "with" : "no") << " cdata): " << block_id.to_str();
   td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_,
                           local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagAnySender(), B.move_as_ok());
 }

@@ -16,6 +16,7 @@
 */
 #pragma once
 
+#include "impl/collated-data-merger.h"
 #include "interfaces/validator-manager.h"
 #include "rldp/rldp.h"
 #include "rldp2/rldp.h"
@@ -42,6 +43,7 @@ class CollatorNodeSession : public td::actor::Actor {
   }
 
   void new_shard_block_accepted(BlockIdExt block_id, bool can_generate);
+  void on_block_candidate_broadcast(BlockCandidate candidate);
 
   void process_request(adnl::AdnlNodeIdShort src, std::vector<BlockIdExt> prev_blocks, BlockCandidatePriority priority,
                        bool is_optimistic, td::Timestamp timeout, td::Promise<BlockCandidate> promise);
@@ -90,6 +92,21 @@ class CollatorNodeSession : public td::actor::Actor {
   void process_request_optimistic_cont2(BlockIdExt prev_block_id, BlockCandidatePriority priority,
                                         td::Timestamp timeout, td::Promise<BlockCandidate> promise,
                                         td::Result<td::BufferSlice> R);
+
+  std::map<BlockSeqno, BlockIdExt> accepted_blocks_;
+  bool merge_collated_data_enabled_ = false;
+  std::shared_ptr<CollatedDataDeduplicator> collated_data_deduplicator_;
+  std::set<BlockSeqno> collated_data_merged_;
+  BlockSeqno collated_data_merged_upto_ = 0;
+  std::map<BlockSeqno, std::vector<td::Promise<td::Unit>>> collated_data_merged_waiters_;
+
+  void wait_collated_data_merged(BlockSeqno seqno, td::Promise<td::Unit> promise);
+  void try_merge_collated_data(BlockIdExt block_id);
+  void try_merge_collated_data_from_net(BlockIdExt block_id);
+  void try_merge_collated_data_from_net_cont(BlockIdExt block_id, Ref<BlockData> block_data);
+  void try_merge_collated_data_from_net_cont2(BlockIdExt block_id, Ref<BlockData> block_data,
+                                              td::BufferSlice collated_data);
+  void try_merge_collated_data_finish(BlockCandidate candidate, bool from_disk);
 };
 
 }  // namespace ton::validator

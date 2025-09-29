@@ -17,6 +17,7 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
+#include "collated-data-merger.h"
 #include "block-parse.h"
 #include "interfaces/validator-manager.h"
 #include "shard.hpp"
@@ -47,8 +48,8 @@ class Collator final : public td::actor::Actor {
     return SUPPORTED_VERSION;
   }
   static constexpr long long supported_capabilities() {
-    return ton::capCreateStatsEnabled | ton::capBounceMsgBody | ton::capReportVersion | ton::capShortDequeue |
-           ton::capStoreOutMsgQueueSize | ton::capMsgMetadata | ton::capDeferMessages | ton::capFullCollatedData;
+    return capCreateStatsEnabled | capBounceMsgBody | capReportVersion | capShortDequeue | capStoreOutMsgQueueSize |
+           capMsgMetadata | capDeferMessages | capFullCollatedData;
   }
 
  private:
@@ -84,6 +85,7 @@ class Collator final : public td::actor::Actor {
   adnl::AdnlNodeIdShort collator_node_id_ = adnl::AdnlNodeIdShort::zero();
   bool skip_store_candidate_ = false;
   Ref<BlockData> optimistic_prev_block_;
+  std::shared_ptr<CollatedDataDeduplicator> collated_data_deduplicator_;
   int attempt_idx_;
   bool allow_repeat_collation_ = false;
   ton::BlockSeqno last_block_seqno{0};
@@ -128,6 +130,7 @@ class Collator final : public td::actor::Actor {
   int verbosity{3 * 0};
   int verify{1};
   bool full_collated_data_ = false;
+  bool merge_collated_data_enabled_ = false;
   ton::LogicalTime start_lt, max_lt;
   ton::UnixTime now_;
   ton::UnixTime prev_now_;
@@ -225,6 +228,8 @@ class Collator final : public td::actor::Actor {
   std::map<td::Bits256, Ref<vm::Cell>> block_state_proofs_;
   std::vector<vm::MerkleProofBuilder> neighbor_proof_builders_;
   std::vector<Ref<vm::Cell>> collated_roots_;
+  td::BufferSlice collated_data_;
+  FileHash collated_data_hash_;
 
   struct AccountStorageDict {
     bool inited = false;
@@ -424,6 +429,7 @@ class Collator final : public td::actor::Actor {
   void finalize_stats();
 
   AccountStorageDict* current_tx_storage_dict_ = nullptr;
+  bool stop_cell_load_processing_ = false;
 
   void on_cell_loaded(const vm::LoadedCell& cell);
   void set_current_tx_storage_dict(const block::Account& account);

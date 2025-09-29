@@ -68,10 +68,10 @@ class FullNodeImpl : public FullNode {
   void send_ihr_message(AccountIdPrefixFull dst, td::BufferSlice data);
   void send_ext_message(AccountIdPrefixFull dst, td::BufferSlice data);
   void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqnp, td::BufferSlice data);
-  void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
-                            td::BufferSlice data, int mode);
+  void send_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
+                                 td::BufferSlice data, td::optional<td::BufferSlice> collated_data, int mode);
   void send_broadcast(BlockBroadcast broadcast, int mode);
-  void send_out_msg_queue_proof_broadcast(td::Ref<OutMsgQueueProofBroadcast> broadcats);
+  void send_out_msg_queue_proof_broadcast(td::Ref<OutMsgQueueProofBroadcast> broadcasts);
   void download_block(BlockIdExt id, td::uint32 priority, td::Timestamp timeout, td::Promise<ReceivedBlock> promise);
   void download_zero_state(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
                            td::Promise<td::BufferSlice> promise);
@@ -87,13 +87,15 @@ class FullNodeImpl : public FullNode {
   void download_out_msg_queue_proof(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
                                     block::ImportedMsgQueueLimits limits, td::Timestamp timeout,
                                     td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise);
+  void download_block_candidate(BlockIdExt block_id, bool only_collated_data, td::Timestamp timeout,
+                                td::Promise<std::pair<td::BufferSlice, td::BufferSlice>> promise);
 
   void got_key_block_config(td::Ref<ConfigHolder> config);
   void new_key_block(BlockHandle handle);
 
   void process_block_broadcast(BlockBroadcast broadcast) override;
   void process_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
-                                         td::BufferSlice data) override;
+                                         td::BufferSlice data, td::optional<td::BufferSlice> collated_data) override;
   void get_out_msg_queue_query_token(td::Promise<std::unique_ptr<ActionToken>> promise) override;
 
   void set_validator_telemetry_filename(std::string value) override;
@@ -176,7 +178,8 @@ class FullNodeImpl : public FullNode {
   void update_custom_overlay(CustomOverlayInfo& overlay);
   void send_block_broadcast_to_custom_overlays(const BlockBroadcast& broadcast);
   void send_block_candidate_broadcast_to_custom_overlays(const BlockIdExt& block_id, CatchainSeqno cc_seqno,
-                                                         td::uint32 validator_set_hash, const td::BufferSlice& data);
+                                                         td::uint32 validator_set_hash, const td::BufferSlice& data,
+                                                         const td::optional<td::BufferSlice>& collated_data);
 
   std::string validator_telemetry_filename_;
   PublicKeyHash validator_telemetry_collector_key_ = PublicKeyHash::zero();

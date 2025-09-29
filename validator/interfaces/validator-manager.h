@@ -266,10 +266,10 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void wait_block_signatures_short(BlockIdExt id, td::Timestamp timeout,
                                            td::Promise<td::Ref<BlockSignatureSet>> promise) = 0;
 
-  virtual void set_block_candidate(BlockIdExt id, BlockCandidate candidate, CatchainSeqno cc_seqno,
-                                   td::uint32 validator_set_hash, td::Promise<td::Unit> promise) = 0;
+  virtual void set_block_candidate(BlockCandidate candidate, td::Promise<td::Unit> promise) = 0;
   virtual void send_block_candidate_broadcast(BlockIdExt id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
-                                              td::BufferSlice data, int mode) = 0;
+                                              td::BufferSlice data, td::optional<td::BufferSlice> collated_data,
+                                              int mode) = 0;
 
   virtual void wait_block_state_merge(BlockIdExt left_id, BlockIdExt right_id, td::uint32 priority,
                                       td::Timestamp timeout, td::Promise<td::Ref<ShardState>> promise) = 0;
@@ -316,6 +316,10 @@ class ValidatorManager : public ValidatorManagerInterface {
                                                     td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise) = 0;
   virtual void send_download_archive_request(BlockSeqno mc_seqno, ShardIdFull shard_prefix, std::string tmp_dir,
                                              td::Timestamp timeout, td::Promise<std::string> promise) = 0;
+  virtual void send_get_block_candidate_request(BlockIdExt block_id, bool only_collated_data, td::Timestamp timeout,
+                                                td::Promise<std::pair<td::BufferSlice, td::BufferSlice>> promise) {
+    promise.set_error(td::Status::Error("not supported"));
+  }
 
   virtual void get_block_proof_link_from_import(BlockIdExt block_id, BlockIdExt masterchain_block_id,
                                                 td::Promise<td::BufferSlice> promise) {

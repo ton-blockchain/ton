@@ -86,6 +86,17 @@ class LRUCache {
     return result;
   }
 
+  void remove(const K& key) {
+    auto it = cache_.find(key);
+    if (it == cache_.end()) {
+      return;
+    }
+    total_weight_ -= (*it)->weight;
+    (*it)->remove();
+    cache_.erase(it);
+  }
+
+
  private:
   struct Entry : ListNode {
     Entry(K key, uint64 weight) : key(std::move(key)), weight(weight) {

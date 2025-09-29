@@ -508,12 +508,16 @@ void OverlayImpl::get_overlay_random_peers(td::uint32 max_peers,
                                            td::Promise<std::vector<adnl::AdnlNodeIdShort>> promise) {
   std::vector<adnl::AdnlNodeIdShort> v;
   auto t = td::Clocks::system();
-  while (v.size() < max_peers && v.size() < peer_list_.peers_.size() - peer_list_.bad_peers_.size()) {
+  td::uint32 iters = 0;
+  while (v.size() < max_peers && v.size() < peer_list_.peers_.size() - peer_list_.bad_peers_.size() &&
+         iters <= peer_list_.peers_.size() * 2) {
+    ++iters;
     auto P = peer_list_.peers_.get_random();
     if (!P->is_permanent_member() && (P->get_version() + 3600 < t || P->certificate()->is_expired(t))) {
       VLOG(OVERLAY_INFO) << this << ": deleting outdated peer " << P->get_id();
       del_peer(P->get_id());
-    } else if (P->is_alive()) {
+    } else if (P->is_alive() && P->get_id() != local_id_ &&
+               !(P->get_node()->flags() & OverlayMemberFlags::DoNotReceiveBroadcasts)) {
       bool dup = false;
       for (auto &n : v) {
         if (n == P->get_id()) {

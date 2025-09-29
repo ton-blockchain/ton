@@ -138,11 +138,6 @@ void CollatorNode::new_masterchain_block_notification(td::Ref<MasterchainState> 
         }
       }
     }
-    for (auto& [_, group] : validator_groups_) {
-      if (!group.actor.empty()) {
-        td::actor::send_closure(group.actor, &CollatorNodeSession::update_masterchain_config, state);
-      }
-    }
   }
 
   std::map<ShardIdFull, std::vector<BlockIdExt>> new_shards;
@@ -197,6 +192,9 @@ void CollatorNode::new_masterchain_block_notification(td::Ref<MasterchainState> 
                                   can_generate());
         }
       }
+      for (BlockCandidate& candidate : future_group.pending_candidate_broadcasts) {
+        td::actor::send_closure(it->second.actor, &CollatorNodeSession::on_block_candidate_broadcast, std::move(candidate));
+      }
       for (auto& promise : future_group.promises) {
         promise.set_value(td::Unit());
       }
@@ -239,6 +237,29 @@ void CollatorNode::new_shard_block_accepted(BlockIdExt block_id, CatchainSeqno c
   }
   if (!it->second.actor.empty()) {
     td::actor::send_closure(it->second.actor, &CollatorNodeSession::new_shard_block_accepted, block_id, can_generate());
+  }
+}
+
+void CollatorNode::on_block_candidate_broadcast(BlockCandidate candidate, CatchainSeqno cc_seqno) {
+  ShardIdFull shard = candidate.id.shard_full();
+  if (!can_collate_shard(shard)) {
+    return;
+  }
+  auto it = validator_groups_.find(shard);
+  if (it == validator_groups_.end() || it->second.cc_seqno != cc_seqno) {
+    auto future_group = get_future_validator_group(shard, cc_seqno);
+    if (future_group.is_error()) {
+      LOG(DEBUG) << "Dropping block candidate broadcast " << candidate.id.to_str() << " cc_seqno=" << cc_seqno << " : "
+                 << future_group.error();
+    } else {
+      LOG(DEBUG) << "New block candidate broadcast in future validator group " << candidate.id.to_str()
+                 << " cc_seqno=" << cc_seqno;
+      future_group.ok()->pending_candidate_broadcasts.push_back(std::move(candidate));
+    }
+    return;
+  }
+  if (!it->second.actor.empty()) {
+    td::actor::send_closure(it->second.actor, &CollatorNodeSession::on_block_candidate_broadcast, std::move(candidate));
   }
 }
 
@@ -398,8 +419,7 @@ void CollatorNode::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data
 
     td::Promise<td::Unit> P =
         new_promise.wrap([block = block.clone()](td::Unit&&) mutable -> BlockCandidate { return std::move(block); });
-    td::actor::send_closure(manager, &ValidatorManager::set_block_candidate, block.id, std::move(block), cc_seqno,
-                            val_set_hash, std::move(P));
+    td::actor::send_closure(manager, &ValidatorManager::set_block_candidate, std::move(block), std::move(P));
   };
   if (!shard.is_valid_ext()) {
     new_promise.set_error(td::Status::Error(PSTRING() << "invalid shard " << shard.to_str()));

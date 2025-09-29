@@ -795,17 +795,13 @@ void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_ne
                           block_id, query.block_->cc_seqno_, std::move(query.block_->data_));
 }
 
-void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcast &query) {
+void FullNodeShardImpl::process_broadcast(PublicKeyHash src,
+                                          ton_api::tonNode_blockCandidateBroadcastCompressed &query) {
   process_block_candidate_broadcast(src, query);
 }
 
 void FullNodeShardImpl::process_broadcast(PublicKeyHash src,
-                                          ton_api::tonNode_newBlockCandidateBroadcastCompressed &query) {
-  process_block_candidate_broadcast(src, query);
-}
-
-void FullNodeShardImpl::process_broadcast(PublicKeyHash src,
-                                          ton_api::tonNode_newBlockCandidateBroadcastCompressedV2 &query) {
+                                          ton_api::tonNode_blockCandidateBroadcastCompressedV2 &query) {
   process_block_candidate_broadcast(src, query);
 }
 
@@ -814,7 +810,8 @@ void FullNodeShardImpl::process_block_candidate_broadcast(PublicKeyHash src, ton
   CatchainSeqno cc_seqno;
   td::uint32 validator_set_hash;
   td::BufferSlice data;
-  auto S = deserialize_block_candidate_broadcast(query, block_id, cc_seqno, validator_set_hash, data,
+  td::optional<td::BufferSlice> collated_data;
+  auto S = deserialize_block_candidate_broadcast(query, block_id, cc_seqno, validator_set_hash, data, collated_data,
                                                  overlay::Overlays::max_fec_broadcast_size());
   if (data.size() > FullNode::max_block_size()) {
     VLOG(FULL_NODE_WARNING) << "received block candidate with too big size from " << src;
@@ -824,9 +821,10 @@ void FullNodeShardImpl::process_block_candidate_broadcast(PublicKeyHash src, ton
     VLOG(FULL_NODE_WARNING) << "received block candidate with incorrect file hash from " << src;
     return;
   }
-  VLOG(FULL_NODE_DEBUG) << "Received newBlockCandidate from " << src << ": " << block_id.to_str();
+  VLOG(FULL_NODE_DEBUG) << "Received block candidate broadcast (" << (collated_data ? "with" : "no") << " cdata) from "
+                        << src << ": " << block_id.to_str();
   td::actor::send_closure(full_node_, &FullNode::process_block_candidate_broadcast, block_id, cc_seqno,
-                          validator_set_hash, std::move(data));
+                          validator_set_hash, std::move(data), std::move(collated_data));
 }
 
 void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcast &query) {
@@ -933,19 +931,20 @@ void FullNodeShardImpl::send_shard_block_info(BlockIdExt block_id, CatchainSeqno
   }
 }
 
-void FullNodeShardImpl::send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
-                                             td::BufferSlice data) {
+void FullNodeShardImpl::send_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
+                                                       td::uint32 validator_set_hash, td::BufferSlice data,
+                                                       td::optional<td::BufferSlice> collated_data) {
   if (!client_.empty()) {
     UNREACHABLE();
     return;
   }
-  auto B =
-      serialize_block_candidate_broadcast(block_id, cc_seqno, validator_set_hash, data, true);  // compression enabled
+  auto B = serialize_block_candidate_broadcast(block_id, cc_seqno, validator_set_hash, data,
+                                               collated_data ? collated_data.value() : td::optional<td::Slice>{});
   if (B.is_error()) {
     VLOG(FULL_NODE_WARNING) << "failed to serialize block candidate broadcast: " << B.move_as_error();
     return;
   }
-  VLOG(FULL_NODE_DEBUG) << "Sending newBlockCandidate: " << block_id.to_str();
+  VLOG(FULL_NODE_DEBUG) << "Sending blockDataBroadcast (" << (collated_data ? "with" : "no") << " cdata): " << block_id.to_str();
   td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, adnl_id_, overlay_id_, local_id_,
                           overlay::Overlays::BroadcastFlagAnySender(), B.move_as_ok());
 }

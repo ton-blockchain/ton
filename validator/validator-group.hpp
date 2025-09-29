@@ -18,6 +18,7 @@
 */
 #pragma once
 
+#include "impl/collated-data-merger.h"
 #include "collation-manager.hpp"
 #include "interfaces/validator-manager.h"
 
@@ -27,6 +28,7 @@
 #include "rldp2/rldp.h"
 
 #include <list>
+#include <queue>
 
 namespace ton {
 
@@ -43,8 +45,8 @@ class ValidatorGroup : public td::actor::Actor {
                                 td::Promise<std::pair<UnixTime, bool>> promise,
                                 td::optional<BlockCandidate> optimistic_prev_block);
   void accept_block_candidate(validatorsession::BlockSourceInfo source_info, td::BufferSlice block, RootHash root_hash,
-                              FileHash file_hash, std::vector<BlockSignature> signatures,
-                              std::vector<BlockSignature> approve_signatures,
+                              FileHash file_hash, td::BufferSlice collated_data, FileHash collated_data_hash,
+                              std::vector<BlockSignature> signatures, std::vector<BlockSignature> approve_signatures,
                               validatorsession::ValidatorSessionStats stats, td::Promise<td::Unit> promise);
   void skip_round(td::uint32 round);
   void accept_block_query(BlockIdExt block_id, td::Ref<BlockData> block, std::vector<BlockIdExt> prev,
@@ -114,9 +116,11 @@ class ValidatorGroup : public td::actor::Actor {
   void destroy_cont();
 
   struct PostponedAccept {
+    PublicKey source;
     RootHash root_hash;
     FileHash file_hash;
-    td::BufferSlice block;
+    td::BufferSlice block, collated_data;
+    FileHash collated_data_hash;
     td::Ref<BlockSignatureSet> sigs;
     td::Ref<BlockSignatureSet> approve_sigs;
     validatorsession::ValidatorSessionStats stats;
@@ -185,12 +189,13 @@ class ValidatorGroup : public td::actor::Actor {
 
   void add_available_block_candidate(td::Bits256 source, BlockIdExt id, FileHash collated_data_hash) {
     available_block_candidates_.emplace(source, id, collated_data_hash);
+    approved_blocks_ids_[id.root_hash] = id;
   }
 
-  std::set<BlockIdExt> sent_candidate_broadcasts_;
+  std::set<BlockIdExt> sent_block_candidate_broadcasts_;
   std::map<BlockIdExt, adnl::AdnlNodeIdShort> block_collator_node_id_;
 
-  void send_block_candidate_broadcast(BlockIdExt id, td::BufferSlice data);
+  void send_block_candidate_broadcast(BlockIdExt id, td::BufferSlice data, td::BufferSlice collated_data);
 
   struct OptimisticGeneration {
     td::uint32 round = 0;
@@ -206,6 +211,18 @@ class ValidatorGroup : public td::actor::Actor {
     }
   };
   std::unique_ptr<OptimisticGeneration> optimistic_generation_;
+  std::map<RootHash, BlockIdExt> approved_blocks_ids_;
+
+  bool merge_collated_data_enabled_ = false;
+  td::actor::ActorOwn<CollatedDataMerger> collated_data_merger_;
+  std::shared_ptr<CollatedDataDeduplicator> collated_data_deduplicator_;
+  std::set<BlockSeqno> collated_data_merged_;
+  BlockSeqno collated_data_merged_upto_ = 0;
+  std::map<BlockSeqno, std::vector<td::Promise<td::Unit>>> collated_data_merged_waiters_;
+
+  void merge_collated_data(PublicKey source, BlockIdExt block_id, FileHash collated_data_hash,
+                           td::BufferSlice o_block_data, td::BufferSlice o_collated_data, bool try_disk = true);
+  void wait_collated_data_merged(BlockSeqno seqno, td::Promise<td::Unit> promise);
 };
 
 }  // namespace validator

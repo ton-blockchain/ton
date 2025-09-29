@@ -162,9 +162,8 @@ class FullNodeShardImpl : public FullNodeShard {
     LOG(ERROR) << "Ignore outMsgQueueProofBroadcast";
   }
 
-  void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcast &query);
-  void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcastCompressed &query);
-  void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcastCompressedV2 &query);
+  void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockCandidateBroadcastCompressed &query);
+  void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockCandidateBroadcastCompressedV2 &query);
   void process_block_candidate_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query);
 
   void receive_broadcast(PublicKeyHash src, td::BufferSlice query);
@@ -175,8 +174,8 @@ class FullNodeShardImpl : public FullNodeShard {
   void send_ihr_message(td::BufferSlice data) override;
   void send_external_message(td::BufferSlice data) override;
   void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) override;
-  void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
-                            td::BufferSlice data) override;
+  void send_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
+                                      td::BufferSlice data, td::optional<td::BufferSlice> collated_data) override;
   void send_broadcast(BlockBroadcast broadcast) override;
 
   void download_block(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,

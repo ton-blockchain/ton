@@ -68,6 +68,18 @@ class ExtCell : public Cell {
   Ref<PrunnedCell<ExtraT>> get_prunned_cell() const {
     return prunned_cell_.load();
   }
+  td::Status set_inner_cell(Ref<DataCell> new_cell) const {
+    auto prunned_cell = prunned_cell_.load();
+    if (prunned_cell.is_null()) {
+      return td::Status::OK();
+    }
+    TRY_STATUS(prunned_cell->check_equals_unloaded(new_cell));
+    if (data_cell_.store_if_empty(new_cell)) {
+      prunned_cell_.store({});
+      get_thread_safe_counter_unloaded().add(-1);
+    }
+    return td::Status::OK();
+  }
 
  private:
   mutable td::AtomicRef<DataCell> data_cell_;

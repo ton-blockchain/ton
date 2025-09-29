@@ -437,13 +437,12 @@ tonNode.blockBroadcastCompressedV2 id:tonNode.blockIdExt catchain_seqno:int vali
 tonNode.ihrMessageBroadcast message:tonNode.ihrMessage = tonNode.Broadcast;
 tonNode.externalMessageBroadcast message:tonNode.externalMessage = tonNode.Broadcast;
 tonNode.newShardBlockBroadcast block:tonNode.newShardBlock = tonNode.Broadcast;
-// signature may be empty, at least for now
-tonNode.newBlockCandidateBroadcast id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int
-              collator_signature:tonNode.blockSignature data:bytes = tonNode.Broadcast;
-tonNode.newBlockCandidateBroadcastCompressed id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int
-              collator_signature:tonNode.blockSignature flags:# compressed:bytes = tonNode.Broadcast;
-tonNode.newBlockCandidateBroadcastCompressedV2 id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int
-              collator_signature:tonNode.blockSignature flags:# compressed:bytes = tonNode.Broadcast;
+
+// flags & 1 - with collated data
+tonNode.blockCandidateBroadcastCompressed#0cd86894 id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int unused:tonNode.blockSignature
+    flags:# compressed:bytes = tonNode.Broadcast;
+tonNode.blockCandidateBroadcastCompressedV2#9f0e7f35 id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int unused:tonNode.blockSignature
+    flags:# compressed:bytes = tonNode.Broadcast;
 
 // optimistic broadcast of response to tonNode.getOutMsgQueueProof with dst_shard, block and limits arguments
 tonNode.outMsgQueueProofBroadcast dst_shard:tonNode.shardId block:tonNode.blockIdExt
@@ -464,6 +463,10 @@ tonNode.dataFull id:tonNode.blockIdExt proof:bytes block:bytes is_link:Bool = to
 tonNode.dataFullCompressed id:tonNode.blockIdExt flags:# compressed:bytes is_link:Bool = tonNode.DataFull;
 tonNode.dataFullCompressedV2 id:tonNode.blockIdExt flags:# compressed:bytes is_link:Bool = tonNode.DataFull;
 tonNode.dataFullEmpty = tonNode.DataFull;
+
+tonNode.blockCandidateData block_id:tonNode.blockIdExt data:bytes collated_data:bytes = tonNode.BlockCandidateData;
+tonNode.blockCandidateDataCompressedV2 block_id:tonNode.blockIdExt flags:# compressed:bytes = tonNode.BlockCandidateData;
+tonNode.blockCandidateDataEmpty = tonNode.BlockCandidateData;
 
 tonNode.capabilities#f5bf60c0 version_major:int version_minor:int flags:# = tonNode.Capabilities;
 
@@ -506,6 +509,7 @@ tonNode.getShardArchiveInfo masterchain_seqno:int shard_prefix:tonNode.shardId =
 tonNode.getArchiveSlice archive_id:long offset:long max_size:int = tonNode.Data;
 tonNode.getOutMsgQueueProof dst_shard:tonNode.shardId blocks:(vector tonNode.blockIdExt)
     limits:tonNode.importedMsgQueueLimits = tonNode.OutMsgQueueProof;
+tonNode.downloadBlockCandidate block:tonNode.blockIdExt only_collated_data:Bool = tonNode.BlockCandidateData;
 
 tonNode.downloadPersistentState block:tonNode.blockIdExt masterchain_block:tonNode.blockIdExt = tonNode.Data;
 tonNode.downloadPersistentStateSlice block:tonNode.blockIdExt masterchain_block:tonNode.blockIdExt offset:long max_size:long = tonNode.Data;

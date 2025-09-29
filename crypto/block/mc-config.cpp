@@ -336,6 +336,7 @@ ton::ValidatorSessionConfig Config::get_consensus_config() const {
       td::uint64 catchain_lifetime = std::max(catchain_config.mc_cc_lifetime, catchain_config.shard_cc_lifetime);
       c.catchain_opts.max_block_height_coeff = catchain_lifetime * max_blocks_coeff;
     }
+    c.merge_collated_data = r.merge_collated_data;
   };
   if (cc.not_null()) {
     block::gen::ConsensusConfig::Record_consensus_config_v4 r4;

@@ -268,7 +268,14 @@ class ValidatorManagerImpl : public ValidatorManager {
   std::map<ShardTopBlockDescriptionId, ShardTopBlock> shard_blocks_;
   std::map<BlockIdExt, td::Ref<OutMsgQueueProof>> cached_msg_queue_to_masterchain_;
 
-  td::LRUCache<BlockIdExt, td::BufferSlice> cached_block_data_{/* max_size = */ 128};
+  struct CachedBlockData {
+    td::BufferSlice data;
+    CatchainSeqno cc_seqno;
+    Ed25519_PublicKey creator;
+    td::optional<td::BufferSlice> collated_data;
+    td::optional<FileHash> collated_data_hash;
+  };
+  td::LRUCache<BlockIdExt, CachedBlockData> cached_block_data_{/* max_size = */ 128};
   td::LRUCache<BlockIdExt, td::Unit> cached_checked_shard_block_descriptions_{/* max_size = */ 1024};
 
   struct ExtMessages {
@@ -434,7 +441,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   void new_ihr_message(td::BufferSlice data) override;
   void new_shard_block_description_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
                                              td::BufferSlice data) override;
-  void new_block_candidate_broadcast(BlockIdExt block_id, td::BufferSlice data) override;
+  void new_block_candidate_broadcast(BlockIdExt block_id, td::BufferSlice data,
+                                     td::optional<td::BufferSlice> collated_data) override;
 
   void add_ext_server_id(adnl::AdnlNodeIdShort id) override;
   void add_ext_server_port(td::uint16 port) override;
@@ -486,10 +494,10 @@ class ValidatorManagerImpl : public ValidatorManager {
   void wait_block_signatures_short(BlockIdExt id, td::Timestamp timeout,
                                    td::Promise<td::Ref<BlockSignatureSet>> promise) override;
 
-  void set_block_candidate(BlockIdExt id, BlockCandidate candidate, CatchainSeqno cc_seqno,
-                           td::uint32 validator_set_hash, td::Promise<td::Unit> promise) override;
+  void set_block_candidate(BlockCandidate candidate, td::Promise<td::Unit> promise) override;
   void send_block_candidate_broadcast(BlockIdExt id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
-                                      td::BufferSlice data, int mode) override;
+                                      td::BufferSlice data, td::optional<td::BufferSlice> collated_data,
+                                      int mode) override;
 
   void wait_block_state_merge(BlockIdExt left_id, BlockIdExt right_id, td::uint32 priority, td::Timestamp timeout,
                               td::Promise<td::Ref<ShardState>> promise) override;
@@ -518,6 +526,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void get_block_candidate_from_db(PublicKey source, BlockIdExt id, FileHash collated_data_file_hash,
                                    td::Promise<BlockCandidate> promise) override;
   void get_candidate_data_by_block_id_from_db(BlockIdExt id, td::Promise<td::BufferSlice> promise) override;
+  void get_block_candidate_by_block_id_from_db(BlockIdExt id, td::Promise<BlockCandidate> promise) override;
   void get_block_proof_from_db(ConstBlockHandle handle, td::Promise<td::Ref<Proof>> promise) override;
   void get_block_proof_from_db_short(BlockIdExt id, td::Promise<td::Ref<Proof>> promise) override;
   void get_block_proof_link_from_db(ConstBlockHandle handle, td::Promise<td::Ref<ProofLink>> promise) override;
@@ -560,6 +569,8 @@ class ValidatorManagerImpl : public ValidatorManager {
                                             td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise) override;
   void send_download_archive_request(BlockSeqno mc_seqno, ShardIdFull shard_prefix, std::string tmp_dir,
                                      td::Timestamp timeout, td::Promise<std::string> promise) override;
+  void send_get_block_candidate_request(BlockIdExt block_id, bool only_collated_data, td::Timestamp timeout,
+                                        td::Promise<std::pair<td::BufferSlice, td::BufferSlice>> promise) override;
 
   void get_block_proof_link_from_import(BlockIdExt block_id, BlockIdExt masterchain_block_id,
                                         td::Promise<td::BufferSlice> promise) override;
@@ -591,7 +602,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   }
 
   void add_shard_block_description(td::Ref<ShardTopBlockDescription> desc);
-  void add_cached_block_data(BlockIdExt block_id, td::BufferSlice data);
+  void add_cached_block_data(BlockIdExt block_id, td::BufferSlice data, td::optional<td::BufferSlice> collated_data,
+                             bool is_broadcast);
   void preload_msg_queue_to_masterchain(td::Ref<ShardTopBlockDescription> desc, td::Promise<td::Unit> promise);
   void loaded_msg_queue_to_masterchain(td::Ref<ShardTopBlockDescription> desc, td::Ref<OutMsgQueueProof> res,
                                        td::Promise<td::Unit> promise);

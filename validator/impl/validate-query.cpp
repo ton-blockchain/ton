@@ -82,6 +82,8 @@ ValidateQuery::ValidateQuery(BlockCandidate candidate, ValidateParams params,
     , shard_pfx_(shard_.shard)
     , shard_pfx_len_(ton::shard_prefix_length(shard_))
     , optimistic_prev_block_(std::move(params.optimistic_prev_block))
+    , collated_data_merger_(std::move(params.collated_data_merger))
+    , merge_collated_data_enabled_(!collated_data_merger_.empty())
     , perf_timer_("validateblock", 0.1, [manager](double duration) {
       send_closure(manager, &ValidatorManager::add_perf_timer_stat, "validateblock", duration);
     }) {
@@ -361,7 +363,18 @@ void ValidateQuery::start_up() {
     }
     LOG(WARNING) << "Optimistic prev block id = " << optimistic_prev_block_->block_id().to_str();
   }
-  // 2. learn latest masterchain state and block id
+  // 2. unpack block candidate
+  if (!unpack_block_candidate()) {
+    reject_query("error unpacking block candidate");
+    return;
+  }
+  if (pending == 0) {
+    start_up_cont();
+  }
+}
+
+void ValidateQuery::start_up_cont() {
+  // 3. learn latest masterchain state and block id
   LOG(DEBUG) << "sending get_top_masterchain_state_block() to Manager";
   ++pending;
   td::actor::send_closure_later(manager, &ValidatorManager::get_top_masterchain_state_block,
@@ -372,11 +385,6 @@ void ValidateQuery::start_up() {
                                                                 &ValidateQuery::after_get_latest_mc_state,
                                                                 std::move(res), std::move(token));
                                 });
-  // 3. unpack block candidate (while necessary data is being loaded)
-  if (!unpack_block_candidate()) {
-    reject_query("error unpacking block candidate");
-    return;
-  }
   // 4. load state(s) corresponding to previous block(s) (not full-collated-data or masterchain)
   prev_states.resize(prev_blocks.size());
   if (is_masterchain() || !full_collated_data_) {
@@ -630,6 +638,11 @@ bool ValidateQuery::init_parse() {
   want_split_ = info.want_split;
   is_key_block_ = info.key_block;
   prev_key_seqno_ = info.prev_key_block_seqno;
+  if (info.flags & 2) {
+    CHECK(info.collated_data_hash->prefetch_bits_to(stored_collated_data_hash_.value_force()));
+  } else {
+    stored_collated_data_hash_ = {};
+  }
   CHECK(after_split_ == info.after_split);
   if (is_key_block_) {
     LOG(INFO) << "validating key block " << id_.to_str();
@@ -704,10 +717,12 @@ bool ValidateQuery::init_parse() {
  *
  * @param croot The root cell containing the collated data.
  * @param idx The index of the root.
+ * @param end Set to true if the datum is collated_data_separator
  *
  * @returns True if the extraction is successful, false otherwise.
  */
-bool ValidateQuery::extract_collated_data_from(Ref<vm::Cell> croot, int idx) {
+bool ValidateQuery::extract_collated_data_from(Ref<vm::Cell> croot, int idx, bool& end) {
+  end = false;
   bool is_special = false;
   auto cs = vm::load_cell_slice_special(croot, is_special);
   if (!cs.is_valid()) {
@@ -741,6 +756,11 @@ bool ValidateQuery::extract_collated_data_from(Ref<vm::Cell> croot, int idx) {
     top_shard_descr_dict_ = std::make_unique<vm::Dictionary>(cs.prefetch_ref(), 96);
     return true;
   }
+  if (block::gen::t_CollatedDataSeparator.has_valid_tag(cs)) {
+    LOG(DEBUG) << "collated datum # " << idx << " is a CollatedDataSeparator";
+    end = true;
+    return true;
+  }
   if (block::gen::t_AccountStorageDictProof.has_valid_tag(cs)) {
     if (!block::gen::t_AccountStorageDictProof.validate_upto(10000, cs)) {
       return reject_query("invalid AccountStorageDictProof");
@@ -759,6 +779,30 @@ bool ValidateQuery::extract_collated_data_from(Ref<vm::Cell> croot, int idx) {
     full_collated_data_ = true;
     return true;
   }
+  if (block::gen::t_CollatedDataRootState.has_valid_tag(cs)) {
+    if (!block::gen::t_CollatedDataRootState.validate_upto(10000, cs)) {
+      return reject_query("invalid CollatedDataRootState");
+    }
+    cs.advance(32);
+    vm::CellHash hash;
+    cs.fetch_bytes(hash.as_slice());
+    LOG(DEBUG) << "collated datum # " << idx << " is an CollatedDataRootState with hash " << hash.to_hex();
+    collated_data_root_state_hashes_.push_back(hash);
+    full_collated_data_ = true;
+    return true;
+  }
+  if (block::gen::t_CollatedDataRootStorageDict.has_valid_tag(cs)) {
+    if (!block::gen::t_CollatedDataRootStorageDict.validate_upto(10000, cs)) {
+      return reject_query("invalid CollatedDataRootStorageDict");
+    }
+    cs.advance(32);
+    vm::CellHash hash;
+    cs.fetch_bytes(hash.as_slice());
+    LOG(DEBUG) << "collated datum # " << idx << " is an CollatedDataRootStorageDict with hash " << hash.to_hex();
+    collated_data_root_dict_hashes_.push_back(hash);
+    full_collated_data_ = true;
+    return true;
+  }
   LOG(WARNING) << "collated datum # " << idx << " has unknown type (magic " << cs.prefetch_ulong(32) << "), ignoring";
   return true;
 }
@@ -774,8 +818,12 @@ bool ValidateQuery::extract_collated_data() {
     ++i;
     auto guard = error_ctx_add_guard(PSTRING() << "collated datum #" << i);
     try {
-      if (!extract_collated_data_from(croot, i)) {
+      bool end = false;
+      if (!extract_collated_data_from(croot, i, end)) {
         return reject_query("cannot unpack collated datum");
+      }
+      if (end) {
+        break;
       }
     } catch (vm::VmError& err) {
       return reject_query(PSTRING() << "vm error " << err.get_msg());
@@ -786,7 +834,58 @@ bool ValidateQuery::extract_collated_data() {
   if (full_collated_data_) {
     LOG(INFO) << "full_collated_data = true";
   }
+  if (merge_collated_data_enabled_) {
+    LOG(INFO) << "merge_collated_data = true";
+    LOG(DEBUG) << "sending add_block_candidate() to CollatedDataMerger";
+    td::actor::send_closure(collated_data_merger_, &CollatedDataMerger::add_block_candidate, id_, block_root_,
+                            collated_roots_);
+    std::vector<vm::CellHash> hashes = collated_data_root_state_hashes_;
+    hashes.insert(hashes.end(), collated_data_root_dict_hashes_.begin(), collated_data_root_dict_hashes_.end());
+    if (!hashes.empty()) {
+      LOG(DEBUG) << "sending get_cells to CollatedDataMerger";
+      ++pending;
+      td::actor::send_closure_later(
+          collated_data_merger_, &CollatedDataMerger::get_cells, std::move(hashes),
+          [self = get_self(), token = perf_log_.start_action("CollatedDataMerger::get_cells")](
+              td::Result<td::HashMap<vm::CellHash, Ref<vm::Cell>>> res) mutable {
+            LOG(DEBUG) << "got answer to CollatedDataMerger::get_cells";
+            td::actor::send_closure_later(std::move(self), &ValidateQuery::process_merged_collated_roots,
+                                          std::move(res), std::move(token));
+          });
+    }
+  }
   return true;
+}
+
+/**
+ * Process roots returned from CollatedDataMerger
+ *
+ * @param res List of returned roots
+ */
+void ValidateQuery::process_merged_collated_roots(td::Result<td::HashMap<vm::CellHash, Ref<vm::Cell>>> res,
+                                                  td::PerfLogAction token) {
+  token.finish(res);
+  --pending;
+  if (res.is_error()) {
+    fatal_error(res.move_as_error());
+    return;
+  }
+  auto roots = res.move_as_ok();
+  for (const vm::CellHash& hash : collated_data_root_state_hashes_) {
+    auto it = roots.find(hash);
+    if (it != roots.end()) {
+      virt_roots_[td::Bits256{hash.bits()}] = it->second;
+    }
+  }
+  for (const vm::CellHash& hash : collated_data_root_dict_hashes_) {
+    auto it = roots.find(hash);
+    if (it != roots.end()) {
+      virt_account_storage_dicts_[td::Bits256{hash.bits()}] = it->second;
+    }
+  }
+  if (pending == 0) {
+    start_up_cont();
+  }
 }
 
 /**
@@ -1139,8 +1238,8 @@ bool ValidateQuery::fetch_config_params() {
     if (compute_phase_cfg_.global_version >= 4) {
       auto prev_blocks_info = config_->get_prev_blocks_info();
       if (prev_blocks_info.is_error()) {
-        return fatal_error(prev_blocks_info.move_as_error_prefix(
-            "cannot fetch prev blocks info from masterchain configuration: "));
+        return fatal_error(
+            prev_blocks_info.move_as_error_prefix("cannot fetch prev blocks info from masterchain configuration: "));
       }
       compute_phase_cfg_.prev_blocks_info = prev_blocks_info.move_as_ok();
     }
@@ -2858,7 +2957,26 @@ bool ValidateQuery::unpack_block_data() {
   if (!account_blocks_dict_->validate_all()) {
     return reject_query("ShardAccountBlocks dictionary is invalid");
   }
-  return unpack_precheck_value_flow(std::move(blk.value_flow));
+  if (!unpack_precheck_value_flow(std::move(blk.value_flow))) {
+    return reject_query("failed to precheck value flow");
+  }
+
+  if (!is_fake_) {
+    if (config_->get_consensus_config().merge_collated_data) {
+      if (!stored_collated_data_hash_) {
+        return reject_query("no collated data hash in BlockInfo");
+      }
+      if (stored_collated_data_hash_.value() != block_candidate.collated_file_hash) {
+        return reject_query(PSTRING() << "collated data hash is " << block_candidate.collated_file_hash.to_hex()
+                                      << ", but BlockInfo has " << stored_collated_data_hash_.value().to_hex());
+      }
+    } else {
+      if (stored_collated_data_hash_) {
+        return reject_query("unexpected collated data hash in BlockInfo");
+      }
+    }
+  }
+  return true;
 }
 
 /**
@@ -3062,14 +3180,14 @@ bool ValidateQuery::precheck_one_account_update(td::ConstBitPtr acc_id, Ref<vm::
     if (verbosity >= 3 * 0) {
       FLOG(INFO) {
         sb << "state of account " << workchain() << ":" << acc_id.to_hex(256)
-                  << " in the old shardchain state:" << "\n";
+           << " in the old shardchain state:" << "\n";
         if (old_value.not_null()) {
           block::gen::t_ShardAccount.print(sb, old_value);
         } else {
           sb << "<absent>" << "\n";
         }
         sb << "state of account " << workchain() << ":" << acc_id.to_hex(256)
-                  << " in the new shardchain state:" << "\n";
+           << " in the new shardchain state:" << "\n";
         if (new_value.not_null()) {
           block::gen::t_ShardAccount.print(sb, new_value);
         } else {
@@ -3452,7 +3570,8 @@ bool ValidateQuery::precheck_one_message_queue_update(td::ConstBitPtr out_msg_id
   }
   // mode for msg_export_{ext,new,imm,tr,deq_imm,???,deq/deq_short,tr_req,new_defer,deferred_tr}
   static const int tag_mode[10] = {0, 2, 0, 2, 1, 0, 1, 3, 0, 2};
-  static const char* tag_str[10] = {"ext", "new", "imm", "tr", "deq_imm", "???", "deq", "tr_req", "new_defer", "deferred_tr"};
+  static const char* tag_str[10] = {"ext", "new", "imm",    "tr",        "deq_imm",
+                                    "???", "deq", "tr_req", "new_defer", "deferred_tr"};
   if (tag < 0 || tag >= 10 || !(tag_mode[tag] & mode)) {
     return reject_query(PSTRING() << "OutMsgDescr corresponding to " << m_str[mode] << "queued message with key "
                                   << out_msg_id.to_hex(352) << " has invalid tag " << tag << "(" << tag_str[tag & 7]
@@ -4077,9 +4196,8 @@ bool ValidateQuery::check_in_msg(td::ConstBitPtr key, Ref<vm::CellSlice> in_msg)
           dest_prefix.to_str() + "... yet");
     }
     if (from_dispatch_queue && next_prefix != cur_prefix) {
-      return reject_query(
-          "next hop address "s + next_prefix.to_str() + "... of deferred internal message with hash " + key.to_hex(256) +
-          " must coincide with its current prefix "s + cur_prefix.to_str() + "..."s);
+      return reject_query("next hop address "s + next_prefix.to_str() + "... of deferred internal message with hash " +
+                          key.to_hex(256) + " must coincide with its current prefix "s + cur_prefix.to_str() + "..."s);
     }
     // if a message is processed by a transaction, it must have destination inside the current shard
     if (transaction.not_null() && !ton::shard_contains(shard_, dest_prefix)) {
@@ -4275,8 +4393,8 @@ bool ValidateQuery::check_in_msg(td::ConstBitPtr key, Ref<vm::CellSlice> in_msg)
       }
       if (cur_prefix != next_prefix && tag == block::gen::InMsg::msg_import_deferred_tr) {
         return reject_query("internal message from DispatchQueue with hash "s + key.to_hex(256) +
-                            " is a msg_import_deferred_tr$00101, but its current address " +
-                            cur_prefix.to_str() + " is not equal to next address");
+                            " is a msg_import_deferred_tr$00101, but its current address " + cur_prefix.to_str() +
+                            " is not equal to next address");
       }
       CHECK(transaction.is_null());
       auto out_msg_cs = out_msg_dict_->lookup(key, 256);
@@ -4657,8 +4775,9 @@ bool ValidateQuery::check_out_msg(td::ConstBitPtr key, Ref<vm::CellSlice> out_ms
       }
       // check that next hop is nearer to the destination than the current address
       if (count_matching_bits(dest_prefix, next_prefix) < count_matching_bits(dest_prefix, cur_prefix)) {
-        return reject_query("next hop address "s + next_prefix.to_str() + "... of outbound internal message with hash " +
-                            key.to_hex(256) + " is further from its destination " + dest_prefix.to_str() +
+        return reject_query("next hop address "s + next_prefix.to_str() +
+                            "... of outbound internal message with hash " + key.to_hex(256) +
+                            " is further from its destination " + dest_prefix.to_str() +
                             "... than its current address " + cur_prefix.to_str() + "...");
       }
       // current address must belong to this shard (otherwise we should never had exported this message)
@@ -5525,7 +5644,7 @@ std::unique_ptr<block::Account> ValidateQuery::unpack_account(td::ConstBitPtr ad
  *
  * @returns IHR fee
  */
-static td::RefInt256 get_ihr_fee(const block::gen::CommonMsgInfo::Record_int_msg_info &info, int global_version) {
+static td::RefInt256 get_ihr_fee(const block::gen::CommonMsgInfo::Record_int_msg_info& info, int global_version) {
   // Legacy: extra_flags was previously ihr_fee
   return global_version >= 12 ? td::zero_refint() : block::tlb::t_Grams.as_integer(std::move(info.extra_flags));
 }
@@ -7153,13 +7272,12 @@ bool ValidateQuery::postcheck_value_flow() {
                                   << import_fees_ << ", the total transaction fees are " << transaction_fees_.to_str()
                                   << ", creation fee for this block is " << value_flow_.created.to_str()
                                   << ", the total imported fees from shards are " << value_flow_.fees_imported.to_str()
-                                  << " and the burned fees are " << fees_burned_.to_str()
-                                  << " with a total of " << expected_fees.to_str());
+                                  << " and the burned fees are " << fees_burned_.to_str() << " with a total of "
+                                  << expected_fees.to_str());
   }
   if (total_burned_ != value_flow_.burned) {
     return reject_query(PSTRING() << "invalid burned in value flow: " << id_.to_str() << " declared "
-                                  << value_flow_.burned.to_str() << ", correct value is "
-                                  << total_burned_.to_str());
+                                  << value_flow_.burned.to_str() << ", correct value is " << total_burned_.to_str());
   }
   return true;
 }
@@ -7323,8 +7441,7 @@ bool ValidateQuery::save_candidate() {
         }
       });
 
-  td::actor::send_closure(manager, &ValidatorManager::set_block_candidate, id_, block_candidate.clone(),
-                          validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash(), std::move(P));
+  td::actor::send_closure(manager, &ValidatorManager::set_block_candidate, block_candidate.clone(), std::move(P));
   if (!storage_stat_cache_update_.empty()) {
     td::actor::send_closure(manager, &ValidatorManager::update_storage_stat_cache,
                             std::move(storage_stat_cache_update_));

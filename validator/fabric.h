@@ -18,6 +18,7 @@
 */
 #pragma once
 
+#include "impl/collated-data-merger.h"
 #include "interfaces/validator-manager.h"
 #include "interfaces/db.h"
 #include "validator.h"
@@ -40,6 +41,8 @@ struct CollateParams {
 
   // Optional - used for optimistic collation
   Ref<BlockData> optimistic_prev_block = {};
+
+  std::shared_ptr<CollatedDataDeduplicator> collated_data_deduplicator = {};
 };
 
 struct ValidateParams {
@@ -47,11 +50,13 @@ struct ValidateParams {
   BlockIdExt min_masterchain_block_id;
   std::vector<BlockIdExt> prev;
   td::Ref<ValidatorSet> validator_set = {};
-  PublicKeyHash local_validator_id = PublicKeyHash::zero();;
+  PublicKeyHash local_validator_id = PublicKeyHash::zero();
   bool is_fake = false;
 
   // Optional - used for validation of optimistic candidates
   Ref<BlockData> optimistic_prev_block = {};
+
+  td::actor::ActorId<CollatedDataMerger> collated_data_merger = {};
 };
 
 td::actor::ActorOwn<Db> create_db_actor(td::actor::ActorId<ValidatorManager> manager, std::string db_root_,

@@ -32,12 +32,11 @@ class FullNodePrivateBlockOverlay : public td::actor::Actor {
 
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast &query);
 
-  void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcast &query);
-  void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcastCompressed &query);
-  void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcastCompressedV2 &query);
+  void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockCandidateBroadcastCompressed &query);
+  void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockCandidateBroadcastCompressedV2 &query);
   void process_block_candidate_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query);
 
-  void process_telemetry_broadcast(PublicKeyHash src, const tl_object_ptr<ton_api::validator_telemetry>& telemetry);
+  void process_telemetry_broadcast(PublicKeyHash src, const tl_object_ptr<ton_api::validator_telemetry> &telemetry);
 
   template <class T>
   void process_broadcast(PublicKeyHash, T &) {
@@ -46,8 +45,8 @@ class FullNodePrivateBlockOverlay : public td::actor::Actor {
   void receive_broadcast(PublicKeyHash src, td::BufferSlice query);
 
   void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data);
-  void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
-                            td::BufferSlice data);
+  void send_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
+                                      td::BufferSlice data, td::optional<td::BufferSlice> collated_data);
   void send_broadcast(BlockBroadcast broadcast);
   void send_validator_telemetry(tl_object_ptr<ton_api::validator_telemetry> telemetry);
 
@@ -116,9 +115,8 @@ class FullNodeCustomOverlay : public td::actor::Actor {
 
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_externalMessageBroadcast &query);
 
-  void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcast &query);
-  void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcastCompressed &query);
-  void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcastCompressedV2 &query);
+  void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockCandidateBroadcastCompressed &query);
+  void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockCandidateBroadcastCompressedV2 &query);
   void process_block_candidate_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query);
 
   template <class T>
@@ -129,8 +127,8 @@ class FullNodeCustomOverlay : public td::actor::Actor {
 
   void send_external_message(td::BufferSlice data);
   void send_broadcast(BlockBroadcast broadcast);
-  void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
-                            td::BufferSlice data);
+  void send_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
+                                      td::BufferSlice data, td::optional<td::BufferSlice> collated_data);
 
   void set_config(FullNodeConfig config) {
     opts_.config_ = std::move(config);

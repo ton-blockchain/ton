@@ -57,7 +57,7 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_baseline_lz4(td::Slice
   }
 
   TRY_RESULT(decompressed, td::lz4_decompress(compressed, decompressed_size));
-  TRY_RESULT(roots, vm::std_boc_deserialize_multi(decompressed));
+  TRY_RESULT(roots, vm::std_boc_deserialize_multi(decompressed, 1000000, true));
   return roots;
 }
 

@@ -33,9 +33,8 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
 
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast& query);
 
-  void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcast& query);
-  void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcastCompressed& query);
-  void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcastCompressedV2& query);
+  void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockCandidateBroadcastCompressed& query);
+  void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockCandidateBroadcastCompressedV2& query);
   void process_block_candidate_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast& query);
 
   void process_telemetry_broadcast(adnl::AdnlNodeIdShort src,
@@ -47,12 +46,22 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
   }
   void receive_broadcast(PublicKeyHash src, td::BufferSlice query);
 
+  template <class T>
+  void process_query(adnl::AdnlNodeIdShort src, T& query, td::Promise<td::BufferSlice> promise) {
+    promise.set_error(td::Status::Error(ErrorCode::error, "unknown query"));
+  }
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadBlockCandidate& query,
+                     td::Promise<td::BufferSlice> promise);
+  void receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice query, td::Promise<td::BufferSlice> promise);
+
   void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data);
   void send_broadcast(BlockBroadcast broadcast);
-  void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
-                            td::BufferSlice data);
+  void send_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
+                                      td::BufferSlice data, td::optional<td::BufferSlice> collated_data);
   void send_out_msg_queue_proof_broadcast(td::Ref<OutMsgQueueProofBroadcast> broadcast);
   void send_validator_telemetry(tl_object_ptr<ton_api::validator_telemetry> telemetry);
+  void download_block_candidate(BlockIdExt block_id, bool only_collated_data, td::Timestamp timeout,
+                                td::Promise<std::pair<td::BufferSlice, td::BufferSlice>> promise);
 
   void collect_validator_telemetry(std::string filename);
 
@@ -69,7 +78,7 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
                           std::vector<adnl::AdnlNodeIdShort> current_validators_adnl,
                           overlay::OverlayMemberCertificate member_certificate, bool receive_broadcasts,
                           td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-                          td::actor::ActorId<overlay::Overlays> overlays,
+                          td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<overlay::Overlays> overlays,
                           td::actor::ActorId<ValidatorManagerInterface> validator_manager,
                           td::actor::ActorId<FullNode> full_node)
       : local_id_(local_id)
@@ -81,6 +90,7 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
       , zero_state_file_hash_(zero_state_file_hash)
       , keyring_(keyring)
       , adnl_(adnl)
+      , rldp2_(rldp2)
       , overlays_(overlays)
       , validator_manager_(validator_manager)
       , full_node_(full_node) {
@@ -97,6 +107,7 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
 
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;
+  td::actor::ActorId<rldp2::Rldp> rldp2_;
   td::actor::ActorId<overlay::Overlays> overlays_;
   td::actor::ActorId<ValidatorManagerInterface> validator_manager_;
   td::actor::ActorId<FullNode> full_node_;
@@ -122,6 +133,7 @@ class FullNodeFastSyncOverlays {
   void update_overlays(td::Ref<MasterchainState> state, std::set<adnl::AdnlNodeIdShort> my_adnl_ids,
                        std::set<ShardIdFull> monitoring_shards, const FileHash& zero_state_file_hash,
                        const td::actor::ActorId<keyring::Keyring>& keyring, const td::actor::ActorId<adnl::Adnl>& adnl,
+                       const td::actor::ActorId<rldp2::Rldp>& rldp2,
                        const td::actor::ActorId<overlay::Overlays>& overlays,
                        const td::actor::ActorId<ValidatorManagerInterface>& validator_manager,
                        const td::actor::ActorId<FullNode>& full_node);

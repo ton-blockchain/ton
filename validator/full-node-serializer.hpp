@@ -30,9 +30,16 @@ td::Status deserialize_block_full(ton_api::tonNode_DataFull& obj, BlockIdExt& id
 
 td::Result<td::BufferSlice> serialize_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
                                                                 td::uint32 validator_set_hash, td::Slice data,
-                                                                bool compression_enabled);
+                                                                td::optional<td::Slice> collated_data);
 td::Status deserialize_block_candidate_broadcast(ton_api::tonNode_Broadcast& obj, BlockIdExt& block_id,
                                                  CatchainSeqno& cc_seqno, td::uint32& validator_set_hash,
-                                                 td::BufferSlice& data, int max_decompressed_data_size);
+                                                 td::BufferSlice& data, td::optional<td::BufferSlice>& collated_data,
+                                                 int max_decompressed_data_size);
+
+td::Result<td::BufferSlice> serialize_block_candidate_data(BlockCandidate candidate, bool only_collated_data,
+                                                           bool compression_enabled);
+td::Status deserialize_block_candidate_data(ton_api::tonNode_BlockCandidateData& obj, bool only_collated_data,
+                                            BlockIdExt& id, td::BufferSlice& data, td::BufferSlice& collated_data,
+                                            int max_decompressed_data_size);
 
 }  // namespace ton::validator::fullnode

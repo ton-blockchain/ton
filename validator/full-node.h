@@ -99,7 +99,8 @@ class FullNode : public td::actor::Actor {
 
   virtual void process_block_broadcast(BlockBroadcast broadcast) = 0;
   virtual void process_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
-                                                 td::uint32 validator_set_hash, td::BufferSlice data) = 0;
+                                                 td::uint32 validator_set_hash, td::BufferSlice data,
+                                                 td::optional<td::BufferSlice> collated_data) = 0;
   virtual void get_out_msg_queue_query_token(td::Promise<std::unique_ptr<ActionToken>> promise) = 0;
 
   virtual void set_validator_telemetry_filename(std::string value) = 0;
@@ -116,7 +117,7 @@ class FullNode : public td::actor::Actor {
   static constexpr td::uint64 max_state_size() {
     return 4ull << 30;
   }
-  enum { broadcast_mode_public = 1, broadcast_mode_private_block = 2, broadcast_mode_custom = 4 };
+  enum { broadcast_mode_public = 1, broadcast_mode_fast_sync = 2, broadcast_mode_custom = 4 };
 
   static constexpr td::int32 MAX_FAST_SYNC_OVERLAY_CLIENTS = 5;
 
