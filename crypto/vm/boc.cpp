@@ -1310,12 +1310,38 @@ ProofStorageStat::CellStatus ProofStorageStat::get_cell_status(const Cell::Hash&
   return it == cells_.end() ? c_none : it->second.status;
 }
 
-std::vector<Ref<Cell>> ProofStorageStat::build_collated_data() const {
+std::vector<Ref<Cell>> ProofStorageStat::build_collated_data(std::vector<Ref<Cell>> skip_roots) const {
   struct Cache {
     Ref<Cell> result;
     bool is_root = true;
+    bool skip = false;
+    bool skip_visited = false;
   };
   std::map<Cell::Hash, Cache> cache;
+
+  std::function<void(const Ref<Cell>&)> dfs_skip = [&](const Ref<Cell>& cell) {
+    Cell::Hash hash = cell->get_hash();
+    Cache& entry = cache[hash];
+    if (entry.skip_visited) {
+      return;
+    }
+    entry.skip_visited = entry.skip = true;
+    CellSlice cs{NoVm{}, cell};
+    if (cs.special_type() != CellTraits::SpecialType::PrunnedBranch) {
+      for (unsigned i = 0; i < cell->get_level(); ++i) {
+        cache[cell->get_hash(i)].skip = true;
+      }
+    }
+    for (unsigned i = 0; i < cs.size_refs(); ++i) {
+      dfs_skip(cs.prefetch_ref(i));
+    }
+  };
+  for (const auto& cell : skip_roots) {
+    if (cell.not_null()) {
+      dfs_skip(cell);
+    }
+  }
+
   std::function<Cache&(const CellInfo&)> dfs = [&](const CellInfo& info) -> Cache& {
     Cell::Hash hash = info.cell->get_hash(info.cell_max_level);
     Cache& entry = cache[hash];
@@ -1333,7 +1359,7 @@ std::vector<Ref<Cell>> ProofStorageStat::build_collated_data() const {
       Ref<Cell> child = info.cell->get_ref(i);
       Cell::Hash child_hash = child->get_hash(child_max_level);
       auto it = cells_.find(child_hash);
-      if (it == cells_.end() || it->second.status != c_loaded) {
+      if (it == cells_.end() || it->second.status != c_loaded || cache[child_hash].skip) {
         cb.store_ref(CellBuilder::create_pruned_branch(child, Cell::max_level, child_max_level));
       } else {
         Cache& child_result = dfs(it->second);
@@ -1345,14 +1371,14 @@ std::vector<Ref<Cell>> ProofStorageStat::build_collated_data() const {
     entry2.result = cb.finalize(info.cell->is_special());
     return entry2;
   };
-  for (auto& [_, info] : cells_) {
-    if (info.status == c_loaded) {
+  for (auto& [hash, info] : cells_) {
+    if (info.status == c_loaded && !cache[hash].skip) {
       dfs(info);
     }
   }
   std::vector<Ref<Cell>> result;
   for (auto& [_, entry] : cache) {
-    if (entry.is_root) {
+    if (entry.result.not_null() && entry.is_root) {
       result.push_back(std::move(entry.result));
     }
   }

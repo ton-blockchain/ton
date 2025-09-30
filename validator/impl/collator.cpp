@@ -6353,7 +6353,14 @@ bool Collator::create_collated_data() {
       // 7. Collated data proofs
       collated_roots_.push_back(
           vm::CellBuilder().store_long(block::gen::CollatedDataSeparator::cons_tag[0], 32).finalize_novm());
-      std::vector<Ref<vm::Cell>> proofs = collated_data_stat.build_collated_data();
+      std::vector<Ref<vm::Cell>> block_data_parts = {
+        shard_account_blocks_,
+        in_msg_dict->get_root_cell(),
+        out_msg_dict->get_root_cell(),
+        state_update
+      };
+      std::vector<Ref<vm::Cell>> proofs =
+          collated_data_stat.build_collated_data(/* skip_roots = */ std::move(block_data_parts));
       collated_roots_.insert(collated_roots_.end(), proofs.begin(), proofs.end());
     } else {
       std::map<td::Bits256, Ref<vm::Cell>> proofs;

@@ -177,7 +177,7 @@ class ProofStorageStat {
     return get_cell_status(hash) == c_loaded;
   }
 
-  std::vector<Ref<Cell>> build_collated_data() const;
+  std::vector<Ref<Cell>> build_collated_data(std::vector<Ref<Cell>> skip_roots = {}) const;
 
   static td::uint64 estimate_prunned_size();
   static td::uint64 estimate_serialized_size(const Ref<DataCell>& cell);
