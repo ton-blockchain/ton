@@ -242,8 +242,7 @@ void ValidatorSessionImpl::process_broadcast(PublicKeyHash src, td::BufferSlice 
   td::Timer deserialize_timer;
   auto R =
       deserialize_candidate(data, compress_block_candidates_,
-                            description().opts().max_block_size + description().opts().max_collated_data_size + 1024,
-                            description().opts().proto_version);
+                            description().opts().max_block_size + description().opts().max_collated_data_size + 1024);
   double deserialize_time = deserialize_timer.elapsed();
   if (R.is_error()) {
     VLOG(VALIDATOR_SESSION_WARNING) << this << "[node " << src << "][broadcast " << sha256_bits256(data.as_slice())
@@ -1012,8 +1011,7 @@ void ValidatorSessionImpl::downloaded_accepted_candidate(td::uint32 round, const
   }
   auto R =
       deserialize_candidate(result, compress_block_candidates_,
-                            description().opts().max_block_size + description().opts().max_collated_data_size + 1024,
-                            description().opts().proto_version);
+                            description().opts().max_block_size + description().opts().max_collated_data_size + 1024);
   if (R.is_error()) {
     VLOG(VALIDATOR_SESSION_WARNING) << this << ": failed to download accepted candidate " << candidate_id << ": "
                                     << R.move_as_error();

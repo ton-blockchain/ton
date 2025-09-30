@@ -525,7 +525,8 @@ void FullNodeImpl::download_block_candidate(BlockIdExt block_id, bool only_colla
                                             td::Promise<std::pair<td::BufferSlice, td::BufferSlice>> promise) {
   auto fast_sync_overlay = fast_sync_overlays_.choose_overlay(block_id.shard_full()).first;
   if (fast_sync_overlay.empty()) {
-    promise.set_error(td::Status::Error("no fast-sync overlays for download block candidate query"));
+    promise.set_error(td::Status::Error(errorcode_not_in_fast_sync_overlay,
+                                        "no fast-sync overlays for download block candidate query"));
     return;
   }
   td::actor::send_closure(fast_sync_overlay, &FullNodeFastSyncOverlay::download_block_candidate, block_id,

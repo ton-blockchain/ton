@@ -38,8 +38,7 @@ class CollationManager : public td::actor::Actor {
   void alarm() override;
 
   void collate_block(CollateParams params, BlockCandidatePriority priority, td::uint64 max_answer_size,
-                     td::CancellationToken cancellation_token, td::Promise<GeneratedCandidate> promise,
-                     int proto_version);
+                     td::CancellationToken cancellation_token, td::Promise<GeneratedCandidate> promise);
 
   void update_options(td::Ref<ValidatorManagerOptions> opts);
 
@@ -59,7 +58,7 @@ class CollationManager : public td::actor::Actor {
 
   void collate_shard_block(CollateParams params, BlockCandidatePriority priority, td::uint64 max_answer_size,
                            td::CancellationToken cancellation_token, td::Promise<GeneratedCandidate> promise,
-                           td::Timestamp timeout, int proto_version);
+                           td::Timestamp timeout);
 
   void update_collators_list(const CollatorsList& collators_list);
 

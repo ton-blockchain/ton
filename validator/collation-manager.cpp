@@ -56,8 +56,8 @@ void CollationManager::tear_down() {
 }
 
 void CollationManager::collate_block(CollateParams params, BlockCandidatePriority priority, td::uint64 max_answer_size,
-                                     td::CancellationToken cancellation_token, td::Promise<GeneratedCandidate> promise,
-                                     int proto_version) {
+                                     td::CancellationToken cancellation_token,
+                                     td::Promise<GeneratedCandidate> promise) {
   if (params.shard.is_masterchain()) {
     run_collate_query(std::move(params), manager_, td::Timestamp::in(10.0), std::move(cancellation_token),
                       promise.wrap([](BlockCandidate&& candidate) {
@@ -67,13 +67,12 @@ void CollationManager::collate_block(CollateParams params, BlockCandidatePriorit
     return;
   }
   collate_shard_block(std::move(params), priority, max_answer_size, std::move(cancellation_token), std::move(promise),
-                      td::Timestamp::in(10.0), proto_version);
+                      td::Timestamp::in(10.0));
 }
 
 void CollationManager::collate_shard_block(CollateParams params, BlockCandidatePriority priority,
                                            td::uint64 max_answer_size, td::CancellationToken cancellation_token,
-                                           td::Promise<GeneratedCandidate> promise, td::Timestamp timeout,
-                                           int proto_version) {
+                                           td::Promise<GeneratedCandidate> promise, td::Timestamp timeout) {
   bool is_optimistic = params.optimistic_prev_block.not_null();
   TRY_STATUS_PROMISE(promise, cancellation_token.check());
   ShardInfo* s = select_shard_info(params.shard);
@@ -181,7 +180,7 @@ void CollationManager::collate_shard_block(CollateParams params, BlockCandidateP
     delay_action(
         [=, promise = std::move(promise)]() mutable {
           td::actor::send_closure(SelfId, &CollationManager::collate_shard_block, params, priority, max_answer_size,
-                                  cancellation_token, std::move(promise), timeout, proto_version);
+                                  cancellation_token, std::move(promise), timeout);
         },
         retry_at);
   };
@@ -214,8 +213,7 @@ void CollationManager::collate_shard_block(CollateParams params, BlockCandidateP
       return;
     }
     TRY_RESULT_PROMISE(P, f, fetch_tl_object<ton_api::collatorNode_Candidate>(data, true));
-    TRY_RESULT_PROMISE(P, candidate,
-                       deserialize_candidate(std::move(f), td::narrow_cast<int>(max_answer_size), proto_version));
+    TRY_RESULT_PROMISE(P, candidate, deserialize_candidate(std::move(f), td::narrow_cast<int>(max_answer_size)));
     if (candidate.pubkey.as_bits256() != params.creator.as_bits256()) {
       P.set_error(td::Status::Error("collate query: block candidate source mismatch"));
       return;

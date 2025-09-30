@@ -118,6 +118,7 @@ class FullNode : public td::actor::Actor {
     return 4ull << 30;
   }
   enum { broadcast_mode_public = 1, broadcast_mode_fast_sync = 2, broadcast_mode_custom = 4 };
+  static constexpr int errorcode_not_in_fast_sync_overlay = 1002;
 
   static constexpr td::int32 MAX_FAST_SYNC_OVERLAY_CLIENTS = 5;
 

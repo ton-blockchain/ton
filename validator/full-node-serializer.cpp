@@ -203,7 +203,7 @@ td::Result<td::BufferSlice> serialize_block_candidate_broadcast(BlockIdExt block
   TRY_RESULT(root, vm::std_boc_deserialize(data));
   std::vector<Ref<vm::Cell>> roots = {root};
   if (collated_data) {
-    TRY_RESULT(collated_data_roots, vm::std_boc_deserialize_multi(data, 1000000, true));
+    TRY_RESULT(collated_data_roots, vm::std_boc_deserialize_multi(collated_data.value(), 1000000, true));
     roots.insert(roots.end(), collated_data_roots.begin(), collated_data_roots.end());
   }
   TRY_RESULT(data_new, vm::std_boc_serialize_multi(std::move(roots), 2));

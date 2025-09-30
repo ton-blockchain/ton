@@ -719,7 +719,9 @@ void ValidatorManagerImpl::add_cached_block_data(BlockIdExt block_id, td::Buffer
   if (!entry.collated_data && collated_data) {
     FileHash collated_data_hash = td::sha256_bits256(collated_data.value());
     if (entry.collated_data_hash && collated_data_hash != entry.collated_data_hash.value()) {
-      VLOG(VALIDATOR_WARNING) << "invalid block candidate broadcast: collated data hash mismatch";
+      VLOG(VALIDATOR_WARNING) << "invalid block candidate broadcast: collated data hash mismatch for block "
+                              << block_id.to_str() << " - expected " << entry.collated_data_hash.value().to_hex()
+                              << ", got " << collated_data_hash.to_hex();
       return;
     }
     entry.collated_data_hash = collated_data_hash;

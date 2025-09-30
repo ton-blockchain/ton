@@ -111,8 +111,7 @@ void ValidatorGroup::generate_block_candidate_cont(validatorsession::BlockSource
         TRY_STATUS_PROMISE(promise, cancellation_token.check());
         TRY_STATUS_PROMISE(promise, R.move_as_status());
         td::actor::send_closure(collation_manager_, &CollationManager::collate_block, params, source_info.priority,
-                                max_answer_size, std::move(cancellation_token), std::move(promise),
-                                config_.proto_version);
+                                max_answer_size, std::move(cancellation_token), std::move(promise));
       });
 }
 
@@ -430,8 +429,7 @@ void ValidatorGroup::generate_block_optimistic(validatorsession::BlockSourceInfo
     TRY_STATUS_PROMISE(promise, token.check());
     TRY_STATUS_PROMISE(promise, R.move_as_status());
     td::actor::send_closure(collation_manager_, &CollationManager::collate_block, std::move(params),
-                            source_info.priority, max_answer_size, std::move(token), std::move(promise),
-                            config_.proto_version);
+                            source_info.priority, max_answer_size, std::move(token), std::move(promise));
   });
 }
 
@@ -776,9 +774,13 @@ void ValidatorGroup::get_validator_group_info_for_litequery_cont(
 void ValidatorGroup::send_block_candidate_broadcast(BlockIdExt id, td::BufferSlice data,
                                                     td::BufferSlice collated_data) {
   if (sent_block_candidate_broadcasts_.insert(id).second) {
+    td::optional<td::BufferSlice> o_collated_data;
+    if (merge_collated_data_enabled_) {
+      o_collated_data = std::move(collated_data);
+    }
     td::actor::send_closure(manager_, &ValidatorManager::send_block_candidate_broadcast, id,
                             validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash(),
-                            std::move(data), std::move(collated_data),
+                            std::move(data), std::move(o_collated_data),
                             fullnode::FullNode::broadcast_mode_fast_sync | fullnode::FullNode::broadcast_mode_custom);
   }
 }
