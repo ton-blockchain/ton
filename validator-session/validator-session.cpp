@@ -1578,18 +1578,18 @@ void ValidatorSessionImpl::generate_block_optimistic(td::uint32 cur_round,
   if (!stat) {
     return;
   }
-  callback_->generate_block_optimistic(BlockSourceInfo{description().get_source_public_key(local_idx()),
-                                                       BlockCandidatePriority{cur_round + 1, cur_round + 1, 0}},
-                                       block->data_.clone(), block->root_hash_, stat->block_id.file_hash,
-                                       [=, SelfId = actor_id(this)](td::Result<GeneratedCandidate> R) {
-                                         if (R.is_error()) {
-                                           LOG(DEBUG) << "Optimistic generation error: " << R.move_as_error();
-                                           return;
-                                         }
-                                         td::actor::send_closure(SelfId,
-                                                                 &ValidatorSessionImpl::generated_optimistic_candidate,
-                                                                 cur_round + 1, R.move_as_ok(), prev_candidate_id);
-                                       });
+  callback_->generate_block_optimistic(
+      BlockSourceInfo{description().get_source_public_key(local_idx()),
+                      BlockCandidatePriority{cur_round + 1, cur_round + 1, 0}},
+      block->data_.clone(), block->collated_data_.clone(), block->root_hash_, stat->block_id.file_hash,
+      [=, SelfId = actor_id(this)](td::Result<GeneratedCandidate> R) {
+        if (R.is_error()) {
+          LOG(DEBUG) << "Optimistic generation error: " << R.move_as_error();
+          return;
+        }
+        td::actor::send_closure(SelfId, &ValidatorSessionImpl::generated_optimistic_candidate, cur_round + 1,
+                                R.move_as_ok(), prev_candidate_id);
+      });
 }
 
 void ValidatorSessionImpl::generated_optimistic_candidate(td::uint32 round, GeneratedCandidate candidate,

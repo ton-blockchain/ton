@@ -62,7 +62,7 @@ void CollatorNodeSession::start_up() {
     collated_data_deduplicator_ = std::make_shared<CollatedDataDeduplicator>();
   }
   if (can_generate_) {
-    generate_block(prev_, {}, {}, td::Timestamp::in(10.0), [](td::Result<BlockCandidate>) {});
+    generate_block(prev_, {}, {}, {}, td::Timestamp::in(10.0), [](td::Result<BlockCandidate>) {});
   }
 }
 
@@ -71,6 +71,11 @@ void CollatorNodeSession::tear_down() {
             << validator_set_->get_catchain_seqno();
   for (auto& [_, entry] : cache_) {
     entry->cancel(td::Status::Error("validator session finished"));
+  }
+  for (auto& [_, vec] : collated_data_merged_waiters_) {
+    for (auto& [promise, _] : vec) {
+      promise.set_error(td::Status::Error("validator session finished"));
+    }
   }
 }
 
@@ -114,7 +119,7 @@ void CollatorNodeSession::new_shard_block_accepted(BlockIdExt block_id, bool can
   try_merge_collated_data(block_id);
 
   if (can_generate_) {
-    generate_block(prev_, {}, {}, td::Timestamp::in(10.0), [](td::Result<BlockCandidate>) {});
+    generate_block(prev_, {}, {}, {}, td::Timestamp::in(10.0), [](td::Result<BlockCandidate>) {});
   }
 }
 
@@ -143,7 +148,8 @@ void CollatorNodeSession::update_masterchain_config(td::Ref<MasterchainState> st
 
 void CollatorNodeSession::generate_block(std::vector<BlockIdExt> prev_blocks,
                                          td::optional<BlockCandidatePriority> o_priority,
-                                         td::Ref<BlockData> o_optimistic_prev_block, td::Timestamp timeout,
+                                         td::Ref<BlockData> o_optimistic_prev_block,
+                                         td::BufferSlice o_optimistic_prev_collated_data, td::Timestamp timeout,
                                          td::Promise<BlockCandidate> promise) {
   bool is_external = !o_priority;
   bool is_optimistic = o_optimistic_prev_block.not_null();
@@ -242,6 +248,7 @@ void CollatorNodeSession::generate_block(std::vector<BlockIdExt> prev_blocks,
                        .collator_node_id = local_id_,
                        .skip_store_candidate = true,
                        .optimistic_prev_block = o_optimistic_prev_block,
+                       .optimistic_prev_collated_data = std::move(o_optimistic_prev_collated_data),
                        .collated_data_deduplicator = collated_data_deduplicator_};
   auto token = cache_entry->cancellation_token_source.get_cancellation_token();
   wait_collated_data_merged(
@@ -295,26 +302,33 @@ void CollatorNodeSession::process_request(adnl::AdnlNodeIdShort src, std::vector
     if (it == cache_.end() || it->second->started) {
       BlockIdExt prev_block = prev_blocks[0];
       td::actor::send_closure(
-          manager_, &ValidatorManager::get_candidate_data_by_block_id_from_db, prev_block,
-          [=, SelfId = actor_id(this), promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
+          manager_, &ValidatorManager::get_block_candidate_by_block_id_from_db, prev_block,
+          [=, SelfId = actor_id(this), promise = std::move(promise)](td::Result<BlockCandidate> R) mutable {
+            td::Result<std::pair<td::BufferSlice, td::BufferSlice>> res;
+            if (R.is_error()) {
+              res = R.move_as_error();
+            } else {
+              BlockCandidate c = R.move_as_ok();
+              res = std::make_pair(std::move(c.data), std::move(c.collated_data));
+            }
             td::actor::send_closure(SelfId, &CollatorNodeSession::process_request_optimistic_cont, src, prev_block,
-                                    priority, timeout, std::move(promise), std::move(R));
+                                    priority, timeout, std::move(promise), std::move(res));
           });
       return;
     }
   }
-  generate_block(std::move(prev_blocks), priority, {}, timeout, std::move(promise));
+  generate_block(std::move(prev_blocks), priority, {}, {}, timeout, std::move(promise));
 }
 
-void CollatorNodeSession::process_request_optimistic_cont(adnl::AdnlNodeIdShort src, BlockIdExt prev_block_id,
-                                                          BlockCandidatePriority priority, td::Timestamp timeout,
-                                                          td::Promise<BlockCandidate> promise,
-                                                          td::Result<td::BufferSlice> prev_block_data) {
-  if (prev_block_data.is_ok()) {
-    TRY_RESULT_PROMISE_PREFIX(promise, prev_block, create_block(prev_block_id, prev_block_data.move_as_ok()),
+void CollatorNodeSession::process_request_optimistic_cont(
+    adnl::AdnlNodeIdShort src, BlockIdExt prev_block_id, BlockCandidatePriority priority, td::Timestamp timeout,
+    td::Promise<BlockCandidate> promise, td::Result<std::pair<td::BufferSlice, td::BufferSlice>> prev_candidate) {
+  if (prev_candidate.is_ok()) {
+    auto [prev_block_data, prev_collated_data] = prev_candidate.move_as_ok();
+    TRY_RESULT_PROMISE_PREFIX(promise, prev_block, create_block(prev_block_id, std::move(prev_block_data)),
                               "invalid prev block data in db: ");
     LOG(INFO) << "got prev block from db for optimistic collation: " << prev_block_id.to_str();
-    generate_block({prev_block_id}, priority, prev_block, timeout, std::move(promise));
+    generate_block({prev_block_id}, priority, prev_block, std::move(prev_collated_data), timeout, std::move(promise));
     return;
   }
   td::actor::send_closure(
@@ -324,7 +338,8 @@ void CollatorNodeSession::process_request_optimistic_cont(adnl::AdnlNodeIdShort 
                                 timeout, std::move(promise), std::move(R));
       },
       timeout,
-      create_serialize_tl_object<ton_api::collatorNode_requestBlockCallback>(0, create_tl_block_id(prev_block_id)),
+      create_serialize_tl_object<ton_api::collatorNode_requestBlockCallback>(merge_collated_data_enabled_ ? 1 : 0,
+                                                                             create_tl_block_id(prev_block_id)),
       max_candidate_size_);
 }
 
@@ -335,13 +350,29 @@ void CollatorNodeSession::process_request_optimistic_cont2(BlockIdExt prev_block
                             "failed to download prev block data for optimistic collation: ");
   TRY_RESULT_PROMISE_PREFIX(promise, f, fetch_tl_object<ton_api::collatorNode_Candidate>(response, true),
                             "failed to download prev block data for optimistic collation: ");
-  TRY_RESULT_PROMISE_PREFIX(promise, candidate,
-                            deserialize_candidate(std::move(f), max_candidate_size_),
+  TRY_RESULT_PROMISE_PREFIX(promise, candidate, deserialize_candidate(std::move(f), max_candidate_size_),
                             "failed to download prev block data for optimistic collation: ");
   TRY_RESULT_PROMISE_PREFIX(promise, prev_block, create_block(prev_block_id, std::move(candidate.data)),
                             "invalid prev block data from validator: ");
+  if (merge_collated_data_enabled_) {
+    block::gen::Block::Record rec;
+    block::gen::BlockInfo::Record info;
+    if (!block::gen::unpack_cell(prev_block->root_cell(), rec) || !block::gen::unpack_cell(rec.info, info)) {
+      promise.set_error(td::Status::Error("failed to unpack prev block header"));
+      return;
+    }
+    if (info.flags & 2) {
+      FileHash stored_collated_data_hash;
+      info.collated_data_hash->prefetch_bits_to(stored_collated_data_hash);
+      if (stored_collated_data_hash != candidate.collated_file_hash) {
+        promise.set_error(td::Status::Error("collated data hash mismatch"));
+        return;
+      }
+    }
+  }
   LOG(INFO) << "got prev block from validator for optimistic collation: " << prev_block_id.to_str();
-  generate_block({prev_block_id}, priority, prev_block, timeout, std::move(promise));
+  generate_block({prev_block_id}, priority, prev_block, std::move(candidate.collated_data), timeout,
+                 std::move(promise));
 }
 
 void CollatorNodeSession::CacheEntry::cancel(td::Status reason) {

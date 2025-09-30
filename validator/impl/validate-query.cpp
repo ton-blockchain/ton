@@ -80,8 +80,9 @@ ValidateQuery::ValidateQuery(BlockCandidate candidate, ValidateParams params,
     , main_promise(std::move(promise))
     , is_fake_(params.is_fake)
     , shard_pfx_(shard_.shard)
-    , shard_pfx_len_(ton::shard_prefix_length(shard_))
+    , shard_pfx_len_(shard_prefix_length(shard_))
     , optimistic_prev_block_(std::move(params.optimistic_prev_block))
+    , optimistic_prev_collated_data_(std::move(params.optimistic_prev_collated_data))
     , collated_data_merger_(std::move(params.collated_data_merger))
     , merge_collated_data_enabled_(!collated_data_merger_.empty())
     , perf_timer_("validateblock", 0.1, [manager](double duration) {
@@ -839,6 +840,11 @@ bool ValidateQuery::extract_collated_data() {
     LOG(DEBUG) << "sending add_block_candidate() to CollatedDataMerger";
     td::actor::send_closure(collated_data_merger_, &CollatedDataMerger::add_block_candidate, id_, block_root_,
                             collated_roots_);
+    if (optimistic_prev_block_.not_null()) {
+      LOG(DEBUG) << "sending add_block_candidate() for optimistic prev block to CollatedDataMerger";
+      td::actor::send_closure(collated_data_merger_, &CollatedDataMerger::add_block_candidate_data, id_,
+                              optimistic_prev_block_->data(), optimistic_prev_collated_data_.clone());
+    }
     std::vector<vm::CellHash> hashes = collated_data_root_state_hashes_;
     hashes.insert(hashes.end(), collated_data_root_dict_hashes_.begin(), collated_data_root_dict_hashes_.end());
     if (!hashes.empty()) {

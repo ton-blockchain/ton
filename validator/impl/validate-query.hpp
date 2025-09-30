@@ -156,6 +156,7 @@ class ValidateQuery : public td::actor::Actor {
   int shard_pfx_len_;
   td::Bits256 created_by_;
   Ref<BlockData> optimistic_prev_block_;
+  td::BufferSlice optimistic_prev_collated_data_;
 
   Ref<vm::Cell> prev_state_root_;
   Ref<vm::Cell> state_root_;

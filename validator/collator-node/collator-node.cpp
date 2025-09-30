@@ -193,7 +193,8 @@ void CollatorNode::new_masterchain_block_notification(td::Ref<MasterchainState> 
         }
       }
       for (BlockCandidate& candidate : future_group.pending_candidate_broadcasts) {
-        td::actor::send_closure(it->second.actor, &CollatorNodeSession::on_block_candidate_broadcast, std::move(candidate));
+        td::actor::send_closure(it->second.actor, &CollatorNodeSession::on_block_candidate_broadcast,
+                                std::move(candidate));
       }
       for (auto& promise : future_group.promises) {
         promise.set_value(td::Unit());

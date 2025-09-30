@@ -83,6 +83,7 @@ Collator::Collator(CollateParams params, td::actor::ActorId<ValidatorManager> ma
     , collator_node_id_(params.collator_node_id)
     , skip_store_candidate_(params.skip_store_candidate)
     , optimistic_prev_block_(std::move(params.optimistic_prev_block))
+    , optimistic_prev_collated_data_(std::move(params.optimistic_prev_collated_data))
     , collated_data_deduplicator_(std::move(params.collated_data_deduplicator))
     , attempt_idx_(params.attempt_idx)
     , perf_timer_("collate", 0.1,
@@ -845,6 +846,11 @@ void Collator::after_get_shard_state_optimistic(td::Result<Ref<ShardState>> res,
   if (S.is_error()) {
     fatal_error(S.move_as_error_prefix("apply error: "));
     return;
+  }
+  if (collated_data_deduplicator_) {
+    collated_data_deduplicator_local_ = std::make_shared<CollatedDataDeduplicator>();
+    collated_data_deduplicator_local_->add_block_candidate(
+        optimistic_prev_block_->block_id().seqno(), optimistic_prev_block_->data(), optimistic_prev_collated_data_);
   }
   work_timer_.pause();
   stats_.work_time.optimistic_apply = timer.elapsed_both();
@@ -6776,10 +6782,15 @@ void Collator::on_cell_loaded(const vm::LoadedCell& loaded_cell) {
   if (stop_cell_load_processing_) {
     return;
   }
-  if (merge_collated_data_enabled_ && collated_data_deduplicator_ &&
-      collated_data_deduplicator_->cell_exists(loaded_cell.data_cell->get_hash(loaded_cell.virt.get_level()),
-                                               new_block_seqno)) {
-    return;
+  if (merge_collated_data_enabled_) {
+    vm::CellHash hash = loaded_cell.data_cell->get_hash(loaded_cell.virt.get_level());
+    if (collated_data_deduplicator_ &&
+        collated_data_deduplicator_->cell_exists(hash, new_block_seqno - (optimistic_prev_block_.is_null() ? 0 : 1))) {
+      return;
+    }
+    if (collated_data_deduplicator_local_ && collated_data_deduplicator_local_->cell_exists(hash, new_block_seqno)) {
+      return;
+    }
   }
   auto context = block::StorageStatCalculationContext::get();
   vm::ProofStorageStat* stat = (context && context->calculating_storage_stat() && current_tx_storage_dict_

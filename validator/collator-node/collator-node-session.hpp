@@ -82,14 +82,14 @@ class CollatorNodeSession : public td::actor::Actor {
   td::uint32 max_candidate_size_ = 0;
 
   void generate_block(std::vector<BlockIdExt> prev_blocks, td::optional<BlockCandidatePriority> o_priority,
-                      td::Ref<BlockData> o_optimistic_prev_block, td::Timestamp timeout,
-                      td::Promise<BlockCandidate> promise);
+                      td::Ref<BlockData> o_optimistic_prev_block, td::BufferSlice o_optimistic_prev_collated_data,
+                      td::Timestamp timeout, td::Promise<BlockCandidate> promise);
   void process_result(std::shared_ptr<CacheEntry> cache_entry, td::Result<BlockCandidate> R);
 
   void process_request_optimistic_cont(adnl::AdnlNodeIdShort src, BlockIdExt prev_block_id,
                                        BlockCandidatePriority priority, td::Timestamp timeout,
                                        td::Promise<BlockCandidate> promise,
-                                       td::Result<td::BufferSlice> prev_block_data);
+                                       td::Result<std::pair<td::BufferSlice, td::BufferSlice>> prev_candidate);
   void process_request_optimistic_cont2(BlockIdExt prev_block_id, BlockCandidatePriority priority,
                                         td::Timestamp timeout, td::Promise<BlockCandidate> promise,
                                         td::Result<td::BufferSlice> R);

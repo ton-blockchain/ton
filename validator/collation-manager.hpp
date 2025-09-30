@@ -96,6 +96,7 @@ class CollationManager : public td::actor::Actor {
 
   struct OptimisticPrevCache {
     td::BufferSlice block_data;
+    td::BufferSlice collated_data;
     size_t refcnt = 0;
   };
   std::map<BlockIdExt, OptimisticPrevCache> optimistic_prev_cache_;

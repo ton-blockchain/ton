@@ -85,7 +85,9 @@ class Collator final : public td::actor::Actor {
   adnl::AdnlNodeIdShort collator_node_id_ = adnl::AdnlNodeIdShort::zero();
   bool skip_store_candidate_ = false;
   Ref<BlockData> optimistic_prev_block_;
+  td::BufferSlice optimistic_prev_collated_data_;
   std::shared_ptr<CollatedDataDeduplicator> collated_data_deduplicator_;
+  std::shared_ptr<CollatedDataDeduplicator> collated_data_deduplicator_local_;
   int attempt_idx_;
   bool allow_repeat_collation_ = false;
   ton::BlockSeqno last_block_seqno{0};

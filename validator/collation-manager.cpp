@@ -159,7 +159,7 @@ void CollationManager::collate_shard_block(CollateParams params, BlockCandidateP
     next_block_id.seqno = std::max(next_block_id.seqno, p.seqno() + 1);
   }
 
-  td::Promise<BlockCandidate> P = [=, SelfId = actor_id(this), promise = std::move(promise),
+  td::Promise<BlockCandidate> P = [=, SelfId = actor_id(this), promise = std::move(promise), params = params.clone(),
                                    retry_at = td::Timestamp::in(0.5)](td::Result<BlockCandidate> R) mutable {
     if (R.is_ok()) {
       promise.set_value(GeneratedCandidate{.candidate = R.move_as_ok(),
@@ -178,9 +178,9 @@ void CollationManager::collate_shard_block(CollateParams params, BlockCandidateP
       return;
     }
     delay_action(
-        [=, promise = std::move(promise)]() mutable {
-          td::actor::send_closure(SelfId, &CollationManager::collate_shard_block, params, priority, max_answer_size,
-                                  cancellation_token, std::move(promise), timeout);
+        [=, promise = std::move(promise), params = std::move(params)]() mutable {
+          td::actor::send_closure(SelfId, &CollationManager::collate_shard_block, std::move(params), priority,
+                                  max_answer_size, cancellation_token, std::move(promise), timeout);
         },
         retry_at);
   };
@@ -203,7 +203,7 @@ void CollationManager::collate_shard_block(CollateParams params, BlockCandidateP
   LOG(INFO) << "sending collate query for " << next_block_id.to_str() << ": send to #" << selected_idx << "("
             << selected_collator << ")";
 
-  td::Promise<td::BufferSlice> P2 = [=, SelfId = actor_id(this), P = std::move(P),
+  td::Promise<td::BufferSlice> P2 = [=, SelfId = actor_id(this), P = std::move(P), creator = params.creator,
                                      timer = td::Timer()](td::Result<td::BufferSlice> R) mutable {
     TRY_RESULT_PROMISE_PREFIX(P, data, std::move(R), "rldp query failed: ");
     auto r_error = fetch_tl_object<ton_api::collatorNode_error>(data, true);
@@ -214,7 +214,7 @@ void CollationManager::collate_shard_block(CollateParams params, BlockCandidateP
     }
     TRY_RESULT_PROMISE(P, f, fetch_tl_object<ton_api::collatorNode_Candidate>(data, true));
     TRY_RESULT_PROMISE(P, candidate, deserialize_candidate(std::move(f), td::narrow_cast<int>(max_answer_size)));
-    if (candidate.pubkey.as_bits256() != params.creator.as_bits256()) {
+    if (candidate.pubkey.as_bits256() != creator.as_bits256()) {
       P.set_error(td::Status::Error("collate query: block candidate source mismatch"));
       return;
     }
@@ -231,6 +231,7 @@ void CollationManager::collate_shard_block(CollateParams params, BlockCandidateP
     BlockIdExt prev_block_id = params.optimistic_prev_block->block_id();
     auto& entry = optimistic_prev_cache_[prev_block_id];
     entry.block_data = params.optimistic_prev_block->data().clone();
+    entry.collated_data = params.optimistic_prev_collated_data.clone();
     ++entry.refcnt;
     P2 = [this, SelfId = actor_id(this), prev_block_id, P2 = std::move(P2)](td::Result<td::BufferSlice> R) mutable {
       P2.set_result(std::move(R));
@@ -479,18 +480,22 @@ void CollationManager::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice 
   }
   TRY_RESULT_PROMISE(promise, query, fetch_tl_object<ton_api::collatorNode_requestBlockCallback>(data, true));
   BlockIdExt block_id = create_block_id(query->block_id_);
+  bool with_collated_data = query->flags_ & 1;
   auto it = optimistic_prev_cache_.find(block_id);
   if (it == optimistic_prev_cache_.end()) {
-    LOG(INFO) << "collatorNode.requestBlockCallback from " << src << " block " << block_id.to_str() << " : not found";
+    LOG(INFO) << "collatorNode.requestBlockCallback from " << src << " block " << block_id.to_str() << " ("
+              << (with_collated_data ? "with" : "no") << " cdata) : not found";
     promise.set_error(td::Status::Error("block not found"));
     return;
   }
-  LOG(INFO) << "collatorNode.requestBlockCallback from " << src << " block " << block_id.to_str() << " : OK";
-  promise.set_value(
-      serialize_tl_object(serialize_candidate(BlockCandidate(Ed25519_PublicKey{td::Bits256::zero()}, block_id,
-                                                             td::Bits256::zero(), it->second.block_data.clone(), {}),
-                                              true),
-                          true));
+  LOG(INFO) << "collatorNode.requestBlockCallback from " << src << " block " << block_id.to_str() << " ("
+            << (with_collated_data ? "with" : "no") << " cdata) : OK";
+  promise.set_value(serialize_tl_object(
+      serialize_candidate(BlockCandidate(Ed25519_PublicKey{td::Bits256::zero()}, block_id, td::Bits256::zero(),
+                                         it->second.block_data.clone(),
+                                         with_collated_data ? it->second.collated_data.clone() : td::BufferSlice{}),
+                          true),
+      true));
 }
 
 }  // namespace ton::validator
