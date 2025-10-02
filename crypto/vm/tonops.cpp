@@ -620,11 +620,7 @@ int exec_compute_hash(VmState* st, int mode) {
     auto cs = stack.pop_cellslice();
     CellBuilder cb;
     CHECK(cb.append_cellslice_bool(std::move(cs)));
-    if (st->get_global_version() >= 12) {
-      hash = cb.finalize_novm()->get_hash().as_array();
-    } else {
-      hash = cb.finalize()->get_hash().as_array();
-    }
+    hash = cb.finalize()->get_hash().as_array();
   } else {  // builder
     auto cb = stack.pop_builder();
     hash = cb.write().finalize_novm()->get_hash().as_array();
