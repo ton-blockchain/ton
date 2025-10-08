@@ -10,6 +10,7 @@ set(TOLK_SOURCE
         pack-unpack-api.cpp
         pack-unpack-serializers.cpp
         send-message-api.cpp
+        maps-kv-api.cpp
         pipe-discover-parse-sources.cpp
         pipe-register-symbols.cpp
         pipe-resolve-identifiers.cpp
@@ -19,6 +20,7 @@ set(TOLK_SOURCE
         pipe-check-inferred-types.cpp
         pipe-refine-lvalue-for-mutate.cpp
         pipe-check-rvalue-lvalue.cpp
+        pipe-check-private-fields.cpp
         pipe-check-pure-impure.cpp
         pipe-constant-folding.cpp
         pipe-optimize-boolean-expr.cpp
@@ -33,6 +35,7 @@ set(TOLK_SOURCE
         smart-casts-cfg.cpp
         generics-helpers.cpp
         lazy-helpers.cpp
+        overload-resolution.cpp
         abscode.cpp
         analyzer.cpp
         asmops.cpp

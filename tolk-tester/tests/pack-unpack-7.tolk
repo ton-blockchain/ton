@@ -100,6 +100,22 @@ fun Tensor3Skipping1.packToBuilder(self, mutate b: builder) {
     b.storeUint(self.0, 8).storeUint(self.2, 8);
 }
 
+enum Color {
+    Red,
+    Green,
+    Blue,
+}
+
+type UnsafeColor = Color
+
+fun UnsafeColor.unpackFromSlice(mutate s: slice) {
+    return s.loadUint(2) as Color
+}
+
+fun UnsafeColor.packToBuilder(self, mutate b: builder) {
+    b.storeUint(self as int, 2)
+}
+
 
 @method_id(101)
 fun test1() {
@@ -155,6 +171,15 @@ fun test7() {
     return t.toCell().load();
 }
 
+@method_id(108)
+fun test8(c: UnsafeColor) {
+    var way1 = beginCell().storeAny(c).endCell();
+    var way2 = c.toCell();
+    __expect_type(way2, "Cell<UnsafeColor>");
+    assert (way1.hash() == way2.hash()) throw 123;
+    return way2.load();
+}
+
 fun main() {
     __expect_type("" as TelegramString, "TelegramString");
 }
@@ -169,6 +194,8 @@ fun main() {
 @testcase | 105 |     | 123 1
 @testcase | 106 |     | 6 2 255 0 8 9
 @testcase | 107 |     | 1 0 3
+@testcase | 108 | 0   | 0
+@testcase | 108 | 3   | 3
 
 @fif_codegen
 """

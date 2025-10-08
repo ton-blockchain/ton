@@ -158,10 +158,8 @@ public:
 
   bool is_unreachable() const { return unreachable; }
 
-  TypePtr smart_cast_if_exists(SinkExpression s_expr) const {
-    auto it = known_facts.find(s_expr);
-    return it == known_facts.end() ? nullptr : it->second.expr_type;
-  }
+  bool smart_cast_exists(SinkExpression s_expr) const { return known_facts.find(s_expr) != known_facts.end(); }
+  TypePtr smart_cast_or_original(SinkExpression s_expr, TypePtr originally_declared_type) const;
 
   void register_known_type(SinkExpression s_expr, TypePtr assigned_type);
   void mark_unreachable(UnreachableKind reason);

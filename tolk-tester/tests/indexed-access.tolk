@@ -179,6 +179,7 @@ fun getConstTuple(): Tup2Int {
     return [1,2];
 }
 
+@noinline
 fun testCodegenNoPureIndexedAccess() {
     (getConstTuple().1, getConstTuple().0) = (3, 4);
     return 0;
@@ -277,7 +278,9 @@ fun test123() {
     return t;
 }
 
-fun main(){}
+fun main(){
+    testCodegenNoPureIndexedAccess();
+}
 
 
 /**
