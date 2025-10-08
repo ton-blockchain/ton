@@ -307,7 +307,12 @@ fun testExplicitReturn() {
 }
 
 
-fun main(){}
+fun main(){
+    // mark used to codegen them
+    load_next;
+    testStoreUintPureUnusedResult;
+    testStoreUintImpureUnusedResult
+}
 
 /**
 @testcase | 101 |    | 70 60

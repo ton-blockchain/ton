@@ -315,8 +315,13 @@ struct ConstantExpressionChecker {
     if (auto v_cast_to = v->try_as<ast_cast_as_operator>()) {
       return visit(v_cast_to->get_expr());
     }
-    if (auto v_dot = v->try_as<ast_dot_access>(); v_dot && (v_dot->is_target_indexed_access() || v_dot->is_target_fun_ref())) {
-      return visit(v_dot->get_obj());
+    if (auto v_dot = v->try_as<ast_dot_access>()) {
+      if (v_dot->is_target_indexed_access()) {    // anotherConst.0
+        return visit(v_dot->get_obj());
+      }
+      if (v_dot->is_target_enum_member()) {       // Color.Red
+        return;
+      }
     }
     v->error("not a constant expression");
   }
@@ -328,6 +333,79 @@ struct ConstantExpressionChecker {
     visit(v);
   }
 };
+
+struct EnumMemberEvaluator {
+  static td::RefInt256 handle_unary_operator(V<ast_unary_operator> v) {
+    td::RefInt256 rhs = visit(v->get_rhs());
+    if (!rhs->is_valid()) return rhs;
+    
+    switch (v->tok) {
+      case tok_minus:         return -rhs;
+      case tok_bitwise_not:   return ~rhs;
+      case tok_plus:          return rhs;
+      default:
+        fire(nullptr, v->loc, "unsupported operator in `enum` member value");
+    }
+  }
+
+  static td::RefInt256 handle_binary_operator(V<ast_binary_operator> v) {
+    td::RefInt256 lhs = visit(v->get_lhs()); 
+    td::RefInt256 rhs = visit(v->get_rhs());
+    if (!lhs->is_valid()) return lhs;
+    if (!rhs->is_valid()) return rhs;
+
+    switch (v->tok) {
+      case tok_plus:          return lhs + rhs;
+      case tok_minus:         return lhs - rhs;
+      case tok_mul:           return lhs * rhs;
+      case tok_div:           return lhs / rhs;
+      case tok_mod:           return lhs % rhs;
+      case tok_bitwise_and:   return lhs & rhs;
+      case tok_bitwise_or:    return lhs | rhs;
+      case tok_bitwise_xor:   return lhs ^ rhs;
+      case tok_lshift:        return lhs << static_cast<int>(rhs->to_long());
+      case tok_rshift:        return lhs >> static_cast<int>(rhs->to_long());
+      default:
+        fire(nullptr, v->loc, "unsupported operator in `enum` member value");
+    }
+  }
+  
+  // `enum { Red = SIX }`, we met `SIX`
+  static td::RefInt256 handle_reference(V<ast_reference> v) {
+    GlobalConstPtr const_ref = v->sym->try_as<GlobalConstPtr>();
+    if (!const_ref) {
+      v->error("symbol `" + static_cast<std::string>(v->get_name()) + "` is not a constant");
+    }
+    return visit(const_ref->init_value);
+  }
+
+  static td::RefInt256 visit(AnyExprV v) {
+    if (auto v_int = v->try_as<ast_int_const>()) {
+      return v_int->intval;
+    }
+    if (auto v_un = v->try_as<ast_unary_operator>()) {
+      return handle_unary_operator(v_un);
+    }
+    if (auto v_bin = v->try_as<ast_binary_operator>()) {
+      return handle_binary_operator(v_bin);
+    }
+    if (auto v_ref = v->try_as<ast_reference>()) {
+      return handle_reference(v_ref);
+    }
+    if (auto v_par = v->try_as<ast_parenthesized_expression>()) {
+      return visit(v_par->get_expr());
+    }
+    if (auto v_dot = v->try_as<ast_dot_access>()) {
+      // `enum E { V = AnotherEnum.A }` not allowed (can be allowed in the future,
+      // but remember to construct an initialization tree, since A may be auto-computed, and prevent recursion)
+      if (v_dot->is_target_enum_member()) {
+        fire(nullptr, v->loc, "referencing other members in initializers is not allowed yet");
+      }
+    }
+    fire(nullptr, v->loc, "unsupported operation in `enum` member value");
+  }
+};
+
 
 void check_expression_is_constant(AnyExprV v_expr) {
   ConstantExpressionChecker::check_expression_expected_to_be_constant(v_expr);
@@ -344,6 +422,10 @@ CompileTimeFunctionResult eval_call_to_compile_time_function(AnyExprV v_call) {
   auto v = v_call->try_as<ast_function_call>();
   tolk_assert(v && v->fun_maybe->is_compile_time_const_val());
   return parse_vertex_call_to_compile_time_function(v, v->fun_maybe->name);
+}
+
+td::RefInt256 eval_enum_member_init_value(AnyExprV init_value) {
+  return EnumMemberEvaluator::visit(init_value);
 }
 
 

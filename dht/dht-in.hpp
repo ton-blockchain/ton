@@ -47,8 +47,6 @@ class DhtMemberImpl : public DhtMember {
   td::uint32 k_;
   td::uint32 a_;
   td::int32 network_id_{-1};
-  td::uint32 max_cache_time_ = 60;
-  td::uint32 max_cache_size_ = 100;
 
   std::vector<DhtBucket> buckets_;
 
@@ -57,17 +55,14 @@ class DhtMemberImpl : public DhtMember {
   // to be republished once in a while
   std::map<DhtKeyId, DhtValue> our_values_;
 
-  std::map<DhtKeyId, DhtKeyValueLru> cached_values_;
-  td::ListNode cached_values_lru_;
-
   std::map<DhtKeyId, DhtValue> values_;
+  std::set<std::pair<td::uint32, DhtKeyId>> values_ttl_order_;
 
   td::Timestamp fill_att_ = td::Timestamp::in(0);
   td::Timestamp republish_att_ = td::Timestamp::in(0);
 
   DhtKeyId last_republish_key_ = DhtKeyId::zero();
   DhtKeyId last_check_key_ = DhtKeyId::zero();
-  adnl::AdnlNodeIdShort last_check_reverse_conn_ = adnl::AdnlNodeIdShort::zero();
 
   struct ReverseConnection {
     adnl::AdnlNodeIdShort dht_node_;
@@ -76,6 +71,7 @@ class DhtMemberImpl : public DhtMember {
   };
   std::map<adnl::AdnlNodeIdShort, ReverseConnection> reverse_connections_;
   std::set<adnl::AdnlNodeIdShort> our_reverse_connections_;
+  std::set<std::pair<td::Timestamp, adnl::AdnlNodeIdShort>> reverse_connections_ttl_order_;
 
   class Callback : public adnl::Adnl::Callback {
    public:
@@ -193,6 +189,9 @@ class DhtMemberImpl : public DhtMember {
   }
 
   void get_self_node(td::Promise<DhtNode> promise) override;
+
+  static constexpr size_t MAX_VALUES = 100000;
+  static constexpr size_t MAX_REVERSE_CONNECTIONS = 100000;
 };
 
 }  // namespace dht

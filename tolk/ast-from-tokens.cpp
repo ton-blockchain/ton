@@ -425,6 +425,11 @@ static AnyV parse_type_alias_declaration(Lexer& lex, const std::vector<V<ast_ann
   }
 
   lex.expect(tok_assign, "`=`");
+  if (lex.tok() == tok_builtin) {   // type map<K, V> = builtin
+    lex.next();
+    return createV<ast_empty_statement>(loc);
+  }
+
   AnyTypeV underlying_type = parse_type_from_tokens(lex);
 
   for (auto v_annotation : annotations) {
@@ -946,23 +951,24 @@ static AnyExprV parse_expr75(Lexer& lex) {
   return parse_expr80(lex);
 }
 
-// parse E as / is / !is <type>
+// parse E as / is / !is <type> (left-to-right)
 static AnyExprV parse_expr40(Lexer& lex) {
   AnyExprV lhs = parse_expr75(lex);
-  if (lex.tok() == tok_as) {
-    SrcLocation loc = lex.cur_location();
-    lex.next();
-    AnyTypeV cast_to_type = parse_type_from_tokens(lex);
-    lhs = createV<ast_cast_as_operator>(loc, lhs, cast_to_type);
-  } else if (lex.tok() == tok_is) {
+  TokenType t = lex.tok();
+  while (t == tok_as || t == tok_is) {
     SrcLocation loc = lex.cur_location();
     lex.next();
     AnyTypeV rhs_type = parse_type_from_tokens(lex);
-    bool is_negated = lhs->kind == ast_not_null_operator;   // `a !is ...`, now lhs = `a!`
-    if (is_negated) {
-      lhs = lhs->as<ast_not_null_operator>()->get_expr();
+    if (t == tok_as) {
+      lhs = createV<ast_cast_as_operator>(loc, lhs, rhs_type);
+    } else {
+      bool is_negated = lhs->kind == ast_not_null_operator;   // `a !is ...`, now lhs = `a!`
+      if (is_negated) {
+        lhs = lhs->as<ast_not_null_operator>()->get_expr();
+      }
+      lhs = createV<ast_is_type_operator>(loc, lhs, rhs_type, is_negated);
     }
-    lhs = createV<ast_is_type_operator>(loc, lhs, rhs_type, is_negated);
+    t = lex.tok();
   }
   return lhs;
 }
@@ -1122,7 +1128,7 @@ static V<ast_block_statement> parse_block_statement(Lexer& lex) {
 static AnyV parse_return_statement(Lexer& lex) {
   SrcLocation loc = lex.cur_location();
   lex.expect(tok_return, "`return`");
-  AnyExprV child = lex.tok() == tok_semicolon   // `return;` actually means "nothing" (inferred as void)
+  AnyExprV child = lex.tok() == tok_semicolon || lex.tok() == tok_clbrace
     ? createV<ast_empty_expression>(lex.cur_location())
     : parse_expr(lex);
   return createV<ast_return_statement>(loc, child);
@@ -1536,6 +1542,19 @@ static AnyV parse_function_declaration(Lexer& lex, const std::vector<V<ast_annot
 
 static AnyV parse_struct_field(Lexer& lex) {
   SrcLocation loc = lex.cur_location();
+
+  bool is_private = false;
+  if (lex.tok() == tok_private) {
+    lex.next();
+    is_private = true;
+  }
+
+  bool is_readonly = false;
+  if (lex.tok() == tok_readonly) {    // `private readonly` ok, `readonly private` not
+    lex.next();
+    is_readonly = true;
+  }
+  
   lex.check(tok_identifier, "field name");
   auto v_ident = createV<ast_identifier>(lex.cur_location(), lex.cur_str());
   lex.next();
@@ -1548,7 +1567,7 @@ static AnyV parse_struct_field(Lexer& lex) {
     default_value = parse_expr(lex);
   }
 
-  return createV<ast_struct_field>(loc, v_ident, default_value, declared_type);
+  return createV<ast_struct_field>(loc, v_ident, is_private, is_readonly, default_value, declared_type);
 }
 
 static V<ast_struct_body> parse_struct_body(Lexer& lex) {
@@ -1618,6 +1637,64 @@ static AnyV parse_struct_declaration(Lexer& lex, const std::vector<V<ast_annotat
   }
 
   return createV<ast_struct_declaration>(loc, v_ident, genericsT_list, overflow1023_policy, opcode, parse_struct_body(lex));
+}
+
+static AnyV parse_enum_member(Lexer& lex) {
+  SrcLocation loc = lex.cur_location();
+  lex.check(tok_identifier, "member name");
+  auto v_ident = createV<ast_identifier>(lex.cur_location(), lex.cur_str());
+  lex.next();
+
+  AnyExprV init_value = nullptr;
+  if (lex.tok() == tok_assign) {    // `Red = 1`
+    lex.next();
+    init_value = parse_expr(lex);
+  }
+
+  return createV<ast_enum_member>(loc, v_ident, init_value);  
+}
+
+static V<ast_enum_body> parse_enum_body(Lexer& lex) {
+  SrcLocation loc = lex.cur_location();
+  lex.expect(tok_opbrace, "`{`");
+
+  std::vector<AnyV> members;
+  while (lex.tok() != tok_clbrace) {
+    members.push_back(parse_enum_member(lex));
+    if (lex.tok() == tok_comma || lex.tok() == tok_semicolon) {
+      lex.next();
+    }
+  }
+  lex.expect(tok_clbrace, "`}`");
+
+  return createV<ast_enum_body>(loc, std::move(members));
+}
+
+static AnyV parse_enum_declaration(Lexer& lex, const std::vector<V<ast_annotation>>& annotations) {
+  SrcLocation loc = lex.cur_location();
+  lex.expect(tok_enum, "`enum`");
+
+  lex.check(tok_identifier, "identifier");
+  auto v_ident = createV<ast_identifier>(lex.cur_location(), lex.cur_str());
+  lex.next();
+
+  AnyTypeV colon_type = nullptr;
+  if (lex.tok() == tok_colon) {   // enum Role: int8
+    lex.next();
+    colon_type = parse_type_expression(lex);
+  }
+
+  for (auto v_annotation : annotations) {
+    switch (v_annotation->kind) {
+      case AnnotationKind::deprecated:
+      case AnnotationKind::custom:
+        break;
+      default:
+        v_annotation->error("this annotation is not applicable to enum");
+    }
+  }
+
+  return createV<ast_enum_declaration>(loc, v_ident, colon_type, parse_enum_body(lex));
 }
 
 static AnyV parse_tolk_required_version(Lexer& lex) {
@@ -1702,9 +1779,12 @@ AnyV parse_src_file_to_ast(const SrcFile* file) {
         toplevel_declarations.push_back(parse_struct_declaration(lex, annotations));
         annotations.clear();
         break;
+      case tok_enum:
+        toplevel_declarations.push_back(parse_enum_declaration(lex, annotations));
+        annotations.clear();
+        break;
 
       case tok_export:
-      case tok_enum:
       case tok_operator:
       case tok_infix:
         lex.error("`" + static_cast<std::string>(lex.cur_str()) +"` is not supported yet");

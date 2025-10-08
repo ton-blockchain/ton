@@ -18,6 +18,6 @@
 
 namespace tolk {
 
-constexpr const char* TOLK_VERSION = "1.0.0";
+constexpr const char* TOLK_VERSION = "1.1.0";
 
 } // namespace tolk

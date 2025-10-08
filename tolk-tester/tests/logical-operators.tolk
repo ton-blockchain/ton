@@ -1,9 +1,11 @@
 import "imports/use-dicts.ext.tolk"
 
+@method_id(90)
 fun simpleAllConst() {
     return (!0, !!0 & !false, !!!0, !1, !!1, !-1, !!-1, (!5 as int == 0) == !0, !0 == true);
 }
 
+@method_id(91)
 fun compileTimeEval1(x: int) {
     // todo now compiler doesn't understand that bool can't be equal to number other than 0/-1
     // (but understands that it can't be positive)

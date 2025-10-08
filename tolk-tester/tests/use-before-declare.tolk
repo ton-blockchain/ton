@@ -23,6 +23,7 @@ fun demo1(v: int): int {
 global demo_var: int;
 const demo_10: int = 10;
 
+@method_id(101)
 fun test1(): int {
     var demo_var: int = demo_10;
     var demo_slice: int = demo_20;
@@ -33,6 +34,7 @@ fun test1(): int {
     return demo_var + demo_slice;
 }
 
+@method_id(102)
 fun test2() {
     return second;
 }

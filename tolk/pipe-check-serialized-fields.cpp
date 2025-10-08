@@ -18,6 +18,7 @@
 #include "ast.h"
 #include "ast-visitor.h"
 #include "pack-unpack-api.h"
+#include "maps-kv-api.h"
 #include "generics-helpers.h"
 #include "type-system.h"
 
@@ -40,6 +41,43 @@ static void fire_error_theoretical_overflow_1023(StructPtr struct_ref, PackSize 
                   ">         more: Cell<ExtraFields>;\n"
                   ">     }\n"
   );
+}
+
+GNU_ATTRIBUTE_NOINLINE
+static void check_map_TKey_TValue(SrcLocation loc, TypePtr TKey, TypePtr TValue) {
+  std::string because_msg;
+  if (!check_mapKV_TKey_is_valid(TKey, because_msg)) {
+    fire(nullptr, loc, "invalid `map`: type `" + TKey->as_human_readable() + "` can not be used as a key\n" + because_msg);
+  } 
+  if (!check_mapKV_TValue_is_valid(TValue, because_msg)) {
+    fire(nullptr, loc, "invalid `map`: type `" + TValue->as_human_readable() + "` can not be used as a value\n" + because_msg);
+  } 
+}
+
+GNU_ATTRIBUTE_NOINLINE
+static void check_mapKV_inside_type(SrcLocation loc, TypePtr any_type) {
+  any_type->replace_children_custom([loc](TypePtr child) {
+    if (const TypeDataMapKV* t_map = child->try_as<TypeDataMapKV>()) {
+      check_map_TKey_TValue(loc, t_map->TKey, t_map->TValue);
+    }
+    if (const TypeDataAlias* t_alias = child->try_as<TypeDataAlias>()) {
+      check_mapKV_inside_type(loc, t_alias->underlying_type);
+    }
+    return child;
+  });
+}
+
+static void check_mapKV_inside_type(AnyTypeV type_node) {
+  if (type_node && type_node->resolved_type->has_mapKV_inside()) {
+    check_mapKV_inside_type(type_node->loc, type_node->resolved_type);
+  }
+}
+
+// given `enum Role: int8` check colon type (not struct/slice etc.)
+static void check_enum_colon_type_to_be_intN(AnyTypeV colon_type_node) {
+  if (!colon_type_node->resolved_type->try_as<TypeDataIntN>()) {
+    fire(nullptr, colon_type_node->loc, "serialization type of `enum` must be intN: `int8` / `uint32` / etc.");
+  }
 }
 
 
@@ -73,12 +111,19 @@ class CheckSerializedFieldsAndTypesVisitor final : public ASTVisitorFunctionBody
   }
 
   void visit(V<ast_function_call> v) override {
+    parent::visit(v);
+
     FunctionPtr fun_ref = v->fun_maybe;
-    if (!fun_ref || !fun_ref->is_compile_time_special_gen() || !fun_ref->is_instantiation_of_generic_function()) {
+    if (!fun_ref || !fun_ref->is_builtin_function() || !fun_ref->is_instantiation_of_generic_function()) {
       return;
     }
-
     std::string_view f_name = fun_ref->base_fun_ref->name;
+
+    if (f_name == "createEmptyMap") {
+      check_map_TKey_TValue(v->loc, fun_ref->substitutedTs->typeT_at(0), fun_ref->substitutedTs->typeT_at(1));
+      return;
+    }
+    
     TypePtr serialized_type = nullptr;
     bool is_pack = false;
     if (f_name == "Cell<T>.load" || f_name == "T.fromSlice" || f_name == "T.fromCell" || f_name == "T.toCell" ||
@@ -99,19 +144,42 @@ class CheckSerializedFieldsAndTypesVisitor final : public ASTVisitorFunctionBody
     check_type_fits_cell_or_has_policy(serialized_type);
   }
 
- public:
+  void visit(V<ast_local_var_lhs> v) override {
+    check_mapKV_inside_type(v->type_node);
+  }
+
+public:
   bool should_visit_function(FunctionPtr fun_ref) override {
     return fun_ref->is_code_function() && !fun_ref->is_generic_function();
   }
 
   void start_visiting_function(FunctionPtr fun_ref, V<ast_function_declaration> v_function) override {
     cur_f = fun_ref;
+
+    for (int i = 0; i < cur_f->get_num_params(); ++i) {
+      check_mapKV_inside_type(cur_f->get_param(i).type_node);
+    }
+
     parent::visit(v_function->get_body());
   }
 };
 
 void pipeline_check_serialized_fields() {
   visit_ast_of_all_functions<CheckSerializedFieldsAndTypesVisitor>();
+
+  for (StructPtr struct_ref : get_all_declared_structs()) {
+    for (StructFieldPtr field_ref : struct_ref->fields) {
+      check_mapKV_inside_type(field_ref->type_node);
+    }
+  }
+  for (GlobalVarPtr glob_ref : get_all_declared_global_vars()) {
+    check_mapKV_inside_type(glob_ref->type_node);
+  }
+  for (EnumDefPtr enum_ref : get_all_declared_enums()) {
+    if (enum_ref->colon_type_node) {
+      check_enum_colon_type_to_be_intN(enum_ref->colon_type_node);
+    }
+  }
 }
 
 } // namespace tolk

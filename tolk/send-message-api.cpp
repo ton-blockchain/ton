@@ -14,8 +14,8 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "send-message-api.h"
 #include "pack-unpack-serializers.h"
+#include "generics-helpers.h"
 #include "type-system.h"
 
 namespace tolk {
@@ -32,17 +32,6 @@ static bool is_type_UnsafeBodyNoRef_T(TypePtr bodyT) {
   return false;
 }
 
-// currently, there is no way to pass custom pack options to createMessage, using hardcoded ones
-static std::vector<var_idx_t> create_default_PackOptions(CodeBlob& code, SrcLocation loc) {
-  StructPtr s_PackOptions = lookup_global_symbol("PackOptions")->try_as<StructPtr>();
-  std::vector ir_options = code.create_tmp_var(TypeDataStruct::create(s_PackOptions), loc, "(pack-options)");
-  tolk_assert(ir_options.size() == 1);
-
-  var_idx_t ir_zero = code.create_int(loc, 0, "(zero)");
-  code.emplace_back(loc, Op::_Let, std::vector{ir_options[0]}, std::vector{ir_zero});  // skipBitsNFieldsValidation
-  return ir_options;
-}
-
 // calculate `addrHash &= mask` where mask = `(1 << (256 - SHARD_DEPTH)) - 1`
 static void append_bitwise_and_shard_mask(CodeBlob& code, SrcLocation loc, var_idx_t ir_addr_hash, var_idx_t ir_shard_depth) {
   var_idx_t ir_one = code.create_int(loc, 1, "(one)");
@@ -55,38 +44,50 @@ static void append_bitwise_and_shard_mask(CodeBlob& code, SrcLocation loc, var_i
 
 // struct AutoDeployAddress { workchain: int8; stateInit: ContractState | cell; toShard: AddressShardingOptions?; }
 struct IR_AutoDeployAddress {
-  std::vector<var_idx_t> is_ContractState,      // stateInit is ContractState
-                         is_AddressSharding;    // toShard is not null
+  std::vector<var_idx_t> ir_stateInitField,
+                         ir_toShardField;
+  const TypeDataUnion* t_stateInit;
+  const TypeDataUnion* t_toShard;
   var_idx_t workchain,                                      // workchain
             stateInitCode, stateInitData, stateInitCell,    // stateInit
             ir_shardDepth, ir_closeTo;                      // toShard
 
   IR_AutoDeployAddress(CodeBlob& code, SrcLocation loc, const std::vector<var_idx_t>& ir_vars) {
     StructPtr s_AutoDeployAddress = lookup_global_symbol("AutoDeployAddress")->try_as<StructPtr>();
-    const TypeDataUnion* t_stateInit = s_AutoDeployAddress->find_field("stateInit")->declared_type->try_as<TypeDataUnion>();
-    const TypeDataUnion* t_toShard = s_AutoDeployAddress->find_field("toShard")->declared_type->try_as<TypeDataUnion>();
+    t_stateInit = s_AutoDeployAddress->find_field("stateInit")->declared_type->try_as<TypeDataUnion>();
+    t_toShard = s_AutoDeployAddress->find_field("toShard")->declared_type->try_as<TypeDataUnion>();
     tolk_assert(ir_vars.size() == 1 + 3 + 3);
     tolk_assert(t_stateInit && t_stateInit->get_width_on_stack() == (2+1) && t_stateInit->size() == 2);
     tolk_assert(t_toShard && t_toShard->get_width_on_stack() == (2+1) && t_toShard->or_null);
 
     workchain = ir_vars[0];
 
-    std::vector ir_stateInitUnion(ir_vars.begin() + 1, ir_vars.begin() + 1 + 3);
-    is_ContractState = pre_compile_is_type(code, t_stateInit, t_stateInit->variants[0], ir_stateInitUnion, loc, "(is-ContractState)");
-    std::vector ir_ContractState = transition_to_target_type(std::vector(ir_stateInitUnion), code, t_stateInit, t_stateInit->variants[0], loc);
+    ir_stateInitField = std::vector(ir_vars.begin() + 1, ir_vars.begin() + 1 + 3);
+    std::vector ir_ContractState = transition_to_target_type(std::vector(ir_stateInitField), code, t_stateInit, t_stateInit->variants[0], loc);
     stateInitCode = ir_ContractState[0];
     stateInitData = ir_ContractState[1];
-    stateInitCell = transition_to_target_type(std::vector(ir_stateInitUnion), code, t_stateInit, t_stateInit->variants[1], loc)[0];
+    stateInitCell = transition_to_target_type(std::vector(ir_stateInitField), code, t_stateInit, t_stateInit->variants[1], loc)[0];
 
-    std::vector ir_toShardOrNull(ir_vars.begin() + 1 + 3, ir_vars.begin() + 1 + 3 + 3);
-    is_AddressSharding = pre_compile_is_type(code, t_toShard, t_toShard->or_null, ir_toShardOrNull, loc, "(is-AddressSharding)");
-    std::vector ir_AddressSharding = transition_to_target_type(std::vector(ir_toShardOrNull), code, t_toShard, t_toShard->or_null, loc);
+    ir_toShardField = std::vector(ir_vars.begin() + 1 + 3, ir_vars.begin() + 1 + 3 + 3);
+    std::vector ir_AddressSharding = transition_to_target_type(std::vector(ir_toShardField), code, t_toShard, t_toShard->or_null, loc);
     ir_shardDepth = ir_AddressSharding[0];
     ir_closeTo = ir_AddressSharding[1];
   }
+
+  // generate IR vars "stateInit is ContractState"
+  std::vector<var_idx_t> is_ContractState(CodeBlob& code, SrcLocation loc) const {
+    return pre_compile_is_type(code, t_stateInit, t_stateInit->variants[0], ir_stateInitField, loc, "(is-ContractState)");
+  }
+
+  // generate IR vars "toShard is not null"
+  std::vector<var_idx_t> is_AddressSharding(CodeBlob& code, SrcLocation loc) const {
+    return pre_compile_is_type(code, t_toShard, t_toShard->or_null, ir_toShardField, loc, "(is-AddressSharding)");
+  }
 };
 
-std::vector<var_idx_t> generate_createMessage(CodeBlob& code, SrcLocation loc, TypePtr bodyT, std::vector<var_idx_t>&& rvect) {
+// fun createMessage<TBody>(options: CreateMessageOptions<TBody>): OutMessage
+std::vector<var_idx_t> generate_createMessage(FunctionPtr called_f, CodeBlob& code, SrcLocation loc, const std::vector<std::vector<var_idx_t>>& ir_options) {
+  TypePtr bodyT = called_f->substitutedTs->typeT_at(0);
   StructPtr s_Options = lookup_global_symbol("CreateMessageOptions")->try_as<StructPtr>();
   StructPtr s_AutoDeployAddress = lookup_global_symbol("AutoDeployAddress")->try_as<StructPtr>();
 
@@ -98,6 +99,7 @@ std::vector<var_idx_t> generate_createMessage(CodeBlob& code, SrcLocation loc, T
   tolk_assert(t_value && t_value->get_width_on_stack() == (2+1) && t_value->size() == 2);
 
   int offset = 0;
+  std::vector rvect = ir_options[0];
   auto next_slice = [&rvect, &offset](int width) -> std::vector<var_idx_t> {
     int start = offset;
     offset += width;
@@ -115,13 +117,10 @@ std::vector<var_idx_t> generate_createMessage(CodeBlob& code, SrcLocation loc, T
   // struct ContractState { code: cell; data: cell; }
   // struct AddressShardingOptions { fixedPrefixLength: uint5; closeTo: address; }
   std::vector ir_dest_is_address = pre_compile_is_type(code, t_dest, TypeDataAddress::create(), ir_dest, loc, "(is-address)");
-  std::vector ir_dest_is_AutoDeploy = pre_compile_is_type(code, t_dest, TypeDataStruct::create(s_AutoDeployAddress), ir_dest, loc, "(is-address)");
+  std::vector ir_dest_is_AutoDeploy = pre_compile_is_type(code, t_dest, TypeDataStruct::create(s_AutoDeployAddress), ir_dest, loc, "(is-auto)");
   std::vector ir_dest_is_builder = pre_compile_is_type(code, t_dest, TypeDataBuilder::create(), ir_dest, loc, "(is-builder)");
   std::vector ir_dest_AutoDeployAddress = transition_to_target_type(std::vector(ir_dest), code, t_dest, TypeDataStruct::create(s_AutoDeployAddress), loc);
   IR_AutoDeployAddress ir_dest_ad(code, loc, ir_dest_AutoDeployAddress);
-
-  // currently, there is no way to pass PackOptions, defaults are used
-  std::vector ir_options = create_default_PackOptions(code, loc);
 
   FunctionPtr f_beginCell = lookup_function("beginCell");
   FunctionPtr f_endCell = lookup_function("builder.endCell");
@@ -143,7 +142,7 @@ std::vector<var_idx_t> generate_createMessage(CodeBlob& code, SrcLocation loc, T
   if (body_store_as_ref && !body_already_ref) {
     std::vector ir_ref_builder = code.create_var(TypeDataBuilder::create(), loc, "refb");
     code.emplace_back(loc, Op::_Call, ir_ref_builder, std::vector<var_idx_t>{}, f_beginCell);
-    PackContext ref_ctx(code, loc, ir_ref_builder, ir_options);
+    PackContext ref_ctx(code, loc, ir_ref_builder, create_default_PackOptions(code, loc));
     ref_ctx.generate_pack_any(bodyT, std::move(ir_body));
     std::vector ir_ref_cell = code.create_tmp_var(TypeDataCell::create(), loc, "(ref-cell)");
     code.emplace_back(loc, Op::_Call, ir_ref_cell, std::move(ir_ref_builder), f_endCell);
@@ -152,7 +151,7 @@ std::vector<var_idx_t> generate_createMessage(CodeBlob& code, SrcLocation loc, T
 
   std::vector ir_builder = code.create_var(TypeDataSlice::create(), loc, "b");
   code.emplace_back(loc, Op::_Call, ir_builder, std::vector<var_idx_t>{}, f_beginCell);
-  PackContext ctx(code, loc, ir_builder, ir_options);
+  PackContext ctx(code, loc, ir_builder, create_default_PackOptions(code, loc));
   var_idx_t ir_zero = code.create_int(loc, 0, "(zero)");
   var_idx_t ir_one = code.create_int(loc, 1, "(one)");
 
@@ -185,11 +184,11 @@ std::vector<var_idx_t> generate_createMessage(CodeBlob& code, SrcLocation loc, T
       ctx.storeUint(code.create_int(loc, 0b100, "(addr-prefix)"), 3);  // addr_std$10 + 0 anycast
       ctx.storeInt(ir_dest_ad.workchain, 8);
       std::vector ir_hash = code.create_tmp_var(TypeDataInt::create(), loc, "(addr-hash)");
-      Op& if_ContractState = code.emplace_back(loc, Op::_If, ir_dest_ad.is_ContractState);
+      Op& if_ContractState = code.emplace_back(loc, Op::_If, ir_dest_ad.is_ContractState(code, loc));
       {
         // input is `dest: { ... stateInit: { code, data } }`
         code.push_set_cur(if_ContractState.block0);
-        Op& if_sharded = code.emplace_back(loc, Op::_If, ir_dest_ad.is_AddressSharding);
+        Op& if_sharded = code.emplace_back(loc, Op::_If, ir_dest_ad.is_AddressSharding(code, loc));
         {
           // input is `dest: { ... stateInit: { code, data }, toShard: { fixedPrefixLength, closeTo } };
           // then stateInitHash = (hash of StateInit = 0b1(depth)0110 (prefix + code + data))
@@ -215,7 +214,7 @@ std::vector<var_idx_t> generate_createMessage(CodeBlob& code, SrcLocation loc, T
         code.emplace_back(loc, Op::_Call, ir_hash, std::move(args), lookup_function("cell.hash"));
         code.close_pop_cur(loc);
       }
-      Op& if_sharded = code.emplace_back(loc, Op::_If, ir_dest_ad.is_AddressSharding);
+      Op& if_sharded = code.emplace_back(loc, Op::_If, ir_dest_ad.is_AddressSharding(code, loc));
       {
         // input is `dest: { ... toShard: { fixedPrefixLength, closeTo } }`
         // we already calculated stateInitHash (ir_hash): either cell.hash() or based on prefix+code+data;
@@ -303,12 +302,12 @@ std::vector<var_idx_t> generate_createMessage(CodeBlob& code, SrcLocation loc, T
   }
   {
     code.push_set_cur(if_no_init.block0);
-    Op& if_ContractState = code.emplace_back(loc, Op::_If, ir_dest_ad.is_ContractState);
+    Op& if_ContractState = code.emplace_back(loc, Op::_If, ir_dest_ad.is_ContractState(code, loc));
     {
       // input is `dest: { ... stateInit: { code, data } }` and need to compose TL/B StateInit;
       // it's either just code+data OR (if `toShard: { ... }` is set) fixedPrefixLength+code+data
       code.push_set_cur(if_ContractState.block0);
-      Op& if_sharded = code.emplace_back(loc, Op::_If, ir_dest_ad.is_AddressSharding);
+      Op& if_sharded = code.emplace_back(loc, Op::_If, ir_dest_ad.is_AddressSharding(code, loc));
       {
         // 1 (maybe true) + 0 (either left) + 1 (maybe true of StateInit) + fixedPrefixLength + 0110 + body ref or not
         code.push_set_cur(if_sharded.block0);
@@ -356,7 +355,9 @@ std::vector<var_idx_t> generate_createMessage(CodeBlob& code, SrcLocation loc, T
   return ir_cell;
 }
 
-std::vector<var_idx_t> generate_createExternalLogMessage(CodeBlob& code, SrcLocation loc, TypePtr bodyT, std::vector<var_idx_t>&& rvect) {
+// fun createExternalLogMessage<TBody>(options: CreateExternalLogMessageOptions<TBody>): OutMessage
+std::vector<var_idx_t> generate_createExternalLogMessage(FunctionPtr called_f, CodeBlob& code, SrcLocation loc, const std::vector<std::vector<var_idx_t>>& args) {
+  TypePtr bodyT = called_f->substitutedTs->typeT_at(0);
   StructPtr s_Options = lookup_global_symbol("CreateExternalLogMessageOptions")->try_as<StructPtr>();
   StructPtr s_ExtOutLogBucket = lookup_global_symbol("ExtOutLogBucket")->try_as<StructPtr>();
 
@@ -366,6 +367,7 @@ std::vector<var_idx_t> generate_createExternalLogMessage(CodeBlob& code, SrcLoca
   tolk_assert(t_topic && t_topic->get_width_on_stack() == (1+1) && t_topic->size() == 2);
 
   int offset = 0;
+  std::vector rvect = args[0];
   auto next_slice = [&rvect, &offset](int width) -> std::vector<var_idx_t> {
     int start = offset;
     offset += width;
@@ -490,7 +492,9 @@ std::vector<var_idx_t> generate_createExternalLogMessage(CodeBlob& code, SrcLoca
   return ir_cell;
 }
 
-std::vector<var_idx_t> generate_address_buildInAnotherShard(CodeBlob& code, SrcLocation loc, std::vector<var_idx_t>&& ir_self_address, std::vector<var_idx_t>&& ir_shard_options) {
+// fun address.buildSameAddressInAnotherShard(self, options: AddressShardingOptions): builder
+std::vector<var_idx_t> generate_address_buildInAnotherShard(FunctionPtr called_f, CodeBlob& code, SrcLocation loc, const std::vector<std::vector<var_idx_t>>& args) {
+  std::vector ir_shard_options = args[1];
   tolk_assert(ir_shard_options.size() == 2);
 
   // example for fixedPrefixLength (shard depth) = 8:
@@ -515,14 +519,15 @@ std::vector<var_idx_t> generate_address_buildInAnotherShard(CodeBlob& code, SrcL
   std::vector ir_restLenA = {code.create_int(loc, 256, "(last-addrA)")};
   code.emplace_back(loc, Op::_Call, ir_restLenA, std::vector{ir_restLenA[0], ir_shard_options[0]}, lookup_function("_-_"));
   std::vector ir_tailA = code.create_tmp_var(TypeDataSlice::create(), loc, "(tailA)");
-  code.emplace_back(loc, Op::_Call, ir_tailA, std::vector{ir_self_address[0], ir_restLenA[0]}, lookup_function("slice.getLastBits"));
+  code.emplace_back(loc, Op::_Call, ir_tailA, std::vector{args[0][0], ir_restLenA[0]}, lookup_function("slice.getLastBits"));
   code.emplace_back(loc, Op::_Call, ir_builder, std::vector{ir_builder[0], ir_tailA[0]}, lookup_function("builder.storeSlice"));
 
   return ir_builder;
 }
 
-std::vector<var_idx_t> generate_AutoDeployAddress_buildAddress(CodeBlob& code, SrcLocation loc, std::vector<var_idx_t>&& ir_auto_deploy) {
-  IR_AutoDeployAddress ir_self(code, loc, ir_auto_deploy);
+// fun AutoDeployAddress.buildAddress(self): builder
+std::vector<var_idx_t> generate_AutoDeployAddress_buildAddress(FunctionPtr called_f, CodeBlob& code, SrcLocation loc, const std::vector<std::vector<var_idx_t>>& ir_options) {
+  IR_AutoDeployAddress ir_self(code, loc, ir_options[0]);
 
   std::vector ir_builder = code.create_tmp_var(TypeDataSlice::create(), loc, "(addr-b)");
   // important! unlike `createMessage()`, we calculate hash and shard prefix BEFORE creating a cell
@@ -530,11 +535,11 @@ std::vector<var_idx_t> generate_AutoDeployAddress_buildAddress(CodeBlob& code, S
 
   // calculate stateInitHash = (hash of StateInit cell would be, but without constructing a cell)
   std::vector ir_hash = code.create_tmp_var(TypeDataInt::create(), loc, "(addr-hash)");
-  Op& if_ContractState = code.emplace_back(loc, Op::_If, ir_self.is_ContractState);
+  Op& if_ContractState = code.emplace_back(loc, Op::_If, ir_self.is_ContractState(code, loc));
   {
     // called `{ ... stateInit: { code, data } }`
     code.push_set_cur(if_ContractState.block0);
-    Op& if_sharded = code.emplace_back(loc, Op::_If, ir_self.is_AddressSharding);
+    Op& if_sharded = code.emplace_back(loc, Op::_If, ir_self.is_AddressSharding(code, loc));
     {
       // called `{ ... stateInit: { code, data }, toShard: { fixedPrefixLength, closeTo } }
       code.push_set_cur(if_sharded.block0);
@@ -560,7 +565,7 @@ std::vector<var_idx_t> generate_AutoDeployAddress_buildAddress(CodeBlob& code, S
   }
 
   // now, if toShard, perform bitwise calculations with hashes (order on a stack matters)
-  Op& if_sharded = code.emplace_back(loc, Op::_If, ir_self.is_AddressSharding);
+  Op& if_sharded = code.emplace_back(loc, Op::_If, ir_self.is_AddressSharding(code, loc));
   {
     // called `{ ... toShard: { fixedPrefixLength, closeTo } }`
     // we already calculated stateInitHash (ir_hash): either cell.hash() or based on prefix+code+data;
@@ -599,16 +604,17 @@ std::vector<var_idx_t> generate_AutoDeployAddress_buildAddress(CodeBlob& code, S
   return ir_builder;
 }
 
-std::vector<var_idx_t> generate_AutoDeployAddress_addressMatches(CodeBlob& code, SrcLocation loc, std::vector<var_idx_t>&& ir_auto_deploy, std::vector<var_idx_t>&& ir_address) {
-  IR_AutoDeployAddress ir_self(code, loc, ir_auto_deploy);
+// fun AutoDeployAddress.addressMatches(self, addr: address): bool
+std::vector<var_idx_t> generate_AutoDeployAddress_addressMatches(FunctionPtr called_f, CodeBlob& code, SrcLocation loc, const std::vector<std::vector<var_idx_t>>& ir_self_and_addr) {
+  IR_AutoDeployAddress ir_self(code, loc, ir_self_and_addr[0]);
 
   // at first, calculate stateInitHash = (hash of StateInit cell would be, but without constructing a cell)
   std::vector ir_hash = code.create_tmp_var(TypeDataInt::create(), loc, "(addr-hash)");
-  Op& if_ContractState = code.emplace_back(loc, Op::_If, ir_self.is_ContractState);
+  Op& if_ContractState = code.emplace_back(loc, Op::_If, ir_self.is_ContractState(code, loc));
   {
     // called `{ ... stateInit: { code, data } }`
     code.push_set_cur(if_ContractState.block0);
-    Op& if_sharded = code.emplace_back(loc, Op::_If, ir_self.is_AddressSharding);
+    Op& if_sharded = code.emplace_back(loc, Op::_If, ir_self.is_AddressSharding(code, loc));
     {
       // called `{ ... stateInit: { code, data }, toShard: { fixedPrefixLength, closeTo } }
       code.push_set_cur(if_sharded.block0);
@@ -634,7 +640,7 @@ std::vector<var_idx_t> generate_AutoDeployAddress_addressMatches(CodeBlob& code,
   }
 
   // now calculate `stateInitHash &= mask` where mask = `(1 << (256 - SHARD_DEPTH)) - 1`
-  Op& if_sharded1 = code.emplace_back(loc, Op::_If, ir_self.is_AddressSharding);
+  Op& if_sharded1 = code.emplace_back(loc, Op::_If, ir_self.is_AddressSharding(code, loc));
   {
     code.push_set_cur(if_sharded1.block0);
     append_bitwise_and_shard_mask(code, loc, ir_hash[0], ir_self.ir_shardDepth);
@@ -647,10 +653,10 @@ std::vector<var_idx_t> generate_AutoDeployAddress_addressMatches(CodeBlob& code,
 
   // now do `(wc, hash) = addr.getWorkchainAndHash()`
   std::vector ir_addr_wc_hash = code.create_tmp_var(TypeDataTensor::create({TypeDataInt::create(), TypeDataInt::create()}), loc, "(self-wc-hash)");
-  code.emplace_back(loc, Op::_Call, ir_addr_wc_hash, ir_address, lookup_function("address.getWorkchainAndHash"));
+  code.emplace_back(loc, Op::_Call, ir_addr_wc_hash, ir_self_and_addr[1], lookup_function("address.getWorkchainAndHash"));
 
   // now calculate `hash &= mask` (the same as we did earlier for stateInitHash)
-  Op& if_sharded2 = code.emplace_back(loc, Op::_If, ir_self.is_AddressSharding);
+  Op& if_sharded2 = code.emplace_back(loc, Op::_If, ir_self.is_AddressSharding(code, loc));
   {
     code.push_set_cur(if_sharded2.block0);
     append_bitwise_and_shard_mask(code, loc, ir_addr_wc_hash[1], ir_self.ir_shardDepth);
