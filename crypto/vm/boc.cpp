@@ -1369,6 +1369,7 @@ std::vector<Ref<Cell>> ProofStorageStat::build_collated_data(std::vector<Ref<Cel
     }
     Cache& entry2 = cache[hash];
     entry2.result = cb.finalize(info.cell->is_special());
+    CHECK(entry2.result->get_hash(std::min<int>(info.cell->get_level(), info.cell_max_level)) == hash);
     return entry2;
   };
   for (auto& [hash, info] : cells_) {
