@@ -800,7 +800,7 @@ void ValidatorGroup::merge_collated_data(PublicKey source, BlockIdExt block_id, 
   }
   if (!o_block_data.empty()) {
     td::actor::send_closure(collated_data_merger_, &CollatedDataMerger::add_block_candidate_data, block_id,
-                            o_block_data.clone(), o_collated_data.clone());
+                            o_block_data.clone(), o_collated_data.clone(), [](td::Result<td::RealCpuTimer::Time>) {});
     collated_data_deduplicator_->add_block_candidate(block_id.seqno(), o_block_data.clone(), o_collated_data.clone())
         .ensure();
     collated_data_merged_.insert(block_id.seqno());

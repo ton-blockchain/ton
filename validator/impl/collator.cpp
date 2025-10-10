@@ -6782,6 +6782,10 @@ void Collator::on_cell_loaded(const vm::LoadedCell& loaded_cell) {
   if (stop_cell_load_processing_) {
     return;
   }
+  td::RealCpuTimer timer;
+  SCOPE_EXIT {
+    stats_.work_time.total_on_cell_loaded += timer.elapsed_both();
+  };
   if (merge_collated_data_enabled_) {
     vm::CellHash hash = loaded_cell.data_cell->get_hash(loaded_cell.virt.get_level());
     if (collated_data_deduplicator_ &&

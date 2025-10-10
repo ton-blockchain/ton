@@ -128,6 +128,8 @@ struct CollationStats {
     td::RealCpuTimer::Time create_collated_data;
     td::RealCpuTimer::Time create_block_candidate;
 
+    td::RealCpuTimer::Time total_on_cell_loaded;
+
     std::string to_str(bool is_cpu) const {
       return PSTRING() << "total=" << total.get(is_cpu) << " optimistic_apply=" << optimistic_apply.get(is_cpu)
                        << " queue_cleanup=" << queue_cleanup.get(is_cpu)
@@ -137,7 +139,8 @@ struct CollationStats {
                        << " final_storage_stat=" << final_storage_stat.get(is_cpu)
                        << " create_block=" << create_block.get(is_cpu)
                        << " create_collated_data=" << create_collated_data.get(is_cpu)
-                       << " create_block_candidate=" << create_block_candidate.get(is_cpu);
+                       << " create_block_candidate=" << create_block_candidate.get(is_cpu)
+                       << " *total_on_cell_loaded=" << total_on_cell_loaded.get(is_cpu);
     }
   };
   WorkTimeStats work_time;
@@ -187,10 +190,13 @@ struct ValidationStats {
     td::RealCpuTimer::Time trx_storage_stat;
     td::RealCpuTimer::Time trx_other;
 
+    td::RealCpuTimer::Time ext_collated_data_merge;
+
     std::string to_str(bool is_cpu) const {
       return PSTRING() << "total=" << total.get(is_cpu) << " optimistic_apply=" << optimistic_apply.get(is_cpu)
                        << " trx_tvm=" << trx_tvm.get(is_cpu) << " trx_storage_stat=" << trx_storage_stat.get(is_cpu)
-                       << " trx_other=" << trx_other.get(is_cpu);
+                       << " trx_other=" << trx_other.get(is_cpu)
+                       << " *ext_collated_data_merge=" << ext_collated_data_merge.get(is_cpu);
     }
   };
   WorkTimeStats work_time;

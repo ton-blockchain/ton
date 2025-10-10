@@ -837,28 +837,34 @@ bool ValidateQuery::extract_collated_data() {
   }
   if (merge_collated_data_enabled_) {
     LOG(INFO) << "merge_collated_data = true";
-    LOG(DEBUG) << "sending add_block_candidate() to CollatedDataMerger";
-    td::actor::send_closure(collated_data_merger_, &CollatedDataMerger::add_block_candidate, id_, block_root_,
-                            collated_roots_);
     if (optimistic_prev_block_.not_null()) {
       LOG(DEBUG) << "sending add_block_candidate() for optimistic prev block to CollatedDataMerger";
       td::actor::send_closure(collated_data_merger_, &CollatedDataMerger::add_block_candidate_data, id_,
-                              optimistic_prev_block_->data(), optimistic_prev_collated_data_.clone());
+                              optimistic_prev_block_->data(), optimistic_prev_collated_data_.clone(),
+                              [](td::Result<td::RealCpuTimer::Time>) {});
     }
+    LOG(DEBUG) << "sending add_block_candidate() to CollatedDataMerger";
+    td::actor::send_closure(collated_data_merger_, &CollatedDataMerger::add_block_candidate, id_, block_root_,
+                            collated_roots_, [SelfId = actor_id(this), this](td::Result<td::RealCpuTimer::Time> R) {
+                              if (R.is_error()) {
+                                return;
+                              }
+                              td::actor::send_lambda(SelfId, [this, time = R.move_as_ok()]() {
+                                stats_.work_time.ext_collated_data_merge += time;
+                              });
+                            });
     std::vector<vm::CellHash> hashes = collated_data_root_state_hashes_;
     hashes.insert(hashes.end(), collated_data_root_dict_hashes_.begin(), collated_data_root_dict_hashes_.end());
-    if (!hashes.empty()) {
-      LOG(DEBUG) << "sending get_cells to CollatedDataMerger";
-      ++pending;
-      td::actor::send_closure_later(
-          collated_data_merger_, &CollatedDataMerger::get_cells, std::move(hashes),
-          [self = get_self(), token = perf_log_.start_action("CollatedDataMerger::get_cells")](
-              td::Result<td::HashMap<vm::CellHash, Ref<vm::Cell>>> res) mutable {
-            LOG(DEBUG) << "got answer to CollatedDataMerger::get_cells";
-            td::actor::send_closure_later(std::move(self), &ValidateQuery::process_merged_collated_roots,
-                                          std::move(res), std::move(token));
-          });
-    }
+    LOG(DEBUG) << "sending get_cells to CollatedDataMerger";
+    ++pending;
+    td::actor::send_closure_later(
+        collated_data_merger_, &CollatedDataMerger::get_cells, std::move(hashes),
+        [self = get_self(), token = perf_log_.start_action("CollatedDataMerger::get_cells")](
+            td::Result<td::HashMap<vm::CellHash, Ref<vm::Cell>>> res) mutable {
+          LOG(DEBUG) << "got answer to CollatedDataMerger::get_cells";
+          td::actor::send_closure_later(std::move(self), &ValidateQuery::process_merged_collated_roots,
+                                        std::move(res), std::move(token));
+        });
   }
   return true;
 }

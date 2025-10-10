@@ -34,8 +34,10 @@ class CollatedDataMerger : public td::actor::Actor {
  public:
   void get_cells(std::vector<vm::CellHash> hashes, td::Promise<td::HashMap<vm::CellHash, Ref<vm::Cell>>> promise);
   void add_cells(Ref<vm::Cell> cell);
-  void add_block_candidate(BlockIdExt block_id, Ref<vm::Cell> root, std::vector<Ref<vm::Cell>> collated_roots);
-  void add_block_candidate_data(BlockIdExt block_id, td::BufferSlice data, td::BufferSlice collated_data);
+  void add_block_candidate(BlockIdExt block_id, Ref<vm::Cell> root, std::vector<Ref<vm::Cell>> collated_roots,
+                           td::Promise<td::RealCpuTimer::Time> promise);
+  void add_block_candidate_data(BlockIdExt block_id, td::BufferSlice data, td::BufferSlice collated_data,
+                                td::Promise<td::RealCpuTimer::Time> promise);
 
  private:
   struct CellInfo {

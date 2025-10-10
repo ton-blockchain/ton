@@ -29,7 +29,8 @@ class CollatedDataMergerExtCellLoader {
 
 using CollatedDataMergerExtCell = vm::ExtCell<td::Unit, CollatedDataMergerExtCellLoader>;
 
-void CollatedDataMerger::get_cells(std::vector<vm::CellHash> hashes, td::Promise<td::HashMap<vm::CellHash, Ref<vm::Cell>>> promise) {
+void CollatedDataMerger::get_cells(std::vector<vm::CellHash> hashes,
+                                   td::Promise<td::HashMap<vm::CellHash, Ref<vm::Cell>>> promise) {
   td::HashMap<vm::CellHash, Ref<vm::Cell>> result;
   for (const vm::CellHash &hash : hashes) {
     auto it = cells_.find(hash);
@@ -101,25 +102,33 @@ void CollatedDataMerger::add_cells(Ref<vm::Cell> cell) {
 }
 
 void CollatedDataMerger::add_block_candidate(BlockIdExt block_id, Ref<vm::Cell> root,
-                                             std::vector<Ref<vm::Cell>> collated_roots) {
+                                             std::vector<Ref<vm::Cell>> collated_roots,
+                                             td::Promise<td::RealCpuTimer::Time> promise) {
+  td::RealCpuTimer timer;
+  SCOPE_EXIT {
+    promise.set_value(timer.elapsed_both());
+  };
   if (!blocks_.insert(block_id).second) {
     return;
   }
-  td::Timer timer;
   add_cells(std::move(root));
   for (auto &c : collated_roots) {
     add_cells(std::move(c));
   }
-  LOG(INFO) << "Added block " << block_id.to_str() << " in " << timer.elapsed()
+  LOG(INFO) << "Added block " << block_id.to_str() << " in " << timer.elapsed_real()
             << " s, total cells = " << cells_.size();
 }
 
 void CollatedDataMerger::add_block_candidate_data(BlockIdExt block_id, td::BufferSlice data,
-                                                  td::BufferSlice collated_data) {
+                                                  td::BufferSlice collated_data,
+                                                  td::Promise<td::RealCpuTimer::Time> promise) {
+  td::RealCpuTimer timer;
+  SCOPE_EXIT {
+    promise.set_value(timer.elapsed_both());
+  };
   if (!blocks_.insert(block_id).second) {
     return;
   }
-  td::Timer timer;
   auto r_root = vm::std_boc_deserialize(data);
   if (r_root.is_error()) {
     LOG(WARNING) << "Failed to deserialize block data for " << block_id.to_str() << " : " << r_root.error();
@@ -135,7 +144,7 @@ void CollatedDataMerger::add_block_candidate_data(BlockIdExt block_id, td::Buffe
   for (auto &c : r_collated_roots.move_as_ok()) {
     add_cells(std::move(c));
   }
-  LOG(INFO) << "Added block " << block_id.to_str() << " in " << timer.elapsed() << " s";
+  LOG(INFO) << "Added block " << block_id.to_str() << " in " << timer.elapsed_real() << " s";
 }
 
 void CollatedDataMerger::CellInfo::set_cell(const Ref<vm::DataCell> &new_cell) {
