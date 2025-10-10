@@ -104,7 +104,7 @@ class ExtClientImpl : public ExtClient {
       promise.set_result(std::move(R));
     };
     LOG(DEBUG) << "Sending query " << query_info.to_str() << " to server #" << server.idx << " ("
-               << server.config.addr.get_ip_str() << ":" << server.config.addr.get_port() << ")";
+               << server.config.hostname << ")";
     send_closure(server.client, &ton::adnl::AdnlExtClient::send_query, std::move(name), std::move(data), timeout,
                  std::move(P));
   }
@@ -173,9 +173,9 @@ class ExtClientImpl : public ExtClient {
       td::actor::ActorId<ExtClientImpl> parent_;
       size_t idx_;
     };
-    LOG(INFO) << "Connecting to liteserver #" << server.idx << " (" << server.config.addr.get_ip_str() << ":"
-              << server.config.addr.get_port() << ") for query " << (query_info ? query_info->to_str() : "[none]");
-    server.client = ton::adnl::AdnlExtClient::create(server.config.adnl_id, server.config.addr,
+    LOG(INFO) << "Connecting to liteserver #" << server.idx << " (" << server.config.hostname << ") for query "
+              << (query_info ? query_info->to_str() : "[none]");
+    server.client = ton::adnl::AdnlExtClient::create(server.config.adnl_id, server.config.hostname,
                                                      std::make_unique<Callback>(actor_id(this), server_idx));
   }
 
@@ -204,8 +204,7 @@ class ExtClientImpl : public ExtClient {
         continue;
       }
       if (server.timeout.is_in_past()) {
-        LOG(INFO) << "Closing connection to liteserver #" << server.idx << " (" << server.config.addr.get_ip_str()
-                  << ":" << server.config.addr.get_port() << ")";
+        LOG(INFO) << "Closing connection to liteserver #" << server.idx << " (" << server.config.hostname << ")";
         server.client.reset();
         server.alive = false;
         server.ignore_until = {};

@@ -17,6 +17,8 @@
 #pragma once
 
 #include "full-node.h"
+#include "validator-telemetry.hpp"
+
 #include <fstream>
 
 namespace ton::validator::fullnode {
@@ -25,6 +27,7 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
  public:
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcast& query);
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressed& query);
+  void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2& query);
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_outMsgQueueProofBroadcast& query);
   void process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast& query);
 
@@ -32,6 +35,7 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
 
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcast& query);
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcastCompressed& query);
+  void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcastCompressedV2& query);
   void process_block_candidate_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast& query);
 
   void process_telemetry_broadcast(adnl::AdnlNodeIdShort src,
@@ -106,6 +110,7 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
   void init();
   void get_stats_extra(td::Promise<std::string> promise);
 
+  td::actor::ActorOwn<ValidatorTelemetry> telemetry_sender_;
   bool collect_telemetry_ = false;
   std::ofstream telemetry_file_;
 };

@@ -28,7 +28,8 @@ class WaitBlockState : public td::actor::Actor {
  public:
   WaitBlockState(BlockHandle handle, td::uint32 priority, td::Ref<ValidatorManagerOptions> opts,
                  td::Ref<MasterchainState> last_masterchain_state, td::actor::ActorId<ValidatorManager> manager,
-                 td::Timestamp timeout, td::Promise<td::Ref<ShardState>> promise,
+                 td::Timestamp timeout, td::Promise<td::Ref<ShardState>> promise_no_store,
+                 td::Promise<td::Ref<ShardState>> promise_final,
                  td::Ref<PersistentStateDescription> persistent_state_desc = {})
       : handle_(std::move(handle))
       , priority_(priority)
@@ -36,7 +37,8 @@ class WaitBlockState : public td::actor::Actor {
       , last_masterchain_state_(last_masterchain_state)
       , manager_(manager)
       , timeout_(timeout)
-      , promise_(std::move(promise))
+      , promise_no_store_(std::move(promise_no_store))
+      , promise_final_(std::move(promise_final))
       , persistent_state_desc_(std::move(persistent_state_desc))
       , perf_timer_("waitstate", 1.0, [manager](double duration) {
         send_closure(manager, &ValidatorManager::add_perf_timer_stat, "waitstate", duration);
@@ -96,7 +98,8 @@ class WaitBlockState : public td::actor::Actor {
   td::Ref<MasterchainState> last_masterchain_state_;
   td::actor::ActorId<ValidatorManager> manager_;
   td::Timestamp timeout_;
-  td::Promise<td::Ref<ShardState>> promise_;
+  td::Promise<td::Ref<ShardState>> promise_no_store_;
+  td::Promise<td::Ref<ShardState>> promise_final_;
   td::Ref<PersistentStateDescription> persistent_state_desc_;
 
   td::Ref<ShardState> prev_state_;

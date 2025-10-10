@@ -221,7 +221,7 @@ class LiteQuery : public td::actor::Actor {
   bool make_shard_info_proof(Ref<vm::Cell>& proof, Ref<block::McShardHash>& info, ShardIdFull shard, bool exact = true);
   bool make_shard_info_proof(Ref<vm::Cell>& proof, Ref<block::McShardHash>& info, AccountIdPrefixFull prefix);
   bool make_shard_info_proof(Ref<vm::Cell>& proof, BlockIdExt& blkid, AccountIdPrefixFull prefix);
-  bool make_ancestor_block_proof(Ref<vm::Cell>& proof, Ref<vm::Cell> state_root, const BlockIdExt& old_blkid);
+  bool make_ancestor_block_proof(Ref<vm::Cell>& proof, Ref<MasterchainState> mc_state, const BlockIdExt& old_blkid);
 };
 
 }  // namespace validator

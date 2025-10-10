@@ -35,6 +35,10 @@ void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonN
   process_block_broadcast(src, query);
 }
 
+void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 &query) {
+  process_block_broadcast(src, query);
+}
+
 void FullNodeFastSyncOverlay::process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query) {
   auto B = deserialize_block_broadcast(query, overlay::Overlays::max_fec_broadcast_size());
   if (B.is_error()) {
@@ -91,6 +95,11 @@ void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonN
 
 void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src,
                                                 ton_api::tonNode_newBlockCandidateBroadcastCompressed &query) {
+  process_block_candidate_broadcast(src, query);
+}
+
+void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src,
+                                                ton_api::tonNode_newBlockCandidateBroadcastCompressedV2 &query) {
   process_block_candidate_broadcast(src, query);
 }
 
@@ -316,6 +325,21 @@ void FullNodeFastSyncOverlay::init() {
                           std::make_unique<Callback>(actor_id(this)), rules, std::move(scope), options);
 
   inited_ = true;
+  if (shard_.is_masterchain()) {
+    class TelemetryCallback : public ValidatorTelemetry::Callback {
+     public:
+      explicit TelemetryCallback(td::actor::ActorId<FullNodeFastSyncOverlay> id) : id_(id) {
+      }
+      void send_telemetry(tl_object_ptr<ton_api::validator_telemetry> telemetry) override {
+        td::actor::send_closure(id_, &FullNodeFastSyncOverlay::send_validator_telemetry, std::move(telemetry));
+      }
+
+     private:
+      td::actor::ActorId<FullNodeFastSyncOverlay> id_;
+    };
+    telemetry_sender_ = td::actor::create_actor<ValidatorTelemetry>(
+        "telemetry", local_id_, std::make_unique<TelemetryCallback>(actor_id(this)));
+  }
 }
 
 void FullNodeFastSyncOverlay::tear_down() {

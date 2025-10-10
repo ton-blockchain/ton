@@ -187,7 +187,7 @@ class CoreActor : public CoreActorInterface {
   std::mutex queue_mutex_;
   std::mutex res_mutex_;
   std::map<td::int32, std::shared_ptr<RemoteNodeStatus>> results_;
-  std::vector<td::IPAddress> addrs_;
+  std::vector<std::string> addrs_;
   static CoreActor* instance_;
   td::actor::ActorId<CoreActor> self_id_;
 
@@ -220,7 +220,7 @@ class CoreActor : public CoreActorInterface {
   }
   void get_results(td::uint32 max, td::Promise<RemoteNodeStatusList> promise) override {
     RemoteNodeStatusList r;
-    r.ips = hide_ips_ ? std::vector<td::IPAddress>{addrs_.size()} : addrs_;
+    r.addrs = hide_ips_ ? std::vector<std::string>{addrs_.size()} : addrs_;
     auto it = results_.rbegin();
     while (it != results_.rend() && r.results.size() < max) {
       r.results.push_back(it->second);
@@ -445,14 +445,14 @@ class CoreActor : public CoreActorInterface {
       r_servers.ensure();
       servers = r_servers.move_as_ok();
       for (const auto& serv : servers) {
-        addrs_.push_back(serv.addr);
+        addrs_.push_back(serv.hostname);
       }
     } else {
       if (!remote_addr_.is_valid()) {
         LOG(FATAL) << "remote addr not set";
       }
-      addrs_.push_back(remote_addr_);
       servers.push_back(liteclient::LiteServerConfig{ton::adnl::AdnlNodeIdFull{remote_public_key_}, remote_addr_});
+      addrs_.push_back(servers.back().hostname);
     }
     n_servers_ = servers.size();
     client_ = liteclient::ExtClient::create(std::move(servers), make_callback(), true);
