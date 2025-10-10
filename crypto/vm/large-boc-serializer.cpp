@@ -502,8 +502,8 @@ td::Status LargeBocSerializer::serialize(td::FileFd& fd, int mode) {
       if (dc_info.is_root_cell && (mode & Mode::WithTopHash)) {
         with_hash = true;
       }
-      unsigned char buf[256];
-      int s = dc->serialize(buf, 256, with_hash);
+      unsigned char buf[Cell::max_serialized_bytes];
+      int s = dc->serialize(buf, Cell::max_serialized_bytes, with_hash);
       writer.store_bytes(buf, s);
       DCHECK(dc->size_refs() == dc_info.get_ref_num());
       unsigned ref_num = dc_info.get_ref_num();

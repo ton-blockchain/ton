@@ -537,7 +537,7 @@ fun usedIn10ButDeclaredBelow(x: int) {
 """
   wrap16() PROC:<{
     IFJMP:<{
-      139 PUSHINT
+      129 PUSHINT
       OVER
       EQUAL
       IFJMP:<{
@@ -545,7 +545,7 @@ fun usedIn10ButDeclaredBelow(x: int) {
         0 GTINT
         100 THROWIFNOT
       }>
-      140 PUSHINT
+      130 PUSHINT
       s2 POP
       EQUAL
       IFJMP:<{

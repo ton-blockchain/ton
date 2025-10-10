@@ -191,11 +191,11 @@ fun T?.arbitraryMethod(self): never { throw 123; }
 
 fun test12() {
     __expect_type(10.arbitraryMethod(), "int?");
-    __expect_type((10 as int8?).arbitraryMethod(), "int?");
     __expect_type((10 as coins?)!.arbitraryMethod(), "int?");
 
-    __expect_type(null.arbitraryMethod(), "int?");
-    __expect_type((10 as coins?).arbitraryMethod(), "int?");
+    __expect_type((10 as int8?).arbitraryMethod(), "never");
+    __expect_type(null.arbitraryMethod(), "never");
+    __expect_type((10 as coins?).arbitraryMethod(), "never");
 
     __expect_type(Wrapper { item: 10 }.arbitraryMethod(), "Wrapper<MInt>");
     __expect_type(Wrapper<int> { item: 10 as int8 }.arbitraryMethod(), "Wrapper<MInt>");
@@ -280,12 +280,31 @@ fun Wrapper<T>.createFrom<U>(item: U): Wrapper<T> { return {item}; }
 fun test18() {
     __expect_type(10.copy, "(int) -> int");
     __expect_type(Wrapper{item:null as int8?}.copy, "(Wrapper<int8?>) -> Wrapper<int8?>");
-    __expect_type(Wrapper<int>.createNull, "() -> Wrapper<int?>");
+    __expect_type(Wrapper<int?>.createNull, "() -> Wrapper<int?>");
     __expect_type(Wrapper<Wrapper<slice?>?>.createNull, "() -> Wrapper<Wrapper<slice?>?>");
     __expect_type(Wrapper<int?>.createFrom<int8>, "(int8) -> Wrapper<int?>");
 
     var cb = Wrapper<int?>.createFrom<int8>;
     return cb(10);
+}
+
+type BalanceList = dict
+type AssetList = dict
+
+fun BalanceList.validate(self): int1 { return 0 }
+fun AssetList.validate(self): int2 { return 0 }
+
+fun test19(b: BalanceList, a: AssetList) {
+    __expect_type(b.validate(), "int1");
+    __expect_type(a.validate(), "int2");
+    
+    if (b == null) {}
+    match (a) {
+        null => {}
+        cell => {}
+    }
+    __expect_type(b, "BalanceList");
+    __expect_type(a, "AssetList");
 }
 
 fun main() {}
@@ -300,7 +319,7 @@ fun main() {}
 @testcase | 107 |        | 2 1 -1
 @testcase | 108 | 5      | 17 5
 @testcase | 109 |        | 5 100500 20 30 5 5 31
-@testcase | 110 |        | [ 2 3 1 1 3 1 1 ] -1
+@testcase | 110 |        | [ 2 3 1 1 1 1 1 ] -1
 @testcase | 111 |        | [ 1 2 3 3 2 ]
 @testcase | 113 |        | 0 -1 -1 -1 0 -1
 @testcase | 114 |        | -1 -1 0 0 0

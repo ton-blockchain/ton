@@ -18,6 +18,7 @@ fun demo_fields_def(x: int) {
 }
 
 fun main() {
+    var cb = demo_fields_def;
     return 1;
 }
 

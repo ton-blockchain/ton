@@ -16,16 +16,12 @@
 */
 #pragma once
 
+#include "fwd-declarations.h"
 #include "tolk.h"
 
 namespace tolk {
 
-std::vector<var_idx_t> generate_createMessage(CodeBlob& code, SrcLocation loc, TypePtr bodyT, std::vector<var_idx_t>&& rvect);
-std::vector<var_idx_t> generate_createExternalLogMessage(CodeBlob& code, SrcLocation loc, TypePtr bodyT, std::vector<var_idx_t>&& rvect);
-
-std::vector<var_idx_t> generate_address_buildInAnotherShard(CodeBlob& code, SrcLocation loc, std::vector<var_idx_t>&& ir_self_address, std::vector<var_idx_t>&& ir_shard_options);
-
-std::vector<var_idx_t> generate_AutoDeployAddress_buildAddress(CodeBlob& code, SrcLocation loc, std::vector<var_idx_t>&& ir_auto_deploy);
-std::vector<var_idx_t> generate_AutoDeployAddress_addressMatches(CodeBlob& code, SrcLocation loc, std::vector<var_idx_t>&& ir_auto_deploy, std::vector<var_idx_t>&& ir_address);
+bool check_mapKV_TKey_is_valid(TypePtr TKey, std::string& because_msg);
+bool check_mapKV_TValue_is_valid(TypePtr TValue, std::string& because_msg);
 
 } // namespace tolk

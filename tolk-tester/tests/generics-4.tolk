@@ -63,6 +63,7 @@ fun mySend<TBody = never, TInit = never>(p: Parameters<TBody, TInit>): int {
     return total;
 }
 
+@method_id(101)
 fun test1() {
     eqUnusedT(100);
     eqUnusedU(100);
@@ -175,7 +176,7 @@ fun main() {
 /**
 @testcase | 103 |      | 10 20 30 777 40 40
 @testcase | 104 |      | (null) (null) (null)
-@testcase | 105 |      | -1 (null) 0 (null) typeid-6 777 0 123 0 456 typeid-5
+@testcase | 105 |      | -1 (null) 0 (null) typeid-2 777 0 123 0 456 typeid-1
 @testcase | 106 |      | -1 0 -1 -1
 @testcase | 107 |      | 1 10 110 117
 @testcase | 108 |      | 10 (null) 20

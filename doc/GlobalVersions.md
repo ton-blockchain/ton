@@ -268,7 +268,6 @@ new_bounce_body#fffffffe
 - `HASHBU` (`b - hash`) - same as `ENDC HASHCU`, but without gas cost for cell creation. Gas cost: `26`.
 
 ### Other TVM changes
-- `HASHSU` (`s - hash`) now does not spend gas for cell creation. Gas cost: `26`.
 - `SENDMSG` instruction treats `extra_flags` field accordingly (see above).
 
 ### Other changes

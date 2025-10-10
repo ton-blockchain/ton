@@ -22,8 +22,6 @@ fun test101() {
 }
 
 /**
-@experimental_options remove-unused-functions
-
 @testcase | 0  | | 0
 @testcase | -1 | | -1
 @testcase | -2 | | -2
