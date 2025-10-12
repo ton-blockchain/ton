@@ -6433,6 +6433,9 @@ bool Collator::create_collated_data() {
   }
 
   // 8. serialize collated data
+  if (collated_roots_.size() > max_collated_data_roots) {
+    return fatal_error(PSTRING() << "too many collated data roots: " << collated_roots_.size());
+  }
   if (collated_roots_.empty()) {
     collated_data_ = td::BufferSlice{0};
   } else {

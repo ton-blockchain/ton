@@ -79,7 +79,7 @@ td::Result<td::BufferSlice> compress_candidate_data(td::Slice block, td::Slice c
     return td::Status::Error("block candidate should have exactly one root");
   }
   std::vector<td::Ref<vm::Cell>> roots = {boc1.get_root_cell()};
-  TRY_STATUS(boc2.deserialize(collated_data, 1000000));
+  TRY_STATUS(boc2.deserialize(collated_data, max_collated_data_roots));
   for (int i = 0; i < boc2.get_root_count(); ++i) {
     roots.push_back(boc2.get_root_cell(i));
   }
@@ -100,7 +100,7 @@ td::Result<std::pair<td::BufferSlice, td::BufferSlice>> decompress_candidate_dat
     if (decompressed.size() != (size_t)decompressed_size) {
       return td::Status::Error("decompressed size mismatch");
     }
-    TRY_RESULT_ASSIGN(roots, vm::std_boc_deserialize_multi(decompressed, 1000000, true));
+    TRY_RESULT_ASSIGN(roots, vm::std_boc_deserialize_multi(decompressed, max_collated_data_roots + 1, true));
   } else {
     TRY_RESULT_ASSIGN(roots, vm::boc_decompress(compressed, max_decompressed_size));
   }

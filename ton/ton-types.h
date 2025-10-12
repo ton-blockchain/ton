@@ -52,6 +52,7 @@ constexpr WorkchainId masterchainId = -1, basechainId = 0, workchainInvalid = 0x
 constexpr ShardId shardIdAll = (1ULL << 63);
 
 constexpr int max_shard_pfx_len = 60;
+constexpr int max_collated_data_roots = 1000000;
 
 enum GlobalCapabilities {
   capIhrEnabled = 1,

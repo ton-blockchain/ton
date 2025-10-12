@@ -134,7 +134,7 @@ void CollatedDataMerger::add_block_candidate_data(BlockIdExt block_id, td::Buffe
     LOG(WARNING) << "Failed to deserialize block data for " << block_id.to_str() << " : " << r_root.error();
     return;
   }
-  auto r_collated_roots = vm::std_boc_deserialize_multi(collated_data, 1000000, true);
+  auto r_collated_roots = vm::std_boc_deserialize_multi(collated_data, max_collated_data_roots, true);
   if (r_collated_roots.is_error()) {
     LOG(WARNING) << "Failed to deserialize collated data for " << block_id.to_str() << " : "
                  << r_collated_roots.error();
@@ -165,7 +165,7 @@ td::Status CollatedDataDeduplicator::add_block_candidate(BlockSeqno seqno, td::S
                                                          td::Slice collated_data) {
   td::Timer timer;
   TRY_RESULT(root, vm::std_boc_deserialize(block_data));
-  TRY_RESULT(collated_roots, vm::std_boc_deserialize_multi(collated_data, 1000000, true));
+  TRY_RESULT(collated_roots, vm::std_boc_deserialize_multi(collated_data, max_collated_data_roots, true));
   std::lock_guard lock{mutex_};
   td::HashSet<vm::CellHash> visited;
   std::function<void(const Ref<vm::Cell> &)> dfs = [&](const Ref<vm::Cell> &cell) {

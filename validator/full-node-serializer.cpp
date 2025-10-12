@@ -153,7 +153,7 @@ static td::Status deserialize_block_full(ton_api::tonNode_dataFull& f, BlockIdEx
 static td::Status deserialize_block_full(ton_api::tonNode_dataFullCompressed& f, BlockIdExt& id, td::BufferSlice& proof,
                                          td::BufferSlice& data, bool& is_proof_link, int max_decompressed_size) {
   TRY_RESULT(decompressed, td::lz4_decompress(f.compressed_, max_decompressed_size));
-  TRY_RESULT(roots, vm::std_boc_deserialize_multi(decompressed, 1000000, true));
+  TRY_RESULT(roots, vm::std_boc_deserialize_multi(decompressed, max_collated_data_roots + 1, true));
   if (roots.size() != 2) {
     return td::Status::Error("expected 2 roots in boc");
   }
@@ -203,7 +203,8 @@ td::Result<td::BufferSlice> serialize_block_candidate_broadcast(BlockIdExt block
   TRY_RESULT(root, vm::std_boc_deserialize(data));
   std::vector<Ref<vm::Cell>> roots = {root};
   if (collated_data) {
-    TRY_RESULT(collated_data_roots, vm::std_boc_deserialize_multi(collated_data.value(), 1000000, true));
+    TRY_RESULT(collated_data_roots,
+               vm::std_boc_deserialize_multi(collated_data.value(), max_collated_data_roots, true));
     roots.insert(roots.end(), collated_data_roots.begin(), collated_data_roots.end());
   }
   TRY_RESULT(data_new, vm::std_boc_serialize_multi(std::move(roots), 2));
@@ -227,7 +228,7 @@ static td::Status deserialize_block_candidate_broadcast(ton_api::tonNode_blockCa
   cc_seqno = obj.catchain_seqno_;
   validator_set_hash = obj.validator_set_hash_;
   TRY_RESULT(decompressed, td::lz4_decompress(obj.compressed_, max_decompressed_data_size));
-  TRY_RESULT(roots, vm::std_boc_deserialize_multi(decompressed, 1000000, true));
+  TRY_RESULT(roots, vm::std_boc_deserialize_multi(decompressed, max_collated_data_roots + 1, true));
   if (roots.empty()) {
     return td::Status::Error("expected at least 1 root in boc");
   }
