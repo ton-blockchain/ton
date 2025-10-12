@@ -839,9 +839,9 @@ bool ValidateQuery::extract_collated_data() {
     LOG(INFO) << "merge_collated_data = true";
     if (optimistic_prev_block_.not_null()) {
       LOG(DEBUG) << "sending add_block_candidate() for optimistic prev block to CollatedDataMerger";
-      td::actor::send_closure(collated_data_merger_, &CollatedDataMerger::add_block_candidate_data, id_,
-                              optimistic_prev_block_->data(), optimistic_prev_collated_data_.clone(),
-                              [](td::Result<td::RealCpuTimer::Time>) {});
+      td::actor::send_closure(collated_data_merger_, &CollatedDataMerger::add_block_candidate_data,
+                              optimistic_prev_block_->block_id(), optimistic_prev_block_->data(),
+                              optimistic_prev_collated_data_.clone(), [](td::Result<td::RealCpuTimer::Time>) {});
     }
     LOG(DEBUG) << "sending add_block_candidate() to CollatedDataMerger";
     td::actor::send_closure(collated_data_merger_, &CollatedDataMerger::add_block_candidate, id_, block_root_,
