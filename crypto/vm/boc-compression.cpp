@@ -728,7 +728,9 @@ td::Result<td::BufferSlice> boc_compress(const std::vector<td::Ref<vm::Cell>>& b
   return compressed_with_algo;
 }
 
-td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress(td::Slice compressed, int max_decompressed_size) {
+td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress(td::Slice compressed, int max_decompressed_size,
+  td::Ref<vm::Cell> state
+) {
   if (compressed.size() == 0) {
     return td::Status::Error("Can't decompress empty data");
   }

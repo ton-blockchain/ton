@@ -17,12 +17,16 @@
 #pragma once
 #include "ton/ton-types.h"
 #include "auto/tl/ton_api.h"
+#include "vm/cells.h"
 
 namespace ton::validator::fullnode {
 
 td::Result<td::BufferSlice> serialize_block_broadcast(const BlockBroadcast& broadcast, bool compression_enabled,
                                                       bool use_state_to_compress = false, bool use_state_to_decompress = false);
-td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_Broadcast& obj, int max_decompressed_data_size);
+td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_Broadcast& obj, int max_decompressed_data_size, 
+                                                       td::Ref<vm::Cell> state = td::Ref<vm::Cell>());
+
+td::Result<BlockIdExt> extract_prev_block_id_from_proof(td::Slice proof, const BlockIdExt& block_id);
 
 td::Result<td::BufferSlice> serialize_block_full(const BlockIdExt& id, td::Slice proof, td::Slice data,
                                                  bool is_proof_link, bool compression_enabled);

@@ -846,17 +846,73 @@ void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_bl
 }
 
 void FullNodeShardImpl::process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query) {
-  auto B = deserialize_block_broadcast(query, overlay::Overlays::max_fec_broadcast_size());
-  if (B.is_error()) {
-    LOG(DEBUG) << "dropped broadcast: " << B.move_as_error();
+  ton_api::downcast_call(
+    query,
+    td::overloaded(
+      [&](ton_api::tonNode_blockBroadcastCompressedV3 &f) {
+        // if V3 broadcast - handle asynchronously
+        BlockIdExt block_id = create_block_id(f.id_);
+        
+        auto R_prev_id = extract_prev_block_id_from_proof(f.proof_, block_id);
+        if (R_prev_id.is_error()) {
+          LOG(DEBUG) << "Failed to extract prev block ID from V3 broadcast: " << R_prev_id.move_as_error();
+          return;
+        }
+        auto prev_block_id = R_prev_id.move_as_ok();
+        
+        // clone the query object
+        std::vector<tl_object_ptr<ton_api::tonNode_blockSignature>> sigs_clone;
+        for (auto &sig : f.signatures_) {
+          sigs_clone.push_back(create_tl_object<ton_api::tonNode_blockSignature>(sig->who_, sig->signature_.clone()));
+        }
+        auto query_clone = create_tl_object<ton_api::tonNode_blockBroadcastCompressedV3>(
+          create_tl_object<ton_api::tonNode_blockIdExt>(f.id_->workchain_, f.id_->shard_, f.id_->seqno_,
+                                                         f.id_->root_hash_, f.id_->file_hash_),
+          f.catchain_seqno_, f.validator_set_hash_,
+          std::move(sigs_clone),
+          f.flags_, f.proof_.clone(), f.data_compressed_.clone());
+        
+        // request previous block state asynchronously
+        td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::wait_block_state_short,
+                               prev_block_id, 0, td::Timestamp::in(10.0), false,
+                               [SelfId = actor_id(this), src, query_moved = std::move(query_clone)](
+                                 td::Result<td::Ref<ShardState>> R) mutable {
+                                 td::actor::send_closure(SelfId, &FullNodeShardImpl::got_block_state_for_v3_broadcast,
+                                                        src, std::move(query_moved), std::move(R));
+                               });
+      },
+      [&](auto &f) {
+        // other broadcast - deserialize normally
+        auto B = deserialize_block_broadcast(query, overlay::Overlays::max_fec_broadcast_size());
+        if (B.is_error()) {
+          LOG(DEBUG) << "dropped broadcast: " << B.move_as_error();
+          return;
+        }
+        VLOG(FULL_NODE_DEBUG) << "Received block broadcast from " << src << ": " << B.ok().block_id.to_str();
+        td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok());
+      }
+    )
+  );
+}
+
+void FullNodeShardImpl::got_block_state_for_v3_broadcast(PublicKeyHash src,
+                                                         tl_object_ptr<ton_api::tonNode_blockBroadcastCompressedV3> query,
+                                                         td::Result<td::Ref<ShardState>> R) {
+  if (R.is_error()) {
+    LOG(DEBUG) << "Failed to get state for V3 broadcast: " << R.move_as_error();
     return;
   }
-  //if (!shard_is_ancestor(shard_, block_id.shard_full())) {
-  //  LOG(FULL_NODE_WARNING) << "dropping block broadcast: shard mismatch. overlay=" << shard_.to_str()
-  //                         << " block=" << block_id.to_str();
-  //  return;
-  //}
-  VLOG(FULL_NODE_DEBUG) << "Received block broadcast from " << src << ": " << B.ok().block_id.to_str();
+  
+  auto state = R.move_as_ok();
+  
+  // deserialize V3 broadcast with state
+  auto B = deserialize_block_broadcast(*query, overlay::Overlays::max_fec_broadcast_size(), state->root_cell());
+  if (B.is_error()) {
+    LOG(DEBUG) << "Failed to deserialize V3 broadcast: " << B.move_as_error();
+    return;
+  }
+  
+  VLOG(FULL_NODE_DEBUG) << "Received V3 block broadcast from " << src << ": " << B.ok().block_id.to_str();
   td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok());
 }
 
