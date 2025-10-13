@@ -39,6 +39,11 @@ void FullNodePrivateBlockOverlay::process_broadcast(PublicKeyHash src,
   process_block_broadcast(src, query);
 }
 
+void FullNodePrivateBlockOverlay::process_broadcast(PublicKeyHash src, 
+                                                    ton_api::tonNode_blockBroadcastCompressedV3 &query) {
+  process_block_broadcast(src, query);
+}
+
 void FullNodePrivateBlockOverlay::process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query) {
   auto B = deserialize_block_broadcast(query, overlay::Overlays::max_fec_broadcast_size());
   if (B.is_error()) {
@@ -313,6 +318,10 @@ void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNod
 }
 
 void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 &query) {
+  process_block_broadcast(src, query);
+}
+
+void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV3 &query) {
   process_block_broadcast(src, query);
 }
 

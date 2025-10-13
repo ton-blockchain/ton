@@ -39,6 +39,10 @@ void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonN
   process_block_broadcast(src, query);
 }
 
+void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV3 &query) {
+  process_block_broadcast(src, query);
+}
+
 void FullNodeFastSyncOverlay::process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query) {
   auto B = deserialize_block_broadcast(query, overlay::Overlays::max_fec_broadcast_size());
   if (B.is_error()) {
@@ -191,7 +195,7 @@ void FullNodeFastSyncOverlay::send_broadcast(BlockBroadcast broadcast) {
   }
   VLOG(FULL_NODE_DEBUG) << "Sending block broadcast in fast sync overlay (with compression): "
                         << broadcast.block_id.to_str();
-  auto B = serialize_block_broadcast(broadcast, true);  // compression_enabled = true
+  auto B = serialize_block_broadcast(broadcast, true, false, true);  // compression_enabled = true
   if (B.is_error()) {
     VLOG(FULL_NODE_WARNING) << "failed to serialize block broadcast: " << B.move_as_error();
     return;

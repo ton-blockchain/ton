@@ -841,6 +841,10 @@ void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_bl
   process_block_broadcast(src, query);
 }
 
+void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV3 &query) {
+  process_block_broadcast(src, query);
+}
+
 void FullNodeShardImpl::process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query) {
   auto B = deserialize_block_broadcast(query, overlay::Overlays::max_fec_broadcast_size());
   if (B.is_error()) {
@@ -956,7 +960,7 @@ void FullNodeShardImpl::send_broadcast(BlockBroadcast broadcast) {
     return;
   }
   VLOG(FULL_NODE_DEBUG) << "Sending block broadcast in private overlay: " << broadcast.block_id.to_str();
-  auto B = serialize_block_broadcast(broadcast, false);  // compression_enabled = false
+  auto B = serialize_block_broadcast(broadcast, true, false, true);  // improved compression, decompress with state
   if (B.is_error()) {
     VLOG(FULL_NODE_WARNING) << "failed to serialize block broadcast: " << B.move_as_error();
     return;
