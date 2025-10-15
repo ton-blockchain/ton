@@ -17,6 +17,7 @@
 #pragma once
 
 #include "td/actor/actor.h"
+#include "td/actor/coro_task.h"
 #include "td/utils/port/path.h"
 #include "validator/interfaces/validator-manager.h"
 #include "validator/db/package.hpp"
@@ -33,36 +34,26 @@ class ArchiveImporterLocal : public td::actor::Actor {
                        td::Promise<std::pair<BlockSeqno, BlockSeqno>> promise);
   void start_up() override;
 
-  void abort_query(td::Status error);
-  void finish_query();
+  td::actor::Task<td::Unit> run();
+  td::actor::Task<td::Unit> run_inner();
 
+  void read_files();
   td::Status process_package(std::string path);
 
-  void process_masterchain_blocks();
-  void process_masterchain_blocks_cont();
+  td::actor::Task<td::Unit> process_masterchain_blocks();
+  td::actor::Task<td::Unit> import_first_key_block();
+  td::actor::Task<td::Unit> check_masterchain_proofs();
 
-  void import_first_key_block();
-  void checked_key_block_proof(BlockHandle handle);
-  void applied_key_block(td::Ref<MasterchainState> state);
+  td::actor::Task<td::Unit> process_shard_blocks();
+  td::actor::Task<bool> try_advance_shard_client_seqno();
 
-  void checked_masterchain_proofs();
-  void got_shard_client_state(td::Ref<MasterchainState> state);
+  td::actor::Task<td::Unit> store_data();
+  td::actor::Task<td::Unit> store_block_data(td::Ref<BlockData> block);
 
-  void try_advance_shard_client_seqno();
-  void try_advance_shard_client_seqno_cont(td::Ref<BlockData> mc_block);
-
-  void processed_shard_blocks();
-  void store_data();
-  void apply_next_masterchain_block();
-  void applied_next_masterchain_block(td::Ref<MasterchainState> state);
-
-  void apply_shard_blocks();
-  void applied_shard_blocks();
-
-  void apply_shard_block(BlockIdExt block_id, BlockIdExt mc_block_id, td::Promise<td::Unit> promise);
-  void apply_shard_block_cont1(BlockHandle handle, BlockIdExt mc_block_id, td::Promise<td::Unit> promise);
-  void apply_shard_block_cont2(BlockHandle handle, BlockIdExt mc_block_id, td::Promise<td::Unit> promise);
-  void check_shard_block_applied(BlockIdExt block_id, td::Promise<td::Unit> promise);
+  td::actor::Task<td::Unit> apply_masterchain_blocks();
+  td::actor::Task<td::Unit> apply_shard_blocks();
+  td::actor::Task<td::Unit> apply_shard_block(BlockIdExt block_id, BlockIdExt mc_block_id);
+  td::actor::Task<td::Unit> check_block_applied(BlockIdExt block_id);
 
  private:
   std::string db_root_;

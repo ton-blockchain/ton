@@ -200,6 +200,7 @@ class ArchiveManager : public td::actor::Actor {
   std::map<std::pair<BlockSeqno, FileHash>, PermState> perm_states_;  // Mc block seqno, hash -> state
 
   void load_package(PackageId seqno);
+  td::actor::ActorOwn<ArchiveSlice> create_archive_slice(const PackageId& id, td::uint32 shard_split_depth);
   void delete_package(PackageId seqno, td::Promise<td::Unit> promise);
   void deleted_package(PackageId seqno, td::Promise<td::Unit> promise);
   void get_handle_cont(BlockIdExt block_id, PackageId id, td::Promise<BlockHandle> promise);

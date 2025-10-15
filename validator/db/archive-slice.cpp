@@ -25,6 +25,7 @@
 #include "common/delay.h"
 #include "files-async.hpp"
 #include "db-utils.h"
+#include "td/utils/PathView.h"
 
 namespace ton {
 
@@ -403,7 +404,9 @@ void ArchiveSlice::get_file(ConstBlockHandle handle, FileReference ref_id, td::P
           promise.set_value(std::move(R.move_as_ok().second));
         }
       });
-  td::actor::create_actor<PackageReader>("reader", p->package, offset, std::move(P), statistics_.pack_statistics).release();
+  td::actor::create_actor<PackageReader>(PSTRING() << "reader." << td::PathView(p->path).file_name(), p->package,
+                                         offset, std::move(P), statistics_.pack_statistics)
+      .release();
 }
 
 void ArchiveSlice::get_block_common(AccountIdPrefixFull account_id,
@@ -846,7 +849,8 @@ void ArchiveSlice::add_package(td::uint32 seqno, ShardIdFull shard_prefix, td::u
   if (version >= 1) {
     pack->truncate(size).ensure();
   }
-  auto writer = td::actor::create_actor<PackageWriter>("writer", pack, async_mode_, statistics_.pack_statistics);
+  auto writer = td::actor::create_actor<PackageWriter>(PSTRING() << "writer." << td::PathView(path).file_name(), pack,
+                                                       async_mode_, statistics_.pack_statistics);
   packages_.emplace_back(std::move(pack), std::move(writer), seqno, shard_prefix, path, idx, version);
 }
 

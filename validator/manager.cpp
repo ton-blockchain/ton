@@ -2196,12 +2196,13 @@ void ValidatorManagerImpl::download_next_archive() {
     }
   });
   if (to_import_files.empty()) {
-    td::actor::create_actor<ArchiveImporter>("archiveimport", db_root_, last_masterchain_state_, seqno, opts_,
-                                             actor_id(this), std::move(to_import_files), std::move(P))
+    td::actor::create_actor<ArchiveImporter>(PSTRING() << "archiveimport." << seqno, db_root_, last_masterchain_state_,
+                                             seqno, opts_, actor_id(this), std::move(to_import_files), std::move(P))
         .release();
   } else {
-    td::actor::create_actor<ArchiveImporterLocal>("archiveimport", db_root_, last_masterchain_state_, seqno, opts_,
-                                                  actor_id(this), std::move(to_import_files), std::move(P))
+    td::actor::create_actor<ArchiveImporterLocal>(PSTRING() << "archiveimport." << seqno, db_root_,
+                                                  last_masterchain_state_, seqno, opts_, actor_id(this),
+                                                  std::move(to_import_files), std::move(P))
         .release();
   }
 }
