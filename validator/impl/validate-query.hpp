@@ -39,15 +39,6 @@ namespace ton {
 namespace validator {
 using td::Ref;
 
-struct CheckAccountTxsCtx {
-  std::vector<std::tuple<Bits256, LogicalTime, LogicalTime>> msg_proc_lt{};
-  block::CurrencyCollection total_burned{0};
-  std::vector<std::tuple<Bits256, Bits256, bool>> lib_publishers{};
-  bool defer_all_messages = false;
-  std::vector<std::pair<td::Ref<vm::Cell>, td::uint32>> storage_stat_cache_update;
-  ValidationStats::WorkTimeStats work_time;
-};
-
 class ErrorCtxAdd;
 class ErrorCtxSet;
 
@@ -287,11 +278,8 @@ class ValidateQuery : public td::actor::Actor {
 
   void finish_query();
   void abort_query(td::Status error);
-  void abort_query_ts(td::Status error) const;
   bool reject_query(std::string error, td::BufferSlice reason = {});
-  bool reject_query_ts(std::string error, td::BufferSlice reason = {}) const;
   bool reject_query(std::string err_msg, td::Status error, td::BufferSlice reason = {});
-  bool reject_query_ts(std::string err_msg, td::Status error, td::BufferSlice reason = {}) const;
   bool soft_reject_query(std::string error, td::BufferSlice reason = {});
   void alarm() override;
   void start_up() override;
@@ -314,11 +302,9 @@ class ValidateQuery : public td::actor::Actor {
   void written_candidate(td::PerfLogAction token);
 
   bool fatal_error(td::Status error);
-  bool fatal_error_ts(td::Status error) const;
   bool fatal_error(int err_code, std::string err_msg);
   bool fatal_error(int err_code, std::string err_msg, td::Status error);
   bool fatal_error(std::string err_msg, int err_code = -666);
-  bool fatal_error_ts(std::string err_msg, int err_code = -666) const;
 
   std::string error_ctx() const {
     return error_ctx_.as_string();
@@ -427,18 +413,43 @@ class ValidateQuery : public td::actor::Actor {
                                        td::Bits256& msg_hash);
   bool check_in_queue();
   bool check_delivered_dequeued();
-  std::unique_ptr<block::Account> make_account_from_ts(td::ConstBitPtr addr, Ref<vm::CellSlice> account) const;
-  std::unique_ptr<block::Account> unpack_account_ts(td::ConstBitPtr addr, CheckAccountTxsCtx& ctx) const;
-  bool check_one_transaction_ts(block::Account& account, LogicalTime lt, Ref<vm::Cell> trans_root, bool is_first,
-                                bool is_last, CheckAccountTxsCtx& ctx) const;
-  bool check_account_transactions_ts(const StdSmcAddress& acc_addr, Ref<vm::CellSlice> acc_tr,
-                                     CheckAccountTxsCtx& ctx) const;
-  CheckAccountTxsCtx load_check_account_transactions_context(const StdSmcAddress& address);
-  void save_account_transactions_context(const StdSmcAddress& address, CheckAccountTxsCtx& ctx);
+
+  class CheckAccountTxs : public Actor {
+  public:
+    struct Context {
+      std::vector<std::tuple<Bits256, LogicalTime, LogicalTime>> msg_proc_lt{};
+      block::CurrencyCollection total_burned{0};
+      std::vector<std::tuple<Bits256, Bits256, bool>> lib_publishers{};
+      bool defer_all_messages = false;
+      std::vector<std::pair<td::Ref<vm::Cell>, td::uint32>> storage_stat_cache_update{};
+      ValidationStats::WorkTimeStats work_time{};
+    };
+
+    CheckAccountTxs(const ValidateQuery& vq, Context ctx);
+
+  private:
+    void abort_query_ts(td::Status error) const;
+    bool reject_query_ts(std::string error, td::BufferSlice reason = {}) const;
+    bool reject_query_ts(std::string err_msg, td::Status error, td::BufferSlice reason = {}) const;
+    bool fatal_error_ts(td::Status error) const;
+    bool fatal_error_ts(std::string err_msg, int err_code = -666) const;
+
+    std::unique_ptr<block::Account> make_account_from_ts(td::ConstBitPtr addr, Ref<vm::CellSlice> account);
+    std::unique_ptr<block::Account> unpack_account_ts(td::ConstBitPtr addr);
+    bool check_one_transaction_ts(block::Account& account, LogicalTime lt, Ref<vm::Cell> trans_root, bool is_first,
+                                  bool is_last);
+    bool check_account_transactions_ts(const StdSmcAddress& acc_addr, Ref<vm::CellSlice> acc_tr);
+    bool scan_account_libraries_ts(Ref<vm::Cell> orig_libs, Ref<vm::Cell> final_libs, const td::Bits256& addr);
+
+    const ValidateQuery& vq_;
+    Context ctx_;
+  };
+
+  CheckAccountTxs::Context load_check_account_transactions_context(const StdSmcAddress& address);
+  void save_account_transactions_context(const StdSmcAddress& address, CheckAccountTxs::Context& ctx);
+
   bool check_transactions_p();
   bool check_transactions();
-  bool scan_account_libraries_ts(Ref<vm::Cell> orig_libs, Ref<vm::Cell> final_libs, const td::Bits256& addr,
-                                 CheckAccountTxsCtx& ctx) const;
   bool check_all_ticktock_processed();
   bool check_message_processing_order();
   bool check_special_message(Ref<vm::Cell> in_msg_root, const block::CurrencyCollection& amount,
@@ -462,9 +473,9 @@ class ValidateQuery : public td::actor::Actor {
 
   Ref<vm::Cell> get_virt_state_root(const BlockIdExt& block_id);
 
-  bool check_timeout_ts() const {
+  bool check_timeout() {
     if (timeout && timeout.is_in_past()) {
-      abort_query_ts(td::Status::Error(ErrorCode::timeout, "timeout"));
+      abort_query(td::Status::Error(ErrorCode::timeout, "timeout"));
       return false;
     }
     return true;
