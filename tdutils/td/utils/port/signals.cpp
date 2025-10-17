@@ -317,6 +317,7 @@ static void block_stdin() {
 #endif
 }
 
+#if TD_PORT_POSIX
 [[maybe_unused]] static void init_alarm_signal() {
   struct sigaction act;
   act.sa_handler = [](int) {
@@ -329,6 +330,7 @@ static void block_stdin() {
   sigaction(SIGALRM, &act, nullptr);
   alarm(3);
 }
+#endif
 
 [[maybe_unused]] static void default_failure_signal_handler(int sig) {
 #if TD_PORT_POSIX
