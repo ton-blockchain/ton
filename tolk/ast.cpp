@@ -21,7 +21,7 @@
 
 namespace tolk {
 
-static_assert(sizeof(ASTNodeBase) == 12);
+static_assert(sizeof(ASTNodeBase) == 16);
 
 #ifdef TOLK_DEBUG
 
@@ -44,10 +44,6 @@ UnexpectedASTNodeKind::UnexpectedASTNodeKind(AnyV v_unexpected, const char* plac
 #endif
   message += "in ";
   message += place_where;
-}
-
-void ASTNodeBase::error(const std::string& err_msg) const {
-  throw ParseError(loc, err_msg);
 }
 
 AnnotationKind Vertex<ast_annotation>::parse_kind(std::string_view name) {
@@ -92,7 +88,7 @@ int Vertex<ast_genericsT_list>::lookup_idx(std::string_view nameT) const {
 
 int Vertex<ast_parameter_list>::lookup_idx(std::string_view param_name) const {
   for (size_t idx = 0; idx < children.size(); ++idx) {
-    if (children[idx] && children[idx]->as<ast_parameter>()->param_name == param_name) {
+    if (children[idx] && children[idx]->as<ast_parameter>()->get_identifier()->name == param_name) {
       return static_cast<int>(idx);
     }
   }

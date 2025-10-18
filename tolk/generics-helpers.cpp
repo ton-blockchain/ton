@@ -15,9 +15,9 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include "generics-helpers.h"
-#include "tolk.h"
 #include "ast.h"
 #include "ast-replicator.h"
+#include "compilation-errors.h"
 #include "type-system.h"
 #include "compiler-state.h"
 #include "pipeline.h"
@@ -292,12 +292,12 @@ TypePtr GenericSubstitutionsDeducing::auto_deduce_from_argument(TypePtr param_ty
   return replace_genericT_with_deduced(param_type, &deducedTs);
 }
 
-TypePtr GenericSubstitutionsDeducing::auto_deduce_from_argument(FunctionPtr cur_f, SrcLocation loc, TypePtr param_type, TypePtr arg_type) {
+TypePtr GenericSubstitutionsDeducing::auto_deduce_from_argument(FunctionPtr cur_f, SrcRange range, TypePtr param_type, TypePtr arg_type) {
   std::string_view unknown_nameT;
   consider_next_condition(param_type, arg_type);
   param_type = replace_genericT_with_deduced(param_type, &deducedTs, true, &unknown_nameT);
   if (param_type->has_genericT_inside()) {
-    fire_error_can_not_deduce(cur_f, loc, unknown_nameT);
+    fire_can_not_deduce(cur_f, range, unknown_nameT);
   }
   return param_type;
 }
@@ -315,11 +315,12 @@ void GenericSubstitutionsDeducing::apply_defaults_from_declaration() {
   deducedTs.rewrite_missing_with_defaults();
 }
 
-void GenericSubstitutionsDeducing::fire_error_can_not_deduce(FunctionPtr cur_f, SrcLocation loc, std::string_view nameT) const {
+// todo pass at, not ra
+void GenericSubstitutionsDeducing::fire_can_not_deduce(FunctionPtr cur_f, SrcRange range, std::string_view nameT) const {
   if (fun_ref) {
-    fire(cur_f, loc, "can not deduce " + static_cast<std::string>(nameT) + " for generic function `" + fun_ref->as_human_readable() + "`; instantiate it manually with `" + fun_ref->name + "<...>()`");
+    fire(cur_f, range, "can not deduce " + static_cast<std::string>(nameT) + " for generic function `" + fun_ref->as_human_readable() + "`; instantiate it manually with `" + fun_ref->name + "<...>()`");
   } else {
-    fire(cur_f, loc, "can not deduce " + static_cast<std::string>(nameT) + " for generic struct `" + struct_ref->as_human_readable() + "`; instantiate it manually with `" + struct_ref->name + "<...>`");
+    fire(cur_f, range, "can not deduce " + static_cast<std::string>(nameT) + " for generic struct `" + struct_ref->as_human_readable() + "`; instantiate it manually with `" + struct_ref->name + "<...>`");
   }
 }
 
@@ -417,16 +418,16 @@ FunctionPtr instantiate_generic_function(FunctionPtr fun_ref, GenericsSubstituti
   // built-in functions don't have AST to clone, types of parameters don't exist in AST, etc.
   // nevertheless, for outer code to follow a single algorithm,
   // when calling `debugPrint(x)`, we clone it as "debugPrint<int>", replace types, and insert into symtable
-  if (fun_ref->is_builtin_function()) {
+  if (fun_ref->is_builtin()) {
     std::vector<LocalVarData> new_parameters;
     new_parameters.reserve(fun_ref->get_num_params());
     for (const LocalVarData& orig_p : fun_ref->parameters) {
       TypePtr new_param_type = replace_genericT_with_deduced(orig_p.declared_type, allocatedTs);
-      new_parameters.emplace_back(orig_p.name, orig_p.loc, new_param_type, orig_p.default_value, orig_p.flags, orig_p.param_idx);
+      new_parameters.emplace_back(orig_p.name, nullptr, new_param_type, orig_p.default_value, orig_p.flags, orig_p.param_idx);
     }
     TypePtr new_return_type = replace_genericT_with_deduced(fun_ref->declared_return_type, allocatedTs);
     TypePtr new_receiver_type = replace_genericT_with_deduced(fun_ref->receiver_type, allocatedTs);
-    FunctionData* new_fun_ref = new FunctionData(new_name, fun_ref->loc, fun_ref->method_name, new_receiver_type, new_return_type, std::move(new_parameters), fun_ref->flags, fun_ref->inline_mode, nullptr, allocatedTs, fun_ref->body, fun_ref->ast_root);
+    FunctionData* new_fun_ref = new FunctionData(new_name, nullptr, fun_ref->method_name, new_receiver_type, new_return_type, std::move(new_parameters), fun_ref->flags, fun_ref->inline_mode, nullptr, allocatedTs, fun_ref->body, fun_ref->ast_root);
     new_fun_ref->arg_order = fun_ref->arg_order;
     new_fun_ref->ret_order = fun_ref->ret_order;
     new_fun_ref->base_fun_ref = fun_ref;
@@ -466,7 +467,7 @@ StructPtr instantiate_generic_struct(StructPtr struct_ref, GenericsSubstitutions
 
   const GenericsSubstitutions* allocatedTs = new GenericsSubstitutions(std::move(substitutedTs));
   V<ast_struct_declaration> orig_root = struct_ref->ast_root->as<ast_struct_declaration>();
-  V<ast_identifier> new_name_ident = createV<ast_identifier>(orig_root->get_identifier()->loc, new_name);
+  V<ast_identifier> new_name_ident = createV<ast_identifier>(orig_root->get_identifier()->range, new_name);
   V<ast_struct_declaration> new_root = ASTReplicator::clone_struct_ast(orig_root, new_name_ident);
 
   StructPtr new_struct_ref = pipeline_register_instantiated_generic_struct(struct_ref, new_root, std::move(new_name), allocatedTs);
@@ -489,7 +490,7 @@ AliasDefPtr instantiate_generic_alias(AliasDefPtr alias_ref, GenericsSubstitutio
 
   const GenericsSubstitutions* allocatedTs = new GenericsSubstitutions(std::move(substitutedTs));
   V<ast_type_alias_declaration> orig_root = alias_ref->ast_root->as<ast_type_alias_declaration>();
-  V<ast_identifier> new_name_ident = createV<ast_identifier>(orig_root->get_identifier()->loc, new_name);
+  V<ast_identifier> new_name_ident = createV<ast_identifier>(orig_root->get_identifier()->range, new_name);
   V<ast_type_alias_declaration> new_root = ASTReplicator::clone_type_alias_ast(orig_root, new_name_ident);
 
   AliasDefPtr new_alias_ref = pipeline_register_instantiated_generic_alias(alias_ref, new_root, std::move(new_name), allocatedTs);

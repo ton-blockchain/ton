@@ -14,7 +14,9 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
+#include "ast.h"
 #include "tolk.h"
+#include "compilation-errors.h"
 #include "compiler-state.h"
 #include "type-system.h"
 
@@ -500,8 +502,7 @@ bool Op::compute_used_vars(const CodeBlob& code, bool edit) {
       return set_var_info(std::move(merge_info));
     }
     default:
-      std::cerr << "fatal: unknown operation <??" << cl << "> in compute_used_vars()\n";
-      throw ParseError(loc, "unknown operation");
+      fire(origin, "unknown operation in compute_used_vars()");
   }
 }
 
@@ -583,7 +584,7 @@ bool prune_unreachable(std::unique_ptr<Op>& ops) {
           op.cl = Op::_If;
           std::unique_ptr<Op> new_op = std::move(op.block0);
           op.block0 = std::move(op.block1);
-          op.block1 = std::make_unique<Op>(op.next->loc, Op::_Nop);
+          op.block1 = std::make_unique<Op>(op.next->origin, Op::_Nop);
           new_op->last().next = std::move(ops);
           ops = std::move(new_op);
         }
@@ -628,8 +629,7 @@ bool prune_unreachable(std::unique_ptr<Op>& ops) {
       break;
     }
     default:
-      std::cerr << "fatal: unknown operation <??" << op.cl << ">\n";
-      throw ParseError(op.loc, "unknown operation in prune_unreachable()");
+      fire(op.origin, "unknown operation in prune_unreachable()");
   }
   if (reach) {
     return prune_unreachable(op.next);
@@ -643,7 +643,7 @@ bool prune_unreachable(std::unique_ptr<Op>& ops) {
 
 void CodeBlob::prune_unreachable_code() {
   if (prune_unreachable(ops)) {
-    throw ParseError(fun_ref->loc, "control reaches end of function");
+    fire(fun_ref, fun_ref->ident_anchor, "control reaches end of function (stack is malformed, a compiler bug)");
   }
 }
 
@@ -718,7 +718,7 @@ VarDescrList Op::fwd_analyze(VarDescrList values) {
           if (arg_order_already_equals_asm()) {
             maybe_swap_builtin_args_to_compile();
           }
-          std::get<FunctionBodyBuiltinAsmOp*>(f_sym->body)->compile(tmp, res, args, loc);
+          std::get<FunctionBodyBuiltinAsmOp*>(f_sym->body)->compile(tmp, res, args, origin);
           if (arg_order_already_equals_asm()) {
             maybe_swap_builtin_args_to_compile();
           }
@@ -835,8 +835,7 @@ VarDescrList Op::fwd_analyze(VarDescrList values) {
       break;
     }
     default:
-      std::cerr << "fatal: unknown operation <??" << cl << ">\n";
-      throw ParseError(loc, "unknown operation in fwd_analyze()");
+      fire(origin, "unknown operation in fwd_analyze()");
   }
   if (next) {
     return next->fwd_analyze(std::move(values));
@@ -910,7 +909,7 @@ bool Op::mark_noreturn() {
         }
         last_in_block1->next = std::move(next);
         next = std::move(block1);
-        block1 = std::make_unique<Op>(loc, Op::_Nop);
+        block1 = std::make_unique<Op>(origin, Op::_Nop);
         block1->var_info = std::move(block1_var_info);
       } else {
         block1->mark_noreturn();
@@ -933,8 +932,7 @@ bool Op::mark_noreturn() {
       block0->mark_noreturn();
       return set_noreturn(next->mark_noreturn());
     default:
-      std::cerr << "fatal: unknown operation <??" << cl << ">\n";
-      throw ParseError(loc, "unknown operation in mark_noreturn()");
+      fire(origin, "unknown operation in mark_noreturn()");
   }
 }
 

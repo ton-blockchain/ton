@@ -14,13 +14,12 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "tolk.h"
+#include "ast.h"
+#include "ast-visitor.h"
+#include "compilation-errors.h"
 #include "platform-utils.h"
 #include "compiler-state.h"
 #include "src-file.h"
-#include "ast.h"
-#include "ast-visitor.h"
-#include <unordered_map>
 
 /*
  *   This pipe resolves identifiers (local variables, globals, constants, etc.) in all functions bodies.
@@ -47,29 +46,29 @@
 namespace tolk {
 
 GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-static void fire_error_undefined_symbol(FunctionPtr cur_f, V<ast_identifier> v) {
+static void fire_undefined_symbol(FunctionPtr cur_f, V<ast_identifier> v) {
   if (v->name == "self") {
-    fire(cur_f, v->loc, "using `self` in a non-member function (it does not accept the first `self` parameter)");
+    fire(cur_f, v, "using `self` in a non-member function (it does not accept the first `self` parameter)");
   } else {
-    fire(cur_f, v->loc, "undefined symbol `" + static_cast<std::string>(v->name) + "`");
+    fire(cur_f, v, "undefined symbol `" + static_cast<std::string>(v->name) + "`");
   }
 }
 
 GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-static void fire_error_type_used_as_symbol(FunctionPtr cur_f, V<ast_identifier> v) {
+static void fire_type_used_as_symbol(FunctionPtr cur_f, V<ast_identifier> v) {
   if (v->name == "random") {    // calling `random()`, but it's a struct, correct is `random.uint256()`
-    fire(cur_f, v->loc, "`random` is not a function, you probably want `random.uint256()`");
+    fire(cur_f, v, "`random` is not a function, you probably want `random.uint256()`");
   } else {
-    fire(cur_f, v->loc, "`" + static_cast<std::string>(v->name) + "` only refers to a type, but is being used as a value here");
+    fire(cur_f, v, "`" + static_cast<std::string>(v->name) + "` only refers to a type, but is being used as a value here");
   }
 }
 
 GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-static void fire_error_using_self_not_in_method(FunctionPtr cur_f, SrcLocation loc) {
+static void fire_using_self_not_in_method(FunctionPtr cur_f, SrcRange range) {
   if (cur_f->is_static_method()) {
-    fire(cur_f, loc, "using `self` in a static method");
+    fire(cur_f, range, "using `self` in a static method");
   } else {
-    fire(cur_f, loc, "using `self` in a regular function (not a method)");
+    fire(cur_f, range, "using `self` in a regular function (not a method)");
   }
 }
 
@@ -80,12 +79,11 @@ struct NameAndScopeResolver {
     return std::hash<std::string_view>{}(name_key);
   }
 
-  void open_scope([[maybe_unused]] SrcLocation loc) {
-    // std::cerr << "open_scope " << scopes.size() + 1 << " at " << loc << std::endl;
+  void open_scope() {
     scopes.emplace_back();
   }
 
-  void close_scope([[maybe_unused]] SrcLocation loc) {
+  void close_scope() {
     // std::cerr << "close_scope " << scopes.size() << " at " << loc << std::endl;
     if (UNLIKELY(scopes.empty())) {
       throw Fatal("cannot close the outer scope");
@@ -115,7 +113,7 @@ struct NameAndScopeResolver {
     uint64_t key = key_hash(v_sym->name);
     const auto& [_, inserted] = scopes.rbegin()->emplace(key, v_sym);
     if (UNLIKELY(!inserted)) {
-      throw ParseError(v_sym->loc, "redeclaration of local variable `" + v_sym->name + "`");
+      fire(v_sym->ident_anchor, "redeclaration of local variable `" + v_sym->name + "`");
     }
   }
 };
@@ -125,15 +123,15 @@ class AssignSymInsideFunctionVisitor final : public ASTVisitorFunctionBody {
   static NameAndScopeResolver current_scope;
   static FunctionPtr cur_f;
 
-  static LocalVarPtr create_local_var_sym(std::string_view name, SrcLocation loc, AnyTypeV declared_type_node, bool immutable, bool lateinit) {
-    LocalVarData* v_sym = new LocalVarData(static_cast<std::string>(name), loc, declared_type_node, nullptr, immutable * LocalVarData::flagImmutable + lateinit * LocalVarData::flagLateInit, -1);
+  static LocalVarPtr create_local_var_sym(std::string_view name, AnyV ident_anchor, AnyTypeV declared_type_node, bool immutable, bool lateinit) {
+    LocalVarData* v_sym = new LocalVarData(static_cast<std::string>(name), ident_anchor, declared_type_node, nullptr, immutable * LocalVarData::flagImmutable + lateinit * LocalVarData::flagLateInit, -1);
     current_scope.add_local_var(v_sym);
     return v_sym;
   }
 
   static void process_catch_variable(AnyExprV catch_var) {
     if (auto v_ref = catch_var->try_as<ast_reference>()) {
-      LocalVarPtr var_ref = create_local_var_sym(v_ref->get_name(), catch_var->loc, nullptr, true, false);
+      LocalVarPtr var_ref = create_local_var_sym(v_ref->get_name(), catch_var, nullptr, true, false);
       v_ref->mutate()->assign_sym(var_ref);
     }
   }
@@ -143,15 +141,15 @@ protected:
     if (v->marked_as_redef) {
       const Symbol* sym = current_scope.lookup_symbol(v->get_name());
       if (sym == nullptr) {
-        throw ParseError(cur_f, v->loc, "`redef` for unknown variable");
+        fire(cur_f, v, "`redef` for unknown variable");
       }
       LocalVarPtr var_ref = sym->try_as<LocalVarPtr>();
       if (!var_ref) {
-        throw ParseError(cur_f, v->loc, "`redef` for unknown variable");
+        fire(cur_f, v, "`redef` for unknown variable");
       }
       v->mutate()->assign_var_ref(var_ref);
     } else {
-      LocalVarPtr var_ref = create_local_var_sym(v->get_name(), v->loc, v->type_node, v->is_immutable, v->is_lateinit);
+      LocalVarPtr var_ref = create_local_var_sym(v->get_name(), v, v->type_node, v->is_immutable, v->is_lateinit);
       v->mutate()->assign_var_ref(var_ref);
     }
   }
@@ -164,17 +162,18 @@ protected:
   void visit(V<ast_reference> v) override {
     const Symbol* sym = current_scope.lookup_symbol(v->get_name());
     if (!sym) {
-      fire_error_undefined_symbol(cur_f, v->get_identifier());
+      fire_undefined_symbol(cur_f, v->get_identifier());
     }
     if (sym->try_as<AliasDefPtr>() || sym->try_as<StructPtr>() || sym->try_as<EnumDefPtr>()) {
-      fire_error_type_used_as_symbol(cur_f, v->get_identifier());
+      fire_type_used_as_symbol(cur_f, v->get_identifier());
     }
     v->mutate()->assign_sym(sym);
 
     // for global functions, global vars and constants, `import` must exist
     if (!sym->try_as<LocalVarPtr>()) {
-      if (!v->loc.is_symbol_from_same_or_builtin_file(sym->loc)) {
-        sym->check_import_exists_when_used_from(cur_f, v->loc);
+      bool allow_no_import = sym->is_builtin() || sym->ident_anchor->range.is_file_id_same_or_stdlib_common(v->range);
+      if (!allow_no_import) {
+        sym->check_import_exists_when_used_from(cur_f, v);
       }
     }
   }
@@ -187,7 +186,7 @@ protected:
         // for `Point.create` / `int.zero` / `Color.Red`, "undefined symbol" is fired for Point/int/Color
         // suppress this exception till a later pipe, it will be tried to be resolved as a type
         if (v_type_name->get_identifier()->name == "self") {
-          fire_error_using_self_not_in_method(cur_f, v_type_name->loc);
+          fire_using_self_not_in_method(cur_f, v_type_name->range);
         }
         return;
       }
@@ -196,15 +195,15 @@ protected:
   }
 
   void visit(V<ast_braced_expression> v) override {
-    current_scope.open_scope(v->loc);
+    current_scope.open_scope();
     parent::visit(v->get_block_statement());
-    current_scope.close_scope(v->loc);
+    current_scope.close_scope();
   }
 
   void visit(V<ast_match_expression> v) override {
-    current_scope.open_scope(v->loc);   // `match (var a = init_val) { ... }`
-    parent::visit(v);                   // then `a` exists only inside `match` arms
-    current_scope.close_scope(v->loc);
+    current_scope.open_scope();   // `match (var a = init_val) { ... }`
+    parent::visit(v);             // then `a` exists only inside `match` arms
+    current_scope.close_scope();
   }
 
   void visit(V<ast_match_arm> v) override {
@@ -216,8 +215,8 @@ protected:
       case MatchArmKind::exact_type: {
         if (auto maybe_ident = v->pattern_type_node->try_as<ast_type_leaf_text>()) {
           if (const Symbol* sym = current_scope.lookup_symbol(maybe_ident->text); sym && sym->try_as<GlobalConstPtr>()) {
-            auto v_ident = createV<ast_identifier>(v->loc, sym->name);
-            AnyExprV pattern_expr = createV<ast_reference>(v->loc, v_ident, nullptr);
+            auto v_ident = createV<ast_identifier>(maybe_ident->range, sym->name);
+            AnyExprV pattern_expr = createV<ast_reference>(v_ident->range, v_ident, nullptr);
             parent::visit(pattern_expr);
             v->mutate()->assign_resolved_pattern(MatchArmKind::const_expression, pattern_expr);
           }
@@ -238,27 +237,27 @@ protected:
     if (v->empty()) {
       return;
     }
-    current_scope.open_scope(v->loc);
+    current_scope.open_scope();
     parent::visit(v);
-    current_scope.close_scope(v->loc_end);
+    current_scope.close_scope();
   }
 
   void visit(V<ast_do_while_statement> v) override {
-    current_scope.open_scope(v->loc);
+    current_scope.open_scope();
     parent::visit(v->get_body());
     parent::visit(v->get_cond()); // in 'while' condition it's ok to use variables declared inside do
-    current_scope.close_scope(v->get_body()->loc_end);
+    current_scope.close_scope();
   }
 
   void visit(V<ast_try_catch_statement> v) override {
     visit(v->get_try_body());
-    current_scope.open_scope(v->get_catch_body()->loc);
+    current_scope.open_scope();
     const std::vector<AnyExprV>& catch_items = v->get_catch_expr()->get_items();
     tolk_assert(catch_items.size() == 2);
     process_catch_variable(catch_items[1]);
     process_catch_variable(catch_items[0]);
     parent::visit(v->get_catch_body());
-    current_scope.close_scope(v->get_catch_body()->loc_end);
+    current_scope.close_scope();
   }
 
 public:
@@ -270,7 +269,7 @@ public:
     cur_f = fun_ref;
 
     auto v_block = v->get_body()->as<ast_block_statement>();
-    current_scope.open_scope(v->loc);
+    current_scope.open_scope();
     for (int i = 0; i < fun_ref->get_num_params(); ++i) {
       LocalVarPtr param_ref = &fun_ref->parameters[i];
       current_scope.add_local_var(param_ref);
@@ -279,7 +278,7 @@ public:
       }
     }
     parent::visit(v_block);
-    current_scope.close_scope(v_block->loc_end);
+    current_scope.close_scope();
     tolk_assert(current_scope.scopes.empty());
 
     cur_f = nullptr;

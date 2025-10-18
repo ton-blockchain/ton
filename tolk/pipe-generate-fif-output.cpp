@@ -85,7 +85,7 @@ static void generate_output_func(FunctionPtr fun_ref) {
     modifier = "REF";
   }
   if (G.settings.tolk_src_as_line_comments) {
-    std::cout << "  // " << fun_ref->loc << std::endl;
+    std::cout << "  // " << fun_ref->ident_anchor->range.stringify_start_location(false) << std::endl;
   }
   std::cout << "  " << fun_ref->name << "() PROC" << modifier << ":<{";
   int mode = 0;

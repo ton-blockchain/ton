@@ -14,9 +14,9 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "tolk.h"
 #include "ast.h"
 #include "ast-visitor.h"
+#include "compilation-errors.h"
 #include "platform-utils.h"
 
 /*
@@ -27,8 +27,8 @@
 namespace tolk {
 
 GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-static void fire_error_impure_operation_inside_pure_function(FunctionPtr cur_f, SrcLocation loc) {
-  fire(cur_f, loc, "an impure operation in a pure function");
+static void fire_impure_operation_inside_pure_function(FunctionPtr cur_f, SrcRange range) {
+  fire(cur_f, range, "an impure operation in a pure function");
 }
 
 class CheckImpureOperationsInPureFunctionVisitor final : public ASTVisitorFunctionBody {
@@ -37,7 +37,7 @@ class CheckImpureOperationsInPureFunctionVisitor final : public ASTVisitorFuncti
   void fire_if_global_var(AnyExprV v) const {
     if (auto v_ident = v->try_as<ast_reference>()) {
       if (v_ident->sym->try_as<GlobalVarPtr>()) {
-        fire_error_impure_operation_inside_pure_function(cur_f, v->loc);
+        fire_impure_operation_inside_pure_function(cur_f, v_ident->range);
       }
     }
   }
@@ -56,11 +56,11 @@ class CheckImpureOperationsInPureFunctionVisitor final : public ASTVisitorFuncti
     // v is `globalF(args)` / `globalF<int>(args)` / `obj.method(args)` / `local_var(args)` / `getF()(args)`
     if (!v->fun_maybe) {
       // `local_var(args)` is always impure, no considerations about what's there at runtime
-      fire_error_impure_operation_inside_pure_function(cur_f, v->loc);
+      fire_impure_operation_inside_pure_function(cur_f, v->range);
     }
 
     if (!v->fun_maybe->is_marked_as_pure()) {
-      fire_error_impure_operation_inside_pure_function(cur_f, v->loc);
+      fire_impure_operation_inside_pure_function(cur_f, v->range);
     }
 
     parent::visit(v);
@@ -75,11 +75,11 @@ class CheckImpureOperationsInPureFunctionVisitor final : public ASTVisitorFuncti
   }
 
   void visit(V<ast_throw_statement> v) override {
-    fire_error_impure_operation_inside_pure_function(cur_f, v->loc);
+    fire_impure_operation_inside_pure_function(cur_f, v->range);
   }
 
   void visit(V<ast_assert_statement> v) override {
-    fire_error_impure_operation_inside_pure_function(cur_f, v->loc);
+    fire_impure_operation_inside_pure_function(cur_f, v->range);
   }
 
 public:

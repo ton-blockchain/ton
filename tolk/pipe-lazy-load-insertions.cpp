@@ -14,12 +14,12 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "tolk.h"
 #include "lazy-helpers.h"
 #include "ast.h"
 #include "ast-aux-data.h"
 #include "ast-visitor.h"
 #include "ast-replacer.h"
+#include "compilation-errors.h"
 #include "type-system.h"
 #include "smart-casts-cfg.h"
 #include "pack-unpack-api.h"
@@ -150,7 +150,7 @@ static bool does_function_satisfy_for_lazy_operator(FunctionPtr fun_ref, bool al
     return false;
   }
   // allow `lazy SomeStruct.fromSlice(s)`; these functions are also handled while transforming AST to Ops
-  if (fun_ref->is_builtin_function() && fun_ref->is_instantiation_of_generic_function()) {
+  if (fun_ref->is_builtin() && fun_ref->is_instantiation_of_generic_function()) {
     std::string_view f_name = fun_ref->base_fun_ref->name;
     return f_name == "T.fromSlice" || f_name == "T.fromCell" || f_name == "Cell<T>.load";
   }
@@ -188,7 +188,7 @@ static void check_lazy_operator_used_correctly(FunctionPtr cur_f, V<ast_lazy_ope
   bool is_ok_call = v->get_expr()->kind == ast_function_call
                  && does_function_satisfy_for_lazy_operator(v->get_expr()->as<ast_function_call>()->fun_maybe);
   if (!is_ok_call) {
-    fire(cur_f, v->loc, "`lazy` operator can only be used with built-in functions like fromCell/fromSlice or simple wrappers over them");
+    fire(cur_f, v->keyword_range(), "`lazy` operator can only be used with built-in functions like fromCell/fromSlice or simple wrappers over them");
   }
 
   // it should be either a struct or a union of structs
@@ -198,18 +198,18 @@ static void check_lazy_operator_used_correctly(FunctionPtr cur_f, V<ast_lazy_ope
   }
   if (const TypeDataUnion* expr_union = expr_type->unwrap_alias()->try_as<TypeDataUnion>()) {
     if (TypePtr wrong_variant = is_union_type_prevented_from_lazy_loading(expr_union)) {
-      fire(cur_f, v->loc, "`lazy` union should contain only structures, but it contains `" + wrong_variant->as_human_readable() + "`");
+      fire(cur_f, v->keyword_range(), "`lazy` union should contain only structures, but it contains `" + wrong_variant->as_human_readable() + "`");
     }
     return;
   }
-  fire(cur_f, v->loc, "`lazy` is applicable to structs, not to `" + expr_type->as_human_readable() + "`");
+  fire(cur_f, v->keyword_range(), "`lazy` is applicable to structs, not to `" + expr_type->as_human_readable() + "`");
 }
 
 // Given `storage.save()` for a lazy `storage` variable, check if `self` inside should gain laziness.
 // If yes, the body of the method is also traversed to detect usages.
 // If no, it's assumed that all fields of `storage` are used (an object used "as a whole").
 static bool can_method_be_inlined_preserving_lazy(FunctionPtr method_ref) {
-  if (method_ref->is_builtin_function() && method_ref->is_instantiation_of_generic_function()) {
+  if (method_ref->is_builtin() && method_ref->is_instantiation_of_generic_function()) {
     std::string_view f_name = method_ref->base_fun_ref->name;
     return f_name == "T.toCell" || f_name == "T.forceLoadLazyObject";
   }
@@ -362,12 +362,12 @@ struct ExprUsagesWhileCollecting {
     }
   }
 
-  LazyStructLoadInfo generate_hidden_struct_load_all(SrcLocation loc, bool is_variant_of_union) const {
+  LazyStructLoadInfo generate_hidden_struct_load_all(bool is_variant_of_union) const {
     tolk_assert(struct_ref);
 
     StructPtr hidden_struct = new StructData(
       "(lazy)" + struct_ref->name,
-      loc,
+      struct_ref->ident_anchor,
       std::vector(struct_ref->fields),
       is_variant_of_union ? StructData::PackOpcode(0, 0) : struct_ref->opcode,
       struct_ref->overflow1023_policy,
@@ -381,7 +381,7 @@ struct ExprUsagesWhileCollecting {
   }
 
   // for every field of a struct, after calculating all usages, determine: which fields to load, and which to skip
-  LazyStructLoadInfo calculate_hidden_struct(SrcLocation loc, bool is_variant_of_union) const {
+  LazyStructLoadInfo calculate_hidden_struct(bool is_variant_of_union) const {
     tolk_assert(struct_ref);
 
     struct FutureField {
@@ -489,7 +489,8 @@ struct ExprUsagesWhileCollecting {
     ith_field_action.reserve(future_fields.size());
     for (int field_idx = 0; field_idx < static_cast<int>(future_fields.size()); ++field_idx) {
       FutureField f = future_fields[field_idx];
-      StructFieldPtr created = new StructFieldData(static_cast<std::string>(f.field_name), {}, field_idx, false, false, nullptr, nullptr);
+      AnyV v_ident = createV<ast_identifier>(SrcRange::undefined(), "");
+      StructFieldPtr created = new StructFieldData(static_cast<std::string>(f.field_name), v_ident, field_idx, false, false, nullptr, nullptr);
       created->mutate()->assign_resolved_type(f.field_type);
       hidden_fields.push_back(created);
       ith_field_action.push_back(f.action);
@@ -497,7 +498,7 @@ struct ExprUsagesWhileCollecting {
 
     StructPtr hidden_struct = new StructData(
       "(lazy)" + struct_ref->name,
-      loc,
+      struct_ref->ident_anchor,
       std::move(hidden_fields),
       is_variant_of_union ? StructData::PackOpcode(0, 0) : struct_ref->opcode,
       struct_ref->overflow1023_policy,
@@ -555,7 +556,7 @@ struct LazyVarInFunction {
       v_lazy_match_var_itself = var_usages.used_as_match_subj.front();
       load_points.reserve(var_usages.variants.size());
       for (ExprUsagesWhileCollecting& variant_usages : var_usages.variants) {
-        LazyStructLoadInfo load_info = variant_usages.calculate_hidden_struct(created_by_lazy_op->loc, true);
+        LazyStructLoadInfo load_info = variant_usages.calculate_hidden_struct(true);
         load_points.emplace_back(std::move(variant_usages.needed_above_stmt), variant_usages.expr_type, nullptr, std::move(load_info));
       }
       return;
@@ -566,11 +567,11 @@ struct LazyVarInFunction {
     const TypeDataStruct* t_struct = var_ref->declared_type->unwrap_alias()->try_as<TypeDataStruct>();
     bool is_union = t_struct == nullptr;
     if (is_union) {
-      fire(cur_f, created_by_lazy_op->loc, "`lazy` will not work here, because variable `" + var_ref->name + "` it's used in a non-lazy manner\nhint: lazy union may be used only in `match` statement");
+      fire(cur_f, created_by_lazy_op->keyword_range(), "`lazy` will not work here, because variable `" + var_ref->name + "` it's used in a non-lazy manner\nhint: lazy union may be used only in `match` statement");
     }
 
     // so, it's just a struct, `lazy Point`; we've already calculated all statements where its fields are used
-    LazyStructLoadInfo load_info = var_usages.calculate_hidden_struct(created_by_lazy_op->loc, false);
+    LazyStructLoadInfo load_info = var_usages.calculate_hidden_struct(false);
     bool is_lazy_match_last_field = !load_info.ith_field_action.empty() && load_info.ith_field_action.back() == LazyStructLoadInfo::LazyMatchField;
     load_points.emplace_back(std::move(var_usages.needed_above_stmt), nullptr, nullptr, std::move(load_info));
 
@@ -587,7 +588,7 @@ struct LazyVarInFunction {
           if (!v_arm_body->empty()) {
             const TypeDataUnion* t_union = field_ref->declared_type->unwrap_alias()->try_as<TypeDataUnion>();
             int variant_idx = t_union->get_variant_idx(union_variant);
-            LazyStructLoadInfo load_all = last_field_usages.variants[variant_idx].generate_hidden_struct_load_all(created_by_lazy_op->loc, true);
+            LazyStructLoadInfo load_all = last_field_usages.variants[variant_idx].generate_hidden_struct_load_all(true);
             load_points.emplace_back(std::vector{v_arm_body->get_item(0)}, union_variant, field_ref, std::move(load_all));
           }
         }
@@ -642,11 +643,11 @@ protected:
       AnyExprV dot_obj = v->get_callee()->as<ast_dot_access>()->get_obj();
       if (extract_sink_expression_from_vertex(dot_obj) == s_expr) {
         // handle built-in functions specially
-        if (fun_ref->is_builtin_function() && fun_ref->base_fun_ref->name == "T.toCell") {
+        if (fun_ref->is_builtin() && fun_ref->base_fun_ref->name == "T.toCell") {
           lazy_expr->on_used_toCell();
           return;
         }
-        if (fun_ref->is_builtin_function() && fun_ref->base_fun_ref->name == "T.forceLoadLazyObject") {
+        if (fun_ref->is_builtin() && fun_ref->base_fun_ref->name == "T.forceLoadLazyObject") {
           lazy_expr->on_used_rw(false);     // just use the object as a whole, slice will point to its end
           return;
         }
@@ -862,7 +863,7 @@ protected:
     }
 
     // for `return lazy ...` and other cases except allowed
-    fire(cur_f, v->loc, "incorrect `lazy` operator usage, it's not directly assigned to a variable\nhint: use `lazy` like this:\n> var st = lazy MyStorage.fromSlice(...)");
+    fire(cur_f, v->keyword_range(), "incorrect `lazy` operator usage, it's not directly assigned to a variable\nhint: use `lazy` like this:\n> var st = lazy MyStorage.fromSlice(...)");
   }
 
 public:
@@ -907,7 +908,7 @@ protected:
         for (const OneLoadingInsertionPoint& ins : lazy_var.load_points) {
           if (!ins.was_inserted_to_ast && ins.is_mentioned_in_stmt(stmt)) {
             ASTAuxData* aux_data = new AuxData_LazyObjectLoadFields(lazy_var.var_ref, ins.union_variant, ins.field_ref, ins.load_info);
-            new_children.push_back(createV<ast_artificial_aux_vertex>(stmt->loc, createV<ast_empty_expression>(stmt->loc), aux_data, TypeDataVoid::create()));
+            new_children.push_back(createV<ast_artificial_aux_vertex>(createV<ast_empty_expression>(stmt->range), aux_data, TypeDataVoid::create()));
             ins.mark_inserted_to_ast();
           }
         }
@@ -925,14 +926,14 @@ protected:
       bool is_lazy_match_for_union = lazy_var.v_lazy_match_var_itself == v;
       if (is_lazy_match_for_union) {
         ASTAuxData* aux_data = new AuxData_LazyMatchForUnion(lazy_var.var_ref, nullptr);
-        return createV<ast_artificial_aux_vertex>(v->loc, parent::replace(v), aux_data, v->inferred_type);
+        return createV<ast_artificial_aux_vertex>(parent::replace(v), aux_data, v->inferred_type);
       }
 
       bool is_lazy_match_for_last_field = lazy_var.v_lazy_match_last_field == v;
       if (is_lazy_match_for_last_field) {
         StructPtr struct_ref = lazy_var.var_ref->declared_type->unwrap_alias()->try_as<TypeDataStruct>()->struct_ref;
         ASTAuxData* aux_data = new AuxData_LazyMatchForUnion(lazy_var.var_ref, struct_ref->fields.back());
-        return createV<ast_artificial_aux_vertex>(v->loc, parent::replace(v), aux_data, v->inferred_type);
+        return createV<ast_artificial_aux_vertex>(parent::replace(v), aux_data, v->inferred_type);
       }
     }
 
@@ -989,7 +990,7 @@ class CheckExpectLazyAssertionsVisitor final : public ASTVisitorFunctionBody {
     for (int i = 0; i < v->size(); ++i) {
       AnyV cur_stmt = v->get_item(i);
       if (auto v_call = cur_stmt->try_as<ast_function_call>()) {
-        if (v_call->fun_maybe && v_call->fun_maybe->is_builtin_function() && v_call->fun_maybe->name == "__expect_lazy") {
+        if (v_call->fun_maybe && v_call->fun_maybe->is_builtin() && v_call->fun_maybe->name == "__expect_lazy") {
           AnyV next_stmt = v->get_item(i + 1);
           std::string_view expected = v_call->get_arg(0)->get_expr()->as<ast_string_const>()->str_val;
           std::string actual;
@@ -1003,7 +1004,7 @@ class CheckExpectLazyAssertionsVisitor final : public ASTVisitorFunctionBody {
           }
 
           if (actual != expected) {
-            throw ParseError(cur_stmt->loc, "__expect_lazy failed: actual \"" + actual + "\"");
+            fire(cur_stmt, "__expect_lazy failed: actual \"" + actual + "\"");
           }
         }
       }

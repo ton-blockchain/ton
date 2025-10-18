@@ -101,10 +101,10 @@ public:
 
   TypePtr replace_Ts_with_currently_deduced(TypePtr orig) const;
   TypePtr auto_deduce_from_argument(TypePtr param_type, TypePtr arg_type);
-  TypePtr auto_deduce_from_argument(FunctionPtr cur_f, SrcLocation loc, TypePtr param_type, TypePtr arg_type);
+  TypePtr auto_deduce_from_argument(FunctionPtr cur_f, SrcRange range, TypePtr param_type, TypePtr arg_type);
   std::string_view get_first_not_deduced_nameT() const;
   void apply_defaults_from_declaration();
-  void fire_error_can_not_deduce(FunctionPtr cur_f, SrcLocation loc, std::string_view nameT) const;
+  void fire_can_not_deduce(FunctionPtr cur_f, SrcRange range, std::string_view nameT) const;
 
   GenericsSubstitutions&& flush() {
     return std::move(deducedTs);

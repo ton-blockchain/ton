@@ -57,14 +57,14 @@ struct TransformOnInternalMessageReplacer final : ASTReplacerInFunctionBody {
 
   static void validate_onBouncedMessage(FunctionPtr f) {
     if (f->inferred_return_type != TypeDataVoid::create() && f->inferred_return_type != TypeDataNever::create()) {
-      fire(f, f->loc, "`onBouncedMessage` should return `void`");
+      fire(f, f->ident_anchor, "`onBouncedMessage` should return `void`");
     }
     if (f->get_num_params() != 1) {
-      fire(f, f->loc, "`onBouncedMessage` should have one parameter `InMessageBounced`");
+      fire(f, f->ident_anchor, "`onBouncedMessage` should have one parameter `InMessageBounced`");
     }
     const auto* t_struct = f->get_param(0).declared_type->try_as<TypeDataStruct>();
     if (!t_struct || t_struct->struct_ref->name != "InMessageBounced") {
-      fire(f, f->loc, "`onBouncedMessage` should have one parameter `InMessageBounced`");
+      fire(f, f->ident_anchor, "`onBouncedMessage` should have one parameter `InMessageBounced`");
     }
   }
 
@@ -72,7 +72,7 @@ protected:
   AnyExprV replace(V<ast_reference> v) override {
     // don't allow `var v = in` or passing `in` to another function (only `in.someField` is allowed)
     if (v->sym == param_ref) {
-      fire(cur_f, v->loc, "using `" + param_ref->name + "` as an object is prohibited, because `InMessage` is a built-in struct, its fields are mapped to TVM instructions\nhint: use `" + param_ref->name + ".senderAddress` and other fields directly");
+      fire(cur_f, v, "using `" + param_ref->name + "` as an object is prohibited, because `InMessage` is a built-in struct, its fields are mapped to TVM instructions\nhint: use `" + param_ref->name + ".senderAddress` and other fields directly");
     }
     return parent::replace(v);
   }
@@ -81,11 +81,11 @@ protected:
     // replace `in.senderAddress` / `in.valueCoins` with an aux vertex
     if (v->get_obj()->kind == ast_reference && v->get_obj()->as<ast_reference>()->sym == param_ref) {
       if (v->is_lvalue && v->get_field_name() != "body" && v->get_field_name() != "bouncedBody") {
-        fire(cur_f, v->loc, "modifying an immutable variable\nhint: fields of InMessage can be used for reading only");
+        fire(cur_f, v, "modifying an immutable variable\nhint: fields of InMessage can be used for reading only");
       }
 
       ASTAuxData* aux_getField = new AuxData_OnInternalMessage_getField(cur_f, v->get_field_name());
-      return createV<ast_artificial_aux_vertex>(v->loc, v, aux_getField, v->inferred_type);
+      return createV<ast_artificial_aux_vertex>(v, aux_getField, v->inferred_type);
     }
 
     return parent::replace(v);
@@ -107,7 +107,7 @@ public:
     parent::replace(v_function->get_body());
 
     std::vector<LocalVarData> new_parameters;
-    new_parameters.emplace_back("in.body", fun_ref->loc, TypeDataSlice::create(), nullptr, 0, 0);
+    new_parameters.emplace_back("in.body", fun_ref->ident_anchor, TypeDataSlice::create(), nullptr, 0, 0);
     fun_ref->mutate()->parameters = std::move(new_parameters);
   }
 };

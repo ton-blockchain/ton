@@ -2,6 +2,7 @@ set(TOLK_SOURCE
         src-file.cpp
         lexer.cpp
         symtable.cpp
+        compilation-errors.cpp
         compiler-state.cpp
         ast.cpp
         ast-from-tokens.cpp

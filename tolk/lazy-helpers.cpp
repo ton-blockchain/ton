@@ -15,8 +15,9 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include "lazy-helpers.h"
-#include "tolk.h"
 #include "type-system.h"
+#include "symtable.h"
+#include "compilation-errors.h"
 
 namespace tolk {
 

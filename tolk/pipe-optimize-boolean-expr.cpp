@@ -14,7 +14,6 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "tolk.h"
 #include "ast.h"
 #include "ast-replacer.h"
 #include "type-system.h"
@@ -35,22 +34,22 @@
 namespace tolk {
 
 struct OptimizerBooleanExpressionsReplacer final : ASTReplacerInFunctionBody {
-  static V<ast_int_const> create_int_const(SrcLocation loc, td::RefInt256&& intval) {
-    auto v_int = createV<ast_int_const>(loc, std::move(intval), {});
+  static V<ast_int_const> create_int_const(SrcRange range, td::RefInt256&& intval) {
+    auto v_int = createV<ast_int_const>(range, std::move(intval), {});
     v_int->assign_inferred_type(TypeDataInt::create());
     v_int->assign_rvalue_true();
     return v_int;
   }
 
-  static V<ast_bool_const> create_bool_const(SrcLocation loc, bool bool_val) {
-    auto v_bool = createV<ast_bool_const>(loc, bool_val);
+  static V<ast_bool_const> create_bool_const(SrcRange range, bool bool_val) {
+    auto v_bool = createV<ast_bool_const>(range, bool_val);
     v_bool->assign_inferred_type(TypeDataInt::create());
     v_bool->assign_rvalue_true();
     return v_bool;
   }
 
-  static V<ast_unary_operator> create_logical_not_for_bool(SrcLocation loc, AnyExprV rhs) {
-    auto v_not = createV<ast_unary_operator>(loc, "!", tok_logical_not, rhs);
+  static V<ast_unary_operator> create_logical_not_for_bool(SrcRange range, SrcRange operator_range, AnyExprV rhs) {
+    auto v_not = createV<ast_unary_operator>(range, operator_range, "!", tok_logical_not, rhs);
     v_not->assign_inferred_type(TypeDataBool::create());
     v_not->assign_rvalue_true();
     v_not->assign_fun_ref(lookup_function("!b_"));
@@ -94,8 +93,8 @@ protected:
         }
         // `!!intVar` => `intVar != 0`
         if (expect_integer(cond_not_not->inferred_type)) {
-          auto v_zero = create_int_const(v->loc, td::make_refint(0));
-          auto v_neq = createV<ast_binary_operator>(v->loc, "!=", tok_neq, cond_not_not, v_zero);
+          auto v_zero = create_int_const(v->range, td::make_refint(0));
+          auto v_neq = createV<ast_binary_operator>(v->range, v->operator_range, "!=", tok_neq, cond_not_not, v_zero);
           v_neq->mutate()->assign_rvalue_true();
           v_neq->mutate()->assign_inferred_type(TypeDataBool::create());
           v_neq->mutate()->assign_fun_ref(lookup_function("_!=_"));
@@ -104,7 +103,7 @@ protected:
       }
       if (auto inner_bool = v->get_rhs()->try_as<ast_bool_const>()) {
         // `!true` / `!false`
-        return create_bool_const(v->loc, !inner_bool->bool_val);
+        return create_bool_const(v->range, !inner_bool->bool_val);
       }
     }
 
@@ -123,7 +122,7 @@ protected:
           return lhs;
         }
         // `boolVar != true` / `boolVar == false`
-        return create_logical_not_for_bool(v->loc, lhs);
+        return create_logical_not_for_bool(v->range, v->operator_range, lhs);
       }
     }
 
@@ -138,20 +137,20 @@ protected:
       if (v_cond_unary->tok != tok_logical_not) {
         break;
       }
-      v = createV<ast_if_statement>(v->loc, !v->is_ifnot, v_cond_unary->get_rhs(), v->get_if_body(), v->get_else_body());
+      v = createV<ast_if_statement>(v->range, !v->is_ifnot, v_cond_unary->get_rhs(), v->get_if_body(), v->get_else_body());
     }
     // `if (x != null)` -> ifnot(x == null)
     if (auto v_cond_istype = v->get_cond()->try_as<ast_is_type_operator>(); v_cond_istype && v_cond_istype->is_negated) {
       v_cond_istype->mutate()->assign_is_negated(!v_cond_istype->is_negated);
-      v = createV<ast_if_statement>(v->loc, !v->is_ifnot, v_cond_istype, v->get_if_body(), v->get_else_body());
+      v = createV<ast_if_statement>(v->range, !v->is_ifnot, v_cond_istype, v->get_if_body(), v->get_else_body());
     }
     // `if (addr1 != addr2)` -> ifnot(addr1 == addr2)
     if (auto v_cond_neq = v->get_cond()->try_as<ast_binary_operator>()) {
       if (v_cond_neq->tok == tok_neq && v_cond_neq->get_lhs()->inferred_type->unwrap_alias() == TypeDataAddress::create() && v_cond_neq->get_rhs()->inferred_type->unwrap_alias() == TypeDataAddress::create()) {
-        auto v_cond_eq = createV<ast_binary_operator>(v_cond_neq->loc, "==", tok_eq, v_cond_neq->get_lhs(), v_cond_neq->get_rhs());
+        auto v_cond_eq = createV<ast_binary_operator>(v_cond_neq->range, v_cond_neq->operator_range, "==", tok_eq, v_cond_neq->get_lhs(), v_cond_neq->get_rhs());
         v_cond_eq->mutate()->assign_inferred_type(v_cond_neq->inferred_type);
         v_cond_eq->mutate()->assign_rvalue_true();
-        v = createV<ast_if_statement>(v->loc, !v->is_ifnot, v_cond_eq, v->get_if_body(), v->get_else_body());
+        v = createV<ast_if_statement>(v->range, !v->is_ifnot, v_cond_eq, v->get_if_body(), v->get_else_body());
       }
     }
 

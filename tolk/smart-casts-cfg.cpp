@@ -16,7 +16,7 @@
 */
 #include "smart-casts-cfg.h"
 #include "ast.h"
-#include "tolk.h"
+#include "compilation-errors.h"
 
 /*
  *   This file represents internals of AST-level control flow and data flow analysis.

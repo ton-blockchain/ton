@@ -14,9 +14,10 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "tolk.h"
 #include "ast.h"
 #include "ast-visitor.h"
+#include "compilation-errors.h"
+#include <functional>
 #include <unordered_set>
 
 /*
@@ -117,7 +118,7 @@ class DetectIfToInlineFunctionInPlaceVisitor final : ASTVisitorFunctionBody {
 
 protected:
   void visit(V<ast_function_call> v) override {
-    if (v->fun_maybe && v->fun_maybe->is_builtin_function() && v->fun_maybe->name == "__expect_inline") {
+    if (v->fun_maybe && v->fun_maybe->is_builtin() && v->fun_maybe->name == "__expect_inline") {
       collected_expect_inline.push_back(v);
     } else {
       cur_state.n_function_calls++;
@@ -200,7 +201,7 @@ protected:
  public:
   bool should_visit_function(FunctionPtr fun_ref) override {
     // unsupported or no-sense cases
-    if (fun_ref->is_builtin_function() || fun_ref->is_asm_function() || fun_ref->is_generic_function() ||
+    if (fun_ref->is_builtin() || fun_ref->is_asm_function() || fun_ref->is_generic_function() ||
         fun_ref->has_tvm_method_id() || !fun_ref->arg_order.empty() || !fun_ref->ret_order.empty() ||
         fun_ref->is_used_as_noncall()) {
       return false;
@@ -235,7 +236,7 @@ protected:
       tolk_assert(v_expect->get_num_args() == 1 && v_expect->get_arg(0)->get_expr()->kind == ast_bool_const);
       bool expected = v_expect->get_arg(0)->get_expr()->as<ast_bool_const>()->bool_val;
       if (expected != will_inline) {
-        fire(fun_ref, v_expect->loc, "__expect_inline failed");
+        fire(fun_ref, v_expect, "__expect_inline failed");
       }
     }
 

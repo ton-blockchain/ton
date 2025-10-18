@@ -16,7 +16,7 @@
 */
 #include "constant-evaluator.h"
 #include "ast.h"
-#include "tolk.h"
+#include "compilation-errors.h"
 #include "type-system.h"
 #include "openssl/digest.hpp"
 #include "crypto/common/util.h"
@@ -26,10 +26,10 @@
 namespace tolk {
 
 GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-static void fire_error_const_string_required(SrcLocation loc, std::string_view f_name, std::string_view example_arg) {
+static void fire_const_string_required(SrcRange range, std::string_view f_name, std::string_view example_arg) {
   std::string name = static_cast<std::string>(f_name);
   std::string example = static_cast<std::string>(example_arg);
-  throw ParseError(loc, "function `" +  name + "` requires a constant string, like `" + name + "(\"" + example + "\")`");
+  fire(range, "function `" +  name + "` requires a constant string, like `" + name + "(\"" + example + "\")`");
 }
 
 
@@ -91,16 +91,16 @@ static bool parse_raw_address(std::string_view acc_string, int& workchain, ton::
   return true;
 }
 
-static void parse_any_std_address(std::string_view str, SrcLocation loc, unsigned char (*data)[3 + 8 + 256]) {
+static void parse_any_std_address(std::string_view str, SrcRange range, unsigned char (*data)[3 + 8 + 256]) {
   ton::WorkchainId workchain;
   ton::StdSmcAddress addr;
   bool correct = (str.size() == 48 && parse_friendly_address(str.data(), workchain, addr)) ||
                  (str.size() != 48 && parse_raw_address(str, workchain, addr));
   if (!correct) {
-    throw ParseError(loc, "invalid standard address");
+    fire(range, "invalid standard address");
   }
   if (workchain < -128 || workchain >= 128) {
-    throw ParseError(loc, "anycast addresses not supported");
+    fire(range, "anycast addresses not supported");
   }
 
   td::bitstring::bits_store_long_top(*data, 0, static_cast<uint64_t>(4) << (64 - 3), 3);
@@ -109,7 +109,7 @@ static void parse_any_std_address(std::string_view str, SrcLocation loc, unsigne
 }
 
 // internal helper: for `ton("0.05")`, parse string literal "0.05" to 50000000
-static td::RefInt256 parse_nanotons_as_floating_string(SrcLocation loc, std::string_view str) {
+static td::RefInt256 parse_nanotons_as_floating_string(SrcRange range, std::string_view str) {
   bool is_negative = false;
   size_t i = 0;
 
@@ -132,21 +132,21 @@ static td::RefInt256 parse_nanotons_as_floating_string(SrcLocation loc, std::str
     char c = str[i];
     if (c == '.') {
       if (seen_dot) {
-        throw ParseError(loc, "argument is not a valid number like \"0.05\"");
+        fire(range, "argument is not a valid number like \"0.05\"");
       }
       seen_dot = true;
     } else if (c >= '0' && c <= '9') {
       if (!seen_dot) {
         integer_part = integer_part * 10 + (c - '0');
         if (++integer_digits > 9) {
-          throw ParseError(loc, "argument is too big and leads to overflow");
+          fire(range, "argument is too big and leads to overflow");
         }
       } else if (fractional_digits < 9) {
         fractional_part = fractional_part * 10 + (c - '0');
         fractional_digits++;
       }
     } else {
-      throw ParseError(loc, "argument is not a valid number like \"0.05\"");
+      fire(range, "argument is not a valid number like \"0.05\"");
     }
   }
 
@@ -171,7 +171,7 @@ static CompileTimeFunctionResult parse_vertex_call_to_compile_time_function(V<as
     if (f_name == "getDeclaredPackPrefix" || f_name == "getDeclaredPackPrefixLen") {
       const TypeDataStruct* t_struct = receiver->try_as<TypeDataStruct>();
       if (!t_struct || !t_struct->struct_ref->opcode.exists()) {
-        throw ParseError(v->loc, "type `" + receiver->as_human_readable() + "` does not have a serialization prefix");
+        fire(v, "type `" + receiver->as_human_readable() + "` does not have a serialization prefix");
       }
       return td::make_refint(f_name.ends_with('x') ? t_struct->struct_ref->opcode.pack_prefix : t_struct->struct_ref->opcode.prefix_len);
     }
@@ -189,16 +189,16 @@ static CompileTimeFunctionResult parse_vertex_call_to_compile_time_function(V<as
     // stringCrc32(SOME_CONST) / stringCrc32(some_var) also, it's compile-time literal-only
   }
   if (str.empty()) {
-    fire_error_const_string_required(v->loc, f_name, f_name == "ton" ? "0.05" : "some_str");
+    fire_const_string_required(v->range, f_name, f_name == "ton" ? "0.05" : "some_str");
   }
 
   if (f_name == "ton") {
-    return parse_nanotons_as_floating_string(v_arg->loc, str);
+    return parse_nanotons_as_floating_string(v_arg->range, str);
   }
 
   if (f_name == "address")     {          // previously, postfix "..."a, but it returned `slice` (now returns `address`)
     unsigned char data[3 + 8 + 256];      // addr_std$10 anycast:(Maybe Anycast) workchain_id:int8 address:bits256 = MsgAddressInt;
-    parse_any_std_address(str, v_arg->loc, &data);
+    parse_any_std_address(str, v_arg->range, &data);
     return td::BitSlice{data, sizeof(data)}.to_hex();
   }
 
@@ -226,7 +226,7 @@ static CompileTimeFunctionResult parse_vertex_call_to_compile_time_function(V<as
     unsigned char buff[128];
     long bits = td::bitstring::parse_bitstring_hex_literal(buff, sizeof(buff), str.data(), str.data() + str.size());
     if (bits < 0) {
-      v_arg->error("invalid hex bitstring constant");
+      fire(v_arg, "invalid hex bitstring constant");
     }
     return static_cast<std::string>(str);
   }
@@ -234,10 +234,10 @@ static CompileTimeFunctionResult parse_vertex_call_to_compile_time_function(V<as
   if (f_name == "stringToBase256") {      // previously, postfix "..."u
     td::RefInt256 intval = td::hex_string_to_int256(td::hex_encode(td::Slice(str.data(), str.size())));
     if (str.empty()) {
-      v_arg->error("empty integer ascii-constant");
+      fire(v_arg, "empty integer ascii-constant");
     }
     if (intval.is_null()) {
-      v_arg->error("too long integer ascii-constant");
+      fire(v_arg, "too long integer ascii-constant");
     }
     return std::move(intval);
   }
@@ -260,7 +260,7 @@ struct ConstantExpressionChecker {
   static void handle_reference(V<ast_reference> v) {
     GlobalConstPtr const_ref = v->sym->try_as<GlobalConstPtr>();
     if (!const_ref) {
-      v->error("symbol `" + static_cast<std::string>(v->get_name()) + "` is not a constant");
+      fire(v, "symbol `" + static_cast<std::string>(v->get_name()) + "` is not a constant");
     }
   }
 
@@ -270,7 +270,7 @@ struct ConstantExpressionChecker {
       // `ton(local_var)` is denied; it's validated not here, but when replacing its value with a calculated one
       return;
     }
-    v->error("not a constant expression");
+    fire(v, "not a constant expression");
   }
 
   // `const a = (1, 2)`, why not; or it's a default value of a field
@@ -323,7 +323,7 @@ struct ConstantExpressionChecker {
         return;
       }
     }
-    v->error("not a constant expression");
+    fire(v, "not a constant expression");
   }
 
   // check that `2 + 3` is constant
@@ -344,7 +344,7 @@ struct EnumMemberEvaluator {
       case tok_bitwise_not:   return ~rhs;
       case tok_plus:          return rhs;
       default:
-        fire(nullptr, v->loc, "unsupported operator in `enum` member value");
+        fire(v, "unsupported operator in `enum` member value");
     }
   }
 
@@ -366,7 +366,7 @@ struct EnumMemberEvaluator {
       case tok_lshift:        return lhs << static_cast<int>(rhs->to_long());
       case tok_rshift:        return lhs >> static_cast<int>(rhs->to_long());
       default:
-        fire(nullptr, v->loc, "unsupported operator in `enum` member value");
+        fire(v, "unsupported operator in `enum` member value");
     }
   }
   
@@ -374,7 +374,7 @@ struct EnumMemberEvaluator {
   static td::RefInt256 handle_reference(V<ast_reference> v) {
     GlobalConstPtr const_ref = v->sym->try_as<GlobalConstPtr>();
     if (!const_ref) {
-      v->error("symbol `" + static_cast<std::string>(v->get_name()) + "` is not a constant");
+      fire(v, "symbol `" + static_cast<std::string>(v->get_name()) + "` is not a constant");
     }
     return visit(const_ref->init_value);
   }
@@ -399,10 +399,10 @@ struct EnumMemberEvaluator {
       // `enum E { V = AnotherEnum.A }` not allowed (can be allowed in the future,
       // but remember to construct an initialization tree, since A may be auto-computed, and prevent recursion)
       if (v_dot->is_target_enum_member()) {
-        fire(nullptr, v->loc, "referencing other members in initializers is not allowed yet");
+        fire(v, "referencing other members in initializers is not allowed yet");
       }
     }
-    fire(nullptr, v->loc, "unsupported operation in `enum` member value");
+    fire(v, "unsupported operation in `enum` member value");
   }
 };
 

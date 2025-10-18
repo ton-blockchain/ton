@@ -15,7 +15,7 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include "type-system.h"
-#include "platform-utils.h"
+#include "compilation-errors.h"
 #include "generics-helpers.h"
 #include "compiler-state.h"
 #include <charconv>

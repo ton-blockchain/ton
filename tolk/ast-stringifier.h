@@ -204,13 +204,13 @@ class ASTStringifier final : public ASTVisitor {
       case ast_annotation:
         return static_cast<std::string>(v->as<ast_annotation>()->name);
       case ast_parameter:
-        return static_cast<std::string>(v->as<ast_parameter>()->param_name) + ": " + ast_type_node_to_string(v->as<ast_parameter>()->type_node);
+        return static_cast<std::string>(v->as<ast_parameter>()->get_identifier()->name) + ": " + ast_type_node_to_string(v->as<ast_parameter>()->type_node);
       case ast_function_declaration: {
         std::string param_names;
         for (int i = 0; i < v->as<ast_function_declaration>()->get_num_params(); i++) {
           if (!param_names.empty())
             param_names += ",";
-          param_names += v->as<ast_function_declaration>()->get_param(i)->param_name;
+          param_names += v->as<ast_function_declaration>()->get_param(i)->get_identifier()->name;
         }
         std::string decl = "fun ";
         if (auto receiver_node = v->as<ast_function_declaration>()->receiver_type_node) {

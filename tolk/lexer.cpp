@@ -15,6 +15,7 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include "lexer.h"
+#include "compilation-errors.h"
 #include <cassert>
 #include <cstdint>
 #include <cstring>
@@ -181,9 +182,9 @@ struct ChunkString final : ChunkLexerBase {
     if (lex->char_at() != '"') {
       lex->error("string extends past end of line");
     }
-
-    std::string_view str_val(str_begin + 1, lex->c_str() - str_begin - 1);
     lex->skip_chars(1);
+
+    std::string_view str_val(str_begin, lex->c_str() - str_begin);    // with surrounding quotes
     lex->add_token(tok_string_const, str_val);
 
     return true;
@@ -205,9 +206,9 @@ struct ChunkMultilineString final : ChunkLexerBase {
     if (lex->is_eof()) {
       lex->error("string extends past end of file");
     }
-
-    std::string_view str_val(str_begin + 3, lex->c_str() - str_begin - 3);
     lex->skip_chars(3);
+
+    std::string_view str_val(str_begin, lex->c_str() - str_begin);    // with surrounding quotes
     lex->add_token(tok_string_const, str_val);
     return true;
   }
@@ -553,11 +554,10 @@ LexingTrie TolkLanguageGrammar::trie;
 //
 
 Lexer::Lexer(const SrcFile* file)
-  : file(file)
+  : file_id(file->file_id)
   , p_start(file->text.data())
   , p_end(p_start + file->text.size())
-  , p_next(p_start)
-  , location(file) {
+  , p_next(p_start) {
   next();
 }
 
@@ -585,28 +585,29 @@ void Lexer::next_special(TokenType parse_next_as, const char* str_expected) {
 }
 
 Lexer::SavedPositionForLookahead Lexer::save_parsing_position() const {
-  return {p_next, cur_token_idx, cur_token, location};
+  return {p_next, cur_token_idx,  cur_token_offset, cur_token};
 }
 
 void Lexer::restore_position(SavedPositionForLookahead saved) {
   p_next = saved.p_next;
   cur_token_idx = last_token_idx = saved.cur_token_idx;
+  cur_token_offset = saved.cur_token_offset;
   cur_token = saved.cur_token;
-  location = saved.loc;
 }
 
 void Lexer::hack_replace_rshift_with_one_triangle() {
   // overcome the `>>` problem when parsing generics, leave only `>` here, see comments at usage
   assert(cur_token.type == tok_rshift);
   cur_token = Token(tok_gt, ">");
+  cur_token_offset++;
 }
 
 void Lexer::error(const std::string& err_msg) const {
-  throw ParseError(cur_location(), err_msg);
+  fire(cur_range(), err_msg);
 }
 
 void Lexer::unexpected(const char* str_expected) const {
-  throw ParseError(cur_location(), "expected " + std::string(str_expected) + ", got `" + std::string(cur_str()) + "`");
+  fire(cur_range(), "expected " + std::string(str_expected) + ", got `" + std::string(cur_str()) + "`");
 }
 
 void lexer_init() {

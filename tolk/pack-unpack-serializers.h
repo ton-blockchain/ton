@@ -56,7 +56,7 @@ enum class PrefixWriteMode {
 
 class PackContext {
   CodeBlob& code;
-  SrcLocation loc;
+  AnyV origin;
   const FunctionPtr f_storeInt;
   const FunctionPtr f_storeUint;
   mutable PrefixWriteMode prefix_mode = PrefixWriteMode::WritePrefixOfStruct;
@@ -66,7 +66,7 @@ public:
   const var_idx_t ir_builder0;
   const var_idx_t option_skipBitsNValidation;
 
-  PackContext(CodeBlob& code, SrcLocation loc, std::vector<var_idx_t> ir_builder, const std::vector<var_idx_t>& ir_options);
+  PackContext(CodeBlob& code, AnyV origin, std::vector<var_idx_t> ir_builder, const std::vector<var_idx_t>& ir_options);
 
   PrefixWriteMode get_prefix_mode() const { return prefix_mode; }
 
@@ -104,12 +104,12 @@ struct LazyMatchOptions {
   std::vector<MatchBlock> match_blocks;
 
   const MatchBlock* find_match_block(TypePtr variant) const;
-  void save_match_result_on_arm_end(CodeBlob& code, SrcLocation loc, const MatchBlock* arm_block, std::vector<var_idx_t>&& ir_arm_result, const std::vector<var_idx_t>& ir_match_expr_result) const;
+  void save_match_result_on_arm_end(CodeBlob& code, AnyV origin, const MatchBlock* arm_block, std::vector<var_idx_t>&& ir_arm_result, const std::vector<var_idx_t>& ir_match_expr_result) const;
 };
 
 class UnpackContext {
   CodeBlob& code;
-  SrcLocation loc;
+  AnyV origin;
   const FunctionPtr f_loadInt;
   const FunctionPtr f_loadUint;
   const FunctionPtr f_skipBits;
@@ -121,7 +121,7 @@ public:
   const var_idx_t option_assertEndAfterReading;
   const var_idx_t option_throwIfOpcodeDoesNotMatch;
 
-  UnpackContext(CodeBlob& code, SrcLocation loc, std::vector<var_idx_t> ir_slice, const std::vector<var_idx_t>& ir_options);
+  UnpackContext(CodeBlob& code, AnyV origin, std::vector<var_idx_t> ir_slice, const std::vector<var_idx_t>& ir_options);
 
   PrefixReadMode get_prefix_mode() const { return prefix_mode; }
 
@@ -167,7 +167,7 @@ FunctionPtr get_custom_pack_unpack_function(TypePtr receiver_type, bool is_pack)
 std::vector<PackOpcode> auto_generate_opcodes_for_union(TypePtr union_type, std::string& because_msg);
 TypePtr calculate_intN_to_serialize_enum(EnumDefPtr enum_ref);
 
-std::vector<var_idx_t> create_default_PackOptions(CodeBlob& code, SrcLocation loc);
-std::vector<var_idx_t> create_default_UnpackOptions(CodeBlob& code, SrcLocation loc);
+std::vector<var_idx_t> create_default_PackOptions(CodeBlob& code, AnyV origin);
+std::vector<var_idx_t> create_default_UnpackOptions(CodeBlob& code, AnyV origin);
 
 } // namespace tolk

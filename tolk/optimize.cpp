@@ -159,8 +159,8 @@ bool Optimizer::detect_rewrite_big_THROW() {
 
   p_ = 1;
   q_ = 2;
-  oq_[0] = std::make_unique<AsmOp>(AsmOp::IntConst(op_[0]->loc, td::make_refint(excno)));
-  oq_[1] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->loc, "THROWANY", 1, 0));
+  oq_[0] = std::make_unique<AsmOp>(AsmOp::IntConst(op_[0]->origin, td::make_refint(excno)));
+  oq_[1] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, "THROWANY", 1, 0));
   return true;
 }
 
@@ -206,8 +206,8 @@ bool Optimizer::detect_rewrite_MY_store_int() {
   if (!use_stsliceconst) {
     p_ = n_merged;
     q_ = 2;
-    oq_[0] = std::make_unique<AsmOp>(AsmOp::IntConst(op_[0]->loc, total_number));
-    oq_[1] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->loc, std::to_string(total_len) + (first_unsigned ? " STUR" : " STIR"), 1, 1));
+    oq_[0] = std::make_unique<AsmOp>(AsmOp::IntConst(op_[0]->origin, total_number));
+    oq_[1] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, std::to_string(total_len) + (first_unsigned ? " STUR" : " STIR"), 1, 1));
     return true;
   }
 
@@ -229,7 +229,7 @@ bool Optimizer::detect_rewrite_MY_store_int() {
   }
 
   result += " STSLICECONST";
-  oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->loc, result, 0, 1));
+  oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, result, 0, 1));
   return true;
 }
 
@@ -256,11 +256,11 @@ bool Optimizer::detect_rewrite_MY_skip_bits() {
   p_ = n_merged;
   q_ = 2;
   if (total_skip_bits <= 256) {
-    oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->loc, std::to_string(total_skip_bits) + " LDU"));
-    oq_[1] = std::make_unique<AsmOp>(AsmOp::Pop(op_[0]->loc, 1));
+    oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, std::to_string(total_skip_bits) + " LDU"));
+    oq_[1] = std::make_unique<AsmOp>(AsmOp::Pop(op_[0]->origin, 1));
   } else {
-    oq_[0] = std::make_unique<AsmOp>(AsmOp::IntConst(op_[0]->loc, td::make_refint(total_skip_bits)));
-    oq_[1] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->loc, "SDSKIPFIRST"));
+    oq_[0] = std::make_unique<AsmOp>(AsmOp::IntConst(op_[0]->origin, td::make_refint(total_skip_bits)));
+    oq_[1] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, "SDSKIPFIRST"));
   }
   return true;
 }
@@ -284,7 +284,7 @@ bool Optimizer::detect_rewrite_NEWC_PUSH_STUR() {
   q_ = 3;
   oq_[0] = std::move(op_[1]);
   oq_[1] = std::move(op_[0]);
-  oq_[2] = std::make_unique<AsmOp>(AsmOp::Custom(oq_[0]->loc, op_[2]->op.substr(0, op_[2]->op.size() - 1), 1, 1));
+  oq_[2] = std::make_unique<AsmOp>(AsmOp::Custom(oq_[0]->origin, op_[2]->op.substr(0, op_[2]->op.size() - 1), 1, 1));
   return true;
 }
 
@@ -306,7 +306,7 @@ bool Optimizer::detect_rewrite_LDxx_DROP() {
     if (f.ends_with(ends_with[i])) {
       p_ = 2;
       q_ = 1;
-      oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->loc, op_[0]->op.substr(0, f.rfind(' ')) + repl_with[i], 0, 1));
+      oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, op_[0]->op.substr(0, f.rfind(' ')) + repl_with[i], 0, 1));
       return true;
     }
   }
@@ -314,7 +314,7 @@ bool Optimizer::detect_rewrite_LDxx_DROP() {
     if (f == equl_to[i]) {
       p_ = 2;
       q_ = 1;
-      oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->loc, repl_to[i], 0, 1));
+      oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, repl_to[i], 0, 1));
       return true;
     }
   }
@@ -360,8 +360,8 @@ bool Optimizer::detect_rewrite_SWAP_PUSH_STUR() {
   p_ = 3;
   q_ = 3;
   oq_[0] = std::move(op_[1]);
-  oq_[1] = std::make_unique<AsmOp>(AsmOp::BlkSwap(oq_[0]->loc, 1, 2));     // ROT
-  oq_[2] = std::make_unique<AsmOp>(AsmOp::Custom(oq_[0]->loc,  op_[2]->op.substr(0, op_[2]->op.size() - 1), 1, 1));
+  oq_[1] = std::make_unique<AsmOp>(AsmOp::BlkSwap(oq_[0]->origin, 1, 2));     // ROT
+  oq_[2] = std::make_unique<AsmOp>(AsmOp::Custom(oq_[0]->origin,  op_[2]->op.substr(0, op_[2]->op.size() - 1), 1, 1));
   return true;
 }
 
@@ -383,7 +383,7 @@ bool Optimizer::detect_rewrite_SWAP_STxxxR() {
     if (f.ends_with(ends_with[i])) {
       p_ = 2;
       q_ = 1;
-      oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->loc, op_[1]->op.substr(0, f.rfind(' ')) + repl_with[i], 1, 1));
+      oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, op_[1]->op.substr(0, f.rfind(' ')) + repl_with[i], 1, 1));
       return true;
     }
   }
@@ -391,7 +391,7 @@ bool Optimizer::detect_rewrite_SWAP_STxxxR() {
     if (f == equl_to[i]) {
       p_ = 2;
       q_ = 1;
-      oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->loc, repl_to[i], 0, 1));
+      oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, repl_to[i], 0, 1));
       return true;
     }
   }
@@ -414,7 +414,7 @@ bool Optimizer::detect_rewrite_NOT_THROWIF() {
     if (f.ends_with(ends_with[i])) {
       p_ = 2;
       q_ = 1;
-      oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->loc, op_[1]->op.substr(0, f.rfind(' ')) + repl_with[i], 1, 0));
+      oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, op_[1]->op.substr(0, f.rfind(' ')) + repl_with[i], 1, 0));
       return true;
     }
   }
@@ -447,10 +447,10 @@ bool Optimizer::detect_rewrite_DICTSETB_DICTSET() {
       new_op.replace(pos, std::strlen(contains_b[i]), repl_with[i]); 
       p_ = 5;
       q_ = 4;
-      oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[1]->loc, op_[1]->op.substr(0, op_[1]->op.rfind(' ')) + " PUSHSLICE", 0, 1));
+      oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[1]->origin, op_[1]->op.substr(0, op_[1]->op.rfind(' ')) + " PUSHSLICE", 0, 1));
       oq_[1] = std::move(op_[2]);
       oq_[2] = std::move(op_[3]);
-      oq_[3] = std::make_unique<AsmOp>(AsmOp::Custom(op_[4]->loc, new_op));
+      oq_[3] = std::make_unique<AsmOp>(AsmOp::Custom(op_[4]->origin, new_op));
       return true;
     } 
   }
@@ -472,7 +472,7 @@ bool Optimizer::detect_rewrite_ENDC_CTOS() {
 
   p_ = 2;
   q_ = 1;
-  oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->loc, "BTOS", 1, 1));
+  oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, "BTOS", 1, 1));
   return true;
 }
 
@@ -490,7 +490,7 @@ bool Optimizer::detect_rewrite_ENDC_HASHCU() {
 
   p_ = 2;
   q_ = 1;
-  oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->loc, "HASHBU", 1, 1));
+  oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, "HASHBU", 1, 1));
   return true;
 }
 
@@ -508,7 +508,7 @@ bool Optimizer::detect_rewrite_NEWC_BTOS() {
 
   p_ = 2;
   q_ = 1;
-  oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->loc, "x{} PUSHSLICE", 0, 1));
+  oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, "x{} PUSHSLICE", 0, 1));
   return true;
 }
 
@@ -528,7 +528,7 @@ bool Optimizer::detect_rewrite_NEWC_STSLICECONST_BTOS() {
   std::string op_pushslice = op_[1]->op.substr(0, op_[1]->op.rfind(' ')) + " PUSHSLICE";
   p_ = 3;
   q_ = 1;
-  oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->loc, op_pushslice, 0, 1));
+  oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, op_pushslice, 0, 1));
   return true;
 }
 
@@ -548,7 +548,7 @@ bool Optimizer::detect_rewrite_NEWC_ENDC_CTOS() {
 
   p_ = 3;
   q_ = 1;
-  oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->loc, "x{} PUSHSLICE", 0, 1));
+  oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, "x{} PUSHSLICE", 0, 1));
   return true;
 }
 
@@ -566,7 +566,7 @@ bool Optimizer::detect_rewrite_NEWC_ENDC() {
 
   p_ = 2;
   q_ = 1;
-  oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->loc, "<b b> PUSHREF", 0, 1));
+  oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, "<b b> PUSHREF", 0, 1));
   return true;
 }
 
@@ -585,7 +585,7 @@ bool Optimizer::rewrite_push_const(int i, int c) {
   show_left();
   oq_[1] = std::move(op_[idx]);
   oq_[0] = std::move(op_[!idx]);
-  *oq_[0] = AsmOp::Push(oq_[0]->loc, i);
+  *oq_[0] = AsmOp::Push(oq_[0]->origin, i);
   show_right();
   return true;
 }
@@ -604,7 +604,7 @@ bool Optimizer::rewrite_const_rot(int c) {
   show_left();
   oq_[0] = std::move(op_[idx]);
   oq_[1] = std::move(op_[!idx]);
-  *oq_[1] = AsmOp::Custom(oq_[0]->loc, "ROT", 3, 3);
+  *oq_[1] = AsmOp::Custom(oq_[0]->origin, "ROT", 3, 3);
   show_right();
   return true;
 }
@@ -623,7 +623,7 @@ bool Optimizer::rewrite_const_pop(int c, int i) {
   show_left();
   oq_[0] = std::move(op_[idx]);
   oq_[1] = std::move(op_[!idx]);
-  *oq_[1] = AsmOp::Pop(oq_[0]->loc, i);
+  *oq_[1] = AsmOp::Pop(oq_[0]->origin, i);
   show_right();
   return true;
 }
@@ -981,13 +981,13 @@ bool Optimizer::find_at_least(int pb) {
   pb_ = pb;
   // show_stack_transforms();
   int i, j, k, l, c;
-  SrcLocation loc;      // for asm ops inserted by optimizer, leave location empty (in fift output, it'll be attached to above)
+  AnyV origin = nullptr;      // for asm ops inserted by optimizer, leave location empty (in fift output, it'll be attached to above)
   return (is_push_const(&i, &c) && rewrite_push_const(i, c)) || (is_nop() && rewrite_nop()) ||
          (!(mode_ & 1) && is_const_rot(&c) && rewrite_const_rot(c)) ||
          (is_const_push_xchgs() && rewrite_const_push_xchgs()) || (is_const_pop(&c, &i) && rewrite_const_pop(c, i)) ||
-         (is_xchg(&i, &j) && rewrite(AsmOp::Xchg(loc, i, j))) || (is_push(&i) && rewrite(AsmOp::Push(loc, i))) ||
-         (is_pop(&i) && rewrite(AsmOp::Pop(loc, i))) || (is_pop_pop(&i, &j) && rewrite(AsmOp::Pop(loc, i), AsmOp::Pop(loc, j))) ||
-         (is_xchg_xchg(&i, &j, &k, &l) && rewrite(AsmOp::Xchg(loc, i, j), AsmOp::Xchg(loc, k, l))) ||
+         (is_xchg(&i, &j) && rewrite(AsmOp::Xchg(origin, i, j))) || (is_push(&i) && rewrite(AsmOp::Push(origin, i))) ||
+         (is_pop(&i) && rewrite(AsmOp::Pop(origin, i))) || (is_pop_pop(&i, &j) && rewrite(AsmOp::Pop(origin, i), AsmOp::Pop(origin, j))) ||
+         (is_xchg_xchg(&i, &j, &k, &l) && rewrite(AsmOp::Xchg(origin, i, j), AsmOp::Xchg(origin, k, l))) ||
          detect_rewrite_big_THROW() ||
          detect_rewrite_MY_store_int() || detect_rewrite_MY_skip_bits() || detect_rewrite_NEWC_PUSH_STUR() ||
          detect_rewrite_LDxx_DROP() ||
@@ -997,33 +997,33 @@ bool Optimizer::find_at_least(int pb) {
          detect_rewrite_NEWC_BTOS() || detect_rewrite_NEWC_STSLICECONST_BTOS() ||
          detect_rewrite_NEWC_ENDC_CTOS() || detect_rewrite_NEWC_ENDC() ||
          (!(mode_ & 1) &&
-          ((is_rot() && rewrite(AsmOp::Custom(loc, "ROT", 3, 3))) || (is_rotrev() && rewrite(AsmOp::Custom(loc, "-ROT", 3, 3))) ||
-           (is_2dup() && rewrite(AsmOp::Custom(loc, "2DUP", 2, 4))) ||
-           (is_2swap() && rewrite(AsmOp::Custom(loc, "2SWAP", 2, 4))) ||
-           (is_2over() && rewrite(AsmOp::Custom(loc, "2OVER", 2, 4))) ||
-           (is_tuck() && rewrite(AsmOp::Custom(loc, "TUCK", 2, 3))) ||
-           (is_2drop() && rewrite(AsmOp::Custom(loc, "2DROP", 2, 0))) || (is_xchg2(&i, &j) && rewrite(AsmOp::Xchg2(loc, i, j))) ||
-           (is_xcpu(&i, &j) && rewrite(AsmOp::XcPu(loc, i, j))) || (is_puxc(&i, &j) && rewrite(AsmOp::PuXc(loc, i, j))) ||
-           (is_push2(&i, &j) && rewrite(AsmOp::Push2(loc, i, j))) || (is_blkswap(&i, &j) && rewrite(AsmOp::BlkSwap(loc, i, j))) ||
-           (is_blkpush(&i, &j) && rewrite(AsmOp::BlkPush(loc, i, j))) || (is_blkdrop(&i) && rewrite(AsmOp::BlkDrop(loc, i))) ||
-           (is_push_rot(&i) && rewrite(AsmOp::Push(loc, i), AsmOp::Custom(loc, "ROT"))) ||
-           (is_push_rotrev(&i) && rewrite(AsmOp::Push(loc, i), AsmOp::Custom(loc, "-ROT"))) ||
-           (is_push_xchg(&i, &j, &k) && rewrite(AsmOp::Push(loc, i), AsmOp::Xchg(loc, j, k))) ||
-           (is_reverse(&i, &j) && rewrite(AsmOp::BlkReverse(loc, i, j))) ||
-           (is_blkdrop2(&i, &j) && rewrite(AsmOp::BlkDrop2(loc, i, j))) ||
-           (is_nip_seq(&i, &j) && rewrite(AsmOp::Xchg(loc, i, j), AsmOp::BlkDrop(loc, i))) ||
-           (is_pop_blkdrop(&i, &k) && rewrite(AsmOp::Pop(loc, i), AsmOp::BlkDrop(loc, k))) ||
+          ((is_rot() && rewrite(AsmOp::Custom(origin, "ROT", 3, 3))) || (is_rotrev() && rewrite(AsmOp::Custom(origin, "-ROT", 3, 3))) ||
+           (is_2dup() && rewrite(AsmOp::Custom(origin, "2DUP", 2, 4))) ||
+           (is_2swap() && rewrite(AsmOp::Custom(origin, "2SWAP", 2, 4))) ||
+           (is_2over() && rewrite(AsmOp::Custom(origin, "2OVER", 2, 4))) ||
+           (is_tuck() && rewrite(AsmOp::Custom(origin, "TUCK", 2, 3))) ||
+           (is_2drop() && rewrite(AsmOp::Custom(origin, "2DROP", 2, 0))) || (is_xchg2(&i, &j) && rewrite(AsmOp::Xchg2(origin, i, j))) ||
+           (is_xcpu(&i, &j) && rewrite(AsmOp::XcPu(origin, i, j))) || (is_puxc(&i, &j) && rewrite(AsmOp::PuXc(origin, i, j))) ||
+           (is_push2(&i, &j) && rewrite(AsmOp::Push2(origin, i, j))) || (is_blkswap(&i, &j) && rewrite(AsmOp::BlkSwap(origin, i, j))) ||
+           (is_blkpush(&i, &j) && rewrite(AsmOp::BlkPush(origin, i, j))) || (is_blkdrop(&i) && rewrite(AsmOp::BlkDrop(origin, i))) ||
+           (is_push_rot(&i) && rewrite(AsmOp::Push(origin, i), AsmOp::Custom(origin, "ROT"))) ||
+           (is_push_rotrev(&i) && rewrite(AsmOp::Push(origin, i), AsmOp::Custom(origin, "-ROT"))) ||
+           (is_push_xchg(&i, &j, &k) && rewrite(AsmOp::Push(origin, i), AsmOp::Xchg(origin, j, k))) ||
+           (is_reverse(&i, &j) && rewrite(AsmOp::BlkReverse(origin, i, j))) ||
+           (is_blkdrop2(&i, &j) && rewrite(AsmOp::BlkDrop2(origin, i, j))) ||
+           (is_nip_seq(&i, &j) && rewrite(AsmOp::Xchg(origin, i, j), AsmOp::BlkDrop(origin, i))) ||
+           (is_pop_blkdrop(&i, &k) && rewrite(AsmOp::Pop(origin, i), AsmOp::BlkDrop(origin, k))) ||
            (is_2pop_blkdrop(&i, &j, &k) && (k >= 3 && k <= 13 && i != j + 1 && i <= 15 && j <= 14
-                                                ? rewrite(AsmOp::Xchg2(loc, j + 1, i), AsmOp::BlkDrop(loc, k + 2))
-                                                : rewrite(AsmOp::Pop(loc, i), AsmOp::Pop(loc, j), AsmOp::BlkDrop(loc, k)))) ||
-           (is_xchg3(&i, &j, &k) && rewrite(AsmOp::Xchg3(loc, i, j, k))) ||
-           (is_xc2pu(&i, &j, &k) && rewrite(AsmOp::Xc2Pu(loc, i, j, k))) ||
-           (is_xcpuxc(&i, &j, &k) && rewrite(AsmOp::XcPuXc(loc, i, j, k))) ||
-           (is_xcpu2(&i, &j, &k) && rewrite(AsmOp::XcPu2(loc, i, j, k))) ||
-           (is_puxc2(&i, &j, &k) && rewrite(AsmOp::PuXc2(loc, i, j, k))) ||
-           (is_puxcpu(&i, &j, &k) && rewrite(AsmOp::PuXcPu(loc, i, j, k))) ||
-           (is_pu2xc(&i, &j, &k) && rewrite(AsmOp::Pu2Xc(loc, i, j, k))) ||
-           (is_push3(&i, &j, &k) && rewrite(AsmOp::Push3(loc, i, j, k)))));
+                                                ? rewrite(AsmOp::Xchg2(origin, j + 1, i), AsmOp::BlkDrop(origin, k + 2))
+                                                : rewrite(AsmOp::Pop(origin, i), AsmOp::Pop(origin, j), AsmOp::BlkDrop(origin, k)))) ||
+           (is_xchg3(&i, &j, &k) && rewrite(AsmOp::Xchg3(origin, i, j, k))) ||
+           (is_xc2pu(&i, &j, &k) && rewrite(AsmOp::Xc2Pu(origin, i, j, k))) ||
+           (is_xcpuxc(&i, &j, &k) && rewrite(AsmOp::XcPuXc(origin, i, j, k))) ||
+           (is_xcpu2(&i, &j, &k) && rewrite(AsmOp::XcPu2(origin, i, j, k))) ||
+           (is_puxc2(&i, &j, &k) && rewrite(AsmOp::PuXc2(origin, i, j, k))) ||
+           (is_puxcpu(&i, &j, &k) && rewrite(AsmOp::PuXcPu(origin, i, j, k))) ||
+           (is_pu2xc(&i, &j, &k) && rewrite(AsmOp::Pu2Xc(origin, i, j, k))) ||
+           (is_push3(&i, &j, &k) && rewrite(AsmOp::Push3(origin, i, j, k)))));
 }
 
 bool Optimizer::find() {

@@ -14,9 +14,9 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "tolk.h"
 #include "ast.h"
 #include "ast-visitor.h"
+#include "compilation-errors.h"
 #include "pack-unpack-api.h"
 #include "maps-kv-api.h"
 #include "generics-helpers.h"
@@ -26,8 +26,8 @@ namespace tolk {
 
 // fire an error on overflow 1023 bits
 GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-static void fire_error_theoretical_overflow_1023(StructPtr struct_ref, PackSize size) {
-  throw ParseError(struct_ref->ast_root->loc,
+static void fire_theoretical_overflow_1023(StructPtr struct_ref, PackSize size) {
+  fire(struct_ref->ident_anchor,
     "struct `" + struct_ref->as_human_readable() + "` can exceed 1023 bits in serialization (estimated size: " + std::to_string(size.min_bits) + ".." + std::to_string(size.max_bits) + " bits)\n\n"
                   "1) either suppress it by adding an annotation:\n"
                   ">     @overflow1023_policy(\"suppress\")\n"
@@ -44,24 +44,24 @@ static void fire_error_theoretical_overflow_1023(StructPtr struct_ref, PackSize 
 }
 
 GNU_ATTRIBUTE_NOINLINE
-static void check_map_TKey_TValue(SrcLocation loc, TypePtr TKey, TypePtr TValue) {
+static void check_map_TKey_TValue(SrcRange range, TypePtr TKey, TypePtr TValue) {
   std::string because_msg;
   if (!check_mapKV_TKey_is_valid(TKey, because_msg)) {
-    fire(nullptr, loc, "invalid `map`: type `" + TKey->as_human_readable() + "` can not be used as a key\n" + because_msg);
+    fire(range, "invalid `map`: type `" + TKey->as_human_readable() + "` can not be used as a key\n" + because_msg);
   } 
   if (!check_mapKV_TValue_is_valid(TValue, because_msg)) {
-    fire(nullptr, loc, "invalid `map`: type `" + TValue->as_human_readable() + "` can not be used as a value\n" + because_msg);
+    fire(range, "invalid `map`: type `" + TValue->as_human_readable() + "` can not be used as a value\n" + because_msg);
   } 
 }
 
 GNU_ATTRIBUTE_NOINLINE
-static void check_mapKV_inside_type(SrcLocation loc, TypePtr any_type) {
-  any_type->replace_children_custom([loc](TypePtr child) {
+static void check_mapKV_inside_type(SrcRange range, TypePtr any_type) {
+  any_type->replace_children_custom([range](TypePtr child) {
     if (const TypeDataMapKV* t_map = child->try_as<TypeDataMapKV>()) {
-      check_map_TKey_TValue(loc, t_map->TKey, t_map->TValue);
+      check_map_TKey_TValue(range, t_map->TKey, t_map->TValue);
     }
     if (const TypeDataAlias* t_alias = child->try_as<TypeDataAlias>()) {
-      check_mapKV_inside_type(loc, t_alias->underlying_type);
+      check_mapKV_inside_type(range, t_alias->underlying_type);
     }
     return child;
   });
@@ -69,14 +69,15 @@ static void check_mapKV_inside_type(SrcLocation loc, TypePtr any_type) {
 
 static void check_mapKV_inside_type(AnyTypeV type_node) {
   if (type_node && type_node->resolved_type->has_mapKV_inside()) {
-    check_mapKV_inside_type(type_node->loc, type_node->resolved_type);
+    check_mapKV_inside_type(type_node->range, type_node->resolved_type);
   }
 }
 
 // given `enum Role: int8` check colon type (not struct/slice etc.)
 static void check_enum_colon_type_to_be_intN(AnyTypeV colon_type_node) {
   if (!colon_type_node->resolved_type->try_as<TypeDataIntN>()) {
-    fire(nullptr, colon_type_node->loc, "serialization type of `enum` must be intN: `int8` / `uint32` / etc.");
+    // todo write test for underline
+    fire(colon_type_node, "serialization type of `enum` must be intN: `int8` / `uint32` / etc.");
   }
 }
 
@@ -104,7 +105,7 @@ class CheckSerializedFieldsAndTypesVisitor final : public ASTVisitorFunctionBody
     PackSize size = estimate_serialization_size(t_struct);
     if (size.max_bits > 1023 && !size.is_unpredictable_infinity()) {
       if (struct_ref->overflow1023_policy == StructData::Overflow1023Policy::not_specified) {
-        fire_error_theoretical_overflow_1023(struct_ref, size);
+        fire_theoretical_overflow_1023(struct_ref, size);
       }
     }
     // don't check Cell<T> fields for overflow of T: it would be checked on load() or other interaction with T
@@ -114,13 +115,13 @@ class CheckSerializedFieldsAndTypesVisitor final : public ASTVisitorFunctionBody
     parent::visit(v);
 
     FunctionPtr fun_ref = v->fun_maybe;
-    if (!fun_ref || !fun_ref->is_builtin_function() || !fun_ref->is_instantiation_of_generic_function()) {
+    if (!fun_ref || !fun_ref->is_builtin() || !fun_ref->is_instantiation_of_generic_function()) {
       return;
     }
     std::string_view f_name = fun_ref->base_fun_ref->name;
 
     if (f_name == "createEmptyMap") {
-      check_map_TKey_TValue(v->loc, fun_ref->substitutedTs->typeT_at(0), fun_ref->substitutedTs->typeT_at(1));
+      check_map_TKey_TValue(v->range, fun_ref->substitutedTs->typeT_at(0), fun_ref->substitutedTs->typeT_at(1));
       return;
     }
     
@@ -138,7 +139,7 @@ class CheckSerializedFieldsAndTypesVisitor final : public ASTVisitorFunctionBody
     std::string because_msg;
     if (!check_struct_can_be_packed_or_unpacked(serialized_type, is_pack, because_msg)) {
       std::string via_name = fun_ref->is_method() ? fun_ref->method_name : fun_ref->base_fun_ref->name;
-      fire(cur_f, v->loc, "auto-serialization via " + via_name + "() is not available for type `" + serialized_type->as_human_readable() + "`\n" + because_msg);
+      fire(cur_f, v, "auto-serialization via " + via_name + "() is not available for type `" + serialized_type->as_human_readable() + "`\n" + because_msg);
     }
 
     check_type_fits_cell_or_has_policy(serialized_type);

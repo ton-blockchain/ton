@@ -14,9 +14,9 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "tolk.h"
 #include "ast.h"
 #include "ast-replacer.h"
+#include "compilation-errors.h"
 #include "type-system.h"
 #include "constant-evaluator.h"
 
@@ -41,7 +41,7 @@ static void assign_enum_members_values(EnumDefPtr enum_ref) {
   for (EnumMemberPtr member_ref : enum_ref->members) {
     td::RefInt256 cur_value = member_ref->init_value ? eval_enum_member_init_value(member_ref->init_value) : prev_value + 1;
     if (!cur_value->is_valid() || !cur_value->signed_fits_bits(257)) {
-      fire(nullptr, member_ref->loc, "integer overflow");
+      fire(member_ref->ident_anchor, "integer overflow");
     }
 
     member_ref->mutate()->assign_computed_value(cur_value);
@@ -51,15 +51,15 @@ static void assign_enum_members_values(EnumDefPtr enum_ref) {
 
 
 class ConstantFoldingReplacer final : public ASTReplacerInFunctionBody {
-  static V<ast_int_const> create_int_const(SrcLocation loc, td::RefInt256&& intval) {
-    auto v_int = createV<ast_int_const>(loc, std::move(intval), {});
+  static V<ast_int_const> create_int_const(SrcRange range, td::RefInt256&& intval) {
+    auto v_int = createV<ast_int_const>(range, std::move(intval), {});
     v_int->assign_inferred_type(TypeDataInt::create());
     v_int->assign_rvalue_true();
     return v_int;
   }
 
-  static V<ast_bool_const> create_bool_const(SrcLocation loc, bool bool_val) {
-    auto v_bool = createV<ast_bool_const>(loc, bool_val);
+  static V<ast_bool_const> create_bool_const(SrcRange range, bool bool_val) {
+    auto v_bool = createV<ast_bool_const>(range, bool_val);
     v_bool->assign_inferred_type(TypeDataBool::create());
     v_bool->assign_rvalue_true();
     return v_bool;
@@ -73,8 +73,8 @@ class ConstantFoldingReplacer final : public ASTReplacerInFunctionBody {
     return inner;
   }
 
-  static V<ast_string_const> create_string_const(SrcLocation loc, std::string&& literal_value, TypePtr inferred_type) {
-    auto v_string = createV<ast_string_const>(loc, literal_value);
+  static V<ast_string_const> create_string_const(SrcRange range, std::string&& literal_value, TypePtr inferred_type) {
+    auto v_string = createV<ast_string_const>(range, literal_value);
     v_string->assign_inferred_type(inferred_type);
     v_string->assign_literal_value(std::move(literal_value));
     v_string->assign_rvalue_true();
@@ -91,9 +91,9 @@ class ConstantFoldingReplacer final : public ASTReplacerInFunctionBody {
       tolk_assert(!intval.is_null());
       intval = -intval;
       if (intval.is_null() || !intval->signed_fits_bits(257)) {
-        v->error("integer overflow");
+        fire(v, "integer overflow");
       }
-      return create_int_const(v->loc, std::move(intval));
+      return create_int_const(v->range, std::move(intval));
     }
     // same for "+1"
     if (t == tok_plus && v->get_rhs()->kind == ast_int_const) {
@@ -102,11 +102,11 @@ class ConstantFoldingReplacer final : public ASTReplacerInFunctionBody {
 
     // `!true` / `!false`
     if (t == tok_logical_not && v->get_rhs()->kind == ast_bool_const) {
-      return create_bool_const(v->loc, !v->get_rhs()->as<ast_bool_const>()->bool_val);
+      return create_bool_const(v->range, !v->get_rhs()->as<ast_bool_const>()->bool_val);
     }
     // `!0`
     if (t == tok_logical_not && v->get_rhs()->kind == ast_int_const) {
-      return create_bool_const(v->loc, v->get_rhs()->as<ast_int_const>()->intval == 0);
+      return create_bool_const(v->range, v->get_rhs()->as<ast_int_const>()->intval == 0);
     }
 
     return v;
@@ -117,7 +117,7 @@ class ConstantFoldingReplacer final : public ASTReplacerInFunctionBody {
 
     // `null == null` / `null != null`
     if (v->get_expr()->kind == ast_null_keyword && v->type_node->resolved_type == TypeDataNullLiteral::create()) {
-      return create_bool_const(v->loc, !v->is_negated);
+      return create_bool_const(v->range, !v->is_negated);
     }
 
     return v;
@@ -130,9 +130,9 @@ class ConstantFoldingReplacer final : public ASTReplacerInFunctionBody {
     if (v->fun_maybe && v->fun_maybe->is_compile_time_const_val()) {
       CompileTimeFunctionResult value = eval_call_to_compile_time_function(v);
       if (std::holds_alternative<td::RefInt256>(value)) {
-        return create_int_const(v->loc, std::move(std::get<td::RefInt256>(value)));
+        return create_int_const(v->range, std::move(std::get<td::RefInt256>(value)));
       } else {
-        return create_string_const(v->loc, std::move(std::get<std::string>(value)), v->fun_maybe->declared_return_type);
+        return create_string_const(v->range, std::move(std::get<std::string>(value)), v->fun_maybe->declared_return_type);
       }
     }
 
