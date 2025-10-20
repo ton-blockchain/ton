@@ -1,6 +1,6 @@
 name: Windows TON build (portable, x86-64)
 
-on: [push,workflow_dispatch,workflow_call]
+on: [push, pull_request, workflow_dispatch, workflow_call]
 
 defaults:
   run:
@@ -8,6 +8,7 @@ defaults:
 
 jobs:
   build:
+    if: github.repository == 'ton-blockchain/ton'
 
     runs-on: windows-2022
 

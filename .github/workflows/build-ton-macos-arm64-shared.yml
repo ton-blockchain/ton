@@ -1,9 +1,11 @@
 name: MacOS-14 TON build (shared, arm64)
 
-on: [push,workflow_dispatch,workflow_call]
+on: [push, pull_request, workflow_dispatch, workflow_call]
 
 jobs:
   build:
+    if: github.repository == 'ton-blockchain/ton'
+
     runs-on: macos-14
 
     steps:
@@ -41,5 +43,5 @@ jobs:
 
       - name: Run Tests
         run: |
-          cd build        
+          cd build
           ctest --output-on-failure --timeout 1800
