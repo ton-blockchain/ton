@@ -1,9 +1,11 @@
 name: MacOS-13 TON build (portable, x86-64)
 
-on: [push,workflow_dispatch,workflow_call]
+on: [push, pull_request, workflow_dispatch, workflow_call]
 
 jobs:
   build:
+    if: github.repository == 'ton-blockchain/ton'
+
     runs-on: macos-13
 
     steps:
@@ -49,7 +51,7 @@ jobs:
 
       - name: Run Tests
         run: |
-          cd build        
+          cd build
           ctest --output-on-failure --timeout 1800
 
       - name: Upload artifacts

@@ -12,6 +12,8 @@ env:
 
 jobs:
   build-arm64:
+    if: github.repository == 'ton-blockchain/ton'
+
     runs-on: ubuntu-22.04-arm
     steps:
       - name: Check out repository
@@ -49,6 +51,8 @@ jobs:
 
 
   build-amd64:
+    if: github.repository == 'ton-blockchain/ton'
+
     runs-on: ubuntu-22.04
     steps:
       - name: Check out repository
@@ -86,6 +90,8 @@ jobs:
 
 
   merge:
+    if: github.repository == 'ton-blockchain/ton'
+
     runs-on: ubuntu-22.04
     needs:
       - build-amd64

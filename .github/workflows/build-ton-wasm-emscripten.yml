@@ -1,9 +1,11 @@
 name: Emscripten TON build (wasm)
 
-on: [push,workflow_dispatch,workflow_call]
+on: [push, pull_request, workflow_dispatch, workflow_call]
 
 jobs:
   build:
+    if: github.repository == 'ton-blockchain/ton'
+
     runs-on: ubuntu-22.04
 
     steps:
@@ -50,7 +52,7 @@ jobs:
       run: |
         cp assembly/wasm/*.fc .
         git clone https://github.com/ton-community/func-js.git
-        cd func-js        
+        cd func-js
         npm install
         npm run build
         npm link
@@ -63,7 +65,7 @@ jobs:
         cp artifacts/funcfiftlib.wasm.js func-js/node_modules/@ton-community/func-js-bin/dist/funcfiftlib.wasm.js
         cp artifacts/funcfiftlib.js func-js/node_modules/@ton-community/func-js-bin/dist/funcfiftlib.js
         npx func-js stdlib.fc intrinsics.fc --fift ./output.f
-    
+
     - name: Upload artifacts
       uses: actions/upload-artifact@master
       with:
