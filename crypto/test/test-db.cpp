@@ -2177,7 +2177,7 @@ TEST(Cell, MerkleProofHands) {
   test_boc_deserializer_full(merkle_proof).ensure();
 
   {
-    auto virtual_node = proof->virtualize({0, 1});
+    auto virtual_node = proof->virtualize(0);
     ASSERT_EQ(0u, virtual_node->get_level());
     ASSERT_EQ(1u, virtual_node->is_virtualized());
     CellSlice cs{NoVm(), virtual_node};
@@ -2220,7 +2220,7 @@ TEST(Cell, MerkleProofArrayHands) {
   ASSERT_TRUE(proof->get_hash(1) != arr.root()->get_hash(1));
   ASSERT_EQ(arr.root()->get_hash(0), arr.root()->get_hash(1));
 
-  CompactArray new_arr(arr.size(), proof->virtualize({0, 1}));
+  CompactArray new_arr(arr.size(), proof->virtualize(0));
   for (auto k : keys) {
     ASSERT_EQ(arr.get(k), new_arr.get(k));
   }

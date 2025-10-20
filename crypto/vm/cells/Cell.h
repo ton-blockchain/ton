@@ -25,7 +25,6 @@
 #include "vm/cells/CellTraits.h"
 #include "vm/cells/CellUsageTree.h"
 #include "vm/cells/LevelMask.h"
-#include "vm/cells/VirtualizationParameters.h"
 
 #include "td/utils/Status.h"
 
@@ -37,14 +36,13 @@ class DataCell;
 
 struct LoadedCell {
   Ref<DataCell> data_cell;
-  detail::VirtualizationParameters virt;
+  td::uint32 effective_level;
   CellUsageTree::NodePtr tree_node;  // TODO: inline_vector?
 };
 
 class Cell : public CellTraits {
  public:
   using LevelMask = detail::LevelMask;
-  using VirtualizationParameters = detail::VirtualizationParameters;
   using LoadedCell = vm::LoadedCell;
 
   using Hash = CellHash;
@@ -59,14 +57,11 @@ class Cell : public CellTraits {
   // load interface
   virtual td::Status set_data_cell(Ref<DataCell> &&data_cell) const = 0;
   virtual td::Result<LoadedCell> load_cell() const = 0;
-  virtual Ref<Cell> virtualize(VirtualizationParameters virt) const;
-  virtual td::uint32 get_virtualization() const = 0;
+  virtual Ref<Cell> virtualize(td::uint32 effective_level) const;
+  // Cell is virtualized if its effective level is less than its actual level.
+  virtual bool is_virtualized() const = 0;
   virtual CellUsageTree::NodePtr get_tree_node() const = 0;
   virtual bool is_loaded() const = 0;
-
-  bool is_virtualized() const {
-    return get_virtualization() != 0;
-  }
 
   // hash and level
   virtual LevelMask get_level_mask() const = 0;
