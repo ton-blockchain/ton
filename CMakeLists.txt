@@ -2,7 +2,6 @@ cmake_minimum_required(VERSION 3.16 FATAL_ERROR)
 
 project(TON VERSION 0.5 LANGUAGES C CXX)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-#set(OPENSSL_USE_STATIC_LIBS TRUE)
 
 # Define the two required variables before including the source code for watching a git repository.
 set(PRE_CONFIGURE_FILE "git.cc.in")
@@ -83,9 +82,6 @@ if (TON_USE_ABSEIL)
   add_subdirectory(third-party/abseil-cpp EXCLUDE_FROM_ALL)
   set(ABSL_FOUND 1)
 endif()
-
-#add_subdirectory(third-party/libcuckoo EXCLUDE_FROM_ALL)
-#add_subdirectory(third-party/junction EXCLUDE_FROM_ALL)
 
 if (WIN32)
   message("Add wingetopt")
@@ -318,15 +314,6 @@ if (GCC OR CLANG)
   endif()
 endif()
 
-#add_cxx_compiler_flag("-Wno-unused-function")
-#add_cxx_compiler_flag("-Wno-unused-variable")
-#add_cxx_compiler_flag("-Wno-shorten-64-to-32")
-#add_cxx_compiler_flag("-Werror")
-
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -isystem /usr/include/c++/v1")
-if (CLANG)
-  #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
-endif()
 if (TON_USE_ASAN)
   add_cxx_compiler_flag("-fsanitize=address")
   add_definitions(-DTD_USE_ASAN=1)
@@ -337,11 +324,6 @@ endif()
 if (TON_USE_UBSAN)
   add_cxx_compiler_flag("-fsanitize=undefined")
 endif()
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=thread")
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address")
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=undefined")
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=leak")
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -finstrument-functions")
 
 #Compilation database
 set(CMAKE_EXPORT_COMPILE_COMMANDS 1)
@@ -451,10 +433,6 @@ target_link_libraries(test-fift PRIVATE fift-lib)
 
 add_executable(test-tdutils test/test-td-main.cpp ${TDUTILS_TEST_SOURCE})
 target_link_libraries(test-tdutils PRIVATE tdutils ${CMAKE_THREAD_LIBS_INIT} memprof ${JEMALLOC_LIBRARIES})
-#target_link_libraries_system(test-tdutils absl::base absl::container absl::hash )
-#target_link_libraries_system(test-tdutils libcuckoo)
-#target_include_directories(test-tdutils PRIVATE SYSTEM ${JUNCTION_ALL_INCLUDE_DIRS})
-#target_link_libraries(test-tdutils PRIVATE ${JUNCTION_ALL_LIBRARIES})
 
 add_executable(test-tdactor test/test-td-main.cpp ${TDACTOR_TEST_SOURCE})
 target_link_libraries(test-tdactor PRIVATE tdactor ${CMAKE_THREAD_LIBS_INIT})
@@ -535,7 +513,7 @@ if (HAS_PARENT)
           ${ED25519_TEST_SOURCE}
           ${TONDB_TEST_SOURCE}
           ${BIGNUM_TEST_SOURCE}
-          ${CELLS_TEST_SOURCE} # ${TONVM_TEST_SOURCE} ${FIFT_TEST_SOURCE} ${TONLIB_ONLINE_TEST_SOURCE}
+          ${CELLS_TEST_SOURCE}
           PARENT_SCOPE)
 endif()
 add_library(all_tests INTERFACE)
