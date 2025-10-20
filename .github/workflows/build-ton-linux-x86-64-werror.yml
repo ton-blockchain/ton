@@ -1,0 +1,45 @@
+name: Ubuntu TON -Werror build (shared, x86-64)
+
+on: [push, pull_request, workflow_dispatch, workflow_call]
+
+jobs:
+  build:
+    if: github.repository == 'ton-blockchain/ton'
+
+    runs-on: ubuntu-24.04
+
+    steps:
+    - name: Check out repository
+      uses: actions/checkout@v3
+      with:
+        submodules: 'recursive'
+
+    - name: Date Stamp
+      shell: bash
+      id: date-stamp
+      run: |
+        echo "timestamp=$(date -u "+%Y%m%d%H%M_%S")" >> "$GITHUB_OUTPUT"
+
+    - name: Install system libraries
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential git cmake ninja-build zlib1g-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev liblz4-dev libjemalloc-dev
+
+    - name: Install Clang 21
+      run: |
+        wget https://apt.llvm.org/llvm.sh
+        chmod +x llvm.sh
+        sudo ./llvm.sh 21 clang
+
+    # TODO: Preserve ccache cache between runs once we get rid of warning suppression mappings.
+
+    - name: Build TON
+      run: |
+        cmake -S . -B build -G Ninja \
+          -DCMAKE_C_COMPILER=clang-21 \
+          -DCMAKE_CXX_COMPILER=clang++-21 \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DTON_USE_JEMALLOC=ON \
+          -DTON_USE_LLD=On \
+          -DTON_WERROR_BUILD=On
+        ninja -C build

@@ -90,6 +90,14 @@ if (CLANG AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "20")
   add_compile_options(--warning-suppression-mappings=${CMAKE_SOURCE_DIR}/suppression_mappings.txt)
 endif()
 
+option(TON_WERROR_BUILD "Use -Werror" OFF)
+
+# If we want to check -Werror build in CI, we want to use it for third party projects as well but we
+# don't want to force our warning options on them.
+if (TON_WERROR_BUILD)
+  add_compile_options(-Werror)
+endif()
+
 if (TON_USE_ABSEIL)
   message("Add abseil-cpp")
   function(abseil_scope)
