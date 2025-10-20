@@ -875,9 +875,9 @@ bool Transaction::unpack_input_msg(bool ihr_delivered, const ActionPhaseConfig* 
       td::RefInt256 ihr_fee;
       if (cfg->global_version >= 12) {
         ihr_fee = td::zero_refint();
-        td::RefInt256 extra_flags = tlb::t_Grams.as_integer(in_msg_info.extra_flags);
-        new_bounce_format = extra_flags->get_bit(0);
-        new_bounce_format_full_body = extra_flags->get_bit(1);
+        in_msg_extra_flags = tlb::t_Grams.as_integer(in_msg_info.extra_flags);
+        new_bounce_format = in_msg_extra_flags->get_bit(0);
+        new_bounce_format_full_body = in_msg_extra_flags->get_bit(1);
       } else {
         // Legacy: extra_flags was previously ihr_fee
         ihr_fee = tlb::t_Grams.as_integer(in_msg_info.extra_flags);
@@ -2692,6 +2692,13 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     if (cfg.disable_ihr_flag) {
       info.ihr_disabled = true;
     }
+    if (cfg.global_version >= 12) {
+      td::RefInt256 extra_flags = tlb::t_Grams.as_integer(info.extra_flags);
+      if (td::cmp(extra_flags & td::make_refint(3), extra_flags) != 0) {
+        LOG(DEBUG) << "invalid extra_flags in a proposed outbound message";
+        return check_skip_invalid(45);
+      }
+    }
   }
   // set created_at and created_lt to correct values
   info.created_at = now;
@@ -3361,15 +3368,16 @@ bool Transaction::prepare_bounce_phase(const ActionPhaseConfig& cfg) {
   end_lt++;
   info.created_at = now;
   vm::CellBuilder cb;
-  CHECK(cb.store_long_bool(5, 4)                            // int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool
-        && cb.append_cellslice_bool(info.src)               // src:MsgAddressInt
-        && cb.append_cellslice_bool(info.dest)              // dest:MsgAddressInt
-        && msg_balance.store(cb)                            // value:CurrencyCollection
-        && block::tlb::t_Grams.store_long(cb, 0)            // extra_flags:(VarUInteger 16)
-        && block::tlb::t_Grams.store_long(cb, bp.fwd_fees)  // fwd_fee:Grams
-        && cb.store_long_bool(info.created_lt, 64)          // created_lt:uint64
-        && cb.store_long_bool(info.created_at, 32)          // created_at:uint32
-        && cb.store_bool_bool(false));                      // init:(Maybe ...)
+  CHECK(cb.store_long_bool(5, 4)                // int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool
+        && cb.append_cellslice_bool(info.src)   // src:MsgAddressInt
+        && cb.append_cellslice_bool(info.dest)  // dest:MsgAddressInt
+        && msg_balance.store(cb)                // value:CurrencyCollection
+        && block::tlb::t_Grams.store_integer_ref(
+               cb, in_msg_extra_flags & td::make_refint(3))  // extra_flags:(VarUInteger 16)
+        && block::tlb::t_Grams.store_long(cb, bp.fwd_fees)   // fwd_fee:Grams
+        && cb.store_long_bool(info.created_lt, 64)           // created_lt:uint64
+        && cb.store_long_bool(info.created_at, 32)           // created_at:uint32
+        && cb.store_bool_bool(false));                       // init:(Maybe ...)
   if (cb.can_extend_by(1 + body.size(), body.size_refs())) {
     // body:(Either X ^X) -> left X
     CHECK(cb.store_bool_bool(false) && cb.append_builder_bool(body));
