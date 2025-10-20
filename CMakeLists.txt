@@ -34,6 +34,16 @@ set(CMAKE_CXX_EXTENSIONS FALSE)
 
 set(CMAKE_COLOR_DIAGNOSTICS TRUE)
 
+if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+  set(GCC 1)
+elseif (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  set(CLANG 1)
+elseif (CMAKE_CXX_COMPILER_ID STREQUAL "Intel")
+  set(INTEL 1)
+elseif (NOT MSVC)
+  message(FATAL_ERROR "Compiler isn't supported")
+endif()
+
 #BEGIN internal
 option(BUILD_SHARED_LIBS "Use \"ON\" to build shared libraries instead of static where it's not specified (not recommended)" OFF)
 option(USE_EMSCRIPTEN "Use \"ON\" for config building wasm." OFF)
@@ -75,6 +85,10 @@ if ((ARCHITECTURE MATCHES "arm64") AND (CMAKE_SYSTEM_NAME STREQUAL "Darwin") AND
     set(TON_ARCH "apple-m1")
 endif()
 #END M1 support
+
+if (CLANG AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "20")
+  add_compile_options(--warning-suppression-mappings=${CMAKE_SOURCE_DIR}/suppression_mappings.txt)
+endif()
 
 if (TON_USE_ABSEIL)
   message("Add abseil-cpp")
@@ -164,16 +178,6 @@ if (CCACHE_FOUND)
   endif()
 else()
   message(STATUS "Could NOT find ccache")
-endif()
-
-if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-  set(GCC 1)
-elseif (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-  set(CLANG 1)
-elseif (CMAKE_CXX_COMPILER_ID STREQUAL "Intel")
-  set(INTEL 1)
-elseif (NOT MSVC)
-  message(FATAL_ERROR "Compiler isn't supported")
 endif()
 
 include(CheckCXXCompilerFlag)
@@ -298,6 +302,7 @@ if (GCC OR CLANG)
   add_compile_options(-Wnon-virtual-dtor)
   add_compile_options(-Wconversion)
 
+  # TODO: Either justify all of these or remove.
   add_compile_options(-Wno-tautological-compare)
   add_compile_options(-Wno-unused-parameter)
   add_compile_options(-Wno-sign-conversion)
