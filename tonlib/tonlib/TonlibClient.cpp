@@ -1685,7 +1685,7 @@ class GetShardBlockProof : public td::actor::Actor {
           abort(TonlibError::InvalidBagOfCells("proof"));
           return;
         }
-        auto block_root = vm::MerkleProof::virtualize(R.move_as_ok(), 1);
+        auto block_root = vm::MerkleProof::virtualize(R.move_as_ok());
         if (cur_id.root_hash != block_root->get_hash().bits()) {
           abort(td::Status::Error("invalid block hash in proof"));
           return;
@@ -1845,13 +1845,13 @@ class GetOutMsgQueueSizes : public td::actor::Actor {
         if (roots.size() != 2) {
           return td::Status::Error("expected 2 roots in proof");
         }
-        auto state_root = vm::MerkleProof::virtualize(std::move(roots[1]), 1);
+        auto state_root = vm::MerkleProof::virtualize(std::move(roots[1]));
         if (state_root.is_null()) {
           return td::Status::Error("state proof is invalid");
         }
         ton::Bits256 state_hash = state_root->get_hash().bits();
-        TRY_STATUS_PREFIX(block::check_block_header_proof(vm::MerkleProof::virtualize(std::move(roots[0]), 1),
-                                                          blocks_[i], &state_hash, true, nullptr, nullptr),
+        TRY_STATUS_PREFIX(block::check_block_header_proof(vm::MerkleProof::virtualize(std::move(roots[0])), blocks_[i],
+                                                          &state_hash, true, nullptr, nullptr),
                           "error in block header proof: ");
 
         block::gen::ShardStateUnsplit::Record sstate;
@@ -1977,7 +1977,7 @@ class RunEmulator : public TonlibQueryActor {
       TRY_RESULT(root, vm::std_boc_deserialize(std::move(header->header_proof_)));
 
       try {
-        auto virt_root = vm::MerkleProof::virtualize(root, 1);
+        auto virt_root = vm::MerkleProof::virtualize(root);
         if (virt_root.is_null()) {
           return td::Status::Error("block header proof is not a valid Merkle proof");
         }
@@ -5767,7 +5767,7 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getShards& request,
                           return data_cell.move_as_error_prefix("Couldn't deserialize shards data: ");
                         }
                         try {
-                          auto virt_root = vm::MerkleProof::virtualize(proof_cell.move_as_ok(), 1);
+                          auto virt_root = vm::MerkleProof::virtualize(proof_cell.move_as_ok());
                           if (virt_root.is_null()) {
                             return td::Status::Error("Virt root is null");
                           }
@@ -5869,7 +5869,7 @@ td::Status check_lookup_block_proof(lite_api_ptr<ton::lite_api::liteServer_looku
         if (R.is_error()) {
           return TonlibError::InvalidBagOfCells("proof");
         }
-        auto block_root = vm::MerkleProof::virtualize(R.move_as_ok(), 1);
+        auto block_root = vm::MerkleProof::virtualize(R.move_as_ok());
         if (cur_id.root_hash != block_root->get_hash().bits()) {
           return td::Status::Error("invalid block hash in proof");
         }
@@ -5913,7 +5913,7 @@ td::Status check_lookup_block_proof(lite_api_ptr<ton::lite_api::liteServer_looku
     if (header_r.is_error()) {
       return TonlibError::InvalidBagOfCells("header");
     }
-    auto header_root = vm::MerkleProof::virtualize(header_r.move_as_ok(), 1);
+    auto header_root = vm::MerkleProof::virtualize(header_r.move_as_ok());
     if (header_root.is_null()) {
       return td::Status::Error("header_root is null");
     }
@@ -5948,7 +5948,7 @@ td::Status check_lookup_block_proof(lite_api_ptr<ton::lite_api::liteServer_looku
         return TonlibError::InvalidBagOfCells("prev_headers");
       }
       auto prev_header = prev_header_r.move_as_ok();
-      auto prev_root = vm::MerkleProof::virtualize(prev_header, 1);
+      auto prev_root = vm::MerkleProof::virtualize(prev_header);
       if (prev_root.is_null()) {
         return td::Status::Error("prev_root is null");
       }
@@ -6015,7 +6015,7 @@ td::Status check_block_transactions_proof(lite_api_ptr<ton::lite_api::liteServer
 
   try {
     TRY_RESULT(proof_cell, vm::std_boc_deserialize(std::move(bTxes->proof_)));
-    auto virt_root = vm::MerkleProof::virtualize(proof_cell, 1);
+    auto virt_root = vm::MerkleProof::virtualize(proof_cell);
 
     if (root_hash != virt_root->get_hash().bits()) {
       return td::Status::Error("Invalid block proof root hash");
@@ -6216,7 +6216,7 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getBlockHeader& req
                        } else {
                          auto root = R.move_as_ok();
                          try {
-                           auto virt_root = vm::MerkleProof::virtualize(root, 1);
+                           auto virt_root = vm::MerkleProof::virtualize(root);
                            if (virt_root.is_null()) {
                              return td::Status::Error("Virt root is null");
                            } else {

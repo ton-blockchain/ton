@@ -717,7 +717,7 @@ bool ValidateQuery::extract_collated_data_from(Ref<vm::Cell> croot, int idx) {
     if (cs.special_type() != vm::Cell::SpecialType::MerkleProof) {
       return reject_query("it is a special cell, but not a Merkle proof root");
     }
-    auto virt_root = vm::MerkleProof::virtualize(croot, 1);
+    auto virt_root = vm::MerkleProof::virtualize(croot);
     if (virt_root.is_null()) {
       return reject_query("invalid Merkle proof");
     }
@@ -747,7 +747,7 @@ bool ValidateQuery::extract_collated_data_from(Ref<vm::Cell> croot, int idx) {
     }
     // account_storage_dict_proof#37c1e3fc proof:^Cell = AccountStorageDictProof;
     Ref<vm::Cell> proof = cs.prefetch_ref();
-    auto virt_root = vm::MerkleProof::virtualize(proof, 1);
+    auto virt_root = vm::MerkleProof::virtualize(proof);
     if (virt_root.is_null()) {
       return reject_query("invalid Merkle proof in AccountStorageDictProof");
     }

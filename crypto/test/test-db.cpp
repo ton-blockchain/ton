@@ -663,13 +663,13 @@ TEST(Cell, MerkleProof) {
     auto proof = MerkleProof::generate(cell, is_prunned);
     // CellBuilder::virtualize(proof, 1);
     //ASSERT_EQ(1u, proof->get_level());
-    auto virtualized_proof = MerkleProof::virtualize(proof, 1);
+    auto virtualized_proof = MerkleProof::virtualize(proof);
     auto exploration3 = CellExplorer::explore(virtualized_proof, exploration.ops);
     ASSERT_EQ(exploration.log, exploration3.log);
 
     auto proof2 = MerkleProof::generate(cell, usage_tree.get());
     CHECK(proof2->get_depth() == proof->get_depth());
-    auto virtualized_proof2 = MerkleProof::virtualize(proof2, 1);
+    auto virtualized_proof2 = MerkleProof::virtualize(proof2);
     auto exploration4 = CellExplorer::explore(virtualized_proof2, exploration.ops);
     ASSERT_EQ(exploration.log, exploration4.log);
   }
@@ -690,7 +690,7 @@ TEST(Cell, MerkleProofCombine) {
       CellExplorer::explore(usage_cell, exploration1.ops);
       proof1 = MerkleProof::generate(cell, usage_tree.get());
 
-      auto virtualized_proof = MerkleProof::virtualize(proof1, 1);
+      auto virtualized_proof = MerkleProof::virtualize(proof1);
       auto exploration = CellExplorer::explore(virtualized_proof, exploration1.ops);
       ASSERT_EQ(exploration.log, exploration1.log);
     }
@@ -702,7 +702,7 @@ TEST(Cell, MerkleProofCombine) {
       CellExplorer::explore(usage_cell, exploration2.ops);
       proof2 = MerkleProof::generate(cell, usage_tree.get());
 
-      auto virtualized_proof = MerkleProof::virtualize(proof2, 1);
+      auto virtualized_proof = MerkleProof::virtualize(proof2);
       auto exploration = CellExplorer::explore(virtualized_proof, exploration2.ops);
       ASSERT_EQ(exploration.log, exploration2.log);
     }
@@ -715,7 +715,7 @@ TEST(Cell, MerkleProofCombine) {
       CellExplorer::explore(usage_cell, exploration2.ops);
       proof12 = MerkleProof::generate(cell, usage_tree.get());
 
-      auto virtualized_proof = MerkleProof::virtualize(proof12, 1);
+      auto virtualized_proof = MerkleProof::virtualize(proof12);
       auto exploration_a = CellExplorer::explore(virtualized_proof, exploration1.ops);
       auto exploration_b = CellExplorer::explore(virtualized_proof, exploration2.ops);
       ASSERT_EQ(exploration_a.log, exploration1.log);
@@ -724,7 +724,7 @@ TEST(Cell, MerkleProofCombine) {
 
     {
       auto check = [&](auto proof_union) {
-        auto virtualized_proof = MerkleProof::virtualize(proof_union, 1);
+        auto virtualized_proof = MerkleProof::virtualize(proof_union);
         auto exploration_a = CellExplorer::explore(virtualized_proof, exploration1.ops);
         auto exploration_b = CellExplorer::explore(virtualized_proof, exploration2.ops);
         ASSERT_EQ(exploration_a.log, exploration1.log);
@@ -738,14 +738,14 @@ TEST(Cell, MerkleProofCombine) {
       check(proof_union_fast);
     }
     {
-      cell = MerkleProof::virtualize(proof12, 1);
+      cell = MerkleProof::virtualize(proof12);
 
       auto usage_tree = std::make_shared<CellUsageTree>();
       auto usage_cell = UsageCell::create(cell, usage_tree->root_ptr());
       CellExplorer::explore(usage_cell, exploration1.ops);
       auto proof = MerkleProof::generate(cell, usage_tree.get());
 
-      auto virtualized_proof = MerkleProof::virtualize(proof, 2);
+      auto virtualized_proof = MerkleProof::virtualize(proof);
       auto exploration = CellExplorer::explore(virtualized_proof, exploration1.ops);
       ASSERT_EQ(exploration.log, exploration1.log);
       if (proof->get_hash() != proof1->get_hash()) {
@@ -2179,26 +2179,26 @@ TEST(Cell, MerkleProofHands) {
   {
     auto virtual_node = proof->virtualize({0, 1});
     ASSERT_EQ(0u, virtual_node->get_level());
-    ASSERT_EQ(1u, virtual_node->get_virtualization());
+    ASSERT_EQ(1u, virtual_node->is_virtualized());
     CellSlice cs{NoVm(), virtual_node};
     auto virtual_data = cs.fetch_ref();
     ASSERT_EQ(0u, virtual_data->get_level());
-    ASSERT_EQ(1u, virtual_data->get_virtualization());
+    ASSERT_EQ(1u, virtual_data->is_virtualized());
     ASSERT_EQ(data->get_hash(), virtual_data->get_hash());
 
     auto virtual_node_copy =
         CellBuilder{}.store_bits(node->get_data(), node->get_bits()).store_ref(virtual_data).finalize();
     ASSERT_EQ(0u, virtual_node_copy->get_level());
-    ASSERT_EQ(1u, virtual_node_copy->get_virtualization());
+    ASSERT_EQ(1u, virtual_node_copy->is_virtualized());
     ASSERT_EQ(virtual_node->get_hash(), virtual_node_copy->get_hash());
 
     {
       auto two_nodes = CellBuilder{}.store_ref(virtual_node).store_ref(node).finalize();
       ASSERT_EQ(0u, two_nodes->get_level());
-      ASSERT_EQ(1u, two_nodes->get_virtualization());
+      ASSERT_EQ(1u, two_nodes->is_virtualized());
       CellSlice cs2(NoVm(), two_nodes);
-      ASSERT_EQ(1u, cs2.prefetch_ref(0)->get_virtualization());
-      ASSERT_EQ(0u, cs2.prefetch_ref(1)->get_virtualization());
+      ASSERT_EQ(1u, cs2.prefetch_ref(0)->is_virtualized());
+      ASSERT_EQ(0u, cs2.prefetch_ref(1)->is_virtualized());
     }
   }
   LOG(ERROR) << td::NamedThreadSafeCounter::get_default();
@@ -2247,7 +2247,7 @@ TEST(Cell, MerkleProofCombineArray) {
     }
   }
 
-  CompactArray arr2(n, vm::MerkleProof::virtualize(root, 1));
+  CompactArray arr2(n, vm::MerkleProof::virtualize(root));
   for (size_t i = 0; i < n; i++) {
     CHECK(arr.get(i) == arr2.get(i));
   }
@@ -2945,7 +2945,7 @@ TEST(TonDb, BocRespectsUsageCell) {
   auto usage_cell = vm::UsageCell::create(cell, usage_tree->root_ptr());
   auto serialization = serialize_boc(usage_cell);
   auto proof = vm::MerkleProof::generate(cell, usage_tree.get());
-  auto virtualized_proof = vm::MerkleProof::virtualize(proof, 1);
+  auto virtualized_proof = vm::MerkleProof::virtualize(proof);
   auto serialization_of_virtualized_cell = serialize_boc(virtualized_proof);
   ASSERT_STREQ(serialization, serialization_of_virtualized_cell);
 }
@@ -2971,7 +2971,7 @@ TEST(UsageTree, ThreadSafe) {
       thread.join();
     }
     auto proof = vm::MerkleProof::generate(cell, usage_tree.get());
-    auto virtualized_proof = vm::MerkleProof::virtualize(proof, 1);
+    auto virtualized_proof = vm::MerkleProof::virtualize(proof);
     for (auto &exploration : explorations) {
       auto new_exploration = vm::CellExplorer::explore(virtualized_proof, exploration.ops);
       ASSERT_EQ(exploration.log, new_exploration.log);
@@ -3051,8 +3051,8 @@ TEST(TonDb, DoNotMakeListsPrunned) {
   auto cell = vm::CellBuilder().store_bytes("abc").finalize();
   auto is_prunned = [&](const td::Ref<vm::Cell> &cell) { return true; };
   auto proof = vm::MerkleProof::generate(cell, is_prunned);
-  auto virtualized_proof = vm::MerkleProof::virtualize(proof, 1);
-  ASSERT_TRUE(virtualized_proof->get_virtualization() == 0);
+  auto virtualized_proof = vm::MerkleProof::virtualize(proof);
+  ASSERT_TRUE(!virtualized_proof->is_virtualized());
 }
 
 TEST(TonDb, CellStat) {

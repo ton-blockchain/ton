@@ -35,7 +35,7 @@ class MerkleProof {
   static Ref<Cell> generate(Ref<Cell> cell, CellUsageTree *usage_tree);
 
   // cell must have zero level and must be a MerkleProof
-  static Ref<Cell> virtualize(Ref<Cell> cell, int virtualization);
+  static Ref<Cell> virtualize(Ref<Cell> cell, int virtualization = 1);
   static td::Result<Ref<Cell>> try_virtualize(Ref<Cell> cell, int virtualization = 1);
 
   static Ref<Cell> combine(Ref<Cell> a, Ref<Cell> b);

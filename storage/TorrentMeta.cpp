@@ -42,7 +42,7 @@ td::Result<TorrentMeta> TorrentMeta::deserialize(td::Slice data) {
     }
   }
   if (res.root_proof.not_null()) {
-    auto root = vm::MerkleProof::virtualize(res.root_proof, 1);
+    auto root = vm::MerkleProof::virtualize(res.root_proof);
     if (root.is_null()) {
       return td::Status::Error("Root proof is not a merkle proof");
     }

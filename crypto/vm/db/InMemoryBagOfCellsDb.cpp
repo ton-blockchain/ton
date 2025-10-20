@@ -860,7 +860,7 @@ class InMemoryBagOfCellsDb : public DynamicBagOfCellsDb {
     if (cell.is_null()) {
       return;
     }
-    if (cell->get_virtualization() != 0) {
+    if (cell->is_virtualized()) {
       return;
     }
     to_inc_.push_back(cell);
@@ -870,7 +870,7 @@ class InMemoryBagOfCellsDb : public DynamicBagOfCellsDb {
     if (cell.is_null()) {
       return;
     }
-    if (cell->get_virtualization() != 0) {
+    if (cell->is_virtualized()) {
       return;
     }
     to_dec_.push_back(cell);
