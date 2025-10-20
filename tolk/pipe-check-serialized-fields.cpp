@@ -24,33 +24,31 @@
 
 namespace tolk {
 
-// fire an error on overflow 1023 bits
-GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-static void fire_theoretical_overflow_1023(StructPtr struct_ref, PackSize size) {
-  fire(struct_ref->ident_anchor,
-    "struct `" + struct_ref->as_human_readable() + "` can exceed 1023 bits in serialization (estimated size: " + std::to_string(size.min_bits) + ".." + std::to_string(size.max_bits) + " bits)\n\n"
+// make an error on overflow 1023 bits
+static Error err_theoretical_overflow_1023(StructPtr struct_ref, PackSize size) {
+  return err("struct `{}` can exceed 1023 bits in serialization (estimated size: {}..{} bits)\n\n"
                   "1) either suppress it by adding an annotation:\n"
                   ">     @overflow1023_policy(\"suppress\")\n"
-                  ">     struct " + struct_ref->name + " {\n"
+                  ">     struct {} {\n"
                   ">         ...\n"
                   ">     }\n"
                   "   then, if limit exceeds, it will fail at runtime: you've manually agreed to ignore this\n\n"
                   "2) or place some fields into a separate struct (e.g. ExtraFields), and create a ref:\n"
-                  ">     struct " + struct_ref->name + " {\n"
+                  ">     struct {} {\n"
                   ">         ...\n"
                   ">         more: Cell<ExtraFields>;\n"
-                  ">     }\n"
-  );
+                  ">     }\n",
+                  struct_ref, size.min_bits, size.max_bits, struct_ref->name, struct_ref->name);
 }
 
 GNU_ATTRIBUTE_NOINLINE
 static void check_map_TKey_TValue(SrcRange range, TypePtr TKey, TypePtr TValue) {
   std::string because_msg;
   if (!check_mapKV_TKey_is_valid(TKey, because_msg)) {
-    fire(range, "invalid `map`: type `" + TKey->as_human_readable() + "` can not be used as a key\n" + because_msg);
+    err("invalid `map`: type `{}` can not be used as a key\n{}", TKey, because_msg).fire(range);
   } 
   if (!check_mapKV_TValue_is_valid(TValue, because_msg)) {
-    fire(range, "invalid `map`: type `" + TValue->as_human_readable() + "` can not be used as a value\n" + because_msg);
+    err("invalid `map`: type `{}` can not be used as a value\n{}", TValue, because_msg).fire(range);
   } 
 }
 
@@ -76,8 +74,7 @@ static void check_mapKV_inside_type(AnyTypeV type_node) {
 // given `enum Role: int8` check colon type (not struct/slice etc.)
 static void check_enum_colon_type_to_be_intN(AnyTypeV colon_type_node) {
   if (!colon_type_node->resolved_type->try_as<TypeDataIntN>()) {
-    // todo write test for underline
-    fire(colon_type_node, "serialization type of `enum` must be intN: `int8` / `uint32` / etc.");
+    err("serialization type of `enum` must be intN: `int8` / `uint32` / etc.").fire(colon_type_node);
   }
 }
 
@@ -105,7 +102,7 @@ class CheckSerializedFieldsAndTypesVisitor final : public ASTVisitorFunctionBody
     PackSize size = estimate_serialization_size(t_struct);
     if (size.max_bits > 1023 && !size.is_unpredictable_infinity()) {
       if (struct_ref->overflow1023_policy == StructData::Overflow1023Policy::not_specified) {
-        fire_theoretical_overflow_1023(struct_ref, size);
+        err_theoretical_overflow_1023(struct_ref, size).fire(struct_ref->ident_anchor);
       }
     }
     // don't check Cell<T> fields for overflow of T: it would be checked on load() or other interaction with T
@@ -139,7 +136,7 @@ class CheckSerializedFieldsAndTypesVisitor final : public ASTVisitorFunctionBody
     std::string because_msg;
     if (!check_struct_can_be_packed_or_unpacked(serialized_type, is_pack, because_msg)) {
       std::string via_name = fun_ref->is_method() ? fun_ref->method_name : fun_ref->base_fun_ref->name;
-      fire(cur_f, v, "auto-serialization via " + via_name + "() is not available for type `" + serialized_type->as_human_readable() + "`\n" + because_msg);
+      err("auto-serialization via {}() is not available for type `{}`\n{}", via_name, serialized_type, because_msg).fire(v, cur_f);
     }
 
     check_type_fits_cell_or_has_policy(serialized_type);

@@ -16,8 +16,13 @@
 */
 #include "compilation-errors.h"
 #include "ast.h"
+#include "type-system.h"
 
 namespace tolk {
+
+static std::string to_string(FunctionPtr f) {
+  return f ? f->as_human_readable() : "";
+}
 
 void on_assertion_failed(const char *description, const char *file_name, int line_number) {
   std::string message = static_cast<std::string>("Assertion failed at ") + file_name + ":" + std::to_string(line_number) + ": " + description;
@@ -66,47 +71,104 @@ static void output_compiler_message(
   range.output_underlined(os);
 }
 
-
-void fire(AnyV at, std::string message) {
-  throw ParseError(at->range, std::move(message));
+void ErrorBuilder::push(const char* v) {
+  add_arg(v);
 }
 
-void fire(SrcRange range, std::string message) {
-  throw ParseError(range, std::move(message));
+void ErrorBuilder::push(const std::string& v) {
+  add_arg(v);
 }
 
-void fire(FunctionPtr in_function, AnyV at, std::string message) {
-  std::string f = in_function ? in_function->as_human_readable() : "";
-  throw ParseError(f, at->range, std::move(message));
+void ErrorBuilder::push(std::string_view v) {
+  add_arg(static_cast<std::string>(v));
 }
 
-void fire(FunctionPtr in_function, SrcRange range, std::string message) {
-  std::string f = in_function ? in_function->as_human_readable() : "";
-  throw ParseError(f, range, std::move(message));
+void ErrorBuilder::push(TypePtr v) {
+  add_arg(v->as_human_readable());
 }
 
-void ParseError::output_compilation_error(std::ostream& os) const {
+void ErrorBuilder::push(FunctionPtr v) {
+  add_arg(v->as_human_readable());
+}
+
+void ErrorBuilder::push(StructPtr v) {
+  add_arg(v->as_human_readable());
+}
+
+void ErrorBuilder::push(StructFieldPtr v) {
+  add_arg(v->name);
+}
+
+void ErrorBuilder::push(AliasDefPtr v) {
+  add_arg(v->as_human_readable());
+}
+
+void ErrorBuilder::push(EnumDefPtr v) {
+  add_arg(v->as_human_readable());
+}
+
+void ErrorBuilder::push(EnumMemberPtr v) {
+  add_arg(v->name);
+}
+
+void ErrorBuilder::push(GlobalConstPtr v) {
+  add_arg(v->name);
+}
+
+void ErrorBuilder::push(LocalVarPtr v) {
+  add_arg(v->name);
+}
+
+void ErrorBuilder::push(int v) {
+  add_arg(std::to_string(v));
+}
+
+void ErrorBuilder::push(size_t v) {
+  add_arg(std::to_string(v));
+}
+
+void ErrorBuilder::push(bool v) {
+  add_arg(v ? "true" : "false");
+}
+
+Error ErrorBuilder::build() const {
+  std::string replaced = tpl;
+  size_t arg_i = 0, pos;
+  while ((pos = replaced.find("{}")) != std::string::npos) {
+    if (arg_i >= args.size()) {
+#ifdef TOLK_DEBUG
+      throw Fatal(std::string("mismatch err() tpl: ") + tpl);
+#endif
+      break;
+    }
+    replaced.replace(pos, 2, args[arg_i++]);
+  }
+#ifdef TOLK_DEBUG
+  if (arg_i != args.size()) {
+    throw Fatal(std::string("mismatch err() tpl: ") + tpl);
+  }
+#endif
+  return Error(std::move(replaced));
+}
+
+void Error::fire(AnyV at, FunctionPtr in_function) const {
+  throw ThrownParseError(to_string(in_function), at->range, message);  
+}
+
+void Error::fire(SrcRange range, FunctionPtr in_function) const {
+  throw ThrownParseError(to_string(in_function), range, message);  
+}
+
+void Error::warning(AnyV at, FunctionPtr in_function) const {
+  output_compiler_message(std::cerr, true, to_string(in_function), at->range, message);
+}
+
+void Error::warning(SrcRange range, FunctionPtr in_function) const {
+  output_compiler_message(std::cerr, true, to_string(in_function), range, message);
+}
+
+void ThrownParseError::output_compilation_error(std::ostream& os) const {
   output_compiler_message(os, false, in_function, range, message);
 }
-
-
-void compilation_warning(AnyV at, const std::string& message) {
-  output_compiler_message(std::cerr, true, "", at->range, message);
-}
-
-void compilation_warning(SrcRange range, const std::string& message) {
-  output_compiler_message(std::cerr, true, "", range, message);
-}
-
-void compilation_warning(FunctionPtr in_function, AnyV at, const std::string& message) {
-  std::string f = in_function ? in_function->as_human_readable() : "";
-  output_compiler_message(std::cerr, true, f, at->range, message);
-}
-
-void compilation_warning(FunctionPtr in_function, SrcRange range, const std::string& message) {
-  std::string f = in_function ? in_function->as_human_readable() : "";
-  output_compiler_message(std::cerr, true, f, range, message);
-}
-
 
 } // namespace tolk

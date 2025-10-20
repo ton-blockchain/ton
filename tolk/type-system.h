@@ -703,6 +703,4 @@ public:
 
 void type_system_init();
 
-std::ostream& operator<<(std::ostream& os, TypePtr type_data);
-
 } // namespace tolk

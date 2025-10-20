@@ -714,7 +714,7 @@ struct S_Either final : ISerializer {
     for (const LazyMatchOptions::MatchBlock& m : options.match_blocks) {
       if (m.arm_variant == nullptr) {   // `else => ...` not allowed for Either
         // it's not the best place to fire an error, but let it be
-        fire(SrcRange::empty_at_start(m.v_body->range), "`else` is unreachable, because this `match` has only two options (0/1 prefixes)");
+        err("`else` is unreachable, because this `match` has only two options (0/1 prefixes)").fire(SrcRange::empty_at_start(m.v_body->range));
       }
     }
     tolk_assert(options.match_blocks.size() == 2);
@@ -1209,9 +1209,9 @@ std::vector<PackOpcode> auto_generate_opcodes_for_union(TypePtr union_type, std:
   // example: `int32 | int64 | A` if A has opcode;
   if (n_have_opcode) {
     if (last_struct_with_opcode && last_struct_no_opcode) {
-      because_msg = "because struct `" + last_struct_with_opcode->as_human_readable() + "` has opcode, but `" + last_struct_no_opcode->as_human_readable() + "` does not\nhint: manually specify opcodes to all structures";
+      because_msg = "because struct `" + last_struct_with_opcode->as_human_readable() + "` has opcode, but `" + last_struct_no_opcode->as_human_readable() + "` does not\n""hint: manually specify opcodes to all structures";
     } else {
-      because_msg = "because of mixing primitives and struct `" + last_struct_with_opcode->as_human_readable() + "` with serialization prefix\nhint: extract primitives to single-field structs and provide prefixes";
+      because_msg = "because of mixing primitives and struct `" + last_struct_with_opcode->as_human_readable() + "` with serialization prefix\n""hint: extract primitives to single-field structs and provide prefixes";
     }
     return result;
   }

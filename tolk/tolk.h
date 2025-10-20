@@ -430,7 +430,6 @@ struct AsmOp {
   }
   int out(std::ostream& os) const;
   int out_indented(std::ostream& os, bool print_src_line_above) const;
-  std::string to_string() const;
   void compute_gconst() {
     gconst = (is_custom() && (op == "PUSHNULL" || op == "NEWC" || op == "NEWB" || op == "TRUE" || op == "FALSE" || op == "NOW"));
   }

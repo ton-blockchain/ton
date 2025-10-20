@@ -41,7 +41,7 @@ static void assign_enum_members_values(EnumDefPtr enum_ref) {
   for (EnumMemberPtr member_ref : enum_ref->members) {
     td::RefInt256 cur_value = member_ref->init_value ? eval_enum_member_init_value(member_ref->init_value) : prev_value + 1;
     if (!cur_value->is_valid() || !cur_value->signed_fits_bits(257)) {
-      fire(member_ref->ident_anchor, "integer overflow");
+      err("integer overflow").fire(member_ref->ident_anchor);
     }
 
     member_ref->mutate()->assign_computed_value(cur_value);
@@ -91,7 +91,7 @@ class ConstantFoldingReplacer final : public ASTReplacerInFunctionBody {
       tolk_assert(!intval.is_null());
       intval = -intval;
       if (intval.is_null() || !intval->signed_fits_bits(257)) {
-        fire(v, "integer overflow");
+        err("integer overflow").fire(v);
       }
       return create_int_const(v->range, std::move(intval));
     }

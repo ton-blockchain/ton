@@ -297,7 +297,7 @@ TypePtr GenericSubstitutionsDeducing::auto_deduce_from_argument(FunctionPtr cur_
   consider_next_condition(param_type, arg_type);
   param_type = replace_genericT_with_deduced(param_type, &deducedTs, true, &unknown_nameT);
   if (param_type->has_genericT_inside()) {
-    fire_can_not_deduce(cur_f, range, unknown_nameT);
+    err_can_not_deduce(unknown_nameT).fire(range, cur_f);
   }
   return param_type;
 }
@@ -315,12 +315,11 @@ void GenericSubstitutionsDeducing::apply_defaults_from_declaration() {
   deducedTs.rewrite_missing_with_defaults();
 }
 
-// todo pass at, not ra
-void GenericSubstitutionsDeducing::fire_can_not_deduce(FunctionPtr cur_f, SrcRange range, std::string_view nameT) const {
+Error GenericSubstitutionsDeducing::err_can_not_deduce(std::string_view nameT) const {
   if (fun_ref) {
-    fire(cur_f, range, "can not deduce " + static_cast<std::string>(nameT) + " for generic function `" + fun_ref->as_human_readable() + "`; instantiate it manually with `" + fun_ref->name + "<...>()`");
+    return err("can not deduce {} for generic function `{}`; instantiate it manually with `{}<...>()`", nameT, fun_ref, fun_ref->name);
   } else {
-    fire(cur_f, range, "can not deduce " + static_cast<std::string>(nameT) + " for generic struct `" + struct_ref->as_human_readable() + "`; instantiate it manually with `" + struct_ref->name + "<...>`");
+    return err("can not deduce {} for generic struct `{}`; instantiate it manually with `{}<...>`", nameT, struct_ref, struct_ref->name);
   }
 }
 

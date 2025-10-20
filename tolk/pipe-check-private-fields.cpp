@@ -17,15 +17,12 @@
 #include "ast.h"
 #include "ast-visitor.h"
 #include "compilation-errors.h"
-#include "platform-utils.h"
 #include "type-system.h"
 
 namespace tolk {
 
-GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-// todo pass not range; consider all fire_xxx functions
-static void fire_private_field_used_outside_method(FunctionPtr cur_f, SrcRange range, StructPtr struct_ref, StructFieldPtr field_ref) {
-  fire(cur_f, range, "field `" + struct_ref->as_human_readable() + "." + field_ref->name + "` is private");
+static Error err_private_field_used_outside_method(StructPtr struct_ref, StructFieldPtr field_ref) {
+  return err("field `{}.{}` is private", struct_ref, field_ref);
 }
 
 static bool is_private_field_usage_allowed(FunctionPtr cur_f, StructPtr struct_ref) {
@@ -59,7 +56,7 @@ protected:
       const TypeDataStruct* obj_type = v->get_obj()->inferred_type->unwrap_alias()->try_as<TypeDataStruct>();
       tolk_assert(obj_type);
       if (field_ref->is_private && !is_private_field_usage_allowed(cur_f, obj_type->struct_ref)) {
-        fire_private_field_used_outside_method(cur_f, v->range, obj_type->struct_ref, field_ref);
+        err_private_field_used_outside_method(obj_type->struct_ref, field_ref).fire(v, cur_f);
       }
     }
   }
@@ -72,7 +69,7 @@ protected:
       auto v_field = v->get_body()->get_field(i);
       StructFieldPtr field_ref = v_field->field_ref;
       if (field_ref->is_private && !is_private_field_usage_allowed(cur_f, v->struct_ref)) {
-        fire_private_field_used_outside_method(cur_f, v_field->range, v->struct_ref, field_ref);
+        err_private_field_used_outside_method(v->struct_ref, field_ref).fire(v_field, cur_f);
       }
     }
   }

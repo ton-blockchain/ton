@@ -16,7 +16,6 @@
 */
 #pragma once
 
-#include "src-file.h"
 #include "fwd-declarations.h"
 #include "crypto/common/refint.h"
 #include <unordered_map>

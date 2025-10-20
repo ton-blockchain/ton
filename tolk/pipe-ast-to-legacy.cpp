@@ -636,7 +636,7 @@ static std::vector<var_idx_t> gen_compile_time_code_instead_of_fun_call(CodeBlob
     if (f_name == "T.forceLoadLazyObject") {
       // in: object T, out: slice (same slice that a lazy variable holds, after loading/skipping all its fields)
       if (!lazy_variable) {
-        fire(code.fun_ref, v_call->get_callee(), "this method is applicable to lazy variables only");
+        err("this method is applicable to lazy variables only").fire(v_call->get_callee(), code.fun_ref);
       }
       std::vector ir_obj = vars_per_arg[0];
       return generate_lazy_object_finish_loading(code, v_call, lazy_variable, std::move(ir_obj));
@@ -1446,7 +1446,7 @@ static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v
   // because it might turned out to be a lazy match, where `else` is allowed;
   // if we are here, it's not a lazy match, it's a regular one (the lazy one is handled specially, in aux vertex)
   if (is_match_by_type && has_else_arm) {
-    fire(v->get_arm(n_arms - 1)->get_pattern_expr(), "`else` is not allowed in `match` by type; you should cover all possible types");
+    err("`else` is not allowed in `match` by type; you should cover all possible types").fire(v->get_arm(n_arms - 1)->get_pattern_expr());
   }
 
   // example 1 (exhaustive): `match (v) { int => ... slice => ... builder => ... }`
@@ -1772,7 +1772,7 @@ static std::vector<var_idx_t> process_tensor(V<ast_tensor> v, CodeBlob& code, Ty
 
 static std::vector<var_idx_t> process_typed_tuple(V<ast_bracket_tuple> v, CodeBlob& code, TypePtr target_type, LValContext* lval_ctx) {
   if (lval_ctx) {       // todo some time, make "var (a, [b,c]) = (1, [2,3])" work
-    fire(v, "[...] can not be used as lvalue here");
+    err("[...] can not be used as lvalue here").fire(v);
   }
   std::vector ir_left = code.create_tmp_var(v->inferred_type, v, "(pack-tuple)");
   std::vector ir_right = pre_compile_tensor(code, v->get_items(), lval_ctx);
@@ -2432,7 +2432,7 @@ public:
     if (!fun_ref->ret_order.empty()) {
       size_t expected_width = fun_ref->inferred_return_type->get_width_on_stack() + total_arg_mutate_width;
       if (expected_width != fun_ref->ret_order.size()) {
-        fire(v_function->get_body(), "ret_order (after ->) expected to contain " + std::to_string(expected_width) + " numbers");
+        err("ret_order (after ->) expected to contain {} numbers", expected_width).fire(v_function->get_body());
       }
     }
   }

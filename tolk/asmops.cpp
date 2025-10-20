@@ -285,16 +285,6 @@ int AsmOp::out_indented(std::ostream& os, bool print_src_line_above) const {
   return out(os) + indent * 2;
 }
 
-std::string AsmOp::to_string() const {
-  if (!op.empty()) {
-    return op;
-  } else {
-    std::ostringstream os;
-    out(os);
-    return os.str();
-  }
-}
-
 const_idx_t AsmOpList::register_const(td::RefInt256 new_const) {
   if (new_const.is_null()) {
     return not_const;

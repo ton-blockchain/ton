@@ -170,9 +170,9 @@ TypePtr TypeDataGenericT::create(std::string&& nameT) {
 
 TypePtr TypeDataGenericTypeWithTs::create(StructPtr struct_ref, AliasDefPtr alias_ref, std::vector<TypePtr>&& type_arguments) {
   if (struct_ref) {
-    assert(alias_ref == nullptr && struct_ref->is_generic_struct());
+    tolk_assert(alias_ref == nullptr && struct_ref->is_generic_struct());
   } else {
-    assert(struct_ref == nullptr && alias_ref->is_generic_alias());
+    tolk_assert(struct_ref == nullptr && alias_ref->is_generic_alias());
   }
 
   CalcChildrenFlags reg;
@@ -262,13 +262,11 @@ int TypeDataAlias::get_width_on_stack() const {
 }
 
 int TypeDataGenericT::get_width_on_stack() const {
-  assert(false);
-  return -99999;
+  tolk_assert(false);
 }
 
 int TypeDataGenericTypeWithTs::get_width_on_stack() const {
-  assert(false);
-  return -99999;
+  tolk_assert(false);
 }
 
 int TypeDataStruct::get_width_on_stack() const {
@@ -319,7 +317,7 @@ int TypeDataVoid::get_width_on_stack() const {
 //
 
 int TypeDataAlias::get_type_id() const {
-  assert(!alias_ref->is_generic_alias());
+  tolk_assert(!alias_ref->is_generic_alias());
   return underlying_type->get_type_id();
 }
 
@@ -328,17 +326,15 @@ int TypeDataFunCallable::get_type_id() const {
 }
 
 int TypeDataGenericT::get_type_id() const {
-  assert(false);    // generics must have been instantiated in advance
-  throw Fatal("unexpected get_type_id() call");
+  tolk_assert(false);    // generics must have been instantiated in advance
 }
 
 int TypeDataGenericTypeWithTs::get_type_id() const {
-  assert(false);    // `Wrapper<T>` has to be resolved in advance
-  throw Fatal("unexpected get_type_id() call");
+  tolk_assert(false);    // `Wrapper<T>` has to be resolved in advance
 }
 
 int TypeDataStruct::get_type_id() const {
-  assert(!struct_ref->is_generic_struct());
+  tolk_assert(!struct_ref->is_generic_struct());
   return TypeIdCalculation::assign_type_id(this);
 }
 
@@ -347,12 +343,12 @@ int TypeDataEnum::get_type_id() const {
 }
 
 int TypeDataTensor::get_type_id() const {
-  assert(!has_genericT_inside());
+  tolk_assert(!has_genericT_inside());
   return TypeIdCalculation::assign_type_id(this);
 }
 
 int TypeDataBrackets::get_type_id() const {
-  assert(!has_genericT_inside());
+  tolk_assert(!has_genericT_inside());
   return TypeIdCalculation::assign_type_id(this);
 }
 
@@ -373,18 +369,16 @@ int TypeDataBitsN::get_type_id() const {
 }
 
 int TypeDataUnion::get_type_id() const {
-  assert(false);    // a union can not be inside a union
-  throw Fatal("unexpected get_type_id() call");
+  tolk_assert(false);    // a union can not be inside a union
 }
 
 int TypeDataMapKV::get_type_id() const {
-  assert(!has_genericT_inside());
+  tolk_assert(!has_genericT_inside());
   return TypeIdCalculation::assign_type_id(this);
 }
 
 int TypeDataUnknown::get_type_id() const {
-  assert(false);    // unknown can not be inside a union
-  throw Fatal("unexpected get_type_id() call");
+  tolk_assert(false);    // unknown can not be inside a union
 }
 
 
@@ -1442,12 +1436,6 @@ TypePtr TypeDataUnion::calculate_exact_variant_to_fit_rhs(TypePtr rhs_type) cons
     }
   }
   return first_covering;
-}
-
-
-
-std::ostream& operator<<(std::ostream& os, TypePtr type_data) {
-  return os << (type_data ? type_data->as_human_readable() : "(nullptr-type)");
 }
 
 } // namespace tolk

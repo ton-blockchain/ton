@@ -15,7 +15,6 @@
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include "ast.h"
-#include "platform-utils.h"
 #include "src-file.h"
 #include "compilation-errors.h"
 #include "compiler-state.h"
@@ -65,18 +64,18 @@ static int calculate_tvm_method_id_by_func_name(std::string_view func_name) {
 
 static void validate_arg_ret_order_of_asm_function(V<ast_asm_body> v_body, int n_params) {
   if (n_params > 16) {
-    fire(v_body, "asm function can have at most 16 parameters");
+    err("asm function can have at most 16 parameters").fire(v_body);
   }
 
   // asm(param1 ... paramN), param names were previously mapped into indices
   if (!v_body->arg_order.empty()) {
     if (static_cast<int>(v_body->arg_order.size()) != n_params) {
-      fire(v_body, "arg_order of asm function must specify all parameters");
+      err("arg_order of asm function must specify all parameters").fire(v_body);
     }
     std::vector<bool> visited(v_body->arg_order.size(), false);
     for (int j : v_body->arg_order) {
       if (visited[j]) {
-        fire(v_body, "arg_order of asm function contains duplicates");
+        err("arg_order of asm function contains duplicates").fire(v_body);
       }
       visited[j] = true;
     }
@@ -88,7 +87,7 @@ static void validate_arg_ret_order_of_asm_function(V<ast_asm_body> v_body, int n
     std::vector<bool> visited(v_body->ret_order.size(), false);
     for (int j : v_body->ret_order) {
       if (j < 0 || j >= static_cast<int>(v_body->ret_order.size()) || visited[j]) {
-        fire(v_body, "ret_order contains invalid integer, not in range 0 .. N");
+        err("ret_order contains invalid integer, not in range 0 .. N").fire(v_body);
       }
       visited[j] = true;
     }
@@ -141,11 +140,11 @@ static EnumDefPtr register_enum(V<ast_enum_declaration> v) {
     std::string member_name = static_cast<std::string>(v_ident->name);
 
     for (EnumMemberPtr prev : members) {
-      if (UNLIKELY(prev->name == member_name)) {
-        fire(v_member, "redeclaration of member `" + member_name + "`");
+      if (prev->name == member_name) {
+        err("redeclaration of member `{}`", member_name).fire(v_member);
       }
     }
-    members.emplace_back(new EnumMemberData(member_name, v_ident, v_member->init_value));
+    members.emplace_back(new EnumMemberData(std::move(member_name), v_ident, v_member->init_value));
   }
 
   V<ast_identifier> v_ident = v->get_identifier();
@@ -168,18 +167,18 @@ static StructPtr register_struct(V<ast_struct_declaration> v, StructPtr base_str
     std::string field_name = static_cast<std::string>(v_ident->name);
 
     for (StructFieldPtr prev : fields) {
-      if (UNLIKELY(prev->name == field_name)) {
-        fire(v_field, "redeclaration of field `" + field_name + "`");
+      if (prev->name == field_name) {
+        err("redeclaration of field `{}`", field_name).fire(v_field);
       }
     }
-    fields.emplace_back(new StructFieldData(field_name, v_ident, i, v_field->is_private, v_field->is_readonly, v_field->type_node, v_field->default_value));
+    fields.emplace_back(new StructFieldData(std::move(field_name), v_ident, i, v_field->is_private, v_field->is_readonly, v_field->type_node, v_field->default_value));
   }
 
   PackOpcode opcode(0, 0);
   if (v->has_opcode()) {
     auto v_opcode = v->get_opcode()->as<ast_int_const>();
     if (v_opcode->intval < 0 || v_opcode->intval > (1ULL << 48)) {
-      fire(v, "opcode must not exceed 2^48");
+      err("opcode must not exceed 2^48").fire(v);
     }
     opcode.pack_prefix = v_opcode->intval->to_long();
 
@@ -257,7 +256,7 @@ static FunctionPtr register_function(V<ast_function_declaration> v, FunctionPtr 
 
   if (auto v_asm = v->get_body()->try_as<ast_asm_body>()) {
     if (!v->return_type_node) {
-      fire(v_asm, "asm function must declare return type (before asm instructions)");
+      err("asm function must declare return type (before asm instructions)").fire(v_asm);
     }
     validate_arg_ret_order_of_asm_function(v_asm, v->get_num_params());
     f_sym->arg_order = v_asm->arg_order;
@@ -270,7 +269,7 @@ static FunctionPtr register_function(V<ast_function_declaration> v, FunctionPtr 
     f_sym->tvm_method_id = calculate_tvm_method_id_by_func_name(f_identifier);
     for (FunctionPtr other : G.all_contract_getters) {
       if (other->tvm_method_id == f_sym->tvm_method_id) {
-        fire(v, "GET methods hash collision: `" + other->name + "` and `" + f_sym->name + "` produce the same hash. Consider renaming one of these functions.");
+        err("GET methods hash collision: `{}` and `{}` produce the same hash. Consider renaming one of these functions.", other, f_sym).fire(v);
       }
     }
   } else if (v->flags & FunctionData::flagIsEntrypoint) {

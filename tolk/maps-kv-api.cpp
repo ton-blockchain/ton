@@ -117,7 +117,7 @@ bool check_mapKV_TKey_is_valid(TypePtr TKey, std::string& because_msg) {
 
   // okay, not a trivial key — it must be a serializable struct of a constant size 
   if (TKey->unwrap_alias() == TypeDataSlice::create()) {  // a dedicated error message for `map<slice, V>`
-    because_msg = "because it does not specify keyLen for a dictionary\nhint: use `address` if a key is an internal address\nhint: use `bits128` and similar if a key represents fixed-width data";
+    because_msg = "because it does not specify keyLen for a dictionary\n""hint: use `address` if a key is an internal address\n""hint: use `bits128` and similar if a key represents fixed-width data";
     return false;
   }
   if (!check_struct_can_be_packed_or_unpacked(TKey, false, because_msg)) {

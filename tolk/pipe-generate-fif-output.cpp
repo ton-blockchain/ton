@@ -27,6 +27,7 @@
 #include "src-file.h"
 #include "ast.h"
 #include "compiler-state.h"
+#include "type-system.h"
 
 namespace tolk {
 
@@ -42,7 +43,7 @@ void FunctionBodyAsm::set_code(std::vector<AsmOp>&& code) {
 static void generate_output_func(FunctionPtr fun_ref) {
   tolk_assert(fun_ref->is_code_function());
   if (G.is_verbosity(2)) {
-    std::cerr << "\n\n=========================\nfunction " << fun_ref->name << " : " << fun_ref->inferred_return_type << std::endl;
+    std::cerr << "\n\n=========================\nfunction " << fun_ref->name << " : " << fun_ref->inferred_return_type->as_human_readable() << std::endl;
   }
 
   CodeBlob* code = std::get<FunctionBodyCode*>(fun_ref->body)->code;

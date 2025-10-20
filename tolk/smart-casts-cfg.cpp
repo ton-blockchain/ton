@@ -558,7 +558,7 @@ std::ostream& operator<<(std::ostream& os, const FlowContext& flow) {
 }
 
 std::ostream& operator<<(std::ostream& os, const FactsAboutExpr& facts) {
-  os << facts.expr_type;
+  os << (facts.expr_type == nullptr ? "(nullptr-type)" : facts.expr_type->as_human_readable());
   if (facts.sign_state != SignState::Unknown) {
     os << " " << to_string(facts.sign_state);
   }

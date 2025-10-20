@@ -170,20 +170,20 @@ public:
       if (FunctionPtr f_pack = get_custom_pack_unpack_function(t_alias, true)) {
         std::string receiver_name = t_alias->alias_ref->as_human_readable();
         if (!check_declared_packToBuilder(t_alias, f_pack)) {
-          return CantSerializeBecause("because `" + receiver_name + ".packToBuilder()` is declared incorrectly\nhint: it must accept 2 parameters and return nothing:\n> fun " + receiver_name + ".packToBuilder(self, mutate b: builder)");
+          return CantSerializeBecause("because `" + receiver_name + ".packToBuilder()` is declared incorrectly\n""hint: it must accept 2 parameters and return nothing:\n> fun " + receiver_name + ".packToBuilder(self, mutate b: builder)");
         }
         if (!f_pack->is_inlined_in_place()) {
           return CantSerializeBecause("because `" + receiver_name + ".packToBuilder()` can't be inlined; probably, it contains `return` in the middle");
         }
         if (FunctionPtr f_unpack = get_custom_pack_unpack_function(t_alias, false)) {
           if (!check_declared_unpackFromSlice(t_alias, f_unpack)) {
-            return CantSerializeBecause("because `" + receiver_name + ".unpackFromSlice()` is declared incorrectly\nhint: it must accept 1 parameter and return an object:\n> fun " + receiver_name + ".unpackFromSlice(mutate s: slice): " + receiver_name);
+            return CantSerializeBecause("because `" + receiver_name + ".unpackFromSlice()` is declared incorrectly\n""hint: it must accept 1 parameter and return an object:\n> fun " + receiver_name + ".unpackFromSlice(mutate s: slice): " + receiver_name);
           }
           if (!f_unpack->is_inlined_in_place()) {
             return CantSerializeBecause("because `" + receiver_name + ".unpackFromSlice()` can't be inlined; probably, it contains `return` in the middle");
           }
         } else if (!is_pack) {
-          return CantSerializeBecause("because type `" + receiver_name + "` defines a custom pack function, but does not define unpack\nhint: declare unpacker like this:\n> fun " + receiver_name + ".unpackFromSlice(mutate s: slice): " + receiver_name);
+          return CantSerializeBecause("because type `" + receiver_name + "` defines a custom pack function, but does not define unpack\n""hint: declare unpacker like this:\n> fun " + receiver_name + ".unpackFromSlice(mutate s: slice): " + receiver_name);
         }
         return {};
       }
@@ -198,26 +198,26 @@ public:
       if (is_pack) {
         return {};
       }
-      return CantSerializeBecause("because type `builder` can not be used for reading, only for writing\nhint: use `bitsN` or `RemainingBitsAndRefs` for reading\nhint: using generics, you can substitute `builder` for writing and something other for reading");
+      return CantSerializeBecause("because type `builder` can not be used for reading, only for writing\n""hint: use `bitsN` or `RemainingBitsAndRefs` for reading\n""hint: using generics, you can substitute `builder` for writing and something other for reading");
     }
     if (any_type == TypeDataSlice::create()) {
       if (is_pack) {
         return {};
       }
-      return CantSerializeBecause("because type `slice` can not be used for reading, it doesn't define binary width\nhint: replace `slice` with `address` if it's an address, actually\nhint: replace `slice` with `bits128` and similar if it represents fixed-width data without refs");
+      return CantSerializeBecause("because type `slice` can not be used for reading, it doesn't define binary width\n""hint: replace `slice` with `address` if it's an address, actually\n""hint: replace `slice` with `bits128` and similar if it represents fixed-width data without refs");
     }
 
     // serialization not available
     // for common types, make a detailed explanation with a hint how to fix
 
     if (any_type == TypeDataInt::create()) {
-      return CantSerializeBecause("because type `int` is not serializable, it doesn't define binary width\nhint: replace `int` with `int32` / `uint64` / `coins` / etc.");
+      return CantSerializeBecause("because type `int` is not serializable, it doesn't define binary width\n""hint: replace `int` with `int32` / `uint64` / `coins` / etc.");
     }
     if (any_type == TypeDataNullLiteral::create()) {
-      return CantSerializeBecause("because type `null` is not serializable\nhint: `int32?` and other nullable types will work");
+      return CantSerializeBecause("because type `null` is not serializable\n""hint: `int32?` and other nullable types will work");
     }
     if (any_type == TypeDataTuple::create() || any_type->try_as<TypeDataBrackets>()) {
-      return CantSerializeBecause("because tuples are not serializable\nhint: use tensors instead of tuples, they will work");
+      return CantSerializeBecause("because tuples are not serializable\n""hint: use tensors instead of tuples, they will work");
     }
 
     return CantSerializeBecause("because type `" + any_type->as_human_readable() + "` is not serializable");

@@ -41,7 +41,7 @@ const SrcFile* AllRegisteredSrcFiles::locate_and_register_source_file(const std:
   td::Result<std::string> path = G.settings.read_callback(CompilerSettings::FsReadCallbackKind::Realpath, filename.c_str());
   if (path.is_error()) {
     if (v_import_filename) {
-      fire(v_import_filename, "Failed to import: " + path.move_as_error().message().str());
+      err("Failed to import: {}", path.move_as_error().message().str()).fire(v_import_filename);
     }
     throw Fatal("Failed to locate " + filename + ": " + path.move_as_error().message().str());
   }
@@ -54,7 +54,7 @@ const SrcFile* AllRegisteredSrcFiles::locate_and_register_source_file(const std:
   td::Result<std::string> text = G.settings.read_callback(CompilerSettings::FsReadCallbackKind::ReadFile, realpath.c_str());
   if (text.is_error()) {
     if (v_import_filename) {
-      fire(v_import_filename, "Failed to import: " + text.move_as_error().message().str());
+      err("Failed to import: {}", text.move_as_error().message().str()).fire(v_import_filename);
     }
     throw Fatal("Failed to read " + realpath + ": " + text.move_as_error().message().str());
   }

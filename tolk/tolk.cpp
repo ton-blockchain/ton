@@ -68,7 +68,7 @@ int tolk_proceed(const std::string &entrypoint_filename) {
   } catch (const Fatal& fatal) {
     std::cerr << "fatal: " << fatal.message << std::endl;
     return 2;
-  } catch (const ParseError& error) {
+  } catch (const ThrownParseError& error) {
     error.output_compilation_error(std::cerr);
     return 2;
   } catch (const UnexpectedASTNodeKind& error) {

@@ -17,7 +17,6 @@
 #include "ast.h"
 #include "ast-visitor.h"
 #include "compilation-errors.h"
-#include "platform-utils.h"
 #include "compiler-state.h"
 #include "src-file.h"
 
@@ -45,30 +44,27 @@
 
 namespace tolk {
 
-GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-static void fire_undefined_symbol(FunctionPtr cur_f, V<ast_identifier> v) {
+static Error err_undefined_symbol(V<ast_identifier> v) {
   if (v->name == "self") {
-    fire(cur_f, v, "using `self` in a non-member function (it does not accept the first `self` parameter)");
+    return err("using `self` in a non-member function (it does not accept the first `self` parameter)");
   } else {
-    fire(cur_f, v, "undefined symbol `" + static_cast<std::string>(v->name) + "`");
+    return err("undefined symbol `{}`", v->name);
   }
 }
 
-GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-static void fire_type_used_as_symbol(FunctionPtr cur_f, V<ast_identifier> v) {
+static Error err_type_used_as_symbol(V<ast_identifier> v) {
   if (v->name == "random") {    // calling `random()`, but it's a struct, correct is `random.uint256()`
-    fire(cur_f, v, "`random` is not a function, you probably want `random.uint256()`");
+    return err("`random` is not a function, you probably want `random.uint256()`");
   } else {
-    fire(cur_f, v, "`" + static_cast<std::string>(v->name) + "` only refers to a type, but is being used as a value here");
+    return err("`{}` only refers to a type, but is being used as a value here", v->name);
   }
 }
 
-GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-static void fire_using_self_not_in_method(FunctionPtr cur_f, SrcRange range) {
+static Error err_using_self_not_in_method(FunctionPtr cur_f) {
   if (cur_f->is_static_method()) {
-    fire(cur_f, range, "using `self` in a static method");
+    return err("using `self` in a static method");
   } else {
-    fire(cur_f, range, "using `self` in a regular function (not a method)");
+    return err("using `self` in a regular function (not a method)");
   }
 }
 
@@ -85,9 +81,7 @@ struct NameAndScopeResolver {
 
   void close_scope() {
     // std::cerr << "close_scope " << scopes.size() << " at " << loc << std::endl;
-    if (UNLIKELY(scopes.empty())) {
-      throw Fatal("cannot close the outer scope");
-    }
+    tolk_assert(!scopes.empty());
     scopes.pop_back();
   }
 
@@ -103,17 +97,15 @@ struct NameAndScopeResolver {
   }
 
   void add_local_var(LocalVarPtr v_sym) {
-    if (UNLIKELY(scopes.empty())) {
-      throw Fatal("unexpected scope_level = 0");
-    }
+    tolk_assert(!scopes.empty());
     if (v_sym->name.empty()) {    // underscore
       return;
     }
 
     uint64_t key = key_hash(v_sym->name);
     const auto& [_, inserted] = scopes.rbegin()->emplace(key, v_sym);
-    if (UNLIKELY(!inserted)) {
-      fire(v_sym->ident_anchor, "redeclaration of local variable `" + v_sym->name + "`");
+    if (!inserted) {
+      err("redeclaration of local variable `{}`", v_sym).fire(v_sym->ident_anchor);
     }
   }
 };
@@ -141,11 +133,11 @@ protected:
     if (v->marked_as_redef) {
       const Symbol* sym = current_scope.lookup_symbol(v->get_name());
       if (sym == nullptr) {
-        fire(cur_f, v, "`redef` for unknown variable");
+        err("`redef` for unknown variable").fire(v, cur_f);
       }
       LocalVarPtr var_ref = sym->try_as<LocalVarPtr>();
       if (!var_ref) {
-        fire(cur_f, v, "`redef` for unknown variable");
+        err("`redef` for unknown variable").fire(v, cur_f);
       }
       v->mutate()->assign_var_ref(var_ref);
     } else {
@@ -162,10 +154,10 @@ protected:
   void visit(V<ast_reference> v) override {
     const Symbol* sym = current_scope.lookup_symbol(v->get_name());
     if (!sym) {
-      fire_undefined_symbol(cur_f, v->get_identifier());
+      err_undefined_symbol(v->get_identifier()).fire(v->get_identifier(), cur_f);
     }
     if (sym->try_as<AliasDefPtr>() || sym->try_as<StructPtr>() || sym->try_as<EnumDefPtr>()) {
-      fire_type_used_as_symbol(cur_f, v->get_identifier());
+      err_type_used_as_symbol(v->get_identifier()).fire(v->get_identifier(), cur_f);
     }
     v->mutate()->assign_sym(sym);
 
@@ -181,12 +173,12 @@ protected:
   void visit(V<ast_dot_access> v) override {
     try {
       parent::visit(v->get_obj());
-    } catch (const ParseError&) {
+    } catch (const ThrownParseError&) {
       if (auto v_type_name = v->get_obj()->try_as<ast_reference>()) {
         // for `Point.create` / `int.zero` / `Color.Red`, "undefined symbol" is fired for Point/int/Color
         // suppress this exception till a later pipe, it will be tried to be resolved as a type
         if (v_type_name->get_identifier()->name == "self") {
-          fire_using_self_not_in_method(cur_f, v_type_name->range);
+          err_using_self_not_in_method(cur_f).fire(v_type_name, cur_f);
         }
         return;
       }

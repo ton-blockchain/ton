@@ -19,6 +19,8 @@
 #include "fwd-declarations.h"
 #include "src-file.h"
 #include "platform-utils.h"
+#include <string>
+#include <vector>
 
 namespace tolk {
 
@@ -27,20 +29,65 @@ namespace tolk {
 GNU_ATTRIBUTE_COLD GNU_ATTRIBUTE_NORETURN
 void on_assertion_failed(const char *description, const char *file_name, int line_number);
 
-// fire a general non-recoverable error, just a wrapper over `throw`
-GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-void fire(AnyV at, std::string message);
-GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-void fire(SrcRange range, std::string message);
-GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-void fire(FunctionPtr in_function, AnyV at, std::string message);
-GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-void fire(FunctionPtr in_function, SrcRange range, std::string message);
+class [[nodiscard]] Error {
+  std::string message;
 
-void compilation_warning(AnyV at, const std::string& message);
-void compilation_warning(SrcRange range, const std::string& message);
-void compilation_warning(FunctionPtr function, AnyV at, const std::string& message);
-void compilation_warning(FunctionPtr function, SrcRange range, const std::string& message);
+public:
+  explicit Error(std::string message)
+    : message(std::move(message)) {}
+
+  GNU_ATTRIBUTE_NORETURN
+  void fire(AnyV at, FunctionPtr in_function = nullptr) const;
+  GNU_ATTRIBUTE_NORETURN
+  void fire(SrcRange range, FunctionPtr in_function = nullptr) const;
+
+  void warning(AnyV at, FunctionPtr in_function = nullptr) const;
+  void warning(SrcRange range, FunctionPtr in_function = nullptr) const;
+};
+
+class ErrorBuilder {
+  const char* tpl;
+  std::vector<std::string> args;
+
+  void add_arg(std::string v) {
+    args.push_back(std::move(v));
+  }
+
+public:
+  explicit ErrorBuilder(const char* tpl)
+    : tpl(tpl) {}
+
+  void push(const char* v);
+  void push(const std::string& v);
+  void push(std::string_view v);
+  void push(TypePtr v);
+  void push(FunctionPtr v);
+  void push(StructPtr v);
+  void push(StructFieldPtr v);
+  void push(AliasDefPtr v);
+  void push(EnumDefPtr v);
+  void push(EnumMemberPtr v);
+  void push(GlobalConstPtr v);
+  void push(LocalVarPtr v);
+  void push(int v);
+  void push(size_t v);
+  void push(bool v);
+  void push(void*) = delete;
+  void push(const void*) = delete;
+  void push(std::nullptr_t) = delete;
+
+  [[nodiscard]] Error build() const;
+};
+
+
+template<class... Args>
+GNU_ATTRIBUTE_COLD
+inline Error err(const char* tpl, Args&&... args) {
+  ErrorBuilder b(tpl);
+  (b.push(std::forward<Args>(args)), ...);
+  return b.build();
+}
+
 
 struct Fatal final : std::exception {
   std::string message;
@@ -53,14 +100,12 @@ struct Fatal final : std::exception {
   }
 };
 
-struct ParseError final : std::exception {
+struct ThrownParseError final : std::exception {
   std::string in_function;
   SrcRange range;
   std::string message;
 
-  ParseError(SrcRange range, std::string message)
-    : range(range), message(std::move(message)) {}
-  ParseError(std::string in_function, SrcRange range, std::string message)
+  ThrownParseError(std::string in_function, SrcRange range, std::string message)
     : in_function(std::move(in_function)), range(range), message(std::move(message)) {}
 
   const char* what() const noexcept override {

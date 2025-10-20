@@ -17,7 +17,6 @@
 #include "ast.h"
 #include "ast-visitor.h"
 #include "compilation-errors.h"
-#include "platform-utils.h"
 #include "compiler-state.h"
 #include "generics-helpers.h"
 #include "type-system.h"
@@ -52,25 +51,22 @@ void patch_builtins_after_stdlib_loaded();
 static std::unordered_map<StructPtr, bool> visited_structs;
 static std::unordered_map<AliasDefPtr, bool> visited_aliases;
 
-GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-static void fire_unknown_type_name(FunctionPtr cur_f, SrcRange range, std::string_view text) {
+static Error err_unknown_type_name(std::string_view text) {
   if (text == "auto") {
-    fire(cur_f, range, "`auto` type does not exist; just omit a type for local variable (will be inferred from assignment); parameters should always be typed");
+    return err("`auto` type does not exist; just omit a type for local variable (will be inferred from assignment); parameters should always be typed");
   }
   if (text == "self") {
-    fire(cur_f, range, "`self` type can be used only as a return type of a function (enforcing it to be chainable)");
+    return err("`self` type can be used only as a return type of a function (enforcing it to be chainable)");
   }
-  fire(cur_f, range, "unknown type name `" + static_cast<std::string>(text) + "`");
+  return err("unknown type name `{}`", text);
 }
 
-GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-static void fire_void_type_not_allowed_inside_union(FunctionPtr cur_f, SrcRange range, TypePtr disallowed_variant) {
-  fire(cur_f, range, "type `" + disallowed_variant->as_human_readable() + "` is not allowed inside a union");
+static Error err_void_type_not_allowed_inside_union(TypePtr disallowed_variant) {
+  return err("type `{}` is not allowed inside a union", disallowed_variant);
 }
 
-GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-static void fire_generic_type_used_without_T(FunctionPtr cur_f, SrcRange range, const std::string& type_name_with_Ts) {
-  fire(cur_f, range, "type `" + type_name_with_Ts + "` is generic, you should provide type arguments");
+static Error err_generic_type_used_without_T(const std::string& type_name_with_Ts) {
+  return err("type `{}` is generic, you should provide type arguments", type_name_with_Ts);
 }
 
 static TypePtr parse_intN_uintN(std::string_view strN, bool is_unsigned) {
@@ -173,7 +169,7 @@ class TypeNodesVisitorResolver {
         }
         if (text == "map") {
           if (!allow_without_type_arguments) {
-            fire_generic_type_used_without_T(cur_f, v->range, "map<K,V>");
+            err_generic_type_used_without_T("map<K,V>").fire(v, cur_f);
           }
           return TypeDataMapKV::create(TypeDataGenericT::create("K"), TypeDataGenericT::create("V"));
         }
@@ -192,7 +188,7 @@ class TypeNodesVisitorResolver {
         if (treat_unresolved_as_genericT) {
           return TypeDataGenericT::create(static_cast<std::string>(text));
         }
-        fire_unknown_type_name(cur_f, v->range, text);
+        err_unknown_type_name(text).fire(v, cur_f);
       }
 
       case ast_type_question_nullable: {
@@ -257,7 +253,7 @@ class TypeNodesVisitorResolver {
   static TypePtr try_resolve_user_defined_type(FunctionPtr cur_f, SrcRange range, const Symbol* sym, bool allow_without_type_arguments) {
     if (AliasDefPtr alias_ref = sym->try_as<AliasDefPtr>()) {
       if (alias_ref->is_generic_alias() && !allow_without_type_arguments) {
-        fire_generic_type_used_without_T(cur_f, range, alias_ref->as_human_readable());
+        err_generic_type_used_without_T(alias_ref->as_human_readable()).fire(range, cur_f);
       }
       if (!visited_aliases.contains(alias_ref)) {
         visit_symbol(alias_ref);
@@ -266,7 +262,7 @@ class TypeNodesVisitorResolver {
     }
     if (StructPtr struct_ref = sym->try_as<StructPtr>()) {
       if (struct_ref->is_generic_struct() && !allow_without_type_arguments) {
-        fire_generic_type_used_without_T(cur_f, range, struct_ref->as_human_readable());
+        err_generic_type_used_without_T(struct_ref->as_human_readable()).fire(range, cur_f);
       }
       if (!visited_structs.contains(struct_ref)) {
         visit_symbol(struct_ref);
@@ -292,7 +288,7 @@ class TypeNodesVisitorResolver {
     if (const TypeDataStruct* t_struct = type_to_instantiate->try_as<TypeDataStruct>(); t_struct && t_struct->struct_ref->is_generic_struct()) {
       StructPtr struct_ref = t_struct->struct_ref;
       if (struct_ref->genericTs->size() != static_cast<int>(type_arguments.size())) {
-        fire(cur_f, range, "struct `" + struct_ref->as_human_readable() + "` expects " + std::to_string(struct_ref->genericTs->size()) + " type arguments, but " + std::to_string(type_arguments.size()) + " provided");
+        err("struct `{}` expects {} type arguments, but {} provided", struct_ref, struct_ref->genericTs->size(), type_arguments.size()).fire(range, cur_f);
       }
       if (is_still_generic) {
         return TypeDataGenericTypeWithTs::create(struct_ref, nullptr, std::move(type_arguments));
@@ -302,7 +298,7 @@ class TypeNodesVisitorResolver {
     if (const TypeDataAlias* t_alias = type_to_instantiate->try_as<TypeDataAlias>(); t_alias && t_alias->alias_ref->is_generic_alias()) {
       AliasDefPtr alias_ref = t_alias->alias_ref;
       if (alias_ref->genericTs->size() != static_cast<int>(type_arguments.size())) {
-        fire(cur_f, range, "type `" + alias_ref->as_human_readable() + "` expects " + std::to_string(alias_ref->genericTs->size()) + " type arguments, but " + std::to_string(type_arguments.size()) + " provided");
+        err("type `{}` expects {} type arguments, but {} provided", alias_ref, alias_ref->genericTs->size(), type_arguments.size()).fire(range, cur_f);
       }
       if (is_still_generic) {
         return TypeDataGenericTypeWithTs::create(nullptr, alias_ref, std::move(type_arguments));
@@ -311,21 +307,21 @@ class TypeNodesVisitorResolver {
     }
     if (const TypeDataMapKV* t_map = type_to_instantiate->try_as<TypeDataMapKV>(); t_map && t_map->TKey->try_as<TypeDataGenericT>()) {
       if (type_arguments.size() != 2) {
-        fire(cur_f, range, "type `map<K,V>` expects 2 type arguments, but " + std::to_string(type_arguments.size()) + " provided");
+        err("type `map<K,V>` expects 2 type arguments, but {} provided", type_arguments.size()).fire(range, cur_f);
       }
       return TypeDataMapKV::create(type_arguments[0], type_arguments[1]);
     }
     if (const TypeDataGenericT* asT = type_to_instantiate->try_as<TypeDataGenericT>()) {
-      fire_unknown_type_name(cur_f, range, asT->nameT);
+      err_unknown_type_name(asT->nameT).fire(range, cur_f);
     }
     // `User<int>` / `cell<cell>`
-    fire(cur_f, range, "type `" + type_to_instantiate->as_human_readable() + "` is not generic");
+    err("type `{}` is not generic", type_to_instantiate).fire(range, cur_f);
   }
 
   static void validate_resulting_union_type(const TypeDataUnion* t_union, FunctionPtr cur_f, SrcRange range) {
     for (TypePtr variant : t_union->variants) {
       if (variant == TypeDataVoid::create() || variant == TypeDataNever::create()) {
-        fire_void_type_not_allowed_inside_union(cur_f, range, variant);
+        err_void_type_not_allowed_inside_union(variant).fire(range, cur_f);
       }
     }
   }
@@ -378,7 +374,7 @@ public:
     // prevent recursion like `type A = B; type B = A` (we can't create TypeDataAlias without a resolved underlying type)
     bool contains = std::find(called_stack.begin(), called_stack.end(), alias_ref) != called_stack.end();
     if (contains) {
-      fire(alias_ref->ident_anchor, "type `" + alias_ref->name + "` circularly references itself");
+      err("type `{}` circularly references itself", alias_ref).fire(alias_ref->ident_anchor);
     }
 
     if (auto v_genericsT_list = alias_ref->ast_root->as<ast_type_alias_declaration>()->genericsT_list) {
@@ -435,7 +431,7 @@ public:
           return prevT.nameT == v_item->nameT;
         });
         if (it_existing != itemsT.end()) {
-          fire(v_item, "duplicate generic parameter `" + static_cast<std::string>(v_item->nameT) + "`");
+          err("duplicate generic parameter `{}`", v_item->nameT).fire(v_item);
         }
         TypePtr default_type = nullptr;
         if (v_list->get_item(i)->default_type_node) {
@@ -638,7 +634,7 @@ class InfiniteStructSizeDetector {
 
     bool contains = std::find(called_stack.begin(), called_stack.end(), struct_ref) != called_stack.end();
     if (contains) {
-      fire(struct_ref->ident_anchor, "struct `" + struct_ref->name + "` size is infinity due to recursive fields");
+      err("struct `{}` size is infinity due to recursive fields", struct_ref).fire(struct_ref->ident_anchor);
     }
 
     called_stack.push_back(struct_ref);

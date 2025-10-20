@@ -884,7 +884,7 @@ bool Op::generate_code_step(Stack& stack) {
       return true;
     }
     default:
-      fire(origin, "unknown operation in generate_code()");
+      err("unknown operation in generate_code()").fire(origin);
   }
 }
 

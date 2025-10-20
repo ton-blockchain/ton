@@ -16,7 +16,6 @@
 */
 #include "lexer.h"
 #include "compilation-errors.h"
-#include <cassert>
 #include <cstdint>
 #include <cstring>
 
@@ -75,7 +74,7 @@ public:
     }
 
 #ifdef TOLK_DEBUG
-    assert(!cur->val);
+    tolk_assert(!cur->val);
 #endif
     cur->val = val;
   }
@@ -459,7 +458,7 @@ struct TolkLanguageGrammar {
       case tok_semver:
         return ChunkSpecialParsing::parse_semver(lex);
       default:
-        assert(false);
+        tolk_assert(false);
         return false;
     }
   }
@@ -575,7 +574,7 @@ void Lexer::next() {
 }
 
 void Lexer::next_special(TokenType parse_next_as, const char* str_expected) {
-  assert(cur_token_idx == last_token_idx);
+  tolk_assert(cur_token_idx == last_token_idx);
   skip_spaces();
   update_location();
   if (!TolkLanguageGrammar::parse_next_chunk_special(this, parse_next_as)) {
@@ -597,17 +596,17 @@ void Lexer::restore_position(SavedPositionForLookahead saved) {
 
 void Lexer::hack_replace_rshift_with_one_triangle() {
   // overcome the `>>` problem when parsing generics, leave only `>` here, see comments at usage
-  assert(cur_token.type == tok_rshift);
+  tolk_assert(cur_token.type == tok_rshift);
   cur_token = Token(tok_gt, ">");
   cur_token_offset++;
 }
 
 void Lexer::error(const std::string& err_msg) const {
-  fire(cur_range(), err_msg);
+  err("{}", err_msg).fire(cur_range());
 }
 
 void Lexer::unexpected(const char* str_expected) const {
-  fire(cur_range(), "expected " + std::string(str_expected) + ", got `" + std::string(cur_str()) + "`");
+  err("expected {}, got `{}`", str_expected, cur_str()).fire(cur_range());
 }
 
 void lexer_init() {

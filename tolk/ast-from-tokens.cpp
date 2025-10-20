@@ -17,7 +17,6 @@
 #include "ast.h"
 #include "compilation-errors.h"
 #include "type-system.h"
-#include "platform-utils.h"
 #include "tolk-version.h"
 
 /*
@@ -50,34 +49,30 @@ static bool is_add_or_sub_binary_op(TokenType tok) {
   return tok == tok_plus || tok == tok_minus;
 }
 
-// fire an error for a case "flags & 0xFF != 0" (equivalent to "flags & 1", probably unexpected)
+// make an error for a case "flags & 0xFF != 0" (equivalent to "flags & 1", probably unexpected)
 // it would better be a warning, but we decided to make it a strict error
-GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-static void fire_lower_precedence(SrcRange range, std::string_view op_lower, std::string_view op_higher) {
-  std::string name_lower = static_cast<std::string>(op_lower);
-  std::string name_higher = static_cast<std::string>(op_higher);
-  fire(range, name_lower + " has lower precedence than " + name_higher +
+static Error err_lower_precedence(std::string_view op_lower, std::string_view op_higher) {
+  return err("{} has lower precedence than {}"
               ", probably this code won't work as you expected.  "
-              "Use parenthesis: either (... " + name_lower + " ...) to evaluate it first, or (... " + name_higher + " ...) to suppress this error.");
+              "Use parenthesis: either (... {} ...) to evaluate it first, or (... {} ...) to suppress this error.",
+              op_lower, op_higher, op_lower, op_higher);
 }
 
-// fire an error for a case "arg1 & arg2 | arg3"
-GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-static void fire_mix_and_or_no_parenthesis(SrcRange range, std::string_view op1, std::string_view op2) {
-  std::string name1 = static_cast<std::string>(op1);
-  std::string name2 = static_cast<std::string>(op2);
-  fire(range, "mixing " + name1 + " with " + name2 + " without parenthesis may lead to accidental errors.  "
-              "Use parenthesis to emphasize operator precedence.");
+// make an error for a case "arg1 & arg2 | arg3"
+static Error err_mix_and_or_no_parenthesis(std::string_view op1, std::string_view op2) {
+  return err("mixing {} with {} without parenthesis may lead to accidental errors.  "
+              "Use parenthesis to emphasize operator precedence.",
+              op1, op2);
 }
 
-// fire an error "Tolk does not have ++i operator"
-GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-static void fire_no_increment_operator(SrcRange range, bool is_increment) {
-  std::string op_name = is_increment ? "increment" : "decrement";
-  std::string op_wrong = is_increment ? "++" : "--";       
-  std::string op_right = is_increment ? "+=" : "-=";
-  fire(range, std::string("Tolk has no ") + op_name + " operator\n" +
-              "hint: use `i " + op_right + " 1`, not `i" + op_wrong + "`");
+// make an error "Tolk does not have ++i operator"
+static Error err_no_increment_operator() {
+  return err("Tolk has no increment operator\n""hint: use `i += 1`, not `i++`");
+}
+
+// make an error "Tolk does not have --i operator"
+static Error err_no_decrement_operator() {
+  return err("Tolk has no decrement operator\n""hint: use `i -= 1`, not `i--`");
 }
 
 // diagnose when bitwise operators are used in a probably wrong way due to tricky precedence
@@ -88,12 +83,12 @@ static void fire_no_increment_operator(SrcRange range, bool is_increment) {
 static void diagnose_bitwise_precedence(SrcRange range, std::string_view operator_name, AnyExprV lhs, AnyExprV rhs) {
   // handle "flags & 0xFF != 0" (rhs = "0xFF != 0")
   if (rhs->kind == ast_binary_operator && is_comparison_binary_op(rhs->as<ast_binary_operator>()->tok)) {
-    fire_lower_precedence(range, operator_name, rhs->as<ast_binary_operator>()->operator_name);
+    err_lower_precedence(operator_name, rhs->as<ast_binary_operator>()->operator_name).fire(range);
   }
 
   // handle "0 != flags & 0xFF" (lhs = "0 != flags")
   if (lhs->kind == ast_binary_operator && is_comparison_binary_op(lhs->as<ast_binary_operator>()->tok)) {
-    fire_lower_precedence(range, operator_name, lhs->as<ast_binary_operator>()->operator_name);
+    err_lower_precedence(operator_name, lhs->as<ast_binary_operator>()->operator_name).fire(range);
   }
 }
 
@@ -104,12 +99,12 @@ static void diagnose_and_or_precedence(SrcRange range, AnyExprV lhs, TokenType r
   if (auto lhs_op = lhs->try_as<ast_binary_operator>()) {
     // handle "arg1 & arg2 | arg3" (lhs = "arg1 & arg2")
     if (is_bitwise_binary_op(lhs_op->tok) && is_bitwise_binary_op(rhs_tok) && lhs_op->tok != rhs_tok) {
-      fire_mix_and_or_no_parenthesis(range, lhs_op->operator_name, rhs_operator_name);
+      err_mix_and_or_no_parenthesis(lhs_op->operator_name, rhs_operator_name).fire(range);
     }
 
     // handle "arg1 && arg2 || arg3" (lhs = "arg1 && arg2")
     if (is_logical_binary_op(lhs_op->tok) && is_logical_binary_op(rhs_tok) && lhs_op->tok != rhs_tok) {
-      fire_mix_and_or_no_parenthesis(range, lhs_op->operator_name, rhs_operator_name);
+      err_mix_and_or_no_parenthesis(lhs_op->operator_name, rhs_operator_name).fire(range);
     }
   }
 }
@@ -117,7 +112,7 @@ static void diagnose_and_or_precedence(SrcRange range, AnyExprV lhs, TokenType r
 // diagnose "a << 8 + 1" (equivalent to "a << 9", probably unexpected)
 static void diagnose_addition_in_bitshift(SrcRange range, std::string_view bitshift_operator_name, AnyExprV rhs) {
   if (rhs->kind == ast_binary_operator && is_add_or_sub_binary_op(rhs->as<ast_binary_operator>()->tok)) {
-    fire_lower_precedence(range, bitshift_operator_name, rhs->as<ast_binary_operator>()->operator_name);
+    err_lower_precedence(bitshift_operator_name, rhs->as<ast_binary_operator>()->operator_name).fire(range);
   }
 }
 
@@ -401,7 +396,7 @@ static AnyV parse_global_var_declaration(Lexer& lex, const std::vector<V<ast_ann
       case AnnotationKind::custom:
         break;
       default:
-        fire(v_annotation, "this annotation is not applicable to global");
+        err("this annotation is not applicable to global").fire(v_annotation);
     }
   }
 
@@ -429,7 +424,7 @@ static AnyV parse_constant_declaration(Lexer& lex, const std::vector<V<ast_annot
       case AnnotationKind::custom:
         break;
       default:
-        fire(v_annotation, "this annotation is not applicable to constant");
+        err("this annotation is not applicable to constant").fire(v_annotation);
     }
   }
 
@@ -463,7 +458,7 @@ static AnyV parse_type_alias_declaration(Lexer& lex, const std::vector<V<ast_ann
       case AnnotationKind::custom:
         break;
       default:
-        fire(v_annotation, "this annotation is not applicable to type alias");
+        err("this annotation is not applicable to type alias").fire(v_annotation);
     }
   }
 
@@ -644,7 +639,7 @@ static V<ast_instantiationT_list> parse_maybe_instantiationTs_after_identifier(L
     range.end(lex.cur_range());
     lex.next();
     return createV<ast_instantiationT_list>(range, std::move(instantiationTs));
-  } catch (const ParseError&) {
+  } catch (const ThrownParseError&) {
     lex.restore_position(backup);
     return nullptr;
   }
@@ -727,7 +722,7 @@ static V<ast_match_arm> parse_match_arm(Lexer& lex) {
   try {
     exact_type = parse_type_from_tokens(lex);
     pattern_kind = MatchArmKind::exact_type;
-  } catch (const ParseError&) {
+  } catch (const ThrownParseError&) {
   }
   if (!exact_type || lex.tok() != tok_double_arrow) {
     exact_type = nullptr;
@@ -735,7 +730,7 @@ static V<ast_match_arm> parse_match_arm(Lexer& lex) {
     try {
       pattern_expr = parse_expr(lex);
       pattern_kind = MatchArmKind::const_expression;    // any expr at parsing, should result in const int/bool
-    } catch (const ParseError&) {
+    } catch (const ThrownParseError&) {
     }
   }
   if (!exact_type && !pattern_expr && lex.tok() == tok_else) {
@@ -977,7 +972,7 @@ static AnyExprV parse_fun_call_postfix(Lexer& lex, AnyExprV lhs) {
       lex.next();
       lhs = createV<ast_not_null_operator>(range, lhs);
     } else if (lex.tok() == tok_double_plus || lex.tok() == tok_double_minus) {
-      fire_no_increment_operator(lex.cur_range(), lex.tok() == tok_double_plus);
+      lex.tok() == tok_double_plus ? err_no_increment_operator().fire(lex.cur_range()) : err_no_decrement_operator().fire(lex.cur_range());
     } else {
       break;
     }
@@ -1044,7 +1039,7 @@ static AnyExprV parse_expr75(Lexer& lex) {
     SrcRange range = lex.cur_range();
     lex.next();
     parse_expr75(lex);
-    fire_no_increment_operator(range, t == tok_double_plus);
+    t == tok_double_plus ? err_no_increment_operator().fire(range) : err_no_decrement_operator().fire(range);
   }
   return parse_expr80(lex);
 }
@@ -1428,7 +1423,7 @@ static AnyV parse_asm_func_body(Lexer& lex, V<ast_identifier> name_ident, V<ast_
   lex.expect(tok_asm, "`asm`");
   size_t n_params = param_list->size();
   if (n_params > 16) {
-    fire(name_ident, "assembler built-in function can have at most 16 arguments");
+    err("assembler built-in function can have at most 16 arguments").fire(name_ident);
   }
   std::vector<int> arg_order, ret_order;
   if (lex.tok() == tok_oppar) {
@@ -1488,13 +1483,13 @@ static V<ast_annotation> parse_annotation(Lexer& lex) {
 
   switch (kind) {
     case AnnotationKind::unknown:
-      fire(range, "unknown annotation " + static_cast<std::string>(name));
+      err("unknown annotation {}", name).fire(range);
     case AnnotationKind::inline_simple:
     case AnnotationKind::inline_ref:
     case AnnotationKind::noinline:
     case AnnotationKind::pure:
       if (v_arg) {
-        fire(range, "arguments aren't allowed for " + static_cast<std::string>(name));
+        err("arguments aren't allowed for {}", name).fire(range);
       }
       v_arg = createV<ast_tensor>(range, {});
       break;
@@ -1504,13 +1499,13 @@ static V<ast_annotation> parse_annotation(Lexer& lex) {
       break;
     case AnnotationKind::method_id:
       if (!v_arg || v_arg->size() != 1 || v_arg->get_item(0)->kind != ast_int_const) {
-        fire(range, "expecting `(number)` after " + static_cast<std::string>(name));
+        err("expecting `(number)` after {}", name).fire(range);
       }
       break;
     case AnnotationKind::overflow1023_policy:
     case AnnotationKind::on_bounced_policy: {
       if (!v_arg || v_arg->size() != 1 || v_arg->get_item(0)->kind != ast_string_const) {
-        fire(range, "expecting `(\"policy_name\")` after " + static_cast<std::string>(name));
+        err("expecting `(\"policy_name\")` after {}", name).fire(range);
       }
       break;
     }
@@ -1532,7 +1527,7 @@ static AnyV parse_function_declaration(Lexer& lex, const std::vector<V<ast_annot
   try {
     receiver_type = parse_type_expression(lex);
     lex.expect(tok_dot, "");
-  } catch (const ParseError&) {
+  } catch (const ThrownParseError&) {
     receiver_type = nullptr;
     lex.restore_position(backup);
   }
@@ -1580,10 +1575,10 @@ static AnyV parse_function_declaration(Lexer& lex, const std::vector<V<ast_annot
   }
 
   if (is_entrypoint && (is_contract_getter || genericsT_list || n_mutate_params)) {
-    fire(range, "invalid declaration of a reserved function");
+    err("invalid declaration of a reserved function").fire(range);
   }
   if (is_contract_getter && (genericsT_list || n_mutate_params || receiver_type)) {
-    fire(range, "invalid declaration of a get method");
+    err("invalid declaration of a get method").fire(range);
   }
 
   AnyV v_body = nullptr;
@@ -1634,11 +1629,11 @@ static AnyV parse_function_declaration(Lexer& lex, const std::vector<V<ast_annot
         break;
       case AnnotationKind::method_id: {
         if (is_contract_getter || genericsT_list || receiver_type || is_entrypoint || n_mutate_params || accepts_self) {
-          fire(v_annotation, "@method_id can be specified only for regular functions");
+          err("@method_id can be specified only for regular functions").fire(v_annotation);
         }
         auto v_int = v_annotation->get_arg()->get_item(0)->as<ast_int_const>();
         if (v_int->intval.is_null() || !v_int->intval->signed_fits_bits(32)) {
-          fire(v_int, "invalid integer constant");
+          err("invalid integer constant").fire(v_int);
         }
         tvm_method_id = v_int->intval;
         break;
@@ -1648,10 +1643,10 @@ static AnyV parse_function_declaration(Lexer& lex, const std::vector<V<ast_annot
         if (str == "manual") {
           flags |= FunctionData::flagManualOnBounce;
         } else {
-          fire(v_annotation, "incorrect value for " + static_cast<std::string>(v_annotation->name));
+          err("incorrect value for {}", v_annotation->name).fire(v_annotation);
         }
         if (f_name != "onInternalMessage") {
-          fire(v_annotation, "this annotation is applicable only to onInternalMessage()");
+          err("this annotation is applicable only to onInternalMessage()").fire(v_annotation);
         }
         break;
       }
@@ -1660,7 +1655,7 @@ static AnyV parse_function_declaration(Lexer& lex, const std::vector<V<ast_annot
         break;
 
       default:
-        fire(v_annotation, "this annotation is not applicable to functions");
+        err("this annotation is not applicable to functions").fire(v_annotation);
     }
   }
 
@@ -1758,12 +1753,12 @@ static AnyV parse_struct_declaration(Lexer& lex, const std::vector<V<ast_annotat
         if (str == "suppress") {
           overflow1023_policy = StructData::Overflow1023Policy::suppress;
         } else {
-          fire(v_annotation, "incorrect value for " + static_cast<std::string>(v_annotation->name));
+          err("incorrect value for {}", v_annotation->name).fire(v_annotation);
         }
         break;
       }
       default:
-        fire(v_annotation, "this annotation is not applicable to struct");
+        err("this annotation is not applicable to struct").fire(v_annotation);
     }
   }
 
@@ -1823,7 +1818,7 @@ static AnyV parse_enum_declaration(Lexer& lex, const std::vector<V<ast_annotatio
       case AnnotationKind::custom:
         break;
       default:
-        fire(v_annotation, "this annotation is not applicable to enum");
+        err("this annotation is not applicable to enum").fire(v_annotation);
     }
   }
 
@@ -1841,7 +1836,7 @@ static AnyV parse_tolk_required_version(Lexer& lex) {
 
   // for simplicity, there is no syntax ">= version" and so on, just strict compare
   if (TOLK_VERSION != semver && TOLK_VERSION != semver + ".0") {    // 0.6 = 0.6.0
-    compilation_warning(range, "the contract is written in Tolk v" + semver + ", but you use Tolk compiler v" + TOLK_VERSION + "; probably, it will lead to compilation errors or hash changes");
+    err("the contract is written in Tolk v{}, but you use Tolk compiler v{}; probably, it will lead to compilation errors or hash changes", semver, TOLK_VERSION).warning(range, nullptr);
   }
 
   return createV<ast_tolk_required_version>(range, semver);  // semicolon is not necessary
@@ -1924,7 +1919,7 @@ AnyV parse_src_file_to_ast(const SrcFile* file) {
       case tok_export:
       case tok_operator:
       case tok_infix:
-        lex.error("`" + static_cast<std::string>(lex.cur_str()) +"` is not supported yet");
+        err("`{}` is not supported yet", lex.cur_str()).fire(lex.cur_range());
 
       case tok_identifier:
         if (lex.cur_str() == "get") {     // top-level "get", contract getter

@@ -379,7 +379,7 @@ void CodeBlob::print(std::ostream& os, int flags) const {
   if ((flags & 8) != 0) {
     for (const auto& var : vars) {
       var.show(os);
-      os << " : " << var.v_type << std::endl;
+      os << " : " << var.v_type->as_human_readable() << std::endl;
     }
   }
   os << "------- BEGIN --------\n";

@@ -17,7 +17,6 @@
 #pragma once
 
 #include "ast.h"
-#include "platform-utils.h"
 
 namespace tolk {
 

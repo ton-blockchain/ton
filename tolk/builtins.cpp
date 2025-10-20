@@ -386,7 +386,7 @@ static AsmOp compile_add(std::vector<VarDescr>& res, std::vector<VarDescr>& args
   if (x.is_int_const() && y.is_int_const()) {
     r.set_const(x.int_const + y.int_const);
     if (!r.int_const->is_valid()) {
-      fire(origin, "integer overflow");
+      err("integer overflow").fire(origin);
     }
     x.unused();
     y.unused();
@@ -428,7 +428,7 @@ static AsmOp compile_sub(std::vector<VarDescr>& res, std::vector<VarDescr>& args
   if (x.is_int_const() && y.is_int_const()) {
     r.set_const(x.int_const - y.int_const);
     if (!r.int_const->is_valid()) {
-      fire(origin, "integer overflow");
+      err("integer overflow").fire(origin);
     }
     x.unused();
     y.unused();
@@ -461,7 +461,7 @@ static AsmOp compile_unary_minus(std::vector<VarDescr>& res, std::vector<VarDesc
   if (x.is_int_const()) {
     r.set_const(-x.int_const);
     if (!r.int_const->is_valid()) {
-      fire(origin, "integer overflow");
+      err("integer overflow").fire(origin);
     }
     x.unused();
     return push_const(origin, r.int_const);
@@ -551,7 +551,7 @@ static AsmOp compile_mul_internal(VarDescr& r, VarDescr& x, VarDescr& y, AnyV or
   if (x.is_int_const() && y.is_int_const()) {
     r.set_const(x.int_const * y.int_const);
     if (!r.int_const->is_valid()) {
-      fire(origin, "integer overflow");
+      err("integer overflow").fire(origin);
     }
     x.unused();
     y.unused();
@@ -626,11 +626,11 @@ static AsmOp compile_lshift(std::vector<VarDescr>& res, std::vector<VarDescr>& a
   if (y.is_int_const()) {
     auto yv = y.int_const->to_long();
     if (yv < 0 || yv > 256) {
-      fire(origin, "lshift argument is out of range");
+      err("lshift argument is out of range").fire(origin);
     } else if (x.is_int_const()) {
       r.set_const(x.int_const << (int)yv);
       if (!r.int_const->is_valid()) {
-        fire(origin, "integer overflow");
+        err("integer overflow").fire(origin);
       }
       x.unused();
       y.unused();
@@ -669,7 +669,7 @@ static AsmOp compile_rshift(std::vector<VarDescr>& res, std::vector<VarDescr>& a
   if (y.is_int_const()) {
     auto yv = y.int_const->to_long();
     if (yv < 0 || yv > 256) {
-      fire(origin, "rshift argument is out of range");
+      err("rshift argument is out of range").fire(origin);
     } else if (x.is_int_const()) {
       r.set_const(td::rshift(x.int_const, (int)yv, round_mode));
       x.unused();
@@ -696,7 +696,7 @@ static AsmOp compile_div_internal(VarDescr& r, VarDescr& x, VarDescr& y, AnyV or
   if (x.is_int_const() && y.is_int_const()) {
     r.set_const(div(x.int_const, y.int_const, round_mode));
     if (!r.int_const->is_valid()) {
-      fire(origin, *y.int_const == 0 ? "division by zero" : "integer overflow");
+      err(*y.int_const == 0 ? "division by zero" : "integer overflow").fire(origin);
     }
     x.unused();
     y.unused();
@@ -705,7 +705,7 @@ static AsmOp compile_div_internal(VarDescr& r, VarDescr& x, VarDescr& y, AnyV or
   r.val = emulate_div(x.val, y.val);
   if (y.is_int_const()) {
     if (*y.int_const == 0) {
-      fire(origin, "division by zero");
+      err("division by zero").fire(origin);
     }
     if (*y.int_const == 1 && x.always_finite()) {
       y.unused();
@@ -744,7 +744,7 @@ static AsmOp compile_mod(std::vector<VarDescr>& res, std::vector<VarDescr>& args
   if (x.is_int_const() && y.is_int_const()) {
     r.set_const(mod(x.int_const, y.int_const, round_mode));
     if (!r.int_const->is_valid()) {
-      fire(origin, *y.int_const == 0 ? "division by zero" : "integer overflow");
+      err(*y.int_const == 0 ? "division by zero" : "integer overflow").fire(origin);
     }
     x.unused();
     y.unused();
@@ -753,7 +753,7 @@ static AsmOp compile_mod(std::vector<VarDescr>& res, std::vector<VarDescr>& args
   r.val = emulate_mod(x.val, y.val);
   if (y.is_int_const()) {
     if (*y.int_const == 0) {
-      fire(origin, "division by zero");
+      err("division by zero").fire(origin);
     }
     if ((*y.int_const == 1 || *y.int_const == -1) && x.always_finite()) {
       x.unused();
@@ -785,7 +785,7 @@ static AsmOp compile_muldiv(std::vector<VarDescr>& res, std::vector<VarDescr>& a
   if (x.is_int_const() && y.is_int_const() && z.is_int_const()) {
     r.set_const(muldiv(x.int_const, y.int_const, z.int_const, round_mode));
     if (!r.int_const->is_valid()) {
-      fire(origin, *z.int_const == 0 ? "division by zero" : "integer overflow");
+      err(*z.int_const == 0 ? "division by zero" : "integer overflow").fire(origin);
     }
     x.unused();
     y.unused();
@@ -804,7 +804,7 @@ static AsmOp compile_muldiv(std::vector<VarDescr>& res, std::vector<VarDescr>& a
   r.val = emulate_div(emulate_mul(x.val, y.val), z.val);
   if (z.is_int_const()) {
     if (*z.int_const == 0) {
-      fire(origin, "division by zero");
+      err("division by zero").fire(origin);
     }
     if (*z.int_const == 1) {
       z.unused();
@@ -1192,7 +1192,7 @@ static AsmOp compile_slice_sdbeginsq(std::vector<VarDescr>& res, std::vector<Var
     StructData::PackOpcode opcode(prefix.int_const->to_long(), static_cast<int>(prefix_len.int_const->to_long()));
     return AsmOp::Custom(origin, opcode.format_as_slice() + " SDBEGINSQ", 0, 1);
   }
-  fire(origin, "slice.tryStripPrefix can be used only with constant arguments");
+  err("slice.tryStripPrefix can be used only with constant arguments").fire(origin);
 }
 
 // fun slice.skipBits(mutate self, len: int): self    "SDSKIPFIRST"
@@ -1249,7 +1249,7 @@ static AsmOp compile_debug_print_to_string(std::vector<VarDescr>&, std::vector<V
     return AsmOp::Custom(origin, "s0 DUMP DROP", 1, 1);
   }
   if (n > 15) {
-    fire(origin, "call overflow, exceeds 15 elements");
+    err("call overflow, exceeds 15 elements").fire(origin);
   }
   std::string cmd;
   for (int i = n - 1; i >= 0; --i) {
@@ -1265,7 +1265,7 @@ static AsmOp compile_any_object_to_tuple(std::vector<VarDescr>& res, std::vector
   tolk_assert(res.size() == 1);
   int n = static_cast<int>(args.size());
   if (n > 15) {
-    fire(origin, "call overflow, exceeds 15 elements");
+    err("call overflow, exceeds 15 elements").fire(origin);
   }
   return exec_op(origin, std::to_string(args.size()) + " TUPLE", n, 1);
 }

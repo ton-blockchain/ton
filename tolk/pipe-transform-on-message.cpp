@@ -57,14 +57,14 @@ struct TransformOnInternalMessageReplacer final : ASTReplacerInFunctionBody {
 
   static void validate_onBouncedMessage(FunctionPtr f) {
     if (f->inferred_return_type != TypeDataVoid::create() && f->inferred_return_type != TypeDataNever::create()) {
-      fire(f, f->ident_anchor, "`onBouncedMessage` should return `void`");
+      err("`onBouncedMessage` should return `void`").fire(f->ident_anchor, f);
     }
     if (f->get_num_params() != 1) {
-      fire(f, f->ident_anchor, "`onBouncedMessage` should have one parameter `InMessageBounced`");
+      err("`onBouncedMessage` should have one parameter `InMessageBounced`").fire(f->ident_anchor, f);
     }
     const auto* t_struct = f->get_param(0).declared_type->try_as<TypeDataStruct>();
     if (!t_struct || t_struct->struct_ref->name != "InMessageBounced") {
-      fire(f, f->ident_anchor, "`onBouncedMessage` should have one parameter `InMessageBounced`");
+      err("`onBouncedMessage` should have one parameter `InMessageBounced`").fire(f->ident_anchor, f);
     }
   }
 
@@ -72,7 +72,7 @@ protected:
   AnyExprV replace(V<ast_reference> v) override {
     // don't allow `var v = in` or passing `in` to another function (only `in.someField` is allowed)
     if (v->sym == param_ref) {
-      fire(cur_f, v, "using `" + param_ref->name + "` as an object is prohibited, because `InMessage` is a built-in struct, its fields are mapped to TVM instructions\nhint: use `" + param_ref->name + ".senderAddress` and other fields directly");
+      err("using `{}` as an object is prohibited, because `InMessage` is a built-in struct, its fields are mapped to TVM instructions\n""hint: use `{}.senderAddress` and other fields directly", param_ref->name, param_ref->name).fire(v, cur_f);
     }
     return parent::replace(v);
   }
@@ -81,7 +81,7 @@ protected:
     // replace `in.senderAddress` / `in.valueCoins` with an aux vertex
     if (v->get_obj()->kind == ast_reference && v->get_obj()->as<ast_reference>()->sym == param_ref) {
       if (v->is_lvalue && v->get_field_name() != "body" && v->get_field_name() != "bouncedBody") {
-        fire(cur_f, v, "modifying an immutable variable\nhint: fields of InMessage can be used for reading only");
+        err("modifying an immutable variable\n""hint: fields of InMessage can be used for reading only").fire(v, cur_f);
       }
 
       ASTAuxData* aux_getField = new AuxData_OnInternalMessage_getField(cur_f, v->get_field_name());

@@ -188,7 +188,7 @@ static void check_lazy_operator_used_correctly(FunctionPtr cur_f, V<ast_lazy_ope
   bool is_ok_call = v->get_expr()->kind == ast_function_call
                  && does_function_satisfy_for_lazy_operator(v->get_expr()->as<ast_function_call>()->fun_maybe);
   if (!is_ok_call) {
-    fire(cur_f, v->keyword_range(), "`lazy` operator can only be used with built-in functions like fromCell/fromSlice or simple wrappers over them");
+    err("`lazy` operator can only be used with built-in functions like fromCell/fromSlice or simple wrappers over them").fire(v->keyword_range(), cur_f);
   }
 
   // it should be either a struct or a union of structs
@@ -198,11 +198,11 @@ static void check_lazy_operator_used_correctly(FunctionPtr cur_f, V<ast_lazy_ope
   }
   if (const TypeDataUnion* expr_union = expr_type->unwrap_alias()->try_as<TypeDataUnion>()) {
     if (TypePtr wrong_variant = is_union_type_prevented_from_lazy_loading(expr_union)) {
-      fire(cur_f, v->keyword_range(), "`lazy` union should contain only structures, but it contains `" + wrong_variant->as_human_readable() + "`");
+      err("`lazy` union should contain only structures, but it contains `{}`", wrong_variant).fire(v->keyword_range(), cur_f);
     }
     return;
   }
-  fire(cur_f, v->keyword_range(), "`lazy` is applicable to structs, not to `" + expr_type->as_human_readable() + "`");
+  err("`lazy` is applicable to structs, not to `{}`", expr_type).fire(v->keyword_range(), cur_f);
 }
 
 // Given `storage.save()` for a lazy `storage` variable, check if `self` inside should gain laziness.
@@ -567,7 +567,7 @@ struct LazyVarInFunction {
     const TypeDataStruct* t_struct = var_ref->declared_type->unwrap_alias()->try_as<TypeDataStruct>();
     bool is_union = t_struct == nullptr;
     if (is_union) {
-      fire(cur_f, created_by_lazy_op->keyword_range(), "`lazy` will not work here, because variable `" + var_ref->name + "` it's used in a non-lazy manner\nhint: lazy union may be used only in `match` statement");
+      err("`lazy` will not work here, because variable `{}` it's used in a non-lazy manner\n""hint: lazy union may be used only in `match` statement", var_ref).fire(created_by_lazy_op->keyword_range(), cur_f);
     }
 
     // so, it's just a struct, `lazy Point`; we've already calculated all statements where its fields are used
@@ -863,7 +863,7 @@ protected:
     }
 
     // for `return lazy ...` and other cases except allowed
-    fire(cur_f, v->keyword_range(), "incorrect `lazy` operator usage, it's not directly assigned to a variable\nhint: use `lazy` like this:\n> var st = lazy MyStorage.fromSlice(...)");
+    err("incorrect `lazy` operator usage, it's not directly assigned to a variable\n""hint: use `lazy` like this:\n> var st = lazy MyStorage.fromSlice(...)").fire(v->keyword_range(), cur_f);
   }
 
 public:
@@ -1004,7 +1004,7 @@ class CheckExpectLazyAssertionsVisitor final : public ASTVisitorFunctionBody {
           }
 
           if (actual != expected) {
-            fire(cur_stmt, "__expect_lazy failed: actual \"" + actual + "\"");
+            err("__expect_lazy failed: actual \"{}\"", actual).fire(SrcRange::span(cur_stmt->range, 13));
           }
         }
       }

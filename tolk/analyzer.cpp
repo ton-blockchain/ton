@@ -502,7 +502,7 @@ bool Op::compute_used_vars(const CodeBlob& code, bool edit) {
       return set_var_info(std::move(merge_info));
     }
     default:
-      fire(origin, "unknown operation in compute_used_vars()");
+      err("unknown operation in compute_used_vars()").fire(origin);
   }
 }
 
@@ -629,7 +629,7 @@ bool prune_unreachable(std::unique_ptr<Op>& ops) {
       break;
     }
     default:
-      fire(op.origin, "unknown operation in prune_unreachable()");
+      err("unknown operation in prune_unreachable()").fire(op.origin);
   }
   if (reach) {
     return prune_unreachable(op.next);
@@ -643,7 +643,7 @@ bool prune_unreachable(std::unique_ptr<Op>& ops) {
 
 void CodeBlob::prune_unreachable_code() {
   if (prune_unreachable(ops)) {
-    fire(fun_ref, fun_ref->ident_anchor, "control reaches end of function (stack is malformed, a compiler bug)");
+    err("control reaches end of function (stack is malformed, a compiler bug)").fire(fun_ref->ident_anchor, fun_ref);
   }
 }
 
@@ -835,7 +835,7 @@ VarDescrList Op::fwd_analyze(VarDescrList values) {
       break;
     }
     default:
-      fire(origin, "unknown operation in fwd_analyze()");
+      err("unknown operation in fwd_analyze()").fire(origin);
   }
   if (next) {
     return next->fwd_analyze(std::move(values));
@@ -932,7 +932,7 @@ bool Op::mark_noreturn() {
       block0->mark_noreturn();
       return set_noreturn(next->mark_noreturn());
     default:
-      fire(origin, "unknown operation in mark_noreturn()");
+      err("unknown operation in mark_noreturn()").fire(origin);
   }
 }
 

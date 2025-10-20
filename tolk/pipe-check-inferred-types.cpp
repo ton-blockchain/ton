@@ -21,22 +21,6 @@
 
 namespace tolk {
 
-GNU_ATTRIBUTE_NOINLINE
-static std::string to_string(TypePtr type) {
-  return "`" + type->as_human_readable() + "`";
-}
-
-GNU_ATTRIBUTE_NOINLINE
-static std::string to_string(AnyExprV v_with_type) {
-  return "`" + v_with_type->inferred_type->as_human_readable() + "`";
-}
-
-GNU_ATTRIBUTE_NOINLINE
-static std::string to_string(std::string_view string_view) {
-  return static_cast<std::string>(string_view);
-}
-
-GNU_ATTRIBUTE_NOINLINE
 static std::string expression_as_string(AnyExprV v) {
   if (auto v_ref = v->try_as<ast_reference>()) {
     if (v_ref->sym->try_as<LocalVarPtr>() || v_ref->sym->try_as<GlobalVarPtr>()) {
@@ -49,51 +33,45 @@ static std::string expression_as_string(AnyExprV v) {
   return "expression";
 }
 
-// fire a general error on type mismatch; for example, "can not assign `cell` to `slice`";
+// make a general error on type mismatch; for example, "can not assign `cell` to `slice`";
 // for instance, if `as` operator is applicable, compiler will suggest it
-GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-// todo not range but at
-static void fire_type_mismatch(FunctionPtr cur_f, SrcRange range, const char* text_tpl, TypePtr src, TypePtr dst) {
+static Error err_type_mismatch(const char* text_tpl, TypePtr src, TypePtr dst) {
 #ifdef TOLK_DEBUG
   tolk_assert(!dst->can_rhs_be_assigned(src));
 #endif
   std::string message = text_tpl;
-  message.replace(message.find("{src}"), 5, to_string(src));
-  message.replace(message.find("{dst}"), 5, to_string(dst));
+  message.replace(message.find("{src}"), 5, "`" + src->as_human_readable() + "`");
+  message.replace(message.find("{dst}"), 5, "`" + dst->as_human_readable() + "`");
   if (src->can_be_casted_with_as_operator(dst)) {
     bool suggest_as = !dst->try_as<TypeDataTensor>() && !dst->try_as<TypeDataBrackets>();
     if ((src == TypeDataAddress::create() || src == TypeDataSlice::create()) && (dst == TypeDataAddress::create() || dst == TypeDataSlice::create())) {
-      message += "\nhint: unlike FunC, Tolk has a special type `address` (which is slice at the TVM level);";
-      message += "\n      most likely, you just need `address` everywhere";
-      message += "\nhint: alternatively, use `as` operator for unsafe casting: `<some_expr> as " + dst->as_human_readable() + "`";
+      message += "\n""hint: unlike FunC, Tolk has a special type `address` (which is slice at the TVM level);";
+      message += "\n""      most likely, you just need `address` everywhere";
+      message += "\n""hint: alternatively, use `as` operator for unsafe casting: `<some_expr> as " + dst->as_human_readable() + "`";
     } else if (suggest_as) {
-      message += "\nhint: use `as` operator for unsafe casting: `<some_expr> as " + dst->as_human_readable() + "`";
+      message += "\n""hint: use `as` operator for unsafe casting: `<some_expr> as " + dst->as_human_readable() + "`";
     }
     if (src == TypeDataBool::create() && dst == TypeDataInt::create()) {
-      message += "\ncaution! in TVM, bool TRUE is -1, not 1";
+      message += "\n""caution! in TVM, bool TRUE is -1, not 1";
     }
   }
   if (const TypeDataUnion* src_nullable = src->try_as<TypeDataUnion>(); src_nullable && src_nullable->or_null) {
     if (dst->can_rhs_be_assigned(src_nullable->or_null)) {
-      message += "\nhint: probably, you should check on null";
-      message += "\nhint: alternatively, use `!` operator to bypass nullability checks: `<some_expr>!`";
+      message += "\n""hint: probably, you should check on null";
+      message += "\n""hint: alternatively, use `!` operator to bypass nullability checks: `<some_expr>!`";
     }
   }
-  fire(cur_f, range, message);
+  return err("{}", message);
 }
 
-// fire an error on `!cell` / `+slice`
-GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-static void fire_cannot_apply_operator(FunctionPtr cur_f, SrcRange operator_range, std::string_view operator_name, AnyExprV unary_expr) {
-  std::string op = static_cast<std::string>(operator_name);
-  fire(cur_f, operator_range, "can not apply operator `" + op + "` to " + to_string(unary_expr->inferred_type));
+// make an error on `!cell` / `+slice`
+static Error err_cannot_apply_operator(std::string_view operator_name, AnyExprV unary_expr) {
+  return err("can not apply operator `{}` to `{}`", operator_name, unary_expr->inferred_type);
 }
 
-// fire an error on `int + cell` / `slice & int`
-GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-static void fire_cannot_apply_operator(FunctionPtr cur_f, SrcRange operator_range, std::string_view operator_name, AnyExprV lhs, AnyExprV rhs) {
-  std::string op = static_cast<std::string>(operator_name);
-  fire(cur_f, operator_range, "can not apply operator `" + op + "` to " + to_string(lhs->inferred_type) + " and " + to_string(rhs->inferred_type));
+// make an error on `int + cell` / `slice & int`
+static Error err_cannot_apply_operator(std::string_view operator_name, AnyExprV lhs, AnyExprV rhs) {
+  return err("can not apply operator `{}` to `{}` and `{}`", operator_name, lhs->inferred_type, rhs->inferred_type);
 }
 
 GNU_ATTRIBUTE_NOINLINE
@@ -102,16 +80,16 @@ static void warning_condition_always_true_or_false(FunctionPtr cur_f, SrcRange k
   if (no_warning) {     // allow `while(true)` without a warning
     return;
   }
-  compilation_warning(cur_f, keyword_range, "condition of " + static_cast<std::string>(operator_name) + " is always " + (cond->is_always_true ? "true" : "false"));
+  err("condition of {} is always {}", operator_name, cond->is_always_true).warning(keyword_range, cur_f);
 }
 
 // given `f(x: int)` and a call `f(expr)`, check that expr_type is assignable to `int`
 static void check_function_argument_passed(FunctionPtr cur_f, TypePtr param_type, AnyExprV ith_arg, bool is_obj_of_dot_call) {
   if (!param_type->can_rhs_be_assigned(ith_arg->inferred_type)) {
     if (is_obj_of_dot_call) {
-      fire(cur_f, ith_arg, "can not call method for " + to_string(param_type) + " with object of type " + to_string(ith_arg));
+      err("can not call method for `{}` with object of type `{}`", param_type, ith_arg->inferred_type).fire(ith_arg, cur_f);
     } else {
-      fire_type_mismatch(cur_f, ith_arg->range, "can not pass {src} to {dst}", ith_arg->inferred_type, param_type);
+      err_type_mismatch("can not pass {src} to {dst}", ith_arg->inferred_type, param_type).fire(ith_arg, cur_f);
     }
   }
 }
@@ -121,29 +99,24 @@ static void check_function_argument_passed(FunctionPtr cur_f, TypePtr param_type
 static void check_function_argument_mutate_back(FunctionPtr cur_f, TypePtr param_type, AnyExprV ith_arg, bool is_obj_of_dot_call) {
   if (!ith_arg->inferred_type->can_rhs_be_assigned(param_type)) {
     if (is_obj_of_dot_call) {
-      fire(cur_f, ith_arg,"can not call method for mutate " + to_string(param_type) + " with object of type " + to_string(ith_arg) + ", because mutation is not type compatible");
+      err("can not call method for mutate `{}` with object of type `{}`, because mutation is not type compatible", param_type, ith_arg->inferred_type).fire(ith_arg, cur_f);
     } else {
-      fire(cur_f, ith_arg,"can not pass " + to_string(ith_arg) + " to mutate " + to_string(param_type) + ", because mutation is not type compatible");
+      err("can not pass `{}` to mutate `{}`, because mutation is not type compatible", ith_arg->inferred_type, param_type).fire(ith_arg, cur_f);
     }
   }
 }
 
-// fire an error on `var n = null`
+// make an error on `var n = null`
 // technically it's correct, type of `n` is TypeDataNullLiteral, but it's not what the user wanted
 // so, it's better to see an error on assignment, that later, on `n` usage and types mismatch
 // (most common is situation above, but generally, `var (x,n) = xn` where xn is a tensor with 2-nd always-null, can be)
-GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-// todo pass not range
-static void fire_assign_always_null_to_variable(FunctionPtr cur_f, SrcRange range, LocalVarPtr assigned_var, bool is_assigned_null_literal) {
-  std::string var_name = assigned_var->name;
-  fire(cur_f, range, "can not infer type of `" + var_name + "`, it's always null\nspecify its type with `" + var_name + ": <type>`" + (is_assigned_null_literal ? " or use `null as <type>`" : ""));
+static Error err_assign_always_null_to_variable(LocalVarPtr assigned_var, bool is_assigned_null_literal) {
+  return err("can not infer type of `{}`, it's always null\nspecify its type with `{}: <type>`{}", assigned_var, assigned_var, (is_assigned_null_literal ? " or use `null as <type>`" : ""));
 }
 
-// fire an error on `untypedTupleVar.0` when inferred as (int,int), or `[int, (int,int)]`, or other non-1 width in a tuple
-GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-// todo pass not ra
-static void fire_cannot_put_non1_stack_width_arg_to_tuple(FunctionPtr cur_f, SrcRange range, TypePtr inferred_type) {
-  fire(cur_f, range, "a tuple can not have " + to_string(inferred_type) + " inside, because it occupies " + std::to_string(inferred_type->get_width_on_stack()) + " stack slots in TVM, not 1");
+// make an error on `untypedTupleVar.0` when inferred as (int,int), or `[int, (int,int)]`, or other non-1 width in a tuple
+static Error err_cannot_put_non1_stack_width_arg_to_tuple(TypePtr inferred_type) {
+  return err("a tuple can not have `{}` inside, because it occupies {} stack slots in TVM, not 1", inferred_type, inferred_type->get_width_on_stack());
 }
 
 // handle __expect_type(expr, "type") call
@@ -158,7 +131,7 @@ static void handle_possible_compiler_internal_call(FunctionPtr cur_f, V<ast_func
     std::string_view expected_type_str = v->get_arg(1)->get_expr()->as<ast_string_const>()->str_val;
     TypePtr expr_type = v->get_arg(0)->inferred_type;
     if (expected_type_str != expr_type->as_human_readable()) {
-      fire(cur_f, v, "__expect_type failed: expected `" + to_string(expected_type_str) + "`, got " + to_string(expr_type));
+      err("__expect_type failed: expected `{}`, got `{}`", expected_type_str, expr_type).fire(v, cur_f);
     }
   }
 }
@@ -238,7 +211,7 @@ protected:
     }
     // using += for other types (e.g. `tensorVar += tensorVar`) is not allowed
     if (!types_ok) {
-      fire_cannot_apply_operator(cur_f, v->operator_range, v->operator_name, lhs, rhs);
+      err_cannot_apply_operator(v->operator_name, lhs, rhs).fire(v->operator_range, cur_f);
     }
   }
 
@@ -249,12 +222,12 @@ protected:
     switch (v->tok) {
       case tok_logical_not:
         if (!expect_integer(rhs) && !expect_boolean(rhs)) {
-          fire_cannot_apply_operator(cur_f, v->operator_range, v->operator_name, rhs);
+          err_cannot_apply_operator(v->operator_name, rhs).fire(v->operator_range, cur_f);
         }
         break;
       default:
         if (!expect_integer(rhs)) {
-          fire_cannot_apply_operator(cur_f, v->operator_range, v->operator_name, rhs);
+          err_cannot_apply_operator(v->operator_name, rhs).fire(v->operator_range, cur_f);
         }
     }
   }
@@ -275,9 +248,9 @@ protected:
         bool not_integer_comparison = false;
         if (!check_eq_neq_operator(lhs->inferred_type, rhs->inferred_type, not_integer_comparison)) {
           if (lhs->inferred_type->equal_to(rhs->inferred_type)) {  // compare slice with slice, int? with int?
-            fire(cur_f, v->operator_range, "type " + to_string(lhs) + " can not be compared with `== !=`");
+            err("type `{}` can not be compared with `== !=`", lhs->inferred_type).fire(v->operator_range, cur_f);
           } else {
-            fire_cannot_apply_operator(cur_f, v->operator_range, v->operator_name, lhs, rhs);
+            err_cannot_apply_operator(v->operator_name, lhs, rhs).fire(v->operator_range, cur_f);
           }
         } 
         if (not_integer_comparison) {    // special handling at IR generation like for `address`
@@ -292,7 +265,7 @@ protected:
       case tok_geq:
       case tok_spaceship:
         if (!expect_integer(lhs) || !expect_integer(rhs)) {
-          fire_cannot_apply_operator(cur_f, v->operator_range, v->operator_name, lhs, rhs);
+          err_cannot_apply_operator(v->operator_name, lhs, rhs).fire(v->operator_range, cur_f);
         }
         break;
       // & | ^ are "overloaded" both for integers and booleans, (int & bool) is NOT allowed
@@ -303,7 +276,7 @@ protected:
         bool both_int = expect_integer(lhs) && expect_integer(rhs);
         bool both_bool = expect_boolean(lhs) && expect_boolean(rhs);
         if (!both_int && !both_bool) {
-          fire_cannot_apply_operator(cur_f, v->operator_range, v->operator_name, lhs, rhs);
+          err_cannot_apply_operator(v->operator_name, lhs, rhs).fire(v->operator_range, cur_f);
         }
         break;
       }
@@ -313,7 +286,7 @@ protected:
         bool lhs_ok = expect_integer(lhs) || expect_boolean(lhs);
         bool rhs_ok = expect_integer(rhs) || expect_boolean(rhs);
         if (!lhs_ok || !rhs_ok) {
-          fire_cannot_apply_operator(cur_f, v->operator_range, v->operator_name, lhs, rhs);
+          err_cannot_apply_operator(v->operator_name, lhs, rhs).fire(v->operator_range, cur_f);
         }
         break;
       }
@@ -321,7 +294,7 @@ protected:
       // they are allowed for intN (int16 + int32 is ok) and always "fall back" to general int
       default:
         if (!expect_integer(lhs) || !expect_integer(rhs)) {
-          fire_cannot_apply_operator(cur_f, v->operator_range, v->operator_name, lhs, rhs);
+          err_cannot_apply_operator(v->operator_name, lhs, rhs).fire(v->operator_range, cur_f);
         }
     }
   }
@@ -330,7 +303,7 @@ protected:
     parent::visit(v->get_expr());
 
     if (!v->get_expr()->inferred_type->can_be_casted_with_as_operator(v->type_node->resolved_type)) {
-      fire(cur_f, v, "type " + to_string(v->get_expr()) + " can not be cast to " + to_string(v->type_node->resolved_type));
+      err("type `{}` can not be cast to `{}`", v->get_expr()->inferred_type, v->type_node->resolved_type).fire(v, cur_f);
     }
   }
 
@@ -339,14 +312,14 @@ protected:
     TypePtr rhs_type = v->type_node->resolved_type;
 
     if (rhs_type->unwrap_alias()->try_as<TypeDataUnion>()) {   // `v is T1 | T2` / `v is T?` is disallowed
-      fire(cur_f, v, "union types are not allowed, use concrete types in `is`");
+      err("union types are not allowed, use concrete types in `is`").fire(v, cur_f);
     }
 
     if ((v->is_always_true && !v->is_negated) || (v->is_always_false && v->is_negated)) {
-      compilation_warning(cur_f, v, expression_as_string(v->get_expr()) + " is always " + to_string(rhs_type) + ", this condition is always " + (v->is_always_true ? "true" : "false"));
+      err("{} is always `{}`, this condition is always {}", expression_as_string(v->get_expr()), rhs_type, v->is_always_true).warning(v, cur_f);
     }
     if ((v->is_always_false && !v->is_negated) || (v->is_always_true && v->is_negated)) {
-      compilation_warning(cur_f, v, expression_as_string(v->get_expr()) + " of type " + to_string(v->get_expr()) + " can never be " + to_string(rhs_type) + ", this condition is always " + (v->is_always_true ? "true" : "false"));
+      err("{} of type `{}` can never be `{}`, this condition is always {}", expression_as_string(v->get_expr()), v->get_expr()->inferred_type, rhs_type, v->is_always_true).warning(v, cur_f);
     }
   }
 
@@ -355,7 +328,7 @@ protected:
 
     if (v->get_expr()->inferred_type == TypeDataNullLiteral::create()) {
       // operator `!` used for always-null (proven by smart casts, for example), it's an error
-      fire(cur_f, v, "operator `!` used for always null expression");
+      err("operator `!` used for always null expression").fire(v, cur_f);
     }
     // if operator `!` used for non-nullable, probably a warning should be printed
   }
@@ -366,7 +339,7 @@ protected:
     for (int i = 0; i < v->size(); ++i) {
       AnyExprV item = v->get_item(i);
       if (item->inferred_type->get_width_on_stack() != 1) {
-        fire_cannot_put_non1_stack_width_arg_to_tuple(cur_f, v->get_item(i)->range, item->inferred_type);
+        err_cannot_put_non1_stack_width_arg_to_tuple(item->inferred_type).fire(v->get_item(i), cur_f);
       }
     }
   }
@@ -377,7 +350,7 @@ protected:
     if (v->is_target_indexed_access()) {
       TypePtr obj_type = v->get_obj()->inferred_type->unwrap_alias();
       if (v->inferred_type->get_width_on_stack() != 1 && (obj_type->try_as<TypeDataTuple>() || obj_type->try_as<TypeDataBrackets>())) {
-        fire_cannot_put_non1_stack_width_arg_to_tuple(cur_f, v->range, v->inferred_type);
+        err_cannot_put_non1_stack_width_arg_to_tuple(v->inferred_type).fire(v, cur_f);
       }
     }
   }
@@ -394,7 +367,7 @@ protected:
         auto arg_i = v->get_arg(i)->get_expr();
         TypePtr param_type = f_callable->params_types[i];
         if (!param_type->can_rhs_be_assigned(arg_i->inferred_type)) {
-          fire_type_mismatch(cur_f, arg_i->range, "can not pass {src} to {dst}", arg_i->inferred_type, param_type);
+          err_type_mismatch("can not pass {src} to {dst}", arg_i->inferred_type, param_type).fire(arg_i, cur_f);
         }
       }
       return;
@@ -456,11 +429,11 @@ protected:
       }
       if (declared_type) {
         if (!declared_type->can_rhs_be_assigned(rhs_type)) {
-          fire_type_mismatch(cur_f, err_loc->range, "can not assign {src} to variable of type {dst}", rhs_type, declared_type);
+          err_type_mismatch("can not assign {src} to variable of type {dst}", rhs_type, declared_type).fire(err_loc, cur_f);
         }
       } else {
         if (rhs_type == TypeDataNullLiteral::create()) {
-          fire_assign_always_null_to_variable(cur_f, err_loc->range, lhs_var->var_ref->try_as<LocalVarPtr>(), corresponding_maybe_rhs && corresponding_maybe_rhs->kind == ast_null_keyword);
+          err_assign_always_null_to_variable(lhs_var->var_ref->try_as<LocalVarPtr>(), corresponding_maybe_rhs && corresponding_maybe_rhs->kind == ast_null_keyword).fire(err_loc, cur_f);
         }
       }
       return;
@@ -471,10 +444,10 @@ protected:
     if (auto lhs_tensor = lhs->try_as<ast_tensor>()) {
       const TypeDataTensor* rhs_type_tensor = rhs_type->unwrap_alias()->try_as<TypeDataTensor>();
       if (!rhs_type_tensor) {
-        fire(cur_f, err_loc, "can not assign " + to_string(rhs_type) + " to a tensor");
+        err("can not assign `{}` to a tensor", rhs_type).fire(err_loc, cur_f);
       }
       if (lhs_tensor->size() != rhs_type_tensor->size()) {
-        fire(cur_f, err_loc, "can not assign " + to_string(rhs_type) + ", sizes mismatch");
+        err("can not assign `{}`, sizes mismatch", rhs_type).fire(err_loc, cur_f);
       }
       V<ast_tensor> rhs_tensor_maybe = corresponding_maybe_rhs ? corresponding_maybe_rhs->try_as<ast_tensor>() : nullptr;
       for (int i = 0; i < lhs_tensor->size(); ++i) {
@@ -488,10 +461,10 @@ protected:
     if (auto lhs_tuple = lhs->try_as<ast_bracket_tuple>()) {
       const TypeDataBrackets* rhs_type_tuple = rhs_type->unwrap_alias()->try_as<TypeDataBrackets>();
       if (!rhs_type_tuple) {
-        fire(cur_f, err_loc, "can not assign " + to_string(rhs_type) + " to a tuple");
+        err("can not assign `{}` to a tuple", rhs_type).fire(err_loc, cur_f);
       }
       if (lhs_tuple->size() != rhs_type_tuple->size()) {
-        fire(cur_f, err_loc, "can not assign " + to_string(rhs_type) + ", sizes mismatch");
+        err("can not assign `{}`, sizes mismatch", rhs_type).fire(err_loc, cur_f);
       }
       V<ast_bracket_tuple> rhs_tuple_maybe = corresponding_maybe_rhs ? corresponding_maybe_rhs->try_as<ast_bracket_tuple>() : nullptr;
       for (int i = 0; i < lhs_tuple->size(); ++i) {
@@ -504,7 +477,7 @@ protected:
     if (auto lhs_dot = lhs->try_as<ast_dot_access>()) {
       if (lhs_dot->is_target_indexed_access() && lhs_dot->get_obj()->inferred_type->unwrap_alias() == TypeDataTuple::create()) {
         if (rhs_type->get_width_on_stack() != 1) {
-          fire_cannot_put_non1_stack_width_arg_to_tuple(cur_f, err_loc->range, rhs_type);
+          err_cannot_put_non1_stack_width_arg_to_tuple(rhs_type).fire(err_loc, cur_f);
         }
       }
     }
@@ -514,11 +487,11 @@ protected:
     // for strange lhs like `f() = rhs` type checking will pass, but will fail lvalue check later
     if (!lhs->inferred_type->can_rhs_be_assigned(rhs_type)) {
       if (lhs->try_as<ast_reference>()) {
-        fire_type_mismatch(cur_f, err_loc->range, "can not assign {src} to variable of type {dst}", rhs_type, lhs->inferred_type);
+        err_type_mismatch("can not assign {src} to variable of type {dst}", rhs_type, lhs->inferred_type).fire(err_loc, cur_f);
       } else if (lhs->try_as<ast_dot_access>()) {
-        fire_type_mismatch(cur_f, err_loc->range, "can not assign {src} to field of type {dst}", rhs_type, lhs->inferred_type);
+        err_type_mismatch("can not assign {src} to field of type {dst}", rhs_type, lhs->inferred_type).fire(err_loc, cur_f);
       } else {
-        fire_type_mismatch(cur_f, err_loc->range, "can not assign {src} to {dst}", rhs_type, lhs->inferred_type);
+        err_type_mismatch("can not assign {src} to {dst}", rhs_type, lhs->inferred_type).fire(err_loc, cur_f);
       }
     }
   }
@@ -528,14 +501,14 @@ protected:
 
     if (cur_f->does_return_self()) {
       if (!is_expr_valid_as_return_self(v->get_return_value())) {
-        fire(cur_f, v, "invalid return from `self` function");
+        err("invalid return from `self` function").fire(v, cur_f);
       }
       return;
     }
 
     TypePtr expr_type = v->get_return_value()->inferred_type;
     if (!cur_f->inferred_return_type->can_rhs_be_assigned(expr_type)) {
-      fire_type_mismatch(cur_f, v->get_return_value()->range, "can not convert type {src} to return type {dst}", expr_type, cur_f->inferred_return_type);
+      err_type_mismatch("can not convert type {src} to return type {dst}", expr_type, cur_f->inferred_return_type).fire(v->get_return_value(), cur_f);
     }
   }
 
@@ -560,7 +533,7 @@ protected:
 
     AnyExprV cond = v->get_cond();
     if (!expect_integer(cond) && !expect_boolean(cond)) {
-      fire(cur_f, cond, "can not use " + to_string(cond) + " as a boolean condition");
+      err("can not use `{}` as a boolean condition", cond->inferred_type).fire(cond, cur_f);
     }
 
     if (cond->is_always_true || cond->is_always_false) {
@@ -587,57 +560,56 @@ protected:
       switch (v_arm->pattern_kind) {
         case MatchArmKind::exact_type: {
           if (has_expr_arm) {
-            // todo here and below: not v_arm as range, but before =>
-            fire(cur_f, v_arm, "can not mix type and expression patterns in `match`");
+            err("can not mix type and expression patterns in `match`").fire(v_arm->get_pattern_expr(), cur_f);
           }
           if (has_else_arm) {
-            fire(cur_f, v_arm, "`else` branch should be the last");
+            err("`else` branch should be the last").fire(v_arm->get_pattern_expr(), cur_f);
           }
           has_type_arm = true;
 
           TypePtr lhs_type = v_arm->pattern_type_node->resolved_type;   // `lhs_type => ...`
           if (lhs_type->unwrap_alias()->try_as<TypeDataUnion>()) {
-            fire(cur_f, v_arm, "wrong pattern matching: union types are not allowed, use concrete types in `match`");
+            err("wrong pattern matching: union types are not allowed, use concrete types in `match`").fire(v_arm->get_pattern_expr(), cur_f);
           }
           bool can_happen = (subject_union && subject_union->has_variant_equal_to(lhs_type)) ||
                            (!subject_union && subject_type->equal_to(lhs_type));
           if (!can_happen) {
-            fire(cur_f, v_arm, "wrong pattern matching: " + to_string(lhs_type) + " is not a variant of " + to_string(subject_type));
+            err("wrong pattern matching: `{}` is not a variant of `{}`", lhs_type, subject_type).fire(v_arm->get_pattern_expr(), cur_f);
           }
           auto it_mentioned = std::find_if(covered_types.begin(), covered_types.end(), [lhs_type](TypePtr existing) {
             return existing->equal_to(lhs_type);
           });
           if (it_mentioned != covered_types.end()) {
-            fire(cur_f, v_arm, "wrong pattern matching: duplicated " + to_string(lhs_type));
+            err("wrong pattern matching: duplicated `{}`", lhs_type).fire(v_arm->get_pattern_expr(), cur_f);
           }
           covered_types.push_back(lhs_type);
           break;
         }
         case MatchArmKind::const_expression: {
           if (has_type_arm) {
-            fire(cur_f, v_arm, "can not mix type and expression patterns in `match`");
+            err("can not mix type and expression patterns in `match`").fire(v_arm->get_pattern_expr(), cur_f);
           }
           if (has_else_arm) {
-            fire(cur_f, v_arm, "`else` branch should be the last");
+            err("`else` branch should be the last").fire(v_arm->get_pattern_expr(), cur_f);
           }
           has_expr_arm = true;
           TypePtr pattern_type = v_arm->get_pattern_expr()->inferred_type;
           bool not_integer_comparison = false;
           if (!check_eq_neq_operator(pattern_type, subject_type, not_integer_comparison) || not_integer_comparison) {
             if (pattern_type->equal_to(subject_type)) {   // `match` over `slice` etc., where operator `==` can't be applied
-              fire(cur_f, v_arm, "wrong pattern matching: can not compare type " + to_string(subject_type) + " in `match`");
+              err("wrong pattern matching: can not compare type `{}` in `match`", subject_type).fire(v_arm->get_pattern_expr(), cur_f);
             } else {
-              fire(cur_f, v_arm, "wrong pattern matching: can not compare type " + to_string(v_arm->get_pattern_expr()) + " with match subject of type " + to_string(v_subject));
+              err("wrong pattern matching: can not compare type `{}` with match subject of type `{}`", v_arm->get_pattern_expr()->inferred_type, v_subject->inferred_type).fire(v_arm->get_pattern_expr(), cur_f);
             }
           }
           if (subject_enum) {
             auto l_dot = v_arm->get_pattern_expr()->try_as<ast_dot_access>();
             if (!l_dot || !l_dot->is_target_enum_member()) {    // match (someColor) { anotherColor => } 
-              fire(cur_f, v_arm, "wrong pattern matching: `match` should contain members of a enum");
+              err("wrong pattern matching: `match` should contain members of a enum").fire(v_arm->get_pattern_expr(), cur_f);
             }
             EnumMemberPtr member_ref = std::get<EnumMemberPtr>(l_dot->target);
             if (std::find(covered_enum.begin(), covered_enum.end(), member_ref) != covered_enum.end()) {
-              fire(cur_f, v_arm, "wrong pattern matching: duplicated enum member in `match`");
+              err("wrong pattern matching: duplicated enum member in `match`").fire(v_arm->get_pattern_expr(), cur_f);
             }
             covered_enum.push_back(member_ref);
           }
@@ -645,7 +617,7 @@ protected:
         }
         default:
           if (has_else_arm) {
-            fire(cur_f, v_arm, "duplicated `else` branch");
+            err("duplicated `else` branch").fire(v_arm->get_pattern_expr(), cur_f);
           }
           if (has_type_arm) {
             // `else` is not allowed in `match` by type, but we don't fire an error here,
@@ -658,8 +630,7 @@ protected:
 
     // only `else` branch
     if (has_else_arm && !has_type_arm && !has_expr_arm) {
-      // todo not v range, but keyword, write te
-      fire(cur_f, v, "`match` contains only `else`, but no variants");
+      err("`match` contains only `else`, but no variants").fire(v->keyword_range(), cur_f);
     }
 
     // fire if `match` by type is not exhaustive
@@ -673,11 +644,10 @@ protected:
           if (!missing.empty()) {
             missing += ", ";
           }
-          missing += to_string(variant);
+          missing += "`" + variant->as_human_readable() + "`";
         }
       }
-      // todo not v->range but keyword
-      fire(cur_f, v, "`match` does not cover all possible types; missing types are: " + missing);
+      err("`match` does not cover all possible types; missing types are: {}", missing).fire(v->keyword_range(), cur_f);
     }
     // fire if `match` by enum is not exhaustive
     if (has_expr_arm && subject_enum && !has_else_arm && subject_enum->enum_ref->members.size() != covered_enum.size()) {
@@ -690,16 +660,14 @@ protected:
           missing += member_ref->name;
         }
       }
-      // todo not v->range but ke
-      fire(cur_f, v, "`match` does not cover all possible enum members; missing members are: " + missing);
+      err("`match` does not cover all possible enum members; missing members are: {}", missing).fire(v->keyword_range(), cur_f);
     }
     // fire if `match` by enum covers all cases, but contains `else`
     // (note that `else` for types could exist for a lazy match; for non-lazy, it's fired later)
     if (has_expr_arm && subject_enum && has_else_arm && subject_enum->enum_ref->members.size() == covered_enum.size()) {
       for (int i = 0; i < v->get_arms_count(); ++i) {
         if (auto v_arm = v->get_arm(i); v_arm->pattern_kind == MatchArmKind::else_branch) {
-          // todo not v_arm->range but before =>
-          fire(cur_f, v_arm, "`match` already covers all possible enum members, `else` is invalid");
+          err("`match` already covers all possible enum members, `else` is invalid").fire(v_arm->get_pattern_expr(), cur_f);
         }
       }
     }
@@ -712,8 +680,7 @@ protected:
         needs_else_branch = !(arm0 && arm1 && arm0->bool_val != arm1->bool_val);
       }
       if (needs_else_branch) {
-        // todo not v->range
-        fire(cur_f, v, "`match` expression should have `else` branch");
+        err("`match` expression should have `else` branch").fire(v->keyword_range(), cur_f);
       }
     }
   }
@@ -722,7 +689,7 @@ protected:
     parent::visit(v->get_init_val());
 
     if (!v->field_ref->declared_type->can_rhs_be_assigned(v->get_init_val()->inferred_type)) {
-      fire_type_mismatch(cur_f, v->get_init_val()->range, "can not assign {src} to field of type {dst}", v->get_init_val()->inferred_type, v->field_ref->declared_type);
+      err_type_mismatch("can not assign {src} to field of type {dst}", v->get_init_val()->inferred_type, v->field_ref->declared_type).fire(v->get_init_val(), cur_f);
     }
   }
 
@@ -731,7 +698,7 @@ protected:
 
     AnyExprV cond = v->get_cond();
     if (!expect_integer(cond) && !expect_boolean(cond)) {
-      fire(cur_f, cond, "can not use " + to_string(cond) + " as a boolean condition");
+      err("can not use `{}` as a boolean condition", cond->inferred_type).fire(cond, cur_f);
     }
 
     if (cond->is_always_true || cond->is_always_false) {
@@ -744,7 +711,7 @@ protected:
 
     AnyExprV cond = v->get_cond();
     if (!expect_integer(cond)) {
-      fire(cur_f, cond, "condition of `repeat` must be an integer, got " + to_string(cond));
+      err("condition of `repeat` must be an integer, got `{}`", cond->inferred_type).fire(cond, cur_f);
     }
   }
 
@@ -753,7 +720,7 @@ protected:
 
     AnyExprV cond = v->get_cond();
     if (!expect_integer(cond) && !expect_boolean(cond)) {
-      fire(cur_f, cond, "can not use " + to_string(cond) + " as a boolean condition");
+      err("can not use `{}` as a boolean condition", cond->inferred_type).fire(cond, cur_f);
     }
 
     if (cond->is_always_true || cond->is_always_false) {
@@ -766,7 +733,7 @@ protected:
 
     AnyExprV cond = v->get_cond();
     if (!expect_integer(cond) && !expect_boolean(cond)) {
-      fire(cur_f, cond, "can not use " + to_string(cond) + " as a boolean condition");
+      err("can not use `{}` as a boolean condition", cond->inferred_type).fire(cond, cur_f);
     }
 
     if (cond->is_always_true || cond->is_always_false) {
@@ -778,10 +745,10 @@ protected:
     parent::visit(v);
 
     if (!expect_thrown_code(v->get_thrown_code()->inferred_type)) {
-      fire(cur_f, v->get_thrown_code(), "excNo of `throw` must be an integer, got " + to_string(v->get_thrown_code()));
+      err("excNo of `throw` must be an integer, got `{}`", v->get_thrown_code()->inferred_type).fire(v->get_thrown_code(), cur_f);
     }
     if (v->has_thrown_arg() && v->get_thrown_arg()->inferred_type->get_width_on_stack() != 1) {
-      fire(cur_f, v->get_thrown_arg(), "can not throw " + to_string(v->get_thrown_arg()) + ", exception arg must occupy exactly 1 stack slot");
+      err("can not throw `{}`, exception arg must occupy exactly 1 stack slot", v->get_thrown_arg()->inferred_type).fire(v->get_thrown_arg(), cur_f);
     }
   }
 
@@ -790,10 +757,10 @@ protected:
 
     AnyExprV cond = v->get_cond();
     if (!expect_integer(cond) && !expect_boolean(cond)) {
-      fire(cur_f, cond, "can not use " + to_string(cond) + " as a boolean condition");
+      err("can not use `{}` as a boolean condition", cond->inferred_type).fire(cond, cur_f);
     }
     if (!expect_thrown_code(v->get_thrown_code()->inferred_type)) {
-      fire(cur_f, v->get_thrown_code(), "thrown excNo of `assert` must be an integer, got " + to_string(v->get_thrown_code()));
+      err("thrown excNo of `assert` must be an integer, got `{}`", v->get_thrown_code()->inferred_type).fire(v->get_thrown_code(), cur_f);
     }
 
     if (cond->is_always_true || cond->is_always_false) {
@@ -809,7 +776,7 @@ protected:
       // (printing it while inferring might be a false positive if types are incorrect, due to smart casts for example)
       // a more correct approach would be to access cfg here somehow, but since cfg is now available only while inferring,
       // a special v->first_unreachable was set specifically for this warning (again, which is correct if types match)
-      compilation_warning(cur_f, v->first_unreachable, "unreachable code");
+      err("unreachable code").warning(v->first_unreachable, cur_f);
     }
   }
 
@@ -825,7 +792,7 @@ protected:
 
     if (fun_ref->is_implicit_return() && fun_ref->declared_return_type) {
       if (!fun_ref->declared_return_type->can_rhs_be_assigned(TypeDataVoid::create()) || fun_ref->does_return_self()) {
-        fire(fun_ref, SrcRange::empty_at_end(v_function->get_body()->range), "missing return");
+        err("missing return").fire(SrcRange::empty_at_end(v_function->get_body()->range), fun_ref);
       }
     }
 
@@ -836,7 +803,7 @@ protected:
 
         TypePtr inferred_type = param_ref->default_value->inferred_type;
         if (!param_ref->declared_type->can_rhs_be_assigned(inferred_type)) {
-          fire_type_mismatch(fun_ref, param_ref->default_value->range, "can not assign {src} to {dst}", inferred_type, param_ref->declared_type);
+          err_type_mismatch("can not assign {src} to {dst}", inferred_type, param_ref->declared_type).fire(param_ref->default_value, fun_ref);
         }
       }
     }
@@ -852,7 +819,7 @@ protected:
     if (const_ref->declared_type) {     // `const a: int = ...`
       TypePtr inferred_type = const_ref->init_value->inferred_type;
       if (!const_ref->declared_type->can_rhs_be_assigned(inferred_type)) {
-        fire_type_mismatch(nullptr, const_ref->init_value->range, "can not assign {src} to {dst}", inferred_type, const_ref->declared_type);
+        err_type_mismatch("can not assign {src} to {dst}", inferred_type, const_ref->declared_type).fire(const_ref->init_value);
       }
     }
   }
@@ -863,7 +830,7 @@ protected:
 
     TypePtr inferred_type = field_ref->default_value->inferred_type;
     if (!field_ref->declared_type->can_rhs_be_assigned(inferred_type)) {
-      fire_type_mismatch(nullptr, field_ref->default_value->range, "can not assign {src} to {dst}", inferred_type, field_ref->declared_type);
+      err_type_mismatch("can not assign {src} to {dst}", inferred_type, field_ref->declared_type).fire(field_ref->default_value);
     }
   }
 
@@ -873,7 +840,7 @@ protected:
 
     TypePtr inferred_type = member_ref->init_value->inferred_type;
     if (!inferred_type->equal_to(TypeDataInt::create()) && !inferred_type->equal_to(TypeDataEnum::create(enum_ref))) {
-      fire(member_ref->init_value, "enum member is " + to_string(inferred_type) + ", not `int`\nhint: all enums must be integers");
+      err("enum member is `{}`, not `int`\n""hint: all enums must be integers", inferred_type).fire(member_ref->init_value);
     }
   }
 };

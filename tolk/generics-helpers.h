@@ -18,7 +18,7 @@
 
 #include "src-file.h"
 #include "fwd-declarations.h"
-#include "td/utils/Status.h"
+#include "compilation-errors.h"
 #include <vector>
 
 namespace tolk {
@@ -104,7 +104,7 @@ public:
   TypePtr auto_deduce_from_argument(FunctionPtr cur_f, SrcRange range, TypePtr param_type, TypePtr arg_type);
   std::string_view get_first_not_deduced_nameT() const;
   void apply_defaults_from_declaration();
-  void fire_can_not_deduce(FunctionPtr cur_f, SrcRange range, std::string_view nameT) const;
+  Error err_can_not_deduce(std::string_view nameT) const;
 
   GenericsSubstitutions&& flush() {
     return std::move(deducedTs);

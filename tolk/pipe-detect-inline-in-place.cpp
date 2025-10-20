@@ -236,7 +236,7 @@ protected:
       tolk_assert(v_expect->get_num_args() == 1 && v_expect->get_arg(0)->get_expr()->kind == ast_bool_const);
       bool expected = v_expect->get_arg(0)->get_expr()->as<ast_bool_const>()->bool_val;
       if (expected != will_inline) {
-        fire(fun_ref, v_expect, "__expect_inline failed");
+        err("__expect_inline failed").fire(v_expect, fun_ref);
       }
     }
 
