@@ -229,9 +229,10 @@ void ValidatorManagerImpl::new_block_broadcast(BlockBroadcast broadcast, td::Pro
     }
     promise.set_result(std::move(R));
   };
-  td::actor::create_actor<ValidateBroadcast>("broadcast", std::move(broadcast), last_masterchain_block_handle_,
-                                             last_masterchain_state_, last_known_key_block_handle_, actor_id(this),
-                                             td::Timestamp::in(2.0), std::move(promise))
+  BlockIdExt block_id = broadcast.block_id;
+  td::actor::create_actor<ValidateBroadcast>(
+      PSTRING() << "broadcast" << block_id.id.to_str(), std::move(broadcast), last_masterchain_block_handle_,
+      last_masterchain_state_, last_known_key_block_handle_, actor_id(this), td::Timestamp::in(2.0), std::move(promise))
       .release();
 }
 
