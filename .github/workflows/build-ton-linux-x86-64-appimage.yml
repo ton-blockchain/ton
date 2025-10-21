@@ -1,15 +1,17 @@
 name: Ubuntu TON build (AppImages, x86-64)
 
-on: [push,workflow_dispatch,workflow_call]
+on: [push, pull_request, workflow_dispatch, workflow_call]
 
 jobs:
   build:
+    if: github.repository == 'ton-blockchain/ton'
+
     runs-on: ubuntu-22.04
 
     steps:
     - name: Check out repository
       uses: actions/checkout@v3
-      with:      
+      with:
         submodules: 'recursive'
 
     - name: Date Stamp

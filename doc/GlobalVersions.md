@@ -237,6 +237,9 @@ This field does not represent fees. `ihr_fee` is always zero since version 11, s
 
 `(extra_flags & 1) = 1` enables the new bounce format for the message. The bounced message contains information about the transaction.
 If `(extra_flags & 3) = 3`, the bounced message contains the whole body of the original message. Otherwise, only the bits from the root of the original body are returned.
+
+All other bits in `extra_flags` are reserved for future use and are not allowed now (internal messages with flags other than `0..3` are invalid).
+
 When the message with new bounce flag is bounced, the bounced message body has the following format (`new_bounce_body`):
 ```
 _ value:CurrencyCollection created_lt:uint64 created_at:uint32 = NewBounceOriginalInfo;
@@ -262,6 +265,8 @@ new_bounce_body#fffffffe
 - `exit_code` - 32-bit exit code, see above.
 - `compute_phase` - exists if it was not skipped (`bounced_by_phase > 0`):
   - `gas_used`, `vm_steps` - same as in `TrComputePhase` of the transaction.
+
+The bounced message has the same 0th and 1st bits in `extra_flags` as the original message.
 
 ### New TVM instructions
 - `BTOS` (`b - s`) - same as `ENDC CTOS`, but without gas cost for cell creation and loading. Gas cost: `26`.
