@@ -8,7 +8,7 @@ defaults:
 
 jobs:
   build:
-    if: github.repository == 'ton-blockchain/ton'
+    
 
     runs-on: windows-2022
 
