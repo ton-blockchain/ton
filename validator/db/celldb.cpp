@@ -493,27 +493,28 @@ void CellDbIn::store_block_state_permanent(td::Ref<BlockData> block, td::Promise
                  td::Timestamp::now());
     return;
   }
-  store_block_state_permanent_bulk(
-      {block}, [=, SelfId = actor_id(this), promise = std::move(promise)](td::Result<td::Unit> R) mutable {
-        TRY_STATUS_PROMISE(promise, R.move_as_status());
-        block::gen::Block::Record rec;
-        if (!block::gen::unpack_cell(block->root_cell(), rec)) {
-          promise.set_error(td::Status::Error("cannot unpack Block record"));
-          return;
-        }
-        bool spec;
-        vm::CellSlice update_cs = vm::load_cell_slice_special(rec.state_update, spec);
-        if (update_cs.special_type() != vm::CellTraits::SpecialType::MerkleUpdate) {
-          promise.set_error(td::Status::Error("invalid Merkle update in block"));
-          return;
-        }
-        td::Ref<vm::Cell> new_state_root = update_cs.prefetch_ref(1);
-        RootHash state_root_hash = new_state_root->get_hash(0).bits();
-        td::actor::send_closure(SelfId, &CellDbIn::load_cell, state_root_hash, std::move(promise));
-      });
+  store_block_state_permanent_bulk({block}, [=, SelfId = actor_id(this), promise = std::move(promise)](
+                                                td::Result<std::map<BlockIdExt, RootHash>> R) mutable {
+    TRY_STATUS_PROMISE(promise, R.move_as_status());
+    block::gen::Block::Record rec;
+    if (!block::gen::unpack_cell(block->root_cell(), rec)) {
+      promise.set_error(td::Status::Error("cannot unpack Block record"));
+      return;
+    }
+    bool spec;
+    vm::CellSlice update_cs = vm::load_cell_slice_special(rec.state_update, spec);
+    if (update_cs.special_type() != vm::CellTraits::SpecialType::MerkleUpdate) {
+      promise.set_error(td::Status::Error("invalid Merkle update in block"));
+      return;
+    }
+    td::Ref<vm::Cell> new_state_root = update_cs.prefetch_ref(1);
+    RootHash state_root_hash = new_state_root->get_hash(0).bits();
+    td::actor::send_closure(SelfId, &CellDbIn::load_cell, state_root_hash, std::move(promise));
+  });
 }
 
-void CellDbIn::store_block_state_permanent_bulk(std::vector<td::Ref<BlockData>> blocks, td::Promise<td::Unit> promise) {
+void CellDbIn::store_block_state_permanent_bulk(std::vector<td::Ref<BlockData>> blocks,
+                                                td::Promise<std::map<BlockIdExt, RootHash>> promise) {
   if (!permanent_mode_) {
     promise.set_error(td::Status::Error("celldb is not in permanent mode"));
     return;
@@ -540,7 +541,7 @@ void CellDbIn::store_block_state_permanent_bulk(std::vector<td::Ref<BlockData>> 
     new_blocks[block_id] = std::move(block);
   }
   if (new_blocks.empty()) {
-    promise.set_value(td::Unit{});
+    promise.set_value(std::map<BlockIdExt, RootHash>{});
     return;
   }
   for (auto& [block_id, block] : new_blocks) {
@@ -574,7 +575,9 @@ void CellDbIn::store_block_state_permanent_bulk(std::vector<td::Ref<BlockData>> 
               vm::CellStorer stor{*cell_db_};
               cell_db_->begin_write_batch().ensure();
 
+              std::map<BlockIdExt, RootHash> state_root_hashes;
               for (auto& update : updates) {
+                state_root_hashes[update.block_id] = update.state_root_hash;
                 for (auto& [k, v] : update.to_store) {
                   cell_db_->set(k.as_slice(), v).ensure();
                 }
@@ -611,7 +614,7 @@ void CellDbIn::store_block_state_permanent_bulk(std::vector<td::Ref<BlockData>> 
                 cell_db_statistics_.store_cell_bulk_queries_++;
                 cell_db_statistics_.store_cell_bulk_total_blocks_ += updates.size();
               }
-              promise.set_result(td::Unit());
+              promise.set_result(std::move(state_root_hashes));
             });
       });
 }
@@ -1018,7 +1021,8 @@ void CellDb::store_block_state_permanent(td::Ref<BlockData> block, td::Promise<t
   td::actor::send_closure(cell_db_, &CellDbIn::store_block_state_permanent, std::move(block), std::move(promise));
 }
 
-void CellDb::store_block_state_permanent_bulk(std::vector<td::Ref<BlockData>> blocks, td::Promise<td::Unit> promise) {
+void CellDb::store_block_state_permanent_bulk(std::vector<td::Ref<BlockData>> blocks,
+                                              td::Promise<std::map<BlockIdExt, RootHash>> promise) {
   td::actor::send_closure(cell_db_, &CellDbIn::store_block_state_permanent_bulk, std::move(blocks), std::move(promise));
 }
 

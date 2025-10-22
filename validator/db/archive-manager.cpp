@@ -657,9 +657,13 @@ void ArchiveManager::load_package(PackageId id) {
 
 td::actor::ActorOwn<ArchiveSlice> ArchiveManager::create_archive_slice(const PackageId &id,
                                                                        td::uint32 shard_split_depth) {
-  return td::actor::create_actor<ArchiveSlice>(
+  auto actor = td::actor::create_actor<ArchiveSlice>(
       PSTRING() << "slice." << (id.temp ? "temp." : (id.key ? "key." : "")) << id.id, id.id, id.key, id.temp, false,
       shard_split_depth, db_root_, archive_lru_.get(), statistics_);
+  if (async_mode_) {
+    td::actor::send_closure(actor, &ArchiveSlice::set_async_mode, true, [](td::Result<td::Unit>) {});
+  }
+  return actor;
 }
 
 const ArchiveManager::FileDescription *ArchiveManager::get_file_desc(ShardIdFull shard, PackageId id, BlockSeqno seqno,
@@ -1199,23 +1203,8 @@ void ArchiveManager::get_archive_slice(td::uint64 archive_id, td::uint64 offset,
   td::actor::send_closure(F->file_actor_id(), &ArchiveSlice::get_slice, archive_id, offset, limit, std::move(promise));
 }
 
-void ArchiveManager::commit_transaction() {
-  if (!async_mode_ || huge_transaction_size_++ >= 100) {
-    index_->commit_transaction().ensure();
-    if (async_mode_) {
-      huge_transaction_size_ = 0;
-      huge_transaction_started_ = false;
-    }
-  }
-}
-
 void ArchiveManager::set_async_mode(bool mode, td::Promise<td::Unit> promise) {
   async_mode_ = mode;
-  if (!async_mode_ && huge_transaction_started_) {
-    index_->commit_transaction().ensure();
-    huge_transaction_size_ = 0;
-    huge_transaction_started_ = false;
-  }
 
   td::MultiPromise mp;
   auto ig = mp.init_guard();

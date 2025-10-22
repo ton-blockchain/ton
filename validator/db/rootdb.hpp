@@ -64,7 +64,7 @@ class RootDb : public Db {
                          td::Promise<td::Ref<ShardState>> promise) override;
   void store_block_state_from_data(BlockHandle handle, td::Ref<BlockData> block,
                                    td::Promise<td::Ref<ShardState>> promise) override;
-  void store_block_state_from_data_preliminary(std::vector<td::Ref<BlockData>> blocks,
+  void store_block_state_from_data_bulk(std::vector<td::Ref<BlockData>> blocks,
                                          td::Promise<td::Unit> promise) override;
   void get_block_state(ConstBlockHandle handle, td::Promise<td::Ref<ShardState>> promise) override;
   void store_block_state_part(BlockId effective_block, td::Ref<vm::Cell> cell,

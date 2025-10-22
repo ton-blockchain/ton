@@ -22,12 +22,10 @@
 #include "td/actor/MultiPromise.h"
 #include "common/checksum.h"
 #include "td/utils/port/path.h"
-#include "ton/ton-io.hpp"
 #include "downloaders/download-state.hpp"
 #include "block/block-auto.h"
 #include "td/actor/coro_utils.h"
-
-#include <delay.h>
+#include "validator/db/package.hpp"
 
 namespace ton {
 
@@ -64,11 +62,10 @@ td::actor::Task<td::Unit> ArchiveImporterLocal::run() {
       co_return td::Unit{};
     }
   }
-  LOG(WARNING) << "Imported archive in " << perf_timer_.elapsed()
-               << "s : mc_seqno=" << last_masterchain_state_->get_seqno()
-               << " shard_seqno=" << current_shard_client_seqno_;
-  promise_.set_value({last_masterchain_state_->get_seqno(),
-                      std::min<BlockSeqno>(last_masterchain_state_->get_seqno(), current_shard_client_seqno_)});
+  LOG(WARNING) << "Imported archive in " << perf_timer_.elapsed() << "s : mc_seqno=" << final_masterchain_state_seqno_
+               << " shard_seqno=" << final_shard_client_seqno_;
+  promise_.set_value({final_masterchain_state_seqno_,
+                      std::min<BlockSeqno>(final_masterchain_state_seqno_, final_shard_client_seqno_)});
   stop();
   co_return td::Unit{};
 }
@@ -79,8 +76,7 @@ td::actor::Task<td::Unit> ArchiveImporterLocal::run_inner() {
   co_await process_masterchain_blocks();
   co_await process_shard_blocks();
   co_await store_data();
-  co_await apply_masterchain_blocks();
-  co_await apply_shard_blocks();
+  co_await apply_blocks();
   co_return td::Unit{};
 }
 
@@ -169,6 +165,8 @@ td::Status ArchiveImporterLocal::process_package(std::string path) {
 }
 
 td::actor::Task<td::Unit> ArchiveImporterLocal::process_masterchain_blocks() {
+  final_masterchain_state_seqno_ = last_masterchain_state_->get_seqno();
+  final_shard_client_seqno_ = shard_client_seqno_;
   if (masterchain_blocks_.empty()) {
     LOG(INFO) << "No masterchain blocks in the archive";
     co_return td::Unit{};
@@ -234,6 +232,7 @@ td::actor::Task<td::Unit> ArchiveImporterLocal::import_first_key_block() {
 
   CHECK(state->get_block_id() == masterchain_blocks_.begin()->second);
   last_masterchain_state_ = state;
+  final_masterchain_state_seqno_ = state->get_seqno();
   imported_any_ = true;
   masterchain_blocks_.erase(masterchain_blocks_.begin());
   blocks_.erase(state->get_block_id());
@@ -249,7 +248,6 @@ td::actor::Task<td::Unit> ArchiveImporterLocal::check_masterchain_proofs() {
 
   for (auto &[_, block_id] : masterchain_blocks_) {
     auto &info = blocks_[block_id];
-    info.import = true;
     if (info.proof.is_null()) {
       co_return td::Status::Error(ErrorCode::protoviolation, "no masterchain block proof");
     }
@@ -270,6 +268,13 @@ td::actor::Task<td::Unit> ArchiveImporterLocal::check_masterchain_proofs() {
     CHECK(!handles[i]->merge_before());
     if (handles[i]->one_prev(true) != prev_block_id) {
       co_return td::Status::Error(ErrorCode::protoviolation, "prev block mismatch");
+    }
+    blocks_to_apply_mc_.push_back(block_id);
+    blocks_[block_id].import = true;
+    CHECK(handles[i]->inited_is_key_block());
+    if (handles[i]->is_key_block()) {
+      co_return td::Status::Error(ErrorCode::protoviolation,
+                                  "package contains a key block, and it is not the first block");
     }
     prev_block_id = block_id;
     ++i;
@@ -295,7 +300,6 @@ td::actor::Task<td::Unit> ArchiveImporterLocal::process_shard_blocks() {
   LOG(DEBUG) << "got_shard_client_state " << shard_client_seqno_;
   shard_client_state_ = state;
   new_shard_client_seqno_ = shard_client_seqno_;
-  current_shard_client_seqno_ = shard_client_seqno_;
   for (auto &shard : state->get_shards()) {
     visited_shard_blocks_.insert(shard->top_block_id());
   }
@@ -363,7 +367,6 @@ td::actor::Task<bool> ArchiveImporterLocal::try_advance_shard_client_seqno() {
     if (info.block.is_null()) {
       return td::Status::Error(PSTRING() << "no shard block " << block_id.to_str());
     }
-    blocks_to_import.push_back(block_id);
 
     std::vector<BlockIdExt> prev;
     BlockIdExt mc_blkid;
@@ -372,12 +375,12 @@ td::actor::Task<bool> ArchiveImporterLocal::try_advance_shard_client_seqno() {
     for (const BlockIdExt &prev_block_id : prev) {
       TRY_STATUS(dfs(prev_block_id));
     }
-
+    blocks_to_import.push_back(block_id);
     return td::Status::OK();
   };
   td::Status S = td::Status::OK();
   std::vector<BlockIdExt> top_shard_blocks;
-  shard_config->process_shard_hashes([&](block::McShardHash &shard) {
+  shard_config->process_shard_hashes([&](const block::McShardHash &shard) {
     if (!opts_->need_monitor(shard.shard(), shard_client_state_)) {
       return 0;
     }
@@ -396,6 +399,7 @@ td::actor::Task<bool> ArchiveImporterLocal::try_advance_shard_client_seqno() {
   ++new_shard_client_seqno_;
   LOG(DEBUG) << "Advancing shard client seqno to " << new_shard_client_seqno_;
   for (const BlockIdExt &block_id : blocks_to_import) {
+    blocks_to_apply_shards_.emplace_back(block_id, mc_block->block_id());
     blocks_[block_id].import = true;
   }
   co_return true;
@@ -405,23 +409,23 @@ td::actor::Task<td::Unit> ArchiveImporterLocal::store_data() {
   std::vector<td::actor::StartedTask<td::Unit>> tasks;
   if (opts_->get_permanent_celldb()) {
     std::vector<td::Ref<BlockData>> blocks;
-    for (auto &[_, info] : blocks_) {
+    for (auto &[block_id, info] : blocks_) {
       if (info.import) {
         blocks.push_back(info.block);
       }
     }
-    tasks.push_back(
-        td::actor::ask(manager_, &ValidatorManager::set_block_state_from_data_preliminary, std::move(blocks)));
+    tasks.push_back(td::actor::ask(manager_, &ValidatorManager::set_block_state_from_data_bulk, std::move(blocks)));
   }
   for (auto &[block_id, info] : blocks_) {
-    if (info.import) {
-      tasks.push_back(store_block_data(info.block).start());
-      if (info.proof_link.not_null()) {
-        auto [task, promise] = td::actor::StartedTask<BlockHandle>::make_bridge();
-        run_check_proof_link_query(block_id, info.proof_link, manager_, td::Timestamp::in(600.0), std::move(promise));
-        tasks.push_back(
-            std::move(task).then([](BlockHandle &&) -> td::actor::Task<td::Unit> { co_return td::Unit{}; }).start());
-      }
+    if (!info.import) {
+      continue;
+    }
+    tasks.push_back(store_block_data(info.block).start());
+    if (info.proof_link.not_null()) {
+      auto [task, promise] = td::actor::StartedTask<BlockHandle>::make_bridge();
+      run_check_proof_link_query(block_id, info.proof_link, manager_, td::Timestamp::in(600.0), std::move(promise));
+      tasks.push_back(
+          std::move(task).then([](BlockHandle &&) -> td::actor::Task<td::Unit> { co_return td::Unit{}; }).start());
     }
   }
   co_await td::actor::all(std::move(tasks));
@@ -434,78 +438,113 @@ td::actor::Task<td::Unit> ArchiveImporterLocal::store_block_data(td::Ref<BlockDa
   co_return td::Unit{};
 }
 
-td::actor::Task<td::Unit> ArchiveImporterLocal::apply_masterchain_blocks() {
-  while (true) {
-    auto it = masterchain_blocks_.find(last_masterchain_state_->get_seqno() + 1);
-    if (it == masterchain_blocks_.end()) {
-      LOG(INFO) << "Applied masterchain blocks, last seqno = " << last_masterchain_state_->get_seqno();
-      break;
+td::actor::Task<td::Unit> ArchiveImporterLocal::apply_blocks() {
+  LOG(WARNING) << "Applying " << blocks_to_apply_mc_.size() << " mc blocks, " << blocks_to_apply_shards_.size()
+               << " shard blocks";
+  if (opts_->get_permanent_celldb()) {
+    {
+      std::vector<td::actor::StartedTask<BlockHandle>> tasks_1;
+      for (const auto &block_id : blocks_to_apply_mc_) {
+        tasks_1.push_back(apply_block_1(block_id, block_id).start());
+      }
+      auto handles = co_await td::actor::all(std::move(tasks_1));
+      std::vector<td::actor::StartedTask<td::Unit>> tasks_2;
+      for (const auto &handle : handles) {
+        tasks_2.push_back(apply_block_2(handle).start());
+      }
+      co_await td::actor::all(std::move(tasks_2));
+      final_masterchain_state_seqno_ =
+          blocks_to_apply_mc_.empty() ? last_masterchain_state_->get_seqno() : blocks_to_apply_mc_.back().seqno();
+      if (!blocks_to_apply_mc_.empty()) {
+        imported_any_ = true;
+      }
     }
-    BlockIdExt block_id = it->second;
-    LOG(DEBUG) << "Applying masterchain block " << block_id.to_str();
-    BlockInfo &info = blocks_[block_id];
-    auto [task, promise] = td::actor::StartedTask<td::Unit>::make_bridge();
-    run_apply_block_query(block_id, info.block, block_id, manager_, td::Timestamp::in(600.0), std::move(promise));
-    co_await std::move(task);
-    auto state = td::Ref<MasterchainState>{
-        co_await td::actor::ask(manager_, &ValidatorManager::get_shard_state_from_db_short, block_id)};
-    last_masterchain_state_ = state;
-    imported_any_ = true;
-    LOG(DEBUG) << "Applied masterchain block " << state->get_block_id().to_str();
-  }
-  co_return td::Unit{};
-}
-
-td::actor::Task<td::Unit> ArchiveImporterLocal::apply_shard_blocks() {
-  while (current_shard_client_seqno_ < new_shard_client_seqno_) {
-    auto it = shard_configs_.find(current_shard_client_seqno_ + 1);
-    if (it == shard_configs_.end()) {
-      co_return td::Status::Error("no shard config for the next shard client seqno");
+    {
+      std::vector<td::actor::StartedTask<BlockHandle>> tasks_1;
+      for (const auto &[block_id, mc_block_id] : blocks_to_apply_shards_) {
+        tasks_1.push_back(apply_block_1(block_id, mc_block_id).start());
+      }
+      auto handles = co_await td::actor::all(std::move(tasks_1));
+      std::vector<td::actor::StartedTask<td::Unit>> tasks_2;
+      for (const auto &handle : handles) {
+        tasks_2.push_back(apply_block_2(handle).start());
+      }
+      co_await td::actor::all(std::move(tasks_2));
+      if (!blocks_to_apply_shards_.empty()) {
+        imported_any_ = true;
+      }
     }
-
-    BlockIdExt mc_block_id = it->second.first;
-    LOG(DEBUG) << "Applying top shard blocks from " << current_shard_client_seqno_ + 1;
-    std::vector<td::actor::Task<td::Unit>> tasks;
-    for (const BlockIdExt &block_id : it->second.second) {
-      tasks.push_back(apply_shard_block(block_id, mc_block_id));
-    }
-    co_await td::actor::all(std::move(tasks));
-    LOG(DEBUG) << "Applied top shard blocks from " << current_shard_client_seqno_ + 1;
-    ++current_shard_client_seqno_;
-    imported_any_ = true;
-  }
-  co_return td::Unit{};
-}
-
-td::actor::Task<td::Unit> ArchiveImporterLocal::apply_shard_block(BlockIdExt block_id, BlockIdExt mc_block_id) {
-  BlockHandle handle = co_await td::actor::ask(manager_, &ValidatorManager::get_block_handle, block_id, true);
-  if (handle->is_applied()) {
-    co_return td::Unit{};
-  }
-
-  if (!handle->merge_before() && handle->one_prev(true).shard_full() == handle->id().shard_full()) {
-    co_await apply_shard_block(handle->one_prev(true), mc_block_id);
   } else {
-    co_await check_block_applied(handle->one_prev(true));
-    if (handle->merge_before()) {
-      co_await check_block_applied(handle->one_prev(false));
+    for (const auto &block_id : blocks_to_apply_mc_) {
+      auto it = blocks_.find(block_id);
+      CHECK(it != blocks_.end());
+      td::Ref<BlockData> block = it->second.block;
+      CHECK(block.not_null());
+      auto [task, promise] = td::actor::StartedTask<td::Unit>::make_bridge();
+      run_apply_block_query(block_id, block, block_id, manager_, td::Timestamp::in(600.0), std::move(promise));
+      co_await std::move(task);
+      imported_any_ = true;
+      final_masterchain_state_seqno_ = block_id.seqno();
+    }
+    for (const auto &[block_id, mc_block_id] : blocks_to_apply_shards_) {
+      auto it = blocks_.find(block_id);
+      CHECK(it != blocks_.end());
+      td::Ref<BlockData> block = it->second.block;
+      CHECK(block.not_null());
+      auto [task, promise] = td::actor::StartedTask<td::Unit>::make_bridge();
+      run_apply_block_query(block_id, block, mc_block_id, manager_, td::Timestamp::in(600.0), std::move(promise));
+      co_await std::move(task);
+      imported_any_ = true;
     }
   }
-
-  td::Ref<BlockData> block = blocks_[handle->id()].block;
-  CHECK(block.not_null());
-  LOG(DEBUG) << "Applying shard block " << handle->id().to_str();
-  auto [task, promise] = td::actor::StartedTask<td::Unit>::make_bridge();
-  run_apply_block_query(handle->id(), std::move(block), mc_block_id, manager_, td::Timestamp::in(600.0),
-                        std::move(promise));
-  co_await (std::move(task));
+  final_shard_client_seqno_ = new_shard_client_seqno_;
   co_return td::Unit{};
 }
 
-td::actor::Task<td::Unit> ArchiveImporterLocal::check_block_applied(BlockIdExt block_id) {
-  BlockHandle handle = co_await td::actor::ask(manager_, &ValidatorManager::get_block_handle, block_id, false);
+td::actor::Task<BlockHandle> ArchiveImporterLocal::apply_block_1(BlockIdExt block_id, BlockIdExt mc_block_id) {
+  // Same as ApplyBlock, but in parallel and without setting "apply" flag
+  CHECK(block_id.seqno() != 0);
+  auto it = blocks_.find(block_id);
+  CHECK(it != blocks_.end());
+  td::Ref<BlockData> block = it->second.block;
+  CHECK(block.not_null());
+  LOG(DEBUG) << "Applying block " << block_id.to_str() << ", mc_block_seqno=" << mc_block_id.to_str();
+  BlockHandle handle = co_await td::actor::ask(manager_, &ValidatorManager::get_block_handle, block_id, true);
+
+  CHECK(!handle->id().is_masterchain() || handle->inited_proof());
+  CHECK(handle->id().is_masterchain() || handle->inited_proof_link());
+  CHECK(handle->inited_merge_before());
+  CHECK(handle->inited_split_after());
+  CHECK(handle->inited_prev());
+  CHECK(handle->inited_state_root_hash());
+  CHECK(handle->inited_logical_time());
+
+  td::Ref<ShardState> state =
+      co_await td::actor::ask(manager_, &ValidatorManager::wait_block_state, handle, 0, td::Timestamp::in(600.0), true);
+  CHECK(handle->received_state());
   if (!handle->is_applied()) {
-    co_return td::Status::Error(ErrorCode::notready, "not applied");
+    co_await td::actor::ask(manager_, &ValidatorManager::set_next_block, handle->one_prev(true), block_id);
+    if (handle->merge_before()) {
+      co_await td::actor::ask(manager_, &ValidatorManager::set_next_block, handle->one_prev(false), block_id);
+    }
+  }
+
+  if (!block_id.is_masterchain()) {
+    handle->set_masterchain_ref_block(mc_block_id.seqno());
+  }
+
+  co_await td::actor::ask(manager_, &ValidatorManager::new_block, handle, state);
+  co_return handle;
+}
+
+td::actor::Task<td::Unit> ArchiveImporterLocal::apply_block_2(BlockHandle handle) {
+  handle->set_applied();
+  CHECK(handle->handle_moved_to_archive());
+  CHECK(handle->moved_to_archive());
+  if (handle->need_flush()) {
+    auto [task, promise] = td::actor::StartedTask<td::Unit>::make_bridge();
+    handle->flush(manager_, handle, std::move(promise));
+    co_await std::move(task);
   }
   co_return td::Unit{};
 }

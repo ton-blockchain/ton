@@ -185,7 +185,7 @@ class ValidatorManagerImpl : public ValidatorManager {
                                  td::Promise<td::Ref<ShardState>> promise) override {
     UNREACHABLE();
   }
-  void set_block_state_from_data_preliminary(std::vector<td::Ref<BlockData>> blocks,
+  void set_block_state_from_data_bulk(std::vector<td::Ref<BlockData>> blocks,
                                              td::Promise<td::Unit> promise) override {
     UNREACHABLE();
   }

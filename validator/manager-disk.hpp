@@ -154,7 +154,7 @@ class ValidatorManagerImpl : public ValidatorManager {
                               td::Promise<td::Ref<vm::DataCell>> promise) override;
   void set_block_state_from_data(BlockHandle handle, td::Ref<BlockData> block,
                                  td::Promise<td::Ref<ShardState>> promise) override;
-  void set_block_state_from_data_preliminary(std::vector<td::Ref<BlockData>> blocks,
+  void set_block_state_from_data_bulk(std::vector<td::Ref<BlockData>> blocks,
                                              td::Promise<td::Unit> promise) override;
   void get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) override;
   void store_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id, PersistentStateType type,

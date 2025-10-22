@@ -76,7 +76,6 @@ class ArchiveManager : public td::actor::Actor {
   void start_up() override;
   void alarm() override;
 
-  void commit_transaction();
   void set_async_mode(bool mode, td::Promise<td::Unit> promise);
 
   void set_current_shard_split_depth(td::uint32 value) {
@@ -183,8 +182,6 @@ class ArchiveManager : public td::actor::Actor {
   td::actor::ActorOwn<ArchiveLru> archive_lru_;
   BlockSeqno finalized_up_to_{0};
   bool async_mode_ = false;
-  bool huge_transaction_started_ = false;
-  td::uint32 huge_transaction_size_ = 0;
   td::uint32 cur_shard_split_depth_ = 0;
 
   DbStatistics statistics_;

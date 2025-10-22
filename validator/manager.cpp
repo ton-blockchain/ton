@@ -1420,9 +1420,9 @@ void ValidatorManagerImpl::set_block_state_from_data(BlockHandle handle, td::Ref
   td::actor::send_closure(db_, &Db::store_block_state_from_data, handle, block, std::move(promise));
 }
 
-void ValidatorManagerImpl::set_block_state_from_data_preliminary(std::vector<td::Ref<BlockData>> blocks,
-                                                                 td::Promise<td::Unit> promise) {
-  td::actor::send_closure(db_, &Db::store_block_state_from_data_preliminary, std::move(blocks), std::move(promise));
+void ValidatorManagerImpl::set_block_state_from_data_bulk(std::vector<td::Ref<BlockData>> blocks,
+                                                          td::Promise<td::Unit> promise) {
+  td::actor::send_closure(db_, &Db::store_block_state_from_data_bulk, std::move(blocks), std::move(promise));
 }
 
 void ValidatorManagerImpl::get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) {
@@ -2169,7 +2169,7 @@ void ValidatorManagerImpl::prestart_sync() {
     R.ensure();
     td::actor::send_closure(SelfId, &ValidatorManagerImpl::download_next_archive);
   });
-  td::actor::send_closure(db_, &Db::set_async_mode, false, std::move(P));
+  td::actor::send_closure(db_, &Db::set_async_mode, true, std::move(P));
 }
 
 void ValidatorManagerImpl::download_next_archive() {

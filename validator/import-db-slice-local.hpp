@@ -20,7 +20,6 @@
 #include "td/actor/coro_task.h"
 #include "td/utils/port/path.h"
 #include "validator/interfaces/validator-manager.h"
-#include "validator/db/package.hpp"
 
 namespace ton {
 
@@ -50,15 +49,16 @@ class ArchiveImporterLocal : public td::actor::Actor {
   td::actor::Task<td::Unit> store_data();
   td::actor::Task<td::Unit> store_block_data(td::Ref<BlockData> block);
 
-  td::actor::Task<td::Unit> apply_masterchain_blocks();
-  td::actor::Task<td::Unit> apply_shard_blocks();
-  td::actor::Task<td::Unit> apply_shard_block(BlockIdExt block_id, BlockIdExt mc_block_id);
-  td::actor::Task<td::Unit> check_block_applied(BlockIdExt block_id);
+  td::actor::Task<td::Unit> apply_blocks();
+  td::actor::Task<BlockHandle> apply_block_1(BlockIdExt block_id, BlockIdExt mc_block_id);
+  td::actor::Task<td::Unit> apply_block_2(BlockHandle handle);
 
  private:
   std::string db_root_;
   td::Ref<MasterchainState> last_masterchain_state_;
   BlockSeqno shard_client_seqno_;
+  BlockSeqno final_masterchain_state_seqno_ = 0;
+  BlockSeqno final_shard_client_seqno_ = 0;
 
   td::Ref<ValidatorManagerOptions> opts_;
 
@@ -78,9 +78,10 @@ class ArchiveImporterLocal : public td::actor::Actor {
 
   td::Ref<MasterchainState> shard_client_state_;
   BlockSeqno new_shard_client_seqno_;
-  BlockSeqno current_shard_client_seqno_;
   std::set<BlockIdExt> visited_shard_blocks_;
   std::set<BlockIdExt> new_zerostates_;
+  std::vector<BlockIdExt> blocks_to_apply_mc_;
+  std::vector<std::pair<BlockIdExt, BlockIdExt>> blocks_to_apply_shards_;
 
   std::map<BlockSeqno, std::pair<BlockIdExt, std::vector<BlockIdExt>>> shard_configs_;
 

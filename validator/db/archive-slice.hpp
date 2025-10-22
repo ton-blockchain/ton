@@ -74,14 +74,12 @@ class PackageWriter : public td::actor::Actor {
       : package_(std::move(package)), async_mode_(async_mode), statistics_(std::move(statistics)) {
   }
 
+  void tear_down() override;
   void append(std::string filename, td::BufferSlice data, td::Promise<std::pair<td::uint64, td::uint64>> promise);
   void set_async_mode(bool mode, td::Promise<td::Unit> promise) {
     async_mode_ = mode;
     if (!async_mode_) {
-      auto p = package_.lock();
-      if (p) {
-        p->sync();
-      }
+      sync_now();
     }
     promise.set_value(td::Unit());
   }
@@ -89,7 +87,12 @@ class PackageWriter : public td::actor::Actor {
  private:
   std::weak_ptr<Package> package_;
   bool async_mode_ = false;
+  bool sync_pending_ = false;
+  std::vector<td::Promise<td::Unit>> sync_waiters_;
   std::shared_ptr<PackageStatistics> statistics_;
+
+  void sync(td::Promise<td::Unit> promise);
+  void sync_now();
 };
 
 class ArchiveLru;
@@ -98,6 +101,8 @@ class ArchiveSlice : public td::actor::Actor {
  public:
   ArchiveSlice(td::uint32 archive_id, bool key_blocks_only, bool temp, bool finalized, td::uint32 shard_split_depth,
                std::string db_root, td::actor::ActorId<ArchiveLru> archive_lru, DbStatistics statistics = {});
+
+  void tear_down() override;
 
   void get_archive_id(BlockSeqno masterchain_seqno, ShardIdFull shard_prefix, td::Promise<td::uint64> promise);
 
@@ -137,7 +142,8 @@ class ArchiveSlice : public td::actor::Actor {
   void end_async_query();
 
   void begin_transaction();
-  void commit_transaction();
+  void commit_transaction(td::Promise<td::Unit> promise);
+  void commit_transaction_now();
 
   void add_file_cont(size_t idx, FileReference ref_id, td::uint64 offset, td::uint64 size,
                      td::Promise<td::Unit> promise);
@@ -157,9 +163,10 @@ class ArchiveSlice : public td::actor::Actor {
 
   bool destroyed_ = false;
   bool async_mode_ = false;
-  bool huge_transaction_started_ = false;
+  bool transaction_started_ = false;
+  std::vector<td::Promise<td::Unit>> transaction_commit_waiters_;
+  bool transaction_commit_pending_ = false;
   bool sliced_mode_{false};
-  td::uint32 huge_transaction_size_ = 0;
   td::uint32 slice_size_{100};
   bool shard_separated_{false};
   td::uint32 shard_split_depth_ = 0;

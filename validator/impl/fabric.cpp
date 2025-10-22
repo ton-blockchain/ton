@@ -157,15 +157,15 @@ void run_hardfork_accept_block_query(BlockIdExt id, td::Ref<BlockData> data,
 void run_apply_block_query(BlockIdExt id, td::Ref<BlockData> block, BlockIdExt masterchain_block_id,
                            td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
                            td::Promise<td::Unit> promise) {
-  td::actor::create_actor<ApplyBlock>(PSTRING() << "apply " << id, id, std::move(block), masterchain_block_id, manager,
-                                      timeout, std::move(promise))
+  td::actor::create_actor<ApplyBlock>(PSTRING() << "apply" << id.id.to_str(), id, std::move(block),
+                                      masterchain_block_id, manager, timeout, std::move(promise))
       .release();
 }
 
 void run_check_proof_query(BlockIdExt id, td::Ref<Proof> proof, td::actor::ActorId<ValidatorManager> manager,
                            td::Timestamp timeout, td::Promise<BlockHandle> promise, bool skip_check_signatures) {
-  td::actor::create_actor<CheckProof>("checkproof", id, std::move(proof), manager, timeout, std::move(promise),
-                                      skip_check_signatures)
+  td::actor::create_actor<CheckProof>(PSTRING() << "checkproof" << id.id.to_str(), id, std::move(proof), manager,
+                                      timeout, std::move(promise), skip_check_signatures)
       .release();
 }
 
