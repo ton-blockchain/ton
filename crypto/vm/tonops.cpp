@@ -1833,7 +1833,7 @@ int exec_store_std_address(VmState* st, bool quiet) {
   if (!builder->can_extend_by(cs->size(), cs->size_refs()) || !is_std) {
     if (!quiet) {
       if (!is_std) {
-        throw VmError{Excno::type_chk, "not a MsgAddressInt"};
+        throw VmError{Excno::cell_ov, "not a MsgAddressInt"};
       }
       throw VmError{Excno::cell_ov};
     }
@@ -1893,7 +1893,7 @@ int exec_store_opt_std_address(VmState* st, bool quiet) {
   if (!builder->can_extend_by(cs->size() + 1, cs->size_refs()) || !is_std) {
     if (!quiet) {
       if (!is_std) {
-        throw VmError{Excno::type_chk, "not a MsgAddressInt"};
+        throw VmError{Excno::cell_ov, "not a MsgAddressInt"};
       }
       throw VmError{Excno::cell_ov};
     }
