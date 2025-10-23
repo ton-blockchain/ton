@@ -1588,8 +1588,8 @@ int exec_load_opt_std_message_addr(VmState* st, bool quiet) {
   Stack& stack = st->get_stack();
   auto csr = stack.pop_cellslice();
 
-  if (!csr->have(1)) {
-    // No data to load Maybe bit
+  if (!csr->have(2)) {
+    // No data to load the tag for the address (0b00 or 0b10)
     if (quiet) {
       stack.push_cellslice(std::move(csr));
       stack.push_bool(false);
@@ -1599,12 +1599,14 @@ int exec_load_opt_std_message_addr(VmState* st, bool quiet) {
     throw VmError{Excno::cell_und};
   }
 
-  bool is_present = false;
-  csr.write().fetch_bool_to(is_present);
-  if (!is_present) {
-    // Maybe bit is false -> push null
+  auto tag = csr.write().prefetch_ulong(2);
+  if (tag == 0b00) { // addr_none$00
+    // addr_none -> push null
     stack.push_null();
     stack.push_cellslice(std::move(csr));
+    if (quiet) {
+      stack.push_bool(true);
+    }
     return 0;
   }
 
