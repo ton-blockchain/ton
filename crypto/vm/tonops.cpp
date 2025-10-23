@@ -1922,14 +1922,14 @@ void register_ton_currency_address_ops(OpcodeTable& cp0) {
           OpcodeInstr::mksimple(0xfa46, 16, "REWRITEVARADDR", std::bind(exec_rewrite_message_addr, _1, true, false)))
       .insert(
           OpcodeInstr::mksimple(0xfa47, 16, "REWRITEVARADDRQ", std::bind(exec_rewrite_message_addr, _1, true, true)))
-      .insert(OpcodeInstr::mksimple(0xfa48, 16, "LDSTDADDR", std::bind(exec_load_std_message_addr, _1, false)))
-      .insert(OpcodeInstr::mksimple(0xfa49, 16, "LDSTDADDRQ", std::bind(exec_load_std_message_addr, _1, true)))
-      .insert(OpcodeInstr::mksimple(0xfa50, 16, "LDOPTSTDADDR", std::bind(exec_load_opt_std_message_addr, _1, false)))
-      .insert(OpcodeInstr::mksimple(0xfa51, 16, "LDOPTSTDADDRQ", std::bind(exec_load_opt_std_message_addr, _1, true)))
-      .insert(OpcodeInstr::mksimple(0xfa52, 16, "STSTDADDR", std::bind(exec_store_std_address, _1, false)))
-      .insert(OpcodeInstr::mksimple(0xfa53, 16, "STSTDADDRQ", std::bind(exec_store_std_address, _1, true)))
-      .insert(OpcodeInstr::mksimple(0xfa54, 16, "STOPTSTDADDR", std::bind(exec_store_opt_std_address, _1, false)))
-      .insert(OpcodeInstr::mksimple(0xfa55, 16, "STOPTSTDADDRQ", std::bind(exec_store_opt_std_address, _1, true)));
+      .insert(OpcodeInstr::mksimple(0xfa48, 16, "LDSTDADDR", std::bind(exec_load_std_message_addr, _1, false))->require_version(12))
+      .insert(OpcodeInstr::mksimple(0xfa49, 16, "LDSTDADDRQ", std::bind(exec_load_std_message_addr, _1, true))->require_version(12))
+      .insert(OpcodeInstr::mksimple(0xfa50, 16, "LDOPTSTDADDR", std::bind(exec_load_opt_std_message_addr, _1, false))->require_version(12))
+      .insert(OpcodeInstr::mksimple(0xfa51, 16, "LDOPTSTDADDRQ", std::bind(exec_load_opt_std_message_addr, _1, true))->require_version(12))
+      .insert(OpcodeInstr::mksimple(0xfa52, 16, "STSTDADDR", std::bind(exec_store_std_address, _1, false))->require_version(12))
+      .insert(OpcodeInstr::mksimple(0xfa53, 16, "STSTDADDRQ", std::bind(exec_store_std_address, _1, true))->require_version(12))
+      .insert(OpcodeInstr::mksimple(0xfa54, 16, "STOPTSTDADDR", std::bind(exec_store_opt_std_address, _1, false))->require_version(12))
+      .insert(OpcodeInstr::mksimple(0xfa55, 16, "STOPTSTDADDRQ", std::bind(exec_store_opt_std_address, _1, true))->require_version(12));
 }
 
 static constexpr int output_actions_idx = 5;
