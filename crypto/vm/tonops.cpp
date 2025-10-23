@@ -1812,14 +1812,11 @@ bool is_valid_std_msg_addr(const Ref<CellSlice>& cs, int global_version) {
   }
 
   // Fallback to copy cell slice and check with anycast
-  CellBuilder cb;
-  if (cb.append_cellslice_bool(*cs)) {
-    Ref<Cell> cell = cb.finalize_novm();
-    Ref<CellSlice> cloned_cs = Ref<CellSlice>{true, NoVm(), cell};
-    return skip_std_message_addr(cloned_cs.write(), global_version);
+  Ref<CellSlice> cloned_cs = cs;
+  if (!skip_std_message_addr(cloned_cs.write(), global_version)) {
+    return false;
   }
-
-  return false;
+  return cloned_cs->size() == 0;
 }
 
 int exec_store_std_address(VmState* st, bool quiet) {
