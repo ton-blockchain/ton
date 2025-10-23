@@ -1808,7 +1808,7 @@ bool is_valid_std_msg_addr(const Ref<CellSlice>& cs, int global_version) {
       return false;
     }
 
-    return cs->have(3 + 8 + 256);  // anycast:(Maybe Anycast) workchain_id:int8 address:bits256  = MsgAddressInt;
+    return cs->have(3 + 8 + 256) && cs->have_refs(0);  // anycast:(Maybe Anycast) workchain_id:int8 address:bits256  = MsgAddressInt;
   }
 
   // Fallback to copy cell slice and check with anycast
