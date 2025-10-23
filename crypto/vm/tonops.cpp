@@ -1890,7 +1890,7 @@ int exec_store_opt_std_address(VmState* st, bool quiet) {
   }
   bool is_std = is_valid_std_msg_addr(cs, st->get_global_version());
 
-  if (!builder->can_extend_by(cs->size() + 1, cs->size_refs()) || !is_std) {
+  if (!builder->can_extend_by(cs->size(), cs->size_refs()) || !is_std) {
     if (!quiet) {
       if (!is_std) {
         throw VmError{Excno::cell_ov, "not a MsgAddressInt"};
