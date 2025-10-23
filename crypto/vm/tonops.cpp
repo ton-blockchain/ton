@@ -1793,13 +1793,39 @@ int exec_rewrite_message_addr(VmState* st, bool allow_var_addr, bool quiet) {
   return 0;
 }
 
+bool is_valid_std_msg_addr(const Ref<CellSlice>& cs, int global_version) {
+  if ((unsigned)cs->prefetch_ulong(2) != 0b10) {
+    // not a addr_std$10
+    return false;
+  }
+
+  if (global_version >= 10) {
+    if (cs->prefetch_ulong(3) == 0b10'1) {  // 0b10 prefix and 0b1 for Maybe Anycast
+      // anycast addresses is disabled since TVM 11
+      return false;
+    }
+
+    return cs->have(1 + 8 + 256);  // anycast:(Maybe Anycast) workchain_id:int8 address:bits256  = MsgAddressInt;
+  }
+
+  // Fallback to copy cell slice and check with anycast
+  CellBuilder cb;
+  if (cb.append_cellslice_bool(*cs)) {
+    Ref<Cell> cell = cb.finalize_novm();
+    Ref<CellSlice> cloned_cs = Ref<CellSlice>{true, NoVm(), cell};
+    return skip_std_message_addr(cloned_cs.write(), global_version);
+  }
+
+  return false;
+}
+
 int exec_store_std_address(VmState* st, bool quiet) {
   Stack& stack = st->get_stack();
   VM_LOG(st) << "execute STSTDADDR" << (quiet ? "Q" : "");
   stack.check_underflow(2);
   auto builder = stack.pop_builder();
   auto cs = stack.pop_cellslice();
-  bool is_std = (unsigned)cs->prefetch_ulong(2) == 0b10; // addr_std$10
+  bool is_std = is_valid_std_msg_addr(cs, st->get_global_version());
 
   if (!builder->can_extend_by(cs->size(), cs->size_refs()) || !is_std) {
     if (!quiet) {
@@ -1851,7 +1877,7 @@ int exec_store_opt_std_address(VmState* st, bool quiet) {
   if (cs.is_null()) {
     throw VmError{Excno::type_chk, "not a cell slice"};
   }
-  bool is_std = (unsigned)cs->prefetch_ulong(2) == 0b10; // addr_std$10
+  bool is_std = is_valid_std_msg_addr(cs, st->get_global_version());
 
   if (!builder->can_extend_by(cs->size() + 1, cs->size_refs()) || !is_std) {
     if (!quiet) {

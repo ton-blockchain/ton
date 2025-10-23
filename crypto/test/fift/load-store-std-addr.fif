@@ -7,10 +7,12 @@
 variable @addr_none
 variable @valid_std_address
 variable @valid_opt_std_address
+variable @invalid_std_address
 
 b{00} @addr_none !
 x{8016316F1DAA41369BD888538DAA8F9D3BB8D449BA0F22AC0C882CFC98BAB534843_} @valid_std_address !
 <b 1 1 u, @valid_std_address @ s, b> <s @valid_opt_std_address !
+x{8016316F1DAA41369BD888538DAA8} @invalid_std_address !
 
 // ============================= LDSTDADDR =============================
 
@@ -145,6 +147,18 @@ x{8016316F1DAA41369BD888538DAA8F9D3BB8D449BA0F22AC0C882CFC98BAB534843_} @valid_s
     STSTDADDR       // should fail
 }>s "should fail to store opt std address via STSTDADDR to full builder" run-fail-test
 
+<{
+    @invalid_std_address @ PUSHSLICE
+    NEWC
+    STSTDADDR       // should fail
+}>s "should fail to store too short slice via STSTDADDR" run-fail-test
+
+<{
+    b{110011001111} PUSHSLICE
+    NEWC
+    STSTDADDR       // should fail
+}>s "should fail to store random slice via STSTDADDR" run-fail-test
+
 // ============================= STSTDADDRQ =============================
 
 <{
@@ -170,6 +184,23 @@ x{8016316F1DAA41369BD888538DAA8F9D3BB8D449BA0F22AC0C882CFC98BAB534843_} @valid_s
     100 THROWIFNOT  // check that status is -1 (for some reason STSLICEQ returns 0 for success and -1 for fail)
     DROP2           // drop builder and slice
 }>s "should fail to store opt std address via STSTDADDRQ" run-test
+
+<{
+    @invalid_std_address @ PUSHSLICE
+    NEWC
+    STSTDADDRQ       // should fail
+    100 THROWIFNOT  // check that status is -1 (for some reason STSLICEQ returns 0 for success and -1 for fail)
+    DROP2           // drop builder and slice
+}>s "should fail to store too short slice via STSTDADDRQ" run-test
+
+<{
+    b{110011001111} PUSHSLICE
+    NEWC
+    STSTDADDRQ       // should fail
+    100 THROWIFNOT  // check that status is -1 (for some reason STSLICEQ returns 0 for success and -1 for fail)
+    DROP2           // drop builder and slice
+}>s "should fail to store random slice via STSTDADDRQ" run-test
+
 
 // ============================= STOPTSTDADDR =============================
 
@@ -220,6 +251,18 @@ x{8016316F1DAA41369BD888538DAA8F9D3BB8D449BA0F22AC0C882CFC98BAB534843_} @valid_s
     STSLICER
     STOPTSTDADDR    // should fail since builder is full
 }>s "should fail to store null via STOPTSTDADDR in full builder" run-fail-test
+
+<{
+    @invalid_std_address @ PUSHSLICE
+    NEWC
+    STOPTSTDADDR       // should fail
+}>s "should fail to store too short slice via STOPTSTDADDR" run-fail-test
+
+<{
+    b{110011001111} PUSHSLICE
+    NEWC
+    STOPTSTDADDR       // should fail
+}>s "should fail to store random slice via STOPTSTDADDR" run-fail-test
 
 // ============================= STOPTSTDADDRQ =============================
 
@@ -275,3 +318,19 @@ x{8016316F1DAA41369BD888538DAA8F9D3BB8D449BA0F22AC0C882CFC98BAB534843_} @valid_s
     STOPTSTDADDRQ    // should fail since builder is full
     100 THROWIFNOT   // check that status is -1 (for some reason STSLICEQ returns 0 for success and -1 for fail)
 }>s "should fail to store null via STOPTSTDADDR in full builder" run-test
+
+<{
+    @invalid_std_address @ PUSHSLICE
+    NEWC
+    STOPTSTDADDRQ   // should fail
+    100 THROWIFNOT  // check that status is -1 (for some reason STSLICEQ returns 0 for success and -1 for fail)
+    DROP2           // drop builder and slice
+}>s "should fail to store too short slice via STOPTSTDADDRQ" run-test
+
+<{
+    b{110011001111} PUSHSLICE
+    NEWC
+    STOPTSTDADDRQ   // should fail
+    100 THROWIFNOT  // check that status is -1 (for some reason STSLICEQ returns 0 for success and -1 for fail)
+    DROP2           // drop builder and slice
+}>s "should fail to store random slice via STOPTSTDADDRQ" run-test
