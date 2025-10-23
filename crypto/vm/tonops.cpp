@@ -1601,6 +1601,7 @@ int exec_load_opt_std_message_addr(VmState* st, bool quiet) {
 
   auto tag = csr.write().prefetch_ulong(2);
   if (tag == 0b00) { // addr_none$00
+    csr.write().skip_first(2);
     // addr_none -> push null
     stack.push_null();
     stack.push_cellslice(std::move(csr));
@@ -1857,7 +1858,8 @@ int exec_store_opt_std_address(VmState* st, bool quiet) {
 
   auto cs_or_null = stack.pop();
   if (cs_or_null.is_null()) {
-    if (!builder->can_extend_by(1, 0)) {
+    if (!builder->can_extend_by(2, 0)) {
+      // No room to store 0b00 for addr_none
       if (!quiet) {
         throw VmError{Excno::cell_ov};
       }
@@ -1867,7 +1869,8 @@ int exec_store_opt_std_address(VmState* st, bool quiet) {
       return 0;
     }
 
-    builder.write().store_zeroes_bool(1);
+    // null is stored as addr_none$00
+    builder.write().store_zeroes_bool(2);
     stack.push_builder(std::move(builder));
     if (quiet) {
       stack.push_smallint(0);
@@ -1877,7 +1880,13 @@ int exec_store_opt_std_address(VmState* st, bool quiet) {
 
   auto cs = cs_or_null.as_slice();
   if (cs.is_null()) {
-    throw VmError{Excno::type_chk, "not a cell slice"};
+    if (!quiet) {
+      throw VmError{Excno::type_chk, "not a cell slice"};
+    }
+    stack.push_cellslice(std::move(cs));
+    stack.push_builder(std::move(builder));
+    stack.push_smallint(-1);
+    return 0;
   }
   bool is_std = is_valid_std_msg_addr(cs, st->get_global_version());
 
@@ -1893,7 +1902,7 @@ int exec_store_opt_std_address(VmState* st, bool quiet) {
     stack.push_smallint(-1);
     return 0;
   }
-  builder.write().store_ones_bool(1);
+
   cell_builder_add_slice(builder.write(), *cs);
   stack.push_builder(std::move(builder));
   if (quiet) {

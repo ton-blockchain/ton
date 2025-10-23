@@ -19,7 +19,8 @@ x{8016316F1DAA41369BD888538DAA8} @invalid_std_address !
 <{
     @valid_std_address @ PUSHSLICE
     LDSTDADDR
-    DROP           // drop slice
+    SBITS
+    100 THROWIF    // check that slice is empty
     REWRITESTDADDR // check that address really is std
     DROP2
 }>s "should load address via LDSTDADDR" run-test
@@ -27,7 +28,8 @@ x{8016316F1DAA41369BD888538DAA8} @invalid_std_address !
 <{
     @addr_none @ PUSHSLICE
     LDSTDADDR
-    DROP           // drop slice
+    SBITS
+    100 THROWIF    // check that slice is empty
     REWRITESTDADDR // check that address really is std
     DROP2
 }>s "should not load addr_none address via LDSTDADDR" run-fail-test
@@ -70,7 +72,8 @@ x{8016316F1DAA41369BD888538DAA8} @invalid_std_address !
 <{
     @valid_std_address @ PUSHSLICE
     LDOPTSTDADDR
-    DROP           // drop slice
+    SBITS
+    100 THROWIF    // check that slice is empty
     REWRITESTDADDR // check that address really is std
     DROP2
 }>s "should load address via LDOPTSTDADDR" run-test
@@ -78,7 +81,8 @@ x{8016316F1DAA41369BD888538DAA8} @invalid_std_address !
 <{
     @addr_none @ PUSHSLICE
     LDOPTSTDADDR
-    DROP           // drop slice
+    SBITS
+    100 THROWIF    // check that slice is empty
     ISNULL         // loaded value must be null
     100 THROWIFNOT
 }>s "should load null via LDOPTSTDADDR from addr_none slice" run-test
@@ -104,7 +108,8 @@ x{8016316F1DAA41369BD888538DAA8} @invalid_std_address !
     @valid_std_address @ PUSHSLICE
     LDOPTSTDADDRQ
     100 THROWIFNOT // check that status is -1
-    DROP           // drop slice
+    SBITS
+    100 THROWIF    // check that slice is empty
     REWRITESTDADDR // check that address really is std
     DROP2
 }>s "should load address via LDOPTSTDADDRQ" run-test
@@ -113,7 +118,8 @@ x{8016316F1DAA41369BD888538DAA8} @invalid_std_address !
     @addr_none @ PUSHSLICE
     LDOPTSTDADDRQ
     100 THROWIFNOT // check that status is -1
-    DROP           // drop slice
+    SBITS
+    100 THROWIF    // check that slice is empty
     ISNULL         // loaded value must be null
     100 THROWIFNOT
 }>s "should load null via LDOPTSTDADDRQ from addr_none" run-test
@@ -226,31 +232,41 @@ x{8016316F1DAA41369BD888538DAA8} @invalid_std_address !
 
 // ============================= STOPTSTDADDR =============================
 
-// <{
-//     @valid_std_address @ PUSHSLICE
-//     DUP
-//     NEWC
-//     STOPTSTDADDR
-//     ENDC
-//     CTOS
-//     LDOPTSTDADDR
-//     DROP
-//     SDEQ            // check that address loaded back is equal to original one
-//     100 THROWIFNOT
-// }>s "should store opt address via STOPTSTDADDR" run-test
-//
-// <{
-//     PUSHNULL
-//     NEWC
-//     STOPTSTDADDR
-//     ENDC
-//     CTOS            // b{0}
-//     LDOPTSTDADDR    // null
-//     SBITS
-//     100 THROWIF     // check that slice is empty
-//     ISNULL
-//     100 THROWIFNOT  // check that loaded address is null
-// }>s "should store null via STOPTSTDADDR" run-test
+<{
+    @valid_std_address @ PUSHSLICE
+    DUP
+    NEWC
+    STOPTSTDADDR
+    ENDC
+    CTOS
+    LDOPTSTDADDR
+    DROP
+    SDEQ            // check that address loaded back is equal to original one
+    100 THROWIFNOT
+}>s "should store address via STOPTSTDADDR" run-test
+
+<{
+    PUSHNULL
+    NEWC
+    STOPTSTDADDR
+    ENDC
+    CTOS
+    LDOPTSTDADDR      // we should be able to load address back
+    DROP
+    ISNULL            // check that address loaded back is actually a Null
+    100 THROWIFNOT
+}>s "should store null via STOPTSTDADDR as addr_none" run-test
+
+<{
+    PUSHNULL
+    NEWC
+    STOPTSTDADDR
+    ENDC
+    CTOS
+    b{00} PUSHSLICE
+    SDEQ              // check that address stored as b{00}
+    100 THROWIFNOT
+}>s "should store null via STOPTSTDADDR as b{00}" run-test
 
 <{
     @addr_none @ PUSHSLICE
@@ -275,6 +291,14 @@ x{8016316F1DAA41369BD888538DAA8} @invalid_std_address !
 }>s "should fail to store null via STOPTSTDADDR in full builder" run-fail-test
 
 <{
+    PUSHNULL
+    NEWC
+    <b 0 1022 u, b> <s PUSHSLICE
+    STSLICER
+    STOPTSTDADDR    // should fail since we need 2 bit but have only 1
+}>s "should fail to store null via STOPTSTDADDR in almost full builder" run-fail-test
+
+<{
     @invalid_std_address @ PUSHSLICE
     NEWC
     STOPTSTDADDR       // should fail
@@ -286,35 +310,41 @@ x{8016316F1DAA41369BD888538DAA8} @invalid_std_address !
     STOPTSTDADDR       // should fail
 }>s "should fail to store random slice via STOPTSTDADDR" run-fail-test
 
+<{
+    10 PUSHINT
+    NEWC
+    STOPTSTDADDR       // should fail
+}>s "should fail to store int via STOPTSTDADDR" run-fail-test
+
 // ============================= STOPTSTDADDRQ =============================
 
-// <{
-//     @valid_std_address @ PUSHSLICE
-//     DUP
-//     NEWC
-//     STOPTSTDADDRQ
-//     100 THROWIF     // check that status is 0 (for some reason STSLICEQ returns 0 for success and -1 for fail)
-//     ENDC
-//     CTOS
-//     LDOPTSTDADDR
-//     DROP
-//     SDEQ            // check that address loaded back is equal to original one
-//     100 THROWIFNOT
-// }>s "should store opt address via STOPTSTDADDRQ" run-test
-//
-// <{
-//     PUSHNULL
-//     NEWC
-//     STOPTSTDADDRQ
-//     100 THROWIF     // check that status is 0 (for some reason STSLICEQ returns 0 for success and -1 for fail)
-//     ENDC
-//     CTOS            // b{0}
-//     LDOPTSTDADDR    // null
-//     SBITS
-//     100 THROWIF     // check that slice is empty
-//     ISNULL
-//     100 THROWIFNOT  // check that loaded address is null
-// }>s "should store null via STOPTSTDADDRQ" run-test
+<{
+    @valid_std_address @ PUSHSLICE
+    DUP
+    NEWC
+    STOPTSTDADDRQ
+    100 THROWIF     // check that status is 0 (for some reason STSLICEQ returns 0 for success and -1 for fail)
+    ENDC
+    CTOS
+    LDOPTSTDADDR
+    DROP
+    SDEQ            // check that address loaded back is equal to original one
+    100 THROWIFNOT
+}>s "should store address via STOPTSTDADDRQ" run-test
+
+<{
+    PUSHNULL
+    NEWC
+    STOPTSTDADDRQ   // stored as b{00}
+    100 THROWIF     // check that status is 0 (for some reason STSLICEQ returns 0 for success and -1 for fail)
+    ENDC
+    CTOS            // b{00}
+    LDOPTSTDADDR    // null slice
+    SBITS
+    100 THROWIF     // check that slice is empty
+    ISNULL
+    100 THROWIFNOT  // check that loaded address is null
+}>s "should store null via STOPTSTDADDRQ" run-test
 
 <{
     @addr_none @ PUSHSLICE
@@ -342,6 +372,15 @@ x{8016316F1DAA41369BD888538DAA8} @invalid_std_address !
 }>s "should fail to store null via STOPTSTDADDR in full builder" run-test
 
 <{
+    PUSHNULL
+    NEWC
+    <b 0 1022 u, b> <s PUSHSLICE
+    STSLICER
+    STOPTSTDADDRQ    // should fail since we need 2 bit but have 1
+    100 THROWIFNOT   // check that status is -1 (for some reason STSLICEQ returns 0 for success and -1 for fail)
+}>s "should fail to store null via STOPTSTDADDR in almost full builder" run-test
+
+<{
     @invalid_std_address @ PUSHSLICE
     NEWC
     STOPTSTDADDRQ   // should fail
@@ -356,3 +395,11 @@ x{8016316F1DAA41369BD888538DAA8} @invalid_std_address !
     100 THROWIFNOT  // check that status is -1 (for some reason STSLICEQ returns 0 for success and -1 for fail)
     DROP2           // drop builder and slice
 }>s "should fail to store random slice via STOPTSTDADDRQ" run-test
+
+<{
+    100 PUSHINT
+    NEWC
+    STOPTSTDADDRQ   // should fail
+    100 THROWIFNOT  // check that status is -1 (for some reason STSLICEQ returns 0 for success and -1 for fail)
+    DROP2           // drop builder and slice
+}>s "should fail to store int via STOPTSTDADDRQ" run-test
