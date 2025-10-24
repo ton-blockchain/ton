@@ -1816,7 +1816,7 @@ bool is_valid_std_msg_addr(const Ref<CellSlice>& cs, int global_version) {
   if (!skip_std_message_addr(cloned_cs.write(), global_version)) {
     return false;
   }
-  return cloned_cs->size() == 0;
+  return cloned_cs->size() == 0 && cloned_cs->size_refs() == 0;
 }
 
 int exec_store_std_address(VmState* st, bool quiet) {
@@ -1836,13 +1836,13 @@ int exec_store_std_address(VmState* st, bool quiet) {
     }
     stack.push_cellslice(std::move(cs));
     stack.push_builder(std::move(builder));
-    stack.push_smallint(-1);
+    stack.push_bool(true);
     return 0;
   }
   cell_builder_add_slice(builder.write(), *cs);
   stack.push_builder(std::move(builder));
   if (quiet) {
-    stack.push_smallint(0);
+    stack.push_bool(false);
   }
   return 0;
 }
@@ -1862,7 +1862,7 @@ int exec_store_opt_std_address(VmState* st, bool quiet) {
       }
       stack.push_null();
       stack.push_builder(std::move(builder));
-      stack.push_smallint(-1);
+      stack.push_bool(true);
       return 0;
     }
 
@@ -1870,7 +1870,7 @@ int exec_store_opt_std_address(VmState* st, bool quiet) {
     builder.write().store_zeroes_bool(2);
     stack.push_builder(std::move(builder));
     if (quiet) {
-      stack.push_smallint(0);
+      stack.push_bool(false);
     }
     return 0;
   }
@@ -1882,7 +1882,7 @@ int exec_store_opt_std_address(VmState* st, bool quiet) {
     }
     stack.push_cellslice(std::move(cs));
     stack.push_builder(std::move(builder));
-    stack.push_smallint(-1);
+    stack.push_bool(true);
     return 0;
   }
   bool is_std = is_valid_std_msg_addr(cs, st->get_global_version());
@@ -1896,14 +1896,14 @@ int exec_store_opt_std_address(VmState* st, bool quiet) {
     }
     stack.push_cellslice(std::move(cs));
     stack.push_builder(std::move(builder));
-    stack.push_smallint(-1);
+    stack.push_bool(true);
     return 0;
   }
 
   cell_builder_add_slice(builder.write(), *cs);
   stack.push_builder(std::move(builder));
   if (quiet) {
-    stack.push_smallint(0);
+    stack.push_bool(false);
   }
   return 0;
 }
