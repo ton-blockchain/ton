@@ -271,6 +271,14 @@ The bounced message has the same 0th and 1st bits in `extra_flags` as the origin
 ### New TVM instructions
 - `BTOS` (`b - s`) - same as `ENDC CTOS`, but without gas cost for cell creation and loading. Gas cost: `26`.
 - `HASHBU` (`b - hash`) - same as `ENDC HASHCU`, but without gas cost for cell creation. Gas cost: `26`.
+- `LDSTDADDR` (`s - a s'`) - loads `addr_std$10`, if address is not `addr_std`, throws an error 9 (`cannot load a MsgAddressInt`). Gas cost: `26`.
+- `LDSTDADDRQ` (`s - a s' -1 or s 0`) - quiet version of `LDSTDADDR`. Gas cost: `26`.
+- `LDOPTSTDADDR` (`s - a s or null s`) - loads `addr_std$10` or `addr_none$00`, if address is `addr_none$00` pushes a Null, if address is not `addr_std` or `addr_none`, throws an error 9 (`cannot load a MsgAddressInt`). Gas cost: `26`.
+- `LDOPTSTDADDRQ` (`s - (a s' -1 or null s' -1) or s 0`) - quiet version of `LDOPTSTDADDR`. Gas cost: `26`.
+- `STSTDADDR` (`s b - b'`) - stores `addr_std$10`, if address is not `addr_std`, throws an error 9 (`cannot load a MsgAddressInt`). Gas cost: `26`.
+- `STSTDADDRQ` (`s b - b' 0 or s b -1`) - quiet version of `STSTDADDR`. Gas cost: `26`.
+- `STOPTSTDADDR` (`s b - b'`) - stores `addr_std$10` or Null. Null is stored as `addr_none$00`, if address is not `addr_std`, throws an error 9 (`cannot load a MsgAddressInt`). Gas cost: `26`.
+- `STOPTSTDADDRQ` (`s b - b' 0 or s b -1`) - quiet version of `STOPTSTDADDR`. Gas cost: `26`.
 
 ### Other TVM changes
 - `SENDMSG` instruction treats `extra_flags` field accordingly (see above).

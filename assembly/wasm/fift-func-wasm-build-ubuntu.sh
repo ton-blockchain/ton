@@ -70,8 +70,8 @@ echo
 fi
 
 cd emsdk
-./emsdk install 3.1.19
-./emsdk activate 3.1.19
+./emsdk install 4.0.17
+./emsdk activate 4.0.17
 EMSDK_DIR=`pwd`
 
 . $EMSDK_DIR/emsdk_env.sh
