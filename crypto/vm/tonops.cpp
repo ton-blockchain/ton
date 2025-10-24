@@ -1533,12 +1533,86 @@ bool skip_message_addr(CellSlice& cs, int global_version) {
   }
 }
 
+bool skip_std_message_addr(CellSlice& cs, int global_version) {
+  switch ((unsigned)cs.fetch_ulong(2)) {
+    case 2: {                                           // addr_std$10
+      return skip_maybe_anycast(cs, global_version)     // anycast:(Maybe Anycast)
+             && cs.advance(8 + 256);                    // workchain_id:int8 address:bits256  = MsgAddressInt;
+    }
+    case 0:    // addr_none$00 = MsgAddressExt;
+    case 1:    // addr_extern$01
+    case 3:    // addr_var$11
+    default:
+      return false;
+  }
+}
+
 int exec_load_message_addr(VmState* st, bool quiet) {
   VM_LOG(st) << "execute LDMSGADDR" << (quiet ? "Q" : "");
   Stack& stack = st->get_stack();
   auto csr = stack.pop_cellslice();
   td::Ref<CellSlice> addr{true};
   if (util::load_msg_addr_q(csr.write(), addr.write(), st->get_global_version(), quiet)) {
+    stack.push_cellslice(std::move(addr));
+    stack.push_cellslice(std::move(csr));
+    if (quiet) {
+      stack.push_bool(true);
+    }
+  } else {
+    stack.push_cellslice(std::move(csr));
+    stack.push_bool(false);
+  }
+  return 0;
+}
+
+int exec_load_std_message_addr(VmState* st, bool quiet) {
+  VM_LOG(st) << "execute LDSTDADDR" << (quiet ? "Q" : "");
+  Stack& stack = st->get_stack();
+  auto csr = stack.pop_cellslice();
+  td::Ref<CellSlice> addr{true};
+  if (util::load_std_msg_addr_q(csr.write(), addr.write(), st->get_global_version(), quiet)) {
+    stack.push_cellslice(std::move(addr));
+    stack.push_cellslice(std::move(csr));
+    if (quiet) {
+      stack.push_bool(true);
+    }
+  } else {
+    stack.push_cellslice(std::move(csr));
+    stack.push_bool(false);
+  }
+  return 0;
+}
+
+int exec_load_opt_std_message_addr(VmState* st, bool quiet) {
+  VM_LOG(st) << "execute LDOPTSTDADDR" << (quiet ? "Q" : "");
+  Stack& stack = st->get_stack();
+  auto csr = stack.pop_cellslice();
+
+  if (!csr->have(2)) {
+    // No data to load the tag for the address (0b00 or 0b10)
+    if (quiet) {
+      stack.push_cellslice(std::move(csr));
+      stack.push_bool(false);
+      return 0;
+    }
+
+    throw VmError{Excno::cell_und};
+  }
+
+  auto tag = csr.write().prefetch_ulong(2);
+  if (tag == 0b00) { // addr_none$00
+    csr.write().skip_first(2);
+    // addr_none -> push null
+    stack.push_null();
+    stack.push_cellslice(std::move(csr));
+    if (quiet) {
+      stack.push_bool(true);
+    }
+    return 0;
+  }
+
+  td::Ref<CellSlice> addr{true};
+  if (util::load_std_msg_addr_q(csr.write(), addr.write(), st->get_global_version(), quiet)) {
     stack.push_cellslice(std::move(addr));
     stack.push_cellslice(std::move(csr));
     if (quiet) {
@@ -1722,6 +1796,118 @@ int exec_rewrite_message_addr(VmState* st, bool allow_var_addr, bool quiet) {
   return 0;
 }
 
+bool is_valid_std_msg_addr(const Ref<CellSlice>& cs, int global_version) {
+  if ((unsigned)cs->prefetch_ulong(2) != 0b10) {
+    // not a addr_std$10
+    return false;
+  }
+
+  if (global_version >= 10) {
+    if (cs->prefetch_ulong(3) == 0b10'1) {  // 0b10 prefix and 0b1 for Maybe Anycast
+      // anycast addresses is disabled since TVM 11
+      return false;
+    }
+
+    return cs->size() == 3 + 8 + 256 && cs->size_refs() == 0;  // anycast:(Maybe Anycast) workchain_id:int8 address:bits256  = MsgAddressInt;
+  }
+
+  // Fallback to copy cell slice and check with anycast
+  Ref<CellSlice> cloned_cs = cs;
+  if (!skip_std_message_addr(cloned_cs.write(), global_version)) {
+    return false;
+  }
+  return cloned_cs->size() == 0 && cloned_cs->size_refs() == 0;
+}
+
+int exec_store_std_address(VmState* st, bool quiet) {
+  Stack& stack = st->get_stack();
+  VM_LOG(st) << "execute STSTDADDR" << (quiet ? "Q" : "");
+  stack.check_underflow(2);
+  auto builder = stack.pop_builder();
+  auto cs = stack.pop_cellslice();
+  bool is_std = is_valid_std_msg_addr(cs, st->get_global_version());
+
+  if (!builder->can_extend_by(cs->size(), cs->size_refs()) || !is_std) {
+    if (!quiet) {
+      if (!is_std) {
+        throw VmError{Excno::cell_ov, "not a MsgAddressInt"};
+      }
+      throw VmError{Excno::cell_ov};
+    }
+    stack.push_cellslice(std::move(cs));
+    stack.push_builder(std::move(builder));
+    stack.push_bool(true);
+    return 0;
+  }
+  cell_builder_add_slice(builder.write(), *cs);
+  stack.push_builder(std::move(builder));
+  if (quiet) {
+    stack.push_bool(false);
+  }
+  return 0;
+}
+
+int exec_store_opt_std_address(VmState* st, bool quiet) {
+  Stack& stack = st->get_stack();
+  VM_LOG(st) << "execute STOPTSTDADDR" << (quiet ? "Q" : "");
+  stack.check_underflow(2);
+  auto builder = stack.pop_builder();
+
+  auto cs_or_null = stack.pop();
+  if (cs_or_null.is_null()) {
+    if (!builder->can_extend_by(2, 0)) {
+      // No room to store 0b00 for addr_none
+      if (!quiet) {
+        throw VmError{Excno::cell_ov};
+      }
+      stack.push_null();
+      stack.push_builder(std::move(builder));
+      stack.push_bool(true);
+      return 0;
+    }
+
+    // null is stored as addr_none$00
+    builder.write().store_zeroes_bool(2);
+    stack.push_builder(std::move(builder));
+    if (quiet) {
+      stack.push_bool(false);
+    }
+    return 0;
+  }
+
+  auto cs = cs_or_null.as_slice();
+  if (cs.is_null()) {
+    if (!quiet) {
+      throw VmError{Excno::type_chk, "not a cell slice"};
+    }
+    stack.push_cellslice(std::move(cs));
+    stack.push_builder(std::move(builder));
+    stack.push_bool(true);
+    return 0;
+  }
+  bool is_std = is_valid_std_msg_addr(cs, st->get_global_version());
+
+  if (!builder->can_extend_by(cs->size(), cs->size_refs()) || !is_std) {
+    if (!quiet) {
+      if (!is_std) {
+        throw VmError{Excno::cell_ov, "not a MsgAddressInt"};
+      }
+      throw VmError{Excno::cell_ov};
+    }
+    stack.push_cellslice(std::move(cs));
+    stack.push_builder(std::move(builder));
+    stack.push_bool(true);
+    return 0;
+  }
+
+  cell_builder_add_slice(builder.write(), *cs);
+  stack.push_builder(std::move(builder));
+  if (quiet) {
+    stack.push_bool(false);
+  }
+  return 0;
+}
+
 void register_ton_currency_address_ops(OpcodeTable& cp0) {
   using namespace std::placeholders;
   cp0.insert(OpcodeInstr::mksimple(0xfa00, 16, "LDGRAMS", std::bind(exec_load_var_integer, _1, 4, false, false)))
@@ -1743,7 +1929,15 @@ void register_ton_currency_address_ops(OpcodeTable& cp0) {
       .insert(
           OpcodeInstr::mksimple(0xfa46, 16, "REWRITEVARADDR", std::bind(exec_rewrite_message_addr, _1, true, false)))
       .insert(
-          OpcodeInstr::mksimple(0xfa47, 16, "REWRITEVARADDRQ", std::bind(exec_rewrite_message_addr, _1, true, true)));
+          OpcodeInstr::mksimple(0xfa47, 16, "REWRITEVARADDRQ", std::bind(exec_rewrite_message_addr, _1, true, true)))
+      .insert(OpcodeInstr::mksimple(0xfa48, 16, "LDSTDADDR", std::bind(exec_load_std_message_addr, _1, false))->require_version(12))
+      .insert(OpcodeInstr::mksimple(0xfa49, 16, "LDSTDADDRQ", std::bind(exec_load_std_message_addr, _1, true))->require_version(12))
+      .insert(OpcodeInstr::mksimple(0xfa50, 16, "LDOPTSTDADDR", std::bind(exec_load_opt_std_message_addr, _1, false))->require_version(12))
+      .insert(OpcodeInstr::mksimple(0xfa51, 16, "LDOPTSTDADDRQ", std::bind(exec_load_opt_std_message_addr, _1, true))->require_version(12))
+      .insert(OpcodeInstr::mksimple(0xfa52, 16, "STSTDADDR", std::bind(exec_store_std_address, _1, false))->require_version(12))
+      .insert(OpcodeInstr::mksimple(0xfa53, 16, "STSTDADDRQ", std::bind(exec_store_std_address, _1, true))->require_version(12))
+      .insert(OpcodeInstr::mksimple(0xfa54, 16, "STOPTSTDADDR", std::bind(exec_store_opt_std_address, _1, false))->require_version(12))
+      .insert(OpcodeInstr::mksimple(0xfa55, 16, "STOPTSTDADDRQ", std::bind(exec_store_opt_std_address, _1, true))->require_version(12));
 }
 
 static constexpr int output_actions_idx = 5;
@@ -2166,6 +2360,18 @@ bool load_msg_addr_q(CellSlice& cs, CellSlice& res, int global_version, bool qui
       return false;
     }
     throw VmError{Excno::cell_und, "cannot load a MsgAddress"};
+  }
+  res.cut_tail(cs);
+  return true;
+}
+bool load_std_msg_addr_q(CellSlice& cs, CellSlice& res, int global_version, bool quiet) {
+  res = cs;
+  if (!skip_std_message_addr(cs, global_version)) {
+    cs = res;
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::cell_und, "cannot load a MsgAddressInt"};
   }
   res.cut_tail(cs);
   return true;
