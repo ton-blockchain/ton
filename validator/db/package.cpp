@@ -48,16 +48,8 @@ Package::Package(td::FileFd fd) : fd_(std::move(fd)) {
 }
 
 td::Status Package::truncate(td::uint64 size) {
-  auto target_size = size + header_size();
-  TRY_RESULT(current_size, fd_.get_size());
-
-  // Only truncate if the size actually differs to avoid updating mtime unnecessarily
-  if (current_size != target_size) {
-    TRY_STATUS(fd_.seek(target_size));
-    return fd_.truncate_to_current_position(target_size);
-  }
-
-  return td::Status::OK();
+  TRY_STATUS(fd_.seek(size + header_size()));
+  return fd_.truncate_to_current_position(size + header_size());
 }
 
 td::uint64 Package::append(std::string filename, td::Slice data, bool sync) {
