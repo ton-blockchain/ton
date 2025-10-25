@@ -423,30 +423,36 @@ class ValidateQuery : public td::actor::Actor {
       bool defer_all_messages = false;
       std::vector<std::pair<td::Ref<vm::Cell>, td::uint32>> storage_stat_cache_update{};
       ValidationStats::WorkTimeStats work_time{};
+
+      std::optional<td::Status> fatal_error;
+      std::optional<std::string> reject_error;
+      std::optional<td::BufferSlice> reject_reason;
     };
 
     CheckAccountTxs(const ValidateQuery& vq, Context ctx);
 
-  private:
-    void abort_query_ts(td::Status error) const;
-    bool reject_query_ts(std::string error, td::BufferSlice reason = {}) const;
-    bool reject_query_ts(std::string err_msg, td::Status error, td::BufferSlice reason = {}) const;
-    bool fatal_error_ts(td::Status error) const;
-    bool fatal_error_ts(std::string err_msg, int err_code = -666) const;
+    bool try_check(const StdSmcAddress& acc_addr, Ref<vm::CellSlice> acc_tr);
+    Context extract_context();
 
-    std::unique_ptr<block::Account> make_account_from_ts(td::ConstBitPtr addr, Ref<vm::CellSlice> account);
-    std::unique_ptr<block::Account> unpack_account_ts(td::ConstBitPtr addr);
-    bool check_one_transaction_ts(block::Account& account, LogicalTime lt, Ref<vm::Cell> trans_root, bool is_first,
-                                  bool is_last);
-    bool check_account_transactions_ts(const StdSmcAddress& acc_addr, Ref<vm::CellSlice> acc_tr);
-    bool scan_account_libraries_ts(Ref<vm::Cell> orig_libs, Ref<vm::Cell> final_libs, const td::Bits256& addr);
+  private:
+    void abort_query(td::Status error);
+    bool reject_query(std::string error, td::BufferSlice reason = {});
+    bool reject_query(std::string err_msg, td::Status error, td::BufferSlice reason = {});
+    bool fatal_error(td::Status error);
+    bool fatal_error(std::string err_msg, int err_code = -666);
+
+    std::unique_ptr<block::Account> make_account_from(td::ConstBitPtr addr, Ref<vm::CellSlice> account);
+    std::unique_ptr<block::Account> unpack_account(td::ConstBitPtr addr);
+    bool check_one_transaction(block::Account& account, LogicalTime lt, Ref<vm::Cell> trans_root, bool is_first, bool is_last);
+    bool scan_account_libraries(Ref<vm::Cell> orig_libs, Ref<vm::Cell> final_libs, const td::Bits256& addr);
 
     const ValidateQuery& vq_;
     Context ctx_;
   };
+  friend CheckAccountTxs;
 
   CheckAccountTxs::Context load_check_account_transactions_context(const StdSmcAddress& address);
-  void save_account_transactions_context(const StdSmcAddress& address, CheckAccountTxs::Context& ctx);
+  void save_account_transactions_context(const StdSmcAddress& address, CheckAccountTxs::Context ctx);
 
   bool check_transactions_p();
   bool check_transactions();
