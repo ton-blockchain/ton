@@ -151,6 +151,7 @@ class ValidateQuery : public td::actor::Actor {
   bool debug_checks_{false};
   bool outq_cleanup_partial_{false};
   bool parallel_accounts_validation_{false};
+  bool parallel_check_account_failed{false};
   BlockSeqno prev_key_seqno_{~0u};
   int stage_{0};
   td::BitArray<64> shard_pfx_;
@@ -429,12 +430,15 @@ class ValidateQuery : public td::actor::Actor {
       std::optional<td::BufferSlice> reject_reason;
     };
 
-    CheckAccountTxs(const ValidateQuery& vq, Context ctx);
+    CheckAccountTxs(const ValidateQuery& vq, td::actor::ActorId<ValidateQuery> vq_id, StdSmcAddress address,
+                    Ref<vm::CellSlice> acc_tr, Context ctx);
 
-    bool try_check(const StdSmcAddress& acc_addr, Ref<vm::CellSlice> acc_tr);
+    bool try_check();
     Context extract_context();
 
   private:
+    void start_up() override;
+
     void abort_query(td::Status error);
     bool reject_query(std::string error, td::BufferSlice reason = {});
     bool reject_query(std::string err_msg, td::Status error, td::BufferSlice reason = {});
@@ -447,6 +451,9 @@ class ValidateQuery : public td::actor::Actor {
     bool scan_account_libraries(Ref<vm::Cell> orig_libs, Ref<vm::Cell> final_libs, const td::Bits256& addr);
 
     const ValidateQuery& vq_;
+    td::actor::ActorId<ValidateQuery> vq_id_;
+    StdSmcAddress address_;
+    Ref<vm::CellSlice> acc_tr_;
     Context ctx_;
   };
   friend CheckAccountTxs;
@@ -455,6 +462,7 @@ class ValidateQuery : public td::actor::Actor {
   void save_account_transactions_context(const StdSmcAddress& address, CheckAccountTxs::Context ctx);
 
   bool check_transactions_p();
+  void after_check_account_finished(StdSmcAddress address, CheckAccountTxs::Context context);
   bool check_transactions();
   bool check_all_ticktock_processed();
   bool check_message_processing_order();

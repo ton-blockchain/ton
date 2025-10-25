@@ -6097,27 +6097,30 @@ bool ValidateQuery::CheckAccountTxs::check_one_transaction(block::Account& accou
   return true;
 }
 
-ValidateQuery::CheckAccountTxs::CheckAccountTxs(const ValidateQuery& vq, Context ctx) : vq_(vq), ctx_(std::move(ctx)) {
+ValidateQuery::CheckAccountTxs::CheckAccountTxs(const ValidateQuery& vq, td::actor::ActorId<ValidateQuery> vq_id,
+                                                StdSmcAddress address, Ref<vm::CellSlice> acc_tr, Context ctx)
+    : vq_(vq)
+    , vq_id_(std::move(vq_id))
+    , address_(std::move(address))
+    , acc_tr_(std::move(acc_tr))
+    , ctx_(std::move(ctx)) {
 }
 
 /**
  * Checks the validity of transactions for a given account block.
  *
- * @param acc_addr The address of the account.
- * @param acc_blk_root The root of the AccountBlock.
  *
  * @returns True if the account transactions are valid, false otherwise.
  */
-bool ValidateQuery::CheckAccountTxs::try_check(const StdSmcAddress& acc_addr,
-                                                                   Ref<vm::CellSlice> acc_blk_root) {
+bool ValidateQuery::CheckAccountTxs::try_check() {
   block::gen::AccountBlock::Record acc_blk;
-  CHECK(tlb::csr_unpack(std::move(acc_blk_root), acc_blk) && acc_blk.account_addr == acc_addr);
-  auto account_p = unpack_account(acc_addr.cbits());
+  CHECK(tlb::csr_unpack(std::move(acc_tr_), acc_blk) && acc_blk.account_addr == address_);
+  auto account_p = unpack_account(address_.cbits());
   if (!account_p) {
-    return reject_query("cannot unpack old state of account "s + acc_addr.to_hex());
+    return reject_query("cannot unpack old state of account "s + address_.to_hex());
   }
   auto& account = *account_p;
-  CHECK(account.addr == acc_addr);
+  CHECK(account.addr == address_);
   vm::AugmentedDictionary trans_dict{vm::DictNonEmpty(), std::move(acc_blk.transactions), 64,
                                      block::tlb::aug_AccountTransactions};
   td::BitArray<64> min_trans, max_trans;
@@ -6131,7 +6134,7 @@ bool ValidateQuery::CheckAccountTxs::try_check(const StdSmcAddress& acc_addr,
             extra.clear();
             return check_one_transaction(account, lt, value->prefetch_ref(), lt == min_trans_lt, lt == max_trans_lt);
           })) {
-    return reject_query("at least one Transaction of account "s + acc_addr.to_hex() + " is invalid");
+    return reject_query("at least one Transaction of account "s + address_.to_hex() + " is invalid");
   }
   if ((!vq_.full_collated_data_ || vq_.is_masterchain()) && account.storage_dict_hash && account.account_storage_stat &&
       account.account_storage_stat.value().is_dict_ready() &&
@@ -6140,7 +6143,7 @@ bool ValidateQuery::CheckAccountTxs::try_check(const StdSmcAddress& acc_addr,
                                                account.storage_used.cells);
   }
   if (vq_.is_masterchain() && account.libraries_changed()) {
-    return scan_account_libraries(account.orig_library, account.library, acc_addr);
+    return scan_account_libraries(account.orig_library, account.library, address_);
   } else {
     return true;
   }
@@ -6148,6 +6151,12 @@ bool ValidateQuery::CheckAccountTxs::try_check(const StdSmcAddress& acc_addr,
 
 ValidateQuery::CheckAccountTxs::Context ValidateQuery::CheckAccountTxs::extract_context() {
   return std::move(ctx_);
+}
+
+void ValidateQuery::CheckAccountTxs::start_up() {
+  try_check();
+  td::actor::send_closure(vq_id_, &ValidateQuery::after_check_account_finished, address_, extract_context());
+  stop();
 }
 
 void ValidateQuery::CheckAccountTxs::abort_query(td::Status error) {
@@ -6183,12 +6192,18 @@ ValidateQuery::CheckAccountTxs::Context ValidateQuery::load_check_account_transa
 
 void ValidateQuery::save_account_transactions_context(const StdSmcAddress& address, CheckAccountTxs::Context ctx) {
   if (ctx.fatal_error.has_value()) {
-    fatal_error(std::move(ctx.fatal_error.value()));
+    if (!parallel_check_account_failed) {
+      parallel_check_account_failed = true;
+      fatal_error(std::move(ctx.fatal_error.value()));
+    }
     return;
   }
 
   if (ctx.reject_reason.has_value()) {
-    reject_query(std::move(ctx.reject_error.value()), std::move(ctx.reject_reason.value()));
+    if (!parallel_check_account_failed) {
+      parallel_check_account_failed = true;
+      reject_query(std::move(ctx.reject_error.value()), std::move(ctx.reject_reason.value()));
+    }
     return;
   }
 
@@ -6264,6 +6279,14 @@ bool ValidateQuery::check_transactions_p() {
   return fatal_error("not implemented");
 }
 
+void ValidateQuery::after_check_account_finished(StdSmcAddress address, CheckAccountTxs::Context context) {
+  --pending;
+  save_account_transactions_context(address, std::move(context));
+  if (!pending && !parallel_check_account_failed) {
+    try_validate();
+  }
+}
+
 /**
  * Checks all transactions in the account blocks.
  *
@@ -6271,18 +6294,31 @@ bool ValidateQuery::check_transactions_p() {
  */
 bool ValidateQuery::check_transactions() {
   LOG(INFO) << "checking all transactions";
-  if (parallel_accounts_validation_) {
-    return fatal_error("not implemented");
-  }
-  return account_blocks_dict_->check_for_each_extra(
-      [this](Ref<vm::CellSlice> value, Ref<vm::CellSlice> extra, td::ConstBitPtr key, int key_len) {
+  bool no_accounts = true;
+  bool result = account_blocks_dict_->check_for_each_extra(
+      [this, &no_accounts](Ref<vm::CellSlice> value, Ref<vm::CellSlice> extra, td::ConstBitPtr key, int key_len) {
         CHECK(key_len == 256);
+        no_accounts = false;
         StdSmcAddress address = key;
-        CheckAccountTxs checker(*this, load_check_account_transactions_context(address));
-        bool result = checker.try_check(address, std::move(value));
-        save_account_transactions_context(address, checker.extract_context());
-        return result;
+        if (parallel_accounts_validation_) {
+          pending++;
+          td::actor::create_actor<CheckAccountTxs>(PSTRING() << get_name() << ":" << address.to_hex(), *this,
+                                                   actor_id(this), address, std::move(value),
+                                                   load_check_account_transactions_context(address))
+              .release();
+          return true;
+        } else {
+          CheckAccountTxs checker(*this, actor_id(this), address, std::move(value),
+                                  load_check_account_transactions_context(address));
+          bool result = checker.try_check();
+          save_account_transactions_context(address, checker.extract_context());
+          return result;
+        }
       });
+  if (no_accounts && parallel_accounts_validation_) {
+    parallel_accounts_validation_ = false;
+  }
+  return result;
 }
 
 /**
