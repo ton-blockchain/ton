@@ -31,14 +31,6 @@ void AdnlExtClientImpl::alarm() {
     next_create_at_ = td::Timestamp::in(10.0);
     alarm_timestamp() = next_create_at_;
 
-    if (!dst_host_.empty()) {
-      auto S = dst_addr_.init_host_port(dst_host_);
-      if (S.is_error()) {
-        LOG(INFO) << "failed to connect to " << dst_host_ << ": " << S;
-        return;
-      }
-      LOG(DEBUG) << "resolved " << dst_host_ << " -> " << dst_addr_;
-    }
     auto fd = td::SocketFd::open(dst_addr_);
     if (fd.is_error()) {
       LOG(INFO) << "failed to connect to " << dst_addr_ << ": " << fd.move_as_error();
@@ -172,12 +164,6 @@ void AdnlExtClientImpl::check_ready(td::Promise<td::Unit> promise) {
 td::actor::ActorOwn<AdnlExtClient> AdnlExtClient::create(AdnlNodeIdFull dst, td::IPAddress dst_addr,
                                                          std::unique_ptr<AdnlExtClient::Callback> callback) {
   return td::actor::create_actor<AdnlExtClientImpl>("extclient", std::move(dst), dst_addr, std::move(callback));
-}
-
-td::actor::ActorOwn<AdnlExtClient> AdnlExtClient::create(AdnlNodeIdFull dst, std::string dst_host,
-                                                         std::unique_ptr<AdnlExtClient::Callback> callback) {
-  return td::actor::create_actor<AdnlExtClientImpl>("extclient", std::move(dst), std::move(dst_host),
-                                                    std::move(callback));
 }
 
 td::actor::ActorOwn<AdnlExtClient> AdnlExtClient::create(AdnlNodeIdFull dst, PrivateKey local_id,

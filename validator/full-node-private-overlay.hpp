@@ -17,8 +17,6 @@
 #pragma once
 
 #include "full-node.h"
-#include "validator-telemetry.hpp"
-
 #include <fstream>
 
 namespace ton::validator::fullnode {
@@ -27,14 +25,12 @@ class FullNodePrivateBlockOverlay : public td::actor::Actor {
  public:
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcast &query);
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressed &query);
-  void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 &query);
   void process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query);
 
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast &query);
 
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcast &query);
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcastCompressed &query);
-  void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcastCompressedV2 &query);
   void process_block_candidate_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query);
 
   void process_telemetry_broadcast(PublicKeyHash src, const tl_object_ptr<ton_api::validator_telemetry>& telemetry);
@@ -102,7 +98,6 @@ class FullNodePrivateBlockOverlay : public td::actor::Actor {
   void try_init();
   void init();
 
-  td::actor::ActorOwn<ValidatorTelemetry> telemetry_sender_;
   bool collect_telemetry_ = false;
   std::ofstream telemetry_file_;
 };
@@ -111,14 +106,12 @@ class FullNodeCustomOverlay : public td::actor::Actor {
  public:
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcast &query);
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressed &query);
-  void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 &query);
   void process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query);
 
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_externalMessageBroadcast &query);
 
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcast &query);
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcastCompressed &query);
-  void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcastCompressedV2 &query);
   void process_block_candidate_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query);
 
   template <class T>

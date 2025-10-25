@@ -163,9 +163,9 @@ class ValidatorManagerImpl : public ValidatorManager {
                                        std::function<td::Status(td::FileFd &)> write_data,
                                        td::Promise<td::Unit> promise) override;
   void store_zero_state_file(BlockIdExt block_id, td::BufferSlice state, td::Promise<td::Unit> promise) override;
-  void wait_block_state(BlockHandle handle, td::uint32 priority, td::Timestamp timeout, bool wait_store,
+  void wait_block_state(BlockHandle handle, td::uint32 priority, td::Timestamp timeout,
                         td::Promise<td::Ref<ShardState>> promise) override;
-  void wait_block_state_short(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout, bool wait_store,
+  void wait_block_state_short(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
                               td::Promise<td::Ref<ShardState>> promise) override;
   void wait_neighbor_msg_queue_proofs(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks, td::Timestamp timeout,
                                       td::Promise<std::map<BlockIdExt, td::Ref<OutMsgQueueProof>>> promise) override {
@@ -274,6 +274,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   }
   void send_top_shard_block_description(td::Ref<ShardTopBlockDescription> desc) override;
   void send_block_broadcast(BlockBroadcast broadcast, int mode) override {
+  }
+  void send_validator_telemetry(PublicKeyHash key, tl_object_ptr<ton_api::validator_telemetry> telemetry) override {
   }
   void send_get_out_msg_queue_proof_request(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
                                             block::ImportedMsgQueueLimits limits,

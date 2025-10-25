@@ -33,23 +33,23 @@ namespace ton::validator {
 class ValidatorManager;
 
 class ValidatorTelemetry : public td::actor::Actor {
- public:
-  class Callback {
-   public:
-    virtual ~Callback() = default;
-    virtual void send_telemetry(tl_object_ptr<ton_api::validator_telemetry> telemetry) = 0;
-  };
-
-  ValidatorTelemetry(adnl::AdnlNodeIdShort local_id, std::unique_ptr<Callback> callback)
-      : local_id_(local_id), callback_(std::move(callback)) {
+public:
+  ValidatorTelemetry(PublicKeyHash key, adnl::AdnlNodeIdShort local_id, td::Bits256 zero_state_file_hash,
+                     td::actor::ActorId<ValidatorManager> manager)
+    : key_(key)
+    , local_id_(local_id)
+    , zero_state_file_hash_(zero_state_file_hash)
+    , manager_(std::move(manager)) {
   }
 
   void start_up() override;
   void alarm() override;
 
- private:
+private:
+  PublicKeyHash key_;
   adnl::AdnlNodeIdShort local_id_;
-  std::unique_ptr<Callback> callback_;
+  td::Bits256 zero_state_file_hash_;
+  td::actor::ActorId<ValidatorManager> manager_;
 
   std::string node_version_;
   std::string os_version_;
@@ -61,5 +61,6 @@ class ValidatorTelemetry : public td::actor::Actor {
   void send_telemetry();
 
   static constexpr double PERIOD = 600.0;
+  static constexpr td::uint32 MAX_SIZE = 8192;
 };
-}  // namespace ton::validator
+} // namespace ton::validator

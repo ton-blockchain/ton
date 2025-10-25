@@ -112,7 +112,7 @@ void QueueSizeCounter::get_queue_size_ex(ton::BlockIdExt block_id, bool calc_who
                             }
                             BlockHandle handle = R.move_as_ok();
                             td::actor::send_closure(
-                                manager, &ValidatorManager::wait_block_state, handle, 0, td::Timestamp::in(10.0), false,
+                                manager, &ValidatorManager::wait_block_state, handle, 0, td::Timestamp::in(10.0),
                                 [SelfId, handle](td::Result<td::Ref<ShardState>> R) mutable {
                                   if (R.is_error()) {
                                     td::actor::send_closure(SelfId, &QueueSizeCounter::on_error, handle->id(),
@@ -159,7 +159,7 @@ void QueueSizeCounter::get_queue_size_cont(BlockHandle handle, td::Ref<ShardStat
     }
     td::uint64 prev_size = R.move_as_ok();
     td::actor::send_closure(
-        manager, &ValidatorManager::wait_block_state_short, prev_block_id, 0, td::Timestamp::in(10.0), false,
+        manager, &ValidatorManager::wait_block_state_short, prev_block_id, 0, td::Timestamp::in(10.0),
         [=](td::Result<td::Ref<ShardState>> R) {
           if (R.is_error()) {
             td::actor::send_closure(SelfId, &QueueSizeCounter::on_error, state->get_block_id(), R.move_as_error());
@@ -213,7 +213,7 @@ void QueueSizeCounter::process_top_shard_blocks() {
           return;
         }
         td::actor::send_closure(
-            manager, &ValidatorManager::wait_block_state_short, R.ok()->id(), 0, td::Timestamp::in(10.0), false,
+            manager, &ValidatorManager::wait_block_state_short, R.ok()->id(), 0, td::Timestamp::in(10.0),
             [=](td::Result<td::Ref<ShardState>> R) {
               if (R.is_error()) {
                 LOG(WARNING) << "Failed to get masterchain state: " << R.move_as_error();

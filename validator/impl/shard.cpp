@@ -376,9 +376,9 @@ td::Status MasterchainStateQ::mc_init() {
 
 td::Status MasterchainStateQ::mc_reinit() {
   auto res = block::ConfigInfo::extract_config(
-      root_cell(), blkid,
-      block::ConfigInfo::needStateRoot | block::ConfigInfo::needValidatorSet | block::ConfigInfo::needShardHashes |
-          block::ConfigInfo::needPrevBlocks | block::ConfigInfo::needWorkchainInfo);
+      root_cell(), block::ConfigInfo::needStateRoot | block::ConfigInfo::needValidatorSet |
+                       block::ConfigInfo::needShardHashes | block::ConfigInfo::needPrevBlocks |
+                       block::ConfigInfo::needWorkchainInfo);
   cur_validators_.reset();
   next_validators_.reset();
   if (res.is_error()) {
@@ -386,6 +386,7 @@ td::Status MasterchainStateQ::mc_reinit() {
   }
   config_ = res.move_as_ok();
   CHECK(config_);
+  CHECK(config_->set_block_id_ext(get_block_id()));
 
   cur_validators_ = config_->get_cur_validator_set();
 

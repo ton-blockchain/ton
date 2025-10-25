@@ -494,17 +494,6 @@ void AcceptBlockQuery::written_block_signatures() {
 void AcceptBlockQuery::written_block_info() {
   VLOG(VALIDATOR_DEBUG) << "written block info";
   if (data_.not_null()) {
-    block_root_ = data_->root_cell();
-    if (block_root_.is_null()) {
-      fatal_error("block data does not contain a root cell");
-      return;
-    }
-    // generate proof
-    if (!create_new_proof()) {
-      fatal_error("cannot generate proof for block "s + id_.to_str());
-      return;
-    }
-    send_broadcasts();
     if (!apply_) {
       written_state({});
       return;
@@ -574,6 +563,17 @@ void AcceptBlockQuery::written_state(td::Ref<ShardState> upd_state) {
   CHECK(data_.not_null());
   state_ = std::move(upd_state);
 
+  block_root_ = data_->root_cell();
+  if (block_root_.is_null()) {
+    fatal_error("block data does not contain a root cell");
+    return;
+  }
+  // generate proof
+  if (!create_new_proof()) {
+    fatal_error("cannot generate proof for block "s + id_.to_str());
+    return;
+  }
+
   if (apply_ && state_keep_old_hash_ != state_old_hash_) {
     fatal_error(PSTRING() << "invalid previous state hash in newly-created proof: expected "
                           << state_->root_hash().to_hex() << ", found in update " << state_old_hash_.to_hex());
@@ -626,7 +626,7 @@ void AcceptBlockQuery::got_last_mc_block(std::pair<td::Ref<MasterchainState>, Bl
     VLOG(VALIDATOR_DEBUG) << "shardchain block refers to newer masterchain block " << mc_blkid_.to_str()
                           << ", trying to obtain it";
     td::actor::send_closure_later(manager_, &ValidatorManager::wait_block_state_short, mc_blkid_, priority(), timeout_,
-                                  false, [SelfId = actor_id(this)](td::Result<Ref<ShardState>> R) {
+                                  [SelfId = actor_id(this)](td::Result<Ref<ShardState>> R) {
                                     check_send_error(SelfId, R) ||
                                         td::actor::send_closure_bool(SelfId, &AcceptBlockQuery::got_mc_state,
                                                                      R.move_as_ok());
@@ -935,11 +935,8 @@ void AcceptBlockQuery::written_block_info_2() {
 }
 
 void AcceptBlockQuery::applied() {
-  finish_query();
-}
-
-void AcceptBlockQuery::send_broadcasts() {
   if (send_broadcast_mode_ == 0) {
+    finish_query();
     return;
   }
   BlockBroadcast b;
@@ -967,6 +964,8 @@ void AcceptBlockQuery::send_broadcasts() {
   // td::actor::send_closure(manager_, &ValidatorManager::send_block_candidate_broadcast, id_,
   //                         validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash(),
   //                         std::move(b.data), send_broadcast_mode_);
+
+  finish_query();
 }
 
 }  // namespace validator

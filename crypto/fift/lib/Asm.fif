@@ -697,7 +697,6 @@ x{CF3F} @Defop BCHKBITREFSQ
 x{CF40} @Defop STZEROES
 x{CF41} @Defop STONES
 x{CF42} @Defop STSAME
-x{CF50} @Defop BTOS
 { tuck sbitrefs swap 22 + swap @havebitrefs not
   { swap PUSHSLICE STSLICER }
   { over sbitrefs 2dup 57 3 2x<=
@@ -1391,7 +1390,6 @@ x{F912} @Defop ECRECOVER
 x{F913} @Defop SECP256K1_XONLY_PUBKEY_TWEAK_ADD
 x{F914} @Defop P256_CHKSIGNU
 x{F915} @Defop P256_CHKSIGNS
-x{F916} @Defop HASHBU
 
 x{F920} @Defop RIST255_FROMHASH
 x{F921} @Defop RIST255_VALIDATE

@@ -59,7 +59,7 @@ class CoreActorInterface : public td::actor::Actor {
   };
 
   struct RemoteNodeStatusList {
-    std::vector<std::string> addrs;
+    std::vector<td::IPAddress> ips;
     std::vector<std::shared_ptr<RemoteNodeStatus>> results;
   };
   virtual ~CoreActorInterface() = default;

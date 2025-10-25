@@ -166,7 +166,7 @@ void ApplyBlock::written_block_data() {
     });
 
     td::actor::send_closure(manager_, &ValidatorManager::wait_block_state, handle_, apply_block_priority(), timeout_,
-                            true, std::move(P));
+                            std::move(P));
   }
 }
 

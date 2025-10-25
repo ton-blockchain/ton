@@ -73,14 +73,11 @@ struct LiteServerConfig {
 
  public:
   ton::adnl::AdnlNodeIdFull adnl_id;
-  std::string hostname;
+  td::IPAddress addr;
 
   LiteServerConfig() = default;
-  LiteServerConfig(ton::adnl::AdnlNodeIdFull adnl_id, std::string hostname)
-      : is_full(true), adnl_id(adnl_id), hostname(std::move(hostname)) {
-  }
-  LiteServerConfig(ton::adnl::AdnlNodeIdFull adnl_id, td::IPAddress ip)
-      : is_full(true), adnl_id(adnl_id), hostname(PSTRING() << ip.get_ip_str() << ":" << ip.get_port()) {
+  LiteServerConfig(ton::adnl::AdnlNodeIdFull adnl_id, td::IPAddress addr)
+      : is_full(true), adnl_id(adnl_id), addr(addr) {
   }
 
   bool accepts_query(const QueryInfo& query_info) const;

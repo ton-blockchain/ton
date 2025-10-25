@@ -344,7 +344,7 @@ void CheckProof::got_block_handle(BlockHandle handle) {
     process_masterchain_state();
     return;
   }
-  td::actor::send_closure(manager_, &ValidatorManager::wait_block_state_short, prev_[0], priority(), timeout_, false,
+  td::actor::send_closure(manager_, &ValidatorManager::wait_block_state_short, prev_[0], priority(), timeout_,
                           [SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
                             check_send_error(SelfId, R) ||
                                 td::actor::send_closure_bool(SelfId, &CheckProof::got_masterchain_state,

@@ -55,9 +55,7 @@ void ValidatorManagerImpl::sync_complete(td::Promise<td::Unit> promise) {
   });
 
   LOG(ERROR) << "running collate query";
-  run_collate_query(
-      CollateParams{.shard = shard_id, .min_masterchain_block_id = block_id, .prev = prev, .is_hardfork = true},
-      actor_id(this), td::Timestamp::in(10.0), {}, std::move(P));
+  run_collate_hardfork(shard_id, block_id, prev, actor_id(this), td::Timestamp::in(10.0), std::move(P));
 }
 
 void ValidatorManagerImpl::created_candidate(BlockCandidate candidate) {
@@ -167,15 +165,14 @@ void ValidatorManagerImpl::new_ihr_message(td::BufferSlice data) {
 }
 
 void ValidatorManagerImpl::wait_block_state(BlockHandle handle, td::uint32 priority, td::Timestamp timeout,
-                                            bool wait_store, td::Promise<td::Ref<ShardState>> promise) {
+                                            td::Promise<td::Ref<ShardState>> promise) {
   auto it = wait_state_.find(handle->id());
   if (it == wait_state_.end()) {
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), handle](td::Result<td::Ref<ShardState>> R) {
       td::actor::send_closure(SelfId, &ValidatorManagerImpl::finished_wait_state, handle->id(), std::move(R));
     });
     auto id = td::actor::create_actor<WaitBlockState>("waitstate", handle, 0, opts_, last_masterchain_state_,
-                                                      actor_id(this), td::Timestamp::in(10.0),
-                                                      td::Promise<td::Ref<ShardState>>{}, std::move(P))
+                                                      actor_id(this), td::Timestamp::in(10.0), std::move(P))
                   .release();
     wait_state_[handle->id()].actor_ = id;
     it = wait_state_.find(handle->id());
@@ -187,14 +184,14 @@ void ValidatorManagerImpl::wait_block_state(BlockHandle handle, td::uint32 prior
 }
 
 void ValidatorManagerImpl::wait_block_state_short(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
-                                                  bool wait_store, td::Promise<td::Ref<ShardState>> promise) {
+                                                  td::Promise<td::Ref<ShardState>> promise) {
   auto P = td::PromiseCreator::lambda(
-      [=, SelfId = actor_id(this), promise = std::move(promise)](td::Result<BlockHandle> R) mutable {
+      [SelfId = actor_id(this), timeout, promise = std::move(promise)](td::Result<BlockHandle> R) mutable {
         if (R.is_error()) {
           promise.set_error(R.move_as_error());
           return;
         }
-        td::actor::send_closure(SelfId, &ValidatorManagerImpl::wait_block_state, R.move_as_ok(), 0, timeout, wait_store,
+        td::actor::send_closure(SelfId, &ValidatorManagerImpl::wait_block_state, R.move_as_ok(), 0, timeout,
                                 std::move(promise));
       });
   get_block_handle(block_id, true, std::move(P));
@@ -248,7 +245,7 @@ void ValidatorManagerImpl::wait_prev_block_state(BlockHandle handle, td::uint32 
     auto shard = handle->id().shard_full();
     auto prev_shard = handle->one_prev(true).shard_full();
     if (shard == prev_shard) {
-      wait_block_state_short(handle->one_prev(true), 0, timeout, false, std::move(promise));
+      wait_block_state_short(handle->one_prev(true), 0, timeout, std::move(promise));
     } else {
       CHECK(shard_parent(shard) == prev_shard);
       bool left = shard_child(prev_shard, true) == shard;
@@ -267,7 +264,7 @@ void ValidatorManagerImpl::wait_prev_block_state(BlockHandle handle, td::uint32 
               }
             }
           });
-      wait_block_state_short(handle->one_prev(true), 0, timeout, false, std::move(P));
+      wait_block_state_short(handle->one_prev(true), 0, timeout, std::move(P));
     }
   } else {
     wait_block_state_merge(handle->one_prev(true), handle->one_prev(false), 0, timeout, std::move(promise));
@@ -342,7 +339,7 @@ void ValidatorManagerImpl::wait_block_message_queue(BlockHandle handle, td::uint
     }
   });
 
-  wait_block_state(handle, 0, timeout, true, std::move(P));
+  wait_block_state(handle, 0, timeout, std::move(P));
 }
 
 void ValidatorManagerImpl::wait_block_message_queue_short(BlockIdExt block_id, td::uint32 priority,

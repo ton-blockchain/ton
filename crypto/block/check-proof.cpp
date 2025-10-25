@@ -492,7 +492,7 @@ td::Status BlockProofLink::validate(td::uint32* save_utime) const {
         return td::Status::Error("BlockProofLink contains a state proof for "s + from.to_str() +
                                  " with incorrect root hash");
       }
-      TRY_RESULT(config, block::ConfigInfo::extract_config(vstate_root, from, block::ConfigInfo::needPrevBlocks));
+      TRY_RESULT(config, block::ConfigInfo::extract_config(vstate_root, block::ConfigInfo::needPrevBlocks));
       if (!config->check_old_mc_block_id(to, true)) {
         return td::Status::Error("cannot check that "s + to.to_str() + " is indeed a previous masterchain block of " +
                                  from.to_str() + " using the presented Merkle proof of masterchain state");

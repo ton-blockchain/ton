@@ -610,20 +610,18 @@ void register_prng_ops(OpcodeTable& cp0) {
 }
 
 int exec_compute_hash(VmState* st, int mode) {
-  VM_LOG(st) << "execute HASH" << "CSB"[mode] << 'U';
+  VM_LOG(st) << "execute HASH" << (mode & 1 ? 'S' : 'C') << 'U';
   Stack& stack = st->get_stack();
   std::array<unsigned char, 32> hash;
-  if (mode == 0) {  // cell
+  if (!(mode & 1)) {
     auto cell = stack.pop_cell();
     hash = cell->get_hash().as_array();
-  } else if (mode == 1) {  // slice
+  } else {
     auto cs = stack.pop_cellslice();
-    CellBuilder cb;
+    vm::CellBuilder cb;
     CHECK(cb.append_cellslice_bool(std::move(cs)));
+    // TODO: use cb.get_hash() instead
     hash = cb.finalize()->get_hash().as_array();
-  } else {  // builder
-    auto cb = stack.pop_builder();
-    hash = cb.write().finalize_novm()->get_hash().as_array();
   }
   td::RefInt256 res{true};
   CHECK(res.write().import_bytes(hash.data(), hash.size(), false));
@@ -1367,7 +1365,6 @@ void register_ton_crypto_ops(OpcodeTable& cp0) {
       .insert(OpcodeInstr::mksimple(0xf913, 16, "SECP256K1_XONLY_PUBKEY_TWEAK_ADD", exec_secp256k1_xonly_pubkey_tweak_add)->require_version(9))
       .insert(OpcodeInstr::mksimple(0xf914, 16, "P256_CHKSIGNU", std::bind(exec_p256_chksign, _1, false))->require_version(4))
       .insert(OpcodeInstr::mksimple(0xf915, 16, "P256_CHKSIGNS", std::bind(exec_p256_chksign, _1, true))->require_version(4))
-      .insert(OpcodeInstr::mksimple(0xf916, 16, "HASHBU", std::bind(exec_compute_hash, _1, 2))->require_version(12))
 
       .insert(OpcodeInstr::mksimple(0xf920, 16, "RIST255_FROMHASH", exec_ristretto255_from_hash)->require_version(4))
       .insert(OpcodeInstr::mksimple(0xf921, 16, "RIST255_VALIDATE", std::bind(exec_ristretto255_validate, _1, false))->require_version(4))
@@ -1822,7 +1819,6 @@ int exec_send_message(VmState* st) {
   Ref<CellSlice> dest;
   td::RefInt256 value;
   td::RefInt256 user_fwd_fee, user_ihr_fee;
-  unsigned extra_flags_len = 0;
   bool have_extra_currencies = false;
   bool ext_msg = msg.info->prefetch_ulong(1);
   if (ext_msg) { // External message
@@ -1840,23 +1836,17 @@ int exec_send_message(VmState* st) {
     }
     ihr_disabled = info.ihr_disabled || st->get_global_version() >= 11;
     dest = std::move(info.dest);
-    Ref<Cell> extra;
+    Ref<vm::Cell> extra;
     if (!block::tlb::t_CurrencyCollection.unpack_special(info.value.write(), value, extra)) {
       throw VmError{Excno::unknown, "invalid message"};
     }
     have_extra_currencies = !extra.is_null();
     user_fwd_fee = block::tlb::t_Grams.as_integer(info.fwd_fee);
-    if (st->get_global_version() >= 12) {
-      user_ihr_fee = td::zero_refint();
-      extra_flags_len = info.extra_flags->size();
-    } else {
-      // Legacy: extra_flags was previously ihr_fee
-      user_ihr_fee = block::tlb::t_Grams.as_integer(info.extra_flags);
-    }
+    user_ihr_fee = block::tlb::t_Grams.as_integer(info.ihr_fee);
   }
 
   bool is_masterchain = parse_addr_workchain(*my_addr) == -1 || (!ext_msg && parse_addr_workchain(*dest) == -1);
-  Ref<CellSlice> prices_cs;
+  td::Ref<CellSlice> prices_cs;
   if (st->get_global_version() >= 6) {
     prices_cs = tuple_index(get_unpacked_config_tuple(st), is_masterchain ? 4 : 5).as_slice();
   } else {
@@ -1889,7 +1879,7 @@ int exec_send_message(VmState* st) {
   } else {
     max_cells = 1 << 13;
   }
-  VmStorageStat stat(max_cells);
+  vm::VmStorageStat stat(max_cells);
   CellSlice cs = load_cell_slice(msg_cell);
   cs.skip_first(cs.size());
   if (st->get_global_version() >= 10 && have_extra_currencies) {
@@ -1970,8 +1960,7 @@ int exec_send_message(VmState* st) {
       bits = 4 + my_addr->size() + dest->size() + stored_grams_len(value) + 1 + 32 + 64;
       td::RefInt256 fwd_fee_first = (fwd_fee * prices.first_frac) >> 16;
       bits += stored_grams_len(fwd_fee - fwd_fee_first);
-      // Legacy: extra_flags was previously ihr_fee
-      bits += st->get_global_version() >= 12 ? extra_flags_len : stored_grams_len(ihr_fee);
+      bits += stored_grams_len(ihr_fee);
     }
     // init
     bits++;

@@ -318,28 +318,21 @@ void FullNodeImpl::send_ihr_message(AccountIdPrefixFull dst, td::BufferSlice dat
 }
 
 void FullNodeImpl::send_ext_message(AccountIdPrefixFull dst, td::BufferSlice data) {
-  bool skip_public = false;
+  auto shard = get_shard(dst);
+  if (shard.empty()) {
+    VLOG(FULL_NODE_WARNING) << "dropping OUT ext message to unknown shard";
+    return;
+  }
   for (auto &[_, private_overlay] : custom_overlays_) {
     if (private_overlay.params_.send_shard(dst.as_leaf_shard())) {
       for (auto &[local_id, actor] : private_overlay.actors_) {
         if (private_overlay.params_.msg_senders_.contains(local_id)) {
           td::actor::send_closure(actor, &FullNodeCustomOverlay::send_external_message, data.clone());
-          if (private_overlay.params_.skip_public_msg_send_) {
-            skip_public = true;
-          }
         }
       }
     }
   }
-
-  if (!skip_public) {
-    auto shard = get_shard(dst);
-    if (shard.empty()) {
-      VLOG(FULL_NODE_WARNING) << "dropping OUT ext message to unknown shard";
-      return;
-    }
-    td::actor::send_closure(shard, &FullNodeShard::send_external_message, std::move(data));
-  }
+  td::actor::send_closure(shard, &FullNodeShard::send_external_message, std::move(data));
 }
 
 void FullNodeImpl::send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) {
@@ -444,7 +437,7 @@ void FullNodeImpl::download_zero_state(BlockIdExt id, td::uint32 priority, td::T
 void FullNodeImpl::download_persistent_state(BlockIdExt id, BlockIdExt masterchain_block_id, PersistentStateType type,
                                              td::uint32 priority, td::Timestamp timeout,
                                              td::Promise<td::BufferSlice> promise) {
-  auto shard = get_shard(id.shard_full(), /* historical = */ true);
+  auto shard = get_shard(id.shard_full());
   if (shard.empty()) {
     VLOG(FULL_NODE_WARNING) << "dropping download state diff query to unknown shard";
     promise.set_error(td::Status::Error(ErrorCode::notready, "shard not ready"));
@@ -467,7 +460,7 @@ void FullNodeImpl::download_block_proof(BlockIdExt block_id, td::uint32 priority
 
 void FullNodeImpl::download_block_proof_link(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
                                              td::Promise<td::BufferSlice> promise) {
-  auto shard = get_shard(block_id.shard_full(), /* historical = */ true);
+  auto shard = get_shard(block_id.shard_full());
   if (shard.empty()) {
     VLOG(FULL_NODE_WARNING) << "dropping download proof link query to unknown shard";
     promise.set_error(td::Status::Error(ErrorCode::notready, "shard not ready"));
@@ -490,7 +483,7 @@ void FullNodeImpl::get_next_key_blocks(BlockIdExt block_id, td::Timestamp timeou
 
 void FullNodeImpl::download_archive(BlockSeqno masterchain_seqno, ShardIdFull shard_prefix, std::string tmp_dir,
                       td::Timestamp timeout, td::Promise<std::string> promise) {
-  auto shard = get_shard(shard_prefix, /* historical = */ true);
+  auto shard = get_shard(shard_prefix);
   if (shard.empty()) {
     VLOG(FULL_NODE_WARNING) << "dropping download archive query to unknown shard";
     promise.set_error(td::Status::Error(ErrorCode::notready, "shard not ready"));
@@ -519,7 +512,7 @@ void FullNodeImpl::download_out_msg_queue_proof(ShardIdFull dst_shard, std::vect
                           timeout, std::move(promise));
 }
 
-td::actor::ActorId<FullNodeShard> FullNodeImpl::get_shard(ShardIdFull shard, bool historical) {
+td::actor::ActorId<FullNodeShard> FullNodeImpl::get_shard(ShardIdFull shard) {
   if (shard.is_masterchain()) {
     return shards_[ShardIdFull{masterchainId}].actor.get();
   }
@@ -527,12 +520,8 @@ td::actor::ActorId<FullNodeShard> FullNodeImpl::get_shard(ShardIdFull shard, boo
     return {};
   }
   int pfx_len = shard.pfx_len();
-  int min_split = wc_monitor_min_split_;
-  if (historical) {
-    min_split = td::Random::fast(0, min_split);
-  }
-  if (pfx_len > min_split) {
-    shard = shard_prefix(shard, min_split);
+  if (pfx_len > wc_monitor_min_split_) {
+    shard = shard_prefix(shard, wc_monitor_min_split_);
   }
   while (true) {
     auto it = shards_.find(shard);
@@ -622,6 +611,24 @@ void FullNodeImpl::new_key_block(BlockHandle handle) {
     });
     td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_block_proof_link_from_db, handle,
                             std::move(P));
+  }
+}
+
+void FullNodeImpl::send_validator_telemetry(PublicKeyHash key, tl_object_ptr<ton_api::validator_telemetry> telemetry) {
+  if (use_old_private_overlays_) {
+    auto it = private_block_overlays_.find(key);
+    if (it == private_block_overlays_.end()) {
+      VLOG(FULL_NODE_INFO) << "Cannot send validator telemetry for " << key << " : no private block overlay";
+      return;
+    }
+    td::actor::send_closure(it->second, &FullNodePrivateBlockOverlay::send_validator_telemetry, std::move(telemetry));
+  } else {
+    auto overlay = fast_sync_overlays_.get_masterchain_overlay_for(adnl::AdnlNodeIdShort{telemetry->adnl_id_});
+    if (overlay.empty()) {
+      VLOG(FULL_NODE_INFO) << "Cannot send validator telemetry for adnl id " << key << " : no fast sync overlay";
+      return;
+    }
+    td::actor::send_closure(overlay, &FullNodeFastSyncOverlay::send_validator_telemetry, std::move(telemetry));
   }
 }
 
@@ -769,6 +776,9 @@ void FullNodeImpl::start_up() {
 
     void new_key_block(BlockHandle handle) override {
       td::actor::send_closure(id_, &FullNodeImpl::new_key_block, std::move(handle));
+    }
+    void send_validator_telemetry(PublicKeyHash key, tl_object_ptr<ton_api::validator_telemetry> telemetry) override {
+      td::actor::send_closure(id_, &FullNodeImpl::send_validator_telemetry, key, std::move(telemetry));
     }
 
     explicit Callback(td::actor::ActorId<FullNodeImpl> id) : id_(id) {
@@ -954,7 +964,6 @@ CustomOverlayParams CustomOverlayParams::fetch(const ton_api::engine_validator_c
   for (const auto &shard : f.sender_shards_) {
     c.sender_shards_.push_back(create_shard_id(shard));
   }
-  c.skip_public_msg_send_ = f.skip_public_msg_send_;
   return c;
 }
 

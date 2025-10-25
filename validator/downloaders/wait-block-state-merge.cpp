@@ -55,7 +55,7 @@ void WaitBlockStateMerge::start_up() {
     }
   });
 
-  td::actor::send_closure(manager_, &ValidatorManager::wait_block_state_short, left_, priority_, timeout_, false,
+  td::actor::send_closure(manager_, &ValidatorManager::wait_block_state_short, left_, priority_, timeout_,
                           std::move(P_l));
 
   auto P_r = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
@@ -66,7 +66,7 @@ void WaitBlockStateMerge::start_up() {
     }
   });
 
-  td::actor::send_closure(manager_, &ValidatorManager::wait_block_state_short, right_, priority_, timeout_, false,
+  td::actor::send_closure(manager_, &ValidatorManager::wait_block_state_short, right_, priority_, timeout_,
                           std::move(P_r));
 }
 

@@ -37,11 +37,8 @@ class ValidatorManager;
 class ValidatorGroup : public td::actor::Actor {
  public:
   void generate_block_candidate(validatorsession::BlockSourceInfo source_info, td::Promise<GeneratedCandidate> promise);
-  void generate_block_candidate_cont(validatorsession::BlockSourceInfo source_info,
-                                     td::Promise<GeneratedCandidate> promise, td::CancellationToken cancellation_token);
   void validate_block_candidate(validatorsession::BlockSourceInfo source_info, BlockCandidate block,
-                                td::Promise<std::pair<UnixTime, bool>> promise,
-                                td::optional<BlockCandidate> optimistic_prev_block);
+                                td::Promise<std::pair<UnixTime, bool>> promise);
   void accept_block_candidate(validatorsession::BlockSourceInfo source_info, td::BufferSlice block, RootHash root_hash,
                               FileHash file_hash, std::vector<BlockSignature> signatures,
                               std::vector<BlockSignature> approve_signatures,
@@ -54,10 +51,6 @@ class ValidatorGroup : public td::actor::Actor {
                               FileHash collated_data_file_hash, td::Promise<BlockCandidate> promise);
   BlockIdExt create_next_block_id(RootHash root_hash, FileHash file_hash) const;
   BlockId create_next_block_id_simple() const;
-
-  void generate_block_optimistic(validatorsession::BlockSourceInfo source_info, td::BufferSlice prev_block,
-                          RootHash prev_root_hash, FileHash prev_file_hash, td::Promise<GeneratedCandidate> promise);
-  void generated_block_optimistic(validatorsession::BlockSourceInfo source_info, td::Result<GeneratedCandidate> R);
 
   void start(std::vector<BlockIdExt> prev, BlockIdExt min_masterchain_block_id);
   void create_session();
@@ -163,8 +156,6 @@ class ValidatorGroup : public td::actor::Actor {
   std::shared_ptr<CachedCollatedBlock> cached_collated_block_;
   td::CancellationTokenSource cancellation_token_source_;
 
-  void update_round_id(td::uint32 round);
-
   void generated_block_candidate(validatorsession::BlockSourceInfo source_info,
                                  std::shared_ptr<CachedCollatedBlock> cache, td::Result<GeneratedCandidate> R);
 
@@ -188,24 +179,8 @@ class ValidatorGroup : public td::actor::Actor {
   }
 
   std::set<BlockIdExt> sent_candidate_broadcasts_;
-  std::map<BlockIdExt, adnl::AdnlNodeIdShort> block_collator_node_id_;
 
   void send_block_candidate_broadcast(BlockIdExt id, td::BufferSlice data);
-
-  struct OptimisticGeneration {
-    td::uint32 round = 0;
-    BlockIdExt prev;
-    td::optional<GeneratedCandidate> result;
-    td::CancellationTokenSource cancellation_token_source;
-    std::vector<td::Promise<GeneratedCandidate>> promises;
-
-    ~OptimisticGeneration() {
-      for (auto& promise : promises) {
-        promise.set_error(td::Status::Error(ErrorCode::cancelled, "Cancelled"));
-      }
-    }
-  };
-  std::unique_ptr<OptimisticGeneration> optimistic_generation_;
 };
 
 }  // namespace validator

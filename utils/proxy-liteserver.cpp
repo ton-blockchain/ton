@@ -184,7 +184,7 @@ class ProxyLiteserver : public td::actor::Actor {
 
     for (size_t i = 0; i < servers_.size(); ++i) {
       Server& server = servers_[i];
-      server.client = adnl::AdnlExtClient::create(server.config.adnl_id, server.config.hostname,
+      server.client = adnl::AdnlExtClient::create(server.config.adnl_id, server.config.addr,
                                                   std::make_unique<Callback>(actor_id(this), i));
       server.alive = false;
     }
@@ -197,7 +197,7 @@ class ProxyLiteserver : public td::actor::Actor {
     }
     server.alive = ready;
     LOG(WARNING) << (ready ? "Connected to" : "Disconnected from") << " server #" << idx << " ("
-                 << server.config.hostname << ")";
+                 << server.config.addr.get_ip_str() << ":" << server.config.addr.get_port() << ")";
   }
 
   void create_ext_server() {
@@ -295,7 +295,8 @@ class ProxyLiteserver : public td::actor::Actor {
     Server& server = servers_[server_idx];
     LOG(INFO) << "Sending query " << query_info.to_str()
               << (wait_mc_seqno_obj ? PSTRING() << " (wait seqno " << wait_mc_seqno_obj->seqno_ << ")" : "")
-              << ", size=" << data.size() << ", to server #" << server_idx << " (" << server.config.hostname << ")";
+              << ", size=" << data.size() << ", to server #" << server_idx << " (" << server.config.addr.get_ip_str()
+              << ":" << server.config.addr.get_port() << ")";
 
     BlockSeqno wait_mc_seqno = wait_mc_seqno_obj ? wait_mc_seqno_obj->seqno_ : 0;
     wait_mc_seqno = std::max(wait_mc_seqno, last_known_masterchain_seqno_);

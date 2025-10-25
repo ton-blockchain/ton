@@ -131,7 +131,7 @@ void ShardBlockVerifier::process_message(adnl::AdnlNodeIdShort src, td::BufferSl
 int ShardBlockVerifier::get_config_shard_idx(const ShardIdFull& shard_id) const {
   for (size_t i = 0; i < config_->shards.size(); i++) {
     if (shard_intersects(shard_id, config_->shards[i].shard_id)) {
-      return (int)i;
+      return i;
     }
   }
   return -1;

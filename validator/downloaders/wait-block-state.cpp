@@ -32,11 +32,7 @@ void WaitBlockState::alarm() {
 }
 
 void WaitBlockState::abort_query(td::Status reason) {
-  if (promise_no_store_) {
-    promise_no_store_.set_error(
-        reason.clone().move_as_error_prefix(PSTRING() << "failed to download state " << handle_->id() << ": "));
-  }
-  if (promise_final_) {
+  if (promise_) {
     if (priority_ > 0 || (reason.code() != ErrorCode::timeout && reason.code() != ErrorCode::notready)) {
       LOG(WARNING) << "aborting wait block state query for " << handle_->id() << " priority=" << priority_ << ": "
                    << reason;
@@ -44,19 +40,18 @@ void WaitBlockState::abort_query(td::Status reason) {
       LOG(DEBUG) << "aborting wait block state query for " << handle_->id() << " priority=" << priority_ << ": "
                  << reason;
     }
-    promise_final_.set_error(
-        reason.move_as_error_prefix(PSTRING() << "failed to download state " << handle_->id() << ": "));
+    promise_.set_error(reason.move_as_error_prefix(PSTRING() << "failed to download state " << handle_->id() << ": "));
   }
   stop();
 }
 
 void WaitBlockState::finish_query() {
   CHECK(handle_->received_state());
-  if (promise_no_store_) {
-    promise_no_store_.set_result(prev_state_);
-  }
-  if (promise_final_) {
-    promise_final_.set_result(prev_state_);
+  /*if (handle_->id().is_masterchain() && handle_->inited_proof()) {
+    td::actor::send_closure(manager_, &ValidatorManager::new_block, handle_, prev_state_, [](td::Unit) {});
+  }*/
+  if (promise_) {
+    promise_.set_result(prev_state_);
   }
   stop();
 }
@@ -280,16 +275,10 @@ void WaitBlockState::got_block_data(td::Ref<BlockData> data) {
 }
 
 void WaitBlockState::apply() {
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
-    if (R.is_error()) {
-      td::actor::send_closure(SelfId, &WaitBlockState::abort_query, R.move_as_error_prefix("db set error: "));
-    } else {
-      td::actor::send_closure(SelfId, &WaitBlockState::written_state, R.move_as_ok());
-    }
-  });
-
   if (opts_->get_permanent_celldb()) {
-    td::actor::send_closure(manager_, &ValidatorManager::set_block_state_from_data, handle_, block_, std::move(P));
+    td::actor::send_closure(manager_, &ValidatorManager::set_block_state_from_data, handle_, block_,
+                            std::move(promise_));
+    stop();
     return;
   }
   TD_PERF_COUNTER(apply_block_to_state);
@@ -300,11 +289,15 @@ void WaitBlockState::apply() {
     return;
   }
 
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
+    if (R.is_error()) {
+      td::actor::send_closure(SelfId, &WaitBlockState::abort_query, R.move_as_error_prefix("db set error: "));
+    } else {
+      td::actor::send_closure(SelfId, &WaitBlockState::written_state, R.move_as_ok());
+    }
+  });
+
   td::actor::send_closure(manager_, &ValidatorManager::set_block_state, handle_, prev_state_, std::move(P));
-  if (promise_no_store_) {
-    promise_no_store_.set_result(prev_state_);
-    promise_no_store_ = {};
-  }
 }
 
 void WaitBlockState::written_state(td::Ref<ShardState> upd_state) {
@@ -324,10 +317,6 @@ void WaitBlockState::got_state_from_db(td::Ref<ShardState> state) {
     });
 
     td::actor::send_closure(manager_, &ValidatorManager::set_block_state, handle_, prev_state_, std::move(P));
-    if (promise_no_store_) {
-      promise_no_store_.set_result(prev_state_);
-      promise_no_store_ = {};
-    }
   } else {
     finish_query();
   }

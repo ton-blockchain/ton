@@ -221,7 +221,7 @@ TEST(Emulator, wallet_int_and_ext_msg) {
       {
         vm::CellBuilder cb;
         block::tlb::t_Grams.store_integer_value(cb, td::BigInt256(0));
-        msg_info.extra_flags = cb.as_cellslice_ref();
+        msg_info.ihr_fee = cb.as_cellslice_ref();
       }
       msg_info.created_lt = 0;
       msg_info.created_at = static_cast<uint32_t>(utime);

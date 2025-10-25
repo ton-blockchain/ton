@@ -764,15 +764,6 @@ int exec_store_same(VmState* st, const char* name, int val) {
   return 0;
 }
 
-int exec_builder_to_slice(VmState* st) {
-  Stack& stack = st->get_stack();
-  VM_LOG(st) << "execute BTOS";
-  stack.check_underflow(1);
-  Ref<Cell> cell = stack.pop_builder().write().finalize_novm();
-  stack.push_cellslice(Ref<CellSlice>{true, NoVm(), cell});
-  return 0;
-}
-
 int exec_store_const_slice(VmState* st, CellSlice& cs, unsigned args, int pfx_bits) {
   unsigned refs = (args >> 3) & 3;
   unsigned data_bits = (args & 7) * 8 + 2;
@@ -875,7 +866,6 @@ void register_cell_serialize_ops(OpcodeTable& cp0) {
       .insert(OpcodeInstr::mksimple(0xcf40, 16, "STZEROES", std::bind(exec_store_same, _1, "STZEROES", 0)))
       .insert(OpcodeInstr::mksimple(0xcf41, 16, "STONES", std::bind(exec_store_same, _1, "STONES", 1)))
       .insert(OpcodeInstr::mksimple(0xcf42, 16, "STSAME", std::bind(exec_store_same, _1, "STSAME", -1)))
-      .insert(OpcodeInstr::mksimple(0xcf50, 16, "BTOS", exec_builder_to_slice)->require_version(12))
       .insert(OpcodeInstr::mkext(0xcf80 >> 7, 9, 5, dump_store_const_slice, exec_store_const_slice,
                                  compute_len_store_const_slice));
 }

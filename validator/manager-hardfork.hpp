@@ -185,8 +185,7 @@ class ValidatorManagerImpl : public ValidatorManager {
                                  td::Promise<td::Ref<ShardState>> promise) override {
     UNREACHABLE();
   }
-  void set_block_state_from_data_preliminary(std::vector<td::Ref<BlockData>> blocks,
-                                             td::Promise<td::Unit> promise) override {
+  void set_block_state_from_data_preliminary(std::vector<td::Ref<BlockData>> blocks, td::Promise<td::Unit> promise) {
     UNREACHABLE();
   }
   void get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) override;
@@ -202,9 +201,9 @@ class ValidatorManagerImpl : public ValidatorManager {
   void store_zero_state_file(BlockIdExt block_id, td::BufferSlice state, td::Promise<td::Unit> promise) override {
     UNREACHABLE();
   }
-  void wait_block_state(BlockHandle handle, td::uint32 priority, td::Timestamp timeout, bool wait_store,
+  void wait_block_state(BlockHandle handle, td::uint32 priority, td::Timestamp timeout,
                         td::Promise<td::Ref<ShardState>> promise) override;
-  void wait_block_state_short(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout, bool wait_store,
+  void wait_block_state_short(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
                               td::Promise<td::Ref<ShardState>> promise) override;
   void wait_neighbor_msg_queue_proofs(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks, td::Timestamp timeout,
                                       td::Promise<std::map<BlockIdExt, td::Ref<OutMsgQueueProof>>> promise) override {
@@ -247,7 +246,7 @@ class ValidatorManagerImpl : public ValidatorManager {
     promise.set_value(td::Unit());
   }
   void send_block_candidate_broadcast(BlockIdExt id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
-                                      td::BufferSlice data, int mode) override {
+                                      td::BufferSlice data, int mode) {
     callback_->send_block_candidate(id, cc_seqno, validator_set_hash, std::move(data), mode);
   }
 
@@ -351,6 +350,8 @@ class ValidatorManagerImpl : public ValidatorManager {
     UNREACHABLE();
   }
   void send_block_broadcast(BlockBroadcast broadcast, int mode) override {
+  }
+  void send_validator_telemetry(PublicKeyHash key, tl_object_ptr<ton_api::validator_telemetry> telemetry) override {
   }
   void send_get_out_msg_queue_proof_request(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
                                             block::ImportedMsgQueueLimits limits,

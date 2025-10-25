@@ -99,7 +99,7 @@ td::Result<Ref<IhrMessageQ>> IhrMessageQ::create_ihr_message(td::BufferSlice dat
           "block header in the Merkle proof of an IHR message does not belong to the declared source block");
     }
     vm::AugmentedDictionary out_msg_dict{vm::load_cell_slice_ref(extra.out_msg_descr), 256,
-                                         block::tlb::aug_OutMsgDescrDefault};
+                                         block::tlb::aug_OutMsgDescr};
     Bits256 key{ihr_msg->get_hash().bits()};
     auto descr = out_msg_dict.lookup(key);
     out_msg_dict.reset();

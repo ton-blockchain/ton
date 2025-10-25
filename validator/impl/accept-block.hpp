@@ -89,7 +89,6 @@ class AcceptBlockQuery : public td::actor::Actor {
   void written_block_next();
   void written_block_info_2();
   void applied();
-  void send_broadcasts();
 
  private:
   BlockIdExt id_;
