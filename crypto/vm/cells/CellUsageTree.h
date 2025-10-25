@@ -22,7 +22,6 @@
 
 #include "td/utils/int_types.h"
 #include "td/utils/logging.h"
-
 #include <functional>
 
 namespace vm {

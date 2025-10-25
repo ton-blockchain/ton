@@ -1103,7 +1103,7 @@ Ref<CellSlice> Dictionary::lookup_set_gen(td::ConstBitPtr key, int key_len, cons
 
 Ref<CellSlice> Dictionary::lookup_set(td::ConstBitPtr key, int key_len, Ref<CellSlice> value, SetMode mode) {
   return lookup_set_gen(key, key_len, [value](CellBuilder& cb) { return cell_builder_add_slice_bool(cb, *value); },
-                      mode);
+                        mode);
 }
 
 Ref<Cell> Dictionary::lookup_set_ref(td::ConstBitPtr key, int key_len, Ref<Cell> val_ref, SetMode mode) {

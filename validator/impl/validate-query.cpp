@@ -5437,13 +5437,14 @@ bool ValidateQuery::check_delivered_dequeued() {
  * @returns A unique pointer to the created Account object, or nullptr if the creation failed.
  */
 std::unique_ptr<block::Account> ValidateQuery::CheckAccountTxs::make_account_from(td::ConstBitPtr addr,
-                                                                    Ref<vm::CellSlice> account) {
+                                                                                  Ref<vm::CellSlice> account) {
   auto ptr = std::make_unique<block::Account>(vq_.workchain(), addr);
   if (account.is_null()) {
     if (!ptr->init_new(vq_.now_)) {
       return nullptr;
     }
-  } else if (!ptr->unpack(std::move(account), vq_.now_, vq_.is_masterchain() && vq_.config_->is_special_smartcontract(addr))) {
+  } else if (!ptr->unpack(std::move(account), vq_.now_,
+                          vq_.is_masterchain() && vq_.config_->is_special_smartcontract(addr))) {
     return nullptr;
   }
   ptr->block_lt = vq_.start_lt_;
@@ -5469,7 +5470,7 @@ std::unique_ptr<block::Account> ValidateQuery::CheckAccountTxs::unpack_account(t
   }
   if (!new_acc->belongs_to_shard(vq_.shard_)) {
     reject_query(PSTRING() << "old state of account " << addr.to_hex(256)
-                              << " does not really belong to current shard");
+                           << " does not really belong to current shard");
     return {};
   }
   if (new_acc->storage_dict_hash) {
@@ -5481,7 +5482,7 @@ std::unique_ptr<block::Account> ValidateQuery::CheckAccountTxs::unpack_account(t
         auto S = new_acc->init_account_storage_stat(it->second);
         if (S.is_error()) {
           reject_query(PSTRING() << "Failed to init account storage stat for account " << addr.to_hex(256),
-                          std::move(S));
+                       std::move(S));
           return {};
         }
       }
@@ -5491,7 +5492,7 @@ std::unique_ptr<block::Account> ValidateQuery::CheckAccountTxs::unpack_account(t
         auto S = new_acc->init_account_storage_stat(dict_root);
         if (S.is_error()) {
           fatal_error(S.move_as_error_prefix(PSTRING() << "failed to init storage stat from cache for account "
-                                                          << addr.to_hex(256) << ": "));
+                                                       << addr.to_hex(256) << ": "));
           return {};
         }
         LOG(DEBUG) << "Inited storage stat from cache for account " << addr.to_hex(256) << " ("
@@ -5550,17 +5551,17 @@ bool ValidateQuery::CheckAccountTxs::check_one_transaction(block::Account& accou
     auto in_descr_cs = vq_.in_msg_dict_->lookup(in_msg_root->get_hash().as_bitslice());
     if (in_descr_cs.is_null()) {
       return reject_query(PSTRING() << "inbound message with hash " << in_msg_root->get_hash().to_hex()
-                                       << " of transaction " << lt << " of account " << addr.to_hex()
-                                       << " does not have a corresponding InMsg record");
+                                    << " of transaction " << lt << " of account " << addr.to_hex()
+                                    << " does not have a corresponding InMsg record");
     }
     auto in_msg_tag = block::gen::t_InMsg.get_tag(*in_descr_cs);
     if (in_msg_tag != block::gen::InMsg::msg_import_ext && in_msg_tag != block::gen::InMsg::msg_import_fin &&
         in_msg_tag != block::gen::InMsg::msg_import_imm && in_msg_tag != block::gen::InMsg::msg_import_ihr &&
         in_msg_tag != block::gen::InMsg::msg_import_deferred_fin) {
       return reject_query(PSTRING() << "inbound message with hash " << in_msg_root->get_hash().to_hex()
-                                       << " of transaction " << lt << " of account " << addr.to_hex()
-                                       << " has an invalid InMsg record (not one of msg_import_ext, msg_import_fin, "
-                                          "msg_import_imm, msg_import_ihr or msg_import_deferred_fin)");
+                                    << " of transaction " << lt << " of account " << addr.to_hex()
+                                    << " has an invalid InMsg record (not one of msg_import_ext, msg_import_fin, "
+                                       "msg_import_imm, msg_import_ihr or msg_import_deferred_fin)");
     }
     is_special_tx = vq_.is_special_in_msg(*in_descr_cs);
     // once we know there is a InMsg with correct hash, we already know that it contains a message with this hash (by the verification of InMsg), so it is our message
@@ -5577,8 +5578,8 @@ bool ValidateQuery::CheckAccountTxs::check_one_transaction(block::Account& accou
       CHECK(tlb::unpack_cell_inexact(in_msg_root, info));
       if (info.created_lt >= lt) {
         return reject_query(PSTRING() << "transaction " << lt << " of " << addr.to_hex()
-                                         << " processed inbound message created later at logical time "
-                                         << info.created_lt);
+                                      << " processed inbound message created later at logical time "
+                                      << info.created_lt);
       }
       LogicalTime emitted_lt = info.created_lt;  // See ValidateQuery::check_message_processing_order
       if (in_msg_tag == block::gen::InMsg::msg_import_imm || in_msg_tag == block::gen::InMsg::msg_import_fin ||
@@ -5586,8 +5587,8 @@ bool ValidateQuery::CheckAccountTxs::check_one_transaction(block::Account& accou
         block::tlb::MsgEnvelope::Record_std msg_env;
         if (!block::tlb::unpack_cell(in_descr_cs->prefetch_ref(), msg_env)) {
           return reject_query(PSTRING() << "InMsg record for inbound message with hash "
-                                           << in_msg_root->get_hash().to_hex() << " of transaction " << lt
-                                           << " of account " << addr.to_hex() << " does not have a valid MsgEnvelope");
+                                        << in_msg_root->get_hash().to_hex() << " of transaction " << lt
+                                        << " of account " << addr.to_hex() << " does not have a valid MsgEnvelope");
         }
         in_msg_metadata = std::move(msg_env.metadata);
         if (msg_env.emitted_lt) {
@@ -5610,14 +5611,14 @@ bool ValidateQuery::CheckAccountTxs::check_one_transaction(block::Account& accou
     CHECK(block::tlb::t_MsgAddressInt.extract_std_address(dest, d_wc, d_addr));
     if (d_wc != vq_.workchain() || d_addr != addr) {
       return reject_query(PSTRING() << "inbound message of transaction " << lt << " of account " << addr.to_hex()
-                                       << " has a different destination address " << d_wc << ":" << d_addr.to_hex());
+                                    << " has a different destination address " << d_wc << ":" << d_addr.to_hex());
     }
     auto in_msg_trans = in_descr_cs->prefetch_ref(1);  // trans:^Transaction
     CHECK(in_msg_trans.not_null());
     if (in_msg_trans->get_hash() != trans_root->get_hash()) {
-      return reject_query(PSTRING() << "InMsg record for inbound message with hash "
-                                       << in_msg_root->get_hash().to_hex() << " of transaction " << lt << " of account "
-                                       << addr.to_hex() << " refers to a different processing transaction");
+      return reject_query(PSTRING() << "InMsg record for inbound message with hash " << in_msg_root->get_hash().to_hex()
+                                    << " of transaction " << lt << " of account " << addr.to_hex()
+                                    << " refers to a different processing transaction");
     }
   }
   // check output messages
@@ -5637,18 +5638,17 @@ bool ValidateQuery::CheckAccountTxs::check_one_transaction(block::Account& accou
     auto out_descr_cs = vq_.out_msg_dict_->lookup(out_msg_root->get_hash().as_bitslice());
     if (out_descr_cs.is_null()) {
       return reject_query(PSTRING() << "outbound message #" << i + 1 << " with hash "
-                                       << out_msg_root->get_hash().to_hex() << " of transaction " << lt
-                                       << " of account " << addr.to_hex()
-                                       << " does not have a corresponding OutMsg record");
+                                    << out_msg_root->get_hash().to_hex() << " of transaction " << lt << " of account "
+                                    << addr.to_hex() << " does not have a corresponding OutMsg record");
     }
     auto tag = block::gen::t_OutMsg.get_tag(*out_descr_cs);
     if (tag != block::gen::OutMsg::msg_export_ext && tag != block::gen::OutMsg::msg_export_new &&
         tag != block::gen::OutMsg::msg_export_imm && tag != block::gen::OutMsg::msg_export_new_defer) {
       return reject_query(PSTRING() << "outbound message #" << i + 1 << " with hash "
-                                       << out_msg_root->get_hash().to_hex() << " of transaction " << lt
-                                       << " of account " << addr.to_hex()
-                                       << " has an invalid OutMsg record (not one of msg_export_ext, msg_export_new, "
-                                          "msg_export_imm or msg_export_new_defer)");
+                                    << out_msg_root->get_hash().to_hex() << " of transaction " << lt << " of account "
+                                    << addr.to_hex()
+                                    << " has an invalid OutMsg record (not one of msg_export_ext, msg_export_new, "
+                                       "msg_export_imm or msg_export_new_defer)");
     }
     // once we know there is an OutMsg with correct hash, we already know that it contains a message with this hash
     // (by the verification of OutMsg), so it is our message
@@ -5676,12 +5676,11 @@ bool ValidateQuery::CheckAccountTxs::check_one_transaction(block::Account& accou
       CHECK(msg_export_value.is_valid());
       money_exported += msg_export_value;
       if (msg_env.metadata != new_msg_metadata) {
-        return reject_query(
-            PSTRING() << "outbound message #" << i + 1 << " with hash " << out_msg_root->get_hash().to_hex()
-                      << " of transaction " << lt << " of account " << addr.to_hex()
-                      << " has invalid metadata in an OutMsg record: expected "
-                      << (new_msg_metadata ? new_msg_metadata.value().to_str() : "<none>") << ", found "
-                      << (msg_env.metadata ? msg_env.metadata.value().to_str() : "<none>"));
+        return reject_query(PSTRING() << "outbound message #" << i + 1 << " with hash "
+                                      << out_msg_root->get_hash().to_hex() << " of transaction " << lt << " of account "
+                                      << addr.to_hex() << " has invalid metadata in an OutMsg record: expected "
+                                      << (new_msg_metadata ? new_msg_metadata.value().to_str() : "<none>") << ", found "
+                                      << (msg_env.metadata ? msg_env.metadata.value().to_str() : "<none>"));
       }
     }
     WorkchainId s_wc;
@@ -5689,16 +5688,15 @@ bool ValidateQuery::CheckAccountTxs::check_one_transaction(block::Account& accou
     CHECK(block::tlb::t_MsgAddressInt.extract_std_address(src, s_wc, ss_addr));
     if (s_wc != vq_.workchain() || ss_addr != addr) {
       return reject_query(PSTRING() << "outbound message #" << i + 1 << " of transaction " << lt << " of account "
-                                       << addr.to_hex() << " has a different source address " << s_wc << ":"
-                                       << ss_addr.to_hex());
+                                    << addr.to_hex() << " has a different source address " << s_wc << ":"
+                                    << ss_addr.to_hex());
     }
     auto out_msg_trans = out_descr_cs->prefetch_ref(1);  // trans:^Transaction
     CHECK(out_msg_trans.not_null());
     if (out_msg_trans->get_hash() != trans_root->get_hash()) {
       return reject_query(PSTRING() << "OutMsg record for outbound message #" << i + 1 << " with hash "
-                                       << out_msg_root->get_hash().to_hex() << " of transaction " << lt
-                                       << " of account " << addr.to_hex()
-                                       << " refers to a different processing transaction");
+                                    << out_msg_root->get_hash().to_hex() << " of transaction " << lt << " of account "
+                                    << addr.to_hex() << " refers to a different processing transaction");
     }
     if (tag != block::gen::OutMsg::msg_export_ext) {
       bool is_deferred = tag == block::gen::OutMsg::msg_export_new_defer;
@@ -5712,13 +5710,13 @@ bool ValidateQuery::CheckAccountTxs::check_one_transaction(block::Account& accou
                   << " was deferred";
         if (!vq_.deferring_messages_enabled_ && !ctx_.defer_all_messages) {
           return reject_query(PSTRING() << "outbound message #" << i + 1 << " on account " << vq_.workchain() << ":"
-                                           << ss_addr.to_hex() << " is deferred, but deferring messages is disabled");
+                                        << ss_addr.to_hex() << " is deferred, but deferring messages is disabled");
         }
         if (i == 0 && !ctx_.defer_all_messages) {
-          return reject_query(PSTRING()
-                                 << "outbound message #1 on account " << vq_.workchain() << ":" << ss_addr.to_hex()
-                                 << " must not be deferred (the first message cannot be deferred unless some "
-                                    "prevoius messages are deferred)");
+          return reject_query(PSTRING() << "outbound message #1 on account " << vq_.workchain() << ":"
+                                        << ss_addr.to_hex()
+                                        << " must not be deferred (the first message cannot be deferred unless some "
+                                           "prevoius messages are deferred)");
         }
         ctx_.defer_all_messages = true;
       }
@@ -5739,14 +5737,13 @@ bool ValidateQuery::CheckAccountTxs::check_one_transaction(block::Account& accou
     bool split = (tag == block::gen::TransactionDescr::trans_split_prepare ||
                   tag == block::gen::TransactionDescr::trans_split_install);
     if (split && !vq_.before_split_) {
-      return reject_query(
-          PSTRING() << "transaction " << lt << " of account " << addr.to_hex()
-                    << " is a split prepare/install transaction, but this block is not before a split");
+      return reject_query(PSTRING() << "transaction " << lt << " of account " << addr.to_hex()
+                                    << " is a split prepare/install transaction, but this block is not before a split");
     }
     if (split && !is_last) {
       return reject_query(PSTRING() << "transaction " << lt << " of account " << addr.to_hex()
-                                       << " is a split prepare/install transaction, but it is not the last transaction "
-                                          "for this account in this block");
+                                    << " is a split prepare/install transaction, but it is not the last transaction "
+                                       "for this account in this block");
     }
     if (!split && !vq_.after_merge_) {
       return reject_query(
@@ -5754,25 +5751,23 @@ bool ValidateQuery::CheckAccountTxs::check_one_transaction(block::Account& accou
                     << " is a merge prepare/install transaction, but this block is not immediately after a merge");
     }
     if (!split && !is_first) {
-      return reject_query(
-          PSTRING() << "transaction " << lt << " of account " << addr.to_hex()
-                    << " is a merge prepare/install transaction, but it is not the first transaction "
-                       "for this account in this block");
+      return reject_query(PSTRING() << "transaction " << lt << " of account " << addr.to_hex()
+                                    << " is a merge prepare/install transaction, but it is not the first transaction "
+                                       "for this account in this block");
     }
     // check later a global configuration flag in config_.global_flags_
     // (for now, split/merge transactions are always globally disabled)
     return reject_query(PSTRING() << "transaction " << lt << " of account " << addr.to_hex()
-                                     << " is a split/merge prepare/install transaction, which are globally disabled");
+                                  << " is a split/merge prepare/install transaction, which are globally disabled");
   }
   if (tag == block::gen::TransactionDescr::trans_tick_tock) {
     if (!vq_.is_masterchain()) {
-      return reject_query(
-          PSTRING() << "transaction " << lt << " of account " << addr.to_hex()
-                    << " is a tick-tock transaction, which is impossible outside a masterchain block");
+      return reject_query(PSTRING() << "transaction " << lt << " of account " << addr.to_hex()
+                                    << " is a tick-tock transaction, which is impossible outside a masterchain block");
     }
     if (!account.is_special) {
       return reject_query(PSTRING() << "transaction " << lt << " of account " << addr.to_hex()
-                                       << " is a tick-tock transaction, but this account is not listed as special");
+                                    << " is a tick-tock transaction, but this account is not listed as special");
     }
     bool is_tock = td_cs.prefetch_ulong(4) & 1;  // trans_tick_tock$001 is_tock:Bool ...
     if (!is_tock) {
@@ -5788,9 +5783,8 @@ bool ValidateQuery::CheckAccountTxs::check_one_transaction(block::Account& accou
                       << vq_.start_lt_ << " by more than one");
       }
       if (!account.tick) {
-        return reject_query(
-            PSTRING() << "transaction " << lt << " of account " << addr.to_hex()
-                      << " is a tick transaction, but this account has not enabled tick transactions");
+        return reject_query(PSTRING() << "transaction " << lt << " of account " << addr.to_hex()
+                                      << " is a tick transaction, but this account has not enabled tick transactions");
       }
     } else {
       if (!is_last) {
@@ -5799,26 +5793,24 @@ bool ValidateQuery::CheckAccountTxs::check_one_transaction(block::Account& accou
                       << " is a tock transaction, but this is not the last transaction of this account");
       }
       if (!account.tock) {
-        return reject_query(
-            PSTRING() << "transaction " << lt << " of account " << addr.to_hex()
-                      << " is a tock transaction, but this account has not enabled tock transactions");
+        return reject_query(PSTRING() << "transaction " << lt << " of account " << addr.to_hex()
+                                      << " is a tock transaction, but this account has not enabled tock transactions");
       }
     }
   }
   if (is_first && vq_.is_masterchain() && account.is_special && account.tick &&
       (tag != block::gen::TransactionDescr::trans_tick_tock || (td_cs.prefetch_ulong(4) & 1)) &&
       account.orig_status == block::Account::acc_active) {
-    return reject_query(
-        PSTRING() << "transaction " << lt << " of account " << addr.to_hex()
-                  << " is the first transaction for this special tick account in this block, but the "
-                     "transaction is not a tick transaction");
+    return reject_query(PSTRING() << "transaction " << lt << " of account " << addr.to_hex()
+                                  << " is the first transaction for this special tick account in this block, but the "
+                                     "transaction is not a tick transaction");
   }
   if (is_last && vq_.is_masterchain() && account.is_special && account.tock &&
       (tag != block::gen::TransactionDescr::trans_tick_tock || !(td_cs.prefetch_ulong(4) & 1)) &&
       trans.end_status == block::gen::AccountStatus::acc_state_active) {
     return reject_query(PSTRING() << "transaction " << lt << " of account " << addr.to_hex()
-                                     << " is the last transaction for this special tock account in this block, but the "
-                                        "transaction is not a tock transaction");
+                                  << " is the last transaction for this special tock account in this block, but the "
+                                     "transaction is not a tock transaction");
   }
   if (tag == block::gen::TransactionDescr::trans_storage && !is_first) {
     return reject_query(
@@ -5829,9 +5821,9 @@ bool ValidateQuery::CheckAccountTxs::check_one_transaction(block::Account& accou
   CHECK(account.total_state.not_null());
   if (hash_upd.old_hash != account.total_state->get_hash().bits()) {
     return reject_query(PSTRING() << "transaction " << lt << " of account " << addr.to_hex()
-                                     << " claims that the original account state hash must be "
-                                     << hash_upd.old_hash.to_hex() << " but the actual value is "
-                                     << account.total_state->get_hash().to_hex());
+                                  << " claims that the original account state hash must be "
+                                  << hash_upd.old_hash.to_hex() << " but the actual value is "
+                                  << account.total_state->get_hash().to_hex());
   }
   // some type-specific checks
   int trans_type = block::transaction::Transaction::tr_none;
@@ -5840,7 +5832,7 @@ bool ValidateQuery::CheckAccountTxs::check_one_transaction(block::Account& accou
       trans_type = block::transaction::Transaction::tr_ord;
       if (in_msg_root.is_null()) {
         return reject_query(PSTRING() << "ordinary transaction " << lt << " of account " << addr.to_hex()
-                                         << " has no inbound message");
+                                      << " has no inbound message");
       }
       need_credit_phase = !external;
       break;
@@ -5849,15 +5841,15 @@ bool ValidateQuery::CheckAccountTxs::check_one_transaction(block::Account& accou
       trans_type = block::transaction::Transaction::tr_storage;
       if (in_msg_root.not_null()) {
         return reject_query(PSTRING() << "storage transaction " << lt << " of account " << addr.to_hex()
-                                         << " has an inbound message");
+                                      << " has an inbound message");
       }
       if (trans.outmsg_cnt) {
         return reject_query(PSTRING() << "storage transaction " << lt << " of account " << addr.to_hex()
-                                         << " has at least one outbound message");
+                                      << " has at least one outbound message");
       }
       // FIXME
       return reject_query(PSTRING() << "unable to verify storage transaction " << lt << " of account "
-                                       << addr.to_hex());
+                                    << addr.to_hex());
       break;
     }
     case block::gen::TransactionDescr::trans_tick_tock: {
@@ -5865,7 +5857,7 @@ bool ValidateQuery::CheckAccountTxs::check_one_transaction(block::Account& accou
       trans_type = is_tock ? block::transaction::Transaction::tr_tock : block::transaction::Transaction::tr_tick;
       if (in_msg_root.not_null()) {
         return reject_query(PSTRING() << (is_tock ? "tock" : "tick") << " transaction " << lt << " of account "
-                                         << addr.to_hex() << " has an inbound message");
+                                      << addr.to_hex() << " has an inbound message");
       }
       break;
     }
@@ -5873,53 +5865,53 @@ bool ValidateQuery::CheckAccountTxs::check_one_transaction(block::Account& accou
       trans_type = block::transaction::Transaction::tr_merge_prepare;
       if (in_msg_root.not_null()) {
         return reject_query(PSTRING() << "merge prepare transaction " << lt << " of account " << addr.to_hex()
-                                         << " has an inbound message");
+                                      << " has an inbound message");
       }
       if (trans.outmsg_cnt != 1) {
         return reject_query(PSTRING() << "merge prepare transaction " << lt << " of account " << addr.to_hex()
-                                         << " must have exactly one outbound message");
+                                      << " must have exactly one outbound message");
       }
       // FIXME
       return reject_query(PSTRING() << "unable to verify merge prepare transaction " << lt << " of account "
-                                       << addr.to_hex());
+                                    << addr.to_hex());
       break;
     }
     case block::gen::TransactionDescr::trans_merge_install: {
       trans_type = block::transaction::Transaction::tr_merge_install;
       if (in_msg_root.is_null()) {
         return reject_query(PSTRING() << "merge install transaction " << lt << " of account " << addr.to_hex()
-                                         << " has no inbound message");
+                                      << " has no inbound message");
       }
       need_credit_phase = true;
       // FIXME
       return reject_query(PSTRING() << "unable to verify merge install transaction " << lt << " of account "
-                                       << addr.to_hex());
+                                    << addr.to_hex());
       break;
     }
     case block::gen::TransactionDescr::trans_split_prepare: {
       trans_type = block::transaction::Transaction::tr_split_prepare;
       if (in_msg_root.not_null()) {
         return reject_query(PSTRING() << "split prepare transaction " << lt << " of account " << addr.to_hex()
-                                         << " has an inbound message");
+                                      << " has an inbound message");
       }
       if (trans.outmsg_cnt > 1) {
         return reject_query(PSTRING() << "split prepare transaction " << lt << " of account " << addr.to_hex()
-                                         << " must have exactly one outbound message");
+                                      << " must have exactly one outbound message");
       }
       // FIXME
       return reject_query(PSTRING() << "unable to verify split prepare transaction " << lt << " of account "
-                                       << addr.to_hex());
+                                    << addr.to_hex());
       break;
     }
     case block::gen::TransactionDescr::trans_split_install: {
       trans_type = block::transaction::Transaction::tr_split_install;
       if (in_msg_root.is_null()) {
         return reject_query(PSTRING() << "split install transaction " << lt << " of account " << addr.to_hex()
-                                         << " has no inbound message");
+                                      << " has no inbound message");
       }
       // FIXME
       return reject_query(PSTRING() << "unable to verify split install transaction " << lt << " of account "
-                                       << addr.to_hex());
+                                    << addr.to_hex());
       break;
     }
   }
@@ -5939,60 +5931,60 @@ bool ValidateQuery::CheckAccountTxs::check_one_transaction(block::Account& accou
     if (!trs->unpack_input_msg(ihr_delivered, &vq_.action_phase_cfg_)) {
       // inbound external message was not accepted
       return reject_query(PSTRING() << "could not unpack inbound " << (external ? "external" : "internal")
-                                       << " message processed by ordinary transaction " << lt << " of account "
-                                       << addr.to_hex());
+                                    << " message processed by ordinary transaction " << lt << " of account "
+                                    << addr.to_hex());
     }
   }
   if (trs->bounce_enabled) {
     if (!trs->prepare_storage_phase(vq_.storage_phase_cfg_, true)) {
-      return reject_query(PSTRING() << "cannot re-create storage phase of transaction " << lt
-                                       << " for smart contract " << addr.to_hex());
+      return reject_query(PSTRING() << "cannot re-create storage phase of transaction " << lt << " for smart contract "
+                                    << addr.to_hex());
     }
     if (need_credit_phase && !trs->prepare_credit_phase()) {
-      return reject_query(PSTRING() << "cannot create re-credit phase of transaction " << lt
-                                       << " for smart contract " << addr.to_hex());
+      return reject_query(PSTRING() << "cannot create re-credit phase of transaction " << lt << " for smart contract "
+                                    << addr.to_hex());
     }
   } else {
     if (need_credit_phase && !trs->prepare_credit_phase()) {
-      return reject_query(PSTRING() << "cannot re-create credit phase of transaction " << lt
-                                       << " for smart contract " << addr.to_hex());
+      return reject_query(PSTRING() << "cannot re-create credit phase of transaction " << lt << " for smart contract "
+                                    << addr.to_hex());
     }
     if (!trs->prepare_storage_phase(vq_.storage_phase_cfg_, true, need_credit_phase)) {
-      return reject_query(PSTRING() << "cannot re-create storage phase of transaction " << lt
-                                       << " for smart contract " << addr.to_hex());
+      return reject_query(PSTRING() << "cannot re-create storage phase of transaction " << lt << " for smart contract "
+                                    << addr.to_hex());
     }
   }
   if (!trs->prepare_compute_phase(vq_.compute_phase_cfg_)) {
     return reject_query(PSTRING() << "cannot re-create compute phase of transaction " << lt << " for smart contract "
-                                     << addr.to_hex());
+                                  << addr.to_hex());
   }
   if (!trs->compute_phase->accepted) {
     if (external) {
-      return reject_query(PSTRING() << "inbound external message claimed to be processed by ordinary transaction "
-                                       << lt << " of account " << addr.to_hex()
-                                       << " was in fact rejected (such transaction cannot appear in valid blocks)");
+      return reject_query(PSTRING() << "inbound external message claimed to be processed by ordinary transaction " << lt
+                                    << " of account " << addr.to_hex()
+                                    << " was in fact rejected (such transaction cannot appear in valid blocks)");
     } else if (trs->compute_phase->skip_reason == block::ComputePhase::sk_none) {
       return reject_query(PSTRING() << "inbound internal message processed by ordinary transaction " << lt
-                                       << " of account " << addr.to_hex() << " was not processed without any reason");
+                                    << " of account " << addr.to_hex() << " was not processed without any reason");
     }
   }
   if (trs->compute_phase->success && !trs->prepare_action_phase(vq_.action_phase_cfg_)) {
     return reject_query(PSTRING() << "cannot re-create action phase of transaction " << lt << " for smart contract "
-                                     << addr.to_hex());
+                                  << addr.to_hex());
   }
   if (trs->bounce_enabled &&
       (!trs->compute_phase->success || trs->action_phase->state_exceeds_limits || trs->action_phase->bounce) &&
       !trs->prepare_bounce_phase(vq_.action_phase_cfg_)) {
     return reject_query(PSTRING() << "cannot re-create bounce phase of  transaction " << lt << " for smart contract "
-                                     << addr.to_hex());
+                                  << addr.to_hex());
   }
   if (!trs->serialize(vq_.serialize_cfg_)) {
     return reject_query(PSTRING() << "cannot re-create the serialization of  transaction " << lt
-                                     << " for smart contract " << addr.to_hex());
+                                  << " for smart contract " << addr.to_hex());
   }
   if (!trs->update_limits(*vq_.block_limit_status_, /* with_gas = */ false, /* with_size = */ false)) {
-    return fatal_error(PSTRING() << "cannot update block limit status to include transaction " << lt
-                                    << " of account " << addr.to_hex());
+    return fatal_error(PSTRING() << "cannot update block limit status to include transaction " << lt << " of account "
+                                 << addr.to_hex());
   }
 
   // Collator should stop if total gas usage exceeds limits, including transactions on special accounts, but without
@@ -6002,10 +5994,10 @@ bool ValidateQuery::CheckAccountTxs::check_one_transaction(block::Account& accou
     (account.is_special ? vq_.total_special_gas_used_ : vq_.total_gas_used_).fetch_add(trs->gas_used());
   }
   if (vq_.total_gas_used_.load() > vq_.block_limits_->gas.hard() + vq_.compute_phase_cfg_.gas_limit) {
-    return reject_query(
-        PSTRING() << "gas block limits are exceeded: total_gas_used > gas_limit_hard + trx_gas_limit ("
-                  << "total_gas_used=" << vq_.total_gas_used_.load() << ", gas_limit_hard=" << vq_.block_limits_->gas.hard()
-                  << ", trx_gas_limit=" << vq_.compute_phase_cfg_.gas_limit << ")");
+    return reject_query(PSTRING() << "gas block limits are exceeded: total_gas_used > gas_limit_hard + trx_gas_limit ("
+                                  << "total_gas_used=" << vq_.total_gas_used_.load()
+                                  << ", gas_limit_hard=" << vq_.block_limits_->gas.hard()
+                                  << ", trx_gas_limit=" << vq_.compute_phase_cfg_.gas_limit << ")");
   }
   if (vq_.total_special_gas_used_.load() > vq_.block_limits_->gas.hard() + vq_.compute_phase_cfg_.special_gas_limit) {
     return reject_query(
@@ -6018,7 +6010,7 @@ bool ValidateQuery::CheckAccountTxs::check_one_transaction(block::Account& accou
   auto trans_root2 = trs->commit(account);
   if (trans_root2.is_null()) {
     return reject_query(PSTRING() << "the re-created transaction " << lt << " for smart contract " << addr.to_hex()
-                                     << " could not be committed");
+                                  << " could not be committed");
   }
   // now compare the re-created transaction with the one we have
   if (trans_root2->get_hash() != trans_root->get_hash()) {
@@ -6031,9 +6023,9 @@ bool ValidateQuery::CheckAccountTxs::check_one_transaction(block::Account& accou
       };
     }
     return reject_query(PSTRING() << "the transaction " << lt << " of " << addr.to_hex() << " has hash "
-                                     << trans_root->get_hash().to_hex()
-                                     << " different from that of the recreated transaction "
-                                     << trans_root2->get_hash().to_hex());
+                                  << trans_root->get_hash().to_hex()
+                                  << " different from that of the recreated transaction "
+                                  << trans_root2->get_hash().to_hex());
   }
   block::gen::Transaction::Record trans2;
   block::gen::HASH_UPDATE::Record hash_upd2;
@@ -6043,7 +6035,7 @@ bool ValidateQuery::CheckAccountTxs::check_one_transaction(block::Account& accou
   }
   if (hash_upd2.old_hash != hash_upd.old_hash) {
     return fatal_error(PSTRING() << "the re-created transaction " << lt << " of " << addr.to_hex()
-                                    << " is invalid: it starts from account state with different hash");
+                                 << " is invalid: it starts from account state with different hash");
   }
   if (hash_upd2.new_hash != account.total_state->get_hash().bits()) {
     return fatal_error(
@@ -6052,9 +6044,9 @@ bool ValidateQuery::CheckAccountTxs::check_one_transaction(block::Account& accou
   }
   if (hash_upd.new_hash != account.total_state->get_hash().bits()) {
     return reject_query(PSTRING() << "transaction " << lt << " of " << addr.to_hex()
-                                     << " is invalid: it claims that the new account state hash is "
-                                     << hash_upd.new_hash.to_hex() << " but the re-computed value is "
-                                     << hash_upd2.new_hash.to_hex());
+                                  << " is invalid: it claims that the new account state hash is "
+                                  << hash_upd.new_hash.to_hex() << " but the re-computed value is "
+                                  << hash_upd2.new_hash.to_hex());
   }
   if (!trans.r1.out_msgs->contents_equal(*trans2.r1.out_msgs)) {
     return reject_query(
@@ -6068,7 +6060,7 @@ bool ValidateQuery::CheckAccountTxs::check_one_transaction(block::Account& accou
   block::CurrencyCollection total_fees;
   if (!total_fees.validate_unpack(trans.total_fees)) {
     return reject_query(PSTRING() << "transaction " << lt << " of " << addr.to_hex()
-                                     << " has an invalid total_fees value");
+                                  << " has an invalid total_fees value");
   }
   if (old_balance + money_imported != new_balance + money_exported + total_fees + trs->blackhole_burned) {
     return reject_query(
@@ -6111,21 +6103,21 @@ bool ValidateQuery::CheckAccountTxs::try_check() {
   td::BitArray<64> min_trans, max_trans;
   CHECK(trans_dict.get_minmax_key(min_trans).not_null() && trans_dict.get_minmax_key(max_trans, true).not_null());
   ton::LogicalTime min_trans_lt = min_trans.to_ulong(), max_trans_lt = max_trans.to_ulong();
-  if (!trans_dict.check_for_each_extra(
-          [this, &account, min_trans_lt, max_trans_lt](Ref<vm::CellSlice> value, Ref<vm::CellSlice> extra,
-                                                             td::ConstBitPtr key, int key_len) {
-            CHECK(key_len == 64);
-            ton::LogicalTime lt = key.get_uint(64);
-            extra.clear();
-            return check_one_transaction(account, lt, value->prefetch_ref(), lt == min_trans_lt, lt == max_trans_lt);
-          })) {
+  if (!trans_dict.check_for_each_extra([this, &account, min_trans_lt, max_trans_lt](Ref<vm::CellSlice> value,
+                                                                                    Ref<vm::CellSlice> extra,
+                                                                                    td::ConstBitPtr key, int key_len) {
+        CHECK(key_len == 64);
+        ton::LogicalTime lt = key.get_uint(64);
+        extra.clear();
+        return check_one_transaction(account, lt, value->prefetch_ref(), lt == min_trans_lt, lt == max_trans_lt);
+      })) {
     return reject_query("at least one Transaction of account "s + address_.to_hex() + " is invalid");
   }
   if ((!vq_.full_collated_data_ || vq_.is_masterchain()) && account.storage_dict_hash && account.account_storage_stat &&
       account.account_storage_stat.value().is_dict_ready() &&
       account.storage_used.cells >= StorageStatCache::MIN_ACCOUNT_CELLS) {
     ctx_.storage_stat_cache_update.emplace_back(account.account_storage_stat.value().get_dict_root().move_as_ok(),
-                                               account.storage_used.cells);
+                                                account.storage_used.cells);
   }
   if (vq_.is_masterchain() && account.libraries_changed()) {
     return scan_account_libraries(account.orig_library, account.library, address_);
@@ -6167,7 +6159,8 @@ bool ValidateQuery::CheckAccountTxs::fatal_error(std::string err_msg, int err_co
   return fatal_error(td::Status::Error(err_code, vq_.error_ctx() + err_msg));
 }
 
-ValidateQuery::CheckAccountTxs::Context ValidateQuery::load_check_account_transactions_context(const StdSmcAddress& address) {
+ValidateQuery::CheckAccountTxs::Context ValidateQuery::load_check_account_transactions_context(
+    const StdSmcAddress& address) {
   CheckAccountTxs::Context ctx{};
   if (account_expected_defer_all_messages_.count(address)) {
     ctx.defer_all_messages = true;
@@ -6258,43 +6251,6 @@ bool ValidateQuery::check_transactions() {
 }
 
 /**
- * Checks the processing order of messages in a block.
- *
- * @returns True if the processing order of messages is valid, false otherwise.
- */
-bool ValidateQuery::check_message_processing_order() {
-  // Old rule: if messages m1 and m2 with the same destination generate transactions t1 and t2,
-  // then (m1.created_lt < m2.created_lt) => (t1.lt < t2.lt).
-  // New rule:
-  // If message was taken from dispatch queue, instead of created_lt use emitted_lt
-  std::sort(msg_proc_lt_.begin(), msg_proc_lt_.end());
-  for (std::size_t i = 1; i < msg_proc_lt_.size(); i++) {
-    auto &a = msg_proc_lt_[i - 1], &b = msg_proc_lt_[i];
-    if (std::get<0>(a) == std::get<0>(b) && std::get<2>(a) > std::get<2>(b)) {
-      return reject_query(PSTRING() << "incorrect message processing order: transaction (" << std::get<1>(a) << ","
-                                    << std::get<0>(a).to_hex() << ") processes message created at logical time "
-                                    << std::get<2>(a) << ", but a later transaction (" << std::get<1>(b) << ","
-                                    << std::get<0>(a).to_hex()
-                                    << ") processes an earlier message created at logical time " << std::get<2>(b));
-    }
-  }
-
-  // Check that if messages m1 and m2 with the same source have m1.created_lt < m2.created_lt then
-  // m1.emitted_lt < m2.emitted_lt.
-  std::sort(msg_emitted_lt_.begin(), msg_emitted_lt_.end());
-  for (std::size_t i = 1; i < msg_emitted_lt_.size(); i++) {
-    auto &a = msg_emitted_lt_[i - 1], &b = msg_emitted_lt_[i];
-    if (std::get<0>(a) == std::get<0>(b) && std::get<2>(a) >= std::get<2>(b)) {
-      return reject_query(PSTRING() << "incorrect deferred message processing order for sender "
-                                    << std::get<0>(a).to_hex() << ": message with created_lt " << std::get<1>(a)
-                                    << " has emitted_lt" << std::get<2>(a) << ", but message with created_lt "
-                                    << std::get<1>(b) << " has emitted_lt" << std::get<2>(b));
-    }
-  }
-  return true;
-}
-
-/**
  * Processes changes in libraries of an account.
  * Used in masterchain validation.
  * Similar to `Collator::update_account_public_libraries()`.
@@ -6306,7 +6262,7 @@ bool ValidateQuery::check_message_processing_order() {
  * @returns True if the update was successful, false otherwise.
  */
 bool ValidateQuery::CheckAccountTxs::scan_account_libraries(Ref<vm::Cell> orig_libs, Ref<vm::Cell> final_libs,
-                                                               const td::Bits256& addr) {
+                                                            const td::Bits256& addr) {
   vm::Dictionary dict1{std::move(orig_libs), 256}, dict2{std::move(final_libs), 256};
   return dict1.scan_diff(
              dict2,
@@ -6347,6 +6303,43 @@ bool ValidateQuery::check_all_ticktock_processed() {
           PSTRING()
           << "there are no transactions (and in particular, no tick-tock transactions) for special smart contract "
           << addr.first.to_hex() << " with ticktock=" << addr.second);
+    }
+  }
+  return true;
+}
+
+/**
+ * Checks the processing order of messages in a block.
+ *
+ * @returns True if the processing order of messages is valid, false otherwise.
+ */
+bool ValidateQuery::check_message_processing_order() {
+  // Old rule: if messages m1 and m2 with the same destination generate transactions t1 and t2,
+  // then (m1.created_lt < m2.created_lt) => (t1.lt < t2.lt).
+  // New rule:
+  // If message was taken from dispatch queue, instead of created_lt use emitted_lt
+  std::sort(msg_proc_lt_.begin(), msg_proc_lt_.end());
+  for (std::size_t i = 1; i < msg_proc_lt_.size(); i++) {
+    auto &a = msg_proc_lt_[i - 1], &b = msg_proc_lt_[i];
+    if (std::get<0>(a) == std::get<0>(b) && std::get<2>(a) > std::get<2>(b)) {
+      return reject_query(PSTRING() << "incorrect message processing order: transaction (" << std::get<1>(a) << ","
+                                    << std::get<0>(a).to_hex() << ") processes message created at logical time "
+                                    << std::get<2>(a) << ", but a later transaction (" << std::get<1>(b) << ","
+                                    << std::get<0>(a).to_hex()
+                                    << ") processes an earlier message created at logical time " << std::get<2>(b));
+    }
+  }
+
+  // Check that if messages m1 and m2 with the same source have m1.created_lt < m2.created_lt then
+  // m1.emitted_lt < m2.emitted_lt.
+  std::sort(msg_emitted_lt_.begin(), msg_emitted_lt_.end());
+  for (std::size_t i = 1; i < msg_emitted_lt_.size(); i++) {
+    auto &a = msg_emitted_lt_[i - 1], &b = msg_emitted_lt_[i];
+    if (std::get<0>(a) == std::get<0>(b) && std::get<2>(a) >= std::get<2>(b)) {
+      return reject_query(PSTRING() << "incorrect deferred message processing order for sender "
+                                    << std::get<0>(a).to_hex() << ": message with created_lt " << std::get<1>(a)
+                                    << " has emitted_lt" << std::get<2>(a) << ", but message with created_lt "
+                                    << std::get<1>(b) << " has emitted_lt" << std::get<2>(b));
     }
   }
   return true;
