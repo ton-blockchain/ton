@@ -267,16 +267,6 @@ class ValidateQuery : public td::actor::Actor {
     return shard_.workchain;
   }
 
-  class ThreadsafeQueryReject final : public std::exception {
-   public:
-    explicit ThreadsafeQueryReject(std::string error);
-
-    bool rethrow_in(ValidateQuery& cvq);
-
-   private:
-    std::string error_;
-  };
-
   void finish_query();
   void abort_query(td::Status error);
   bool reject_query(std::string error, td::BufferSlice reason = {});
@@ -284,16 +274,6 @@ class ValidateQuery : public td::actor::Actor {
   bool soft_reject_query(std::string error, td::BufferSlice reason = {});
   void alarm() override;
   void start_up() override;
-
-  class ThreadsafeQueryError final : public std::exception {
-   public:
-    explicit ThreadsafeQueryError(td::Status error);
-
-    bool rethrow_in(ValidateQuery& cvq);
-
-   private:
-    td::Status error_;
-  };
 
   void load_prev_states();
   bool process_optimistic_prev_block();
@@ -461,7 +441,6 @@ class ValidateQuery : public td::actor::Actor {
   CheckAccountTxs::Context load_check_account_transactions_context(const StdSmcAddress& address);
   void save_account_transactions_context(const StdSmcAddress& address, CheckAccountTxs::Context ctx);
 
-  bool check_transactions_p();
   void after_check_account_finished(StdSmcAddress address, CheckAccountTxs::Context context);
   bool check_transactions();
   bool check_all_ticktock_processed();

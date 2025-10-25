@@ -35,7 +35,6 @@
 #include "storage-stat-cache.hpp"
 
 #include <ctime>
-#include "threadpool.hpp"
 
 namespace ton {
 
@@ -229,13 +228,6 @@ bool ValidateQuery::fatal_error(int err_code, std::string err_msg, td::Status er
  */
 bool ValidateQuery::fatal_error(std::string err_msg, int err_code) {
   return fatal_error(td::Status::Error(err_code, error_ctx() + err_msg));
-}
-
-ValidateQuery::ThreadsafeQueryReject::ThreadsafeQueryReject(std::string error) : error_(std::move(error)) {
-}
-
-bool ValidateQuery::ThreadsafeQueryReject::rethrow_in(ValidateQuery& cvq) {
-  return cvq.reject_query(std::move(error_));
 }
 
 /**
@@ -513,13 +505,6 @@ void ValidateQuery::after_get_shard_state_optimistic(td::Result<Ref<ShardState>>
   work_timer_.pause();
   stats_.work_time.optimistic_apply = timer.elapsed_both();
   after_get_shard_state(0, std::move(state), {});
-}
-
-ValidateQuery::ThreadsafeQueryError::ThreadsafeQueryError(td::Status error) : error_(std::move(error)) {
-}
-
-bool ValidateQuery::ThreadsafeQueryError::rethrow_in(ValidateQuery& cvq) {
-  return cvq.fatal_error(std::move(error_));
 }
 
 /**
@@ -6228,55 +6213,6 @@ void ValidateQuery::save_account_transactions_context(const StdSmcAddress& addre
   stats_.work_time.trx_other += ctx.work_time.trx_other;
 
   total_burned_ += ctx.total_burned;
-}
-
-/**
- * Checks all transactions in the account blocks.
- * Parallel over different accounts.
- *
- * @returns True if all transactions pass the check, False otherwise.
- */
-bool ValidateQuery::check_transactions_p() {
-  LOG(INFO) << "checking all transactions (in parallel)";
-  // todo(vadim@avevad.com): implement start of parallel transactions check
-  // std::deque<StdSmcAddress> account_addresses;
-  // std::deque<CheckAccountTxsCtx> account_contexts;
-  // std::vector<std::function<bool()>> account_tasks;
-  //
-  // account_blocks_dict_->check_for_each_extra(
-  //     [this, &account_addresses, &account_contexts, &account_tasks](Ref<vm::CellSlice> value, Ref<vm::CellSlice> extra,
-  //                                                                   td::ConstBitPtr key, int key_len) {
-  //       CHECK(key_len == 256);
-  //       StdSmcAddress address = key;
-  //       account_addresses.push_back(address);
-  //
-  //       account_contexts.push_back(load_check_account_transactions_context(address));
-  //       CheckAccountTxsCtx& ctx = account_contexts.back();
-  //
-  //       account_tasks.emplace_back([this, address, &ctx, acc_tr = std::move(value)] {
-  //         return check_account_transactions_ts(address, acc_tr, ctx);
-  //       });
-  //       return true;
-  //     });
-  //
-  // try {
-  //   std::vector<int> account_results(account_tasks.size(), false);
-  //   invoke_task_group(account_tasks.begin(), account_tasks.end(), account_results.begin());
-  //   for (auto& ok : account_results) {
-  //     if (!ok) {
-  //       return false;
-  //     }
-  //   }
-  // } catch (ThreadsafeQueryError& err) {
-  //   return err.rethrow_in(*this);
-  // } catch (ThreadsafeQueryReject& rej) {
-  //   return rej.rethrow_in(*this);
-  // }
-  //
-  // for (size_t pos = 0; pos < account_addresses.size(); pos++) {
-  //   save_account_transactions_context(account_addresses[pos], account_contexts[pos]);
-  // }
-  return fatal_error("not implemented");
 }
 
 void ValidateQuery::after_check_account_finished(StdSmcAddress address, CheckAccountTxs::Context context) {
