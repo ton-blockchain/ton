@@ -23,6 +23,7 @@ const strange_zero = (!10 as int);
 const strange_minus_1: MInt = (!0 as int);
 
 const addr1 = address("Ef8zMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM0vF");
+const addr2: any_address = address("Ef8zMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM0vF") as any_address;
 
 // since `;` is not mandatory, this is correct from a syntax point of view
 const true1 = true const true2 = !!true const true3 = true1 && true2
@@ -92,7 +93,8 @@ fun test5() {
 @method_id(106)
 fun test6() {
     __expect_type(addr1, "address");
-    return (addr1 == addr1, addr1 != addr1, addr1 == createAddressNone(), addr1.getWorkchain());
+    __expect_type(addr2, "any_address");
+    return (addr1 == addr1, addr1 != addr1, addr1 == createAddressNone(), addr1.getWorkchain(), addr1 == addr2);
 }
 
 fun main() {
@@ -124,7 +126,7 @@ fun main() {
 @testcase | 103 |   | 0 0
 @testcase | 104 |   | 1 1 2
 @testcase | 105 |   | -1 0 7 48
-@testcase | 106 |   | -1 0 0 -1
+@testcase | 106 |   | -1 0 0 -1 -1
 
-@code_hash 109852777684517203308276021763918179390784357880680494742516881492720986364812
+@code_hash 50461262039225352661292504472979593396591696467874442618206926482074675176667
 */

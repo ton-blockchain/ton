@@ -85,8 +85,8 @@ static int is_TKey_TVM_uint(TypePtr TKey) {
 // map<address, V> should use DICT* instructions
 // note that map<slice, V> is forbidden, since a raw slice doesn't define binary width
 static int is_TKey_TVM_slice(TypePtr TKey) {
-  if (TKey == TypeDataAddress::create()) {
-    return 3 + 8 + 256;      // "internal address" assumed
+  if (const TypeDataAddress* t_address = TKey->try_as<TypeDataAddress>()) {
+    return t_address->is_internal() ? 3 + 8 + 256 : 0;
   }
   if (const TypeDataBitsN* t_bitsN = TKey->try_as<TypeDataBitsN>()) {
     return t_bitsN->is_bits ? t_bitsN->n_width : t_bitsN->n_width * 8;

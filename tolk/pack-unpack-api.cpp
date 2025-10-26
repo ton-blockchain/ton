@@ -90,13 +90,13 @@ public:
     if (any_type == TypeDataCell::create()) {
       return {};
     }
-    if (any_type == TypeDataAddress::create()) {
-      return {};
-    }
     if (any_type == TypeDataNever::create()) {
       return {};
     }
     if (any_type->try_as<TypeDataMapKV>()) {
+      return {};
+    }
+    if (any_type->try_as<TypeDataAddress>()) {
       return {};
     }
 

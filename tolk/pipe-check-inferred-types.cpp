@@ -44,12 +44,17 @@ static Error err_type_mismatch(const char* text_tpl, TypePtr src, TypePtr dst) {
   message.replace(message.find("{dst}"), 5, "`" + dst->as_human_readable() + "`");
   if (src->can_be_casted_with_as_operator(dst)) {
     bool suggest_as = !dst->try_as<TypeDataTensor>() && !dst->try_as<TypeDataBrackets>();
-    if ((src == TypeDataAddress::create() || src == TypeDataSlice::create()) && (dst == TypeDataAddress::create() || dst == TypeDataSlice::create())) {
+    if ((src == TypeDataSlice::create() || dst == TypeDataSlice::create()) && (src->try_as<TypeDataAddress>() || dst->try_as<TypeDataAddress>())) {
       message += "\n""hint: unlike FunC, Tolk has a special type `address` (which is slice at the TVM level);";
       message += "\n""      most likely, you just need `address` everywhere";
-      message += "\n""hint: alternatively, use `as` operator for unsafe casting: `<some_expr> as " + dst->as_human_readable() + "`";
+      message += "\n""hint: alternatively, use `as` operator for UNSAFE casting: `<some_expr> as " + dst->as_human_readable() + "`";
+    } else if (src == TypeDataAddress::any() && dst == TypeDataAddress::internal()) {
+      message += "\n""hint: use `any_addr.castToInternal()` to check and get `address`";
+      message += "\n""hint: alternatively, use `as` operator for UNSAFE casting: `<some_expr> as " + dst->as_human_readable() + "`";
+    } else if (src == TypeDataAddress::internal() && dst == TypeDataAddress::any()) {
+      message += "\n""hint: use `as` operator for conversion: `<some_expr> as any_address`";
     } else if (suggest_as) {
-      message += "\n""hint: use `as` operator for unsafe casting: `<some_expr> as " + dst->as_human_readable() + "`";
+      message += "\n""hint: use `as` operator for UNSAFE casting: `<some_expr> as " + dst->as_human_readable() + "`";
     }
     if (src == TypeDataBool::create() && dst == TypeDataInt::create()) {
       message += "\n""caution! in TVM, bool TRUE is -1, not 1";
@@ -71,7 +76,10 @@ static Error err_cannot_apply_operator(std::string_view operator_name, AnyExprV 
 
 // make an error on `int + cell` / `slice & int`
 static Error err_cannot_apply_operator(std::string_view operator_name, AnyExprV lhs, AnyExprV rhs) {
-  return err("can not apply operator `{}` to `{}` and `{}`", operator_name, lhs->inferred_type, rhs->inferred_type);
+  const TypeDataUnion* lhs_nullable = lhs->inferred_type->unwrap_alias()->try_as<TypeDataUnion>();
+  const TypeDataUnion* rhs_nullable = rhs->inferred_type->unwrap_alias()->try_as<TypeDataUnion>();
+  std::string hint = lhs_nullable || rhs_nullable ? "\n""hint: check on `null` first, or use unsafe operator `!`" : "";
+  return err("can not apply operator `{}` to `{}` and `{}`{}", operator_name, lhs->inferred_type, rhs->inferred_type, hint);
 }
 
 GNU_ATTRIBUTE_NOINLINE
@@ -178,7 +186,7 @@ static bool check_eq_neq_operator(TypePtr lhs_type, TypePtr rhs_type, bool& not_
   if (expect_boolean(lhs_type) && expect_boolean(rhs_type)) {
     return true;
   }
-  if (lhs_type->equal_to(TypeDataAddress::create()) && rhs_type->equal_to(TypeDataAddress::create())) {
+  if (lhs_type->unwrap_alias()->try_as<TypeDataAddress>() && rhs_type->unwrap_alias()->try_as<TypeDataAddress>()) {
     not_integer_comparison = true;   // `address` can be compared with ==, but it's handled specially
     return true;
   }

@@ -119,7 +119,7 @@ std::vector<var_idx_t> generate_createMessage(FunctionPtr called_f, CodeBlob& co
   // struct AutoDeployAddress { workchain: int8; stateInit: ContractState | cell; toShard: AddressShardingOptions?; }
   // struct ContractState { code: cell; data: cell; }
   // struct AddressShardingOptions { fixedPrefixLength: uint5; closeTo: address; }
-  std::vector ir_dest_is_address = pre_compile_is_type(code, t_dest, TypeDataAddress::create(), ir_dest, origin, "(is-address)");
+  std::vector ir_dest_is_address = pre_compile_is_type(code, t_dest, TypeDataAddress::internal(), ir_dest, origin, "(is-address)");
   std::vector ir_dest_is_AutoDeploy = pre_compile_is_type(code, t_dest, TypeDataStruct::create(s_AutoDeployAddress), ir_dest, origin, "(is-auto)");
   std::vector ir_dest_is_builder = pre_compile_is_type(code, t_dest, TypeDataBuilder::create(), ir_dest, origin, "(is-builder)");
   std::vector ir_dest_AutoDeployAddress = transition_to_target_type(std::vector(ir_dest), code, t_dest, TypeDataStruct::create(s_AutoDeployAddress), origin);
@@ -186,8 +186,8 @@ std::vector<var_idx_t> generate_createMessage(FunctionPtr called_f, CodeBlob& co
   {
     // input is `dest: someAddress`
     code.push_set_cur(if_address.block0);
-    std::vector ir_dest_address = transition_to_target_type(std::vector(ir_dest), code, t_dest, TypeDataAddress::create(), origin);
-    ctx.storeAddress(ir_dest_address[0]);
+    std::vector ir_dest_address = transition_to_target_type(std::vector(ir_dest), code, t_dest, TypeDataAddress::internal(), origin);
+    ctx.storeAddressInt(ir_dest_address[0]);
     code.close_pop_cur(origin);
   }
   {
@@ -434,7 +434,7 @@ std::vector<var_idx_t> generate_createExternalLogMessage(FunctionPtr called_f, C
 
   // field `dest` is `dest: address | builder | ExtOutLogBucket`;
   // struct ExtOutLogBucket { topic: uint248 | bits248; }
-  std::vector ir_dest_is_address = pre_compile_is_type(code, t_dest, TypeDataAddress::create(), ir_dest, origin, "(is-address)");
+  std::vector ir_dest_is_address = pre_compile_is_type(code, t_dest, TypeDataAddress::any(), ir_dest, origin, "(is-address)");
   std::vector ir_dest_is_builder = pre_compile_is_type(code, t_dest, TypeDataBuilder::create(), ir_dest, origin, "(is-builder)");
   std::vector ir_dest_ExtOutLogBucket = transition_to_target_type(std::vector(ir_dest), code, t_dest, TypeDataStruct::create(s_ExtOutLogBucket), origin);
   // dest.topic (it's the only field in a struct)
@@ -482,8 +482,8 @@ std::vector<var_idx_t> generate_createExternalLogMessage(FunctionPtr called_f, C
   {
     // input is `dest: someAddress`
     code.push_set_cur(if_address.block0);
-    std::vector ir_dest_address = transition_to_target_type(std::vector(ir_dest), code, t_dest, TypeDataAddress::create(), origin);
-    ctx.storeAddress(ir_dest_address[0]);
+    std::vector ir_dest_address = transition_to_target_type(std::vector(ir_dest), code, t_dest, TypeDataAddress::any(), origin);
+    ctx.storeAddressAny(ir_dest_address[0]);
     code.close_pop_cur(origin);
   }
   {

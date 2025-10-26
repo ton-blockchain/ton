@@ -12,4 +12,5 @@ fun testDoWhileCondition() {
 /**
 @compilation_should_fail
 @stderr can not apply operator `*` to `int` and `int?`
+@stderr check on `null` first, or use unsafe operator `!`
  */

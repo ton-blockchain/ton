@@ -1009,13 +1009,18 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
     return rvect;
   }
 
+  // pass `address` to `any_address` and vice versa
+  if (original_type->try_as<TypeDataAddress>() && target_type->try_as<TypeDataAddress>()) {
+    return rvect;
+  }
+
   // pass `bits267` to `address`
-  if (target_type == TypeDataAddress::create() && original_type->try_as<TypeDataBitsN>()) {
+  if (target_type->try_as<TypeDataAddress>() && original_type->try_as<TypeDataBitsN>()) {
     return rvect;
   }
 
   // pass `address` to `bits267`
-  if (original_type == TypeDataAddress::create() && target_type->try_as<TypeDataBitsN>()) {
+  if (original_type->try_as<TypeDataAddress>() && target_type->try_as<TypeDataBitsN>()) {
     return rvect;
   }
 
@@ -1081,13 +1086,13 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
 
   // pass slice to address
   // no changes in rvect: address is TVM slice under the hood
-  if (original_type == TypeDataSlice::create() && target_type == TypeDataAddress::create()) {
+  if (original_type == TypeDataSlice::create() && target_type->try_as<TypeDataAddress>()) {
     return rvect;
   }
 
   // pass address to slice
   // same, no changes in rvect
-  if (original_type == TypeDataAddress::create() && target_type == TypeDataSlice::create()) {
+  if (original_type->try_as<TypeDataAddress>() && target_type == TypeDataSlice::create()) {
     return rvect;
   }
 
@@ -1278,7 +1283,7 @@ static std::vector<var_idx_t> process_binary_operator(V<ast_binary_operator> v, 
     return transition_to_target_type(std::move(rvect), code, target_type, v);
   }
   if (t == tok_eq || t == tok_neq) {
-    if (v->get_lhs()->inferred_type->unwrap_alias() == TypeDataAddress::create() && v->get_rhs()->inferred_type->unwrap_alias() == TypeDataAddress::create()) {
+    if (v->get_lhs()->inferred_type->unwrap_alias()->try_as<TypeDataAddress>() && v->get_rhs()->inferred_type->unwrap_alias()->try_as<TypeDataAddress>()) {
       FunctionPtr f_sliceEq = lookup_function("slice.bitsEqual");
       std::vector ir_lhs_slice = pre_compile_expr(v->get_lhs(), code);
       std::vector ir_rhs_slice = pre_compile_expr(v->get_rhs(), code);

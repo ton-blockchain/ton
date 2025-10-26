@@ -28,6 +28,7 @@ struct PackSize {
   int max_bits;
   int min_refs;
   int max_refs;
+  bool skipping_is_dangerous = false;
 
   bool is_unpredictable_infinity() const {
     return max_bits >= 9999;
@@ -39,8 +40,8 @@ struct PackSize {
   PackSize(int min_bits, int max_bits)
     : min_bits(min_bits), max_bits(max_bits), min_refs(0), max_refs() {
   }
-  PackSize(int min_bits, int max_bits, int min_refs, int max_refs)
-    : min_bits(min_bits), max_bits(max_bits), min_refs(min_refs), max_refs(max_refs) {
+  PackSize(int min_bits, int max_bits, int min_refs, int max_refs, bool skipping_is_dangerous = false)
+    : min_bits(min_bits), max_bits(max_bits), min_refs(min_refs), max_refs(max_refs), skipping_is_dangerous(skipping_is_dangerous) {
   }
 
   static PackSize unpredictable_infinity() {
@@ -77,7 +78,8 @@ public:
   void storeCoins(var_idx_t ir_idx) const;
   void storeRef(var_idx_t ir_idx) const;
   void storeMaybeRef(var_idx_t ir_idx) const;
-  void storeAddress(var_idx_t ir_idx) const;
+  void storeAddressInt(var_idx_t ir_idx) const;
+  void storeAddressAny(var_idx_t ir_idx) const;
   void storeBuilder(var_idx_t ir_idx) const;
   void storeSlice(var_idx_t ir_idx) const;
   void storeOpcode(PackOpcode opcode) const;
@@ -152,10 +154,10 @@ public:
   PrefixEstimateMode get_prefix_mode() const { return prefix_mode; }
 
   static PackSize minmax(PackSize a, PackSize b) {
-    return PackSize(std::min(a.min_bits, b.min_bits), std::max(a.max_bits, b.max_bits), std::min(a.min_refs, b.min_refs), std::max(a.max_refs, b.max_refs));
+    return PackSize(std::min(a.min_bits, b.min_bits), std::max(a.max_bits, b.max_bits), std::min(a.min_refs, b.min_refs), std::max(a.max_refs, b.max_refs), a.skipping_is_dangerous || b.skipping_is_dangerous);
   }
   static PackSize sum(PackSize a, PackSize b) {
-    return PackSize(a.min_bits + b.min_bits, std::min(9999, a.max_bits + b.max_bits), a.min_refs + b.min_refs, a.max_refs + b.max_refs);
+    return PackSize(a.min_bits + b.min_bits, std::min(9999, a.max_bits + b.max_bits), a.min_refs + b.min_refs, a.max_refs + b.max_refs, a.skipping_is_dangerous || b.skipping_is_dangerous);
   }
 
   PackSize estimate_any(TypePtr any_type, PrefixEstimateMode prefix_mode = PrefixEstimateMode::IncludePrefixOfStruct) const;

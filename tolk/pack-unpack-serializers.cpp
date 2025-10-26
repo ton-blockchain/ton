@@ -123,9 +123,14 @@ void PackContext::storeMaybeRef(var_idx_t ir_idx) const {
   code.emplace_back(origin, Op::_Call, ir_builder, std::move(args), lookup_function("builder.storeMaybeRef"));
 }
 
-void PackContext::storeAddress(var_idx_t ir_idx) const {
+void PackContext::storeAddressInt(var_idx_t ir_idx) const {
   std::vector args = { ir_builder0, ir_idx };
   code.emplace_back(origin, Op::_Call, ir_builder, std::move(args), lookup_function("builder.storeAddress"));
+}
+
+void PackContext::storeAddressAny(var_idx_t ir_idx) const {
+  std::vector args = { ir_builder0, ir_idx };
+  code.emplace_back(origin, Op::_Call, ir_builder, std::move(args), lookup_function("builder.storeAddressAny"));
 }
 
 void PackContext::storeBuilder(var_idx_t ir_idx) const {
@@ -464,10 +469,10 @@ struct S_Coins final : ISerializer {
   }
 };
 
-struct S_Address final : ISerializer {
+struct S_AddressInt final : ISerializer {
   void pack(const PackContext* ctx, CodeBlob& code, AnyV origin, std::vector<var_idx_t>&& rvect) override {
     tolk_assert(rvect.size() == 1);
-    ctx->storeAddress(rvect[0]);
+    ctx->storeAddressInt(rvect[0]);
   }
 
   std::vector<var_idx_t> unpack(const UnpackContext* ctx, CodeBlob& code, AnyV origin) override {
@@ -478,17 +483,60 @@ struct S_Address final : ISerializer {
   }
 
   void skip(const UnpackContext* ctx, CodeBlob& code, AnyV origin) override {
-    // we can't do just
-    // ctx->skipBits(2 + 1 + 8 + 256);
-    // because it may be addr_none or addr_extern; there is no "skip address" in TVM, so just load it
+    // not just skip 267 bits: do real unpack, so that an address is validated to be internal (not none, etc.)
     unpack(ctx, code, origin);
   }
 
   PackSize estimate(const EstimateContext* ctx) override {
-    // we can't do just
-    // return PackSize(2 + 1 + 8 + 256);
-    // because it may be addr_none or addr_extern; but since addr_extern is very-very uncommon, don't consider it
-    return PackSize(2, 2 + 1 + 8 + 256);
+    PackSize size = PackSize(3 + 8 + 256);   // '10' + 0 (anycast disabled) + workchain + hash
+    size.skipping_is_dangerous = true;    // can't just "skip bits267" when unused in lazy
+    return size;
+  }
+};
+
+struct S_AddressIntOrNull final : ISerializer {
+  void pack(const PackContext* ctx, CodeBlob& code, AnyV origin, std::vector<var_idx_t>&& rvect) override {
+    // `address?`, when null, is stored as '00' (addr_none), so `address?` is not TL/B (Maybe MsgAddressInt)
+    tolk_assert(rvect.size() == 1);
+    std::vector args = { ctx->ir_builder0, rvect[0] };
+    code.emplace_back(origin, Op::_Call, ctx->ir_builder, std::move(args), lookup_function("builder.storeAddressOpt"));
+  }
+
+  std::vector<var_idx_t> unpack(const UnpackContext* ctx, CodeBlob& code, AnyV origin) override {
+    FunctionPtr f_loadAddressOpt = lookup_function("slice.loadAddressOpt");
+    std::vector ir_address_orN = code.create_tmp_var(TypeDataSlice::create(), origin, "(loaded-addr)");
+    code.emplace_back(origin, Op::_Call, std::vector{ctx->ir_slice0, ir_address_orN[0]}, ctx->ir_slice, f_loadAddressOpt);
+    return ir_address_orN;
+  }
+
+  void skip(const UnpackContext* ctx, CodeBlob& code, AnyV origin) override {
+    unpack(ctx, code, origin);
+  }
+
+  PackSize estimate(const EstimateContext* ctx) override {
+    return PackSize(2, 3 + 8 + 256);
+  }
+};
+
+struct S_AddressAny final : ISerializer {
+  void pack(const PackContext* ctx, CodeBlob& code, AnyV origin, std::vector<var_idx_t>&& rvect) override {
+    tolk_assert(rvect.size() == 1);
+    ctx->storeAddressAny(rvect[0]);
+  }
+
+  std::vector<var_idx_t> unpack(const UnpackContext* ctx, CodeBlob& code, AnyV origin) override {
+    FunctionPtr f_loadAddressAny = lookup_function("slice.loadAddressAny");
+    std::vector ir_address_any = code.create_tmp_var(TypeDataSlice::create(), origin, "(loaded-addr)");
+    code.emplace_back(origin, Op::_Call, std::vector{ctx->ir_slice0, ir_address_any[0]}, ctx->ir_slice, f_loadAddressAny);
+    return ir_address_any;
+  }
+
+  void skip(const UnpackContext* ctx, CodeBlob& code, AnyV origin) override {
+    unpack(ctx, code, origin);
+  }
+
+  PackSize estimate(const EstimateContext* ctx) override {
+    return PackSize(2, 2 + 9 + 512);    // an extern address could be really large
   }
 };
 
@@ -1319,9 +1367,6 @@ static std::unique_ptr<ISerializer> get_serializer_for_type(TypePtr any_type) {
   if (any_type == TypeDataCell::create() || is_type_cellT(any_type)) {
     return std::make_unique<S_RawTVMcell>();
   }
-  if (any_type == TypeDataAddress::create()) {
-    return std::make_unique<S_Address>();
-  }
   if (any_type == TypeDataBuilder::create()) {
     return std::make_unique<S_Builder>();
   }
@@ -1338,6 +1383,12 @@ static std::unique_ptr<ISerializer> get_serializer_for_type(TypePtr any_type) {
   if (any_type->try_as<TypeDataMapKV>()) {
     return std::make_unique<S_RawTVMcellOrNull>();
   }
+  if (const auto* t_address = any_type->try_as<TypeDataAddress>()) {
+    if (t_address->is_internal()) {
+      return std::make_unique<S_AddressInt>();
+    }
+    return std::make_unique<S_AddressAny>();
+  }
   if (const auto* t_struct = any_type->try_as<TypeDataStruct>()) {
     return std::make_unique<S_CustomStruct>(t_struct->struct_ref);
   }
@@ -1351,6 +1402,9 @@ static std::unique_ptr<ISerializer> get_serializer_for_type(TypePtr any_type) {
       TypePtr or_null = t_union->or_null->unwrap_alias();
       if (or_null == TypeDataCell::create() || is_type_cellT(or_null)) {
         return std::make_unique<S_RawTVMcellOrNull>();
+      }
+      if (or_null->try_as<TypeDataAddress>() && or_null->try_as<TypeDataAddress>()->is_internal()) {
+        return std::make_unique<S_AddressIntOrNull>();  // `address?` is stored as '00' (none) for null
       }
       return std::make_unique<S_Maybe>(t_union);
     }

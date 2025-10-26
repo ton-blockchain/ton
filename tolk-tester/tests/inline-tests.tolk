@@ -453,7 +453,7 @@ fun usedIn10ButDeclaredBelow(x: int) {
   test5() PROC:<{               //
     c4 PUSH                     //  '7
     CTOS                        //  s
-    LDMSGADDR                   //  '11 s
+    LDSTDADDR                   //  '11 s
 """
 
 @fif_codegen

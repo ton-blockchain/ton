@@ -148,7 +148,7 @@ struct NotFixedWidthStorage {
     f4: bool;
     f5: cell;
     f6: int8 | bool;
-    f7: address;
+    f7: address?;
     f8: int8;
     f9: bits200;
     f10: (bits400, ());
@@ -195,6 +195,12 @@ struct ItemState {
 struct HasIncrementEnd {
     a: int8;
     inc: CounterIncrement;
+}
+
+struct HasUnusedAddressInTensor {
+    f1: (int8, bits267, int8)           // can be safely skipped as bits283
+    f2: (int8, address, int8)           // can NOT (even fixed-size) since `address` needs validation
+    f3: int8
 }
 
 
@@ -663,7 +669,7 @@ fun algo49(forceLoad: bool) {
 
 fun algo50() {
     var st = lazy NotFixedWidthStorage.fromSlice("");
-    __expect_lazy("[st] skip (bits8) (int8?) (bits9) (int8 | bool) (address) (bits608), load f11");
+    __expect_lazy("[st] skip (bits8) (int8?) (bits9) (int8 | bool) (address?) (bits608), load f11");
     st.f11;
 }
 
@@ -1463,7 +1469,7 @@ fun algo311() {
 
 fun algo312() {
     var st = lazy NotFixedWidthStorage.fromSlice("");
-    __expect_lazy("[st] load (bits8) (int8?) (bits9) (cell) (int8 | bool) (address) f8, save immutable (tail)");
+    __expect_lazy("[st] load (bits8) (int8?) (bits9) (cell) (int8 | bool) (address?) f8, save immutable (tail)");
     if (rand()) {
         st.f8 += 1;
     }
@@ -1473,11 +1479,17 @@ fun algo312() {
 fun algo313() {
     var st = lazy NotFixedWidthStorage.fromSlice("");
     if (rand()) {
-        __expect_lazy("[st] load (bits8) (int8?) (bits9) f5, save immutable (tail), skip (int8 | bool) (address) (bits8), load f9");
+        __expect_lazy("[st] load (bits8) (int8?) (bits9) f5, save immutable (tail), skip (int8 | bool) (address?) (bits8), load f9");
         st.f5 = createEmptyCell();
         st.f9;
         st.toCell();
     }
+}
+
+fun algo314() {
+    var l = lazy HasUnusedAddressInTensor.fromSlice("");
+    __expect_lazy("[l] skip (bits283) ((int8, address, int8)), load f3");
+    l.f3;
 }
 
 

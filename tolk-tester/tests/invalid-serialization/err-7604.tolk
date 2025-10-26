@@ -5,7 +5,7 @@ struct CCC {
 fun main() {
     var options = CreateMessageOptions {
         bounce: true,
-        dest: createAddressNone(),
+        dest: address("EQDKbjIcfM6ezt8KjKJJLshZJJSqX7XOA4ff-W72r5gqPrHF"),
         value: 0,
         body: CCC { v: 10 }
     };

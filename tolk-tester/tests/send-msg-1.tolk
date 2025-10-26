@@ -650,7 +650,7 @@ fun test22(op: uint32, queryId: uint64) {
 }
 
 struct Body23Unlimited {
-    any1: (address, builder),
+    any1: (address?, builder),
     any2: RemainingBitsAndRefs;
 }
 
@@ -669,7 +669,7 @@ fun test23_manual(state32: uint32, body: Body23Unlimited) {
         .storeUint(0b10001100, 1 + 4 + 4 + 64 + 32 + (1 + 1 + 5 + 1))
         .storeRef(init.code)
         .storeRef(init.data)
-        .storeAddress(body.any1.0)
+        .storeAddressOpt(body.any1.0)
         .storeBuilder(body.any1.1)
         .storeSlice(body.any2)
         .endCell();
@@ -682,7 +682,7 @@ fun test23(state32: uint32) {
         code: beginCell().endCell(),
     };
     var bd: Body23Unlimited = {
-        any1: (createAddressNone(), beginCell().storeRef(init.code)),
+        any1: (null, beginCell().storeRef(init.code)),
         any2: beginCell().storeUint(80, 80).endCell().beginParse(),
     };
 

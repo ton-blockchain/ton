@@ -4,9 +4,8 @@ const cc2 = address("EQDKbjIcfM6ezt8KjKJJLshZJJSqX7XOA4ff-W72r5gqPrHF");
 fun verifyAddr(addr: address, workchain: int, number: int) {
     assert (addr == addr) throw 111;
     assert (!(addr != addr)) throw 111;
-    assert (addr.isInternal(), 111);
-    assert (!addr.isExternal(), 111);
-    assert (!addr.isNone(), 111);
+    assert (addr == (addr as any_address), 111);
+    assert ((addr as any_address).isInternal(), 111);
     assert (addr.bitsEqual(addr), 111);
 
     var (wc, h) = addr.getWorkchainAndHash();

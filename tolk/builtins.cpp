@@ -1376,7 +1376,7 @@ void define_builtins() {
   TypePtr Bool = TypeDataBool::create();
   TypePtr Slice = TypeDataSlice::create();
   TypePtr Builder = TypeDataBuilder::create();
-  TypePtr Address = TypeDataAddress::create();
+  TypePtr Address = TypeDataAddress::internal();
   TypePtr Tuple = TypeDataTuple::create();
   TypePtr Never = TypeDataNever::create();
 
@@ -1554,7 +1554,7 @@ void define_builtins() {
   define_builtin_func("stringHexToSlice", {TypeDataUnknown::create()}, TypeDataSlice::create(), nullptr,
                               compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal);
-  define_builtin_func("address", {TypeDataUnknown::create()}, TypeDataAddress::create(), nullptr,
+  define_builtin_func("address", {TypeDataUnknown::create()}, TypeDataAddress::internal(), nullptr,
                               compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal);
 

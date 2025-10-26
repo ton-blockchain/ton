@@ -435,7 +435,7 @@ struct ExprUsagesWhileCollecting {
       if (!future_fields.empty() && future_fields.back().action == LazyStructLoadInfo::SkipField) {
         if (const TypeDataBitsN* last_bitsN = future_fields.back().field_type->try_as<TypeDataBitsN>()) {
           PackSize cur_size = estimate_serialization_size(field_type);
-          if (cur_size.min_bits == cur_size.max_bits && cur_size.max_refs == 0) {
+          if (cur_size.min_bits == cur_size.max_bits && cur_size.max_refs == 0 && !cur_size.skipping_is_dangerous) {
             TypePtr total_bitsN = TypeDataBitsN::create(last_bitsN->n_width + cur_size.max_bits, true);
             future_fields.back().field_type = total_bitsN;
             continue;
@@ -446,7 +446,7 @@ struct ExprUsagesWhileCollecting {
       // generate "skip 8 bits" instead of "skip int8" (it's more effective, and it can be merged with next)
       TypePtr skip_type = field_type;
       PackSize skip_size = estimate_serialization_size(field_type);
-      if (skip_size.min_bits == skip_size.max_bits && skip_size.max_refs == 0) {
+      if (skip_size.min_bits == skip_size.max_bits && skip_size.max_refs == 0 && !skip_size.skipping_is_dangerous) {
         skip_type = TypeDataBitsN::create(skip_size.max_bits, true);
       }
       future_fields.emplace_back(LazyStructLoadInfo::SkipField, "(gap)", skip_type);

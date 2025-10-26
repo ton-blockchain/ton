@@ -193,7 +193,7 @@ fun test111() {
         .endCell().beginParse();
     var op1 = s.loadUint(32);
     var q1 = s.loadUint(64);
-    if ((s as address).isNone()) {
+    if ((s as any_address).isNone()) {
         s.skipBits(2);
     }
     if (s.loadBool() == false) {
@@ -333,7 +333,7 @@ fun test24(uns: bool) {
 fun builder.my_storeRef(mutate self, value: cell): self
     asm(self value) "STREFR";
 
-fun builder.my_storeAddress(mutate self, value: address): self
+fun builder.my_storeAddress(mutate self, value: any_address): self
     asm(value self) "STSLICE";
 
 fun builder.my_storeBuilder(mutate self, value: builder): self
@@ -368,7 +368,7 @@ fun demo33(value: builder, dest: builder) {
 }
 
 @noinline
-fun demo34(dest: builder, value: address) {
+fun demo34(dest: builder, value: any_address) {
     // SWAP + STSLICE => STSLICER
     return dest.my_storeAddress(value);
 }
@@ -489,6 +489,51 @@ fun test40() {
     return beginCell().toSlice().remainingBitsAndRefsCount()
 }
 
+@method_id(141)
+fun test41() {
+    var empty = "";
+    var incorrect = stringHexToSlice("8");
+    var incomplete = (address("EQDKbjIcfM6ezt8KjKJJLshZJJSqX7XOA4ff-W72r5gqPrHF") as slice).getFirstBits(266);
+
+    var data = createEmptyTuple();
+    var b = beginCell();
+
+    try { data.push(empty.loadAddress()) }
+    catch (ex) { data.push(ex) }
+    try { data.push(incorrect.loadAddress()) }
+    catch (ex) { data.push(ex) }
+    try { data.push(incomplete.loadAddress()) }
+    catch (ex) { data.push(ex) }
+
+    try { data.push(empty.loadAddressOpt()) }
+    catch (ex) { data.push(ex) }
+    try { data.push(incorrect.loadAddressOpt()) }
+    catch (ex) { data.push(ex) }
+    try { data.push(incomplete.loadAddressOpt()) }
+    catch (ex) { data.push(ex) }
+
+    try { data.push(empty.loadAddressAny()) }
+    catch (ex) { data.push(ex) }
+    try { data.push(incorrect.loadAddressAny()) }
+    catch (ex) { data.push(ex) }
+    try { data.push(incomplete.loadAddressAny()) }
+    catch (ex) { data.push(ex) }
+
+    try { b.storeAddress(createAddressNone() as address) }
+    catch (ex) { data.push(ex) }
+    try { b.storeAddressOpt(createAddressNone() as address) }
+    catch (ex) { data.push(ex) }
+    try { b.storeAny("123" as address) }
+    catch (ex) { data.push(ex) }
+    try { b.storeAny("123" as address?) }
+    catch (ex) { data.push(ex) }
+
+    try { b.storeAddressOpt(null); data.push(b.bitsCount()) }
+    catch (ex) { data.push(ex) }
+
+    return data;
+}
+
 fun main(): int {
     return 0;
 }
@@ -535,6 +580,7 @@ fun main(): int {
 @testcase | 137 |     | 39065
 @testcase | 138 |     | 0
 @testcase | 140 |     | 0 0
+@testcase | 141 |     | [ 9 9 9 9 9 9 9 9 9 8 8 8 8 2 ]
 
 We test that consequtive storeInt/storeUint with constants are joined into a single number
 

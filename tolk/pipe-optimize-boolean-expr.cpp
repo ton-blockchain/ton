@@ -146,7 +146,7 @@ protected:
     }
     // `if (addr1 != addr2)` -> ifnot(addr1 == addr2)
     if (auto v_cond_neq = v->get_cond()->try_as<ast_binary_operator>()) {
-      if (v_cond_neq->tok == tok_neq && v_cond_neq->get_lhs()->inferred_type->unwrap_alias() == TypeDataAddress::create() && v_cond_neq->get_rhs()->inferred_type->unwrap_alias() == TypeDataAddress::create()) {
+      if (v_cond_neq->tok == tok_neq && v_cond_neq->get_lhs()->inferred_type->unwrap_alias()->try_as<TypeDataAddress>() && v_cond_neq->get_rhs()->inferred_type->unwrap_alias()->try_as<TypeDataAddress>()) {
         auto v_cond_eq = createV<ast_binary_operator>(v_cond_neq->range, v_cond_neq->operator_range, "==", tok_eq, v_cond_neq->get_lhs(), v_cond_neq->get_rhs());
         v_cond_eq->mutate()->assign_inferred_type(v_cond_neq->inferred_type);
         v_cond_eq->mutate()->assign_rvalue_true();

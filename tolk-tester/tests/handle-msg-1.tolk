@@ -41,7 +41,7 @@ fun entrypoint1() {
 
 @method_id(102)
 fun handle2(in: InMessage) {
-    return (in.valueCoins, in.senderAddress.isInternal());
+    return (in.valueCoins, (in.senderAddress as any_address).isInternal());
 }
 
 @method_id(202)

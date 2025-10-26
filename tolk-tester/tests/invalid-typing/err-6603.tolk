@@ -10,5 +10,5 @@ fun main(a: A) {
 /**
 @compilation_should_fail
 @stderr can not assign `[int, int]` to field of type `tuple`
-@stderr hint: use `as` operator for unsafe casting: `<some_expr> as tuple`
+@stderr hint: use `as` operator for UNSAFE casting: `<some_expr> as tuple`
  */

@@ -41,11 +41,23 @@ type continuation = builtin
 /// A tuple occupies one stack slot regardless of its size.
 type tuple = builtin
 
-/// `address` represents an internal/external/none address.
-/// Most likely, you'll use it for internal addresses — "an address of a smart contract".
-/// It's `slice` under the hood. `someAddress as slice` is also possible.
+/// `address` represents a standard (internal) address: workchain + hash.
+/// Addresses are comparable with `==` operator, they have methods like [address.getWorkchain].
+/// In binary, it's 267 bits: '10' (addr_std) + '0' (no anycast) + workchain (int8) + hash (uint256).
+/// If you wish to describe "a potentially missing address", use `address?` (nullable).
+/// When set to `null`, `address?` will be serialized as '00' ("none address"):
+/// '00' (two zero bits) is a standard representation of a "missing" ("none") address.
+/// At the TVM level, addresses are slices, so it's possible to  `someAddress as slice`.
 /// [See docs](https://docs.ton.org/learn/overviews/addresses#address-of-smart-contract)
 type address = builtin
+
+/// `any_address` represents an internal/external/none address.
+/// You can test it with [any_address.isExternal] and similar methods.
+/// If you wish to describe "internal or none address", use `address?` (nullable)
+/// instead of "any". That's why `any_address` is used in practice extremely rarely.
+/// At the TVM level, addresses are slices, so it's possible to  `anyAddress as slice`.
+/// [See docs](https://docs.ton.org/learn/overviews/addresses#address-of-smart-contract)
+type any_address = builtin
 
 /// `never` is a special type that represents computations that never complete normally.
 /// A function that always throws an exception returns `never`, and the compiler knows
@@ -1146,10 +1158,26 @@ fun builder.storeUint(mutate self, x: int, len: int): self
 fun builder.storeSlice(mutate self, s: slice): self
     asm(s self) "STSLICE"
 
-/// Stores an address into a builder.
+/// Stores an internal address into a builder.
 @pure
 fun builder.storeAddress(mutate self, addr: address): self
-    asm(addr self) "STSLICE"
+    asm(addr self) "STSTDADDR"
+
+/// Stores an internal address or '00' if the parameter is `null`.
+/// '00' (two zero bits) is a standard representation of a "missing" ("none") address.
+@pure
+fun builder.storeAddressOpt(mutate self, addrOrNull: address?): self
+    asm(addrOrNull self) "STOPTSTDADDR"
+
+/// Stores "any address" (internal/external/none) into a builder.
+@pure
+fun builder.storeAddressAny(mutate self, addrAny: any_address): self
+    asm(addrAny self) "STSLICE"
+
+/// Stores a "none address": '00' (two zero bits) is TL addr_none$00.
+@pure
+fun builder.storeAddressNone(mutate self): self
+    asm "b{00} STSLICECONST"
 
 /// Stores the amount of nanotoncoins into a builder.
 @pure
@@ -1177,11 +1205,6 @@ fun builder.storeMaybeRef(mutate self, c: cell?): self
 @pure
 fun builder.storeBuilder(mutate self, from: builder): self
     asm(from self) "STB"
-
-/// Stores a slice representing "none address" (TL addr_none$00 — two zero bits).
-@pure
-fun builder.storeAddressNone(mutate self): self
-    asm "b{00} STSLICECONST"
 
 
 /**
@@ -1243,47 +1266,66 @@ fun builder.bitsCount(self): int
 /// address("EQCRDM9h4k3UJdOePPuyX40mCgA4vxge5Dc5vjBR8djbEKC5")
 /// address("0:527964d55cfa6eb731f4bfc07e9d025098097ef8505519e853986279bd8400d8")
 /// ```
-/// Returns `address`, which can be stored in a builder, compared with `==`, etc.
+/// Returns `address`, which can be stored in a struct, compared with `==`, etc.
 @pure
 fun address(stdAddress: slice): address
     builtin
 
-/// Creates a slice representing "none address" (TL addr_none$00 — two zero bits).
-@pure
-fun createAddressNone(): address
-    asm "b{00} PUSHSLICE"
-
-/// Returns if it's an empty address (= "none address").
-/// Don't confuse it with null! An empty address is a slice "00" (two zero bits).
-@pure
-fun address.isNone(self): bool
-    asm "b{00} SDBEGINSQ" "NIP"
-
-/// Returns if it's a standard (internal) address. Such addresses contain workchain (8 bits) and hash (256 bits).
-/// All contract addresses are internal, so it's the most practical use case.
-/// In TL/B it's addr_std$10.
-/// For internal addresses, you can call [address.getWorkchain] and [address.getWorkchainAndHash].
-@pure
-fun address.isInternal(self): bool
-    asm "b{10} SDBEGINSQ" "NIP"
-
-/// Returns if it's an external address, used to communication with the outside world.
-/// In TL/B it's addr_extern$01.
-@pure
-fun address.isExternal(self): bool
-    asm "b{01} SDBEGINSQ" "NIP"
-
 /// Extracts workchain and hash from a standard (internal) address.
-/// If the address is not internal, throws a cell deserialization exception.
 @pure
 fun address.getWorkchainAndHash(self): (int8, uint256)
     asm "REWRITESTDADDR"
 
 /// Extracts workchain from a standard (internal) address.
-/// If the address is not internal, throws a cell deserialization exception.
 @pure
 fun address.getWorkchain(self): int8
     asm "REWRITESTDADDR" "DROP"
+
+/// Creates a slice representing "none external address" (TL addr_none$00 — two zero bits).
+/// Note! Use this in combination with EXTERNAL addresses (e.g. for [createExternalLogMessage]).
+/// To represent "internal or none" address (which you most likely need to), 
+/// use `address?` (nullable) and `null` accordingly.
+@pure
+fun createAddressNone(): any_address
+    asm "b{00} PUSHSLICE"
+
+/// Returns if "any address" is "none".
+/// In TL/B, it's addr_none$00.
+@pure
+fun any_address.isNone(self): bool
+    asm "b{00} SDBEGINSQ" "NIP"
+
+/// Returns if "any address" is a standard (internal) address: workchain + hash.
+/// Then it can be safely cast to `address`. 
+/// In TL/B, it's addr_std$10.
+@pure
+fun any_address.isInternal(self): bool
+    asm "b{10} SDBEGINSQ" "NIP"
+
+/// Returns if "any address" is an external address, used to communication with the outside world.
+/// In TL/B, it's addr_extern$01.
+@pure
+fun any_address.isExternal(self): bool
+    asm "b{01} SDBEGINSQ" "NIP"
+
+/// Extracts workchain and hash from a standard (internal) address.
+/// If the address is not internal, throws a cell deserialization exception.
+@pure
+fun any_address.getWorkchainAndHash(self): (int8, uint256)
+    asm "REWRITESTDADDR"
+
+/// Extracts workchain from a standard (internal) address.
+/// If the address is not internal, throws a cell deserialization exception.
+@pure
+fun any_address.getWorkchain(self): int8
+    asm "REWRITESTDADDR" "DROP"
+
+/// Casts `any_address` to `address` checking that "any" is actually "internal".
+/// E.g., `addr = myAny.castToInternal()` does the check and returns `address`.
+/// To skip the runtime check, use unsafe type casting instead: `addr = myAny as address`.
+@pure
+fun any_address.castToInternal(self): address
+    asm "DUP" "b{10} SDBEGINSQ" "NIP" "9 THROWIFNOT"
 
 /// Checks whether two addresses are equal. Equivalent to `a == b`.
 /// Deprecated! Left for smoother transition from FunC, where you used `slice` everywhere.
@@ -1293,9 +1335,23 @@ fun address.getWorkchain(self): int8
 fun address.bitsEqual(self, b: address): bool
     asm "SDEQ"
 
-/// Loads a valid address (internal/external/none). In TL/B, it's `MsgAddress`.
+/// Loads a standard (internal) address (containing workchain + hash). In TL/B, it's `MsgAddressInt`.
+/// If an address is incorrect or is not internal, throws a deserialization exception (code 9).
 @pure
 fun slice.loadAddress(mutate self): address
+    asm( -> 1 0) "LDSTDADDR"
+
+/// Loads a standard (internal) address or returns `null` if the input is "none address".
+/// If an address is incorrect or is not internal/none, throws a deserialization exception (code 9).
+/// '00' (two zero bits) is a standard representation of a "missing" ("none") address.
+/// As a result, you get either `address` (for internal) or `null` (for none).
+@pure
+fun slice.loadAddressOpt(mutate self): address?
+    asm( -> 1 0) "LDOPTSTDADDR"
+
+/// Loads a valid "any address" (internal/external/none). In TL/B, it's `MsgAddress`.
+@pure
+fun slice.loadAddressAny(mutate self): any_address
     asm( -> 1 0) "LDMSGADDR"
 
 
@@ -1514,7 +1570,7 @@ struct (0x00) ExtOutLogBucket {
 /// Consider [createExternalLogMessage] for examples.
 struct CreateExternalLogMessageOptions<TBody = never> {
     /// destination is either an external address or a pattern to calculate it
-    dest: address           // either some valid external/none address (not internal!)
+    dest: any_address       // either some valid external/none address (not internal!)
         | builder           // ... or a manually constructed builder with a valid external address
         | ExtOutLogBucket   // ... or encode topic/eventID in destination
     /// body is any serializable object (or just miss this field for empty body)
