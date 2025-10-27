@@ -389,8 +389,8 @@ void RootDb::try_get_static_file(FileHash file_hash, td::Promise<td::BufferSlice
 }
 
 void RootDb::apply_block(BlockHandle handle, td::Promise<td::Unit> promise) {
-  td::actor::create_actor<BlockArchiver>("archiver", std::move(handle), archive_db_.get(), actor_id(this),
-                                         std::move(promise))
+  td::actor::create_actor<BlockArchiver>(PSTRING() << "archiver" << handle->id().id.to_str(), std::move(handle),
+                                         archive_db_.get(), actor_id(this), std::move(promise))
       .release();
 }
 
@@ -464,8 +464,8 @@ void RootDb::start_up() {
 }
 
 void RootDb::archive(BlockHandle handle, td::Promise<td::Unit> promise) {
-  td::actor::create_actor<BlockArchiver>("archiveblock", std::move(handle), archive_db_.get(), actor_id(this),
-                                         std::move(promise))
+  td::actor::create_actor<BlockArchiver>(PSTRING() << "archiver" << handle->id().id.to_str(), std::move(handle),
+                                         archive_db_.get(), actor_id(this), std::move(promise))
       .release();
 }
 

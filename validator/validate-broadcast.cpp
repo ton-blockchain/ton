@@ -37,7 +37,8 @@ void ValidateBroadcast::abort_query(td::Status reason) {
 
 void ValidateBroadcast::finish_query() {
   if (promise_) {
-    VLOG(VALIDATOR_DEBUG) << "validated broadcast for " << broadcast_.block_id.to_str();
+    VLOG(VALIDATOR_DEBUG) << "validated broadcast for " << broadcast_.block_id.to_str() << " in "
+                          << perf_timer_.elapsed() << " s";
     promise_.set_result(td::Unit());
   }
   stop();
@@ -321,8 +322,8 @@ void ValidateBroadcast::checked_proof() {
     });
 
     VLOG(VALIDATOR_DEBUG) << "apply block";
-    td::actor::create_actor<ApplyBlock>("applyblock", handle_->id(), data_, handle_->id(), manager_, timeout_,
-                                        std::move(P))
+    td::actor::create_actor<ApplyBlock>(PSTRING() << "apply" << handle_->id().id.to_str(), handle_->id(), data_,
+                                        handle_->id(), manager_, timeout_, std::move(P))
         .release();
   } else {
     finish_query();

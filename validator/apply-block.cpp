@@ -36,7 +36,7 @@ void ApplyBlock::abort_query(td::Status reason) {
 }
 
 void ApplyBlock::finish_query() {
-  VLOG(VALIDATOR_DEBUG) << "successfully finishing apply block query";
+  VLOG(VALIDATOR_DEBUG) << "successfully finishing apply block query in " << perf_timer_.elapsed() << " s";
   handle_->set_processed();
   ValidatorInvariants::check_post_apply(handle_);
 
