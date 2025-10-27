@@ -433,8 +433,6 @@ tonNode.blockBroadcast id:tonNode.blockIdExt catchain_seqno:int validator_set_ha
 tonNode.blockBroadcastCompressed id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int
               flags:# compressed:bytes = tonNode.Broadcast;
 tonNode.blockBroadcastCompressedV2 id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int
-              signatures:(vector tonNode.blockSignature) flags:# compressed:bytes = tonNode.Broadcast;
-tonNode.blockBroadcastCompressedV3 id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int
               signatures:(vector tonNode.blockSignature) flags:# 
               proof:bytes data_compressed:bytes = tonNode.Broadcast;              
 tonNode.ihrMessageBroadcast message:tonNode.ihrMessage = tonNode.Broadcast;
@@ -465,7 +463,7 @@ ton.blockIdApprove root_cell_hash:int256 file_hash:int256 = ton.BlockId;
 
 tonNode.dataFull id:tonNode.blockIdExt proof:bytes block:bytes is_link:Bool = tonNode.DataFull;
 tonNode.dataFullCompressed id:tonNode.blockIdExt flags:# compressed:bytes is_link:Bool = tonNode.DataFull;
-tonNode.dataFullCompressedV2 id:tonNode.blockIdExt flags:# compressed:bytes is_link:Bool = tonNode.DataFull;
+tonNode.dataFullCompressedV2 id:tonNode.blockIdExt flags:# proof:bytes block_compressed:bytes is_link:Bool = tonNode.DataFull;
 tonNode.dataFullEmpty = tonNode.DataFull;
 
 tonNode.capabilities#f5bf60c0 version_major:int version_minor:int flags:# = tonNode.Capabilities;

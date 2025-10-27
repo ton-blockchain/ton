@@ -224,10 +224,80 @@ void DownloadBlockNew::got_data(td::BufferSlice data) {
     abort_query(td::Status::Error(ErrorCode::notready, "node doesn't have this block"));
     return;
   }
+  
+  // Check if state is needed for decompression
+  auto R_requires_state = need_state_for_decompression(*f);
+  if (R_requires_state.is_error()) {
+    abort_query(R_requires_state.move_as_error_prefix("failed to check if state is required: "));
+    return;
+  }
+  
+  if (R_requires_state.move_as_ok()) {
+    // Only tonNode_dataFullCompressedV2 may require state
+    ton_api::downcast_call(
+      *f,
+      td::overloaded(
+        [&](ton_api::tonNode_dataFullCompressedV2 &compressed_v2) {
+          BlockIdExt id = create_block_id(compressed_v2.id_);
+          
+          auto R_prev_blocks = extract_prev_blocks_from_proof(compressed_v2.proof_.as_slice(), id);
+          if (R_prev_blocks.is_error()) {
+            abort_query(R_prev_blocks.move_as_error_prefix("failed to extract prev block IDs: "));
+            return;
+          }
+          auto prev_blocks = R_prev_blocks.move_as_ok();
+          
+          // Request previous block state(s) asynchronously
+          if (prev_blocks.size() == 1) {
+            LOG(DEBUG) << "Requesting state for single prev block " << prev_blocks[0].to_str() << " to decompress block full";
+            td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::wait_block_state_short,
+                                   prev_blocks[0], 0, td::Timestamp::in(10.0), false,
+                                   [SelfId = actor_id(this), data_full = std::move(f)](
+                                     td::Result<td::Ref<ShardState>> R) mutable {
+                                     td::actor::send_closure(SelfId, &DownloadBlockNew::got_ready_to_deserialize,
+                                                            std::move(data_full), std::move(R));
+                                   });
+          } else {
+            CHECK(prev_blocks.size() == 2);
+            LOG(DEBUG) << "Requesting merged state for prev blocks " << prev_blocks[0].to_str() 
+                       << " and " << prev_blocks[1].to_str() << " to decompress block full";
+            td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::wait_block_state_merge,
+                                   prev_blocks[0], prev_blocks[1], 0, td::Timestamp::in(10.0),
+                                   [SelfId = actor_id(this), data_full = std::move(f)](
+                                     td::Result<td::Ref<ShardState>> R) mutable {
+                                     td::actor::send_closure(SelfId, &DownloadBlockNew::got_ready_to_deserialize,
+                                                            std::move(data_full), std::move(R));
+                                   });
+          }
+        },
+        [&](auto &) {
+          UNREACHABLE();
+        }
+      )
+    );
+    return;
+  }
+  
+  // Call got_state_for_block_full with null state
+  got_ready_to_deserialize(std::move(f), td::Ref<ShardState>());
+}
+
+void DownloadBlockNew::got_ready_to_deserialize(tl_object_ptr<ton_api::tonNode_DataFull> data_full,
+                                                 td::Result<td::Ref<ShardState>> R) {
+  // Get state if provided
+  td::Ref<vm::Cell> state_root;
+  if (R.is_error()) {
+    abort_query(R.move_as_error_prefix("failed to get state for block full decompression: "));
+    return;
+  } else if (R.ok().not_null()) {
+    state_root = R.move_as_ok()->root_cell();
+  }
+
   BlockIdExt id;
   td::BufferSlice proof, block_data;
   bool is_link;
-  td::Status S = deserialize_block_full(*f, id, proof, block_data, is_link, overlay::Overlays::max_fec_broadcast_size());
+  td::Status S = deserialize_block_full(*data_full, id, proof, block_data, is_link, 
+                                        overlay::Overlays::max_fec_broadcast_size(), state_root);
   if (S.is_error()) {
     abort_query(S.move_as_error_prefix("cannot deserialize block: "));
     return;

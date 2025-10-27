@@ -40,7 +40,7 @@ class BlockFullSender : public td::actor::Actor {
   }
   void finish_query() {
     promise_.set_result(
-        serialize_block_full(block_id_, proof_, data_, is_proof_link_, false));  // compression_enabled = false
+        serialize_block_full(block_id_, proof_, data_, is_proof_link_, true, StateUsage::DecompressOnly));
     stop();
   }
   void start_up() override {

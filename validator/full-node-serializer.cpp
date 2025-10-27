@@ -28,7 +28,7 @@
 namespace ton::validator::fullnode {
 
 td::Result<td::BufferSlice> serialize_block_broadcast(const BlockBroadcast& broadcast, bool compression_enabled, 
-                                                      bool use_state_to_compress, bool use_state_to_decompress) {
+                                                      StateUsage state_usage, td::Ref<vm::Cell> state) {
   std::vector<tl_object_ptr<ton_api::tonNode_blockSignature>> sigs;
   for (auto& sig : broadcast.signatures) {
     sigs.emplace_back(create_tl_object<ton_api::tonNode_blockSignature>(sig.node, sig.signature.clone()));
@@ -39,27 +39,31 @@ td::Result<td::BufferSlice> serialize_block_broadcast(const BlockBroadcast& broa
         broadcast.proof.clone(), broadcast.data.clone());
   }
 
-  if (use_state_to_decompress) {
-    // Same as V2, but proof is not compressed
-    TRY_RESULT(data_root, vm::std_boc_deserialize(broadcast.data));
-    TRY_RESULT(compressed_data, vm::boc_compress({data_root}, vm::CompressionAlgorithm::ImprovedStructureLZ4WithMU));
-    VLOG(FULL_NODE_DEBUG) << "Compressing block broadcast V3: "
-                          << broadcast.data.size() + broadcast.proof.size() + broadcast.signatures.size() * 96 << " -> "
-                          << compressed_data.size() + broadcast.proof.size() + broadcast.signatures.size() * 96;
-    return create_serialize_tl_object<ton_api::tonNode_blockBroadcastCompressedV3>(
-        create_tl_block_id(broadcast.block_id), broadcast.catchain_seqno, broadcast.validator_set_hash, std::move(sigs),
-        0, broadcast.proof.clone(), std::move(compressed_data));
-  }
-
-  TRY_RESULT(proof_root, vm::std_boc_deserialize(broadcast.proof));
   TRY_RESULT(data_root, vm::std_boc_deserialize(broadcast.data));
-  TRY_RESULT(compressed_boc, vm::boc_compress({proof_root, data_root}, vm::CompressionAlgorithm::ImprovedStructureLZ4));
+  
+  vm::CompressionAlgorithm algorithm;
+  if (state_usage == StateUsage::None) {
+    algorithm = vm::CompressionAlgorithm::ImprovedStructureLZ4;
+  } else {
+    algorithm = vm::CompressionAlgorithm::ImprovedStructureLZ4WithMU;
+  }
+  
+  td::BufferSlice compressed_data;
+  if (state_usage == StateUsage::CompressAndDecompress) {
+    if (state.is_null()) {
+      return td::Status::Error("state must be provided when StateUsage is CompressAndDecompress");
+    }
+    TRY_RESULT_ASSIGN(compressed_data, vm::boc_compress({data_root}, algorithm, state));
+  } else {
+    TRY_RESULT_ASSIGN(compressed_data, vm::boc_compress({data_root}, algorithm));
+  }
+  
   VLOG(FULL_NODE_DEBUG) << "Compressing block broadcast V2: "
                         << broadcast.data.size() + broadcast.proof.size() + broadcast.signatures.size() * 96 << " -> "
-                        << compressed_boc.size() + broadcast.signatures.size() * 96;
+                        << compressed_data.size() + broadcast.proof.size() + broadcast.signatures.size() * 96;
   return create_serialize_tl_object<ton_api::tonNode_blockBroadcastCompressedV2>(
       create_tl_block_id(broadcast.block_id), broadcast.catchain_seqno, broadcast.validator_set_hash, std::move(sigs),
-      0, std::move(compressed_boc));
+      0, broadcast.proof.clone(), std::move(compressed_data));
 }
 
 static td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_blockBroadcast& f) {
@@ -99,50 +103,59 @@ static td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_b
                         std::move(proof)};
 }
 
-static td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_blockBroadcastCompressedV2& f,
-                                                              int max_decompressed_size) {
-  std::vector<BlockSignature> signatures;
-  for (auto& sig : f.signatures_) {
-    signatures.emplace_back(BlockSignature{sig->who_, std::move(sig->signature_)});
-  }
-  TRY_RESULT(roots, vm::boc_decompress(f.compressed_, max_decompressed_size));
-  if (roots.size() != 2) {
-    return td::Status::Error("expected 2 roots in boc");
-  }
-  TRY_RESULT(proof, vm::std_boc_serialize(roots[0], 0));
-  TRY_RESULT(data, vm::std_boc_serialize(roots[1], 31));
-  VLOG(FULL_NODE_DEBUG) << "Decompressing block broadcast: " << f.compressed_.size() << " -> "
-                        << data.size() + proof.size() + signatures.size() * 96;
-  return BlockBroadcast{create_block_id(f.id_),
-                        std::move(signatures),
-                        static_cast<UnixTime>(f.catchain_seqno_),
-                        static_cast<td::uint32>(f.validator_set_hash_),
-                        std::move(data),
-                        std::move(proof)};
-}
-
-// Helper function to extract previous block ID from proof for V3 broadcasts
-td::Result<BlockIdExt> extract_prev_block_id_from_proof(td::Slice proof, const BlockIdExt& block_id) {
+// Helper function to extract previous block IDs from proof
+td::Result<std::vector<BlockIdExt>> extract_prev_blocks_from_proof(td::Slice proof, const BlockIdExt& block_id) {
   TRY_RESULT(proof_root, vm::std_boc_deserialize(proof));
   std::vector<BlockIdExt> prev_blocks;
   BlockIdExt mc_blkid;
   bool after_split;
   TRY_STATUS_PREFIX(block::unpack_block_prev_blk_try(proof_root, block_id, prev_blocks, mc_blkid, after_split),
-                    "failed to unpack previous block ID from proof: ");
+                    "failed to unpack previous block IDs from proof: ");
   
   if (prev_blocks.empty()) {
     return td::Status::Error("no previous blocks found in proof");
   }
   
-  // for now, we only handle single previous block
-  if (prev_blocks.size() > 1) {
-    return td::Status::Error("V3 broadcast decompression with merge is not yet supported");
+  if (prev_blocks.size() > 2) {
+    return td::Status::Error("invalid number of previous blocks in proof");
   }
   
-  return prev_blocks[0];
+  return prev_blocks;
 }
 
-static td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_blockBroadcastCompressedV3& f,
+td::Result<bool> need_state_for_decompression(ton_api::tonNode_Broadcast& broadcast) {
+  td::Result<bool> result = false;
+  ton_api::downcast_call(
+    broadcast,
+    td::overloaded(
+      [&](ton_api::tonNode_blockBroadcastCompressedV2& f) {
+        result = vm::boc_need_state_for_decompression(f.data_compressed_);
+      },
+      [&](auto&) {
+        result = false;
+      }
+    )
+  );
+  return result;
+}
+
+td::Result<bool> need_state_for_decompression(ton_api::tonNode_DataFull& data_full) {
+  td::Result<bool> result = false;
+  ton_api::downcast_call(
+    data_full,
+    td::overloaded(
+      [&](ton_api::tonNode_dataFullCompressedV2& f) {
+        result = vm::boc_need_state_for_decompression(f.block_compressed_);
+      },
+      [&](auto&) {
+        result = false;
+      }
+    )
+  );
+  return result;
+}
+
+static td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_blockBroadcastCompressedV2& f,
   int max_decompressed_size, td::Ref<vm::Cell> state
 ) {
   std::vector<BlockSignature> signatures;
@@ -154,8 +167,8 @@ static td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_b
     return td::Status::Error("expected 1 root in boc");
   }
   TRY_RESULT(data, vm::std_boc_serialize(roots[0], 31));
-  VLOG(FULL_NODE_DEBUG) << "Decompressing block broadcast V3: " << f.data_compressed_.size() << " -> "
-                        << data.size() + f.proof_.size() + signatures.size() * 96;
+  size_t non_compressed_size = f.data_compressed_.size() + f.proof_.size() + signatures.size() * 96;
+  VLOG(FULL_NODE_DEBUG) << "Decompressing block broadcast V2: " << non_compressed_size << " -> " << data.size() + non_compressed_size;
   return BlockBroadcast{create_block_id(f.id_),
                         std::move(signatures),
                         static_cast<UnixTime>(f.catchain_seqno_),
@@ -174,9 +187,6 @@ td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_Broadcas
                                           B = deserialize_block_broadcast(f, max_decompressed_data_size);
                                         },
                                         [&](ton_api::tonNode_blockBroadcastCompressedV2& f) {
-                                          B = deserialize_block_broadcast(f, max_decompressed_data_size);
-                                        },
-                                        [&](ton_api::tonNode_blockBroadcastCompressedV3& f) {
                                           B = deserialize_block_broadcast(f, max_decompressed_data_size, state);
                                         },
                                         [&](auto&) { B = td::Status::Error("unknown broadcast type"); }));
@@ -184,18 +194,35 @@ td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_Broadcas
 }
 
 td::Result<td::BufferSlice> serialize_block_full(const BlockIdExt& id, td::Slice proof, td::Slice data,
-                                                 bool is_proof_link, bool compression_enabled) {
+                                                 bool is_proof_link, bool compression_enabled,
+                                                 StateUsage state_usage, td::Ref<vm::Cell> state) {
   if (!compression_enabled) {
     return create_serialize_tl_object<ton_api::tonNode_dataFull>(create_tl_block_id(id), td::BufferSlice(proof),
                                                                  td::BufferSlice(data), is_proof_link);
   }
-  TRY_RESULT(proof_root, vm::std_boc_deserialize(proof));
+  
   TRY_RESULT(data_root, vm::std_boc_deserialize(data));
-  TRY_RESULT(compressed, vm::boc_compress({proof_root, data_root}, vm::CompressionAlgorithm::ImprovedStructureLZ4));
+  
+  vm::CompressionAlgorithm algorithm;
+  if (state_usage == StateUsage::None) {
+    algorithm = vm::CompressionAlgorithm::ImprovedStructureLZ4;
+  } else {
+    algorithm = vm::CompressionAlgorithm::ImprovedStructureLZ4WithMU;
+  }
+  
+  td::BufferSlice compressed_block;
+  if (state_usage == StateUsage::CompressAndDecompress) {
+    if (state.is_null()) {
+      return td::Status::Error("state must be provided when StateUsage is CompressAndDecompress");
+    }
+    TRY_RESULT_ASSIGN(compressed_block, vm::boc_compress({data_root}, algorithm, state));
+  } else {
+    TRY_RESULT_ASSIGN(compressed_block, vm::boc_compress({data_root}, algorithm));
+  }
 
-  VLOG(FULL_NODE_DEBUG) << "Compressing block full: " << data.size() + proof.size() << " -> " << compressed.size();
+  VLOG(FULL_NODE_DEBUG) << "Compressing block full V2: " << data.size() + proof.size() << " -> " << compressed_block.size() + proof.size();
   return create_serialize_tl_object<ton_api::tonNode_dataFullCompressedV2>(create_tl_block_id(id), 0,
-                                                                         std::move(compressed), is_proof_link);
+                                                                         td::BufferSlice(proof), std::move(compressed_block), is_proof_link);
 }
 
 static td::Status deserialize_block_full(ton_api::tonNode_dataFull& f, BlockIdExt& id, td::BufferSlice& proof,
@@ -223,21 +250,23 @@ static td::Status deserialize_block_full(ton_api::tonNode_dataFullCompressed& f,
 }
 
 static td::Status deserialize_block_full(ton_api::tonNode_dataFullCompressedV2& f, BlockIdExt& id, td::BufferSlice& proof,
-                                         td::BufferSlice& data, bool& is_proof_link, int max_decompressed_size) {
-  TRY_RESULT(roots, vm::boc_decompress(f.compressed_, max_decompressed_size));
-  if (roots.size() != 2) {
-    return td::Status::Error("expected 2 roots in boc");
+                                         td::BufferSlice& data, bool& is_proof_link, int max_decompressed_size,
+                                         td::Ref<vm::Cell> state) {
+  TRY_RESULT(roots, vm::boc_decompress(f.block_compressed_, max_decompressed_size, state));
+  if (roots.size() != 1) {
+    return td::Status::Error("expected 1 root in boc");
   }
-  TRY_RESULT_ASSIGN(proof, vm::std_boc_serialize(roots[0], 0));
-  TRY_RESULT_ASSIGN(data, vm::std_boc_serialize(roots[1], 31));
-  VLOG(FULL_NODE_DEBUG) << "Decompressing block full V2: " << f.compressed_.size() << " -> " << data.size() + proof.size();
+  TRY_RESULT_ASSIGN(data, vm::std_boc_serialize(roots[0], 31));
+  proof = std::move(f.proof_);
+  VLOG(FULL_NODE_DEBUG) << "Decompressing block full V2: " << f.block_compressed_.size() + f.proof_.size() << " -> " << data.size() + proof.size();
   id = create_block_id(f.id_);
   is_proof_link = f.is_link_;
   return td::Status::OK();
 }
 
 td::Status deserialize_block_full(ton_api::tonNode_DataFull& obj, BlockIdExt& id, td::BufferSlice& proof,
-                                  td::BufferSlice& data, bool& is_proof_link, int max_decompressed_data_size) {
+                                  td::BufferSlice& data, bool& is_proof_link, int max_decompressed_data_size,
+                                  td::Ref<vm::Cell> state) {
   td::Status S;
   ton_api::downcast_call(
       obj, td::overloaded(
@@ -246,7 +275,7 @@ td::Status deserialize_block_full(ton_api::tonNode_DataFull& obj, BlockIdExt& id
                  S = deserialize_block_full(f, id, proof, data, is_proof_link, max_decompressed_data_size);
                },
                [&](ton_api::tonNode_dataFullCompressedV2& f) {
-                 S = deserialize_block_full(f, id, proof, data, is_proof_link, max_decompressed_data_size);
+                 S = deserialize_block_full(f, id, proof, data, is_proof_link, max_decompressed_data_size, state);
                },
                [&](auto&) { S = td::Status::Error("unknown data type"); }));
   return S;

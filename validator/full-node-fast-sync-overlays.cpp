@@ -39,11 +39,19 @@ void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonN
   process_block_broadcast(src, query);
 }
 
-void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV3 &query) {
-  process_block_broadcast(src, query);
-}
-
 void FullNodeFastSyncOverlay::process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query) {
+  auto R_requires_state = need_state_for_decompression(query);
+  if (R_requires_state.is_error()) {
+    LOG(DEBUG) << "Failed to check if state is required for broadcast: " << R_requires_state.move_as_error();
+    return;
+  }
+  
+  if (R_requires_state.move_as_ok()) {
+    process_broadcast_with_async_state(query, src, validator_manager_, actor_id(this),
+                                       &FullNodeFastSyncOverlay::got_state_for_v2_broadcast);
+    return;
+  }
+  
   auto B = deserialize_block_broadcast(query, overlay::Overlays::max_fec_broadcast_size());
   if (B.is_error()) {
     LOG(DEBUG) << "dropped broadcast: " << B.move_as_error();
@@ -51,6 +59,26 @@ void FullNodeFastSyncOverlay::process_block_broadcast(PublicKeyHash src, ton_api
   }
   VLOG(FULL_NODE_DEBUG) << "Received block broadcast in fast sync overlay from " << src << ": "
                         << B.ok().block_id.to_str();
+  td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok());
+}
+
+void FullNodeFastSyncOverlay::got_state_for_v2_broadcast(PublicKeyHash src,
+                                                         ton_api::tonNode_blockBroadcastCompressedV2 query,
+                                                         td::Result<td::Ref<ShardState>> R) {
+  if (R.is_error()) {
+    LOG(DEBUG) << "Failed to get state for V2 broadcast: " << R.move_as_error();
+    return;
+  }
+  
+  auto state = R.move_as_ok();
+  
+  auto B = deserialize_block_broadcast(query, overlay::Overlays::max_fec_broadcast_size(), state->root_cell());
+  if (B.is_error()) {
+    LOG(DEBUG) << "Failed to deserialize V2 broadcast: " << B.move_as_error();
+    return;
+  }
+  
+  VLOG(FULL_NODE_DEBUG) << "Received V2 block broadcast in fast sync overlay from " << src << ": " << B.ok().block_id.to_str();
   td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok());
 }
 
@@ -195,7 +223,8 @@ void FullNodeFastSyncOverlay::send_broadcast(BlockBroadcast broadcast) {
   }
   VLOG(FULL_NODE_DEBUG) << "Sending block broadcast in fast sync overlay (with compression): "
                         << broadcast.block_id.to_str();
-  auto B = serialize_block_broadcast(broadcast, true, false, true);  // compression_enabled = true
+  LOG(INFO) << "OLEG send_broadcast fast sync";
+  auto B = serialize_block_broadcast(broadcast, true, StateUsage::None);//DecompressOnly);
   if (B.is_error()) {
     VLOG(FULL_NODE_WARNING) << "failed to serialize block broadcast: " << B.move_as_error();
     return;

@@ -47,4 +47,6 @@ td::Result<td::BufferSlice> boc_compress(const std::vector<td::Ref<vm::Cell>>& b
 td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress(td::Slice compressed, int max_decompressed_size,
     td::Ref<vm::Cell> state = td::Ref<vm::Cell>());
 
+td::Result<bool> boc_need_state_for_decompression(td::Slice compressed);
+
 }  // namespace vm

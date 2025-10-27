@@ -328,6 +328,8 @@ class ValidatorManagerInterface : public td::actor::Actor {
                                 td::Promise<td::Ref<ShardState>> promise) = 0;
   virtual void wait_block_state_short(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout, bool wait_store,
                                       td::Promise<td::Ref<ShardState>> promise) = 0;
+  virtual void wait_block_state_merge(BlockIdExt left_id, BlockIdExt right_id, td::uint32 priority,
+                                      td::Timestamp timeout, td::Promise<td::Ref<ShardState>> promise) = 0;
 
   virtual void wait_neighbor_msg_queue_proofs(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
                                               td::Timestamp timeout,

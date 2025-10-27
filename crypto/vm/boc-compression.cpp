@@ -82,9 +82,9 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(
 ) {
   const bool kMURemoveLeftTreeData = true;
   const bool kMUReplacePrunnedBranchWithIndex = true;
-  const bool kMURemoveSubtreeSums = true;
-  const bool kMURemoveCommonPrefixes = true;
-  const bool kMUExtendLeftTree = true;
+  const bool kMURemoveSubtreeSums = false;
+  const bool kMURemoveCommonPrefixes = false;
+  const bool kMUExtendLeftTree = false;
 
   // Input validation
   if (boc_roots.empty()) {
@@ -199,7 +199,7 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(
     }
 
     // If we are under the right subtree of a MerkleUpdate, try to remove data when possible
-    if (compress_merkle_update && under_mu_right && !is_special) {
+    if (compress_merkle_update && under_mu_right && !is_special && kMURemoveSubtreeSums) {
       if (cell_slice.size_refs() == 2) {
         auto try_read_i64 = [&](td::Ref<vm::Cell> c) -> std::pair<bool, int64_t> {
           if (c.is_null()) return {false, 0};
@@ -735,18 +735,36 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress(td::Slice compressed, 
     return td::Status::Error("Can't decompress empty data");
   }
 
-  int algo = int(compressed[0]);
+  CompressionAlgorithm algo = static_cast<CompressionAlgorithm>(compressed[0]);
   compressed.remove_prefix(1);
 
   switch (algo) {
-    case int(CompressionAlgorithm::BaselineLZ4):
+    case CompressionAlgorithm::BaselineLZ4:
       return boc_decompress_baseline_lz4(compressed, max_decompressed_size);
-    case int(CompressionAlgorithm::ImprovedStructureLZ4):
+    case CompressionAlgorithm::ImprovedStructureLZ4:
       return boc_decompress_improved_structure_lz4(compressed, max_decompressed_size, false);
-    case int(CompressionAlgorithm::ImprovedStructureLZ4WithMU):
+    case CompressionAlgorithm::ImprovedStructureLZ4WithMU:
       return boc_decompress_improved_structure_lz4(compressed, max_decompressed_size, true, state);
   }
   return td::Status::Error("Unknown compression algorithm");
+}
+
+td::Result<bool> boc_need_state_for_decompression(td::Slice compressed) {
+  if (compressed.size() == 0) {
+    return td::Status::Error("Can't check algorithm on empty data");
+  }
+
+  CompressionAlgorithm algo = static_cast<CompressionAlgorithm>(compressed[0]);
+  
+  switch (algo) {
+    case CompressionAlgorithm::BaselineLZ4:
+    case CompressionAlgorithm::ImprovedStructureLZ4:
+      return false;
+    case CompressionAlgorithm::ImprovedStructureLZ4WithMU:
+      return true;
+    default:
+      return td::Status::Error("Unknown compression algorithm");
+  }
 }
 
 }  // namespace vm
