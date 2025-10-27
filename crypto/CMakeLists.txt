@@ -1,7 +1,3 @@
-if (NOT OPENSSL_FOUND)
-  find_package(OpenSSL REQUIRED)
-endif()
-
 set(TON_CRYPTO_CORE_SOURCE
   Ed25519.cpp
   common/bigint.cpp

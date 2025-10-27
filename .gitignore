@@ -4,6 +4,7 @@ parsetab.py
 parsetab.pyc
 tdutils/generate/auto/
 tl/generate/auto/
+tl/generate/scheme/*.tlo
 compile_commands.json
 crypto/block/block-auto.cpp
 crypto/block/block-auto.h
