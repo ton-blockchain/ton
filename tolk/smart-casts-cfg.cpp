@@ -113,6 +113,17 @@ std::string SinkExpression::to_string() const {
   return result;
 }
 
+bool SinkExpression::is_child_of(SinkExpression rhs) const {
+  // `c.1.2` (index_path = 3<<8 + 2) is a child of `c.1` (index_path = 2) and `c` (index_path = 0)
+  uint64_t mask = 0;
+  uint64_t rhs_path = rhs.index_path;
+  while (rhs_path != 0) {
+    mask = (mask << 8) + 0xFF;
+    rhs_path >>= 8;
+  }  
+  return var_ref == rhs.var_ref && index_path != rhs.index_path && (index_path & mask) == rhs.index_path; 
+}
+
 SinkExpression SinkExpression::get_child_s_expr(int field_idx) const {
   uint64_t new_index_path = index_path;    // if we have c.1 (index_path = 2) and construct c.1.N, calc (N<<8 + 2)
   for (int empty_byte = 0; empty_byte < 8; ++empty_byte) {
