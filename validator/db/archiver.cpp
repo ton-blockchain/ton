@@ -31,6 +31,11 @@ BlockArchiver::BlockArchiver(BlockHandle handle, td::actor::ActorId<ArchiveManag
 
 void BlockArchiver::start_up() {
   VLOG(VALIDATOR_DEBUG) << "started block archiver for " << handle_->id().to_str();
+  if (handle_->moved_to_archive()) {
+    VLOG(VALIDATOR_DEBUG) << "already moved";
+    finish_query();
+    return;
+  }
   if (handle_->id().is_masterchain()) {
     td::actor::send_closure(db_, &Db::get_block_state, handle_,
                             [SelfId = actor_id(this), archive = archive_](td::Result<td::Ref<ShardState>> R) {
