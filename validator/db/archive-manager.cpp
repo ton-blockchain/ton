@@ -262,10 +262,11 @@ void ArchiveManager::get_key_block_proof(FileReference ref_id, td::Promise<td::B
 }
 
 void ArchiveManager::get_temp_file_short(FileReference ref_id, td::Promise<td::BufferSlice> promise) {
-  get_file_short_cont(std::move(ref_id), get_max_temp_file_desc_idx(), std::move(promise));
+  get_temp_file_short_cont(std::move(ref_id), get_max_temp_file_desc_idx(), std::move(promise));
 }
 
-void ArchiveManager::get_file_short_cont(FileReference ref_id, PackageId idx, td::Promise<td::BufferSlice> promise) {
+void ArchiveManager::get_temp_file_short_cont(FileReference ref_id, PackageId idx,
+                                              td::Promise<td::BufferSlice> promise) {
   auto f = get_temp_file_desc_by_idx(idx);
   if (!f) {
     promise.set_error(td::Status::Error(ErrorCode::notready, "file not in db"));
@@ -276,7 +277,8 @@ void ArchiveManager::get_file_short_cont(FileReference ref_id, PackageId idx, td
     if (R.is_ok()) {
       promise.set_value(R.move_as_ok());
     } else {
-      td::actor::send_closure(SelfId, &ArchiveManager::get_file_short_cont, std::move(ref_id), idx, std::move(promise));
+      td::actor::send_closure(SelfId, &ArchiveManager::get_temp_file_short_cont, std::move(ref_id), idx,
+                              std::move(promise));
     }
   });
   td::actor::send_closure(f->file_actor_id(), &ArchiveSlice::get_file, nullptr, std::move(ref_id), std::move(P));
@@ -294,20 +296,18 @@ void ArchiveManager::get_file(ConstBlockHandle handle, FileReference ref_id, td:
   if (handle->handle_moved_to_archive()) {
     auto f = get_file_desc(handle->id().shard_full(), get_package_id(handle->masterchain_ref_block()), 0, 0, 0, false);
     if (f) {
-      auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), ref_id, idx = get_max_temp_file_desc_idx(),
-                                           promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
+      promise = [=, promise = std::move(promise),
+                 file_actor = f->file_actor_id()](td::Result<td::BufferSlice> R) mutable {
         if (R.is_ok()) {
           promise.set_value(R.move_as_ok());
-        } else {
-          td::actor::send_closure(SelfId, &ArchiveManager::get_file_short_cont, ref_id, idx, std::move(promise));
+          return;
         }
-      });
-      td::actor::send_closure(f->file_actor_id(), &ArchiveSlice::get_file, std::move(handle), std::move(ref_id),
-                              std::move(P));
-      return;
+        td::actor::send_closure(file_actor, &ArchiveSlice::get_file, std::move(handle), std::move(ref_id),
+                                std::move(promise));
+      };
     }
   }
-  get_file_short_cont(std::move(ref_id), get_max_temp_file_desc_idx(), std::move(promise));
+  get_temp_file_short(std::move(ref_id), std::move(promise));
 }
 
 void ArchiveManager::register_perm_state(FileReferenceShort id) {
