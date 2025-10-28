@@ -5574,7 +5574,7 @@ int main(int argc, char *argv[]) {
                  acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_skip_key_sync, true); });
                });
   p.add_checked_option(
-      '\0', "initial-sync-delay", "delay before starting initial sync (in seconds, default: 60.0)",
+      '\0', "initial-sync-delay", "delay before initial sync completion (in seconds, default: 60.0)",
       [&](td::Slice s) -> td::Status {
         auto v = td::to_double(s);
         if (v < 0) {
