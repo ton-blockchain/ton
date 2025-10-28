@@ -18,3 +18,6 @@
 	path = third-party/secp256k1
 	url = https://github.com/bitcoin-core/secp256k1
 	branch = v0.3.2
+[submodule "third-party/tl-parser"]
+	path = third-party/tl-parser
+	url = https://github.com/ton-blockchain/tl-parser.git
