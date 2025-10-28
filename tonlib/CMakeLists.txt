@@ -1,9 +1,5 @@
 option(TONLIBJSON_STATIC "Build tonlibjson as static library" OFF)
 
-if (NOT OPENSSL_FOUND)
-  find_package(OpenSSL REQUIRED)
-endif()
-
 set(TONLIB_SOURCE
   tonlib/Client.cpp
   tonlib/Config.cpp
