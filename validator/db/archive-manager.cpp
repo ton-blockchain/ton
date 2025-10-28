@@ -269,7 +269,7 @@ void ArchiveManager::get_temp_file_short_cont(FileReference ref_id, PackageId id
                                               td::Promise<td::BufferSlice> promise) {
   auto f = get_temp_file_desc_by_idx(idx);
   if (!f) {
-    promise.set_error(td::Status::Error(ErrorCode::notready, "file not in db"));
+    promise.set_error(td::Status::Error(ErrorCode::notready, PSTRING() << "file not in db: " << ref_id.filename()));
     return;
   }
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), ref_id, idx = get_prev_temp_file_desc_idx(idx),
