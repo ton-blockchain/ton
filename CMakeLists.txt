@@ -170,6 +170,9 @@ if (USE_LIBRAPTORQ)
   add_subdirectory(third-party/libraptorq EXCLUDE_FROM_ALL)
 endif()
 
+message("Add tl-parser")
+add_subdirectory(third-party/tl-parser EXCLUDE_FROM_ALL)
+
 message("Add ton")
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake" ${CMAKE_MODULE_PATH})
 
@@ -365,6 +368,10 @@ if (NOT LATEX_FOUND)
   message(STATUS "Could NOT find LATEX (this is NOT an error)")
 endif()
 #END internal
+
+if (NOT OPENSSL_FOUND)
+  find_package(OpenSSL REQUIRED)
+endif()
 
 function(target_link_libraries_system target)
   set(libs ${ARGN})

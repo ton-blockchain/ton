@@ -8,7 +8,6 @@ defaults:
 
 jobs:
   build:
-    
 
     runs-on: windows-2022
 

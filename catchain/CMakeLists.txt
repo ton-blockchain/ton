@@ -1,7 +1,3 @@
-if (NOT OPENSSL_FOUND)
-  find_package(OpenSSL REQUIRED)
-endif()
-
 set(CATCHAIN_SOURCE
   catchain-received-block.cpp
   #catchain-receiver-fork.cpp
