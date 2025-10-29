@@ -1,6 +1,6 @@
 name: Ubuntu TON build (shared, arm64)
 
-on: [push,workflow_dispatch,workflow_call]
+on: [push, pull_request, workflow_dispatch, workflow_call]
 
 jobs:
   build:

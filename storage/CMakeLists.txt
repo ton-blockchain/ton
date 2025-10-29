@@ -1,8 +1,3 @@
-if (NOT OPENSSL_FOUND)
-  find_package(OpenSSL REQUIRED)
-endif()
-
-
 set(STORAGE_SOURCE
   LoadSpeed.cpp
   MerkleTree.cpp

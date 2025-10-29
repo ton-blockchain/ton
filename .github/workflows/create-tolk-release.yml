@@ -76,7 +76,6 @@ jobs:
       - name: Show all artifacts
         run: |
           tree artifacts
-      
 
       # create release
       - name: Get registration token
@@ -159,7 +158,7 @@ jobs:
         run: |
           mkdir smartcont_lib
           cd smartcont_lib
-          cp -r ../artifacts/ton-x86_64-linux/{smartcont,lib} .          
+          cp -r ../artifacts/ton-x86_64-linux/{smartcont,lib} .
           zip -r smartcont_lib.zip .
           gh release upload ${{ inputs.tag }} smartcont_lib.zip
 

@@ -1,6 +1,6 @@
 name: MacOS TON build (shared, x86-64)
 
-on: [push,workflow_dispatch,workflow_call]
+on: [push, pull_request, workflow_dispatch, workflow_call]
 
 jobs:
   build:
@@ -41,5 +41,5 @@ jobs:
 
       - name: Run Tests
         run: |
-          cd build        
+          cd build
           ctest --output-on-failure --timeout 1800

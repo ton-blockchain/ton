@@ -1,7 +1,3 @@
-if (NOT OPENSSL_FOUND)
-  find_package(OpenSSL REQUIRED)
-endif()
-
 set(FEC_SOURCE
   fec.h
   fec.cpp
