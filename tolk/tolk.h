@@ -903,6 +903,7 @@ struct Optimizer {
   bool detect_rewrite_NEWC_STSLICECONST_BTOS();
   bool detect_rewrite_NEWC_ENDC_CTOS();
   bool detect_rewrite_NEWC_ENDC();
+  bool detect_rewrite_xxx_NOT();
   bool replace_BOOLNOT_to_NOT();
 
   AsmOpConsList extract_code();

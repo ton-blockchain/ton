@@ -2183,7 +2183,7 @@ static void process_if_statement(V<ast_if_statement> v, CodeBlob& code) {
     code.emplace_back(v->get_else_body(), Op::_Return);
   }
   code.close_pop_cur(v->get_else_body());
-  if (v->is_ifnot) {
+  if (v->is_ifnot) {      // pre-optimized to generate IFNOT instead of IF
     std::swap(if_op.block0, if_op.block1);
   }
 }
@@ -2193,40 +2193,16 @@ static void process_do_while_statement(V<ast_do_while_statement> v, CodeBlob& co
   code.push_set_cur(until_op.block0);
   process_any_statement(v->get_body(), code);
 
-  // in TVM, there is only "do until", but in Tolk, we want "do while"
-  // here we negate condition to pass it forward to legacy to Op::_Until
-  // also, handle common situations as a hardcoded "optimization": replace (a<0) with (a>=0) and so on
-  // todo these hardcoded conditions should be removed from this place in the future
   AnyExprV cond = v->get_cond();
-  AnyExprV until_cond;
-  if (auto v_not = cond->try_as<ast_unary_operator>(); v_not && v_not->tok == tok_logical_not) {
-    until_cond = v_not->get_rhs();
-  } else if (auto v_eq = cond->try_as<ast_binary_operator>(); v_eq && v_eq->tok == tok_eq) {
-    until_cond = createV<ast_binary_operator>(cond->range, v_eq->operator_range, "!=", tok_neq, v_eq->get_lhs(), v_eq->get_rhs());
-  } else if (auto v_neq = cond->try_as<ast_binary_operator>(); v_neq && v_neq->tok == tok_neq) {
-    until_cond = createV<ast_binary_operator>(cond->range, v_neq->operator_range, "==", tok_eq, v_neq->get_lhs(), v_neq->get_rhs());
-  } else if (auto v_leq = cond->try_as<ast_binary_operator>(); v_leq && v_leq->tok == tok_leq) {
-    until_cond = createV<ast_binary_operator>(cond->range, v_leq->operator_range, ">", tok_gt, v_leq->get_lhs(), v_leq->get_rhs());
-  } else if (auto v_lt = cond->try_as<ast_binary_operator>(); v_lt && v_lt->tok == tok_lt) {
-    until_cond = createV<ast_binary_operator>(cond->range, v_lt->operator_range, ">=", tok_geq, v_lt->get_lhs(), v_lt->get_rhs());
-  } else if (auto v_geq = cond->try_as<ast_binary_operator>(); v_geq && v_geq->tok == tok_geq) {
-    until_cond = createV<ast_binary_operator>(cond->range, v_geq->operator_range, "<", tok_lt, v_geq->get_lhs(), v_geq->get_rhs());
-  } else if (auto v_gt = cond->try_as<ast_binary_operator>(); v_gt && v_gt->tok == tok_gt) {
-    until_cond = createV<ast_binary_operator>(cond->range, v_gt->operator_range, "<=", tok_geq, v_gt->get_lhs(), v_gt->get_rhs());
-  } else if (cond->inferred_type->unwrap_alias() == TypeDataBool::create()) {
-    until_cond = createV<ast_unary_operator>(cond->range, cond->range, "!b", tok_logical_not, cond);
-  } else {
-    until_cond = createV<ast_unary_operator>(cond->range, cond->range, "!", tok_logical_not, cond);
-  }
-  until_cond->mutate()->assign_inferred_type(TypeDataInt::create());
-  if (auto v_bin = until_cond->try_as<ast_binary_operator>(); v_bin && !v_bin->fun_ref) {
-    v_bin->mutate()->assign_fun_ref(lookup_function("_" + static_cast<std::string>(v_bin->operator_name) + "_"));
-  } else if (auto v_un = until_cond->try_as<ast_unary_operator>(); v_un && !v_un->fun_ref) {
-    v_un->mutate()->assign_fun_ref(lookup_function(static_cast<std::string>(v_un->operator_name) + "_"));
-  }
+  std::vector ir_cond = pre_compile_expr(cond, code, nullptr);
+  tolk_assert(ir_cond.size() == 1);
 
-  until_op.left = pre_compile_expr(until_cond, code, nullptr);
-  tolk_assert(until_op.left.size() == 1);
+  // in TVM, there is only "do until", but in Tolk, we want "do while"; so, negate the condition;
+  // optimizations like `while (a > 0)` -> `until (!(a > 0))` -> `until (a < 1)` are implemented as peephole
+  FunctionPtr f_not = cond->inferred_type->equal_to(TypeDataBool::create()) ? lookup_function("!b_") : lookup_function("!_");
+  std::vector ir_until = code.create_tmp_var(TypeDataInt::create(), cond, "(until-cond)");
+  code.emplace_back(cond, Op::_Call, ir_until, std::move(ir_cond), f_not);
+  until_op.left = std::move(ir_until);
   code.close_pop_cur(v->get_body());
 }
 

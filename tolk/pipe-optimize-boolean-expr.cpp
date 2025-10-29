@@ -132,6 +132,12 @@ protected:
   AnyV replace(V<ast_if_statement> v) override {
     parent::replace(v);
 
+    // here we optimize common conditions to generate IFNOT instead of IF;
+    // obviously, this should be done later, around peephole optimizer,
+    // but with current implementation of stack transformations (inherited from FunC) we have no chance,
+    // so the best for now is to do some AST-based condition rewrites;
+    // in the future, I'll fully rewrite optimizer, and this part will be removed
+
     // `if (!x)` -> ifnot(x)
     while (auto v_cond_unary = v->get_cond()->try_as<ast_unary_operator>()) {
       if (v_cond_unary->tok != tok_logical_not) {

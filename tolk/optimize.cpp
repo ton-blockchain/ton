@@ -626,6 +626,65 @@ bool Optimizer::detect_rewrite_NEWC_ENDC() {
   return true;
 }
 
+// pattern `0 EQINT` + `NOT` -> `0 NEQINT` and other (mathematical operations + NOT), like `!(a >= 4)` -> `a < 4`;
+// since the first is boolean (-1 or 0), NOT will invert it, there are no occasions with bitwise integers;
+// it's especially helpful to invert condition of `do while` for TVM `UNTIL`
+bool Optimizer::detect_rewrite_xxx_NOT() {
+  bool second_not = pb_ >= 2 && op_[1]->is_custom() && op_[1]->op == "NOT";
+  if (!second_not || !op_[0]->is_custom()) {
+    return false;
+  }
+
+  static const char* ends_with[] = {" EQINT",  " NEQINT"};
+  static const char* repl_with[] = {" NEQINT", " EQINT"};
+  static const char* equl_to[] = {"NEQ",   "EQUAL", "LESS", "GEQ",  "GREATER", "LEQ"};
+  static const char* repl_to[] = {"EQUAL", "NEQ",   "GEQ",  "LESS", "LEQ",     "GREATER"};
+
+  std::string_view f = op_[0]->op;
+  for (size_t i = 0; i < std::size(ends_with); ++i) {
+    if (f.ends_with(ends_with[i])) {
+      p_ = 2;
+      q_ = 1;
+      std::string new_op = op_[0]->op.substr(0, f.rfind(' ')) + repl_with[i];
+      oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, new_op, 0, 1));
+      return true;
+    }
+  }
+  for (size_t i = 0; i < std::size(equl_to); ++i) {
+    if (f == equl_to[i]) {
+      p_ = 2;
+      q_ = 1;
+      oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, repl_to[i], 2, 1));
+      return true;
+    }
+  }
+  // `!(a > 7)` -> `a <= 7` -> `a < 8` (but `GTINT` instead of `GREATER` for small numbers)
+  // `7 GTINT` + `NOT` -> `8 LESSINT` (there is no `LEINT` instruction)
+  // `8 LESSINT` + `NOT` -> `7 GTINT`
+  if (f.ends_with(" GTINT") || f.ends_with(" LESSINT")) {
+    bool is_gtint = f.ends_with(" GTINT");
+    std::string s_number(f.substr(0, f.rfind(' ')));
+    td::RefInt256 number = td::string_to_int256(s_number);
+    number += is_gtint ? 1 : -1;
+
+    if (number > -127 && number < 127) {
+      p_ = 2;
+      q_ = 1;
+      std::string new_op = number->to_dec_string() + (is_gtint ? " LESSINT" : " GTINT");
+      oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, new_op, 2, 1));
+      return true;
+    }
+  }
+  // `NOT` + `NOT` -> nothing (it's valid for integers also)
+  if (f == "NOT") {
+    p_ = 2;
+    q_ = 0;
+    return true;
+  }
+
+  return false;
+}
+
 // for `!x`, when `x` is boolean, a fake asm instruction `BOOLNOT` was inserted (see builtins.cpp);
 // it was used for peephole optimizations, because `NOT + ...` is not correct, since `NOT` is bitwise;
 // here we replace instructions left after optimizations with a simple `NOT` (-1 => 0, 0 => -1)
@@ -1068,6 +1127,7 @@ bool Optimizer::find_at_least(int pb) {
          detect_rewrite_ENDC_CTOS() || detect_rewrite_ENDC_HASHCU() ||
          detect_rewrite_NEWC_BTOS() || detect_rewrite_NEWC_STSLICECONST_BTOS() ||
          detect_rewrite_NEWC_ENDC_CTOS() || detect_rewrite_NEWC_ENDC() ||
+         detect_rewrite_xxx_NOT() ||
          (!(mode_ & 1) && replace_BOOLNOT_to_NOT()) ||
          (!(mode_ & 1) &&
           ((is_rot() && rewrite(AsmOp::Custom(origin, "ROT", 3, 3))) || (is_rotrev() && rewrite(AsmOp::Custom(origin, "-ROT", 3, 3))) ||
