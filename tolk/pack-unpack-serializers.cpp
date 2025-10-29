@@ -179,8 +179,8 @@ void UnpackContext::loadAndCheckOpcode(PackOpcode opcode) const {
   std::vector ir_prefix_eq = code.create_tmp_var(TypeDataInt::create(), origin, "(prefix-eq)");
   std::vector args = { ir_slice0, code.create_int(origin, opcode.pack_prefix, "(pack-prefix)"), code.create_int(origin, opcode.prefix_len, "(prefix-len)") };
   code.emplace_back(origin, Op::_Call, std::vector{ir_slice0, ir_prefix_eq[0]}, std::move(args), lookup_function("slice.tryStripPrefix"));
-  std::vector args_assert = { option_throwIfOpcodeDoesNotMatch, ir_prefix_eq[0], code.create_int(origin, 0, "") };
-  Op& op_assert = code.emplace_back(origin, Op::_Call, std::vector<var_idx_t>{}, std::move(args_assert), lookup_function("__throw_if_unless"));
+  std::vector args_throwifnot = { option_throwIfOpcodeDoesNotMatch, ir_prefix_eq[0] };
+  Op& op_assert = code.emplace_back(origin, Op::_Call, std::vector<var_idx_t>{}, std::move(args_throwifnot), lookup_function("__throw_ifnot"));
   op_assert.set_impure_flag();
 }
 
@@ -340,18 +340,17 @@ struct S_BitsN final : ISerializer {
     }
     {
       code.push_set_cur(if_disabled_by_user.block1);
-      FunctionPtr f_assert = lookup_function("__throw_if_unless");
       constexpr int EXCNO = 9;
 
       std::vector ir_counts = code.create_tmp_var(TypeDataTensor::create({TypeDataInt::create(), TypeDataInt::create()}), origin, "(slice-size)");
       code.emplace_back(origin, Op::_Call, ir_counts, rvect, lookup_function("slice.remainingBitsAndRefsCount"));
-      std::vector args_assert0 = { code.create_int(origin, EXCNO, "(excno)"), ir_counts[1], code.create_int(origin, 1, "") };
-      Op& op_assert0 = code.emplace_back(origin, Op::_Call, std::vector<var_idx_t>{}, std::move(args_assert0), f_assert);
+      std::vector args_throwif = { code.create_int(origin, EXCNO, "(excno)"), ir_counts[1] };
+      Op& op_assert0 = code.emplace_back(origin, Op::_Call, std::vector<var_idx_t>{}, std::move(args_throwif), lookup_function("__throw_if"));
       op_assert0.set_impure_flag();
       std::vector ir_eq_n = code.create_tmp_var(TypeDataInt::create(), origin, "(eq-n)");
       code.emplace_back(origin, Op::_Call, ir_eq_n, std::vector{ir_counts[0], code.create_int(origin, n_bits, "(n-bits)")}, lookup_function("_==_"));
-      std::vector args_assertN = { code.create_int(origin, EXCNO, "(excno)"), ir_eq_n[0], code.create_int(origin, 0, "") };
-      Op& op_assertN = code.emplace_back(origin, Op::_Call, std::vector<var_idx_t>{}, std::move(args_assertN), f_assert);
+      std::vector args_throwifnot = { code.create_int(origin, EXCNO, "(excno)"), ir_eq_n[0] };
+      Op& op_assertN = code.emplace_back(origin, Op::_Call, std::vector<var_idx_t>{}, std::move(args_throwifnot), lookup_function("__throw_ifnot"));
       op_assertN.set_impure_flag();
       code.close_pop_cur(origin);
     }
@@ -1132,9 +1131,9 @@ struct S_IntegerEnum final : ISerializer {
         code.emplace_back(origin, Op::_IntConst, ir_min_value, min_value);
         std::vector ir_lt_min = code.create_tmp_var(TypeDataInt::create(), origin, "(enum-lt-min)");
         code.emplace_back(origin, Op::_Call, ir_lt_min, std::vector{ir_num[0], ir_min_value[0]}, lookup_function("_<_"));
-        std::vector args_assert1 = { code.create_int(origin, 5, "(excno)"), ir_lt_min[0], code.create_int(origin, 1, "") };
-        Op& op_assert1 = code.emplace_back(origin, Op::_Call, std::vector<var_idx_t>{}, std::move(args_assert1), lookup_function("__throw_if_unless"));
-        op_assert1.set_impure_flag();
+        std::vector args_throwif = { code.create_int(origin, 5, "(excno)"), ir_lt_min[0] };
+        Op& op_assert = code.emplace_back(origin, Op::_Call, std::vector<var_idx_t>{}, std::move(args_throwif), lookup_function("__throw_if"));
+        op_assert.set_impure_flag();
       }
       td::RefInt256 max_value = enum_ref->members.back()->computed_value;
       bool dont_check_max = intN->is_unsigned && max_value == (1ULL << intN->n_bits) - 1;
@@ -1143,9 +1142,9 @@ struct S_IntegerEnum final : ISerializer {
         code.emplace_back(origin, Op::_IntConst, ir_max_value, max_value);
         std::vector ir_gt_max = code.create_tmp_var(TypeDataInt::create(), origin, "(enum-gt-ax)");
         code.emplace_back(origin, Op::_Call, ir_gt_max, std::vector{ir_num[0], ir_max_value[0]}, lookup_function("_>_"));
-        std::vector args_assert2 = { code.create_int(origin, 5, "(excno)"), ir_gt_max[0], code.create_int(origin, 1, "") };
-        Op& op_assert2 = code.emplace_back(origin, Op::_Call, std::vector<var_idx_t>{}, std::move(args_assert2), lookup_function("__throw_if_unless"));
-        op_assert2.set_impure_flag();
+        std::vector args_throwif = { code.create_int(origin, 5, "(excno)"), ir_gt_max[0] };
+        Op& op_assert = code.emplace_back(origin, Op::_Call, std::vector<var_idx_t>{}, std::move(args_throwif), lookup_function("__throw_if"));
+        op_assert.set_impure_flag();
       }
     } else {
       // okay, enum is not a sequence, just a set of values;
@@ -1158,8 +1157,8 @@ struct S_IntegerEnum final : ISerializer {
         code.emplace_back(origin, Op::_Call, ir_ith_eq, std::vector{ir_num[0], ir_ith_value[0]}, lookup_function("_==_"));
         code.emplace_back(origin, Op::_Call, std::vector{ir_any_of}, std::vector{ir_any_of, ir_ith_eq[0]}, lookup_function("_|_"));
       }
-      std::vector args_assert = { code.create_int(origin, 5, "(excno)"), ir_any_of, code.create_int(origin, 0, "") };
-      Op& op_assert = code.emplace_back(origin, Op::_Call, std::vector<var_idx_t>{}, std::move(args_assert), lookup_function("__throw_if_unless"));
+      std::vector args_throwifnot = { code.create_int(origin, 5, "(excno)"), ir_any_of };
+      Op& op_assert = code.emplace_back(origin, Op::_Call, std::vector<var_idx_t>{}, std::move(args_throwifnot), lookup_function("__throw_ifnot"));
       op_assert.set_impure_flag();
     }
     return ir_num;

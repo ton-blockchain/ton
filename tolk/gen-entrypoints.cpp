@@ -110,10 +110,10 @@ void handle_onInternalMessage_codegen_start(FunctionPtr f_onInternalMessage, con
       code.close_pop_cur(origin);
     }
   } else {
-    // generate: `assert (!isBounced) throw 0`
-    std::vector args_throw0if = { code.create_int(origin, 0, "(exit-0)"), ir_isBounced[0], code.create_int(origin, 1, "") };
-    Op& op_assert = code.emplace_back(origin, Op::_Call, std::vector<var_idx_t>{}, std::move(args_throw0if), lookup_function("__throw_if_unless"));
-    op_assert.set_impure_flag();
+    // generate: `if (isBounced) throw 0`
+    std::vector args = { code.create_int(origin, 0, "(exit-0)"), ir_isBounced[0] };
+    Op& op_throw0if = code.emplace_back(origin, Op::_Call, std::vector<var_idx_t>{}, std::move(args), lookup_function("__throw_if"));
+    op_throw0if.set_impure_flag();
   }
 }
 

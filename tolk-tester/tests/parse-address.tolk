@@ -156,8 +156,7 @@ fun main() {
   check0() PROC:<{             	//  addr
     REWRITESTDADDR
     DROP                    	//  '2
-    0 EQINT                 	//  '4
-    111 THROWIFNOT          	//
+    111 THROWIF              	//
   }>
 """
 

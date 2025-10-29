@@ -492,8 +492,11 @@ static AsmOp compile_logical_not(std::vector<VarDescr>& res, std::vector<VarDesc
   }
   r.val = VarDescr::ValBool;
   // for integers, `!var` is `var != 0`
-  // for booleans, `!var` can be shortened to `~var` (works the same for 0/-1 but consumes less)
-  return for_int_arg ? exec_op(origin, "0 EQINT", 1) : exec_op(origin, "NOT", 1);
+  // for booleans, `!var` can be shortened to `~var` (`NOT` consumes less gas than `0 EQINT`)
+  // but we do insert a fake instruction `BOOLNOT` instead of `NOT` for future peephole optimizations;
+  // for instance, `BOOLNOT + N THROWIF` => `N THROWIFNOT`, but for `NOT` (generally) it's incorrect;
+  // un-optimized `BOOLNOT` are later replaced with a regular `NOT`
+  return for_int_arg ? exec_op(origin, "0 EQINT", 1) : exec_op(origin, "BOOLNOT", 1);
 }
 
 static AsmOp compile_bitwise_and(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
@@ -966,29 +969,29 @@ static AsmOp compile_throw(std::vector<VarDescr>& res, std::vector<VarDescr>& ar
   }
 }
 
-static AsmOp compile_throw_if_unless(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
-  tolk_assert(res.empty() && args.size() == 3);
-  VarDescr &x = args[0], &y = args[1], &z = args[2];
-  if (!z.always_true() && !z.always_false()) {
-    throw Fatal("invalid usage of built-in symbol");
-  }
-  bool mode = z.always_true();
-  z.unused();
-  std::string suff = (mode ? "IF" : "IFNOT");
-  bool skip_cond = false;
-  if (y.always_true() || y.always_false()) {
+static AsmOp compile_throw_if_ifnot(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin, bool is_ifnot) {
+  tolk_assert(res.empty() && args.size() == 2);
+  VarDescr &x = args[0], &y = args[1];
+
+  bool skip_all = is_ifnot ? y.always_true() : y.always_false();    // __throw_if(ex, false): do nothing
+  if (skip_all) {
+    x.unused();
     y.unused();
-    skip_cond = true;
-    if (y.always_true() != mode) {
-      x.unused();
-      return AsmOp::Nop(origin);
-    }
+    return AsmOp::Nop(origin);
   }
+
+  bool skip_cond = y.always_true() || y.always_false();
+  if (skip_cond) {
+    y.unused();
+  }
+
   if (x.is_int_const() && x.int_const->unsigned_fits_bits(11)) {
     x.unused();
-    return skip_cond ? exec_arg_op(origin, "THROW", x.int_const, 0, 0) : exec_arg_op(origin, "THROW"s + suff, x.int_const, 1, 0);
+    std::string cond_asm = is_ifnot ? "THROWIFNOT" : "THROWIF";
+    return skip_cond ? exec_arg_op(origin, "THROW", x.int_const, 0, 0) : exec_arg_op(origin, cond_asm, x.int_const, 1, 0);
   } else {
-    return skip_cond ? exec_op(origin, "THROWANY", 1, 0) : exec_op(origin, "THROWANY"s + suff, 2, 0);
+    std::string cond_asm = is_ifnot ? "THROWANYIFNOT" : "THROWANYIF";
+    return skip_cond ? exec_op(origin, "THROWANY", 1, 0) : exec_op(origin, cond_asm, 2, 0);
   }
 }
 
@@ -1352,7 +1355,6 @@ GenerateOpsImpl generate_mapKV_iteratePrev;
 CompileToAsmOpImpl compile_createEmptyMap;
 CompileToAsmOpImpl compile_createMapFromLowLevelDict;
 CompileToAsmOpImpl compile_dict_get;
-CompileToAsmOpImpl compile_dict_mustGet;
 CompileToAsmOpImpl compile_dict_getMin;
 CompileToAsmOpImpl compile_dict_getMax;
 CompileToAsmOpImpl compile_dict_getNext;
@@ -1510,8 +1512,11 @@ void define_builtins() {
   define_builtin_func("__throw_arg", {TypeDataUnknown::create(), Int}, Never, nullptr,
                               compile_throw_arg,
                                 0);
-  define_builtin_func("__throw_if_unless", ParamsInt3, Unit, nullptr,
-                              compile_throw_if_unless,
+  define_builtin_func("__throw_if", ParamsInt2, Unit, nullptr,
+                              std::bind(compile_throw_if_ifnot, _1, _2, _3, false),
+                                0);
+  define_builtin_func("__throw_ifnot", ParamsInt2, Unit, nullptr,
+                              std::bind(compile_throw_if_ifnot, _1, _2, _3, true),
                                 0);
   define_builtin_func("__InMessage.originalForwardFee", ParamsInt2, Int, nullptr,
                                 compile_calc_InMessage_originalForwardFee,
@@ -1791,8 +1796,6 @@ void define_builtins() {
 
   define_builtin_func("__dict.get", {KeySliceOrInt, PlainDict, TypeDataInt::create()}, LookupSliceFound, nullptr,
                                   compile_dict_get, 0);
-  define_builtin_func("__dict.mustGet", {KeySliceOrInt, PlainDict, TypeDataInt::create()}, LookupSliceFound, nullptr,
-                                  compile_dict_mustGet, 0);
   define_builtin_func("__dict.getMin", {PlainDict}, TypeDataTensor::create({ValueSlice, KeySliceOrInt, ValueFound}), nullptr,
                                   compile_dict_getMin, 0);
   define_builtin_func("__dict.getMax", {PlainDict}, TypeDataTensor::create({ValueSlice, KeySliceOrInt, ValueFound}), nullptr,

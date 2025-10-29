@@ -2119,9 +2119,8 @@ static void process_assert_statement(V<ast_assert_statement> v, CodeBlob& code) 
   std::vector ir_cond = pre_compile_expr(v->get_cond(), code);
   tolk_assert(ir_cond.size() == 1 && ir_thrown_code.size() == 1);
 
-  std::vector args_vars = { ir_thrown_code[0], ir_cond[0], code.create_int(v, 0, "(assert-0)") };
-  FunctionPtr builtin_sym = lookup_function("__throw_if_unless");
-  gen_op_call(code, TypeDataVoid::create(), v, std::move(args_vars), builtin_sym, "(throw-call)");
+  std::vector args_throwifnot = { ir_thrown_code[0], ir_cond[0] };
+  gen_op_call(code, TypeDataVoid::create(), v, std::move(args_throwifnot), lookup_function("__throw_ifnot"), "(throw-call)");
 }
 
 static void process_catch_variable(AnyExprV v_catch_var, CodeBlob& code) {

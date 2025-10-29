@@ -525,6 +525,23 @@ fun test41() {
     );
 }
 
+@method_id(142)
+fun test42(dyn: int) {
+    var m = createEmptyMap<int8, int8>();
+    var t = createEmptyTuple();
+
+    try { m.mustGet(1, 123); }
+    catch (ex) { t.push(ex) }
+    try { m.mustGet(1, 12345); }
+    catch (ex) { t.push(ex) }
+    try { m.mustGet(1, dyn); }
+    catch (ex) { t.push(ex) }
+    try { m.mustGet(1, dyn * 10); }
+    catch (ex) { t.push(ex) }
+
+    return t;
+}
+
 
 fun main() {
     __expect_type(createEmptyMap<int8, (int32, int64)>, "() -> map<int8, (int32, int64)>");
@@ -573,6 +590,7 @@ fun main() {
 @testcase | 139 |            | 0 -1 2
 @testcase | 140 |            | 0 0 -1 777 -1 0 777 (null) typeid-1 (null) 0
 @testcase | 141 |            | 0 -1 -1 0 -1
+@testcase | 142 | 80         | [ 123 12345 80 800 ]
 
 @fif_codegen
 """

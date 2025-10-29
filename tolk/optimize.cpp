@@ -399,10 +399,12 @@ bool Optimizer::detect_rewrite_SWAP_STxxxR() {
   return false;
 }
 
-// pattern `NOT` + `123 THROWIFNOT` -> `123 THROWIF` (and THROWIF -> THROWIFNOT)
-bool Optimizer::detect_rewrite_NOT_THROWIF() {
-  bool first_not = op_[0]->is_custom() && op_[0]->op == "NOT";
-  if (!first_not || pb_ < 2 || !op_[1]->is_custom()) {
+// pattern `BOOLNOT` + `123 THROWIFNOT` -> `123 THROWIF` and vice versa;
+// generally, it's incorrect (`NOT` is bitwise, `THROWIFNOT` is logical), but for bools (-1/0) it's correct;
+// for logical negation `!boolVar`, a special fake `BOOLNOT` instruction was inserted
+bool Optimizer::detect_rewrite_BOOLNOT_THROWIF() {
+  bool first_bool_not = op_[0]->is_custom() && op_[0]->op == "BOOLNOT";
+  if (!first_bool_not || pb_ < 2 || !op_[1]->is_custom()) {
     return false;
   }
 
@@ -414,11 +416,43 @@ bool Optimizer::detect_rewrite_NOT_THROWIF() {
     if (f.ends_with(ends_with[i])) {
       p_ = 2;
       q_ = 1;
-      oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, op_[1]->op.substr(0, f.rfind(' ')) + repl_with[i], 1, 0));
+      std::string new_op = op_[1]->op.substr(0, f.rfind(' ')) + repl_with[i];
+      oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, new_op, 1, 0));
       return true;
     }
   }
 
+  return false;
+}
+
+// pattern `0 EQINT` + `N THROWIF` -> `N THROWIFNOT` and vice versa;
+// or remove condition if negated: `0 NEQINT` + `N THROWIF` -> `N THROWIF`;
+// particularly, this helps to optimize code like `assert (v == 0, N)` with just one `N THROWIF`
+bool Optimizer::detect_rewrite_0EQINT_THROWIF() {
+  bool first_0eqint = op_[0]->is_custom() && (op_[0]->op == "0 EQINT" || op_[0]->op == "0 NEQINT");
+  if (!first_0eqint || pb_ < 2 || !op_[1]->is_custom()) {
+    return false;
+  }
+
+  static const char* ends_with[] = {" THROWIF",    " THROWIFNOT"};
+  static const char* repl_with[] = {" THROWIFNOT", " THROWIF"};
+
+  std::string_view f = op_[1]->op;
+  for (size_t i = 0; i < std::size(ends_with); ++i) {
+    if (f.ends_with(ends_with[i])) {
+      bool drop_cond = op_[0]->op == "0 NEQINT";
+      p_ = 2;
+      q_ = 1;
+      if (drop_cond) {
+        oq_[0] = std::move(op_[1]);
+      } else {
+        std::string new_op = op_[1]->op.substr(0, f.rfind(' ')) + repl_with[i];
+        oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, new_op, 1, 0));
+      }
+      return true;
+    }
+  }
+  
   return false;
 }
 
@@ -456,6 +490,28 @@ bool Optimizer::detect_rewrite_DICTSETB_DICTSET() {
   }
 
   return false;
+}
+
+// pattern `DICTGET NULLSWAPIFNOT` + `N THROWIFNOT` -> `DICTGET` + `N THROWIFNOT` (remove nullswap);
+// especially useful for `dict.mustGet()` method with a small constant errno if a key not exists
+// (for large or dynamic excno, it's XCHGed from a stack, we need to keep stack aligned, don't remove nullswap)
+bool Optimizer::detect_rewrite_DICTGET_NULLSWAPIFNOT_THROWIFNOT() {
+  bool second_nullswap = pb_ >= 2 && op_[0]->is_custom() && op_[0]->op.ends_with(" NULLSWAPIFNOT");
+  if (!second_nullswap || !op_[1]->op.ends_with(" THROWIFNOT")) {
+    return false;
+  }
+
+  std::string op0 = op_[0]->op;
+  if (!op0.starts_with("DICT")) {
+    return false;
+  }
+
+  p_ = 2;
+  q_ = 2;
+  std::string new_op = op0.substr(0, op0.rfind(' '));
+  oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, new_op, 3, 2));
+  oq_[1] = std::move(op_[1]);
+  return true;
 }
 
 // pattern `ENDC` + `CTOS` -> `BTOS` (a new TVM 12 instruction "builder to slice")
@@ -567,6 +623,21 @@ bool Optimizer::detect_rewrite_NEWC_ENDC() {
   p_ = 2;
   q_ = 1;
   oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, "<b b> PUSHREF", 0, 1));
+  return true;
+}
+
+// for `!x`, when `x` is boolean, a fake asm instruction `BOOLNOT` was inserted (see builtins.cpp);
+// it was used for peephole optimizations, because `NOT + ...` is not correct, since `NOT` is bitwise;
+// here we replace instructions left after optimizations with a simple `NOT` (-1 => 0, 0 => -1)
+bool Optimizer::replace_BOOLNOT_to_NOT() {
+  bool first_bool_not = op_[0]->is_custom() && op_[0]->op == "BOOLNOT";
+  if (!first_bool_not) {
+    return false;
+  }
+
+  p_ = 1;
+  q_ = 1;
+  oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, "NOT", 1, 1));
   return true;
 }
 
@@ -992,10 +1063,12 @@ bool Optimizer::find_at_least(int pb) {
          detect_rewrite_MY_store_int() || detect_rewrite_MY_skip_bits() || detect_rewrite_NEWC_PUSH_STUR() ||
          detect_rewrite_LDxx_DROP() ||
          detect_rewrite_SWAP_symmetric() || detect_rewrite_SWAP_PUSH_STUR() || detect_rewrite_SWAP_STxxxR() ||
-         detect_rewrite_NOT_THROWIF() || detect_rewrite_DICTSETB_DICTSET() ||
+         detect_rewrite_BOOLNOT_THROWIF() || detect_rewrite_0EQINT_THROWIF() ||
+         detect_rewrite_DICTSETB_DICTSET() || detect_rewrite_DICTGET_NULLSWAPIFNOT_THROWIFNOT() ||
          detect_rewrite_ENDC_CTOS() || detect_rewrite_ENDC_HASHCU() ||
          detect_rewrite_NEWC_BTOS() || detect_rewrite_NEWC_STSLICECONST_BTOS() ||
          detect_rewrite_NEWC_ENDC_CTOS() || detect_rewrite_NEWC_ENDC() ||
+         (!(mode_ & 1) && replace_BOOLNOT_to_NOT()) ||
          (!(mode_ & 1) &&
           ((is_rot() && rewrite(AsmOp::Custom(origin, "ROT", 3, 3))) || (is_rotrev() && rewrite(AsmOp::Custom(origin, "-ROT", 3, 3))) ||
            (is_2dup() && rewrite(AsmOp::Custom(origin, "2DUP", 2, 4))) ||

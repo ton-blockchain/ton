@@ -353,14 +353,6 @@ AsmOp compile_dict_get(std::vector<VarDescr>& res, std::vector<VarDescr>& args, 
   return AsmOp::Custom(origin, op + " NULLSWAPIFNOT", 3, 2);
 }
 
-// DICTGET: k D n => (x −1) OR (0)
-// but since it's MUST get, it's wrapped to assert(found), so assume x (value) will exist on a stack
-AsmOp compile_dict_mustGet(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
-  tolk_assert(res.size() == 2 && args.size() == 2+3);
-  std::string op = choose_dict_op("DICTGET", args[0], args[1]);
-  return AsmOp::Custom(origin, op, 3, 2);
-}
-
 // DICTMIN: D n => (x k −1) OR (0); + NULLSWAPIFNOT2 => (x k -1) OR (null null 0)
 AsmOp compile_dict_getMin(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
   tolk_assert(res.size() == 3 && args.size() == 2+2);
@@ -497,11 +489,12 @@ std::vector<var_idx_t> generate_mapKV_mustGet(FunctionPtr called_f, CodeBlob& co
 
   std::vector ir_lookup = code.create_tmp_var(TypeDataTensor::create({TypeDataSlice::create(), TypeDataInt::create()}), origin, "(lookup)");
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
-  code.emplace_back(origin, Op::_Call, ir_lookup, std::move(dict_args), lookup_function("__dict.mustGet"));
+  code.emplace_back(origin, Op::_Call, ir_lookup, std::move(dict_args), lookup_function("__dict.get"));
 
-  std::vector args_assert = { args[2][0], ir_lookup[1], code.create_int(origin, 0, "") };
-  Op& op_assert = code.emplace_back(origin, Op::_Call, std::vector<var_idx_t>{}, std::move(args_assert), lookup_function("__throw_if_unless"));
+  std::vector args_throwifnot = { args[2][0], ir_lookup[1] };
+  Op& op_assert = code.emplace_back(origin, Op::_Call, std::vector<var_idx_t>{}, std::move(args_throwifnot), lookup_function("__throw_ifnot"));
   op_assert.set_impure_flag();
+  // later on, preceding `NULLSWAPIFNOT` will be removed if possible by a peephole optimization
 
   std::vector ir_slice(ir_lookup.begin(), ir_lookup.begin() + 1);
   if (is_TValue_raw_slice(TValue)) {
