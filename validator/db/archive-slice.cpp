@@ -371,7 +371,6 @@ void ArchiveSlice::add_file_cont(size_t idx, FileReference ref_id, td::uint64 of
     kv_->set(ref_id.hash().to_hex(), td::to_string(offset)).ensure();
   }
   commit_transaction(std::move(promise));
-  promise.set_value(td::Unit());
 }
 
 void ArchiveSlice::get_handle(BlockIdExt block_id, td::Promise<BlockHandle> promise) {
