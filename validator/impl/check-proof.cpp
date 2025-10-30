@@ -68,7 +68,7 @@ void CheckProof::finish_query() {
     ValidatorInvariants::check_post_check_proof_link(handle_);
   }
   if (promise_) {
-    VLOG(VALIDATOR_DEBUG) << "checked proof for " << handle_->id();
+    VLOG(VALIDATOR_DEBUG) << "checked proof for " << handle_->id().to_str();
     promise_.set_result(handle_);
   }
   stop();

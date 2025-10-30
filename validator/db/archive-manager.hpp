@@ -206,8 +206,8 @@ class ArchiveManager : public td::actor::Actor {
   void get_handle_finish(BlockHandle handle, td::Promise<BlockHandle> promise);
   void get_temp_file_short_cont(FileReference ref_id, PackageId idx, td::Promise<td::BufferSlice> promise);
 
-  const FileDescription *get_file_desc(ShardIdFull shard, PackageId id, BlockSeqno seqno, UnixTime ts, LogicalTime lt,
-                                       bool force);
+  td::Result<const FileDescription *> get_file_desc(ShardIdFull shard, PackageId id, BlockSeqno seqno, UnixTime ts,
+                                                    LogicalTime lt, bool force);
   const FileDescription *add_file_desc(ShardIdFull shard, PackageId id, BlockSeqno seqno, UnixTime ts, LogicalTime lt);
   void update_desc(FileMap &f, const FileDescription &desc, ShardIdFull shard, BlockSeqno seqno, UnixTime ts,
                    LogicalTime lt);
