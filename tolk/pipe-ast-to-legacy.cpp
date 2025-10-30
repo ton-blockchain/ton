@@ -19,8 +19,8 @@
 #include "ast-aux-data.h"
 #include "ast-visitor.h"
 #include "compilation-errors.h"
+#include "constant-evaluator.h"
 #include "type-system.h"
-#include "src-file.h"
 #include "common/refint.h"
 #include "smart-casts-cfg.h"
 #include "pack-unpack-api.h"
@@ -384,15 +384,6 @@ const LazyVariableLoadedState* CodeBlob::get_lazy_variable(AnyExprV v) const {
   return nullptr;
 }
 
-const CachedConstValueAtCodegen* CodeBlob::get_cached_const(GlobalConstPtr const_ref) const {
-  for (const CachedConstValueAtCodegen& c : cached_consts) {
-    if (c.const_ref == const_ref) {
-      return &c;
-    }
-  }
-  return nullptr;
-}
-
 
 // given `{some_expr}!`, return some_expr
 static AnyExprV unwrap_not_null_operator(AnyExprV v) {
@@ -436,6 +427,9 @@ static bool is_ternary_arg_trivial_for_condsel(AnyExprV v, bool require_1slot = 
   if (auto v_cast = v->try_as<ast_not_null_operator>()) {
     return is_ternary_arg_trivial_for_condsel(v_cast->get_expr(), require_1slot);
   }
+  if (auto v_call = v->try_as<ast_function_call>()) {
+    return v_call->fun_maybe && v_call->fun_maybe->is_compile_time_const_val();
+  }
   return false;
 }
 
@@ -446,10 +440,9 @@ static std::vector<std::vector<var_idx_t>> pre_compile_tensor_inner(CodeBlob& co
   if (n == 0) {  // just `()`
     return {};
   }
-  tolk_assert(!tensor_target_type || tensor_target_type->size() == n);
+  tolk_assert(tensor_target_type && tensor_target_type->size() == n);
   if (n == 1) {  // just `(x)`: even if x is modified (e.g. `f(x=x+2)`), there are no next arguments
-    TypePtr child_target_type = tensor_target_type ? tensor_target_type->items[0] : nullptr;
-    return {pre_compile_expr(args[0], code, child_target_type, lval_ctx)};
+    return {pre_compile_expr(args[0], code, tensor_target_type->items[0], lval_ctx)};
   }
 
   // the purpose is to handle such cases: `return (x, x += y, x)`
@@ -503,8 +496,7 @@ static std::vector<std::vector<var_idx_t>> pre_compile_tensor_inner(CodeBlob& co
 
   WatchingVarList watched_vars(n);
   for (int arg_idx = 0; arg_idx < n; ++arg_idx) {
-    TypePtr child_target_type = tensor_target_type ? tensor_target_type->items[arg_idx] : nullptr;
-    std::vector vars_of_ith_arg = pre_compile_expr(args[arg_idx], code, child_target_type, lval_ctx);
+    std::vector vars_of_ith_arg = pre_compile_expr(args[arg_idx], code, tensor_target_type->items[arg_idx], lval_ctx);
     watched_vars.add_and_watch_modifications(std::move(vars_of_ith_arg), code);
   }
   return watched_vars.clear_and_stop_watching();
@@ -1108,11 +1100,15 @@ static std::vector<var_idx_t> transition_expr_to_runtime_type_impl(std::vector<v
   }
 
   // `Color.Red` as `int` and vice versa
-  if (target_type == TypeDataInt::create() && original_type->try_as<TypeDataEnum>()) {
-    return rvect;
+  if (original_type->try_as<TypeDataEnum>()) {
+    if (target_type == TypeDataInt::create() || target_type == TypeDataCoins::create() || target_type->try_as<TypeDataIntN>()) {
+      return rvect;
+    }
   }
-  if (original_type == TypeDataInt::create() && target_type->try_as<TypeDataEnum>()) {
-    return rvect;
+  if (target_type->try_as<TypeDataEnum>()) {
+    if (original_type == TypeDataInt::create() || original_type == TypeDataCoins::create() || original_type->try_as<TypeDataIntN>()) {
+      return rvect;
+    }
   }
   // `Color.Red` as `BounceMode` (all enums are integers, they can be cast one to another)
   if (original_type->try_as<TypeDataEnum>() && target_type->try_as<TypeDataEnum>()) {
@@ -1145,6 +1141,61 @@ std::vector<var_idx_t> transition_to_target_type(std::vector<var_idx_t>&& rvect,
   return rvect;
 }
 
+// convert a constant value (calculated by a "constant-evaluator") to IR vars;
+// every init_val of `const XXX = ...` is calculated once (into ConstValExpression) and cached 
+static std::vector<var_idx_t> pre_compile_constant_expression(const ConstValExpression& value, CodeBlob& code, AnyV origin) {
+  if (const ConstValInt* val = std::get_if<ConstValInt>(&value)) {
+    std::vector rvect = code.create_tmp_var(TypeDataInt::create(), origin, "(int-const)");
+    code.emplace_back(origin, Op::_IntConst, rvect, val->int_val);
+    return rvect;
+  }
+  if (const ConstValBool* val = std::get_if<ConstValBool>(&value)) {
+    FunctionPtr builtin_sym = lookup_function(val->bool_val ? "__true" : "__false");
+    std::vector rvect = gen_op_call(code, TypeDataBool::create(), origin, {}, builtin_sym, "(bool-const)");
+    return rvect;
+  }
+  if (const ConstValSlice* val = std::get_if<ConstValSlice>(&value)) {
+    std::vector rvect = code.create_tmp_var(TypeDataSlice::create(), origin, "(str-const)");
+    code.emplace_back(origin, Op::_SliceConst, rvect, val->str_hex);
+    return rvect;
+  }
+  if (const ConstValAddress* val = std::get_if<ConstValAddress>(&value)) {
+    std::vector rvect = code.create_tmp_var(TypeDataSlice::create(), origin, "(addr-const)");
+    code.emplace_back(origin, Op::_SliceConst, rvect, val->std_addr_hex);
+    return rvect;
+  }
+  if (const ConstValTensor* val = std::get_if<ConstValTensor>(&value)) {
+    std::vector<var_idx_t> rvect;
+    for (AnyExprV v_item : val->items) {
+      std::vector ir_item = pre_compile_expr(v_item, code);
+      rvect.insert(rvect.end(), ir_item.begin(), ir_item.end());
+    }
+    return rvect;
+  }
+  if (const ConstValObject* val = std::get_if<ConstValObject>(&value)) {
+    std::vector<var_idx_t> rvect;
+    for (StructFieldPtr field_ref : val->struct_ref->fields) {
+      std::vector<var_idx_t> ir_field;
+      auto it = std::find_if(val->fields.begin(), val->fields.end(),
+          [field_ref](const auto& p) { return p.first == field_ref; });
+      if (it != val->fields.end()) {
+        ir_field = pre_compile_expr(it->second, code, field_ref->declared_type);
+      } else if (field_ref->declared_type != TypeDataNever::create()) {
+        tolk_assert(field_ref->has_default_value());
+        ir_field = pre_compile_expr(field_ref->default_value, code, field_ref->declared_type);
+      }
+      rvect.insert(rvect.end(), ir_field.begin(), ir_field.end());
+    }
+    return rvect;
+  }
+  if (std::get_if<ConstValNullLiteral>(&value)) {
+    FunctionPtr builtin_sym = lookup_function("__null");
+    std::vector rvect = gen_op_call(code, TypeDataNullLiteral::create(), origin, {}, builtin_sym, "(null-literal)");
+    return rvect;
+  }
+  tolk_assert(false);
+}
+
 
 std::vector<var_idx_t> pre_compile_symbol(const Symbol* sym, CodeBlob& code, AnyV origin, LValContext* lval_ctx) {
   // referencing a local variable (not its declaration, but its usage)
@@ -1155,27 +1206,14 @@ std::vector<var_idx_t> pre_compile_symbol(const Symbol* sym, CodeBlob& code, Any
     return var_ref->ir_idx;
   }
 
-  // referencing a global constant, embed its init_value directly (so, it will be evaluated to a const val later)
+  // referencing a global constant, embed its init_value directly
   if (GlobalConstPtr const_ref = sym->try_as<GlobalConstPtr>()) {
     tolk_assert(lval_ctx == nullptr);
-    // when evaluating `a1` in `const a2 = a1 + a1`, cache a1's IR vars to prevent exponential explosion
-    if (code.inside_evaluating_constant) {
-      if (const CachedConstValueAtCodegen* cached = code.get_cached_const(const_ref)) {
-        return cached->ir_idx;
-      }
-      std::vector ir_sub_const = pre_compile_expr(const_ref->init_value, code, const_ref->declared_type);
-      code.cached_consts.emplace_back(CachedConstValueAtCodegen{const_ref, ir_sub_const});
-      return ir_sub_const; 
-    }
-    // just referencing `a1` in a function body
-    // (note that `a1` occurred 2 times has 2 different ir_idx, caching above is done only within another const)
-    ASTAuxData* aux_data = new AuxData_ForceFiftLocation(origin);
-    auto v_force_loc = createV<ast_artificial_aux_vertex>(const_ref->init_value, aux_data, const_ref->inferred_type);
-    code.inside_evaluating_constant = true;
-    std::vector ir_const = pre_compile_expr(v_force_loc, code, const_ref->declared_type);
-    code.inside_evaluating_constant = false;
-    code.cached_consts.clear();
-    return ir_const; 
+    ConstValExpression value = eval_and_cache_const_init_val(const_ref);
+    std::vector ir_init = pre_compile_constant_expression(value, code, origin);
+    tolk_assert(static_cast<int>(ir_init.size()) == const_ref->init_value->inferred_type->get_width_on_stack());
+    // handle `const a: int|slice = 1`, ir_init is int(1), transition to union
+    return transition_to_target_type(std::move(ir_init), code, const_ref->init_value->inferred_type, const_ref->inferred_type, origin);
   }
 
   // referencing a global variable, copy it to a local tmp var
@@ -1634,6 +1672,12 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
     op.set_impure_flag();
     return transition_to_target_type(std::move(rvect), code, target_type, v);
   }
+  // `ton("0.05")` and others, we even don't need to calculate ir_idx for arguments, just replace with constexpr
+  if (fun_ref->is_compile_time_const_val()) {
+    ConstValExpression value = eval_call_to_compile_time_function(v);
+    std::vector rvect = pre_compile_constant_expression(value, code, v);
+    return transition_to_target_type(std::move(rvect), code, target_type, v);
+  }
 
   // fill args for evaluation: dot object + passed arguments + parameters defaults if not all passed
   AnyExprV obj_leftmost = v->get_self_obj();
@@ -1649,14 +1693,11 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
   for (int i = 0; i < v->get_num_args(); ++i) {
     args.push_back(v->get_arg(i)->get_expr());
   }
-  // default values (forcing location to be here, not taken from declaraion)
+  // default values
   for (int i = delta_self + v->get_num_args(); i < fun_ref->get_num_params(); ++i) {
     LocalVarPtr param_ref = &fun_ref->get_param(i);
     tolk_assert(param_ref->has_default_value());
-    AnyV last_arg = args.empty() ? v : args.back();
-    ASTAuxData *aux_data = new AuxData_ForceFiftLocation(last_arg);
-    auto v_force_loc = createV<ast_artificial_aux_vertex>(param_ref->default_value, aux_data, param_ref->declared_type);
-    args.push_back(v_force_loc);
+    args.push_back(param_ref->default_value);
   }
 
   // the purpose of tensor_tt ("tensor target type") is to transition `null` to `(int, int)?` and so on
@@ -1827,10 +1868,7 @@ static std::vector<var_idx_t> process_object_literal_shuffled(V<ast_object_liter
     }
 
     tolk_assert(field_ref->has_default_value());
-    AnyV last_field = v->get_body()->empty() ? v : v->get_body()->get_all_fields().back();
-    ASTAuxData *aux_data = new AuxData_ForceFiftLocation(last_field);
-    auto v_force_loc = createV<ast_artificial_aux_vertex>(field_ref->default_value, aux_data, field_ref->declared_type);
-    std::vector def_rvect = pre_compile_expr(v_force_loc, code, field_ref->declared_type);
+    std::vector def_rvect = pre_compile_expr(field_ref->default_value, code, field_ref->declared_type);
     code.emplace_back(v, Op::_Let, std::move(field_rvect), std::move(def_rvect));
   }
 
@@ -1857,7 +1895,6 @@ static std::vector<var_idx_t> process_object_literal(V<ast_object_literal> v, Co
     return process_object_literal_shuffled(v, code, target_type, lval_ctx);
   }
 
-  AnyV prev_init_val = v;
   std::vector<AnyExprV> tensor_items;
   std::vector<TypePtr> target_types;
   tensor_items.reserve(v->struct_ref->get_num_fields());
@@ -1876,13 +1913,10 @@ static std::vector<var_idx_t> process_object_literal(V<ast_object_literal> v, Co
         continue;   // field of `never` type can be missed out of object literal (useful in generics defaults)
       }             // (it occupies 0 slots, nothing is assignable to it — like this field is missing from a struct)
       tolk_assert(field_ref->has_default_value());
-      ASTAuxData *aux_data = new AuxData_ForceFiftLocation(prev_init_val);
-      auto v_force_loc = createV<ast_artificial_aux_vertex>(field_ref->default_value, aux_data, field_ref->declared_type);
-      v_init_val = v_force_loc;   // it may be a complex expression, but it's a constant, checked earlier
+      v_init_val = field_ref->default_value;
     }
     tensor_items.push_back(v_init_val);
     target_types.push_back(field_ref->declared_type);
-    prev_init_val = v_init_val;
   }
   const auto* tensor_target_type = TypeDataTensor::create(std::move(target_types))->try_as<TypeDataTensor>();
   std::vector rvect = pre_compile_tensor(code, tensor_items, lval_ctx, tensor_target_type);
@@ -1898,8 +1932,9 @@ static std::vector<var_idx_t> process_int_const(V<ast_int_const> v, CodeBlob& co
 }
 
 static std::vector<var_idx_t> process_string_const(V<ast_string_const> v, CodeBlob& code, TypePtr target_type) {
+  std::string literal_value = eval_string_const_standalone(v);
   std::vector rvect = code.create_tmp_var(v->inferred_type, v, "(str-const)");
-  code.emplace_back(v, Op::_SliceConst, rvect, v->literal_value);
+  code.emplace_back(v, Op::_SliceConst, rvect, std::move(literal_value));
   return transition_to_target_type(std::move(rvect), code, target_type, v);
 }
 
@@ -1946,14 +1981,6 @@ static std::vector<var_idx_t> process_empty_expression(V<ast_empty_expression> v
 
 static std::vector<var_idx_t> process_artificial_aux_vertex(V<ast_artificial_aux_vertex> v, CodeBlob& code, TypePtr target_type, LValContext* lval_ctx) {
   AnyExprV wrapped = v->get_wrapped_expr();
-
-  if (const auto* data = dynamic_cast<const AuxData_ForceFiftLocation*>(v->aux_data)) {
-    AnyV backup = code.forced_origin;
-    code.forced_origin = data->forced_origin;
-    std::vector rvect = pre_compile_expr(wrapped, code, target_type, lval_ctx);
-    code.forced_origin = backup;
-    return rvect;
-  }
 
   // aux "load x"; example: `var p = lazy Point.fromSlice(s); aux "load x"; return p.x`
   if (const auto* data = dynamic_cast<const AuxData_LazyObjectLoadFields*>(v->aux_data)) {

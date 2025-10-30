@@ -372,13 +372,15 @@ struct StructData final : Symbol {
 };
 
 struct EnumMemberData final : Symbol {
+  int member_idx;
   AnyExprV init_value;                // nullptr if no init (`Red`, not `Red = 1`)
   td::RefInt256 computed_value;       // auto-calculated or assigned from init if integer
 
   bool has_init_value() const { return init_value != nullptr; }
 
-  EnumMemberData(std::string name, AnyV ident_anchor, AnyExprV init_value)
+  EnumMemberData(std::string name, AnyV ident_anchor, int member_idx, AnyExprV init_value)
     : Symbol(std::move(name), ident_anchor)
+    , member_idx(member_idx)
     , init_value(init_value) {
   }
 

@@ -1033,6 +1033,16 @@ static AnyExprV parse_expr75(Lexer& lex) {
     lex.next();
     AnyExprV rhs = parse_expr75(lex);
     range.end(rhs->range);
+
+    // convert `-1` to `int(-1)`, not to a tree `unary(-) > int(1)` right here 
+    if (auto rhs_int = rhs->try_as<ast_int_const>(); rhs_int && (t == tok_minus || t == tok_plus)) {
+      td::RefInt256 intval = rhs_int->intval;
+      tolk_assert(!intval.is_null());
+      if (t == tok_minus) {
+        intval = -intval; // negation (and multiple consecutive negations) always fits 257 bits if originally fits
+      }
+      return createV<ast_int_const>(range, std::move(intval), rhs_int->orig_str);
+    }
     return createV<ast_unary_operator>(range, operator_range, operator_name, t, rhs);
   }
   if (t == tok_double_minus || t == tok_double_plus) {

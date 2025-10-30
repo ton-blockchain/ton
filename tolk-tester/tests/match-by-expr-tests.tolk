@@ -189,12 +189,12 @@ fun main() {
       100 PUSHINT       //  '1=100
     }>ELSE<{    //  x
       DUP       //  x x
-      2 EQINT   //  x '8
+      2 EQINT   //  x '6
       IF:<{     //  x
         DROP    //
         200 PUSHINT     //  '1=200
       }>ELSE<{  //  x
-        3 EQINT //  '13
+        3 EQINT //  '11
         IF:<{   //
           300 PUSHINT   //  '1=300
         }>ELSE<{        //

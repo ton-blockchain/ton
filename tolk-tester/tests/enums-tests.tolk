@@ -8,6 +8,13 @@ enum Color {
     Blue
 }
 
+enum InvertedColor {
+    Red = Color.Blue,
+    Green = Color.Green,
+    Blue = Color.Red,
+    OneTon = ton("1"),
+}
+
 type ColorAlias = Color
 
 struct WithColor {
@@ -242,6 +249,12 @@ fun test13(x: int) {
     }
 }
 
+@method_id(114)
+fun test14(x: InvertedColor) {
+    __expect_type(InvertedColor.Red, "InvertedColor");
+    return (InvertedColor.Red, InvertedColor.Green, InvertedColor.Blue, InvertedColor.OneTon, x == InvertedColor.Red);
+}
+
 
 fun main(c: Color) {
     __expect_type(c, "Color");
@@ -276,6 +289,7 @@ fun main(c: Color) {
 @testcase | 113 | 111 | 257 0 
 @testcase | 113 | 10  | 258 0 
 @testcase | 113 | 50  | 0 0 
+@testcase | 114 | 2   | 2 1 0 1000000000 -1 
 
 @fif_codegen
 """

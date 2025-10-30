@@ -23,8 +23,8 @@ set(TOLK_SOURCE
         pipe-check-rvalue-lvalue.cpp
         pipe-check-private-fields.cpp
         pipe-check-pure-impure.cpp
+        pipe-check-const-expr.cpp
         pipe-mini-borrow-checker.cpp
-        pipe-constant-folding.cpp
         pipe-optimize-boolean-expr.cpp
         pipe-detect-inline-in-place.cpp
         pipe-check-serialized-fields.cpp

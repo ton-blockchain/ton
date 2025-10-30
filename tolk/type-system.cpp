@@ -1041,7 +1041,7 @@ bool TypeDataStruct::can_be_casted_with_as_operator(TypePtr cast_to) const {
 }
 
 bool TypeDataEnum::can_be_casted_with_as_operator(TypePtr cast_to) const {
-  if (cast_to == TypeDataInt::create()) {
+  if (cast_to == TypeDataInt::create() || cast_to == TypeDataCoins::create() || cast_to->try_as<TypeDataIntN>()) {
     return true;
   }
   if (cast_to->try_as<TypeDataEnum>()) {

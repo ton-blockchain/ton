@@ -28,16 +28,6 @@ namespace tolk {
 
 struct CodeBlob;
 
-// AuxData_ForceFiftLocation is created when transforming AST to IR;
-// it wraps constants to force codegen location point to usage, not to init_val AST nodes
-struct AuxData_ForceFiftLocation final : ASTAuxData {
-  AnyV forced_origin;
-
-  explicit AuxData_ForceFiftLocation(AnyV forced_origin)
-    : forced_origin(forced_origin) {
-  }
-};
-
 // AuxData_LazyObjectLoadFields is a special auto-inserted vertex to load fields of a lazy struct;
 // example: `var p = lazy Point.fromSlice(s); aux "load x"; return p.x`
 struct AuxData_LazyObjectLoadFields final : ASTAuxData {

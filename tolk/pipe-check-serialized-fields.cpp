@@ -73,7 +73,7 @@ static void check_mapKV_inside_type(AnyTypeV type_node) {
 
 // given `enum Role: int8` check colon type (not struct/slice etc.)
 static void check_enum_colon_type_to_be_intN(AnyTypeV colon_type_node) {
-  if (!colon_type_node->resolved_type->try_as<TypeDataIntN>()) {
+  if (!colon_type_node->resolved_type->try_as<TypeDataIntN>() && !colon_type_node->resolved_type->try_as<TypeDataCoins>()) {
     err("serialization type of `enum` must be intN: `int8` / `uint32` / etc.").fire(colon_type_node);
   }
 }

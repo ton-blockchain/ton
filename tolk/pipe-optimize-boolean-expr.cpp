@@ -29,6 +29,9 @@
  * It's tricky to implement whether replacing is safe.
  * For example, safe: `a > 0 && a < 10` / `a != 3 && a != 5`
  * For example, unsafe: `cached && calc()` / `a > 0 && log(a)` / `b != 0 && a / b > 1` / `i >= 0 && arr[idx]` / `f != null && close(f)`
+ *
+ *   Also, all parenthesized `((expr))` are replaced with `expr`, it's a constant transformation.
+ * (not to handle parenthesized later in tricky assignments, etc.)
  */
 
 namespace tolk {
@@ -43,7 +46,7 @@ struct OptimizerBooleanExpressionsReplacer final : ASTReplacerInFunctionBody {
 
   static V<ast_bool_const> create_bool_const(SrcRange range, bool bool_val) {
     auto v_bool = createV<ast_bool_const>(range, bool_val);
-    v_bool->assign_inferred_type(TypeDataInt::create());
+    v_bool->assign_inferred_type(TypeDataBool::create());
     v_bool->assign_rvalue_true();
     return v_bool;
   }
@@ -105,6 +108,10 @@ protected:
         // `!true` / `!false`
         return create_bool_const(v->range, !inner_bool->bool_val);
       }
+      if (auto inner_int = v->get_rhs()->try_as<ast_int_const>()) {
+        // `!0` / `!123`
+        return create_bool_const(v->range, inner_int->intval == 0);
+      }
     }
 
     return v;
@@ -127,6 +134,14 @@ protected:
     }
 
     return v;
+  }
+
+  AnyExprV replace(V<ast_parenthesized_expression> v) override {
+    AnyExprV inner = parent::replace(v->get_expr());
+    if (v->is_lvalue) {
+      inner->mutate()->assign_lvalue_true();
+    }
+    return inner;
   }
 
   AnyV replace(V<ast_if_statement> v) override {

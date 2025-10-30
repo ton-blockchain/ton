@@ -19,8 +19,8 @@ const str2int = 0xAABBCC;
 
 const nibbles: int = 4;
 
-const strange_zero = (!10 as int);
-const strange_minus_1: MInt = (!0 as int);
+const strange_zero = 1 >> 10;
+const strange_minus_1: MInt = -1 as Color as int;
 
 const addr1 = address("Ef8zMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM0vF");
 const addr2: any_address = address("Ef8zMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM0vF") as any_address;
@@ -48,6 +48,57 @@ fun sget2(): slice { return str2; }
 fun sget2r(): slice { return str2r; }
 
 const int240: int = ((int1+int2)*10)<<3;
+
+enum Color {
+    red,
+    green,
+    blue,
+}
+
+const boolOpsWithInts = (10 < 3, 10 <= 3, 10 > 3, 10 >= 3, 10 == 3, 10 != 3, 10 <= 10, 10 >= (9 + 1), )
+const boolOpsWithBools = (true == true, true != true, false == false, !!false != !!false)
+const boolBitwise = (true & true, true & false, false & true, false & false, true | false, true ^ true, true ^ false)
+const intBitwise = (2 & 3, 2 ^ 3, 2 | 3, 1 | 5, 0xFF & 0x80, !0, !100)
+const alsoBlue = Color.blue
+const also2 = Color.blue as int
+
+const nullable5: int? = 5
+const nullableTensor: (int, int)? = null
+const nullableTricky: (UnpackOptions?, int?, (int, slice)?) = (null, null, null)
+const unionTricky: (address | int, address | int, int | int8 | null, int8 | int16 | null) = (address("EQDKbjIcfM6ezt8KjKJJLshZJJSqX7XOA4ff-W72r5gqPrHF"), 100, 50, null);
+
+struct SubParams {
+    sub1: bool = true
+    sub2: int8 = 8
+    sub3: coins
+}
+
+struct MyOptions {
+    allowPenalty: bool = false
+    closeTo: (int8, int8)? = null
+    sn: never
+    sub: SubParams = { sub3: ton("0.05") }
+    coeff: int16 = 2
+}
+
+const opts1 = MyOptions { allowPenalty: true }
+const opts2 = MyOptions { coeff: 3, sub: { sub1: false, sub3: 0 } }
+const opts3: MyOptions = { coeff: 0, closeTo: null, allowPenalty: true }
+const opts4: MyOptions = { sub: { sub3: ton("1") }, closeTo: (3, 4), coeff: 55 }
+
+@noinline
+fun MyOptions.equals(self, rhs: MyOptions = {}) {
+    return self.toCell().hash() == rhs.toCell().hash()
+}
+
+struct Wrapper<T> {
+    item: T
+}
+
+const wOneTon = Wrapper<coins> { item: ton("1") }
+const wNoTon: Wrapper<int> = { item: 0 }
+const wNoSubParams: Wrapper<SubParams>? = null
+
 
 fun iget240(): MInt { return int240; }
 
@@ -97,6 +148,67 @@ fun test6() {
     return (addr1 == addr1, addr1 != addr1, addr1 == createAddressNone(), addr1.getWorkchain(), addr1 == addr2);
 }
 
+@method_id(107)
+fun test7() {
+    return boolOpsWithInts
+}
+
+@method_id(108)
+fun test8() {
+    return boolOpsWithBools
+}
+
+@method_id(109)
+fun test9() {
+    return boolBitwise
+}
+
+@method_id(110)
+fun test10() {
+    return intBitwise
+}
+
+@method_id(111)
+fun test11() {
+    __expect_type(alsoBlue, "Color");
+    __expect_type(also2, "int");
+    return (alsoBlue, also2)
+}
+
+@method_id(112)
+fun test12() {
+    return nullableTensor
+}
+
+@method_id(113)
+fun test13() {
+    return nullableTricky
+}
+
+@method_id(114)
+fun test14() {
+    return (unionTricky.0 is address, unionTricky.1 is address, unionTricky.1 is int, unionTricky.1 is slice, unionTricky.1, 777, unionTricky.2, unionTricky.3)
+}
+
+@method_id(115)
+fun test15() {
+    return (
+        opts1.equals(), opts1.equals(opts1), opts1.equals(opts2), opts1.equals(opts3), opts1.equals(opts4),  
+        opts4.equals(), opts4.equals(opts1), opts4.equals(opts2), opts4.equals(opts3), opts4.equals(opts4),
+        777,
+        opts1.equals({ closeTo: null, allowPenalty: true }),
+        opts2.equals({ coeff: 3, sub: { sub1: false, sub3: 0 } }),
+        opts3.equals({ closeTo: null, coeff: 0, allowPenalty: true }),
+        opts4.equals({ sub: { sub3: ton("1") }, coeff: 55, closeTo: (3, 4) })
+    )
+}
+
+@method_id(116)
+fun test16() {
+    __expect_type(wOneTon, "Wrapper<coins>");
+    return (wOneTon, wNoTon, wNoSubParams)
+}
+
 fun main() {
     var i1: int = iget1();
     var i2: int = iget2();
@@ -127,6 +239,16 @@ fun main() {
 @testcase | 104 |   | 1 1 2
 @testcase | 105 |   | -1 0 7 48
 @testcase | 106 |   | -1 0 0 -1 -1
+@testcase | 107 |   | 0 0 -1 -1 0 -1 -1 -1
+@testcase | 108 |   | -1 0 -1 0
+@testcase | 109 |   | -1 0 0 0 -1 0 -1
+@testcase | 110 |   | 2 1 3 5 128 -1 0
+@testcase | 111 |   | 2 2
+@testcase | 112 |   | (null) (null) 0
+@testcase | 113 |   | (null) (null) 0 (null) (null) (null) 0
+@testcase | 114 |   | -1 0 -1 0 100 1 777 50 1 (null) 0
+@testcase | 115 |   | 0 -1 0 0 0 0 0 0 0 -1 777 -1 -1 -1 -1
+@testcase | 116 |   | 1000000000 0 (null) (null) (null) 0
 
-@code_hash 50461262039225352661292504472979593396591696467874442618206926482074675176667
+@code_hash 62183191459178893174419204771807638858032941060155787749136667785942705596518
 */

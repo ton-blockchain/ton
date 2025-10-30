@@ -1104,13 +1104,14 @@ struct S_IntegerEnum final : ISerializer {
   }
 
   void pack(const PackContext* ctx, CodeBlob& code, AnyV origin, std::vector<var_idx_t>&& rvect) override {
-    TypePtr intN = calculate_intN_to_serialize_enum(enum_ref);
-    return ctx->generate_pack_any(intN, std::move(rvect));
+    TypePtr pack_type = calculate_intN_to_serialize_enum(enum_ref);
+    return ctx->generate_pack_any(pack_type, std::move(rvect));
   }
 
   std::vector<var_idx_t> unpack(const UnpackContext* ctx, CodeBlob& code, AnyV origin) override {
-    const TypeDataIntN* intN = calculate_intN_to_serialize_enum(enum_ref)->try_as<TypeDataIntN>();
-    std::vector ir_num = ctx->generate_unpack_any(intN);
+    TypePtr pack_type = calculate_intN_to_serialize_enum(enum_ref);
+    std::vector ir_num = ctx->generate_unpack_any(pack_type);
+    const TypeDataIntN* intN = pack_type->try_as<TypeDataIntN>();
 
     // when reading an integer value, we need to validate that it's a valid enum member;
     // at first, detect whether it's a sequence (A, A+1, ..., A+N)
@@ -1125,7 +1126,7 @@ struct S_IntegerEnum final : ISerializer {
       // enum's members are A...B one by one (probably, 0...M);
       // then validation is: "throw if v<A or v>B", but "LESSINT + THROWIF" 2 times is more generalized
       td::RefInt256 min_value = enum_ref->members.front()->computed_value;
-      bool dont_check_min = intN->is_unsigned && min_value == 0;
+      bool dont_check_min = intN != nullptr && intN->is_unsigned && min_value == 0;
       if (!dont_check_min) {    // LDU can't load < 0 
         std::vector ir_min_value = code.create_tmp_var(TypeDataInt::create(), origin, "(enum-min)");
         code.emplace_back(origin, Op::_IntConst, ir_min_value, min_value);
@@ -1136,7 +1137,7 @@ struct S_IntegerEnum final : ISerializer {
         op_assert.set_impure_flag();
       }
       td::RefInt256 max_value = enum_ref->members.back()->computed_value;
-      bool dont_check_max = intN->is_unsigned && max_value == (1ULL << intN->n_bits) - 1;
+      bool dont_check_max = intN != nullptr && intN->is_unsigned && max_value == (1ULL << intN->n_bits) - 1;
       if (!dont_check_max) {    // LDU can't load >= 1<<N
         std::vector ir_max_value = code.create_tmp_var(TypeDataInt::create(), origin, "(enum-max)");
         code.emplace_back(origin, Op::_IntConst, ir_max_value, max_value);
@@ -1165,13 +1166,13 @@ struct S_IntegerEnum final : ISerializer {
   }
 
   void skip(const UnpackContext* ctx, CodeBlob& code, AnyV origin) override {
-    TypePtr intN = calculate_intN_to_serialize_enum(enum_ref);
-    return ctx->generate_skip_any(intN);
+    TypePtr pack_type = calculate_intN_to_serialize_enum(enum_ref);
+    return ctx->generate_skip_any(pack_type);
   }
 
   PackSize estimate(const EstimateContext* ctx) override {
-    TypePtr intN = calculate_intN_to_serialize_enum(enum_ref);
-    return ctx->estimate_any(intN);
+    TypePtr pack_type = calculate_intN_to_serialize_enum(enum_ref);
+    return ctx->estimate_any(pack_type);
   }
 };
 
@@ -1286,7 +1287,7 @@ std::vector<PackOpcode> auto_generate_opcodes_for_union(TypePtr union_type, std:
 // example: `enum Color { Red, Green, Blue }` is 00/01/10 - uint2
 // example: `enum Role: int8 { ... }` — manually specified
 TypePtr calculate_intN_to_serialize_enum(EnumDefPtr enum_ref) {
-  if (enum_ref->colon_type) {
+  if (enum_ref->colon_type) {       // intN / coins
     return enum_ref->colon_type;
   }
   

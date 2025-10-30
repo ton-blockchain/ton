@@ -144,7 +144,7 @@ static EnumDefPtr register_enum(V<ast_enum_declaration> v) {
         err("redeclaration of member `{}`", member_name).fire(v_member);
       }
     }
-    members.emplace_back(new EnumMemberData(std::move(member_name), v_ident, v_member->init_value));
+    members.emplace_back(new EnumMemberData(std::move(member_name), v_ident, i, v_member->init_value));
   }
 
   V<ast_identifier> v_ident = v->get_identifier();

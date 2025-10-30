@@ -846,9 +846,13 @@ protected:
   void start_visiting_enum_member(EnumDefPtr enum_ref, EnumMemberPtr member_ref) {
     parent::visit(member_ref->init_value);
 
-    TypePtr inferred_type = member_ref->init_value->inferred_type;
-    if (!inferred_type->equal_to(TypeDataInt::create()) && !inferred_type->equal_to(TypeDataEnum::create(enum_ref))) {
-      err("enum member is `{}`, not `int`\n""hint: all enums must be integers", inferred_type).fire(member_ref->init_value);
+    TypePtr m_type = member_ref->init_value->inferred_type;
+    bool is_integer = m_type->equal_to(TypeDataInt::create())
+                   || m_type->equal_to(TypeDataCoins::create())
+                   || m_type->try_as<TypeDataIntN>()
+                   || m_type->try_as<TypeDataEnum>();
+    if (!is_integer) {
+      err("enum member is `{}`, not `int`\n""hint: all enums must be integers", m_type).fire(member_ref->init_value);
     }
   }
 };
