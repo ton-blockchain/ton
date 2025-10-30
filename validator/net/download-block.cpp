@@ -294,7 +294,7 @@ void DownloadBlock::got_block_partial_proof(td::BufferSlice proof) {
 }
 
 void DownloadBlock::checked_block_proof() {
-  VLOG(FULL_NODE_DEBUG) << "checked proof for " << block_id_;
+  VLOG(FULL_NODE_DEBUG) << "checked proof for " << block_id_.to_str();
 
   if (!handle_) {
     CHECK(!short_);

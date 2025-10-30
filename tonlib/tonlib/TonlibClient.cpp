@@ -5983,10 +5983,10 @@ td::Status check_lookup_block_proof(lite_api_ptr<ton::lite_api::liteServer_looku
         }
       } else if (mode & 4) {
         if (prev_info.gen_utime > utime) {
-          return td::Status::Error("prev header end_lt > lt");
+          return td::Status::Error("prev header gen_utime > utime");
         }
         if (info.gen_utime < utime) {
-          return td::Status::Error("header end_lt < lt");
+          return td::Status::Error("header gen_utime < utime");
         }
       }
     }

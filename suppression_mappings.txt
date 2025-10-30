@@ -1,12 +1,3 @@
-[#warnings]
-src:*/ciso646
-
-[deprecated-builtins]
-src:*/third-party/abseil-cpp/absl/meta/type_traits.h
-
-[array-parameter]
-src:*/third-party/abseil-cpp/absl/hash/internal/low_level_hash.cc
-
 [deprecated-literal-operator]
 src:*/tdutils/td/utils/date.h
 
