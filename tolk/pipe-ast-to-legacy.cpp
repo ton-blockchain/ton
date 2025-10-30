@@ -290,7 +290,6 @@ public:
 class CheckReorderingForAsmArgOrderIsSafeVisitor final : public ASTVisitorFunctionBody {
   bool has_side_effects = false;
 
-protected:
   void visit(V<ast_function_call> v) override {
     has_side_effects |= v->fun_maybe == nullptr || !v->fun_maybe->is_marked_as_pure() || v->fun_maybe->has_mutate_params();
     parent::visit(v);
@@ -341,6 +340,7 @@ public:
 // that should be cleared upon next inlining;
 // for instance, ir_idx of local variables point to caller (where f was inlined)
 class ClearStateAfterInlineInPlace final : public ASTVisitorFunctionBody {
+
   void visit(V<ast_local_var_lhs> v) override {
     if (!v->marked_as_redef) {
       v->var_ref->mutate()->assign_ir_idx({});
@@ -352,14 +352,12 @@ public:
     tolk_assert(false);
   }
 
-  void start_visiting_function(FunctionPtr fun_ref, V<ast_function_declaration> v_function) override {
-    tolk_assert(fun_ref->is_inlined_in_place());
+  void on_enter_function(V<ast_function_declaration> v_function) override {
+    tolk_assert(cur_f->is_inlined_in_place());
 
-    for (int i = 0; i < fun_ref->get_num_params(); ++i) {
-      fun_ref->get_param(i).mutate()->assign_ir_idx({});
+    for (int i = 0; i < cur_f->get_num_params(); ++i) {
+      cur_f->get_param(i).mutate()->assign_ir_idx({});
     }
-
-    parent::visit(v_function->get_body());
   }
 };
 

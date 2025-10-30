@@ -91,6 +91,8 @@ class ASTReplacerInFunctionBody : public ASTReplacer {
 protected:
   using parent = ASTReplacerInFunctionBody;
 
+  FunctionPtr cur_f = nullptr;
+
   // expressions
   virtual AnyExprV replace(V<ast_empty_expression> v)          { return replace_children(v); }
   virtual AnyExprV replace(V<ast_parenthesized_expression> v)  { return replace_children(v); }
@@ -204,8 +206,15 @@ protected:
 public:
   virtual bool should_visit_function(FunctionPtr fun_ref) = 0;
 
-  virtual void start_replacing_in_function(FunctionPtr fun_ref, V<ast_function_declaration> v_function) {
+  virtual void on_enter_function(V<ast_function_declaration> v_function) {}
+  virtual void on_exit_function(V<ast_function_declaration> v_function) {}
+
+  void start_replacing_in_function(FunctionPtr fun_ref, V<ast_function_declaration> v_function) {
+    cur_f = fun_ref;
+    on_enter_function(v_function);
     replace(v_function->get_body());
+    on_exit_function(v_function);
+    cur_f = nullptr;
   }
 };
 

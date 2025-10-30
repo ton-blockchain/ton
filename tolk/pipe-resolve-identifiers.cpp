@@ -111,24 +111,21 @@ struct NameAndScopeResolver {
 };
 
 class AssignSymInsideFunctionVisitor final : public ASTVisitorFunctionBody {
-  // more correctly this field shouldn't be static, but currently there is no need to make it a part of state
-  static NameAndScopeResolver current_scope;
-  static FunctionPtr cur_f;
+  NameAndScopeResolver current_scope;
 
-  static LocalVarPtr create_local_var_sym(std::string_view name, AnyV ident_anchor, AnyTypeV declared_type_node, bool immutable, bool lateinit) {
+  LocalVarPtr create_local_var_sym(std::string_view name, AnyV ident_anchor, AnyTypeV declared_type_node, bool immutable, bool lateinit) {
     LocalVarData* v_sym = new LocalVarData(static_cast<std::string>(name), ident_anchor, declared_type_node, nullptr, immutable * LocalVarData::flagImmutable + lateinit * LocalVarData::flagLateInit, -1);
     current_scope.add_local_var(v_sym);
     return v_sym;
   }
 
-  static void process_catch_variable(AnyExprV catch_var) {
+  void process_catch_variable(AnyExprV catch_var) {
     if (auto v_ref = catch_var->try_as<ast_reference>()) {
       LocalVarPtr var_ref = create_local_var_sym(v_ref->get_name(), catch_var, nullptr, true, false);
       v_ref->mutate()->assign_sym(var_ref);
     }
   }
 
-protected:
   void visit(V<ast_local_var_lhs> v) override {
     if (v->marked_as_redef) {
       const Symbol* sym = current_scope.lookup_symbol(v->get_name());
@@ -226,10 +223,17 @@ protected:
   }
 
   void visit(V<ast_block_statement> v) override {
-    if (v->empty()) {
-      return;
-    }
     current_scope.open_scope();
+    if (v == cur_f->ast_root->as<ast_function_declaration>()->get_body()) {
+      for (int i = 0; i < cur_f->get_num_params(); ++i) {
+        LocalVarPtr param_ref = &cur_f->parameters[i];
+        current_scope.add_local_var(param_ref);
+        if (param_ref->has_default_value()) {
+          parent::visit(param_ref->default_value);
+        }
+      }
+    }
+
     parent::visit(v);
     current_scope.close_scope();
   }
@@ -257,23 +261,8 @@ public:
     return fun_ref->is_code_function();
   }
 
-  void start_visiting_function(FunctionPtr fun_ref, V<ast_function_declaration> v) override {
-    cur_f = fun_ref;
-
-    auto v_block = v->get_body()->as<ast_block_statement>();
-    current_scope.open_scope();
-    for (int i = 0; i < fun_ref->get_num_params(); ++i) {
-      LocalVarPtr param_ref = &fun_ref->parameters[i];
-      current_scope.add_local_var(param_ref);
-      if (param_ref->has_default_value()) {
-        parent::visit(param_ref->default_value);
-      }
-    }
-    parent::visit(v_block);
-    current_scope.close_scope();
+  void on_exit_function(V<ast_function_declaration> v_function) override {
     tolk_assert(current_scope.scopes.empty());
-
-    cur_f = nullptr;
   }
 
   void start_visiting_constant(GlobalConstPtr const_ref) {
@@ -299,9 +288,6 @@ public:
     }
   }
 };
-
-NameAndScopeResolver AssignSymInsideFunctionVisitor::current_scope;
-FunctionPtr AssignSymInsideFunctionVisitor::cur_f = nullptr;
 
 void pipeline_resolve_identifiers_and_assign_symbols() {
   AssignSymInsideFunctionVisitor visitor;

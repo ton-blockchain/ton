@@ -605,7 +605,7 @@ static ExprUsagesWhileCollecting collect_expr_usages_in_block(std::string name_f
 // This visitor finds usages of "v" / "v.field" / etc. in ONE statement or expression and populates lazy_expr data.
 // For every struct, all its fields are also populated; for a union — all its variants.
 // Since AST vertices don't have "parent_node", we need to remember some details while traversing top-down.
-class CollectUsagesInStatementVisitor final : ASTVisitorFunctionBody {
+class CollectUsagesInStatementVisitor final : public ASTVisitorFunctionBody {
   AnyV cur_stmt;
   SinkExpression s_expr;
   ExprUsagesWhileCollecting* lazy_expr;
@@ -614,7 +614,6 @@ class CollectUsagesInStatementVisitor final : ASTVisitorFunctionBody {
   CollectUsagesInStatementVisitor(AnyV cur_stmt, SinkExpression s_expr, ExprUsagesWhileCollecting* lazy_expr)
     : cur_stmt(cur_stmt), s_expr(s_expr), lazy_expr(lazy_expr) {}
 
-protected:
   void visit(V<ast_reference> v) override {
     if (extract_sink_expression_from_vertex(v) == s_expr) {
       bool is_subj_of_dot = parent_dot && parent_dot->is_target_struct_field() && parent_dot->get_obj() == v;
@@ -822,10 +821,8 @@ static ExprUsagesWhileCollecting collect_expr_usages_in_block(std::string name_f
 // This visitor finds `var st = lazy expr`, launches finding usages for `st`,
 // and adds `st` as LazyVarInFunction to a global list.
 class CollectAllLazyObjectsAndFieldsVisitor final : public ASTVisitorFunctionBody {
-  FunctionPtr cur_f = nullptr;
   V<ast_block_statement> parent_block = nullptr;
 
-protected:
   void visit(V<ast_block_statement> v) override {
     auto backup = parent_block;
     parent_block = v;
@@ -870,11 +867,6 @@ public:
   bool should_visit_function(FunctionPtr fun_ref) override {
     return fun_ref->is_code_function() && !fun_ref->is_generic_function();
   }
-
-  void start_visiting_function(FunctionPtr fun_ref, V<ast_function_declaration> v_function) override {
-    cur_f = fun_ref;
-    parent::visit(v_function->get_body());
-  }
 };
 
 // Step 2:
@@ -882,10 +874,7 @@ public:
 // inserting (already calculated) load vertices. They are auxiliary vertices holding special data.
 // They are handled later when transforming AST to Ops.
 class LazyLoadInsertionsReplacer final : public ASTReplacerInFunctionBody {
-  FunctionPtr cur_f = nullptr;
-  V<ast_block_statement> f_body = nullptr;
 
-protected:
   // `var st = lazy expr` -> save "st" (it will be used in codegen to assert "st.x" that "x" is loaded)
   AnyExprV replace(V<ast_lazy_operator> v) override {
     for (const LazyVarInFunction& lazy_var : functions_with_lazy_vars[cur_f]) {
@@ -944,19 +933,12 @@ public:
   bool should_visit_function(FunctionPtr fun_ref) override {
     return fun_ref->is_code_function() && functions_with_lazy_vars.contains(fun_ref);
   }
-
-  void start_replacing_in_function(FunctionPtr fun_ref, V<ast_function_declaration> v_function) override {
-    cur_f = fun_ref;
-    f_body = v_function->get_body()->as<ast_block_statement>();
-    parent::replace(v_function->get_body());
-  }
 };
 
 // Step 3:
 // After modifying AST (inserting loads, lazy match, etc.),
 // check __expect_lazy() calls, used in compiler tests as assertions.
 class CheckExpectLazyAssertionsVisitor final : public ASTVisitorFunctionBody {
-  FunctionPtr cur_f = nullptr;
 
   static std::string stringify_lazy_load_above_stmt(const AuxData_LazyObjectLoadFields* aux_load) {
     static const char* action_to_str[] = {"load", "skip", "lazy match", "save immutable"};
@@ -1015,11 +997,6 @@ class CheckExpectLazyAssertionsVisitor final : public ASTVisitorFunctionBody {
 public:
   bool should_visit_function(FunctionPtr fun_ref) override {
     return fun_ref->is_code_function() && functions_with_lazy_vars.contains(fun_ref);
-  }
-
-  void start_visiting_function(FunctionPtr fun_ref, V<ast_function_declaration> v_function) override {
-    cur_f = fun_ref;
-    parent::visit(v_function->get_body());
   }
 };
 

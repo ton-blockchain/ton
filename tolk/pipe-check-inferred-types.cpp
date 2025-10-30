@@ -201,9 +201,7 @@ static bool check_eq_neq_operator(TypePtr lhs_type, TypePtr rhs_type, bool& not_
 }
 
 class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
-  FunctionPtr cur_f = nullptr;          // may be nullptr if checking `const a = ...` init_value
 
-protected:
   void visit(V<ast_set_assign> v) override {
     AnyExprV lhs = v->get_lhs();
     AnyExprV rhs = v->get_rhs();
@@ -788,30 +786,26 @@ protected:
     }
   }
 
- public:
+public:
   bool should_visit_function(FunctionPtr fun_ref) override {
     return fun_ref->is_code_function() && !fun_ref->is_generic_function();
   }
 
-  void start_visiting_function(FunctionPtr fun_ref, V<ast_function_declaration> v_function) override {
-    cur_f = fun_ref;
-    parent::visit(v_function->get_body());
-    cur_f = nullptr;
-
-    if (fun_ref->is_implicit_return() && fun_ref->declared_return_type) {
-      if (!fun_ref->declared_return_type->can_rhs_be_assigned(TypeDataVoid::create()) || fun_ref->does_return_self()) {
-        err("missing return").fire(SrcRange::empty_at_end(v_function->get_body()->range), fun_ref);
+  void on_exit_function(V<ast_function_declaration> v_function) override {
+    if (cur_f->is_implicit_return() && cur_f->declared_return_type) {
+      if (!cur_f->declared_return_type->can_rhs_be_assigned(TypeDataVoid::create()) || cur_f->does_return_self()) {
+        err("missing return").fire(SrcRange::empty_at_end(v_function->get_body()->range), cur_f);
       }
     }
 
     // visit default values of parameters
-    for (int i = 0; i < fun_ref->get_num_params(); ++i) {
-      if (LocalVarPtr param_ref = &fun_ref->get_param(i); param_ref->has_default_value()) {
+    for (int i = 0; i < cur_f->get_num_params(); ++i) {
+      if (LocalVarPtr param_ref = &cur_f->get_param(i); param_ref->has_default_value()) {
         parent::visit(param_ref->default_value);
 
         TypePtr inferred_type = param_ref->default_value->inferred_type;
         if (!param_ref->declared_type->can_rhs_be_assigned(inferred_type)) {
-          err_type_mismatch("can not assign {src} to {dst}", inferred_type, param_ref->declared_type).fire(param_ref->default_value, fun_ref);
+          err_type_mismatch("can not assign {src} to {dst}", inferred_type, param_ref->declared_type).fire(param_ref->default_value, cur_f);
         }
       }
     }

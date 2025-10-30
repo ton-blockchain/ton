@@ -51,8 +51,7 @@ static bool is_onBouncedMessage(FunctionPtr fun_ref) {
 }
 
 
-struct TransformOnInternalMessageReplacer final : ASTReplacerInFunctionBody {
-  FunctionPtr cur_f = nullptr;
+class TransformOnInternalMessageReplacer final : public ASTReplacerInFunctionBody {
   LocalVarPtr param_ref = nullptr;         // `in` for `fun onInternalMessage(in: InMessage)`
 
   static void validate_onBouncedMessage(FunctionPtr f) {
@@ -68,7 +67,6 @@ struct TransformOnInternalMessageReplacer final : ASTReplacerInFunctionBody {
     }
   }
 
-protected:
   AnyExprV replace(V<ast_reference> v) override {
     // don't allow `var v = in` or passing `in` to another function (only `in.someField` is allowed)
     if (v->sym == param_ref) {
@@ -96,19 +94,17 @@ public:
     return is_onInternalMessage(fun_ref) || is_onBouncedMessage(fun_ref);
   }
 
-  void start_replacing_in_function(FunctionPtr fun_ref, V<ast_function_declaration> v_function) override {
-    if (fun_ref->name == "onBouncedMessage") {
-      validate_onBouncedMessage(fun_ref);
+  void on_enter_function(V<ast_function_declaration> v_function) override {
+    if (cur_f->name == "onBouncedMessage") {
+      validate_onBouncedMessage(cur_f);
     }
+    param_ref = &cur_f->parameters[0];
+  }
 
-    cur_f = fun_ref;
-    param_ref = &fun_ref->parameters[0];
-
-    parent::replace(v_function->get_body());
-
+  void on_exit_function(V<ast_function_declaration> v_function) override {
     std::vector<LocalVarData> new_parameters;
-    new_parameters.emplace_back("in.body", fun_ref->ident_anchor, TypeDataSlice::create(), nullptr, 0, 0);
-    fun_ref->mutate()->parameters = std::move(new_parameters);
+    new_parameters.emplace_back("in.body", cur_f->ident_anchor, TypeDataSlice::create(), nullptr, 0, 0);
+    cur_f->mutate()->parameters = std::move(new_parameters);
   }
 };
 

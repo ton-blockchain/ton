@@ -455,8 +455,6 @@ class ResolveTypesInsideFunctionVisitor final : public ASTVisitorFunctionBody {
     return type_nodes_visitor.finalize_type_node(type_node, allow_without_type_arguments);
   }
 
-protected:
-
   void visit(V<ast_local_var_lhs> v) override {
     if (v->type_node) {
       TypePtr declared_type = finalize_type_node(v->type_node);
@@ -541,40 +539,36 @@ public:
     return !fun_ref->is_builtin();
   }
 
-  void start_visiting_function(FunctionPtr fun_ref, V<ast_function_declaration> v) override {
-    if (fun_ref->receiver_type_node) {
-      TypeNodesVisitorResolver receiver_visitor(fun_ref, fun_ref->genericTs, fun_ref->substitutedTs, true);
-      TypePtr receiver_type = receiver_visitor.finalize_type_node(fun_ref->receiver_type_node);
+  void on_enter_function(V<ast_function_declaration> v) override {
+    if (cur_f->receiver_type_node) {
+      TypeNodesVisitorResolver receiver_visitor(cur_f, cur_f->genericTs, cur_f->substitutedTs, true);
+      TypePtr receiver_type = receiver_visitor.finalize_type_node(cur_f->receiver_type_node);
       std::string name_prefix = receiver_type->as_human_readable();
       bool embrace = receiver_type->try_as<TypeDataUnion>() && !receiver_type->try_as<TypeDataUnion>()->or_null;
       if (embrace) {
         name_prefix = "(" + name_prefix + ")";
       }
-      fun_ref->mutate()->assign_resolved_receiver_type(receiver_type, std::move(name_prefix));
-      G.symtable.add_function(fun_ref);
+      cur_f->mutate()->assign_resolved_receiver_type(receiver_type, std::move(name_prefix));
+      G.symtable.add_function(cur_f);
     }
-    if (v->genericsT_list || (fun_ref->receiver_type && fun_ref->receiver_type->has_genericT_inside())) {
-      const GenericsDeclaration* genericTs = TypeNodesVisitorResolver::construct_genericTs(fun_ref->receiver_type, v->genericsT_list);
-      fun_ref->mutate()->assign_resolved_genericTs(genericTs);
+    if (v->genericsT_list || (cur_f->receiver_type && cur_f->receiver_type->has_genericT_inside())) {
+      const GenericsDeclaration* genericTs = TypeNodesVisitorResolver::construct_genericTs(cur_f->receiver_type, v->genericsT_list);
+      cur_f->mutate()->assign_resolved_genericTs(genericTs);
     }
 
-    type_nodes_visitor = TypeNodesVisitorResolver(fun_ref, fun_ref->genericTs, fun_ref->substitutedTs, false);
+    type_nodes_visitor = TypeNodesVisitorResolver(cur_f, cur_f->genericTs, cur_f->substitutedTs, false);
 
-    for (int i = 0; i < fun_ref->get_num_params(); ++i) {
-      LocalVarPtr param_ref = &fun_ref->parameters[i];
+    for (int i = 0; i < cur_f->get_num_params(); ++i) {
+      LocalVarPtr param_ref = &cur_f->parameters[i];
       TypePtr declared_type = finalize_type_node(param_ref->type_node);
       param_ref->mutate()->assign_resolved_type(declared_type);
       if (param_ref->has_default_value()) {
         parent::visit(param_ref->default_value);
       }
     }
-    if (fun_ref->return_type_node) {
-      TypePtr declared_return_type = finalize_type_node(fun_ref->return_type_node);
-      fun_ref->mutate()->assign_resolved_type(declared_return_type);
-    }
-
-    if (fun_ref->is_code_function()) {
-      parent::visit(v->get_body()->as<ast_block_statement>());
+    if (cur_f->return_type_node) {
+      TypePtr declared_return_type = finalize_type_node(cur_f->return_type_node);
+      cur_f->mutate()->assign_resolved_type(declared_return_type);
     }
   }
 

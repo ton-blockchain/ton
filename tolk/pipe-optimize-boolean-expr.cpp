@@ -36,7 +36,8 @@
 
 namespace tolk {
 
-struct OptimizerBooleanExpressionsReplacer final : ASTReplacerInFunctionBody {
+class OptimizerBooleanExpressionsReplacer final : public ASTReplacerInFunctionBody {
+
   static V<ast_int_const> create_int_const(SrcRange range, td::RefInt256&& intval) {
     auto v_int = createV<ast_int_const>(range, std::move(intval), {});
     v_int->assign_inferred_type(TypeDataInt::create());
@@ -81,8 +82,6 @@ struct OptimizerBooleanExpressionsReplacer final : ASTReplacerInFunctionBody {
     }
     return false;
   }
-
-protected:
 
   AnyExprV replace(V<ast_unary_operator> v) override {
     parent::replace(v);

@@ -59,7 +59,6 @@ static void validate_function_used_as_noncall(FunctionPtr cur_f, AnyExprV v, Fun
 }
 
 class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
-  FunctionPtr cur_f = nullptr;
 
   void on_var_used_as_lvalue(SrcRange range, LocalVarPtr var_ref) const {
     if (var_ref->is_immutable()) {
@@ -275,12 +274,6 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
 public:
   bool should_visit_function(FunctionPtr fun_ref) override {
     return fun_ref->is_code_function() && !fun_ref->is_generic_function();
-  }
-
-  void start_visiting_function(FunctionPtr fun_ref, V<ast_function_declaration> v_function) override {
-    cur_f = fun_ref;
-    parent::visit(v_function->get_body());
-    cur_f = nullptr;
   }
 };
 

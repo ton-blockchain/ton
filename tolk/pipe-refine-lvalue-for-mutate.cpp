@@ -47,7 +47,6 @@ static Error err_invalid_mutate_arg_passed(FunctionPtr fun_ref, const LocalVarDa
 
 
 class RefineLvalueForMutateArgumentsVisitor final : public ASTVisitorFunctionBody {
-  FunctionPtr cur_f = nullptr;
 
   void visit(V<ast_function_call> v) override {
     // v is `globalF(args)` / `globalF<int>(args)` / `obj.method(args)` / `local_var(args)` / `getF()(args)`
@@ -103,11 +102,6 @@ class RefineLvalueForMutateArgumentsVisitor final : public ASTVisitorFunctionBod
 public:
   bool should_visit_function(FunctionPtr fun_ref) override {
     return fun_ref->is_code_function() && !fun_ref->is_generic_function();
-  }
-
-  void start_visiting_function(FunctionPtr fun_ref, V<ast_function_declaration> v_function) override {
-    cur_f = fun_ref;
-    parent::visit(v_function->get_body());
   }
 };
 

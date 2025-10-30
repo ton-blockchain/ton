@@ -30,7 +30,7 @@
 namespace tolk {
 
 class ConstantExpressionsChecker final : public ASTVisitorFunctionBody {
-protected:
+
   void visit(V<ast_function_call> v) override {
     // check `ton("0.05")` and others for correctness (not `ton(local_var)`, etc.)
     if (v->fun_maybe && v->fun_maybe->is_compile_time_const_val()) {

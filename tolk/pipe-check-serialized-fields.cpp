@@ -80,7 +80,6 @@ static void check_enum_colon_type_to_be_intN(AnyTypeV colon_type_node) {
 
 
 class CheckSerializedFieldsAndTypesVisitor final : public ASTVisitorFunctionBody {
-  FunctionPtr cur_f = nullptr;
 
   static void check_type_fits_cell_or_has_policy(TypePtr serialized_type) {
     if (const TypeDataStruct* s_struct = serialized_type->unwrap_alias()->try_as<TypeDataStruct>()) {
@@ -151,14 +150,10 @@ public:
     return fun_ref->is_code_function() && !fun_ref->is_generic_function();
   }
 
-  void start_visiting_function(FunctionPtr fun_ref, V<ast_function_declaration> v_function) override {
-    cur_f = fun_ref;
-
+  void on_enter_function(V<ast_function_declaration> v_function) override {
     for (int i = 0; i < cur_f->get_num_params(); ++i) {
       check_mapKV_inside_type(cur_f->get_param(i).type_node);
     }
-
-    parent::visit(v_function->get_body());
   }
 };
 

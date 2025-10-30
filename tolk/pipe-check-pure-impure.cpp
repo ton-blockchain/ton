@@ -30,7 +30,6 @@ static Error err_impure_operation_inside_pure_function() {
 }
 
 class CheckImpureOperationsInPureFunctionVisitor final : public ASTVisitorFunctionBody {
-  FunctionPtr cur_f = nullptr;
 
   void fire_if_global_var(AnyExprV v) const {
     if (auto v_ident = v->try_as<ast_reference>()) {
@@ -83,11 +82,6 @@ class CheckImpureOperationsInPureFunctionVisitor final : public ASTVisitorFuncti
 public:
   bool should_visit_function(FunctionPtr fun_ref) override {
     return fun_ref->is_code_function() && !fun_ref->is_generic_function() && fun_ref->is_marked_as_pure();
-  }
-
-  void start_visiting_function(FunctionPtr fun_ref, V<ast_function_declaration> v_function) override {
-    cur_f = fun_ref;
-    parent::visit(v_function->get_body());
   }
 };
 
