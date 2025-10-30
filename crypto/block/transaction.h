@@ -177,6 +177,7 @@ struct ActionPhaseConfig {
   bool disable_ihr_flag{false};
   td::optional<td::Bits256> mc_blackhole_addr;
   bool disable_anycast{false};
+  int global_version = 0;
   const MsgPrices& fetch_msg_prices(bool is_masterchain) const {
     return is_masterchain ? fwd_mc : fwd_std;
   }
@@ -186,6 +187,7 @@ struct SerializeConfig {
   bool extra_currency_v2{false};
   bool disable_anycast{false};
   bool store_storage_dict_hash{false};
+  SizeLimitsConfig size_limits;
 };
 
 struct CreditPhase {
@@ -194,7 +196,7 @@ struct CreditPhase {
 };
 
 struct ComputePhase {
-  enum { sk_none, sk_no_state, sk_bad_state, sk_no_gas, sk_suspended };
+  enum { sk_none = 0, sk_no_state = 1, sk_bad_state = 2, sk_no_gas = 3, sk_suspended = 4 };
   int skip_reason{sk_none};
   bool success{false};
   bool msg_state_used{false};
@@ -356,6 +358,8 @@ struct Transaction {
   bool bounce_enabled{false};
   bool in_msg_extern{false};
   gen::CommonMsgInfo::Record_int_msg_info in_msg_info;
+  bool new_bounce_format{false};
+  bool new_bounce_format_full_body{false};
   bool use_msg_state{false};
   bool is_first{false};
   bool orig_addr_rewrite_set{false};
@@ -399,6 +403,7 @@ struct Transaction {
   td::optional<td::Bits256> new_storage_dict_hash;
   bool gas_limit_overridden{false};
   std::vector<Ref<vm::Cell>> storage_stat_updates;
+  td::RealCpuTimer::Time time_tvm, time_storage_stat;
   Transaction(const Account& _account, int ttype, ton::LogicalTime req_start_lt, ton::UnixTime _now,
               Ref<vm::Cell> _inmsg = {});
   bool unpack_input_msg(bool ihr_delivered, const ActionPhaseConfig* cfg);
@@ -412,7 +417,7 @@ struct Transaction {
   bool run_precompiled_contract(const ComputePhaseConfig& cfg, precompiled::PrecompiledSmartContract& precompiled);
   bool prepare_compute_phase(const ComputePhaseConfig& cfg);
   bool prepare_action_phase(const ActionPhaseConfig& cfg);
-  td::Status check_state_limits(const SizeLimitsConfig& size_limits, bool is_account_stat = true);
+  td::Status check_state_limits(const SizeLimitsConfig& size_limits, int global_version, bool is_account_stat = true);
   bool prepare_bounce_phase(const ActionPhaseConfig& cfg);
   bool compute_state(const SerializeConfig& cfg);
   bool serialize(const SerializeConfig& cfg);

@@ -242,7 +242,6 @@ class ValidatorManagerInterface : public td::actor::Actor {
                                               td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise) = 0;
 
     virtual void new_key_block(BlockHandle handle) = 0;
-    virtual void send_validator_telemetry(PublicKeyHash key, tl_object_ptr<ton_api::validator_telemetry> telemetry) = 0;
   };
 
   virtual ~ValidatorManagerInterface() = default;
@@ -325,9 +324,9 @@ class ValidatorManagerInterface : public td::actor::Actor {
   virtual void get_block_by_seqno_from_db(AccountIdPrefixFull account, BlockSeqno seqno,
                                           td::Promise<ConstBlockHandle> promise) = 0;
 
-  virtual void wait_block_state(BlockHandle handle, td::uint32 priority, td::Timestamp timeout,
+  virtual void wait_block_state(BlockHandle handle, td::uint32 priority, td::Timestamp timeout, bool wait_store,
                                 td::Promise<td::Ref<ShardState>> promise) = 0;
-  virtual void wait_block_state_short(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
+  virtual void wait_block_state_short(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout, bool wait_store,
                                       td::Promise<td::Ref<ShardState>> promise) = 0;
 
   virtual void wait_neighbor_msg_queue_proofs(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
