@@ -940,7 +940,7 @@ fun demo153() {
 global gTup: tuple;
 
 @noinline
-fun pushToGlobalTup<T>(v: T) { gTup.push(v.__toTuple()); }
+fun pushToGlobalTup<T>(v: T) { gTup.push(v.toTuple()); }
 
 @method_id(154)
 fun demo154() {

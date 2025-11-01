@@ -1006,7 +1006,7 @@ static AsmOp compile_calc_InMessage_getInMsgParam(std::vector<VarDescr>& res, st
   };
   tolk_assert(res.size() == 1 && args.size() == 1 && args[0].is_int_const());
   args[0].unused();
-  size_t idx = args[0].int_const->to_long();
+  uint64_t idx = static_cast<uint64_t>(args[0].int_const->to_long());
   if (idx < std::size(aliases)) {
     return exec_op(origin, aliases[idx], 0);
   }
@@ -1078,8 +1078,8 @@ static AsmOp compile_fetch_varint(std::vector<VarDescr>& res, std::vector<VarDes
   tolk_assert(args.size() == 3 && res.size() == 2);
   // it's a hidden function for auto-serialization (not exposed to stdlib), to bits/unsigned are not dynamic
   tolk_assert(args[1].is_int_const() && args[2].is_int_const());
-  long n_bits = args[1].int_const->to_long();
-  long is_unsigned = args[2].int_const->to_long();
+  uint64_t n_bits = static_cast<uint64_t>(args[1].int_const->to_long());
+  uint64_t is_unsigned = static_cast<uint64_t>(args[2].int_const->to_long());
 
   args[1].unused();
   args[2].unused();
@@ -1122,8 +1122,8 @@ static AsmOp compile_store_varint(std::vector<VarDescr>& res, std::vector<VarDes
   tolk_assert(args.size() == 4 && res.size() == 1);
   // it's a hidden function for auto-serialization (not exposed to stdlib), to bits/unsigned are not dynamic
   tolk_assert(args[2].is_int_const() && args[3].is_int_const());
-  long n_bits = args[2].int_const->to_long();
-  long is_unsigned = args[3].int_const->to_long();
+  uint64_t n_bits = static_cast<uint64_t>(args[2].int_const->to_long());
+  uint64_t is_unsigned = static_cast<uint64_t>(args[3].int_const->to_long());
 
   args[2].unused();
   args[3].unused();
@@ -1263,14 +1263,20 @@ static AsmOp compile_debug_print_to_string(std::vector<VarDescr>&, std::vector<V
   return AsmOp::Custom(origin, cmd, n, n);
 }
 
-// fun T.__toTuple(self): void;    (T can be any number of slots, it works for structs and tensors)
-static AsmOp compile_any_object_to_tuple(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
+// fun T.toTuple(self): tuple;    (T can be any number of slots, it works for structs and tensors)
+static AsmOp compile_T_to_tuple(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
   tolk_assert(res.size() == 1);
-  int n = static_cast<int>(args.size());
-  if (n > 15) {
-    err("call overflow, exceeds 15 elements").fire(origin);
-  }
-  return exec_op(origin, std::to_string(args.size()) + " TUPLE", n, 1);
+  int n_slots = static_cast<int>(args.size());
+  std::string op_make_tuple = std::to_string(n_slots) + (n_slots > 15 ? " PUSHINT TUPLEVAR" : " TUPLE");  
+  return exec_op(origin, op_make_tuple, n_slots, 1);
+}
+
+// fun T.fromTuple(t: tuple): T;
+static AsmOp compile_T_from_tuple(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
+  tolk_assert(args.size() == 1);
+  int n_slots = static_cast<int>(res.size());
+  std::string op_un_tuple = std::to_string(n_slots) + (n_slots > 15 ? " PUSHINT UNTUPLEVAR" : " UNTUPLE");  
+  return exec_op(origin, op_un_tuple, 1, n_slots);
 }
 
 // fun sizeof<T>(anything: T): int;        // (returns the number of stack elements)
@@ -1562,6 +1568,12 @@ void define_builtins() {
   define_builtin_func("address", {TypeDataUnknown::create()}, TypeDataAddress::internal(), nullptr,
                               compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal);
+  define_builtin_method("T.typeName", typeT, {}, TypeDataSlice::create(), declReceiverT,
+                              compile_time_only_function,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAllowAnyWidthT);
+  define_builtin_method("T.typeNameOfObject", typeT, {typeT}, TypeDataSlice::create(), declReceiverT,
+                              compile_time_only_function,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
 
   // functions from stdlib marked as `builtin`, implemented at compiler level for optimizations
   // (for example, `loadInt(1)` is `1 LDI`, but `loadInt(n)` for non-constant requires it be on a stack and `LDIX`)
@@ -1679,6 +1691,12 @@ void define_builtins() {
   define_builtin_method("builder.storeAny", Builder, {Builder, typeT, PackOptions}, Builder, declGenericT,
                                 generate_builder_storeAny,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT);
+  define_builtin_method("T.toTuple", typeT, {typeT}, Tuple, declReceiverT,
+                                compile_T_to_tuple,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
+  define_builtin_method("T.fromTuple", typeT, {Tuple}, typeT, declReceiverT,
+                                compile_T_from_tuple,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT);
 
   define_builtin_func("createMessage", {CreateMessageOptions}, OutMessage, declTBody,
                                 generate_createMessage,
@@ -1708,9 +1726,6 @@ void define_builtins() {
   define_builtin_func("__expect_lazy", {Slice}, Unit, nullptr,
                                 compile_expect_type,
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_method("T.__toTuple", typeT, {typeT}, TypeDataTuple::create(), declReceiverT,
-                                compile_any_object_to_tuple,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
 
   TypePtr MapKV = TypeDataMapKV::create(TypeDataGenericT::create("K"), TypeDataGenericT::create("V"));
   TypePtr TKey = TypeDataGenericT::create("K");

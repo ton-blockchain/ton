@@ -37,6 +37,8 @@ const tens2: (int, int, (int8, int16)) = (tens1.1, tens1.0 << 2, tens1);
 const intOrN: int? = null;
 const int32Or64: int32 | int64 = 7 as int64;
 
+const nameOfAddress = address.typeName()
+
 fun iget1(): int { return int1; }
 fun iget2(): int { return int2; }
 fun iget3(): int { return int1+int2; }
@@ -209,6 +211,12 @@ fun test16() {
     return (wOneTon, wNoTon, wNoSubParams)
 }
 
+@method_id(117)
+fun test17() {
+    __expect_type(nameOfAddress, "slice");
+    return (nameOfAddress.bitsEqual("address"), nameOfAddress.typeNameOfObject().bitsEqual("slice"))
+}
+
 fun main() {
     var i1: int = iget1();
     var i2: int = iget2();
@@ -249,6 +257,7 @@ fun main() {
 @testcase | 114 |   | -1 0 -1 0 100 1 777 50 1 (null) 0
 @testcase | 115 |   | 0 -1 0 0 0 0 0 0 0 -1 777 -1 -1 -1 -1
 @testcase | 116 |   | 1000000000 0 (null) (null) (null) 0
+@testcase | 117 |   | -1 -1
 
-@code_hash 62183191459178893174419204771807638858032941060155787749136667785942705596518
+@code_hash 75101380693091438363237198341416144164642759114287088786910200935773618931276
 */

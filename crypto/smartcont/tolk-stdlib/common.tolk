@@ -138,6 +138,23 @@ struct Cell<T> {
     private readonly tvmCell: cell
 }
 
+/// Get human-readable type name of any T for logging or low-level purposes.
+/// Example:
+/// ```
+/// debug.printString(int.typeName());  // "int"
+/// ```
+@pure
+fun T.typeName(): slice
+    builtin
+
+/// Get human-readable type name of any object for logging or low-level purposes.
+/// Example:
+/// ```
+/// debug.printString(42.typeNameOfObject());   // "int"
+/// ```
+@pure
+fun T.typeNameOfObject(self): slice
+    builtin
 
 /**
     Tuple manipulation primitives.
@@ -190,6 +207,28 @@ fun tuple.last<T>(self): T
 fun tuple.pop<T>(mutate self): T
     asm "TPOP"
 
+/// Packs any object from a stack to a tuple. 
+/// An object occupies N slots on a stack — the tuple will be of size N.
+/// Example:
+/// ```
+/// struct Point { x: int, y: int }
+/// 
+/// var p: Point = { x: 1, y: 2 };
+/// var t = p.toTuple();     // [ 1 2 ]
+/// p = Point.fromTuple(t);  // back
+/// t.get<int>(0);           // 1
+/// ```
+/// It can be used for logging or low-level purposes like running a child VM or custom "equals".
+/// See [T.fromTuple] counterpart.
+@pure
+fun T.toTuple(self): tuple
+    builtin
+
+/// Unpacks a tuple back to an object on a stack.
+/// See [T.toTuple] for explanation and examples.
+@pure
+fun T.fromTuple(packedObject: tuple): T
+    builtin
 
 /**
     Mathematical primitives.

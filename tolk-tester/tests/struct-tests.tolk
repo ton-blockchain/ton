@@ -610,6 +610,44 @@ fun test43() {
     return (obj, PrivWithDefaults.createA(20));
 }
 
+@method_id(144)
+fun test44() {
+    var t = PrivPoint.create(10, 20).toTuple();
+    assert (t.get<int>(1) == 20) throw 123;
+    assert (PrivPoint.fromTuple(t).z == 0) throw 124;
+    return (t, (10 as MInt).toTuple(), PrivWithDefaults{}.toTuple(), PrivWithDefaults.fromTuple(([1, true] as tuple)));
+}
+
+@method_id(145)
+fun test45() {
+    val inner: WithTensorInside = {
+        coords: (10, 20),
+        tup: [-1, -2],
+        otherCoords: null,
+        otherTup: [] as tuple,
+    };
+    return WithTensorInside{
+        coords: (1, 2), 
+        tup: [3, 4], 
+        otherCoords: (5, 6), 
+        otherTup: WithTensorInside.fromTuple(inner.toTuple()).toTuple() 
+    }.toTuple();
+}
+
+struct BigOnStackA {
+    n1: (int, int, int, int, int) = (1,2,3,4,5)
+    n2: (int, int, int, int, int) = (6,7,8,9,10)
+    n3: (int, int, int, int, int) = (11,12,13,14,15)
+    n4: (int, int, int, int, int) = (16,17,18,19,20)
+}
+
+@method_id(146)
+fun test46() {
+    var t = BigOnStackA{}.toTuple();
+    return (t.size(), BigOnStackA.fromTuple(t).n3.toTuple());
+}
+
+
 fun main(x: int8, y: MInt) {
     __expect_type(PointAlias{x,y}, "Point");
     __expect_type(Point{x,y} as Point, "Point");
@@ -671,6 +709,9 @@ type PointAlias = Point;
 @testcase | 141 | 0    | 3 4 1 2
 @testcase | 142 |      | 10 80 5 95
 @testcase | 143 |      | 0 0 20 0
+@testcase | 144 |      | [ 10 20 0 ] [ 10 ] [ 0 0 ] 1 -1
+@testcase | 145 |      | [ 1 2 [ 3 4 ] 5 6 typeid-8 [ 10 20 [ -1 -2 ] (null) (null) 0 [] ] ]
+@testcase | 146 |      | 20 [ 11 12 13 14 15 ] 
 
 @fif_codegen
 """

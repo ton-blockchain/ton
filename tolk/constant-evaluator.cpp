@@ -180,6 +180,11 @@ static ConstValExpression parse_vertex_call_to_compile_time_function(V<ast_funct
       uint64_t val = f_name.ends_with('x') ? t_struct->struct_ref->opcode.pack_prefix : t_struct->struct_ref->opcode.prefix_len;
       return ConstValInt{td::make_refint(val)};
     }
+    if (f_name == "typeName" || f_name == "typeNameOfObject") {
+      std::string readable = receiver->as_human_readable();
+      td::Slice str_slice = td::Slice(readable.data(), std::min(126, static_cast<int>(readable.size())));
+      return ConstValSlice{td::hex_encode(str_slice)};
+    }
   }
 
   tolk_assert(v->get_num_args() == 1);    // checked by type inferring

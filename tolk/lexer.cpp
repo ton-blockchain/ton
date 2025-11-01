@@ -613,18 +613,4 @@ void lexer_init() {
   TolkLanguageGrammar::init();
 }
 
-// todo #ifdef TOLK_PROFILING
-// As told above, `next()` produces tokens on demand, while AST is being generated.
-// Hence, it's difficult to measure Lexer performance separately.
-// This function can be called just to tick Lexer performance, it just scans all input files.
-// There is no sense to use it in production, but when refactoring and optimizing Lexer, it's useful.
-void lexer_measure_performance(const AllRegisteredSrcFiles& files_to_just_parse) {
-  for (const SrcFile* file : files_to_just_parse) {
-    Lexer lex(file);
-    while (!lex.is_eof()) {
-      lex.next();
-    }
-  }
-}
-
 }  // namespace tolk

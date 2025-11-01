@@ -62,9 +62,6 @@ void pipeline_discover_and_parse_sources(const std::string& stdlib_filename, con
       }
     }
   }
-
-  // todo #ifdef TOLK_PROFILING
-  // lexer_measure_performance(G.all_src_files);
 }
 
 } // namespace tolk
