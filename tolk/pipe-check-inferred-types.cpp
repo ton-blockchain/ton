@@ -601,7 +601,7 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
           has_expr_arm = true;
           TypePtr pattern_type = v_arm->get_pattern_expr()->inferred_type;
           bool not_integer_comparison = false;
-          if (!check_eq_neq_operator(pattern_type, subject_type, not_integer_comparison) || not_integer_comparison) {
+          if (!check_eq_neq_operator(pattern_type, subject_type, not_integer_comparison)) {
             if (pattern_type->equal_to(subject_type)) {   // `match` over `slice` etc., where operator `==` can't be applied
               err("wrong pattern matching: can not compare type `{}` in `match`", subject_type).fire(v_arm->get_pattern_expr(), cur_f);
             } else {
@@ -677,17 +677,9 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
         }
       }
     }
-    // `match` by expression, if it's not a statement, should have `else` (unless exhaustive)
-    if (has_expr_arm && !has_else_arm && !v->is_statement() && !subject_enum) {
-      bool needs_else_branch = true;
-      if (expect_boolean(subject_type) && v->get_arms_count() == 2) {
-        auto arm0 = v->get_arm(0)->get_pattern_expr()->try_as<ast_bool_const>();
-        auto arm1 = v->get_arm(1)->get_pattern_expr()->try_as<ast_bool_const>();
-        needs_else_branch = !(arm0 && arm1 && arm0->bool_val != arm1->bool_val);
-      }
-      if (needs_else_branch) {
-        err("`match` expression should have `else` branch").fire(v->keyword_range(), cur_f);
-      }
+    // `match` by expression, if it's not a statement, should have `else` or cover all values
+    if (!v->is_statement() && !v->is_exhaustive) {
+      err("`match` expression should have `else` branch").fire(v->keyword_range(), cur_f);
     }
   }
 

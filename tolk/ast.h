@@ -914,6 +914,8 @@ template<>
 // example: `match (intOrSliceVar) { int => 1, slice => 2 }`
 // example: `match (var c = getIntOrSlice()) { int => return 0, slice => throw 123 }`
 struct Vertex<ast_match_expression> final : ASTExprVararg {
+  bool is_exhaustive = false;   // if it has `else` or covers all cases without `else`; can be used as expression
+
   AnyExprV get_subject() const { return child(0); }
   int get_arms_count() const { return size() - 1; }
   auto get_arm(int i) const { return child(i + 1)->as<ast_match_arm>(); }
@@ -921,6 +923,9 @@ struct Vertex<ast_match_expression> final : ASTExprVararg {
   SrcRange keyword_range() const { return SrcRange::span(range, 5); }
 
   bool is_statement() const { return !is_rvalue && !is_lvalue; }
+
+  Vertex* mutate() const { return const_cast<Vertex*>(this); }
+  void assign_is_exhaustive(bool is_exhaustive);
 
   Vertex(SrcRange range, std::vector<AnyExprV>&& subject_and_arms)
     : ASTExprVararg(ast_match_expression, range, std::move(subject_and_arms)) {}

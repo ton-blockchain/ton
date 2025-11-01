@@ -151,6 +151,10 @@ void Vertex<ast_lazy_operator>::assign_dest_var_ref(LocalVarPtr dest_var_ref) {
   this->dest_var_ref = dest_var_ref;
 }
 
+void Vertex<ast_match_expression>::assign_is_exhaustive(bool is_exhaustive) {
+  this->is_exhaustive = is_exhaustive;
+}
+
 void Vertex<ast_match_arm>::assign_resolved_pattern(MatchArmKind pattern_kind, AnyExprV pattern_expr) {
   this->pattern_type_node = nullptr;
   this->pattern_kind = pattern_kind;

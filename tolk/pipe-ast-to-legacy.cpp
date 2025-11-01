@@ -1454,7 +1454,6 @@ static std::vector<var_idx_t> process_lazy_operator(V<ast_lazy_operator> v, Code
 
 static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v, CodeBlob& code, TypePtr target_type) {
   TypePtr subject_type = v->get_subject()->inferred_type;
-  const TypeDataEnum* subject_enum = subject_type->unwrap_alias()->try_as<TypeDataEnum>();
 
   int n_arms = v->get_arms_count();
   std::vector ir_subj = pre_compile_expr(v->get_subject(), code, nullptr);
@@ -1465,9 +1464,9 @@ static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v
     return {};
   }
 
-  bool has_type_arm = false;
-  bool has_expr_arm = false;
-  bool has_else_arm = false;
+  bool has_type_arm = false;    // it's either `match` by type (all arms are types covering all cases)
+  bool has_expr_arm = false;    // or `match` by expression, patterns can't be mixed, checked earlier
+  bool has_else_arm = false;    // if `else` exists, it's the last
   for (int i = 0; i < n_arms; ++i) {
     auto v_arm = v->get_arm(i);
     has_type_arm |= v_arm->pattern_kind == MatchArmKind::exact_type;
@@ -1475,43 +1474,56 @@ static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v
     has_else_arm |= v_arm->pattern_kind == MatchArmKind::else_branch;
   }
 
-  // it's either `match` by type (all arms patterns are types) or `match` by expression
-  bool is_match_by_type = has_type_arm;
-  // detect whether `match` is exhaustive
-  bool is_exhaustive = is_match_by_type   // match by type covers all cases, checked earlier
-       || !v->is_statement()              // match by expression is exhaustive, checked earlier
-       || (has_expr_arm && subject_enum)  // match by enum (either covers all cases or contains else, checked earlier)
-       || has_else_arm;
-
   // `else` is not allowed in `match` by type; this was not fired at type checking,
-  // because it might turned out to be a lazy match, where `else` is allowed;
+  // because it might have turned out to be a lazy match, where `else` is allowed;
   // if we are here, it's not a lazy match, it's a regular one (the lazy one is handled specially, in aux vertex)
-  if (is_match_by_type && has_else_arm) {
+  if (has_type_arm && has_else_arm) {
     err("`else` is not allowed in `match` by type; you should cover all possible types").fire(v->get_arm(n_arms - 1)->get_pattern_expr());
   }
 
+  // in some cases, if `else` does not exist, we implicitly add it and "throw unreachable" there;
+  int implicit_else_unreachable_throw = 0;
+  // even though `match (enum)` covers all cases, if a stack is malformed (holds a wrong integer), we throw
+  if (v->is_exhaustive && has_expr_arm && !has_else_arm && subject_type->unwrap_alias()->try_as<TypeDataEnum>()) {
+    implicit_else_unreachable_throw = 5;    // "integer is out of range"
+  }
+
+  // how to compare subject and branches for `match` expression, similar to operator `==` which can handle non-integers
+  FunctionPtr eq_fn = lookup_function("_==_");      // for int/bool/enum                                                                   
+  if (subject_type->unwrap_alias()->try_as<TypeDataAddress>()) {
+    eq_fn = lookup_function("slice.bitsEqual");
+  }
+
   // example 1 (exhaustive): `match (v) { int => ... slice => ... builder => ... }`
-  // construct nested IFs: IF is int { ... } ELSE { IF is slice { ... } ELSE { ... } }
+  // IF is int { ... } ELSE { IF is slice { ... } ELSE { ... } }
   // example 2 (exhaustive): `match (v) { -1 => ... 0 => ... else => ... }`
-  // construct nested IFs: IF is int { ... } ELSE { IF is slice { ... } ELSE { ... } }
+  // IF == -1 { ... } ELSE { IF == 0 { ... } ELSE { ... } }
   // example 3 (not exhaustive): `match (v) { -1 => ... 0 => ... 1 => ... }`
-  // construct nested IFs: IF == -1 { ... } ELSE { IF == 0 { ... } ELSE { IF == 1 { ... } } }
-  FunctionPtr eq_sym = lookup_function("_==_");
-  for (int i = 0; i < n_arms - is_exhaustive; ++i) {
+  // IF == -1 { ... } ELSE { IF == 0 { ... } ELSE { IF == 1 { ... } } }
+  // example 4 (with implicit else): `match (role) { User => ... Admin => ... }`
+  // IF == 0 { ... } ELSE { IF == 1 { ... } ELSE { 5 THROW } }
+  for (int i = 0; i < n_arms; ++i) {
     auto v_ith_arm = v->get_arm(i);
-    std::vector<var_idx_t> eq_ith_ir_idx;
-    if (is_match_by_type) {
-      TypePtr cmp_type = v_ith_arm->pattern_type_node->resolved_type;
-      tolk_assert(!cmp_type->unwrap_alias()->try_as<TypeDataUnion>());  // `match` over `int|slice` is a type checker error
-      eq_ith_ir_idx = pre_compile_is_type(code, subject_type, cmp_type, ir_subj, v_ith_arm, "(arm-cond-eq)");
-    } else {
-      std::vector ith_ir_idx = pre_compile_expr(v_ith_arm->get_pattern_expr(), code);
-      tolk_assert(ir_subj.size() == 1 && ith_ir_idx.size() == 1);
-      eq_ith_ir_idx = code.create_tmp_var(TypeDataBool::create(), v_ith_arm, "(arm-cond-eq)");
-      code.emplace_back(v_ith_arm, Op::_Call, eq_ith_ir_idx, std::vector{ir_subj[0], ith_ir_idx[0]}, eq_sym);
+    // if we're inside `else` of inside `builder` (example 1), no more checks, we're inside last else
+    Op* if_op = nullptr;
+    bool inside_last_branch = i == n_arms - 1 && v->is_exhaustive && implicit_else_unreachable_throw == 0;
+    if (!inside_last_branch) {
+      // construct "IF enter_ith_branch"
+      std::vector<var_idx_t> eq_ith_ir_idx;
+      if (has_type_arm) {     // `v is int`, `v is slice`, etc. (type before =>)
+        TypePtr cmp_type = v_ith_arm->pattern_type_node->resolved_type;
+        tolk_assert(!cmp_type->unwrap_alias()->try_as<TypeDataUnion>());  // `match` over `int|slice` is a type checker error
+        eq_ith_ir_idx = pre_compile_is_type(code, subject_type, cmp_type, ir_subj, v_ith_arm, "(arm-cond-eq)");
+      } else {                // `v == 0`, `v == Role.User`, etc. (expr before =>)
+        std::vector ith_ir_idx = pre_compile_expr(v_ith_arm->get_pattern_expr(), code);
+        tolk_assert(ir_subj.size() == 1 && ith_ir_idx.size() == 1);
+        eq_ith_ir_idx = code.create_tmp_var(TypeDataBool::create(), v_ith_arm, "(arm-cond-eq)");
+        code.emplace_back(v_ith_arm, Op::_Call, eq_ith_ir_idx, std::vector{ir_subj[0], ith_ir_idx[0]}, eq_fn);
+      }
+      if_op = &code.emplace_back(v_ith_arm, Op::_If, std::move(eq_ith_ir_idx));
+      code.push_set_cur(if_op->block0);
     }
-    Op& if_op = code.emplace_back(v_ith_arm, Op::_If, std::move(eq_ith_ir_idx));
-    code.push_set_cur(if_op.block0);
+
     if (v->is_statement()) {
       pre_compile_expr(v_ith_arm->get_body(), code);
       if (v == stmt_before_immediate_return) {
@@ -1521,25 +1533,24 @@ static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v
       std::vector arm_ir_idx = pre_compile_expr(v_ith_arm->get_body(), code, v->inferred_type);
       code.emplace_back(v, Op::_Let, ir_result, std::move(arm_ir_idx));
     }
-    code.close_pop_cur(v);
-    code.push_set_cur(if_op.block1);    // open ELSE
-  }
 
-  if (is_exhaustive) {
-    // we're inside the last ELSE
-    auto v_last_arm = v->get_arm(n_arms - 1);
-    if (v->is_statement()) {
-      pre_compile_expr(v_last_arm->get_body(), code);
-      if (v == stmt_before_immediate_return) {
-        code.emplace_back(v_last_arm, Op::_Return);
-      }
-    } else {
-      std::vector arm_ir_idx = pre_compile_expr(v_last_arm->get_body(), code, v->inferred_type);
-      code.emplace_back(v, Op::_Let, ir_result, std::move(arm_ir_idx));
+    if (!inside_last_branch) {
+      code.close_pop_cur(v);
+      code.push_set_cur(if_op->block1);    // open ELSE
     }
   }
+
+  // we are inside last ELSE
+  // if it was user-defined, we've inserted its body already
+  // if it's auto-generated "unreachable", insert "N THROW"
+  if (implicit_else_unreachable_throw) {
+    Op& op_throw = code.emplace_back(v, Op::_Call, std::vector<var_idx_t>{}, std::vector{code.create_int(v, implicit_else_unreachable_throw, "(throw-else)")}, lookup_function("__throw"));
+    op_throw.set_impure_flag();
+  }
+
   // close all outer IFs
-  for (int i = 0; i < n_arms - is_exhaustive; ++i) {
+  int depth = n_arms - v->is_exhaustive + (implicit_else_unreachable_throw != 0);
+  for (int i = 0; i < depth; ++i) {
     code.close_pop_cur(v);
   }
 

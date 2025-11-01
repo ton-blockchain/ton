@@ -1262,9 +1262,11 @@ class InferTypesAndCallsAndFieldsVisitor final {
   ExprFlow infer_match_expression(V<ast_match_expression> v, FlowContext&& flow, bool used_as_condition, TypePtr hint) {
     flow = infer_any_expr(v->get_subject(), std::move(flow), false).out_flow;
     SinkExpression s_expr = extract_sink_expression_from_vertex(v->get_subject());
+    TypePtr subject_type = v->get_subject()->inferred_type;
     TypeInferringUnifyStrategy branches_unifier;
     FlowContext arms_entry_facts = flow.clone();
     FlowContext match_out_flow;
+    bool has_type_arm = false;
     bool has_expr_arm = false;
     bool has_else_arm = false;
 
@@ -1292,12 +1294,11 @@ class InferTypesAndCallsAndFieldsVisitor final {
           }
         }
         arm_flow.register_known_type(s_expr, exact_type);
-
-      } else if (v_arm->pattern_kind == MatchArmKind::const_expression) {
-        has_expr_arm = true;
-      } else if (v_arm->pattern_kind == MatchArmKind::else_branch) {
-        has_else_arm = true;
       }
+
+      has_type_arm |= v_arm->pattern_kind == MatchArmKind::exact_type;
+      has_expr_arm |= v_arm->pattern_kind == MatchArmKind::const_expression;
+      has_else_arm |= v_arm->pattern_kind == MatchArmKind::else_branch;
 
       arm_flow = infer_any_expr(v_arm->get_body(), std::move(arm_flow), false, hint).out_flow;
       match_out_flow = i == 0 ? std::move(arm_flow) : FlowContext::merge_flow(std::move(match_out_flow), std::move(arm_flow));
@@ -1306,7 +1307,21 @@ class InferTypesAndCallsAndFieldsVisitor final {
     if (v->get_arms_count() == 0) {
       match_out_flow = std::move(arms_entry_facts);
     }
-    if (has_expr_arm && !has_else_arm) {
+
+    // calculate if `match` is exhaustive if used correctly (correctness is checked later)
+    bool is_exhaustive = has_else_arm     // user-defined `else` branch
+                      || has_type_arm     // all possible types must be covered, checked in a later pipe
+                      || subject_type->unwrap_alias()->try_as<TypeDataEnum>();  // all enum members must be covered
+    // special case: `match (boolVar) { true => false => }`
+    if (subject_type == TypeDataBool::create() && v->get_arms_count() == 2 && has_expr_arm) {
+      auto arm0 = v->get_arm(0)->get_pattern_expr()->try_as<ast_bool_const>();
+      auto arm1 = v->get_arm(1)->get_pattern_expr()->try_as<ast_bool_const>();
+      is_exhaustive |= arm0 && arm1 && arm0->bool_val != arm1->bool_val;
+    }
+
+    v->mutate()->assign_is_exhaustive(is_exhaustive);
+    if (!is_exhaustive && v->get_arms_count()) {
+      // add implicit `else => {}` branch for control flow
       FlowContext else_flow = process_any_statement(createV<ast_empty_expression>(SrcRange::empty_at_end(v->range)), std::move(arms_entry_facts));
       match_out_flow = FlowContext::merge_flow(std::move(match_out_flow), std::move(else_flow));
     }
