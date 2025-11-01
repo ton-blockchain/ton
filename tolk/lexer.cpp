@@ -423,9 +423,6 @@ struct ChunkIdentifierInBackticks final : ChunkLexerBase {
     const char* str_begin = lex->c_str();
     lex->skip_chars(1);
     while (!lex->is_eof() && lex->char_at() != '`' && lex->char_at() != '\n') {
-      if (std::isspace(lex->char_at())) {
-        lex->error("an identifier can't have a space in its name (even inside backticks)");
-      }
       lex->skip_chars(1);
     }
     if (lex->char_at() != '`') {

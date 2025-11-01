@@ -110,16 +110,16 @@ fun test5() {
     return (sumCoords(p), p.y += 10, p.sumCoords());
 }
 
-struct BacktickNames {
-    `my()id`: MInt,
+struct `Backtick Names` {
+    `my id`: MInt,
     `100500`: int;
 }
 
 @method_id(106)
 fun test6() {
-    val b: BacktickNames = { `100500`: 20, `my()id`: 10 };
+    val b: `Backtick Names` = { `100500`: 20, `my id`: 10 };
     var p: Point = { x: 0, y: 0 };
-    p.x += b.`my()id`;
+    p.x += b.`my id`;
     p.y += b.100500;
     return p;
 }

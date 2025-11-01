@@ -500,13 +500,13 @@ fun test39() {
 @method_id(140)
 fun test40() {
     var `m!empty` = createEmptyMap() as map<int32, int64>?;
-    var `m!filled` = createEmptyMap() as map<int32, int64>?;
+    var `m filled` = createEmptyMap() as map<int32, int64>?;
     var `m_null` = null as map<int32, int64>?;
 
-    `m!filled`!.set(10, 20);
+    `m filled`!.set(10, 20);
     return (
-        `m!empty` == null, `m!filled` == null, `m_null` == null, 777,
-        `m!empty`!.isEmpty(), `m!filled`!.isEmpty(), 777,
+        `m!empty` == null, `m filled` == null, `m_null` == null, 777,
+        `m!empty`!.isEmpty(), `m filled`!.isEmpty(), 777,
         `m!empty`, `m_null`,
     );
 }

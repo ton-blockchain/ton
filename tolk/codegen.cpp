@@ -21,6 +21,12 @@
 
 namespace tolk {
 
+static void sanitize_fift_name(std::string &name) {
+  if (name.find(' ') != std::string::npos) {
+    std::replace(name.begin(), name.end(), ' ', '-');
+  }
+}
+
 /*
  * 
  *   GENERATE TVM STACK CODE
@@ -339,7 +345,7 @@ bool Op::generate_code_step(Stack& stack) {
         if (!used || disabled()) {
           return true;
         }
-        stack.o << AsmOp::Custom(origin, "$" + g_sym->name + " GETGLOB", 0, 1);
+        stack.o << AsmOp::Custom(origin, CodeBlob::fift_name(g_sym) + " GETGLOB", 0, 1);
         if (left.size() != 1) {
           tolk_assert(left.size() <= 15);
           stack.o << AsmOp::UnTuple(origin, (int)left.size());
@@ -376,7 +382,7 @@ bool Op::generate_code_step(Stack& stack) {
             std::get<FunctionBodyBuiltinAsmOp*>(f_sym->body)->compile(stack.o, res, args0, origin);  // compile res := f (args0)
           }
         } else {
-          stack.o << AsmOp::Custom(origin, f_sym->name + "() CALLDICT", (int)right.size(), (int)left.size());
+          stack.o << AsmOp::Custom(origin, CodeBlob::fift_name(f_sym) + " CALLDICT", (int)right.size(), (int)left.size());
         }
         stack.o.undent();
         stack.o << AsmOp::Custom(nullptr, "}>");
@@ -518,12 +524,12 @@ bool Op::generate_code_step(Stack& stack) {
         }
       } else {
         if (f_sym->inline_mode == FunctionInlineMode::inlineViaFif || f_sym->inline_mode == FunctionInlineMode::inlineRef) {
-          stack.o << AsmOp::Custom(origin, f_sym->name + "() INLINECALLDICT", (int)right.size(), (int)left.size());
+          stack.o << AsmOp::Custom(origin, CodeBlob::fift_name(f_sym) + " INLINECALLDICT", (int)right.size(), (int)left.size());
         } else if (f_sym->is_code_function() && std::get<FunctionBodyCode*>(f_sym->body)->code->require_callxargs) {
-          stack.o << AsmOp::Custom(origin, f_sym->name + ("() PREPAREDICT"), 0, 2);
+          stack.o << AsmOp::Custom(origin, CodeBlob::fift_name(f_sym) + " PREPAREDICT", 0, 2);
           exec_callxargs((int)right.size() + 1, (int)left.size());
         } else {
-          stack.o << AsmOp::Custom(origin, f_sym->name + "() CALLDICT", (int)right.size(), (int)left.size());
+          stack.o << AsmOp::Custom(origin, CodeBlob::fift_name(f_sym) + " CALLDICT", (int)right.size(), (int)left.size());
         }
       }
       stack.modified();
@@ -551,7 +557,7 @@ bool Op::generate_code_step(Stack& stack) {
         stack.o << AsmOp::Tuple(origin, (int)right.size());
       }
       if (!right.empty()) {
-        stack.o << AsmOp::Custom(origin, "$" + g_sym->name + " SETGLOB", 1, 0);
+        stack.o << AsmOp::Custom(origin, CodeBlob::fift_name(g_sym) + " SETGLOB", 1, 0);
         stack.modified();
       }
       stack.s.resize(k);
@@ -895,6 +901,19 @@ void Op::generate_code_all(Stack& stack) {
     next->generate_code_all(stack);
   }
 }
+
+std::string CodeBlob::fift_name(FunctionPtr fun_ref) {
+  std::string fift_name = fun_ref->name;
+  sanitize_fift_name(fift_name);
+  return fift_name + "()";
+}
+
+std::string CodeBlob::fift_name(GlobalVarPtr var_ref) {
+  std::string fift_name = "$" + var_ref->name;
+  sanitize_fift_name(fift_name);
+  return fift_name;
+}
+
 
 void CodeBlob::generate_code(std::ostream& os, int mode, int indent) const {
   AsmOpList out_list(indent, &vars);

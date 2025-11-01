@@ -11,7 +11,7 @@ const ASDF = 1;
 fun f() {}
 
 @custom({
-    `type`: 123,
+    `type sp`: 123,
     value: 19
 })
 @custom("another", 12, "annotation")

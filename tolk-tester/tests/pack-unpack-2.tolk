@@ -465,7 +465,7 @@ struct WithAnyAddress {
 
 
 @method_id(200)
-fun test_JustInt32_1() {
+fun `test JustInt32_1`() {
     var b = beginCell();
     b.storeAny(JustInt32{ value: 123 });
     b.storeAny(JustInt32{ value: 456 });
@@ -473,7 +473,7 @@ fun test_JustInt32_1() {
 }
 
 @method_id(201)
-fun test_JustInt32() {
+fun `test JustInt32`() {
     run<JustInt32>({ value: 255}, stringHexToSlice("000000FF"));
     var s = stringHexToSlice("0000007b000001c8");
     return (s.loadAny<JustInt32>(), s.loadAny<JustInt32>());

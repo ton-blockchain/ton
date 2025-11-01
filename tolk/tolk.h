@@ -1127,6 +1127,9 @@ struct CodeBlob {
   void fwd_analyze();
   void mark_noreturn();
   void generate_code(std::ostream& os, int mode = 0, int indent = 0) const;
+
+  static std::string fift_name(FunctionPtr fun_ref);
+  static std::string fift_name(GlobalVarPtr var_ref);
 };
 
 // defined in builtins.cpp

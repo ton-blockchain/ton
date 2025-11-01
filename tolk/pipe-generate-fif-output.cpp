@@ -88,7 +88,7 @@ static void generate_output_func(FunctionPtr fun_ref) {
   if (G.settings.tolk_src_as_line_comments) {
     std::cout << "  // " << fun_ref->ident_anchor->range.stringify_start_location(false) << std::endl;
   }
-  std::cout << "  " << fun_ref->name << "() PROC" << modifier << ":<{";
+  std::cout << "  " << CodeBlob::fift_name(fun_ref) << " PROC" << modifier << ":<{";
   int mode = 0;
   if (G.settings.stack_layout_comments) {
     mode |= Stack::_StackComments;
@@ -150,9 +150,9 @@ void pipeline_generate_fif_output_to_std_cout() {
 
     std::cout << "  ";
     if (fun_ref->has_tvm_method_id()) {
-      std::cout << fun_ref->tvm_method_id << " DECLMETHOD " << fun_ref->name << "()\n";
+      std::cout << fun_ref->tvm_method_id << " DECLMETHOD " << CodeBlob::fift_name(fun_ref) << "\n";
     } else {
-      std::cout << "DECLPROC " << fun_ref->name << "()\n";
+      std::cout << "DECLPROC " << CodeBlob::fift_name(fun_ref) << "\n";
     }
   }
 
@@ -177,7 +177,7 @@ void pipeline_generate_fif_output_to_std_cout() {
       continue;
     }
 
-    std::cout << "  " << "DECLGLOBVAR $" << var_ref->name << "\n";
+    std::cout << "  " << "DECLGLOBVAR " << CodeBlob::fift_name(var_ref) << "\n";
   }
 
   for (FunctionPtr fun_ref : G.all_functions) {
