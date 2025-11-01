@@ -152,14 +152,16 @@ bool Optimizer::detect_rewrite_big_THROW() {
   }
 
   std::string s_number(s_num_throw.substr(0, sp));
-  uint64_t excno = std::stoul(s_number);
-  if (excno < 2048) {   // "9 THROW" left as is, but "N THROW" where N>=2^11 is invalid for Fift
+  td::RefInt256 excno = td::string_to_int256(s_number);
+  // "9 THROW" left as is, but "N THROW" where N>=2^11 is invalid for Fift
+  // `is_null()` can be when the user intentionally corrupts asm instructions, let Fift fail
+  if (excno.is_null() || (excno >= 0 && excno < 2048)) {
     return false;
   }
 
   p_ = 1;
   q_ = 2;
-  oq_[0] = std::make_unique<AsmOp>(AsmOp::IntConst(op_[0]->origin, td::make_refint(excno)));
+  oq_[0] = std::make_unique<AsmOp>(AsmOp::IntConst(op_[0]->origin, excno));
   oq_[1] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, "THROWANY", 1, 0));
   return true;
 }
@@ -665,9 +667,11 @@ bool Optimizer::detect_rewrite_xxx_NOT() {
     bool is_gtint = f.ends_with(" GTINT");
     std::string s_number(f.substr(0, f.rfind(' ')));
     td::RefInt256 number = td::string_to_int256(s_number);
-    number += is_gtint ? 1 : -1;
 
-    if (number > -127 && number < 127) {
+    if (!number.is_null()) {
+      number += is_gtint ? 1 : -1;
+    }
+    if (!number.is_null() && number > -127 && number < 127) {
       p_ = 2;
       q_ = 1;
       std::string new_op = number->to_dec_string() + (is_gtint ? " LESSINT" : " GTINT");

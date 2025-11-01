@@ -204,7 +204,7 @@ fun testStoreChaining() {
     b.storeUint(4, 32);
     b.myStoreUint(5, 32).storeUint(6, 32);
     storeUint(mutate b, 7, 32);
-    b = b.storeUint(8, 32);
+    builder.storeUint(mutate b, 8, 32);
     b = b.storeUint(9, 32).storeUint(10, 32);
 
     return b.bitsCount();
@@ -216,7 +216,7 @@ fun testStoreChainingCustom() {
     b.myStoreUint(4, 32);
     b.myStoreUint(5, 32).myStoreUint(6, 32);
     myStoreUint(mutate b, 7, 32);
-    b = b.myStoreUint(8, 32);
+    builder.myStoreUint(mutate b, 8, 32);
     b = b.myStoreUint(9, 32).myStoreUint(10, 32);
     val sum1 = getSumOfNumbersInCell(b.endCell());
 

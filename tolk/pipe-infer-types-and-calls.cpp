@@ -1218,7 +1218,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
     // get return type either from user-specified declaration or infer here on demand traversing its body
     v->mutate()->assign_fun_ref(fun_ref, self_obj != nullptr);
     get_or_infer_return_type(fun_ref);
-    TypePtr inferred_type = fun_ref->does_return_self() ? self_obj->inferred_type : fun_ref->inferred_return_type;
+    TypePtr inferred_type = fun_ref->does_return_self() && self_obj ? self_obj->inferred_type : fun_ref->inferred_return_type;
     assign_inferred_type(v, inferred_type);
     assign_inferred_type(callee, fun_ref->inferred_full_type);
     if (inferred_type == TypeDataNever::create()) {

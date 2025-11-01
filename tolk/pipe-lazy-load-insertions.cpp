@@ -209,11 +209,6 @@ static void check_lazy_operator_used_correctly(FunctionPtr cur_f, V<ast_lazy_ope
 // If yes, the body of the method is also traversed to detect usages.
 // If no, it's assumed that all fields of `storage` are used (an object used "as a whole").
 static bool can_method_be_inlined_preserving_lazy(FunctionPtr method_ref) {
-  if (method_ref->is_builtin() && method_ref->is_instantiation_of_generic_function()) {
-    std::string_view f_name = method_ref->base_fun_ref->name;
-    return f_name == "T.toCell" || f_name == "T.forceLoadLazyObject";
-  }
-
   return method_ref->is_inlined_in_place() &&    // only AST-inlined methods can be lazy
         !method_ref->has_mutate_params() &&
         !method_ref->does_return_self();
@@ -231,6 +226,7 @@ struct ExprUsagesWhileCollecting {
   int used_for_writing = 0;
   int used_for_matching = 0;
   int used_for_toCell = 0;
+  int used_reassigned_type = 0;
   int total_usages_with_fields = 0;
   std::vector<AnyV> needed_above_stmt;
   std::vector<V<ast_match_expression>> used_as_match_subj;
@@ -272,6 +268,7 @@ struct ExprUsagesWhileCollecting {
     used_for_writing += rhs.used_for_writing;
     used_for_matching += rhs.used_for_matching;
     used_for_toCell += rhs.used_for_toCell;
+    used_reassigned_type += rhs.used_reassigned_type;
     total_usages_with_fields += rhs.total_usages_with_fields;
     needed_above_stmt.insert(needed_above_stmt.end(), rhs.needed_above_stmt.begin(), rhs.needed_above_stmt.end());
     used_as_match_subj.insert(used_as_match_subj.end(), rhs.used_as_match_subj.begin(), rhs.used_as_match_subj.end());
@@ -297,6 +294,10 @@ struct ExprUsagesWhileCollecting {
     used_as_match_subj.push_back(v_match);
     used_for_matching++;
     total_usages_with_fields++;
+  }
+
+  void on_used_reassigned_type() {
+    used_reassigned_type++;    
   }
 
   bool is_self_or_field_used_for_reading() const {
@@ -551,8 +552,9 @@ struct LazyVarInFunction {
 
     // handle if `msg` is used only in `match (msg) { ... }`
     // (it may even be not a union, just a struct with opcode, and `match` with `else`)
-    bool used_only_as_match = var_usages.used_for_matching == 1 && !var_usages.used_for_reading && !var_usages.used_for_toCell && !var_usages.used_for_writing;
-    if (used_only_as_match) {
+    bool used_only_as_match = var_usages.used_for_matching == 1 && !var_usages.used_for_reading && !var_usages.used_for_toCell && !var_usages.used_for_writing && !var_usages.used_reassigned_type;
+    bool variants_not_reassigned = std::all_of(var_usages.variants.begin(), var_usages.variants.end(), [](const ExprUsagesWhileCollecting& variant_usages) { return !variant_usages.used_reassigned_type; });
+    if (used_only_as_match && variants_not_reassigned) {
       v_lazy_match_var_itself = var_usages.used_as_match_subj.front();
       load_points.reserve(var_usages.variants.size());
       for (ExprUsagesWhileCollecting& variant_usages : var_usages.variants) {
@@ -566,8 +568,11 @@ struct LazyVarInFunction {
     // prohibit this to a union: lazy union may only be matched, nothing more (`msg is A` etc. don't work)
     const TypeDataStruct* t_struct = var_ref->declared_type->unwrap_alias()->try_as<TypeDataStruct>();
     bool is_union = t_struct == nullptr;
+    if (is_union && used_only_as_match) {
+      err("`lazy` will not work here, because variable `{}` changes its type inside `match`\n""hint: probably, it's reassigned, or called a method with a different receiver", var_ref).fire(created_by_lazy_op->keyword_range(), cur_f);
+    }
     if (is_union) {
-      err("`lazy` will not work here, because variable `{}` it's used in a non-lazy manner\n""hint: lazy union may be used only in `match` statement", var_ref).fire(created_by_lazy_op->keyword_range(), cur_f);
+      err("`lazy` will not work here, because variable `{}` is used in a non-lazy manner\n""hint: lazy union may be used only in `match` statement, exactly once", var_ref).fire(created_by_lazy_op->keyword_range(), cur_f);
     }
 
     // so, it's just a struct, `lazy Point`; we've already calculated all statements where its fields are used
@@ -620,6 +625,9 @@ class CollectUsagesInStatementVisitor final : public ASTVisitorFunctionBody {
       if (!is_subj_of_dot) {
         lazy_expr->on_used_rw(v->is_lvalue);
       }
+      if (!v->is_lvalue && !lazy_expr->expr_type->equal_to(v->inferred_type)) {
+        lazy_expr->on_used_reassigned_type();     // e.g. in `A => ...` variable was reassigned and now is `B`
+      }
     }
   }
 
@@ -638,7 +646,7 @@ class CollectUsagesInStatementVisitor final : public ASTVisitorFunctionBody {
 
   void visit(V<ast_function_call> v) override {
     FunctionPtr fun_ref = v->fun_maybe;
-    if (fun_ref && fun_ref->does_accept_self() && can_method_be_inlined_preserving_lazy(fun_ref)) {
+    if (fun_ref && fun_ref->does_accept_self() && v->dot_obj_is_self) {
       AnyExprV dot_obj = v->get_callee()->as<ast_dot_access>()->get_obj();
       if (extract_sink_expression_from_vertex(dot_obj) == s_expr) {
         // handle built-in functions specially
@@ -646,22 +654,24 @@ class CollectUsagesInStatementVisitor final : public ASTVisitorFunctionBody {
           lazy_expr->on_used_toCell();
           return;
         }
-        if (fun_ref->is_builtin() && fun_ref->base_fun_ref->name == "T.forceLoadLazyObject") {
-          lazy_expr->on_used_rw(false);     // just use the object as a whole, slice will point to its end
-          return;
+
+        // if receiver is another type, e.g. `fun (A|B).method(self)`, called from `match (v) { A => v.method() }`
+        if (!fun_ref->parameters[0].declared_type->equal_to(lazy_expr->expr_type)) {
+          lazy_expr->on_used_reassigned_type();
         }
-        if (s_expr.index_path) {    // obj.f.method(), mark obj.f as used anyway
+        // for `obj.f.method()`, mark lazy_expr=obj.f "used" anyway
+        if (s_expr.index_path) {    
           lazy_expr->on_used_rw(false);
         }
-        tolk_assert(fun_ref->is_code_function());
-
-        // okay, we have `st.save()` / `p.getX()`, which will be inlined when transforming to IR;
+        // if we have `st.save()` / `p.getX()` / `obj.f.method()`, which will be inlined when transforming to IR,
         // dig into that method's body to fetch used fields `self.x` etc.
-        auto v_body_block = fun_ref->ast_root->try_as<ast_function_declaration>()->get_body()->try_as<ast_block_statement>();
-        ExprUsagesWhileCollecting inner_usages = collect_expr_usages_in_block(lazy_expr->name_str + "(=self)", SinkExpression(&fun_ref->parameters[0]), lazy_expr->expr_type, v_body_block);
-        inner_usages.treat_match_like_read();   // nested lazy match in inlined functions doesn't work, it's not wrapped into aux vertex
-        lazy_expr->merge_with_sub_block(inner_usages);
-        return;
+        if (can_method_be_inlined_preserving_lazy(fun_ref)) {
+          auto v_body_block = fun_ref->ast_root->try_as<ast_function_declaration>()->get_body()->try_as<ast_block_statement>();
+          ExprUsagesWhileCollecting inner_usages = collect_expr_usages_in_block(lazy_expr->name_str + "(=self)", SinkExpression(&fun_ref->parameters[0]), lazy_expr->expr_type, v_body_block);
+          inner_usages.treat_match_like_read();   // nested lazy match in inlined functions doesn't work, it's not wrapped into aux vertex
+          lazy_expr->merge_with_sub_block(inner_usages);
+          return;
+        }
       }
     }
 
@@ -684,6 +694,10 @@ class CollectUsagesInStatementVisitor final : public ASTVisitorFunctionBody {
       is_safe = v_assign->get_rhs() == v;
     } else if (auto v_set_assign = cur_stmt->try_as<ast_set_assign>()) {
       is_safe = v_set_assign->get_rhs() == v;
+    }
+
+    if (!lazy_expr->expr_type->equal_to(subj->inferred_type)) {
+      is_safe = false;    // `v = v as Union; match (v)` or inside a method with a different receiver
     }
 
     if (is_match_by_cur && is_safe) {
@@ -973,8 +987,10 @@ class CheckExpectLazyAssertionsVisitor final : public ASTVisitorFunctionBody {
       AnyV cur_stmt = v->get_item(i);
       if (auto v_call = cur_stmt->try_as<ast_function_call>()) {
         if (v_call->fun_maybe && v_call->fun_maybe->is_builtin() && v_call->fun_maybe->name == "__expect_lazy") {
+          // __expect_lazy("...") is a compiler built-in for testing, it's not indented to be called by users
+          auto v_expected_str = v_call->get_arg(0)->get_expr()->try_as<ast_string_const>();
+          tolk_assert(i + 1 < v->size() && v_expected_str && "invalid __expect_lazy");
           AnyV next_stmt = v->get_item(i + 1);
-          std::string_view expected = v_call->get_arg(0)->get_expr()->as<ast_string_const>()->str_val;
           std::string actual;
           if (auto next_aux = next_stmt->try_as<ast_artificial_aux_vertex>()) {
             if (const auto* aux_load = dynamic_cast<const AuxData_LazyObjectLoadFields*>(next_aux->aux_data)) {
@@ -985,7 +1001,7 @@ class CheckExpectLazyAssertionsVisitor final : public ASTVisitorFunctionBody {
             }
           }
 
-          if (actual != expected) {
+          if (actual != v_expected_str->str_val) {
             err("__expect_lazy failed: actual \"{}\"", actual).fire(SrcRange::span(cur_stmt->range, 13));
           }
         }

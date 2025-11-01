@@ -77,7 +77,7 @@ class TransformOnInternalMessageReplacer final : public ASTReplacerInFunctionBod
 
   AnyExprV replace(V<ast_dot_access> v) override {
     // replace `in.senderAddress` / `in.valueCoins` with an aux vertex
-    if (v->get_obj()->kind == ast_reference && v->get_obj()->as<ast_reference>()->sym == param_ref) {
+    if (v->get_obj()->kind == ast_reference && v->get_obj()->as<ast_reference>()->sym == param_ref && v->is_target_struct_field()) {
       if (v->is_lvalue && v->get_field_name() != "body" && v->get_field_name() != "bouncedBody") {
         err("modifying an immutable variable\n""hint: fields of InMessage can be used for reading only").fire(v, cur_f);
       }

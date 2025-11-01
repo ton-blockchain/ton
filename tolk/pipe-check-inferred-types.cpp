@@ -134,14 +134,29 @@ static void handle_possible_compiler_internal_call(FunctionPtr cur_f, V<ast_func
   FunctionPtr fun_ref = v->fun_maybe;
   tolk_assert(fun_ref && fun_ref->is_builtin());
 
-  if (fun_ref->name == "__expect_type") {
-    tolk_assert(v->get_num_args() == 2);
-    std::string_view expected_type_str = v->get_arg(1)->get_expr()->as<ast_string_const>()->str_val;
+  if (fun_ref->name == "__expect_type" && v->get_num_args() == 2) {
+    // __expect_type(expr, "...") is a compiler built-in for testing, it's not indented to be called by users
+    auto v_expected_str = v->get_arg(1)->get_expr()->try_as<ast_string_const>();
+    tolk_assert(v_expected_str && "invalid __expect_type");
     TypePtr expr_type = v->get_arg(0)->inferred_type;
-    if (expected_type_str != expr_type->as_human_readable()) {
-      err("__expect_type failed: expected `{}`, got `{}`", expected_type_str, expr_type).fire(v, cur_f);
+    if (v_expected_str->str_val != expr_type->as_human_readable()) {
+      err("__expect_type failed: expected `{}`, got `{}`", v_expected_str->str_val, expr_type).fire(v, cur_f);
     }
   }
+}
+
+// detect `if (x = 1)` having its condition to fire a warning;
+// note that `if ((x = f()) == null)` and other usages of assignment is rvalue is okay
+static bool is_assignment_inside_condition(AnyExprV cond) {
+  while (auto v_par = cond->try_as<ast_parenthesized_expression>()) {
+    cond = v_par->get_expr();
+  }
+  return cond->kind == ast_assign || cond->kind == ast_set_assign;
+}
+
+// make an error for `if (x = 1)`
+static Error err_assignment_inside_condition() {
+  return err("assignment inside condition, probably it's a misprint\n""hint: if it's intentional, extract assignment as a separate statement for clarity");
 }
 
 static bool expect_integer(TypePtr inferred_type) {
@@ -545,6 +560,9 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     if (cond->is_always_true || cond->is_always_false) {
       warning_condition_always_true_or_false(cur_f, cond->range, cond, "ternary operator");
     }
+    if (is_assignment_inside_condition(cond)) {
+      err_assignment_inside_condition().warning(cond, cur_f);
+    }
   }
 
   void visit(V<ast_match_expression> v) override {
@@ -702,6 +720,9 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     if (cond->is_always_true || cond->is_always_false) {
       warning_condition_always_true_or_false(cur_f, v->keyword_range(), cond, "`if`");
     }
+    if (is_assignment_inside_condition(cond)) {
+      err_assignment_inside_condition().warning(cond, cur_f);
+    }
   }
 
   void visit(V<ast_repeat_statement> v) override {
@@ -724,6 +745,9 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     if (cond->is_always_true || cond->is_always_false) {
       warning_condition_always_true_or_false(cur_f, v->keyword_range(), cond, "`while`");
     }
+    if (is_assignment_inside_condition(cond)) {
+      err_assignment_inside_condition().warning(cond, cur_f);
+    }
   }
 
   void visit(V<ast_do_while_statement> v) override {
@@ -736,6 +760,9 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
 
     if (cond->is_always_true || cond->is_always_false) {
       warning_condition_always_true_or_false(cur_f, v->keyword_range(), cond, "`do while`");
+    }
+    if (is_assignment_inside_condition(cond)) {
+      err_assignment_inside_condition().warning(cond, cur_f);
     }
   }
 
@@ -763,6 +790,9 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
 
     if (cond->is_always_true || cond->is_always_false) {
       warning_condition_always_true_or_false(cur_f, v->keyword_range(), cond, "`assert`");
+    }
+    if (is_assignment_inside_condition(cond)) {
+      err_assignment_inside_condition().warning(cond, cur_f);
     }
   }
 

@@ -224,8 +224,6 @@ AsmOp AsmOp::Parse(AnyV origin, const std::string& custom_op) {
     return AsmOp::Push(origin, 0);
   } else if (custom_op == "OVER") {
     return AsmOp::Push(origin, 1);
-  } else if (custom_op.ends_with(" PUSHINT") && custom_op[0] >= '1' && custom_op[0] <= '9' && custom_op.find(' ') == custom_op.rfind(' ')) {
-    return AsmOp::IntConst(origin, td::string_to_int256(custom_op.substr(0, custom_op.find(' '))));
   } else {
     return AsmOp::Custom(origin, custom_op);
   }

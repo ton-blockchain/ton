@@ -132,11 +132,15 @@ static AnyExprV maybe_replace_eq_null_with_isNull_check(V<ast_binary_operator> v
 }
 
 // parse `123` / `0xFF` / `0b10001` to td::RefInt256
-static td::RefInt256 parse_tok_int_const(std::string_view text) {
+static td::RefInt256 parse_tok_int_const(std::string_view text, SrcRange cur_range) {
   bool bin = text[0] == '0' && text[1] == 'b';
   if (!bin) {
     // this function parses decimal and hex numbers
-    return td::string_to_int256(static_cast<std::string>(text));
+    td::RefInt256 intval = td::string_to_int256(static_cast<std::string>(text));
+    if (intval.is_null() || !intval->signed_fits_bits(257)) {
+      err("invalid integer constant").fire(cur_range);
+    }
+    return intval;
   }
   // parse a binary number; to make it simpler, don't allow too long numbers, it's impractical
   if (text.size() > 64 + 2) {
@@ -726,6 +730,7 @@ static V<ast_match_arm> parse_match_arm(Lexer& lex) {
   }
   if (!exact_type || lex.tok() != tok_double_arrow) {
     exact_type = nullptr;
+    pattern_kind = static_cast<MatchArmKind>(-1);
     lex.restore_position(backup);
     try {
       pattern_expr = parse_expr(lex);
@@ -875,10 +880,7 @@ static AnyExprV parse_expr100(Lexer& lex) {
     case tok_int_const: {
       SrcRange range = lex.cur_range();
       std::string_view orig_str = lex.cur_str();
-      td::RefInt256 intval = parse_tok_int_const(orig_str);
-      if (intval.is_null() || !intval->signed_fits_bits(257)) {
-        lex.error("invalid integer constant");
-      }
+      td::RefInt256 intval = parse_tok_int_const(orig_str, lex.cur_range());
       lex.next();
       return createV<ast_int_const>(range, std::move(intval), orig_str);
     }
@@ -1448,8 +1450,8 @@ static AnyV parse_asm_func_body(Lexer& lex, V<ast_identifier> name_ident, V<ast_
     }
     if (lex.tok() == tok_arrow) {
       lex.next();
-      while (lex.tok() == tok_int_const) {
-        int ret_idx = std::atoi(static_cast<std::string>(lex.cur_str()).c_str());
+      while (lex.tok() == tok_int_const && lex.cur_str().size() < 6) {
+        int ret_idx = std::stoi(static_cast<std::string>(lex.cur_str()));
         ret_order.push_back(ret_idx);
         lex.next();
       }
@@ -1738,7 +1740,8 @@ static AnyV parse_struct_declaration(Lexer& lex, const std::vector<V<ast_annotat
       lex.unexpected("opcode `0x...` or `0b...`");
     }
     SrcRange opcode_range = lex.cur_range();
-    opcode = createV<ast_int_const>(opcode_range, parse_tok_int_const(opcode_str), opcode_str);
+    td::RefInt256 intval = parse_tok_int_const(opcode_str, opcode_range);
+    opcode = createV<ast_int_const>(opcode_range, std::move(intval), opcode_str);
     lex.next();
     lex.expect(tok_clpar, "`)`");
   } else {

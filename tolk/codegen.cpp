@@ -357,7 +357,6 @@ bool Op::generate_code_step(Stack& stack) {
         stack.o << AsmOp::Custom(origin, "CONT:<{");
         stack.o.indent();
         if (f_sym->is_asm_function() || f_sym->is_builtin()) {
-          // TODO: create and compile a true lambda instead of this (so that arg_order and ret_order would work correctly)
           std::vector<VarDescr> args0, res;
           int w_arg = 0;
           for (const LocalVarData& param : f_sym->parameters) {
