@@ -165,7 +165,7 @@ public:
 
 
 bool is_type_cellT(TypePtr any_type);
-FunctionPtr get_custom_pack_unpack_function(TypePtr receiver_type, bool is_pack);
+void get_custom_pack_unpack_function(TypePtr receiver_type, FunctionPtr& f_pack, FunctionPtr& f_unpack);
 std::vector<PackOpcode> auto_generate_opcodes_for_union(TypePtr union_type, std::string& because_msg);
 TypePtr calculate_intN_to_serialize_enum(EnumDefPtr enum_ref);
 

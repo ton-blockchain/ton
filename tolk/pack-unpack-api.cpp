@@ -167,7 +167,9 @@ public:
       if (t_alias->alias_ref->name == "RemainingBitsAndRefs") {   // it's built-in RemainingBitsAndRefs (slice)
         return {};
       }
-      if (FunctionPtr f_pack = get_custom_pack_unpack_function(t_alias, true)) {
+      FunctionPtr f_pack = nullptr, f_unpack = nullptr;
+      get_custom_pack_unpack_function(t_alias, f_pack, f_unpack);
+      if (f_pack) {
         std::string receiver_name = t_alias->alias_ref->as_human_readable();
         if (!check_declared_packToBuilder(t_alias, f_pack)) {
           return CantSerializeBecause("because `" + receiver_name + ".packToBuilder()` is declared incorrectly\n""hint: it must accept 2 parameters and return nothing:\n> fun " + receiver_name + ".packToBuilder(self, mutate b: builder)");
@@ -175,20 +177,26 @@ public:
         if (!f_pack->is_inlined_in_place()) {
           return CantSerializeBecause("because `" + receiver_name + ".packToBuilder()` can't be inlined; probably, it contains `return` in the middle");
         }
-        if (FunctionPtr f_unpack = get_custom_pack_unpack_function(t_alias, false)) {
-          if (!check_declared_unpackFromSlice(t_alias, f_unpack)) {
-            return CantSerializeBecause("because `" + receiver_name + ".unpackFromSlice()` is declared incorrectly\n""hint: it must accept 1 parameter and return an object:\n> fun " + receiver_name + ".unpackFromSlice(mutate s: slice): " + receiver_name);
-          }
-          if (!f_unpack->is_inlined_in_place()) {
-            return CantSerializeBecause("because `" + receiver_name + ".unpackFromSlice()` can't be inlined; probably, it contains `return` in the middle");
-          }
-        } else if (!is_pack) {
+        if (!is_pack && !f_unpack) {
           return CantSerializeBecause("because type `" + receiver_name + "` defines a custom pack function, but does not define unpack\n""hint: declare unpacker like this:\n> fun " + receiver_name + ".unpackFromSlice(mutate s: slice): " + receiver_name);
         }
-        return {};
       }
-      if (auto why = detect_why_cant_serialize(t_alias->underlying_type, is_pack)) {
-        return CantSerializeBecause("because alias `" + t_alias->as_human_readable() + "` expands to `" + t_alias->underlying_type->as_human_readable() + "`", why.value());
+      if (f_unpack) {
+        std::string receiver_name = t_alias->alias_ref->as_human_readable();
+        if (!check_declared_unpackFromSlice(t_alias, f_unpack)) {
+          return CantSerializeBecause("because `" + receiver_name + ".unpackFromSlice()` is declared incorrectly\n""hint: it must accept 1 parameter and return an object:\n> fun " + receiver_name + ".unpackFromSlice(mutate s: slice): " + receiver_name);
+        }
+        if (!f_unpack->is_inlined_in_place()) {
+          return CantSerializeBecause("because `" + receiver_name + ".unpackFromSlice()` can't be inlined; probably, it contains `return` in the middle");
+        }
+        if (is_pack && !f_pack) {
+          return CantSerializeBecause("because type `" + receiver_name + "` defines a custom unpack function, but does not define pack\n""hint: declare packer like this:\n> fun " + receiver_name + ".packToBuilder(self, mutate b: builder)");
+        }
+      }
+      if (!f_pack && !f_unpack) {
+        if (auto why = detect_why_cant_serialize(t_alias->underlying_type, is_pack)) {
+          return CantSerializeBecause("because alias `" + t_alias->as_human_readable() + "` expands to `" + t_alias->underlying_type->as_human_readable() + "`", why.value());
+        }
       }
       return {};
     }
