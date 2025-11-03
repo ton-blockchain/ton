@@ -1350,7 +1350,6 @@ void ValidatorManagerImpl::finished_wait_state(BlockHandle handle, td::Result<td
       for (auto &X : it->second.waiting_preliminary_) {
         X.promise.set_error(S.clone());
       }
-      wait_state_.erase(it);
     } else if (!it->second.waiting_.empty() || !it->second.waiting_preliminary_.empty()) {
       auto X = it->second.get_timeout();
       auto P1 = td::PromiseCreator::lambda([SelfId = actor_id(this), handle](td::Result<td::Ref<ShardState>> R) {
@@ -1364,7 +1363,9 @@ void ValidatorManagerImpl::finished_wait_state(BlockHandle handle, td::Result<td
                                                         get_block_persistent_state_to_download(handle->id()))
                     .release();
       it->second.actor_ = id;
+      return;
     }
+    wait_state_.erase(it);
   }
 }
 
