@@ -5,6 +5,8 @@ on:
 
 jobs:
   clear-cache:
+    env:
+      GH_TOKEN: ${{ github.token }}
     runs-on: ubuntu-latest
     steps:
       - name: Clear all cache
