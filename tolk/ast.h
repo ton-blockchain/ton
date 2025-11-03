@@ -63,6 +63,8 @@ namespace tolk {
 
 enum ASTNodeKind {
   ast_identifier,
+  ast_parameter,
+  ast_parameter_list,
   // types
   ast_type_leaf_text,
   ast_type_question_nullable,
@@ -105,6 +107,7 @@ enum ASTNodeKind {
   ast_object_field,
   ast_object_body,
   ast_object_literal,
+  ast_lambda_fun,
   // statements
   ast_empty_statement,
   ast_block_statement,
@@ -122,8 +125,6 @@ enum ASTNodeKind {
   ast_genericsT_list,
   ast_instantiationT_item,
   ast_instantiationT_list,
-  ast_parameter,
-  ast_parameter_list,
   ast_annotation,
   ast_function_declaration,
   ast_global_var_declaration,
@@ -384,6 +385,39 @@ struct Vertex<ast_identifier> final : ASTOtherLeaf {
   Vertex(SrcRange range, std::string_view name)
     : ASTOtherLeaf(ast_identifier, range)
     , name(name) {}
+};
+
+template<>
+// ast_parameter is a parameter of a function in its declaration
+// example: `fun f(a: int, mutate b: slice)` has 2 parameters
+// example: `fun f(a: int = 0)` has 1 parameter with default value
+// example: `fun(a, b: slice)` a lambda has 2 parameters, `a` has no type_node
+struct Vertex<ast_parameter> final : ASTOtherVararg {
+  AnyTypeV type_node;                         // always exists for regular functions, may be nullptr for lambdas
+  AnyExprV default_value;                     // default value of the parameter or nullptr
+  bool declared_as_mutate;                    // declared as `mutate param_name`
+
+  auto get_identifier() const { return children.at(0)->as<ast_identifier>(); }
+  std::string_view get_name() const { return children.at(0)->as<ast_identifier>()->name; }
+
+  Vertex(SrcRange range, V<ast_identifier> name_identifier, AnyTypeV type_node, AnyExprV default_value, bool declared_as_mutate)
+    : ASTOtherVararg(ast_parameter, range, {name_identifier})
+    , type_node(type_node), default_value(default_value), declared_as_mutate(declared_as_mutate) {}
+};
+
+template<>
+// ast_parameter_list is a container of parameters
+// example: see above
+struct Vertex<ast_parameter_list> final : ASTOtherVararg {
+  const std::vector<AnyV>& get_params() const { return children; }
+  auto get_param(int i) const { return children.at(i)->as<ast_parameter>(); }
+
+  Vertex(SrcRange range, std::vector<AnyV> params)
+    : ASTOtherVararg(ast_parameter_list, range, std::move(params)) {}
+
+  int lookup_idx(std::string_view param_name) const;
+  int get_mutate_params_count() const;
+  bool has_mutate_params() const { return get_mutate_params_count() > 0; }
 };
 
 
@@ -1005,6 +1039,35 @@ struct Vertex<ast_object_literal> final : ASTExprUnary {
     , type_node(type_node) {}
 };
 
+template<>
+// ast_lambda_fun is an anonymous function (a lambda); no capturing allowed, so it's not a closure
+// example: `var cb = fun(a: int) { return abs(a) }`, rhs is a lambda;
+// note that from the AST point of view, it's a LEAF: it's an expression, but parameters and body are not expressions;
+// hence, ASTVisitor does not traverse any lambda's body, scopes are not mixed, etc.;
+// instead, lambda's body is instantiated as a regular function name="lambda@xxx" and travels through pipeline
+struct Vertex<ast_lambda_fun> final : ASTExprLeaf {
+private:
+  V<ast_parameter_list> parameters;
+  V<ast_block_statement> body;
+
+public:
+  AnyTypeV return_type_node;              // `fun(): <return_type> {}` or nullptr for `fun() {}`
+  FunctionPtr lambda_ref = nullptr;       // filled in type-inferring (instantiating lambdas is similar to generic functions)
+
+  int get_num_params()  const { return parameters->size(); }
+  auto get_param_list() const { return parameters; }
+  auto get_param(int i) const { return parameters->get_param(i); }
+  auto get_body() const { return body; }
+  SrcRange keyword_range() const { return SrcRange::span(range, 3); }
+  
+  Vertex* mutate() const { return const_cast<Vertex*>(this); }
+  void assign_lambda_ref(FunctionPtr lambda_ref);
+
+  Vertex(SrcRange range, V<ast_parameter_list> parameters, V<ast_block_statement> body, AnyTypeV return_type_node)
+    : ASTExprLeaf(ast_lambda_fun, range)
+    , parameters(parameters), body(body), return_type_node(return_type_node) {}
+};
+
 
 //
 // ---------------------------------------------------------
@@ -1220,37 +1283,6 @@ struct Vertex<ast_instantiationT_list> final : ASTOtherVararg {
 };
 
 template<>
-// ast_parameter is a parameter of a function in its declaration
-// example: `fun f(a: int, mutate b: slice)` has 2 parameters
-// example: `fun f(a: int = 0)` has 1 parameter with default value
-struct Vertex<ast_parameter> final : ASTOtherVararg {
-  AnyTypeV type_node;                         // always exists, typing parameters is mandatory
-  AnyExprV default_value;                     // default value of the parameter or nullptr
-  bool declared_as_mutate;                    // declared as `mutate param_name`
-
-  auto get_identifier() const { return children.at(0)->as<ast_identifier>(); }
-
-  Vertex(SrcRange range, V<ast_identifier> name_identifier, AnyTypeV type_node, AnyExprV default_value, bool declared_as_mutate)
-    : ASTOtherVararg(ast_parameter, range, {name_identifier})
-    , type_node(type_node), default_value(default_value), declared_as_mutate(declared_as_mutate) {}
-};
-
-template<>
-// ast_parameter_list is a container of parameters
-// example: see above
-struct Vertex<ast_parameter_list> final : ASTOtherVararg {
-  const std::vector<AnyV>& get_params() const { return children; }
-  auto get_param(int i) const { return children.at(i)->as<ast_parameter>(); }
-
-  Vertex(SrcRange range, std::vector<AnyV> params)
-    : ASTOtherVararg(ast_parameter_list, range, std::move(params)) {}
-
-  int lookup_idx(std::string_view param_name) const;
-  int get_mutate_params_count() const;
-  bool has_mutate_params() const { return get_mutate_params_count() > 0; }
-};
-
-template<>
 // ast_annotation is @annotation above a declaration
 // example: `@pure fun ...`
 struct Vertex<ast_annotation> final : ASTOtherVararg {
@@ -1283,7 +1315,7 @@ struct Vertex<ast_function_declaration> final : ASTOtherVararg {
   AnyTypeV receiver_type_node;            // for `fun builder.storeInt`, here is `builder`
   AnyTypeV return_type_node;              // if unspecified (nullptr), means "auto infer"
   V<ast_genericsT_list> genericsT_list;   // for non-generics it's nullptr
-  td::RefInt256 tvm_method_id;            // specified via @method_id annotation
+  int tvm_method_id;                      // specified via @method_id annotation
   int flags;                              // from enum in FunctionData
   FunctionInlineMode inline_mode;         // from annotations like `@inline` or auto-detected "in-place"
 
@@ -1294,9 +1326,9 @@ struct Vertex<ast_function_declaration> final : ASTOtherVararg {
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
   void assign_fun_ref(FunctionPtr fun_ref);
 
-  Vertex(SrcRange range, V<ast_identifier> name_identifier, V<ast_parameter_list> parameters, AnyV body, AnyTypeV receiver_type_node, AnyTypeV return_type_node, V<ast_genericsT_list> genericsT_list, td::RefInt256 tvm_method_id, int flags, FunctionInlineMode inline_mode)
+  Vertex(SrcRange range, V<ast_identifier> name_identifier, V<ast_parameter_list> parameters, AnyV body, AnyTypeV receiver_type_node, AnyTypeV return_type_node, V<ast_genericsT_list> genericsT_list, int tvm_method_id, int flags, FunctionInlineMode inline_mode)
     : ASTOtherVararg(ast_function_declaration, range, {name_identifier, parameters, body})
-    , receiver_type_node(receiver_type_node), return_type_node(return_type_node), genericsT_list(genericsT_list), tvm_method_id(std::move(tvm_method_id)), flags(flags), inline_mode(inline_mode) {}
+    , receiver_type_node(receiver_type_node), return_type_node(return_type_node), genericsT_list(genericsT_list), tvm_method_id(tvm_method_id), flags(flags), inline_mode(inline_mode) {}
 };
 
 template<>

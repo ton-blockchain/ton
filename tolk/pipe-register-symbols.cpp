@@ -252,7 +252,7 @@ static FunctionPtr register_function(V<ast_function_declaration> v, FunctionPtr 
   const GenericsDeclaration* genericTs = nullptr;   // at registering it's null; will be assigned after types resolving
   FunctionBody f_body = v->get_body()->kind == ast_block_statement ? static_cast<FunctionBody>(new FunctionBodyCode) : static_cast<FunctionBody>(new FunctionBodyAsm);
   FunctionData* f_sym = new FunctionData(std::move(name), v_ident, std::move(method_name), v->receiver_type_node, v->return_type_node, std::move(parameters), 0, v->inline_mode, genericTs, substitutedTs, f_body, v);
-  f_sym->base_fun_ref = base_fun_ref;   // for `f<int>`, here is `f<T>`
+  f_sym->base_fun_ref = base_fun_ref;   // for `f<int>`, here is `f<T>`; for a lambda, a containing function
 
   if (auto v_asm = v->get_body()->try_as<ast_asm_body>()) {
     if (!v->return_type_node) {
@@ -263,8 +263,8 @@ static FunctionPtr register_function(V<ast_function_declaration> v, FunctionPtr 
     f_sym->ret_order = v_asm->ret_order;
   }
 
-  if (v->tvm_method_id.not_null()) {
-    f_sym->tvm_method_id = static_cast<int>(v->tvm_method_id->to_long());
+  if (v->tvm_method_id != FunctionData::EMPTY_TVM_METHOD_ID) {
+    f_sym->tvm_method_id = v->tvm_method_id;
   } else if (v->flags & FunctionData::flagContractGetter) {
     f_sym->tvm_method_id = calculate_tvm_method_id_by_func_name(f_identifier);
     for (FunctionPtr other : G.all_contract_getters) {
@@ -341,6 +341,11 @@ void pipeline_register_global_symbols() {
 FunctionPtr pipeline_register_instantiated_generic_function(FunctionPtr base_fun_ref, AnyV cloned_v, std::string&& name, const GenericsSubstitutions* substitutedTs) {
   auto v = cloned_v->as<ast_function_declaration>();
   return register_function(v, base_fun_ref, std::move(name), substitutedTs);
+}
+
+FunctionPtr pipeline_register_instantiated_lambda_function(FunctionPtr base_fun_ref, AnyV cloned_v, std::string&& name) {
+  auto v = cloned_v->as<ast_function_declaration>();
+  return register_function(v, base_fun_ref, std::move(name));
 }
 
 StructPtr pipeline_register_instantiated_generic_struct(StructPtr base_struct_ref, AnyV cloned_v, std::string&& name, const GenericsSubstitutions* substitutedTs) {

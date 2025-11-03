@@ -1932,6 +1932,13 @@ static std::vector<var_idx_t> process_object_literal(V<ast_object_literal> v, Co
   return transition_to_target_type(std::move(rvect), code, target_type, v);
 }
 
+static std::vector<var_idx_t> process_lambda_fun(V<ast_lambda_fun> v, CodeBlob& code, TypePtr target_type, LValContext* lval_ctx) {
+  tolk_assert(v->lambda_ref);
+  std::vector rvect = code.create_tmp_var(v->lambda_ref->inferred_full_type, v, "(glob-var-lambda)");
+  code.emplace_back(v, Op::_GlobVar, rvect, std::vector<var_idx_t>{}, v->lambda_ref);
+  return transition_to_target_type(std::move(rvect), code, target_type, v);
+}
+
 static std::vector<var_idx_t> process_int_const(V<ast_int_const> v, CodeBlob& code, TypePtr target_type) {
   std::vector rvect = code.create_tmp_var(v->inferred_type, v, "(int-const)");
   code.emplace_back(v, Op::_IntConst, rvect, v->intval);
@@ -2098,6 +2105,8 @@ std::vector<var_idx_t> pre_compile_expr(AnyExprV v, CodeBlob& code, TypePtr targ
       return process_typed_tuple(v->as<ast_bracket_tuple>(), code, target_type, lval_ctx);
     case ast_object_literal:
       return process_object_literal(v->as<ast_object_literal>(), code, target_type, lval_ctx);
+    case ast_lambda_fun:
+      return process_lambda_fun(v->as<ast_lambda_fun>(), code, target_type, lval_ctx);
     case ast_int_const:
       return process_int_const(v->as<ast_int_const>(), code, target_type);
     case ast_string_const:

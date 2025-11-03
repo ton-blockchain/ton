@@ -326,12 +326,15 @@ static V<ast_genericsT_list> parse_genericsT_list(Lexer& lex) {
   return createV<ast_genericsT_list>(range, std::move(genericsT_items));
 }
 
-static AnyV parse_parameter(Lexer& lex, AnyTypeV self_type) {
+static AnyV parse_parameter(Lexer& lex, AnyTypeV self_type, bool in_lambda) {
   SrcRange range = lex.range_start();
 
   // optional keyword `mutate` meaning that a function will mutate a passed argument (like passed by reference)
   bool declared_as_mutate = false;
   if (lex.tok() == tok_mutate) {
+    if (in_lambda) {
+      lex.error("`mutate` is not available in lambdas");
+    }
     lex.next();
     declared_as_mutate = true;
   }
@@ -356,14 +359,17 @@ static AnyV parse_parameter(Lexer& lex, AnyTypeV self_type) {
   }
   range.end(v_ident->range);
 
-  // parameter type after colon is mandatory
+  // parameter type after colon is mandatory in declarations, but optional for lambdas
   AnyTypeV param_type = self_type;
-  if (!is_self) {
-    lex.expect(tok_colon, "`: <parameter_type>`");
+  if (lex.tok() == tok_colon) {
+    if (is_self) {
+      err("`self` parameter should not have a type").fire(v_ident);
+    }
+    lex.next();
     param_type = parse_type_from_tokens(lex);
     range.end(param_type->range);
-  } else if (lex.tok() == tok_colon) {
-    lex.error("`self` parameter should not have a type");
+  } else if (!is_self && !in_lambda) {
+    err("specify a type for a parameter: `{}: <type>`", v_ident->name).fire(v_ident);
   }
 
   // optional default value
@@ -568,18 +574,18 @@ static AnyExprV parse_local_vars_declaration(Lexer& lex, bool allow_lateinit) {
 
 // "parameters" are at function declaration: `fun f(param1: int, mutate param2: slice)`
 // for methods like `fun builder.storeUint(self, i: int)`, receiver_type = builder (type of self)
-static V<ast_parameter_list> parse_parameter_list(Lexer& lex, AnyTypeV receiver_type) {
+static V<ast_parameter_list> parse_parameter_list(Lexer& lex, AnyTypeV receiver_type, bool in_lambda) {
   SrcRange range = lex.range_start();
   std::vector<AnyV> params;
   lex.expect(tok_oppar, "parameter list");
   if (lex.tok() != tok_clpar) {
-    params.push_back(parse_parameter(lex, receiver_type));
+    params.push_back(parse_parameter(lex, receiver_type, in_lambda));
     while (lex.tok() == tok_comma) {
       lex.next();
       if (lex.tok() == tok_clpar) {     // trailing comma
         break;
       }
-      params.push_back(parse_parameter(lex, nullptr));
+      params.push_back(parse_parameter(lex, nullptr, in_lambda));
     }
   }
   lex.check(tok_clpar, "`)`");
@@ -647,6 +653,29 @@ static V<ast_instantiationT_list> parse_maybe_instantiationTs_after_identifier(L
     lex.restore_position(backup);
     return nullptr;
   }
+}
+
+static V<ast_block_statement> parse_block_statement(Lexer& lex) {
+  SrcRange range = lex.range_start();
+  lex.expect(tok_opbrace, "`{`");
+  std::vector<AnyV> items;
+  while (lex.tok() != tok_clbrace) {
+    AnyV v = parse_statement(lex);
+    items.push_back(v);
+    if (lex.tok() == tok_clbrace) {
+      break;
+    }
+    bool does_end_with_brace =
+             v->kind == ast_if_statement || v->kind == ast_while_statement || v->kind == ast_match_expression
+          || v->kind == ast_try_catch_statement || v->kind == ast_repeat_statement || v->kind == ast_block_statement;
+    if (!does_end_with_brace) {
+      lex.expect(tok_semicolon, "`;`");
+    }
+  }
+  lex.check(tok_clbrace, "`}`");
+  range.end(lex.cur_range());
+  lex.next();
+  return createV<ast_block_statement>(range, std::move(items));
 }
 
 static V<ast_object_field> parse_object_field(Lexer& lex) {
@@ -814,6 +843,23 @@ static V<ast_match_expression> parse_match_expression(Lexer& lex) {
   return createV<ast_match_expression>(range, std::move(subject_and_arms));
 }
 
+static V<ast_lambda_fun> parse_lambda_fun_expression(Lexer& lex) {
+  SrcRange range = lex.range_start();
+  lex.expect(tok_fun, "`fun`");
+  
+  V<ast_parameter_list> v_param_list = parse_parameter_list(lex, nullptr, true);
+
+  AnyTypeV ret_type = nullptr;
+  if (lex.tok() == tok_colon) {   // fun(...): <ret_type>
+    lex.next();
+    ret_type = parse_type_from_tokens(lex);
+  }
+
+  auto v_body = parse_block_statement(lex);
+  range.end(v_body->range);
+  return createV<ast_lambda_fun>(range, v_param_list, v_body, ret_type); 
+}
+
 static V<ast_lazy_operator> parse_lazy_operator(Lexer& lex) {
   SrcRange range = lex.range_start();
   lex.expect(tok_lazy, "`lazy`");
@@ -955,6 +1001,8 @@ static AnyExprV parse_expr100(Lexer& lex) {
     }
     case tok_match:
       return parse_match_expression(lex);
+    case tok_fun:
+      return parse_lambda_fun_expression(lex);
     case tok_lazy:
       return parse_lazy_operator(lex);
     default:
@@ -1215,29 +1263,6 @@ AnyExprV parse_expr(Lexer& lex) {
   return parse_expr10(lex);
 }
 
-static V<ast_block_statement> parse_block_statement(Lexer& lex) {
-  SrcRange range = lex.range_start();
-  lex.expect(tok_opbrace, "`{`");
-  std::vector<AnyV> items;
-  while (lex.tok() != tok_clbrace) {
-    AnyV v = parse_statement(lex);
-    items.push_back(v);
-    if (lex.tok() == tok_clbrace) {
-      break;
-    }
-    bool does_end_with_brace = v->kind == ast_if_statement || v->kind == ast_while_statement
-          || v->kind == ast_match_expression
-          || v->kind == ast_try_catch_statement || v->kind == ast_repeat_statement || v->kind == ast_block_statement;
-    if (!does_end_with_brace) {
-      lex.expect(tok_semicolon, "`;`");
-    }
-  }
-  lex.check(tok_clbrace, "`}`");
-  range.end(lex.cur_range());
-  lex.next();
-  return createV<ast_block_statement>(range, std::move(items));
-}
-
 static AnyV parse_return_statement(Lexer& lex) {
   lex.check(tok_return, "`return`");
   SrcRange range = lex.cur_range();
@@ -1426,10 +1451,6 @@ AnyV parse_statement(Lexer& lex) {
 //
 
 
-static AnyV parse_func_body(Lexer& lex) {
-  return parse_block_statement(lex);
-}
-
 static AnyV parse_asm_func_body(Lexer& lex, V<ast_identifier> name_ident, V<ast_parameter_list> param_list) {
   SrcRange range = lex.range_start();
   lex.expect(tok_asm, "`asm`");
@@ -1566,8 +1587,8 @@ static AnyV parse_function_declaration(Lexer& lex, const std::vector<V<ast_annot
     genericsT_list = parse_genericsT_list(lex);
   }
 
-  V<ast_parameter_list> v_param_list = parse_parameter_list(lex, receiver_type)->as<ast_parameter_list>();
-  bool accepts_self = !v_param_list->empty() && v_param_list->get_param(0)->get_identifier()->name == "self";
+  V<ast_parameter_list> v_param_list = parse_parameter_list(lex, receiver_type, false);
+  bool accepts_self = !v_param_list->empty() && v_param_list->get_param(0)->get_name() == "self";
   int n_mutate_params = v_param_list->get_mutate_params_count();
 
   AnyTypeV ret_type = nullptr;
@@ -1599,7 +1620,7 @@ static AnyV parse_function_declaration(Lexer& lex, const std::vector<V<ast_annot
     v_body = createV<ast_empty_statement>(lex.cur_range());
     lex.next();
   } else if (lex.tok() == tok_opbrace) {
-    v_body = parse_func_body(lex);
+    v_body = parse_block_statement(lex);
   } else if (lex.tok() == tok_asm) {
     if (!ret_type) {
       lex.error("asm function must specify return type");
@@ -1623,7 +1644,7 @@ static AnyV parse_function_declaration(Lexer& lex, const std::vector<V<ast_annot
     flags |= FunctionData::flagReturnsSelf;
   }
 
-  td::RefInt256 tvm_method_id;
+  int tvm_method_id = FunctionData::EMPTY_TVM_METHOD_ID;
   FunctionInlineMode inline_mode = FunctionInlineMode::notCalculated;
   for (auto v_annotation : annotations) {
     switch (v_annotation->kind) {
@@ -1647,7 +1668,7 @@ static AnyV parse_function_declaration(Lexer& lex, const std::vector<V<ast_annot
         if (v_int->intval.is_null() || !v_int->intval->signed_fits_bits(32)) {
           err("invalid integer constant").fire(v_int);
         }
-        tvm_method_id = v_int->intval;
+        tvm_method_id = static_cast<int>(v_int->intval->to_long());
         break;
       }
       case AnnotationKind::on_bounced_policy: {
@@ -1672,7 +1693,7 @@ static AnyV parse_function_declaration(Lexer& lex, const std::vector<V<ast_annot
   }
 
   range.end(v_body->range);
-  return createV<ast_function_declaration>(range, v_ident, v_param_list, v_body, receiver_type, ret_type, genericsT_list, std::move(tvm_method_id), flags, inline_mode);
+  return createV<ast_function_declaration>(range, v_ident, v_param_list, v_body, receiver_type, ret_type, genericsT_list, tvm_method_id, flags, inline_mode);
 }
 
 static AnyV parse_struct_field(Lexer& lex) {

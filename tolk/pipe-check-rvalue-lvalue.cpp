@@ -259,6 +259,13 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
     }
   }
 
+  void visit(V<ast_lambda_fun> v) override {
+    if (v->is_lvalue) {
+      err_cannot_be_used_as_lvalue("lambda").fire(v, cur_f);
+    }
+    // we don't traverse body: just detect `fun(){} = rhs`
+  }
+
   void visit(V<ast_underscore> v) override {
     if (v->is_rvalue) {
       err("`_` can't be used as a value; it's a placeholder for a left side of assignment").fire(v, cur_f);

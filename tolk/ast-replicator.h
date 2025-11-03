@@ -173,6 +173,9 @@ class ASTReplicator final {
   static V<ast_object_literal> clone(V<ast_object_literal> v) {
     return createV<ast_object_literal>(v->range, clone(v->type_node), clone(v->get_body()));
   }
+  static V<ast_lambda_fun> clone(V<ast_lambda_fun> v) {
+    return createV<ast_lambda_fun>(v->range, clone(v->get_param_list()), clone(v->get_body()), clone(v->return_type_node));
+  }
 
   // statements
 
@@ -308,6 +311,7 @@ class ASTReplicator final {
       case ast_object_field:                    return clone(v->as<ast_object_field>());
       case ast_object_body:                     return clone(v->as<ast_object_body>());
       case ast_object_literal:                  return clone(v->as<ast_object_literal>());
+      case ast_lambda_fun:                      return clone(v->as<ast_lambda_fun>());
       default:
         throw UnexpectedASTNodeKind(v, "ASTReplicatorFunction::clone(AnyExprV)");
     }
@@ -366,6 +370,23 @@ public:
       new_name_ident,
       clone(v_orig->genericsT_list),
       clone(v_orig->underlying_type_node)
+    );
+  }
+
+  // convert a lambda expression `fun(params) { ... }` into a full function declaration
+  // (the instantiated function will be added to G.all_functions and exist as a standalone function)
+  static V<ast_function_declaration> clone_lambda_as_standalone(V<ast_lambda_fun> v_lambda) {      
+    return createV<ast_function_declaration>(
+      v_lambda->range,
+      createV<ast_identifier>(v_lambda->keyword_range(), "lambda"),   // it's not a real name, for AST only
+      clone(v_lambda->get_param_list()),
+      clone(v_lambda->get_body()),
+      nullptr,
+      clone(v_lambda->return_type_node),
+      nullptr,
+      FunctionData::EMPTY_TVM_METHOD_ID,
+      FunctionData::flagIsLambda,
+      FunctionInlineMode::notCalculated
     );
   }
 };

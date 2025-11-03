@@ -259,6 +259,11 @@ class CalculateRvalueLvalueVisitor final : public ASTVisitorFunctionBody {
     restore_state(saved);
   }
 
+  void visit(V<ast_lambda_fun> v) override {
+    mark_vertex(v);
+    // we do not traverse body of a lambda: it's traversed when that lambda is instantiated
+  }
+
   void visit(V<ast_local_var_lhs> v) override {
     tolk_assert(cur_state == MarkingState::LValue || v->is_lateinit);
     mark_vertex(v);

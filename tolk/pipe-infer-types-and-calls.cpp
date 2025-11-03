@@ -373,6 +373,8 @@ class InferTypesAndCallsAndFieldsVisitor final {
         return infer_match_expression(v->as<ast_match_expression>(), std::move(flow), used_as_condition, hint);
       case ast_object_literal:
         return infer_object_literal(v->as<ast_object_literal>(), std::move(flow), used_as_condition, hint);
+      case ast_lambda_fun:
+        return infer_lambda_fun(v->as<ast_lambda_fun>(), std::move(flow), used_as_condition, hint);
       case ast_underscore:
         return infer_underscore(v->as<ast_underscore>(), std::move(flow), used_as_condition, hint);
       case ast_empty_expression:
@@ -1458,6 +1460,42 @@ class InferTypesAndCallsAndFieldsVisitor final {
     v->mutate()->assign_struct_ref(struct_ref);
     assign_inferred_type(v, TypeDataStruct::create(struct_ref));
     assign_inferred_type(v->get_body(), v);
+    return ExprFlow(std::move(flow), used_as_condition);
+  }
+
+  ExprFlow infer_lambda_fun(V<ast_lambda_fun> v, FlowContext&& flow, bool used_as_condition, TypePtr hint) {
+    // parameters of a lambda are allowed to be untyped: they are inferred before instantiation, e.g.
+    // > fun call(f: (int) -> slice) { ... }
+    // > call(fun(i) { ... })
+    // then from a hint, calculate params_types=[int], return_type=slice
+    const TypeDataFunCallable* h_callable = hint ? hint->unwrap_alias()->try_as<TypeDataFunCallable>() : nullptr;
+
+    std::vector<TypePtr> params_types;
+    params_types.reserve(v->get_num_params());
+    for (int i = 0; i < v->get_num_params(); ++i) {
+      if (auto declared_type_node = v->get_param(i)->type_node) {
+        params_types.push_back(declared_type_node->resolved_type);
+      } else if (h_callable && i < h_callable->params_size() && !h_callable->params_types[i]->has_genericT_inside()) {
+        params_types.push_back(h_callable->params_types[i]);
+      } else {
+        err("can not infer type of parameter, specify it manually `{}: <type>`", v->get_param(i)->get_name()).fire(v->get_param(i), cur_f);
+      }
+    }
+
+    TypePtr return_type = nullptr;
+    if (v->return_type_node) {
+      return_type = v->return_type_node->resolved_type;
+    } else if (h_callable && !h_callable->return_type->has_genericT_inside()) {
+      return_type = h_callable->return_type;
+    }
+
+    // instantiating lambdas is very similar to generic functions, also done at type inferring;
+    tolk_assert(v->lambda_ref == nullptr);
+    FunctionPtr lambda_ref = instantiate_lambda_function(v, cur_f, params_types, return_type);
+
+    // lambda_ref already travelled the pipeline including type inferring
+    v->mutate()->assign_lambda_ref(lambda_ref);
+    assign_inferred_type(v, lambda_ref->inferred_full_type);
     return ExprFlow(std::move(flow), used_as_condition);
   }
 

@@ -136,6 +136,7 @@ protected:
   virtual void visit(V<ast_object_field> v)              { return visit_children(v); }
   virtual void visit(V<ast_object_body> v)               { return visit_children(v); }
   virtual void visit(V<ast_object_literal> v)            { return visit_children(v); }
+  virtual void visit(V<ast_lambda_fun> v)                { return visit_children(v); }
   // statements
   virtual void visit(V<ast_empty_statement> v)           { return visit_children(v); }
   virtual void visit(V<ast_block_statement> v)           { return visit_children(v); }
@@ -184,6 +185,7 @@ protected:
       case ast_object_field:                    return visit(v->as<ast_object_field>());
       case ast_object_body:                     return visit(v->as<ast_object_body>());
       case ast_object_literal:                  return visit(v->as<ast_object_literal>());
+      case ast_lambda_fun:                      return visit(v->as<ast_lambda_fun>());
       // statements
       case ast_empty_statement:                 return visit(v->as<ast_empty_statement>());
       case ast_block_statement:                 return visit(v->as<ast_block_statement>());

@@ -88,7 +88,7 @@ int Vertex<ast_genericsT_list>::lookup_idx(std::string_view nameT) const {
 
 int Vertex<ast_parameter_list>::lookup_idx(std::string_view param_name) const {
   for (size_t idx = 0; idx < children.size(); ++idx) {
-    if (children[idx] && children[idx]->as<ast_parameter>()->get_identifier()->name == param_name) {
+    if (children[idx] && children[idx]->as<ast_parameter>()->get_name() == param_name) {
       return static_cast<int>(idx);
     }
   }
@@ -211,6 +211,10 @@ void Vertex<ast_object_field>::assign_field_ref(StructFieldPtr field_ref) {
 
 void Vertex<ast_object_literal>::assign_struct_ref(StructPtr struct_ref) {
   this->struct_ref = struct_ref;
+}
+
+void Vertex<ast_lambda_fun>::assign_lambda_ref(FunctionPtr lambda_ref) {
+  this->lambda_ref = lambda_ref;
 }
 
 void Vertex<ast_function_declaration>::assign_fun_ref(FunctionPtr fun_ref) {

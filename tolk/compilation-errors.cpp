@@ -20,8 +20,14 @@
 
 namespace tolk {
 
-static std::string to_string(FunctionPtr f) {
-  return f ? f->as_human_readable() : "";
+static std::string str_in_function(FunctionPtr f) {
+  if (f == nullptr) {
+    return "";
+  }
+  if (f->is_lambda()) {
+    return "in lambda " + str_in_function(f->base_fun_ref);
+  }
+  return "in function `" + f->as_human_readable() + "`"; 
 }
 
 void on_assertion_failed(const char *description, const char *file_name, int line_number) {
@@ -66,7 +72,7 @@ static void output_compiler_message(
     }
   }
   if (!in_function.empty()) {
-    os << std::endl << "    // in function `" << in_function << "`" << std::endl;
+    os << std::endl << "    // " << in_function << std::endl;
   }
   range.output_underlined(os);
 }
@@ -152,19 +158,19 @@ Error ErrorBuilder::build() const {
 }
 
 void Error::fire(AnyV at, FunctionPtr in_function) const {
-  throw ThrownParseError(to_string(in_function), at->range, message);  
+  throw ThrownParseError(str_in_function(in_function), at->range, message);  
 }
 
 void Error::fire(SrcRange range, FunctionPtr in_function) const {
-  throw ThrownParseError(to_string(in_function), range, message);  
+  throw ThrownParseError(str_in_function(in_function), range, message);  
 }
 
 void Error::warning(AnyV at, FunctionPtr in_function) const {
-  output_compiler_message(std::cerr, true, to_string(in_function), at->range, message);
+  output_compiler_message(std::cerr, true, str_in_function(in_function), at->range, message);
 }
 
 void Error::warning(SrcRange range, FunctionPtr in_function) const {
-  output_compiler_message(std::cerr, true, to_string(in_function), range, message);
+  output_compiler_message(std::cerr, true, str_in_function(in_function), range, message);
 }
 
 void ThrownParseError::output_compilation_error(std::ostream& os) const {

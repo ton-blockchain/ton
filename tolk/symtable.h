@@ -111,6 +111,7 @@ struct FunctionData final : Symbol {
   static constexpr int EMPTY_TVM_METHOD_ID = -10;
 
   enum {
+    flagIsLambda = 2,           // it's an anonymous function (instantiated from a function expression, a lambda)
     flagTypeInferringDone = 4,  // type inferring step of function's body (all AST nodes assigning v->inferred_type) is done
     flagUsedAsNonCall = 8,      // used not only as `f()`, but as a 1-st class function (assigned to var, pushed to tuple, etc.)
     flagMarkedAsPure = 16,      // declared as `pure`, can't call impure and access globals, unused invocations are optimized out
@@ -144,7 +145,7 @@ struct FunctionData final : Symbol {
 
   const GenericsDeclaration* genericTs;
   const GenericsSubstitutions* substitutedTs;
-  FunctionPtr base_fun_ref = nullptr;             // for `f<int>`, here is `f<T>`
+  FunctionPtr base_fun_ref = nullptr;             // for `f<int>`, here is `f<T>`; for a lambda, a containing function
   FunctionBody body;
   AnyV ast_root;                                  // V<ast_function_declaration> for user-defined (not builtin)
 
@@ -197,6 +198,7 @@ struct FunctionData final : Symbol {
 
   bool is_generic_function() const { return genericTs != nullptr; }
   bool is_instantiation_of_generic_function() const { return substitutedTs != nullptr; }
+  bool is_lambda() const { return flags & flagIsLambda; }
 
   bool is_inlined_in_place() const { return inline_mode == FunctionInlineMode::inlineInPlace; }
   bool is_type_inferring_done() const { return flags & flagTypeInferringDone; }

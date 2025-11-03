@@ -256,6 +256,15 @@ class AssignSymInsideFunctionVisitor final : public ASTVisitorFunctionBody {
     current_scope.close_scope();
   }
 
+  void visit(V<ast_lambda_fun> v) override {
+    // we are at `fun() { ... }` expression - a lambda (an anonymous functions);
+    // lambdas do not capture anything (neither manually nor automatically), they are not closures;
+    // moreover, ast_lambda_fun is a leaf, without direct children (since parameters/body are not expressions);
+    // we do not traverse body of a lambda here, because it would be traversed later,
+    // when a lambda is registered as a standalone function itself, and that function will travel the pipeline itself;
+    // hence, local symbols from a parent scope will not be available, as expected
+  }
+
 public:
   bool should_visit_function(FunctionPtr fun_ref) override {
     return fun_ref->is_code_function();

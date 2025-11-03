@@ -67,7 +67,6 @@ protected:
   };
   
   enum flag_mask {
-    flag_contains_unknown_inside = 1 << 1,
     flag_contains_genericT_inside = 1 << 2,
     flag_contains_type_alias_inside = 1 << 3,
     flag_contains_mapKV_inside = 1 << 4,
@@ -96,7 +95,6 @@ public:
     return has_type_alias_inside() ? unwrap_alias_slow_path(this) : this;
   }
 
-  bool has_unknown_inside() const { return flags & flag_contains_unknown_inside; }
   bool has_genericT_inside() const { return flags & flag_contains_genericT_inside; }
   bool has_type_alias_inside() const { return flags & flag_contains_type_alias_inside; }
   bool has_mapKV_inside() const { return flags & flag_contains_mapKV_inside; }
@@ -671,7 +669,7 @@ public:
  * The only thing available to do with unknown is to cast it: `catch (excNo, arg) { var i = arg as int; }`
  */
 class TypeDataUnknown final : public TypeData {
-  TypeDataUnknown() : TypeData(flag_contains_unknown_inside) {}
+  TypeDataUnknown() : TypeData(0) {}
 
   static TypePtr singleton;
   friend void type_system_init();

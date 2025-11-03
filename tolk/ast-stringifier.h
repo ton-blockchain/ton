@@ -33,6 +33,8 @@ namespace tolk {
 class ASTStringifier final : public ASTVisitor {
   constexpr static std::pair<ASTNodeKind, const char*> name_pairs[] = {
     {ast_identifier, "ast_identifier"},
+    {ast_parameter, "ast_parameter"},
+    {ast_parameter_list, "ast_parameter_list"},
     // types
     {ast_type_leaf_text, "ast_type_leaf_text"},
     {ast_type_question_nullable, "ast_type_question_nullable"},
@@ -75,6 +77,7 @@ class ASTStringifier final : public ASTVisitor {
     {ast_object_field, "ast_object_field"},
     {ast_object_body, "ast_object_body"},
     {ast_object_literal, "ast_object_literal"},
+    {ast_lambda_fun, "ast_lambda_fun"},
     // statements
     {ast_empty_statement, "ast_empty_statement"},
     {ast_block_statement, "ast_block_statement"},
@@ -92,8 +95,6 @@ class ASTStringifier final : public ASTVisitor {
     {ast_genericsT_list, "ast_genericsT_list"},
     {ast_instantiationT_item, "ast_instantiationT_item"},
     {ast_instantiationT_list, "ast_instantiationT_list"},
-    {ast_parameter, "ast_parameter"},
-    {ast_parameter_list, "ast_parameter_list"},
     {ast_annotation, "ast_annotation"},
     {ast_function_declaration, "ast_function_declaration"},
     {ast_global_var_declaration, "ast_global_var_declaration"},
@@ -204,13 +205,13 @@ class ASTStringifier final : public ASTVisitor {
       case ast_annotation:
         return static_cast<std::string>(v->as<ast_annotation>()->name);
       case ast_parameter:
-        return static_cast<std::string>(v->as<ast_parameter>()->get_identifier()->name) + ": " + ast_type_node_to_string(v->as<ast_parameter>()->type_node);
+        return static_cast<std::string>(v->as<ast_parameter>()->get_name()) + ": " + ast_type_node_to_string(v->as<ast_parameter>()->type_node);
       case ast_function_declaration: {
         std::string param_names;
         for (int i = 0; i < v->as<ast_function_declaration>()->get_num_params(); i++) {
           if (!param_names.empty())
             param_names += ",";
-          param_names += v->as<ast_function_declaration>()->get_param(i)->get_identifier()->name;
+          param_names += v->as<ast_function_declaration>()->get_param(i)->get_name();
         }
         std::string decl = "fun ";
         if (auto receiver_node = v->as<ast_function_declaration>()->receiver_type_node) {
@@ -218,6 +219,15 @@ class ASTStringifier final : public ASTVisitor {
           decl += ".";
         }
         return decl + static_cast<std::string>(v->as<ast_function_declaration>()->get_identifier()->name) + "(" + param_names + ")";
+      }
+      case ast_lambda_fun: {
+        std::string param_names;
+        for (int i = 0; i < v->as<ast_lambda_fun>()->get_num_params(); i++) {
+          if (!param_names.empty())
+            param_names += ",";
+          param_names += v->as<ast_lambda_fun>()->get_param(i)->get_name();
+        }
+        return "lambda(" + param_names + ")";
       }
       case ast_local_var_lhs: {
         std::string str_type = v->as<ast_local_var_lhs>()->inferred_type ? v->as<ast_local_var_lhs>()->inferred_type->as_human_readable() : ast_type_node_to_string(v->as<ast_local_var_lhs>()->type_node);
@@ -339,6 +349,7 @@ public:
       case ast_object_field:                  return handle_vertex(v->as<ast_object_field>());
       case ast_object_body:                   return handle_vertex(v->as<ast_object_body>());
       case ast_object_literal:                return handle_vertex(v->as<ast_object_literal>());
+      case ast_lambda_fun:                    return handle_vertex(v->as<ast_lambda_fun>());
       // statements
       case ast_empty_statement:               return handle_vertex(v->as<ast_empty_statement>());
       case ast_block_statement:               return handle_vertex(v->as<ast_block_statement>());

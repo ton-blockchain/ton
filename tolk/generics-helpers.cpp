@@ -396,6 +396,17 @@ static std::string generate_instantiated_name(const std::string& orig_name, cons
   return name;
 }
 
+GNU_ATTRIBUTE_NOINLINE
+// body of a cloned generic/lambda function (it's cloned at type inferring step) needs the previous pipeline to run
+// for example, all local vars need to be registered as symbols, etc.
+// these pipes are exactly the same as in tolk.cpp — all preceding (and including) type inferring
+static void run_pipeline_for_cloned_function(FunctionPtr new_fun_ref) {
+  pipeline_resolve_identifiers_and_assign_symbols(new_fun_ref);
+  pipeline_resolve_types_and_aliases(new_fun_ref);
+  pipeline_calculate_rvalue_lvalue(new_fun_ref);
+  pipeline_infer_types_and_calls_and_fields(new_fun_ref);
+}
+
 FunctionPtr instantiate_generic_function(FunctionPtr fun_ref, GenericsSubstitutions&& substitutedTs) {
   tolk_assert(fun_ref->is_generic_function() && !fun_ref->has_tvm_method_id());
 
@@ -441,15 +452,7 @@ FunctionPtr instantiate_generic_function(FunctionPtr fun_ref, GenericsSubstituti
   V<ast_function_declaration> new_root = ASTReplicator::clone_function_ast(orig_root);
 
   FunctionPtr new_fun_ref = pipeline_register_instantiated_generic_function(fun_ref, new_root, std::move(new_name), allocatedTs);
-  tolk_assert(new_fun_ref);
-  // body of a cloned function (it's cloned at type inferring step) needs the previous pipeline to run
-  // for example, all local vars need to be registered as symbols, etc.
-  // these pipes are exactly the same as in tolk.cpp — all preceding (and including) type inferring
-  pipeline_resolve_identifiers_and_assign_symbols(new_fun_ref);
-  pipeline_resolve_types_and_aliases(new_fun_ref);
-  pipeline_calculate_rvalue_lvalue(new_fun_ref);
-  pipeline_infer_types_and_calls_and_fields(new_fun_ref);
-
+  run_pipeline_for_cloned_function(new_fun_ref);
   return new_fun_ref;
 }
 
@@ -496,6 +499,43 @@ AliasDefPtr instantiate_generic_alias(AliasDefPtr alias_ref, GenericsSubstitutio
   tolk_assert(new_alias_ref);
   pipeline_resolve_types_and_aliases(new_alias_ref);
   return new_alias_ref;
+}
+
+// instantiating a lambda is very similar to instantiating a generic function, it's also done at type inferring;
+// when an expression `fun(params) { body }` is reached, this function is instantiated as a standalone function
+// and travels the pipeline separately; essentially, it's the same as if such a global function existed:
+// > fun globalF(params) { body }
+// and this expression is just a reference to it
+FunctionPtr instantiate_lambda_function(AnyV v_lambda, FunctionPtr parent_fun_ref, const std::vector<TypePtr>& params_types, TypePtr return_type) {
+  auto v = v_lambda->try_as<ast_lambda_fun>();
+  tolk_assert(v && !v->lambda_ref && v->get_body()->kind == ast_block_statement);
+
+  int n_lambdas = 1;
+  for (FunctionPtr fun_ref : G.all_functions) {
+    n_lambdas += fun_ref->is_lambda();
+  }
+
+  // parent_fun_ref always exists actually (and will be `lambda_ref->base_fun_ref`);
+  // the only way it may be nullptr is when a lambda occurs as a constant value for example, which will fire an error later
+  std::string lambda_name = "lambda_in_" + (parent_fun_ref ? parent_fun_ref->name : "") + "@" + std::to_string(n_lambdas);
+  tolk_assert(!lookup_global_symbol(lambda_name));
+
+  V<ast_function_declaration> lambda_root = ASTReplicator::clone_lambda_as_standalone(v);
+  FunctionPtr lambda_ref = pipeline_register_instantiated_lambda_function(parent_fun_ref, lambda_root, std::move(lambda_name));
+  tolk_assert(lambda_ref);
+
+  // parameters of a lambda are allowed to be untyped: they are inferred before instantiation, e.g.
+  // > fun call(f: (int) -> slice) { ... }
+  // > call(fun(i) { ... })
+  // then params_types=[int], return_type=slice, and we assign them for an instantiated lambda
+  tolk_assert(lambda_ref->get_num_params() == static_cast<int>(params_types.size()));
+  for (int i = 0; i < lambda_ref->get_num_params(); ++i) {
+    lambda_ref->get_param(i).mutate()->assign_resolved_type(params_types[i]);
+  }
+  lambda_ref->mutate()->assign_resolved_type(return_type);
+
+  run_pipeline_for_cloned_function(lambda_ref);
+  return lambda_ref;  
 }
 
 // a function `tuple.push<T>(self, v: T) asm "TPUSH"` can't be called with T=Point (2 stack slots);

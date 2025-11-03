@@ -1213,6 +1213,19 @@ fun algo153() {
     }
 }
 
+@method_id(154)
+fun algo154() {
+    val f1 = lazy Fields9.fromSlice(stringHexToSlice("010203040506070809"));
+    val f2 = lazy Fields9.fromSlice(stringHexToSlice("0102"));
+    val cb1 = fun(f: Fields9) { return f.f1 + f.f2 };
+    val cb2 = fun(f1: int, f2: int) { return f1 + f2 };
+    __expect_lazy("[f1] load f1 f2 f3 f4 f5 f6 f7 f8 f9");
+    val r1 = cb1(f1);
+    __expect_lazy("[f2] load f1 f2");
+    val r2 = cb2(f2.f1, f2.f2);
+    return (r1, r2);
+}
+
 fun algo224(): void {
     val o = lazy WithEitherABEnd.fromSlice("");
     __expect_lazy("[o] skip (bits32), load f2, skip (bits32), load f4 f5 ab");
@@ -1499,6 +1512,7 @@ fun main() {
 /**
 @testcase | 140 |       | 2
 @testcase | 141 | -1    | 1
+@testcase | 154 |       | 3 3
 @testcase | 301 |       | 17
 @testcase | 303 |       | 1 2
 @testcase | 304 |       | 1 2

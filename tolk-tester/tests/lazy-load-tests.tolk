@@ -325,9 +325,11 @@ fun demo104() {
 
 @method_id(105)
 fun demo105(s: slice) {
-    var c = lazy ComplexWithMaybePoint.fromSlice(s);
-    __expect_lazy("[c] load f1, skip (Point78ForMaybe?), load f3");
-    return (c.f1, c.f3);
+    return (fun(s: slice) {
+        var c = lazy ComplexWithMaybePoint.fromSlice(s);
+        __expect_lazy("[c] load f1, skip (Point78ForMaybe?), load f3");
+        return (c.f1, c.f3);
+    })(s);
 }
 
 @method_id(106)

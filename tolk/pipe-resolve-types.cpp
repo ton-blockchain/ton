@@ -56,7 +56,7 @@ static Error err_unknown_type_name(std::string_view text) {
     return err("`auto` type does not exist; just omit a type for local variable (will be inferred from assignment); parameters should always be typed");
   }
   if (text == "self") {
-    return err("`self` type can be used only as a return type of a function (enforcing it to be chainable)");
+    return err("`self` type can be used only as a return type of a method `fun T.methodForT(self)`");
   }
   return err("unknown type name `{}`", text);
 }
@@ -534,6 +534,17 @@ class ResolveTypesInsideFunctionVisitor final : public ASTVisitorFunctionBody {
     parent::visit(v->get_body());
   }
 
+  void visit(V<ast_lambda_fun> v) override {
+    for (int i = 0; i < v->get_num_params(); ++i) {
+      if (AnyTypeV param_type_node = v->get_param(i)->type_node) {
+        finalize_type_node(param_type_node);
+      }
+    }
+    if (v->return_type_node) {
+      finalize_type_node(v->return_type_node);
+    }
+  }
+
 public:
   bool should_visit_function(FunctionPtr fun_ref) override {
     return !fun_ref->is_builtin();
@@ -560,8 +571,14 @@ public:
 
     for (int i = 0; i < cur_f->get_num_params(); ++i) {
       LocalVarPtr param_ref = &cur_f->parameters[i];
-      TypePtr declared_type = finalize_type_node(param_ref->type_node);
-      param_ref->mutate()->assign_resolved_type(declared_type);
+      // types for parameters in regular functions are mandatory: `fun f(a: int)`, so type_node always exists;
+      // but types for lambdas may be missed out; they are inferred at usage, and declared_type filled before instantiation 
+      if (param_ref->type_node) {
+        TypePtr declared_type = finalize_type_node(param_ref->type_node);
+        param_ref->mutate()->assign_resolved_type(declared_type);
+      } else {
+        tolk_assert(param_ref->declared_type);
+      }
       if (param_ref->has_default_value()) {
         parent::visit(param_ref->default_value);
       }

@@ -57,6 +57,7 @@ void pipeline_generate_fif_output_to_std_cout();
 // these pipes also can be called per-function individually
 // they are called for instantiated generics functions, when `f<T>` is deeply cloned as `f<int>`
 FunctionPtr pipeline_register_instantiated_generic_function(FunctionPtr base_fun_ref, AnyV cloned_v, std::string&& name, const GenericsSubstitutions* substitutedTs);
+FunctionPtr pipeline_register_instantiated_lambda_function(FunctionPtr base_fun_ref, AnyV cloned_v, std::string&& name);
 
 void pipeline_resolve_identifiers_and_assign_symbols(FunctionPtr);
 void pipeline_resolve_types_and_aliases(FunctionPtr);
