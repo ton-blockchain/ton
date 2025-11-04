@@ -33,6 +33,7 @@ namespace util {
 bool load_var_integer_q(CellSlice& cs, td::RefInt256& res, int len_bits, bool sgnd, bool quiet);
 bool load_coins_q(CellSlice& cs, td::RefInt256& res, bool quiet);
 bool load_msg_addr_q(CellSlice& cs, CellSlice& res, int global_version, bool quiet);
+bool load_std_msg_addr_q(CellSlice& cs, CellSlice& res, int global_version, bool quiet);
 bool parse_std_addr_q(CellSlice cs, ton::WorkchainId& res_wc, ton::StdSmcAddress& res_addr, int global_version,
                       bool quiet);
 

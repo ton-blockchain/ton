@@ -97,7 +97,6 @@ class RootDb : public Db {
 
   void try_get_static_file(FileHash file_hash, td::Promise<td::BufferSlice> promise) override;
 
-  void apply_block(BlockHandle handle, td::Promise<td::Unit> promise) override;
   void get_block_by_lt(AccountIdPrefixFull account, LogicalTime lt, td::Promise<ConstBlockHandle> promise) override;
   void get_block_by_unix_time(AccountIdPrefixFull account, UnixTime ts, td::Promise<ConstBlockHandle> promise) override;
   void get_block_by_seqno(AccountIdPrefixFull account, BlockSeqno seqno,
@@ -157,6 +156,8 @@ class RootDb : public Db {
   td::actor::ActorOwn<StateDb> state_db_;
   td::actor::ActorOwn<StaticFilesDb> static_files_db_;
   td::actor::ActorOwn<ArchiveManager> archive_db_;
+
+  std::map<BlockIdExt, std::vector<td::Promise<td::Unit>>> archive_block_waiters_;
 };
 
 }  // namespace validator

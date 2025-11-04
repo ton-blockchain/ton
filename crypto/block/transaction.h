@@ -358,6 +358,7 @@ struct Transaction {
   bool bounce_enabled{false};
   bool in_msg_extern{false};
   gen::CommonMsgInfo::Record_int_msg_info in_msg_info;
+  td::RefInt256 in_msg_extra_flags = td::zero_refint();
   bool new_bounce_format{false};
   bool new_bounce_format_full_body{false};
   bool use_msg_state{false};

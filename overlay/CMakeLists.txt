@@ -1,7 +1,3 @@
-if (NOT OPENSSL_FOUND)
-  find_package(OpenSSL REQUIRED)
-endif()
-
 set(OVERLAY_SOURCE
   overlay-manager.cpp
   overlay.cpp

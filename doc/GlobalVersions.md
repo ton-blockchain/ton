@@ -237,6 +237,9 @@ This field does not represent fees. `ihr_fee` is always zero since version 11, s
 
 `(extra_flags & 1) = 1` enables the new bounce format for the message. The bounced message contains information about the transaction.
 If `(extra_flags & 3) = 3`, the bounced message contains the whole body of the original message. Otherwise, only the bits from the root of the original body are returned.
+
+All other bits in `extra_flags` are reserved for future use and are not allowed now (internal messages with flags other than `0..3` are invalid).
+
 When the message with new bounce flag is bounced, the bounced message body has the following format (`new_bounce_body`):
 ```
 _ value:CurrencyCollection created_lt:uint64 created_at:uint32 = NewBounceOriginalInfo;
@@ -263,9 +266,19 @@ new_bounce_body#fffffffe
 - `compute_phase` - exists if it was not skipped (`bounced_by_phase > 0`):
   - `gas_used`, `vm_steps` - same as in `TrComputePhase` of the transaction.
 
+The bounced message has the same 0th and 1st bits in `extra_flags` as the original message.
+
 ### New TVM instructions
 - `BTOS` (`b - s`) - same as `ENDC CTOS`, but without gas cost for cell creation and loading. Gas cost: `26`.
 - `HASHBU` (`b - hash`) - same as `ENDC HASHCU`, but without gas cost for cell creation. Gas cost: `26`.
+- `LDSTDADDR` (`s - a s'`) - loads `addr_std$10`, if address is not `addr_std`, throws an error 9 (`cannot load a MsgAddressInt`). Gas cost: `26`.
+- `LDSTDADDRQ` (`s - a s' -1 or s 0`) - quiet version of `LDSTDADDR`. Gas cost: `26`.
+- `LDOPTSTDADDR` (`s - a s or null s`) - loads `addr_std$10` or `addr_none$00`, if address is `addr_none$00` pushes a Null, if address is not `addr_std` or `addr_none`, throws an error 9 (`cannot load a MsgAddressInt`). Gas cost: `26`.
+- `LDOPTSTDADDRQ` (`s - (a s' -1 or null s' -1) or s 0`) - quiet version of `LDOPTSTDADDR`. Gas cost: `26`.
+- `STSTDADDR` (`s b - b'`) - stores `addr_std$10`, if address is not `addr_std`, throws an error 9 (`cannot load a MsgAddressInt`). Gas cost: `26`.
+- `STSTDADDRQ` (`s b - b' 0 or s b -1`) - quiet version of `STSTDADDR`. Gas cost: `26`.
+- `STOPTSTDADDR` (`s b - b'`) - stores `addr_std$10` or Null. Null is stored as `addr_none$00`, if address is not `addr_std`, throws an error 9 (`cannot load a MsgAddressInt`). Gas cost: `26`.
+- `STOPTSTDADDRQ` (`s b - b' 0 or s b -1`) - quiet version of `STOPTSTDADDR`. Gas cost: `26`.
 
 ### Other TVM changes
 - `SENDMSG` instruction treats `extra_flags` field accordingly (see above).
