@@ -5625,7 +5625,7 @@ bool ValidateQuery::CheckAccountTxs::check_one_transaction(block::Account& accou
       CHECK(money_imported.validate_unpack(info.value));
       ihr_delivered = (in_msg_tag == block::gen::InMsg::msg_import_ihr);
       if (!ihr_delivered) {
-        money_imported += get_ihr_fee(info, global_version_);
+        money_imported += get_ihr_fee(info, vq_.global_version_);
       }
       CHECK(money_imported.is_valid());
     }
@@ -5694,7 +5694,7 @@ bool ValidateQuery::CheckAccountTxs::check_one_transaction(block::Account& accou
       // unpack exported message value (from this transaction)
       block::CurrencyCollection msg_export_value;
       CHECK(msg_export_value.unpack(info.value));
-      msg_export_value += get_ihr_fee(info, global_version_);
+      msg_export_value += get_ihr_fee(info, vq_.global_version_);
       msg_export_value += msg_env.fwd_fee_remaining;
       CHECK(msg_export_value.is_valid());
       money_exported += msg_export_value;
