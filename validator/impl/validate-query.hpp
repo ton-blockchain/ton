@@ -151,10 +151,11 @@ class ValidateQuery : public td::actor::Actor {
   bool debug_checks_{false};
   bool outq_cleanup_partial_{false};
   bool parallel_accounts_validation_{false};
-  bool parallel_check_account_failed{false};
-  std::optional<td::Status> parallel_check_account_fatal_error = std::nullopt;
-  std::optional<std::string> parallel_check_account_reject_error = std::nullopt;
-  std::optional<td::BufferSlice> parallel_check_account_reject_reason = std::nullopt;
+  bool parallel_accounts_validation_pending_{false};
+  bool parallel_check_account_failed_{false};
+  std::optional<td::Status> parallel_check_account_fatal_error_ = std::nullopt;
+  std::optional<std::string> parallel_check_account_reject_error_ = std::nullopt;
+  std::optional<td::BufferSlice> parallel_check_account_reject_reason_ = std::nullopt;
   BlockSeqno prev_key_seqno_{~0u};
   int stage_{0};
   td::BitArray<64> shard_pfx_;
@@ -421,6 +422,7 @@ class ValidateQuery : public td::actor::Actor {
 
   private:
     void start_up() override;
+    void alarm() override;
 
     void abort_query(td::Status error);
     bool reject_query(std::string error, td::BufferSlice reason = {});
