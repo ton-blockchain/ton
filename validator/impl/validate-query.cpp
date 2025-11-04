@@ -6172,7 +6172,7 @@ void ValidateQuery::save_account_transactions_context(const StdSmcAddress& addre
   if (ctx.fatal_error.has_value()) {
     if (!parallel_check_account_failed) {
       parallel_check_account_failed = true;
-      fatal_error(std::move(ctx.fatal_error.value()));
+      parallel_check_account_fatal_error = std::move(ctx.fatal_error);
     }
     return;
   }
@@ -6180,7 +6180,8 @@ void ValidateQuery::save_account_transactions_context(const StdSmcAddress& addre
   if (ctx.reject_reason.has_value()) {
     if (!parallel_check_account_failed) {
       parallel_check_account_failed = true;
-      reject_query(std::move(ctx.reject_error.value()), std::move(ctx.reject_reason.value()));
+      parallel_check_account_reject_error = std::move(ctx.reject_error);
+      parallel_check_account_reject_reason = std::move(ctx.reject_reason);
     }
     return;
   }
@@ -6211,8 +6212,18 @@ void ValidateQuery::save_account_transactions_context(const StdSmcAddress& addre
 void ValidateQuery::after_check_account_finished(StdSmcAddress address, CheckAccountTxs::Context context) {
   --pending;
   save_account_transactions_context(address, std::move(context));
-  if (!pending && !parallel_check_account_failed) {
-    try_validate();
+  if (!pending) {
+    if (parallel_check_account_failed) {
+      if (parallel_check_account_fatal_error.has_value()) {
+        fatal_error(std::move(parallel_check_account_fatal_error.value()));
+      }
+      if (parallel_check_account_reject_error.has_value()) {
+        reject_query(std::move(parallel_check_account_reject_error.value()),
+                     std::move(parallel_check_account_reject_reason.value()));
+      }
+    } else {
+      try_validate();
+    }
   }
 }
 
