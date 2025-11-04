@@ -193,6 +193,7 @@ struct ValidationStats {
 
   struct WorkTimeStats {
     td::RealCpuTimer::Time total;
+    td::RealCpuTimer::Time actual_total;
     td::RealCpuTimer::Time optimistic_apply;
     td::RealCpuTimer::Time trx_tvm;
     td::RealCpuTimer::Time trx_storage_stat;
@@ -201,7 +202,7 @@ struct ValidationStats {
     std::string to_str(bool is_cpu) const {
       return PSTRING() << "total=" << total.get(is_cpu) << " optimistic_apply=" << optimistic_apply.get(is_cpu)
                        << " trx_tvm=" << trx_tvm.get(is_cpu) << " trx_storage_stat=" << trx_storage_stat.get(is_cpu)
-                       << " trx_other=" << trx_other.get(is_cpu);
+                       << " trx_other=" << trx_other.get(is_cpu) << " actual_total=" << actual_total.get(is_cpu);
     }
   };
   WorkTimeStats work_time;

@@ -6114,6 +6114,10 @@ ValidateQuery::CheckAccountTxs::CheckAccountTxs(const ValidateQuery& vq, td::act
  */
 bool ValidateQuery::CheckAccountTxs::try_check() {
   try {
+    td::RealCpuTimer timer;
+    SCOPE_EXIT {
+      ctx_.work_time.total = timer.elapsed_both();
+    };
     alarm_timestamp() = vq_.timeout;
     block::gen::AccountBlock::Record acc_blk;
     CHECK(tlb::csr_unpack(std::move(acc_tr_), acc_blk) && acc_blk.account_addr == address_);
@@ -6239,6 +6243,7 @@ void ValidateQuery::save_account_transactions_context(const StdSmcAddress& addre
   stats_.work_time.trx_tvm += ctx.work_time.trx_tvm;
   stats_.work_time.trx_storage_stat += ctx.work_time.trx_storage_stat;
   stats_.work_time.trx_other += ctx.work_time.trx_other;
+  stats_.work_time.total += ctx.work_time.total;
 
   total_burned_ += ctx.total_burned;
 }
@@ -7520,7 +7525,8 @@ void ValidateQuery::record_stats(bool valid, std::string error_message) {
   stats_.actual_bytes = (td::uint32)block_candidate.data.size();
   stats_.actual_collated_data_bytes = (td::uint32)block_candidate.collated_data.size();
   stats_.total_time = perf_timer_.elapsed();
-  stats_.work_time.total = work_timer_.elapsed_both();
+  stats_.work_time.total += work_timer_.elapsed_both();
+  stats_.work_time.actual_total = work_timer_.elapsed_both();
   stats_.time_stats = (PSTRING() << perf_log_);
   LOG(WARNING) << "validation took " << perf_timer_.elapsed() << "s";
   LOG(WARNING) << "Validate query work time = " << stats_.work_time.total.real
