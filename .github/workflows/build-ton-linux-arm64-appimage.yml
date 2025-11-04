@@ -1,6 +1,6 @@
 name: Ubuntu TON build (AppImages, arm64)
 
-on: [push,workflow_dispatch,workflow_call]
+on: [push, pull_request, workflow_dispatch, workflow_call]
 
 jobs:
   build:
@@ -9,7 +9,7 @@ jobs:
     steps:
     - name: Check out repository
       uses: actions/checkout@v3
-      with:      
+      with:
         submodules: 'recursive'
 
     - name: Date Stamp

@@ -1,8 +1,3 @@
-if (NOT OPENSSL_FOUND)
-  find_package(OpenSSL REQUIRED)
-endif()
-
-
 set(CREATE_HARDFORK_SOURCE
   create-hardfork.cpp
 )

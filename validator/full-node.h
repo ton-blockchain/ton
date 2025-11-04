@@ -59,6 +59,7 @@ struct FullNodeOptions {
   FullNodeConfig config_;
   double public_broadcast_speed_multiplier_ = 1.0;
   double private_broadcast_speed_multiplier_ = 1.0;
+  double initial_sync_delay_ = 60.0;
 };
 
 struct CustomOverlayParams {

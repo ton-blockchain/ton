@@ -350,6 +350,7 @@ bool AcceptBlockQuery::check_send_error(td::actor::ActorId<AcceptBlockQuery> Sel
 }
 
 void AcceptBlockQuery::finish_query() {
+  VLOG(VALIDATOR_DEBUG) << "finish_query()";
   if (apply_) {
     ValidatorInvariants::check_post_accept(handle_);
   }
@@ -448,6 +449,7 @@ void AcceptBlockQuery::got_block_candidate_data(td::BufferSlice data) {
 }
 
 void AcceptBlockQuery::got_block_handle_cont() {
+  VLOG(VALIDATOR_DEBUG) << "got_block_handle_cont()";
   if (data_.not_null() && !handle_->received()) {
     td::actor::send_closure(
         manager_, &ValidatorManager::set_block_data, handle_, data_, [SelfId = actor_id(this)](td::Result<td::Unit> R) {
@@ -514,9 +516,11 @@ void AcceptBlockQuery::written_block_info() {
           td::actor::send_closure_bool(SelfId, &AcceptBlockQuery::got_prev_state, R.move_as_ok());
     });
 
+    VLOG(VALIDATOR_DEBUG) << "wait_prev_block_state";
     td::actor::send_closure(manager_, &ValidatorManager::wait_prev_block_state, handle_, priority(), timeout_,
                             std::move(P));
   } else {
+    VLOG(VALIDATOR_DEBUG) << "wait_block_data";
     td::actor::send_closure(manager_, &ValidatorManager::wait_block_data, handle_, priority(), timeout_,
                             [SelfId = actor_id(this)](td::Result<td::Ref<BlockData>> R) {
                               check_send_error(SelfId, R) ||

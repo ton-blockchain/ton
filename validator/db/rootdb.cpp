@@ -388,12 +388,6 @@ void RootDb::try_get_static_file(FileHash file_hash, td::Promise<td::BufferSlice
   td::actor::send_closure(static_files_db_, &StaticFilesDb::load_file, file_hash, std::move(promise));
 }
 
-void RootDb::apply_block(BlockHandle handle, td::Promise<td::Unit> promise) {
-  td::actor::create_actor<BlockArchiver>("archiver", std::move(handle), archive_db_.get(), actor_id(this),
-                                         std::move(promise))
-      .release();
-}
-
 void RootDb::get_block_by_lt(AccountIdPrefixFull account, LogicalTime lt, td::Promise<ConstBlockHandle> promise) {
   td::actor::send_closure(archive_db_, &ArchiveManager::get_block_by_lt, account, lt, std::move(promise));
 }
@@ -464,8 +458,26 @@ void RootDb::start_up() {
 }
 
 void RootDb::archive(BlockHandle handle, td::Promise<td::Unit> promise) {
-  td::actor::create_actor<BlockArchiver>("archiveblock", std::move(handle), archive_db_.get(), actor_id(this),
-                                         std::move(promise))
+  auto [it, inserted] = archive_block_waiters_.emplace(handle->id(), std::vector<td::Promise<td::Unit>>{});
+  it->second.push_back(std::move(promise));
+  if (!inserted) {
+    VLOG(VALIDATOR_DEBUG) << "archive block " << handle->id().id.to_str() << " : already in progress";
+    return;
+  }
+  td::actor::create_actor<BlockArchiver>(
+      PSTRING() << "archiver" << handle->id().id.to_str(), handle, archive_db_.get(), actor_id(this),
+      [this, SelfId = actor_id(this), block_id = handle->id()](td::Result<td::Unit> R) {
+        td::actor::send_lambda(SelfId, [this, R = std::move(R), block_id]() {
+          auto it2 = archive_block_waiters_.find(block_id);
+          if (it2 == archive_block_waiters_.end()) {
+            return;
+          }
+          for (auto &promise : it2->second) {
+            promise.set_result(R.clone());
+          }
+          archive_block_waiters_.erase(it2);
+        });
+      })
       .release();
 }
 

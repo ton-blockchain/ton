@@ -1,5 +1,7 @@
 option(TDUTILS_MIME_TYPE "Generate mime types conversion (gperf is required)" ON)
 
+set(TD_HAVE_OPENSSL 1)
+
 if (WIN32)
   if (WINGETOPT_FOUND)
     set(TD_HAVE_GETOPT 1)
@@ -19,14 +21,6 @@ endif()
 if (ZLIB_FOUND)
   set(TD_HAVE_ZLIB 1)
   message(STATUS "Found ZLIB: ${ZLIB_INCLUDE_DIR} ${ZLIB_LIBRARIES}")
-
-  # OpenSSL internally depends on zlib
-  if (NOT OPENSSL_FOUND)
-    find_package(OpenSSL)
-  endif()
-  if (OPENSSL_FOUND)
-    set(TD_HAVE_OPENSSL 1)
-  endif()
 endif()
 
 if (CRC32C_FOUND)
