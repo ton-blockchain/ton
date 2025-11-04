@@ -569,6 +569,47 @@ fun test41(rev: bool) {
     }
 }
 
+struct PrivPoint {
+    private readonly x: int
+    private y: int
+    z: int
+}
+
+fun PrivPoint.create(x: int, y: int): PrivPoint {
+    return { x, y, z: 0 }
+}
+
+fun PrivPoint.modifyY(mutate self, newY: int) {
+    self.y = newY
+}
+
+fun PrivPoint.getSum(self) {
+    return self.x + self.y + self.z
+}
+
+@method_id(142)
+fun test42() {
+    var p1 = PrivPoint.create(10, 20);
+    p1.modifyY(80);
+    p1.z += 5;
+    return (p1, p1.getSum());
+}
+
+struct PrivWithDefaults {
+    private a: int32 = 0
+    private b: bool = false
+}
+
+fun PrivWithDefaults.createA<U>(a: U) {
+    return PrivWithDefaults { a: a }
+}
+
+@method_id(143)
+fun test43() {
+    var obj: PrivWithDefaults = {};
+    return (obj, PrivWithDefaults.createA(20));
+}
+
 fun main(x: int8, y: MInt) {
     __expect_type(PointAlias{x,y}, "Point");
     __expect_type(Point{x,y} as Point, "Point");
@@ -586,37 +627,37 @@ type PointAlias = Point;
 @testcase | 105 |      | 35 30 45
 @testcase | 106 |      | 10 20
 @testcase | 107 |      | 5 5 10 20 15
-@testcase | 108 |      | 777 typeid-3 777 0 777 777 777 typeid-3 777 typeid-4 777 777
+@testcase | 108 |      | 777 typeid-2 777 0 777 777 777 typeid-2 777 typeid-3 777 777
 @testcase | 109 |      | 70 30 20 20 -80
 @testcase | 110 | 0    | (null) (null) 0
-@testcase | 110 | -1   | 10 20 typeid-5
+@testcase | 110 | -1   | 10 20 typeid-1
 @testcase | 111 | 0    | 0 2 10 20 30
 @testcase | 111 | -1   | 0 0 3 4 7
 @testcase | 112 | 0    | (null) (null) 0
-@testcase | 112 | -1   | 1 2 typeid-5
+@testcase | 112 | -1   | 1 2 typeid-1
 @testcase | 113 |      | (null) (null) 0
 @testcase | 114 |      | 1 2
 @testcase | 115 |      | (null) (null) (null) (null) 0
-@testcase | 116 |      | -1 -4 [ 8 4 ] 7 (null) 0 [ 10 11 ] typeid-7
+@testcase | 116 |      | -1 -4 [ 8 4 ] 7 (null) 0 [ 10 11 ] typeid-5
 @testcase | 117 | 5    | 5 5 5 5 5
 @testcase | 117 | null | (null) (null) (null) -1 (null)
 @testcase | 118 |      | 17
-@testcase | 119 |      | 10 20 9 10 typeid-5 9
-@testcase | 120 | 0    | 80 9 8 80 typeid-5
+@testcase | 119 |      | 10 20 9 10 typeid-1 9
+@testcase | 120 | 0    | 80 9 8 80 typeid-1
 @testcase | 120 | -1   | 8 14 (null) (null) 0
 @testcase | 121 | 0    | 17 17 8 136
 @testcase | 121 | -1   | 8 (null) 8 8
 @testcase | 122 | 100  | 101 50 106 212 100 101 101
 @testcase | 124 | 66   | 66
-@testcase | 125 |      | (null) (null) 40 60 typeid-5
+@testcase | 125 |      | (null) (null) 40 60 typeid-1
 @testcase | 126 |      | 118
-@testcase | 127 |      | 0 0 typeid-3 typeid-3 777 -1 -1 0 0 777 0 0 typeid-10 777 0 0 777 (null) (null) 0
-@testcase | 128 | -1   | (null) (null) typeid-3 -1 0 0 777 (null) (null) typeid-3 -1 0 0
-@testcase | 128 | 0    | 1 2 typeid-2 0 -1 0 777 0 typeid-3 typeid-10 0 -1 0
+@testcase | 127 |      | 0 0 typeid-2 typeid-2 777 -1 -1 0 0 777 0 0 typeid-7 777 0 0 777 (null) (null) 0
+@testcase | 128 | -1   | (null) (null) typeid-2 -1 0 0 777 (null) (null) typeid-2 -1 0 0
+@testcase | 128 | 0    | 1 2 typeid-8 0 -1 0 777 0 typeid-2 typeid-7 0 -1 0
 @testcase | 129 |      | (null)
-@testcase | 130 | -1   | typeid-12 777 (null) typeid-12 777 0 777 0 0
-@testcase | 130 | 0    | typeid-11 777 4 1 777 typeid-11 777 0 0
-@testcase | 131 |      | 5 typeid-13 (null) typeid-13 (null) 0 777 0 0 -1 777 0 -1
+@testcase | 130 | -1   | typeid-9 777 (null) typeid-9 777 0 777 0 0
+@testcase | 130 | 0    | typeid-10 777 4 1 777 typeid-10 777 0 0
+@testcase | 131 |      | 5 typeid-11 (null) typeid-11 (null) 0 777 0 0 -1 777 0 -1
 @testcase | 132 |      | 10 20 10 0 0 20 0 0 0 0
 @testcase | 133 |      | -1 0 5 (null) (null) (null) 0 0 46
 @testcase | 134 |      | 10 20
@@ -628,6 +669,8 @@ type PointAlias = Point;
 @testcase | 140 |      | 2 1 4 3
 @testcase | 141 | -1   | 4 3 2 1
 @testcase | 141 | 0    | 3 4 1 2
+@testcase | 142 |      | 10 80 5 95
+@testcase | 143 |      | 0 0 20 0
 
 @fif_codegen
 """

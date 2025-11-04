@@ -75,7 +75,7 @@ fun test5(x: int) {
     __expect_type([x, x >= 1], "[int, bool]");
     __expect_type([x, x >= 1, null as slice?], "[int, bool, slice?]");
     __expect_type((x, [x], [[x], x]), "(int, [int], [[int], int])");
-    __expect_type(contract.getOriginalBalanceWithExtraCurrencies(), "[coins, dict]");
+    __expect_type(contract.getOriginalBalanceWithExtraCurrencies(), "[coins, ExtraCurrenciesMap]");
 }
 
 fun test6() {
@@ -111,8 +111,8 @@ fun alwaysThrowsNotAnnotated2() { alwaysThrows(); }
 fun test9() {
     __expect_type(alwaysThrows(), "never");
     __expect_type(alwaysThrows, "() -> never");
-    __expect_type(alwaysThrowsNotAnnotated(), "void");
-    __expect_type(alwaysThrowsNotAnnotated2(), "void");
+    __expect_type(alwaysThrowsNotAnnotated(), "never");
+    __expect_type(alwaysThrowsNotAnnotated2(), "never");
 }
 
 

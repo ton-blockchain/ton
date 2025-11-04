@@ -213,7 +213,7 @@ void FullNodeShardImpl::got_next_block(td::Result<BlockHandle> R) {
     if (handle_->unix_time() > td::Clocks::system() - 300) {
       promise_.set_value(td::Unit());
     } else {
-      sync_completed_at_ = td::Timestamp::in(60.0);
+      sync_completed_at_ = td::Timestamp::in(opts_.initial_sync_delay_);
     }
   }
   get_next_block();
@@ -1085,7 +1085,7 @@ void FullNodeShardImpl::set_handle(BlockHandle handle, td::Promise<td::Unit> pro
   promise_ = std::move(promise);
   get_next_block();
 
-  sync_completed_at_ = td::Timestamp::in(60.0);
+  sync_completed_at_ = td::Timestamp::in(opts_.initial_sync_delay_);
   alarm_timestamp().relax(sync_completed_at_);
 }
 

@@ -5,7 +5,7 @@ fun test1() {
 }
 
 fun onBouncedMessage(in: InMessageBounced) {
-    if (in.valueExtra != null) {
+    if (!in.valueExtra.isEmpty()) {
         return;
     }
     throw in.originalForwardFee;
@@ -23,7 +23,7 @@ fun onInternalMessage(in: InMessage) {
   onBouncedMessage() PROC:<{
     DROP
     INMSG_VALUEEXTRA
-    ISNULL
+    DICTEMPTY
     IFNOTJMP:<{
     }>
     INMSG_FWDFEE

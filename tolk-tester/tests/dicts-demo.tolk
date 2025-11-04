@@ -104,6 +104,26 @@ fun test105(takeNext: bool) {
     return data!.loadUint(8);
 }
 
+@method_id(106)
+fun test106() {
+    var dict = createEmptyDict();
+    dict.addIntToIDict(2, 102);
+    dict.addIntToIDict(-1, 101);
+    dict.addIntToIDict(-4, 104);
+    dict.addIntToIDict(3, 103);
+
+    var m = createMapFromLowLevelDict<int32, int32>(dict);
+    val fk = m.findFirst().getKey();
+    val fv = m.findFirst().loadValue();
+    var t = createEmptyTuple();
+    var r = m.findKeyLess(3);
+    while (r.isFound) {
+        t.push(r.loadValue());
+        r = m.iteratePrev(r);
+    }
+    return (fk, fv, t);
+}
+
 fun main() {}
 
 /**
@@ -115,4 +135,5 @@ fun main() {}
 @testcase | 104 |       | 12 34 56 78 0
 @testcase | 105 | -1    | 1
 @testcase | 105 | 0     | 2
+@testcase | 106 |       | -4 104 [ 102 101 104 ]
  */

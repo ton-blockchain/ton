@@ -96,13 +96,15 @@ struct LocalVarData final : Symbol {
 
 struct FunctionBodyCode;
 struct FunctionBodyAsm;
-struct FunctionBodyBuiltin;
+struct FunctionBodyBuiltinAsmOp;
+struct FunctionBodyBuiltinGenerateOps;
 struct GenericsDeclaration;
 
 typedef std::variant<
   FunctionBodyCode*,
   FunctionBodyAsm*,
-  FunctionBodyBuiltin*
+  FunctionBodyBuiltinAsmOp*,
+  FunctionBodyBuiltinGenerateOps*
 > FunctionBody;
 
 struct FunctionData final : Symbol {
@@ -120,7 +122,6 @@ struct FunctionData final : Symbol {
     flagReturnsSelf = 1024,     // return type is `self` (returns the mutated 1st argument), calls can be chainable
     flagReallyUsed = 2048,      // calculated via dfs from used functions; declared but unused functions are not codegenerated
     flagCompileTimeVal = 4096,  // calculated only at compile-time for constant arguments: `ton("0.05")`, `stringCrc32`, and others
-    flagCompileTimeGen = 8192,  // at compile-time it's handled specially, not as a regular function: `T.toCell`, etc.
     flagAllowAnyWidthT = 16384, // for built-in generic functions that <T> is not restricted to be 1-slot type
     flagManualOnBounce = 32768, // for onInternalMessage, don't insert "if (isBounced) return"
   };
@@ -212,7 +213,7 @@ struct FunctionData final : Symbol {
   bool does_mutate_self() const { return (flags & flagAcceptsSelf) && parameters[0].is_mutate_parameter(); }
   bool is_really_used() const { return flags & flagReallyUsed; }
   bool is_compile_time_const_val() const { return flags & flagCompileTimeVal; }
-  bool is_compile_time_special_gen() const { return flags & flagCompileTimeGen; }
+  bool is_compile_time_special_gen() const { return std::holds_alternative<FunctionBodyBuiltinGenerateOps*>(body); }
   bool is_variadic_width_T_allowed() const { return flags & flagAllowAnyWidthT; }
   bool is_manual_on_bounce() const { return flags & flagManualOnBounce; }
 
@@ -299,6 +300,8 @@ struct AliasDefData final : Symbol {
 
 struct StructFieldData final : Symbol {
   int field_idx;
+  bool is_private;
+  bool is_readonly;
   AnyTypeV type_node;
   TypePtr declared_type = nullptr;      // = resolved type_node
   AnyExprV default_value;               // nullptr if no default
@@ -309,9 +312,11 @@ struct StructFieldData final : Symbol {
   void assign_resolved_type(TypePtr declared_type);
   void assign_default_value(AnyExprV default_value);
 
-  StructFieldData(std::string name, SrcLocation loc, int field_idx, AnyTypeV type_node, AnyExprV default_value)
+  StructFieldData(std::string name, SrcLocation loc, int field_idx, bool is_private, bool is_readonly, AnyTypeV type_node, AnyExprV default_value)
     : Symbol(std::move(name), loc)
     , field_idx(field_idx)
+    , is_private(is_private)
+    , is_readonly(is_readonly)
     , type_node(type_node)
     , default_value(default_value) {
   }
@@ -367,6 +372,41 @@ struct StructData final : Symbol {
   std::string as_human_readable() const;
 };
 
+struct EnumMemberData final : Symbol {
+  AnyExprV init_value;                // nullptr if no init (`Red`, not `Red = 1`)
+  td::RefInt256 computed_value;       // auto-calculated or assigned from init if integer
+
+  bool has_init_value() const { return init_value != nullptr; }
+
+  EnumMemberData(std::string name, SrcLocation loc, AnyExprV init_value)
+    : Symbol(std::move(name), loc)
+    , init_value(init_value) {
+  }
+
+  EnumMemberData* mutate() const { return const_cast<EnumMemberData*>(this); }
+  void assign_init_value(AnyExprV init_value);
+  void assign_computed_value(td::RefInt256 computed_value);
+};
+
+struct EnumDefData final : Symbol {
+  AnyTypeV colon_type_node;             // nullptr if no serialization type after `:`
+  TypePtr colon_type = nullptr;         // = resolved colon_type_node
+  std::vector<EnumMemberPtr> members;
+
+  EnumMemberPtr find_member(std::string_view member_name) const;
+
+  EnumDefData(std::string name, SrcLocation loc, AnyTypeV colon_type_node, std::vector<EnumMemberPtr>&& members)
+    : Symbol(std::move(name), loc)
+    , colon_type_node(colon_type_node)
+    , members(std::move(members)) {
+  }
+
+  std::string as_human_readable() const;
+
+  EnumDefData* mutate() const { return const_cast<EnumDefData*>(this); }
+  void assign_resolved_colon_type(TypePtr colon_type);
+};
+
 struct TypeReferenceUsedAsSymbol final : Symbol {
   TypePtr resolved_type;
 
@@ -384,13 +424,8 @@ class GlobalSymbolTable {
   }
 
 public:
-  void add_function(FunctionPtr f_sym);
-  void add_global_var(GlobalVarPtr g_sym);
-  void add_global_const(GlobalConstPtr c_sym);
-  void add_type_alias(AliasDefPtr a_sym);
-  void add_struct(StructPtr s_sym);
-
-  void replace_function(FunctionPtr f_sym);
+  void add_global_symbol(const Symbol* sym);
+  void add_function(FunctionPtr f_sym) { add_global_symbol(f_sym); }
 
   const Symbol* lookup(std::string_view name) const {
     const auto it = entries.find(key_hash(name));

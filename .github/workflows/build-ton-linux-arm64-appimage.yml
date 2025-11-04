@@ -1,6 +1,6 @@
 name: Ubuntu TON build (AppImages, arm64)
 
-on: [push,workflow_dispatch,workflow_call]
+on: [push, pull_request, workflow_dispatch, workflow_call]
 
 jobs:
   build:
@@ -9,7 +9,7 @@ jobs:
     steps:
     - name: Check out repository
       uses: actions/checkout@v3
-      with:      
+      with:
         submodules: 'recursive'
 
     - name: Date Stamp
@@ -26,9 +26,11 @@ jobs:
 
     - name: Install clang-16
       run: |
-        wget https://apt.llvm.org/llvm.sh
-        chmod +x llvm.sh
-        sudo ./llvm.sh 16 clang
+        lsb_release -a
+        wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
+        echo "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-16 main" | sudo tee /etc/apt/sources.list.d/llvm.list
+        sudo apt-get -y update
+        sudo apt-get install -y clang-16
 
     - name: Cache 3pp
       id: cache-3pp

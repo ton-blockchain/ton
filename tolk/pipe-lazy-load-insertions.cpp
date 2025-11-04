@@ -489,7 +489,7 @@ struct ExprUsagesWhileCollecting {
     ith_field_action.reserve(future_fields.size());
     for (int field_idx = 0; field_idx < static_cast<int>(future_fields.size()); ++field_idx) {
       FutureField f = future_fields[field_idx];
-      StructFieldPtr created = new StructFieldData(static_cast<std::string>(f.field_name), {}, field_idx, nullptr, nullptr);
+      StructFieldPtr created = new StructFieldData(static_cast<std::string>(f.field_name), {}, field_idx, false, false, nullptr, nullptr);
       created->mutate()->assign_resolved_type(f.field_type);
       hidden_fields.push_back(created);
       ith_field_action.push_back(f.action);

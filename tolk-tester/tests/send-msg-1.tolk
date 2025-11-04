@@ -170,13 +170,13 @@ fun test4(value: coins) {
 
 @noinline
 fun test5_manual() {
-    var ec_dict = createEmptyDict();
-    ec_dict.iDictSet(32, 1, "ec1");
+    var ec_dict: ExtraCurrenciesMap = createEmptyMap();
+    ec_dict.set(1, 100);
     return beginCell()
         .storeUint(0x18, 6)            // bounce
         .storeAddress(address("UQDKbjIcfM6ezt8KjKJJLshZJJSqX7XOA4ff-W72r5gqPuwA"))
         .storeCoins(123)          // value.grams
-        .storeMaybeRef(ec_dict)   // value.extra
+        .storeMaybeRef(ec_dict.toLowLevelDict())   // value.extra
         .storeUint(0, 0 + 4 + 4 + 64 + 32 + 1 + 1)  // ... + 0 init + 0 body (not ref)
         // body: op + queryId
         .storeUint(0x12345678, 32)
@@ -186,8 +186,8 @@ fun test5_manual() {
 
 @method_id(105)
 fun test5() {
-    var ec_dict = createEmptyDict();
-    ec_dict.iDictSet(32, 1, "ec1");
+    var ec_dict: ExtraCurrenciesMap = createEmptyMap();
+    ec_dict.set(1, 100);
     val body: MyBody = { queryId: 800 };
     var b = createMessage({
         body,
@@ -215,9 +215,9 @@ fun test6_manual(value: coins, ec_dict: dict) {
 
 @method_id(106)
 fun test6(value: coins, dictKey: int?) {
-    var ec_dict = createEmptyDict();
+    var ec_dict: ExtraCurrenciesMap = createEmptyMap();
     if (dictKey != null) {
-        ec_dict.iDictSet(32, dictKey, "ec1");
+        ec_dict.set(dictKey, 100500);
     }
     val body: MyBody = { queryId: 800 };
     var b = createMessage({
@@ -226,7 +226,7 @@ fun test6(value: coins, dictKey: int?) {
         value: (value, ec_dict),
         body,
     });
-    assert(b.hash() == test6_manual(value, ec_dict).hash(), 106);
+    assert(b.hash() == test6_manual(value, ec_dict.toLowLevelDict()).hash(), 106);
     return b.hash();
 }
 
@@ -617,7 +617,7 @@ fun test21(queryId: uint64) {
     var b = createMessage({
         bounce: false,
         dest: address("EQAUzE-Nef80O9dLZy91HfPiOb6EEQ8YqyWKyIU-KeaYLNUi"),
-        value: (ton("0.1"), createEmptyDict()),
+        value: (ton("0.1"), createEmptyMap<int32, varuint32>()),
         body,
     });
     assert(b.hash() == test21_manual(body).hash(), 121);
@@ -732,9 +732,9 @@ fun main() {
 @testcase | 102 |          | 20192939504955637835708665496574868659039935190188156593169026529135727309085
 @testcase | 103 |          | 97654287980681401436727082042373998183264988661375688119718809500301413968039
 @testcase | 104 | 600000   | 755636693689039391990782995030008885663781699175339033402019272057515711062
-@testcase | 105 |          | 24816341499673835567887890014278904436471582322802948121781418622643959482495
+@testcase | 105 |          | 24503969966890554363249789782591743702412487637374098978386746563683471749050
 @testcase | 106 | 123 null | 104134380371273907780196393444164225714229635235007677971195651971972203592811
-@testcase | 106 | 456 8888 | 39337586036945718311402746340438400160817844833530971545330721291986281100430
+@testcase | 106 | 456 8888 | 6425272102977874346517989655071023150283043721608819726435980878339463285784
 @testcase | 107 | 1000     | 55093441331748625324828489600632232039914212774002148634088483962817636598198
 @testcase | 108 | 50000000 | 95023796475113775225029817428715936488418545169963429399979521091689824066088
 @testcase | 109 | 0        | 55999621586681214992294941423256376619779969729861696464321825639854258502733

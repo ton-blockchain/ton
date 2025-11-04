@@ -43,7 +43,7 @@ void CheckProof::alarm() {
 
 void CheckProof::abort_query(td::Status reason) {
   if (promise_) {
-    VLOG(VALIDATOR_WARNING) << "aborting check proof for " << id_ << " query: " << reason;
+    VLOG(VALIDATOR_WARNING) << "aborting check proof for " << id_.to_str() << " query: " << reason;
     promise_.set_error(std::move(reason));
   }
   stop();
@@ -68,7 +68,7 @@ void CheckProof::finish_query() {
     ValidatorInvariants::check_post_check_proof_link(handle_);
   }
   if (promise_) {
-    VLOG(VALIDATOR_DEBUG) << "checked proof for " << handle_->id();
+    VLOG(VALIDATOR_DEBUG) << "checked proof for " << handle_->id().to_str();
     promise_.set_result(handle_);
   }
   stop();
@@ -271,6 +271,7 @@ bool CheckProof::init_parse(bool is_aux) {
 }
 
 void CheckProof::start_up() {
+  VLOG(VALIDATOR_DEBUG) << "started check proof for " << id_.to_str() << ", mode=" << mode_;
   alarm_timestamp() = timeout_;
 
   auto res = vm::std_boc_deserialize(proof_->data());
@@ -324,6 +325,7 @@ void CheckProof::start_up() {
 }
 
 void CheckProof::got_block_handle(BlockHandle handle) {
+  VLOG(VALIDATOR_DEBUG) << "got_block_handle";
   handle_ = std::move(handle);
   CHECK(handle_);
   if (!is_proof() || skip_check_signatures_) {
@@ -353,6 +355,7 @@ void CheckProof::got_block_handle(BlockHandle handle) {
 }
 
 void CheckProof::got_masterchain_state(td::Ref<MasterchainState> state) {
+  VLOG(VALIDATOR_DEBUG) << "got_masterchain_state #" << state->get_seqno();
   CHECK(is_proof());
   state_ = std::move(state);
 
@@ -366,6 +369,7 @@ void CheckProof::got_masterchain_state(td::Ref<MasterchainState> state) {
 }
 
 void CheckProof::process_masterchain_state() {
+  VLOG(VALIDATOR_DEBUG) << "process_masterchain_state";
   CHECK(is_proof());
   CHECK(state_.not_null());
 
@@ -396,6 +400,7 @@ void CheckProof::process_masterchain_state() {
 }
 
 void CheckProof::check_signatures(Ref<ValidatorSet> s) {
+  VLOG(VALIDATOR_DEBUG) << "check_signatures";
   if (s->get_catchain_seqno() != catchain_seqno_) {
     abort_query(td::Status::Error(ErrorCode::protoviolation, PSTRING() << "bad validator catchain seqno: expected "
                                                                        << s->get_catchain_seqno() << ", found "
@@ -449,6 +454,7 @@ void CheckProof::check_signatures(Ref<ValidatorSet> s) {
 }
 
 void CheckProof::got_block_handle_2(BlockHandle handle) {
+  VLOG(VALIDATOR_DEBUG) << "got_block_handle_2 " << handle->id().id.to_str();
   handle_ = std::move(handle);
 
   handle_->set_split(before_split_);
@@ -468,16 +474,19 @@ void CheckProof::got_block_handle_2(BlockHandle handle) {
     // do not save proof if we skipped signatures
     auto proof = Ref<Proof>(proof_);
     CHECK(proof.not_null());
+    VLOG(VALIDATOR_DEBUG) << "set_block_proof";
     td::actor::send_closure_later(manager_, &ValidatorManager::set_block_proof, handle_, std::move(proof),
                                   std::move(P));
   } else if (is_proof()) {
     auto proof = Ref<Proof>(proof_);
     CHECK(proof.not_null());
     CHECK(sig_ok_);
+    VLOG(VALIDATOR_DEBUG) << "set_block_proof";
     td::actor::send_closure_later(manager_, &ValidatorManager::set_block_proof, handle_, std::move(proof),
                                   std::move(P));
   } else {
     CHECK(proof_.not_null());
+    VLOG(VALIDATOR_DEBUG) << "set_block_proof_link";
     td::actor::send_closure_later(manager_, &ValidatorManager::set_block_proof_link, handle_, proof_, std::move(P));
   }
 }

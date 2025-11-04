@@ -54,6 +54,7 @@ class BlockArchiver : public td::actor::Actor {
   td::actor::ActorId<ArchiveManager> archive_;
   td::actor::ActorId<Db> db_;
   td::Promise<td::Unit> promise_;
+  td::Timer timer_;
 };
 
 }  // namespace validator

@@ -179,7 +179,11 @@ fun test11(a: int, b: int) {
     return ((b < a), (b <= a), (b > a), (b >= a));
 }
 
-fun main() {}
+fun main() {
+    // mark used to codegen them
+    cmp1; cmp2; cmp3; cmp4;
+    leq1; leq2; leq3; leq4;
+}
 
 /**
 @testcase | 101 | 10      | 10 15 100 12 3 110 300

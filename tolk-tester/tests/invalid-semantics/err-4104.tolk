@@ -8,7 +8,7 @@ fun Container<T?>.createFrom<U>(item: U): Container<T?> {
 
 fun cantUseAsNonCall() {
     Container<int?>.createFrom<slice>;              // ok
-    Container<slice>.createFrom<Container<int>>;    // ok
+    Container<slice?>.createFrom<Container<int>>;   // ok
 
     Container<int?>.createFrom;
 }
