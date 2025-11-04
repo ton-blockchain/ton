@@ -44,6 +44,7 @@ set(TOLK_SOURCE
         builtins.cpp
         stack-transform.cpp
         optimize.cpp
+        pretty-print.cpp
         codegen.cpp
         tolk.cpp
 )
