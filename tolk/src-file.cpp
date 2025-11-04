@@ -145,6 +145,9 @@ std::ostream& operator<<(std::ostream& os, const Fatal& fatal) {
 }
 
 const SrcFile* SrcLocation::get_src_file() const {
+  if (file_id == -1) {
+    return nullptr;
+  }
   return G.all_src_files.get_file(file_id);
 }
 

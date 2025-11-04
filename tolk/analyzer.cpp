@@ -303,7 +303,7 @@ bool Op::std_compute_used_vars(bool disabled) {
 bool Op::compute_used_vars(const CodeBlob& code, bool edit) {
   tolk_assert(next);
   const VarDescrList& next_var_info = next->var_info;
-  if (cl == _Nop) {
+  if (cl == _Nop || cl == _DebugInfo) {
     return set_var_info_except(next_var_info, left);
   }
   switch (cl) {
@@ -528,6 +528,7 @@ bool prune_unreachable(std::unique_ptr<Op>& ops) {
     case Op::_UnTuple:
     case Op::_Import:
     case Op::_Let:
+    case Op::_DebugInfo:
       reach = true;
       break;
     case Op::_Return:
@@ -693,6 +694,7 @@ VarDescrList Op::fwd_analyze(VarDescrList values) {
   switch (cl) {
     case _Nop:
     case _Import:
+    case _DebugInfo:
       break;
     case _Return:
       values.set_unreachable();
@@ -887,6 +889,7 @@ bool Op::mark_noreturn() {
     case _SetGlob:
     case _GlobVar:
     case _CallInd:
+    case _DebugInfo:
       return set_noreturn(next->mark_noreturn());
     case _Return:
       return set_noreturn();

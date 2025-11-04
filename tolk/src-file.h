@@ -76,6 +76,7 @@ public:
 
   bool is_defined() const { return file_id != -1; }
   bool is_stdlib() const { return file_id == 0; }
+  int get_char_offset() const { return char_offset; };
   const SrcFile* get_src_file() const;
 
   // similar to `this->get_src_file() == symbol->get_src_file() || symbol->get_src_file()->is_stdlib()`

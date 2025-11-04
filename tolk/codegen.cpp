@@ -276,6 +276,29 @@ void Stack::rearrange_top(SrcLocation loc, var_idx_t top, bool last) {
 }
 
 bool Op::generate_code_step(Stack& stack) {
+  // we need to handle it here to correctly handle case `IFJMP { DROP }`
+  if (cl == _DebugInfo) {
+    std::ostringstream ops;
+    ops << source_map_entry_idx << " DEBUGMARK"; // pseudo instruction
+
+    // Append opcode to a list
+    if (const auto list_size = stack.o.list_.size(); list_size > 0) {
+      stack.o.insert(stack.o.list_.size(), loc, ops.str());
+    }
+
+    if (source_map_entry_idx < G.source_map.size()) {
+      auto& entry = G.source_map.at(source_map_entry_idx);
+
+      // Collect all available variables at this point
+      for (const auto index : stack.s) {
+        if (const auto var = stack.o.get_var(index); var.has_value()) {
+          const auto& [data, value] = *var;
+          entry.vars.push_back({data, value});
+        }
+      }
+    }
+  }
+
   stack.opt_show();
 
   // detect `throw 123` (actually _IntConst 123 + _Call __throw)
@@ -880,6 +903,10 @@ bool Op::generate_code_step(Stack& stack) {
       stack.o << AsmOp::Custom(loc, "COMPOSALT");
       stack.o << AsmOp::Custom(loc, "SWAP");
       stack.o << AsmOp::Custom(loc, "TRY");
+      return true;
+    }
+    case _DebugInfo: {
+      // already handled above
       return true;
     }
     default:

@@ -30,9 +30,12 @@
 #include "td/utils/JsonBuilder.h"
 #include "fift/utils.h"
 #include "td/utils/Status.h"
+#include "td/utils/misc.h"
 #include <sstream>
 
 using namespace tolk;
+
+static std::string postprocess_fift_output_after_source_msp(std::string fift_code);
 
 static td::Result<std::string> compile_internal(char *config_json) {
   TRY_RESULT(input_json, td::json_decode(td::MutableSlice(config_json)))
@@ -41,6 +44,7 @@ static td::Result<std::string> compile_internal(char *config_json) {
   TRY_RESULT(opt_level, td::get_json_object_int_field(config, "optimizationLevel", true, 2));
   TRY_RESULT(stack_comments, td::get_json_object_bool_field(config, "withStackComments", true, false));
   TRY_RESULT(src_line_comments, td::get_json_object_bool_field(config, "withSrcLineComments", true, false));
+  TRY_RESULT(collect_source_map, td::get_json_object_bool_field(config, "collectSourceMap", true, false));
   TRY_RESULT(entrypoint_filename, td::get_json_object_string_field(config, "entrypointFileName", false));
   TRY_RESULT(experimental_options, td::get_json_object_string_field(config, "experimentalOptions", true));
 
@@ -48,19 +52,34 @@ static td::Result<std::string> compile_internal(char *config_json) {
   G.settings.optimization_level = std::max(0, opt_level);
   G.settings.stack_layout_comments = stack_comments;
   G.settings.tolk_src_as_line_comments = src_line_comments;
+  G.settings.collect_source_map = collect_source_map;
   if (!experimental_options.empty()) {
     G.settings.parse_experimental_options_cmd_arg(experimental_options.c_str());
   }
 
-  std::ostringstream outs, errs;
+  std::ostringstream outs, errs, source_map_out;
   std::cout.rdbuf(outs.rdbuf());
   std::cerr.rdbuf(errs.rdbuf());
-  int exit_code = tolk_proceed(entrypoint_filename);
+  int exit_code = tolk_proceed(entrypoint_filename, source_map_out);
   if (exit_code != 0) {
     return td::Status::Error(errs.str());
   }
 
-  TRY_RESULT(fift_res, fift::compile_asm_program(outs.str(), "/fiftlib/"));
+  std::string raw_fift_code = outs.str();
+
+  // Due to the implementation specifics of source maps, with `collect_source_map` enabled,
+  // the Fift code contains additional DEBUGMARK instructions, which allow the real code in Tolk
+  // to be matched with specific TVM instructions after Fift compilation.
+  //
+  // Since DEBUGMARK instructions are absent from the TVM, attempting to compile and run such code
+  // will result in an error. Therefore, `fift_code` contains the compiled code as if
+  // no DEBUGMARK instructions exist.
+  //
+  // This code will be the same as the code that would be generated without source maps enabled,
+  // ensuring that users get the correct code in this mode.
+  std::string fift_code = postprocess_fift_output_after_source_msp(raw_fift_code);
+
+  TRY_RESULT(fift_res, fift::compile_asm_program(std::move(fift_code), "/fiftlib/"));
 
   td::JsonBuilder result_json;
   auto obj = result_json.enter_object();
@@ -68,6 +87,22 @@ static td::Result<std::string> compile_internal(char *config_json) {
   obj("fiftCode", fift_res.fiftCode);
   obj("codeBoc64", fift_res.codeBoc64);
   obj("codeHashHex", fift_res.codeHashHex);
+
+  if (const auto source_map = source_map_out.str(); !source_map.empty()) {
+    // To correctly map Tolk code to TVM instructions, we also need to return the compiled code
+    // with the DEBUGMARK instructions. This "poisoned for execution" code is used for mapping in tolk-js.
+    // The bitcode with DEBUGMARK is recompiled into bitcode without it (i.e., valid for execution),
+    // and in the process, the TASM assembler assembles the mapping of the DEBUGMARK index to TVM instructions,
+    // which is a key part of source map construction.
+    auto fift_source_map_res = fift::compile_asm_program(std::move(raw_fift_code), "/fiftlib/");
+    if (fift_source_map_res.is_ok()) {
+      const auto fift_source_map_res_ok = fift_source_map_res.move_as_ok();
+      obj("fiftSourceMapCode", fift_source_map_res_ok.fiftCode);
+      obj("sourceMapCodeBoc64", fift_source_map_res_ok.codeBoc64);
+    }
+    obj("sourceMap", td::JsonRaw(source_map));
+  }
+
   obj("stderr", errs.str().c_str());
   obj.leave();
 
@@ -124,6 +159,28 @@ const char *tolk_compile(char *config_json, WasmFsReadCallback callback) {
 
   std::string res_string = res.move_as_ok();
   return strdup(res_string.c_str());
+}
+
+static std::string postprocess_fift_output_after_source_msp(std::string fift_code) {
+  if (!G.settings.collect_source_map) {
+    // Without enabled source maps code is always good
+    return fift_code;
+  }
+
+  std::string processed_code;
+  bool first = true;
+  for (auto& line : td::full_split(fift_code, '\n')) {
+    if (line.find("DEBUGMARK") != std::string::npos) {
+      // filter out all DEBUGMARK instructions
+      continue;
+    }
+    if (!first) {
+      processed_code.push_back('\n');
+    }
+    first = false;
+    processed_code += line;
+  }
+  return processed_code;
 }
 
 } // extern "C"

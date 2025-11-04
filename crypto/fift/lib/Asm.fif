@@ -260,6 +260,11 @@ x{7F} @Defop TRUE
 x{83FF} @Defop PUSHNAN
 { <b x{84} s, swap 1- 8 u, @addopb } : PUSHPOW2DEC
 { <b x{85} s, swap 1- 8 u, @addopb } : PUSHNEGPOW2
+
+// special instruction for debugging purposes
+// doesn't exists in TVM
+{ <b x{F955} s, swap 16 u, @addopb } : DEBUGMARK
+
 //
 // other constants
 x{88} @Defop(ref) PUSHREF

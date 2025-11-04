@@ -1,0 +1,320 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Tolk Source Map Schema v1",
+  "description": "JSON Schema for Tolk compiler source map v1 files",
+  "type": "object",
+  "properties": {
+    "version": {
+      "description": "Schema version",
+      "type": "string",
+      "enum": [
+        "1.0.0"
+      ]
+    },
+    "language": {
+      "description": "The language for which this source map was generated",
+      "type": "string",
+      "enum": [
+        "tolk",
+        "func"
+      ]
+    },
+    "compiler_version": {
+      "description": "The compiler version that generated this source map",
+      "type": "string"
+    },
+    "files": {
+      "description": "Array of source files processed by the compiler",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/sourceFile"
+      }
+    },
+    "globals": {
+      "description": "Array of global variables declared in the program",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/globalVariable"
+      }
+    },
+    "locations": {
+      "description": "Array of debug locations with variable state information",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/debugLocation"
+      }
+    }
+  },
+  "required": [
+    "version",
+    "files",
+    "globals",
+    "locations"
+  ],
+  "$defs": {
+    "sourceFile": {
+      "description": "Information about a source file",
+      "type": "object",
+      "properties": {
+        "path": {
+          "description": "Path to the source file",
+          "type": "string"
+        },
+        "is_stdlib": {
+          "description": "Whether this is a standard library file",
+          "type": "boolean"
+        },
+        "content": {
+          "description": "Complete source code content of the file",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "is_stdlib",
+        "content"
+      ]
+    },
+    "globalVariable": {
+      "description": "Information about a global variable",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Name of the global variable",
+          "type": "string"
+        },
+        "type": "string",
+        "loc": {
+          "description": "Location of this global variable declaration",
+          "$ref": "#/$defs/sourceLocation"
+        }
+      },
+      "required": [
+        "name",
+        "type",
+        "loc"
+      ]
+    },
+    "sourceLocation": {
+      "description": "Source code location information",
+      "type": "object",
+      "properties": {
+        "file": {
+          "description": "Path to the source file",
+          "type": "string"
+        },
+        "line": {
+          "description": "0-based line number",
+          "type": "integer"
+        },
+        "column": {
+          "description": "0-based column number",
+          "type": "integer"
+        },
+        "end_line": {
+          "description": "0-based end line number (currently always 0)",
+          "type": "integer"
+        },
+        "end_column": {
+          "description": "0-based end column number (currently always 0)",
+          "type": "integer"
+        },
+        "length": {
+          "description": "Length of the relevant code segment in characters",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "file",
+        "line",
+        "column",
+        "end_line",
+        "end_column",
+        "length"
+      ]
+    },
+    "entryContextDescription": {
+      "description": "Description of the entry context depending on AST kind",
+      "oneOf": [
+        {
+          "description": "Basic entry with AST kind and other optional properties",
+          "type": "object",
+          "properties": {
+            "ast_kind": {
+              "description": "AST node type",
+              "type": "string"
+            }
+          },
+          "required": ["ast_kind"]
+        },
+        {
+          "description": "Assert statement entry",
+          "type": "object",
+          "properties": {
+            "ast_kind": {
+              "description": "AST node type",
+              "type": "string",
+              "enum": ["ast_function_call"]
+            },
+            "is_assert_throw": {
+              "description": "Whether this is an assert throw call",
+              "type": "boolean",
+              "enum": [true]
+            },
+            "condition": {
+              "description": "Extracted assert condition",
+              "type": "string"
+            }
+          },
+          "required": ["ast_kind", "is_assert_throw", "condition"]
+        },
+        {
+          "description": "Binary operator entry",
+          "type": "object",
+          "properties": {
+            "ast_kind": {
+              "description": "AST node type",
+              "type": "string",
+              "enum": ["ast_binary_operator"]
+            },
+            "description": {
+              "description": "Human-readable description for complex expressions",
+              "type": "string"
+            }
+          },
+          "required": ["ast_kind", "description"]
+        }
+      ]
+    },
+    "inliningInfo": {
+      "description": "Inlining information for the entry",
+      "type": "object",
+      "properties": {
+        "inlined_to_func": {
+          "description": "Name of function where this was inlined (if applicable)",
+          "type": "string"
+        },
+        "containing_func_inline_mode": {
+          "description": "Inlining mode of the containing function",
+          "type": "integer",
+          "enum": [0, 1, 2, 3, 4]
+        }
+      },
+      "required": ["containing_func_inline_mode"]
+    },
+    "entryContext": {
+      "description": "Execution context for a debug location",
+      "type": "object",
+      "properties": {
+        "description": "Context description depending on AST kind",
+        "inlining": {
+          "description": "Inlining properties of current entry",
+          "$ref": "#/$defs/inliningInfo"
+        },
+        "event": {
+          "description": "Pseudo-event type",
+          "type": "string",
+          "enum": [
+            "EnterFunction",
+            "LeaveFunction",
+            "EnterInlinedFunction",
+            "ExitInlinedFunction"
+          ]
+        },
+        "containing_function": {
+          "description": "Name of the containing function",
+          "type": "string"
+        }
+      },
+      "required": [
+        "description",
+        "inlining",
+        "containing_function"
+      ]
+    },
+    "debugInfo": {
+      "description": "Debug-specific information (only present in debug builds)",
+      "type": "object",
+      "properties": {
+        "opcode": {
+          "description": "Generated TVM opcode",
+          "type": "string"
+        },
+        "line_str": {
+          "description": "Source line content",
+          "type": "string"
+        },
+        "line_off": {
+          "description": "Visual pointer showing the location in the source line (spaces followed by ^)",
+          "type": "string"
+        }
+      }
+    },
+    "debugLocation": {
+      "description": "Debug location with variable state and context",
+      "type": "object",
+      "properties": {
+        "idx": {
+          "description": "Unique identifier for this debug location",
+          "type": "integer",
+          "minimum": 0
+        },
+        "loc": {
+          "description": "Source code location",
+          "$ref": "#/$defs/sourceLocation"
+        },
+        "variables": {
+          "description": "Variables available at this debug location",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/variable"
+          }
+        },
+        "context": {
+          "description": "Execution context information",
+          "$ref": "#/$defs/entryContext"
+        },
+        "debug": {
+          "description": "Debug-specific information",
+          "$ref": "#/$defs/debugInfo"
+        }
+      },
+      "required": [
+        "idx",
+        "loc",
+        "variables",
+        "context"
+      ]
+    },
+    "variable": {
+      "description": "Variable information at a debug location",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Variable name (may start with ' for temporary variables)",
+          "type": "string"
+        },
+        "type": "string",
+        "is_temporary": {
+          "description": "Whether this is a temporary variable",
+          "type": "boolean"
+        },
+        "constant_value": {
+          "description": "Constant value if variable has one",
+          "type": "string"
+        },
+        "possible_qualifier_types": {
+          "description": "Possible types for union variables",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "name",
+        "type"
+      ]
+    }
+  }
+}
