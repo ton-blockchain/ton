@@ -845,16 +845,19 @@ class InferTypesAndCallsAndFieldsVisitor final {
   // returns: [int, slice] / [cell]
   std::vector<TypePtr> collect_type_arguments_for_fun(const GenericsDeclaration* genericTs, V<ast_instantiationT_list> instantiationT_list) const {
     // for `genericF<T1,T2>` user should provide two Ts
+    // for `genericF<T1,T2>` where T2 has a default — one T1
     // for `Container<T>.wrap<U>` — one U (and one T is implicitly from receiver)
-    if (instantiationT_list->size() != genericTs->size() - genericTs->n_from_receiver) {
+    int n_provided = instantiationT_list->size() + genericTs->n_from_receiver; 
+    if (n_provided < genericTs->size_no_defaults() || n_provided > genericTs->size()) {
       err("expected {} type arguments, got {}", genericTs->size() - genericTs->n_from_receiver, instantiationT_list->size()).fire(instantiationT_list, cur_f);
     }
 
     std::vector<TypePtr> type_arguments;
-    type_arguments.reserve(instantiationT_list->size());
+    type_arguments.reserve(genericTs->size());
     for (int i = 0; i < instantiationT_list->size(); ++i) {
       type_arguments.push_back(instantiationT_list->get_item(i)->type_node->resolved_type);
     }
+    genericTs->append_defaults(type_arguments);
 
     return type_arguments;
   }

@@ -49,9 +49,11 @@ struct GenericsDeclaration {
   std::string as_human_readable(bool include_from_receiver = false) const;
 
   int size() const { return static_cast<int>(itemsT.size()); }
+  int size_no_defaults() const;
   int find_nameT(std::string_view nameT) const;
   std::string_view get_nameT(int idx) const { return itemsT[idx].nameT; }
   TypePtr get_defaultT(int idx) const { return itemsT[idx].default_type; }
+  void append_defaults(std::vector<TypePtr>& manually_provided) const;
 };
 
 // when a function call is `f<int>()`, this "<int>" is represented as this class

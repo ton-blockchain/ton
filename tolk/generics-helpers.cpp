@@ -338,6 +338,16 @@ std::string GenericsDeclaration::as_human_readable(bool include_from_receiver) c
   return result;
 }
 
+// for `f<T1, T2, T3 = int>` return 2 (mandatory type arguments when instantiating manually)
+int GenericsDeclaration::size_no_defaults() const {
+  for (int i = size(); i > 0; --i) {
+     if (itemsT[i - 1].default_type == nullptr) {
+       return i;
+     }
+  }
+  return 0;
+}
+
 int GenericsDeclaration::find_nameT(std::string_view nameT) const {
   for (int i = 0; i < static_cast<int>(itemsT.size()); ++i) {
     if (itemsT[i].nameT == nameT) {
@@ -345,6 +355,15 @@ int GenericsDeclaration::find_nameT(std::string_view nameT) const {
     }
   }
   return -1;
+}
+
+// given `fun f<T1, T2, T3 = int>` and a call `f<builder,slice>()`, append `int`;
+// similarly, for structures: when a user missed default type arguments, append them
+void GenericsDeclaration::append_defaults(std::vector<TypePtr>& manually_provided) const {
+  for (int i = n_from_receiver + static_cast<int>(manually_provided.size()); i < size(); ++i) {
+    tolk_assert(itemsT[i].default_type);
+    manually_provided.push_back(itemsT[i].default_type);
+  }
 }
 
 bool GenericsSubstitutions::has_nameT(std::string_view nameT) const {

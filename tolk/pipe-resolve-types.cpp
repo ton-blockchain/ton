@@ -290,9 +290,11 @@ class TypeNodesVisitorResolver {
 
     if (const TypeDataStruct* t_struct = type_to_instantiate->try_as<TypeDataStruct>(); t_struct && t_struct->struct_ref->is_generic_struct()) {
       StructPtr struct_ref = t_struct->struct_ref;
-      if (struct_ref->genericTs->size() != static_cast<int>(type_arguments.size())) {
+      int n_provided = static_cast<int>(type_arguments.size()); 
+      if (n_provided < struct_ref->genericTs->size_no_defaults() || n_provided > struct_ref->genericTs->size()) {
         err("struct `{}` expects {} type arguments, but {} provided", struct_ref, struct_ref->genericTs->size(), type_arguments.size()).fire(range, cur_f);
       }
+      struct_ref->genericTs->append_defaults(type_arguments);
       if (is_still_generic) {
         return TypeDataGenericTypeWithTs::create(struct_ref, nullptr, std::move(type_arguments));
       }
@@ -300,9 +302,11 @@ class TypeNodesVisitorResolver {
     }
     if (const TypeDataAlias* t_alias = type_to_instantiate->try_as<TypeDataAlias>(); t_alias && t_alias->alias_ref->is_generic_alias()) {
       AliasDefPtr alias_ref = t_alias->alias_ref;
-      if (alias_ref->genericTs->size() != static_cast<int>(type_arguments.size())) {
+      int n_provided = static_cast<int>(type_arguments.size()); 
+      if (n_provided < alias_ref->genericTs->size_no_defaults() || n_provided > alias_ref->genericTs->size()) {
         err("type `{}` expects {} type arguments, but {} provided", alias_ref, alias_ref->genericTs->size(), type_arguments.size()).fire(range, cur_f);
       }
+      alias_ref->genericTs->append_defaults(type_arguments);
       if (is_still_generic) {
         return TypeDataGenericTypeWithTs::create(nullptr, alias_ref, std::move(type_arguments));
       }

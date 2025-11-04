@@ -47,6 +47,40 @@ fun createParameters<TBody = null, TInit = null>(bounce: bool, body: TBody, data
     return { bounce, body, init: { value: ton("0"), data } };
 }
 
+fun never.assertIsNever(self) {
+    __expect_type(self, "never");
+}
+
+fun Parameters<int>.methodIntNever(self) {
+    __expect_type(self, "Parameters<int, never>");
+}
+
+fun Parameters<int>.genericIntNever<T1, T2 = slice>(self): (T2?, T1?) {
+    return (null, null)
+}
+
+fun multipleWithDefaults<T1, T2, T3 = int, T4 = builder>(): [T1, T2, T3, T4]? {
+    return null
+}
+
+struct MultipleWithDefaults<T1, T2, T3 = int?, T4 = builder> {
+    t: [T1, T2, T3, T4]? = null
+}
+
+fun MultipleWithDefaults<T1, T2>.getT(self) {
+    return self.t
+}
+
+fun MultipleWithDefaults<T1, T2, T3, T4>.method1<U1 = int>(self) {
+    return [self.t!.2, null as U1?]
+}
+
+fun MultipleWithDefaults<T1, T2, T3, T4>.method2<U1, U2 = int>(self) {
+    return [self.t!.3, null as U1?, null as U2?]
+}
+
+type ParametrizedInt<T1, T2 = slice> = int
+
 @noinline
 fun mySend<TBody = never, TInit = never>(p: Parameters<TBody, TInit>): int {
     var total = 0;
@@ -142,7 +176,13 @@ fun test6() {
 
 @method_id(107)
 fun test7() {
+    __expect_type(Parameters{ bounce: false }, "Parameters<never, never>");
     __expect_type(Parameters{ bounce: false, body: 123, init: { value: ton("0"), data: beginCell() }}, "Parameters<int, builder>");
+    __expect_type(Parameters{ bounce: false, body: 123 }.genericIntNever<builder>(), "(slice?, builder?)");
+    __expect_type(Parameters{ bounce: false, body: 123 }.genericIntNever<builder, cell>(), "(cell?, builder?)");
+    __expect_type(Parameters{ bounce: false }.body, "never");
+    Parameters{ bounce: false }.body.assertIsNever();
+
     var v1 = mySend({ bounce: true });
     var v2 = mySend({ bounce: false, body: 123, init: beginCell() });
     var v3 = mySend({ bounce: false, body: 123, init: { value: ton("0"), data: beginCell() }});
@@ -171,6 +211,31 @@ fun test8() {
 }
 
 fun main() {
+    var cb2 = multipleWithDefaults<int, cell>;
+    var cb3 = multipleWithDefaults<int, cell, slice>;
+    var cb4 = multipleWithDefaults<int, cell, slice, tuple>;
+    __expect_type(cb2, "() -> [int, cell, int, builder]?");
+    __expect_type(cb3, "() -> [int, cell, slice, builder]?");
+    __expect_type(cb4, "() -> [int, cell, slice, tuple]?");
+    
+    var o2 = MultipleWithDefaults<int, cell>{}; 
+    var o3 = MultipleWithDefaults<int, cell, slice>{}; 
+    var o4 = MultipleWithDefaults<int, cell, slice?, tuple>{};
+    __expect_type(o2.t, "[int, cell, int?, builder]?");
+    __expect_type(o3.t, "[int, cell, slice, builder]?");
+    __expect_type(o4.t, "[int, cell, slice?, tuple]?");
+    
+    __expect_type(o2.getT(), "[int, cell, int?, builder]?");
+    
+    __expect_type(o4.method1(), "[slice?, int?]");
+    __expect_type(o4.method1<Container1<never>>(), "[slice?, Container1<never>?]");
+    __expect_type(o4.method2<cell>(), "[tuple, cell?, int?]");
+    __expect_type(o4.method2<cell, Container1<void>>(), "[tuple, cell?, Container1<void>?]");
+
+    __expect_type(o2.method2<builder>, "(MultipleWithDefaults<int, cell, int?, builder>) -> [builder, builder?, int?]");
+
+    __expect_type(12 as ParametrizedInt<builder>, "ParametrizedInt<builder, slice>");
+    __expect_type(12 as ParametrizedInt<builder, cell>, "ParametrizedInt<builder, cell>");
 }
 
 /**
