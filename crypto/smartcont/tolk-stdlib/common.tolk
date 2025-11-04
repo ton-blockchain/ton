@@ -1557,7 +1557,7 @@ type OldBounceMode = bool
 
 /// Options for creating an outgoing message.
 /// Consider [createMessage] for examples.
-struct CreateMessageOptions<TBody = never> {
+struct CreateMessageOptions<TBody = void> {
     /// whether a message will bounce back on error, and what piece of outgoing `body` it will contain
     bounce: BounceMode | OldBounceMode
     /// message value: attached tons (or tons + extra currencies)
@@ -1607,7 +1607,7 @@ struct (0x00) ExtOutLogBucket {
 
 /// Options for creating an external outgoing message.
 /// Consider [createExternalLogMessage] for examples.
-struct CreateExternalLogMessageOptions<TBody = never> {
+struct CreateExternalLogMessageOptions<TBody = void> {
     /// destination is either an external address or a pattern to calculate it
     dest: any_address       // either some valid external/none address (not internal!)
         | builder           // ... or a manually constructed builder with a valid external address

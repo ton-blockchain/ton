@@ -78,7 +78,7 @@ struct SubParams {
 struct MyOptions {
     allowPenalty: bool = false
     closeTo: (int8, int8)? = null
-    sn: never
+    sn: void
     sub: SubParams = { sub3: ton("0.05") }
     coeff: int16 = 2
 }

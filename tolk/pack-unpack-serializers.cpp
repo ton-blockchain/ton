@@ -624,7 +624,7 @@ struct S_Null final : ISerializer {
   }
 };
 
-struct S_Never final : ISerializer {
+struct S_Void final : ISerializer {
   void pack(const PackContext* ctx, CodeBlob& code, AnyV origin, std::vector<var_idx_t>&& rvect) override {
     tolk_assert(rvect.empty());
   }
@@ -1381,8 +1381,8 @@ static std::unique_ptr<ISerializer> get_serializer_for_type(TypePtr any_type) {
   if (any_type == TypeDataNullLiteral::create()) {
     return std::make_unique<S_Null>();
   }
-  if (any_type == TypeDataNever::create()) {
-    return std::make_unique<S_Never>();
+  if (any_type == TypeDataVoid::create()) {
+    return std::make_unique<S_Void>();
   }
 
   if (any_type->try_as<TypeDataMapKV>()) {

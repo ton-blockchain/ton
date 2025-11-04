@@ -710,6 +710,7 @@ public:
  * `void` is TypeDataVoid.
  * From the type system point of view, `void` functions return nothing.
  * Empty tensor is not compatible with void, although at IR level they are similar, 0 stack slots.
+ * If a struct field is `void`, it can be missed out of an object literal, it makes `createMessage` without body work.
  */
 class TypeDataVoid final : public TypeData {
   TypeDataVoid() : TypeData(0) {}

@@ -529,7 +529,7 @@ std::vector<var_idx_t> generate_createExternalLogMessage(FunctionPtr called_f, C
 
   // fill bit `body: (Either X ^X)` and store body
   if (body_size.max_bits == 0 && body_size.max_refs == 0) {
-    // missing body of type `never`
+    // missing body of type `void`
     tolk_assert(ir_body.empty());
     ctx.storeUint(ir_zero, 1);
   } else if (body_store_as_ref) {

@@ -1178,7 +1178,7 @@ static std::vector<var_idx_t> pre_compile_constant_expression(const ConstValExpr
           [field_ref](const auto& p) { return p.first == field_ref; });
       if (it != val->fields.end()) {
         ir_field = pre_compile_expr(it->second, code, field_ref->declared_type);
-      } else if (field_ref->declared_type != TypeDataNever::create()) {
+      } else if (field_ref->declared_type != TypeDataVoid::create()) {
         tolk_assert(field_ref->has_default_value());
         ir_field = pre_compile_expr(field_ref->default_value, code, field_ref->declared_type);
       }
@@ -1872,7 +1872,7 @@ static std::vector<var_idx_t> process_object_literal_shuffled(V<ast_object_liter
       }
       tensor_offset += tensor_item_width;
     }
-    if (exists_in_literal || field_ref->declared_type == TypeDataNever::create()) {
+    if (exists_in_literal || field_ref->declared_type == TypeDataVoid::create()) {
       continue;
     }
 
@@ -1918,8 +1918,8 @@ static std::vector<var_idx_t> process_object_literal(V<ast_object_literal> v, Co
       }
     }
     if (!v_init_val) {
-      if (field_ref->declared_type == TypeDataNever::create()) {
-        continue;   // field of `never` type can be missed out of object literal (useful in generics defaults)
+      if (field_ref->declared_type == TypeDataVoid::create()) {
+        continue;   // field of `void` type can be missed out of object literal (useful in generics defaults)
       }             // (it occupies 0 slots, nothing is assignable to it — like this field is missing from a struct)
       tolk_assert(field_ref->has_default_value());
       v_init_val = field_ref->default_value;

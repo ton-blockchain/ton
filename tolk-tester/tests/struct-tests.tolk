@@ -480,16 +480,16 @@ fun test33(): WithDefaults {
     return { f2: 5, f3: null };
 }
 
-struct WithNever {
+struct WithVoid {
     f1: int;
-    f2: never;
+    f2: void;
     f3: int;
 }
 
 @method_id(134)
 fun test34() {
-    var o1: WithNever = { f1: 10, f3: 20 };   // f2 is `never`, it can be omitted
-    __expect_type(o1.f2, "never");
+    var o1: WithVoid = { f1: 10, f3: 20 };   // f2 is `void`, it can be omitted
+    __expect_type(o1.f2, "void");
     return o1;
 }
 

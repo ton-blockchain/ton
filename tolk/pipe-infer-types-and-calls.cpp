@@ -1453,7 +1453,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
     // check that all fields are present (do it after potential generic instantiation, when types are known)
     for (StructFieldPtr field_ref : struct_ref->fields) {
       if (!(occurred_mask & (1ULL << field_ref->field_idx))) {
-        bool allow_missing = field_ref->has_default_value() || field_ref->declared_type == TypeDataNever::create();
+        bool allow_missing = field_ref->has_default_value() || field_ref->declared_type == TypeDataVoid::create();
         if (!allow_missing) {
           err("field `{}` missed in initialization of struct `{}`", field_ref, struct_ref).fire(SrcRange::empty_at_end(v->range), cur_f);
         }

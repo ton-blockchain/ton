@@ -90,7 +90,7 @@ public:
     if (any_type == TypeDataCell::create()) {
       return {};
     }
-    if (any_type == TypeDataNever::create()) {
+    if (any_type == TypeDataVoid::create()) {
       return {};
     }
     if (any_type->try_as<TypeDataMapKV>()) {
