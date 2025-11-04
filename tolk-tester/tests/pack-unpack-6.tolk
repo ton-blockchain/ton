@@ -26,9 +26,7 @@ fun test2() {
 
 @method_id(103)
 fun test3() {
-    var cc: Cell<CounterIncrement> = {
-        tvmCell: beginCell().storeSlice(stringHexToSlice("0109ab")).endCell()
-    };
+    var cc = beginCell().storeSlice(stringHexToSlice("0109ab")).endCell() as Cell<CounterIncrement>;
     return cc.load({assertEndAfterReading: false});
 }
 
@@ -146,14 +144,14 @@ RETALT
 """
 IF:<{
   DROP
-  139 PUSHINT
+  129 PUSHINT
 }>ELSE<{
   x{03} SDBEGINSQ
   NIP
   IFNOTJMP:<{
     104 THROW
   }>
-  140 PUSHINT
+  130 PUSHINT
 }>
 """
 
@@ -201,7 +199,7 @@ IF:<{
     x{01} SDBEGINSQ
     IF:<{
       DROP
-      139 PUSHINT
+      129 PUSHINT
     }>ELSE<{
       x{03} SDBEGINSQ
       NIP
@@ -209,9 +207,9 @@ IF:<{
         16 PUSHPOW2DEC
         THROWANY
       }>
-      140 PUSHINT
+      130 PUSHINT
     }>
-    139 PUSHINT
+    129 PUSHINT
     EQUAL
   }>
 """

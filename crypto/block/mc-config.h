@@ -398,11 +398,12 @@ struct SizeLimitsConfig {
   td::uint16 max_vm_data_depth = 512;
   ExtMsgLimits ext_msg_limits;
   td::uint32 max_acc_state_cells = 1 << 16;
-  td::uint32 max_acc_state_bits = (1 << 16) * 1023;
+  td::uint32 max_mc_acc_state_cells = 1 << 11;  // enabled in global version 12
   td::uint32 max_acc_public_libraries = 256;
   td::uint32 defer_out_queue_size_limit = 256;
   td::uint32 max_msg_extra_currencies = 2;
   td::uint32 max_acc_fixed_prefix_length = 8;
+  td::uint32 acc_state_cells_for_storage_dict = 26;
 };
 
 struct CatchainValidatorsConfig {
@@ -775,9 +776,8 @@ class ConfigInfo : public Config, public ShardConfig {
   std::vector<ton::ValidatorDescr> compute_validator_set_cc(ton::ShardIdFull shard, ton::UnixTime time,
                                                             ton::CatchainSeqno* cc_seqno_delta = nullptr) const;
   td::Result<Ref<vm::Tuple>> get_prev_blocks_info() const;
-  static td::Result<std::unique_ptr<ConfigInfo>> extract_config(std::shared_ptr<vm::StaticBagOfCellsDb> static_boc,
-                                                                int mode = 0);
-  static td::Result<std::unique_ptr<ConfigInfo>> extract_config(Ref<vm::Cell> mc_state_root, int mode = 0);
+  static td::Result<std::unique_ptr<ConfigInfo>> extract_config(Ref<vm::Cell> mc_state_root,
+                                                                ton::BlockIdExt mc_block_id, int mode = 0);
 
  private:
   ConfigInfo(Ref<vm::Cell> mc_state_root, int _mode = 0);

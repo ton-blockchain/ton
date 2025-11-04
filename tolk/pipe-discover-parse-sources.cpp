@@ -47,7 +47,7 @@ void pipeline_discover_and_parse_sources(const std::string& stdlib_filename, con
     tolk_assert(!file->ast);
 
     file->ast = parse_src_file_to_ast(file);
-    // if (!file->is_stdlib_file()) file->ast->debug_print();
+    // if (!file->is_stdlib_file) file->ast->debug_print();
 
     for (AnyV v_toplevel : file->ast->as<ast_tolk_file>()->get_toplevel_declarations()) {
       if (auto v_import = v_toplevel->try_as<ast_import_directive>()) {

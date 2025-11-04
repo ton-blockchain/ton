@@ -88,7 +88,6 @@ class Db : public td::actor::Actor {
   virtual void store_block_handle(BlockHandle handle, td::Promise<td::Unit> promise) = 0;
   virtual void get_block_handle(BlockIdExt id, td::Promise<BlockHandle> promise) = 0;
 
-  virtual void apply_block(BlockHandle handle, td::Promise<td::Unit> promise) = 0;
   virtual void get_block_by_lt(AccountIdPrefixFull account, LogicalTime lt, td::Promise<ConstBlockHandle> promise) = 0;
   virtual void get_block_by_unix_time(AccountIdPrefixFull account, UnixTime ts,
                                       td::Promise<ConstBlockHandle> promise) = 0;

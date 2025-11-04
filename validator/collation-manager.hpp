@@ -54,6 +54,8 @@ class CollationManager : public td::actor::Actor {
 
   void get_stats(td::Promise<tl_object_ptr<ton_api::engine_validator_collationManagerStats_localId>> promise);
 
+  void ban_collator(adnl::AdnlNodeIdShort collator_id, std::string reason);
+
  private:
   adnl::AdnlNodeIdShort local_id_;
   td::Ref<ValidatorManagerOptions> opts_;
@@ -77,6 +79,8 @@ class CollationManager : public td::actor::Actor {
     td::Timestamp last_ping_at = td::Timestamp::never();
     td::Status last_ping_status = td::Status::Error("not pinged");
     int version = -1;
+    // Collator is banned when in returns invalid block
+    td::Timestamp banned_until = td::Timestamp::never();
   };
   std::map<adnl::AdnlNodeIdShort, CollatorInfo> collators_;
 
@@ -104,6 +108,8 @@ class CollationManager : public td::actor::Actor {
     size_t refcnt = 0;
   };
   std::map<BlockIdExt, OptimisticPrevCache> optimistic_prev_cache_;
+
+  static constexpr double BAN_DURATION = 300.0;
 };
 
 }  // namespace ton::validator

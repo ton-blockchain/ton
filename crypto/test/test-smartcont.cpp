@@ -547,8 +547,8 @@ bool operator<(const ton::MultisigWallet::Mask& a, const ton::MultisigWallet::Ma
 TEST(Smartcon, Multisig) {
   auto ms_lib = ton::MultisigWallet::create();
 
-  int n = 100;
-  int k = 99;
+  int n = 50;
+  int k = 49;
   td::uint32 wallet_id = std::numeric_limits<td::uint32>::max() - 3;
   std::vector<td::Ed25519::PrivateKey> keys;
   for (int i = 0; i < n; i++) {
@@ -613,10 +613,10 @@ TEST(Smartcon, Multisig) {
     LOG(INFO) << "CODE: " << ans.code;
     LOG(INFO) << "GAS: " << ans.gas_used;
   }
-  for (int i = 0; i + 1 < 50; i++) {
+  for (int i = 0; i + 1 < 25; i++) {
     qb.sign(i, keys[i]);
   }
-  auto query = qb.create(49, keys[49]);
+  auto query = qb.create(24, keys[24]);
 
   CHECK(ms->get_n_k() == std::make_pair(n, k));
   auto ans = ms.write().send_external_message(query, args());
@@ -629,10 +629,10 @@ TEST(Smartcon, Multisig) {
 
   {
     ton::MultisigWallet::QueryBuilder qb(wallet_id, query_id, vm::CellBuilder().finalize());
-    for (int i = 50; i + 1 < 100; i++) {
+    for (int i = 25; i + 1 < 50; i++) {
       qb.sign(i, keys[i]);
     }
-    query = qb.create(99, keys[99]);
+    query = qb.create(49, keys[49]);
   }
 
   ans = ms.write().send_external_message(query, args());

@@ -17,6 +17,8 @@
 #pragma once
 
 #include "full-node.h"
+#include "validator-telemetry.hpp"
+
 #include <fstream>
 
 namespace ton::validator::fullnode {
@@ -100,6 +102,7 @@ class FullNodePrivateBlockOverlay : public td::actor::Actor {
   void try_init();
   void init();
 
+  td::actor::ActorOwn<ValidatorTelemetry> telemetry_sender_;
   bool collect_telemetry_ = false;
   std::ofstream telemetry_file_;
 };

@@ -175,7 +175,7 @@ fun alwaysThrowX(x: int): never {
 }
 
 @noinline
-fun anotherNever(throw123: bool): never {
+fun anotherNever(throw123: bool) {    // auto-infer `never`
   if (throw123) { alwaysThrow123(); }
   alwaysThrowX(456);
 }
@@ -264,6 +264,8 @@ fun testBigExcno() {
 }
 
 fun main() {
+  // mark used to codegen them
+  testCodegen3;
 }
 
 /**

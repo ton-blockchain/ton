@@ -266,7 +266,7 @@ class TolkTestFile:
         self.expected_hash: TolkTestCaseExpectedHash | None = None
         self.experimental_options: str | None = None
         self.enable_tolk_lines_comments = False
-        self.pivot_typeid = 138  # may be changed when stdlib introduces new union types
+        self.pivot_typeid = 128
 
     def parse_input_from_tolk_file(self):
         with open(self.tolk_filename, "r") as fd:

@@ -188,6 +188,7 @@ class ValidatorGroup : public td::actor::Actor {
   }
 
   std::set<BlockIdExt> sent_candidate_broadcasts_;
+  std::map<BlockIdExt, adnl::AdnlNodeIdShort> block_collator_node_id_;
 
   void send_block_candidate_broadcast(BlockIdExt id, td::BufferSlice data);
 
