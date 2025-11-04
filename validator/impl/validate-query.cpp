@@ -6248,15 +6248,16 @@ void ValidateQuery::after_check_account_finished(StdSmcAddress address, CheckAcc
  */
 bool ValidateQuery::check_transactions() {
   LOG(INFO) << "checking all transactions";
-  bool no_accounts = true;
+  size_t accounts_count = 0;
   bool result = account_blocks_dict_->check_for_each_extra(
-      [this, &no_accounts](Ref<vm::CellSlice> value, Ref<vm::CellSlice> extra, td::ConstBitPtr key, int key_len) {
+      [this, &accounts_count](Ref<vm::CellSlice> value, Ref<vm::CellSlice> extra, td::ConstBitPtr key, int key_len) {
         CHECK(key_len == 256);
-        no_accounts = false;
+        accounts_count++;
         StdSmcAddress address = key;
         if (parallel_accounts_validation_) {
           pending++;
-          td::actor::create_actor<CheckAccountTxs>(PSTRING() << get_name() << ":" << address.to_hex(), *this,
+          LOG(INFO) << "starting actor #" << accounts_count << " for account " << address.to_hex();
+          td::actor::create_actor<CheckAccountTxs>(PSTRING() << get_name() << ":#" << accounts_count, *this,
                                                    actor_id(this), address, std::move(value),
                                                    load_check_account_transactions_context(address))
               .release();
@@ -6269,7 +6270,7 @@ bool ValidateQuery::check_transactions() {
           return result;
         }
       });
-  if (no_accounts && parallel_accounts_validation_) {
+  if (accounts_count == 0 && parallel_accounts_validation_) {
     parallel_accounts_validation_ = false;
   }
   if (parallel_accounts_validation_) {
