@@ -6090,39 +6090,45 @@ ValidateQuery::CheckAccountTxs::CheckAccountTxs(const ValidateQuery& vq, td::act
  * @returns True if the account transactions are valid, false otherwise.
  */
 bool ValidateQuery::CheckAccountTxs::try_check() {
-  block::gen::AccountBlock::Record acc_blk;
-  CHECK(tlb::csr_unpack(std::move(acc_tr_), acc_blk) && acc_blk.account_addr == address_);
-  auto account_p = unpack_account(address_.cbits());
-  if (!account_p) {
-    return reject_query("cannot unpack old state of account "s + address_.to_hex());
-  }
-  auto& account = *account_p;
-  CHECK(account.addr == address_);
-  vm::AugmentedDictionary trans_dict{vm::DictNonEmpty(), std::move(acc_blk.transactions), 64,
-                                     block::tlb::aug_AccountTransactions};
-  td::BitArray<64> min_trans, max_trans;
-  CHECK(trans_dict.get_minmax_key(min_trans).not_null() && trans_dict.get_minmax_key(max_trans, true).not_null());
-  ton::LogicalTime min_trans_lt = min_trans.to_ulong(), max_trans_lt = max_trans.to_ulong();
-  if (!trans_dict.check_for_each_extra([this, &account, min_trans_lt, max_trans_lt](Ref<vm::CellSlice> value,
-                                                                                    Ref<vm::CellSlice> extra,
-                                                                                    td::ConstBitPtr key, int key_len) {
-        CHECK(key_len == 64);
-        ton::LogicalTime lt = key.get_uint(64);
-        extra.clear();
-        return check_one_transaction(account, lt, value->prefetch_ref(), lt == min_trans_lt, lt == max_trans_lt);
-      })) {
-    return reject_query("at least one Transaction of account "s + address_.to_hex() + " is invalid");
-  }
-  if ((!vq_.full_collated_data_ || vq_.is_masterchain()) && account.storage_dict_hash && account.account_storage_stat &&
-      account.account_storage_stat.value().is_dict_ready() &&
-      account.storage_used.cells >= StorageStatCache::MIN_ACCOUNT_CELLS) {
-    ctx_.storage_stat_cache_update.emplace_back(account.account_storage_stat.value().get_dict_root().move_as_ok(),
-                                                account.storage_used.cells);
-  }
-  if (vq_.is_masterchain() && account.libraries_changed()) {
-    return scan_account_libraries(account.orig_library, account.library, address_);
-  } else {
-    return true;
+  try {
+    block::gen::AccountBlock::Record acc_blk;
+    CHECK(tlb::csr_unpack(std::move(acc_tr_), acc_blk) && acc_blk.account_addr == address_);
+    auto account_p = unpack_account(address_.cbits());
+    if (!account_p) {
+      return reject_query("cannot unpack old state of account "s + address_.to_hex());
+    }
+    auto& account = *account_p;
+    CHECK(account.addr == address_);
+    vm::AugmentedDictionary trans_dict{vm::DictNonEmpty(), std::move(acc_blk.transactions), 64,
+                                       block::tlb::aug_AccountTransactions};
+    td::BitArray<64> min_trans, max_trans;
+    CHECK(trans_dict.get_minmax_key(min_trans).not_null() && trans_dict.get_minmax_key(max_trans, true).not_null());
+    ton::LogicalTime min_trans_lt = min_trans.to_ulong(), max_trans_lt = max_trans.to_ulong();
+    if (!trans_dict.check_for_each_extra([this, &account, min_trans_lt, max_trans_lt](Ref<vm::CellSlice> value,
+                                                                                      Ref<vm::CellSlice> extra,
+                                                                                      td::ConstBitPtr key, int key_len) {
+          CHECK(key_len == 64);
+          ton::LogicalTime lt = key.get_uint(64);
+          extra.clear();
+          return check_one_transaction(account, lt, value->prefetch_ref(), lt == min_trans_lt, lt == max_trans_lt);
+        })) {
+      return reject_query("at least one Transaction of account "s + address_.to_hex() + " is invalid");
+        }
+    if ((!vq_.full_collated_data_ || vq_.is_masterchain()) && account.storage_dict_hash && account.account_storage_stat &&
+        account.account_storage_stat.value().is_dict_ready() &&
+        account.storage_used.cells >= StorageStatCache::MIN_ACCOUNT_CELLS) {
+      ctx_.storage_stat_cache_update.emplace_back(account.account_storage_stat.value().get_dict_root().move_as_ok(),
+                                                  account.storage_used.cells);
+        }
+    if (vq_.is_masterchain() && account.libraries_changed()) {
+      return scan_account_libraries(account.orig_library, account.library, address_);
+    } else {
+      return true;
+    }
+  } catch (vm::VmError& err) {
+    return fatal_error(err.get_msg(), -666);
+  } catch (vm::VmVirtError& err) {
+    return reject_query(err.get_msg());
   }
 }
 
