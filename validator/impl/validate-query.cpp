@@ -6204,18 +6204,18 @@ ValidateQuery::CheckAccountTxs::Context ValidateQuery::load_check_account_transa
 
 void ValidateQuery::save_account_transactions_context(const StdSmcAddress& address, CheckAccountTxs::Context ctx) {
   if (ctx.fatal_error.has_value()) {
-    if (!parallel_check_account_failed_) {
-      parallel_check_account_failed_ = true;
-      parallel_check_account_fatal_error_ = std::move(ctx.fatal_error);
+    if (!check_account_failed_) {
+      check_account_failed_ = true;
+      check_account_fatal_error_ = std::move(ctx.fatal_error);
     }
     return;
   }
 
   if (ctx.reject_reason.has_value()) {
-    if (!parallel_check_account_failed_) {
-      parallel_check_account_failed_ = true;
-      parallel_check_account_reject_error_ = std::move(ctx.reject_error);
-      parallel_check_account_reject_reason_ = std::move(ctx.reject_reason);
+    if (!check_account_failed_) {
+      check_account_failed_ = true;
+      check_account_reject_error_ = std::move(ctx.reject_error);
+      check_account_reject_reason_ = std::move(ctx.reject_reason);
     }
     return;
   }
@@ -6251,18 +6251,19 @@ void ValidateQuery::after_check_account_finished(StdSmcAddress address, CheckAcc
     parallel_accounts_validation_pending_ = false;
     parallel_work_timer_.pause();
     stats_.work_time.total += parallel_work_timer_.elapsed_both();
-    if (parallel_check_account_failed_) {
-      if (parallel_check_account_fatal_error_.has_value()) {
-        fatal_error(std::move(parallel_check_account_fatal_error_.value()));
-      }
-      if (parallel_check_account_reject_error_.has_value()) {
-        reject_query(std::move(parallel_check_account_reject_error_.value()),
-                     std::move(parallel_check_account_reject_reason_.value()));
-      }
-    } else {
-      try_validate();
-    }
+    try_validate();
   }
+}
+
+bool ValidateQuery::check_account_failures() {
+  if (check_account_fatal_error_.has_value()) {
+    return fatal_error(std::move(check_account_fatal_error_.value()));
+  }
+  if (check_account_reject_error_.has_value()) {
+    return reject_query(std::move(check_account_reject_error_.value()),
+                 std::move(check_account_reject_reason_.value()));
+  }
+  return true;
 }
 
 /**
@@ -7445,6 +7446,9 @@ bool ValidateQuery::try_validate() {
     }
     if (stage_ == 2) {
       LOG(WARNING) << "try_validate stage 2";
+      if (!check_account_failures()) {
+        return reject_query("some accounts failed to be validated");
+      }
       if (!check_all_ticktock_processed()) {
         return reject_query("not all tick-tock transactions have been run for special accounts");
       }

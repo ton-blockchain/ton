@@ -154,11 +154,11 @@ class ValidateQuery : public td::actor::Actor {
   bool outq_cleanup_partial_{false};
   bool parallel_accounts_validation_{false};
   bool parallel_accounts_validation_pending_{false};
-  bool parallel_check_account_failed_{false};
+  bool check_account_failed_{false};
   td::RealCpuTimer parallel_work_timer_{/*is_paused=*/true};
-  std::optional<td::Status> parallel_check_account_fatal_error_ = std::nullopt;
-  std::optional<std::string> parallel_check_account_reject_error_ = std::nullopt;
-  std::optional<td::BufferSlice> parallel_check_account_reject_reason_ = std::nullopt;
+  std::optional<td::Status> check_account_fatal_error_ = std::nullopt;
+  std::optional<std::string> check_account_reject_error_ = std::nullopt;
+  std::optional<td::BufferSlice> check_account_reject_reason_ = std::nullopt;
   BlockSeqno prev_key_seqno_{~0u};
   int stage_{0};
   td::BitArray<64> shard_pfx_;
@@ -339,6 +339,7 @@ class ValidateQuery : public td::actor::Actor {
   bool unpack_block_candidate();
   bool extract_collated_data_from(Ref<vm::Cell> croot, int idx);
   bool extract_collated_data();
+  bool check_account_failures();
   bool try_validate();
   bool compute_prev_state();
   bool compute_next_state();
