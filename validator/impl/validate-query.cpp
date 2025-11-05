@@ -6114,10 +6114,6 @@ ValidateQuery::CheckAccountTxs::CheckAccountTxs(const ValidateQuery& vq, td::act
  */
 bool ValidateQuery::CheckAccountTxs::try_check() {
   try {
-    td::RealCpuTimer timer;
-    SCOPE_EXIT {
-      ctx_.work_time.total = timer.elapsed_both();
-    };
     alarm_timestamp() = vq_.timeout;
     block::gen::AccountBlock::Record acc_blk;
     CHECK(tlb::csr_unpack(std::move(acc_tr_), acc_blk) && acc_blk.account_addr == address_);
@@ -6253,6 +6249,8 @@ void ValidateQuery::after_check_account_finished(StdSmcAddress address, CheckAcc
   save_account_transactions_context(address, std::move(context));
   if (!pending) {
     parallel_accounts_validation_pending_ = false;
+    parallel_work_timer_.pause();
+    stats_.work_time.total += parallel_work_timer_.elapsed_both();
     if (parallel_check_account_failed_) {
       if (parallel_check_account_fatal_error_.has_value()) {
         fatal_error(std::move(parallel_check_account_fatal_error_.value()));
@@ -6300,7 +6298,9 @@ bool ValidateQuery::check_transactions() {
     parallel_accounts_validation_ = false;
   }
   if (parallel_accounts_validation_) {
+    stats_.parallel_accounts_validation = true;
     parallel_accounts_validation_pending_ = true;
+    parallel_work_timer_.resume();
   }
   return result;
 }
@@ -7526,7 +7526,7 @@ void ValidateQuery::record_stats(bool valid, std::string error_message) {
   stats_.actual_collated_data_bytes = (td::uint32)block_candidate.collated_data.size();
   stats_.total_time = perf_timer_.elapsed();
   stats_.work_time.total += work_timer_.elapsed_both();
-  stats_.work_time.actual_total = work_timer_.elapsed_both();
+  stats_.actual_time = work_timer_.elapsed_real() + parallel_work_timer_.elapsed_real();
   stats_.time_stats = (PSTRING() << perf_log_);
   LOG(WARNING) << "validation took " << perf_timer_.elapsed() << "s";
   LOG(WARNING) << "Validate query work time = " << stats_.work_time.total.real

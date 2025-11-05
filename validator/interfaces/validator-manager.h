@@ -190,10 +190,11 @@ struct ValidationStats {
   td::uint32 actual_bytes = 0, actual_collated_data_bytes = 0;
   double total_time = 0.0;
   std::string time_stats;
+  double actual_time = 0.0;
+  bool parallel_accounts_validation = false;
 
   struct WorkTimeStats {
     td::RealCpuTimer::Time total;
-    td::RealCpuTimer::Time actual_total;
     td::RealCpuTimer::Time optimistic_apply;
     td::RealCpuTimer::Time trx_tvm;
     td::RealCpuTimer::Time trx_storage_stat;
@@ -202,7 +203,7 @@ struct ValidationStats {
     std::string to_str(bool is_cpu) const {
       return PSTRING() << "total=" << total.get(is_cpu) << " optimistic_apply=" << optimistic_apply.get(is_cpu)
                        << " trx_tvm=" << trx_tvm.get(is_cpu) << " trx_storage_stat=" << trx_storage_stat.get(is_cpu)
-                       << " trx_other=" << trx_other.get(is_cpu) << " actual_total=" << actual_total.get(is_cpu);
+                       << " trx_other=" << trx_other.get(is_cpu);
     }
   };
   WorkTimeStats work_time;
@@ -211,8 +212,9 @@ struct ValidationStats {
   tl_object_ptr<ton_api::validatorStats_validatedBlock> tl() const {
     return create_tl_object<ton_api::validatorStats_validatedBlock>(
         create_tl_block_id(block_id), collated_data_hash, validated_at, self.bits256_value(), valid, comment,
-        actual_bytes, actual_collated_data_bytes, total_time, work_time.total.real, work_time.total.cpu,
-        time_stats, work_time.to_str(false), work_time.to_str(true), storage_stat_cache.tl());
+        actual_bytes, actual_collated_data_bytes, total_time, actual_time, work_time.total.real, work_time.total.cpu,
+        time_stats, work_time.to_str(false), work_time.to_str(true), storage_stat_cache.tl(),
+        parallel_accounts_validation);
   }
 };
 
