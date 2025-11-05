@@ -6114,7 +6114,6 @@ ValidateQuery::CheckAccountTxs::CheckAccountTxs(const ValidateQuery& vq, td::act
  */
 bool ValidateQuery::CheckAccountTxs::try_check() {
   try {
-    alarm_timestamp() = vq_.timeout;
     block::gen::AccountBlock::Record acc_blk;
     CHECK(tlb::csr_unpack(std::move(acc_tr_), acc_blk) && acc_blk.account_addr == address_);
     auto account_p = unpack_account(address_.cbits());
@@ -6164,10 +6163,6 @@ void ValidateQuery::CheckAccountTxs::start_up() {
   try_check();
   td::actor::send_closure(vq_id_, &ValidateQuery::after_check_account_finished, address_, extract_context());
   stop();
-}
-
-void ValidateQuery::CheckAccountTxs::alarm() {
-  abort_query(td::Status::Error(ErrorCode::timeout, "timeout"));
 }
 
 void ValidateQuery::CheckAccountTxs::abort_query(td::Status error) {

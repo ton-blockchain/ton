@@ -429,7 +429,6 @@ class ValidateQuery : public td::actor::Actor {
 
   private:
     void start_up() override;
-    void alarm() override;
 
     void abort_query(td::Status error);
     bool reject_query(std::string error, td::BufferSlice reason = {});
