@@ -518,4 +518,33 @@ std::pair<Promise<T>, Future<T>> make_promise_future() {
   return std::make_pair(std::move(promise), std::move(future));
 }
 
+template <class...>
+inline constexpr bool always_false = false;
+
+template <class R>
+struct is_result : std::false_type {};
+template <class U>
+struct is_result<td::Result<U>> : std::true_type {};
+
+template <class R>
+inline constexpr bool is_result_v = is_result<R>::value;
+
+template <class L, class R>
+constexpr decltype(auto) connect(L &&l, R &&r) noexcept {
+  if constexpr (is_result_v<std::decay_t<R>>) {
+    if (r.is_error()) {
+      connect(std::forward<L>(l), r.move_as_error());
+    } else {
+      connect(std::forward<L>(l), r.move_as_ok());
+    }
+  } else if constexpr (requires { custom_connect(std::forward<L>(l), std::forward<R>(r)); }) {
+    // ADL will find overloads defined in the namespaces of L or R
+    return custom_connect(std::forward<L>(l), std::forward<R>(r));
+  } else if constexpr (requires { std::forward<L>(l)(std::forward<R>(r)); }) {
+    return std::forward<L>(l)(std::forward<R>(r));
+  } else {
+    static_assert(always_false<L, R>, "no matching apply overload");
+  }
+}
+
 }  // namespace td
