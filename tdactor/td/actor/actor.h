@@ -27,12 +27,18 @@ namespace actor {
 
 template <class T, class... ArgsT>
 TD_WARN_UNUSED_RESULT ActorOwn<T> create_actor(ActorOptions options, ArgsT &&...args) {
-  return ActorOwn<T>(ActorId<T>::create(options, std::forward<ArgsT>(args)...));
+  return ActorOwn<T>(ActorId<T>::create(options, std::make_unique<T>(std::forward<ArgsT>(args)...)));
 }
 
 template <class T, class... ArgsT>
 TD_WARN_UNUSED_RESULT ActorOwn<T> create_actor(Slice name, ArgsT &&...args) {
-  return ActorOwn<T>(ActorId<T>::create(ActorOptions().with_name(name), std::forward<ArgsT>(args)...));
+  return ActorOwn<T>(
+      ActorId<T>::create(ActorOptions().with_name(name), std::make_unique<T>(std::forward<ArgsT>(args)...)));
+}
+
+template <class T>
+TD_WARN_UNUSED_RESULT ActorOwn<T> create_actor_from_instance(Slice name, std::unique_ptr<T> actor) {
+  return ActorOwn<T>(ActorId<T>::create(ActorOptions().with_name(name), std::move(actor)));
 }
 
 namespace internal {

@@ -63,9 +63,12 @@ class ActorId {
     return !empty() && actor_info().is_alive();
   }
 
-  template <class... ArgsT>
-  static ActorId<ActorType> create(ActorOptions &options, ArgsT &&...args) {
-    return ActorId<ActorType>(detail::create_actor<ActorType>(options, std::forward<ArgsT>(args)...));
+  static ActorId<ActorType> create(ActorOptions &options, std::unique_ptr<ActorType> actor) {
+    return ActorId<ActorType>(detail::create_actor<ActorType>(options, std::move(actor)));
+  }
+
+  static ActorId<ActorType> unsafe_create_from_info(core::ActorInfoPtr ptr) {
+    return ActorId<ActorType>(std::move(ptr));
   }
 
   template <class OtherT>
