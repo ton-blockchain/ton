@@ -98,7 +98,7 @@ void UdpServerImpl::loop() {
     return;
   }
   //CHECK(td::actor::SchedulerContext::get()->has_poll() == false);
-  fd_.get_poll_info().get_flags();
+  sync_with_poll(fd_);
   VLOG(udp_server) << "loop " << td::tag("can read", can_read(fd_)) << " " << td::tag("can write", can_write(fd_));
   Status status;
   status = [&] {

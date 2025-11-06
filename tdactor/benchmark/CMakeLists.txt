@@ -34,7 +34,7 @@ if(PkgConfig_FOUND)
     message(STATUS "Google Benchmark found via pkg-config - gbench-coro target enabled")
     
     # Check for Folly
-    find_package(folly CONFIG REQUIRED)
+    find_package(folly CONFIG QUIET)
     if(folly_FOUND)
       add_executable(gbench-coro-folly gbench-coro-folly.cpp)
       target_link_libraries(gbench-coro-folly -lbenchmark)

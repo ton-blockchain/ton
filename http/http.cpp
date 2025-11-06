@@ -475,6 +475,15 @@ void HttpPayload::run_callbacks() {
   }
 }
 
+void HttpPayload::flush() {
+  is_flushing_ = true;
+  for (auto &x : callbacks_) {
+    if (state_.load(std::memory_order_relaxed) != ParseState::completed) {
+      x->flush();
+    }
+  }
+}
+
 bool HttpPayload::store_http(td::ChainBufferWriter &output, size_t max_size, HttpPayload::PayloadType store_type) {
   if (store_type == PayloadType::pt_empty) {
     return false;

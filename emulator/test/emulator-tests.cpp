@@ -10,7 +10,7 @@
 #include "td/utils/tests.h"
 
 // testnet config as of 27.06.24
-const char* config_boc =
+const char *config_boc =
     "te6cckICAl8AAQAANecAAAIBIAABAAICAtgAAwAEAgL1AA0ADgIBIAAFAAYCAUgCPgI/"
     "AgEgAAcACAIBSAAJAAoCASAAHgAfAgEgAGUAZgIBSAALAAwCAWoA0gDTAQFI"
     "AJIBAUgAsgEDpDMADwIBbgAQABEAQDPAueB1cC0DTaIjG28I/"
@@ -317,7 +317,7 @@ TEST(Emulator, wallet_int_and_ext_msg) {
 
   auto address = wallet->get_address();
 
-  void* emulator = transaction_emulator_create(config_boc, 3);
+  void *emulator = transaction_emulator_create(config_boc, 3);
   const uint64_t lt = 42000000000;
   CHECK(transaction_emulator_set_lt(emulator, lt));
   const uint32_t utime = 1337;
@@ -397,17 +397,12 @@ TEST(Emulator, wallet_int_and_ext_msg) {
     auto int_result_json = td::json_decode(td::MutableSlice(int_emu_res));
     CHECK(int_result_json.is_ok());
     auto int_result_value = int_result_json.move_as_ok();
-    auto& int_result_obj = int_result_value.get_object();
+    auto &int_result_obj = int_result_value.get_object();
 
-    auto success_field = td::get_json_object_field(int_result_obj, "success", td::JsonValue::Type::Boolean, false);
-    CHECK(success_field.is_ok());
-    auto success = success_field.move_as_ok().get_boolean();
+    auto success = int_result_obj.get_optional_bool_field("success").move_as_ok();
     CHECK(success);
 
-    auto transaction_field =
-        td::get_json_object_field(int_result_obj, "transaction", td::JsonValue::Type::String, false);
-    CHECK(transaction_field.is_ok());
-    auto transaction_boc_b64 = transaction_field.move_as_ok().get_string();
+    auto transaction_boc_b64 = int_result_obj.get_required_string_field("transaction").move_as_ok();
     auto transaction_boc = td::base64_decode(transaction_boc_b64);
     CHECK(transaction_boc.is_ok());
     auto trans_cell = vm::std_boc_deserialize(transaction_boc.move_as_ok());
@@ -423,11 +418,8 @@ TEST(Emulator, wallet_int_and_ext_msg) {
     CHECK(trans.lt == lt);
     CHECK(trans.now == utime);
 
-    auto shard_account_field =
-        td::get_json_object_field(int_result_obj, "shard_account", td::JsonValue::Type::String, false);
-    CHECK(shard_account_field.is_ok());
-    auto shard_account_boc_b64 = shard_account_field.move_as_ok().get_string();
-    shard_account_after_boc_b64 = shard_account_boc_b64.str();
+    auto shard_account_boc_b64 = int_result_obj.get_required_string_field("shard_account").move_as_ok();
+    shard_account_after_boc_b64 = shard_account_boc_b64;
     auto shard_account_boc = td::base64_decode(shard_account_boc_b64);
     CHECK(shard_account_boc.is_ok());
     auto shard_account_cell = vm::std_boc_deserialize(shard_account_boc.move_as_ok());
@@ -459,16 +451,11 @@ TEST(Emulator, wallet_int_and_ext_msg) {
     auto ext_result_json = td::json_decode(td::MutableSlice(ext_emu_res));
     CHECK(ext_result_json.is_ok());
     auto ext_result = ext_result_json.move_as_ok();
-    auto& ext_result_obj = ext_result.get_object();
-    auto ext_success_field = td::get_json_object_field(ext_result_obj, "success", td::JsonValue::Type::Boolean, false);
-    CHECK(ext_success_field.is_ok());
-    auto ext_success = ext_success_field.move_as_ok().get_boolean();
+    auto &ext_result_obj = ext_result.get_object();
+    auto ext_success = ext_result_obj.get_optional_bool_field("success").move_as_ok();
     CHECK(ext_success);
 
-    auto ext_transaction_field =
-        td::get_json_object_field(ext_result_obj, "transaction", td::JsonValue::Type::String, false);
-    CHECK(ext_transaction_field.is_ok());
-    auto ext_transaction_boc_b64 = ext_transaction_field.move_as_ok().get_string();
+    auto ext_transaction_boc_b64 = ext_result_obj.get_required_string_field("transaction").move_as_ok();
     auto ext_transaction_boc = td::base64_decode(ext_transaction_boc_b64);
     CHECK(ext_transaction_boc.is_ok());
     auto ext_trans_cell = vm::std_boc_deserialize(ext_transaction_boc.move_as_ok());
@@ -483,10 +470,7 @@ TEST(Emulator, wallet_int_and_ext_msg) {
     CHECK(ext_trans_descr.aborted == false);
     CHECK(ext_trans_descr.destroyed == false);
 
-    auto ext_shard_account_field =
-        td::get_json_object_field(ext_result_obj, "shard_account", td::JsonValue::Type::String, false);
-    CHECK(ext_shard_account_field.is_ok());
-    auto ext_shard_account_boc_b64 = ext_shard_account_field.move_as_ok().get_string();
+    auto ext_shard_account_boc_b64 = ext_result_obj.get_required_string_field("shard_account").move_as_ok();
     auto ext_shard_account_boc = td::base64_decode(ext_shard_account_boc_b64);
     CHECK(ext_shard_account_boc.is_ok());
     auto ext_shard_account_cell = vm::std_boc_deserialize(ext_shard_account_boc.move_as_ok());
@@ -519,7 +503,7 @@ TEST(Emulator, tvm_emulator) {
   auto data = ton::WalletV3::get_init_data(init_data);
   auto data_boc_b64 = td::base64_encode(std_boc_serialize(data).move_as_ok());
 
-  void* tvm_emulator = tvm_emulator_create(code_boc_b64.c_str(), data_boc_b64.c_str(), 1);
+  void *tvm_emulator = tvm_emulator_create(code_boc_b64.c_str(), data_boc_b64.c_str(), 1);
   unsigned method_crc = td::crc16("seqno");
   unsigned method_id = (method_crc & 0xffff) | 0x10000;
   auto stack = td::make_ref<vm::Stack>();
@@ -539,17 +523,12 @@ TEST(Emulator, tvm_emulator) {
   auto result_json = td::json_decode(td::MutableSlice(tvm_res));
   CHECK(result_json.is_ok());
   auto result = result_json.move_as_ok();
-  auto& result_obj = result.get_object();
+  auto &result_obj = result.get_object();
 
-  auto success_field = td::get_json_object_field(result_obj, "success", td::JsonValue::Type::Boolean, false);
-  CHECK(success_field.is_ok());
-  auto success = success_field.move_as_ok().get_boolean();
+  auto success = result_obj.get_optional_bool_field("success").move_as_ok();
   CHECK(success);
 
-  auto stack_field = td::get_json_object_field(result_obj, "stack", td::JsonValue::Type::String, false);
-  CHECK(stack_field.is_ok());
-  auto stack_val = stack_field.move_as_ok();
-  auto& stack_obj = stack_val.get_string();
+  auto stack_obj = result_obj.get_required_string_field("stack").move_as_ok();
   auto stack_res_boc = td::base64_decode(stack_obj);
   CHECK(stack_res_boc.is_ok());
   auto stack_res_cell = vm::std_boc_deserialize(stack_res_boc.move_as_ok());
@@ -562,7 +541,7 @@ TEST(Emulator, tvm_emulator) {
 }
 
 TEST(Emulator, tvm_emulator_extra_currencies) {
-  void* tvm_emulator = tvm_emulator_create("te6cckEBBAEAHgABFP8A9KQT9LzyyAsBAgFiAgMABtBfBAAJofpP8E8XmGlj",
+  void *tvm_emulator = tvm_emulator_create("te6cckEBBAEAHgABFP8A9KQT9LzyyAsBAgFiAgMABtBfBAAJofpP8E8XmGlj",
                                            "te6cckEBAQEAAgAAAEysuc0=", 1);
   std::string addr = "0:" + std::string(64, 'F');
   tvm_emulator_set_c7(tvm_emulator, addr.c_str(), 1337, 1000, std::string(64, 'F').c_str(), nullptr);
@@ -580,15 +559,12 @@ TEST(Emulator, tvm_emulator_extra_currencies) {
 
   auto result_json = td::json_decode(td::MutableSlice(tvm_res));
   auto result = result_json.move_as_ok();
-  auto& result_obj = result.get_object();
+  auto &result_obj = result.get_object();
 
-  auto success_field = td::get_json_object_field(result_obj, "success", td::JsonValue::Type::Boolean, false);
-  auto success = success_field.move_as_ok().get_boolean();
+  auto success = result_obj.get_optional_bool_field("success").move_as_ok();
   CHECK(success);
 
-  auto stack_field = td::get_json_object_field(result_obj, "stack", td::JsonValue::Type::String, false);
-  auto stack_val = stack_field.move_as_ok();
-  auto& stack_obj = stack_val.get_string();
+  auto stack_obj = result_obj.get_required_string_field("stack").move_as_ok();
   auto stack_res_boc = td::base64_decode(stack_obj);
   auto stack_res_cell = vm::std_boc_deserialize(stack_res_boc.move_as_ok());
   td::Ref<vm::Stack> stack_res;

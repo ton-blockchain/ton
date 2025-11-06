@@ -86,7 +86,7 @@ class KeyValueDir : public KeyValue {
         if (cnt != 1) {
           return td::WalkPath::Action::SkipDir;
         }
-      } else if (type == td::WalkPath::Type::NotDir) {
+      } else if (type == td::WalkPath::Type::RegularFile) {
         f(td::PathView::relative(path, directory_));
       }
 

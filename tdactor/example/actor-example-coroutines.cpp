@@ -5,10 +5,16 @@
 #include <string>
 #include <thread>
 
-#include "absl/status/status.h"
 #include "td/actor/actor.h"
 #include "td/actor/coro.h"
-#include "td/utils/SharedSlice.h"
+#include "td/actor/coro_utils.h"
+#include "td/net/FramedPipe.h"
+#include "td/net/Pipe.h"
+#include "td/net/TcpListener.h"
+#include "td/utils/as.h"
+#include "td/utils/buffer.h"
+#include "td/utils/port/IPAddress.h"
+#include "td/utils/port/SocketFd.h"
 #include "td/utils/port/sleep.h"
 
 using namespace td::actor;
@@ -150,12 +156,179 @@ Task<td::Unit> example_all() {
   co_return td::Unit();
 }
 
+Task<td::Unit> example_echo_server() {
+  LOG(INFO) << "Echo server example using TaskActor, TcpListener, and SocketPipe";
+
+  // Echo server connection handler
+  class EchoConnection : public TaskActor<td::Unit> {
+   public:
+    explicit EchoConnection(td::SocketPipe pipe) : pipe_(std::move(pipe)) {
+    }
+
+   private:
+    td::SocketPipe pipe_;
+    int messages_count_{0};
+    bool received_shutdown_{false};
+
+    void start_up() override {
+      LOG(INFO) << "Echo server: client connected";
+      pipe_.subscribe();
+    }
+
+    Task<Action> task_loop_once() override {
+      // Read from socket
+      co_await pipe_.flush_read();
+
+      // Process all available messages
+      while (!received_shutdown_) {
+        td::BufferSlice message;
+        auto r_needed = td::framed_read(pipe_.input_buffer(), message);
+
+        if (r_needed.is_error()) {
+          LOG(ERROR) << "Framing error: " << r_needed.error();
+          co_return Action::Finish;
+        }
+
+        auto needed = r_needed.move_as_ok();
+        if (needed > 0) {
+          break;  // Need more data
+        }
+
+        messages_count_++;
+        LOG(INFO) << "Server received: " << message.as_slice();
+
+        // Check for shutdown signal (empty message)
+        if (message.empty()) {
+          LOG(INFO) << "Server shutting down, processed " << messages_count_ - 1 << " messages";
+          received_shutdown_ = true;
+          break;
+        }
+
+        // Echo it back
+        co_await td::framed_write(pipe_.output_buffer(), message.as_slice());
+      }
+      // Write responses
+      co_await pipe_.flush_write();
+      if (received_shutdown_ && pipe_.left_unwritten() == 0) {
+        LOG(INFO) << "Server: all messages echoed successfully";
+        co_return Action::Finish;
+      }
+
+      co_return Action::KeepRunning;
+    }
+
+    Task<td::Unit> finish(td::Status status) override {
+      if (status.is_error()) {
+        LOG(INFO) << "Connection closed with error: " << status;
+      } else {
+        LOG(INFO) << "Connection closed normally";
+      }
+      co_return td::Unit();
+    }
+  };
+
+  // TCP Listener that spawns EchoConnection for each client
+  class EchoServer : public td::TcpListener::Callback {
+   public:
+    void accept(td::SocketFd fd) override {
+      LOG(INFO) << "Accepting new connection";
+      auto pipe = td::make_socket_pipe(std::move(fd));
+      spawn_task_actor<EchoConnection>("echo_conn", std::move(pipe)).detach();
+    }
+  };
+
+  // Echo client
+  class EchoClient : public TaskActor<td::Unit> {
+   public:
+    EchoClient(td::SocketPipe pipe, int target_messages) : pipe_(std::move(pipe)), target_messages_(target_messages) {
+    }
+
+   private:
+    td::SocketPipe pipe_;
+    int messages_sent_{0};
+    int messages_received_{0};
+    int target_messages_;
+
+    void start_up() override {
+      LOG(INFO) << "Echo client: connected to server";
+      pipe_.subscribe();
+    }
+
+    Task<Action> task_loop_once() override {
+      // Receive echoes
+      co_await pipe_.flush_read();
+
+      while (true) {
+        td::BufferSlice message;
+        auto needed = co_await td::framed_read(pipe_.input_buffer(), message);
+
+        if (needed > 0) {
+          break;  // Need more data
+        }
+
+        LOG(INFO) << "Client received echo: " << message.as_slice();
+        messages_received_++;
+
+        if (messages_received_ >= target_messages_) {
+          LOG(INFO) << "Client: all messages echoed successfully";
+          co_return Action::Finish;
+        }
+      }
+
+      if (messages_sent_ < target_messages_ && messages_sent_ < messages_received_ + 2) {
+        auto message = td::BufferSlice(PSLICE() << "Hello from client #" << messages_sent_);
+        LOG(INFO) << "Client sent: " << message.as_slice();
+
+        co_await td::framed_write(pipe_.output_buffer(), message.as_slice());
+        messages_sent_++;
+        co_await pipe_.flush_write();
+      } else if (messages_sent_ == target_messages_) {
+        // Send shutdown signal (empty message)
+        LOG(INFO) << "Client sending shutdown signal";
+        co_await td::framed_write(pipe_.output_buffer(), td::Slice());
+        messages_sent_++;
+        co_await pipe_.flush_write();
+      }
+
+      co_return Action::KeepRunning;
+    }
+
+    Task<td::Unit> finish(td::Status status) override {
+      LOG(INFO) << "Echo client: finished: " << status;
+      co_await std::move(status);
+      co_return td::Unit();
+    }
+  };
+
+  // Start TCP listener on localhost
+  int port = 8895;
+  auto listener = td::actor::create_actor<td::TcpInfiniteListener>("TcpListener", port, std::make_unique<EchoServer>());
+
+  co_await td::actor::coro_sleep(td::Timestamp::in(1));
+
+  // Connect client to server
+  td::IPAddress server_addr;
+  server_addr.init_host_port("127.0.0.1", port).ensure();
+
+  auto socket = co_await td::SocketFd::open(server_addr);
+
+  auto client_pipe = td::make_socket_pipe(std::move(socket));
+  auto client_task = spawn_task_actor<EchoClient>("echo_client", std::move(client_pipe), 20);
+
+  // Wait for client to complete
+  co_await std::move(client_task);
+
+  LOG(INFO) << "Echo server example completed successfully";
+  co_return td::Unit();
+}
+
 Task<td::Unit> run_all_examples() {
   co_await example_create();
   co_await example_communicate();
   co_await example_error_handling();
   co_await example_actor();
   co_await example_all();
+  co_await example_echo_server();
   co_return td::Unit();
 }
 

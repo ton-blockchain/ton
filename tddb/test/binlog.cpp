@@ -472,7 +472,7 @@ class RandomBinlog {
   LogEvent create_random_logevent() {
     auto rand_uint256 = [] {
       td::UInt256 res;
-      td::Random::secure_bytes(as_slice(res));
+      td::Random::secure_bytes(as_mutable_slice(res));
       return res;
     };
     auto rand_block_id = [] {
