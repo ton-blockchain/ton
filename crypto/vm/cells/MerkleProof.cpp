@@ -107,8 +107,8 @@ Ref<Cell> MerkleProof::generate_raw(Ref<Cell> cell, CellUsageTree *usage_tree) {
   return detail::MerkleProofImpl(usage_tree).create_from(cell);
 }
 
-Ref<Cell> MerkleProof::virtualize_raw(Ref<Cell> cell, Cell::VirtualizationParameters virt) {
-  return cell->virtualize(virt);
+Ref<Cell> MerkleProof::virtualize_raw(Ref<Cell> cell, td::uint32 effective_level) {
+  return cell->virtualize(effective_level);
 }
 
 Ref<Cell> MerkleProof::generate(Ref<Cell> cell, IsPrunnedFunction is_prunned) {
@@ -145,17 +145,17 @@ td::Result<Ref<Cell>> unpack_proof(Ref<Cell> cell) {
   return cs.fetch_ref();
 }
 
-Ref<Cell> MerkleProof::virtualize(Ref<Cell> cell, int virtualization) {
+Ref<Cell> MerkleProof::virtualize(Ref<Cell> cell) {
   auto r_raw = unpack_proof(std::move(cell));
   if (r_raw.is_error()) {
     return {};
   }
-  return virtualize_raw(r_raw.move_as_ok(), {0 /*level*/, static_cast<td::uint8>(virtualization)});
+  return virtualize_raw(r_raw.move_as_ok(), 0);
 }
 
-td::Result<Ref<Cell>> MerkleProof::try_virtualize(Ref<Cell> cell, int virtualization) {
+td::Result<Ref<Cell>> MerkleProof::try_virtualize(Ref<Cell> cell) {
   TRY_RESULT(unpacked_cell, unpack_proof(std::move(cell)));
-  return unpacked_cell->virtualize({0 /*level*/, static_cast<td::uint8>(virtualization)});
+  return unpacked_cell->virtualize(0);
 }
 
 class MerkleProofCombineFast {

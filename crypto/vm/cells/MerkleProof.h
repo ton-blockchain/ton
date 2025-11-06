@@ -35,8 +35,8 @@ class MerkleProof {
   static Ref<Cell> generate(Ref<Cell> cell, CellUsageTree *usage_tree);
 
   // cell must have zero level and must be a MerkleProof
-  static Ref<Cell> virtualize(Ref<Cell> cell, int virtualization);
-  static td::Result<Ref<Cell>> try_virtualize(Ref<Cell> cell, int virtualization = 1);
+  static Ref<Cell> virtualize(Ref<Cell> cell);
+  static td::Result<Ref<Cell>> try_virtualize(Ref<Cell> cell);
 
   static Ref<Cell> combine(Ref<Cell> a, Ref<Cell> b);
   static td::Result<Ref<Cell>> combine_status(Ref<Cell> a, Ref<Cell> b);
@@ -47,7 +47,7 @@ class MerkleProof {
   // works fine with cell of non-zero level, but this is not supported (yet?) in MerkeProof special cell
   static Ref<Cell> generate_raw(Ref<Cell> cell, IsPrunnedFunction is_prunned);
   static Ref<Cell> generate_raw(Ref<Cell> cell, CellUsageTree *usage_tree);
-  static Ref<Cell> virtualize_raw(Ref<Cell> cell, Cell::VirtualizationParameters virt);
+  static Ref<Cell> virtualize_raw(Ref<Cell> cell, td::uint32 effective_level);
   static Ref<Cell> combine_raw(Ref<Cell> a, Ref<Cell> b);
   static Ref<Cell> combine_fast_raw(Ref<Cell> a, Ref<Cell> b);
 };

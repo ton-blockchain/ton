@@ -759,7 +759,7 @@ bool AcceptBlockQuery::unpack_proof_link(BlockIdExt id, Ref<ProofLink> proof_lin
     return fatal_error("block proof link is for another block: expected "s + id.to_str() + ", found " +
                        proof_blk_id.to_str());
   }
-  auto virt_root = vm::MerkleProof::virtualize(proof.root, 1);
+  auto virt_root = vm::MerkleProof::virtualize(proof.root);
   if (virt_root.is_null()) {
     return fatal_error("block proof link for block "s + id.to_str() +
                        " does not contain a valid Merkle proof for the block header");

@@ -100,7 +100,7 @@ Ref<DataCell> CellBuilder::finalize(bool special) {
 }
 
 Ref<Cell> CellBuilder::create_pruned_branch(Ref<Cell> cell, td::uint32 new_level, td::uint32 virt_level) {
-  if (cell->is_loaded() && cell->get_level() <= virt_level && cell->get_virtualization() == 0) {
+  if (cell->is_loaded() && cell->get_level() <= virt_level && !cell->is_virtualized()) {
     CellSlice cs(NoVm{}, cell);
     if (cs.size_refs() == 0) {
       return cell;
