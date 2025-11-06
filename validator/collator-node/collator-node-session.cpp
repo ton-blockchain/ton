@@ -50,6 +50,7 @@ CollatorNodeSession::CollatorNodeSession(ShardIdFull shard, std::vector<BlockIdE
     , manager_(manager)
     , adnl_(adnl)
     , rldp_(rldp)
+    , first_block_seqno_(get_next_block_seqno(prev_))
     , next_block_seqno_(get_next_block_seqno(prev_)) {
   collated_data_merged_upto_ = next_block_seqno_;
   update_masterchain_config(state);
@@ -86,10 +87,10 @@ void CollatorNodeSession::new_shard_block_accepted(BlockIdExt block_id, bool can
     return;
   }
   LOG(INFO) << "New shard block #" << block_id.seqno();
-  LOG(DEBUG) << "New shard block " << block_id.to_str();
   next_block_seqno_ = block_id.seqno() + 1;
   prev_ = {block_id};
-  accepted_blocks_[block_id.seqno()] = block_id;
+
+  process_accepted_block(block_id);
 
   while (!cache_.empty()) {
     auto& [cache_prev, entry] = *cache_.begin();
@@ -115,8 +116,6 @@ void CollatorNodeSession::new_shard_block_accepted(BlockIdExt block_id, bool can
     }
     cache_.erase(cache_.begin());
   }
-
-  try_merge_collated_data(block_id);
 
   if (can_generate_) {
     generate_block(prev_, {}, {}, {}, td::Timestamp::in(10.0), [](td::Result<BlockCandidate>) {});
@@ -400,6 +399,50 @@ void CollatorNodeSession::alarm() {
     }
   }
 }
+
+void CollatorNodeSession::process_accepted_block(BlockIdExt block_id) {
+  if (!accepted_blocks_.emplace(block_id.seqno(), block_id).second) {
+    return;
+  }
+  LOG(INFO) << "Accepted block " << block_id.to_str();
+  try_merge_collated_data(block_id);
+
+  if (accepted_blocks_.contains(block_id.seqno() - 1) || block_id.seqno() == first_block_seqno_) {
+    return;
+  }
+  LOG(INFO) << "Prev block for " << block_id.id.to_str() << " is not processed, waiting block data";
+  process_accepted_block_cont(block_id);
+}
+
+void CollatorNodeSession::process_accepted_block_cont(BlockIdExt block_id) {
+  td::actor::send_closure(
+      manager_, &ValidatorManager::wait_block_data_short, block_id, 0, td::Timestamp::in(30.0),
+      [SelfId = actor_id(this), block_id](td::Result<Ref<BlockData>> R) mutable {
+        if (R.is_error()) {
+          LOG(WARNING) << "Wait block data for #" << block_id.seqno() << ": " << R.error();
+          td::actor::send_closure(SelfId, &CollatorNodeSession::process_accepted_block_cont, block_id);
+        } else {
+          td::actor::send_closure(SelfId, &CollatorNodeSession::process_accepted_block_cont2, R.move_as_ok());
+        }
+      });
+}
+
+void CollatorNodeSession::process_accepted_block_cont2(Ref<BlockData> block) {
+  LOG(DEBUG) << "Wait block data for #" << block->block_id().seqno() << ": OK";
+  std::vector<BlockIdExt> prev;
+  BlockIdExt mc_block_id;
+  bool after_split;
+  if (!block::unpack_block_prev_blk(block->root_cell(), block->block_id(), prev, mc_block_id, after_split)) {
+    LOG(ERROR) << "Unpack block data for #" << block->block_id().seqno() << ": error";
+    return;
+  }
+  if (prev.size() != 1) {
+    LOG(ERROR) << "Unpack block data for #" << block->block_id().seqno() << ": not single prev block";
+    return;
+  }
+  process_accepted_block(prev[0]);
+}
+
 
 void CollatorNodeSession::wait_collated_data_merged(BlockSeqno seqno, td::Timestamp timeout,
                                                     td::Promise<td::Unit> promise) {

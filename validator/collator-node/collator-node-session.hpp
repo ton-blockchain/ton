@@ -76,6 +76,7 @@ class CollatorNodeSession : public td::actor::Actor {
     void cancel(td::Status reason);
   };
 
+  BlockSeqno first_block_seqno_;
   BlockSeqno next_block_seqno_;
   std::map<std::vector<BlockIdExt>, std::shared_ptr<CacheEntry>> cache_;
 
@@ -100,6 +101,10 @@ class CollatorNodeSession : public td::actor::Actor {
   std::set<BlockSeqno> collated_data_merged_;
   BlockSeqno collated_data_merged_upto_ = 0;
   std::map<BlockSeqno, std::vector<std::pair<td::Promise<td::Unit>, td::Timestamp>>> collated_data_merged_waiters_;
+
+  void process_accepted_block(BlockIdExt block_id);
+  void process_accepted_block_cont(BlockIdExt block_id);
+  void process_accepted_block_cont2(Ref<BlockData> block);
 
   void wait_collated_data_merged(BlockSeqno seqno, td::Timestamp timeout, td::Promise<td::Unit> promise);
   void try_merge_collated_data(BlockIdExt block_id);
