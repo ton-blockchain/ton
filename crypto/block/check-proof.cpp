@@ -73,7 +73,7 @@ td::Status check_block_header_proof(td::Ref<vm::Cell> root, ton::BlockIdExt blki
 
 td::Result<td::Bits256> check_state_proof(ton::BlockIdExt blkid, td::Slice proof) {
   TRY_RESULT(proof_root, vm::std_boc_deserialize(proof));
-  auto virt_root = vm::MerkleProof::virtualize(std::move(proof_root), 1);
+  auto virt_root = vm::MerkleProof::virtualize(std::move(proof_root));
   if (virt_root.is_null()) {
     return td::Status::Error("account state proof is invalid");
   }
@@ -86,7 +86,7 @@ td::Result<Ref<vm::Cell>> check_extract_state_proof(ton::BlockIdExt blkid, td::S
   try {
     TRY_RESULT(state_hash, check_state_proof(blkid, proof));
     TRY_RESULT(state_root, vm::std_boc_deserialize(data));
-    auto state_virt_root = vm::MerkleProof::virtualize(std::move(state_root), 1);
+    auto state_virt_root = vm::MerkleProof::virtualize(std::move(state_root));
     if (state_virt_root.is_null()) {
       return td::Status::Error("account state proof is invalid");
     }
@@ -118,13 +118,13 @@ td::Status check_shard_proof(ton::BlockIdExt blk, ton::BlockIdExt shard_blk, td:
     return td::Status::Error("shard configuration proof must have exactly two roots");
   }
   try {
-    auto mc_state_root = vm::MerkleProof::virtualize(std::move(P_roots[1]), 1);
+    auto mc_state_root = vm::MerkleProof::virtualize(std::move(P_roots[1]));
     if (mc_state_root.is_null()) {
       return td::Status::Error("shard configuration proof is invalid");
     }
     ton::Bits256 mc_state_hash = mc_state_root->get_hash().bits();
     TRY_STATUS_PREFIX(
-        check_block_header_proof(vm::MerkleProof::virtualize(std::move(P_roots[0]), 1), blk, &mc_state_hash, true),
+        check_block_header_proof(vm::MerkleProof::virtualize(std::move(P_roots[0])), blk, &mc_state_hash, true),
         "error in shard configuration block header proof :");
     block::gen::ShardStateUnsplit::Record sstate;
     if (!(tlb::unpack_cell(mc_state_root, sstate))) {
@@ -171,12 +171,12 @@ td::Status check_account_proof(td::Slice proof, ton::BlockIdExt shard_blk, const
   }
 
   try {
-    auto state_root = vm::MerkleProof::virtualize(std::move(Q_roots[1]), 1);
+    auto state_root = vm::MerkleProof::virtualize(std::move(Q_roots[1]));
     if (state_root.is_null()) {
       return td::Status::Error("account state proof is invalid");
     }
     ton::Bits256 state_hash = state_root->get_hash().bits();
-    TRY_STATUS_PREFIX(check_block_header_proof(vm::MerkleProof::virtualize(std::move(Q_roots[0]), 1), shard_blk,
+    TRY_STATUS_PREFIX(check_block_header_proof(vm::MerkleProof::virtualize(std::move(Q_roots[0])), shard_blk,
                                                &state_hash, true, save_utime, save_lt),
                       "error in account shard block header proof : ");
     block::gen::ShardStateUnsplit::Record sstate;
@@ -223,7 +223,7 @@ td::Result<AccountState::Info> AccountState::validate(ton::BlockIdExt ref_blk, b
   Ref<vm::Cell> root;
 
   if (is_virtualized && true_root.not_null()) {
-    root = vm::MerkleProof::virtualize(true_root, 1);
+    root = vm::MerkleProof::virtualize(true_root);
     if (root.is_null()) {
       return td::Status::Error("account state proof is invalid");
     }
@@ -346,7 +346,7 @@ td::Result<BlockTransactionList::Info> BlockTransactionList::validate(bool check
   if (check_proof) {
     try {
       TRY_RESULT(proof_cell, vm::std_boc_deserialize(std::move(proof_boc)));
-      auto virt_root = vm::MerkleProof::virtualize(proof_cell, 1);
+      auto virt_root = vm::MerkleProof::virtualize(proof_cell);
 
       if (blkid.root_hash != virt_root->get_hash().bits()) {
         return td::Status::Error("Invalid block proof root hash");
@@ -452,7 +452,7 @@ td::Status BlockProofLink::validate(td::uint32* save_utime) const {
   }
   try {
     // virtualize Merkle proof roots
-    auto vs_root = vm::MerkleProof::virtualize(proof, 1);
+    auto vs_root = vm::MerkleProof::virtualize(proof);
     if (vs_root.is_null()) {
       return td::Status::Error("BlockProofLink contains an invalid Merkle proof for source block "s + from.to_str());
     }
@@ -460,7 +460,7 @@ td::Status BlockProofLink::validate(td::uint32* save_utime) const {
     if (from.seqno()) {
       TRY_STATUS(check_block_header(vs_root, from, is_fwd ? nullptr : &state_hash));
     }
-    auto vd_root = dest_proof.not_null() ? vm::MerkleProof::virtualize(dest_proof, 1) : Ref<vm::Cell>{};
+    auto vd_root = dest_proof.not_null() ? vm::MerkleProof::virtualize(dest_proof) : Ref<vm::Cell>{};
     if (vd_root.is_null() && to.seqno()) {
       return td::Status::Error("BlockProofLink contains an invalid Merkle proof for destination block "s + to.to_str());
     }
@@ -483,7 +483,7 @@ td::Status BlockProofLink::validate(td::uint32* save_utime) const {
     }
     if (!is_fwd) {
       // check a backward link
-      auto vstate_root = vm::MerkleProof::virtualize(state_proof, 1);
+      auto vstate_root = vm::MerkleProof::virtualize(state_proof);
       if (vstate_root.is_null()) {
         return td::Status::Error("backward BlockProofLink contains an invalid Merkle proof for source state "s +
                                  from.to_str());

@@ -2416,7 +2416,7 @@ void TestNode::got_one_transaction(ton::BlockIdExt req_blkid, ton::BlockIdExt bl
   }
   auto proof_root = P.move_as_ok();
   try {
-    auto block_root = vm::MerkleProof::virtualize(std::move(proof_root), 1);
+    auto block_root = vm::MerkleProof::virtualize(std::move(proof_root));
     if (block_root.is_null()) {
       LOG(ERROR) << "transaction block proof is invalid";
       return;
@@ -2866,7 +2866,7 @@ void TestNode::got_config_params(ton::BlockIdExt req_blkid, int mode, std::strin
           block::check_extract_state_proof(blkid, f->state_proof_.as_slice(), f->config_proof_.as_slice()),
           PSLICE() << "masterchain state proof for " << blkid.to_str() << " is invalid :");
     } else {
-      block = vm::MerkleProof::virtualize(config_proof, 1);
+      block = vm::MerkleProof::virtualize(config_proof);
       if (block.is_null()) {
         promise.set_error(
             td::Status::Error("cannot virtualize configuration proof constructed from key block "s + blkid.to_str()));
@@ -3252,7 +3252,7 @@ void TestNode::got_block_header_raw(td::BufferSlice res, td::Promise<TestNode::B
   bool ok = false;
   td::Status E;
   try {
-    auto virt_root = vm::MerkleProof::virtualize(root, 1);
+    auto virt_root = vm::MerkleProof::virtualize(root);
     if (virt_root.is_null()) {
       promise.set_error(td::Status::Error(PSLICE() << "block header proof for block " << blk_id.to_str()
                                                    << " is not a valid Merkle proof"));
@@ -3334,7 +3334,7 @@ void TestNode::got_block_header(ton::BlockIdExt blkid, td::BufferSlice data, int
   cs.print_rec(print_limit_, outp);
   td::TerminalIO::out() << outp.str();
   try {
-    auto virt_root = vm::MerkleProof::virtualize(root, 1);
+    auto virt_root = vm::MerkleProof::virtualize(root);
     if (virt_root.is_null()) {
       LOG(ERROR) << " block header proof for block " << blkid.to_str() << " is not a valid Merkle proof";
       return;
@@ -4241,12 +4241,12 @@ td::Status TestNode::write_val_create_proof(TestNode::ValidatorLoadInfo& info1, 
 }
 
 td::Status TestNode::ValidatorLoadInfo::check_header_proof(ton::UnixTime* save_utime, ton::LogicalTime* save_lt) const {
-  auto state_virt_root = vm::MerkleProof::virtualize(std::move(data_proof), 1);
+  auto state_virt_root = vm::MerkleProof::virtualize(std::move(data_proof));
   if (state_virt_root.is_null()) {
     return td::Status::Error("account state proof is invalid");
   }
   td::Bits256 state_hash = state_virt_root->get_hash().bits();
-  TRY_STATUS(block::check_block_header_proof(vm::MerkleProof::virtualize(state_proof, 1), blk_id, &state_hash, true,
+  TRY_STATUS(block::check_block_header_proof(vm::MerkleProof::virtualize(state_proof), blk_id, &state_hash, true,
                                              save_utime, save_lt));
   return td::Status::OK();
 }
@@ -4276,7 +4276,7 @@ static bool visit(Ref<vm::CellSlice> cs_ref) {
 
 td::Result<Ref<vm::Cell>> TestNode::ValidatorLoadInfo::build_proof(int idx, td::Bits256* save_pubkey) const {
   try {
-    auto state_virt_root = vm::MerkleProof::virtualize(std::move(data_proof), 1);
+    auto state_virt_root = vm::MerkleProof::virtualize(std::move(data_proof));
     if (state_virt_root.is_null()) {
       return td::Status::Error("account state proof is invalid");
     }
@@ -4607,7 +4607,7 @@ td::Status TestNode::ValidatorLoadInfo::init_check_proofs() {
     if (lt != end_lt) {
       return td::Status::Error(PSLICE() << "incorrect block logical time: declared " << end_lt << ", actual " << lt);
     }
-    auto vstate = vm::MerkleProof::virtualize(data_proof, 1);
+    auto vstate = vm::MerkleProof::virtualize(data_proof);
     if (vstate.is_null()) {
       return td::Status::Error(PSLICE() << "cannot virtualize state of block " << blk_id.to_str());
     }

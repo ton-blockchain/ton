@@ -2928,7 +2928,7 @@ static td::Ref<vm::Cell> clean_usage_cells(td::Ref<vm::Cell> old_root, td::Ref<v
       return it->second;
     }
     auto loaded_cell = cell->load_cell().move_as_ok();
-    CHECK(loaded_cell.virt.get_virtualization() == 0);
+    CHECK(loaded_cell.effective_level >= loaded_cell.data_cell->get_level());
     td::Ref<vm::DataCell> data_cell = std::move(loaded_cell.data_cell);
     td::Ref<vm::Cell> children[vm::Cell::max_refs];
     bool changed = false;
@@ -3024,7 +3024,7 @@ bool Collator::process_account_storage_dict(block::Account& account) {
           return false;
         }
       } else {
-        collated_data_stat.add_loaded_cell(loaded_cell.data_cell, loaded_cell.virt.get_level());
+        collated_data_stat.add_loaded_cell(loaded_cell.data_cell, static_cast<td::uint8>(loaded_cell.effective_level));
       }
     }
     vm::CellSlice cs{std::move(loaded_cell.data_cell)};
@@ -6731,7 +6731,7 @@ void Collator::on_cell_loaded(const vm::LoadedCell& loaded_cell) {
   if (block_limit_status_) {
     block_limit_status_->collated_data_size_estimate -= stat->estimate_proof_size();
   }
-  stat->add_loaded_cell(loaded_cell.data_cell, loaded_cell.virt.get_level());
+  stat->add_loaded_cell(loaded_cell.data_cell, static_cast<td::uint8>(loaded_cell.effective_level));
   if (block_limit_status_) {
     block_limit_status_->collated_data_size_estimate += stat->estimate_proof_size();
   }

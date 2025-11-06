@@ -76,7 +76,7 @@ td::Result<Ref<IhrMessageQ>> IhrMessageQ::create_ihr_message(td::BufferSlice dat
     return td::Status::Error("IHR message does not contain a valid source BlockIdExt");
   }
   try {
-    auto virt_root = vm::MerkleProof::virtualize(proof, 1);
+    auto virt_root = vm::MerkleProof::virtualize(proof);
     if (virt_root.is_null()) {
       return td::Status::Error("IHR message does not contain a valid Merkle proof");
     }

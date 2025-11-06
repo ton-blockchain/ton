@@ -69,13 +69,13 @@ class DataCell final : public Cell {
   virtual td::Result<LoadedCell> load_cell() const override {
     return LoadedCell{
         .data_cell = Ref<DataCell>{this},
-        .virt = {},
+        .effective_level = level_,
         .tree_node = {},
     };
   }
 
-  virtual td::uint32 get_virtualization() const override {
-    return virtualization_;
+  virtual bool is_virtualized() const override {
+    return virtualized_;
   }
 
   virtual CellUsageTree::NodePtr get_tree_node() const override {
@@ -169,7 +169,7 @@ class DataCell final : public Cell {
   }
 
   DataCell(int bit_length, size_t refs_cnt, Cell::SpecialType type, LevelMask level_mask, bool allocated_in_arena,
-           td::uint8 virtualization);
+           bool virtualized);
 
   detail::LevelInfo const* level_info() const {
     return reinterpret_cast<detail::LevelInfo const*>(trailer_);
@@ -197,7 +197,7 @@ class DataCell final : public Cell {
   unsigned level_ : 3;
   unsigned level_mask_ : 3;
   unsigned allocated_in_arena_ : 1;
-  unsigned virtualization_ : 8;
+  unsigned virtualized_ : 1;
 
   std::array<Ref<Cell>, max_refs> refs_{};
 

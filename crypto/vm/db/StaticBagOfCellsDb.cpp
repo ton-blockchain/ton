@@ -45,11 +45,11 @@ class RootCell : public Cell {
   td::Result<LoadedCell> load_cell() const override {
     return cell_->load_cell();
   }
-  Ref<Cell> virtualize(VirtualizationParameters virt) const override {
-    return cell_->virtualize(virt);
+  Ref<Cell> virtualize(td::uint32 effective_level) const override {
+    return cell_->virtualize(effective_level);
   }
-  td::uint32 get_virtualization() const override {
-    return cell_->get_virtualization();
+  bool is_virtualized() const override {
+    return cell_->is_virtualized();
   }
   CellUsageTree::NodePtr get_tree_node() const override {
     return cell_->get_tree_node();

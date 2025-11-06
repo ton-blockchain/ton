@@ -80,7 +80,7 @@ class SplitStateDeserializer {
 
       vm::CellBuilder cb;
       block::gen::t_ShardStateUnsplit.pack(cb, shard_state_);
-      if (cb.finalize()->get_virtualization() > 0) {
+      if (cb.finalize()->is_virtualized()) {
         return td::Status::Error("State headers is pruned outside of account dict");
       }
 
@@ -110,7 +110,7 @@ class SplitStateDeserializer {
     vm::CellBuilder cb;
     block::gen::t_ShardStateUnsplit.pack(cb, shard_state_);
     auto state_root = cb.finalize();
-    CHECK(state_root->get_virtualization() == 0);
+    CHECK(!state_root->is_virtualized());
     return state_root;
   }
 
