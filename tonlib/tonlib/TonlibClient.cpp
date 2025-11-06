@@ -2168,7 +2168,7 @@ class RunEmulator : public TonlibQueryActor {
     }
 
     try {
-      auto r_config = block::ConfigInfo::extract_config(mc_state_root_, 0b11'11111111);
+      auto r_config = block::ConfigInfo::extract_config(mc_state_root_, block_id_.mc, 0b11'11111111);
       if (r_config.is_error()) {
         check(r_config.move_as_error());
         return;
@@ -3225,15 +3225,12 @@ struct ToRawTransactions {
         TRY_RESULT(src, to_std_address(msg_info.src));
         TRY_RESULT(dest, to_std_address(msg_info.dest));
         TRY_RESULT(fwd_fee, to_balance(msg_info.fwd_fee));
-        TRY_RESULT(ihr_fee, to_balance(msg_info.ihr_fee));
         auto created_lt = static_cast<td::int64>(msg_info.created_lt);
 
         return tonlib_api::make_object<tonlib_api::raw_message>(
-            msg_hash,
-            tonlib_api::make_object<tonlib_api::accountAddress>(src),
-            tonlib_api::make_object<tonlib_api::accountAddress>(std::move(dest)), balance,
-            std::move(extra_currencies), fwd_fee, ihr_fee, created_lt, std::move(body_hash),
-            get_data(src));
+            msg_hash, tonlib_api::make_object<tonlib_api::accountAddress>(src),
+            tonlib_api::make_object<tonlib_api::accountAddress>(std::move(dest)), balance, std::move(extra_currencies),
+            fwd_fee, /* ihr_fee = */ 0, created_lt, std::move(body_hash), get_data(src));
       }
       case block::gen::CommonMsgInfo::ext_in_msg_info: {
         block::gen::CommonMsgInfo::Record_ext_in_msg_info msg_info;
@@ -5986,10 +5983,10 @@ td::Status check_lookup_block_proof(lite_api_ptr<ton::lite_api::liteServer_looku
         }
       } else if (mode & 4) {
         if (prev_info.gen_utime > utime) {
-          return td::Status::Error("prev header end_lt > lt");
+          return td::Status::Error("prev header gen_utime > utime");
         }
         if (info.gen_utime < utime) {
-          return td::Status::Error("header end_lt < lt");
+          return td::Status::Error("header gen_utime < utime");
         }
       }
     }

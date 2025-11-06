@@ -64,6 +64,15 @@ static void fire_error_type_used_as_symbol(FunctionPtr cur_f, V<ast_identifier> 
   }
 }
 
+GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
+static void fire_error_using_self_not_in_method(FunctionPtr cur_f, SrcLocation loc) {
+  if (cur_f->is_static_method()) {
+    fire(cur_f, loc, "using `self` in a static method");
+  } else {
+    fire(cur_f, loc, "using `self` in a regular function (not a method)");
+  }
+}
+
 struct NameAndScopeResolver {
   std::vector<std::unordered_map<uint64_t, const Symbol*>> scopes;
 
@@ -157,7 +166,7 @@ protected:
     if (!sym) {
       fire_error_undefined_symbol(cur_f, v->get_identifier());
     }
-    if (sym->try_as<AliasDefPtr>() || sym->try_as<StructPtr>()) {
+    if (sym->try_as<AliasDefPtr>() || sym->try_as<StructPtr>() || sym->try_as<EnumDefPtr>()) {
       fire_error_type_used_as_symbol(cur_f, v->get_identifier());
     }
     v->mutate()->assign_sym(sym);
@@ -174,9 +183,12 @@ protected:
     try {
       parent::visit(v->get_obj());
     } catch (const ParseError&) {
-      if (v->get_obj()->kind == ast_reference) {
-        // for `Point.create` / `int.zero`, "undefined symbol" is fired for Point/int
+      if (auto v_type_name = v->get_obj()->try_as<ast_reference>()) {
+        // for `Point.create` / `int.zero` / `Color.Red`, "undefined symbol" is fired for Point/int/Color
         // suppress this exception till a later pipe, it will be tried to be resolved as a type
+        if (v_type_name->get_identifier()->name == "self") {
+          fire_error_using_self_not_in_method(cur_f, v_type_name->loc);
+        }
         return;
       }
       throw;
@@ -286,6 +298,15 @@ public:
       }
     }
   }
+
+  void start_visiting_enum_members(EnumDefPtr enum_ref) {
+    // member `Red = Another.Blue`, resolve `Another` 
+    for (EnumMemberPtr member_ref : enum_ref->members) {
+      if (member_ref->has_init_value()) {
+        parent::visit(member_ref->init_value);
+      }
+    }
+  }
 };
 
 NameAndScopeResolver AssignSymInsideFunctionVisitor::current_scope;
@@ -308,6 +329,10 @@ void pipeline_resolve_identifiers_and_assign_symbols() {
       } else if (auto v_struct = v->try_as<ast_struct_declaration>()) {
         tolk_assert(v_struct->struct_ref);
         visitor.start_visiting_struct_fields(v_struct->struct_ref);
+
+      } else if (auto v_enum = v->try_as<ast_enum_declaration>()) {
+        tolk_assert(v_enum->enum_ref);
+        visitor.start_visiting_enum_members(v_enum->enum_ref);
       }
     }
   }

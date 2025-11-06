@@ -177,6 +177,10 @@ void Vertex<ast_type_alias_declaration>::assign_alias_ref(AliasDefPtr alias_ref)
   this->alias_ref = alias_ref;
 }
 
+void Vertex<ast_enum_declaration>::assign_enum_ref(EnumDefPtr enum_ref) {
+  this->enum_ref = enum_ref;
+}
+
 void Vertex<ast_struct_declaration>::assign_struct_ref(StructPtr struct_ref) {
   this->struct_ref = struct_ref;
 }

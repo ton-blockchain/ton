@@ -1,7 +1,3 @@
-if (NOT OPENSSL_FOUND)
-  find_package(OpenSSL REQUIRED)
-endif()
-
 set(RLDP_SOURCE
   rldp.cpp
   rldp-peer.cpp

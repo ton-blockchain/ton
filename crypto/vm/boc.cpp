@@ -575,8 +575,8 @@ td::Result<std::size_t> BagOfCells::serialize_to_impl(WriterT& writer, int mode)
     if (dc_info.is_root_cell && (mode & Mode::WithTopHash)) {
       with_hash = true;
     }
-    unsigned char buf[256];
-    int s = dc->serialize(buf, 256, with_hash);
+    unsigned char buf[Cell::max_serialized_bytes];
+    int s = dc->serialize(buf, Cell::max_serialized_bytes, with_hash);
     writer.store_bytes(buf, s);
     DCHECK(dc->size_refs() == dc_info.ref_num);
     // std::cerr << (dc_info.is_special() ? '*' : ' ') << i << '<' << (int)dc_info.wt << ">:";
@@ -1154,6 +1154,16 @@ td::Result<CellStorageStat::CellInfo> CellStorageStat::add_used_storage(Ref<vm::
     seen[cell->get_hash()] = res;
   }
   return res;
+}
+
+td::Result<CellStorageStat::CellInfo> CellStorageStat::add_used_storage(td::Span<Ref<Cell>> cells, bool kill_dup,
+                                      unsigned skip_count_root) {
+  CellInfo result;
+  for (const auto& cell : cells) {
+    TRY_RESULT(info, add_used_storage(cell, kill_dup, skip_count_root));
+    result.max_merkle_depth = std::max(result.max_merkle_depth, info.max_merkle_depth);
+  }
+  return result;
 }
 
 void NewCellStorageStat::add_cell(Ref<Cell> cell) {

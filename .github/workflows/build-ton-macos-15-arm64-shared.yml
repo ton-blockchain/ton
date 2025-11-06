@@ -1,6 +1,6 @@
 name: MacOS-15 TON build (shared, arm64)
 
-on: [push,workflow_dispatch,workflow_call]
+on: [push, pull_request, workflow_dispatch, workflow_call]
 
 jobs:
   build:
@@ -36,10 +36,10 @@ jobs:
           git submodule update
           cp assembly/native/build-macos-shared.sh .
           chmod +x build-macos-shared.sh
-          ./build-macos-shared.sh -t -c -o 15.0
+          ./build-macos-shared.sh -t -c -o 16.0
           ccache -sp
 
       - name: Run Tests
         run: |
-          cd build        
+          cd build
           ctest --output-on-failure --timeout 1800

@@ -137,53 +137,61 @@ void CollationManager::collate_shard_block(ShardIdFull shard, BlockIdExt min_mas
 
   adnl::AdnlNodeIdShort selected_collator = adnl::AdnlNodeIdShort::zero();
   size_t selected_idx = 0;
-  auto check_collator = [&](const adnl::AdnlNodeIdShort& id) -> bool {
-    auto& collator = collators_[id];
-    if (!collator.alive) {
-      return false;
-    }
-    if (is_optimistic && collator.version < CollatorNode::VERSION_OPTIMISTIC_COLLATE) {
-      return false;
-    }
-    return true;
-  };
-  switch (s->select_mode) {
-    case CollatorsList::mode_random: {
-      int cnt = 0;
-      for (size_t i = 0; i < s->collators.size(); ++i) {
-        adnl::AdnlNodeIdShort collator = s->collators[i];
-        if (check_collator(collator)) {
-          ++cnt;
-          if (td::Random::fast(1, cnt) == 1) {
-            selected_collator = collator;
-            selected_idx = i;
+  for (int allow_banned = 0; allow_banned < 2; ++allow_banned) {
+    auto check_collator = [&](const adnl::AdnlNodeIdShort& id) -> bool {
+      auto& collator = collators_[id];
+      if (!collator.alive) {
+        return false;
+      }
+      if (collator.banned_until && !allow_banned) {
+        return false;
+      }
+      if (is_optimistic && collator.version < CollatorNode::VERSION_OPTIMISTIC_COLLATE) {
+        return false;
+      }
+      return true;
+    };
+    switch (s->select_mode) {
+      case CollatorsList::mode_random: {
+        int cnt = 0;
+        for (size_t i = 0; i < s->collators.size(); ++i) {
+          adnl::AdnlNodeIdShort collator = s->collators[i];
+          if (check_collator(collator)) {
+            ++cnt;
+            if (td::Random::fast(1, cnt) == 1) {
+              selected_collator = collator;
+              selected_idx = i;
+            }
           }
         }
+        break;
       }
-      break;
-    }
-    case CollatorsList::mode_ordered: {
-      for (size_t i = 0; i < s->collators.size(); ++i) {
-        adnl::AdnlNodeIdShort collator = s->collators[i];
-        if (check_collator(collator)) {
-          selected_collator = collator;
-          selected_idx = i;
-          break;
+      case CollatorsList::mode_ordered: {
+        for (size_t i = 0; i < s->collators.size(); ++i) {
+          adnl::AdnlNodeIdShort collator = s->collators[i];
+          if (check_collator(collator)) {
+            selected_collator = collator;
+            selected_idx = i;
+            break;
+          }
         }
+        break;
       }
-      break;
-    }
-    case CollatorsList::mode_round_robin: {
-      size_t iters = 0;
-      for (size_t i = s->cur_idx; iters < s->collators.size(); (++i) %= s->collators.size(), ++iters) {
-        adnl::AdnlNodeIdShort& collator = s->collators[i];
-        if (check_collator(collator)) {
-          selected_collator = collator;
-          selected_idx = i;
-          s->cur_idx = (i + 1) % s->collators.size();
-          break;
+      case CollatorsList::mode_round_robin: {
+        size_t iters = 0;
+        for (size_t i = s->cur_idx; iters < s->collators.size(); (++i) %= s->collators.size(), ++iters) {
+          adnl::AdnlNodeIdShort& collator = s->collators[i];
+          if (check_collator(collator)) {
+            selected_collator = collator;
+            selected_idx = i;
+            s->cur_idx = (i + 1) % s->collators.size();
+            break;
+          }
         }
+        break;
       }
+    }
+    if (!selected_collator.is_zero() || s->self_collate) {
       break;
     }
   }
@@ -372,9 +380,19 @@ void CollationManager::get_stats(
     }
     obj->last_ping_ago_ = collator.last_ping_at ? td::Time::now() - collator.last_ping_at.at() : -1.0;
     obj->last_ping_status_ = collator.last_ping_status.is_ok() ? "OK" : collator.last_ping_status.message().str();
+    obj->banned_for_ = collator.banned_until ? collator.banned_until.in() : -1.0;
     stats->collators_.push_back(std::move(obj));
   }
   promise.set_value(std::move(stats));
+}
+
+void CollationManager::ban_collator(adnl::AdnlNodeIdShort collator_id, std::string reason) {
+  auto it = collators_.find(collator_id);
+  if (it == collators_.end()) {
+    return;
+  }
+  alarm_timestamp().relax(it->second.banned_until = td::Timestamp::in(BAN_DURATION));
+  LOG(ERROR) << "Ban collator " << collator_id << " for " << BAN_DURATION << "s: " << reason;
 }
 
 void CollationManager::update_collators_list(const CollatorsList& collators_list) {
@@ -427,6 +445,14 @@ CollationManager::ShardInfo* CollationManager::select_shard_info(ShardIdFull sha
 void CollationManager::alarm() {
   alarm_timestamp() = td::Timestamp::never();
   for (auto& [id, collator] : collators_) {
+    if (collator.banned_until) {
+      if (collator.banned_until.is_in_past()) {
+        collator.banned_until = {};
+        LOG(ERROR) << "Unban collator " << id;
+      } else {
+        alarm_timestamp().relax(collator.banned_until);
+      }
+    }
     if (collator.active_cnt == 0 || collator.sent_ping) {
       continue;
     }

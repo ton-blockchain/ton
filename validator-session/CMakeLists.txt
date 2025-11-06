@@ -1,7 +1,3 @@
-if (NOT OPENSSL_FOUND)
-  find_package(OpenSSL REQUIRED)
-endif()
-
 set(VALIDATOR_SESSION_SOURCE
   candidate-serializer.cpp
   persistent-vector.cpp

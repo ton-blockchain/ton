@@ -257,6 +257,32 @@ fun test119(a: int, b: int) {
     return (l, c, d);
 }
 
+struct Point {
+    x: int
+    y: int
+}
+
+struct ROLine {
+    readonly from: Point
+    readonly to: Point
+}
+
+fun eq<T>(v: T) { return v }
+
+@method_id(120)
+fun test120() {
+    val p: Point = { x: 10, y: 20 };
+    eq(p).x = 30;
+    return p;
+}
+
+@method_id(121)
+fun test121(l: ROLine) {
+    eq(l.from).x = eq(l.to).y;
+    eq(l.from).y += 10;
+    return l
+}
+
 
 
 fun main(value: int, ) {
@@ -288,6 +314,8 @@ fun main(value: int, ) {
 @testcase | 117 |        | [ 20 ]
 @testcase | 118 | 3      | 10 3 0 1
 @testcase | 119 | 1 2    | 2 2 4
+@testcase | 120 |        | 10 20
+@testcase | 121 | null   | (null)
 
 
 @fif_codegen

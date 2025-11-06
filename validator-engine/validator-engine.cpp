@@ -2240,7 +2240,8 @@ void ValidatorEngine::start_full_node() {
     ton::validator::fullnode::FullNodeOptions full_node_options{
         .config_ = config_.full_node_config,
         .public_broadcast_speed_multiplier_ = broadcast_speed_multiplier_public_,
-        .private_broadcast_speed_multiplier_ = broadcast_speed_multiplier_private_};
+        .private_broadcast_speed_multiplier_ = broadcast_speed_multiplier_private_,
+        .initial_sync_delay_ = initial_sync_delay_};
     full_node_ = ton::validator::fullnode::FullNode::create(
         short_id, full_node_id_, validator_options_->zero_block_id().file_hash,
         full_node_options, keyring_.get(), adnl_.get(), rldp_.get(), rldp2_.get(),
@@ -5227,7 +5228,7 @@ int main(int argc, char *argv[]) {
     td::log_interface = td::default_log_interface;
   };
 
-  LOG_STATUS(td::change_maximize_rlimit(td::RlimitType::nofile, 786432));
+  LOG_STATUS(td::change_maximize_rlimit(td::RlimitType::nofile, 1572864));
 
   std::vector<std::function<void()>> acts;
 
@@ -5572,6 +5573,16 @@ int main(int argc, char *argv[]) {
                "don't select the best persistent state on initial sync, start on init_block from global config", [&]() {
                  acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_skip_key_sync, true); });
                });
+  p.add_checked_option(
+      '\0', "initial-sync-delay", "delay before initial sync completion (in seconds, default: 60.0)",
+      [&](td::Slice s) -> td::Status {
+        auto v = td::to_double(s);
+        if (v < 0) {
+          return td::Status::Error("initial-sync-delay should be non-negative");
+        }
+        acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_initial_sync_delay, v); });
+        return td::Status::OK();
+      });
   p.add_checked_option(
       '\0', "sync-shards-upto", "stop syncing shards on this masterchain seqno", [&](td::Slice s) -> td::Status {
         TRY_RESULT(v, td::to_integer_safe<ton::BlockSeqno>(s));

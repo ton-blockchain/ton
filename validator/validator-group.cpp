@@ -117,6 +117,9 @@ void ValidatorGroup::generated_block_candidate(validatorsession::BlockSourceInfo
     if (need_send_candidate_broadcast(source_info, shard_.is_masterchain())) {
       send_block_candidate_broadcast(c.candidate.id, c.candidate.data.clone());
     }
+    if (!c.self_collated) {
+      block_collator_node_id_[c.candidate.id] = adnl::AdnlNodeIdShort{c.collator_node_id};
+    }
     cache->result = std::move(c);
     for (auto &p : cache->promises) {
       p.set_value(cache->result.value().clone());
@@ -182,10 +185,15 @@ void ValidatorGroup::validate_block_candidate(validatorsession::BlockSourceInfo 
     return;
   }
 
+  auto it2 = block_collator_node_id_.find(block.id);
+  adnl::AdnlNodeIdShort collator_node_id =
+      it2 == block_collator_node_id_.end() ? adnl::AdnlNodeIdShort::zero() : it2->second;
+
   auto P = td::PromiseCreator::lambda(
-      [SelfId = actor_id(this), source_info, block = block.clone(),
+      [=, SelfId = actor_id(this), block = block.clone(),
        optimistic_prev_block = is_optimistic ? optimistic_prev_block.value().clone() : td::optional<BlockCandidate>{},
-       promise = std::move(promise)](td::Result<ValidateCandidateResult> R) mutable {
+       promise = std::move(promise),
+       collation_manager = collation_manager_](td::Result<ValidateCandidateResult> R) mutable {
         if (R.is_error()) {
           auto S = R.move_as_error();
           if (S.code() != ErrorCode::timeout && S.code() != ErrorCode::notready) {
@@ -212,6 +220,10 @@ void ValidatorGroup::validate_block_candidate(validatorsession::BlockSourceInfo 
                 promise.set_value({ts, false});
               },
               [&](CandidateReject reject) {
+                if (!collator_node_id.is_zero()) {
+                  td::actor::send_closure(collation_manager, &CollationManager::ban_collator, collator_node_id,
+                                          PSTRING() << "bad candidate " << block.id.to_str() << " : " << reject.reason);
+                }
                 promise.set_error(
                     td::Status::Error(ErrorCode::protoviolation, PSTRING() << "bad candidate: " << reject.reason));
               }));
@@ -396,7 +408,11 @@ void ValidatorGroup::generated_block_optimistic(validatorsession::BlockSourceInf
     optimistic_generation_ = {};
     return;
   }
-  optimistic_generation_->result = R.move_as_ok();
+  GeneratedCandidate c = R.move_as_ok();
+  if (!c.self_collated) {
+    block_collator_node_id_[c.candidate.id] = adnl::AdnlNodeIdShort{c.collator_node_id};
+  }
+  optimistic_generation_->result = std::move(c);
   for (auto &promise : optimistic_generation_->promises) {
     promise.set_result(optimistic_generation_->result.value().clone());
   }

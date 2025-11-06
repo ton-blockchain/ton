@@ -29,14 +29,14 @@ namespace validator {
 
 void ApplyBlock::abort_query(td::Status reason) {
   if (promise_) {
-    VLOG(VALIDATOR_WARNING) << "aborting apply block query for " << id_ << ": " << reason;
+    VLOG(VALIDATOR_WARNING) << "aborting apply block query for " << id_.to_str() << ": " << reason;
     promise_.set_error(std::move(reason));
   }
   stop();
 }
 
 void ApplyBlock::finish_query() {
-  VLOG(VALIDATOR_DEBUG) << "successfully finishing apply block query";
+  VLOG(VALIDATOR_DEBUG) << "successfully finishing apply block query in " << perf_timer_.elapsed() << " s";
   handle_->set_processed();
   ValidatorInvariants::check_post_apply(handle_);
 
@@ -51,7 +51,7 @@ void ApplyBlock::alarm() {
 }
 
 void ApplyBlock::start_up() {
-  VLOG(VALIDATOR_DEBUG) << "running apply_block for " << id_;
+  VLOG(VALIDATOR_DEBUG) << "running apply_block for " << id_.to_str() << ", mc_seqno=" << masterchain_block_id_.seqno();
 
   if (id_.is_masterchain()) {
     masterchain_block_id_ = id_;
@@ -71,6 +71,7 @@ void ApplyBlock::start_up() {
 }
 
 void ApplyBlock::got_block_handle(BlockHandle handle) {
+  VLOG(VALIDATOR_DEBUG) << "got_block_handle";
   handle_ = std::move(handle);
 
   if (handle_->is_applied() && (!handle_->id().is_masterchain() || handle_->processed())) {
@@ -79,6 +80,7 @@ void ApplyBlock::got_block_handle(BlockHandle handle) {
   }
 
   if (handle_->is_applied()) {
+    VLOG(VALIDATOR_DEBUG) << "already applied";
     auto P =
         td::PromiseCreator::lambda([SelfId = actor_id(this), seqno = handle_->id().id.seqno](td::Result<BlockIdExt> R) {
           R.ensure();
@@ -94,16 +96,19 @@ void ApplyBlock::got_block_handle(BlockHandle handle) {
   }
 
   if (handle_->id().id.seqno == 0) {
+    VLOG(VALIDATOR_DEBUG) << "seqno == 0";
     written_block_data();
     return;
   }
 
   if (handle_->is_archived()) {
+    VLOG(VALIDATOR_DEBUG) << "already archived";
     finish_query();
     return;
   }
 
   if (handle_->received()) {
+    VLOG(VALIDATOR_DEBUG) << "already received";
     written_block_data();
     return;
   }
@@ -117,6 +122,7 @@ void ApplyBlock::got_block_handle(BlockHandle handle) {
       }
     });
 
+    VLOG(VALIDATOR_DEBUG) << "storing block data";
     td::actor::send_closure(manager_, &ValidatorManager::set_block_data, handle_, block_, std::move(P));
   } else {
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), handle = handle_](td::Result<td::Ref<BlockData>> R) {
@@ -128,13 +134,14 @@ void ApplyBlock::got_block_handle(BlockHandle handle) {
       }
     });
 
+    VLOG(VALIDATOR_DEBUG) << "wait for block data";
     td::actor::send_closure(manager_, &ValidatorManager::wait_block_data, handle_, apply_block_priority(), timeout_,
                             std::move(P));
   }
 }
 
 void ApplyBlock::written_block_data() {
-  VLOG(VALIDATOR_DEBUG) << "apply block: written block data for " << id_;
+  VLOG(VALIDATOR_DEBUG) << "written_block_data";
   if (!handle_->id().seqno()) {
     CHECK(handle_->inited_split_after());
     CHECK(handle_->inited_state_root_hash());
@@ -165,24 +172,26 @@ void ApplyBlock::written_block_data() {
       }
     });
 
+    VLOG(VALIDATOR_DEBUG) << "wait_block_state";
     td::actor::send_closure(manager_, &ValidatorManager::wait_block_state, handle_, apply_block_priority(), timeout_,
                             true, std::move(P));
   }
 }
 
 void ApplyBlock::got_cur_state(td::Ref<ShardState> state) {
-  VLOG(VALIDATOR_DEBUG) << "apply block: received state for " << id_;
+  VLOG(VALIDATOR_DEBUG) << "got_cur_state";
   state_ = std::move(state);
   CHECK(handle_->received_state());
   written_state();
 }
 
 void ApplyBlock::written_state() {
+  VLOG(VALIDATOR_DEBUG) << "written_state";
   if (handle_->is_applied() && handle_->processed()) {
     finish_query();
     return;
   }
-  VLOG(VALIDATOR_DEBUG) << "apply block: setting next for parents of " << id_;
+  VLOG(VALIDATOR_DEBUG) << "setting next for parents";
 
   if (handle_->id().id.seqno != 0 && !handle_->is_applied()) {
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
@@ -208,12 +217,13 @@ void ApplyBlock::written_state() {
 }
 
 void ApplyBlock::written_next() {
+  VLOG(VALIDATOR_DEBUG) << "written_next";
   if (handle_->is_applied() && handle_->processed()) {
     finish_query();
     return;
   }
 
-  VLOG(VALIDATOR_DEBUG) << "apply block: applying parents of " << id_;
+  VLOG(VALIDATOR_DEBUG) << "applying parents";
 
   if (handle_->id().id.seqno != 0 && !handle_->is_applied()) {
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
@@ -241,7 +251,8 @@ void ApplyBlock::written_next() {
 }
 
 void ApplyBlock::applied_prev() {
-  VLOG(VALIDATOR_DEBUG) << "apply block: waiting manager's confirm for " << id_;
+  VLOG(VALIDATOR_DEBUG) << "applying parents";
+  VLOG(VALIDATOR_DEBUG) << "applied_prev, waiting manager's confirm";
   if (!id_.is_masterchain()) {
     handle_->set_masterchain_ref_block(masterchain_block_id_.seqno());
   }
@@ -253,10 +264,11 @@ void ApplyBlock::applied_prev() {
     }
   });
   td::actor::send_closure(manager_, &ValidatorManager::new_block, handle_, state_, std::move(P));
+
 }
 
 void ApplyBlock::applied_set() {
-  VLOG(VALIDATOR_DEBUG) << "apply block: setting apply bit for " << id_;
+  VLOG(VALIDATOR_DEBUG) << "applied_set";
   handle_->set_applied();
   if (handle_->id().seqno() > 0) {
     CHECK(handle_->handle_moved_to_archive());
@@ -270,6 +282,7 @@ void ApplyBlock::applied_set() {
         td::actor::send_closure(SelfId, &ApplyBlock::finish_query);
       }
     });
+    VLOG(VALIDATOR_DEBUG) << "flush handle";
     handle_->flush(manager_, handle_, std::move(P));
   } else {
     finish_query();

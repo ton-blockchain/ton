@@ -1,6 +1,6 @@
 name: TON Static Code Analysis
 
-on: [push,workflow_dispatch,workflow_call]
+on: [push, pull_request, workflow_dispatch, workflow_call]
 
 jobs:
   build:
@@ -9,7 +9,7 @@ jobs:
     steps:
     - name: Check out repository
       uses: actions/checkout@v3
-      with:      
+      with:
         submodules: 'recursive'
 
     - name: Run Cppcheck

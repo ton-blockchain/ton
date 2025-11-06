@@ -325,6 +325,21 @@ void FullNodeFastSyncOverlay::init() {
                           std::make_unique<Callback>(actor_id(this)), rules, std::move(scope), options);
 
   inited_ = true;
+  if (shard_.is_masterchain()) {
+    class TelemetryCallback : public ValidatorTelemetry::Callback {
+     public:
+      explicit TelemetryCallback(td::actor::ActorId<FullNodeFastSyncOverlay> id) : id_(id) {
+      }
+      void send_telemetry(tl_object_ptr<ton_api::validator_telemetry> telemetry) override {
+        td::actor::send_closure(id_, &FullNodeFastSyncOverlay::send_validator_telemetry, std::move(telemetry));
+      }
+
+     private:
+      td::actor::ActorId<FullNodeFastSyncOverlay> id_;
+    };
+    telemetry_sender_ = td::actor::create_actor<ValidatorTelemetry>(
+        "telemetry", local_id_, std::make_unique<TelemetryCallback>(actor_id(this)));
+  }
 }
 
 void FullNodeFastSyncOverlay::tear_down() {
