@@ -18,12 +18,12 @@
 */
 #pragma once
 
-#include "rldp.h"
-
-#include "tl-utils/tl-utils.hpp"
-#include "adnl/adnl-query.h"
-
 #include <map>
+
+#include "adnl/adnl-query.h"
+#include "tl-utils/tl-utils.hpp"
+
+#include "rldp.h"
 
 namespace ton {
 

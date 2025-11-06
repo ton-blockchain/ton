@@ -18,19 +18,19 @@
 */
 #pragma once
 
-#include "td/utils/common.h"
+#include <atomic>
+#include <functional>
+#include <utility>
+
 #include "td/utils/Context.h"
-#include "td/utils/format.h"
-#include "td/utils/logging.h"
-#include "td/utils/port/thread.h"
 #include "td/utils/Random.h"
 #include "td/utils/Slice.h"
 #include "td/utils/Span.h"
 #include "td/utils/Status.h"
-
-#include <atomic>
-#include <functional>
-#include <utility>
+#include "td/utils/common.h"
+#include "td/utils/format.h"
+#include "td/utils/logging.h"
+#include "td/utils/port/thread.h"
 
 #define REGISTER_TESTS(x)                \
   void TD_CONCAT(register_tests_, x)() { \

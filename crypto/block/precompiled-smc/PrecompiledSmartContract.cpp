@@ -14,9 +14,11 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "common.h"
 #include <memory>
+
 #include "vm/memo.h"
+
+#include "common.h"
 
 namespace block::precompiled {
 

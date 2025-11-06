@@ -18,8 +18,8 @@
 */
 #pragma once
 
-#include "td/utils/int_types.h"
 #include "adnl/adnl-node-id.hpp"
+#include "td/utils/int_types.h"
 #include "ton/ton-types.h"
 
 namespace ton {

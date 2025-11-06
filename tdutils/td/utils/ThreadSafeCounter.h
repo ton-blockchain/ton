@@ -19,6 +19,11 @@
 
 #pragma once
 
+#include <array>
+#include <atomic>
+#include <map>
+#include <mutex>
+
 #include "port/thread.h"
 #include "td/utils/Slice.h"
 #include "td/utils/StringBuilder.h"
@@ -26,11 +31,6 @@
 #include "td/utils/common.h"
 #include "td/utils/logging.h"
 #include "td/utils/port/Clocks.h"
-
-#include <array>
-#include <atomic>
-#include <map>
-#include <mutex>
 
 namespace td {
 template <size_t N>
@@ -231,6 +231,7 @@ struct NamedPerfCounter {
   friend StringBuilder &operator<<(StringBuilder &sb, const NamedPerfCounter &counter) {
     return sb << counter.counter_;
   }
+
  private:
   NamedThreadSafeCounter counter_;
 };

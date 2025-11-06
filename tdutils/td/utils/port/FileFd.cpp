@@ -23,24 +23,23 @@
 #include "td/utils/port/wstring_convert.h"
 #endif
 
-#include "td/utils/common.h"
-#include "td/utils/logging.h"
-#include "td/utils/misc.h"
-#include "td/utils/port/detail/PollableFd.h"
-#include "td/utils/port/detail/skip_eintr.h"
-#include "td/utils/port/PollFlags.h"
-#include "td/utils/port/sleep.h"
-#include "td/utils/ScopeGuard.h"
-#include "td/utils/StringBuilder.h"
-
 #include <cstring>
 #include <mutex>
 #include <unordered_set>
 #include <utility>
 
+#include "td/utils/ScopeGuard.h"
+#include "td/utils/StringBuilder.h"
+#include "td/utils/common.h"
+#include "td/utils/logging.h"
+#include "td/utils/misc.h"
+#include "td/utils/port/PollFlags.h"
+#include "td/utils/port/detail/PollableFd.h"
+#include "td/utils/port/detail/skip_eintr.h"
+#include "td/utils/port/sleep.h"
+
 #if TD_PORT_POSIX
 #include <cerrno>
-
 #include <fcntl.h>
 #include <sys/file.h>
 #include <sys/types.h>

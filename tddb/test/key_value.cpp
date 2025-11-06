@@ -16,16 +16,14 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/tests.h"
-
-#include "td/db/KeyValueAsync.h"
 #include "td/db/KeyValue.h"
+#include "td/db/KeyValueAsync.h"
 #include "td/db/RocksDb.h"
-
+#include "td/utils/UInt.h"
 #include "td/utils/benchmark.h"
 #include "td/utils/buffer.h"
 #include "td/utils/optional.h"
-#include "td/utils/UInt.h"
+#include "td/utils/tests.h"
 
 TEST(KeyValue, simple) {
   td::Slice db_name = "testdb";

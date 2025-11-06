@@ -18,13 +18,13 @@
 */
 #pragma once
 
-#include "td/utils/buffer.h"
+#include <list>
+#include <map>
+#include <mutex>
+
 #include "auto/tl/ton_api.h"
 #include "td/actor/PromiseFuture.h"
-
-#include <map>
-#include <list>
-#include <mutex>
+#include "td/utils/buffer.h"
 
 namespace ton {
 

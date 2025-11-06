@@ -16,10 +16,9 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/tests.h"
-
-#include "td/utils/buffer.h"
 #include "td/utils/Random.h"
+#include "td/utils/buffer.h"
+#include "td/utils/tests.h"
 
 using namespace td;
 

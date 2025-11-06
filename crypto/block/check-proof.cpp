@@ -16,17 +16,16 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "check-proof.h"
-#include "block/block.h"
-#include "block/block-parse.h"
 #include "block/block-auto.h"
+#include "block/block-parse.h"
+#include "block/block.h"
 #include "block/mc-config.h"
-
-#include "ton/ton-shard.h"
-
-#include "vm/cells/MerkleProof.h"
 #include "openssl/digest.hpp"
+#include "ton/ton-shard.h"
+#include "vm/cells/MerkleProof.h"
+
 #include "Ed25519.h"
+#include "check-proof.h"
 
 namespace block {
 using namespace std::literals::string_literals;
@@ -321,8 +320,8 @@ td::Result<BlockTransaction::Info> BlockTransaction::validate(bool check_proof) 
   }
   if (check_proof && proof->get_hash().bits().compare(root->get_hash().bits(), 256)) {
     return td::Status::Error(PSLICE() << "transaction hash mismatch: Merkle proof expects "
-                                      << proof->get_hash().bits().to_hex(256)
-                                      << " but received data has " << root->get_hash().bits().to_hex(256));
+                                      << proof->get_hash().bits().to_hex(256) << " but received data has "
+                                      << root->get_hash().bits().to_hex(256));
   }
   block::gen::Transaction::Record trans;
   if (!tlb::unpack_cell(root, trans)) {
@@ -340,7 +339,8 @@ td::Result<BlockTransaction::Info> BlockTransaction::validate(bool check_proof) 
 td::Result<BlockTransactionList::Info> BlockTransactionList::validate(bool check_proof) const {
   constexpr int max_answer_transactions = 256;
 
-  TRY_RESULT_PREFIX(list, vm::std_boc_deserialize_multi(std::move(transactions_boc)), "cannot deserialize transactions boc: ");  
+  TRY_RESULT_PREFIX(list, vm::std_boc_deserialize_multi(std::move(transactions_boc)),
+                    "cannot deserialize transactions boc: ");
   std::vector<td::Ref<vm::Cell>> tx_proofs(list.size());
 
   if (check_proof) {
@@ -357,7 +357,7 @@ td::Result<BlockTransactionList::Info> BlockTransactionList::validate(bool check
         return td::Status::Error("Error unpacking proof cell");
       }
       vm::AugmentedDictionary acc_dict{vm::load_cell_slice_ref(extra.account_blocks), 256,
-                  block::tlb::aug_ShardAccountBlocks};
+                                       block::tlb::aug_ShardAccountBlocks};
 
       bool eof = false;
       ton::LogicalTime reverse = reverse_mode ? ~0ULL : 0;
@@ -367,7 +367,7 @@ td::Result<BlockTransactionList::Info> BlockTransactionList::validate(bool check
       int count = 0;
       while (!eof && count < req_count && count < max_answer_transactions) {
         auto value = acc_dict.extract_value(
-              acc_dict.vm::DictionaryFixed::lookup_nearest_key(cur_addr.bits(), 256, !reverse, allow_same));
+            acc_dict.vm::DictionaryFixed::lookup_nearest_key(cur_addr.bits(), 256, !reverse, allow_same));
         if (value.is_null()) {
           eof = true;
           break;
@@ -382,11 +382,11 @@ td::Result<BlockTransactionList::Info> BlockTransactionList::validate(bool check
           return td::Status::Error("Error unpacking proof account block");
         }
         vm::AugmentedDictionary trans_dict{vm::DictNonEmpty(), std::move(acc_blk.transactions), 64,
-                    block::tlb::aug_AccountTransactions};
+                                           block::tlb::aug_AccountTransactions};
         td::BitArray<64> cur_trans{(long long)trans_lt};
         while (count < req_count && count < max_answer_transactions) {
           auto tvalue = trans_dict.extract_value_ref(
-                trans_dict.vm::DictionaryFixed::lookup_nearest_key(cur_trans.bits(), 64, !reverse));
+              trans_dict.vm::DictionaryFixed::lookup_nearest_key(cur_trans.bits(), 64, !reverse));
           if (tvalue.is_null()) {
             trans_lt = reverse;
             break;
@@ -398,7 +398,8 @@ td::Result<BlockTransactionList::Info> BlockTransactionList::validate(bool check
         }
       }
       if (static_cast<size_t>(count) != list.size()) {
-        return td::Status::Error(PSLICE() << "Txs count mismatch in proof (" << count << ") and response (" << list.size() << ")");
+        return td::Status::Error(PSLICE() << "Txs count mismatch in proof (" << count << ") and response ("
+                                          << list.size() << ")");
       }
     } catch (vm::VmError& err) {
       return err.as_status("Couldn't verify proof: ");

@@ -16,18 +16,19 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include <iostream>
-#include <iomanip>
 #include <algorithm>
-#include "vm/boc.h"
-#include "vm/boc-writers.h"
-#include "vm/cells.h"
-#include "vm/cellslice.h"
+#include <iomanip>
+#include <iostream>
+
+#include "td/utils/Slice-decl.h"
 #include "td/utils/bits.h"
 #include "td/utils/crypto.h"
 #include "td/utils/format.h"
 #include "td/utils/misc.h"
-#include "td/utils/Slice-decl.h"
+#include "vm/boc-writers.h"
+#include "vm/boc.h"
+#include "vm/cells.h"
+#include "vm/cellslice.h"
 
 namespace vm {
 using td::Ref;
@@ -1157,7 +1158,7 @@ td::Result<CellStorageStat::CellInfo> CellStorageStat::add_used_storage(Ref<vm::
 }
 
 td::Result<CellStorageStat::CellInfo> CellStorageStat::add_used_storage(td::Span<Ref<Cell>> cells, bool kill_dup,
-                                      unsigned skip_count_root) {
+                                                                        unsigned skip_count_root) {
   CellInfo result;
   for (const auto& cell : cells) {
     TRY_RESULT(info, add_used_storage(cell, kill_dup, skip_count_root));
@@ -1296,7 +1297,6 @@ void ProofStorageStat::add_loaded_cells(const ProofStorageStat& other) {
     proof_size_ += old_size = new_size;
   }
 }
-
 
 td::uint64 ProofStorageStat::estimate_proof_size() const {
   return proof_size_;

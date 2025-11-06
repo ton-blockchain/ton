@@ -25,12 +25,11 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/tests.h"
-#include "td/utils/misc.h"
-
 #include <cstring>
 
+#include "td/utils/misc.h"
 #include "td/utils/port/signals.h"
+#include "td/utils/tests.h"
 
 int main(int argc, char **argv) {
   td::set_default_failure_signal_handler().ensure();

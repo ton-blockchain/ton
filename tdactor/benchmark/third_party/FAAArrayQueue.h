@@ -29,10 +29,10 @@
 #ifndef _FAA_ARRAY_QUEUE_HP_H_
 #define _FAA_ARRAY_QUEUE_HP_H_
 
-#include "HazardPointers.h"
-
 #include <atomic>
 #include <stdexcept>
+
+#include "HazardPointers.h"
 
 namespace ConcurrencyFreaks {
 /**

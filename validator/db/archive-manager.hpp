@@ -18,8 +18,9 @@
 */
 #pragma once
 
-#include "archive-slice.hpp"
 #include "interfaces/persistent-state.h"
+
+#include "archive-slice.hpp"
 
 namespace ton {
 

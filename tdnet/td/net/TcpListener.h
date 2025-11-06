@@ -19,9 +19,8 @@
 #pragma once
 
 #include "td/actor/actor.h"
-
-#include "td/utils/port/ServerSocketFd.h"
 #include "td/utils/Observer.h"
+#include "td/utils/port/ServerSocketFd.h"
 
 namespace td {
 class TcpListener : public td::actor::Actor, private td::ObserverBase {

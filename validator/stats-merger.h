@@ -18,8 +18,8 @@
 */
 #pragma once
 
-#include "td/utils/int_types.h"
 #include "td/actor/actor.h"
+#include "td/utils/int_types.h"
 
 namespace ton {
 

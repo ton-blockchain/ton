@@ -17,14 +17,15 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include <functional>
+
+#include "common/bigint.hpp"
+#include "common/refint.h"
 #include "vm/arithops.h"
+#include "vm/excno.hpp"
 #include "vm/log.h"
 #include "vm/opctable.h"
 #include "vm/stack.hpp"
-#include "vm/excno.hpp"
 #include "vm/vm.h"
-#include "common/bigint.hpp"
-#include "common/refint.h"
 
 namespace vm {
 

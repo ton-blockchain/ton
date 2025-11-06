@@ -16,10 +16,10 @@
 */
 #pragma once
 
+#include <fstream>
+
 #include "full-node.h"
 #include "validator-telemetry.hpp"
-
-#include <fstream>
 
 namespace ton::validator::fullnode {
 
@@ -37,7 +37,7 @@ class FullNodePrivateBlockOverlay : public td::actor::Actor {
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcastCompressedV2 &query);
   void process_block_candidate_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query);
 
-  void process_telemetry_broadcast(PublicKeyHash src, const tl_object_ptr<ton_api::validator_telemetry>& telemetry);
+  void process_telemetry_broadcast(PublicKeyHash src, const tl_object_ptr<ton_api::validator_telemetry> &telemetry);
 
   template <class T>
   void process_broadcast(PublicKeyHash, T &) {

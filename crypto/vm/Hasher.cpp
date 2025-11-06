@@ -14,12 +14,13 @@
   You should have received a copy of the GNU Lesser General Public License
   along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
+#include <iostream>
+#include <openssl/evp.h>
+
+#include "keccak/keccak.h"
 #include "vm/Hasher.h"
 #include "vm/excno.hpp"
 #include "vm/vm.h"
-#include <iostream>
-#include <openssl/evp.h>
-#include "keccak/keccak.h"
 
 namespace vm {
 
@@ -27,7 +28,7 @@ using td::Ref;
 
 class HasherImplEVP : public Hasher::HasherImpl {
  public:
-  explicit HasherImplEVP(EVP_MD_CTX* ctx) : ctx_(ctx) {
+  explicit HasherImplEVP(EVP_MD_CTX *ctx) : ctx_(ctx) {
   }
 
   ~HasherImplEVP() override {
@@ -74,7 +75,7 @@ class HasherImplKeccak : public Hasher::HasherImpl {
 
   td::BufferSlice finish() override {
     td::BufferSlice hash(hash_size_);
-    CHECK(keccak_digest(state_, (unsigned char*)hash.data(), hash_size_, 1) == 0);
+    CHECK(keccak_digest(state_, (unsigned char *)hash.data(), hash_size_, 1) == 0);
     return hash;
   }
 
@@ -99,9 +100,15 @@ Hasher::Hasher(int hash_id) : id_(hash_id) {
   CHECK(ctx != nullptr);
   const EVP_MD *evp;
   switch (hash_id) {
-    case SHA256: evp = EVP_sha256(); break;
-    case SHA512: evp = EVP_sha512(); break;
-    case BLAKE2B: evp = EVP_blake2b512(); break;
+    case SHA256:
+      evp = EVP_sha256();
+      break;
+    case SHA512:
+      evp = EVP_sha512();
+      break;
+    case BLAKE2B:
+      evp = EVP_blake2b512();
+      break;
     default:
       throw VmError{Excno::range_chk, "invalid hash id"};
   }
@@ -145,4 +152,4 @@ size_t Hasher::bytes_per_gas_unit() const {
   return BYTES_PER_GAS_UNIT[id_];
 }
 
-}
+}  // namespace vm

@@ -17,16 +17,16 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "td/utils/Closure.h"
-#include "td/utils/common.h"
-#include "td/utils/invoke.h"  // for tuple_for_each
-#include "td/utils/logging.h"
-#include "td/utils/ScopeGuard.h"
-#include "td/utils/Status.h"
-
 #include <tuple>
 #include <type_traits>
 #include <utility>
+
+#include "td/utils/Closure.h"
+#include "td/utils/ScopeGuard.h"
+#include "td/utils/Status.h"
+#include "td/utils/common.h"
+#include "td/utils/invoke.h"  // for tuple_for_each
+#include "td/utils/logging.h"
 
 namespace td {
 namespace detail {
@@ -299,7 +299,7 @@ class Promise {
     };
   }
   template <class... ArgsT>
-  auto send_closure(ArgsT &&... args);
+  auto send_closure(ArgsT &&...args);
 
  private:
   std::unique_ptr<PromiseInterface<T>> promise_;
@@ -309,7 +309,7 @@ namespace detail {
 template <class... ArgsT>
 class JoinPromise : public PromiseInterface<Unit> {
  public:
-  explicit JoinPromise(ArgsT &&... arg) : promises_(std::forward<ArgsT>(arg)...) {
+  explicit JoinPromise(ArgsT &&...arg) : promises_(std::forward<ArgsT>(arg)...) {
   }
   void set_value(Unit &&) override {
     tuple_for_each(promises_, [](auto &promise) { promise.set_value(Unit()); });
@@ -337,7 +337,7 @@ class PromiseCreator {
   }
 
   template <class... ArgsT>
-  static Promise<> join(ArgsT &&... args) {
+  static Promise<> join(ArgsT &&...args) {
     return Promise<>(std::make_unique<detail::JoinPromise<ArgsT...>>(std::forward<ArgsT>(args)...));
   }
 };
@@ -421,7 +421,7 @@ class PromiseMerger : public std::enable_shared_from_this<PromiseMerger<PromiseT
       promise_.set_error(std::move(status));
       return;
     }
-    call_tuple([this](auto &&... args) { promise_.set_value({args.move_as_ok()...}); }, std::move(args_));
+    call_tuple([this](auto &&...args) { promise_.set_value({args.move_as_ok()...}); }, std::move(args_));
   }
 
   template <class T>
@@ -431,7 +431,7 @@ class PromiseMerger : public std::enable_shared_from_this<PromiseMerger<PromiseT
 
   template <class R>
   auto split() {
-    return call_tuple([this](auto &&... arg) { return R{this->make_promise(arg)...}; }, std::move(args_));
+    return call_tuple([this](auto &&...arg) { return R{this->make_promise(arg)...}; }, std::move(args_));
   }
 };
 

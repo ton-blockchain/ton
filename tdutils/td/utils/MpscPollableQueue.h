@@ -24,9 +24,9 @@
 
 #if !TD_EVENTFD_UNSUPPORTED
 
-#include "td/utils/SpinLock.h"
-
 #include <utility>
+
+#include "td/utils/SpinLock.h"
 
 namespace td {
 // interface like in PollableQueue

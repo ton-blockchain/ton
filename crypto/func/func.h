@@ -17,19 +17,20 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include <vector>
-#include <string>
+#include <algorithm>
+#include <functional>
+#include <iostream>
 #include <set>
 #include <stack>
+#include <string>
 #include <utility>
-#include <algorithm>
-#include <iostream>
-#include <functional>
-#include "common/refcnt.hpp"
+#include <vector>
+
 #include "common/bigint.hpp"
+#include "common/refcnt.hpp"
 #include "common/refint.h"
-#include "parser/srcread.h"
 #include "parser/lexer.h"
+#include "parser/srcread.h"
 #include "parser/symtable.h"
 #include "td/utils/Status.h"
 
@@ -300,8 +301,8 @@ void unify(TypeExpr*& te1, TypeExpr*& te2);
 
 using src::Lexem;
 using src::SrcLocation;
-using sym::SymDef;
 using sym::sym_idx_t;
+using sym::SymDef;
 using sym::var_idx_t;
 using const_idx_t = int;
 
@@ -313,7 +314,7 @@ struct TmpVar {
   sym_idx_t name;
   int coord;
   std::unique_ptr<SrcLocation> where;
-  std::vector<std::function<void(const SrcLocation &)>> on_modification;
+  std::vector<std::function<void(const SrcLocation&)>> on_modification;
   bool undefined = false;
   TmpVar(var_idx_t _idx, int _cls, TypeExpr* _type = 0, SymDef* sym = 0, const SrcLocation* loc = 0);
   void show(std::ostream& os, int omit_idx = 0) const;
@@ -825,12 +826,10 @@ struct SymValConst : sym::SymValBase {
   td::RefInt256 intval;
   std::string strval;
   Keyword type;
-  SymValConst(int idx, td::RefInt256 value)
-      : sym::SymValBase(_Const, idx), intval(value) {
+  SymValConst(int idx, td::RefInt256 value) : sym::SymValBase(_Const, idx), intval(value) {
     type = _Int;
   }
-  SymValConst(int idx, std::string value)
-      : sym::SymValBase(_Const, idx), strval(value) {
+  SymValConst(int idx, std::string value) : sym::SymValBase(_Const, idx), strval(value) {
     type = _Slice;
   }
   ~SymValConst() override = default;
@@ -856,27 +855,21 @@ extern std::set<std::string> prohibited_var_names;
  */
 
 class ReadCallback {
-public:
+ public:
   /// Noncopyable.
   ReadCallback(ReadCallback const&) = delete;
   ReadCallback& operator=(ReadCallback const&) = delete;
 
-  enum class Kind
-  {
-    ReadFile,
-    Realpath
-  };
+  enum class Kind { ReadFile, Realpath };
 
-  static std::string kindString(Kind _kind)
-  {
-    switch (_kind)
-    {
-    case Kind::ReadFile:
-      return "source";
-    case Kind::Realpath:
-      return "realpath";
-    default:
-      throw ""; // todo ?
+  static std::string kindString(Kind _kind) {
+    switch (_kind) {
+      case Kind::ReadFile:
+        return "source";
+      case Kind::Realpath:
+        return "realpath";
+      default:
+        throw "";  // todo ?
     }
   }
 
@@ -978,7 +971,8 @@ struct Expr {
   }
   int define_new_vars(CodeBlob& code);
   int predefine_vars();
-  std::vector<var_idx_t> pre_compile(CodeBlob& code, std::vector<std::pair<SymDef*, var_idx_t>>* lval_globs = nullptr) const;
+  std::vector<var_idx_t> pre_compile(CodeBlob& code,
+                                     std::vector<std::pair<SymDef*, var_idx_t>>* lval_globs = nullptr) const;
   static std::vector<var_idx_t> pre_compile_let(CodeBlob& code, Expr* lhs, Expr* rhs, const SrcLocation& here);
   var_idx_t new_tmp(CodeBlob& code) const;
   std::vector<var_idx_t> new_tmp_vect(CodeBlob& code) const {
@@ -1036,7 +1030,8 @@ struct AsmOp {
   void out_indent_nl(std::ostream& os, bool no_nl = false) const;
   std::string to_string() const;
   void compute_gconst() {
-    gconst = (is_custom() && (op == "PUSHNULL" || op == "NEWC" || op == "NEWB" || op == "TRUE" || op == "FALSE" || op == "NOW"));
+    gconst = (is_custom() &&
+              (op == "PUSHNULL" || op == "NEWC" || op == "NEWB" || op == "TRUE" || op == "FALSE" || op == "NOW"));
   }
   bool is_nop() const {
     return t == a_none && op.empty();
@@ -1234,7 +1229,7 @@ struct AsmOpList {
     ip->indent = (ip == list_.begin()) ? indent_ : (ip - 1)->indent;
   }
   void indent_all() {
-    for (auto &op : list_) {
+    for (auto& op : list_) {
       ++op.indent;
     }
   }
@@ -1333,7 +1328,7 @@ struct StackTransform {
   // c := a * b
   static bool compose(const StackTransform& a, const StackTransform& b, StackTransform& c);
   StackTransform& operator*=(const StackTransform& other);
-  StackTransform operator*(const StackTransform& b) const &;
+  StackTransform operator*(const StackTransform& b) const&;
   bool equal(const StackTransform& other, bool relaxed = false) const;
   bool almost_equal(const StackTransform& other) const {
     return equal(other, true);
@@ -1569,8 +1564,14 @@ struct Stack {
   StackLayoutExt s;
   AsmOpList& o;
   enum {
-    _StkCmt = 1, _CptStkCmt = 2, _DisableOpt = 4, _DisableOut = 128, _Shown = 256,
-    _InlineFunc = 512, _NeedRetAlt = 1024, _InlineAny = 2048,
+    _StkCmt = 1,
+    _CptStkCmt = 2,
+    _DisableOpt = 4,
+    _DisableOut = 128,
+    _Shown = 256,
+    _InlineFunc = 512,
+    _NeedRetAlt = 1024,
+    _InlineAny = 2048,
     _ModeSave = _InlineFunc | _NeedRetAlt | _InlineAny,
     _Garbage = -0x10000
   };
@@ -1646,7 +1647,7 @@ struct Stack {
       show(mode);
     }
   }
-  bool operator==(const Stack& y) const & {
+  bool operator==(const Stack& y) const& {
     return s == y.s;
   }
   void apply_wrappers(int callxargs_count) {
@@ -1688,7 +1689,7 @@ inline simple_compile_func_t make_simple_compile(AsmOp op) {
 }
 
 inline compile_func_t make_ext_compile(std::vector<AsmOp> ops) {
-  return [ops = std::move(ops)](AsmOpList & dest, std::vector<VarDescr> & out, std::vector<VarDescr> & in)->bool {
+  return [ops = std::move(ops)](AsmOpList& dest, std::vector<VarDescr>& out, std::vector<VarDescr>& in) -> bool {
     return dest.append(ops);
   };
 }
@@ -1735,7 +1736,6 @@ AsmOp exec_arg2_op(std::string op, long long imm1, long long imm2, int args, int
 AsmOp push_const(td::RefInt256 x);
 
 void define_builtins();
-
 
 extern int verbosity, indent, opt_level;
 extern bool stack_layout_comments, op_rewrite_comments, program_envelope, asm_preamble, interactive;
@@ -1785,8 +1785,6 @@ extern GlobalPragma pragma_allow_post_modification, pragma_compute_asm_ltr;
  *
  */
 
-int func_proceed(const std::vector<std::string> &sources, std::ostream &outs, std::ostream &errs);
+int func_proceed(const std::vector<std::string>& sources, std::ostream& outs, std::ostream& errs);
 
 }  // namespace funC
-
-

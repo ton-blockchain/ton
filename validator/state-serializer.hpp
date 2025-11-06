@@ -18,10 +18,10 @@
 */
 #pragma once
 
-#include "interfaces/validator-manager.h"
-#include "interfaces/shard.h"
-
 #include <map>
+
+#include "interfaces/shard.h"
+#include "interfaces/validator-manager.h"
 
 namespace ton {
 

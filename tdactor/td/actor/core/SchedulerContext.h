@@ -17,20 +17,19 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "td/actor/core/Context.h"
-#include "td/actor/core/SchedulerId.h"
 #include "td/actor/core/ActorInfo.h"
 #include "td/actor/core/ActorInfoCreator.h"
-
-#include "td/utils/port/Poll.h"
+#include "td/actor/core/Context.h"
+#include "td/actor/core/SchedulerId.h"
 #include "td/utils/Heap.h"
+#include "td/utils/port/Poll.h"
 
 namespace td {
 namespace actor {
 namespace core {
 
 // Token type for CPU queue - encodes either ActorInfo* (bit 0 = 0) or coroutine handle (bit 0 = 1)
-using SchedulerToken = void*;
+using SchedulerToken = void *;
 
 class SchedulerDispatcher {
  public:

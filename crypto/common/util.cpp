@@ -16,12 +16,12 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "util.h"
-
 #include <limits>
 
-#include "td/utils/crypto.h"
 #include "td/utils/base64.h"
+#include "td/utils/crypto.h"
+
+#include "util.h"
 
 namespace td {
 

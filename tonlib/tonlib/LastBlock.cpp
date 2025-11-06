@@ -16,16 +16,12 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include "lite-client/lite-client-common.h"
+#include "td/utils/JsonBuilder.h"
+#include "ton/lite-tl.hpp"
 #include "tonlib/LastBlock.h"
 #include "tonlib/LastConfig.h"
-
 #include "tonlib/utils.h"
-
-#include "ton/lite-tl.hpp"
-
-#include "lite-client/lite-client-common.h"
-
-#include "td/utils/JsonBuilder.h"
 
 namespace tonlib {
 

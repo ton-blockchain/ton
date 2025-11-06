@@ -19,12 +19,11 @@
 #pragma once
 
 #include "interfaces/block-handle.h"
-#include "ton/ton-shard.h"
-#include "td/actor/actor.h"
 #include "interfaces/validator-manager.h"
-#include "ton/ton-io.hpp"
-
+#include "td/actor/actor.h"
 #include "td/utils/ThreadSafeCounter.h"
+#include "ton/ton-io.hpp"
+#include "ton/ton-shard.h"
 
 namespace ton {
 

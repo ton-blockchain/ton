@@ -16,14 +16,15 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "download-state.hpp"
-#include "validator/fabric.h"
 #include "common/checksum.h"
 #include "common/delay.h"
-#include "ton/ton-io.hpp"
-#include "vm/cells/MerkleProof.h"
 #include "crypto/block/block-auto.h"
 #include "crypto/block/block-parse.h"
+#include "ton/ton-io.hpp"
+#include "validator/fabric.h"
+#include "vm/cells/MerkleProof.h"
+
+#include "download-state.hpp"
 
 namespace ton {
 

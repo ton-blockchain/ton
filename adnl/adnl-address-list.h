@@ -18,8 +18,9 @@
 */
 #pragma once
 
-#include "adnl-network-manager.h"
 #include "crypto/common/refcnt.hpp"
+
+#include "adnl-network-manager.h"
 
 namespace ton {
 

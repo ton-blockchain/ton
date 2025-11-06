@@ -16,8 +16,9 @@
 */
 #pragma once
 
-#include "interfaces/liteserver.h"
 #include <map>
+
+#include "interfaces/liteserver.h"
 
 namespace ton::validator {
 

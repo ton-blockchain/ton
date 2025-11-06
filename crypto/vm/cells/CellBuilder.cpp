@@ -16,15 +16,12 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include "openssl/digest.hpp"
+#include "td/utils/format.h"
+#include "td/utils/misc.h"
 #include "vm/cells/CellBuilder.h"
-
 #include "vm/cells/CellSlice.h"
 #include "vm/cells/DataCell.h"
-
-#include "td/utils/misc.h"
-#include "td/utils/format.h"
-
-#include "openssl/digest.hpp"
 
 namespace vm {
 

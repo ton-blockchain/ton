@@ -18,10 +18,11 @@
 */
 #pragma once
 
-#include "common/refcnt.hpp"
-#include "common/bigint.hpp"
-#include <utility>
 #include <string>
+#include <utility>
+
+#include "common/bigint.hpp"
+#include "common/refcnt.hpp"
 
 namespace td {
 class StringBuilder;

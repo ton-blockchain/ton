@@ -17,7 +17,6 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/fec/raptorq/Encoder.h"
-
 #include "td/fec/raptorq/Solver.h"
 
 namespace td {

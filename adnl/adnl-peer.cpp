@@ -16,17 +16,16 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include "auto/tl/ton_api.h"
+#include "td/actor/PromiseFuture.h"
+#include "td/utils/Random.h"
+#include "td/utils/base64.h"
+#include "td/utils/overloaded.h"
+
+#include "adnl-local-id.h"
 #include "adnl-peer.h"
 #include "adnl-peer.hpp"
-#include "adnl-local-id.h"
-
 #include "utils.hpp"
-
-#include "td/actor/PromiseFuture.h"
-#include "td/utils/base64.h"
-#include "td/utils/Random.h"
-#include "auto/tl/ton_api.h"
-#include "td/utils/overloaded.h"
 
 namespace ton {
 
@@ -475,9 +474,8 @@ void AdnlPeerPairImpl::alarm_query(AdnlQueryId id) {
 
 AdnlPeerPairImpl::AdnlPeerPairImpl(td::actor::ActorId<AdnlNetworkManager> network_manager,
                                    td::actor::ActorId<AdnlPeerTable> peer_table, td::uint32 local_mode,
-                                   td::actor::ActorId<AdnlLocalId> local_actor,
-                                   td::actor::ActorId<dht::Dht> dht_node, AdnlNodeIdShort local_id,
-                                   AdnlNodeIdShort peer_id) {
+                                   td::actor::ActorId<AdnlLocalId> local_actor, td::actor::ActorId<dht::Dht> dht_node,
+                                   AdnlNodeIdShort local_id, AdnlNodeIdShort peer_id) {
   network_manager_ = network_manager;
   peer_table_ = peer_table;
   local_actor_ = local_actor;
@@ -886,10 +884,12 @@ void AdnlPeerPairImpl::conn_change_state(AdnlConnectionIdShort id, bool ready) {
   }
 }
 
-td::actor::ActorOwn<AdnlPeerPair> AdnlPeerPair::create(
-    td::actor::ActorId<AdnlNetworkManager> network_manager, td::actor::ActorId<AdnlPeerTable> peer_table,
-    td::uint32 local_mode, td::actor::ActorId<AdnlLocalId> local_actor,
-    td::actor::ActorId<dht::Dht> dht_node, AdnlNodeIdShort local_id, AdnlNodeIdShort peer_id) {
+td::actor::ActorOwn<AdnlPeerPair> AdnlPeerPair::create(td::actor::ActorId<AdnlNetworkManager> network_manager,
+                                                       td::actor::ActorId<AdnlPeerTable> peer_table,
+                                                       td::uint32 local_mode,
+                                                       td::actor::ActorId<AdnlLocalId> local_actor,
+                                                       td::actor::ActorId<dht::Dht> dht_node, AdnlNodeIdShort local_id,
+                                                       AdnlNodeIdShort peer_id) {
   auto X = td::actor::create_actor<AdnlPeerPairImpl>("peerpair", network_manager, peer_table, local_mode, local_actor,
                                                      dht_node, local_id, peer_id);
   return td::actor::ActorOwn<AdnlPeerPair>(std::move(X));

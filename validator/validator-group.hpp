@@ -18,15 +18,14 @@
 */
 #pragma once
 
-#include "collation-manager.hpp"
+#include <list>
+
 #include "interfaces/validator-manager.h"
-
-#include "validator-session/validator-session.h"
-
 #include "rldp/rldp.h"
 #include "rldp2/rldp.h"
+#include "validator-session/validator-session.h"
 
-#include <list>
+#include "collation-manager.hpp"
 
 namespace ton {
 
@@ -56,7 +55,8 @@ class ValidatorGroup : public td::actor::Actor {
   BlockId create_next_block_id_simple() const;
 
   void generate_block_optimistic(validatorsession::BlockSourceInfo source_info, td::BufferSlice prev_block,
-                          RootHash prev_root_hash, FileHash prev_file_hash, td::Promise<GeneratedCandidate> promise);
+                                 RootHash prev_root_hash, FileHash prev_file_hash,
+                                 td::Promise<GeneratedCandidate> promise);
   void generated_block_optimistic(validatorsession::BlockSourceInfo source_info, td::Result<GeneratedCandidate> R);
 
   void start(std::vector<BlockIdExt> prev, BlockIdExt min_masterchain_block_id);

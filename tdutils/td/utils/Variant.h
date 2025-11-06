@@ -18,12 +18,12 @@
 */
 #pragma once
 
-#include "td/utils/common.h"
-#include "td/utils/logging.h"
-
 #include <new>
 #include <type_traits>
 #include <utility>
+
+#include "td/utils/common.h"
+#include "td/utils/logging.h"
 
 namespace td {
 namespace detail {

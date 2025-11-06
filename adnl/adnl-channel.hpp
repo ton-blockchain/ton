@@ -18,8 +18,9 @@
 */
 #pragma once
 
-#include "adnl-channel.h"
 #include "keys/encryptor.h"
+
+#include "adnl-channel.h"
 
 namespace ton {
 

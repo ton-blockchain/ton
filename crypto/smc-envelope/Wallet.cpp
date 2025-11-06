@@ -16,15 +16,15 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "Wallet.h"
-#include "GenericAccount.h"
-#include "SmartContractCode.h"
+#include <limits>
 
+#include "td/utils/base64.h"
 #include "vm/boc.h"
 #include "vm/cells/CellString.h"
-#include "td/utils/base64.h"
 
-#include <limits>
+#include "GenericAccount.h"
+#include "SmartContractCode.h"
+#include "Wallet.h"
 
 namespace ton {
 td::Ref<vm::Cell> Wallet::get_init_state(const td::Ed25519::PublicKey& public_key, td::int32 revision) noexcept {

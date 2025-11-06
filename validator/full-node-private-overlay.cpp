@@ -14,14 +14,15 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "full-node-private-overlay.hpp"
-#include "ton/ton-tl.hpp"
-#include "common/delay.h"
-#include "common/checksum.h"
-#include "full-node-serializer.hpp"
 #include "auto/tl/ton_api_json.h"
+#include "common/checksum.h"
+#include "common/delay.h"
 #include "td/utils/JsonBuilder.h"
 #include "tl/tl_json.h"
+#include "ton/ton-tl.hpp"
+
+#include "full-node-private-overlay.hpp"
+#include "full-node-serializer.hpp"
 
 namespace ton::validator::fullnode {
 

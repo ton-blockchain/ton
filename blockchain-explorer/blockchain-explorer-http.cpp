@@ -25,17 +25,18 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "blockchain-explorer-http.hpp"
-#include "block/block-db.h"
-#include "block/block.h"
-#include "block/block-parse.h"
 #include "block/block-auto.h"
+#include "block/block-db.h"
+#include "block/block-parse.h"
+#include "block/block.h"
+#include "block/mc-config.h"
+#include "td/utils/date.h"
+#include "ton/ton-shard.h"
 #include "vm/boc.h"
 #include "vm/cellops.h"
 #include "vm/cells/MerkleProof.h"
-#include "block/mc-config.h"
-#include "ton/ton-shard.h"
-#include "td/utils/date.h"
+
+#include "blockchain-explorer-http.hpp"
 
 bool local_scripts{false};
 
@@ -132,7 +133,7 @@ HttpAnswer& HttpAnswer::operator<<(MessageCell msg) {
             << "<tr><th>destination</th><td>" << AddressCell{info.dest} << "</td></tr>\n"
             << "<tr><th>lt</th><td>" << info.created_lt << "</td></tr>\n"
             << "<tr><th>time</th><td>" << info.created_at << " (" << time_to_human(info.created_at) << ")</td></tr>\n"
-            << "<tr><th>value</th><td>" << currency_collection.to_str()<< "</td></tr>\n";
+            << "<tr><th>value</th><td>" << currency_collection.to_str() << "</td></tr>\n";
       break;
     }
     default:

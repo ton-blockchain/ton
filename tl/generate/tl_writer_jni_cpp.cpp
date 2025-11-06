@@ -16,18 +16,18 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "tl_writer_jni_cpp.h"
-
 #include <cassert>
 #include <cstdio>
+
+#include "tl_writer_jni_cpp.h"
 
 namespace td {
 
 bool TD_TL_writer_jni_cpp::is_built_in_simple_type(const std::string &name) const {
   assert(name != "function");
-  return name == "Bool" || name == "Int32" || name == "Int53" || name == "Int64" || name == "Int128" || name == "Int256" || name == "Double" ||
-         name == "String" || name == "Bytes" || name == "SecureString" || name == "SecureBytes" || name == "Function" ||
-         name == "Object";
+  return name == "Bool" || name == "Int32" || name == "Int53" || name == "Int64" || name == "Int128" ||
+         name == "Int256" || name == "Double" || name == "String" || name == "Bytes" || name == "SecureString" ||
+         name == "SecureBytes" || name == "Function" || name == "Object";
 }
 
 bool TD_TL_writer_jni_cpp::is_built_in_complex_type(const std::string &name) const {
@@ -312,8 +312,9 @@ std::string TD_TL_writer_jni_cpp::gen_vector_store(const std::string &field_name
     assert(false);  // TODO
   }
   if (vector_type == "std::int32_t" || vector_type == "std::int64_t" || vector_type == "double" ||
-      vector_type == string_type || vector_type == secure_string_type || vector_type == "td::Bits128" || vector_type == "td::Bits256" ||
-      vector_type.compare(0, 11, "std::vector") == 0 || vector_type.compare(0, 10, "object_ptr") == 0) {
+      vector_type == string_type || vector_type == secure_string_type || vector_type == "td::Bits128" ||
+      vector_type == "td::Bits256" || vector_type.compare(0, 11, "std::vector") == 0 ||
+      vector_type.compare(0, 10, "object_ptr") == 0) {
     return "{ "
            "auto arr_tmp_ = td::jni::store_vector(env, " +
            field_name +
@@ -355,8 +356,8 @@ std::string TD_TL_writer_jni_cpp::gen_type_store(const std::string &field_name, 
   }
 
   std::string res;
-  if (name == "Int32" || name == "Int53" || name == "Int64" || name == "Int128" || name == "Int256" || name == "Double" || name == "Bool" || name == "String" ||
-      name == "SecureString" || name == "#") {
+  if (name == "Int32" || name == "Int53" || name == "Int64" || name == "Int128" || name == "Int256" ||
+      name == "Double" || name == "Bool" || name == "String" || name == "SecureString" || name == "#") {
     if (storer_type == 1) {
       res = "s.store_field(\"" + get_pretty_field_name(field_name) + "\", " + field_name + ");";
     } else if (name == "Bool") {
@@ -384,7 +385,8 @@ std::string TD_TL_writer_jni_cpp::gen_type_store(const std::string &field_name, 
             "); if (nextBytes) { env->SetObjectField(s, " + field_name +
             "fieldID, nextBytes); env->DeleteLocalRef(nextBytes); } }";
     } else if (name == "#") {
-      res = "env->SetIntField(s, " + TD_TL_writer_cpp::get_pretty_field_name(field_name) + "_fieldID, " + field_name + ");";
+      res = "env->SetIntField(s, " + TD_TL_writer_cpp::get_pretty_field_name(field_name) + "_fieldID, " + field_name +
+            ");";
     } else {
       assert(false);
     }

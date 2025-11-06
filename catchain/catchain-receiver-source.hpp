@@ -19,11 +19,11 @@
 #pragma once
 
 #include <map>
+#include <queue>
 
+#include "catchain-received-block.h"
 #include "catchain-receiver-source.h"
 #include "catchain-receiver.h"
-#include "catchain-received-block.h"
-#include <queue>
 
 namespace ton {
 

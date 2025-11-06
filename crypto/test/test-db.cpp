@@ -16,60 +16,53 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "vm/boc.h"
-#include "vm/cells.h"
-#include "common/AtomicRef.h"
-#include "vm/cells/CellString.h"
-#include "vm/cells/MerkleProof.h"
-#include "vm/cells/MerkleUpdate.h"
-#include "vm/db/CellStorage.h"
-#include "vm/db/TonDb.h"
-#include "vm/db/StaticBagOfCellsDb.h"
+#include <barrier>
+#include <latch>
+#include <map>
+#include <numeric>
+#include <openssl/sha.h>
+#include <optional>
+#include <rocksdb/compaction_filter.h>
+#include <rocksdb/db.h>
+#include <rocksdb/merge_operator.h>
+#include <set>
+#include <thread>
+#include <variant>
 
-#include "td/utils/base64.h"
-#include "td/utils/benchmark.h"
-#include "td/utils/crypto.h"
+#include "common/AtomicRef.h"
+#include "openssl/digest.hpp"
+#include "storage/db.h"
+#include "td/actor/actor.h"
+#include "td/db/MemoryKeyValue.h"
+#include "td/db/RocksDb.h"
+#include "td/db/utils/BlobView.h"
+#include "td/db/utils/CyclicBuffer.h"
 #include "td/utils/Random.h"
 #include "td/utils/Slice.h"
 #include "td/utils/Span.h"
 #include "td/utils/Status.h"
 #include "td/utils/Timer.h"
+#include "td/utils/VectorQueue.h"
+#include "td/utils/base64.h"
+#include "td/utils/benchmark.h"
+#include "td/utils/crypto.h"
 #include "td/utils/filesystem.h"
-#include "td/utils/port/path.h"
 #include "td/utils/format.h"
 #include "td/utils/misc.h"
-#include "td/utils/tests.h"
-#include "td/utils/tl_parsers.h"
-#include "td/utils/tl_helpers.h"
-
-#include "td/db/utils/BlobView.h"
-#include "td/db/RocksDb.h"
-#include "td/db/MemoryKeyValue.h"
-#include "td/db/utils/CyclicBuffer.h"
-
-#include <set>
-#include <map>
-#include <thread>
-#include <barrier>
-
-#include <openssl/sha.h>
-
-#include "openssl/digest.hpp"
-#include "storage/db.h"
-#include "td/utils/VectorQueue.h"
-#include "vm/dict.h"
-
-#include <latch>
-#include <numeric>
-#include <optional>
-#include <variant>
-
-#include <rocksdb/compaction_filter.h>
-#include <rocksdb/merge_operator.h>
-#include <rocksdb/db.h>
-
-#include "td/actor/actor.h"
 #include "td/utils/overloaded.h"
+#include "td/utils/port/path.h"
+#include "td/utils/tests.h"
+#include "td/utils/tl_helpers.h"
+#include "td/utils/tl_parsers.h"
+#include "vm/boc.h"
+#include "vm/cells.h"
+#include "vm/cells/CellString.h"
+#include "vm/cells/MerkleProof.h"
+#include "vm/cells/MerkleUpdate.h"
+#include "vm/db/CellStorage.h"
+#include "vm/db/StaticBagOfCellsDb.h"
+#include "vm/db/TonDb.h"
+#include "vm/dict.h"
 
 class ActorExecutor : public vm::DynamicBagOfCellsDb::AsyncExecutor {
  public:
@@ -1692,28 +1685,29 @@ TEST(TonDb, BocDeserializerSimpleThreads) {
 }
 
 class RandomTree {
-  public:
-    RandomTree(size_t size, td::Random::Xorshift128plus rnd) : rnd_(rnd) {
-      root_ = create(size);
-    }
-    Ref<Cell> root() const {
-      return root_;
-    }
-  private:
-    Ref<Cell> root_;
-    td::Random::Xorshift128plus rnd_;
-    Ref<DataCell> create(size_t size) {
-      CellBuilder cb;
-      cb.store_long(rnd_(), rnd_() % 63 + 1);
-      if (size > 0) {
-        td::uint64 rc = (rnd_() % 4) + 1;
-        for (td::uint64 i = 0; i < rc; i++) {
-            auto ref = create(size / rc);
-            cb.store_ref(std::move(ref));
-        }
+ public:
+  RandomTree(size_t size, td::Random::Xorshift128plus rnd) : rnd_(rnd) {
+    root_ = create(size);
+  }
+  Ref<Cell> root() const {
+    return root_;
+  }
+
+ private:
+  Ref<Cell> root_;
+  td::Random::Xorshift128plus rnd_;
+  Ref<DataCell> create(size_t size) {
+    CellBuilder cb;
+    cb.store_long(rnd_(), rnd_() % 63 + 1);
+    if (size > 0) {
+      td::uint64 rc = (rnd_() % 4) + 1;
+      for (td::uint64 i = 0; i < rc; i++) {
+        auto ref = create(size / rc);
+        cb.store_ref(std::move(ref));
       }
-      return cb.finalize();
     }
+    return cb.finalize();
+  }
 };
 
 class CompactArray {
@@ -3035,14 +3029,15 @@ TEST(TonDb, LargeBocSerializer) {
   auto a_cell = vm::deserialize_boc(td::BufferSlice(a));
   for (int i = 0; i < 4; i++) {
     fd = td::FileFd::open(path, td::FileFd::Flags::Create | td::FileFd::Flags::Truncate | td::FileFd::Flags::Write)
-            .move_as_ok();
+             .move_as_ok();
     boc_serialize_to_file_large(dboc->get_cell_db_reader(), root->get_hash(), fd, 31);
     fd.close();
     auto b = td::read_file_str(path).move_as_ok();
 
     auto b_cell = vm::deserialize_boc(td::BufferSlice(b));
     ASSERT_EQ(a_cell->get_hash(), b_cell->get_hash());
-    if (i > 0) ASSERT_EQ(prev_b, b);
+    if (i > 0)
+      ASSERT_EQ(prev_b, b);
     prev_b = b;
   }
 }

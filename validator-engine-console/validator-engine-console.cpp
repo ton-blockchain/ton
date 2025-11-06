@@ -25,40 +25,42 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "validator-engine-console.h"
 #include "adnl/adnl-ext-client.h"
-#include "tl-utils/lite-utils.hpp"
-#include "auto/tl/ton_api_json.h"
 #include "auto/tl/lite_api.h"
+#include "auto/tl/ton_api_json.h"
+#include "block/block-auto.h"
+#include "block/block-db.h"
+#include "block/block-parse.h"
+#include "block/block.h"
+#include "block/check-proof.h"
+#include "block/mc-config.h"
 #include "td/utils/OptionParser.h"
+#include "td/utils/Random.h"
 #include "td/utils/Time.h"
+#include "td/utils/crypto.h"
 #include "td/utils/filesystem.h"
 #include "td/utils/format.h"
-#include "td/utils/Random.h"
-#include "td/utils/crypto.h"
+#include "td/utils/port/FileFd.h"
+#include "td/utils/port/StdStreams.h"
 #include "td/utils/port/signals.h"
 #include "td/utils/port/stacktrace.h"
-#include "td/utils/port/StdStreams.h"
-#include "td/utils/port/FileFd.h"
 #include "terminal/terminal.h"
+#include "tl-utils/lite-utils.hpp"
 #include "ton/lite-tl.hpp"
-#include "block/block-db.h"
-#include "block/block.h"
-#include "block/block-parse.h"
-#include "block/block-auto.h"
-#include "block/mc-config.h"
-#include "block/check-proof.h"
+#include "ton/ton-shard.h"
 #include "vm/boc.h"
 #include "vm/cellops.h"
 #include "vm/cells/MerkleProof.h"
-#include "ton/ton-shard.h"
+
+#include "validator-engine-console.h"
 
 #if TD_DARWIN || TD_LINUX
-#include <unistd.h>
 #include <fcntl.h>
+#include <unistd.h>
 #endif
 #include <iostream>
 #include <sstream>
+
 #include "git.h"
 
 int verbosity;

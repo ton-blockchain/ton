@@ -21,12 +21,12 @@
 #include "td/utils/Hash.h"
 
 #if TD_HAVE_ABSL
+#include <absl/container/btree_map.h>
 #include <absl/container/flat_hash_map.h>
 #include <absl/container/node_hash_map.h>
-#include <absl/container/btree_map.h>
 #else
-#include <unordered_map>
 #include <map>
+#include <unordered_map>
 #endif
 
 namespace td {

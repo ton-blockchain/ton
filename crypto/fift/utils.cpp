@@ -16,14 +16,16 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "utils.h"
-#include "words.h"
+#include <map>
+
 #include "td/utils/PathView.h"
 #include "td/utils/filesystem.h"
 #include "td/utils/misc.h"
 #include "td/utils/port/path.h"
 #include "vm/boc.h"
-#include <map>
+
+#include "utils.h"
+#include "words.h"
 
 namespace fift {
 namespace {
@@ -163,7 +165,7 @@ td::Result<fift::SourceLookup> create_source_lookup(std::string&& main, bool nee
   return std::move(res);
 }
 
-td::Result<fift::SourceLookup> run_fift(fift::SourceLookup source_lookup, std::ostream *stream,
+td::Result<fift::SourceLookup> run_fift(fift::SourceLookup source_lookup, std::ostream* stream,
                                         bool preload_fift = true, std::vector<std::string> args = {}) {
   fift::Fift::Config config;
   config.source_lookup = std::move(source_lookup);
@@ -173,8 +175,8 @@ td::Result<fift::SourceLookup> run_fift(fift::SourceLookup source_lookup, std::o
   config.error_stream = stream;
   config.output_stream = stream;
   if (args.size() != 0) {
-    std::vector<const char *> argv;
-    for (auto &arg : args) {
+    std::vector<const char*> argv;
+    for (auto& arg : args) {
       argv.push_back(arg.c_str());
     }
     fift::import_cmdline_args(config.dictionary, argv[0], td::narrow_cast<int>(argv.size() - 1), argv.data() + 1);
@@ -189,7 +191,8 @@ td::Result<fift::SourceLookup> run_fift(fift::SourceLookup source_lookup, std::o
 }  // namespace
 td::Result<FiftOutput> mem_run_fift(std::string source, std::vector<std::string> args, std::string fift_dir) {
   std::stringstream ss;
-  TRY_RESULT(source_lookup, create_source_lookup(std::move(source), true, true, true, true, true, true, true, fift_dir));
+  TRY_RESULT(source_lookup,
+             create_source_lookup(std::move(source), true, true, true, true, true, true, true, fift_dir));
   TRY_RESULT_ASSIGN(source_lookup, run_fift(std::move(source_lookup), &ss, true, std::move(args)));
   FiftOutput res;
   res.source_lookup = std::move(source_lookup);
@@ -207,8 +210,8 @@ td::Result<FiftOutput> mem_run_fift(SourceLookup source_lookup, std::vector<std:
 td::Result<fift::SourceLookup> create_mem_source_lookup(std::string main, std::string fift_dir, bool need_preamble,
                                                         bool need_asm, bool need_ton_util, bool need_lisp,
                                                         bool need_w3_code) {
-  return create_source_lookup(std::move(main), need_preamble, need_asm, need_ton_util, need_lisp, need_w3_code, false, false,
-                              fift_dir);
+  return create_source_lookup(std::move(main), need_preamble, need_asm, need_ton_util, need_lisp, need_w3_code, false,
+                              false, fift_dir);
 }
 
 td::Result<td::Ref<vm::Cell>> compile_asm(td::Slice asm_code) {
@@ -229,20 +232,21 @@ td::Result<CompiledProgramOutput> compile_asm_program(std::string&& program_code
   std::string main_fif;
   main_fif.reserve(program_code.size() + 100);
   main_fif.append(program_code.data(), program_code.size());
-  main_fif.append(R"( dup hashB B>X      $>B "hex" B>file)");   // write codeHashHex to a file
-  main_fif.append(R"(     boc>B B>base64 $>B "boc" B>file)");   // write codeBoc64 to a file
+  main_fif.append(R"( dup hashB B>X      $>B "hex" B>file)");  // write codeHashHex to a file
+  main_fif.append(R"(     boc>B B>base64 $>B "boc" B>file)");  // write codeBoc64 to a file
 
   std::stringstream fift_output_stream;
-  TRY_RESULT(source_lookup, create_source_lookup(std::move(main_fif), true, true, false, false, false, false, false, fift_dir));
+  TRY_RESULT(source_lookup,
+             create_source_lookup(std::move(main_fif), true, true, false, false, false, false, false, fift_dir));
   TRY_RESULT(res, run_fift(std::move(source_lookup), &fift_output_stream));
 
   TRY_RESULT(boc, res.read_file("boc"));
   TRY_RESULT(hex, res.read_file("hex"));
 
   return CompiledProgramOutput{
-    std::move(program_code),
-    std::move(boc.data),
-    std::move(hex.data),
+      std::move(program_code),
+      std::move(boc.data),
+      std::move(hex.data),
   };
 }
 

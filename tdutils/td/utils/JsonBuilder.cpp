@@ -16,12 +16,11 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/JsonBuilder.h"
-
-#include "td/utils/misc.h"
-#include "td/utils/ScopeGuard.h"
-
 #include <cstring>
+
+#include "td/utils/JsonBuilder.h"
+#include "td/utils/ScopeGuard.h"
+#include "td/utils/misc.h"
 
 namespace td {
 

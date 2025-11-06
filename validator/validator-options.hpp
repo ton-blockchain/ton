@@ -217,7 +217,8 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
     unsafe_catchains_.insert(seqno);
   }
   void add_unsafe_catchain_rotate(BlockSeqno seqno, CatchainSeqno cc_seqno, td::uint32 value) override {
-    VLOG(INFO) << "Add unsafe catchain rotation: Master block seqno " << seqno<<" Catchain seqno " << cc_seqno << " New value "<< value;
+    VLOG(INFO) << "Add unsafe catchain rotation: Master block seqno " << seqno << " Catchain seqno " << cc_seqno
+               << " New value " << value;
     unsafe_catchain_rotates_[cc_seqno] = std::make_pair(seqno, value);
   }
   void truncate_db(BlockSeqno seqno) override {
@@ -300,7 +301,7 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
     shard_block_verifier_config_ = std::move(config);
   }
 
-  ValidatorManagerOptionsImpl *make_copy() const override {
+  ValidatorManagerOptionsImpl* make_copy() const override {
     return new ValidatorManagerOptionsImpl(*this);
   }
 

@@ -148,7 +148,7 @@ class PrunnedCell final : public Cell {
     return info_.get_depth(trailer_)[get_level_mask().apply(level).get_hash_i()];
   }
 
-  td::Status set_data_cell(Ref<DataCell> &&data_cell) const override {
+  td::Status set_data_cell(Ref<DataCell>&& data_cell) const override {
     return td::Status::OK();
   }
 

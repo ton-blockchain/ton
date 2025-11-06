@@ -18,27 +18,24 @@
 */
 #pragma once
 
-#include <vector>
 #include <deque>
 #include <functional>
-
-#include "interfaces/persistent-state.h"
-#include "td/actor/actor.h"
-
-#include "ton/ton-types.h"
+#include <vector>
 
 #include "adnl/adnl.h"
+#include "catchain/catchain-types.h"
 #include "dht/dht.h"
-#include "overlay/overlays.h"
-
 #include "interfaces/block-handle.h"
-#include "interfaces/validator-set.h"
 #include "interfaces/block.h"
+#include "interfaces/external-message.h"
+#include "interfaces/out-msg-queue-proof.h"
+#include "interfaces/persistent-state.h"
 #include "interfaces/proof.h"
 #include "interfaces/shard.h"
-#include "catchain/catchain-types.h"
-#include "interfaces/out-msg-queue-proof.h"
-#include "interfaces/external-message.h"
+#include "interfaces/validator-set.h"
+#include "overlay/overlays.h"
+#include "td/actor/actor.h"
+#include "ton/ton-types.h"
 
 namespace ton {
 
@@ -51,7 +48,7 @@ class ActionToken {
 
 struct PerfTimerStats {
   std::string name;
-  std::deque<std::pair<double, double>> stats; // <Time::now(), duration>
+  std::deque<std::pair<double, double>> stats;  // <Time::now(), duration>
 };
 
 struct CollatorOptions : public td::CntObject {
@@ -80,9 +77,7 @@ struct CollatorOptions : public td::CntObject {
 };
 
 struct CollatorsList : public td::CntObject {
-  enum SelectMode {
-    mode_random, mode_ordered, mode_round_robin
-  };
+  enum SelectMode { mode_random, mode_ordered, mode_round_robin };
   struct Shard {
     ShardIdFull shard_id;
     SelectMode select_mode = mode_random;
@@ -196,11 +191,11 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual void set_collator_node_whitelist_enabled(bool enabled) = 0;
   virtual void set_shard_block_verifier_config(td::Ref<ShardBlockVerifierConfig> config) = 0;
 
-  static td::Ref<ValidatorManagerOptions> create(
-      BlockIdExt zero_block_id, BlockIdExt init_block_id,
-      bool allow_blockchain_init = false, double sync_blocks_before = 3600, double block_ttl = 86400,
-      double state_ttl = 86400, double archive_ttl = 86400 * 7, double key_proof_ttl = 86400 * 3650,
-      double max_mempool_num = 999999, bool initial_sync_disabled = false);
+  static td::Ref<ValidatorManagerOptions> create(BlockIdExt zero_block_id, BlockIdExt init_block_id,
+                                                 bool allow_blockchain_init = false, double sync_blocks_before = 3600,
+                                                 double block_ttl = 86400, double state_ttl = 86400,
+                                                 double archive_ttl = 86400 * 7, double key_proof_ttl = 86400 * 3650,
+                                                 double max_mempool_num = 999999, bool initial_sync_disabled = false);
 };
 
 class ValidatorManagerInterface : public td::actor::Actor {

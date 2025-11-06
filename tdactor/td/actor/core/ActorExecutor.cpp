@@ -17,7 +17,6 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/actor/core/ActorExecutor.h"
-
 #include "td/utils/ScopeGuard.h"
 
 namespace td {
