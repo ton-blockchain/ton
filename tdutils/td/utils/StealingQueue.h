@@ -26,7 +26,7 @@ class StealingQueue {
  public:
   // tries to put a value
   // returns if succeeded
-  // only owner is alowed to to do this
+  // only owner is alowed to do this
   template <class F>
   void local_push(T value, F&& overflow_f) {
     while (true) {
@@ -58,7 +58,7 @@ class StealingQueue {
 
   // tries to pop a value
   // returns if succeeded
-  // only owner is alowed to to do this
+  // only owner is alowed to do this
   bool local_pop(T& value) {
     auto tail = tail_.load(std::memory_order_relaxed);
     auto head = head_.load();
