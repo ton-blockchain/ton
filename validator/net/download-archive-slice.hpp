@@ -49,6 +49,7 @@ class DownloadArchiveSlice : public td::actor::Actor {
   void got_archive_info(td::BufferSlice data);
   void get_archive_slice();
   void got_archive_slice(td::BufferSlice data);
+  void request_more_nodes(td::Promise<std::vector<adnl::AdnlNodeIdShort>> promise);  // **NEW: Fallback node request**
 
   static constexpr td::uint32 slice_size() {
     return 1 << 21;
