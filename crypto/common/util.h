@@ -34,7 +34,7 @@ bool is_valid_base64(td::Slice encoded, bool allow_base64_url = true);
 td::int32 decoded_base64_size(td::Slice encoded, bool allow_base64_url = true);
 
 std::size_t buff_base64_decode(td::MutableSlice buffer, td::Slice data, bool allow_base64_url = true);
-td::BufferSlice base64_decode(td::Slice encoded, bool allow_base64_url = true);
+td::BufferSlice base64_decode_to_buffer_slice(td::Slice encoded, bool allow_base64_url = true);
 std::string str_base64_decode(td::Slice encoded, bool allow_base64_url = true);
 
 //TODO: move it somewhere else

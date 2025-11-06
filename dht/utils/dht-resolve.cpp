@@ -149,7 +149,7 @@ class Resolver : public td::actor::Actor {
 };
 
 td::Result<td::Bits256> parse_bits256(td::Slice s) {
-  td::BufferSlice str = td::base64_decode(s, true);
+  td::BufferSlice str = td::base64_decode_to_buffer_slice(s, true);
   if (str.size() != 32) {
     return td::Status::Error("Invalid bits256");
   }
