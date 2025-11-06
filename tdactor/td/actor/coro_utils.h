@@ -169,7 +169,6 @@ template <bool Later, class TargetId, class MemFn, class... Args>
 auto ask_impl(TargetId&& to, MemFn mf, Args&&... args) {
   using Meta = unified_result<MemFn>;
   using T = Meta::type;
-  using Ret = detail::memfn_meta<MemFn>::ret;
 
   using TT = std::conditional_t<std::is_void_v<T>, td::Unit, T>;
 

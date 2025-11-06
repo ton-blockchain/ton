@@ -52,7 +52,7 @@ class CoroBenchmark final : public td::actor::Actor {
         tasks.clear();
         
         auto elapsed = timer.elapsed();
-        auto ops_per_sec = total_ops / elapsed;
+        auto ops_per_sec = static_cast<double>(total_ops) / elapsed;
         LOG(INFO) << name << " " << ops_per_thread << " ops: " << elapsed << "s (threads=" << thread_count 
                   << ", " << static_cast<size_t>(ops_per_sec) << " ops/sec)";
         co_return td::Unit();
@@ -76,7 +76,7 @@ class CoroBenchmark final : public td::actor::Actor {
       (void)co_await ask(db_, &BenchmarkDatabase::square, i);
     }
     auto elapsed = timer.elapsed();
-    auto ops_per_sec = ops_count / elapsed;
+    auto ops_per_sec = static_cast<double>(total_ops) / elapsed;
     LOG(INFO) << "Direct delayed " << ops_count << " ops: " << elapsed << "s (" 
               << static_cast<size_t>(ops_per_sec) << " ops/sec)";
     
@@ -85,7 +85,7 @@ class CoroBenchmark final : public td::actor::Actor {
       (void)co_await ask_immediate(db_, &BenchmarkDatabase::square, i);
     }
     elapsed = timer.elapsed();
-    ops_per_sec = ops_count / elapsed;
+    ops_per_sec = static_cast<double>(total_ops) / elapsed;
     LOG(INFO) << "Direct immediate " << ops_count << " ops: " << elapsed << "s (" 
               << static_cast<size_t>(ops_per_sec) << " ops/sec)";
     
@@ -95,7 +95,7 @@ class CoroBenchmark final : public td::actor::Actor {
       (void)co_await local_square(i);
     }
     elapsed = timer.elapsed();
-    ops_per_sec = ops_count / elapsed;
+    ops_per_sec = static_cast<double>(total_ops) / elapsed;
     LOG(INFO) << "Local coroutine " << ops_count << " ops: " << elapsed << "s (" 
               << static_cast<size_t>(ops_per_sec) << " ops/sec)";
 
