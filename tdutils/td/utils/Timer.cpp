@@ -16,14 +16,13 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/Timer.h"
+#include <algorithm>
+#include <numeric>
 
+#include "td/utils/Time.h"
+#include "td/utils/Timer.h"
 #include "td/utils/format.h"
 #include "td/utils/logging.h"
-#include "td/utils/Time.h"
-
-#include <numeric>
-#include <algorithm>
 
 namespace td {
 

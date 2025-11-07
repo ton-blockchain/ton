@@ -16,20 +16,19 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "crypto/Ed25519.h"
-
-#include "td/utils/logging.h"
-#include "td/utils/misc.h"
-#include "td/utils/Slice.h"
-#include "td/utils/tests.h"
-#include "td/utils/JsonBuilder.h"
-
-#include "wycheproof.h"
-#include "keys/keys.hpp"
-#include "td/utils/benchmark.h"
-
 #include <string>
 #include <utility>
+
+#include "crypto/Ed25519.h"
+#include "keys/keys.hpp"
+#include "td/utils/JsonBuilder.h"
+#include "td/utils/Slice.h"
+#include "td/utils/benchmark.h"
+#include "td/utils/logging.h"
+#include "td/utils/misc.h"
+#include "td/utils/tests.h"
+
+#include "wycheproof.h"
 
 unsigned char fixed_privkey[32] = "abacabadabacabaeabacabadabacaba";
 unsigned char fixed_pubkey[32] = {0x6f, 0x9e, 0x5b, 0xde, 0xce, 0x87, 0x21, 0xeb, 0x57, 0x37, 0xfb,

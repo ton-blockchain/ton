@@ -18,19 +18,19 @@
 */
 #pragma once
 
-#include "td/utils/common.h"
-#include "td/utils/logging.h"
-#include "td/utils/ScopeGuard.h"
-#include "td/utils/Slice.h"
-#include "td/utils/StackAllocator.h"
-#include "td/utils/StringBuilder.h"
-
 #include <cerrno>
 #include <cstring>
 #include <memory>
 #include <new>
 #include <type_traits>
 #include <utility>
+
+#include "td/utils/ScopeGuard.h"
+#include "td/utils/Slice.h"
+#include "td/utils/StackAllocator.h"
+#include "td/utils/StringBuilder.h"
+#include "td/utils/common.h"
+#include "td/utils/logging.h"
 
 #define TRY_STATUS(status)               \
   {                                      \
@@ -460,7 +460,7 @@ class Result {
   }
   struct emplace_t {};
   template <class... ArgsT>
-  Result(emplace_t, ArgsT &&... args) : status_(), value_(std::forward<ArgsT>(args)...) {
+  Result(emplace_t, ArgsT &&...args) : status_(), value_(std::forward<ArgsT>(args)...) {
   }
   Result(Status &&status) : status_(std::move(status)) {
     CHECK(status_.is_error());
@@ -495,7 +495,7 @@ class Result {
     return *this;
   }
   template <class... ArgsT>
-  void emplace(ArgsT &&... args) {
+  void emplace(ArgsT &&...args) {
     if (status_.is_ok()) {
       value_.~T();
     }
@@ -614,7 +614,7 @@ class Result {
   ResultUnwrap<T> try_unwrap() && {
     return ResultUnwrap<T>(std::move(*this));
   }
-  
+
   // Returns a wrapper that prevents error propagation when co_awaited
   ResultWrap<T> wrap() && {
     return ResultWrap<T>(std::move(*this));
@@ -627,7 +627,6 @@ class Result {
   };
 };
 
-
 // Wrapper to prevent error propagation when co_awaiting Result
 template <class T>
 struct ResultWrap {
@@ -637,7 +636,6 @@ struct ResultWrap {
 template <class T>
 struct ResultUnwrap {
   Result<T> result;
-
 };
 
 template <>

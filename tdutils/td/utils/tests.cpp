@@ -16,19 +16,18 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/tests.h"
+#include <map>
 
-#include "td/utils/crypto.h"
-#include "td/utils/filesystem.h"
 #include "td/utils/Parser.h"
 #include "td/utils/PathView.h"
-#include "td/utils/port/path.h"
-#include "td/utils/port/Stat.h"
 #include "td/utils/ScopeGuard.h"
 #include "td/utils/StringBuilder.h"
 #include "td/utils/Time.h"
-
-#include <map>
+#include "td/utils/crypto.h"
+#include "td/utils/filesystem.h"
+#include "td/utils/port/Stat.h"
+#include "td/utils/port/path.h"
+#include "td/utils/tests.h"
 
 namespace td {
 

@@ -25,13 +25,13 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "tl_writer_java.h"
+#include <algorithm>
+#include <string>
 
 #include "td/tl/tl_config.h"
 #include "td/tl/tl_generate.h"
 
-#include <algorithm>
-#include <string>
+#include "tl_writer_java.h"
 
 int main(int argc, char *argv[]) {
   if (argc < 5) {

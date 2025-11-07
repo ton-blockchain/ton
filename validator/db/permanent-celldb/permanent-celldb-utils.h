@@ -15,13 +15,13 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #pragma once
-#include "vm/cells.h"
-#include "ton/ton-types.h"
-#include "interfaces/block.h"
-#include "vm/db/DynamicBagOfCellsDb.h"
-
-#include <vector>
 #include <string>
+#include <vector>
+
+#include "interfaces/block.h"
+#include "ton/ton-types.h"
+#include "vm/cells.h"
+#include "vm/db/DynamicBagOfCellsDb.h"
 
 namespace ton::validator {
 

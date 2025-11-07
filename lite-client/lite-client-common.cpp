@@ -16,13 +16,13 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "lite-client-common.h"
-
 #include "auto/tl/lite_api.hpp"
+#include "td/utils/Random.h"
+#include "td/utils/overloaded.h"
 #include "tl-utils/lite-utils.hpp"
 #include "ton/lite-tl.hpp"
-#include "td/utils/overloaded.h"
-#include "td/utils/Random.h"
+
+#include "lite-client-common.h"
 
 using namespace std::literals::string_literals;
 

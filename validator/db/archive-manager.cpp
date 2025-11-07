@@ -16,12 +16,13 @@
 
     Copyright 2019-2020 Telegram Systems LLP
 */
-#include "archive-manager.hpp"
-#include "td/actor/MultiPromise.h"
-#include "td/utils/overloaded.h"
-#include "files-async.hpp"
-#include "td/db/RocksDb.h"
 #include "common/delay.h"
+#include "td/actor/MultiPromise.h"
+#include "td/db/RocksDb.h"
+#include "td/utils/overloaded.h"
+
+#include "archive-manager.hpp"
+#include "files-async.hpp"
 
 namespace ton {
 

@@ -27,11 +27,11 @@
 */
 #pragma once
 
+#include "block/block.h"
+#include "td/utils/Random.h"
 #include "ton/ton-types.h"
 #include "vm/boc.h"
 #include "vm/cellops.h"
-#include "td/utils/Random.h"
-#include "block/block.h"
 
 extern bool local_scripts;
 
@@ -136,7 +136,7 @@ class HttpAnswer {
     td::Ref<vm::Cell> root;
     T x;
     template <typename... Args>
-    RawData(td::Ref<vm::Cell> root, Args &&... args) : root(std::move(root)), x(std::forward<Args>(args)...) {
+    RawData(td::Ref<vm::Cell> root, Args &&...args) : root(std::move(root)), x(std::forward<Args>(args)...) {
     }
   };
 

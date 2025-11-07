@@ -19,16 +19,15 @@
 #pragma once
 
 #include <vector>
-#include "crypto/common/refcnt.hpp"
-#include "crypto/common/refint.h"
-
-#include "td/utils/int_types.h"
 
 #include "adnl/utils.hpp"
+#include "catchain/catchain.h"
+#include "crypto/common/refcnt.hpp"
+#include "crypto/common/refint.h"
+#include "td/utils/int_types.h"
 #include "ton/ton-types.h"
 
 #include "validator-session-types.h"
-#include "catchain/catchain.h"
 
 namespace ton {
 

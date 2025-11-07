@@ -27,24 +27,23 @@
 */
 #pragma once
 
+#include "adnl/adnl-ext-client.h"
 #include "adnl/adnl-node-id.hpp"
 #include "adnl/adnl.h"
 #include "auto/tl/ton_api.h"
-#include "overlays.h"
+#include "auto/tl/ton_api.hpp"
+#include "auto/tl/ton_api_json.h"
+#include "dht/dht.h"
 #include "rldp/rldp.h"
 #include "rldp2/rldp.h"
-#include "dht/dht.h"
+#include "td/actor/MultiPromise.h"
 #include "td/actor/PromiseFuture.h"
+#include "validator/full-node-master.h"
+#include "validator/full-node.h"
 #include "validator/manager.h"
 #include "validator/validator.h"
-#include "validator/full-node.h"
-#include "validator/full-node-master.h"
-#include "adnl/adnl-ext-client.h"
 
-#include "td/actor/MultiPromise.h"
-
-#include "auto/tl/ton_api_json.h"
-#include "auto/tl/ton_api.hpp"
+#include "overlays.h"
 
 enum ValidatorEnginePermissions : td::uint32 { vep_default = 1, vep_modify = 2, vep_unsafe = 4 };
 
@@ -492,8 +491,8 @@ class ValidatorEngine : public td::actor::Actor {
                                            td::uint32 flags, td::int32 slot, td::int32 expire_at,
                                            td::Promise<ton::overlay::OverlayMemberCertificate> promise);
   void process_fast_sync_overlay_certificate_request(ton::PublicKeyHash issue_by, ton::adnl::AdnlNodeIdShort issue_to,
-                                                td::uint32 flags, td::int32 slot, td::int32 expire_at,
-                                                td::Promise<ton::overlay::OverlayMemberCertificate> promise);
+                                                     td::uint32 flags, td::int32 slot, td::int32 expire_at,
+                                                     td::Promise<ton::overlay::OverlayMemberCertificate> promise);
   ton::PublicKeyHash find_local_validator_for_cert_issuing();
 
   std::string custom_overlays_config_file() const {
@@ -592,10 +591,10 @@ class ValidatorEngine : public td::actor::Actor {
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_getActorTextStats &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
-  void run_control_query(ton::ton_api::engine_validator_addShard &query, td::BufferSlice data,
-                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
-  void run_control_query(ton::ton_api::engine_validator_delShard &query, td::BufferSlice data,
-                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_addShard &query, td::BufferSlice data, ton::PublicKeyHash src,
+                         td::uint32 perm, td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_delShard &query, td::BufferSlice data, ton::PublicKeyHash src,
+                         td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_addCollator &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_delCollator &query, td::BufferSlice data,

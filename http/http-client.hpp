@@ -16,10 +16,10 @@
 
     Copyright 2019-2020 Telegram Systems LLP
 */
+#include "td/utils/Random.h"
+
 #include "http-client.h"
 #include "http-outbound-connection.h"
-
-#include "td/utils/Random.h"
 
 namespace ton {
 

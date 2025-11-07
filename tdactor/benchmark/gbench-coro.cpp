@@ -1,11 +1,11 @@
-#include <benchmark/benchmark.h>
-#include "td/actor/coro.h"
-#include "td/actor/actor.h"
-
 #include <atomic>
+#include <benchmark/benchmark.h>
 #include <chrono>
 #include <memory>
 #include <vector>
+
+#include "td/actor/actor.h"
+#include "td/actor/coro.h"
 
 #if defined(__APPLE__) || defined(__linux__)
 #include <sys/resource.h>
@@ -397,7 +397,6 @@ enum class AskMode { Scheduled, Immediate };
 
 static void BM_Ask(benchmark::State& state) {
   coro_benchmark(state, [](auto& state) -> Task<td::Unit> {
-
     const auto method = static_cast<AskMethod>(state.range(0));
     const auto mode = static_cast<AskMode>(state.range(1));
     const int num_tasks = static_cast<int>(state.range(2));

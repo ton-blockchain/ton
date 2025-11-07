@@ -1,5 +1,9 @@
+#include <array>
 #include <benchmark/benchmark.h>
-
+#include <string>
+#include <thread>
+#include <utility>
+#include <vector>
 #include <yaclib/async/connect.hpp>
 #include <yaclib/async/contract.hpp>
 #include <yaclib/async/make.hpp>
@@ -11,19 +15,12 @@
 #include <yaclib/coro/await_on.hpp>
 #include <yaclib/coro/future.hpp>
 #include <yaclib/coro/on.hpp>
-#include <yaclib/exe/strand.hpp>
 #include <yaclib/coro/task.hpp>
 #include <yaclib/exe/manual.hpp>
+#include <yaclib/exe/strand.hpp>
 #include <yaclib/lazy/make.hpp>
 #include <yaclib/runtime/fair_thread_pool.hpp>
-
-#include <array>
-#include <utility>
 #include <yaclib_std/thread>
-
-#include <string>
-#include <thread>
-#include <vector>
 
 struct DatabaseService {
   DatabaseService(yaclib::IExecutorPtr executor) : strand_(executor) {

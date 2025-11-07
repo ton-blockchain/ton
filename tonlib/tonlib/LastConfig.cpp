@@ -16,16 +16,13 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "tonlib/LastConfig.h"
-
-#include "tonlib/utils.h"
-
-#include "ton/lite-tl.hpp"
+#include "block/block-auto.h"
 #include "block/check-proof.h"
 #include "block/mc-config.h"
-#include "block/block-auto.h"
-
 #include "lite-client/lite-client-common.h"
+#include "ton/lite-tl.hpp"
+#include "tonlib/LastConfig.h"
+#include "tonlib/utils.h"
 
 #include "LastBlock.h"
 

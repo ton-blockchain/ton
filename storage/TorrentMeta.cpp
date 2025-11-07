@@ -17,17 +17,15 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
-#include "TorrentMeta.h"
-
-#include "TorrentHeader.hpp"
-
+#include "td/utils/UInt.h"
 #include "td/utils/crypto.h"
 #include "td/utils/tl_helpers.h"
-#include "td/utils/UInt.h"
-
 #include "vm/boc.h"
 #include "vm/cells/MerkleProof.h"
 #include "vm/cellslice.h"
+
+#include "TorrentHeader.hpp"
+#include "TorrentMeta.h"
 
 namespace ton {
 

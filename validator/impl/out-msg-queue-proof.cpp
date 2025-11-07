@@ -14,15 +14,16 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "out-msg-queue-proof.hpp"
-#include "interfaces/proof.h"
-#include "shard.hpp"
-#include "vm/cells/MerkleProof.h"
-#include "common/delay.h"
-#include "interfaces/validator-manager.h"
-#include "block/block-parse.h"
 #include "block/block-auto.h"
+#include "block/block-parse.h"
+#include "common/delay.h"
+#include "interfaces/proof.h"
+#include "interfaces/validator-manager.h"
+#include "vm/cells/MerkleProof.h"
+
+#include "out-msg-queue-proof.hpp"
 #include "output-queue-merger.h"
+#include "shard.hpp"
 
 namespace ton {
 
@@ -381,7 +382,7 @@ void OutMsgQueueImporter::get_proof_import(std::shared_ptr<CacheEntry> entry, st
         if (R.is_error()) {
           FLOG(DEBUG) {
             sb << "Failed to get out msg queue for " << dst_shard.to_str() << " from";
-            for (const BlockIdExt &block : blocks) {
+            for (const BlockIdExt& block : blocks) {
               sb << " " << block.id.to_str();
             }
             sb << ": " << R.move_as_error();
@@ -432,7 +433,7 @@ void OutMsgQueueImporter::got_proof(std::shared_ptr<CacheEntry> entry, std::vect
 void OutMsgQueueImporter::finish_query(std::shared_ptr<CacheEntry> entry) {
   FLOG(INFO) {
     sb << "Done importing neighbor msg queues for shard " << entry->dst_shard.to_str() << " from";
-    for (const BlockIdExt &block : entry->blocks) {
+    for (const BlockIdExt& block : entry->blocks) {
       sb << " " << block.id.to_str();
     }
     sb << " in " << entry->timer.elapsed() << "s";
@@ -472,7 +473,7 @@ bool OutMsgQueueImporter::check_timeout(std::shared_ptr<CacheEntry> entry) {
   if (entry->timeout.is_in_past()) {
     FLOG(DEBUG) {
       sb << "Aborting importing neighbor msg queues for shard " << entry->dst_shard.to_str() << " from";
-      for (const BlockIdExt &block : entry->blocks) {
+      for (const BlockIdExt& block : entry->blocks) {
         sb << " " << block.id.to_str();
       }
       sb << ": timeout";
@@ -497,7 +498,7 @@ void OutMsgQueueImporter::alarm() {
       if (!it->second->done) {
         FLOG(DEBUG) {
           sb << "Aborting importing neighbor msg queues for shard " << it->second->dst_shard.to_str() << " from";
-          for (const BlockIdExt &block : it->second->blocks) {
+          for (const BlockIdExt& block : it->second->blocks) {
             sb << " " << block.id.to_str();
           }
           sb << ": timeout";

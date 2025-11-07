@@ -19,14 +19,14 @@
 //#include "fec.h"
 //#include "raptorq/Solver.h"
 #include "td/fec/fec.h"
-#include "td/fec/raptorq/Encoder.h"
 #include "td/fec/raptorq/Decoder.h"
+#include "td/fec/raptorq/Encoder.h"
 #if USE_LIBRAPTORQ
 #include "LibRaptorQ.h"
 #endif
-#include "td/utils/tests.h"
-
 #include <string>
+
+#include "td/utils/tests.h"
 td::Slice get_long_string() {
   const size_t max_symbol_size = 200;
   const size_t symbols_count = 100;

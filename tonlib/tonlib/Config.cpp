@@ -16,11 +16,12 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "Config.h"
 #include "adnl/adnl-node-id.hpp"
-#include "td/utils/JsonBuilder.h"
 #include "auto/tl/ton_api_json.h"
+#include "td/utils/JsonBuilder.h"
 #include "ton/ton-tl.hpp"
+
+#include "Config.h"
 
 namespace tonlib {
 td::Result<ton::BlockIdExt> parse_block_id_ext(td::JsonObject &obj) {

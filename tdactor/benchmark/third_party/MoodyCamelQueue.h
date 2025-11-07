@@ -47,6 +47,7 @@
 
 #ifdef MCDBGQ_USE_RELACY
 #include "relacy/relacy_std.hpp"
+
 #include "relacy_shims.h"
 // We only use malloc/free anyway, and the delete macro messes up `= delete` method declarations.
 // We'll override the default trait malloc ourselves without a macro.
@@ -58,16 +59,16 @@
 #include <atomic>  // Requires C++11. Sorry VS2010.
 #include <cassert>
 #endif
+#include <algorithm>
+#include <array>
+#include <climits>  // for CHAR_BIT
 #include <cstddef>  // for max_align_t
 #include <cstdint>
 #include <cstdlib>
-#include <type_traits>
-#include <algorithm>
-#include <utility>
 #include <limits>
-#include <climits>  // for CHAR_BIT
-#include <array>
 #include <thread>  // partly for __WINPTHREADS_VERSION if on MinGW-w64 w/ POSIX threading
+#include <type_traits>
+#include <utility>
 
 // Platform-specific definitions of a numeric thread ID type and an invalid value
 namespace moodycamel {
@@ -1711,7 +1712,7 @@ class ConcurrentQueue {
         , parent(parent_) {
     }
 
-    virtual ~ProducerBase(){};
+    virtual ~ProducerBase() {};
 
     template <typename U>
     inline bool dequeue(U& element) {

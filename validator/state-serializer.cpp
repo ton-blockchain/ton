@@ -16,16 +16,17 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "state-serializer.hpp"
+#include "common/delay.h"
 #include "crypto/block/block-auto.h"
 #include "crypto/block/block-parse.h"
+#include "td/utils/HashSet.h"
 #include "td/utils/Random.h"
+#include "td/utils/filesystem.h"
 #include "td/utils/overloaded.h"
 #include "ton/ton-io.hpp"
-#include "common/delay.h"
-#include "td/utils/filesystem.h"
-#include "td/utils/HashSet.h"
 #include "vm/cells/MerkleProof.h"
+
+#include "state-serializer.hpp"
 
 namespace ton {
 
@@ -250,7 +251,7 @@ void AsyncStateSerializer::store_persistent_state_description(td::Ref<Masterchai
   desc.masterchain_id = state->get_block_id();
   desc.start_time = state->get_unix_time();
   desc.end_time = ValidatorManager::persistent_state_ttl(desc.start_time);
-  for (const auto &v : state->get_shards()) {
+  for (const auto& v : state->get_shards()) {
     desc.shard_blocks.push_back({
         .block = v->top_block_id(),
         .split_depth = state->persistent_state_split_depth(v->shard().workchain),
@@ -272,8 +273,7 @@ void AsyncStateSerializer::got_masterchain_handle(BlockHandle handle) {
 
 class CachedCellDbReader : public vm::CellDbReader {
  public:
-  CachedCellDbReader(std::shared_ptr<vm::CellDbReader> parent,
-                     std::shared_ptr<vm::CellHashSet> cache)
+  CachedCellDbReader(std::shared_ptr<vm::CellDbReader> parent, std::shared_ptr<vm::CellHashSet> cache)
       : parent_(std::move(parent)), cache_(std::move(cache)) {
   }
   td::Result<td::Ref<vm::DataCell>> load_cell(td::Slice hash) override {
@@ -319,9 +319,10 @@ class CachedCellDbReader : public vm::CellDbReader {
     return res;
   };
   void print_stats() const {
-    LOG(WARNING) << "CachedCellDbReader stats : " << total_reqs_ << " reads, " << cached_reqs_ << " cached, " 
+    LOG(WARNING) << "CachedCellDbReader stats : " << total_reqs_ << " reads, " << cached_reqs_ << " cached, "
                  << bulk_reqs_ << " bulk reqs";
   }
+
  private:
   std::shared_ptr<vm::CellDbReader> parent_;
   std::shared_ptr<vm::CellHashSet> cache_;
@@ -355,8 +356,8 @@ void AsyncStateSerializer::PreviousStateCache::prepare_cache(ShardIdFull shard, 
     return;
   }
   td::Timer timer;
-  LOG(WARNING) << "Preloading previous persistent state for shard " << shard.to_str() << " ("
-               << cur_shards.size() << " files)";
+  LOG(WARNING) << "Preloading previous persistent state for shard " << shard.to_str() << " (" << cur_shards.size()
+               << " files)";
   vm::CellHashSet cells;
   std::function<void(td::Ref<vm::Cell>)> dfs = [&](td::Ref<vm::Cell> cell) {
     if (!cells.insert(cell).second) {
@@ -421,7 +422,7 @@ void AsyncStateSerializer::got_masterchain_state(td::Ref<MasterchainState> state
   CHECK(shards_.size() == 0);
 
   auto vec = state->get_shards();
-  for (auto &v : vec) {
+  for (auto& v : vec) {
     if (opts_->need_monitor(v->shard(), state)) {
       shards_.push_back({
           .block_id = v->top_block_id(),
@@ -441,7 +442,8 @@ void AsyncStateSerializer::got_masterchain_state(td::Ref<MasterchainState> state
       previous_state_cache->prepare_cache(shard, UnsplitStateType{});
     }
     auto new_cell_db_reader = std::make_shared<CachedCellDbReader>(cell_db_reader, previous_state_cache->cache);
-    auto res = vm::boc_serialize_to_file_large(new_cell_db_reader, root->get_hash(), fd, 31, std::move(cancellation_token));
+    auto res =
+        vm::boc_serialize_to_file_large(new_cell_db_reader, root->get_hash(), fd, 31, std::move(cancellation_token));
     new_cell_db_reader->print_stats();
     return res;
   };

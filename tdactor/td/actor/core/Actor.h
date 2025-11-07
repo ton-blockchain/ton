@@ -18,7 +18,6 @@
 */
 #pragma once
 #include "td/actor/core/ActorInfo.h"
-
 #include "td/utils/SharedObjectPool.h"
 
 namespace td {

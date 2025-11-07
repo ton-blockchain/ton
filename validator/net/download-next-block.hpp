@@ -18,12 +18,12 @@
 */
 #pragma once
 
+#include "adnl/adnl-ext-client.h"
 #include "overlay/overlays.h"
-#include "ton/ton-types.h"
-#include "validator/validator.h"
 #include "rldp/rldp.h"
 #include "ton/ton-io.hpp"
-#include "adnl/adnl-ext-client.h"
+#include "ton/ton-types.h"
+#include "validator/validator.h"
 
 namespace ton {
 

@@ -18,8 +18,8 @@
 */
 #pragma once
 
-#include "td/utils/Status.h"
 #include "td/utils/Span.h"
+#include "td/utils/Status.h"
 namespace td {
 template <class T, size_t N = 256 /*must be a power of two*/>
 class StealingQueue {

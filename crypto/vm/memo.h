@@ -18,9 +18,9 @@
 */
 #pragma once
 #include "common/refcnt.hpp"
+#include "td/utils/optional.h"
 #include "vm/cells.h"
 #include "vm/vmstate.h"
-#include "td/utils/optional.h"
 
 namespace vm {
 using td::Ref;

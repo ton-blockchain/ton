@@ -64,7 +64,7 @@ class ActorId {
   }
 
   template <class... ArgsT>
-  static ActorId<ActorType> create(ActorOptions &options, ArgsT &&... args) {
+  static ActorId<ActorType> create(ActorOptions &options, ArgsT &&...args) {
     return ActorId<ActorType>(detail::create_actor<ActorType>(options, std::forward<ArgsT>(args)...));
   }
 

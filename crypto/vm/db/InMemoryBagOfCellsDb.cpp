@@ -1,5 +1,7 @@
-#include "CellStorage.h"
-#include "DynamicBagOfCellsDb.h"
+#include <optional>
+
+#include "td/utils/HashMap.h"
+#include "td/utils/HashSet.h"
 #include "td/utils/Timer.h"
 #include "td/utils/base64.h"
 #include "td/utils/format.h"
@@ -11,10 +13,8 @@
 #include "vm/cells/DataCell.h"
 #include "vm/cells/ExtCell.h"
 
-#include "td/utils/HashMap.h"
-#include "td/utils/HashSet.h"
-
-#include <optional>
+#include "CellStorage.h"
+#include "DynamicBagOfCellsDb.h"
 
 #if TD_PORT_POSIX
 #include <sys/mman.h>

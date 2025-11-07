@@ -214,7 +214,7 @@ bool OutputQueueMerger::load() {
   } while (!heap.empty() && heap[0]->lt <= lt);
   std::sort(msg_list.begin() + orig_size, msg_list.end(), MsgKeyValue::less);
   for (size_t i = orig_size; i < msg_list.size(); ++i) {
-    td::int32 &remaining = src_remaining_msgs_[msg_list[i]->source];
+    td::int32& remaining = src_remaining_msgs_[msg_list[i]->source];
     if (remaining != -1) {
       if (remaining == 0) {
         limit_exceeded = true;

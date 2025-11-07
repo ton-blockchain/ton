@@ -16,17 +16,17 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "top-shard-descr.hpp"
+#include "block/block-auto.h"
+#include "block/block-parse.h"
 #include "common/errorcode.h"
-#include "shard.hpp"
-#include "signature-set.hpp"
-#include "validator-set.hpp"
-
+#include "vm/boc.h"
 #include "vm/cells.h"
 #include "vm/cells/MerkleProof.h"
-#include "vm/boc.h"
-#include "block/block-parse.h"
-#include "block/block-auto.h"
+
+#include "shard.hpp"
+#include "signature-set.hpp"
+#include "top-shard-descr.hpp"
+#include "validator-set.hpp"
 
 namespace ton {
 

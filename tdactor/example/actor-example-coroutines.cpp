@@ -1,15 +1,15 @@
-#include "absl/status/status.h"
-#include "td/actor/coro.h"
-#include "td/actor/actor.h"
-#include "td/utils/SharedSlice.h"
-#include "td/utils/port/sleep.h"
-
 #include <future>
-#include <string>
 #include <memory>
 #include <numeric>
 #include <random>
+#include <string>
 #include <thread>
+
+#include "absl/status/status.h"
+#include "td/actor/actor.h"
+#include "td/actor/coro.h"
+#include "td/utils/SharedSlice.h"
+#include "td/utils/port/sleep.h"
 
 using namespace td::actor;
 
@@ -83,7 +83,7 @@ Task<int> task_error() {
   co_return td::Status::Error("test error");
 }
 td::Result<int> result_error() {
- return td::Status::Error("test error");
+  return td::Status::Error("test error");
 }
 Task<int> pass_task_error() {
   co_await task_error();
@@ -106,7 +106,6 @@ Task<td::Unit> example_error_handling() {
 Task<td::Unit> example_actor() {
   struct TaskActor : public Actor {
     TaskActor(td::Promise<int> promise) : promise_(std::move(promise)) {
-
     }
     void start_up() override {
       // it is usual actor all coroutines create FROM actor, will be executed ON actor
@@ -117,9 +116,10 @@ Task<td::Unit> example_actor() {
       finish();
       co_return td::Unit();
     }
-  private:
+
+   private:
     td::Promise<int> promise_;
-    int state_ {17};
+    int state_{17};
 
     void finish() {
       promise_.set_result(state_);
@@ -131,7 +131,6 @@ Task<td::Unit> example_actor() {
   auto task_actor = create_actor<TaskActor>("task_actor", std::move(promise));
   CHECK(19 == (co_await std::move(task)));
   co_return td::Unit();
-
 }
 
 Task<td::Unit> example_all() {

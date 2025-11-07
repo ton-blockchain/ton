@@ -17,18 +17,16 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "common/refcnt.hpp"
-#include "common/bitstring.h"
-#include "td/utils/HashSet.h"
+#include <iostream>
 
+#include "common/bitstring.h"
+#include "common/refcnt.hpp"
+#include "td/utils/HashSet.h"
+#include "td/utils/Status.h"
 #include "vm/cells/CellHash.h"
 #include "vm/cells/CellTraits.h"
 #include "vm/cells/CellUsageTree.h"
 #include "vm/cells/LevelMask.h"
-
-#include "td/utils/Status.h"
-
-#include <iostream>
 
 namespace vm {
 using td::Ref;
@@ -55,7 +53,7 @@ class Cell : public CellTraits {
   }
 
   // load interface
-  virtual td::Status set_data_cell(Ref<DataCell> &&data_cell) const = 0;
+  virtual td::Status set_data_cell(Ref<DataCell>&& data_cell) const = 0;
   virtual td::Result<LoadedCell> load_cell() const = 0;
   virtual Ref<Cell> virtualize(td::uint32 effective_level) const;
   // Cell is virtualized if its effective level is less than its actual level.

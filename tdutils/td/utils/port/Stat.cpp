@@ -16,20 +16,19 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/port/Stat.h"
-
 #include "td/utils/port/FileFd.h"
+#include "td/utils/port/Stat.h"
 
 #if TD_PORT_POSIX
 
+#include <utility>
+
+#include "td/utils/ScopeGuard.h"
 #include "td/utils/format.h"
 #include "td/utils/logging.h"
 #include "td/utils/misc.h"
 #include "td/utils/port/Clocks.h"
 #include "td/utils/port/detail/skip_eintr.h"
-#include "td/utils/ScopeGuard.h"
-
-#include <utility>
 
 #if TD_DARWIN
 #include <mach/mach.h>

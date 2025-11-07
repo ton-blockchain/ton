@@ -18,20 +18,18 @@
 */
 #pragma once
 
-#include <vector>
 #include <utility>
+#include <vector>
 
-#include "ton/ton-types.h"
-
-#include "td/actor/actor.h"
-
+#include "adnl/adnl-ext-client.h"
 #include "adnl/adnl.h"
-#include "rldp/rldp.h"
-#include "rldp2/rldp.h"
 #include "dht/dht.h"
 #include "overlay/overlays.h"
+#include "rldp/rldp.h"
+#include "rldp2/rldp.h"
+#include "td/actor/actor.h"
+#include "ton/ton-types.h"
 #include "validator/validator.h"
-#include "adnl/adnl-ext-client.h"
 
 namespace ton {
 
@@ -85,9 +83,8 @@ class FullNode : public td::actor::Actor {
   virtual void add_collator_adnl_id(adnl::AdnlNodeIdShort id) = 0;
   virtual void del_collator_adnl_id(adnl::AdnlNodeIdShort id) = 0;
 
-  virtual void sign_shard_overlay_certificate(ShardIdFull shard_id, PublicKeyHash signed_key,
-                                              td::uint32 expiry_at, td::uint32 max_size,
-                                              td::Promise<td::BufferSlice> promise) = 0;
+  virtual void sign_shard_overlay_certificate(ShardIdFull shard_id, PublicKeyHash signed_key, td::uint32 expiry_at,
+                                              td::uint32 max_size, td::Promise<td::BufferSlice> promise) = 0;
   virtual void import_shard_overlay_certificate(ShardIdFull shard_id, PublicKeyHash signed_key,
                                                 std::shared_ptr<ton::overlay::Certificate> cert,
                                                 td::Promise<td::Unit> promise) = 0;
@@ -106,7 +103,7 @@ class FullNode : public td::actor::Actor {
   virtual void set_validator_telemetry_filename(std::string value) = 0;
 
   virtual void import_fast_sync_member_certificate(adnl::AdnlNodeIdShort local_id,
-                                                    overlay::OverlayMemberCertificate cert) = 0;
+                                                   overlay::OverlayMemberCertificate cert) = 0;
 
   static constexpr td::uint32 max_block_size() {
     return 4 << 20;

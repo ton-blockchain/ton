@@ -16,14 +16,13 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/translit.h"
-
-#include "td/utils/misc.h"
-#include "td/utils/utf8.h"
-
 #include <algorithm>
 #include <unordered_map>
 #include <utility>
+
+#include "td/utils/misc.h"
+#include "td/utils/translit.h"
+#include "td/utils/utf8.h"
 
 namespace td {
 

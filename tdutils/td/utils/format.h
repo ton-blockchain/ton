@@ -18,14 +18,14 @@
 */
 #pragma once
 
-#include "td/utils/common.h"
-#include "td/utils/invoke.h"  // for tuple_for_each
-#include "td/utils/Slice.h"
-#include "td/utils/StringBuilder.h"
-
+#include <set>
 #include <tuple>
 #include <utility>
-#include <set>
+
+#include "td/utils/Slice.h"
+#include "td/utils/StringBuilder.h"
+#include "td/utils/common.h"
+#include "td/utils/invoke.h"  // for tuple_for_each
 
 namespace td {
 namespace format {
@@ -315,7 +315,7 @@ StringBuilder &operator<<(StringBuilder &sb, const Concat<T> &concat) {
 }
 
 template <class... ArgsT>
-auto concat(const ArgsT &... args) {
+auto concat(const ArgsT &...args) {
   return Concat<decltype(std::tie(args...))>{std::tie(args...)};
 }
 

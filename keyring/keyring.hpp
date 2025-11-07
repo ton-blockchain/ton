@@ -18,10 +18,11 @@
 */
 #pragma once
 
-#include "keyring.h"
+#include <map>
+
 #include "keys/encryptor.h"
 
-#include <map>
+#include "keyring.h"
 
 namespace ton {
 
@@ -73,4 +74,3 @@ class KeyringImpl : public Keyring {
 }  // namespace keyring
 
 }  // namespace ton
-

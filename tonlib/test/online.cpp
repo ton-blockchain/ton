@@ -26,41 +26,37 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include "adnl/adnl-ext-client.h"
-#include "tl-utils/tl-utils.hpp"
 #include "auto/tl/ton_api_json.h"
 #include "auto/tl/tonlib_api_json.h"
-#include "tl/tl_json.h"
-#include "ton/ton-types.h"
-#include "ton/ton-tl.hpp"
-#include "block/block.h"
 #include "block/block-auto.h"
-#include "Ed25519.h"
-
+#include "block/block.h"
 #include "smc-envelope/GenericAccount.h"
 #include "smc-envelope/ManualDns.h"
 #include "smc-envelope/MultisigWallet.h"
-#include "tonlib/LastBlock.h"
-#include "tonlib/ExtClient.h"
-#include "tonlib/utils.h"
-
-#include "tonlib/TonlibCallback.h"
-#include "tonlib/Client.h"
-
-#include "vm/cells.h"
-#include "vm/boc.h"
-#include "vm/cells/MerkleProof.h"
-
 #include "td/utils/Container.h"
+#include "td/utils/MpscPollableQueue.h"
 #include "td/utils/OptionParser.h"
 #include "td/utils/Random.h"
 #include "td/utils/filesystem.h"
-#include "td/utils/tests.h"
 #include "td/utils/optional.h"
 #include "td/utils/overloaded.h"
-#include "td/utils/MpscPollableQueue.h"
 #include "td/utils/port/path.h"
-
 #include "td/utils/port/signals.h"
+#include "td/utils/tests.h"
+#include "tl-utils/tl-utils.hpp"
+#include "tl/tl_json.h"
+#include "ton/ton-tl.hpp"
+#include "ton/ton-types.h"
+#include "tonlib/Client.h"
+#include "tonlib/ExtClient.h"
+#include "tonlib/LastBlock.h"
+#include "tonlib/TonlibCallback.h"
+#include "tonlib/utils.h"
+#include "vm/boc.h"
+#include "vm/cells.h"
+#include "vm/cells/MerkleProof.h"
+
+#include "Ed25519.h"
 
 using namespace tonlib;
 
@@ -594,9 +590,9 @@ void test_multisig(Client& client, const Wallet& giver_wallet) {
 void dns_resolve(Client& client, const Wallet& dns, std::string name) {
   using namespace ton::tonlib_api;
   auto address = dns.get_address();
-  auto resolved =
-      sync_send(client, make_object<::ton::tonlib_api::dns_resolve>(
-                            std::move(address), name, td::sha256_bits256(td::Slice("cat", 3)), 4)).move_as_ok();
+  auto resolved = sync_send(client, make_object<::ton::tonlib_api::dns_resolve>(
+                                        std::move(address), name, td::sha256_bits256(td::Slice("cat", 3)), 4))
+                      .move_as_ok();
   CHECK(resolved->entries_.size() == 1);
   LOG(INFO) << to_string(resolved);
   LOG(INFO) << "OK";
@@ -748,17 +744,14 @@ void test_dns(Client& client, const Wallet& giver_wallet) {
   using namespace ton::tonlib_api;
   std::vector<object_ptr<dns_Action>> actions;
 
-  actions.push_back(make_object<dns_actionSet>(
-      make_object<dns_entry>("A", ton::DNS_NEXT_RESOLVER_CATEGORY,
-                             make_object<dns_entryDataNextResolver>(A_B.get_address()))));
+  actions.push_back(make_object<dns_actionSet>(make_object<dns_entry>(
+      "A", ton::DNS_NEXT_RESOLVER_CATEGORY, make_object<dns_entryDataNextResolver>(A_B.get_address()))));
   auto init_A = create_update_dns_query(client, A, std::move(actions)).move_as_ok();
-  actions.push_back(make_object<dns_actionSet>(
-      make_object<dns_entry>("B", ton::DNS_NEXT_RESOLVER_CATEGORY,
-                             make_object<dns_entryDataNextResolver>(A_B_C.get_address()))));
+  actions.push_back(make_object<dns_actionSet>(make_object<dns_entry>(
+      "B", ton::DNS_NEXT_RESOLVER_CATEGORY, make_object<dns_entryDataNextResolver>(A_B_C.get_address()))));
   auto init_A_B = create_update_dns_query(client, A_B, std::move(actions)).move_as_ok();
-  actions.push_back(
-      make_object<dns_actionSet>(make_object<dns_entry>("C", td::sha256_bits256(td::Slice("cat", 3)),
-                                                        make_object<dns_entryDataText>("Hello dns"))));
+  actions.push_back(make_object<dns_actionSet>(make_object<dns_entry>("C", td::sha256_bits256(td::Slice("cat", 3)),
+                                                                      make_object<dns_entryDataText>("Hello dns"))));
   auto init_A_B_C = create_update_dns_query(client, A_B_C, std::move(actions)).move_as_ok();
 
   LOG(INFO) << "Send dns init queries";

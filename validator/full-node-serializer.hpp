@@ -15,8 +15,8 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #pragma once
-#include "ton/ton-types.h"
 #include "auto/tl/ton_api.h"
+#include "ton/ton-types.h"
 
 namespace ton::validator::fullnode {
 

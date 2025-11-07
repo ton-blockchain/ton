@@ -16,17 +16,17 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include <limits>
+
+#include "td/utils/Random.h"
+#include "td/utils/Slice.h"
+#include "td/utils/UInt.h"
 #include "td/utils/base64.h"
 #include "td/utils/benchmark.h"
 #include "td/utils/common.h"
 #include "td/utils/crypto.h"
 #include "td/utils/logging.h"
-#include "td/utils/Random.h"
-#include "td/utils/Slice.h"
 #include "td/utils/tests.h"
-#include "td/utils/UInt.h"
-
-#include <limits>
 
 static td::vector<td::string> strings{"", "1", "short test string", td::string(1000000, 'a')};
 

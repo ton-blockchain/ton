@@ -17,16 +17,15 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
-#include "td/utils/TsFileLog.h"
-
-#include "td/utils/common.h"
-#include "td/utils/FileLog.h"
-#include "td/utils/logging.h"
-#include "td/utils/port/thread_local.h"
-#include "td/utils/Slice.h"
-
 #include <array>
 #include <limits>
+
+#include "td/utils/FileLog.h"
+#include "td/utils/Slice.h"
+#include "td/utils/TsFileLog.h"
+#include "td/utils/common.h"
+#include "td/utils/logging.h"
+#include "td/utils/port/thread_local.h"
 
 namespace td {
 namespace detail {

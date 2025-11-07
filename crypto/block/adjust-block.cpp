@@ -25,15 +25,17 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "block/block.h"
-#include "vm/boc.h"
-#include <iostream>
-#include "block-db.h"
-#include "block-auto.h"
-#include "block-parse.h"
-#include "vm/cp0.h"
-#include "td/utils/crypto.h"
 #include <getopt.h>
+#include <iostream>
+
+#include "block/block.h"
+#include "td/utils/crypto.h"
+#include "vm/boc.h"
+#include "vm/cp0.h"
+
+#include "block-auto.h"
+#include "block-db.h"
+#include "block-parse.h"
 #include "git.h"
 
 using td::Ref;
@@ -158,7 +160,8 @@ int main(int argc, char* const argv[]) {
         new_verbosity_level = VERBOSITY_NAME(FATAL) + (verbosity = td::to_integer<int>(td::Slice(optarg)));
         break;
       case 'V':
-        std::cout << "adjust-block build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
+        std::cout << "adjust-block build information: [ Commit: " << GitMetadata::CommitSHA1()
+                  << ", Date: " << GitMetadata::CommitDate() << "]\n";
         std::exit(0);
         break;
       default:

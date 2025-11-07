@@ -25,20 +25,18 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "adnl/adnl.h"
-
-#include "td/utils/misc.h"
-#include "td/utils/port/signals.h"
-#include "td/utils/port/path.h"
-#include "td/utils/Random.h"
-
-#include "validator-session/validator-session-description.h"
-#include "validator-session/validator-session-state.h"
-#include "validator-session/validator-session-description.hpp"
-
 #include <limits>
 #include <memory>
 #include <set>
+
+#include "adnl/adnl.h"
+#include "td/utils/Random.h"
+#include "td/utils/misc.h"
+#include "td/utils/port/path.h"
+#include "td/utils/port/signals.h"
+#include "validator-session/validator-session-description.h"
+#include "validator-session/validator-session-description.hpp"
+#include "validator-session/validator-session-state.h"
 
 class Description : public ton::validatorsession::ValidatorSessionDescription {
  public:

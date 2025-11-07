@@ -20,10 +20,11 @@
 
 #include <map>
 
-#include "catchain.h"
-#include "catchain-types.h"
-#include "catchain-receiver-interface.h"
 #include "td/utils/DecTree.h"
+
+#include "catchain-receiver-interface.h"
+#include "catchain-types.h"
+#include "catchain.h"
 
 namespace ton {
 

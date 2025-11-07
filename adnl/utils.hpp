@@ -18,19 +18,19 @@
 */
 #pragma once
 
+#include "common/checksum.h"
+#include "common/errorcode.h"
+#include "common/status.h"
+#include "td/utils/base64.h"
 #include "td/utils/buffer.h"
-#include "td/utils/misc.h"
 #include "td/utils/crypto.h"
 #include "td/utils/format.h"
-#include "td/utils/base64.h"
+#include "td/utils/misc.h"
 #include "tl-utils/tl-utils.hpp"
 
-#include "common/errorcode.h"
-#include "common/checksum.h"
-#include "adnl-node-id.hpp"
-#include "common/status.h"
-#include "adnl-node.h"
 #include "adnl-address-list.hpp"
+#include "adnl-node-id.hpp"
+#include "adnl-node.h"
 
 namespace ton {
 
@@ -41,8 +41,9 @@ inline bool adnl_node_is_older(AdnlNode &a, AdnlNode &b) {
 }
 
 class RateLimiter {
-public:
-  explicit RateLimiter(td::uint32 capacity, double period) : capacity_(capacity), period_(period), remaining_(capacity) {
+ public:
+  explicit RateLimiter(td::uint32 capacity, double period)
+      : capacity_(capacity), period_(period), remaining_(capacity) {
   }
 
   bool take() {
@@ -67,7 +68,7 @@ public:
     return increment_at_;
   }
 
-private:
+ private:
   td::uint32 capacity_;
   double period_;
   td::uint32 remaining_;

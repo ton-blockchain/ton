@@ -17,15 +17,13 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
+#include "td/actor/PromiseFuture.h"
 #include "td/actor/core/Actor.h"
 #include "td/actor/core/ActorSignals.h"
 #include "td/actor/core/ActorTypeStat.h"
-#include "td/actor/core/SchedulerId.h"
-#include "td/actor/core/SchedulerContext.h"
 #include "td/actor/core/Scheduler.h"
-
-#include "td/actor/PromiseFuture.h"
-
+#include "td/actor/core/SchedulerContext.h"
+#include "td/actor/core/SchedulerId.h"
 #include "td/utils/Timer.h"
 
 namespace td {

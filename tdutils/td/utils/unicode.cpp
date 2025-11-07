@@ -16,12 +16,11 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/unicode.h"
-
-#include "td/utils/logging.h"
-
 #include <algorithm>
 #include <iterator>
+
+#include "td/utils/logging.h"
+#include "td/utils/unicode.h"
 
 namespace td {
 

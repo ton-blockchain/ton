@@ -16,8 +16,8 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/filesystem.h"
 #include "td/utils/Slice.h"
+#include "td/utils/filesystem.h"
 #include "td/utils/tests.h"
 
 static void test_clean_filename(td::CSlice name, td::Slice result) {

@@ -16,8 +16,8 @@
 
     Copyright 2019-2020 Telegram Systems LLP
 */
-#include "http-server.h"
 #include "http-inbound-connection.h"
+#include "http-server.h"
 
 namespace ton {
 
