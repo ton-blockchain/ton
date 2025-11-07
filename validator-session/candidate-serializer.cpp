@@ -14,11 +14,12 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "candidate-serializer.h"
-#include "tl-utils/tl-utils.hpp"
-#include "vm/boc.h"
 #include "td/utils/lz4.h"
+#include "tl-utils/tl-utils.hpp"
 #include "vm/boc-compression.h"
+#include "vm/boc.h"
+
+#include "candidate-serializer.h"
 #include "validator-session-types.h"
 
 namespace ton::validatorsession {

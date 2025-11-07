@@ -97,7 +97,6 @@ class LRUCache {
     cache_.erase(it);
   }
 
-
  private:
   struct Entry : ListNode {
     Entry(K key, uint64 weight) : key(std::move(key)), weight(weight) {

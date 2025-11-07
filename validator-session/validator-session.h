@@ -113,8 +113,8 @@ class ValidatorSession : public td::actor::Actor {
       td::Promise<std::vector<tl_object_ptr<lite_api::liteServer_nonfinal_candidateInfo>>> promise) = 0;
   virtual void set_catchain_max_block_delay(double delay, double delay_slow) = 0;
   virtual void get_accepted_candidate(PublicKey source, BlockIdExt block_id,
-                                         ValidatorSessionCollatedDataFileHash collated_data_file_hash,
-                                         td::Promise<BlockCandidate> promise) = 0;
+                                      ValidatorSessionCollatedDataFileHash collated_data_file_hash,
+                                      td::Promise<BlockCandidate> promise) = 0;
 
   static td::actor::ActorOwn<ValidatorSession> create(
       catchain::CatChainSessionId session_id, ValidatorSessionOptions opts, PublicKeyHash local_id,

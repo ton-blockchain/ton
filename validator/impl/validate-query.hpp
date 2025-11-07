@@ -18,20 +18,22 @@
 */
 #pragma once
 
-#include "collated-data-merger.h"
-#include "block-parse.h"
-#include "fabric.h"
+#include <map>
+#include <string>
+#include <vector>
+
+#include "block/mc-config.h"
+#include "block/transaction.h"
+#include "common/global-version.h"
 #include "interfaces/validator-manager.h"
 #include "vm/cells.h"
 #include "vm/dict.h"
-#include "block/mc-config.h"
-#include "block/transaction.h"
+
+#include "block-parse.h"
+#include "collated-data-merger.h"
+#include "fabric.h"
 #include "shard.hpp"
 #include "signature-set.hpp"
-#include <vector>
-#include <string>
-#include <map>
-#include "common/global-version.h"
 
 namespace ton {
 

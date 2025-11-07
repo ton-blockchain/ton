@@ -234,8 +234,8 @@ class ValidatorSessionImpl : public ValidatorSession {
     catchain_max_block_delay_slow_ = delay_slow;
   }
   void get_accepted_candidate(PublicKey source, BlockIdExt block_id,
-                                 ValidatorSessionCollatedDataFileHash collated_data_file_hash,
-                                 td::Promise<BlockCandidate> promise) override;
+                              ValidatorSessionCollatedDataFileHash collated_data_file_hash,
+                              td::Promise<BlockCandidate> promise) override;
 
   void process_blocks(std::vector<catchain::CatChainBlock *> blocks);
   void finished_processing();

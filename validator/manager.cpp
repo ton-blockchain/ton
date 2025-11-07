@@ -16,42 +16,38 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "manager.hpp"
-#include "checksum.h"
-#include "td/utils/buffer.h"
-#include "validator-group.hpp"
-#include "downloaders/wait-block-state.hpp"
-#include "downloaders/wait-block-state-merge.hpp"
-#include "downloaders/wait-block-data.hpp"
-#include "fabric.h"
-#include "manager.h"
-
-#include "block-auto.h"
-#include "validate-broadcast.hpp"
-#include "ton/ton-tl.hpp"
-#include "ton/ton-io.hpp"
-#include "state-serializer.hpp"
-#include "get-next-key-blocks.h"
-#include "import-db-slice.hpp"
-#include "import-db-slice-local.hpp"
+#include <fstream>
 
 #include "auto/tl/lite_api.h"
-#include "tl-utils/lite-utils.hpp"
 #include "auto/tl/ton_api_json.h"
-#include "tl/tl_json.h"
-
-#include "td/utils/Random.h"
-#include "td/utils/port/path.h"
-#include "td/utils/JsonBuilder.h"
-
 #include "common/delay.h"
 #include "db/fileref.hpp"
+#include "downloaders/wait-block-data.hpp"
+#include "downloaders/wait-block-state-merge.hpp"
+#include "downloaders/wait-block-state.hpp"
 #include "td/actor/MultiPromise.h"
+#include "td/utils/JsonBuilder.h"
+#include "td/utils/Random.h"
+#include "td/utils/buffer.h"
 #include "td/utils/filesystem.h"
-
+#include "td/utils/port/path.h"
+#include "tl-utils/lite-utils.hpp"
+#include "tl/tl_json.h"
+#include "ton/ton-io.hpp"
+#include "ton/ton-tl.hpp"
 #include "validator/stats-merger.h"
 
-#include <fstream>
+#include "block-auto.h"
+#include "checksum.h"
+#include "fabric.h"
+#include "get-next-key-blocks.h"
+#include "import-db-slice-local.hpp"
+#include "import-db-slice.hpp"
+#include "manager.h"
+#include "manager.hpp"
+#include "state-serializer.hpp"
+#include "validate-broadcast.hpp"
+#include "validator-group.hpp"
 
 namespace ton {
 
@@ -735,7 +731,8 @@ void ValidatorManagerImpl::add_cached_block_data(BlockIdExt block_id, td::Buffer
           td::actor::send_closure(
               collator.actor, &CollatorNode::on_block_candidate_broadcast,
               BlockCandidate(Ed25519_PublicKey(entry.creator), block_id, entry.collated_data_hash.value(),
-                             entry.data.clone(), entry.collated_data.value().clone()), entry.cc_seqno);
+                             entry.data.clone(), entry.collated_data.value().clone()),
+              entry.cc_seqno);
         }
       }
     }

@@ -939,7 +939,8 @@ void FullNodeShardImpl::send_block_candidate_broadcast(BlockIdExt block_id, Catc
     VLOG(FULL_NODE_WARNING) << "failed to serialize block candidate broadcast: " << B.move_as_error();
     return;
   }
-  VLOG(FULL_NODE_DEBUG) << "Sending blockDataBroadcast (" << (collated_data ? "with" : "no") << " cdata): " << block_id.to_str();
+  VLOG(FULL_NODE_DEBUG) << "Sending blockDataBroadcast (" << (collated_data ? "with" : "no")
+                        << " cdata): " << block_id.to_str();
   td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, adnl_id_, overlay_id_, local_id_,
                           overlay::Overlays::BroadcastFlagAnySender(), B.move_as_ok());
 }

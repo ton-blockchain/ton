@@ -16,10 +16,12 @@
 */
 #pragma once
 
-#include "fabric.h"
+#include <map>
+
 #include "interfaces/validator-manager.h"
 #include "rldp2/rldp.h"
-#include <map>
+
+#include "fabric.h"
 
 namespace ton::validator {
 

@@ -16,12 +16,13 @@
 */
 #pragma once
 
+#include <map>
+#include <optional>
+
 #include "impl/collated-data-merger.h"
 #include "interfaces/validator-manager.h"
 #include "rldp/rldp.h"
 #include "rldp2/rldp.h"
-#include <map>
-#include <optional>
 
 namespace ton::validator {
 

@@ -858,14 +858,14 @@ bool ValidateQuery::extract_collated_data() {
     hashes.insert(hashes.end(), collated_data_root_dict_hashes_.begin(), collated_data_root_dict_hashes_.end());
     LOG(DEBUG) << "sending get_cells to CollatedDataMerger";
     ++pending;
-    td::actor::send_closure_later(
-        collated_data_merger_, &CollatedDataMerger::get_cells, std::move(hashes),
-        [self = get_self(), token = perf_log_.start_action("CollatedDataMerger::get_cells")](
-            td::Result<td::HashMap<vm::CellHash, Ref<vm::Cell>>> res) mutable {
-          LOG(DEBUG) << "got answer to CollatedDataMerger::get_cells";
-          td::actor::send_closure_later(std::move(self), &ValidateQuery::process_merged_collated_roots,
-                                        std::move(res), std::move(token));
-        });
+    td::actor::send_closure_later(collated_data_merger_, &CollatedDataMerger::get_cells, std::move(hashes),
+                                  [self = get_self(), token = perf_log_.start_action("CollatedDataMerger::get_cells")](
+                                      td::Result<td::HashMap<vm::CellHash, Ref<vm::Cell>>> res) mutable {
+                                    LOG(DEBUG) << "got answer to CollatedDataMerger::get_cells";
+                                    td::actor::send_closure_later(std::move(self),
+                                                                  &ValidateQuery::process_merged_collated_roots,
+                                                                  std::move(res), std::move(token));
+                                  });
   }
   return true;
 }

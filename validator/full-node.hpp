@@ -70,7 +70,7 @@ class FullNodeImpl : public FullNode {
   void send_ext_message(AccountIdPrefixFull dst, td::BufferSlice data);
   void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqnp, td::BufferSlice data);
   void send_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
-                                 td::BufferSlice data, td::optional<td::BufferSlice> collated_data, int mode);
+                                      td::BufferSlice data, td::optional<td::BufferSlice> collated_data, int mode);
   void send_broadcast(BlockBroadcast broadcast, int mode);
   void send_out_msg_queue_proof_broadcast(td::Ref<OutMsgQueueProofBroadcast> broadcasts);
   void download_block(BlockIdExt id, td::uint32 priority, td::Timestamp timeout, td::Promise<ReceivedBlock> promise);

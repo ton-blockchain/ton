@@ -14,9 +14,9 @@ This file is part of TON Blockchain source code.
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "collated-data-merger.h"
-
 #include "vm/cells/ExtCell.h"
+
+#include "collated-data-merger.h"
 
 namespace ton::validator {
 

@@ -16,17 +16,17 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "validator-group.hpp"
+#include "collator-node/collator-node.hpp"
+#include "common/delay.h"
+#include "td/utils/Random.h"
+#include "td/utils/overloaded.h"
+#include "ton/lite-tl.hpp"
+#include "ton/ton-io.hpp"
 
 #include "block-auto.h"
 #include "fabric.h"
 #include "full-node-master.hpp"
-#include "ton/ton-io.hpp"
-#include "td/utils/overloaded.h"
-#include "common/delay.h"
-#include "ton/lite-tl.hpp"
-#include "td/utils/Random.h"
-#include "collator-node/collator-node.hpp"
+#include "validator-group.hpp"
 
 namespace ton {
 

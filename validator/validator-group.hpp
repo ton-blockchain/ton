@@ -18,17 +18,16 @@
 */
 #pragma once
 
-#include "impl/collated-data-merger.h"
-#include "collation-manager.hpp"
-#include "interfaces/validator-manager.h"
-
-#include "validator-session/validator-session.h"
-
-#include "rldp/rldp.h"
-#include "rldp2/rldp.h"
-
 #include <list>
 #include <queue>
+
+#include "impl/collated-data-merger.h"
+#include "interfaces/validator-manager.h"
+#include "rldp/rldp.h"
+#include "rldp2/rldp.h"
+#include "validator-session/validator-session.h"
+
+#include "collation-manager.hpp"
 
 namespace ton {
 

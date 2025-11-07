@@ -15,10 +15,9 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "collator-node-session.hpp"
-
 #include "block-auto.h"
 #include "checksum.h"
+#include "collator-node-session.hpp"
 #include "collator-node.hpp"
 #include "fabric.h"
 #include "full-node.h"
@@ -442,7 +441,6 @@ void CollatorNodeSession::process_accepted_block_cont2(Ref<BlockData> block) {
   }
   process_accepted_block(prev[0]);
 }
-
 
 void CollatorNodeSession::wait_collated_data_merged(BlockSeqno seqno, td::Timestamp timeout,
                                                     td::Promise<td::Unit> promise) {

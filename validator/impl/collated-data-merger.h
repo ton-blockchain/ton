@@ -15,17 +15,17 @@
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 */
 #pragma once
-#include "common/refcnt.hpp"
-#include "vm/dict.h"
-#include "ton/ton-types.h"
-#include "ton/ton-shard.h"
-#include "common/bitstring.h"
+#include <memory>
+
 #include "../../crypto/block/block.h"
+#include "common/bitstring.h"
+#include "common/refcnt.hpp"
 #include "td/actor/common.h"
 #include "td/actor/core/Actor.h"
+#include "ton/ton-shard.h"
+#include "ton/ton-types.h"
 #include "vm/db/CellHashTable.h"
-
-#include <memory>
+#include "vm/dict.h"
 
 namespace ton::validator {
 using td::Ref;
