@@ -66,7 +66,6 @@ set(TON_CRYPTO_CORE_SOURCE
   vm/cells/PrunnedCell.h
   vm/cells/UsageCell.h
   vm/cells/VirtualCell.h
-  vm/cells/VirtualizationParameters.h
 
   vm/cells.h
   vm/cellslice.h

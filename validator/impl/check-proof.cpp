@@ -149,7 +149,7 @@ bool CheckProof::init_parse(bool is_aux) {
     sig_weight_ = 0;
     sig_root_.clear();
   }
-  auto virt_root = vm::MerkleProof::virtualize(proof.root, 1);
+  auto virt_root = vm::MerkleProof::virtualize(proof.root);
   if (virt_root.is_null()) {
     return fatal_error("block proof for block "s + proof_blk_id.to_str() +
                        " does not contain a valid Merkle proof for the block header");
