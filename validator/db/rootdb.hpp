@@ -22,10 +22,10 @@
 #include "td/db/KeyValueAsync.h"
 #include "ton/ton-types.h"
 
+#include "archive-manager.hpp"
 #include "celldb.hpp"
 #include "statedb.hpp"
 #include "staticfilesdb.hpp"
-#include "archive-manager.hpp"
 #include "validator.h"
 
 namespace ton {
@@ -64,8 +64,7 @@ class RootDb : public Db {
                          td::Promise<td::Ref<ShardState>> promise) override;
   void store_block_state_from_data(BlockHandle handle, td::Ref<BlockData> block,
                                    td::Promise<td::Ref<ShardState>> promise) override;
-  void store_block_state_from_data_bulk(std::vector<td::Ref<BlockData>> blocks,
-                                         td::Promise<td::Unit> promise) override;
+  void store_block_state_from_data_bulk(std::vector<td::Ref<BlockData>> blocks, td::Promise<td::Unit> promise) override;
   void get_block_state(ConstBlockHandle handle, td::Promise<td::Ref<ShardState>> promise) override;
   void store_block_state_part(BlockId effective_block, td::Ref<vm::Cell> cell,
                               td::Promise<td::Ref<vm::DataCell>> promise) override;
@@ -80,7 +79,7 @@ class RootDb : public Db {
   void store_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id, PersistentStateType type,
                                    td::BufferSlice state, td::Promise<td::Unit> promise) override;
   void store_persistent_state_file_gen(BlockIdExt block_id, BlockIdExt masterchain_block_id, PersistentStateType type,
-                                       std::function<td::Status(td::FileFd&)> write_data,
+                                       std::function<td::Status(td::FileFd &)> write_data,
                                        td::Promise<td::Unit> promise) override;
   void get_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id, PersistentStateType type,
                                  td::Promise<td::BufferSlice> promise) override;
@@ -142,8 +141,10 @@ class RootDb : public Db {
   void set_async_mode(bool mode, td::Promise<td::Unit> promise) override;
 
   void run_gc(UnixTime mc_ts, UnixTime gc_ts, double archive_ttl) override;
-  void add_persistent_state_description(td::Ref<PersistentStateDescription> desc, td::Promise<td::Unit> promise) override;
-  void get_persistent_state_descriptions(td::Promise<std::vector<td::Ref<PersistentStateDescription>>> promise) override;
+  void add_persistent_state_description(td::Ref<PersistentStateDescription> desc,
+                                        td::Promise<td::Unit> promise) override;
+  void get_persistent_state_descriptions(
+      td::Promise<std::vector<td::Ref<PersistentStateDescription>>> promise) override;
 
   void iterate_temp_block_handles(std::function<void(const BlockHandleInterface &)> f) override;
 

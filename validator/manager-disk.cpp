@@ -709,7 +709,7 @@ void ValidatorManagerImpl::set_block_state_from_data(BlockHandle handle, td::Ref
 }
 
 void ValidatorManagerImpl::set_block_state_from_data_bulk(std::vector<td::Ref<BlockData>> blocks,
-                                                                 td::Promise<td::Unit> promise) {
+                                                          td::Promise<td::Unit> promise) {
   td::actor::send_closure(db_, &Db::store_block_state_from_data_bulk, std::move(blocks), std::move(promise));
 }
 

@@ -14,18 +14,18 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "import-db-slice-local.hpp"
-
-#include "validator/db/fileref.hpp"
-#include "td/utils/overloaded.h"
-#include "validator/fabric.h"
-#include "td/actor/MultiPromise.h"
-#include "common/checksum.h"
-#include "td/utils/port/path.h"
-#include "downloaders/download-state.hpp"
 #include "block/block-auto.h"
+#include "common/checksum.h"
+#include "downloaders/download-state.hpp"
+#include "td/actor/MultiPromise.h"
 #include "td/actor/coro_utils.h"
+#include "td/utils/overloaded.h"
+#include "td/utils/port/path.h"
+#include "validator/db/fileref.hpp"
 #include "validator/db/package.hpp"
+#include "validator/fabric.h"
+
+#include "import-db-slice-local.hpp"
 
 namespace ton {
 
