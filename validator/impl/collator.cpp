@@ -6779,7 +6779,7 @@ void Collator::on_cell_loaded(const vm::LoadedCell& loaded_cell) {
     stats_.work_time.total_on_cell_loaded += timer.elapsed_both();
   };
   if (merge_collated_data_enabled_) {
-    vm::CellHash hash = loaded_cell.data_cell->get_hash(loaded_cell.virt.get_level());
+    vm::CellHash hash = loaded_cell.data_cell->get_hash(loaded_cell.effective_level);
     if (collated_data_deduplicator_ &&
         collated_data_deduplicator_->cell_exists(hash, new_block_seqno - (optimistic_prev_block_.is_null() ? 0 : 1))) {
       return;

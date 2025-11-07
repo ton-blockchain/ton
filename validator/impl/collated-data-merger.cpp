@@ -48,7 +48,7 @@ void CollatedDataMerger::add_cells(Ref<vm::Cell> cell) {
   }
   info.visited = true;
   auto loaded_cell = cell->load_cell().move_as_ok();
-  CHECK(loaded_cell.virt.get_virtualization() == 0);
+  CHECK(loaded_cell.effective_level >= loaded_cell.data_cell->get_level());
   auto data_cell = std::move(loaded_cell.data_cell);
   info.set_cell(data_cell);
 
