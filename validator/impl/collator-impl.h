@@ -17,24 +17,26 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "block-parse.h"
-#include "interfaces/validator-manager.h"
-#include "shard.hpp"
-#include "top-shard-descr.hpp"
-#include "common/refcnt.hpp"
-#include "vm/cells.h"
-#include "vm/dict.h"
-#include "block/mc-config.h"
-#include "block/block.h"
-#include "block/transaction.h"
-#include "block/block-db.h"
-#include "block/output-queue-merger.h"
-#include "vm/cells/MerkleProof.h"
-#include "vm/cells/MerkleUpdate.h"
 #include <map>
 #include <queue>
+
+#include "block/block-db.h"
+#include "block/block.h"
+#include "block/mc-config.h"
+#include "block/output-queue-merger.h"
+#include "block/transaction.h"
 #include "common/global-version.h"
+#include "common/refcnt.hpp"
+#include "interfaces/validator-manager.h"
+#include "vm/cells.h"
+#include "vm/cells/MerkleProof.h"
+#include "vm/cells/MerkleUpdate.h"
+#include "vm/dict.h"
+
+#include "block-parse.h"
 #include "fabric.h"
+#include "shard.hpp"
+#include "top-shard-descr.hpp"
 
 namespace ton {
 
@@ -343,7 +345,8 @@ class Collator final : public td::actor::Actor {
   bool is_our_address(Ref<vm::CellSlice> addr_ref) const;
   bool is_our_address(ton::AccountIdPrefixFull addr_prefix) const;
   bool is_our_address(const ton::StdSmcAddress& addr) const;
-  void after_get_external_messages(td::Result<std::vector<std::pair<Ref<ExtMessage>, int>>> res, td::PerfLogAction token);
+  void after_get_external_messages(td::Result<std::vector<std::pair<Ref<ExtMessage>, int>>> res,
+                                   td::PerfLogAction token);
   td::Result<bool> register_external_message_cell(Ref<vm::Cell> ext_msg, const ExtMessage::Hash& ext_hash,
                                                   int priority);
   // td::Result<bool> register_external_message(td::Slice ext_msg_boc);

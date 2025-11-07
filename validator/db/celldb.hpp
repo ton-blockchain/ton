@@ -18,19 +18,20 @@
 */
 #pragma once
 
-#include "td/actor/actor.h"
-#include "crypto/vm/db/DynamicBagOfCellsDb.h"
-#include "crypto/vm/db/CellStorage.h"
-#include "td/db/KeyValue.h"
-#include "ton/ton-types.h"
-#include "interfaces/block-handle.h"
-#include "auto/tl/ton_api.h"
-#include "validator.h"
-#include "db-utils.h"
-#include "td/db/RocksDb.h"
-
 #include <optional>
 #include <queue>
+
+#include "auto/tl/ton_api.h"
+#include "crypto/vm/db/CellStorage.h"
+#include "crypto/vm/db/DynamicBagOfCellsDb.h"
+#include "interfaces/block-handle.h"
+#include "td/actor/actor.h"
+#include "td/db/KeyValue.h"
+#include "td/db/RocksDb.h"
+#include "ton/ton-types.h"
+
+#include "db-utils.h"
+#include "validator.h"
 
 namespace rocksdb {
 class Statistics;

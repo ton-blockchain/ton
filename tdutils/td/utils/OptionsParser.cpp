@@ -34,7 +34,7 @@ void OptionParser::set_description(std::string description) {
 }
 
 void OptionParser::add_option(Option::Type type, char short_key, Slice long_key, Slice description,
-                               std::function<Status(Slice)> callback) {
+                              std::function<Status(Slice)> callback) {
   for (auto &option : options_) {
     if (option.short_key == short_key || (!long_key.empty() && long_key == option.long_key)) {
       LOG(ERROR) << "Ignore duplicated option '" << short_key << "' '" << long_key << "'";
@@ -44,12 +44,11 @@ void OptionParser::add_option(Option::Type type, char short_key, Slice long_key,
 }
 
 void OptionParser::add_option(char short_key, Slice long_key, Slice description,
-                               std::function<Status(Slice)> callback) {
+                              std::function<Status(Slice)> callback) {
   add_option(Option::Type::Arg, short_key, long_key, description, std::move(callback));
 }
 
-void OptionParser::add_option(char short_key, Slice long_key, Slice description,
-                               std::function<Status(void)> callback) {
+void OptionParser::add_option(char short_key, Slice long_key, Slice description, std::function<Status(void)> callback) {
   // Ouch. There must be some better way
   add_option(Option::Type::NoArg, short_key, long_key, description,
              std::bind([](std::function<Status(void)> &func, Slice) { return func(); }, std::move(callback),

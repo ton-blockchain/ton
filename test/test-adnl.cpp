@@ -25,20 +25,18 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "adnl/adnl-network-manager.h"
-#include "adnl/adnl.h"
-#include "adnl/adnl-test-loopback-implementation.h"
-
-#include "keys/encryptor.h"
-
-#include "td/utils/port/signals.h"
-#include "td/utils/port/path.h"
-#include "td/utils/Random.h"
-
+#include <chrono>
 #include <memory>
 #include <set>
-#include <chrono>
 #include <thread>
+
+#include "adnl/adnl-network-manager.h"
+#include "adnl/adnl-test-loopback-implementation.h"
+#include "adnl/adnl.h"
+#include "keys/encryptor.h"
+#include "td/utils/Random.h"
+#include "td/utils/port/path.h"
+#include "td/utils/port/signals.h"
 
 int main() {
   SET_VERBOSITY_LEVEL(verbosity_INFO);

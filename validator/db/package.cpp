@@ -16,8 +16,9 @@
 
     Copyright 2019-2020 Telegram Systems LLP
 */
-#include "package.hpp"
 #include "common/errorcode.h"
+
+#include "package.hpp"
 
 namespace ton {
 

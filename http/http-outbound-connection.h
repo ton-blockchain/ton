@@ -18,11 +18,11 @@
 */
 #pragma once
 
-#include "http.h"
-#include "http-connection.h"
-#include "http-client.h"
-
 #include <list>
+
+#include "http-client.h"
+#include "http-connection.h"
+#include "http.h"
 
 namespace ton {
 

@@ -16,9 +16,8 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/tl_parsers.h"
-
 #include "td/utils/misc.h"
+#include "td/utils/tl_parsers.h"
 
 namespace td {
 

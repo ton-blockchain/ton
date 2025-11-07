@@ -18,8 +18,9 @@
 */
 #pragma once
 
-#include "Fift.h"
 #include <vector>
+
+#include "Fift.h"
 
 namespace fift {
 struct FiftOutput {

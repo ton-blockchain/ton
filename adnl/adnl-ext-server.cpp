@@ -16,8 +16,9 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "adnl-ext-server.hpp"
 #include "keys/encryptor.h"
+
+#include "adnl-ext-server.hpp"
 #include "utils.hpp"
 
 namespace ton {

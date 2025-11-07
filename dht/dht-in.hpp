@@ -18,10 +18,11 @@
 */
 #pragma once
 
-#include "dht.hpp"
+#include <map>
+
 #include "td/db/KeyValueAsync.h"
 
-#include <map>
+#include "dht.hpp"
 
 namespace ton {
 

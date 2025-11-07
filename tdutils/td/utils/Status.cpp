@@ -23,11 +23,10 @@
 #endif
 
 #if TD_PORT_POSIX
-#include "td/utils/port/thread_local.h"
-
+#include <cstring>
 #include <string.h>
 
-#include <cstring>
+#include "td/utils/port/thread_local.h"
 #endif
 
 namespace td {

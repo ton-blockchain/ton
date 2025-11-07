@@ -17,9 +17,9 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
-#include "adnl-node-id.hpp"
-
 #include "common/util.h"
+
+#include "adnl-node-id.hpp"
 
 namespace ton {
 namespace adnl {

@@ -17,18 +17,19 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
+#include <ostream>
+
 #include "common/refcnt.hpp"
+#include "td/utils/CancellationToken.h"
+#include "td/utils/StringBuilder.h"
+#include "td/utils/bits.h"
+#include "tl/tlblib.hpp"
+#include "ton/ton-types.h"
+#include "vm/boc.h"
 #include "vm/cells.h"
 #include "vm/cellslice.h"
 #include "vm/dict.h"
-#include "vm/boc.h"
 #include "vm/stack.hpp"
-#include <ostream>
-#include "tl/tlblib.hpp"
-#include "td/utils/bits.h"
-#include "td/utils/CancellationToken.h"
-#include "td/utils/StringBuilder.h"
-#include "ton/ton-types.h"
 
 namespace block {
 

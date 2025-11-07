@@ -18,8 +18,8 @@
 */
 #pragma once
 
-#include "keys/keys.hpp"
 #include "common/io.hpp"
+#include "keys/keys.hpp"
 
 namespace ton {
 

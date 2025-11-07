@@ -17,7 +17,6 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include "tonlib/ExtClient.h"
-
 #include "tonlib/LastBlock.h"
 #include "tonlib/LastConfig.h"
 

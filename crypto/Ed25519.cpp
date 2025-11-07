@@ -16,20 +16,18 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "crypto/Ed25519.h"
-
+#include <openssl/evp.h>
 #include <openssl/opensslv.h>
+#include <openssl/pem.h>
+#include <openssl/x509.h>
 
-#include "td/utils/base64.h"
+#include "crypto/Ed25519.h"
 #include "td/utils/BigNum.h"
+#include "td/utils/ScopeGuard.h"
+#include "td/utils/base64.h"
 #include "td/utils/format.h"
 #include "td/utils/logging.h"
 #include "td/utils/misc.h"
-#include "td/utils/ScopeGuard.h"
-
-#include <openssl/evp.h>
-#include <openssl/pem.h>
-#include <openssl/x509.h>
 
 namespace td {
 

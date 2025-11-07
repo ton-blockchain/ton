@@ -16,8 +16,9 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "adnl-db.hpp"
 #include "td/db/RocksDb.h"
+
+#include "adnl-db.hpp"
 
 namespace ton {
 

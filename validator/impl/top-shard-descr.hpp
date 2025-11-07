@@ -18,9 +18,9 @@
 */
 #pragma once
 
+#include "block/mc-config.h"
 #include "interfaces/shard-block.h"
 #include "interfaces/validator-manager.h"
-#include "block/mc-config.h"
 
 namespace ton {
 

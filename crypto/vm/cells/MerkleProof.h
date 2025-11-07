@@ -17,11 +17,11 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "vm/cells/Cell.h"
-#include "td/utils/buffer.h"
-
-#include <utility>
 #include <functional>
+#include <utility>
+
+#include "td/utils/buffer.h"
+#include "vm/cells/Cell.h"
 
 namespace vm {
 
@@ -71,7 +71,7 @@ class MerkleProofBuilder {
   bool extract_proof_to(Ref<Cell> &proof_root) const;
   td::Result<td::BufferSlice> extract_proof_boc() const;
 
-  void set_cell_load_callback(std::function<void(const LoadedCell&)> f) {
+  void set_cell_load_callback(std::function<void(const LoadedCell &)> f) {
     usage_tree->set_cell_load_callback(std::move(f));
   }
   const CellUsageTree &get_usage_tree() const {

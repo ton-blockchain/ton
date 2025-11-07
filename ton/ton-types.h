@@ -18,15 +18,15 @@
 */
 #pragma once
 
+#include <cinttypes>
+
 #include "crypto/common/bitstring.h"
-#include "td/utils/buffer.h"
-#include "td/utils/bits.h"
 #include "td/utils/Slice.h"
 #include "td/utils/UInt.h"
+#include "td/utils/bits.h"
+#include "td/utils/buffer.h"
 #include "td/utils/misc.h"
 #include "td/utils/optional.h"
-
-#include <cinttypes>
 
 namespace ton {
 

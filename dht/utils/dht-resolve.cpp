@@ -25,22 +25,22 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include <iostream>
+
 #include "adnl/adnl-network-manager.h"
 #include "adnl/adnl.h"
 #include "adnl/utils.hpp"
-#include "keys/encryptor.h"
-#include "td/utils/Time.h"
-#include "td/utils/format.h"
-#include "td/utils/OptionParser.h"
-#include "td/utils/filesystem.h"
-#include "dht/dht.hpp"
 #include "auto/tl/ton_api_json.h"
 #include "common/delay.h"
-#include "td/utils/Random.h"
-#include "terminal/terminal.h"
 #include "common/util.h"
-
-#include <iostream>
+#include "dht/dht.hpp"
+#include "keys/encryptor.h"
+#include "td/utils/OptionParser.h"
+#include "td/utils/Random.h"
+#include "td/utils/Time.h"
+#include "td/utils/filesystem.h"
+#include "td/utils/format.h"
+#include "terminal/terminal.h"
 
 class Resolver : public td::actor::Actor {
  private:
@@ -132,7 +132,7 @@ class Resolver : public td::actor::Actor {
     if (!conf.dht_) {
       return td::Status::Error(ton::ErrorCode::error, "does not contain [dht] section");
     }
-    ton::ton_api::dht_nodes* static_nodes = nullptr;
+    ton::ton_api::dht_nodes *static_nodes = nullptr;
     ton::ton_api::downcast_call(*conf.dht_, [&](auto &f) { static_nodes = f.static_nodes_.get(); });
     auto &nodes = static_nodes->nodes_;
     if (server_idx_ >= 0) {
@@ -149,7 +149,7 @@ class Resolver : public td::actor::Actor {
 };
 
 td::Result<td::Bits256> parse_bits256(td::Slice s) {
-  td::BufferSlice str = td::base64_decode(s, true);
+  td::BufferSlice str = td::base64_decode_to_buffer_slice(s, true);
   if (str.size() != 32) {
     return td::Status::Error("Invalid bits256");
   }

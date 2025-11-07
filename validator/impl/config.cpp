@@ -17,11 +17,12 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
-#include "config.hpp"
-#include "block/block-parse.h"
 #include "block/block-auto.h"
+#include "block/block-parse.h"
 #include "vm/boc.h"
 #include "vm/cells/MerkleProof.h"
+
+#include "config.hpp"
 #include "validator-set.hpp"
 
 namespace ton {

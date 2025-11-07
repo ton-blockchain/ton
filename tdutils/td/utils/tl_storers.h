@@ -18,17 +18,17 @@
 */
 #pragma once
 
-#include "td/utils/common.h"
-#include "td/utils/logging.h"
 #include "td/utils/Slice.h"
 #include "td/utils/StorerBase.h"
 #include "td/utils/UInt.h"
+#include "td/utils/common.h"
+#include "td/utils/logging.h"
 
 //FIXME
-#include "td/utils/SharedSlice.h"
-#include "crypto/common/bitstring.h"
-
 #include <cstring>
+
+#include "crypto/common/bitstring.h"
+#include "td/utils/SharedSlice.h"
 
 namespace td {
 

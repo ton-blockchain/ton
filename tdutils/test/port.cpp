@@ -16,6 +16,9 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include <set>
+
+#include "td/utils/Slice.h"
 #include "td/utils/common.h"
 #include "td/utils/logging.h"
 #include "td/utils/misc.h"
@@ -25,10 +28,7 @@
 #include "td/utils/port/signals.h"
 #include "td/utils/port/thread.h"
 #include "td/utils/port/thread_local.h"
-#include "td/utils/Slice.h"
 #include "td/utils/tests.h"
-
-#include <set>
 
 using namespace td;
 
@@ -147,12 +147,11 @@ TEST(Port, Writev) {
 }
 
 #if TD_PORT_POSIX && !TD_THREAD_UNSUPPORTED
+#include <algorithm>
+#include <mutex>
 #include <signal.h>
 #include <sys/syscall.h>
 #include <unistd.h>
-
-#include <algorithm>
-#include <mutex>
 
 static std::mutex m;
 static std::vector<std::string> ptrs;

@@ -25,41 +25,41 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "lite-client.h"
-
-#include "lite-client-common.h"
-
-#include "tl-utils/lite-utils.hpp"
-#include "auto/tl/ton_api_json.h"
 #include "auto/tl/lite_api.hpp"
-#include "td/utils/OptionParser.h"
-#include "td/utils/Time.h"
-#include "td/utils/filesystem.h"
-#include "td/utils/Random.h"
-#include "td/utils/crypto.h"
-#include "td/utils/port/signals.h"
-#include "td/utils/port/FileFd.h"
-#include "ton/lite-tl.hpp"
-#include "block/block-db.h"
-#include "block/block.h"
-#include "block/block-parse.h"
+#include "auto/tl/ton_api_json.h"
 #include "block/block-auto.h"
-#include "block/mc-config.h"
+#include "block/block-db.h"
+#include "block/block-parse.h"
+#include "block/block.h"
 #include "block/check-proof.h"
+#include "block/mc-config.h"
+#include "common/checksum.h"
+#include "crypto/common/util.h"
+#include "crypto/vm/utils.h"
+#include "td/utils/OptionParser.h"
+#include "td/utils/Random.h"
+#include "td/utils/Time.h"
+#include "td/utils/crypto.h"
+#include "td/utils/filesystem.h"
+#include "td/utils/port/FileFd.h"
+#include "td/utils/port/signals.h"
+#include "tl-utils/lite-utils.hpp"
+#include "ton/lite-tl.hpp"
 #include "vm/boc.h"
 #include "vm/cellops.h"
 #include "vm/cells/MerkleProof.h"
-#include "vm/vm.h"
 #include "vm/cp0.h"
 #include "vm/memo.h"
-#include "crypto/vm/utils.h"
-#include "crypto/common/util.h"
-#include "common/checksum.h"
+#include "vm/vm.h"
+
+#include "lite-client-common.h"
+#include "lite-client.h"
 
 #if TD_DARWIN || TD_LINUX
 #include <unistd.h>
 #endif
 #include <iostream>
+
 #include "git.h"
 
 using namespace std::literals::string_literals;
@@ -426,7 +426,7 @@ void TestNode::got_server_mc_block_id(ton::BlockIdExt blkid, ton::ZeroStateIdExt
     if (time >= created) {
       td::TerminalIO::out() << " created at " << created << " (" << time - created << " seconds ago)\n";
     } else {
-        td::TerminalIO::out() << " created at " << created << " (" << created - time << " seconds in the future)\n";
+      td::TerminalIO::out() << " created at " << created << " (" << created - time << " seconds in the future)\n";
     }
   } else {
     td::TerminalIO::out() << "\n";
@@ -3820,16 +3820,16 @@ void TestNode::continue_check_validator_load3(std::unique_ptr<TestNode::Validato
     }
     auto catchain_config = std::make_unique<block::CatchainValidatorsConfig>(
         block::Config::unpack_catchain_validators_config(info1->config->get_config_param(28)));
-    load_validator_shard_shares(
-        start_seqno, end_seqno, std::move(validator_set), std::move(catchain_config),
-        [=, this, info1 = std::move(info1),
-         info2 = std::move(info2)](td::Result<std::map<td::Bits256, td::uint64>> R) mutable {
-          if (R.is_error()) {
-            LOG(ERROR) << "failed to load validator shard shares: " << R.move_as_error();
-          } else {
-            continue_check_validator_load4(std::move(info1), std::move(info2), mode, file_pfx, R.move_as_ok());
-          }
-        });
+    load_validator_shard_shares(start_seqno, end_seqno, std::move(validator_set), std::move(catchain_config),
+                                [=, this, info1 = std::move(info1),
+                                 info2 = std::move(info2)](td::Result<std::map<td::Bits256, td::uint64>> R) mutable {
+                                  if (R.is_error()) {
+                                    LOG(ERROR) << "failed to load validator shard shares: " << R.move_as_error();
+                                  } else {
+                                    continue_check_validator_load4(std::move(info1), std::move(info2), mode, file_pfx,
+                                                                   R.move_as_ok());
+                                  }
+                                });
   } else {
     continue_check_validator_load4(std::move(info1), std::move(info2), mode, std::move(file_pfx), {});
   }
@@ -4041,7 +4041,7 @@ void TestNode::load_validator_shard_shares_cont(std::shared_ptr<LoadValidatorSha
         ton::CatchainSeqno cc_seqno = shards1.get_shard_cc_seqno(shard);
         auto val_set =
             block::ConfigInfo::do_compute_validator_set(*state->catchain_config, shard, state->validator_set, cc_seqno);
-        for (const auto &val : val_set) {
+        for (const auto& val : val_set) {
           result[val.key.as_bits256()] += blocks_count;
         }
       };
@@ -4069,7 +4069,7 @@ void TestNode::load_validator_shard_shares_cont(std::shared_ptr<LoadValidatorSha
         }
       }
     }
-  } catch (vm::VmError &e) {
+  } catch (vm::VmError& e) {
     state->promise.set_error(e.as_status("cannot parse shard hashes: "));
     return;
   }
@@ -4106,7 +4106,7 @@ bool compute_punishment_default(int interval, bool severe, td::RefInt256& fine, 
   fine = td::make_refint(101 * 1000000000LL);  // 101
   fine_part = 0;
 
-  return true; // todo: (tolya-yanot) temporary reduction of fine
+  return true;  // todo: (tolya-yanot) temporary reduction of fine
 
   if (severe) {
     fine = td::make_refint(2500 * 1000000000LL);  // GR$2500
@@ -4128,41 +4128,49 @@ bool compute_punishment_default(int interval, bool severe, td::RefInt256& fine, 
   return true;
 }
 
-bool compute_punishment(int interval, bool severe, td::RefInt256& fine, unsigned& fine_part, Ref<vm::Cell> punishment_params) {
-  if(punishment_params.is_null()) {
+bool compute_punishment(int interval, bool severe, td::RefInt256& fine, unsigned& fine_part,
+                        Ref<vm::Cell> punishment_params) {
+  if (punishment_params.is_null()) {
     return compute_punishment_default(interval, severe, fine, fine_part);
   }
   block::gen::MisbehaviourPunishmentConfig::Record rec;
   if (!tlb::unpack_cell(punishment_params, rec)) {
-      return false;
+    return false;
   }
 
-  if(interval <= rec.unpunishable_interval) {
-      return false;
+  if (interval <= rec.unpunishable_interval) {
+    return false;
   }
 
   fine = block::tlb::t_Grams.as_integer(rec.default_flat_fine);
   fine_part = rec.default_proportional_fine;
 
   if (severe) {
-    fine = fine * rec.severity_flat_mult; fine >>= 8;
-    fine_part = fine_part * rec.severity_proportional_mult; fine_part >>= 8;
+    fine = fine * rec.severity_flat_mult;
+    fine >>= 8;
+    fine_part = fine_part * rec.severity_proportional_mult;
+    fine_part >>= 8;
   }
 
   if (interval >= rec.long_interval) {
-    fine = fine * rec.long_flat_mult; fine >>= 8;
-    fine_part = fine_part * rec.long_proportional_mult; fine_part >>= 8;
+    fine = fine * rec.long_flat_mult;
+    fine >>= 8;
+    fine_part = fine_part * rec.long_proportional_mult;
+    fine_part >>= 8;
     return true;
   }
   if (interval >= rec.medium_interval) {
-    fine = fine * rec.medium_flat_mult; fine >>= 8;
-    fine_part = fine_part * rec.medium_proportional_mult; fine_part >>= 8;
+    fine = fine * rec.medium_flat_mult;
+    fine >>= 8;
+    fine_part = fine_part * rec.medium_proportional_mult;
+    fine_part >>= 8;
     return true;
   }
   return true;
 }
 
-bool check_punishment(int interval, bool severe, td::RefInt256 fine, unsigned fine_part, Ref<vm::Cell> punishment_params) {
+bool check_punishment(int interval, bool severe, td::RefInt256 fine, unsigned fine_part,
+                      Ref<vm::Cell> punishment_params) {
   td::RefInt256 computed_fine;
   unsigned computed_fine_part;
   return compute_punishment(interval, severe, computed_fine, computed_fine_part, punishment_params) &&
@@ -4198,7 +4206,7 @@ td::Status TestNode::write_val_create_proof(TestNode::ValidatorLoadInfo& info1, 
 
   int severity = (severe ? 2 : 1);
   td::RefInt256 fine = td::make_refint(101000000000);
-  unsigned fine_part = 0; // todo: (tolya-yanot) temporary reduction of fine  // 0xffffffff / 16;  // 1/16
+  unsigned fine_part = 0;  // todo: (tolya-yanot) temporary reduction of fine  // 0xffffffff / 16;  // 1/16
   if (!compute_punishment(interval, severe, fine, fine_part, punishment_params)) {
     return td::Status::Error("cannot compute adequate punishment");
   }
@@ -4513,7 +4521,8 @@ td::Status TestNode::continue_check_validator_load_proof(std::unique_ptr<Validat
     if (suggested_fine.is_null()) {
       return td::Status::Error("cannot parse suggested fine");
     }
-    if (!check_punishment(interval, severe, suggested_fine, rec.suggested_fine_part, info2->config->get_config_param(40))) {
+    if (!check_punishment(interval, severe, suggested_fine, rec.suggested_fine_part,
+                          info2->config->get_config_param(40))) {
       LOG(ERROR) << "proposed punishment (fine " << td::dec_string(suggested_fine)
                  << ", fine_part=" << (double)rec.suggested_fine_part / (1LL << 32) << " is too harsh";
       show_vote(root->get_hash().bits(), false);
@@ -4662,7 +4671,8 @@ int main(int argc, char* argv[]) {
     return (verbosity >= 0 && verbosity <= 9) ? td::Status::OK() : td::Status::Error("verbosity must be 0..9");
   });
   p.add_option('V', "version", "shows lite-client build information", [&]() {
-    std::cout << "lite-client build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
+    std::cout << "lite-client build information: [ Commit: " << GitMetadata::CommitSHA1()
+              << ", Date: " << GitMetadata::CommitDate() << "]\n";
 
     std::exit(0);
   });

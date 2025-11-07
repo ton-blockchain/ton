@@ -1,10 +1,3 @@
-#include "absl/strings/str_format.h"
-#include "td/actor/coro.h"
-#include "td/actor/actor.h"
-#include "td/utils/Random.h"
-#include "td/utils/tests.h"
-#include "td/utils/port/sleep.h"
-
 #include <atomic>
 #include <chrono>
 #include <functional>
@@ -12,6 +5,13 @@
 #include <thread>
 #include <utility>
 #include <vector>
+
+#include "absl/strings/str_format.h"
+#include "td/actor/actor.h"
+#include "td/actor/coro.h"
+#include "td/utils/Random.h"
+#include "td/utils/port/sleep.h"
+#include "td/utils/tests.h"
 
 using namespace td::actor;
 

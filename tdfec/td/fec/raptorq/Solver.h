@@ -17,11 +17,10 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
+#include "td/fec/common/SymbolRef.h"
+#include "td/fec/raptorq/Rfc.h"
 #include "td/utils/Slice.h"
 #include "td/utils/Span.h"
-
-#include "td/fec/raptorq/Rfc.h"
-#include "td/fec/common/SymbolRef.h"
 
 namespace td {
 namespace raptorq {

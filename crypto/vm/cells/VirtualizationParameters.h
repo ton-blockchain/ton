@@ -18,10 +18,10 @@
 */
 #pragma once
 
+#include <limits>
+
 #include "td/utils/int_types.h"
 #include "td/utils/logging.h"
-
-#include <limits>
 
 namespace vm {
 namespace detail {

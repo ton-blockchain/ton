@@ -16,24 +16,22 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "overlay-manager.h"
-#include "auto/tl/ton_api.h"
-#include "auto/tl/ton_api.hpp"
-#include "overlay.h"
+#include <vector>
 
 #include "adnl/utils.hpp"
+#include "auto/tl/ton_api.h"
+#include "auto/tl/ton_api.hpp"
 #include "td/actor/actor.h"
 #include "td/actor/common.h"
-#include "td/utils/Random.h"
-
 #include "td/db/RocksDb.h"
-
+#include "td/utils/Random.h"
 #include "td/utils/Status.h"
 #include "td/utils/buffer.h"
 #include "td/utils/overloaded.h"
-
 #include "td/utils/port/Poll.h"
-#include <vector>
+
+#include "overlay-manager.h"
+#include "overlay.h"
 
 namespace ton {
 

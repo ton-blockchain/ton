@@ -17,10 +17,11 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "td/utils/int_types.h"
-#include "ton/ton-types.h"
 
 #include <ctime>
+
+#include "td/utils/as.h"
+#include "ton/ton-types.h"
 
 namespace block {
 
@@ -35,9 +36,9 @@ struct Start {
   unsigned type_field;
   unsigned created_at;
   unsigned char zerostate_root_hash[32];
-  Start(const RootHash& hash, unsigned _now = 0)
+  Start(const ton::RootHash& hash, unsigned _now = 0)
       : tag_field(tag), type_field(log_type), created_at(_now ? _now : (unsigned)std::time(nullptr)) {
-    td::as<RootHash>(zerostate_root_hash) = hash;
+    td::as<ton::RootHash>(zerostate_root_hash) = hash;
   }
 };
 
@@ -48,10 +49,10 @@ struct SetZeroState {
   long long file_size;
   unsigned char file_hash[32];
   unsigned char root_hash[32];
-  SetZeroState(const RootHash& rhash, const FileHash& fhash, unsigned long long _fsize, unsigned _flags = 0)
+  SetZeroState(const ton::RootHash& rhash, const ton::FileHash& fhash, unsigned long long _fsize, unsigned _flags = 0)
       : tag_field(tag), flags(_flags), file_size(_fsize) {
-    td::as<FileHash>(file_hash) = fhash;
-    td::as<RootHash>(root_hash) = rhash;
+    td::as<ton::FileHash>(file_hash) = fhash;
+    td::as<ton::RootHash>(root_hash) = rhash;
   }
 };
 
@@ -66,7 +67,7 @@ struct NewBlock {
   unsigned char file_hash[32];
   unsigned char root_hash[32];
   unsigned char last_bytes[8];
-  NewBlock(const ton::BlockId& block, const RootHash& rhash, const FileHash& fhash, unsigned long long _fsize,
+  NewBlock(const ton::BlockId& block, const ton::RootHash& rhash, const ton::FileHash& fhash, unsigned long long _fsize,
            unsigned _flags)
       : tag_field(tag)
       , flags(_flags)
@@ -74,8 +75,8 @@ struct NewBlock {
       , seqno(block.seqno)
       , shard(block.shard)
       , file_size(_fsize) {
-    td::as<FileHash>(file_hash) = fhash;
-    td::as<RootHash>(root_hash) = rhash;
+    td::as<ton::FileHash>(file_hash) = fhash;
+    td::as<ton::RootHash>(root_hash) = rhash;
     td::as<unsigned long long>(last_bytes) = 0;
   }
 };
@@ -91,7 +92,7 @@ struct NewState {
   unsigned char file_hash[32];
   unsigned char root_hash[32];
   unsigned char last_bytes[8];
-  NewState(const ton::BlockId& state, const RootHash& rhash, const FileHash& fhash, unsigned long long _fsize,
+  NewState(const ton::BlockId& state, const ton::RootHash& rhash, const ton::FileHash& fhash, unsigned long long _fsize,
            unsigned _flags)
       : tag_field(tag)
       , flags(_flags)
@@ -99,8 +100,8 @@ struct NewState {
       , seqno(state.seqno)
       , shard(state.shard)
       , file_size(_fsize) {
-    td::as<FileHash>(file_hash) = fhash;
-    td::as<RootHash>(root_hash) = rhash;
+    td::as<ton::FileHash>(file_hash) = fhash;
+    td::as<ton::RootHash>(root_hash) = rhash;
     td::as<unsigned long long>(last_bytes) = 0;
   }
 };

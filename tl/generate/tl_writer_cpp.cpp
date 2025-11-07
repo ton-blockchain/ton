@@ -16,9 +16,9 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "tl_writer_cpp.h"
-
 #include <cassert>
+
+#include "tl_writer_cpp.h"
 
 namespace td {
 

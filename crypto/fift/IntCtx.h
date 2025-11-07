@@ -18,19 +18,18 @@
 */
 #pragma once
 
-#include "crypto/vm/stack.hpp"
-#include "crypto/vm/box.hpp"
-#include "crypto/common/bitstring.h"
-
-#include "td/utils/Status.h"
-
-#include "Dictionary.h"
-#include "Continuation.h"
-
 #include <cstdint>
 #include <cstring>
 #include <iostream>
 #include <string>
+
+#include "crypto/common/bitstring.h"
+#include "crypto/vm/box.hpp"
+#include "crypto/vm/stack.hpp"
+#include "td/utils/Status.h"
+
+#include "Continuation.h"
+#include "Dictionary.h"
 
 namespace vm {
 class TonDbImpl;  // from crypto/vm/db/TonDb.h
@@ -175,7 +174,7 @@ struct IntCtx {
     return parser ? parser->include_depth : -1;
   }
 
-  operator vm::Stack &() {
+  operator vm::Stack&() {
     return stack;
   }
 

@@ -1,17 +1,14 @@
+#include <algorithm>
 #include <benchmark/benchmark.h>
-
 #include <folly/Executor.h>
 #include <folly/executors/CPUThreadPoolExecutor.h>
 #include <folly/executors/SerialExecutor.h>
-#include <folly/experimental/coro/Task.h>
 #include <folly/experimental/coro/BlockingWait.h>
 #include <folly/experimental/coro/Collect.h>
-
-#include <algorithm>
+#include <folly/experimental/coro/Task.h>
 #include <string>
 #include <thread>
 #include <vector>
-
 
 namespace {
 
@@ -29,14 +26,13 @@ struct DatabaseService {
   }
 
   Task<bool> check_auth(int user_id) {
-    co_return (user_id % 2) == 0; // Even IDs are authorized
+    co_return (user_id % 2) == 0;  // Even IDs are authorized
   }
 };
 
 struct RequestHandler {
   DatabaseService& db;
   folly::Executor::KeepAlive<> ex;
-
 
   Task<std::string> handle_request(int request_id) {
     const int user_id = request_id % 1000;
@@ -51,7 +47,7 @@ struct RequestHandler {
   }
 };
 
-} // namespace
+}  // namespace
 
 // Real-world benchmark: HTTP-like request handler with database lookups
 // Simulates: Request -> Auth Check -> DB Query -> Response
@@ -80,8 +76,7 @@ static void BM_HttpRequestHandler_Folly(benchmark::State& state) {
     }
 
     // Await all responses concurrently
-    auto responses =
-        folly::coro::blockingWait(folly::coro::collectAllRange(std::move(requests)));
+    auto responses = folly::coro::blockingWait(folly::coro::collectAllRange(std::move(requests)));
 
     for (auto& r : responses) {
       benchmark::DoNotOptimize(r);

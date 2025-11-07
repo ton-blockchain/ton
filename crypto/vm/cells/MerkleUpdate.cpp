@@ -16,11 +16,10 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "vm/cells/MerkleUpdate.h"
-#include "vm/cells/MerkleProof.h"
-
 #include "td/utils/HashMap.h"
 #include "td/utils/HashSet.h"
+#include "vm/cells/MerkleProof.h"
+#include "vm/cells/MerkleUpdate.h"
 
 namespace vm {
 namespace detail {

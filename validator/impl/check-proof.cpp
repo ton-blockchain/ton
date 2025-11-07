@@ -16,21 +16,20 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "check-proof.hpp"
 #include "adnl/utils.hpp"
+#include "block/block-auto.h"
+#include "block/block-parse.h"
 #include "ton/ton-io.hpp"
 #include "ton/ton-tl.hpp"
-#include "fabric.h"
-#include "signature-set.hpp"
-#include "validator-set.hpp"
-#include "shard.hpp"
-
-#include "block/block-parse.h"
-#include "block/block-auto.h"
+#include "validator/invariants.hpp"
 #include "vm/boc.h"
 #include "vm/cells/MerkleProof.h"
 
-#include "validator/invariants.hpp"
+#include "check-proof.hpp"
+#include "fabric.h"
+#include "shard.hpp"
+#include "signature-set.hpp"
+#include "validator-set.hpp"
 
 namespace ton {
 

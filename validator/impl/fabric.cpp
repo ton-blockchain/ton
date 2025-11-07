@@ -16,25 +16,26 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "fabric.h"
-#include "collator-impl.h"
-#include "validator/db/rootdb.hpp"
-#include "validator/block-handle.hpp"
-#include "apply-block.hpp"
-#include "accept-block.hpp"
-#include "shard.hpp"
-#include "block.hpp"
-#include "proof.hpp"
-#include "signature-set.hpp"
-#include "external-message.hpp"
-#include "ihr-message.hpp"
-#include "validate-query.hpp"
-#include "check-proof.hpp"
-#include "top-shard-descr.hpp"
 #include "ton/ton-io.hpp"
-#include "liteserver.hpp"
+#include "validator/block-handle.hpp"
+#include "validator/db/rootdb.hpp"
 #include "validator/fabric.h"
+
+#include "accept-block.hpp"
+#include "apply-block.hpp"
+#include "block.hpp"
+#include "check-proof.hpp"
+#include "collator-impl.h"
+#include "external-message.hpp"
+#include "fabric.h"
+#include "ihr-message.hpp"
 #include "liteserver-cache.hpp"
+#include "liteserver.hpp"
+#include "proof.hpp"
+#include "shard.hpp"
+#include "signature-set.hpp"
+#include "top-shard-descr.hpp"
+#include "validate-query.hpp"
 
 namespace ton {
 

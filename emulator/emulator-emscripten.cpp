@@ -1,11 +1,13 @@
-#include "emulator-extern.h"
-#include "td/utils/logging.h"
+#include <iostream>
+
+#include "crypto/common/bitstring.h"
 #include "td/utils/JsonBuilder.h"
+#include "td/utils/logging.h"
 #include "td/utils/misc.h"
 #include "td/utils/optional.h"
+
 #include "StringLog.h"
-#include <iostream>
-#include "crypto/common/bitstring.h"
+#include "emulator-extern.h"
 
 struct TransactionEmulationParams {
   uint32_t utime;
@@ -23,7 +25,7 @@ td::Result<TransactionEmulationParams> decode_transaction_emulation_params(const
 
   std::string json_str(json);
   TRY_RESULT(input_json, td::json_decode(td::MutableSlice(json_str)));
-  auto &obj = input_json.get_object();
+  auto& obj = input_json.get_object();
 
   TRY_RESULT(utime_field, td::get_json_object_field(obj, "utime", td::JsonValue::Type::Number, false));
   TRY_RESULT(utime, td::to_integer_safe<td::uint32>(utime_field.get_number()));
@@ -83,7 +85,7 @@ td::Result<GetMethodParams> decode_get_method_params(const char* json) {
 
   std::string json_str(json);
   TRY_RESULT(input_json, td::json_decode(td::MutableSlice(json_str)));
-  auto &obj = input_json.get_object();
+  auto& obj = input_json.get_object();
 
   TRY_RESULT(code, td::get_json_object_string_field(obj, "code", false));
   params.code = code;
@@ -123,7 +125,7 @@ td::Result<GetMethodParams> decode_get_method_params(const char* json) {
     td::StringBuilder ec_builder;
     auto& ec_obj = ec_field.get_object();
     bool is_first = true;
-    for (auto &field_value : ec_obj) {
+    for (auto& field_value : ec_obj) {
       auto currency_id = field_value.first;
       if (field_value.second.type() != td::JsonValue::Type::String) {
         return td::Status::Error(PSLICE() << "EC amount must be of type String");
@@ -171,130 +173,130 @@ class NoopLog : public td::LogInterface {
 
 extern "C" {
 
-void* create_emulator(const char *config, int verbosity) {
-    NoopLog logger;
+void* create_emulator(const char* config, int verbosity) {
+  NoopLog logger;
 
-    td::log_interface = &logger;
+  td::log_interface = &logger;
 
-    SET_VERBOSITY_LEVEL(verbosity_NEVER);
-    return transaction_emulator_create(config, verbosity);
+  SET_VERBOSITY_LEVEL(verbosity_NEVER);
+  return transaction_emulator_create(config, verbosity);
 }
 
 void destroy_emulator(void* em) {
-    NoopLog logger;
+  NoopLog logger;
 
-    td::log_interface = &logger;
+  td::log_interface = &logger;
 
-    SET_VERBOSITY_LEVEL(verbosity_NEVER);
+  SET_VERBOSITY_LEVEL(verbosity_NEVER);
+  transaction_emulator_destroy(em);
+}
+
+const char* emulate_with_emulator(void* em, const char* libs, const char* account, const char* message,
+                                  const char* params) {
+  StringLog logger;
+
+  td::log_interface = &logger;
+  SET_VERBOSITY_LEVEL(verbosity_DEBUG);
+
+  auto decoded_params_res = decode_transaction_emulation_params(params);
+  if (decoded_params_res.is_error()) {
+    return strdup(R"({"fail":true,"message":"Can't decode other params"})");
+  }
+  auto decoded_params = decoded_params_res.move_as_ok();
+
+  bool rand_seed_set = true;
+  if (decoded_params.rand_seed_hex) {
+    rand_seed_set = transaction_emulator_set_rand_seed(em, decoded_params.rand_seed_hex.unwrap().c_str());
+  }
+
+  bool prev_blocks_set = true;
+  if (decoded_params.prev_blocks_info) {
+    prev_blocks_set = transaction_emulator_set_prev_blocks_info(em, decoded_params.prev_blocks_info.unwrap().c_str());
+  }
+
+  if (!transaction_emulator_set_libs(em, libs) || !transaction_emulator_set_lt(em, decoded_params.lt) ||
+      !transaction_emulator_set_unixtime(em, decoded_params.utime) ||
+      !transaction_emulator_set_ignore_chksig(em, decoded_params.ignore_chksig) ||
+      !transaction_emulator_set_debug_enabled(em, decoded_params.debug_enabled) || !rand_seed_set || !prev_blocks_set) {
     transaction_emulator_destroy(em);
+    return strdup(R"({"fail":true,"message":"Can't set params"})");
+  }
+
+  const char* result;
+  if (decoded_params.is_tick_tock) {
+    result = transaction_emulator_emulate_tick_tock_transaction(em, account, decoded_params.is_tock);
+  } else {
+    result = transaction_emulator_emulate_transaction(em, account, message);
+  }
+
+  const char* output = nullptr;
+  {
+    td::JsonBuilder jb;
+    auto json_obj = jb.enter_object();
+    json_obj("output", td::JsonRaw(td::Slice(result)));
+    json_obj("logs", logger.get_string());
+    json_obj.leave();
+    output = strdup(jb.string_builder().as_cslice().c_str());
+  }
+  free((void*)result);
+
+  return output;
 }
 
-const char *emulate_with_emulator(void* em, const char* libs, const char* account, const char* message, const char* params) {
-    StringLog logger;
-
-    td::log_interface = &logger;
-    SET_VERBOSITY_LEVEL(verbosity_DEBUG);
-
-    auto decoded_params_res = decode_transaction_emulation_params(params);
-    if (decoded_params_res.is_error()) {
-        return strdup(R"({"fail":true,"message":"Can't decode other params"})");
-    }
-    auto decoded_params = decoded_params_res.move_as_ok();
-
-    bool rand_seed_set = true;
-    if (decoded_params.rand_seed_hex) {
-      rand_seed_set = transaction_emulator_set_rand_seed(em, decoded_params.rand_seed_hex.unwrap().c_str());
-    }
-
-    bool prev_blocks_set = true;
-    if (decoded_params.prev_blocks_info) {
-      prev_blocks_set = transaction_emulator_set_prev_blocks_info(em, decoded_params.prev_blocks_info.unwrap().c_str());
-    }
-
-    if (!transaction_emulator_set_libs(em, libs) ||
-        !transaction_emulator_set_lt(em, decoded_params.lt) ||
-        !transaction_emulator_set_unixtime(em, decoded_params.utime) ||
-        !transaction_emulator_set_ignore_chksig(em, decoded_params.ignore_chksig) ||
-        !transaction_emulator_set_debug_enabled(em, decoded_params.debug_enabled) ||
-        !rand_seed_set ||
-        !prev_blocks_set) {
-        transaction_emulator_destroy(em);
-        return strdup(R"({"fail":true,"message":"Can't set params"})");
-    }
-
-    const char *result;
-    if (decoded_params.is_tick_tock) {
-      result = transaction_emulator_emulate_tick_tock_transaction(em, account, decoded_params.is_tock);
-    } else {
-      result = transaction_emulator_emulate_transaction(em, account, message);
-    }
-
-    const char* output = nullptr;
-    {
-        td::JsonBuilder jb;
-        auto json_obj = jb.enter_object();
-        json_obj("output", td::JsonRaw(td::Slice(result)));
-        json_obj("logs", logger.get_string());
-        json_obj.leave();
-        output = strdup(jb.string_builder().as_cslice().c_str());
-    }
-    free((void*) result);
-
-    return output;
+const char* emulate(const char* config, const char* libs, int verbosity, const char* account, const char* message,
+                    const char* params) {
+  auto em = transaction_emulator_create(config, verbosity);
+  auto result = emulate_with_emulator(em, libs, account, message, params);
+  transaction_emulator_destroy(em);
+  return result;
 }
 
-const char *emulate(const char *config, const char* libs, int verbosity, const char* account, const char* message, const char* params) {
-    auto em = transaction_emulator_create(config, verbosity);
-    auto result = emulate_with_emulator(em, libs, account, message, params);
-    transaction_emulator_destroy(em);
-    return result;
-}
+const char* run_get_method(const char* params, const char* stack, const char* config) {
+  StringLog logger;
 
-const char *run_get_method(const char *params, const char* stack, const char* config) {
-    StringLog logger;
+  td::log_interface = &logger;
+  SET_VERBOSITY_LEVEL(verbosity_DEBUG);
 
-    td::log_interface = &logger;
-    SET_VERBOSITY_LEVEL(verbosity_DEBUG);
+  auto decoded_params_res = decode_get_method_params(params);
+  if (decoded_params_res.is_error()) {
+    return strdup(R"({"fail":true,"message":"Can't decode params"})");
+  }
+  auto decoded_params = decoded_params_res.move_as_ok();
 
-    auto decoded_params_res = decode_get_method_params(params);
-    if (decoded_params_res.is_error()) {
-        return strdup(R"({"fail":true,"message":"Can't decode params"})");
-    }
-    auto decoded_params = decoded_params_res.move_as_ok();
+  auto tvm = tvm_emulator_create(decoded_params.code.c_str(), decoded_params.data.c_str(), decoded_params.verbosity);
 
-    auto tvm = tvm_emulator_create(decoded_params.code.c_str(), decoded_params.data.c_str(), decoded_params.verbosity);
-
-    if ((decoded_params.libs && !tvm_emulator_set_libraries(tvm, decoded_params.libs.value().c_str())) ||
-        !tvm_emulator_set_c7(tvm, decoded_params.address.c_str(), decoded_params.unixtime, decoded_params.balance,
-                             decoded_params.rand_seed_hex.c_str(), config) ||
-        (decoded_params.extra_currencies.size() > 0 && !tvm_emulator_set_extra_currencies(tvm, decoded_params.extra_currencies.c_str())) ||
-        (decoded_params.prev_blocks_info && !tvm_emulator_set_prev_blocks_info(tvm, decoded_params.prev_blocks_info.value().c_str())) ||
-        (decoded_params.gas_limit > 0 && !tvm_emulator_set_gas_limit(tvm, decoded_params.gas_limit)) ||
-        !tvm_emulator_set_debug_enabled(tvm, decoded_params.debug_enabled)) {
-        tvm_emulator_destroy(tvm);
-        return strdup(R"({"fail":true,"message":"Can't set params"})");
-    }
-
-    auto res = tvm_emulator_run_get_method(tvm, decoded_params.method_id, stack);
-
+  if ((decoded_params.libs && !tvm_emulator_set_libraries(tvm, decoded_params.libs.value().c_str())) ||
+      !tvm_emulator_set_c7(tvm, decoded_params.address.c_str(), decoded_params.unixtime, decoded_params.balance,
+                           decoded_params.rand_seed_hex.c_str(), config) ||
+      (decoded_params.extra_currencies.size() > 0 &&
+       !tvm_emulator_set_extra_currencies(tvm, decoded_params.extra_currencies.c_str())) ||
+      (decoded_params.prev_blocks_info &&
+       !tvm_emulator_set_prev_blocks_info(tvm, decoded_params.prev_blocks_info.value().c_str())) ||
+      (decoded_params.gas_limit > 0 && !tvm_emulator_set_gas_limit(tvm, decoded_params.gas_limit)) ||
+      !tvm_emulator_set_debug_enabled(tvm, decoded_params.debug_enabled)) {
     tvm_emulator_destroy(tvm);
+    return strdup(R"({"fail":true,"message":"Can't set params"})");
+  }
 
-    const char* output = nullptr;
-    {
-        td::JsonBuilder jb;
-        auto json_obj = jb.enter_object();
-        json_obj("output", td::JsonRaw(td::Slice(res)));
-        json_obj("logs", logger.get_string());
-        json_obj.leave();
-        output = strdup(jb.string_builder().as_cslice().c_str());
-    }
-    free((void*) res);
+  auto res = tvm_emulator_run_get_method(tvm, decoded_params.method_id, stack);
 
-    return output;
+  tvm_emulator_destroy(tvm);
+
+  const char* output = nullptr;
+  {
+    td::JsonBuilder jb;
+    auto json_obj = jb.enter_object();
+    json_obj("output", td::JsonRaw(td::Slice(res)));
+    json_obj("logs", logger.get_string());
+    json_obj.leave();
+    output = strdup(jb.string_builder().as_cslice().c_str());
+  }
+  free((void*)res);
+
+  return output;
 }
 
-const char *version() {
+const char* version() {
   return emulator_version();
 }
-
 }

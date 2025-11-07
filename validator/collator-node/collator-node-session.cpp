@@ -16,7 +16,6 @@
 */
 
 #include "collator-node-session.hpp"
-
 #include "collator-node.hpp"
 #include "fabric.h"
 #include "utils.hpp"

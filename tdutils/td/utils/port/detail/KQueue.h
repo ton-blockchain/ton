@@ -22,18 +22,16 @@
 
 #ifdef TD_POLL_KQUEUE
 
-#include "td/utils/common.h"
-#include "td/utils/List.h"
-#include "td/utils/port/detail/NativeFd.h"
-#include "td/utils/port/detail/PollableFd.h"
-#include "td/utils/port/PollBase.h"
-#include "td/utils/port/PollFlags.h"
-
 #include <cstdint>
-
+#include <sys/event.h>
 #include <sys/types.h>  // must be included before sys/event.h, which depends on sys/types.h on FreeBSD
 
-#include <sys/event.h>
+#include "td/utils/List.h"
+#include "td/utils/common.h"
+#include "td/utils/port/PollBase.h"
+#include "td/utils/port/PollFlags.h"
+#include "td/utils/port/detail/NativeFd.h"
+#include "td/utils/port/detail/PollableFd.h"
 
 namespace td {
 namespace detail {

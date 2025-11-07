@@ -15,12 +15,14 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "p256.h"
+#include <iostream>
+#include <openssl/ec.h>
+#include <openssl/evp.h>
+
 #include "td/utils/check.h"
 #include "td/utils/misc.h"
-#include <openssl/evp.h>
-#include <openssl/ec.h>
-#include <iostream>
+
+#include "p256.h"
 
 namespace td {
 

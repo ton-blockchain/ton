@@ -16,16 +16,16 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "rootdb.hpp"
-#include "validator/fabric.h"
-#include "archiver.hpp"
-
-#include "td/db/RocksDb.h"
-#include "ton/ton-tl.hpp"
-#include "td/utils/overloaded.h"
 #include "common/checksum.h"
-#include "validator/stats-merger.h"
 #include "td/actor/MultiPromise.h"
+#include "td/db/RocksDb.h"
+#include "td/utils/overloaded.h"
+#include "ton/ton-tl.hpp"
+#include "validator/fabric.h"
+#include "validator/stats-merger.h"
+
+#include "archiver.hpp"
+#include "rootdb.hpp"
 
 namespace ton {
 
@@ -350,7 +350,7 @@ void RootDb::store_persistent_state_file(BlockIdExt block_id, BlockIdExt masterc
 
 void RootDb::store_persistent_state_file_gen(BlockIdExt block_id, BlockIdExt masterchain_block_id,
                                              PersistentStateType type,
-                                             std::function<td::Status(td::FileFd&)> write_data,
+                                             std::function<td::Status(td::FileFd &)> write_data,
                                              td::Promise<td::Unit> promise) {
   td::actor::send_closure(archive_db_, &ArchiveManager::add_persistent_state_gen, block_id, masterchain_block_id, type,
                           std::move(write_data), std::move(promise));

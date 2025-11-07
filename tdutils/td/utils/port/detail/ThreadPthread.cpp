@@ -23,10 +23,10 @@ char disable_linker_warning_about_empty_file_thread_pthread_cpp TD_UNUSED;
 
 #if TD_THREAD_PTHREAD
 
-#include "td/utils/misc.h"
-
 #include <pthread.h>
 #include <sched.h>
+
+#include "td/utils/misc.h"
 #if TD_FREEBSD || TD_OPENBSD || TD_NETBSD
 #include <sys/sysctl.h>
 #endif

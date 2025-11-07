@@ -16,15 +16,16 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "validator-group.hpp"
+#include "collator-node/collator-node.hpp"
+#include "common/delay.h"
+#include "td/utils/Random.h"
+#include "td/utils/overloaded.h"
+#include "ton/lite-tl.hpp"
+#include "ton/ton-io.hpp"
+
 #include "fabric.h"
 #include "full-node-master.hpp"
-#include "ton/ton-io.hpp"
-#include "td/utils/overloaded.h"
-#include "common/delay.h"
-#include "ton/lite-tl.hpp"
-#include "td/utils/Random.h"
-#include "collator-node/collator-node.hpp"
+#include "validator-group.hpp"
 
 namespace ton {
 
@@ -388,11 +389,11 @@ void ValidatorGroup::generate_block_optimistic(validatorsession::BlockSourceInfo
   };
   LOG(WARNING) << "Optimistically generating next block after " << block_id.to_str();
   td::uint64 max_answer_size = config_.max_block_size + config_.max_collated_data_size + 1024;
-  td::actor::send_closure(collation_manager_, &CollationManager::collate_block_optimistic, shard_, min_masterchain_block_id_,
-                          block_id, std::move(prev_block), Ed25519_PublicKey{local_id_full_.ed25519_value().raw()},
-                          source_info.priority, validator_set_, max_answer_size,
-                          optimistic_generation_->cancellation_token_source.get_cancellation_token(), std::move(P),
-                          config_.proto_version);
+  td::actor::send_closure(collation_manager_, &CollationManager::collate_block_optimistic, shard_,
+                          min_masterchain_block_id_, block_id, std::move(prev_block),
+                          Ed25519_PublicKey{local_id_full_.ed25519_value().raw()}, source_info.priority, validator_set_,
+                          max_answer_size, optimistic_generation_->cancellation_token_source.get_cancellation_token(),
+                          std::move(P), config_.proto_version);
 }
 
 void ValidatorGroup::generated_block_optimistic(validatorsession::BlockSourceInfo source_info,

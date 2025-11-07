@@ -25,30 +25,29 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include "adnl/adnl-test-loopback-implementation.h"
 #include "adnl/adnl.h"
 #include "adnl/utils.hpp"
-#include "adnl/adnl-test-loopback-implementation.h"
+#include "catchain/catchain.h"
+#include "common/errorlog.h"
 #include "dht/dht.h"
 #include "overlay/overlays.h"
 #include "td/utils/OptionParser.h"
+#include "td/utils/Random.h"
 #include "td/utils/Time.h"
 #include "td/utils/filesystem.h"
 #include "td/utils/format.h"
-#include "td/utils/port/path.h"
-#include "td/utils/Random.h"
-#include "td/utils/port/signals.h"
-#include "td/utils/port/FileFd.h"
 #include "td/utils/overloaded.h"
-#include "catchain/catchain.h"
-#include "common/errorlog.h"
+#include "td/utils/port/FileFd.h"
+#include "td/utils/port/path.h"
+#include "td/utils/port/signals.h"
 
 #if TD_DARWIN || TD_LINUX
 #include <unistd.h>
 #endif
 #include <iostream>
-#include <sstream>
-
 #include <set>
+#include <sstream>
 
 struct Node {
   ton::PublicKeyHash id;

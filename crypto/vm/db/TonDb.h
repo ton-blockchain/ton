@@ -17,15 +17,14 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "vm/cellslice.h"
-#include "vm/cells.h"
-#include "vm/boc.h"
 #include "td/db/KeyValue.h"
-#include "vm/db/CellStorage.h"
-#include "vm/db/CellHashTable.h"
-
 #include "td/utils/Slice.h"
 #include "td/utils/Status.h"
+#include "vm/boc.h"
+#include "vm/cells.h"
+#include "vm/cellslice.h"
+#include "vm/db/CellHashTable.h"
+#include "vm/db/CellStorage.h"
 
 namespace vm {
 class SmartContractDbImpl;
@@ -113,7 +112,6 @@ class TonDbTransactionImpl;
 using TonDbTransaction = std::unique_ptr<TonDbTransactionImpl>;
 class TonDbTransactionImpl {
  public:
-
   SmartContractDb begin_smartcontract(td::Slice hash = std::string(32, '\0'));
 
   void commit_smartcontract(SmartContractDb txn);
@@ -146,16 +144,25 @@ class TonDbTransactionImpl {
 
     struct Eq {
       using is_transparent = void;  // Pred to use
-      bool operator()(const SmartContractInfo &info, const SmartContractInfo &other_info) const { return info.hash == other_info.hash;}
-      bool operator()(const SmartContractInfo &info, td::Slice hash) const { return info.hash == hash;}
-      bool operator()(td::Slice hash, const SmartContractInfo &info) const { return info.hash == hash;}
-
+      bool operator()(const SmartContractInfo &info, const SmartContractInfo &other_info) const {
+        return info.hash == other_info.hash;
+      }
+      bool operator()(const SmartContractInfo &info, td::Slice hash) const {
+        return info.hash == hash;
+      }
+      bool operator()(td::Slice hash, const SmartContractInfo &info) const {
+        return info.hash == hash;
+      }
     };
     struct Hash {
       using is_transparent = void;  // Pred to use
       using transparent_key_equal = Eq;
-      size_t operator()(td::Slice hash) const { return cell_hash_slice_hash(hash); }
-      size_t operator()(const SmartContractInfo &info) const { return cell_hash_slice_hash(info.hash);}
+      size_t operator()(td::Slice hash) const {
+        return cell_hash_slice_hash(hash);
+      }
+      size_t operator()(const SmartContractInfo &info) const {
+        return cell_hash_slice_hash(info.hash);
+      }
     };
   };
 
