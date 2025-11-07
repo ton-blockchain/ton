@@ -16,22 +16,22 @@
 
     Copyright 2019-2020 Telegram Systems LLP
 */
-#include "archive-slice.hpp"
-
+#include "common/delay.h"
 #include "td/actor/MultiPromise.h"
-#include "validator/fabric.h"
 #include "td/db/RocksDb.h"
 #include "td/utils/port/path.h"
-#include "common/delay.h"
-#include "files-async.hpp"
+#include "validator/fabric.h"
+
+#include "archive-slice.hpp"
 #include "db-utils.h"
+#include "files-async.hpp"
 
 namespace ton {
 
 namespace validator {
 
 class PackageStatistics {
-  public:
+ public:
   void record_open(uint64_t count = 1) {
     open_count.fetch_add(count, std::memory_order_relaxed);
   }
@@ -82,7 +82,7 @@ class PackageStatistics {
     return ss.str();
   }
 
-  private:
+ private:
   std::atomic_uint64_t open_count{0};
   std::atomic_uint64_t close_count{0};
   PercentileStats read_time;
@@ -131,8 +131,12 @@ void PackageWriter::append(std::string filename, td::BufferSlice data,
 class PackageReader : public td::actor::Actor {
  public:
   PackageReader(std::shared_ptr<Package> package, td::uint64 offset,
-                td::Promise<std::pair<std::string, td::BufferSlice>> promise, std::shared_ptr<PackageStatistics> statistics)
-      : package_(std::move(package)), offset_(offset), promise_(std::move(promise)), statistics_(std::move(statistics)) {
+                td::Promise<std::pair<std::string, td::BufferSlice>> promise,
+                std::shared_ptr<PackageStatistics> statistics)
+      : package_(std::move(package))
+      , offset_(offset)
+      , promise_(std::move(promise))
+      , statistics_(std::move(statistics)) {
   }
   void start_up() override {
     auto start = td::Timestamp::now();
@@ -404,7 +408,8 @@ void ArchiveSlice::get_file(ConstBlockHandle handle, FileReference ref_id, td::P
           promise.set_value(std::move(R.move_as_ok().second));
         }
       });
-  td::actor::create_actor<PackageReader>("reader", p->package, offset, std::move(P), statistics_.pack_statistics).release();
+  td::actor::create_actor<PackageReader>("reader", p->package, offset, std::move(P), statistics_.pack_statistics)
+      .release();
 }
 
 void ArchiveSlice::get_block_common(AccountIdPrefixFull account_id,
@@ -509,14 +514,14 @@ void ArchiveSlice::get_block_by_seqno(AccountIdPrefixFull account_id, BlockSeqno
   return get_block_common(
       account_id,
       [seqno](ton_api::db_lt_desc_value &w) {
-        return seqno > static_cast<BlockSeqno>(w.last_seqno_)
-                   ? 1
-                   : seqno == static_cast<BlockSeqno>(w.last_seqno_) ? 0 : -1;
+        return seqno > static_cast<BlockSeqno>(w.last_seqno_)    ? 1
+               : seqno == static_cast<BlockSeqno>(w.last_seqno_) ? 0
+                                                                 : -1;
       },
       [seqno](ton_api::db_lt_el_value &w) {
-        return seqno > static_cast<BlockSeqno>(w.id_->seqno_)
-                   ? 1
-                   : seqno == static_cast<BlockSeqno>(w.id_->seqno_) ? 0 : -1;
+        return seqno > static_cast<BlockSeqno>(w.id_->seqno_)    ? 1
+               : seqno == static_cast<BlockSeqno>(w.id_->seqno_) ? 0
+                                                                 : -1;
       },
       true, std::move(promise));
 }
@@ -721,7 +726,7 @@ void ArchiveSlice::do_close() {
   id_to_package_.clear();
 }
 
-template<typename T>
+template <typename T>
 td::Promise<T> ArchiveSlice::begin_async_query(td::Promise<T> promise) {
   ++active_queries_;
   return [SelfId = actor_id(this), promise = std::move(promise)](td::Result<T> R) mutable {
@@ -1030,7 +1035,7 @@ void ArchiveSlice::truncate(BlockSeqno masterchain_seqno, ConstBlockHandle, td::
     return;
   }
 
-  std::map<ShardIdFull, PackageInfo*> old_packages;
+  std::map<ShardIdFull, PackageInfo *> old_packages;
   std::map<ShardIdFull, std::shared_ptr<Package>> new_packages;
 
   std::string value;
@@ -1071,7 +1076,7 @@ void ArchiveSlice::truncate(BlockSeqno masterchain_seqno, ConstBlockHandle, td::
     truncate_shard(masterchain_seqno, shard, package->seqno, new_packages[package->shard_prefix].get());
   }
 
-  for (auto& [shard_prefix, package] : old_packages) {
+  for (auto &[shard_prefix, package] : old_packages) {
     auto new_package = new_packages[shard_prefix];
     CHECK(new_package);
     package->package = new_package;

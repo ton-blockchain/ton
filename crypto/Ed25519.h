@@ -18,9 +18,9 @@
 */
 #pragma once
 
-#include "td/utils/common.h"
 #include "td/utils/SharedSlice.h"
 #include "td/utils/Status.h"
+#include "td/utils/common.h"
 
 #if TD_HAVE_OPENSSL
 

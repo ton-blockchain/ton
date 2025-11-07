@@ -17,14 +17,13 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
-#include "td/utils/base64.h"
-
-#include "td/utils/common.h"
-#include "td/utils/Slice.h"
-#include "td/utils/Status.h"
-
 #include <algorithm>
 #include <iterator>
+
+#include "td/utils/Slice.h"
+#include "td/utils/Status.h"
+#include "td/utils/base64.h"
+#include "td/utils/common.h"
 
 namespace td {
 

@@ -24,8 +24,8 @@
     from all source files in the program, then also delete it here.
 */
 #pragma once
-#include "td/actor/actor.h"
 #include "auto/tl/tonlib_api.hpp"
+#include "td/actor/actor.h"
 #include "tonlib/tonlib/TonlibClient.h"
 
 namespace tonlib {

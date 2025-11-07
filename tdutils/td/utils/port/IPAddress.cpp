@@ -18,15 +18,14 @@
 */
 #define _WINSOCK_DEPRECATED_NO_WARNINGS  // we need to use inet_addr instead of inet_pton
 
-#include "td/utils/port/IPAddress.h"
-
+#include "td/utils/ScopeGuard.h"
+#include "td/utils/Slice.h"
 #include "td/utils/format.h"
 #include "td/utils/logging.h"
 #include "td/utils/misc.h"
+#include "td/utils/port/IPAddress.h"
 #include "td/utils/port/SocketFd.h"
 #include "td/utils/port/thread_local.h"
-#include "td/utils/ScopeGuard.h"
-#include "td/utils/Slice.h"
 #include "td/utils/utf8.h"
 
 #if TD_WINDOWS

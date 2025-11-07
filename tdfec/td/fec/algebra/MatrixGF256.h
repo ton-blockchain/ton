@@ -19,7 +19,6 @@
 #pragma once
 #include "td/fec/algebra/Octet.h"
 #include "td/fec/algebra/Simd.h"
-
 #include "td/utils/Span.h"
 #include "td/utils/format.h"
 

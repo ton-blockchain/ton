@@ -29,9 +29,8 @@
 
 #include "auto/tl/ton_api.h"
 #include "auto/tl/ton_api_json.h"
-
-#include "tl/tl_json.h"
 #include "td/utils/Random.h"
+#include "tl/tl_json.h"
 
 namespace {
 std::string config = R"json(

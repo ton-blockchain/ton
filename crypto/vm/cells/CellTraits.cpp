@@ -16,10 +16,9 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "vm/cells/CellTraits.h"
-
-#include "td/utils/StringBuilder.h"
 #include "td/utils/Slice.h"
+#include "td/utils/StringBuilder.h"
+#include "vm/cells/CellTraits.h"
 
 namespace vm {
 td::StringBuilder& operator<<(td::StringBuilder& sb, CellTraits::SpecialType special_type) {

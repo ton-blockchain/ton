@@ -16,10 +16,9 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/utf8.h"
-
 #include "td/utils/logging.h"  // for UNREACHABLE
 #include "td/utils/unicode.h"
+#include "td/utils/utf8.h"
 
 namespace td {
 

@@ -18,21 +18,22 @@
 */
 #pragma once
 
-#include "shard.h"
+#include <ton/ton-tl.hpp>
+
+#include "auto/tl/lite_api.h"
+#include "crypto/vm/db/DynamicBagOfCellsDb.h"
+#include "impl/out-msg-queue-proof.hpp"
+#include "validator-session/validator-session-types.h"
+#include "validator/validator.h"
+
 #include "block.h"
-#include "proof.h"
 #include "external-message.h"
 #include "ihr-message.h"
-#include "shard-block.h"
-#include "message-queue.h"
-#include "validator/validator.h"
 #include "liteserver.h"
-#include "crypto/vm/db/DynamicBagOfCellsDb.h"
-#include "validator-session/validator-session-types.h"
-#include "auto/tl/lite_api.h"
-#include "impl/out-msg-queue-proof.hpp"
-
-#include <ton/ton-tl.hpp>
+#include "message-queue.h"
+#include "proof.h"
+#include "shard-block.h"
+#include "shard.h"
 
 namespace ton {
 
@@ -62,7 +63,7 @@ struct StorageStatCacheStats {
 
   tl_object_ptr<ton_api::validatorStats_storageStatCacheStats> tl() const {
     return create_tl_object<ton_api::validatorStats_storageStatCacheStats>(small_cnt, small_cells, hit_cnt, hit_cells,
-                                                                      miss_cnt, miss_cells);
+                                                                           miss_cnt, miss_cells);
   }
 };
 
@@ -205,8 +206,8 @@ struct ValidationStats {
   tl_object_ptr<ton_api::validatorStats_validatedBlock> tl() const {
     return create_tl_object<ton_api::validatorStats_validatedBlock>(
         create_tl_block_id(block_id), collated_data_hash, validated_at, self.bits256_value(), valid, comment,
-        actual_bytes, actual_collated_data_bytes, total_time, work_time.total.real, work_time.total.cpu,
-        time_stats, work_time.to_str(false), work_time.to_str(true), storage_stat_cache.tl());
+        actual_bytes, actual_collated_data_bytes, total_time, work_time.total.real, work_time.total.cpu, time_stats,
+        work_time.to_str(false), work_time.to_str(true), storage_stat_cache.tl());
   }
 };
 
@@ -402,7 +403,7 @@ class ValidatorManager : public ValidatorManagerInterface {
     promise.set_result(td::Unit());
   }
 
-  virtual void iterate_temp_block_handles(std::function<void(const BlockHandleInterface &)> f) {
+  virtual void iterate_temp_block_handles(std::function<void(const BlockHandleInterface&)> f) {
   }
 
   static bool is_persistent_state(UnixTime ts, UnixTime prev_ts) {

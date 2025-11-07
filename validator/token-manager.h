@@ -18,10 +18,10 @@
 */
 #pragma once
 
+#include <set>
+
 #include "td/actor/actor.h"
 #include "validator/interfaces/validator-manager.h"
-
-#include <set>
 
 namespace ton {
 

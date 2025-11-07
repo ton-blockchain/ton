@@ -16,8 +16,9 @@
 */
 #pragma once
 
-#include <set>
 #include <memory>
+#include <set>
+
 #include "List.h"
 #include "check.h"
 

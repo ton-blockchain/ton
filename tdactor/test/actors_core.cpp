@@ -16,28 +16,26 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/actor/core/ActorLocker.h"
-#include "td/actor/actor.h"
-#include "td/actor/PromiseFuture.h"
-#include "td/actor/ActorStats.h"
-
-#include "td/utils/format.h"
-#include "td/utils/logging.h"
-#include "td/utils/misc.h"
-#include "td/utils/port/thread.h"
-#include "td/utils/port/thread.h"
-#include "td/utils/Random.h"
-#include "td/utils/Slice.h"
-#include "td/utils/StringBuilder.h"
-#include "td/utils/tests.h"
-#include "td/utils/Time.h"
-#include "td/utils/TimedStat.h"
-#include "td/utils/port/sleep.h"
-
 #include <array>
 #include <atomic>
 #include <deque>
 #include <memory>
+
+#include "td/actor/ActorStats.h"
+#include "td/actor/PromiseFuture.h"
+#include "td/actor/actor.h"
+#include "td/actor/core/ActorLocker.h"
+#include "td/utils/Random.h"
+#include "td/utils/Slice.h"
+#include "td/utils/StringBuilder.h"
+#include "td/utils/Time.h"
+#include "td/utils/TimedStat.h"
+#include "td/utils/format.h"
+#include "td/utils/logging.h"
+#include "td/utils/misc.h"
+#include "td/utils/port/sleep.h"
+#include "td/utils/port/thread.h"
+#include "td/utils/tests.h"
 
 TEST(Actor2, signals) {
   using td::actor::core::ActorSignals;

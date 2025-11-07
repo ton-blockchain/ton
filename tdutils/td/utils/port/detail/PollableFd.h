@@ -18,17 +18,17 @@
 */
 #pragma once
 
-#include "td/utils/common.h"
-#include "td/utils/format.h"
-#include "td/utils/List.h"
-#include "td/utils/logging.h"
-#include "td/utils/Observer.h"
-#include "td/utils/port/detail/NativeFd.h"
-#include "td/utils/port/PollFlags.h"
-#include "td/utils/SpinLock.h"
-
 #include <atomic>
 #include <memory>
+
+#include "td/utils/List.h"
+#include "td/utils/Observer.h"
+#include "td/utils/SpinLock.h"
+#include "td/utils/common.h"
+#include "td/utils/format.h"
+#include "td/utils/logging.h"
+#include "td/utils/port/PollFlags.h"
+#include "td/utils/port/detail/NativeFd.h"
 
 namespace td {
 

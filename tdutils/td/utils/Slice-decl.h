@@ -18,9 +18,9 @@
 */
 #pragma once
 
-#include "td/utils/common.h"
-
 #include <type_traits>
+
+#include "td/utils/common.h"
 
 namespace td {
 

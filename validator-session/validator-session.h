@@ -20,15 +20,13 @@
 
 #include "adnl/adnl.h"
 #include "adnl/utils.hpp"
+#include "auto/tl/lite_api.h"
+#include "catchain/catchain-types.h"
+#include "overlay/overlays.h"
 #include "rldp2/rldp.h"
-
 #include "ton/ton-types.h"
 
-#include "overlay/overlays.h"
-#include "catchain/catchain-types.h"
-
 #include "validator-session-types.h"
-#include "auto/tl/lite_api.h"
 
 namespace ton {
 

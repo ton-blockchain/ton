@@ -16,15 +16,13 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/port/uname.h"
-
-#include "td/utils/port/config.h"
-
 #include "td/utils/common.h"
 #include "td/utils/filesystem.h"
 #include "td/utils/logging.h"
 #include "td/utils/misc.h"
 #include "td/utils/port/Stat.h"
+#include "td/utils/port/config.h"
+#include "td/utils/port/uname.h"
 
 #if TD_PORT_POSIX
 

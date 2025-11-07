@@ -17,15 +17,14 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
-#include "MerkleTree.h"
-
 #include "common/bitstring.h"
 #include "td/utils/UInt.h"
-
 #include "vm/cells/CellSlice.h"
 #include "vm/cells/MerkleProof.h"
 #include "vm/cellslice.h"
 #include "vm/excno.hpp"
+
+#include "MerkleTree.h"
 
 namespace ton {
 static td::Result<td::Ref<vm::Cell>> unpack_proof(td::Ref<vm::Cell> root) {

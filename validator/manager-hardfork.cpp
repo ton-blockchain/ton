@@ -16,18 +16,18 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "manager-hardfork.hpp"
-#include "validator-group.hpp"
 #include "adnl/utils.hpp"
-#include "downloaders/wait-block-state.hpp"
-#include "downloaders/wait-block-state-merge.hpp"
 #include "downloaders/wait-block-data-disk.hpp"
-#include "validator-group.hpp"
-#include "fabric.h"
-#include "manager.h"
-#include "ton/ton-io.hpp"
-#include "td/utils/overloaded.h"
+#include "downloaders/wait-block-state-merge.hpp"
+#include "downloaders/wait-block-state.hpp"
 #include "td/utils/filesystem.h"
+#include "td/utils/overloaded.h"
+#include "ton/ton-io.hpp"
+
+#include "fabric.h"
+#include "manager-hardfork.hpp"
+#include "manager.h"
+#include "validator-group.hpp"
 
 namespace ton {
 

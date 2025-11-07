@@ -16,8 +16,8 @@
 */
 #pragma once
 
-#include "ton/ton-types.h"
 #include "tl/generate/auto/tl/ton_api.h"
+#include "ton/ton-types.h"
 
 namespace ton::validator {
 

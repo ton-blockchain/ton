@@ -19,7 +19,6 @@
 #pragma once
 
 #include "td/utils/Status.h"
-
 #include "vm/cells/CellBuilder.h"
 
 namespace vm {

@@ -18,11 +18,10 @@
 */
 #pragma once
 #include "td/db/KeyValue.h"
-#include "vm/db/DynamicBagOfCellsDb.h"
-#include "vm/cells.h"
-
 #include "td/utils/Slice.h"
 #include "td/utils/Status.h"
+#include "vm/cells.h"
+#include "vm/db/DynamicBagOfCellsDb.h"
 
 namespace vm {
 using KeyValue = td::KeyValue;
@@ -49,7 +48,8 @@ class CellLoader {
   };
   CellLoader(std::shared_ptr<KeyValueReader> reader, std::function<void(const LoadResult &)> on_load_callback = {});
   td::Result<LoadResult> load(td::Slice hash, bool need_data, ExtCellCreator &ext_cell_creator);
-  td::Result<std::vector<LoadResult>> load_bulk(td::Span<td::Slice> hashes, bool need_data, ExtCellCreator &ext_cell_creator);
+  td::Result<std::vector<LoadResult>> load_bulk(td::Span<td::Slice> hashes, bool need_data,
+                                                ExtCellCreator &ext_cell_creator);
   static td::Result<LoadResult> load(td::Slice hash, td::Slice value, bool need_data, ExtCellCreator &ext_cell_creator);
   td::Result<LoadResult> load_refcnt(td::Slice hash);  // This only loads refcnt_, cell_ == null
   KeyValueReader &key_value_reader() const {

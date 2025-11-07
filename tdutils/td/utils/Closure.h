@@ -18,14 +18,14 @@
 */
 #pragma once
 
-#include "td/utils/common.h"
-#include "td/utils/invoke.h"
-#include "td/utils/logging.h"
-
 #include <cstdlib>
 #include <tuple>
 #include <type_traits>
 #include <utility>
+
+#include "td/utils/common.h"
+#include "td/utils/invoke.h"
+#include "td/utils/logging.h"
 
 //
 // Essentially we have:

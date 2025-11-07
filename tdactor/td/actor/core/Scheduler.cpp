@@ -16,12 +16,11 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/actor/core/Scheduler.h"
+#include <coroutine>
 
 #include "td/actor/core/CpuWorker.h"
 #include "td/actor/core/IoWorker.h"
-
-#include <coroutine>
+#include "td/actor/core/Scheduler.h"
 
 namespace td {
 namespace actor {
@@ -183,9 +182,8 @@ void Scheduler::ContextImpl::add_token_to_cpu_queue(SchedulerToken token, Schedu
   }
   auto &info = scheduler_group()->schedulers.at(scheduler_id.value());
   if (scheduler_id == get_scheduler_id() && cpu_worker_id_.is_valid()) {
-    auto should_notify = info.cpu_local_queue[cpu_worker_id_.value()].push(token, [&](auto value) {
-      info.cpu_queue->push(value, get_thread_id());
-    });
+    auto should_notify = info.cpu_local_queue[cpu_worker_id_.value()].push(
+        token, [&](auto value) { info.cpu_queue->push(value, get_thread_id()); });
     if (should_notify) {
       info.cpu_queue_waiter->notify();
     }

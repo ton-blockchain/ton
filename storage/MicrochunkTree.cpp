@@ -15,10 +15,11 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "MicrochunkTree.h"
-#include "Torrent.h"
 #include "vm/cells/CellSlice.h"
 #include "vm/cells/MerkleProof.h"
+
+#include "MicrochunkTree.h"
+#include "Torrent.h"
 
 namespace ton {
 

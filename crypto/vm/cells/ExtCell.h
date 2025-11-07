@@ -17,14 +17,14 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "vm/cells/Cell.h"
-#include "vm/cells/PrunnedCell.h"
-#include "common/AtomicRef.h"
-
 #include <mutex>
-#include "td/utils/port/thread_local.h"
+
+#include "common/AtomicRef.h"
 #include "td/utils/HazardPointers.h"
 #include "td/utils/optional.h"
+#include "td/utils/port/thread_local.h"
+#include "vm/cells/Cell.h"
+#include "vm/cells/PrunnedCell.h"
 
 namespace vm {
 

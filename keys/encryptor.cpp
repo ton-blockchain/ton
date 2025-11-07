@@ -16,15 +16,14 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include "auto/tl/ton_api.hpp"
+#include "common/errorcode.h"
+#include "common/status.h"
 #include "td/utils/crypto.h"
 #include "td/utils/overloaded.h"
 
 #include "encryptor.h"
 #include "encryptor.hpp"
-#include "auto/tl/ton_api.hpp"
-
-#include "common/status.h"
-#include "common/errorcode.h"
 #include "keys.hpp"
 
 namespace ton {

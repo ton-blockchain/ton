@@ -16,12 +16,13 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "func.h"
-#include "td/utils/crypto.h"
+#include "block/block.h"
 #include "common/refint.h"
 #include "openssl/digest.hpp"
-#include "block/block.h"
+#include "td/utils/crypto.h"
+
 #include "block-parse.h"
+#include "func.h"
 
 namespace sym {
 
@@ -270,25 +271,25 @@ void parse_const_decl(Lexer& lex) {
     code.flags |= CodeBlob::_ComputeAsmLtr;
   }
   // Handles processing and resolution of literals and consts
-  auto x = parse_expr(lex, code, false); // also does lex.next() !
+  auto x = parse_expr(lex, code, false);  // also does lex.next() !
   if (x->flags != Expr::_IsRvalue) {
     lex.cur().error("expression is not strictly Rvalue");
   }
   if ((wanted_type == Expr::_Const) && (x->cls == Expr::_Apply))
-    wanted_type = Expr::_None; // Apply is additionally checked to result in an integer
+    wanted_type = Expr::_None;  // Apply is additionally checked to result in an integer
   if ((wanted_type != Expr::_None) && (x->cls != wanted_type)) {
     lex.cur().error("expression type does not match wanted type");
   }
   SymValConst* new_value = nullptr;
-  if (x->cls == Expr::_Const) { // Integer constant
+  if (x->cls == Expr::_Const) {  // Integer constant
     new_value = new SymValConst{const_cnt++, x->intval};
-  } else if (x->cls == Expr::_SliceConst) { // Slice constant (string)
+  } else if (x->cls == Expr::_SliceConst) {  // Slice constant (string)
     new_value = new SymValConst{const_cnt++, x->strval};
   } else if (x->cls == Expr::_Apply) {
     code.emplace_back(loc, Op::_Import, std::vector<var_idx_t>());
     auto tmp_vars = x->pre_compile(code);
     code.emplace_back(loc, Op::_Return, std::move(tmp_vars));
-    code.emplace_back(loc, Op::_Nop); // This is necessary to prevent SIGSEGV!
+    code.emplace_back(loc, Op::_Nop);  // This is necessary to prevent SIGSEGV!
     // It is REQUIRED to execute "optimizations" as in func.cpp
     code.simplify_var_types();
     code.prune_unreachable_code();
@@ -427,7 +428,8 @@ Expr* make_func_apply(Expr* fun, Expr* x) {
     res->flags = Expr::_IsRvalue | (fun->flags & Expr::_IsImpure);
   } else {
     res = new Expr{Expr::_VarApply, {fun, x}};
-    res->flags = Expr::_IsRvalue | Expr::_IsImpure; // for `some_var()`, don't make any considerations about runtime value, it's impure
+    res->flags = Expr::_IsRvalue |
+                 Expr::_IsImpure;  // for `some_var()`, don't make any considerations about runtime value, it's impure
   }
   return res;
 }
@@ -503,8 +505,7 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
     switch (str_type) {
       case 0:
       case 's':
-      case 'a':
-      {
+      case 'a': {
         res = new Expr{Expr::_SliceConst, lex.cur().loc};
         res->e_type = TypeExpr::new_atomic(_Slice);
         break;
@@ -512,14 +513,12 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
       case 'u':
       case 'h':
       case 'H':
-      case 'c':
-      {
+      case 'c': {
         res = new Expr{Expr::_Const, lex.cur().loc};
         res->e_type = TypeExpr::new_atomic(_Int);
         break;
       }
-      default:
-      {
+      default: {
         res = new Expr{Expr::_Const, lex.cur().loc};
         res->e_type = TypeExpr::new_atomic(_Int);
         lex.cur().error("invalid string type `" + std::string(1, static_cast<char>(str_type)) + "`");
@@ -535,7 +534,8 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
       case 's': {
         res->strval = str;
         unsigned char buff[128];
-        int bits = (int)td::bitstring::parse_bitstring_hex_literal(buff, sizeof(buff), str.data(), str.data() + str.size());
+        int bits =
+            (int)td::bitstring::parse_bitstring_hex_literal(buff, sizeof(buff), str.data(), str.data() + str.size());
         if (bits < 0) {
           lex.cur().error_at("Invalid hex bitstring constant `", "`");
         }
@@ -561,15 +561,13 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
         break;
       }
       case 'h':
-      case 'H':
-      {
+      case 'H': {
         unsigned char hash[32];
         digest::hash_str<digest::SHA256>(hash, str.data(), str.size());
         res->intval = td::bits_to_refint(hash, (str_type == 'h') ? 32 : 256, false);
         break;
       }
-      case 'c':
-      {
+      case 'c': {
         res->intval = td::make_refint(td::crc32(td::Slice{str}));
         break;
       }
@@ -625,12 +623,10 @@ Expr* parse_expr100(Lexer& lex, CodeBlob& code, bool nv) {
       if (val->type == _Int) {
         res->cls = Expr::_Const;
         res->intval = val->get_int_value();
-      }
-      else if (val->type == _Slice) {
+      } else if (val->type == _Slice) {
         res->cls = Expr::_SliceConst;
         res->strval = val->get_str_value();
-      }
-      else {
+      } else {
         lex.cur().error("Invalid symbolic constant type");
       }
       res->e_type = TypeExpr::new_atomic(val->type);
@@ -1317,7 +1313,7 @@ SymValAsmFunc* parse_asm_func_body(Lexer& lex, TypeExpr* func_type, const Formal
     lex.expect(')');
   }
   while (lex.tp() == _String) {
-    std::string ops = lex.cur().str; // <op>\n<op>\n...
+    std::string ops = lex.cur().str;  // <op>\n<op>\n...
     std::string op;
     for (const char& c : ops) {
       if (c == '\n') {
@@ -1350,10 +1346,10 @@ SymValAsmFunc* parse_asm_func_body(Lexer& lex, TypeExpr* func_type, const Formal
   }
   crc_s.push_back(impure);
   for (const int& x : arg_order) {
-    crc_s += std::string((const char*) (&x), (const char*) (&x + 1));
+    crc_s += std::string((const char*)(&x), (const char*)(&x + 1));
   }
   for (const int& x : ret_order) {
-    crc_s += std::string((const char*) (&x), (const char*) (&x + 1));
+    crc_s += std::string((const char*)(&x), (const char*)(&x + 1));
   }
   auto res = new SymValAsmFunc{func_type, asm_ops, impure};
   res->arg_order = std::move(arg_order);
@@ -1586,7 +1582,8 @@ void parse_pragma(Lexer& lex) {
   lex.next();
   if (!pragma_name.compare("version") || !pragma_name.compare("not-version")) {
     bool negate = !pragma_name.compare("not-version");
-    char op = '='; bool eq = false;
+    char op = '=';
+    bool eq = false;
     int sem_ver[3] = {0, 0, 0};
     char segs = 1;
     auto stoi = [&](const std::string& s) {
@@ -1663,32 +1660,29 @@ void parse_pragma(Lexer& lex) {
     bool match = true;
     switch (op) {
       case '=':
-        if ((func_ver[0] != sem_ver[0]) ||
-            (func_ver[1] != sem_ver[1]) ||
-            (func_ver[2] != sem_ver[2])) {
+        if ((func_ver[0] != sem_ver[0]) || (func_ver[1] != sem_ver[1]) || (func_ver[2] != sem_ver[2])) {
           match = false;
         }
         break;
       case '>':
-        if ( ((func_ver[0] == sem_ver[0]) && (func_ver[1] == sem_ver[1]) && (func_ver[2] == sem_ver[2]) && !eq) ||
-             ((func_ver[0] == sem_ver[0]) && (func_ver[1] == sem_ver[1]) && (func_ver[2] < sem_ver[2])) ||
-             ((func_ver[0] == sem_ver[0]) && (func_ver[1] < sem_ver[1])) ||
-             ((func_ver[0] < sem_ver[0])) ) {
+        if (((func_ver[0] == sem_ver[0]) && (func_ver[1] == sem_ver[1]) && (func_ver[2] == sem_ver[2]) && !eq) ||
+            ((func_ver[0] == sem_ver[0]) && (func_ver[1] == sem_ver[1]) && (func_ver[2] < sem_ver[2])) ||
+            ((func_ver[0] == sem_ver[0]) && (func_ver[1] < sem_ver[1])) || ((func_ver[0] < sem_ver[0]))) {
           match = false;
         }
         break;
       case '<':
-        if ( ((func_ver[0] == sem_ver[0]) && (func_ver[1] == sem_ver[1]) && (func_ver[2] == sem_ver[2]) && !eq) ||
-             ((func_ver[0] == sem_ver[0]) && (func_ver[1] == sem_ver[1]) && (func_ver[2] > sem_ver[2])) ||
-             ((func_ver[0] == sem_ver[0]) && (func_ver[1] > sem_ver[1])) ||
-             ((func_ver[0] > sem_ver[0])) ) {
+        if (((func_ver[0] == sem_ver[0]) && (func_ver[1] == sem_ver[1]) && (func_ver[2] == sem_ver[2]) && !eq) ||
+            ((func_ver[0] == sem_ver[0]) && (func_ver[1] == sem_ver[1]) && (func_ver[2] > sem_ver[2])) ||
+            ((func_ver[0] == sem_ver[0]) && (func_ver[1] > sem_ver[1])) || ((func_ver[0] > sem_ver[0]))) {
           match = false;
         }
         break;
       case '^':
-        if ( ((segs == 3) && ((func_ver[0] != sem_ver[0]) || (func_ver[1] != sem_ver[1]) || (func_ver[2] < sem_ver[2])))
-          || ((segs == 2) && ((func_ver[0] != sem_ver[0]) || (func_ver[1] < sem_ver[1])))
-          || ((segs == 1) && ((func_ver[0] < sem_ver[0]))) ) {
+        if (((segs == 3) &&
+             ((func_ver[0] != sem_ver[0]) || (func_ver[1] != sem_ver[1]) || (func_ver[2] < sem_ver[2]))) ||
+            ((segs == 2) && ((func_ver[0] != sem_ver[0]) || (func_ver[1] < sem_ver[1]))) ||
+            ((segs == 1) && ((func_ver[0] < sem_ver[0])))) {
           match = false;
         }
         break;
@@ -1783,7 +1777,7 @@ bool parse_source_file(const char* filename, src::Lexem lex, bool is_main) {
     }
     return true;
   }
-  if (lex.tp) { // included
+  if (lex.tp) {  // included
     funC::generated_from += std::string{"incl:"};
   }
   funC::generated_from += std::string{"`"} + filename + "` ";

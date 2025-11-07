@@ -25,19 +25,19 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/tl/tl_writer.h"
-#include "tl_writer_cpp.h"
-#include "tl_writer_h.h"
-#include "tl_writer_hpp.h"
-#include "tl_writer_jni_h.h"
-#include "tl_writer_jni_cpp.h"
-#include "tl_json_converter.h"
+#include <string>
+#include <vector>
 
 #include "td/tl/tl_config.h"
 #include "td/tl/tl_generate.h"
+#include "td/tl/tl_writer.h"
 
-#include <string>
-#include <vector>
+#include "tl_json_converter.h"
+#include "tl_writer_cpp.h"
+#include "tl_writer_h.h"
+#include "tl_writer_hpp.h"
+#include "tl_writer_jni_cpp.h"
+#include "tl_writer_jni_h.h"
 
 template <class WriterCpp = td::TD_TL_writer_cpp, class WriterH = td::TD_TL_writer_h,
           class WriterHpp = td::TD_TL_writer_hpp>

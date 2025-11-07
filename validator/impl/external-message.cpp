@@ -17,23 +17,25 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
-#include "external-message.hpp"
-#include "collator-impl.h"
-#include "vm/boc.h"
-#include "block/block-parse.h"
 #include "block/block-auto.h"
 #include "block/block-db.h"
-#include "fabric.h"
+#include "block/block-parse.h"
+#include "crypto/openssl/rand.hpp"
 #include "td/actor/actor.h"
 #include "td/utils/Random.h"
-#include "crypto/openssl/rand.hpp"
+#include "vm/boc.h"
+
+#include "collator-impl.h"
+#include "external-message.hpp"
+#include "fabric.h"
 
 namespace ton {
 
 namespace validator {
 using td::Ref;
 
-ExtMessageQ::ExtMessageQ(td::BufferSlice data, td::Ref<vm::Cell> root, AccountIdPrefixFull addr_prefix, ton::WorkchainId wc, ton::StdSmcAddress addr)
+ExtMessageQ::ExtMessageQ(td::BufferSlice data, td::Ref<vm::Cell> root, AccountIdPrefixFull addr_prefix,
+                         ton::WorkchainId wc, ton::StdSmcAddress addr)
     : root_(std::move(root)), addr_prefix_(addr_prefix), data_(std::move(data)), wc_(wc), addr_(addr) {
   hash_ = block::compute_file_hash(data_);
 }
@@ -79,7 +81,7 @@ td::Result<Ref<ExtMessageQ>> ExtMessageQ::create_ext_message(td::BufferSlice dat
   }
   ton::StdSmcAddress addr;
   ton::WorkchainId wc;
-  if(!block::tlb::t_MsgAddressInt.extract_std_address(info.dest, wc, addr)) {
+  if (!block::tlb::t_MsgAddressInt.extract_std_address(info.dest, wc, addr)) {
     return td::Status::Error(PSLICE() << "Can't parse destination address");
   }
 
@@ -125,49 +127,45 @@ void ExtMessageQ::run_message(td::Ref<ExtMessage> message, td::actor::ActorId<to
       });
 }
 
-td::Status ExtMessageQ::run_message_on_account(ton::WorkchainId wc,
-                                               block::Account* acc,
-                                               UnixTime utime, LogicalTime lt,
-                                               td::Ref<vm::Cell> msg_root,
-                                               std::unique_ptr<block::ConfigInfo> config) {
+td::Status ExtMessageQ::run_message_on_account(ton::WorkchainId wc, block::Account* acc, UnixTime utime, LogicalTime lt,
+                                               td::Ref<vm::Cell> msg_root, std::unique_ptr<block::ConfigInfo> config) {
+  Ref<vm::Cell> old_mparams;
+  std::vector<block::StoragePrices> storage_prices_;
+  block::StoragePhaseConfig storage_phase_cfg_{&storage_prices_};
+  td::BitArray<256> rand_seed_;
+  block::ComputePhaseConfig compute_phase_cfg_;
+  block::ActionPhaseConfig action_phase_cfg_;
+  block::SerializeConfig serialize_config_;
+  td::RefInt256 masterchain_create_fee, basechain_create_fee;
 
-   Ref<vm::Cell> old_mparams;
-   std::vector<block::StoragePrices> storage_prices_;
-   block::StoragePhaseConfig storage_phase_cfg_{&storage_prices_};
-   td::BitArray<256> rand_seed_;
-   block::ComputePhaseConfig compute_phase_cfg_;
-   block::ActionPhaseConfig action_phase_cfg_;
-   block::SerializeConfig serialize_config_;
-   td::RefInt256 masterchain_create_fee, basechain_create_fee;
+  auto fetch_res = block::FetchConfigParams::fetch_config_params(
+      *config, &old_mparams, &storage_prices_, &storage_phase_cfg_, &rand_seed_, &compute_phase_cfg_,
+      &action_phase_cfg_, &serialize_config_, &masterchain_create_fee, &basechain_create_fee, wc, utime);
+  if (fetch_res.is_error()) {
+    auto error = fetch_res.move_as_error();
+    LOG(DEBUG) << "Cannot fetch config params: " << error.message();
+    return error.move_as_error_prefix("Cannot fetch config params: ");
+  }
+  compute_phase_cfg_.libraries = std::make_unique<vm::Dictionary>(config->get_libraries_root(), 256);
+  compute_phase_cfg_.with_vm_log = true;
+  compute_phase_cfg_.stop_on_accept_message = true;
 
-   auto fetch_res = block::FetchConfigParams::fetch_config_params(
-       *config, &old_mparams, &storage_prices_, &storage_phase_cfg_, &rand_seed_, &compute_phase_cfg_,
-       &action_phase_cfg_, &serialize_config_, &masterchain_create_fee, &basechain_create_fee, wc, utime);
-   if(fetch_res.is_error()) {
-     auto error = fetch_res.move_as_error();
-     LOG(DEBUG) << "Cannot fetch config params: " << error.message();
-     return error.move_as_error_prefix("Cannot fetch config params: ");
-   }
-   compute_phase_cfg_.libraries = std::make_unique<vm::Dictionary>(config->get_libraries_root(), 256);
-   compute_phase_cfg_.with_vm_log = true;
-   compute_phase_cfg_.stop_on_accept_message = true;
+  auto res =
+      Collator::impl_create_ordinary_transaction(msg_root, acc, utime, lt, &storage_phase_cfg_, &compute_phase_cfg_,
+                                                 &action_phase_cfg_, &serialize_config_, true, lt);
+  if (res.is_error()) {
+    auto error = res.move_as_error();
+    LOG(DEBUG) << "Cannot run message on account: " << error.message();
+    return error.move_as_error_prefix("Cannot run message on account: ");
+  }
+  std::unique_ptr<block::transaction::Transaction> trans = res.move_as_ok();
 
-   auto res =
-       Collator::impl_create_ordinary_transaction(msg_root, acc, utime, lt, &storage_phase_cfg_, &compute_phase_cfg_,
-                                                  &action_phase_cfg_, &serialize_config_, true, lt);
-   if(res.is_error()) {
-     auto error = res.move_as_error();
-     LOG(DEBUG) << "Cannot run message on account: " << error.message();
-     return error.move_as_error_prefix("Cannot run message on account: ");
-   }
-   std::unique_ptr<block::transaction::Transaction> trans = res.move_as_ok();
-
-   auto trans_root = trans->commit(*acc);
-   if (trans_root.is_null()) {
-     LOG(DEBUG) << "Cannot commit new transaction for smart contract";
-     return td::Status::Error("Cannot commit new transaction for smart contract");
-   }
-   return td::Status::OK();
+  auto trans_root = trans->commit(*acc);
+  if (trans_root.is_null()) {
+    LOG(DEBUG) << "Cannot commit new transaction for smart contract";
+    return td::Status::Error("Cannot commit new transaction for smart contract");
+  }
+  return td::Status::OK();
 }
 
 }  // namespace validator

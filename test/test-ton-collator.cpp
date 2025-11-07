@@ -28,32 +28,27 @@
 #include "adnl/adnl.h"
 #include "adnl/utils.hpp"
 #include "auto/tl/ton_api_json.h"
+#include "catchain/catchain.h"
+#include "common/errorlog.h"
+#include "crypto/block/block-db.h"
+#include "crypto/vm/vm.h"
 #include "dht/dht.h"
 #include "overlay/overlays.h"
 #include "td/utils/OptionParser.h"
+#include "td/utils/Random.h"
 #include "td/utils/Time.h"
 #include "td/utils/filesystem.h"
 #include "td/utils/format.h"
-#include "td/utils/Random.h"
-#include "td/utils/port/signals.h"
 #include "td/utils/port/FileFd.h"
-#include "catchain/catchain.h"
-#include "validator-session/validator-session.h"
-#include "validator/manager-disk.h"
-#include "td/utils/filesystem.h"
 #include "td/utils/port/path.h"
-
-#include "ton/ton-types.h"
-#include "ton/ton-tl.hpp"
+#include "td/utils/port/signals.h"
 #include "ton/ton-io.hpp"
-
-
+#include "ton/ton-tl.hpp"
+#include "ton/ton-types.h"
+#include "validator-session/validator-session.h"
 #include "validator/fabric.h"
 #include "validator/impl/collator.h"
-#include "crypto/vm/vm.h"
-#include "crypto/block/block-db.h"
-
-#include "common/errorlog.h"
+#include "validator/manager-disk.h"
 
 #if TD_DARWIN || TD_LINUX
 #include <unistd.h>
@@ -231,12 +226,12 @@ class TestNode : public td::actor::Actor {
   }
 
   td::Status create_validator_options() {
-    if(!global_config_.length()) {
+    if (!global_config_.length()) {
       LOG(INFO) << "no global config file passed. Using zero-init config";
       opts_ = ton::validator::ValidatorManagerOptions::create(
-        ton::BlockIdExt{ton::masterchainId, ton::shardIdAll, 0, ton::RootHash::zero(), ton::FileHash::zero()},
-        ton::BlockIdExt{ton::masterchainId, ton::shardIdAll, 0, ton::RootHash::zero(), ton::FileHash::zero()});
-     return td::Status::OK();
+          ton::BlockIdExt{ton::masterchainId, ton::shardIdAll, 0, ton::RootHash::zero(), ton::FileHash::zero()},
+          ton::BlockIdExt{ton::masterchainId, ton::shardIdAll, 0, ton::RootHash::zero(), ton::FileHash::zero()});
+      return td::Status::OK();
     }
     TRY_RESULT_PREFIX(conf_data, td::read_file(global_config_), "failed to read: ");
     TRY_RESULT_PREFIX(conf_json, td::json_decode(conf_data.as_slice()), "failed to parse json: ");
@@ -256,7 +251,7 @@ class TestNode : public td::actor::Actor {
     std::vector<ton::BlockIdExt> h;
     for (auto &x : conf.validator_->hardforks_) {
       auto b = ton::create_block_id(x);
-       if (!b.is_masterchain()) {
+      if (!b.is_masterchain()) {
         return td::Status::Error(ton::ErrorCode::error,
                                  "[validator/hardforks] section contains not masterchain block id");
       }
@@ -272,11 +267,9 @@ class TestNode : public td::actor::Actor {
     }
     opts_.write().set_hardforks(std::move(h));
 
-
-    LOG(INFO) << "Hardforks num in config: "<< opts_->get_hardforks().size();
+    LOG(INFO) << "Hardforks num in config: " << opts_->get_hardforks().size();
     return td::Status::OK();
   }
-
 
   void run() {
     zero_id_.workchain = ton::masterchainId;

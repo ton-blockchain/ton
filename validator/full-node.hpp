@@ -18,18 +18,19 @@
 */
 #pragma once
 
-#include "full-node.h"
 #include "full-node-shard.h"
+#include "full-node.h"
 //#include "ton-node-slave.h"
+#include <map>
+#include <queue>
+#include <set>
+#include <token-manager.h>
+
 #include "interfaces/proof.h"
 #include "interfaces/shard.h"
-#include "full-node-private-overlay.hpp"
-#include "full-node-fast-sync-overlays.hpp"
 
-#include <map>
-#include <set>
-#include <queue>
-#include <token-manager.h>
+#include "full-node-fast-sync-overlays.hpp"
+#include "full-node-private-overlay.hpp"
 
 namespace ton {
 

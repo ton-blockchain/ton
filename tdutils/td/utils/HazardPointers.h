@@ -18,11 +18,11 @@
 */
 #pragma once
 
-#include "td/utils/common.h"
-
 #include <array>
 #include <atomic>
 #include <memory>
+
+#include "td/utils/common.h"
 
 namespace td {
 

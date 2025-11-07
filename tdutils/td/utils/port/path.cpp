@@ -16,18 +16,16 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/port/path.h"
-
-#include "td/utils/port/config.h"
-
+#include "td/utils/ScopeGuard.h"
 #include "td/utils/format.h"
 #include "td/utils/logging.h"
+#include "td/utils/port/config.h"
 #include "td/utils/port/detail/skip_eintr.h"
-#include "td/utils/ScopeGuard.h"
+#include "td/utils/port/path.h"
 
 #if TD_PORT_WINDOWS
-#include "td/utils/port/wstring_convert.h"
 #include "td/utils/Random.h"
+#include "td/utils/port/wstring_convert.h"
 #endif
 
 #if TD_PORT_POSIX

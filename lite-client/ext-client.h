@@ -15,9 +15,10 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #pragma once
+#include "adnl/adnl-ext-client.h"
 #include "td/actor/actor.h"
 #include "ton/ton-types.h"
-#include "adnl/adnl-ext-client.h"
+
 #include "query-utils.hpp"
 
 namespace liteclient {
