@@ -34,7 +34,30 @@ namespace validator {
 
 class ValidatorManager;
 
-class ValidatorGroup : public td::actor::Actor {
+class IValidatorGroup : public td::actor::Actor {
+ public:
+  static td::actor::ActorOwn<IValidatorGroup> create_catchain(
+      td::Slice name, ShardIdFull shard, PublicKeyHash local_id, ValidatorSessionId session_id,
+      td::Ref<ValidatorSet> validator_set, BlockSeqno last_key_block_seqno,
+      validatorsession::ValidatorSessionOptions config, td::actor::ActorId<keyring::Keyring> keyring,
+      td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
+      td::actor::ActorId<overlay::Overlays> overlays, std::string db_root,
+      td::actor::ActorId<ValidatorManager> validator_manager, td::actor::ActorId<CollationManager> collation_manager,
+      bool create_session, bool allow_unsafe_self_blocks_resync, td::Ref<ValidatorManagerOptions> opts,
+      bool monitoring_shard);
+
+  virtual void start(std::vector<BlockIdExt> prev, BlockIdExt min_masterchain_block_id) = 0;
+  virtual void create_session() = 0;
+
+  virtual void update_options(td::Ref<ValidatorManagerOptions> opts, bool apply_blocks) = 0;
+
+  virtual void get_validator_group_info_for_litequery(
+      td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroupInfo>> promise) = 0;
+
+  virtual void destroy() = 0;
+};
+
+class ValidatorGroup : public IValidatorGroup {
  public:
   void generate_block_candidate(validatorsession::BlockSourceInfo source_info, td::Promise<GeneratedCandidate> promise);
   void generate_block_candidate_cont(validatorsession::BlockSourceInfo source_info,
@@ -60,9 +83,9 @@ class ValidatorGroup : public td::actor::Actor {
                                  td::Promise<GeneratedCandidate> promise);
   void generated_block_optimistic(validatorsession::BlockSourceInfo source_info, td::Result<GeneratedCandidate> R);
 
-  void start(std::vector<BlockIdExt> prev, BlockIdExt min_masterchain_block_id);
-  void create_session();
-  void destroy();
+  void start(std::vector<BlockIdExt> prev, BlockIdExt min_masterchain_block_id) override;
+  void create_session() override;
+  void destroy() override;
   void start_up() override {
     if (init_) {
       init_ = false;
@@ -75,9 +98,9 @@ class ValidatorGroup : public td::actor::Actor {
   }
 
   void get_validator_group_info_for_litequery(
-      td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroupInfo>> promise);
+      td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroupInfo>> promise) override;
 
-  void update_options(td::Ref<ValidatorManagerOptions> opts, bool apply_blocks) {
+  void update_options(td::Ref<ValidatorManagerOptions> opts, bool apply_blocks) override {
     opts_ = std::move(opts);
     monitoring_shard_ = apply_blocks;
   }

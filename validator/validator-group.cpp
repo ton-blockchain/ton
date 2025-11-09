@@ -33,6 +33,21 @@ namespace ton {
 
 namespace validator {
 
+td::actor::ActorOwn<IValidatorGroup> IValidatorGroup::create_catchain(
+    td::Slice name, ShardIdFull shard, PublicKeyHash local_id, ValidatorSessionId session_id,
+    td::Ref<ValidatorSet> validator_set, BlockSeqno last_key_block_seqno,
+    validatorsession::ValidatorSessionOptions config, td::actor::ActorId<keyring::Keyring> keyring,
+    td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
+    td::actor::ActorId<overlay::Overlays> overlays, std::string db_root,
+    td::actor::ActorId<ValidatorManager> validator_manager, td::actor::ActorId<CollationManager> collation_manager,
+    bool create_session, bool allow_unsafe_self_blocks_resync, td::Ref<ValidatorManagerOptions> opts,
+    bool monitoring_shard) {
+  return td::actor::create_actor<ValidatorGroup>(
+      name, shard, std::move(local_id), session_id, std::move(validator_set), last_key_block_seqno, std::move(config),
+      keyring, adnl, rldp, rldp2, overlays, std::move(db_root), validator_manager, collation_manager, create_session,
+      allow_unsafe_self_blocks_resync, std::move(opts), monitoring_shard);
+}
+
 static bool need_send_candidate_broadcast(const validatorsession::BlockSourceInfo &source_info, bool is_masterchain) {
   return source_info.priority.first_block_round == source_info.priority.round && source_info.priority.priority == 0 &&
          !is_masterchain;

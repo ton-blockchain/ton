@@ -212,14 +212,14 @@ class ValidatorManagerImpl : public ValidatorManager {
   ValidatorSessionId get_validator_set_id(ShardIdFull shard, td::Ref<ValidatorSet> val_set, td::Bits256 opts_hash,
                                           BlockSeqno last_key_block_seqno,
                                           const validatorsession::ValidatorSessionOptions &opts);
-  td::actor::ActorOwn<ValidatorGroup> create_validator_group(ValidatorSessionId session_id, ShardIdFull shard,
-                                                             td::Ref<ValidatorSet> validator_set, BlockSeqno key_seqno,
-                                                             validatorsession::ValidatorSessionOptions opts,
-                                                             bool create_catchain);
+  td::actor::ActorOwn<IValidatorGroup> create_validator_group(ValidatorSessionId session_id, ShardIdFull shard,
+                                                              td::Ref<ValidatorSet> validator_set, BlockSeqno key_seqno,
+                                                              validatorsession::ValidatorSessionOptions opts,
+                                                              bool create_catchain);
   td::actor::ActorId<CollationManager> get_collation_manager(adnl::AdnlNodeIdShort adnl_id);
 
   struct ValidatorGroupEntry {
-    td::actor::ActorOwn<ValidatorGroup> actor;
+    td::actor::ActorOwn<IValidatorGroup> actor;
     ShardIdFull shard;
   };
   std::map<ValidatorSessionId, ValidatorGroupEntry> validator_groups_;
@@ -261,7 +261,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void update_shard_overlays();
   void update_shards();
   void update_shard_blocks();
-  void written_destroyed_validator_sessions(std::vector<td::actor::ActorId<ValidatorGroup>> groups);
+  void written_destroyed_validator_sessions(std::vector<td::actor::ActorId<IValidatorGroup>> groups);
   void updated_init_block(BlockIdExt last_rotate_block_id) {
     last_rotate_block_id_ = last_rotate_block_id;
   }
