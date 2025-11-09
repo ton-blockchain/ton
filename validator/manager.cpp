@@ -2560,6 +2560,15 @@ td::actor::ActorOwn<IValidatorGroup> ValidatorManagerImpl::create_validator_grou
     CHECK(descr);
     auto adnl_id = adnl::AdnlNodeIdShort{
         descr->addr.is_zero() ? ValidatorFullId{descr->key}.compute_short_id().bits256_value() : descr->addr};
+    auto new_consensus_config = last_masterchain_state_->get_new_consensus_config(shard.workchain);
+    if (new_consensus_config) {
+      return IValidatorGroup::create_bridge(PSTRING() << "valgroup" << shard.to_str(), shard, validator_id, session_id,
+                                            validator_set, key_seqno, new_consensus_config.value(), keyring_, adnl_,
+                                            rldp_, rldp2_, overlays_, db_root_, actor_id(this),
+                                            get_collation_manager(adnl_id), init_session,
+                                            opts_->check_unsafe_resync_allowed(validator_set->get_catchain_seqno()),
+                                            opts_, opts_->need_monitor(shard, last_masterchain_state_));
+    }
     return IValidatorGroup::create_catchain(PSTRING() << "valgroup" << shard.to_str(), shard, validator_id, session_id,
                                             validator_set, key_seqno, opts, keyring_, adnl_, rldp_, rldp2_, overlays_,
                                             db_root_, actor_id(this), get_collation_manager(adnl_id), init_session,
