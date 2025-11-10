@@ -1637,7 +1637,6 @@ td::Status ValidatorEngine::load_global_config() {
     h.push_back(b);
   }
   validator_options_.write().set_hardforks(std::move(h));
-  validator_options_.write().set_fast_state_serializer_enabled(fast_state_serializer_enabled_);
   validator_options_.write().set_catchain_broadcast_speed_multiplier(broadcast_speed_multiplier_catchain_);
 
   for (auto &id : config_.collator_node_whitelist) {
@@ -5456,8 +5455,7 @@ int main(int argc, char *argv[]) {
       '\0', "celldb-in-memory",
       "store all cells in-memory, much faster but requires a lot of RAM. RocksDb is still used as persistent storage",
       [&]() { acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_celldb_in_memory, true); }); });
-  p.add_option('\0', "celldb-v2", "deprecated option (enabled by default)", [&]() {
-  });
+  p.add_option('\0', "celldb-v2", "deprecated option (enabled by default)", [&]() {});
   p.add_option(
       '\0', "celldb-disable-bloom-filter",
       "disable using bloom filter in CellDb. Enabled bloom filter reduces read latency, but increases memory usage",
@@ -5486,9 +5484,7 @@ int main(int argc, char *argv[]) {
                          });
                          return td::Status::OK();
                        });
-  p.add_option('\0', "fast-state-serializer", "faster persistent state serializer, but requires more RAM", [&]() {
-    acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_fast_state_serializer_enabled, true); });
-  });
+  p.add_option('\0', "fast-state-serializer", "deprecated option (enabled by default)", [&]() {});
   p.add_option('\0', "collect-validator-telemetry",
                "store validator telemetry from fast sync overlay to a given file (json format)", [&](td::Slice s) {
                  acts.push_back([&x, s = s.str()]() {
