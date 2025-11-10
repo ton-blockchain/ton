@@ -275,10 +275,13 @@ class Overlays : public td::actor::Actor {
  public:
   class Callback {
    public:
-    virtual void receive_message(adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id, td::BufferSlice data) = 0;
+    virtual void receive_message(adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id, td::BufferSlice data) {
+    }
     virtual void receive_query(adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id, td::BufferSlice data,
-                               td::Promise<td::BufferSlice> promise) = 0;
-    virtual void receive_broadcast(PublicKeyHash src, OverlayIdShort overlay_id, td::BufferSlice data) = 0;
+                               td::Promise<td::BufferSlice> promise) {
+    }
+    virtual void receive_broadcast(PublicKeyHash src, OverlayIdShort overlay_id, td::BufferSlice data) {
+    }
     virtual void check_broadcast(PublicKeyHash src, OverlayIdShort overlay_id, td::BufferSlice data,
                                  td::Promise<td::Unit> promise) {
       promise.set_value(td::Unit());
