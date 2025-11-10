@@ -1,3 +1,5 @@
+import "@stdlib/exotic-cells"
+
 fun builder.store_u32(mutate self, value: int): self {
     return self.storeUint(value, 32);
 }
@@ -534,6 +536,30 @@ fun test41() {
     return data;
 }
 
+@method_id(142)
+fun test42() {
+    var c1 = beginCell().endCell();
+    var c2 = beginCell().endCellSpecial(false);
+    return (
+        c1.hash() == c1.hashOfLevel(3), 
+        c1.depth() == c1.depthOfLevel(3),
+        c1.hash() == c2.hash(),
+        c2.depth() == 0,
+    );
+}
+
+@method_id(143)
+fun test43() {
+    var c3 = beginCell().storeUint(123, 32).endCell();
+    var c3lib = c3.toLibraryReference();
+    
+    var (s, isExotic) = c3lib.beginParseSpecial();
+    assert (isExotic) throw 123;
+    val cellType = s.loadInt(8) as ExoticCellType;
+    return (cellType, s.loadUint(256) == c3.hash(), s.remainingBitsCount());
+    // 73669
+}
+
 fun main(): int {
     return 0;
 }
@@ -581,6 +607,8 @@ fun main(): int {
 @testcase | 138 |     | 0
 @testcase | 140 |     | 0 0
 @testcase | 141 |     | [ 9 9 9 9 9 9 9 9 9 8 8 8 8 2 ]
+@testcase | 142 |     | -1 -1 -1 -1
+@testcase | 143 |     | 2 -1 0
 
 We test that consequtive storeInt/storeUint with constants are joined into a single number
 
