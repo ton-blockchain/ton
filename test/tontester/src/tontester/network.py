@@ -180,6 +180,11 @@ class Network:
         self.__network_config: NetworkConfig = NetworkConfig()
         self.__zerostate: Zerostate | None = None
 
+    @property
+    def config(self):
+        assert self._status < _Status.ZEROSTATE_GENERATED
+        return self.__network_config
+
     def create_dht_node(self) -> "DHTNode":
         assert self._status < _Status.CLOSED
 

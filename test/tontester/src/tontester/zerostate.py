@@ -20,6 +20,8 @@ class NetworkConfig:
     global_version: int = 11
     shard_validators: int = 1
     block_limit_mul: int = 1
+    mc_catchain_lifetime: int = 250
+    shard_catchain_lifetime: int = 250
 
 
 @dataclass
@@ -206,7 +208,7 @@ config.special!
 100 10 sg* 10 sg* 3/2 sg*/ 1/3 sg*/ 1/3 sg*/ config.fwd_prices!
 100 10 sg* 10 sg* 3/2 sg*/ 1/3 sg*/ 1/3 sg*/ config.mc_fwd_prices!
 // mc-cc-lifetime sh-cc-lifetime sh-val-lifetime sh-val-num mc-shuffle
-250 250 1000 {shard_val} true config.catchain_params!
+{mc_catchain_lifetime} {shard_catchain_lifetime} 1000 {shard_val} true config.catchain_params!
 
 // round-candidates next-cand-delay-ms consensus-timeout-ms fast-attempts attempt-duration cc-max-deps max-block-size max-collated-size new-cc-ids
 // proto-version catchain-max-blocks-coeff
@@ -307,6 +309,8 @@ def create_zerostate(
             block_limit_mul=config.block_limit_mul,
             validators="\n".join(keys),
             mc_validators=len(keys),
+            mc_catchain_lifetime=config.mc_catchain_lifetime,
+            shard_catchain_lifetime=config.shard_catchain_lifetime,
         ),
         state_dir,
     )
