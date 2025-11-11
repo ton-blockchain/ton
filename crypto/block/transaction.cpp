@@ -3496,6 +3496,9 @@ bool Transaction::compute_state(const SerializeConfig& cfg) {
     if (frozen_hash == account.addr_orig) {
       // if frozen_hash equals account's "original" address (before rewriting), do not need storing hash
       CHECK(cb.store_long_bool(0, 2));  // account_uninit$00 = AccountState
+      if (cfg.global_version >= 13) {
+        acc_status = Account::acc_uninit;
+      }
     } else {
       CHECK(cb.store_long_bool(1, 2)              // account_frozen$01
             && cb.store_bits_bool(frozen_hash));  // state_hash:bits256
@@ -4238,6 +4241,7 @@ td::Status FetchConfigParams::fetch_config_params(
     action_phase_cfg->global_version = config.get_global_version();
   }
   {
+    serialize_cfg->global_version = config.get_global_version();
     serialize_cfg->extra_currency_v2 = config.get_global_version() >= 10;
     serialize_cfg->disable_anycast = config.get_global_version() >= 10;
     serialize_cfg->store_storage_dict_hash = config.get_global_version() >= 11;

@@ -238,7 +238,6 @@ class ValidatorEngine : public td::actor::Actor {
   bool celldb_direct_io_ = false;
   bool celldb_preload_all_ = false;
   bool celldb_in_memory_ = false;
-  bool celldb_v2_ = false;
   bool celldb_disable_bloom_filter_ = false;
   td::optional<double> catchain_max_block_delay_, catchain_max_block_delay_slow_;
   bool read_config_ = false;
@@ -246,7 +245,6 @@ class ValidatorEngine : public td::actor::Actor {
   bool started_ = false;
   ton::BlockSeqno truncate_seqno_{0};
   std::string session_logs_file_;
-  bool fast_state_serializer_enabled_ = false;
   std::string validator_telemetry_filename_;
   bool not_all_shards_ = false;
   std::vector<ton::ShardIdFull> add_shard_cmds_;
@@ -339,9 +337,6 @@ class ValidatorEngine : public td::actor::Actor {
   void set_celldb_in_memory(bool value) {
     celldb_in_memory_ = value;
   }
-  void set_celldb_v2(bool value) {
-    celldb_v2_ = value;
-  }
   void set_celldb_disable_bloom_filter(bool value) {
     celldb_disable_bloom_filter_ = value;
   }
@@ -350,9 +345,6 @@ class ValidatorEngine : public td::actor::Actor {
   }
   void set_catchain_max_block_delay_slow(double value) {
     catchain_max_block_delay_slow_ = value;
-  }
-  void set_fast_state_serializer_enabled(bool value) {
-    fast_state_serializer_enabled_ = value;
   }
   void set_validator_telemetry_filename(std::string value) {
     validator_telemetry_filename_ = std::move(value);
