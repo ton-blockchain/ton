@@ -291,3 +291,6 @@ The bounced message has the same 0th and 1st bits in `extra_flags` as the origin
 
 ### TVM changes
 - Instructions `LSHIFT`, `RSHIFT`, `LSHIFTDIV`, `MULRSHIFT`, `AND`, `OR` now correctly return an error (or `NaN`, if quiet) when one of the arguments is `NaN` (or out of bounds for shifts).
+
+### Transaction changes
+- `end_status` of a transaction is now correctly set to `uninit` when the account is frozen with `frozen_hash` equal to its address.
