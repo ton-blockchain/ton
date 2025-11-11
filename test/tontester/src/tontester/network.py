@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import signal
 import subprocess
 import time
 import types
@@ -9,7 +10,6 @@ from dataclasses import dataclass
 from enum import IntEnum, auto
 from ipaddress import IPv4Address
 from pathlib import Path
-from signal import SIGTERM
 from typing import final, override
 
 from pydantic import BaseModel
@@ -58,6 +58,7 @@ class Network:
             self._static_nodes: list["DHTNode"] = []
 
             self.__process: asyncio.subprocess.Process | None = None
+            self.__process_watcher: asyncio.Task[None] | None = None
             self.__log_streamer: LogStreamer | None = None
 
         @property
@@ -89,6 +90,15 @@ class Network:
             validator_config: tonapi.validator_config_Global | None,
             additional_args: list[str],
         ):
+            async def process_watcher():
+                assert self.__process is not None
+                return_code = await self.__process.wait()
+                if return_code < 0:
+                    signal_name = signal.Signals(-return_code).name
+                    l.info(f"Node '{self.name}' terminated by signal {signal_name}")
+                else:
+                    l.info(f"Node '{self.name}' exited with code {return_code}")
+
             assert self._network._status < _Status.CLOSED
 
             global_config_file = self._directory / "config.global.json"
@@ -125,6 +135,7 @@ class Network:
                 stderr=asyncio.subprocess.PIPE,
             )
             assert self.__process.stderr is not None  # to placate pyright
+            self.__process_watcher = asyncio.create_task(process_watcher())
 
             self.__log_streamer = LogStreamer(
                 open(log_path, "wb"),
@@ -141,16 +152,20 @@ class Network:
 
         async def stop(self):
             if self.__process:
-                try:
-                    l.info(f"Killing node '{self.name}'")
-                    self.__process.send_signal(SIGTERM)
-                    _ = await self.__process.wait()
-                except Exception:
-                    l.exception(f"Unable to kill node '{self.name}'")
-                self.__process = None
-
                 # No exception can occur between self.__process and self._log_streamer creation
                 assert self.__log_streamer is not None
+                assert self.__process_watcher is not None
+
+                if not self.__process_watcher.done():
+                    l.info(f"Killing node '{self.name}'")
+                    try:
+                        self.__process.terminate()
+                    except ProcessLookupError:
+                        # Terminate might still fail if Python internally has already finished
+                        # waiting for the child process but didn't yet resume the watcher.
+                        pass
+
+                await self.__process_watcher
                 await self.__log_streamer.aclose()
 
     def __init__(self, install: Install, directory: Path):
@@ -214,7 +229,7 @@ class Network:
         exc_value: BaseException | None,
         traceback: types.TracebackType | None,
     ) -> bool | None:
-        await self.aclose()
+        await asyncio.shield(self.aclose())
 
     async def wait_mc_block(self, seqno: int):
         client = await self.__full_nodes[0].tonlib_client()
