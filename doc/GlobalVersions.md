@@ -286,3 +286,8 @@ The bounced message has the same 0th and 1st bits in `extra_flags` as the origin
 ### Other changes
 - Account size in masterchain is now limited to `2048` cells. This can be configured in size limits config (`ConfigParam 43`).
   - The previous limit was the same as in basechain (`65536`).
+
+## Version 13
+
+### TVM changes
+- Instructions `LSHIFT`, `RSHIFT`, `LSHIFTDIV`, `MULRSHIFT`, `AND`, `OR` now correctly return an error (or `NaN`, if quiet) when one of the arguments is `NaN` (or out of bounds for shifts).

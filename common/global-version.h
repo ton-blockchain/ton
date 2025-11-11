@@ -19,6 +19,6 @@
 namespace ton {
 
 // See doc/GlobalVersions.md
-constexpr int SUPPORTED_VERSION = 12;
+constexpr int SUPPORTED_VERSION = 13;
 
 }  // namespace ton
