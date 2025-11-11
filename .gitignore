@@ -31,3 +31,6 @@ readline-5.0-1-lib.zip
 .venv
 .ruff_cache
 *.egg-info
+
+# Work directory for integration tests
+test/integration/.network

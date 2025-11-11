@@ -22,7 +22,7 @@ members = [
 
 [tool.ruff]
 line-length = 100
-include = ["test/tontester/**/*.py"]
+include = ["test/integration/**/*.py", "test/tontester/**/*.py"]
 
 [tool.ruff.lint]
 # Default rules with isort
@@ -42,4 +42,4 @@ ignore = [
 ]
 
 [tool.pyright]
-include = ["test/tontester"]
+include = ["test/integration", "test/tontester"]
