@@ -6250,6 +6250,10 @@ void ValidateQuery::after_check_account_finished(StdSmcAddress address, CheckAcc
     parallel_accounts_validation_pending_ = false;
     parallel_work_timer_.pause();
     stats_.work_time.total += parallel_work_timer_.elapsed_both();
+    if (!check_account_failures()) {
+      reject_query("some accounts failed parallel validation");
+      return;
+    }
     try_validate();
   }
 }
@@ -6301,6 +6305,10 @@ bool ValidateQuery::check_transactions() {
     stats_.parallel_accounts_validation = true;
     parallel_accounts_validation_pending_ = true;
     parallel_work_timer_.resume();
+  } else {
+    if (!check_account_failures()) {
+      return reject_query("some accounts failed to be validated");
+    }
   }
   return result;
 }
@@ -7445,9 +7453,6 @@ bool ValidateQuery::try_validate() {
     }
     if (stage_ == 2) {
       LOG(WARNING) << "try_validate stage 2";
-      if (!check_account_failures()) {
-        return reject_query("some accounts failed to be validated");
-      }
       if (!check_all_ticktock_processed()) {
         return reject_query("not all tick-tock transactions have been run for special accounts");
       }
