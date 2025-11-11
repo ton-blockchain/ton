@@ -3,6 +3,7 @@ name = "ton"
 version = "0.1.0"
 requires-python = ">=3.13"
 dependencies = [
+    "pytest>=9.0.1",
     "tontester",
 ]
 
@@ -43,3 +44,6 @@ ignore = [
 
 [tool.pyright]
 include = ["test/integration", "test/tontester"]
+
+[tool.pytest]
+testpaths = ["test/tontester/tests"]
