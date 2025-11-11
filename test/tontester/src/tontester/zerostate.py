@@ -20,7 +20,6 @@ class NetworkConfig:
     global_version: int = 11
     shard_validators: int = 1
     block_limit_mul: int = 1
-    mc_validators: int = 1
 
 
 @dataclass
@@ -294,8 +293,6 @@ hashu dup =: zerostate_rhash 256 u>B "zerostate.rhash" B>file
 def create_zerostate(
     install: Install, state_dir: Path, config: NetworkConfig, validator_keys: list[Key]
 ) -> Zerostate:
-    assert len(validator_keys) >= config.mc_validators
-
     keys: list[str] = []
     for key in validator_keys:
         keys.append(f"B{{{key.public_key.key.hex()}}} 17 add-validator")
@@ -309,7 +306,7 @@ def create_zerostate(
             shard_val=config.shard_validators,
             block_limit_mul=config.block_limit_mul,
             validators="\n".join(keys),
-            mc_validators=config.mc_validators,
+            mc_validators=len(keys),
         ),
         state_dir,
     )
