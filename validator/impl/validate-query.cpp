@@ -6170,7 +6170,7 @@ void ValidateQuery::CheckAccountTxs::abort_query(td::Status error) {
 }
 
 bool ValidateQuery::CheckAccountTxs::reject_query(std::string error, td::BufferSlice reason) {
-  if (!ctx_.reject_error.has_value()) {
+  if (!ctx_.reject_error.has_value() && !ctx_.fatal_error.has_value()) {
     ctx_.reject_error = std::move(error);
     ctx_.reject_reason = std::move(reason);
   }
@@ -6182,7 +6182,7 @@ bool ValidateQuery::CheckAccountTxs::reject_query(std::string err_msg, td::Statu
 }
 
 bool ValidateQuery::CheckAccountTxs::fatal_error(td::Status error) {
-  if (!ctx_.fatal_error.has_value()) {
+  if (!ctx_.fatal_error.has_value() && !ctx_.reject_error.has_value()) {
     ctx_.fatal_error = std::move(error);
   }
   return false;
