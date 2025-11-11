@@ -17,6 +17,7 @@ from pytonlib import TonlibClient, TonlibError  # pyright: ignore[reportMissingT
 
 from .install import Install
 from .key import Key
+from .log_streamer import LogStreamer
 from .tl import tonapi, tonlibapi
 from .zerostate import NetworkConfig, Zerostate, create_zerostate
 
@@ -57,6 +58,7 @@ class Network:
             self._static_nodes: list["DHTNode"] = []
 
             self.__process: asyncio.subprocess.Process | None = None
+            self.__log_streamer: LogStreamer | None = None
 
         @property
         def _install(self):
@@ -107,6 +109,9 @@ class Network:
             local_config_file = self._directory / "config.json"
             _write_model(local_config_file, local_config)
 
+            log_path = self._directory / "log"
+            l.info(f"Running {self.name} and saving its raw log to {log_path}")
+
             self.__process = await asyncio.create_subprocess_exec(
                 executable,
                 "--global-config",
@@ -117,6 +122,14 @@ class Network:
                 ".",
                 *additional_args,
                 cwd=self._directory,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            assert self.__process.stderr is not None  # to placate pyright
+
+            self.__log_streamer = LogStreamer(
+                open(log_path, "wb"),
+                self.name,
+                self.__process.stderr,
             )
 
         def announce_to(self, dht: "DHTNode"):
@@ -135,6 +148,10 @@ class Network:
                 except Exception:
                     l.exception(f"Unable to kill node '{self.name}'")
                 self.__process = None
+
+                # No exception can occur between self.__process and self._log_streamer creation
+                assert self.__log_streamer is not None
+                await self.__log_streamer.aclose()
 
     def __init__(self, install: Install, directory: Path):
         self._install = install
