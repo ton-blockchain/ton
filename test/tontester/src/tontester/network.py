@@ -42,24 +42,19 @@ def _write_model(file: Path, model: BaseModel):
 @final
 class Network:
     class Node(ABC):
-        name: str
-
-        _network: "Network"
-        _directory: Path
-        _keyring: Path
-        _static_nodes: list["DHTNode"]
-
         def __init__(self, network: "Network", name: str):
-            self._network = network
-            self.name = name
+            self._network: Network = network
+            self.name: str = name
 
-            self._directory = self._network._directory / ("node" + str(self._network._node_idx))
+            self._directory: Path = self._network._directory / (
+                "node" + str(self._network._node_idx)
+            )
             self._network._node_idx += 1
 
-            self._keyring = self._directory / "keyring"
+            self._keyring: Path = self._directory / "keyring"
             self._keyring.mkdir(parents=True)
 
-            self._static_nodes = []
+            self._static_nodes: list["DHTNode"] = []
 
             self.__process: asyncio.subprocess.Process | None = None
 
