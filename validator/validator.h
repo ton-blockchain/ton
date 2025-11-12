@@ -236,7 +236,6 @@ class ValidatorManagerInterface : public td::actor::Actor {
     }
     virtual void download_block_proof_link(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
                                            td::Promise<td::BufferSlice> promise) {
-
     }
     virtual void get_next_key_blocks(BlockIdExt block_id, td::Timestamp timeout,
                                      td::Promise<std::vector<BlockIdExt>> promise) {
