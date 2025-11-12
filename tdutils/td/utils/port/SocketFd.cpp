@@ -660,6 +660,9 @@ Result<SocketFd> SocketFd::open(const IPAddress &address) {
     if (dummy_fd < 0) {
       return OS_ERROR("Can't open /dev/null");
     }
+    if (dummy_fd >= MINIMUM_FILE_DESCRIPTOR) {
+      ::close(dummy_fd);
+    }
     native_fd = NativeFd{socket(address.get_address_family(), SOCK_STREAM, IPPROTO_TCP)};
     if (!native_fd) {
       return OS_SOCKET_ERROR("Failed to create a socket");
@@ -710,6 +713,9 @@ Result<SocketFd> SocketFd::open_vsock(uint32 svm_cid, int32 svm_port) {
     int dummy_fd = detail::skip_eintr([&] { return ::open("/dev/null", O_RDONLY, 0); });
     if (dummy_fd < 0) {
       return OS_ERROR("Can't open /dev/null");
+    }
+    if (dummy_fd >= MINIMUM_FILE_DESCRIPTOR) {
+      ::close(dummy_fd);
     }
     native_fd = NativeFd{socket(AF_VSOCK, SOCK_STREAM, 0)};
     if (!native_fd) {

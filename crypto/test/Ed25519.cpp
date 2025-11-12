@@ -179,11 +179,6 @@ TEST(Crypto, wycheproof) {
     auto sk = td::Ed25519::PrivateKey(td::SecureString(from_hex(sk_str)));
     CHECK(sk.get_public_key().move_as_ok().as_octet_string().as_slice() == pk.as_octet_string().as_slice());
 
-    //auto key =
-    //td::Ed25519::PrivateKey::from_pem(
-    //td::SecureString(td::get_json_object_string_field(test, "keyPem", false).move_as_ok()), td::SecureString())
-    //.move_as_ok();
-
     auto tests_o = test.extract_required_field("tests", td::JsonValue::Type::Array).move_as_ok();
     auto &tests = tests_o.get_array();
     for (auto &test_o : tests) {
