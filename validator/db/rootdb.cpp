@@ -586,6 +586,14 @@ void RootDb::set_async_mode(bool mode, td::Promise<td::Unit> promise) {
   td::actor::send_closure(archive_db_, &ArchiveManager::set_async_mode, mode, std::move(promise));
 }
 
+void RootDb::add_handle_to_archive(BlockHandle handle, td::Promise<td::Unit> promise) {
+  td::actor::send_closure(archive_db_, &ArchiveManager::add_handle, std::move(handle), std::move(promise));
+}
+
+void RootDb::set_archive_current_shard_split_depth(td::uint32 value) {
+  td::actor::send_closure(archive_db_, &ArchiveManager::set_current_shard_split_depth, value);
+}
+
 void RootDb::run_gc(UnixTime mc_ts, UnixTime gc_ts, double archive_ttl) {
   td::actor::send_closure(archive_db_, &ArchiveManager::run_gc, mc_ts, gc_ts, archive_ttl);
 }

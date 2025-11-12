@@ -131,6 +131,8 @@ class Db : public td::actor::Actor {
   virtual void get_archive_slice(td::uint64 archive_id, td::uint64 offset, td::uint32 limit,
                                  td::Promise<td::BufferSlice> promise) = 0;
   virtual void set_async_mode(bool mode, td::Promise<td::Unit> promise) = 0;
+  virtual void add_handle_to_archive(BlockHandle handle, td::Promise<td::Unit> promise) = 0;
+  virtual void set_archive_current_shard_split_depth(td::uint32 value) = 0;
 
   virtual void run_gc(UnixTime mc_ts, UnixTime gc_ts, double archive_ttl) = 0;
 

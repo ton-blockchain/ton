@@ -33,7 +33,7 @@ namespace validator {
 
 ArchiveImporterLocal::ArchiveImporterLocal(std::string db_root, td::Ref<MasterchainState> state,
                                            BlockSeqno shard_client_seqno, td::Ref<ValidatorManagerOptions> opts,
-                                           td::actor::ActorId<ValidatorManager> manager,
+                                           td::actor::ActorId<ValidatorManager> manager, td::actor::ActorId<Db> db,
                                            std::vector<std::string> to_import_files,
                                            td::Promise<std::pair<BlockSeqno, BlockSeqno>> promise)
     : db_root_(std::move(db_root))
@@ -41,6 +41,7 @@ ArchiveImporterLocal::ArchiveImporterLocal(std::string db_root, td::Ref<Masterch
     , shard_client_seqno_(shard_client_seqno)
     , opts_(std::move(opts))
     , manager_(manager)
+    , db_(db)
     , to_import_files_(std::move(to_import_files))
     , promise_(std::move(promise))
     , perf_timer_("import-slice-local", 10.0, [manager](double duration) {
@@ -269,7 +270,7 @@ td::actor::Task<td::Unit> ArchiveImporterLocal::check_masterchain_proofs() {
     if (handles[i]->one_prev(true) != prev_block_id) {
       co_return td::Status::Error(ErrorCode::protoviolation, "prev block mismatch");
     }
-    blocks_to_apply_mc_.push_back(block_id);
+    blocks_to_apply_mc_.emplace_back(block_id, block_id);
     blocks_[block_id].import = true;
     CHECK(handles[i]->inited_is_key_block());
     if (handles[i]->is_key_block()) {
@@ -442,40 +443,18 @@ td::actor::Task<td::Unit> ArchiveImporterLocal::apply_blocks() {
   LOG(WARNING) << "Applying " << blocks_to_apply_mc_.size() << " mc blocks, " << blocks_to_apply_shards_.size()
                << " shard blocks";
   if (opts_->get_permanent_celldb()) {
-    {
-      std::vector<td::actor::StartedTask<BlockHandle>> tasks_1;
-      for (const auto &block_id : blocks_to_apply_mc_) {
-        tasks_1.push_back(apply_block_1(block_id, block_id).start());
-      }
-      auto handles = co_await td::actor::all(std::move(tasks_1));
-      std::vector<td::actor::StartedTask<td::Unit>> tasks_2;
-      for (const auto &handle : handles) {
-        tasks_2.push_back(apply_block_2(handle).start());
-      }
-      co_await td::actor::all(std::move(tasks_2));
-      final_masterchain_state_seqno_ =
-          blocks_to_apply_mc_.empty() ? last_masterchain_state_->get_seqno() : blocks_to_apply_mc_.back().seqno();
-      if (!blocks_to_apply_mc_.empty()) {
-        imported_any_ = true;
-      }
+    co_await apply_blocks_async(blocks_to_apply_mc_);
+    final_masterchain_state_seqno_ =
+        blocks_to_apply_mc_.empty() ? last_masterchain_state_->get_seqno() : blocks_to_apply_mc_.back().first.seqno();
+    if (!blocks_to_apply_mc_.empty()) {
+      imported_any_ = true;
     }
-    {
-      std::vector<td::actor::StartedTask<BlockHandle>> tasks_1;
-      for (const auto &[block_id, mc_block_id] : blocks_to_apply_shards_) {
-        tasks_1.push_back(apply_block_1(block_id, mc_block_id).start());
-      }
-      auto handles = co_await td::actor::all(std::move(tasks_1));
-      std::vector<td::actor::StartedTask<td::Unit>> tasks_2;
-      for (const auto &handle : handles) {
-        tasks_2.push_back(apply_block_2(handle).start());
-      }
-      co_await td::actor::all(std::move(tasks_2));
-      if (!blocks_to_apply_shards_.empty()) {
-        imported_any_ = true;
-      }
+    co_await apply_blocks_async(blocks_to_apply_shards_);
+    if (!blocks_to_apply_shards_.empty()) {
+      imported_any_ = true;
     }
   } else {
-    for (const auto &block_id : blocks_to_apply_mc_) {
+    for (const auto &[block_id, _] : blocks_to_apply_mc_) {
       auto it = blocks_.find(block_id);
       CHECK(it != blocks_.end());
       td::Ref<BlockData> block = it->second.block;
@@ -501,8 +480,37 @@ td::actor::Task<td::Unit> ArchiveImporterLocal::apply_blocks() {
   co_return td::Unit{};
 }
 
-td::actor::Task<BlockHandle> ArchiveImporterLocal::apply_block_1(BlockIdExt block_id, BlockIdExt mc_block_id) {
-  // Same as ApplyBlock, but in parallel and without setting "apply" flag
+td::actor::Task<td::Unit> ArchiveImporterLocal::apply_blocks_async(
+    const std::vector<std::pair<BlockIdExt, BlockIdExt>> &blocks) {
+  std::vector<td::actor::StartedTask<BlockHandle>> tasks_1;
+  for (const auto &[block_id, mc_block_id] : blocks) {
+    tasks_1.push_back(apply_block_async_1(block_id, mc_block_id).start());
+  }
+  auto handles = co_await td::actor::all(std::move(tasks_1));
+
+  std::vector<td::actor::StartedTask<td::Unit>> tasks_2;
+  for (const auto &handle : handles) {
+    tasks_2.push_back(apply_block_async_2(handle).start());
+  }
+  co_await td::actor::all(std::move(tasks_2));
+
+  std::vector<td::actor::StartedTask<td::Unit>> tasks_3;
+  for (const auto &handle : handles) {
+    tasks_3.push_back(apply_block_async_3(handle).start());
+  }
+  co_await td::actor::all(std::move(tasks_3));
+
+  std::vector<td::actor::StartedTask<td::Unit>> tasks_4;
+  for (const auto &handle : handles) {
+    tasks_4.push_back(apply_block_async_4(handle).start());
+  }
+  co_await td::actor::all(std::move(tasks_4));
+
+  co_return td::Unit{};
+}
+
+td::actor::Task<BlockHandle> ArchiveImporterLocal::apply_block_async_1(BlockIdExt block_id, BlockIdExt mc_block_id) {
+  // apply_block_async_1-4 are same as ApplyBlock, but in parallel and without setting "apply" flag
   CHECK(block_id.seqno() != 0);
   auto it = blocks_.find(block_id);
   CHECK(it != blocks_.end());
@@ -531,13 +539,28 @@ td::actor::Task<BlockHandle> ArchiveImporterLocal::apply_block_1(BlockIdExt bloc
 
   if (!block_id.is_masterchain()) {
     handle->set_masterchain_ref_block(mc_block_id.seqno());
+  } else {
+    td::Ref<MasterchainState> mc_state{state};
+    td::uint32 monitor_min_split = mc_state->monitor_min_split_depth(basechainId);
+    td::actor::send_closure(db_, &Db::set_archive_current_shard_split_depth, monitor_min_split);
   }
 
-  co_await td::actor::ask(manager_, &ValidatorManager::new_block, handle, state);
   co_return handle;
 }
 
-td::actor::Task<td::Unit> ArchiveImporterLocal::apply_block_2(BlockHandle handle) {
+td::actor::Task<td::Unit> ArchiveImporterLocal::apply_block_async_2(BlockHandle handle) {
+  // Running add_handle in order is required to properly update ltdb in ArchiveSlice
+  co_await td::actor::ask(db_, &Db::add_handle_to_archive, handle);
+  co_return td::Unit{};
+}
+
+td::actor::Task<td::Unit> ArchiveImporterLocal::apply_block_async_3(BlockHandle handle) {
+  td::Ref<ShardState> state = co_await td::actor::ask(manager_, &ValidatorManager::get_shard_state_from_db, handle);
+  co_await td::actor::ask(manager_, &ValidatorManager::new_block, handle, state);
+  co_return td::Unit{};
+}
+
+td::actor::Task<td::Unit> ArchiveImporterLocal::apply_block_async_4(BlockHandle handle) {
   handle->set_applied();
   CHECK(handle->handle_moved_to_archive());
   CHECK(handle->moved_to_archive());

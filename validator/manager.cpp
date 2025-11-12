@@ -2199,7 +2199,7 @@ void ValidatorManagerImpl::download_next_archive() {
         .release();
   } else {
     td::actor::create_actor<ArchiveImporterLocal>(PSTRING() << "archiveimport." << seqno, db_root_,
-                                                  last_masterchain_state_, seqno, opts_, actor_id(this),
+                                                  last_masterchain_state_, seqno, opts_, actor_id(this), db_.get(),
                                                   std::move(to_import_files), std::move(P))
         .release();
   }

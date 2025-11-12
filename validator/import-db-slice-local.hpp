@@ -18,7 +18,6 @@
 
 #include "td/actor/actor.h"
 #include "td/actor/coro_task.h"
-#include "td/utils/port/path.h"
 #include "validator/interfaces/validator-manager.h"
 
 namespace ton {
@@ -29,7 +28,7 @@ class ArchiveImporterLocal : public td::actor::Actor {
  public:
   ArchiveImporterLocal(std::string db_root, td::Ref<MasterchainState> state, BlockSeqno shard_client_seqno,
                        td::Ref<ValidatorManagerOptions> opts, td::actor::ActorId<ValidatorManager> manager,
-                       std::vector<std::string> to_import_files,
+                       td::actor::ActorId<Db> db, std::vector<std::string> to_import_files,
                        td::Promise<std::pair<BlockSeqno, BlockSeqno>> promise);
   void start_up() override;
 
@@ -50,8 +49,12 @@ class ArchiveImporterLocal : public td::actor::Actor {
   td::actor::Task<td::Unit> store_block_data(td::Ref<BlockData> block);
 
   td::actor::Task<td::Unit> apply_blocks();
-  td::actor::Task<BlockHandle> apply_block_1(BlockIdExt block_id, BlockIdExt mc_block_id);
-  td::actor::Task<td::Unit> apply_block_2(BlockHandle handle);
+  td::actor::Task<td::Unit> apply_blocks_async(const std::vector<std::pair<BlockIdExt, BlockIdExt>>& blocks);
+
+  td::actor::Task<BlockHandle> apply_block_async_1(BlockIdExt block_id, BlockIdExt mc_block_id);
+  td::actor::Task<td::Unit> apply_block_async_2(BlockHandle handle);
+  td::actor::Task<td::Unit> apply_block_async_3(BlockHandle handle);
+  td::actor::Task<td::Unit> apply_block_async_4(BlockHandle handle);
 
  private:
   std::string db_root_;
@@ -63,6 +66,7 @@ class ArchiveImporterLocal : public td::actor::Actor {
   td::Ref<ValidatorManagerOptions> opts_;
 
   td::actor::ActorId<ValidatorManager> manager_;
+  td::actor::ActorId<Db> db_;
 
   std::vector<std::string> to_import_files_;
   td::Promise<std::pair<BlockSeqno, BlockSeqno>> promise_;
@@ -80,7 +84,7 @@ class ArchiveImporterLocal : public td::actor::Actor {
   BlockSeqno new_shard_client_seqno_;
   std::set<BlockIdExt> visited_shard_blocks_;
   std::set<BlockIdExt> new_zerostates_;
-  std::vector<BlockIdExt> blocks_to_apply_mc_;
+  std::vector<std::pair<BlockIdExt, BlockIdExt>> blocks_to_apply_mc_;
   std::vector<std::pair<BlockIdExt, BlockIdExt>> blocks_to_apply_shards_;
 
   std::map<BlockSeqno, std::pair<BlockIdExt, std::vector<BlockIdExt>>> shard_configs_;
