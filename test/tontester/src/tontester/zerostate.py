@@ -1,10 +1,9 @@
-import base64
 from dataclasses import dataclass
 from pathlib import Path
 
 from .install import Install, run_fift
 from .key import Key
-from .tl import tonapi
+from .tl import ton_api
 
 
 def _shard_json_repr(shard: int):
@@ -37,16 +36,16 @@ class Zerostate:
     shardchain: WorkchainState
 
     def as_block(self):
-        return tonapi.tonNode_blockIdExt(
+        return ton_api.TonNode_blockIdExt(
             workchain=-1,
             shard=_shard_json_repr(0x8000_0000_0000_0000),
             seqno=0,
-            root_hash=base64.b64encode(self.masterchain.root_hash),
-            file_hash=base64.b64encode(self.masterchain.file_hash),
+            root_hash=self.masterchain.root_hash,
+            file_hash=self.masterchain.file_hash,
         )
 
     def as_validator_config(self):
-        return tonapi.validator_config_global(zero_state=self.as_block())
+        return ton_api.Validator_config_global(zero_state=self.as_block())
 
 
 _TEMPLATE = """

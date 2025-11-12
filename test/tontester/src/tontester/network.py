@@ -1,5 +1,4 @@
 import asyncio
-import json
 import logging
 import signal
 import subprocess
@@ -10,15 +9,16 @@ from dataclasses import dataclass
 from enum import IntEnum, auto
 from ipaddress import IPv4Address
 from pathlib import Path
-from typing import final, override
+from typing import cast, final, override
 
-from pydantic import BaseModel
 from pytonlib import TonlibClient, TonlibError  # pyright: ignore[reportMissingTypeStubs]
+
+from tl import JSONSerializable, TLObject
 
 from .install import Install
 from .key import Key
 from .log_streamer import LogStreamer
-from .tl import tonapi, tonlibapi
+from .tl import ton_api, tonlib_api
 from .zerostate import NetworkConfig, Zerostate, create_zerostate
 
 l = logging.getLogger(__name__)
@@ -26,7 +26,7 @@ l = logging.getLogger(__name__)
 
 @dataclass
 class _IPv4AddressAndPort:
-    ip: int
+    ip: IPv4Address
     port: int
 
 
@@ -36,8 +36,8 @@ class _Status(IntEnum):
     CLOSED = auto()
 
 
-def _write_model(file: Path, model: BaseModel):
-    _ = file.write_text(model.model_dump_json(indent=4, exclude_none=True))
+def _write_model(file: Path, model: TLObject):
+    _ = file.write_text(model.to_json())
 
 
 @final
@@ -68,7 +68,7 @@ class Network:
         def _new_network_address(self) -> _IPv4AddressAndPort:
             self._network._port += 1
             return _IPv4AddressAndPort(
-                int(IPv4Address("127.0.42.239")),
+                IPv4Address("127.0.42.239"),
                 self._network._port,
             )
 
@@ -86,8 +86,8 @@ class Network:
         async def _run(
             self,
             executable: Path,
-            local_config: tonapi.engine_validator_config,
-            validator_config: tonapi.validator_config_Global | None,
+            local_config: ton_api.Engine_validator_config,
+            validator_config: ton_api.Validator_config_global | None,
             additional_args: list[str],
         ):
             async def process_watcher():
@@ -104,9 +104,9 @@ class Network:
             global_config_file = self._directory / "config.global.json"
             _write_model(
                 global_config_file,
-                tonapi.config_global(
-                    dht=tonapi.dht_config_global(
-                        static_nodes=tonapi.dht_nodes(
+                ton_api.Config_global(
+                    dht=ton_api.Dht_config_global(
+                        static_nodes=ton_api.Dht_nodes(
                             nodes=[node.signed_address for node in self._static_nodes]
                         ),
                         k=3,
@@ -241,7 +241,7 @@ class Network:
 
         while True:
             try:
-                raw_result = await client.get_masterchain_info()  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
+                raw_result = cast(JSONSerializable, await client.get_masterchain_info())  # pyright: ignore[reportUnknownMemberType]
             except TonlibError as e:
                 # FIXME: We should really let node notify us that it is ready.
                 try:
@@ -260,15 +260,20 @@ class Network:
                     pass
                 raise
 
-            mc_info = tonlibapi.blocks_masterchainInfo.model_validate_json(
-                json.dumps(raw_result), strict=False
-            )
+            mc_info = tonlib_api.Blocks_masterchainInfo.from_dict(raw_result)
             assert mc_info.last is not None
 
             if mc_info.last.seqno >= seqno:
                 break
             else:
                 time.sleep(0.2)
+
+
+def _ip_to_tl(ip: IPv4Address) -> int:
+    result = int(ip)
+    if result >= 2**31:
+        result -= 2**32
+    return result
 
 
 @final
@@ -280,9 +285,9 @@ class DHTNode(Network.Node):
 
         key, pk_file = self._new_key()
 
-        address_list_to_sign = tonapi.adnl_addressList(
+        address_list_to_sign = ton_api.Adnl_addressList(
             addrs=[
-                tonapi.adnl_address_udp(ip=self._addr.ip, port=self._addr.port),
+                ton_api.Adnl_address_udp(ip=_ip_to_tl(self._addr.ip), port=self._addr.port),
             ]
         )
         signed_address = subprocess.run(
@@ -293,23 +298,23 @@ class DHTNode(Network.Node):
                 "-k",
                 pk_file,
                 "-a",
-                address_list_to_sign.model_dump_json(exclude_none=True),
+                address_list_to_sign.to_json(),
             ),
             check=True,
             stdout=subprocess.PIPE,
         ).stdout
-        self._signed_address = tonapi.dht_node.model_validate_json(signed_address)
+        self._signed_address = ton_api.Dht_node.from_json(signed_address.decode())
 
-        self._local_config = tonapi.engine_validator_config(
+        self._local_config = ton_api.Engine_validator_config(
             addrs=[
-                tonapi.engine_addr(
-                    ip=self._addr.ip,
+                ton_api.Engine_addr(
+                    ip=_ip_to_tl(self._addr.ip),
                     port=self._addr.port,
                     categories=[0],
                 )
             ],
-            adnl=[tonapi.engine_adnl(id=key.id(), category=0)],
-            dht=[tonapi.engine_dht(id=key.id())],
+            adnl=[ton_api.Engine_adnl(id=key.id(), category=0)],
+            dht=[ton_api.Engine_dht(id=key.id())],
         )
 
     @property
@@ -335,32 +340,32 @@ class FullNode(Network.Node):
         self._validator_key, _ = self._new_key()
         self._liteserver_key, _ = self._new_key()
 
-        self._local_config = tonapi.engine_validator_config(
+        self._local_config = ton_api.Engine_validator_config(
             addrs=[
-                tonapi.engine_addr(
-                    ip=self._addr.ip,
+                ton_api.Engine_addr(
+                    ip=_ip_to_tl(self._addr.ip),
                     port=self._addr.port,
                     categories=[0],
                 )
             ],
             adnl=[
-                tonapi.engine_adnl(id=self._fullnode_key.id(), category=0),
-                tonapi.engine_adnl(id=self._validator_key.id(), category=0),
+                ton_api.Engine_adnl(id=self._fullnode_key.id(), category=0),
+                ton_api.Engine_adnl(id=self._validator_key.id(), category=0),
             ],
             dht=[
-                tonapi.engine_dht(id=self._fullnode_key.id()),
+                ton_api.Engine_dht(id=self._fullnode_key.id()),
             ],
             validators=[
-                tonapi.engine_validator(
+                ton_api.Engine_validator(
                     id=self._validator_key.id(),
                     temp_keys=[
-                        tonapi.engine_validatorTempKey(
+                        ton_api.Engine_validatorTempKey(
                             key=self._validator_key.id(),
                             expire_at=KEY_EXPIRATION,
                         )
                     ],
                     adnl_addrs=[
-                        tonapi.engine_validatorAdnlAddress(
+                        ton_api.Engine_validatorAdnlAddress(
                             id=self._validator_key.id(),
                             expire_at=KEY_EXPIRATION,
                         )
@@ -370,7 +375,7 @@ class FullNode(Network.Node):
             ],
             fullnode=self._fullnode_key.id(),
             liteservers=[
-                tonapi.engine_liteServer(
+                ton_api.Engine_liteServer(
                     id=self._liteserver_key.id(),
                     # FIXME: IP?
                     port=self._liteserver_addr.port,
@@ -414,11 +419,11 @@ class FullNode(Network.Node):
         if self._client:
             return self._client
 
-        config = tonapi.liteclient_config_global(
+        config = ton_api.Liteclient_config_global(
             liteservers=[
-                tonapi.liteserver_desc(
+                ton_api.Liteserver_desc(
                     id=self._liteserver_key.public_key,
-                    ip=self._liteserver_addr.ip,
+                    ip=_ip_to_tl(self._liteserver_addr.ip),
                     port=self._liteserver_addr.port,
                 ),
             ],
@@ -430,7 +435,7 @@ class FullNode(Network.Node):
 
         self._client = TonlibClient(
             ls_index=0,
-            config=json.loads(config.model_dump_json()),  # pyright: ignore[reportAny]
+            config=config.to_dict(),
             keystore=str(keystore_dir),
             cdll_path=str(self._install.tonlibjson),
             verbosity_level=3,
