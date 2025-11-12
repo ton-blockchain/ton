@@ -337,6 +337,9 @@ void CellDbIn::start_up() {
     auto R = boc_->meta_get(td::as_slice(key), value);
     R.ensure();
     bool stored_permanent_mode = R.ok() == td::KeyValue::GetStatus::Ok;
+    if (stored_permanent_mode) {
+      LOG_CHECK(opts_->get_permanent_celldb()) << "permanent_celldb cannot be turned off";
+    }
     permanent_mode_ = stored_permanent_mode || opts_->get_permanent_celldb();
     if (permanent_mode_) {
       LOG(WARNING) << "Celldb is in permanent mode";
