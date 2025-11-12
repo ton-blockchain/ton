@@ -410,8 +410,19 @@ void AsyncStateSerializer::PreviousStateCache::add_new_cells(vm::CellDbReader& r
   }
 }
 
+void AsyncStateSerializer::PreviousStateCache::cleanup_big_state_files(Ref<MasterchainState> mc_state) {
+  erase_if(state_files, [&](const std::pair<std::string, ShardIdFull>& f) {
+    ShardIdFull shard = f.second;
+    return !shard.is_masterchain() &&
+           (td::uint32)f.second.pfx_len() < mc_state->persistent_state_split_depth(shard.workchain);
+  });
+}
+
 void AsyncStateSerializer::got_masterchain_state(td::Ref<MasterchainState> state,
                                                  std::shared_ptr<vm::CellDbReader> cell_db_reader) {
+  if (previous_state_cache_) {
+    previous_state_cache_->cleanup_big_state_files(state);
+  }
   if (!opts_->get_state_serializer_enabled() || auto_disabled_) {
     stored_masterchain_state();
     return;
@@ -433,14 +444,11 @@ void AsyncStateSerializer::got_masterchain_state(td::Ref<MasterchainState> state
 
   auto write_data = [shard = state->get_shard(), root = state->root_cell(), cell_db_reader,
                      previous_state_cache = previous_state_cache_,
-                     fast_serializer_enabled = opts_->get_fast_state_serializer_enabled(),
                      cancellation_token = cancellation_token_source_.get_cancellation_token()](td::FileFd& fd) mutable {
     if (!cell_db_reader) {
       return vm::std_boc_serialize_to_file(root, fd, 31, std::move(cancellation_token));
     }
-    if (fast_serializer_enabled) {
-      previous_state_cache->prepare_cache(shard, UnsplitStateType{});
-    }
+    previous_state_cache->prepare_cache(shard, UnsplitStateType{});
     auto new_cell_db_reader = std::make_shared<CachedCellDbReader>(cell_db_reader, previous_state_cache->cache);
     auto res =
         vm::boc_serialize_to_file_large(new_cell_db_reader, root->get_hash(), fd, 31, std::move(cancellation_token));
@@ -593,9 +601,7 @@ void AsyncStateSerializer::write_shard_state(BlockHandle handle, ShardIdFull sha
     if (!cell_db_reader) {
       return vm::std_boc_serialize_to_file(cell, fd, 31, std::move(cancellation_token));
     }
-    if (opts_->get_fast_state_serializer_enabled()) {
-      previous_state_cache_->prepare_cache(shard, type);
-    }
+    previous_state_cache_->prepare_cache(shard, type);
     if (!previous_state_cache_->cache) {
       previous_state_cache_->cache = std::make_shared<vm::CellHashSet>();
     }

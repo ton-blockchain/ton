@@ -115,6 +115,7 @@ RefInt256 make_refint(Args&&... args) {
 }
 
 extern RefInt256 zero_refint();
+extern RefInt256 nan_refint();
 extern RefInt256 bits_to_refint(td::ConstBitPtr bits, int n, bool sgnd = false);
 
 extern std::string dec_string(RefInt256 x);

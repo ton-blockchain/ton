@@ -267,6 +267,12 @@ RefInt256 zero_refint() {
   return td::RefInt256{true, 0};
 }
 
+RefInt256 nan_refint() {
+  RefInt256 x{true};
+  x.unique_write().invalidate();
+  return x;
+}
+
 RefInt256 bits_to_refint(td::ConstBitPtr bits, int n, bool sgnd) {
   td::RefInt256 x{true};
   x.unique_write().import_bits(bits, n, sgnd);
