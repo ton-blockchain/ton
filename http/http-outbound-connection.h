@@ -42,6 +42,9 @@ class HttpOutboundConnection : public HttpConnection {
   }
 
   td::Status receive_eof() override {
+    if (found_eof_) {
+      return td::Status::OK();
+    }
     found_eof_ = true;
     if (reading_payload_) {
       if (reading_payload_->payload_type() != HttpPayload::PayloadType::pt_eof &&

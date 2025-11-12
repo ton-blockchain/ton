@@ -424,9 +424,12 @@ add_subdirectory(tolk)
 add_subdirectory(tonlib)
 #END tonlib
 
+# Temporary (?) move those two targets in TONLIB targets
+add_subdirectory(common)
+add_subdirectory(http)
+
 #BEGIN internal
 if (NOT TON_ONLY_TONLIB)
-add_subdirectory(common)
 add_subdirectory(tdfec)
 add_subdirectory(keyring)
 add_subdirectory(fec)
@@ -444,7 +447,6 @@ add_subdirectory(validator-engine-console)
 add_subdirectory(create-hardfork)
 add_subdirectory(dht-server)
 add_subdirectory(utils)
-add_subdirectory(http)
 add_subdirectory(rldp-http-proxy)
 endif()
 #END internal

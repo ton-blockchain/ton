@@ -17,6 +17,8 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
+#include <algorithm>
+
 #include "openssl/digest.hpp"
 #include "vm/cells/DataCell.h"
 

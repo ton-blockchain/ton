@@ -24,6 +24,7 @@
 #include "td/utils/tl_helpers.h"
 
 #include "Torrent.h"
+#include "TorrentHeader.hpp"
 
 namespace ton {
 

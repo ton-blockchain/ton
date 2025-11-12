@@ -52,7 +52,7 @@ vector<string> Hints::get_words(Slice name, bool is_search) {
   auto end = name.uend();
   while (pos != end) {
     uint32 code;
-    pos = next_utf8_unsafe(pos, &code, is_search ? "get_words_search" : "get_words_add");
+    pos = next_utf8_unsafe(pos, &code);
 
     code = prepare_search_character(code);
     if (code == 0) {

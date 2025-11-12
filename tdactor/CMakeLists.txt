@@ -54,7 +54,7 @@ target_include_directories(tdactor PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOUR
 target_link_libraries(tdactor PUBLIC tdutils)
 
 add_executable(tdactor-example-coroutines example/actor-example-coroutines.cpp)
-target_link_libraries(tdactor-example-coroutines PUBLIC tdactor)
+target_link_libraries(tdactor-example-coroutines PUBLIC tdactor tdnet)
 
 # BEGIN-INTERNAL
 add_subdirectory(benchmark)

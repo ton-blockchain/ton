@@ -54,7 +54,7 @@ TEST(Port, files) {
   const int ITER_COUNT = 1000;
   for (int i = 0; i < ITER_COUNT; i++) {
     walk_path(main_dir, [&](CSlice name, WalkPath::Type type) {
-      if (type == WalkPath::Type::NotDir) {
+      if (type == WalkPath::Type::RegularFile) {
         ASSERT_TRUE(name == fd_path || name == fd2_path);
       }
       cnt++;
