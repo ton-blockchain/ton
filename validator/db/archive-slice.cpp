@@ -156,12 +156,12 @@ class PackageReader : public td::actor::Actor {
   std::shared_ptr<PackageStatistics> statistics_;
 };
 
-static std::string get_package_file_name(PackageId p_id, ShardIdFull shard_prefix) {
+static std::string get_package_file_name(PackageId p_id, ShardIdFull shard_prefix, bool legacy = false) {
   td::StringBuilder sb;
   sb << p_id.name();
   if (!shard_prefix.is_masterchain()) {
     sb << ".";
-    sb << shard_prefix.workchain << ":" << shard_to_str(shard_prefix.shard);
+    sb << shard_prefix.workchain << (legacy ? ":" : "_") << shard_to_str(shard_prefix.shard);
   }
   sb << ".pack";
   return sb.as_cslice().str();
@@ -833,7 +833,13 @@ td::Result<ArchiveSlice::PackageInfo *> ArchiveSlice::choose_package(BlockSeqno 
 
 void ArchiveSlice::add_package(td::uint32 seqno, ShardIdFull shard_prefix, td::uint64 size, td::uint32 version) {
   PackageId p_id{seqno, key_blocks_only_, temp_};
-  std::string path = PSTRING() << db_root_ << p_id.path() << get_package_file_name(p_id, shard_prefix);
+  std::string path_legacy = PSTRING() << db_root_ << p_id.path() << get_package_file_name(p_id, shard_prefix, true);
+  std::string path;
+  if (td::stat(path_legacy).is_ok()) {
+    path = std::move(path_legacy);
+  } else {
+    path = PSTRING() << db_root_ << p_id.path() << get_package_file_name(p_id, shard_prefix);
+  }
   auto R = Package::open(path, false, true);
   if (R.is_error()) {
     LOG(FATAL) << "failed to open/create archive '" << path << "': " << R.move_as_error();

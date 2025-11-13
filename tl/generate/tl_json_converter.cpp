@@ -144,8 +144,8 @@ void gen_from_json_constructor(StringBuilder &sb, const T *constructor, bool is_
     sb << " {\n";
     for (auto &arg : constructor->args) {
       sb << "  {\n";
-      sb << "    TRY_RESULT(value, get_json_object_field(from, \"" << tl::simple::gen_cpp_name(arg.name)
-         << "\", JsonValue::Type::Null, true));\n";
+      sb << "    TRY_RESULT(value, from.extract_optional_field(\"" << tl::simple::gen_cpp_name(arg.name)
+         << "\", JsonValue::Type::Null));\n";
       sb << "    if (value.type() != JsonValue::Type::Null) {\n";
       if (arg.type->type == tl::simple::Type::Bytes || arg.type->type == tl::simple::Type::SecureBytes) {
         sb << "      TRY_STATUS(from_json_bytes(to." << tl::simple::gen_cpp_field_name(arg.name)

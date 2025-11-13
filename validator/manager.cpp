@@ -2032,7 +2032,7 @@ void ValidatorManagerImpl::start_up() {
   auto to_import_dir = db_root_ + "/import";
   auto S = td::WalkPath::run(to_import_dir, [&](td::CSlice cfname, td::WalkPath::Type t) -> void {
     auto fname = td::Slice(cfname);
-    if (t == td::WalkPath::Type::NotDir) {
+    if (t == td::WalkPath::Type::RegularFile) {
       auto d = fname.rfind(TD_DIR_SLASH);
       if (d != td::Slice::npos) {
         fname = fname.substr(d + 1);

@@ -31,11 +31,12 @@ class TcpListener : public td::actor::Actor, private td::ObserverBase {
     virtual void accept(SocketFd fd) = 0;
   };
 
-  TcpListener(int port, std::unique_ptr<Callback> callback);
+  TcpListener(int32 port, std::unique_ptr<TcpListener::Callback> callback, Slice server_address = Slice("0.0.0.0"));
 
  private:
   int port_;
   std::unique_ptr<Callback> callback_;
+  const string server_address_;
   td::ServerSocketFd server_socket_fd_;
   td::actor::ActorId<TcpListener> self_;
 
@@ -51,11 +52,13 @@ class TcpListener : public td::actor::Actor, private td::ObserverBase {
 
 class TcpInfiniteListener : public actor::Actor {
  public:
-  TcpInfiniteListener(int32 port, std::unique_ptr<TcpListener::Callback> callback);
+  TcpInfiniteListener(int32 port, std::unique_ptr<TcpListener::Callback> callback,
+                      Slice server_address = Slice("0.0.0.0"));
 
  private:
   int32 port_;
   std::unique_ptr<TcpListener::Callback> callback_;
+  const string server_address_;
   actor::ActorOwn<TcpListener> tcp_listener_;
   int32 refcnt_{0};
   bool close_flag_{false};

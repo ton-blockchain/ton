@@ -66,9 +66,11 @@ class Adnl : public AdnlSenderInterface {
  public:
   class Callback {
    public:
-    virtual void receive_message(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data) = 0;
+    virtual void receive_message(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data) {
+    }
     virtual void receive_query(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data,
-                               td::Promise<td::BufferSlice> promise) = 0;
+                               td::Promise<td::BufferSlice> promise) {
+    }
     virtual ~Callback() = default;
   };
 

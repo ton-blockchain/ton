@@ -511,7 +511,6 @@ tonNode.getOutMsgQueueProof dst_shard:tonNode.shardId blocks:(vector tonNode.blo
     limits:tonNode.importedMsgQueueLimits = tonNode.OutMsgQueueProof;
 tonNode.downloadBlockCandidate block:tonNode.blockIdExt only_collated_data:Bool = tonNode.BlockCandidateData;
 
-tonNode.downloadPersistentState block:tonNode.blockIdExt masterchain_block:tonNode.blockIdExt = tonNode.Data;
 tonNode.downloadPersistentStateSlice block:tonNode.blockIdExt masterchain_block:tonNode.blockIdExt offset:long max_size:long = tonNode.Data;
 tonNode.getPersistentStateSize block:tonNode.blockIdExt masterchain_block:tonNode.blockIdExt = tonNode.PersistentStateSize;
 tonNode.preparePersistentState block:tonNode.blockIdExt masterchain_block:tonNode.blockIdExt = tonNode.PreparedState;

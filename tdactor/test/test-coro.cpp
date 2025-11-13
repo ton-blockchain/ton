@@ -6,7 +6,6 @@
 #include <utility>
 #include <vector>
 
-#include "absl/strings/str_format.h"
 #include "td/actor/actor.h"
 #include "td/actor/coro.h"
 #include "td/utils/Random.h"
@@ -219,6 +218,16 @@ class CoroSpec final : public td::actor::Actor {
       LOG(INFO) << "meta_ask: co_try(ask(args...))";
       check_value(co_await ask(args...));
       //check(co_await ask_new(args...));
+
+      auto [bridge_task, bridge_promise] = StartedTask<td::Unit>::make_bridge();
+      auto promise = [&](auto value) {
+        check(std::move(value));
+        bridge_promise.set_value(td::Unit{});
+      };
+      auto task = ask(args...);
+      td::connect(std::move(promise), std::move(task));
+      co_await std::move(bridge_task);
+
       co_return td::Unit{};
     };
 

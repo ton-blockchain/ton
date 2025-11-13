@@ -27,32 +27,32 @@ td::Result<TransactionEmulationParams> decode_transaction_emulation_params(const
   TRY_RESULT(input_json, td::json_decode(td::MutableSlice(json_str)));
   auto& obj = input_json.get_object();
 
-  TRY_RESULT(utime_field, td::get_json_object_field(obj, "utime", td::JsonValue::Type::Number, false));
+  TRY_RESULT(utime_field, obj.extract_required_field("utime", td::JsonValue::Type::Number));
   TRY_RESULT(utime, td::to_integer_safe<td::uint32>(utime_field.get_number()));
   params.utime = utime;
 
-  TRY_RESULT(lt_field, td::get_json_object_field(obj, "lt", td::JsonValue::Type::String, false));
+  TRY_RESULT(lt_field, obj.extract_required_field("lt", td::JsonValue::Type::String));
   TRY_RESULT(lt, td::to_integer_safe<td::uint64>(lt_field.get_string()));
   params.lt = lt;
 
-  TRY_RESULT(rand_seed_str, td::get_json_object_string_field(obj, "rand_seed", true));
+  TRY_RESULT(rand_seed_str, obj.get_optional_string_field("rand_seed", ""));
   if (rand_seed_str.size() > 0) {
     params.rand_seed_hex = rand_seed_str;
   }
 
-  TRY_RESULT(ignore_chksig, td::get_json_object_bool_field(obj, "ignore_chksig", false));
+  TRY_RESULT(ignore_chksig, obj.get_required_bool_field("ignore_chksig"));
   params.ignore_chksig = ignore_chksig;
 
-  TRY_RESULT(debug_enabled, td::get_json_object_bool_field(obj, "debug_enabled", false));
+  TRY_RESULT(debug_enabled, obj.get_required_bool_field("debug_enabled"));
   params.debug_enabled = debug_enabled;
 
-  TRY_RESULT(is_tick_tock, td::get_json_object_bool_field(obj, "is_tick_tock", true, false));
+  TRY_RESULT(is_tick_tock, obj.get_optional_bool_field("is_tick_tock", false));
   params.is_tick_tock = is_tick_tock;
 
-  TRY_RESULT(is_tock, td::get_json_object_bool_field(obj, "is_tock", true, false));
+  TRY_RESULT(is_tock, obj.get_optional_bool_field("is_tock", false));
   params.is_tock = is_tock;
 
-  TRY_RESULT(prev_blocks_info_str, td::get_json_object_string_field(obj, "prev_blocks_info", true));
+  TRY_RESULT(prev_blocks_info_str, obj.get_optional_string_field("prev_blocks_info", ""));
   if (prev_blocks_info_str.size() > 0) {
     params.prev_blocks_info = prev_blocks_info_str;
   }
@@ -87,37 +87,37 @@ td::Result<GetMethodParams> decode_get_method_params(const char* json) {
   TRY_RESULT(input_json, td::json_decode(td::MutableSlice(json_str)));
   auto& obj = input_json.get_object();
 
-  TRY_RESULT(code, td::get_json_object_string_field(obj, "code", false));
+  TRY_RESULT(code, obj.get_required_string_field("code"));
   params.code = code;
 
-  TRY_RESULT(data, td::get_json_object_string_field(obj, "data", false));
+  TRY_RESULT(data, obj.get_required_string_field("data"));
   params.data = data;
 
-  TRY_RESULT(verbosity, td::get_json_object_int_field(obj, "verbosity", false));
+  TRY_RESULT(verbosity, obj.get_required_int_field("verbosity"));
   params.verbosity = verbosity;
 
-  TRY_RESULT(libs, td::get_json_object_string_field(obj, "libs", true));
+  TRY_RESULT(libs, obj.get_optional_string_field("libs", ""));
   if (libs.size() > 0) {
     params.libs = libs;
   }
 
-  TRY_RESULT(prev_blocks_info, td::get_json_object_string_field(obj, "prev_blocks_info", true));
+  TRY_RESULT(prev_blocks_info, obj.get_optional_string_field("prev_blocks_info", ""));
   if (prev_blocks_info.size() > 0) {
     params.prev_blocks_info = prev_blocks_info;
   }
 
-  TRY_RESULT(address, td::get_json_object_string_field(obj, "address", false));
+  TRY_RESULT(address, obj.get_required_string_field("address"));
   params.address = address;
 
-  TRY_RESULT(unixtime_field, td::get_json_object_field(obj, "unixtime", td::JsonValue::Type::Number, false));
+  TRY_RESULT(unixtime_field, obj.extract_required_field("unixtime", td::JsonValue::Type::Number));
   TRY_RESULT(unixtime, td::to_integer_safe<td::uint32>(unixtime_field.get_number()));
   params.unixtime = unixtime;
 
-  TRY_RESULT(balance_field, td::get_json_object_field(obj, "balance", td::JsonValue::Type::String, false));
+  TRY_RESULT(balance_field, obj.extract_required_field("balance", td::JsonValue::Type::String));
   TRY_RESULT(balance, td::to_integer_safe<td::uint64>(balance_field.get_string()));
   params.balance = balance;
 
-  TRY_RESULT(ec_field, td::get_json_object_field(obj, "extra_currencies", td::JsonValue::Type::Object, true));
+  TRY_RESULT(ec_field, obj.extract_optional_field("extra_currencies", td::JsonValue::Type::Object));
   if (ec_field.type() != td::JsonValue::Type::Null) {
     if (ec_field.type() != td::JsonValue::Type::Object) {
       return td::Status::Error("EC must be of type Object");
@@ -125,7 +125,7 @@ td::Result<GetMethodParams> decode_get_method_params(const char* json) {
     td::StringBuilder ec_builder;
     auto& ec_obj = ec_field.get_object();
     bool is_first = true;
-    for (auto& field_value : ec_obj) {
+    for (auto& field_value : ec_obj.field_values_) {
       auto currency_id = field_value.first;
       if (field_value.second.type() != td::JsonValue::Type::String) {
         return td::Status::Error(PSLICE() << "EC amount must be of type String");
@@ -143,17 +143,17 @@ td::Result<GetMethodParams> decode_get_method_params(const char* json) {
     params.extra_currencies = ec_builder.as_cslice().str();
   }
 
-  TRY_RESULT(rand_seed_str, td::get_json_object_string_field(obj, "rand_seed", false));
+  TRY_RESULT(rand_seed_str, obj.get_required_string_field("rand_seed"));
   params.rand_seed_hex = rand_seed_str;
 
-  TRY_RESULT(gas_limit_field, td::get_json_object_field(obj, "gas_limit", td::JsonValue::Type::String, false));
+  TRY_RESULT(gas_limit_field, obj.extract_required_field("gas_limit", td::JsonValue::Type::String));
   TRY_RESULT(gas_limit, td::to_integer_safe<td::uint64>(gas_limit_field.get_string()));
   params.gas_limit = gas_limit;
 
-  TRY_RESULT(method_id, td::get_json_object_int_field(obj, "method_id", false));
+  TRY_RESULT(method_id, obj.get_optional_int_field("method_id"));
   params.method_id = method_id;
 
-  TRY_RESULT(debug_enabled, td::get_json_object_bool_field(obj, "debug_enabled", false));
+  TRY_RESULT(debug_enabled, obj.get_required_bool_field("debug_enabled"));
   params.debug_enabled = debug_enabled;
 
   return params;

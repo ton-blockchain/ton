@@ -61,7 +61,9 @@ class HttpClientImpl : public HttpClient {
   }
 
   void alarm() override {
-    create_connection();
+    if (!ready_) {
+      create_connection();
+    }
   }
   void send_request(
       std::unique_ptr<HttpRequest> request, std::shared_ptr<HttpPayload> payload, td::Timestamp timeout,

@@ -38,9 +38,9 @@ static td::Result<std::pair<tonlib_api::object_ptr<tonlib_api::Function>, std::s
   }
 
   std::string extra;
-  if (has_json_object_field(json_value.get_object(), "@extra")) {
+  if (json_value.get_object().has_field("@extra")) {
     extra = td::json_encode<std::string>(
-        get_json_object_field(json_value.get_object(), "@extra", td::JsonValue::Type::Null).move_as_ok());
+        json_value.get_object().extract_required_field("@extra", td::JsonValue::Type::Null).move_as_ok());
   }
 
   tonlib_api::object_ptr<tonlib_api::Function> func;

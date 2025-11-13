@@ -317,13 +317,6 @@ class TestNode : public td::actor::Actor {
         td::actor::send_closure(id_, &ton::validator::ValidatorManager::sync_complete,
                                 td::PromiseCreator::lambda([](td::Unit) {}));
       }
-      void on_new_masterchain_block(td::Ref<ton::validator::MasterchainState> state,
-                                    std::set<ton::ShardIdFull> shards_to_monitor) override {
-      }
-      void send_ihr_message(ton::AccountIdPrefixFull dst, td::BufferSlice data) override {
-      }
-      void send_ext_message(ton::AccountIdPrefixFull dst, td::BufferSlice data) override {
-      }
       void send_shard_block_info(ton::BlockIdExt block_id, ton::CatchainSeqno cc_seqno, td::BufferSlice data) override {
         ++tdescr_cnt_;
         if (!tdescr_save_) {
@@ -339,44 +332,6 @@ class TestNode : public td::actor::Actor {
                        << res.move_as_error().to_string();
           }
         }
-      }
-      void send_block_candidate_broadcast(ton::BlockIdExt block_id, ton::CatchainSeqno cc_seqno,
-                                          td::uint32 validator_set_hash, td::BufferSlice data,
-                                          td::optional<td::BufferSlice> collated_data, int mode) override {
-      }
-      void send_broadcast(ton::BlockBroadcast broadcast, int mode) override {
-      }
-      void download_block(ton::BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
-                          td::Promise<ton::ReceivedBlock> promise) override {
-      }
-      void download_zero_state(ton::BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
-                               td::Promise<td::BufferSlice> promise) override {
-      }
-      void download_persistent_state(ton::BlockIdExt block_id, ton::BlockIdExt masterchain_block_id,
-                                     ton::validator::PersistentStateType type, td::uint32 priority,
-                                     td::Timestamp timeout, td::Promise<td::BufferSlice> promise) override {
-      }
-      void download_block_proof(ton::BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
-                                td::Promise<td::BufferSlice> promise) override {
-      }
-      void download_block_proof_link(ton::BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
-                                     td::Promise<td::BufferSlice> promise) override {
-      }
-      void get_next_key_blocks(ton::BlockIdExt block_id, td::Timestamp timeout,
-                               td::Promise<std::vector<ton::BlockIdExt>> promise) override {
-      }
-      void download_archive(ton::BlockSeqno masterchain_seqno, ton::ShardIdFull shard_prefix, std::string tmp_dir,
-                            td::Timestamp timeout, td::Promise<std::string> promise) override {
-      }
-      void download_out_msg_queue_proof(
-          ton::ShardIdFull dst_shard, std::vector<ton::BlockIdExt> blocks, block::ImportedMsgQueueLimits limits,
-          td::Timestamp timeout, td::Promise<std::vector<td::Ref<ton::validator::OutMsgQueueProof>>> promise) override {
-      }
-      void download_block_candidate(ton::BlockIdExt block_id, bool only_collated_data, td::Timestamp timeout,
-                                    td::Promise<std::pair<td::BufferSlice, td::BufferSlice>> promise) override {
-      }
-
-      void new_key_block(ton::validator::BlockHandle handle) override {
       }
     };
 

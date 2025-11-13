@@ -576,30 +576,6 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_zero_state, block_id, std::move(P));
 }
 
-void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadPersistentState &query,
-                                      td::Promise<td::BufferSlice> promise) {
-  td::uint64 max_size = 1 << 24;
-  auto P = td::PromiseCreator::lambda(
-      [SelfId = actor_id(this), promise = std::move(promise), max_size](td::Result<td::BufferSlice> R) mutable {
-        if (R.is_error()) {
-          promise.set_error(R.move_as_error_prefix("failed to get state from db: "));
-          return;
-        }
-        td::BufferSlice s = R.move_as_ok();
-        if (s.size() > max_size) {
-          promise.set_error(td::Status::Error("state is too big"));
-          return;
-        }
-        promise.set_value(std::move(s));
-      });
-  auto block_id = create_block_id(query.block_);
-  auto masterchain_block_id = create_block_id(query.masterchain_block_);
-  VLOG(FULL_NODE_DEBUG) << "Got query downloadPersistentState " << block_id.to_str() << " "
-                        << masterchain_block_id.to_str() << " from " << src;
-  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_persistent_state_slice, block_id,
-                          masterchain_block_id, UnsplitStateType{}, 0, max_size + 1, std::move(P));
-}
-
 void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadPersistentStateSlice &query,
                                       td::Promise<td::BufferSlice> promise) {
   auto query_v2 = create_tl_object<ton_api::tonNode_downloadPersistentStateSliceV2>(

@@ -825,7 +825,7 @@ void CatChainReceiverImpl::synchronize_with(CatChainReceiverSource *S) {
     if (SS->blamed()) {
       rt[i] = -1;
     } else {
-      rt[i] = static_cast<td::int32>(S->delivered_height());
+      rt[i] = static_cast<td::int32>(SS->delivered_height());
     }
   }
 
