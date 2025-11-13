@@ -79,7 +79,7 @@ ValidateQuery::ValidateQuery(BlockCandidate candidate, ValidateParams params,
     , timeout(timeout)
     , main_promise(std::move(promise))
     , is_fake_(params.is_fake)
-    , parallel_accounts_validation_(params.parallel_accounts_validation)
+    , parallel_accounts_validation_(params.parallel_validation)
     , shard_pfx_(shard_.shard)
     , shard_pfx_len_(ton::shard_prefix_length(shard_))
     , optimistic_prev_block_(std::move(params.optimistic_prev_block))
