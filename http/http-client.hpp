@@ -16,10 +16,10 @@
 
     Copyright 2019-2020 Telegram Systems LLP
 */
+#include "td/utils/Random.h"
+
 #include "http-client.h"
 #include "http-outbound-connection.h"
-
-#include "td/utils/Random.h"
 
 namespace ton {
 
@@ -61,7 +61,9 @@ class HttpClientImpl : public HttpClient {
   }
 
   void alarm() override {
-    create_connection();
+    if (!ready_) {
+      create_connection();
+    }
   }
   void send_request(
       std::unique_ptr<HttpRequest> request, std::shared_ptr<HttpPayload> payload, td::Timestamp timeout,

@@ -16,22 +16,19 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "Binlog.h"
-
-#include "BinlogReaderHelper.h"
-
-#include "td/db/utils/StreamInterface.h"
+#include "td/actor/actor.h"
 #include "td/db/utils/ChainBuffer.h"
 #include "td/db/utils/CyclicBuffer.h"
 #include "td/db/utils/FileSyncState.h"
-#include "td/db/utils/StreamToFileActor.h"
 #include "td/db/utils/FileToStreamActor.h"
-
-#include "td/actor/actor.h"
-
+#include "td/db/utils/StreamInterface.h"
+#include "td/db/utils/StreamToFileActor.h"
+#include "td/utils/VectorQueue.h"
 #include "td/utils/misc.h"
 #include "td/utils/port/path.h"
-#include "td/utils/VectorQueue.h"
+
+#include "Binlog.h"
+#include "BinlogReaderHelper.h"
 
 namespace td {
 namespace {

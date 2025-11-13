@@ -33,7 +33,7 @@ void Optimizer::set_code(AsmOpConsList code) {
 
 void Optimizer::unpack() {
   int i = 0, j = 0;
-  for (AsmOpCons *p = code_.get(); p && i < n; p = p->cdr.get(), ++j) {
+  for (AsmOpCons* p = code_.get(); p && i < n; p = p->cdr.get(), ++j) {
     if (p->car->is_very_custom()) {
       break;
     }

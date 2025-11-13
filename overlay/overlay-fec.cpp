@@ -16,9 +16,10 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include "adnl/utils.hpp"
+
 #include "overlay-fec.hpp"
 #include "overlay.hpp"
-#include "adnl/utils.hpp"
 
 namespace ton {
 

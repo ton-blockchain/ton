@@ -18,8 +18,8 @@
 */
 #pragma once
 
+#include "td/actor/core/SchedulerContext.h"
 #include "td/actor/core/SchedulerMessage.h"
-
 #include "td/utils/MpmcQueue.h"
 #include "td/utils/MpmcWaiter.h"
 #include "td/utils/Span.h"
@@ -31,23 +31,22 @@ template <class T>
 struct LocalQueue;
 class CpuWorker {
  public:
-  CpuWorker(MpmcQueue<SchedulerMessage::Raw *> &queue, MpmcWaiter &waiter, size_t id,
-            MutableSpan<LocalQueue<SchedulerMessage::Raw *>> local_queues)
+  CpuWorker(MpmcQueue<SchedulerToken> &queue, MpmcWaiter &waiter, size_t id,
+            MutableSpan<LocalQueue<SchedulerToken>> local_queues)
       : queue_(queue), waiter_(waiter), id_(id), local_queues_(local_queues) {
   }
   void run();
 
  private:
-  MpmcQueue<SchedulerMessage::Raw *> &queue_;
+  MpmcQueue<SchedulerToken> &queue_;
   MpmcWaiter &waiter_;
   size_t id_;
-  MutableSpan<LocalQueue<SchedulerMessage::Raw *>> local_queues_;
+  MutableSpan<LocalQueue<SchedulerToken>> local_queues_;
   size_t cnt_{0};
 
-  bool try_pop(SchedulerMessage &message, size_t thread_id);
-
-  bool try_pop_local(SchedulerMessage &message);
-  bool try_pop_global(SchedulerMessage &message, size_t thread_id);
+  bool try_pop(SchedulerToken &token, size_t thread_id);
+  bool try_pop_local(SchedulerToken &token);
+  bool try_pop_global(SchedulerToken &token, size_t thread_id);
 };
 }  // namespace core
 }  // namespace actor

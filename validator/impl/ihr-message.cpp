@@ -16,12 +16,13 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "ihr-message.hpp"
-#include "vm/boc.h"
-#include "block/block-parse.h"
 #include "block/block-auto.h"
 #include "block/block-db.h"
+#include "block/block-parse.h"
+#include "vm/boc.h"
 #include "vm/cells/MerkleProof.h"
+
+#include "ihr-message.hpp"
 
 namespace ton {
 
@@ -76,7 +77,7 @@ td::Result<Ref<IhrMessageQ>> IhrMessageQ::create_ihr_message(td::BufferSlice dat
     return td::Status::Error("IHR message does not contain a valid source BlockIdExt");
   }
   try {
-    auto virt_root = vm::MerkleProof::virtualize(proof, 1);
+    auto virt_root = vm::MerkleProof::virtualize(proof);
     if (virt_root.is_null()) {
       return td::Status::Error("IHR message does not contain a valid Merkle proof");
     }

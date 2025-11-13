@@ -15,14 +15,15 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "StorageProvider.h"
-#include "td/db/RocksDb.h"
-#include "td/utils/JsonBuilder.h"
 #include "auto/tl/ton_api_json.h"
-#include "td/utils/port/path.h"
 #include "block/block-auto.h"
 #include "common/delay.h"
 #include "td/actor/MultiPromise.h"
+#include "td/db/RocksDb.h"
+#include "td/utils/JsonBuilder.h"
+#include "td/utils/port/path.h"
+
+#include "StorageProvider.h"
 
 namespace ton {
 
@@ -262,7 +263,7 @@ void StorageProvider::process_transaction(tl_object_ptr<tonlib_api::raw_transact
       long long op_code = cs.prefetch_ulong(32);
       // const op::offer_storage_contract = 0x107c49ef; -- old versions
       // const op::deploy_storage_contract = 0xe4748df1; -- new versions
-      if((op_code == 0x107c49ef) || (op_code == 0xe4748df1)) {
+      if ((op_code == 0x107c49ef) || (op_code == 0xe4748df1)) {
         new_contract_address = message->destination_->account_address_;
       }
     }

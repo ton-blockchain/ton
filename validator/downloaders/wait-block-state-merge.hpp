@@ -67,4 +67,3 @@ class WaitBlockStateMerge : public td::actor::Actor {
 }  // namespace validator
 
 }  // namespace ton
-

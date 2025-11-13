@@ -16,18 +16,18 @@
 
     Copyright 2019-2020 Telegram Systems LLP
 */
-#include "import-db-slice.hpp"
+#include <delay.h>
 
-#include "validator/db/fileref.hpp"
-#include "td/utils/overloaded.h"
-#include "validator/fabric.h"
-#include "td/actor/MultiPromise.h"
 #include "common/checksum.h"
+#include "downloaders/download-state.hpp"
+#include "td/actor/MultiPromise.h"
+#include "td/utils/overloaded.h"
 #include "td/utils/port/path.h"
 #include "ton/ton-io.hpp"
-#include "downloaders/download-state.hpp"
+#include "validator/db/fileref.hpp"
+#include "validator/fabric.h"
 
-#include <delay.h>
+#include "import-db-slice.hpp"
 
 namespace ton {
 

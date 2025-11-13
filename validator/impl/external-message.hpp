@@ -18,11 +18,11 @@
 */
 #pragma once
 
+#include "adnl/utils.hpp"
+#include "auto/tl/ton_api.h"
+#include "block/transaction.h"
 #include "interfaces/validator-manager.h"
 #include "validator/interfaces/external-message.h"
-#include "auto/tl/ton_api.h"
-#include "adnl/utils.hpp"
-#include "block/transaction.h"
 
 namespace ton {
 
@@ -63,11 +63,8 @@ class ExtMessageQ : public ExtMessage {
                                                              block::SizeLimitsConfig::ExtMsgLimits limits);
   static void run_message(td::Ref<ExtMessage> message, td::actor::ActorId<ton::validator::ValidatorManager> manager,
                           td::Promise<td::Ref<ExtMessage>> promise);
-  static td::Status run_message_on_account(ton::WorkchainId wc,
-                                           block::Account* acc,
-                                           UnixTime utime, LogicalTime lt,
-                                           td::Ref<vm::Cell> msg_root,
-                                           std::unique_ptr<block::ConfigInfo> config);
+  static td::Status run_message_on_account(ton::WorkchainId wc, block::Account* acc, UnixTime utime, LogicalTime lt,
+                                           td::Ref<vm::Cell> msg_root, std::unique_ptr<block::ConfigInfo> config);
 };
 
 }  // namespace validator

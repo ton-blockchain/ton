@@ -16,11 +16,10 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "persistent-vector.h"
-
+#include "adnl/utils.hpp"
 #include "auto/tl/ton_api.h"
 
-#include "adnl/utils.hpp"
+#include "persistent-vector.h"
 
 namespace ton {
 

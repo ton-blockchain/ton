@@ -16,47 +16,40 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "words.h"
-
-#include "Dictionary.h"
-#include "IntCtx.h"
-#include "SourceLookup.h"
-#include "HashMap.h"
-
-#include "common/refcnt.hpp"
-#include "common/bigint.hpp"
-#include "common/refint.h"
-#include "common/bitstring.h"
-#include "common/util.h"
-
-#include "openssl/digest.hpp"
-
-#include "Ed25519.h"
-
-#include "vm/cells.h"
-#include "vm/cellslice.h"
-#include "vm/vm.h"
-#include "vm/cp0.h"
-#include "vm/dict.h"
-#include "vm/boc.h"
-
-#include "vm/box.hpp"
-#include "vm/atom.h"
+#include <ctime>
 
 #include "block/block.h"
+#include "common/bigint.hpp"
+#include "common/bitstring.h"
 #include "common/global-version.h"
-
+#include "common/refcnt.hpp"
+#include "common/refint.h"
+#include "common/util.h"
+#include "openssl/digest.hpp"
+#include "td/utils/PathView.h"
+#include "td/utils/Timer.h"
+#include "td/utils/crypto.h"
 #include "td/utils/filesystem.h"
 #include "td/utils/misc.h"
 #include "td/utils/optional.h"
-#include "td/utils/PathView.h"
-#include "td/utils/port/thread.h"
 #include "td/utils/port/Stat.h"
-#include "td/utils/Timer.h"
+#include "td/utils/port/thread.h"
 #include "td/utils/tl_helpers.h"
-#include "td/utils/crypto.h"
+#include "vm/atom.h"
+#include "vm/boc.h"
+#include "vm/box.hpp"
+#include "vm/cells.h"
+#include "vm/cellslice.h"
+#include "vm/cp0.h"
+#include "vm/dict.h"
+#include "vm/vm.h"
 
-#include <ctime>
+#include "Dictionary.h"
+#include "Ed25519.h"
+#include "HashMap.h"
+#include "IntCtx.h"
+#include "SourceLookup.h"
+#include "words.h"
 
 namespace fift {
 

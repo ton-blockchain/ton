@@ -17,17 +17,17 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include <cassert>
-#include <iterator>
-#include "vm/opctable.h"
-#include "vm/cellslice.h"
-#include "vm/excno.hpp"
-#include "vm/vm.h"
-#include <iostream>
-#include <iomanip>
-#include <sstream>
 #include <functional>
+#include <iomanip>
+#include <iostream>
+#include <iterator>
+#include <sstream>
 
 #include "td/utils/format.h"
+#include "vm/cellslice.h"
+#include "vm/excno.hpp"
+#include "vm/opctable.h"
+#include "vm/vm.h"
 
 namespace vm {
 
@@ -382,8 +382,8 @@ dump_arg_instr_func_t dump_2sr(std::string prefix, std::string suffix) {
 dump_arg_instr_func_t dump_2sr_adj(unsigned adj, std::string prefix, std::string suffix) {
   return [adj, prefix, suffix](CellSlice&, unsigned args) -> std::string {
     std::ostringstream os;
-    os << prefix << 's' << (int)((args >> 4) & 15) - (int)((adj >> 4) & 15) << ",s" << (int)(args & 15) - (int)(adj & 15)
-       << suffix;
+    os << prefix << 's' << (int)((args >> 4) & 15) - (int)((adj >> 4) & 15) << ",s"
+       << (int)(args & 15) - (int)(adj & 15) << suffix;
     return os.str();
   };
 }

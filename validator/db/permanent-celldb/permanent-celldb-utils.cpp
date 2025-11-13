@@ -14,11 +14,12 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "permanent-celldb-utils.h"
 #include "block/block-auto.h"
 #include "td/actor/MultiPromise.h"
 #include "td/utils/HashMap.h"
 #include "vm/db/CellStorage.h"
+
+#include "permanent-celldb-utils.h"
 
 namespace ton::validator {
 

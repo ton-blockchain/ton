@@ -17,12 +17,11 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
-#include "td/utils/tests.h"
-#include "td/utils/benchmark.h"
-
 #include "td/utils/AtomicRead.h"
-#include "td/utils/StealingQueue.h"
 #include "td/utils/MpmcQueue.h"
+#include "td/utils/StealingQueue.h"
+#include "td/utils/benchmark.h"
+#include "td/utils/tests.h"
 
 namespace td {
 TEST(StealingQueue, very_simple) {

@@ -16,16 +16,14 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/tests.h"
-
-#include "td/db/KeyValueAsync.h"
 #include "td/db/KeyValue.h"
+#include "td/db/KeyValueAsync.h"
 #include "td/db/RocksDb.h"
-
+#include "td/utils/UInt.h"
 #include "td/utils/benchmark.h"
 #include "td/utils/buffer.h"
 #include "td/utils/optional.h"
-#include "td/utils/UInt.h"
+#include "td/utils/tests.h"
 
 TEST(KeyValue, simple) {
   td::Slice db_name = "testdb";
@@ -54,7 +52,7 @@ TEST(KeyValue, simple) {
   ensure_value("A", "HELLO");
 
   td::UInt128 x;
-  std::fill(as_slice(x).begin(), as_slice(x).end(), '1');
+  std::fill(td::as_mutable_slice(x).begin(), td::as_mutable_slice(x).end(), '1');
   x.raw[5] = 0;
   set_value(as_slice(x), as_slice(x));
   ensure_value(as_slice(x), as_slice(x));
@@ -125,7 +123,7 @@ TEST(KeyValue, async_simple) {
 
     void do_set() {
       td::UInt128 key;
-      td::Random::secure_bytes(as_slice(key));
+      td::Random::secure_bytes(td::as_mutable_slice(key));
       td::BufferSlice data(1024);
       td::Random::secure_bytes(as_slice(data));
       kv_.value().set(key, std::move(data), [actor_id = actor_id(this)](td::Result<td::Unit> res) {
@@ -242,7 +240,7 @@ TEST(KeyValue, Stress) {
 
     void do_set() {
       td::UInt128 key = td::UInt128::zero();
-      td::Random::secure_bytes(as_slice(key).substr(0, 1));
+      td::Random::secure_bytes(td::as_mutable_slice(key).substr(0, 1));
       td::BufferSlice data(1024);
       td::Random::secure_bytes(as_slice(data));
       kv_.value().set(key, std::move(data), [actor_id = actor_id(this)](td::Result<td::Unit> res) {

@@ -25,21 +25,21 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include <iostream>
+
 #include "adnl/adnl-network-manager.h"
 #include "adnl/adnl.h"
 #include "adnl/utils.hpp"
-#include "keys/encryptor.h"
-#include "td/utils/Time.h"
-#include "td/utils/format.h"
-#include "td/utils/OptionParser.h"
-#include "td/utils/filesystem.h"
-#include "dht/dht.hpp"
 #include "auto/tl/ton_api_json.h"
 #include "common/delay.h"
+#include "dht/dht.hpp"
+#include "keys/encryptor.h"
+#include "td/utils/OptionParser.h"
 #include "td/utils/Random.h"
+#include "td/utils/Time.h"
+#include "td/utils/filesystem.h"
+#include "td/utils/format.h"
 #include "terminal/terminal.h"
-
-#include <iostream>
 
 class AdnlNode : public td::actor::Actor {
  private:
@@ -136,8 +136,8 @@ class AdnlNode : public td::actor::Actor {
           adnl_, &ton::adnl::Adnl::send_query, local_id_, id, "ping",
           [SelfId = actor_id(this), i, timer = td::Timer()](td::Result<td::BufferSlice> R) {
             td::actor::send_closure(SelfId, &AdnlNode::on_pong, i, timer.elapsed(), R.is_ok());
-          }, td::Timestamp::in(5.0),
-          ton::create_serialize_tl_object<ton::ton_api::dht_ping>(td::Random::fast_uint64()));
+          },
+          td::Timestamp::in(5.0), ton::create_serialize_tl_object<ton::ton_api::dht_ping>(td::Random::fast_uint64()));
     }
 
     if (pings_remaining_ == 0) {
@@ -168,7 +168,7 @@ class AdnlNode : public td::actor::Actor {
       return;
     }
     td::TerminalIO::out() << "Pinged " << nodes_.size() << " nodes:\n";
-    for (const auto& node : nodes_) {
+    for (const auto &node : nodes_) {
       td::TerminalIO::out() << node.id << " : " << node.received << "/" << node.sent;
       if (node.received > 0) {
         td::TerminalIO::out() << " (avg. time = " << node.sum_time / node.received << ")";

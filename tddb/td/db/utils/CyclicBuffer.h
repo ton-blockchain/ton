@@ -18,9 +18,9 @@
 */
 #pragma once
 
-#include "StreamInterface.h"
-
 #include <utility>
+
+#include "StreamInterface.h"
 
 namespace td {
 

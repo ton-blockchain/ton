@@ -16,13 +16,12 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/net/UdpServer.h"
+#include <map>
+
 #include "td/net/FdListener.h"
 #include "td/net/TcpListener.h"
-
+#include "td/net/UdpServer.h"
 #include "td/utils/BufferedFd.h"
-
-#include <map>
 
 namespace td {
 namespace {
@@ -99,7 +98,7 @@ void UdpServerImpl::loop() {
     return;
   }
   //CHECK(td::actor::SchedulerContext::get()->has_poll() == false);
-  fd_.get_poll_info().get_flags();
+  sync_with_poll(fd_);
   VLOG(udp_server) << "loop " << td::tag("can read", can_read(fd_)) << " " << td::tag("can write", can_write(fd_));
   Status status;
   status = [&] {

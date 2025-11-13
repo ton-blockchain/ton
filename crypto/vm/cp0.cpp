@@ -16,16 +16,16 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "cp0.h"
-#include "opctable.h"
-#include "stackops.h"
-#include "tupleops.h"
 #include "arithops.h"
 #include "cellops.h"
 #include "contops.h"
-#include "dictops.h"
+#include "cp0.h"
 #include "debugops.h"
+#include "dictops.h"
+#include "opctable.h"
+#include "stackops.h"
 #include "tonops.h"
+#include "tupleops.h"
 
 namespace vm {
 

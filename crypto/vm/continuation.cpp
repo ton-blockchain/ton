@@ -16,14 +16,14 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "vm/dispatch.h"
+#include "td/utils/misc.h"
+#include "vm/boc.h"
 #include "vm/continuation.h"
 #include "vm/dict.h"
+#include "vm/dispatch.h"
 #include "vm/log.h"
 #include "vm/vm.h"
 #include "vm/vmstate.h"
-#include "vm/boc.h"
-#include "td/utils/misc.h"
 
 namespace vm {
 

@@ -1,0 +1,13 @@
+name: Clear all GH cache
+
+on:
+  workflow_dispatch
+
+jobs:
+  clear-cache:
+    env:
+      GH_TOKEN: ${{ github.token }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clear all cache
+        run: gh cache delete --all

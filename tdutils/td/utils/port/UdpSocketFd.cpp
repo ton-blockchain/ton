@@ -16,26 +16,24 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/port/UdpSocketFd.h"
-
+#include "td/utils/VectorQueue.h"
 #include "td/utils/common.h"
 #include "td/utils/format.h"
 #include "td/utils/logging.h"
 #include "td/utils/misc.h"
-#include "td/utils/port/detail/skip_eintr.h"
 #include "td/utils/port/PollFlags.h"
 #include "td/utils/port/SocketFd.h"
-#include "td/utils/VectorQueue.h"
+#include "td/utils/port/UdpSocketFd.h"
+#include "td/utils/port/detail/skip_eintr.h"
 
 #if TD_PORT_WINDOWS
-#include "td/utils/port/detail/Iocp.h"
 #include "td/utils/SpinLock.h"
+#include "td/utils/port/detail/Iocp.h"
 #endif
 
 #if TD_PORT_POSIX
-#include <cerrno>
-
 #include <arpa/inet.h>
+#include <cerrno>
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -489,7 +487,7 @@ class UdpSocketFdImpl {
     return info_.native_fd();
   }
   Status get_pending_error() {
-    if (!get_poll_info().get_flags().has_pending_error()) {
+    if (!get_poll_info().get_flags_local().has_pending_error()) {
       return Status::OK();
     }
     TRY_STATUS(detail::get_socket_pending_error(get_native_fd()));
@@ -499,7 +497,7 @@ class UdpSocketFdImpl {
   Status receive_message(UdpSocketFd::InboundMessage &message, bool &is_received) {
     is_received = false;
     int flags = 0;
-    if (get_poll_info().get_flags().has_pending_error()) {
+    if (get_poll_info().get_flags_local().has_pending_error()) {
 #ifdef MSG_ERRQUEUE
       flags = MSG_ERRQUEUE;
 #else
@@ -691,7 +689,7 @@ class UdpSocketFdImpl {
 #endif
   Status receive_messages_slow(MutableSpan<UdpSocketFd::InboundMessage> messages, size_t &cnt) {
     cnt = 0;
-    while (cnt < messages.size() && get_poll_info().get_flags().can_read()) {
+    while (cnt < messages.size() && get_poll_info().get_flags_local().can_read()) {
       auto &message = messages[cnt];
       CHECK(!message.data.empty());
       bool is_received;
@@ -706,7 +704,7 @@ class UdpSocketFdImpl {
   Status receive_messages_fast(MutableSpan<UdpSocketFd::InboundMessage> messages, size_t &cnt) {
     int flags = 0;
     cnt = 0;
-    if (get_poll_info().get_flags().has_pending_error()) {
+    if (get_poll_info().sync_with_poll().has_pending_error()) {
 #ifdef MSG_ERRQUEUE
       flags = MSG_ERRQUEUE;
 #else

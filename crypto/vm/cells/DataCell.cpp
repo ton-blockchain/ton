@@ -17,6 +17,8 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
+#include <algorithm>
+
 #include "openssl/digest.hpp"
 #include "vm/cells/DataCell.h"
 
@@ -71,16 +73,13 @@ class CellChecker {
         return td::Status::Error("Invalid special cell type");
     }
 
-    // Afterwards, we do some common checks and compute virtualization level.
+    // Afterwards, we validate depth array and figure out if this cell should be virtualized.
     if (*std::max_element(depth_.begin(), depth_.end()) > CellTraits::max_depth) {
       return td::Status::Error("Depth is too big");
     }
 
     for (int i = 0; i < refs_cnt_; ++i) {
-      virtualization_ = std::max(virtualization_, refs_[i]->get_virtualization());
-    }
-    if (virtualization_ > std::numeric_limits<td::uint8>::max()) {
-      return td::Status::Error("Virtualization is too big to be stored in vm::DataCell");
+      virtualized_ |= refs_[i]->is_virtualized();
     }
 
     // And finally, we compute cell hashes.
@@ -111,8 +110,8 @@ class CellChecker {
     return level_mask_;
   }
 
-  td::uint8 virtualization() const {
-    return static_cast<td::uint8>(virtualization_);
+  bool virtualized() const {
+    return virtualized_;
   }
 
   std::array<td::uint16, 4> const& depths() const {
@@ -314,7 +313,7 @@ class CellChecker {
   int bit_length_;
 
   Cell::LevelMask level_mask_;
-  td::uint32 virtualization_{0};
+  bool virtualized_{false};
   std::array<td::uint16, max_level + 1> depth_{};
   std::array<CellHash, max_level + 1> hash_{};
 };
@@ -353,7 +352,7 @@ td::Result<Ref<DataCell>> DataCell::create(td::Slice data, int bit_length, td::S
 
   void* storage = use_arena ? allocate_in_arena(cell_size) : ::operator new(cell_size);
   DataCell* allocated_cell = new (storage)
-      DataCell{bit_length, refs.size(), checker.type(), checker.level_mask(), use_arena, checker.virtualization()};
+      DataCell{bit_length, refs.size(), checker.type(), checker.level_mask(), use_arena, checker.virtualized()};
   auto& cell = *allocated_cell;
 
   auto mutable_data = cell.trailer_ + level_info_size;
@@ -443,14 +442,14 @@ std::string DataCell::to_hex() const {
 }
 
 DataCell::DataCell(int bit_length, size_t refs_cnt, Cell::SpecialType type, LevelMask level_mask,
-                   bool allocated_in_arena, td::uint8 virtualization)
+                   bool allocated_in_arena, bool virtualized)
     : bit_length_(bit_length)
     , refs_cnt_(static_cast<td::uint8>(refs_cnt))
     , type_(static_cast<td::uint8>(type))
     , level_(static_cast<td::uint8>(level_mask.get_level()))
     , level_mask_(level_mask.get_mask())
     , allocated_in_arena_(allocated_in_arena)
-    , virtualization_(virtualization) {
+    , virtualized_(virtualized) {
   get_thread_safe_counter().add(1);
 }
 

@@ -16,10 +16,10 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include "td/utils/MpscLinkQueue.h"
 #include "td/utils/common.h"
 #include "td/utils/format.h"
 #include "td/utils/logging.h"
-#include "td/utils/MpscLinkQueue.h"
 #include "td/utils/port/thread.h"
 #include "td/utils/tests.h"
 

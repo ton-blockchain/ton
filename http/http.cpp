@@ -16,11 +16,11 @@
 
     Copyright 2019-2020 Telegram Systems LLP
 */
-#include "http.h"
+#include <algorithm>
 
 #include "td/utils/misc.h"
 
-#include <algorithm>
+#include "http.h"
 
 namespace ton {
 
@@ -475,6 +475,15 @@ void HttpPayload::run_callbacks() {
   }
 }
 
+void HttpPayload::flush() {
+  is_flushing_ = true;
+  for (auto &x : callbacks_) {
+    if (state_.load(std::memory_order_relaxed) != ParseState::completed) {
+      x->flush();
+    }
+  }
+}
+
 bool HttpPayload::store_http(td::ChainBufferWriter &output, size_t max_size, HttpPayload::PayloadType store_type) {
   if (store_type == PayloadType::pt_empty) {
     return false;
@@ -755,8 +764,8 @@ td::Result<std::unique_ptr<HttpResponse>> HttpResponse::create(std::string proto
     return td::Status::Error(PSTRING() << "bad status code '" << code << "'");
   }
 
-  return std::make_unique<HttpResponse>(std::move(proto_version), code, std::move(reason), force_no_payload,
-                                        keep_alive, is_tunnel);
+  return std::make_unique<HttpResponse>(std::move(proto_version), code, std::move(reason), force_no_payload, keep_alive,
+                                        is_tunnel);
 }
 
 td::Status HttpResponse::complete_parse_header() {

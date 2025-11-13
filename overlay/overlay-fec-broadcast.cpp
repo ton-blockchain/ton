@@ -16,9 +16,10 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include "keys/encryptor.h"
+
 #include "overlay-fec-broadcast.hpp"
 #include "overlay.hpp"
-#include "keys/encryptor.h"
 
 namespace ton {
 

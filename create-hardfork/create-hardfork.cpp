@@ -28,37 +28,34 @@
 #include "adnl/adnl.h"
 #include "adnl/utils.hpp"
 #include "auto/tl/ton_api_json.h"
+#include "catchain/catchain.h"
+#include "common/errorlog.h"
+#include "crypto/block/block-db.h"
+#include "crypto/vm/vm.h"
 #include "dht/dht.h"
 #include "overlay/overlays.h"
 #include "td/utils/OptionParser.h"
+#include "td/utils/Random.h"
 #include "td/utils/Time.h"
 #include "td/utils/filesystem.h"
 #include "td/utils/format.h"
-#include "td/utils/Random.h"
-#include "td/utils/port/signals.h"
 #include "td/utils/port/FileFd.h"
-#include "catchain/catchain.h"
-#include "validator-session/validator-session.h"
-#include "validator/manager-hardfork.h"
-#include "td/utils/filesystem.h"
 #include "td/utils/port/path.h"
-
-#include "ton/ton-types.h"
-#include "ton/ton-tl.hpp"
+#include "td/utils/port/signals.h"
 #include "ton/ton-io.hpp"
-
+#include "ton/ton-tl.hpp"
+#include "ton/ton-types.h"
+#include "validator-session/validator-session.h"
 #include "validator/fabric.h"
 #include "validator/impl/collator.h"
-#include "crypto/vm/vm.h"
-#include "crypto/block/block-db.h"
-
-#include "common/errorlog.h"
+#include "validator/manager-hardfork.h"
 
 #if TD_DARWIN || TD_LINUX
 #include <unistd.h>
 #endif
 #include <iostream>
 #include <sstream>
+
 #include "git.h"
 
 int verbosity;
@@ -151,11 +148,11 @@ class HardforkCreator : public td::actor::Actor {
   }
 
   td::Status create_validator_options() {
-    if(!global_config_.length()) {
+    if (!global_config_.length()) {
       opts_ = ton::validator::ValidatorManagerOptions::create(
-        ton::BlockIdExt{ton::masterchainId, ton::shardIdAll, 0, ton::RootHash::zero(), ton::FileHash::zero()},
-        ton::BlockIdExt{ton::masterchainId, ton::shardIdAll, 0, ton::RootHash::zero(), ton::FileHash::zero()});
-     return td::Status::OK();
+          ton::BlockIdExt{ton::masterchainId, ton::shardIdAll, 0, ton::RootHash::zero(), ton::FileHash::zero()},
+          ton::BlockIdExt{ton::masterchainId, ton::shardIdAll, 0, ton::RootHash::zero(), ton::FileHash::zero()});
+      return td::Status::OK();
     }
     TRY_RESULT_PREFIX(conf_data, td::read_file(global_config_), "failed to read: ");
     TRY_RESULT_PREFIX(conf_json, td::json_decode(conf_data.as_slice()), "failed to parse json: ");
@@ -175,7 +172,7 @@ class HardforkCreator : public td::actor::Actor {
     std::vector<ton::BlockIdExt> h;
     for (auto &x : conf.validator_->hardforks_) {
       auto b = ton::create_block_id(x);
-       if (!b.is_masterchain()) {
+      if (!b.is_masterchain()) {
         return td::Status::Error(ton::ErrorCode::error,
                                  "[validator/hardforks] section contains not masterchain block id");
       }
@@ -237,49 +234,6 @@ class HardforkCreator : public td::actor::Actor {
         td::actor::send_closure(id_, &ton::validator::ValidatorManager::sync_complete,
                                 td::PromiseCreator::lambda([](td::Unit) {}));
       }
-      void on_new_masterchain_block(td::Ref<ton::validator::MasterchainState> state,
-                                    std::set<ton::ShardIdFull> shards_to_monitor) override {
-      }
-      void send_ihr_message(ton::AccountIdPrefixFull dst, td::BufferSlice data) override {
-      }
-      void send_ext_message(ton::AccountIdPrefixFull dst, td::BufferSlice data) override {
-      }
-      void send_shard_block_info(ton::BlockIdExt block_id, ton::CatchainSeqno cc_seqno, td::BufferSlice data) override {
-      }
-      void send_block_candidate(ton::BlockIdExt block_id, ton::CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
-                                td::BufferSlice data, int mode) override {
-      }
-      void send_broadcast(ton::BlockBroadcast broadcast, int mode) override {
-      }
-      void download_block(ton::BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
-                          td::Promise<ton::ReceivedBlock> promise) override {
-      }
-      void download_zero_state(ton::BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
-                               td::Promise<td::BufferSlice> promise) override {
-      }
-      void download_persistent_state(ton::BlockIdExt block_id, ton::BlockIdExt masterchain_block_id,
-                                     ton::validator::PersistentStateType type, td::uint32 priority,
-                                     td::Timestamp timeout, td::Promise<td::BufferSlice> promise) override {
-      }
-      void download_block_proof(ton::BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
-                                td::Promise<td::BufferSlice> promise) override {
-      }
-      void download_block_proof_link(ton::BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
-                                     td::Promise<td::BufferSlice> promise) override {
-      }
-      void get_next_key_blocks(ton::BlockIdExt block_id, td::Timestamp timeout,
-                               td::Promise<std::vector<ton::BlockIdExt>> promise) override {
-      }
-      void download_archive(ton::BlockSeqno masterchain_seqno, ton::ShardIdFull shard_prefix, std::string tmp_dir,
-                            td::Timestamp timeout, td::Promise<std::string> promise) override {
-      }
-      void download_out_msg_queue_proof(
-          ton::ShardIdFull dst_shard, std::vector<ton::BlockIdExt> blocks, block::ImportedMsgQueueLimits limits,
-          td::Timestamp timeout, td::Promise<std::vector<td::Ref<ton::validator::OutMsgQueueProof>>> promise) override {
-      }
-
-      void new_key_block(ton::validator::BlockHandle handle) override {
-      }
     };
 
     td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::install_callback,
@@ -327,13 +281,15 @@ int main(int argc, char *argv[]) {
     std::exit(2);
   });
   p.add_option('V', "version", "shows create-hardfork build information", [&]() {
-    std::cout << "create-hardfork build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
+    std::cout << "create-hardfork build information: [ Commit: " << GitMetadata::CommitSHA1()
+              << ", Date: " << GitMetadata::CommitDate() << "]\n";
     std::exit(0);
   });
   p.add_option('D', "db", "root for dbs",
                [&](td::Slice fname) { td::actor::send_closure(x, &HardforkCreator::set_db_root, fname.str()); });
-  p.add_option('C', "config", "global config path",
-               [&](td::Slice fname) { td::actor::send_closure(x, &HardforkCreator::set_global_config_path, fname.str()); });
+  p.add_option('C', "config", "global config path", [&](td::Slice fname) {
+    td::actor::send_closure(x, &HardforkCreator::set_global_config_path, fname.str());
+  });
   p.add_option('m', "ext-message", "binary file with serialized inbound external message",
                [&](td::Slice fname) { td::actor::send_closure(x, &HardforkCreator::load_ext_message, fname.str()); });
   p.add_option(

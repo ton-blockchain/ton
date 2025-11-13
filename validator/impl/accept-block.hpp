@@ -18,13 +18,14 @@
 */
 #pragma once
 
-#include "td/actor/actor.h"
-#include "ton/ton-types.h"
-#include "ton/ton-shard.h"
 #include "interfaces/validator-manager.h"
-#include "validator-set.hpp"
-#include "signature-set.hpp"
+#include "td/actor/actor.h"
+#include "ton/ton-shard.h"
+#include "ton/ton-types.h"
+
 #include "shard.hpp"
+#include "signature-set.hpp"
+#include "validator-set.hpp"
 
 namespace ton {
 

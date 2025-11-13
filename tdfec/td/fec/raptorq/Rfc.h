@@ -17,10 +17,9 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "td/utils/Status.h"
-
 #include "td/fec/algebra/MatrixGF256.h"
 #include "td/fec/algebra/SparseMatrixGF2.h"
+#include "td/utils/Status.h"
 
 namespace td {
 namespace raptorq {

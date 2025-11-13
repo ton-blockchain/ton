@@ -17,9 +17,10 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
+#include <cmath>
+
 #include "RttStats.h"
 #include "rldp.hpp"
-#include <cmath>
 
 namespace ton {
 namespace rldp2 {

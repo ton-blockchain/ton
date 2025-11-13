@@ -16,16 +16,17 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "manager-init.hpp"
-#include "td/utils/filesystem.h"
-#include "fabric.h"
-#include "downloaders/wait-block-state.hpp"
-#include "ton/ton-io.hpp"
-#include "common/checksum.h"
 #include "adnl/utils.hpp"
-#include "validator/downloaders/download-state.hpp"
+#include "common/checksum.h"
 #include "common/delay.h"
+#include "downloaders/wait-block-state.hpp"
 #include "td/actor/MultiPromise.h"
+#include "td/utils/filesystem.h"
+#include "ton/ton-io.hpp"
+#include "validator/downloaders/download-state.hpp"
+
+#include "fabric.h"
+#include "manager-init.hpp"
 
 namespace ton {
 

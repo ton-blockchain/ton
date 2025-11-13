@@ -25,39 +25,33 @@
 
     Copyright 2019-2020 Telegram Systems LLP
 */
-#include "http/http-server.h"
-#include "http/http-client.h"
-
-#include "td/utils/port/signals.h"
-#include "td/utils/OptionParser.h"
-#include "td/utils/FileLog.h"
-#include "td/utils/Random.h"
-#include "td/utils/filesystem.h"
-
-#include "auto/tl/ton_api_json.h"
-#include "auto/tl/tonlib_api.hpp"
-
-#include "td/actor/MultiPromise.h"
-
-#include "common/errorcode.h"
-
-#include "tonlib/tonlib/TonlibClient.h"
-
-#include "adnl/adnl.h"
-#include "rldp/rldp.h"
-#include "rldp2/rldp.h"
-#include "dht/dht.h"
-
 #include <algorithm>
 #include <list>
 #include <set>
-#include "git.h"
-#include "td/utils/BufferedFd.h"
-#include "common/delay.h"
-#include "td/utils/port/path.h"
 
+#include "adnl/adnl.h"
+#include "auto/tl/ton_api_json.h"
+#include "auto/tl/tonlib_api.hpp"
+#include "common/delay.h"
+#include "common/errorcode.h"
+#include "dht/dht.h"
+#include "http/http-client.h"
+#include "http/http-server.h"
+#include "rldp/rldp.h"
+#include "rldp2/rldp.h"
+#include "td/actor/MultiPromise.h"
+#include "td/utils/BufferedFd.h"
+#include "td/utils/FileLog.h"
+#include "td/utils/OptionParser.h"
+#include "td/utils/Random.h"
+#include "td/utils/filesystem.h"
+#include "td/utils/port/path.h"
+#include "td/utils/port/signals.h"
+#include "tonlib/tonlib/TonlibClient.h"
 #include "tonlib/tonlib/TonlibClientWrapper.h"
+
 #include "DNSResolver.h"
+#include "git.h"
 
 #if TD_DARWIN || TD_LINUX
 #include <unistd.h>

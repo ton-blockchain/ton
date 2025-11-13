@@ -16,20 +16,18 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "vm/db/DynamicBagOfCellsDb.h"
-#include "vm/db/CellStorage.h"
-#include "vm/db/CellHashTable.h"
+#include <queue>
 
-#include "vm/cells/ExtCell.h"
-
+#include "common/delay.h"
+#include "td/actor/actor.h"
+#include "td/utils/ThreadSafeCounter.h"
 #include "td/utils/base64.h"
 #include "td/utils/format.h"
-#include "td/utils/ThreadSafeCounter.h"
-
+#include "vm/cells/ExtCell.h"
 #include "vm/cellslice.h"
-#include <queue>
-#include "td/actor/actor.h"
-#include "common/delay.h"
+#include "vm/db/CellHashTable.h"
+#include "vm/db/CellStorage.h"
+#include "vm/db/DynamicBagOfCellsDb.h"
 
 namespace vm {
 namespace {
@@ -181,29 +179,28 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
       return;
     }
     SimpleExtCellCreator ext_cell_creator(cell_db_reader_);
-    executor->execute_async(
-        [executor, loader = *loader_, hash = CellHash::from_slice(hash), db = this,
-         ext_cell_creator = std::move(ext_cell_creator), promise = std::move(promise_ptr)]() mutable {
-          TRY_RESULT_PROMISE((*promise), res, loader.load(hash.as_slice(), true, ext_cell_creator));
-          if (res.status != CellLoader::LoadResult::Ok) {
-            promise->set_error(td::Status::Error("cell not found"));
-            return;
-          }
-          Ref<Cell> cell = res.cell();
-          executor->execute_sync([hash, db, res = std::move(res),
-                                  ext_cell_creator = std::move(ext_cell_creator)]() mutable {
-            db->hash_table_.apply(hash.as_slice(), [&](CellInfo &info) {
-              db->update_cell_info_loaded(info, hash.as_slice(), std::move(res));
-            });
-            for (auto &ext_cell : ext_cell_creator.get_created_cells()) {
-              auto ext_cell_hash = ext_cell->get_hash();
-              db->hash_table_.apply(ext_cell_hash.as_slice(), [&](CellInfo &info) {
-                db->update_cell_info_created_ext(info, std::move(ext_cell));
-              });
-            }
-          });
-          promise->set_result(std::move(cell));
+    executor->execute_async([executor, loader = *loader_, hash = CellHash::from_slice(hash), db = this,
+                             ext_cell_creator = std::move(ext_cell_creator),
+                             promise = std::move(promise_ptr)]() mutable {
+      TRY_RESULT_PROMISE((*promise), res, loader.load(hash.as_slice(), true, ext_cell_creator));
+      if (res.status != CellLoader::LoadResult::Ok) {
+        promise->set_error(td::Status::Error("cell not found"));
+        return;
+      }
+      Ref<Cell> cell = res.cell();
+      executor->execute_sync([hash, db, res = std::move(res),
+                              ext_cell_creator = std::move(ext_cell_creator)]() mutable {
+        db->hash_table_.apply(hash.as_slice(), [&](CellInfo &info) {
+          db->update_cell_info_loaded(info, hash.as_slice(), std::move(res));
         });
+        for (auto &ext_cell : ext_cell_creator.get_created_cells()) {
+          auto ext_cell_hash = ext_cell->get_hash();
+          db->hash_table_.apply(ext_cell_hash.as_slice(),
+                                [&](CellInfo &info) { db->update_cell_info_created_ext(info, std::move(ext_cell)); });
+        }
+      });
+      promise->set_result(std::move(cell));
+    });
   }
   CellInfo &get_cell_info_lazy(Cell::LevelMask level_mask, td::Slice hash, td::Slice depth) {
     return hash_table_.apply(hash.substr(hash.size() - Cell::hash_bytes),
@@ -217,7 +214,7 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
     if (cell.is_null()) {
       return;
     }
-    if (cell->get_virtualization() != 0) {
+    if (cell->is_virtualized()) {
       return;
     }
     to_inc_.push_back(cell);
@@ -226,7 +223,7 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
     if (cell.is_null()) {
       return;
     }
-    if (cell->get_virtualization() != 0) {
+    if (cell->is_virtualized()) {
       return;
     }
     to_dec_.push_back(cell);
@@ -400,7 +397,7 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
         return db_->load_bulk(hashes);
       }
       TRY_RESULT(load_result, cell_loader_->load_bulk(hashes, true, *this));
-      
+
       std::vector<Ref<DataCell>> res;
       res.reserve(load_result.size());
       for (auto &load_res : load_result) {

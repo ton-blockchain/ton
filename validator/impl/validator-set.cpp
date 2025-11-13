@@ -16,12 +16,13 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "validator-set.hpp"
 #include "auto/tl/ton_api.h"
-// #include "adnl/utils.hpp"
-#include "block/block.h"
 
+#include "validator-set.hpp"
+// #include "adnl/utils.hpp"
 #include <set>
+
+#include "block/block.h"
 
 namespace ton {
 

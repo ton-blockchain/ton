@@ -16,25 +16,26 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "validate-query.hpp"
-#include "top-shard-descr.hpp"
-#include "validator-set.hpp"
+#include <ctime>
+
 #include "adnl/utils.hpp"
-#include "ton/ton-tl.hpp"
-#include "ton/ton-io.hpp"
-#include "vm/boc.h"
-#include "block/block-db.h"
-#include "block/block.h"
-#include "block/block-parse.h"
 #include "block/block-auto.h"
+#include "block/block-db.h"
+#include "block/block-parse.h"
+#include "block/block.h"
 #include "block/output-queue-merger.h"
+#include "common/errorlog.h"
+#include "ton/ton-io.hpp"
+#include "ton/ton-tl.hpp"
+#include "vm/boc.h"
 #include "vm/cells/MerkleProof.h"
 #include "vm/cells/MerkleUpdate.h"
-#include "common/errorlog.h"
+
 #include "fabric.h"
 #include "storage-stat-cache.hpp"
-
-#include <ctime>
+#include "top-shard-descr.hpp"
+#include "validate-query.hpp"
+#include "validator-set.hpp"
 
 namespace ton {
 
@@ -720,7 +721,7 @@ bool ValidateQuery::extract_collated_data_from(Ref<vm::Cell> croot, int idx) {
     if (cs.special_type() != vm::Cell::SpecialType::MerkleProof) {
       return reject_query("it is a special cell, but not a Merkle proof root");
     }
-    auto virt_root = vm::MerkleProof::virtualize(croot, 1);
+    auto virt_root = vm::MerkleProof::virtualize(croot);
     if (virt_root.is_null()) {
       return reject_query("invalid Merkle proof");
     }
@@ -750,7 +751,7 @@ bool ValidateQuery::extract_collated_data_from(Ref<vm::Cell> croot, int idx) {
     }
     // account_storage_dict_proof#37c1e3fc proof:^Cell = AccountStorageDictProof;
     Ref<vm::Cell> proof = cs.prefetch_ref();
-    auto virt_root = vm::MerkleProof::virtualize(proof, 1);
+    auto virt_root = vm::MerkleProof::virtualize(proof);
     if (virt_root.is_null()) {
       return reject_query("invalid Merkle proof in AccountStorageDictProof");
     }
@@ -1142,8 +1143,8 @@ bool ValidateQuery::fetch_config_params() {
     if (compute_phase_cfg_.global_version >= 4) {
       auto prev_blocks_info = config_->get_prev_blocks_info();
       if (prev_blocks_info.is_error()) {
-        return fatal_error(prev_blocks_info.move_as_error_prefix(
-            "cannot fetch prev blocks info from masterchain configuration: "));
+        return fatal_error(
+            prev_blocks_info.move_as_error_prefix("cannot fetch prev blocks info from masterchain configuration: "));
       }
       compute_phase_cfg_.prev_blocks_info = prev_blocks_info.move_as_ok();
     }
@@ -1188,6 +1189,7 @@ bool ValidateQuery::fetch_config_params() {
     action_phase_cfg_.global_version = config_->get_global_version();
   }
   {
+    serialize_cfg_.global_version = config_->get_global_version();
     serialize_cfg_.extra_currency_v2 = config_->get_global_version() >= 10;
     serialize_cfg_.disable_anycast = config_->get_global_version() >= 10;
     serialize_cfg_.store_storage_dict_hash = config_->get_global_version() >= 11;
@@ -3065,14 +3067,14 @@ bool ValidateQuery::precheck_one_account_update(td::ConstBitPtr acc_id, Ref<vm::
     if (verbosity >= 3 * 0) {
       FLOG(INFO) {
         sb << "state of account " << workchain() << ":" << acc_id.to_hex(256)
-                  << " in the old shardchain state:" << "\n";
+           << " in the old shardchain state:" << "\n";
         if (old_value.not_null()) {
           block::gen::t_ShardAccount.print(sb, old_value);
         } else {
           sb << "<absent>" << "\n";
         }
         sb << "state of account " << workchain() << ":" << acc_id.to_hex(256)
-                  << " in the new shardchain state:" << "\n";
+           << " in the new shardchain state:" << "\n";
         if (new_value.not_null()) {
           block::gen::t_ShardAccount.print(sb, new_value);
         } else {
@@ -3455,7 +3457,8 @@ bool ValidateQuery::precheck_one_message_queue_update(td::ConstBitPtr out_msg_id
   }
   // mode for msg_export_{ext,new,imm,tr,deq_imm,???,deq/deq_short,tr_req,new_defer,deferred_tr}
   static const int tag_mode[10] = {0, 2, 0, 2, 1, 0, 1, 3, 0, 2};
-  static const char* tag_str[10] = {"ext", "new", "imm", "tr", "deq_imm", "???", "deq", "tr_req", "new_defer", "deferred_tr"};
+  static const char* tag_str[10] = {"ext", "new", "imm",    "tr",        "deq_imm",
+                                    "???", "deq", "tr_req", "new_defer", "deferred_tr"};
   if (tag < 0 || tag >= 10 || !(tag_mode[tag] & mode)) {
     return reject_query(PSTRING() << "OutMsgDescr corresponding to " << m_str[mode] << "queued message with key "
                                   << out_msg_id.to_hex(352) << " has invalid tag " << tag << "(" << tag_str[tag & 7]
@@ -4080,9 +4083,8 @@ bool ValidateQuery::check_in_msg(td::ConstBitPtr key, Ref<vm::CellSlice> in_msg)
           dest_prefix.to_str() + "... yet");
     }
     if (from_dispatch_queue && next_prefix != cur_prefix) {
-      return reject_query(
-          "next hop address "s + next_prefix.to_str() + "... of deferred internal message with hash " + key.to_hex(256) +
-          " must coincide with its current prefix "s + cur_prefix.to_str() + "..."s);
+      return reject_query("next hop address "s + next_prefix.to_str() + "... of deferred internal message with hash " +
+                          key.to_hex(256) + " must coincide with its current prefix "s + cur_prefix.to_str() + "..."s);
     }
     // if a message is processed by a transaction, it must have destination inside the current shard
     if (transaction.not_null() && !ton::shard_contains(shard_, dest_prefix)) {
@@ -4278,8 +4280,8 @@ bool ValidateQuery::check_in_msg(td::ConstBitPtr key, Ref<vm::CellSlice> in_msg)
       }
       if (cur_prefix != next_prefix && tag == block::gen::InMsg::msg_import_deferred_tr) {
         return reject_query("internal message from DispatchQueue with hash "s + key.to_hex(256) +
-                            " is a msg_import_deferred_tr$00101, but its current address " +
-                            cur_prefix.to_str() + " is not equal to next address");
+                            " is a msg_import_deferred_tr$00101, but its current address " + cur_prefix.to_str() +
+                            " is not equal to next address");
       }
       CHECK(transaction.is_null());
       auto out_msg_cs = out_msg_dict_->lookup(key, 256);
@@ -4660,8 +4662,9 @@ bool ValidateQuery::check_out_msg(td::ConstBitPtr key, Ref<vm::CellSlice> out_ms
       }
       // check that next hop is nearer to the destination than the current address
       if (count_matching_bits(dest_prefix, next_prefix) < count_matching_bits(dest_prefix, cur_prefix)) {
-        return reject_query("next hop address "s + next_prefix.to_str() + "... of outbound internal message with hash " +
-                            key.to_hex(256) + " is further from its destination " + dest_prefix.to_str() +
+        return reject_query("next hop address "s + next_prefix.to_str() +
+                            "... of outbound internal message with hash " + key.to_hex(256) +
+                            " is further from its destination " + dest_prefix.to_str() +
                             "... than its current address " + cur_prefix.to_str() + "...");
       }
       // current address must belong to this shard (otherwise we should never had exported this message)
@@ -5531,7 +5534,7 @@ std::unique_ptr<block::Account> ValidateQuery::CheckAccountTxs::unpack_account(t
  *
  * @returns IHR fee
  */
-static td::RefInt256 get_ihr_fee(const block::gen::CommonMsgInfo::Record_int_msg_info &info, int global_version) {
+static td::RefInt256 get_ihr_fee(const block::gen::CommonMsgInfo::Record_int_msg_info& info, int global_version) {
   // Legacy: extra_flags was previously ihr_fee
   return global_version >= 12 ? td::zero_refint() : block::tlb::t_Grams.as_integer(std::move(info.extra_flags));
 }
@@ -7319,13 +7322,12 @@ bool ValidateQuery::postcheck_value_flow() {
                                   << import_fees_ << ", the total transaction fees are " << transaction_fees_.to_str()
                                   << ", creation fee for this block is " << value_flow_.created.to_str()
                                   << ", the total imported fees from shards are " << value_flow_.fees_imported.to_str()
-                                  << " and the burned fees are " << fees_burned_.to_str()
-                                  << " with a total of " << expected_fees.to_str());
+                                  << " and the burned fees are " << fees_burned_.to_str() << " with a total of "
+                                  << expected_fees.to_str());
   }
   if (total_burned_ != value_flow_.burned) {
     return reject_query(PSTRING() << "invalid burned in value flow: " << id_.to_str() << " declared "
-                                  << value_flow_.burned.to_str() << ", correct value is "
-                                  << total_burned_.to_str());
+                                  << value_flow_.burned.to_str() << ", correct value is " << total_burned_.to_str());
   }
   return true;
 }
