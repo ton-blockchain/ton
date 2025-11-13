@@ -15,7 +15,7 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include "type-system.h"
-#include "platform-utils.h"
+#include "compilation-errors.h"
 #include "generics-helpers.h"
 #include "compiler-state.h"
 #include <charconv>
@@ -84,7 +84,8 @@ TypePtr TypeDataSlice::singleton;
 TypePtr TypeDataBuilder::singleton;
 TypePtr TypeDataTuple::singleton;
 TypePtr TypeDataContinuation::singleton;
-TypePtr TypeDataAddress::singleton;
+TypePtr TypeDataAddress::singleton_internal;
+TypePtr TypeDataAddress::singleton_any;
 TypePtr TypeDataNullLiteral::singleton;
 TypePtr TypeDataCoins::singleton;
 TypePtr TypeDataUnknown::singleton;
@@ -99,7 +100,8 @@ void type_system_init() {
   TypeDataBuilder::singleton = new TypeDataBuilder;
   TypeDataTuple::singleton = new TypeDataTuple;
   TypeDataContinuation::singleton = new TypeDataContinuation;
-  TypeDataAddress::singleton = new TypeDataAddress;
+  TypeDataAddress::singleton_internal = new TypeDataAddress(0);
+  TypeDataAddress::singleton_any = new TypeDataAddress(1);
   TypeDataNullLiteral::singleton = new TypeDataNullLiteral;
   TypeDataCoins::singleton = new TypeDataCoins;
   TypeDataUnknown::singleton = new TypeDataUnknown;
@@ -170,9 +172,9 @@ TypePtr TypeDataGenericT::create(std::string&& nameT) {
 
 TypePtr TypeDataGenericTypeWithTs::create(StructPtr struct_ref, AliasDefPtr alias_ref, std::vector<TypePtr>&& type_arguments) {
   if (struct_ref) {
-    assert(alias_ref == nullptr && struct_ref->is_generic_struct());
+    tolk_assert(alias_ref == nullptr && struct_ref->is_generic_struct());
   } else {
-    assert(struct_ref == nullptr && alias_ref->is_generic_alias());
+    tolk_assert(struct_ref == nullptr && alias_ref->is_generic_alias());
   }
 
   CalcChildrenFlags reg;
@@ -262,13 +264,11 @@ int TypeDataAlias::get_width_on_stack() const {
 }
 
 int TypeDataGenericT::get_width_on_stack() const {
-  assert(false);
-  return -99999;
+  tolk_assert(false);
 }
 
 int TypeDataGenericTypeWithTs::get_width_on_stack() const {
-  assert(false);
-  return -99999;
+  tolk_assert(false);
 }
 
 int TypeDataStruct::get_width_on_stack() const {
@@ -319,8 +319,15 @@ int TypeDataVoid::get_width_on_stack() const {
 //
 
 int TypeDataAlias::get_type_id() const {
-  assert(!alias_ref->is_generic_alias());
+  tolk_assert(!alias_ref->is_generic_alias());
   return underlying_type->get_type_id();
+}
+
+int TypeDataAddress::get_type_id() const {
+  if (is_internal()) {
+    return type_id_address_int;
+  }
+  return type_id_address_any;
 }
 
 int TypeDataFunCallable::get_type_id() const {
@@ -328,17 +335,15 @@ int TypeDataFunCallable::get_type_id() const {
 }
 
 int TypeDataGenericT::get_type_id() const {
-  assert(false);    // generics must have been instantiated in advance
-  throw Fatal("unexpected get_type_id() call");
+  tolk_assert(false);    // generics must have been instantiated in advance
 }
 
 int TypeDataGenericTypeWithTs::get_type_id() const {
-  assert(false);    // `Wrapper<T>` has to be resolved in advance
-  throw Fatal("unexpected get_type_id() call");
+  tolk_assert(false);    // `Wrapper<T>` has to be resolved in advance
 }
 
 int TypeDataStruct::get_type_id() const {
-  assert(!struct_ref->is_generic_struct());
+  tolk_assert(!struct_ref->is_generic_struct());
   return TypeIdCalculation::assign_type_id(this);
 }
 
@@ -347,23 +352,23 @@ int TypeDataEnum::get_type_id() const {
 }
 
 int TypeDataTensor::get_type_id() const {
-  assert(!has_genericT_inside());
+  tolk_assert(!has_genericT_inside());
   return TypeIdCalculation::assign_type_id(this);
 }
 
 int TypeDataBrackets::get_type_id() const {
-  assert(!has_genericT_inside());
+  tolk_assert(!has_genericT_inside());
   return TypeIdCalculation::assign_type_id(this);
 }
 
 int TypeDataIntN::get_type_id() const {
   switch (n_bits) {
-    case 8:   return 42 + is_unsigned;    // for common intN, use predefined small numbers
-    case 16:  return 44 + is_unsigned;
-    case 32:  return 46 + is_unsigned;
-    case 64:  return 48 + is_unsigned;
-    case 128: return 50 + is_unsigned;
-    case 256: return 52 + is_unsigned;
+    case 8:   return type_id_int8   + is_unsigned;    // for common intN, use predefined small numbers
+    case 16:  return type_id_int16  + is_unsigned;
+    case 32:  return type_id_int32  + is_unsigned;
+    case 64:  return type_id_int64  + is_unsigned;
+    case 128: return type_id_int128 + is_unsigned;
+    case 256: return type_id_int256 + is_unsigned;
     default:  return TypeIdCalculation::assign_type_id(this);
   }
 }
@@ -373,18 +378,16 @@ int TypeDataBitsN::get_type_id() const {
 }
 
 int TypeDataUnion::get_type_id() const {
-  assert(false);    // a union can not be inside a union
-  throw Fatal("unexpected get_type_id() call");
+  tolk_assert(false);    // a union can not be inside a union
 }
 
 int TypeDataMapKV::get_type_id() const {
-  assert(!has_genericT_inside());
+  tolk_assert(!has_genericT_inside());
   return TypeIdCalculation::assign_type_id(this);
 }
 
 int TypeDataUnknown::get_type_id() const {
-  assert(false);    // unknown can not be inside a union
-  throw Fatal("unexpected get_type_id() call");
+  tolk_assert(false);    // unknown can not be inside a union
 }
 
 
@@ -397,6 +400,13 @@ int TypeDataUnknown::get_type_id() const {
 
 std::string TypeDataAlias::as_human_readable() const {
   return alias_ref->name;
+}
+
+std::string TypeDataAddress::as_human_readable() const {
+  if (is_internal()) {
+    return "address";
+  }
+  return "any_address";
 }
 
 std::string TypeDataFunCallable::as_human_readable() const {
@@ -658,8 +668,9 @@ bool TypeDataContinuation::can_rhs_be_assigned(TypePtr rhs) const {
 }
 
 bool TypeDataAddress::can_rhs_be_assigned(TypePtr rhs) const {
-  if (rhs == singleton) {
-    return true;
+  if (const TypeDataAddress* rhs_address = rhs->try_as<TypeDataAddress>()) {
+    // note that not `address` to `any_address` also requires manual `as`
+    return kind == rhs_address->kind;
   }
   if (const TypeDataAlias* rhs_alias = rhs->try_as<TypeDataAlias>()) {
     return can_rhs_be_assigned(rhs_alias->underlying_type);
@@ -912,7 +923,7 @@ bool TypeDataSlice::can_be_casted_with_as_operator(TypePtr cast_to) const {
   if (cast_to->try_as<TypeDataBitsN>()) {  // `slice` to `bytes32` / `slice` to `bits8`
     return true;
   }
-  if (cast_to == TypeDataAddress::create()) {
+  if (cast_to->try_as<TypeDataAddress>()) {   // `slice` to `address`
     return true;
   }
   if (const TypeDataUnion* to_union = cast_to->try_as<TypeDataUnion>()) {
@@ -958,13 +969,16 @@ bool TypeDataAddress::can_be_casted_with_as_operator(TypePtr cast_to) const {
   if (cast_to == TypeDataSlice::create() || cast_to->try_as<TypeDataBitsN>()) {
     return true;
   }
+  if (cast_to->try_as<TypeDataAddress>()) {
+    return true;    // `any_address` as `address` and any other casts are ok
+  }
   if (const TypeDataUnion* to_union = cast_to->try_as<TypeDataUnion>()) {
     return can_be_casted_to_union(this, to_union);
   }
   if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
     return can_be_casted_with_as_operator(to_alias->underlying_type);
   }
-  return cast_to == singleton;
+  return false;
 }
 
 bool TypeDataNullLiteral::can_be_casted_with_as_operator(TypePtr cast_to) const {
@@ -1027,7 +1041,7 @@ bool TypeDataStruct::can_be_casted_with_as_operator(TypePtr cast_to) const {
 }
 
 bool TypeDataEnum::can_be_casted_with_as_operator(TypePtr cast_to) const {
-  if (cast_to == TypeDataInt::create()) {
+  if (cast_to == TypeDataInt::create() || cast_to == TypeDataCoins::create() || cast_to->try_as<TypeDataIntN>()) {
     return true;
   }
   if (cast_to->try_as<TypeDataEnum>()) {
@@ -1098,13 +1112,16 @@ bool TypeDataBitsN::can_be_casted_with_as_operator(TypePtr cast_to) const {
   if (cast_to->try_as<TypeDataBitsN>()) {  // `bytes256` as `bytes512`, `bits1` as `bytes8`
     return true;
   }
+  if (cast_to->try_as<TypeDataAddress>()) {   // `bytes267` as `address`
+    return true;
+  }
   if (const TypeDataUnion* to_union = cast_to->try_as<TypeDataUnion>()) {   // `bytes8` as `slice?`
     return can_be_casted_to_union(this, to_union);
   }
   if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
     return can_be_casted_with_as_operator(to_alias->underlying_type);
   }
-  return cast_to == TypeDataSlice::create() || cast_to == TypeDataAddress::create();
+  return cast_to == TypeDataSlice::create();
 }
 
 bool TypeDataCoins::can_be_casted_with_as_operator(TypePtr cast_to) const {
@@ -1442,12 +1459,6 @@ TypePtr TypeDataUnion::calculate_exact_variant_to_fit_rhs(TypePtr rhs_type) cons
     }
   }
   return first_covering;
-}
-
-
-
-std::ostream& operator<<(std::ostream& os, TypePtr type_data) {
-  return os << (type_data ? type_data->as_human_readable() : "(nullptr-type)");
 }
 
 } // namespace tolk

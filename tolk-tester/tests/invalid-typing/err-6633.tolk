@@ -7,5 +7,5 @@ fun main(c: cell) {
 @stderr can not assign `address` to variable of type `slice`
 @stderr hint: unlike FunC, Tolk has a special type `address` (which is slice at the TVM level);
 @stderr most likely, you just need `address` everywhere
-@stderr hint: alternatively, use `as` operator for unsafe casting: `<some_expr> as slice`
+@stderr hint: alternatively, use `as` operator for UNSAFE casting: `<some_expr> as slice`
  */

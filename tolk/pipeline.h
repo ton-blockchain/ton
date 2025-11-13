@@ -42,7 +42,8 @@ void pipeline_refine_lvalue_for_mutate_arguments();
 void pipeline_check_rvalue_lvalue();
 void pipeline_check_private_fields_usage();
 void pipeline_check_pure_impure_operations();
-void pipeline_constant_folding();
+void pipeline_check_constant_expressions();
+void pipeline_mini_borrow_checker_for_mutate();
 void pipeline_optimize_boolean_expressions();
 void pipeline_detect_inline_in_place();
 void pipeline_check_serialized_fields();
@@ -56,6 +57,7 @@ void pipeline_generate_fif_output_to_std_cout();
 // these pipes also can be called per-function individually
 // they are called for instantiated generics functions, when `f<T>` is deeply cloned as `f<int>`
 FunctionPtr pipeline_register_instantiated_generic_function(FunctionPtr base_fun_ref, AnyV cloned_v, std::string&& name, const GenericsSubstitutions* substitutedTs);
+FunctionPtr pipeline_register_instantiated_lambda_function(FunctionPtr base_fun_ref, AnyV cloned_v, std::string&& name);
 
 void pipeline_resolve_identifiers_and_assign_symbols(FunctionPtr);
 void pipeline_resolve_types_and_aliases(FunctionPtr);

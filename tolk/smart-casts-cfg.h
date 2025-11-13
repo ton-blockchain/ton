@@ -71,6 +71,7 @@ struct SinkExpression {
   explicit operator bool() const { return var_ref != nullptr; }
 
   std::string to_string() const;
+  bool is_child_of(SinkExpression rhs) const;
   SinkExpression get_child_s_expr(int field_idx) const;
 };
 

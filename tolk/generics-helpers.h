@@ -18,7 +18,7 @@
 
 #include "src-file.h"
 #include "fwd-declarations.h"
-#include "td/utils/Status.h"
+#include "compilation-errors.h"
 #include <vector>
 
 namespace tolk {
@@ -49,9 +49,11 @@ struct GenericsDeclaration {
   std::string as_human_readable(bool include_from_receiver = false) const;
 
   int size() const { return static_cast<int>(itemsT.size()); }
+  int size_no_defaults() const;
   int find_nameT(std::string_view nameT) const;
   std::string_view get_nameT(int idx) const { return itemsT[idx].nameT; }
   TypePtr get_defaultT(int idx) const { return itemsT[idx].default_type; }
+  void append_defaults(std::vector<TypePtr>& manually_provided) const;
 };
 
 // when a function call is `f<int>()`, this "<int>" is represented as this class
@@ -101,10 +103,10 @@ public:
 
   TypePtr replace_Ts_with_currently_deduced(TypePtr orig) const;
   TypePtr auto_deduce_from_argument(TypePtr param_type, TypePtr arg_type);
-  TypePtr auto_deduce_from_argument(FunctionPtr cur_f, SrcLocation loc, TypePtr param_type, TypePtr arg_type);
+  TypePtr auto_deduce_from_argument(FunctionPtr cur_f, SrcRange range, TypePtr param_type, TypePtr arg_type);
   std::string_view get_first_not_deduced_nameT() const;
   void apply_defaults_from_declaration();
-  void fire_error_can_not_deduce(FunctionPtr cur_f, SrcLocation loc, std::string_view nameT) const;
+  Error err_can_not_deduce(std::string_view nameT) const;
 
   GenericsSubstitutions&& flush() {
     return std::move(deducedTs);
@@ -114,6 +116,8 @@ public:
 FunctionPtr instantiate_generic_function(FunctionPtr fun_ref, GenericsSubstitutions&& substitutedTs);
 StructPtr instantiate_generic_struct(StructPtr struct_ref, GenericsSubstitutions&& substitutedTs);
 AliasDefPtr instantiate_generic_alias(AliasDefPtr alias_ref, GenericsSubstitutions&& substitutedTs);
+
+FunctionPtr instantiate_lambda_function(AnyV v_lambda, FunctionPtr parent_fun_ref, const std::vector<TypePtr>& params_types, TypePtr return_type);
 
 bool is_allowed_asm_generic_function_with_non1_width_T(FunctionPtr fun_ref, int idxT);
 

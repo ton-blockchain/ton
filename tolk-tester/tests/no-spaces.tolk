@@ -5,17 +5,17 @@ fun eq(v: int): int { return`v` }
 
 const ONE = 1struct Point{x:int y:int}
 
-@method_id(101,) fun `get_-1`  (): int {return-1}
-@method_id(102,) fun `get_--1` (): int {return- -1}
-@method_id(103,) fun `get_---1`(): int {return-(-(-1))}
-@method_id(104,) fun `get_+++1`(): int {return+(+(+1))}
-@method_id(105,) fun `get_+-+1`(): int {return+-+1}
+@method_id(101,) fun `get -1`  (): int {return-1}
+@method_id(102,) fun `get --1` (): int {return- -1}
+@method_id(103,) fun `get ---1`(): int {return-(-(-1))}
+@method_id(104,) fun `get +++1`(): int {return+(+(+1))}
+@method_id(105,) fun `get +-+1`(): int {return+-+1}
 
-global `some()var`:int;
+global `some() var`:int;
 
 @method_id(110) fun `some_math`(): int {
-    `some()var`=- -6;
-    return ONE*-2*-3*-4*just10()*-5+-`some()var`+-(-`some()var`)-(-(-`some()var`));
+    `some() var`=- -6;
+    return ONE*-2*-3*-4*just10()*-5+-`some() var`+-(-`some() var`)-(-(-`some() var`));
 }
 
 @method_id(111) fun `negative_nums`(a:int):int {
@@ -80,9 +80,11 @@ fun`main`(){}
 @testcase | 115 |    | [ 0 0 ]
 @testcase | 116 |    | [ 1 2 3 4 ]
 
+@fif_codegen DECLGLOBVAR $some()-var
+
 @fif_codegen
 """
-  get_+-+1() PROC:<{
+  get-+-+1() PROC:<{
     -1 PUSHINT
   }>
 """

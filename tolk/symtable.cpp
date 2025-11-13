@@ -15,22 +15,24 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include "symtable.h"
+#include "ast.h"
+#include "compilation-errors.h"
 #include "compiler-state.h"
-#include "platform-utils.h"
 #include "generics-helpers.h"
 
 namespace tolk {
 
-void Symbol::check_import_exists_when_used_from(FunctionPtr cur_f, SrcLocation used_loc) const {
-  const SrcFile* declared_in = loc.get_src_file();
+void Symbol::check_import_exists_when_used_from(FunctionPtr cur_f, AnyV usage) const {
+#ifdef TOLK_DEBUG
+  tolk_assert(ident_anchor != nullptr);
+#endif
+  const SrcFile* declared_in = ident_anchor->range.get_src_file();
   bool has_import = false;
-  for (const SrcFile::ImportDirective& import : used_loc.get_src_file()->imports) {
-    if (import.imported_file == declared_in) {
-      has_import = true;
-    }
+  for (const SrcFile::ImportDirective& import : usage->range.get_src_file()->imports) {
+    has_import |= import.imported_file == declared_in;
   }
   if (!has_import) {
-    throw ParseError(cur_f, used_loc, "Using a non-imported symbol `" + name + "`\nhint: forgot to import \"" + declared_in->extract_short_name() + "\"?");
+    err("Using a non-imported symbol `{}`\n""hint: forgot to import \"{}\"?", name, declared_in->extract_short_name()).fire(usage, cur_f);
   }
 }
 
@@ -75,7 +77,7 @@ bool FunctionData::does_need_codegen() const {
   }
   // functions with asm body don't need code generation
   // (even if used as non-call: `var a = beginCell;` inserts TVM continuation inline)
-  if (is_asm_function() || is_builtin_function()) {
+  if (is_asm_function() || is_builtin()) {
     return false;
   }
   // when a function is referenced like `var a = some_fn;` (or in some other non-call way), its continuation should exist
@@ -255,23 +257,21 @@ EnumMemberPtr EnumDefData::find_member(std::string_view member_name) const {
   return nullptr;
 }
 
-GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-static void fire_error_redefinition_of_symbol(SrcLocation loc, const Symbol* previous) {
-  SrcLocation prev_loc = previous->loc;
-  if (prev_loc.is_stdlib()) {
-    throw ParseError(loc, "redefinition of a symbol from stdlib");
+static Error err_redefinition_of_symbol(const Symbol* previous) {
+  if (previous->is_builtin()) {
+    return err("redefinition of built-in symbol");
   }
-  if (prev_loc.is_defined()) {
-    throw ParseError(loc, "redefinition of symbol, previous was at: " + prev_loc.to_string());
+  if (previous->ident_anchor->range.get_src_file()->is_stdlib_file) {
+    return err("redefinition of a symbol from stdlib");
   }
-  throw ParseError(loc, "redefinition of built-in symbol");
+  return err("redefinition of symbol, previous was at: {}", previous->ident_anchor->range.stringify_start_location(false));
 }
 
 void GlobalSymbolTable::add_global_symbol(const Symbol* sym) {
   auto key = key_hash(sym->name);
   auto [it, inserted] = entries.emplace(key, sym);
   if (!inserted) {
-    fire_error_redefinition_of_symbol(sym->loc, it->second);
+    err_redefinition_of_symbol(it->second).fire(sym->ident_anchor);
   }
 }
 

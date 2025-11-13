@@ -26,7 +26,7 @@ struct Point3d {
 }
 
 struct DataWithCell {
-    a: address
+    a: address?
     v: coins
     p: Cell<Point>?
     payload: cell? = null
@@ -135,10 +135,15 @@ fun test7() {
 
 @method_id(108)
 fun test8() {
-    var (a, m: map<int8, address>) = (1, createEmptyMap());
-    val prev1 = m.setAndGetPrevious(a, createAddressNone());
+    var (a, m: map<int8, address?>, m2: map<int8, any_address>) = (1, createEmptyMap(), createEmptyMap());
+    val prev1 = m.setAndGetPrevious(a, null);
     val prev2 = m.setAndGetPrevious(a, address("EQCRDM9h4k3UJdOePPuyX40mCgA4vxge5Dc5vjBR8djbEKC5"));
-    return (prev1.isFound, prev2.isFound, prev2.loadValue().isNone(), prev2.loadValue().isNone(), m.get(a).loadValue().getWorkchain());
+    val prev3 = m2.setAndGetPrevious(a, createAddressNone());
+    val prev4 = m2.setAndGetPrevious(a, address("EQCRDM9h4k3UJdOePPuyX40mCgA4vxge5Dc5vjBR8djbEKC5") as any_address);
+    return (
+        prev1.isFound, prev2.isFound, prev2.loadValue() == null, prev2.loadValue() == null, m.get(a).loadValue()!.getWorkchain(),
+        prev3.isFound, prev4.isFound, prev4.loadValue().isNone(), prev4.loadValue().isNone(), m2.get(a).loadValue()!.getWorkchain(),
+    );
 }
 
 @method_id(109)
@@ -280,18 +285,18 @@ fun test22() {
 @method_id(123)
 fun test23() {
     var m: map<Point, DataWithCell> = createEmptyMap();
-    val p1 = m.setAndGetPrevious({x:1,y:1}, {a: createAddressNone(), v: ton("0.05"), p: Point{x:10,y:10}.toCell(), payload: null});
-    val p2 = m.setAndGetPrevious({x:1,y:1}, {a: createAddressNone(), v: ton("0.1"), p: null, payload: createEmptyCell()});
-    return (p1.isFound, p2.isFound, p2.loadValue().p!.load(), m.mustGet({x:1,y:1}).a.isNone(), m.get({x:1,y:1}).loadValue().payload.depth());
+    val p1 = m.setAndGetPrevious({x:1,y:1}, {a: null, v: ton("0.05"), p: Point{x:10,y:10}.toCell(), payload: null});
+    val p2 = m.setAndGetPrevious({x:1,y:1}, {a: null, v: ton("0.1"), p: null, payload: createEmptyCell()});
+    return (p1.isFound, p2.isFound, p2.loadValue().p!.load(), m.mustGet({x:1,y:1}).a == null, m.get({x:1,y:1}).loadValue().payload.depth());
 }
 
 @method_id(124)
 fun test24() {
     var m = createEmptyMap<Point, DataWithCell>();
     val p1 = m.deleteAndGetDeleted({x: 1, y: 1});
-    m.set({x: 3, y: 3}, {a: createAddressNone(), v: ton("0.05"), p: Point{x:30,y:30}.toCell(), payload: createEmptyCell()});
-    m.set({x: 1, y: 1}, {a: createAddressNone(), v: ton("0.05"), p: Point{x:10,y:10}.toCell(), payload: null});
-    m.set({x: 2, y: 2}, {a: createAddressNone(), v: ton("0.05"), p: null, payload: null});
+    m.set({x: 3, y: 3}, {a: null, v: ton("0.05"), p: Point{x:30,y:30}.toCell(), payload: createEmptyCell()});
+    m.set({x: 1, y: 1}, {a: null, v: ton("0.05"), p: Point{x:10,y:10}.toCell(), payload: null});
+    m.set({x: 2, y: 2}, {a: null, v: ton("0.05"), p: null, payload: null});
     val k2 = m.findKeyGreaterOrEqual({x: 2, y: 2}).getKey();
     var r = m.findFirst();
     var t = createEmptyTuple();
@@ -350,9 +355,9 @@ fun test28() {
 @method_id(129)
 fun test29() {
     var m = createEmptyMap<int32, slice>();
-    val a1 = m.addIfNotExists(1, DataWithCell{a: createAddressNone(), v: 0, p: null, payload: null}.toCell().beginParse());
-    val a2 = m.addIfNotExists(2, DataWithCell{a: createAddressNone(), v: 0, p: Point{x:20,y:20}.toCell(), payload: null}.toCell().beginParse());
-    val a3 = m.addIfNotExists(3, DataWithCell{a: createAddressNone(), v: 0, p: Point{x:30,y:30}.toCell(), payload: createEmptyCell()}.toCell().beginParse());
+    val a1 = m.addIfNotExists(1, DataWithCell{a: null, v: 0, p: null, payload: null}.toCell().beginParse());
+    val a2 = m.addIfNotExists(2, DataWithCell{a: null, v: 0, p: Point{x:20,y:20}.toCell(), payload: null}.toCell().beginParse());
+    val a3 = m.addIfNotExists(3, DataWithCell{a: null, v: 0, p: Point{x:30,y:30}.toCell(), payload: createEmptyCell()}.toCell().beginParse());
     val r4 = m.replaceAndGetPrevious(4, "");
     return (
         a1, a2, a3, r4, 
@@ -495,13 +500,13 @@ fun test39() {
 @method_id(140)
 fun test40() {
     var `m!empty` = createEmptyMap() as map<int32, int64>?;
-    var `m!filled` = createEmptyMap() as map<int32, int64>?;
+    var `m filled` = createEmptyMap() as map<int32, int64>?;
     var `m_null` = null as map<int32, int64>?;
 
-    `m!filled`!.set(10, 20);
+    `m filled`!.set(10, 20);
     return (
-        `m!empty` == null, `m!filled` == null, `m_null` == null, 777,
-        `m!empty`!.isEmpty(), `m!filled`!.isEmpty(), 777,
+        `m!empty` == null, `m filled` == null, `m_null` == null, 777,
+        `m!empty`!.isEmpty(), `m filled`!.isEmpty(), 777,
         `m!empty`, `m_null`,
     );
 }
@@ -520,6 +525,23 @@ fun test41() {
     );
 }
 
+@method_id(142)
+fun test42(dyn: int) {
+    var m = createEmptyMap<int8, int8>();
+    var t = createEmptyTuple();
+
+    try { m.mustGet(1, 123); }
+    catch (ex) { t.push(ex) }
+    try { m.mustGet(1, 12345); }
+    catch (ex) { t.push(ex) }
+    try { m.mustGet(1, dyn); }
+    catch (ex) { t.push(ex) }
+    try { m.mustGet(1, dyn * 10); }
+    catch (ex) { t.push(ex) }
+
+    return t;
+}
+
 
 fun main() {
     __expect_type(createEmptyMap<int8, (int32, int64)>, "() -> map<int8, (int32, int64)>");
@@ -534,7 +556,7 @@ fun main() {
 @testcase | 105 |            | [ 1 10 2 20 3 30 30 30 20 10 ]
 @testcase | 106 |            | 2 1 2 3 20 30 -1 0
 @testcase | 107 |            | -1 0 0
-@testcase | 108 |            | 0 -1 -1 -1 0
+@testcase | 108 |            | 0 -1 -1 -1 0 0 -1 -1 -1 0
 @testcase | 109 |            | -1 50000000 (null) 0 10000000
 @testcase | 110 |            | -1 0 1024 0 -1 20
 @testcase | 111 |            | -1 -1 (null) 1 -1 (null) (null) 0
@@ -568,6 +590,7 @@ fun main() {
 @testcase | 139 |            | 0 -1 2
 @testcase | 140 |            | 0 0 -1 777 -1 0 777 (null) typeid-1 (null) 0
 @testcase | 141 |            | 0 -1 -1 0 -1
+@testcase | 142 | 80         | [ 123 12345 80 800 ]
 
 @fif_codegen
 """
