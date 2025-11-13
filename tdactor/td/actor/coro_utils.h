@@ -186,6 +186,7 @@ auto ask_impl(TargetId&& to, MemFn mf, Args&&... args) {
   return std::move(task);
 }
 
+// TODO: move actor_own correctly
 template <bool Later, class TargetId, class MemFn, class... Args>
 auto ask_new_impl(TargetId&& to, MemFn mf, Args&&... args) {
   using Meta = unified_result<MemFn>;
@@ -262,6 +263,121 @@ auto spawn_actor(td::Slice name, TaskType task) {
   };
   td::actor::create_actor<TaskAwaiter>(name, std::move(task), std::move(result_promise)).release();
   return std::move(result_task);
+}
+
+namespace detail {
+
+struct TaskActorBase : public td::actor::core::Actor {
+ protected:
+  void loop() final {
+    // will be ignored till task_loop is called
+    want_loop_ = true;
+    loop_cont_.resume();
+  }
+
+  bool want_loop_{false};
+
+  std::coroutine_handle<> loop_cont_ = std::noop_coroutine();
+
+  struct Loop {
+    TaskActorBase* self;
+    bool await_ready() {
+      return false;
+    }
+    void await_suspend(std::coroutine_handle<> handle) {
+      self->loop_cont_ = handle;
+      if (self->want_loop_) {
+        self->yield();
+      }
+    }
+    std::coroutine_handle<> await_resume() {
+      return std::exchange(self->loop_cont_, std::noop_coroutine());
+    }
+  };
+
+  td::Status error;
+  Task<td::Unit> task_loop_inner() {
+    while (true) {
+      co_await std::move(error);
+      want_loop_ = false;
+      auto action = co_await task_loop_once();
+      co_await std::move(error);
+      if (action == Action::Finish) {
+        co_return td::Unit{};
+      }
+      co_await Loop{this};
+    }
+  }
+
+  void on_error(td::Status error_to_set) {
+    if (error.is_ok()) {
+      error = std::move(error_to_set);
+    } else {
+      LOG(WARNING) << "Dropping error (already have one): " << error_to_set;
+    }
+    loop();
+  }
+
+  void hangup() override {
+    on_error(Status::Error("Actor hangup"));
+  }
+  void alarm() override {
+    on_error(Status::Error("Actor timeout"));
+  }
+
+  enum class Action { KeepRunning, Finish };
+  // Note that while task_loop_once is coroutine, it is atomic in a sense that on_error won't stop its executions
+  virtual Task<Action> task_loop_once() {
+    co_return Action::Finish;  // will move straight to finish
+  }
+};
+
+}  // namespace detail
+
+template <class T>
+struct TaskActor : public detail::TaskActorBase {
+ protected:
+  using TaskT = T;
+  using Action = detail::TaskActorBase::Action;
+  virtual Task<T> finish(td::Status status) = 0;
+
+  Task<T> task_loop() {
+    auto r = co_await task_loop_inner().wrap();
+    auto res = co_await finish(r.is_ok() ? td::Status::OK() : r.move_as_error()).wrap();
+    stop();
+    co_return res;
+  }
+
+ public:
+  template <class ActorT, class... ArgsT>
+  friend auto spawn_task_actor(td::Slice name, ArgsT... args);
+};
+
+template <class ActorT, class... ArgsT>
+auto spawn_task_actor(td::Slice name, ArgsT... args) {
+  auto actor = td::actor::create_actor<ActorT>(name, std::forward<ArgsT>(args)...).release();
+  return ask(std::move(actor), &ActorT::task_loop);
+}
+
+inline StartedTask<td::Unit> coro_sleep(td::Timestamp t) {
+  auto [task, promise] = td::actor::StartedTask<td::Unit>::make_bridge();
+  struct S : public td::actor::Actor {
+    S(td::actor::StartedTask<td::Unit>::ExternalPromise promise, td::Timestamp t)
+        : promise_(std::move(promise)), t_(t) {
+    }
+
+   private:
+    td::actor::StartedTask<td::Unit>::ExternalPromise promise_;
+    td::Timestamp t_;
+    void start_up() override {
+      alarm_timestamp() = t_;
+    }
+    void alarm() override {
+      promise_.set_value(td::Unit{});
+    }
+  };
+  create_actor<S>("sleep", std::move(promise), t).release();
+  return std::move(task);
 }
 
 }  // namespace td::actor

@@ -41,8 +41,8 @@ td::Result<std::string> compile_internal(char* config_json) {
   TRY_RESULT(input_json, td::json_decode(td::MutableSlice(config_json)))
   td::JsonObject& config = input_json.get_object();
 
-  TRY_RESULT(opt_level, td::get_json_object_int_field(config, "optLevel", false));
-  TRY_RESULT(sources_obj, td::get_json_object_field(config, "sources", td::JsonValue::Type::Array, false));
+  TRY_RESULT(opt_level, config.get_required_int_field("optLevel"));
+  TRY_RESULT(sources_obj, config.extract_required_field("sources", td::JsonValue::Type::Array));
 
   auto& sources_arr = sources_obj.get_array();
 

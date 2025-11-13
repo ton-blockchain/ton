@@ -52,7 +52,7 @@ class PublicKeyHash {
 
   td::UInt256 uint256_value() const {
     td::UInt256 x;
-    x.as_slice().copy_from(value_.as_slice());
+    x.as_mutable_slice().copy_from(value_.as_slice());
     return x;
   }
   td::Bits256 bits256_value() const {

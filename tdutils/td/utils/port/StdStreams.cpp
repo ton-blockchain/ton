@@ -109,7 +109,7 @@ class BufferedStdinImpl : public Iocp::Callback {
   }
 
   Result<size_t> flush_read(size_t max_read = std::numeric_limits<size_t>::max()) TD_WARN_UNUSED_RESULT {
-    info_.get_flags();
+    (void)info_.sync_with_poll();
     info_.clear_flags(PollFlags::Read());
     reader_.sync_with_writer();
     return reader_.size();

@@ -76,6 +76,7 @@ class ExtClient {
     send_raw_query(
         std::move(liteserver_query), [promise = std::move(promise), tag](td::Result<td::BufferSlice> R) mutable {
           auto res = [&]() -> td::Result<typename QueryT::ReturnType> {
+            LOG_IF(ERROR, R.is_error()) << "failed to send query to liteserver: " << R.error();
             TRY_RESULT_PREFIX(data, std::move(R), TonlibError::LiteServerNetwork());
             auto r_error = ton::fetch_tl_object<ton::lite_api::liteServer_error>(data.clone(), true);
             if (r_error.is_ok()) {

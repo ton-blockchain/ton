@@ -44,11 +44,16 @@ class SocketFd {
   SocketFd();
   SocketFd(const SocketFd &) = delete;
   SocketFd &operator=(const SocketFd &) = delete;
-  SocketFd(SocketFd &&);
-  SocketFd &operator=(SocketFd &&);
+  SocketFd(SocketFd &&) noexcept;
+  SocketFd &operator=(SocketFd &&) noexcept;
   ~SocketFd();
 
+  Result<uint32> maximize_snd_buffer(uint32 max_size = 0);
+  Result<uint32> maximize_rcv_buffer(uint32 max_size = 0);
+
   static Result<SocketFd> open(const IPAddress &address) TD_WARN_UNUSED_RESULT;
+  static Result<SocketFd> open_vsock(int32 svm_port) TD_WARN_UNUSED_RESULT;
+  static Result<SocketFd> open_vsock(uint32 svm_cid, int32 svm_port) TD_WARN_UNUSED_RESULT;
 
   PollableFdInfo &get_poll_info();
   const PollableFdInfo &get_poll_info() const;

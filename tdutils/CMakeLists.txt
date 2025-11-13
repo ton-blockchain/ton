@@ -92,6 +92,7 @@ set(TDUTILS_SOURCE
   td/utils/FileLog.cpp
   td/utils/filesystem.cpp
   td/utils/find_boundary.cpp
+  td/utils/FlatHashTable.cpp
   td/utils/Gzip.cpp
   td/utils/GzipByteFlow.cpp
   td/utils/Hints.cpp

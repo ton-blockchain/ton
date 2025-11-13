@@ -111,7 +111,7 @@ td::UInt256 get_tl_object_sha256(const lite_api::Object *T) {
   T->store(Y);
 
   td::UInt256 id256;
-  td::sha256(B.as_slice(), id256.as_slice());
+  td::sha256(B.as_slice(), id256.as_mutable_slice());
 
   return id256;
 }
