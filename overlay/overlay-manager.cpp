@@ -602,8 +602,8 @@ tl_object_ptr<ton_api::overlay_Certificate> Certificate::tl() const {
     return create_tl_object<ton_api::overlay_certificate>(issued_by_.get<PublicKey>().tl(), expire_at_, max_size_,
                                                           signature_.clone_as_buffer_slice());
   }
-  return create_tl_object<ton_api::overlay_certificateV2>(issued_by_.get<PublicKey>().tl(), expire_at_, max_size_, flags_,
-                                                          signature_.clone_as_buffer_slice());
+  return create_tl_object<ton_api::overlay_certificateV2>(issued_by_.get<PublicKey>().tl(), expire_at_, max_size_,
+                                                          flags_, signature_.clone_as_buffer_slice());
 }
 
 tl_object_ptr<ton_api::overlay_Certificate> Certificate::empty_tl() {
