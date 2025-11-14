@@ -61,7 +61,8 @@ struct StorageStatCacheStats {
   std::atomic<td::uint64> hit_cnt = 0, hit_cells = 0;
   std::atomic<td::uint64> miss_cnt = 0, miss_cells = 0;
 
-  StorageStatCacheStats() {}
+  StorageStatCacheStats() {
+  }
 
   StorageStatCacheStats(const StorageStatCacheStats& other)
       : small_cnt(other.small_cnt.load())

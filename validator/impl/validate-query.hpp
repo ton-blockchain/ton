@@ -18,7 +18,9 @@
 */
 #pragma once
 
+#include <atomic>
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -33,10 +35,6 @@
 #include "fabric.h"
 #include "shard.hpp"
 #include "signature-set.hpp"
-
-#include <optional>
-#include <vector>
-#include <atomic>
 
 namespace ton {
 
@@ -409,7 +407,7 @@ class ValidateQuery : public td::actor::Actor {
   bool check_delivered_dequeued();
 
   class CheckAccountTxs : public Actor {
-  public:
+   public:
     struct Context {
       std::vector<std::tuple<Bits256, LogicalTime, LogicalTime>> msg_proc_lt{};
       block::CurrencyCollection total_burned{0};
@@ -429,7 +427,7 @@ class ValidateQuery : public td::actor::Actor {
     bool try_check();
     Context extract_context();
 
-  private:
+   private:
     void start_up() override;
 
     void abort_query(td::Status error);
@@ -440,7 +438,8 @@ class ValidateQuery : public td::actor::Actor {
 
     std::unique_ptr<block::Account> make_account_from(td::ConstBitPtr addr, Ref<vm::CellSlice> account);
     std::unique_ptr<block::Account> unpack_account(td::ConstBitPtr addr);
-    bool check_one_transaction(block::Account& account, LogicalTime lt, Ref<vm::Cell> trans_root, bool is_first, bool is_last);
+    bool check_one_transaction(block::Account& account, LogicalTime lt, Ref<vm::Cell> trans_root, bool is_first,
+                               bool is_last);
     bool scan_account_libraries(Ref<vm::Cell> orig_libs, Ref<vm::Cell> final_libs, const td::Bits256& addr);
 
     const ValidateQuery& vq_;

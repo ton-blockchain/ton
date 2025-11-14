@@ -4960,9 +4960,9 @@ bool ValidateQuery::check_out_msg(td::ConstBitPtr key, Ref<vm::CellSlice> out_ms
       }
       if (deliver_lt != import_lt) {
         LOG(WARNING) << "msg_export_deq OutMsg entry with key " << key.to_hex(256)
-                  << " claims the dequeued message with next hop "
-                  << next_prefix.to_str() + " has been delivered in block with end_lt=" << import_lt
-                  << " while the correct value is " << deliver_lt;
+                     << " claims the dequeued message with next hop "
+                     << next_prefix.to_str() + " has been delivered in block with end_lt=" << import_lt
+                     << " while the correct value is " << deliver_lt;
       }
       break;
     }
@@ -5551,8 +5551,7 @@ static td::RefInt256 get_ihr_fee(const block::gen::CommonMsgInfo::Record_int_msg
  * @returns True if the transaction is valid, false otherwise.
  */
 bool ValidateQuery::CheckAccountTxs::check_one_transaction(block::Account& account, ton::LogicalTime lt,
-                                                              Ref<vm::Cell> trans_root, bool is_first,
-                                                              bool is_last) {
+                                                           Ref<vm::Cell> trans_root, bool is_first, bool is_last) {
   if (vq_.timeout && vq_.timeout.is_in_past()) {
     abort_query(td::Status::Error(ErrorCode::timeout, "timeout"));
     return false;
@@ -6125,22 +6124,22 @@ bool ValidateQuery::CheckAccountTxs::try_check() {
     td::BitArray<64> min_trans, max_trans;
     CHECK(trans_dict.get_minmax_key(min_trans).not_null() && trans_dict.get_minmax_key(max_trans, true).not_null());
     ton::LogicalTime min_trans_lt = min_trans.to_ulong(), max_trans_lt = max_trans.to_ulong();
-    if (!trans_dict.check_for_each_extra([this, &account, min_trans_lt, max_trans_lt](Ref<vm::CellSlice> value,
-                                                                                      Ref<vm::CellSlice> extra,
-                                                                                      td::ConstBitPtr key, int key_len) {
-          CHECK(key_len == 64);
-          ton::LogicalTime lt = key.get_uint(64);
-          extra.clear();
-          return check_one_transaction(account, lt, value->prefetch_ref(), lt == min_trans_lt, lt == max_trans_lt);
-        })) {
+    if (!trans_dict.check_for_each_extra(
+            [this, &account, min_trans_lt, max_trans_lt](Ref<vm::CellSlice> value, Ref<vm::CellSlice> extra,
+                                                         td::ConstBitPtr key, int key_len) {
+              CHECK(key_len == 64);
+              ton::LogicalTime lt = key.get_uint(64);
+              extra.clear();
+              return check_one_transaction(account, lt, value->prefetch_ref(), lt == min_trans_lt, lt == max_trans_lt);
+            })) {
       return reject_query("at least one Transaction of account "s + address_.to_hex() + " is invalid");
-        }
-    if ((!vq_.full_collated_data_ || vq_.is_masterchain()) && account.storage_dict_hash && account.account_storage_stat &&
-        account.account_storage_stat.value().is_dict_ready() &&
+    }
+    if ((!vq_.full_collated_data_ || vq_.is_masterchain()) && account.storage_dict_hash &&
+        account.account_storage_stat && account.account_storage_stat.value().is_dict_ready() &&
         account.storage_used.cells >= StorageStatCache::MIN_ACCOUNT_CELLS) {
       ctx_.storage_stat_cache_update.emplace_back(account.account_storage_stat.value().get_dict_root().move_as_ok(),
                                                   account.storage_used.cells);
-        }
+    }
     if (vq_.is_masterchain() && account.libraries_changed()) {
       return scan_account_libraries(account.orig_library, account.library, address_);
     } else {
@@ -6262,7 +6261,7 @@ bool ValidateQuery::check_account_failures() {
   }
   if (check_account_reject_error_.has_value()) {
     return reject_query(std::move(check_account_reject_error_.value()),
-                 std::move(check_account_reject_reason_.value()));
+                        std::move(check_account_reject_reason_.value()));
   }
   return true;
 }
