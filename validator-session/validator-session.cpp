@@ -1183,7 +1183,7 @@ void ValidatorSessionImpl::on_new_round(td::uint32 round) {
     auto it2 = blocks_.begin();
     while (it2 != blocks_.end()) {
       if (it2->second->round_ < (td::int32)cur_round_ - MAX_PAST_ROUND_BLOCK &&
-          !accepted_block_candidates_.contains(it->first)) {
+          !accepted_block_candidates_.contains(it2->first)) {
         it2 = blocks_.erase(it2);
       } else {
         ++it2;
