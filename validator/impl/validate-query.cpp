@@ -1072,7 +1072,6 @@ bool ValidateQuery::try_unpack_mc_state() {
     }
     block_limits_ = limits.move_as_ok();
     block_limits_->start_lt = start_lt_;
-    block_limit_status_ = std::make_unique<block::BlockLimitStatus>(*block_limits_);
     if (!fetch_config_params()) {
       return false;
     }
@@ -6008,10 +6007,6 @@ bool ValidateQuery::CheckAccountTxs::check_one_transaction(block::Account& accou
     return reject_query(PSTRING() << "cannot re-create the serialization of  transaction " << lt
                                   << " for smart contract " << addr.to_hex());
   }
-  if (!trs->update_limits(*vq_.block_limit_status_, /* with_gas = */ false, /* with_size = */ false)) {
-    return fatal_error(PSTRING() << "cannot update block limit status to include transaction " << lt << " of account "
-                                 << addr.to_hex());
-  }
 
   // Collator should stop if total gas usage exceeds limits, including transactions on special accounts, but without
   // ticktocks and mint/recover.
@@ -7445,6 +7440,7 @@ bool ValidateQuery::try_validate() {
       /*if (!check_delivered_dequeued()) {
         return reject_query("cannot check delivery status of all outbound messages");
       }*/
+      debug_timer_.resume();
       if (!check_transactions()) {
         return reject_query("invalid collection of account transactions in ShardAccountBlocks");
       }
@@ -7454,7 +7450,9 @@ bool ValidateQuery::try_validate() {
       }
     }
     if (stage_ == 2) {
+      debug_timer_.pause();
       LOG(WARNING) << "try_validate stage 2";
+      LOG(WARNING) << "STAGE 1 -> STAGE 2 real timer: " << debug_timer_.elapsed_real();
       if (!check_all_ticktock_processed()) {
         return reject_query("not all tick-tock transactions have been run for special accounts");
       }
