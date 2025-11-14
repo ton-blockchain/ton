@@ -7439,7 +7439,6 @@ bool ValidateQuery::try_validate() {
       /*if (!check_delivered_dequeued()) {
         return reject_query("cannot check delivery status of all outbound messages");
       }*/
-      debug_timer_.resume();
       if (!check_transactions()) {
         return reject_query("invalid collection of account transactions in ShardAccountBlocks");
       }
@@ -7449,9 +7448,7 @@ bool ValidateQuery::try_validate() {
       }
     }
     if (stage_ == 2) {
-      debug_timer_.pause();
       LOG(WARNING) << "try_validate stage 2";
-      LOG(WARNING) << "STAGE 1 -> STAGE 2 real timer: " << debug_timer_.elapsed_real();
       if (!check_all_ticktock_processed()) {
         return reject_query("not all tick-tock transactions have been run for special accounts");
       }

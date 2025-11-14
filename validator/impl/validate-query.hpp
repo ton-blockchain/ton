@@ -156,7 +156,6 @@ class ValidateQuery : public td::actor::Actor {
   bool parallel_accounts_validation_pending_{false};
   bool check_account_failed_{false};
   td::RealCpuTimer parallel_work_timer_{/*is_paused=*/true};
-  td::RealCpuTimer debug_timer_{true};
   std::optional<td::Status> check_account_fatal_error_ = std::nullopt;
   std::optional<std::string> check_account_reject_error_ = std::nullopt;
   std::optional<td::BufferSlice> check_account_reject_reason_ = std::nullopt;
