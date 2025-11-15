@@ -122,10 +122,7 @@ fun main(c: cell) {
 @fif_codegen
 """
   test3() PROC:<{
-    NEWC
-    x{0000000a00000014} STSLICECONST  //  b
-    ENDC                        //  c
-    CTOS                        //  s
+    x{0000000a00000014} PUSHSLICE  //  s
     64 LDU
     NIP                         //  s
     SBITS                       //  '17

@@ -21,12 +21,12 @@ fun getBodyOf<TBody = null>(o: WithDef1<TBody>) {
     return o.body;
 }
 
-struct WithNever<T = never> {
+struct WithVoid<T = void> {
     f1: int;
     f2: T;
 }
 
-fun eqNever<T = never>(o: WithNever<T>) { return o; }
+fun eqVoid<T = void>(o: WithVoid<T>) { return o; }
 
 struct MyInit<TInit> {
     value: coins;
@@ -37,7 +37,7 @@ fun MyInit<TInit>.getValue(self) {
     return self.value;
 }
 
-struct Parameters<TBody = never, TInit = never> {
+struct Parameters<TBody = void, TInit = void> {
     bounce: bool;
     body: TBody;
     init: builder | MyInit<TInit> | null = null;
@@ -47,13 +47,47 @@ fun createParameters<TBody = null, TInit = null>(bounce: bool, body: TBody, data
     return { bounce, body, init: { value: ton("0"), data } };
 }
 
+fun void.assertIsVoid(self) {
+    __expect_type(self, "void");
+}
+
+fun Parameters<int>.methodIntVoid(self) {
+    __expect_type(self, "Parameters<int, void>");
+}
+
+fun Parameters<int>.genericIntVoid<T1, T2 = slice>(self): (T2?, T1?) {
+    return (null, null)
+}
+
+fun multipleWithDefaults<T1, T2, T3 = int, T4 = builder>(): [T1, T2, T3, T4]? {
+    return null
+}
+
+struct MultipleWithDefaults<T1, T2, T3 = int?, T4 = builder> {
+    t: [T1, T2, T3, T4]? = null
+}
+
+fun MultipleWithDefaults<T1, T2>.getT(self) {
+    return self.t
+}
+
+fun MultipleWithDefaults<T1, T2, T3, T4>.method1<U1 = int>(self) {
+    return [self.t!.2, null as U1?]
+}
+
+fun MultipleWithDefaults<T1, T2, T3, T4>.method2<U1, U2 = int>(self) {
+    return [self.t!.3, null as U1?, null as U2?]
+}
+
+type ParametrizedInt<T1, T2 = slice> = int
+
 @noinline
-fun mySend<TBody = never, TInit = never>(p: Parameters<TBody, TInit>): int {
+fun mySend<TBody = void, TInit = void>(p: Parameters<TBody, TInit>): int {
     var total = 0;
     if (p.bounce) {
         total += 1;
     }
-    if (p.body !is never) {
+    if (p.body !is void) {
         assert(p.body is TBody, 101);
         total += 10;
     }
@@ -87,15 +121,15 @@ fun test2() {
 
 @method_id(103)
 fun test3() {
-    __expect_type(WithNever{f1:10}, "WithNever<never>");
-    __expect_type(WithNever{f1:10,f2:20}, "WithNever<int>");
+    __expect_type(WithVoid{f1:10}, "WithVoid<void>");
+    __expect_type(WithVoid{f1:10,f2:20}, "WithVoid<int>");
 
-    __expect_type(eqNever({f1:10}), "WithNever<never>");
-    __expect_type(eqNever({f1:10,f2:20}), "WithNever<int>");
-    __expect_type(eqNever({f1:10,f2:null}), "WithNever<null>");
+    __expect_type(eqVoid({f1:10}), "WithVoid<void>");
+    __expect_type(eqVoid({f1:10,f2:20}), "WithVoid<int>");
+    __expect_type(eqVoid({f1:10,f2:null}), "WithVoid<null>");
 
-    var a: WithNever<never> = {f1:10};
-    return (a, WithNever{f1:20}, eqNever({f1:30}), 777, eqNever({f1:40,f2:40}));
+    var a: WithVoid<void> = {f1:10};
+    return (a, WithVoid{f1:20}, eqVoid({f1:30}), 777, eqVoid({f1:40,f2:40}));
 }
 
 @method_id(104)
@@ -114,9 +148,9 @@ fun test4() {
 
 @method_id(105)
 fun test5() {
-    __expect_type(Parameters { bounce: true }, "Parameters<never, never>");
-    __expect_type(Parameters { bounce: false, body: 179 }, "Parameters<int, never>");
-    __expect_type(Parameters { bounce: true, init: beginCell() }, "Parameters<never, never>");
+    __expect_type(Parameters { bounce: true }, "Parameters<void, void>");
+    __expect_type(Parameters { bounce: false, body: 179 }, "Parameters<int, void>");
+    __expect_type(Parameters { bounce: true, init: beginCell() }, "Parameters<void, void>");
     __expect_type(Parameters { bounce: false, body: beginCell(), init: { value: 123, data: 123 } }, "Parameters<builder, int>");
 
     __expect_type(createParameters(true, null, null), "Parameters<null, null>");
@@ -142,7 +176,13 @@ fun test6() {
 
 @method_id(107)
 fun test7() {
+    __expect_type(Parameters{ bounce: false }, "Parameters<void, void>");
     __expect_type(Parameters{ bounce: false, body: 123, init: { value: ton("0"), data: beginCell() }}, "Parameters<int, builder>");
+    __expect_type(Parameters{ bounce: false, body: 123 }.genericIntVoid<builder>(), "(slice?, builder?)");
+    __expect_type(Parameters{ bounce: false, body: 123 }.genericIntVoid<builder, cell>(), "(cell?, builder?)");
+    __expect_type(Parameters{ bounce: false }.body, "void");
+    Parameters{ bounce: false }.body.assertIsVoid();
+
     var v1 = mySend({ bounce: true });
     var v2 = mySend({ bounce: false, body: 123, init: beginCell() });
     var v3 = mySend({ bounce: false, body: 123, init: { value: ton("0"), data: beginCell() }});
@@ -171,6 +211,31 @@ fun test8() {
 }
 
 fun main() {
+    var cb2 = multipleWithDefaults<int, cell>;
+    var cb3 = multipleWithDefaults<int, cell, slice>;
+    var cb4 = multipleWithDefaults<int, cell, slice, tuple>;
+    __expect_type(cb2, "() -> [int, cell, int, builder]?");
+    __expect_type(cb3, "() -> [int, cell, slice, builder]?");
+    __expect_type(cb4, "() -> [int, cell, slice, tuple]?");
+    
+    var o2 = MultipleWithDefaults<int, cell>{}; 
+    var o3 = MultipleWithDefaults<int, cell, slice>{}; 
+    var o4 = MultipleWithDefaults<int, cell, slice?, tuple>{};
+    __expect_type(o2.t, "[int, cell, int?, builder]?");
+    __expect_type(o3.t, "[int, cell, slice, builder]?");
+    __expect_type(o4.t, "[int, cell, slice?, tuple]?");
+    
+    __expect_type(o2.getT(), "[int, cell, int?, builder]?");
+    
+    __expect_type(o4.method1(), "[slice?, int?]");
+    __expect_type(o4.method1<Container1<never>>(), "[slice?, Container1<never>?]");
+    __expect_type(o4.method2<cell>(), "[tuple, cell?, int?]");
+    __expect_type(o4.method2<cell, Container1<void>>(), "[tuple, cell?, Container1<void>?]");
+
+    __expect_type(o2.method2<builder>, "(MultipleWithDefaults<int, cell, int?, builder>) -> [builder, builder?, int?]");
+
+    __expect_type(12 as ParametrizedInt<builder>, "ParametrizedInt<builder, slice>");
+    __expect_type(12 as ParametrizedInt<builder, cell>, "ParametrizedInt<builder, cell>");
 }
 
 /**
@@ -183,16 +248,15 @@ fun main() {
 
 @fif_codegen DECLPROC eqUnusedT<null>()
 @fif_codegen DECLPROC eqUnusedU<builder,never>()
-@fif_codegen DECLPROC mySend<never,never>()
-@fif_codegen DECLPROC mySend<int,never>()
+@fif_codegen DECLPROC mySend<void,void>()
+@fif_codegen DECLPROC mySend<int,void>()
 @fif_codegen DECLPROC mySend<int,builder>()
-@fif_codegen DECLPROC mySend<never,[int]?>()
+@fif_codegen DECLPROC mySend<void,[int]?>()
 
 @fif_codegen
 """
   test6() PROC:<{               //
-    NEWC                        //  '8
-    ENDC                        //  p.init.USlot2
+    <b b> PUSHREF               //  p.init.USlot2
     -1 PUSHINT                  //  p.init.USlot2 '11=-1
     FALSE                       //  p.init.USlot2 '11=-1 '12
     TRUE                        //  p.init.USlot2 '11=-1 '12 '14
