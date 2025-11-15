@@ -248,7 +248,8 @@ void ValidatorGroup::validate_block_candidate(validatorsession::BlockSourceInfo 
                                     .prev = std::move(prev),
                                     .validator_set = validator_set_,
                                     .local_validator_id = local_id_,
-                                    .optimistic_prev_block = optimistic_prev_block_data},
+                                    .optimistic_prev_block = optimistic_prev_block_data,
+                                    .parallel_validation = opts_.get()->get_parallel_validation()},
                      manager_, td::Timestamp::in(15.0), std::move(P));
 }
 
