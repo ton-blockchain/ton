@@ -2,7 +2,6 @@ import asyncio
 import logging
 import signal
 import subprocess
-import time
 import types
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -254,7 +253,7 @@ class Network:
                             == "LITE_SERVER_NETWORK"  # node is not listening the socket
                         )
                     ):
-                        time.sleep(0.2)
+                        await asyncio.sleep(0.2)
                         continue
                 except Exception:
                     pass
@@ -266,7 +265,7 @@ class Network:
             if mc_info.last.seqno >= seqno:
                 break
             else:
-                time.sleep(0.2)
+                await asyncio.sleep(0.2)
 
 
 def _ip_to_tl(ip: IPv4Address) -> int:
