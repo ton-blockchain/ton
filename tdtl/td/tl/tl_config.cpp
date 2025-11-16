@@ -108,6 +108,7 @@ template <class T>
 T tl_config_parser::try_parse(const T &res) const {
   if (p.get_error() != NULL) {
     std::fprintf(stderr, "Wrong TL-scheme specified: %s at %d\n", p.get_error(), static_cast<int>(p.get_error_pos()));
+    std::fflush(stderr);
     std::abort();
   }
 
@@ -208,6 +209,7 @@ tl_tree *tl_config_parser::read_type_expr(int *var_count) {
       return read_array(var_count);
     default:
       std::fprintf(stderr, "tree_type = %d\n", static_cast<int>(tree_type));
+      std::fflush(stderr);
       std::abort();
   }
 }
@@ -222,6 +224,7 @@ tl_tree *tl_config_parser::read_nat_expr(int *var_count) {
       return read_num_var(var_count);
     default:
       std::fprintf(stderr, "tree_type = %d\n", static_cast<int>(tree_type));
+      std::fflush(stderr);
       std::abort();
   }
 }
@@ -235,6 +238,7 @@ tl_tree *tl_config_parser::read_expr(int *var_count) {
       return read_type_expr(var_count);
     default:
       std::fprintf(stderr, "tree_type = %d\n", static_cast<int>(tree_type));
+      std::fflush(stderr);
       std::abort();
   }
 }
@@ -251,6 +255,7 @@ std::vector<arg> tl_config_parser::read_args_list(int *var_count) {
     std::int32_t arg_v = try_parse_int();
     if (arg_v != TLS_ARG_V2) {
       std::fprintf(stderr, "Wrong tls_arg magic %d\n", static_cast<int>(arg_v));
+      std::fflush(stderr);
       std::abort();
     }
 
@@ -293,6 +298,7 @@ tl_combinator *tl_config_parser::read_combinator() {
   std::int32_t t = try_parse_int();
   if (t != TLS_COMBINATOR) {
     std::fprintf(stderr, "Wrong tls_combinator magic %d\n", static_cast<int>(t));
+    std::fflush(stderr);
     std::abort();
   }
 
@@ -308,6 +314,7 @@ tl_combinator *tl_config_parser::read_combinator() {
   } else {
     if (left_type != TLS_COMBINATOR_LEFT_BUILTIN) {
       std::fprintf(stderr, "Wrong tls_combinator_left magic %d\n", static_cast<int>(left_type));
+      std::fflush(stderr);
       std::abort();
     }
   }
@@ -315,6 +322,7 @@ tl_combinator *tl_config_parser::read_combinator() {
   std::int32_t right_ver = try_parse_int();
   if (right_ver != TLS_COMBINATOR_RIGHT_V2) {
     std::fprintf(stderr, "Wrong tls_combinator_right magic %d\n", static_cast<int>(right_ver));
+    std::fflush(stderr);
     std::abort();
   }
   combinator->result = read_type_expr(&combinator->var_count);
@@ -326,6 +334,7 @@ tl_type *tl_config_parser::read_type() {
   std::int32_t t = try_parse_int();
   if (t != TLS_TYPE) {
     std::fprintf(stderr, "Wrong tls_type magic %d\n", t);
+    std::fflush(stderr);
     std::abort();
   }
 
@@ -349,6 +358,7 @@ tl_config tl_config_parser::parse_config() {
   schema_version = get_schema_version(try_parse_int());
   if (schema_version < 2) {
     std::fprintf(stderr, "Unsupported tl-schema version %d\n", static_cast<int>(schema_version));
+    std::fflush(stderr);
     std::abort();
   }
 

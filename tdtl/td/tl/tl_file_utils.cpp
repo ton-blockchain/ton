@@ -33,11 +33,13 @@ std::string get_file_contents(const std::string &file_name, const std::string &m
   int fseek_res = std::fseek(f, 0, SEEK_END);
   if (fseek_res != 0) {
     std::fprintf(stderr, "Can't seek to the end of the file \"%s\"", file_name.c_str());
+    std::fflush(stderr);
     std::abort();
   }
   long size_long = std::ftell(f);
   if (size_long < 0 || size_long >= (1 << 25)) {
     std::fprintf(stderr, "Wrong file \"%s\" has wrong size = %ld", file_name.c_str(), size_long);
+    std::fflush(stderr);
     std::abort();
   }
   std::size_t size = static_cast<std::size_t>(size_long);
@@ -48,6 +50,7 @@ std::string get_file_contents(const std::string &file_name, const std::string &m
     std::size_t fread_res = std::fread(&result[0], size, 1, f);
     if (fread_res != 1) {
       std::fprintf(stderr, "Can't read file \"%s\"", file_name.c_str());
+      std::fflush(stderr);
       std::abort();
     }
   }

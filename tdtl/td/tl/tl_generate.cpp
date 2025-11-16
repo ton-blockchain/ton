@@ -822,11 +822,13 @@ tl_config read_tl_config_from_file(const std::string &file_name) {
   std::string config = get_file_contents(file_name, "rb");
   if (config.empty()) {
     std::fprintf(stderr, "Config file %s is empty\n", file_name.c_str());
+    std::fflush(stderr);
     std::abort();
   }
   if (config.size() % sizeof(std::int32_t) != 0) {
     std::fprintf(stderr, "Config size = %d is not multiple of %d\n", static_cast<int>(config.size()),
                  static_cast<int>(sizeof(std::int32_t)));
+    std::fflush(stderr);
     std::abort();
   }
 
