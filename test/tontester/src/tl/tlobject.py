@@ -15,8 +15,6 @@ type JSONSerializable = (
     | Mapping[str, "JSONSerializable"]
 )
 
-type TLValue = TLObject | bool | list["TLValue"]
-
 
 class TLObject(ABC):
     @staticmethod
