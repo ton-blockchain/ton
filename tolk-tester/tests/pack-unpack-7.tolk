@@ -116,6 +116,24 @@ fun UnsafeColor.packToBuilder(self, mutate b: builder) {
     b.storeUint(self as int, 2)
 }
 
+type OnlyWithPack = int8
+
+fun OnlyWithPack.packToBuilder(self, mutate b: builder) {
+    b.storeUint(0xFF, 8);
+    b.storeUint(self, 8);
+}
+
+type OnlyWithUnpack = int8
+
+fun OnlyWithUnpack.unpackFromSlice(mutate s: slice): int8 {
+    assert (s.loadUint(8) == 0xFF) throw 123;
+    return s.loadUint(8)
+}
+
+struct HasOnlyWithUnpack {
+    wu: OnlyWithUnpack
+}
+
 
 @method_id(101)
 fun test1() {
@@ -180,6 +198,19 @@ fun test8(c: UnsafeColor) {
     return way2.load();
 }
 
+@method_id(109)
+fun `test only pack and only unpack`() {
+    var b1 = beginCell().storeAny(0x80 as OnlyWithPack);
+    var (s1, s2, s3) = (b1.toSlice(), b1.toSlice(), b1.toSlice());
+    var has: OnlyWithUnpack = s1.loadAny();
+    s2.skipAny<OnlyWithUnpack>();
+    s3.skipAny<HasOnlyWithUnpack>();
+    return (
+        b1.bitsCount(), b1.hash() & 0xFFFF,
+        s1.remainingBitsCount(), s2.remainingBitsCount(), s2.remainingBitsCount(), has
+    );
+}
+
 fun main() {
     __expect_type("" as TelegramString, "TelegramString");
 }
@@ -196,6 +227,7 @@ fun main() {
 @testcase | 107 |     | 1 0 3
 @testcase | 108 | 0   | 0
 @testcase | 108 | 3   | 3
+@testcase | 109 |     | 16 20571 0 0 0 128
 
 @fif_codegen
 """

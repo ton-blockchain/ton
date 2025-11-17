@@ -1,5 +1,5 @@
 // A part of standard library for Tolk
-tolk 1.1
+tolk 1.2
 
 /**
   Gas and payment related primitives.
@@ -33,10 +33,12 @@ fun setGasLimit(limit: int): void
     asm "SETGASLIMIT"
 
 /// Calculates fee (amount in nanotoncoins to be paid) for a transaction which consumed `gasUsed` gas units.
+@pure
 fun calculateGasFee(workchain: int8, gasUsed: int): coins
     asm(gasUsed workchain) "GETGASFEE"
 
 /// Same as [calculateGasFee], but without flat price. [Docs about fees](https://docs.ton.org/develop/howto/fees-low-level)
+@pure
 fun calculateGasFeeWithoutFlatPrice(workchain: int8, gasUsed: coins): coins
     asm(gasUsed workchain) "GETGASFEESIMPLE"
 
@@ -46,10 +48,12 @@ fun calculateStorageFee(workchain: int8, seconds: int, bits: int, cells: int): c
     asm(cells bits seconds workchain) "GETSTORAGEFEE"
 
 /// Calculates amount of nanotoncoins you should pay to send a message of a specified size.
+@pure
 fun calculateForwardFee(workchain: int8, bits: int, cells: int): coins
     asm(cells bits workchain) "GETFORWARDFEE"
 
 /// Same as [calculateForwardFee], but without lump price. [Docs about fees](https://docs.ton.org/develop/howto/fees-low-level)
+@pure
 fun calculateForwardFeeWithoutLumpPrice(workchain: int8, bits: int, cells: int): coins
     asm(cells bits workchain) "GETFORWARDFEESIMPLE"
 

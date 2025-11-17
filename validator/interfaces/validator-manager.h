@@ -57,9 +57,21 @@ struct AsyncSerializerState {
 };
 
 struct StorageStatCacheStats {
-  td::uint64 small_cnt = 0, small_cells = 0;
-  td::uint64 hit_cnt = 0, hit_cells = 0;
-  td::uint64 miss_cnt = 0, miss_cells = 0;
+  std::atomic<td::uint64> small_cnt = 0, small_cells = 0;
+  std::atomic<td::uint64> hit_cnt = 0, hit_cells = 0;
+  std::atomic<td::uint64> miss_cnt = 0, miss_cells = 0;
+
+  StorageStatCacheStats() {
+  }
+
+  StorageStatCacheStats(const StorageStatCacheStats& other)
+      : small_cnt(other.small_cnt.load())
+      , small_cells(other.small_cells.load())
+      , hit_cnt(other.hit_cnt.load())
+      , hit_cells(other.hit_cells.load())
+      , miss_cnt(other.miss_cnt.load())
+      , miss_cells(other.miss_cells.load()) {
+  }
 
   tl_object_ptr<ton_api::validatorStats_storageStatCacheStats> tl() const {
     return create_tl_object<ton_api::validatorStats_storageStatCacheStats>(small_cnt, small_cells, hit_cnt, hit_cells,
@@ -183,6 +195,8 @@ struct ValidationStats {
   td::uint32 actual_bytes = 0, actual_collated_data_bytes = 0;
   double total_time = 0.0;
   std::string time_stats;
+  double actual_time = 0.0;
+  bool parallel_accounts_validation = false;
 
   struct WorkTimeStats {
     td::RealCpuTimer::Time total;
@@ -201,13 +215,14 @@ struct ValidationStats {
     }
   };
   WorkTimeStats work_time;
-  StorageStatCacheStats storage_stat_cache;
+  mutable StorageStatCacheStats storage_stat_cache;
 
   tl_object_ptr<ton_api::validatorStats_validatedBlock> tl() const {
     return create_tl_object<ton_api::validatorStats_validatedBlock>(
         create_tl_block_id(block_id), collated_data_hash, validated_at, self.bits256_value(), valid, comment,
-        actual_bytes, actual_collated_data_bytes, total_time, work_time.total.real, work_time.total.cpu, time_stats,
-        work_time.to_str(false), work_time.to_str(true), storage_stat_cache.tl());
+        actual_bytes, actual_collated_data_bytes, total_time, actual_time, work_time.total.real, work_time.total.cpu,
+        time_stats, work_time.to_str(false), work_time.to_str(true), storage_stat_cache.tl(),
+        parallel_accounts_validation);
   }
 };
 

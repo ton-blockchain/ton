@@ -15,4 +15,5 @@ fun main(p: Pair<int,slice>) {
 @compilation_should_fail
 @stderr can not apply operator `==` to `int` and `int?`
 @stderr in function `Pair<int,slice>.demoInvalid`
+@stderr check on `null` first, or use unsafe operator `!`
  */

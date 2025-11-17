@@ -28,12 +28,23 @@ fun test1(x: int?) {
     return 123;
 }
 
+fun bigThrow() { throw 1222222222222222222222222222222223; }
+
 fun main() {
     __expect_type(test1, "(int?) -> int");
     __expect_type(alwaysThrows(), "never");
     __expect_type(alwaysThrowsButReturns(), "int");
+    __expect_type(bigThrow, "() -> never");
 }
 
 /**
 @testcase | 101 | null    | 123
+
+@fif_codegen
+"""
+  bigThrow() PROC:<{ 
+    1222222222222222222222222222222223 PUSHINT
+    THROWANY
+  }>
+"""
  */

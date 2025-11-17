@@ -77,6 +77,8 @@ struct ValidateParams {
   td::BufferSlice optimistic_prev_collated_data = {};
 
   td::actor::ActorId<CollatedDataMerger> collated_data_merger = {};
+
+  bool parallel_validation = false;
 };
 
 td::actor::ActorOwn<Db> create_db_actor(td::actor::ActorId<ValidatorManager> manager, std::string db_root_,

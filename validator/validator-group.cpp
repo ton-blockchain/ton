@@ -254,7 +254,8 @@ void ValidatorGroup::validate_block_candidate(validatorsession::BlockSourceInfo 
                         .prev = std::move(prev),
                         .validator_set = validator_set_,
                         .local_validator_id = local_id_,
-                        .collated_data_merger = collated_data_merger_.get()};
+                        .collated_data_merger = collated_data_merger_.get(),
+                        .parallel_validation = opts_.get()->get_parallel_validation()};
   if (is_optimistic) {
     TRY_RESULT_PROMISE_PREFIX_ASSIGN(
         P, params.optimistic_prev_block,
