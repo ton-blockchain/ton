@@ -1,0 +1,49 @@
+[project]
+name = "ton"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = [
+    "pytest>=9.0.1",
+    "tontester",
+]
+
+[dependency-groups]
+dev = [
+    "basedpyright>=1.32.1",
+    "ruff>=0.14.2",
+]
+
+[tool.uv.sources]
+tontester = { workspace = true }
+
+[tool.uv.workspace]
+members = [
+    "test/tontester",
+]
+
+[tool.ruff]
+line-length = 100
+include = ["test/integration/**/*.py", "test/tontester/**/*.py"]
+
+[tool.ruff.lint]
+# Default rules with isort
+select = [
+    # pycodestyle
+    "E4", "E7", "E9",
+    # Pyflakes
+    "F",
+    # isort
+    "I",
+]
+
+ignore = [
+    # This disallows to use `l` and `O` as variable names because "they can be confused with `1` and
+    # `0`". My response will be use a proper font that makes them distinguishable.
+    "E741",
+]
+
+[tool.pyright]
+include = ["test/integration", "test/tontester"]
+
+[tool.pytest]
+testpaths = ["test/tontester/tests"]

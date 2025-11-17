@@ -1,0 +1,8 @@
+[project]
+name = "tontester"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = [
+    "pytonlib>=0.0.68",
+    "setuptools<81", # FIXME: Get rid of pytonlib instead.
+]
